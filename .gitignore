@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Cache
+.cache/
+*.tsbuildinfo
+
+# Runtime databases (SQLite, etc.)
+*.db
+*.sqlite
+*.sqlite3
+backend-nest/data/open-pax.db
+!backend-nest/data/.gitkeep
+!backend-nest/data/templates/
+!backend-nest/data/geojson/
+
+# Logs
+logs/
