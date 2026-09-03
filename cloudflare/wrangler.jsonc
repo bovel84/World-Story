@@ -1,0 +1,10 @@
+{
+  "name": "open-pax",
+  "main": "worker.js",
+  "compatibility_date": "2025-08-01",
+  "assets": {
+    "directory": "../frontend/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  }
+}
