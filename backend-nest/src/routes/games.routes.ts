@@ -99,6 +99,11 @@ gamesRouter.get('/:id', (req, res) => {
         militaryPower: r.militaryPower,
         geojson: r.geojson,
         flag: r.flag,
+        // Маркеры карты (столица/города/постройки): без них после перезагрузки
+        // или возобновления сохранения города на карте не отрисовываются
+        objects: r.objects ?? [],
+        borders: r.borders ?? [],
+        status: r.status ?? 'active',
       })),
     },
     players: game.players.map((p: any) => ({
@@ -125,7 +130,7 @@ gamesRouter.post('/:id/action', async (req, res) => {
     const action = processed[processed.length - 1];
 
     if (!action || !action.result) {
-      res.status(409).json({ error: 'Другой ход уже обрабатывается — попробуйте позже' });
+      res.status(409).json({ error: 'Un altro turno è già in elaborazione — riprova tra poco' });
       return;
     }
 
@@ -289,6 +294,19 @@ gamesRouter.get('/:id/relationships', (req, res) => {
   }
 });
 
+// Timeline del mondo: cronaca turno per turno (eventi + data di gioco)
+gamesRouter.get('/:id/timeline', (req, res) => {
+  const gameId = req.params.id;
+
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(gameId);
+    res.json({ timeline: session.getTimeline(), currentDate: session.getCurrentDate() });
+  } catch (e) {
+    console.error('[Timeline] Error:', e);
+    res.status(404).json({ error: 'Game not found' });
+  }
+});
+
 gamesRouter.post('/:id/save', (req, res) => {
   const gameId = req.params.id;
   const { name } = req.body;
@@ -416,7 +434,7 @@ gamesRouter.post('/:id/time-skip', async (req, res) => {
     } else if (jump_days <= 0) {
       // Auto-jump «к следующему важному событию» без действий игрока:
       // ставим служебное действие наблюдения и прогоняем симуляцию
-      session.queueAction('Наблюдать за развитием мира и вести внутреннюю политику');
+      session.queueAction('Osservare lo sviluppo del mondo e curare la politica interna');
       const processed = await session.processAllPendingActions(0);
       res.json({
         type: 'actions_processed',
@@ -445,7 +463,7 @@ gamesRouter.post('/:id/rewind', (req, res) => {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
     const result = session.rewind();
     if (!result) {
-      res.status(404).json({ error: 'Нет снапшота для отката (сделайте хотя бы один ход)' });
+      res.status(404).json({ error: 'Nessuno snapshot a cui tornare (gioca almeno un turno)' });
       return;
     }
     res.json({ type: 'rewound', newTurn: result.turn, newDate: result.date });
