@@ -1,22 +1,22 @@
 /**
- * Open-Pax — Этап 6: SaveGameModal
+* Open-Pax — Fase 6: SaveGameModal
  * =================================
- * Модалка сохранения игры (замена prompt()).
- * Затемнённый оверлей, инпут названия, «Сохранить»/«Отмена».
- * Enter — сохранить, Escape / клик по оверлею — отмена.
- * Стили: конец frontend/src/index.css, секция «Этап 6: Landing».
+* Modale di salvataggio della partita (sostituisce prompt()).
+ * Overlay scuro, input del nome, «Salva»/«Annulla».
+* Enter — salva, Escape / clic sull'overlay — annulla.
+* Stili: fine di frontend/src/index.css, sezione «Fase 6: Landing».
  */
 
 import { useEffect, useRef, useState } from 'react';
 
 export interface SaveGameModalProps {
-  /** Видимость модалки */
+/** Visibilità della modale */
   open: boolean;
-  /** Название по умолчанию, напр. `Игра 12.01.2025` */
+  /** Nome predefinito, es. `Partita 12.01.2025` */
   defaultName: string;
-  /** Подтверждение с введённым (обрезанным) названием */
+/** Conferma con il nome inserito (senza spazi) */
   onSave: (name: string) => void;
-  /** Закрытие без сохранения */
+/** Chiusura senza salvare */
   onClose: () => void;
 }
 
@@ -24,10 +24,10 @@ export function SaveGameModal({ open, defaultName, onSave, onClose }: SaveGameMo
   const [name, setName] = useState(defaultName);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // При открытии — сбрасываем название на defaultName и фокусируем инпут
+  // All'apertura — riportiamo il nome a defaultName e diamo il focus all'input
   useEffect(() => {
     if (open) {
-      setName(defaultName || `Игра ${new Date().toLocaleDateString('ru-RU')}`);
+      setName(defaultName || `Partita ${new Date().toLocaleDateString('it-IT')}`);
       const t = setTimeout(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
@@ -36,7 +36,7 @@ export function SaveGameModal({ open, defaultName, onSave, onClose }: SaveGameMo
     }
   }, [open, defaultName]);
 
-  // Escape закрывает модалку
+  // Escape chiude la modale
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -59,19 +59,19 @@ export function SaveGameModal({ open, defaultName, onSave, onClose }: SaveGameMo
         className="save-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Сохранить игру"
+        aria-label="Salva partita"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="save-modal-header">
-          <h3>Сохранить игру</h3>
-          <button className="save-modal-close" onClick={onClose} title="Закрыть" aria-label="Закрыть">
+          <h3>Salva partita</h3>
+          <button className="save-modal-close" onClick={onClose} title="Chiudi" aria-label="Chiudi">
             ✕
           </button>
         </div>
 
         <div className="save-modal-body">
           <label className="save-modal-label" htmlFor="save-modal-name">
-            Название сохранения
+            Nome del salvataggio
           </label>
           <input
             id="save-modal-name"
@@ -82,17 +82,17 @@ export function SaveGameModal({ open, defaultName, onSave, onClose }: SaveGameMo
             onKeyDown={(e) => {
               if (e.key === 'Enter') submit();
             }}
-            placeholder={`Игра ${new Date().toLocaleDateString('ru-RU')}`}
+            placeholder={`Partita ${new Date().toLocaleDateString('it-IT')}`}
             maxLength={80}
           />
         </div>
 
         <div className="save-modal-footer">
           <button className="save-modal-cancel" onClick={onClose}>
-            Отмена
+            Annulla
           </button>
           <button className="save-modal-submit" onClick={submit} disabled={!trimmed}>
-            Сохранить
+            Salva
           </button>
         </div>
       </div>

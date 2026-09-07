@@ -11,9 +11,12 @@ import { worldRepository, relationshipRepository } from '../repositories';
 import { svgPathToGeoJSON } from '../utils/svg-to-geojson';
 import { BalanceAgent } from '../agents/balance-agent';
 import { getLLMRouter } from '../llm';
-import { loadPreset, loadPresetMap } from '../utils/preset-loader';
+import { loadPreset, loadPresetMap, type PresetPackage } from '../utils/preset-loader';
+import { createWorldGenJob, getWorldGenJob, setWorldGenProgress, updateWorldGenJob } from '../utils/world-gen-jobs';
 import { computeBorders } from '../utils/borders';
 import { resolveRegionColor } from '../utils/color';
+import { geometryAreaDeg2, largestRingCentroid, pointInGeometry } from '../utils/geo';
+import { paxSettlementObjectsForGeometry } from '../utils/pax-geography';
 
 export const worldsRouter = Router();
 
@@ -32,58 +35,118 @@ function getCapitals(): Record<string, CapitalEntry> {
       ? JSON.parse(fs.readFileSync(capitalsPath, 'utf-8'))
       : {};
   } catch (e) {
-    console.warn('[Generate World] capitals.json не прочитан — регионы без столиц:', e);
+    console.warn('[Generate World] capitals.json non letto — regioni senza capitali:', e);
     capitalsCache = {};
   }
   return capitalsCache!;
 }
 
-// Generate world state from template (using Balance Agent)
-worldsRouter.post('/generate', async (req, res) => {
-  const { templateId, playerCountryCode } = req.body;
-
-  if (!templateId || !playerCountryCode) {
-    res.status(400).json({ error: 'templateId and playerCountryCode are required' });
-    return;
+// Città maggiori del mondo (cities.json): oggetti mappa con coordinate reali.
+// Formato: { cities: [{ name, country, lat, lng, pop }] }
+interface CityEntry { name: string; country: string; lat: number; lng: number; pop: number }
+let citiesCache: CityEntry[] | null = null;
+function getCities(): CityEntry[] {
+  if (citiesCache) return citiesCache;
+  try {
+    const citiesPath = path.join(process.cwd(), 'data', 'geojson', 'cities.json');
+    const raw = fs.existsSync(citiesPath) ? JSON.parse(fs.readFileSync(citiesPath, 'utf-8')) : { cities: [] };
+    citiesCache = (raw.cities || []).filter((c: any) =>
+      c && c.name && typeof c.lat === 'number' && typeof c.lng === 'number' && c.country
+    );
+  } catch (e) {
+    console.warn('[Generate World] cities.json non letto — mappa senza città:', e);
+    citiesCache = [];
   }
+  return citiesCache!;
+}
 
-  // Этап 5: пресет-пакет (data/presets/<id>/) или легаси-шаблон
-  // (data/templates/<id>.json). loadPreset валидирует id через PRESET_ID_RE,
-  // поэтому path traversal исключён без resolveInside.
-  const preset = loadPreset(templateId);
-  if (!preset) {
-    res.status(404).json({ error: `Preset not found: ${templateId}` });
-    return;
-  }
+// ---------------------------------------------------------------------------
+// Helper geometrici: utils/geo.ts (condivisi con game-session)
+// ---------------------------------------------------------------------------
+
+/**
+ * Città (dalla registry) dentro la geometria della regione, come oggetti mappa.
+ * Max `limit` città per regione, dalla più popolosa. Niente geometria → [].
+ */
+function citiesForRegion(geometry: any, countryCode: string, limit = 6): any[] {
+  if (!geometry) return [];
+  // Per la mappa Pax la posizione è la fonte primaria; escludiamo le capitali
+  // qui perché il generatore le inserisce separatamente sulla provincia-capitale.
+  const paxCities = paxSettlementObjectsForGeometry(geometry, limit)
+    .filter(point => point.type === 'city');
+  if (paxCities.length > 0) return paxCities;
+
+  const inRegion = getCities().filter(c => c.country === countryCode && pointInGeometry([c.lng, c.lat], geometry));
+  inRegion.sort((a, b) => b.pop - a.pop);
+  return inRegion.slice(0, limit).map(c => ({
+    id: shortId(),
+    type: 'city',
+    name: c.name,
+    lat: c.lat,
+    lng: c.lng,
+    pop: c.pop,
+  }));
+}
+
+// Generazione asincrona del mondo. La generazione completa (BalanceAgent su
+// preset da 200+ paesi) dura diversi minuti e NON può restare dentro una
+// richiesta HTTP: Cloudflare Tunnel (trycloudflare.com) interrompe le
+// risposte oltre ~100s con un errore 524. Il POST crea un job e risponde
+// subito con { jobId }; il lavoro prosegue in background e il client
+// interroga GET /worlds/jobs/:jobId finché lo stato diventa "completed".
+async function runWorldGeneration(
+  jobId: string,
+  templateId: string,
+  preset: PresetPackage,
+  playerCountryCode: string
+): Promise<unknown> {
+  const onProgress = (done: number, total: number) =>
+    setWorldGenProgress(
+      jobId,
+      done,
+      total,
+      done < total ? 'Generazione dei paesi del mondo…' : 'Bilanciamento delle potenze…'
+    );
 
   try {
     // Геометрия регионов: кастомная карта пакета (map.geojson) или
     // стандартная Natural Earth (data/geojson/countries.geojson)
     let geojsonFeatures: Record<string, any> = {};
+    // Мировые пакеты уровня ПРОВИНЦИЙ: feature.properties.country = код страны-владельца.
+    // Каждая province — отдельный регион игры, но полития (owner) — страна-мать.
+    const provinceFeaturesByCountry: Record<string, any[]> = {};
+    const ingestFeature = (feature: any): void => {
+      const code = feature.properties?.code;
+      if (!code) return;
+      const parent = feature.properties?.country;
+      if (parent && parent !== code) {
+        (provinceFeaturesByCountry[parent] ??= []).push(feature);
+      } else {
+        geojsonFeatures[code] = feature;
+      }
+    };
     if (preset.has_custom_map) {
       const customMap = loadPresetMap(templateId);
       for (const feature of customMap?.features || []) {
-        const code = feature.properties?.code;
-        if (code) {
-          geojsonFeatures[code] = feature;
-        }
+        ingestFeature(feature);
       }
     } else {
       const geojsonPath = path.join(process.cwd(), 'data', 'geojson', 'countries.geojson');
       if (fs.existsSync(geojsonPath)) {
         const geojsonData = JSON.parse(fs.readFileSync(geojsonPath, 'utf-8'));
         for (const feature of geojsonData.features || []) {
-          const code = feature.properties?.code;
-          if (code) {
-            geojsonFeatures[code] = feature;
-          }
+          ingestFeature(feature);
         }
       }
     }
 
     const balanceAgent = new BalanceAgent(getLLMRouter());
     // Кастомные страны пакета (имена/цвета) перекрывают реестр data/countries.json
-    const worldState = await balanceAgent.generateInitialWorldState(preset, preset.countries);
+    const worldState = await balanceAgent.generateInitialWorldState(
+      preset,
+      preset.countries,
+      onProgress
+    );
 
     // Цвета карты: приоритет у кураторской палитры пресета (country_colors);
     // для кодов вне палитры — прежний цвет (реестр/countries[]) + анти-тёмный
@@ -94,9 +157,74 @@ worldsRouter.post('/generate', async (req, res) => {
 
     const countriesObj: Record<string, any> = {};
     const regionsObj: Record<string, any> = {};
+    // Per mondi provinciali: codice paese → id della provincia-capitale
+    // (il giocatore inizia dalla capitale della politia scelta)
+    const homeRegionByCountry: Record<string, string> = {};
 
     for (const [code, state] of worldState.countries) {
       countriesObj[code] = state;
+
+      const provinceFeatures = provinceFeaturesByCountry[code];
+
+      // ---------------------------------------------------------------------
+      // MODALITÀ PROVINCE: il paese è suddiviso in più regioni-provincia.
+      // Statistiche della politia (da BalanceAgent) distribuite per area;
+      // la provincia-capitale riceve un bonus. Owner = codice paese.
+      // ---------------------------------------------------------------------
+      if (provinceFeatures && provinceFeatures.length > 0) {
+        const withArea = provinceFeatures.map(f => ({
+          f,
+          area: geometryAreaDeg2(f.geometry) || 0.0001,
+        }));
+        // Peso: area; la capitale vale 1.6× — è il cuore demografico-economico
+        const weights = withArea.map(w => ({
+          ...w,
+          weight: w.area * (w.f.properties?.is_capital ? 1.6 : 1),
+        }));
+        const totalWeight = weights.reduce((s, w) => s + w.weight, 0) || 1;
+        const cap = getCapitals()[code];
+
+        for (const w of weights) {
+          const props = w.f.properties || {};
+          const provCode = props.code;
+          const isCapital = !!props.is_capital;
+          const share = w.weight / totalWeight;
+
+          // Oggetti: capitale reale sulla provincia-capitale + città della registry
+          const capitalObjects = (isCapital && cap && typeof cap.lat === 'number')
+            ? [{ id: shortId(), type: 'capital', name: cap.capital, lat: cap.lat, lng: cap.lng }]
+            : [];
+          // Tutte le città principali geolocalizzate che ricadono nella provincia.
+          // Il frontend decide quali etichette mostrare in base allo zoom.
+          const cityObjects = citiesForRegion(w.f.geometry, code, Infinity);
+
+          regionsObj[provCode] = {
+            id: provCode,
+            name: props.name || provCode,
+            color: state.color || '#888888',
+            geojson: JSON.stringify(w.f),
+            owner: code, // la politia è il paese — la conquista cambia il proprietario della provincia
+            population: Math.max(100000, Math.round((state.population || 0) * share)),
+            gdp: Math.max(1, Math.round((state.gdp || 0) * share)),
+            militaryPower: Math.max(1, Math.round((state.military || 0) * share * (isCapital ? 1.25 : 1))),
+            objects: [...capitalObjects, ...cityObjects],
+            borders: [],
+            status: 'active',
+            flag: code,
+            metadata: {
+              ideology: state.ideology,
+              country: code,
+              isCapitalProvince: isCapital,
+            },
+          };
+          if (isCapital) homeRegionByCountry[code] = provCode;
+        }
+        // Fallback se nessuna provincia segnata come capitale
+        if (!homeRegionByCountry[code] && provinceFeatures[0]?.properties?.code) {
+          homeRegionByCountry[code] = provinceFeatures[0].properties.code;
+        }
+        continue;
+      }
 
       const geojson = geojsonFeatures[code];
       if (geojson) {
@@ -106,6 +234,11 @@ worldsRouter.post('/generate', async (req, res) => {
         const capitalObjects = (cap && typeof cap.lat === 'number' && typeof cap.lng === 'number')
           ? [{ id: shortId(), type: 'capital', name: cap.capital, lat: cap.lat, lng: cap.lng }]
           : [];
+        // Città maggiori del paese dentro i confini nazionali
+        const geometry = geojson.geometry ?? geojson;
+        // Tutte le città principali del registro (coordinate reali).
+        const cityObjects = citiesForRegion(geometry, code, Infinity);
+        homeRegionByCountry[code] = code;
         regionsObj[code] = {
           id: code,
           name: state.name,
@@ -117,7 +250,7 @@ worldsRouter.post('/generate', async (req, res) => {
           population: state.population || 0,
           gdp: state.gdp || 0,
           militaryPower: state.military || 0,
-          objects: capitalObjects,
+          objects: [...capitalObjects, ...cityObjects],
           borders: [],
           status: 'active',
           flag: code,
@@ -192,21 +325,91 @@ worldsRouter.post('/generate', async (req, res) => {
       relationshipRepository.initForWorld(worldId, relEntries);
     }
 
-    res.json({
+    // Fase finale per la UI: bordi + persistenza (rapida ma non istantanea)
+    setWorldGenProgress(
+      jobId,
+      worldState.countries.size,
+      worldState.countries.size,
+      'Definizione della geografia…'
+    );
+
+    return {
       templateId,
       worldId,
       date: worldState.date,
-      countries: countriesObj,
-      regions: regionsObj,
-      regionIds: Object.fromEntries(
-        Object.keys(regionsObj).map(code => [code, `${worldId}_${code}`])
-      ),
+      // Il client caricherà la mappa una sola volta da GET /games/:id.
+      // Prima duplicavamo qui l'intero GeoJSON (fino a 942 province), causando
+      // un download e un JSON.parse superflui durante la schermata di attesa.
+      countries: {},
+      regions: {},
+      // Serve al client soltanto la regione iniziale del paese selezionato,
+      // non la tabella di oltre mille ID dell'intero mondo.
+      regionIds: {
+        [playerCountryCode]: `${worldId}_${homeRegionByCountry[playerCountryCode] || playerCountryCode}`,
+      },
       playerCountryCode,
-    });
+    };
   } catch (e: any) {
     console.error('[Generate World] Error:', e);
-    res.status(500).json({ error: 'Failed to generate world: ' + e.message });
+    throw e;
   }
+}
+
+worldsRouter.post('/generate', async (req, res) => {
+  const { templateId, playerCountryCode } = req.body;
+
+  if (!templateId || !playerCountryCode) {
+    res.status(400).json({ error: 'templateId and playerCountryCode are required' });
+    return;
+  }
+
+  // Этап 5: пресет-пакет (data/presets/<id>/) или легаси-шаблон
+  // (data/templates/<id>.json). loadPreset валидирует id через PRESET_ID_RE,
+  // поэтому path traversal исключён без resolveInside.
+  const preset = loadPreset(templateId);
+  if (!preset) {
+    res.status(404).json({ error: `Preset not found: ${templateId}` });
+    return;
+  }
+
+  // Retrocompatibilità: { sync: true } ripristina la vecchia esecuzione
+  // dentro la richiesta (utile per script/curl; NON usarla dietro tunnel).
+  if (req.body.sync === true) {
+    const job = createWorldGenJob();
+    try {
+      const result = await runWorldGeneration(job.id, templateId, preset, playerCountryCode);
+      updateWorldGenJob(job.id, { status: 'completed', result });
+      res.json(result);
+    } catch (e: any) {
+      updateWorldGenJob(job.id, { status: 'failed', error: e?.message });
+      res.status(500).json({ error: 'Failed to generate world: ' + e.message });
+    }
+    return;
+  }
+
+  const job = createWorldGenJob();
+  // Risposta immediata: la richiesta HTTP dura pochi millisecondi, il
+  // timeout del tunnel non è più raggiungibile.
+  res.status(202).json({ jobId: job.id, status: job.status });
+
+  // Fire and forget: gli errori finiscono sul job e vengono letti via polling.
+  void runWorldGeneration(job.id, templateId, preset, playerCountryCode)
+    .then(result => updateWorldGenJob(job.id, { status: 'completed', result }))
+    .catch(e => {
+      console.error('[Generate World] Job error:', e);
+      updateWorldGenJob(job.id, { status: 'failed', error: e?.message ?? String(e) });
+    });
+});
+
+// Stato/progresso del job di generazione. Quando status="completed" il
+// campo `result` contiene lo stesso payload della vecchia risposta sincrona.
+worldsRouter.get('/jobs/:jobId', (req, res) => {
+  const job = getWorldGenJob(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  res.json(job);
 });
 
 worldsRouter.post('/', (req, res) => {
@@ -217,7 +420,7 @@ worldsRouter.post('/', (req, res) => {
     name,
     description,
     startDate: startDate || '1951-01-01',
-    basePrompt: basePrompt || 'Альтернативная история',
+    basePrompt: basePrompt || 'Storia alternativa',
     historicalAccuracy,
   };
 
@@ -365,7 +568,7 @@ worldsRouter.post('/from-map', (req, res) => {
     name: name || map.name,
     description: description || '',
     startDate: startDate || '1951-01-01',
-    basePrompt: basePrompt || 'Альтернативная история',
+    basePrompt: basePrompt || 'Storia alternativa',
     historicalAccuracy: historicalAccuracy ?? 0.8,
   }, regions);
 

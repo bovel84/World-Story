@@ -1,28 +1,30 @@
 /**
  * Open-Pax — FAB Component
  * =========================
- * Этап 6: группа плавающих круглых кнопок снизу-слева, как в
- * docs/ref/pax_action_sent.png оригинальной Pax Historia (чат, молния, поиск).
- * Кнопки 44px, тёмный фон, hover-подсветка градиентом, опциональный красный
- * бейдж непрочитанного.
+* Fase 6: gruppo di pulsanti tondi flottanti in basso a sinistra, come in
+* docs/ref/pax_action_sent.png dell'originale Pax Historia (chat, fulmine, ricerca).
+* Pulsanti 44px, sfondo scuro, hover con gradiente, eventuale badge rosso
+* badge dei non letti.
  *
- * Использование:
+* Uso:
  *   <Fab items={[
- *     { icon: '💬', title: 'Чаты', badge: unread, onClick: openChats },
- *     { icon: '⚡', title: 'Действия', onClick: openActions },
- *     { icon: '🔍', title: 'Поиск', onClick: openSearch },
+ *     { icon: '💬', title: 'Chat', badge: unread, onClick: openChats },
+ *     { icon: '⚡', title: 'Azioni', onClick: openActions },
+ *     { icon: '🔍', title: 'Cerca', onClick: openSearch },
  *   ]} />
  */
 
 import React from 'react';
 
 export interface FabItem {
-  /** Эмодзи или символ иконки */
+  /** Emoji o simbolo icona */
   icon: string;
-  /** Подпись в тултипе (title/aria-label) */
+/** Etichetta nel tooltip (title/aria-label) */
   title: string;
-  /** Счётчик непрочитанного; 0/undefined — бейдж скрыт */
+  /** Contatore non letti; 0/undefined — badge nascosto */
   badge?: number;
+  /** Sezione attiva: bordo/tinta brand */
+  active?: boolean;
   onClick: () => void;
 }
 
@@ -39,7 +41,7 @@ export const Fab: React.FC<FabProps> = ({ items }) => {
         <button
           key={`${item.title}-${i}`}
           type="button"
-          className="fab-btn"
+          className={`fab-btn${item.active ? ' active' : ''}`}
           title={item.title}
           aria-label={item.title}
           onClick={item.onClick}

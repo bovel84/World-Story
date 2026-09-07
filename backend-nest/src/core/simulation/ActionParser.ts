@@ -43,7 +43,7 @@ export class ActionParser {
         type: 'attack',
         sourceRegionId: source.id,
         targetRegionId: target.id,
-        description: `Атака на ${target.name}`,
+        description: `Attacco a ${target.name}`,
         cost,
         expectedOutcome: {
           successProbability: 0.5,
@@ -70,7 +70,7 @@ export class ActionParser {
       const action: ValidatedAction = {
         type: 'develop',
         sourceRegionId: source.id,
-        description: `Развитие в ${source.name}`,
+        description: `Sviluppo di ${source.name}`,
         cost,
         expectedOutcome: {
           successProbability: 0.9,
@@ -97,7 +97,7 @@ export class ActionParser {
       const action: ValidatedAction = {
         type: 'trade',
         sourceRegionId: source.id,
-        description: `Торговля в ${source.name}`,
+        description: `Commercio di ${source.name}`,
         cost,
         expectedOutcome: {
           successProbability: 0.95,
@@ -124,7 +124,7 @@ export class ActionParser {
       const action: ValidatedAction = {
         type: 'build',
         sourceRegionId: source.id,
-        description: `Строительство в ${source.name}`,
+        description: `Costruzioni in ${source.name}`,
         cost,
         expectedOutcome: {
           successProbability: 0.85,
@@ -142,7 +142,8 @@ export class ActionParser {
 
   private matchesAttack(text: string): boolean {
     const patterns = [
-      'attack', 'атака', 'напад', 'война', 'захват',
+      'attack', 'attacco', 'attacc', 'invas', 'guerra', 'conquista', 'occup',
+      'напад', 'война', 'захват',
       'war', 'fight', 'conquer', 'invade'
     ];
     return patterns.some(p => text.includes(p));
@@ -150,7 +151,8 @@ export class ActionParser {
 
   private matchesDevelop(text: string): boolean {
     const patterns = [
-      'develop', 'developing', 'развит', 'строит', 'создат',
+      'develop', 'developing', 'svilupp', 'crescita', 'modernizz', 'industrializz',
+      'развит', 'строит', 'создат',
       'build', 'construct', 'expand', 'grow'
     ];
     return patterns.some(p => text.includes(p));
@@ -158,7 +160,8 @@ export class ActionParser {
 
   private matchesTrade(text: string): boolean {
     const patterns = [
-      'trade', 'торгов', 'exchange', 'сделка', 'экономик',
+      'trade', 'commercio', 'scambio', 'export', 'import', 'accordo economico',
+      'торгов', 'exchange', 'сделка', 'экономик',
       'economic', 'market'
     ];
     return patterns.some(p => text.includes(p));
@@ -166,8 +169,9 @@ export class ActionParser {
 
   private matchesBuild(text: string): boolean {
     const patterns = [
-      'build', 'строит', 'factory', 'завод', 'army', 'войска',
-      'military', 'militar', 'fleet', 'флот'
+      'build', 'costruis', 'fabbrica', 'industria', 'fortific', 'base', 'army', 'esercito',
+      'military', 'militare', 'flotta', 'fleet', 'porto', 'aeroporto',
+      'строит', 'factory', 'завод', 'войска', 'флот'
     ];
     return patterns.some(p => text.includes(p));
   }

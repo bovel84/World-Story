@@ -1,11 +1,11 @@
 /**
  * Open-Pax — Country Selector Component
  * =====================================
- * Выбор страны после выбора шаблона.
- * Этап 4: двухколоночный лейаут — слева карта мира (WorldSelectMap),
- * справа компактный список стран. Клик выделяет страну,
- * кнопка «Играть» подтверждает выбор (onSelect).
- * Если /api/geo/countries недоступен — fallback на старую сетку country-grid.
+ * Scelta del paese dopo la selezione del template.
+* Fase 4: layout a due colonne — a sinistra la mappa del mondo (WorldSelectMap),
+ * a destra l'elenco compatto dei paesi. Il clic seleziona il paese,
+ * il pulsante «Gioca» conferma la scelta (onSelect).
+* Se /api/geo/countries non è disponibile — fallback sulla vecchia griglia country-grid.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -20,16 +20,16 @@ interface CountrySelectorProps {
 
 export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSelect, onBack }) => {
   const countries: Country[] = useMemo(() => template.countries ?? [], [template]);
-  // Выделенная (но ещё не подтверждённая) страна
+  // Paese selezionato (ma non ancora confermato)
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
-  // false → геоданные не загрузились, показываем fallback-сетку без карты
+  // false → i dati geografici non sono caricati, mostriamo la griglia fallback senza mappa
   const [mapAvailable, setMapAvailable] = useState(true);
 
-  // Коды стран шаблона — доступные для клика на карте
+  // Codici paese del template — cliccabili sulla mappa
   const availableCodes = useMemo(() => countries.map((c) => c.code), [countries]);
   const selectedCountry = countries.find((c) => c.code === selectedCode) ?? null;
 
-  /** Подтверждение выбора — только после клика по «Играть» */
+  /** Conferma della scelta — solo dopo il clic su «Gioca» */
   const confirmSelection = () => {
     if (selectedCode) onSelect(selectedCode);
   };
@@ -37,17 +37,17 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
   return (
     <div className="country-selector">
       <div className="selector-header">
-        <button className="btn-back" onClick={onBack}>← Back</button>
-        <h2>Выберите страну: {template.name}</h2>
+        <button className="btn-back" onClick={onBack}>← Indietro</button>
+        <h2>Scegli il paese: {template.name}</h2>
       </div>
 
       <div className="template-info">
         <p>{template.description}</p>
-        <div className="start-date">Начальная дата: {template.start_date}</div>
+        <div className="start-date">Data iniziale: {template.start_date}</div>
       </div>
 
       {mapAvailable ? (
-        /* Основной режим: карта мира + компактный список */
+/* Modalità principale: mappa del mondo + elenco compatto */
         <div className="country-selector-layout">
           <div className="country-selector-map">
             <WorldSelectMap
@@ -75,7 +75,7 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
           </div>
         </div>
       ) : (
-        /* Fallback: старая сетка карточек без карты */
+/* Fallback: vecchia griglia di card senza mappa */
         <div className="country-grid">
           {countries.map((country) => (
             <div
@@ -94,19 +94,19 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
         </div>
       )}
 
-      {/* Панель подтверждения выбора */}
+      {/* Pannello di conferma della scelta */}
       <div className="country-confirm-bar">
         <span className="country-confirm-label">
           {selectedCountry
-            ? `Выбрано: ${selectedCountry.name} (${selectedCountry.code})`
-            : 'Выберите страну на карте или в списке'}
+            ? `Selezionato: ${selectedCountry.name} (${selectedCountry.code})`
+            : 'Scegli un paese sulla mappa o nell\'elenco'}
         </span>
         <button
           className="btn-play"
           disabled={!selectedCode}
           onClick={confirmSelection}
         >
-          Играть
+          Gioca
         </button>
       </div>
     </div>

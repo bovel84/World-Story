@@ -6,6 +6,7 @@
  */
 
 import { shortId } from './utils/short-id';
+import { enrichGeographicObjects } from './utils/cities';
 import { LLMRouter } from './llm';
 import { GameSession, SaveData } from './game-session';
 import { gameRepository, worldRepository } from './repositories';
@@ -93,22 +94,23 @@ class SessionRegistry {
     // Get player info from DB
     const players = gameRepository.getPlayers(gameId);
 
-    // Load regions from DB
+    // Geometria dal world, stato dinamico dalla copia isolata della partita.
+    const dynamicRegions = new Map(gameRepository.getGameRegions(gameId).map(region => [region.id, region]));
     const dbRegions = worldRepository.getRegions(game.world_id);
-    const regionStates: [string, any][] = dbRegions.map(r => [
-      r.id,
-      {
+    const regionStates: [string, any][] = dbRegions.map(r => {
+      const state = dynamicRegions.get(r.id);
+      return [r.id, {
         id: r.id,
         name: r.name,
-        color: r.color,
-        owner: r.owner,
-        population: r.population,
-        gdp: r.gdp,
-        militaryPower: r.militaryPower,
-        objects: r.objects || [],
+        color: state?.color || r.color,
+        owner: state?.owner || r.owner,
+        population: state?.population ?? r.population,
+        gdp: state?.gdp ?? r.gdp,
+        militaryPower: state?.militaryPower ?? r.militaryPower,
+        objects: state?.objects || r.objects || [],
         svgPath: r.svgPath,
-      }
-    ]);
+      }];
+    });
 
     session.reconstructFromDB({
       currentTurn: game.current_turn,
@@ -162,6 +164,35 @@ class SessionRegistry {
       return null;
     }
 
+    // I salvataggi contengono uno snapshot delle regioni. Senza questa
+    // normalizzazione uno snapshot vecchio riscriverebbe città legacy (x/y)
+    // o doppioni capitale/città dopo che il registro geografico è stato sanato.
+    const world = gameRepository.findById(save.game_id)?.world;
+    const geography = new Map<string, any>((world?.regions || []).map((region: any) => [region.id, region]));
+    let saveChanged = false;
+    if (Array.isArray(saveData.regions)) {
+      saveData.regions = saveData.regions.map(([regionId, region]: [string, any]) => {
+        const source = geography.get(regionId);
+        if (!source?.geojson) return [regionId, region];
+        try {
+          const parsed = JSON.parse(source.geojson);
+          const objects = enrichGeographicObjects(
+            region.objects || [],
+            parsed?.geometry ?? parsed,
+            String(source.flag || source.owner || '').toUpperCase(),
+            Boolean(source.metadata?.pax_region_id),
+          );
+          if (JSON.stringify(objects) !== JSON.stringify(region.objects || [])) saveChanged = true;
+          return [regionId, { ...region, objects }];
+        } catch {
+          return [regionId, region];
+        }
+      });
+    }
+    if (saveChanged) {
+      db.prepare('UPDATE saves SET data = ? WHERE id = ?').run(JSON.stringify(saveData), saveId);
+    }
+
     // Load session from save data
     session.loadFromSave(saveData);
 
@@ -194,22 +225,23 @@ class SessionRegistry {
         // Get player info from DB
         const players = gameRepository.getPlayers(game.id);
 
-        // Load regions from DB
+        // Geometria dal world, stato dinamico dalla copia isolata della partita.
+        const dynamicRegions = new Map(gameRepository.getGameRegions(game.id).map(region => [region.id, region]));
         const dbRegions = worldRepository.getRegions(game.world_id);
-        const regionStates: [string, any][] = dbRegions.map(r => [
-          r.id,
-          {
+        const regionStates: [string, any][] = dbRegions.map(r => {
+          const state = dynamicRegions.get(r.id);
+          return [r.id, {
             id: r.id,
             name: r.name,
-            color: r.color,
-            owner: r.owner,
-            population: r.population,
-            gdp: r.gdp,
-            militaryPower: r.militaryPower,
-            objects: r.objects || [],
+            color: state?.color || r.color,
+            owner: state?.owner || r.owner,
+            population: state?.population ?? r.population,
+            gdp: state?.gdp ?? r.gdp,
+            militaryPower: state?.militaryPower ?? r.militaryPower,
+            objects: state?.objects || r.objects || [],
             svgPath: r.svgPath,
-          }
-        ]);
+          }];
+        });
 
         session.reconstructFromDB({
           currentTurn: game.current_turn,

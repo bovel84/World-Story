@@ -112,7 +112,7 @@ export function importPresetZip(
   try {
     zip = new AdmZip(buffer);
   } catch {
-    throw new PresetZipError('INVALID_ZIP', 'Файл не является валидным zip-архивом');
+    throw new PresetZipError('INVALID_ZIP', 'Il file non è un archivio zip valido');
   }
 
   const entries = zip
@@ -123,14 +123,14 @@ export function importPresetZip(
   // preset.json обязателен
   const presetEntry = entries.find(e => e.name === 'preset.json');
   if (!presetEntry) {
-    throw new PresetZipError('INVALID_ZIP', 'В архиве нет preset.json');
+    throw new PresetZipError('INVALID_ZIP', "Nell'archivio manca preset.json");
   }
 
   let raw: unknown;
   try {
     raw = JSON.parse(presetEntry.entry.getData().toString('utf-8'));
   } catch {
-    throw new PresetZipError('INVALID_PRESET', 'preset.json: содержимое не является JSON');
+    throw new PresetZipError('INVALID_PRESET', 'preset.json: il contenuto non è JSON valido');
   }
 
   let validated: ReturnType<typeof validatePresetJson>;
@@ -143,7 +143,7 @@ export function importPresetZip(
   const id = validated.id;
   const dir = path.join(PRESETS_DIR, id);
   if (fs.existsSync(dir) && !opts.overwrite) {
-    throw new PresetZipError('EXISTS', `Пресет "${id}" уже существует (передайте overwrite=1 для перезаписи)`);
+    throw new PresetZipError('EXISTS', `Il preset "${id}" esiste già (passa overwrite=1 per sovrascriverlo)`);
   }
 
   // Валидация + сбор разрешённых файлов ДО любых записей на диск
@@ -156,7 +156,7 @@ export function importPresetZip(
         try {
           JSON.parse(entry.getData().toString('utf-8'));
         } catch {
-          throw new PresetZipError('INVALID_PRESET', 'map.geojson: содержимое не является JSON');
+          throw new PresetZipError('INVALID_PRESET', 'map.geojson: il contenuto non è JSON valido');
         }
       }
       files.push({ rel: name, data: entry.getData() });
@@ -185,7 +185,7 @@ export function importPresetZip(
 
   const preset = loadPreset(id);
   if (!preset) {
-    throw new PresetZipError('INVALID_PRESET', `Пресет "${id}" записан, но не читается`);
+    throw new PresetZipError('INVALID_PRESET', `Preset "${id}" salvato, ma non è leggibile`);
   }
   return { preset };
 }

@@ -11,6 +11,15 @@ export interface HistoryItem {
   action: string;
   result: string;
   events?: string[];
+  eventDetails?: Array<{
+    id: string;
+    date: string;
+    headline: string;
+    detail: string;
+    source: 'world' | 'diplomacy';
+    chatId?: string;
+    speakerName?: string;
+  }>;
   periodStart?: string;
   periodEnd?: string;
   date?: string;
@@ -86,7 +95,20 @@ export const useGameStore = create<GameState>((set) => ({
   setSelectedRegion: (regionId) => set({ selectedRegion: regionId }),
 
   setHistory: (history) => set({ history }),
-  addHistory: (item) => set((state) => ({ history: [...state.history, item] })),
+  addHistory: (item) => set((state) => {
+    // Il completamento SSE è una conferma del turno già ricevuto via HTTP.
+    // Non duplicarlo, ma conserva i singoli ordini dello stesso lotto.
+    if (item.action === 'Mossa' && state.history.some(existing =>
+      existing.turn === item.turn
+      && existing.periodEnd === item.periodEnd
+      && (existing.eventDetails?.some(event =>
+        item.eventDetails?.some(incoming => incoming.id === event.id)
+      ) || false)
+    )) {
+      return state;
+    }
+    return { history: [...state.history, item] };
+  }),
 
   setPendingActions: (actions) => set({ pendingActions: actions }),
   addPendingAction: (action) => set((state) => ({

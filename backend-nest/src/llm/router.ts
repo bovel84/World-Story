@@ -9,16 +9,18 @@ const CACHE_MAX = 100;
 
 interface CacheEntry { content: string; tokensUsed?: number; at: number }
 
-function buildProvider(cfg: MechanicConfig): LLMProvider {
+/** Fabbrica dei provider: esportata anche per l'endpoint di test /api/llm/test. */
+export function buildProvider(cfg: MechanicConfig): LLMProvider {
   const common = {
     baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model,
     timeoutMs: cfg.timeoutMs, retries: cfg.retries,
+    extraBody: cfg.extraBody,
   };
   switch (cfg.provider) {
     case 'anthropic': return new AnthropicProvider(common);
     case 'minimax': return createMiniMaxProvider(common);
     case 'openai-compatible': return new OpenAICompatibleProvider({ ...common, name: 'openai-compatible' });
-    default: throw new Error(`Неизвестный LLM-провайдер: ${String(cfg.provider)}`);
+    default: throw new Error(`Provider LLM sconosciuto: ${String(cfg.provider)}`);
   }
 }
 
@@ -29,6 +31,7 @@ function buildProvider(cfg: MechanicConfig): LLMProvider {
 export class LLMRouter {
   private providers = new Map<Mechanic, LLMProvider>();
   private cache = new Map<string, CacheEntry>();
+  private apiKeyOverride: string | null = null;
 
   constructor(
     private config: LLMFullConfig,
@@ -73,7 +76,7 @@ export class LLMRouter {
     mechanic: Mechanic,
     system: string,
     user: string,
-    onToken: (charsSoFar: number) => void,
+    onToken: (charsSoFar: number, contentSoFar?: string) => void,
     options?: LLMGenerateOptions,
   ): Promise<LLMResponse> {
     const cfg = this.config.mechanics[mechanic];
@@ -81,8 +84,33 @@ export class LLMRouter {
     const opts: LLMGenerateOptions = { ...options, jsonMode: options?.jsonMode ?? cfg.jsonMode ?? false };
     if (cfg.stream && p.stream) return p.stream(system, user, onToken, opts);
     const res = await this.generate(mechanic, system, user, opts);
-    onToken(res.content.length);
+    onToken(res.content.length, res.content);
     return res;
+  }
+
+  /** Sostituisce la configurazione a caldo: provider ricostruiti e cache svuotata. */
+  updateConfig(config: LLMFullConfig): void {
+    this.config = config;
+    this.providers.clear();
+    this.cache.clear();
+  }
+
+  /**
+   * Chiave API «solo memoria», inviata dal browser (localStorage):
+   * non viene mai scritta su disco. Applica la chiave a tutte le meccaniche
+   * ricreando i provider con la stessa config.
+   */
+  setApiKey(apiKey: string): void {
+    this.apiKeyOverride = apiKey;
+    for (const m of Object.keys(this.config.mechanics) as Mechanic[]) {
+      this.config.mechanics[m] = { ...this.config.mechanics[m], apiKey };
+    }
+    this.providers.clear();
+  }
+
+  /** True se una chiave solo-memoria è attiva (origine: browser). */
+  get hasMemoryApiKey(): boolean {
+    return !!this.apiKeyOverride;
   }
 
   /** Описание текущей конфигурации без секретов — для /api/llm/status. */

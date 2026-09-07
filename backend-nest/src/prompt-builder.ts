@@ -4,12 +4,21 @@
  * Сервис для построения переменных промптов
  */
 
-import { PromptVariables, SimulationResult, ConvertedAction, Suggestion, AdvisorMessage, difficultyPromptBlock, normalizeDifficulty } from './prompts';
-import { buildSimulationPrompt, parseSimulationResponse, buildAutoJumpInstruction } from './prompts/simulation';
+import { PromptVariables, SimulationResult, SimulationEvent, ConvertedAction, Suggestion, AdvisorMessage, difficultyPromptBlock, normalizeDifficulty } from './prompts';
+import {
+  buildSimulationPrompt,
+  buildAutoJumpInstruction,
+  buildCausalityGuard,
+  buildIncrementalOutputInstruction,
+  extractCompleteJsonObjects,
+  parseIncrementalSimulationRecord,
+  parseIncrementalSimulationResponse,
+} from './prompts/simulation';
 import { buildAdvisorPrompt, parseAdvisorResponse, buildAdvisorDialogSuffix } from './prompts/advisor';
-import { buildSuggestionsPrompt, parseSuggestionsResponse } from './prompts/suggestions';
+import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
+import { addDays, formatItalianDate } from './core/simulation/calendar';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
 import { LLMRouter } from './llm';
 
@@ -33,13 +42,38 @@ interface GameData {
     name: string;
     basePrompt: string;
     startDate: string;
-    regions: any; // может быть Map или объект
+    regions: any; // può essere Map o oggetto
     /** Переопределённые промпты мира (приоритет над дефолтными builders) */
     prompts?: PromptOverrides | string | null;
   };
   players: PlayerData[];
-  /** Полития игрока (polityId) — для пометки в описании карты */
+  /** Politia del giocatore (polityId) — для пометки в описании карты */
   playerPolityId?: string;
+  /** Nomi leggibili delle politie (necessari quando le regioni sono province). */
+  playerPolityName?: string;
+  polityNames?: Record<string, string>;
+  /** Relazioni persistenti tra politie, indicizzate per polityId. */
+  relationships?: Record<string, Record<string, string>>;
+  /** Processi in corso (esiti partial) che la simulazione deve portare avanti. */
+  ongoingProcesses?: Array<{ title: string; summary: string; startedDate: string; expectedDate?: string | null }>;
+  /** Conti nazionali calcolati dal motore, non stimati dall'LLM. */
+  worldState?: { accounts?: Record<string, {
+    provinces: number;
+    population: number;
+    gdp: number;
+    militaryPower: number;
+    factories: number;
+    ports: number;
+    universities: number;
+    monthlyRevenue: number;
+    monthlyExpenses: number;
+    monthlyBalance: number;
+    annualGrowthRate: number;
+    stability: number;
+    nominalGdpUsdBillions: number;
+    gdpPerCapitaUsd: number;
+    government: string;
+  }> };  
   actions: ActionData[];
   results: TurnResultData[];
 }
@@ -92,7 +126,9 @@ interface RegionData {
   color: string;
   owner: string;
   population?: number;
+  gdp?: number;
   militaryPower?: number;
+  borders?: string[];
   objects?: any[];
 }
 
@@ -103,7 +139,7 @@ interface PlayerData {
   polityId?: string;
 }
 
-// Хелпер для работы с regions (может быть Map или объектом)
+// Хелпер для работы с regions (può essere Map o oggettoом)
 function getRegion(regions: any, regionId: string): RegionData | undefined {
   if (typeof regions.get === 'function') {
     return regions.get(regionId);
@@ -131,11 +167,21 @@ interface TurnResultData {
   turn: number;
   narration: string;
   events?: string[];
+  /** Data di gioco raggiunta alla fine del periodo. */
+  date?: string;
+  /** Eventi strutturati con dettaglio completo (headline + descrizione). */
+  timelineEvents?: {
+    id: string;
+    date: string;
+    headline: string;
+    detail: string;
+    source?: string;
+  }[];
 }
 
 export class PromptBuilder {
   private game: GameData;
-  private language: string = 'russian';
+  private language: string = 'italian';
 
   constructor(game: GameData) {
     this.game = game;
@@ -145,7 +191,14 @@ export class PromptBuilder {
   buildVariables(): PromptVariables {
     const player = this.game.players[0];
     const playerRegion = getRegion(this.game.world.regions, player.regionId);
-    const playerPolityName = playerRegion?.name || player.name;
+    const playerPolityId = this.game.playerPolityId || player.polityId || playerRegion?.owner;
+    const ownedRegions = getAllRegions(this.game.world.regions)
+      .filter(region => region.owner === playerPolityId);
+    const playerPolityName = this.game.playerPolityName
+      || (ownedRegions.length === 1 ? ownedRegions[0].name : undefined)
+      || playerPolityId
+      || playerRegion?.name
+      || player.name;
 
     return {
       STARTING_ROUND_DATE: this.game.world.startDate || '1951-01-01',
@@ -155,20 +208,22 @@ export class PromptBuilder {
       TARGET_ROUND_GRAMMATICAL_DATE: this.toGrammaticalDate(this.calculateTargetDate(this.game.currentDate, 30)),
       CURRENT_ROUND_NUMBER: this.game.currentTurn,
 
-      WORLD_BEFORE_ROUND_ONE_TEXT: this.game.world.basePrompt || 'Альтернативная история',
+      WORLD_BEFORE_ROUND_ONE_TEXT: this.game.world.basePrompt || 'Storia alternativa',
       // Этап 5: правила симуляции пресета переопределяют дефолт
-      HISTORICAL_PRESET_SIMULATION_RULES: this.game.simulationRules ?? 'События развиваются логично. Учитывай экономику и военную мощь.',
+      HISTORICAL_PRESET_SIMULATION_RULES: this.game.simulationRules ?? 'Gli eventi si sviluppano in modo logico. Considera l\'economia e la potenza militare.',
       DIFFICULTY_DESCRIPTION_JUMP_FORWARD: difficultyPromptBlock(normalizeDifficulty(this.game.difficulty)),
 
       PLAYER_POLITY: playerPolityName,
-      PLAYER_POLITY_REGIONS: this.buildPlayerRegions(player.regionId),
-      PLAYER_POLITY_BATTALION_SUMMARIES: this.buildPlayerBattalions(player.regionId),
+      PLAYER_POLITY_REGIONS: this.buildPlayerRegions(player.regionId, playerPolityId),
+      PLAYER_POLITY_BATTALION_SUMMARIES: this.buildPlayerBattalions(player.regionId, playerPolityId),
 
       PLAYER_ACTIONS_THIS_ROUND: this.buildCurrentActions(),
       PLAYER_EVERY_ACTION_NOT_PREVIOUS: this.buildAllPastActions(),
 
       GRAND_MAP_DESCRIPTION: this.buildMapDescription(),
       GRAND_MAP_DESCRIPTION_NO_CITY: this.buildMapDescriptionNoCity(),
+      STRATEGIC_STATE: this.buildStrategicState(playerPolityId),
+      ONGOING_PROCESSES: this.buildOngoingProcesses(),
 
       ALL_EVENTS_WITH_CONSOLIDATION: this.buildEventHistory(),
       CHATS_NON_CONSOLIDATED_ROUNDS: this.game.chatTranscripts ?? '',
@@ -193,20 +248,58 @@ export class PromptBuilder {
    * имена — и не мог осмысленно адресовать политии в mapChanges.
    */
   private polityDisplayName(owner: string, regionList: RegionData[]): string {
-    return regionList[0]?.name || owner;
+    return this.game.polityNames?.[owner]
+      || (regionList.length === 1 ? regionList[0]?.name : undefined)
+      || owner;
   }
 
   private polityHeader(owner: string, regionList: RegionData[]): string {
     const displayName = this.polityDisplayName(owner, regionList);
-    const playerMark = owner === this.game.playerPolityId ? ' (ИГРОК)' : '';
+    const playerMark = owner === this.game.playerPolityId ? ' (GIOCATORE)' : '';
     // Показываем и имя, и id-алиас: LLM адресует политию по имени,
     // движок резолвит и то, и другое (см. utils/name-resolver).
-    return `Полития "${displayName}" [${owner}]${playerMark} (цвет ${regionList[0].color}):`;
+    return `Politia "${displayName}" [${owner}]${playerMark} (colore ${regionList[0].color}):`;
+  }
+
+  /** Limite esplicito: la memoria operativa deve essere leggibile dal modello,
+   * non una trascrizione completa del database geografico. */
+  private compact(text: string, maxChars: number): string {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    return normalized.length <= maxChars ? normalized : `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+  }
+
+  /** Mappa nazionale compatta per mondi provinciali: conserva identità delle
+   * politie e dimensione, mentre province/frontiere rilevanti restano nello
+   * stato strategico. Questo evita decine di migliaia di token inutili. */
+  private buildCompactProvincialMap(regions: RegionData[]): string {
+    const polities = this.groupRegionsByOwner(regions);
+    const accountByPolity = this.game.worldState?.accounts || {};
+    const entries = [...polities.entries()]
+      .filter(([owner]) => owner !== 'neutral')
+      .sort(([a, left], [b, right]) => {
+        if (a === this.game.playerPolityId) return -1;
+        if (b === this.game.playerPolityId) return 1;
+        return (accountByPolity[right[0]?.owner]?.gdp || 0) - (accountByPolity[left[0]?.owner]?.gdp || 0)
+          || this.polityDisplayName(a, left).localeCompare(this.polityDisplayName(b, right));
+      });
+    const listed = entries.slice(0, 72).map(([owner, regionList]) => {
+      const account = accountByPolity[owner];
+      const playerMark = owner === this.game.playerPolityId ? ' GIOCATORE' : '';
+      return `- ${this.polityDisplayName(owner, regionList)} [${owner}]${playerMark}: ${regionList.length} province; popolazione ${Math.round(account?.population || regionList.reduce((n, r) => n + (Number(r.population) || 0), 0)).toLocaleString('it-IT')}.`;
+    });
+    const omitted = entries.length - listed.length;
+    return [
+      `Mappa provinciale compressa: ${regions.length} province in ${entries.length} politie.`,
+      'Le frontiere e le province che il giocatore può influenzare sono elencate nello Stato strategico; non inventare province non nominate lì o nell’ordine.',
+      ...listed,
+      omitted > 0 ? `Altre ${omitted} politie presenti ma non rilevanti per il teatro attuale.` : '',
+    ].filter(Boolean).join('\n');
   }
 
   // Описание карты (полное)
   private buildMapDescription(): string {
     const regions = getAllRegions(this.game.world.regions);
+    if (regions.length > 350) return this.buildCompactProvincialMap(regions);
     const polities = this.groupRegionsByOwner(regions);
 
     let description = '';
@@ -216,19 +309,19 @@ export class PromptBuilder {
 
       const capitals = regionList.filter(r => r.objects?.some((o: any) => o.type === 'capital'));
       const capitalsStr = capitals.length > 0
-        ? capitals.map(r => `${r.name} (столица)`).join(', ')
+        ? capitals.map(r => `${r.name} (capitale)`).join(', ')
         : '';
 
       description += `${this.polityHeader(owner, regionList)}\n`;
       if (capitalsStr) description += `- ${capitalsStr}\n`;
-      description += `- Регионы: ${regionList.map(r => r.name).join(', ')}\n`;
+      description += `- Regioni: ${regionList.map(r => r.name).join(', ')}\n`;
       description += `\n`;
     }
 
     // Нейтральные регионы
     const neutral = regions.filter(r => r.owner === 'neutral');
     if (neutral.length > 0) {
-      description += `Нейтральные регионы:\n`;
+      description += `Regioni neutrali:\n`;
       description += `- ${neutral.map(r => r.name).join(', ')}\n`;
     }
 
@@ -238,13 +331,14 @@ export class PromptBuilder {
   // Описание карты без городов
   private buildMapDescriptionNoCity(): string {
     const regions = getAllRegions(this.game.world.regions);
+    if (regions.length > 350) return this.buildCompactProvincialMap(regions);
     const polities = this.groupRegionsByOwner(regions);
 
     let description = '';
 
     for (const [owner, regionList] of polities) {
       if (owner === 'neutral') {
-        description += `Нейтральные регионы:\n`;
+        description += `Regioni neutrali:\n`;
         description += regionList.map(r => r.name).join(', ');
         description += '\n\n';
         continue;
@@ -258,23 +352,113 @@ export class PromptBuilder {
     return description;
   }
 
-  // Регионы игрока
-  private buildPlayerRegions(playerRegionId: string): string {
-    const playerRegion = getRegion(this.game.world.regions, playerRegionId);
-    if (!playerRegion) return 'Нет регионов';
-
-    return playerRegion.name;
+  /**
+   * Fotografia di stato per il simulatore. Manteniamo il blocco conciso e
+   * verificabile: il modello deve poter fondare le reazioni sui confini, sulle
+   * risorse e sui rapporti reali, senza inventare minacce o alleanze.
+   */
+  /** Elenco leggibile dei processi in corso per il prompt di simulazione. */
+  private buildOngoingProcesses(): string {
+    const processes = this.game.ongoingProcesses || [];
+    if (!processes.length) return '';
+    return processes.map(process => {
+      const due = process.expectedDate
+        ? ` — completamento previsto: ${process.expectedDate}`
+        : ' — completamento previsto: data non determinata';
+      return `- ${process.title}${due}. Stato: ${process.summary} (avviato: ${process.startedDate})`;
+    }).join('\n');
   }
 
-  // Батальоны игрока
-  private buildPlayerBattalions(playerRegionId: string): string {
-    const region = getRegion(this.game.world.regions, playerRegionId);
-    if (!region?.objects) return 'Нет юнитов';
+  private buildStrategicState(playerPolityId?: string): string {
+    const regions = getAllRegions(this.game.world.regions);
+    if (!playerPolityId) return 'Stato strategico non disponibile.';
 
-    const battalions = region.objects.filter((o: any) => o.type === 'battalion');
-    if (battalions.length === 0) return 'Нет юнитов';
+    const owned = regions.filter(region => region.owner === playerPolityId);
+    if (owned.length === 0) return 'La politia del giocatore non controlla regioni.';
 
-    return `${battalions.length} юнитов`;
+    const byId = new Map(regions.map(region => [region.id, region]));
+    const neighbours = new Map<string, RegionData[]>();
+    for (const region of regions) {
+      if (region.owner === playerPolityId || region.owner === 'neutral') continue;
+      const touchesPlayer = (region.borders || []).some(id => byId.get(id)?.owner === playerPolityId)
+        || owned.some(playerRegion => (playerRegion.borders || []).includes(region.id));
+      if (!touchesPlayer) continue;
+      const list = neighbours.get(region.owner) || [];
+      list.push(region);
+      neighbours.set(region.owner, list);
+    }
+
+    const sum = (items: RegionData[], field: 'population' | 'gdp' | 'militaryPower') =>
+      items.reduce((total, region) => total + (Number(region[field]) || 0), 0);
+    const fmt = (value: number) => new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 }).format(value);
+    const playerName = this.polityDisplayName(playerPolityId, owned);
+    const playerAccount = this.game.worldState?.accounts?.[playerPolityId];
+    const lines = [
+      `Politia del giocatore: ${playerName} [${playerPolityId}].`,
+      `Risorse attuali: popolazione ${fmt(sum(owned, 'population'))}; PIL ${fmt(sum(owned, 'gdp'))}; potenza militare ${fmt(sum(owned, 'militaryPower'))}.`,
+      `Territori controllati: ${owned.length <= 42 ? owned.map(region => region.name).join(', ') : `${owned.slice(0, 42).map(region => region.name).join(', ')}, più altre ${owned.length - 42} province`}.`,
+    ];
+    if (playerAccount) {
+      lines.push(`Dossier nazionale calcolato dal motore: governo ${playerAccount.government}; popolazione ${fmt(playerAccount.population)}; PIL nominale stimato ${fmt(playerAccount.nominalGdpUsdBillions)} miliardi USD; PIL pro capite circa ${fmt(playerAccount.gdpPerCapitaUsd)} USD; entrate mensili ${fmt(playerAccount.monthlyRevenue)}; uscite mensili ${fmt(playerAccount.monthlyExpenses)}; saldo ${fmt(playerAccount.monthlyBalance)}; crescita annua ${(playerAccount.annualGrowthRate * 100).toFixed(1)}%; stabilità ${playerAccount.stability}/100; infrastrutture: ${playerAccount.factories} fabbriche, ${playerAccount.ports} porti, ${playerAccount.universities} università.`);
+    }
+
+    if (neighbours.size === 0) {
+      lines.push('Confini terrestri con altre politie: nessuno registrato sulla mappa.');
+    } else {
+      lines.push('Frontiere e rapporti attuali:');
+      for (const [owner, borderRegions] of neighbours) {
+        const allOwned = regions.filter(region => region.owner === owner);
+        const relation = this.game.relationships?.[playerPolityId]?.[owner]
+          || this.game.relationships?.[owner]?.[playerPolityId]
+          || 'neutral';
+        const account = this.game.worldState?.accounts?.[owner];
+        const economy = account
+          ? `; PIL ${fmt(account.gdp)}, saldo mensile ${fmt(account.monthlyBalance)}, stabilità ${account.stability}/100`
+          : '';
+        lines.push(`- ${this.polityDisplayName(owner, allOwned)} [${owner}]: rapporto ${relation}; confina tramite ${borderRegions.map(region => region.name).join(', ')}; potenza militare stimata ${fmt(sum(allOwned, 'militaryPower'))}${economy}.`);
+      }
+    }
+
+    lines.push('Questi dati sono vincolanti: non attribuire risorse, frontiere, alleanze, mobilitazioni o minacce non presenti nella cronaca o in questo stato.');
+    return lines.join('\n');
+  }
+
+  // Territori e risorse del giocatore: tutte le regioni della politia, non
+  // soltanto quella scelta all'avvio (che nei preset provinciali è una provincia).
+  private buildPlayerRegions(playerRegionId: string, playerPolityId?: string): string {
+    const allRegions = getAllRegions(this.game.world.regions);
+    const fallback = getRegion(this.game.world.regions, playerRegionId);
+    const owned = playerPolityId
+      ? allRegions.filter(region => region.owner === playerPolityId)
+      : (fallback ? [fallback] : []);
+    if (owned.length === 0) return 'Nessuna regione';
+
+    const sum = (key: 'population' | 'gdp' | 'militaryPower') =>
+      owned.reduce((total, region) => total + (Number(region[key]) || 0), 0);
+    const fmt = (value: number) => new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 }).format(value);
+
+    const regionNames = owned.length <= 42
+      ? owned.map(region => region.name).join(', ')
+      : `${owned.slice(0, 42).map(region => region.name).join(', ')}, più altre ${owned.length - 42} province`;
+    return `Regioni controllate: ${regionNames}. `
+      + `Risorse aggregate: popolazione ${fmt(sum('population'))}; PIL ${fmt(sum('gdp'))}; potenza militare ${fmt(sum('militaryPower'))}.`;
+  }
+
+  // Battaglioni del giocatore, raggruppati per regione per evitare che il
+  // generatore proponga movimenti di unità inesistenti o nel posto sbagliato.
+  private buildPlayerBattalions(playerRegionId: string, playerPolityId?: string): string {
+    const allRegions = getAllRegions(this.game.world.regions);
+    const fallback = getRegion(this.game.world.regions, playerRegionId);
+    const owned = playerPolityId
+      ? allRegions.filter(region => region.owner === playerPolityId)
+      : (fallback ? [fallback] : []);
+
+    const placements = owned.flatMap(region => {
+      const count = (region.objects || []).filter((object: any) => object.type === 'battalion').length;
+      return count > 0 ? [`${count} unità in ${region.name}`] : [];
+    });
+
+    return placements.length > 0 ? placements.join('; ') : 'Nessuna unità militare registrata sulla mappa';
   }
 
   // Действия за текущий раунд
@@ -287,21 +471,41 @@ export class PromptBuilder {
 
   // Все прошлые действия
   private buildAllPastActions(): string {
-    const pastActions = this.game.actions.filter(a => a.turn < this.game.currentTurn);
-    if (pastActions.length === 0) return 'Нет прошлых действий';
+    // La cronaca consolidata conserva gli effetti remoti. Qui servono soltanto
+    // gli ultimi ordini irrisolti, così non replichiamo l'intera partita.
+    const pastActions = this.game.actions
+      .filter(a => a.turn < this.game.currentTurn)
+      .slice(-6);
+    if (pastActions.length === 0) return 'Nessuna azione passata rilevante';
+    return pastActions
+      .map(action => `T${action.turn}: ${this.compact(action.text, 220)}`)
+      .join('\n');
+  }
 
-    const byTurn: Record<number, string[]> = {};
-    for (const action of pastActions) {
-      if (!byTurn[action.turn]) byTurn[action.turn] = [];
-      byTurn[action.turn].push(action.text);
+  // Cronaca di un singolo turno: narrazione + dettaglio completo degli eventi.
+  // Includere i dettagli (non solo il riassunto) è essenziale perché l'LLM
+  // possa mantenere continuità: senza, gli eventi dei turni successivi
+  // risultano scollegati e casuali.
+  private formatTurnHistory(r: TurnResultData): string {
+    const lines: string[] = [`Turno ${r.turn}: ${this.compact(r.narration, 420)}`];
+    const events = (r.timelineEvents?.length
+      ? r.timelineEvents
+      : (r.events || []).map((headline, index) => ({
+          id: `${r.id}-${index}`,
+          date: r.date || '',
+          headline,
+          detail: '',
+        })))
+      .slice(-4);
+    for (const ev of events) {
+      const date = ev.date ? ` (${ev.date})` : '';
+      const headline = this.compact(ev.headline, 160);
+      const detail = this.compact(ev.detail || '', 280);
+      lines.push(detail && detail !== headline
+        ? `  • ${headline}${date}: ${detail}`
+        : `  • ${headline}${date}`);
     }
-
-    let result = '';
-    for (const turn of Object.keys(byTurn).sort((a, b) => Number(a) - Number(b))) {
-      result += `Раунд ${turn}: ${byTurn[Number(turn)].join(', ')}\n`;
-    }
-
-    return result;
+    return lines.join('\n');
   }
 
   // История событий: консолидированное саммари ранних раундов + сырой хвост
@@ -309,20 +513,16 @@ export class PromptBuilder {
     if (this.game.results.length === 0 && !this.game.consolidatedHistory) return '';
 
     const consolidated = this.game.consolidatedHistory?.trim();
-    if (!consolidated) {
-      return this.game.results.map(r =>
-        `Раунд ${r.turn}: ${r.narration}`
-      ).join('\n\n');
-    }
+    // La memoria canonica è già un riassunto. Il resto è una finestra corta
+    // di fatti recenti: basta a proseguire le catene causali senza duplicare
+    // centinaia di turni in ogni chiamata.
+    const rawTail = this.game.results.slice(-5);
+    const recent = rawTail.map(r => this.formatTurnHistory(r)).join('\n\n');
+    if (!consolidated) return this.compact(recent, 6_000);
 
-    const tail = this.game.consolidationTail ?? 10;
-    const rawTail = this.game.results.slice(-tail);
-    let out = `[Консолидированная история ранних раундов]\n${consolidated}`;
-    if (rawTail.length > 0) {
-      out += `\n\n[Последние раунды — подробно]\n` +
-        rawTail.map(r => `Раунд ${r.turn}: ${r.narration}`).join('\n\n');
-    }
-    return out;
+    const out = `[Memoria canonica dei turni precedenti]\n${this.compact(consolidated, 3_600)}`
+      + (recent ? `\n\n[Ultimi 5 turni — fatti verificabili]\n${recent}` : '');
+    return this.compact(out, 8_000);
   }
 
   // Группировка регионов по владельцам
@@ -340,21 +540,14 @@ export class PromptBuilder {
     return polities;
   }
 
-  // Расчёт целевой даты
+  // Расчёт целевой даты (UTC — локальная арифметика ломалась на DST)
   private calculateTargetDate(startDate: string, days: number): string {
-    const date = new Date(startDate);
-    date.setDate(date.getDate() + days);
-    return date.toISOString().split('T')[0];
+    return addDays(startDate, days);
   }
 
   // Дата в грамматическом формате
   private toGrammaticalDate(dateStr: string): string {
-    const months = [
-      'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-      'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
-    ];
-    const date = new Date(dateStr);
-    return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+    return formatItalianDate(dateStr);
   }
 }
 
@@ -371,7 +564,9 @@ export class PromptEngine {
     actions: string[],
     jumpDays: number,
     onProgress?: (charsSoFar: number) => void,
-    autoJump?: boolean
+    autoJump?: boolean,
+    onEvent?: (event: SimulationEvent, index: number) => void,
+    signal?: AbortSignal,
   ): Promise<SimulationResult> {
     const builder = new PromptBuilder(game);
 
@@ -384,21 +579,52 @@ export class PromptEngine {
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'simulation');
     // Пресетный шаблон заменяет дефолтный промпт целиком; правила auto-jump
     // (если режим включён) дописываем после него, чтобы механика не ломалась.
-    const prompt = promptOverride
-      ? renderPromptTemplate(promptOverride, vars) + (autoJump ? buildAutoJumpInstruction(vars) : '')
+    const basePrompt = promptOverride
+      ? renderPromptTemplate(promptOverride, vars)
+        + buildCausalityGuard(vars)
+        + (autoJump ? buildAutoJumpInstruction(vars) : '')
       : buildSimulationPrompt(vars, { autoJump });
+    // Budget basso: privilegiamo una catena di conseguenze credibile rispetto
+    // a una lista di notizie scollegate. Il modello può sempre concludere prima.
+    const maxEvents = autoJump ? 1 : Math.min(12, Math.max(1, Math.ceil(jumpDays / 21)));
+    const prompt = basePrompt + buildIncrementalOutputInstruction(vars, maxEvents, !!autoJump);
+
+    let parsedObjectCount = 0;
+    let emittedCount = 0;
+    const emitted = new Set<string>();
+    const emitEvent = (event: SimulationEvent) => {
+      const key = JSON.stringify(event);
+      if (emitted.has(key)) return;
+      emitted.add(key);
+      onEvent?.(event, emittedCount++);
+    };
+
     // system — короткая ролевая инструкция, user — большой промпт.
-    // Раньше весь промпт шёл в system, а user был пустым: часть моделей
-    // (особенно локальные) на это реагирует заметно хуже.
+    // Ogni volta che nello stream si chiude un oggetto JSON `event`, lo
+    // normalizziamo e lo consegniamo subito alla sessione di gioco.
     const response = await this.llm.stream(
       'jump',
-      'Ты — симулятор альтернативной истории. Строго следуй формату ответа из инструкции.',
+      'Sei il simulatore di una storia alternativa. Ogni evento deve derivare esplicitamente da ordini, cronaca, diplomazia o stato della mappa forniti; non inventare eventi indipendenti. Produci JSON Lines valido.',
       prompt,
-      onProgress ?? (() => {}),
-      { temperature: 0.7 }
+      (chars, content) => {
+        onProgress?.(chars);
+        if (!onEvent || !content || !content.slice(Math.max(0, chars - 256)).includes('}')) return;
+        const objects = extractCompleteJsonObjects(content);
+        for (const raw of objects.slice(parsedObjectCount)) {
+          const record = parseIncrementalSimulationRecord(raw);
+          if (record?.type === 'event') emitEvent(record.event);
+        }
+        parsedObjectCount = objects.length;
+      },
+      // NDJSON non è un singolo documento JSON: disattiva response_format.
+      { temperature: 0.7, jsonMode: false, signal }
     );
 
-    return parseSimulationResponse(response.content);
+    const result = parseIncrementalSimulationResponse(response.content);
+    // Provider senza streaming o modello che usa ancora il vecchio formato:
+    // preserva la compatibilità, pubblicando gli eventi appena arriva la risposta.
+    for (const event of result.events) emitEvent(event);
+    return result;
   }
 
   async convertAction(game: GameData, actionText: string): Promise<ConvertedAction> {
@@ -409,7 +635,7 @@ export class PromptEngine {
     const prompt = promptOverride ? renderPromptTemplate(promptOverride, vars) : buildConverterPrompt(vars);
     const response = await this.llm.generate(
       'converter',
-      'Ты — аналитик приказов в глобальной стратегической игре. Отвечай только JSON.',
+      'Sei l\'analista degli ordini in un gioco strategico globale. Rispondi SOLO con JSON.',
       prompt,
       { temperature: 0.5 }
     );
@@ -444,7 +670,7 @@ export class PromptEngine {
     const prompt = buildBatchConverterPrompt(vars, actionTexts);
     const response = await this.llm.generate(
       'converter',
-      'Ты — аналитик приказов в глобальной стратегической игре. Отвечай только JSON.',
+      'Sei l\'analista degli ordini in un gioco strategico globale. Rispondi SOLO con JSON.',
       prompt,
       { temperature: 0.5 }
     );
@@ -464,7 +690,7 @@ export class PromptEngine {
       : buildAdvisorPrompt(vars, message, history);
     const response = await this.llm.generate(
       'advisor',
-      'Ты — мудрый советник лидера государства в альтернативной истории.',
+      'Sei il saggio consigliere del capo di Stato in una storia alternativa.',
       prompt,
       { temperature: 0.7 }
     );
@@ -491,7 +717,7 @@ export class PromptEngine {
       : buildAdvisorPrompt(vars, message, history);
     const response = await this.llm.stream(
       'advisor',
-      'Ты — мудрый советник лидера государства в альтернативной истории.',
+      'Sei il saggio consigliere del capo di Stato in una storia alternativa.',
       prompt,
       onToken,
       { temperature: 0.7 }
@@ -505,12 +731,15 @@ export class PromptEngine {
     const vars = builder.buildVariables();
 
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'suggestions');
-    const prompt = promptOverride ? renderPromptTemplate(promptOverride, vars) : buildSuggestionsPrompt(vars);
+    const basePrompt = promptOverride ? renderPromptTemplate(promptOverride, vars) : buildSuggestionsPrompt(vars);
+    // Le regole di qualità sono sempre applicate, anche ai prompt salvati nei
+    // preset o già persistiti nel DB.
+    const prompt = basePrompt + buildSuggestionsQualityInstruction(vars);
     const response = await this.llm.generate(
       'suggestions',
-      'Ты — штабной аналитик, предлагающий варианты действий. Отвечай только JSON.',
+      'Genera ordini strategici immediatamente giocabili in stile Pax Historia. Usa solo fatti presenti nel contesto e rispondi SOLO con JSON valido.',
       prompt,
-      { temperature: 0.8 }
+      { temperature: 0.65, maxTokens: 5500 }
     );
 
     return parseSuggestionsResponse(response.content);
@@ -521,7 +750,7 @@ export class PromptEngine {
     jumpDays: number,
     currentDate: string,
     playerPolity: string,
-    language: string = 'russian'
+    language: string = 'italian'
   ): Promise<string> {
     const targetDate = this.calculateTargetDate(currentDate, jumpDays);
 
@@ -536,7 +765,7 @@ export class PromptEngine {
 
     const response = await this.llm.generate(
       'narration',
-      'Ты — летописец альтернативной истории. Пиши живым, но сдержанным стилем.',
+      'Sei il cronista di una storia alternativa. Scrivi con stile vivace ma sobrio.',
       prompt,
       { temperature: 0.7 }
     );
@@ -545,17 +774,10 @@ export class PromptEngine {
   }
 
   private calculateTargetDate(startDate: string, days: number): string {
-    const date = new Date(startDate);
-    date.setDate(date.getDate() + days);
-    return date.toISOString().split('T')[0];
+    return addDays(startDate, days);
   }
 
   private toGrammaticalDate(dateStr: string): string {
-    const months = [
-      'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-      'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
-    ];
-    const date = new Date(dateStr);
-    return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+    return formatItalianDate(dateStr);
   }
 }

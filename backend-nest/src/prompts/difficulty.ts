@@ -1,8 +1,9 @@
 /**
- * Open-Pax — Уровни сложности
- * ===========================
- * 5 уровней, реализованных текстовыми блоками в промптах (как в оригинале).
- * Тексты — собственные (wiki оригинала недоступна из сети разработки).
+ * Open-Pax — Livelli di difficoltà
+ * ================================
+ * 5 livelli, realizzati come blocchi testuali nei prompt (come nell'originale).
+ * I testi sono nostri (la wiki dell'originale non è raggiungibile dall'ambiente
+ * di sviluppo).
  */
 
 export type Difficulty = 'story' | 'easy' | 'normal' | 'hard' | 'very_hard';
@@ -10,59 +11,70 @@ export type Difficulty = 'story' | 'easy' | 'normal' | 'hard' | 'very_hard';
 export const ALL_DIFFICULTIES: Difficulty[] = ['story', 'easy', 'normal', 'hard', 'very_hard'];
 
 export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
-  story: 'История (очень легко)',
-  easy: 'Легко',
-  normal: 'Обычная',
-  hard: 'Сложно',
-  very_hard: 'Очень сложно',
+  story: 'Storia (facilissimo)',
+  easy: 'Facile',
+  normal: 'Normale',
+  hard: 'Difficile',
+  very_hard: 'Difficilissimo',
 };
 
 const DIFFICULTY_PROMPTS: Record<Difficulty, string> = {
-  story: `[Сложность: История]
-Это режим повествования. Мир мягко подстраивается под замысел игрока:
-- Действия игрока почти всегда удаются, даже амбициозные — просто находи
-  правдоподобное объяснение успеха.
-- Другие державы ведут себя дружелюбно и редко препятствуют игроку напрямую.
-- Кризисы случаются редко и быстро разрешаются в пользу игрока.
-- Войны против игрока — только если он сам их явно начал.`,
+  story: `[Difficoltà: Storia]
+Questa è la modalità narrativa. Il mondo si adatta con delicatezza ai disegni del giocatore:
+- Le azioni del giocatore riescono quasi sempre, anche le più ambiziose — trova
+  semplicemente una spiegazione plausibile del successo.
+- Le altre potenze si comportano in modo benevolo e ostacolano raramente il
+  giocatore in modo diretto.
+- Le crisi sono rare e si risolvono rapidamente a favore del giocatore.
+- Le guerre contro il giocatore scoppiano solo se le ha iniziate lui stesso.`,
 
-  easy: `[Сложность: Легко]
-Игра благосклонна к игроку:
-- Действия игрока в основном успешны; провалы — только при явном безрассудстве.
-- Другие державы предпочитают торговлю и союзы с игроком конфронтации.
-- Экономика игрока растёт быстрее, последствия ошибок смягчены.
-- Враги игрока действуют нерешительно.`,
+  easy: `[Difficoltà: Facile]
+La partita è benevola verso il giocatore:
+- Le azioni del giocatore hanno quasi sempre successo; i fallimenti arrivano
+  solo in caso di avventatezza evidente.
+- Le altre potenze preferiscono il commercio e le alleanze con il giocatore
+  alla confrontation.
+- L'economia del giocatore cresce più in fretta e le conseguenze degli errori
+  sono attenuate.
+- I nemici del giocatore agiscono con esitazione.`,
 
-  normal: `[Сложность: Обычная]
-Реалистичная симуляция:
-- Успех действий игрока зависит от ресурсов, географии и международной обстановки.
-- Другие державы преследуют собственные интересы: заключают союзы, конкурируют,
-  используют слабость игрока.
-- У каждого решения есть цена и последствия.
-- Войны, кризисы и дипломатические осложнения — нормальная часть игры.`,
+  normal: `[Difficoltà: Normale]
+Simulazione realistica:
+- Il successo delle azioni del giocatore dipende da risorse, geografia e
+  situazione internazionale.
+- Le altre potenze inseguono i propri interessi: stringono alleanze,
+  competono, sfruttano le debolezze del giocatore.
+- Ogni decisione ha un costo e delle conseguenze.
+- Guerre, crisi e complicazioni diplomatiche sono una parte normale del gioco.`,
 
-  hard: `[Сложность: Сложно]
-Мир неприветлив и конкурентен:
-- Действия игрока часто встречают сопротивление: санкции, коалиции, срыв планов.
-- Другие державы активно объединяются против растущего влияния игрока.
-- Ошибки дорого обходятся: экономические и военные просчёты имеют долгие последствия.
-- Союзники игрока ненадёжны и могут пересмотреть отношения.`,
+  hard: `[Difficoltà: Difficile]
+Il mondo è ostile e competitivo:
+- Le azioni del giocatore incontrano spesso resistenza: sanzioni, coalizioni,
+  piani stravolti.
+- Le altre poteri si alleano attivamente contro la crescita di influenza del
+  giocatore.
+- Gli errori costano caro: i passi falsi economici e militari hanno
+  conseguenze lunghe.
+- Gli alleati del giocatore sono inaffidabili e possono rivedere le proprie
+  posizioni.`,
 
-  very_hard: `[Сложность: Очень сложно]
-Безжалостная симуляция великодержавной политики:
-- Мир относится к игроку как к угрозе: баланс сил почти всегда против него.
-- Большинство амбициозных действий заканчивается неудачей или пирровой победой
-  — симулируй это честно, без поблажек.
-- Другие державы действуют слаженно, коварно и на опережение.
-- Экономические кризисы, предательства союзников и внутренние проблемы —
-  регулярные испытания для игрока.`,
+  very_hard: `[Difficoltà: Difficilissimo]
+Simulazione spietata della politica delle grandi potenze:
+- Il mondo vede nel giocatore una minaccia: l'equilibrio di potenza è quasi
+  sempre contro di lui.
+- La maggior parte delle azioni ambiziose si conclude con un fallimento o con
+  una vittoria pirrica — simulalo con onestà, senza sconti.
+- Le altre potenze agiscono in modo coordinato, subdolo e con capacità di
+  anticipazione.
+- Crisi economiche, tradimenti degli alleati e problemi interni sono prove
+  ricorrenti per il giocatore.`,
 };
 
 export function normalizeDifficulty(raw: unknown): Difficulty {
   return ALL_DIFFICULTIES.includes(raw as Difficulty) ? (raw as Difficulty) : 'normal';
 }
 
-/** Текстовый блок сложности для промпта прыжка (DIFFICULTY_DESCRIPTION_JUMP_FORWARD). */
+/** Blocco testuale della difficoltà per il prompt del salto (DIFFICULTY_DESCRIPTION_JUMP_FORWARD). */
 export function difficultyPromptBlock(difficulty: Difficulty): string {
   return DIFFICULTY_PROMPTS[difficulty];
 }

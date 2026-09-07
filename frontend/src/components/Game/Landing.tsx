@@ -1,48 +1,50 @@
 /**
- * Open-Pax — Этап 6: Landing (стартовый экран-лендинг)
+* Open-Pax — Fase 6: Landing (schermata iniziale)
  * =====================================================
- * Референс: docs/ref/pax_home.png — звёздное небо, горизонт планеты,
- * крупный заголовок и центральная градиентная CTA-кнопка.
+* Riferimento: docs/ref/pax_home.png — cielo stellato, orizzonte del pianeta,
+* grande titolo e pulsante CTA sfumato centrale.
  *
- * Самодостаточный компонент: сам загружает список сохранений (savesApi.list),
- * сам фильтрует служебные снапшоты отката (`__rewind__`).
- * Стили: конец frontend/src/index.css, секция «Этап 6: Landing».
+* Componente autosufficiente: carica da solo l'elenco dei salvataggi (savesApi.list),
+* filtra da solo gli snapshot di rewind (`__rewind__`).
+* Stili: fine di frontend/src/index.css, sezione «Fase 6: Landing».
  */
 
 import { useEffect, useState } from 'react';
 import { savesApi } from '../../services/api';
 
 export interface LandingProps {
-  /** Переход к созданию новой игры */
+/** Passaggio alla creazione di una nuova partita */
   onNewGame: () => void;
-  // ОТКЛЮЧЕНО: редактор карт (временно)
-  // /** Открыть редактор карт */
+  /** Apri il menu di scelta del modello IA */
+  onOpenModelSettings?: () => void;
+  // DISATTIVATO: editor mappe (temporaneo)
+  // /** Apri l'editor di mappe */
   // onOpenEditor: () => void;
-  // /** Выбор сохранённой карты из секции «Мои карты» */
+  // /** Scelta di una mappa salvata dalla sezione «Le mie mappe» */
   // onSelectMap: (map: any) => void;
-  /** Продолжить игру из сохранения (объект из savesApi.list) */
+  /** Continuare la partita da un salvataggio (oggetto da savesApi.list) */
   onResumeSave: (save: any) => void;
-  // ОТКЛЮЧЕНО: редактор карт (временно)
-  // /** Сохранённые карты пользователя (regions: {id, path, color}[]) */
+  // DISATTIVATO: editor mappe (temporaneo)
+  // /** Mappe salvate dell'utente (regions: {id, path, color}[]) */
   // savedMaps: any[];
 }
 
-/** «1951-01-01» → «1 января 1951» */
+/** «1951-01-01» → «1 gennaio 1951» */
 function formatGameDate(value?: string): string {
   if (!value) return '';
   const d = new Date(value);
   if (isNaN(d.getTime())) return String(value);
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-/** Дата/время сохранения → «12 января 2025 г., 14:32» */
+/** Data/ora del salvataggio → «12 gennaio 2025, 14:32» */
 function formatSavedAt(value?: string): string {
   if (!value) return '';
-  // SQLite datetime('now') хранит UTC без суффикса — трактуем как UTC
+  // SQLite datetime('now') salva UTC senza suffisso — lo trattiamo come UTC
   const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value) ? value.replace(' ', 'T') + 'Z' : value;
   const d = new Date(normalized);
   if (isNaN(d.getTime())) return String(value);
-  return d.toLocaleString('ru-RU', {
+  return d.toLocaleString('it-IT', {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
@@ -52,12 +54,12 @@ function formatSavedAt(value?: string): string {
 }
 
 export function Landing(props: LandingProps) {
-  // ОТКЛЮЧЕНО: редактор карт (временно) — onOpenEditor, onSelectMap, savedMaps
-  const { onNewGame, onResumeSave } = props;
+  // DISATTIVATO: editor mappe (temporaneo) — onOpenEditor, onSelectMap, savedMaps
+  const { onNewGame, onOpenModelSettings, onResumeSave } = props;
 
   const [saves, setSaves] = useState<any[]>([]);
 
-  // Загружаем сохранения при монтировании; пустое состояние/ошибка — секция скрыта
+  // Carica i salvataggi al mount; stato vuoto/errore — sezione nascosta
   useEffect(() => {
     let cancelled = false;
     savesApi
@@ -65,66 +67,66 @@ export function Landing(props: LandingProps) {
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data?.saves) ? data.saves : [];
-        // `__rewind__` — служебный снапшот отката хода, не показываем как сейв
+        // `__rewind__` è uno snapshot interno di rewind, non lo mostriamo come salvataggio
         setSaves(list.filter((s: any) => s && s.name !== '__rewind__'));
       })
       .catch((e) => {
-        console.warn('[Landing] Не удалось загрузить сохранения:', e);
+        console.warn('[Landing] Impossibile caricare i salvataggi:', e);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // ОТКЛЮЧЕНО: редактор карт (временно) — список карт для секции «Мои карты»
+  // DISATTIVATO: editor mappe (temporaneo) — elenco mappe per la sezione «Le mie mappe»
   // const maps = Array.isArray(savedMaps) ? savedMaps : [];
 
   return (
     <div className="landing">
-      {/* ===== Hero: звёздное небо + горизонт планеты (pax_home.png) ===== */}
+      {/* ===== Hero: cielo stellato + orizzonte del pianeta (pax_home.png) ===== */}
       <div className="landing-hero">
         <div className="landing-stars" />
         <div className="landing-planet" />
 
         <div className="landing-hero-content">
           <h1 className="landing-title">Open-Pax</h1>
-          <p className="landing-subtitle">Симулятор альтернативной истории</p>
+          <p className="landing-subtitle">Simulatore di storia alternativa</p>
 
           <div className="landing-cta-row">
             <button className="landing-cta" onClick={onNewGame}>
-              Новая игра <span className="landing-cta-arrow">→</span>
+              Nuova partita <span className="landing-cta-arrow">→</span>
             </button>
-            {/* ОТКЛЮЧЕНО: редактор карт (временно)
-            <button className="landing-cta-secondary" onClick={onOpenEditor}>
-              🗺 Редактор карт
-            </button>
-            */}
+            {onOpenModelSettings && (
+              <button className="landing-cta-secondary" onClick={onOpenModelSettings}>
+                🤖 Modello IA
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* ===== Секции под hero ===== */}
-      {/* ОТКЛЮЧЕНО: редактор карт (временно) — условие было (saves.length > 0 || maps.length > 0) */}
+      {/* ===== Sezioni sotto l'hero ===== */}
+      {/* DISATTIVATO: editor mappe (temporaneo) — condizione originale (saves.length > 0 || maps.length > 0) */}
       {saves.length > 0 && (
         <div className="landing-sections">
           {saves.length > 0 && (
             <section className="landing-section">
-              <h2 className="landing-section-title">📂 Продолжить игру</h2>
+              <h2 className="landing-section-title">📂 Continua partita</h2>
               <div className="landing-saves-grid">
                 {saves.map((save: any) => (
                   <div key={save.id} className="landing-save-card">
-                    <div className="landing-save-name">{save.name || 'Сохранение'}</div>
+                    <div className="landing-save-name">{save.name || 'Salvataggio'}</div>
                     <div className="landing-save-meta">
                       {typeof save.current_turn === 'number' && (
-                        <span className="landing-save-turn">Ход {save.current_turn}</span>
+                        <span className="landing-save-turn">Mossa {save.current_turn}</span>
                       )}
                       {save.current_date && <span>{formatGameDate(save.current_date)}</span>}
                     </div>
                     {save.saved_at && (
-                      <div className="landing-save-date">Сохранено: {formatSavedAt(save.saved_at)}</div>
+                      <div className="landing-save-date">Salvato: {formatSavedAt(save.saved_at)}</div>
                     )}
                     <button className="landing-save-play" onClick={() => onResumeSave(save)}>
-                      ▶ Играть
+                      ▶ Gioca
                     </button>
                   </div>
                 ))}
@@ -132,10 +134,10 @@ export function Landing(props: LandingProps) {
             </section>
           )}
 
-          {/* ОТКЛЮЧЕНО: редактор карт (временно) — секция «Мои карты»
+          {/* DISATTIVATO: editor mappe (temporaneo) — sezione «Le mie mappe»
           {maps.length > 0 && (
             <section className="landing-section">
-              <h2 className="landing-section-title">🗺 Мои карты</h2>
+              <h2 className="landing-section-title">🗺 Le mie mappe</h2>
               <div className="landing-maps-grid">
                 {maps.map((map: any) => {
                   const regions = Array.isArray(map?.regions) ? map.regions : [];
@@ -161,7 +163,7 @@ export function Landing(props: LandingProps) {
                       </div>
                       <div className="landing-map-info">
                         <h4>{map.name}</h4>
-                        <span>{regions.length} регионов</span>
+                        <span>{regions.length} regioni</span>
                       </div>
                     </div>
                   );

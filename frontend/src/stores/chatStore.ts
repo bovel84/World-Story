@@ -1,9 +1,9 @@
 /**
  * Open-Pax — Chat Store (Zustand)
  * ================================
- * Этап 3: дипломатические чаты + живой Советник.
- * Хранит список чатов, сообщения по chatId, unread-счётчики
- * и ленту сообщений советника (включая проактивные сводки из SSE).
+ * Fase 3: chat diplomatiche + Consulente live.
+* Contiene l'elenco delle chat, i messaggi per chatId, i contatori unread
+* e il flusso di messaggi del consulente (incluse le sintesi proattive da SSE).
  */
 
 import { create } from 'zustand';
@@ -12,36 +12,38 @@ import { chatsApi, type ChatSummaryData, type ChatMessageData } from '../service
 export type ChatSummary = ChatSummaryData;
 export type ChatMessage = ChatMessageData;
 
-/** Сообщение в ленте советника */
+/** Messaggio nel flusso del consulente */
 export interface AdvisorMessage {
   role: 'user' | 'assistant';
   content: string;
-  /** Проактивный комментарий советника после хода (SSE advisor_proactive) */
+/** Commento proattivo del consulente dopo il turno (SSE advisor_proactive) */
   proactive?: boolean;
 }
 
-/** Вкладки плавающей панели */
+/** Schede del pannello flottante */
 export type FloatingPanelTab = 'suggestions' | 'advisor' | 'chats';
 
 interface ChatState {
-  // Игра, к которой привязаны чаты (при смене игры стейт сбрасывается)
+  // Partita a cui sono legate le chat (al cambio partita lo stato si azzera)
   gameId: string | null;
 
-  // Дипломатические чаты
+  // Chat diplomatiche
   chats: ChatSummary[];
   activeChatId: string | null;
   messagesByChat: Record<string, ChatMessage[]>;
 
-  // Живой Советник
+  // Consulente live
   advisorMessages: AdvisorMessage[];
   advisorStreaming: boolean;
 
-  // Активная вкладка плавающей панели
+  // Scheda attiva e visibilità effettiva del pannello flottante
   panelTab: FloatingPanelTab;
+  chatPanelVisible: boolean;
 
   // Actions
   setGameId: (gameId: string | null) => void;
   setPanelTab: (tab: FloatingPanelTab) => void;
+  setChatPanelVisible: (visible: boolean) => void;
   refreshChats: () => Promise<void>;
   upsertChat: (chat: ChatSummary) => void;
   setActiveChat: (chatId: string | null) => void;
@@ -52,6 +54,7 @@ interface ChatState {
     chatId: string;
     polityId: string;
     polityName: string;
+    participants?: ChatSummary['participants'];
     message: ChatMessage;
   }) => void;
   addAdvisorMessage: (msg: AdvisorMessage) => void;
@@ -68,31 +71,33 @@ const initialState = {
   advisorMessages: [] as AdvisorMessage[],
   advisorStreaming: false,
   panelTab: 'suggestions' as FloatingPanelTab,
+  chatPanelVisible: false,
 };
 
 export const useChatStore = create<ChatState>((set, get) => ({
   ...initialState,
 
-  // При смене игры сбрасываем чаты и ленту советника
+  // Al cambio partita azzeriamo chat e flusso del consulente
   setGameId: (gameId) => set((state) => (
     state.gameId === gameId ? {} : { ...initialState, gameId, panelTab: state.panelTab }
   )),
 
   setPanelTab: (tab) => set({ panelTab: tab }),
+  setChatPanelVisible: (visible) => set({ chatPanelVisible: visible }),
 
-  // Перезагрузить список чатов с сервера (ошибки глотаем — чаты не критичны)
+  // Ricarica l'elenco chat dal server (gli errori vengono ignorati — le chat non sono critiche)
   refreshChats: async () => {
     const { gameId } = get();
     if (!gameId || gameId.startsWith('local_')) return;
     try {
       const data = await chatsApi.list(gameId);
-      set({ chats: data.chats || [] });
+      if (get().gameId === gameId) set({ chats: data.chats || [] });
     } catch (e) {
-      console.warn('[ChatStore] Не удалось загрузить чаты:', e);
+      console.warn('[ChatStore] Impossibile caricare le chat:', e);
     }
   },
 
-  // Добавить чат или обновить существующий (после chatsApi.create)
+  // Aggiungi una chat o aggiorna l'esistente (dopo chatsApi.create)
   upsertChat: (chat) => set((state) => {
     const exists = state.chats.some(c => c.id === chat.id);
     return {
@@ -108,7 +113,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     messagesByChat: { ...state.messagesByChat, [chatId]: messages },
   })),
 
-  // Добавить сообщение в тред (с защитой от дублей по id — ответ POST и SSE могут прийти вместе)
+  // Aggiungi un messaggio al thread (protezione dai duplicati per id — risposta POST e SSE possono arrivare insieme)
   appendMessage: (chatId, message) => set((state) => {
     const existing = state.messagesByChat[chatId] || [];
     if (message.id && existing.some(m => m.id === message.id)) return {};
@@ -117,30 +122,41 @@ export const useChatStore = create<ChatState>((set, get) => ({
     };
   }),
 
-  // Сбросить unread у чата (после загрузки сообщений — бэкенд помечает прочитанными)
+  // Azzera unread della chat (dopo il caricamento dei messaggi — il backend li segna come letti)
   markRead: (chatId) => set((state) => ({
     chats: state.chats.map(c => (c.id === chatId ? { ...c, unread: 0 } : c)),
   })),
 
-  // Входящее сообщение от политии (SSE chat_message)
+  // Messaggio in arrivo da una politia (SSE chat_message)
   handleIncomingChatMessage: (payload) => set((state) => {
     const { chatId, message } = payload;
-    const existing = state.messagesByChat[chatId];
-    const isDup = !!(existing && message.id && existing.some(m => m.id === message.id));
-    const messagesByChat = existing && !isDup
-      ? { ...state.messagesByChat, [chatId]: [...existing, message] }
-      : state.messagesByChat;
+    const existing = state.messagesByChat[chatId] || [];
+    const isDup = !!(message.id && existing.some(m => m.id === message.id));
+    if (isDup) return {};
+    const messagesByChat = {
+      ...state.messagesByChat,
+      [chatId]: [...existing, message],
+    };
 
-    // Если чат сейчас открыт на вкладке «Дипломатия» — unread не наращиваем
-    const isOpen = state.activeChatId === chatId && state.panelTab === 'chats';
-    const chats = state.chats.map(c => (c.id === chatId
-      ? {
-          ...c,
-          lastMessage: message.content,
-          lastMessageAt: message.createdAt || new Date().toISOString(),
-          unread: isOpen ? 0 : (c.unread || 0) + 1,
-        }
-      : c));
+    // Solo una chat realmente visibile non accumula non letti.
+    const isOpen = state.chatPanelVisible && state.activeChatId === chatId;
+    const known = state.chats.find(c => c.id === chatId);
+    const updated: ChatSummary = {
+      ...(known || {
+        id: chatId,
+        polityId: payload.polityId,
+        polityName: payload.polityName,
+        polityColor: payload.participants?.find(p => p.role !== 'player')?.color || '#888888',
+        participants: payload.participants,
+        unread: 0,
+      }),
+      lastMessage: message.content,
+      lastMessageAt: message.createdAt || new Date().toISOString(),
+      unread: isOpen ? 0 : (known?.unread || 0) + 1,
+    };
+    const chats = known
+      ? [updated, ...state.chats.filter(c => c.id !== chatId)]
+      : [updated, ...state.chats];
 
     return { messagesByChat, chats };
   }),
@@ -149,7 +165,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     advisorMessages: [...state.advisorMessages, msg],
   })),
 
-  // Дописать токен стрима к последнему сообщению ассистента
+  // Aggiunge il token dello stream all'ultimo messaggio dell'assistente
   appendToLastAdvisorMessage: (token) => set((state) => {
     const msgs = state.advisorMessages;
     if (msgs.length === 0) return {};
@@ -165,6 +181,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   reset: () => set(initialState),
 }));
 
-/** Суммарный unread по всем чатам (для бейджей) */
+/** Totale unread su tutte le chat (per i badge) */
 export const selectTotalUnread = (state: ChatState): number =>
   state.chats.reduce((sum, c) => sum + (c.unread || 0), 0);

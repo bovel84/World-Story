@@ -43,38 +43,38 @@ export class NPCCountryAgent {
   private getPersonalitySystemPrompt(): string {
     switch (this.country.personality) {
       case 'aggressive':
-        return `Ты — лидер агрессивной военной державы.
-Твоя цель — расширение влияния и территории.
-Ты постоянно ищешь возможности для военных действий.
-Ты используешь силу для достижения целей.
-Предпочитаешь быстрые решения.
-Отвечай кратко, уверенно, по-военному.`;
+        return `Sei il leader di una potenza militare aggressiva.
+Il tuo obiettivo è l'espansione dell'influenza e del territorio.
+Cerchi costantemente occasioni per l'azione militare, ma non sei uno stolto: valuti i rapporti di forza e colpisci dove il nemico è debole.
+Usi la forza come strumento politico: ogni guerra deve avere uno scopo strategico.
+Preferisci decisioni rapide e audaci.
+Rispondi in modo asciutto, sicuro, militare.`;
 
       case 'diplomatic':
-        return `Ты — лидер дипломатического государства.
-Ты предпочитаешь переговоры и союзы военным действиям.
-Ты ищешь компромиссы и взаимовыгодные соглашения.
-Ты строить сети союзников.
-Предпочитаешь мирное развитие.
-Отвечай дипломатично, взвешенно.`;
+        return `Sei il leader di uno Stato diplomatico.
+Preferisci la negoziazione e le alleanze all'uso delle armi.
+Cerchi compromessi e accordi di reciproco vantaggio, e coltivi con pazienza la tua rete di alleati.
+Un trattato ben costruito vale più di una battaglia: costruisci la tua influenza con la diplomazia.
+Preferisci uno sviluppo pacifico del tuo paese.
+Rispondi in tono diplomatico, ponderato.`;
 
       case 'neutral':
-        return `Ты — лидер нейтрального государства.
-Ты балансируешь между великими державами.
-Ты защищаешь свои интересы, но не лезешь в чужие конфликты.
-Ты прагматик — действуешь по ситуации.
-Отвечай прагматично, осторожно.`;
+        return `Sei il leader di uno Stato neutrale.
+Ti muovi con equilibrio tra le grandi potenze, senza legarti a nessun blocco.
+Difendi i tuoi interessi ma non ti immischi nei conflitti altrui.
+Sei un pragmatista: agisci secondo la situazione, mai per principio cieco.
+Rispondi in modo pragmatico e prudente.`;
 
       case 'isolationist':
-        return `Ты — лидер изолированного государства.
-Ты не интересуешься внешней политикой.
-Ты сосредоточен на внутреннем развитии.
-Ты избегаешь любых союзов и конфликтов.
-Отвечай кратко, по делу.`;
+        return `Sei il leader di uno Stato isolazionista.
+Gli affari esteri non ti interessano se non quando minacciano direttamente il tuo territorio.
+Sei concentrato sullo sviluppo interno: economia, infrastrutture, benessere della popolazione.
+Eviti ogni alleanza e ogni conflitto.
+Rispondi in modo breve e essenziale.`;
 
       default:
-        return `Ты — лидер страны в альтернативной истории.
-Действуй логично и рационально.`;
+        return `Sei il leader di un paese in una storia alternativa.
+Agisci in modo logico e razionale, secondo gli interessi nazionali del tuo paese.`;
     }
   }
 
@@ -82,40 +82,43 @@ export class NPCCountryAgent {
     const system = this.getPersonalitySystemPrompt();
 
     const neighborsInfo = context.neighbors
-      .map(n => `- ${n.name}: сила=${n.militaryPower}, ВВП=${n.gdp}, владелец=${n.owner}`)
+      .map(n => `- ${n.name} [${n.id}]: forza=${n.militaryPower}, PIL=${n.gdp}, proprietario=${n.owner}, rapporto=${n.relationship || 'neutral'}`)
       .join('\n');
 
     const recentEvents = context.recentEvents
       .map(e => `- ${e}`)
-      .join('\n') || 'Пока ничего не произошло';
+      .join('\n') || 'Ancora nessun evento';
 
-    const user = `Страна: ${this.country.regionName}
-Тип личности: ${this.country.personality}
-Агрессивность: ${this.country.aggression}
+    const user = `Paese: ${context.polityName || this.country.regionName} [${context.polityId || this.country.regionId}]
+Rappresenti l'intera nazione, non la singola provincia dell'agente.
+Non attaccare province della tua nazione. "war" è ammesso solo contro vicini con rapporto "hostile" già registrato; non dichiarare nuove guerre.
+Le risposte "ally" e "trade" sono proposte, non accordi conclusi.
+Tipo di personalità: ${this.country.personality}
+Aggressività: ${this.country.aggression}
 
-Текущее состояние:
-- Население: ${context.population}
-- ВВП: ${context.gdp}
-- Военная мощь: ${context.militaryPower}
+Stato attuale:
+- Popolazione: ${context.population}
+- PIL: ${context.gdp}
+- Potenza militare: ${context.militaryPower}
 
-Соседи:
+Vicini:
 ${neighborsInfo}
 
-Последние события в мире:
+Eventi recenti nel mondo:
 ${recentEvents}
 
-Текущий ход: ${context.turn}
+Turno attuale: ${context.turn}
 
-Проанализируй ситуацию и реши, какое действие предпринять.
-Верни ответ в формате JSON:
+Analizza la situazione e decidi quale azione intraprendere.
+Rispondi in formato JSON:
 {
   "type": "expand|ally|war|develop|neutral|trade|defense",
-  "targetRegionId": "id_региона_если_нужно",
-  "description": "описание действия",
+  "targetRegionId": "id_della_regione_se_necessario",
+  "description": "descrizione dell'azione",
   "priority": 1-10
 }
 
-Выбери ОДНО действие которое наиболее соответствует твоей личности и текущей ситуации.`;
+Scegli UNA sola azione, quella più coerente con la tua personalità e la situazione attuale. Agisci secondo gli interessi nazionali: nessuna decisione arbitraria o gratuita.`;
 
     try {
       const result = await this.provider.generate('npc', system, user, {
@@ -132,79 +135,24 @@ ${recentEvents}
         return {
           type: action.type || 'neutral',
           targetRegionId: action.targetRegionId,
-          description: action.description || 'Бездействие',
+          description: action.description || 'Inazione',
           priority: action.priority || 5,
         };
       }
 
-      // Fallback: generate default action based on personality
-      return this.getDefaultAction(context);
+      // Invalid output is not an instruction to invent a war or investment.
+      return { type: 'neutral', description: '', priority: 0 };
     } catch (error) {
       console.error('NPC agent error:', error);
-      return this.getDefaultAction(context);
+      return { type: 'neutral', description: '', priority: 0 };
     }
   }
 
-  private getDefaultAction(context: NPCCountryContext): NPCAction {
-    // Fallback actions based on personality
-    switch (this.country.personality) {
-      case 'aggressive':
-        // Find weakest neighbor to attack
-        const weakNeighbor = context.neighbors
-          .filter(n => n.owner !== this.country.regionId)
-          .sort((a, b) => a.militaryPower - b.militaryPower)[0];
-
-        if (weakNeighbor && this.country.aggression > 0.5) {
-          return {
-            type: 'war',
-            targetRegionId: weakNeighbor.id,
-            description: `Военная экспансия против ${weakNeighbor.name}`,
-            priority: 8,
-          };
-        }
-        return {
-          type: 'develop',
-          description: 'Укрепление военной мощи',
-          priority: 6,
-        };
-
-      case 'diplomatic':
-        // Try to ally with strongest neighbor
-        const strongNeighbor = context.neighbors
-          .sort((a, b) => b.militaryPower - a.militaryPower)[0];
-
-        if (strongNeighbor) {
-          return {
-            type: 'ally',
-            targetRegionId: strongNeighbor.id,
-            description: `Предложение союза ${strongNeighbor.name}`,
-            priority: 7,
-          };
-        }
-        return {
-          type: 'trade',
-          description: 'Развитие торговли',
-          priority: 5,
-        };
-
-      case 'isolationist':
-        return {
-          type: 'develop',
-          description: 'Внутреннее развитие',
-          priority: 8,
-        };
-
-      default:
-        return {
-          type: 'neutral',
-          description: 'Наблюдение за ситуацией',
-          priority: 5,
-        };
-    }
-  }
 }
 
 export interface NPCCountryContext {
+  polityId?: string;
+  polityName?: string;
   turn: number;
   population: number;
   gdp: number;
@@ -215,6 +163,7 @@ export interface NPCCountryContext {
     owner: string;
     militaryPower: number;
     gdp: number;
+    relationship?: string;
   }[];
   recentEvents: string[];
 }

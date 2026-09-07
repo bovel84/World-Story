@@ -1,7 +1,7 @@
 /**
  * Open-Pax — Create World Screen
  * ==============================
- * UI для настройки параметров мира перед игрой.
+* UI per configurare i parametri del mondo prima della partita.
  */
 
 import React, { useState } from 'react';
@@ -63,8 +63,8 @@ export const CreateWorld: React.FC<CreateWorldProps> = ({
 
   // Preset prompts
   const promptPresets = [
-    { label: 'Cold War', prompt: 'Мир разделен на два лагеря: демократии Запада и коммунисты Востока. Гонка вооружений идет полным ходом.' },
-    { label: 'Three Powers', prompt: 'Мир разделен на три силы: демократии, коммунисты и нейтральный блок. Холодная война ведется между всеми.' },
+    { label: 'Cold War', prompt: 'Il mondo è diviso in due blocchi: le democrazie occidentali e i comunisti d\'Oriente. La corsa agli armamenti è al massimo.' },
+    { label: 'Three Powers', prompt: 'Il mondo è diviso in tre forze: democrazie, comunisti e blocco neutrale. La guerra fredda è combattuta fra tutti.' },
     { label: 'Custom', prompt: '' },
   ];
 
@@ -91,8 +91,8 @@ export const CreateWorld: React.FC<CreateWorldProps> = ({
   return (
     <div className="create-world">
       <div className="create-world-header">
-        <h2>Создание мира</h2>
-        <p>Настройте параметры альтернативной истории</p>
+        <h2>Creazione del mondo</h2>
+        <p>Configura i parametri della storia alternativa</p>
       </div>
 
       <div className="create-world-content">
@@ -100,29 +100,29 @@ export const CreateWorld: React.FC<CreateWorldProps> = ({
         <div className="settings-panel">
           {/* World Name */}
           <div className="form-group">
-            <label>Название мира</label>
+            <label>Nome del mondo</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Например: Альтернативная история"
+              placeholder="Es: Storia alternativa"
             />
           </div>
 
           {/* Description */}
           <div className="form-group">
-            <label>Описание</label>
+            <label>Descrizione</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Краткое описание вашего мира..."
+              placeholder="Breve descrizione del tuo mondo..."
               rows={2}
             />
           </div>
 
           {/* Start Date */}
           <div className="form-group">
-            <label>Дата старта</label>
+            <label>Data di inizio</label>
             <div className="date-presets">
               {datePresets.map(preset => (
                 <button
@@ -144,7 +144,7 @@ export const CreateWorld: React.FC<CreateWorldProps> = ({
 
           {/* Historical Accuracy */}
           <div className="form-group">
-            <label>Историческая точность: {historicalAccuracy}%</label>
+            <label>Accuratezza storica: {historicalAccuracy}%</label>
             <input
               type="range"
               min="0"
@@ -153,14 +153,14 @@ export const CreateWorld: React.FC<CreateWorldProps> = ({
               onChange={(e) => setHistoricalAccuracy(Number(e.target.value))}
             />
             <div className="accuracy-labels">
-              <span>Фэнтези</span>
-              <span>История</span>
+              <span>Fantasy</span>
+              <span>Storico</span>
             </div>
           </div>
 
           {/* Base Prompt */}
           <div className="form-group">
-            <label>Описание альтернативной истории</label>
+            <label>Descrizione della storia alternativa</label>
             <div className="prompt-presets">
               {promptPresets.map(preset => (
                 <button
@@ -175,29 +175,29 @@ export const CreateWorld: React.FC<CreateWorldProps> = ({
             <textarea
               value={basePrompt}
               onChange={(e) => setBasePrompt(e.target.value)}
-              placeholder="Опишите ключевые отличия вашего мира от реальной истории..."
+              placeholder="Descrivi le differenze chiave del tuo mondo rispetto alla storia reale..."
               rows={5}
               style={{ minHeight: '120px' }}
             />
             <div className="prompt-meta">
-              <span className="char-count">{basePrompt.length} символов</span>
+              <span className="char-count">{basePrompt.length} caratteri</span>
             </div>
             <p className="hint">
-              Промпт определяет: историю до начала игры, поведение NPC стран, возможные события и реакции мира.
+              Il prompt definisce: la storia prima dell\'inizio della partita, il comportamento dei paesi NPC, gli eventi possibili e le reazioni del mondo.
             </p>
             <details className="prompt-examples">
-              <summary>Примеры описаний</summary>
-              <div className="example-item" onClick={() => setBasePrompt('Мир разделен на два лагеря: демократии Запада и коммунисты Востока. Гонка вооружений идет полным ходом. США и СССР соперничают за влияние во всем мире.')}>
-                <strong>Cold War:</strong> "Мир разделен на два лагеря..."
+              <summary>Esempi di descrizioni</summary>
+              <div className="example-item" onClick={() => setBasePrompt('Il mondo è diviso in due blocchi: le democrazie occidentali e i comunisti d\'Oriente. La corsa agli armamenti è al massimo. USA e URSS si contendono l\'influenza in tutto il mondo.')}>
+                <strong>Cold War:</strong> "Il mondo è diviso in due blocchi..."
               </div>
-              <div className="example-item" onClick={() => setBasePrompt('Мир разделен на три силы: демократии, коммунисты и нейтральный блок. Холодная война ведется между всеми тремя центрами силы.')}>
-                <strong>Three Powers:</strong> "Мир разделен на три силы..."
+              <div className="example-item" onClick={() => setBasePrompt('Il mondo è diviso in tre forze: democrazie, comunisti e blocco neutrale. La guerra fredda è combattuta fra tutti e tre i poli.')}>
+                <strong>Three Powers:</strong> "Il mondo è diviso in tre forze..."
               </div>
-              <div className="example-item" onClick={() => setBasePrompt('В 1951 году Вторая мировая война не закончилась. Германия оккупировала всю Европу. Британия стала последним оплотом сопротивления.')}>
-                <strong>WWII Alternate:</strong> "В 1951 году Вторая мировая..."
+              <div className="example-item" onClick={() => setBasePrompt('Nel 1951 la Seconda guerra mondiale non è finita. La Germania ha occupato tutta l\'Europa. La Gran Bretagna è l\'ultimo baluardo della resistenza.')}>
+                <strong>WWII Alternate:</strong> "Nel 1951 la Seconda guerra mondiale..."
               </div>
-              <div className="example-item" onClick={() => setBasePrompt('Технологии развились раньше — уже в 1951 году существует интернет, а искусственный интеллект становится реальностью.')}>
-                <strong>Tech Revolution:</strong> "Технологии развились раньше..."
+              <div className="example-item" onClick={() => setBasePrompt('La tecnologia si è evoluta prima: nel 1951 esiste già internet e l\'intelligenza artificiale sta diventando realtà.')}>
+                <strong>Tech Revolution:</strong> "La tecnologia si è evoluta prima..."
               </div>
             </details>
           </div>
@@ -205,8 +205,8 @@ export const CreateWorld: React.FC<CreateWorldProps> = ({
 
         {/* Right Panel - Map Preview */}
         <div className="map-preview-panel">
-          <h3>Карта мира</h3>
-          <p className="hint">Выберите регион для назначения владельца</p>
+          <h3>Mappa del mondo</h3>
+          <p className="hint">Scegli una regione per assegnare il proprietario</p>
 
           <div className="map-preview-container">
             <svg viewBox="0 0 800 600" className="preview-svg">
@@ -257,27 +257,27 @@ export const CreateWorld: React.FC<CreateWorldProps> = ({
               <>
                 <h4>{selectedRegion.name}</h4>
                 <div className="owner-selector">
-                  <label>Владелец:</label>
+                  <label>Proprietario:</label>
                   <select
                     value={selectedRegion.owner}
                     onChange={(e) => updateRegionOwner(selectedRegion.id, e.target.value)}
                   >
-                    <option value="neutral">Нейтральный</option>
-                    <option value="player">Игрок</option>
-                    <option value="ai-1">AI - Агрессивный</option>
-                    <option value="ai-2">AI - Дипломат</option>
-                    <option value="ai-3">AI - Нейтральный</option>
+                    <option value="neutral">Neutrale</option>
+                    <option value="player">Giocatore</option>
+                    <option value="ai-1">AI - Aggressivo</option>
+                    <option value="ai-2">AI - Diplomatico</option>
+                    <option value="ai-3">AI - Neutrale</option>
                   </select>
                 </div>
               </>
             ) : (
-              <p className="no-selection">Выберите регион на карте</p>
+              <p className="no-selection">Seleziona una regione sulla mappa</p>
             )}
           </div>
 
           {/* Region List */}
           <div className="regions-list">
-            <h4>Регионы ({regions.length})</h4>
+            <h4>Regioni ({regions.length})</h4>
             <div className="region-items">
               {regions.map(r => (
                 <div
@@ -300,14 +300,14 @@ export const CreateWorld: React.FC<CreateWorldProps> = ({
       {/* Footer */}
       <div className="create-world-footer">
         <button className="btn-secondary" onClick={onCancel}>
-          Отмена
+          Annulla
         </button>
         <button
           className="btn-primary"
           onClick={handleSubmit}
           disabled={!name || !basePrompt}
         >
-          Создать мир и начать игру
+          Crea il mondo e inizia la partita
         </button>
       </div>
 

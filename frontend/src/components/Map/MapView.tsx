@@ -1,7 +1,7 @@
 /**
  * Open-Pax — Map View Component
  * ============================
- * Интерактивная карта с SVG регионами, зумом и панорамированием.
+* Mappa interattiva con regioni SVG, zoom e pan.
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -16,7 +16,7 @@ interface MapViewProps {
   height?: number;
 }
 
-// Типы объектов на карте
+// Tipi di oggetti sulla mappa
 const OBJECT_ICONS: Record<string, { color: string; shape: 'circle' | 'rect' | 'triangle' | 'letter'; size: number }> = {
   army: { color: '#ff4444', shape: 'circle', size: 10 },
   fleet: { color: '#4488ff', shape: 'circle', size: 12 },
@@ -48,14 +48,14 @@ export const MapView: React.FC<MapViewProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // Обработчик зума колесом мыши
+  // Gestore zoom con la rotella del mouse
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     setZoom(prev => Math.max(0.2, Math.min(5, prev * delta)));
   }, []);
 
-  // Обработчик начала перетаскивания
+  // Gestore inizio trascinamento
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button === 0) { // Left click
       setIsDragging(true);
@@ -63,7 +63,7 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   }, [pan]);
 
-  // Обработчик перетаскивания
+  // Gestore trascinamento
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (isDragging) {
       setPan({
@@ -73,32 +73,46 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   }, [isDragging, dragStart]);
 
-  // Обработчик окончания перетаскивания
+  // Gestore fine trascinamento
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
   }, []);
 
-  // Обработчик клика по региону
+  // Gestore clic sulla regione
   const handleRegionClick = (regionId: string) => {
     if (onRegionClick && !isDragging) {
       onRegionClick(regionId);
     }
   };
 
-  // Сброс зума
+  // Reset zoom
   const resetView = () => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
   };
 
-  // Увеличить/уменьшить
+  // Ingrandisci/riduci
   const zoomIn = () => setZoom(prev => Math.min(5, prev * 1.2));
   const zoomOut = () => setZoom(prev => Math.max(0.2, prev * 0.8));
 
-  // Collect all objects from all regions for rendering on top
-  const allObjects = regions.flatMap(r => r.objects || []);
+  // Collect all objects from all regions for rendering on top.
+  // Gli oggetti possono avere coordinate reali lat/lng (città del registro) o
+  // legacy x/y SVG. Per quelli con solo lat/lng convertiamo nello spazio SVG
+  // (proiezione equirettangolare, coerente con il viewBox 2000x1500) così
+  // restano ancorati alla mappa e scalano con zoom/schermo.
+  const allObjects = regions.flatMap(r => (r.objects || []).map(o => {
+    if (o.x !== undefined && o.y !== undefined) return o;
+    if (typeof o.lat === 'number' && typeof o.lng === 'number') {
+      return {
+        ...o,
+        x: ((o.lng + 180) / 360) * width,
+        y: ((90 - o.lat) / 180) * height,
+      };
+    }
+    return null;
+  }).filter((o): o is MapObject => !!o));
 
-  // Рендер объекта (always on top)
+  // Render dell'oggetto (always on top)
   const renderObject = (obj: MapObject, regionColor?: string) => {
     const icon = OBJECT_ICONS[obj.type] || { color: '#ffffff', shape: 'circle' as const, size: 8 };
     const borderColor = regionColor || icon.color;

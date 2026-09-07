@@ -11,8 +11,26 @@ export interface SSEClient {
   response: Response;
 }
 
+export type SSEEventType =
+  | 'connected'
+  | 'turn_start'
+  | 'turn_progress'
+  | 'turn_complete'
+  | 'generating_narration'
+  | 'processing_npcs_complete'
+  | 'world_event'
+  | 'narration_generated'
+  | 'llm_progress'
+  | 'jump_event'
+  | 'simulation_no_event'
+  | 'action_voided'
+  | 'chat_message'
+  | 'advisor_proactive'
+  | 'error'
+  | 'ping';
+
 export interface SSEEvent {
-  type: 'turn_progress' | 'turn_complete' | 'error' | 'ping';
+  type: SSEEventType;
   data: any;
   timestamp: number;
 }
@@ -44,6 +62,12 @@ export function removeSSEClient(gameId: string, clientId: string): void {
   }
 }
 
+/** True se c'è almeno un client collegato (per la simulazione live). */
+export function hasClients(gameId: string): boolean {
+  const clients = gameClients.get(gameId);
+  return !!clients && clients.size > 0;
+}
+
 export function emitSSEEvent(gameId: string, event: SSEEvent): void {
   const clients = gameClients.get(gameId);
   if (!clients || clients.size === 0) {
@@ -58,9 +82,9 @@ export function emitSSEEvent(gameId: string, event: SSEEvent): void {
   }
 }
 
-export function broadcastToGame(gameId: string, eventType: string, data: any): void {
+export function broadcastToGame(gameId: string, eventType: SSEEventType, data: any): void {
   emitSSEEvent(gameId, {
-    type: eventType as any,
+    type: eventType,
     data,
     timestamp: Date.now(),
   });

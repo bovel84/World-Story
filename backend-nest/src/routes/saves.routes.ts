@@ -18,17 +18,32 @@ savesRouter.get('/', (_req, res) => {
   res.json({ saves });
 });
 
-savesRouter.post('/:id/load', (req, res) => {
+savesRouter.post('/:id/load', async (req, res) => {
   const saveId = req.params.id;
 
   try {
-    const session = getSessionRegistry().loadSavedGame(saveId);
+    const save = db.prepare('SELECT game_id FROM saves WHERE id = ?').get(saveId) as { game_id: string } | undefined;
+    if (!save) {
+      res.status(404).json({ error: 'Save not found' });
+      return;
+    }
+    const registry = getSessionRegistry();
+    const activeSession = registry.getSession(save.game_id);
+    if (activeSession?.isSimulationInProgress()) {
+      res.status(409).json({ error: 'Simulazione in corso: caricamento non disponibile', code: 'simulation_in_progress' });
+      return;
+    }
+    const session = registry.loadSavedGame(saveId);
     if (!session) {
       res.status(404).json({ error: 'Save not found' });
       return;
     }
 
-    console.log('[LOAD] Game loaded:', saveId);
+    // Un caricamento deve aggiornare anche la sorgente persistente letta da
+    // GET /games e dalla Timeline, non soltanto la GameSession in memoria.
+    await session.persistLoadedState();
+
+    console.log('[LOAD] Game loaded e persistito:', saveId);
     res.json({
       game_id: session.id,
       currentTurn: session.getCurrentTurn(),

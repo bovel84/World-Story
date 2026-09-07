@@ -172,7 +172,7 @@ describe('Этап 0: сквозной дым-тест', () => {
     // Баг №1: кастомный лор мира дошёл до LLM
     expect(capturedSimulationPrompt).toContain('LORE_MARKER');
     // Описание карты — по именам, без внутренних id
-    expect(capturedSimulationPrompt).toContain('Полития "ФРГ" [DEU] (ИГРОК)');
+    expect(capturedSimulationPrompt).toContain('Politia "ФРГ" [DEU] (GIOCATORE)');
     expect(capturedSimulationPrompt).not.toContain('ai-');
 
     // Баг №5: transfer ПО ИМЕНИ применился — владелец и цвет изменились
@@ -197,7 +197,7 @@ describe('Этап 0: сквозной дым-тест', () => {
   });
 
   it('изменения владельцев сохранены в БД (syncRegionsToDB)', () => {
-    const row = db.prepare('SELECT owner, color FROM world_regions WHERE id = ?').get(`${WORLD_ID}_POL`);
+    const row = db.prepare('SELECT owner, color FROM game_regions WHERE game_id = ? AND region_id = ?').get(gameId, `${WORLD_ID}_POL`);
     expect(row.owner).toBe('DEU');
     expect(row.color).toBe('#FF0000');
   });
@@ -232,7 +232,9 @@ describe('Этап 0: сквозной дым-тест', () => {
   it('движок вызывает LLM с правильными механиками (Этап 1)', () => {
     expect(seenMechanics).toContain('converter');
     expect(seenMechanics).toContain('jump');
-    expect(seenMechanics).toContain('npc');
+    // All remaining provinces belong to the player after the conquest.
+    // Former NPC agents must not make decisions on the player's behalf.
+    expect(seenMechanics).not.toContain('npc');
   });
 
   it('падение LLM на прыжке: действие возвращается в pending, ошибка пробрасывается', async () => {

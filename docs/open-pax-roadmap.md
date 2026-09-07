@@ -226,3 +226,30 @@ Pax Historia — браузерная песочница альтернатив�
 
 - Оригинал: живой обход paxhistoria.co (лендинг → пресеты → WW2 → создание игры → игровой экран/таймлайн/поиск), wiki.paxhistoria.co (Basic Gameplay, Actions, Chats, Advisor, Difficulty, Jumping Forward, Gameplay Map, Creating a Game, Token System, A.I. Quality, Basic Prompt Editing, Editing Helpers, Consolidation Settings, Editing Maps), github.com/phillipyan300/Pax-Automata (research-док), кейсы infron.ai / canopywave.com, YC W26 профили. Скриншоты UI оригинала: `/mnt/agents/output/pax_*.png`.
 - Клон: полное дерево репозитория через GitHub API, прочитано ~95% исходников (весь `backend-nest/src`, ключевые компоненты фронта, `docs/*`, `.claude/handoffs/*`). Баги — статический анализ, перед фиксом каждый подтвердить запуском.
+
+---
+
+## 10. Статус на 2026-09-06 (апдейт Zeus)
+
+Верификация на живом коде (не по памяти). Прогресс: **~70% роадмапа выполнено.**
+
+| Этап | Статус | Детали |
+|------|--------|--------|
+| 0 — Стабилизация | ✅ почти готова | `basePrompt` передаётся (`game-session.ts:444`, `worldBasePrompt`); UNIQUE-индекс `ux_country_relationships_pair` создан (`database.ts:149`); **199/199 backend-тестов проходят** (18 файлов) |
+| 1 — LLM-слой | ✅ готова | `llm.config.json`: openai-compatible → Ollama Cloud (glm-5.3-flash), retry/timeout/streaming; все 9 механик на одном endpoint |
+| 2 — Единый движок | ✅ в основном | `core/simulation/` (ActionParser, SimulationEngine, WorldStateEngine, calendar) активен; legacy-агенты в `agents.ts` помечены Legacy — **осталось: окончательно вывести из эксплуатации** |
+| 3 — Дипломатические чаты | ✅ готова | `startChat` реализован (game-session.ts:1994) — ИИ открывает чаты сам; проактивный консультант через SSE; chats.routes + ChatsPanel/AdvisorChat на фронте |
+| 4 — Карта | ⚠️ частично | MapLibre активен (MapboxMapView), антиколлизия меток; **нет: PMTiles, мобильные батальоны** (движение юнитов не реализовано в SimulationEngine) |
+| 5 — Пресеты-пакеты | ✅ готова | presets: lore.md + rules.md + `base_prompt`/`prompts` в preset.json (modern_world, cold_war_1951, world_war_ii, pax_arena, modern_world_provinces) |
+| 6 — UX-полировка | ✅ выполнена сверх плана | Полная мобильная адаптация (bottom-sheet, FAB, bubbles, темы Dispacci), Cloudflare Worker-прокси с fixed URL, fix API-fallback, live-симуляция + fallback polling |
+
+**Активные доработки 03–06/09/2026 (не из роадмапа, но влияют):**
+- Frontend fallback API на относительный `/api` (bug мобильной загрузки bundle)
+- Cloudflare Worker `openpax.bovel-cannas.workers.dev` (постоянный URL, proxy на trycloudflare)
+- Live-симуляция мира: старт на GET /:id (не только SSE — прокси буферизует stream), polling-фолбэк 15 с на клиенте
+- Отключены мобильные батальоны/маркеры столиц до надёжных координат (регистр столиц некорректен на кастомных картах)
+
+**Следующие шаги (в порядке приоритета):**
+1. Мобильные батальоны (этап 4) — самый большой пробел
+2. E2E-тест полной партии с телефона
+3. Вывод legacy-агентов (закрытие этапа 2)

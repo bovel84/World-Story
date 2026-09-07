@@ -1,10 +1,10 @@
 /**
  * Open-Pax — Advisor Chat Component
  * ==================================
- * Этап 3: живой Советник — многоходовый чат со стримингом ответа.
- * История хранится в chatStore и шлётся с каждым запросом.
- * Проактивные сводки (SSE advisor_proactive) показываются в той же ленте
- * с бейджем «Сводка».
+ * Fase 3: Consulente live — chat multi-turno con streaming della risposta.
+ * La cronaca è salvata in chatStore e inviata a ogni richiesta.
+* Le sintesi proattive (SSE advisor_proactive) compaiono nella stessa chat
+ * con badge «Sintesi».
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -15,7 +15,7 @@ interface AdvisorChatProps {
   gameId: string;
 }
 
-/** Сколько последних сообщений диалога отправляем как контекст */
+/** Quanti ultimi messaggi del dialogo inviamo come contesto */
 const HISTORY_LIMIT = 20;
 
 export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId }) => {
@@ -27,21 +27,21 @@ export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId }) => {
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Локальная игра без бэкенда — советник недоступен
+  // Partita locale senza backend — consulente non disponibile
   const isLocal = gameId.startsWith('local_');
 
-  // Прокрутка ленты вниз при новых сообщениях и токенах стрима
+  // Scroll del flusso in basso con nuovi messaggi e token dello stream
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [advisorMessages]);
 
-  // Отправить вопрос советнику со стримингом ответа
+  // Invia la domanda al consulente con streaming della risposta
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text || advisorStreaming || isLocal) return;
     setInputText('');
 
-    // История: без проактивных сводок и пустых (стримящихся) сообщений
+    // Cronaca: senza sintesi proattive e messaggi vuoti (in streaming)
     const history: AdvisorHistoryItem[] = advisorMessages
       .filter(m => !m.proactive && m.content.trim())
       .slice(-HISTORY_LIMIT)
@@ -56,8 +56,8 @@ export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId }) => {
         appendToLastAdvisorMessage(token);
       });
     } catch (e) {
-      console.error('[AdvisorChat] Ошибка запроса к советнику:', e);
-      appendToLastAdvisorMessage('⚠️ Советник сейчас недоступен. Попробуйте позже.');
+      console.error('[AdvisorChat] Errore richiesta al consigliere:', e);
+      appendToLastAdvisorMessage('Il consulente non è raggiungibile ora. Riprova più tardi.');
     } finally {
       setAdvisorStreaming(false);
     }
@@ -66,27 +66,54 @@ export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId }) => {
   if (isLocal) {
     return (
       <div className="advisor-chat">
-        <div className="chats-empty">Советник доступен только в серверной игре</div>
+        <div className="chats-empty">Il consigliere è disponibile solo nella partita server</div>
       </div>
     );
   }
 
   return (
     <div className="advisor-chat">
+      {/* Intestazione «documento»: il consiglio riservato del leader */}
+      <div className="advisor-banner">
+        <div className="advisor-banner-text">
+          <div className="advisor-banner-title">Il Consulente</div>
+          <div className="advisor-banner-sub">Consiglio riservato · risposte in stesura</div>
+        </div>
+      </div>
+
       <div className="advisor-messages">
         {advisorMessages.length === 0 ? (
           <div className="chats-empty">
-            Спросите советника о ситуации в мире, стратегии или последствиях решений.
+            Chiedi al consigliere della situazione mondiale, della strategia o
+            delle conseguenze delle decisioni. Il dialogo resta riservato
+            al tuo governo.
           </div>
         ) : (
           advisorMessages.map((m, i) => {
             const isLast = i === advisorMessages.length - 1;
             const isStreamingThis = isLast && advisorStreaming && m.role === 'assistant';
+            const isEmptyStreaming = isStreamingThis && !m.content;
             return (
-              <div key={i} className={`advisor-bubble ${m.role}`}>
-                {m.proactive && <span className="proactive-badge">Сводка</span>}
-                {m.content}
-                {isStreamingThis && <span className="stream-cursor">▌</span>}
+              <div key={i} className={`advisor-entry ${m.role}`}>
+                <div className="entry-meta">
+                  {m.role === 'user' ? (
+                    <span>Governo</span>
+                  ) : m.proactive ? (
+                    <span className="proactive-badge">Bollettino</span>
+                  ) : (
+                    <span>Consulente</span>
+                  )}
+                </div>
+                <div className="entry-text">
+                  {isEmptyStreaming ? (
+                    <span className="advisor-typing"><i></i><i></i><i></i></span>
+                  ) : (
+                    <>
+                      {m.content}
+                      {isStreamingThis && <span className="stream-cursor">▌</span>}
+                    </>
+                  )}
+                </div>
               </div>
             );
           })
@@ -98,7 +125,7 @@ export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId }) => {
         <textarea
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          placeholder="Вопрос советнику..."
+          placeholder="Interroga il consulente…"
           rows={2}
           disabled={advisorStreaming}
           onKeyDown={(e) => {
@@ -112,9 +139,9 @@ export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId }) => {
           className="btn-chat-send"
           onClick={handleSend}
           disabled={!inputText.trim() || advisorStreaming}
-          title="Отправить"
+          title="Invia"
         >
-          {advisorStreaming ? '…' : '➤'}
+          {advisorStreaming ? '…' : 'Invia'}
         </button>
       </div>
     </div>

@@ -45,7 +45,7 @@ loadGeoData();
 // GET /api/geo/countries — полный FeatureCollection стран
 geoRouter.get('/countries', (_req, res) => {
   if (!countriesRaw) {
-    res.status(500).json({ error: 'Геоданные стран не загружены' });
+    res.status(500).json({ error: 'Dati geografici delle nazioni non caricati' });
     return;
   }
   res.type('application/json').send(countriesRaw);
@@ -54,7 +54,7 @@ geoRouter.get('/countries', (_req, res) => {
 // GET /api/geo/capitals — карта код -> { capital, lat, lng }
 geoRouter.get('/capitals', (_req, res) => {
   if (!capitalsRaw) {
-    res.status(500).json({ error: 'Данные столиц не загружены' });
+    res.status(500).json({ error: 'Dati delle capitali non caricati' });
     return;
   }
   res.type('application/json').send(capitalsRaw);
@@ -63,7 +63,7 @@ geoRouter.get('/capitals', (_req, res) => {
 // GET /api/geo/country-codes — массив кодов стран
 geoRouter.get('/country-codes', (_req, res) => {
   if (!countriesParsed) {
-    res.status(500).json({ error: 'Геоданные стран не загружены' });
+    res.status(500).json({ error: 'Dati geografici delle nazioni non caricati' });
     return;
   }
   res.json(countryCodes);

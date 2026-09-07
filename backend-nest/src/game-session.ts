@@ -9,18 +9,28 @@ import { shortId } from './utils/short-id';
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
-import { worldRepository, gameRepository, relationshipRepository } from './repositories';
-// ОТКЛЮЧЕНО: переговоры — chatRepository и типы чатов больше не используются
-// (фича дипломатических чатов выключена решением владельца; таблицы chats/chat_messages в БД сохраняются).
-// import { chatRepository } from './repositories';
-// import type { ChatRecord, ChatSummary, ChatMessageRecord } from './repositories';
+import { worldRepository, gameRepository, relationshipRepository, chatRepository } from './repositories';
+import type { ChatRecord, ChatSummary, ChatMessageRecord, ChatParticipant, GameChatSnapshot } from './repositories';
 import db from './database';
 import { RelationshipMatrix } from './core/RelationshipMatrix';
+import { WorldStateEngine } from './core/simulation/WorldStateEngine';
+import { addDays, dateInPeriod, explicitDays, jumpHorizon, resolvePeriod } from './core/simulation/calendar';
+import { withinDeadline } from './core/simulation/deadline';
+import { canNpcCapture, indexPolities, npcRepresentatives } from './core/simulation/npc-policy';
 import { RegionResolver, PolityResolver } from './utils/name-resolver';
-import { Difficulty, normalizeDifficulty } from './prompts/difficulty';
-// ОТКЛЮЧЕНО: переговоры — промпт дипломатических чатов не собирается
-// import { buildChatPrompt, parseChatResponse } from './prompts/chat';
-import type { MapChange } from './prompts/types';
+import { Difficulty, difficultyPromptBlock, normalizeDifficulty } from './prompts/difficulty';
+import { personalityForPolity } from './npc-agents';
+import { countryRepository } from './repositories/country.repository';
+import { polityDisplayNameIt } from './utils/country-facts';
+import {
+  buildChatPrompt,
+  buildNextSpeakerPrompt,
+  parseChatResponse,
+  parseNextSpeakerResponse,
+} from './prompts/chat';
+import type { MapChange, SimulationEvent } from './prompts/types';
+import type { RelationshipType } from './core/RelationshipMatrix';
+import type { SSEEventType } from './sse';
 
 export interface RegionState {
   id: string;
@@ -53,12 +63,38 @@ export interface ActionRecord {
   createdAt: string;
 }
 
+export interface TimelineEventRecord {
+  id: string;
+  date: string;
+  headline: string;
+  detail: string;
+  source: 'world' | 'diplomacy';
+  /** Run/checkpoint che ha prodotto l'evento, per lettore e ripresa. */
+  simulationId?: string;
+  /** Ordini del lotto che il server ha associato all'evento. */
+  sourceActionIds?: string[];
+  chatId?: string;
+  speakerName?: string;
+}
+
 export interface TurnResultRecord {
   id: string;
   turn: number;
   narration: string;
   countryResponse: string;
   events: string[];
+  /** Run persistito che ha prodotto questo checkpoint. */
+  simulationId?: string;
+  timelineEvents?: TimelineEventRecord[];
+  /** Data di gioco raggiunta alla fine del periodo (per la Timeline) */
+  date?: string;
+}
+
+export class SimulationInProgressError extends Error {
+  constructor() {
+    super('A simulation is already in progress for this game');
+    this.name = 'SimulationInProgressError';
+  }
 }
 
 export interface PendingAction {
@@ -70,6 +106,14 @@ export interface PendingAction {
     narration: string;
     countryResponse: string;
     events: string[];
+    /** Eventi canonici, con ID persistito e data propria. */
+    eventDetails?: TimelineEventRecord[];
+    simulationId?: string;
+    outcome?: {
+      status: 'accepted' | 'partial' | 'rejected';
+      summary: string;
+      expectedDate?: string;
+    };
     objects: any[];
     turn: number;
     periodStart: string;  // Date before processing this action
@@ -99,6 +143,12 @@ export interface SaveData {
   consolidatedUpTo?: number;
   /** Этап 2: сложность игры */
   difficulty?: Difficulty;
+  /** Ordini futuri: un salvataggio deve ripristinare anche la coda. */
+  pendingActions?: PendingAction[];
+  /** Chat e messaggi del ramo al checkpoint. */
+  chats?: GameChatSnapshot[];
+  /** Processi in corso/completati nel ramo del checkpoint. */
+  ongoingProcesses?: any[];
 }
 
 export class GameSession {
@@ -164,6 +214,10 @@ export class GameSession {
    * a real semaphore.
    */
   private isProcessing: boolean = false;
+  /** ID del run mutante attualmente proprietario del checkpoint. */
+  private activeSimulationRunId: string | null = null;
+  /** Cancella il fetch LLM del run attivo quando arriva Intervene. */
+  private activeSimulationAbort: AbortController | null = null;
 
   /**
    * Run `fn` under the per-session lock. If another caller already
@@ -172,6 +226,11 @@ export class GameSession {
    * request to block that long). On success or thrown error, the
    * lock is always released before this function resolves.
    */
+  /** True while a mutable simulation owns this session checkpoint. */
+  isSimulationInProgress(): boolean {
+    return this.isProcessing;
+  }
+
   private async withLock<T>(fn: () => Promise<T>): Promise<T | null> {
     if (this.isProcessing) {
       console.warn('[GameSession] Concurrent turn attempt rejected (lock held)');
@@ -185,11 +244,177 @@ export class GameSession {
     }
   }
 
+  // ── Simulazione live (battito del mondo) ─────────────────────────────────
+  // Il mondo continua a vivere anche senza azioni del giocatore: ogni tick
+  // avanza la data, processa un pizzico di paesi NPC (round-robin, costo LLM
+  // limitato) e applica eventi casuali. Tutto viene trasmesso via SSE come
+  // «world_event». Il tick parte solo con client collegati (nessuno guarda →
+  // nessuna spesa). Le azioni del giocatore restano prioritarie: il lock salta
+  // il tick se un turno è in elaborazione.
+  // Il tempo è comandato dal giocatore: non deve avanzare in background.
+  // La modalità live resta opzionale per eventuali sessioni sperimentali,
+  // ma nasce spenta e non viene mai avviata automaticamente.
+  private liveSimEnabled: boolean = false;
+  private worldTickTimer: ReturnType<typeof setInterval> | null = null;
+  private npcCursor: number = 0;
+  private static readonly LIVE_TICK_MS = 30000;
+  private static readonly LIVE_TICK_DAYS = 7;
+  private readonly npcInFlight = new Set<string>();
+  /** Reazioni NPC per turno giocatore: round-robin, per non congelare la
+   * simulazione mentre decine di richieste LLM vengono eseguite in serie. */
+  private static readonly TURN_NPC_LIMIT = 3;
+  private static readonly NPC_TURN_TIMEOUT_MS = 12_000;
+
+  startLiveSim(): void {
+    if (!this.liveSimEnabled || this.worldTickTimer) return;
+    this.worldTickTimer = setInterval(() => {
+      this.worldTick().catch(e =>
+        console.error('[GameSession] Live sim tick failed:', e)
+      );
+    }, GameSession.LIVE_TICK_MS);
+    console.log('[GameSession] Live sim avviata (tick ogni', GameSession.LIVE_TICK_MS, 'ms)');
+  }
+
+  stopLiveSim(): void {
+    if (this.worldTickTimer) {
+      clearInterval(this.worldTickTimer);
+      this.worldTickTimer = null;
+      console.log('[GameSession] Live sim fermata');
+    }
+  }
+
+  setLiveSim(enabled: boolean): void {
+    this.liveSimEnabled = enabled;
+    if (enabled) this.startLiveSim();
+    else this.stopLiveSim();
+  }
+
+  isLiveSim(): boolean {
+    return this.liveSimEnabled;
+  }
+
+  /**
+   * Un tick del mondo: data in avanti, NPC (sottoinsieme) + eventi casuali.
+   * Non tocca la coda delle azioni del giocatore; se un turno è in corso, skip.
+   */
+  async worldTick(): Promise<void> {
+    if (this.isProcessing) return;
+
+    await this.withLock(async () => {
+      // Snapshot owner/colore per il diff (regioni cambiate)
+      const before = new Map<string, Pick<RegionState, 'owner' | 'color' | 'population' | 'gdp' | 'militaryPower'>>();
+      for (const r of this.regions.values()) {
+        before.set(r.id, { owner: r.owner, color: r.color, population: r.population,
+          gdp: r.gdp, militaryPower: r.militaryPower });
+      }
+
+      // Avanza il tempo (nessuna azione del giocatore)
+      this.currentTurn++;
+      this.currentDate = addDays(this.currentDate, GameSession.LIVE_TICK_DAYS);
+
+      // Il battito live non deve attendere una chiamata LLM: una risposta lenta
+      // degli NPC bloccava il lock, quindi data, dispacci e mappa sembravano
+      // fermi. Le reazioni NPC ragionate restano nel turno degli ordini; qui
+      // registriamo esclusivamente fatti deterministici e immediati.
+      const randomEvents = this.applyRandomEvents();
+      // Anche senza ordini il tempo ha un costo/effetto: economia, popolazione
+      // e prontezza vengono aggiornate dal motore, non dal narratore.
+      const tick = WorldStateEngine.advance(this.regions.values(), GameSession.LIVE_TICK_DAYS);
+
+      const playerAccount = tick.accounts[this.playerPolityId];
+      const playerName = polityDisplayNameIt(
+        this.playerPolityId,
+        countryRepository.findByCode(this.playerPolityId)?.name,
+      );
+      const balance = playerAccount?.monthlyBalance || 0;
+      // Il titolo resta una notizia breve; cifre e qualifiche appartengono al
+      // corpo del dispaccio, non alla riga che deve essere letta sulla mappa.
+      const quietHeadline = playerAccount
+        ? `${playerName}: aggiornamento dei conti nazionali`
+        : 'Settimana senza svolte nel teatro di gioco';
+      const quietDispatch = playerAccount
+        ? `Nel monitoraggio settimanale il motore registra per ${playerName} una crescita annua stimata al ${(playerAccount.annualGrowthRate * 100).toFixed(1)}%. Il saldo pubblico mensile resta ${balance >= 0 ? 'positivo' : 'negativo'} a ${Math.abs(balance).toFixed(2)} miliardi USD. Sono stime del modello economico, non nuovi eventi politici.`
+        : 'I governi mantengono le posizioni e non emergono fatti che richiedano una modifica della mappa.';
+      const events = randomEvents.length > 0 ? randomEvents : [quietHeadline];
+      const id = shortId();
+      const narration = randomEvents.length > 0
+        ? `Il mondo procede: ${randomEvents.length} ${randomEvents.length === 1 ? 'evento' : 'eventi'} registrati in questo periodo.`
+        : quietDispatch;
+
+      const turnResult: TurnResultRecord = {
+        id,
+        turn: this.currentTurn - 1,
+        narration,
+        countryResponse: '',
+        events,
+        date: this.currentDate,
+        timelineEvents: events.map((headline, index) => ({
+          id: `${id}-${index}`,
+          date: this.currentDate,
+          headline,
+          detail: randomEvents.length > 0
+            ? `Evento ambientale del mondo (turno ${this.currentTurn - 1}).`
+            : `Dati del motore alla data ${this.currentDate}: ${quietDispatch}`, 
+          source: 'world' as const,
+        })),
+      };
+      this.results.push(turnResult);
+
+      await this.syncRegionsToDB();
+      gameRepository.addTurnResult({
+        id: turnResult.id,
+        gameId: this.id,
+        turn: turnResult.turn,
+        narration: turnResult.narration,
+        countryResponse: '',
+        events: turnResult.events,
+        timelineEvents: turnResult.timelineEvents,
+        date: turnResult.date,
+      });
+      gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
+
+      // Regioni cambiate (owner/colore) — il client le merge nello stato locale
+      const changedRegions: any[] = [];
+      for (const r of this.regions.values()) {
+        const prev = before.get(r.id);
+        if (prev && (prev.owner !== r.owner || prev.color !== r.color || prev.population !== r.population
+          || prev.gdp !== r.gdp || prev.militaryPower !== r.militaryPower)) {
+          changedRegions.push({
+            id: r.id,
+            owner: r.owner,
+            color: r.color,
+            population: r.population,
+            gdp: r.gdp,
+            militaryPower: r.militaryPower,
+          });
+        }
+      }
+
+      this.broadcast('world_event', {
+        narration,
+        events,
+        eventDetails: turnResult.timelineEvents,
+        newTurn: this.currentTurn,
+        newDate: this.currentDate,
+        changedRegions,
+      });
+      console.log('[GameSession] Live tick →', this.currentDate, `(${events.length} eventi)`);
+    });
+  }
+
+  /** Avanza le variabili lente del mondo e restituisce un fatto verificabile
+   * per il bollettino del paese giocatore. */
+  private advanceWorldState(days: number): string[] {
+    const tick = WorldStateEngine.advance(this.regions.values(), days);
+    const bulletin = WorldStateEngine.playerBulletin(tick.accounts[this.playerPolityId]);
+    return bulletin ? [`📊 ${bulletin}`] : [];
+  }
+
   // Diplomatic relationships
   private relationships: RelationshipMatrix = new RelationshipMatrix();
 
   // SSE broadcaster for real-time updates
-  private sseBroadcaster: ((type: string, data: any) => void) | null = null;
+  private sseBroadcaster: ((type: SSEEventType, data: any) => void) | null = null;
 
   constructor(gameId: string, worldId: string, provider: LLMRouter) {
     this.id = gameId;
@@ -202,14 +427,14 @@ export class GameSession {
   /**
    * Set SSE broadcaster for real-time updates
    */
-  setSSEBroadcaster(broadcaster: (type: string, data: any) => void): void {
+  setSSEBroadcaster(broadcaster: (type: SSEEventType, data: any) => void): void {
     this.sseBroadcaster = broadcaster;
   }
 
   /**
    * Broadcast event to SSE clients
    */
-  private broadcast(type: string, data: any): void {
+  private broadcast(type: SSEEventType, data: any): void {
     if (this.sseBroadcaster) {
       this.sseBroadcaster(type, data);
     }
@@ -223,8 +448,19 @@ export class GameSession {
 
     // Convert regions Map to object for compatibility
     const regionsObj: Record<string, RegionState> = {};
+    const regionsByPolity = new Map<string, RegionState[]>();
     for (const [id, region] of this.regions) {
       regionsObj[id] = region;
+      if (!regionsByPolity.has(region.owner)) regionsByPolity.set(region.owner, []);
+      regionsByPolity.get(region.owner)!.push(region);
+    }
+    const polityNames: Record<string, string> = {};
+    for (const [owner, owned] of regionsByPolity) {
+      // Una sola regione può avere un nome storico/custom più preciso del
+      // registro ISO. Il nome nazionale serve soprattutto alle mappe provinciali.
+      polityNames[owner] = owned.length === 1
+        ? owned[0].name
+        : (countryRepository.findByCode(owner)?.name || owner);
     }
 
     return {
@@ -234,6 +470,9 @@ export class GameSession {
       difficulty: this.difficulty,
       consolidatedHistory: this.consolidatedHistory,
       consolidationTail: this.llm.consolidation.keepRawTail,
+      // Stato materiale del mondo: è ricostruito dal motore deterministico
+      // dalla mappa e quindi non può contraddire la memoria narrativa.
+      worldState: { accounts: WorldStateEngine.accounts(this.regions.values()) },
       world: {
         name: this.worldName,
         basePrompt: this.worldBasePrompt,
@@ -249,163 +488,294 @@ export class GameSession {
         polityId: p.polityId,
       })),
       playerPolityId: this.playerPolityId,
+      playerPolityName: polityNames[this.playerPolityId],
+      polityNames,
+      // Stato diplomatico persistente: il prompt usa questi rapporti per
+      // motivare le reazioni delle altre politie, non per inventarle.
+      relationships: this.relationships.toJSON(),
       actions: this.actions,
       results: this.results,
-      // ОТКЛЮЧЕНО: переговоры — транскрипты чатов в промпт симуляции не передаём
-      // (prompt-builder подставляет chatTranscripts ?? '')
-      // chatTranscripts: this.buildChatTranscripts(),
+      // Le trattative diplomatiche entrano nella simulazione (i patti contano)
+      chatTranscripts: this.buildChatTranscripts(),
     };
   }
 
   // =========================================================================
-  // Этап 3: дипломатические чаты — ОТКЛЮЧЕНО: переговоры
+  // Chat diplomatiche (stile Pax Historia): uno-a-uno e di gruppo,
+  // «next speaker» deciso dall'LLM, auto-continuazione tra nazioni.
   // =========================================================================
-  // Фича дипломатических чатов выключена решением владельца: симуляция не
-  // создаёт чаты, LLM-вызовы механики 'chat' не выполняются, роуты не
-  // смонтированы (см. routes/index.ts). Код сохранён закомментированным;
-  // таблицы chats/chat_messages и chat.repository не тронуты — данные и
-  // возможность быстрого возврата фичи сохраняются.
-  //
-  // /**
-  //  * Список чатов игры (с последним сообщением и счётчиком непрочитанных).
-  //  */
-  // getChats(): ChatSummary[] {
-  //   return chatRepository.getChatsByGame(this.id);
-  // }
-  //
-  // /**
-  //  * Сообщения чата (404, если чат чужой или не существует).
-  //  */
-  // getChatMessages(chatId: string): ChatMessageRecord[] {
-  //   const chat = chatRepository.getChatById(chatId);
-  //   if (!chat || chat.gameId !== this.id) {
-  //     throw new Error(`Chat not found: ${chatId}`);
-  //   }
-  //   return chatRepository.getMessages(chatId);
-  // }
-  //
-  // /** Пометить сообщения политии в чате прочитанными. */
-  // markChatRead(chatId: string): void {
-  //   const chat = chatRepository.getChatById(chatId);
-  //   if (!chat || chat.gameId !== this.id) {
-  //     throw new Error(`Chat not found: ${chatId}`);
-  //   }
-  //   chatRepository.markRead(chatId);
-  // }
-  //
-  // /**
-  //  * Найти или создать чат с политией по её ИМЕНИ (так её называет LLM/игрок).
-  //  * Полития резолвится через PolityResolver по текущим регионам; чат с самим
-  //  * собой, с 'neutral' и с несуществующей политией — 404-ошибка.
-  //  */
-  // ensureChat(polityName: string): ChatRecord {
-  //   const resolvers = this.buildResolvers();
-  //   const resolution = resolvers.polities.resolve(polityName);
-  //
-  //   if (!resolution || resolution.isNew
-  //       || resolution.polityId === 'neutral'
-  //       || resolution.polityId === this.playerPolityId) {
-  //     throw new Error(`Polity not found: ${polityName}`);
-  //   }
-  //
-  //   const polityId = resolution.polityId;
-  //   const polityRegions = Array.from(this.regions.values()).filter(r => r.owner === polityId);
-  //   const displayName = polityRegions[0]?.name || polityId;
-  //   const color = polityRegions[0]?.color || '#888888';
-  //
-  //   const existing = chatRepository.getChatByGameAndPolity(this.id, polityId);
-  //   if (existing) return existing;
-  //
-  //   return chatRepository.createChat({
-  //     id: shortId(),
-  //     gameId: this.id,
-  //     polityId,
-  //     polityName: displayName,
-  //     polityColor: color,
-  //   });
-  // }
-  //
-  // /**
-  //  * Отправить сообщение в чат: сохраняет сообщение игрока, спрашивает LLM
-  //  * (механика 'chat'), сохраняет ответ политии и рассылает его по SSE.
-  //  */
-  // async sendChatMessage(chatId: string, content: string): Promise<{ message: ChatMessageRecord; reply: ChatMessageRecord }> {
-  //   const chat = chatRepository.getChatById(chatId);
-  //   if (!chat || chat.gameId !== this.id) {
-  //     throw new Error(`Chat not found: ${chatId}`);
-  //   }
-  //
-  //   // История ДО нового сообщения игрока
-  //   const history = chatRepository.getMessages(chatId)
-  //     .map(m => ({ role: m.role, content: m.content }));
-  //
-  //   const message = chatRepository.addMessage(chatId, 'player', content, this.currentTurn);
-  //
-  //   const prompt = buildChatPrompt({
-  //     polityName: chat.polityName,
-  //     worldContext: this.worldBasePrompt || 'Альтернативная история',
-  //     mapContext: this.buildChatMapContext(),
-  //     date: this.currentDate,
-  //     relationship: this.relationships.get(chat.polityId, this.playerPolityId),
-  //     history,
-  //     playerMessage: content,
-  //   });
-  //
-  //   const response = await this.llm.generate(
-  //     'chat',
-  //     `Ты — лидер и МИД политии ${chat.polityName} в стратегической игре. Отвечай на русском, от первого лица державы, не выходи из роли.`,
-  //     prompt,
-  //     { temperature: 0.7 }
-  //   );
-  //
-  //   const reply = chatRepository.addMessage(chatId, 'polity', parseChatResponse(response.content), this.currentTurn);
-  //
-  //   this.broadcast('chat_message', {
-  //     chatId: chat.id,
-  //     polityId: chat.polityId,
-  //     polityName: chat.polityName,
-  //     message: reply,
-  //   });
-  //
-  //   return { message, reply };
-  // }
-  //
-  // /**
-  //  * Компактное описание карты для чат-промпта: «Полития: регион1, регион2».
-  //  */
-  // private buildChatMapContext(): string {
-  //   const byOwner = new Map<string, RegionState[]>();
-  //   for (const region of this.regions.values()) {
-  //     if (region.owner === 'neutral') continue;
-  //     if (!byOwner.has(region.owner)) byOwner.set(region.owner, []);
-  //     byOwner.get(region.owner)!.push(region);
-  //   }
-  //   const lines: string[] = [];
-  //   for (const regions of byOwner.values()) {
-  //     lines.push(`${regions[0].name}: ${regions.map(r => r.name).join(', ')}`);
-  //   }
-  //   return lines.join('\n');
-  // }
-  //
-  // /**
-  //  * Предформатированные транскрипты последних чатов для промпта симуляции:
-  //  * до 3 самых свежих чатов, до 15 последних сообщений каждого.
-  //  */
-  // private buildChatTranscripts(): string {
-  //   const chats = chatRepository.getChatsByGame(this.id).slice(0, 3);
-  //   const parts: string[] = [];
-  //
-  //   for (const chat of chats) {
-  //     const messages = chatRepository.getMessages(chat.id).slice(-15);
-  //     if (messages.length === 0) continue;
-  //     const lines = messages.map(m =>
-  //       m.role === 'player' ? `Игрок: ${m.content}` : `${chat.polityName}: ${m.content}`
-  //     );
-  //     parts.push(`[Переговоры с ${chat.polityName}]\n${lines.join('\n')}`);
-  //   }
-  //
-  //   return parts.join('\n\n');
-  // }
+
+  /** Elenco chat del gioco (per l'elenco frontend). */
+  getChats(): ChatSummary[] {
+    return chatRepository.getChatsByGame(this.id);
+  }
+
+  /** Messaggi della chat (404 se la chat è di un'altra partita). */
+  getChatMessages(chatId: string): ChatMessageRecord[] {
+    const chat = chatRepository.getChatById(chatId);
+    if (!chat || chat.gameId !== this.id) {
+      throw new Error(`Chat not found: ${chatId}`);
+    }
+    return chatRepository.getMessages(chatId);
+  }
+
+  /** Segna i messaggi delle politie della chat come letti. */
+  markChatRead(chatId: string): void {
+    const chat = chatRepository.getChatById(chatId);
+    if (!chat || chat.gameId !== this.id) {
+      throw new Error(`Chat not found: ${chatId}`);
+    }
+    chatRepository.markRead(chatId);
+  }
+
+  /**
+   * Trova o crea la chat con le nazioni indicate PER NOME (come le chiama il
+   * giocatore). Con più nomi crea una chat di gruppo: i partecipanti sono
+   * risolti via PolityResolver; nome giocatore/neutral/inesistenti → errore.
+   */
+  ensureChat(polityNames: string[]): ChatRecord {
+    const resolvers = this.buildResolvers();
+    const interlocutors: ChatParticipant[] = [];
+
+    for (const rawName of polityNames) {
+      const name = (rawName || '').trim();
+      if (!name) continue;
+      const resolution = resolvers.polities.resolve(name);
+      if (!resolution || resolution.isNew
+          || resolution.polityId === 'neutral'
+          || resolution.polityId === this.playerPolityId) {
+        throw new Error(`Polity not found: ${name}`);
+      }
+      if (interlocutors.some(p => p.id === resolution.polityId)) continue;
+
+      const polityRegions = Array.from(this.regions.values()).filter(r => r.owner === resolution.polityId);
+      // Nei mondi provinciali il primo territorio è una provincia: per la chat
+      // usiamo il nome della NAZIONE dal registro ISO, non quello della provincia.
+      const displayName = polityRegions.length > 1
+        ? (countryRepository.findByCode(resolution.polityId)?.name || resolution.polityId)
+        : (polityRegions[0]?.name || resolution.polityId);
+      const color = this.polityColor(resolution.polityId) || polityRegions[0]?.color || '#888888';
+      interlocutors.push({ id: resolution.polityId, name: displayName, color, role: 'polity' });
+    }
+
+    if (interlocutors.length === 0) {
+      throw new Error('Polity not found: nessun interlocutore valido');
+    }
+
+    const player = this.players[0];
+    const participants: ChatParticipant[] = [
+      {
+        id: this.playerPolityId,
+        name: player?.name || this.playerPolityId,
+        color: player?.color || '#667eea',
+        role: 'player',
+      },
+      ...interlocutors,
+    ];
+    const existing = chatRepository.getChatByParticipantIds(this.id, participants.map(p => p.id));
+    if (existing) return existing;
+
+    const primary = interlocutors[0];
+    const displayName = interlocutors.length > 1
+      ? interlocutors.map(p => p.name).join(' + ')
+      : primary.name;
+
+    return chatRepository.createChat({
+      id: shortId(),
+      gameId: this.id,
+      polityId: primary.id,
+      polityName: displayName,
+      polityColor: primary.color,
+      participants,
+    });
+  }
+
+  /**
+   * Invia un messaggio del giocatore: salva il messaggio, chiede all'LLM
+   * (meccanica 'chat') CHI risponde e COSA, salva la replica e la broadcasta.
+   */
+  async sendChatMessage(chatId: string, content: string): Promise<{ message: ChatMessageRecord; reply: ChatMessageRecord }> {
+    const chat = chatRepository.getChatById(chatId);
+    if (!chat || chat.gameId !== this.id) {
+      throw new Error(`Chat not found: ${chatId}`);
+    }
+
+    // Cronaca PRIMA del nuovo messaggio del giocatore
+    const history = chatRepository.getMessages(chatId)
+      .map(m => ({ role: m.role === 'player' ? 'player' : (m.senderName || chat.polityName), content: m.content }));
+
+    const player = this.players[0];
+    const message = chatRepository.addMessage(
+      chatId,
+      'player',
+      content.trim(),
+      this.currentTurn,
+      player?.name || 'Giocatore',
+      this.currentDate,
+    );
+
+    const reply = await this.generateChatReply(chat, history, content, 'reply');
+    return { message, reply };
+  }
+
+  /**
+   * «Lascia che parlino»: le nazioni della chat proseguono la trattativa tra
+   * loro per un numero limitato di repliche, senza intervento del giocatore.
+   */
+  async continueChat(chatId: string, exchanges: number = 2): Promise<{ replies: ChatMessageRecord[] }> {
+    const chat = chatRepository.getChatById(chatId);
+    if (!chat || chat.gameId !== this.id) {
+      throw new Error(`Chat not found: ${chatId}`);
+    }
+
+    const replies: ChatMessageRecord[] = [];
+    const rounds = Math.max(1, Math.min(exchanges, 4));
+    for (let i = 0; i < rounds; i++) {
+      const history = chatRepository.getMessages(chatId)
+        .map(m => ({ role: m.role === 'player' ? 'player' : (m.senderName || chat.polityName), content: m.content }));
+      const reply = await this.generateChatReply(chat, history, '', 'auto');
+      replies.push(reply);
+    }
+    return { replies };
+  }
+
+  /**
+   * Chiama l'LLM per la prossima battuta della chat (reply o auto), la salva
+   * e la broadcasta via SSE.
+   */
+  private async generateChatReply(
+    chat: ChatRecord,
+    history: { role: string; content: string }[],
+    playerMessage: string,
+    mode: 'reply' | 'auto',
+  ): Promise<ChatMessageRecord> {
+    const polityParticipants = chat.participants.filter(
+      p => p.role !== 'player' && p.id !== this.playerPolityId
+    );
+    if (polityParticipants.length === 0) {
+      polityParticipants.push({
+        id: chat.polityId,
+        name: chat.polityName,
+        color: chat.polityColor,
+        role: 'polity',
+      });
+    }
+
+    const participantsVars = polityParticipants.map(p => {
+      const owned = Array.from(this.regions.values()).filter(r => r.owner === p.id);
+      const population = owned.reduce((sum, r) => sum + (r.population || 0), 0);
+      const gdp = owned.reduce((sum, r) => sum + (r.gdp || 0), 0);
+      const military = owned.reduce((sum, r) => sum + (r.militaryPower || 0), 0);
+      const { personality, aggression } = personalityForPolity(p.id);
+      return {
+        name: p.name,
+        relationship: this.relationships.get(p.id, this.playerPolityId),
+        personality: `${personality} (propensione alla forza ${Math.round(aggression * 100)}%)`,
+        interests: `difendere ${owned.length} regioni; popolazione ${population}; PIL ${gdp}; potenza militare ${military}; migliorare la propria sicurezza e influenza senza ignorare il lore del preset`,
+      };
+    });
+
+    let speakerName = participantsVars[0].name;
+    if (participantsVars.length > 1) {
+      const nextSpeakerPrompt = buildNextSpeakerPrompt({
+        playerPolityName: this.players[0]?.name || this.playerPolityId,
+        participantNames: participantsVars.map(p => p.name),
+        history,
+        playerMessage,
+        mode,
+      });
+      const selection = await this.llm.generate(
+        'chat',
+        'Seleziona il prossimo interlocutore diplomatico. Rispondi soltanto con JSON {"speaker"}.',
+        nextSpeakerPrompt,
+        { temperature: 0.25, maxTokens: 120 },
+      );
+      speakerName = parseNextSpeakerResponse(
+        selection.content,
+        participantsVars.map(p => p.name),
+        speakerName,
+      );
+    }
+    const respondingParticipant = participantsVars.find(p => p.name === speakerName) || participantsVars[0];
+    const recentEvents = this.results
+      .slice(-3)
+      .flatMap(result => result.timelineEvents?.map(event => event.headline) || result.events)
+      .slice(-8);
+    const prompt = buildChatPrompt({
+      playerPolityName: this.players[0]?.name || this.playerPolityId,
+      participants: participantsVars,
+      respondingParticipant,
+      worldContext: this.worldBasePrompt || 'Storia alternativa',
+      simulationRules: this.worldSimulationRules || '',
+      mapContext: this.buildChatMapContext(),
+      difficultyContext: difficultyPromptBlock(this.difficulty),
+      date: this.currentDate,
+      recentEvents,
+      history,
+      playerMessage,
+      mode,
+    });
+
+    const response = await this.llm.generate(
+      'chat',
+      `Interpreta ${speakerName} in una trattativa storica. Rispondi in italiano e SOLO con JSON {"message"}.`,
+      prompt,
+      { temperature: 0.7 },
+    );
+    const parsed = parseChatResponse(response.content);
+    const reply = chatRepository.addMessage(
+      chat.id,
+      'polity',
+      parsed.message,
+      this.currentTurn,
+      speakerName,
+      this.currentDate,
+    );
+
+    this.broadcast('chat_message', {
+      chatId: chat.id,
+      polityId: chat.polityId,
+      polityName: chat.polityName,
+      participants: chat.participants,
+      senderName: speakerName,
+      message: reply,
+    });
+
+    return reply;
+  }
+
+
+  /** Descrizione compatta della mappa per il prompt: «Politia: regione1, regione2». */
+  private buildChatMapContext(): string {
+    const byOwner = new Map<string, RegionState[]>();
+    for (const region of this.regions.values()) {
+      if (region.owner === 'neutral') continue;
+      if (!byOwner.has(region.owner)) byOwner.set(region.owner, []);
+      byOwner.get(region.owner)!.push(region);
+    }
+    const lines: string[] = [];
+    for (const regions of byOwner.values()) {
+      lines.push(`${regions[0].name}: ${regions.map(r => r.name).join(', ')}`);
+    }
+    return lines.join('\n');
+  }
+
+  /** Trascritti delle chat recenti per il prompt di simulazione (le trattative contano). */
+  private buildChatTranscripts(): string {
+    const chats = chatRepository.getChatsByGame(this.id).slice(0, 3);
+    const parts: string[] = [];
+
+    for (const chat of chats) {
+      const messages = chatRepository.getMessages(chat.id).slice(-15);
+      if (messages.length === 0) continue;
+      const lines = messages.map(m =>
+        m.role === 'player' ? `Giocatore: ${m.content}` : `${m.senderName || chat.polityName}: ${m.content}`
+      );
+      parts.push(`[Trattative con ${chat.polityName}]\n${lines.join('\n')}`);
+    }
+
+    return parts.join('\n\n');
+  }
 
   /**
    * Initialize session from existing world data
@@ -456,15 +826,29 @@ export class GameSession {
     this.gameController.initPromptEngine(this.buildGameData());
     this.gameController.setupWorld(world.base_prompt);
 
-    // Setup NPC agents: NPC = любая полития, кроме игрока и 'neutral'
-    // (раньше фильтр был owner.startsWith('ai-') и не видел шаблонные коды).
-    const regionConfigs = Array.from(this.regions.values())
-      .filter(r => r.owner !== 'neutral' && r.owner !== this.playerPolityId)
+    // Setup NPC agents: NPC = una POLITIA (paese), non ogni regione.
+    // Nei mondi provinciali un paese possiede più province — un agente per
+    // provincia moltiplicherebbe le chiamate LLM (700+ a turno). Raggruppiamo
+    // per owner: l'agente della politia parte dalla sua regione più popolosa.
+    const regionsByOwner = new Map<string, RegionState>();
+    for (const r of this.regions.values()) {
+      if (r.owner === 'neutral' || r.owner === this.playerPolityId) continue;
+      const current = regionsByOwner.get(r.owner);
+      if (!current || r.population > current.population) {
+        regionsByOwner.set(r.owner, r);
+      }
+    }
+    const regionConfigs = Array.from(regionsByOwner.values())
       .map(r => ({ id: r.id, name: r.name, owner: r.owner }));
     this.gameController.setupNPCCountries(regionConfigs);
 
-    // Load diplomatic relationships from DB
-    const rels = relationshipRepository.getForWorld(this.worldId);
+    // Ogni partita riceve una copia iniziale del baseline diplomatico, poi
+    // muta solo game_relationships e mai il preset/world condiviso.
+    let rels = relationshipRepository.getForGame(this.id);
+    if (!rels.length) {
+      rels = relationshipRepository.getForWorld(this.worldId);
+      relationshipRepository.replaceForGame(this.id, rels);
+    }
     for (const rel of rels) {
       this.relationships.set(rel.from, rel.to, rel.type);
     }
@@ -473,6 +857,11 @@ export class GameSession {
 
     // Sync all regions to DB on init (ensure baseline is persisted)
     await this.syncRegionsToDB();
+
+    // Persistenza immediata della data di inizio (schema legacy: la riga
+    // games nasce con current_date = oggi/1951 — senza update l'API
+    // mostrerebbe la data sbagliata fino alla prima mossa)
+    gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
 
     return playerId;
   }
@@ -518,23 +907,27 @@ export class GameSession {
     if (data.regionStates) {
       this.regions = new Map(data.regionStates);
     } else {
-      // Load from world_regions table
+      // Geometria/metadati dal world, stato dinamico dalla copia isolata del
+      // game. Le partite legacy senza copia ricevono il baseline al primo sync.
+      const gameRegions = new Map(gameRepository.getGameRegions(this.id).map(region => [region.id, region]));
       const dbRegions = worldRepository.getRegions(this.worldId);
       for (const region of dbRegions) {
+        const state = gameRegions.get(region.id);
         this.regions.set(region.id, {
           id: region.id,
           name: region.name,
-          color: region.color,
-          owner: region.owner,
-          population: region.population,
-          gdp: region.gdp,
-          militaryPower: region.militaryPower,
-          objects: region.objects || [],
+          color: state?.color || region.color,
+          owner: state?.owner || region.owner,
+          population: state?.population ?? region.population,
+          gdp: state?.gdp ?? region.gdp,
+          militaryPower: state?.militaryPower ?? region.militaryPower,
+          objects: state?.objects || region.objects || [],
           svgPath: region.svgPath,
           borders: region.borders,
           status: (region.status || 'active') as 'active' | 'occupied' | 'destroyed' | 'independent',
         });
       }
+      if (!gameRegions.size) this.syncRegionsToDB();
     }
 
     // Re-initialize game controller with current state
@@ -542,11 +935,28 @@ export class GameSession {
 
     this.gameController.setupWorld(this.worldBasePrompt);
 
-    // Load relationships from DB
-    const rels = relationshipRepository.getForWorld(this.worldId);
+    // Sessioni legacy ricevono il baseline solo se non possiedono ancora
+    // relazioni isolate; in seguito il DB della partita è la fonte di verità.
+    let rels = relationshipRepository.getForGame(this.id);
+    if (!rels.length) {
+      rels = relationshipRepository.getForWorld(this.worldId);
+      relationshipRepository.replaceForGame(this.id, rels);
+    }
     for (const rel of rels) {
       this.relationships.set(rel.from, rel.to, rel.type);
     }
+
+    // Cronaca dei turni (Timeline) e ordini futuri: ricaricati dal DB alla
+    // ricostruzione, così un riavvio non elimina la coda del giocatore.
+    this.results = gameRepository.getResultsByGame(this.id);
+    this.pendingActions = gameRepository.getPendingActions(this.id) as PendingAction[];
+    // Un processo LLM non può attraversare un restart: gli eventuali record
+    // rimasti "processing" sono ritentabili nel nuovo processo.
+    gameRepository.updatePendingActionStatus(
+      this.id,
+      this.pendingActions.map(action => action.id),
+      'pending',
+    );
 
     // Re-setup NPC countries: любая полития, кроме игрока и 'neutral'
     const regionConfigs = Array.from(this.regions.values())
@@ -607,6 +1017,62 @@ export class GameSession {
   }
 
   /**
+   * Timeline del mondo: eventi strutturati della simulazione più passaggi
+   * diplomatici significativi (accordi, rifiuti, ultimatum e chat avviate
+   * dalle nazioni). I vecchi risultati vengono convertiti senza perdere dati.
+   */
+  getTimeline(): { turn: number; date: string; events: TimelineEventRecord[]; narration: string }[] {
+    return this._buildTimelineEntries(this.results);
+  }
+
+  /**
+   * Pagina la cronaca persistita dal DB (§10.1). `afterTurn` è il cursore
+   * (turno da cui continuare); `limit` è la dimensione della pagina. Restituisce
+   * `hasMore` e `nextAfter` per il recupero progressivo, così il registro non
+   * è limitato irreversibilmente ai turni in memoria o agli ultimi N eventi.
+   */
+  getTimelinePage(afterTurn: number, limit: number): {
+    timeline: { turn: number; date: string; events: TimelineEventRecord[]; narration: string }[];
+    hasMore: boolean;
+    nextAfter: number;
+  } {
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 500) : 50;
+    const safeAfter = Number.isFinite(afterTurn) && afterTurn >= 0 ? Math.floor(afterTurn) : 0;
+    const { rows, hasMore } = gameRepository.getTimelinePage(this.id, safeAfter, safeLimit);
+    const timeline = this._buildTimelineEntries(rows);
+    const last = timeline.at(-1);
+    return { timeline, hasMore, nextAfter: last ? last.turn : safeAfter };
+  }
+
+  private _buildTimelineEntries(results: { id: string; turn: number; date?: string; events?: string[]; timelineEvents?: TimelineEventRecord[]; narration?: string; simulationId?: string }[]): {
+    turn: number; date: string; events: TimelineEventRecord[]; narration: string
+  }[] {
+    const entries: { turn: number; date: string; events: TimelineEventRecord[]; narration: string }[] = results.map(r => ({
+      turn: r.turn,
+      date: r.date || '',
+      events: r.timelineEvents?.length
+        ? [...r.timelineEvents]
+        : (r.events || []).map((headline, index) => ({
+            id: `${r.id}-${index}`,
+            date: r.date || '',
+            headline,
+            detail: r.narration || '',
+            source: 'world' as const,
+            simulationId: r.simulationId,
+          })),
+      narration: r.narration || '',
+    }));
+    // I messaggi delle chat restano nel loro thread. La timeline riceve solo
+    // eventi diplomatici esplicitamente committati dal simulatore (apertura
+    // causale di chat o relationshipChanges), mai euristiche su parole come
+    // "trattato" o "guerra" in una conversazione.
+    for (const entry of entries) {
+      entry.events.sort((a, b) => (a.date || entry.date).localeCompare(b.date || entry.date));
+    }
+    return entries.sort((a, b) => a.turn - b.turn || a.date.localeCompare(b.date));
+  }
+
+  /**
    * Build name resolvers from the current region state.
    * "ИИ по именам, движок по id": LLM видит только имена, движок резолвит их
    * обратно в regionId/polityId (bug fix: раньше LLM просили вернуть regionId,
@@ -618,6 +1084,26 @@ export class GameSession {
       regions: new RegionResolver(all),
       polities: new PolityResolver(all, this.playerPolityId),
     };
+  }
+
+  /** Colore canonico di una politia: colore più frequente tra i territori posseduti. */
+  private polityColor(polityId: string, excludeRegionId?: string): string | undefined {
+    const counts = new Map<string, number>();
+    for (const r of this.regions.values()) {
+      if (r.id === excludeRegionId || r.owner !== polityId || !r.color) continue;
+      counts.set(r.color, (counts.get(r.color) || 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  }
+
+  /**
+   * Unico punto di trasferimento territoriale: owner E colore cambiano insieme.
+   * Evita province conquistate che conservano il colore della vecchia nazione.
+   */
+  private transferRegion(region: RegionState, newOwner: string, explicitColor?: string): void {
+    const inherited = explicitColor || this.polityColor(newOwner, region.id);
+    region.owner = newOwner;
+    if (inherited) region.color = inherited;
   }
 
   /**
@@ -639,16 +1125,9 @@ export class GameSession {
         if (!liveRegion) continue;
 
         const ownerResolution = resolvers.polities.resolve(newOwner);
-        liveRegion.owner = ownerResolution?.polityId || newOwner;
-
-        // Sync color: из regionColors, либо цвет существующей политии
+        const ownerId = ownerResolution?.polityId || newOwner;
         const explicitColor = changes.regionColors?.[regionKey] || changes.regionColors?.[region.id];
-        const inheritedColor = resolvers.polities.colorOf(liveRegion.owner);
-        if (explicitColor) {
-          liveRegion.color = explicitColor;
-        } else if (inheritedColor && inheritedColor !== liveRegion.color) {
-          liveRegion.color = inheritedColor;
-        }
+        this.transferRegion(liveRegion, ownerId, explicitColor || resolvers.polities.colorOf(ownerId));
       }
     }
 
@@ -656,7 +1135,7 @@ export class GameSession {
       for (const [regionKey, gdp] of Object.entries(changes.regionGDP)) {
         const region = this.regions.get(regionKey) || resolvers.regions.resolve(regionKey);
         const liveRegion = region && this.regions.get(region.id);
-        if (liveRegion) liveRegion.gdp = gdp;
+        if (liveRegion && Number.isFinite(gdp) && gdp >= 0) liveRegion.gdp = gdp;
       }
     }
 
@@ -664,7 +1143,7 @@ export class GameSession {
       for (const [regionKey, military] of Object.entries(changes.regionMilitary)) {
         const region = this.regions.get(regionKey) || resolvers.regions.resolve(regionKey);
         const liveRegion = region && this.regions.get(region.id);
-        if (liveRegion) liveRegion.militaryPower = military;
+        if (liveRegion && Number.isFinite(military) && military >= 0) liveRegion.militaryPower = military;
       }
     }
 
@@ -672,7 +1151,7 @@ export class GameSession {
       for (const [regionKey, pop] of Object.entries(changes.regionPopulation)) {
         const region = this.regions.get(regionKey) || resolvers.regions.resolve(regionKey);
         const liveRegion = region && this.regions.get(region.id);
-        if (liveRegion) liveRegion.population = pop;
+        if (liveRegion && Number.isFinite(pop) && pop >= 0) liveRegion.population = pop;
       }
     }
   }
@@ -707,10 +1186,10 @@ export class GameSession {
     }
 
     const dirMap: Record<string, 'west' | 'east' | 'north' | 'south'> = {
-      west: 'west', western: 'west', запад: 'west',
-      east: 'east', eastern: 'east', восток: 'east',
-      north: 'north', northern: 'north', север: 'north',
-      south: 'south', southern: 'south', юг: 'south',
+      west: 'west', western: 'west', ovest: 'west', occidente: 'west', запад: 'west',
+      east: 'east', eastern: 'east', est: 'east', oriente: 'east', восток: 'east',
+      north: 'north', northern: 'north', nord: 'north', settentrione: 'north', север: 'north',
+      south: 'south', southern: 'south', sud: 'south', meridione: 'south', юг: 'south',
     };
     const dir = Object.entries(dirMap).find(([k]) => norm === k || norm.startsWith(k + ' '))?.[1];
     if (dir) {
@@ -808,13 +1287,23 @@ export class GameSession {
    * Apply mapChanges from a single simulation event (transfer/create/update/delete).
    * Регионы и политии адресуются ИМЕНАМИ (так их видит LLM в описании карты).
    */
-  private applyMapChanges(mapChanges: MapChange[] | undefined): void {
-    if (!mapChanges || mapChanges.length === 0) return;
+  private applyMapChanges(mapChanges: MapChange[] | undefined): RegionState[] {
+    if (!mapChanges || mapChanges.length === 0) return [];
     const resolvers = this.buildResolvers();
+    const changed = new Map<string, RegionState>();
 
     for (const change of mapChanges) {
       const regionKey = change.regionName || change.regionId;
-      const liveRegion = this.resolveRegionFlexible(regionKey, resolvers.regions);
+      // Works require an exact destination: the fuzzy resolver would happily
+      // accept 'random'/'coastal' and build a factory on the wrong province.
+      let liveRegion: RegionState | undefined;
+      if (change.type === 'build_facility') {
+        const direct = regionKey ? this.regions.get(regionKey) : undefined;
+        const resolved = !direct && regionKey ? resolvers.regions.resolve(regionKey) : undefined;
+        liveRegion = direct ?? (resolved ? this.regions.get(resolved.id) : undefined);
+      } else {
+        liveRegion = this.resolveRegionFlexible(regionKey, resolvers.regions);
+      }
       if (!liveRegion) {
         console.warn('[GameSession] mapChange: region not resolved:', regionKey);
         continue;
@@ -824,10 +1313,12 @@ export class GameSession {
         case 'transfer': {
           const ownerResolution = resolvers.polities.resolve(change.newOwner);
           if (!ownerResolution) break;
-          liveRegion.owner = ownerResolution.polityId;
-          // Цвет: явный newColor или цвет новой политии
-          const inherited = resolvers.polities.colorOf(ownerResolution.polityId);
-          liveRegion.color = change.newColor || inherited || liveRegion.color;
+          // Owner e colore vengono trasferiti atomicamente.
+          this.transferRegion(
+            liveRegion,
+            ownerResolution.polityId,
+            change.newColor || resolvers.polities.colorOf(ownerResolution.polityId),
+          );
           break;
         }
         case 'update': {
@@ -845,9 +1336,28 @@ export class GameSession {
           // Создание новой политии: регион получает нового владельца (+ цвет)
           const ownerResolution = resolvers.polities.resolve(change.newOwner || change.newName);
           if (ownerResolution) {
-            liveRegion.owner = ownerResolution.polityId;
-            if (change.newColor) liveRegion.color = change.newColor;
+            this.transferRegion(
+              liveRegion,
+              ownerResolution.polityId,
+              change.newColor || resolvers.polities.colorOf(ownerResolution.polityId),
+            );
           }
+          break;
+        }
+        case 'build_facility': {
+          // Explicit completed works only. No keyword detection on requests or
+          // denied orders; no fabricated cities/capitals from narrative text.
+          const feature = change.feature;
+          if (!feature || !['factory', 'port', 'university', 'base', 'radar'].includes(feature.type)
+            || typeof feature.name !== 'string' || !feature.name.trim()
+            || liveRegion.status === 'destroyed') break;
+          const name = feature.name.trim().slice(0, 160);
+          if ((liveRegion.objects || []).some(o => o.type === feature.type && o.name === name)) break;
+          const center = this.regionCenter(liveRegion);
+          if (!center) break;
+          liveRegion.objects ||= [];
+          liveRegion.objects.push({ id: shortId(), type: feature.type, name, level: 1,
+            lat: center.lat, lng: center.lng });
           break;
         }
         case 'spawn_battalion': {
@@ -858,7 +1368,7 @@ export class GameSession {
           liveRegion.objects.push({
             id: shortId(),
             type: 'battalion',
-            name: change.feature?.name || `Батальон ${liveRegion.name} ${(liveRegion.objects.filter((o: any) => o.type === 'battalion').length) + 1}`,
+            name: change.feature?.name || `Battaglione ${liveRegion.name} ${(liveRegion.objects.filter((o: any) => o.type === 'battalion').length) + 1}`,
             lat: center?.lat ?? 0,
             lng: center?.lng ?? 0,
           });
@@ -891,142 +1401,105 @@ export class GameSession {
               b.lng = center.lng;
             }
             target.objects.push(b);
+            changed.set(target.id, target);
           }
           break;
         }
       }
+      changed.set(liveRegion.id, liveRegion);
     }
-  }
-
-  /**
-   * Detect and create objects from action text
-   */
-  private detectAndCreateObjects(region: RegionState, text: string): { text: string }[] {
-    const createdObjects: { text: string }[] = [];
-
-    const objectPatterns: Record<string, RegExp[]> = {
-      army: [/арми(?:ю|я|ю|)\s/iu, /войск(?:а|о|у|)\s/iu, /воен(?:ый|ая|ое)\s/iu, /soldiers/iu],
-      fleet: [/флот(?:а|у|ом|)\s/iu, /корабл(?:ь|ей|ям|)\s/iu, /морск(?:ой|ая|ое)\s/iu, /navy/iu, /fleet/iu],
-      missile: [/ракет(?:а|ы|е|)\s/iu, /баллистическ/iu, /missile/iu],
-      radar: [/радар(?:а|у|ом|)\s/iu, /радиолокацион/iu, /radar/iu],
-      port: [/порт(?:а|у|ом|)\s/iu, /гаван(?:ь|и|ью|)\s/iu, /port/iu],
-      exchange: [/бирж(?:а|у|ей|)\s/iu, /обмен(?:а|у|)\s/iu, /exchange/iu],
-      clearing: [/клиринг(?:а|у|ов|)\s/iu, /расчет(?:а|ов|)\s/iu, /clearing/iu],
-      grouping: [/группировк(?:а|и|у|)\s/iu, /объединен/iu, /grouping/iu],
-      factory: [/завод(?:а|у|ом|)\s/iu, /фабрик(?:а|и|у|)\s/iu, /предприят/iu, /factory/iu, /plant/iu],
-      university: [/университет(?:а|у|ом|)\s/iu, /университет/iu, /институт(?:а|у|)\s/iu, /академи(?:я|и|)\s/iu, /university/iu, / institute/iu],
-      city: [/город(?:а|у|ом|)?\s/iu, /city/iu, /capital/iu, /столиц/iu, /посел(?:ок|ение|ий)/iu],
-    };
-
-    // Helper to calculate centroid from SVG path
-    const getCentroid = (path: string): { x: number; y: number } | null => {
-      const nums = path.match(/-?\d+\.?\d*/g);
-      if (!nums || nums.length < 2) return null;
-      const points: number[] = nums.map(Number);
-      let sumX = 0, sumY = 0, count = 0;
-      for (let i = 0; i < points.length; i += 2) {
-        sumX += points[i];
-        sumY += points[i + 1] || 0;
-        count++;
-      }
-      return count > 0 ? { x: sumX / count, y: sumY / count } : null;
-    };
-
-    const combinedText = text.toLowerCase();
-    const centroid = getCentroid(region.svgPath || '');
-
-    for (const [objType, patterns] of Object.entries(objectPatterns)) {
-      for (const pattern of patterns) {
-        if (pattern.test(combinedText)) {
-          // For cities, use centroid position; for others, use random with offset
-          const baseX = centroid ? centroid.x : 500;
-          const baseY = centroid ? centroid.y : 400;
-          const offsetX = objType === 'city' ? 0 : (Math.random() - 0.5) * 200;
-          const offsetY = objType === 'city' ? 0 : (Math.random() - 0.5) * 150;
-
-          const newObject = {
-            id: shortId(),
-            type: objType,
-            name: `${region.name} ${objType === 'city' ? 'гор.' : objType.charAt(0).toUpperCase() + objType.slice(1)} ${(region.objects?.length || 0) + 1}`,
-            x: baseX + offsetX,
-            y: baseY + offsetY,
-            level: 1,
-          };
-
-          if (!region.objects) {
-            region.objects = [];
-          }
-
-          region.objects.push(newObject);
-          createdObjects.push({ text: `✓ Создан ${objType}: ${newObject.name}` });
-          break;
-        }
-      }
-    }
-
-    return createdObjects;
+    return [...changed.values()];
   }
 
   /**
    * Process NPC turns for all NPC countries
    */
-  private async processNPCTurns(): Promise<string[]> {
+  private async processNPCTurns(limit = GameSession.TURN_NPC_LIMIT, days = 30): Promise<string[]> {
     const npcEvents: string[] = [];
-    const npcRegionIds = this.gameController.getNPCCountries();
+    const allNpcRegionIds = npcRepresentatives(this.gameController.getNPCCountries(), this.regions, this.playerPolityId)
+      .filter(id => !this.npcInFlight.has(this.regions.get(id)!.owner));
+    const { owned, frontier } = indexPolities(this.regions);
+
+    // Round-robin: con un limite, processa solo un sottoinsieme rotante di
+    // paesi NPC (usato dalla simulazione live per limitare il costo LLM).
+    let npcRegionIds = allNpcRegionIds;
+    if (Number.isFinite(limit) && limit < allNpcRegionIds.length) {
+      const n = allNpcRegionIds.length;
+      npcRegionIds = [];
+      for (let i = 0; i < limit; i++) {
+        npcRegionIds.push(allNpcRegionIds[(this.npcCursor + i) % n]);
+      }
+      this.npcCursor = (this.npcCursor + limit) % n;
+    }
 
     const regionResolver = new RegionResolver(Array.from(this.regions.values()));
+    const scheduledOwners = new Map(npcRegionIds.map(id => [id, this.regions.get(id)!.owner]));
 
     for (const npcRegionId of npcRegionIds) {
       const npcRegion = this.regions.get(npcRegionId);
       if (!npcRegion) continue;
 
-      // Build neighbors: реальные границы, посчитанные turf при генерации мира;
-      // для старых миров (borders пуст) — прежний fallback на первые 8 регионов.
-      const bordered = (npcRegion.borders || [])
-        .map(id => this.regions.get(id))
-        .filter((r): r is RegionState => !!r && r.id !== npcRegionId);
-      const neighborSource = bordered.length > 0
-        ? bordered
-        : Array.from(this.regions.values()).filter(r => r.id !== npcRegionId).slice(0, 8);
-      const neighbors = neighborSource.map(r => ({
-        id: r.id,
-        name: r.name,
-        owner: r.owner,
-        militaryPower: r.militaryPower,
-        gdp: r.gdp,
-      }));
-
+      const owner = npcRegion.owner;
+      if (owner !== scheduledOwners.get(npcRegionId) || owner === this.playerPolityId || this.npcInFlight.has(owner)) continue;
+      // Representatives may have been conquered earlier in this batch.
+      const nationalRegions = (owned.get(owner) || []).filter(r => r.owner === owner);
+      const frontierIds = frontier.get(owner) || new Set<string>();
+      const neighbors = [...frontierIds].map(id => this.regions.get(id)!)
+        .filter(r => r.owner !== owner && r.status !== 'destroyed')
+        .slice(0, 24).map(r => ({
+          id: r.id, name: r.name, owner: r.owner,
+          militaryPower: r.militaryPower, gdp: r.gdp,
+          relationship: this.relationships.get(owner, r.owner),
+        }));
+      const sum = (key: 'population' | 'gdp' | 'militaryPower') =>
+        nationalRegions.reduce((total, region) => total + region[key], 0);
       const npcContext = {
+        polityId: owner,
+        polityName: polityDisplayNameIt(owner, countryRepository.findByCode(owner)?.name),
         turn: this.currentTurn,
-        population: npcRegion.population,
-        gdp: npcRegion.gdp,
-        militaryPower: npcRegion.militaryPower,
+        population: sum('population'), gdp: sum('gdp'), militaryPower: sum('militaryPower'),
         neighbors,
-        recentEvents: this.results.slice(-3).map(r => r.narration),
+        recentEvents: this.results.slice(-3).map(r => r.narration.slice(0, 600)),
       };
 
       try {
-        const npcAction = await this.gameController.processNPCTurn(npcRegionId, npcContext);
+        // Un singolo provider NPC indisponibile non può trattenere il lock del
+        // gioco: allo scadere continuiamo con la prossima politia/tick.
+        this.npcInFlight.add(owner);
+        const request = this.gameController.processNPCTurn(npcRegionId, npcContext)
+          .finally(() => this.npcInFlight.delete(owner));
+        const npcAction = await withinDeadline(request, GameSession.NPC_TURN_TIMEOUT_MS);
         if (npcAction) {
-          npcEvents.push(`${npcRegion.name}: ${npcAction.description}`);
-
-          // Apply NPC action effects
+          // Publish only accepted effects. Unsupported proposals must not
+          // appear as completed alliances/trade deals in the world memory.
           if (npcAction.type === 'develop') {
-            npcRegion.gdp = Math.floor(npcRegion.gdp * 1.05);
-            npcRegion.militaryPower = Math.floor(npcRegion.militaryPower * 1.03);
+            for (const region of nationalRegions) {
+              region.gdp *= Math.pow(1.05, days / 365);
+              region.militaryPower *= Math.pow(1.03, days / 365);
+            }
+            npcEvents.push(`${npcContext.polityName} attua misure di sviluppo interno`);
           } else if (npcAction.type === 'war' && npcAction.targetRegionId) {
             // LLM может вернуть как id, так и ИМЯ региона — резолвим оба варианта
             const resolved = this.regions.get(npcAction.targetRegionId)
               || regionResolver.resolve(npcAction.targetRegionId);
             const targetRegion = resolved ? this.regions.get(resolved.id) : undefined;
-            if (targetRegion && targetRegion.militaryPower < npcRegion.militaryPower * 0.7) {
-              // Bug fix: раньше сюда писался npcRegionId (id региона) вместо
-              // id политии-владельца — это ломало владение и матрицу дипломатии.
-              targetRegion.owner = npcRegion.owner;
-              targetRegion.color = npcRegion.color;
-              npcEvents.push(`⚔️ ${npcRegion.name} захватила ${targetRegion.name}!`);
+            // Re-check the live border after earlier captures in the batch.
+            const liveFrontier = new Set(nationalRegions.flatMap(r => r.borders || []));
+            if (targetRegion && (targetRegion.borders || []).some(id => this.regions.get(id)?.owner === owner)) {
+              liveFrontier.add(targetRegion.id);
+            }
+            const attackingPower = nationalRegions
+              .filter(r => (r.borders || []).includes(targetRegion?.id || '') || (targetRegion?.borders || []).includes(r.id))
+              .reduce((total, r) => total + r.militaryPower, 0);
+            if (canNpcCapture(owner, targetRegion, liveFrontier,
+              targetRegion ? this.relationships.get(owner, targetRegion.owner) : 'neutral')
+              && targetRegion.militaryPower < attackingPower * 0.7) {
+              this.transferRegion(targetRegion, owner, npcRegion.color);
+              npcEvents.push(`${npcContext.polityName} conquista ${targetRegion.name}`);
             }
           }
+        } else {
+          console.warn(`[GameSession] NPC ${npcRegion.name}: nessuna risposta entro ${GameSession.NPC_TURN_TIMEOUT_MS / 1000}s`);
         }
       } catch (e) {
         console.error(`NPC turn error for ${npcRegionId}:`, e);
@@ -1044,35 +1517,36 @@ export class GameSession {
 
     if (Math.random() < 0.15) {
       const eventTypes = [
-        { name: 'Природное бедствие', effects: ['землетрясение', 'наводнение', 'засуха', 'ураган'] },
-        { name: 'Экономический кризис', effects: ['рецессия', 'инфляция', 'дефицит'] },
-        { name: 'Технологический прорыв', effects: ['изобретение', 'открытие', 'инновация'] },
-        { name: 'Социальные волнения', effects: ['протесты', 'забастовка', 'революция'] },
-        { name: 'Эпидемия', effects: ['чума', 'грипп', 'вирус'] },
+        { name: 'Disastro naturale', effects: ['terremoto', 'alluvione', 'siccità', 'uragano'] },
+        { name: 'Crisi economica', effects: ['recessione', 'inflazione', 'carestia'] },
+        { name: 'Progresso tecnologico', effects: ['invenzione', 'scoperta', 'innovazione'] },
+        { name: 'Disordini sociali', effects: ['protesthe', 'sciopero generale', 'rivolta'] },
+        { name: 'Epidemia', effects: ['peste', 'influenza', 'virus'] },
       ];
 
       const event = eventTypes[Math.floor(Math.random() * eventTypes.length)];
       const effect = event.effects[Math.floor(Math.random() * event.effects.length)];
-      const regionsArray = Array.from(this.regions.values());
+      const regionsArray = Array.from(this.regions.values()).filter(r => r.status !== 'destroyed');
+      if (regionsArray.length === 0) return [];
       const targetRegion = regionsArray[Math.floor(Math.random() * regionsArray.length)];
 
-      const eventText = `🔮 ${event.name}: ${effect} в ${targetRegion.name}`;
+      const eventText = `${effect.charAt(0).toUpperCase() + effect.slice(1)} colpisce ${targetRegion.name}`;
       randomEvents.push(eventText);
 
       // Apply effects
-      if (event.name === 'Природное бедствие') {
+      if (event.name === 'Disastro naturale') {
         targetRegion.population = Math.floor(targetRegion.population * 0.95);
-        targetRegion.gdp = Math.floor(targetRegion.gdp * 0.9);
-      } else if (event.name === 'Экономический кризис') {
-        targetRegion.gdp = Math.floor(targetRegion.gdp * 0.85);
-      } else if (event.name === 'Технологический прорыв') {
-        targetRegion.gdp = Math.floor(targetRegion.gdp * 1.15);
-        targetRegion.militaryPower = Math.floor(targetRegion.militaryPower * 1.1);
-      } else if (event.name === 'Социальные волнения') {
-        targetRegion.militaryPower = Math.floor(targetRegion.militaryPower * 0.9);
-      } else if (event.name === 'Эпидемия') {
+        targetRegion.gdp *= 0.9;
+      } else if (event.name === 'Crisi economica') {
+        targetRegion.gdp *= 0.85;
+      } else if (event.name === 'Progresso tecnologico') {
+        targetRegion.gdp *= 1.15;
+        targetRegion.militaryPower *= 1.1;
+      } else if (event.name === 'Disordini sociali') {
+        targetRegion.militaryPower *= 0.9;
+      } else if (event.name === 'Epidemia') {
         targetRegion.population = Math.floor(targetRegion.population * 0.9);
-        targetRegion.militaryPower = Math.floor(targetRegion.militaryPower * 0.85);
+        targetRegion.militaryPower *= 0.85;
       }
     }
 
@@ -1101,7 +1575,26 @@ export class GameSession {
       // иначе updateRegionsBatch их не сохранял и объекты терялись при рестарте
       objects: region.objects || [],
     }));
-    worldRepository.updateRegionsBatch(updates);
+    gameRepository.upsertGameRegions(this.id, updates);
+  }
+
+  /** Snapshot serializzabile di un checkpoint coerente del ramo corrente. */
+  private captureCheckpointData(): SaveData {
+    return {
+      currentTurn: this.currentTurn,
+      currentDate: this.currentDate,
+      players: this.players,
+      regions: Array.from(this.regions.entries()),
+      relationships: this.relationships.toJSON(),
+      actions: this.actions,
+      results: this.results,
+      consolidatedHistory: this.consolidatedHistory,
+      consolidatedUpTo: this.consolidatedUpTo,
+      difficulty: this.difficulty,
+      pendingActions: this.pendingActions.filter(action => action.status === 'pending'),
+      chats: chatRepository.snapshotGameChats(this.id),
+      ongoingProcesses: gameRepository.snapshotOngoingProcesses(this.id),
+    };
   }
 
   /**
@@ -1122,6 +1615,9 @@ export class GameSession {
       consolidatedHistory: this.consolidatedHistory,
       consolidatedUpTo: this.consolidatedUpTo,
       difficulty: this.difficulty,
+      pendingActions: this.pendingActions.filter(action => action.status === 'pending'),
+      chats: chatRepository.snapshotGameChats(this.id),
+      ongoingProcesses: gameRepository.snapshotOngoingProcesses(this.id),
     };
 
     const stmt = db.prepare(`
@@ -1168,12 +1664,18 @@ export class GameSession {
     this.consolidatedUpTo = saveData.consolidatedUpTo || 0;
     this.difficulty = normalizeDifficulty(saveData.difficulty);
     this.interveneRequested = false;
-    // Очередь — про «будущую» ветку времени, после отката она невалидна
-    this.pendingActions = [];
+    // La coda appartiene al ramo salvato: ripristinala invece di perderla.
+    this.pendingActions = (saveData.pendingActions || []).filter(action => action.status === 'pending');
+    gameRepository.replacePendingActions(this.id, this.pendingActions);
+    // Vecchi salvataggi senza chats restano compatibili e non cancellano le
+    // conversazioni; i nuovi checkpoint ripristinano invece il ramo esatto.
+    if (saveData.chats) chatRepository.replaceGameChats(this.id, saveData.chats);
+    if (saveData.ongoingProcesses) gameRepository.replaceOngoingProcesses(this.id, saveData.ongoingProcesses);
 
     // Update game in DB
     gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
     gameRepository.updateConsolidation(this.id, this.consolidatedHistory, this.consolidatedUpTo);
+    gameRepository.replaceHistory(this.id, this.actions, this.results);
 
     // Sync restored regions to DB
     this.syncRegionsToDB();
@@ -1201,6 +1703,9 @@ export class GameSession {
       consolidatedHistory: this.consolidatedHistory,
       consolidatedUpTo: this.consolidatedUpTo,
       difficulty: this.difficulty,
+      pendingActions: this.pendingActions.filter(action => action.status === 'pending'),
+      chats: chatRepository.snapshotGameChats(this.id),
+      ongoingProcesses: gameRepository.snapshotOngoingProcesses(this.id),
     };
     const id = shortId();
     db.prepare(`
@@ -1227,7 +1732,7 @@ export class GameSession {
     try {
       saveData = JSON.parse(save.data);
     } catch (e) {
-      console.error('[GameSession] Rewind: повреждённый снапшот:', e);
+      console.error('[GameSession] Rewind: snapshot corrotto:', e);
       return null;
     }
 
@@ -1239,8 +1744,8 @@ export class GameSession {
 
     this.broadcast('turn_complete', {
       turn: this.currentTurn,
-      narration: '⏪ Откат на ход назад',
-      events: ['⏪ Ход отменён, мир возвращён к предыдущему состоянию'],
+      narration: '⏪ Ritorno al turno precedente',
+      events: ['⏪ Turno annullato, il mondo è tornato allo stato precedente'],
       newTurn: this.currentTurn,
       newDate: this.currentDate,
       rewound: true,
@@ -1259,12 +1764,16 @@ export class GameSession {
   }
 
   /**
-   * Intervene: попросить движок остановиться после текущего события
-   * (оставшиеся события пачки будут откачены — просто не применятся).
+   * Intervene: arresta lo stream logico dopo l'evento corrente; gli oggetti
+   * successivi eventualmente già in transito non vengono applicati.
    */
-  requestIntervene(): void {
+  requestIntervene(simulationId?: string): { accepted: boolean; simulationId?: string } {
+    if (!this.isProcessing || !this.activeSimulationRunId) return { accepted: false };
+    if (simulationId && simulationId !== this.activeSimulationRunId) return { accepted: false };
     this.interveneRequested = true;
-    console.log('[GameSession] Intervene requested');
+    this.activeSimulationAbort?.abort();
+    console.log('[GameSession] Intervene requested for run:', this.activeSimulationRunId);
+    return { accepted: true, simulationId: this.activeSimulationRunId };
   }
 
   /**
@@ -1284,19 +1793,20 @@ export class GameSession {
     );
     if (toSummarize.length === 0) return;
 
-    console.log(`[GameSession] Consolidating rounds ${this.consolidatedUpTo + 1}..${lastTurn} (${toSummarize.length} раундов)`);
+    console.log(`[GameSession] Consolidating rounds ${this.consolidatedUpTo + 1}..${lastTurn} (${toSummarize.length} turni)`);
 
-    const system = 'Ты — летописец стратегической игры. Сжимай историю, сохраняя факты.';
-    const user = `Ниже — летопись уже прожитых раундов стратегической игры (раунды ${this.consolidatedUpTo + 1}–${lastTurn}).
-${this.consolidatedHistory ? `\n[Уже консолидированная ранняя история]\n${this.consolidatedHistory}\n` : ''}
-[Новые раунды для сжатия]
-${toSummarize.map(r => `Раунд ${r.turn}: ${r.narration}`).join('\n\n')}
+    const system = 'Sei il cronista di un gioco strategico. Condensa la storia mantenendo i fatti, scrivendo in italiano.';
+    const user = `Qui sotto c'è la cronaca dei turni già vissuti di un gioco strategico (turni ${this.consolidatedUpTo + 1}–${lastTurn}).
+${this.consolidatedHistory ? `\n[Cronaca già consolidata dei turni precedenti]\n${this.consolidatedHistory}\n` : ''}
+[Nuovi turni da condensare]
+${toSummarize.map(r => `Turno ${r.turn}: ${r.narration}`).join('\n\n')}
 
-Сожми ВСЮ историю (старый конспект + новые раунды) в связный конспект до ~400 слов.
-Обязательно сохрани: смены владельцев регионов, войны и мирные договоры, союзы,
-ключевые решения игрока и их последствия. Не добавляй новых фактов.`;
+Condensa TUTTA la storia in una MEMORIA CANONICA di massimo 220 parole, in italiano.
+Usa frasi fattuali e dense, senza stile letterario. Conserva sempre: cambi di proprietà delle regioni,
+guerre e trattati di pace, alleanze, decisioni chiave del giocatore, impegni ancora aperti e conseguenze.
+Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria remota passata ai turni futuri.`;
 
-    const res = await this.llm.generate('consolidation', system, user, { temperature: 0.3, maxTokens: 2000 });
+    const res = await this.llm.generate('consolidation', system, user, { temperature: 0.2, maxTokens: 900 });
     this.consolidatedHistory = res.content;
     this.consolidatedUpTo = lastTurn;
     gameRepository.updateConsolidation(this.id, this.consolidatedHistory, this.consolidatedUpTo);
@@ -1308,6 +1818,24 @@ ${toSummarize.map(r => `Раунд ${r.turn}: ${r.narration}`).join('\n\n')}
    */
   getRelationships(): Record<string, Record<string, string>> {
     return this.relationships.toJSON();
+  }
+
+  /** Dossier aggregati aggiornati dalla fonte di verità provinciale. */
+  getNationalAccounts() {
+    return WorldStateEngine.accounts(this.regions.values());
+  }
+
+  /** Rende definitivo uno snapshot caricato: prima questa operazione mutava
+   * solo la RAM, quindi al refresh data, turno e dispacci tornavano allo stato
+   * precedente registrato nel database. */
+  async persistLoadedState(): Promise<void> {
+    await this.syncRegionsToDB();
+    gameRepository.replaceHistory(this.id, this.actions, this.results);
+    const relationshipRows = Object.entries(this.relationships.toJSON()).flatMap(([from, targets]) =>
+      Object.entries(targets as Record<string, RelationshipType>).map(([to, type]) => ({ from, to, type }))
+    );
+    relationshipRepository.replaceForGame(this.id, relationshipRows);
+    gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
   }
 
   /**
@@ -1350,8 +1878,29 @@ ${toSummarize.map(r => `Раунд ${r.turn}: ${r.narration}`).join('\n\n')}
       status: 'pending',
     };
     this.pendingActions.push(action);
+    gameRepository.queuePendingAction({
+      id: action.id,
+      gameId: this.id,
+      text: action.text,
+      createdAt: action.createdAt,
+      status: action.status,
+    });
     console.log('[GameSession] Queued action:', action.id, 'text:', text.substring(0, 50));
     return action;
+  }
+
+  /**
+   * G24 — «Migliora formulazione»: produce un'anteprima riformulata di un
+   * ordine libero SENZA accodarla né simulare. L'accettazione resta un click
+   * esplicito del giocatore (queueAction). Non altera il tempo né la coda.
+   */
+  async enhanceAction(text: string): Promise<{ original: string; enhanced: string }> {
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error('Il testo dell’ordine è obbligatorio');
+    if (!this.gameController) throw new Error('Prompt engine non inizializzato');
+    const converted = await this.gameController.enhanceAction(this.buildGameData(), trimmed);
+    const enhanced = converted.text && converted.text.trim() ? converted.text.trim() : trimmed;
+    return { original: trimmed, enhanced };
   }
 
   /**
@@ -1359,6 +1908,30 @@ ${toSummarize.map(r => `Раунд ${r.turn}: ${r.narration}`).join('\n\n')}
    */
   getPendingActions(): PendingAction[] {
     return this.pendingActions;
+  }
+
+  /** Rimuove dalla coda un ordine non ancora avviato. */
+  removePendingAction(actionId: string): boolean {
+    const index = this.pendingActions.findIndex(action => action.id === actionId && action.status === 'pending');
+    if (index < 0) return false;
+    if (!gameRepository.removePendingAction(this.id, actionId)) return false;
+    this.pendingActions.splice(index, 1);
+    return true;
+  }
+
+  /**
+   * Modifica il testo di un ordine ancora in coda (prima della presa in
+   * carico). La modifica è persistita: non è soltanto un nascondimento in UI.
+   * Un ordine già emesso/elaborato non può essere riscritto retroattivamente.
+   */
+  updatePendingAction(actionId: string, newText: string): PendingAction | null {
+    const trimmed = newText.trim();
+    if (!trimmed) return null;
+    const action = this.pendingActions.find(item => item.id === actionId && item.status === 'pending');
+    if (!action) return null;
+    if (!gameRepository.updatePendingActionText(this.id, actionId, trimmed)) return null;
+    action.text = trimmed;
+    return action;
   }
 
   /**
@@ -1369,31 +1942,56 @@ ${toSummarize.map(r => `Раунд ${r.turn}: ${r.narration}`).join('\n\n')}
   }
 
   /**
-   * Process ONE action from the queue (for sequential processing).
-   * Called when time-skip happens or when explicitly processing.
-   *
-   * Wrapped in `withLock` so two concurrent HTTP requests can't
-   * double-process the same action. Returns `null` if another
-   * turn is already in flight for this session.
+   * Process a single queued action. This remains for compatibility with the
+   * legacy endpoint; every normal time jump must use the batch method below.
    */
   async processNextAction(jumpDays: number = 30): Promise<PendingAction | null> {
-    return (await this.withLock(async () => this._processNextActionUnlocked(jumpDays))) as PendingAction | null;
+    const result = await this.withLock(async () => {
+      const action = this.pendingActions.find(item => item.status === 'pending');
+      if (!action) return [];
+      return this._processActionBatchUnlocked(jumpDays, [action]);
+    });
+    if (result === null) throw new SimulationInProgressError();
+    return result[0] || null;
   }
 
   /**
-   * Body of processNextAction, without the lock. Private so external
-   * callers cannot bypass withLock.
+   * Simulate one time interval for all selected orders. A batch deliberately
+   * has one date range, one LLM simulation and one turn: processing N queued
+   * orders must never advance the clock N times.
+   *
+   * This private method assumes that the caller owns `withLock`.
    */
-  private async _processNextActionUnlocked(jumpDays: number = 30): Promise<PendingAction | null> {
-    // Find next pending action
-    const action = this.pendingActions.find(a => a.status === 'pending');
-    if (!action) {
-      console.log('[GameSession] No pending actions to process');
-      return null;
-    }
-
-    action.status = 'processing';
-    console.log('[GameSession] Processing action:', action.id, 'text:', action.text.substring(0, 50));
+  private async _processActionBatchUnlocked(
+    jumpDays: number,
+    actions: PendingAction[],
+    idempotencyKey?: string,
+  ): Promise<PendingAction[]> {
+    // Validate before taking a snapshot or mutating the queue.
+    const timeJump = jumpHorizon(jumpDays);
+    const periodStart = this.currentDate;
+    const horizonDate = addDays(periodStart, timeJump);
+    actions.forEach(item => { item.status = 'processing'; });
+    gameRepository.updatePendingActionStatus(this.id, actions.map(item => item.id), 'processing');
+    console.log(
+      '[GameSession] Processing simulation batch:',
+      actions.length ? actions.map(item => item.id).join(', ') : '(world only)',
+    );
+    // Gli eventi progressivi mutano la mappa prima della fine della risposta:
+    // conserva una copia locale per ripristinare lo stato se lo stream fallisce.
+    const regionsBeforeStream = new Map<string, RegionState>(
+      [...this.regions.entries()].map(([id, region]) => [id, JSON.parse(JSON.stringify(region))])
+    );
+    let simulationRunId: string | null = null;
+    // Snapshot completo pre-run: un errore dopo scritture DB non può lasciare
+    // cronaca, relazioni o chat avanti rispetto alla mappa ripristinata.
+    const turnBeforeRun = this.currentTurn;
+    const dateBeforeRun = this.currentDate;
+    const relationshipsBeforeRun = this.relationships.toJSON();
+    const actionsBeforeRun = [...this.actions];
+    const resultsBeforeRun = [...this.results];
+    const chatsBeforeRun = chatRepository.snapshotGameChats(this.id);
+    const ongoingProcessesBeforeRun = gameRepository.snapshotOngoingProcesses(this.id);
 
     try {
       const player = this.players[0];
@@ -1402,182 +2000,447 @@ ${toSummarize.map(r => `Раунд ${r.turn}: ${r.narration}`).join('\n\n')}
       const playerRegion = this.regions.get(player.regionId);
       if (!playerRegion) throw new Error('Player region not found');
 
-      // Этап 2: снапшот для rewind — ДО любых мутаций состояния
+      // Snapshot pre-turn. If auto-jump finds no event at all, restore the
+      // previous rewind record as well: a failed search is not a checkpoint.
+      const rewindBeforeSearch = db.prepare(
+        "SELECT * FROM saves WHERE game_id = ? AND name = '__rewind__' ORDER BY saved_at DESC LIMIT 1"
+      ).get(this.id) as any;
       this.saveRewindSnapshot();
 
       // jumpDays <= 0 — auto-jump «к следующему важному событию» (горизонт — год)
       const autoJump = jumpDays <= 0;
-      const timeJump = autoJump ? 365 : jumpDays;
+      simulationRunId = shortId();
+      this.activeSimulationRunId = simulationRunId;
+      this.activeSimulationAbort = new AbortController();
+      gameRepository.createSimulationRun({
+        id: simulationRunId,
+        gameId: this.id,
+        mode: autoJump ? 'auto' : 'fixed',
+        startDate: periodStart,
+        targetDate: horizonDate,
+        idempotencyKey,
+      });
 
-      this.broadcast('turn_start', { turn: this.currentTurn, action: action.text });
+      this.broadcast('turn_start', {
+        simulationId: simulationRunId,
+        turn: this.currentTurn,
+        actions: actions.map(item => ({ id: item.id, text: item.text })),
+      });
 
       // Build game data for prompt engine
       const gameData = this.buildGameData();
 
-      // Process turn with prompts (single action)
+      // Gli eventi escono dal token stream UNO ALLA VOLTA. Appena un oggetto
+      // JSON è completo viene applicato alla mappa e inviato al browser; non
+      // attendiamo più la generazione dell'intero lotto.
+      this.interveneRequested = false;
+      const appliedEvents: SimulationEvent[] = [];
+      // Gli stream possono mostrare una proposta evento, ma la mappa del
+      // client cambia solo dopo il commit del turno. Conserviamo qui il delta
+      // da pubblicare insieme al checkpoint durevole.
+      const checkpointChanges = new Map<string, {
+        id: string; owner: string; color: string; name: string;
+        population: number; gdp: number; militaryPower: number; objects: any[];
+      }>();
+      let consumedEvents = 0;
+      let intervened = false;
+      const publishEvent = (event: SimulationEvent, index: number) => {
+        consumedEvents = Math.max(consumedEvents, index + 1);
+        if (this.interveneRequested) {
+          intervened = true;
+          return;
+        }
+        // In auto-jump il primo evento significativo è anche il punto di
+        // arresto: ignora rigorosamente gli eventuali record successivi di un
+        // modello che non abbia rispettato il limite del prompt.
+        if (autoJump && appliedEvents.length > 0) {
+          console.warn('[GameSession] Auto-jump: event after the first ignored');
+          return;
+        }
+        // Reject invalid/backdated dates before any map effect. Count consumed
+        // events separately below so streaming fallbacks cannot reapply them.
+        const previousDate = appliedEvents.at(-1)?.date || periodStart;
+        if (!dateInPeriod(event.date, previousDate, horizonDate)) {
+          console.warn('[GameSession] Event outside turn period:', event.date);
+          return;
+        }
+        const changedRegions = this.applyMapChanges(event.mapChanges).map(region => ({
+          id: region.id,
+          owner: region.owner,
+          color: region.color,
+          name: region.name,
+          population: region.population,
+          gdp: region.gdp,
+          militaryPower: region.militaryPower,
+          objects: region.objects,
+        }));
+        changedRegions.forEach(region => checkpointChanges.set(region.id, region));
+        appliedEvents.push(event);
+        // È una sola anteprima narrativa: nessun delta o data viene ancora
+        // pubblicato, poiché DB e checkpoint non sono stati committati.
+        this.broadcast('jump_event', {
+          turn: this.currentTurn,
+          index,
+          event,
+          streaming: true,
+          checkpoint: false,
+        });
+      };
+
       const promptResult = await this.gameController.processTurnWithPrompts(
         gameData,
-        [action.text], // Single action as array
+        actions.map(item => item.text),
         timeJump,
-        (chars) => this.broadcast('llm_progress', { mechanic: 'jump', chars }),
-        autoJump
+        (chars) => this.broadcast('llm_progress', { mechanic: 'jump', chars, eventsReady: appliedEvents.length }),
+        autoJump,
+        publishEvent,
+        this.activeSimulationAbort.signal,
       );
 
-      // Нереалистичные действия, отклонённые симуляцией
+      const events = promptResult.events || [];
+      // Compatibilità con mock/test e provider non-streaming: pubblica qui gli
+      // eventuali eventi che non sono già arrivati dal callback incrementale.
+      for (let i = consumedEvents; i < events.length; i++) {
+        if (this.interveneRequested) { intervened = true; break; }
+        publishEvent(events[i], i);
+      }
+      intervened ||= this.interveneRequested;
+      const period = resolvePeriod({ start: periodStart, days: timeJump, auto: autoJump,
+        interrupted: intervened, target: promptResult.targetDate, eventDates: appliedEvents.map(e => e.date) });
+      if (intervened) {
+        console.log(`[GameSession] Intervene: applicati ${appliedEvents.length}/${events.length} eventi`);
+      }
+
+      // Una ricerca automatica senza svolte non è un turno: lascia data,
+      // mappa, coda, risultati e snapshot esattamente al checkpoint iniziale.
+      if (autoJump && !intervened && appliedEvents.length === 0) {
+        actions.forEach(action => { action.status = 'pending'; });
+        gameRepository.updatePendingActionStatus(this.id, actions.map(action => action.id), 'pending');
+        db.prepare("DELETE FROM saves WHERE game_id = ? AND name = '__rewind__'").run(this.id);
+        if (rewindBeforeSearch) {
+          db.prepare(`
+            INSERT INTO saves (id, game_id, name, current_turn, current_date, data, saved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            rewindBeforeSearch.id, rewindBeforeSearch.game_id, rewindBeforeSearch.name,
+            rewindBeforeSearch.current_turn, rewindBeforeSearch.current_date,
+            rewindBeforeSearch.data, rewindBeforeSearch.saved_at,
+          );
+        }
+        gameRepository.finishSimulationRun(simulationRunId, 'no_event', {
+          checkpointDate: periodStart,
+          turn: this.currentTurn,
+        });
+        this.activeSimulationRunId = null;
+        this.activeSimulationAbort = null;
+        this.broadcast('simulation_no_event', {
+          simulationId: simulationRunId,
+          turn: this.currentTurn,
+          startDate: periodStart,
+          searchedUntil: horizonDate,
+        });
+        return [];
+      }
+
+      // Нереалистичные действия, отклонённые simulaцией
       const voided = promptResult.voided || [];
       for (const v of voided) {
         this.broadcast('action_voided', { turn: this.currentTurn, action: v.action, reason: v.reason });
       }
 
-      // События применяются ПО ОДНОМУ с SSE-рассылкой — между ними игрок
-      // может нажать Intervene и откатить остаток пачки (Этап 2).
-      this.interveneRequested = false;
-      const events = promptResult.events || [];
-      const appliedEvents: typeof events = [];
-      let intervened = false;
-      for (let i = 0; i < events.length; i++) {
-        if (this.interveneRequested) {
-          intervened = true;
-          break;
-        }
-        const event = events[i];
-        if (event.mapChanges && event.mapChanges.length > 0) {
-          this.applyMapChanges(event.mapChanges);
-        }
-        appliedEvents.push(event);
-        this.broadcast('jump_event', { turn: this.currentTurn, index: i, total: events.length, event });
-        // Пауза, чтобы фронт успел показать событие (только при живом SSE)
-        if (this.sseBroadcaster && i < events.length - 1) {
-          await new Promise(r => setTimeout(r, 350));
-        }
-      }
-      if (intervened) {
-        console.log(`[GameSession] Intervene: применено ${appliedEvents.length}/${events.length} событий`);
-      }
-
-      // Итоговые worldChanges — только если пачка применена целиком;
-      // при Intervene итоговое состояние недостижимо, применяем только
-      // mapChanges уже показанных событий.
-      if (!intervened && promptResult.worldChanges) {
+      // Gli effetti globali legacy non sono associati a un evento datato.
+      // Durante l'auto-jump il primo evento è il confine invalicabile: solo i
+      // suoi `mapChanges` già validati possono mutare il mondo. Applicare qui
+      // worldChanges, relazioni o chat della risposta completa farebbe entrare
+      // nel checkpoint conseguenze che appartengono a eventi futuri scartati.
+      const applyCompletionEffects = !intervened && !autoJump;
+      if (applyCompletionEffects && promptResult.worldChanges) {
         this.applyWorldChanges(promptResult.worldChanges);
       }
 
-      // ОТКЛЮЧЕНО: переговоры — LLM-initiated дипломатические чаты.
-      // Симуляция больше не создаёт чаты по startChat из promptResult:
-      // фича выключена решением владельца, LLM-вызовы/сообщения не создаются.
-      // for (const startChat of promptResult.startChat || []) {
-      //   try {
-      //     const chat = this.ensureChat(startChat.polityName);
-      //     const firstMessage = chatRepository.addMessage(
-      //       chat.id,
-      //       'polity',
-      //       startChat.topic || 'Хотим обсудить текущую ситуацию',
-      //       this.currentTurn
-      //     );
-      //     this.broadcast('chat_message', {
-      //       chatId: chat.id,
-      //       polityId: chat.polityId,
-      //       polityName: chat.polityName,
-      //       message: firstMessage,
-      //     });
-      //   } catch (e) {
-      //     console.warn('[GameSession] startChat: полития не найдена:', startChat.polityName, e);
-      //   }
-      // }
+      // Le conseguenze delle trattative diventano relazioni persistenti.
+      const persistedRelationshipChanges: {
+        from: string;
+        to: string;
+        newRelationship: RelationshipType;
+        reason: string;
+      }[] = [];
+      const polityResolver = this.buildResolvers().polities;
+      for (const change of applyCompletionEffects ? promptResult.relationshipChanges || [] : []) {
+        const from = polityResolver.resolve(change.from);
+        const to = polityResolver.resolve(change.to);
+        if (!from || !to || from.isNew || to.isNew || from.polityId === to.polityId) continue;
+        this.relationships.set(from.polityId, to.polityId, change.relationship);
+        persistedRelationshipChanges.push({
+          from: from.polityId,
+          to: to.polityId,
+          newRelationship: change.relationship,
+          reason: change.reason || 'Conseguenza diplomatica del turno',
+        });
+      }
+      relationshipRepository.upsertForGame(this.id, persistedRelationshipChanges);
 
-      // Detect and create objects
-      const createdObjects = this.detectAndCreateObjects(
-        playerRegion,
-        action.text + ' ' + promptResult.convertedActions.map((a: any) => a.text).join(' ')
-      );
+      // Le nazioni possono aprire autonomamente un canale dopo un evento.
+      // L'apertura è un evento diplomatico esplicito, datato al checkpoint
+      // finale, non una deduzione fatta in seguito dal testo dei messaggi.
+      const chatTimelineEvents: TimelineEventRecord[] = [];
+      for (const startChat of applyCompletionEffects ? promptResult.startChat || [] : []) {
+        try {
+          const chat = this.ensureChat([startChat.polityName]);
+          const sender = chat.participants.find(p => p.role === 'polity')?.name || chat.polityName;
+          const firstMessage = chatRepository.addMessage(
+            chat.id,
+            'polity',
+            startChat.topic || 'Desideriamo discutere gli ultimi sviluppi.',
+            this.currentTurn,
+            sender,
+            period.end,
+          );
+          chatTimelineEvents.push({
+            id: `chat-${firstMessage.id}`,
+            date: period.end,
+            headline: `${sender} apre un canale diplomatico`,
+            detail: `${sender}: ${firstMessage.content}`,
+            source: 'diplomacy',
+            chatId: chat.id,
+            speakerName: sender,
+          });
+          this.broadcast('chat_message', {
+            chatId: chat.id,
+            polityId: chat.polityId,
+            polityName: chat.polityName,
+            participants: chat.participants,
+            senderName: sender,
+            message: firstMessage,
+          });
+        } catch (e) {
+          console.warn('[GameSession] startChat: politia non trovata:', startChat.polityName, e);
+        }
+      }
 
-      // Process NPC turns (for this period)
-      const npcEvents = await this.processNPCTurns();
+      // An intention (even a rejected order containing "build") is not a
+      // completed construction. Objects are applied only via event mapChanges.
 
-      // Apply random events
-      const randomEvents = this.applyRandomEvents();
+      // Oggetti costruiti e trasformazioni approvate entrano subito nei conti
+      // nazionali. Il risultato economico è deterministico e viene conservato
+      // nei dispacci, così i turni successivi ricordano le conseguenze.
+      // L'economia aggiorna comunque i valori fino alla data dell'evento,
+      // ma nell'auto-jump non aggiunge un secondo dispaccio alla prima svolta.
+      const economyBulletins = period.elapsedDays > 0 ? this.advanceWorldState(period.elapsedDays) : [];
+      const economyEvents = autoJump ? [] : economyBulletins;
 
-      // Record action
-      const actionRecord: ActionRecord = {
-        id: action.id,
+      // Il salto viene deciso da UN'unica sequenza causale (la simulazione
+      // datata sopra). Non aggiungere dopo la narrazione un secondo generatore
+      // NPC/casuale: le iniziative delle politie devono essere emesse nel
+      // prompt come eventi con causa e checkpoint, non come rumore tardivo.
+      const npcEvents: string[] = [];
+      const randomEvents: string[] = [];
+
+      // Every order is recorded against the same simulation turn. Their
+      // individual result points at the shared outcome below instead of
+      // triggering independent calendar jumps.
+      const actionRecords: ActionRecord[] = actions.map(item => ({
+        id: item.id,
         playerId: player.id,
         turn: this.currentTurn,
-        text: action.text,
-        createdAt: action.createdAt,
-      };
-      this.actions.push(actionRecord);
-
-      // Persist action to DB
-      gameRepository.addAction({
+        text: item.text,
+        createdAt: item.createdAt,
+      }));
+      this.actions.push(...actionRecords);
+      actionRecords.forEach(actionRecord => gameRepository.addAction({
         id: actionRecord.id,
         gameId: this.id,
         playerId: player.id,
         turn: this.currentTurn,
-        text: action.text,
-      });
+        text: actionRecord.text,
+      }));
 
       // Create turn result (заголовки только ПРИМЕНЁННЫХ событий + voided)
       const llmEventHeadlines = appliedEvents.map((e: any) => e.headline).filter(Boolean);
-      const voidedHeadlines = voided.map(v => `⊘ Отклонено: ${v.action}${v.reason ? ` — ${v.reason}` : ''}`);
-      if (intervened) llmEventHeadlines.push('⏸ Симуляция прервана игроком (Intervene)');
+      const voidedHeadlines = voided.map(v => `⊘ Respinto: ${v.action}${v.reason ? ` — ${v.reason}` : ''}`);
+      if (intervened) llmEventHeadlines.push('⏸ Simulazione interrotta dal giocatore (Intervene)');
       const turnResult: TurnResultRecord = {
         id: shortId(),
+        simulationId: simulationRunId || undefined,
         turn: this.currentTurn,
-        narration: promptResult.narration,
+        // In auto-jump non riutilizzare il riassunto completo della LLM: può
+        // descrivere il futuro oltre il primo evento accettato.
+        narration: (intervened || autoJump)
+          ? appliedEvents.map(e => e.description).join('\n\n')
+          : promptResult.narration,
         countryResponse: promptResult.convertedActions.map((a: any) => a.text).join('\n'),
-        events: [...voidedHeadlines, ...llmEventHeadlines, ...npcEvents, ...randomEvents, ...createdObjects.map(o => o.text)],
+        events: [...voidedHeadlines, ...llmEventHeadlines, ...economyEvents, ...npcEvents, ...randomEvents],
       };
       this.results.push(turnResult);
-
-      // Persist turn result to DB
-      gameRepository.addTurnResult({
-        id: turnResult.id,
-        gameId: this.id,
-        turn: this.currentTurn,
-        narration: turnResult.narration,
-        countryResponse: turnResult.countryResponse,
-        events: turnResult.events,
-      });
 
       // Persist ALL region changes to DB
       await this.syncRegionsToDB();
 
-      // Update action with result (before advancing date)
-      action.status = 'completed';
-      const periodStart = this.currentDate;
-      action.result = {
-        narration: turnResult.narration,
-        countryResponse: turnResult.countryResponse,
-        events: turnResult.events,
-        objects: playerRegion.objects,
-        turn: this.currentTurn,
-        periodStart,
-        periodEnd: '', // Will be set after date advance
-      };
+      // Ogni ordine mantiene l'involucro comune del turno ma riceve il proprio
+      // esito strutturato quando il provider lo restituisce. Fallback legacy:
+      // la cronaca comune resta leggibile finché un preset non emette outcome.
+      actions.forEach((item, index) => {
+        // Il converter può normalizzare/tradurre il testo prima del prompt;
+        // l'ordine del lotto resta quindi il fallback stabile di associazione.
+        const outcome = promptResult.actionOutcomes?.find(result => result.action === item.text)
+          || promptResult.actionOutcomes?.[index];
+        const rejected = voided.find(result => result.action === item.text);
+        const outcomeStatus = outcome?.status || (rejected ? 'rejected' : undefined);
+        const outcomeSummary = outcome?.summary || rejected?.reason;
+        const outcomeEvents = outcome?.eventHeadlines?.length
+          ? outcome.eventHeadlines.filter(headline => turnResult.events.includes(headline))
+          : rejected ? voidedHeadlines.filter(headline => headline.includes(rejected.action)) : turnResult.events;
+        item.status = 'completed';
+        item.result = {
+          narration: outcomeSummary || turnResult.narration,
+          countryResponse: turnResult.countryResponse,
+          events: outcomeEvents,
+          simulationId: simulationRunId || undefined,
+          outcome: outcomeStatus && outcomeSummary
+            ? { status: outcomeStatus, summary: outcomeSummary, expectedDate: outcome?.expectedDate }
+            : undefined,
+          objects: playerRegion.objects,
+          turn: this.currentTurn,
+          periodStart,
+          periodEnd: '', // Will be set after date advance
+        };
+      });
+
+      // Un esito partial è un processo ancora aperto, non un successo finale.
+      // Il record resta nel checkpoint e potrà essere aggiornato da un futuro
+      // outcome invece di inventare la conclusione nel turno corrente.
+      actions.filter(action => action.result?.outcome?.status === 'partial').forEach(action => {
+        gameRepository.upsertOngoingProcess({
+          id: shortId(),
+          gameId: this.id,
+          sourceActionId: action.id,
+          sourceRunId: simulationRunId!,
+          title: action.text,
+          summary: action.result!.outcome!.summary,
+          startedDate: periodStart,
+          expectedDate: action.result!.outcome!.expectedDate && action.result!.outcome!.expectedDate > periodStart
+            ? action.result!.outcome!.expectedDate
+            : undefined,
+        });
+      });
+      // Una reiterazione dello stesso ordine con esito accepted chiude il
+      // processo aperto associato: la LLM deve comunque dichiarare accepted.
+      actions.filter(action => action.result?.outcome?.status === 'accepted').forEach(action => {
+        gameRepository.completeOngoingProcessForAction(
+          this.id,
+          action.text,
+          action.result!.outcome!.summary,
+        );
+      });
+
+      // Esiti individuali durevoli: anche i preset legacy ricevono un record
+      // esplicito (accepted + cronaca comune) invece di sparire con la coda.
+      gameRepository.addSimulationActionOutcomes(actions.map(action => ({
+        id: shortId(),
+        runId: simulationRunId!,
+        gameId: this.id,
+        actionId: action.id,
+        status: action.result?.outcome?.status || 'accepted',
+        summary: action.result?.outcome?.summary || action.result?.narration || turnResult.narration,
+        eventHeadlines: action.result?.events || [],
+      })));
+
+      // Completed orders no longer belong to the future queue. Persist the
+      // removal only after their common result has been constructed.
+      gameRepository.removePendingActions(this.id, actions.map(item => item.id));
 
       // Advance turn and date
       this.currentTurn++;
-      const lastEventDate = appliedEvents
-        .map(e => e.date)
-        .filter(d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d))
-        .sort()
-        .pop();
-      if (intervened && lastEventDate) {
-        // Пачка откачена частично — дата по последнему применённому событию
-        this.currentDate = lastEventDate;
-      } else if (autoJump && promptResult.targetDate && /^\d{4}-\d{2}-\d{2}/.test(promptResult.targetDate)) {
-        this.currentDate = promptResult.targetDate;
-      } else {
-        const date = new Date(this.currentDate);
-        date.setDate(date.getDate() + timeJump);
-        this.currentDate = date.toISOString().split('T')[0];
-      }
+      this.currentDate = period.end;
 
       // Now set periodEnd (after advancing)
-      action.result.periodEnd = this.currentDate;
+      actions.forEach(item => {
+        if (item.result) item.result.periodEnd = this.currentDate;
+      });
+
+      // Timeline: conserva data, titolo e dettaglio originale di ogni evento.
+      turnResult.date = this.currentDate;
+      const detailedByHeadline = new Map(
+        appliedEvents.map(event => [event.headline, event] as const)
+      );
+      const sourceActionsByHeadline = new Map<string, string[]>();
+      actions.forEach((action, index) => {
+        const outcome = promptResult.actionOutcomes?.find(result => result.action === action.text)
+          || promptResult.actionOutcomes?.[index];
+        outcome?.eventHeadlines?.forEach(headline => {
+          const ids = sourceActionsByHeadline.get(headline) || [];
+          ids.push(action.id);
+          sourceActionsByHeadline.set(headline, ids);
+        });
+      });
+      turnResult.timelineEvents = turnResult.events.map((headline, index) => {
+        const detailed = detailedByHeadline.get(headline);
+        return {
+          id: `${turnResult.id}-${index}`,
+          date: detailed?.date || this.currentDate,
+          headline,
+          detail: detailed?.description || (headline.startsWith('⊘') ? headline : turnResult.narration),
+          source: 'world' as const,
+          simulationId: simulationRunId || undefined,
+          sourceActionIds: sourceActionsByHeadline.get(headline) || [],
+        };
+      });
+      for (const [index, change] of persistedRelationshipChanges.entries()) {
+        turnResult.timelineEvents.push({
+          id: `${turnResult.id}-relationship-${index}`,
+          date: this.currentDate,
+          headline: `Rapporti diplomatici: ${change.from} ↔ ${change.to}`,
+          detail: `${change.newRelationship}: ${change.reason}`,
+          source: 'diplomacy',
+          simulationId: simulationRunId || undefined,
+        });
+      }
+      chatTimelineEvents.forEach(event => { event.simulationId = simulationRunId || undefined; });
+      turnResult.timelineEvents.push(...chatTimelineEvents);
+      // Ogni ordine del lotto rimanda agli stessi eventi canonici del suo
+      // turno, anziché obbligare client/API a ricostruirli da sole stringhe.
+      actions.forEach(action => {
+        if (action.result) action.result.eventDetails = turnResult.timelineEvents;
+      });
+      gameRepository.addTurnResult({
+        id: turnResult.id,
+        gameId: this.id,
+        turn: turnResult.turn,
+        narration: turnResult.narration,
+        countryResponse: turnResult.countryResponse,
+        events: turnResult.events,
+        timelineEvents: turnResult.timelineEvents,
+        date: turnResult.date,
+      });
 
       // Persist turn and date to DB in single operation
       gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
+      const checkpointId = shortId();
+      gameRepository.createSimulationCheckpoint({
+        id: checkpointId,
+        runId: simulationRunId!,
+        gameId: this.id,
+        revision: this.currentTurn,
+        turn: turnResult.turn,
+        date: this.currentDate,
+        data: this.captureCheckpointData(),
+      });
+      gameRepository.addSimulationEvents((turnResult.timelineEvents || []).map(event => ({
+        id: event.id,
+        runId: simulationRunId!,
+        checkpointId,
+        gameId: this.id,
+        date: event.date,
+        headline: event.headline,
+        detail: event.detail,
+        source: event.source,
+        sourceActionIds: event.sourceActionIds,
+      })));
+      gameRepository.finishSimulationRun(simulationRunId!, intervened ? 'intervened' : 'completed', {
+        checkpointDate: this.currentDate,
+        checkpointId,
+        turn: turnResult.turn,
+      });
 
       // Этап 2: консолидация истории — не должна ронять успешный ход
       try {
@@ -1590,8 +2453,10 @@ ${toSummarize.map(r => `Раунд ${r.turn}: ${r.narration}`).join('\n\n')}
         turn: this.currentTurn - 1,
         narration: turnResult.narration,
         events: turnResult.events,
+        eventDetails: turnResult.timelineEvents,
         newTurn: this.currentTurn,
         newDate: this.currentDate,
+        changedRegions: [...checkpointChanges.values()],
         intervened,
       });
 
@@ -1599,56 +2464,139 @@ ${toSummarize.map(r => `Раунд ${r.turn}: ${r.narration}`).join('\n\n')}
       // Fire-and-forget: ход уже успешен, советник не должен его задерживать
       // или ронять.
       this.getAdvisor(
-        'Кратко (до 500 символов) прокомментируй итоги прошедшего периода для своего лидера',
+        'Commenta brevemente (max 500 caratteri) gli esiti del periodo appena trascorso per il tuo leader, in italiano',
         []
       )
         .then(content => this.broadcast('advisor_proactive', { content }))
         .catch(e => console.error('[GameSession] Proactive advisor failed:', e));
 
-      console.log('[GameSession] Action processed, new date:', this.currentDate);
-      return action;
+      this.activeSimulationRunId = null;
+      this.activeSimulationAbort = null;
+      console.log('[GameSession] Action batch processed, new date:', this.currentDate);
+      return actions;
 
     } catch (e) {
-      console.error('[GameSession] Error processing action:', e);
-      action.status = 'pending'; // Reset status on error
+      console.error('[GameSession] Error processing action batch:', e);
+      // Ripristino completo del checkpoint precedente, non soltanto della
+      // mappa: altrimenti un client potrebbe osservare data/cronaca future.
+      this.regions = regionsBeforeStream;
+      this.currentTurn = turnBeforeRun;
+      this.currentDate = dateBeforeRun;
+      this.relationships = RelationshipMatrix.fromJSON(relationshipsBeforeRun);
+      this.actions = actionsBeforeRun;
+      this.results = resultsBeforeRun;
+      if (simulationRunId) {
+        gameRepository.finishSimulationRun(simulationRunId, 'failed', { error: e instanceof Error ? e.message : String(e) });
+      }
+      this.activeSimulationRunId = null;
+      this.activeSimulationAbort = null;
+      actions.forEach(item => { item.status = 'pending'; });
+      try {
+        await this.syncRegionsToDB();
+        gameRepository.replaceHistory(this.id, this.actions, this.results);
+        relationshipRepository.replaceForGame(this.id, Object.entries(relationshipsBeforeRun).flatMap(([from, targets]) =>
+          Object.entries(targets as Record<string, RelationshipType>).map(([to, type]) => ({ from, to, type }))
+        ));
+        chatRepository.replaceGameChats(this.id, chatsBeforeRun);
+        gameRepository.replaceOngoingProcesses(this.id, ongoingProcessesBeforeRun);
+        gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
+        // The batch may already have removed its rows before a later DB write.
+        gameRepository.replacePendingActions(this.id, this.pendingActions);
+      } catch (rollbackError) {
+        console.error('[GameSession] Checkpoint rollback persistence failed:', rollbackError);
+      }
       throw e;
     }
   }
 
   /**
-   * Process all pending actions sequentially.
-   *
-   * Holds the session lock for the whole loop. If another call comes
-   * in while we're processing the queue, that caller gets `[]` back
-   * and can poll. We intentionally do NOT await the in-flight queue
-   * because the queue itself may take many minutes (each action does
-   * an LLM call) and the caller would block for the entire duration.
+   * Process every currently pending order as one simultaneous batch.
    */
-  async processAllPendingActions(jumpDays: number = 30): Promise<PendingAction[]> {
+  async processAllPendingActions(jumpDays: number = 30, idempotencyKey?: string): Promise<PendingAction[]> {
     const result = await this.withLock(async () => {
-      const processed: PendingAction[] = [];
-      let action = await this._processNextActionUnlocked(jumpDays);
-      while (action) {
-        processed.push(action);
-        action = await this._processNextActionUnlocked(jumpDays);
-      }
-      return processed;
+      const pending = this.pendingActions.filter(action => action.status === 'pending');
+      return this._processActionBatchUnlocked(jumpDays, pending, idempotencyKey);
     });
-    return result ?? [];
+    if (result === null) throw new SimulationInProgressError();
+    return result;
   }
 
   /**
-   * Advance date without processing actions (for time-skip without pending actions)
+   * Advance the world through the same causal event pipeline used for player
+   * orders. No placeholder player action is created: an empty `actions` array
+   * explicitly means that only existing world processes may produce events.
    */
-  advanceDate(jumpDays: number = 30): { newDate: string; newTurn: number } {
-    const periodStart = this.currentDate;
-    this.currentTurn++;
-    const date = new Date(this.currentDate);
-    date.setDate(date.getDate() + jumpDays);
-    this.currentDate = date.toISOString().split('T')[0];
+  async processWorldAdvance(jumpDays: number = 30, idempotencyKey?: string): Promise<TurnResultRecord | null> {
+    const result = await this.withLock(async () => {
+      await this._processActionBatchUnlocked(jumpDays, [], idempotencyKey);
+      return this.results.at(-1) || null;
+    });
+    if (result === null) throw new SimulationInProgressError();
+    return result;
+  }
 
-    // Persist to DB
+  /**
+   * Advance date without processing actions (for legacy callers only).
+   * New timeline controls must use processWorldAdvance so world events are not
+   * bypassed when the player has no fresh orders. The calendar and economy
+   * still advance together for callers that explicitly retain this legacy API.
+   */
+  async advanceDate(jumpDays: number = 30): Promise<{ newDate: string; newTurn: number }> {
+    // Validate BEFORE any mutation: an invalid horizon used to increment the
+    // turn and then throw on an Invalid Date.
+    const days = explicitDays(jumpDays);
+    const periodStart = this.currentDate;
+    const elapsedTurn = this.currentTurn;
+    const newDate = addDays(periodStart, days);
+
+    const tick = WorldStateEngine.advance(this.regions.values(), days);
+    const bulletin = WorldStateEngine.playerBulletin(tick.accounts[this.playerPolityId]);
+    this.currentTurn++;
+    this.currentDate = newDate;
+
+    const id = shortId();
+    const headline = `Il tempo avanza di ${days} ${days === 1 ? 'giorno' : 'giorni'}`;
+    const result: TurnResultRecord = {
+      id,
+      turn: elapsedTurn,
+      date: this.currentDate,
+      narration: `Dal ${periodStart} al ${this.currentDate} non sono state impartite nuove direttive.`,
+      countryResponse: '',
+      events: bulletin ? [headline, `📊 ${bulletin}`] : [headline],
+      timelineEvents: [{
+        id: `${id}-0`,
+        date: this.currentDate,
+        headline,
+        detail: `Periodo trascorso senza un’azione esplicita del giocatore (${periodStart} → ${this.currentDate}).`,
+        source: 'world',
+      }, ...(bulletin ? [{
+        id: `${id}-1`,
+        date: this.currentDate,
+        headline: 'Conti nazionali del periodo',
+        detail: bulletin,
+        source: 'world' as const,
+      }] : [])],
+    };
+    this.results.push(result);
+    gameRepository.addTurnResult({ ...result, gameId: this.id });
     gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
+    // The skip is only complete once its economic effects are on disk.
+    await this.syncRegionsToDB();
+
+    const changedRegions = tick.changedRegions.map(regionId => {
+      const region = this.regions.get(regionId);
+      if (!region) return null;
+      return { id: region.id, owner: region.owner, color: region.color,
+        population: region.population, gdp: region.gdp, militaryPower: region.militaryPower };
+    }).filter(Boolean);
+    this.broadcast('world_event', {
+      narration: result.narration,
+      events: result.events,
+      eventDetails: result.timelineEvents,
+      newTurn: this.currentTurn,
+      newDate: this.currentDate,
+      changedRegions,
+    });
 
     console.log('[GameSession] Advanced date:', periodStart, '->', this.currentDate);
     return { newDate: this.currentDate, newTurn: this.currentTurn };

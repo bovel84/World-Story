@@ -15,12 +15,29 @@ interface UseSSEOptions {
   onTurnStart?: (data: any) => void;
   onTurnComplete?: (data: any) => void;
   onGeneratingNarration?: (data: any) => void;
-  onLLMProgress?: (data: { mechanic: string; chars: number }) => void;
-  onJumpEvent?: (data: { index: number; total: number; event: any }) => void;
+  onLLMProgress?: (data: { mechanic: string; chars: number; eventsReady?: number }) => void;
+  onJumpEvent?: (data: {
+    index: number;
+    total?: number;
+    streaming?: boolean;
+    /** Solo un checkpoint committato può aggiornare data e mappa. */
+    checkpoint?: boolean;
+    event: any;
+    changedRegions?: any[];
+  }) => void;
+  // Eventi del mondo generati dalla simulazione live (senza azione del giocatore)
+  onWorldEvent?: (data: {
+    narration: string;
+    events: string[];
+    eventDetails?: Array<{ id: string; date: string; headline: string; detail: string; source: 'world' | 'diplomacy' }>;
+    newTurn: number;
+    newDate: string;
+    changedRegions?: any[];
+  }) => void;
   onActionVoided?: (data: { action: string; reason: string }) => void;
-  // Этап 3: входящее сообщение дипломатического чата
+  // Fase 3: messaggio in arrivo da una chat diplomatica
   onChatMessage?: (data: { chatId: string; polityId: string; polityName: string; message: any }) => void;
-  // Этап 3: проактивный комментарий советника после хода
+  // Fase 3: commento proattivo del consulente dopo il turno
   onAdvisorProactive?: (data: { content: string }) => void;
   onError?: (error: any) => void;
   onConnected?: () => void;
@@ -29,6 +46,8 @@ interface UseSSEOptions {
 export function useSSE(gameId: string | null, options: UseSSEOptions) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const connect = useCallback(() => {
     if (!gameId) return;
@@ -38,8 +57,8 @@ export function useSSE(gameId: string | null, options: UseSSEOptions) {
       eventSourceRef.current.close();
     }
 
-    // Базовый URL API из env (без хардкода), тот же что и в services/api.ts
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+    // Base URL API da env (senza hardcode), lo stesso di services/api.ts
+    const apiBase = import.meta.env.VITE_API_URL || '/api';
     const url = `${apiBase}/games/${gameId}/events`;
     console.log('[SSE] Connecting to:', url);
 
@@ -48,12 +67,12 @@ export function useSSE(gameId: string | null, options: UseSSEOptions) {
 
     eventSource.onopen = () => {
       console.log('[SSE] Connected to game:', gameId);
-      options.onConnected?.();
+      optionsRef.current.onConnected?.();
     };
 
     eventSource.onerror = (error) => {
       console.error('[SSE] Error:', error);
-      options.onError?.(error);
+      optionsRef.current.onError?.(error);
 
       // Reconnect after 5 seconds
       if (reconnectTimeoutRef.current) {
@@ -74,7 +93,7 @@ export function useSSE(gameId: string | null, options: UseSSEOptions) {
       console.log('[SSE] Turn start:', e.data);
       try {
         const data = JSON.parse(e.data);
-        options.onTurnStart?.(data);
+        optionsRef.current.onTurnStart?.(data);
       } catch (err) {
         console.error('[SSE] Failed to parse turn_start:', err);
       }
@@ -84,15 +103,24 @@ export function useSSE(gameId: string | null, options: UseSSEOptions) {
       console.log('[SSE] Turn complete:', e.data);
       try {
         const data = JSON.parse(e.data);
-        options.onTurnComplete?.(data);
+        optionsRef.current.onTurnComplete?.(data);
       } catch (err) {
         console.error('[SSE] Failed to parse turn_complete:', err);
       }
     });
 
+    eventSource.addEventListener('world_event', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        optionsRef.current.onWorldEvent?.(data);
+      } catch (err) {
+        console.error('[SSE] Failed to parse world_event:', err);
+      }
+    });
+
     eventSource.addEventListener('generating_narration', (e) => {
       console.log('[SSE] Generating narration:', e.data);
-      options.onGeneratingNarration?.({});
+      optionsRef.current.onGeneratingNarration?.({});
     });
 
     eventSource.addEventListener('processing_npcs_complete', (e) => {
@@ -106,7 +134,7 @@ export function useSSE(gameId: string | null, options: UseSSEOptions) {
     eventSource.addEventListener('llm_progress', (e) => {
       try {
         const data = JSON.parse(e.data);
-        options.onLLMProgress?.(data);
+        optionsRef.current.onLLMProgress?.(data);
       } catch (err) {
         console.error('[SSE] Failed to parse llm_progress:', err);
       }
@@ -115,7 +143,7 @@ export function useSSE(gameId: string | null, options: UseSSEOptions) {
     eventSource.addEventListener('jump_event', (e) => {
       try {
         const data = JSON.parse(e.data);
-        options.onJumpEvent?.(data);
+        optionsRef.current.onJumpEvent?.(data);
       } catch (err) {
         console.error('[SSE] Failed to parse jump_event:', err);
       }
@@ -124,7 +152,7 @@ export function useSSE(gameId: string | null, options: UseSSEOptions) {
     eventSource.addEventListener('action_voided', (e) => {
       try {
         const data = JSON.parse(e.data);
-        options.onActionVoided?.(data);
+        optionsRef.current.onActionVoided?.(data);
       } catch (err) {
         console.error('[SSE] Failed to parse action_voided:', err);
       }
@@ -134,11 +162,11 @@ export function useSSE(gameId: string | null, options: UseSSEOptions) {
       // Keep-alive, no action needed
     });
 
-    // Этап 3: дипломатические чаты + живой Советник
+    // Fase 3: chat diplomatiche + Consulente live
     eventSource.addEventListener('chat_message', (e) => {
       try {
         const data = JSON.parse(e.data);
-        options.onChatMessage?.(data);
+        optionsRef.current.onChatMessage?.(data);
       } catch (err) {
         console.error('[SSE] Failed to parse chat_message:', err);
       }
@@ -147,7 +175,7 @@ export function useSSE(gameId: string | null, options: UseSSEOptions) {
     eventSource.addEventListener('advisor_proactive', (e) => {
       try {
         const data = JSON.parse(e.data);
-        options.onAdvisorProactive?.(data);
+        optionsRef.current.onAdvisorProactive?.(data);
       } catch (err) {
         console.error('[SSE] Failed to parse advisor_proactive:', err);
       }

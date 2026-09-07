@@ -1,89 +1,89 @@
 /**
  * Open-Pax — Action Converter Prompt
  * ==================================
- * Конвертер действий игрока (desript-to-action.md)
+ * Convertitore delle azioni del giocatore (desript-to-action.md)
  */
 
 import { PromptVariables, ConvertedAction } from './types';
 import { parseJsonLoose } from '../utils/json-repair';
 
 /**
- * Построить промпт для конвертации действия
+ * Costruisce il prompt per la conversione dell'azione
  */
 export function buildConverterPrompt(vars: PromptVariables): string {
   const actionText = vars.DESCRIPTION_ACTION_TEXT || '';
 
-  return `Ты конвертируешь решение игрока в понятное для симуляции действие.
+  return `Converti la decisione del giocatore in un'azione comprensibile per la simulazione.
 
-Игрок играет за политию ${vars.PLAYER_POLITY}.
+Il giocatore comanda la politia ${vars.PLAYER_POLITY}.
 
-Почти каждое действие должно быть преобразовано в тип "ACTION".
-Тип "CHAT" (дипломатия) - только если игрок явно упоминает дипломатические переговоры.
+Quasi ogni azione deve essere trasformata nel tipo "ACTION".
+Il tipo "CHAT" (diplomazia) va usato SOLO se il giocatore menziona esplicitamente trattative diplomatiche.
 
-Типы действий (ВСЕГДА action):
-- Attacking (атака)
-- Constructing (строительство)
-- Researching (исследования)
-- Consolidating (укрепление)
-- Mobilizing (мобилизация)
-- Industrializing (индустриализация)
-- Rearming (перевооружение)
-- Militarizing (милитаризация)
-- Disarming (разоружение)
-- Affirming (подтверждение)
-- Negating (отрицание)
+Tipi di azione (SEMPRE action):
+- Attacking (attacco)
+- Constructing (costruzione)
+- Researching (ricerca)
+- Consolidating (consolidamento)
+- Mobilizing (mobilitazione)
+- Industrializing (industrializzazione)
+- Rearming (riarmo)
+- Militarizing (militarizzazione)
+- Disarming (disarmo)
+- Affirming (conferma)
+- Negating (negazione)
 
-Дипломатия ТОЛЬКО если игрок хочет открыть чат с другой политией.
+Diplomazia SOLO se il giocatore vuole aprire una trattativa con un'altra politia.
 
-[Контекст игры]
+[Contesto di gioco]
 
 ${vars.WORLD_BEFORE_ROUND_ONE_TEXT}
 
-[Правила симуляции]
+[Regole di simulazione]
 
 ${vars.HISTORICAL_PRESET_SIMULATION_RULES}
 
-[Описание карты]
+[Descrizione della mappa]
 
 ${vars.GRAND_MAP_DESCRIPTION_NO_CITY}
 
-[Другие действия игрока в этом раунде]
+[Altre azioni del giocatore in questo turno]
 
-${vars.PLAYER_ACTIONS_THIS_ROUND || '(Нет других действий)'}
+${vars.PLAYER_ACTIONS_THIS_ROUND || '(Nessuna altra azione)'}
 
-(Они даны только для понимания общего замысла игрока. Тон и длину копируй с КОНКРЕТНОГО конвертируемого действия, а не с этих.)
+(Sono fornite solo per comprendere il disegno complessivo del giocatore. Il tono e la lunghezza vanno copiati dall'AZIONE SPECIFICA da convertire, non da queste.)
 
-[Игровые даты]
+[Date di gioco]
 
 ${vars.ORIGIN_ROUND_DATE}
 
 ---
 
-Действие игрока для конвертации:
+Azione del giocatore da convertire:
 
 ${actionText}
 
-Твоя задача:
-1. Определить тип: action или chat
-2. Если action — перепиши текст игрока подробнее: добавь конкретные детали исполнения — ссылки на реальные механизмы, ведомства, программы, отрасли, регионы из описания карты, — чтобы симулятор понял, КАК исполнять приказ
-3. НИЧЕГО не удаляй из намерения игрока — только дополняй. Даже хорошо написанное действие улучши и уточни
-4. Тон вывода повторяет тон ИМЕННО ЭТОГО действия: разговорный к разговорному, ролевой к ролевому, от первого лица к первому лицу
-5. Длина вывода — примерно на 50% длиннее текста игрока, но не более 650 символов. Если текст игрока уже длинный — не раздувай, лишь уплотни и уточни
-6. Если chat — сформулируй первое сообщение чата от лица игрока: оно суммирует, чего он хочет добиться от переговоров, и тоже повторяет его тон
+Il tuo compito:
+1. Determinare il tipo: action o chat
+2. Se action — riscrivi il testo del giocatore in modo più dettagliato: aggiungi dettagli concreti di esecuzione — riferimenti a meccanismi reali, ministeri, programmi, settori produttivi, regioni della descrizione della mappa — perché il simulatore capiscia COME eseguire l'ordine
+3. NON togliere nulla dall'intenzione del giocatore — solo arricchisci. Persino un'azione già ben scritta va migliorata e precisata
+4. Il tono dell'output ripete il tono di QUESTA azione: colloquiale in colloquiale, di ruolo in di ruolo, prima persona in prima persona
+5. La lunghezza dell'output è circa il 50% superiore al testo del giocatore, ma non oltre 650 caratteri. Se il testo del giocatore è già lungo — non gonfiarlo: condensalo e precisalo
+6. Se chat — formula il primo messaggio della trattativa in veste del giocatore: deve riassumere ciò che vuole ottenere dalla negoziazione, e ripete anch'esso il suo tono
 
-${vars.LANGUAGE === 'russian' ? 'Отвечай на русском.' : 'Отвечай на английском.'}
+Rispondi sempre in italiano.
 
 ---
 
-Твой вывод ДОЛЖЕН быть в формате JSON:
+Il tuo output DEVE essere in formato JSON:
 {
   "type": "action|chat",
-  "text": "Уточнённое описание действия",
-  "targetPolity": "имя политии (только для chat)",
-  "chatMessage": "первое сообщение (только для chat)"
+  "text": "Descrizione precisa dell'azione",
+  "targetPolity": "nome della politia (solo per chat)",
+  "chatMessage": "primo messaggio (solo per chat)"
 }
 
-VERY IMPORTANT: Отвечай ТОЛЬКО валидным JSON.`;
+VERY IMPORTANT: Rispondi SOLO con JSON valido.`;
 }
 
 export function parseConverterResponse(text: string): ConvertedAction {
@@ -99,7 +99,7 @@ export function parseConverterResponse(text: string): ConvertedAction {
   } catch (e) {
     console.error('[PARSER] Failed to parse converter response:', e);
 
-    // Fallback: вернуть как действие
+    // Fallback: restituisci come azione
     return {
       type: 'action',
       text: text.substring(0, 650),
@@ -113,70 +113,70 @@ export function parseConverterResponse(text: string): ConvertedAction {
 export function buildBatchConverterPrompt(vars: PromptVariables, actions: string[]): string {
   const actionsList = actions.map((action, i) => `${i + 1}. ${action}`).join('\n');
 
-  return `Ты конвертируешь решения игрока в понятные для симуляции действия.
+  return `Converti le decisioni del giocatore in azioni comprensibili per la simulazione.
 
-Игрок играет за политию ${vars.PLAYER_POLITY}.
+Il giocatore comanda la politia ${vars.PLAYER_POLITY}.
 
-Почти каждое действие должно быть преобразовано в тип "ACTION".
-Тип "CHAT" (дипломатия) - только если игрок явно упоминает дипломатические переговоры.
+Quasi ogni azione deve essere trasformata nel tipo "ACTION".
+Il tipo "CHAT" (diplomazia) va usato SOLO se il giocatore menziona esplicitamente trattative diplomatiche.
 
-Типы действий (ВСЕГДА action):
-- Attacking (атака)
-- Constructing (строительство)
-- Researching (исследования)
-- Consolidating (укрепление)
-- Mobilizing (мобилизация)
-- Industrializing (индустриализация)
-- Rearming (перевооружение)
-- Militarizing (милитаризация)
-- Disarming (разоружение)
-- Affirming (подтверждение)
-- Negating (отрицание)
+Tipi di azione (SEMPRE action):
+- Attacking (attacco)
+- Constructing (costruzione)
+- Researching (ricerca)
+- Consolidating (consolidamento)
+- Mobilizing (mobilitazione)
+- Industrializing (industrializzazione)
+- Rearming (riarmo)
+- Militarizing (militarizzazione)
+- Disarming (disarmo)
+- Affirming (conferma)
+- Negating (negazione)
 
-Дипломатия ТОЛЬКО если игрок хочет открыть чат с другой политией.
+Diplomazia SOLO se il giocatore vuole aprire una trattativa con un'altra politia.
 
-[Контекст игры]
+[Contesto di gioco]
 
 ${vars.WORLD_BEFORE_ROUND_ONE_TEXT}
 
-[Правила симуляции]
+[Regole di simulazione]
 
 ${vars.HISTORICAL_PRESET_SIMULATION_RULES}
 
-[Описание карты]
+[Descrizione della mappa]
 
 ${vars.GRAND_MAP_DESCRIPTION_NO_CITY}
 
-[Игровые даты]
+[Date di gioco]
 
 ${vars.ORIGIN_ROUND_DATE}
 
 ---
 
-Действия игрока для конвертации:
+Azioni del giocatore da convertire:
 
 ${actionsList}
 
-Твоя задача для КАЖДОГО действия:
-1. Определить тип: action или chat
-2. Если action — перепиши текст игрока подробнее: добавь конкретные детали исполнения — ссылки на реальные механизмы, ведомства, программы, отрасли, регионы из описания карты, — чтобы симулятор понял, КАК исполнять приказ
-3. НИЧЕГО не удаляй из намерения игрока — только дополняй. Даже хорошо написанное действие улучши и уточни
-4. Тон вывода повторяет тон ИМЕННО ЭТОГО действия: разговорный к разговорному, ролевой к ролевому, от первого лица к первому лицу
-5. Длина вывода — примерно на 50% длиннее текста игрока, но не более 650 символов. Если текст игрока уже длинный — не раздувай, лишь уплотни и уточни
-6. Если chat — сформулируй первое сообщение чата от лица игрока: оно суммирует, чего он хочет добиться от переговоров, и тоже повторяет его тон
+Il tuo compito per OGNI azione:
+1. Determinare il tipo: action o chat
+2. Se action — riscrivi il testo del giocatore in modo più dettagliato: aggiungi dettagli concreti di esecuzione — riferimenti a meccanismi reali, ministeri, programmi, settori produttivi, regioni della descrizione della mappa — perché il simulatore capiscia COME eseguire l'ordine
+3. NON togliere nulla dall'intenzione del giocatore — solo arricchisci. Persino un'azione già ben scritta va migliorata e precisata
+4. Il tono dell'output ripete il tono di QUESTA azione: colloquiale in colloquiale, di ruolo in di ruolo, prima persona in prima persona
+5. La lunghezza dell'output è circa il 50% superiore al testo del giocatore, ma non oltre 650 caratteri. Se il testo del giocatore è già lungo — non gonfiarlo: condensalo e precisalo
+6. Se chat — formula il primo messaggio della trattativa in veste del giocatore: deve riassumere ciò che vuole ottenere dalla negoziazione, e ripete anch'esso il suo tono
 
-${vars.LANGUAGE === 'russian' ? 'Отвечай на русском.' : 'Отвечай на английском.'}
+Rispondi sempre in italiano.
 
 ---
 
-Твой вывод ДОЛЖЕН быть в формате JSON массива:
+Il tuo output DEVE essere in formato JSON di array:
 [
   {
     "index": 1,
     "type": "action|chat",
-    "text": "Уточнённое описание действия",
-    "targetPolity": "имя политии (только для chat)",
-    "chatMessage": "первое сообщение (только для chat)"
+    "text": "Descrizione precisa dell'azione",
+    "targetPolity": "nome della politia (solo per chat)",
+    "chatMessage": "primo messaggio (solo per chat)"
   },
   {
     "index": 2,
@@ -184,7 +184,7 @@ ${vars.LANGUAGE === 'russian' ? 'Отвечай на русском.' : 'Отв�
   }
 ]
 
-VERY IMPORTANT: Отвечай ТОЛЬКО валидным JSON массивом. Никакого дополнительного текста.`;
+VERY IMPORTANT: Rispondi SOLO con un array JSON valido. Nessun testo aggiuntivo.`;
 }
 
 /**
@@ -207,7 +207,7 @@ export function parseBatchConverterResponse(text: string): ConvertedAction[] {
   } catch (e) {
     console.error('[PARSER] Failed to parse batch converter response:', e);
 
-    // Fallback: вернуть каждое действие как action с оригинальным текстом
+    // Fallback: ogni azione come action con il testo originale
     return [];
   }
 }

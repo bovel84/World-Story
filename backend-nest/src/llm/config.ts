@@ -19,6 +19,8 @@ export interface MechanicConfig {
    * Включай только если провайдер это поддерживает — часть API отвечает 400.
    */
   jsonMode?: boolean;
+  /** Campi extra passati al body della richiesta (provider-specific, es. reasoning_effort) */
+  extraBody?: Record<string, unknown>;
 }
 
 export type LLMConfig = Record<Mechanic, MechanicConfig>;
@@ -61,7 +63,7 @@ function defaultConfig(): LLMConfig {
   for (const m of ALL_MECHANICS) {
     cfg[m] = {
       provider: envProvider, baseUrl: envBase, apiKey: envKey, model: envModel,
-      timeoutMs: 120_000, retries: 2, stream: true, cache: DEFAULT_CACHE_MECHANICS.has(m),
+      timeoutMs: 120_000, retries: 4, stream: true, cache: DEFAULT_CACHE_MECHANICS.has(m),
     };
   }
   return cfg;
@@ -96,7 +98,7 @@ export function loadLLMConfig(configPath?: string): LLMFullConfig {
       merged.apiKey = resolveApiKey(merged.apiKey);
       if (merged.cache === undefined) merged.cache = DEFAULT_CACHE_MECHANICS.has(m);
       if (!merged.baseUrl || !merged.model) {
-        throw new Error(`llm.config.json: механика "${m}": нужно указать baseUrl и model`);
+        throw new Error(`llm.config.json: meccanica "${m}": servono baseUrl e model`);
       }
       cfg[m] = merged;
     }

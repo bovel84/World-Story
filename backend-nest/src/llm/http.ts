@@ -11,6 +11,8 @@ export interface PostJsonOptions {
   providerName: string;
   /** Считать ли ответ стриминговым (SSE) — тогда возвращаем Response как есть */
   stream?: boolean;
+  /** Cancellazione richiesta dal chiamante, distinta dal timeout. */
+  signal?: AbortSignal;
 }
 
 const RETRYABLE_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
@@ -30,18 +32,28 @@ export async function postJson(
   body: unknown,
   opts: PostJsonOptions
 ): Promise<Response> {
-  const { timeoutMs, retries, providerName } = opts;
+  const { timeoutMs, retries, providerName, signal } = opts;
   let lastError: LLMError | null = null;
+  const cancelled = () => new LLMError(`${providerName}: richiesta annullata`, { provider: providerName, retriable: false });
 
   for (let attempt = 0; attempt <= retries; attempt++) {
+    if (signal?.aborted) throw cancelled();
     if (attempt > 0) {
       const wait = backoffMs(attempt - 1);
-      console.warn(`[LLM:${providerName}] retry ${attempt}/${retries} через ${wait}мс…`);
-      await new Promise(r => setTimeout(r, wait));
+      console.warn(`[LLM:${providerName}] retry ${attempt}/${retries} tra ${wait}ms…`);
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(done, wait);
+        function done() { signal?.removeEventListener('abort', onAbort); resolve(); }
+        function onAbort() { clearTimeout(timer); reject(cancelled()); }
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+    const abortExternal = () => controller.abort();
+    signal?.addEventListener('abort', abortExternal, { once: true });
 
     try {
       const res = await fetch(url, {
@@ -73,10 +85,11 @@ export async function postJson(
     } catch (e: any) {
       if (e instanceof LLMError && !e.retriable) throw e;
 
-      const isTimeout = e?.name === 'AbortError';
+      if (signal?.aborted) throw cancelled();
+      const isTimeout = timedOut && e?.name === 'AbortError';
       const message = isTimeout
-        ? `${providerName}: таймаут запроса (${timeoutMs}мс). Модель слишком медленная или недоступна.`
-        : `${providerName}: сетевая ошибка — ${e?.message || e}`;
+        ? `${providerName}: timeout della richiesta (${timeoutMs}ms). Il modello è troppo lento o non raggiungibile.`
+        : `${providerName}: errore di rete — ${e?.message || e}`;
 
       if (e instanceof LLMError) {
         lastError = e;
@@ -85,8 +98,9 @@ export async function postJson(
       }
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abortExternal);
     }
   }
 
-  throw lastError || new LLMError(`${providerName}: запрос не удался`, { provider: providerName });
+  throw lastError || new LLMError(`${providerName}: richiesta non riuscita`, { provider: providerName });
 }

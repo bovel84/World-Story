@@ -1,42 +1,42 @@
 /**
  * Open-Pax — Game Loader Component
  * =================================
- * Этап 6: полноэкранный лоадер по референсам pax_game_ui.png / pax_ingame.png /
- * pax_game_ui3.png оригинальной Pax Historia: центрированный «глобус» с
- * пульсирующим кольцом, текст этапа под ним и тонкий прогресс-бар.
- * Тёмная тема сохранена: фон #0a0a0f, градиентные акценты #667eea → #f093fb.
+ * Fase 6: loader a schermo intero sui riferimenti pax_game_ui.png / pax_ingame.png /
+* pax_game_ui3.png dell'originale Pax Historia: «globo» centrato con
+* anello pulsante, testo della fase sotto e sottile barra di avanzamento.
+* Tema scuro mantenuto: sfondo #0a0a0f, accenti sfumati #667eea → #f093fb.
  *
- * Использование:
- *   <GameLoader title="Создаём вашу игру…" phase={WORLD_GEN_PHASES[i]} />
- *   <GameLoader title="Загрузка мира…" phase="Генерация географии…" progress={0.6} />
+* Uso:
+*   <GameLoader title="Stiamo creando la tua partita…" phase={WORLD_GEN_PHASES[i]} />
+*   <GameLoader title="Caricamento del mondo…" phase="Generazione della geografia…" progress={0.6} />
  */
 
 import React from 'react';
 
 export interface GameLoaderProps {
-  /** Крупная строка под глобусом (например, «Создаём вашу игру…») */
+/** Riga grande sotto il globo (es. «Stiamo creando la tua partita…») */
   title?: string;
-  /** Мелкая строка этапа под прогресс-баром */
+/** Riga piccola della fase sotto la barra di avanzamento */
   phase?: string;
-  /** Прогресс 0..1; если не передан — indeterminate-анимация полосы */
+/** Avanzamento 0..1; se assente — animazione indeterminata della barra */
   progress?: number;
 }
 
 /**
- * Правдоподобные этапы генерации мира — координатор крутит их по таймеру,
- * передавая в prop `phase`.
+* Fasi plausibili di generazione del mondo — il coordinatore le scorre a timer,
+* passati al prop `phase`.
  */
 export const WORLD_GEN_PHASES: string[] = [
-  'Подключение к модели…',
-  'Генерация политий мира…',
-  'Балансировка сил…',
-  'Формирование географии…',
-  'Написание летописи…',
-  'Финальные штрихи…',
+  'Connessione al modello…',
+  'Generazione dei paesi del mondo…',
+  'Bilanciamento delle potenze…',
+  'Definizione della geografia…',
+  'Scrittura delle cronache…',
+  'Ritocchi finali…',
 ];
 
 export const GameLoader: React.FC<GameLoaderProps> = ({
-  title = 'Загрузка…',
+  title = 'Caricamento…',
   phase,
   progress,
 }) => {
@@ -45,12 +45,12 @@ export const GameLoader: React.FC<GameLoaderProps> = ({
 
   return (
     <div className="gl-loader" role="status" aria-live="polite">
-      {/* Звёздный фон: два слоя точек с разным циклом мерцания */}
+      {/* Sfondo stellare: due strati di punti con cicli di lampeggio diversi */}
       <div className="gl-stars gl-stars--a" />
       <div className="gl-stars gl-stars--b" />
 
       <div className="gl-content">
-        {/* Глобус: пульсирующее кольцо + сфера с меридианами */}
+        {/* Globo: anello pulsante + sfera con meridiani */}
         <div className="gl-globe-wrap">
           <div className="gl-globe-halo" />
           <div className="gl-globe">
