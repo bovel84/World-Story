@@ -60,6 +60,8 @@ export class GameController {
     startChat?: { polityName: string; topic: string }[];
     relationshipChanges?: { from: string; to: string; relationship: 'ally' | 'neutral' | 'hostile'; reason?: string }[];
     targetDate?: string;
+    /** §7.2/T36: lo stream è terminato senza record complete (budget). */
+    incomplete?: boolean;
   }> {
     if (!this.promptEngine) {
       this.initPromptEngine(gameData);
@@ -95,6 +97,7 @@ export class GameController {
       startChat: simulationResult.startChat,
       relationshipChanges: simulationResult.relationshipChanges,
       targetDate: simulationResult.targetDate,
+      incomplete: simulationResult.incomplete,
     };
   }
 

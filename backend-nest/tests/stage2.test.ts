@@ -23,7 +23,7 @@ let capturedPrompt = '';
 /** Счётчик вызовов механики consolidation */
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
-let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' = 'normal';
+let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' = 'normal';
 
 const WORLD_ID = 'stage2_world';
 
@@ -72,6 +72,32 @@ function jumpResponse(): any {
         worldChanges: { regionOwners: {}, regionColors: {} },
         targetDate: '1951-01-20',
       };
+    case 'multi':
+      // §9.3: più eventi nel salto fisso → playback «un evento alla volta».
+      return {
+        events: [
+          { headline: 'Prima svolta del periodo', description: 'La prima conseguenza verificabile.', date: '1951-01-20', mapChanges: [{ type: 'transfer', regionName: 'Польша', newOwner: 'ФРГ' }] },
+          { headline: 'Seconda svolta del periodo', description: 'La conseguenza successiva nella stessa catena causale.', date: '1951-02-10', mapChanges: [{ type: 'transfer', regionName: 'Чехословакия', newOwner: 'ФРГ' }] },
+        ],
+        narration: 'Il periodo completo è stato simulato.',
+        actionOutcomes: [{
+          action: 'Действие игрока',
+          status: 'accepted',
+          summary: 'L’espansione occidentale procede per tappe.',
+          eventHeadlines: ['Prima svolta del periodo', 'Seconda svolta del periodo'],
+        }],
+        voided: [],
+        startChat: [],
+        // Effetti globali: applicabili SOLO a destinazione raggiunta.
+        worldChanges: { regionOwners: { 'Великобритания': 'ФРГ' }, regionColors: {} },
+      };
+    case 'budget':
+      // §7.2/T36: stream troncato senza record «complete» → budget esaurito.
+      // NDJSON con due righe evento e NESSUNA chiusura del periodo.
+      return { content: [
+        JSON.stringify({ type: 'event', headline: 'Crisi a metà periodo', description: 'La crisi esplode a metà del salto.', date: '1951-01-20', mapChanges: [{ type: 'transfer', regionName: 'Польша', newOwner: 'ФРГ' }] }),
+        JSON.stringify({ type: 'event', headline: 'Escalation della crisi', description: 'La crisi si aggravata prima del termine del budget.', date: '1951-02-10', mapChanges: [] }),
+      ].join('\n') };
     case 'outcome_past':
       return {
         events: [{ headline: 'Avvio progetto', description: 'Il progetto viene avviato.', date: '1951-01-10', mapChanges: [] }],
@@ -190,7 +216,11 @@ const stubProvider: any = {
     }
     if (mechanic === 'jump') {
       capturedPrompt = `${system}\n${user}`;
-      return { content: JSON.stringify(jumpResponse()) };
+      const response = jumpResponse();
+      // Il caso «budget» simula uno stream NDJSON troncato: la risposta è già
+      // contenuto grezzo, non un oggetto da serializzare una seconda volta.
+      if (typeof response?.content === 'string') return { content: response.content };
+      return { content: JSON.stringify(response) };
     }
     return { content: JSON.stringify({ type: 'develop', description: 'Развитие', priority: 5 }) };
   },
@@ -723,45 +753,65 @@ describe('Этап 2: rewind', () => {
 });
 
 describe('Этап 2: Intervene', () => {
-  it('обрывает пачку: применяется только первое событие, worldChanges игнорируются, дата — по последнему событию', async () => {
+  it('§9.3 «Intervieni qui»: chiude il salto al checkpoint mostrato, senza applicare il futuro', async () => {
     jumpMode = 'intervene';
     const { session } = createGame();
 
-    // L'anteprima SSE permette Intervene, ma non deve pubblicare una mappa
-    // non ancora committata. Il delta arriva insieme al turn_complete.
     const broadcasts: Array<{ type: string; data: any }> = [];
-    session.setSSEBroadcaster((type: string, data: any) => {
-      broadcasts.push({ type, data });
-      if (type === 'jump_event' && data.index === 0) session.requestIntervene();
-    });
+    session.setSSEBroadcaster((type: string, data: any) => broadcasts.push({ type, data }));
 
     session.queueAction('Экспансия на запад');
-    // Events in February must be inside the requested simulation horizon.
-    const action = await session.processNextAction(90);
-    expect(action.status).toBe('completed');
+    // Salto fisso di 90 giorni con TRE eventi proposti: il primo diventa
+    // checkpoint, gli altri restano in attesa di conferma esplicita.
+    const batch = await session.processNextAction(90);
+    expect(batch).toBeNull(); // il batch non è concluso: è in pausa su un evento
 
-    // Первое событие применилось, остальные — нет
+    const paused = (session as any).getPausedRunInfo();
+    expect(paused).toMatchObject({ remaining: 2, destination: '1951-04-01' });
+    expect(session.getCurrentDate()).toBe('1951-02-01');
     expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('DEU');
     expect(session.getRegion(`${WORLD_ID}_CZE`).owner).toBe('CZE');
     expect(session.getRegion(`${WORLD_ID}_FRA`).owner).toBe('FRA');
-    // Итоговые worldChanges при Intervene не применяются
-    expect(session.getRegion(`${WORLD_ID}_GBR`).owner).toBe('GBR');
 
-    // Дата — по последнему ПРИМЕНЁННОМУ событию, а не +30 дней
+    // «Intervieni qui»: il run si chiude AL CHECKPOINT MOSTRATO.
+    const outcome = await (session as any).tryIntervenePausedRun(paused.simulationId);
+    expect(outcome.type).toBe('intervened');
+    expect(outcome.newDate).toBe('1951-02-01');
+
+    // Nessun evento futuro applicato, nessun worldChanges di fine periodo.
+    expect(session.getRegion(`${WORLD_ID}_CZE`).owner).toBe('CZE');
+    expect(session.getRegion(`${WORLD_ID}_GBR`).owner).toBe('GBR');
     expect(session.getCurrentDate()).toBe('1951-02-01');
 
-    const preview = broadcasts.find(message => message.type === 'jump_event');
-    const committed = broadcasts.find(message => message.type === 'turn_complete');
-    expect(preview.data).toMatchObject({ checkpoint: false });
-    expect(preview.data.changedRegions).toBeUndefined();
-    expect(committed.data.changedRegions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: `${WORLD_ID}_POL`, owner: 'DEU' }),
-    ]));
+    // Il run è persistito come «intervened» con il checkpoint dell'evento.
+    const run = db.prepare('SELECT status, checkpoint_date FROM simulation_runs WHERE id = ?').get(paused.simulationId);
+    expect(run).toMatchObject({ status: 'intervened', checkpoint_date: '1951-02-01' });
+    expect((session as any).getPausedRunInfo()).toBeNull();
 
-    const events = action.result.events as string[];
+    // L'ordine è finalized con gli eventi APPLICATI, non quelli scartati.
+    const queue = session.getPendingActions();
+    expect(queue).toHaveLength(0);
+    // La coda persistita non lo contiene più: l'audit vive in «actions» e
+    // «simulation_action_outcomes», non come ordine ancora elaborabile.
+    expect(db.prepare('SELECT COUNT(*) AS n FROM pending_actions WHERE game_id = ?').get(session.id).n).toBe(0);
+    const audit = db.prepare('SELECT text FROM actions WHERE game_id = ?').get(session.id);
+    expect(audit.text).toBe('Экспансия на запад');
+    const events = outcome.result.events as string[];
     expect(events).toContain('ФРГ аннексировала Польшу');
+    expect(events).not.toContain('ФРГ аннексировала Чехословакия');
     expect(events).not.toContain('ФРГ аннексировала Францию');
     expect(events.some(e => e.includes('Intervene'))).toBe(true);
+
+    // Il checkpoint per-evento è stato pubblicato con `checkpoint: true`, non
+    // come anteprima di streaming; la chiusura arriva con turn_complete.
+    const checkpointEvent = broadcasts.find(m => m.type === 'jump_event');
+    expect(checkpointEvent.data).toMatchObject({ checkpoint: true, streaming: false });
+    expect(checkpointEvent.data.awaitingNext).toMatchObject({ remaining: 2 });
+    expect(checkpointEvent.data.changedRegions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: `${WORLD_ID}_POL`, owner: 'DEU' }),
+    ]));
+    const committed = broadcasts.find(m => m.type === 'turn_complete');
+    expect(committed.data).toMatchObject({ intervened: true, newDate: '1951-02-01' });
     jumpMode = 'normal';
   });
 });
@@ -798,19 +848,42 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     jumpMode = 'normal';
   });
 
-  it('T24: nel salto fisso eventi distinti sulla stessa data sono ordinabili e applicati insieme', async () => {
+  it('T24: nel salto fisso eventi distinti sulla stessa data sono ordinabili e applicati uno alla volta', async () => {
     jumpMode = 'fixed_same';
     const { session } = createGame();
-    session.queueAction('Preparare una proposta');
+    const queued = session.queueAction('Preparare una proposta');
 
-    // Salto fisso (jumpDays > 0): entrambi gli eventi della stessa data possono
-    // comparire; la data finale segue il periodo, non un giorno inventato.
-    await session.processNextAction(30);
+    // Salto fisso (jumpDays > 0): il primo evento diventa checkpoint e il
+    // secondo resta in attesa di conferma (§9.3). Nessun giorno inventato.
+    const batch = await session.processAllPendingActions(30);
+    expect((batch as any).paused).toBe(true);
+    const runId = (batch as any).simulationId;
+    expect(session.getCurrentDate()).toBe('1951-01-20');
+    expect((session as any).getPausedRunInfo()).toMatchObject({ remaining: 1 });
 
-    const last = session.getResults().at(-1) as any;
-    expect(last.events).toContain('Primo evento del giorno');
-    expect(last.events).toContain('Secondo evento stesso giorno');
+    // «Continua»: il secondo evento della stessa data è applicato dopo il
+    // primo, con sequenza stabile (T24) e senza aggiungere giorni.
+    await (session as any).continueSimulation(runId);
+    expect(session.getCurrentDate()).toBe('1951-01-20');
+    expect((session as any).getPausedRunInfo()).toMatchObject({ remaining: 0 });
+
+    // L'ultimo «Continua» autorizza l'avanzamento a destinazione.
+    const done = await (session as any).continueSimulation(runId);
+    expect(done.type).toBe('run_completed');
     expect(session.getCurrentDate()).toBe('1951-01-31');
+    expect(session.getCurrentTurn()).toBe(2);
+
+    // Entrambi gli eventi sono in cronaca, nello stesso ordine di sequenza.
+    const runEvents = session.getResults()
+      .filter((record: any) => record.simulationId === runId)
+      .flatMap((record: any) => record.events);
+    expect(runEvents.indexOf('Primo evento del giorno')).toBeLessThan(runEvents.indexOf('Secondo evento stesso giorno'));
+    expect(runEvents).toContain('Primo evento del giorno');
+    expect(runEvents).toContain('Secondo evento stesso giorno');
+
+    // Un solo turno logico per l'intero salto (§9.1) e ordini finalized una volta sola.
+    expect(db.prepare('SELECT COUNT(*) AS n FROM turn_results WHERE game_id = ? AND turn = 1').get(session.id).n).toBe(3);
+    expect(session.getPendingActions().find((a: any) => a.id === queued.id)).toBeUndefined();
     jumpMode = 'normal';
   });
 
@@ -925,5 +998,215 @@ describe('Этап 2: консолидация истории', () => {
     expect(page3.timeline.length).toBe(50);
     expect(page3.hasMore).toBe(false);
     expect(page3.timeline.at(-1)!.turn).toBe(150);
+  });
+});
+
+describe('§9.3 — playback «un evento alla volta» per i salti fissi', () => {
+  it('committa un checkpoint per evento; gli effetti globali solo a destinazione raggiunta', async () => {
+    jumpMode = 'multi';
+    const { session } = createGame();
+    const queued = session.queueAction('Espandere l’influenza occidentale');
+
+    // 90 giorni: destinazione 1951-04-01. Due eventi proposti (20/01, 10/02).
+    const batch = await session.processAllPendingActions(90);
+    const pausedResult = batch as any;
+    expect(pausedResult.paused).toBe(true);
+    expect(pausedResult.type).toBe('awaiting_next');
+    expect(pausedResult.event.headline).toBe('Prima svolta del periodo');
+    expect(pausedResult.event.date).toBe('1951-01-20');
+    expect(pausedResult.remaining).toBe(1);
+    expect(pausedResult.destination).toBe('1951-04-01');
+
+    // Il primo evento è APPLICATO; il secondo resta una proposta non applicata.
+    expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('DEU');
+    expect(session.getRegion(`${WORLD_ID}_CZE`).owner).toBe('CZE');
+    expect(session.getRegion(`${WORLD_ID}_GBR`).owner).toBe('GBR');
+    expect(session.getCurrentDate()).toBe('1951-01-20');
+    // Il turno cresce UNA volta per l’intero salto, non per evento.
+    expect(session.getCurrentTurn()).toBe(2);
+
+    // Il run è in pausa durevole: stato, checkpoint e proposte persistite.
+    const run = db.prepare('SELECT status, checkpoint_date, checkpoint_id, turn, pending_state FROM simulation_runs WHERE id = ?')
+      .get(pausedResult.simulationId) as any;
+    expect(run.status).toBe('awaiting_next');
+    expect(run.checkpoint_date).toBe('1951-01-20');
+    expect(run.turn).toBe(1);
+    const persisted = JSON.parse(run.pending_state);
+    expect(persisted.remainingEvents).toHaveLength(1);
+    expect(persisted.remainingEvents[0].headline).toBe('Seconda svolta del periodo');
+    expect(persisted.destination).toBe('1951-04-01');
+    // L’ordine è emesso: resta in coda come «processing», non è reinviato.
+    expect(session.getPendingActions()[0]).toMatchObject({ id: queued.id, status: 'processing' });
+
+    // Checkpoint per-evento con revisione crescente.
+    const cp1 = db.prepare('SELECT revision, turn, game_date FROM simulation_checkpoints WHERE id = ?').get(run.checkpoint_id) as any;
+    expect(cp1).toMatchObject({ revision: 2, turn: 1, game_date: '1951-01-20' });
+    const eventRow = db.prepare('SELECT game_date, headline, checkpoint_id FROM simulation_events WHERE run_id = ?').get(pausedResult.simulationId) as any;
+    expect(eventRow).toMatchObject({ game_date: '1951-01-20', headline: 'Prima svolta del periodo' });
+
+    // «Continua»: il secondo evento diventa checkpoint, il mondo resta in pausa.
+    const second = await (session as any).continueSimulation(pausedResult.simulationId) as any;
+    expect(second.type).toBe('awaiting_next');
+    expect(second.event.headline).toBe('Seconda svolta del periodo');
+    expect(session.getRegion(`${WORLD_ID}_CZE`).owner).toBe('DEU');
+    expect(session.getRegion(`${WORLD_ID}_GBR`).owner).toBe('GBR'); // effetti globali NON anticipati
+    expect(session.getCurrentDate()).toBe('1951-02-10');
+    expect((session as any).getPausedRunInfo()).toMatchObject({ remaining: 0 });
+
+    // Ultimo «Continua»: avanzamento deterministico a destinazione e chiusura.
+    const done = await (session as any).continueSimulation(pausedResult.simulationId) as any;
+    expect(done.type).toBe('run_completed');
+    expect(session.getCurrentDate()).toBe('1951-04-01');
+    expect(session.getCurrentTurn()).toBe(2);
+    // Solo ora gli effetti globali del periodo completato si applicano.
+    expect(session.getRegion(`${WORLD_ID}_GBR`).owner).toBe('DEU');
+
+    // Il run è chiuso: completed, con il checkpoint finale a destinazione.
+    const finished = db.prepare('SELECT status, checkpoint_date FROM simulation_runs WHERE id = ?').get(pausedResult.simulationId) as any;
+    expect(finished).toMatchObject({ status: 'completed', checkpoint_date: '1951-04-01' });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM simulation_checkpoints WHERE run_id = ?').get(pausedResult.simulationId).n).toBe(3);
+    // Due eventi canonici + i bollettini economici del periodo finale.
+    const eventRows = db.prepare('SELECT headline FROM simulation_events WHERE run_id = ? ORDER BY rowid').all(pausedResult.simulationId) as any[];
+    expect(eventRows.map(row => row.headline)).toContain('Prima svolta del periodo');
+    expect(eventRows.map(row => row.headline)).toContain('Seconda svolta del periodo');
+
+    // Ordini finalized UNA volta sola, con esiti collegati agli eventi applicati.
+    expect(session.getPendingActions()).toHaveLength(0);
+    const outcome = db.prepare('SELECT status, summary, event_headlines FROM simulation_action_outcomes WHERE run_id = ?')
+      .get(pausedResult.simulationId) as any;
+    expect(outcome).toMatchObject({
+      status: 'accepted',
+      summary: 'L’espansione occidentale procede per tappe.',
+      event_headlines: JSON.stringify(['Prima svolta del periodo', 'Seconda svolta del periodo']),
+    });
+    jumpMode = 'normal';
+  });
+
+  it('T36: budget esaurito a metà salto → paused_budget, destinazione NON raggiunta', async () => {
+    jumpMode = 'budget';
+    const { session } = createGame();
+    session.queueAction('Gestire la crisi');
+
+    // Stream NDJSON troncato: due eventi, nessun record «complete».
+    const batch = await session.processAllPendingActions(90) as any;
+    expect(batch.paused).toBe(true);
+    expect(batch.event.headline).toBe('Crisi a metà periodo');
+    expect((session as any).getPausedRunInfo()).toMatchObject({ incomplete: true });
+
+    const second = await (session as any).continueSimulation(batch.simulationId) as any;
+    // L’ultimo evento applicato chiude il run: il budget non ha coperto il resto.
+    expect(second.type).toBe('paused_budget');
+    expect(second.newDate).toBe('1951-02-10');
+    expect(session.getCurrentDate()).toBe('1951-02-10');
+    expect(second.destination).toBe('1951-04-01');
+
+    const run = db.prepare('SELECT status, checkpoint_date FROM simulation_runs WHERE id = ?').get(batch.simulationId) as any;
+    expect(run).toMatchObject({ status: 'paused_budget', checkpoint_date: '1951-02-10' });
+    // Gli effetti globali di un periodo non coperto non entrano nel mondo.
+    expect(db.prepare('SELECT pending_state FROM simulation_runs WHERE id = ?').get(batch.simulationId).pending_state).toBeNull();
+    // Il periodo è dichiarato NON completato: la ripresa è un nuovo salto.
+    const events = second.result.events as string[];
+    expect(events.some(e => e.includes('Budget di simulazione esaurito'))).toBe(true);
+    expect(session.getPendingActions()).toHaveLength(0);
+    jumpMode = 'normal';
+  });
+
+  it('il playback in pausa sopravvive al riavvio del backend (§9.2/§9.3)', async () => {
+    jumpMode = 'multi';
+    const { gameId, session } = createGame();
+    const queued = session.queueAction('Espansione verificabile');
+
+    const batch = await session.processAllPendingActions(90) as any;
+    expect(batch.paused).toBe(true);
+
+    // Ricostruzione della sessione dal DB, come dopo un riavvio del processo.
+    const game = gameRepository.findById(gameId);
+    const { GameSession } = await import('../src/game-session');
+    const revived = new GameSession(gameId, WORLD_ID, stubProvider);
+    revived.reconstructFromDB({
+      currentTurn: game.current_turn,
+      currentDate: game.current_date,
+      players: game.players,
+      basePrompt: game.world.base_prompt,
+      difficulty: game.difficulty,
+    });
+
+    // Il run in pausa e i suoi ordini «processing» sono ancora lì.
+    const info = (revived as any).getPausedRunInfo();
+    expect(info).toMatchObject({ simulationId: batch.simulationId, remaining: 1 });
+    expect(revived.getPendingActions()[0]).toMatchObject({ id: queued.id, status: 'processing' });
+
+    // «Continua» funziona dal nuovo processo: il mondo riprende dal checkpoint.
+    const second = await (revived as any).continueSimulation(batch.simulationId) as any;
+    expect(second.type).toBe('awaiting_next');
+    expect(second.event.headline).toBe('Seconda svolta del periodo');
+    expect(revived.getCurrentDate()).toBe('1951-02-10');
+    const done = await (revived as any).continueSimulation(batch.simulationId) as any;
+    expect(done.type).toBe('run_completed');
+    expect(revived.getCurrentDate()).toBe('1951-04-01');
+    expect(revived.getPendingActions()).toHaveLength(0);
+    jumpMode = 'normal';
+  });
+
+  it('un nuovo salto durante la pausa è un conflitto esplicito (409 simulation_paused)', async () => {
+    jumpMode = 'multi';
+    const { session } = createGame();
+    session.queueAction('Prima direttiva');
+    const batch = await session.processAllPendingActions(90) as any;
+    expect(batch.paused).toBe(true);
+
+    session.queueAction('Ordine durante la pausa');
+    await expect(session.processAllPendingActions(30)).rejects.toThrow('attend');
+    await expect(session.processWorldAdvance(30)).rejects.toThrow('attend');
+    // Il mondo non è avanzato di un giorno per il tentativo rifiutato.
+    expect(session.getCurrentDate()).toBe('1951-01-20');
+
+    // Interviene chiude il run e riabilita i salti.
+    await (session as any).tryIntervenePausedRun(batch.simulationId);
+    expect(session.getCurrentDate()).toBe('1951-01-20');
+    jumpMode = 'normal';
+  });
+
+  it('Save durante la pausa preserva il run; Rewind lo invalida e restituisce gli ordini (§12)', async () => {
+    jumpMode = 'multi';
+    const { session } = createGame();
+    const queued = session.queueAction('Direttiva da preservare');
+    const batch = await session.processAllPendingActions(90) as any;
+    expect(batch.paused).toBe(true);
+
+    // Save durante la pausa: salva l’ultimo checkpoint confermato.
+    const saved = session.save('pausa del playback');
+    const snapshot = db.prepare('SELECT data FROM saves WHERE id = ?').get(saved.saveId);
+
+    // Load: il playback scaglionato continua dal medesimo run.
+    session.loadFromSave(JSON.parse(snapshot.data));
+    expect((session as any).getPausedRunInfo()).toMatchObject({ simulationId: batch.simulationId, remaining: 1 });
+    expect(session.getPendingActions()[0]).toMatchObject({ id: queued.id, status: 'processing' });
+    const resumed = await (session as any).continueSimulation(batch.simulationId) as any;
+    expect(resumed.type).toBe('awaiting_next');
+    expect(resumed.event.headline).toBe('Seconda svolta del periodo');
+
+    // Rewind di un run in pausa: ritorno all’ORIGINE del salto, ordini in coda
+    // di nuovo disponibili e run scartato del ramo annullato (§12).
+    jumpMode = 'multi';
+    const { session: other } = createGame();
+    const queued2 = other.queueAction('Direttiva annullabile');
+    const batch2 = await other.processAllPendingActions(90) as any;
+    expect(batch2.paused).toBe(true);
+    const rewound = other.rewind();
+    expect(rewound).not.toBeNull();
+    expect(rewound.date).toBe('1951-01-01');
+    expect(other.getRegion(`${WORLD_ID}_POL`).owner).toBe('POL');
+    // L’ordine è di nuovo in coda, non consumato dal ramo annullato.
+    expect(other.getPendingActions().map((a: any) => a.id)).toContain(queued2.id);
+    expect(other.getPendingActions()[0].status).toBe('pending');
+    // Il run del ramo annullato è invalidato e non è più proseguibile.
+    expect((other as any).getPausedRunInfo()).toBeNull();
+    const stale = db.prepare('SELECT status FROM simulation_runs WHERE id = ?').get(batch2.simulationId) as any;
+    expect(stale.status).toBe('interrupted');
+    // Un nuovo salto è di nuovo possibile.
+    const again = await other.processAllPendingActions(90) as any;
+    expect(again.paused).toBe(true); // orizzonte ampio: due eventi → di nuovo in pausa
+    jumpMode = 'normal';
   });
 });

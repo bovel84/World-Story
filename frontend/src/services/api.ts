@@ -389,7 +389,12 @@ export const gameApi = {
    * Time-skip: process pending actions OR just advance date
    */
   timeSkip: (gameId: string, jumpDays?: number, idempotencyKey?: string): Promise<{
-    type: 'actions_processed' | 'date_advanced' | 'world_advanced' | 'no_event_found' | 'simulation_replayed';
+    type: 'actions_processed' | 'date_advanced' | 'world_advanced' | 'no_event_found' | 'simulation_replayed' | 'awaiting_next';
+    paused?: boolean;
+    event?: { id: string; date: string; headline: string; detail: string; source: string; sourceActionIds?: string[] };
+    remaining?: number;
+    destination?: string;
+    changedRegions?: any[];
     status?: 'completed' | 'no_event' | 'failed';
     simulationId?: string;
     processedCount?: number;
@@ -429,11 +434,52 @@ export const gameApi = {
   /**
 * Fase 2: Intervene — interrompere l'applicazione degli eventi rimanenti del blocco
    */
-  intervene: (gameId: string, simulationId?: string): Promise<{ ok: boolean; simulationId?: string }> => {
+  intervene: (gameId: string, simulationId?: string): Promise<{
+    ok: boolean;
+    simulationId?: string;
+    /** §9.3: esito della chiusura affidabile di un run in pausa. */
+    intervened?: boolean;
+    type?: 'intervened';
+    newDate?: string;
+    newTurn?: number;
+    actions?: any[];
+    result?: { turn: number; narration: string; events: string[]; eventDetails: any[]; periodStart: string; periodEnd: string };
+  }> => {
     return fetchApi(`/games/${gameId}/intervene`, {
       method: 'POST',
       body: JSON.stringify(simulationId ? { simulationId } : {}),
     });
+  },
+
+  /** §9.3 — «Continua»: autorizza il checkpoint per-evento successivo del
+   * salto fisso sospeso; l'ultimo Continua porta il mondo a destinazione. */
+  continueSimulation: (gameId: string, runId: string): Promise<{
+    paused?: boolean;
+    type: 'awaiting_next' | 'run_completed' | 'paused_budget' | 'intervened';
+    simulationId: string;
+    event?: { id: string; date: string; headline: string; detail: string; source: string; sourceActionIds?: string[] };
+    remaining?: number;
+    destination?: string;
+    changedRegions?: any[];
+    actions?: any[];
+    result?: { turn: number; narration: string; events: string[]; eventDetails: any[]; periodStart: string; periodEnd: string };
+    newDate: string;
+    newTurn: number;
+  }> => {
+    return fetchApi(`/games/${gameId}/simulations/${runId}/next`, {
+      method: 'POST',
+    });
+  },
+
+  /** §9.3: stato del run sospeso, per ricostruire il lettore dopo refresh. */
+  getSimulationRun: (gameId: string, runId: string): Promise<{
+    run: { id: string; status: string; checkpoint_date?: string; target_date?: string };
+    awaitingNext?: { simulationId: string; remaining: number; destination: string; date: string; turn: number } | null;
+    events: Array<{ id: string; checkpointId: string; date: string; headline: string; detail: string; source: string }>;
+    actionOutcomes: any[];
+    ongoingProcesses: any[];
+  }> => {
+    return fetchApi(`/games/${gameId}/simulations/${runId}`);
   },
 
   restoreSimulationCheckpoint: (gameId: string, simulationId: string): Promise<{

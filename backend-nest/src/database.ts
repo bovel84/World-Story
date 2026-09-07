@@ -276,6 +276,12 @@ export function initDatabase() {
   try { db.exec('ALTER TABLE simulation_runs ADD COLUMN idempotency_key TEXT'); } catch (e: any) {
     if (!e.message.includes('duplicate column')) throw e;
   }
+  // §9.3: playback «un evento alla volta» per i salti fissi. Le proposte
+  // future non applicate restano nel run (non nel checkpoint) finché il
+  // giocatore non le autorizza con «Continua».
+  try { db.exec('ALTER TABLE simulation_runs ADD COLUMN pending_state TEXT'); } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_simulation_runs_idempotency ON simulation_runs(game_id, idempotency_key) WHERE idempotency_key IS NOT NULL');
   db.exec(`
     CREATE TABLE IF NOT EXISTS simulation_checkpoints (

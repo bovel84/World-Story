@@ -118,7 +118,7 @@ export const gameRepository = {
     return run;
   },
 
-  finishSimulationRun: (id: string, status: 'completed' | 'no_event' | 'failed' | 'intervened', data: {
+  finishSimulationRun: (id: string, status: 'completed' | 'no_event' | 'failed' | 'intervened' | 'interrupted' | 'paused_budget', data: {
     checkpointDate?: string; checkpointId?: string; turn?: number; error?: string;
   } = {}) => {
     db.prepare(`
@@ -129,6 +129,54 @@ export const gameRepository = {
       status, data.checkpointDate || null, data.checkpointId || null,
       data.turn ?? null, data.error || null, new Date().toISOString(), id,
     );
+    // Un run terminato non ha più proposte in sospeso: il playback «un evento
+    // alla volta» è chiuso e il resto del salto non è più autorizzabile.
+    db.prepare('UPDATE simulation_runs SET pending_state = NULL WHERE id = ?').run(id);
+  },
+
+  /** §9.3: un salto fisso si ferma dopo il checkpoint di un evento, con le
+   * proposte successive persistite per la conferma esplicita del giocatore. */
+  pauseSimulationRun: (id: string, data: {
+    checkpointDate: string; checkpointId: string; turn: number; pendingState: unknown;
+  }) => {
+    db.prepare(`
+      UPDATE simulation_runs
+      SET status = 'awaiting_next', checkpoint_date = ?, checkpoint_id = ?, turn = ?, pending_state = ?, completed_at = NULL
+      WHERE id = ?
+    `).run(data.checkpointDate, data.checkpointId, data.turn, JSON.stringify(data.pendingState), id);
+  },
+
+  /** Ricostruisce un playback in pausa dopo un riavvio del backend. */
+  getPausedSimulationRun: (gameId: string) => {
+    const row = db.prepare(`
+      SELECT id, mode, start_date, target_date, checkpoint_date, checkpoint_id, turn, pending_state
+      FROM simulation_runs
+      WHERE game_id = ? AND status = 'awaiting_next'
+      ORDER BY created_at DESC LIMIT 1
+    `).get(gameId) as any || null;
+    if (!row?.pending_state) return null;
+    let pendingState: any = null;
+    try { pendingState = JSON.parse(row.pending_state); } catch { pendingState = null; }
+    if (!pendingState) return null;
+    return {
+      runId: row.id,
+      mode: row.mode,
+      startDate: row.start_date,
+      targetDate: row.target_date,
+      checkpointDate: row.checkpoint_date,
+      checkpointId: row.checkpoint_id,
+      turn: row.turn != null ? Number(row.turn) : undefined,
+      pendingState,
+    };
+  },
+
+  /** §12: load/rewind/restore invalidano i run sospesi del ramo scartato. */
+  interruptPausedRuns: (gameId: string, keepRunId?: string) => {
+    db.prepare(`
+      UPDATE simulation_runs
+      SET status = 'interrupted', completed_at = ?, pending_state = NULL
+      WHERE game_id = ? AND status IN ('awaiting_next', 'paused_budget') AND id != ?
+    `).run(new Date().toISOString(), gameId, keepRunId || '');
   },
 
   createSimulationCheckpoint: (checkpoint: {
