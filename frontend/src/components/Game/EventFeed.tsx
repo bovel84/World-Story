@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface FeedItem {
   id: string;
@@ -23,6 +24,13 @@ const ARTICLE_SECTION: Record<FeedItem['kind'], string> = {
   world: 'Edizione del mondo',
   live: 'Ultima ora',
 };
+
+function formatFeedDate(value?: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '');
+  if (!match) return value || 'Archivio';
+  const months = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+  return `${Number(match[3])} ${months[Number(match[2]) - 1]} ${match[1]}`;
+}
 
 interface EventFeedProps {
   items: FeedItem[];
@@ -121,7 +129,7 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
                 onClick={() => setOpenArticle(item)}
                 aria-label={`Apri il dispaccio: ${item.text}`}
               >
-                <span className="feed-item-date">{item.date || 'Archivio'}</span>
+                <span className="feed-item-date">{formatFeedDate(item.date)}</span>
                 <span className="feed-item-text">{item.text}</span>
               </button>
             );
@@ -129,7 +137,7 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
         )}
       </div>
 
-      {openArticle && (
+      {openArticle && createPortal(
         <div className="article-overlay" role="presentation" onMouseDown={() => setOpenArticle(null)}>
           <article
             className="newspaper-article"
@@ -139,10 +147,10 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header className="newspaper-article-header">
-              <div className="newspaper-masthead">Open-Pax · Gazzetta del Mondo</div>
+              <div className="newspaper-masthead">Open-Pax · Archivio</div>
               <div className="newspaper-article-meta">
                 <span>{ARTICLE_SECTION[openArticle.kind]}</span>
-                <span>{openArticle.date || 'Data non registrata'}</span>
+                <span>{formatFeedDate(openArticle.date)}</span>
               </div>
               <button type="button" className="newspaper-article-close" onClick={() => setOpenArticle(null)}>
                 Chiudi
@@ -155,10 +163,11 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
               <p className="newspaper-article-lead">
                 {openArticle.detail || 'Il fatto è stato registrato nella cronaca del turno. Le conseguenze saranno riportate nei prossimi dispacci del mondo.'}
               </p>
-              <p className="newspaper-article-byline">Redazione politica · Archivio della simulazione · La consultazione non modifica il mondo</p>
+              <p className="newspaper-article-byline">Archivio della simulazione · Consultazione senza effetti sul mondo</p>
             </div>
           </article>
-        </div>
+        </div>,
+        document.body,
       )}
       </aside>
     </>
