@@ -1,0 +1,1 @@
+Benvenuto nella Pax Arena. Dodici potenze, un continente, zero regole scritte. Le cancellerie sussurrano, gli stati maggiori complottano, ogni trattato vale finché conviene. Le personalità dei leader sono extreme: qui la diplomazia è un'arte marziale e la fiducia una merce di scambio. Chi dorme perde.
