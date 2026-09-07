@@ -1234,3 +1234,29 @@
   .article-overlay .newspaper-article-body { padding: 22px 19px !important; }
   .article-overlay .newspaper-article-body h1 { font-size: 25px !important; }
 }
+
+/* Ordini e tempo sono due gesti distinti: la coda non avvia simulazioni. */
+.action-desk .suggestions-footer {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+}
+.action-desk .pending-advance-hint {
+  flex: 1;
+  color: #aebdd2 !important;
+  font: 600 11px/1.4 system-ui, sans-serif !important;
+}
+.action-desk .btn-submit-actions {
+  flex: none;
+  min-height: 38px;
+  padding: 0 14px !important;
+  border: 1px solid #947fea !important;
+  background: #624bb5 !important;
+  color: #fff !important;
+  font: 750 12px/1 system-ui, sans-serif !important;
+}
+.action-desk .btn-submit-actions:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 720px) {
+  .action-desk .suggestions-footer { align-items: stretch; flex-direction: column; }
+  .action-desk .btn-submit-actions { width: 100%; }
+}
