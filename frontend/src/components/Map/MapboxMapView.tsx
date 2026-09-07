@@ -692,6 +692,11 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       if (!point) return;
       const label = document.createElement('div');
       label.className = 'openpax-country-label';
+      label.dataset.owner = owner;
+      // Priorità cartografica per il decluttering a vista mondo.
+      label.dataset.area = String(representative.geojson
+        ? geometryAreaDeg2Client(JSON.parse(representative.geojson).geometry)
+        : 0);
       label.textContent = representative.polityName || owner;
       label.style.cssText = `
         pointer-events:none;color:#fff;font:800 11px/1.1 system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -749,11 +754,47 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
         const isProvince = el.dataset.province === '1';
         const selected = regionId === selectedRegionId;
         const focused = selected || regionId === hoveredRegionId;
+        // A vista mondo lasciamo l'identità ai label delle politie (uno per
+        // nazione). I nomi di regione rientrano solo avvicinandosi o quando
+        // l'utente li indica: evita il doppione nazione/regione e il muro di
+        // testo osservato sul planisfero.
         const visible = isProvince
           ? selected
-          : focused || area >= 150 || (zoom >= 1.8 && area >= 12) || (zoom >= 2.5 && area >= 0.35) || zoom >= 3.2;
+          : focused || (zoom >= 2.4 && area >= 12) || (zoom >= 3.0 && area >= 0.35);
         el.style.display = visible ? '' : 'none';
       });
+
+      // Una sola etichetta politica per area non sovrapposta. Le macroaree
+      // vincono a zoom basso; selezione e hover hanno sempre priorità.
+      type CountryBox = { el: HTMLElement; priority: number; x: number; y: number; w: number; h: number };
+      const selectedOwner = regions.find(region => region.id === selectedRegionId)?.owner;
+      const countryBoxes: CountryBox[] = [];
+      countryLabelMarkers.current.forEach(marker => {
+        const el = marker.getElement();
+        const area = Number(el.dataset.area || 0);
+        const selected = el.dataset.owner === selectedOwner;
+        const visible = selected || (zoom < 1.8 ? area >= 75 : zoom < 2.5 ? area >= 10 : true);
+        if (!visible) { el.style.display = 'none'; return; }
+        el.style.display = '';
+        const rect = el.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        countryBoxes.push({
+          el,
+          priority: (selected ? 10_000 : 0) + Math.min(999, Math.round(area)),
+          x: rect.left, y: rect.top, w: rect.width, h: rect.height,
+        });
+      });
+      countryBoxes
+        .sort((a, b) => b.priority - a.priority)
+        .reduce<CountryBox[]>((accepted, box) => {
+          const pad = 14;
+          const hit = accepted.some(other =>
+            Math.abs(other.x - box.x) < (other.w + box.w) / 2 + pad
+            && Math.abs(other.y - box.y) < (other.h + box.h) / 2 + pad);
+          box.el.style.opacity = hit ? '0' : '1';
+          if (!hit) accepted.push(box);
+          return accepted;
+        }, []);
       // ── Anti-sovrapposizione etichette (stile Victoria 3) ──────────────
       // Proietta ogni etichetta visibile sullo schermo, ordina per priorità
       // (capitali > città principali > popolose > altre) e accende solo quelle
