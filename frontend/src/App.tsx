@@ -713,6 +713,7 @@ function App() {
             destination: result.destination ?? '',
             checkpointId: result.checkpointId,
             revision: result.revision,
+            disclosedEvents: [result.event],
           });
           setCurrentGame(prev => prev ? { ...prev, currentDate: result.newDate!, currentTurn: result.newTurn! } : prev);
           applyCheckpointRegions(result.changedRegions);
@@ -966,6 +967,10 @@ function App() {
           destination: run.awaitingNext.destination,
           checkpointId: run.awaitingNext.checkpointId,
           revision: run.awaitingNext.revision,
+          disclosedEvents: run.events.map(event => ({
+            id: event.id, date: event.date, headline: event.headline,
+            detail: event.detail, source: event.source,
+          })),
         });
       } else {
         setPausedReader(null);
@@ -983,13 +988,21 @@ function App() {
     try {
       const result = await gameApi.continueSimulation(currentGame.id, pausedReader.simulationId);
       if (result.type === 'awaiting_next' && result.event) {
-        setPausedReader({
-          simulationId: result.simulationId,
-          event: result.event,
-          remaining: result.remaining ?? 0,
-          destination: result.destination ?? '',
-          checkpointId: result.checkpointId,
-          revision: result.revision,
+        setPausedReader(previous => {
+          const earlier = previous?.simulationId === result.simulationId
+            ? (previous.disclosedEvents || [previous.event])
+            : [];
+          return {
+            simulationId: result.simulationId,
+            event: result.event!,
+            remaining: result.remaining ?? 0,
+            destination: result.destination ?? '',
+            checkpointId: result.checkpointId,
+            revision: result.revision,
+            // HTTP e SSE possono arrivare in ordine diverso: l'ID canonico
+            // impedisce di duplicare una pagina già letta nel foglio G22.
+            disclosedEvents: [...earlier.filter(event => event.id !== result.event!.id), result.event!],
+          };
         });
         setCurrentGame(prev => prev ? { ...prev, currentDate: result.newDate, currentTurn: result.newTurn } : prev);
         applyCheckpointRegions(result.changedRegions);
@@ -1242,19 +1255,24 @@ function App() {
           pushFeed(data.event.headline, 'world', data.event.date, data.event.description, data.eventId);
         }
         if (data.awaitingNext && data.simulationId) {
-          setPausedReader({
-            simulationId: data.simulationId,
-            event: {
-              id: data.eventId || `${data.simulationId}-${data.index}`,
-              date: data.event.date,
-              headline: data.event.headline,
-              detail: data.event.description,
-              source: 'world',
-            },
-            remaining: data.awaitingNext.remaining,
-            destination: data.awaitingNext.destination,
-            checkpointId: data.checkpointId,
-            revision: data.revision,
+          const event = {
+            id: data.eventId || `${data.simulationId}-${data.index}`,
+            date: data.event.date,
+            headline: data.event.headline,
+            detail: data.event.description,
+            source: 'world',
+          };
+          setPausedReader(previous => {
+            const earlier = previous && previous.simulationId === data.simulationId
+              ? (previous.disclosedEvents || [previous.event])
+              : [];
+            return {
+              simulationId: data.simulationId!, event,
+              remaining: data.awaitingNext!.remaining,
+              destination: data.awaitingNext!.destination,
+              checkpointId: data.checkpointId, revision: data.revision,
+              disclosedEvents: [...earlier.filter(item => item.id !== event.id), event],
+            };
           });
         }
         setTurnProgress(`Evento applicato: ${data.event?.headline || ''}`);
