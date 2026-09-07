@@ -33,6 +33,12 @@ export function buildCausalityGuard(vars: PromptVariables): string {
 Genera un evento soltanto se è conseguenza verificabile di un ordine del giocatore, della cronaca precedente, della diplomazia o dello stato strategico qui sotto. Le politie NPC possono avere iniziative proprie soltanto quando obiettivo, risorse, impegno o crisi sono visibili in queste fonti. Non creare crisi, guerre, colpi di Stato, alleanze o svolte economiche indipendenti solo per riempire il periodo.
 Ogni ordine del giocatore deve avere un esito realistico, una reazione o un rifiuto in "voided". La prima frase di ogni descrizione deve nominare il grilletto concreto; le frasi successive ne spiegano le conseguenze proporzionate.
 
+[CICLO MONDIALE OBBLIGATORIO]
+Ogni avanzamento temporale simula l'intero mondo, non soltanto la politia del giocatore. Valuta per tutte le altre politie le conseguenze nel periodo: reazioni a ordini, sviluppo di trattative, mobilitazioni, commercio, crisi o impegni già presenti nella cronaca e nello stato strategico.
+- Se un ordine del giocatore coinvolge o influenza un'altra politia, mostra nello stesso periodo una risposta concreta della controparte oppure registra un processo aperto datato che ne spieghi il ritardo. Non lasciare l'ordine isolato.
+- Anche senza ordini del giocatore, fai progredire almeno un filone già documentato di una politia non giocante quando esiste una causa verificabile; il giocatore può osservare il mondo ma la sua politia non agisce senza ordine.
+- Dai priorità a 1-3 reazioni o iniziative internazionali collegate, invece di elencare notizie scollegate. Se nessuna causa è documentata, non inventare un fatto: avanza comunque tempo ed economia in modo coerente.
+
 [Stato strategico attuale — fonte di verità]
 ${vars.STRATEGIC_STATE}`;
 }
@@ -119,6 +125,12 @@ Nella PRIMA frase della descrizione dichiara sempre il grilletto concreto (per e
 - Mantieni proporzione temporale: in 30 giorni predominano decreti, mobilitazioni, negoziati e primi effetti; conquiste, regimi rovesciati e svolte economiche richiedono cause e preparazione nei turni precedenti.
 - Le conseguenze non maturano tutte all'istante: semina nell'evento i presupposti del turno successivo e riprendili nella cronaca.
 - Preferisci pochi eventi collegati in una stessa catena a molti eventi indipendenti. Se nel periodo non segue altro in modo credibile, fermati prima del limite.
+
+[CICLO MONDIALE OBBLIGATORIO]
+Ogni avanzamento temporale simula l'intero mondo, non soltanto la politia del giocatore. Valuta per tutte le altre politie le conseguenze nel periodo: reazioni a ordini, sviluppo di trattative, mobilitazioni, commercio, crisi o impegni già presenti nella cronaca e nello stato strategico.
+- Se un ordine del giocatore coinvolge o influenza un'altra politia, mostra nello stesso periodo una risposta concreta della controparte oppure registra un processo aperto datato che ne spieghi il ritardo. Non lasciare l'ordine isolato.
+- Anche senza ordini del giocatore, fai progredire almeno un filone già documentato di una politia non giocante quando esiste una causa verificabile; il giocatore può osservare il mondo ma la sua politia non agisce senza ordine.
+- Dai priorità a 1-3 reazioni o iniziative internazionali collegate, invece di elencare notizie scollegate. Se nessuna causa è documentata, non inventare un fatto: avanza comunque tempo ed economia in modo coerente.
 
 *Qualità dei dispacci.* Ogni evento è un breve articolo verificabile, non un titolo generico.
 - Titolo: soggetto + verbo d’azione + luogo/oggetto concreto (massimo 12 parole). Per un ordine del giocatore, usa il nome della sua politia o della controparte coinvolta. Mai “Tensioni crescono”, “Nuova crisi”, “Bollettino”, “Evento”, una cifra di bilancio o formule vaghe.

@@ -86,6 +86,8 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
     expect(prompt).toContain('regionName');
     expect(prompt).toContain('Causa ed effetto — regola non negoziabile');
     expect(prompt).toContain('causa verificabile');
+    expect(prompt).toContain('CICLO MONDIALE OBBLIGATORIO');
+    expect(prompt).toContain("Ogni avanzamento temporale simula l'intero mondo");
   });
 
   it('passa uno stato strategico verificabile con confini, risorse e relazioni', () => {
