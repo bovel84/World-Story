@@ -77,7 +77,9 @@ export function EventFeed({
 
   if (!open) return null;
 
-  return (
+  // Anche il drawer vive nel portal: Mapbox e i suoi contenitori non possono
+  // tagliarlo né spostarlo, soprattutto con zoom o pannelli aperti.
+  return createPortal(
     <>
       <button
         type="button"
@@ -170,6 +172,7 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
         document.body,
       )}
       </aside>
-    </>
+    </>,
+    document.body,
   );
 }
