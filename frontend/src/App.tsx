@@ -26,6 +26,7 @@ import type { Region, World, Game } from './types';
 import { useGameStore, useUIStore, useActionsStore, useChatStore, selectTotalUnread } from './stores';
 import { useSSE } from './services/sse';
 import { EventFeed, type FeedItem } from './components/Game/EventFeed';
+import { NewsFlash } from './components/Game/NewsFlash';
 import { SimulationEventReader, type PlaybackReaderState } from './components/Game/SimulationEventReader';
 
 // DISATTIVATO: editor mappe (temporaneo) — helper punti nel path SVG usato solo
@@ -192,6 +193,10 @@ function App() {
   // live del mondo). I «live» sono gli eventi jump che arrivano in streaming
   // durante l'elaborazione; i «world» arrivano dal battito del mondo.
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
+  /** Dispacci arrivati ora: mostrati uno per volta, mai dalla timeline storica. */
+  const [newsQueue, setNewsQueue] = useState<FeedItem[]>([]);
+  const [newsOpen, setNewsOpen] = useState(false);
+  const announcedNewsIdsRef = useRef(new Set<string>());
   const feedSeqRef = useRef(0);
   const streamedEventCountRef = useRef(0);
   const activeSimulationIdRef = useRef<string | undefined>();
@@ -206,6 +211,7 @@ function App() {
     date?: string,
     detail?: string,
     eventId?: string,
+    announce = true,
   ) => {
     // Gli eventi provenienti dal server hanno un ID stabile: riusarlo rende
     // innocui replay SSE, riconnessioni e refetch della cronaca.
@@ -222,7 +228,26 @@ function App() {
       // Cap: tieni gli ultimi 120 eventi
       return next.length > 120 ? next.slice(next.length - 120) : next;
     });
+    // Solo il flusso live/SSE mette la notizia in primo piano. La timeline
+    // ricaricata è archivio e non deve riaprire vecchie notizie.
+    if (announce && !announcedNewsIdsRef.current.has(item.id)) {
+      announcedNewsIdsRef.current.add(item.id);
+      setNewsQueue(prev => [...prev, item]);
+      setNewsOpen(true);
+    }
   }, []);
+
+  useEffect(() => {
+    announcedNewsIdsRef.current.clear();
+    setNewsQueue([]);
+    setNewsOpen(false);
+  }, [currentGameId]);
+
+  const dismissNews = (showNext: boolean) => {
+    const hasNext = newsQueue.length > 1;
+    setNewsQueue(prev => prev.slice(1));
+    setNewsOpen(showNext && hasNext);
+  };
 
   // Al cambio partita: prediscarica la cronaca storica dalla timeline
   useEffect(() => {
@@ -1273,7 +1298,9 @@ function App() {
         }
         applyCheckpointRegions(data.changedRegions);
         if (data.event?.headline) {
-          pushFeed(data.event.headline, 'world', data.event.date, data.event.description, data.eventId);
+          // Il checkpoint che richiede decisione è già presentato dal lettore
+          // G22: non sovrapponiamo una seconda notizia centrale.
+          pushFeed(data.event.headline, 'world', data.event.date, data.event.description, data.eventId, !data.awaitingNext);
         }
         if (data.awaitingNext && data.simulationId) {
           const event = {
@@ -1538,6 +1565,16 @@ function App() {
           } : null}
           onFocusPlaybackReader={() => document.getElementById('simulation-event-reader')?.focus({ preventScroll: true })}
         />
+
+        {newsOpen && (
+          <NewsFlash
+            item={newsQueue[0] || null}
+            pendingCount={newsQueue.length}
+            onClose={() => dismissNews(false)}
+            onNext={() => dismissNews(true)}
+            onOpenArchive={() => { dismissNews(false); setFeedOpen(true); }}
+          />
+        )}
 
         <div className={`game-container${panelOpen ? '' : ' panel-closed'}`}>
           {/* Fase 2: banner di avanzamento turno + Intervene */}
