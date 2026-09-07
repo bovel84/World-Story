@@ -645,7 +645,10 @@ function App() {
     if (!currentGame) return;
     // §9.3/§9.2: un run in pausa possiede il turno. Un nuovo salto è rifiutato
     // finché il giocatore non decide sul checkpoint mostrato.
-    if (pausedReader) {
+    if (pausedReader || currentGame.pausedSimulation?.simulationId) {
+      // Un refresh può arrivare prima della ricostruzione del lettore: il run
+      // server è comunque autorevole e va riaperto, mai aggirato con un salto.
+      if (!pausedReader) await restorePausedReader(currentGame);
       setTurnProgress('⏸ Un evento attende la tua decisione: Continua o Intervieni prima di avanzare di nuovo.');
       setTimeout(() => setTurnProgress(''), 5000);
       return;
@@ -773,8 +776,21 @@ function App() {
         setCurrentWorld({ ...currentWorld, regions });
       }
       await handleTimelineOpen();
-    } catch (e) {
+    } catch (e: any) {
       console.error('Time-skip failed:', e);
+      // Se il client è rimasto indietro (tab in background, refresh o SSE
+      // perso), il 409 non è un errore da mostrare come fallimento generico:
+      // riconciliamo e riapriamo il checkpoint decisionale.
+      if (e?.status === 409) {
+        try {
+          const refreshed = await gameApi.get(currentGame.id);
+          setCurrentGame(refreshed);
+          await restorePausedReader(refreshed);
+          setTurnProgress('⏸ Playback ripristinato al checkpoint attivo.');
+        } catch (reconcileError) {
+          console.error('Unable to reconcile paused simulation:', reconcileError);
+        }
+      }
     }
 
     setLoading(false);
@@ -1203,6 +1219,16 @@ function App() {
   /** §9.3: lettore del playback «un evento alla volta» di un salto fisso. */
   /** G22: il lettore attivo è separato dall'archivio EventFeed. */
   const [pausedReader, setPausedReader] = useState<PlaybackReaderState | null>(null);
+
+  // Riconcilia qualunque percorso che abbia ottenuto un Game già in pausa
+  // (apertura diretta, refresh, save/load): il lettore G22 non può restare
+  // invisibile mentre il server giustamente blocca un nuovo salto.
+  useEffect(() => {
+    const runId = currentGame?.pausedSimulation?.simulationId;
+    if (runId && pausedReader?.simulationId !== runId) {
+      void restorePausedReader(currentGame);
+    }
+  }, [currentGame?.id, currentGame?.pausedSimulation?.simulationId, pausedReader?.simulationId]);
   // Fase 2: difficoltà della nuova partita
   const [difficulty, setDifficulty] = useState<string>('normal');
 
@@ -1888,40 +1914,10 @@ function App() {
                   <button
                     className="btn-submit-actions"
                     disabled={pendingActions.length === 0 || loading}
-                    onClick={async () => {
-                      if (!currentGame || pendingActions.length === 0) return;
-                      setLoading(true);
-                      try {
-                        const result = await gameApi.processAllActions(currentGame.id, 30);
-
-                        for (const action of result.actions) {
-                          if (action.result) {
-                            addHistory({
-                              turn: action.result.turn,
-                              action: action.text,
-                              result: action.result.narration,
-                              events: action.result.events,
-                              periodStart: action.result.periodStart,
-                              periodEnd: action.result.periodEnd,
-                            });
-                          }
-                        }
-
-                        const lastAction = result.actions[result.actions.length - 1];
-                        if (lastAction?.result) {
-                          setCurrentGame(prev => prev ? {
-                            ...prev,
-                            currentTurn: (lastAction.result as any).turn + 1,
-                            currentDate: (lastAction.result as any).periodEnd,
-                          } : prev);
-                        }
-
-                        clearPendingActions();
-                      } catch (e) {
-                        console.error('Failed to process actions:', e);
-                      }
-                      setLoading(false);
-                    }}
+                    // Il bottone storico process-all presumeva un array e
+                    // falliva su { type: 'awaiting_next' }. Un salto fisso
+                    // passa ora dal contratto unico time-skip (§9.3).
+                    onClick={() => void handleTimeSkip(30)}
                   >
                     {loading ? 'Sto pensando...' : `Invia ${pendingActions.length} azione(i) →`}
                   </button>
