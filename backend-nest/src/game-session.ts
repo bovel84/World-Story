@@ -105,6 +105,15 @@ export class SimulationPausedError extends Error {
   }
 }
 
+/** G22: Intervene deve riferirsi al preciso evento/checkpoint in lettura,
+ * non soltanto a un run generico o a un booleano senza contesto. */
+export class SimulationStaleCheckpointError extends Error {
+  constructor(public runId: string, public eventId?: string, public revision?: number) {
+    super('Il checkpoint indicato non è più quello attivo: rileggi il lettore di sessione');
+    this.name = 'SimulationStaleCheckpointError';
+  }
+}
+
 /**
  * §9.3 — stato durevole del playback «un evento alla volta» per i salti
  * fissi. Le proposte future non applicate non sono canoniche: restano nel run
@@ -145,6 +154,10 @@ export interface PausedRunState {
   };
   /** Indice del prossimo checkpoint per-evento (revisione = base + questo). */
   appliedCount: number;
+  /** Ancora del checkpoint mostrato nel lettore G22. */
+  currentEventId?: string;
+  checkpointId?: string;
+  revision?: number;
 }
 
 /** Esito del batch quando il salto fisso si ferma a un checkpoint. */
@@ -162,6 +175,9 @@ export interface PausedBatchResult {
   };
   remaining: number;
   destination: string;
+  /** Ancora durevole del checkpoint mostrato (G22). */
+  checkpointId: string;
+  revision: number;
   newDate: string;
   newTurn: number;
   changedRegions: Array<Record<string, any>>;
@@ -2032,9 +2048,16 @@ export class GameSession {
 
     // Il run in pausa referenzia il checkpoint: assegnalo PRIMA della cattura,
     // così un restore di questo checkpoint ripristina anche il playback (§9.3).
-    this.pausedRun = state;
-    const revision = state.revisionBase + state.appliedCount;
+    const eventIndex = state.appliedCount;
+    const revision = state.revisionBase + eventIndex;
     const checkpointId = shortId();
+    state.currentEventId = `${stepId}-0`;
+    state.checkpointId = checkpointId;
+    state.revision = revision;
+    // Il checkpoint cattura lo stato del passo *successivo*: dopo restore la
+    // revisione resta crescente e non si ricommette l'evento appena letto.
+    state.appliedCount = eventIndex + 1;
+    this.pausedRun = state;
     gameRepository.createSimulationCheckpoint({
       id: checkpointId, runId, gameId: this.id, revision,
       turn: state.jumpTurn, date: eventDate, data: this.captureCheckpointData(),
@@ -2052,7 +2075,6 @@ export class GameSession {
     }]);
 
     const remaining = state.remainingEvents.length;
-    state.appliedCount++;
 
     // Fine del playback: l'ultimo evento chiude il run subito se il budget è
     // esaurito o se la destinazione coincide con la data dell'evento.
@@ -2074,9 +2096,11 @@ export class GameSession {
     });
     this.broadcast('jump_event', {
       turn: state.jumpTurn,
-      index: state.appliedCount - 1,
+      index: eventIndex,
       event,
-      eventId: `${stepId}-0`,
+      eventId: state.currentEventId,
+      checkpointId: state.checkpointId,
+      revision: state.revision,
       streaming: false,
       checkpoint: true,
       changedRegions,
@@ -2101,6 +2125,8 @@ export class GameSession {
       },
       remaining,
       destination: state.destination,
+      checkpointId,
+      revision,
       newDate: eventDate,
       newTurn: this.currentTurn,
       changedRegions,
@@ -2425,10 +2451,20 @@ export class GameSession {
   }
 
   /** §9.3 «Intervieni qui»: chiude il salto al checkpoint mostrato. */
-  async tryIntervenePausedRun(simulationId?: string): Promise<CompletedBatchResult | null> {
+  async tryIntervenePausedRun(
+    simulationId?: string,
+    eventId?: string,
+    revision?: number,
+  ): Promise<CompletedBatchResult | null> {
     const state = this.pausedRun;
     if (!state) return null;
     if (simulationId && simulationId !== state.runId) return null;
+    // G22: un controllo arriva solo al checkpoint che il lettore sta davvero
+    // mostrando. Una richiesta stale non può chiudere un evento successivo.
+    if ((eventId && eventId !== state.currentEventId)
+      || (revision != null && revision !== state.revision)) {
+      throw new SimulationStaleCheckpointError(state.runId, eventId, revision);
+    }
     const result = await this.withLock(async () => {
       if (this.pausedRun !== state) return undefined; // già chiuso da una richiesta concorrente
       return this._completePausedRunUnlocked(state, 'intervened');
@@ -2442,6 +2478,7 @@ export class GameSession {
   getPausedRunInfo(): {
     simulationId: string; remaining: number; destination: string;
     date: string; turn: number; incomplete: boolean;
+    eventId?: string; checkpointId?: string; revision?: number;
   } | null {
     if (!this.pausedRun) return null;
     return {
@@ -2451,6 +2488,9 @@ export class GameSession {
       date: this.currentDate,
       turn: this.currentTurn,
       incomplete: this.pausedRun.incomplete,
+      eventId: this.pausedRun.currentEventId,
+      checkpointId: this.pausedRun.checkpointId,
+      revision: this.pausedRun.revision,
     };
   }
 
@@ -2503,6 +2543,9 @@ export class GameSession {
           startChat: Array.isArray(raw.completion?.startChat) ? raw.completion.startChat : [],
         },
         appliedCount: Number.isInteger(raw.appliedCount) ? raw.appliedCount : 0,
+        currentEventId: typeof raw.currentEventId === 'string' ? raw.currentEventId : undefined,
+        checkpointId: typeof raw.checkpointId === 'string' ? raw.checkpointId : undefined,
+        revision: Number.isInteger(raw.revision) ? raw.revision : undefined,
       };
     } catch {
       return null;

@@ -1185,6 +1185,11 @@ describe('§9.3 — playback «un evento alla volta» per i salti fissi', () => 
     const resumed = await (session as any).continueSimulation(batch.simulationId) as any;
     expect(resumed.type).toBe('awaiting_next');
     expect(resumed.event.headline).toBe('Seconda svolta del periodo');
+    // Il salvataggio del primo checkpoint conserva il prossimo indice: dopo
+    // Load la nuova pagina non riusa la revisione già letta (G22).
+    const revisions = db.prepare('SELECT revision FROM simulation_checkpoints WHERE run_id = ? ORDER BY revision')
+      .all(batch.simulationId).map((row: any) => row.revision);
+    expect(revisions).toEqual([2, 3]);
 
     // Rewind di un run in pausa: ritorno all’ORIGINE del salto, ordini in coda
     // di nuovo disponibili e run scartato del ramo annullato (§12).

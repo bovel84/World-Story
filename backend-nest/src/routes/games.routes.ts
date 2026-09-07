@@ -8,7 +8,7 @@ import { shortId } from '../utils/short-id';
 import { gameRepository } from '../repositories';
 import { countryRepository } from '../repositories/country.repository';
 import { getSessionRegistry } from '../session-registry';
-import { SimulationInProgressError, SimulationPausedError, type TurnResultRecord, type PausedBatchResult } from '../game-session';
+import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, type TurnResultRecord, type PausedBatchResult } from '../game-session';
 import { addDays, jumpHorizon } from '../core/simulation/calendar';
 import { addSSEClient, removeSSEClient, broadcastToGame, hasClients } from '../sse';
 import { LLMError } from '../llm';
@@ -29,6 +29,10 @@ function respondRouteError(res: any, e: any, fallback: string): void {
     // §9.3: un playback in pausa attende una decisione; un nuovo salto è un
     // conflitto esplicito, non un fallimento silenzioso.
     res.status(409).json({ error: e.message, code: 'simulation_paused', simulationId: e.runId });
+  } else if (e instanceof SimulationStaleCheckpointError) {
+    // G22: il lettore ha cambiato pagina/checkpoint: il vecchio controllo
+    // non può interrompere il run successivo.
+    res.status(409).json({ error: e.message, code: 'stale_checkpoint', simulationId: e.runId });
   } else if (typeof e?.message === 'string' && e.message.includes('not found')) {
     res.status(404).json({ error: e.message });
   } else {
@@ -783,9 +787,21 @@ gamesRouter.post('/:id/intervene', async (req, res) => {
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
     const simulationId = req.body?.simulationId || req.body?.simulation_id;
-    // §9.3 «Intervieni qui»: chiusura affidabile del run fermo su un
-    // checkpoint per-evento, senza finestre di intervento basate sul tempismo.
-    const pausedOutcome = await session.tryIntervenePausedRun(simulationId);
+    const eventId = req.body?.eventId || req.body?.event_id;
+    const rawRevision = req.body?.revision;
+    const revision = Number.isInteger(rawRevision) ? rawRevision : undefined;
+    // §9.3/G22 «Intervieni qui»: chiusura affidabile del run fermo sul
+    // preciso evento/revisione mostrato dal lettore, senza race di streaming.
+    const pausedInfo = session.getPausedRunInfo();
+    if (pausedInfo?.simulationId === simulationId && (!eventId || revision == null)) {
+      res.status(409).json({
+        error: 'Indica evento e revisione del checkpoint in lettura',
+        code: 'checkpoint_anchor_required',
+        simulationId,
+      });
+      return;
+    }
+    const pausedOutcome = await session.tryIntervenePausedRun(simulationId, eventId, revision);
     if (pausedOutcome) {
       res.json({
         ok: true,

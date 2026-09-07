@@ -26,6 +26,7 @@ import type { Region, World, Game } from './types';
 import { useGameStore, useUIStore, useActionsStore, useChatStore, selectTotalUnread } from './stores';
 import { useSSE } from './services/sse';
 import { EventFeed, type FeedItem } from './components/Game/EventFeed';
+import { SimulationEventReader, type PlaybackReaderState } from './components/Game/SimulationEventReader';
 
 // DISATTIVATO: editor mappe (temporaneo) — helper punti nel path SVG usato solo
 // al salvataggio mappe dall’editor (handleSaveMapLocal/handleSaveMap)
@@ -710,6 +711,8 @@ function App() {
             event: result.event,
             remaining: result.remaining ?? 0,
             destination: result.destination ?? '',
+            checkpointId: result.checkpointId,
+            revision: result.revision,
           });
           setCurrentGame(prev => prev ? { ...prev, currentDate: result.newDate!, currentTurn: result.newTurn! } : prev);
           applyCheckpointRegions(result.changedRegions);
@@ -961,6 +964,8 @@ function App() {
           },
           remaining: run.awaitingNext.remaining,
           destination: run.awaitingNext.destination,
+          checkpointId: run.awaitingNext.checkpointId,
+          revision: run.awaitingNext.revision,
         });
       } else {
         setPausedReader(null);
@@ -983,6 +988,8 @@ function App() {
           event: result.event,
           remaining: result.remaining ?? 0,
           destination: result.destination ?? '',
+          checkpointId: result.checkpointId,
+          revision: result.revision,
         });
         setCurrentGame(prev => prev ? { ...prev, currentDate: result.newDate, currentTurn: result.newTurn } : prev);
         applyCheckpointRegions(result.changedRegions);
@@ -1005,7 +1012,10 @@ function App() {
     if (!currentGame || !pausedReader || loading) return;
     setLoading(true);
     try {
-      const result = await gameApi.intervene(currentGame.id, pausedReader.simulationId);
+      const result = await gameApi.intervene(currentGame.id, pausedReader.simulationId,
+        pausedReader.revision != null
+          ? { eventId: pausedReader.event.id, revision: pausedReader.revision }
+          : undefined);
       if (result.intervened) {
         await applyRunCompletion(result as any);
       } else {
@@ -1178,12 +1188,8 @@ function App() {
   const [isProcessingTurn, setIsProcessingTurn] = useState(false);
   const [turnProgress, setTurnProgress] = useState<string>('');
   /** §9.3: lettore del playback «un evento alla volta» di un salto fisso. */
-  const [pausedReader, setPausedReader] = useState<{
-    simulationId: string;
-    event: { id: string; date: string; headline: string; detail: string; source: string };
-    remaining: number;
-    destination: string;
-  } | null>(null);
+  /** G22: il lettore attivo è separato dall'archivio EventFeed. */
+  const [pausedReader, setPausedReader] = useState<PlaybackReaderState | null>(null);
   // Fase 2: difficoltà della nuova partita
   const [difficulty, setDifficulty] = useState<string>('normal');
 
@@ -1247,6 +1253,8 @@ function App() {
             },
             remaining: data.awaitingNext.remaining,
             destination: data.awaitingNext.destination,
+            checkpointId: data.checkpointId,
+            revision: data.revision,
           });
         }
         setTurnProgress(`Evento applicato: ${data.event?.headline || ''}`);
@@ -1481,6 +1489,12 @@ function App() {
           onTimeSkip={handleTimeSkip}
           onRestoreCheckpoint={handleRestoreCheckpoint}
           onContinueFrom={handleContinueFrom}
+          activePlayback={pausedReader ? {
+            simulationId: pausedReader.simulationId,
+            eventId: pausedReader.event.id,
+            revision: pausedReader.revision,
+          } : null}
+          onFocusPlaybackReader={() => document.getElementById('simulation-event-reader')?.focus({ preventScroll: true })}
         />
 
         <div className={`game-container${panelOpen ? '' : ' panel-closed'}`}>
@@ -1497,45 +1511,15 @@ function App() {
               </button>
             </div>
           )}
-          {/* §9.3: lettore del playback «un evento alla volta» — il tempo resta
-              fermo finché il giocatore non autorizza il checkpoint successivo. */}
+          {/* G22: il checkpoint attivo ha un lettore autonomo; la cronaca
+              sottostante è invece un archivio consultabile senza mutazioni. */}
           {pausedReader && (
-            <div className="event-reader-banner" role="region" aria-label="Evento in lettura">
-              <div className="event-reader-meta">
-                <span className="event-reader-date">{pausedReader.event.date}</span>
-                <span className="event-reader-remaining">
-                  {pausedReader.remaining > 0
-                    ? `${pausedReader.remaining} ${pausedReader.remaining === 1 ? 'evento' : 'eventi'} ancora in sospeso`
-                    : 'Ultimo evento del salto'}
-                </span>
-              </div>
-              <h3 className="event-reader-title">{pausedReader.event.headline}</h3>
-              {pausedReader.event.detail && (
-                <p className="event-reader-detail">{pausedReader.event.detail}</p>
-              )}
-              <div className="event-reader-actions">
-                <button
-                  type="button"
-                  className="btn-continue-next"
-                  onClick={handleContinueNext}
-                  disabled={loading}
-                >
-                  {pausedReader.remaining > 0
-                    ? '▶ Continua'
-                    : `▶ Avanza fino al ${pausedReader.destination}`}
-                </button>
-                <button
-                  type="button"
-                  className="btn-intervene"
-                  onClick={handleInterveneHere}
-                  disabled={loading}
-                  title="Chiude il salto qui: il mondo resta a questa data"
-                >
-                  ⏸ Intervieni qui
-                </button>
-              </div>
-              <p className="event-reader-note">Il tempo è fermo: il mondo riprende solo con la tua conferma.</p>
-            </div>
+            <SimulationEventReader
+              playback={pausedReader}
+              loading={loading}
+              onContinue={handleContinueNext}
+              onIntervene={handleInterveneHere}
+            />
           )}
           {/* Mappa a sinistra */}
           <div className="game-map">
