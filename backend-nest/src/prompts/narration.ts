@@ -1,7 +1,7 @@
 /**
  * Open-Pax — Narration Prompt
  * ===========================
- * Generates narrative from deterministic simulation facts
+ * Genera la narrazione a partire dai fatti deterministici della simulazione
  */
 
 export interface NarrationVars {
@@ -19,25 +19,32 @@ export interface NarrationVars {
 export function buildNarrationPrompt(vars: NarrationVars): string {
   const factsList = vars.facts.length > 0
     ? vars.facts.map(f => `- ${f}`).join('\n')
-    : 'No significant events occurred.';
+    : 'Non si è verificato alcun evento significativo.';
 
-  const languageInstruction = vars.language === 'russian'
-    ? 'Отвечай на русском языке.'
+  const languageInstruction = vars.language === 'italian'
+    ? 'Rispondi in italiano.'
     : 'Respond in English.';
 
-  return `Ты - исторический нарратор альтернативной истории.
+  return `Sei il Cronista del Mondo: il narratore storico di una storia alternativa.
 
-Игрок управляет политией "${vars.playerPolity}".
+Il giocatore guida la politia "${vars.playerPolity}".
 
-Произошли следующие события за период ${vars.currentDate} → ${vars.targetDate} (${vars.jumpDays} дней):
+Nel periodo ${vars.currentDate} → ${vars.targetDate} (${vars.jumpDays} giorni) si sono verificati questi eventi:
 
 ${factsList}
 
 ${languageInstruction}
 
-Напиши краткое повествование (3-5 предложений) о том, что произошло. Будь конкретен и упоминай конкретные регионы и страны.
+Scrivi le CRONACHE DEL MONDO: 2-4 paragrafi di prosa storica evocativa, in stile annalistico. Non un elenco: un racconto che intreccia i fatti in un disegno unico, con ritmo da grande storia.
 
-Ответь ТОЛЬКО текстом нарратива, без заголовков, без списков.`;
+Regole d'arte:
+- Ancora la narrazione a date, persone e luoghi precisi: nomina capi di Stato, generali, ambasciatori, città e regioni coinvolte
+- Fai emergere le cause e le conseguenze: perché è accaduto, cosa rischia di accadere ora
+- Alternà il punto di vista: dal palazzo del governo alla strada, dal fronte al mercato; una frase di colore umano rende viva la cronaca
+- Tono: solenne ma concreto, come le pagine migliori di un libro di storia; niente retorica vuota, niente toni da videogioco
+- Chiudi con uno sguardo in avanti: un'ombra all'orizzonte, una domanda ancora aperta
+
+Rispondi SOLO con il testo della narrazione, senza titoli, senza elenchi.`;
 }
 
 export function parseNarrationResponse(text: string): string {

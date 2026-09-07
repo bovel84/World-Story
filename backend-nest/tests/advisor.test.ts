@@ -102,10 +102,10 @@ describe('Этап 3: живой Советник', () => {
     const reply = await session.getAdvisor('А теперь что делать?', history);
 
     expect(reply).toContain('СОВЕТ');
-    expect(capturedAdvisorPrompt).toContain('[История чата]');
-    expect(capturedAdvisorPrompt).toContain('Игрок: Стоит ли мириться с Польшей?');
-    expect(capturedAdvisorPrompt).toContain('Советник: Пока рано: сначала усильте армию.');
-    expect(capturedAdvisorPrompt).toContain('[Сообщение от игрока]');
+    expect(capturedAdvisorPrompt).toContain('[Cronaca della conversazione]');
+    expect(capturedAdvisorPrompt).toContain('Giocatore: Стоит ли мириться с Польшей?');
+    expect(capturedAdvisorPrompt).toContain('Consigliere: Пока рано: сначала усильте армию.');
+    expect(capturedAdvisorPrompt).toContain('[Messaggio del giocatore]');
     expect(capturedAdvisorPrompt).toContain('А теперь что делать?');
   });
 
@@ -116,8 +116,8 @@ describe('Этап 3: живой Советник', () => {
       { role: 'assistant', content: 'Советую развивать экономику.' },
     ]);
 
-    expect(capturedAdvisorPrompt).toContain('ПРОДОЛЖАЮЩИЙСЯ');
-    expect(capturedAdvisorPrompt).toContain('не здоровайся');
+    expect(capturedAdvisorPrompt).toContain('dialogo IN CORSO');
+    expect(capturedAdvisorPrompt).toContain('non salutare');
     // Лимит длины ответа сохранён
     expect(capturedAdvisorPrompt).toContain('3000');
   });

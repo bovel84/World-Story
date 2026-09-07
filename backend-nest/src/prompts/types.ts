@@ -30,6 +30,10 @@ export interface PromptVariables {
   // Карта
   GRAND_MAP_DESCRIPTION: string;
   GRAND_MAP_DESCRIPTION_NO_CITY: string;
+  /** Stato materiale e diplomatico verificabile al momento del turno. */
+  STRATEGIC_STATE: string;
+  /** Processi in corso (partial) con data prevista: il simulatore deve portarli avanti. */
+  ONGOING_PROCESSES?: string;
 
   // События
   ALL_EVENTS_WITH_CONSOLIDATION: string;
@@ -52,7 +56,7 @@ export interface SimulationEvent {
 }
 
 export interface MapChange {
-  type: 'transfer' | 'create' | 'update' | 'delete' | 'spawn_battalion' | 'move_battalion' | 'create_polity';
+  type: 'transfer' | 'create' | 'update' | 'delete' | 'spawn_battalion' | 'move_battalion' | 'create_polity' | 'build_facility';
   /** Имя региона, как показано LLM в описании карты (основной способ адресации) */
   regionName?: string;
   /** Legacy: прямой id региона (принимается для совместимости) */
@@ -67,11 +71,23 @@ export interface MapChange {
 }
 
 export interface MapFeature {
-  type: 'city' | 'battalion' | 'factory' | 'port' | 'base';
+  type: 'city' | 'battalion' | 'factory' | 'port' | 'base' | 'university' | 'radar';
   name: string;
   x?: number;
   y?: number;
   metadata?: Record<string, any>;
+}
+
+export interface ActionOutcome {
+  /** Copia esatta dell'ordine ricevuto, usata per associarlo al lotto. */
+  action: string;
+  status: 'accepted' | 'partial' | 'rejected';
+  summary: string;
+  /** Data prevista solo per processi partial, se causalmente stimabile. */
+  expectedDate?: string;
+  eventHeadlines?: string[];
+  /** Titolo del processo in corso che questo ordine completa (anche riformulato). */
+  completesProcess?: string;
 }
 
 export interface SimulationResult {
@@ -79,10 +95,14 @@ export interface SimulationResult {
   narration: string;
   diplomacy: DiplomacyChat[];
   worldChanges: WorldChanges;
-  /** Нереалистичные действия игрока, отклонённые симуляцией, с пояснением */
+  /** Esiti uno-a-uno degli ordini del lotto. */
+  actionOutcomes?: ActionOutcome[];
+  /** Нереалистичные действия игрока, отклонённые simulaцией, с пояснением */
   voided: VoidedAction[];
-  /** ИИ инициирует дипломатический чат (полноценная обработка — Этап 3) */
+  /** ИИ инициирует дипломатический чат. */
   startChat?: { polityName: string; topic: string }[];
+  /** Conseguenze diplomatiche, incluse quelle negoziate nelle chat. */
+  relationshipChanges?: { from: string; to: string; relationship: 'ally' | 'neutral' | 'hostile'; reason?: string }[];
   /** Для auto-jump: фактическая целевая дата, выбранная симуляцией */
   targetDate?: string;
 }

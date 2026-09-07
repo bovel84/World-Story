@@ -1,15 +1,16 @@
 /**
  * Open-Pax — Template Selector Component
  * ======================================
- * Позволяет выбрать шаблон/сценарий мира перед началом игры.
- * Этап 5: пресеты как пакеты — бейджи источника, иконки возможностей,
- * экспорт в zip и импорт пресета из zip-архива.
+* Permette di scegliere template/scenario del mondo prima di iniziare la partita.
+* Fase 5: preset come pacchetti — badge della fonte, icone delle funzionalità,
+* esportazione in zip e importazione del preset da archivio zip.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
 import { templatesApi } from '../../services/api';
 import type { TemplateInfo } from '../../services/api';
 import type { WorldTemplate } from '../../types';
+import { PresetEditorModal } from './PresetEditorModal';
 
 interface TemplateSelectorProps {
   onSelect: (template: WorldTemplate) => void;
@@ -22,6 +23,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [editor, setEditor] = useState<{ templateId?: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -36,7 +38,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
       setError(null);
     } catch (e) {
       console.error('[TemplateSelector] Failed to load templates:', e);
-      setError('Failed to load templates');
+      setError('Impossibile caricare gli scenari');
     } finally {
       setLoading(false);
     }
@@ -48,28 +50,28 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
       onSelect(template);
     } catch (e) {
       console.error('[TemplateSelector] Failed to load template:', e);
-      setError('Failed to load template details');
+      setError('Impossibile caricare i dettagli dello scenario');
     }
   };
 
-  /** Экспорт пресета в zip — stopPropagation, чтобы клик не выбирал шаблон */
+  /** Esporta il preset in zip — stopPropagation, così il clic non seleziona il template */
   const handleExport = async (e: React.MouseEvent, templateId: string) => {
     e.stopPropagation();
     try {
       await templatesApi.exportPreset(templateId);
     } catch (err) {
-      console.error('[TemplateSelector] Ошибка экспорта пресета:', err);
-      setImportError(`Ошибка экспорта: ${err instanceof Error ? err.message : String(err)}`);
+      console.error('[TemplateSelector] Errore esportazione scenario:', err);
+      setImportError(`Errore esportazione: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
-  /** Клик по «Импорт пресета» — открываем скрытый выбор файла */
+  /** Clic su «Importa scenario» — apriamo il selettore file nascosto */
   const handleImportClick = () => {
     setImportError(null);
     fileInputRef.current?.click();
   };
 
-  /** Файл выбран — отправляем на сервер; value сбрасываем, чтобы можно было выбрать тот же файл повторно */
+  /** File scelto — lo inviamo al server; azzeriamo value per poter riscegliere lo stesso file */
   const handleFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -77,21 +79,21 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
     await doImport(file, false);
   };
 
-  /** Собственно импорт; при конфликте (EXISTS) — confirm и повтор с overwrite */
+/** Import vero e proprio; in caso di conflitto (EXISTS) — confirm e retry con overwrite */
   const doImport = async (file: File, overwrite: boolean): Promise<void> => {
     setImporting(true);
     setImportError(null);
     try {
       const result = await templatesApi.importPreset(file, overwrite);
       await loadTemplates();
-      // Импортированный пресет сразу выбираем — это то, ради чего его импортировали
+      // Il preset importato lo selezioniamo subito — è il motivo per cui l'abbiamo importato
       await handleSelect(result.template.id);
     } catch (err) {
       const code = (err as { code?: string })?.code;
       if (code === 'EXISTS' && !overwrite) {
-        // 409 — пресет уже есть: спрашиваем подтверждение перезаписи
+        // 409 — il preset esiste già: chiediamo conferma della sovrascrittura
         setImporting(false);
-        if (window.confirm('Пресет уже существует. Перезаписать?')) {
+        if (window.confirm('Scenario già esistente. Sovrascrivere?')) {
           await doImport(file, true);
         }
         return;
@@ -105,7 +107,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
   if (loading) {
     return (
       <div className="template-selector">
-        <div className="loading">Loading templates...</div>
+        <div className="loading">Apertura dell’archivio scenari…</div>
       </div>
     );
   }
@@ -114,7 +116,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
     return (
       <div className="template-selector">
         <div className="error">{error}</div>
-        <button onClick={loadTemplates}>Retry</button>
+        <button className="btn-primary" onClick={loadTemplates}>Riprova</button>
       </div>
     );
   }
@@ -122,9 +124,12 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
   return (
     <div className="template-selector">
       <div className="selector-header">
-        <button className="btn-back" onClick={onBack}>← Back</button>
-        <h2>Выберите сценарий</h2>
+        <button className="btn-back" onClick={onBack}>← Indietro</button>
+        <h2>Scegli lo scenario</h2>
         <div className="import-controls">
+          <button className="btn-new-preset" onClick={() => setEditor({})}>
+            ＋ Nuovo preset
+          </button>
           <button
             className="btn-import"
             onClick={handleImportClick}
@@ -133,10 +138,10 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
             {importing ? (
               <>
                 <span className="import-spinner" />
-                Импорт…
+                Importa…
               </>
             ) : (
-              '📦 Импорт пресета'
+              '📦 Importa scenario'
             )}
           </button>
           <input
@@ -160,36 +165,53 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
             className="template-card"
             onClick={() => handleSelect(template.id)}
           >
-            <button
-              className="template-export-btn"
-              title="Экспорт zip"
-              onClick={(e) => handleExport(e, template.id)}
-            >
-              ⬇
-            </button>
+            <div className="template-card-actions">
+              <button
+                className="template-edit-btn"
+                title="Modifica preset"
+                onClick={(e) => { e.stopPropagation(); setEditor({ templateId: template.id }); }}
+              >
+                ✎
+              </button>
+              <button
+                className="template-export-btn"
+                title="Esporta zip"
+                onClick={(e) => handleExport(e, template.id)}
+              >
+                ⬇
+              </button>
+            </div>
             <div className="template-card-top">
               <div className="template-name">{template.name}</div>
               <span className={`template-badge ${template.source === 'preset' ? 'preset' : 'legacy'}`}>
-                {template.source === 'preset' ? 'Пакет' : 'Базовый'}
+                {template.source === 'preset' ? 'Pacchetto' : 'Base'}
               </span>
             </div>
             <div className="template-description">{template.description}</div>
             <div className="template-meta">
               <span>📅 {template.start_date}</span>
-              <span>🌍 {template.country_count} стран</span>
+              <span>🌍 {template.country_count} paesi</span>
               {template.has_rules && (
-                <span title="Кастомные правила симуляции">⚙</span>
+                <span title="Regole di simulazione personalizzate">⚙</span>
               )}
               {template.has_map && (
-                <span title="Своя карта">🗺</span>
+                <span title="Mappa personalizzata">🗺</span>
               )}
               {template.flags_count > 0 && (
-                <span title={`Флагов: ${template.flags_count}`}>🚩×{template.flags_count}</span>
+                <span title={`Bandiere: ${template.flags_count}`}>🚩×{template.flags_count}</span>
               )}
             </div>
           </div>
         ))}
       </div>
+
+      {editor && (
+        <PresetEditorModal
+          templateId={editor.templateId}
+          onClose={() => setEditor(null)}
+          onSaved={loadTemplates}
+        />
+      )}
     </div>
   );
 };

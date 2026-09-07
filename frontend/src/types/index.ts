@@ -65,13 +65,20 @@ export interface CountryState {
 
 export interface MapObject {
   id: string;
-  type: "army" | "factory" | "university" | "city";
+  type: "city" | "capital" | "army" | "battalion" | "fleet" | "missile" | "radar"
+    | "port" | "factory" | "university" | "exchange" | "clearing" | "grouping" | (string & {});
   name: string;
-  x: number;
-  y: number;
+  /** Coordinate SVG legacy (mappe svgPath, canvas 2000×1500) */
+  x?: number;
+  y?: number;
+  /** Coordinate geografiche reali (standard per mondi geojson) */
+  lat?: number;
+  lng?: number;
+  /** Popolazione in milioni (città) */
+  pop?: number;
   owner?: string;
-  level: number;
-  metadata: Record<string, any>;
+  level?: number;
+  metadata?: Record<string, any>;
 }
 
 export interface Region {
@@ -80,7 +87,7 @@ export interface Region {
   svgPath?: string;  // SVG path d attribute (fallback)
   geojson?: string;  // GeoJSON polygon (for Mapbox)
   color: string;    // Current color (hex)
-  owner: string;    // polityId владельца (код страны / 'player' / 'ai-N') или "neutral"
+  owner: string;    // polityId del proprietario (codice paese / 'player' / 'ai-N') o "neutral"
   population: number;
   gdp: number;
   militaryPower: number;
@@ -89,6 +96,8 @@ export interface Region {
   status: RegionStatus;
   metadata: Record<string, any>;
   flag?: string;    // Country code for flag display (e.g., "USA", "RUS")
+  /** Nome della nazione/politia; nei mondi provinciali è diverso da region.name */
+  polityName?: string;
 }
 
 export interface Bloc {
@@ -121,7 +130,7 @@ export interface Player {
   name: string;
   regionId: string;
   color: string;
-  /** Полития игрока (код страны для шаблонов, 'player' для кастомных карт) */
+  /** Politia del giocatore (codice paese per i template, 'player' per mappe personalizzate) */
   polityId?: string;
 }
 
@@ -190,11 +199,13 @@ export interface SubmitActionRequest {
 }
 
 export interface SubmitActionResponse {
-  turn: number;
-  narration: string;
-  country_response: string;
-  events?: string[];
-  objects?: MapObject[];
+  /** Registrazione dell'ordine: non avvia alcuna simulazione. */
+  action: {
+    id: string;
+    text: string;
+    createdAt: string;
+    status: 'pending' | 'processing' | 'completed';
+  };
 }
 
 export interface AdvisorResponse {

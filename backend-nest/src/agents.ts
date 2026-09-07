@@ -40,14 +40,25 @@ export class GameController {
     actions: string[],
     jumpDays: number,
     onProgress?: (charsSoFar: number) => void,
-    autoJump?: boolean
+    autoJump?: boolean,
+    onEvent?: (event: SimulationEvent, index: number) => void,
+    signal?: AbortSignal,
   ): Promise<{
     narration: string;
     events: SimulationEvent[];
     worldChanges: any;
     convertedActions: any[];
+    actionOutcomes?: Array<{
+      action: string;
+      status: 'accepted' | 'partial' | 'rejected';
+      summary: string;
+      expectedDate?: string;
+      eventHeadlines?: string[];
+      completesProcess?: string;
+    }>;
     voided?: { action: string; reason: string }[];
     startChat?: { polityName: string; topic: string }[];
+    relationshipChanges?: { from: string; to: string; relationship: 'ally' | 'neutral' | 'hostile'; reason?: string }[];
     targetDate?: string;
   }> {
     if (!this.promptEngine) {
@@ -66,7 +77,9 @@ export class GameController {
       convertedActions.map(a => a.text),
       jumpDays,
       onProgress,
-      autoJump
+      autoJump,
+      onEvent,
+      signal,
     );
 
     console.log('[GameController] Simulation result:', simulationResult.narration.substring(0, 100));
@@ -77,10 +90,23 @@ export class GameController {
       events: simulationResult.events,
       worldChanges: simulationResult.worldChanges,
       convertedActions,
+      actionOutcomes: simulationResult.actionOutcomes,
       voided: simulationResult.voided,
       startChat: simulationResult.startChat,
+      relationshipChanges: simulationResult.relationshipChanges,
       targetDate: simulationResult.targetDate,
     };
+  }
+
+  /**
+   * G24 — riformula un singolo ordine libero (anteprima, senza accodare).
+   */
+  async enhanceAction(gameData: any, text: string): Promise<{ text: string }> {
+    if (!this.promptEngine) {
+      this.initPromptEngine(gameData);
+    }
+    const converted = await this.promptEngine!.convertAction(gameData, text);
+    return { text: converted.text };
   }
 
   /**

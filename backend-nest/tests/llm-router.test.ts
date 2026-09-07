@@ -70,7 +70,7 @@ describe('LLMRouter: per-механика резолвинг', () => {
     const cfg = makeConfig();
     (cfg.mechanics.jump as any).provider = 'bogus';
     const router = new LLMRouter(cfg); // дефолтная фабрика
-    await expect(router.generate('jump', 's', 'u')).rejects.toThrow(/Неизвестный LLM-провайдер/);
+    await expect(router.generate('jump', 's', 'u')).rejects.toThrow(/Provider LLM sconosciuto/);
   });
 });
 
@@ -202,7 +202,7 @@ describe('OpenAICompatibleProvider: retry/timeout/HTTP-ошибки', () => {
     });
     const err = await p.generate('s', 'u').catch((e) => e);
     expect(err).toBeInstanceOf(LLMError);
-    expect(err.message).toMatch(/таймаут запроса/);
+    expect(err.message).toMatch(/timeout della richiesta/);
   });
 
   it('пустой content в ответе — LLMError', async () => {
@@ -210,6 +210,6 @@ describe('OpenAICompatibleProvider: retry/timeout/HTTP-ошибки', () => {
     const p = new OpenAICompatibleProvider({
       baseUrl: 'http://test.local/v1', model: 'm', timeoutMs: 1000, retries: 0,
     });
-    await expect(p.generate('s', 'u')).rejects.toThrow(/пустой ответ/);
+    await expect(p.generate('s', 'u')).rejects.toThrow(/risposta vuota/);
   });
 });

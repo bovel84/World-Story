@@ -127,6 +127,9 @@ export class PolityResolver {
       this.addAlias(polity, polity.displayName);
       if (polity.isPlayer) {
         this.addAlias(polity, 'player');
+        this.addAlias(polity, 'giocatore');
+        this.addAlias(polity, 'giocatrice');
+        this.addAlias(polity, 'giocatori');
         this.addAlias(polity, 'игрок');
         this.addAlias(polity, 'игрока');
       }

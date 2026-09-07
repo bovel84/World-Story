@@ -49,6 +49,39 @@ export const relationshipRepository = {
     insertAll(deduped);
   },
 
+  /** Relazioni isolate della partita. */
+  getForGame(gameId: string): { from: string; to: string; type: RelationshipType }[] {
+    const rows = db.prepare(`
+      SELECT from_polity_id, to_polity_id, relationship FROM game_relationships WHERE game_id = ?
+    `).all(gameId) as any[];
+    return rows.map(row => ({ from: row.from_polity_id, to: row.to_polity_id, type: row.relationship as RelationshipType }));
+  },
+
+  replaceForGame(gameId: string, relationships: { from: string; to: string; type: RelationshipType }[]): void {
+    const deduped = [...new Map(relationships.map(item => [`${item.from}|${item.to}`, item] as const)).values()];
+    db.transaction(() => {
+      db.prepare('DELETE FROM game_relationships WHERE game_id = ?').run(gameId);
+      const insert = db.prepare(`
+        INSERT INTO game_relationships (game_id, from_polity_id, to_polity_id, relationship)
+        VALUES (?, ?, ?, ?)
+      `);
+      deduped.forEach(item => insert.run(gameId, item.from, item.to, item.type));
+    })();
+  },
+
+  upsertForGame(gameId: string, changes: RelationshipChange[]): void {
+    if (!changes.length) return;
+    const upsert = db.prepare(`
+      INSERT INTO game_relationships (game_id, from_polity_id, to_polity_id, relationship)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(game_id, from_polity_id, to_polity_id)
+      DO UPDATE SET relationship = excluded.relationship
+    `);
+    db.transaction((records: RelationshipChange[]) => records.forEach(change =>
+      upsert.run(gameId, change.from, change.to, change.newRelationship)
+    ))(changes);
+  },
+
   /**
    * Load all relationships for a world
    */

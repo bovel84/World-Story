@@ -1,88 +1,94 @@
 /**
  * Open-Pax — Advisor Prompt
- * ========================
- * Интерактивный советник (advisor.md)
+ * =========================
+ * Consigliere interattivo (advisor.md)
  */
 
 import { PromptVariables, AdvisorMessage } from './types';
 
 /**
- * Секции диалога советника: история переписки + текущее сообщение игрока.
- * Вынесено в экспорт: prompt-builder дописывает их после переопределённого
- * пресетного шаблона советника, чтобы вопрос игрока всегда доходил до модели.
+ * Sezioni del dialogo del consigliere: cronaca della conversazione + messaggio
+ * attuale del giocatore. Esportata: prompt-builder le aggiunge dopo i template
+ * preset sovrascritti, così la domanda del giocatore arriva sempre al modello.
  */
 export function buildAdvisorDialogSuffix(message?: string, chatHistory?: AdvisorMessage[]): string {
   const historySection = chatHistory && chatHistory.length > 0
-    ? `\n[История чата]\n${chatHistory.map(m =>
-        m.role === 'user' ? `Игрок: ${m.content}` : `Советник: ${m.content}`
+    ? `\n[Cronaca della conversazione]\n${chatHistory.map(m =>
+        m.role === 'user' ? `Giocatore: ${m.content}` : `Consigliere: ${m.content}`
       ).join('\n')}`
     : '';
 
   const currentMessage = message
-    ? `\n[Сообщение от игрока]\n${message}`
+    ? `\n[Messaggio del giocatore]\n${message}`
     : '';
 
   return `${historySection}\n${currentMessage}`;
 }
 
 /**
- * Построить промпт для советника
+ * Costruisce il prompt per il consigliere
  */
 export function buildAdvisorPrompt(vars: PromptVariables, message?: string, chatHistory?: AdvisorMessage[]): string {
-  return `Ты играешь роль главного советника игрока, который играет за политию ${vars.PLAYER_POLITY}.
+  return `Sei il Primo Consigliere del leader della politia ${vars.PLAYER_POLITY}, in un gioco strategico di storia alternativa.
 
-Первый раунд игры установлен на дату ${vars.STARTING_ROUND_DATE}.
+Il primo turno della partita è fissato al ${vars.STARTING_ROUND_DATE}.
 
-Твоя задача - объяснить ситуацию в мире с точки зрения общей истории игры, и что более важно - предоставить реалистичные стратегические рекомендации, чтобы помочь игроку достичь его целей.
+Il tuo compito è duplice: spiegare la situazione mondiale alla luce della storia della partita e, soprattutto, fornire consigli strategici realistici e concreti per aiutare il giocatore a raggiungere i suoi obiettivi.
 
-Это ПРОДОЛЖАЮЩИЙСЯ диалог: если ниже есть раздел [История чата] — это ваша предыдущая переписка с игроком. Ты помнишь все рекомендации, которые давал ранее: ссылайся на них, уточняй и развивай их, не противоречь себе без веской причины. Когда история уже есть — это НЕ первое сообщение: не здоровайся и не представляйся заново, сразу продолжай разговор по существу.
+Questo è un dialogo IN CORSO: se qui sotto compare la sezione [Cronaca della conversazione], è la vostra conversazione precedente. Ricordi tutti i consigli che hai già dato: richiamali, precisali e sviluppali, senza contraddirti senza motivo. Quando la cronaca esiste già, NON è il primo messaggio: non salutare e non presentarti di nuovo, entra subito nel vivo.
 
-Ты должен быть погружён в мир и ИГРАТЬ РОЛЬ! В выводе можешь упоминать конкретные даты, не упоминай номера раундов. Предсказывай возможные последствия в зависимости от решений, не говори что что-то обязательно произойдёт.
+Devi essere immerso nel mondo e GIOCARE LA PARTE! Nei tuoi output puoi citare date concrete; non citare mai i numeri di turno. Prevedi le possibili conseguenze delle decisioni senza mai dire che qualcosa avverrà con certezza.
 
-Твой вывод должен быть интересным - используй заголовки, жирный текст, списки. Но вывод должен быть коротким, максимум 3000 символов!
+I consigli devono essere TATTICI e ancorati allo stato reale del mondo:
+- riferiti a regioni, politie e battaglioni ESATTAMENTE con i nomi della mappa
+- quantifica quando puoi: quante divisioni, quanto tempo, quali risorse
+- proponi 2-3 opzioni concrete con i rispettivi costi e rischi, non consigli generici tipo "rafforzare l'economia"
+- segnala anche ciò che NON conviene fare, se il rischio è evidente
 
-[Контекст игры]
+Il tuo output deve essere ben leggibile: usa titoli, grassetto, elenchi. Ma resta breve: massimo 3000 caratteri!
+
+[Contesto di gioco]
 
 ${vars.WORLD_BEFORE_ROUND_ONE_TEXT}
 
-[Правила симуляции]
+[Regole di simulazione]
 
 ${vars.HISTORICAL_PRESET_SIMULATION_RULES}
 
-[Описание карты]
+[Descrizione della mappa]
 
 ${vars.GRAND_MAP_DESCRIPTION}
 
-[Регионы игрока]
+[Regioni del giocatore]
 
 ${vars.PLAYER_POLITY_REGIONS}
 
-[Юниты игрока]
+[Unità del giocatore]
 
-${vars.PLAYER_POLITY_BATTALION_SUMMARIES || 'Нет юнитов'}
+${vars.PLAYER_POLITY_BATTALION_SUMMARIES || 'Nessuna unità'}
 
-[Действия игрока в этом раунде]
+[Azioni del giocatore in questo turno]
 
-${vars.PLAYER_ACTIONS_THIS_ROUND || 'Нет действий'}
+${vars.PLAYER_ACTIONS_THIS_ROUND || 'Nessuna azione'}
 
-[Все действия игрока за игру]
+[Tutte le azioni del giocatore nella partita]
 
-${vars.PLAYER_EVERY_ACTION_NOT_PREVIOUS || 'Нет прошлых действий'}
+${vars.PLAYER_EVERY_ACTION_NOT_PREVIOUS || 'Nessuna azione passata'}
 
-[Текущая дата]
+[Data corrente]
 
-Это важно: ${vars.ORIGIN_ROUND_GRAMMATICAL_DATE}
+È importante: ${vars.ORIGIN_ROUND_GRAMMATICAL_DATE}
 
 ${buildAdvisorDialogSuffix(message, chatHistory)}
 
 ---
 
-Ты должен ответить как советник - дай рекомендации, предложи действия. Будь конкретным и полезным.
+Rispondi in veste di consigliere: dai raccomandazioni, proponi azioni. Sii concreto e utile.
 
-${vars.LANGUAGE === 'russian' ? 'Отвечай на русском.' : 'Отвечай на английском.'}`;
+Rispondi sempre in italiano.`;
 }
 
 export function parseAdvisorResponse(text: string): string {
-  // Советник возвращает простой текст
+  // Il consigliere restituisce testo semplice
   return text.trim();
 }

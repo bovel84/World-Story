@@ -23,6 +23,14 @@ export default {
       return fetch(proxied);
     }
 
-    return env.ASSETS.fetch(request);
+    const response = await env.ASSETS.fetch(request);
+    // Vite usa nomi con hash: JS/CSS/font possono restare nella cache del
+    // browser per un anno. index.html rimane invece sempre rivalidabile.
+    if (/\/assets\/[^/]+-[A-Za-z0-9_-]+\.(?:js|css|woff2?|png|webp|svg)$/.test(url.pathname)) {
+      const headers = new Headers(response.headers);
+      headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    }
+    return response;
   },
 };

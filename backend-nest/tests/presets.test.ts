@@ -147,7 +147,7 @@ describe('Этап 5: каталог пресетов', () => {
     // Пустые country_codes
     expect(() => v({ id: 'ok_id', name: 'X', country_codes: [], base_prompt: 'p' })).toThrow(/country_codes/);
     // Невалидный код страны (нужен ISO_A3 верхним регистром)
-    expect(() => v({ id: 'ok_id', name: 'X', country_codes: ['usa'], base_prompt: 'p' })).toThrow(/код страны/);
+    expect(() => v({ id: 'ok_id', name: 'X', country_codes: ['usa'], base_prompt: 'p' })).toThrow(/codice nazione/);
     // Нет base_prompt
     expect(() => v({ id: 'ok_id', name: 'X', country_codes: ['USA'] })).toThrow(/base_prompt/);
     // Валидный минимум — проходит
@@ -191,7 +191,7 @@ describe('Этап 5: правила симуляции мира', () => {
     session.queueAction('Наблюдать');
     await session.processNextAction(30);
 
-    expect(capturedPrompt).toContain('События развиваются логично. Учитывай экономику и военную мощь.');
+    expect(capturedPrompt).toContain("Gli eventi si sviluppano in modo logico. Considera l'economia e la potenza militare.");
     expect(capturedPrompt).not.toContain(CUSTOM_RULES);
   });
 });

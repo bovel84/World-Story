@@ -17,6 +17,7 @@ process.env.OPEN_PAX_DB_PATH = TEST_DB;
 
 let db: any;
 let worldRepository: any;
+let gameRepository: any;
 let initSessionRegistry: any;
 let getSessionRegistry: any;
 
@@ -89,6 +90,7 @@ beforeAll(async () => {
 
   const repos = await import('../src/repositories');
   worldRepository = repos.worldRepository;
+  gameRepository = repos.gameRepository;
 
   const registryModule = await import('../src/session-registry');
   initSessionRegistry = registryModule.initSessionRegistry;
@@ -127,6 +129,30 @@ afterAll(() => {
 });
 
 describe('Этап 4: персистентность map features', () => {
+  it('creates an explicitly completed facility once and persists its coordinates', async () => {
+    const { gameId, session } = createGame();
+    const change = { type: 'build_facility', regionName: 'ФРГ', feature: { type: 'factory', name: 'Impianto pilota' } };
+    session.applyMapChanges([change, change]);
+    const facilities = session.getRegion(`${WORLD_ID}_DEU`).objects.filter((o: any) => o.name === 'Impianto pilota');
+    expect(facilities).toHaveLength(1);
+    expect(facilities[0]).toMatchObject({ type: 'factory', level: 1 });
+    expect(facilities[0].lng).toBeGreaterThanOrEqual(10);
+    expect(facilities[0].lng).toBeLessThanOrEqual(20);
+    await session.syncRegionsToDB();
+    const persisted = gameRepository.getGameRegions(gameId).find((r: any) => r.id === `${WORLD_ID}_DEU`);
+    expect(persisted.objects).toContainEqual(facilities[0]);
+  });
+
+  it('rejects facility events with an unsupported type or a random destination', () => {
+    const { session } = createGame();
+    const before = JSON.stringify(session.getRegion(`${WORLD_ID}_DEU`).objects);
+    session.applyMapChanges([
+      { type: 'build_facility', regionName: 'random', feature: { type: 'factory', name: 'Invalid' } },
+      { type: 'build_facility', regionName: 'ФРГ', feature: { type: 'city', name: 'Invalid' } },
+    ]);
+    expect(JSON.stringify(session.getRegion(`${WORLD_ID}_DEU`).objects)).toBe(before);
+  });
+
   it('objects переживают «рестарт»: sync → новая registry → reloadActiveSessions', async () => {
     const { gameId, session } = createGame();
 
@@ -141,7 +167,7 @@ describe('Этап 4: персистентность map features', () => {
     await session.syncRegionsToDB();
 
     // Объект записан в БД (раньше updateRegionsBatch игнорировал objects)
-    const dbRegion = worldRepository.getRegions(WORLD_ID).find((r: any) => r.id === `${WORLD_ID}_DEU`);
+    const dbRegion = gameRepository.getGameRegions(gameId).find((r: any) => r.id === `${WORLD_ID}_DEU`);
     expect(dbRegion.objects.some((o: any) => o.id === 'obj_capital_deu')).toBe(true);
 
     // «Перезапуск сервера»: новая registry (пустой кэш сессий) + восстановление из БД
@@ -159,10 +185,10 @@ describe('Этап 4: персистентность map features', () => {
   });
 
   it('spawn_battalion из ответа симуляции создаёт объект battalion с lat/lng и персистит его', async () => {
-    const { session } = createGame();
+    const { gameId, session } = createGame();
 
     session.queueAction('Сформировать новый батальон');
-    const action = await session.processNextAction(30);
+    const action = await session.processNextAction(31); // Jan 1 → Feb 1, the event date
     expect(action.status).toBe('completed');
 
     const region = session.getRegion(`${WORLD_ID}_DEU`);
@@ -178,12 +204,12 @@ describe('Этап 4: персистентность map features', () => {
     expect(battalion.lat).toBeLessThanOrEqual(50);
 
     // Персистенс: батальон доехал до БД
-    const dbRegion = worldRepository.getRegions(WORLD_ID).find((r: any) => r.id === `${WORLD_ID}_DEU`);
+    const dbRegion = gameRepository.getGameRegions(gameId).find((r: any) => r.id === `${WORLD_ID}_DEU`);
     expect(dbRegion.objects.some((o: any) => o.type === 'battalion' && o.name === '1-й гвардейский')).toBe(true);
   });
 
   it('move_battalion перемещает батальон в целевой регион по имени, id приоритетнее имени', async () => {
-    const { session } = createGame();
+    const { gameId, session } = createGame();
 
     (session as any).applyMapChanges([
       { type: 'spawn_battalion', regionName: 'ФРГ', feature: { type: 'battalion', name: '2-й танковый' } },
@@ -219,8 +245,8 @@ describe('Этап 4: персистентность map features', () => {
 
     // Персистенс перемещения
     await session.syncRegionsToDB();
-    const dbDeu = worldRepository.getRegions(WORLD_ID).find((r: any) => r.id === `${WORLD_ID}_DEU`);
-    const dbPol = worldRepository.getRegions(WORLD_ID).find((r: any) => r.id === `${WORLD_ID}_POL`);
+    const dbDeu = gameRepository.getGameRegions(gameId).find((r: any) => r.id === `${WORLD_ID}_DEU`);
+    const dbPol = gameRepository.getGameRegions(gameId).find((r: any) => r.id === `${WORLD_ID}_POL`);
     expect(dbDeu.objects.some((o: any) => o.id === spawned.id)).toBe(true);
     expect(dbPol.objects.some((o: any) => o.id === spawned.id)).toBe(false);
   });

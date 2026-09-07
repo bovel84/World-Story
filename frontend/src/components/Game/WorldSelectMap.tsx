@@ -1,26 +1,26 @@
 /**
- * Open-Pax — World Select Map Component (Этап 4)
+* Open-Pax — Componente mappa selezione mondo (Fase 4)
  * ==============================================
- * SVG-карта мира на реальной геометрии Natural Earth (без внешних зависимостей).
- * Equirectangular-проекция: x = (lng + 180) / 360 * width,
+* Mappa SVG del mondo sulla geometria reale Natural Earth (senza dipendenze esterne).
+* Proiezione equirettangolare: x = (lng + 180) / 360 * width,
  *                           y = (90 - lat) / 180 * height.
- * Клик по доступной стране → onSelect(code).
+ * Clic su un paese disponibile → onSelect(code).
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { geoApi } from '../../services/api';
 import type { GeoCountryFeature } from '../../services/api';
 
-/** Логические размеры viewBox карты */
+/** Dimensioni logiche del viewBox della mappa */
 const MAP_WIDTH = 1000;
 const MAP_HEIGHT = 500;
 
-/** Проекция lng/lat → координаты SVG */
+/** Proiezione lng/lat → coordinate SVG */
 function project(lng: number, lat: number): [number, number] {
   return [((lng + 180) / 360) * MAP_WIDTH, ((90 - lat) / 180) * MAP_HEIGHT];
 }
 
-/** Кольцо полигона (массив [lng, lat]) → фрагмент path */
+/** Anello del poligono (array [lng, lat]) → frammento di path */
 function ringToPath(ring: number[][]): string {
   let d = '';
   for (let i = 0; i < ring.length; i++) {
@@ -30,7 +30,7 @@ function ringToPath(ring: number[][]): string {
   return d + 'Z';
 }
 
-/** Геометрия страны (Polygon/MultiPolygon) → атрибут d для <path> */
+/** Geometria del paese (Polygon/MultiPolygon) → attributo d per <path> */
 function geometryToPath(geometry: GeoCountryFeature['geometry']): string {
   if (geometry.type === 'Polygon') {
     return (geometry.coordinates as number[][][]).map(ringToPath).join('');
@@ -41,15 +41,15 @@ function geometryToPath(geometry: GeoCountryFeature['geometry']): string {
 }
 
 interface WorldSelectMapProps {
-  /** Коды стран, доступных для выбора (ISO_A3) */
+  /** Codici dei paesi selezionabili (ISO_A3) */
   availableCodes: string[];
-  /** Текущий выделенный код (подсвечивается на карте) */
+  /** Codice attualmente selezionato (evidenziato sulla mappa) */
   selectedCode?: string | null;
-  /** true — кликабельны все страны, false — только availableCodes */
+  /** true = tutti i paesi cliccabili, false = solo availableCodes */
   allowAll?: boolean;
-  /** Клик по стране (выделение; подтверждение — кнопкой у родителя) */
+  /** Clic su un paese (selezione; la conferma è a carico del pulsante nel genitore) */
   onSelect: (code: string) => void;
-  /** Ошибка загрузки геоданных — родитель покажет fallback-вид */
+/** Errore nel caricamento dei dati geografici — il genitore mostrerà la vista fallback */
   onError?: () => void;
 }
 
@@ -69,7 +69,7 @@ export const WorldSelectMap: React.FC<WorldSelectMapProps> = ({
   const [features, setFeatures] = useState<GeoCountryFeature[] | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // Защита от повторных onError (например, при StrictMode с двойным эффектом)
+  // Protezione da onError ripetuti (es. con StrictMode e doppio effetto)
   const errorReportedRef = useRef(false);
 
   useEffect(() => {
@@ -79,13 +79,13 @@ export const WorldSelectMap: React.FC<WorldSelectMapProps> = ({
       .then((collection) => {
         if (cancelled) return;
         if (!collection || !Array.isArray(collection.features)) {
-          throw new Error('Некорректный ответ /api/geo/countries');
+          throw new Error('Risposta non valida da /api/geo/countries');
         }
         setFeatures(collection.features);
       })
       .catch((err) => {
         if (cancelled) return;
-        console.warn('[WorldSelectMap] Геоданные недоступны, показываем fallback:', err);
+        console.warn('[WorldSelectMap] Dati geografici non disponibili, uso il fallback:', err);
         if (!errorReportedRef.current) {
           errorReportedRef.current = true;
           onError?.();
@@ -96,10 +96,10 @@ export const WorldSelectMap: React.FC<WorldSelectMapProps> = ({
     };
   }, [onError]);
 
-  // Множество доступных кодов — для быстрой проверки
+  // Insieme dei codici disponibili — per una verifica rapida
   const availableSet = useMemo(() => new Set(availableCodes), [availableCodes]);
 
-  // Заранее строим path для каждой страны
+  // Pre-costruisce il path per ogni paese
   const paths = useMemo(() => {
     if (!features) return [];
     return features.map((feature) => ({
@@ -112,12 +112,12 @@ export const WorldSelectMap: React.FC<WorldSelectMapProps> = ({
   if (!features) {
     return (
       <div className="world-select-map">
-        <div className="world-select-map-loading">Загрузка карты мира…</div>
+        <div className="world-select-map-loading">Caricamento mappa del mondo…</div>
       </div>
     );
   }
 
-  /** Координаты курсора внутри контейнера карты — для тултипа */
+/** Coordinate del cursore nel contenitore della mappa — per il tooltip */
   const updateTooltip = (e: React.MouseEvent, name: string) => {
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -130,7 +130,7 @@ export const WorldSelectMap: React.FC<WorldSelectMapProps> = ({
         viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
         preserveAspectRatio="xMidYMid meet"
         role="img"
-        aria-label="Карта мира"
+        aria-label="Mappa del mondo"
       >
         {paths.map(({ code, name, d }) => {
           const isAvailable = allowAll || availableSet.has(code);

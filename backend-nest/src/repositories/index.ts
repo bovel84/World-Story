@@ -8,4 +8,4 @@ export { worldRepository } from './world.repository';
 export { gameRepository } from './game.repository';
 export { relationshipRepository } from './relationship.repository';
 export { chatRepository } from './chat.repository';
-export type { ChatRecord, ChatSummary, ChatMessageRecord, ChatRole } from './chat.repository';
+export type { ChatRecord, ChatSummary, ChatMessageRecord, ChatRole, ChatParticipant, GameChatSnapshot } from './chat.repository';

@@ -37,6 +37,8 @@ export interface LLMGenerateOptions {
    * часть провайдеров отвечает 400 на неизвестный параметр.
    */
   jsonMode?: boolean;
+  /** Interrompe una richiesta/provider in corso (es. Intervene). */
+  signal?: AbortSignal;
 }
 
 export interface LLMProvider {
@@ -48,14 +50,14 @@ export interface LLMProvider {
   generate(system: string, user: string, options?: LLMGenerateOptions): Promise<LLMResponse>;
 
   /**
-   * Стриминг: onToken вызывается с накопленным числом символов.
-   * Провайдеры без поддержки стриминга могут не реализовывать —
-   * роутер откатится на generate().
+   * Стриминг: onToken получает число символов и накопленный текст.
+   * Второй аргумент позволяет потребителям извлекать законченные события
+   * прямо во время генерации, не дожидаясь всей реплики.
    */
   stream?(
     system: string,
     user: string,
-    onToken: (charsSoFar: number) => void,
+    onToken: (charsSoFar: number, contentSoFar?: string) => void,
     options?: LLMGenerateOptions
   ): Promise<LLMResponse>;
 }

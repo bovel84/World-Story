@@ -42,24 +42,24 @@ export class AnthropicProvider implements LLMProvider {
       {
         model: this.model,
         system,
-        messages: [{ role: 'user', content: user || 'Выполни инструкции из системного сообщения.' }],
+        messages: [{ role: 'user', content: user || 'Esegui le istruzioni del messaggio di sistema.' }],
         max_tokens: options.maxTokens ?? 4096,
         temperature: options.temperature ?? 0.7,
       },
-      { timeoutMs: this.timeoutMs, retries: this.retries, providerName: this.name }
+      { timeoutMs: this.timeoutMs, retries: this.retries, providerName: this.name, signal: options.signal }
     );
 
     let data: any;
     try {
       data = await res.json();
     } catch {
-      throw new LLMError(`${this.name}: невалидный JSON в ответе`, { provider: this.name, retriable: true });
+      throw new LLMError(`${this.name}: JSON non valido nella risposta`, { provider: this.name, retriable: true });
     }
 
     const content = data?.content?.[0]?.text;
     if (typeof content !== 'string' || content.length === 0) {
       throw new LLMError(
-        `${this.name}: пустой ответ модели${data?.error?.message ? ` — ${String(data.error.message).substring(0, 150)}` : ''}`,
+        `${this.name}: risposta vuota dal modello${data?.error?.message ? ` — ${String(data.error.message).substring(0, 150)}` : ''}`,
         { provider: this.name, retriable: true }
       );
     }

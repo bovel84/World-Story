@@ -1,7 +1,7 @@
 /**
  * Open-Pax — Map Editor (Enhanced)
  * ================================
- * Редактор карт со свободным рисованием, зумом и объектами.
+ * Editor di mappe con disegno libero, zoom e oggetti.
  */
 
 import React, { useState, useRef, useCallback } from 'react';
@@ -48,18 +48,18 @@ const COLORS = [
 
 // Object type icons and colors
 const OBJECT_TYPES = [
-  { type: 'capital', label: 'Столица', color: '#ffd700', icon: '★' },
-  { type: 'city', label: 'Город', color: '#ffffff', icon: '●' },
-  { type: 'port', label: 'Порт', color: '#00ccff', icon: '⚓' },
-  { type: 'factory', label: 'Завод', color: '#ff8800', icon: '⚙' },
-  { type: 'military', label: 'Военная база', color: '#ff4444', icon: '⚔' },
+  { type: 'capital', label: 'Capitale', color: '#ffd700', icon: '★' },
+  { type: 'city', label: 'Città', color: '#ffffff', icon: '●' },
+  { type: 'port', label: 'Porto', color: '#00ccff', icon: '⚓' },
+  { type: 'factory', label: 'Fabbrica', color: '#ff8800', icon: '⚙' },
+  { type: 'military', label: 'Base militare', color: '#ff4444', icon: '⚔' },
 ];
 
 const MAP_SIZES = [
-  { label: 'Маленькая (800x600)', width: 800, height: 600 },
-  { label: 'Средняя (1200x900)', width: 1200, height: 900 },
-  { label: 'Большая (2000x1500)', width: 2000, height: 1500 },
-  { label: 'Огромная (3000x2000)', width: 3000, height: 2000 },
+  { label: 'Piccola (800x600)', width: 800, height: 600 },
+  { label: 'Media (1200x900)', width: 1200, height: 900 },
+  { label: 'Grande (2000x1500)', width: 2000, height: 1500 },
+  { label: 'Enorme (3000x2000)', width: 3000, height: 2000 },
 ];
 
 export const MapEditor: React.FC<MapEditorProps> = ({
@@ -272,30 +272,30 @@ export const MapEditor: React.FC<MapEditorProps> = ({
           <button
             className={mode === 'draw' ? 'active' : ''}
             onClick={() => setMode('draw')}
-            title="Рисовать"
+            title="Disegna"
           >
-            ✏️ Рисовать
+            ✏️ Disegna
           </button>
           <button
             className={mode === 'select' ? 'active' : ''}
             onClick={() => setMode('select')}
-            title="Выбрать / Панорамировать"
+            title="Seleziona / Panoramica"
           >
-            👆 Выбрать
+            👆 Seleziona
           </button>
           <button
             className={mode === 'erase' ? 'active' : ''}
             onClick={() => setMode('erase')}
-            title="Ластик"
+            title="Gomma"
           >
-            🧹 Ластик
+            🧹 Gomma
           </button>
           <button
             className={mode === 'city' ? 'active' : ''}
             onClick={() => setMode('city')}
-            title="Разместить объект"
+            title="Posiziona oggetto"
           >
-            🏙️ Объект
+            🏙️ Oggetto
           </button>
         </div>
 
@@ -316,10 +316,10 @@ export const MapEditor: React.FC<MapEditorProps> = ({
 
         <div className="toolbar-group">
           <button onClick={completeRegion} disabled={currentPoints.length < 3}>
-            ✓ Завершить
+            ✓ Completa
           </button>
           <button onClick={undo} disabled={regions.length === 0 && currentPoints.length === 0}>
-            ↩ Отменить
+            ↩ Annulla
           </button>
         </div>
 
@@ -330,7 +330,7 @@ export const MapEditor: React.FC<MapEditorProps> = ({
               checked={showGrid}
               onChange={(e) => setShowGrid(e.target.checked)}
             />
-            Сетка
+            Griglia
           </label>
         </div>
 
@@ -351,15 +351,15 @@ export const MapEditor: React.FC<MapEditorProps> = ({
             type="text"
             value={mapName}
             onChange={(e) => setMapName(e.target.value)}
-            placeholder="Название карты"
+            placeholder="Nome mappa"
             className="map-name-input"
           />
           <button onClick={handleSave} disabled={regions.length === 0}>
-            💾 Сохранить
+            💾 Salva
           </button>
           {onCancel && (
             <button onClick={onCancel} className="cancel-btn">
-              ✕ Отмена
+              ✕ Annulla
             </button>
           )}
         </div>
@@ -374,9 +374,9 @@ export const MapEditor: React.FC<MapEditorProps> = ({
         >
           {/* Zoom Controls */}
           <div className="zoom-controls">
-            <button onClick={zoomIn} title="Увеличить">+</button>
-            <button onClick={zoomOut} title="Уменьшить">−</button>
-            <button onClick={resetView} title="Сбросить">⟲</button>
+            <button onClick={zoomIn} title="Ingrandisci">+</button>
+            <button onClick={zoomOut} title="Riduci">−</button>
+            <button onClick={resetView} title="Reimposta">⟲</button>
             <span className="zoom-level">{Math.round(zoom * 100)}%</span>
           </div>
 
@@ -517,12 +517,12 @@ export const MapEditor: React.FC<MapEditorProps> = ({
 
         {/* Side Panel */}
         <div className="editor-panel">
-          <h3>Свойства</h3>
+          <h3>Proprietà</h3>
 
           {selectedRegion ? (
             <div className="region-properties">
               <div className="property">
-                <label>Название:</label>
+                <label>Nome:</label>
                 <input
                   type="text"
                   value={selectedRegion.name}
@@ -531,7 +531,7 @@ export const MapEditor: React.FC<MapEditorProps> = ({
               </div>
 
               <div className="property">
-                <label>Цвет:</label>
+                <label>Colore:</label>
                 <div className="color-picker">
                   <input
                     type="color"
@@ -557,23 +557,23 @@ export const MapEditor: React.FC<MapEditorProps> = ({
               </div>
 
               <div className="property">
-                <label>Точек:</label>
+                <label>Punti:</label>
                 <span>{selectedRegion.points.length}</span>
               </div>
 
               <button onClick={deleteSelectedRegion} className="delete-btn">
-                🗑️ Удалить регион
+                🗑️ Elimina regione
               </button>
             </div>
           ) : selectedObject ? (
             <div className="object-properties">
               <div className="property">
-                <label>Тип:</label>
+                <label>Tipo:</label>
                 <span>{OBJECT_TYPES.find(o => o.type === selectedObject.type)?.label}</span>
               </div>
 
               <div className="property">
-                <label>Название:</label>
+                <label>Nome:</label>
                 <input
                   type="text"
                   value={selectedObject.name}
@@ -582,20 +582,20 @@ export const MapEditor: React.FC<MapEditorProps> = ({
               </div>
 
               <div className="property">
-                <label>Позиция:</label>
+                <label>Posizione:</label>
                 <span>X: {Math.round(selectedObject.x)}, Y: {Math.round(selectedObject.y)}</span>
               </div>
 
               <button onClick={deleteSelectedObject} className="delete-btn">
-                🗑️ Удалить объект
+                🗑️ Elimina oggetto
               </button>
             </div>
           ) : (
-            <p className="no-selection">Выберите регион или объект</p>
+            <p className="no-selection">Seleziona una regione o un oggetto</p>
           )}
 
           <div className="regions-list">
-            <h4>Регионы ({regions.length})</h4>
+            <h4>Regioni ({regions.length})</h4>
             {regions.map(r => (
               <div
                 key={r.id}
@@ -613,7 +613,7 @@ export const MapEditor: React.FC<MapEditorProps> = ({
           </div>
 
           <div className="objects-list">
-            <h4>Объекты ({objects.length})</h4>
+            <h4>Oggetti ({objects.length})</h4>
             {objects.map(o => (
               <div
                 key={o.id}

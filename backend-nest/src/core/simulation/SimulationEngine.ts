@@ -195,9 +195,9 @@ export class SimulationEngine {
 
       delta.events.push({
         type: 'battle',
-        headline: `${source.name} захватил(а) ${target.name}`,
+        headline: `${source.name} ha conquistato ${target.name}`,
         involvedRegions: [source.id, target.id],
-        outcome: `Победа: потери ${sourceLosses}VS${targetLosses}`,
+        outcome: `Vittoria: perdite ${sourceLosses}VS${targetLosses}`,
       });
 
       delta.narrativeFacts.push(
@@ -206,9 +206,9 @@ export class SimulationEngine {
     } else {
       delta.events.push({
         type: 'battle',
-        headline: `Атака на ${target.name} отражена`,
+        headline: `Attacco a ${target.name} respinto`,
         involvedRegions: [source.id, target.id],
-        outcome: `Неудача: потери ${sourceLosses}VS${targetLosses}`,
+        outcome: `Fallimento: perdite ${sourceLosses}VS${targetLosses}`,
       });
 
       delta.narrativeFacts.push(
@@ -252,9 +252,9 @@ export class SimulationEngine {
 
     delta.events.push({
       type: 'economy',
-      headline: `Развитие в ${region.name}`,
+      headline: `Sviluppo di ${region.name}`,
       involvedRegions: [region.id],
-      outcome: `+${Math.floor(growthBonus * 100)}% ВВП`,
+      outcome: `+${Math.floor(growthBonus * 100)}% PIL`,
     });
 
     delta.narrativeFacts.push(
@@ -283,9 +283,9 @@ export class SimulationEngine {
 
     delta.events.push({
       type: 'economy',
-      headline: `Торговля в ${source.name}`,
+      headline: `Commercio di ${source.name}`,
       involvedRegions: [source.id],
-      outcome: `+${tradeIncome} ВВП`,
+      outcome: `+${tradeIncome} PIL`,
     });
 
     delta.narrativeFacts.push(
@@ -330,9 +330,9 @@ export class SimulationEngine {
 
     delta.events.push({
       type: 'economy',
-      headline: `Строительство в ${region.name}`,
+      headline: `Costruzioni in ${region.name}`,
       involvedRegions: [region.id],
-      outcome: `+${Math.floor(buildCost * months * 0.5)} мощи`,
+      outcome: `+${Math.floor(buildCost * months * 0.5)} potenza`,
     });
 
     delta.narrativeFacts.push(
@@ -537,9 +537,9 @@ export class SimulationEngine {
         });
         delta.events.push({
           type: 'battle',
-          headline: `${source.name} захватил(а) ${target.name}`,
+          headline: `${source.name} ha conquistato ${target.name}`,
           involvedRegions: [source.id, target.id],
-          outcome: `Победа: потери ${sourceLosses}VS${targetLosses}`,
+          outcome: `Vittoria: perdite ${sourceLosses}VS${targetLosses}`,
         });
         delta.narrativeFacts.push(
           `BATTLE:${npcId} captured ${target.name} from ${target.owner}.`
@@ -547,9 +547,9 @@ export class SimulationEngine {
       } else {
         delta.events.push({
           type: 'battle',
-          headline: `Атака на ${target.name} отражена`,
+          headline: `Attacco a ${target.name} respinto`,
           involvedRegions: [source.id, target.id],
-          outcome: `Неудача: потери ${sourceLosses}VS${targetLosses}`,
+          outcome: `Fallimento: perdite ${sourceLosses}VS${targetLosses}`,
         });
         delta.narrativeFacts.push(
           `BATTLE:${npcId} attacked ${target.name}, repelled.`

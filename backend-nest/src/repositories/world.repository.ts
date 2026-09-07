@@ -4,6 +4,11 @@
  */
 
 import db from '../database';
+import { enrichGeographicObjects, getCapitalsRegistry } from '../utils/cities';
+import { largestRingCentroid } from '../utils/geo';
+
+// Migrazione lazy: ogni mondo viene arricchito una volta per processo e salvato.
+const geoObjectsHydratedWorlds = new Set<string>();
 
 export interface WorldRecord {
   id: string;
@@ -33,6 +38,8 @@ export interface RegionRecord {
   borders: string[];
   objects: any[];
   status: string;
+  metadata?: Record<string, any>;
+  flag?: string;
 }
 
 export const worldRepository = {
@@ -46,7 +53,7 @@ export const worldRepository = {
       world.name,
       world.description || '',
       world.startDate || '1951-01-01',
-      world.basePrompt || 'Альтернативная история',
+      world.basePrompt || 'Storia alternativa',
       world.historicalAccuracy ?? 0.8,
       // Этап 5: правила симуляции пресета (NULL для обычных миров)
       world.simulationRules ?? null,
@@ -71,6 +78,68 @@ export const worldRepository = {
   getRegions: (worldId: string): RegionRecord[] => {
     const stmt = db.prepare('SELECT * FROM world_regions WHERE world_id = ?');
     const rows = stmt.all(worldId) as any[];
+
+    // Vecchi salvataggi: aggiunge capitale e tutte le città principali con
+    // coordinate reali. Usiamo flag (paese geografico originario), non owner:
+    // una provincia conquistata resta geograficamente nello stesso paese.
+    if (!geoObjectsHydratedWorlds.has(worldId)) {
+      const updateObjects = db.prepare('UPDATE world_regions SET objects = ? WHERE id = ?');
+      const hydrate = db.transaction(() => {
+        for (const row of rows) {
+          if (!row.geojson) continue;
+          try {
+            const feature = JSON.parse(row.geojson);
+            const geometry = feature?.geometry ?? feature;
+            const countryCode = String(row.flag || row.owner || '').toUpperCase();
+            const oldObjects = JSON.parse(row.objects || '[]');
+            const metadata = JSON.parse(row.metadata || '{}');
+            const objects = enrichGeographicObjects(oldObjects, geometry, countryCode, Boolean(metadata.pax_region_id));
+            const serialized = JSON.stringify(objects);
+            if (serialized !== JSON.stringify(oldObjects)) {
+              row.objects = serialized;
+              updateObjects.run(serialized, row.id);
+            }
+          } catch { /* geometria/oggetti corrotti: conserva lo stato esistente */ }
+        }
+
+        // Garanzia finale: ogni nazione ISO ha almeno la sua capitale. Alcune
+        // mappe storiche hanno bordi approssimati e il punto reale può cadere
+        // appena fuori da tutti i poligoni; in quel caso associamo il marker
+        // alla provincia col centroide più vicino, mantenendo lat/lng reali.
+        const byCountry = new Map<string, any[]>();
+        for (const row of rows) {
+          const code = String(row.flag || row.owner || '').toUpperCase();
+          if (/^[A-Z]{3}$/.test(code)) (byCountry.get(code) || (byCountry.set(code, []), byCountry.get(code)!)).push(row);
+        }
+        for (const [code, countryRows] of byCountry) {
+          const hasGeoObject = countryRows.some(row => {
+            try { return JSON.parse(row.objects || '[]').some((o: any) => o.type === 'city' || o.type === 'capital'); }
+            catch { return false; }
+          });
+          const cap = getCapitalsRegistry()[code];
+          if (hasGeoObject || !cap) continue;
+          let nearest: any = null;
+          let bestDistance = Infinity;
+          for (const row of countryRows) {
+            try {
+              const feature = JSON.parse(row.geojson);
+              const center = largestRingCentroid(feature?.geometry ?? feature);
+              if (!center) continue;
+              const distance = Math.hypot(center.lat - cap.lat, center.lng - cap.lng);
+              if (distance < bestDistance) { bestDistance = distance; nearest = row; }
+            } catch { /* passa alla regione successiva */ }
+          }
+          if (!nearest) continue;
+          const objects = JSON.parse(nearest.objects || '[]');
+          objects.push({ id: `cap-${code}-${worldId}`, type: 'capital', name: cap.capital, lat: cap.lat, lng: cap.lng });
+          nearest.objects = JSON.stringify(objects);
+          updateObjects.run(nearest.objects, nearest.id);
+        }
+      });
+      hydrate();
+      geoObjectsHydratedWorlds.add(worldId);
+    }
+
     return rows.map(row => ({
       id: row.id,
       name: row.name,
@@ -84,6 +153,7 @@ export const worldRepository = {
       borders: JSON.parse(row.borders),
       objects: JSON.parse(row.objects || '[]'),
       status: row.status,
+      metadata: JSON.parse(row.metadata || '{}'),
       flag: row.flag,
     }));
   },

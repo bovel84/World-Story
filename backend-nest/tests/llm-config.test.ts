@@ -41,7 +41,7 @@ describe('loadLLMConfig: env-fallback (обратная совместимост
       expect(cfg[m].baseUrl).toBe('https://api.minimax.io/v1');
       expect(cfg[m].model).toBe('MiniMax-M2.5');
       expect(cfg[m].timeoutMs).toBe(120_000);
-      expect(cfg[m].retries).toBe(2);
+      expect(cfg[m].retries).toBe(4);
     }
     // Кэш по умолчанию — только не-симуляционные механики
     expect(cfg.converter.cache).toBe(true);

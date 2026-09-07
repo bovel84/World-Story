@@ -177,7 +177,8 @@ describe('world.prompts имеет приоритет над дефолтным�
 
     const prompt = lastPrompt('jump');
     expect(prompt).toContain('КАСТОМ_СИМУЛЯЦИЯ: ФРГ с 1951-01-01 по 1951-01-31');
-    expect(prompt).not.toContain('Ты симулируешь пошаговую стратегическую игру');
+    expect(prompt).toContain('[VINCOLO CAUSALE OBBLIGATORIO]');
+    expect(prompt).not.toContain('Simuli un gioco strategico a turni');
   });
 
   it('simulation: ключ "jump" тоже переопределяет (алиас)', async () => {
@@ -225,9 +226,9 @@ describe('world.prompts имеет приоритет над дефолтным�
 
     const prompt = lastPrompt('advisor');
     expect(prompt).toContain('КАСТОМ_СОВЕТНИК ФРГ');
-    expect(prompt).toContain('[Сообщение от игрока]');
+    expect(prompt).toContain('[Messaggio del giocatore]');
     expect(prompt).toContain('Что делать с Польшей?');
-    expect(prompt).toContain('[История чата]');
+    expect(prompt).toContain('[Cronaca della conversazione]');
   });
 
   it('prompts на верхнем уровне GameData тоже работают', async () => {
@@ -287,7 +288,7 @@ describe('ленивый DB-fallback: prompts мира по id игры', () => 
     const engine = new promptBuilderModule.PromptEngine(stubLlm);
     await engine.runSimulation(makeGame({ id: `${GAME_ID}_plain` }), [], 30);
 
-    expect(lastPrompt('jump')).toContain('Ты симулируешь пошаговую стратегическую игру');
+    expect(lastPrompt('jump')).toContain('Simuli un gioco strategico a turni');
   });
 });
 
@@ -295,13 +296,13 @@ describe('дефолтные промпты без секции prompts', () => 
   it('runSimulation: дефолтный промпт прыжка', async () => {
     const engine = new promptBuilderModule.PromptEngine(stubLlm);
     await engine.runSimulation(makeGame(), [], 30);
-    expect(lastPrompt('jump')).toContain('Ты симулируешь пошаговую стратегическую игру');
+    expect(lastPrompt('jump')).toContain('Simuli un gioco strategico a turni');
   });
 
   it('getSuggestions: дефолтный промпт', async () => {
     const engine = new promptBuilderModule.PromptEngine(stubLlm);
     await engine.getSuggestions(makeGame());
-    expect(lastPrompt('suggestions')).toContain('Тем для беспокойства');
+    expect(lastPrompt('suggestions')).toContain('Temi di preoccupazione');
   });
 });
 
@@ -332,29 +333,39 @@ describe('обогащение дефолтных промптов матери�
 
   it('simulation: правила forward.txt (нет действий за игрока, Regime Change, запреты, лимит событий, фронт)', () => {
     const prompt = simulationModule.buildSimulationPrompt(vars);
-    expect(prompt).toContain('НИКОГДА не выполняй действия ЗА игрока');
+    expect(prompt).toContain('NON eseguire MAI azioni PER conto del giocatore');
     expect(prompt).toContain('Regime Change');
     expect(prompt).toContain('(fictional)');
     expect(prompt).toContain('Player Polity');
     expect(prompt).toContain('25-30');
-    expect(prompt).toContain('линии фронта');
-    expect(prompt).toContain('правительство в изгнании');
+    expect(prompt).toContain('fronte / territorio');
+    expect(prompt).toContain('governo in esilio');
   });
 
   it('converter: правила desript_to_act.txt (тон конкретного действия, +50%, 650, не удалять намерение)', () => {
     const prompt = converterModule.buildConverterPrompt(vars);
-    expect(prompt).toContain('тон ИМЕННО ЭТОГО действия');
-    expect(prompt).toContain('650 символов');
-    expect(prompt).toContain('НИЧЕГО не удаляй из намерения игрока');
+    expect(prompt).toContain("tono dell'output ripete il tono di QUESTA azione");
+    expect(prompt).toContain('650 caratteri');
+    expect(prompt).toContain("NON togliere nulla dall'intenzione del giocatore");
   });
 
   it('suggestions: правила actions.txt (6-9 тем, ≤25 слов, 2-5 действий, ≤30 слов, привязка к карте)', () => {
     const prompt = suggestionsModule.buildSuggestionsPrompt(vars);
     expect(prompt).toContain('6-9');
-    expect(prompt).toContain('25 слов');
-    expect(prompt).toContain('2-5');
-    expect(prompt).toContain('30 слов');
-    expect(prompt).toContain('иммерсивное название стратегии');
+    expect(prompt).toContain('25 parole');
+    expect(prompt).toContain('2 a 5');
+    expect(prompt).toContain('30 parole');
+    expect(prompt).toContain('titolo immersivo della strategia');
+    expect(prompt).toContain('Territori e risorse');
+    expect(prompt).toContain('Azioni già intraprese');
+  });
+
+  it('suggestions: ogni preset riceve lo standard Pax di ordini immediatamente giocabili', () => {
+    const quality = suggestionsModule.buildSuggestionsQualityInstruction(vars);
+    expect(quality).toContain('AZIONI IN STILE PAX HISTORIA');
+    expect(quality).toContain('prima persona plurale');
+    expect(quality).toContain('Non inventare');
+    expect(quality).toContain('18-30 parole');
   });
 });
 
@@ -372,7 +383,7 @@ describe('пресет modern_world несёт секцию prompts', () => {
     // Все плейсхолдеры шаблона — известные переменные, ничего не осталось
     expect(rendered).not.toMatch(/\$\{[A-Z_]+\}/);
     expect(rendered).toContain('ФРГ'); // подставленный PLAYER_POLITY
-    expect(rendered).toContain('информационная война'); // специфика современности
+    expect(rendered).toContain("guerra dell'informazione"); // специфика современности
     expect(rendered).toContain('"events"'); // JSON-контракт сохранён
   });
 });

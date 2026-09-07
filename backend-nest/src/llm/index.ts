@@ -1,5 +1,6 @@
 import { LLMRouter } from './router';
 import { loadLLMConfig, type LLMFullConfig } from './config';
+import path from 'node:path';
 
 export * from './types';
 export { LLMRouter } from './router';
@@ -17,4 +18,9 @@ export function initLLMRouter(configPath?: string, config?: LLMFullConfig): LLMR
 export function getLLMRouter(): LLMRouter {
   if (!router) router = new LLMRouter(loadLLMConfig());
   return router;
+}
+
+/** Percorso del file di configurazione (stessa logica di loadLLMConfig). */
+export function llmConfigFilePath(): string {
+  return process.env.LLM_CONFIG_PATH || path.join(process.cwd(), 'llm.config.json');
 }

@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-// ОТКЛЮЧЕНО: переговоры (временно) — chatsApi/useChatStore/useUIStore нужны были только для открытия чата
+// DISATTIVATO: trattative (temporaneo) — chatsApi/useChatStore/useUIStore servivano solo per aprire la chat
 import { gameApi } from '../../services/api';
 // import { chatsApi } from '../../services/api';
 // import { useChatStore, useUIStore } from '../../stores';
@@ -15,12 +15,12 @@ interface DiplomacyPanelProps {
   gameId: string;
   selectedRegionId: string;
   regions: Region[];
-  /** Меняется после каждого хода (currentTurn) — триггерит перезагрузку матрицы */
+/** Cambia dopo ogni turno (currentTurn) — innesca il ricaricamento della matrice */
   refreshKey?: number | string;
 }
 
 interface RelationshipData {
-  // Ключи — polityId (коды стран для шаблонов, 'player'/'ai-N' для кастомных карт)
+  // Chiavi = polityId (codici paese per i template, 'player'/'ai-N' per mappe personalizzate)
   [polityId: string]: { [polityId: string]: string };
 }
 
@@ -81,15 +81,15 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
     }
   }, [gameId]);
 
-  // Перезагрузка при смене игры и после каждого хода (refreshKey = currentTurn).
-  // Bug fix: раньше панель слушала window-событие 'turn_complete', которое
-  // никто никогда не диспатчил, поэтому матрица не обновлялась после ходов.
+  // Ricaricamento al cambio partita e dopo ogni turno (refreshKey = currentTurn).
+  // Bug fix: in precedenza il pannello ascoltava l'evento window 'turn_complete', che
+  // nessuno ha mai inviato, quindi la matrice non si aggiornava dopo i turni.
   useEffect(() => {
     fetchRelationships();
   }, [fetchRelationships, refreshKey]);
 
-  // ОТКЛЮЧЕНО: переговоры (временно) — открытие дипломатического чата с политией
-  // // Этап 3: открыть переговоры с политией — создать чат и переключить панель на вкладку «Дипломатия»
+  // DISATTIVATO: trattative (temporaneo) — apertura della chat diplomatica con una politia
+  // // Fase 3: aprire le trattative con una politia — creare la chat e spostare il pannello sulla scheda «Diplomazia»
   // const handleOpenChat = async (polityName: string) => {
   //   try {
   //     const { chat } = await chatsApi.create(gameId, polityName);
@@ -98,16 +98,16 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   //     chatStore.setActiveChat(chat.id);
   //     chatStore.setPanelTab('chats');
   //     useUIStore.getState().setShowActions(true);
-  //     // Загружаем сообщения (бэкенд помечает чат прочитанным)
+  //     // Carica i messaggi (il backend segna la chat come letta)
   //     const data = await chatsApi.messages(gameId, chat.id);
   //     chatStore.setMessages(chat.id, data.messages || []);
   //     chatStore.markRead(chat.id);
   //   } catch (e) {
-  //     console.error('[DiplomacyPanel] Не удалось открыть переговоры:', e);
+  //     console.error('[DiplomacyPanel] Impossibile aprire le negoziazioni:', e);
   //   }
   // };
 
-  // regionOwner — это polityId владельца выбранного региона
+  // regionOwner è il polityId del proprietario della regione selezionata
   const regionOwner = regions.find(r => r.id === selectedRegionId)?.owner;
   if (!regionOwner || regionOwner === 'neutral') {
     return null;
@@ -116,7 +116,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   if (!relationships) {
     return (
       <div className="diplomacy-panel" style={{ opacity: 0.6 }}>
-        <div style={{ padding: 8, fontSize: 12, color: '#888' }}>Загрузка дипломатии...</div>
+        <div style={{ padding: 8, fontSize: 12, color: '#888' }}>Caricamento diplomazia...</div>
       </div>
     );
   }
@@ -125,7 +125,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   const entries: RelationshipEntry[] = Object.entries(relMap)
     .filter(([id, rel]) => rel !== 'neutral')
     .map(([id, rel]) => {
-      // id — polityId; имя берём из региона этой политии (owner = polityId)
+      // id = polityId; il nome lo ricaviamo dalla regione di quella politia (owner = polityId)
       const region = regions.find(r => r.owner === id);
       return {
         id,
@@ -145,9 +145,9 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
     return (
       <div className="diplomacy-panel">
         <div className="diplomacy-header">
-          <span>🤝 Дипломатия</span>
+          <span>Relazioni estere</span>
         </div>
-        <div style={{ padding: 8, fontSize: 12, color: '#888' }}>Нет союзников или врагов</div>
+        <div style={{ padding: 8, fontSize: 12, color: '#888' }}>Nessun alleato o nemico</div>
       </div>
     );
   }
@@ -155,7 +155,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   return (
     <div className="diplomacy-panel">
       <div className="diplomacy-header" onClick={() => setCollapsed(c => !c)} style={{ cursor: 'pointer' }}>
-        <span>🤝 Дипломатия</span>
+        <span>Relazioni estere</span>
         <span style={{ fontSize: 11, color: '#888' }}>{collapsed ? '▶' : '▼'}</span>
       </div>
 
@@ -164,20 +164,20 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
           {allies.length > 0 && (
             <div className="diplomacy-section">
               <div className="diplomacy-section-title" style={{ color: REL_COLOR.ally }}>
-                Союзники ({allies.length})
+                Alleati ({allies.length})
               </div>
               {allies.map(e => (
                 <div key={e.id} className="diplomacy-entry">
-                  <span style={{ color: REL_COLOR.ally }}>●</span>
-                  <span>{FLAG_EMOJI[e.id] || '🏳️'}</span>
+                  <span className="diplomacy-status-dot" style={{ backgroundColor: REL_COLOR.ally }} />
+                  <span className="diplomacy-code">{e.id}</span>
                   <span>{e.name}</span>
-                  {/* ОТКЛЮЧЕНО: переговоры (временно)
+                  {/* DISATTIVATO: trattative (temporaneo)
                   <button
                     className="btn-negotiate"
                     onClick={() => handleOpenChat(e.name)}
-                    title={`Переговоры с ${e.name}`}
+                    title={`Trattative con ${e.name}`}
                   >
-                    💬 Переговоры
+                    💬 Trattative
                   </button>
                   */}
                 </div>
@@ -188,20 +188,20 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
           {hostiles.length > 0 && (
             <div className="diplomacy-section">
               <div className="diplomacy-section-title" style={{ color: REL_COLOR.hostile }}>
-                Враги ({hostiles.length})
+                Nemici ({hostiles.length})
               </div>
               {hostiles.map(e => (
                 <div key={e.id} className="diplomacy-entry">
-                  <span style={{ color: REL_COLOR.hostile }}>●</span>
-                  <span>{FLAG_EMOJI[e.id] || '🏳️'}</span>
+                  <span className="diplomacy-status-dot" style={{ backgroundColor: REL_COLOR.hostile }} />
+                  <span className="diplomacy-code">{e.id}</span>
                   <span>{e.name}</span>
-                  {/* ОТКЛЮЧЕНО: переговоры (временно)
+                  {/* DISATTIVATO: trattative (temporaneo)
                   <button
                     className="btn-negotiate"
                     onClick={() => handleOpenChat(e.name)}
-                    title={`Переговоры с ${e.name}`}
+                    title={`Trattative con ${e.name}`}
                   >
-                    💬 Переговоры
+                    💬 Trattative
                   </button>
                   */}
                 </div>

@@ -3,45 +3,45 @@
  * ==============================
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MapboxMapView } from './components/Map/MapboxMapView';
 import { MapView } from './components/Map/MapView';
-// ОТКЛЮЧЕНО: редактор карт (временно)
+// DISATTIVATO: editor mappe (temporaneo)
 // import { MapEditor, type EditorRegion, type EditorObject } from './components/Editor';
 // import { CreateWorld, type WorldConfig } from './components/WorldBuilder/CreateWorld';
 import { TemplateSelector } from './components/Game/TemplateSelector';
 import { CountrySelector } from './components/Game/CountrySelector';
 import { DiplomacyPanel } from './components/Game/DiplomacyPanel';
-// ОТКЛЮЧЕНО: переговоры/дипломатические чаты (временно)
-// import { ChatsPanel } from './components/Game/ChatsPanel';
+import { ChatsPanel } from './components/Game/ChatsPanel';
 import { AdvisorChat } from './components/Game/AdvisorChat';
 import { Landing } from './components/Game/Landing';
 import { SaveGameModal } from './components/Game/SaveGameModal';
+import { LLMSettingsModal } from './components/Game/LLMSettingsModal';
 import { HudBar } from './components/Game/HudBar';
 import { GameLoader, WORLD_GEN_PHASES } from './components/Game/GameLoader';
 import { Fab } from './components/Game/Fab';
-// ОТКЛЮЧЕНО: редактор карт (временно) — mapApi использовался только редактором/«Мои карты»
-import { gameApi, worldApi, savesApi } from './services/api';
+// DISATTIVATO: editor mappe (temporaneo) — mapApi era usato solo dall’editor/«Le mie mappe»
+import { chatsApi, gameApi, worldApi, savesApi, llmApi, type TimelineEntry } from './services/api';
 import type { Region, World, Game } from './types';
-// ОТКЛЮЧЕНО: переговоры — selectTotalUnread не нужен; редактор карт — тип LocalMap не нужен
-import { useGameStore, useUIStore, useActionsStore, useChatStore } from './stores';
+import { useGameStore, useUIStore, useActionsStore, useChatStore, selectTotalUnread } from './stores';
 import { useSSE } from './services/sse';
+import { EventFeed, type FeedItem } from './components/Game/EventFeed';
 
-// ОТКЛЮЧЕНО: редактор карт (временно) — хелпер точек в SVG path использовался только
-// при сохранении карт из редактора (handleSaveMapLocal/handleSaveMap)
-// // Вспомогательная функция: точки в SVG path
+// DISATTIVATO: editor mappe (temporaneo) — helper punti nel path SVG usato solo
+// al salvataggio mappe dall’editor (handleSaveMapLocal/handleSaveMap)
+// // Funzione di supporto: punti nel path SVG
 // const pointsToPath = (points: { x: number; y: number }[]): string => {
 //   if (points.length === 0) return '';
 //   return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
 // };
 
-// Вспомогательная функция: форматирование диапазона дат
+// Funzione di supporto: formattazione intervallo di date
 const formatDateRange = (start: string, end: string): string => {
   try {
     const startDate = new Date(start);
     const endDate = new Date(end);
 
-    const months = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+    const months = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 
     const startStr = `${startDate.getDate()} ${months[startDate.getMonth()]} ${startDate.getFullYear()}`;
     const endStr = `${endDate.getDate()} ${months[endDate.getMonth()]} ${endDate.getFullYear()}`;
@@ -67,12 +67,12 @@ function App() {
     currentView, loading, showJumpMenu, jumpDays, showSavesMenu,
     showPromptEditor, editingPrompt,
     showActions, actionsMaximized, actionsSize, isResizing,
-    // ОТКЛЮЧЕНО: редактор карт (временно) — selectedMapForWorld, savedMaps,
+    // DISATTIVATO: editor mappe (temporaneo) — selectedMapForWorld, savedMaps,
     selectedTemplate,
     setCurrentView, setLoading, setShowJumpMenu, setJumpDays, setShowSavesMenu,
     setShowPromptEditor, setEditingPrompt,
     setShowActions, setActionsMaximized, setActionsSize, setIsResizing,
-    // ОТКЛЮЧЕНО: редактор карт (временно) — setSelectedMapForWorld, setSavedMaps, addSavedMap,
+    // DISATTIVATO: editor mappe (temporaneo) — setSelectedMapForWorld, setSavedMaps, addSavedMap,
     setSelectedTemplate,
     resetUI
   } = useUIStore();
@@ -83,28 +83,201 @@ function App() {
     reset: resetActions
   } = useActionsStore();
 
-  // Этап 3: живой Советник (вкладки плавающей панели).
-  // ОТКЛЮЧЕНО: переговоры — дипломатические чаты и unread-бейдж (totalUnread) больше не используются
+  // Brainstorm di azioni: stato e messaggio sono visibili anche al primo caricamento.
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsError, setSuggestionsError] = useState('');
+
+  // Modifica di un ordine in coda prima della presa in carico (G04 / §6.1).
+  const [editingActionId, setEditingActionId] = useState<string | null>(null);
+  const [editingActionText, setEditingActionText] = useState('');
+
+  // G24 — anteprima «Migliora formulazione»: proposta riformulata da confermare.
+  const [enhanceLoading, setEnhanceLoading] = useState(false);
+  const [enhancedPreview, setEnhancedPreview] = useState<string | null>(null);
+
+  // Fase 3: Consulente live (tab del pannello flottante) + chat diplomatiche riattivate.
   const panelTab = useChatStore(s => s.panelTab);
   const setPanelTab = useChatStore(s => s.setPanelTab);
-  // const totalUnread = useChatStore(selectTotalUnread); // ОТКЛЮЧЕНО: переговоры
+  const totalUnread = useChatStore(selectTotalUnread);
 
-  // Привязка chatStore к текущей игре (при смене игры лента советника сбрасывается)
+  // Timeline del mondo: eventi del turno correnti + fetch quando il pannello si apre
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineError, setTimelineError] = useState('');
+  const [ongoingProcesses, setOngoingProcesses] = useState<Array<{
+    id: string; title: string; summary: string; started_date: string; expected_date?: string | null;
+  }>>([]);
+  const timelineRequestRef = useRef(0);
+  const [timelineHasMore, setTimelineHasMore] = useState(false);
+  const [timelineNextAfter, setTimelineNextAfter] = useState(0);
+  const [timelineLoadingOlder, setTimelineLoadingOlder] = useState(false);
+  const handleTimelineOpen = async () => {
+    const requestedGameId = currentGame?.id;
+    if (!requestedGameId) return;
+    const requestId = ++timelineRequestRef.current;
+    setTimelineLoading(true);
+    setTimelineError('');
+    try {
+      const [data, processData] = await Promise.all([
+        gameApi.timeline(requestedGameId, { after: 0, limit: 200 }),
+        gameApi.ongoingProcesses(requestedGameId),
+      ]);
+      if (requestId === timelineRequestRef.current && useChatStore.getState().gameId === requestedGameId) {
+        setTimeline(data.timeline || []);
+        setTimelineHasMore(Boolean(data.hasMore));
+        setTimelineNextAfter(data.nextAfter ?? 0);
+        setOngoingProcesses(processData.processes || []);
+      }
+    } catch (e) {
+      console.error('[App] Impossibile caricare la timeline:', e);
+      if (requestId === timelineRequestRef.current) {
+        setTimelineError(e instanceof Error ? e.message : 'Impossibile caricare la timeline.');
+      }
+    } finally {
+      if (requestId === timelineRequestRef.current) setTimelineLoading(false);
+    }
+  };
+
+  // §11.3 — recupero progressivo della cronaca persistita (paginazione).
+  const loadOlderTimeline = async () => {
+    const requestedGameId = currentGame?.id;
+    if (!requestedGameId || timelineLoadingOlder || !timelineHasMore) return;
+    const requestId = timelineRequestRef.current;
+    setTimelineLoadingOlder(true);
+    try {
+      const data = await gameApi.timeline(requestedGameId, { after: timelineNextAfter, limit: 200 });
+      if (requestId === timelineRequestRef.current && useChatStore.getState().gameId === requestedGameId) {
+        setTimeline(prev => {
+          const seen = new Set(prev.map(e => e.turn));
+          return [...prev, ...(data.timeline || []).filter(e => !seen.has(e.turn))];
+        });
+        setTimelineHasMore(Boolean(data.hasMore));
+        setTimelineNextAfter(data.nextAfter ?? timelineNextAfter);
+      }
+    } catch (e) {
+      console.error('[App] Impossibile caricare la cronaca precedente:', e);
+    } finally {
+      if (requestId === timelineRequestRef.current) setTimelineLoadingOlder(false);
+    }
+  };
+
+  // Collegamento di chatStore alla partita corrente (cambiando partita il feed del consulente si azzera)
   const currentGameId = currentGame?.id || null;
+  const [nationalAccounts, setNationalAccounts] = useState<Record<string, any>>({});
   useEffect(() => {
     const chatStore = useChatStore.getState();
     chatStore.setGameId(currentGameId);
-    // ОТКЛЮЧЕНО: переговоры — список дипломатических чатов с сервера больше не грузим
-    // if (currentGameId) {
-    //   chatStore.refreshChats();
-    // }
+    timelineRequestRef.current++;
+    setTimeline([]);
+    setTimelineError('');
+    setTimelineLoading(false);
+    setFeedItems([]); // la cronaca riparte dalla timeline della nuova partita
+    if (currentGameId) chatStore.refreshChats();
   }, [currentGameId]);
+
+  // Chiave API solo-browser: a ogni apertura di partita (o avvio app) la
+  // reinviamo al server in memoria — il server non la conserva su disco.
+  useEffect(() => {
+    const storedKey = localStorage.getItem('openpax_llm_apikey');
+    if (!storedKey) return;
+    llmApi.save({
+      default: { apiKey: storedKey },
+      persistApiKey: false,
+    }).catch(() => {}); // silenzioso: la UI segnalerà comunque un eventuale errore LLM
+  }, [currentGameId]);
+
+  // ── Cronaca live (feed eventi sempre in vista) ─────────────────────────
+  // Accumula gli eventi di TUTTI i turni (azione del giocatore + simulazione
+  // live del mondo). I «live» sono gli eventi jump che arrivano in streaming
+  // durante l'elaborazione; i «world» arrivano dal battito del mondo.
+  const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
+  const feedSeqRef = useRef(0);
+  const streamedEventCountRef = useRef(0);
+  const activeSimulationIdRef = useRef<string | undefined>();
+  const [feedOpen, setFeedOpen] = useState(() => {
+    // Mobile: sempre ripiegata all'avvio (il tab "Dispacci N" basta)
+    if (window.innerWidth <= 720) return false;
+    if (localStorage.getItem('openpax_feed_open') !== null) {
+      return localStorage.getItem('openpax_feed_open') !== '0';
+    }
+    return true;
+  });
+  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 720 && localStorage.getItem('openpax_panel_open') !== '0');
+
+  const pushFeed = useCallback((
+    text: string,
+    kind: FeedItem['kind'],
+    date?: string,
+    detail?: string,
+    eventId?: string,
+  ) => {
+    // Gli eventi provenienti dal server hanno un ID stabile: riusarlo rende
+    // innocui replay SSE, riconnessioni e refetch della cronaca.
+    const item: FeedItem = {
+      id: eventId ? `tl-${eventId}` : `f${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      text,
+      kind,
+      date,
+      detail,
+    };
+    setFeedItems(prev => {
+      if (eventId && prev.some(existing => existing.id === item.id)) return prev;
+      const next = [...prev, item];
+      // Cap: tieni gli ultimi 120 eventi
+      return next.length > 120 ? next.slice(next.length - 120) : next;
+    });
+  }, []);
+
+  // Al cambio partita: prediscarica la cronaca storica dalla timeline
+  useEffect(() => {
+    if (!currentGameId) return;
+    let cancelled = false;
+    const refreshTimeline = () => gameApi.timeline(currentGameId)
+      .then(data => {
+        if (cancelled) return;
+        const items: FeedItem[] = [];
+        for (const entry of data.timeline || []) {
+          for (const ev of entry.events || []) {
+            items.push({ id: `tl-${ev.id}`, date: ev.date, text: ev.headline, detail: ev.detail || entry.narration, kind: 'timeline' });
+          }
+        }
+        setTimeline(data.timeline || []);
+        setFeedItems(prev => {
+          // SSE è istantaneo quando il proxy lo consente; questo merge è il
+          // recupero affidabile quando lo stream viene chiuso da Cloudflare.
+          const byId = new Map(prev.map(item => [item.id, item]));
+          for (const item of items) byId.set(item.id, item);
+          return [...byId.values()].slice(-120);
+        });
+      })
+      .catch(e => console.warn('[App] Feed: impossibile aggiornare la timeline:', e));
+    void refreshTimeline();
+    const timer = window.setInterval(() => void refreshTimeline(), 15_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [currentGameId]);
+
+
+  // Il bollettino usa dati aggregati dal motore, non formule del browser.
+  useEffect(() => {
+    if (!currentGameId) { setNationalAccounts({}); return; }
+    let cancelled = false;
+    gameApi.nationalState(currentGameId)
+      .then(data => { if (!cancelled) setNationalAccounts(data.accounts || {}); })
+      .catch(error => console.warn('[App] Impossibile caricare il dossier nazionale:', error));
+    return () => { cancelled = true; };
+  }, [currentGameId, currentGame?.currentTurn]);
+
+  useEffect(() => {
+    useChatStore.getState().setChatPanelVisible(
+      Boolean(showActions && panelTab === 'chats' && currentGameId)
+    );
+  }, [showActions, panelTab, currentGameId]);
 
   // Refs (not in store - DOM refs)
   const actionsRef = useRef<HTMLDivElement>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
 
-  // Прокрутка истории вниз
+  // Scorri la cronologia in basso
   useEffect(() => {
     historyEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history]);
@@ -134,7 +307,7 @@ function App() {
     };
   }, [isResizing, setActionsSize, setIsResizing]);
 
-  // ОТКЛЮЧЕНО: редактор карт (временно) — загрузка сохраненных карт для «Мои карты»/редактора
+  // DISATTIVATO: editor mappe (temporaneo) — caricamento mappe salvate per «Le mie mappe»/editor
   // useEffect(() => {
   //   const loadMaps = async () => {
   //     const maps: LocalMap[] = [];
@@ -176,10 +349,10 @@ function App() {
   //   loadMaps();
   // }, [setSavedMaps]);
 
-  // ОТКЛЮЧЕНО: редактор карт (временно) — сохранение карт, выбор карты и создание мира
-  // из кастомной карты (handleSaveMapLocal / handleSaveMap / handleSelectMap / handleCreateWorld)
+  // DISATTIVATO: editor mappe (temporaneo) — salvataggio mappe, scelta mappa e creazione mondo
+  // da mappa personalizzata (handleSaveMapLocal / handleSaveMap / handleSelectMap / handleCreateWorld)
   /*
-  // Сохранить карту локально
+  // Salva la mappa localmente
   const handleSaveMapLocal = (regions: EditorRegion[], mapName: string, objects?: EditorObject[]): LocalMap => {
     const mapData: LocalMap = {
       id: `map_${Date.now()}`,
@@ -204,7 +377,7 @@ function App() {
     return mapData;
   };
 
-  // Сохранить карту на сервере
+  // Salva la mappa sul server
   const handleSaveMap = async (regions: EditorRegion[], mapName: string, objects?: EditorObject[]) => {
     setLoading(true);
     const mapRegions = regions.map(r => ({
@@ -232,7 +405,7 @@ function App() {
       };
       const result = await mapApi.create(mapData);
       serverMapId = result.id;
-      alert(`Карта "${mapName}" сохранена на сервере!`);
+      alert(`Mappa "${mapName}" salvata sul server!`);
     } catch (e) {
       console.warn('Failed to save map to server:', e);
     }
@@ -249,18 +422,18 @@ function App() {
     setLoading(false);
   };
 
-  // Выбрать карту для создания мира
+  // Scegli la mappa per creare il mondo
   const handleSelectMap = (map: LocalMap) => {
     setSelectedMapForWorld(map);
     setCurrentView('create-world');
   };
 
-  // Создать мир из конфигурации
+  // Crea il mondo dalla configurazione
   const handleCreateWorld = async (config: WorldConfig) => {
     setLoading(true);
 
     if (!selectedMapForWorld?.id.startsWith('server_')) {
-      alert('Сначала сохраните карту на сервере (кнопка "Сохранить" в редакторе карт)!');
+      alert('Prima salva la mappa sul server (pulsante "Salva" nell’editor di mappe)!');
       setLoading(false);
       return;
     }
@@ -393,9 +566,9 @@ function App() {
       setCurrentWorld({
         id: selectedMapForWorld?.id || 'local',
         name: selectedMapForWorld?.name || 'Local World',
-        description: 'Локальная карта',
+        description: 'Mappa locale',
         startDate: '1951-01-01',
-        basePrompt: 'Альтернативная история',
+        basePrompt: 'Storia alternativa',
         historicalAccuracy: 0.8,
         regions: regionsWithOwner.reduce((acc: any, r) => { acc[r.id] = r; return acc; }, {}),
         blocs: {},
@@ -422,7 +595,7 @@ function App() {
   };
   */
 
-  // Отправить действия (несколько)
+  // Invia le azioni (più di una)
   const handleSubmitActions = async (actions: string[]) => {
     if (!currentGame || actions.length === 0 || !selectedRegion) {
       return;
@@ -437,8 +610,8 @@ function App() {
       addHistory({
         turn,
         action: actionsText,
-        result: `Мир отреагировал на ${actions.length} действий за ${jumpDays} дней...`,
-        date: `${jumpDays} дней`,
+        result: `Il mondo ha reagito a ${actions.length} azioni in ${jumpDays} giorni...`,
+        date: `${jumpDays} giorni`,
       });
       setCurrentGame({ ...currentGame, currentTurn: turn + 1 });
       setLoading(false);
@@ -450,69 +623,17 @@ function App() {
         game_id: currentGame.id,
         player_id: currentGame.players[0].id,
         text: actionsText,
-        jump_days: jumpDays,
-      } as any);
-
-      addHistory({
-        turn,
-        action: actionsText,
-        result: result.narration,
-        events: result.events || [],
-        date: `${jumpDays} дней`,
       });
 
-      if (result.objects && currentWorld && selectedRegion) {
-        const updatedRegions = { ...currentWorld.regions };
-        const region = updatedRegions[selectedRegion];
-        if (region) {
-          updatedRegions[selectedRegion] = {
-            ...region,
-            objects: result.objects,
-          };
-          setCurrentWorld({ ...currentWorld, regions: updatedRegions });
-        }
-      }
-
-      const updatedGame = await gameApi.get(currentGame.id);
-      setCurrentGame(updatedGame);
-
-      const changed: string[] = [];
-      if (updatedGame.world && currentWorld) {
-        const newRegions = { ...currentWorld.regions };
-        const gameRegions = Array.isArray(updatedGame.world.regions)
-          ? updatedGame.world.regions
-          : Object.values(updatedGame.world.regions);
-        gameRegions.forEach((r: any) => {
-          if (newRegions[r.id]) {
-            const oldRegion = newRegions[r.id];
-            if (oldRegion.owner !== r.owner || oldRegion.color !== r.color) {
-              changed.push(r.id);
-            }
-            newRegions[r.id] = {
-              ...newRegions[r.id],
-              owner: r.owner,
-              color: r.color,
-              population: r.population,
-              militaryPower: r.militaryPower,
-              gdp: r.gdp,
-            };
-          }
-        });
-        setCurrentWorld({ ...currentWorld, regions: newRegions });
-
-        if (changed.length > 0) {
-          setChangedRegions(changed);
-          setTimeout(() => clearChangedRegions(), 3000);
-        }
-      }
+      // L'ordine è soltanto registrato. La data, mappa e cronaca restano
+      // intatte fino al comando esplicito dal pannello Timeline.
+      addPendingAction({ id: result.action.id, text: result.action.text });
+      const authoritativeQueue = await gameApi.getPendingActions(currentGame.id);
+      setPendingActions(authoritativeQueue.pendingActions || []);
     } catch (e) {
-      console.error('Failed to submit action:', e);
-      addHistory({
-        turn,
-        action: actionsText,
-        result: 'Мир отреагировал на ваши действия...',
-        date: `${jumpDays} дней`,
-      });
+      // Un fallimento di registrazione non è un evento del mondo e non deve
+      // produrre una falsa voce nella cronaca.
+      console.error('Failed to queue action:', e);
     }
 
     setLoading(false);
@@ -525,7 +646,10 @@ function App() {
     setLoading(true);
 
     try {
-      const result = await gameApi.timeSkip(currentGame.id, days);
+      const idempotencyKey = typeof crypto?.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `jump-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const result = await gameApi.timeSkip(currentGame.id, days, idempotencyKey);
 
       if (result.type === 'actions_processed') {
         for (const action of result.actions || []) {
@@ -535,6 +659,7 @@ function App() {
               action: action.text,
               result: action.result.narration,
               events: action.result.events,
+              eventDetails: action.result.eventDetails,
               periodStart: action.result.periodStart,
               periodEnd: action.result.periodEnd,
             });
@@ -549,12 +674,35 @@ function App() {
             currentDate: (lastAction.result as any).periodEnd,
           } : prev);
         }
+      } else if (result.type === 'world_advanced' && result.result) {
+        addHistory({
+          turn: result.result.turn,
+          action: days <= 0 ? 'Fino al prossimo evento importante' : 'Salto temporale',
+          result: result.result.narration,
+          events: result.result.events,
+          eventDetails: result.result.eventDetails,
+          periodStart: result.result.periodStart,
+          periodEnd: result.result.periodEnd,
+        });
+        setCurrentGame(prev => prev ? {
+          ...prev,
+          currentTurn: result.newTurn!,
+          currentDate: result.newDate!,
+        } : prev);
+      } else if (result.type === 'no_event_found') {
+        // Nessun checkpoint è stato creato: la UI conserva data, mappa,
+        // cronaca e coda e comunica soltanto l'esito della ricerca.
+        setTurnProgress(`Nessun evento importante fino al ${result.searchedUntil || 'limite di ricerca'}.`);
+      } else if (result.type === 'simulation_replayed') {
+        // Un retry HTTP ha già prodotto questo checkpoint: non aggiungere una
+        // seconda storia; il refetch autorevole sotto riallinea UI e mappa.
+        setTurnProgress('Checkpoint già elaborato: sincronizzazione in corso…');
       } else if (result.type === 'date_advanced') {
         const startDate = currentGame.currentDate || '1951-01-01';
         addHistory({
           turn: currentGame.currentTurn,
-          action: `⏭️ Time-skip`,
-          result: `Продвинуто на ${days} дней`,
+          action: `⏭️ Salto temporale`,
+          result: `Avanzato di ${days} giorni`,
           periodStart: startDate,
           periodEnd: result.newDate,
         });
@@ -565,6 +713,37 @@ function App() {
           currentDate: result.newDate,
         } : prev);
       }
+
+      // HTTP, SSE e polling possono arrivare in ordine diverso: la coda
+      // persistita è l'unica sorgente di verità dopo un salto.
+      const authoritativeQueue = await gameApi.getPendingActions(currentGame.id);
+      setPendingActions(authoritativeQueue.pendingActions || []);
+
+      // Il checkpoint server è autorevole anche per la mappa: HTTP e SSE
+      // possono arrivare in ordini diversi o lo stream può essere perso.
+      const authoritativeGame = await gameApi.get(currentGame.id);
+      setCurrentGame(authoritativeGame);
+      if (authoritativeGame.world && currentWorld) {
+        const regions = { ...currentWorld.regions };
+        const serverRegions = Array.isArray(authoritativeGame.world.regions)
+          ? authoritativeGame.world.regions
+          : Object.values(authoritativeGame.world.regions);
+        for (const region of serverRegions as any[]) {
+          if (regions[region.id]) {
+            regions[region.id] = {
+              ...regions[region.id],
+              owner: region.owner,
+              color: region.color,
+              population: region.population,
+              militaryPower: region.militaryPower,
+              gdp: region.gdp,
+              objects: region.objects ?? regions[region.id].objects,
+            };
+          }
+        }
+        setCurrentWorld({ ...currentWorld, regions });
+      }
+      await handleTimelineOpen();
     } catch (e) {
       console.error('Time-skip failed:', e);
     }
@@ -572,10 +751,10 @@ function App() {
     setLoading(false);
   };
 
-  // Этап 2: Rewind — откат на ход назад
+  // Fase 2: Rewind — torna al turno precedente
   const handleRewind = async () => {
     if (!currentGame || loading) return;
-    if (!window.confirm('Откатить последний ход? Мир вернётся к предыдущему состоянию.')) return;
+    if (!window.confirm('Annullare l\'ultima mossa? Il mondo tornerà allo stato precedente.')) return;
 
     setLoading(true);
     try {
@@ -605,68 +784,170 @@ function App() {
 
       addHistory({
         turn: updatedGame.currentTurn,
-        action: '⏪ Откат',
-        result: 'Последний ход отменён, мир возвращён к предыдущему состоянию',
+        action: '⏪ Ripristino',
+        result: 'Ultima mossa annullata, il mondo è tornato allo stato precedente',
       });
     } catch (e) {
       console.error('Rewind failed:', e);
-      alert('Не удалось откатить ход — снапшот появляется после первого сыгранного хода.');
+      alert('Impossibile annullare la mossa — lo snapshot è disponibile dopo la prima mossa giocata.');
     }
 
     setLoading(false);
   };
 
-  // Этап 2: Intervene — прервать применение оставшихся событий пачки
+  // Ripristino esplicito del checkpoint che ha prodotto un evento timeline.
+  const handleRestoreCheckpoint = async (simulationId: string) => {
+    if (!currentGame || loading) return;
+    setLoading(true);
+    try {
+      const restored = await gameApi.restoreSimulationCheckpoint(currentGame.id, simulationId);
+      const updatedGame = await gameApi.get(currentGame.id);
+      setCurrentGame(updatedGame);
+      if (updatedGame.world && currentWorld) {
+        const regions = { ...currentWorld.regions };
+        const serverRegions = Array.isArray(updatedGame.world.regions)
+          ? updatedGame.world.regions
+          : Object.values(updatedGame.world.regions);
+        for (const region of serverRegions as any[]) {
+          if (regions[region.id]) regions[region.id] = {
+            ...regions[region.id],
+            owner: region.owner,
+            color: region.color,
+            population: region.population,
+            militaryPower: region.militaryPower,
+            gdp: region.gdp,
+            objects: region.objects ?? regions[region.id].objects,
+          };
+        }
+        setCurrentWorld({ ...currentWorld, regions });
+      }
+      await handleTimelineOpen();
+      addHistory({
+        turn: restored.newTurn,
+        action: '⏪ Ripristino checkpoint',
+        result: `Ripristinato checkpoint ${restored.checkpointId} del run ${restored.simulationId}.`,
+        periodEnd: restored.newDate,
+      });
+    } catch (error) {
+      console.error('Checkpoint restore failed:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Continua da un evento: ripristina il checkpoint del run e lancia subito
+  // il prossimo salto canonico (fino al prossimo evento importante).
+  const handleContinueFrom = async (simulationId: string) => {
+    if (!currentGame || loading) return;
+    await handleRestoreCheckpoint(simulationId);
+    await handleTimeSkip(0);
+  };
+
+  // Intervene — ferma lo stream dopo l'ultimo evento già pubblicato
   const handleIntervene = async () => {
     if (!currentGame) return;
     try {
-      await gameApi.intervene(currentGame.id);
-      setTurnProgress('⏸ Intervene: останавливаем после текущего события…');
+      await gameApi.intervene(currentGame.id, activeSimulationIdRef.current);
+      setTurnProgress('⏸ Intervieni: arresto dopo l\'evento corrente…');
     } catch (e) {
       console.error('Intervene failed:', e);
     }
   };
 
-  // Выбрать страну
+  // Scegli il paese
   const handleCountryChange = (regionId: string) => {
     setSelectedRegion(regionId);
   };
 
-  // Этап 6: открытие панели управления (FAB)
-  const openActionsPanel = () => {
-    setShowActions(true);
-    if (suggestions.length === 0 && currentGame) {
-      (async () => {
-        try {
-          const data = await gameApi.getSuggestions(currentGame.id);
-          setSuggestions(data.suggestions || []);
-        } catch (e) { console.error(e); }
-      })();
-    }
-    // ОТКЛЮЧЕНО: переговоры — актуализация чатов при открытии панели больше не нужна
-    // useChatStore.getState().refreshChats();
-  };
-
-  // Выбрать тип действия и заполнить шаблон
-  const handleActionTypeSelect = (type: string, template: string, targetRegionId?: string) => {
-    setSelectedActionType(type);
-    let text = template;
-    if (targetRegionId && currentWorld) {
-      const targetRegion = currentWorld.regions[targetRegionId];
-      if (targetRegion) {
-        text = template.replace('{target}', targetRegion.name);
+  const generateSuggestions = async () => {
+    if (!currentGame || suggestionsLoading) return;
+    setSuggestionsLoading(true);
+    setSuggestionsError('');
+    try {
+      const data = await gameApi.getSuggestions(currentGame.id);
+      setSuggestions(data.suggestions || []);
+      if (!data.suggestions?.length) {
+        setSuggestionsError('Nessuna proposta ricevuta. Prova a generarle di nuovo.');
       }
+    } catch (e) {
+      console.error('[Suggestions] Generation failed:', e);
+      setSuggestionsError('Il brainstorming non è disponibile ora. Riprova tra poco.');
+    } finally {
+      setSuggestionsLoading(false);
     }
-    setNewActionText(text);
   };
 
-  // Очистить выбор действия
-  const clearActionType = () => {
-    setSelectedActionType(null);
-    setTargetRegionForAttack('');
+  const queuePlayerAction = async (text: string): Promise<boolean> => {
+    if (!currentGame || !text.trim()) return false;
+    if (pendingActions.some(action => action.text.trim() === text.trim())) return true;
+    setSuggestionsError('');
+    try {
+      const queued = await gameApi.queueAction(currentGame.id, text.trim());
+      addPendingAction({ id: queued.id, text: queued.text });
+      return true;
+    } catch (e) {
+      console.error('[Actions] Failed to queue action:', e);
+      setSuggestionsError('Impossibile aggiungere l’azione alla coda. Riprova.');
+      return false;
+    }
   };
 
-  // Этап 6: возобновление сохранённой игры с лендинга
+  const removeQueuedAction = async (actionId: string) => {
+    if (!currentGame) return;
+    setSuggestionsError('');
+    try {
+      await gameApi.removePendingAction(currentGame.id, actionId);
+      removePendingAction(actionId);
+    } catch (e) {
+      console.error('[Actions] Failed to remove action:', e);
+      setSuggestionsError('L’azione è già in elaborazione o non può essere rimossa.');
+    }
+  };
+
+  // Modifica persistita di un ordine in coda: non fa passare tempo e non
+  // altera l'intenzione originale oltre il testo che il giocatore conferma.
+  const updateQueuedAction = async (actionId: string, newText: string) => {
+    if (!currentGame) return;
+    setSuggestionsError('');
+    try {
+      const { action } = await gameApi.updatePendingAction(currentGame.id, actionId, newText);
+      setPendingActions(pendingActions.map(a => a.id === action.id ? { ...a, text: action.text } : a));
+      setEditingActionId(null);
+      setEditingActionText('');
+    } catch (e) {
+      console.error('[Actions] Failed to update action:', e);
+      setSuggestionsError('L’azione è già in elaborazione o non può essere modificata.');
+    }
+  };
+
+  // G24 — «Migliora formulazione»: produce un'anteprima riformulata senza
+  // accodare né simulare. L'accettazione della proposta è un click esplicito.
+  const enhanceOrder = async (text: string) => {
+    if (!currentGame) return;
+    setSuggestionsError('');
+    setEnhanceLoading(true);
+    try {
+      const { enhanced } = await gameApi.enhanceAction(currentGame.id, text);
+      setEnhancedPreview(enhanced);
+    } catch (e) {
+      console.error('[Actions] Failed to enhance action:', e);
+      setSuggestionsError('Il miglioramento della formulazione non è disponibile ora.');
+    }
+    setEnhanceLoading(false);
+  };
+
+  // Apertura del pannello: riallinea sempre la coda locale con quella server.
+  const openActionsPanel = (brainstorm = false) => {
+    setShowActions(true);
+    if (currentGame) {
+      gameApi.getPendingActions(currentGame.id)
+        .then(data => setPendingActions(data.pendingActions || []))
+        .catch(e => console.error('[Actions] Failed to sync queue:', e));
+    }
+    if (brainstorm && suggestions.length === 0) void generateSuggestions();
+  };
+
+  // Fase 6: ripresa di una partita salvata dalla landing
   const handleResumeSave = async (save: any) => {
     if (!save?.id || !save?.game_id) return;
     setLoading(true);
@@ -678,93 +959,138 @@ function App() {
       const regionId = game.players?.[0]?.regionId;
       if (regionId) {
         setSelectedRegion(regionId);
-        // Восстанавливаем код страны игрока (для флагов на карте)
-        const code = String(regionId).split('_').pop();
-        if (code) setSelectedCountry(code);
+        // Ripristiniamo il codice paese del giocatore (per le bandiere sulla mappa).
+        // Nei mondi provinciali l'id regione è una provincia: il codice paese
+        // giusto è la polity del giocatore (owner della regione).
+        const regionOwner = Object.values(game.world?.regions || {})
+          .find((r: any) => r.id === regionId)?.owner;
+        const code = game.players[0]?.polityId || regionOwner || String(regionId).split('_').pop();
+        if (code) setSelectedCountry(String(code));
       }
       setHistory([]);
       setCurrentView('game');
     } catch (e) {
       console.error('[Save] Failed to resume save:', e);
-      alert('Ошибка загрузки сохранения');
+      alert('Errore di caricamento del salvataggio');
     } finally {
       setLoading(false);
     }
   };
 
-  // Рендер главного меню — Этап 6: лендинг в духе pax_home
+  // Render del menu principale — Fase 6: landing in stile pax_home
   const renderMenu = () => (
     <Landing
       onNewGame={() => setCurrentView('select-template')}
-      // ОТКЛЮЧЕНО: редактор карт (временно) — onOpenEditor={() => setCurrentView('editor')}
-      // ОТКЛЮЧЕНО: редактор карт (временно) — onSelectMap={handleSelectMap}
+      onOpenModelSettings={() => setShowLLMSettings(true)}
+      // DISATTIVATO: editor mappe (temporaneo) — onOpenEditor={() => setCurrentView('editor')}
+      // DISATTIVATO: editor mappe (temporaneo) — onSelectMap={handleSelectMap}
       onResumeSave={handleResumeSave}
-      // ОТКЛЮЧЕНО: редактор карт (временно) — savedMaps={savedMaps}
+      // DISATTIVATO: editor mappe (temporaneo) — savedMaps={savedMaps}
     />
   );
 
   // Format date for display
   const formatDate = (dateStr: string): string => {
     const months = [
-      'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-      'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+      'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
+      'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'
     ];
     const date = new Date(dateStr);
     return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
   };
 
+  // Fase 7: bottom-sheet del pannello su mobile
+  const [panelSheetOpen, setPanelSheetOpen] = useState(false);
+  // All'apertura della partita su telefono il foglio resta chiuso: la mappa
+  // deve essere subito utilizzabile, il pannello si apre con il suo handle.
+  useEffect(() => {
+    if (currentView === 'game' && window.innerWidth <= 720) setPanelSheetOpen(false);
+  }, [currentView]);
   // SSE real-time updates
   const [isProcessingTurn, setIsProcessingTurn] = useState(false);
   const [turnProgress, setTurnProgress] = useState<string>('');
-  // Этап 2: сложность новой игры
+  // Fase 2: difficoltà della nuova partita
   const [difficulty, setDifficulty] = useState<string>('normal');
 
-  // Этап 6: модалка сохранения (замена prompt()) и фазы лоадера генерации мира
+  // Fase 6: modale di salvataggio (al posto di prompt()) e fasi del loader di generazione del mondo
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [genPhase, setGenPhase] = useState(0);
+  // Avanzamento reale (0..1) della generazione del mondo, dal polling del job
+  const [genProgress, setGenProgress] = useState<number | null>(null);
+  // Menu di scelta del modello IA (landing + pannello di gioco)
+  const [showLLMSettings, setShowLLMSettings] = useState(false);
 
-  // Ротация этапов лоадера, пока идёт генерация мира на экране выбора страны
+  // Rotazione delle fasi del loader mentre avviene la generazione del mondo nella schermata di scelta paese
   useEffect(() => {
     if (!loading || currentView !== 'select-country') return;
     setGenPhase(0);
+    setGenProgress(null);
     const t = setInterval(() => {
       setGenPhase(p => Math.min(p + 1, WORLD_GEN_PHASES.length - 1));
     }, 12000);
     return () => clearInterval(t);
   }, [loading, currentView]);
 
-  // Action type selector
-  const [selectedActionType, setSelectedActionType] = useState<string | null>(null);
-  const [targetRegionForAttack, setTargetRegionForAttack] = useState<string>('');
-
   useSSE(currentGame?.id || null, {
     onTurnStart: (data) => {
       console.log('[SSE] Turn started:', data);
+      activeSimulationIdRef.current = data?.simulationId;
+      streamedEventCountRef.current = 0;
       setIsProcessingTurn(true);
-      setTurnProgress('Обработка хода...');
+      setTurnProgress('Elaborazione mossa...');
     },
     onGeneratingNarration: () => {
       console.log('[SSE] Generating narration...');
-      setTurnProgress('Генерация нарратива...');
+      setTurnProgress('Generazione narrazione...');
     },
     onLLMProgress: (data) => {
-      setTurnProgress(`Модель генерирует… ${data.chars} зн.`);
+      const ready = data.eventsReady ?? streamedEventCountRef.current;
+      setTurnProgress(ready > 0
+        ? `Generazione del prossimo evento… ${ready} già ${ready === 1 ? 'pubblicato' : 'pubblicati'}`
+        : `Generazione del primo evento… ${data.chars} car.`);
     },
     onJumpEvent: (data) => {
-      setTurnProgress(`Событие ${data.index + 1}/${data.total}: ${data.event?.headline || ''}`);
+      const number = data.index + 1;
+      streamedEventCountRef.current = Math.max(streamedEventCountRef.current, number);
+      setTurnProgress(`Evento ${number}: ${data.event?.headline || ''}`);
+      // Feed live: l'evento appare nel momento esatto in cui il modello lo completa.
+      if (data.event?.headline) {
+        pushFeed(`Evento ${number}: ${data.event.headline}`, 'live', data.event.date, data.event.description);
+      }
+      // Anteprime LLM non mutano mai il client: data e mappa si aggiornano
+      // solo con il checkpoint committato (turn_complete).
+      if (data.checkpoint && data.event?.date) {
+        setCurrentGame(prev => prev ? { ...prev, currentDate: data.event.date } : prev);
+      }
+      if (data.checkpoint && data.changedRegions?.length) {
+        const liveWorld = useGameStore.getState().currentWorld;
+        if (liveWorld) {
+          const regions = { ...liveWorld.regions };
+          for (const changed of data.changedRegions || []) {
+            if (regions[changed.id]) regions[changed.id] = { ...regions[changed.id], ...changed };
+          }
+          setCurrentWorld({ ...liveWorld, regions });
+        }
+        const ids = data.changedRegions.map((region: any) => region.id);
+        setChangedRegions(ids);
+        setTimeout(() => clearChangedRegions(), 3000);
+      }
     },
     onActionVoided: (data) => {
-      setTurnProgress(`⊘ Действие отклонено: ${data.reason || data.action}`);
+      setTurnProgress(`⊘ Azione rifiutata: ${data.reason || data.action}`);
     },
-    // ОТКЛЮЧЕНО: переговоры — входящие сообщения дипломатических чатов не обрабатываем
-    // // Этап 3: входящее сообщение от политии — бейдж unread + обновление списка чатов
-    // onChatMessage: (data) => {
-    //   const chatStore = useChatStore.getState();
-    //   chatStore.handleIncomingChatMessage(data);
-    //   // Синхронизируем список с сервером (новые чаты, актуальные unread)
-    //   chatStore.refreshChats();
-    // },
-    // Этап 3: проактивный комментарий советника после хода — в ленту с пометкой
+    // Messaggio diplomatico live: aggiorna thread/lista e badge senza polling.
+    onChatMessage: (data) => {
+      const chatStore = useChatStore.getState();
+      chatStore.handleIncomingChatMessage(data);
+      const updated = useChatStore.getState();
+      if (updated.chatPanelVisible && updated.activeChatId === data.chatId && currentGame?.id) {
+        chatsApi.markRead(currentGame.id, data.chatId)
+          .then(() => useChatStore.getState().markRead(data.chatId))
+          .catch(e => console.warn('[App] Impossibile segnare la chat come letta:', e));
+      }
+    },
+    // Fase 3: commento proattivo del consulente dopo il turno — nel feed con nota
     onAdvisorProactive: (data) => {
       if (data?.content) {
         useChatStore.getState().addAdvisorMessage({
@@ -774,18 +1100,71 @@ function App() {
         });
       }
     },
+    // Eventi del battito del mondo: la simulazione live avanza anche senza azioni
+    onWorldEvent: (data) => {
+      console.log('[SSE] World event:', data);
+      for (const [index, ev] of (data.events || []).entries()) {
+        const detail = data.eventDetails?.[index];
+        pushFeed(ev, 'world', detail?.date || data.newDate, detail?.detail, detail?.id);
+      }
+      // Aggiorna data/turno e le regioni cambiate (conquisti NPC ecc.)
+      if (data.newTurn && data.newDate) {
+        setCurrentGame(prev => prev ? {
+          ...prev,
+          currentTurn: data.newTurn,
+          currentDate: data.newDate,
+        } : prev);
+      }
+      if (data.changedRegions?.length && currentWorld) {
+        const updated = { ...currentWorld.regions };
+        for (const cr of data.changedRegions) {
+          if (updated[cr.id]) {
+            updated[cr.id] = {
+              ...updated[cr.id],
+              owner: cr.owner,
+              color: cr.color,
+              population: cr.population,
+              gdp: cr.gdp,
+              militaryPower: cr.militaryPower,
+            };
+          }
+        }
+        setCurrentWorld({ ...currentWorld, regions: updated });
+      }
+    },
     onTurnComplete: (data) => {
       console.log('[SSE] Turn complete:', data);
       setIsProcessingTurn(false);
+      activeSimulationIdRef.current = undefined;
       setTurnProgress('');
+
+      // Il feed: gli eventi «live» di questo turno diventano eventi definitivi
+      setFeedItems(prev => {
+        const keep = prev.filter(i => i.kind !== 'live');
+        const next = [...keep];
+        for (const [index, ev] of (data?.events || []).entries()) {
+          const eventId = data?.eventDetails?.[index]?.id;
+          const id = eventId ? `tl-${eventId}` : `tc-${Date.now()}-${index}`;
+          if (next.some(item => item.id === id)) continue;
+          next.push({
+            id,
+            date: data?.eventDetails?.[index]?.date || data?.newDate,
+            text: ev,
+            detail: data?.eventDetails?.[index]?.detail || data?.narration,
+            kind: 'world',
+          });
+        }
+        return next.length > 120 ? next.slice(next.length - 120) : next;
+      });
 
       // Add to history
       if (data) {
         addHistory({
           turn: data.turn,
-          action: data.action || 'Ход',
+          action: data.action || 'Mossa',
           result: data.narration,
           events: data.events,
+          eventDetails: data.eventDetails,
           periodEnd: data.newDate,
         });
 
@@ -797,6 +1176,19 @@ function App() {
             currentDate: data.newDate,
           } : prev);
         }
+        if (data.changedRegions?.length) {
+          const liveWorld = useGameStore.getState().currentWorld;
+          if (liveWorld) {
+            const regions = { ...liveWorld.regions };
+            for (const changed of data.changedRegions) {
+              if (regions[changed.id]) regions[changed.id] = { ...regions[changed.id], ...changed };
+            }
+            setCurrentWorld({ ...liveWorld, regions });
+          }
+          setChangedRegions(data.changedRegions.map((region: any) => region.id));
+          setTimeout(() => clearChangedRegions(), 3000);
+        }
+        void handleTimelineOpen();
       }
     },
     onConnected: () => {
@@ -805,6 +1197,7 @@ function App() {
     onError: (error) => {
       console.error('[SSE] Error:', error);
       setIsProcessingTurn(false);
+      activeSimulationIdRef.current = undefined;
       setTurnProgress('');
     },
   });
@@ -814,20 +1207,63 @@ function App() {
 
     const regions: Region[] = Object.values(currentWorld.regions);
     const currentRegion = regions.find(r => r.id === selectedRegion);
+    const provinceMetadata = currentRegion?.metadata || {};
+    const isPaxProvince = Boolean(provinceMetadata.pax_region_id);
+    const provinceAssets = (currentRegion?.objects || []).reduce((assets, object) => {
+      if (object.type === 'factory') assets.factories += 1;
+      else if (object.type === 'port') assets.ports += 1;
+      else if (object.type === 'radar') assets.infrastructure += 1;
+      else if (object.type === 'capital') assets.capital = true;
+      else if (object.type === 'city') assets.cities += 1;
+      else if (object.type === 'army' || object.type === 'battalion' || object.type === 'fleet') assets.units += 1;
+      return assets;
+    }, { factories: 0, ports: 0, infrastructure: 0, cities: 0, units: 0, capital: false });
+    const infrastructureLevel = Number(provinceMetadata.infrastructure_level)
+      || Math.min(5, 1 + provinceAssets.infrastructure + (provinceAssets.capital ? 2 : provinceAssets.cities > 0 ? 1 : 0));
 
-    // Полития игрока (owner = polityId; из players.polityId, либо выводим из домашнего региона)
+    // Polis del giocatore (owner = polityId; da players.polityId, oppure dedotto dalla regione capitale)
     const playerPolityId = currentGame?.players?.[0]?.polityId
       ?? regions.find(r => r.id === currentGame?.players?.[0]?.regionId)?.owner
       ?? 'player';
+    const nationalRegions = regions.filter(region => region.owner === playerPolityId);
+    const nationalReference = nationalRegions.find(region => region.id === currentGame?.players?.[0]?.regionId) || nationalRegions[0];
+    const nationalName = nationalReference?.polityName || nationalReference?.name || playerPolityId;
+    const nationalAccount = nationalAccounts[playerPolityId];
+    const nationalGdp = Number(nationalAccount?.nominalGdpUsdBillions ?? nationalRegions.reduce((sum, region) => sum + Number(region.gdp || 0), 0));
+    const nationalPopulation = Number(nationalAccount?.population ?? nationalRegions.reduce((sum, region) => sum + Number(region.population || 0), 0));
+    const estimatedRevenue = Number(nationalAccount?.monthlyRevenue ?? 0);
+    const estimatedExpenses = Number(nationalAccount?.monthlyExpenses ?? 0);
+    const campaignProgress = currentGame ? Math.round((currentGame.currentTurn / currentGame.maxTurns) * 100) : 0;
+    const governmentTypes: Record<string, string> = {
+      PSE: 'Autorità nazionale palestinese', USA: 'Repubblica federale presidenziale',
+      RUS: 'Repubblica federale presidenziale', CHN: 'Repubblica popolare a partito unico',
+      GBR: 'Monarchia parlamentare', FRA: 'Repubblica semipresidenziale',
+      DEU: 'Repubblica federale parlamentare', ITA: 'Repubblica parlamentare',
+    };
+    const governmentType = nationalAccount?.government || governmentTypes[playerPolityId] || 'Repubblica presidenziale';
+    const playerRegionId = currentGame?.players?.[0]?.regionId || nationalReference?.id || null;
+    // Provincia esterna selezionata: il bollettino nazionale si nasconde, resta solo il dettaglio provincia.
+    const externalRegionSelected = Boolean(currentRegion && currentRegion.id !== playerRegionId && currentRegion.owner !== playerPolityId);
+    const selectedIsPlayerProvince = Boolean(currentRegion && (currentRegion.id === playerRegionId || currentRegion.owner === playerPolityId));
+    const selectedRegionOwnerName = currentRegion?.polityName || currentRegion?.owner || null;
+    const latestNationalNarration = timeline.length > 0 ? timeline[timeline.length - 1].narration : 'In attesa del primo dispaccio della simulazione.';
 
     return (
       <div className="game-wrapper">
-        {/* Этап 6: HUD-бар в духе оригинала (дата, rewind, панель «Таймлайн») */}
+        {/* Fase 6: HUD-bar in stile originale (data, rewind, pannello «Timeline») */}
         <HudBar
           worldName={currentWorld?.name || ''}
           turn={currentGame?.currentTurn || 1}
           dateISO={currentGame?.currentDate || '1951-01-01'}
           loading={loading}
+          timeline={timeline}
+          timelineLoading={timelineLoading}
+          timelineError={timelineError}
+          timelineHasMore={timelineHasMore}
+          timelineLoadingOlder={timelineLoadingOlder}
+          ongoingProcesses={ongoingProcesses}
+          onTimelineOpen={handleTimelineOpen}
+          onLoadOlder={loadOlderTimeline}
           onBack={() => {
             setCurrentView('menu');
             setCurrentWorld(null);
@@ -836,23 +1272,25 @@ function App() {
           }}
           onRewind={handleRewind}
           onTimeSkip={handleTimeSkip}
+          onRestoreCheckpoint={handleRestoreCheckpoint}
+          onContinueFrom={handleContinueFrom}
         />
 
-        <div className="game-container">
-          {/* Этап 2: баннер прогресса хода + Intervene */}
+        <div className={`game-container${panelOpen ? '' : ' panel-closed'}`}>
+          {/* Fase 2: banner di avanzamento turno + Intervene */}
           {isProcessingTurn && (
             <div className="turn-progress-banner">
-              <span className="turn-progress-text">{turnProgress || 'Обработка хода...'}</span>
+              <span className="turn-progress-text">{turnProgress || 'Elaborazione mossa...'}</span>
               <button
                 className="btn-intervene"
                 onClick={handleIntervene}
-                title="Прервать симуляцию после текущего события (остальные события пачки будут отменены)"
+                title="Ferma la simulazione dopo l'evento corrente"
               >
                 ⏸ Intervene
               </button>
             </div>
           )}
-          {/* Карта слева */}
+          {/* Mappa a sinistra */}
           <div className="game-map">
             {regions.some(r => r.geojson) ? (
               <MapboxMapView
@@ -884,135 +1322,89 @@ function App() {
                 textAlign: 'center',
               }}>
                 <div style={{ fontSize: '48px', marginBottom: '16px' }}>🗺️</div>
-                <h3>Карта загружается…</h3>
+                <h3>Caricamento mappa…</h3>
                 <p style={{ color: '#888', maxWidth: '300px' }}>
-                  У регионов мира пока нет геометрии.
+                  Le regioni del mondo non hanno ancora una geometria.
                 </p>
               </div>
             )}
+
+            {/* Cronaca: feed eventi SEMPRE in vista, sovrapposto alla mappa.
+                Gli eventi si accumulano turno dopo turno (azioni + simulazione
+                live del mondo) ed evidenziano quelli della nazione in focus. */}
+            <EventFeed
+              items={feedItems}
+              processing={isProcessingTurn}
+              open={feedOpen}
+              onToggleOpen={() => {
+                setFeedOpen(o => {
+                  localStorage.setItem('openpax_feed_open', o ? '0' : '1');
+                  return !o;
+                });
+              }}
+              focusedRegionName={currentRegion?.name}
+            />
           </div>
 
-          {/* Панель справа */}
-          <div className="game-panel">
-            <div className="turn-header" style={{ display: 'none' }}>
-              <span className="turn-number">ХОД {currentGame?.currentTurn || 1}</span>
-            </div>
+          {/* Linguetta del pannello a scomparsa: sempre visibile sul bordo */}
+          <button
+            className="panel-toggle"
+            onClick={() => {
+              setPanelOpen(o => {
+                localStorage.setItem('openpax_panel_open', o ? '0' : '1');
+                return !o;
+              });
+            }}
+            title={panelOpen ? 'Nascondi i dettagli della nazione' : 'Mostra i dettagli della nazione'}
+          >
+            {panelOpen ? '›' : '‹'}
+          </button>
 
-            {/* Country selector - locked to player's region */}
-            <div className="country-selector">
-              <label>Ваша страна:</label>
-              <div className="country-locked">
-                {currentGame?.players[0] && (
-                  <span style={{ color: currentRegion?.color || '#fff' }}>
-                    {currentRegion?.name || 'Неизвестно'}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Current country info */}
-            {currentRegion && (
-              <div className="country-info">
-                <div className="country-name" style={{ color: currentRegion.color }}>
-                  {currentRegion.name}
-                </div>
-                <div className="country-stats">
-                  <span>👥 {currentRegion.population?.toLocaleString() || '1,000,000'}</span>
-                  <span>💰 {currentRegion.gdp || 100}</span>
-                  <span>⚔️ {currentRegion.militaryPower || 100}</span>
-                </div>
-              </div>
-            )}
-
-            {/* Diplomacy panel */}
-            {currentGame && selectedRegion && (
-              <DiplomacyPanel
-                gameId={currentGame.id}
-                selectedRegionId={selectedRegion}
-                regions={regions}
-                refreshKey={currentGame.currentTurn}
-              />
-            )}
-
-            {/* Save/Load buttons */}
-            <div className="save-load-section">
-              <button
-                className="btn-save"
-                onClick={() => setShowSaveModal(true)}
-              >
-                💾 Сохранить
-              </button>
-              <button
-                className="btn-load"
-                onClick={async () => {
-                  try {
-                    const data = await savesApi.list();
-                    if (data.saves.length === 0) {
-                      alert('Нет сохранённых игр');
-                      return;
-                    }
-                    const save = data.saves[0];
-                    if (save && confirm(`Загрузить "${save.name}" (Ход ${save.current_turn})?`)) {
-                      await gameApi.loadSave(save.id);
-                      if (currentGame) {
-                        const game = await gameApi.get(currentGame.id);
-                        setCurrentGame(game);
-                        setHistory([]);
-                        alert('Игра загружена!');
-                      }
-                    }
-                  } catch (e) {
-                    console.error(e);
-                    alert('Ошибка загрузки');
-                  }
-                }}
-              >
-                📂 Загрузить
-              </button>
-              <button
-                className="btn-edit-prompt"
-                onClick={() => {
-                  setEditingPrompt(currentWorld?.basePrompt || '');
-                  setShowPromptEditor(true);
-                }}
-                title="Редактировать промпт мира"
-              >
-                📝 Промпт
-              </button>
-            </div>
-
-            {/* Events from last turn */}
-            {history.length > 0 && history[history.length - 1].events && (
-              <div className="events-section">
-                <h4>📌 События</h4>
-                <div className="events-list">
-                  {(history[history.length - 1].events || []).map((event, i) => (
-                    <div key={i} className="event-item">{event}</div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Этап 6: FAB-группа (действия). ОТКЛЮЧЕНО: переговоры — FAB «💬 Дипломатия» с бейджем убран */}
+            {/* Accessi rapidi ad azioni e diplomazia, con badge live SSE. */}
             {!showActions && (
               <Fab items={[
-                { icon: '⚡', title: 'Действия', onClick: openActionsPanel },
-                /* ОТКЛЮЧЕНО: переговоры (временно)
                 {
-                  icon: '💬',
-                  title: 'Дипломатия',
+                  icon: 'ORD',
+                  title: 'Ordini',
+                  active: panelTab === 'suggestions',
+                  onClick: () => {
+                    setPanelTab('suggestions');
+                    openActionsPanel(false);
+                  },
+                },
+                {
+                  icon: 'DIP',
+                  title: 'Diplomazia',
+                  active: panelTab === 'chats',
                   badge: totalUnread > 0 ? totalUnread : undefined,
                   onClick: () => {
                     setPanelTab('chats');
-                    openActionsPanel();
+                    openActionsPanel(false);
                   },
                 },
-                */
+                {
+                  icon: 'CON',
+                  title: 'Consulente',
+                  active: panelTab === 'advisor',
+                  onClick: () => {
+                    setPanelTab('advisor');
+                    openActionsPanel(false);
+                  },
+                },
               ]} />
             )}
 
-            {/* Floating Actions Panel */}
-            {showActions && (
+          {/* Bottone NAZIONE: fuori dal pannello, apre il bottom-sheet (mobile) */}
+          <button
+            className="nation-open-btn"
+            onClick={() => {
+              setPanelOpen(true);
+              setPanelSheetOpen(true);
+            }}
+            title="Apri il pannello nazione"
+          >☰ NAZIONE</button>
+
+{showActions && (
               <div
                 ref={actionsRef}
                 className={`floating-advisor-panel ${actionsMaximized ? 'maximized' : ''}`}
@@ -1032,12 +1424,14 @@ function App() {
                 )}
 
                 <div className="floating-advisor-header">
-                  <div className="panel-title">⚡ Панель управления</div>
+                  <div className="panel-title">
+                    {panelTab === 'suggestions' ? 'Ordini di governo' : panelTab === 'advisor' ? 'Consulente' : 'Relazioni estere'}
+                  </div>
                   <div className="header-buttons">
                     <button
                       className="btn-maximize"
                       onClick={() => setActionsMaximized(!actionsMaximized)}
-                      title={actionsMaximized ? 'Свернуть' : 'Развернуть'}
+                      title={actionsMaximized ? 'Riduci' : 'Espandi'}
                     >
                       {actionsMaximized ? '−' : '□'}
                     </button>
@@ -1045,76 +1439,54 @@ function App() {
                   </div>
                 </div>
 
-                {/* Этап 3: вкладки панели — Предложения | Советник (ОТКЛЮЧЕНО: переговоры — вкладка «Дипломатия») */}
-                <div className="advisor-tabs-row">
-                  <button
-                    className={`advisor-tab ${panelTab === 'suggestions' ? 'active' : ''}`}
-                    onClick={() => setPanelTab('suggestions')}
-                  >
-                    Предложения
-                  </button>
-                  <button
-                    className={`advisor-tab ${panelTab === 'advisor' ? 'active' : ''}`}
-                    onClick={() => setPanelTab('advisor')}
-                  >
-                    Советник
-                  </button>
-                  {/* ОТКЛЮЧЕНО: переговоры (временно)
-                  <button
-                    className={`advisor-tab ${panelTab === 'chats' ? 'active' : ''}`}
-                    onClick={() => setPanelTab('chats')}
-                  >
-                    Дипломатия
-                    {totalUnread > 0 && <span className="tab-badge">{totalUnread}</span>}
-                  </button>
-                  */}
-                </div>
-
                 {/* Actions Content */}
                 {panelTab === 'suggestions' && (
                 <div className="suggestions-content">
-                  {/* Generate Button */}
-                  <button
-                    className="btn-generate-suggestions"
-                    onClick={async () => {
-                      if (!currentGame) return;
-                      try {
-                        const data = await gameApi.getSuggestions(currentGame.id);
-                        setSuggestions(data.suggestions || []);
-                      } catch (e) { console.error(e); }
-                    }}
-                  >
-                    🔄 Сгенерировать действия
-                  </button>
+                  {/* Brainstorm nello stesso punto del pannello Azioni di Pax Historia. */}
+                  <div className="council-head">
+                    <div className="council-title">Pianifica la prossima mossa</div>
+                    <div className="council-sub">Ordini concreti costruiti sulla mappa, la cronaca e la tua strategia</div>
+                    <button
+                      className="btn-generate-suggestions"
+                      disabled={suggestionsLoading}
+                      onClick={() => void generateSuggestions()}
+                    >
+                      {suggestionsLoading
+                        ? <span className="council-working"><i></i><i></i><i></i> Analisi dello scenario…</span>
+                        : 'Elabora proposte'}
+                    </button>
+                    {suggestionsError && (
+                      <div className="suggestions-error" role="alert">{suggestionsError}</div>
+                    )}
+                  </div>
 
                   {/* Actions List */}
                   {suggestions.length > 0 && (
                     <div className="suggestions-list">
                       {suggestions.map((s, i) => (
                         <div key={i} className="suggestion-item">
-                          <div className="suggestion-topic">📌 {s.topic}</div>
+                          <div className="suggestion-topic">{s.topic}</div>
                           <div className="suggestion-description">{s.description}</div>
-                          {s.actions?.map((a: any, ai: number) => (
-                            <div
-                              key={ai}
-                              className="suggestion-action"
-                              onClick={async () => {
-                                if (!currentGame) return;
-                                const text = a.content;
-                                try {
-                                  await gameApi.queueAction(currentGame.id, text);
-                                } catch (e) {
-                                  console.error('Failed to queue suggestion:', e);
-                                }
-                                addPendingAction({
-                                  id: `suggestion-${Date.now()}-${ai}`,
-                                  text
-                                });
-                              }}
-                            >
-                              + {a.title}: {a.content}
-                            </div>
-                          ))}
+                          {s.actions?.map((a: any, ai: number) => {
+                            const queued = pendingActions.some(action => action.text.trim() === String(a.content || '').trim());
+                            return (
+                              <button
+                                type="button"
+                                key={ai}
+                                className={`suggestion-action${queued ? ' queued' : ''}`}
+                                disabled={queued}
+                                onClick={() => void queuePlayerAction(a.content)}
+                                title={queued ? 'Azione già in coda' : 'Aggiungi questa azione alla coda'}
+                              >
+                                <span className="suggestion-action-plus" aria-hidden="true">{queued ? '✓' : '+'}</span>
+                                <span className="suggestion-action-body">
+                                  <b>{a.title}</b>
+                                  <span>{a.content}</span>
+                                </span>
+                                <span className="suggestion-action-cta">{queued ? 'Aggiunta' : 'Usa'}</span>
+                              </button>
+                            );
+                          })}
                         </div>
                       ))}
                     </div>
@@ -1122,159 +1494,137 @@ function App() {
 
                   {/* Pending Actions Section */}
                   <div className="pending-actions-section">
-                    <div className="pending-header">Ожидают обработки:</div>
+                    <div className="pending-header">In attesa di elaborazione:</div>
                     {pendingActions.length === 0 ? (
-                      <div className="pending-empty">Нет действий</div>
+                      <div className="pending-empty">Nessuna azione</div>
                     ) : (
                       <div className="pending-list">
                         {pendingActions.map((action, index) => (
                           <div key={action.id} className="pending-item">
                             <span className="pending-number">{index + 1}.</span>
-                            <span className="pending-text">{action.text}</span>
-                            <button
-                              className="btn-remove-pending"
-                              onClick={() => removePendingAction(action.id)}
-                            >
-                              ×
-                            </button>
+                            {editingActionId === action.id ? (
+                              <>
+                                <textarea
+                                  className="pending-edit-input"
+                                  value={editingActionText}
+                                  onChange={(e) => setEditingActionText(e.target.value)}
+                                  rows={2}
+                                  aria-label={`Modifica azione ${index + 1}`}
+                                />
+                                <button
+                                  className="btn-save-pending"
+                                  disabled={!editingActionText.trim()}
+                                  onClick={() => void updateQueuedAction(action.id, editingActionText)}
+                                  title="Salva la modifica"
+                                  aria-label={`Salva modifica azione ${index + 1}`}
+                                >
+                                  ✓
+                                </button>
+                                <button
+                                  className="btn-cancel-pending"
+                                  onClick={() => { setEditingActionId(null); setEditingActionText(''); }}
+                                  title="Annulla la modifica"
+                                  aria-label={`Annulla modifica azione ${index + 1}`}
+                                >
+                                  ✕
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <span className="pending-text">{action.text}</span>
+                                <button
+                                  className="btn-edit-pending"
+                                  onClick={() => { setEditingActionId(action.id); setEditingActionText(action.text); }}
+                                  title="Modifica l'ordine prima della presa in carico"
+                                  aria-label={`Modifica azione ${index + 1}`}
+                                >
+                                  ✎
+                                </button>
+                                <button
+                                  className="btn-remove-pending"
+                                  onClick={() => void removeQueuedAction(action.id)}
+                                  title="Rimuovi dalla coda"
+                                  aria-label={`Rimuovi azione ${index + 1}`}
+                                >
+                                  ×
+                                </button>
+                              </>
+                            )}
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  {/* Manual Action Input */}
+                  {/* Ordine libero: il convertitore LLM interpreta l'intenzione,
+                      il motore verifica limiti e applica le conseguenze. */}
                   <div className="manual-action-input">
-                    {/* Action Type Buttons */}
-                    <div className="action-type-selector">
-                      <button
-                        className={`action-type-btn attack ${selectedActionType === 'attack' ? 'active' : ''}`}
-                        onClick={() => {
-                          if (selectedActionType === 'attack') {
-                            clearActionType();
-                          } else {
-                            const enemyRegions = Object.values(currentWorld?.regions || {})
-                              .filter(r => r.owner !== playerPolityId && r.owner !== 'neutral');
-                            const firstEnemy = enemyRegions[0] as Region | undefined;
-                            if (firstEnemy) {
-                              setTargetRegionForAttack(firstEnemy.id);
-                              handleActionTypeSelect('attack', 'атака на {target}', firstEnemy.id);
-                            } else {
-                              handleActionTypeSelect('attack', 'атака на {target}');
-                            }
-                          }
-                        }}
-                        title="Атаковать регион (💰20 ⚔️50)"
-                      >
-                        ⚔️ Attack
-                        <span className="action-cost">💰20 ⚔️50</span>
-                      </button>
-                      <button
-                        className={`action-type-btn develop ${selectedActionType === 'develop' ? 'active' : ''}`}
-                        onClick={() => {
-                          if (selectedActionType === 'develop') {
-                            clearActionType();
-                          } else {
-                            handleActionTypeSelect('develop', 'развить регион');
-                          }
-                        }}
-                        title="Развить регион (💰30)"
-                      >
-                        🏗️ Develop
-                        <span className="action-cost">💰30</span>
-                      </button>
-                      <button
-                        className={`action-type-btn trade ${selectedActionType === 'trade' ? 'active' : ''}`}
-                        onClick={() => {
-                          if (selectedActionType === 'trade') {
-                            clearActionType();
-                          } else {
-                            handleActionTypeSelect('trade', 'торговля');
-                          }
-                        }}
-                        title="Торговля (💰10)"
-                      >
-                        💰 Trade
-                        <span className="action-cost">💰10</span>
-                      </button>
-                      <button
-                        className={`action-type-btn build ${selectedActionType === 'build' ? 'active' : ''}`}
-                        onClick={() => {
-                          if (selectedActionType === 'build') {
-                            clearActionType();
-                          } else {
-                            handleActionTypeSelect('build', 'строительство');
-                          }
-                        }}
-                        title="Строительство (💰40)"
-                      >
-                        🏭 Build
-                        <span className="action-cost">💰40</span>
-                      </button>
-                    </div>
-
-                    {/* Target Region Selector (for attack) */}
-                    {selectedActionType === 'attack' && (
-                      <div className="target-region-selector">
-                        <label>Цель:</label>
-                        <select
-                          value={targetRegionForAttack}
-                          onChange={(e) => {
-                            setTargetRegionForAttack(e.target.value);
-                            const region = currentWorld?.regions[e.target.value];
-                            if (region) {
-                              setNewActionText(`атака на ${region.name}`);
-                            }
-                          }}
-                        >
-                          {(Object.values(currentWorld?.regions || {}) as Region[])
-                            .filter(r => r.owner !== playerPolityId && r.owner !== 'neutral')
-                            .map(r => (
-                              <option key={r.id} value={r.id}>{r.name} ({r.owner})</option>
-                            ))
-                          }
-                        </select>
-                      </div>
-                    )}
-
+                    <label className="free-order-label" htmlFor="free-player-order">Ordine al governo</label>
                     <textarea
+                      id="free-player-order"
                       value={newActionText}
                       onChange={(e) => setNewActionText(e.target.value)}
-                      placeholder={selectedActionType ? 'Отредактируйте текст или добавьте...' : 'Опишите действие или выберите тип выше...'}
-                      rows={2}
+                      placeholder="Descrivi ciò che vuoi tentare. Il simulatore valuterà risorse, tempi, confini e conseguenze."
+                      rows={3}
                     />
-                    <button
-                      className="btn-add-pending"
-                      onClick={async () => {
-                        if (newActionText.trim() && currentGame) {
+                    <div className="manual-action-actions">
+                      <button
+                        className="btn-enhance-pending"
+                        onClick={() => void enhanceOrder(newActionText)}
+                        disabled={!newActionText.trim() || enhanceLoading}
+                        title="Migliora la formulazione senza inviare l'ordine"
+                      >
+                        {enhanceLoading ? 'Riformulo…' : 'Migliora formulazione'}
+                      </button>
+                      <button
+                        className="btn-add-pending"
+                        onClick={async () => {
                           const text = newActionText.trim();
-                          try {
-                            await gameApi.queueAction(currentGame.id, text);
-                          } catch (e) {
-                            console.error('Failed to queue action:', e);
+                          if (text && await queuePlayerAction(text)) {
+                            setNewActionText('');
+                            setEnhancedPreview(null);
                           }
-                          addPendingAction({
-                            id: `manual-${Date.now()}`,
-                            text
-                          });
-                          setNewActionText('');
-                          clearActionType();
-                        }
-                      }}
-                      disabled={!newActionText.trim()}
-                    >
-                      + Добавить
-                    </button>
+                        }}
+                        disabled={!newActionText.trim()}
+                      >
+                        Invia ordine
+                      </button>
+                    </div>
+                    {enhancedPreview && (
+                      <div className="enhance-preview" role="status">
+                        <div className="enhance-preview-label">Formulazione proposta</div>
+                        <p className="enhance-preview-text">{enhancedPreview}</p>
+                        <div className="enhance-preview-actions">
+                          <button
+                            className="btn-enhance-accept"
+                            onClick={async () => {
+                              if (await queuePlayerAction(enhancedPreview)) {
+                                setNewActionText('');
+                                setEnhancedPreview(null);
+                              }
+                            }}
+                          >
+                            Usa questa formulazione
+                          </button>
+                          <button
+                            className="btn-enhance-reject"
+                            onClick={() => setEnhancedPreview(null)}
+                          >
+                            Scarta
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
                 )}
 
-                {/* Этап 3: вкладка живого Советника (стриминг + проактивные сводки) */}
+                {/* Fase 3: tab del Consulente live (streaming + sintesi proattive) */}
                 {panelTab === 'advisor' && currentGame && (
                   <AdvisorChat gameId={currentGame.id} />
                 )}
 
-                {/* ОТКЛЮЧЕНО: переговоры (временно) — вкладка дипломатических чатов
+                {/* Chat diplomatiche (stile Pax Historia: anche chat di gruppo) */}
                 {panelTab === 'chats' && currentGame && (
                   <ChatsPanel
                     gameId={currentGame.id}
@@ -1282,7 +1632,6 @@ function App() {
                     playerPolityId={playerPolityId}
                   />
                 )}
-                */}
 
                 {/* Submit Button */}
                 {panelTab === 'suggestions' && (
@@ -1325,21 +1674,175 @@ function App() {
                       setLoading(false);
                     }}
                   >
-                    {loading ? 'Думаю...' : `Отправить ${pendingActions.length} действие(й) →`}
+                    {loading ? 'Sto pensando...' : `Invia ${pendingActions.length} azione(i) →`}
                   </button>
                 </div>
                 )}
               </div>
             )}
 
+          {/* Pannello a destra (a scomparsa: la linguetta a bordo mappa lo ripiega) */}
+          <div
+              className={`game-panel${panelSheetOpen ? ' sheet-open' : ''}${panelOpen ? '' : ' panel-collapsed'}`}
+            >
+            <div className="turn-header" style={{ display: 'none' }}>
+              <span className="turn-number">MOSSA {currentGame?.currentTurn || 1}</span>
+            </div>
+
+            {/* Handle di chiusura del bottom-sheet (mobile): tap per richiudere */}
+            <button
+              className="sheet-close"
+              onClick={(e) => {
+                e.stopPropagation();
+                setPanelSheetOpen(false);
+                setPanelOpen(false);
+              }}
+              title="Chiudi il pannello"
+            >✕</button>
+
+            {selectedRegion && !externalRegionSelected && (
+            <section className="nation-bulletin nation-bulletin-card" aria-label={`Bollettino di ${nationalName}`}>
+              <div className="nation-bulletin-kicker">Stato della nazione</div>
+              <h2>{nationalName}</h2>
+              <p className="nation-government">{governmentType}</p>
+              <div className="nation-progress"><span>Avanzamento campagna</span><b>{campaignProgress}%</b><i><em style={{ width: `${campaignProgress}%` }} /></i></div>
+              <div className="nation-ledger">
+                <span><small>POPOLAZIONE</small><b>{nationalPopulation.toLocaleString('it-IT')}</b></span>
+                <span><small>PIL NOM.</small><b>${nationalGdp.toLocaleString('it-IT', { maximumFractionDigits: 1 })} mld</b></span>
+                <span><small>ENTRATE / MESE</small><b>+${estimatedRevenue.toFixed(2)} mld</b></span>
+                <span><small>USCITE / MESE</small><b>−${estimatedExpenses.toFixed(2)} mld</b></span>
+              </div>
+              <p className="nation-narration">{latestNationalNarration}</p>
+            </section>
+            )}
+
+            {/* Country selector - locked to player's region */}
+            {selectedRegion && !externalRegionSelected && (
+            <div className="country-selector">
+              <label>La tua nazione:</label>
+              <div className="country-locked">
+                {currentGame?.players[0] && (
+                  <span style={{ color: currentRegion?.color || '#fff' }}>
+                    {currentRegion?.name || 'Sconosciuto'}
+                  </span>
+                )}
+              </div>
+            </div>
+            )}
+
+            {/* Current country info */}
+            {currentRegion && (
+              <div className="country-info province-detail-card">
+                <div className="province-detail-kicker">{selectedIsPlayerProvince ? 'Provincia · La tua nazione' : 'Provincia selezionata'}</div>
+                <div className="country-name province-detail-title" style={{ color: currentRegion.color }}>
+                  {currentRegion.name}
+                </div>
+                {!selectedIsPlayerProvince && selectedRegionOwnerName && (
+                  <div className="province-owner">Appartenente a: {selectedRegionOwnerName}</div>
+                )}
+                <div className="country-stats">
+                  <span><b>POP.</b> {currentRegion.population?.toLocaleString() || '1,000,000'}</span>
+                  <span><b>PIL</b> {currentRegion.gdp || 100}</span>
+                  <span><b>FORZE</b> {currentRegion.militaryPower || 100}</span>
+                </div>
+                {isPaxProvince && selectedIsPlayerProvince && (
+                  <div className="province-dossier">
+                    <div className="province-dossier-kicker">Provincia · {provinceMetadata.surface_type || 'Terra'}</div>
+                    <div className="province-assets">
+                      <span title="Livello infrastrutture, sviluppabile con gli ordini">⌁ INFRA <b>L{infrastructureLevel}</b></span>
+                      <span title="Impianti industriali presenti">⚙ FAB. <b>{provinceAssets.factories}</b></span>
+                      <span title="Porti presenti">⚓ PORTI <b>{provinceAssets.ports}</b></span>
+                      <span title="Centri urbani nella provincia">● CITTÀ <b>{provinceAssets.cities + (provinceAssets.capital ? 1 : 0)}</b></span>
+                      <span title="Unità militari schierate">▲ UNITÀ <b>{provinceAssets.units}</b></span>
+                    </div>
+                    {Array.isArray(provinceMetadata.tags) && provinceMetadata.tags.length > 0 && (
+                      <div className="province-tags">{provinceMetadata.tags.slice(0, 3).join(' · ')}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Diplomacy panel: solo per la nazione del giocatore o province sue */}
+            {currentGame && selectedRegion && !externalRegionSelected && (
+              <DiplomacyPanel
+                gameId={currentGame.id}
+                selectedRegionId={selectedRegion}
+                regions={regions}
+                refreshKey={currentGame.currentTurn}
+              />
+            )}
+
+            {/* Save/Load buttons */}
+            <div className="save-load-section">
+              <button
+                className="btn-save"
+                onClick={() => setShowSaveModal(true)}
+              >
+                Salva
+              </button>
+              <button
+                className="btn-load"
+                onClick={async () => {
+                  try {
+                    const data = await savesApi.list();
+                    if (data.saves.length === 0) {
+                      alert('Nessun salvataggio');
+                      return;
+                    }
+                    const save = data.saves[0];
+                    if (save && confirm(`Carica "${save.name}" (Mossa ${save.current_turn})?`)) {
+                      await gameApi.loadSave(save.id);
+                      if (currentGame) {
+                        const game = await gameApi.get(currentGame.id);
+                        setCurrentGame(game);
+                        setHistory([]);
+                        alert('Partita caricata!');
+                      }
+                    }
+                  } catch (e) {
+                    console.error(e);
+                    alert('Errore di caricamento');
+                  }
+                }}
+              >
+                Carica
+              </button>
+              <button
+                className="btn-edit-prompt"
+                onClick={() => {
+                  setEditingPrompt(currentWorld?.basePrompt || '');
+                  setShowPromptEditor(true);
+                }}
+                title="Modifica il prompt del mondo"
+              >
+                Mondo
+              </button>
+              <button
+                className="btn-edit-prompt"
+                onClick={() => setShowLLMSettings(true)}
+                title="Scegli il modello IA (provider e modello)"
+              >
+                Modello
+              </button>
+            </div>
+
+            {/* Gli eventi sono nel feed «Cronaca» sulla mappa: sempre visibili,
+                si accumulano turno dopo turno e restano in vista anche col
+                pannello ripiegato o col focus su un'altra nazione. */}
+
+
+
+
+
             {/* History */}
             <div className="history-section">
-              <h4>История</h4>
+              <h4>Storico</h4>
               <div className="history-list">
                 {history.map((item, i) => (
                   <div key={i} className="history-item">
                     <div className="history-header">
-                      <span className="history-turn">Ход {item.turn}</span>
+                      <span className="history-turn">Mossa {item.turn}</span>
                       {item.periodStart && item.periodEnd ? (
                         <span className="history-date">
                           📅 {formatDateRange(item.periodStart, item.periodEnd)}
@@ -1348,8 +1851,13 @@ function App() {
                         <span className="history-date">📅 {item.date}</span>
                       )}
                     </div>
-                    <div className="history-action">→ {item.action}</div>
-                    <div className="history-result">{item.result}</div>
+                    <div className="history-action">{item.action}</div>
+                    <div
+                      className="history-result"
+                      style={{ '--nation-color': currentRegion?.color || '#667eea' } as React.CSSProperties}
+                    >
+                      {item.result}
+                    </div>
                     {item.events && item.events.length > 0 && (
                       <div className="history-events">
                         {item.events.map((event, ei) => (
@@ -1370,13 +1878,13 @@ function App() {
               setCurrentGame(null);
               setHistory([]);
             }}>
-              ← В меню
+              ← Al menu
             </button>
 
-            {/* Этап 6: модалка сохранения игры (вместо prompt()) */}
+            {/* Fase 6: modale di salvataggio partita (al posto di prompt()) */}
             <SaveGameModal
               open={showSaveModal}
-              defaultName={`Игра ${new Date().toLocaleString('ru-RU')}`}
+              defaultName={`Partita ${new Date().toLocaleString('it-IT')}`}
               onClose={() => setShowSaveModal(false)}
               onSave={async (name) => {
                 if (!currentGame) return;
@@ -1385,7 +1893,7 @@ function App() {
                   setShowSaveModal(false);
                 } catch (e) {
                   console.error(e);
-                  alert('Ошибка сохранения');
+                  alert('Errore di salvataggio');
                 }
               }}
             />
@@ -1396,25 +1904,25 @@ function App() {
                 <div className="prompt-editor-overlay" onClick={() => setShowPromptEditor(false)} />
                 <div className="prompt-editor-content">
                   <div className="prompt-editor-header">
-                    <h3>📝 Редактирование промпта мира</h3>
+                    <h3>📝 Modifica prompt del mondo</h3>
                     <button className="btn-close-prompt" onClick={() => setShowPromptEditor(false)}>×</button>
                   </div>
                   <p className="prompt-editor-desc">
-                    Этот промпт определяет историю вашего мира, поведение NPC стран и возможные события.
-                    Изменения вступят в силу для будущих ходов.
+                    Questo prompt definisce la storia del tuo mondo, il comportamento degli NPC e gli eventi possibili.
+                    Le modifiche avranno effetto dalle prossime mosse.
                   </p>
                   <textarea
                     className="prompt-editor-textarea"
                     value={editingPrompt}
                     onChange={(e) => setEditingPrompt(e.target.value)}
-                    placeholder="Опишите ключевые особенности вашего мира..."
+                    placeholder="Descrivi le caratteristiche chiave del tuo mondo..."
                     rows={10}
                   />
                   <div className="prompt-editor-footer">
-                    <span className="char-count">{editingPrompt.length} символов</span>
+                    <span className="char-count">{editingPrompt.length} caratteri</span>
                     <div className="prompt-editor-actions">
                       <button className="btn-cancel-prompt" onClick={() => setShowPromptEditor(false)}>
-                        Отмена
+                        Annulla
                       </button>
                       <button
                         className="btn-save-prompt"
@@ -1424,14 +1932,14 @@ function App() {
                             await worldApi.updatePrompt(currentWorld.id, editingPrompt);
                             setCurrentWorld({ ...currentWorld, basePrompt: editingPrompt });
                             setShowPromptEditor(false);
-                            alert('Промпт мира обновлён!');
+                            alert('Prompt del mondo aggiornato!');
                           } catch (e) {
                             console.error(e);
-                            alert('Ошибка сохранения промпта');
+                            alert('Errore di salvataggio del prompt');
                           }
                         }}
                       >
-                        💾 Сохранить
+                        💾 Salva
                       </button>
                     </div>
                   </div>
@@ -1444,9 +1952,9 @@ function App() {
     );
   };
 
-  // ОТКЛЮЧЕНО: редактор карт (временно) — рендеры редактора и создания мира из карты
+  // DISATTIVATO: editor mappe (temporaneo) — render dell’editor e della creazione mondo da mappa
   /*
-  // Рендер редактора
+  // Render dell’editor
   const renderEditor = () => (
     <MapEditor
       onSave={handleSaveMap}
@@ -1458,8 +1966,8 @@ function App() {
     if (!selectedMapForWorld) {
       return (
         <div className="error-container">
-          <p>Карта не выбрана</p>
-          <button onClick={() => setCurrentView('menu')}>Назад в меню</button>
+          <p>Nessuna mappa selezionata</p>
+          <button onClick={() => setCurrentView('menu')}>Torna al menu</button>
         </div>
       );
     }
@@ -1483,13 +1991,17 @@ function App() {
 
   return (
     <div className="app">
-      {/* Этап 6: полноэкранный лоадер генерации мира с этапами */}
+      {/* Fase 6: loader a schermo intero della generazione del mondo con fasi */}
       {loading && currentView === 'select-country' && (
-        <GameLoader title="Создание мира…" phase={WORLD_GEN_PHASES[genPhase]} />
+        <GameLoader
+          title="Creazione del mondo…"
+          phase={WORLD_GEN_PHASES[genPhase]}
+          progress={genProgress ?? undefined}
+        />
       )}
-      {/* Этап 6: лоадер при возобновлении сохранённой игры */}
+      {/* Fase 6: loader durante la ripresa di una partita salvata */}
       {loading && currentView === 'menu' && (
-        <GameLoader title="Загрузка игровых данных…" />
+        <GameLoader title="Caricamento dati di gioco…" />
       )}
       {currentView === 'menu' && renderMenu()}
       {currentView === 'select-template' && (
@@ -1504,17 +2016,17 @@ function App() {
       {currentView === 'select-country' && selectedTemplate && (
         <div>
           <div className="difficulty-selector">
-            <label htmlFor="difficulty-select">Сложность:</label>
+            <label htmlFor="difficulty-select">Difficoltà:</label>
             <select
               id="difficulty-select"
               value={difficulty}
               onChange={(e) => setDifficulty(e.target.value)}
             >
-              <option value="story">История (очень легко)</option>
-              <option value="easy">Легко</option>
-              <option value="normal">Обычная</option>
-              <option value="hard">Сложно</option>
-              <option value="very_hard">Очень сложно</option>
+              <option value="story">Storia (molto facile)</option>
+              <option value="easy">Facile</option>
+              <option value="normal">Normale</option>
+              <option value="hard">Difficile</option>
+              <option value="very_hard">Molto difficile</option>
             </select>
           </div>
           <CountrySelector
@@ -1525,7 +2037,16 @@ function App() {
             try {
               const worldData = await worldApi.generateFromTemplate(
                 selectedTemplate.id,
-                countryCode
+                countryCode,
+                (p) => {
+                  // Avanzamento reale dal backend + fase coerente col progresso
+                  const ratio = p.total > 0 ? p.done / p.total : 0;
+                  setGenProgress(ratio);
+                  setGenPhase(Math.min(
+                    WORLD_GEN_PHASES.length - 1,
+                    Math.floor(ratio * WORLD_GEN_PHASES.length)
+                  ));
+                }
               );
               setGeneratedWorld(worldData);
 
@@ -1546,7 +2067,7 @@ function App() {
               setCurrentView('game');
             } catch (e) {
               console.error('[Game] Failed to generate world:', e);
-              alert('Failed to generate world. Please try again.');
+              alert('Generazione del mondo fallita. Riprova.');
               setCurrentView('menu');
             } finally {
               setLoading(false);
@@ -1557,7 +2078,12 @@ function App() {
         </div>
       )}
       {currentView === 'game' && renderGame()}
-      {/* ОТКЛЮЧЕНО: редактор карт (временно) — маршруты 'editor' и 'create-world'
+      {/* Menu di scelta del modello IA (Landing + pannello di gioco) */}
+      <LLMSettingsModal
+        open={showLLMSettings}
+        onClose={() => setShowLLMSettings(false)}
+      />
+      {/* DISATTIVATO: editor mappe (temporaneo) — rotte 'editor' e 'create-world'
       {currentView === 'editor' && renderEditor()}
       {currentView === 'create-world' && renderCreateWorld()}
       */}

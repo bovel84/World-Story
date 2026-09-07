@@ -78,50 +78,50 @@ function listFlags(dir: string): string[] {
 
 /** Валидация содержимого preset.json. Бросает Error с понятным сообщением. */
 export function validatePresetJson(raw: any, context = 'preset.json'): Omit<PresetPackage, 'has_custom_map' | 'flags' | 'source'> {
-  if (!raw || typeof raw !== 'object') throw new Error(`${context}: не объект`);
+  if (!raw || typeof raw !== 'object') throw new Error(`${context}: non è un oggetto`);
   if (typeof raw.id !== 'string' || !PRESET_ID_RE.test(raw.id)) {
-    throw new Error(`${context}: поле id обязательно и должно соответствовать ${PRESET_ID_RE}`);
+    throw new Error(`${context}: il campo id è obbligatorio e deve rispettare ${PRESET_ID_RE}`);
   }
-  if (typeof raw.name !== 'string' || !raw.name.trim()) throw new Error(`${context}: поле name обязательно`);
+  if (typeof raw.name !== 'string' || !raw.name.trim()) throw new Error(`${context}: il campo name è obbligatorio`);
   if (!Array.isArray(raw.country_codes) || raw.country_codes.length === 0) {
-    throw new Error(`${context}: country_codes должен быть непустым массивом кодов`);
+    throw new Error(`${context}: country_codes deve essere un array di codici non vuoto`);
   }
   for (const c of raw.country_codes) {
     if (typeof c !== 'string' || !/^[A-Z]{3}$/.test(c)) {
-      throw new Error(`${context}: невалидный код страны "${c}" (нужен ISO_A3, например USA)`);
+      throw new Error(`${context}: codice nazione non valido "${c}" (serve ISO_A3, es. USA)`);
     }
   }
   if (typeof raw.base_prompt !== 'string' || !raw.base_prompt.trim()) {
-    throw new Error(`${context}: поле base_prompt обязательно`);
+    throw new Error(`${context}: il campo base_prompt è obbligatorio`);
   }
   if (raw.countries !== undefined) {
-    if (!Array.isArray(raw.countries)) throw new Error(`${context}: countries должен быть массивом`);
+    if (!Array.isArray(raw.countries)) throw new Error(`${context}: countries deve essere un array`);
     for (const c of raw.countries) {
       if (!c || typeof c.code !== 'string' || typeof c.name !== 'string') {
-        throw new Error(`${context}: countries[] требует {code, name, color?}`);
+        throw new Error(`${context}: ogni elemento di countries richiede {code, name, color?}`);
       }
     }
   }
   if (raw.country_colors !== undefined) {
     if (!raw.country_colors || typeof raw.country_colors !== 'object' || Array.isArray(raw.country_colors)) {
-      throw new Error(`${context}: country_colors должен быть объектом { "USA": "#RRGGBB" }`);
+      throw new Error(`${context}: country_colors deve essere un oggetto { "USA": "#RRGGBB" }`);
     }
     for (const [code, color] of Object.entries(raw.country_colors)) {
       if (!/^[A-Z]{3}$/.test(code)) {
-        throw new Error(`${context}: country_colors — невалидный код страны "${code}" (нужен ISO_A3)`);
+        throw new Error(`${context}: country_colors — codice nazione non valido "${code}" (serve ISO_A3)`);
       }
       if (typeof color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(color)) {
-        throw new Error(`${context}: country_colors["${code}"] должен быть цветом вида "#RRGGBB"`);
+        throw new Error(`${context}: country_colors["${code}"] deve essere un colore tipo "#RRGGBB"`);
       }
     }
   }
   if (raw.prompts !== undefined) {
     if (!raw.prompts || typeof raw.prompts !== 'object' || Array.isArray(raw.prompts)) {
-      throw new Error(`${context}: prompts должен быть объектом { "<механика>": "<текст промпта>" }`);
+      throw new Error(`${context}: prompts deve essere un oggetto { "<meccanica>": "<testo del prompt>" }`);
     }
     for (const [mechanic, text] of Object.entries(raw.prompts)) {
       if (typeof text !== 'string' || !text.trim()) {
-        throw new Error(`${context}: prompts["${mechanic}"] должен быть непустой строкой`);
+        throw new Error(`${context}: prompts["${mechanic}"] deve essere una stringa non vuota`);
       }
     }
   }

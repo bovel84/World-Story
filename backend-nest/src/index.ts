@@ -8,6 +8,8 @@ import 'dotenv/config';
 
 import express from 'express';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
 import { initLLMRouter } from './llm';
 import { initDatabase } from './database';
 import { initSessionRegistry } from './session-registry';
@@ -38,6 +40,25 @@ for (const [mechanic, cfg] of Object.entries(llmRouter.describe())) {
 
 // Register all route files
 registerRoutes(app);
+
+// In produzione lo stesso processo pubblica anche la build React. Questo è
+// necessario per l'upstream del Worker Cloudflare e mantiene funzionanti le
+// rotte SPA aperte direttamente dal browser.
+const frontendDist = path.resolve(__dirname, '../../frontend/dist');
+const frontendIndex = path.join(frontendDist, 'index.html');
+if (fs.existsSync(frontendIndex)) {
+  app.use(express.static(frontendDist, {
+    index: false,
+    maxAge: '1h',
+  }));
+  app.get('*', (req, res, next) => {
+    if (req.path === '/health' || req.path.startsWith('/api/')) return next();
+    res.sendFile(frontendIndex);
+  });
+  console.log(`[Static] Frontend: ${frontendDist}`);
+} else {
+  console.warn(`[Static] Frontend build not found: ${frontendDist}`);
+}
 
 // Reload active sessions from database (survives server restart)
 sessionRegistry.reloadActiveSessions();

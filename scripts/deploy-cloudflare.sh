@@ -33,8 +33,8 @@ fi
 [ -n "$URL" ] || { log "ERRORE: tunnel non raggiungibile, controlla $TUNNEL_LOG"; exit 1; }
 log "Tunnel: $URL"
 
-# Verifica che il tunnel risponda davvero
-if ! curl -s -o /dev/null --max-time 15 "$URL/api/health"; then
+# Verifica che il tunnel risponda davvero (curl -f: anche un 404 è un fallimento)
+if ! curl -sf -o /dev/null --max-time 15 "$URL/api/health"; then
   log "ATTENZIONE: il tunnel non risponde (potrebbe essere ancora in avvio)"
 fi
 

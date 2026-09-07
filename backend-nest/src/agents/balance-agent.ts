@@ -5,8 +5,12 @@
  * Generates and updates country data (population, GDP, military, ideology, allies, enemies).
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import { LLMRouter } from '../llm';
 import { getCountry, type Country } from '../utils/countries';
+import { parseJsonLoose } from '../utils/json-repair';
 
 export interface CountryState {
   code: string;           // USA, RUS, CHN, etc.
@@ -32,7 +36,11 @@ export interface WorldState {
 
 export class BalanceAgent {
   private provider: LLMRouter;
-  private readonly BATCH_SIZE = 6; // Concurrent LLM calls - balanced for rate limits
+  // Una risposta LLM contiene più paesi: da 112 chiamate separate passiamo
+  // normalmente a 7 blocchi, elaborati con concorrenza limitata.
+  private readonly COUNTRIES_PER_REQUEST = 16;
+  private readonly REQUEST_CONCURRENCY = 3;
+  private readonly CACHE_VERSION = 2;
 
   constructor(provider: LLMRouter) {
     this.provider = provider;
@@ -50,9 +58,10 @@ export class BalanceAgent {
       base_prompt: string;
       start_date: string;
     },
-    countriesOverride?: { code: string; name: string; color: string }[]
+    countriesOverride?: { code: string; name: string; color: string }[],
+    onProgress?: (done: number, total: number) => void
   ): Promise<WorldState> {
-    console.log('[BalanceAgent] Generating initial world state for template:', template.name, '(batch size:', this.BATCH_SIZE, ')');
+    console.log('[BalanceAgent] Generating initial world state for template:', template.name);
 
     const countries = new Map<string, CountryState>();
 
@@ -66,33 +75,48 @@ export class BalanceAgent {
           .filter((c): c is Country => c !== null && c !== undefined);
 
     const total = validCountries.length;
-    console.log('[BalanceAgent] Processing', total, 'countries in parallel batches');
+    onProgress?.(0, total);
 
-    // Process in batches
-    for (let i = 0; i < validCountries.length; i += this.BATCH_SIZE) {
-      const batch = validCountries.slice(i, i + this.BATCH_SIZE);
-      const batchNum = Math.floor(i / this.BATCH_SIZE) + 1;
-      const totalBatches = Math.ceil(total / this.BATCH_SIZE);
-
-      console.log(`[BalanceAgent] Batch ${batchNum}/${totalBatches} (${batch.length} countries)...`);
-
-      // Generate state for batch in parallel
-      const results = await Promise.all(
-        batch.map(country =>
-          this.generateCountryState(country, template.start_date, template.base_prompt)
-        )
-      );
-
-      // Store results
-      for (const state of results) {
-        countries.set(state.code, state);
-      }
-
-      console.log(`[BalanceAgent] Batch ${batchNum}/${totalBatches} complete (${countries.size}/${total} countries done)`);
+    // 1) Cache per contenuto del preset: le nuove partite successive sono immediate.
+    const cached = this.loadCache(template, validCountries);
+    if (cached) {
+      onProgress?.(total, total);
+      console.log('[BalanceAgent] Cache hit:', total, 'countries');
+      return { date: template.start_date, countries: cached };
     }
 
-    // Balance the world (adjust if one country is too dominant)
+    // 2) Riusa statistiche di un mondo già generato per la stessa data e lo
+    // stesso insieme di paesi. È indipendente dalla geometria (stato/province).
+    const reused = await this.reuseExistingWorld(template, validCountries);
+    if (reused) {
+      onProgress?.(total, total);
+      this.saveCache(template, validCountries, reused);
+      console.log('[BalanceAgent] Reused an existing world:', total, 'countries');
+      return { date: template.start_date, countries: reused };
+    }
+
+    // 3) Primo avvio assoluto: blocchi da 16 paesi, tre richieste concorrenti.
+    // Il vecchio percorso faceva una chiamata per ciascuna nazione.
+    const batches: Country[][] = [];
+    for (let i = 0; i < validCountries.length; i += this.COUNTRIES_PER_REQUEST) {
+      batches.push(validCountries.slice(i, i + this.COUNTRIES_PER_REQUEST));
+    }
+    let done = 0;
+    for (let i = 0; i < batches.length; i += this.REQUEST_CONCURRENCY) {
+      const wave = batches.slice(i, i + this.REQUEST_CONCURRENCY);
+      const results = await Promise.all(wave.map(batch =>
+        this.generateCountryBatch(batch, template.start_date, template.base_prompt)
+      ));
+      for (const states of results) {
+        for (const state of states) countries.set(state.code, state);
+        done += states.length;
+        onProgress?.(Math.min(done, total), total);
+      }
+    }
+
     await this.balanceWorld(countries);
+    this.saveCache(template, validCountries, countries);
+    onProgress?.(total, total);
 
     console.log('[BalanceAgent] World generation complete:', countries.size, 'countries');
     return {
@@ -101,43 +125,214 @@ export class BalanceAgent {
     };
   }
 
+  private cacheFile(template: { id: string; start_date: string; base_prompt: string }, countries: Country[]): string {
+    const key = crypto.createHash('sha256').update(JSON.stringify({
+      version: this.CACHE_VERSION,
+      id: template.id,
+      date: template.start_date,
+      prompt: template.base_prompt,
+      countries: countries.map(c => [c.code, c.name, c.color]),
+    })).digest('hex').slice(0, 20);
+    return path.join(process.cwd(), '.cache', 'balance', `${key}.json`);
+  }
+
+  private loadCache(
+    template: { id: string; start_date: string; base_prompt: string },
+    countries: Country[],
+  ): Map<string, CountryState> | null {
+    try {
+      const file = this.cacheFile(template, countries);
+      if (!fs.existsSync(file)) return null;
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const list = Array.isArray(raw?.countries) ? raw.countries : [];
+      const map = new Map<string, CountryState>(list.map((state: CountryState) => [state.code, state]));
+      return countries.every(c => map.has(c.code)) ? map : null;
+    } catch (e) {
+      console.warn('[BalanceAgent] Cache non leggibile:', e);
+      return null;
+    }
+  }
+
+  private saveCache(
+    template: { id: string; start_date: string; base_prompt: string },
+    countries: Country[],
+    states: Map<string, CountryState>,
+  ): void {
+    try {
+      const file = this.cacheFile(template, countries);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const tmp = `${file}.tmp-${process.pid}`;
+      fs.writeFileSync(tmp, JSON.stringify({ version: this.CACHE_VERSION, countries: [...states.values()] }));
+      fs.renameSync(tmp, file);
+    } catch (e) {
+      console.warn('[BalanceAgent] Cache non scritta:', e);
+    }
+  }
+
   /**
-   * Generate state for a single country via LLM
+   * Recupera statistiche già calcolate da un mondo con stessa data e stessi
+   * paesi. Il codice geografico originario (`flag`) resta stabile anche dopo
+   * conquiste, quindi mondi nazionali e provinciali sono intercambiabili.
+   */
+  private async reuseExistingWorld(
+    template: { name: string; start_date: string },
+    countries: Country[],
+  ): Promise<Map<string, CountryState> | null> {
+    try {
+      const db = (await import('../database')).default;
+      const candidates = db.prepare(`
+        SELECT id, name FROM worlds
+        WHERE start_date = ?
+        ORDER BY CASE WHEN name LIKE ? THEN 0 ELSE 1 END, created_at DESC
+        LIMIT 30
+      `).all(template.start_date, `${template.name} -%`) as { id: string; name: string }[];
+      const required = new Set(countries.map(c => c.code));
+
+      for (const candidate of candidates) {
+        const rows = db.prepare(`
+          SELECT COALESCE(NULLIF(flag, ''), owner) AS code,
+                 SUM(population) AS population, SUM(gdp) AS gdp,
+                 SUM(military_power) AS military
+          FROM world_regions WHERE world_id = ?
+          GROUP BY COALESCE(NULLIF(flag, ''), owner)
+        `).all(candidate.id) as { code: string; population: number; gdp: number; military: number }[];
+        const stats = new Map(rows.map(row => [row.code, row]));
+        const covered = [...required].filter(code => stats.has(code)).length;
+        // Alcuni preset storici includono una politia senza geometria nel
+        // GeoJSON (es. YUG): basta una copertura quasi completa.
+        if (covered / Math.max(1, required.size) < 0.9) continue;
+
+        const relations = db.prepare(`
+          SELECT from_region_id AS fromCode, to_region_id AS toCode, relationship
+          FROM country_relationships WHERE world_id = ?
+        `).all(candidate.id) as { fromCode: string; toCode: string; relationship: string }[];
+        const allies = new Map<string, string[]>();
+        const enemies = new Map<string, string[]>();
+        for (const rel of relations) {
+          const target = rel.relationship === 'ally' ? allies : rel.relationship === 'hostile' ? enemies : null;
+          if (target && required.has(rel.fromCode) && required.has(rel.toCode)) {
+            (target.get(rel.fromCode) || (target.set(rel.fromCode, []), target.get(rel.fromCode)!)).push(rel.toCode);
+          }
+        }
+
+        const result = new Map<string, CountryState>();
+        for (const country of countries) {
+          const row = stats.get(country.code);
+          if (!row) {
+            result.set(country.code, this.defaultState(country));
+            continue;
+          }
+          const military = Math.max(1, Math.round(Number(row.military) || 1));
+          const gdp = Math.max(1, Math.round(Number(row.gdp) || 1));
+          result.set(country.code, {
+            code: country.code,
+            name: country.name,
+            color: country.color,
+            population: Math.max(100_000, Math.round(Number(row.population) || 10_000_000)),
+            gdp,
+            military,
+            ideology: this.inferIdeology(country.code, template.start_date),
+            allies: allies.get(country.code) || [],
+            enemies: enemies.get(country.code) || [],
+            status: military >= 85 || gdp >= 85 ? 'superpower'
+              : military >= 45 || gdp >= 45 ? 'major'
+              : military >= 15 || gdp >= 15 ? 'regional' : 'minor',
+          });
+        }
+        return result;
+      }
+    } catch (e) {
+      console.warn('[BalanceAgent] Riuso di un mondo precedente non disponibile:', e);
+    }
+    return null;
+  }
+
+  private inferIdeology(code: string, date: string): string {
+    const year = Number(date.slice(0, 4));
+    const communist = year < 1992
+      ? new Set(['USSR', 'RUS', 'CHN', 'PRK', 'CUB', 'VNM', 'LAO', 'POL', 'CZE', 'SVK', 'HUN', 'ROU', 'BGR', 'DDR', 'YUG'])
+      : new Set(['CHN', 'PRK', 'CUB', 'VNM', 'LAO']);
+    if (communist.has(code)) return 'comunismo';
+    const monarchies = new Set(['GBR', 'ESP', 'SWE', 'NOR', 'DNK', 'NLD', 'BEL', 'JPN', 'SAU', 'JOR', 'MAR', 'THA']);
+    return monarchies.has(code) ? 'monarchia costituzionale' : 'repubblica';
+  }
+
+  private defaultState(country: Country): CountryState {
+    return {
+      code: country.code, name: country.name, color: country.color,
+      population: 10_000_000, gdp: 10, military: 10,
+      ideology: 'neutral', allies: [], enemies: [], status: 'minor',
+    };
+  }
+
+  /** Genera fino a 16 nazioni in una singola risposta JSON. */
+  private async generateCountryBatch(countries: Country[], date: string, worldPrompt: string): Promise<CountryState[]> {
+    const system = `Genera dati geopolitici realistici. Rispondi SOLO con JSON valido nel formato
+{"countries":{"COD":{"population":numero,"gdp":numero,"military":numero,"ideology":"stringa","allies":[],"enemies":[],"status":"superpower|major|regional|minor"}}}.
+GDP e military sono indici relativi agli USA=100. Usa esclusivamente i codici forniti.`;
+    const user = `Data: ${date}\nScenario: ${worldPrompt}\nNazioni:\n${countries.map(c => `${c.code}: ${c.name}`).join('\n')}`;
+    try {
+      const response = await this.provider.generate('balance', system, user, { temperature: 0.35, jsonMode: true });
+      const parsed = parseJsonLoose<any>(response.content);
+      const rawCountries = parsed?.countries && typeof parsed.countries === 'object' ? parsed.countries : parsed;
+      return countries.map(country => {
+        const raw = rawCountries?.[country.code];
+        if (!raw || typeof raw !== 'object') return this.defaultState(country);
+        const status = ['superpower', 'major', 'regional', 'minor'].includes(raw.status) ? raw.status : 'minor';
+        return {
+          code: country.code, name: country.name, color: country.color,
+          population: Math.max(100_000, Number(raw.population) || 10_000_000),
+          gdp: Math.max(1, Number(raw.gdp) || 10),
+          military: Math.max(1, Number(raw.military) || 10),
+          ideology: String(raw.ideology || 'neutral'),
+          allies: Array.isArray(raw.allies) ? raw.allies.map(String) : [],
+          enemies: Array.isArray(raw.enemies) ? raw.enemies.map(String) : [],
+          status,
+        };
+      });
+    } catch (e) {
+      console.error('[BalanceAgent] Batch generation failed, uso valori base:', e);
+      return countries.map(country => this.defaultState(country));
+    }
+  }
+
+  /**
+   * Generate state for a single country via LLM (compatibilità/API interna).
    */
   async generateCountryState(
     country: Country,
     date: string,
     worldPrompt: string
   ): Promise<CountryState> {
-    const system = `Ты — генератор реалистичных данных для страны в альтернативной истории.
+    const system = `Sei un generatore di dati realistici per una nazione in una storia alternativa.
 
-Твоя задача — сгенерировать начальное состояние страны на основе реальных исторических данных.
+Il tuo compito è generare lo stato iniziale della nazione partendo da dati storici reali.
 
-Правила:
-1. Population — реальная численность населения на указанный год
-2. GDP — индекс относительно США = 100
-3. Military — индекс военной мощи относительно США = 100
-4. Ideology — политическая идеология страны
-5. Allies — коды стран-союзников (реальные альянсы на тот период)
-6. Enemies — коды стран-противников (реальные противоречия)
-7. Status — 'superpower', 'major', 'regional', или 'minor'
+Regole:
+1. Population — popolazione reale nell'anno indicato
+2. GDP — indice relativo agli USA = 100
+3. Military — indice di potenza militare relativo agli USA = 100
+4. Ideology — ideologia politica della nazione, in italiano (es. "democrazia", "comunismo", "monarchia")
+5. Allies — codici delle nazioni alleate (alleanze reali del periodo)
+6. Enemies — codici delle nazioni nemiche (contrasti reali)
+7. Status — 'superpower', 'major', 'regional' o 'minor'
 
-Формат ответа — ТОЛЬКО JSON:
+Formato della risposta — SOLO JSON:
 {
-  "population": число,
-  "gdp": число,
-  "military": число,
-  "ideology": "строка",
-  "allies": ["код1", "код2"],
-  "enemies": ["код1", "код2"],
+  "population": numero,
+  "gdp": numero,
+  "military": numero,
+  "ideology": "stringa",
+  "allies": ["COD1", "COD2"],
+  "enemies": ["COD1", "COD2"],
   "status": "superpower|major|regional|minor"
 }`;
 
-    const user = `Страна: ${country.name} (${country.code})
-Дата: ${date}
-Мир: ${worldPrompt}
+    const user = `Nazione: ${country.name} (${country.code})
+Data: ${date}
+Mondo: ${worldPrompt}
 
-Сгенерируй реалистичное начальное состояние этой страны.`;
+Genera uno stato iniziale realistico per questa nazione.`;
 
     try {
       const result = await this.provider.generate('balance', system, user, { temperature: 0.7 });
@@ -278,7 +473,7 @@ export class BalanceAgent {
   getWorldSummary(state: WorldState): string {
     const lines: string[] = [];
 
-    lines.push(`## Мир на ${state.date}`);
+    lines.push(`## Mondo al ${state.date}`);
     lines.push('');
 
     // Group by status
@@ -287,23 +482,23 @@ export class BalanceAgent {
     const regionals = Array.from(state.countries.values()).filter(c => c.status === 'regional');
 
     if (superpowers.length > 0) {
-      lines.push('### Сверхдержавы');
+      lines.push('### Superpotenze');
       for (const c of superpowers) {
-        lines.push(`- **${c.name}** (${c.code}): ${c.population?.toLocaleString()} чел., GDP: ${c.gdp}, Military: ${c.military}`);
+        lines.push(`- **${c.name}** (${c.code}): ${c.population?.toLocaleString('it-IT')} abitanti, PIL: ${c.gdp}, Militare: ${c.military}`);
         if (c.allies && c.allies.length > 0) {
-          lines.push(`  Союзники: ${c.allies.join(', ')}`);
+          lines.push(`  Alleati: ${c.allies.join(', ')}`);
         }
         if (c.enemies && c.enemies.length > 0) {
-          lines.push(`  Противники: ${c.enemies.join(', ')}`);
+          lines.push(`  Nemici: ${c.enemies.join(', ')}`);
         }
       }
       lines.push('');
     }
 
     if (majors.length > 0) {
-      lines.push('### Крупные державы');
+      lines.push('### Grandi potenze');
       for (const c of majors) {
-        lines.push(`- ${c.name} (${c.code}): ${c.population?.toLocaleString()} чел.`);
+        lines.push(`- ${c.name} (${c.code}): ${c.population?.toLocaleString('it-IT')} abitanti`);
       }
       lines.push('');
     }
