@@ -1,0 +1,1363 @@
+{
+  "id": "paxh_ww2_provinces",
+  "name": "Mondo Provinciale WW2 (Pax Historia)",
+  "description": "Import della mappa comunitaria di Pax Historia («Blank Map» di Isorrowproductions): province mondiali d'epoca raggruppate nelle nazioni reali. Sandbox storicamente aperta al 1939: ogni divergenza è possibile.",
+  "start_date": "1939-09-01",
+  "historical_accuracy": 0.85,
+  "country_codes": [
+    "AFG",
+    "ALD",
+    "ALB",
+    "DZA",
+    "ASM",
+    "AND",
+    "AGO",
+    "AIA",
+    "ATA",
+    "ATG",
+    "ARG",
+    "ARM",
+    "ABW",
+    "AUS",
+    "AUT",
+    "AZE",
+    "BHS",
+    "BGD",
+    "BRB",
+    "BLR",
+    "BEL",
+    "BLZ",
+    "BEN",
+    "BMU",
+    "BTN",
+    "BOL",
+    "BIH",
+    "BWA",
+    "IOT",
+    "BRA",
+    "VGB",
+    "BRN",
+    "BGR",
+    "BFA",
+    "BDI",
+    "CPV",
+    "KHM",
+    "CMR",
+    "CAN",
+    "CYM",
+    "CAF",
+    "TCD",
+    "CHL",
+    "CHN",
+    "COL",
+    "COM",
+    "COK",
+    "CRI",
+    "HRV",
+    "CUB",
+    "CUW",
+    "CYP",
+    "CZE",
+    "DNK",
+    "DJI",
+    "DMA",
+    "DOM",
+    "COD",
+    "TLS",
+    "ECU",
+    "EGY",
+    "SLV",
+    "GNQ",
+    "ERI",
+    "EST",
+    "SWZ",
+    "ETH",
+    "FRO",
+    "FLK",
+    "FJI",
+    "FIN",
+    "PYF",
+    "ATF",
+    "FRA",
+    "GAB",
+    "GMB",
+    "GEO",
+    "DEU",
+    "GHA",
+    "GRC",
+    "GRL",
+    "GRD",
+    "GTM",
+    "GGY",
+    "GIN",
+    "GNB",
+    "GUY",
+    "HTI",
+    "HND",
+    "HKG",
+    "HUN",
+    "ISL",
+    "IND",
+    "IOA",
+    "IDN",
+    "IRN",
+    "IRQ",
+    "IRL",
+    "IMN",
+    "ISR",
+    "ITA",
+    "CIV",
+    "JAM",
+    "JPN",
+    "JEY",
+    "JOR",
+    "KAZ",
+    "KEN",
+    "KOS",
+    "KWT",
+    "KGZ",
+    "LAO",
+    "LVA",
+    "LBN",
+    "LSO",
+    "LBR",
+    "LBY",
+    "LIE",
+    "LTU",
+    "LUX",
+    "MDG",
+    "MWI",
+    "MYS",
+    "MLI",
+    "MLT",
+    "MRT",
+    "MUS",
+    "MEX",
+    "MDA",
+    "MNG",
+    "MNE",
+    "MSR",
+    "MAR",
+    "MOZ",
+    "MMR",
+    "CYN",
+    "NAM",
+    "NPL",
+    "NLD",
+    "NCL",
+    "NZL",
+    "NIC",
+    "NER",
+    "NGA",
+    "NIU",
+    "PRK",
+    "MKD",
+    "NOR",
+    "OMN",
+    "PAK",
+    "PLW",
+    "PSE",
+    "PAN",
+    "PNG",
+    "PRY",
+    "PER",
+    "PHL",
+    "PCN",
+    "POL",
+    "PRT",
+    "PRI",
+    "QAT",
+    "COG",
+    "ROU",
+    "RUS",
+    "RWA",
+    "SGS",
+    "SDS",
+    "SHN",
+    "LCA",
+    "WSM",
+    "SMR",
+    "STP",
+    "SAU",
+    "SEN",
+    "SRB",
+    "SYC",
+    "SLE",
+    "SXM",
+    "SVK",
+    "SVN",
+    "SLB",
+    "SOM",
+    "SOL",
+    "ZAF",
+    "KOR",
+    "ESP",
+    "LKA",
+    "BLM",
+    "MAF",
+    "KNA",
+    "SPM",
+    "VCT",
+    "SDN",
+    "SUR",
+    "SWE",
+    "CHE",
+    "SYR",
+    "TWN",
+    "TJK",
+    "TZA",
+    "THA",
+    "TGO",
+    "TON",
+    "TTO",
+    "TUN",
+    "TUR",
+    "TKM",
+    "VIR",
+    "UGA",
+    "UKR",
+    "ARE",
+    "GBR",
+    "USA",
+    "URY",
+    "UZB",
+    "VUT",
+    "VEN",
+    "VNM",
+    "SAH",
+    "YEM",
+    "ZMB",
+    "ZWE"
+  ],
+  "countries": [
+    {
+      "code": "AFG",
+      "name": "Afghanistan",
+      "color": "#BF2A37"
+    },
+    {
+      "code": "ALD",
+      "name": "Åland",
+      "color": "#38c28c"
+    },
+    {
+      "code": "ALB",
+      "name": "Albania",
+      "color": "#E41E20"
+    },
+    {
+      "code": "DZA",
+      "name": "Algeria",
+      "color": "#006633"
+    },
+    {
+      "code": "ASM",
+      "name": "American Samoa",
+      "color": "#8947bd"
+    },
+    {
+      "code": "AND",
+      "name": "Andorra",
+      "color": "#ae8e42"
+    },
+    {
+      "code": "AGO",
+      "name": "Angola",
+      "color": "#CC0000"
+    },
+    {
+      "code": "AIA",
+      "name": "Anguilla",
+      "color": "#8940ba"
+    },
+    {
+      "code": "ATA",
+      "name": "Antarctica",
+      "color": "#c25d51"
+    },
+    {
+      "code": "ATG",
+      "name": "Antigua and Barb.",
+      "color": "#46ad34"
+    },
+    {
+      "code": "ARG",
+      "name": "Argentina",
+      "color": "#74ACDF"
+    },
+    {
+      "code": "ARM",
+      "name": "Armenia",
+      "color": "#D90000"
+    },
+    {
+      "code": "ABW",
+      "name": "Aruba",
+      "color": "#5db238"
+    },
+    {
+      "code": "AUS",
+      "name": "Australia",
+      "color": "#00008B"
+    },
+    {
+      "code": "AUT",
+      "name": "Austria",
+      "color": "#ED2939"
+    },
+    {
+      "code": "AZE",
+      "name": "Azerbaijan",
+      "color": "#00AAFF"
+    },
+    {
+      "code": "BHS",
+      "name": "Bahamas",
+      "color": "#bb54a4"
+    },
+    {
+      "code": "BGD",
+      "name": "Bangladesh",
+      "color": "#006A4E"
+    },
+    {
+      "code": "BRB",
+      "name": "Barbados",
+      "color": "#82389f"
+    },
+    {
+      "code": "BLR",
+      "name": "Belarus",
+      "color": "#D4213D"
+    },
+    {
+      "code": "BEL",
+      "name": "Belgium",
+      "color": "#000000"
+    },
+    {
+      "code": "BLZ",
+      "name": "Belize",
+      "color": "#97356b"
+    },
+    {
+      "code": "BEN",
+      "name": "Benin",
+      "color": "#008751"
+    },
+    {
+      "code": "BMU",
+      "name": "Bermuda",
+      "color": "#b04fac"
+    },
+    {
+      "code": "BTN",
+      "name": "Bhutan",
+      "color": "#FFCC00"
+    },
+    {
+      "code": "BOL",
+      "name": "Bolivia",
+      "color": "#007934"
+    },
+    {
+      "code": "BIH",
+      "name": "Bosnia and Herzegovina",
+      "color": "#002299"
+    },
+    {
+      "code": "BWA",
+      "name": "Botswana",
+      "color": "#00B4E1"
+    },
+    {
+      "code": "IOT",
+      "name": "Br. Indian Ocean Ter.",
+      "color": "#5b70b9"
+    },
+    {
+      "code": "BRA",
+      "name": "Brazil",
+      "color": "#009C3B"
+    },
+    {
+      "code": "VGB",
+      "name": "British Virgin Is.",
+      "color": "#983a5e"
+    },
+    {
+      "code": "BRN",
+      "name": "Brunei",
+      "color": "#CC0000"
+    },
+    {
+      "code": "BGR",
+      "name": "Bulgaria",
+      "color": "#00966E"
+    },
+    {
+      "code": "BFA",
+      "name": "Burkina Faso",
+      "color": "#EF2B2D"
+    },
+    {
+      "code": "BDI",
+      "name": "Burundi",
+      "color": "#CF081F"
+    },
+    {
+      "code": "CPV",
+      "name": "Cabo Verde",
+      "color": "#ac40ba"
+    },
+    {
+      "code": "KHM",
+      "name": "Cambodia",
+      "color": "#032EA1"
+    },
+    {
+      "code": "CMR",
+      "name": "Cameroon",
+      "color": "#007A3D"
+    },
+    {
+      "code": "CAN",
+      "name": "Canada",
+      "color": "#FF0000"
+    },
+    {
+      "code": "CYM",
+      "name": "Cayman Is.",
+      "color": "#b33d64"
+    },
+    {
+      "code": "CAF",
+      "name": "Central African Republic",
+      "color": "#0033AB"
+    },
+    {
+      "code": "TCD",
+      "name": "Chad",
+      "color": "#C11230"
+    },
+    {
+      "code": "CHL",
+      "name": "Chile",
+      "color": "#D52B1E"
+    },
+    {
+      "code": "CHN",
+      "name": "China",
+      "color": "#DE2910"
+    },
+    {
+      "code": "COL",
+      "name": "Colombia",
+      "color": "#FCD116"
+    },
+    {
+      "code": "COM",
+      "name": "Comoros",
+      "color": "#3a8498"
+    },
+    {
+      "code": "COK",
+      "name": "Cook Is.",
+      "color": "#995bbe"
+    },
+    {
+      "code": "CRI",
+      "name": "Costa Rica",
+      "color": "#03328C"
+    },
+    {
+      "code": "HRV",
+      "name": "Croatia",
+      "color": "#171796"
+    },
+    {
+      "code": "CUB",
+      "name": "Cuba",
+      "color": "#002A8F"
+    },
+    {
+      "code": "CUW",
+      "name": "Curaçao",
+      "color": "#41a469"
+    },
+    {
+      "code": "CYP",
+      "name": "Cyprus",
+      "color": "#c2863d"
+    },
+    {
+      "code": "CZE",
+      "name": "Czech Republic",
+      "color": "#11457E"
+    },
+    {
+      "code": "DNK",
+      "name": "Denmark",
+      "color": "#C8102E"
+    },
+    {
+      "code": "DJI",
+      "name": "Djibouti",
+      "color": "#6DBE45"
+    },
+    {
+      "code": "DMA",
+      "name": "Dominica",
+      "color": "#3db842"
+    },
+    {
+      "code": "DOM",
+      "name": "Dominican Republic",
+      "color": "#002D62"
+    },
+    {
+      "code": "COD",
+      "name": "DR Congo",
+      "color": "#007FFF"
+    },
+    {
+      "code": "TLS",
+      "name": "East Timor",
+      "color": "#FFC412"
+    },
+    {
+      "code": "ECU",
+      "name": "Ecuador",
+      "color": "#FF0A00"
+    },
+    {
+      "code": "EGY",
+      "name": "Egypt",
+      "color": "#C09300"
+    },
+    {
+      "code": "SLV",
+      "name": "El Salvador",
+      "color": "#0047A0"
+    },
+    {
+      "code": "GNQ",
+      "name": "Equatorial Guinea",
+      "color": "#3D8B37"
+    },
+    {
+      "code": "ERI",
+      "name": "Eritrea",
+      "color": "#4393DD"
+    },
+    {
+      "code": "EST",
+      "name": "Estonia",
+      "color": "#0072CE"
+    },
+    {
+      "code": "SWZ",
+      "name": "Eswatini",
+      "color": "#CE1126"
+    },
+    {
+      "code": "ETH",
+      "name": "Ethiopia",
+      "color": "#078930"
+    },
+    {
+      "code": "FRO",
+      "name": "Faeroe Is.",
+      "color": "#a84a34"
+    },
+    {
+      "code": "FLK",
+      "name": "Falkland Is.",
+      "color": "#41a48c"
+    },
+    {
+      "code": "FJI",
+      "name": "Fiji",
+      "color": "#68BFE5"
+    },
+    {
+      "code": "FIN",
+      "name": "Finland",
+      "color": "#003580"
+    },
+    {
+      "code": "PYF",
+      "name": "Fr. Polynesia",
+      "color": "#b2bb54"
+    },
+    {
+      "code": "ATF",
+      "name": "Fr. S. Antarctic Lands",
+      "color": "#a83467"
+    },
+    {
+      "code": "FRA",
+      "name": "France",
+      "color": "#002395"
+    },
+    {
+      "code": "GAB",
+      "name": "Gabon",
+      "color": "#009E60"
+    },
+    {
+      "code": "GMB",
+      "name": "Gambia",
+      "color": "#c74379"
+    },
+    {
+      "code": "GEO",
+      "name": "Georgia",
+      "color": "#FF0000"
+    },
+    {
+      "code": "DEU",
+      "name": "Germany",
+      "color": "#000000"
+    },
+    {
+      "code": "GHA",
+      "name": "Ghana",
+      "color": "#FCD116"
+    },
+    {
+      "code": "GRC",
+      "name": "Greece",
+      "color": "#0D5EAF"
+    },
+    {
+      "code": "GRL",
+      "name": "Greenland",
+      "color": "#914055"
+    },
+    {
+      "code": "GRD",
+      "name": "Grenada",
+      "color": "#ba4089"
+    },
+    {
+      "code": "GTM",
+      "name": "Guatemala",
+      "color": "#4997D0"
+    },
+    {
+      "code": "GGY",
+      "name": "Guernsey",
+      "color": "#3e3bbf"
+    },
+    {
+      "code": "GIN",
+      "name": "Guinea",
+      "color": "#c2b747"
+    },
+    {
+      "code": "GNB",
+      "name": "Guinea-Bissau",
+      "color": "#0072C6"
+    },
+    {
+      "code": "GUY",
+      "name": "Guyana",
+      "color": "#FCD116"
+    },
+    {
+      "code": "HTI",
+      "name": "Haiti",
+      "color": "#00209F"
+    },
+    {
+      "code": "HND",
+      "name": "Honduras",
+      "color": "#0073CE"
+    },
+    {
+      "code": "HKG",
+      "name": "Hong Kong",
+      "color": "#DE2910"
+    },
+    {
+      "code": "HUN",
+      "name": "Hungary",
+      "color": "#CD2A3E"
+    },
+    {
+      "code": "ISL",
+      "name": "Iceland",
+      "color": "#003897"
+    },
+    {
+      "code": "IND",
+      "name": "India",
+      "color": "#FF9933"
+    },
+    {
+      "code": "IOA",
+      "name": "Indian Ocean Ter.",
+      "color": "#51b368"
+    },
+    {
+      "code": "IDN",
+      "name": "Indonesia",
+      "color": "#FF0000"
+    },
+    {
+      "code": "IRN",
+      "name": "Iran",
+      "color": "#239F40"
+    },
+    {
+      "code": "IRQ",
+      "name": "Iraq",
+      "color": "#000000"
+    },
+    {
+      "code": "IRL",
+      "name": "Ireland",
+      "color": "#169B62"
+    },
+    {
+      "code": "IMN",
+      "name": "Isle of Man",
+      "color": "#474fb8"
+    },
+    {
+      "code": "ISR",
+      "name": "Israel",
+      "color": "#0038B8"
+    },
+    {
+      "code": "ITA",
+      "name": "Italy",
+      "color": "#008C45"
+    },
+    {
+      "code": "CIV",
+      "name": "Ivory Coast",
+      "color": "#FF8200"
+    },
+    {
+      "code": "JAM",
+      "name": "Jamaica",
+      "color": "#009B3A"
+    },
+    {
+      "code": "JPN",
+      "name": "Japan",
+      "color": "#FFFFFF"
+    },
+    {
+      "code": "JEY",
+      "name": "Jersey",
+      "color": "#acc251"
+    },
+    {
+      "code": "JOR",
+      "name": "Jordan",
+      "color": "#007A3D"
+    },
+    {
+      "code": "KAZ",
+      "name": "Kazakhstan",
+      "color": "#00AFCA"
+    },
+    {
+      "code": "KEN",
+      "name": "Kenya",
+      "color": "#006600"
+    },
+    {
+      "code": "KOS",
+      "name": "Kosovo",
+      "color": "#4fc977"
+    },
+    {
+      "code": "KWT",
+      "name": "Kuwait",
+      "color": "#007A3D"
+    },
+    {
+      "code": "KGZ",
+      "name": "Kyrgyzstan",
+      "color": "#E8112D"
+    },
+    {
+      "code": "LAO",
+      "name": "Laos",
+      "color": "#CE1126"
+    },
+    {
+      "code": "LVA",
+      "name": "Latvia",
+      "color": "#9E3039"
+    },
+    {
+      "code": "LBN",
+      "name": "Lebanon",
+      "color": "#FF0000"
+    },
+    {
+      "code": "LSO",
+      "name": "Lesotho",
+      "color": "#00209F"
+    },
+    {
+      "code": "LBR",
+      "name": "Liberia",
+      "color": "#C4111B"
+    },
+    {
+      "code": "LBY",
+      "name": "Libya",
+      "color": "#E7000E"
+    },
+    {
+      "code": "LIE",
+      "name": "Liechtenstein",
+      "color": "#ab6f49"
+    },
+    {
+      "code": "LTU",
+      "name": "Lithuania",
+      "color": "#006B3F"
+    },
+    {
+      "code": "LUX",
+      "name": "Luxembourg",
+      "color": "#4fc989"
+    },
+    {
+      "code": "MDG",
+      "name": "Madagascar",
+      "color": "#0072C6"
+    },
+    {
+      "code": "MWI",
+      "name": "Malawi",
+      "color": "#000000"
+    },
+    {
+      "code": "MYS",
+      "name": "Malaysia",
+      "color": "#CC0001"
+    },
+    {
+      "code": "MLI",
+      "name": "Mali",
+      "color": "#389928"
+    },
+    {
+      "code": "MLT",
+      "name": "Malta",
+      "color": "#3da95f"
+    },
+    {
+      "code": "MRT",
+      "name": "Mauritania",
+      "color": "#C09300"
+    },
+    {
+      "code": "MUS",
+      "name": "Mauritius",
+      "color": "#3d8bc7"
+    },
+    {
+      "code": "MEX",
+      "name": "Mexico",
+      "color": "#006847"
+    },
+    {
+      "code": "MDA",
+      "name": "Moldova",
+      "color": "#003F87"
+    },
+    {
+      "code": "MNG",
+      "name": "Mongolia",
+      "color": "#C60030"
+    },
+    {
+      "code": "MNE",
+      "name": "Montenegro",
+      "color": "#C6363C"
+    },
+    {
+      "code": "MSR",
+      "name": "Montserrat",
+      "color": "#4cb7bd"
+    },
+    {
+      "code": "MAR",
+      "name": "Morocco",
+      "color": "#C1272D"
+    },
+    {
+      "code": "MOZ",
+      "name": "Mozambique",
+      "color": "#009A48"
+    },
+    {
+      "code": "MMR",
+      "name": "Myanmar",
+      "color": "#FFCD00"
+    },
+    {
+      "code": "CYN",
+      "name": "N. Cyprus",
+      "color": "#42b83d"
+    },
+    {
+      "code": "NAM",
+      "name": "Namibia",
+      "color": "#0033A1"
+    },
+    {
+      "code": "NPL",
+      "name": "Nepal",
+      "color": "#DC143C"
+    },
+    {
+      "code": "NLD",
+      "name": "Netherlands",
+      "color": "#AE1C28"
+    },
+    {
+      "code": "NCL",
+      "name": "New Caledonia",
+      "color": "#b836ba"
+    },
+    {
+      "code": "NZL",
+      "name": "New Zealand",
+      "color": "#00247D"
+    },
+    {
+      "code": "NIC",
+      "name": "Nicaragua",
+      "color": "#0A3682"
+    },
+    {
+      "code": "NER",
+      "name": "Niger",
+      "color": "#E3701B"
+    },
+    {
+      "code": "NGA",
+      "name": "Nigeria",
+      "color": "#008751"
+    },
+    {
+      "code": "NIU",
+      "name": "Niue",
+      "color": "#4cc23d"
+    },
+    {
+      "code": "PRK",
+      "name": "North Korea",
+      "color": "#024FA2"
+    },
+    {
+      "code": "MKD",
+      "name": "North Macedonia",
+      "color": "#D20000"
+    },
+    {
+      "code": "NOR",
+      "name": "Norway",
+      "color": "#EF2B2D"
+    },
+    {
+      "code": "OMN",
+      "name": "Oman",
+      "color": "#007A3D"
+    },
+    {
+      "code": "PAK",
+      "name": "Pakistan",
+      "color": "#01411C"
+    },
+    {
+      "code": "PLW",
+      "name": "Palau",
+      "color": "#4E2D88"
+    },
+    {
+      "code": "PSE",
+      "name": "Palestine",
+      "color": "#11457E"
+    },
+    {
+      "code": "PAN",
+      "name": "Panama",
+      "color": "#EA3B2E"
+    },
+    {
+      "code": "PNG",
+      "name": "Papua New Guinea",
+      "color": "#CE1126"
+    },
+    {
+      "code": "PRY",
+      "name": "Paraguay",
+      "color": "#0038A8"
+    },
+    {
+      "code": "PER",
+      "name": "Peru",
+      "color": "#D91023"
+    },
+    {
+      "code": "PHL",
+      "name": "Philippines",
+      "color": "#0038A8"
+    },
+    {
+      "code": "PCN",
+      "name": "Pitcairn Is.",
+      "color": "#7740c4"
+    },
+    {
+      "code": "POL",
+      "name": "Poland",
+      "color": "#DC143C"
+    },
+    {
+      "code": "PRT",
+      "name": "Portugal",
+      "color": "#006600"
+    },
+    {
+      "code": "PRI",
+      "name": "Puerto Rico",
+      "color": "#42ae87"
+    },
+    {
+      "code": "QAT",
+      "name": "Qatar",
+      "color": "#8D1B3D"
+    },
+    {
+      "code": "COG",
+      "name": "Republic of Congo",
+      "color": "#2A5F13"
+    },
+    {
+      "code": "ROU",
+      "name": "Romania",
+      "color": "#002B7F"
+    },
+    {
+      "code": "RUS",
+      "name": "Russia",
+      "color": "#D52B1E"
+    },
+    {
+      "code": "RWA",
+      "name": "Rwanda",
+      "color": "#00A1DE"
+    },
+    {
+      "code": "SGS",
+      "name": "S. Geo. and the Is.",
+      "color": "#9ebb5d"
+    },
+    {
+      "code": "SDS",
+      "name": "S. Sudan",
+      "color": "#514294"
+    },
+    {
+      "code": "SHN",
+      "name": "Saint Helena",
+      "color": "#baae40"
+    },
+    {
+      "code": "LCA",
+      "name": "Saint Lucia",
+      "color": "#42bdb5"
+    },
+    {
+      "code": "WSM",
+      "name": "Samoa",
+      "color": "#CE1126"
+    },
+    {
+      "code": "SMR",
+      "name": "San Marino",
+      "color": "#b34291"
+    },
+    {
+      "code": "STP",
+      "name": "São Tomé and Principe",
+      "color": "#c05c59"
+    },
+    {
+      "code": "SAU",
+      "name": "Saudi Arabia",
+      "color": "#006C35"
+    },
+    {
+      "code": "SEN",
+      "name": "Senegal",
+      "color": "#008C51"
+    },
+    {
+      "code": "SRB",
+      "name": "Serbia",
+      "color": "#0C4076"
+    },
+    {
+      "code": "SYC",
+      "name": "Seychelles",
+      "color": "#8abb54"
+    },
+    {
+      "code": "SLE",
+      "name": "Sierra Leone",
+      "color": "#1EB53A"
+    },
+    {
+      "code": "SXM",
+      "name": "Sint Maarten",
+      "color": "#8aab49"
+    },
+    {
+      "code": "SVK",
+      "name": "Slovakia",
+      "color": "#0B4EA2"
+    },
+    {
+      "code": "SVN",
+      "name": "Slovenia",
+      "color": "#005BB0"
+    },
+    {
+      "code": "SLB",
+      "name": "Solomon Islands",
+      "color": "#0051BA"
+    },
+    {
+      "code": "SOM",
+      "name": "Somalia",
+      "color": "#4185DD"
+    },
+    {
+      "code": "SOL",
+      "name": "Somaliland",
+      "color": "#589735"
+    },
+    {
+      "code": "ZAF",
+      "name": "South Africa",
+      "color": "#007A3D"
+    },
+    {
+      "code": "KOR",
+      "name": "South Korea",
+      "color": "#003478"
+    },
+    {
+      "code": "ESP",
+      "name": "Spain",
+      "color": "#AA151B"
+    },
+    {
+      "code": "LKA",
+      "name": "Sri Lanka",
+      "color": "#8D153A"
+    },
+    {
+      "code": "BLM",
+      "name": "St-Barthélemy",
+      "color": "#a8345b"
+    },
+    {
+      "code": "MAF",
+      "name": "St-Martin",
+      "color": "#8433a3"
+    },
+    {
+      "code": "KNA",
+      "name": "St. Kitts and Nevis",
+      "color": "#5d5bb9"
+    },
+    {
+      "code": "SPM",
+      "name": "St. Pierre and Miquelon",
+      "color": "#399391"
+    },
+    {
+      "code": "VCT",
+      "name": "St. Vin. and Gren.",
+      "color": "#40b08c"
+    },
+    {
+      "code": "SDN",
+      "name": "Sudan",
+      "color": "#D4213D"
+    },
+    {
+      "code": "SUR",
+      "name": "Suriname",
+      "color": "#377E3F"
+    },
+    {
+      "code": "SWE",
+      "name": "Sweden",
+      "color": "#006AA7"
+    },
+    {
+      "code": "CHE",
+      "name": "Switzerland",
+      "color": "#FF0000"
+    },
+    {
+      "code": "SYR",
+      "name": "Syria",
+      "color": "#E7000E"
+    },
+    {
+      "code": "TWN",
+      "name": "Taiwan",
+      "color": "#FE0000"
+    },
+    {
+      "code": "TJK",
+      "name": "Tajikistan",
+      "color": "#DF0000"
+    },
+    {
+      "code": "TZA",
+      "name": "Tanzania",
+      "color": "#1EB53A"
+    },
+    {
+      "code": "THA",
+      "name": "Thailand",
+      "color": "#A51931"
+    },
+    {
+      "code": "TGO",
+      "name": "Togo",
+      "color": "#006B3F"
+    },
+    {
+      "code": "TON",
+      "name": "Tonga",
+      "color": "#C10000"
+    },
+    {
+      "code": "TTO",
+      "name": "Trinidad and Tobago",
+      "color": "#C8102E"
+    },
+    {
+      "code": "TUN",
+      "name": "Tunisia",
+      "color": "#E7000E"
+    },
+    {
+      "code": "TUR",
+      "name": "Turkey",
+      "color": "#E30A17"
+    },
+    {
+      "code": "TKM",
+      "name": "Turkmenistan",
+      "color": "#008272"
+    },
+    {
+      "code": "VIR",
+      "name": "U.S. Virgin Is.",
+      "color": "#7d52c7"
+    },
+    {
+      "code": "UGA",
+      "name": "Uganda",
+      "color": "#D42229"
+    },
+    {
+      "code": "UKR",
+      "name": "Ukraine",
+      "color": "#0057B8"
+    },
+    {
+      "code": "ARE",
+      "name": "United Arab Emirates",
+      "color": "#00732F"
+    },
+    {
+      "code": "GBR",
+      "name": "United Kingdom",
+      "color": "#012169"
+    },
+    {
+      "code": "USA",
+      "name": "United States",
+      "color": "#3C3B6E"
+    },
+    {
+      "code": "URY",
+      "name": "Uruguay",
+      "color": "#FFCC00"
+    },
+    {
+      "code": "UZB",
+      "name": "Uzbekistan",
+      "color": "#0099B5"
+    },
+    {
+      "code": "VUT",
+      "name": "Vanuatu",
+      "color": "#D21034"
+    },
+    {
+      "code": "VEN",
+      "name": "Venezuela",
+      "color": "#FFCC00"
+    },
+    {
+      "code": "VNM",
+      "name": "Vietnam",
+      "color": "#DA251D"
+    },
+    {
+      "code": "SAH",
+      "name": "W. Sahara",
+      "color": "#b54a5c"
+    },
+    {
+      "code": "YEM",
+      "name": "Yemen",
+      "color": "#CE1126"
+    },
+    {
+      "code": "ZMB",
+      "name": "Zambia",
+      "color": "#09883A"
+    },
+    {
+      "code": "ZWE",
+      "name": "Zimbabwe",
+      "color": "#319800"
+    }
+  ],
+  "country_colors": {
+    "CHN": "#C49A5A",
+    "FRA": "#4A6FA5",
+    "DEU": "#6B6B5A",
+    "ITA": "#4F8560",
+    "JPN": "#D9C77A",
+    "POL": "#B87A8C",
+    "RUS": "#8B3A2E",
+    "GBR": "#C46A7E",
+    "USA": "#7B9EC7"
+  },
+  "base_prompt": "Settembre 1939. Il mondo disegnato provincia per provincia è sull'orlo della guerra totale. Le potenze europee manovrano tra alleanze fragili e ambizioni imperiali; gli Stati Uniti restano isolazionisti dietro l'oceano; il Giappone dilania la Cina; l'Urss osserva e aspetta. Ogni nazione ha eserciti, economie e debolezze reali dell'epoca, ma la storia non è scritta: ogni decisione può ridisegnare i confini di questo mondo in guerra.",
+  "author": "importato da paxhistoria.co (mappa: Isorrowproductions)",
+  "version": "1.0"
+}

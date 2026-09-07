@@ -1,0 +1,38 @@
+{
+  "id": "pax_arena",
+  "name": "Pax Arena",
+  "description": "Arenà geopolitica libera: 12 potenze fittizie con personalità estreme, un continente da dividere, nessuna regola tranne la sopravvivenza. Modalità arcade rapida.",
+  "country_codes": [
+    "USA",
+    "RUS",
+    "CHN",
+    "GBR",
+    "FRA",
+    "DEU",
+    "ITA",
+    "BRA",
+    "IND",
+    "JPN",
+    "EGY",
+    "AUS"
+  ],
+  "country_colors": {
+    "USA": "#4A6FA5",
+    "RUS": "#8B3A2E",
+    "CHN": "#C49A3A",
+    "GBR": "#7E4A7E",
+    "FRA": "#3A5E8B",
+    "DEU": "#5A5A4A",
+    "ITA": "#4F8B5E",
+    "BRA": "#4A8B3A",
+    "IND": "#C97A3A",
+    "JPN": "#D9B7CB",
+    "EGY": "#B7A35A",
+    "AUS": "#5E9EA8"
+  },
+  "base_prompt": "Pax Arena: un mondo parallelo in cui dodici potenze si contendono la supremazia su un continente inebollito. Ogni nazione è guidata da una personalità estrema e caricaturale: l'espansionista, il diplomate cinico, l'isolazionista paranoico, il mercante opportunistico. La tecnologia è contemporanea, la geografia reale, ma le alleanze sono fluenti e i leader imprevedibili. Il gioco è veloce e aggressivo: le crisi esplodono rapidamente, i tradimenti sono all'ordine del giorno, e l'equilibrio di potenza si ribalta in pochi turni. Nessuna regola tranne una: sopravvivere e dominare.",
+  "start_date": "2025-01-01",
+  "historical_accuracy": 0.2,
+  "author": "Zeus per Andrea",
+  "version": "1.0"
+}

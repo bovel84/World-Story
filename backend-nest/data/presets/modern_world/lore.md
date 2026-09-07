@@ -1,15 +1,15 @@
-2024 год. Однополярный момент уходит в прошлое: США по-прежнему первая держава мира,
-но Китай вплотную приблизился по экономике и бросает вызов в технологиях, торговле
-и Азиатско-Тихоокеанском регионе.
-Россия ведёт затяжной конфликт на постсоветском пространстве и переориентирует экономику
-на Восток; беспрецедентные санкции перекроили мировые потоки энергоносителей и зерна.
-Европа ищет стратегическую автономию, страдая от дорогой энергии, войны у границ
-и стареющего населения. Ближний Восток нестабилен: противостояние Ирана и Израиля,
-незавершённые войны в Сирии и Йемене, борьба за влияние между региональными центрами силы.
-Африка — арена конкуренции за ресурсы и инфраструктуру; самый молодой континент растёт
-быстрее всех и всё громче заявляет о себе. Индия и Юго-Восточная Азия — новые фабрики мира,
-балансирующие между Вашингтоном и Пекином.
-Климатические катаклизмы, миграционные потоки, гонка ИИ и хрупкие цепочки поставок
-держат мир в постоянном напряжении. Старые альянсы укрепляются и расширяются,
-новые коалиции складываются на глазах — от BRICS до неформальных «срединных держав».
-Любое решение может изменить баланс сил — этот мир переписывается тобой.
+Anno 2024. Il momento unipolare è ormai alle spalle: gli USA restano la prima potenza mondiale,
+ma la Cina li ha quasi raggiunti in economia e sfida la loro leadership in tecnologia, commercio
+e nell'area Asia-Pacifico.
+La Russia è impegnata in un conflitto protratto nello spazio post-sovietico e riorienta la propria
+economia verso Oriente; sanzioni senza precedenti hanno ridisegnato i flussi mondiali di energia e grano.
+L'Europa cerca l'autonomia strategica, pagando il prezzo dell'energia cara, della guerra ai confini
+e dell'invecchiamento della popolazione. Il Medio Oriente è instabile: la contrapposizione tra Iran
+e Israele, le guerre incomplete in Siria e Yemen, la lotta per l'influenza tra i poli regionali.
+L'Africa è l'arena della competizione per risorse e infrastrutture: il continente più giovane cresce
+più in fretta di tutti e si fa sentire sempre di più. India e Sud-est asiatico sono le nuove fabbriche
+del mondo, in bilico tra Washington e Pechino.
+Cataclismi climatici, flussi migratori, corsa all'IA e fragili catene di approvvigionamento
+mantengono il mondo in tensione costante. Le vecchie alleanze si consolidano e si allargano,
+nuove coalizioni si formano sotto i nostri occhi — dal BRICS alle informali «potenze mediane».
+Ogni decisione può cambiare l'equilibrio delle forze — questo mondo lo riscrivi tu.

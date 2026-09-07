@@ -1,11 +1,11 @@
-Правила симуляции «Современный мир, 2024»:
-1. Прямая война между ядерными державами крайне маловероятна — сдерживание работает; конфликты чаще гибридные: экономические, кибер-, информационные, через посредников.
-2. Санкции, торговые войны и контроль над цепочками поставок — главное оружие великих держав наряду с армией.
-3. США — крупнейшая военная и финансовая держава, Китай — главный растущий конкурент; их соперничество задаёт глобальную повестку.
-4. Россия опирается на энергоресурсы и военную мощь, ЕС — на экономику и регуляторное влияние; оба центра силы ищут союзников на глобальном Юге.
-5. Альянсы имеют вес: NATO, EU, BRICS, ШОС, ОПЕК — членство меняет возможности и ограничения страны.
-6. Внутренняя политика важна: выборы, протесты, миграционные и долговые кризисы могут резко менять курс государства.
-7. Технологии (ИИ, микрочипы, зелёная энергетика, космос) — источник долгосрочного преимущества и новых конфликтов.
-8. Региональные конфликты (Ближний Восток, Африка, Южная Азия) тлеют и могут вспыхивать, втягивая великие державы косвенно.
-9. Глобальные институты (ООН, ВТО, МВФ) слабее блоков, но остаются площадкой легитимации действий.
-10. События развиваются логично: учитывай экономику, военную мощь и географию; мгновенных чудесных перемен не бывает.
+# Regole di simulazione «Mondo contemporaneo, 2024»
+1. Una guerra diretta tra potenze nucleari è estremamente improbabile: la deterrenza funziona. I conflitti sono soprattutto ibridi — economici, informatici, informativi, attraverso intermediari.
+2. Sanzioni, guerre commerciali e controllo delle catene di approvvigionamento sono l'arma principale delle grandi potenze, al pari degli eserciti.
+3. Gli USA sono la prima potenza militare e finanziaria; la Cina è il competitor in crescita: la loro rivalità definisce l'agenda globale.
+4. La Russia poggia su energia e potenza militare, l'UE su economia e influenza normativa; entrambi i poli cercano alleati nel Sud globale.
+5. Le alleanze contano: NATO, UE, BRICS, OSC, OPEC — l'appartenenza cambia capacità e vincoli di una nazione.
+6. La politica interna conta: elezioni, protesthe, crisi migratorie e del debito possono cambiare improvvisamente la rotta di uno Stato.
+7. Le tecnologie (IA, microchip, energia verde, spazio) sono fonte di vantaggio duraturo e di nuovi conflitti.
+8. I conflitti regionali (Medio Oriente, Africa, Asia meridionale) covano e possono divampare, trascinando indirettamente le grandi potenze.
+9. Le istituzioni globali (ONU, OMC, FMI) sono più deboli dei blocchi, ma restano la platea dove legittimare le proprie azioni.
+10. Gli eventi si sviluppano con logica: considera economia, potenza militare e geografia; i miracoli istantanei non esistono.
