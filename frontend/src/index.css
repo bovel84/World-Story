@@ -1152,3 +1152,85 @@
   .news-flash-archive { grid-column: 1; }
   .news-flash-actions { grid-column: 2; }
 }
+
+/* Dettaglio da archivio: il portal lo sottrae al drawer (che ha overflow e
+   backdrop-filter) e lo presenta come una lettura centrata e non come una
+   pagina di giornale enorme/tagliata. */
+.article-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1900 !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 24px !important;
+  background: rgba(2, 8, 18, .68) !important;
+  backdrop-filter: blur(5px) !important;
+}
+.article-overlay .newspaper-article {
+  width: min(680px, 100%) !important;
+  max-height: min(760px, calc(100dvh - 48px)) !important;
+  overflow: auto !important;
+  border: 1px solid #6c5ca9 !important;
+  border-radius: 18px !important;
+  background: linear-gradient(145deg, #172744, #0d1729 72%) !important;
+  color: #eaf2ff !important;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .62) !important;
+  animation: news-flash-in .18s ease-out !important;
+}
+.article-overlay .newspaper-article-header {
+  padding: 16px 62px 14px 20px !important;
+  border-bottom: 1px solid #405776 !important;
+  background: #1a2c49 !important;
+  text-align: left !important;
+}
+.article-overlay .newspaper-masthead {
+  color: #f2f6ff !important;
+  font: 750 18px/1.1 system-ui, sans-serif !important;
+  letter-spacing: -.03em !important;
+}
+.article-overlay .newspaper-article-meta {
+  justify-content: flex-start !important;
+  gap: 9px !important;
+  margin-top: 7px !important;
+  color: #b5c4d8 !important;
+  font: 700 10px/1 system-ui, sans-serif !important;
+  letter-spacing: .09em !important;
+}
+.article-overlay .newspaper-article-close {
+  top: 13px !important;
+  right: 14px !important;
+  min-height: 33px;
+  padding: 0 10px !important;
+  border: 1px solid #576f8e !important;
+  border-radius: 8px !important;
+  background: #223653 !important;
+  color: #e4edfb !important;
+  font: 700 11px/1 system-ui, sans-serif !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+.article-overlay .newspaper-article-body { padding: 27px 28px 25px !important; }
+.article-overlay .newspaper-article-kicker { margin: 0 0 11px !important; color: #c2b0ff !important; font: 800 10px/1 system-ui, sans-serif !important; letter-spacing: .12em !important; }
+.article-overlay .newspaper-article-body h1 {
+  max-width: 25ch !important;
+  margin: 0 !important;
+  color: #f7f9ff !important;
+  font: 750 clamp(24px, 3.2vw, 36px)/1.12 system-ui, sans-serif !important;
+  letter-spacing: -.045em !important;
+}
+.article-overlay .newspaper-article-rule { width: 52px !important; height: 3px !important; margin: 19px 0 17px !important; background: #947df0 !important; }
+.article-overlay .newspaper-article-lead {
+  columns: auto !important;
+  margin: 0 !important;
+  color: #c1cedf !important;
+  font: 400 15px/1.65 system-ui, sans-serif !important;
+}
+.article-overlay .newspaper-article-lead:first-letter { float: none !important; margin: 0 !important; color: inherit !important; font: inherit !important; }
+.article-overlay .newspaper-article-byline { margin: 22px 0 0 !important; padding-top: 14px; border-top: 1px solid #3b506d; color: #95a9c4 !important; font: 600 11px/1.4 system-ui, sans-serif !important; }
+
+@media (max-width: 720px) {
+  .article-overlay { padding: 12px !important; align-items: end !important; }
+  .article-overlay .newspaper-article { max-height: calc(100dvh - 24px) !important; border-radius: 16px !important; }
+  .article-overlay .newspaper-article-body { padding: 22px 19px !important; }
+  .article-overlay .newspaper-article-body h1 { font-size: 25px !important; }
+}
