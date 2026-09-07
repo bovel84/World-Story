@@ -165,9 +165,24 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
 
     const skip = await callRoute('POST', `/games/${gameId}/time-skip`, { jump_days: 90 });
     expect(skip.body.type).toBe('awaiting_next');
+    expect(skip.body.checkpointId).toEqual(expect.any(String));
+    expect(skip.body.revision).toEqual(expect.any(Number));
     const runId = skip.body.simulationId;
 
-    const outcome = await callRoute('POST', `/games/${gameId}/intervene`, { simulationId: runId });
+    // G22: un controllo riferito a una pagina superata non può chiudere il
+    // run. Intervene è ancorato a simulationId + eventId + revisione.
+    const stale = await callRoute('POST', `/games/${gameId}/intervene`, {
+      simulationId: runId, eventId: 'evento-non-corrente', revision: skip.body.revision,
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe('stale_checkpoint');
+    const unanchored = await callRoute('POST', `/games/${gameId}/intervene`, { simulationId: runId });
+    expect(unanchored.status).toBe(409);
+    expect(unanchored.body.code).toBe('checkpoint_anchor_required');
+
+    const outcome = await callRoute('POST', `/games/${gameId}/intervene`, {
+      simulationId: runId, eventId: skip.body.event.id, revision: skip.body.revision,
+    });
     expect(outcome.status).toBe(200);
     expect(outcome.body.intervened).toBe(true);
     expect(outcome.body.type).toBe('intervened');

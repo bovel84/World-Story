@@ -87,6 +87,7 @@ export function EventFeed({
       <div className="event-feed-header">
         <span className="event-feed-title">
           Dispacci
+          <span className="event-feed-readonly">archivio · sola lettura</span>
           {processing && <span className="feed-live-dot" title="Elaborazione in corso" />}
         </span>
         <div className="event-feed-actions">
@@ -160,7 +161,7 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
               <p className="newspaper-article-lead">
                 {openArticle.detail || 'Il fatto è stato registrato nella cronaca del turno. Le conseguenze saranno riportate nei prossimi dispacci del mondo.'}
               </p>
-              <p className="newspaper-article-byline">Redazione politica · Archivio della simulazione</p>
+              <p className="newspaper-article-byline">Redazione politica · Archivio della simulazione · La consultazione non modifica il mondo</p>
             </div>
           </article>
         </div>

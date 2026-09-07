@@ -28,6 +28,9 @@ interface UseSSEOptions {
     eventId?: string;
     /** Run che ha prodotto il checkpoint per-evento. */
     simulationId?: string;
+    /** Ancora G22 del checkpoint mostrato. */
+    checkpointId?: string;
+    revision?: number;
     /** Il run resta in pausa: il giocatore decide sul checkpoint mostrato. */
     awaitingNext?: { remaining: number; destination: string };
     newDate?: string;

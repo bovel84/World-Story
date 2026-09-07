@@ -134,6 +134,19 @@ export interface Player {
   polityId?: string;
 }
 
+export interface PausedSimulationInfo {
+  simulationId: string;
+  remaining: number;
+  destination: string;
+  date: string;
+  turn: number;
+  incomplete: boolean;
+  /** G22: ancora del checkpoint che il lettore sta mostrando. */
+  eventId?: string;
+  checkpointId?: string;
+  revision?: number;
+}
+
 export interface Game {
   id: string;
   world: World;
@@ -142,6 +155,8 @@ export interface Game {
   currentDate?: string;
   maxTurns: number;
   status: GameStatus;
+  /** Playback §9.3/G22 da ricostruire dopo refresh o cambio vista. */
+  pausedSimulation?: PausedSimulationInfo | null;
 }
 
 export interface Action {

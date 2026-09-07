@@ -394,6 +394,9 @@ export const gameApi = {
     event?: { id: string; date: string; headline: string; detail: string; source: string; sourceActionIds?: string[] };
     remaining?: number;
     destination?: string;
+    /** G22: ancora del checkpoint mostrato dal lettore. */
+    checkpointId?: string;
+    revision?: number;
     changedRegions?: any[];
     status?: 'completed' | 'no_event' | 'failed';
     simulationId?: string;
@@ -434,7 +437,7 @@ export const gameApi = {
   /**
 * Fase 2: Intervene — interrompere l'applicazione degli eventi rimanenti del blocco
    */
-  intervene: (gameId: string, simulationId?: string): Promise<{
+  intervene: (gameId: string, simulationId?: string, anchor?: { eventId: string; revision: number }): Promise<{
     ok: boolean;
     simulationId?: string;
     /** §9.3: esito della chiusura affidabile di un run in pausa. */
@@ -447,7 +450,7 @@ export const gameApi = {
   }> => {
     return fetchApi(`/games/${gameId}/intervene`, {
       method: 'POST',
-      body: JSON.stringify(simulationId ? { simulationId } : {}),
+      body: JSON.stringify(simulationId ? { simulationId, ...anchor } : {}),
     });
   },
 
@@ -460,6 +463,8 @@ export const gameApi = {
     event?: { id: string; date: string; headline: string; detail: string; source: string; sourceActionIds?: string[] };
     remaining?: number;
     destination?: string;
+    checkpointId?: string;
+    revision?: number;
     changedRegions?: any[];
     actions?: any[];
     result?: { turn: number; narration: string; events: string[]; eventDetails: any[]; periodStart: string; periodEnd: string };
@@ -474,7 +479,7 @@ export const gameApi = {
   /** §9.3: stato del run sospeso, per ricostruire il lettore dopo refresh. */
   getSimulationRun: (gameId: string, runId: string): Promise<{
     run: { id: string; status: string; checkpoint_date?: string; target_date?: string };
-    awaitingNext?: { simulationId: string; remaining: number; destination: string; date: string; turn: number } | null;
+    awaitingNext?: { simulationId: string; remaining: number; destination: string; date: string; turn: number; eventId?: string; checkpointId?: string; revision?: number } | null;
     events: Array<{ id: string; checkpointId: string; date: string; headline: string; detail: string; source: string }>;
     actionOutcomes: any[];
     ongoingProcesses: any[];

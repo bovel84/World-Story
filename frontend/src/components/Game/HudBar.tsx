@@ -59,6 +59,9 @@ export interface HudBarProps {
   onRestoreCheckpoint?: (simulationId: string) => void;
   /** Continua da questo evento: ripristina il checkpoint e lancia subito il prossimo salto. */
   onContinueFrom?: (simulationId: string) => void;
+  /** G22: il checkpoint in lettura è gestito solo dal lettore di sessione. */
+  activePlayback?: { simulationId: string; eventId: string; revision?: number } | null;
+  onFocusPlaybackReader?: () => void;
 }
 
 export interface TimelinePanelProps {
@@ -81,6 +84,9 @@ export interface TimelinePanelProps {
   onRestoreCheckpoint?: (simulationId: string) => void;
   /** Continua da un evento: restore + prossimo salto canonico. */
   onContinueFrom?: (simulationId: string) => void;
+  /** Checkpoint attivo: la timeline resta solo consultazione. */
+  activePlayback?: { simulationId: string; eventId: string; revision?: number } | null;
+  onFocusPlaybackReader?: () => void;
   /** Chiudi il pannello */
   onClose: () => void;
 }
@@ -172,6 +178,8 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onTimeSkip,
   onRestoreCheckpoint,
   onContinueFrom,
+  activePlayback,
+  onFocusPlaybackReader,
   onClose,
 }) => {
   const [customDays, setCustomDays] = useState('30');
@@ -181,8 +189,9 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   const parsedCustom = parseInt(customDays, 10);
   const customValid = Number.isFinite(parsedCustom) && parsedCustom > 0 && parsedCustom <= 36500;
 
+  const controlsLocked = loading || !!activePlayback;
   const submitCustom = () => {
-    if (customValid && !loading) onTimeSkip(parsedCustom);
+    if (customValid && !controlsLocked) onTimeSkip(parsedCustom);
   };
 
   // Eventi appiattiti e ordinati dal più recente. Il fallback tollera risposte
@@ -252,6 +261,8 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
           ) : (
             events.map(event => {
               const expanded = expandedEventId === event.id;
+              const isActivePlaybackEvent = activePlayback?.simulationId === event.simulationId
+                && activePlayback?.eventId === event.id;
               return (
                 <article
                   key={event.id}
@@ -277,14 +288,20 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   {expanded && event.detail && (
                     <div className="hud-timeline-entry-detail">{event.detail}</div>
                   )}
-                  {expanded && event.simulationId && (
+                  {expanded && isActivePlaybackEvent && (
+                    <div className="hud-timeline-active-reader">
+                      <span>Checkpoint attivo · revisione {activePlayback?.revision ?? '—'}</span>
+                      <button type="button" onClick={onFocusPlaybackReader}>Apri il lettore di sessione</button>
+                    </div>
+                  )}
+                  {expanded && event.simulationId && !isActivePlaybackEvent && (
                     <div className="hud-timeline-entry-actions">
                       {onRestoreCheckpoint && (
                         <button
                           type="button"
                           className="hud-timeline-entry-restore"
                           onClick={() => onRestoreCheckpoint(event.simulationId!)}
-                          disabled={loading}
+                          disabled={controlsLocked}
                         >
                           Ripristina il checkpoint di questo evento
                         </button>
@@ -294,7 +311,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                           type="button"
                           className="hud-timeline-entry-restore hud-timeline-entry-continue"
                           onClick={() => onContinueFrom(event.simulationId!)}
-                          disabled={loading}
+                          disabled={controlsLocked}
                         >
                           Continua da qui
                         </button>
@@ -342,9 +359,9 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
         type="button"
         className="hud-timeline-next-event"
         onClick={() => onTimeSkip(0)}
-        disabled={loading}
+        disabled={controlsLocked}
       >
-        Vai al prossimo evento importante
+        {activePlayback ? 'Lettura della sessione in corso' : 'Vai al prossimo evento importante'}
       </button>
 
       <div className="hud-timeline-divider">
@@ -366,7 +383,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
               key={preset.label}
               className="hud-timeline-preset"
               onClick={() => onTimeSkip(days)}
-              disabled={loading || days <= 0}
+              disabled={controlsLocked || days <= 0}
             >
               <span className="hud-timeline-preset-date">
                 {targetDate || `+${days} gg.`}
@@ -388,7 +405,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
           max={36500}
           step={1}
           value={customDays}
-          disabled={loading}
+          disabled={controlsLocked}
           onChange={(e) => setCustomDays(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submitCustom();
@@ -400,7 +417,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
           type="button"
           className="hud-timeline-custom-go"
           onClick={submitCustom}
-          disabled={loading || !customValid}
+          disabled={controlsLocked || !customValid}
           title="Salta al numero di giorni indicato"
           aria-label="Conferma il salto"
         >
@@ -433,6 +450,8 @@ export const HudBar: React.FC<HudBarProps> = ({
   onTimeSkip,
   onRestoreCheckpoint,
   onContinueFrom,
+  activePlayback,
+  onFocusPlaybackReader,
 }) => {
   const [timelineOpen, setTimelineOpen] = useState(false);
 
@@ -527,6 +546,8 @@ export const HudBar: React.FC<HudBarProps> = ({
             onTimeSkip={handleTimeSkip}
             onRestoreCheckpoint={onRestoreCheckpoint}
             onContinueFrom={onContinueFrom}
+            activePlayback={activePlayback}
+            onFocusPlaybackReader={onFocusPlaybackReader}
             onClose={() => setTimelineOpen(false)}
           />
         </>
