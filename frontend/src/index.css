@@ -723,3 +723,239 @@
 @media (max-width:720px){.game-container .game-panel{position:fixed!important;inset:54px 0 0!important;width:100%!important;max-width:none!important;height:auto!important;bottom:0!important;border:0!important;border-radius:0!important}.game-container .game-panel.panel-collapsed{transform:translateY(110%)!important}.game-container .panel-toggle{right:12px!important;bottom:72px!important}.game-wrapper .hud-bar{height:54px!important;padding-inline:10px!important}.game-wrapper .hud-left{gap:5px!important}.game-wrapper .hud-logo{display:none!important}.game-wrapper .hud-date-display{min-width:112px!important;font-size:12px!important}.fab-group{left:10px!important;bottom:12px!important;padding:5px!important;border-radius:15px!important}.fab-btn,.fab-btn:last-child{width:43px!important;min-width:43px!important;height:43px!important}.action-desk,.action-desk.maximized{inset:54px 0 0!important;width:100%!important;height:auto!important;max-height:none!important;border-width:0!important;border-radius:0!important}.action-desk .suggestions-content{padding:14px!important}.hud-timeline-panel{top:auto!important;right:10px!important;bottom:10px!important;width:calc(100vw - 20px)!important;max-height:72dvh!important;border-radius:18px!important}.hud-timeline-presets{grid-template-columns:repeat(3,minmax(0,1fr))!important}.hud-timeline-preset{min-height:58px!important}.hud-timeline-custom{grid-template-columns:1fr auto!important}.hud-timeline-custom-label{grid-column:1/-1}.event-feed{bottom:66px!important}}
 
 @media (max-width:720px){.simulation-reader-scrim{padding:66px 10px 10px;place-items:end center}.simulation-event-reader{max-height:calc(100dvh - 76px);padding:18px 16px 14px;border-radius:18px}.simulation-reader-heading strong{font-size:18px}.simulation-reader-anchor{font-size:8px}.simulation-reader-progress{align-items:flex-start;flex-wrap:wrap;font-size:9px}.simulation-reader-sealed{width:100%;margin-left:15px;text-align:left}.simulation-reader-event{grid-template-columns:28px minmax(0,1fr);gap:7px}.simulation-reader-event article{padding:11px 12px}.simulation-reader-event h3{font-size:15px}.simulation-reader-event p{font-size:12px}.simulation-reader-actions{position:sticky;bottom:-14px;margin:0 -16px;padding:12px 16px 14px;background:#0e1729}.simulation-reader-actions .btn-intervene{padding-inline:11px}}
+
+/* ===== Pass leggibilità: selezione scenario/nazione e scrivanie di gioco ===== */
+/* La selezione non eredita più gli stili editoriali chiari: è il ponte verso il
+   gioco e usa superfici navy, contrasto AA e una gerarchia compatta. */
+.template-selector,
+.country-selector {
+  max-width: 1280px !important;
+  min-height: 100dvh;
+  margin: 0 auto !important;
+  padding: 28px 32px 40px !important;
+  color: #e7eefb !important;
+  background: #0b1322 !important;
+}
+.template-selector .selector-header,
+.country-selector > .selector-header {
+  position: sticky !important;
+  top: 0;
+  z-index: 20;
+  display: flex !important;
+  align-items: center !important;
+  gap: 16px !important;
+  margin: -28px -32px 24px !important;
+  padding: 18px 32px !important;
+  background: rgba(11, 19, 34, .96) !important;
+  border-bottom: 1px solid #31435f !important;
+  backdrop-filter: blur(14px);
+}
+.template-selector .selector-header h2,
+.country-selector > .selector-header h2 {
+  margin: 0 !important;
+  color: #f5f8ff !important;
+  -webkit-text-fill-color: #f5f8ff !important;
+  font: 700 clamp(20px, 2vw, 28px)/1.1 system-ui, sans-serif !important;
+  letter-spacing: -.04em !important;
+}
+.template-selector .btn-back,
+.country-selector > .selector-header .btn-back {
+  flex: none;
+  min-height: 40px;
+  padding: 0 14px !important;
+  border: 1px solid #526783 !important;
+  border-radius: 9px !important;
+  background: #17263d !important;
+  color: #dce8fa !important;
+  font: 700 12px/1 system-ui, sans-serif !important;
+  letter-spacing: .02em !important;
+  text-transform: none !important;
+}
+.country-selector .template-info {
+  margin: 0 0 18px !important;
+  padding: 14px 16px !important;
+  border: 1px solid #344963 !important;
+  border-radius: 12px !important;
+  background: #111e31 !important;
+  box-shadow: none !important;
+}
+.country-selector .start-date {
+  color: #bca8ff !important;
+  font: 750 12px/1 system-ui, sans-serif !important;
+  letter-spacing: .08em !important;
+  text-transform: uppercase;
+}
+.template-lore { margin-top: 10px; }
+.template-lore summary {
+  cursor: pointer;
+  color: #dce8fa !important;
+  font: 650 14px/1.3 system-ui, sans-serif !important;
+  list-style-position: outside;
+}
+.template-lore p {
+  max-width: 92ch;
+  margin: 10px 0 0 !important;
+  color: #aebed4 !important;
+  font: 400 14px/1.6 system-ui, sans-serif !important;
+}
+.country-selector .country-selector-layout {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1.75fr) minmax(300px, .75fr) !important;
+  align-items: stretch;
+  gap: 18px !important;
+}
+.country-selector .country-selector-map {
+  min-height: 420px;
+  height: auto !important;
+  border: 1px solid #3b516d !important;
+  border-radius: 16px !important;
+  background: #101b2f !important;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, .28) !important;
+}
+.country-selector .world-select-map { height: 100%; border-radius: 15px !important; }
+.country-selector .world-select-map svg { height: 100%; object-fit: contain; }
+.country-selector .country-list {
+  max-height: 520px !important;
+  padding: 8px !important;
+  border: 1px solid #344963 !important;
+  border-radius: 16px !important;
+  background: #101b2e !important;
+}
+.country-selector .country-list-item,
+.country-selector .country-card {
+  width: 100%;
+  min-height: 58px;
+  margin: 0 0 7px !important;
+  padding: 11px 13px !important;
+  border: 1px solid #354c68 !important;
+  border-radius: 11px !important;
+  background: #17263d !important;
+  color: #edf4ff !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .15s, background .15s, transform .15s;
+}
+.country-selector .country-list-item:hover,
+.country-selector .country-card:hover,
+.country-selector .country-list-item.selected,
+.country-selector .country-card.selected {
+  border-color: #aa91ff !important;
+  background: #293354 !important;
+  transform: translateY(-1px);
+}
+.country-selector .country-list-item:focus-visible,
+.country-selector .country-card:focus-visible { outline: 3px solid #a98cff; outline-offset: 2px; }
+.country-selector .country-list-item .country-name,
+.country-selector .country-card .country-name {
+  color: #f4f7ff !important;
+  font: 700 15px/1.2 system-ui, sans-serif !important;
+  letter-spacing: 0 !important;
+}
+.country-selector .country-list-item .country-code,
+.country-selector .country-card .country-code {
+  margin-left: auto;
+  color: #aebed4 !important;
+  font: 700 11px/1 system-ui, sans-serif !important;
+  letter-spacing: .08em;
+}
+.country-selector .country-confirm-bar {
+  position: sticky;
+  bottom: 14px;
+  z-index: 10;
+  margin-top: 18px !important;
+  padding: 12px 14px !important;
+  border: 1px solid #425a79 !important;
+  border-radius: 13px !important;
+  background: rgba(15, 27, 46, .97) !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .3) !important;
+}
+.country-selector .country-confirm-label { color: #c8d5e7 !important; font: 600 13px/1.3 system-ui, sans-serif !important; }
+.country-selector .btn-play {
+  min-width: 112px;
+  min-height: 42px;
+  border: 1px solid #9d86f2 !important;
+  border-radius: 9px !important;
+  background: #7054d0 !important;
+  color: #fff !important;
+  font: 750 13px/1 system-ui, sans-serif !important;
+  letter-spacing: .03em !important;
+  text-transform: none !important;
+}
+.country-selector .btn-play:disabled { opacity: .48; cursor: not-allowed; }
+
+/* Azioni e diplomazia: ogni elemento testuale è esplicitamente su una
+   superficie scura; impedisce ai vecchi stili "carta" di rendere il testo nero. */
+.action-desk,
+.floating-advisor-panel:not(.action-desk) {
+  color: #dce7f7 !important;
+  background: linear-gradient(145deg, #111d31, #0a1220 72%) !important;
+  border-color: #40536f !important;
+}
+.floating-advisor-panel:not(.action-desk) { width: min(560px, calc(100vw - 40px)) !important; }
+.action-desk .suggestions-content,
+.floating-advisor-panel .advisor-chat,
+.floating-advisor-panel .chats-panel,
+.floating-advisor-panel .chat-messages,
+.floating-advisor-panel .chats-list {
+  background: #0d1727 !important;
+}
+.action-desk :is(p, li),
+.floating-advisor-panel :is(p, li, .chats-empty, .picker-hint, .chat-item-last, .chat-message-meta) {
+  color: #afbed2 !important;
+}
+.action-desk .suggestion-action-body,
+.action-desk .suggestion-action-body :is(span, b, strong),
+.action-desk .suggestion-topic,
+.action-desk .pending-text,
+.floating-advisor-panel :is(.chat-thread-title, .chat-item-name, .chat-sender-name) {
+  color: #f0f5ff !important;
+}
+.action-desk .suggestion-description { color: #b6c5d9 !important; }
+.floating-advisor-panel .chat-thread-header,
+.floating-advisor-panel .chat-input-row,
+.floating-advisor-panel .suggestions-footer {
+  background: #142238 !important;
+  border-color: #3a4f6c !important;
+}
+.floating-advisor-panel .chat-thread-header :is(span, button) { color: #f0f5ff !important; }
+.floating-advisor-panel .chat-bubble.polity {
+  background: #182842 !important;
+  border-color: #466184 !important;
+  color: #edf4ff !important;
+}
+.floating-advisor-panel .chat-bubble.player {
+  background: #493b87 !important;
+  border-color: #9580e2 !important;
+  color: #fff !important;
+}
+.floating-advisor-panel .chat-input-row textarea {
+  border: 1px solid #526783 !important;
+  border-radius: 10px !important;
+  background: #091321 !important;
+  color: #f0f5ff !important;
+}
+.floating-advisor-panel .chat-input-row textarea::placeholder { color: #8191a8 !important; }
+.floating-advisor-panel .btn-chat-send,
+.floating-advisor-panel .btn-chat-auto,
+.floating-advisor-panel .btn-new-chat {
+  border: 1px solid #927be4 !important;
+  border-radius: 9px !important;
+  background: #684bc5 !important;
+  color: #fff !important;
+}
+
+@media (max-width: 720px) {
+  .template-selector, .country-selector { padding: 16px 14px 88px !important; }
+  .template-selector .selector-header, .country-selector > .selector-header {
+    margin: -16px -14px 16px !important;
+    padding: 13px 14px !important;
+    align-items: flex-start !important;
+    flex-wrap: wrap;
+  }
+  .country-selector .country-selector-layout { grid-template-columns: 1fr !important; gap: 12px !important; }
+  .country-selector .country-selector-map { min-height: 230px; }
+  .country-selector .country-list { max-height: 310px !important; }
+  .country-selector .country-confirm-bar { bottom: 8px; gap: 10px; }
+  .country-selector .country-confirm-label { font-size: 12px !important; }
+}

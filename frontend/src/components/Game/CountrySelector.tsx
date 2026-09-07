@@ -42,8 +42,11 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
       </div>
 
       <div className="template-info">
-        <p>{template.description}</p>
-        <div className="start-date">Data iniziale: {template.start_date}</div>
+        <div className="start-date">Inizio simulazione · {template.start_date}</div>
+        <details className="template-lore">
+          <summary>Contesto dello scenario</summary>
+          <p>{template.description}</p>
+        </details>
       </div>
 
       {mapAvailable ? (
@@ -59,10 +62,12 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
           </div>
           <div className="country-list">
             {countries.map((country) => (
-              <div
+              <button
                 key={country.code}
+                type="button"
                 className={`country-list-item${selectedCode === country.code ? ' selected' : ''}`}
                 onClick={() => setSelectedCode(country.code)}
+                aria-pressed={selectedCode === country.code}
               >
                 <div
                   className="country-color"
@@ -70,7 +75,7 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
                 />
                 <div className="country-name">{country.name}</div>
                 <div className="country-code">{country.code}</div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -78,10 +83,12 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
 /* Fallback: vecchia griglia di card senza mappa */
         <div className="country-grid">
           {countries.map((country) => (
-            <div
+            <button
               key={country.code}
+              type="button"
               className={`country-card${selectedCode === country.code ? ' selected' : ''}`}
               onClick={() => setSelectedCode(country.code)}
+              aria-pressed={selectedCode === country.code}
             >
               <div
                 className="country-color"
@@ -89,7 +96,7 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
               />
               <div className="country-name">{country.name}</div>
               <div className="country-code">{country.code}</div>
-            </div>
+            </button>
           ))}
         </div>
       )}
