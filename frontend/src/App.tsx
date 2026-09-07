@@ -1613,7 +1613,7 @@ function App() {
             {!showActions && (
               <Fab items={[
                 {
-                  icon: 'ORD',
+                  icon: '⚡',
                   title: 'Ordini',
                   active: panelTab === 'suggestions',
                   onClick: () => {
@@ -1622,7 +1622,7 @@ function App() {
                   },
                 },
                 {
-                  icon: 'DIP',
+                  icon: '💬',
                   title: 'Diplomazia',
                   active: panelTab === 'chats',
                   badge: totalUnread > 0 ? totalUnread : undefined,
@@ -1632,7 +1632,7 @@ function App() {
                   },
                 },
                 {
-                  icon: 'CON',
+                  icon: '✦',
                   title: 'Consulente',
                   active: panelTab === 'advisor',
                   onClick: () => {
@@ -1656,7 +1656,7 @@ function App() {
 {showActions && (
               <div
                 ref={actionsRef}
-                className={`floating-advisor-panel ${actionsMaximized ? 'maximized' : ''}`}
+                className={`floating-advisor-panel action-desk ${actionsMaximized ? 'maximized' : ''}`}
                 style={{
                   width: actionsMaximized ? '90%' : `${actionsSize.width}px`,
                   height: actionsMaximized ? '80vh' : `${actionsSize.height}px`,
