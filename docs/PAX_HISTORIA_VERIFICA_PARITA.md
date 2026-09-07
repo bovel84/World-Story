@@ -60,4 +60,4 @@ Build frontend superata dopo il pacchetto. Questi interventi migliorano la parit
 
 ## Stato del rilascio
 
-**Deploy Open-Pax: eseguito il 7/9/2026.** Worker `open-pax`, versione iniziale `73aad6d7-310c-453b-804c-90f4aa791821`, aggiornata con hotfix grafico alla `906efd11-c982-44c4-bd4e-c23eed7ad3fe`; backend compilato/riavviato dopo backup SQLite coerente. Smoke pubblico riuscito: health, proxy templates e asset della build corrente. Restano da svolgere gli E2E pubblici completi §17 prima della certificazione del rilascio.
+**Deploy Open-Pax: eseguito il 7/9/2026.** Worker `open-pax`, versione iniziale `73aad6d7-310c-453b-804c-90f4aa791821`, aggiornata con hotfix grafico alla `906efd11-c982-44c4-bd4e-c23eed7ad3fe` e con riconciliazione del lettore sospeso alla `bad2584c-3900-42eb-9268-e0931653901a`; backend compilato/riavviato dopo backup SQLite coerente. Smoke pubblico riuscito: health, proxy templates e asset della build corrente. Restano da svolgere gli E2E pubblici completi §17 prima della certificazione del rilascio.
