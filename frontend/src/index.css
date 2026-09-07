@@ -814,6 +814,31 @@
 }
 .country-selector .world-select-map { height: 100%; border-radius: 15px !important; }
 .country-selector .world-select-map svg { height: 100%; object-fit: contain; }
+.country-selector .world-select-map path.world-country {
+  fill: #1c2a42 !important;
+  stroke: #425976 !important;
+  stroke-width: .7 !important;
+}
+.country-selector .world-select-map path.world-country.available {
+  fill: #354d70 !important;
+  stroke: #7590b1 !important;
+  opacity: 1 !important;
+}
+.country-selector .world-select-map path.world-country.available:hover {
+  fill: #8974e6 !important;
+  stroke: #d8d0ff !important;
+}
+.country-selector .world-select-map path.world-country.disabled {
+  fill: #172238 !important;
+  stroke: #31435f !important;
+  opacity: .62 !important;
+}
+.country-selector .world-select-map path.world-country.selected {
+  fill: #a48bff !important;
+  stroke: #fff !important;
+  stroke-width: 1.25 !important;
+  filter: drop-shadow(0 0 5px rgba(164, 139, 255, .8));
+}
 .country-selector .country-list {
   max-height: 520px !important;
   padding: 8px !important;
