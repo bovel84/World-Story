@@ -47,6 +47,17 @@ La campagna non ha coperto, per limitare il consumo di crediti:
 
 Questa prova conferma il valore della scelta già implementata §9.3/G22: lettore separato, checkpoint per-evento e decisione manuale. La differenza osservata è che Open-Pax rende l'ancora del controllo verificabile nel contratto API (`eventId`/`revision`), mentre Pax la espone come stato UI e conferma. Nessuna funzione viene promossa a «equivalente» soltanto da questa prova parziale.
 
+## Adeguamenti grafici Open-Pax successivi alla verifica
+
+Realizzati senza alterare il contratto di simulazione, per rendere leggibili i controlli osservati nel riferimento:
+
+1. **Shell operativa:** HUD navy/indaco compatto, data come controllo principale e dock inferiore a icone per Azioni, Diplomazia e Consulente.
+2. **Azioni:** superficie di comando laterale con gerarchia visiva per Brainstorm, proposte selezionabili, coda modificabile/rimovibile e compositore libero/Enhance; inviare un ordine resta distinto dal salto.
+3. **Timeline:** sheet scuro per next-event, preset di calendario e selezione diretta della data personalizzata. La data viene convertita localmente in giorni prima della chiamata API compatibile.
+4. **Playback:** `SimulationEventReader` è un foglio modale con la sequenza dei soli checkpoint già autorizzati, stato del checkpoint corrente e CTA «Evento successivo»/«Intervieni». Non riceve né visualizza proposte future.
+
+Build frontend superata dopo il pacchetto. Questi interventi migliorano la parità percepita; non trasformano le verifiche §16 ancora mancanti in equivalenze certificate.
+
 ## Stato del rilascio
 
 **Deploy Open-Pax: non eseguito.**

@@ -182,16 +182,18 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onFocusPlaybackReader,
   onClose,
 }) => {
-  const [customDays, setCustomDays] = useState('30');
+  const [customDate, setCustomDate] = useState('');
   const [showHistory, setShowHistory] = useState(true);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
 
-  const parsedCustom = parseInt(customDays, 10);
-  const customValid = Number.isFinite(parsedCustom) && parsedCustom > 0 && parsedCustom <= 36500;
+  // Pax espone «Scegli data». Il contratto Open-Pax resta in giorni, quindi
+  // calcoliamo la distanza di calendario senza affidarsi al fuso orario.
+  const customDays = customDate ? calendarDaysUntil(dateISO, parseISODate(customDate)) : null;
+  const customValid = customDays != null && customDays > 0 && customDays <= 36500;
 
   const controlsLocked = loading || !!activePlayback;
   const submitCustom = () => {
-    if (customValid && !controlsLocked) onTimeSkip(parsedCustom);
+    if (customValid && !controlsLocked) onTimeSkip(customDays);
   };
 
   // Eventi appiattiti e ordinati dal più recente. Il fallback tollera risposte
@@ -396,30 +398,29 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
 
       <div className="hud-timeline-divider" />
 
-      {/* Salto personalizzato su un numero arbitrario di giorni */}
+      {/* Data scelta dal giocatore, come il controllo «Personalizzato» Pax. */}
       <div className="hud-timeline-custom">
+        <label className="hud-timeline-custom-label" htmlFor="timeline-custom-date">Scegli data</label>
         <input
+          id="timeline-custom-date"
           className="hud-timeline-input"
-          type="number"
-          min={1}
-          max={36500}
-          step={1}
-          value={customDays}
+          type="date"
+          min={dateISO}
+          value={customDate}
           disabled={controlsLocked}
-          onChange={(e) => setCustomDays(e.target.value)}
+          onChange={(e) => setCustomDate(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submitCustom();
           }}
-          aria-label="Numero di giorni per il salto"
+          aria-label="Data di destinazione per il salto"
         />
-        <span className="hud-timeline-custom-label">giorni</span>
         <button
           type="button"
           className="hud-timeline-custom-go"
           onClick={submitCustom}
           disabled={controlsLocked || !customValid}
-          title="Salta al numero di giorni indicato"
-          aria-label="Conferma il salto"
+          title="Salta alla data indicata"
+          aria-label="Conferma la data scelta"
         >
           Vai
         </button>
