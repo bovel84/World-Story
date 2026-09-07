@@ -24,6 +24,14 @@ interface UseSSEOptions {
     checkpoint?: boolean;
     event: any;
     changedRegions?: any[];
+    /** §9.3: ID canonico dell'evento applicato (dedup feed HTTP/SSE). */
+    eventId?: string;
+    /** Run che ha prodotto il checkpoint per-evento. */
+    simulationId?: string;
+    /** Il run resta in pausa: il giocatore decide sul checkpoint mostrato. */
+    awaitingNext?: { remaining: number; destination: string };
+    newDate?: string;
+    newTurn?: number;
   }) => void;
   // Eventi del mondo generati dalla simulazione live (senza azione del giocatore)
   onWorldEvent?: (data: {

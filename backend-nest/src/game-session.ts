@@ -97,6 +97,95 @@ export class SimulationInProgressError extends Error {
   }
 }
 
+/** Il salto non può partire mentre un playback attende una decisione. */
+export class SimulationPausedError extends Error {
+  constructor(public runId: string) {
+    super('Un salto in pausa attende una decisione: Continua o Intervieni prima di avanzare di nuovo');
+    this.name = 'SimulationPausedError';
+  }
+}
+
+/**
+ * §9.3 — stato durevole del playback «un evento alla volta» per i salti
+ * fissi. Le proposte future non applicate non sono canoniche: restano nel run
+ * (colonna pending_state) finché il giocatore non autorizza il checkpoint
+ * successivo con «Continua», oppure chiude il salto con «Intervieni qui».
+ */
+export interface PausedRunState {
+  runId: string;
+  periodStart: string;
+  /** Data di destinazione richiesta dal giocatore. */
+  destination: string;
+  /** Turno logico del salto: cresce una sola volta, non per evento. */
+  jumpTurn: number;
+  /** Revisione del primo checkpoint per-evento del run. */
+  revisionBase: number;
+  /** Eventi proposti e non ancora applicati (non canonici). */
+  remainingEvents: SimulationEvent[];
+  /** ID degli ordini presi in carico dal run (non vanno reinviati). */
+  batchActionIds: string[];
+  /** Titolo evento → ordini che l'hanno causato. */
+  headlineToActionIds: Record<string, string[]>;
+  /** Lo stream è terminato senza record complete: budget esaurito (T36). */
+  incomplete: boolean;
+  /** Delta mappa cumulativo dei checkpoint applicati (per turn_complete). */
+  changedRegions: Array<{
+    id: string; owner: string; color: string; name: string;
+    population: number; gdp: number; militaryPower: number; objects: any[];
+  }>;
+  /** Payload di chiusura della risposta LLM, applicato solo a fine salto. */
+  completion: {
+    narration: string;
+    convertedActions: any[];
+    actionOutcomes: any[];
+    voided: any[];
+    worldChanges: any;
+    relationshipChanges: any;
+    startChat: any;
+  };
+  /** Indice del prossimo checkpoint per-evento (revisione = base + questo). */
+  appliedCount: number;
+}
+
+/** Esito del batch quando il salto fisso si ferma a un checkpoint. */
+export interface PausedBatchResult {
+  paused: true;
+  type: 'awaiting_next';
+  simulationId: string;
+  event: {
+    id: string;
+    date: string;
+    headline: string;
+    detail: string;
+    source: string;
+    sourceActionIds?: string[];
+  };
+  remaining: number;
+  destination: string;
+  newDate: string;
+  newTurn: number;
+  changedRegions: Array<Record<string, any>>;
+}
+
+/** Risposta di chiusura del playback: il run è terminato. */
+export interface CompletedBatchResult {
+  paused?: false;
+  type: 'run_completed' | 'paused_budget' | 'intervened';
+  simulationId: string;
+  actions: PendingAction[];
+  result: {
+    turn: number;
+    narration: string;
+    events: string[];
+    eventDetails: any[];
+    periodStart: string;
+    periodEnd: string;
+  };
+  newDate: string;
+  newTurn: number;
+  destination?: string;
+}
+
 export interface PendingAction {
   id: string;
   text: string;
@@ -143,8 +232,12 @@ export interface SaveData {
   consolidatedUpTo?: number;
   /** Этап 2: сложность игры */
   difficulty?: Difficulty;
-  /** Ordini futuri: un salvataggio deve ripristinare anche la coda. */
+  /** Ordini futuri: un salvataggio deve ripristinare anche la coda. Con
+   * un playback in pausa include anche quelli presi in carico dal run. */
   pendingActions?: PendingAction[];
+  /** Run «awaiting_next» a cui appartiene questo checkpoint: il playback
+   * scaglionato sopravvive a save/load/restore (§9.3). */
+  pausedSimulationId?: string;
   /** Chat e messaggi del ramo al checkpoint. */
   chats?: GameChatSnapshot[];
   /** Processi in corso/completati nel ramo del checkpoint. */
@@ -218,6 +311,8 @@ export class GameSession {
   private activeSimulationRunId: string | null = null;
   /** Cancella il fetch LLM del run attivo quando arriva Intervene. */
   private activeSimulationAbort: AbortController | null = null;
+  /** §9.3: playback «un evento alla volta» sospeso su un checkpoint per-evento. */
+  private pausedRun: PausedRunState | null = null;
 
   /**
    * Run `fn` under the per-session lock. If another caller already
@@ -950,13 +1045,25 @@ export class GameSession {
     // ricostruzione, così un riavvio non elimina la coda del giocatore.
     this.results = gameRepository.getResultsByGame(this.id);
     this.pendingActions = gameRepository.getPendingActions(this.id) as PendingAction[];
+    // §9.3: il playback in pausa attraversa il riavvio. Gli ordini presi in
+    // carico dal run sospeso restano «processing» e non sono reinviati.
+    const paused = gameRepository.getPausedSimulationRun(this.id);
+    this.pausedRun = paused ? this._revivePausedRunFromRow(paused) : null;
+    const pausedActionIds = new Set(this.pausedRun?.batchActionIds || []);
     // Un processo LLM non può attraversare un restart: gli eventuali record
-    // rimasti "processing" sono ritentabili nel nuovo processo.
+    // rimasti "processing" sono ritentabili nel nuovo processo — salvo quelli
+    // di un run scaglionato che attende ancora la conferma del giocatore.
     gameRepository.updatePendingActionStatus(
       this.id,
-      this.pendingActions.map(action => action.id),
+      this.pendingActions.map(action => action.id).filter(id => !pausedActionIds.has(id)),
       'pending',
     );
+    // La lettura dal DB costringe «processing» in «pending» per sicurezza al
+    // riavvio: gli ordini di un run in pausa tornano «processing» — sono
+    // già stati presi in carico e non vanno reinviati al prossimo salto.
+    this.pendingActions.forEach(action => {
+      if (pausedActionIds.has(action.id)) action.status = 'processing';
+    });
 
     // Re-setup NPC countries: любая полития, кроме игрока и 'neutral'
     const regionConfigs = Array.from(this.regions.values())
@@ -1591,7 +1698,10 @@ export class GameSession {
       consolidatedHistory: this.consolidatedHistory,
       consolidatedUpTo: this.consolidatedUpTo,
       difficulty: this.difficulty,
-      pendingActions: this.pendingActions.filter(action => action.status === 'pending'),
+      // §9.3: con un run in pausa la coda contiene anche ordini già emessi;
+      // senza pausa «processing» non esiste mai qui (save è 409 durante il run).
+      pendingActions: this.pendingActions.filter(action => action.status === 'pending' || action.status === 'processing'),
+      pausedSimulationId: this.pausedRun?.runId,
       chats: chatRepository.snapshotGameChats(this.id),
       ongoingProcesses: gameRepository.snapshotOngoingProcesses(this.id),
     };
@@ -1615,7 +1725,8 @@ export class GameSession {
       consolidatedHistory: this.consolidatedHistory,
       consolidatedUpTo: this.consolidatedUpTo,
       difficulty: this.difficulty,
-      pendingActions: this.pendingActions.filter(action => action.status === 'pending'),
+      pendingActions: this.pendingActions.filter(action => action.status === 'pending' || action.status === 'processing'),
+      pausedSimulationId: this.pausedRun?.runId,
       chats: chatRepository.snapshotGameChats(this.id),
       ongoingProcesses: gameRepository.snapshotOngoingProcesses(this.id),
     };
@@ -1665,8 +1776,15 @@ export class GameSession {
     this.difficulty = normalizeDifficulty(saveData.difficulty);
     this.interveneRequested = false;
     // La coda appartiene al ramo salvato: ripristinala invece di perderla.
-    this.pendingActions = (saveData.pendingActions || []).filter(action => action.status === 'pending');
+    // §9.3: gli ordini «processing» del playback sospeso tornano insieme al
+    // loro run; il ramo che non li possiede più non li vede affatto.
+    this.pendingActions = (saveData.pendingActions || [])
+      .filter(action => action.status === 'pending' || action.status === 'processing');
     gameRepository.replacePendingActions(this.id, this.pendingActions);
+    // §12/§9.3: il run in pausa del ramo ripristinato continua a esistere;
+    // ogni altro run sospeso del ramo scartato è invalidato.
+    this.pausedRun = this._revivePausedRun(saveData.pausedSimulationId);
+    if (!this.pausedRun) gameRepository.interruptPausedRuns(this.id);
     // Vecchi salvataggi senza chats restano compatibili e non cancellano le
     // conversazioni; i nuovi checkpoint ripristinano invece il ramo esatto.
     if (saveData.chats) chatRepository.replaceGameChats(this.id, saveData.chats);
@@ -1703,7 +1821,8 @@ export class GameSession {
       consolidatedHistory: this.consolidatedHistory,
       consolidatedUpTo: this.consolidatedUpTo,
       difficulty: this.difficulty,
-      pendingActions: this.pendingActions.filter(action => action.status === 'pending'),
+      pendingActions: this.pendingActions.filter(action => action.status === 'pending' || action.status === 'processing'),
+      pausedSimulationId: this.pausedRun?.runId,
       chats: chatRepository.snapshotGameChats(this.id),
       ongoingProcesses: gameRepository.snapshotOngoingProcesses(this.id),
     };
@@ -1774,6 +1893,620 @@ export class GameSession {
     this.activeSimulationAbort?.abort();
     console.log('[GameSession] Intervene requested for run:', this.activeSimulationRunId);
     return { accepted: true, simulationId: this.activeSimulationRunId };
+  }
+
+  // =========================================================================
+  // §9.3 — Playback «un evento alla volta» per i salti fissi
+  // =========================================================================
+
+  /**
+   * Il salto fisso con due o più eventi proposti entra in playback scaglionato:
+   * il primo evento diventa il primo checkpoint per-evento e il run resta
+   * «awaiting_next». Ogni «Continua» autorizza il checkpoint seguente, fino
+   * all'avanzamento deterministico alla destinazione; «Intervieni qui»
+   * chiude il salto al checkpoint mostrato.
+   */
+  private async _startPausedPlaybackUnlocked(opts: {
+    simulationRunId: string;
+    actions: PendingAction[];
+    promptResult: any;
+    proposedEvents: SimulationEvent[];
+    periodStart: string;
+    horizonDate: string;
+  }): Promise<PendingAction[] | PausedBatchResult> {
+    const headlineToActionIds: Record<string, string[]> = {};
+    opts.actions.forEach((action, index) => {
+      const outcome = opts.promptResult.actionOutcomes?.find((result: any) => result.action === action.text)
+        || opts.promptResult.actionOutcomes?.[index];
+      outcome?.eventHeadlines?.forEach((headline: string) => {
+        const ids = headlineToActionIds[headline] || [];
+        ids.push(action.id);
+        headlineToActionIds[headline] = ids;
+      });
+    });
+    const state: PausedRunState = {
+      runId: opts.simulationRunId,
+      periodStart: opts.periodStart,
+      destination: opts.horizonDate,
+      jumpTurn: this.currentTurn,
+      revisionBase: this.currentTurn + 1,
+      remainingEvents: [...opts.proposedEvents],
+      batchActionIds: opts.actions.map(action => action.id),
+      headlineToActionIds,
+      incomplete: opts.promptResult.incomplete === true,
+      changedRegions: [],
+      completion: {
+        narration: opts.promptResult.narration,
+        convertedActions: opts.promptResult.convertedActions || [],
+        actionOutcomes: opts.promptResult.actionOutcomes || [],
+        voided: opts.promptResult.voided || [],
+        worldChanges: opts.promptResult.worldChanges,
+        relationshipChanges: opts.promptResult.relationshipChanges || [],
+        startChat: opts.promptResult.startChat || [],
+      },
+      appliedCount: 0,
+    };
+    const first = state.remainingEvents.shift()!;
+    console.log('[GameSession] §9.3: playback scaglionato del salto fisso, run', state.runId,
+      '— eventi proposti:', opts.proposedEvents.length);
+    const stepResult = await this._commitPausedStepUnlocked(state, first);
+    // Con due o più proposte il primo checkpoint lascia sempre almeno un evento
+    // in attesa: il run non può chiudersi qui. Se accade, lo stato è incoerente.
+    if (!stepResult.paused) {
+      throw new Error('Stato del playback scaglionato incoerente al primo checkpoint');
+    }
+    return stepResult;
+  }
+
+  /**
+   * Applica UN evento del run in pausa e crea il relativo checkpoint. Se
+   * restano proposte, il run torna «awaiting_next»; alla fine del playback
+   * chiude il run (destinazione, budget o intervento).
+   */
+  private async _commitPausedStepUnlocked(
+    state: PausedRunState,
+    event: SimulationEvent,
+  ): Promise<PausedBatchResult | CompletedBatchResult> {
+    const runId = state.runId;
+    const lastDate = this.currentDate;
+    const eventDate = event.date;
+
+    // Effetti mappa dell'evento: solo ora la proposta diventa applicata.
+    const changedRegions = this.applyMapChanges(event.mapChanges).map(region => ({
+      id: region.id,
+      owner: region.owner,
+      color: region.color,
+      name: region.name,
+      population: region.population,
+      gdp: region.gdp,
+      militaryPower: region.militaryPower,
+      objects: region.objects,
+    }));
+    for (const region of changedRegions) {
+      const existing = state.changedRegions.find(changed => changed.id === region.id);
+      if (existing) Object.assign(existing, region);
+      else state.changedRegions.push(region);
+    }
+
+    // Economia deterministica dalla data dell'ultimo checkpoint a questa data.
+    const elapsedDays = Math.round((Date.parse(eventDate) - Date.parse(lastDate)) / 86_400_000);
+    const bulletins = elapsedDays > 0 ? this.advanceWorldState(elapsedDays) : [];
+
+    // Il turno logico cresce una sola volta per l'intero salto (§9.1).
+    if (state.appliedCount === 0) this.currentTurn = state.jumpTurn + 1;
+    this.currentDate = eventDate;
+
+    const stepId = shortId();
+    const sourceActionIds = state.headlineToActionIds[event.headline] || [];
+    const timelineEvents: TimelineEventRecord[] = [{
+      id: `${stepId}-0`,
+      date: eventDate,
+      headline: event.headline,
+      detail: event.description,
+      source: 'world',
+      simulationId: runId,
+      sourceActionIds,
+    }, ...bulletins.map((bulletin, index) => ({
+      id: `${stepId}-b${index}`,
+      date: eventDate,
+      headline: 'Conti nazionali del periodo',
+      detail: bulletin,
+      source: 'world' as const,
+      simulationId: runId,
+    }))];
+    const turnResult: TurnResultRecord = {
+      id: stepId,
+      simulationId: runId,
+      turn: state.jumpTurn,
+      narration: event.description,
+      countryResponse: '',
+      events: [event.headline, ...bulletins],
+      timelineEvents,
+      date: eventDate,
+    };
+    this.results.push(turnResult);
+    gameRepository.addTurnResult({ ...turnResult, gameId: this.id });
+
+    await this.syncRegionsToDB();
+    gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
+
+    // Il run in pausa referenzia il checkpoint: assegnalo PRIMA della cattura,
+    // così un restore di questo checkpoint ripristina anche il playback (§9.3).
+    this.pausedRun = state;
+    const revision = state.revisionBase + state.appliedCount;
+    const checkpointId = shortId();
+    gameRepository.createSimulationCheckpoint({
+      id: checkpointId, runId, gameId: this.id, revision,
+      turn: state.jumpTurn, date: eventDate, data: this.captureCheckpointData(),
+    });
+    gameRepository.addSimulationEvents([{
+      id: `${stepId}-0`,
+      runId,
+      checkpointId,
+      gameId: this.id,
+      date: eventDate,
+      headline: event.headline,
+      detail: event.description,
+      source: 'world',
+      sourceActionIds,
+    }]);
+
+    const remaining = state.remainingEvents.length;
+    state.appliedCount++;
+
+    // Fine del playback: l'ultimo evento chiude il run subito se il budget è
+    // esaurito o se la destinazione coincide con la data dell'evento.
+    if (remaining === 0) {
+      if (state.incomplete) return this._completePausedRunUnlocked(state, 'paused_budget');
+      if (eventDate >= state.destination) return this._completePausedRunUnlocked(state, 'completed');
+    }
+
+    // Pausa durevole: le proposte restanti non sono canoniche e sopravvivono
+    // a riavvio/save/load dentro il run (pending_state).
+    // Nessuna LLM è in volo: la finestra di intervento è quella del lettore.
+    this.activeSimulationRunId = null;
+    this.activeSimulationAbort = null;
+    gameRepository.pauseSimulationRun(runId, {
+      checkpointDate: eventDate,
+      checkpointId,
+      turn: state.jumpTurn,
+      pendingState: state,
+    });
+    this.broadcast('jump_event', {
+      turn: state.jumpTurn,
+      index: state.appliedCount - 1,
+      event,
+      eventId: `${stepId}-0`,
+      streaming: false,
+      checkpoint: true,
+      changedRegions,
+      newDate: eventDate,
+      newTurn: this.currentTurn,
+      simulationId: runId,
+      awaitingNext: { remaining, destination: state.destination },
+    });
+    console.log('[GameSession] §9.3: checkpoint per-evento', eventDate,
+      '— run in attesa di «Continua»/«Intervieni»');
+    return {
+      paused: true,
+      type: 'awaiting_next',
+      simulationId: runId,
+      event: {
+        id: `${stepId}-0`,
+        date: eventDate,
+        headline: event.headline,
+        detail: event.description,
+        source: 'world',
+        sourceActionIds,
+      },
+      remaining,
+      destination: state.destination,
+      newDate: eventDate,
+      newTurn: this.currentTurn,
+      changedRegions,
+    };
+  }
+
+  /**
+   * Chiude il run scaglionato: porta il mondo a destinazione («completed»)
+   * oppure lo ferma all'ultimo checkpoint confermato («paused_budget» /
+   * «intervened»), finalizza gli ordini del lotto e pubblica il riepilogo.
+   */
+  private async _completePausedRunUnlocked(
+    state: PausedRunState,
+    reason: 'completed' | 'paused_budget' | 'intervened',
+  ): Promise<CompletedBatchResult> {
+    const runId = state.runId;
+    const completion = state.completion;
+    const player = this.players[0];
+    if (!player) throw new Error('No player in session');
+    const playerRegion = this.regions.get(player.regionId);
+    if (!playerRegion) throw new Error('Player region not found');
+
+    const destinationReached = reason === 'completed';
+    const lastEventDate = this.currentDate;
+    const finalDate = destinationReached ? state.destination : lastEventDate;
+
+    // Cronaca canonica del run: gli eventi applicati, con le loro date.
+    const appliedRows = gameRepository.getSimulationEvents(this.id, runId);
+    const appliedHeadlines = new Set(appliedRows.map(row => row.headline));
+    const voided = completion.voided || [];
+    const voidedHeadlines = voided.map(v => `⊘ Respinto: ${v.action}${v.reason ? ` — ${v.reason}` : ''}`);
+
+    // Gli effetti globali del record «complete» appartengono all'intero
+    // periodo: si applicano soltanto quando la destinazione è raggiunta.
+    // Su intervento o budget il futuro non simulato non entra nel mondo (§8.2).
+    const persistedRelationshipChanges: {
+      from: string; to: string; newRelationship: RelationshipType; reason: string;
+    }[] = [];
+    const chatTimelineEvents: TimelineEventRecord[] = [];
+    if (destinationReached) {
+      if (completion.worldChanges) this.applyWorldChanges(completion.worldChanges);
+      const polityResolver = this.buildResolvers().polities;
+      for (const change of completion.relationshipChanges) {
+        const from = polityResolver.resolve(change.from);
+        const to = polityResolver.resolve(change.to);
+        if (!from || !to || from.isNew || to.isNew || from.polityId === to.polityId) continue;
+        this.relationships.set(from.polityId, to.polityId, change.relationship);
+        persistedRelationshipChanges.push({
+          from: from.polityId,
+          to: to.polityId,
+          newRelationship: change.relationship,
+          reason: change.reason || 'Conseguenza diplomatica del turno',
+        });
+      }
+      relationshipRepository.upsertForGame(this.id, persistedRelationshipChanges);
+      for (const startChat of completion.startChat) {
+        try {
+          const chat = this.ensureChat([startChat.polityName]);
+          const sender = chat.participants.find(p => p.role === 'polity')?.name || chat.polityName;
+          const firstMessage = chatRepository.addMessage(
+            chat.id, 'polity', startChat.topic || 'Desideriamo discutere gli ultimi sviluppi.',
+            state.jumpTurn, sender, finalDate,
+          );
+          chatTimelineEvents.push({
+            id: `chat-${firstMessage.id}`,
+            date: finalDate,
+            headline: `${sender} apre un canale diplomatico`,
+            detail: `${sender}: ${firstMessage.content}`,
+            source: 'diplomacy',
+            simulationId: runId,
+            chatId: chat.id,
+            speakerName: sender,
+          });
+          this.broadcast('chat_message', {
+            chatId: chat.id,
+            polityId: chat.polityId,
+            polityName: chat.polityName,
+            participants: chat.participants,
+            senderName: sender,
+            message: firstMessage,
+          });
+        } catch (e) {
+          console.warn('[GameSession] startChat: politia non trovata:', startChat.polityName, e);
+        }
+      }
+    }
+
+    // Economia deterministica fino alla data finale effettiva.
+    const elapsedDays = Math.round((Date.parse(finalDate) - Date.parse(lastEventDate)) / 86_400_000);
+    const bulletins = elapsedDays > 0 ? this.advanceWorldState(elapsedDays) : [];
+
+    // Record finale: riepilogo tecnico del periodo, non seconda fonte di
+    // mutazioni. Gli eventi applicati vivono nei record per-evento.
+    const interruptionHeadline = reason === 'paused_budget'
+      ? '⏸ Budget di simulazione esaurito: destinazione non raggiunta'
+      : '⏸ Simulazione interrotta dal giocatore (Intervene)';
+    const narration = destinationReached
+      ? completion.narration
+      : appliedRows.map(row => row.detail).filter(Boolean).join('\n\n') || interruptionHeadline;
+    const finalTimelineEvents: TimelineEventRecord[] = [
+      ...bulletins.map((bulletin, index) => ({
+        id: `${shortId()}-b${index}`,
+        date: finalDate,
+        headline: 'Conti nazionali del periodo',
+        detail: bulletin,
+        source: 'world' as const,
+        simulationId: runId,
+      })),
+      ...persistedRelationshipChanges.map((change, index) => ({
+        id: `${shortId()}-rel-${index}`,
+        date: finalDate,
+        headline: `Rapporti diplomatici: ${change.from} ↔ ${change.to}`,
+        detail: `${change.newRelationship}: ${change.reason}`,
+        source: 'diplomacy' as const,
+        simulationId: runId,
+      })),
+      ...chatTimelineEvents,
+    ];
+    const finalEvents = destinationReached
+      ? [...voidedHeadlines, ...bulletins]
+      : [...voidedHeadlines, interruptionHeadline];
+    const finalResult: TurnResultRecord = {
+      id: shortId(),
+      simulationId: runId,
+      turn: state.jumpTurn,
+      narration,
+      countryResponse: completion.convertedActions.map((action: any) => action.text).join('\n'),
+      events: finalEvents,
+      timelineEvents: finalTimelineEvents,
+      date: finalDate,
+    };
+    this.results.push(finalResult);
+    gameRepository.addTurnResult({ ...finalResult, gameId: this.id });
+
+    // Finalizzazione del lotto di ordini: esiti individuali collegati SOLO
+    // agli eventi effettivamente applicati del run (§9.2: gli ordini emessi
+    // non sono reinviati; un esito parziale resta un processo aperto).
+    const batchActions = state.batchActionIds
+      .map(id => this.pendingActions.find(action => action.id === id))
+      .filter((action): action is PendingAction => !!action);
+    const actionRecords: ActionRecord[] = batchActions.map(item => ({
+      id: item.id,
+      playerId: player.id,
+      turn: state.jumpTurn,
+      text: item.text,
+      createdAt: item.createdAt,
+    }));
+    this.actions.push(...actionRecords);
+    actionRecords.forEach(actionRecord => gameRepository.addAction({
+      id: actionRecord.id,
+      gameId: this.id,
+      playerId: player.id,
+      turn: actionRecord.turn,
+      text: actionRecord.text,
+    }));
+
+    const runEvents = this.results
+      .filter(record => record.simulationId === runId)
+      .flatMap(record => record.events);
+    const runEventDetails = this.results
+      .filter(record => record.simulationId === runId)
+      .flatMap(record => record.timelineEvents || []);
+    batchActions.forEach((item, index) => {
+      const outcome = completion.actionOutcomes.find((result: any) => result.action === item.text)
+        || completion.actionOutcomes[index];
+      const rejected = voided.find((result: any) => result.action === item.text);
+      const outcomeStatus = outcome?.status || (rejected ? 'rejected' : undefined);
+      const outcomeSummary = outcome?.summary || rejected?.reason;
+      const outcomeEvents = outcome?.eventHeadlines?.length
+        ? outcome.eventHeadlines.filter((headline: string) => appliedHeadlines.has(headline))
+        : rejected ? voidedHeadlines.filter(headline => headline.includes(rejected.action)) : runEvents;
+      item.status = 'completed';
+      item.result = {
+        narration: outcomeSummary || narration,
+        countryResponse: finalResult.countryResponse,
+        events: outcomeEvents,
+        eventDetails: runEventDetails,
+        simulationId: runId,
+        outcome: outcomeStatus && outcomeSummary
+          ? { status: outcomeStatus, summary: outcomeSummary, expectedDate: outcome?.expectedDate }
+          : undefined,
+        objects: playerRegion.objects,
+        turn: state.jumpTurn,
+        periodStart: state.periodStart,
+        periodEnd: finalDate,
+      };
+    });
+    batchActions.filter(action => action.result?.outcome?.status === 'partial').forEach(action => {
+      gameRepository.upsertOngoingProcess({
+        id: shortId(),
+        gameId: this.id,
+        sourceActionId: action.id,
+        sourceRunId: runId,
+        title: action.text,
+        summary: action.result!.outcome!.summary,
+        startedDate: state.periodStart,
+        expectedDate: action.result!.outcome!.expectedDate && action.result!.outcome!.expectedDate > state.periodStart
+          ? action.result!.outcome!.expectedDate
+          : undefined,
+      });
+    });
+    batchActions.filter(action => action.result?.outcome?.status === 'accepted').forEach(action => {
+      gameRepository.completeOngoingProcessForAction(
+        this.id,
+        action.text,
+        action.result!.outcome!.summary,
+      );
+    });
+    gameRepository.addSimulationActionOutcomes(batchActions.map(action => ({
+      id: shortId(),
+      runId,
+      gameId: this.id,
+      actionId: action.id,
+      status: action.result?.outcome?.status || 'accepted',
+      summary: action.result?.outcome?.summary || action.result?.narration || narration,
+      eventHeadlines: action.result?.events || [],
+    })));
+    gameRepository.removePendingActions(this.id, batchActions.map(action => action.id));
+    // Anche la coda in memoria perde gli ordini conclusi: la coda autorevole
+    // non deve mostrarli come ancora in elaborazione.
+    this.pendingActions = this.pendingActions
+      .filter(action => !batchActions.some(batch => batch.id === action.id));
+
+    // Data/turno definitivi e checkpoint di chiusura del run.
+    this.currentDate = finalDate;
+    this.interveneRequested = false;
+    this.pausedRun = null; // prima della cattura: il checkpoint non referenzia più il run
+    await this.syncRegionsToDB();
+    gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
+    const finalCheckpointId = shortId();
+    const finalRevision = state.revisionBase + state.appliedCount;
+    gameRepository.createSimulationCheckpoint({
+      id: finalCheckpointId, runId, gameId: this.id, revision: finalRevision,
+      turn: state.jumpTurn, date: finalDate, data: this.captureCheckpointData(),
+    });
+    gameRepository.addSimulationEvents(finalTimelineEvents.map(event => ({
+      id: event.id,
+      runId,
+      checkpointId: finalCheckpointId,
+      gameId: this.id,
+      date: event.date,
+      headline: event.headline,
+      detail: event.detail,
+      source: event.source,
+      sourceActionIds: event.sourceActionIds,
+    })));
+    gameRepository.finishSimulationRun(runId, reason, {
+      checkpointDate: finalDate,
+      checkpointId: finalCheckpointId,
+      turn: state.jumpTurn,
+    });
+
+    this.broadcast('turn_complete', {
+      turn: state.jumpTurn,
+      narration,
+      events: runEvents,
+      eventDetails: runEventDetails,
+      newTurn: this.currentTurn,
+      newDate: this.currentDate,
+      changedRegions: state.changedRegions,
+      intervened: reason === 'intervened',
+      pausedBudget: reason === 'paused_budget',
+    });
+
+    // La consolazione della memoria e il commento del consigliere non devono
+    // compromettere un salto già chiuso con successo.
+    try {
+      await this.maybeConsolidate();
+    } catch (e) {
+      console.error('[GameSession] Consolidation failed (turn kept):', e);
+    }
+    this.getAdvisor(
+      'Commenta brevemente (max 500 caratteri) gli esiti del periodo appena trascorso per il tuo leader, in italiano',
+      []
+    )
+      .then(content => this.broadcast('advisor_proactive', { content }))
+      .catch(e => console.error('[GameSession] Proactive advisor failed:', e));
+
+    this.activeSimulationRunId = null;
+    this.activeSimulationAbort = null;
+    console.log('[GameSession] §9.3: run scaglionato chiuso:', reason, '— data finale:', this.currentDate);
+    return {
+      paused: false,
+      type: reason === 'completed' ? 'run_completed' : reason,
+      simulationId: runId,
+      actions: batchActions,
+      result: {
+        turn: state.jumpTurn,
+        narration,
+        events: runEvents,
+        eventDetails: runEventDetails,
+        periodStart: state.periodStart,
+        periodEnd: finalDate,
+      },
+      newDate: this.currentDate,
+      newTurn: this.currentTurn,
+      destination: destinationReached ? undefined : state.destination,
+    };
+  }
+
+  /** «Continua»: autorizza il checkpoint per-evento successivo del run sospeso. */
+  async continueSimulation(runId: string): Promise<PausedBatchResult | CompletedBatchResult> {
+    const result = await this.withLock(async () => {
+      if (!this.pausedRun || this.pausedRun.runId !== runId) {
+        throw new Error('Il run indicato non è in pausa per questa partita');
+      }
+      const state = this.pausedRun;
+      // Una proposta stantia (per esempio dopo un restore) non retrodata il mondo.
+      let event = state.remainingEvents.shift();
+      while (event && !dateInPeriod(event.date, this.currentDate, state.destination)) {
+        console.warn('[GameSession] §9.3: proposta fuori periodo scartata:', event.date);
+        event = state.remainingEvents.shift();
+      }
+      if (event) return this._commitPausedStepUnlocked(state, event);
+      // Nessuna proposta residua: «Continua» autorizza l'avanzamento a
+      // destinazione — o la chiusura onesta se il budget non ha coperto il
+      // periodo richiesto (§7.2/T36).
+      return this._completePausedRunUnlocked(state, state.incomplete ? 'paused_budget' : 'completed');
+    });
+    if (result === null) throw new SimulationInProgressError();
+    return result;
+  }
+
+  /** §9.3 «Intervieni qui»: chiude il salto al checkpoint mostrato. */
+  async tryIntervenePausedRun(simulationId?: string): Promise<CompletedBatchResult | null> {
+    const state = this.pausedRun;
+    if (!state) return null;
+    if (simulationId && simulationId !== state.runId) return null;
+    const result = await this.withLock(async () => {
+      if (this.pausedRun !== state) return undefined; // già chiuso da una richiesta concorrente
+      return this._completePausedRunUnlocked(state, 'intervened');
+    });
+    if (result === undefined) return null;
+    if (result === null) throw new SimulationInProgressError();
+    return result;
+  }
+
+  /** Stato del playback sospeso, per API e riconciliazione del client. */
+  getPausedRunInfo(): {
+    simulationId: string; remaining: number; destination: string;
+    date: string; turn: number; incomplete: boolean;
+  } | null {
+    if (!this.pausedRun) return null;
+    return {
+      simulationId: this.pausedRun.runId,
+      remaining: this.pausedRun.remainingEvents.length,
+      destination: this.pausedRun.destination,
+      date: this.currentDate,
+      turn: this.currentTurn,
+      incomplete: this.pausedRun.incomplete,
+    };
+  }
+
+  /** Ricostruisce il playback sospeso di un salvataggio/checkpoint. */
+  private _revivePausedRun(pausedSimulationId?: string): PausedRunState | null {
+    if (!pausedSimulationId) return null;
+    const row = db.prepare(
+      'SELECT id, status, pending_state FROM simulation_runs WHERE id = ? AND game_id = ?'
+    ).get(pausedSimulationId, this.id) as any;
+    if (!row || row.status !== 'awaiting_next' || !row.pending_state) return null;
+    let parsed: any = null;
+    try { parsed = JSON.parse(row.pending_state); } catch { return null; }
+    return this._revivePausedRunState(parsed);
+  }
+
+  private _revivePausedRunFromRow(row: any): PausedRunState | null {
+    if (!row?.pendingState) return null;
+    const raw = typeof row.pendingState === 'string'
+      ? (() => { try { return JSON.parse(row.pendingState); } catch { return null; } })()
+      : row.pendingState;
+    return this._revivePausedRunState(raw);
+  }
+
+  private _revivePausedRunState(raw: any): PausedRunState | null {
+    try {
+      if (!raw || typeof raw.runId !== 'string' || !Array.isArray(raw.remainingEvents)) return null;
+      const remainingEvents = raw.remainingEvents.filter((event: any) =>
+        event && typeof event.headline === 'string' && typeof event.date === 'string'
+        && Array.isArray(event.mapChanges)
+      );
+      if (typeof raw.periodStart !== 'string' || typeof raw.destination !== 'string') return null;
+      return {
+        runId: raw.runId,
+        periodStart: raw.periodStart,
+        destination: raw.destination,
+        jumpTurn: Number.isInteger(raw.jumpTurn) ? raw.jumpTurn : this.currentTurn,
+        revisionBase: Number.isInteger(raw.revisionBase) ? raw.revisionBase : this.currentTurn + 1,
+        remainingEvents,
+        batchActionIds: Array.isArray(raw.batchActionIds) ? raw.batchActionIds : [],
+        headlineToActionIds: raw.headlineToActionIds && typeof raw.headlineToActionIds === 'object' ? raw.headlineToActionIds : {},
+        incomplete: raw.incomplete === true,
+        changedRegions: Array.isArray(raw.changedRegions) ? raw.changedRegions : [],
+        completion: {
+          narration: typeof raw.completion?.narration === 'string' ? raw.completion.narration : '',
+          convertedActions: Array.isArray(raw.completion?.convertedActions) ? raw.completion.convertedActions : [],
+          actionOutcomes: Array.isArray(raw.completion?.actionOutcomes) ? raw.completion.actionOutcomes : [],
+          voided: Array.isArray(raw.completion?.voided) ? raw.completion.voided : [],
+          worldChanges: raw.completion?.worldChanges,
+          relationshipChanges: Array.isArray(raw.completion?.relationshipChanges) ? raw.completion.relationshipChanges : [],
+          startChat: Array.isArray(raw.completion?.startChat) ? raw.completion.startChat : [],
+        },
+        appliedCount: Number.isInteger(raw.appliedCount) ? raw.appliedCount : 0,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -1947,11 +2680,13 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
    */
   async processNextAction(jumpDays: number = 30): Promise<PendingAction | null> {
     const result = await this.withLock(async () => {
+      if (this.pausedRun) throw new SimulationPausedError(this.pausedRun.runId);
       const action = this.pendingActions.find(item => item.status === 'pending');
       if (!action) return [];
       return this._processActionBatchUnlocked(jumpDays, [action]);
     });
     if (result === null) throw new SimulationInProgressError();
+    if (!Array.isArray(result)) return null; // §9.3: il run è in pausa su un checkpoint per-evento
     return result[0] || null;
   }
 
@@ -1966,11 +2701,19 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     jumpDays: number,
     actions: PendingAction[],
     idempotencyKey?: string,
-  ): Promise<PendingAction[]> {
+  ): Promise<PendingAction[] | PausedBatchResult> {
     // Validate before taking a snapshot or mutating the queue.
     const timeJump = jumpHorizon(jumpDays);
     const periodStart = this.currentDate;
     const horizonDate = addDays(periodStart, timeJump);
+    // §12: lo snapshot di rewind ritrae l'ORIGINE del salto, ordini ancora
+    // in coda compresi. Va preso prima della presa in carico, così un rewind
+    // (o un Intervene durante il playback scaglionato) li restituisce alla
+    // coda invece di perderli.
+    const rewindBeforeSearch = db.prepare(
+      "SELECT * FROM saves WHERE game_id = ? AND name = '__rewind__' ORDER BY saved_at DESC LIMIT 1"
+    ).get(this.id) as any;
+    this.saveRewindSnapshot();
     actions.forEach(item => { item.status = 'processing'; });
     gameRepository.updatePendingActionStatus(this.id, actions.map(item => item.id), 'processing');
     console.log(
@@ -2000,13 +2743,6 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       const playerRegion = this.regions.get(player.regionId);
       if (!playerRegion) throw new Error('Player region not found');
 
-      // Snapshot pre-turn. If auto-jump finds no event at all, restore the
-      // previous rewind record as well: a failed search is not a checkpoint.
-      const rewindBeforeSearch = db.prepare(
-        "SELECT * FROM saves WHERE game_id = ? AND name = '__rewind__' ORDER BY saved_at DESC LIMIT 1"
-      ).get(this.id) as any;
-      this.saveRewindSnapshot();
-
       // jumpDays <= 0 — auto-jump «к следующему важному событию» (горизонт — год)
       const autoJump = jumpDays <= 0;
       simulationRunId = shortId();
@@ -2030,11 +2766,14 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // Build game data for prompt engine
       const gameData = this.buildGameData();
 
-      // Gli eventi escono dal token stream UNO ALLA VOLTA. Appena un oggetto
-      // JSON è completo viene applicato alla mappa e inviato al browser; non
-      // attendiamo più la generazione dell'intero lotto.
+      // Gli eventi escono dal token stream UNO ALLA VOLTA. In auto-jump un
+      // oggetto JSON completo viene applicato alla mappa e inviato al browser
+      // come anteprima; nel salto fisso (§9.3) gli eventi restano PROPOSTE non
+      // applicate: il primo commit avviene solo a stream concluso, e i
+      // successivi soltanto dopo la conferma esplicita del giocatore.
       this.interveneRequested = false;
       const appliedEvents: SimulationEvent[] = [];
+      const proposedEvents: SimulationEvent[] = [];
       // Gli stream possono mostrare una proposta evento, ma la mappa del
       // client cambia solo dopo il commit del turno. Conserviamo qui il delta
       // da pubblicare insieme al checkpoint durevole.
@@ -2044,25 +2783,29 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       }>();
       let consumedEvents = 0;
       let intervened = false;
-      const publishEvent = (event: SimulationEvent, index: number) => {
+      const acceptEvent = (event: SimulationEvent, index: number, apply: boolean): boolean => {
         consumedEvents = Math.max(consumedEvents, index + 1);
         if (this.interveneRequested) {
           intervened = true;
-          return;
+          return false;
+        }
+        // Reject invalid/backdated dates before any map effect. Count consumed
+        // events separately below so streaming fallbacks cannot reapply them.
+        const previousDate = (apply ? appliedEvents.at(-1) : proposedEvents.at(-1))?.date || periodStart;
+        if (!dateInPeriod(event.date, previousDate, horizonDate)) {
+          console.warn('[GameSession] Event outside turn period:', event.date);
+          return false;
+        }
+        if (!apply) {
+          proposedEvents.push(event);
+          return true;
         }
         // In auto-jump il primo evento significativo è anche il punto di
         // arresto: ignora rigorosamente gli eventuali record successivi di un
         // modello che non abbia rispettato il limite del prompt.
         if (autoJump && appliedEvents.length > 0) {
           console.warn('[GameSession] Auto-jump: event after the first ignored');
-          return;
-        }
-        // Reject invalid/backdated dates before any map effect. Count consumed
-        // events separately below so streaming fallbacks cannot reapply them.
-        const previousDate = appliedEvents.at(-1)?.date || periodStart;
-        if (!dateInPeriod(event.date, previousDate, horizonDate)) {
-          console.warn('[GameSession] Event outside turn period:', event.date);
-          return;
+          return false;
         }
         const changedRegions = this.applyMapChanges(event.mapChanges).map(region => ({
           id: region.id,
@@ -2085,15 +2828,26 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           streaming: true,
           checkpoint: false,
         });
+        return true;
       };
+      // §9.3: durante la generazione di un salto fisso nessun evento è
+      // applicato né svelato: le proposte future non sono canoniche e non
+      // devono rivelare la narrazione prima dell'applicazione.
+      const emitEvent = autoJump
+        ? (event: SimulationEvent, index: number) => { acceptEvent(event, index, true); }
+        : (event: SimulationEvent, index: number) => { acceptEvent(event, index, false); };
 
       const promptResult = await this.gameController.processTurnWithPrompts(
         gameData,
         actions.map(item => item.text),
         timeJump,
-        (chars) => this.broadcast('llm_progress', { mechanic: 'jump', chars, eventsReady: appliedEvents.length }),
+        (chars) => this.broadcast('llm_progress', {
+          mechanic: 'jump',
+          chars,
+          eventsReady: autoJump ? appliedEvents.length : proposedEvents.length,
+        }),
         autoJump,
-        publishEvent,
+        emitEvent,
         this.activeSimulationAbort.signal,
       );
 
@@ -2102,9 +2856,67 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // eventuali eventi che non sono già arrivati dal callback incrementale.
       for (let i = consumedEvents; i < events.length; i++) {
         if (this.interveneRequested) { intervened = true; break; }
-        publishEvent(events[i], i);
+        emitEvent(events[i], i);
       }
       intervened ||= this.interveneRequested;
+
+      // §9.3 — playback «un evento alla volta»: con due o più eventi proposti
+      // il salto fisso committa solo il primo checkpoint e consegna il resto
+      // delle proposte al run in pausa. «Continua» autorizza il checkpoint
+      // seguente, «Intervieni qui» chiude il salto al checkpoint mostrato.
+      if (!autoJump && !intervened && proposedEvents.length >= 2) {
+        return this._startPausedPlaybackUnlocked({
+          simulationRunId: simulationRunId!,
+          actions,
+          promptResult,
+          proposedEvents,
+          periodStart,
+          horizonDate,
+        });
+      }
+
+      // §7.2: Intervene durante la generazione di un salto fisso arresta un
+      // mondo che non ha ancora applicato né svelato alcun evento. La
+      // destinazione non è raggiunta, gli ordini tornano disponibili e il
+      // run termina «interrupted» senza inventare esiti.
+      if (!autoJump && intervened) {
+        actions.forEach(action => { action.status = 'pending'; });
+        gameRepository.updatePendingActionStatus(this.id, actions.map(action => action.id), 'pending');
+        db.prepare("DELETE FROM saves WHERE game_id = ? AND name = '__rewind__'").run(this.id);
+        if (rewindBeforeSearch) {
+          db.prepare(`
+            INSERT INTO saves (id, game_id, name, current_turn, current_date, data, saved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            rewindBeforeSearch.id, rewindBeforeSearch.game_id, rewindBeforeSearch.name,
+            rewindBeforeSearch.current_turn, rewindBeforeSearch.current_date,
+            rewindBeforeSearch.data, rewindBeforeSearch.saved_at,
+          );
+        }
+        gameRepository.finishSimulationRun(simulationRunId, 'interrupted', {
+          checkpointDate: periodStart,
+          turn: this.currentTurn,
+        });
+        this.activeSimulationRunId = null;
+        this.activeSimulationAbort = null;
+        this.broadcast('turn_complete', {
+          turn: this.currentTurn,
+          narration: '⏸ Simulazione interrotta dal giocatore prima del primo evento',
+          events: ['⏸ Simulazione interrotta: nessun evento applicato'],
+          newTurn: this.currentTurn,
+          newDate: this.currentDate,
+          intervened: true,
+        });
+        return [];
+      }
+
+      // Salto fisso con al più un evento: nessuna finestra di intervento
+      // da proteggere oltre lo streaming — applica e completa il periodo
+      // con il codice storico (un solo checkpoint a destinazione).
+      if (!autoJump) {
+        for (const [i, event] of proposedEvents.entries()) acceptEvent(event, i, true);
+      }
+
       const period = resolvePeriod({ start: periodStart, days: timeJump, auto: autoJump,
         interrupted: intervened, target: promptResult.targetDate, eventDates: appliedEvents.map(e => e.date) });
       if (intervened) {
@@ -2512,8 +3324,9 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
   /**
    * Process every currently pending order as one simultaneous batch.
    */
-  async processAllPendingActions(jumpDays: number = 30, idempotencyKey?: string): Promise<PendingAction[]> {
+  async processAllPendingActions(jumpDays: number = 30, idempotencyKey?: string): Promise<PendingAction[] | PausedBatchResult> {
     const result = await this.withLock(async () => {
+      if (this.pausedRun) throw new SimulationPausedError(this.pausedRun.runId);
       const pending = this.pendingActions.filter(action => action.status === 'pending');
       return this._processActionBatchUnlocked(jumpDays, pending, idempotencyKey);
     });
@@ -2526,9 +3339,13 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
    * orders. No placeholder player action is created: an empty `actions` array
    * explicitly means that only existing world processes may produce events.
    */
-  async processWorldAdvance(jumpDays: number = 30, idempotencyKey?: string): Promise<TurnResultRecord | null> {
+  async processWorldAdvance(jumpDays: number = 30, idempotencyKey?: string): Promise<TurnResultRecord | PausedBatchResult | null> {
     const result = await this.withLock(async () => {
-      await this._processActionBatchUnlocked(jumpDays, [], idempotencyKey);
+      if (this.pausedRun) throw new SimulationPausedError(this.pausedRun.runId);
+      const batch = await this._processActionBatchUnlocked(jumpDays, [], idempotencyKey);
+      // §9.3: il mondo senza nuovi ordini riceve lo stesso playback scaglionato
+      // quando la simulazione produce più eventi nel periodo richiesto.
+      if (!Array.isArray(batch)) return batch;
       return this.results.at(-1) || null;
     });
     if (result === null) throw new SimulationInProgressError();
@@ -2542,6 +3359,9 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
    * still advance together for callers that explicitly retain this legacy API.
    */
   async advanceDate(jumpDays: number = 30): Promise<{ newDate: string; newTurn: number }> {
+    // §9.3: un run in pausa possiede il turno: nemmeno il percorso legacy
+    // può far avanzare il mondo dietro la finestra di lettura del giocatore.
+    if (this.pausedRun) throw new SimulationPausedError(this.pausedRun.runId);
     // Validate BEFORE any mutation: an invalid horizon used to increment the
     // turn and then throw on an Invalid Date.
     const days = explicitDays(jumpDays);

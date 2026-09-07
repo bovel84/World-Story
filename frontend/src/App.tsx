@@ -642,6 +642,13 @@ function App() {
   // Time-skip handler (Phase 4)
   const handleTimeSkip = async (days: number) => {
     if (!currentGame) return;
+    // §9.3/§9.2: un run in pausa possiede il turno. Un nuovo salto è rifiutato
+    // finché il giocatore non decide sul checkpoint mostrato.
+    if (pausedReader) {
+      setTurnProgress('⏸ Un evento attende la tua decisione: Continua o Intervieni prima di avanzare di nuovo.');
+      setTimeout(() => setTurnProgress(''), 5000);
+      return;
+    }
 
     setLoading(true);
 
@@ -693,6 +700,24 @@ function App() {
         // Nessun checkpoint è stato creato: la UI conserva data, mappa,
         // cronaca e coda e comunica soltanto l'esito della ricerca.
         setTurnProgress(`Nessun evento importante fino al ${result.searchedUntil || 'limite di ricerca'}.`);
+      } else if (result.type === 'awaiting_next') {
+        // §9.3: il salto fisso si è fermato al checkpoint del primo evento.
+        // Il resto del periodo NON è svelato e attende la conferma esplicita.
+        // Un retry idempotente non riporta l'evento: riconcilia dal server.
+        if (result.event) {
+          setPausedReader({
+            simulationId: result.simulationId!,
+            event: result.event,
+            remaining: result.remaining ?? 0,
+            destination: result.destination ?? '',
+          });
+          setCurrentGame(prev => prev ? { ...prev, currentDate: result.newDate!, currentTurn: result.newTurn! } : prev);
+          applyCheckpointRegions(result.changedRegions);
+        } else {
+          const refreshed = await gameApi.get(currentGame.id);
+          setCurrentGame(refreshed);
+          await restorePausedReader(refreshed);
+        }
       } else if (result.type === 'simulation_replayed') {
         // Un retry HTTP ha già prodotto questo checkpoint: non aggiungere una
         // seconda storia; il refetch autorevole sotto riallinea UI e mappa.
@@ -803,6 +828,8 @@ function App() {
       const restored = await gameApi.restoreSimulationCheckpoint(currentGame.id, simulationId);
       const updatedGame = await gameApi.get(currentGame.id);
       setCurrentGame(updatedGame);
+      // §9.3: il checkpoint ripristinato può appartenere a un run in pausa.
+      await restorePausedReader(updatedGame);
       if (updatedGame.world && currentWorld) {
         const regions = { ...currentWorld.regions };
         const serverRegions = Array.isArray(updatedGame.world.regions)
@@ -851,6 +878,145 @@ function App() {
       setTurnProgress('⏸ Intervieni: arresto dopo l\'evento corrente…');
     } catch (e) {
       console.error('Intervene failed:', e);
+    }
+  };
+
+  // =========================================================================
+  // §9.3 — Playback «un evento alla volta» per i salti fissi
+  // =========================================================================
+
+  /** Aggiorna la mappa col delta di un checkpoint per-evento committato. */
+  const applyCheckpointRegions = (changedRegions: any[] | undefined) => {
+    if (!changedRegions?.length) return;
+    const liveWorld = useGameStore.getState().currentWorld;
+    if (liveWorld) {
+      const regions = { ...liveWorld.regions };
+      for (const changed of changedRegions) {
+        if (regions[changed.id]) regions[changed.id] = { ...regions[changed.id], ...changed };
+      }
+      setCurrentWorld({ ...liveWorld, regions });
+    }
+    setChangedRegions(changedRegions.map((region: any) => region.id));
+    setTimeout(() => clearChangedRegions(), 3000);
+  };
+
+  /** Il run scaglionato è chiuso: finalizza cronaca, data e turno con gli
+   * stessi percorsi di actions_processed/world_advanced. */
+  const applyRunCompletion = async (outcome: {
+    type: string;
+    simulationId: string;
+    actions?: any[];
+    newDate: string;
+    newTurn: number;
+    result?: { turn: number; narration: string; events: string[]; eventDetails?: any[]; periodStart: string; periodEnd: string };
+  }) => {
+    setPausedReader(null);
+    for (const action of outcome.actions || []) {
+      if (action.result) {
+        addHistory({
+          turn: action.result.turn,
+          action: action.text,
+          result: action.result.narration,
+          events: action.result.events,
+          eventDetails: action.result.eventDetails,
+          periodStart: action.result.periodStart,
+          periodEnd: action.result.periodEnd,
+        });
+      }
+    }
+    if (outcome.result && !(outcome.actions || []).some((action: any) => action.result)) {
+      addHistory({
+        turn: outcome.result.turn,
+        action: outcome.type === 'paused_budget' ? '⏸ Salto sospeso: budget esaurito' : 'Salto temporale',
+        result: outcome.result.narration,
+        events: outcome.result.events,
+        eventDetails: outcome.result.eventDetails,
+        periodStart: outcome.result.periodStart,
+        periodEnd: outcome.result.periodEnd,
+      });
+    }
+    setCurrentGame(prev => prev ? { ...prev, currentTurn: outcome.newTurn, currentDate: outcome.newDate } : prev);
+  };
+
+  /** Dopo refresh o ripristino, un run in pausa riapre il lettore al suo
+   * checkpoint: il playback scaglionato è durevole (§9.2). */
+  const restorePausedReader = async (game: Game) => {
+    const paused = (game as any).pausedSimulation;
+    if (!paused?.simulationId) {
+      setPausedReader(null);
+      return;
+    }
+    try {
+      const run = await gameApi.getSimulationRun(game.id, paused.simulationId);
+      const lastEvent = run.events?.[run.events.length - 1];
+      if (run.awaitingNext && lastEvent) {
+        setPausedReader({
+          simulationId: paused.simulationId,
+          event: {
+            id: lastEvent.id,
+            date: lastEvent.date,
+            headline: lastEvent.headline,
+            detail: lastEvent.detail,
+            source: lastEvent.source,
+          },
+          remaining: run.awaitingNext.remaining,
+          destination: run.awaitingNext.destination,
+        });
+      } else {
+        setPausedReader(null);
+      }
+    } catch (e) {
+      console.warn('[App] Impossibile ricostruire il run in pausa:', e);
+      setPausedReader(null);
+    }
+  };
+
+  /** «Continua»: autorizza il checkpoint per-evento successivo del run sospeso. */
+  const handleContinueNext = async () => {
+    if (!currentGame || !pausedReader || loading) return;
+    setLoading(true);
+    try {
+      const result = await gameApi.continueSimulation(currentGame.id, pausedReader.simulationId);
+      if (result.type === 'awaiting_next' && result.event) {
+        setPausedReader({
+          simulationId: result.simulationId,
+          event: result.event,
+          remaining: result.remaining ?? 0,
+          destination: result.destination ?? '',
+        });
+        setCurrentGame(prev => prev ? { ...prev, currentDate: result.newDate, currentTurn: result.newTurn } : prev);
+        applyCheckpointRegions(result.changedRegions);
+      } else {
+        // run_completed / paused_budget / intervened: il salto è chiuso.
+        await applyRunCompletion(result);
+      }
+      // La coda autorevole dopo ogni decisione del lettore (G14/G15).
+      const authoritativeQueue = await gameApi.getPendingActions(currentGame.id);
+      setPendingActions(authoritativeQueue.pendingActions || []);
+    } catch (e) {
+      console.error('Continue simulation failed:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** «Intervieni qui»: chiude il salto al checkpoint mostrato (§9.3). */
+  const handleInterveneHere = async () => {
+    if (!currentGame || !pausedReader || loading) return;
+    setLoading(true);
+    try {
+      const result = await gameApi.intervene(currentGame.id, pausedReader.simulationId);
+      if (result.intervened) {
+        await applyRunCompletion(result as any);
+      } else {
+        setPausedReader(null);
+      }
+      const authoritativeQueue = await gameApi.getPendingActions(currentGame.id);
+      setPendingActions(authoritativeQueue.pendingActions || []);
+    } catch (e) {
+      console.error('Intervene here failed:', e);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -956,6 +1122,8 @@ function App() {
       const game = await gameApi.get(save.game_id);
       setCurrentGame(game);
       setCurrentWorld(game.world);
+      // §9.3: anche il playback in pausa sopravvive al caricamento.
+      await restorePausedReader(game);
       const regionId = game.players?.[0]?.regionId;
       if (regionId) {
         setSelectedRegion(regionId);
@@ -1009,6 +1177,13 @@ function App() {
   // SSE real-time updates
   const [isProcessingTurn, setIsProcessingTurn] = useState(false);
   const [turnProgress, setTurnProgress] = useState<string>('');
+  /** §9.3: lettore del playback «un evento alla volta» di un salto fisso. */
+  const [pausedReader, setPausedReader] = useState<{
+    simulationId: string;
+    event: { id: string; date: string; headline: string; detail: string; source: string };
+    remaining: number;
+    destination: string;
+  } | null>(null);
   // Fase 2: difficoltà della nuova partita
   const [difficulty, setDifficulty] = useState<string>('normal');
 
@@ -1050,6 +1225,33 @@ function App() {
         : `Generazione del primo evento… ${data.chars} car.`);
     },
     onJumpEvent: (data) => {
+      // §9.3: checkpoint per-evento committato — data, mappa e lettore si
+      // aggiornano insieme al checkpoint, con ID canonico per la dedup HTTP/SSE.
+      if (data.checkpoint) {
+        if (data.event?.date) {
+          setCurrentGame(prev => prev ? { ...prev, currentDate: data.event.date } : prev);
+        }
+        applyCheckpointRegions(data.changedRegions);
+        if (data.event?.headline) {
+          pushFeed(data.event.headline, 'world', data.event.date, data.event.description, data.eventId);
+        }
+        if (data.awaitingNext && data.simulationId) {
+          setPausedReader({
+            simulationId: data.simulationId,
+            event: {
+              id: data.eventId || `${data.simulationId}-${data.index}`,
+              date: data.event.date,
+              headline: data.event.headline,
+              detail: data.event.description,
+              source: 'world',
+            },
+            remaining: data.awaitingNext.remaining,
+            destination: data.awaitingNext.destination,
+          });
+        }
+        setTurnProgress(`Evento applicato: ${data.event?.headline || ''}`);
+        return;
+      }
       const number = data.index + 1;
       streamedEventCountRef.current = Math.max(streamedEventCountRef.current, number);
       setTurnProgress(`Evento ${number}: ${data.event?.headline || ''}`);
@@ -1137,6 +1339,11 @@ function App() {
       setIsProcessingTurn(false);
       activeSimulationIdRef.current = undefined;
       setTurnProgress('');
+      // Il run scaglionato è chiuso: il lettore non chiede più decisioni.
+      setPausedReader(null);
+      if (data?.pausedBudget) {
+        pushFeed('⏸ Budget di simulazione esaurito: destinazione non raggiunta. Avanza di nuovo per continuare il periodo.', 'world', data.newDate);
+      }
 
       // Il feed: gli eventi «live» di questo turno diventano eventi definitivi
       setFeedItems(prev => {
@@ -1288,6 +1495,46 @@ function App() {
               >
                 ⏸ Intervene
               </button>
+            </div>
+          )}
+          {/* §9.3: lettore del playback «un evento alla volta» — il tempo resta
+              fermo finché il giocatore non autorizza il checkpoint successivo. */}
+          {pausedReader && (
+            <div className="event-reader-banner" role="region" aria-label="Evento in lettura">
+              <div className="event-reader-meta">
+                <span className="event-reader-date">{pausedReader.event.date}</span>
+                <span className="event-reader-remaining">
+                  {pausedReader.remaining > 0
+                    ? `${pausedReader.remaining} ${pausedReader.remaining === 1 ? 'evento' : 'eventi'} ancora in sospeso`
+                    : 'Ultimo evento del salto'}
+                </span>
+              </div>
+              <h3 className="event-reader-title">{pausedReader.event.headline}</h3>
+              {pausedReader.event.detail && (
+                <p className="event-reader-detail">{pausedReader.event.detail}</p>
+              )}
+              <div className="event-reader-actions">
+                <button
+                  type="button"
+                  className="btn-continue-next"
+                  onClick={handleContinueNext}
+                  disabled={loading}
+                >
+                  {pausedReader.remaining > 0
+                    ? '▶ Continua'
+                    : `▶ Avanza fino al ${pausedReader.destination}`}
+                </button>
+                <button
+                  type="button"
+                  className="btn-intervene"
+                  onClick={handleInterveneHere}
+                  disabled={loading}
+                  title="Chiude il salto qui: il mondo resta a questa data"
+                >
+                  ⏸ Intervieni qui
+                </button>
+              </div>
+              <p className="event-reader-note">Il tempo è fermo: il mondo riprende solo con la tua conferma.</p>
             </div>
           )}
           {/* Mappa a sinistra */}

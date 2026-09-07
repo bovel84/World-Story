@@ -103,8 +103,11 @@ export interface SimulationResult {
   startChat?: { polityName: string; topic: string }[];
   /** Conseguenze diplomatiche, incluse quelle negoziate nelle chat. */
   relationshipChanges?: { from: string; to: string; relationship: 'ally' | 'neutral' | 'hostile'; reason?: string }[];
-  /** Для auto-jump: фактическая целевая дата, выбранная симуляцией */
+  /** Per auto-jump: effettiva data d'arrivo scelta dalla simulazione */
   targetDate?: string;
+  /** §7.2/T36: lo stream è terminato senza un record «complete» valido —
+   * il budget non ha coperto l'intero periodo richiesto. */
+  incomplete?: boolean;
 }
 
 /** Действие игрока, отклонённое как нереалистичное («захватить мир за день») */

@@ -344,7 +344,10 @@ export function parseIncrementalSimulationResponse(text: string): SimulationResu
   const events = records.filter((r): r is Extract<IncrementalSimulationRecord, { type: 'event' }> => r.type === 'event')
     .map(r => r.event);
   const complete = [...records].reverse().find((r): r is Extract<IncrementalSimulationRecord, { type: 'complete' }> => r.type === 'complete');
-  return { ...(complete?.result || parseSimulationResponse('{}')), events };
+  // §9.2/T36: eventi emessi ma nessuna chiusura del periodo = budget esaurito
+  // prima della destinazione. Il chiamante non può dichiarare il salto
+  // completato sulla parola di una risposta troncata.
+  return { ...(complete?.result || parseSimulationResponse('{}')), events, incomplete: records.length > 0 && !complete };
 }
 
 export function parseSimulationResponse(text: string): SimulationResult {

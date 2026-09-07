@@ -8,7 +8,7 @@ import { shortId } from '../utils/short-id';
 import { gameRepository } from '../repositories';
 import { countryRepository } from '../repositories/country.repository';
 import { getSessionRegistry } from '../session-registry';
-import { SimulationInProgressError } from '../game-session';
+import { SimulationInProgressError, SimulationPausedError, type TurnResultRecord, type PausedBatchResult } from '../game-session';
 import { addDays, jumpHorizon } from '../core/simulation/calendar';
 import { addSSEClient, removeSSEClient, broadcastToGame, hasClients } from '../sse';
 import { LLMError } from '../llm';
@@ -25,6 +25,10 @@ function respondRouteError(res: any, e: any, fallback: string): void {
     res.status(502).json({ error: `LLM (${e.provider}): ${e.message}` });
   } else if (e instanceof SimulationInProgressError) {
     res.status(409).json({ error: e.message, code: 'simulation_in_progress' });
+  } else if (e instanceof SimulationPausedError) {
+    // §9.3: un playback in pausa attende una decisione; un nuovo salto è un
+    // conflitto esplicito, non un fallimento silenzioso.
+    res.status(409).json({ error: e.message, code: 'simulation_paused', simulationId: e.runId });
   } else if (typeof e?.message === 'string' && e.message.includes('not found')) {
     res.status(404).json({ error: e.message });
   } else {
@@ -96,12 +100,21 @@ gamesRouter.get('/:id', (req, res) => {
     ownerRegionCounts.set(region.owner, (ownerRegionCounts.get(region.owner) || 0) + 1);
   }
 
+  // §9.3: il client riconcilia anche il playback scaglionato dopo refresh o
+  // riconnessione — non soltanto via SSE.
+  let pausedSimulation: any = null;
+  try {
+    const session = getSessionRegistry().getSession(game.id);
+    pausedSimulation = session?.getPausedRunInfo?.() || null;
+  } catch { /* sessione non in memoria: nessun playback attivo */ }
+
   res.json({
     id: game.id,
     currentTurn: game.current_turn,
     currentDate: game.current_date,
     maxTurns: game.max_turns,
     status: game.status,
+    pausedSimulation,
     world: {
       id: game.world.id,
       name: game.world.name,
@@ -520,6 +533,13 @@ gamesRouter.post('/:id/actions/process-all', async (req, res) => {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
     const processed = await session.processAllPendingActions(jump_days);
 
+    // §9.3: il playback scaglionato non è un risultato «vuoto»: il run resta
+    // in pausa sul checkpoint per-evento, in attesa di una decisione.
+    if (!Array.isArray(processed)) {
+      res.json(processed);
+      return;
+    }
+
     console.log('[PROCESS ALL] Actions processed:', processed.length);
     res.json({
       simulationId: processed.at(-1)?.result?.simulationId,
@@ -543,8 +563,15 @@ gamesRouter.get('/:id/simulations/:runId', (req, res) => {
     const checkpoint = run.checkpoint_id
       ? gameRepository.getSimulationCheckpoint(req.params.id, run.checkpoint_id)
       : null;
+    // §9.3: il lettore sa sempre se il run attende la conferma del giocatore.
+    let awaitingNext: any = null;
+    try {
+      const pausedInfo = getSessionRegistry().getSession(req.params.id)?.getPausedRunInfo?.() || null;
+      awaitingNext = pausedInfo && pausedInfo.simulationId === run.id ? pausedInfo : null;
+    } catch { /* sessione non in memoria */ }
     res.json({
       run,
+      awaitingNext,
       checkpoint: checkpoint ? {
         id: checkpoint.id,
         revision: checkpoint.revision,
@@ -612,6 +639,12 @@ gamesRouter.post('/:id/time-skip', async (req, res) => {
           res.status(409).json({ error: 'Richiesta già in elaborazione', code: 'simulation_in_progress', simulationId: existing.id });
           return;
         }
+        // §9.3: il retry di un salto ora in pausa riapre il lettore al
+        // checkpoint, senza fingere un periodo completato.
+        if (existing.status === 'awaiting_next') {
+          res.json({ type: 'awaiting_next', simulationId: existing.id, replayed: true });
+          return;
+        }
         res.json({
           type: 'simulation_replayed',
           simulationId: existing.id,
@@ -629,6 +662,12 @@ gamesRouter.post('/:id/time-skip', async (req, res) => {
       // Il primo evento importante arresta il TEMPO, non la raccolta degli
       // ordini: tutti quelli in coda partecipano allo stesso lotto causale.
       const processed = await session.processAllPendingActions(jump_days, idempotencyKey);
+      // §9.3: il salto fisso con più eventi si ferma al primo checkpoint
+      // per-evento in attesa di «Continua»/«Intervieni qui».
+      if (!Array.isArray(processed)) {
+        res.json(processed);
+        return;
+      }
       if (jump_days <= 0 && processed.length === 0) {
         res.json({
           type: 'no_event_found',
@@ -650,7 +689,14 @@ gamesRouter.post('/:id/time-skip', async (req, res) => {
       // la cronaca con il vecchio advanceDate deterministico.
       const periodStart = session.getCurrentDate();
       const result = await session.processWorldAdvance(jump_days, idempotencyKey);
-      if (!result) {
+      // §9.3: anche il mondo senza nuovi ordini riceve il playback scaglionato.
+      const pausedResult = result as PausedBatchResult | null;
+      if (pausedResult?.paused === true) {
+        res.json(pausedResult);
+        return;
+      }
+      const worldResult = result as TurnResultRecord | null;
+      if (!worldResult) {
         res.json({
           type: 'no_event_found',
           simulationId: gameRepository.getLatestSimulationRun(gameId)?.id,
@@ -661,13 +707,13 @@ gamesRouter.post('/:id/time-skip', async (req, res) => {
       }
       res.json({
         type: 'world_advanced',
-        simulationId: result.simulationId,
+        simulationId: worldResult.simulationId,
         result: {
-          simulationId: result.simulationId,
-          turn: result.turn,
-          narration: result.narration,
-          events: result.events,
-          eventDetails: result.timelineEvents || [],
+          simulationId: worldResult.simulationId,
+          turn: worldResult.turn,
+          narration: worldResult.narration,
+          events: worldResult.events,
+          eventDetails: worldResult.timelineEvents || [],
           periodStart,
           periodEnd: session.getCurrentDate(),
         },
@@ -682,6 +728,24 @@ gamesRouter.post('/:id/time-skip', async (req, res) => {
 });
 
 // Этап 2: Rewind — откат на ход назад
+/** §9.3 — «Continua»: autorizza il checkpoint per-evento successivo del
+ * salto fisso sospeso. L'ultimo «Continua» porta il mondo a destinazione. */
+gamesRouter.post('/:id/simulations/:runId/next', async (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const paused = session.getPausedRunInfo();
+    if (!paused || paused.simulationId !== req.params.runId) {
+      res.status(409).json({ error: 'Il run indicato non è in pausa', code: 'simulation_not_paused' });
+      return;
+    }
+    const result = await session.continueSimulation(req.params.runId);
+    res.json(result);
+  } catch (e: any) {
+    console.error('[NEXT] Error:', e);
+    respondRouteError(res, e, 'Failed to continue simulation');
+  }
+});
+
 gamesRouter.post('/:id/rewind', (req, res) => {
   const gameId = req.params.id;
   try {
@@ -713,12 +777,28 @@ gamesRouter.get('/:id/rewind', (req, res) => {
   }
 });
 
-// Этап 2: Intervene — прервать применение оставшихся событий пачки
-gamesRouter.post('/:id/intervene', (req, res) => {
+// Fase 2: Intervene — прервать применение оставшихся событий пачки
+gamesRouter.post('/:id/intervene', async (req, res) => {
   const gameId = req.params.id;
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
     const simulationId = req.body?.simulationId || req.body?.simulation_id;
+    // §9.3 «Intervieni qui»: chiusura affidabile del run fermo su un
+    // checkpoint per-evento, senza finestre di intervento basate sul tempismo.
+    const pausedOutcome = await session.tryIntervenePausedRun(simulationId);
+    if (pausedOutcome) {
+      res.json({
+        ok: true,
+        intervened: true,
+        simulationId: pausedOutcome.simulationId,
+        type: pausedOutcome.type,
+        newDate: pausedOutcome.newDate,
+        newTurn: pausedOutcome.newTurn,
+        actions: pausedOutcome.actions,
+        result: pausedOutcome.result,
+      });
+      return;
+    }
     const result = session.requestIntervene(simulationId);
     if (!result.accepted) {
       res.status(409).json({ error: 'Nessuna simulazione compatibile in corso', code: 'simulation_not_running' });
