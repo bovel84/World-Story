@@ -62,7 +62,7 @@
 
 **Stato attuale (a questa data):** i nodi centrali di G02/G03/G04/G05/G06/G11/G12/G17/G19/G22 (lotto unico per salto, coda e processi persistiti, ordini zero senz'ordine fittizio, modifica/rimozione della coda, esiti individuali persisti, endpoint di run/checkpoint, timeline paginata dal registro persistente, Enhance in anteprima e lettore di sessione separato) sono implementati e coperti da test. L'auto-jump termina al primo evento importante; il salto a data esplicita funziona anche senza nuovi ordini; Intervene, Save/Load, Rewind e il ripristino/continuazione da checkpoint sono affidabili.
 
-**Rimane aperto:** il rilascio coordinato backend/frontend con verifica pubblica e campagna comparativa E2E su Pax Historia (§16, §17, G23), che richiede autorizzazione del proprietario. Non eseguire deploy sulla base di questo documento.
+**Rimane aperto:** completare la campagna comparativa E2E su Pax Historia (§16, G23: prima sessione autenticata documentata in `PAX_HISTORIA_VERIFICA_PARITA.md`, ma Save/Load/Rewind, diplomazia, assenza di eventi e limiti restano da provare) e il rilascio coordinato backend/frontend con verifica pubblica (§17). Non eseguire deploy sulla base di questo documento.
 
 ### Ambito
 
@@ -84,9 +84,10 @@ Esclusi: copia di marchi, asset e testi proprietari, pagamenti, account, arena, 
 | R4 | [Timeline di avanzamento](ref/pax_jump2.png) | Data «adesso», prossimo evento importante, settimana, mese, tre/sei mesi, anno e personalizzato. Le date mensili illustrate sono di calendario: 1/12/1935 → 1/1/1936. |
 | R5 | [Analisi precedente](open-pax-roadmap.md), datata 17/7/2026 | Riporta più azioni per turno, Brainstorm/Enhance, chat, eventi progressivi, Save/Intervene e Rewind. Fonte secondaria locale: le affermazioni vanno riconfermate dove decisivo. La sua vecchia lista di bug NON fotografa il codice attuale. |
 | R6 | `https://wiki.paxhistoria.co/` | Tentato accesso durante questa analisi; richiesta HTTP bloccata con 403, navigazione browser non utilizzabile per verificare le pagine di gameplay. Non citare la wiki come riletta integralmente oggi. |
+| R7 | [Verifica autenticata 7/9/2026](PAX_HISTORIA_VERIFICA_PARITA.md) | Partita isolata Modern Day/Italia: coda modificabile, brainstorming separato, auto-jump fermo al primo evento, «Evento successivo» manuale e Intervene con doppia conferma; evidenze screenshot incluse. Copertura parziale, non certificazione di equivalenza. |
 | C1 | Sorgenti locali di Open-Pax | Ispezione statica dei percorsi citati in §4. È prova del comportamento scritto, non di quello effettivamente caricato dal server di produzione. |
 
-Non è stata eseguita una nuova campagna autenticata su Pax Historia. Non sono quindi certificati la cadenza esatta del playback corrente, tutti i dettagli di Intervene, i casi limite di Save/Rewind, la politica senza eventi e le soglie di importanza.
+È stata eseguita una prima campagna autenticata su Pax Historia (R7). Sono ora osservati la cadenza manuale del playback e il flusso Intervene nel lettore; non sono ancora certificati Save/Load/Rewind, politica senza eventi, errori/limiti, diplomazia, soglie di importanza e tutti i dettagli del destino degli ordini non letti.
 
 ### 2.2 Convenzione del documento
 
