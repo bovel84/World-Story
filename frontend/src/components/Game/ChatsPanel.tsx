@@ -27,12 +27,37 @@ interface PolityOption {
   color: string;
 }
 
-function formatGameDate(value: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-  if (!match) return value;
-  return new Intl.DateTimeFormat('it-IT', {
-    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
-  }).format(new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00Z`));
+function formatGameDate(value?: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '');
+  if (!match) return '';
+  const months = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+  // Leggiamo la data di simulazione come calendario, mai come timestamp locale:
+  // così una chat non mostra date di sistema o scostamenti di fuso orario.
+  return `${Number(match[3])} ${months[Number(match[2]) - 1]} ${match[1]}`;
+}
+
+const ISO3_TO_ISO2: Record<string, string> = {
+  USA: 'us', RUS: 'ru', CHN: 'cn', GBR: 'gb', FRA: 'fr', DEU: 'de', ITA: 'it',
+  ESP: 'es', PRT: 'pt', JPN: 'jp', IND: 'in', BRA: 'br', CAN: 'ca', MEX: 'mx',
+  ARG: 'ar', AUS: 'au', KOR: 'kr', PRK: 'kp', TUR: 'tr', IRN: 'ir', IRQ: 'iq',
+  SAU: 'sa', ISR: 'il', PSE: 'ps', JOR: 'jo', LBN: 'lb', EGY: 'eg', UKR: 'ua',
+  POL: 'pl', SWE: 'se', NOR: 'no', FIN: 'fi', DNK: 'dk', NLD: 'nl', BEL: 'be',
+  CHE: 'ch', AUT: 'at', GRC: 'gr', PAK: 'pk', IDN: 'id', VNM: 'vn', THA: 'th',
+  ZAF: 'za', NGA: 'ng', ETH: 'et', KEN: 'ke', MAR: 'ma', DZA: 'dz', TUN: 'tn',
+};
+
+function flagEmoji(code?: string): string {
+  const alpha2 = ISO3_TO_ISO2[(code || '').toUpperCase()] || (code || '').toLowerCase();
+  if (!/^[a-z]{2}$/.test(alpha2)) return '🏳️';
+  return alpha2.toUpperCase().split('').map(char => String.fromCodePoint(127397 + char.charCodeAt(0))).join('');
+}
+
+function reactionForMessage(content?: string): { icon: string; label: string } {
+  const text = (content || '').toLocaleLowerCase('it');
+  if (/(condann|rifiut|minacc|ostil|inaccett|ritorsion|aggress|violazion|attacc)/.test(text)) return { icon: '😠', label: 'Reazione ostile' };
+  if (/(accogli|sostegn|collabor|accord|intesa|ringrazi|favorevol|concord)/.test(text)) return { icon: '🤝', label: 'Reazione favorevole' };
+  if (/(preoccup|riserv|valuter|verifich|chiariment|condizion|cautel)/.test(text)) return { icon: '🤔', label: 'Reazione cauta' };
+  return { icon: '💬', label: 'Comunicazione diplomatica' };
 }
 
 export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerPolityId }) => {
@@ -189,6 +214,15 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     ? activeInterlocutors.map(p => p.name).join(' · ')
     : activeChat?.polityName || 'Chat';
 
+  const flagForPolity = (polityId?: string, name?: string) => {
+    const region = regions.find(r => r.owner === polityId || r.polityName === name || r.name === name);
+    return flagEmoji(region?.flag || polityId);
+  };
+  const messageMeta = (message: { turn?: number; gameDate?: string }) => {
+    const parts = [message.turn ? `T${message.turn}` : '', formatGameDate(message.gameDate)].filter(Boolean);
+    return parts.join(' · ') || 'Data di simulazione non registrata';
+  };
+
   // Colore del mittente dai partecipanti della chat attiva
   const senderColor = (name: string): string => {
     const p = activeChat?.participants?.find(pp => pp.name === name);
@@ -203,9 +237,9 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
           <button className="btn-chat-back" onClick={() => setActiveChat(null)} title="Alle chat">
             ←
           </button>
-          <span className="chat-group-dots" aria-label={`${activeInterlocutors.length} partecipanti`}>
-            {(activeInterlocutors.length ? activeInterlocutors : [{ color: activeChat?.polityColor || '#888' }]).slice(0, 4).map((p: any, i) => (
-              <span key={p.id || i} className="chat-color-dot" style={{ background: p.color }} />
+          <span className="chat-thread-flags" aria-label={`${activeInterlocutors.length} partecipanti`}>
+            {(activeInterlocutors.length ? activeInterlocutors : [{ id: activeChat?.polityId, name: activeChat?.polityName }]).slice(0, 4).map((p: any, i) => (
+              <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
             ))}
           </span>
           <span className="chat-thread-title">{activeTitle}</span>
@@ -230,15 +264,17 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
               <div key={m.id || `${m.role}-${m.createdAt}`} className={`chat-msg-wrap ${m.role}`}>
                 {m.role !== 'player' && m.senderName && (
                   <div className="chat-sender">
+                    <span className="chat-flag" title={`Bandiera di ${m.senderName}`}>{flagForPolity(activeInterlocutors.find(p => p.name === m.senderName)?.id, m.senderName)}</span>
                     <span className="chat-sender-dot" style={{ background: senderColor(m.senderName) }} />
                     <span className="chat-sender-name">{m.senderName}</span>
-                    {m.turn ? <span className="chat-turn-chip">T{m.turn}</span> : null}
+                    <span className="chat-reaction" title={reactionForMessage(m.content).label}>{reactionForMessage(m.content).icon}</span>
+                    <span className="chat-message-date">{messageMeta(m)}</span>
                   </div>
                 )}
                 {m.role === 'player' && (
                   <div className="chat-message-meta player-meta">
-                    {m.gameDate && <span>{formatGameDate(m.gameDate)}</span>}
-                    {m.turn ? <span className="chat-turn-chip chat-turn-player">T{m.turn}</span> : null}
+                    <span className="chat-flag" title="La tua nazione">{flagForPolity(activeChat?.participants?.find(p => p.role === 'player')?.id)}</span>
+                    <span>Tu · {messageMeta(m)}</span>
                   </div>
                 )}
                 <div
@@ -247,9 +283,6 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
                 >
                   {m.content}
                 </div>
-                {m.role !== 'player' && m.gameDate && (
-                  <div className="chat-message-meta">{formatGameDate(m.gameDate)}</div>
-                )}
               </div>
             ))
           )}
@@ -346,9 +379,9 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
             const title = interlocutors.length > 0 ? interlocutors.map(p => p.name).join(' · ') : c.polityName;
             return (
             <div key={c.id} className="chat-item" onClick={() => openChat(c.id)}>
-              <span className="chat-group-dots">
-                {(interlocutors.length ? interlocutors : [{ color: c.polityColor || '#888' }]).slice(0, 3).map((p: any, i) => (
-                  <span key={p.id || i} className="chat-color-dot" style={{ background: p.color }} />
+              <span className="chat-list-flags">
+                {(interlocutors.length ? interlocutors : [{ id: c.polityId, name: c.polityName }]).slice(0, 3).map((p: any, i) => (
+                  <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
                 ))}
               </span>
               <div className="chat-item-main">
@@ -356,6 +389,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
                 {interlocutors.length > 1 && <span className="group-chat-badge compact">Gruppo · {interlocutors.length}</span>}
                 {c.lastMessage && <div className="chat-item-last">{c.lastMessage}</div>}
               </div>
+              {c.lastMessage && <span className="chat-list-reaction" title={reactionForMessage(c.lastMessage).label}>{reactionForMessage(c.lastMessage).icon}</span>}
               {c.unread > 0 && <span className="chat-unread-badge">{c.unread}</span>}
             </div>
             );

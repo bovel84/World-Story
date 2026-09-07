@@ -67,27 +67,21 @@ export function EventFeed({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [openArticle]);
 
-  if (!open) {
-    return (
-      <button
-        className="event-feed-collapsed-tab"
-        onClick={onToggleOpen}
-        title="Apri la cronaca degli eventi"
-      >
-        <span className="event-feed-tab-label">Dispacci</span>
-        {items.length > 0 && <span className="feed-count">{items.length}</span>}
-        {processing && <span className="feed-live-dot" />}
-        <span className="event-feed-tab-arrow" aria-hidden="true">+</span>
-      </button>
-    );
-  }
+  if (!open) return null;
 
   return (
-    <aside className="event-feed" aria-label="Dispacci del mondo">
+    <>
+      <button
+        type="button"
+        className="event-feed-backdrop"
+        onClick={onToggleOpen}
+        aria-label="Chiudi aggiornamenti"
+      />
+      <aside className="event-feed" aria-label="Aggiornamenti del mondo">
       <div className="event-feed-header">
         <span className="event-feed-title">
-          Dispacci
-          <span className="event-feed-readonly">archivio · sola lettura</span>
+          Aggiornamenti
+          <span className="event-feed-readonly">cronaca del mondo</span>
           {processing && <span className="feed-live-dot" title="Elaborazione in corso" />}
         </span>
         <div className="event-feed-actions">
@@ -166,6 +160,7 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
           </article>
         </div>
       )}
-    </aside>
+      </aside>
+    </>
   );
 }
