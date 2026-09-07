@@ -1938,18 +1938,23 @@ function App() {
                   />
                 )}
 
-                {/* Submit Button */}
+                {/* Gli ordini sono già persistiti quando vengono aggiunti alla
+                    coda. Questo footer non deve mai simulare: gli eventi
+                    iniziano soltanto dal comando data/Timeline nella HUD. */}
                 {panelTab === 'suggestions' && (
                 <div className="suggestions-footer">
+                  <span className="pending-advance-hint">
+                    {pendingActions.length > 0
+                      ? `${pendingActions.length} ${pendingActions.length === 1 ? 'ordine pronto' : 'ordini pronti'} · gli eventi inizieranno solo quando avanzi il tempo dalla data in alto.`
+                      : 'Aggiungi un ordine al piano: non passerà tempo finché non scegli una data.'}
+                  </span>
                   <button
                     className="btn-submit-actions"
-                    disabled={pendingActions.length === 0 || loading}
-                    // Il bottone storico process-all presumeva un array e
-                    // falliva su { type: 'awaiting_next' }. Un salto fisso
-                    // passa ora dal contratto unico time-skip (§9.3).
-                    onClick={() => void handleTimeSkip(30)}
+                    disabled={pendingActions.length === 0}
+                    onClick={() => setShowActions(false)}
+                    title="Chiudi il piano: gli ordini restano in attesa"
                   >
-                    {loading ? 'Sto pensando...' : `Invia ${pendingActions.length} azione(i) →`}
+                    Chiudi piano
                   </button>
                 </div>
                 )}
