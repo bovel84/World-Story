@@ -60,4 +60,4 @@ Build frontend superata dopo il pacchetto. Questi interventi migliorano la parit
 
 ## Stato del rilascio
 
-**Deploy Open-Pax: non eseguito.**
+**Deploy Open-Pax: eseguito il 7/9/2026.** Worker `open-pax`, versione `73aad6d7-310c-453b-804c-90f4aa791821`; backend compilato/riavviato dopo backup SQLite coerente. Smoke pubblico riuscito: health, proxy templates e asset della build corrente. Restano da svolgere gli E2E pubblici completi §17 prima della certificazione del rilascio.

@@ -64,7 +64,9 @@
 
 **Stato attuale (a questa data):** i nodi centrali di G02/G03/G04/G05/G06/G11/G12/G17/G19/G22 (lotto unico per salto, coda e processi persistiti, ordini zero senz'ordine fittizio, modifica/rimozione della coda, esiti individuali persisti, endpoint di run/checkpoint, timeline paginata dal registro persistente, Enhance in anteprima e lettore di sessione separato) sono implementati e coperti da test. L'auto-jump termina al primo evento importante; il salto a data esplicita funziona anche senza nuovi ordini; Intervene, Save/Load, Rewind e il ripristino/continuazione da checkpoint sono affidabili.
 
-**Rimane aperto:** completare la campagna comparativa E2E su Pax Historia (§16, G23: prima sessione autenticata documentata in `PAX_HISTORIA_VERIFICA_PARITA.md`, ma Save/Load/Rewind, diplomazia, assenza di eventi e limiti restano da provare) e il rilascio coordinato backend/frontend con verifica pubblica (§17). Non eseguire deploy sulla base di questo documento.
+- **§17 deploy eseguito (7/9/2026):** dopo backup SQLite coerente e verifica che non esistessero run `running`/`awaiting_next`, backend compilato e riavviato con ricostruzione delle sessioni; Worker `open-pax` pubblicato alla versione `73aad6d7-310c-453b-804c-90f4aa791821`. Smoke non distruttivo riuscito sull'URL pubblico: `/api/health`, proxy `/api/templates` (7 preset) e asset della build corrente (`index-BtEko8kS.js`, `index-swq9F2YC.css`); tunnel e backend locale health OK, nessuna simulazione attiva dopo il deploy. Il rilascio è **pubblicato, non ancora certificato**: T01/T04/T06/T19/T20 pubblici e l'E2E comparativo residuo restano da eseguire prima di dichiarare la parità/release completa.
+
+**Rimane aperto:** completare la campagna comparativa E2E su Pax Historia (§16, G23: prima sessione autenticata documentata in `PAX_HISTORIA_VERIFICA_PARITA.md`, ma Save/Load/Rewind, diplomazia, assenza di eventi e limiti restano da provare) e la verifica pubblica completa §17 (T01/T04/T06/T19/T20).
 
 ### Ambito
 
