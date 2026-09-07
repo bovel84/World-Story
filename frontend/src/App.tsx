@@ -195,14 +195,9 @@ function App() {
   const feedSeqRef = useRef(0);
   const streamedEventCountRef = useRef(0);
   const activeSimulationIdRef = useRef<string | undefined>();
-  const [feedOpen, setFeedOpen] = useState(() => {
-    // Mobile: sempre ripiegata all'avvio (il tab "Dispacci N" basta)
-    if (window.innerWidth <= 720) return false;
-    if (localStorage.getItem('openpax_feed_open') !== null) {
-      return localStorage.getItem('openpax_feed_open') !== '0';
-    }
-    return true;
-  });
+  // I dispacci non occupano più la mappa all'avvio: sono un archivio su
+  // richiesta dalla barra superiore, come notifiche consultabili.
+  const [feedOpen, setFeedOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 720 && localStorage.getItem('openpax_panel_open') !== '0');
 
   const pushFeed = useCallback((
@@ -1521,6 +1516,9 @@ function App() {
           timelineHasMore={timelineHasMore}
           timelineLoadingOlder={timelineLoadingOlder}
           ongoingProcesses={ongoingProcesses}
+          dispatchCount={feedItems.length}
+          dispatchLive={isProcessingTurn}
+          onOpenDispatches={() => setFeedOpen(true)}
           onTimelineOpen={handleTimelineOpen}
           onLoadOlder={loadOlderTimeline}
           onBack={() => {
@@ -1611,12 +1609,7 @@ function App() {
               items={feedItems}
               processing={isProcessingTurn}
               open={feedOpen}
-              onToggleOpen={() => {
-                setFeedOpen(o => {
-                  localStorage.setItem('openpax_feed_open', o ? '0' : '1');
-                  return !o;
-                });
-              }}
+              onToggleOpen={() => setFeedOpen(false)}
               focusedRegionName={currentRegion?.name}
             />
           </div>

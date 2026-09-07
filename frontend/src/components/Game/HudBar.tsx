@@ -45,6 +45,10 @@ export interface HudBarProps {
   timelineLoadingOlder?: boolean;
   /** Processi avviati ma non ancora conclusi. */
   ongoingProcesses?: Array<{ id: string; title: string; summary: string; started_date: string; expected_date?: string | null }>;
+  /** Dispacci pronti da consultare nella cronaca laterale. */
+  dispatchCount?: number;
+  dispatchLive?: boolean;
+  onOpenDispatches?: () => void;
   /** Chiamato quando il pannello Timeline si apre — il padre (ri)carica gli eventi */
   onTimelineOpen?: () => void;
   /** Recupera la pagina successiva della cronaca persistente. */
@@ -445,6 +449,9 @@ export const HudBar: React.FC<HudBarProps> = ({
   timelineLoadingOlder,
   onLoadOlder,
   ongoingProcesses,
+  dispatchCount = 0,
+  dispatchLive = false,
+  onOpenDispatches,
   onTimelineOpen,
   onBack,
   onRewind,
@@ -491,6 +498,18 @@ export const HudBar: React.FC<HudBarProps> = ({
         <div className="hud-logo">
           <span className="hud-logo-text">Open-Pax</span>
         </div>
+        <button
+          type="button"
+          className="hud-dispatch-toggle"
+          onClick={onOpenDispatches}
+          title="Apri gli aggiornamenti del mondo"
+          aria-label={`Apri aggiornamenti${dispatchCount ? `, ${dispatchCount} dispacci` : ''}`}
+        >
+          <span className="hud-dispatch-icon" aria-hidden="true">▤</span>
+          <span className="hud-dispatch-label">Dispacci</span>
+          {dispatchCount > 0 && <span className="hud-dispatch-count">{dispatchCount > 99 ? '99+' : dispatchCount}</span>}
+          {dispatchLive && <span className="hud-dispatch-live" aria-label="Nuovi aggiornamenti in arrivo" />}
+        </button>
       </div>
 
       {/* Centro: nome del mondo + badge del turno */}
