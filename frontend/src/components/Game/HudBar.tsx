@@ -233,7 +233,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
       <div className="hud-timeline-header">
         <div className="hud-timeline-heading">
           <div className="hud-timeline-title">Timeline</div>
-          <div className="hud-timeline-subtitle">Adesso: {formatDateIt(dateISO)}</div>
+          <div className="hud-timeline-subtitle">Adesso: {formatDateIt(dateISO)} · il tempo scorre per tutte le nazioni</div>
         </div>
         <button
           type="button"
