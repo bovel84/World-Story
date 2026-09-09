@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   refactor-and-verify:
-    if: ${{ !contains(github.event.head_commit.message, '[playback-codemod]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +29,10 @@ jobs:
 
           path = Path('backend-nest/src/game-session.ts')
           text = path.read_text(encoding='utf-8')
+
+          if "from './core/playback/PlaybackCoordinator';" in text:
+              print('Playback coordinator già collegato: codemod no-op')
+              raise SystemExit(0)
 
           def replace_once(old: str, new: str, label: str):
               global text
