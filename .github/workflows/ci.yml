@@ -31,8 +31,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Unit tests
-        run: npm run test:unit
+      - name: Backend unit tests
+        run: npm --prefix backend-nest test
+
+      - name: Frontend unit tests
+        run: cd frontend && ../node_modules/.bin/vitest run
 
       - name: Build backend and frontend
         run: npm run build
