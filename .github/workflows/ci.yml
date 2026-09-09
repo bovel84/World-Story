@@ -35,7 +35,20 @@ jobs:
         run: npm --prefix backend-nest test
 
       - name: Frontend unit tests
-        run: cd frontend && ../node_modules/.bin/vitest run
+        shell: bash
+        run: |
+          set -o pipefail
+          cd frontend
+          ../node_modules/.bin/vitest run --reporter=verbose 2>&1 | tee ../frontend-vitest.log
+
+      - name: Upload frontend test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-vitest-log
+          path: frontend-vitest.log
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Build backend and frontend
         run: npm run build
