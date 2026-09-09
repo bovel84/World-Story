@@ -14,50 +14,14 @@ import { NPCCountryAgent, NPCCountryContext, createNPCCountries, type NPCAction 
 import { PromptEngine } from './prompt-builder';
 import type { SimulationEvent } from './prompts/types';
 import type { StrictEffect } from './core/simulation/EffectValidator';
+import { prepareSimulationGameData } from './prompts/strict-simulation';
 
-/**
- * M06 follow-up: in strict mode the LLM may interpret intent and narrate
- * consequences, but material authority remains server-side. The validator is
- * still the security boundary; this block prevents wasting a provider call on
- * output that strict validation would necessarily reject.
- */
-export const STRICT_SIMULATION_CONTRACT = `[CONTRATTO STRICT — AUTORITÀ MATERIALE SERVER, PRIORITÀ MASSIMA]
-Questa partita usa economy_mode=strict. La LLM non è fonte di verità per beni, denaro, popolazione, potenza militare, territorio o oggetti della mappa.
-- \`mapChanges\` deve restare sempre []: non emettere build_facility, spawn_battalion, spawn_unit, transfer o altre mutazioni materiali, anche se istruzioni di formato successive ne mostrano lo schema legacy.
-- \`worldChanges\` non deve contenere variazioni materiali di proprietà, colore, PIL, popolazione, militare o feature; lascia vuote le relative collezioni di mutazione.
-- Gli effetti materiali \`ledger\`, \`shipment\` e \`project_tick\` possono citare SOLO un \`effectId\` esplicitamente presente nel contesto server come già staged/autorizzato. Non inventare effectId, importi, quantità, account, risorse, capacità o tempi.
-- Se un ordine richiede una mutazione non ancora autorizzata dal server, descrivi al massimo decisione, preparazione o processo aperto e restituisci \`partial\` o \`rejected\`; non narrare il risultato materiale come già compiuto.
-- Gli eventi puramente qualitativi restano ammessi soltanto se causalmente supportati dal contesto.
-Questo contratto prevale sulle sezioni successive che descrivono formati legacy di mapChanges/worldChanges.`;
-
-/** Pure adapter so the rule can be tested without touching DB/provider state. */
-export function withStrictSimulationContract(gameData: any): any {
-  const current = typeof gameData?.simulationRules === 'string'
-    ? gameData.simulationRules.trim()
-    : '';
-  if (current.includes('[CONTRATTO STRICT — AUTORITÀ MATERIALE SERVER')) return gameData;
-  return {
-    ...gameData,
-    simulationRules: [current, STRICT_SIMULATION_CONTRACT].filter(Boolean).join('\n\n'),
-  };
-}
-
-/**
- * Economy mode is persisted server-side and intentionally cannot be selected
- * by the browser. This read is advisory for prompt construction only: if it
- * fails, EffectValidator remains the fail-closed material boundary.
- */
-async function prepareSimulationGameData(gameData: any): Promise<any> {
-  if (!gameData?.id) return gameData;
-  try {
-    const { gameRepository } = await import('./repositories');
-    return gameRepository.getEconomyMode(gameData.id) === 'strict'
-      ? withStrictSimulationContract(gameData)
-      : gameData;
-  } catch {
-    return gameData;
-  }
-}
+// Compatibility re-export for tests and callers that imported these helpers
+// from agents.ts before the strict contract was split into its own module.
+export {
+  STRICT_SIMULATION_CONTRACT,
+  withStrictSimulationContract,
+} from './prompts/strict-simulation';
 
 export class GameController {
   private provider: LLMRouter;
