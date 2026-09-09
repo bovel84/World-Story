@@ -26,9 +26,21 @@ import { fileURLToPath } from 'node:url';
 const PRESET_UID = process.argv[2] || 'DSXlVtl943Mg3idMqy2k';
 const VERSION_ID = process.argv[3] || '1';
 
-/** Chiave API web pubblica di Pax Historia (client Firebase, è pubblica per design) */
-const FIREBASE_API_KEY = 'AIzaSyCTpjwdW5M9H--btVimb9uqmnTQSQ8hr7Q';
-const FIREBASE_PROJECT = 'pax-historia-dev';
+/** Chiave API web pubblica di Pax Historia (client Firebase, è pubblica per design).
+ *  Non è un segreto, ma per non committare chiavi nel repo viene letta da
+ *  variabile d'ambiente PAX_FIREBASE_API_KEY (o dal file .env). */
+const FIREBASE_API_KEY = process.env.PAX_FIREBASE_API_KEY;
+const FIREBASE_PROJECT = process.env.PAX_FIREBASE_PROJECT || 'pax-historia-dev';
+
+if (!FIREBASE_API_KEY) {
+  console.error(
+    '\n[import-pax-preset] Manca la chiave Firebase.\n' +
+    'Imposta la variabile d\'ambiente PAX_FIREBASE_API_KEY (chiave web pubblica di Pax Historia)\n' +
+    'prima di eseguire lo script, ad esempio:\n' +
+    '  PAX_FIREBASE_API_KEY=<chiave> node scripts/import-pax-preset.mjs\n'
+  );
+  process.exit(1);
+}
 
 const FIRESTORE_URL =
   `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}` +
