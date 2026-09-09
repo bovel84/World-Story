@@ -1,5 +1,5 @@
 /**
- * Open-Pax — EventFeed (Cronaca live)
+ * World Story — EventFeed (Cronaca live)
  * ====================================
  * Feed degli eventi SEMPRE in vista, sovrapposto alla mappa:
  * accumula gli eventi di tutti i turni (azione del giocatore + simulazione
@@ -35,16 +35,12 @@ function formatFeedDate(value?: string): string {
 interface EventFeedProps {
   items: FeedItem[];
   processing: boolean;
-  open: boolean;
-  onToggleOpen: () => void;
   focusedRegionName?: string;
 }
 
 export function EventFeed({
   items,
   processing,
-  open,
-  onToggleOpen,
   focusedRegionName,
 }: EventFeedProps) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -75,38 +71,19 @@ export function EventFeed({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [openArticle]);
 
-  if (!open) return null;
-
-  // Anche il drawer vive nel portal: Mapbox e i suoi contenitori non possono
-  // tagliarlo né spostarlo, soprattutto con zoom o pannelli aperti.
-  return createPortal(
-    <>
-      <button
-        type="button"
-        className="event-feed-backdrop"
-        onClick={onToggleOpen}
-        aria-label="Chiudi aggiornamenti"
-      />
-      <aside className="event-feed" aria-label="Aggiornamenti del mondo">
+  // L'archivio è una scheda della scrivania di comando (come Chat,
+  // Consulente e Ordini), non una finestra sovrapposta alla mappa.
+  return (
+      <section className="world-news-panel" aria-label="Dispacci del mondo">
       <div className="event-feed-header">
         <span className="event-feed-title">
-          Aggiornamenti
-          <span className="event-feed-readonly">cronaca del mondo</span>
+          Dispacci del mondo
+          <span className="event-feed-readonly">archivio della simulazione</span>
           {processing && <span className="feed-live-dot" title="Elaborazione in corso" />}
         </span>
-        <div className="event-feed-actions">
-          <span className="btn-feed-live" title="Il tempo avanza solo con un comando manuale">
-            tempo manuale
-          </span>
-          <button
-            className="btn-feed-collapse"
-            onClick={onToggleOpen}
-            title="Riduci la cronaca"
-            aria-label="Riduci la cronaca"
-          >
-            ×
-          </button>
-        </div>
+        <span className="btn-feed-live" title="Il tempo avanza solo con un comando manuale">
+          tempo manuale
+        </span>
       </div>
 
       {focusedRegionName && (
@@ -149,7 +126,7 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header className="newspaper-article-header">
-              <div className="newspaper-masthead">Open-Pax · Archivio</div>
+              <div className="newspaper-masthead">World Story · Archivio</div>
               <div className="newspaper-article-meta">
                 <span>{ARTICLE_SECTION[openArticle.kind]}</span>
                 <span>{formatFeedDate(openArticle.date)}</span>
@@ -171,8 +148,6 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
         </div>,
         document.body,
       )}
-      </aside>
-    </>,
-    document.body,
+      </section>
   );
 }

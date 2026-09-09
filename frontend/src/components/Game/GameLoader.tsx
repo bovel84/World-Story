@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Game Loader Component
+ * World Story — Game Loader Component
  * =================================
  * Fase 6: loader a schermo intero sui riferimenti pax_game_ui.png / pax_ingame.png /
 * pax_game_ui3.png dell'originale Pax Historia: «globo» centrato con

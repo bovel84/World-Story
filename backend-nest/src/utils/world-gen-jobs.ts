@@ -1,5 +1,5 @@
 /**
- * Open-Pax — World Generation Jobs
+ * World Story — World Generation Jobs
  * ================================
  * Registro in-memory dei job di generazione del mondo.
  *

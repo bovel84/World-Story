@@ -1,0 +1,32 @@
+[
+  {
+    "actorId": "alpha_treasury",
+    "polityId": "ALPHA",
+    "type": "treasury",
+    "name": "Tesoro di Alphaland"
+  },
+  {
+    "actorId": "alpha_steel_co",
+    "polityId": "ALPHA",
+    "type": "public_enterprise",
+    "name": "Acciaierie pubbliche ALPHA"
+  },
+  {
+    "actorId": "alpha_farms",
+    "polityId": "ALPHA",
+    "type": "private_sector",
+    "name": "Cooperativa agricola ALPHA"
+  },
+  {
+    "actorId": "alpha_bank",
+    "polityId": "ALPHA",
+    "type": "bank",
+    "name": "Banca di Alphaland"
+  },
+  {
+    "actorId": "beta_treasury",
+    "polityId": "BETA",
+    "type": "treasury",
+    "name": "Tesoro di Betaland"
+  }
+]

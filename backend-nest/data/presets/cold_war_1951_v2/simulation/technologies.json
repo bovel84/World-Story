@@ -1,0 +1,14 @@
+[
+  {
+    "id": "rotary_oil_drilling",
+    "domain": "estrazione_petrolio",
+    "requires": [],
+    "validFrom": "1901-01-10"
+  },
+  {
+    "id": "thermal_cracking",
+    "domain": "raffinazione",
+    "requires": ["rotary_oil_drilling"],
+    "validFrom": "1908-06-08"
+  }
+]

@@ -1,5 +1,5 @@
 /**
- * Open-Pax — API Service
+ * World Story — API Service
  * =====================
  */
 
@@ -494,6 +494,9 @@ export const gameApi = {
     revision: number;
     newTurn: number;
     newDate: string;
+    /** F06 µ2: ramo nuovo + anchor per il reset del client. */
+    branchId?: string | null;
+    anchor?: { checkpointId: string; revision: number };
   }> => {
     return fetchApi(`/games/${gameId}/simulations/${encodeURIComponent(simulationId)}/restore`, {
       method: 'POST',
@@ -781,6 +784,30 @@ export interface TemplateInfo {
   flags_count: number;
 }
 
+/** M01 µ4: issue del validatore di catalogo con percorso JSON preciso. */
+export interface ScenarioIssueView {
+  path: string;
+  code: string;
+  message: string;
+  severity: 'blocking' | 'warning';
+}
+
+/** Anteprima di copertura delle filiere (§4.4). */
+export interface ScenarioCoverageView {
+  justified: string[];
+  missing: string[];
+  unknownDeposits: number;
+}
+
+export interface ScenarioReportView {
+  presetId: string;
+  ok: boolean;
+  errors: ScenarioIssueView[];
+  warnings: ScenarioIssueView[];
+  catalogHashes: Record<string, string>;
+  coverage: ScenarioCoverageView;
+}
+
 export interface PresetEditorData {
   id: string;
   name: string;
@@ -791,6 +818,8 @@ export interface PresetEditorData {
   historical_accuracy?: number;
   lore?: string;
   simulation_rules?: string;
+  /** Override avanzati dei prompt IA; il contratto di simulazione resta invariabile. */
+  prompts?: Record<string, string>;
   author?: string;
   version?: string;
   map_geojson?: any;
@@ -813,6 +842,18 @@ export const templatesApi = {
 
   getEditable: (templateId: string): Promise<PresetEditorData> => {
     return fetchApi(`/templates/${templateId}/edit`);
+  },
+
+  /**
+   * M01 µ4: rapporto del catalogo simulation/ per l'editor del preset
+   * (checklist, errori per campo con percorsi JSON, copertura delle filiere).
+   */
+  getScenarioReport: (templateId: string): Promise<{
+    presetId: string;
+    hasCatalog: boolean;
+    report: ScenarioReportView | null;
+  }> => {
+    return fetchApi(`/templates/${templateId}/scenario`);
   },
 
   createPreset: (preset: PresetEditorData): Promise<{ template: PresetEditorData }> => {

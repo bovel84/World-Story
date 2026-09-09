@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Narration Prompt
+ * World Story — Narration Prompt
  * ===========================
  * Genera la narrazione a partire dai fatti deterministici della simulazione
  */

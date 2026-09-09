@@ -1,5 +1,5 @@
 /**
- * Open-Pax — NPC Country Agents
+ * World Story — NPC Country Agents
  * =============================
  * AI agents for non-player countries with personality traits.
  */

@@ -1,0 +1,95 @@
+{
+  "treasuries": [
+    {
+      "id": "acc_usa_treasury",
+      "actorId": "usa_treasury",
+      "currencyId": "USD",
+      "balanceMinorUnits": "0"
+    },
+    {
+      "id": "acc_ussr_treasury",
+      "actorId": "ussr_minfin",
+      "currencyId": "SUR",
+      "balanceMinorUnits": "0"
+    }
+  ],
+  "inventory": [],
+  "deposits": [
+    {
+      "id": "dep_usa_coal",
+      "resourceId": "coal",
+      "regionId": "USA",
+      "known": null,
+      "accessibility": "requires_extraction"
+    },
+    {
+      "id": "dep_usa_oil",
+      "resourceId": "crude_oil",
+      "regionId": "USA",
+      "known": null,
+      "accessibility": "requires_extraction"
+    },
+    {
+      "id": "dep_ussr_coal",
+      "resourceId": "coal",
+      "regionId": "USSR",
+      "known": null,
+      "accessibility": "requires_extraction"
+    },
+    {
+      "id": "dep_ussr_oil",
+      "resourceId": "crude_oil",
+      "regionId": "USSR",
+      "known": null,
+      "accessibility": "requires_extraction"
+    }
+  ],
+  "workforce": [
+    {
+      "id": "wf_usa_residents",
+      "regionId": "USA",
+      "qualification": "residenti (censimento 1950, proxy dichiarata al 1951)",
+      "persons": "151325798"
+    },
+    {
+      "id": "wf_ussr_residents",
+      "regionId": "USSR",
+      "qualification": "residenti (media annuale 1951, proxy dichiarata)",
+      "persons": "181582000"
+    }
+  ],
+  "facilities": [
+    {
+      "id": "fac_usa_coal_aggregate",
+      "typeId": "ft_coal_mine",
+      "ownerActorId": "usa_coal_industry",
+      "controllerActorId": "usa_coal_industry",
+      "regionId": "USA",
+      "operational": true
+    },
+    {
+      "id": "fac_usa_oil_aggregate",
+      "typeId": "ft_oil_field",
+      "ownerActorId": "usa_oil_industry",
+      "controllerActorId": "usa_oil_industry",
+      "regionId": "USA",
+      "operational": true
+    },
+    {
+      "id": "fac_ussr_coal_aggregate",
+      "typeId": "ft_ussr_coal_mine",
+      "ownerActorId": "ussr_state_industry",
+      "controllerActorId": "ussr_state_industry",
+      "regionId": "USSR",
+      "operational": true
+    },
+    {
+      "id": "fac_ussr_oil_aggregate",
+      "typeId": "ft_ussr_oil_field",
+      "ownerActorId": "ussr_state_industry",
+      "controllerActorId": "ussr_state_industry",
+      "regionId": "USSR",
+      "operational": true
+    }
+  ]
+}

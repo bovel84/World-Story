@@ -1,0 +1,14 @@
+[
+  { "actorId": "usa_treasury", "polityId": "USA", "type": "treasury", "name": "Dipartimento del Tesoro degli Stati Uniti" },
+  { "actorId": "usa_tva", "polityId": "USA", "type": "public_enterprise", "name": "Tennessee Valley Authority" },
+  { "actorId": "usa_coal_industry", "polityId": "USA", "type": "private_sector", "name": "Industria carbonifera privata (aggregato)" },
+  { "actorId": "usa_oil_industry", "polityId": "USA", "type": "private_sector", "name": "Industria petrolifera privata (aggregato)" },
+  { "actorId": "usa_federal_reserve", "polityId": "USA", "type": "bank", "name": "Federal Reserve System" },
+  { "actorId": "usa_penn_railroad", "polityId": "USA", "type": "carrier", "name": "Pennsylvania Railroad" },
+  { "actorId": "usa_households", "polityId": "USA", "type": "household", "name": "Famiglie statunitensi (aggregato)" },
+  { "actorId": "ussr_minfin", "polityId": "USSR", "type": "treasury", "name": "Ministero delle Finanze dell'URSS" },
+  { "actorId": "ussr_state_industry", "polityId": "USSR", "type": "public_enterprise", "name": "Industria di stato sovietica (aggregato)" },
+  { "actorId": "ussr_gosbank", "polityId": "USSR", "type": "bank", "name": "Gosbank (Banca di Stato dell'URSS)" },
+  { "actorId": "ussr_railways", "polityId": "USSR", "type": "carrier", "name": "Ministero delle Ferrovie dell'URSS (MPS)" },
+  { "actorId": "ussr_households", "polityId": "USSR", "type": "household", "name": "Famiglie sovietiche (aggregato)" }
+]

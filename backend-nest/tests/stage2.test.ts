@@ -9,7 +9,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 
-const TEST_DB = path.join(os.tmpdir(), `open-pax-stage2-${process.pid}-${Date.now()}.db`);
+const TEST_DB = path.join(os.tmpdir(), `world-story-stage2-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
 
 let db: any;
@@ -24,6 +24,8 @@ let capturedPrompt = '';
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
 let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' = 'normal';
+/** projectId da copiare nell'outcome di chiusura del fixture F01. */
+let projectToCompleteId: string | undefined;
 
 const WORLD_ID = 'stage2_world';
 
@@ -118,6 +120,7 @@ function jumpResponse(): any {
           action: 'Действие игрока',
           status: 'accepted',
           summary: 'L’ordine ripetuto completa la misura precedentemente avviata.',
+          completesProjectId: projectToCompleteId,
           eventHeadlines: ['Misura economica completata'],
         }],
         voided: [],
@@ -473,7 +476,9 @@ describe('Simulazione del mondo senza nuovi ordini', () => {
       idempotency_key: 'world-run-idempotency-key',
     });
     const checkpoint = db.prepare('SELECT revision, turn, game_date, data FROM simulation_checkpoints WHERE id = ?').get(run.checkpoint_id);
-    expect(checkpoint).toMatchObject({ revision: 2, turn: 1, game_date: '1951-01-31' });
+    // F02: la revisione proviene dal contatore monotono world_revision — la
+    // prima mutazione canonica di una partita nuova è 1, non turno+1.
+    expect(checkpoint).toMatchObject({ revision: 1, turn: 1, game_date: '1951-01-31' });
     expect(JSON.parse(checkpoint.data).currentDate).toBe('1951-01-31');
     expect(db.prepare('SELECT game_date, headline FROM simulation_events WHERE run_id = ?').get(result.simulationId))
       .toMatchObject({ game_date: '1951-01-12', headline: 'Il mondo reagisce' });
@@ -569,6 +574,7 @@ describe('Ciclo di vita dei processi', () => {
     const { session } = createGame();
     session.queueAction('Preparare una misura economica');
     const first = await session.processNextAction(30);
+    projectToCompleteId = gameRepository.getOngoingProcesses(session.id)[0].id;
 
     jumpMode = 'outcome_complete';
     session.queueAction('Preparare una misura economica');
@@ -580,6 +586,7 @@ describe('Ciclo di vita dei processi', () => {
         summary: 'L’ordine ripetuto completa la misura precedentemente avviata.',
       });
     jumpMode = 'normal';
+    projectToCompleteId = undefined;
   });
 });
 
@@ -597,7 +604,10 @@ describe('Этап 2: очередь действий', () => {
     const processed = await session.processAllPendingActions(30);
 
     expect(simulate).toHaveBeenCalledTimes(1);
-    expect(simulate.mock.calls[0][1]).toEqual([first.text, second.text]);
+    expect(simulate.mock.calls[0][1]).toEqual([
+      { actionId: first.id, text: first.text },
+      { actionId: second.id, text: second.text },
+    ]);
     expect(processed.map((action: any) => action.id)).toEqual([first.id, second.id]);
     expect(processed.every((action: any) => action.status === 'completed')).toBe(true);
     expect(processed.map((action: any) => action.result.turn)).toEqual([1, 1]);
@@ -1038,9 +1048,10 @@ describe('§9.3 — playback «un evento alla volta» per i salti fissi', () => 
     // L’ordine è emesso: resta in coda come «processing», non è reinviato.
     expect(session.getPendingActions()[0]).toMatchObject({ id: queued.id, status: 'processing' });
 
-    // Checkpoint per-evento con revisione crescente.
+    // Checkpoint per-evento con revisione crescente (F02: contatore monotono,
+    // non più turno+indice — il primo checkpoint del run è la revisione 1).
     const cp1 = db.prepare('SELECT revision, turn, game_date FROM simulation_checkpoints WHERE id = ?').get(run.checkpoint_id) as any;
-    expect(cp1).toMatchObject({ revision: 2, turn: 1, game_date: '1951-01-20' });
+    expect(cp1).toMatchObject({ revision: 1, turn: 1, game_date: '1951-01-20' });
     const eventRow = db.prepare('SELECT game_date, headline, checkpoint_id FROM simulation_events WHERE run_id = ?').get(pausedResult.simulationId) as any;
     expect(eventRow).toMatchObject({ game_date: '1951-01-20', headline: 'Prima svolta del periodo' });
 
@@ -1186,10 +1197,11 @@ describe('§9.3 — playback «un evento alla volta» per i salti fissi', () => 
     expect(resumed.type).toBe('awaiting_next');
     expect(resumed.event.headline).toBe('Seconda svolta del periodo');
     // Il salvataggio del primo checkpoint conserva il prossimo indice: dopo
-    // Load la nuova pagina non riusa la revisione già letta (G22).
+    // Load la nuova pagina non riusa la revisione già letta (G22). F02: le
+    // revisioni provengono dal contatore monotono — strettamente crescenti.
     const revisions = db.prepare('SELECT revision FROM simulation_checkpoints WHERE run_id = ? ORDER BY revision')
       .all(batch.simulationId).map((row: any) => row.revision);
-    expect(revisions).toEqual([2, 3]);
+    expect(revisions).toEqual([1, 2]);
 
     // Rewind di un run in pausa: ritorno all’ORIGINE del salto, ordini in coda
     // di nuovo disponibili e run scartato del ramo annullato (§12).

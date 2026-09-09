@@ -1,5 +1,5 @@
 /**
- * Open-Pax — LLM Layer: Anthropic (нативный Messages API)
+ * World Story — LLM Layer: Anthropic (нативный Messages API)
  * ========================================================
  */
 

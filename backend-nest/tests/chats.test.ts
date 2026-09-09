@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 
-const TEST_DB = path.join(os.tmpdir(), `open-pax-chats-${process.pid}-${Date.now()}.db`);
+const TEST_DB = path.join(os.tmpdir(), `world-story-chats-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
 
 let db: any;

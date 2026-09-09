@@ -4,7 +4,7 @@
  * и бага №5 (LLM адресует регионы/политии по именам, не по id).
  */
 import { describe, it, expect } from 'vitest';
-import { parseSimulationResponse, buildSimulationPrompt } from '../src/prompts/simulation';
+import { parseSimulationResponse, buildSimulationPrompt, buildSimulationNarrativeContract } from '../src/prompts/simulation';
 import { PromptBuilder } from '../src/prompt-builder';
 
 describe('parseSimulationResponse', () => {
@@ -88,6 +88,14 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
     expect(prompt).toContain('causa verificabile');
     expect(prompt).toContain('CICLO MONDIALE OBBLIGATORIO');
     expect(prompt).toContain("Ogni avanzamento temporale simula l'intero mondo");
+  });
+
+  it('applica un contratto narrativo anche ai preset che sovrascrivono il prompt', () => {
+    const contract = buildSimulationNarrativeContract(vars, true);
+    expect(contract).toContain('CONTRATTO NARRATIVO NON AGGIRABILE');
+    expect(contract).toContain('LORE_MARKER');
+    expect(contract).toContain('non prende iniziative senza un ordine esplicito');
+    expect(contract).toContain('causa già visibile');
   });
 
   it('passa uno stato strategico verificabile con confini, risorse e relazioni', () => {

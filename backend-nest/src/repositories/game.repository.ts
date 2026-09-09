@@ -1,10 +1,16 @@
 /**
- * Open-Pax — Game Repository
+ * World Story — Game Repository
  * ==========================
  */
 
 import db from '../database';
 import { worldRepository } from './world.repository';
+import { semanticStateHash } from '../domain/semantic-hash';
+import { randomUUID } from 'node:crypto';
+
+function bumpQueueVersion(gameId: string): void {
+  db.prepare('UPDATE games SET queue_version = queue_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(gameId);
+}
 
 export interface PlayerRecord {
   id: string;
@@ -15,6 +21,66 @@ export interface PlayerRecord {
 }
 
 export const gameRepository = {
+  // ── F04 §9.4: rami di mondo ───────────────────────────────────────────────
+
+  /**
+   * Ramo principale di una partita: creato alla prima apertura, idempotente.
+   * L’id del ramo è il fencing token delle operazioni che catturano ramo e
+   * revisione prima di scrivere.
+   */
+  ensureMainBranch: (gameId: string): string => {
+    const row = db.prepare('SELECT head_branch_id FROM games WHERE id = ?').get(gameId) as { head_branch_id?: string } | undefined;
+    if (row?.head_branch_id) return row.head_branch_id;
+    const branchId = randomUUID();
+    db.prepare(`
+      INSERT INTO game_branches (id, game_id, name, parent_branch_id, origin_checkpoint_id, created_at)
+      VALUES (?, ?, 'main', NULL, NULL, ?)
+    `).run(branchId, gameId, new Date().toISOString());
+    db.prepare('UPDATE games SET head_branch_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(branchId, gameId);
+    return branchId;
+  },
+
+  getEconomyMode: (gameId: string): 'legacy' | 'strict' => {
+    const row = db.prepare('SELECT economy_mode FROM games WHERE id = ?').get(gameId) as { economy_mode?: string } | undefined;
+    return row?.economy_mode === 'strict' ? 'strict' : 'legacy';
+  },
+
+  getHeadBranch: (gameId: string): string | null => {
+    const row = db.prepare('SELECT head_branch_id FROM games WHERE id = ?').get(gameId) as { head_branch_id?: string } | undefined;
+    return row?.head_branch_id ?? null;
+  },
+
+  createBranch: (branch: { id: string; gameId: string; name: string; parentBranchId?: string | null; originCheckpointId?: string | null }) => {
+    db.prepare(`
+      INSERT INTO game_branches (id, game_id, name, parent_branch_id, origin_checkpoint_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(branch.id, branch.gameId, branch.name, branch.parentBranchId ?? null, branch.originCheckpointId ?? null, new Date().toISOString());
+    db.prepare('UPDATE games SET head_branch_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(branch.id, branch.gameId);
+    return branch;
+  },
+
+  getQueueVersion: (gameId: string): number => {
+    const row = db.prepare('SELECT queue_version FROM games WHERE id = ?').get(gameId) as { queue_version?: number } | undefined;
+    return Number(row?.queue_version || 0);
+  },
+
+  // F02: revisione canonica del mondo — contatore monotono per partita. Ogni
+  // checkpoint lo incrementa di una volta; mai uguale, mai decrescente.
+  nextWorldRevision: (gameId: string): number => {
+    return db.transaction(() => {
+      db.prepare('UPDATE games SET world_revision = world_revision + 1 WHERE id = ?').run(gameId);
+      const row = db.prepare('SELECT world_revision FROM games WHERE id = ?').get(gameId) as { world_revision?: number } | undefined;
+      return Number(row?.world_revision || 0);
+    })();
+  },
+
+  // F04 passo 3: lettura pura della revisione corrente per il fencing delle
+  // risposte chat/advisor (cattura all'inizio, verifica prima della scrittura).
+  getWorldRevision: (gameId: string): number => {
+    const row = db.prepare('SELECT world_revision FROM games WHERE id = ?').get(gameId) as { world_revision?: number } | undefined;
+    return Number(row?.world_revision || 0);
+  },
+
   getGameRegions: (gameId: string) => {
     const rows = db.prepare(`
       SELECT region_id, owner, color, population, gdp, military_power, objects
@@ -47,10 +113,10 @@ export const gameRepository = {
     )))(regions);
   },
 
-  create: (game: { id: string; worldId: string; currentTurn?: number; maxTurns?: number; status?: string; difficulty?: string }) => {
+  create: (game: { id: string; worldId: string; currentTurn?: number; maxTurns?: number; status?: string; difficulty?: string; economyMode?: 'legacy' | 'strict'; economyModelVersion?: string | null }) => {
     const stmt = db.prepare(`
-      INSERT INTO games (id, world_id, current_turn, max_turns, status, difficulty)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO games (id, world_id, current_turn, max_turns, status, difficulty, economy_mode, economy_model_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       game.id,
@@ -58,7 +124,9 @@ export const gameRepository = {
       game.currentTurn || 1,
       game.maxTurns || 100,
       game.status || 'playing',
-      game.difficulty || 'normal'
+      game.difficulty || 'normal',
+      game.economyMode || 'legacy',
+      game.economyModelVersion ?? null
     );
     return game;
   },
@@ -183,11 +251,13 @@ export const gameRepository = {
     id: string; runId: string; gameId: string; revision: number; turn: number; date: string; data: unknown;
   }) => {
     db.prepare(`
-      INSERT INTO simulation_checkpoints (id, run_id, game_id, revision, turn, game_date, data, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO simulation_checkpoints (id, run_id, game_id, revision, turn, game_date, data, content_hash, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       checkpoint.id, checkpoint.runId, checkpoint.gameId, checkpoint.revision,
-      checkpoint.turn, checkpoint.date, JSON.stringify(checkpoint.data), new Date().toISOString(),
+      checkpoint.turn, checkpoint.date, JSON.stringify(checkpoint.data),
+      // F04 §9.4.1: hash semantico committato con il checkpoint.
+      semanticStateHash(checkpoint.data), new Date().toISOString(),
     );
     return checkpoint;
   },
@@ -231,7 +301,7 @@ export const gameRepository = {
 
   addSimulationActionOutcomes: (outcomes: Array<{
     id: string; runId: string; gameId: string; actionId: string;
-    status: 'accepted' | 'partial' | 'rejected'; summary: string; eventHeadlines: string[];
+    status: 'accepted' | 'partial' | 'rejected' | 'unresolved'; summary: string; eventHeadlines: string[];
   }>) => {
     if (!outcomes.length) return;
     const insert = db.prepare(`
@@ -256,6 +326,141 @@ export const gameRepository = {
       summary: row.summary,
       eventHeadlines: (() => { try { return JSON.parse(row.event_headlines || '[]'); } catch { return []; } })(),
     }));
+  },
+
+  // F02 passo 4: CAS sull’ancora del mondo. Il commit scrive solo se il DB
+  // è ancora nello stato atteso (turno/data letti dalla RAM prima del lavoro);
+  // un writer esterno fa fallire il commit invece di farsi sovrascrivere.
+  // NB: "current_date" va quotato — è anche una keyword SQLite.
+  compareAndSwapTurnAndDate: (gameId: string, expectedTurn: number, expectedDate: string, turn: number, date: string): boolean => {
+    const result = db.prepare(`
+      UPDATE games SET current_turn = ?, "current_date" = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND current_turn = ? AND "current_date" = ?
+    `).run(turn, date, gameId, expectedTurn, expectedDate);
+    return Number(result.changes) === 1;
+  },
+
+  // F02 passo 3: outbox degli eventi — scritto nella STESSA transazione
+  // canonica degli eventi, pubblicato solo dopo il commit, con ID stabili.
+  enqueueOutbox: (rows: { id: string; gameId: string; runId: string; eventId: string; payload: unknown }[]) => {
+    if (!rows.length) return;
+    const insert = db.prepare(`
+      INSERT INTO simulation_outbox (id, game_id, run_id, event_id, sequence, payload, delivery_state, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+    `);
+    const nextSeq = db.prepare('SELECT COALESCE(MAX(sequence), 0) + 1 AS s FROM simulation_outbox WHERE game_id = ?');
+    for (const row of rows) {
+      const sequence = Number((nextSeq.get(row.gameId) as { s: number }).s);
+      insert.run(row.id, row.gameId, row.runId, row.eventId, sequence, JSON.stringify(row.payload), new Date().toISOString());
+    }
+  },
+
+  pendingOutbox: (gameId: string, limit = 200) => {
+    return db.prepare(`
+      SELECT id, event_id, sequence, payload
+      FROM simulation_outbox WHERE game_id = ? AND delivery_state = 'pending'
+      ORDER BY sequence LIMIT ?
+    `).all(gameId, limit) as Array<{ id: string; event_id: string; sequence: number; payload: string }>;
+  },
+
+  markOutboxPublished: (gameId: string, ids: string[]) => {
+    if (!ids.length) return;
+    const placeholders = ids.map(() => '?').join(',');
+    db.prepare(`
+      UPDATE simulation_outbox SET delivery_state = 'published', published_at = ?
+      WHERE game_id = ? AND id IN (${placeholders}) AND delivery_state = 'pending'
+    `).run(new Date().toISOString(), gameId, ...ids);
+  },
+
+  // F04 passo 4: lo storico del ramo abbandonato resta solo nell’archivio
+  // privato — le righe outbox pendenti al restore non vengono ripubblicate
+  // (§9.4.1: un solo messaggio pubblico di branch replacement, mai republish
+  // dello storico). Le righe restano consultabili come audit privato.
+  archivePendingOutbox: (gameId: string): number => {
+    const result = db.prepare(`
+      UPDATE simulation_outbox SET delivery_state = 'published', published_at = ?
+      WHERE game_id = ? AND delivery_state = 'pending'
+    `).run(new Date().toISOString(), gameId);
+    return Number(result.changes || 0);
+  },
+
+  // ── F05 µ1: job asincroni del salto ────────────────────────────────────
+
+  createJob: (job: { id: string; gameId: string; type: string; payloadJson: string; payloadHash: string; idempotencyKey?: string }) => {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO simulation_jobs (id, game_id, type, status, payload_json, payload_hash, idempotency_key, created_at, updated_at)
+      VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?)
+    `).run(job.id, job.gameId, job.type, job.payloadJson, job.payloadHash, job.idempotencyKey || null, now, now);
+    return job;
+  },
+
+  getJob: (id: string) => {
+    return db.prepare('SELECT * FROM simulation_jobs WHERE id = ?').get(id) as any || null;
+  },
+
+  findJobByIdempotencyKey: (gameId: string, idempotencyKey: string) => {
+    return db.prepare('SELECT * FROM simulation_jobs WHERE game_id = ? AND idempotency_key = ?').get(gameId, idempotencyKey) as any || null;
+  },
+
+  updateJobStatus: (id: string, status: 'queued' | 'running' | 'completed' | 'failed', data: {
+    leaseOwner?: string; leaseExpiresAt?: string; runId?: string | null; error?: string | null; errorName?: string | null; resultJson?: string | null;
+  } = {}) => {
+    db.prepare(`
+      UPDATE simulation_jobs
+      SET status = ?, lease_owner = COALESCE(?, lease_owner), lease_expires_at = COALESCE(?, lease_expires_at),
+          run_id = COALESCE(?, run_id), error = ?, error_name = COALESCE(?, error_name), result_json = COALESCE(?, result_json), updated_at = ?
+      WHERE id = ?
+    `).run(status, data.leaseOwner || null, data.leaseExpiresAt || null, data.runId || null, data.error || null, data.errorName || null, data.resultJson || null, new Date().toISOString(), id);
+  },
+
+  nextQueuedJob: () => {
+    return db.prepare("SELECT * FROM simulation_jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1").get() as any || null;
+  },
+
+  /** Claim atomico del lease: vince solo il worker che scrive da 'queued'. */
+  claimJob: (id: string, owner: string, leaseExpiresAt: string): boolean => {
+    const result = db.prepare(`
+      UPDATE simulation_jobs SET status = 'running', lease_owner = ?, lease_expires_at = ?, updated_at = ?
+      WHERE id = ? AND status = 'queued'
+    `).run(owner, leaseExpiresAt, new Date().toISOString(), id);
+    return Number(result.changes) === 1;
+  },
+
+  expiredRunningJobs: (nowIso: string) => {
+    return db.prepare(`
+      SELECT * FROM simulation_jobs WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
+    `).all(nowIso) as any[];
+  },
+
+  /** F05 passo 4: lease scaduta → paused_recovery all'ultimo checkpoint.
+   * Nessuna seconda chiamata pagata automaticamente per «recuperare». */
+  markRunPausedRecovery: (runId: string, error?: string) => {
+    db.prepare(`
+      UPDATE simulation_runs
+      SET status = 'paused_recovery', pending_state = NULL, error = ?, completed_at = NULL
+      WHERE id = ? AND status = 'running'
+    `).run(error || null, runId);
+  },
+
+  latestRunningRun: (gameId: string) => {
+    return db.prepare(`
+      SELECT id, status, start_date FROM simulation_runs
+      WHERE game_id = ? AND status = 'running' ORDER BY created_at DESC LIMIT 1
+    `).get(gameId) as any || null;
+  },
+
+  getJobByRunId: (runId: string) => {
+    return db.prepare('SELECT * FROM simulation_jobs WHERE run_id = ? ORDER BY created_at DESC LIMIT 1').get(runId) as any || null;
+  },
+
+  /** F05 µ2: heartbeat del lease, con fencing sul proprietario. */
+  renewJobLease: (id: string, owner: string, leaseExpiresAt: string): boolean => {
+    const result = db.prepare(`
+      UPDATE simulation_jobs SET lease_expires_at = ?, updated_at = ?
+      WHERE id = ? AND status = 'running' AND lease_owner = ?
+    `).run(leaseExpiresAt, new Date().toISOString(), id, owner);
+    return Number(result.changes) === 1;
   },
 
   upsertOngoingProcess: (process: {
@@ -304,12 +509,13 @@ export const gameRepository = {
     })();
   },
 
-  completeOngoingProcessForAction: (gameId: string, actionText: string, summary: string) => {
+  /** Chiude soltanto il progetto canonico indicato dall'outcome. */
+  completeOngoingProcessById: (gameId: string, projectId: string, summary: string) => {
     return db.prepare(`
       UPDATE ongoing_processes
       SET status = 'completed', summary = ?, updated_at = ?
-      WHERE game_id = ? AND title = ? AND status = 'ongoing'
-    `).run(summary, new Date().toISOString(), gameId, actionText).changes;
+      WHERE game_id = ? AND id = ? AND status = 'ongoing'
+    `).run(summary, new Date().toISOString(), gameId, projectId).changes;
   },
 
   getSimulationRun: (gameId: string, runId: string) => {
@@ -327,16 +533,19 @@ export const gameRepository = {
   },
 
   queuePendingAction: (action: { id: string; gameId: string; text: string; createdAt: string; status?: string }) => {
-    db.prepare(`
-      INSERT INTO pending_actions (id, game_id, text, created_at, status)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(action.id, action.gameId, action.text, action.createdAt, action.status || 'pending');
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO pending_actions (id, game_id, text, created_at, status, delivery_status, execution_status)
+        VALUES (?, ?, ?, ?, 'pending', 'queued', 'not_started')
+      `).run(action.id, action.gameId, action.text, action.createdAt);
+      bumpQueueVersion(action.gameId);
+    })();
     return action;
   },
 
   getPendingActions: (gameId: string) => {
     const rows = db.prepare(`
-      SELECT id, text, created_at, status
+      SELECT id, text, created_at, status, delivery_status, execution_status
       FROM pending_actions
       WHERE game_id = ?
       ORDER BY created_at ASC, rowid ASC
@@ -345,45 +554,81 @@ export const gameRepository = {
       id: row.id,
       text: row.text,
       createdAt: row.created_at,
-      // A process cannot survive a backend restart: make it safely retryable.
-      status: row.status === 'processing' ? 'pending' : row.status,
+      status: row.status,
+      deliveryStatus: row.delivery_status,
+      executionStatus: row.execution_status,
     }));
   },
 
   updatePendingActionStatus: (gameId: string, actionIds: string[], status: 'pending' | 'processing') => {
     if (!actionIds.length) return;
     const placeholders = actionIds.map(() => '?').join(', ');
-    db.prepare(`UPDATE pending_actions SET status = ? WHERE game_id = ? AND id IN (${placeholders})`)
-      .run(status, gameId, ...actionIds);
+    const next = status === 'processing'
+      ? { delivery: 'issued', execution: 'in_progress' }
+      : { delivery: 'queued', execution: 'not_started' };
+    db.transaction(() => {
+      const result = db.prepare(`
+        UPDATE pending_actions
+        SET status = ?, delivery_status = ?, execution_status = ?
+        WHERE game_id = ? AND id IN (${placeholders})
+          AND (status <> ? OR delivery_status <> ? OR execution_status <> ?)
+      `).run(
+        status, next.delivery, next.execution, gameId, ...actionIds,
+        status, next.delivery, next.execution,
+      );
+      if (result.changes) bumpQueueVersion(gameId);
+    })();
   },
 
   removePendingAction: (gameId: string, actionId: string): boolean => {
-    return db.prepare('DELETE FROM pending_actions WHERE game_id = ? AND id = ?').run(gameId, actionId).changes > 0;
+    let removed = false;
+    db.transaction(() => {
+      removed = db.prepare('DELETE FROM pending_actions WHERE game_id = ? AND id = ?').run(gameId, actionId).changes > 0;
+      if (removed) bumpQueueVersion(gameId);
+    })();
+    return removed;
   },
 
   /** Aggiorna il testo di un ordine ancora in coda (non ancora preso in carico). */
   updatePendingActionText: (gameId: string, actionId: string, text: string): boolean => {
-    return db.prepare('UPDATE pending_actions SET text = ? WHERE game_id = ? AND id = ? AND status = ?')
-      .run(text, gameId, actionId, 'pending').changes > 0;
+    let updated = false;
+    db.transaction(() => {
+      updated = db.prepare('UPDATE pending_actions SET text = ? WHERE game_id = ? AND id = ? AND status = ?')
+        .run(text, gameId, actionId, 'pending').changes > 0;
+      if (updated) bumpQueueVersion(gameId);
+    })();
+    return updated;
   },
 
   removePendingActions: (gameId: string, actionIds: string[]) => {
     if (!actionIds.length) return;
     const placeholders = actionIds.map(() => '?').join(', ');
-    db.prepare(`DELETE FROM pending_actions WHERE game_id = ? AND id IN (${placeholders})`)
-      .run(gameId, ...actionIds);
+    db.transaction(() => {
+      const result = db.prepare(`DELETE FROM pending_actions WHERE game_id = ? AND id IN (${placeholders})`)
+        .run(gameId, ...actionIds);
+      if (result.changes) bumpQueueVersion(gameId);
+    })();
   },
 
-  replacePendingActions: (gameId: string, actions: { id: string; text: string; createdAt: string; status: string }[]) => {
+  replacePendingActions: (gameId: string, actions: Array<{
+    id: string; text: string; createdAt: string; status: string;
+    deliveryStatus?: string; executionStatus?: string;
+  }>) => {
     db.transaction(() => {
       db.prepare('DELETE FROM pending_actions WHERE game_id = ?').run(gameId);
       const insert = db.prepare(`
-        INSERT INTO pending_actions (id, game_id, text, created_at, status)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO pending_actions (id, game_id, text, created_at, status, delivery_status, execution_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
-      actions.filter(action => action.status === 'pending').forEach(action => {
-        insert.run(action.id, gameId, action.text, action.createdAt, 'pending');
+      actions.filter(action => action.status === 'pending' || action.status === 'processing').forEach(action => {
+        const processing = action.status === 'processing';
+        insert.run(
+          action.id, gameId, action.text, action.createdAt, action.status,
+          action.deliveryStatus || (processing ? 'issued' : 'queued'),
+          action.executionStatus || (processing ? 'in_progress' : 'not_started'),
+        );
       });
+      bumpQueueVersion(gameId);
     })();
   },
 

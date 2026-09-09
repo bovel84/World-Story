@@ -1,7 +1,7 @@
 # Mondo Provinciale WW2 (import Pax Historia)
 
 Mappa comunitaria «WW2 But with more Provinces V90» di Pax Historia
-(autore della mappa: Isorrowproductions), importata in Open-Pax.
+(autore della mappa: Isorrowproductions), importata in World Story.
 
 Nazioni: 223 — Province totali: 3050.
 

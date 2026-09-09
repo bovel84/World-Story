@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Map Repository
+ * World Story — Map Repository
  * =========================
  */
 

@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Prompt Builder
+ * World Story — Prompt Builder
  * =========================
  * Сервис для построения переменных промптов
  */
@@ -9,6 +9,7 @@ import {
   buildSimulationPrompt,
   buildAutoJumpInstruction,
   buildCausalityGuard,
+  buildSimulationNarrativeContract,
   buildIncrementalOutputInstruction,
   extractCompleteJsonObjects,
   parseIncrementalSimulationRecord,
@@ -55,7 +56,14 @@ interface GameData {
   /** Relazioni persistenti tra politie, indicizzate per polityId. */
   relationships?: Record<string, Record<string, string>>;
   /** Processi in corso (esiti partial) che la simulazione deve portare avanti. */
-  ongoingProcesses?: Array<{ title: string; summary: string; startedDate: string; expectedDate?: string | null }>;
+  ongoingProcesses?: Array<{
+    id: string;
+    sourceActionId: string;
+    title: string;
+    summary: string;
+    startedDate: string;
+    expectedDate?: string | null;
+  }>;
   /** Conti nazionali calcolati dal motore, non stimati dall'LLM. */
   worldState?: { accounts?: Record<string, {
     provinces: number;
@@ -365,7 +373,7 @@ export class PromptBuilder {
       const due = process.expectedDate
         ? ` — completamento previsto: ${process.expectedDate}`
         : ' — completamento previsto: data non determinata';
-      return `- ${process.title}${due}. Stato: ${process.summary} (avviato: ${process.startedDate})`;
+      return `- [projectId:${process.id}; sourceActionId:${process.sourceActionId}] ${process.title}${due}. Stato: ${process.summary} (avviato: ${process.startedDate})`;
     }).join('\n');
   }
 
@@ -561,7 +569,7 @@ export class PromptEngine {
 
   async runSimulation(
     game: GameData,
-    actions: string[],
+    actions: Array<string | { actionId: string; text: string }>,
     jumpDays: number,
     onProgress?: (charsSoFar: number) => void,
     autoJump?: boolean,
@@ -574,7 +582,13 @@ export class PromptEngine {
     const vars = builder.buildVariables();
     vars.TARGET_ROUND_DATE = this.calculateTargetDate(game.currentDate, jumpDays);
     vars.TARGET_ROUND_GRAMMATICAL_DATE = this.toGrammaticalDate(vars.TARGET_ROUND_DATE);
-    vars.PLAYER_ACTIONS_THIS_ROUND = actions.join('\n');
+    const normalizedActions: Array<{ actionId?: string; text: string }> = actions.map(action => typeof action === 'string'
+      ? { text: action }
+      : action);
+    // L'identità entra nel prompt: il testo è descrittivo, non una chiave.
+    vars.PLAYER_ACTIONS_THIS_ROUND = normalizedActions
+      .map(action => action.actionId ? `[actionId:${action.actionId}] ${action.text}` : action.text)
+      .join('\n');
 
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'simulation');
     // Пресетный шаблон заменяет дефолтный промпт целиком; правила auto-jump
@@ -587,7 +601,12 @@ export class PromptEngine {
     // Budget basso: privilegiamo una catena di conseguenze credibile rispetto
     // a una lista di notizie scollegate. Il modello può sempre concludere prima.
     const maxEvents = autoJump ? 1 : Math.min(12, Math.max(1, Math.ceil(jumpDays / 21)));
-    const prompt = basePrompt + buildIncrementalOutputInstruction(vars, maxEvents, !!autoJump);
+    // Anche un override del preset riceve il contratto canonico: può definire
+    // il mondo, non rimuovere causalità, autonomia del giocatore e rigore
+    // della cronaca. Con gli override riportiamo esplicitamente il canone.
+    const prompt = basePrompt
+      + buildSimulationNarrativeContract(vars, Boolean(promptOverride))
+      + buildIncrementalOutputInstruction(vars, maxEvents, !!autoJump);
 
     let parsedObjectCount = 0;
     let emittedCount = 0;
@@ -627,17 +646,18 @@ export class PromptEngine {
     return result;
   }
 
-  async convertAction(game: GameData, actionText: string): Promise<ConvertedAction> {
+  async convertAction(game: GameData, actionText: string, signal?: AbortSignal): Promise<ConvertedAction> {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariablesForAction(actionText);
 
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'converter');
     const prompt = promptOverride ? renderPromptTemplate(promptOverride, vars) : buildConverterPrompt(vars);
+    // F05 µ2: l’abort del run arresto arriva fino agli adattatori, convertitore compreso.
     const response = await this.llm.generate(
       'converter',
       'Sei l\'analista degli ordini in un gioco strategico globale. Rispondi SOLO con JSON.',
       prompt,
-      { temperature: 0.5 }
+      { temperature: 0.5, signal }
     );
 
     return parseConverterResponse(response.content);
@@ -647,19 +667,24 @@ export class PromptEngine {
    * Convert multiple actions in a single LLM call (batch processing)
    * Significantly reduces API calls when processing multiple pending actions
    */
-  async convertActionsBatch(game: GameData, actionTexts: string[]): Promise<ConvertedAction[]> {
-    if (actionTexts.length === 0) return [];
-    if (actionTexts.length === 1) {
-      // Fall back to single conversion for single action
-      return [await this.convertAction(game, actionTexts[0])];
+  async convertActionsBatch(
+    game: GameData,
+    actions: Array<string | { actionId: string; text: string }>,
+    signal?: AbortSignal,
+  ): Promise<ConvertedAction[]> {
+    const normalized: Array<{ actionId?: string; text: string }> = actions.map(action => typeof action === 'string' ? { text: action } : action);
+    if (normalized.length === 0) return [];
+    if (normalized.length === 1) {
+      // Compatibilità single-action: l'ID viene conservato fuori dalla prosa.
+      return [{ ...await this.convertAction(game, normalized[0].text, signal), actionId: normalized[0].actionId }];
     }
 
     // Пресетный шаблон конвертера рассчитан на одно действие: с ним
     // конвертируем последовательно — корректность важнее экономии вызовов.
     if (getPromptOverride(await resolveWorldPrompts(game), 'converter')) {
       const converted: ConvertedAction[] = [];
-      for (const text of actionTexts) {
-        converted.push(await this.convertAction(game, text));
+      for (const action of normalized) {
+        converted.push({ ...await this.convertAction(game, action.text, signal), actionId: action.actionId });
       }
       return converted;
     }
@@ -667,7 +692,12 @@ export class PromptEngine {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
 
-    const prompt = buildBatchConverterPrompt(vars, actionTexts);
+    const prompt = buildBatchConverterPrompt(vars, normalized.map((action, index) => ({
+      // Le chiamate pubbliche legacy senza ID restano leggibili, ma non
+      // attraversano il percorso canonico GameSession → GameController.
+      actionId: action.actionId || `legacy-converter-${index + 1}`,
+      text: action.text,
+    })));
     const response = await this.llm.generate(
       'converter',
       'Sei l\'analista degli ordini in un gioco strategico globale. Rispondi SOLO con JSON.',
@@ -675,7 +705,13 @@ export class PromptEngine {
       { temperature: 0.5 }
     );
 
-    return parseBatchConverterResponse(response.content);
+    return parseBatchConverterResponse(response.content).map(converted => {
+      if (converted.actionId) return converted;
+      // Adapter esplicito per il vecchio converter: solo un `index` dichiarato
+      // dal provider può riallacciare l'output, mai l'ordine dell'array.
+      const source = converted.legacyIndex ? normalized[converted.legacyIndex - 1] : undefined;
+      return { ...converted, actionId: source?.actionId };
+    });
   }
 
   async getAdvisor(game: GameData, message: string, history: AdvisorMessage[] = []): Promise<string> {

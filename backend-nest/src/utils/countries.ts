@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Countries Utility
+ * World Story — Countries Utility
  * ============================
  * Loads and provides access to the countries registry.
  */

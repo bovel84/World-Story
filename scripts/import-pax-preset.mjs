@@ -1,11 +1,11 @@
 /**
- * Open-Pax — Importatore preset Pax Historia
+ * World Story — Importatore preset Pax Historia
  * ==========================================
  * Scarica un preset pubblico da paxhistoria.co (Firestore REST + map-geometry
  * R2), assegna ogni provincia alla nazione che contiene il suo centroide
  * (Natural Earth, point-in-polygon — assegnazione conservativa: i tag originali
  * come «California» restano info di regione, non creano nazioni separate) e
- * genera un pacchetto preset Open-Pax in backend-nest/data/presets/<id>/.
+ * genera un pacchetto preset World Story in backend-nest/data/presets/<id>/.
  *
  * Uso:
  *   node scripts/import-pax-preset.mjs [presetUID] [versionID]
@@ -95,7 +95,7 @@ function roundRing(ring) {
 }
 
 /** Colori: HSL con golden-angle per varietà, toni smorzati leggibili sulla
- *  mappa scura di Open-Pax (evita nero e grigio neutro). */
+ *  mappa scura di World Story (evita nero e grigio neutro). */
 function colorForCode(code) {
   let h = 0;
   for (let i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) >>> 0;
@@ -332,7 +332,7 @@ function buildPresetPackage(byCode) {
     '# Mondo Provinciale WW2 (import Pax Historia)',
     '',
     'Mappa comunitaria «WW2 But with more Provinces V90» di Pax Historia',
-    '(autore della mappa: Isorrowproductions), importata in Open-Pax.',
+    '(autore della mappa: Isorrowproductions), importata in World Story.',
     '',
     `Nazioni: ${byCode.size} — Province totali: ${features.reduce((s, f) => s + f.properties.provinces, 0)}.`,
     '',
@@ -353,7 +353,7 @@ function buildPresetPackage(byCode) {
 // ============================================================================
 
 async function main() {
-  console.log('─── Open-Pax · import preset Pax Historia ───');
+  console.log('─── World Story · import preset Pax Historia ───');
   const { regionData, geometryDocId } = await downloadPresetDoc();
   const geometryRegions = await downloadGeometry(geometryDocId);
   const { byCode } = assignProvincesToCountries(regionData, geometryRegions);

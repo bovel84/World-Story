@@ -1,0 +1,31 @@
+{
+  "treasuries": [
+    { "id": "acc_alpha_treasury", "actorId": "alpha_treasury", "currencyId": "TEST", "balanceMinorUnits": "1000000" },
+    { "id": "acc_beta_treasury", "actorId": "beta_treasury", "currencyId": "TEST", "balanceMinorUnits": "800000" }
+  ],
+  "inventory": [
+    { "id": "lot_ore_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "iron_ore", "baseUnits": "500" } },
+    { "id": "lot_coal_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "coal", "baseUnits": "400" } },
+    { "id": "lot_grain_alpha", "ownerActorId": "alpha_farms", "regionId": "ALPHA-sud", "quantity": { "resourceId": "grain", "baseUnits": "200" } },
+    { "id": "lot_tools_alpha", "ownerActorId": "alpha_steel_co", "custodianActorId": "alpha_farms", "regionId": "ALPHA-sud", "quantity": { "resourceId": "tools", "baseUnits": "20" } },
+    { "id": "lot_steel_beta", "ownerActorId": "beta_treasury", "regionId": "BETA-est", "quantity": { "resourceId": "steel", "baseUnits": "150" } }
+  ],
+  "deposits": [
+    { "id": "dep_ore_alpha", "resourceId": "iron_ore", "regionId": "ALPHA-nord", "known": { "resourceId": "iron_ore", "baseUnits": "100000" }, "accessibility": "requires_extraction" },
+    { "id": "dep_coal_alpha", "resourceId": "coal", "regionId": "ALPHA-ovest", "known": { "resourceId": "coal", "baseUnits": "80000" }, "accessibility": "requires_extraction" },
+    { "id": "dep_ore_beta", "resourceId": "iron_ore", "regionId": "BETA-est", "known": null, "estimated": { "low": "20000", "base": "50000", "high": "90000", "evidence": { "quality": "estimated", "sourceRefs": ["sources.md#fixture-tecnica"], "validAt": "1951-01-01" } }, "accessibility": "hidden" }
+  ],
+  "workforce": [
+    { "id": "wf_miners_alpha", "regionId": "ALPHA-nord", "qualification": "minatore", "persons": "500" },
+    { "id": "wf_workers_alpha", "regionId": "ALPHA-nord", "qualification": "operaio", "persons": "1200" },
+    { "id": "wf_farmers_alpha", "regionId": "ALPHA-sud", "qualification": "agricoltore", "persons": "800" },
+    { "id": "wf_workers_beta", "regionId": "BETA-est", "qualification": "operaio", "persons": "600" }
+  ],
+  "facilities": [
+    { "id": "fac_mine_alpha_1", "typeId": "ft_mine", "ownerActorId": "alpha_steel_co", "controllerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "operational": true },
+    { "id": "fac_foundry_alpha", "typeId": "ft_foundry", "ownerActorId": "alpha_steel_co", "controllerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "operational": true },
+    { "id": "fac_farm_alpha", "typeId": "ft_farm", "ownerActorId": "alpha_farms", "controllerActorId": "alpha_farms", "regionId": "ALPHA-sud", "operational": true },
+    { "id": "fac_works_alpha", "typeId": "ft_works", "ownerActorId": "alpha_steel_co", "controllerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "operational": false },
+    { "id": "fac_mine_beta_1", "typeId": "ft_mine", "ownerActorId": "beta_treasury", "controllerActorId": "beta_treasury", "regionId": "BETA-est", "operational": true }
+  ]
+}

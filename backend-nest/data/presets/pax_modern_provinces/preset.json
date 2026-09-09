@@ -231,7 +231,7 @@
   "base_prompt": "Il mondo contemporaneo del 2024. Un'epoca segnata dalla globalizzazione, dall'economia digitale e da nuove sfide alla sicurezza. Gli USA restano l'unica superpotenza, ma la Cina cresce rapidamente. La Russia ha riaffermato la sua influenza nello spazio post-sovietico. L'Unione Europea cerca un ruolo più incisivo. NATO e UE si sono ampliate verso est. Il Medio Oriente vive instabilità regionale. L'Africa mostra una rapida crescita economica. L'Asia è diventata il centro dell'economia mondiale. Ogni nazione conserva le proprie reali caratteristiche geografiche, economiche e culturali. Sono possibili tutti gli svolgimenti storici alternativi.",
   "start_date": "2024-01-01",
   "historical_accuracy": 0.85,
-  "author": "open-pax",
+  "author": "world-story",
   "version": "1.0.0",
   "countries": [
     {

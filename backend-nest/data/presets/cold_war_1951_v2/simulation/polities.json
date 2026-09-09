@@ -1,0 +1,4 @@
+[
+  { "id": "USA", "name": "Stati Uniti d'America", "governmentFormAtStart": "repubblica federale presidenziale" },
+  { "id": "USSR", "name": "Unione delle Repubbliche Socialiste Sovietiche", "governmentFormAtStart": "repubblica socialista federale a partito unico" }
+]

@@ -1,0 +1,6 @@
+[
+  { "id": "iron_smelting", "domain": "metallurgy", "requires": [] },
+  { "id": "steelmaking", "domain": "metallurgy", "requires": ["iron_smelting"] },
+  { "id": "grain_farming", "domain": "agriculture", "requires": [] },
+  { "id": "toolmaking", "domain": "engineering", "requires": ["steelmaking"] }
+]

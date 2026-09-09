@@ -1,8 +1,10 @@
 /**
- * Open-Pax — Prompt Types
+ * World Story — Prompt Types
  * ======================
  * Типы данных для промптов LLM
  */
+
+import type { StrictEffect } from '../core/simulation/EffectValidator';
 
 export interface PromptVariables {
   // Даты
@@ -79,14 +81,18 @@ export interface MapFeature {
 }
 
 export interface ActionOutcome {
-  /** Copia esatta dell'ordine ricevuto, usata per associarlo al lotto. */
+  /** ID canonico dell'ordine: unica chiave ammessa nel nuovo protocollo. */
+  actionId?: string;
+  /** Etichetta legacy, accettata soltanto dall'adapter esplicito e non come chiave canonica. */
   action: string;
   status: 'accepted' | 'partial' | 'rejected';
   summary: string;
   /** Data prevista solo per processi partial, se causalmente stimabile. */
   expectedDate?: string;
   eventHeadlines?: string[];
-  /** Titolo del processo in corso che questo ordine completa (anche riformulato). */
+  /** ID del progetto/processo che questo outcome conclude. */
+  completesProjectId?: string;
+  /** Etichetta legacy: non è usata dal percorso canonico. */
   completesProcess?: string;
 }
 
@@ -108,6 +114,9 @@ export interface SimulationResult {
   /** §7.2/T36: lo stream è terminato senza un record «complete» valido —
    * il budget non ha coperto l'intero periodo richiesto. */
   incomplete?: boolean;
+  /** M06 µ3: effetti strict (ledger/project_tick/shipment/qualitative) emessi
+   * dalla simulazione. In strict sono validati PRIMA di ogni mutatore. */
+  effects?: StrictEffect[];
 }
 
 /** Действие игрока, отклонённое как нереалистичное («захватить мир за день») */
@@ -135,6 +144,10 @@ export interface WorldChanges {
 }
 
 export interface ConvertedAction {
+  /** Conserva l'identità dell'ordine attraverso conversione e simulazione. */
+  actionId?: string;
+  /** Indice dichiarato da un provider legacy; non è un ID canonico. */
+  legacyIndex?: number;
   type: 'action' | 'chat';
   text: string;
   targetPolity?: string;

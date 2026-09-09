@@ -1,0 +1,21 @@
+{
+  "id": "cold_war_1951_v2",
+  "version": 2,
+  "schemaVersion": 1,
+  "startDate": "1951-01-01",
+  "mode": "strict",
+  "declaration": "historical_estimated",
+  "currency": { "id": "USD", "minorUnitName": "cent" },
+  "currencies": [
+    { "id": "USD", "minorUnitName": "cent" },
+    { "id": "SUR", "minorUnitName": "kopeck" }
+  ],
+  "sources": [
+    "sources.md#produzione-energetica-usa-1951",
+    "sources.md#produzione-energetica-urss-1951",
+    "sources.md#censimento-1950",
+    "sources.md#popolazione-urss-1951",
+    "sources.md#istituzioni",
+    "sources.md#dati-non-inclusi"
+  ]
+}

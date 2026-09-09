@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Diplomazia stile Pax Historia
+ * World Story — Diplomazia stile Pax Historia
  * =========================================
  * Nei gruppi la scelta del prossimo interlocutore è separata dalla generazione
  * della replica: `buildNextSpeakerPrompt` sceglie la nazione, `buildChatPrompt`

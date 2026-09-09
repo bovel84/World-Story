@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Game Store (Zustand)
+ * World Story — Game Store (Zustand)
  * ===============================
  */
 

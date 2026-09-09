@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Database
+ * World Story — Database
  * ====================
  * SQLite database initialization.
  */
@@ -9,7 +9,7 @@ import path from 'path';
 import fs from 'fs';
 
 // DB path can be overridden for tests (vitest sets OPEN_PAX_DB_PATH to a temp file)
-const DB_PATH = process.env.OPEN_PAX_DB_PATH || path.join(process.cwd(), 'data', 'open-pax.db');
+const DB_PATH = process.env.OPEN_PAX_DB_PATH || path.join(process.cwd(), 'data', 'world-story.db');
 
 // Ensure data directory exists
 const dataDir = path.dirname(DB_PATH);
@@ -61,6 +61,14 @@ export function initDatabase() {
     console.log('[Migration] Added simulation_rules to worlds');
   } catch (e: any) {
     if (!e.message.includes('duplicate column name')) { /* уже есть */ }
+  }
+
+  // M03 µ4-bis: binding immutabile server-side al preset/catalogo. NULL per mondi legacy.
+  try {
+    db.exec("ALTER TABLE worlds ADD COLUMN template_id TEXT DEFAULT NULL");
+    console.log('[Migration] Added template_id to worlds');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) throw e;
   }
 
   // Migration: переопределённые промпты ИИ мира (секция "prompts" пресета,
@@ -170,6 +178,7 @@ export function initDatabase() {
       current_date TEXT DEFAULT '1951-01-01',
       max_turns INTEGER DEFAULT 100,
       status TEXT DEFAULT 'playing',
+      queue_version INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (world_id) REFERENCES worlds(id) ON DELETE CASCADE
@@ -185,6 +194,320 @@ export function initDatabase() {
       console.log('[Migration] current_date column check:', e.message);
     }
   }
+
+  // Versione della sola coda: mutate della coda non avanzano il mondo.
+  try {
+    db.exec("ALTER TABLE games ADD COLUMN queue_version INTEGER NOT NULL DEFAULT 0");
+    console.log('[Migration] Added queue_version to games');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) throw e;
+  }
+
+  // M06 µ1: feature flag economico IMMUTABILE per partita. Il client non lo
+  // invia: viene derivato dal catalogo server-side al create della partita.
+  try {
+    db.exec("ALTER TABLE games ADD COLUMN economy_mode TEXT NOT NULL DEFAULT 'legacy'");
+    db.exec("ALTER TABLE games ADD COLUMN economy_model_version TEXT DEFAULT NULL");
+    console.log('[Migration] Added economy mode/version to games');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) throw e;
+  }
+
+  // F02 passo 1: contatore monotono di mutazioni canoniche del mondo. Ogni
+  // checkpoint lo incrementa di una volta: la revisione non deriva più dal
+  // turno (fonte di collisioni fra run multi-evento e percorso ordinario).
+  try {
+    db.exec("ALTER TABLE games ADD COLUMN world_revision INTEGER NOT NULL DEFAULT 0");
+    console.log('[Migration] Added world_revision to games');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) throw e;
+  }
+
+  // F02 passo 1: ramo corrente della partita (§9.4). L’id è quello del ramo
+  // principale; rami alternativi e restore cronologico arrivano con F04.
+  try {
+    db.exec("ALTER TABLE games ADD COLUMN head_branch_id TEXT");
+    console.log('[Migration] Added head_branch_id to games');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) throw e;
+  }
+
+  // M01 passo 4 (MAT18): impronta di contenuto del catalogo simulation/ con
+  // cui il mondo è stato generato. Mondi generati PRIMA di M01 hanno NULL:
+  // sono riusabili solo da template senza catalogo (comportamento legacy).
+  try {
+    db.exec("ALTER TABLE worlds ADD COLUMN catalog_fingerprint TEXT DEFAULT NULL");
+    console.log('[Migration] Added catalog_fingerprint to worlds');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) throw e;
+  }
+
+  // M02 µ2 (MAT04): ledger append-only (maestro §6.2, §4.3). Una riga = un
+  // movimento con chiave unica (branch_id, effect_id, entry_index): la
+  // ripetizione è no-op verificata, NON un secondo pagamento. Denaro in
+  // unità monetarie minime, materiali in unità base; delta > 0 passa da
+  // from_ref a to_ref (entrambi NULL solo per creazione/uscita).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ledger_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      effect_id TEXT NOT NULL,
+      entry_index INTEGER NOT NULL,
+      cause TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('money', 'material')),
+      unit_id TEXT NOT NULL,
+      from_ref TEXT,
+      to_ref TEXT,
+      owner_ref TEXT,
+      delta TEXT NOT NULL,
+      at_date TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_scope_effect_entry ON ledger_entries (branch_id, effect_id, entry_index)',
+  );
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_ledger_branch_unit ON ledger_entries (branch_id, kind, unit_id)',
+  );
+  // M07 µ4b: provenienza di proprietà dei materiali. Nessun backfill di
+  // righe storiche: owner ignoto resta ignoto e non abilita una minStock.
+  try { db.exec('ALTER TABLE ledger_entries ADD COLUMN owner_ref TEXT'); }
+  catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('duplicate column name')) throw error;
+  }
+
+  // M06 µ5b: effetti strict generati dal server; la LLM può citare soltanto
+  // un effectId staged sullo stesso ramo/revisione, consumabile una volta.
+  db.exec(`CREATE TABLE IF NOT EXISTS strict_effect_staging (
+    game_id TEXT NOT NULL, branch_id TEXT NOT NULL, anchor_revision INTEGER NOT NULL,
+    effect_id TEXT NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'staged', consumed_at TEXT,
+    PRIMARY KEY (branch_id, effect_id)
+  )`);
+
+  // M06 µ5c-2: stato progetto runtime per tick server-staged/versionati.
+  db.exec(`CREATE TABLE IF NOT EXISTS project_runtime_states (
+    game_id TEXT NOT NULL, branch_id TEXT NOT NULL, project_id TEXT NOT NULL,
+    plan_json TEXT NOT NULL, state_json TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (branch_id, project_id)
+  )`);
+
+  // M06 µ5d: input canonici server per i producer M04/M05.
+  db.exec(`CREATE TABLE IF NOT EXISTS strict_ledger_schedule (
+    game_id TEXT NOT NULL, branch_id TEXT NOT NULL, effect_id TEXT NOT NULL,
+    entry_json TEXT NOT NULL, due_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'scheduled',
+    PRIMARY KEY (branch_id, effect_id)
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS project_work_schedule (
+    game_id TEXT NOT NULL, branch_id TEXT NOT NULL, effect_id TEXT NOT NULL,
+    project_id TEXT NOT NULL, phase_id TEXT NOT NULL, work_done TEXT NOT NULL,
+    due_date TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'scheduled',
+    PRIMARY KEY (branch_id, effect_id)
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS shipment_runtime_states (
+    game_id TEXT NOT NULL, branch_id TEXT NOT NULL, shipment_id TEXT NOT NULL,
+    shipment_json TEXT NOT NULL, transport_authorized INTEGER NOT NULL,
+    version INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (branch_id, shipment_id)
+  )`);
+
+  // M02 µ3 (MAT05): prenotazioni. `reservations` conserva il residuo
+  // committed; `reservation_operations` dà idempotenza a consume/release.
+  // Il consume appende anche il ledger nella stessa transazione: nessuna
+  // doppia sottrazione. Amount TEXT è sempre IntString, mai SUM() SQL.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS reservations (
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      reservation_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('money', 'material')),
+      unit_id TEXT NOT NULL,
+      holder_ref TEXT NOT NULL,
+      initial_amount TEXT NOT NULL,
+      remaining_amount TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('active', 'consumed', 'released')),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (branch_id, reservation_id)
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS reservation_operations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      branch_id TEXT NOT NULL,
+      reservation_id TEXT NOT NULL,
+      operation_id TEXT NOT NULL,
+      operation_type TEXT NOT NULL CHECK (operation_type IN ('consume', 'release')),
+      amount TEXT NOT NULL,
+      ledger_effect_id TEXT,
+      ledger_entry_index INTEGER,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (branch_id, reservation_id, operation_id)
+    )
+  `);
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_reservations_available ON reservations (branch_id, kind, unit_id, holder_ref, status)",
+  );
+
+  // M02 µ4 (MAT36): finanza separata. Cassa/escrow restano conti money nel
+  // ledger; qui vivono autorizzazioni, debiti, flussi datati e loro stato.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS finance_appropriations (
+      game_id TEXT NOT NULL, branch_id TEXT NOT NULL, appropriation_id TEXT NOT NULL,
+      account_ref TEXT NOT NULL, currency_id TEXT NOT NULL, authorized_amount TEXT NOT NULL,
+      committed_amount TEXT NOT NULL DEFAULT '0', spent_amount TEXT NOT NULL DEFAULT '0',
+      PRIMARY KEY (branch_id, appropriation_id)
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS finance_debts (
+      game_id TEXT NOT NULL, branch_id TEXT NOT NULL, debt_id TEXT NOT NULL,
+      lender_ref TEXT NOT NULL, borrower_ref TEXT NOT NULL, currency_id TEXT NOT NULL,
+      limit_amount TEXT NOT NULL, rate_numerator TEXT NOT NULL, rate_denominator TEXT NOT NULL,
+      maturity_date TEXT NOT NULL, drawn_amount TEXT NOT NULL DEFAULT '0',
+      principal_outstanding TEXT NOT NULL DEFAULT '0', accrued_interest TEXT NOT NULL DEFAULT '0',
+      carry_numerator TEXT NOT NULL DEFAULT '0', PRIMARY KEY (branch_id, debt_id)
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS finance_escrows (
+      game_id TEXT NOT NULL, branch_id TEXT NOT NULL, escrow_id TEXT NOT NULL,
+      buyer_ref TEXT NOT NULL, seller_ref TEXT NOT NULL, escrow_ref TEXT NOT NULL,
+      currency_id TEXT NOT NULL, amount TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('draft','funded','released','refunded')),
+      PRIMARY KEY (branch_id, escrow_id)
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS finance_cashflows (
+      game_id TEXT NOT NULL, branch_id TEXT NOT NULL, cashflow_id TEXT NOT NULL,
+      debtor_ref TEXT NOT NULL, creditor_ref TEXT NOT NULL, currency_id TEXT NOT NULL,
+      due_date TEXT NOT NULL, amount TEXT NOT NULL, outstanding_amount TEXT NOT NULL,
+      legal_priority INTEGER NOT NULL, partial_allowed INTEGER NOT NULL,
+      shortage_policy TEXT NOT NULL CHECK (shortage_policy IN ('arrears','default')),
+      status TEXT NOT NULL CHECK (status IN ('scheduled','paid','arrears','default')),
+      PRIMARY KEY (branch_id, cashflow_id)
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS finance_operations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, branch_id TEXT NOT NULL,
+      entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, operation_id TEXT NOT NULL,
+      operation_type TEXT NOT NULL, amount TEXT NOT NULL, reference_id TEXT,
+      ledger_effect_id TEXT, ledger_entry_index INTEGER, detail TEXT,
+      UNIQUE (branch_id, entity_kind, entity_id, operation_id)
+    )
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_finance_cashflow_due ON finance_cashflows (branch_id, due_date, legal_priority, status)");
+
+  // M07 µ1 (MAT31): mandati di delega (maestro §7.5). `mandates` conserva
+  // tetto/periodo/whitelist/fornitori/prezzo e il plafond già consumato;
+  // `mandate_executions` dà idempotenza: ogni esecuzione cita mandateId e
+  // consuma il plafond UNA volta (chiave unica branch+mandate+execution).
+  // Amount TEXT è sempre IntString, mai SUM() SQL.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mandates (
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      mandate_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      currency_id TEXT NOT NULL,
+      ceiling TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      whitelist TEXT NOT NULL,
+      suppliers TEXT NOT NULL,
+      price_limit TEXT,
+      resource_id TEXT,
+      min_stock TEXT,
+      no_new_debt INTEGER NOT NULL DEFAULT 0,
+      spent TEXT NOT NULL DEFAULT '0',
+      status TEXT NOT NULL CHECK (status IN ('active', 'expired', 'cancelled')),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (branch_id, mandate_id)
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mandate_executions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      branch_id TEXT NOT NULL,
+      mandate_id TEXT NOT NULL,
+      execution_id TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      supplier TEXT NOT NULL,
+      amount TEXT NOT NULL,
+      price TEXT,
+      quantity TEXT,
+      at_date TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (branch_id, mandate_id, execution_id)
+    )
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mandates_active ON mandates (branch_id, status)");
+
+  // M07 µ4: eccezioni/decisioni generate SOLO dal tick strict quando una
+  // scorta minima è sotto soglia. Non sono ordini né autorizzazioni: nessun
+  // acquisto automatico in assenza di quantità/prezzo verificati (§7.5).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mandate_decisions (
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      mandate_id TEXT NOT NULL,
+      decision_kind TEXT NOT NULL CHECK (decision_kind IN ('stock_shortfall_authorized','stock_shortfall_outside_authorization')),
+      resource_id TEXT NOT NULL,
+      min_stock TEXT NOT NULL,
+      available_stock TEXT NOT NULL,
+      shortfall TEXT NOT NULL,
+      as_of_date TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('open','acknowledged','resolved')),
+      PRIMARY KEY (branch_id, mandate_id)
+    )
+  `);
+  // Upgrade conservativo delle prime build µ4: non esistono due decisioni
+  // valide per lo stesso mandato. Un duplicato storico viene riesaminato al
+  // tick, senza eseguire azioni; teniamo l'ultima fotografia disponibile.
+  db.exec(`DELETE FROM mandate_decisions WHERE rowid NOT IN (
+    SELECT MAX(rowid) FROM mandate_decisions GROUP BY branch_id, mandate_id
+  )`);
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_mandate_decision_one_per_mandate ON mandate_decisions (branch_id, mandate_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_mandate_decisions_open ON mandate_decisions (game_id, branch_id, status)');
+
+  // F02 passo 1: rami canonici della partita (§9.4). Il checkpoint origine di
+  // ogni ramo è immutabile; i rami figli nascono da un checkpoint esistente.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_branches (
+      id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      parent_branch_id TEXT,
+      origin_checkpoint_id TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+
+  // F02 passo 1: outbox degli eventi (§9.3). La pubblicazione SSE legge solo
+  // eventi prima committati qui con ID stabili: il publisher è separato,
+  // ripetibile e non blocca la transazione canonica.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS simulation_outbox (
+      id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      sequence INTEGER NOT NULL,
+      payload TEXT NOT NULL,
+      delivery_state TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      published_at TEXT,
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_outbox_game_sequence
+      ON simulation_outbox(game_id, sequence)
+  `);
 
   // Migration (Этап 2): сложность игры (story/easy/normal/hard/very_hard)
   try {
@@ -270,10 +593,47 @@ export function initDatabase() {
     )
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_simulation_runs_game_created ON simulation_runs(game_id, created_at DESC)');
+  // F05 µ1: job asincroni del salto — accettazione 202, claim/lease del
+  // worker, idempotenza per (game_id, idempotency_key) con hash del payload.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS simulation_jobs (
+      id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      payload_json TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      idempotency_key TEXT,
+      run_id TEXT,
+      lease_owner TEXT,
+      lease_expires_at TEXT,
+      error TEXT,
+      error_name TEXT,
+      result_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_jobs_game_status ON simulation_jobs(game_id, status)');
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_game_key ON simulation_jobs(game_id, idempotency_key)'); } catch (e: any) {
+    if (!String(e?.message || '').includes('already exists')) console.warn('[DB] idx_jobs_game_key:', e?.message);
+  }
+  try { db.exec('ALTER TABLE simulation_jobs ADD COLUMN error_name TEXT'); } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+  try { db.exec('ALTER TABLE simulation_jobs ADD COLUMN result_json TEXT'); } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
   try { db.exec('ALTER TABLE simulation_runs ADD COLUMN checkpoint_id TEXT'); } catch (e: any) {
     if (!e.message.includes('duplicate column')) throw e;
   }
   try { db.exec('ALTER TABLE simulation_runs ADD COLUMN idempotency_key TEXT'); } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
+  // F02 passo 1: hash del payload associato a una chiave di idempotenza.
+  // Stessa chiave con payload diverso = conflitto (C09), non riuso silenzioso.
+  try { db.exec('ALTER TABLE simulation_runs ADD COLUMN idempotency_hash TEXT'); } catch (e: any) {
     if (!e.message.includes('duplicate column')) throw e;
   }
   // §9.3: playback «un evento alla volta» per i salti fissi. Le proposte
@@ -297,6 +657,11 @@ export function initDatabase() {
       FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
     )
   `);
+  // F04 §9.4.1: hash semantico del payload — validazione del restore prima
+  // della mutazione; catalogo assente o hash incompatibile rifiuta il restore.
+  try { db.exec('ALTER TABLE simulation_checkpoints ADD COLUMN content_hash TEXT'); } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
   db.exec('CREATE INDEX IF NOT EXISTS idx_simulation_checkpoints_run ON simulation_checkpoints(run_id, revision DESC)');
   db.exec(`
     CREATE TABLE IF NOT EXISTS simulation_events (
@@ -386,8 +751,27 @@ export function initDatabase() {
       text TEXT NOT NULL,
       created_at TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
+      delivery_status TEXT NOT NULL DEFAULT 'queued',
+      execution_status TEXT NOT NULL DEFAULT 'not_started',
       FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
     )
+  `);
+  for (const sql of [
+    "ALTER TABLE pending_actions ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'queued'",
+    "ALTER TABLE pending_actions ADD COLUMN execution_status TEXT NOT NULL DEFAULT 'not_started'",
+  ]) {
+    try { db.exec(sql); } catch (e: any) {
+      if (!e.message.includes('duplicate column name')) throw e;
+    }
+  }
+  // Adapter legacy: lo stato unico resta leggibile, ma non è più l'unica
+  // fonte della consegna/attuazione nel percorso F01.
+  db.exec(`
+    UPDATE pending_actions
+    SET delivery_status = CASE WHEN status = 'processing' THEN 'issued' WHEN status = 'completed' THEN 'issued' ELSE 'queued' END,
+        execution_status = CASE WHEN status = 'processing' THEN 'in_progress' WHEN status = 'completed' THEN 'completed' ELSE 'not_started' END
+    WHERE (status = 'processing' AND delivery_status = 'queued' AND execution_status = 'not_started')
+       OR (status = 'completed' AND delivery_status = 'queued' AND execution_status = 'not_started')
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_pending_actions_game_status ON pending_actions(game_id, status, created_at)');
 
@@ -418,6 +802,10 @@ export function initDatabase() {
       FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
     )
   `);
+  // F04 §9.4.1: hash semantico del payload del salvataggio.
+  try { db.exec('ALTER TABLE saves ADD COLUMN content_hash TEXT'); } catch (e: any) {
+    if (!e.message.includes('duplicate column')) throw e;
+  }
 
   // Migration: Add current_turn and current_date if they don't exist
   try {
@@ -588,3 +976,15 @@ export function initDatabase() {
 }
 
 export default db;
+
+/**
+ * F02 passo 2: transazione canonica breve. Tutte le scritture canoniche di un
+ * checkpoint (regioni, turno/data, checkpoint, eventi, esiti, chiusura run)
+ * devono compiersi nella callback: o tutte o nessuna. Vietato invocare
+ * LLM, network o broadcast SSE nella callback: solo DB e mutazioni di RAM.
+ * Le transazioni better-sqlite3 annidate (es. nextWorldRevision, bump della
+ * coda) diventano savepoint: nessun conflitto.
+ */
+export function withCanonicalTransaction<T>(fn: () => T): T {
+  return db.transaction(fn)();
+}

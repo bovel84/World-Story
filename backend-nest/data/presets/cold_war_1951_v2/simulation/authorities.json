@@ -1,0 +1,38 @@
+[
+  {
+    "id": "auth_usa_treasury_appropriation",
+    "actorType": "treasury",
+    "activity": "stanziamento_di_fondi",
+    "requiresApprovals": ["user", "institutional"]
+  },
+  {
+    "id": "auth_usa_treasury_public_debt",
+    "actorType": "treasury",
+    "activity": "emissione_di_debito_pubblico",
+    "requiresApprovals": ["institutional"]
+  },
+  {
+    "id": "auth_usa_private_production",
+    "actorType": "private_sector",
+    "activity": "produzione_ed_estrazione",
+    "requiresApprovals": ["counterparty"]
+  },
+  {
+    "id": "auth_usa_public_enterprise_allocate",
+    "actorType": "public_enterprise",
+    "activity": "allocazione_di_risorse",
+    "requiresApprovals": ["institutional"]
+  },
+  {
+    "id": "auth_ussr_state_appropriation",
+    "actorType": "treasury",
+    "activity": "stanziamento_di_fondi",
+    "requiresApprovals": ["institutional"]
+  },
+  {
+    "id": "auth_ussr_state_production",
+    "actorType": "public_enterprise",
+    "activity": "produzione_ed_estrazione",
+    "requiresApprovals": ["institutional"]
+  }
+]

@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Stores Index
+ * World Story — Stores Index
  * ========================
  */
 

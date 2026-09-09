@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Chats Routes
+ * World Story — Chats Routes
  * =======================
  * Chat diplomatiche del giocatore con le politie (stile Pax Historia).
  *  - GET  /:id/chats                     — elenco chat
@@ -14,16 +14,25 @@
 import { Router } from 'express';
 import { getSessionRegistry } from '../session-registry';
 import { LLMError } from '../llm';
+import { ContextChangedError, SimulationInProgressError } from '../game-session';
 
 export const chatsRouter = Router();
 
 /**
  * Gestore errori unificato (stesso pattern di games.routes):
- * LLMError → 502, "not found" → 404, tutto il resto → 500.
+ * LLMError → 502, run attivo / contesto cambiato → 409, "not found" → 404,
+ * tutto il resto → 500.
  */
 function respondRouteError(res: any, e: any, fallback: string): void {
   if (e instanceof LLMError) {
     res.status(502).json({ error: `LLM (${e.provider}): ${e.message}` });
+  } else if (e instanceof SimulationInProgressError) {
+    // F04 passo 3: politica esplicita durante un run — 409.
+    res.status(409).json({ error: e.message, code: 'simulation_in_progress' });
+  } else if (e instanceof ContextChangedError) {
+    // F04 passo 3: risposta tardiva — la replica non è stata scritta sul
+    // ramo nuovo; il client la mostra come bozza locale se vuole.
+    res.status(409).json({ error: e.message, code: 'context_changed' });
   } else if (typeof e?.message === 'string' && e.message.includes('not found')) {
     res.status(404).json({ error: e.message });
   } else if (typeof e?.message === 'string' && e.message.includes('Polity not found')) {

@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Startup Script
+ * World Story — Startup Script
  * ==========================
  * Launches both frontend and backend servers.
  * Logs output to /logs directory.
@@ -25,8 +25,8 @@ if (!fs.existsSync(LOGS_DIR)) {
 
 // Create log file with timestamp
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-const logFile = path.join(LOGS_DIR, `open-pax-${timestamp}.log`);
-const errorLogFile = path.join(LOGS_DIR, `open-pax-errors-${timestamp}.log`);
+const logFile = path.join(LOGS_DIR, `world-story-${timestamp}.log`);
+const errorLogFile = path.join(LOGS_DIR, `world-story-errors-${timestamp}.log`);
 
 // Logging function
 function log(message, type = 'INFO') {
@@ -135,7 +135,7 @@ const processes = [];
 async function main() {
   printBanner();
 
-  log(`Open-Pax starting in ${isDev ? 'development' : 'production'} mode`);
+  log(`World Story starting in ${isDev ? 'development' : 'production'} mode`);
   log(`Logs will be written to: ${LOGS_DIR}`);
   log(`Log file: ${path.basename(logFile)}`);
   log('');

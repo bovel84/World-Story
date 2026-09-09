@@ -1,10 +1,12 @@
-# Open-Pax: parità funzionale con Pax Historia
+# World Story: parità funzionale con Pax Historia
 ## Specifica operativa per gli LLM — azioni, eventi e timeline
 
 **Versione:** 1.0 — 6 settembre 2026  
-**Progetto:** `/Users/bovel/Desktop/Open-Pax`  
+**Progetto:** `/Users/bovel/Desktop/World Story`  
 **Destinatari:** LLM incaricati di implementazione, revisione, test e rilascio.  
 **Consegna attuale:** documento di specifica; non dichiarazione di funzionalità già implementate.  
+**Riesame 8/9/2026:** l'[audit del sorgente corrente](AUDIT_CONFORMITA_PARITA_2026-09-08.md) conferma progressi ma rileva lacune nelle garanzie dichiarate dalle note di avanzamento sotto (checkpoint, ripristini, progetti, isolamento del futuro). Quelle note sono una cronologia, non una certificazione. Il nuovo [piano maestro di realismo nazionale e UX](PIANO_MAESTRO_REALISMO_NAZIONALE_UX.md) estende il perimetro economico su richiesta del proprietario; i [pacchetti esecutivi per LLM](PIANO_ESECUTIVO_LLM_REALISMO_UX.md) definiscono dipendenze e test. Non reinterpretare i nuovi piani come funzionalità già implementate.
+
 **Richiesta del proprietario:** «La gestione degli eventi, delle azioni e della timeline deve essere uguale a Pax Historia».
 
 > **Regola centrale:** il giocatore prepara uno o più ordini alla data corrente. Un comando di avanzamento simula insieme gli ordini e il mondo. Il calendario arriva al primo evento importante oppure alla destinazione esplicitamente scelta. Si ferma e restituisce il controllo al giocatore. Leggere, scrivere, consultare la mappa o lasciare aperta la pagina non fa passare tempo.
@@ -64,7 +66,7 @@
 
 **Stato attuale (a questa data):** i nodi centrali di G02/G03/G04/G05/G06/G11/G12/G17/G19/G22 (lotto unico per salto, coda e processi persistiti, ordini zero senz'ordine fittizio, modifica/rimozione della coda, esiti individuali persisti, endpoint di run/checkpoint, timeline paginata dal registro persistente, Enhance in anteprima e lettore di sessione separato) sono implementati e coperti da test. L'auto-jump termina al primo evento importante; il salto a data esplicita funziona anche senza nuovi ordini; Intervene, Save/Load, Rewind e il ripristino/continuazione da checkpoint sono affidabili.
 
-- **§17 deploy eseguito (7/9/2026):** dopo backup SQLite coerente e verifica che non esistessero run `running`/`awaiting_next`, backend compilato e riavviato con ricostruzione delle sessioni; Worker `open-pax` pubblicato inizialmente alla versione `73aad6d7-310c-453b-804c-90f4aa791821` e aggiornato con hotfix grafico (`6c6a2d6`) alla versione `906efd11-c982-44c4-bd4e-c23eed7ad3fe`, con hotfix del lettore sospeso (`315534b`) alla `bad2584c-3900-42eb-9268-e0931653901a` e con pass di leggibilità UI (`bd1d0ad`, `2881306`) alla `2550efa1-2509-4f7c-8149-05cccc3c5331` e con Dispacci nella HUD/chat diplomatiche migliorate (`e9512ad`) alla `c63bd1b7-7b74-425d-a7d6-965db214b0e7`, seguita dalla coda di notizie centrali (`65e0fc6`) alla `177936c0-ee42-447a-8c1e-9bfa903262a5` dal dettaglio archivio centrato (`4e8c2ba`) alla `e9d1add3-b1a1-4709-b6ad-66c56a0f2924` dalla separazione coda ordini/avanzamento tempo (`ef6b26c`) alla `aeb7dd41-a3d0-451a-b4d6-c02dd49038c5` dal ripristino editoriale/contrasto dei Dispacci (`8284f54`) alla `bd607440-8c10-48c5-8a2a-cde5f566b55c` e dal ciclo mondiale obbligatorio (`b92d4a1`) alla `cda69e4f-b068-49b7-b522-b6e94003db2f`. Smoke non distruttivo riuscito sull'URL pubblico: `/api/health`, proxy `/api/templates` (7 preset) e asset della build corrente (`index-D9qDphYc.js`, `index-Dzi83Dsz.css`); tunnel e backend locale health OK, nessuna simulazione attiva dopo il deploy. Il rilascio è **pubblicato, non ancora certificato**: T01/T04/T06/T19/T20 pubblici e l'E2E comparativo residuo restano da eseguire prima di dichiarare la parità/release completa.
+- **§17 deploy eseguito (7/9/2026):** dopo backup SQLite coerente e verifica che non esistessero run `running`/`awaiting_next`, backend compilato e riavviato con ricostruzione delle sessioni; Worker `world-story` pubblicato inizialmente alla versione `73aad6d7-310c-453b-804c-90f4aa791821` e aggiornato con hotfix grafico (`6c6a2d6`) alla versione `906efd11-c982-44c4-bd4e-c23eed7ad3fe`, con hotfix del lettore sospeso (`315534b`) alla `bad2584c-3900-42eb-9268-e0931653901a` e con pass di leggibilità UI (`bd1d0ad`, `2881306`) alla `2550efa1-2509-4f7c-8149-05cccc3c5331` e con Dispacci nella HUD/chat diplomatiche migliorate (`e9512ad`) alla `c63bd1b7-7b74-425d-a7d6-965db214b0e7`, seguita dalla coda di notizie centrali (`65e0fc6`) alla `177936c0-ee42-447a-8c1e-9bfa903262a5` dal dettaglio archivio centrato (`4e8c2ba`) alla `e9d1add3-b1a1-4709-b6ad-66c56a0f2924` dalla separazione coda ordini/avanzamento tempo (`ef6b26c`) alla `aeb7dd41-a3d0-451a-b4d6-c02dd49038c5` dal ripristino editoriale/contrasto dei Dispacci (`8284f54`) alla `bd607440-8c10-48c5-8a2a-cde5f566b55c` e dal ciclo mondiale obbligatorio (`b92d4a1`) alla `cda69e4f-b068-49b7-b522-b6e94003db2f`. Smoke non distruttivo riuscito sull'URL pubblico: `/api/health`, proxy `/api/templates` (7 preset) e asset della build corrente (`index-D9qDphYc.js`, `index-Dzi83Dsz.css`); tunnel e backend locale health OK, nessuna simulazione attiva dopo il deploy. Il rilascio è **pubblicato, non ancora certificato**: T01/T04/T06/T19/T20 pubblici e l'E2E comparativo residuo restano da eseguire prima di dichiarare la parità/release completa.
 
 **Rimane aperto:** completare la campagna comparativa E2E su Pax Historia (§16, G23: prima sessione autenticata documentata in `PAX_HISTORIA_VERIFICA_PARITA.md`, ma Save/Load/Rewind, diplomazia, assenza di eventi e limiti restano da provare) e la verifica pubblica completa §17 (T01/T04/T06/T19/T20).
 
@@ -72,7 +74,7 @@
 
 Inclusi: preparazione e invio ordini, avanzamento automatico/al giorno scelto, eventi progressivi, arresto/intervento, cronaca, effetti sulla mappa, diplomazia rilevante per la simulazione, continuità dei piani, salvataggi e rewind necessari a questo flusso.
 
-Esclusi: copia di marchi, asset e testi proprietari, pagamenti, account, arena, catalogo pubblico, rifacimento completo della geografia, sostituzione generalizzata del sistema economico, redesign estetico non necessario. Conservare l'identità Open-Pax e l'interfaccia italiana. Non estendere questo incarico a un altro progetto.
+Esclusi: copia di marchi, asset e testi proprietari, pagamenti, account, arena, catalogo pubblico, rifacimento completo della geografia, sostituzione generalizzata del sistema economico, redesign estetico non necessario. Conservare l'identità World Story e l'interfaccia italiana. Non estendere questo incarico a un altro progetto.
 
 ---
 
@@ -86,10 +88,10 @@ Esclusi: copia di marchi, asset e testi proprietari, pagamenti, account, arena, 
 | R2 | [Schermata azioni](ref/pax_actions.png) | Pannello con nazione/data, suggerimenti, compositore libero, controllo di invio e icona di miglioramento. L'immagine è una cattura già presente nel repository. |
 | R3 | [Azione inviata](ref/pax_action_sent.png) | L'ordine compare fra quelli inviati mentre la data visibile resta 1/12/1935. Conferma la separazione visiva fra invio e salto. |
 | R4 | [Timeline di avanzamento](ref/pax_jump2.png) | Data «adesso», prossimo evento importante, settimana, mese, tre/sei mesi, anno e personalizzato. Le date mensili illustrate sono di calendario: 1/12/1935 → 1/1/1936. |
-| R5 | [Analisi precedente](open-pax-roadmap.md), datata 17/7/2026 | Riporta più azioni per turno, Brainstorm/Enhance, chat, eventi progressivi, Save/Intervene e Rewind. Fonte secondaria locale: le affermazioni vanno riconfermate dove decisivo. La sua vecchia lista di bug NON fotografa il codice attuale. |
+| R5 | [Analisi precedente](world-story-roadmap.md), datata 17/7/2026 | Riporta più azioni per turno, Brainstorm/Enhance, chat, eventi progressivi, Save/Intervene e Rewind. Fonte secondaria locale: le affermazioni vanno riconfermate dove decisivo. La sua vecchia lista di bug NON fotografa il codice attuale. |
 | R6 | `https://wiki.paxhistoria.co/` | Tentato accesso durante questa analisi; richiesta HTTP bloccata con 403, navigazione browser non utilizzabile per verificare le pagine di gameplay. Non citare la wiki come riletta integralmente oggi. |
 | R7 | [Verifica autenticata 7/9/2026](PAX_HISTORIA_VERIFICA_PARITA.md) | Partita isolata Modern Day/Italia: coda modificabile, brainstorming separato, auto-jump fermo al primo evento, «Evento successivo» manuale e Intervene con doppia conferma; evidenze screenshot incluse. Copertura parziale, non certificazione di equivalenza. |
-| C1 | Sorgenti locali di Open-Pax | Ispezione statica dei percorsi citati in §4. È prova del comportamento scritto, non di quello effettivamente caricato dal server di produzione. |
+| C1 | Sorgenti locali di World Story | Ispezione statica dei percorsi citati in §4. È prova del comportamento scritto, non di quello effettivamente caricato dal server di produzione. |
 
 È stata eseguita una prima campagna autenticata su Pax Historia (R7). Sono ora osservati la cadenza manuale del playback e il flusso Intervene nel lettore; non sono ancora certificati Save/Load/Rewind, politica senza eventi, errori/limiti, diplomazia, soglie di importanza e tutti i dettagli del destino degli ordini non letti.
 
@@ -98,9 +100,9 @@ Esclusi: copia di marchi, asset e testi proprietari, pagamenti, account, arena, 
 - **Parità osservata:** evidenza R2–R4.
 - **Parità riportata:** analisi R5, da ricontrollare sul gioco accessibile.
 - **Requisito utente:** stop al primo evento importante e controllo esplicito del tempo.
-- **Decisione Open-Pax:** contratto tecnico proposto per rendere il comportamento affidabile. Non attribuirlo al codice privato del riferimento.
+- **Decisione World Story:** contratto tecnico proposto per rendere il comportamento affidabile. Non attribuirlo al codice privato del riferimento.
 
-La classificazione interna degli eventi, gli ID causali, i job persistenti, le transazioni e le API descritte sotto sono **decisioni Open-Pax**.
+La classificazione interna degli eventi, gli ID causali, i job persistenti, le transazioni e le API descritte sotto sono **decisioni World Story**.
 
 ---
 
@@ -209,7 +211,7 @@ Riferimenti per simbolo anziché per numero di riga, perché i file sono in evol
 
 ### 6.2 Presa in carico e attuazione
 
-**Decisione Open-Pax:** separare due dimensioni:
+**Decisione World Story:** separare due dimensioni:
 
 - consegna: `queued → issued`, oppure `cancelled` prima dell'emissione;
 - attuazione: `not_started → in_progress → completed | failed | rejected | cancelled`.
@@ -244,11 +246,11 @@ Tutti gli ordini del lotto vengono convertiti/normalizzati insieme. Il convertit
 
 La LLM non può sovrascrivere il calendario con un `targetDate` più lontano. Anche narrazione e metadati devono fermarsi allo stesso punto.
 
-**Importanza, decisione Open-Pax da calibrare:** evento che modifica concretamente opzioni, sicurezza, controllo territoriale, rapporti diplomatici, fattibilità di un ordine, risorse strategiche o una crisi in corso. Esempi: ultimatum, inizio/esito rilevante di un conflitto, trattato accettato/rifiutato, scoperta decisiva, ostacolo sostanziale o completamento di un progetto. Non serve che il giocatore sia l'attore.
+**Importanza, decisione World Story da calibrare:** evento che modifica concretamente opzioni, sicurezza, controllo territoriale, rapporti diplomatici, fattibilità di un ordine, risorse strategiche o una crisi in corso. Esempi: ultimatum, inizio/esito rilevante di un conflitto, trattato accettato/rifiutato, scoperta decisiva, ostacolo sostanziale o completamento di un progetto. Non serve che il giocatore sia l'attore.
 
 La scelta esatta del «primo» da parte di una LLM resta una valutazione simulativa. Il server garantisce l'ordinamento degli eventi accettati e il taglio del futuro; non può dimostrare da solo che nessun fatto plausibile anteriore sia stato omesso. Verificare questo aspetto con scenari e scadenze deterministiche di test.
 
-**Nessun evento:** non inventare una crisi e non saltare automaticamente di un anno. Usare una ricerca interna limitata per budget/orizzonte, senza commit parziali invisibili. Se non emerge una svolta entro il limite, tornare `no_event_found`, indicare l'intervallo esplorato e lasciare invariato il checkpoint iniziale. Offrire «Estendi la ricerca» o una data esplicita. Questa politica è una decisione Open-Pax da confrontare con il riferimento; vietati loop LLM senza limite.
+**Nessun evento:** non inventare una crisi e non saltare automaticamente di un anno. Usare una ricerca interna limitata per budget/orizzonte, senza commit parziali invisibili. Se non emerge una svolta entro il limite, tornare `no_event_found`, indicare l'intervallo esplorato e lasciare invariato il checkpoint iniziale. Offrire «Estendi la ricerca» o una data esplicita. Questa politica è una decisione World Story da confrontare con il riferimento; vietati loop LLM senza limite.
 
 **Evento nella data corrente:** ammesso con `elapsedDays=0`, ID nuovo e sequenza maggiore. Non aggiungere artificialmente un giorno per evitare la gestione delle sequenze.
 
@@ -278,7 +280,7 @@ La scelta esatta del «primo» da parte di una LLM resta una valutazione simulat
 
 ### 8.1 Registro unico
 
-**Decisione Open-Pax:** un evento canonico include almeno:
+**Decisione World Story:** un evento canonico include almeno:
 
 ```ts
 type CanonicalEvent = {
@@ -365,7 +367,7 @@ Responsabilità:
 
 ### 9.2 Job persistenti anziché POST lunghi
 
-Decisione Open-Pax, utile anche dietro Cloudflare: il comando crea un job e risponde rapidamente; SSE/polling riportano lo stato. La richiesta HTTP non deve rimanere aperta per l'intera risposta della LLM.
+Decisione World Story, utile anche dietro Cloudflare: il comando crea un job e risponde rapidamente; SSE/polling riportano lo stato. La richiesta HTTP non deve rimanere aperta per l'intera risposta della LLM.
 
 Stati proposti:
 
@@ -375,7 +377,7 @@ Stati proposti:
 
 ### 9.3 Checkpoint e finestra di intervento
 
-**Scelta prudenziale per Open-Pax, da confrontare con il playback reale del riferimento:**
+**Scelta prudenziale per World Story, da confrontare con il playback reale del riferimento:**
 
 - Auto-jump: commit del primo evento e stop definitivo del comando.
 - Salto fisso: eventi leggibili uno alla volta; «Successivo/Continua» autorizza il checkpoint seguente, «Intervieni qui» chiude il salto al checkpoint mostrato.
@@ -545,7 +547,7 @@ Snapshot coerente di: calendario, turno, revisione/ramo, mappa ed entità modifi
 
 ## 13. Mappa dei file per gli implementatori
 
-Tutti i percorsi sono relativi alla radice Open-Pax.
+Tutti i percorsi sono relativi alla radice World Story.
 
 | Gruppo | Percorsi da rileggere / modificare secondo necessità |
 |---|---|
@@ -709,7 +711,7 @@ Registrare schermate/video e una tabella «azione utente → variazione osservat
 10. Trattative, accordi e loro riflesso nel salto.
 11. Periodi senza novità, errori e limiti di generazione.
 
-Salvare risultati in un nuovo file, per esempio `docs/PAX_HISTORIA_VERIFICA_PARITA.md`, distinguendo data/versione del sito e comportamento Open-Pax. Non promuovere una funzione da «da verificare» a «equivalente» basandosi soltanto su questo documento.
+Salvare risultati in un nuovo file, per esempio `docs/PAX_HISTORIA_VERIFICA_PARITA.md`, distinguendo data/versione del sito e comportamento World Story. Non promuovere una funzione da «da verificare» a «equivalente» basandosi soltanto su questo documento.
 
 Le scelte tecniche interne possono differire dal riferimento. La parità richiesta riguarda il comportamento per il giocatore, non il reverse engineering dell'implementazione privata.
 
@@ -754,8 +756,8 @@ Il rilascio futuro deve quindi:
 
 ## 18. Prompt pronto da consegnare al prossimo LLM
 
-> Lavora esclusivamente su `/Users/bovel/Desktop/Open-Pax`. Leggi integralmente `docs/SPEC_PARITA_PAX_HISTORIA_AZIONI_EVENTI_TIMELINE.md` e i sorgenti coinvolti. Il tuo incarico è implementare **il pacchetto [A/B/C/D/E]**, non reinterpretare tutto il gioco. Preserva le modifiche locali e i salvataggi.
+> Lavora esclusivamente su `/Users/bovel/Desktop/World Story`. Leggi integralmente `docs/SPEC_PARITA_PAX_HISTORIA_AZIONI_EVENTI_TIMELINE.md` e i sorgenti coinvolti. Il tuo incarico è implementare **il pacchetto [A/B/C/D/E]**, non reinterpretare tutto il gioco. Preserva le modifiche locali e i salvataggi.
 >
 > L'invariante fondamentale è: più ordini alla stessa data → un unico salto → eventi cronologici → stop al primo evento importante oppure alla data esplicita. Un solo evento NON significa un solo ordine. Nessun timer reale, nessun futuro applicato attraverso worldChanges/chat/narrazione dopo lo stop, nessun doppio commit da HTTP/SSE/polling.
 >
-> Prima di modificare il codice presenta i file coinvolti, il contratto che mantieni e i test che riproducono il difetto. Distingui comportamento Pax verificato, fonti secondarie e decisioni Open-Pax. Implementa in passi piccoli, aggiungi test positivi e negativi, esegui build/test e consegna il rapporto previsto nel §14. Non fare deploy, migrazioni sul DB reale o consumo di servizi a pagamento senza autorizzazione specifica. Non dichiarare parità completa né deploy riuscito senza le prove richieste.
+> Prima di modificare il codice presenta i file coinvolti, il contratto che mantieni e i test che riproducono il difetto. Distingui comportamento Pax verificato, fonti secondarie e decisioni World Story. Implementa in passi piccoli, aggiungi test positivi e negativi, esegui build/test e consegna il rapporto previsto nel §14. Non fare deploy, migrazioni sul DB reale o consumo di servizi a pagamento senza autorizzazione specifica. Non dichiarare parità completa né deploy riuscito senza le prove richieste.

@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Diplomacy Panel Component
+ * World Story — Diplomacy Panel Component
  * =====================================
  * Shows diplomatic relationships (allies/hostile/neutral) for the selected country.
  */

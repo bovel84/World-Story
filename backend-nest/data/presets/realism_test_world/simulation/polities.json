@@ -1,0 +1,4 @@
+[
+  { "id": "ALPHA", "name": "Alphaland", "governmentFormAtStart": "repubblica presidenziale" },
+  { "id": "BETA", "name": "Betaland", "governmentFormAtStart": "monarchia costituzionale" }
+]

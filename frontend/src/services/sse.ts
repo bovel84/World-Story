@@ -1,5 +1,5 @@
 /**
- * Open-Pax — SSE Hook
+ * World Story — SSE Hook
  * ====================
  * React hook for SSE real-time updates
  */

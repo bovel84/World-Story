@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Preset Loader (Этап 5)
+ * World Story — Preset Loader (Этап 5)
  * =================================
  * Пресет-пакет = каталог data/presets/<id>/:
  *   preset.json   — обязательные: id, name, description, start_date,

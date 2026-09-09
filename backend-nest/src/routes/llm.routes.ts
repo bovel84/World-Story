@@ -1,5 +1,5 @@
 /**
- * Open-Pax — LLM Routes
+ * World Story — LLM Routes
  * =====================
  * Configurazione del modello IA a runtime:
  *  - GET  /status     — configurazione attiva per meccanica (senza segreti)

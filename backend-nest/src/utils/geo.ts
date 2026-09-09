@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Geo Utils
+ * World Story — Geo Utils
  * ====================
  * Helper geometrici condivisi (senza dipendenze extra): aree in gradi²,
  * centroide del poligono più grande. Usati dalla generazione del mondo

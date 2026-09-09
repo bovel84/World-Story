@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Action Parser
+ * World Story — Action Parser
  * =========================
  * Simple MVP parser for player actions.
  * Converts action text to ValidatedAction.

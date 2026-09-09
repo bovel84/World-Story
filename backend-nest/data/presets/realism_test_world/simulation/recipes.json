@@ -1,0 +1,48 @@
+[
+  {
+    "id": "r_mine_ore",
+    "name": "Estrazione minerale di ferro",
+    "facilityTypeId": "ft_mine",
+    "inputs": [],
+    "outputs": [ { "resourceId": "iron_ore", "baseUnits": "100" } ],
+    "durationDays": 2,
+    "evidence": { "quality": "authored", "sourceRefs": ["sources.md#fixture-tecnica"], "validAt": "1951-01-01" }
+  },
+  {
+    "id": "r_mine_coal",
+    "name": "Estrazione carbone",
+    "facilityTypeId": "ft_mine",
+    "inputs": [],
+    "outputs": [ { "resourceId": "coal", "baseUnits": "120" } ],
+    "durationDays": 2,
+    "evidence": { "quality": "authored", "sourceRefs": ["sources.md#fixture-tecnica"], "validAt": "1951-01-01" }
+  },
+  {
+    "id": "r_steel",
+    "name": "Conversione in acciaio",
+    "facilityTypeId": "ft_foundry",
+    "inputs": [ { "resourceId": "iron_ore", "baseUnits": "60" }, { "resourceId": "coal", "baseUnits": "40" } ],
+    "outputs": [ { "resourceId": "steel", "baseUnits": "50" } ],
+    "durationDays": 3,
+    "evidence": { "quality": "authored", "sourceRefs": ["sources.md#fixture-tecnica"], "validAt": "1951-01-01" }
+  },
+  {
+    "id": "r_farm",
+    "name": "Coltivazione grano",
+    "facilityTypeId": "ft_farm",
+    "inputs": [ { "resourceId": "grain", "baseUnits": "10" } ],
+    "outputs": [ { "resourceId": "grain", "baseUnits": "90" } ],
+    "durationDays": 5,
+    "allowsRecycle": true,
+    "evidence": { "quality": "authored", "sourceRefs": ["sources.md#fixture-tecnica"], "validAt": "1951-01-01" }
+  },
+  {
+    "id": "r_tools",
+    "name": "Fabbricazione utensili",
+    "facilityTypeId": "ft_works",
+    "inputs": [ { "resourceId": "steel", "baseUnits": "10" } ],
+    "outputs": [ { "resourceId": "tools", "baseUnits": "2" } ],
+    "durationDays": 1,
+    "evidence": { "quality": "authored", "sourceRefs": ["sources.md#fixture-tecnica"], "validAt": "1951-01-01" }
+  }
+]

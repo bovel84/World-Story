@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Map View Component
+ * World Story — Map View Component
  * ============================
 * Mappa interattiva con regioni SVG, zoom e pan.
  */

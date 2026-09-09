@@ -1,0 +1,58 @@
+[
+  {
+    "id": "r_coal_extraction",
+    "name": "Estrazione di carbone (produzione giornaliera USA 1951)",
+    "facilityTypeId": "ft_coal_mine",
+    "inputs": [],
+    "outputs": [ { "resourceId": "coal", "baseUnits": "10791" } ],
+    "durationDays": 1,
+    "evidence": {
+      "quality": "sourced",
+      "sourceRefs": ["sources.md#produzione-energetica-usa-1951"],
+      "validAt": "1951-12-31",
+      "methodVersion": "produzione annuale 3938854 GWh / 365, arrotondata all'unità"
+    }
+  },
+  {
+    "id": "r_oil_extraction",
+    "name": "Estrazione di greggio (produzione giornaliera USA 1951)",
+    "facilityTypeId": "ft_oil_field",
+    "inputs": [],
+    "outputs": [ { "resourceId": "crude_oil", "baseUnits": "9679" } ],
+    "durationDays": 1,
+    "evidence": {
+      "quality": "sourced",
+      "sourceRefs": ["sources.md#produzione-energetica-usa-1951"],
+      "validAt": "1951-12-31",
+      "methodVersion": "produzione annuale 3532659 GWh / 365, arrotondata all'unità"
+    }
+  },
+  {
+    "id": "r_ussr_coal_extraction",
+    "name": "Estrazione di carbone (produzione giornaliera URSS 1951)",
+    "facilityTypeId": "ft_ussr_coal_mine",
+    "inputs": [],
+    "outputs": [ { "resourceId": "coal", "baseUnits": "4401" } ],
+    "durationDays": 1,
+    "evidence": {
+      "quality": "sourced",
+      "sourceRefs": ["sources.md#produzione-energetica-urss-1951"],
+      "validAt": "1951-12-31",
+      "methodVersion": "produzione annuale 1606404 GWh / 365, arrotondata all'unità"
+    }
+  },
+  {
+    "id": "r_ussr_oil_extraction",
+    "name": "Estrazione di greggio (produzione giornaliera URSS 1951)",
+    "facilityTypeId": "ft_ussr_oil_field",
+    "inputs": [],
+    "outputs": [ { "resourceId": "crude_oil", "baseUnits": "1346" } ],
+    "durationDays": 1,
+    "evidence": {
+      "quality": "sourced",
+      "sourceRefs": ["sources.md#produzione-energetica-urss-1951"],
+      "validAt": "1951-12-31",
+      "methodVersion": "produzione annuale 491402 GWh / 365, arrotondata all'unità"
+    }
+  }
+]

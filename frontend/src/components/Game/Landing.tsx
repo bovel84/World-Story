@@ -1,5 +1,5 @@
 /**
-* Open-Pax — Fase 6: Landing (schermata iniziale)
+* World Story — Fase 6: Landing (schermata iniziale)
  * =====================================================
 * Riferimento: docs/ref/pax_home.png — cielo stellato, orizzonte del pianeta,
 * grande titolo e pulsante CTA sfumato centrale.
@@ -89,7 +89,7 @@ export function Landing(props: LandingProps) {
         <div className="landing-planet" />
 
         <div className="landing-hero-content">
-          <h1 className="landing-title">Open-Pax</h1>
+          <h1 className="landing-title">World Story</h1>
           <p className="landing-subtitle">Simulatore di storia alternativa</p>
 
           <div className="landing-cta-row">

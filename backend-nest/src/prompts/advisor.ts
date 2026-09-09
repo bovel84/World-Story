@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Advisor Prompt
+ * World Story — Advisor Prompt
  * =========================
  * Consigliere interattivo (advisor.md)
  */

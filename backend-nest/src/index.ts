@@ -1,5 +1,5 @@
 /**
- * Open-Pax — API Server
+ * World Story — API Server
  * =====================
  */
 
@@ -30,6 +30,13 @@ app.use((req, res, next) => {
 
 // Initialize Database
 initDatabase();
+
+// F05 µ1: all'avvio, i job rimasti 'running' con lease scaduto diventano
+// failed (lease_expired) e i loro run vanno in paused_recovery — nessuna
+// seconda chiamata pagata automaticamente; i job 'queued' sopravvissuti al
+// crash vengono reclamati dal worker appena riparte (F05 µ2: startup).
+import { simulationJobService } from './jobs/SimulationJobService';
+simulationJobService.startup();
 
 // Initialize LLM router (providers from llm.config.json / env)
 const llmRouter = initLLMRouter();
@@ -64,7 +71,7 @@ if (fs.existsSync(frontendIndex)) {
 sessionRegistry.reloadActiveSessions();
 
 const server = app.listen(PORT, () => {
-  console.log(`🚀 Open-Pax API running on http://localhost:${PORT}`);
+  console.log(`🚀 World Story API running on http://localhost:${PORT}`);
 });
 
 /**

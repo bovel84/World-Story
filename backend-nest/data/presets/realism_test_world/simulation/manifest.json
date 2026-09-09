@@ -1,0 +1,10 @@
+{
+  "id": "realism_test_world",
+  "version": 1,
+  "schemaVersion": 1,
+  "startDate": "1951-01-01",
+  "mode": "strict",
+  "declaration": "synthetic",
+  "currency": { "id": "TEST", "minorUnitName": "testcent" },
+  "sources": ["sources.md#fixture-tecnica"]
+}

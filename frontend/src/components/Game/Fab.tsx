@@ -1,5 +1,5 @@
 /**
- * Open-Pax — FAB Component
+ * World Story — FAB Component
  * =========================
 * Fase 6: gruppo di pulsanti tondi flottanti in basso a sinistra, come in
 * docs/ref/pax_action_sent.png dell'originale Pax Historia (chat, fulmine, ricerca).
@@ -49,6 +49,7 @@ export const Fab: React.FC<FabProps> = ({ items }) => {
           <span className="fab-icon" aria-hidden="true">
             {item.icon}
           </span>
+          <span className="fab-label">{item.title}</span>
           {typeof item.badge === 'number' && item.badge > 0 && (
             <span className="fab-badge">
               {item.badge > 99 ? '99+' : item.badge}

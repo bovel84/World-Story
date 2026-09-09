@@ -1,5 +1,5 @@
 /**
-* Open-Pax — Componente mappa selezione mondo (Fase 4)
+* World Story — Componente mappa selezione mondo (Fase 4)
  * ==============================================
 * Mappa SVG del mondo sulla geometria reale Natural Earth (senza dipendenze esterne).
 * Proiezione equirettangolare: x = (lng + 180) / 360 * width,

@@ -1,7 +1,7 @@
-# Open-Pax — Session Handoff
+# World Story — Session Handoff
 
 **Date:** 2026-04-13
-**Session ID:** open-pax-flag-system
+**Session ID:** world-story-flag-system
 
 ## Goal
 Continue roadmap implementation after fixing critical bugs (validateAction, stale regions, natural growth, currentDate persistence).

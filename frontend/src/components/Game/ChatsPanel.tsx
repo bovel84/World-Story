@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Chats Panel Component
+ * World Story — Chats Panel Component
  * =================================
  * Pannello delle chat diplomatiche (stile Pax Historia).
  * Elenco chat (cerchio colorato, ultimo messaggio, badge unread), thread dei
@@ -11,6 +11,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { chatsApi } from '../../services/api';
 import { useChatStore } from '../../stores';
+import { useSimulationStore } from '../../stores/simulationRuntime';
 import type { Region } from '../../types';
 
 interface ChatsPanelProps {
@@ -180,8 +181,11 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     if (!text || !activeChatId || sending || autoRunning) return;
     setInputText('');
     setSending(true);
+    // F06 passo 3: game switch e restore invalidano la risposta in volo.
+    const commandGeneration = useSimulationStore.getState().commandGeneration;
     try {
       const { message, reply } = await chatsApi.send(gameId, activeChatId, text);
+      if (useSimulationStore.getState().commandGeneration !== commandGeneration) return;
       appendMessage(activeChatId, message);
       if (reply) {
         appendMessage(activeChatId, reply);

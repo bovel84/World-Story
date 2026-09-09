@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Simulation Engine
+ * World Story — Simulation Engine
  * ==============================
  * Deterministic game simulation - NO LLM CALLS.
  *

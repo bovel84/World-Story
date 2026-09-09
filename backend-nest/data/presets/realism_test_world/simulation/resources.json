@@ -1,0 +1,7 @@
+[
+  { "id": "coal", "name": "Carbone", "unit": { "kind": "mass", "symbol": "kg" }, "transportable": true, "conserved": true },
+  { "id": "iron_ore", "name": "Minerale di ferro", "unit": { "kind": "mass", "symbol": "kg" }, "transportable": true, "conserved": true },
+  { "id": "steel", "name": "Acciaio", "unit": { "kind": "mass", "symbol": "kg" }, "transportable": true, "conserved": true },
+  { "id": "grain", "name": "Grano", "unit": { "kind": "mass", "symbol": "kg" }, "transportable": true, "conserved": true, "deteriorates": true },
+  { "id": "tools", "name": "Utensili", "unit": { "kind": "count", "symbol": "pz" }, "transportable": true, "conserved": true, "discrete": true }
+]
