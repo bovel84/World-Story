@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SimulationStaleCheckpointError,
-  assertPlaybackAnchor,
   buildPausedBatchResult,
   createPausedRunState,
   pausedRunInfo,
+  playbackAnchorIsStale,
   resolvePlaybackCloseReason,
   revivePausedRunState,
   takeNextValidPlaybackEvent,
@@ -67,13 +66,13 @@ describe('PlaybackCoordinator', () => {
     expect(state.remainingEvents).toHaveLength(0);
   });
 
-  it('rifiuta ancore event/revision stantie', () => {
+  it('rileva ancore event/revision stantie senza imporre il tipo di errore pubblico', () => {
     const state = baseState();
     state.currentEventId = 'ev-2';
     state.revision = 9;
-    expect(() => assertPlaybackAnchor(state, 'ev-1', 9)).toThrow(SimulationStaleCheckpointError);
-    expect(() => assertPlaybackAnchor(state, 'ev-2', 8)).toThrow(SimulationStaleCheckpointError);
-    expect(() => assertPlaybackAnchor(state, 'ev-2', 9)).not.toThrow();
+    expect(playbackAnchorIsStale(state, 'ev-1', 9)).toBe(true);
+    expect(playbackAnchorIsStale(state, 'ev-2', 8)).toBe(true);
+    expect(playbackAnchorIsStale(state, 'ev-2', 9)).toBe(false);
   });
 
   it('costruisce il DTO pubblico del checkpoint senza esporre il futuro', () => {
