@@ -5,6 +5,8 @@
     "Механики: jump (симуляция прыжка), converter, advisor, suggestions, narration, npc, chat, consolidation, balance.",
     "apiKey может быть строкой-ключом или \"env:ИМЯ_ПЕРЕМЕННОЙ\" — значение возьмётся из окружения.",
     "provider: \"openai-compatible\" покрывает Ollama, LM Studio, OpenRouter, vLLM и любой OpenAI-совместимый сервер.",
+    "extraBody передаётся провайдеру как есть: для совместимых моделей можно задать reasoning_effort по механике.",
+    "Рекомендация: converter/chat/suggestions на low, jump на medium; high оставлять для редких сложных сценариев, чтобы не увеличивать задержку каждого хода.",
     "",
     "Пример 1 — локальная Ollama (всё на ней):",
     "{ \"default\": { \"provider\": \"openai-compatible\", \"baseUrl\": \"http://localhost:11434/v1\", \"apiKey\": \"ollama\", \"model\": \"qwen2.5:14b\" } }",
@@ -23,7 +25,10 @@
     "model": "qwen2.5:14b",
     "timeoutMs": 120000,
     "retries": 2,
-    "stream": true
+    "stream": true,
+    "extraBody": {
+      "reasoning_effort": "low"
+    }
   },
 
   "mechanics": {
@@ -32,7 +37,10 @@
       "baseUrl": "https://openrouter.ai/api/v1",
       "apiKey": "env:OPENROUTER_API_KEY",
       "model": "anthropic/claude-sonnet-4",
-      "timeoutMs": 180000
+      "timeoutMs": 180000,
+      "extraBody": {
+        "reasoning_effort": "medium"
+      }
     },
     "advisor": {
       "model": "qwen2.5:7b",
