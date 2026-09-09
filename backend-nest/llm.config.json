@@ -12,7 +12,10 @@
   },
   "mechanics": {
     "jump": {
-      "timeoutMs": 300000
+      "timeoutMs": 300000,
+      "extraBody": {
+        "reasoning_effort": "medium"
+      }
     }
   }
 }
