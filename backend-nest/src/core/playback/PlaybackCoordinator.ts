@@ -93,13 +93,6 @@ export interface PausedRunInfo {
   revision?: number;
 }
 
-export class SimulationStaleCheckpointError extends Error {
-  constructor(public runId: string, public eventId?: string, public revision?: number) {
-    super('Il checkpoint indicato non è più quello attivo: rileggi il lettore di sessione');
-    this.name = 'SimulationStaleCheckpointError';
-  }
-}
-
 export function createPausedRunState(input: {
   runId: string;
   periodStart: string;
@@ -161,15 +154,14 @@ export function takeNextValidPlaybackEvent(
   return event;
 }
 
-export function assertPlaybackAnchor(
-  state: Pick<PausedRunState, 'runId' | 'currentEventId' | 'revision'>,
+/** La sessione conserva il proprio errore pubblico; qui resta solo la regola pura. */
+export function playbackAnchorIsStale(
+  state: Pick<PausedRunState, 'currentEventId' | 'revision'>,
   eventId?: string,
   revision?: number,
-): void {
-  if ((eventId && eventId !== state.currentEventId)
-    || (revision != null && revision !== state.revision)) {
-    throw new SimulationStaleCheckpointError(state.runId, eventId, revision);
-  }
+): boolean {
+  return (eventId != null && eventId !== state.currentEventId)
+    || (revision != null && revision !== state.revision);
 }
 
 export function buildPausedBatchResult(input: {
