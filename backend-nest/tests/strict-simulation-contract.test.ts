@@ -35,17 +35,29 @@ describe('strict simulation prompt contract', () => {
 
   it('passes the strict contract only to the simulation step', async () => {
     const controller = new GameController({} as any);
-    const convertActionsBatch = vi.fn(async (_gameData: any, actions: Array<{ actionId: string; text: string }>) => actions);
-    const runSimulation = vi.fn(async () => ({
-      narration: 'ok',
-      events: [],
-      worldChanges: {},
-      actionOutcomes: [],
-      voided: [],
-      startChat: [],
-      relationshipChanges: [],
-      effects: [],
-    }));
+    let converterGameData: any;
+    let simulationGameData: any;
+
+    const convertActionsBatch = vi.fn(async (
+      gameData: any,
+      actions: Array<{ actionId: string; text: string }>,
+    ) => {
+      converterGameData = gameData;
+      return actions;
+    });
+    const runSimulation = vi.fn(async (gameData: any) => {
+      simulationGameData = gameData;
+      return {
+        narration: 'ok',
+        events: [],
+        worldChanges: {},
+        actionOutcomes: [],
+        voided: [],
+        startChat: [],
+        relationshipChanges: [],
+        effects: [],
+      };
+    });
 
     (controller as any).promptEngine = { convertActionsBatch, runSimulation };
 
@@ -55,7 +67,7 @@ describe('strict simulation prompt contract', () => {
       30,
     );
 
-    expect(convertActionsBatch.mock.calls[0][0].simulationRules).toBe('BASE');
-    expect(runSimulation.mock.calls[0][0].simulationRules).toContain(STRICT_SIMULATION_CONTRACT);
+    expect(converterGameData.simulationRules).toBe('BASE');
+    expect(simulationGameData.simulationRules).toContain(STRICT_SIMULATION_CONTRACT);
   });
 });
