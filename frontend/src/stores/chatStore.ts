@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Chat Store (Zustand)
+ * World Story — Chat Store (Zustand)
  * ================================
  * Fase 3: chat diplomatiche + Consulente live.
 * Contiene l'elenco delle chat, i messaggi per chatId, i contatori unread
@@ -21,7 +21,7 @@ export interface AdvisorMessage {
 }
 
 /** Schede del pannello flottante */
-export type FloatingPanelTab = 'suggestions' | 'advisor' | 'chats';
+export type FloatingPanelTab = 'suggestions' | 'advisor' | 'chats' | 'news' | 'nation';
 
 interface ChatState {
   // Partita a cui sono legate le chat (al cambio partita lo stato si azzera)

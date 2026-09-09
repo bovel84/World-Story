@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Simulation Core Types
+ * World Story — Simulation Core Types
  * =================================
  * Deterministic types for game simulation (no LLM)
  */

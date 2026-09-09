@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Map Editor (Enhanced)
+ * World Story — Map Editor (Enhanced)
  * ================================
  * Editor di mappe con disegno libero, zoom e oggetti.
  */

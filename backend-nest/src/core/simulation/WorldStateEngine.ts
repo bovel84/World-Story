@@ -2,7 +2,7 @@ import { estimatedNominalGdpUsdBillions, governmentForPolity } from '../../utils
 import { MAX_JUMP_DAYS } from './calendar';
 
 /**
- * Deterministic long-term state for Open-Pax.
+ * Deterministic long-term state for World Story.
  *
  * This layer deliberately has no LLM dependency.  It turns the map state
  * (population, output and real objects) into national accounts and advances

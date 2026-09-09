@@ -1,0 +1,11 @@
+{
+  "id": "realism_test_world",
+  "name": "Realism Test World (FIXTURE TECNICA — non storica)",
+  "description": "Fixture sintetica e deterministica per i test di realismo materiale (M01/M02/M03). Due polities fittizie (ALPHA, BETA), valuta di test TEST. DICHIARATAMENTE NON STORICA: nessun dato proviene dal mondo reale e non rappresenta alcun periodo storico.",
+  "country_codes": ["ALP", "BET"],
+  "base_prompt": "Mondo di prova sintetico per lo sviluppo del realismo materiale. Le due nazioni ALPHA e BETA producono acciaio e grano con filiere semplici. Non fare riferimento a eventi storici reali.",
+  "start_date": "1951-01-01",
+  "historical_accuracy": 0,
+  "author": "World Story M01",
+  "version": "1.0.0"
+}

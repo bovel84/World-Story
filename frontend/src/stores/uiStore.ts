@@ -1,10 +1,17 @@
 /**
- * Open-Pax — UI Store (Zustand)
+ * World Story — UI Store (Zustand)
  * ==============================
  */
 
 import { create } from 'zustand';
 import type { WorldTemplate } from '../types';
+import {
+  initialModuleState,
+  openModule as openModuleReducer,
+  closeModule as closeModuleReducer,
+  toggleModule as toggleModuleReducer,
+  type ActiveModule,
+} from './moduleState';
 
 export type ViewType = 'menu' | 'select-template' | 'select-country' | 'select-map' | 'create-world' | 'game' | 'editor';
 
@@ -35,8 +42,10 @@ interface UIState {
   showPromptEditor: boolean;
   editingPrompt: string;
 
+  // Modulo operativo attivo (U01): un solo modulo alla volta.
+  activeModule: ActiveModule;
+
   // Actions panel
-  showActions: boolean;
   actionsMaximized: boolean;
   actionsSize: { width: number; height: number };
   isResizing: boolean;
@@ -56,7 +65,9 @@ interface UIState {
   setShowSavesMenu: (show: boolean) => void;
   setShowPromptEditor: (show: boolean) => void;
   setEditingPrompt: (prompt: string) => void;
-  setShowActions: (show: boolean) => void;
+  openModule: (module: ActiveModule) => void;
+  closeModule: () => void;
+  toggleModule: (module: ActiveModule) => void;
   setActionsMaximized: (maximized: boolean) => void;
   setActionsSize: (size: { width: number; height: number }) => void;
   setIsResizing: (resizing: boolean) => void;
@@ -77,7 +88,7 @@ const initialState = {
   showSavesMenu: false,
   showPromptEditor: false,
   editingPrompt: '',
-  showActions: false,
+  activeModule: initialModuleState.activeModule,
   actionsMaximized: false,
   actionsSize: { width: 400, height: 500 },
   isResizing: false,
@@ -96,7 +107,15 @@ export const useUIStore = create<UIState>((set) => ({
   setShowSavesMenu: (show) => set({ showSavesMenu: show }),
   setShowPromptEditor: (show) => set({ showPromptEditor: show }),
   setEditingPrompt: (prompt) => set({ editingPrompt: prompt }),
-  setShowActions: (show) => set({ showActions: show }),
+  openModule: (module) => set((state) => ({
+    activeModule: openModuleReducer({ activeModule: state.activeModule }, module).activeModule,
+  })),
+  closeModule: () => set((state) => ({
+    activeModule: closeModuleReducer({ activeModule: state.activeModule }).activeModule,
+  })),
+  toggleModule: (module) => set((state) => ({
+    activeModule: toggleModuleReducer({ activeModule: state.activeModule }, module).activeModule,
+  })),
   setActionsMaximized: (maximized) => set({ actionsMaximized: maximized }),
   setActionsSize: (size) => set({ actionsSize: size }),
   setIsResizing: (resizing) => set({ isResizing: resizing }),

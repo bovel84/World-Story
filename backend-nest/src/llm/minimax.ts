@@ -1,5 +1,5 @@
 /**
- * Open-Pax — LLM Layer: MiniMax
+ * World Story — LLM Layer: MiniMax
  * ==============================
  * MiniMax говорит в OpenAI-формате сообщений, но по собственному пути
  * (/v1/text/chatcompletion_v2) — поэтому это фабрика над

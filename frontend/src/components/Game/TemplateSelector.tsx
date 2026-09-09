@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Template Selector Component
+ * World Story — Template Selector Component
  * ======================================
 * Permette di scegliere template/scenario del mondo prima di iniziare la partita.
 * Fase 5: preset come pacchetti — badge della fonte, icone delle funzionalità,
@@ -23,7 +23,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
-  const [editor, setEditor] = useState<{ templateId?: string } | null>(null);
+  const [editor, setEditor] = useState<{ templateId?: string; cloneFromTemplateId?: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -174,6 +174,13 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
                 ✎
               </button>
               <button
+                className="template-copy-btn"
+                title="Crea un preset a partire da questo scenario"
+                onClick={(e) => { e.stopPropagation(); setEditor({ cloneFromTemplateId: template.id }); }}
+              >
+                ⧉
+              </button>
+              <button
                 className="template-export-btn"
                 title="Esporta zip"
                 onClick={(e) => handleExport(e, template.id)}
@@ -208,6 +215,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
       {editor && (
         <PresetEditorModal
           templateId={editor.templateId}
+          cloneFromTemplateId={editor.cloneFromTemplateId}
           onClose={() => setEditor(null)}
           onSaved={loadTemplates}
         />

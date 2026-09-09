@@ -1,9 +1,15 @@
 /**
- * Open-Pax — Cloudflare Worker
+ * World Story — Cloudflare Worker
  * ============================
  * Serve the built frontend (static assets) and proxies /api/*
  * to the backend, which runs on the local machine and is exposed
- * via a Cloudflare Tunnel (BACKEND_URL var, set at deploy time).
+ * via a Cloudflare quick Tunnel (trycloudflare.com).
+ *
+ * L'URL del tunnel RUOTA a ogni riconnessione (~minuti): il backend
+ * locale lo pubblica nel KV `backend_url` via scripts/tunnel-kv-sync.sh
+ * (launchd com.openpax.tunnelfollow). Ordine di risoluzione:
+ *   1. KV TUNNEL_KV 'backend_url' (fresco, aggiornato dal follower)
+ *   2. var BACKEND_URL (fallback al deploy)
  */
 
 export default {
@@ -11,7 +17,13 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-      const backend = (env.BACKEND_URL || '').replace(/\/+$/, '');
+      let backend = (env.BACKEND_URL || '').replace(/\/+$/, '');
+      try {
+        const kvUrl = await env.TUNNEL_KV.get('backend_url');
+        if (kvUrl) backend = kvUrl.replace(/\/+$/, '');
+      } catch {
+        // KV indisponibile: si prosegue con il fallback al deploy.
+      }
       if (!backend) {
         return new Response(JSON.stringify({ error: 'BACKEND_URL not configured' }), {
           status: 503,

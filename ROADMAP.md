@@ -1,9 +1,9 @@
-# Open-Pax — Technical Roadmap
+# World Story — Technical Roadmap
 
 ## Структура проекта
 
 ```
-open-pax/
+world-story/
 ├── frontend/                        # React + TypeScript + Vite
 │   ├── src/
 │   │   ├── components/
@@ -298,8 +298,8 @@ open-pax/
 ### 1. Клонирование
 
 ```bash
-git clone https://github.com/mopga/Open-Pax.git
-cd Open-Pax
+git clone https://github.com/bovel84/World-Story.git
+cd World Story
 ```
 
 ### 2. Конфигурация
@@ -348,8 +348,8 @@ npm run dev:frontend # Frontend (vite)
 
 ```
 logs/
-├── open-pax-2026-03-18-15-30-00.log
-└── open-pax-errors-2026-03-18-15-30-00.log
+├── world-story-2026-03-18-15-30-00.log
+└── world-story-errors-2026-03-18-15-30-00.log
 ```
 
 Каждый запуск создает новый файл лога с timestamp.

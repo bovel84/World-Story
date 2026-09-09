@@ -9,7 +9,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 
-const TEST_DB = path.join(os.tmpdir(), `open-pax-routes93-${process.pid}-${Date.now()}.db`);
+const TEST_DB = path.join(os.tmpdir(), `world-story-routes93-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
 
 let db: any;
@@ -62,6 +62,7 @@ function callRoute(method: string, url: string, body?: any, headers?: Record<str
       statusCode: 200,
       body: undefined,
       status(code: number) { this.statusCode = code; return this; },
+      set(_name: string, _value: string) { return this; },
       json(payload: any) { this.body = payload; resolve({ status: this.statusCode, body: payload }); return this; },
     };
     const stack = (gamesRouter as any).stack.filter((layer: any) =>

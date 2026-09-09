@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Session Registry
+ * World Story — Session Registry
  * ============================
  * Manages all active GameSession instances.
  * Provides session lookup, creation, loading from DB.
@@ -11,6 +11,9 @@ import { LLMRouter } from './llm';
 import { GameSession, SaveData } from './game-session';
 import { gameRepository, worldRepository } from './repositories';
 import db from './database';
+import path from 'path';
+import { loadSimulationCatalog } from './scenario/loader';
+import { semanticStateHash } from './domain/semantic-hash';
 
 class SessionRegistry {
   private sessions: Map<string, GameSession> = new Map();
@@ -38,6 +41,14 @@ class SessionRegistry {
       throw new Error('Region not found');
     }
 
+    // M06 µ1: flag derivato SOLO dal world binding/catalogo server-side.
+    const templateId = (world as { template_id?: unknown }).template_id;
+    const catalog = typeof templateId === 'string'
+      ? loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId)).catalog
+      : null;
+    const economyMode = catalog?.manifest.mode === 'strict' ? 'strict' as const : 'legacy' as const;
+    const economyModelVersion = catalog ? `${catalog.manifest.id}@${catalog.manifest.version}` : null;
+
     // Create game in database
     gameRepository.create({
       id: gameId,
@@ -46,6 +57,8 @@ class SessionRegistry {
       maxTurns: 100,
       status: 'playing',
       difficulty,
+      economyMode,
+      economyModelVersion,
     });
 
     // Add player to database. polityId = owner of the chosen region
@@ -164,6 +177,12 @@ class SessionRegistry {
       return null;
     }
 
+    // Verifica il contenuto originale PRIMA di qualsiasi normalizzazione:
+    // una migrazione editoriale non può legittimare uno snapshot manomesso.
+    if (typeof save.content_hash !== 'string' || semanticStateHash(saveData) !== save.content_hash) {
+      throw new Error('snapshot_hash_mismatch: salvataggio non integro');
+    }
+
     // I salvataggi contengono uno snapshot delle regioni. Senza questa
     // normalizzazione uno snapshot vecchio riscriverebbe città legacy (x/y)
     // o doppioni capitale/città dopo che il registro geografico è stato sanato.
@@ -189,12 +208,14 @@ class SessionRegistry {
         }
       });
     }
+    let expectedHash = save.content_hash as string;
     if (saveChanged) {
-      db.prepare('UPDATE saves SET data = ? WHERE id = ?').run(JSON.stringify(saveData), saveId);
+      expectedHash = semanticStateHash(saveData);
+      db.prepare('UPDATE saves SET data = ?, content_hash = ? WHERE id = ?').run(JSON.stringify(saveData), expectedHash, saveId);
     }
 
-    // Load session from save data
-    session.loadFromSave(saveData);
+    // Load session from save data con lo stesso controllo del checkpoint.
+    session.loadFromSave(saveData, expectedHash);
 
     console.log('[SessionRegistry] Loaded saved game:', saveId, 'turn:', saveData.currentTurn);
     return session;

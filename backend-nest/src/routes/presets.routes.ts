@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Presets Routes (Этап 5)
+ * World Story — Presets Routes (Этап 5)
  * ==================================
  * Импорт/экспорт пресет-пакетов zip + отдача флагов пресетов.
  * Монтируется на /api/templates ПОСЛЕ templatesRouter
@@ -10,6 +10,7 @@ import express, { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { buildPresetZip, importPresetZip, PresetZipError } from '../utils/preset-zip';
+import { loadSimulationCatalog } from '../scenario/loader';
 import {
   getPresetFlagPath, loadPreset, PRESETS_DIR, PRESET_ID_RE, validatePresetJson,
 } from '../utils/preset-loader';
@@ -134,6 +135,20 @@ presetsRouter.put('/:id', (req, res) => {
   } catch (e: any) {
     res.status(400).json({ error: e?.message || 'Preset non valido' });
   }
+});
+
+// GET /api/templates/:id/scenario — rapporto del catalogo simulation/ per
+// l'editor (M01 µ4): checklist, errori per campo, copertura, impronta.
+presetsRouter.get('/:id/scenario', (req, res) => {
+  const preset = loadPreset(req.params.id);
+  if (!preset) return void res.status(404).json({ error: 'Preset non trovato' });
+  const { catalog, report } = loadSimulationCatalog(path.join(PRESETS_DIR, req.params.id));
+  const hasCatalog = catalog !== null || report.warnings.every(w => w.code !== 'no_catalog');
+  res.json({
+    presetId: req.params.id,
+    hasCatalog,
+    report: hasCatalog ? report : null,
+  });
 });
 
 // GET /api/templates/:id/export — скачать пресет-пакет как zip

@@ -1,5 +1,5 @@
 {
-  "_comment": "Open-Pax — grandi città del mondo (lat/lng reali, popolazione in milioni). Paese = ISO 3166-1 alpha-3.",
+  "_comment": "World Story — grandi città del mondo (lat/lng reali, popolazione in milioni). Paese = ISO 3166-1 alpha-3.",
   "cities": [
     {"name": "New York", "country": "USA", "lat": 40.71, "lng": -74.01, "pop": 8.3},
     {"name": "Los Angeles", "country": "USA", "lat": 34.05, "lng": -118.24, "pop": 3.9},

@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Worlds Routes
+ * World Story — Worlds Routes
  * ========================
  */
 
@@ -12,6 +12,7 @@ import { svgPathToGeoJSON } from '../utils/svg-to-geojson';
 import { BalanceAgent } from '../agents/balance-agent';
 import { getLLMRouter } from '../llm';
 import { loadPreset, loadPresetMap, type PresetPackage } from '../utils/preset-loader';
+import { loadSimulationCatalog, catalogFingerprint } from '../scenario/loader';
 import { createWorldGenJob, getWorldGenJob, setWorldGenProgress, updateWorldGenJob } from '../utils/world-gen-jobs';
 import { computeBorders } from '../utils/borders';
 import { resolveRegionColor } from '../utils/color';
@@ -141,11 +142,21 @@ async function runWorldGeneration(
     }
 
     const balanceAgent = new BalanceAgent(getLLMRouter());
+    // M01 passo 4: il catalogo simulation/ del preset decide modalità di
+    // bilanciamento e impronta di contenuto per cache e riuso (MAT18).
+    const catalog = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId));
+    const simulationOptions = catalog.catalog
+      ? {
+          mode: catalog.catalog.manifest.mode,
+          catalogFingerprint: catalogFingerprint(catalog.report.catalogHashes),
+        }
+      : undefined;
     // Кастомные страны пакета (имена/цвета) перекрывают реестр data/countries.json
     const worldState = await balanceAgent.generateInitialWorldState(
       preset,
       preset.countries,
-      onProgress
+      onProgress,
+      simulationOptions
     );
 
     // Цвета карты: приоритет у кураторской палитры пресета (country_colors);
@@ -275,6 +286,10 @@ async function runWorldGeneration(
       historicalAccuracy: preset.historical_accuracy ?? 0.8,
       // Этап 5: кастомные правила симуляции пресета (rules.md) едут с миром
       simulationRules: preset.simulation_rules ?? null,
+      // M01 passo 4 (MAT18): impronta del catalogo con cui il mondo è stato generato
+      catalogFingerprint: simulationOptions?.catalogFingerprint ?? null,
+      // M03: riferimento server-side immutabile per il preflight, non body client.
+      templateId,
       // Переопределённые промпты ИИ пресета (секция "prompts") едут с миром
       prompts: preset.prompts ? JSON.stringify(preset.prompts) : null,
     };

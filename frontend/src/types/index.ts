@@ -1,5 +1,5 @@
 /**
- * Open-Pax — TypeScript Types
+ * World Story — TypeScript Types
  * ===========================
  */
 
@@ -157,6 +157,10 @@ export interface Game {
   status: GameStatus;
   /** Playback §9.3/G22 da ricostruire dopo refresh o cambio vista. */
   pausedSimulation?: PausedSimulationInfo | null;
+  /** F06 µ2: ramo corrente e revisione canonica per la riconciliazione. */
+  headBranchId?: string | null;
+  worldRevision?: number;
+  queueVersion?: number;
 }
 
 export interface Action {

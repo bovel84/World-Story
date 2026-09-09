@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Actions Store (Zustand)
+ * World Story — Actions Store (Zustand)
  * ====================================
  * Stores suggestions and manual action input
  */

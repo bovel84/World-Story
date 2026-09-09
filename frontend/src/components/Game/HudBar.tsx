@@ -1,8 +1,8 @@
 /**
- * Open-Pax — HUD Bar + Timeline Panel
+ * World Story — HUD Bar + Timeline Panel
  * ===================================
  * Barra superiore in stile riferimento realistico (Schermata 2026-09-03):
- *  - a sinistra: pulsante circolare «☰» (torna al menu) + logo «🌐 Open-Pax»;
+ *  - a sinistra: pulsante circolare «☰» (torna al menu) + logo «🌐 World Story»;
  *  - al centro: nome del mondo + badge «TURNO N»;
  *  - a destra: data in evidenza «‹ 20 aprile 2000 ›»
  *    (‹ — torna al turno precedente, › — apre il pannello «Timeline»).
@@ -18,6 +18,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { TimelineEntry, TimelineEvent } from '../../services/api';
 
 // ============================================================================
@@ -190,7 +191,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   const [showHistory, setShowHistory] = useState(true);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
 
-  // Pax espone «Scegli data». Il contratto Open-Pax resta in giorni, quindi
+  // Pax espone «Scegli data». Il contratto World Story resta in giorni, quindi
   // calcoliamo la distanza di calendario senza affidarsi al fuso orario.
   const customDays = customDate ? calendarDaysUntil(dateISO, parseISODate(customDate)) : null;
   const customValid = customDays != null && customDays > 0 && customDays <= 36500;
@@ -496,7 +497,7 @@ export const HudBar: React.FC<HudBarProps> = ({
           ☰
         </button>
         <div className="hud-logo">
-          <span className="hud-logo-text">Open-Pax</span>
+          <span className="hud-logo-text">World Story</span>
         </div>
         <button
           type="button"
@@ -550,9 +551,14 @@ export const HudBar: React.FC<HudBarProps> = ({
       </div>
 
       {/* Pannello timeline + overlay per la chiusura al clic esterno */}
-      {timelineOpen && (
+      {timelineOpen && createPortal(
         <>
-          <div className="hud-timeline-overlay" onClick={() => setTimelineOpen(false)} />
+          <button
+            type="button"
+            className="hud-timeline-overlay"
+            onClick={() => setTimelineOpen(false)}
+            aria-label="Chiudi il pannello timeline"
+          />
           <TimelinePanel
             dateISO={dateISO}
             loading={loading}
@@ -570,7 +576,8 @@ export const HudBar: React.FC<HudBarProps> = ({
             onFocusPlaybackReader={onFocusPlaybackReader}
             onClose={() => setTimelineOpen(false)}
           />
-        </>
+        </>,
+        document.body,
       )}
     </div>
   );

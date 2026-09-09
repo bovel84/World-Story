@@ -1,7 +1,13 @@
 {
-  "name": "open-pax",
+  "name": "world-story",
   "main": "worker.js",
   "compatibility_date": "2025-08-01",
+  "kv_namespaces": [
+    {
+      "binding": "TUNNEL_KV",
+      "id": "7cbccb50675e4349a3fd8cd4ee115bd0"
+    }
+  ],
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",

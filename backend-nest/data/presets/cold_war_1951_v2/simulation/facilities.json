@@ -1,0 +1,22 @@
+[
+  {
+    "id": "ft_coal_mine",
+    "name": "Industria carbonifera USA (aggregato)",
+    "capacity": { "unit": "GWh/giorno", "perDay": "10791" }
+  },
+  {
+    "id": "ft_oil_field",
+    "name": "Industria petrolifera USA (aggregato)",
+    "capacity": { "unit": "GWh/giorno", "perDay": "9679" }
+  },
+  {
+    "id": "ft_ussr_coal_mine",
+    "name": "Industria carbonifera sovietica (aggregato)",
+    "capacity": { "unit": "GWh/giorno", "perDay": "4401" }
+  },
+  {
+    "id": "ft_ussr_oil_field",
+    "name": "Industria petrolifera sovietica (aggregato)",
+    "capacity": { "unit": "GWh/giorno", "perDay": "1346" }
+  }
+]

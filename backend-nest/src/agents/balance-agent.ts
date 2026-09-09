@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Balance Agent
+ * World Story — Balance Agent
  * =========================
  * Manages dynamic world state generation via LLM.
  * Generates and updates country data (population, GDP, military, ideology, allies, enemies).
@@ -34,13 +34,21 @@ export interface WorldState {
   countries: Map<string, CountryState>;
 }
 
+/** M01 passo 4: modalità di catalogo e impronta di contenuto (MAT18). */
+export interface SimulationGenerationOptions {
+  /** strict = nessun bilanciamento di alleanze/potenze non autorizzato. */
+  mode?: 'strict' | 'authored';
+  /** Impronta di contenuto del catalogo simulation/; null per i mondi legacy. */
+  catalogFingerprint?: string | null;
+}
+
 export class BalanceAgent {
   private provider: LLMRouter;
   // Una risposta LLM contiene più paesi: da 112 chiamate separate passiamo
   // normalmente a 7 blocchi, elaborati con concorrenza limitata.
   private readonly COUNTRIES_PER_REQUEST = 16;
   private readonly REQUEST_CONCURRENCY = 3;
-  private readonly CACHE_VERSION = 2;
+  private readonly CACHE_VERSION = 3;
 
   constructor(provider: LLMRouter) {
     this.provider = provider;
@@ -59,9 +67,14 @@ export class BalanceAgent {
       start_date: string;
     },
     countriesOverride?: { code: string; name: string; color: string }[],
-    onProgress?: (done: number, total: number) => void
+    onProgress?: (done: number, total: number) => void,
+    options?: SimulationGenerationOptions
   ): Promise<WorldState> {
     console.log('[BalanceAgent] Generating initial world state for template:', template.name);
+    // M01 passo 4: la modalità del catalogo decide il bilanciamento; l'impronta
+    // di contenuto separa le cache fra regole diverse (MAT18).
+    const mode = options?.mode ?? 'authored';
+    const fingerprint = options?.catalogFingerprint ?? null;
 
     const countries = new Map<string, CountryState>();
 
@@ -77,20 +90,23 @@ export class BalanceAgent {
     const total = validCountries.length;
     onProgress?.(0, total);
 
-    // 1) Cache per contenuto del preset: le nuove partite successive sono immediate.
-    const cached = this.loadCache(template, validCountries);
+    // 1) Cache per contenuto del preset E del catalogo: le nuove partite
+    // successive sono immediate; due preset con lo stesso anno ma regole
+    // diverse NON condividono la cache (MAT18).
+    const cached = this.loadCache(template, validCountries, fingerprint);
     if (cached) {
       onProgress?.(total, total);
       console.log('[BalanceAgent] Cache hit:', total, 'countries');
       return { date: template.start_date, countries: cached };
     }
 
-    // 2) Riusa statistiche di un mondo già generato per la stessa data e lo
-    // stesso insieme di paesi. È indipendente dalla geometria (stato/province).
-    const reused = await this.reuseExistingWorld(template, validCountries);
+    // 2) Riusa statistiche di un mondo già generato. Con un catalogo dichiarato
+    // l'accesso è consentito SOLO a mondi generati con la STESSA impronta:
+    // un clone nello stesso anno con regole diverse non riusa il baseline.
+    const reused = await this.reuseExistingWorld(template, validCountries, fingerprint);
     if (reused) {
       onProgress?.(total, total);
-      this.saveCache(template, validCountries, reused);
+      this.saveCache(template, validCountries, reused, fingerprint);
       console.log('[BalanceAgent] Reused an existing world:', total, 'countries');
       return { date: template.start_date, countries: reused };
     }
@@ -114,8 +130,8 @@ export class BalanceAgent {
       }
     }
 
-    await this.balanceWorld(countries);
-    this.saveCache(template, validCountries, countries);
+    await this.balanceWorld(countries, mode);
+    this.saveCache(template, validCountries, countries, fingerprint);
     onProgress?.(total, total);
 
     console.log('[BalanceAgent] World generation complete:', countries.size, 'countries');
@@ -125,13 +141,20 @@ export class BalanceAgent {
     };
   }
 
-  private cacheFile(template: { id: string; start_date: string; base_prompt: string }, countries: Country[]): string {
+  private cacheFile(
+    template: { id: string; start_date: string; base_prompt: string },
+    countries: Country[],
+    fingerprint: string | null,
+  ): string {
     const key = crypto.createHash('sha256').update(JSON.stringify({
       version: this.CACHE_VERSION,
       id: template.id,
       date: template.start_date,
       prompt: template.base_prompt,
       countries: countries.map(c => [c.code, c.name, c.color]),
+      // M01 passo 4 (MAT18): l'impronta di contenuto del catalogo entra
+      // nella chiave — stesso anno, regole diverse → file di cache diverso.
+      catalog: fingerprint,
     })).digest('hex').slice(0, 20);
     return path.join(process.cwd(), '.cache', 'balance', `${key}.json`);
   }
@@ -139,11 +162,14 @@ export class BalanceAgent {
   private loadCache(
     template: { id: string; start_date: string; base_prompt: string },
     countries: Country[],
+    fingerprint: string | null,
   ): Map<string, CountryState> | null {
     try {
-      const file = this.cacheFile(template, countries);
+      const file = this.cacheFile(template, countries, fingerprint);
       if (!fs.existsSync(file)) return null;
       const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      // Difesa: la cache porta l'impronta con cui è stata scritta.
+      if ((raw?.catalogFingerprint ?? null) !== fingerprint) return null;
       const list = Array.isArray(raw?.countries) ? raw.countries : [];
       const map = new Map<string, CountryState>(list.map((state: CountryState) => [state.code, state]));
       return countries.every(c => map.has(c.code)) ? map : null;
@@ -157,12 +183,13 @@ export class BalanceAgent {
     template: { id: string; start_date: string; base_prompt: string },
     countries: Country[],
     states: Map<string, CountryState>,
+    fingerprint: string | null,
   ): void {
     try {
-      const file = this.cacheFile(template, countries);
+      const file = this.cacheFile(template, countries, fingerprint);
       fs.mkdirSync(path.dirname(file), { recursive: true });
       const tmp = `${file}.tmp-${process.pid}`;
-      fs.writeFileSync(tmp, JSON.stringify({ version: this.CACHE_VERSION, countries: [...states.values()] }));
+      fs.writeFileSync(tmp, JSON.stringify({ version: this.CACHE_VERSION, catalogFingerprint: fingerprint, countries: [...states.values()] }));
       fs.renameSync(tmp, file);
     } catch (e) {
       console.warn('[BalanceAgent] Cache non scritta:', e);
@@ -177,15 +204,20 @@ export class BalanceAgent {
   private async reuseExistingWorld(
     template: { name: string; start_date: string },
     countries: Country[],
+    fingerprint: string | null,
   ): Promise<Map<string, CountryState> | null> {
     try {
       const db = (await import('../database')).default;
+      // M01 passo 4 (MAT18): mondi con catalogo sono riusabili solo da
+      // template con la STESSA impronta; template legacy (senza catalogo)
+      // riusano solo mondi legacy (fingerprint NULL).
       const candidates = db.prepare(`
         SELECT id, name FROM worlds
         WHERE start_date = ?
+          AND COALESCE(catalog_fingerprint, '') = COALESCE(?, '')
         ORDER BY CASE WHEN name LIKE ? THEN 0 ELSE 1 END, created_at DESC
         LIMIT 30
-      `).all(template.start_date, `${template.name} -%`) as { id: string; name: string }[];
+      `).all(template.start_date, fingerprint, `${template.name} -%`) as { id: string; name: string }[];
       const required = new Set(countries.map(c => c.code));
 
       for (const candidate of candidates) {
@@ -385,7 +417,12 @@ Genera uno stato iniziale realistico per questa nazione.`;
   /**
    * Balance the world — no country should be too dominant
    */
-  async balanceWorld(countries: Map<string, CountryState>): Promise<void> {
+  async balanceWorld(countries: Map<string, CountryState>, mode: 'strict' | 'authored' = 'authored'): Promise<void> {
+    // M01 passo 4: nella modalità rigorosa il bilanciamento di alleanze e
+    // potenze NON è autorizzato — lo storico con stime dichiarate non viene
+    // riequilibrato a posteriori. Solo la modalità d'autore può riequilibrare.
+    if (mode === 'strict') return;
+
     // Find superpower(s)
     const superpowers = Array.from(countries.values()).filter(c => c.status === 'superpower');
 

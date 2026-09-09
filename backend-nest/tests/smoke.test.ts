@@ -13,7 +13,7 @@ import path from 'path';
 import fs from 'fs';
 
 // Путь к временной БД ДО импорта database.ts (он читает env при загрузке модуля)
-const TEST_DB = path.join(os.tmpdir(), `open-pax-test-${process.pid}-${Date.now()}.db`);
+const TEST_DB = path.join(os.tmpdir(), `world-story-test-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
 
 let db: any;

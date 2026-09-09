@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Action Converter Prompt
+ * World Story — Action Converter Prompt
  * ==================================
  * Convertitore delle azioni del giocatore (desript-to-action.md)
  */
@@ -110,8 +110,13 @@ export function parseConverterResponse(text: string): ConvertedAction {
 /**
  * Build prompt for batch action conversion (multiple actions in one LLM call)
  */
-export function buildBatchConverterPrompt(vars: PromptVariables, actions: string[]): string {
-  const actionsList = actions.map((action, i) => `${i + 1}. ${action}`).join('\n');
+export interface ConverterActionInput {
+  actionId: string;
+  text: string;
+}
+
+export function buildBatchConverterPrompt(vars: PromptVariables, actions: ConverterActionInput[]): string {
+  const actionsList = actions.map((action, i) => `${i + 1}. [actionId:${action.actionId}] ${action.text}`).join('\n');
 
   return `Converti le decisioni del giocatore in azioni comprensibili per la simulazione.
 
@@ -172,7 +177,7 @@ Rispondi sempre in italiano.
 Il tuo output DEVE essere in formato JSON di array:
 [
   {
-    "index": 1,
+    "actionId": "ID copiato esattamente dall'input",
     "type": "action|chat",
     "text": "Descrizione precisa dell'azione",
     "targetPolity": "nome della politia (solo per chat)",
@@ -199,6 +204,10 @@ export function parseBatchConverterResponse(text: string): ConvertedAction[] {
     }
 
     return parsed.map((item: any) => ({
+      actionId: typeof item.actionId === 'string' && item.actionId.trim() ? item.actionId : undefined,
+      // Supporto soltanto per l'adapter legacy nel PromptEngine: il nuovo
+      // protocollo deve restituire actionId, non affidarsi alla posizione.
+      legacyIndex: Number.isInteger(item.index) && item.index > 0 ? item.index : undefined,
       type: item.type === 'chat' ? 'chat' : 'action',
       text: item.text || '',
       targetPolity: item.targetPolity,

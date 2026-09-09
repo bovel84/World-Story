@@ -1,0 +1,23 @@
+[
+  {
+    "id": "auth_treasury_spend",
+    "actorType": "treasury",
+    "activity": "spend",
+    "limits": [ { "currencyId": "TEST", "maxPerPeriod": "500000", "periodDays": 30 } ],
+    "requiresApprovals": [ "user" ]
+  },
+  {
+    "id": "auth_requisition",
+    "actorType": "treasury",
+    "activity": "requisition",
+    "limits": [ { "resourceId": "steel", "maxPerPeriod": "100", "periodDays": 30 } ],
+    "requiresApprovals": [ "user", "institutional", "counterparty" ]
+  },
+  {
+    "id": "auth_enterprise_allocate",
+    "actorType": "public_enterprise",
+    "activity": "allocate",
+    "limits": [],
+    "requiresApprovals": [ "institutional" ]
+  }
+]

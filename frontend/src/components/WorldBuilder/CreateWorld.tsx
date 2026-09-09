@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Create World Screen
+ * World Story — Create World Screen
  * ==============================
 * UI per configurare i parametri del mondo prima della partita.
  */

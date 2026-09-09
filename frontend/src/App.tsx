@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Main App (Redesign)
+ * World Story — Main App (Redesign)
  * ==============================
  */
 
@@ -23,10 +23,15 @@ import { Fab } from './components/Game/Fab';
 // DISATTIVATO: editor mappe (temporaneo) — mapApi era usato solo dall’editor/«Le mie mappe»
 import { chatsApi, gameApi, worldApi, savesApi, llmApi, type TimelineEntry } from './services/api';
 import type { Region, World, Game } from './types';
-import { useGameStore, useUIStore, useActionsStore, useChatStore, selectTotalUnread } from './stores';
+import { useGameStore, useUIStore, useActionsStore, useChatStore, selectTotalUnread, type FloatingPanelTab } from './stores';
+import type { ActiveModule } from './stores/moduleState';
+import { useSimulationStore } from './stores/simulationRuntime';
 import { useSSE } from './services/sse';
 import { EventFeed, type FeedItem } from './components/Game/EventFeed';
 import { NewsFlash } from './components/Game/NewsFlash';
+import { ActionsPanel } from './components/Game/ActionsPanel';
+import { NationDock } from './components/Game/NationDock';
+import { useOrderDraftStore } from './stores/orderDraftStore';
 import { SimulationEventReader, type PlaybackReaderState } from './components/Game/SimulationEventReader';
 
 // DISATTIVATO: editor mappe (temporaneo) — helper punti nel path SVG usato solo
@@ -68,22 +73,55 @@ function App() {
   const {
     currentView, loading, showJumpMenu, jumpDays, showSavesMenu,
     showPromptEditor, editingPrompt,
-    showActions, actionsMaximized, actionsSize, isResizing,
+    activeModule, actionsMaximized, actionsSize, isResizing,
     // DISATTIVATO: editor mappe (temporaneo) — selectedMapForWorld, savedMaps,
     selectedTemplate,
     setCurrentView, setLoading, setShowJumpMenu, setJumpDays, setShowSavesMenu,
     setShowPromptEditor, setEditingPrompt,
-    setShowActions, setActionsMaximized, setActionsSize, setIsResizing,
+    openModule, closeModule, toggleModule,
+    setActionsMaximized, setActionsSize, setIsResizing,
     // DISATTIVATO: editor mappe (temporaneo) — setSelectedMapForWorld, setSavedMaps, addSavedMap,
     setSelectedTemplate,
     resetUI
   } = useUIStore();
 
+  // U01 µ1: un solo modulo attivo alla volta. I valori legacy (showActions,
+  // panelOpen, panelTab) sono DERIVATI da activeModule, non più booleans
+  // concorrenti. panelSheetOpen resta un dettaglio visivo del pannello Nazione.
+  const showActions = activeModule !== 'none' && activeModule !== 'nation';
+  const panelOpen = activeModule === 'nation';
+  const moduleToPanelTab = (m: ActiveModule): FloatingPanelTab => {
+    switch (m) {
+      case 'orders': return 'suggestions';
+      case 'diplomacy': return 'chats';
+      case 'advisor': return 'advisor';
+      case 'news': return 'news';
+      case 'nation': return 'nation';
+      case 'none': return 'suggestions';
+    }
+  };
+  const panelTab = moduleToPanelTab(activeModule);
+
   const {
-    suggestions, newActionText,
-    setSuggestions, setNewActionText, clearSuggestions,
+    suggestions,
+    setSuggestions, clearSuggestions,
     reset: resetActions
   } = useActionsStore();
+
+  // U02 µ1: bozza d'ordine (compositore libero). Stato puro in orderDraft.ts.
+  const {
+    text: orderDraftText,
+    enhancedPreview,
+    enhanceLoading,
+    enhanceError,
+    update: updateOrderDraft,
+    startEnhance: startOrderEnhance,
+    enhanceSuccess: orderEnhanceSuccess,
+    enhanceFailure: orderEnhanceFailure,
+    acceptEnhanced: acceptOrderEnhanced,
+    rejectEnhanced: rejectOrderEnhanced,
+    clear: clearOrderDraft,
+  } = useOrderDraftStore();
 
   // Brainstorm di azioni: stato e messaggio sono visibili anche al primo caricamento.
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -93,13 +131,8 @@ function App() {
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const [editingActionText, setEditingActionText] = useState('');
 
-  // G24 — anteprima «Migliora formulazione»: proposta riformulata da confermare.
-  const [enhanceLoading, setEnhanceLoading] = useState(false);
-  const [enhancedPreview, setEnhancedPreview] = useState<string | null>(null);
 
   // Fase 3: Consulente live (tab del pannello flottante) + chat diplomatiche riattivate.
-  const panelTab = useChatStore(s => s.panelTab);
-  const setPanelTab = useChatStore(s => s.setPanelTab);
   const totalUnread = useChatStore(selectTotalUnread);
 
   // Timeline del mondo: eventi del turno correnti + fetch quando il pannello si apre
@@ -200,10 +233,8 @@ function App() {
   const feedSeqRef = useRef(0);
   const streamedEventCountRef = useRef(0);
   const activeSimulationIdRef = useRef<string | undefined>();
-  // I dispacci non occupano più la mappa all'avvio: sono un archivio su
-  // richiesta dalla barra superiore, come notifiche consultabili.
-  const [feedOpen, setFeedOpen] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 720 && localStorage.getItem('openpax_panel_open') !== '0');
+  // La nazione è un modulo su richiesta: non riaprire mai il dossier rimasto
+  // dall'ultima sessione sopra la mappa (activeModule parte da 'none').
 
   const pushFeed = useCallback((
     text: string,
@@ -292,7 +323,7 @@ function App() {
     useChatStore.getState().setChatPanelVisible(
       Boolean(showActions && panelTab === 'chats' && currentGameId)
     );
-  }, [showActions, panelTab, currentGameId]);
+  }, [activeModule, currentGameId]);
 
   // Refs (not in store - DOM refs)
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -675,12 +706,36 @@ function App() {
     }
 
     setLoading(true);
+    // F06 µ2: token di generazione — game switch e restore invalidano questa risposta.
+    const commandToken = useSimulationStore.getState().beginCommand();
 
     try {
       const idempotencyKey = typeof crypto?.randomUUID === 'function'
         ? crypto.randomUUID()
         : `jump-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const result = await gameApi.timeSkip(currentGame.id, days, idempotencyKey);
+      // F06 passo 3: guardia all’applicazione per risposte vecchie — un game
+      // switch o un restore avvenuti durante l’attesa scartano la risposta.
+      if (useSimulationStore.getState().isStale(commandToken)) return;
+
+      // F06 µ2: l’esito va allo stesso reducer di SSE e polling.
+      const sim = useSimulationStore.getState();
+      if (result.type === 'world_advanced' && result.revision) {
+        for (const detail of result.result?.eventDetails || []) {
+          sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: detail.id, payload: { event: { id: detail.id, date: detail.date, headline: detail.headline, detail: detail.detail, source: detail.source }, changedRegions: [] } });
+        }
+        if (!result.result?.eventDetails?.length && result.simulationId) {
+          sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: result.simulationId, payload: { event: { id: result.simulationId, date: result.result?.periodEnd || '', headline: result.result?.narration || 'Periodo', source: 'world' }, changedRegions: [] } });
+        }
+      }
+      if (result.type === 'actions_processed' && result.revision) {
+        for (const detail of (result.actions || []).flatMap(a => a.result?.eventDetails || [])) {
+          sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: detail.id, payload: { event: { id: detail.id, date: detail.date, headline: detail.headline, detail: detail.detail, source: detail.source }, changedRegions: [] } });
+        }
+      }
+      if (result.type === 'awaiting_next' && result.event) {
+        sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: result.event.id, payload: { event: { id: result.event.id, date: result.event.date, headline: result.event.headline, detail: result.event.detail, source: result.event.source }, awaitingNext: { remaining: result.remaining ?? 0, destination: result.destination }, checkpointId: result.checkpointId, changedRegions: result.changedRegions } });
+      }
 
       if (result.type === 'actions_processed') {
         for (const action of result.actions || []) {
@@ -868,6 +923,28 @@ function App() {
       const restored = await gameApi.restoreSimulationCheckpoint(currentGame.id, simulationId);
       const updatedGame = await gameApi.get(currentGame.id);
       setCurrentGame(updatedGame);
+      // F06 µ2: il restore apre un ramo nuovo — reset canonico del client con
+      // il suo anchor, e invalidazione di TUTTI i comandi in volo (chat,
+      // advisor, coda, preflight — non soltanto il polling della cronaca).
+      const rawRegions = Array.isArray(updatedGame.world.regions)
+        ? updatedGame.world.regions
+        : Object.values(updatedGame.world.regions || {});
+      useSimulationStore.getState().branchReplace({
+        gameId: currentGame.id,
+        branchId: restored.branchId || 'unknown',
+        anchor: restored.anchor
+          ? { checkpointId: restored.anchor.checkpointId, revision: restored.anchor.revision }
+          : { revision: restored.revision },
+        snapshot: {
+          date: restored.newDate,
+          mapRegions: Object.fromEntries((rawRegions as any[]).map((region: any) => [region.id, { owner: region.owner, color: region.color }])),
+          pendingActions: [],
+          history: [],
+          news: [],
+          chats: [],
+        },
+      });
+      useSimulationStore.getState().invalidateCommand();
       // §9.3: il checkpoint ripristinato può appartenere a un run in pausa.
       await restorePausedReader(updatedGame);
       if (updatedGame.world && currentWorld) {
@@ -907,6 +984,11 @@ function App() {
   const handleContinueFrom = async (simulationId: string) => {
     if (!currentGame || loading) return;
     await handleRestoreCheckpoint(simulationId);
+    // F06 passo 5: «Continua» procede soltanto dopo una risposta restore
+    // valida con il suo nuovo anchor: senza ramo nuovo e checkpoint di origine
+    // non c'è un futuro legittimo da continuare.
+    const canonical = useSimulationStore.getState().state;
+    if (!canonical || canonical.branchId === 'unknown' || !canonical.reader?.checkpointId) return;
     await handleTimeSkip(0);
   };
 
@@ -1150,20 +1232,29 @@ function App() {
   const enhanceOrder = async (text: string) => {
     if (!currentGame) return;
     setSuggestionsError('');
-    setEnhanceLoading(true);
+    startOrderEnhance();
     try {
       const { enhanced } = await gameApi.enhanceAction(currentGame.id, text);
-      setEnhancedPreview(enhanced);
+      orderEnhanceSuccess(enhanced);
     } catch (e) {
       console.error('[Actions] Failed to enhance action:', e);
-      setSuggestionsError('Il miglioramento della formulazione non è disponibile ora.');
+      orderEnhanceFailure('Il miglioramento della formulazione non è disponibile ora.');
     }
-    setEnhanceLoading(false);
+  };
+
+  // U02 µ1: «Registra ordine» accoda la bozza senza avanzare tempo né spendere
+  // risorse (UI02). La bozza è svuotata solo dopo l'accodamento riuscito.
+  const registerOrder = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    if (await queuePlayerAction(trimmed)) {
+      clearOrderDraft();
+    }
   };
 
   // Apertura del pannello: riallinea sempre la coda locale con quella server.
+  // Il modulo attivo è già stato impostato da openModule nel chiamante (U01).
   const openActionsPanel = (brainstorm = false) => {
-    setShowActions(true);
     if (currentGame) {
       gameApi.getPendingActions(currentGame.id)
         .then(data => setPendingActions(data.pendingActions || []))
@@ -1181,6 +1272,30 @@ function App() {
       const game = await gameApi.get(save.game_id);
       setCurrentGame(game);
       setCurrentWorld(game.world);
+      // F06 passo 4: il caricamento esplicito di un save sostituisce lo
+      // snapshot canonico (mappa INCLUSI oggetti, coda, history, news, chat,
+      // advisor, reader) e invalida tutti i comandi in volo. L'init effect
+      // non basta: il gameId può coincidere con la sessione precedente.
+      const savedRegions = Array.isArray(game.world.regions)
+        ? game.world.regions
+        : Object.values(game.world.regions || {});
+      useSimulationStore.getState().branchReplace({
+        gameId: game.id,
+        branchId: game.headBranchId || 'unknown',
+        anchor: { revision: game.worldRevision ?? 0 },
+        snapshot: {
+          date: game.currentDate,
+          mapRegions: Object.fromEntries((savedRegions as any[]).map((region: any) => [
+            region.id,
+            { owner: region.owner, color: region.color, objects: region.objects || [] },
+          ])),
+          pendingActions: [],
+          history: [],
+          news: [],
+          chats: [],
+        },
+      });
+      useSimulationStore.getState().invalidateCommand();
       // §9.3: anche il playback in pausa sopravvive al caricamento.
       await restorePausedReader(game);
       const regionId = game.players?.[0]?.regionId;
@@ -1228,11 +1343,13 @@ function App() {
 
   // Fase 7: bottom-sheet del pannello su mobile
   const [panelSheetOpen, setPanelSheetOpen] = useState(false);
-  // All'apertura della partita su telefono il foglio resta chiuso: la mappa
-  // deve essere subito utilizzabile, il pannello si apre con il suo handle.
+  // A ogni ingresso in partita la mappa è libera: Nazione si apre soltanto
+  // dal suo modulo, sia su desktop sia su telefono.
   useEffect(() => {
-    if (currentView === 'game' && window.innerWidth <= 720) setPanelSheetOpen(false);
-  }, [currentView]);
+    if (currentView !== 'game') return;
+    setPanelSheetOpen(false);
+    closeModule();
+  }, [currentView, closeModule]);
   // SSE real-time updates
   const [isProcessingTurn, setIsProcessingTurn] = useState(false);
   const [turnProgress, setTurnProgress] = useState<string>('');
@@ -1271,6 +1388,66 @@ function App() {
     return () => clearInterval(t);
   }, [loading, currentView]);
 
+  // F06 µ2: unico stato di riconciliazione — ogni partita caricata inizializza
+  // il reducer con ramo e revisione canonica; lo scaricamento invalida i comandi.
+  useEffect(() => {
+    const sim = useSimulationStore.getState();
+    if (currentGame) {
+      if (!sim.state || sim.state.gameId !== currentGame.id) {
+        sim.initGame(currentGame.id, currentGame.headBranchId || 'unknown', currentGame.worldRevision ?? 0);
+      }
+    } else if (sim.state) {
+      useSimulationStore.getState().invalidateCommand();
+    }
+  }, [currentGame?.id, currentGame?.headBranchId]);
+
+  // F06 passo 6: se SSE cade, il polling del run recupera i checkpoint già
+  // commessi: gli eventi vanno allo stesso reducer (la dedup per eventId rende
+  // innocui i doppioni) e il lettore in pausa si riconcilia con awaitingNext.
+  useEffect(() => {
+    const gameId = currentGame?.id;
+    if (!gameId) return;
+    const timer = window.setInterval(async () => {
+      const runId = activeSimulationIdRef.current || pausedReader?.simulationId;
+      if (!runId) return;
+      try {
+        const data = await gameApi.getSimulationRun(gameId, runId);
+        const sim = useSimulationStore.getState();
+        const runClosed = !data.awaitingNext && data.run?.status === 'completed';
+        for (const event of data.events || []) {
+          sim.dispatch({
+            scope: 'timeline',
+            eventId: event.id,
+            payload: {
+              event: { id: event.id, date: event.date, headline: event.headline, detail: event.detail, source: event.source || 'world' },
+              changedRegions: [],
+              checkpointId: event.checkpointId,
+              awaitingNext: data.awaitingNext && data.awaitingNext.eventId === event.id
+                ? { remaining: data.awaitingNext.remaining, destination: data.awaitingNext.destination }
+                : undefined,
+              runCompleted: runClosed && event.id === data.events?.[data.events.length - 1]?.id,
+            },
+          });
+        }
+        if (data.awaitingNext && pausedReader?.simulationId === runId
+            && (pausedReader.remaining !== data.awaitingNext.remaining
+                || pausedReader.destination !== data.awaitingNext.destination)) {
+          setPausedReader(prev => prev && prev.simulationId === runId ? {
+            ...prev,
+            remaining: data.awaitingNext!.remaining,
+            destination: data.awaitingNext!.destination,
+            revision: data.awaitingNext!.revision ?? prev.revision,
+            checkpointId: data.awaitingNext!.checkpointId ?? prev.checkpointId,
+          } : prev);
+        }
+        if (runClosed && pausedReader?.simulationId === runId) {
+          setPausedReader(null);
+        }
+      } catch { /* run non più in memoria: nessuna azione */ }
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [currentGame?.id, pausedReader?.simulationId, pausedReader?.remaining, pausedReader?.destination]);
+
   useSSE(currentGame?.id || null, {
     onTurnStart: (data) => {
       console.log('[SSE] Turn started:', data);
@@ -1293,6 +1470,19 @@ function App() {
       // §9.3: checkpoint per-evento committato — data, mappa e lettore si
       // aggiornano insieme al checkpoint, con ID canonico per la dedup HTTP/SSE.
       if (data.checkpoint) {
+        // F06 µ2: l’evento va allo stesso reducer di HTTP e polling.
+        useSimulationStore.getState().dispatch({
+          scope: 'timeline',
+          worldRevision: data.revision,
+          sequence: data.revision ?? data.index + 1,
+          eventId: data.eventId || (data.simulationId ? `${data.simulationId}-${data.index}` : undefined),
+          payload: {
+            event: { id: data.eventId || (data.simulationId ? `${data.simulationId}-${data.index}` : ''), date: data.event?.date || '', headline: data.event?.headline || '', detail: data.event?.description, source: 'world' },
+            changedRegions: data.changedRegions,
+            awaitingNext: data.awaitingNext ? { remaining: data.awaitingNext.remaining, destination: data.awaitingNext.destination } : undefined,
+            checkpointId: data.checkpointId,
+          },
+        });
         if (data.event?.date) {
           setCurrentGame(prev => prev ? { ...prev, currentDate: data.event.date } : prev);
         }
@@ -1330,8 +1520,10 @@ function App() {
       streamedEventCountRef.current = Math.max(streamedEventCountRef.current, number);
       setTurnProgress(`Evento ${number}: ${data.event?.headline || ''}`);
       // Feed live: l'evento appare nel momento esatto in cui il modello lo completa.
+      // F06 passo 6: le ANTEPRIME non commesse non aprono mai il bollettino
+      // (news flash riservato ai checkpoint commessi); restano solo in cronaca.
       if (data.event?.headline) {
-        pushFeed(`Evento ${number}: ${data.event.headline}`, 'live', data.event.date, data.event.description);
+        pushFeed(`Evento ${number}: ${data.event.headline}`, 'live', data.event.date, data.event.description, undefined, false);
       }
       // Anteprime LLM non mutano mai il client: data e mappa si aggiornano
       // solo con il checkpoint committato (turn_complete).
@@ -1545,7 +1737,9 @@ function App() {
           ongoingProcesses={ongoingProcesses}
           dispatchCount={feedItems.length}
           dispatchLive={isProcessingTurn}
-          onOpenDispatches={() => setFeedOpen(true)}
+          onOpenDispatches={() => {
+            openModule('news');
+          }}
           onTimelineOpen={handleTimelineOpen}
           onLoadOlder={loadOlderTimeline}
           onBack={() => {
@@ -1572,7 +1766,10 @@ function App() {
             pendingCount={newsQueue.length}
             onClose={() => dismissNews(false)}
             onNext={() => dismissNews(true)}
-            onOpenArchive={() => { dismissNews(false); setFeedOpen(true); }}
+            onOpenArchive={() => {
+              dismissNews(false);
+              openModule('news');
+            }}
           />
         )}
 
@@ -1639,31 +1836,7 @@ function App() {
               </div>
             )}
 
-            {/* Cronaca: feed eventi SEMPRE in vista, sovrapposto alla mappa.
-                Gli eventi si accumulano turno dopo turno (azioni + simulazione
-                live del mondo) ed evidenziano quelli della nazione in focus. */}
-            <EventFeed
-              items={feedItems}
-              processing={isProcessingTurn}
-              open={feedOpen}
-              onToggleOpen={() => setFeedOpen(false)}
-              focusedRegionName={currentRegion?.name}
-            />
           </div>
-
-          {/* Linguetta del pannello a scomparsa: sempre visibile sul bordo */}
-          <button
-            className="panel-toggle"
-            onClick={() => {
-              setPanelOpen(o => {
-                localStorage.setItem('openpax_panel_open', o ? '0' : '1');
-                return !o;
-              });
-            }}
-            title={panelOpen ? 'Nascondi i dettagli della nazione' : 'Mostra i dettagli della nazione'}
-          >
-            {panelOpen ? '›' : '‹'}
-          </button>
 
             {/* Accessi rapidi ad azioni e diplomazia, con badge live SSE. */}
             {!showActions && (
@@ -1673,7 +1846,7 @@ function App() {
                   title: 'Ordini',
                   active: panelTab === 'suggestions',
                   onClick: () => {
-                    setPanelTab('suggestions');
+                    openModule('orders');
                     openActionsPanel(false);
                   },
                 },
@@ -1683,7 +1856,7 @@ function App() {
                   active: panelTab === 'chats',
                   badge: totalUnread > 0 ? totalUnread : undefined,
                   onClick: () => {
-                    setPanelTab('chats');
+                    openModule('diplomacy');
                     openActionsPanel(false);
                   },
                 },
@@ -1692,22 +1865,30 @@ function App() {
                   title: 'Consulente',
                   active: panelTab === 'advisor',
                   onClick: () => {
-                    setPanelTab('advisor');
+                    openModule('advisor');
                     openActionsPanel(false);
+                  },
+                },
+                {
+                  icon: '▤',
+                  title: 'Notizie',
+                  active: panelTab === 'news',
+                  badge: feedItems.length > 0 ? feedItems.length : undefined,
+                  onClick: () => {
+                    openModule('news');
+                  },
+                },
+                {
+                  icon: '⌂',
+                  title: 'Nazione',
+                  active: panelTab === 'nation' && panelOpen,
+                  onClick: () => {
+                    openModule('nation');
+                    setPanelSheetOpen(true);
                   },
                 },
               ]} />
             )}
-
-          {/* Bottone NAZIONE: fuori dal pannello, apre il bottom-sheet (mobile) */}
-          <button
-            className="nation-open-btn"
-            onClick={() => {
-              setPanelOpen(true);
-              setPanelSheetOpen(true);
-            }}
-            title="Apri il pannello nazione"
-          >☰ NAZIONE</button>
 
 {showActions && (
               <div
@@ -1730,7 +1911,7 @@ function App() {
 
                 <div className="floating-advisor-header">
                   <div className="panel-title">
-                    {panelTab === 'suggestions' ? 'Ordini di governo' : panelTab === 'advisor' ? 'Consulente' : 'Relazioni estere'}
+                    {panelTab === 'suggestions' ? 'Ordini di governo' : panelTab === 'advisor' ? 'Consulente' : panelTab === 'news' ? 'Dispacci del mondo' : 'Relazioni estere'}
                   </div>
                   <div className="header-buttons">
                     <button
@@ -1740,7 +1921,7 @@ function App() {
                     >
                       {actionsMaximized ? '−' : '□'}
                     </button>
-                    <button className="btn-close" onClick={() => setShowActions(false)}>×</button>
+                    <button className="btn-close" onClick={() => closeModule()}>×</button>
                   </div>
                 </div>
 
@@ -1862,65 +2043,20 @@ function App() {
                   </div>
 
                   {/* Ordine libero: il convertitore LLM interpreta l'intenzione,
-                      il motore verifica limiti e applica le conseguenze. */}
-                  <div className="manual-action-input">
-                    <label className="free-order-label" htmlFor="free-player-order">Ordine al governo</label>
-                    <textarea
-                      id="free-player-order"
-                      value={newActionText}
-                      onChange={(e) => setNewActionText(e.target.value)}
-                      placeholder="Descrivi ciò che vuoi tentare. Il simulatore valuterà risorse, tempi, confini e conseguenze."
-                      rows={3}
-                    />
-                    <div className="manual-action-actions">
-                      <button
-                        className="btn-enhance-pending"
-                        onClick={() => void enhanceOrder(newActionText)}
-                        disabled={!newActionText.trim() || enhanceLoading}
-                        title="Migliora la formulazione senza inviare l'ordine"
-                      >
-                        {enhanceLoading ? 'Riformulo…' : 'Migliora formulazione'}
-                      </button>
-                      <button
-                        className="btn-add-pending"
-                        onClick={async () => {
-                          const text = newActionText.trim();
-                          if (text && await queuePlayerAction(text)) {
-                            setNewActionText('');
-                            setEnhancedPreview(null);
-                          }
-                        }}
-                        disabled={!newActionText.trim()}
-                      >
-                        Invia ordine
-                      </button>
-                    </div>
-                    {enhancedPreview && (
-                      <div className="enhance-preview" role="status">
-                        <div className="enhance-preview-label">Formulazione proposta</div>
-                        <p className="enhance-preview-text">{enhancedPreview}</p>
-                        <div className="enhance-preview-actions">
-                          <button
-                            className="btn-enhance-accept"
-                            onClick={async () => {
-                              if (await queuePlayerAction(enhancedPreview)) {
-                                setNewActionText('');
-                                setEnhancedPreview(null);
-                              }
-                            }}
-                          >
-                            Usa questa formulazione
-                          </button>
-                          <button
-                            className="btn-enhance-reject"
-                            onClick={() => setEnhancedPreview(null)}
-                          >
-                            Scarta
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                      il motore verifica limiti e applica le conseguenze. U02 µ1:
+                      compositore estratto in ActionsPanel con bozza preservata
+                      e «Registra ordine» (UI02/UI13). */}
+                  <ActionsPanel
+                    text={orderDraftText}
+                    onTextChange={updateOrderDraft}
+                    enhancedPreview={enhancedPreview}
+                    enhanceLoading={enhanceLoading}
+                    enhanceError={enhanceError}
+                    onEnhance={(t) => void enhanceOrder(t)}
+                    onAcceptEnhanced={acceptOrderEnhanced}
+                    onRejectEnhanced={rejectOrderEnhanced}
+                    onRegister={(t) => void registerOrder(t)}
+                  />
                 </div>
                 )}
 
@@ -1938,6 +2074,15 @@ function App() {
                   />
                 )}
 
+                {/* Archivio dispacci: una quarta scheda della stessa scrivania. */}
+                {panelTab === 'news' && (
+                  <EventFeed
+                    items={feedItems}
+                    processing={isProcessingTurn}
+                    focusedRegionName={currentRegion?.name}
+                  />
+                )}
+
                 {/* Gli ordini sono già persistiti quando vengono aggiunti alla
                     coda. Questo footer non deve mai simulare: gli eventi
                     iniziano soltanto dal comando data/Timeline nella HUD. */}
@@ -1951,7 +2096,7 @@ function App() {
                   <button
                     className="btn-submit-actions"
                     disabled={pendingActions.length === 0}
-                    onClick={() => setShowActions(false)}
+                    onClick={() => closeModule()}
                     title="Chiudi il piano: gli ordini restano in attesa"
                   >
                     Chiudi piano
@@ -1961,39 +2106,34 @@ function App() {
               </div>
             )}
 
-          {/* Pannello a destra (a scomparsa: la linguetta a bordo mappa lo ripiega) */}
+          {/* Nazione: quinto modulo della stessa scrivania, non più sidebar. */}
           <div
-              className={`game-panel${panelSheetOpen ? ' sheet-open' : ''}${panelOpen ? '' : ' panel-collapsed'}`}
+              className={`game-panel nation-desk${panelSheetOpen ? ' sheet-open' : ''}${panelOpen && panelTab === 'nation' ? '' : ' panel-collapsed'}`}
             >
-            <div className="turn-header" style={{ display: 'none' }}>
-              <span className="turn-number">MOSSA {currentGame?.currentTurn || 1}</span>
-            </div>
-
-            {/* Handle di chiusura del bottom-sheet (mobile): tap per richiudere */}
-            <button
-              className="sheet-close"
-              onClick={(e) => {
-                e.stopPropagation();
-                setPanelSheetOpen(false);
-                setPanelOpen(false);
-              }}
-              title="Chiudi il pannello"
-            >✕</button>
+            <header className="nation-module-header">
+              <div>
+                <div className="nation-module-kicker">Dossier nazionale</div>
+                <div className="nation-module-title">Nazione</div>
+              </div>
+              <button
+                className="nation-module-close"
+                onClick={() => {
+                  setPanelSheetOpen(false);
+                  closeModule();
+                }}
+                title="Chiudi nazione"
+                aria-label="Chiudi nazione"
+              >×</button>
+            </header>
 
             {selectedRegion && !externalRegionSelected && (
-            <section className="nation-bulletin nation-bulletin-card" aria-label={`Bollettino di ${nationalName}`}>
-              <div className="nation-bulletin-kicker">Stato della nazione</div>
-              <h2>{nationalName}</h2>
-              <p className="nation-government">{governmentType}</p>
-              <div className="nation-progress"><span>Avanzamento campagna</span><b>{campaignProgress}%</b><i><em style={{ width: `${campaignProgress}%` }} /></i></div>
-              <div className="nation-ledger">
-                <span><small>POPOLAZIONE</small><b>{nationalPopulation.toLocaleString('it-IT')}</b></span>
-                <span><small>PIL NOM.</small><b>${nationalGdp.toLocaleString('it-IT', { maximumFractionDigits: 1 })} mld</b></span>
-                <span><small>ENTRATE / MESE</small><b>+${estimatedRevenue.toFixed(2)} mld</b></span>
-                <span><small>USCITE / MESE</small><b>−${estimatedExpenses.toFixed(2)} mld</b></span>
-              </div>
-              <p className="nation-narration">{latestNationalNarration}</p>
-            </section>
+            <NationDock
+              nationalName={nationalName}
+              governmentType={governmentType}
+              account={nationalAccount}
+              campaignProgress={campaignProgress}
+              latestNarration={latestNationalNarration}
+            />
             )}
 
             {/* Country selector - locked to player's region */}

@@ -1,0 +1,45 @@
+World Story — evidenza baseline locale, 8 settembre 2026
+
+Ambito: suite esistente e type-check, NON riproduzione dei nuovi casi C/MAT/UI.
+HEAD: 384dac7909dbd8ac6aaf79d75fae43e6ae7ed947
+Working tree con modifiche preesistenti, non identificato dal solo commit.
+
+Fingerprint source tree (rilevato durante il riesame dei documenti):
+142 file, SHA256 aggregato:
+80f883de878b83d8544c2ffedd3967c91adc94c4d9872ca6a0eda6ed80cc469b
+
+Algoritmo riproducibile:
+- radici backend-nest/src, backend-nest/tests, frontend/src, e2e, scripts, cloudflare;
+- file con suffisso .ts .tsx .css .js .mjs .sh .json .jsonc;
+- escludere path contenenti node_modules o .wrangler;
+- ordinare lessicograficamente i percorsi relativi;
+- per ciascuno concatenare: path + NUL + SHA256(contenuto).hex + newline;
+- SHA256 dell'intera concatenazione UTF-8.
+Questo fingerprint NON comprende preset/dati, docs, build output o configurazioni esterne.
+Nessun sorgente gameplay modificato durante l'audit/pianificazione.
+
+Test:
+OPEN_PAX_DB_PATH=/tmp/openpax-plan-audit.wsf0ft/fallback.db npm --prefix backend-nest test
+Exit code: 0
+Log originale: /tmp/openpax-plan-audit.wsf0ft/backend-tests.log
+Le suite DB impostano inoltre i propri file temporanei isolati.
+
+> world-story-backend@1.0.0 test
+> vitest run
+
+ RUN  v4.1.11 /Users/bovel/Desktop/World Story/backend-nest
+
+ Test Files  19 passed (19)
+      Tests  224 passed (224)
+   Start at  09:44:15
+   Duration  7.60s (transform 2.20s, setup 0ms, import 2.14s, tests 12.62s, environment 4ms)
+
+Type-check, dalla radice:
+npm --prefix backend-nest exec -- tsc --noEmit -p backend-nest/tsconfig.json
+npm --prefix frontend exec -- tsc --noEmit -p frontend/tsconfig.json
+Entrambi exit 0, nessuna diagnostica.
+
+Non eseguiti in questa consegna:
+nuove simulazioni LLM reali, nuove partite pubbliche, migrazioni su DB reale,
+nuovi E2E pubblici, deploy, certificazione comparativa Pax Historia,
+nuove regressioni C01-C18/MAT01-MAT38/UI01-UI15 implementate.

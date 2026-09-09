@@ -1,5 +1,5 @@
 /**
- * Open-Pax — LLM Layer: типы
+ * World Story — LLM Layer: типы
  * ==========================
  * Единый интерфейс провайдеров (Этап 1 роадмапа): любая модель —
  * локальная (Ollama, LM Studio) или облачная (OpenAI, OpenRouter,

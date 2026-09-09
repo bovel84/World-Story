@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Registro dei provider LLM
+ * World Story — Registro dei provider LLM
  * ====================================
  * Preset dei provider compatibili (Ollama Cloud/locale, OpenRouter, NVIDIA,
  * MiniMax, Anthropic, endpoint OpenAI-compatibili personalizzati) e ricerca
@@ -70,7 +70,7 @@ export const LLM_PROVIDER_PRESETS: LLMProviderPreset[] = [
     baseUrl: 'https://api.minimax.io/v1',
     needsKey: true,
     docsUrl: 'https://platform.minimaxi.com',
-    description: 'Provider predefinito di Open-Pax (MiniMax-M2.5).',
+    description: 'Provider predefinito di World Story (MiniMax-M2.5).',
     defaultModel: 'MiniMax-M2.5',
   },
   {

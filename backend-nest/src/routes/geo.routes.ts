@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Geo Routes
+ * World Story — Geo Routes
  * =====================
  * Отдаёт статичные геоданные Natural Earth (Этап 4):
  *   GET /api/geo/countries     — FeatureCollection стран (properties: code, name, nameEn)

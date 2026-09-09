@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Game Agents
+ * World Story — Game Agents
  * ======================
  * GameController: фасад над PromptEngine (конвертер действий, симуляция,
  * советник, подсказки) и NPC-агентами.
@@ -13,6 +13,7 @@ import { LLMRouter } from './llm';
 import { NPCCountryAgent, NPCCountryContext, createNPCCountries, type NPCAction } from './npc-agents';
 import { PromptEngine } from './prompt-builder';
 import type { SimulationEvent } from './prompts/types';
+import type { StrictEffect } from './core/simulation/EffectValidator';
 
 export class GameController {
   private provider: LLMRouter;
@@ -37,7 +38,7 @@ export class GameController {
    */
   async processTurnWithPrompts(
     gameData: any,
-    actions: string[],
+    actions: Array<{ actionId: string; text: string }>,
     jumpDays: number,
     onProgress?: (charsSoFar: number) => void,
     autoJump?: boolean,
@@ -54,6 +55,7 @@ export class GameController {
       summary: string;
       expectedDate?: string;
       eventHeadlines?: string[];
+      completesProjectId?: string;
       completesProcess?: string;
     }>;
     voided?: { action: string; reason: string }[];
@@ -62,6 +64,8 @@ export class GameController {
     targetDate?: string;
     /** §7.2/T36: lo stream è terminato senza record complete (budget). */
     incomplete?: boolean;
+    /** M06 µ3: effetti strict emessi dalla simulazione, validati nel run. */
+    effects?: StrictEffect[];
   }> {
     if (!this.promptEngine) {
       this.initPromptEngine(gameData);
@@ -70,13 +74,16 @@ export class GameController {
     console.log('[GameController] Processing turn with prompts:', { actions, jumpDays, count: actions.length });
 
     // 1. Конвертируем действия (batch — 1 LLM-вызов вместо N)
-    const convertedActions = await this.promptEngine!.convertActionsBatch(gameData, actions);
+    const convertedActions = await this.promptEngine!.convertActionsBatch(gameData, actions, signal);
     console.log('[GameController] Converted', convertedActions.length, 'actions via batch LLM call');
 
     // 2. Запускаем симуляцию (time-rewind) со стримингом прогресса генерации
     const simulationResult = await this.promptEngine!.runSimulation(
       gameData,
-      convertedActions.map(a => a.text),
+      convertedActions.map(action => ({
+        actionId: action.actionId || '',
+        text: action.text,
+      })),
       jumpDays,
       onProgress,
       autoJump,
@@ -98,6 +105,7 @@ export class GameController {
       relationshipChanges: simulationResult.relationshipChanges,
       targetDate: simulationResult.targetDate,
       incomplete: simulationResult.incomplete,
+      effects: simulationResult.effects,
     };
   }
 

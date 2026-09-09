@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Templates Routes (Этап 5: пресет-пакеты)
+ * World Story — Templates Routes (Этап 5: пресет-пакеты)
  * ===================================================
  * Источник данных — preset-loader: пакеты data/presets/<id>/ выигрывают
  * у легаси-шаблонов data/templates/<id>.json при совпадении id.

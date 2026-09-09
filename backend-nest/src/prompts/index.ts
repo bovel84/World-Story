@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Prompts
+ * World Story — Prompts
  * ==================
  * Экспорт всех промптов
  */

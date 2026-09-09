@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Livelli di difficoltà
+ * World Story — Livelli di difficoltà
  * ================================
  * 5 livelli, realizzati come blocchi testuali nei prompt (come nell'originale).
  * I testi sono nostri (la wiki dell'originale non è raggiungibile dall'ambiente

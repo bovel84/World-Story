@@ -1,14 +1,18 @@
 {
-  "name": "open-pax",
+  "name": "world-story",
   "version": "1.0.0",
-  "description": "Open-Pax — AI-Powered Alternate History Simulator",
+  "description": "World Story — AI-Powered Alternate History Simulator",
   "scripts": {
     "start": "node scripts/start.js",
     "start:dev": "node scripts/start.js --dev",
     "build": "npm run build --workspaces && npm run build:backend",
     "build:backend": "cd backend-nest && npm run build",
     "build:frontend": "cd frontend && npm run build",
-    "install:all": "npm install --workspaces --if-present"
+    "install:all": "npm install --workspaces --if-present",
+    "test:unit": "npm --prefix backend-nest test && cd frontend && ../node_modules/.bin/vitest run",
+    "test:e2e:mock": "cd e2e && node_modules/.bin/playwright test",
+    "test:a11y": "cd e2e && node_modules/.bin/playwright test --config=playwright.a11y.config.mjs",
+    "test:perf": "node e2e/perf/baseline.mjs"
   },
   "workspaces": [
     "frontend",

@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,600;6..96,700;6..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=Literata:opsz,wght@7..72,400;7..72,500;7..72,600&display=swap');
 
-/* Open-Pax — Sistema editoriale: una sala stampa geopolitica, non un dashboard. */
+/* World Story — Sistema editoriale: una sala stampa geopolitica, non un dashboard. */
 :root {
   --op-ink: #18201e;
   --op-muted: #65706a;
@@ -47,7 +47,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .landing { background: var(--op-night); font-family: var(--op-copy); color: #f5efe3; }
 .landing-hero { isolation: isolate; }
 .landing-hero::before {
-  content: 'OPEN-PAX  /  GAZZETTA DELLE NAZIONI'; position: absolute; z-index: 3;
+  content: 'OPEN STORY  /  GAZZETTA DELLE NAZIONI'; position: absolute; z-index: 3;
   top: clamp(16px, 3vw, 38px); left: clamp(18px, 5vw, 72px); right: clamp(18px, 5vw, 72px);
   display: flex; justify-content: space-between; padding: 0 0 10px;
   color: rgba(250,243,230,.82); border-bottom: 1px solid rgba(250,243,230,.48);
@@ -150,7 +150,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .fab-icon:hover, .fab-icon.active, .event-feed-collapsed-tab:hover { background: var(--op-red) !important; color: #fff8ec !important; border-color: var(--op-red-dark) !important; }
 .fab-badge { border-radius: 0 !important; background: var(--op-red) !important; color: #fff8ec !important; font-family: var(--op-utility) !important; }
 .game-panel, .floating-advisor-panel { background: var(--op-sheet) !important; border-radius: 0 !important; border: 1px solid var(--op-rule) !important; box-shadow: -5px 0 0 rgba(24,32,30,.16) !important; }
-.game-panel::before { content: 'OPEN-PAX  ·  DISPACCI E STATO'; display: block; margin: 0 0 12px; padding: 0 0 8px; border-bottom: 2px solid var(--op-ink); color: var(--op-red); font: 600 9px var(--op-utility); letter-spacing: .13em; }
+.game-panel::before { content: 'OPEN STORY  ·  DISPACCI E STATO'; display: block; margin: 0 0 12px; padding: 0 0 8px; border-bottom: 2px solid var(--op-ink); color: var(--op-red); font: 600 9px var(--op-utility); letter-spacing: .13em; }
 .floating-advisor-header { background: var(--op-night) !important; border-bottom: 3px solid var(--op-red) !important; color: #fff8ec !important; }
 .panel-title { color: #fff8ec !important; }
 .btn-close, .btn-maximize, .sheet-close { border-radius: 0 !important; color: #fff8ec !important; }
@@ -367,3 +367,145 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+
+/* Timeline = tavolo di comando, non pagina editoriale. Deve vincere perché
+   editorial.css è importato dopo index.css. */
+.hud-timeline-panel {
+  background: #111d31 !important;
+  border-color: #3d5574 !important;
+  border-radius: 18px !important;
+  color: #dce7f7 !important;
+  box-shadow: 0 24px 62px rgba(0,0,0,.68) !important;
+}
+.hud-timeline-header { background: #15243b !important; border-bottom: 1px solid #3a4f6c !important; }
+.hud-timeline-title { color: #f4f7ff !important; font-family: system-ui, sans-serif !important; }
+.hud-timeline-subtitle { color: #aebed4 !important; }
+.hud-timeline-close { border-color: #526783 !important; border-radius: 10px !important; background: #21344f !important; color: #f4f7ff !important; }
+.hud-timeline-history-toggle { color: #e7effb !important; border-bottom-color: #31445f !important; }
+.hud-timeline-history-toggle:hover { background: #1b2d49 !important; }
+.hud-timeline-empty { color: #afbed1 !important; }
+.hud-timeline-entry { border-color: #344963 !important; border-left-color: #8771df !important; background: #101d30 !important; }
+.hud-timeline-entry-head { background: #15263e !important; color: #edf4ff !important; }
+.hud-timeline-entry-head:hover { background: #203654 !important; }
+.hud-timeline-entry :is(.hud-timeline-entry-title, .hud-timeline-entry-head, .hud-timeline-entry-detail) { color: #e2ebf8 !important; }
+.hud-timeline-entry :is(.hud-timeline-entry-date, .hud-timeline-entry-turn, .hud-timeline-source) { color: #b5a1f2 !important; }
+.hud-timeline-entry-detail { background: #0d1829 !important; border-color: #344963 !important; }
+.hud-timeline-processes { border-color: #405572 !important; background: #101d30 !important; }
+.hud-timeline-processes-title { color: #b7a5f5 !important; }
+.hud-timeline-process { border-top-color: #344963 !important; }
+.hud-timeline-process :is(strong, span, small) { color: #dbe6f5 !important; }
+.hud-timeline-process span { color: #b6c5d9 !important; }
+.hud-timeline-process small { color: #99abc2 !important; }
+.hud-timeline-divider { color: #9fb0c7 !important; }
+.hud-timeline-next-event, .hud-timeline-custom-go { border-radius: 10px !important; background: #7054d0 !important; border-color: #9a84ef !important; color: #fff !important; }
+.hud-timeline-preset { border-radius: 10px !important; border-color: #435a78 !important; background: #15263e !important; color: #edf4ff !important; }
+.hud-timeline-preset:hover { background: #203654 !important; color: #fff !important; }
+.hud-timeline-preset-date { color: #f4f7ff !important; font-family: system-ui, sans-serif !important; }
+.hud-timeline-preset-label { color: #aebed4 !important; }
+.hud-timeline-input { border-radius: 9px !important; border-color: #526783 !important; background: #091321 !important; color: #f1f5ff !important; }
+
+@media (max-width: 720px) {
+  .hud-timeline-panel { inset: var(--mobile-hud, 58px) 0 0 !important; width: 100% !important; max-width: none !important; max-height: none !important; border: 0 !important; border-radius: 0 !important; }
+  .hud-timeline-header { background: #15243b !important; }
+}
+
+/* Gli stili legacy usano selettori più specifici: qui la Timeline conserva
+   contrasto anche con i salti bloccati da un checkpoint. */
+.hud-timeline-panel .hud-timeline-subtitle { color: #aebed4 !important; }
+.hud-timeline-panel .hud-timeline-history-toggle { color: #e7effb !important; }
+.hud-timeline-panel .hud-timeline-empty { color: #afbed1 !important; }
+.hud-timeline-panel .hud-timeline-divider { color: #9fb0c7 !important; }
+.hud-timeline-panel .hud-timeline-preset {
+  background: #15263e !important;
+  border-color: #435a78 !important;
+  color: #edf4ff !important;
+  opacity: 1 !important;
+}
+.hud-timeline-panel .hud-timeline-preset:disabled {
+  background: #132138 !important;
+  border-color: #354a66 !important;
+  color: #c8d5e7 !important;
+  opacity: .68 !important;
+}
+.hud-timeline-panel .hud-timeline-preset-date { color: #f4f7ff !important; }
+.hud-timeline-panel .hud-timeline-preset-label { color: #aebed4 !important; }
+.hud-timeline-panel .hud-timeline-next-event:disabled,
+.hud-timeline-panel .hud-timeline-custom-go:disabled { background: #263851 !important; border-color: #526783 !important; color: #c8d5e7 !important; opacity: .68 !important; }
+.hud-timeline-panel .hud-timeline-input { background: #091321 !important; color: #f1f5ff !important; }
+.hud-timeline-panel .hud-timeline-processes { background: #101d30 !important; }
+.hud-timeline-panel .hud-timeline-process :is(strong, span, small) { color: #dbe6f5 !important; }
+.hud-timeline-panel .hud-timeline-process span { color: #b6c5d9 !important; }
+.hud-timeline-panel .hud-timeline-process small { color: #99abc2 !important; }
+
+/* I cinque moduli di comando condividono la scrivania navy; la carta
+   editoriale resta esclusiva dei Dispacci. */
+.game-container .game-panel.nation-desk.panel-collapsed { display: none !important; }
+.floating-advisor-panel.action-desk {
+  background: #111d31 !important;
+  border-color: #40536f !important;
+  box-shadow: 0 24px 60px rgba(0,0,0,.68) !important;
+}
+.floating-advisor-panel.action-desk .floating-advisor-header {
+  background: #15243b !important;
+  border-bottom-color: #3a4f6c !important;
+}
+.floating-advisor-panel.action-desk .panel-title { color: #f2f6ff !important; font-family: system-ui, sans-serif !important; }
+.floating-advisor-panel.action-desk :is(.suggestions-content, .chats-panel, .advisor-chat) { min-height: 0; flex: 1 1 auto; background: #0d1727 !important; }
+.floating-advisor-panel.action-desk .suggestions-content { overflow-y: auto !important; }
+.floating-advisor-panel.action-desk .suggestions-footer {
+  position: static !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center;
+  gap: 12px;
+  margin: 0 !important;
+  padding: 13px 18px !important;
+  border-top: 1px solid #34445e !important;
+  background: #142238 !important;
+}
+.floating-advisor-panel.action-desk .pending-advance-hint { color: #b8c7da !important; font-family: system-ui, sans-serif !important; }
+.floating-advisor-panel.action-desk .btn-submit-actions { min-width: 122px; background: #684bc5 !important; border-color: #927be4 !important; color: #fff !important; }
+.floating-advisor-panel.action-desk .chats-panel { display: flex !important; flex-direction: column; overflow: hidden !important; }
+.floating-advisor-panel.action-desk :is(.chats-list, .chat-messages) { min-height: 0; flex: 1 1 auto; overflow-y: auto !important; background: #0d1727 !important; }
+.floating-advisor-panel.action-desk .chat-thread-header,
+.floating-advisor-panel.action-desk .chat-input-row { background: #142238 !important; border-color: #3a4f6c !important; }
+.floating-advisor-panel.action-desk .chat-item {
+  border-color: #394f6c !important;
+  background: #18263d !important;
+  box-shadow: none !important;
+}
+.floating-advisor-panel.action-desk .chat-item:hover { background: #223654 !important; border-color: #927be4 !important; }
+.floating-advisor-panel.action-desk :is(.chat-item-name, .chat-thread-title, .chat-sender-name) { color: #f0f5ff !important; font-family: system-ui, sans-serif !important; }
+.floating-advisor-panel.action-desk :is(.chat-item-last, .chat-message-meta, .chat-message-date, .chats-empty, .picker-hint) { color: #adbed3 !important; }
+.floating-advisor-panel.action-desk .chat-bubble.polity { background: #182842 !important; border-color: #466184 !important; color: #edf4ff !important; }
+.floating-advisor-panel.action-desk .chat-bubble.player { background: #493b87 !important; border-color: #9580e2 !important; color: #fff !important; }
+.floating-advisor-panel.action-desk .chat-input-row textarea { background: #091321 !important; border-color: #526783 !important; color: #f0f5ff !important; }
+.floating-advisor-panel.action-desk .btn-new-chat,
+.floating-advisor-panel.action-desk .btn-chat-send,
+.floating-advisor-panel.action-desk .btn-chat-auto { background: #684bc5 !important; border-color: #927be4 !important; border-radius: 9px !important; color: #fff !important; }
+.floating-advisor-panel.action-desk .chat-unread-badge { background: #e65764 !important; color: #fff !important; }
+
+@media (max-width: 720px) {
+  .floating-advisor-panel.action-desk .suggestions-footer { grid-template-columns: 1fr !important; gap: 9px; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)) !important; }
+  .floating-advisor-panel.action-desk .btn-submit-actions { width: 100%; }
+}
+
+/* Stati vuoti e azioni secondarie: nessun testo chiaro su carta o scuro su navy. */
+.floating-advisor-panel.action-desk .pending-header {
+  padding: 8px 10px !important;
+  background: #15263e !important;
+  color: #b9c8dd !important;
+}
+.floating-advisor-panel.action-desk .pending-empty { color: #b6c5d9 !important; }
+.floating-advisor-panel.action-desk .btn-enhance-pending {
+  border-color: #7663c8 !important;
+  background: #211d3e !important;
+  color: #ded6ff !important;
+}
+.floating-advisor-panel.action-desk .btn-add-pending {
+  border-color: #6283e9 !important;
+  background: #2864ca !important;
+  color: #fff !important;
+}
+.floating-advisor-panel.action-desk .manual-action-input textarea { background: #091321 !important; border-color: #526783 !important; color: #eff5ff !important; }
+.floating-advisor-panel.action-desk .manual-action-input textarea::placeholder { color: #91a2ba !important; opacity: 1; }

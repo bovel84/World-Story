@@ -1,11 +1,12 @@
 /**
- * Open-Pax — Simulation Prompt
+ * World Story — Simulation Prompt
  * ============================
  * Motore principale della simulazione (time-rewind.md)
  */
 
 import { PromptVariables, SimulationResult, SimulationEvent, VoidedAction, ActionOutcome } from './types';
 import { parseJsonLoose } from '../utils/json-repair';
+import { DomainContractError, parseActionOutcome } from '../domain/contracts';
 
 /**
  * Istruzione della modalità auto-jump: il modello sceglie da solo la data
@@ -47,6 +48,34 @@ ${vars.STRATEGIC_STATE}`;
  * Protocollo di output progressivo. Ogni oggetto JSON concluso può essere
  * estratto dallo stream e mostrato subito, mentre il modello pensa al seguito.
  */
+/**
+ * Contratto di qualità che non può essere rimosso da un preset. I preset
+ * possono aggiungere contesto e regole, non trasformare il simulatore in un
+ * generatore di colpi di scena scollegati. Per un override completo riportiamo
+ * anche il canone, perché il suo testo potrebbe non usare i placeholder.
+ */
+export function buildSimulationNarrativeContract(
+  vars: PromptVariables,
+  includePresetContext = false,
+): string {
+  const presetContext = includePresetContext ? `
+
+[Canone del preset — fonte storica]
+${vars.WORLD_BEFORE_ROUND_ONE_TEXT}
+
+[Regole del preset — vincolanti]
+${vars.HISTORICAL_PRESET_SIMULATION_RULES}` : '';
+  return `
+
+[CONTRATTO NARRATIVO NON AGGIRABILE]
+- La premessa, la cronaca consolidata, la diplomazia, le date, le risorse e la mappa fornite sono la fonte di verità. Non colmare lacune con leader, trattati, eserciti, tecnologie, cifre o crisi inventati.
+- Il giocatore controlla solo ${vars.PLAYER_POLITY}: questa politia non prende iniziative senza un ordine esplicito nel turno. Un ordine può fallire, richiedere preparazione o restare parziale; non diventa mai automaticamente un successo.
+- Ogni evento segue una catena databile «causa già visibile → decisione o reazione → conseguenza proporzionata». Distingui sempre proposta, misura avviata, processo in corso e risultato ottenuto.
+- Rispetta i tempi: trattative, mobilitazioni, riforme, cantieri, guerre e mutamenti di regime maturano in più fasi salvo prova contraria nel contesto.
+- Narra in italiano sobrio da cronaca storica. Ogni dispaccio deve nominare attore, luogo, data o periodo, grilletto concreto e conseguenza; una narrazione finale riassume solo i fatti effettivamente emessi.
+- Se non esiste una causa verificabile per un fatto ulteriore, non inventarlo: registra gli esiti disponibili e lascia il mondo coerente.${presetContext}`;
+}
+
 export function buildIncrementalOutputInstruction(
   vars: PromptVariables,
   maxEvents: number,
@@ -73,7 +102,7 @@ Costruzioni: SOLO se un evento attesta un'opera completata con risorse e tempi c
 Una proposta, un rifiuto, un cantiere avviato o una citazione NON crea oggetti. Non aggiungere città o capitali; non duplicare opere già presenti.
 
 Quando il periodo è concluso emetti come ULTIMA riga:
-{"type":"complete","narration":"Sintesi complessiva","actionOutcomes":[{"action":"testo esatto ordine","status":"accepted|partial|rejected","summary":"esito specifico","expectedDate":"YYYY-MM-DD opzionale per partial","completesProcess":"titolo del processo concluso, opzionale","eventHeadlines":[]}],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"${completionTargetDate}"}
+{"type":"complete","narration":"Sintesi complessiva","actionOutcomes":[{"actionId":"ID esatto ordine","status":"accepted|partial|rejected","summary":"esito specifico","expectedDate":"YYYY-MM-DD opzionale per partial","eventHeadlines":[]}],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"${completionTargetDate}"}
 
 ${autoJump
   ? 'In auto-jump targetDate DEVE essere identica alla data dell’unico evento emesso. Se nessun evento importante è causalmente giustificato entro l’orizzonte, NON inventarne uno: non emettere righe event e completa con "targetDate":null.'
@@ -224,7 +253,7 @@ ${vars.ONGOING_PROCESSES || '(Nessun processo in corso)'}
 
 Se la sezione non è vuota, questi impegni sono già avviati e NON risolti:
 - se il completamento previsto di un processo cade nel periodo simulato, un evento del periodo deve portarlo avanti o concluderlo in modo causale (risorse, tempo, opposizione), senza ripetere il testo dell'ordine originale;
-- per concludere un processo, l'ordine del giocatore che lo porta a termine (anche riformulato) dichiara in actionOutcomes "completesProcess": "titolo del processo";
+- per concludere un processo, l'ordine del giocatore che lo porta a termine (anche riformulato) dichiara in actionOutcomes "completesProjectId" copiando il projectId mostrato; mai il titolo;
 - se il processo matura ma richiede ancora tempo, aggiorna l'esito dell'ordine collegato con "partial" e una nuova expectedDate;
 - non inventare il completamento: se niente nel periodo può concluderlo, lascialo aperto e non menzionarlo.
 
@@ -257,7 +286,7 @@ Il tuo output DEVE essere nel seguente formato JSON:
   ],
   "narration": "Narrativa complessiva del periodo (3-5 frasi)",
   "actionOutcomes": [
-    { "action": "testo esatto di ciascun ordine ricevuto", "status": "accepted|partial|rejected", "summary": "esito specifico dell'ordine", "expectedDate": "YYYY-MM-DD solo se partial", "completesProcess": "titolo del processo in corso che questo ordine conclude (solo se pertinente)", "eventHeadlines": ["titolo evento pertinente"] }
+    { "actionId": "ID esatto di ciascun ordine ricevuto", "status": "accepted|partial|rejected", "summary": "esito specifico dell'ordine", "expectedDate": "YYYY-MM-DD solo se partial", "eventHeadlines": ["titolo evento pertinente"] }
   ],
   "voided": [
     { "action": "testo dell'azione del giocatore", "reason": "perché è irrealistica" }
@@ -284,7 +313,7 @@ Regole mapChanges:
 - "worldChanges.regionOwners" duplica i passaggi di proprietà finali per nome.
 
 Regole actionOutcomes e voided:
-- Restituisci ESATTAMENTE un actionOutcomes per ogni ordine ricevuto, usando il suo testo esatto. accepted = effetto avviato/conseguito, partial = preparazione o risultato incompleto, rejected = non attuabile; summary descrive solo quell'ordine. expectedDate è ammessa solo per partial, deve essere una data YYYY-MM-DD futura e causalmente stimabile; omettila se non conosci una data realistica. completesProcess va usato solo quando l'ordine conclude un processo elencato in [Processi in corso], citandone il titolo esatto (anche se l'ordine è riformulato).
+- Restituisci ESATTAMENTE un actionOutcomes per ogni ordine ricevuto, copiando il suo actionId esatto. Non usare il testo o la posizione come identificatore. accepted = effetto avviato/conseguito, partial = preparazione o risultato incompleto, rejected = non attuabile; summary descrive solo quell'ordine. expectedDate è ammessa solo per partial, deve essere una data YYYY-MM-DD futura e causalmente stimabile; omettila se non conosci una data realistica.
 - Se un'azione del giocatore è irrealistica per questo mondo e questo periodo
   (es. "conquistare il mondo in una settimana", tecnologie del futuro) — NON
   eseguirla e inseriscila in "voided" con una spiegazione chiara per il
@@ -384,22 +413,21 @@ export function parseSimulationResponse(text: string): SimulationResult {
 
     const actionOutcomes: ActionOutcome[] = [];
     for (const raw of Array.isArray(parsed.actionOutcomes) ? parsed.actionOutcomes : []) {
-      if (!raw || typeof raw.action !== 'string' || typeof raw.summary !== 'string') continue;
-      if (!['accepted', 'partial', 'rejected'].includes(raw.status)) continue;
-      actionOutcomes.push({
-        action: raw.action,
-        status: raw.status,
-        summary: raw.summary,
-        expectedDate: typeof raw.expectedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.expectedDate)
-          ? raw.expectedDate
-          : undefined,
-        eventHeadlines: Array.isArray(raw.eventHeadlines)
-          ? raw.eventHeadlines.filter((headline: unknown) => typeof headline === 'string')
-          : [],
-        completesProcess: typeof raw.completesProcess === 'string' && raw.completesProcess.trim()
-          ? raw.completesProcess.trim().substring(0, 300)
-          : undefined,
-      });
+      try {
+        const outcome = parseActionOutcome(raw, { allowLegacyText: true });
+        actionOutcomes.push({
+          ...outcome,
+          action: outcome.action || '',
+          // Conservato unicamente nel DTO legacy/audit: GameSession non lo usa
+          // per chiudere un processo nel percorso canonico.
+          completesProcess: typeof raw?.completesProcess === 'string' && raw.completesProcess.trim()
+            ? raw.completesProcess.trim().substring(0, 300)
+            : undefined,
+        });
+      } catch (error) {
+        if (!(error instanceof DomainContractError)) throw error;
+        // Un record individuale corrotto non rende valido un esito inventato.
+      }
     }
 
     const voided: VoidedAction[] = [];
@@ -421,6 +449,24 @@ export function parseSimulationResponse(text: string): SimulationResult {
         reason: typeof c.reason === 'string' ? c.reason : undefined,
       }));
 
+    // M06 µ3: gli effetti strict (ledger/project_tick/shipment/qualitative)
+    // sono conservati dal parser e validati nel percorso run strict. Un
+    // effetto malformato resta nel risultato: il validatore lo rifiuta.
+    const effects = (Array.isArray(parsed.effects) ? parsed.effects : [])
+      .filter((e: any) => e && typeof e === 'object')
+      .map((e: any) => ({
+        kind: e.kind,
+        effectId: typeof e.effectId === 'string' ? e.effectId : '',
+        cause: typeof e.cause === 'string' ? e.cause : undefined,
+        account: typeof e.account === 'string' ? e.account : undefined,
+        currency: typeof e.currency === 'string' ? e.currency : undefined,
+        amount: typeof e.amount === 'string' ? e.amount : undefined,
+        resource: typeof e.resource === 'string' ? e.resource : undefined,
+        quantity: typeof e.quantity === 'string' ? e.quantity : undefined,
+        projectId: typeof e.projectId === 'string' ? e.projectId : undefined,
+        date: typeof e.date === 'string' ? e.date : undefined,
+      }));
+
     return {
       events,
       narration: typeof parsed.narration === 'string' ? parsed.narration : 'Il mondo è cambiato...',
@@ -431,6 +477,7 @@ export function parseSimulationResponse(text: string): SimulationResult {
       startChat,
       relationshipChanges,
       targetDate: typeof parsed.targetDate === 'string' ? parsed.targetDate : undefined,
+      effects,
     };
   } catch (e) {
     console.error('[PARSER] Failed to parse simulation response:', e);

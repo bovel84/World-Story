@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Advisor Chat Component
+ * World Story — Advisor Chat Component
  * ==================================
  * Fase 3: Consulente live — chat multi-turno con streaming della risposta.
  * La cronaca è salvata in chatStore e inviata a ogni richiesta.
@@ -9,6 +9,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { advisorApi, type AdvisorHistoryItem } from '../../services/api';
+import { useSimulationStore } from '../../stores/simulationRuntime';
 import { useChatStore } from '../../stores';
 
 interface AdvisorChatProps {
@@ -50,11 +51,17 @@ export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId }) => {
     addAdvisorMessage({ role: 'user', content: text });
     addAdvisorMessage({ role: 'assistant', content: '' });
     setAdvisorStreaming(true);
+    // F06 passo 3: game switch e restore invalidano la richiesta in volo —
+    // i token di una risposta vecchia non toccano la chat del ramo nuovo.
+    const commandGeneration = useSimulationStore.getState().commandGeneration;
+    const isCommandStale = () => useSimulationStore.getState().commandGeneration !== commandGeneration;
 
     try {
       await advisorApi.askStream(gameId, text, history, (token) => {
+        if (isCommandStale()) return;
         appendToLastAdvisorMessage(token);
       });
+      if (isCommandStale()) return;
     } catch (e) {
       console.error('[AdvisorChat] Errore richiesta al consigliere:', e);
       appendToLastAdvisorMessage('Il consulente non è raggiungibile ora. Riprova più tardi.');

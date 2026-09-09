@@ -1,5 +1,5 @@
 /**
-* Open-Pax — mappa di gioco su MapLibre GL
+* World Story — mappa di gioco su MapLibre GL
  * =======================================
 * Il componente ha mantenuto il nome storico MapboxMapView (usato in App.tsx),
 * ma internamente funziona su MapLibre GL — senza token.
@@ -134,7 +134,7 @@ const SATELLITE_TILES_URL =
 // così il terreno resta visibile sotto i colori politici (stile HOI4/mod moderni).
 const OFFLINE_STYLE: StyleSpecification = {
   version: 8,
-  name: 'open-pax-satellite',
+  name: 'world-story-satellite',
   sources: {
     satellite: {
       type: 'raster',

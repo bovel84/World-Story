@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Game Session
+ * World Story — Game Session
  * ========================
  * Per-game session that encapsulates all game state and logic.
  * Each game gets its own GameSession instance via SessionRegistry.
@@ -10,14 +10,29 @@ import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
 import { worldRepository, gameRepository, relationshipRepository, chatRepository } from './repositories';
+import { captureEconomicSnapshot, invalidateStrictEffectStaging, restoreEconomicSnapshot, validateEconomicSnapshot } from './repositories/economy-snapshot.repository';
+import { withCanonicalTransaction } from './database';
+import { semanticStateHash } from './domain/semantic-hash';
 import type { ChatRecord, ChatSummary, ChatMessageRecord, ChatParticipant, GameChatSnapshot } from './repositories';
 import db from './database';
 import { RelationshipMatrix } from './core/RelationshipMatrix';
 import { WorldStateEngine } from './core/simulation/WorldStateEngine';
 import { addDays, dateInPeriod, explicitDays, jumpHorizon, resolvePeriod } from './core/simulation/calendar';
+import {
+  validateStrictMapChanges,
+  validateStrictWorldChanges,
+  validateStrictResultSafe,
+  rejectDirectMaterialCommand,
+  type StrictEffect,
+} from './core/simulation/EffectValidator';
+import { applyStagedStrictEffects, assertExecutableStrictEffects, promotePlaybackEffectAnchors, runStrictTick } from './core/simulation/TurnOrchestrator';
+import { bootstrapCatalogEconomy } from './services/StrictEffectProducerService';
+import { refreshMandateStockDecisions } from './services/MandateDecisionService';
 import { withinDeadline } from './core/simulation/deadline';
 import { canNpcCapture, indexPolities, npcRepresentatives } from './core/simulation/npc-policy';
 import { RegionResolver, PolityResolver } from './utils/name-resolver';
+import path from 'path';
+import { loadSimulationCatalog } from './scenario/loader';
 import { Difficulty, difficultyPromptBlock, normalizeDifficulty } from './prompts/difficulty';
 import { personalityForPolity } from './npc-agents';
 import { countryRepository } from './repositories/country.repository';
@@ -28,7 +43,7 @@ import {
   parseChatResponse,
   parseNextSpeakerResponse,
 } from './prompts/chat';
-import type { MapChange, SimulationEvent } from './prompts/types';
+import type { ActionOutcome, ConvertedAction, MapChange, SimulationEvent } from './prompts/types';
 import type { RelationshipType } from './core/RelationshipMatrix';
 import type { SSEEventType } from './sse';
 
@@ -105,6 +120,15 @@ export class SimulationPausedError extends Error {
   }
 }
 
+/** F04 passo 3: risposta tardiva rispetto a ramo/revisione — mai write-back
+ * sul ramo nuovo con il contesto del ramo vecchio. */
+export class ContextChangedError extends Error {
+  constructor(public capturedBranchId: string | null, public capturedRevision: number) {
+    super(`context_changed: ramo/revisione cambiati durante l'attesa (catturato ${capturedBranchId ?? 'n/d'}@${capturedRevision})`);
+    this.name = 'ContextChangedError';
+  }
+}
+
 /** G22: Intervene deve riferirsi al preciso evento/checkpoint in lettura,
  * non soltanto a un run generico o a un booleano senza contesto. */
 export class SimulationStaleCheckpointError extends Error {
@@ -127,7 +151,11 @@ export interface PausedRunState {
   destination: string;
   /** Turno logico del salto: cresce una sola volta, non per evento. */
   jumpTurn: number;
-  /** Revisione del primo checkpoint per-evento del run. */
+  /**
+   * Legato per compatibilità dello stato persistito (pending_state di run
+   * creati prima di F02): da F02 la revisione dei checkpoint proviene dal
+   * contatore monotono games.world_revision e non viene più derivata da qui.
+   */
   revisionBase: number;
   /** Eventi proposti e non ancora applicati (non canonici). */
   remainingEvents: SimulationEvent[];
@@ -151,6 +179,7 @@ export interface PausedRunState {
     worldChanges: any;
     relationshipChanges: any;
     startChat: any;
+    effects: StrictEffect[];
   };
   /** Indice del prossimo checkpoint per-evento (revisione = base + questo). */
   appliedCount: number;
@@ -206,7 +235,10 @@ export interface PendingAction {
   id: string;
   text: string;
   createdAt: string;
+  /** Adapter UI legacy; le due dimensioni sotto sono autorevoli per F01. */
   status: 'pending' | 'processing' | 'completed';
+  deliveryStatus?: 'queued' | 'issued' | 'cancelled';
+  executionStatus?: 'not_started' | 'in_progress' | 'completed' | 'failed' | 'rejected' | 'cancelled';
   result?: {
     narration: string;
     countryResponse: string;
@@ -218,6 +250,7 @@ export interface PendingAction {
       status: 'accepted' | 'partial' | 'rejected';
       summary: string;
       expectedDate?: string;
+      completesProjectId?: string;
     };
     objects: any[];
     turn: number;
@@ -258,6 +291,8 @@ export interface SaveData {
   chats?: GameChatSnapshot[];
   /** Processi in corso/completati nel ramo del checkpoint. */
   ongoingProcesses?: any[];
+  /** M02 µ5: ledger, riserve e finanza del ramo; legacy/ignoto resta inattivo. */
+  economicState?: unknown;
 }
 
 export class GameSession {
@@ -277,6 +312,11 @@ export class GameSession {
   private currentTurn: number = 1;
   private currentDate: string = '1951-01-01';
   private maxTurns: number = 100;
+  /**
+   * F03/A10: risultato del batch appena committato, associato all'ID alla
+   * creazione. Mai letto per posizione: un salto senza eventi lo lascia null.
+   */
+  private lastCommittedResult: TurnResultRecord | null = null;
 
   // World metadata cached at init/reconstruct (bug fix: buildGameData used to
   // send basePrompt: '' to every prompt, so the world's custom lore never
@@ -340,6 +380,19 @@ export class GameSession {
   /** True while a mutable simulation owns this session checkpoint. */
   isSimulationInProgress(): boolean {
     return this.isProcessing;
+  }
+
+  /** F04 passo 3: un run è «attivo» anche quando il playback è in pausa in
+   * lettura (§9.5: paused è uno stato del run). Chat e advisor non scrivono
+   * nel contesto di un run attivo o sospeso. */
+  hasActiveRun(): boolean {
+    return this.isProcessing || this.pausedRun !== null;
+  }
+
+  /** F05 µ2: arresto controllato — abort del run attivo fino agli adattatori
+   * (il signal è già propagato a stream e convertitore). */
+  abortActiveSimulation(): void {
+    this.activeSimulationAbort?.abort();
   }
 
   private async withLock<T>(fn: () => Promise<T>): Promise<T | null> {
@@ -409,6 +462,7 @@ export class GameSession {
    * Non tocca la coda delle azioni del giocatore; se un turno è in corso, skip.
    */
   async worldTick(): Promise<void> {
+    if (this.isStrictGame()) throw new Error('strict_legacy_path_forbidden: worldTick');
     if (this.isProcessing) return;
 
     await this.withLock(async () => {
@@ -515,7 +569,29 @@ export class GameSession {
 
   /** Avanza le variabili lente del mondo e restituisce un fatto verificabile
    * per il bollettino del paese giocatore. */
-  private advanceWorldState(days: number): string[] {
+  private advanceWorldState(days: number, asOfDate: string = this.currentDate): string[] {
+    if (this.isStrictGame()) {
+      // Il tick strict è idempotente e consuma anche le scadenze odierne
+      // (due_date <= asOfDate): non saltare mai il confine corrente.
+      const branchId = gameRepository.getHeadBranch(this.id);
+      if (!branchId) throw new Error('strict_branch_missing');
+      const tick = runStrictTick(this.id, branchId, gameRepository.getWorldRevision(this.id), asOfDate);
+      const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
+      const templateId = worldRow?.template_id;
+      if (typeof templateId !== 'string' || !templateId) throw new Error('strict_catalog_binding_missing');
+      const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId));
+      if (!loaded.catalog) throw new Error(`strict_catalog_invalid: ${templateId}`);
+      // M07 µ4: scorte possedute da attori della polity, non dai custodi.
+      // Binding catalogo server: un LLM/client non può cambiare l'owner set.
+      const ownerActorRefs = loaded.catalog.actors
+        .filter(actor => actor.polityId === this.playerPolityId)
+        .map(actor => actor.actorId);
+      const mandateDecisions = refreshMandateStockDecisions(this.id, branchId, asOfDate, ownerActorRefs);
+      return [
+        ...tick.settledCashflows.map(flow => `📒 Scadenza ${flow.cashflowId}: ${flow.status} (${flow.paid})`),
+        ...mandateDecisions.map(decision => `⚠️ Mandato ${decision.mandateId}: scorte ${decision.resourceId} ${decision.availableStock}/${decision.minStock}; decisione giocatore richiesta (${decision.kind === 'stock_shortfall_outside_authorization' ? 'acquisto fuori autorizzazione' : 'prezzo e quantità da confermare'})`),
+      ];
+    }
     const tick = WorldStateEngine.advance(this.regions.values(), days);
     const bulletin = WorldStateEngine.playerBulletin(tick.accounts[this.playerPolityId]);
     return bulletin ? [`📊 ${bulletin}`] : [];
@@ -533,6 +609,9 @@ export class GameSession {
     this.llm = provider;
     this.gameController = new GameController(provider);
     this.promptEngine = new PromptEngine(provider);
+    // F04 §9.4: ogni partita nasce (o riapre) sul suo ramo principale.
+    // Idempotente: le sessioni ricostruite dal DB non duplicano il ramo.
+    gameRepository.ensureMainBranch(gameId);
   }
 
   /**
@@ -545,9 +624,15 @@ export class GameSession {
   /**
    * Broadcast event to SSE clients
    */
-  private broadcast(type: SSEEventType, data: any): void {
-    if (this.sseBroadcaster) {
+  private broadcast(type: SSEEventType, data: any): boolean {
+    if (!this.sseBroadcaster) return false;
+    try {
       this.sseBroadcaster(type, data);
+      return true;
+    } catch (error) {
+      // SSE è post-commit/best-effort: non può attivare un falso rollback RAM.
+      console.error('[GameSession] SSE broadcast failed:', type, error);
+      return false;
     }
   }
 
@@ -604,6 +689,16 @@ export class GameSession {
       // Stato diplomatico persistente: il prompt usa questi rapporti per
       // motivare le reazioni delle altre politie, non per inventarle.
       relationships: this.relationships.toJSON(),
+      // I progetti attivi sono contesto canonico anche senza nuovi ordini.
+      // LLM riceve ID e date, non deve riconoscerli per titolo.
+      ongoingProcesses: gameRepository.getOngoingProcesses(this.id).map((process: any) => ({
+        id: process.id,
+        sourceActionId: process.source_action_id,
+        title: process.title,
+        summary: process.summary,
+        startedDate: process.started_date,
+        expectedDate: process.expected_date || undefined,
+      })),
       actions: this.actions,
       results: this.results,
       // Le trattative diplomatiche entrano nella simulazione (i patti contano)
@@ -710,6 +805,10 @@ export class GameSession {
     if (!chat || chat.gameId !== this.id) {
       throw new Error(`Chat not found: ${chatId}`);
     }
+    // F04 passo 3: durante un run la chat risponde 409 — nessuna scrittura
+    // nel contesto già congelato (politica esplicita, non bozza silenziosa).
+    if (this.hasActiveRun()) throw new SimulationInProgressError();
+    const fence = this.fenceContext();
 
     // Cronaca PRIMA del nuovo messaggio del giocatore
     const history = chatRepository.getMessages(chatId)
@@ -725,7 +824,7 @@ export class GameSession {
       this.currentDate,
     );
 
-    const reply = await this.generateChatReply(chat, history, content, 'reply');
+    const reply = await this.generateChatReply(chat, history, content, 'reply', fence);
     return { message, reply };
   }
 
@@ -741,10 +840,11 @@ export class GameSession {
 
     const replies: ChatMessageRecord[] = [];
     const rounds = Math.max(1, Math.min(exchanges, 4));
+    const fence = this.fenceContext();
     for (let i = 0; i < rounds; i++) {
       const history = chatRepository.getMessages(chatId)
         .map(m => ({ role: m.role === 'player' ? 'player' : (m.senderName || chat.polityName), content: m.content }));
-      const reply = await this.generateChatReply(chat, history, '', 'auto');
+      const reply = await this.generateChatReply(chat, history, '', 'auto', fence);
       replies.push(reply);
     }
     return { replies };
@@ -759,6 +859,7 @@ export class GameSession {
     history: { role: string; content: string }[],
     playerMessage: string,
     mode: 'reply' | 'auto',
+    fence?: { branchId: string | null; revision: number },
   ): Promise<ChatMessageRecord> {
     const polityParticipants = chat.participants.filter(
       p => p.role !== 'player' && p.id !== this.playerPolityId
@@ -834,6 +935,10 @@ export class GameSession {
       { temperature: 0.7 },
     );
     const parsed = parseChatResponse(response.content);
+    // F04 passo 3: verifica del fence PRIMA della scrittura — una risposta
+    // tardiva (run partito, restore con ramo nuovo, revisione cambiata) non
+    // muta il ramo nuovo né broadcasta nulla.
+    if (fence) this.assertFenceValid(fence);
     const reply = chatRepository.addMessage(
       chat.id,
       'polity',
@@ -1074,11 +1179,19 @@ export class GameSession {
       this.pendingActions.map(action => action.id).filter(id => !pausedActionIds.has(id)),
       'pending',
     );
-    // La lettura dal DB costringe «processing» in «pending» per sicurezza al
-    // riavvio: gli ordini di un run in pausa tornano «processing» — sono
-    // già stati presi in carico e non vanno reinviati al prossimo salto.
+    // Dopo crash un run non in pausa non conserva una claim tecnica: torna
+    // queued/not_started sia in DB sia nella proiezione RAM. Il playback
+    // durevole, invece, mantiene issued/in_progress e non viene reinviato.
     this.pendingActions.forEach(action => {
-      if (pausedActionIds.has(action.id)) action.status = 'processing';
+      if (pausedActionIds.has(action.id)) {
+        action.status = 'processing';
+        action.deliveryStatus = 'issued';
+        action.executionStatus = 'in_progress';
+      } else {
+        action.status = 'pending';
+        action.deliveryStatus = 'queued';
+        action.executionStatus = 'not_started';
+      }
     });
 
     // Re-setup NPC countries: любая полития, кроме игрока и 'neutral'
@@ -1234,7 +1347,13 @@ export class GameSession {
    * Keys могут быть как regionId (legacy), так и ИМЕНА регионов/политий —
    * резолвим оба варианта.
    */
+  /** M06 µ3: la partita è strict se il catalogo server-side lo dichiara. */
+  private isStrictGame(): boolean {
+    return gameRepository.getEconomyMode(this.id) === 'strict';
+  }
+
   private applyWorldChanges(changes: WorldChanges): void {
+    if (this.isStrictGame()) validateStrictWorldChanges(changes);
     const resolvers = this.buildResolvers();
 
     if (changes.regionOwners) {
@@ -1411,6 +1530,7 @@ export class GameSession {
    * Регионы и политии адресуются ИМЕНАМИ (так их видит LLM в описании карты).
    */
   private applyMapChanges(mapChanges: MapChange[] | undefined): RegionState[] {
+    if (this.isStrictGame()) validateStrictMapChanges(mapChanges);
     if (!mapChanges || mapChanges.length === 0) return [];
     const resolvers = this.buildResolvers();
     const changed = new Map<string, RegionState>();
@@ -1686,7 +1806,12 @@ export class GameSession {
    * write them too to keep the DB consistent with the in-memory state
    * across restarts).
    */
-  async syncRegionsToDB(): Promise<void> {
+  /**
+   * Scrittura delle regioni nel DB. Il corpo è sincrono: può essere invocata
+   * dentro la transazione canonica (F02 passo 2) senza aprire finestre di
+   * asincronia. I call site con `await` restano validi.
+   */
+  syncRegionsToDB(): void {
     const updates = Array.from(this.regions.values()).map(region => ({
       id: region.id,
       population: region.population,
@@ -1720,6 +1845,7 @@ export class GameSession {
       pausedSimulationId: this.pausedRun?.runId,
       chats: chatRepository.snapshotGameChats(this.id),
       ongoingProcesses: gameRepository.snapshotOngoingProcesses(this.id),
+      economicState: captureEconomicSnapshot(this.id, gameRepository.getHeadBranch(this.id) || gameRepository.ensureMainBranch(this.id)),
     };
   }
 
@@ -1745,11 +1871,12 @@ export class GameSession {
       pausedSimulationId: this.pausedRun?.runId,
       chats: chatRepository.snapshotGameChats(this.id),
       ongoingProcesses: gameRepository.snapshotOngoingProcesses(this.id),
+      economicState: captureEconomicSnapshot(this.id, gameRepository.getHeadBranch(this.id) || gameRepository.ensureMainBranch(this.id)),
     };
 
     const stmt = db.prepare(`
-      INSERT INTO saves (id, game_id, name, current_turn, current_date, data, saved_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO saves (id, game_id, name, current_turn, current_date, data, content_hash, saved_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -1759,6 +1886,7 @@ export class GameSession {
       this.currentTurn,
       this.currentDate,
       JSON.stringify(saveData),
+      semanticStateHash(saveData),
       new Date().toISOString()
     );
 
@@ -1767,9 +1895,70 @@ export class GameSession {
   }
 
   /**
-   * Load session from save data
+   * F04 §9.4.1: hash semantico dello stato corrente della sessione, calcolato
+   * con la stessa funzione del salvataggio. Il DoD del restore (C12) lo
+   * confronta con l’hash del checkpoint scelto, esclusi i metadati del ramo.
    */
-  loadFromSave(saveData: SaveData): void {
+  semanticHash(): string {
+    return semanticStateHash(this.captureCheckpointData());
+  }
+
+  /**
+   * Load session from save data. F04 §9.4.1: se è fornito l’hash atteso dal
+   * catalogo, lo snapshot viene validato PRIMA di mutare la sessione; un hash
+   * incompatibile rifiuta il restore (snapshot manomesso o incompatibile).
+   */
+  loadFromSave(
+    saveData: SaveData,
+    expectedHash?: string | null,
+    options?: { newBranch?: { originCheckpointId?: string | null; name?: string } },
+  ): { branchId: string | null } {
+    const strictBranchId = this.isStrictGame()
+      ? (gameRepository.getHeadBranch(this.id) || gameRepository.ensureMainBranch(this.id))
+      : null;
+    if (expectedHash != null && semanticStateHash(saveData) !== expectedHash) {
+      if (strictBranchId) invalidateStrictEffectStaging(strictBranchId);
+      throw new Error(`snapshot_hash_mismatch: lo snapshot non corrisponde al catalogo (atteso ${expectedHash.slice(0, 12)}…)`);
+    }
+    if (this.isStrictGame()) {
+      try {
+        if (!validateEconomicSnapshot(saveData.economicState)) {
+          invalidateStrictEffectStaging(strictBranchId!);
+          throw new Error('strict_economic_snapshot_missing: restore strict richiede stato economico verificabile');
+        }
+      } catch (error) {
+        // `validateEconomicSnapshot` può lanciare per ledger semanticamente
+        // invalido; in ogni rifiuto strict lo staging del futuro è scartato.
+        invalidateStrictEffectStaging(strictBranchId!);
+        if (error instanceof Error && error.message.startsWith('strict_economic_snapshot_')) throw error;
+        const detail = error instanceof Error ? error.message : 'snapshot economico invalido';
+        throw new Error(`strict_economic_snapshot_invalid: ${detail}`);
+      }
+    }
+    // F04 passo 2: staging della RAM — il restore riuscito lo promuove, un
+    // errore a metà lo scarta insieme al rollback DB.
+    const staging = {
+      regions: new Map<string, RegionState>(
+        [...this.regions.entries()].map(([id, region]) => [id, JSON.parse(JSON.stringify(region))]),
+      ),
+      relationships: this.relationships.toJSON(),
+      actions: [...this.actions],
+      results: [...this.results],
+      pendingActions: this.pendingActions.map(action => ({ ...action })),
+      turn: this.currentTurn,
+      date: this.currentDate,
+      pausedRun: this.pausedRun,
+      players: this.players,
+      consolidatedHistory: this.consolidatedHistory,
+      consolidatedUpTo: this.consolidatedUpTo,
+      difficulty: this.difficulty,
+      interveneRequested: this.interveneRequested,
+    };
+    try {
+    // F04 passo 2: tutte le collezioni ripristinate in UNA transazione
+    // (coda, ordini processing, relazioni, chat, processi, mondo), e il
+    // ramo nuovo con il suo fencing token nella stessa transazione.
+    withCanonicalTransaction(() => {
     this.currentTurn = saveData.currentTurn;
     this.currentDate = saveData.currentDate;
     this.players = saveData.players || [];
@@ -1814,7 +2003,48 @@ export class GameSession {
     // Sync restored regions to DB
     this.syncRegionsToDB();
 
+    // F04 passo 4: lo storico del ramo abbandonato resta solo nell’archivio
+    // privato. Le righe outbox pendenti appartengono al futuro scartato:
+    // vengono archiviate (mai ripubblicate) nella stessa transazione.
+    gameRepository.archivePendingOutbox(this.id);
+
+    // F04 passo 2: il restore crea un ramo figlio con origin nel checkpoint
+    // ripristinato (fencing token nuovo); il ramo abbandonato resta in
+    // archivio (game_branches) e non entra mai nei prompt del ramo nuovo.
+    if (options?.newBranch) {
+      gameRepository.createBranch({
+        id: shortId(),
+        gameId: this.id,
+        name: options.newBranch.name || `restore-${saveData.currentDate}`,
+        parentBranchId: gameRepository.getHeadBranch(this.id),
+        originCheckpointId: options.newBranch.originCheckpointId ?? null,
+      });
+    }
+    const economicsRestored = restoreEconomicSnapshot(this.id, gameRepository.getHeadBranch(this.id) || gameRepository.ensureMainBranch(this.id), saveData.economicState);
+    if (this.isStrictGame() && !economicsRestored) throw new Error('strict_economic_snapshot_missing: restore strict richiede stato economico verificabile');
+    });
+    } catch (e) {
+      this.regions = staging.regions;
+      this.relationships = RelationshipMatrix.fromJSON(staging.relationships);
+      this.actions = staging.actions;
+      this.results = staging.results;
+      this.pendingActions = staging.pendingActions;
+      this.currentTurn = staging.turn;
+      this.currentDate = staging.date;
+      this.pausedRun = staging.pausedRun;
+      this.players = staging.players;
+      this.consolidatedHistory = staging.consolidatedHistory;
+      this.consolidatedUpTo = staging.consolidatedUpTo;
+      this.difficulty = staging.difficulty;
+      this.interveneRequested = staging.interveneRequested;
+      if (this.isStrictGame()) {
+        const branchId = gameRepository.getHeadBranch(this.id);
+        if (branchId) invalidateStrictEffectStaging(branchId);
+      }
+      throw e;
+    }
     console.log('[GameSession] Loaded from save, turn:', this.currentTurn);
+    return { branchId: gameRepository.getHeadBranch(this.id) };
   }
 
   // =========================================================================
@@ -1841,12 +2071,13 @@ export class GameSession {
       pausedSimulationId: this.pausedRun?.runId,
       chats: chatRepository.snapshotGameChats(this.id),
       ongoingProcesses: gameRepository.snapshotOngoingProcesses(this.id),
+      economicState: captureEconomicSnapshot(this.id, gameRepository.getHeadBranch(this.id) || gameRepository.ensureMainBranch(this.id)),
     };
     const id = shortId();
     db.prepare(`
-      INSERT INTO saves (id, game_id, name, current_turn, current_date, data, saved_at)
-      VALUES (?, ?, '__rewind__', ?, ?, ?, ?)
-    `).run(id, this.id, this.currentTurn, this.currentDate, JSON.stringify(saveData), new Date().toISOString());
+      INSERT INTO saves (id, game_id, name, current_turn, current_date, data, content_hash, saved_at)
+      VALUES (?, ?, '__rewind__', ?, ?, ?, ?, ?)
+    `).run(id, this.id, this.currentTurn, this.currentDate, JSON.stringify(saveData), semanticStateHash(saveData), new Date().toISOString());
 
     // Держим только последний rewind-снапшот
     db.prepare("DELETE FROM saves WHERE game_id = ? AND name = '__rewind__' AND id != ?").run(this.id, id);
@@ -1871,7 +2102,7 @@ export class GameSession {
       return null;
     }
 
-    this.loadFromSave(saveData);
+    this.loadFromSave(saveData, save.content_hash ?? undefined);
     // Результат откаченного хода записан с turn == восстановленному currentTurn
     gameRepository.deleteAfterTurn(this.id, this.currentTurn - 1);
     // Снапшот потреблён — повторный rewind подряд невозможен
@@ -1931,9 +2162,11 @@ export class GameSession {
     horizonDate: string;
   }): Promise<PendingAction[] | PausedBatchResult> {
     const headlineToActionIds: Record<string, string[]> = {};
-    opts.actions.forEach((action, index) => {
-      const outcome = opts.promptResult.actionOutcomes?.find((result: any) => result.action === action.text)
-        || opts.promptResult.actionOutcomes?.[index];
+    const outcomes = this.outcomesByActionId(
+      opts.actions, opts.promptResult.actionOutcomes, opts.promptResult.convertedActions,
+    );
+    opts.actions.forEach(action => {
+      const outcome = outcomes.get(action.id);
       outcome?.eventHeadlines?.forEach((headline: string) => {
         const ids = headlineToActionIds[headline] || [];
         ids.push(action.id);
@@ -1959,6 +2192,7 @@ export class GameSession {
         worldChanges: opts.promptResult.worldChanges,
         relationshipChanges: opts.promptResult.relationshipChanges || [],
         startChat: opts.promptResult.startChat || [],
+        effects: Array.isArray(opts.promptResult.effects) ? opts.promptResult.effects : [],
       },
       appliedCount: 0,
     };
@@ -1987,7 +2221,32 @@ export class GameSession {
     const lastDate = this.currentDate;
     const eventDate = event.date;
 
-    // Effetti mappa dell'evento: solo ora la proposta diventa applicata.
+    // F02 passo 4: ancora del mondo per il CAS e staging della RAM. Le
+    // mutazioni qui sotto (mappa, economia, turno/data) sono transitorie:
+    // solo il commit riuscito le rende canoniche, un errore le scarta.
+    const anchorTurn = this.currentTurn;
+    const anchorDate = this.currentDate;
+    const staging = {
+      regions: new Map<string, RegionState>(
+        [...this.regions.entries()].map(([id, region]) => [id, JSON.parse(JSON.stringify(region))]),
+      ),
+      turn: this.currentTurn,
+      date: this.currentDate,
+      results: [...this.results],
+      appliedCount: state.appliedCount,
+      changedRegionsCount: state.changedRegions.length,
+      remainingEvents: [event, ...state.remainingEvents],
+      currentEventId: state.currentEventId,
+      checkpointId: state.checkpointId,
+      revision: state.revision,
+      pausedRun: this.pausedRun,
+    };
+    // M06 µ5f (quarta revisione B2): closeReason vive FUORI dal try, così la
+    // completion dell'ultimo evento è invocata DOPO il catch: un suo fault
+    // non ripassa dal rollback pre-step sopra un run già chiuso 'failed'.
+    let closeReason: 'paused_budget' | 'completed' | null = null;
+    try {
+    // Effetti mappa dell’evento: solo ora la proposta diventa applicata.
     const changedRegions = this.applyMapChanges(event.mapChanges).map(region => ({
       id: region.id,
       owner: region.owner,
@@ -2006,7 +2265,7 @@ export class GameSession {
 
     // Economia deterministica dalla data dell'ultimo checkpoint a questa data.
     const elapsedDays = Math.round((Date.parse(eventDate) - Date.parse(lastDate)) / 86_400_000);
-    const bulletins = elapsedDays > 0 ? this.advanceWorldState(elapsedDays) : [];
+    const bulletins: string[] = [];
 
     // Il turno logico cresce una sola volta per l'intero salto (§9.1).
     if (state.appliedCount === 0) this.currentTurn = state.jumpTurn + 1;
@@ -2022,14 +2281,7 @@ export class GameSession {
       source: 'world',
       simulationId: runId,
       sourceActionIds,
-    }, ...bulletins.map((bulletin, index) => ({
-      id: `${stepId}-b${index}`,
-      date: eventDate,
-      headline: 'Conti nazionali del periodo',
-      detail: bulletin,
-      source: 'world' as const,
-      simulationId: runId,
-    }))];
+    }];
     const turnResult: TurnResultRecord = {
       id: stepId,
       simulationId: runId,
@@ -2040,63 +2292,121 @@ export class GameSession {
       timelineEvents,
       date: eventDate,
     };
-    this.results.push(turnResult);
-    gameRepository.addTurnResult({ ...turnResult, gameId: this.id });
+    // F02 passo 2: le scritture canoniche del passo sono atomiche. Un errore
+    // a metà (checkpoint, eventi, run) riporta il DB allo stato precedente:
+    // nessun checkpoint orfano accanto a un mondo rimasto al passato. La
+    // chiusura del run (se l'evento era l'ultimo) avviene FUORI dalla
+    // transazione, dopo il commit del passo.
+    let committedRevision = 0;
+    let committedCheckpointId = '';
+    let remainingEvents = 0;
+    withCanonicalTransaction(() => {
+      // M06: tick e checkpoint condividono la stessa transazione/savepoint.
+      // Un fault successivo annulla anche ledger e stato cashflow.
+      if (elapsedDays > 0) {
+        bulletins.push(...this.advanceWorldState(elapsedDays, eventDate));
+        turnResult.events.push(...bulletins);
+        timelineEvents.push(...bulletins.map((bulletin, index) => ({
+          id: `${stepId}-b${index}`,
+          date: eventDate,
+          headline: 'Conti nazionali del periodo',
+          detail: bulletin,
+          source: 'world' as const,
+          simulationId: runId,
+        })));
+      }
+      this.results.push(turnResult);
+      // F03/A10: l’esito del batch è associato all’ID alla creazione; non verrà
+      // mai letto per posizione da processWorldAdvance.
+      this.lastCommittedResult = turnResult;
+      gameRepository.addTurnResult({ ...turnResult, gameId: this.id });
 
-    await this.syncRegionsToDB();
-    gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
+      // Persist turn and date to DB in single operation. F02 passo 4: CAS
+      // sull’ancora pre-commit — un mondo mutato altrove blocca il commit.
+      this.syncRegionsToDB();
+      if (!gameRepository.compareAndSwapTurnAndDate(this.id, anchorTurn, anchorDate, this.currentTurn, this.currentDate)) {
+        throw new Error(`world_anchor_conflict: mondo mutato durante la pausa (atteso turno ${anchorTurn} del ${anchorDate})`);
+      }
 
-    // Il run in pausa referenzia il checkpoint: assegnalo PRIMA della cattura,
-    // così un restore di questo checkpoint ripristina anche il playback (§9.3).
-    const eventIndex = state.appliedCount;
-    const revision = state.revisionBase + eventIndex;
-    const checkpointId = shortId();
-    state.currentEventId = `${stepId}-0`;
-    state.checkpointId = checkpointId;
-    state.revision = revision;
-    // Il checkpoint cattura lo stato del passo *successivo*: dopo restore la
-    // revisione resta crescente e non si ricommette l'evento appena letto.
-    state.appliedCount = eventIndex + 1;
-    this.pausedRun = state;
-    gameRepository.createSimulationCheckpoint({
-      id: checkpointId, runId, gameId: this.id, revision,
-      turn: state.jumpTurn, date: eventDate, data: this.captureCheckpointData(),
+      // Il run in pausa referenzia il checkpoint: assegnalo PRIMA della cattura,
+      // così un restore di questo checkpoint ripristina anche il playback (§9.3).
+      // F02: revisione dal contatore monotono, non più da turno + indice.
+      const previousRevision = gameRepository.getWorldRevision(this.id);
+      const revision = gameRepository.nextWorldRevision(this.id);
+      if (this.isStrictGame()) {
+        const branchId = gameRepository.getHeadBranch(this.id);
+        if (!branchId) throw new Error('strict_branch_missing');
+        promotePlaybackEffectAnchors(this.id, branchId, previousRevision, revision, state.completion.effects);
+      }
+      const checkpointId = shortId();
+      const eventOrdinal = state.appliedCount; // ordinale dell'evento nel playback (broadcast)
+      state.currentEventId = `${stepId}-0`;
+      state.checkpointId = checkpointId;
+      state.revision = revision;
+      // Il checkpoint cattura lo stato del passo *successivo*: dopo restore la
+      // revisione resta crescente e non si ricommette l'evento appena letto.
+      state.appliedCount += 1;
+      this.pausedRun = state;
+      gameRepository.createSimulationCheckpoint({
+        id: checkpointId, runId, gameId: this.id, revision,
+        turn: state.jumpTurn, date: eventDate, data: this.captureCheckpointData(),
+      });
+      gameRepository.addSimulationEvents([{
+        id: `${stepId}-0`,
+        runId,
+        checkpointId,
+        gameId: this.id,
+        date: eventDate,
+        headline: event.headline,
+        detail: event.description,
+        source: 'world',
+        sourceActionIds,
+      }]);
+      this.enqueueOutboxRows(runId, checkpointId, revision, state.jumpTurn, [{
+        id: `${stepId}-0`,
+        date: eventDate,
+        headline: event.headline,
+        detail: event.description,
+        source: 'world',
+        sourceActionIds,
+      }]);
+
+      remainingEvents = state.remainingEvents.length;
+
+      // Fine del playback: l'ultimo evento chiude il run subito se il budget è
+      // esaurito o se la destinazione coincide con la data dell'evento.
+      // La chiusura NON avviene qui: solo il marker (nessun await in transazione).
+      if (remainingEvents === 0) {
+        if (state.incomplete) closeReason = 'paused_budget';
+        else if (eventDate >= state.destination) closeReason = 'completed';
+      }
+
+      if (!closeReason) {
+        // Pausa durevole: le proposte restanti non sono canoniche e sopravvivono
+        // a riavvio/save/load dentro il run (pending_state).
+        // Nessuna LLM è in volo: la finestra di intervento è quella del lettore.
+        this.activeSimulationRunId = null;
+        this.activeSimulationAbort = null;
+        gameRepository.pauseSimulationRun(runId, {
+          checkpointDate: eventDate,
+          checkpointId,
+          turn: state.jumpTurn,
+          pendingState: state,
+        });
+      }
+      committedRevision = revision;
+      committedCheckpointId = checkpointId;
     });
-    gameRepository.addSimulationEvents([{
-      id: `${stepId}-0`,
-      runId,
-      checkpointId,
-      gameId: this.id,
-      date: eventDate,
-      headline: event.headline,
-      detail: event.description,
-      source: 'world',
-      sourceActionIds,
-    }]);
 
-    const remaining = state.remainingEvents.length;
-
-    // Fine del playback: l'ultimo evento chiude il run subito se il budget è
-    // esaurito o se la destinazione coincide con la data dell'evento.
-    if (remaining === 0) {
-      if (state.incomplete) return this._completePausedRunUnlocked(state, 'paused_budget');
-      if (eventDate >= state.destination) return this._completePausedRunUnlocked(state, 'completed');
-    }
-
-    // Pausa durevole: le proposte restanti non sono canoniche e sopravvivono
-    // a riavvio/save/load dentro il run (pending_state).
-    // Nessuna LLM è in volo: la finestra di intervento è quella del lettore.
-    this.activeSimulationRunId = null;
-    this.activeSimulationAbort = null;
-    gameRepository.pauseSimulationRun(runId, {
-      checkpointDate: eventDate,
-      checkpointId,
-      turn: state.jumpTurn,
-      pendingState: state,
-    });
+    if (!closeReason) {
+    const remaining = remainingEvents;
+    const revision = committedRevision;
+    const checkpointId = committedCheckpointId;
+    const eventOrdinal = state.appliedCount - 1; // ordinale dell'evento appena committato
+    this.publishPendingOutbox();
     this.broadcast('jump_event', {
       turn: state.jumpTurn,
-      index: eventIndex,
+      index: eventOrdinal,
       event,
       eventId: state.currentEventId,
       checkpointId: state.checkpointId,
@@ -2131,6 +2441,28 @@ export class GameSession {
       newTurn: this.currentTurn,
       changedRegions,
     };
+    }
+    } catch (e) {
+      // F02 passo 4: scarto dello staging — mappa, economia, turno/data e
+      // stato del run tornano al checkpoint confermato più recente.
+      this.regions = staging.regions;
+      this.currentTurn = staging.turn;
+      this.currentDate = staging.date;
+      this.results = staging.results;
+      state.appliedCount = staging.appliedCount;
+      state.changedRegions.length = staging.changedRegionsCount;
+      state.remainingEvents = [...staging.remainingEvents];
+      state.currentEventId = staging.currentEventId;
+      state.checkpointId = staging.checkpointId;
+      state.revision = staging.revision;
+      this.pausedRun = staging.pausedRun;
+      throw e;
+    }
+    // M06 µ5f: la completion dell'ultimo evento NON passa dal catch dello
+    // step: il suo rollback interno (post-step + run 'failed' + requeue)
+    // resta l'unica contabilità dell'errore, senza il doppio rollback pre-step.
+    if (closeReason) return this._completePausedRunUnlocked(state, closeReason);
+    throw new Error('playback step senza pausa né chiusura');
   }
 
   /**
@@ -2153,6 +2485,25 @@ export class GameSession {
     const lastEventDate = this.currentDate;
     const finalDate = destinationReached ? state.destination : lastEventDate;
 
+    // F02 passo 4: ancora del mondo per il CAS e staging della RAM. Il commit
+    // riuscito promuove lo staging; ogni errore lo scarta e la RAM torna
+    // esattamente al checkpoint confermato più recente.
+    const anchorTurn = this.currentTurn;
+    const anchorDate = this.currentDate;
+    const staging = {
+      regions: new Map<string, RegionState>(
+        [...this.regions.entries()].map(([id, region]) => [id, JSON.parse(JSON.stringify(region))]),
+      ),
+      relationships: this.relationships.toJSON(),
+      actions: [...this.actions],
+      results: [...this.results],
+      pendingActions: this.pendingActions.map(action => ({ ...action })),
+      turn: this.currentTurn,
+      date: this.currentDate,
+      interveneRequested: this.interveneRequested,
+      pausedRun: this.pausedRun,
+    };
+
     // Cronaca canonica del run: gli eventi applicati, con le loro date.
     const appliedRows = gameRepository.getSimulationEvents(this.id, runId);
     const appliedHeadlines = new Set(appliedRows.map(row => row.headline));
@@ -2166,7 +2517,21 @@ export class GameSession {
       from: string; to: string; newRelationship: RelationshipType; reason: string;
     }[] = [];
     const chatTimelineEvents: TimelineEventRecord[] = [];
+    const chatBroadcasts: Array<Record<string, unknown>> = [];
+    // Variabili prodotte dentro la transazione e lette fuori (broadcast e
+    // ritorno): la callback è sempre eseguita per intero o ha rilanciato.
+    let narration!: string;
+    let runEvents!: string[];
+    let runEventDetails!: TimelineEventRecord[];
+    let batchActions!: PendingAction[];
+    // F02 passo 2: commit canonico atomico della chiusura del run — anche
+    // qui tutte le scritture in una sola transazione breve; broadcast e
+    // consolidamento restano fuori. Un protocol error (es. projectId non
+    // accettato) riporta il DB integro allo stato del checkpoint precedente.
+    try {
+    withCanonicalTransaction(() => {
     if (destinationReached) {
+      if (this.isStrictGame()) applyStagedStrictEffects(this.id, gameRepository.getHeadBranch(this.id)!, gameRepository.getWorldRevision(this.id), completion.effects || []);
       if (completion.worldChanges) this.applyWorldChanges(completion.worldChanges);
       const polityResolver = this.buildResolvers().polities;
       for (const change of completion.relationshipChanges) {
@@ -2181,6 +2546,7 @@ export class GameSession {
           reason: change.reason || 'Conseguenza diplomatica del turno',
         });
       }
+      // F02 passo 2: la transazione è aperta prima dell’if destinationReached.
       relationshipRepository.upsertForGame(this.id, persistedRelationshipChanges);
       for (const startChat of completion.startChat) {
         try {
@@ -2200,7 +2566,7 @@ export class GameSession {
             chatId: chat.id,
             speakerName: sender,
           });
-          this.broadcast('chat_message', {
+          chatBroadcasts.push({
             chatId: chat.id,
             polityId: chat.polityId,
             polityName: chat.polityName,
@@ -2216,14 +2582,14 @@ export class GameSession {
 
     // Economia deterministica fino alla data finale effettiva.
     const elapsedDays = Math.round((Date.parse(finalDate) - Date.parse(lastEventDate)) / 86_400_000);
-    const bulletins = elapsedDays > 0 ? this.advanceWorldState(elapsedDays) : [];
+    const bulletins = this.isStrictGame() || elapsedDays > 0 ? this.advanceWorldState(elapsedDays, finalDate) : [];
 
     // Record finale: riepilogo tecnico del periodo, non seconda fonte di
     // mutazioni. Gli eventi applicati vivono nei record per-evento.
     const interruptionHeadline = reason === 'paused_budget'
       ? '⏸ Budget di simulazione esaurito: destinazione non raggiunta'
       : '⏸ Simulazione interrotta dal giocatore (Intervene)';
-    const narration = destinationReached
+    narration = destinationReached
       ? completion.narration
       : appliedRows.map(row => row.detail).filter(Boolean).join('\n\n') || interruptionHeadline;
     const finalTimelineEvents: TimelineEventRecord[] = [
@@ -2264,7 +2630,7 @@ export class GameSession {
     // Finalizzazione del lotto di ordini: esiti individuali collegati SOLO
     // agli eventi effettivamente applicati del run (§9.2: gli ordini emessi
     // non sono reinviati; un esito parziale resta un processo aperto).
-    const batchActions = state.batchActionIds
+    batchActions = state.batchActionIds
       .map(id => this.pendingActions.find(action => action.id === id))
       .filter((action): action is PendingAction => !!action);
     const actionRecords: ActionRecord[] = batchActions.map(item => ({
@@ -2283,15 +2649,17 @@ export class GameSession {
       text: actionRecord.text,
     }));
 
-    const runEvents = this.results
+    runEvents = this.results
       .filter(record => record.simulationId === runId)
       .flatMap(record => record.events);
-    const runEventDetails = this.results
+    runEventDetails = this.results
       .filter(record => record.simulationId === runId)
       .flatMap(record => record.timelineEvents || []);
-    batchActions.forEach((item, index) => {
-      const outcome = completion.actionOutcomes.find((result: any) => result.action === item.text)
-        || completion.actionOutcomes[index];
+    const outcomes = this.outcomesByActionId(
+      batchActions, completion.actionOutcomes, completion.convertedActions,
+    );
+    batchActions.forEach(item => {
+      const outcome = outcomes.get(item.id);
       const rejected = voided.find((result: any) => result.action === item.text);
       const outcomeStatus = outcome?.status || (rejected ? 'rejected' : undefined);
       const outcomeSummary = outcome?.summary || rejected?.reason;
@@ -2299,6 +2667,8 @@ export class GameSession {
         ? outcome.eventHeadlines.filter((headline: string) => appliedHeadlines.has(headline))
         : rejected ? voidedHeadlines.filter(headline => headline.includes(rejected.action)) : runEvents;
       item.status = 'completed';
+      item.deliveryStatus = 'issued';
+      item.executionStatus = 'completed';
       item.result = {
         narration: outcomeSummary || narration,
         countryResponse: finalResult.countryResponse,
@@ -2306,7 +2676,12 @@ export class GameSession {
         eventDetails: runEventDetails,
         simulationId: runId,
         outcome: outcomeStatus && outcomeSummary
-          ? { status: outcomeStatus, summary: outcomeSummary, expectedDate: outcome?.expectedDate }
+          ? {
+            status: outcomeStatus,
+            summary: outcomeSummary,
+            expectedDate: outcome?.expectedDate,
+            completesProjectId: outcome?.completesProjectId,
+          }
           : undefined,
         objects: playerRegion.objects,
         turn: state.jumpTurn,
@@ -2328,19 +2703,20 @@ export class GameSession {
           : undefined,
       });
     });
-    batchActions.filter(action => action.result?.outcome?.status === 'accepted').forEach(action => {
-      gameRepository.completeOngoingProcessForAction(
-        this.id,
-        action.text,
-        action.result!.outcome!.summary,
-      );
+    batchActions.forEach(action => {
+      const outcome = action.result?.outcome;
+      if (!outcome?.completesProjectId) return;
+      if (outcome.status !== 'accepted'
+        || gameRepository.completeOngoingProcessById(this.id, outcome.completesProjectId, outcome.summary) !== 1) {
+        throw new Error('simulation_protocol_error: completesProjectId is invalid or not accepted');
+      }
     });
     gameRepository.addSimulationActionOutcomes(batchActions.map(action => ({
       id: shortId(),
       runId,
       gameId: this.id,
       actionId: action.id,
-      status: action.result?.outcome?.status || 'accepted',
+      status: action.result?.outcome?.status || 'unresolved',
       summary: action.result?.outcome?.summary || action.result?.narration || narration,
       eventHeadlines: action.result?.events || [],
     })));
@@ -2350,14 +2726,17 @@ export class GameSession {
     this.pendingActions = this.pendingActions
       .filter(action => !batchActions.some(batch => batch.id === action.id));
 
-    // Data/turno definitivi e checkpoint di chiusura del run.
+    // Data/turno definitivi e checkpoint di chiusura del run. F02 passo 4:
+    // CAS sull’ancora pre-commit — un mondo mutato altrove blocca il commit.
     this.currentDate = finalDate;
     this.interveneRequested = false;
     this.pausedRun = null; // prima della cattura: il checkpoint non referenzia più il run
-    await this.syncRegionsToDB();
-    gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
+    this.syncRegionsToDB();
+    if (!gameRepository.compareAndSwapTurnAndDate(this.id, anchorTurn, anchorDate, this.currentTurn, this.currentDate)) {
+      throw new Error(`world_anchor_conflict: mondo mutato durante la pausa (atteso turno ${anchorTurn} del ${anchorDate})`);
+    }
     const finalCheckpointId = shortId();
-    const finalRevision = state.revisionBase + state.appliedCount;
+    const finalRevision = gameRepository.nextWorldRevision(this.id);
     gameRepository.createSimulationCheckpoint({
       id: finalCheckpointId, runId, gameId: this.id, revision: finalRevision,
       turn: state.jumpTurn, date: finalDate, data: this.captureCheckpointData(),
@@ -2373,12 +2752,58 @@ export class GameSession {
       source: event.source,
       sourceActionIds: event.sourceActionIds,
     })));
+    this.enqueueOutboxRows(runId, finalCheckpointId, finalRevision, state.jumpTurn, finalTimelineEvents);
     gameRepository.finishSimulationRun(runId, reason, {
       checkpointDate: finalDate,
       checkpointId: finalCheckpointId,
       turn: state.jumpTurn,
     });
+      }); // fine transazione canonica (F02 passo 2)
+      this.publishPendingOutbox();
+    } catch (e) {
+      // F02 passo 4: scarto dello staging — la RAM torna esattamente al
+      // checkpoint confermato più recente, coerente con il DB rollbackato.
+      this.regions = staging.regions;
+      this.relationships = RelationshipMatrix.fromJSON(staging.relationships);
+      this.actions = staging.actions;
+      this.results = staging.results;
+      this.pendingActions = staging.pendingActions;
+      this.currentTurn = staging.turn;
+      this.currentDate = staging.date;
+      this.interveneRequested = staging.interveneRequested;
+      if (this.isStrictGame()) {
+        const pausedFallbackActions = this.pendingActions.map(action => ({ ...action }));
+        this.pausedRun = null;
+        this.activeSimulationRunId = null;
+        this.activeSimulationAbort = null;
+        for (const action of this.pendingActions) {
+          if (!state.batchActionIds.includes(action.id)) continue;
+          action.status = 'pending';
+          action.deliveryStatus = 'queued';
+          action.executionStatus = 'not_started';
+        }
+        // M06: un completion strict invalido chiude il run, non lascia una
+        // finestra awaiting_next riutilizzabile sopra uno staging fallito.
+        try {
+          withCanonicalTransaction(() => {
+            gameRepository.finishSimulationRun(runId, 'failed', { error: e instanceof Error ? e.message : String(e) });
+            gameRepository.replacePendingActions(this.id, this.pendingActions);
+          });
+        } catch (failureError) {
+          this.pendingActions = pausedFallbackActions;
+          this.pausedRun = staging.pausedRun;
+          console.error('[GameSession] Failed to persist paused-run failure:', failureError);
+        }
+      } else {
+        // Compatibilità legacy: un protocol error mantiene aperto il lettore
+        // sul checkpoint confermato, come prima di M06.
+        this.pausedRun = staging.pausedRun;
+      }
+      throw e;
+    }
 
+    // F02/M06: SSE solo dopo il commit riuscito; il rollback non può pubblicare chat fantasma.
+    for (const payload of chatBroadcasts) this.broadcast('chat_message', payload);
     this.broadcast('turn_complete', {
       turn: state.jumpTurn,
       narration,
@@ -2398,7 +2823,7 @@ export class GameSession {
     } catch (e) {
       console.error('[GameSession] Consolidation failed (turn kept):', e);
     }
-    this.getAdvisor(
+    this.getAdvisorUnchecked(
       'Commenta brevemente (max 500 caratteri) gli esiti del periodo appena trascorso per il tuo leader, in italiano',
       []
     )
@@ -2541,6 +2966,7 @@ export class GameSession {
           worldChanges: raw.completion?.worldChanges,
           relationshipChanges: Array.isArray(raw.completion?.relationshipChanges) ? raw.completion.relationshipChanges : [],
           startChat: Array.isArray(raw.completion?.startChat) ? raw.completion.startChat : [],
+          effects: Array.isArray(raw.completion?.effects) ? raw.completion.effects as StrictEffect[] : [],
         },
         appliedCount: Number.isInteger(raw.appliedCount) ? raw.appliedCount : 0,
         currentEventId: typeof raw.currentEventId === 'string' ? raw.currentEventId : undefined,
@@ -2618,6 +3044,19 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
    * Get advisor response using prompt system
    */
   async getAdvisor(message: string, history: any[] = []): Promise<string> {
+    // F04 passo 3: politica esplicita durante un run — 409, non un consiglio
+    // calcolato su un contesto già congelato. L'advisor non persiste nulla:
+    // la risposta resta per costruzione una bozza.
+    if (this.hasActiveRun()) throw new SimulationInProgressError();
+    return this.getAdvisorUnchecked(message, history);
+  }
+
+  /**
+   * Consiglio senza guardia di run: riservato al commento proattivo del run
+   * appena chiuso (stesso ramo, stessa revisione commessa — nessun write-back,
+   * solo broadcast).
+   */
+  private async getAdvisorUnchecked(message: string, history: any[]): Promise<string> {
     const gameData = this.buildGameData();
     return this.gameController.getAdvisorWithPrompts(gameData, message, history);
   }
@@ -2627,8 +3066,28 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
    * (число символов накопленного ответа), возвращается полный текст.
    */
   async getAdvisorStream(message: string, history: any[] = [], onToken: (chars: number) => void): Promise<string> {
+    // F04 passo 3: stessa politica del non-streaming (409 durante un run).
+    if (this.hasActiveRun()) throw new SimulationInProgressError();
     const gameData = this.buildGameData();
     return this.gameController.getAdvisorStreamWithPrompts(gameData, message, history, onToken);
+  }
+
+  // =========================================================================
+  // F04 passo 3 — fencing ramo/revisione per chat e advisor
+  // =========================================================================
+
+  /** Cattura ramo/revisione all'inizio di una richiesta conversazionale. */
+  fenceContext(): { branchId: string | null; revision: number } {
+    return { branchId: gameRepository.getHeadBranch(this.id), revision: gameRepository.getWorldRevision(this.id) };
+  }
+
+  /** Verifica la validità del fence PRIMA di qualsiasi write-back. */
+  private assertFenceValid(fence: { branchId: string | null; revision: number }): void {
+    if (this.hasActiveRun()) throw new SimulationInProgressError();
+    const current = this.fenceContext();
+    if (current.branchId !== fence.branchId || current.revision !== fence.revision) {
+      throw new ContextChangedError(fence.branchId, fence.revision);
+    }
   }
 
   /**
@@ -2644,6 +3103,68 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
   // =========================================================================
 
   /**
+   * F02 passo 3: registra gli eventi canonici nell’outbox. Va invocata DENTRO
+   * la transazione canonica, subito dopo addSimulationEvents: eventi e outbox
+   * commettono o rollbackano insieme. Gli ID sono quelli stabili degli eventi.
+   */
+  private enqueueOutboxRows(
+    runId: string,
+    checkpointId: string,
+    revision: number,
+    turn: number,
+    rows: Array<{ id: string; date: string; headline: string; detail?: string; source: string; sourceActionIds?: string[] }>,
+  ): void {
+    if (!rows.length) return;
+    gameRepository.enqueueOutbox(rows.map(event => ({
+      id: event.id,
+      gameId: this.id,
+      runId,
+      eventId: event.id,
+      payload: {
+        type: 'world_event' as const,
+        eventId: event.id,
+        runId,
+        checkpointId,
+        revision,
+        turn,
+        date: event.date,
+        headline: event.headline,
+        detail: event.detail ?? '',
+        source: event.source,
+        sourceActionIds: event.sourceActionIds || [],
+      },
+    })));
+  }
+
+  /**
+   * F02 passo 3: pubblicatore outbox — separato e ripetibile. Pubblica solo
+   * eventi già committati, in ordine di sequenza; marca «published» solo dopo
+   * la diffusione (almeno-una-volta: un crash tra diffusione e marcia ripete
+   * la diffusione con gli stessi ID stabili, e il client deduplica). Senza
+   * client SSE le righe restano «pending»: il flush avviene alla (ri)connessione.
+   */
+  publishPendingOutbox(limit = 200): number {
+    if (!this.sseBroadcaster) return 0;
+    try {
+      const rows = gameRepository.pendingOutbox(this.id, limit);
+      if (!rows.length) return 0;
+      const published: string[] = [];
+      for (const row of rows) {
+        let payload: unknown;
+        try { payload = JSON.parse(row.payload); } catch { payload = null; }
+        if (!payload || !this.broadcast('world_event', payload)) break;
+        published.push(row.id);
+      }
+      if (published.length) gameRepository.markOutboxPublished(this.id, published);
+      return published.length;
+    } catch (error) {
+      // Il commit è già riuscito: conserva pending per retry, mai rollback finto.
+      console.error('[GameSession] Outbox publish failed after commit:', error);
+      return 0;
+    }
+  }
+
+  /**
    * Add action to pending queue (without processing)
    */
   queueAction(text: string): PendingAction {
@@ -2652,6 +3173,8 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       text,
       createdAt: new Date().toISOString(),
       status: 'pending',
+      deliveryStatus: 'queued',
+      executionStatus: 'not_started',
     };
     this.pendingActions.push(action);
     gameRepository.queuePendingAction({
@@ -2684,6 +3207,47 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
    */
   getPendingActions(): PendingAction[] {
     return this.pendingActions;
+  }
+
+  getQueueVersion(): number {
+    return gameRepository.getQueueVersion(this.id);
+  }
+
+  /**
+   * Risolve gli esiti LLM con la chiave canonica. Il testo è ammesso soltanto
+   * nell'adapter legacy e solo quando individua una singola azione convertita:
+   * testi duplicati, ID ignoti o outcome ripetuti sono errori di protocollo.
+   */
+  private outcomesByActionId(
+    actions: PendingAction[],
+    outcomes: ActionOutcome[] | undefined,
+    convertedActions: ConvertedAction[] | undefined,
+  ): Map<string, ActionOutcome> {
+    const result = new Map<string, ActionOutcome>();
+    const knownIds = new Set(actions.map(action => action.id));
+    const converted = convertedActions || [];
+
+    for (const outcome of outcomes || []) {
+      let actionId = outcome.actionId;
+      if (!actionId) {
+        const candidates = new Set<string>();
+        for (const action of actions) {
+          if (action.text === outcome.action) candidates.add(action.id);
+        }
+        for (const action of converted) {
+          if (action.actionId && action.text === outcome.action) candidates.add(action.actionId);
+        }
+        if (candidates.size !== 1) {
+          throw new Error('simulation_protocol_error: legacy outcome is ambiguous or unresolved; actionId is required');
+        }
+        actionId = [...candidates][0];
+      }
+      if (!knownIds.has(actionId) || result.has(actionId)) {
+        throw new Error('simulation_protocol_error: outcome actionId is unknown or duplicated');
+      }
+      result.set(actionId, outcome);
+    }
+    return result;
   }
 
   /** Rimuove dalla coda un ordine non ancora avviato. */
@@ -2757,7 +3321,11 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       "SELECT * FROM saves WHERE game_id = ? AND name = '__rewind__' ORDER BY saved_at DESC LIMIT 1"
     ).get(this.id) as any;
     this.saveRewindSnapshot();
-    actions.forEach(item => { item.status = 'processing'; });
+    actions.forEach(item => {
+      item.status = 'processing';
+      item.deliveryStatus = 'issued';
+      item.executionStatus = 'in_progress';
+    });
     gameRepository.updatePendingActionStatus(this.id, actions.map(item => item.id), 'processing');
     console.log(
       '[GameSession] Processing simulation batch:',
@@ -2769,6 +3337,9 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       [...this.regions.entries()].map(([id, region]) => [id, JSON.parse(JSON.stringify(region))])
     );
     let simulationRunId: string | null = null;
+    // F03/A10: ogni batch riparte senza esiti ereditati — un salto senza
+    // eventi non deve poter restituire la cronaca di un run precedente.
+    this.lastCommittedResult = null;
     // Snapshot completo pre-run: un errore dopo scritture DB non può lasciare
     // cronaca, relazioni o chat avanti rispetto alla mappa ripristinata.
     const turnBeforeRun = this.currentTurn;
@@ -2786,6 +3357,14 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       const playerRegion = this.regions.get(player.regionId);
       if (!playerRegion) throw new Error('Player region not found');
 
+      // M06 µ3: in strict nessun comando materiale LLM diretto entra nel
+      // percorso: build_facility/spawn_battalion/grant_funds/set_gdp non sono
+      // più comandi diretti. Il rifiuto avviene PRIMA della chiamata al
+      // provider, così nessun credito viene consumato per un ordine vietato.
+      if (this.isStrictGame()) {
+        for (const action of actions) rejectDirectMaterialCommand(action.text);
+      }
+
       // jumpDays <= 0 — auto-jump «к следующему важному событию» (горизонт — год)
       const autoJump = jumpDays <= 0;
       simulationRunId = shortId();
@@ -2799,6 +3378,21 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         targetDate: horizonDate,
         idempotencyKey,
       });
+
+      // M06 µ6a (B1): in strict lo stato iniziale del catalogo entra nel ledger
+      // del ramo (idempotente) PRIMA di ogni proposta: disponibilità reali per
+      // prenotazioni/cashflow; fallisce chiuso se il catalogo è incoerente.
+      if (this.isStrictGame()) {
+        const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
+        const templateId = worldRow?.template_id;
+        if (typeof templateId === 'string' && templateId) {
+          const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId));
+          if (!loaded.catalog) throw new Error(`strict_catalog_invalid: ${templateId}`);
+          const branchId = gameRepository.getHeadBranch(this.id);
+          if (!branchId) throw new Error('strict_branch_missing');
+          bootstrapCatalogEconomy(this.id, branchId, loaded.catalog);
+        }
+      }
 
       this.broadcast('turn_start', {
         simulationId: simulationRunId,
@@ -2882,7 +3476,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
 
       const promptResult = await this.gameController.processTurnWithPrompts(
         gameData,
-        actions.map(item => item.text),
+        actions.map(item => ({ actionId: item.id, text: item.text })),
         timeJump,
         (chars) => this.broadcast('llm_progress', {
           mechanic: 'jump',
@@ -2902,6 +3496,17 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         emitEvent(events[i], i);
       }
       intervened ||= this.interveneRequested;
+
+      // M06 µ3: in strict l'intero risultato è validato in un solo punto
+      // PRIMA di qualsiasi mutatore materiale o commit narrativo. worldChanges
+      // assoluti, mapChanges LLM diretti, outcome senza actionId canonico ed
+      // effetti non consentiti → EffectValidationError: il catch riporta il
+      // mondo all'ultimo checkpoint e il run termina 'failed'. Mai simulazione
+      // riuscita per fallback (MAT25/26/27/37/38, C03/C04/C10).
+      if (this.isStrictGame()) {
+        validateStrictResultSafe(promptResult);
+        assertExecutableStrictEffects(promptResult.effects || []);
+      }
 
       // §9.3 — playback «un evento alla volta»: con due o più eventi proposti
       // il salto fisso committa solo il primo checkpoint e consegna il resto
@@ -2923,17 +3528,21 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // destinazione non è raggiunta, gli ordini tornano disponibili e il
       // run termina «interrupted» senza inventare esiti.
       if (!autoJump && intervened) {
-        actions.forEach(action => { action.status = 'pending'; });
+        actions.forEach(action => {
+          action.status = 'pending';
+          action.deliveryStatus = 'queued';
+          action.executionStatus = 'not_started';
+        });
         gameRepository.updatePendingActionStatus(this.id, actions.map(action => action.id), 'pending');
         db.prepare("DELETE FROM saves WHERE game_id = ? AND name = '__rewind__'").run(this.id);
         if (rewindBeforeSearch) {
           db.prepare(`
-            INSERT INTO saves (id, game_id, name, current_turn, current_date, data, saved_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO saves (id, game_id, name, current_turn, current_date, data, content_hash, saved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
             rewindBeforeSearch.id, rewindBeforeSearch.game_id, rewindBeforeSearch.name,
             rewindBeforeSearch.current_turn, rewindBeforeSearch.current_date,
-            rewindBeforeSearch.data, rewindBeforeSearch.saved_at,
+            rewindBeforeSearch.data, rewindBeforeSearch.content_hash, rewindBeforeSearch.saved_at,
           );
         }
         gameRepository.finishSimulationRun(simulationRunId, 'interrupted', {
@@ -2950,6 +3559,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           newDate: this.currentDate,
           intervened: true,
         });
+        this.lastCommittedResult = null; // nessun esito: mai inferire dall’ultima cronaca
         return [];
       }
 
@@ -2969,17 +3579,21 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // Una ricerca automatica senza svolte non è un turno: lascia data,
       // mappa, coda, risultati e snapshot esattamente al checkpoint iniziale.
       if (autoJump && !intervened && appliedEvents.length === 0) {
-        actions.forEach(action => { action.status = 'pending'; });
+        actions.forEach(action => {
+          action.status = 'pending';
+          action.deliveryStatus = 'queued';
+          action.executionStatus = 'not_started';
+        });
         gameRepository.updatePendingActionStatus(this.id, actions.map(action => action.id), 'pending');
         db.prepare("DELETE FROM saves WHERE game_id = ? AND name = '__rewind__'").run(this.id);
         if (rewindBeforeSearch) {
           db.prepare(`
-            INSERT INTO saves (id, game_id, name, current_turn, current_date, data, saved_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO saves (id, game_id, name, current_turn, current_date, data, content_hash, saved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
             rewindBeforeSearch.id, rewindBeforeSearch.game_id, rewindBeforeSearch.name,
             rewindBeforeSearch.current_turn, rewindBeforeSearch.current_date,
-            rewindBeforeSearch.data, rewindBeforeSearch.saved_at,
+            rewindBeforeSearch.data, rewindBeforeSearch.content_hash, rewindBeforeSearch.saved_at,
           );
         }
         gameRepository.finishSimulationRun(simulationRunId, 'no_event', {
@@ -2994,6 +3608,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           startDate: periodStart,
           searchedUntil: horizonDate,
         });
+        this.lastCommittedResult = null; // C10: il salto senza eventi non ha un esito
         return [];
       }
 
@@ -3020,6 +3635,10 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         newRelationship: RelationshipType;
         reason: string;
       }[] = [];
+      // F02 passo 2: il record del turno è prodotto dentro la transazione e
+      // letto fuori (broadcast/return): callback intera o errore propagato.
+      let turnResult!: TurnResultRecord;
+      const chatBroadcasts: Array<Record<string, unknown>> = [];
       const polityResolver = this.buildResolvers().polities;
       for (const change of applyCompletionEffects ? promptResult.relationshipChanges || [] : []) {
         const from = polityResolver.resolve(change.from);
@@ -3033,6 +3652,12 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           reason: change.reason || 'Conseguenza diplomatica del turno',
         });
       }
+      // F02 passo 2: commit canonico atomico del percorso ordinario — tutte
+      // le scritture (relazioni, chat, azioni, esiti, coda, mondo, checkpoint,
+      // eventi, run) in una sola transazione breve; LLM/consolidamento e SSE
+      // restano fuori. Un errore a metà non lascia stato misto nel DB.
+      withCanonicalTransaction(() => {
+      if (this.isStrictGame() && applyCompletionEffects) applyStagedStrictEffects(this.id, gameRepository.getHeadBranch(this.id)!, gameRepository.getWorldRevision(this.id), promptResult.effects || []);
       relationshipRepository.upsertForGame(this.id, persistedRelationshipChanges);
 
       // Le nazioni possono aprire autonomamente un canale dopo un evento.
@@ -3060,7 +3685,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
             chatId: chat.id,
             speakerName: sender,
           });
-          this.broadcast('chat_message', {
+          chatBroadcasts.push({
             chatId: chat.id,
             polityId: chat.polityId,
             polityName: chat.polityName,
@@ -3081,7 +3706,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // nei dispacci, così i turni successivi ricordano le conseguenze.
       // L'economia aggiorna comunque i valori fino alla data dell'evento,
       // ma nell'auto-jump non aggiunge un secondo dispaccio alla prima svolta.
-      const economyBulletins = period.elapsedDays > 0 ? this.advanceWorldState(period.elapsedDays) : [];
+      const economyBulletins = this.isStrictGame() || period.elapsedDays > 0 ? this.advanceWorldState(period.elapsedDays, period.end) : [];
       const economyEvents = autoJump ? [] : economyBulletins;
 
       // Il salto viene deciso da UN'unica sequenza causale (la simulazione
@@ -3114,7 +3739,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       const llmEventHeadlines = appliedEvents.map((e: any) => e.headline).filter(Boolean);
       const voidedHeadlines = voided.map(v => `⊘ Respinto: ${v.action}${v.reason ? ` — ${v.reason}` : ''}`);
       if (intervened) llmEventHeadlines.push('⏸ Simulazione interrotta dal giocatore (Intervene)');
-      const turnResult: TurnResultRecord = {
+      turnResult = {
         id: shortId(),
         simulationId: simulationRunId || undefined,
         turn: this.currentTurn,
@@ -3127,18 +3752,21 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         events: [...voidedHeadlines, ...llmEventHeadlines, ...economyEvents, ...npcEvents, ...randomEvents],
       };
       this.results.push(turnResult);
+      // F03/A10: l’esito è associato all’ID alla creazione (nessun fallback
+      // per posizione in processWorldAdvance).
+      this.lastCommittedResult = turnResult;
 
       // Persist ALL region changes to DB
-      await this.syncRegionsToDB();
+      this.syncRegionsToDB();
 
       // Ogni ordine mantiene l'involucro comune del turno ma riceve il proprio
-      // esito strutturato quando il provider lo restituisce. Fallback legacy:
-      // la cronaca comune resta leggibile finché un preset non emette outcome.
-      actions.forEach((item, index) => {
-        // Il converter può normalizzare/tradurre il testo prima del prompt;
-        // l'ordine del lotto resta quindi il fallback stabile di associazione.
-        const outcome = promptResult.actionOutcomes?.find(result => result.action === item.text)
-          || promptResult.actionOutcomes?.[index];
+      // esito strutturato quando il provider lo restituisce. Il nuovo percorso
+      // usa actionId; l'adapter legacy accetta solo testi univoci convertiti.
+      const outcomes = this.outcomesByActionId(
+        actions, promptResult.actionOutcomes, promptResult.convertedActions,
+      );
+      actions.forEach(item => {
+        const outcome = outcomes.get(item.id);
         const rejected = voided.find(result => result.action === item.text);
         const outcomeStatus = outcome?.status || (rejected ? 'rejected' : undefined);
         const outcomeSummary = outcome?.summary || rejected?.reason;
@@ -3146,13 +3774,20 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           ? outcome.eventHeadlines.filter(headline => turnResult.events.includes(headline))
           : rejected ? voidedHeadlines.filter(headline => headline.includes(rejected.action)) : turnResult.events;
         item.status = 'completed';
+        item.deliveryStatus = 'issued';
+        item.executionStatus = 'completed';
         item.result = {
           narration: outcomeSummary || turnResult.narration,
           countryResponse: turnResult.countryResponse,
           events: outcomeEvents,
           simulationId: simulationRunId || undefined,
           outcome: outcomeStatus && outcomeSummary
-            ? { status: outcomeStatus, summary: outcomeSummary, expectedDate: outcome?.expectedDate }
+            ? {
+              status: outcomeStatus,
+              summary: outcomeSummary,
+              expectedDate: outcome?.expectedDate,
+              completesProjectId: outcome?.completesProjectId,
+            }
             : undefined,
           objects: playerRegion.objects,
           turn: this.currentTurn,
@@ -3178,14 +3813,15 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
             : undefined,
         });
       });
-      // Una reiterazione dello stesso ordine con esito accepted chiude il
-      // processo aperto associato: la LLM deve comunque dichiarare accepted.
-      actions.filter(action => action.result?.outcome?.status === 'accepted').forEach(action => {
-        gameRepository.completeOngoingProcessForAction(
-          this.id,
-          action.text,
-          action.result!.outcome!.summary,
-        );
+      // Un progetto si chiude solo per il suo ID esplicito e con outcome
+      // accepted: un titolo o un testo riformulato non può chiudere un altro.
+      actions.forEach(action => {
+        const outcome = action.result?.outcome;
+        if (!outcome?.completesProjectId) return;
+        if (outcome.status !== 'accepted'
+          || gameRepository.completeOngoingProcessById(this.id, outcome.completesProjectId, outcome.summary) !== 1) {
+          throw new Error('simulation_protocol_error: completesProjectId is invalid or not accepted');
+        }
       });
 
       // Esiti individuali durevoli: anche i preset legacy ricevono un record
@@ -3195,7 +3831,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         runId: simulationRunId!,
         gameId: this.id,
         actionId: action.id,
-        status: action.result?.outcome?.status || 'accepted',
+        status: action.result?.outcome?.status || 'unresolved',
         summary: action.result?.outcome?.summary || action.result?.narration || turnResult.narration,
         eventHeadlines: action.result?.events || [],
       })));
@@ -3219,9 +3855,8 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         appliedEvents.map(event => [event.headline, event] as const)
       );
       const sourceActionsByHeadline = new Map<string, string[]>();
-      actions.forEach((action, index) => {
-        const outcome = promptResult.actionOutcomes?.find(result => result.action === action.text)
-          || promptResult.actionOutcomes?.[index];
+      actions.forEach(action => {
+        const outcome = outcomes.get(action.id);
         outcome?.eventHeadlines?.forEach(headline => {
           const ids = sourceActionsByHeadline.get(headline) || [];
           ids.push(action.id);
@@ -3268,14 +3903,21 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         date: turnResult.date,
       });
 
-      // Persist turn and date to DB in single operation
-      gameRepository.updateTurnAndDate(this.id, this.currentTurn, this.currentDate);
+      // Persist turn and date to DB in single operation. F02 passo 4: CAS
+      // sull’ancora pre-run — se il mondo è mutato altrove, il commit fallisce
+      // invece di sovrascrivere.
+      if (!gameRepository.compareAndSwapTurnAndDate(this.id, turnBeforeRun, dateBeforeRun, this.currentTurn, this.currentDate)) {
+        throw new Error(`world_anchor_conflict: mondo mutato durante il run (atteso turno ${turnBeforeRun} del ${dateBeforeRun})`);
+      }
       const checkpointId = shortId();
+      // F02: anche il percorso ordinario usa il contatore monotono: la sua
+      // revisione non può mai regredire rispetto a un playback precedente.
+      const checkpointRevision = gameRepository.nextWorldRevision(this.id);
       gameRepository.createSimulationCheckpoint({
         id: checkpointId,
         runId: simulationRunId!,
         gameId: this.id,
-        revision: this.currentTurn,
+        revision: checkpointRevision,
         turn: turnResult.turn,
         date: this.currentDate,
         data: this.captureCheckpointData(),
@@ -3291,11 +3933,16 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         source: event.source,
         sourceActionIds: event.sourceActionIds,
       })));
+      this.enqueueOutboxRows(simulationRunId!, checkpointId, checkpointRevision, turnResult.turn, turnResult.timelineEvents || []);
       gameRepository.finishSimulationRun(simulationRunId!, intervened ? 'intervened' : 'completed', {
         checkpointDate: this.currentDate,
         checkpointId,
         turn: turnResult.turn,
       });
+      }); // fine transazione canonica (F02 passo 2)
+      this.publishPendingOutbox();
+      // F02/M06: la chat è visibile soltanto dopo il commit canonico.
+      for (const payload of chatBroadcasts) this.broadcast('chat_message', payload);
 
       // Этап 2: консолидация истории — не должна ронять успешный ход
       try {
@@ -3318,7 +3965,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // Этап 3: проактивный советник — короткий комментарий итогов периода.
       // Fire-and-forget: ход уже успешен, советник не должен его задерживать
       // или ронять.
-      this.getAdvisor(
+      this.getAdvisorUnchecked(
         'Commenta brevemente (max 500 caratteri) gli esiti del periodo appena trascorso per il tuo leader, in italiano',
         []
       )
@@ -3345,7 +3992,11 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       }
       this.activeSimulationRunId = null;
       this.activeSimulationAbort = null;
-      actions.forEach(item => { item.status = 'pending'; });
+      actions.forEach(item => {
+        item.status = 'pending';
+        item.deliveryStatus = 'queued';
+        item.executionStatus = 'not_started';
+      });
       try {
         await this.syncRegionsToDB();
         gameRepository.replaceHistory(this.id, this.actions, this.results);
@@ -3383,16 +4034,24 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
    * explicitly means that only existing world processes may produce events.
    */
   async processWorldAdvance(jumpDays: number = 30, idempotencyKey?: string): Promise<TurnResultRecord | PausedBatchResult | null> {
+    // F03/A10: `executed` distingue il conflitto di lock (nessun callback
+    // eseguito → SimulationInProgressError) dal no_event onesto (callback
+    // eseguito, nessun risultato → null → la route risponde no_event_found).
+    let executed = false;
     const result = await this.withLock(async () => {
+      executed = true;
       if (this.pausedRun) throw new SimulationPausedError(this.pausedRun.runId);
       const batch = await this._processActionBatchUnlocked(jumpDays, [], idempotencyKey);
       // §9.3: il mondo senza nuovi ordini riceve lo stesso playback scaglionato
       // quando la simulazione produce più eventi nel periodo richiesto.
       if (!Array.isArray(batch)) return batch;
-      return this.results.at(-1) || null;
+      // F03/A10: il risultato è quello del batch appena committato, associato
+      // all’ID alla creazione. Un salto senza eventi non inventa la cronaca
+      // dell’esito dal run precedente.
+      return this.lastCommittedResult;
     });
-    if (result === null) throw new SimulationInProgressError();
-    return result;
+    if (!executed) throw new SimulationInProgressError();
+    return result ?? null;
   }
 
   /**
@@ -3402,6 +4061,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
    * still advance together for callers that explicitly retain this legacy API.
    */
   async advanceDate(jumpDays: number = 30): Promise<{ newDate: string; newTurn: number }> {
+    if (this.isStrictGame()) throw new Error('strict_legacy_path_forbidden: advanceDate');
     // §9.3: un run in pausa possiede il turno: nemmeno il percorso legacy
     // può far avanzare il mondo dietro la finestra di lettura del giocatore.
     if (this.pausedRun) throw new SimulationPausedError(this.pausedRun.runId);

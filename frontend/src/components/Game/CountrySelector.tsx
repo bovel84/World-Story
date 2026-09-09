@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Country Selector Component
+ * World Story — Country Selector Component
  * =====================================
  * Scelta del paese dopo la selezione del template.
 * Fase 4: layout a due colonne — a sinistra la mappa del mondo (WorldSelectMap),

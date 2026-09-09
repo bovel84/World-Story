@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Chat Repository
+ * World Story — Chat Repository
  * ==========================
  * Chat diplomatiche del giocatore con le politie.
  * Supporta chat uno-a-uno e di GRUPPO: `participants` contiene l'elenco

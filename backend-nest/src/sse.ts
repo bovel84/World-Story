@@ -1,5 +1,5 @@
 /**
- * Open-Pax — SSE (Server-Sent Events)
+ * World Story — SSE (Server-Sent Events)
  * ====================================
  * Real-time event streaming for game updates
  */

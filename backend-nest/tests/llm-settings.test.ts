@@ -9,8 +9,8 @@ import fs from 'fs';
 import express from 'express';
 import type { Server } from 'node:http';
 
-const CONFIG_FILE = path.join(os.tmpdir(), `open-pax-llm-config-${process.pid}-${Date.now()}.json`);
-const DB_FILE = path.join(os.tmpdir(), `open-pax-llm-db-${process.pid}.db`);
+const CONFIG_FILE = path.join(os.tmpdir(), `world-story-llm-config-${process.pid}-${Date.now()}.json`);
+const DB_FILE = path.join(os.tmpdir(), `world-story-llm-db-${process.pid}.db`);
 
 const ENV_KEYS = [
   'LLM_CONFIG_PATH', 'LLM_PROVIDER', 'LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL',

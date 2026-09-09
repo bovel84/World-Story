@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Preset ZIP (Этап 5)
+ * World Story — Preset ZIP (Этап 5)
  * ==============================
  * Импорт/экспорт пресет-пакетов в формате zip ("<id>.openpax.zip").
  *
@@ -9,6 +9,9 @@
  *   lore.md       — лор мира
  *   map.geojson   — кастомная карта (валидный JSON)
  *   flags/<name>.svg|png — флаги стран
+ *   simulation/*.json + simulation/sources.md — catalogo di scenario (M01):
+ *     validato in memoria PRIMA di ogni scrittura; con errori bloccanti
+ *     l'import strict è rifiutato con percorso e motivo (MAT01).
  *
  * Прочие записи в архиве игнорируются. Zip-slip записи (../, абсолютные
  * пути) отбрасываются. Чистые функции — роуты лишь тонкие обёртки.
@@ -17,6 +20,7 @@
 import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
+import { validateCatalog, type CatalogFiles } from '../scenario/loader';
 import {
   PRESETS_DIR,
   PresetPackage,
@@ -93,6 +97,16 @@ export function buildPresetZip(id: string): Buffer | null {
   addIfExists('rules.md');
   addIfExists('lore.md');
   addIfExists('map.geojson');
+  // M01 µ4: il catalogo simulation/ viaggia con il pacchetto (esportato e
+  // reimportabile senza perdita).
+  try {
+    const simDir = path.join(dir, 'simulation');
+    if (fs.existsSync(simDir)) {
+      for (const file of fs.readdirSync(simDir)) {
+        if (/\.(json|md)$/i.test(file)) addIfExists(path.join('simulation', file));
+      }
+    }
+  } catch { /* nessun catalogo */ }
   for (const flag of preset.flags) {
     addIfExists(path.join('flags', flag), `flags/${flag}`);
   }
@@ -171,8 +185,51 @@ export function importPresetZip(
       }
       continue;
     }
-    // Прочие записи игнорируем
+    // M01 µ4: catalogo di scenario ammesso in archivio (validato più sotto,
+    // PRIMA di ogni scrittura su disco — MAT01).
+    if (name.startsWith('simulation/') && /\.(json|md)$/i.test(name)) {
+      files.push({ rel: name, data: entry.getData() });
+      continue;
+    }
   }
+  // M01 µ4 (piano passo 5, MAT01): il catalogo simulation/ dell'archivio è
+  // validato in memoria PRIMA di ogni scrittura su disco. Con errori
+  // bloccanti l'import strict è rifiutato con percorso e motivo.
+  const simEntries = files.filter(f => f.rel.startsWith('simulation/'));
+  if (simEntries.length > 0) {
+    const catalogFiles: CatalogFiles = {};
+    const parseIssues: string[] = [];
+    const keys: Record<string, string> = {
+      'manifest.json': 'manifest', 'polities.json': 'polities', 'resources.json': 'resources',
+      'technologies.json': 'technologies', 'recipes.json': 'recipes', 'facilities.json': 'facilities',
+      'actors.json': 'actors', 'authorities.json': 'authorities', 'initial-state.json': 'initial-state',
+    };
+    for (const entry of simEntries) {
+      const fileName = entry.rel.slice('simulation/'.length);
+      if (fileName === 'sources.md') continue; // testo, non validato dal loader
+      const key = keys[fileName];
+      if (!key) {
+        parseIssues.push(`simulation/${fileName}: file non ammesso nel catalogo`);
+        continue;
+      }
+      try {
+        (catalogFiles as any)[key] = JSON.parse(entry.data.toString('utf-8'));
+      } catch {
+        parseIssues.push(`${entry.rel}: JSON non valido`);
+      }
+    }
+    for (const key of Object.keys(keys)) {
+      if ((catalogFiles as any)[keys[key]] === undefined) parseIssues.push(`simulation/${keys[key]}.json: file di catalogo mancante`);
+    }
+    const report = validateCatalog(catalogFiles);
+    if (report.errors.length > 0 || parseIssues.length > 0) {
+      const details = [...parseIssues, ...report.errors.map(e => `${e.path} [${e.code}] ${e.message}`)];
+      throw new PresetZipError('INVALID_PRESET',
+        `Import strict rifiutato: ${details.length} problemi di catalogo. ${details.slice(0, 10).join(' | ')}`);
+    }
+  }
+  // I file simulation/ validati restano in `files` e vengono estratti insieme
+  // al resto; l'archivio senza catalogo mantiene il comportamento legacy.
 
   // Извлечение: каталог data/presets/<id> (при overwrite — пересоздаём)
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });

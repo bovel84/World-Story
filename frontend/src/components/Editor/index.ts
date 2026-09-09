@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Editor Components
+ * World Story — Editor Components
  * ============================
  */
 

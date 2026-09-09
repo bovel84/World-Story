@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Relationship Matrix
+ * World Story — Relationship Matrix
  * ==============================
  * Tracks diplomatic relationships between countries (ally/neutral/hostile).
  * Relationships are directional but symmetric in practice (A→B = B→A for MVP).

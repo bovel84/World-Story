@@ -1,5 +1,5 @@
 /**
- * Open-Pax — LLMSettingsModal
+ * World Story — LLMSettingsModal
  * ===========================
  * Menu di scelta del modello IA: preset dei provider (Ollama Cloud/locale,
  * OpenRouter, NVIDIA, MiniMax, Anthropic, endpoint OpenAI-compatibili),

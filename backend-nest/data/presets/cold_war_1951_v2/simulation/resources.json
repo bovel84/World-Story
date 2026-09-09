@@ -1,0 +1,4 @@
+[
+  { "id": "coal", "name": "Carbone", "unit": { "kind": "energy", "symbol": "GWh" }, "transportable": true, "conserved": true },
+  { "id": "crude_oil", "name": "Petrolio greggio", "unit": { "kind": "energy", "symbol": "GWh" }, "transportable": true, "conserved": true }
+]

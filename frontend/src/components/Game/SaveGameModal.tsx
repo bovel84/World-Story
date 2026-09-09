@@ -1,5 +1,5 @@
 /**
-* Open-Pax — Fase 6: SaveGameModal
+* World Story — Fase 6: SaveGameModal
  * =================================
 * Modale di salvataggio della partita (sostituisce prompt()).
  * Overlay scuro, input del nome, «Salva»/«Annulla».

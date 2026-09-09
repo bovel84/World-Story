@@ -1,5 +1,5 @@
 /**
- * Open-Pax — Suggestions Prompt
+ * World Story — Suggestions Prompt
  * =============================
  * Generatore di suggerimenti/proposte (actions.md)
  */

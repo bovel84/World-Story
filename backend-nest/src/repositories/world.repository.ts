@@ -1,5 +1,5 @@
 /**
- * Open-Pax — World Repository
+ * World Story — World Repository
  * ===========================
  */
 
@@ -21,6 +21,8 @@ export interface WorldRecord {
   simulation_rules: string | null;
   /** Переопределённые промпты ИИ мира (секция "prompts" пресета, JSON) */
   prompts: string | null;
+  /** M01 passo 4 (MAT18): impronta di contenuto del catalogo simulation/; NULL per i mondi legacy. */
+  catalog_fingerprint: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -43,10 +45,10 @@ export interface RegionRecord {
 }
 
 export const worldRepository = {
-  create: (world: { id: string; name: string; description?: string; startDate?: string; basePrompt?: string; historicalAccuracy?: number; simulationRules?: string | null; prompts?: string | null }) => {
+  create: (world: { id: string; name: string; description?: string; startDate?: string; basePrompt?: string; historicalAccuracy?: number; simulationRules?: string | null; prompts?: string | null; catalogFingerprint?: string | null; templateId?: string | null }) => {
     const stmt = db.prepare(`
-      INSERT INTO worlds (id, name, description, start_date, base_prompt, historical_accuracy, simulation_rules, prompts)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO worlds (id, name, description, start_date, base_prompt, historical_accuracy, simulation_rules, prompts, catalog_fingerprint, template_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       world.id,
@@ -58,7 +60,11 @@ export const worldRepository = {
       // Этап 5: правила симуляции пресета (NULL для обычных миров)
       world.simulationRules ?? null,
       // Переопределённые промпты пресета (JSON-строка; NULL — дефолтные промпты)
-      world.prompts ?? null
+      world.prompts ?? null,
+      // M01 passo 4 (MAT18): impronta del catalogo di scenario; NULL per i mondi legacy
+      world.catalogFingerprint ?? null,
+      // M03 µ4-bis: il server carica solo questo preset, mai un catalogo body.
+      world.templateId ?? null
     );
     return world;
   },
@@ -231,7 +237,7 @@ export const worldRepository = {
     stmt.run(...values);
   },
 
-  createWithRegions: (world: { id: string; name: string; description?: string; startDate?: string; basePrompt?: string; historicalAccuracy?: number; simulationRules?: string | null; prompts?: string | null }, regions: any[]) => {
+  createWithRegions: (world: { id: string; name: string; description?: string; startDate?: string; basePrompt?: string; historicalAccuracy?: number; simulationRules?: string | null; prompts?: string | null; catalogFingerprint?: string | null; templateId?: string | null }, regions: any[]) => {
     const createWorld = db.transaction(() => {
       worldRepository.create(world);
       for (const region of regions) {
