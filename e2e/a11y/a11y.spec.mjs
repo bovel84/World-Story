@@ -26,7 +26,7 @@ async function reachHud(page) {
   await page.locator('.template-card').first().click();
   await page.locator('.country-list-item').first().click();
   await page.locator('.btn-play').click();
-  await expect(page.locator('.game-wrapper')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.rail-btn').first()).toBeVisible({ timeout: 20_000 });
 }
 
 /** Audit DOM statico: ritorna un array di violazioni {selector, issue}. */
@@ -45,10 +45,11 @@ function auditDom() {
   formControls.forEach((el) => {
     const id = el.id;
     const hasLabelFor = id && document.querySelector(`label[for="${CSS.escape(id)}"]`);
+    const hasWrappingLabel = el.closest('label');
     const hasAriaLabel = el.getAttribute('aria-label');
     const hasAriaLabelledby = el.getAttribute('aria-labelledby');
-    if (!hasLabelFor && !hasAriaLabel && !hasAriaLabelledby) {
-      violations.push({ selector: el.tagName.toLowerCase() + (id ? `#${id}` : ''), issue: 'controllo di form senza nome accessibile' });
+    if (!hasLabelFor && !hasWrappingLabel && !hasAriaLabel && !hasAriaLabelledby) {
+      violations.push({ selector: el.tagName.toLowerCase() + (id ? `#${id}` : '') + (el.getAttribute('type') ? `[type="${el.getAttribute('type')}"]` : '') + (el.className ? `.${String(el.className).trim().replace(/\s+/g, '.')}` : ''), issue: 'controllo di form senza nome accessibile' });
     }
   });
 
@@ -87,10 +88,9 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     await reachHud(page);
 
     // Apri i moduli per coprire anche i loro controlli.
-    await page.locator('.fab-btn[aria-label="Ordini"]').click();
-    await expect(page.locator('.action-desk')).toBeVisible();
-    await page.locator('.action-desk .btn-close').click();
-    await page.locator('.fab-btn[aria-label="Nazione"]').click();
+    await page.locator('.rail-btn').filter({ hasText: 'Ordini' }).click();
+    await expect(page.locator('.suggestions-content')).toBeVisible();
+    await page.locator('.rail-btn').filter({ hasText: 'Nazione' }).click();
     await expect(page.locator('.nation-desk')).toBeVisible();
 
     const violations = await page.evaluate(auditDom);
