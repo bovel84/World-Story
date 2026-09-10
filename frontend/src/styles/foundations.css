@@ -91,9 +91,22 @@
   line-height: 1;
 }
 
+.confirm-dialog-overlay,
+.save-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ws-z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
 .confirm-dialog-overlay {
   background: rgb(0 0 0 / 70%);
 }
+
+.save-picker-overlay { background: rgba(4, 10, 18, .72); }
 
 .confirm-dialog {
   min-width: 320px;
