@@ -50,6 +50,8 @@ interface DeskContentProps {
   setEditingActionId: (id: string | null) => void;
   setEditingActionText: (text: string) => void;
   isProcessingTurn: boolean;
+  /** Processi letti dal registro simulazione, per il dossier nazionale G5-A. */
+  ongoingProcesses: Array<{ id: string; title: string; summary: string; started_date: string; expected_date?: string | null }>;
   feedItems: any[];
   /** G4-C: seleziona una regione sulla mappa (da «Mostra sulla mappa»). */
   onFocusRegion: (regionId: string) => void;
@@ -99,6 +101,7 @@ export function DeskContent({
   setEditingActionId,
   setEditingActionText,
   isProcessingTurn,
+  ongoingProcesses,
   feedItems,
   onFocusRegion,
   playerPolityId,
@@ -277,6 +280,8 @@ export function DeskContent({
             nationalName={nationalName}
             governmentType={governmentType}
             account={nationalAccount}
+            regions={currentWorld?.regions ? Object.values(currentWorld.regions).filter((region) => region.owner === playerPolityId) as Region[] : []}
+            ongoingProcesses={ongoingProcesses}
             campaignProgress={campaignProgress}
             latestNarration={latestNationalNarration}
           />

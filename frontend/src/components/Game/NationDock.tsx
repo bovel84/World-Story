@@ -1,30 +1,26 @@
 /**
- * World Story — Dossier Nazione (U03 µ1)
- * ===================================
- * Il dossier (maestro §10.3) è la superficie delle decisioni nazionali,
- * distinta dalla mappa (superficie geografica). Contiene sezioni progressive:
- * Situazione, Progetti, Bilancio, Risorse, Conoscenze, Politiche.
- *
- * µ1 (passo 1):
- *  - architettura a sezioni con default «Situazione» (decisioni richieste);
- *  - la nazione è la POLITY del giocatore, mai rinominata dalla provincia
- *    selezionata sulla mappa;
- *  - denaro/unità/periodi formattati con gli helper condivisi `utils/format`.
- *
- * Le sezioni oltre «Situazione» mostrano uno stato «Da cosa dipende?» con
- * fonte/data dichiarate: i dati reali (progetti M05, ledger M02, risorse M04,
- * conoscenze M01, mandati M07) arrivano nelle µ successive.
+ * World Story — Dossier Nazione (G5-A)
+ * ====================================
+ * Read model nazionale: espone solo dati già pubblicati dal motore o dalla
+ * mappa autorevole; nessun valore economico, tecnologico o istituzionale è
+ * stimato nel browser.
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import type { Region } from '../../types';
 import {
   initialNationDockState,
   setSection,
   NATION_SECTIONS,
   NATION_SECTION_LABEL,
-  type NationSection,
 } from '../../stores/nationDock';
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
+import {
+  financeBalance,
+  hasNationalFinance,
+  summarizeNationalAssets,
+  type NationalProcess,
+} from './nationDossier';
 
 /** Conto nazionale aggregato (shape di `WorldStateEngine.accounts`). */
 export interface NationAccount {
@@ -52,53 +48,50 @@ interface NationDockProps {
   nationalName: string;
   governmentType: string;
   account?: NationAccount | null;
+  regions?: Region[];
+  ongoingProcesses?: NationalProcess[];
   campaignProgress: number;
   latestNarration: string;
 }
 
-/** Stato «Da cosa dipende?» per le sezioni non ancora alimentate (µ1). */
-function SectionPlaceholder({ section }: { section: NationSection }) {
-  const dependsOn: Record<NationSection, string> = {
-    situazione: '—',
-    progetti: 'Progetti attivi/bloccati/previsti (M05) e prossima milestone.',
-    bilancio: 'Ledger monetario e riserve (M02), entrate/uscite reali e previste.',
-    risorse: 'Stock/accesso, filiere, consumi e trasporti (M04).',
-    conoscenze: 'Capacità disponibili/mancanti, ricerca e formazione (M01/M05).',
-    politiche: 'Mandati/delega, servizi essenziali e istituzioni (M07).',
-  };
+function formatDate(value?: string | null): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '');
+  if (!match) return value || 'Data non pubblicata';
+  const months = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+  return `${Number(match[3])} ${months[Number(match[2]) - 1]} ${match[1]}`;
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone?: 'positive' | 'negative' }) {
   return (
-    <div className="nation-section-empty" role="note">
-      <div className="nation-section-empty-title">{NATION_SECTION_LABEL[section]}</div>
-      <p className="nation-section-empty-desc">
-        I dati di questa sezione non sono ancora disponibili in questa versione.
-      </p>
-      <p className="nation-section-depends">
-        <b>Da cosa dipende?</b> {dependsOn[section]}
-      </p>
-    </div>
+    <span className={`nation-metric${tone ? ` ${tone}` : ''}`}>
+      <small>{label}</small><b>{value}</b>
+    </span>
   );
+}
+
+function NoPublishedData({ children }: { children: React.ReactNode }) {
+  return <p className="nation-data-note" role="note">{children}</p>;
 }
 
 export const NationDock: React.FC<NationDockProps> = ({
   nationalName,
   governmentType,
   account,
+  regions = [],
+  ongoingProcesses = [],
   campaignProgress,
   latestNarration,
 }) => {
   const [state, setState] = useState(initialNationDockState);
   const active = state.activeSection;
-
-  const population = Number(account?.population ?? 0);
-  const gdpBillions = Number(account?.nominalGdpUsdBillions ?? 0);
-  const revenue = Number(account?.monthlyRevenue ?? 0);
-  const expenses = Number(account?.monthlyExpenses ?? 0);
+  const assets = useMemo(() => summarizeNationalAssets(regions, account), [regions, account]);
+  const financeAvailable = hasNationalFinance(account);
+  const balance = financeBalance(account);
   const stability = Number(account?.stability ?? 0);
-  const provinces = Number(account?.provinces ?? 0);
+  const growth = Number(account?.annualGrowthRate ?? 0);
 
   return (
     <div className="nation-dock">
-      {/* Navigazione a sezioni (una sola attiva). */}
       <nav className="nation-dock-tabs" aria-label="Sezioni del dossier">
         {NATION_SECTIONS.map((section) => (
           <button
@@ -116,13 +109,17 @@ export const NationDock: React.FC<NationDockProps> = ({
       <div className="nation-dock-body">
         {active === 'situazione' && (
           <>
-            {/* Situazione: decisioni richieste + bollettino essenziale. */}
             <section className="nation-section" aria-label="Decisioni richieste">
               <div className="nation-section-title">Decisioni richieste</div>
               <div className="nation-decisions">
-                <div className="nation-decision-empty">
-                  Nessuna decisione richiede attenzione immediata.
-                </div>
+                {ongoingProcesses.length > 0 ? (
+                  <div className="nation-decision-live">
+                    <b>{ongoingProcesses.length} {ongoingProcesses.length === 1 ? 'processo richiede monitoraggio' : 'processi richiedono monitoraggio'}</b>
+                    <span>Apri Progetti per vedere le prossime scadenze registrate.</span>
+                  </div>
+                ) : (
+                  <div className="nation-decision-empty">Nessuna decisione richiede attenzione immediata.</div>
+                )}
               </div>
             </section>
 
@@ -138,21 +135,92 @@ export const NationDock: React.FC<NationDockProps> = ({
                   <i><em style={{ width: `${Math.max(0, Math.min(100, campaignProgress))}%` }} /></i>
                 </div>
                 <div className="nation-ledger">
-                  <span><small>POPOLAZIONE</small><b>{formatNumber(population)}</b></span>
-                  <span><small>PIL NOM.</small><b>{formatMoney(gdpBillions, { currency: 'mld', decimals: 1 })}</b></span>
-                  <span><small>ENTRATE / MESE</small><b>{formatMoney(revenue, { currency: 'mld', decimals: 2, sign: true })}</b></span>
-                  <span><small>USCITE / MESE</small><b>{formatMoney(expenses, { currency: 'mld', decimals: 2, sign: true })}</b></span>
+                  <Metric label="POPOLAZIONE" value={formatNumber(assets.population)} />
+                  <Metric label="PIL NOM." value={formatMoney(assets.gdpBillions, { currency: 'mld', decimals: 1 })} />
+                  <Metric label="ENTRATE / MESE" value={formatMoney(Number(account?.monthlyRevenue ?? 0), { currency: 'mld', decimals: 2, sign: true })} />
+                  <Metric label="USCITE / MESE" value={formatMoney(Number(account?.monthlyExpenses ?? 0), { currency: 'mld', decimals: 2, sign: true })} />
                 </div>
                 <p className="nation-narration">{latestNarration}</p>
               </div>
-              <p className="nation-section-depends">
-                <b>Da cosa dipende?</b> Stabilità {formatPercent(stability)} · Province {formatNumber(provinces)} · dati aggregati dal motore (fonte: bollettino nazionale).
-              </p>
+              <p className="nation-section-depends"><b>Fonte</b> Conto nazionale e mappa autorevole · Stabilità {formatPercent(stability)} · Province {formatNumber(assets.provinces)}.</p>
             </section>
           </>
         )}
 
-        {active !== 'situazione' && <SectionPlaceholder section={active} />}
+        {active === 'progetti' && (
+          <section className="nation-section" aria-label="Progetti e processi in corso">
+            <div className="nation-section-title">Progetti e processi in corso</div>
+            {ongoingProcesses.length === 0 ? (
+              <div className="nation-decision-empty">Nessun processo in corso alla data del bollettino.</div>
+            ) : (
+              <ul className="nation-process-list">
+                {ongoingProcesses.map((process) => (
+                  <li key={process.id}>
+                    <div><b>{process.title}</b><span>{process.summary}</span></div>
+                    <small>Avviato {formatDate(process.started_date)} · {process.expected_date ? `stimato ${formatDate(process.expected_date)}` : 'nessuna data stimata'}</small>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <NoPublishedData>I processi sono letti dal registro della simulazione: questa sezione non crea né modifica progetti.</NoPublishedData>
+          </section>
+        )}
+
+        {active === 'bilancio' && (
+          <section className="nation-section" aria-label="Bilancio nazionale">
+            <div className="nation-section-title">Bilancio nazionale</div>
+            {financeAvailable ? (
+              <div className="nation-data-grid">
+                <Metric label="ENTRATE MENSILI" value={formatMoney(Number(account?.monthlyRevenue ?? 0), { currency: 'mld', decimals: 2, sign: true })} tone="positive" />
+                <Metric label="USCITE MENSILI" value={formatMoney(Number(account?.monthlyExpenses ?? 0), { currency: 'mld', decimals: 2, sign: true })} tone="negative" />
+                <Metric label="SALDO MENSILE" value={formatMoney(balance, { currency: 'mld', decimals: 2, sign: true })} tone={balance >= 0 ? 'positive' : 'negative'} />
+                <Metric label="CRESCITA ANNUA" value={formatPercent(growth)} tone={growth >= 0 ? 'positive' : 'negative'} />
+              </div>
+            ) : (
+              <NoPublishedData>Questo scenario non pubblica ancora voci di bilancio nel conto nazionale.</NoPublishedData>
+            )}
+            <p className="nation-section-depends"><b>Fonte</b> WorldStateEngine.accounts · valori letti, non stimati dal client.</p>
+          </section>
+        )}
+
+        {active === 'risorse' && (
+          <section className="nation-section" aria-label="Capacità produttive e territoriali">
+            <div className="nation-section-title">Capacità produttive e territoriali</div>
+            <div className="nation-data-grid">
+              <Metric label="PROVINCE" value={formatNumber(assets.provinces)} />
+              <Metric label="FABBRICHE" value={formatNumber(assets.factories)} />
+              <Metric label="PORTI" value={formatNumber(assets.ports)} />
+              <Metric label="CITTÀ E CAPITALI" value={formatNumber(assets.cities)} />
+            </div>
+            <p className="nation-section-depends"><b>Fonte</b> Conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Stock e flussi non vengono inventati.</p>
+          </section>
+        )}
+
+        {active === 'conoscenze' && (
+          <section className="nation-section" aria-label="Conoscenze e personale">
+            <div className="nation-section-title">Conoscenze e personale</div>
+            <div className="nation-data-grid">
+              <Metric label="UNIVERSITÀ" value={formatNumber(assets.universities)} />
+              <Metric label="UNITÀ E FORZE" value={formatNumber(assets.forces)} />
+              <Metric label="POPOLAZIONE" value={formatNumber(assets.population)} />
+              <Metric label="PIL PRO CAPITE" value={account?.gdpPerCapitaUsd != null ? formatMoney(Number(account.gdpPerCapitaUsd), { currency: '$', decimals: 0 }) : 'Non pubblicato'} />
+            </div>
+            <NoPublishedData>Il catalogo non espone ancora un inventario delle tecnologie: il dossier mostra soltanto capacità e personale già registrati.</NoPublishedData>
+          </section>
+        )}
+
+        {active === 'politiche' && (
+          <section className="nation-section" aria-label="Politiche e istituzioni">
+            <div className="nation-section-title">Politiche e istituzioni</div>
+            <div className="nation-data-grid">
+              <Metric label="FORMA DI GOVERNO" value={governmentType} />
+              <Metric label="STABILITÀ" value={formatPercent(stability)} tone={stability >= 50 ? 'positive' : 'negative'} />
+              <Metric label="TERRITORIO AMMINISTRATO" value={`${formatNumber(assets.provinces)} province`} />
+              <Metric label="PROCESSI ATTIVI" value={formatNumber(ongoingProcesses.length)} />
+            </div>
+            <NoPublishedData>Mandati e servizi saranno mostrati qui solo quando il read model ne pubblicherà stato e responsabilità.</NoPublishedData>
+          </section>
+        )}
       </div>
     </div>
   );

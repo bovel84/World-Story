@@ -2074,6 +2074,7 @@ function App() {
               setEditingActionId={setEditingActionId}
               setEditingActionText={setEditingActionText}
               isProcessingTurn={isProcessingTurn}
+              ongoingProcesses={ongoingProcesses}
               feedItems={feedItems}
               onFocusRegion={(regionId) => {
                 // G4-C: «Mostra sulla mappa» seleziona la regione toccata
