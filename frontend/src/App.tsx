@@ -343,9 +343,18 @@ function App() {
   useEffect(() => {
     if (!currentGameId) { setNationalAccounts({}); setMandateDecisions([]); return; }
     let cancelled = false;
-    Promise.all([gameApi.nationalState(currentGameId), gameApi.mandateDecisions(currentGameId)])
-      .then(([national, decisions]) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setMandateDecisions(decisions.decisions || []); } })
-      .catch(error => console.warn('[App] Impossibile caricare il dossier nazionale:', error));
+    // Il conto nazionale è disponibile anche nei giochi legacy; le decisioni
+    // mandato appartengono invece solo al percorso strict e un 409 significa
+    // semplicemente «nessuna decisione applicabile», non un errore del dossier.
+    gameApi.nationalState(currentGameId)
+      .then((national) => { if (!cancelled) setNationalAccounts(national.accounts || {}); })
+      .catch(error => console.warn('[App] Impossibile caricare il conto nazionale:', error));
+    gameApi.mandateDecisions(currentGameId)
+      .then((decisions) => { if (!cancelled) setMandateDecisions(decisions.decisions || []); })
+      .catch((error: any) => {
+        if (!cancelled) setMandateDecisions([]);
+        if (error?.status !== 409) console.warn('[App] Impossibile caricare le decisioni mandato:', error);
+      });
     return () => { cancelled = true; };
   }, [currentGameId, currentGame?.currentTurn]);
 

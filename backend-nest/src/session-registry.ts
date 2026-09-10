@@ -179,8 +179,16 @@ class SessionRegistry {
 
     // Verifica il contenuto originale PRIMA di qualsiasi normalizzazione:
     // una migrazione editoriale non può legittimare uno snapshot manomesso.
-    if (typeof save.content_hash !== 'string' || semanticStateHash(saveData) !== save.content_hash) {
+    // I save precedenti all'introduzione dell'hash hanno il campo vuoto: solo
+    // quel formato legacy viene sigillato una volta con l'hash corrente.
+    const actualHash = semanticStateHash(saveData);
+    const storedHash = typeof save.content_hash === 'string' ? save.content_hash.trim() : '';
+    if (storedHash && actualHash !== storedHash) {
       throw new Error('snapshot_hash_mismatch: salvataggio non integro');
+    }
+    if (!storedHash) {
+      db.prepare('UPDATE saves SET content_hash = ? WHERE id = ?').run(actualHash, saveId);
+      save.content_hash = actualHash;
     }
 
     // I salvataggi contengono uno snapshot delle regioni. Senza questa

@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { semanticStateHash } from '../src/domain/semantic-hash';
 
 const TEST_DB = path.join(os.tmpdir(), `world-story-semantic-hash-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
@@ -117,6 +118,17 @@ describe('F04 passo 1–2 — hash semantico dello snapshot', () => {
     // Restore legittimo: lo stato restaurato ha lo stesso hash semantico.
     session.loadFromSave(JSON.parse(row.data), row.content_hash);
     expect(session.semanticHash()).toBe(row.content_hash);
+  });
+
+  it('sigilla una sola volta un save legacy privo di hash', async () => {
+    const { session } = getSessionRegistry().createSession(WORLD_ID, 'Player', REGION_ID);
+    const saved = session.save('legacy-hash-save');
+    db.prepare('UPDATE saves SET content_hash = ? WHERE id = ?').run('', saved.saveId);
+
+    const loaded = getSessionRegistry().loadSavedGame(saved.saveId);
+    expect(loaded).not.toBeNull();
+    const row = db.prepare('SELECT content_hash, data FROM saves WHERE id = ?').get(saved.saveId) as any;
+    expect(row.content_hash).toBe(semanticStateHash(JSON.parse(row.data)));
   });
 
   it('uno snapshot manomesso viene rifiutato prima di mutare la sessione', async () => {
