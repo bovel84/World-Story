@@ -2295,6 +2295,28 @@ function App() {
         onClose={() => setShowSavePicker(false)}
         onSelect={(save) => { setShowSavePicker(false); setShowLoadSaveConfirm(save); }}
       />
+      {/* Fase 6: la modale di salvataggio era importata ma mai renderizzata: il
+          bottone SALVA del desk non faceva nulla. Render + chiamata API. */}
+      {showSaveModal && currentGame && (
+        <SaveGameModal
+          open={true}
+          defaultName={`Partita ${new Date().toLocaleDateString('it-IT')}`}
+          onClose={() => setShowSaveModal(false)}
+          onSave={(name) => {
+            void (async () => {
+              try {
+                await gameApi.saveGame(currentGame.id, name);
+                notify(`Partita salvata: ${name}`, 'success');
+              } catch (e) {
+                console.error('[Save] Failed to save game:', e);
+                notify('Errore durante il salvataggio.', 'error');
+              } finally {
+                setShowSaveModal(false);
+              }
+            })();
+          }}
+        />
+      )}
       {showLoadSaveConfirm && (
         <ConfirmDialog
           open={true}
