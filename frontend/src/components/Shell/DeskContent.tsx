@@ -8,7 +8,7 @@ import { NationDock } from '../Game/NationDock';
 import { SaveGameModal } from '../Game/SaveGameModal';
 import { useToast } from '../ui/ToastProvider';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { savesApi, chatsApi } from '../../services/api';
+import { chatsApi } from '../../services/api';
 import type { Region, World, Game } from '../../types';
 import { useGameStore, useUIStore, useActionsStore, useChatStore } from '../../stores';
 import type { ActiveModule } from '../../stores/moduleState';
@@ -60,7 +60,7 @@ interface DeskContentProps {
   setShowSaveModal: (v: boolean) => void;
   setShowPromptEditor: (v: boolean) => void;
   setShowLLMSettings: (v: boolean) => void;
-  setShowLoadSaveConfirm: (v: { saveId: string; saveName: string; turn: number } | null) => void;
+  onOpenSavePicker: () => void;
   currentGameId: string | undefined;
 }
 
@@ -109,7 +109,7 @@ export function DeskContent({
   setShowSaveModal,
   setShowPromptEditor,
   setShowLLMSettings,
-  setShowLoadSaveConfirm,
+  onOpenSavePicker,
   currentGameId,
 }: DeskContentProps) {
   const { notify } = useToast();
@@ -343,20 +343,7 @@ export function DeskContent({
 
         <div className="save-load-section">
           <button className="btn-save" onClick={() => setShowSaveModal(true)}>Salva</button>
-          <button className="btn-load" onClick={async () => {
-            try {
-              const data = await savesApi.list();
-              if (data.saves.length === 0) {
-                notify('Nessun salvataggio disponibile.', 'info');
-                return;
-              }
-              const save = data.saves[0];
-              if (save) setShowLoadSaveConfirm({ saveId: save.id, saveName: save.name, turn: save.current_turn });
-            } catch (e) {
-              console.error(e);
-              notify('Errore di caricamento.', 'error');
-            }
-          }}>Carica</button>
+          <button className="btn-load" onClick={onOpenSavePicker}>Carica</button>
           <button className="btn-edit-prompt" onClick={() => { setShowPromptEditor(true); }} title="Modifica il prompt del mondo">Mondo</button>
           <button className="btn-edit-prompt" onClick={() => setShowLLMSettings(true)} title="Scegli il modello IA">Modello</button>
         </div>

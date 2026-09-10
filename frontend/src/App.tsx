@@ -17,6 +17,7 @@ import { ChatsPanel } from './components/Game/ChatsPanel';
 import { AdvisorChat } from './components/Game/AdvisorChat';
 import { Landing } from './components/Game/Landing';
 import { SaveGameModal } from './components/Game/SaveGameModal';
+import { SavePickerModal, type SaveSummary } from './components/Game/SavePickerModal';
 import { LLMSettingsModal } from './components/Game/LLMSettingsModal';
 import { HudBar } from './components/Game/HudBar';
 import { GameLoader, WORLD_GEN_PHASES } from './components/Game/GameLoader';
@@ -946,23 +947,6 @@ function App() {
     setLoading(false);
   };
 
-  const handleLoadSaveConfirmed = async (saveId: string) => {
-    if (!currentGame || loading) return;
-    setLoading(true);
-    try {
-      await gameApi.loadSave(saveId);
-      const game = await gameApi.get(currentGame.id);
-      setCurrentGame(game);
-      setHistory([]);
-      notify('Partita caricata.', 'success');
-    } catch (e) {
-      console.error(e);
-      notify('Errore di caricamento.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Ripristino esplicito del checkpoint che ha prodotto un evento timeline.
   const handleRestoreCheckpoint = async (simulationId: string) => {
     if (!currentGame || loading) return;
@@ -1403,8 +1387,36 @@ function App() {
     try {
       await gameApi.loadSave(save.id);
       const game = await gameApi.get(save.game_id);
+      // Riallineamento atomico: i read model sono letti dallo stesso snapshot
+      // prima di pubblicarlo al client, anche quando il gameId non cambia.
+      const [queueData, timelineData, processData, nationalData] = await Promise.all([
+        gameApi.getPendingActions(game.id),
+        gameApi.timeline(game.id, { after: 0, limit: 200 }),
+        gameApi.ongoingProcesses(game.id),
+        gameApi.nationalState(game.id),
+      ]);
       setCurrentGame(game);
       setCurrentWorld(game.world);
+      setPendingActions(queueData.pendingActions || []);
+      setTimeline(timelineData.timeline || []);
+      setTimelineHasMore(Boolean(timelineData.hasMore));
+      setTimelineNextAfter(timelineData.nextAfter ?? 0);
+      setOngoingProcesses(processData.processes || []);
+      setNationalAccounts(nationalData.accounts || {});
+      setFeedItems([]);
+      clearOrderDraft();
+      clearSuggestions();
+      setEditingActionId(null);
+      setEditingActionText('');
+      scarTimersRef.current.forEach(clearTimeout);
+      scarTimersRef.current = [];
+      setTemporalScars([]);
+      clearChangedRegions();
+      // Forza il reset anche se si carica un save della stessa partita.
+      const chatStore = useChatStore.getState();
+      chatStore.setGameId(null);
+      chatStore.setGameId(game.id);
+      void chatStore.refreshChats();
       // F06 passo 4: il caricamento esplicito di un save sostituisce lo
       // snapshot canonico (mappa INCLUSI oggetti, coda, history, news, chat,
       // advisor, reader) e invalida tutti i comandi in volo. L'init effect
@@ -1444,6 +1456,7 @@ function App() {
       }
       setHistory([]);
       setCurrentView('game');
+      notify('Partita caricata.', 'success');
     } catch (e) {
       console.error('[Save] Failed to resume save:', e);
       notify('Errore di caricamento del salvataggio.', 'error');
@@ -1504,6 +1517,7 @@ function App() {
 
   // Fase 6: modale di salvataggio (al posto di prompt()) e fasi del loader di generazione del mondo
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showSavePicker, setShowSavePicker] = useState(false);
   const [genPhase, setGenPhase] = useState(0);
   // Avanzamento reale (0..1) della generazione del mondo, dal polling del job
   const [genProgress, setGenProgress] = useState<number | null>(null);
@@ -1511,7 +1525,7 @@ function App() {
   const [showLLMSettings, setShowLLMSettings] = useState(false);
   // Dialog di conferma per azioni distruttive
   const [showRewindConfirm, setShowRewindConfirm] = useState(false);
-  const [showLoadSaveConfirm, setShowLoadSaveConfirm] = useState<{ saveId: string; saveName: string; turn: number } | null>(null);
+  const [showLoadSaveConfirm, setShowLoadSaveConfirm] = useState<SaveSummary | null>(null);
 
   // Rotazione delle fasi del loader mentre avviene la generazione del mondo nella schermata di scelta paese
   useEffect(() => {
@@ -2086,7 +2100,7 @@ function App() {
               setShowSaveModal={setShowSaveModal}
               setShowPromptEditor={setShowPromptEditor}
               setShowLLMSettings={setShowLLMSettings}
-              setShowLoadSaveConfirm={setShowLoadSaveConfirm}
+              onOpenSavePicker={() => setShowSavePicker(true)}
               currentGameId={currentGame?.id}
             />
           )}
@@ -2238,13 +2252,19 @@ function App() {
         cancelLabel="Mantieni"
         variant="destructive"
       />
+      <SavePickerModal
+        open={showSavePicker}
+        currentGameId={currentGame?.id}
+        onClose={() => setShowSavePicker(false)}
+        onSelect={(save) => { setShowSavePicker(false); setShowLoadSaveConfirm(save); }}
+      />
       {showLoadSaveConfirm && (
         <ConfirmDialog
           open={true}
           onClose={() => setShowLoadSaveConfirm(null)}
-          onConfirm={() => handleLoadSaveConfirmed(showLoadSaveConfirm.saveId)}
+          onConfirm={() => void handleResumeSave(showLoadSaveConfirm)}
           title="Caricare il salvataggio?"
-          message={`Caricare "${showLoadSaveConfirm.saveName}" (Mossa ${showLoadSaveConfirm.turn})? La partita corrente sarà sovrascritta.`}
+          message={`Caricare "${showLoadSaveConfirm.name}" (Mossa ${showLoadSaveConfirm.current_turn ?? '—'})? Lo stato locale sarà sostituito dallo snapshot.`}
           confirmLabel="Carica"
           cancelLabel="Annulla"
           variant="destructive"

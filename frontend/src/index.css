@@ -1857,6 +1857,15 @@ html, body { margin: 0; }
   font: 12px/1.5 system-ui, sans-serif;
 }
 .nation-section-depends b { color: #a99af0; font-weight: 700; }
+/* G5-B — Archivio salvataggi: si sceglie una partita prima della conferma. */
+.save-picker { display: flex; width: min(620px, calc(100vw - 32px)); max-height: min(680px, calc(100dvh - 32px)); flex-direction: column; overflow: hidden; background: #101c2f; color: #deebfb; }
+.save-picker-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #3a4e6b; }
+.save-picker-header span { display: block; color: #9b8adb; font: 700 10px/1 system-ui,sans-serif; letter-spacing: .1em; text-transform: uppercase; }
+.save-picker-header h2 { margin: 5px 0 0; color: #f3f6fc; font: 700 22px/1.1 Georgia,serif; }
+.save-picker-body { display: flex; min-height: 120px; flex: 1; flex-direction: column; gap: 8px; overflow: auto; padding: 12px; }
+.save-picker-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; border: 1px solid #3d5271; border-radius: 9px; background: #15243a; color: #dce7f6; text-align: left; cursor: pointer; }
+.save-picker-item:hover { border-color: #a18be7; background: #1c2d47; }
+.save-picker-item-main { display: flex; min-width: 0; flex-direction: column; gap: 4px; }.save-picker-item-main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.save-picker-item-main small,.save-picker-item-meta { color: #9fb0c9; font: 11px/1.3 system-ui,sans-serif; }.save-picker-item-meta { text-align:right; }.save-picker-status { margin:auto; color:#afbdd0; }.save-picker-status.error { color:#ed9b9b; }.save-picker-footer { padding:11px 14px; border-top:1px solid #3a4e6b; color:#98a9c2; font:11px/1.35 system-ui,sans-serif; }
 /* G5-A — Registro operativo: griglie asciutte, senza numeri decorativi. */
 .nation-decision-live {
   display: flex; flex-direction: column; gap: 3px; padding: 12px;
