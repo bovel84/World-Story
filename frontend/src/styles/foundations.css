@@ -1145,3 +1145,56 @@
 .btn-feasibility-register { min-height: 42px; padding: 0 18px; border: 1px solid var(--ws-action-primary, #cda65b); border-radius: 4px; color: var(--ws-text-on-action, #0c1726); background: var(--ws-action-primary, #cda65b); font-weight: 700; cursor: pointer; }
 .btn-feasibility-register:hover:not(:disabled) { background: var(--ws-action-primary-hover, #ddb977); }
 .btn-feasibility-register:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ===== Mobile polish: HUD compatto, zoom sopra bottom bar, badge puliti ===== */
+@media (max-width: 767px) {
+  /* HUD: via il nome mondo/logo (ridondanti su mobile), pill più compatte */
+  .hud-bar .hud-logo,
+  .hud-bar .hud-world-name {
+    display: none;
+  }
+  .hud-turn-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+  .hud-advance-btn {
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+  .hud-date-pill {
+    max-width: 46vw;
+  }
+
+  /* Zoom controls: sollevati sopra la bottom bar */
+  .game-shell-map .maplibregl-ctrl-bottom-right,
+  .game-shell-map .maplibregl-ctrl-bottom-left {
+    bottom: calc(var(--ws-rail-h, 56px) + env(safe-area-inset-bottom, 0px) + 10px);
+  }
+
+  /* Attribution ridotta e sopra la bottom bar */
+  .game-shell-map .maplibregl-ctrl-attrib {
+    font-size: 10px;
+  }
+
+  /* Bottom bar: icone più grandi e leggibili, niente contatori a zero */
+  .game-shell-rail .rail-btn {
+    min-width: 52px;
+    padding: 6px 10px;
+  }
+  .game-shell-rail .rail-icon {
+    font-size: 20px;
+    line-height: 1;
+  }
+  /* Il badge appare solo se c'è qualcosa di non letto (gestito da JS);
+     nasconde comunque qualsiasi contatore vuoto/zero residuo */
+  .game-shell-rail .rail-badge:empty {
+    display: none;
+  }
+  .game-shell-rail .rail-btn.active {
+    background: linear-gradient(180deg, #cda65b22, #cda65b10);
+    border-radius: 10px;
+    color: var(--ws-text-primary, #f4f0e8);
+    box-shadow: inset 0 -2px 0 var(--ws-action-primary, #cda65b);
+  }
+}
