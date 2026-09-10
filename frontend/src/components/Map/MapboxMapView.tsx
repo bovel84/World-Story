@@ -319,7 +319,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   // il testo affollerebbe la mappa
   const objectLabelEls = useRef<HTMLDivElement[]>([]);
   // Dimensioni base dei marker oggetti (per lo scaling con lo zoom)
-  const objectBaseSizes = useRef<{ el: HTMLDivElement; base: number; label: HTMLDivElement | null }[]>([]);
+  const objectBaseSizes = useRef<{ el: HTMLDivElement; base: number; label: HTMLDivElement | null; marker: maplibregl.Marker }[]>([]);
   // Info area per etichette regioni: id → area (gradi²) — le province piccole
   // mostrano il nome solo da zoom 3.2, le grandi sempre
   const regionAreas = useRef<Record<string, number>>({});
@@ -747,11 +747,18 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
 
     const updateVisibility = () => {
       const zoom = m.getZoom();
+      const canvas = m.getCanvas();
+      // Elementi fuori camera non partecipano a layout/paint: essenziale nei
+      // mondi provinciali su mobile, dove migliaia di marker saturano il DOM.
+      const isInViewport = (point: maplibregl.LngLat) => {
+        const projected = m.project(point);
+        return projected.x >= -40 && projected.x <= canvas.width + 40
+          && projected.y >= -40 && projected.y <= canvas.height + 40;
+      };
       // Scaling dei marker oggetti con lo zoom: a vista mondo (zoom basso) i
       // marker restano piccoli, ingrandendosi man mano che ci si avvicina.
-      // I marker restano ancorati alla loro posizione geografica (setLngLat).
       const scale = Math.pow(1.35, zoom - 1);
-      objectBaseSizes.current.forEach(({ el, base, label }) => {
+      objectBaseSizes.current.forEach(({ el, base, label, marker }) => {
         const s = Math.max(6, Math.round(base * scale));
         el.style.width = `${s}px`;
         el.style.height = `${s}px`;
@@ -761,15 +768,17 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
         // A vista mondo non mostriamo nemmeno i puntini: centinaia di città
         // trasformano il globo in rumore visivo. Capitali da 1.8, grandi città
         // da 2.3, tutte le altre da 3.1; unità/costruzioni restano visibili.
-        const showMarker = type !== 'city' && type !== 'capital'
+        const showMarker = isInViewport(marker.getLngLat()) && (type !== 'city' && type !== 'capital'
           || type === 'capital' && zoom >= 2.2
-          || type === 'city' && ((pop >= 3 && zoom >= 2.6) || zoom >= 3.2);
+          || type === 'city' && ((pop >= 3 && zoom >= 2.6) || zoom >= 3.2));
         el.style.display = showMarker ? 'flex' : 'none';
         if (label) {
           label.style.top = `${s + 3}px`;
           label.style.fontSize = `${Math.max(9, Math.round(10 * scale))}px`;
         }
       });
+      let shownRegionLabels = 0;
+      const REGION_LABEL_BUDGET = 90;
       labelMarkers.current.forEach((marker) => {
         const el = marker.getElement();
         if (!el) return;
@@ -785,9 +794,13 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
         // nazione). I nomi di regione rientrano solo avvicinandosi o quando
         // l'utente li indica: evita il doppione nazione/regione e il muro di
         // testo osservato sul planisfero.
-        const visible = isProvince
-          ? selected
-          : focused || (zoom >= 2.4 && area >= 12) || (zoom >= 3.0 && area >= 0.35);
+        const qualifies = isProvince
+          ? selected || zoom >= 3.8
+          : focused || (zoom >= 2.4 && area >= 12) || (zoom >= 3.0 && area >= 0.35) || zoom >= 3.2;
+        const priority = selected || focused;
+        const visible = qualifies && isInViewport(marker.getLngLat())
+          && (priority || shownRegionLabels < REGION_LABEL_BUDGET);
+        if (visible && !priority) shownRegionLabels += 1;
         el.style.display = visible ? '' : 'none';
       });
 
@@ -1010,7 +1023,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
         .addTo(m);
       objectMarkers.current.push(marker);
       if (label) objectLabelEls.current.push(label);
-      objectBaseSizes.current.push({ el, base: size, label });
+      objectBaseSizes.current.push({ el, base: size, label, marker });
     });
 
     // Applica subito lo scaling in base allo zoom corrente (il listener
