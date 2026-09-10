@@ -1267,3 +1267,79 @@
     font: 600 12px/1.4 system-ui, sans-serif;
   }
 }
+
+/* ===== Chiusura universale pannelli su mobile ===== */
+/* Tutti gli overlay/dialog: area di tap sul backdrop più generosa + bottone ✕
+   sempre visibile e touch-friendly, anche se il singolo modal non lo prevede. */
+@media (max-width: 767px) {
+  .news-flash-overlay,
+  .article-overlay,
+  .confirm-dialog-overlay,
+  .feasibility-overlay,
+  .hud-timeline-overlay,
+  .llm-modal-overlay,
+  .save-modal-overlay,
+  .save-picker-overlay,
+  .time-desk-overlay,
+  .simulation-reader-scrim,
+  .preset-editor-backdrop {
+    padding: 12px;
+  }
+  .news-flash,
+  .confirm-dialog,
+  .feasibility-check,
+  .hud-timeline,
+  .llm-modal,
+  .save-modal,
+  .save-picker,
+  .time-desk,
+  .simulation-reader,
+  .preset-editor {
+    max-height: calc(100dvh - 24px);
+    max-width: calc(100vw - 24px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Bottoni di chiusura esistenti: aree di tocco generose */
+  .news-flash-close,
+  .newspaper-article-close,
+  .hud-timeline-close,
+  .time-desk-close,
+  .llm-modal-close,
+  .save-modal-close,
+  .province-inspector-close {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 20px;
+  }
+  /* Backdrop: tap fuori dal pannello chiude (quando closeOnBackdrop è attivo) */
+  .news-flash-overlay > *,
+  .article-overlay > *,
+  .feasibility-overlay > *,
+  .hud-timeline-overlay > *,
+  .save-picker-overlay > * {
+    max-width: 100%;
+  }
+}
+
+/* ProvinceInspector su mobile: bottom sheet leggibile e chiudibile */
+@media (max-width: 767px) {
+  .game-shell-desk .province-inspector {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    height: min(72dvh, 620px);
+    border-radius: var(--ws-radius-panel, 12px) var(--ws-radius-panel, 12px) 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--ws-surface-command-raised);
+    animation: desk-slide-up .25s ease-out;
+    z-index: calc(var(--ws-z-module) + 1);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .province-inspector-close {
+    width: 44px;
+    height: 44px;
+  }
+}
