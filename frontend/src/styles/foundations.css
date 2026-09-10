@@ -1198,3 +1198,36 @@
     box-shadow: inset 0 -2px 0 var(--ws-action-primary, #cda65b);
   }
 }
+
+/* ===== Mobile fix clickabilità bottom bar ===== */
+@media (max-width: 767px) {
+  /* MapLegend vive nello slot rail: su mobile esce dalla bottom bar */
+  .game-shell-rail .map-legend {
+    display: none;
+  }
+  /* La rail non deve troncare i bottoni: niente scroll orizzontale ambiguo */
+  .game-shell-rail {
+    overflow: visible;
+  }
+  .game-shell-rail .rail-list {
+    overflow: visible;
+  }
+  .game-shell-rail .rail-btn {
+    pointer-events: auto;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+  }
+  /* Nessun overlay fantasma sopra la bottom bar */
+  .game-shell-rail .command-rail {
+    position: relative;
+    z-index: 2;
+  }
+  /* HUD: niente elemento che scavalca i controlli */
+  .game-shell-hud {
+    pointer-events: auto;
+  }
+  .hud-bar {
+    pointer-events: auto;
+  }
+}
