@@ -3,8 +3,7 @@
  * ==============================
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { MapboxMapView } from './components/Map/MapboxMapView';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import type { TemporalScar } from './components/Map/TemporalScarLayer';
 import { MapView } from './components/Map/MapView';
 // DISATTIVATO: editor mappe (temporaneo)
@@ -18,7 +17,8 @@ import { AdvisorChat } from './components/Game/AdvisorChat';
 import { Landing } from './components/Game/Landing';
 import { SaveGameModal } from './components/Game/SaveGameModal';
 import { SavePickerModal, type SaveSummary } from './components/Game/SavePickerModal';
-import { LLMSettingsModal } from './components/Game/LLMSettingsModal';
+const MapboxMapView = lazy(async () => ({ default: (await import('./components/Map/MapboxMapView')).MapboxMapView }));
+const LLMSettingsModal = lazy(() => import('./components/Game/LLMSettingsModal'));
 import { HudBar } from './components/Game/HudBar';
 import { GameLoader, WORLD_GEN_PHASES } from './components/Game/GameLoader';
 import { Fab } from './components/Game/Fab';
@@ -1918,15 +1918,17 @@ function App() {
     ];
 
     const mapContent = regions.some(r => r.geojson) ? (
-      <MapboxMapView
-        regions={regions}
-        selectedRegionId={selectedRegion || undefined}
-        onRegionClick={handleCountryChange}
-        changedRegionIds={changedRegions}
-        temporalScars={temporalScars}
-        showFlags={!!selectedCountry}
-        playerCountryCode={selectedCountry || undefined}
-      />
+      <Suspense fallback={<div className="map-loading-fallback" role="status">Caricamento mappa…</div>}>
+        <MapboxMapView
+          regions={regions}
+          selectedRegionId={selectedRegion || undefined}
+          onRegionClick={handleCountryChange}
+          changedRegionIds={changedRegions}
+          temporalScars={temporalScars}
+          showFlags={!!selectedCountry}
+          playerCountryCode={selectedCountry || undefined}
+        />
+      </Suspense>
     ) : regions.some(r => r.svgPath) ? (
       <MapView
         regions={regions}
@@ -2253,10 +2255,11 @@ function App() {
       )}
       {currentView === 'game' && renderGame()}
       {/* Menu di scelta del modello IA (Landing + pannello di gioco) */}
-      <LLMSettingsModal
-        open={showLLMSettings}
-        onClose={() => setShowLLMSettings(false)}
-      />
+      {showLLMSettings && (
+        <Suspense fallback={null}>
+          <LLMSettingsModal open={true} onClose={() => setShowLLMSettings(false)} />
+        </Suspense>
+      )}
       <ConfirmDialog
         open={showRewindConfirm}
         onClose={() => setShowRewindConfirm(false)}
