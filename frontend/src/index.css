@@ -2047,3 +2047,13 @@ html, body { margin: 0; }
 /* U02 µ1 — nota limiti espliciti del compositore ordine (UI02) */
 .action-desk .order-limits-note { margin: 8px 0 0; color: #a9b8ce !important; font: 400 12px/1.5 system-ui, sans-serif !important; }
 .floating-advisor-panel .order-limits-note { color: #a9b8ce !important; }
+
+/* G6-B — Chi preferisce meno movimento riceve stati immediati. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
