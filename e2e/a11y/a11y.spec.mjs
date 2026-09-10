@@ -105,6 +105,21 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     await expect(page.getByRole('button', { name: 'Chiudi avanza il tempo' })).toBeVisible();
   });
 
+  test('picker salvataggi: dialog e focus iniziale accessibili', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+    await page.getByRole('button', { name: 'Nazione' }).click();
+    await page.locator('.btn-load').click();
+    const dialog = page.getByRole('dialog', { name: 'Carica un salvataggio' });
+    await expect(dialog).toBeVisible();
+    await expect(page.locator('#root')).toHaveAttribute('aria-hidden', 'true');
+    const close = page.getByRole('button', { name: 'Chiudi archivio' });
+    await expect(close).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('#root')).not.toHaveAttribute('aria-hidden');
+  });
+
   test('HUD di gioco: nessuna violazione di base', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
