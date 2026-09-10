@@ -88,8 +88,12 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     await reachHud(page);
 
     const orders = page.getByRole('button', { name: 'Ordini' });
-    await orders.focus();
+    // Tab reale: :focus-visible deve comparire soltanto per navigazione tastiera.
+    for (let index = 0; index < 20 && !(await orders.evaluate((element) => document.activeElement === element)); index += 1) {
+      await page.keyboard.press('Tab');
+    }
     await expect(orders).toBeFocused();
+    expect(await orders.evaluate((element) => getComputedStyle(element).outlineStyle)).not.toBe('none');
     await page.keyboard.press('Enter');
     await expect(page.locator('.suggestions-content')).toBeVisible();
 
