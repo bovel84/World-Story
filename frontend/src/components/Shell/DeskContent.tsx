@@ -270,7 +270,6 @@ export function DeskContent({
           gameId={currentGame.id}
           regions={currentWorld?.regions ? Object.values(currentWorld.regions) as Region[] : []}
           playerPolityId={playerPolityId}
-          uniqueMeeting
         />
       </div>
     );

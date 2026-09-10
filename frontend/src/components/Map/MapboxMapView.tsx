@@ -808,12 +808,18 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       // vincono a zoom basso; selezione e hover hanno sempre priorità.
       type CountryBox = { el: HTMLElement; priority: number; x: number; y: number; w: number; h: number };
       const selectedOwner = regions.find(region => region.id === selectedRegionId)?.owner;
+      const hasSelectedRegionLabel = Boolean(selectedRegionId);
       const countryBoxes: CountryBox[] = [];
       countryLabelMarkers.current.forEach(marker => {
         const el = marker.getElement();
         const area = Number(el.dataset.area || 0);
         const selected = el.dataset.owner === selectedOwner;
-        const visible = selected || (zoom < 1.8 ? area >= 75 : zoom < 2.5 ? area >= 10 : true);
+        // La regione selezionata ha già il proprio label: non sovrapponiamo
+        // anche il nome della politia. Fuori camera nessuna label deve restare
+        // in paint/layout (né tagliarsi sul bordo del telefono).
+        const visible = isInViewport(marker.getLngLat())
+          && !(hasSelectedRegionLabel && selected)
+          && (selected || (zoom < 1.8 ? area >= 75 : zoom < 2.5 ? area >= 10 : true));
         if (!visible) { el.style.display = 'none'; return; }
         el.style.display = '';
         const rect = el.getBoundingClientRect();

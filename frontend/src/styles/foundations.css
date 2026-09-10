@@ -434,15 +434,18 @@
 }
 
 .game-shell-grid {
+  /* Il contenuto operativo deve attraversare tutte le colonne sotto l'HUD:
+     l'auto-placement lo collocava invece nella rail, azzerando la mappa. */
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: var(--ws-rail-w, 56px) 1fr var(--ws-desk-w, 400px);
+  grid-template-columns: var(--ws-rail-w, 56px) minmax(0, 1fr) var(--ws-desk-w, 400px);
   grid-template-rows: 1fr;
   height: 100%;
   overflow: hidden;
 }
 
 .game-shell:not(.desk-open) .game-shell-grid {
-  grid-template-columns: var(--ws-rail-w, 56px) 1fr;
+  grid-template-columns: var(--ws-rail-w, 56px) minmax(0, 1fr);
 }
 
 .game-shell-rail {
@@ -916,7 +919,7 @@
   }
 
   .game-shell-grid {
-    grid-column: 1;
+    grid-column: 1 / -1;
     display: block;
     width: 100%;
     max-width: 100%;
