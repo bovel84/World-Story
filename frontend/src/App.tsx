@@ -2126,6 +2126,9 @@ function App() {
               setShowPromptEditor={setShowPromptEditor}
               setShowLLMSettings={setShowLLMSettings}
               onOpenSavePicker={() => setShowSavePicker(true)}
+              onGenerateSuggestions={generateSuggestions}
+              suggestionsLoading={suggestionsLoading}
+              suggestionsError={suggestionsError}
               currentGameId={currentGame?.id}
             />
           )}

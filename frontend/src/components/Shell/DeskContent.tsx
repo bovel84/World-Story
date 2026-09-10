@@ -64,6 +64,9 @@ interface DeskContentProps {
   setShowLLMSettings: (v: boolean) => void;
   onOpenSavePicker: () => void;
   currentGameId: string | undefined;
+  onGenerateSuggestions?: () => void;
+  suggestionsLoading?: boolean;
+  suggestionsError?: string;
 }
 
 export function DeskContent({
@@ -115,6 +118,9 @@ export function DeskContent({
   setShowLLMSettings,
   onOpenSavePicker,
   currentGameId,
+  onGenerateSuggestions,
+  suggestionsLoading,
+  suggestionsError,
 }: DeskContentProps) {
   const { notify } = useToast();
 
@@ -132,12 +138,24 @@ export function DeskContent({
           <div className="council-sub">Ordini concreti costruiti sulla mappa, la cronaca e la tua strategia</div>
           <button
             className="btn-generate-suggestions"
-            disabled={false}
-            onClick={() => {}}
+            disabled={!!suggestionsLoading}
+            onClick={() => onGenerateSuggestions?.()}
           >
-            Elabora proposte
+            {suggestionsLoading ? 'Elaborazione…' : 'Elabora proposte'}
           </button>
+          {suggestionsError && (
+            <div className="suggestions-error" role="alert">{suggestionsError}</div>
+          )}
         </div>
+        <button
+          type="button"
+          className="desk-close-x"
+          onClick={closeModule}
+          aria-label="Chiudi pannello"
+          title="Chiudi"
+        >
+          ✕
+        </button>
 
         <div className="pending-actions-section">
           <div className="pending-header">In attesa di elaborazione:</div>
