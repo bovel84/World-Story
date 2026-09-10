@@ -331,6 +331,22 @@ export const gameApi = {
     });
   },
 
+  /** G4-B — verifica fattibilità ordine da testo libero. */
+  checkFeasibility: (gameId: string, text: string): Promise<{
+    feasible: boolean;
+    cost: { money: number; manpower: number; timeDays: number };
+    prerequisites: string[];
+    risks: string[];
+    warnings: string[];
+    summary: string;
+    rawAssessment?: any;
+  }> => {
+    return fetchApi(`/games/${gameId}/actions/check-feasibility`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+  },
+
   ongoingProcesses: (gameId: string): Promise<{ processes: Array<{
     id: string;
     source_action_id: string;

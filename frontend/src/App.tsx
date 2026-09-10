@@ -31,15 +31,16 @@ import { EventFeed, type FeedItem } from './components/Game/EventFeed';
 import { NewsFlash } from './components/Game/NewsFlash';
 import { ActionsPanel } from './components/Game/ActionsPanel';
 import { NationDock } from './components/Game/NationDock';
+import { FeasibilityCheck } from './components/Game/FeasibilityCheck';
+import type { FeasibilityResult } from './components/Game/FeasibilityCheck';
 import { useOrderDraftStore } from './stores/orderDraftStore';
 import { SimulationEventReader, type PlaybackReaderState } from './components/Game/SimulationEventReader';
-import { AccessibleDialog } from './components/ui/AccessibleDialog';
-import { ConfirmDialog } from './components/ui/ConfirmDialog';
-import { useToast } from './components/ui/ToastProvider';
-import { GameShell } from './components/Shell/GameShell';
 import { CommandRail } from './components/Shell/CommandRail';
 import { DeskContent } from './components/Shell/DeskContent';
 import { ProvinceInspector } from './components/Shell/ProvinceInspector';
+import { GameShell } from './components/Shell/GameShell';
+import { ConfirmDialog } from './components/ui/ConfirmDialog';
+import { useToast } from './components/ui/ToastProvider';
 import { MapLegend } from './components/Shell/MapLegend';
 
 // DISATTIVATO: editor mappe (temporaneo) — helper punti nel path SVG usato solo
@@ -1288,14 +1289,62 @@ function App() {
     }
   };
 
-  // U02 µ1: «Registra ordine» accoda la bozza senza avanzare tempo né spendere
-  // risorse (UI02). La bozza è svuotata solo dopo l'accodamento riuscito.
+  // G4-B: verifica fattibilità da testo libero («Registra ordine» apre la verifica;
+  // solo un esito fattibile accoda l'ordine). L'errore tecnico conserva la bozza.
+  const [showFeasibility, setShowFeasibility] = useState(false);
+  const [verifyingText, setVerifyingText] = useState('');
+  const [feasibilityResult, setFeasibilityResult] = useState<FeasibilityResult | null>(null);
+  const [feasibilityLoading, setFeasibilityLoading] = useState(false);
+  const [feasibilityError, setFeasibilityError] = useState<string | null>(null);
+
+  const verifyOrder = async (text: string) => {
+    if (!currentGame) return;
+    setVerifyingText(text);
+    setFeasibilityLoading(true);
+    setFeasibilityError(null);
+    setFeasibilityResult(null);
+    try {
+      const result = await gameApi.checkFeasibility(currentGame.id, text);
+      setFeasibilityResult(result);
+      setFeasibilityLoading(false);
+      setShowFeasibility(true);
+    } catch (e) {
+      console.error('[Actions] Failed to verify feasibility:', e);
+      setFeasibilityError('La verifica di fattibilità non è disponibile ora.');
+      setFeasibilityLoading(false);
+      setShowFeasibility(true);
+    }
+  };
+
+  const handleFeasibilityRegister = async () => {
+    if (feasibilityResult?.feasible && verifyingText.trim()) {
+      if (await queuePlayerAction(verifyingText.trim())) {
+        clearOrderDraft();
+        setShowFeasibility(false);
+        setVerifyingText('');
+        setFeasibilityResult(null);
+      }
+    }
+  };
+
+  const handleFeasibilityBack = () => {
+    setShowFeasibility(false);
+    setVerifyingText('');
+    setFeasibilityResult(null);
+  };
+
+  const handleFeasibilityReverify = () => {
+    if (verifyingText.trim()) {
+      verifyOrder(verifyingText);
+    }
+  };
+
+  // U02 µ1 / G4-B: «Registra ordine» apre la verifica di fattibilità; solo un
+  // esito fattibile accoda. La bozza resta intatta finché l'accodamento non riesce.
   const registerOrder = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    if (await queuePlayerAction(trimmed)) {
-      clearOrderDraft();
-    }
+    await verifyOrder(trimmed);
   };
 
   // Apertura del pannello: riallinea sempre la coda locale con quella server.
@@ -2165,6 +2214,18 @@ function App() {
           confirmLabel="Carica"
           cancelLabel="Annulla"
           variant="destructive"
+        />
+      )}
+      {showFeasibility && (
+        <FeasibilityCheck
+          result={feasibilityResult}
+          loading={feasibilityLoading}
+          error={feasibilityError}
+          orderText={verifyingText}
+          onClose={() => setShowFeasibility(false)}
+          onRegister={handleFeasibilityRegister}
+          onBack={handleFeasibilityBack}
+          onReverify={handleFeasibilityReverify}
         />
       )}
       {/* DISATTIVATO: editor mappe (temporaneo) — rotte 'editor' e 'create-world'

@@ -706,6 +706,49 @@ gamesRouter.post('/:id/actions/evaluate', (req, res) => {
   } catch (e) { respondRouteError(res, e, 'Failed to evaluate actions'); }
 });
 
+
+/** G4-B — verifica fattibilità da testo libero: sola lettura, non accoda.
+ * La conversione intent e la valutazione avvengono interamente in sessione. */
+gamesRouter.post('/:id/actions/check-feasibility', async (req, res) => {
+  try {
+    const game = gameRepository.findById(req.params.id);
+    if (!game || !game.world) { res.status(404).json({ error: 'Game not found' }); return; }
+    const templateId = (game.world as { template_id?: unknown }).template_id;
+    if (typeof templateId !== 'string' || !templateId) { res.status(409).json({ error: 'Verifica non disponibile: mondo legacy senza catalog binding', code: 'catalog_binding_missing' }); return; }
+    const text = req.body?.text?.trim();
+    if (!text) { res.status(400).json({ error: 'Testo ordine obbligatorio' }); return; }
+
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const assessment = await session.checkFeasibility(text);
+
+    // Proiezione per la UI: blocker → prerequisiti/rischi, warning invariati.
+    const feasible = assessment.status === 'feasible' || assessment.status === 'feasible_with_conditions';
+    const prerequisites: string[] = [];
+    const risks: string[] = [];
+    const warnings: string[] = [...assessment.warnings];
+    for (const b of assessment.blockers) {
+      if (b.code === 'KNOWLEDGE_MISSING') prerequisites.push(...(b.missing ?? [b.detail]));
+      else if (b.code === 'INDUSTRIAL_CAPABILITY_MISSING' || b.code === 'UNAUTHORIZED_ACTOR') risks.push(b.detail);
+      else warnings.push(b.detail);
+    }
+    for (const a of assessment.alternatives) {
+      if (a.kind === 'research') prerequisites.push(...a.missing);
+    }
+
+    res.json({
+      feasible,
+      cost: { money: 0, manpower: 0, timeDays: 0 }, // stima dei costi: G4-D
+      prerequisites: [...new Set(prerequisites)],
+      risks: [...new Set(risks)],
+      warnings: [...new Set(warnings)],
+      summary: feasible
+        ? 'Ordine fattibile'
+        : (assessment.status === 'needs_data' ? 'Servono dati mancanti' : 'Ordine bloccato'),
+      rawAssessment: assessment,
+    });
+  } catch (e) { respondRouteError(res, e, 'Failed to check feasibility'); }
+});
+
 gamesRouter.post('/:id/actions/queue', (req, res) => {
   const gameId = req.params.id;
   const { text } = req.body;

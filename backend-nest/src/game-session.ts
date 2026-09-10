@@ -33,6 +33,9 @@ import { canNpcCapture, indexPolities, npcRepresentatives } from './core/simulat
 import { RegionResolver, PolityResolver } from './utils/name-resolver';
 import path from 'path';
 import { loadSimulationCatalog } from './scenario/loader';
+import { AssessmentStatus, ReasonCode, Blocker, Requirement, FeasibilityFacts, AlternativeProposal, OrderAssessment } from "./core/feasibility/FeasibilityService";
+import { normalizeOrderIntent } from "./core/feasibility/intent";
+import { FeasibilityService } from "./core/feasibility/FeasibilityService";
 import { Difficulty, difficultyPromptBlock, normalizeDifficulty } from './prompts/difficulty';
 import { personalityForPolity } from './npc-agents';
 import { countryRepository } from './repositories/country.repository';
@@ -3200,6 +3203,88 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     const converted = await this.gameController.enhanceAction(this.buildGameData(), trimmed);
     const enhanced = converted.text && converted.text.trim() ? converted.text.trim() : trimmed;
     return { original: trimmed, enhanced };
+  }
+
+  /**
+   * G4-B — verifica fattibilità da testo libero (sola lettura).
+   *
+   * Converte il testo in OrderIntent con lo stesso percorso LLM usato in
+   * simulazione (convertActionsBatch), normalizza con normalizeOrderIntent e
+   * valuta con FeasibilityService. NON accoda, NON simula, NON muta lo stato.
+   */
+  async checkFeasibility(text: string): Promise<OrderAssessment> {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      throw new Error('Il testo dell’ordine è obbligatorio');
+    }
+    if (!this.promptEngine) {
+      throw new Error('Prompt engine non inizializzato');
+    }
+
+    // Testo libero → intent: stesso batch LLM del salto, con un solo ordine.
+    const gameData = this.buildGameData();
+    const tempId = shortId();
+    const convertedActions = await this.promptEngine.convertActionsBatch(
+      gameData,
+      [{ actionId: tempId, text: trimmed }],
+      undefined,
+    );
+
+    if (!convertedActions || convertedActions.length === 0) {
+      throw new Error('Impossibile convertire il testo in intenzione');
+    }
+
+    const convertedAction = convertedActions[0];
+
+    // Normalizzazione canonica: fallisce con needs_clarification se il testo
+    // non individua un intent completo (tipo, target, catalogo, autorizzazione).
+    const normalized = normalizeOrderIntent(convertedAction);
+    if (!normalized.ok) {
+      return {
+        actionId: tempId,
+        status: 'blocked',
+        blockers: normalized.clarifications.map(c => ({
+          code: c.code as ReasonCode,
+          detail: c.message,
+        })),
+        warnings: [],
+        alternatives: [],
+      };
+    }
+
+    // Identità: mondo con catalog binding e attore tesoreria della polity.
+    const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
+    const templateId = worldRow?.template_id;
+    if (typeof templateId !== 'string' || !templateId) {
+      throw new Error('Mondo legacy senza catalog binding');
+    }
+
+    const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId));
+    if (!loaded.catalog) {
+      throw new Error('Catalogo server non valido');
+    }
+
+    const player = this.getPlayer();
+    const polity = player?.polityId;
+    if (!polity) {
+      throw new Error('Identità politica del giocatore non disponibile');
+    }
+
+    const actor = loaded.catalog.actors.find(
+      item => item.polityId === polity && item.type === 'treasury',
+    );
+    if (!actor) {
+      throw new Error('Attore economico (tesoreria) non trovato per la polity');
+    }
+
+    return new FeasibilityService(loaded.catalog).evaluate(normalized.intent, {
+      actorId: actor.actorId,
+      verifiedPolityId: polity,
+      approvals: [],
+      rights: [],
+      knowledgeIds: [],
+      capabilityIds: [],
+    });
   }
 
   /**
