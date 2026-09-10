@@ -1343,3 +1343,46 @@
     height: 44px;
   }
 }
+
+/* ===== Diplomacy panel mobile: coerente, leggibile, chiudibile ===== */
+.diplomacy-panel {
+  position: relative;
+}
+@media (max-width: 767px) {
+  .diplomacy-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    height: min(64dvh, 540px);
+    border-radius: var(--ws-radius-panel, 12px) var(--ws-radius-panel, 12px) 0 0;
+    border: 0;
+    border-top: 1px solid var(--ws-surface-command-raised);
+    background: var(--ws-surface-command, #14243a);
+    animation: desk-slide-up .25s ease-out;
+    z-index: calc(var(--ws-z-module) + 1);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    overflow-y: auto;
+  }
+  /* Titolo leggibile: override editorial.css che lo rendeva scuro su scuro */
+  .diplomacy-panel .diplomacy-header span:first-child {
+    color: var(--ws-text-primary, #f4f0e8) !important;
+    font-weight: 700;
+  }
+  .diplomacy-panel .diplomacy-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--ws-surface-command-raised);
+  }
+  /* Sezioni: mantengo i colori semantici (verde/rosso) con contrasto corretto */
+  .diplomacy-panel .diplomacy-section-title {
+    filter: brightness(1.6) saturate(1.1);
+  }
+  .diplomacy-panel .diplomacy-content {
+    padding: 12px 16px 16px;
+  }
+  .diplomacy-panel .desk-close-x {
+    top: 8px;
+    right: 8px;
+  }
+}

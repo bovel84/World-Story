@@ -125,8 +125,11 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   const entries: RelationshipEntry[] = Object.entries(relMap)
     .filter(([id, rel]) => rel !== 'neutral')
     .map(([id, rel]) => {
-      // id = polityId; il nome lo ricaviamo dalla regione di quella politia (owner = polityId)
-      const region = regions.find(r => r.owner === id);
+      // id = polityId; il nome lo ricaviamo dalla regione di quella politia (owner = polityId).
+      // Coerenza: mostra il PAESE (regione capitale/nazionale), non una provincia qualsiasi.
+      const regionsOfPolity = regions.filter(r => r.owner === id);
+      const capitalRegion = regionsOfPolity.find((r: any) => r.metadata?.isCapitalProvince);
+      const region = capitalRegion || regionsOfPolity[0];
       return {
         id,
         name: region?.name || id,
@@ -152,8 +155,14 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
     );
   }
 
+  const closeSelf = () => {
+    // Chiude il modulo diplomazia tramite l'evento globale ascoltato da App
+    window.dispatchEvent(new CustomEvent('ws:close-module', { detail: 'diplomacy' }));
+  };
+
   return (
-    <div className="diplomacy-panel">
+    <div className="diplomacy-panel" style={{ position: 'relative' }}>
+      <button type="button" className="desk-close-x" onClick={closeSelf} aria-label="Chiudi pannello diplomazia" title="Chiudi">✕</button>
       <div className="diplomacy-header" onClick={() => setCollapsed(c => !c)} style={{ cursor: 'pointer' }}>
         <span>Relazioni estere</span>
         <span style={{ fontSize: 11, color: '#888' }}>{collapsed ? '▶' : '▼'}</span>
@@ -169,7 +178,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
               {allies.map(e => (
                 <div key={e.id} className="diplomacy-entry">
                   <span className="diplomacy-status-dot" style={{ backgroundColor: REL_COLOR.ally }} />
-                  <span className="diplomacy-code">{e.id}</span>
+                  <span className="diplomacy-code">{FLAG_EMOJI[e.id] ? `${FLAG_EMOJI[e.id]} ` : ''}{e.id}</span>
                   <span>{e.name}</span>
                   {/* DISATTIVATO: trattative (temporaneo)
                   <button
@@ -193,7 +202,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
               {hostiles.map(e => (
                 <div key={e.id} className="diplomacy-entry">
                   <span className="diplomacy-status-dot" style={{ backgroundColor: REL_COLOR.hostile }} />
-                  <span className="diplomacy-code">{e.id}</span>
+                  <span className="diplomacy-code">{FLAG_EMOJI[e.id] ? `${FLAG_EMOJI[e.id]} ` : ''}{e.id}</span>
                   <span>{e.name}</span>
                   {/* DISATTIVATO: trattative (temporaneo)
                   <button

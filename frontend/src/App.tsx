@@ -1517,6 +1517,14 @@ function App() {
     setPanelSheetOpen(false);
     closeModule();
   }, [currentView, closeModule]);
+
+  // Chiusura pannello diplomazia (e altri moduli) via evento globale dal DeskContent
+  useEffect(() => {
+    if (currentView !== 'game') return;
+    const handler = () => closeModule();
+    window.addEventListener('ws:close-module', handler);
+    return () => window.removeEventListener('ws:close-module', handler);
+  }, [currentView, closeModule]);
   // SSE real-time updates
   const [isProcessingTurn, setIsProcessingTurn] = useState(false);
   const [turnProgress, setTurnProgress] = useState<string>('');
