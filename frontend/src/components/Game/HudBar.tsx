@@ -19,6 +19,7 @@
 
 import React, { useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
+import { TimeDesk } from './TimeDesk';
 import type { TimelineEntry, TimelineEvent } from '../../services/api';
 
 // ============================================================================
@@ -49,6 +50,8 @@ export interface HudBarProps {
   /** Dispacci pronti da consultare nella cronaca laterale. */
   dispatchCount?: number;
   dispatchLive?: boolean;
+  /** Ordini già registrati: saranno presi in carico al salto. */
+  pendingOrdersCount?: number;
   onOpenDispatches?: () => void;
   /** Chiamato quando il pannello Timeline si apre — il padre (ri)carica gli eventi */
   onTimelineOpen?: () => void;
@@ -83,9 +86,6 @@ export interface TimelinePanelProps {
   timelineHasMore?: boolean;
   timelineLoadingOlder?: boolean;
   onLoadOlder?: () => void;
-  ongoingProcesses?: Array<{ id: string; title: string; summary: string; started_date: string; expected_date?: string | null }>;
-  /** Selezione del salto (0 = fino al prossimo evento importante) */
-  onTimeSkip: (days: number) => void;
   onRestoreCheckpoint?: (simulationId: string) => void;
   /** Continua da un evento: restore + prossimo salto canonico. */
   onContinueFrom?: (simulationId: string) => void;
@@ -122,50 +122,6 @@ export function formatDateIt(dateISO: string): string {
   return `${d.getDate()} ${MONTHS_IT[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-/** Data a days giorni da dateISO, formattata in italiano; '' se la data non è leggibile */
-function formatDatePlusDays(dateISO: string, days: number): string {
-  const d = parseISODate(dateISO);
-  if (!d) return '';
-  d.setDate(d.getDate() + days);
-  return `${d.getDate()} ${MONTHS_IT[d.getMonth()]} ${d.getFullYear()}`;
-}
-
-/** Aggiunge mesi/anni reali, mantenendo l'ultimo giorno valido del mese. */
-function addCalendarMonths(dateISO: string, months: number): Date | null {
-  const start = parseISODate(dateISO);
-  if (!start) return null;
-  const day = start.getDate();
-  const targetMonthIndex = start.getMonth() + months;
-  const targetYear = start.getFullYear() + Math.floor(targetMonthIndex / 12);
-  const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
-  const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-  return new Date(targetYear, targetMonth, Math.min(day, lastDay));
-}
-
-function formatCalendarDate(date: Date | null): string {
-  return date ? `${date.getDate()} ${MONTHS_IT[date.getMonth()]} ${date.getFullYear()}` : '';
-}
-
-function calendarDaysUntil(dateISO: string, target: Date | null): number | null {
-  const start = parseISODate(dateISO);
-  if (!start || !target) return null;
-  const utcStart = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
-  const utcTarget = Date.UTC(target.getFullYear(), target.getMonth(), target.getDate());
-  return Math.round((utcTarget - utcStart) / 86_400_000);
-}
-
-// ============================================================================
-// Preset time-skip (come in pax_jump2.png)
-// ============================================================================
-
-const TIME_PRESETS: { label: string; days?: number; months?: number }[] = [
-  { label: '1 settimana', days: 7 },
-  { label: '1 mese', months: 1 },
-  { label: '3 mesi', months: 3 },
-  { label: '6 mesi', months: 6 },
-  { label: '12 mesi', months: 12 },
-];
-
 // ============================================================================
 // Pannello «Timeline»
 // ============================================================================
@@ -179,27 +135,15 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   timelineHasMore,
   timelineLoadingOlder,
   onLoadOlder,
-  ongoingProcesses = [],
-  onTimeSkip,
   onRestoreCheckpoint,
   onContinueFrom,
   activePlayback,
   onFocusPlaybackReader,
   onClose,
 }) => {
-  const [customDate, setCustomDate] = useState('');
   const [showHistory, setShowHistory] = useState(true);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
-
-  // Pax espone «Scegli data». Il contratto World Story resta in giorni, quindi
-  // calcoliamo la distanza di calendario senza affidarsi al fuso orario.
-  const customDays = customDate ? calendarDaysUntil(dateISO, parseISODate(customDate)) : null;
-  const customValid = customDays != null && customDays > 0 && customDays <= 36500;
-
   const controlsLocked = loading || !!activePlayback;
-  const submitCustom = () => {
-    if (customValid && !controlsLocked) onTimeSkip(customDays);
-  };
 
   // Eventi appiattiti e ordinati dal più recente. Il fallback tollera risposte
   // precedenti, dove events era ancora string[].
@@ -341,95 +285,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
           )}
         </div>
       )}
-      {ongoingProcesses.length > 0 && (
-        <section className="hud-timeline-processes" aria-label="Processi in corso">
-          <div className="hud-timeline-processes-title">Processi in corso</div>
-          {ongoingProcesses.map(process => (
-            <article key={process.id} className="hud-timeline-process">
-              <strong>{process.title}</strong>
-              <span>{process.summary}</span>
-              <small>
-                Avviato: {formatDateIt(process.started_date)}
-                {process.expected_date ? ` · stimato: ${formatDateIt(process.expected_date)}` : ''}
-              </small>
-            </article>
-          ))}
-        </section>
-      )}
-
-      <div className="hud-timeline-divider">
-        <span>prosegui nel tempo</span>
-      </div>
-
-      {/* Azione principale — salto fino al prossimo evento importante */}
-      <button
-        type="button"
-        className="hud-timeline-next-event"
-        onClick={() => onTimeSkip(0)}
-        disabled={controlsLocked}
-      >
-        {activePlayback ? 'Lettura della sessione in corso' : 'Vai al prossimo evento importante'}
-      </button>
-
-      <div className="hud-timeline-divider">
-        <span>oppure</span>
-      </div>
-
-      {/* Preset: data di destinazione grande, etichetta periodo piccola (come nell’originale) */}
-      <div className="hud-timeline-presets">
-        {TIME_PRESETS.map((preset) => {
-          const target = preset.months
-            ? addCalendarMonths(dateISO, preset.months)
-            : null;
-          const calendarDays = target ? calendarDaysUntil(dateISO, target) : null;
-          const days = calendarDays ?? preset.days ?? 0;
-          const targetDate = target ? formatCalendarDate(target) : formatDatePlusDays(dateISO, days);
-          return (
-            <button
-              type="button"
-              key={preset.label}
-              className="hud-timeline-preset"
-              onClick={() => onTimeSkip(days)}
-              disabled={controlsLocked || days <= 0}
-            >
-              <span className="hud-timeline-preset-date">
-                {targetDate || `+${days} gg.`}
-              </span>
-              <span className="hud-timeline-preset-label">{preset.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="hud-timeline-divider" />
-
-      {/* Data scelta dal giocatore, come il controllo «Personalizzato» Pax. */}
-      <div className="hud-timeline-custom">
-        <label className="hud-timeline-custom-label" htmlFor="timeline-custom-date">Scegli data</label>
-        <input
-          id="timeline-custom-date"
-          className="hud-timeline-input"
-          type="date"
-          min={dateISO}
-          value={customDate}
-          disabled={controlsLocked}
-          onChange={(e) => setCustomDate(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') submitCustom();
-          }}
-          aria-label="Data di destinazione per il salto"
-        />
-        <button
-          type="button"
-          className="hud-timeline-custom-go"
-          onClick={submitCustom}
-          disabled={controlsLocked || !customValid}
-          title="Salta alla data indicata"
-          aria-label="Conferma la data scelta"
-        >
-          Vai
-        </button>
-      </div>
+      <p className="hud-timeline-readonly-note">La cronaca è consultazione. Per scegliere una destinazione usa «Avanza» nella barra di comando.</p>
     </div>
   );
 };
@@ -452,6 +308,7 @@ export const HudBar: React.FC<HudBarProps> = ({
   ongoingProcesses,
   dispatchCount = 0,
   dispatchLive = false,
+  pendingOrdersCount = 0,
   onOpenDispatches,
   onTimelineOpen,
   onBack,
@@ -463,6 +320,7 @@ export const HudBar: React.FC<HudBarProps> = ({
   onFocusPlaybackReader,
 }) => {
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [timeDeskOpen, setTimeDeskOpen] = useState(false);
 
   /** Apertura del pannello: notifichiamo il padre così (ri)carica la cronaca */
   const toggleTimeline = () => {
@@ -473,9 +331,13 @@ export const HudBar: React.FC<HudBarProps> = ({
     });
   };
 
-  /** Scelta di una voce del pannello: la chiudiamo e inoltriamo il salto verso l’alto */
+  const openTimeDesk = () => {
+    onTimelineOpen?.(); // aggiorna anche processi in corso e cronaca in background
+    setTimeDeskOpen(true);
+  };
+
   const handleTimeSkip = (days: number) => {
-    setTimelineOpen(false);
+    setTimeDeskOpen(false);
     onTimeSkip(days);
   };
 
@@ -513,6 +375,16 @@ export const HudBar: React.FC<HudBarProps> = ({
 
       {/* Parte destra: data in evidenza con navigazione (stile riferimento: ‹ 20 aprile 2000 ›) */}
       <div className="hud-right">
+        <button
+          type="button"
+          className="hud-advance-btn"
+          onClick={openTimeDesk}
+          disabled={loading || !!activePlayback}
+          aria-label={pendingOrdersCount ? `Avanza il tempo: ${pendingOrdersCount} ordini pronti` : 'Avanza il tempo'}
+        >
+          <span>Avanza</span>
+          {pendingOrdersCount > 0 && <b>{pendingOrdersCount}</b>}
+        </button>
         <div className="hud-date-pill">
           <button
             type="button"
@@ -531,8 +403,8 @@ export const HudBar: React.FC<HudBarProps> = ({
             type="button"
             className={`hud-date-nav hud-timeline-toggle${timelineOpen ? ' active' : ''}`}
             onClick={toggleTimeline}
-            title="Timeline e time-skip"
-            aria-label="Apri il pannello timeline"
+            title="Apri la cronaca"
+            aria-label="Apri la cronaca"
             aria-expanded={timelineOpen}
           >
             ›
@@ -558,8 +430,6 @@ export const HudBar: React.FC<HudBarProps> = ({
             timelineHasMore={timelineHasMore}
             timelineLoadingOlder={timelineLoadingOlder}
             onLoadOlder={onLoadOlder}
-            ongoingProcesses={ongoingProcesses}
-            onTimeSkip={handleTimeSkip}
             onRestoreCheckpoint={onRestoreCheckpoint}
             onContinueFrom={onContinueFrom}
             activePlayback={activePlayback}
@@ -567,6 +437,26 @@ export const HudBar: React.FC<HudBarProps> = ({
             onClose={() => setTimelineOpen(false)}
           />
           </AccessibleDialog>
+      )}
+
+      {timeDeskOpen && (
+        <AccessibleDialog
+          open={true}
+          onClose={() => setTimeDeskOpen(false)}
+          overlayClassName="time-desk-overlay"
+          className="time-desk"
+          ariaLabel="Avanza il tempo"
+        >
+          <TimeDesk
+            dateISO={dateISO}
+            loading={loading}
+            pendingOrdersCount={pendingOrdersCount}
+            ongoingProcesses={ongoingProcesses}
+            activePlayback={!!activePlayback}
+            onTimeSkip={handleTimeSkip}
+            onClose={() => setTimeDeskOpen(false)}
+          />
+        </AccessibleDialog>
       )}
     </div>
   );

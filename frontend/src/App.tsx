@@ -1844,10 +1844,21 @@ function App() {
         textAlign: "center",
       }}>
         <div style={{ fontSize: "48px", marginBottom: "16px" }}>🗺️</div>
-        <h3>Caricamento mappa…</h3>
-        <p style={{ color: "#888", maxWidth: "300px" }}>
-          Le regioni del mondo non hanno ancora una geometria.
+        <h3>Mappa non disponibile</h3>
+        <p style={{ color: "#b8c3d2", maxWidth: "360px" }}>
+          Questo mondo non contiene geometrie regionali. Torna agli scenari e genera una nuova partita: il problema non si risolve attendendo.
         </p>
+        <button
+          type="button"
+          className="btn-submit-actions"
+          onClick={() => {
+            setCurrentView("menu");
+            setCurrentWorld(null);
+            setCurrentGame(null);
+          }}
+        >
+          Torna agli scenari
+        </button>
       </div>
     );
 
@@ -1868,6 +1879,7 @@ function App() {
               ongoingProcesses={ongoingProcesses}
               dispatchCount={feedItems.length}
               dispatchLive={isProcessingTurn}
+              pendingOrdersCount={pendingActions.length}
               onOpenDispatches={() => openModule("news")}
               onTimelineOpen={handleTimelineOpen}
               onLoadOlder={loadOlderTimeline}

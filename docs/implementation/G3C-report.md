@@ -47,6 +47,19 @@ Il job di generazione mondo (`/worlds/generate`) restituisce `regions: {}` vuoto
 
 Il codice frontend è corretto e funzionerebbe con `regions` popolati (geojson + properties). Lato backend va indagato perché la generazione geografia restituisce regions vuoto.
 
+## Correzione — 10 settembre 2026: diagnosi regioni
+
+La limitazione annotata sopra non era generalizzata: la risposta di `POST /worlds/generate` restituisce intenzionalmente `regions: {}` perché la UI carica la mappa da `GET /games/:id`, che restituisce le regioni complete con `geojson`.
+
+L'ispezione del DB reale ha confermato geometrie per gli scenari normali (Guerra Fredda 40/40, Mondo provinciale moderno 942/942). Il solo `realism_test_world` produceva 0 regioni: dichiara le politie fittizie `ALP` e `BET`, assenti da Natural Earth, senza un `map.geojson` proprio.
+
+Correzione applicata:
+
+- aggiunto `data/presets/realism_test_world/map.geojson` con ALP e BET;
+- il generatore ora rifiuta prima della persistenza un mondo privo di geometria, con errore azionabile;
+- `tests/repro-regions.test.ts` verifica persistenza e copertura fra codici del preset e mappa della fixture;
+- la UI segnala esplicitamente un vecchio mondo senza geometrie invece di mostrare un caricamento infinito.
+
 ## Prossimo passo (G4)
 
 - Ciclo Ordini → Tempo → evento causale → cicatrice mappa → dispaccio (G4 del piano)

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
+import { loadPreset, loadPresetMap } from '../src/utils/preset-loader';
 
 const TEST_DB = path.join(os.tmpdir(), `repro-regions-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
@@ -27,8 +28,8 @@ afterAll(() => {
   } catch { /* tmp */ }
 });
 
-describe('createWithRegions direct', () => {
-  it('persists regions', () => {
+describe('repro regioni — persistenza e geometria fixture', () => {
+  it('persiste le regioni create dal generatore', () => {
     const worldId = 'repro_world';
     const regions = [
       { id: `${worldId}_ALP`, worldId, name: 'ALPHA', geojson: '{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}}', color: '#ff0000', owner: 'ALP', population: 100, gdp: 10, militaryPower: 5, flag: 'ALP', objects: [], borders: [] },
@@ -44,5 +45,18 @@ describe('createWithRegions direct', () => {
     const found = worldRepository.findById(worldId);
     expect(found.regions.length).toBe(2);
     expect(found.regions.map((r: any) => r.id)).toEqual([`${worldId}_ALP`, `${worldId}_BET`]);
+  });
+
+  it('realism_test_world fornisce una geometria per ogni politia dichiarata', () => {
+    const preset = loadPreset('realism_test_world');
+    const map = loadPresetMap('realism_test_world');
+
+    expect(preset).not.toBeNull();
+    expect(preset?.has_custom_map).toBe(true);
+    expect(map?.type).toBe('FeatureCollection');
+
+    const mapCodes = new Set((map?.features || []).map((feature: any) => feature.properties?.code));
+    expect(preset?.country_codes.slice().sort()).toEqual(['ALP', 'BET']);
+    expect([...mapCodes].sort()).toEqual(['ALP', 'BET']);
   });
 });

@@ -275,6 +275,19 @@ async function runWorldGeneration(
       }
     }
 
+    // Un mondo giocabile deve avere una geometria per ogni politia generata.
+    // Senza questa guardia un preset con codici fittizi privi di map.geojson
+    // veniva persistito come mondo valido con `regions: {}`, lasciando la UI
+    // bloccata su «Caricamento mappa…» senza un errore recuperabile.
+    const missingGeometry = [...worldState.countries.keys()]
+      .filter(code => !homeRegionByCountry[code]);
+    if (worldState.countries.size === 0 || missingGeometry.length > 0) {
+      const detail = missingGeometry.length > 0
+        ? `Nessuna geometria per: ${missingGeometry.join(', ')}`
+        : 'Il generatore non ha prodotto alcuna politia.';
+      throw new Error(`Mappa dello scenario incompleta. ${detail} Aggiungi map.geojson o usa codici Natural Earth validi.`);
+    }
+
     const worldId = shortId();
     const worldData = {
       id: worldId,

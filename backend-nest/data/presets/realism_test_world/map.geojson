@@ -1,0 +1,27 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "code": "ALP",
+        "name": "Alpina"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[8, 45], [12, 45], [12, 48], [8, 48], [8, 45]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "code": "BET",
+        "name": "Betania"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[12, 45], [16, 45], [16, 48], [12, 48], [12, 45]]]
+      }
+    }
+  ]
+}

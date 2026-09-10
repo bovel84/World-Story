@@ -939,3 +939,88 @@
     height: calc(100dvh - var(--ws-hud-h, 56px));
   }
 }
+
+/* G4-A — Desk Tempo: superficie operativa separata dalla Cronaca */
+.hud-advance-btn {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--ws-action-primary, #cda65b);
+  border-radius: 4px;
+  color: var(--ws-text-on-action, #0c1726);
+  background: var(--ws-action-primary, #cda65b);
+  font: 700 12px/1 var(--ws-font-ui, system-ui, sans-serif);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.hud-advance-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.hud-advance-btn:focus-visible { outline: 3px solid var(--ws-focus, #fff); outline-offset: 2px; }
+.hud-advance-btn:disabled { opacity: .5; cursor: not-allowed; }
+.hud-advance-btn b {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  color: var(--ws-text-inverse, #fff);
+  background: var(--ws-danger, #9f3028);
+  font-size: 10px;
+}
+.time-desk-overlay { background: rgba(4, 10, 18, .72); }
+.time-desk {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(760px, calc(100dvh - 32px));
+  overflow: auto;
+  border: 1px solid var(--ws-border, #405572);
+  border-radius: var(--ws-radius-panel, 8px);
+  background: var(--ws-surface-command, #14243a);
+  color: var(--ws-text-primary, #f4f0e8);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .55);
+}
+.time-desk-content { padding: 22px; }
+.time-desk-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.time-desk-kicker { margin: 0 0 5px; color: var(--ws-accent-history, #cda65b); font: 700 11px/1 var(--ws-font-mono, monospace); letter-spacing: .12em; text-transform: uppercase; }
+.time-desk-heading h2 { margin: 0; color: var(--ws-text-primary, #f4f0e8); font-size: 24px; }
+.time-desk-heading p:not(.time-desk-kicker) { margin: 7px 0 0; color: var(--ws-text-secondary, #b8c3d2); font-size: 14px; }
+.time-desk-close { width: 36px; height: 36px; border: 0; border-radius: 4px; color: inherit; background: transparent; font-size: 26px; cursor: pointer; }
+.time-desk-close:hover, .time-desk-close:focus-visible { background: rgba(255,255,255,.1); }
+.time-desk-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 22px 0; }
+.time-desk-context-item { min-height: 102px; padding: 14px; border: 1px solid var(--ws-border, #405572); background: var(--ws-surface-command-raised, #1c314d); }
+.time-desk-context-item span, .time-desk-context-item small { display: block; color: var(--ws-text-secondary, #b8c3d2); font-size: 12px; }
+.time-desk-context-item strong { display: block; margin: 6px 0; color: var(--ws-accent-history, #cda65b); font: 700 28px/1 var(--ws-font-mono, monospace); }
+.time-desk-process-list { margin: 18px 0; padding: 14px; border-left: 3px solid var(--ws-accent-history, #cda65b); background: rgba(255,255,255,.035); }
+.time-desk-process-list h3 { margin: 0 0 8px; font-size: 14px; }
+.time-desk-process-list ul { margin: 0; padding: 0; list-style: none; }
+.time-desk-process-list li { display: grid; gap: 3px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.08); }
+.time-desk-process-list li:first-child { border-top: 0; }
+.time-desk-process-list span, .time-desk-process-list small { color: var(--ws-text-secondary, #b8c3d2); font-size: 12px; }
+.time-desk-process-list > p { margin: 8px 0 0; color: var(--ws-text-secondary, #b8c3d2); font-size: 12px; }
+.time-desk-rule { display: flex; align-items: center; gap: 10px; margin: 22px 0 12px; color: var(--ws-text-secondary, #b8c3d2); font: 700 10px/1 var(--ws-font-mono, monospace); letter-spacing: .1em; text-transform: uppercase; }
+.time-desk-rule::before, .time-desk-rule::after { content: ''; flex: 1; height: 1px; background: var(--ws-border, #405572); }
+.time-desk-next { width: 100%; min-height: 48px; border: 1px solid var(--ws-action-primary, #cda65b); border-radius: 4px; color: var(--ws-text-on-action, #0c1726); background: var(--ws-action-primary, #cda65b); font-weight: 800; cursor: pointer; }
+.time-desk-next:disabled, .time-desk-presets button:disabled, .time-desk-custom button:disabled { opacity: .5; cursor: not-allowed; }
+.time-desk-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.time-desk-presets button { min-height: 66px; padding: 8px; border: 1px solid var(--ws-border, #405572); border-radius: 4px; color: inherit; background: transparent; cursor: pointer; }
+.time-desk-presets button:hover:not(:disabled) { border-color: var(--ws-accent-history, #cda65b); background: rgba(205,166,91,.09); }
+.time-desk-presets strong, .time-desk-presets span { display: block; }
+.time-desk-presets strong { font-size: 12px; }
+.time-desk-presets span { margin-top: 4px; color: var(--ws-text-secondary, #b8c3d2); font-size: 11px; }
+.time-desk-custom { margin-top: 18px; }
+.time-desk-custom label { display: block; margin-bottom: 7px; color: var(--ws-text-secondary, #b8c3d2); font-size: 12px; }
+.time-desk-custom div { display: flex; gap: 8px; }
+.time-desk-custom input { min-width: 0; flex: 1; min-height: 40px; border: 1px solid var(--ws-border, #405572); border-radius: 4px; color-scheme: dark; color: inherit; background: var(--ws-surface-command-raised, #1c314d); padding: 0 10px; }
+.time-desk-custom button { min-width: 92px; border: 1px solid var(--ws-action-primary, #cda65b); border-radius: 4px; color: var(--ws-text-on-action, #0c1726); background: var(--ws-action-primary, #cda65b); font-weight: 700; }
+.time-desk-checkpoint { margin-top: 20px; padding: 14px; border-left: 3px solid var(--ws-danger, #9f3028); background: rgba(159,48,40,.14); color: var(--ws-text-primary, #f4f0e8); }
+.time-desk-checkpoint span { margin-right: 8px; color: var(--ws-danger, #9f3028); }
+.hud-timeline-readonly-note { margin: 16px 0 0; color: var(--ws-text-secondary, #b8c3d2); font-size: 12px; line-height: 1.45; }
+@media (max-width: 767px) {
+  .hud-advance-btn { min-width: 44px; padding: 0 9px; }
+  .hud-advance-btn span { font-size: 10px; }
+  .time-desk-content { padding: 18px; }
+  .time-desk-context { grid-template-columns: 1fr; }
+  .time-desk-presets { grid-template-columns: repeat(2, 1fr); }
+}
