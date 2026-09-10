@@ -5,6 +5,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MapboxMapView } from './components/Map/MapboxMapView';
+import type { TemporalScar } from './components/Map/TemporalScarLayer';
 import { MapView } from './components/Map/MapView';
 // DISATTIVATO: editor mappe (temporaneo)
 // import { MapEditor, type EditorRegion, type EditorObject } from './components/Editor';
@@ -267,6 +268,8 @@ function App() {
     detail?: string,
     eventId?: string,
     announce = true,
+    /** G4-C: regioni toccate dall'evento, per «Mostra sulla mappa». */
+    regionIds?: string[],
   ) => {
     // Gli eventi provenienti dal server hanno un ID stabile: riusarlo rende
     // innocui replay SSE, riconnessioni e refetch della cronaca.
@@ -276,6 +279,7 @@ function App() {
       kind,
       date,
       detail,
+      regionIds: regionIds?.length ? regionIds : undefined,
     };
     setFeedItems(prev => {
       if (eventId && prev.some(existing => existing.id === item.id)) return prev;
@@ -1052,15 +1056,49 @@ function App() {
   // =========================================================================
 
   /** Aggiorna la mappa col delta di un checkpoint per-evento committato. */
+  // G4-C — cicatrici temporali: il confine precedente di ogni regione appena
+  // cambiata resta visibile qualche secondo come documentazione del mutamento.
+  const [temporalScars, setTemporalScars] = useState<TemporalScar[]>([]);
+  const scarTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
   const applyCheckpointRegions = (changedRegions: any[] | undefined) => {
     if (!changedRegions?.length) return;
     const liveWorld = useGameStore.getState().currentWorld;
+    const previousStates: TemporalScar[] = [];
     if (liveWorld) {
       const regions = { ...liveWorld.regions };
       for (const changed of changedRegions) {
-        if (regions[changed.id]) regions[changed.id] = { ...regions[changed.id], ...changed };
+        const before = regions[changed.id];
+        if (!before) continue;
+        // Cicatrice solo su vero cambio di padronanza: aggiornamenti non territoriali
+        // (oggetti, statistiche) non lasciano segno sul confine.
+        const ownerChanged = !!changed.owner && changed.owner !== before.owner;
+        if (ownerChanged) {
+          previousStates.push({
+            id: changed.id,
+            name: changed.name || before.name || changed.id,
+            previousOwner: before.owner || '',
+            previousColor: before.color || '#8a8f9a',
+            startedAt: Date.now(),
+          });
+        }
+        regions[changed.id] = { ...before, ...changed };
       }
       setCurrentWorld({ ...liveWorld, regions });
+    }
+    if (previousStates.length > 0) {
+      const fresh = previousStates.map(scar => ({ ...scar, startedAt: Date.now() }));
+      setTemporalScars(prev => [
+        // Le cicatrici già presenti sulla stessa regione vengono sostituite:
+        // vale l'ultimo confine noto.
+        ...prev.filter(existing => !fresh.some(item => item.id === existing.id)),
+        ...fresh,
+      ]);
+      const scarIds = fresh.map(scar => scar.id);
+      const timer = setTimeout(() => {
+        setTemporalScars(prev => prev.filter(existing => !scarIds.includes(existing.id)));
+      }, 9000);
+      scarTimersRef.current.push(timer);
     }
     setChangedRegions(changedRegions.map((region: any) => region.id));
     setTimeout(() => clearChangedRegions(), 3000);
@@ -1588,7 +1626,7 @@ function App() {
         if (data.event?.headline) {
           // Il checkpoint che richiede decisione è già presentato dal lettore
           // G22: non sovrapponiamo una seconda notizia centrale.
-          pushFeed(data.event.headline, 'world', data.event.date, data.event.description, data.eventId, !data.awaitingNext);
+          pushFeed(data.event.headline, 'world', data.event.date, data.event.description, data.eventId, !data.awaitingNext, (data.changedRegions || []).map((r: any) => r.id));
         }
         if (data.awaitingNext && data.simulationId) {
           const event = {
@@ -1669,11 +1707,13 @@ function App() {
     // Eventi del battito del mondo: la simulazione live avanza anche senza azioni
     onWorldEvent: (data) => {
       console.log('[SSE] World event:', data);
+      const worldRegionIds = (data.changedRegions || []).map((r: any) => r.id);
       for (const [index, ev] of (data.events || []).entries()) {
         const detail = data.eventDetails?.[index];
-        pushFeed(ev, 'world', detail?.date || data.newDate, detail?.detail, detail?.id);
+        pushFeed(ev, 'world', detail?.date || data.newDate, detail?.detail, detail?.id, true, index === 0 ? worldRegionIds : undefined);
       }
-      // Aggiorna data/turno e le regioni cambiate (conquisti NPC ecc.)
+      // Aggiorna data/turno e le regioni cambiate (conquisti NPC ecc.) —
+      // G4-C: il passaggio da applyCheckpointRegions cattura anche le cicatrici.
       if (data.newTurn && data.newDate) {
         setCurrentGame(prev => prev ? {
           ...prev,
@@ -1681,21 +1721,8 @@ function App() {
           currentDate: data.newDate,
         } : prev);
       }
-      if (data.changedRegions?.length && currentWorld) {
-        const updated = { ...currentWorld.regions };
-        for (const cr of data.changedRegions) {
-          if (updated[cr.id]) {
-            updated[cr.id] = {
-              ...updated[cr.id],
-              owner: cr.owner,
-              color: cr.color,
-              population: cr.population,
-              gdp: cr.gdp,
-              militaryPower: cr.militaryPower,
-            };
-          }
-        }
-        setCurrentWorld({ ...currentWorld, regions: updated });
+      if (data.changedRegions?.length) {
+        applyCheckpointRegions(data.changedRegions);
       }
     },
     onTurnComplete: (data) => {
@@ -1869,6 +1896,7 @@ function App() {
         selectedRegionId={selectedRegion || undefined}
         onRegionClick={handleCountryChange}
         changedRegionIds={changedRegions}
+        temporalScars={temporalScars}
         showFlags={!!selectedCountry}
         playerCountryCode={selectedCountry || undefined}
       />
@@ -2047,6 +2075,11 @@ function App() {
               setEditingActionText={setEditingActionText}
               isProcessingTurn={isProcessingTurn}
               feedItems={feedItems}
+              onFocusRegion={(regionId) => {
+                // G4-C: «Mostra sulla mappa» seleziona la regione toccata
+                // dall'evento; la selezione esistente guida già zoom e highlight.
+                setSelectedRegion(regionId);
+              }}
               playerPolityId={playerPolityId}
               showSaveModal={showSaveModal}
               setShowSaveModal={setShowSaveModal}

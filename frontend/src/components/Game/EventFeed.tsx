@@ -17,6 +17,8 @@ export interface FeedItem {
   /** Corpo completo del dispaccio, quando disponibile dalla timeline/LLM. */
   detail?: string;
   kind: 'timeline' | 'world' | 'live';
+  /** G4-C: regioni toccate dall'evento, per «Mostra sulla mappa». */
+  regionIds?: string[];
 }
 
 const ARTICLE_SECTION: Record<FeedItem['kind'], string> = {
@@ -36,12 +38,15 @@ interface EventFeedProps {
   items: FeedItem[];
   processing: boolean;
   focusedRegionName?: string;
+  /** G4-C: seleziona una regione sulla mappa e chiude l'articolo. */
+  onFocusRegion?: (regionId: string) => void;
 }
 
 export function EventFeed({
   items,
   processing,
   focusedRegionName,
+  onFocusRegion,
 }: EventFeedProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
@@ -131,9 +136,30 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
               <p className="newspaper-article-kicker">Dispaccio verificato</p>
               <h1 id="article-headline">{openArticle.text.replace(/^Evento \d+:\s*/, '')}</h1>
               <div className="newspaper-article-rule" />
-              <p className="newspaper-article-lead">
-                {openArticle.detail || 'Il fatto è stato registrato nella cronaca del turno. Le conseguenze saranno riportate nei prossimi dispacci del mondo.'}
-              </p>
+              {openArticle.detail ? (
+                <p className="newspaper-article-why" role="note">
+                  <span className="article-why-label">Perché è accaduto:</span>{' '}
+                  {openArticle.detail}
+                </p>
+              ) : (
+                <p className="newspaper-article-lead">
+                  Il fatto è stato registrato nella cronaca del turno. Le conseguenze saranno riportate nei prossimi dispacci del mondo.
+                </p>
+              )}
+              {openArticle.regionIds?.length ? (
+                <div className="newspaper-article-actions">
+                  <button
+                    type="button"
+                    className="btn-article-show-map"
+                    onClick={() => {
+                      onFocusRegion?.(openArticle.regionIds![0]);
+                      setOpenArticle(null);
+                    }}
+                  >
+                    Mostra sulla mappa
+                  </button>
+                </div>
+              ) : null}
               <p className="newspaper-article-byline">Archivio della simulazione · Consultazione senza effetti sul mondo</p>
             </div>
         </AccessibleDialog>

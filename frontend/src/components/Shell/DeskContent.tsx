@@ -51,6 +51,8 @@ interface DeskContentProps {
   setEditingActionText: (text: string) => void;
   isProcessingTurn: boolean;
   feedItems: any[];
+  /** G4-C: seleziona una regione sulla mappa (da «Mostra sulla mappa»). */
+  onFocusRegion: (regionId: string) => void;
   playerPolityId: string;
   showSaveModal: boolean;
   setShowSaveModal: (v: boolean) => void;
@@ -98,6 +100,7 @@ export function DeskContent({
   setEditingActionText,
   isProcessingTurn,
   feedItems,
+  onFocusRegion,
   playerPolityId,
   showSaveModal,
   setShowSaveModal,
@@ -247,6 +250,7 @@ export function DeskContent({
         items={feedItems}
         processing={isProcessingTurn}
         focusedRegionName={currentRegion?.name}
+        onFocusRegion={onFocusRegion}
       />
     );
   }

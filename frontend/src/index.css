@@ -1228,6 +1228,29 @@
 .article-overlay .newspaper-article-lead:first-letter { float: none !important; margin: 0 !important; color: inherit !important; font: inherit !important; }
 .article-overlay .newspaper-article-byline { margin: 22px 0 0 !important; padding-top: 14px; border-top: 1px solid #3b506d; color: #95a9c4 !important; font: 600 11px/1.4 system-ui, sans-serif !important; }
 
+/* G4-C — spiegazione causale («Perché è accaduto») e azione «Mostra sulla mappa» */
+.article-overlay .newspaper-article-why {
+  margin: 0 !important;
+  padding: 12px 14px;
+  border-left: 3px solid #cda65b;
+  background: rgba(205,166,91,.08);
+  color: #c1cedf !important;
+  font: 400 15px/1.65 system-ui, sans-serif !important;
+}
+.article-overlay .article-why-label { display: block; margin-bottom: 4px; color: #cda65b; font: 700 11px/1.4 system-ui, sans-serif; letter-spacing: .4px; text-transform: uppercase; }
+.article-overlay .newspaper-article-actions { display: flex; gap: 10px; margin-top: 16px; }
+.article-overlay .btn-article-show-map {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid #cda65b;
+  border-radius: 4px;
+  color: #0c1726;
+  background: #cda65b;
+  font: 700 13px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.article-overlay .btn-article-show-map:hover { background: #ddb977; }
+
 @media (max-width: 720px) {
   .article-overlay { padding: 12px !important; align-items: end !important; }
   .article-overlay .newspaper-article { max-height: calc(100dvh - 24px) !important; border-radius: 16px !important; }

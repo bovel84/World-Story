@@ -17,6 +17,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { syncScarLayers, type TemporalScar } from './TemporalScarLayer';
 import maplibregl from 'maplibre-gl';
 import type { StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -101,6 +102,8 @@ interface MapboxMapViewProps {
   onRegionClick?: (regionId: string) => void;
   onRegionHover?: (regionId: string | null) => void;
   changedRegionIds?: string[];
+  /** G4-C: cicatrici temporali — confini precedenti appena mutati. */
+  temporalScars?: TemporalScar[];
   showFlags?: boolean;
   playerCountryCode?: string;
   showMinimap?: boolean;
@@ -300,6 +303,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   onRegionClick,
   onRegionHover,
   changedRegionIds = [],
+  temporalScars = [],
   showFlags = false,
   playerCountryCode,
   // Prop mantenuto per compatibilità API; la minimappa in modalità offline non è usata
@@ -619,6 +623,13 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       m.fitBounds(getBounds(), { padding: 50, duration: 500 });
     }
   }, [regions, mapLoaded, selectedRegionId, hoveredRegionId, changedRegionIds, playerCountryCode, getBounds]);
+
+  // G4-C — cicatrici temporali: tratteggio e riempimento del vecchio padrone
+  // sulle regioni appena cambiate. Layer non interattivi, sotto i controlli.
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+    syncScarLayers(map.current as any, temporalScars, regions);
+  }, [temporalScars, regions, mapLoaded]);
 
   // Etichette delle regioni — marker HTML: lo stile offline senza glifi non supporta
   // layer symbol con text-field, quindi le etichette le disegniamo con elementi DOM
