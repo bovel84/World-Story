@@ -225,6 +225,7 @@ function App() {
   // Collegamento di chatStore alla partita corrente (cambiando partita il feed del consulente si azzera)
   const currentGameId = currentGame?.id || null;
   const [nationalAccounts, setNationalAccounts] = useState<Record<string, any>>({});
+  const [mandateDecisions, setMandateDecisions] = useState<Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>>([]);
   useEffect(() => {
     const chatStore = useChatStore.getState();
     chatStore.setGameId(currentGameId);
@@ -340,10 +341,10 @@ function App() {
 
   // Il bollettino usa dati aggregati dal motore, non formule del browser.
   useEffect(() => {
-    if (!currentGameId) { setNationalAccounts({}); return; }
+    if (!currentGameId) { setNationalAccounts({}); setMandateDecisions([]); return; }
     let cancelled = false;
-    gameApi.nationalState(currentGameId)
-      .then(data => { if (!cancelled) setNationalAccounts(data.accounts || {}); })
+    Promise.all([gameApi.nationalState(currentGameId), gameApi.mandateDecisions(currentGameId)])
+      .then(([national, decisions]) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setMandateDecisions(decisions.decisions || []); } })
       .catch(error => console.warn('[App] Impossibile caricare il dossier nazionale:', error));
     return () => { cancelled = true; };
   }, [currentGameId, currentGame?.currentTurn]);
@@ -2089,6 +2090,7 @@ function App() {
               setEditingActionText={setEditingActionText}
               isProcessingTurn={isProcessingTurn}
               ongoingProcesses={ongoingProcesses}
+              mandateDecisions={mandateDecisions}
               feedItems={feedItems}
               onFocusRegion={(regionId) => {
                 // G4-C: «Mostra sulla mappa» seleziona la regione toccata

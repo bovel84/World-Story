@@ -50,6 +50,7 @@ interface NationDockProps {
   account?: NationAccount | null;
   regions?: Region[];
   ongoingProcesses?: NationalProcess[];
+  mandateDecisions?: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>;
   campaignProgress: number;
   latestNarration: string;
 }
@@ -79,6 +80,7 @@ export const NationDock: React.FC<NationDockProps> = ({
   account,
   regions = [],
   ongoingProcesses = [],
+  mandateDecisions = [],
   campaignProgress,
   latestNarration,
 }) => {
@@ -112,14 +114,15 @@ export const NationDock: React.FC<NationDockProps> = ({
             <section className="nation-section" aria-label="Decisioni richieste">
               <div className="nation-section-title">Decisioni richieste</div>
               <div className="nation-decisions">
-                {ongoingProcesses.length > 0 ? (
-                  <div className="nation-decision-live">
-                    <b>{ongoingProcesses.length} {ongoingProcesses.length === 1 ? 'processo richiede monitoraggio' : 'processi richiedono monitoraggio'}</b>
-                    <span>Apri Progetti per vedere le prossime scadenze registrate.</span>
+                {mandateDecisions.map((decision) => (
+                  <div key={`${decision.mandateId}-${decision.kind}`} className="nation-decision-live">
+                    <b>Scorta minima non coperta · {decision.resourceId}</b>
+                    <span>Disponibile {decision.availableStock} su minimo {decision.minStock} · mancano {decision.shortfall} (mandato {decision.mandateId}).</span>
                   </div>
-                ) : (
-                  <div className="nation-decision-empty">Nessuna decisione richiede attenzione immediata.</div>
-                )}
+                ))}
+                {mandateDecisions.length === 0 && (ongoingProcesses.length > 0 ? (
+                  <div className="nation-decision-live"><b>{ongoingProcesses.length} {ongoingProcesses.length === 1 ? 'processo richiede monitoraggio' : 'processi richiedono monitoraggio'}</b><span>Apri Progetti per vedere le prossime scadenze registrate.</span></div>
+                ) : <div className="nation-decision-empty">Nessuna decisione richiede attenzione immediata.</div>)}
               </div>
             </section>
 

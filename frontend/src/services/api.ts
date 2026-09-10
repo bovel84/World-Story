@@ -282,6 +282,10 @@ export const gameApi = {
   nationalState: (gameId: string): Promise<{ accounts: Record<string, any> }> =>
     fetchApi(`/games/${gameId}/national-state`),
 
+  /** M07/G5-C — eccezioni di mandato già aperte dal tick canonico (sola lettura). */
+  mandateDecisions: (gameId: string): Promise<{ decisions: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>; decisionRequired: boolean }> =>
+    fetchApi(`/games/${gameId}/mandates/decisions`),
+
   // =========================================================================
   // Pending Actions Queue (Phase 2)
   // =========================================================================
