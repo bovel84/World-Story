@@ -120,7 +120,11 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     meetingStarted.current = true;
     (async () => {
       try {
-        const names = polities.map(p => p.name);
+        // Il backend risolve le politie via resolver sui nomi REGIONE: nei
+        // mondi provinciali il nome nazione («China») non è una regione e la
+        // riunione resta bloccata su «Apertura…». Il codice polity (p.id,
+        // es. «CHN») è invece sempre un alias valido nel PolityResolver.
+        const names = polities.map(p => p.id);
         const { chat } = await chatsApi.create(gameId, names);
         upsertChat(chat);
         setActiveChat(chat.id);
