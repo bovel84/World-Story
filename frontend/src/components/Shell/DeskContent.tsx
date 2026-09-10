@@ -256,15 +256,17 @@ export function DeskContent({
     return <AdvisorChat gameId={currentGame.id} />;
   }
 
-  // Modulo Diplomazia
-  if (activeModule === 'diplomacy' && currentGame && selectedRegion && !externalRegionSelected) {
+  // Modulo Diplomazia: chat diplomatiche (scelta originaria del modulo 💬)
+  if (activeModule === 'diplomacy' && currentGame) {
     return (
-      <DiplomacyPanel
-        gameId={currentGame.id}
-        selectedRegionId={selectedRegion}
-        regions={currentWorld?.regions ? Object.values(currentWorld.regions) as any[] : []}
-        refreshKey={currentGame.currentTurn}
-      />
+      <div className="diplomacy-chat-wrap" style={{ position: 'relative', height: '100%' }}>
+        <button type="button" className="desk-close-x" onClick={closeModule} aria-label="Chiudi chat diplomatiche" title="Chiudi">✕</button>
+        <ChatsPanel
+          gameId={currentGame.id}
+          regions={currentWorld?.regions ? Object.values(currentWorld.regions) as Region[] : []}
+          playerPolityId={playerPolityId}
+        />
+      </div>
     );
   }
 
