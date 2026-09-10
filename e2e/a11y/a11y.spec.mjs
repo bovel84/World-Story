@@ -83,6 +83,24 @@ function auditDom() {
 }
 
 test.describe('Q01 µ3 — audit accessibilità di base', () => {
+  test('rail e desk Tempo sono azionabili da tastiera', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+
+    const orders = page.getByRole('button', { name: 'Ordini' });
+    await orders.focus();
+    await expect(orders).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.suggestions-content')).toBeVisible();
+
+    const advance = page.getByRole('button', { name: 'Avanza' });
+    await advance.focus();
+    await expect(advance).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.time-desk-content')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Chiudi avanza il tempo' })).toBeVisible();
+  });
+
   test('HUD di gioco: nessuna violazione di base', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
