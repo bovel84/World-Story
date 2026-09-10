@@ -349,6 +349,18 @@ function App() {
     return () => { cancelled = true; };
   }, [currentGameId, currentGame?.currentTurn]);
 
+  const acknowledgeMandateDecision = async (mandateId: string, kind: string) => {
+    if (!currentGame) return;
+    try {
+      await gameApi.acknowledgeMandateDecision(currentGame.id, mandateId, kind);
+      setMandateDecisions((previous) => previous.filter((item) => !(item.mandateId === mandateId && item.kind === kind)));
+      notify('Promemoria del mandato registrato.', 'success');
+    } catch (error) {
+      console.error('[App] Impossibile registrare la decisione mandato:', error);
+      notify('Impossibile registrare il promemoria del mandato.', 'error');
+    }
+  };
+
   useEffect(() => {
     useChatStore.getState().setChatPanelVisible(
       Boolean(showActions && panelTab === 'chats' && currentGameId)
@@ -2091,6 +2103,7 @@ function App() {
               isProcessingTurn={isProcessingTurn}
               ongoingProcesses={ongoingProcesses}
               mandateDecisions={mandateDecisions}
+              onAcknowledgeMandateDecision={acknowledgeMandateDecision}
               feedItems={feedItems}
               onFocusRegion={(regionId) => {
                 // G4-C: «Mostra sulla mappa» seleziona la regione toccata

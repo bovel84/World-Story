@@ -51,6 +51,7 @@ interface NationDockProps {
   regions?: Region[];
   ongoingProcesses?: NationalProcess[];
   mandateDecisions?: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>;
+  onAcknowledgeMandateDecision?: (mandateId: string, kind: string) => Promise<void>;
   campaignProgress: number;
   latestNarration: string;
 }
@@ -81,6 +82,7 @@ export const NationDock: React.FC<NationDockProps> = ({
   regions = [],
   ongoingProcesses = [],
   mandateDecisions = [],
+  onAcknowledgeMandateDecision,
   campaignProgress,
   latestNarration,
 }) => {
@@ -118,6 +120,7 @@ export const NationDock: React.FC<NationDockProps> = ({
                   <div key={`${decision.mandateId}-${decision.kind}`} className="nation-decision-live">
                     <b>Scorta minima non coperta · {decision.resourceId}</b>
                     <span>Disponibile {decision.availableStock} su minimo {decision.minStock} · mancano {decision.shortfall} (mandato {decision.mandateId}).</span>
+                    {onAcknowledgeMandateDecision && <button type="button" className="nation-decision-ack" onClick={() => void onAcknowledgeMandateDecision(decision.mandateId, decision.kind)}>Prendi atto</button>}
                   </div>
                 ))}
                 {mandateDecisions.length === 0 && (ongoingProcesses.length > 0 ? (

@@ -286,6 +286,9 @@ export const gameApi = {
   mandateDecisions: (gameId: string): Promise<{ decisions: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>; decisionRequired: boolean }> =>
     fetchApi(`/games/${gameId}/mandates/decisions`),
 
+  acknowledgeMandateDecision: (gameId: string, mandateId: string, kind: string): Promise<{ decision: any }> =>
+    fetchApi(`/games/${gameId}/mandates/${encodeURIComponent(mandateId)}/decisions/${encodeURIComponent(kind)}/acknowledge`, { method: 'POST' }),
+
   // =========================================================================
   // Pending Actions Queue (Phase 2)
   // =========================================================================

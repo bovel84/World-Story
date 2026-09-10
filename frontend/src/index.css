@@ -1874,6 +1874,7 @@ html, body { margin: 0; }
 }
 .nation-decision-live b { color: #f0edff; font-size: 13px; }
 .nation-decision-live span { color: #afbad0; }
+.nation-decision-ack { align-self: flex-start; margin-top: 3px; padding: 6px 9px; border: 1px solid #7564b1; border-radius: 6px; background: #262044; color: #ece9ff; font: 700 11px/1 system-ui,sans-serif; cursor: pointer; }
 .nation-data-grid {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px;
 }
