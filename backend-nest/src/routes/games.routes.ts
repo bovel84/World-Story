@@ -719,7 +719,10 @@ gamesRouter.post('/:id/actions/check-feasibility', async (req, res) => {
     if (!text) { res.status(400).json({ error: 'Testo ordine obbligatorio' }); return; }
 
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    const assessment = await session.checkFeasibility(text);
+    const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId));
+    if (!loaded.catalog) { res.status(422).json({ error: 'Catalogo server non valido', report: loaded.report }); return; }
+    // G4-B/G4-D: un solo percorso LLM → assessment + stima costi da catalogo.
+    const { assessment, costs } = await session.checkFeasibilityWithCosts(text);
 
     // Proiezione per la UI: blocker → prerequisiti/rischi, warning invariati.
     const feasible = assessment.status === 'feasible' || assessment.status === 'feasible_with_conditions';
@@ -737,7 +740,7 @@ gamesRouter.post('/:id/actions/check-feasibility', async (req, res) => {
 
     res.json({
       feasible,
-      cost: { money: 0, manpower: 0, timeDays: 0 }, // stima dei costi: G4-D
+      costs,
       prerequisites: [...new Set(prerequisites)],
       risks: [...new Set(risks)],
       warnings: [...new Set(warnings)],

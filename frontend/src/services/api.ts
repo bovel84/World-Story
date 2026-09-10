@@ -332,9 +332,16 @@ export const gameApi = {
   },
 
   /** G4-B — verifica fattibilità ordine da testo libero. */
+  /** G4-B/G4-D — verifica fattibilità ordine da testo libero, con stima
+   *  costi da catalogo (consumi materiali e durata autorevoli). */
   checkFeasibility: (gameId: string, text: string): Promise<{
     feasible: boolean;
-    cost: { money: number; manpower: number; timeDays: number };
+    costs: {
+      timeDays: number;
+      inputs: Array<{ resourceId: string; name: string; quantity: string; unit: string }>;
+      upkeep: Array<{ line: { resourceId: string; name: string; quantity: string; unit: string }; periodDays: number }>;
+      basis: 'recipe' | 'upkeep' | 'request' | 'none';
+    };
     prerequisites: string[];
     risks: string[];
     warnings: string[];

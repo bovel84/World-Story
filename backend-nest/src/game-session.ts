@@ -36,6 +36,7 @@ import { loadSimulationCatalog } from './scenario/loader';
 import { AssessmentStatus, ReasonCode, Blocker, Requirement, FeasibilityFacts, AlternativeProposal, OrderAssessment } from "./core/feasibility/FeasibilityService";
 import { normalizeOrderIntent } from "./core/feasibility/intent";
 import { FeasibilityService } from "./core/feasibility/FeasibilityService";
+import { estimateIntentCosts, type CostEstimate } from "./core/feasibility/costs";
 import { Difficulty, difficultyPromptBlock, normalizeDifficulty } from './prompts/difficulty';
 import { personalityForPolity } from './npc-agents';
 import { countryRepository } from './repositories/country.repository';
@@ -3208,11 +3209,18 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
   /**
    * G4-B — verifica fattibilità da testo libero (sola lettura).
    *
-   * Converte il testo in OrderIntent con lo stesso percorso LLM usato in
-   * simulazione (convertActionsBatch), normalizza con normalizeOrderIntent e
-   * valuta con FeasibilityService. NON accoda, NON simula, NON muta lo stato.
+   * Delega a checkFeasibilityWithCosts e restituisce solo l'assessment.
    */
   async checkFeasibility(text: string): Promise<OrderAssessment> {
+    const { assessment } = await this.checkFeasibilityWithCosts(text);
+    return assessment;
+  }
+
+  /**
+   * G4-B/G4-D — verifica completa: assessment + stima costi da catalogo in un
+   * solo percorso LLM. La stima è sola lettura e usa solo dati autorevoli.
+   */
+  async checkFeasibilityWithCosts(text: string): Promise<{ assessment: OrderAssessment; costs: CostEstimate }> {
     const trimmed = text.trim();
     if (!trimmed) {
       throw new Error('Il testo dell’ordine è obbligatorio');
@@ -3239,18 +3247,6 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     // Normalizzazione canonica: fallisce con needs_clarification se il testo
     // non individua un intent completo (tipo, target, catalogo, autorizzazione).
     const normalized = normalizeOrderIntent(convertedAction);
-    if (!normalized.ok) {
-      return {
-        actionId: tempId,
-        status: 'blocked',
-        blockers: normalized.clarifications.map(c => ({
-          code: c.code as ReasonCode,
-          detail: c.message,
-        })),
-        warnings: [],
-        alternatives: [],
-      };
-    }
 
     // Identità: mondo con catalog binding e attore tesoreria della polity.
     const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
@@ -3262,6 +3258,35 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId));
     if (!loaded.catalog) {
       throw new Error('Catalogo server non valido');
+    }
+
+    // La stima costa esiste anche per un intent non normalizzabile: l'eventuale
+    // catalogRef già presente orienta la proiezione; altrimenti è 'none'.
+    const costs = estimateIntentCosts(loaded.catalog, normalized.ok ? normalized.intent : {
+      id: tempId,
+      actorPolityId: '',
+      originalText: trimmed,
+      actionKind: 'qualitative',
+      targetIds: [],
+      priority: 0,
+      dependencyIds: [],
+      authorization: { allowPartialStart: false, allowedPhaseIds: [] },
+    } as never);
+
+    if (!normalized.ok) {
+      return {
+        assessment: {
+          actionId: tempId,
+          status: 'blocked',
+          blockers: normalized.clarifications.map(c => ({
+            code: c.code as ReasonCode,
+            detail: c.message,
+          })),
+          warnings: [],
+          alternatives: [],
+        },
+        costs,
+      };
     }
 
     const player = this.getPlayer();
@@ -3277,7 +3302,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       throw new Error('Attore economico (tesoreria) non trovato per la polity');
     }
 
-    return new FeasibilityService(loaded.catalog).evaluate(normalized.intent, {
+    const assessment = new FeasibilityService(loaded.catalog).evaluate(normalized.intent, {
       actorId: actor.actorId,
       verifiedPolityId: polity,
       approvals: [],
@@ -3285,6 +3310,8 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       knowledgeIds: [],
       capabilityIds: [],
     });
+
+    return { assessment, costs };
   }
 
   /**

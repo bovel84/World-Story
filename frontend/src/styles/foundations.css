@@ -1024,3 +1024,38 @@
   .time-desk-context { grid-template-columns: 1fr; }
   .time-desk-presets { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* G4-B/G4-D — dialog di verifica fattibilità */
+.feasibility-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(6,10,18,.72); z-index: 60; padding: 20px; }
+.feasibility-check { width: min(520px, 96vw); max-height: 86vh; overflow-y: auto; border: 1px solid var(--ws-border, #405572); border-radius: 8px; background: var(--ws-surface-command, #16283f); color: var(--ws-text-primary, #f4f0e8); box-shadow: 0 18px 48px rgba(0,0,0,.5); }
+.feasibility-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 12px; border-bottom: 1px solid var(--ws-border, #405572); }
+.feasibility-title { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .3px; }
+.feasibility-status { font-weight: 800; }
+.feasibility-close { width: 34px; min-height: 34px; border: none; border-radius: 4px; background: transparent; color: inherit; font-size: 20px; cursor: pointer; }
+.feasibility-close:hover { background: rgba(255,255,255,.08); }
+.feasibility-loading { display: flex; align-items: center; gap: 10px; padding: 26px 18px; color: var(--ws-text-secondary, #b8c3d2); }
+.feasibility-spinner { width: 15px; height: 15px; border: 2px solid var(--ws-border, #405572); border-top-color: var(--ws-accent-history, #cda65b); border-radius: 50%; animation: feasibility-spin .8s linear infinite; }
+@keyframes feasibility-spin { to { transform: rotate(360deg); } }
+.feasibility-error { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 14px 18px 0; padding: 12px 14px; border-left: 3px solid var(--ws-danger, #9f3028); background: rgba(159,48,40,.14); color: var(--ws-text-primary, #f4f0e8); font-size: 13px; }
+.btn-reverify { min-height: 36px; padding: 0 12px; border: 1px solid var(--ws-border, #405572); border-radius: 4px; color: inherit; background: transparent; cursor: pointer; }
+.btn-reverify:hover { border-color: var(--ws-accent-history, #cda65b); }
+.feasibility-content { padding: 14px 18px 18px; }
+.feasibility-summary { margin: 0 0 6px; padding: 10px 12px; border-left: 3px solid var(--ws-accent-history, #cda65b); background: rgba(205,166,91,.08); color: var(--ws-text-primary, #f4f0e8); }
+.feasibility-summary p { margin: 0; font-size: 13px; }
+.feasibility-section { margin-top: 16px; }
+.feasibility-section-title { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--ws-text-secondary, #b8c3d2); }
+.feasibility-costs { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 0; }
+.feasibility-costs div { padding: 9px 11px; border: 1px solid var(--ws-border, #405572); border-radius: 4px; background: var(--ws-surface-command-raised, #1c314d); }
+.feasibility-costs dt { color: var(--ws-text-secondary, #b8c3d2); font-size: 11px; }
+.feasibility-costs dd { margin: 3px 0 0; font-size: 14px; font-weight: 700; }
+.feasibility-costs-empty { margin: 0; color: var(--ws-text-secondary, #b8c3d2); font-size: 13px; }
+.feasibility-list { margin: 0; padding: 0 0 0 4px; list-style: none; font-size: 13px; line-height: 1.6; }
+.feasibility-prereqs .feasibility-checkmark { color: var(--ws-success, #22c55e); margin-right: 6px; }
+.feasibility-risks .feasibility-warning { color: var(--ws-danger, #9f3028); margin-right: 6px; }
+.feasibility-warnings .feasibility-info { color: var(--ws-accent-history, #cda65b); margin-right: 6px; }
+.feasibility-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--ws-border, #405572); }
+.btn-feasibility-back { min-height: 42px; padding: 0 16px; border: 1px solid var(--ws-border, #405572); border-radius: 4px; color: inherit; background: transparent; cursor: pointer; }
+.btn-feasibility-back:hover { border-color: var(--ws-accent-history, #cda65b); }
+.btn-feasibility-register { min-height: 42px; padding: 0 18px; border: 1px solid var(--ws-action-primary, #cda65b); border-radius: 4px; color: var(--ws-text-on-action, #0c1726); background: var(--ws-action-primary, #cda65b); font-weight: 700; cursor: pointer; }
+.btn-feasibility-register:hover:not(:disabled) { background: var(--ws-action-primary-hover, #ddb977); }
+.btn-feasibility-register:disabled { opacity: .45; cursor: not-allowed; }

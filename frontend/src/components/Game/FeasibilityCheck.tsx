@@ -3,7 +3,12 @@ import { AccessibleDialog } from '../ui/AccessibleDialog';
 
 export interface FeasibilityResult {
   feasible: boolean;
-  cost: { money: number; manpower: number; timeDays: number };
+  costs: {
+    timeDays: number;
+    inputs: Array<{ resourceId: string; name: string; quantity: string; unit: string }>;
+    upkeep: Array<{ line: { resourceId: string; name: string; quantity: string; unit: string }; periodDays: number }>;
+    basis: 'recipe' | 'upkeep' | 'request' | 'none';
+  };
   prerequisites: string[];
   risks: string[];
   warnings: string[];
@@ -96,12 +101,33 @@ export function FeasibilityCheck({
           </div>
 
           <section className="feasibility-section">
-            <h3 className="feasibility-section-title">Costi stimati</h3>
-            <dl className="feasibility-costs">
-              <div><dt>Denaro</dt><dd>{result.cost.money.toLocaleString('it-IT')}</dd></div>
-              <div><dt>Manodopera</dt><dd>{result.cost.manpower.toLocaleString('it-IT')}</dd></div>
-              <div><dt>Tempo</dt><dd>{result.cost.timeDays} {result.cost.timeDays === 1 ? 'giorno' : 'giorni'}</dd></div>
-            </dl>
+            <h3 className="feasibility-section-title">Costi stimati dal catalogo</h3>
+            {result.costs.basis === 'none' ? (
+              <p className="feasibility-costs-empty">
+                Nessun consumo materiale dichiarato per questo tipo d'ordine.
+              </p>
+            ) : (
+              <dl className="feasibility-costs">
+                {result.costs.timeDays > 0 && (
+                  <div>
+                    <dt>Durata</dt>
+                    <dd>{result.costs.timeDays} {result.costs.timeDays === 1 ? 'giorno' : 'giorni'} per ciclo</dd>
+                  </div>
+                )}
+                {result.costs.inputs.map(line => (
+                  <div key={line.resourceId}>
+                    <dt>{line.name}</dt>
+                    <dd>{line.quantity} {line.unit}</dd>
+                  </div>
+                ))}
+                {result.costs.upkeep.map(({ line, periodDays }) => (
+                  <div key={`up-${line.resourceId}`}>
+                    <dt>Mantenimento {line.name}</dt>
+                    <dd>{line.quantity} {line.unit} ogni {periodDays} giorni</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
           </section>
 
           {result.prerequisites.length > 0 && (

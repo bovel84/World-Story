@@ -19,11 +19,21 @@ describe('G4-B — verifica fattibilità prima della registrazione', () => {
     expect(appSource).not.toContain('if (await queuePlayerAction(trimmed)) {\n      clearOrderDraft();');
   });
 
-  it('il dialog mostra costi, prerequisiti, rischi e avvisi', () => {
-    expect(feasibilitySource).toContain('Costi stimati');
+  it('il dialog mostra costi da catalogo, prerequisiti, rischi e avvisi', () => {
+    // G4-D: i costi sono consumi materiali e durata autorevoli dal catalogo,
+    // non cifre fittizie di denaro/manodopera.
+    expect(feasibilitySource).toContain('Costi stimati dal catalogo');
+    expect(feasibilitySource).toContain('result.costs.inputs.map');
+    expect(feasibilitySource).toContain('result.costs.upkeep.map');
+    expect(feasibilitySource).not.toContain('Manodopera');
     expect(feasibilitySource).toContain('Prerequisiti');
     expect(feasibilitySource).toContain('Rischi');
     expect(feasibilitySource).toContain('Avvisi');
+  });
+
+  it('un ordine senza consumi dichiarati non inventa cifre', () => {
+    expect(feasibilitySource).toContain("result.costs.basis === 'none'");
+    expect(feasibilitySource).toContain('Nessun consumo materiale dichiarato');
   });
 
   it('consente la registrazione solo di un ordine fattibile', () => {
