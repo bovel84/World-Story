@@ -253,7 +253,12 @@ export function DeskContent({
 
   // Modulo Consulente
   if (activeModule === 'advisor' && currentGame) {
-    return <AdvisorChat gameId={currentGame.id} />;
+    return (
+      <div className="advisor-chat-wrap" style={{ position: 'relative', height: '100%' }}>
+        <button type="button" className="desk-close-x" onClick={closeModule} aria-label="Chiudi consulente" title="Chiudi">✕</button>
+        <AdvisorChat gameId={currentGame.id} />
+      </div>
+    );
   }
 
   // Modulo Diplomazia: chat diplomatiche (scelta originaria del modulo 💬)

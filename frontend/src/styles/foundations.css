@@ -1251,6 +1251,9 @@
 }
 .desk-close-x:hover, .desk-close-x:focus-visible { background: rgba(255,255,255,.08); }
 
+/* Il close universale non deve sovrapporsi all'intestazione del Consulente */
+.advisor-chat-wrap .advisor-banner { padding-right: 56px; }
+
 /* Il pannello desk (bottom sheet su mobile) deve poter contenere il close */
 .game-shell-desk { position: relative; }
 @media (max-width: 767px) {
