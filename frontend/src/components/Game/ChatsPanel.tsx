@@ -19,6 +19,8 @@ interface ChatsPanelProps {
   regions: Region[];
   /** polityId del giocatore — lo escludiamo dall'elenco degli interlocutori */
   playerPolityId: string;
+  /** Modalità riunione: una sola chat di gruppo con tutte le nazioni, niente elenco */
+  uniqueMeeting?: boolean;
 }
 
 /** Politia interlocutrice, dedotta dalle regioni (owner = polityId) */
@@ -61,7 +63,7 @@ function reactionForMessage(content?: string): { icon: string; label: string } {
   return { icon: '💬', label: 'Comunicazione diplomatica' };
 }
 
-export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerPolityId }) => {
+export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerPolityId, uniqueMeeting }) => {
   const {
     chats, activeChatId, messagesByChat,
     refreshChats, upsertChat, setActiveChat, setMessages, appendMessage, markRead,
@@ -108,6 +110,28 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     }
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
   }, [regions, playerPolityId]);
+
+  // Riunione unica: una sola chat di gruppo con tutte le nazioni (create è
+  // idempotente sul backend, quindi riapre sempre la stessa riunione).
+  const meetingStarted = useRef(false);
+  useEffect(() => {
+    if (!uniqueMeeting || isLocal || meetingStarted.current) return;
+    if (polities.length === 0) return;
+    meetingStarted.current = true;
+    (async () => {
+      try {
+        const names = polities.map(p => p.name);
+        const { chat } = await chatsApi.create(gameId, names);
+        upsertChat(chat);
+        setActiveChat(chat.id);
+        const data = await chatsApi.messages(gameId, chat.id);
+        setMessages(chat.id, data.messages || []);
+        markRead(chat.id);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Impossibile aprire la riunione.');
+      }
+    })();
+  }, [uniqueMeeting, isLocal, polities, gameId]);
 
   // Apri la chat: carica i messaggi (il backend li segna letti) e azzera unread
   const openChat = async (chatId: string) => {
@@ -238,9 +262,11 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     return (
       <div className="chats-panel">
         <div className="chat-thread-header">
+          {!uniqueMeeting && (
           <button className="btn-chat-back" onClick={() => setActiveChat(null)} title="Alle chat">
             ←
           </button>
+          )}
           <span className="chat-thread-flags" aria-label={`${activeInterlocutors.length} partecipanti`}>
             {(activeInterlocutors.length ? activeInterlocutors : [{ id: activeChat?.polityId, name: activeChat?.polityName }]).slice(0, 4).map((p: any, i) => (
               <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
@@ -328,6 +354,13 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
   }
 
   // --- Elenco chat ---
+  if (uniqueMeeting && !activeChatId) {
+    return (
+      <div className="chats-panel">
+        <div className="chats-empty">Apertura della riunione…</div>
+      </div>
+    );
+  }
   return (
     <div className="chats-panel">
       <button className="btn-new-chat" onClick={() => { setShowNewChat(v => !v); setSelectedPolityIds(new Set()); }}>
