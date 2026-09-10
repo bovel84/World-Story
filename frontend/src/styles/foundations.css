@@ -908,8 +908,27 @@
     --ws-desk-w: 100%;
   }
 
-  .game-shell {
-    grid-template-columns: 1fr;
+  .game-shell,
+  .game-shell:not(.desk-open) {
+    /* Lo stato senza desk ha una regola più specifica desktop: su mobile
+       deve comunque occupare l'unica colonna, non quella rail da 0px. */
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .game-shell-grid {
+    grid-column: 1;
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .game-shell-map {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
   }
 
   .game-shell-rail {

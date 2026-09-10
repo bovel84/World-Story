@@ -1478,7 +1478,6 @@ function App() {
       }
       setHistory([]);
       setCurrentView('game');
-      notify('Partita caricata.', 'success');
     } catch (e) {
       console.error('[Save] Failed to resume save:', e);
       notify('Errore di caricamento del salvataggio.', 'error');
