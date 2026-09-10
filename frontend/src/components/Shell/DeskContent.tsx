@@ -279,12 +279,15 @@ export function DeskContent({
   // Modulo Notizie
   if (activeModule === 'news') {
     return (
-      <EventFeed
-        items={feedItems}
-        processing={isProcessingTurn}
-        focusedRegionName={currentRegion?.name}
-        onFocusRegion={onFocusRegion}
-      />
+      <div className="news-feed-wrap" style={{ position: 'relative', height: '100%' }}>
+        <button type="button" className="desk-close-x" onClick={closeModule} aria-label="Chiudi notizie" title="Chiudi">✕</button>
+        <EventFeed
+          items={feedItems}
+          processing={isProcessingTurn}
+          focusedRegionName={currentRegion?.name}
+          onFocusRegion={onFocusRegion}
+        />
+      </div>
     );
   }
 
