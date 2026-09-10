@@ -33,6 +33,14 @@ import { ActionsPanel } from './components/Game/ActionsPanel';
 import { NationDock } from './components/Game/NationDock';
 import { useOrderDraftStore } from './stores/orderDraftStore';
 import { SimulationEventReader, type PlaybackReaderState } from './components/Game/SimulationEventReader';
+import { AccessibleDialog } from './components/ui/AccessibleDialog';
+import { ConfirmDialog } from './components/ui/ConfirmDialog';
+import { useToast } from './components/ui/ToastProvider';
+import { GameShell } from './components/Shell/GameShell';
+import { CommandRail } from './components/Shell/CommandRail';
+import { DeskContent } from './components/Shell/DeskContent';
+import { ProvinceInspector } from './components/Shell/ProvinceInspector';
+import { MapLegend } from './components/Shell/MapLegend';
 
 // DISATTIVATO: editor mappe (temporaneo) — helper punti nel path SVG usato solo
 // al salvataggio mappe dall’editor (handleSaveMapLocal/handleSaveMap)
@@ -60,6 +68,8 @@ const formatDateRange = (start: string, end: string): string => {
 };
 
 function App() {
+  const { notify } = useToast();
+
   // Stores
   const {
     currentGame, currentWorld, selectedRegion, history, pendingActions, changedRegions,
@@ -131,6 +141,18 @@ function App() {
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const [editingActionText, setEditingActionText] = useState('');
 
+  // Provincia selezionata per ispettore (click su mappa)
+  const [selectedProvinceId, setSelectedProvinceId] = useState<string | null>(null);
+
+  // Legenda mappa: livello attivo e filtri
+  const [mapLegendLayer, setMapLegendLayer] = useState<'political' | 'terrain' | 'changes'>('political');
+  const [mapLegendFilters, setMapLegendFilters] = useState({
+    showCities: true,
+    showPorts: true,
+    showIndustry: true,
+    showUnits: true,
+  });
+
 
   // Fase 3: Consulente live (tab del pannello flottante) + chat diplomatiche riattivate.
   const totalUnread = useChatStore(selectTotalUnread);
@@ -143,6 +165,7 @@ function App() {
     id: string; title: string; summary: string; started_date: string; expected_date?: string | null;
   }>>([]);
   const timelineRequestRef = useRef(0);
+  const promptEditorRef = useRef<HTMLTextAreaElement>(null);
   const [timelineHasMore, setTimelineHasMore] = useState(false);
   const [timelineNextAfter, setTimelineNextAfter] = useState(0);
   const [timelineLoadingOlder, setTimelineLoadingOlder] = useState(false);
@@ -457,7 +480,7 @@ function App() {
       };
       const result = await mapApi.create(mapData);
       serverMapId = result.id;
-      alert(`Mappa "${mapName}" salvata sul server!`);
+      notify(`Mappa “${mapName}” salvata sul server.`, 'success');
     } catch (e) {
       console.warn('Failed to save map to server:', e);
     }
@@ -485,7 +508,7 @@ function App() {
     setLoading(true);
 
     if (!selectedMapForWorld?.id.startsWith('server_')) {
-      alert('Prima salva la mappa sul server (pulsante "Salva" nell’editor di mappe)!');
+      notify('Prima salva la mappa sul server (pulsante “Salva” nell’editor di mappe).', 'info');
       setLoading(false);
       return;
     }
@@ -872,10 +895,13 @@ function App() {
   };
 
   // Fase 2: Rewind — torna al turno precedente
-  const handleRewind = async () => {
+  const handleRewind = () => {
     if (!currentGame || loading) return;
-    if (!window.confirm('Annullare l\'ultima mossa? Il mondo tornerà allo stato precedente.')) return;
+    setShowRewindConfirm(true);
+  };
 
+  const handleRewindConfirmed = async () => {
+    if (!currentGame || loading) return;
     setLoading(true);
     try {
       await gameApi.rewind(currentGame.id);
@@ -909,10 +935,27 @@ function App() {
       });
     } catch (e) {
       console.error('Rewind failed:', e);
-      alert('Impossibile annullare la mossa — lo snapshot è disponibile dopo la prima mossa giocata.');
+      notify('Impossibile annullare la mossa: lo snapshot è disponibile dopo la prima mossa giocata.', 'error');
     }
 
     setLoading(false);
+  };
+
+  const handleLoadSaveConfirmed = async (saveId: string) => {
+    if (!currentGame || loading) return;
+    setLoading(true);
+    try {
+      await gameApi.loadSave(saveId);
+      const game = await gameApi.get(currentGame.id);
+      setCurrentGame(game);
+      setHistory([]);
+      notify('Partita caricata.', 'success');
+    } catch (e) {
+      console.error(e);
+      notify('Errore di caricamento.', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Ripristino esplicito del checkpoint che ha prodotto un evento timeline.
@@ -1161,9 +1204,12 @@ function App() {
     }
   };
 
-  // Scegli il paese
+  // Scegli il paese (click su mappa: seleziona regione + apre ispettore provincia)
   const handleCountryChange = (regionId: string) => {
     setSelectedRegion(regionId);
+    setSelectedProvinceId(regionId);
+    // Se un modulo è aperto, lo chiudiamo per mostrare l'ispettore
+    if (activeModule !== 'none') closeModule();
   };
 
   const generateSuggestions = async () => {
@@ -1313,7 +1359,7 @@ function App() {
       setCurrentView('game');
     } catch (e) {
       console.error('[Save] Failed to resume save:', e);
-      alert('Errore di caricamento del salvataggio');
+      notify('Errore di caricamento del salvataggio.', 'error');
     } finally {
       setLoading(false);
     }
@@ -1376,6 +1422,9 @@ function App() {
   const [genProgress, setGenProgress] = useState<number | null>(null);
   // Menu di scelta del modello IA (landing + pannello di gioco)
   const [showLLMSettings, setShowLLMSettings] = useState(false);
+  // Dialog di conferma per azioni distruttive
+  const [showRewindConfirm, setShowRewindConfirm] = useState(false);
+  const [showLoadSaveConfirm, setShowLoadSaveConfirm] = useState<{ saveId: string; saveName: string; turn: number } | null>(null);
 
   // Rotazione delle fasi del loader mentre avviene la generazione del mondo nella schermata di scelta paese
   useEffect(() => {
@@ -1683,12 +1732,12 @@ function App() {
     const provinceMetadata = currentRegion?.metadata || {};
     const isPaxProvince = Boolean(provinceMetadata.pax_region_id);
     const provinceAssets = (currentRegion?.objects || []).reduce((assets, object) => {
-      if (object.type === 'factory') assets.factories += 1;
-      else if (object.type === 'port') assets.ports += 1;
-      else if (object.type === 'radar') assets.infrastructure += 1;
-      else if (object.type === 'capital') assets.capital = true;
-      else if (object.type === 'city') assets.cities += 1;
-      else if (object.type === 'army' || object.type === 'battalion' || object.type === 'fleet') assets.units += 1;
+      if (object.type === "factory") assets.factories += 1;
+      else if (object.type === "port") assets.ports += 1;
+      else if (object.type === "radar") assets.infrastructure += 1;
+      else if (object.type === "capital") assets.capital = true;
+      else if (object.type === "city") assets.cities += 1;
+      else if (object.type === "army" || object.type === "battalion" || object.type === "fleet") assets.units += 1;
       return assets;
     }, { factories: 0, ports: 0, infrastructure: 0, cities: 0, units: 0, capital: false });
     const infrastructureLevel = Number(provinceMetadata.infrastructure_level)
@@ -1697,7 +1746,7 @@ function App() {
     // Polis del giocatore (owner = polityId; da players.polityId, oppure dedotto dalla regione capitale)
     const playerPolityId = currentGame?.players?.[0]?.polityId
       ?? regions.find(r => r.id === currentGame?.players?.[0]?.regionId)?.owner
-      ?? 'player';
+      ?? "player";
     const nationalRegions = regions.filter(region => region.owner === playerPolityId);
     const nationalReference = nationalRegions.find(region => region.id === currentGame?.players?.[0]?.regionId) || nationalRegions[0];
     const nationalName = nationalReference?.polityName || nationalReference?.name || playerPolityId;
@@ -1708,668 +1757,248 @@ function App() {
     const estimatedExpenses = Number(nationalAccount?.monthlyExpenses ?? 0);
     const campaignProgress = currentGame ? Math.round((currentGame.currentTurn / currentGame.maxTurns) * 100) : 0;
     const governmentTypes: Record<string, string> = {
-      PSE: 'Autorità nazionale palestinese', USA: 'Repubblica federale presidenziale',
-      RUS: 'Repubblica federale presidenziale', CHN: 'Repubblica popolare a partito unico',
-      GBR: 'Monarchia parlamentare', FRA: 'Repubblica semipresidenziale',
-      DEU: 'Repubblica federale parlamentare', ITA: 'Repubblica parlamentare',
+      PSE: "Autorità nazionale palestinese", USA: "Repubblica federale presidenziale",
+      RUS: "Repubblica federale presidenziale", CHN: "Repubblica popolare a partito unico",
+      GBR: "Monarchia parlamentare", FRA: "Repubblica semipresidenziale",
+      DEU: "Repubblica federale parlamentare", ITA: "Repubblica parlamentare",
     };
-    const governmentType = nationalAccount?.government || governmentTypes[playerPolityId] || 'Repubblica presidenziale';
+    const governmentType = nationalAccount?.government || governmentTypes[playerPolityId] || "Repubblica presidenziale";
     const playerRegionId = currentGame?.players?.[0]?.regionId || nationalReference?.id || null;
     // Provincia esterna selezionata: il bollettino nazionale si nasconde, resta solo il dettaglio provincia.
     const externalRegionSelected = Boolean(currentRegion && currentRegion.id !== playerRegionId && currentRegion.owner !== playerPolityId);
     const selectedIsPlayerProvince = Boolean(currentRegion && (currentRegion.id === playerRegionId || currentRegion.owner === playerPolityId));
     const selectedRegionOwnerName = currentRegion?.polityName || currentRegion?.owner || null;
-    const latestNationalNarration = timeline.length > 0 ? timeline[timeline.length - 1].narration : 'In attesa del primo dispaccio della simulazione.';
+    const latestNationalNarration = timeline.length > 0 ? timeline[timeline.length - 1].narration : "In attesa del primo dispaccio della simulazione.";
 
-    return (
-      <div className="game-wrapper">
-        {/* Fase 6: HUD-bar in stile originale (data, rewind, pannello «Timeline») */}
-        <HudBar
-          worldName={currentWorld?.name || ''}
-          turn={currentGame?.currentTurn || 1}
-          dateISO={currentGame?.currentDate || '1951-01-01'}
-          loading={loading}
-          timeline={timeline}
-          timelineLoading={timelineLoading}
-          timelineError={timelineError}
-          timelineHasMore={timelineHasMore}
-          timelineLoadingOlder={timelineLoadingOlder}
-          ongoingProcesses={ongoingProcesses}
-          dispatchCount={feedItems.length}
-          dispatchLive={isProcessingTurn}
-          onOpenDispatches={() => {
-            openModule('news');
-          }}
-          onTimelineOpen={handleTimelineOpen}
-          onLoadOlder={loadOlderTimeline}
-          onBack={() => {
-            setCurrentView('menu');
-            setCurrentWorld(null);
-            setCurrentGame(null);
-            setHistory([]);
-          }}
-          onRewind={handleRewind}
-          onTimeSkip={handleTimeSkip}
-          onRestoreCheckpoint={handleRestoreCheckpoint}
-          onContinueFrom={handleContinueFrom}
-          activePlayback={pausedReader ? {
-            simulationId: pausedReader.simulationId,
-            eventId: pausedReader.event.id,
-            revision: pausedReader.revision,
-          } : null}
-          onFocusPlaybackReader={() => document.getElementById('simulation-event-reader')?.focus({ preventScroll: true })}
-        />
+    // Rail items per CommandRail
+    const railItems = [
+      {
+        id: "orders" as const,
+        icon: "⚡",
+        label: "Ordini",
+        badge: 0,
+        active: activeModule === "orders",
+        onClick: () => openModule("orders"),
+      },
+      {
+        id: "diplomacy" as const,
+        icon: "💬",
+        label: "Diplomazia",
+        badge: totalUnread > 0 ? totalUnread : 0,
+        active: activeModule === "diplomacy",
+        onClick: () => openModule("diplomacy"),
+      },
+      {
+        id: "advisor" as const,
+        icon: "✦",
+        label: "Consulente",
+        badge: 0,
+        active: activeModule === "advisor",
+        onClick: () => openModule("advisor"),
+      },
+      {
+        id: "news" as const,
+        icon: "▤",
+        label: "Notizie",
+        badge: feedItems.length > 0 ? feedItems.length : 0,
+        active: activeModule === "news",
+        onClick: () => openModule("news"),
+      },
+      {
+        id: "nation" as const,
+        icon: "⌂",
+        label: "Nazione",
+        badge: 0,
+        active: activeModule === "nation",
+        onClick: () => openModule("nation"),
+      },
+    ];
 
-        {newsOpen && (
-          <NewsFlash
-            item={newsQueue[0] || null}
-            pendingCount={newsQueue.length}
-            onClose={() => dismissNews(false)}
-            onNext={() => dismissNews(true)}
-            onOpenArchive={() => {
-              dismissNews(false);
-              openModule('news');
-            }}
-          />
-        )}
-
-        <div className={`game-container${panelOpen ? '' : ' panel-closed'}`}>
-          {/* Fase 2: banner di avanzamento turno + Intervene */}
-          {isProcessingTurn && (
-            <div className="turn-progress-banner">
-              <span className="turn-progress-text">{turnProgress || 'Elaborazione mossa...'}</span>
-              <button
-                className="btn-intervene"
-                onClick={handleIntervene}
-                title="Ferma la simulazione dopo l'evento corrente"
-              >
-                ⏸ Intervene
-              </button>
-            </div>
-          )}
-          {/* G22: il checkpoint attivo ha un lettore autonomo; la cronaca
-              sottostante è invece un archivio consultabile senza mutazioni. */}
-          {pausedReader && (
-            <SimulationEventReader
-              playback={pausedReader}
-              loading={loading}
-              onContinue={handleContinueNext}
-              onIntervene={handleInterveneHere}
-            />
-          )}
-          {/* Mappa a sinistra */}
-          <div className="game-map">
-            {regions.some(r => r.geojson) ? (
-              <MapboxMapView
-                regions={regions}
-                selectedRegionId={selectedRegion || undefined}
-                onRegionClick={handleCountryChange}
-                changedRegionIds={changedRegions}
-                showFlags={!!selectedCountry}
-                playerCountryCode={selectedCountry || undefined}
-              />
-            ) : regions.some(r => r.svgPath) ? (
-              <MapView
-                regions={regions}
-                selectedRegionId={selectedRegion || undefined}
-                onRegionClick={handleCountryChange}
-                changedRegionIds={changedRegions}
-              />
-            ) : (
-              <div style={{
-                width: '100%',
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: '#0a0a0f',
-                color: '#667eea',
-                padding: '40px',
-                textAlign: 'center',
-              }}>
-                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🗺️</div>
-                <h3>Caricamento mappa…</h3>
-                <p style={{ color: '#888', maxWidth: '300px' }}>
-                  Le regioni del mondo non hanno ancora una geometria.
-                </p>
-              </div>
-            )}
-
-          </div>
-
-            {/* Accessi rapidi ad azioni e diplomazia, con badge live SSE. */}
-            {!showActions && (
-              <Fab items={[
-                {
-                  icon: '⚡',
-                  title: 'Ordini',
-                  active: panelTab === 'suggestions',
-                  onClick: () => {
-                    openModule('orders');
-                    openActionsPanel(false);
-                  },
-                },
-                {
-                  icon: '💬',
-                  title: 'Diplomazia',
-                  active: panelTab === 'chats',
-                  badge: totalUnread > 0 ? totalUnread : undefined,
-                  onClick: () => {
-                    openModule('diplomacy');
-                    openActionsPanel(false);
-                  },
-                },
-                {
-                  icon: '✦',
-                  title: 'Consulente',
-                  active: panelTab === 'advisor',
-                  onClick: () => {
-                    openModule('advisor');
-                    openActionsPanel(false);
-                  },
-                },
-                {
-                  icon: '▤',
-                  title: 'Notizie',
-                  active: panelTab === 'news',
-                  badge: feedItems.length > 0 ? feedItems.length : undefined,
-                  onClick: () => {
-                    openModule('news');
-                  },
-                },
-                {
-                  icon: '⌂',
-                  title: 'Nazione',
-                  active: panelTab === 'nation' && panelOpen,
-                  onClick: () => {
-                    openModule('nation');
-                    setPanelSheetOpen(true);
-                  },
-                },
-              ]} />
-            )}
-
-{showActions && (
-              <div
-                ref={actionsRef}
-                className={`floating-advisor-panel action-desk ${actionsMaximized ? 'maximized' : ''}`}
-                style={{
-                  width: actionsMaximized ? '90%' : `${actionsSize.width}px`,
-                  height: actionsMaximized ? '80vh' : `${actionsSize.height}px`,
-                  left: actionsMaximized ? '5%' : '20px',
-                  bottom: actionsMaximized ? '10vh' : '80px',
-                }}
-              >
-                {/* Resize handle */}
-                {!actionsMaximized && (
-                  <div
-                    className="resize-handle"
-                    onMouseDown={() => setIsResizing(true)}
-                  />
-                )}
-
-                <div className="floating-advisor-header">
-                  <div className="panel-title">
-                    {panelTab === 'suggestions' ? 'Ordini di governo' : panelTab === 'advisor' ? 'Consulente' : panelTab === 'news' ? 'Dispacci del mondo' : 'Relazioni estere'}
-                  </div>
-                  <div className="header-buttons">
-                    <button
-                      className="btn-maximize"
-                      onClick={() => setActionsMaximized(!actionsMaximized)}
-                      title={actionsMaximized ? 'Riduci' : 'Espandi'}
-                    >
-                      {actionsMaximized ? '−' : '□'}
-                    </button>
-                    <button className="btn-close" onClick={() => closeModule()}>×</button>
-                  </div>
-                </div>
-
-                {/* Actions Content */}
-                {panelTab === 'suggestions' && (
-                <div className="suggestions-content">
-                  {/* Brainstorm nello stesso punto del pannello Azioni di Pax Historia. */}
-                  <div className="council-head">
-                    <div className="council-title">Pianifica la prossima mossa</div>
-                    <div className="council-sub">Ordini concreti costruiti sulla mappa, la cronaca e la tua strategia</div>
-                    <button
-                      className="btn-generate-suggestions"
-                      disabled={suggestionsLoading}
-                      onClick={() => void generateSuggestions()}
-                    >
-                      {suggestionsLoading
-                        ? <span className="council-working"><i></i><i></i><i></i> Analisi dello scenario…</span>
-                        : 'Elabora proposte'}
-                    </button>
-                    {suggestionsError && (
-                      <div className="suggestions-error" role="alert">{suggestionsError}</div>
-                    )}
-                  </div>
-
-                  {/* Actions List */}
-                  {suggestions.length > 0 && (
-                    <div className="suggestions-list">
-                      {suggestions.map((s, i) => (
-                        <div key={i} className="suggestion-item">
-                          <div className="suggestion-topic">{s.topic}</div>
-                          <div className="suggestion-description">{s.description}</div>
-                          {s.actions?.map((a: any, ai: number) => {
-                            const queued = pendingActions.some(action => action.text.trim() === String(a.content || '').trim());
-                            return (
-                              <button
-                                type="button"
-                                key={ai}
-                                className={`suggestion-action${queued ? ' queued' : ''}`}
-                                disabled={queued}
-                                onClick={() => void queuePlayerAction(a.content)}
-                                title={queued ? 'Azione già in coda' : 'Aggiungi questa azione alla coda'}
-                              >
-                                <span className="suggestion-action-plus" aria-hidden="true">{queued ? '✓' : '+'}</span>
-                                <span className="suggestion-action-body">
-                                  <b>{a.title}</b>
-                                  <span>{a.content}</span>
-                                </span>
-                                <span className="suggestion-action-cta">{queued ? 'Aggiunta' : 'Usa'}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Pending Actions Section */}
-                  <div className="pending-actions-section">
-                    <div className="pending-header">In attesa di elaborazione:</div>
-                    {pendingActions.length === 0 ? (
-                      <div className="pending-empty">Nessuna azione</div>
-                    ) : (
-                      <div className="pending-list">
-                        {pendingActions.map((action, index) => (
-                          <div key={action.id} className="pending-item">
-                            <span className="pending-number">{index + 1}.</span>
-                            {editingActionId === action.id ? (
-                              <>
-                                <textarea
-                                  className="pending-edit-input"
-                                  value={editingActionText}
-                                  onChange={(e) => setEditingActionText(e.target.value)}
-                                  rows={2}
-                                  aria-label={`Modifica azione ${index + 1}`}
-                                />
-                                <button
-                                  className="btn-save-pending"
-                                  disabled={!editingActionText.trim()}
-                                  onClick={() => void updateQueuedAction(action.id, editingActionText)}
-                                  title="Salva la modifica"
-                                  aria-label={`Salva modifica azione ${index + 1}`}
-                                >
-                                  ✓
-                                </button>
-                                <button
-                                  className="btn-cancel-pending"
-                                  onClick={() => { setEditingActionId(null); setEditingActionText(''); }}
-                                  title="Annulla la modifica"
-                                  aria-label={`Annulla modifica azione ${index + 1}`}
-                                >
-                                  ✕
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <span className="pending-text">{action.text}</span>
-                                <button
-                                  className="btn-edit-pending"
-                                  onClick={() => { setEditingActionId(action.id); setEditingActionText(action.text); }}
-                                  title="Modifica l'ordine prima della presa in carico"
-                                  aria-label={`Modifica azione ${index + 1}`}
-                                >
-                                  ✎
-                                </button>
-                                <button
-                                  className="btn-remove-pending"
-                                  onClick={() => void removeQueuedAction(action.id)}
-                                  title="Rimuovi dalla coda"
-                                  aria-label={`Rimuovi azione ${index + 1}`}
-                                >
-                                  ×
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Ordine libero: il convertitore LLM interpreta l'intenzione,
-                      il motore verifica limiti e applica le conseguenze. U02 µ1:
-                      compositore estratto in ActionsPanel con bozza preservata
-                      e «Registra ordine» (UI02/UI13). */}
-                  <ActionsPanel
-                    text={orderDraftText}
-                    onTextChange={updateOrderDraft}
-                    enhancedPreview={enhancedPreview}
-                    enhanceLoading={enhanceLoading}
-                    enhanceError={enhanceError}
-                    onEnhance={(t) => void enhanceOrder(t)}
-                    onAcceptEnhanced={acceptOrderEnhanced}
-                    onRejectEnhanced={rejectOrderEnhanced}
-                    onRegister={(t) => void registerOrder(t)}
-                  />
-                </div>
-                )}
-
-                {/* Fase 3: tab del Consulente live (streaming + sintesi proattive) */}
-                {panelTab === 'advisor' && currentGame && (
-                  <AdvisorChat gameId={currentGame.id} />
-                )}
-
-                {/* Chat diplomatiche (stile Pax Historia: anche chat di gruppo) */}
-                {panelTab === 'chats' && currentGame && (
-                  <ChatsPanel
-                    gameId={currentGame.id}
-                    regions={regions}
-                    playerPolityId={playerPolityId}
-                  />
-                )}
-
-                {/* Archivio dispacci: una quarta scheda della stessa scrivania. */}
-                {panelTab === 'news' && (
-                  <EventFeed
-                    items={feedItems}
-                    processing={isProcessingTurn}
-                    focusedRegionName={currentRegion?.name}
-                  />
-                )}
-
-                {/* Gli ordini sono già persistiti quando vengono aggiunti alla
-                    coda. Questo footer non deve mai simulare: gli eventi
-                    iniziano soltanto dal comando data/Timeline nella HUD. */}
-                {panelTab === 'suggestions' && (
-                <div className="suggestions-footer">
-                  <span className="pending-advance-hint">
-                    {pendingActions.length > 0
-                      ? `${pendingActions.length} ${pendingActions.length === 1 ? 'ordine pronto' : 'ordini pronti'} · gli eventi inizieranno solo quando avanzi il tempo dalla data in alto.`
-                      : 'Aggiungi un ordine al piano: non passerà tempo finché non scegli una data.'}
-                  </span>
-                  <button
-                    className="btn-submit-actions"
-                    disabled={pendingActions.length === 0}
-                    onClick={() => closeModule()}
-                    title="Chiudi il piano: gli ordini restano in attesa"
-                  >
-                    Chiudi piano
-                  </button>
-                </div>
-                )}
-              </div>
-            )}
-
-          {/* Nazione: quinto modulo della stessa scrivania, non più sidebar. */}
-          <div
-              className={`game-panel nation-desk${panelSheetOpen ? ' sheet-open' : ''}${panelOpen && panelTab === 'nation' ? '' : ' panel-collapsed'}`}
-            >
-            <header className="nation-module-header">
-              <div>
-                <div className="nation-module-kicker">Dossier nazionale</div>
-                <div className="nation-module-title">Nazione</div>
-              </div>
-              <button
-                className="nation-module-close"
-                onClick={() => {
-                  setPanelSheetOpen(false);
-                  closeModule();
-                }}
-                title="Chiudi nazione"
-                aria-label="Chiudi nazione"
-              >×</button>
-            </header>
-
-            {selectedRegion && !externalRegionSelected && (
-            <NationDock
-              nationalName={nationalName}
-              governmentType={governmentType}
-              account={nationalAccount}
-              campaignProgress={campaignProgress}
-              latestNarration={latestNationalNarration}
-            />
-            )}
-
-            {/* Country selector - locked to player's region */}
-            {selectedRegion && !externalRegionSelected && (
-            <div className="country-selector">
-              <label>La tua nazione:</label>
-              <div className="country-locked">
-                {currentGame?.players[0] && (
-                  <span style={{ color: currentRegion?.color || '#fff' }}>
-                    {currentRegion?.name || 'Sconosciuto'}
-                  </span>
-                )}
-              </div>
-            </div>
-            )}
-
-            {/* Current country info */}
-            {currentRegion && (
-              <div className="country-info province-detail-card">
-                <div className="province-detail-kicker">{selectedIsPlayerProvince ? 'Provincia · La tua nazione' : 'Provincia selezionata'}</div>
-                <div className="country-name province-detail-title" style={{ color: currentRegion.color }}>
-                  {currentRegion.name}
-                </div>
-                {!selectedIsPlayerProvince && selectedRegionOwnerName && (
-                  <div className="province-owner">Appartenente a: {selectedRegionOwnerName}</div>
-                )}
-                <div className="country-stats">
-                  <span><b>POP.</b> {currentRegion.population?.toLocaleString() || '1,000,000'}</span>
-                  <span><b>PIL</b> {currentRegion.gdp || 100}</span>
-                  <span><b>FORZE</b> {currentRegion.militaryPower || 100}</span>
-                </div>
-                {isPaxProvince && selectedIsPlayerProvince && (
-                  <div className="province-dossier">
-                    <div className="province-dossier-kicker">Provincia · {provinceMetadata.surface_type || 'Terra'}</div>
-                    <div className="province-assets">
-                      <span title="Livello infrastrutture, sviluppabile con gli ordini">⌁ INFRA <b>L{infrastructureLevel}</b></span>
-                      <span title="Impianti industriali presenti">⚙ FAB. <b>{provinceAssets.factories}</b></span>
-                      <span title="Porti presenti">⚓ PORTI <b>{provinceAssets.ports}</b></span>
-                      <span title="Centri urbani nella provincia">● CITTÀ <b>{provinceAssets.cities + (provinceAssets.capital ? 1 : 0)}</b></span>
-                      <span title="Unità militari schierate">▲ UNITÀ <b>{provinceAssets.units}</b></span>
-                    </div>
-                    {Array.isArray(provinceMetadata.tags) && provinceMetadata.tags.length > 0 && (
-                      <div className="province-tags">{provinceMetadata.tags.slice(0, 3).join(' · ')}</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Diplomacy panel: solo per la nazione del giocatore o province sue */}
-            {currentGame && selectedRegion && !externalRegionSelected && (
-              <DiplomacyPanel
-                gameId={currentGame.id}
-                selectedRegionId={selectedRegion}
-                regions={regions}
-                refreshKey={currentGame.currentTurn}
-              />
-            )}
-
-            {/* Save/Load buttons */}
-            <div className="save-load-section">
-              <button
-                className="btn-save"
-                onClick={() => setShowSaveModal(true)}
-              >
-                Salva
-              </button>
-              <button
-                className="btn-load"
-                onClick={async () => {
-                  try {
-                    const data = await savesApi.list();
-                    if (data.saves.length === 0) {
-                      alert('Nessun salvataggio');
-                      return;
-                    }
-                    const save = data.saves[0];
-                    if (save && confirm(`Carica "${save.name}" (Mossa ${save.current_turn})?`)) {
-                      await gameApi.loadSave(save.id);
-                      if (currentGame) {
-                        const game = await gameApi.get(currentGame.id);
-                        setCurrentGame(game);
-                        setHistory([]);
-                        alert('Partita caricata!');
-                      }
-                    }
-                  } catch (e) {
-                    console.error(e);
-                    alert('Errore di caricamento');
-                  }
-                }}
-              >
-                Carica
-              </button>
-              <button
-                className="btn-edit-prompt"
-                onClick={() => {
-                  setEditingPrompt(currentWorld?.basePrompt || '');
-                  setShowPromptEditor(true);
-                }}
-                title="Modifica il prompt del mondo"
-              >
-                Mondo
-              </button>
-              <button
-                className="btn-edit-prompt"
-                onClick={() => setShowLLMSettings(true)}
-                title="Scegli il modello IA (provider e modello)"
-              >
-                Modello
-              </button>
-            </div>
-
-            {/* Gli eventi sono nel feed «Cronaca» sulla mappa: sempre visibili,
-                si accumulano turno dopo turno e restano in vista anche col
-                pannello ripiegato o col focus su un'altra nazione. */}
-
-
-
-
-
-            {/* History */}
-            <div className="history-section">
-              <h4>Storico</h4>
-              <div className="history-list">
-                {history.map((item, i) => (
-                  <div key={i} className="history-item">
-                    <div className="history-header">
-                      <span className="history-turn">Mossa {item.turn}</span>
-                      {item.periodStart && item.periodEnd ? (
-                        <span className="history-date">
-                          📅 {formatDateRange(item.periodStart, item.periodEnd)}
-                        </span>
-                      ) : item.date && (
-                        <span className="history-date">📅 {item.date}</span>
-                      )}
-                    </div>
-                    <div className="history-action">{item.action}</div>
-                    <div
-                      className="history-result"
-                      style={{ '--nation-color': currentRegion?.color || '#667eea' } as React.CSSProperties}
-                    >
-                      {item.result}
-                    </div>
-                    {item.events && item.events.length > 0 && (
-                      <div className="history-events">
-                        {item.events.map((event, ei) => (
-                          <div key={ei} className="history-event">• {event}</div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-                <div ref={historyEndRef} />
-              </div>
-            </div>
-
-            {/* Back button */}
-            <button className="btn-back" onClick={() => {
-              setCurrentView('menu');
-              setCurrentWorld(null);
-              setCurrentGame(null);
-              setHistory([]);
-            }}>
-              ← Al menu
-            </button>
-
-            {/* Fase 6: modale di salvataggio partita (al posto di prompt()) */}
-            <SaveGameModal
-              open={showSaveModal}
-              defaultName={`Partita ${new Date().toLocaleString('it-IT')}`}
-              onClose={() => setShowSaveModal(false)}
-              onSave={async (name) => {
-                if (!currentGame) return;
-                try {
-                  await gameApi.saveGame(currentGame.id, name);
-                  setShowSaveModal(false);
-                } catch (e) {
-                  console.error(e);
-                  alert('Errore di salvataggio');
-                }
-              }}
-            />
-
-            {/* Prompt Editor Modal */}
-            {showPromptEditor && (
-              <div className="prompt-editor-modal">
-                <div className="prompt-editor-overlay" onClick={() => setShowPromptEditor(false)} />
-                <div className="prompt-editor-content">
-                  <div className="prompt-editor-header">
-                    <h3>📝 Modifica prompt del mondo</h3>
-                    <button className="btn-close-prompt" onClick={() => setShowPromptEditor(false)}>×</button>
-                  </div>
-                  <p className="prompt-editor-desc">
-                    Questo prompt definisce la storia del tuo mondo, il comportamento degli NPC e gli eventi possibili.
-                    Le modifiche avranno effetto dalle prossime mosse.
-                  </p>
-                  <textarea
-                    className="prompt-editor-textarea"
-                    value={editingPrompt}
-                    onChange={(e) => setEditingPrompt(e.target.value)}
-                    placeholder="Descrivi le caratteristiche chiave del tuo mondo..."
-                    rows={10}
-                  />
-                  <div className="prompt-editor-footer">
-                    <span className="char-count">{editingPrompt.length} caratteri</span>
-                    <div className="prompt-editor-actions">
-                      <button className="btn-cancel-prompt" onClick={() => setShowPromptEditor(false)}>
-                        Annulla
-                      </button>
-                      <button
-                        className="btn-save-prompt"
-                        onClick={async () => {
-                          if (!currentWorld) return;
-                          try {
-                            await worldApi.updatePrompt(currentWorld.id, editingPrompt);
-                            setCurrentWorld({ ...currentWorld, basePrompt: editingPrompt });
-                            setShowPromptEditor(false);
-                            alert('Prompt del mondo aggiornato!');
-                          } catch (e) {
-                            console.error(e);
-                            alert('Errore di salvataggio del prompt');
-                          }
-                        }}
-                      >
-                        💾 Salva
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+    const mapContent = regions.some(r => r.geojson) ? (
+      <MapboxMapView
+        regions={regions}
+        selectedRegionId={selectedRegion || undefined}
+        onRegionClick={handleCountryChange}
+        changedRegionIds={changedRegions}
+        showFlags={!!selectedCountry}
+        playerCountryCode={selectedCountry || undefined}
+      />
+    ) : regions.some(r => r.svgPath) ? (
+      <MapView
+        regions={regions}
+        selectedRegionId={selectedRegion || undefined}
+        onRegionClick={handleCountryChange}
+        changedRegionIds={changedRegions}
+      />
+    ) : (
+      <div style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#0a0a0f",
+        color: "#667eea",
+        padding: "40px",
+        textAlign: "center",
+      }}>
+        <div style={{ fontSize: "48px", marginBottom: "16px" }}>🗺️</div>
+        <h3>Caricamento mappa…</h3>
+        <p style={{ color: "#888", maxWidth: "300px" }}>
+          Le regioni del mondo non hanno ancora una geometria.
+        </p>
       </div>
     );
+
+    return (
+      <GameShell
+        hud={
+          <>
+            <HudBar
+              worldName={currentWorld?.name || ""}
+              turn={currentGame?.currentTurn || 1}
+              dateISO={currentGame?.currentDate || "1951-01-01"}
+              loading={loading}
+              timeline={timeline}
+              timelineLoading={timelineLoading}
+              timelineError={timelineError}
+              timelineHasMore={timelineHasMore}
+              timelineLoadingOlder={timelineLoadingOlder}
+              ongoingProcesses={ongoingProcesses}
+              dispatchCount={feedItems.length}
+              dispatchLive={isProcessingTurn}
+              onOpenDispatches={() => openModule("news")}
+              onTimelineOpen={handleTimelineOpen}
+              onLoadOlder={loadOlderTimeline}
+              onBack={() => {
+                setCurrentView("menu");
+                setCurrentWorld(null);
+                setCurrentGame(null);
+                setHistory([]);
+              }}
+              onRewind={handleRewind}
+              onTimeSkip={handleTimeSkip}
+              onRestoreCheckpoint={handleRestoreCheckpoint}
+              onContinueFrom={handleContinueFrom}
+              activePlayback={pausedReader ? {
+                simulationId: pausedReader.simulationId,
+                eventId: pausedReader.event.id,
+                revision: pausedReader.revision,
+              } : null}
+              onFocusPlaybackReader={() => document.getElementById("simulation-event-reader")?.focus({ preventScroll: true })}
+            />
+            {newsOpen && (
+              <NewsFlash
+                item={newsQueue[0] || null}
+                pendingCount={newsQueue.length}
+                onClose={() => dismissNews(false)}
+                onNext={() => dismissNews(true)}
+                onOpenArchive={() => {
+                  dismissNews(false);
+                  openModule("news");
+                }}
+              />
+            )}
+            {isProcessingTurn && (
+              <div className="turn-progress-banner">
+                <span className="turn-progress-text">{turnProgress || "Elaborazione mossa..."}</span>
+                <button
+                  className="btn-intervene"
+                  onClick={handleIntervene}
+                  title="Ferma la simulazione dopo l'evento corrente"
+                >
+                  ⏸ Intervene
+                </button>
+              </div>
+            )}
+            {pausedReader && (
+              <SimulationEventReader
+                playback={pausedReader}
+                loading={loading}
+                onContinue={handleContinueNext}
+                onIntervene={handleInterveneHere}
+              />
+            )}
+          </>
+        }
+        rail={
+          <>
+            <CommandRail
+              items={railItems}
+              activeModule={activeModule}
+              onModuleClick={openModule}
+            />
+            <MapLegend
+              regions={regions}
+              selectedRegionId={selectedProvinceId}
+              activeLayer={mapLegendLayer}
+              onLayerChange={setMapLegendLayer}
+              filters={mapLegendFilters}
+              onFiltersChange={(partial) => setMapLegendFilters(prev => ({ ...prev, ...partial }))}
+            />
+          </>
+        }
+        map={mapContent}
+        desk={
+          selectedProvinceId && activeModule === 'none' ? (
+            <ProvinceInspector
+              region={regions.find(r => r.id === selectedProvinceId) ?? null}
+              allRegions={regions}
+              onClose={() => setSelectedProvinceId(null)}
+            />
+          ) : (
+            <DeskContent
+              activeModule={activeModule}
+              closeModule={closeModule}
+              currentGame={currentGame}
+              currentWorld={currentWorld}
+              currentRegion={currentRegion ?? null}
+              selectedRegion={selectedRegion}
+              externalRegionSelected={externalRegionSelected}
+              nationalName={nationalName}
+              governmentType={governmentType}
+              nationalAccount={nationalAccount}
+              campaignProgress={campaignProgress}
+              latestNationalNarration={latestNationalNarration}
+              currentRegionOwnerName={selectedRegionOwnerName}
+              selectedIsPlayerProvince={selectedIsPlayerProvince}
+              isPaxProvince={isPaxProvince}
+              provinceAssets={provinceAssets}
+              provinceMetadata={provinceMetadata}
+              infrastructureLevel={infrastructureLevel}
+              pendingActions={pendingActions}
+              orderDraftText={orderDraftText}
+              updateOrderDraft={updateOrderDraft}
+              enhancedPreview={enhancedPreview}
+              enhanceLoading={enhanceLoading}
+              enhanceError={enhanceError}
+              enhanceOrder={enhanceOrder}
+              acceptOrderEnhanced={acceptOrderEnhanced}
+              rejectOrderEnhanced={rejectOrderEnhanced}
+              registerOrder={registerOrder}
+              queuePlayerAction={queuePlayerAction}
+              removeQueuedAction={removeQueuedAction}
+              updateQueuedAction={updateQueuedAction}
+              editingActionId={editingActionId}
+              editingActionText={editingActionText}
+              setEditingActionId={setEditingActionId}
+              setEditingActionText={setEditingActionText}
+              isProcessingTurn={isProcessingTurn}
+              feedItems={feedItems}
+              playerPolityId={playerPolityId}
+              showSaveModal={showSaveModal}
+              setShowSaveModal={setShowSaveModal}
+              setShowPromptEditor={setShowPromptEditor}
+              setShowLLMSettings={setShowLLMSettings}
+              setShowLoadSaveConfirm={setShowLoadSaveConfirm}
+              currentGameId={currentGame?.id}
+            />
+          )}
+        deskOpen={activeModule !== "none" || selectedProvinceId !== null}
+      />
+    );
+
   };
 
   // DISATTIVATO: editor mappe (temporaneo) — render dell’editor e della creazione mondo da mappa
@@ -2451,6 +2080,7 @@ function App() {
           </div>
           <CountrySelector
           template={selectedTemplate}
+          difficulty={difficulty}
           onSelect={async (countryCode) => {
             setSelectedCountry(countryCode);
             setLoading(true);
@@ -2487,7 +2117,7 @@ function App() {
               setCurrentView('game');
             } catch (e) {
               console.error('[Game] Failed to generate world:', e);
-              alert('Generazione del mondo fallita. Riprova.');
+              notify('Generazione del mondo fallita. Riprova.', 'error');
               setCurrentView('menu');
             } finally {
               setLoading(false);
@@ -2503,6 +2133,28 @@ function App() {
         open={showLLMSettings}
         onClose={() => setShowLLMSettings(false)}
       />
+      <ConfirmDialog
+        open={showRewindConfirm}
+        onClose={() => setShowRewindConfirm(false)}
+        onConfirm={handleRewindConfirmed}
+        title="Annullare l'ultima mossa?"
+        message="Il mondo tornerà allo stato precedente. Questa azione non può essere annullata."
+        confirmLabel="Annulla mossa"
+        cancelLabel="Mantieni"
+        variant="destructive"
+      />
+      {showLoadSaveConfirm && (
+        <ConfirmDialog
+          open={true}
+          onClose={() => setShowLoadSaveConfirm(null)}
+          onConfirm={() => handleLoadSaveConfirmed(showLoadSaveConfirm.saveId)}
+          title="Caricare il salvataggio?"
+          message={`Caricare "${showLoadSaveConfirm.saveName}" (Mossa ${showLoadSaveConfirm.turn})? La partita corrente sarà sovrascritta.`}
+          confirmLabel="Carica"
+          cancelLabel="Annulla"
+          variant="destructive"
+        />
+      )}
       {/* DISATTIVATO: editor mappe (temporaneo) — rotte 'editor' e 'create-world'
       {currentView === 'editor' && renderEditor()}
       {currentView === 'create-world' && renderCreateWorld()}

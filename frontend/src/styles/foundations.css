@@ -1,0 +1,941 @@
+/* World Story — fondazioni G1-A.
+ * I token semantici convivono temporaneamente con il tema legacy e sono la
+ * base per la migrazione componente per componente, non un altro override. */
+:root {
+  --ws-surface-map-shell: #0c1726;
+  --ws-surface-command: #14243a;
+  --ws-surface-command-raised: #1b2b43;
+  --ws-text-primary: #f2f6fc;
+  --ws-text-secondary: #b8c7da;
+  --ws-action-primary: #b5a6f2;
+  --ws-attention: #e9b85a;
+  --ws-danger: #9f3028;
+  --ws-paper: #f8f3e9;
+  --ws-ink: #18201e;
+  --ws-radius-control: 8px;
+  --ws-radius-panel: 12px;
+  --ws-z-map: 0;
+  --ws-z-shell: 10;
+  --ws-z-module: 20;
+  --ws-z-overlay: 30;
+  --ws-z-dialog: 40;
+  /* Legacy HUD/overlay reaches 1900: i nuovi toast devono restare sopra. */
+  --ws-z-toast: 2100;
+}
+
+.map-keyboard-surface:focus-visible {
+  outline: 3px solid var(--ws-attention);
+  outline-offset: -3px;
+}
+
+.template-card-select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.template-card-select:focus-visible {
+  outline: 3px solid var(--ws-attention);
+  outline-offset: -5px;
+}
+
+/* Il prompt editor legacy usa ora il portal del dialog: il backdrop è parte
+   della superficie modale, non un secondo layer cliccabile. */
+.prompt-editor-modal {
+  background: rgb(0 0 0 / 80%);
+}
+
+.ws-toast-viewport {
+  position: fixed;
+  z-index: var(--ws-z-toast);
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  display: grid;
+  width: min(380px, calc(100vw - 32px));
+  gap: 8px;
+  pointer-events: none;
+}
+
+.ws-toast {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid var(--ws-surface-command-raised);
+  border-left: 4px solid var(--ws-action-primary);
+  border-radius: var(--ws-radius-control);
+  background: var(--ws-surface-command);
+  color: var(--ws-text-primary);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 35%);
+  font: 600 13px/1.35 system-ui, sans-serif;
+  pointer-events: auto;
+}
+
+.ws-toast--success { border-left-color: #5fa978; }
+.ws-toast--error { border-left-color: var(--ws-danger); }
+.ws-toast button {
+  min-width: 28px;
+  min-height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.confirm-dialog-overlay {
+  background: rgb(0 0 0 / 70%);
+}
+
+.confirm-dialog {
+  min-width: 320px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 20px 24px;
+  border: 1px solid var(--ws-surface-command-raised);
+  border-radius: var(--ws-radius-panel);
+  background: var(--ws-surface-command);
+  color: var(--ws-text-primary);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 40%);
+}
+
+.confirm-dialog-header {
+  margin-bottom: 12px;
+}
+
+.confirm-dialog-header h3 {
+  margin: 0;
+  font: 700 16px/1.25 system-ui, sans-serif;
+}
+
+.confirm-dialog-body p {
+  margin: 0;
+  font: 400 14px/1.5 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+}
+
+.confirm-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.confirm-dialog-cancel {
+  min-height: 38px;
+  padding: 0 18px;
+  border: 1px solid var(--ws-surface-command-raised);
+  border-radius: var(--ws-radius-control);
+  background: var(--ws-surface-command-raised);
+  color: var(--ws-text-primary);
+  font: 600 13px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.confirm-dialog-confirm {
+  min-height: 38px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--ws-radius-control);
+  background: var(--ws-action-primary);
+  color: var(--ws-ink);
+  font: 600 13px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.confirm-dialog-confirm--destructive {
+  background: var(--ws-danger);
+  color: #fff;
+}
+
+.confirm-dialog-cancel:hover,
+.confirm-dialog-cancel:focus-visible {
+  border-color: var(--ws-attention);
+}
+
+.confirm-dialog-confirm:hover,
+.confirm-dialog-confirm:focus-visible {
+  filter: brightness(1.1);
+}
+
+/* Landing: promessa di gioco concreta e continua sopra la piega. */
+.landing-subtitle {
+  color: var(--ws-text-secondary);
+  max-width: 34ch;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.landing-continue {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: min(420px, 100%);
+  margin: 22px auto 0;
+  padding: 14px 18px;
+  border: 1px solid var(--ws-action-primary);
+  border-left: 4px solid var(--ws-attention);
+  border-radius: var(--ws-radius-panel);
+  background: var(--ws-surface-command);
+  color: var(--ws-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .2s ease;
+}
+
+.landing-continue:hover,
+.landing-continue:focus-visible {
+  border-color: var(--ws-attention);
+}
+
+.landing-continue-kicker {
+  font: 700 11px/1 system-ui, sans-serif;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ws-attention);
+}
+
+.landing-continue-name {
+  font: 700 16px/1.3 system-ui, sans-serif;
+}
+
+.landing-continue-meta {
+  font: 600 13px/1.3 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+}
+
+.landing-saves-skeleton {
+  display: block;
+  margin-top: 16px;
+  color: var(--ws-text-secondary);
+  font-size: 13px;
+}
+
+.landing-tech-link {
+  margin-top: 20px;
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--ws-text-secondary);
+  font: 600 13px/1 system-ui, sans-serif;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.landing-tech-link:hover,
+.landing-tech-link:focus-visible {
+  color: var(--ws-text-primary);
+}
+
+/* Catalogo scenari: ricerca, studio separato, pitch confrontabile. */
+.template-search {
+  width: min(280px, 100%);
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--ws-surface-command-raised);
+  border-radius: var(--ws-radius-control);
+  background: var(--ws-surface-command);
+  color: var(--ws-text-primary);
+  font: 500 14px/1 system-ui, sans-serif;
+}
+
+.template-search:focus-visible {
+  outline: 2px solid var(--ws-attention);
+  outline-offset: 2px;
+}
+
+.btn-studio-toggle {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--ws-surface-command-raised);
+  border-radius: var(--ws-radius-control);
+  background: transparent;
+  color: var(--ws-text-secondary);
+  font: 600 13px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.btn-studio-toggle.active {
+  border-color: var(--ws-action-primary);
+  color: var(--ws-action-primary);
+}
+
+.btn-studio-toggle:hover,
+.btn-studio-toggle:focus-visible {
+  border-color: var(--ws-attention);
+}
+
+.template-empty {
+  padding: 20px;
+  color: var(--ws-text-secondary);
+  font-size: 14px;
+}
+
+.template-description-toggle {
+  display: block;
+  margin-top: 8px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ws-action-primary);
+  font: 600 13px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.template-description-toggle:hover,
+.template-description-toggle:focus-visible {
+  text-decoration: underline;
+  color: var(--ws-attention);
+}
+
+/* Country Selector: ricerca, legenda mappa, dossier strategico. */
+.country-search {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--ws-surface-command-raised);
+  border-radius: var(--ws-radius-control);
+  background: var(--ws-surface-command);
+  color: var(--ws-text-primary);
+  font: 500 14px/1 system-ui, sans-serif;
+}
+
+.country-search:focus-visible {
+  outline: 2px solid var(--ws-attention);
+  outline-offset: 2px;
+}
+
+.world-select-legend {
+  display: flex;
+  gap: 16px;
+  padding: 8px 12px;
+  margin-top: 12px;
+  border-top: 1px solid var(--ws-surface-command-raised);
+  font: 600 12px/1 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--ws-surface-command-raised);
+}
+
+.legend-swatch.selected {
+  background: var(--ws-attention);
+  border-color: var(--ws-attention);
+}
+
+.legend-swatch.available {
+  background: var(--ws-action-primary);
+}
+
+.legend-swatch.disabled {
+  background: var(--ws-surface-command-raised);
+  opacity: 0.5;
+}
+
+.country-dossier {
+  padding: 16px;
+  border: 1px solid var(--ws-surface-command-raised);
+  border-left: 4px solid var(--ws-attention);
+  border-radius: var(--ws-radius-panel);
+  background: var(--ws-surface-command);
+  color: var(--ws-text-primary);
+  margin-bottom: 12px;
+}
+
+.country-dossier-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.country-dossier-color {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.country-dossier-name {
+  font: 700 16px/1.2 system-ui, sans-serif;
+}
+
+.country-dossier-code {
+  font: 600 13px/1 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+}
+
+.country-dossier-meta {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 10px;
+  font: 500 13px/1.4 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+}
+
+.country-dossier-effect {
+  font: 500 13px/1.5 system-ui, sans-serif;
+  color: var(--ws-attention);
+  margin-bottom: 10px;
+}
+
+.country-dossier-strengths,
+.country-dossier-challenges {
+  font: 500 13px/1.5 system-ui, sans-serif;
+  margin: 6px 0;
+}
+
+.country-dossier-strengths {
+  color: #5fa978;
+}
+
+.country-dossier-challenges {
+  color: var(--ws-danger);
+}
+
+/* ===== GameShell — layout a griglia per la schermata di gioco ===== */
+.game-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: var(--ws-rail-w, 56px) 1fr var(--ws-desk-w, 400px);
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: var(--ws-surface-map-shell);
+}
+
+.game-shell:not(.desk-open) {
+  grid-template-columns: var(--ws-rail-w, 56px) 1fr;
+}
+
+.game-shell-hud {
+  grid-column: 1 / -1;
+  z-index: var(--ws-z-shell);
+}
+
+.game-shell-grid {
+  display: grid;
+  grid-template-columns: var(--ws-rail-w, 56px) 1fr var(--ws-desk-w, 400px);
+  grid-template-rows: 1fr;
+  height: 100%;
+  overflow: hidden;
+}
+
+.game-shell:not(.desk-open) .game-shell-grid {
+  grid-template-columns: var(--ws-rail-w, 56px) 1fr;
+}
+
+.game-shell-rail {
+  display: flex;
+  flex-direction: column;
+  background: var(--ws-surface-command);
+  border-right: 1px solid var(--ws-surface-command-raised);
+  overflow-y: auto;
+  z-index: var(--ws-z-shell);
+}
+
+.game-shell-map {
+  min-width: 0;
+  min-height: 0;
+  background: var(--ws-surface-map-shell);
+  position: relative;
+}
+
+.game-shell-desk {
+  display: flex;
+  flex-direction: column;
+  background: var(--ws-surface-command);
+  border-left: 1px solid var(--ws-surface-command-raised);
+  overflow: hidden;
+  z-index: var(--ws-z-module);
+}
+
+/* CommandRail */
+.command-rail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px 4px;
+  gap: 4px;
+}
+
+.command-rail.collapsed .rail-label,
+.command-rail.collapsed .rail-title,
+.command-rail.collapsed .rail-footer {
+  display: none;
+}
+
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--ws-surface-command-raised);
+}
+
+.rail-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--ws-action-primary), var(--ws-attention));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 700 14px/1 system-ui, sans-serif;
+  color: var(--ws-ink);
+}
+
+.rail-title {
+  font: 700 13px/1 system-ui, sans-serif;
+  color: var(--ws-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.rail-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--ws-radius-control);
+  background: transparent;
+  color: var(--ws-text-secondary);
+  font: 600 13px/1 system-ui, sans-serif;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+
+.rail-btn:hover,
+.rail-btn:focus-visible {
+  background: var(--ws-surface-command-raised);
+  color: var(--ws-text-primary);
+}
+
+.rail-btn.active {
+  background: var(--ws-action-primary);
+  color: var(--ws-ink);
+}
+
+.rail-btn.active:hover {
+  filter: brightness(1.1);
+}
+
+.rail-icon {
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 28px;
+  text-align: center;
+}
+
+.rail-label {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--ws-danger);
+  color: #fff;
+  font: 700 11px/20px system-ui, sans-serif;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.rail-footer {
+  padding: 8px 4px;
+  border-top: 1px solid var(--ws-surface-command-raised);
+  font: 600 11px/1 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+/* ===== ProvinceInspector — dossier contestuale persistente ===== */
+.province-inspector {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--ws-surface-command);
+  border-left: 1px solid var(--ws-surface-command-raised);
+  overflow: hidden;
+}
+
+.province-inspector-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--ws-surface-command-raised);
+}
+
+.province-inspector-color {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.province-inspector-title-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.province-inspector-name {
+  margin: 0;
+  font: 700 16px/1.2 system-ui, sans-serif;
+  color: var(--ws-text-primary);
+}
+
+.province-inspector-id {
+  font: 600 11px/1 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.province-inspector-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--ws-radius-control);
+  background: transparent;
+  color: var(--ws-text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.province-inspector-close:hover,
+.province-inspector-close:focus-visible {
+  background: var(--ws-surface-command-raised);
+  color: var(--ws-text-primary);
+}
+
+.province-inspector-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.province-inspector-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  margin-bottom: 16px;
+  font: 500 13px/1.5 system-ui, sans-serif;
+}
+
+.province-inspector-meta dt {
+  color: var(--ws-text-secondary);
+}
+
+.province-inspector-meta dd {
+  margin: 0;
+  color: var(--ws-text-primary);
+}
+
+.province-inspector-assets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+  font: 600 13px/1 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+}
+
+.province-inspector-assets b {
+  color: var(--ws-text-primary);
+}
+
+.province-inspector-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.province-inspector-tags span {
+  font: 500 11px/1 system-ui, sans-serif;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--ws-surface-command-raised);
+  color: var(--ws-attention);
+}
+
+.province-inspector-borders {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  font: 500 13px/1.5 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+}
+
+.border-link {
+  display: inline-block;
+  padding-left: 8px;
+  border-left: 3px solid;
+  margin: 2px 0;
+  font: 500 12px/1.4 system-ui, sans-serif;
+  color: var(--ws-text-primary);
+  text-decoration: none;
+}
+
+/* ===== MapLegend — livelli e filtri ===== */
+.map-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--ws-surface-command);
+  border: 1px solid var(--ws-surface-command-raised);
+  border-radius: var(--ws-radius-panel);
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+}
+
+.map-legend-layers {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--ws-surface-command-raised);
+  padding-bottom: 8px;
+}
+
+.map-legend-layer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--ws-radius-control);
+  background: transparent;
+  color: var(--ws-text-secondary);
+  font: 600 12px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.map-legend-layer:hover,
+.map-legend-layer:focus-visible {
+  background: var(--ws-surface-command-raised);
+  color: var(--ws-text-primary);
+}
+
+.map-legend-layer.active {
+  background: var(--ws-action-primary);
+  color: var(--ws-ink);
+}
+
+.map-legend-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.map-legend-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--ws-surface-command-raised);
+  border-radius: var(--ws-radius-control);
+  font: 500 12px/1 system-ui, sans-serif;
+}
+
+.map-legend-filters legend {
+  width: 100%;
+  margin-bottom: 4px;
+  font: 700 11px/1 system-ui, sans-serif;
+  color: var(--ws-attention);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.map-legend-filters label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.map-legend-owners {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.map-legend-owners strong {
+  font: 600 12px/1 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+}
+
+.map-legend-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 500 12px/1 system-ui, sans-serif;
+}
+
+.map-legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--ws-surface-command-raised);
+}
+
+.map-legend-more {
+  margin-top: 4px;
+  font: 500 11px/1 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+}
+
+.map-legend-hint {
+  margin: 0;
+  font: 500 12px/1.4 system-ui, sans-serif;
+  color: var(--ws-text-secondary);
+}
+
+.map-legend-terrain-swatch,
+.map-legend-change-swatch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.map-legend-terrain-swatch span {
+  height: 18px;
+  border-radius: 4px;
+}
+
+.map-legend-change-swatch div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 500 12px/1 system-ui, sans-serif;
+}
+
+.map-legend-change-swatch span {
+  width: 24px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+.map-legend-selected {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ws-surface-command-raised);
+  font: 600 13px/1 system-ui, sans-serif;
+  color: var(--ws-attention);
+}
+
+/* Tablet: desk come sheet laterale */
+@media (max-width: 1023px) {
+  .game-shell {
+    grid-template-rows: auto 1fr;
+    grid-template-columns: var(--ws-rail-w, 56px) 1fr;
+  }
+
+  .game-shell.desk-open {
+    grid-template-columns: var(--ws-rail-w, 56px) 1fr;
+  }
+
+  .game-shell-desk {
+    position: fixed;
+    top: var(--ws-hud-h, 56px);
+    right: 0;
+    bottom: 0;
+    width: min(400px, 100vw);
+    max-width: 100vw;
+    z-index: var(--ws-z-module);
+    box-shadow: -20px 0 50px rgb(0 0 0 / 40%);
+    animation: desk-slide-in .25s ease-out;
+  }
+
+  @keyframes desk-slide-in {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+
+  .game-shell-grid {
+    grid-template-columns: var(--ws-rail-w, 56px) 1fr;
+  }
+}
+
+/* Mobile: rail nascosto, desk come bottom sheet */
+@media (max-width: 767px) {
+  :root {
+    --ws-rail-w: 0;
+    --ws-desk-w: 100%;
+  }
+
+  .game-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .game-shell-rail {
+    display: none;
+  }
+
+  .game-shell-desk {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    height: min(70dvh, 600px);
+    max-height: calc(100dvh - var(--ws-hud-h, 56px));
+    border-radius: var(--ws-radius-panel) var(--ws-radius-panel) 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--ws-surface-command-raised);
+    animation: desk-slide-up .25s ease-out;
+  }
+
+  @keyframes desk-slide-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+
+  .game-shell.desk-maximized .game-shell-desk {
+    height: calc(100dvh - var(--ws-hud-h, 56px));
+  }
+}

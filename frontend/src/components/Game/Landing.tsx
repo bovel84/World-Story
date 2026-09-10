@@ -58,6 +58,7 @@ export function Landing(props: LandingProps) {
   const { onNewGame, onOpenModelSettings, onResumeSave } = props;
 
   const [saves, setSaves] = useState<any[]>([]);
+  const [savesLoaded, setSavesLoaded] = useState(false);
 
   // Carica i salvataggi al mount; stato vuoto/errore — sezione nascosta
   useEffect(() => {
@@ -69,9 +70,11 @@ export function Landing(props: LandingProps) {
         const list = Array.isArray(data?.saves) ? data.saves : [];
         // `__rewind__` è uno snapshot interno di rewind, non lo mostriamo come salvataggio
         setSaves(list.filter((s: any) => s && s.name !== '__rewind__'));
+        setSavesLoaded(true);
       })
       .catch((e) => {
         console.warn('[Landing] Impossibile caricare i salvataggi:', e);
+        setSavesLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -80,6 +83,11 @@ export function Landing(props: LandingProps) {
 
   // DISATTIVATO: editor mappe (temporaneo) — elenco mappe per la sezione «Le mie mappe»
   // const maps = Array.isArray(savedMaps) ? savedMaps : [];
+
+  // L'ultimo salvataggio (il più recente) viene elevato sopra la piega.
+  const lastSave = saves.length > 0
+    ? [...saves].sort((a, b) => String(b?.saved_at || '').localeCompare(String(a?.saved_at || '')))[0]
+    : null;
 
   return (
     <div className="landing">
@@ -90,18 +98,38 @@ export function Landing(props: LandingProps) {
 
         <div className="landing-hero-content">
           <h1 className="landing-title">World Story</h1>
-          <p className="landing-subtitle">Simulatore di storia alternativa</p>
+          <p className="landing-subtitle">Governa una nazione. Cambia una decisione. Osserva un mondo che ricorda.</p>
 
           <div className="landing-cta-row">
             <button className="landing-cta" onClick={onNewGame}>
-              Nuova partita <span className="landing-cta-arrow">→</span>
+              Nuova storia <span className="landing-cta-arrow">→</span>
             </button>
-            {onOpenModelSettings && (
-              <button className="landing-cta-secondary" onClick={onOpenModelSettings}>
-                🤖 Modello IA
-              </button>
-            )}
           </div>
+
+          {lastSave && (
+            <button
+              type="button"
+              className="landing-continue"
+              onClick={() => onResumeSave(lastSave)}
+              aria-label={`Continua la partita ${lastSave.name || 'salvata'}`}
+            >
+              <span className="landing-continue-kicker">Continua</span>
+              <span className="landing-continue-name">{lastSave.name || 'Partita salvata'}</span>
+              <span className="landing-continue-meta">
+                {typeof lastSave.current_turn === 'number' && `Mossa ${lastSave.current_turn}`}
+                {lastSave.current_date && ` · ${formatGameDate(lastSave.current_date)}`}
+              </span>
+            </button>
+          )}
+          {!savesLoaded && (
+            <span className="landing-saves-skeleton" aria-hidden="true">Caricamento salvataggi…</span>
+          )}
+
+          {onOpenModelSettings && (
+            <button className="landing-tech-link" onClick={onOpenModelSettings}>
+              Impostazioni tecniche
+            </button>
+          )}
         </div>
       </div>
 

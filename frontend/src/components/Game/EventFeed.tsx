@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { AccessibleDialog } from '../ui/AccessibleDialog';
 
 export interface FeedItem {
   id: string;
@@ -45,6 +45,7 @@ export function EventFeed({
 }: EventFeedProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
+  const closeArticleRef = useRef<HTMLButtonElement>(null);
   const [openArticle, setOpenArticle] = useState<FeedItem | null>(null);
 
   // Auto-scroll: resta in coda (ultimi eventi in basso) solo se l'utente
@@ -61,15 +62,6 @@ export function EventFeed({
     if (!el) return;
     stickBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
   };
-
-  useEffect(() => {
-    if (!openArticle) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpenArticle(null);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [openArticle]);
 
   // L'archivio è una scheda della scrivania di comando (come Chat,
   // Consulente e Ordini), non una finestra sovrapposta alla mappa.
@@ -116,22 +108,22 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
         )}
       </div>
 
-      {openArticle && createPortal(
-        <div className="article-overlay" role="presentation" onMouseDown={() => setOpenArticle(null)}>
-          <article
-            className="newspaper-article"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="article-headline"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
+      {openArticle && (
+        <AccessibleDialog
+          open={true}
+          onClose={() => setOpenArticle(null)}
+          overlayClassName="article-overlay"
+          className="newspaper-article"
+          ariaLabelledBy="article-headline"
+          initialFocusRef={closeArticleRef}
+        >
             <header className="newspaper-article-header">
               <div className="newspaper-masthead">World Story · Archivio</div>
               <div className="newspaper-article-meta">
                 <span>{ARTICLE_SECTION[openArticle.kind]}</span>
                 <span>{formatFeedDate(openArticle.date)}</span>
               </div>
-              <button type="button" className="newspaper-article-close" onClick={() => setOpenArticle(null)}>
+              <button ref={closeArticleRef} type="button" className="newspaper-article-close" onClick={() => setOpenArticle(null)}>
                 Chiudi
               </button>
             </header>
@@ -144,9 +136,7 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
               </p>
               <p className="newspaper-article-byline">Archivio della simulazione · Consultazione senza effetti sul mondo</p>
             </div>
-          </article>
-        </div>,
-        document.body,
+        </AccessibleDialog>
       )}
       </section>
   );

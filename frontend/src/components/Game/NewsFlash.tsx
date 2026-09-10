@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+import { AccessibleDialog } from '../ui/AccessibleDialog';
 import type { FeedItem } from './EventFeed';
 
 interface NewsFlashProps {
@@ -19,11 +21,19 @@ const SECTION: Record<FeedItem['kind'], string> = {
  * quindi anticipare eventi futuri. L'archivio completo resta nella HUD.
  */
 export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive }: NewsFlashProps) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   if (!item) return null;
 
   return (
-    <div className="news-flash-overlay" role="presentation">
-      <article className="news-flash" role="dialog" aria-modal="true" aria-labelledby="news-flash-title">
+    <AccessibleDialog
+      open={true}
+      onClose={onClose}
+      overlayClassName="news-flash-overlay"
+      className="news-flash"
+      ariaLabelledBy="news-flash-title"
+      initialFocusRef={closeButtonRef}
+      closeOnBackdrop={false}
+    >
         <header className="news-flash-header">
           <span className="news-flash-kicker">{SECTION[item.kind]}</span>
           <span className="news-flash-date">{item.date || 'Ora'}</span>
@@ -37,12 +47,11 @@ export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive }
           <button type="button" className="news-flash-archive" onClick={onOpenArchive}>Apri archivio</button>
           <span className="news-flash-pending">{pendingCount > 1 ? `${pendingCount - 1} aggiornamenti dopo questo` : 'Aggiornamento corrente'}</span>
           <div className="news-flash-actions">
-            <button type="button" className="news-flash-close" onClick={onClose}>Chiudi</button>
+            <button ref={closeButtonRef} type="button" className="news-flash-close" onClick={onClose}>Chiudi</button>
             {pendingCount > 1 && <button type="button" className="news-flash-next" onClick={onNext}>Prossima notizia →</button>}
           </div>
         </footer>
-      </article>
-    </div>
+    </AccessibleDialog>
   );
 }
 

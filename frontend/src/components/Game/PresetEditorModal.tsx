@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { templatesApi, type PresetEditorData, type ScenarioReportView } from '../../services/api';
+import { AccessibleDialog } from '../ui/AccessibleDialog';
 
 interface Props {
   /** Preset esistente da aggiornare. */
@@ -55,6 +56,7 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
   const [scenarioReport, setScenarioReport] = useState<ScenarioReportView | null>(null);
   const [scenarioHasCatalog, setScenarioHasCatalog] = useState(false);
   const mapInput = useRef<HTMLInputElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!templateId) { setScenarioReport(null); setScenarioHasCatalog(false); return; }
@@ -143,14 +145,20 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
   const title = templateId ? 'Modifica preset' : cloneFromTemplateId ? 'Crea da un preset' : 'Nuovo preset';
 
   return (
-    <div className="preset-editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <section className="preset-editor" role="dialog" aria-modal="true" aria-label="Costruttore di scenario">
+    <AccessibleDialog
+      open={true}
+      onClose={onClose}
+      overlayClassName="preset-editor-backdrop"
+      className="preset-editor"
+      ariaLabelledBy="preset-editor-title"
+      initialFocusRef={closeButtonRef}
+    >
         <header className="preset-editor-header">
           <div>
             <span className="preset-editor-kicker">Costruttore di scenari</span>
-            <h2>{title}</h2>
+            <h2 id="preset-editor-title">{title}</h2>
           </div>
-          <button type="button" onClick={onClose} className="preset-editor-close" aria-label="Chiudi">×</button>
+          <button ref={closeButtonRef} type="button" onClick={onClose} className="preset-editor-close" aria-label="Chiudi">×</button>
         </header>
 
         <nav className="preset-editor-tabs" aria-label="Sezioni del preset">
@@ -288,7 +296,6 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
           <button type="button" onClick={onClose}>Annulla</button>
           <button type="button" className="primary" onClick={save} disabled={loading || saving}>{saving ? 'Salvataggio…' : templateId ? 'Salva modifiche' : 'Crea preset'}</button>
         </footer>
-      </section>
-    </div>
+    </AccessibleDialog>
   );
 }

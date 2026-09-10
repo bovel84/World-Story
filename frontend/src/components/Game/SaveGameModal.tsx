@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { AccessibleDialog } from '../ui/AccessibleDialog';
 
 export interface SaveGameModalProps {
 /** Visibilità della modale */
@@ -36,32 +37,20 @@ export function SaveGameModal({ open, defaultName, onSave, onClose }: SaveGameMo
     }
   }, [open, defaultName]);
 
-  // Escape chiude la modale
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   const trimmed = name.trim();
   const submit = () => {
     if (trimmed) onSave(trimmed);
   };
 
   return (
-    <div className="save-modal-overlay" onClick={onClose}>
-      <div
-        className="save-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Salva partita"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AccessibleDialog
+      open={open}
+      onClose={onClose}
+      overlayClassName="save-modal-overlay"
+      className="save-modal"
+      ariaLabel="Salva partita"
+      initialFocusRef={inputRef}
+    >
         <div className="save-modal-header">
           <h3>Salva partita</h3>
           <button className="save-modal-close" onClick={onClose} title="Chiudi" aria-label="Chiudi">
@@ -95,7 +84,6 @@ export function SaveGameModal({ open, defaultName, onSave, onClose }: SaveGameMo
             Salva
           </button>
         </div>
-      </div>
-    </div>
+    </AccessibleDialog>
   );
 }

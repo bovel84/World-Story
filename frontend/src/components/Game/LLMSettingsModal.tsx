@@ -7,7 +7,8 @@
  * salvataggio della configurazione (hot reload del backend).
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AccessibleDialog } from '../ui/AccessibleDialog';
 import {
   llmApi,
   type LLMProviderPreset,
@@ -56,6 +57,7 @@ export function LLMSettingsModal({ open, onClose, onSaved }: LLMSettingsModalPro
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const preset = useMemo(
     () => providers.find(p => p.id === presetId) || null,
@@ -202,36 +204,25 @@ export function LLMSettingsModal({ open, onClose, onSaved }: LLMSettingsModalPro
     }
   };
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   const mechanicNames = config ? Object.keys(config.mechanics) : [];
 
   return (
-    <div className="llm-modal-overlay" onClick={onClose}>
-      <div
-        className="llm-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Modello IA"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AccessibleDialog
+      open={open}
+      onClose={onClose}
+      overlayClassName="llm-modal-overlay"
+      className="llm-modal"
+      ariaLabelledBy="llm-modal-title"
+      initialFocusRef={closeButtonRef}
+    >
         <div className="llm-modal-header">
           <div>
-            <h3>Modello IA</h3>
+            <h3 id="llm-modal-title">Modello IA</h3>
             <p className="llm-modal-subtitle">
               Scegli il provider e il modello usato dalla simulazione, dai chat e dal consigliere.
             </p>
           </div>
-          <button className="llm-modal-close" onClick={onClose} title="Chiudi" aria-label="Chiudi">✕</button>
+          <button ref={closeButtonRef} type="button" className="llm-modal-close" onClick={onClose} title="Chiudi" aria-label="Chiudi">✕</button>
         </div>
 
         <div className="llm-modal-body">
@@ -385,8 +376,7 @@ export function LLMSettingsModal({ open, onClose, onSaved }: LLMSettingsModalPro
             {saving ? 'Salvo…' : 'Salva e usa'}
           </button>
         </div>
-      </div>
-    </div>
+    </AccessibleDialog>
   );
 }
 

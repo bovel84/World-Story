@@ -122,6 +122,22 @@ const OBJECT_ICONS: Record<string, { color: string; label: string }> = {
   university: { color: '#aa44ff', label: '★' },
 };
 
+/** Contenuto sicuro per i popup degli oggetti importati da preset/salvataggi. */
+const createObjectPopupContent = (obj: MapObject): HTMLDivElement => {
+  const content = document.createElement('div');
+  content.style.cssText = 'color:#e8e8ee;padding:4px;background:#141420;';
+
+  const title = document.createElement('strong');
+  title.textContent = obj.name;
+
+  const meta = document.createElement('span');
+  meta.style.cssText = 'color:#999;font-size:11px;';
+  meta.textContent = `${obj.type}${obj.pop ? ` · ${obj.pop.toFixed(1)}M ab.` : ''}`;
+
+  content.append(title, document.createElement('br'), meta);
+  return content;
+};
+
 // Tile satellitari (World Imagery di Esri — gratuite, senza API key).
 // Danno alla mappa l'aspetto realistico del riferimento: oceano blu scuro,
 // terre con colori naturali (veri toni di verde/deserto/montagna).
@@ -367,7 +383,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   // Navigazione da tastiera: + / - / 0 / frecce
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!map.current) return;
+      if (!map.current || document.activeElement !== mapContainer.current) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       switch (e.key) {
@@ -978,8 +994,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat(clampLngLat(lngLat))
         .setPopup(
-          new maplibregl.Popup({ offset: 12 })
-            .setHTML(`<div style="color:#e8e8ee;padding:4px;background:#141420;"><b>${obj.name}</b><br/><span style="color:#999;font-size:11px;">${obj.type}${obj.pop ? ` · ${obj.pop.toFixed(1)}M ab.` : ''}</span></div>`)
+          new maplibregl.Popup({ offset: 12 }).setDOMContent(createObjectPopupContent(obj))
         )
         .addTo(m);
       objectMarkers.current.push(marker);
@@ -1018,7 +1033,15 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
+      <div
+        ref={mapContainer}
+        className="map-keyboard-surface"
+        style={{ width: '100%', height: '100%' }}
+        tabIndex={0}
+        role="application"
+        aria-label="Mappa del mondo. Usa più, meno, zero e le frecce per navigare quando la mappa ha il focus."
+        onPointerDown={() => mapContainer.current?.focus()}
+      />
       {!mapLoaded && (
         <div style={{
           position: 'absolute',

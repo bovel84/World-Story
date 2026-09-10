@@ -11,6 +11,7 @@ import { templatesApi } from '../../services/api';
 import type { TemplateInfo } from '../../services/api';
 import type { WorldTemplate } from '../../types';
 import { PresetEditorModal } from './PresetEditorModal';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 interface TemplateSelectorProps {
   onSelect: (template: WorldTemplate) => void;
@@ -23,7 +24,11 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState<{ file: File } | null>(null);
   const [editor, setEditor] = useState<{ templateId?: string; cloneFromTemplateId?: string } | null>(null);
+  const [search, setSearch] = useState('');
+  const [studioMode, setStudioMode] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -93,9 +98,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
       if (code === 'EXISTS' && !overwrite) {
         // 409 — il preset esiste già: chiediamo conferma della sovrascrittura
         setImporting(false);
-        if (window.confirm('Scenario già esistente. Sovrascrivere?')) {
-          await doImport(file, true);
-        }
+        setShowOverwriteConfirm({ file });
         return;
       }
       setImportError(err instanceof Error ? err.message : String(err));
@@ -103,6 +106,26 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
       setImporting(false);
     }
   };
+
+  const handleOverwriteConfirmed = async () => {
+    if (!showOverwriteConfirm) return;
+    const { file } = showOverwriteConfirm;
+    setShowOverwriteConfirm(null);
+    await doImport(file, true);
+  };
+
+  // Pitch di card: massimo 160 caratteri per righe confrontabili.
+  const PITCH_MAX = 160;
+  const pitch = (description: string): string =>
+    description.length > PITCH_MAX
+      ? `${description.slice(0, PITCH_MAX).trimEnd()}…`
+      : description;
+
+  const query = search.trim().toLowerCase();
+  const visibleTemplates = query
+    ? templates.filter(t =>
+        t.name.toLowerCase().includes(query) || t.description.toLowerCase().includes(query))
+    : templates;
 
   if (loading) {
     return (
@@ -126,6 +149,25 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
       <div className="selector-header">
         <button className="btn-back" onClick={onBack}>← Indietro</button>
         <h2>Scegli lo scenario</h2>
+        <input
+          className="template-search"
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Cerca per nome o epoca…"
+          aria-label="Cerca scenario"
+        />
+        <button
+          type="button"
+          className={`btn-studio-toggle${studioMode ? ' active' : ''}`}
+          onClick={() => setStudioMode(v => !v)}
+          aria-pressed={studioMode}
+        >
+          Studio scenari
+        </button>
+      </div>
+
+      {studioMode && (
         <div className="import-controls">
           <button className="btn-new-preset" onClick={() => setEditor({})}>
             ＋ Nuovo preset
@@ -152,63 +194,90 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
             onChange={handleFileChosen}
           />
         </div>
-      </div>
+      )}
 
       {importError && (
         <div className="import-error">{importError}</div>
       )}
 
+      {visibleTemplates.length === 0 && (
+        <p className="template-empty">Nessuno scenario corrisponde alla ricerca.</p>
+      )}
+
       <div className="template-grid">
-        {templates.map(template => (
-          <div
-            key={template.id}
-            className="template-card"
-            onClick={() => handleSelect(template.id)}
-          >
+        {visibleTemplates.map(template => (
+          <article key={template.id} className="template-card">
+            {studioMode && (
             <div className="template-card-actions">
               <button
+                type="button"
                 className="template-edit-btn"
                 title="Modifica preset"
-                onClick={(e) => { e.stopPropagation(); setEditor({ templateId: template.id }); }}
+                aria-label={`Modifica preset ${template.name}`}
+                onClick={() => setEditor({ templateId: template.id })}
               >
                 ✎
               </button>
               <button
+                type="button"
                 className="template-copy-btn"
                 title="Crea un preset a partire da questo scenario"
-                onClick={(e) => { e.stopPropagation(); setEditor({ cloneFromTemplateId: template.id }); }}
+                aria-label={`Crea un preset a partire da ${template.name}`}
+                onClick={() => setEditor({ cloneFromTemplateId: template.id })}
               >
                 ⧉
               </button>
               <button
+                type="button"
                 className="template-export-btn"
                 title="Esporta zip"
+                aria-label={`Esporta scenario ${template.name}`}
                 onClick={(e) => handleExport(e, template.id)}
               >
                 ⬇
               </button>
             </div>
-            <div className="template-card-top">
-              <div className="template-name">{template.name}</div>
-              <span className={`template-badge ${template.source === 'preset' ? 'preset' : 'legacy'}`}>
-                {template.source === 'preset' ? 'Pacchetto' : 'Base'}
-              </span>
-            </div>
-            <div className="template-description">{template.description}</div>
-            <div className="template-meta">
-              <span>📅 {template.start_date}</span>
-              <span>🌍 {template.country_count} paesi</span>
-              {template.has_rules && (
-                <span title="Regole di simulazione personalizzate">⚙</span>
-              )}
-              {template.has_map && (
-                <span title="Mappa personalizzata">🗺</span>
-              )}
-              {template.flags_count > 0 && (
-                <span title={`Bandiere: ${template.flags_count}`}>🚩×{template.flags_count}</span>
-              )}
-            </div>
-          </div>
+            )}
+            <button
+              type="button"
+              className="template-card-select"
+              aria-label={`Apri scenario ${template.name}`}
+              onClick={() => handleSelect(template.id)}
+            >
+              <div className="template-card-top">
+                <div className="template-name">{template.name}</div>
+                <span className={`template-badge ${template.source === 'preset' ? 'preset' : 'legacy'}`}>
+                  {template.source === 'preset' ? 'Pacchetto' : 'Base'}
+                </span>
+              </div>
+              <div className="template-description">
+                {expandedId === template.id ? template.description : pitch(template.description)}
+              </div>
+              <div className="template-meta">
+                <span>📅 {template.start_date}</span>
+                <span>🌍 {template.country_count} paesi</span>
+                {template.has_rules && (
+                  <span title="Regole di simulazione personalizzate">⚙</span>
+                )}
+                {template.has_map && (
+                  <span title="Mappa personalizzata">🗺</span>
+                )}
+                {template.flags_count > 0 && (
+                  <span title={`Bandiere: ${template.flags_count}`}>🚩×{template.flags_count}</span>
+                )}
+              </div>
+            </button>
+            {template.description.length > PITCH_MAX && (
+              <button
+                type="button"
+                className="template-description-toggle"
+                onClick={() => setExpandedId(expandedId === template.id ? null : template.id)}
+                aria-expanded={expandedId === template.id}
+              >
+                {expandedId === template.id ? 'Leggi meno' : 'Leggi di più'}
+              </button>
+            )}
+          </article>
         ))}
       </div>
 
@@ -218,6 +287,18 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
           cloneFromTemplateId={editor.cloneFromTemplateId}
           onClose={() => setEditor(null)}
           onSaved={loadTemplates}
+        />
+      )}
+      {showOverwriteConfirm && (
+        <ConfirmDialog
+          open={true}
+          onClose={() => setShowOverwriteConfirm(null)}
+          onConfirm={handleOverwriteConfirmed}
+          title="Scenario già esistente"
+          message="Un preset con questo ID esiste già. Sovrascrivere?"
+          confirmLabel="Sovrascrivi"
+          cancelLabel="Annulla"
+          variant="destructive"
         />
       )}
     </div>

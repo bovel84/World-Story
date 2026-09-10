@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { AccessibleDialog } from '../ui/AccessibleDialog';
 
 /** L'ancora canonica della pagina in lettura (§9.3/G22). */
 export interface PlaybackReaderState {
@@ -35,12 +36,12 @@ export function SimulationEventReader({
   onContinue,
   onIntervene,
 }: SimulationEventReaderProps) {
-  const readerRef = useRef<HTMLElement>(null);
+  const continueButtonRef = useRef<HTMLButtonElement>(null);
 
   // Quando arriva una nuova pagina, rendiamo disponibile al lettore di
   // tastiera il punto decisionale senza spostare la mappa o la cronaca.
   useEffect(() => {
-    readerRef.current?.focus({ preventScroll: true });
+    continueButtonRef.current?.focus({ preventScroll: true });
   }, [playback.event.id, playback.revision]);
 
   const checkpointLabel = playback.revision != null
@@ -56,17 +57,18 @@ export function SimulationEventReader({
     );
 
   return (
-    <div className="simulation-reader-scrim" role="presentation">
-      <section
-        ref={readerRef}
-        id="simulation-event-reader"
-        className="simulation-event-reader"
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Lettore della sessione attiva"
-        aria-live="polite"
-      >
+    <AccessibleDialog
+      open={true}
+      onClose={() => undefined}
+      overlayClassName="simulation-reader-scrim"
+      className="simulation-event-reader"
+      id="simulation-event-reader"
+      ariaLabel="Lettore della sessione attiva"
+      ariaLive="polite"
+      initialFocusRef={continueButtonRef}
+      closeOnBackdrop={false}
+      closeOnEscape={false}
+    >
         <header className="simulation-reader-header">
           <div className="simulation-reader-heading">
             <span className="simulation-reader-kicker">Timeline del salto</span>
@@ -108,7 +110,7 @@ export function SimulationEventReader({
         </ol>
 
         <footer className="simulation-reader-actions">
-          <button type="button" className="btn-continue-next" onClick={onContinue} disabled={loading}>
+          <button ref={continueButtonRef} type="button" className="btn-continue-next" onClick={onContinue} disabled={loading}>
             {playback.remaining > 0
               ? 'Evento successivo'
               : `Procedi fino al ${playback.destination}`}
@@ -126,7 +128,6 @@ export function SimulationEventReader({
         <p className="simulation-reader-note">
           Le proposte non ancora lette restano sigillate; l'archivio non modifica questo checkpoint.
         </p>
-      </section>
-    </div>
+    </AccessibleDialog>
   );
 }

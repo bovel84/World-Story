@@ -17,8 +17,8 @@
  * Stili — alla fine di frontend/src/index.css, sezione «Fase 6: HUD-bar e timeline».
  */
 
-import React, { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState } from 'react';
+import { AccessibleDialog } from '../ui/AccessibleDialog';
 import type { TimelineEntry, TimelineEvent } from '../../services/api';
 
 // ============================================================================
@@ -229,7 +229,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   }).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.turn - a.turn);
 
   return (
-    <div className="hud-timeline-panel" role="dialog" aria-label="Timeline">
+    <div className="hud-timeline-panel-content">
       {/* Header: titolo + data corrente + X */}
       <div className="hud-timeline-header">
         <div className="hud-timeline-heading">
@@ -479,16 +479,6 @@ export const HudBar: React.FC<HudBarProps> = ({
     onTimeSkip(days);
   };
 
-  // Esc chiude il pannello timeline
-  useEffect(() => {
-    if (!timelineOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setTimelineOpen(false);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [timelineOpen]);
-
   return (
     <div className={`hud-bar${loading ? ' hud-loading' : ''}`}>
       {/* Parte sinistra: pulsante menu circolare (stile riferimento) + logo */}
@@ -551,14 +541,14 @@ export const HudBar: React.FC<HudBarProps> = ({
       </div>
 
       {/* Pannello timeline + overlay per la chiusura al clic esterno */}
-      {timelineOpen && createPortal(
-        <>
-          <button
-            type="button"
-            className="hud-timeline-overlay"
-            onClick={() => setTimelineOpen(false)}
-            aria-label="Chiudi il pannello timeline"
-          />
+      {timelineOpen && (
+          <AccessibleDialog
+            open={true}
+            onClose={() => setTimelineOpen(false)}
+            overlayClassName="hud-timeline-overlay"
+            className="hud-timeline-panel"
+            ariaLabel="Timeline"
+          >
           <TimelinePanel
             dateISO={dateISO}
             loading={loading}
@@ -576,8 +566,7 @@ export const HudBar: React.FC<HudBarProps> = ({
             onFocusPlaybackReader={onFocusPlaybackReader}
             onClose={() => setTimelineOpen(false)}
           />
-        </>,
-        document.body,
+          </AccessibleDialog>
       )}
     </div>
   );
