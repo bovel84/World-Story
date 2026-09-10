@@ -656,7 +656,16 @@ gamesRouter.post('/:id/mandates/:mandateId/cancel', (req, res) => {
 gamesRouter.get('/:id/mandates/decisions', (req, res) => {
   try {
     const bound = bindStrictEconomy(req.params.id, false);
-    if ('error' in bound) { res.status(bound.error.status).json(bound.error.payload); return; }
+    // Read model: nei giochi legacy non esistono mandati strict, quindi la
+    // dashboard è legittimamente vuota (non è un errore operativo del client).
+    if ('error' in bound) {
+      if (bound.error.payload.code === 'economy_mode_legacy') {
+        res.status(200).json({ decisions: [], decisionRequired: false, canonical: true });
+        return;
+      }
+      res.status(bound.error.status).json(bound.error.payload);
+      return;
+    }
     const decisions = listOpenMandateDecisions(req.params.id, bound.branchId);
     res.status(200).json({ decisions, decisionRequired: decisions.length > 0, canonical: true });
   } catch (e) { respondMandateError(res, e); }
