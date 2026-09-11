@@ -21,7 +21,7 @@ import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
 import { addDays, formatItalianDate } from './core/simulation/calendar';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
-import { LLMRouter } from './llm';
+import { LLMError, LLMRouter } from './llm';
 
 interface GameData {
   id: string;
@@ -771,14 +771,34 @@ export class PromptEngine {
     // Le regole di qualità sono sempre applicate, anche ai prompt salvati nei
     // preset o già persistiti nel DB.
     const prompt = basePrompt + buildSuggestionsQualityInstruction(vars);
-    const response = await this.llm.generate(
-      'suggestions',
-      'Genera ordini strategici immediatamente giocabili in stile Pax Historia. Usa solo fatti presenti nel contesto e rispondi SOLO con JSON valido.',
-      prompt,
-      { temperature: 0.65, maxTokens: 5500 }
-    );
+    const system = 'Genera ordini strategici immediatamente giocabili in stile Pax Historia. Usa solo fatti presenti nel contesto e rispondi SOLO con JSON valido.';
+    const options = { temperature: 0.65, maxTokens: 8000 };
+    const response = await this.llm.generate('suggestions', system, prompt, options);
 
-    return parseSuggestionsResponse(response.content);
+    try {
+      return parseSuggestionsResponse(response.content, true);
+    } catch {
+      // Non lasciare per cinque minuti una risposta malformata nella cache:
+      // invalida soltanto questa richiesta e prova una correzione più vincolata.
+      this.llm.invalidateCache('suggestions', system, prompt);
+      const retryPrompt = `${prompt}\n\n[CORREZIONE FORMATO]\nLa risposta precedente non era JSON utilizzabile. Produci ora soltanto l'oggetto JSON richiesto, senza premesse, Markdown o blocchi di codice.`;
+      try {
+        const retried = await this.llm.generate(
+          'suggestions',
+          system,
+          retryPrompt,
+          { temperature: 0.25, maxTokens: 8000 },
+        );
+        return parseSuggestionsResponse(retried.content, true);
+      } catch {
+        const provider = this.llm.describe().suggestions.provider;
+        throw new LLMError('Il modello non ha restituito proposte nel formato richiesto. Riprova.', {
+          provider,
+          mechanic: 'suggestions',
+          retriable: true,
+        });
+      }
+    }
   }
 
   async generateNarration(

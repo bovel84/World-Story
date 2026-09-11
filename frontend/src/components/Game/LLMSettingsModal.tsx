@@ -16,6 +16,7 @@ import {
   type LLMModelItem,
   type LLMStatusMechanicInfo,
 } from '../../services/api';
+import { getStoredKey, setStoredKey, getLegacyKey } from '../../services/llmKeyStore';
 
 export interface LLMSettingsModalProps {
   /** Visibilità della modale */
@@ -117,6 +118,13 @@ export function LLMSettingsModal({ open, onClose, onSaved }: LLMSettingsModalPro
     if (!p.needsKey) setApiKey('');
   };
 
+  // Cambiando provider/base URL/modello precompiliamo la chiave esatta;
+  // se manca, riutilizziamo quella dello stesso endpoint del provider.
+  useEffect(() => {
+    if (!open) return;
+    setApiKey(getStoredKey(provider, baseUrl, model) || getLegacyKey());
+  }, [open, provider, baseUrl, model]);
+
   const loadModels = async () => {
     if (provider !== 'minimax' && !baseUrl.trim()) {
       setError('Indica prima la Base URL del provider.');
@@ -175,12 +183,15 @@ export function LLMSettingsModal({ open, onClose, onSaved }: LLMSettingsModalPro
     setError('');
     try {
       // La chiave vive nel BROWSER (localStorage) e viene inviata al server
-      // solo in memoria (persistApiKey: false → mai scritta su disco).
+      // solo in memoria (persistApiKey: false → mai su disco).
       const typedKey = apiKey.trim();
       if (typedKey) {
-        localStorage.setItem('openpax_llm_apikey', typedKey);
+        setStoredKey(provider, baseUrl.trim(), model.trim(), typedKey);
       }
-      const effectiveKey = typedKey || localStorage.getItem('openpax_llm_apikey') || '';
+      const effectiveKey =
+        typedKey
+        || getStoredKey(provider, baseUrl.trim(), model.trim())
+        || getLegacyKey();
       const result = await llmApi.save({
         default: {
           provider,

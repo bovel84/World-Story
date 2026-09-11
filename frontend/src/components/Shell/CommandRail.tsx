@@ -52,7 +52,7 @@ export function CommandRail({
             >
               <span className="rail-icon" aria-hidden="true">{item.icon}</span>
               {!collapsed && <span className="rail-label">{item.label}</span>}
-              {item.badge && item.badge > 0 && !item.active && (
+              {!!item.badge && item.badge > 0 && !item.active && (
                 <span className="rail-badge" aria-label={`${item.badge} non letti`}>{item.badge > 99 ? '99+' : item.badge}</span>
               )}
             </button>

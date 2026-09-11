@@ -10,7 +10,7 @@ import { useToast } from '../ui/ToastProvider';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { chatsApi } from '../../services/api';
 import type { Region, World, Game } from '../../types';
-import { useGameStore, useUIStore, useActionsStore, useChatStore } from '../../stores';
+import type { Suggestion } from '../../stores';
 import type { ActiveModule } from '../../stores/moduleState';
 
 interface DeskContentProps {
@@ -33,6 +33,7 @@ interface DeskContentProps {
   provinceMetadata: { surface_type?: string; tags?: string[] };
   infrastructureLevel: number;
   pendingActions: Array<{ id: string; text: string }>;
+  suggestions: Suggestion[];
   orderDraftText: string;
   updateOrderDraft: (text: string) => void;
   enhancedPreview: string | null;
@@ -89,6 +90,7 @@ export function DeskContent({
   provinceMetadata,
   infrastructureLevel,
   pendingActions,
+  suggestions,
   orderDraftText,
   updateOrderDraft,
   enhancedPreview,
@@ -156,6 +158,48 @@ export function DeskContent({
         >
           ✕
         </button>
+
+        {suggestions.length > 0 && (
+          <div
+            className="suggestions-list"
+            aria-live="polite"
+            aria-label={`${suggestions.length} temi strategici generati`}
+          >
+            {suggestions.map((suggestion, topicIndex) => (
+              <section
+                key={`${suggestion.topic}-${topicIndex}`}
+                className="suggestion-item"
+                aria-labelledby={`suggestion-topic-${topicIndex}`}
+              >
+                <div id={`suggestion-topic-${topicIndex}`} className="suggestion-topic">
+                  {suggestion.topic}
+                </div>
+                <div className="suggestion-description">{suggestion.description}</div>
+                {suggestion.actions.map((action, actionIndex) => {
+                  const content = action.content.trim();
+                  const queued = pendingActions.some(item => item.text.trim() === content);
+                  return (
+                    <button
+                      type="button"
+                      key={`${action.title}-${actionIndex}`}
+                      className={`suggestion-action${queued ? ' queued' : ''}`}
+                      disabled={queued || !content}
+                      onClick={() => void queuePlayerAction(content)}
+                      title={queued ? 'Azione già nel piano' : 'Aggiungi questa proposta al piano'}
+                    >
+                      <span className="suggestion-action-plus" aria-hidden="true">{queued ? '✓' : '+'}</span>
+                      <span className="suggestion-action-body">
+                        <b>{action.title}</b>
+                        <span>{content}</span>
+                      </span>
+                      <span className="suggestion-action-cta">{queued ? 'Aggiunta' : 'Usa'}</span>
+                    </button>
+                  );
+                })}
+              </section>
+            ))}
+          </div>
+        )}
 
         <div className="pending-actions-section">
           <div className="pending-header">In attesa di elaborazione:</div>

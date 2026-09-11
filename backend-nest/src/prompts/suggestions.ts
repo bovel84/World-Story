@@ -114,12 +114,28 @@ Esempio di forma corretta (adatta sempre nomi e mezzi al contesto reale):
 Mantieni esattamente lo schema JSON richiesto e rispondi SOLO con JSON valido.`;
 }
 
-export function parseSuggestionsResponse(text: string): Suggestion[] {
+export function parseSuggestionsResponse(text: string, strict = false): Suggestion[] {
   try {
     const parsed = parseJsonLoose<any>(text);
-    return parsed.suggestions || [];
+    if (!Array.isArray(parsed?.suggestions)) {
+      throw new Error('Il campo suggestions non è un array');
+    }
+
+    return parsed.suggestions.flatMap((item: any): Suggestion[] => {
+      if (!item || typeof item !== 'object' || !Array.isArray(item.actions)) return [];
+      const topic = typeof item.topic === 'string' ? item.topic.trim() : '';
+      const description = typeof item.description === 'string' ? item.description.trim() : '';
+      const actions = item.actions.flatMap((action: any) => {
+        if (!action || typeof action !== 'object') return [];
+        const title = typeof action.title === 'string' ? action.title.trim() : '';
+        const content = typeof action.content === 'string' ? action.content.trim() : '';
+        return title && content ? [{ title, content }] : [];
+      });
+      return topic && actions.length > 0 ? [{ topic, description, actions }] : [];
+    });
   } catch (e) {
     console.error('[PARSER] Failed to parse suggestions:', e);
+    if (strict) throw e;
     return [];
   }
 }

@@ -97,6 +97,19 @@ describe('LLMRouter: кэш', () => {
     await router.generate('advisor', 's', 'u');
     expect(calls).toHaveLength(2);
   });
+
+  it('invalidateCache() rimuove solo la risposta malformata indicata', async () => {
+    const calls: string[] = [];
+    const router = new LLMRouter(makeConfig(), () => stubProvider(calls));
+
+    await router.generate('suggestions', 'sys', 'bad');
+    await router.generate('advisor', 'sys', 'good');
+    router.invalidateCache('suggestions', 'sys', 'bad');
+    await router.generate('suggestions', 'sys', 'bad');
+    await router.generate('advisor', 'sys', 'good');
+
+    expect(calls).toEqual(['sys|bad', 'sys|good', 'sys|bad']);
+  });
 });
 
 describe('LLMRouter: stream', () => {

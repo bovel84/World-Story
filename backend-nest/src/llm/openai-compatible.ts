@@ -80,21 +80,42 @@ export class OpenAICompatibleProvider implements LLMProvider {
   }
 
   async generate(system: string, user: string, options: LLMGenerateOptions = {}): Promise<LLMResponse> {
-    const res = await postJson(
-      `${this.baseUrl}${this.chatPath}`,
-      this.buildHeaders(),
-      this.buildBody(system, user, options, false),
-      { timeoutMs: this.timeoutMs, retries: this.retries, providerName: this.name, signal: options.signal }
-    );
+    const base = options.maxTokens ?? 4096;
+    const run = async (maxTokens: number): Promise<any> => {
+      const res = await postJson(
+        `${this.baseUrl}${this.chatPath}`,
+        this.buildHeaders(),
+        this.buildBody(system, user, { ...options, maxTokens }, false),
+        { timeoutMs: this.timeoutMs, retries: this.retries, providerName: this.name, signal: options.signal }
+      );
 
-    let data: any;
-    try {
-      data = await res.json();
-    } catch {
-      throw new LLMError(`${this.name}: JSON non valido nella risposta`, { provider: this.name, retriable: true });
+      try {
+        return await res.json();
+      } catch {
+        throw new LLMError(`${this.name}: JSON non valido nella risposta`, { provider: this.name, retriable: true });
+      }
+    };
+
+    let data = await run(base);
+    const choice = data?.choices?.[0];
+    let content = choice?.message?.content;
+    const finishReason = choice?.finish_reason;
+    const completionTokens = data?.usage?.completion_tokens ?? 0;
+
+    // I modelli reasoning (GLM, DeepSeek, MiniMax…) possono spendere l'intero
+    // budget di completamento nei token di «thinking» (finish_reason=length)
+    // senza emettere alcun message.content. In quel caso riproviamo UNA volta
+    // con il budget quadruplicato, come già fa il fallback di stream().
+    if (
+      (typeof content !== 'string' || content.length === 0) &&
+      (finishReason === 'length' || completionTokens >= base) &&
+      base < 32768
+    ) {
+      console.error(`[LLM] content vuoto con finish_reason=${finishReason}: il reasoning ha esaurito il budget (${completionTokens} token). Riprovo con max_tokens x4.`);
+      data = await run(Math.min(base * 4, 32768));
+      content = data?.choices?.[0]?.message?.content;
     }
 
-    const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== 'string' || content.length === 0) {
       // Диагностика пустых ответов (reasoning-модели, фильтры, обрезка по токенам)
       try {

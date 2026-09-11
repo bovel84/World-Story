@@ -111,6 +111,20 @@ describe('loadLLMConfig: файл llm.config.json', () => {
     fs.rmSync(file);
   });
 
+  it('non riusa MINIMAX_API_KEY quando il file seleziona un altro provider', () => {
+    process.env.MINIMAX_API_KEY = 'minimax-only-key';
+    const file = writeTmpConfig({
+      default: {
+        provider: 'openai-compatible',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        model: 'openrouter/free',
+      },
+    });
+    const { mechanics: cfg } = loadLLMConfig(file);
+    expect(cfg.jump.apiKey).toBe('');
+    fs.rmSync(file);
+  });
+
   it('apiKey "env:VAR" резолвится из окружения; отсутствующая — в пустую строку', () => {
     process.env.OPENROUTER_API_KEY = 'sk-or-test';
     const file = writeTmpConfig({

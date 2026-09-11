@@ -151,7 +151,7 @@ describe('POST /api/llm/config', () => {
 describe('POST /api/llm/models', () => {
   it('rifiuta openai-compatible senza baseUrl', async () => {
     const { status } = await call('POST', '/models', { provider: 'openai-compatible' });
-    expect(status).toBe(502);
+    expect(status).toBe(424);
   });
 
   it('riporta un errore chiaro per un endpoint irraggiungibile', async () => {
@@ -159,7 +159,7 @@ describe('POST /api/llm/models', () => {
       provider: 'openai-compatible',
       baseUrl: 'http://127.0.0.1:9/v1',
     });
-    expect(status).toBe(502);
+    expect(status).toBe(424);
     expect(String(data.error)).toMatch(/openai-compatible/);
   });
 
@@ -186,7 +186,7 @@ describe('POST /api/llm/test', () => {
       baseUrl: 'http://127.0.0.1:9/v1',
       model: 'test-model',
     });
-    expect(status).toBe(502);
+    expect(status).toBe(424);
     expect(String(data.error)).toMatch(/openai-compatible/);
   });
 });
@@ -209,5 +209,28 @@ describe('LLMRouter.updateConfig', () => {
     // I provider sono stati ricostruiti, non riutilizzati dalla cache
     router.generate('jump', 's', 'u');
     expect(built).toBeGreaterThan(builtBefore);
+  });
+
+  it('conserva la chiave browser durante un salvataggio senza apiKey', async () => {
+    const { LLMRouter } = await import('../src/llm/router');
+    const { loadLLMConfig } = await import('../src/llm/config');
+    let providerKey = '';
+    const factory = (cfg: { apiKey: string }) => {
+      providerKey = cfg.apiKey;
+      return { name: 'stub', model: 'm', generate: async () => ({ content: 'ok' }) };
+    };
+    const initial = loadLLMConfig(CONFIG_FILE);
+    for (const cfg of Object.values(initial.mechanics)) cfg.apiKey = '';
+    const router = new LLMRouter(initial, factory as any);
+    router.setApiKey('browser-memory-key');
+
+    const updated = loadLLMConfig(CONFIG_FILE);
+    for (const cfg of Object.values(updated.mechanics)) cfg.apiKey = '';
+    router.updateConfig(updated);
+    await router.generate('jump', 's', 'u');
+
+    expect(router.hasMemoryApiKey).toBe(true);
+    expect(router.findApiKey('openai-compatible', updated.mechanics.jump.baseUrl)).toBe('browser-memory-key');
+    expect(providerKey).toBe('browser-memory-key');
   });
 });

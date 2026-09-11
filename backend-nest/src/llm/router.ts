@@ -90,6 +90,14 @@ export class LLMRouter {
 
   /** Sostituisce la configurazione a caldo: provider ricostruiti e cache svuotata. */
   updateConfig(config: LLMFullConfig): void {
+    // La configurazione su disco non contiene intenzionalmente la chiave del
+    // browser. Un salvataggio successivo senza apiKey deve conservarla, non
+    // ricreare silenziosamente tutti i provider senza autenticazione.
+    if (this.apiKeyOverride) {
+      for (const m of Object.keys(config.mechanics) as Mechanic[]) {
+        config.mechanics[m] = { ...config.mechanics[m], apiKey: this.apiKeyOverride };
+      }
+    }
     this.config = config;
     this.providers.clear();
     this.cache.clear();
@@ -113,6 +121,18 @@ export class LLMRouter {
     return !!this.apiKeyOverride;
   }
 
+  /** Ricerca interna della chiave effettiva senza esporla in alcuna risposta. */
+  findApiKey(provider?: string, baseUrl?: string): string {
+    const wantedBase = (baseUrl || '').trim().replace(/\/+$/, '');
+    for (const cfg of Object.values(this.config.mechanics)) {
+      if (!cfg.apiKey) continue;
+      if (provider && cfg.provider !== provider) continue;
+      if (wantedBase && cfg.baseUrl.replace(/\/+$/, '') !== wantedBase) continue;
+      return cfg.apiKey;
+    }
+    return '';
+  }
+
   /** Описание текущей конфигурации без секретов — для /api/llm/status. */
   describe(): Record<Mechanic, { provider: string; model: string; baseUrl: string }> {
     const out = {} as Record<Mechanic, { provider: string; model: string; baseUrl: string }>;
@@ -120,6 +140,11 @@ export class LLMRouter {
       out[m] = { provider: cfg.provider, model: cfg.model, baseUrl: cfg.baseUrl };
     }
     return out;
+  }
+
+  /** Invalida una sola risposta, senza perdere la cache delle altre meccaniche. */
+  invalidateCache(mechanic: Mechanic, system: string, user: string): void {
+    this.cache.delete(JSON.stringify([mechanic, system, user]));
   }
 
   clearCache(): void { this.cache.clear(); }

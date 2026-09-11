@@ -45,8 +45,13 @@ function readRawConfig(): RawLLMFile {
   }
 }
 
-function envKeyInfo(): { set: boolean; source: 'env' | null } {
-  const set = Boolean(process.env.LLM_API_KEY || process.env.MINIMAX_API_KEY);
+function envKeyInfo(provider: string): { set: boolean; source: 'env' | null } {
+  // MINIMAX_API_KEY non è una chiave generica: segnalarla come disponibile
+  // con OpenRouter/Ollama produce un falso positivo nella UI.
+  const set = Boolean(
+    process.env.LLM_API_KEY
+    || (provider === 'minimax' && process.env.MINIMAX_API_KEY),
+  );
   return { set, source: set ? 'env' : null };
 }
 
@@ -69,7 +74,8 @@ function configView() {
   const file = llmConfigFilePath();
   const raw = readRawConfig();
   const resolved = resolvedDefaults();
-  const envKey = envKeyInfo();
+  const configuredProvider = String(raw.default?.provider ?? resolved.provider ?? '');
+  const envKey = envKeyInfo(configuredProvider);
   const fileKey = fileKeyInfo(raw.default?.apiKey);
   // Chiave solo-memoria inviata dal browser (localStorage) — mai su disco
   const memoryKeySet = getLLMRouter().hasMemoryApiKey;
@@ -221,6 +227,11 @@ llmRouter.post('/config', (req, res) => {
  * (cerchiamo una meccanica con lo stesso provider/baseUrl).
  */
 function findSavedApiKey(provider?: string, baseUrl?: string): string {
+  // Prima usa la configurazione effettiva del router: può contenere la chiave
+  // solo-memoria inviata dal browser e volutamente assente dal file JSON.
+  const activeKey = getLLMRouter().findApiKey(provider, baseUrl);
+  if (activeKey) return activeKey;
+
   try {
     const { mechanics } = loadLLMConfig();
     const wantedBase = (baseUrl || '').trim().replace(/\/+$/, '');
@@ -250,7 +261,11 @@ llmRouter.post('/models', async (req, res) => {
     res.json(result);
   } catch (e: any) {
     if (e instanceof LLMError) {
-      res.status(502).json({ error: e.message });
+      // Non usare 502: i Quick Tunnel Cloudflare sostituiscono la risposta
+      // JSON dell'origine con una pagina HTML "Bad gateway", nascondendo il
+      // vero errore del provider al frontend. 424 mantiene il payload JSON e
+      // descrive correttamente una dipendenza esterna fallita.
+      res.status(424).json({ error: e.message });
     } else {
       console.error('[LLM] models error:', e);
       res.status(500).json({ error: 'Impossibile scaricare l\u2019elenco dei modelli' });
@@ -294,11 +309,12 @@ llmRouter.post('/test', async (req, res) => {
     );
     res.json({ ok: true, reply: result.content.slice(0, 200), latencyMs: Date.now() - started });
   } catch (e: any) {
-    if (e instanceof LLMError) {
-      res.status(502).json({ error: e.message });
-    } else {
-      console.error('[LLM] test error:', e);
-      res.status(502).json({ error: e?.message || 'Verifica fallita' });
-    }
+    // Vedi /models: 502 viene trasformato dal Quick Tunnel in HTML e rende
+    // impossibile mostrare all'utente l'errore reale (401, timeout, modello…).
+    const message = e instanceof LLMError
+      ? e.message
+      : e?.message || 'Verifica fallita';
+    if (!(e instanceof LLMError)) console.error('[LLM] test error:', e);
+    res.status(424).json({ error: message });
   }
 });

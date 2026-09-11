@@ -42,9 +42,16 @@ async function fetchApi<T>(
   });
   
   if (!response.ok) {
-    const errorText = await response.text();
+    const rawError = await response.text();
+    const isHtml = response.headers.get('content-type')?.includes('text/html')
+      || /^\s*<!doctype html/i.test(rawError);
+    const errorText = isHtml && [502, 503, 504].includes(response.status)
+      ? 'Backend temporaneamente non raggiungibile tramite Cloudflare. Riprova tra pochi secondi.'
+      : rawError.slice(0, 1000);
+    // Evita di riversare in console intere pagine HTML di Cloudflare: il
+    // messaggio compatto resta leggibile anche durante un riavvio del tunnel.
     console.error('[API Error]', response.status, endpoint, errorText);
-    throw new ApiError(response.status, `API Error: ${response.statusText} - ${errorText}`);
+    throw new ApiError(response.status, `API Error: ${response.statusText || response.status} - ${errorText}`);
   }
   
   return response.json();

@@ -33,12 +33,14 @@ const assessmentStore = new AssessmentStore<unknown>();
 
 /**
  * Единый обработчик ошибок игровых эндпоинтов:
- * LLMError → 502 с понятным сообщением (провайдер/причина),
+ * LLMError → 424 с понятным сообщением (провайдер/причина),
  * "not found" → 404, всё остальное → 500.
  */
 function respondRouteError(res: any, e: any, fallback: string): void {
   if (e instanceof LLMError) {
-    res.status(502).json({ error: `LLM (${e.provider}): ${e.message}` });
+    // I Quick Tunnel sostituiscono i 502 JSON con una pagina HTML generica.
+    // 424 conserva il dettaglio del provider per la UI.
+    res.status(424).json({ error: `LLM (${e.provider}): ${e.message}` });
   } else if (e instanceof SimulationInProgressError) {
     res.status(409).json({ error: e.message, code: 'simulation_in_progress' });
   } else if (typeof e?.message === 'string' && e.message.includes('snapshot_hash_mismatch')) {
@@ -300,7 +302,7 @@ gamesRouter.get('/:id/advisor', async (req, res) => {
   } catch (e: any) {
     console.error('[Advisor] Error:', e);
     // F04 passo 3: durante un run l'advisor risponde 409 (politica esplicita);
-    // LLMError → 502, gioco sconosciuto → 404, resto → 500.
+    // LLMError → 424, gioco sconosciuto → 404, resto → 500.
     respondRouteError(res, e, 'Failed to get advisor reply');
   }
 });
@@ -381,7 +383,7 @@ gamesRouter.get('/:id/suggestions', async (req, res) => {
   } catch (e: any) {
     console.error('[Suggestions] Error:', e);
     if (e instanceof LLMError) {
-      res.status(502).json({ error: `LLM (${e.provider}): ${e.message}` });
+      res.status(424).json({ error: `LLM (${e.provider}): ${e.message}` });
     } else {
       res.status(404).json({ error: 'Game not found' });
     }
@@ -716,20 +718,49 @@ gamesRouter.post('/:id/actions/evaluate', (req, res) => {
 });
 
 
+/** Le partite create prima del catalogo autoritativo devono poter continuare
+ * a registrare ordini. Non inventiamo costi: li rinviamo alla simulazione
+ * legacy, mentre le partite strict restano fail-closed. */
+function respondLegacyFeasibility(res: any): void {
+  res.json({
+    feasible: true,
+    costs: { timeDays: 0, inputs: [], upkeep: [], basis: 'none' },
+    prerequisites: [],
+    risks: [],
+    warnings: ['Partita legacy: costi e prerequisiti saranno valutati durante la simulazione.'],
+    summary: 'Ordine registrabile (modalità legacy)',
+  });
+}
+
 /** G4-B — verifica fattibilità da testo libero: sola lettura, non accoda.
  * La conversione intent e la valutazione avvengono interamente in sessione. */
 gamesRouter.post('/:id/actions/check-feasibility', async (req, res) => {
   try {
     const game = gameRepository.findById(req.params.id);
     if (!game || !game.world) { res.status(404).json({ error: 'Game not found' }); return; }
-    const templateId = (game.world as { template_id?: unknown }).template_id;
-    if (typeof templateId !== 'string' || !templateId) { res.status(409).json({ error: 'Verifica non disponibile: mondo legacy senza catalog binding', code: 'catalog_binding_missing' }); return; }
     const text = req.body?.text?.trim();
     if (!text) { res.status(400).json({ error: 'Testo ordine obbligatorio' }); return; }
 
+    const templateId = (game.world as { template_id?: unknown }).template_id;
+    if (typeof templateId !== 'string' || !templateId) {
+      if (gameRepository.getEconomyMode(req.params.id) === 'legacy') {
+        respondLegacyFeasibility(res);
+        return;
+      }
+      res.status(409).json({ error: 'Verifica non disponibile: catalog binding mancante', code: 'catalog_binding_missing' });
+      return;
+    }
+
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
     const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId));
-    if (!loaded.catalog) { res.status(422).json({ error: 'Catalogo server non valido', report: loaded.report }); return; }
+    if (!loaded.catalog) {
+      if (gameRepository.getEconomyMode(req.params.id) === 'legacy') {
+        respondLegacyFeasibility(res);
+        return;
+      }
+      res.status(422).json({ error: 'Catalogo server non valido', report: loaded.report });
+      return;
+    }
     // G4-B/G4-D: un solo percorso LLM → assessment + stima costi da catalogo.
     const { assessment, costs } = await session.checkFeasibilityWithCosts(text);
 
@@ -1228,7 +1259,9 @@ function respondTimeSkipResult(res: any, session: any, result: any, periodStart:
 /** Mappa il fallimento di un job sugli stessi codici HTTP del percorso inline. */
 function respondJobFailure(res: any, job: any): void {
   if (job.error_name === 'LLMError') {
-    res.status(502).json({ error: job.error });
+    // I Quick Tunnel sostituiscono i 502 JSON con una pagina HTML generica.
+    // 424 conserva il dettaglio del provider per la UI.
+    res.status(424).json({ error: job.error });
   } else if (job.error_name === 'SimulationInProgressError') {
     res.status(409).json({ error: job.error, code: 'simulation_in_progress' });
   } else if (job.error_name === 'SimulationPausedError') {

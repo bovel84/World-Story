@@ -634,8 +634,9 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   // Etichette delle regioni — marker HTML: lo stile offline senza glifi non supporta
   // layer symbol con text-field, quindi le etichette le disegniamo con elementi DOM
   // (pointer-events: none — non interferiscono con clic e hover sulle regioni).
-  // Nei mondi provinciali (centinaia di regioni) le province piccole nascondono
-  // il nome a vista mondo (zoom < 3.2) per non affollare la mappa.
+  // Nei mondi provinciali (centinaia di regioni) il nome della provincia appare
+  // SOLO quando la provincia è selezionata con un clic: la mappa resta leggibile
+  // a ogni zoom e l'identità visiva la tengono le etichette delle nazioni.
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
     const m = map.current;
@@ -686,8 +687,9 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     };
   }, [regions, mapLoaded, showFlags]);
 
-  // Una sola etichetta per politia: le province restano mute finché non sono
-  // selezionate, ma la lettura politica della mappa è sempre immediata.
+  // Una sola etichetta per politia, sempre visibile a ogni zoom: le province
+  // parlano solo quando sono selezionate, ma la lettura politica della mappa
+  // è sempre immediata.
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
     const m = map.current;
@@ -720,6 +722,9 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       const label = document.createElement('div');
       label.className = 'openpax-country-label';
       label.dataset.owner = owner;
+      // Regione-sede dell'etichetta: se l'utente la seleziona, il label della
+      // politia lascia il posto al label della regione (stesso punto, stesso nome).
+      label.dataset.repRegionId = representative.id;
       // Priorità cartografica per il decluttering a vista mondo.
       label.dataset.area = String(representative.geojson
         ? geometryAreaDeg2Client(JSON.parse(representative.geojson).geometry)
@@ -739,8 +744,9 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     };
   }, [regions, mapLoaded]);
 
-  // Visibilità in base allo zoom: etichette regioni piccole da zoom 3.2,
-  // etichette oggetti (città grandi/costruzioni) da zoom 3.5
+  // Visibilità in base allo zoom: le province parlano solo da selezionate,
+  // le regioni nazionali seguono la gerarchia per zoom, gli oggetti
+  // (città grandi/costruzioni) da zoom 3.5
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
     const m = map.current;
@@ -784,18 +790,19 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
         if (!el) return;
         const regionId = el.dataset.regionId || '';
         const area = regionAreas.current[regionId] ?? 0;
-        // Le province Pax sono leggibili solo quando vengono selezionate:
-        // anche a zoom alto migliaia di nomi annullerebbero la cartografia.
+        // Le province Pax mostrano il nome SOLO quando sono selezionate con un
+        // clic: a ogni altro livello di zoom la mappa resta pulita, altrimenti
+        // paesi con molte province diventano un muro di testo illeggibile.
+        // L'hover è comunque copiato dal tooltip con i dati della provincia.
         // Stati/regioni nazionali conservano invece la gerarchia per zoom.
         const isProvince = el.dataset.province === '1';
         const selected = regionId === selectedRegionId;
         const focused = selected || regionId === hoveredRegionId;
         // A vista mondo lasciamo l'identità ai label delle politie (uno per
-        // nazione). I nomi di regione rientrano solo avvicinandosi o quando
-        // l'utente li indica: evita il doppione nazione/regione e il muro di
-        // testo osservato sul planisfero.
+        // nazione). I nomi di regione nazionale rientrano solo avvicinandosi o
+        // quando l'utente li indica.
         const qualifies = isProvince
-          ? selected || zoom >= 3.8
+          ? selected
           : focused || (zoom >= 2.4 && area >= 12) || (zoom >= 3.0 && area >= 0.35) || zoom >= 3.2;
         const priority = selected || focused;
         const visible = qualifies && isInViewport(marker.getLngLat())
@@ -808,18 +815,17 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       // vincono a zoom basso; selezione e hover hanno sempre priorità.
       type CountryBox = { el: HTMLElement; priority: number; x: number; y: number; w: number; h: number };
       const selectedOwner = regions.find(region => region.id === selectedRegionId)?.owner;
-      const hasSelectedRegionLabel = Boolean(selectedRegionId);
       const countryBoxes: CountryBox[] = [];
       countryLabelMarkers.current.forEach(marker => {
         const el = marker.getElement();
         const area = Number(el.dataset.area || 0);
         const selected = el.dataset.owner === selectedOwner;
-        // La regione selezionata ha già il proprio label: non sovrapponiamo
-        // anche il nome della politia. Fuori camera nessuna label deve restare
-        // in paint/layout (né tagliarsi sul bordo del telefono).
-        const visible = isInViewport(marker.getLngLat())
-          && !(hasSelectedRegionLabel && selected)
-          && (selected || (zoom < 1.8 ? area >= 75 : zoom < 2.5 ? area >= 10 : true));
+        // Il nome della NAZIONE deve restare leggibile a ogni zoom: lo
+        // nascondiamo solo se fuori camera o se la regione selezionata è
+        // proprio la sede dell'etichetta (per non scrivere due volte lo
+        // stesso nome nello stesso punto).
+        const repSelected = el.dataset.repRegionId === selectedRegionId;
+        const visible = isInViewport(marker.getLngLat()) && !repSelected;
         if (!visible) { el.style.display = 'none'; return; }
         el.style.display = '';
         const rect = el.getBoundingClientRect();

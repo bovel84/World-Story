@@ -20,12 +20,14 @@ export const chatsRouter = Router();
 
 /**
  * Gestore errori unificato (stesso pattern di games.routes):
- * LLMError → 502, run attivo / contesto cambiato → 409, "not found" → 404,
+ * LLMError → 424, run attivo / contesto cambiato → 409, "not found" → 404,
  * tutto il resto → 500.
  */
 function respondRouteError(res: any, e: any, fallback: string): void {
   if (e instanceof LLMError) {
-    res.status(502).json({ error: `LLM (${e.provider}): ${e.message}` });
+    // I Quick Tunnel sostituiscono i 502 JSON con una pagina HTML generica.
+    // 424 conserva il dettaglio del provider per la UI.
+    res.status(424).json({ error: `LLM (${e.provider}): ${e.message}` });
   } else if (e instanceof SimulationInProgressError) {
     // F04 passo 3: politica esplicita durante un run — 409.
     res.status(409).json({ error: e.message, code: 'simulation_in_progress' });

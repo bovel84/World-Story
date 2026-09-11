@@ -218,6 +218,37 @@ describe('world.prompts имеет приоритет над дефолтным�
     expect(lastPrompt('suggestions')).toContain('КАСТОМ_ПОДСКАЗКИ для ФРГ');
   });
 
+  it('suggestions: invalida il risultato malformato e riprova con formato vincolato', async () => {
+    let calls = 0;
+    let invalidations = 0;
+    const retryLlm: any = {
+      consolidation: stubLlm.consolidation,
+      async generate(_mechanic: string, _system: string, user: string) {
+        calls++;
+        if (calls === 1) return { content: 'testo senza JSON' };
+        expect(user).toContain('[CORREZIONE FORMATO]');
+        return {
+          content: JSON.stringify({
+            suggestions: [{
+              topic: 'Confine orientale',
+              description: 'Pressione crescente lungo il confine.',
+              actions: [{ title: 'Presidio mobile', content: 'Ridislochiamo le unità disponibili lungo il confine orientale.' }],
+            }],
+          }),
+        };
+      },
+      invalidateCache() { invalidations++; },
+      describe() { return { suggestions: { provider: 'stub' } }; },
+    };
+
+    const engine = new promptBuilderModule.PromptEngine(retryLlm);
+    const result = await engine.getSuggestions(makeGame());
+
+    expect(calls).toBe(2);
+    expect(invalidations).toBe(1);
+    expect(result[0]?.actions[0]?.title).toBe('Presidio mobile');
+  });
+
   it('advisor: к пресетному шаблону дописываются история и текущий вопрос игрока', async () => {
     const engine = new promptBuilderModule.PromptEngine(stubLlm);
     const game = makeGame({ worldPrompts: { advisor: 'КАСТОМ_СОВЕТНИК ${PLAYER_POLITY}' } });

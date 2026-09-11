@@ -8,7 +8,7 @@ import { useCallback, useMemo, type ReactNode } from 'react';
  * │  HUD  │  HUD  │  HUD  │  HUD  │  HUD  │  HUD  │  HUD  │
  * ├──────┼───────┼───────┼───────┼───────┼───────┼──────┤
  * │ Rail │       MAPPA (dominante)        │ Desk   │
- * │ 48px │                                 │ 400px  │
+ * │240px │                                 │ 400px  │
  * └──────┴────────────────────────────────┴────────┘
  *
  * Tablet 768–1023px: rail compatto, desk come sheet laterale

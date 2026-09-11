@@ -24,6 +24,7 @@ import { GameLoader, WORLD_GEN_PHASES } from './components/Game/GameLoader';
 import { Fab } from './components/Game/Fab';
 // DISATTIVATO: editor mappe (temporaneo) — mapApi era usato solo dall’editor/«Le mie mappe»
 import { chatsApi, gameApi, worldApi, savesApi, llmApi, type TimelineEntry } from './services/api';
+import { getStoredKey, migrateLegacyKey } from './services/llmKeyStore';
 import type { Region, World, Game } from './types';
 import { useGameStore, useUIStore, useActionsStore, useChatStore, selectTotalUnread, type FloatingPanelTab } from './stores';
 import type { ActiveModule } from './stores/moduleState';
@@ -52,6 +53,24 @@ import { MapLegend } from './components/Shell/MapLegend';
 //   if (points.length === 0) return '';
 //   return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
 // };
+
+/** Traduce gli errori tecnici del provider in un messaggio operativo breve. */
+const simulationErrorMessage = (error: unknown): string => {
+  const raw = error instanceof Error ? error.message : String(error || '');
+  const marker = raw.indexOf(' - ');
+  const payload = marker >= 0 ? raw.slice(marker + 3) : raw;
+  let detail = payload;
+  try {
+    const parsed = JSON.parse(payload);
+    if (parsed?.error) detail = String(parsed.error);
+  } catch { /* risposta non JSON */ }
+  if (/\b401\b|unauthori[sz]ed|authentication/i.test(detail)) {
+    return 'Chiave API assente o non valida: apri “Modello”, inserisci la chiave del provider e salva.';
+  }
+  return detail && detail.length < 240
+    ? `Elaborazione non riuscita: ${detail}`
+    : 'Elaborazione non riuscita. Controlla il modello IA e riprova.';
+};
 
 // Funzione di supporto: formattazione intervallo di date
 const formatDateRange = (start: string, end: string): string => {
@@ -237,16 +256,27 @@ function App() {
     if (currentGameId) chatStore.refreshChats();
   }, [currentGameId]);
 
-  // Chiave API solo-browser: a ogni apertura di partita (o avvio app) la
-  // reinviamo al server in memoria — il server non la conserva su disco.
+  // Chiavi API solo-browser, con fallback per provider (services/llmKeyStore.ts): a ogni
+  // apertura di partita (o avvio app) chiediamo al server la config attiva e
+  // reinviamo la chiave salvata per quel modello o endpoint del provider — il
+  // server non la conserva né su disco né tra un riavvio e l'altro.
+  const rehydrateBrowserApiKey = useCallback(async () => {
+    try {
+      const cfg = await llmApi.config();
+      const d = cfg.default;
+      migrateLegacyKey(d.provider || '', d.baseUrl || '', d.model || '');
+      const storedKey = getStoredKey(d.provider || '', d.baseUrl || '', d.model || '');
+      if (!storedKey) return;
+      await llmApi.save({
+        default: { apiKey: storedKey },
+        persistApiKey: false,
+      });
+    } catch { /* silenzioso: la UI segnalerà comunque un eventuale errore LLM */ }
+  }, []);
+
   useEffect(() => {
-    const storedKey = localStorage.getItem('openpax_llm_apikey');
-    if (!storedKey) return;
-    llmApi.save({
-      default: { apiKey: storedKey },
-      persistApiKey: false,
-    }).catch(() => {}); // silenzioso: la UI segnalerà comunque un eventuale errore LLM
-  }, [currentGameId]);
+    void rehydrateBrowserApiKey();
+  }, [currentGameId, rehydrateBrowserApiKey]);
 
   // ── Cronaca live (feed eventi sempre in vista) ─────────────────────────
   // Accumula gli eventi di TUTTI i turni (azione del giocatore + simulazione
@@ -916,6 +946,9 @@ function App() {
         } catch (reconcileError) {
           console.error('Unable to reconcile paused simulation:', reconcileError);
         }
+      } else {
+        setTurnProgress(simulationErrorMessage(e));
+        setTimeout(() => setTurnProgress(''), 8000);
       }
     }
 
@@ -1269,7 +1302,7 @@ function App() {
       }
     } catch (e) {
       console.error('[Suggestions] Generation failed:', e);
-      setSuggestionsError('Il brainstorming non è disponibile ora. Riprova tra poco.');
+      setSuggestionsError(simulationErrorMessage(e));
     } finally {
       setSuggestionsLoading(false);
     }
@@ -1834,6 +1867,9 @@ function App() {
     },
     onConnected: () => {
       console.log('[SSE] Connected to game events');
+      // Una riconnessione SSE spesso indica un riavvio del backend: reinvia
+      // subito la chiave browser prima della prossima elaborazione LLM.
+      void rehydrateBrowserApiKey();
     },
     onError: (error) => {
       console.error('[SSE] Error:', error);
@@ -2102,6 +2138,7 @@ function App() {
               provinceMetadata={provinceMetadata}
               infrastructureLevel={infrastructureLevel}
               pendingActions={pendingActions}
+              suggestions={suggestions}
               orderDraftText={orderDraftText}
               updateOrderDraft={updateOrderDraft}
               enhancedPreview={enhancedPreview}

@@ -54,15 +54,21 @@ function resolveApiKey(raw: string | undefined): string {
   return raw ?? '';
 }
 
+/** MINIMAX_API_KEY è un fallback specifico: non va inviato ad altri provider. */
+function envApiKeyFor(provider: MechanicConfig['provider']): string {
+  return process.env.LLM_API_KEY
+    || (provider === 'minimax' ? process.env.MINIMAX_API_KEY : '')
+    || '';
+}
+
 function defaultConfig(): LLMConfig {
-  const envKey = process.env.LLM_API_KEY || process.env.MINIMAX_API_KEY || '';
   const envBase = process.env.LLM_BASE_URL || process.env.MINIMAX_BASE_URL || 'https://api.minimax.io/v1';
   const envModel = process.env.LLM_MODEL || 'MiniMax-M2.5';
   const envProvider = (process.env.LLM_PROVIDER as MechanicConfig['provider']) || 'minimax';
   const cfg = {} as LLMConfig;
   for (const m of ALL_MECHANICS) {
     cfg[m] = {
-      provider: envProvider, baseUrl: envBase, apiKey: envKey, model: envModel,
+      provider: envProvider, baseUrl: envBase, apiKey: envApiKeyFor(envProvider), model: envModel,
       timeoutMs: 120_000, retries: 4, stream: true, cache: DEFAULT_CACHE_MECHANICS.has(m),
     };
   }
@@ -94,8 +100,12 @@ export function loadLLMConfig(configPath?: string): LLMFullConfig {
     };
     const base: Partial<MechanicConfig> = raw.default ?? {};
     for (const m of ALL_MECHANICS) {
-      const merged = { ...cfg[m], ...base, ...(raw.mechanics?.[m] ?? {}) };
-      merged.apiKey = resolveApiKey(merged.apiKey);
+      const mechanicOverride = raw.mechanics?.[m] ?? {};
+      const merged = { ...cfg[m], ...base, ...mechanicOverride };
+      const explicitApiKey = mechanicOverride.apiKey ?? base.apiKey;
+      merged.apiKey = explicitApiKey !== undefined
+        ? resolveApiKey(explicitApiKey)
+        : envApiKeyFor(merged.provider);
       if (merged.cache === undefined) merged.cache = DEFAULT_CACHE_MECHANICS.has(m);
       if (!merged.baseUrl || !merged.model) {
         throw new Error(`llm.config.json: meccanica "${m}": servono baseUrl e model`);

@@ -509,3 +509,308 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 }
 .floating-advisor-panel.action-desk .manual-action-input textarea { background: #091321 !important; border-color: #526783 !important; color: #eff5ff !important; }
 .floating-advisor-panel.action-desk .manual-action-input textarea::placeholder { color: #91a2ba !important; opacity: 1; }
+
+/* ===== HUD desktop: stile completo sulla struttura reale (GameShell) ===== */
+/* L'HUD vive in header.game-shell-hud dentro .game-shell: tutte le regole
+   desktop «.game-wrapper .hud-*» di index.css non matchano mai, e sopravvive
+   solo il layer «edition» (testo ink scuro pensato per la barra carta),
+   che su barra notturna rende logo e data illeggibili. Questa sezione,
+   caricata per ultima e limitata al desktop (>720px), dà alla barra uno
+   stile coerente e leggibile senza toccare il layout mobile. */
+:root { --ws-hud-h: 64px; }
+@media (max-width: 720px) {
+  :root { --ws-hud-h: 54px; }
+}
+
+@media (min-width: 721px) {
+  /* Barra: griglia 1fr auto 1fr → centro davvero centrato */
+  .game-shell-hud .hud-bar {
+    display: grid !important;
+    grid-template-columns: 1fr auto 1fr !important;
+    align-items: center !important;
+    height: var(--ws-hud-h) !important;
+    min-height: var(--ws-hud-h) !important;
+    padding: 0 20px !important;
+    gap: 16px !important;
+    background: linear-gradient(100deg, #0d1512, #16211d 58%, #0e1614) !important;
+    border-bottom: 1px solid rgba(240, 232, 215, .28) !important;
+  }
+  .game-shell-hud .hud-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .game-shell-hud .hud-right { display: flex; align-items: center; justify-content: flex-end; gap: 12px; min-width: 0; }
+
+  /* Pulsante menu */
+  .game-shell-hud .hud-icon-btn {
+    width: 40px !important;
+    height: 40px !important;
+    flex: none;
+    display: grid !important;
+    place-items: center;
+    border: 1px solid rgba(248, 241, 229, .45) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    color: #f8f1e5 !important;
+    -webkit-text-fill-color: #f8f1e5 !important;
+    font-size: 18px !important;
+  }
+  .game-shell-hud .hud-icon-btn:hover { background: #f8f1e5 !important; color: var(--op-night) !important; -webkit-text-fill-color: var(--op-night) !important; }
+
+  /* Logo: niente gradient-clip né fill scuro ereditato dalle regole edition */
+  .game-shell-hud .hud-logo-text {
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    background-clip: initial !important;
+    -webkit-text-fill-color: #f8f1e5 !important;
+    color: #f8f1e5 !important;
+    font-family: var(--op-display) !important;
+    font-size: 19px !important;
+    font-weight: 700 !important;
+    letter-spacing: -.02em !important;
+  }
+
+  /* Toggle Dispacci: leggibile su notte, con conteggio evidente */
+  .game-shell-hud .hud-dispatch-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 0 14px !important;
+    border: 1px solid rgba(248, 241, 229, .45) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    color: #f8f1e5 !important;
+    -webkit-text-fill-color: #f8f1e5 !important;
+    font: 600 12.5px/1 var(--op-utility) !important;
+    letter-spacing: .05em !important;
+  }
+  .game-shell-hud .hud-dispatch-toggle:hover { background: #f8f1e5 !important; color: var(--op-night) !important; -webkit-text-fill-color: var(--op-night) !important; }
+  .game-shell-hud .hud-dispatch-icon { color: inherit !important; -webkit-text-fill-color: inherit !important; font-size: 15px; }
+  .game-shell-hud .hud-dispatch-count {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    display: grid;
+    place-items: center;
+    border-radius: 0 !important;
+    background: var(--op-red) !important;
+    color: #fff8ec !important;
+    -webkit-text-fill-color: #fff8ec !important;
+    font: 700 11px/1 var(--op-utility) !important;
+  }
+
+  /* Centro: nome mondo + turno */
+  .game-shell-hud .hud-center { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .game-shell-hud .hud-world-name {
+    -webkit-text-fill-color: #f8f1e5 !important;
+    color: #f8f1e5 !important;
+    font-family: var(--op-display) !important;
+    font-size: 17px !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .game-shell-hud .hud-turn-badge {
+    flex: none;
+    padding: 5px 10px !important;
+    background: var(--op-red) !important;
+    color: #fff8ec !important;
+    -webkit-text-fill-color: #fff8ec !important;
+    font: 700 10.5px/1 var(--op-utility) !important;
+    letter-spacing: .09em !important;
+  }
+
+  /* Bottone Avanza: coerente col tema (rosso dispaccio) */
+  .game-shell-hud .hud-advance-btn {
+    min-height: 40px;
+    padding: 0 16px !important;
+    border-radius: 0 !important;
+    background: var(--op-red) !important;
+    border: 1px solid var(--op-red-dark) !important;
+    color: #fff8ec !important;
+    -webkit-text-fill-color: #fff8ec !important;
+    font: 700 12px/1 var(--op-utility) !important;
+    letter-spacing: .06em !important;
+    text-transform: uppercase;
+  }
+  .game-shell-hud .hud-advance-btn:hover:not(:disabled) { background: var(--op-red-dark) !important; }
+  .game-shell-hud .hud-advance-btn b {
+    display: grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    border-radius: 9px;
+    background: #f8f1e5;
+    color: var(--op-red-dark) !important;
+    -webkit-text-fill-color: var(--op-red-dark) !important;
+    font-size: 11px;
+  }
+
+  /* Data: pillola scura con testo chiaro, navigazione ‹ › visibile */
+  .game-shell-hud .hud-date-pill {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 4px !important;
+    border: 1px solid rgba(248, 241, 229, .45) !important;
+    border-radius: 0 !important;
+    background: rgba(9, 14, 13, .55) !important;
+  }
+  .game-shell-hud .hud-date-display {
+    -webkit-text-fill-color: #f8f1e5 !important;
+    color: #f8f1e5 !important;
+    text-shadow: none !important;
+    font-family: var(--op-utility) !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    letter-spacing: .04em !important;
+    padding: 0 10px !important;
+    white-space: nowrap;
+  }
+  .game-shell-hud .hud-date-nav {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    display: grid !important;
+    place-items: center;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    color: #f8f1e5 !important;
+    -webkit-text-fill-color: #f8f1e5 !important;
+    font-size: 20px !important;
+  }
+  .game-shell-hud .hud-date-nav:hover:not(:disabled),
+  .game-shell-hud .hud-date-nav.hud-timeline-toggle.active {
+    background: #f8f1e5 !important;
+    color: var(--op-night) !important;
+    -webkit-text-fill-color: var(--op-night) !important;
+  }
+  .game-shell-hud .hud-date-nav:disabled { opacity: .45; }
+}
+
+/* ===== Moduli desk (Diplomazia, Consulente, Notizie, Nazione): leggibilità ===== */
+/* I pannelli del desk vivono su superficie notturna, ma il layer «edition»
+   eredita ink scuro (var(--op-ink)) e .chats-empty usa #555: testo scuro su
+   fondo scuro = illeggibile. Qui normalizziamo: testo chiaro su notte,
+   banner coerenti col tema, carta riservata ai dispacci/bollettini. */
+.game-shell-desk {
+  color: #ede9dc;
+}
+
+.game-shell-desk .chats-panel,
+.game-shell-desk .advisor-chat,
+.game-shell-desk .event-feed,
+.game-shell-desk .nation-dock,
+.game-shell-desk .country-selector {
+  background: transparent;
+  color: #ede9dc;
+}
+
+/* Stati vuoti e messaggi di servizio: prima #555 su #0a0a0f, illeggibili */
+.game-shell-desk .chats-empty {
+  color: #c3cec2 !important;
+  font-size: 14px !important;
+  line-height: 1.55 !important;
+}
+
+/* Consulente: banner notturno coerente (prima carta chiara su corpo scuro) */
+.game-shell-desk .advisor-banner {
+  background: #16211d !important;
+  border-bottom: 1px solid rgba(248, 241, 229, .3) !important;
+  padding-right: 56px !important;
+}
+.game-shell-desk .advisor-banner-title {
+  color: #f8f1e5 !important;
+  -webkit-text-fill-color: #f8f1e5 !important;
+  font-family: var(--op-display) !important;
+  font-size: 17px !important;
+  letter-spacing: .01em !important;
+}
+.game-shell-hud .advisor-banner-sub,
+.game-shell-desk .advisor-banner-sub {
+  color: #b9c6ba !important;
+  font-family: var(--op-utility) !important;
+  font-size: 11px !important;
+  letter-spacing: .05em !important;
+}
+
+/* Notizie: header notturno; il badge «tempo manuale» non deve finire sotto la X */
+.game-shell-desk .event-feed-header {
+  background: #16211d !important;
+  border-bottom: 1px solid rgba(248, 241, 229, .3) !important;
+  padding-right: 64px !important;
+}
+.game-shell-desk .event-feed-header :is(h1, h2, h3, strong, span, small) {
+  color: #f8f1e5 !important;
+  -webkit-text-fill-color: #f8f1e5 !important;
+}
+.game-shell-desk .event-feed-header .event-feed-readonly {
+  color: #b9c6ba !important;
+  -webkit-text-fill-color: #b9c6ba !important;
+}
+.game-shell-desk .btn-feed-live {
+  background: transparent !important;
+  border: 1px solid rgba(248, 241, 229, .45) !important;
+  border-radius: 0 !important;
+  color: #e3ddcd !important;
+  -webkit-text-fill-color: #e3ddcd !important;
+  font-family: var(--op-utility) !important;
+  letter-spacing: .06em !important;
+}
+
+/* Chat diplomatiche: lista e canali leggibili su notte */
+.game-shell-desk .chats-panel :is(h1, h2, h3, strong, label, span, small) {
+  color: inherit;
+}
+.game-shell-desk .chat-input-row textarea {
+  color: #f2ede2 !important;
+  background: #0a120f !important;
+}
+.game-shell-desk .chat-input-row textarea::placeholder { color: #93a094 !important; opacity: 1; }
+
+/* Nazione: la carta del bollettino resta a inchiostro scuro, il resto è chiaro */
+.game-shell-desk .country-selector label {
+  color: #c3cec2 !important;
+  font: 600 12px/1 var(--op-utility) !important;
+  letter-spacing: .06em !important;
+  text-transform: uppercase;
+}
+.game-shell-desk .country-locked span {
+  text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
+  font-weight: 700;
+}
+
+/* Diploma/Consulente: i messaggi in arrivo restano chiari */
+.game-shell-desk .advisor-entry,
+.game-shell-desk .entry-text,
+.game-shell-desk .chat-bubble { color: #f2ede2 !important; }
+
+/* Le chat APERTE (righe .chat-item): prima carta crema con testo bianco, illeggibili.
+   Tema notturno coerente col resto del desk. */
+.game-shell-desk .chat-item {
+  background: #0d1727 !important;
+  border: 1px solid rgba(248, 241, 229, .22) !important;
+  border-radius: 0 !important;
+  color: #dfe6ef !important;
+  -webkit-text-fill-color: #dfe6ef !important;
+}
+.game-shell-desk .chat-item:hover,
+.game-shell-desk .chat-item.active {
+  background: #16263f !important;
+  border-color: rgba(149, 128, 226, .55) !important;
+}
+.game-shell-desk .chat-item-name {
+  color: #f0f5ff !important;
+  -webkit-text-fill-color: #f0f5ff !important;
+}
+.game-shell-desk .chat-item-last {
+  color: #adbed3 !important;
+  -webkit-text-fill-color: #adbed3 !important;
+}
+.game-shell-desk .chat-thread-title {
+  color: #f0f5ff !important;
+  -webkit-text-fill-color: #f0f5ff !important;
+}
+
+/* Il pulsante «+ Nuova chat» non deve finire sotto la ✕ di chiusura */
+.game-shell-desk .btn-new-chat { margin-right: 52px; }

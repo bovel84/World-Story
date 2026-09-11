@@ -5,7 +5,7 @@
 
 export { useGameStore } from './gameStore';
 export { useUIStore, type LocalMap } from './uiStore';
-export { useActionsStore } from './actionsStore';
+export { useActionsStore, type Suggestion, type SuggestedAction } from './actionsStore';
 export {
   useChatStore,
   selectTotalUnread,

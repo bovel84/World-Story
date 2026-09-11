@@ -249,6 +249,10 @@ export const MapView: React.FC<MapViewProps> = ({
           const isSelected = region.id === selectedRegionId;
           const isHovered = region.id === hoveredRegion;
           const isChanged = changedRegionIds.includes(region.id);
+          // Nei mondi con poche regioni il nome è sempre utile; con molte
+          // regioni (province) il nome appare solo su selezione o hover,
+          // altrimenti zoomare diventa illeggibile.
+          const showLabel = regions.length <= 20 || isSelected || isHovered;
 
           return (
             <g key={region.id}>
@@ -290,22 +294,24 @@ export const MapView: React.FC<MapViewProps> = ({
                 onMouseLeave={() => setHoveredRegion(null)}
               />
 
-              {/* Region label */}
-              <text
-                x={getCentroid(region.svgPath || '')?.x || width/2}
-                y={getCentroid(region.svgPath || '')?.y || height/2}
-                fill="#ffffff"
-                fontSize={18}
-                fontWeight={700}
-                textAnchor="middle"
-                pointerEvents="none"
-                style={{
-                  textShadow: '0 0 10px #000, 0 0 5px #000, 1px 1px 2px #000',
-                  opacity: 1,
-                }}
-              >
-                {region.name}
-              </text>
+              {/* Region label — solo se la regione "merita" di parlare */}
+              {showLabel && (
+                <text
+                  x={getCentroid(region.svgPath || '')?.x || width/2}
+                  y={getCentroid(region.svgPath || '')?.y || height/2}
+                  fill="#ffffff"
+                  fontSize={18}
+                  fontWeight={700}
+                  textAnchor="middle"
+                  pointerEvents="none"
+                  style={{
+                    textShadow: '0 0 10px #000, 0 0 5px #000, 1px 1px 2px #000',
+                    opacity: 1,
+                  }}
+                >
+                  {region.name}
+                </text>
+              )}
             </g>
           );
         })}

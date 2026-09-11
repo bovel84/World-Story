@@ -6,15 +6,26 @@
 
 import { create } from 'zustand';
 
+export interface SuggestedAction {
+  title: string;
+  content: string;
+}
+
+export interface Suggestion {
+  topic: string;
+  description: string;
+  actions: SuggestedAction[];
+}
+
 interface ActionsState {
   // Suggestions from API
-  suggestions: any[];
+  suggestions: Suggestion[];
 
   // Manual action text input
   newActionText: string;
 
   // Actions
-  setSuggestions: (suggestions: any[]) => void;
+  setSuggestions: (suggestions: Suggestion[]) => void;
   setNewActionText: (text: string) => void;
   clearSuggestions: () => void;
 
