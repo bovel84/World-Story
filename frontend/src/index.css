@@ -2057,3 +2057,47 @@ html, body { margin: 0; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* F11 — HUD e desk mobile: vincoli espliciti, nessun elemento può sparire. */
+.hud-date-compact { display: none; }
+
+@media (max-width: 480px) {
+  .hud-bar {
+    display: grid !important;
+    grid-template-columns: 76px 62px minmax(0, 1fr) !important;
+    align-items: center !important;
+    height: var(--ws-hud-h, 52px) !important;
+    min-height: var(--ws-hud-h, 52px) !important;
+    padding: 3px 6px !important;
+    gap: 3px !important;
+    box-sizing: border-box !important;
+  }
+  .hud-left { grid-column: 1; display: flex !important; align-items: center; gap: 2px; min-width: 0; }
+  .hud-logo { display: none !important; }
+  .hud-icon-btn { width: 36px !important; height: 36px !important; min-width: 36px !important; }
+  .hud-dispatch-toggle { width: 34px !important; height: 36px !important; min-width: 34px !important; padding: 0 !important; justify-content: center !important; }
+  .hud-dispatch-label { display: none !important; }
+  .hud-center { grid-column: 2; position: static !important; transform: none !important; display: block !important; min-width: 0; }
+  .hud-world-name { display: none !important; }
+  .hud-turn-badge { display: grid !important; width: 62px; height: 32px; place-items: center; padding: 0 !important; font-size: 10px !important; white-space: nowrap; }
+  .hud-right { grid-column: 3; display: flex !important; align-items: center; min-width: 0; margin: 0 !important; gap: 4px !important; }
+  .hud-advance-btn { flex: 0 0 76px; min-width: 76px !important; min-height: 36px !important; padding: 0 6px !important; font-size: 11px !important; justify-content: center; }
+  .hud-date-pill { display: flex !important; flex: 1 1 auto; min-width: 0; max-width: none !important; height: 36px; padding: 2px !important; box-sizing: border-box; }
+  .hud-date-nav { width: 25px !important; height: 32px !important; min-width: 25px !important; }
+  .hud-date-display { display: grid !important; flex: 1 1 auto; min-width: 0; padding: 0 2px !important; place-items: center; font-size: 11px !important; overflow: visible !important; }
+  .hud-date-long { display: none !important; }
+  .hud-date-compact { display: inline !important; white-space: nowrap; }
+
+  /* Il contenuto del desk può superare l'altezza del bottom sheet. */
+  .game-shell-desk {
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 370px) {
+  .hud-bar { grid-template-columns: 40px 62px minmax(0, 1fr) !important; }
+  .hud-dispatch-toggle { display: none !important; }
+  .hud-advance-btn { flex-basis: 70px; min-width: 70px !important; }
+}

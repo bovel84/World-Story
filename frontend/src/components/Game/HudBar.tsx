@@ -122,6 +122,13 @@ export function formatDateIt(dateISO: string): string {
   return `${d.getDate()} ${MONTHS_IT[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+/** Formato numerico compatto: evita che la data sparisca nella HUD mobile. */
+export function formatDateCompact(dateISO: string): string {
+  const d = parseISODate(dateISO);
+  if (!d) return dateISO;
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
 // ============================================================================
 // Pannello «Timeline»
 // ============================================================================
@@ -396,8 +403,9 @@ export const HudBar: React.FC<HudBarProps> = ({
           >
             ‹
           </button>
-          <div className="hud-date-display" title={dateISO}>
-            {formatDateIt(dateISO)}
+          <div className="hud-date-display" title={dateISO} aria-label={formatDateIt(dateISO)}>
+            <span className="hud-date-long" aria-hidden="true">{formatDateIt(dateISO)}</span>
+            <span className="hud-date-compact" aria-hidden="true">{formatDateCompact(dateISO)}</span>
           </div>
           <button
             type="button"
