@@ -2,7 +2,7 @@
   "default": {
     "provider": "openai-compatible",
     "baseUrl": "https://ollama.com/v1",
-    "model": "glm-5.3-flash",
+    "model": "deepseek-v4.1-flash",
     "timeoutMs": 240000,
     "retries": 2,
     "stream": true,
