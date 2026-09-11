@@ -30,7 +30,7 @@ export interface ChatPromptVars {
   recentEvents: string[];
   history: ChatHistoryItem[];
   playerMessage: string;
-  mode: 'reply' | 'auto';
+  mode: 'reply' | 'auto' | 'reaction';
 }
 
 export interface NextSpeakerPromptVars {
@@ -82,11 +82,13 @@ export function buildChatPrompt(vars: ChatPromptVars): string {
     ? vars.recentEvents.map(e => `- ${e}`).join('\n')
     : '(Nessun evento recente rilevante)';
   const latest = vars.playerMessage.trim()
-    ? `\n[Messaggio appena inviato dal giocatore]\n${vars.playerMessage.trim()}\n`
+    ? `\n[${vars.mode === 'reaction' ? 'Ordini ed eventi appena conclusisi' : 'Messaggio appena inviato dal giocatore'}]\n${vars.playerMessage.trim()}\n`
     : '';
   const modeRule = vars.mode === 'reply'
     ? `Rispondi direttamente all’ultimo messaggio di ${vars.playerPolityName}.`
-    : 'Il giocatore non interviene: continua in modo naturale il confronto con le altre nazioni.';
+    : vars.mode === 'reaction'
+      ? `${vars.playerPolityName} non ha scritto in chat: ${speaker.name} prende formalmente posizione — nota ufficiale, protesta, apprezzamento, richiesta o avvertimento — reagendo agli ordini e agli eventi descritti qui sopra.`
+      : 'Il giocatore non interviene: continua in modo naturale il confronto con le altre nazioni.';
 
   return `Stai simulando una diplomazia a turni. Interpreta esclusivamente ${speaker.name}, in prima persona plurale, come governo o leadership della nazione.
 

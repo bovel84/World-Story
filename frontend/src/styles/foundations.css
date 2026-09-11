@@ -14,6 +14,10 @@
   --ws-ink: #18201e;
   --ws-radius-control: 8px;
   --ws-radius-panel: 12px;
+  /* Larghezza della barra laterale (rail) su desktop/tablet: deve ospitare
+     brand, etichette dei moduli, badge e la MapLegend senza schiacciarsi.
+     Su mobile (<768px) viene azzerata: la rail diventa una bottom bar. */
+  --ws-rail-w: 240px;
   --ws-z-map: 0;
   --ws-z-shell: 10;
   --ws-z-module: 20;
@@ -431,7 +435,11 @@
   display: grid;
   grid-template-rows: auto 1fr;
   grid-template-columns: var(--ws-rail-w, 56px) 1fr var(--ws-desk-w, 400px);
+  /* Fallback 100vh per browser senza 100dvh (iOS ≤15.3): la griglia deve
+     comunque riempire il viewport, altrimenti la HUD collassa. */
+  height: 100vh;
   height: 100dvh;
+  min-height: 100vh;
   min-height: 100dvh;
   overflow: hidden;
   background: var(--ws-surface-map-shell);
@@ -490,7 +498,10 @@
 .command-rail {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* Flessibile invece di height fissa: la MapLegend in fondo alla rail
+     resta nello spazio visibile invece di essere spinta fuori. */
+  flex: 1;
+  min-height: 0;
   padding: 8px 4px;
   gap: 4px;
 }
@@ -538,6 +549,8 @@
   flex-direction: column;
   gap: 4px;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .rail-btn {
@@ -743,32 +756,86 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 12px;
+  margin: 0 8px 8px;
+  padding: 10px 12px 12px;
   background: var(--ws-surface-command);
   border: 1px solid var(--ws-surface-command-raised);
   border-radius: var(--ws-radius-panel);
-  max-height: calc(100% - 24px);
+  flex-shrink: 0;
+  max-height: min(46%, 420px);
   overflow-y: auto;
 }
 
-.map-legend-layers {
+/* Intestazione collassabile */
+.map-legend-toggle {
   display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--ws-text-primary);
+  font: 700 12px/1 system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.map-legend-toggle:hover,
+.map-legend-toggle:focus-visible {
+  color: var(--ws-attention);
+}
+
+.map-legend-toggle-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.map-legend-chevron {
+  margin-left: auto;
+  font-size: 11px;
+  transition: transform .15s ease;
+}
+
+.map-legend.collapsed .map-legend-chevron {
+  transform: rotate(-90deg);
+}
+
+.map-legend.collapsed .map-legend-body {
+  display: none;
+}
+
+/* Selettore livello: segmented control a colonne uguali */
+.map-legend-layers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--ws-surface-command-raised);
-  padding-bottom: 8px;
 }
 
 .map-legend-layer {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border: 0;
+  justify-content: center;
+  gap: 4px;
+  min-height: 48px;
+  padding: 8px 4px;
+  border: 1px solid var(--ws-surface-command-raised);
   border-radius: var(--ws-radius-control);
   background: transparent;
   color: var(--ws-text-secondary);
-  font: 600 12px/1 system-ui, sans-serif;
+  font: 600 11.5px/1.1 system-ui, sans-serif;
+  text-align: center;
   cursor: pointer;
+}
+
+.map-legend-layer-icon {
+  font-size: 15px;
+  line-height: 1;
 }
 
 .map-legend-layer:hover,
@@ -779,6 +846,7 @@
 
 .map-legend-layer.active {
   background: var(--ws-action-primary);
+  border-color: var(--ws-action-primary);
   color: var(--ws-ink);
 }
 
@@ -788,19 +856,21 @@
   gap: 12px;
 }
 
+/* Filtri: griglia a 2 colonne, caselle grandi e leggibili */
 .map-legend-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin: 0;
+  padding: 10px;
   border: 1px solid var(--ws-surface-command-raised);
   border-radius: var(--ws-radius-control);
-  font: 500 12px/1 system-ui, sans-serif;
 }
 
 .map-legend-filters legend {
   width: 100%;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+  padding: 0;
   font: 700 11px/1 system-ui, sans-serif;
   color: var(--ws-attention);
   text-transform: uppercase;
@@ -810,77 +880,112 @@
 .map-legend-filters label {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  min-height: 28px;
+  font: 500 13px/1.2 system-ui, sans-serif;
+  color: var(--ws-text-primary);
   cursor: pointer;
 }
 
+.map-legend-filters input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--ws-action-primary);
+  cursor: pointer;
+}
+
+/* Proprietari: griglia a 2 colonne, nomi troncati con ellipsis */
 .map-legend-owners {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .map-legend-owners strong {
-  font: 600 12px/1 system-ui, sans-serif;
-  color: var(--ws-text-secondary);
+  font: 700 11px/1 system-ui, sans-serif;
+  color: var(--ws-attention);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.map-legend-owners-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
 }
 
 .map-legend-owner {
   display: flex;
   align-items: center;
   gap: 8px;
-  font: 500 12px/1 system-ui, sans-serif;
+  min-width: 0;
+  font: 500 12.5px/1.3 system-ui, sans-serif;
+  color: var(--ws-text-primary);
+}
+
+.map-legend-owner-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .map-legend-swatch {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
   border: 1px solid var(--ws-surface-command-raised);
+  flex-shrink: 0;
 }
 
 .map-legend-more {
-  margin-top: 4px;
-  font: 500 11px/1 system-ui, sans-serif;
+  margin-top: 2px;
+  font: 600 11.5px/1 system-ui, sans-serif;
   color: var(--ws-text-secondary);
 }
 
 .map-legend-hint {
   margin: 0;
-  font: 500 12px/1.4 system-ui, sans-serif;
+  font: 500 12.5px/1.5 system-ui, sans-serif;
   color: var(--ws-text-secondary);
 }
 
+/* Terreno/Cambiamenti: barra colore + etichetta affiancata */
 .map-legend-terrain-swatch,
 .map-legend-change-swatch {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
-.map-legend-terrain-swatch span {
-  height: 18px;
-  border-radius: 4px;
-}
-
-.map-legend-change-swatch div {
+.map-legend-swatch-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font: 500 12px/1 system-ui, sans-serif;
+  gap: 10px;
+  font: 500 12.5px/1.3 system-ui, sans-serif;
+  color: var(--ws-text-primary);
 }
 
-.map-legend-change-swatch span {
+.map-legend-terrain-bar {
+  width: 32px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--ws-surface-command-raised);
+  flex-shrink: 0;
+}
+
+.map-legend-change-bar {
   width: 24px;
   height: 14px;
-  border-radius: 3px;
+  border-radius: 4px;
+  flex-shrink: 0;
 }
 
 .map-legend-selected {
-  margin-top: 12px;
-  padding-top: 8px;
+  margin-top: 2px;
+  padding-top: 10px;
   border-top: 1px solid var(--ws-surface-command-raised);
-  font: 600 13px/1 system-ui, sans-serif;
+  font: 600 12.5px/1.4 system-ui, sans-serif;
   color: var(--ws-attention);
 }
 
@@ -939,6 +1044,23 @@
     height: 100%;
     min-width: 0;
     overflow: hidden;
+  }
+
+  /* Barra superiore: sempre attaccata in cima e dentro il safe area.
+     Su iPhone (soprattutto in standalone/«Aggiungi a Home») il viewport
+     parte sotto la notch: senza questo padding la HUD finiva fuori vista. */
+  .game-shell-hud {
+    position: sticky;
+    top: 0;
+    z-index: var(--ws-z-shell);
+  }
+
+  .hud-bar {
+    min-height: 54px;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: max(10px, env(safe-area-inset-left, 0px));
+    padding-right: max(10px, env(safe-area-inset-right, 0px));
+    box-sizing: border-box;
   }
 
   .game-shell-map {

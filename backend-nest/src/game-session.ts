@@ -862,7 +862,7 @@ export class GameSession {
     chat: ChatRecord,
     history: { role: string; content: string }[],
     playerMessage: string,
-    mode: 'reply' | 'auto',
+    mode: 'reply' | 'auto' | 'reaction',
     fence?: { branchId: string | null; revision: number },
   ): Promise<ChatMessageRecord> {
     const polityParticipants = chat.participants.filter(
@@ -877,19 +877,7 @@ export class GameSession {
       });
     }
 
-    const participantsVars = polityParticipants.map(p => {
-      const owned = Array.from(this.regions.values()).filter(r => r.owner === p.id);
-      const population = owned.reduce((sum, r) => sum + (r.population || 0), 0);
-      const gdp = owned.reduce((sum, r) => sum + (r.gdp || 0), 0);
-      const military = owned.reduce((sum, r) => sum + (r.militaryPower || 0), 0);
-      const { personality, aggression } = personalityForPolity(p.id);
-      return {
-        name: p.name,
-        relationship: this.relationships.get(p.id, this.playerPolityId),
-        personality: `${personality} (propensione alla forza ${Math.round(aggression * 100)}%)`,
-        interests: `difendere ${owned.length} regioni; popolazione ${population}; PIL ${gdp}; potenza militare ${military}; migliorare la propria sicurezza e influenza senza ignorare il lore del preset`,
-      };
-    });
+    const participantsVars = this.chatParticipantVarsFor(chat);
 
     let speakerName = participantsVars[0].name;
     if (participantsVars.length > 1) {
@@ -898,7 +886,7 @@ export class GameSession {
         participantNames: participantsVars.map(p => p.name),
         history,
         playerMessage,
-        mode,
+        mode: mode === 'reaction' ? 'auto' : mode,
       });
       const selection = await this.llm.generate(
         'chat',
@@ -962,6 +950,136 @@ export class GameSession {
     });
 
     return reply;
+  }
+
+  /**
+   * Variabili prompt dei partecipanti NPC di una chat: stato materiale
+   * (regioni, popolazione, PIL, forza) + personalità. Condivisa da repliche
+   * normali e reazioni automatiche agli ordini.
+   */
+  private chatParticipantVarsFor(chat: ChatRecord) {
+    const polityParticipants = chat.participants.filter(
+      p => p.role !== 'player' && p.id !== this.playerPolityId
+    );
+    if (polityParticipants.length === 0) {
+      polityParticipants.push({
+        id: chat.polityId,
+        name: chat.polityName,
+        color: chat.polityColor,
+        role: 'polity',
+      });
+    }
+    return polityParticipants.map(p => {
+      const owned = Array.from(this.regions.values()).filter(r => r.owner === p.id);
+      const population = owned.reduce((sum, r) => sum + (r.population || 0), 0);
+      const gdp = owned.reduce((sum, r) => sum + (r.gdp || 0), 0);
+      const military = owned.reduce((sum, r) => sum + (r.militaryPower || 0), 0);
+      const { personality, aggression } = personalityForPolity(p.id);
+      return {
+        name: p.name,
+        relationship: this.relationships.get(p.id, this.playerPolityId),
+        personality: `${personality} (propensione alla forza ${Math.round(aggression * 100)}%)`,
+        interests: `difendere ${owned.length} regioni; popolazione ${population}; PIL ${gdp}; potenza militare ${military}; migliorare la propria sicurezza e influenza senza ignorare il lore del preset`,
+      };
+    });
+  }
+
+  /**
+   * Reazioni diplomatiche automatiche agli ordini del giocatore.
+   *
+   * Dopo un turno con ordini, le politie NPC direttamente interessate
+   * (cambi di relazione, trasferimenti territoriali, oppure un vicino
+   * ostile come fallback) prendono posizione con un messaggio ufficiale
+   * nella chat diplomatica: la nota è persistita e broadcastata via SSE
+   * (badge «Diplomazia» + cronaca), così l'ordine produce non solo notizie
+   * ma anche reazioni visibili.
+   *
+   * Fire-and-forget: il turno è già committato; un errore LLM non lo tocca.
+   * Limite: massimo 2 reazioni per turno (costo LLM controllato).
+   */
+  async generateNpcReactions(input: {
+    actionTexts: string[];
+    eventHeadlines: string[];
+    candidatePolityIds: string[];
+  }): Promise<void> {
+    if (input.actionTexts.length === 0 && input.eventHeadlines.length === 0) return;
+    const candidates = input.candidatePolityIds
+      .filter(id => id && id !== this.playerPolityId && id !== 'neutral')
+      .filter((id, index, all) => all.indexOf(id) === index)
+      .filter(id => Array.from(this.regions.values()).some(r => r.owner === id))
+      .slice(0, 2);
+    if (candidates.length === 0) return;
+
+    const playerPolityName = this.players[0]?.name || this.playerPolityId;
+    const reactionBrief = [
+      input.actionTexts.length > 0
+        ? `Ordini resi pubblici da ${playerPolityName} in questo turno: ${input.actionTexts.join(' | ')}`
+        : '',
+      input.eventHeadlines.length > 0
+        ? `Eventi del periodo: ${input.eventHeadlines.slice(0, 8).join('; ')}`
+        : '',
+    ].filter(Boolean).join('\n');
+
+    for (const polityId of candidates) {
+      try {
+        const owned = Array.from(this.regions.values()).filter(r => r.owner === polityId);
+        if (owned.length === 0) continue;
+        // Stessa convenzione di ensureChat: nome nazionale dal registro ISO
+        // per i mondi provinciali, nome della regione per le politie singole.
+        const displayName = owned.length > 1
+          ? (countryRepository.findByCode(polityId)?.name || polityId)
+          : owned[0].name;
+        const chat = this.ensureChat([displayName]);
+        const sender = chat.participants.find(p => p.role === 'polity')?.name || chat.polityName;
+        const history = chatRepository.getMessages(chat.id)
+          .map(m => ({ role: m.role === 'player' ? 'player' : (m.senderName || chat.polityName), content: m.content }));
+        const participantsVars = this.chatParticipantVarsFor(chat);
+        const responding = participantsVars.find(p => p.name === sender) || participantsVars[0];
+        if (!responding) continue;
+
+        const prompt = buildChatPrompt({
+          playerPolityName,
+          participants: participantsVars,
+          respondingParticipant: responding,
+          worldContext: this.worldBasePrompt || 'Storia alternativa',
+          simulationRules: this.worldSimulationRules || '',
+          mapContext: this.buildChatMapContext(),
+          difficultyContext: difficultyPromptBlock(this.difficulty),
+          date: this.currentDate,
+          recentEvents: input.eventHeadlines.slice(0, 8),
+          history,
+          playerMessage: reactionBrief,
+          mode: 'reaction',
+        });
+        const response = await this.llm.generate(
+          'chat',
+          `Interpreta ${sender} in una trattativa storica. Rispondi in italiano e SOLO con JSON {"message"}.`,
+          prompt,
+          { temperature: 0.7 },
+        );
+        const parsed = parseChatResponse(response.content);
+        const reply = chatRepository.addMessage(
+          chat.id,
+          'polity',
+          parsed.message,
+          this.currentTurn,
+          sender,
+          this.currentDate,
+        );
+        this.broadcast('chat_message', {
+          chatId: chat.id,
+          polityId: chat.polityId,
+          polityName: chat.polityName,
+          participants: chat.participants,
+          senderName: sender,
+          message: reply,
+          reaction: true,
+        });
+        console.log('[GameSession] NPC reaction generated by', sender);
+      } catch (e) {
+        console.warn('[GameSession] NPC reaction failed for', polityId, e);
+      }
+    }
   }
 
 
@@ -4073,6 +4191,49 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         changedRegions: [...checkpointChanges.values()],
         intervened,
       });
+
+      // Reazioni NPC agli ordini: non solo notizie, ma anche prese di
+      // posizione diplomatiche. Fire-and-forget (turno già committato).
+      if (actions.length > 0) {
+        const reactionCandidates = new Set<string>();
+        for (const change of persistedRelationshipChanges) {
+          if (change.from === this.playerPolityId) reactionCandidates.add(change.to);
+          if (change.to === this.playerPolityId) reactionCandidates.add(change.from);
+        }
+        if (applyCompletionEffects && promptResult.worldChanges?.regionOwners) {
+          for (const newOwner of Object.values(promptResult.worldChanges.regionOwners)) {
+            const resolved = polityResolver.resolve(String(newOwner || ''));
+            if (resolved && !resolved.isNew) reactionCandidates.add(resolved.polityId);
+          }
+        }
+        // Le politie che hanno già aperto un canale via startChat hanno già
+        // reagito: non duplicare la nota.
+        for (const startChat of applyCompletionEffects ? promptResult.startChat || [] : []) {
+          const resolved = polityResolver.resolve(startChat.polityName);
+          if (resolved && !resolved.isNew) reactionCandidates.delete(resolved.polityId);
+        }
+        // Fallback: nessun diretto interessato, ma un vicino ostile reagisce
+        // comunque alla mossa del giocatore (deterrenza, protesta di confine).
+        if (reactionCandidates.size === 0) {
+          const playerRegions = Array.from(this.regions.values()).filter(r => r.owner === this.playerPolityId);
+          const frontierOwners = new Set<string>();
+          for (const region of playerRegions) {
+            for (const borderId of region.borders || []) {
+              const neighbour = this.regions.get(borderId);
+              if (neighbour && neighbour.owner !== this.playerPolityId && neighbour.owner !== 'neutral') {
+                frontierOwners.add(neighbour.owner);
+              }
+            }
+          }
+          const hostile = [...frontierOwners].find(owner => this.relationships.get(owner, this.playerPolityId) === 'hostile');
+          if (hostile) reactionCandidates.add(hostile);
+        }
+        void this.generateNpcReactions({
+          actionTexts: actions.map(item => item.text),
+          eventHeadlines: turnResult.events.filter(headline => !headline.startsWith('⊘')),
+          candidatePolityIds: [...reactionCandidates],
+        }).catch(e => console.warn('[GameSession] NPC reactions failed:', e));
+      }
 
       // Этап 3: проактивный советник — короткий комментарий итогов периода.
       // Fire-and-forget: ход уже успешен, советник не должен его задерживать
