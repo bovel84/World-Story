@@ -826,4 +826,31 @@ describe('movement order regressions', () => {
     expect(saved.find((r: any) => r.id === target.id).objects.find((o: any) => o.id === unit.id))
       .toMatchObject({ owner: 'DEU', metadata: { movedDate: '1951-02-01', previousLng: 12, previousLat: 42 } });
   });
+
+  it('il movimento consuma scorte e persiste la logistica nel magazzino materiale', async () => {
+    const { session, gameId, source, target, unit, move } = fixture();
+    const before = session.getResources().stock;
+    expect(before.food).toBeGreaterThan(0);
+    const changed = session.applyMapChanges([move()], '1951-02-01');
+    expect(changed.map((r: any) => r.id)).toEqual([source.id, target.id]);
+    const after = session.getResources().stock;
+    expect(after.food).toBeLessThan(before.food);
+    expect(after.money).toBeLessThan(before.money);
+    // A piedi (nessuna tecnologia): niente carburante, movimento coperto.
+    expect((unit as any).metadata.logistics).toMatchObject({ covered: true, motorized: false, fuel: 0 });
+    const { resourceRepository } = await import('../src/repositories');
+    expect(resourceRepository.get(gameId, 'DEU')?.stock).toEqual(after);
+  });
+
+  it('un salto di tempo fa maturare il magazzino e lo riporta nel bollettino', async () => {
+    const { session, gameId } = fixture();
+    const before = session.getResources().stock;
+    await session.advanceDate(30);
+    const after = session.getResources().stock;
+    expect(after).not.toEqual(before);
+    const { resourceRepository } = await import('../src/repositories');
+    expect(resourceRepository.get(gameId, 'DEU')).not.toBeNull();
+    const events = (session as any).results.at(-1).events as string[];
+    expect(events.some(line => line.startsWith('🏭'))).toBe(true);
+  });
 });

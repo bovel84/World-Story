@@ -193,9 +193,20 @@ gamesRouter.get('/:id/ongoing-processes', (req, res) => {
 gamesRouter.get('/:id/national-state', (req, res) => {
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    res.json({ accounts: session.getNationalAccounts(), history: session.getNationalHistory() });
+    res.json({ accounts: session.getNationalAccounts(), history: session.getNationalHistory(), resources: session.getResources() });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get national state');
+  }
+});
+
+// Magazzino materiale: cibo, vestiario, armamenti, carburante, denaro,
+// ricerca e tecnologie sbloccate del paese giocatore.
+gamesRouter.get('/:id/resources', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json(session.getResources());
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to get resources');
   }
 });
 

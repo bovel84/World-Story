@@ -247,6 +247,9 @@ function App() {
   const [nationalAccounts, setNationalAccounts] = useState<Record<string, any>>({});
   // Storico dei conti del paese giocatore: alimenta le tendenze del Dossier.
   const [nationalHistory, setNationalHistory] = useState<Array<{ date: string; turn?: number; account: Record<string, any> }>>([]);
+  // Magazzino materiale del paese giocatore (cibo, vestiario, armamenti,
+  // carburante, denaro, ricerca e tecnologie).
+  const [nationalResources, setNationalResources] = useState<{ money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] } | null>(null);
   const [mandateDecisions, setMandateDecisions] = useState<Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>>([]);
   useEffect(() => {
     const chatStore = useChatStore.getState();
@@ -407,13 +410,13 @@ function App() {
 
   // Il bollettino usa dati aggregati dal motore, non formule del browser.
   useEffect(() => {
-    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setMandateDecisions([]); return; }
+    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setNationalResources(null); setMandateDecisions([]); return; }
     let cancelled = false;
     // Il conto nazionale è disponibile anche nei giochi legacy; le decisioni
     // mandato appartengono invece solo al percorso strict e un 409 significa
     // semplicemente «nessuna decisione applicabile», non un errore del dossier.
     gameApi.nationalState(currentGameId)
-      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); } })
+      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(national.resources?.stock || null); } })
       .catch(error => console.warn('[App] Impossibile caricare il conto nazionale:', error));
     gameApi.mandateDecisions(currentGameId)
       .then((decisions) => { if (!cancelled) setMandateDecisions(decisions.decisions || []); })
@@ -2185,6 +2188,7 @@ function App() {
               nationalName={nationalName}
               governmentType={governmentType}
               nationalAccount={nationalAccount}
+              nationalResources={nationalResources}
               nationalHistory={nationalHistory}
               campaignProgress={campaignProgress}
               latestNationalNarration={latestNationalNarration}

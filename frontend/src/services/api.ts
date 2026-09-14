@@ -290,6 +290,11 @@ export const gameApi = {
     accounts: Record<string, any>;
     /** Storico dei conti del paese giocatore, dal più vecchio al più recente. */
     history?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
+    /** Magazzino materiale del giocatore (legacy): stock + conto di riferimento. */
+    resources?: {
+      stock?: { money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
+      account?: Record<string, any>;
+    };
   }> =>
     fetchApi(`/games/${gameId}/national-state`),
 

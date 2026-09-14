@@ -10,4 +10,6 @@ export { relationshipRepository } from './relationship.repository';
 export { chatRepository } from './chat.repository';
 export { nationalAccountRepository } from './national-account.repository';
 export type { AccountHistoryPoint } from './national-account.repository';
+export { resourceRepository } from './resource.repository';
+export type { ResourceStockRecord } from './resource.repository';
 export type { ChatRecord, ChatSummary, ChatMessageRecord, ChatRole, ChatParticipant, GameChatSnapshot } from './chat.repository';

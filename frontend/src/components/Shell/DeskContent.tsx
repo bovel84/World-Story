@@ -24,6 +24,7 @@ interface DeskContentProps {
   nationalName: string;
   governmentType: string;
   nationalAccount: any;
+  nationalResources?: { money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] } | null;
   nationalHistory?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
   campaignProgress: number;
   latestNationalNarration: string;
@@ -86,6 +87,7 @@ export function DeskContent({
   nationalName,
   governmentType,
   nationalAccount,
+  nationalResources,
   nationalHistory = [],
   campaignProgress,
   latestNationalNarration,
@@ -367,6 +369,7 @@ export function DeskContent({
             nationalName={nationalName}
             governmentType={governmentType}
             account={nationalAccount}
+            resources={nationalResources}
             accountHistory={nationalHistory}
             regions={currentWorld?.regions ? Object.values(currentWorld.regions).filter((region) => region.owner === playerPolityId) as Region[] : []}
             ongoingProcesses={ongoingProcesses}

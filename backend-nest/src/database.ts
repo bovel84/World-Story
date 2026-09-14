@@ -807,6 +807,21 @@ export function initDatabase() {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_account_history_game_branch ON national_account_history(game_id, branch_id, polity_id, game_date)');
 
+  // Magazzino materiale persistente (cibo, vestiario, armamenti, carburante,
+  // denaro, ricerca e tecnologie). Una riga per partita/polity: le scorte
+  // sopravvivono ai salti di tempo, a differenza dei conti ricalcolati.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_resource_stocks (
+      game_id TEXT NOT NULL,
+      polity_id TEXT NOT NULL,
+      stock TEXT NOT NULL DEFAULT '{}',
+      updated_turn INTEGER NOT NULL DEFAULT 0,
+      updated_date TEXT,
+      recorded_at TEXT NOT NULL,
+      PRIMARY KEY (game_id, polity_id)
+    )
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS saves (
       id TEXT PRIMARY KEY,

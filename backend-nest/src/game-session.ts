@@ -10,7 +10,7 @@ import { constructionProgressPatch } from './utils/construction-progress';
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
-import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository } from './repositories';
+import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, resourceRepository } from './repositories';
 import { captureEconomicSnapshot, invalidateStrictEffectStaging, restoreEconomicSnapshot, validateEconomicSnapshot } from './repositories/economy-snapshot.repository';
 import { withCanonicalTransaction } from './database';
 import { semanticStateHash } from './domain/semantic-hash';
@@ -18,6 +18,7 @@ import type { ChatRecord, ChatSummary, ChatMessageRecord, ChatParticipant, GameC
 import db from './database';
 import { RelationshipMatrix } from './core/RelationshipMatrix';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
+import { advanceStock, describeStock, movementCost, normalizeStock, payMovement, seedStock, type ResourceStock } from './core/simulation/MaterialEconomy';
 import { addDays, dateInPeriod, explicitDays, jumpHorizon, resolvePeriod } from './core/simulation/calendar';
 import {
   validateStrictMapChanges,
@@ -625,12 +626,74 @@ export class GameSession {
     }
     const tick = WorldStateEngine.advance(this.regions.values(), days);
     this.recordAccountSnapshot(asOfDate, tick.accounts);
+    const lines: string[] = [];
     const bulletin = WorldStateEngine.playerBulletin(tick.accounts[this.playerPolityId]);
-    return bulletin ? [`📊 ${bulletin}`] : [];
+    if (bulletin) lines.push(`📊 ${bulletin}`);
+    lines.push(...this.advanceResources(days, tick.accounts));
+    return lines;
+  }
+
+  /** Magazzino materiale della polity: cache → DB → seed dall'economia. */
+  private resourceStock(polityId: string): ResourceStock {
+    const cached = this.resourceStocks.get(polityId);
+    if (cached) return cached;
+    try {
+      const stored = resourceRepository.get(this.id, polityId);
+      if (stored) {
+        this.resourceStocks.set(polityId, stored.stock);
+        return stored.stock;
+      }
+    } catch (error) {
+      console.warn('[GameSession] Lettura magazzino non disponibile:', error);
+    }
+    const account = WorldStateEngine.accounts(this.regions.values())[polityId];
+    const seeded = account ? seedStock(account) : normalizeStock({});
+    this.saveResourceStock(polityId, seeded);
+    return seeded;
+  }
+
+  private saveResourceStock(polityId: string, stock: ResourceStock): void {
+    this.resourceStocks.set(polityId, stock);
+    try {
+      resourceRepository.upsert(this.id, polityId, stock, this.currentTurn, this.currentDate);
+    } catch (error) {
+      console.warn('[GameSession] Impossibile salvare il magazzino:', error);
+    }
+  }
+
+  /**
+   * Avanza il magazzino di ogni polity del periodo indicato. Le scorte sono
+   * persistenti: qui maturano produzione, consumi, ricerca e tecnologie.
+   */
+  private advanceResources(days: number, accounts?: Record<string, NationalAccount>): string[] {
+    if (this.isStrictGame() || days <= 0) return [];
+    const snapshot = accounts ?? WorldStateEngine.accounts(this.regions.values());
+    const lines: string[] = [];
+    for (const [polityId, account] of Object.entries(snapshot)) {
+      if (!polityId || polityId === 'neutral' || account.provinces === 0) continue;
+      const tick = advanceStock(this.resourceStock(polityId), account, days);
+      this.saveResourceStock(polityId, tick.stock);
+      if (polityId !== this.playerPolityId) continue;
+      for (const tech of tick.unlocked) {
+        lines.push(`🔬 Nuova tecnologia sbloccata: ${tech.name} — ${tech.effects}.`);
+      }
+      for (const shortage of tick.flow.shortages) lines.push(`⚠️ Carenza materiale — ${shortage}.`);
+      lines.push(`🏭 ${describeStock(tick.stock, account)}`);
+    }
+    return lines;
+  }
+
+  /** Magazzino del paese giocatore, per API e dossier. */
+  getResources() {
+    const account = WorldStateEngine.accounts(this.regions.values())[this.playerPolityId];
+    return { stock: this.resourceStock(this.playerPolityId), account };
   }
 
   // Diplomatic relationships
   private relationships: RelationshipMatrix = new RelationshipMatrix();
+
+  /** Magazzino materiale per polity (cibo, vestiario, armamenti, carburante…). */
+  private resourceStocks = new Map<string, ResourceStock>();
 
   // SSE broadcaster for real-time updates
   private sseBroadcaster: ((type: SSEEventType, data: any) => boolean | void) | null = null;
@@ -715,7 +778,7 @@ export class GameSession {
       consolidationTail: this.llm.consolidation.keepRawTail,
       // Stato materiale del mondo: è ricostruito dal motore deterministico
       // dalla mappa e quindi non può contraddire la memoria narrativa.
-      worldState: { accounts },
+      worldState: { accounts, resources: this.getResources() },
       world: {
         name: this.worldName,
         basePrompt: this.worldBasePrompt,
@@ -2812,12 +2875,24 @@ export class GameSession {
     }
     const center = this.regionCenter(target);
     if (!center) return [];
+    // Il movimento ha un costo materiale: cibo, carburante (se motorizzato) e
+    // denaro. Non blocca il gioco, ma registra carenze e consuma le scorte.
+    const payer = unit.owner || source.owner || this.playerPolityId;
+    const cost = movementCost(this.resourceStock(payer));
+    const payment = payMovement(this.resourceStock(payer), cost);
+    this.saveResourceStock(payer, payment.stock);
+    if (!payment.covered) {
+      console.warn('[GameSession] Movimento con scorte insufficienti:', payment.shortages.join('; '),
+        { unita: unit.name, polity: payer });
+    }
     const previous = this.regionCenter(source);
     unit.metadata = {
       ...(unit.metadata || {}), status: unit.metadata?.status || 'operational', movedDate,
       previousRegionId: source.id, previousRegionName: source.name,
       previousLng: Number.isFinite(unit.lng) ? unit.lng : previous?.lng,
       previousLat: Number.isFinite(unit.lat) ? unit.lat : previous?.lat,
+      logistics: { food: cost.food, fuel: cost.fuel, money: cost.money,
+        motorized: cost.motorized, covered: payment.covered },
     };
     if (!unit.owner) unit.owner = source.owner;
     unit.lat = center.lat;
@@ -5511,6 +5586,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     const newDate = addDays(periodStart, days);
 
     const tick = WorldStateEngine.advance(this.regions.values(), days);
+    const resourceLines = this.advanceResources(days, tick.accounts);
     const bulletin = WorldStateEngine.playerBulletin(tick.accounts[this.playerPolityId]);
     this.currentTurn++;
     this.currentDate = newDate;
@@ -5523,7 +5599,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       date: this.currentDate,
       narration: `Dal ${periodStart} al ${this.currentDate} non sono state impartite nuove direttive.`,
       countryResponse: '',
-      events: bulletin ? [headline, `📊 ${bulletin}`] : [headline],
+      events: [headline, ...(bulletin ? [`📊 ${bulletin}`] : []), ...resourceLines],
       timelineEvents: [{
         id: `${id}-0`,
         date: this.currentDate,

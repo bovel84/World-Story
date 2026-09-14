@@ -53,11 +53,24 @@ export interface NationAccount {
   government?: string;
 }
 
+/** Magazzino materiale del paese (shape di `MaterialEconomy.ResourceStock`). */
+export interface NationResources {
+  money?: number;
+  food?: number;
+  clothing?: number;
+  weapons?: number;
+  fuel?: number;
+  research?: number;
+  technologies?: string[];
+}
+
 interface NationDockProps {
   /** Nome della POLITY del giocatore (mai la provincia selezionata). */
   nationalName: string;
   governmentType: string;
   account?: NationAccount | null;
+  /** Magazzino materiale pubblicato dal motore (legacy). */
+  resources?: NationResources | null;
   /** Serie storica dei conti del paese (dal più vecchio al più recente). */
   accountHistory?: HistoryPoint[];
   regions?: Region[];
@@ -97,6 +110,17 @@ export function warEffortTone(value: number): Tone {
 }
 export function defenceTone(value: number): Tone {
   return value >= 8 ? 'negative' : value >= 5 ? 'warning' : 'positive';
+}
+
+/** Tono delle scorte in base ai mesi di copertura del fabbisogno mensile. */
+export function resourceTone(value: number, monthly: number): Tone {
+  if (monthly <= 0) return value > 0 ? 'positive' : 'neutral';
+  const months = value / monthly;
+  return months >= 3 ? 'positive' : months >= 1 ? 'warning' : 'negative';
+}
+export function resourceMonths(value: number, monthly: number): number {
+  if (monthly <= 0) return value > 0 ? Infinity : 0;
+  return value / monthly;
 }
 
 /** Micro-grafico SVG della serie storica. Nessuna libreria esterna. */
@@ -207,6 +231,7 @@ export const NationDock: React.FC<NationDockProps> = ({
   nationalName,
   governmentType,
   account,
+  resources,
   accountHistory = [],
   regions = [],
   ongoingProcesses = [],
@@ -226,6 +251,19 @@ export const NationDock: React.FC<NationDockProps> = ({
   const mobilized = Number(account?.mobilized ?? 0);
   const defenceBurdenPct = Number(account?.defenceBurdenPct ?? 0);
   const growth = Number(account?.annualGrowthRate ?? 0);
+
+  // Fabbisogno mensile stimato dal conto nazionale: serve solo a dare un tono
+  // leggibile alle scorte (mai a inventare un valore).
+  const popM = Number(account?.population ?? 0) / 1_000_000;
+  const troops = Number(account?.forces ?? 0) + Number(account?.mobilized ?? 0);
+  const foodMonthly = popM * 0.02 + troops * 0.06;
+  const clothingMonthly = popM * 0.008 + troops * 0.01;
+  const weaponsMonthly = troops * 0.004;
+  const fuelMonthly = Number(account?.forces ?? 0) * 0.03 + Number(account?.factories ?? 0) * 0.05;
+  const coverHint = (value: number, monthly: number) => {
+    const months = resourceMonths(value, monthly);
+    return Number.isFinite(months) ? `${months.toFixed(1)} mesi di copertura` : 'nessun consumo registrato';
+  };
 
   // Le tendenze derivano dallo storico pubblicato dal motore: se la serie ha
   // meno di due punti la variazione non viene mostrata (mai inventata).
@@ -408,33 +446,101 @@ export const NationDock: React.FC<NationDockProps> = ({
         )}
 
         {active === 'risorse' && (
-          <DossierBlock
-            title="Capacità produttive e territoriali"
-            description="Le infrastrutture che sostengono crescita e logistica."
-          >
-            <MetricGrid>
-              <Metric label="Province" value={formatNumber(assets.provinces)} />
-              <Metric label="Fabbriche" value={formatNumber(assets.factories)} />
-              <Metric label="Porti" value={formatNumber(assets.ports)} />
-              <Metric label="Città e capitali" value={formatNumber(assets.cities)} />
-            </MetricGrid>
-            <Footnote><b>Fonte</b> Conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Stock e flussi non vengono inventati.</Footnote>
-          </DossierBlock>
+          <>
+            <DossierBlock
+              title="Magazzino materiale"
+              description="Scorte reali del paese: cibo, vestiario, armamenti, carburante e denaro."
+            >
+              {resources ? (
+                <MetricGrid>
+                  <Metric
+                    label="Tesoreria"
+                    value={formatMoney(Number(resources.money ?? 0), { currency: 'mld', decimals: 2, sign: true })}
+                    tone={Number(resources.money ?? 0) >= 0 ? 'positive' : 'negative'}
+                    hint="Riserva valutaria disponibile"
+                  />
+                  <Metric
+                    label="Cibo"
+                    value={formatNumber(Number(resources.food ?? 0))}
+                    tone={resourceTone(Number(resources.food ?? 0), foodMonthly)}
+                    hint={coverHint(Number(resources.food ?? 0), foodMonthly)}
+                  />
+                  <Metric
+                    label="Vestiario"
+                    value={formatNumber(Number(resources.clothing ?? 0))}
+                    tone={resourceTone(Number(resources.clothing ?? 0), clothingMonthly)}
+                    hint={coverHint(Number(resources.clothing ?? 0), clothingMonthly)}
+                  />
+                  <Metric
+                    label="Armamenti"
+                    value={formatNumber(Number(resources.weapons ?? 0))}
+                    tone={resourceTone(Number(resources.weapons ?? 0), weaponsMonthly)}
+                    hint={coverHint(Number(resources.weapons ?? 0), weaponsMonthly)}
+                  />
+                  <Metric
+                    label="Carburante"
+                    value={formatNumber(Number(resources.fuel ?? 0))}
+                    tone={resourceTone(Number(resources.fuel ?? 0), fuelMonthly)}
+                    hint={coverHint(Number(resources.fuel ?? 0), fuelMonthly)}
+                  />
+                  <Metric
+                    label="Ricerca"
+                    value={formatNumber(Number(resources.research ?? 0))}
+                    tone="neutral"
+                    hint="Punti non ancora spesi in tecnologie"
+                  />
+                </MetricGrid>
+              ) : (
+                <EmptyState>Il magazzino materiale non è ancora pubblicato per questa partita.</EmptyState>
+              )}
+              <Footnote><b>Fonte</b> MaterialEconomy · il movimento consuma cibo e, se motorizzato, carburante.</Footnote>
+            </DossierBlock>
+
+            <DossierBlock
+              title="Capacità produttive e territoriali"
+              description="Le infrastrutture che sostengono crescita e logistica."
+            >
+              <MetricGrid>
+                <Metric label="Province" value={formatNumber(assets.provinces)} />
+                <Metric label="Fabbriche" value={formatNumber(assets.factories)} />
+                <Metric label="Porti" value={formatNumber(assets.ports)} />
+                <Metric label="Città e capitali" value={formatNumber(assets.cities)} />
+              </MetricGrid>
+              <Footnote><b>Fonte</b> Conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Stock e flussi non vengono inventati.</Footnote>
+            </DossierBlock>
+          </>
         )}
 
         {active === 'conoscenze' && (
-          <DossierBlock
-            title="Conoscenze e personale"
-            description="Capitale umano e capacità formative disponibili."
-          >
-            <MetricGrid>
-              <Metric label="Popolazione" value={formatNumber(assets.population)} />
-              <Metric label="Università" value={formatNumber(assets.universities)} />
-              <Metric label="Unità e forze" value={formatNumber(assets.forces)} />
-              <Metric label="PIL pro capite" value={account?.gdpPerCapitaUsd != null ? formatMoney(Number(account.gdpPerCapitaUsd), { currency: '$', decimals: 0 }) : '—'} />
-            </MetricGrid>
-            <Footnote>Il catalogo non espone ancora un inventario delle tecnologie: il dossier mostra soltanto capacità e personale già registrati.</Footnote>
-          </DossierBlock>
+          <>
+            <DossierBlock
+              title="Tecnologie sbloccate"
+              description="Progresso materiale finanziato dai punti ricerca nazionali."
+            >
+              {resources?.technologies && resources.technologies.length > 0 ? (
+                <ul className="nation-tech-list">
+                  {resources.technologies.map((tech) => (
+                    <li key={tech}><b>{tech.replace(/_/g, ' ')}</b><span>Ricerca applicata e disponibile per l'economia e le forze armate.</span></li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState>Nessuna tecnologia sbloccata: accumula punti ricerca con università e popolazione.</EmptyState>
+              )}
+              <Footnote><b>Fonte</b> Catalogo tecnologie del motore · la ricerca si accumula a ogni tick del mondo.</Footnote>
+            </DossierBlock>
+
+            <DossierBlock
+              title="Conoscenze e personale"
+              description="Capitale umano e capacità formative disponibili."
+            >
+              <MetricGrid>
+                <Metric label="Popolazione" value={formatNumber(assets.population)} />
+                <Metric label="Università" value={formatNumber(assets.universities)} />
+                <Metric label="Unità e forze" value={formatNumber(assets.forces)} />
+                <Metric label="PIL pro capite" value={account?.gdpPerCapitaUsd != null ? formatMoney(Number(account.gdpPerCapitaUsd), { currency: '$', decimals: 0 }) : '—'} />
+              </MetricGrid>
+            </DossierBlock>
+          </>
         )}
 
         {active === 'politiche' && (
