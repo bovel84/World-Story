@@ -853,4 +853,19 @@ describe('movement order regressions', () => {
     const events = (session as any).results.at(-1).events as string[];
     expect(events.some(line => line.startsWith('🏭'))).toBe(true);
   });
+
+  it('il magazzino nasce dai dati iniziali del mondo, non dallo stato corrente', async () => {
+    const { session, gameId } = createGame();
+    const { resourceRepository } = await import('../src/repositories');
+    const { WorldStateEngine } = await import('../src/core/simulation/WorldStateEngine');
+    const { seedStock } = await import('../src/core/simulation/MaterialEconomy');
+    // Il seed salvato coincide con quello calcolato dalle province INIZIALI.
+    const initial = seedStock(WorldStateEngine.accounts(worldRepository.getRegions(WORLD_ID))['DEU']);
+    expect(resourceRepository.get(gameId, 'DEU')?.stock).toEqual(initial);
+    // Se lo stato corrente cambia (conquiste/crescita), il magazzino d'origine
+    // resta quello dei dati di partenza.
+    session.getRegion(`${WORLD_ID}_DEU`).population *= 100;
+    session.getRegion(`${WORLD_ID}_DEU`).gdp *= 100;
+    expect(resourceRepository.get(gameId, 'DEU')?.stock).toEqual(initial);
+  });
 });

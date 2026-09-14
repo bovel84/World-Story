@@ -307,6 +307,34 @@ export interface SaveData {
   economicState?: unknown;
 }
 
+/**
+ * Conti nazionali delle province INIZIALI, memorizzati per mondo. I dati di
+ * partenza di un mondo sono statici: ricostruire 4475 regioni per ognuna delle
+ * decine di sessioni attive sarebbe uno spreco. La cache è per processo.
+ */
+const worldInitialAccountsCache = new Map<string, Record<string, NationalAccount>>();
+function worldInitialAccounts(worldId: string): Record<string, NationalAccount> {
+  const cached = worldInitialAccountsCache.get(worldId);
+  if (cached) return cached;
+  let accounts: Record<string, NationalAccount> = {};
+  try {
+    const regions = (worldRepository.getRegions(worldId) as any[]).map(region => ({
+      id: region.id,
+      owner: region.owner,
+      population: region.population,
+      gdp: region.gdp,
+      militaryPower: region.militaryPower,
+      objects: region.objects || [],
+      status: region.status,
+    }));
+    accounts = WorldStateEngine.accounts(regions);
+  } catch (error) {
+    console.warn('[GameSession] Dati iniziali del mondo non disponibili:', error);
+  }
+  worldInitialAccountsCache.set(worldId, accounts);
+  return accounts;
+}
+
 export class GameSession {
   public readonly id: string;
   public readonly worldId: string;
@@ -633,7 +661,7 @@ export class GameSession {
     return lines;
   }
 
-  /** Magazzino materiale della polity: cache → DB → seed dall'economia. */
+  /** Magazzino materiale della polity: cache → DB → seed dai dati iniziali. */
   private resourceStock(polityId: string): ResourceStock {
     const cached = this.resourceStocks.get(polityId);
     if (cached) return cached;
@@ -646,10 +674,36 @@ export class GameSession {
     } catch (error) {
       console.warn('[GameSession] Lettura magazzino non disponibile:', error);
     }
-    const account = WorldStateEngine.accounts(this.regions.values())[polityId];
+    // Il magazzino nasce dai dati di partenza della nazione (province iniziali
+    // del mondo), non dallo stato corrente di una partita già avanzata.
+    const account = this.initialAccounts()[polityId]
+      ?? WorldStateEngine.accounts(this.regions.values())[polityId];
     const seeded = account ? seedStock(account) : normalizeStock({});
     this.saveResourceStock(polityId, seeded);
     return seeded;
+  }
+
+  /** Conto nazionale delle province iniziali del mondo, per polity. */
+  private initialAccounts(): Record<string, NationalAccount> {
+    if (!this.initialAccountsCache) this.initialAccountsCache = worldInitialAccounts(this.worldId);
+    return this.initialAccountsCache;
+  }
+
+  /**
+   * Crea — se mancante — il magazzino della polity controllata dai suoi dati di
+   * partenza. Le altre nazioni vengono seminate al primo tick che le riguarda
+   * (`advanceResources`), sempre dai dati iniziali del mondo. Lazy di proposito:
+   * un seed eager di tutte le nazioni costerebbe decine di secondi all'avvio.
+   */
+  seedInitialResources(): void {
+    if (this.isStrictGame() || !this.playerPolityId) return;
+    if (this.resourceStocks.has(this.playerPolityId)) return;
+    try {
+      if (resourceRepository.get(this.id, this.playerPolityId)) return;
+    } catch { /* tabella non ancora pronta: si semina comunque */ }
+    const account = this.initialAccounts()[this.playerPolityId];
+    if (!account || account.provinces === 0) return;
+    this.saveResourceStock(this.playerPolityId, seedStock(account));
   }
 
   private saveResourceStock(polityId: string, stock: ResourceStock): void {
@@ -694,6 +748,9 @@ export class GameSession {
 
   /** Magazzino materiale per polity (cibo, vestiario, armamenti, carburante…). */
   private resourceStocks = new Map<string, ResourceStock>();
+
+  /** Conti nazionali delle province INIZIALI del mondo (dati di partenza). */
+  private initialAccountsCache?: Record<string, NationalAccount>;
 
   // SSE broadcaster for real-time updates
   private sseBroadcaster: ((type: SSEEventType, data: any) => boolean | void) | null = null;
@@ -778,7 +835,7 @@ export class GameSession {
       consolidationTail: this.llm.consolidation.keepRawTail,
       // Stato materiale del mondo: è ricostruito dal motore deterministico
       // dalla mappa e quindi non può contraddire la memoria narrativa.
-      worldState: { accounts, resources: this.getResources() },
+      worldState: { accounts, resources: { stock: this.resourceStock(this.playerPolityId), account: accounts[this.playerPolityId] } },
       world: {
         name: this.worldName,
         basePrompt: this.worldBasePrompt,
@@ -1544,6 +1601,8 @@ export class GameSession {
     // Initialize session-specific game controller
     this.gameController.initPromptEngine(this.buildGameData());
     this.gameController.setupWorld(world.base_prompt);
+    // Il magazzino di ogni nazione nasce qui, dai suoi dati di partenza reali.
+    this.seedInitialResources();
 
     // Setup NPC agents: NPC = una POLITIA (paese), non ogni regione.
     // Nei mondi provinciali un paese possiede più province — un agente per
@@ -1653,6 +1712,8 @@ export class GameSession {
     this.gameController.initPromptEngine(this.buildGameData());
 
     this.gameController.setupWorld(this.worldBasePrompt);
+    // Ricostruzione: crea i magazzini mancanti dai dati iniziali del mondo.
+    this.seedInitialResources();
 
     // Sessioni legacy ricevono il baseline solo se non possiedono ancora
     // relazioni isolate; in seguito il DB della partita è la fonte di verità.

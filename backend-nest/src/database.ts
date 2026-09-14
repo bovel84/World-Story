@@ -821,6 +821,27 @@ export function initDatabase() {
       PRIMARY KEY (game_id, polity_id)
     )
   `);
+  // Meta-migrazioni una-tantum (idempotenti tra i riavvii).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_meta (
+      key TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    )
+  `);
+  const once = (key: string, apply: () => void) => {
+    const done = db.prepare('SELECT key FROM schema_meta WHERE key = ?').get(key);
+    if (done) return;
+    apply();
+    db.prepare('INSERT INTO schema_meta (key, applied_at) VALUES (?, ?)').run(key, new Date().toISOString());
+  };
+  // Il primo seed usava lo stato corrente (partite già avanzate / conquiste):
+  // azzera una volta i magazzini perché rinascano dai dati di partenza reali.
+  once('resource_stock_seed_from_initial_v2', () => {
+    const info = db.prepare('DELETE FROM game_resource_stocks').run();
+    if (info.changes) {
+      console.log(`[Migration] Magazzini riseedati dai dati iniziali: ${info.changes} righe azzerate`);
+    }
+  });
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS saves (
