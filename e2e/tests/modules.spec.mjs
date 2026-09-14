@@ -121,6 +121,27 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     // La stessa infrastruttura non è ripetuta in Armamenti.
     await page.locator('.nation-dock-tab', { hasText: 'Armamenti' }).click();
     await expect(page.locator('.nation-block[aria-label="Forza dell\'arsenale"]')).not.toContainText('Università');
+
+    // L'arsenale spiega *che cos'è* ogni mezzo: ruolo, descrizione,
+    // caratteristiche e peso sulla forza — non solo «×37».
+    const arsenale = page.locator('.nation-block[aria-label="Arsenale"]');
+    await expect(arsenale).toBeVisible();
+    await expect(arsenale).toContainText('Arma individuale della fanteria di linea');
+    await expect(arsenale).toContainText('Calibro');
+    await expect(arsenale).toContainText('5,56 / 7,62 mm');
+    await expect(arsenale).toContainText('37 in servizio');
+    await expect(arsenale).toContainText('% dell\'arsenale');
+    // ...e spiega come leggere le cifre.
+    const legenda = page.locator('.nation-block[aria-label="Come si legge l\'arsenale"]');
+    await expect(legenda).toContainText('quantità × qualità × peso del dominio');
+    await expect(legenda).toContainText('Forze di terra');
+    // Il catalogo dice cosa si compra, con i requisiti in chiaro.
+    await expect(page.locator('.arms-item-details').first()).toContainText('Che cos\'è e cosa sa fare');
+    const aria = page.locator('.arms-domain', { hasText: 'Aeronautica' });
+    await expect(aria).toContainText('Superiorità aerea e penetrazione');
+    await expect(aria).toContainText('Requisiti non soddisfatti');
+    await expect(aria).toContainText('manca la tecnologia Aeronautica avanzata');
+    await expect(aria).toContainText('servono 5 fabbriche (ne hai 2)');
   });
 
   test('U03 mobile: la barra moduli resta toccabile e apre il Dossier', async ({ page }) => {

@@ -4,8 +4,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  EQUIPMENT_CATALOG, IMPORT_MARKUP, arsenalCombatFactor, arsenalQualityIndex, arsenalStrength,
-  combatAttrition, describeArsenal, describeEndowment, equipmentById, naturalResourcesFor,
+  DOMAIN_INFO, DOMAIN_WEIGHT, EQUIPMENT_CATALOG, IMPORT_MARKUP, arsenalCombatFactor, arsenalQualityIndex, arsenalStrength,
+  combatAttrition, describeArsenal, describeEndowment, equipmentById, equipmentStrength, naturalResourcesFor,
   procurementOption, resourceCostFactor, tierForQuality, type NationCapacity,
 } from '../src/core/simulation/MilitaryIndustry';
 import { advanceStock, seedStock, type ResourceStock } from '../src/core/simulation/MaterialEconomy';
@@ -78,6 +78,54 @@ describe('catalogo e qualità', () => {
     expect(strong).toBeGreaterThan(weak);
     expect(arsenalStrength({ carri_4: 1 })).toBeGreaterThan(arsenalStrength({ fucili: 1 }));
     expect(describeArsenal({ fucili: 2, carri_4: 5 })[0].equipment.id).toBe('carri_4');
+  });
+
+  it('ogni voce del catalogo spiega che cos’è, a cosa serve e cosa sa fare', () => {
+    for (const item of EQUIPMENT_CATALOG) {
+      // Ruolo: una riga operativa.
+      expect(item.role, `${item.id} senza ruolo`).toBeTruthy();
+      expect(item.role.length).toBeGreaterThan(15);
+      // Descrizione: che cos'è, non uno slogan.
+      expect(item.description.length, `${item.id} descrizione troppo breve`).toBeGreaterThan(60);
+      // Caratteristiche tecniche: almeno tre, tutte con etichetta e valore.
+      expect(item.specs.length, `${item.id} senza caratteristiche`).toBeGreaterThanOrEqual(3);
+      for (const spec of item.specs) {
+        expect(spec.label.trim(), `${item.id} caratteristica senza etichetta`).toBeTruthy();
+        expect(spec.value.trim(), `${item.id} caratteristica senza valore`).toBeTruthy();
+      }
+    }
+    // Le schede non sono copiate l'una dall'altra.
+    expect(new Set(EQUIPMENT_CATALOG.map(item => item.description)).size).toBe(EQUIPMENT_CATALOG.length);
+    expect(new Set(EQUIPMENT_CATALOG.map(item => item.role)).size).toBeGreaterThan(EQUIPMENT_CATALOG.length / 2);
+  });
+
+  it('il contributo per riga è la stessa formula della forza totale', () => {
+    expect(equipmentStrength('fucili', 10)).toBe(3.5);
+    expect(equipmentStrength('carri_4', 10)).toBe(8.4);
+    expect(equipmentStrength('fucili', 0)).toBe(0);
+    expect(equipmentStrength('inesistente', 10)).toBe(0);
+    const units = { fucili: 37, carri_3: 6, cruise: 4 };
+    const sum = Object.entries(units).reduce((total, [id, qty]) => total + equipmentStrength(id, qty), 0);
+    expect(Math.round(sum * 10) / 10).toBe(arsenalStrength(units));
+  });
+
+  it('spiega i domini con etichetta, peso e descrizione', () => {
+    expect(DOMAIN_INFO.terra.weight).toBe(DOMAIN_WEIGHT.terra);
+    for (const domain of Object.keys(DOMAIN_WEIGHT) as Array<keyof typeof DOMAIN_WEIGHT>) {
+      expect(DOMAIN_INFO[domain].label).toBeTruthy();
+      expect(DOMAIN_INFO[domain].description.length).toBeGreaterThan(30);
+    }
+  });
+
+  it('motiva i requisiti mancanti con nomi leggibili, non con identificatori', () => {
+    const option = procurementOption(equipmentById('caccia_4')!, capacity({ technologies: [], factories: 0 }));
+    const reasons = option.reasons.join('; ');
+    // Nome della tecnologia dal catalogo conoscenze, non l'id interno.
+    expect(reasons).toContain('manca la tecnologia Aeronautica avanzata');
+    expect(reasons).not.toContain('aeronautica_avanzata');
+    expect(reasons).not.toMatch(/[a-z]+_[a-z]+/);
+    // Le quantità sono dichiarate, non lasciate a un rapporto nudo.
+    expect(reasons).toContain('servono 4 fabbriche (ne hai 0)');
   });
 
   it('misura la qualità media pesata sulle quantità', () => {

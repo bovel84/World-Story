@@ -144,6 +144,69 @@ export const MOCK_ACCOUNT_HISTORY = [
 ];
 
 // ---------------------------------------------------------------------------
+// Arsenale: forma esatta dell'API reale (schede descrittive + contributo).
+// ---------------------------------------------------------------------------
+
+export const MOCK_ARSENAL = {
+  polityId: 'ALPHA',
+  units: { fucili: 37, carri_3: 6 },
+  strength: 16.7,
+  qualityIndex: 42,
+  combatFactor: 1.02,
+  baseMilitaryPower: 120,
+  effectiveMilitaryPower: 122.4,
+  lines: [
+    {
+      id: 'fucili', name: 'Fucili d’assalto', domain: 'terra', domainLabel: 'Forze di terra',
+      category: 'Fanteria', quality: 35, tier: 'datato', quantity: 37,
+      role: 'Arma individuale della fanteria di linea',
+      description: 'Fucile automatico d’ordinanza: equipaggia il singolo soldato ed è la base di ogni reparto appiedato.',
+      specs: [{ label: 'Calibro', value: '5,56 / 7,62 mm' }, { label: 'Gittata utile', value: '300–400 m' }],
+      strength: 13, sharePct: 77.8,
+    },
+    {
+      id: 'carri_3', name: 'Carri armati di 3ª generazione', domain: 'terra', domainLabel: 'Forze di terra',
+      category: 'Corazzati', quality: 62, tier: 'moderno', quantity: 6,
+      role: 'Manovra corazzata di rottura',
+      description: 'Carro armato di generazione precedente ma ancora efficace: è il mezzo che sfonda le linee e occupa il terreno.',
+      specs: [{ label: 'Equipaggio', value: '4' }, { label: 'Cannone', value: '105–120 mm' }],
+      strength: 3.7, sharePct: 22.2,
+    },
+  ],
+  catalog: [
+    {
+      id: 'fucili', name: 'Fucili d’assalto', domain: 'terra', category: 'Fanteria',
+      quality: 35, tier: 'datato', costMln: 800, weaponsCost: 4,
+      role: 'Arma individuale della fanteria di linea',
+      description: 'Fucile automatico d’ordinanza: equipaggia il singolo soldato ed è la base di ogni reparto appiedato.',
+      specs: [{ label: 'Calibro', value: '5,56 / 7,62 mm' }, { label: 'Gittata utile', value: '300–400 m' }],
+      canBuild: true, canBuy: true, buildCostMln: 800, buyCostMln: 1280, reasons: [],
+    },
+    {
+      id: 'caccia_5', name: 'Caccia di 5ª generazione', domain: 'aria', category: 'Aerei da combattimento',
+      quality: 94, tier: 'nuova_generazione', costMln: 180000, weaponsCost: 80,
+      role: 'Superiorità aerea e penetrazione',
+      description: 'Caccia di ultima generazione con traccia radar ridotta e fusione dei sensori.',
+      specs: [{ label: 'Velocità', value: 'Mach 1,6–2' }, { label: 'Traccia radar', value: 'ridotta (stealth)' }],
+      canBuild: false, canBuy: true, buildCostMln: 180000, buyCostMln: 288000,
+      reasons: ['manca la tecnologia Aeronautica avanzata', 'servono 5 fabbriche (ne hai 2)'],
+    },
+  ],
+  naturalResources: { diamonds: 5 },
+  naturalResourcesText: 'Diamanti 5/5',
+  debt: 0, creditLimit: 49.92,
+  production: { orders: [], inProgress: 0 },
+  capacity: { factories: 2, ports: 1, universities: 1, money: 185.85, weapons: 160, credit: 49.92, technologies: ['ferrovie'] },
+  domains: [
+    { domain: 'terra', label: 'Forze di terra', weight: 1, description: 'Fanteria, corazzati, artiglieria e difesa aerea: tengono il terreno e lo conquistano.' },
+    { domain: 'aria', label: 'Aeronautica', weight: 2.2, description: 'Caccia, bombardieri, trasporti e radar volanti: conquistano il cielo.' },
+    { domain: 'mare', label: 'Marina', weight: 2.4, description: 'Pattugliatori, fregate, sommergibili e portaerei: controllano le rotte.' },
+    { domain: 'missili', label: 'Missili', weight: 3, description: 'Balistici, da crociera, antinave e ipersonici: colpiscono a distanza.' },
+    { domain: 'droni', label: 'Droni', weight: 1.6, description: 'Ricognizione, attacco, munizioni vaganti e sciami: pressione continua.' },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // Helper di risposta
 // ---------------------------------------------------------------------------
 
@@ -264,6 +327,7 @@ export function installMockApi(page, opts = {}) {
     json(route, { processes: [] }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/national-state`, (route) =>
     json(route, { accounts: MOCK_ACCOUNTS, history: MOCK_ACCOUNT_HISTORY, resources: MOCK_RESOURCES }));
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/arsenal`, (route) => json(route, MOCK_ARSENAL));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/chats`, (route) => json(route, { chats: [] }));
   // Coda ordini: GET restituisce la coda, POST accoda un ordine deterministico.
   // (U02 µ1: «Registra ordine» accoda senza avanzare tempo né spendere risorse.)

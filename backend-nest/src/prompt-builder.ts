@@ -23,6 +23,7 @@ import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narratio
 import { buildNarrativeMemory } from './prompts/narrative-memory';
 import { buildNationalDecisionContext, buildActionElaborationGuard } from './prompts/national-context';
 import { addDays, formatItalianDate } from './core/simulation/calendar';
+import { equipmentById } from './core/simulation/MilitaryIndustry';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
 import { LLMError, LLMRouter } from './llm';
 
@@ -516,7 +517,15 @@ export class PromptBuilder {
       }
       const arsenalUnits = this.game.worldState?.arsenal?.units;
       if (arsenalUnits && Object.keys(arsenalUnits).length > 0) {
-        lines.push(`Arsenale (quantità per voce): ${Object.entries(arsenalUnits).map(([id, qty]) => `${id}×${qty}`).join(', ')}.`);
+        // Nomi estesi e ruolo, non identificatori: il modello deve sapere *che
+        // cosa* la nazione schiera, non solo quante unità possiede.
+        const described = Object.entries(arsenalUnits)
+          .map(([id, qty]) => {
+            const equipment = equipmentById(id);
+            return equipment ? `${qty} × ${equipment.name} (${equipment.role})` : `${qty} × ${id}`;
+          })
+          .join('; ');
+        lines.push(`Arsenale in servizio: ${described}. Cita questi mezzi con il loro nome reale e il loro ruolo, senza inventarne altri.`);
       }
     }
     const playerObjects = this.strategicObjectSummaries(owned, 20);

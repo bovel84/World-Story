@@ -298,8 +298,42 @@ function ResourceTradeRow({
   );
 }
 
+const TIER_LABEL = (tier: string): string => {
+  const words = tier.replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+/**
+ * Costo unitario: il catalogo è in milioni di USD, la tesoreria in miliardi.
+ * Le cifre decimali si adattano all'ordine di grandezza (niente finta
+ * precisione su una portaerei da 6.000 miliardi).
+ */
+function formatBillions(mln: number): string {
+  const value = mln / 1000;
+  const decimals = value < 1 ? 3 : value < 100 ? 1 : 0;
+  return formatMoney(value, { currency: 'mld', decimals });
+}
+
 function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="nation-empty" role="note">{children}</div>;
+}
+
+/**
+ * Caratteristiche tecniche di un equipaggiamento (sola lettura del catalogo).
+ * Serve a rispondere a «che cos'è questo mezzo», non solo «quanti ne ho».
+ */
+function EquipmentSpecs({ specs }: { specs: Array<{ label: string; value: string }> }) {
+  if (!specs || specs.length === 0) return null;
+  return (
+    <dl className="arms-specs">
+      {specs.map(spec => (
+        <div key={spec.label}>
+          <dt>{spec.label}</dt>
+          <dd>{spec.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 export const NationDock: React.FC<NationDockProps> = ({
@@ -753,7 +787,7 @@ export const NationDock: React.FC<NationDockProps> = ({
             >
               {arms ? (
                 <MetricGrid>
-                  <Metric label="Forza militare" value={formatNumber(arms.strength)} tone="neutral" hint="Quantità × qualità × dominio" />
+                  <Metric label="Forza militare" value={formatMoney(arms.strength, { decimals: 1 })} tone="neutral" hint="Quantità × qualità × dominio" />
                   <Metric label="Potenza effettiva" value={formatNumber(arms.effectiveMilitaryPower)} tone={arms.combatFactor >= 1 ? 'positive' : 'warning'} hint={`Base ${formatNumber(arms.baseMilitaryPower)} × fattore arsenale ${arms.combatFactor}`} />
                   <Metric label="Qualità media armi" value={`${formatNumber(arms.qualityIndex)}/100`} tone={arms.qualityIndex >= 60 ? 'positive' : arms.qualityIndex >= 30 ? 'warning' : 'negative'} hint="Pesa sui combattimenti" />
                   <Metric label="Scorte armi" value={formatNumber(arms.capacity.weapons)} hint="Input per la produzione" />
@@ -765,26 +799,59 @@ export const NationDock: React.FC<NationDockProps> = ({
             </DossierBlock>
 
             <DossierBlock
+              title="Come si legge l'arsenale"
+              description="Le cifre dell'arsenale hanno una formula precisa: qui cosa significano."
+            >
+              <div className="arms-legend">
+                <p><b>Quantità</b> — quante unità sono in servizio: «×37» significa 37 mezzi di quel tipo operativi adesso.</p>
+                <p><b>Forza</b> — <i>quantità × qualità × peso del dominio ÷ 100</i>. Un caccia pesa più di un fucile: il peso è nella tabella qui sotto.</p>
+                <p><b>Qualità</b> — valore 0–100 del singolo mezzo: obsoleto sotto 26, datato 26–45, moderno 46–65, avanzato 66–85, nuova generazione da 86.</p>
+                <p><b>Potenza effettiva</b> — potenza nominale della nazione × fattore di arsenale (0,6–1,6). Il fattore sale con la qualità media e con la copertura delle forze schierate: un esercito senza mezzi combatte al 60% della sua potenza.</p>
+              </div>
+              {arms && arms.domains && arms.domains.length > 0 && (
+                <ul className="arms-domains">
+                  {arms.domains.map(domain => (
+                    <li key={domain.domain}>
+                      <b>{domain.label}</b>
+                      <span>peso {formatMoney(domain.weight, { decimals: 1 })}×</span>
+                      <em>{domain.description}</em>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <Footnote><b>Perché conta</b> l'arsenale non è un punteggio: decide la potenza effettiva usata nei combattimenti e si consuma quando una nazione conquista una provincia.</Footnote>
+            </DossierBlock>
+
+            <DossierBlock
               title="Arsenale"
-              description="Equipaggiamento in servizio, con la fascia di qualità."
+              description="Equipaggiamento in servizio: che cos'è, a cosa serve e quanto pesa sulla forza."
             >
               {arms && arms.lines.length > 0 ? (
                 <ul className="arms-list">
                   {arms.lines.map((line) => (
-                    <li key={line.id}>
-                      <div>
-                        <b>{line.name}</b>
-                        <span>{DOMAIN_LABELS[line.domain] || line.domain} · {line.category}</span>
+                    <li key={line.id} className="arms-line-card">
+                      <div className="arms-line-head">
+                        <div>
+                          <b>{line.name}</b>
+                          <span>{line.domainLabel || DOMAIN_LABELS[line.domain] || line.domain} · {line.category}</span>
+                        </div>
+                        <div className="arms-line-meta">
+                          <em>×{formatNumber(line.quantity)} in servizio</em>
+                          <span className={`arms-tier tone-${TIER_TONE[line.tier] || 'neutral'}`}>{TIER_LABEL(line.tier)} · qualità {line.quality}/100</span>
+                        </div>
                       </div>
-                      <div className="arms-line-meta">
-                        <em>×{formatNumber(line.quantity)}</em>
-                        <span className={`arms-tier tone-${TIER_TONE[line.tier] || 'neutral'}`}>{line.tier.replace(/_/g, ' ')} · {line.quality}</span>
+                      <p className="arms-line-role">{line.role}</p>
+                      <p className="arms-line-desc">{line.description}</p>
+                      <EquipmentSpecs specs={line.specs} />
+                      <div className="arms-line-share">
+                        <span>Forza {formatMoney(line.strength, { decimals: 1 })} · {formatMoney(line.sharePct, { decimals: 1 })}% dell'arsenale</span>
+                        <i aria-hidden="true"><em style={{ width: `${Math.max(0, Math.min(100, line.sharePct))}%` }} /></i>
                       </div>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <EmptyState>Nessun equipaggiamento in servizio: costruisci o importa dal catalogo.</EmptyState>
+                <EmptyState>Nessun equipaggiamento in servizio: costruisci o importa dal catalogo qui sotto.</EmptyState>
               )}
             </DossierBlock>
 
@@ -825,26 +892,33 @@ export const NationDock: React.FC<NationDockProps> = ({
 
             <DossierBlock
               title="Produzione e acquisti"
-              description="Costruisci con tecnologia, industria e risorse proprie, oppure importa pagando un sovrapprezzo."
+              description="Costruisci con tecnologia, industria e risorse proprie, oppure importa pagando un sovrapprezzo. Ogni voce spiega che cos'è e a cosa serve."
             >
               {arms ? (
                 <div className="arms-catalog">
                   {['terra', 'aria', 'mare', 'missili', 'droni'].map((domain) => (
                     <div key={domain} className="arms-domain">
-                      <h4>{DOMAIN_LABELS[domain]}</h4>
+                      <h4>{arms.domains?.find(item => item.domain === domain)?.label || DOMAIN_LABELS[domain] || domain}</h4>
                       <ul>
                         {arms.catalog.filter((item) => item.domain === domain).map((item) => (
                           <li key={item.id}>
                             <div className="arms-item-head">
                               <b>{item.name}</b>
-                              <span className={`arms-tier tone-${TIER_TONE[item.tier] || 'neutral'}`}>{item.tier.replace(/_/g, ' ')} · qualità {item.quality}</span>
+                              <span className={`arms-tier tone-${TIER_TONE[item.tier] || 'neutral'}`}>{TIER_LABEL(item.tier)} · qualità {item.quality}/100</span>
                             </div>
+                            <p className="arms-item-role">{item.role}</p>
+                            <details className="arms-item-details">
+                              <summary>Che cos'è e cosa sa fare</summary>
+                              <p>{item.description}</p>
+                              <EquipmentSpecs specs={item.specs} />
+                            </details>
                             <div className="arms-item-cost">
-                              Costruzione {formatMoney(item.buildCostMln / 1000, { currency: 'mld', decimals: 3 })}
-                              {' · '}Importazione {formatMoney(item.buyCostMln / 1000, { currency: 'mld', decimals: 3 })}
+                              Costruzione {formatBillions(item.buildCostMln)}
+                              {' · '}Importazione {formatBillions(item.buyCostMln)}
+                              {' · '}Scorte armi {formatNumber(item.weaponsCost)}/unità
                             </div>
                             {!item.canBuild && item.reasons.length > 0 && (
-                              <div className="arms-reasons">Manca: {item.reasons.join(', ')}</div>
+                              <div className="arms-reasons">Requisiti non soddisfatti: {item.reasons.join('; ')}.</div>
                             )}
                             <div className="arms-actions">
                               <button type="button" disabled={!item.canBuild || !procure} onClick={() => void procure?.('build', item.id, 1)}>Costruisci</button>
@@ -859,7 +933,7 @@ export const NationDock: React.FC<NationDockProps> = ({
               ) : (
                 <EmptyState>Catalogo militare non disponibile.</EmptyState>
               )}
-              <Footnote><b>Fonte</b> MilitaryIndustry · la costruzione aggiorna scorte e arsenale in modo atomico.</Footnote>
+              <Footnote><b>Fonte</b> MilitaryIndustry · la costruzione apre un ordine di produzione con percentuale di completamento; l'importazione consegna subito al prezzo maggiorato.</Footnote>
             </DossierBlock>
           </>
         )}

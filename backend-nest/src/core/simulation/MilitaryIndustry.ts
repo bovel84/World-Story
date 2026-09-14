@@ -15,6 +15,8 @@
  *     **importare** pagando un sovrapprezzo. Nessun LLM crea armamenti.
  */
 
+import { technologyById } from './MaterialEconomy';
+
 export const NATURAL_RESOURCE_KINDS = [
   'oil', 'gas', 'coal', 'iron', 'copper', 'bauxite', 'uranium', 'gold', 'diamonds',
   'lithium', 'rare_earths', 'timber', 'fertile_land', 'fisheries', 'water',
@@ -214,67 +216,268 @@ export interface EquipmentRequirement {
   resources?: NaturalEndowment;
 }
 
-export interface Equipment {
+/** Caratteristica tecnica leggibile: etichetta + valore, sola lettura. */
+export interface EquipmentSpec {
+  label: string;
+  value: string;
+}
+
+/**
+ * Che cos'è un equipaggiamento: ruolo operativo, descrizione estesa e
+ * caratteristiche tecniche. È **dato statico di catalogo** (non calcolato e non
+ * inventato a partita): serve a capire cosa significhi possedere 37 unità.
+ */
+export interface EquipmentDetail {
+  /** A cosa serve, in una riga. */
+  role: string;
+  /** Che cos'è e perché conta, in due o tre frasi. */
+  description: string;
+  /** Caratteristiche tecniche statiche. */
+  specs: EquipmentSpec[];
+}
+
+export interface Equipment extends EquipmentDetail {
   id: string;
   name: string;
   domain: Domain;
   category: string;
   quality: number;
   tier: QualityTier;
-  /** Costo unitario in milioni di USD (la tesoreria è in miliardi). */
+  /** Costo unitario di costruzione in milioni di USD (tesoreria in miliardi). */
   costMln: number;
   /** Consumo di scorte di armamenti per unità costruita. */
   weaponsCost: number;
   requires: EquipmentRequirement;
-  notes: string;
 }
+
+const S = (label: string, value: string): EquipmentSpec => ({ label, value });
+
+/**
+ * Schede descrittive per ogni voce del catalogo. Il modulo **fallisce chiuso**
+ * se una voce resta senza scheda: un equipaggiamento senza spiegazione è
+ * inutile per il giocatore, quindi non deve esistere.
+ */
+const EQUIPMENT_DETAILS: Record<string, EquipmentDetail> = {
+  // ── Terra ─────────────────────────────────────────────────────────────────
+  fucili: {
+    role: 'Arma individuale della fanteria di linea',
+    description: 'Fucile automatico d’ordinanza: equipaggia il singolo soldato ed è la base di ogni reparto appiedato. È l’unico equipaggiamento che rende una fanteria capace di combattere a piedi.',
+    specs: [S('Calibro', '5,56 / 7,62 mm'), S('Gittata utile', '300–400 m'), S('Cadenza', '600–750 colpi/min'), S('Serventi', '1 fante')],
+  },
+  apc: {
+    role: 'Trasporto protetto della fanteria meccanizzata',
+    description: 'Veicolo cingolato o ruotato che porta una squadra sotto protezione e la sbarca sul campo di battaglia. Dà alla fanteria mobilità e sopravvivenza sotto il fuoco.',
+    specs: [S('Equipaggio', '3 + 8 fanti'), S('Armamento', 'mitragliera 12,7 mm'), S('Velocità', '60–100 km/h'), S('Autonomia', '500–800 km')],
+  },
+  carri_3: {
+    role: 'Manovra corazzata di rottura',
+    description: 'Carro armato di generazione precedente ma ancora efficace: è il mezzo che sfonda le linee e occupa il terreno. Piattaforme numerose e di manutenzione semplice.',
+    specs: [S('Equipaggio', '4'), S('Cannone', '105–120 mm'), S('Protezione', 'acciaio composito'), S('Velocità', '55 km/h'), S('Peso', '40–50 t')],
+  },
+  carri_4: {
+    role: 'Carro di punta con sensori in rete',
+    description: 'Corazzato di ultima generazione: corazzatura composita, sensori termici e collegamento dati con gli altri reparti. Sopravvive dove i carri datati vengono distrutti.',
+    specs: [S('Equipaggio', '4'), S('Cannone', '120–125 mm'), S('Protezione', 'composita + ERA'), S('Sensori', 'termici, in rete'), S('Velocità', '65 km/h')],
+  },
+  artiglieria: {
+    role: 'Fuoco indiretto a sostegno della manovra',
+    description: 'Obici semoventi che colpiscono oltre l’orizzonte, senza vedere il bersaglio. Preparano l’attacco e spezzano i contrattacchi nemici.',
+    specs: [S('Calibro', '152–155 mm'), S('Gittata', '20–30 km'), S('Cadenza', '4–8 colpi/min'), S('Mobilità', 'semovente cingolato')],
+  },
+  mlrs: {
+    role: 'Saturazione d’area a media gittata',
+    description: 'Lanciarazzi multipli: coprono un’area intera con decine di razzi in pochi secondi. Utile contro concentrazioni di truppe, depositi e batterie nemiche.',
+    specs: [S('Rampa', '12–16 razzi'), S('Gittata', '30–70 km'), S('Effetto', 'saturazione d’area'), S('Ricarica', '5–10 min')],
+  },
+  sam_corto: {
+    role: 'Difesa aerea di punto',
+    description: 'Batterie a corto raggio che proteggono truppe e installazioni da aerei e droni a bassa quota. Sono l’ultimo schermo contro gli attacchi di precisione.',
+    specs: [S('Bersagli', 'aerei, droni, elicotteri'), S('Gittata', '5–15 km'), S('Quota', 'fino a 6 km'), S('Reazione', 'pochi secondi')],
+  },
+  sam_lungo: {
+    role: 'Scudo strategico a lungo raggio',
+    description: 'Sistema antiaereo e antimissile di area: chiude lo spazio aereo su centinaia di chilometri e intercetta anche missili balistici. È la difesa più costosa e più decisiva.',
+    specs: [S('Gittata', '150–300 km'), S('Quota', 'fino a 30 km'), S('Bersagli', 'aerei, cruise, balistici'), S('Radar', 'schieramento in rete')],
+  },
+
+  // ── Aria ──────────────────────────────────────────────────────────────────
+  caccia_3: {
+    role: 'Intercettazione e superiorità aerea locale',
+    description: 'Caccia di generazione precedente: veloce e affidabile, con radar doppler e missili a corto raggio. Tiene il cielo vicino al proprio territorio.',
+    specs: [S('Velocità', 'Mach 2+'), S('Raggio d’azione', '500–900 km'), S('Armamento', 'cannone + missili corto raggio'), S('Avionica', 'radar doppler')],
+  },
+  caccia_4: {
+    role: 'Multiruolo: aria-aria e aria-suolo',
+    description: 'Caccia moderno con avionica digitale, radar AESA e armi guidate: combatte altri aerei e colpisce bersagli al suolo nella stessa missione.',
+    specs: [S('Velocità', 'Mach 1,8–2,2'), S('Raggio d’azione', '1.000–1.500 km'), S('Armamento', 'missili guidati medio raggio'), S('Avionica', 'radar AESA, data-link')],
+  },
+  caccia_5: {
+    role: 'Superiorità aerea e penetrazione',
+    description: 'Caccia di ultima generazione con traccia radar ridotta e fusione dei sensori: entra nello spazio aereo difeso senza essere visto e domina lo scontro aereo.',
+    specs: [S('Velocità', 'Mach 1,6–2'), S('Raggio d’azione', '1.100 km'), S('Battaglia', 'fusione sensori'), S('Traccia radar', 'ridotta (stealth)')],
+  },
+  bombardieri: {
+    role: 'Proiezione strategica a lungo raggio',
+    description: 'Grandi velivoli che portano tonnellate di bombe e missili a migliaia di chilometri. Minacciano il cuore industriale del nemico senza avvicinarsi al fronte.',
+    specs: [S('Autonomia', '8.000–12.000 km'), S('Carico', '20–30 t'), S('Conduzione', 'attacco stand-off'), S('Equipaggio', '4–6')],
+  },
+  trasporto: {
+    role: 'Schieramento rapido di uomini e materiali',
+    description: 'Aerei da trasporto militare: spostano reparti, veicoli e rifornimenti dove servono, anche su piste corte e non preparate. Sono la logistica della proiezione.',
+    specs: [S('Carico', '20–60 t'), S('Autonomia', '4.000–7.000 km'), S('Capacità', '120–300 soldati'), S('Pista', 'corta, non preparata')],
+  },
+  elicotteri: {
+    role: 'Supporto ravvicinato e caccia ai carri',
+    description: 'Elicotteri d’attacco che seguono le truppe di terra e colpiscono bersagli corazzati con missili controcarro. Volano bassi, dove l’artiglieria non arriva.',
+    specs: [S('Velocità', '250–300 km/h'), S('Armamento', 'cannoni, razzi, controcarro'), S('Equipaggio', '2 + 8'), S('Autonomia', '2–3 h')],
+  },
+  aew: {
+    role: 'Sorveglianza e comando aerotrasportato',
+    description: 'Radar volante: vede aerei e navi a centinaia di chilometri e dirige le operazioni dall’alto. Moltiplica l’efficacia di tutti gli altri velivoli.',
+    specs: [S('Avvistamento', '300–400 km'), S('Ruolo', 'comando e controllo'), S('Copertura', 'centinaia di km'), S('Autonomia', '8–12 h')],
+  },
+
+  // ── Mare ──────────────────────────────────────────────────────────────────
+  pattugliatori: {
+    role: 'Presidio costiero e controllo delle acque',
+    description: 'Unità leggere ed economiche che sorvegliano le coste, fermano i traffici illeciti e mostrano la bandiera lungo le rotte nazionali.',
+    specs: [S('Dislocamento', '300–1.000 t'), S('Velocità', '25–30 nodi'), S('Armamento', 'cannone, mitragliere'), S('Autonomia', '2.000–4.000 mn')],
+  },
+  corvette: {
+    role: 'Unità missilistica in acque litoranee',
+    description: 'Nave compatta armata con missili antinave: minaccia le flotte nemiche vicino alle proprie coste senza il costo di una nave maggiore.',
+    specs: [S('Dislocamento', '1.000–2.500 t'), S('Missili', 'antinave, antiaerei corti'), S('Velocità', '28–32 nodi'), S('Equipaggio', '60–100')],
+  },
+  fregate: {
+    role: 'Scorta di flotta e difesa d’area',
+    description: 'Nave multiruolo che protegge un gruppo navale da aerei, navi e sommergibili. È il cavallo di battaglia delle marine che vogliono operare lontano da casa.',
+    specs: [S('Dislocamento', '3.000–6.000 t'), S('Armi', 'antiaerea, antinave, antisom'), S('Elicottero', '1 organico'), S('Velocità', '27–30 nodi')],
+  },
+  cacciatorpediniere: {
+    role: 'Difesa di flotta e proiezione missilistica',
+    description: 'Grande unità di superficie con radar multifunzione e celle verticali per missili a lungo raggio: scorta la flotta e colpisce bersagli a terra lontano.',
+    specs: [S('Dislocamento', '7.000–10.000 t'), S('VLS', 'missili a lungo raggio'), S('Radar', 'AESA multifunzione'), S('Velocità', '30 nodi')],
+  },
+  sottomarini: {
+    role: 'Disuasione e attacco sotto la superficie',
+    description: 'Sommergibili convenzionali difficili da individuare: minacciano le rotte e le flotte nemiche restando invisibili. La minaccia che costringe tutti a difendersi.',
+    specs: [S('Dislocamento', '1.500–3.000 t immerso'), S('Propulsione', 'diesel-elettrica / AIP'), S('Armi', 'siluri e missili'), S('Profondità', '300 m')],
+  },
+  portaerei: {
+    role: 'Proiezione aerea globale',
+    description: 'Nave capitale che porta una forza aerea ovunque: sposta il potere aereo a migliaia di chilometri dalla madrepatria. Richiede una scorta navale dedicata.',
+    specs: [S('Dislocamento', '40.000–100.000 t'), S('Gruppo aereo', '30–70 velivoli'), S('Scorta', 'gruppo navale dedicato'), S('Velocità', '30 nodi')],
+  },
+
+  // ── Missili ───────────────────────────────────────────────────────────────
+  missili_corto: {
+    role: 'Attacco tattico oltre la linea del fronte',
+    description: 'Missili balistici a corto raggio: colpiscono comandi, depositi e aeroporti poco oltre il fronte. Veloci, difficili da intercettare, ma limitati in distanza.',
+    specs: [S('Gittata', '150–500 km'), S('Velocità', 'Mach 4–6'), S('Testata', 'convenzionale'), S('Precisione', 'decine di metri')],
+  },
+  missili_medio: {
+    role: 'Minaccia regionale su basi e città',
+    description: 'Missili balistici a medio raggio: tengono sotto tiro un intero teatro regionale e obbligano il nemico a disperdere le forze.',
+    specs: [S('Gittata', '1.000–3.000 km'), S('Velocità', 'Mach 5–8'), S('Testata', 'convenzionale o speciale'), S('Intercettazione', 'difficile')],
+  },
+  cruise: {
+    role: 'Attacco di precisione a bassa quota',
+    description: 'Missili da crociera che volano radenti al terreno per sfuggire ai radar e colpiscono un bersaglio puntuale con precisione metrica.',
+    specs: [S('Gittata', '1.000–2.500 km'), S('Profilo', 'radente, 50–100 m'), S('Precisione', 'metri (GPS/INS)'), S('Velocità', 'Mach 0,7–0,9')],
+  },
+  antinave: {
+    role: 'Negazione del mare',
+    description: 'Missili antinave lanciati da navi, batterie costiere o aerei: rendono rischioso avvicinarsi alle coste e possono affondare grandi unità con pochi lanci.',
+    specs: [S('Gittata', '100–500 km'), S('Profilo', 'attacco a volo radente'), S('Bersagli', 'fino a incrociatori'), S('Lancio', 'navi, coste, aerei')],
+  },
+  ipersonici: {
+    role: 'Saturazione delle difese',
+    description: 'Missili ipersonici manovrati: arrivano a velocità e traiettorie che le difese antiaeree non riescono a seguire. Pochi esemplari cambiano l’equilibrio.',
+    specs: [S('Velocità', 'Mach 5+'), S('Traiettoria', 'manovrata'), S('Gittata', '500–2.000 km'), S('Intercettazione', 'molto difficile')],
+  },
+
+  // ── Droni ─────────────────────────────────────────────────────────────────
+  droni_ricognizione: {
+    role: 'Osservazione e designazione dei bersagli',
+    description: 'Droni leggeri che osservano il campo di battaglia per ore e indicano dove colpire. Costano poco e tolgono il velo di fronte al nemico.',
+    specs: [S('Quota', '3.000–6.000 m'), S('Autonomia', '10–20 h'), S('Sensori', 'ottico e infrarosso'), S('Raggio', '100–200 km')],
+  },
+  droni_attacco: {
+    role: 'Attacco persistente senza rischio per l’equipaggio',
+    description: 'Droni armati che restano in area per ore e colpiscono bersagli individuati al momento (UCAV). Nessun pilota a rischio, pressione continua sul nemico.',
+    specs: [S('Autonomia', '12–24 h'), S('Armamento', 'missili e bombe guidate'), S('Quota', '5.000–8.000 m'), S('Controllo', 'satellitare')],
+  },
+  droni_kamikaze: {
+    role: 'Saturazione economica delle difese',
+    description: 'Munizioni vaganti che cercano il bersaglio e lo colpiscono distruggendosi: costano poco e si lanciano in gran numero contro blindati e radar.',
+    specs: [S('Autonomia', '30–60 min'), S('Carica', '3–10 kg'), S('Bersagli', 'blindati, radar, fanteria'), S('Costo', 'basso per unità')],
+  },
+  droni_navali: {
+    role: 'Guerra asimmetrica su superficie e sott’acqua',
+    description: 'Imbarcazioni senza equipaggio che pattugliano, attaccano o posano contromisure. Si rischiano senza perdere uomini ed equipaggi addestrati.',
+    specs: [S('Dislocamento', '1–50 t'), S('Autonomia', 'giorni'), S('Impiego', 'ricognizione, attacco, contromisure'), S('Equipaggio', 'nessuno')],
+  },
+  sciame: {
+    role: 'Coordinamento autonomo di massa',
+    description: 'Sciami di droni che decidono insieme in volo, senza un singolo centro di comando: saturano ogni difesa puntuale attaccando da molte direzioni.',
+    specs: [S('Sciame', 'decine–migliaia di unità'), S('Decisione', 'locale, in volo'), S('Bersagli', 'difese aeree, formazioni'), S('Effetto', 'satura ogni difesa puntuale')],
+  },
+};
 
 const E = (
   id: string, name: string, domain: Domain, category: string, quality: number,
-  costMln: number, weaponsCost: number, requires: EquipmentRequirement, notes: string,
-): Equipment => ({ id, name, domain, category, quality, tier: tierForQuality(quality), costMln, weaponsCost, requires, notes });
+  costMln: number, weaponsCost: number, requires: EquipmentRequirement,
+): Equipment => {
+  const detail = EQUIPMENT_DETAILS[id];
+  // Fail-closed: nessun equipaggiamento può esistere senza scheda descrittiva.
+  if (!detail) throw new Error(`military_industry_missing_detail: ${id}`);
+  return {
+    id, name, domain, category, quality, tier: tierForQuality(quality),
+    costMln, weaponsCost, requires, ...detail,
+  };
+};
 
 export const EQUIPMENT_CATALOG: Equipment[] = [
   // Terra
-  E('fucili', 'Fucili d’assalto', 'terra', 'Fanteria', 35, 800, 4, { techs: ['industria_bellica'], factories: 1 }, 'Armi individuali per la fanteria di linea.'),
-  E('apc', 'Veicoli corazzati da trasporto', 'terra', 'Corazzati', 52, 2_500, 10, { techs: ['industria_bellica', 'meccanica_avanzata'], factories: 2, resources: { iron: 2, coal: 2 } }, 'Protezione e mobilità per la fanteria meccanizzata.'),
-  E('carri_3', 'Carri armati di 3ª generazione', 'terra', 'Corazzati', 62, 8_000, 26, { techs: ['meccanica_avanzata', 'corazzati'], factories: 3, universities: 1, resources: { iron: 3, coal: 3 } }, 'Piattaforma corazzata matura, manutenzione consolidata.'),
-  E('carri_4', 'Carri armati di 4ª generazione', 'terra', 'Corazzati', 84, 16_000, 45, { techs: ['corazzati_avanzati', 'elettronica'], factories: 4, universities: 2, resources: { iron: 4, rare_earths: 2 } }, 'Corazzatura composita, sensori e rete dati integrata.'),
-  E('artiglieria', 'Artiglieria semovente', 'terra', 'Artiglieria', 58, 6_000, 20, { techs: ['meccanica_avanzata'], factories: 3, resources: { iron: 3 } }, 'Fuoco indiretto mobile a supporto delle manovre.'),
-  E('mlrs', 'Lanciarazzi multipli (MLRS)', 'terra', 'Artiglieria', 74, 9_000, 30, { techs: ['missilistica'], factories: 3, universities: 1, resources: { iron: 2, rare_earths: 1 } }, 'Saturazione d’area a media gittata.'),
-  E('sam_corto', 'Difesa aerea a corto raggio', 'terra', 'Difesa aerea', 55, 3_500, 14, { techs: ['elettronica'], factories: 2, universities: 1, resources: { rare_earths: 1 } }, 'Contrasto a velivoli e droni a bassa quota.'),
-  E('sam_lungo', 'Difesa aerea a lungo raggio', 'terra', 'Difesa aerea', 82, 120_000, 60, { techs: ['missilistica', 'elettronica_avanzata'], factories: 4, universities: 3, resources: { rare_earths: 3 } }, 'Scudo strategico contro aerei e missili balistici.'),
+  E('fucili', 'Fucili d’assalto', 'terra', 'Fanteria', 35, 800, 4, { techs: ['industria_bellica'], factories: 1 }),
+  E('apc', 'Veicoli corazzati da trasporto', 'terra', 'Corazzati', 52, 2_500, 10, { techs: ['industria_bellica', 'meccanica_avanzata'], factories: 2, resources: { iron: 2, coal: 2 } }),
+  E('carri_3', 'Carri armati di 3ª generazione', 'terra', 'Corazzati', 62, 8_000, 26, { techs: ['meccanica_avanzata', 'corazzati'], factories: 3, universities: 1, resources: { iron: 3, coal: 3 } }),
+  E('carri_4', 'Carri armati di 4ª generazione', 'terra', 'Corazzati', 84, 16_000, 45, { techs: ['corazzati_avanzati', 'elettronica'], factories: 4, universities: 2, resources: { iron: 4, rare_earths: 2 } }),
+  E('artiglieria', 'Artiglieria semovente', 'terra', 'Artiglieria', 58, 6_000, 20, { techs: ['meccanica_avanzata'], factories: 3, resources: { iron: 3 } }),
+  E('mlrs', 'Lanciarazzi multipli (MLRS)', 'terra', 'Artiglieria', 74, 9_000, 30, { techs: ['missilistica'], factories: 3, universities: 1, resources: { iron: 2, rare_earths: 1 } }),
+  E('sam_corto', 'Difesa aerea a corto raggio', 'terra', 'Difesa aerea', 55, 3_500, 14, { techs: ['elettronica'], factories: 2, universities: 1, resources: { rare_earths: 1 } }),
+  E('sam_lungo', 'Difesa aerea a lungo raggio', 'terra', 'Difesa aerea', 82, 120_000, 60, { techs: ['missilistica', 'elettronica_avanzata'], factories: 4, universities: 3, resources: { rare_earths: 3 } }),
 
   // Aria
-  E('caccia_3', 'Caccia di 3ª generazione', 'aria', 'Aerei da combattimento', 58, 35_000, 30, { techs: ['aeronautica'], factories: 2, universities: 2, resources: { bauxite: 2, rare_earths: 1 } }, 'Intercettore multiruolo di generazione precedente.'),
-  E('caccia_4', 'Caccia di 4ª generazione', 'aria', 'Aerei da combattimento', 76, 80_000, 50, { techs: ['aeronautica_avanzata', 'elettronica'], factories: 4, universities: 3, resources: { bauxite: 3, rare_earths: 2 } }, 'Avionica digitale, armi guidate e supercrociera parziale.'),
-  E('caccia_5', 'Caccia di 5ª generazione', 'aria', 'Aerei da combattimento', 94, 180_000, 80, { techs: ['aeronautica_avanzata', 'elettronica_avanzata'], factories: 5, universities: 4, resources: { bauxite: 4, rare_earths: 4, lithium: 2 } }, 'Stealth, fusione sensori e superiorità aerea.'),
-  E('bombardieri', 'Bombardieri strategici', 'aria', 'Aerei strategici', 80, 250_000, 90, { techs: ['aeronautica_avanzata'], factories: 5, universities: 3, resources: { bauxite: 3, rare_earths: 2 } }, 'Proiezione di potenza a lungo raggio.'),
-  E('trasporto', 'Aerei da trasporto militare', 'aria', 'Logistica', 60, 60_000, 20, { techs: ['aeronautica'], factories: 3, universities: 2, resources: { bauxite: 3 } }, 'Schieramento rapido di truppe e materiali.'),
-  E('elicotteri', 'Elicotteri d’attacco', 'aria', 'Ala rotante', 72, 45_000, 34, { techs: ['aeronautica', 'elettronica'], factories: 3, universities: 2, resources: { bauxite: 2, rare_earths: 1 } }, 'Supporto ravvicinato e caccia ai carri.'),
-  E('aew', 'Aerei AEW&C (radar volante)', 'aria', 'ISR', 85, 300_000, 60, { techs: ['aeronautica_avanzata', 'elettronica_avanzata'], factories: 4, universities: 4, resources: { bauxite: 3, rare_earths: 3 } }, 'Sorveglianza e comando aerotrasportato.'),
+  E('caccia_3', 'Caccia di 3ª generazione', 'aria', 'Aerei da combattimento', 58, 35_000, 30, { techs: ['aeronautica'], factories: 2, universities: 2, resources: { bauxite: 2, rare_earths: 1 } }),
+  E('caccia_4', 'Caccia di 4ª generazione', 'aria', 'Aerei da combattimento', 76, 80_000, 50, { techs: ['aeronautica_avanzata', 'elettronica'], factories: 4, universities: 3, resources: { bauxite: 3, rare_earths: 2 } }),
+  E('caccia_5', 'Caccia di 5ª generazione', 'aria', 'Aerei da combattimento', 94, 180_000, 80, { techs: ['aeronautica_avanzata', 'elettronica_avanzata'], factories: 5, universities: 4, resources: { bauxite: 4, rare_earths: 4, lithium: 2 } }),
+  E('bombardieri', 'Bombardieri strategici', 'aria', 'Aerei strategici', 80, 250_000, 90, { techs: ['aeronautica_avanzata'], factories: 5, universities: 3, resources: { bauxite: 3, rare_earths: 2 } }),
+  E('trasporto', 'Aerei da trasporto militare', 'aria', 'Logistica', 60, 60_000, 20, { techs: ['aeronautica'], factories: 3, universities: 2, resources: { bauxite: 3 } }),
+  E('elicotteri', 'Elicotteri d’attacco', 'aria', 'Ala rotante', 72, 45_000, 34, { techs: ['aeronautica', 'elettronica'], factories: 3, universities: 2, resources: { bauxite: 2, rare_earths: 1 } }),
+  E('aew', 'Aerei AEW&C (radar volante)', 'aria', 'ISR', 85, 300_000, 60, { techs: ['aeronautica_avanzata', 'elettronica_avanzata'], factories: 4, universities: 4, resources: { bauxite: 3, rare_earths: 3 } }),
 
   // Mare
-  E('pattugliatori', 'Pattugliatori d’altura', 'mare', 'Navale leggera', 45, 25_000, 12, { techs: ['cantieristica'], ports: 2, resources: { iron: 2 } }, 'Presidio costiero e controllo delle acque.'),
-  E('corvette', 'Corvette', 'mare', 'Navale leggera', 64, 90_000, 30, { techs: ['cantieristica', 'missilistica'], ports: 2, factories: 2, resources: { iron: 3 } }, 'Unità missilistica compatta per acque litoranee.'),
-  E('fregate', 'Fregate multiruolo', 'mare', 'Navale di superficie', 78, 400_000, 60, { techs: ['cantieristica_avanzata', 'missilistica'], ports: 3, factories: 3, universities: 2, resources: { iron: 4, rare_earths: 2 } }, 'Scorta, antiaerea e antisommergibile.'),
-  E('cacciatorpediniere', 'Cacciatorpediniere', 'mare', 'Navale di superficie', 86, 900_000, 80, { techs: ['cantieristica_avanzata', 'missilistica', 'elettronica_avanzata'], ports: 3, factories: 4, universities: 3, resources: { iron: 4, rare_earths: 3 } }, 'Difesa di flotta e proiezione missilistica.'),
-  E('sottomarini', 'Sottomarini convenzionali', 'mare', 'Subacquea', 80, 500_000, 70, { techs: ['cantieristica_avanzata', 'elettronica'], ports: 3, factories: 3, universities: 3, resources: { iron: 3, rare_earths: 2 } }, 'Disuasione e attacco sotto la superficie.'),
-  E('portaerei', 'Portaerei', 'mare', 'Proiezione', 88, 6_000_000, 180, { techs: ['cantieristica_avanzata', 'aeronautica_avanzata', 'elettronica_avanzata'], ports: 5, factories: 5, universities: 4, resources: { iron: 5, rare_earths: 3 } }, 'Piattaforma di proiezione aerea globale.'),
+  E('pattugliatori', 'Pattugliatori d’altura', 'mare', 'Navale leggera', 45, 25_000, 12, { techs: ['cantieristica'], ports: 2, resources: { iron: 2 } }),
+  E('corvette', 'Corvette', 'mare', 'Navale leggera', 64, 90_000, 30, { techs: ['cantieristica', 'missilistica'], ports: 2, factories: 2, resources: { iron: 3 } }),
+  E('fregate', 'Fregate multiruolo', 'mare', 'Navale di superficie', 78, 400_000, 60, { techs: ['cantieristica_avanzata', 'missilistica'], ports: 3, factories: 3, universities: 2, resources: { iron: 4, rare_earths: 2 } }),
+  E('cacciatorpediniere', 'Cacciatorpediniere', 'mare', 'Navale di superficie', 86, 900_000, 80, { techs: ['cantieristica_avanzata', 'missilistica', 'elettronica_avanzata'], ports: 3, factories: 4, universities: 3, resources: { iron: 4, rare_earths: 3 } }),
+  E('sottomarini', 'Sottomarini convenzionali', 'mare', 'Subacquea', 80, 500_000, 70, { techs: ['cantieristica_avanzata', 'elettronica'], ports: 3, factories: 3, universities: 3, resources: { iron: 3, rare_earths: 2 } }),
+  E('portaerei', 'Portaerei', 'mare', 'Proiezione', 88, 6_000_000, 180, { techs: ['cantieristica_avanzata', 'aeronautica_avanzata', 'elettronica_avanzata'], ports: 5, factories: 5, universities: 4, resources: { iron: 5, rare_earths: 3 } }),
 
   // Missili
-  E('missili_corto', 'Missili balistici a corto raggio', 'missili', 'Balistico', 66, 30_000, 40, { techs: ['missilistica'], factories: 2, universities: 2, resources: { rare_earths: 2 } }, 'Attacco tattico oltre la linea del fronte.'),
-  E('missili_medio', 'Missili balistici a medio raggio', 'missili', 'Balistico', 82, 120_000, 70, { techs: ['missilistica_avanzata'], factories: 3, universities: 3, resources: { rare_earths: 3 } }, 'Minaccia regionale contro basi e città.'),
-  E('cruise', 'Missili da crociera', 'missili', 'Cruise', 84, 40_000, 45, { techs: ['missilistica_avanzata', 'elettronica_avanzata'], factories: 3, universities: 3, resources: { rare_earths: 2 } }, 'Attacco di precisione a bassa quota.'),
-  E('antinave', 'Missili antinave', 'missili', 'Antinave', 76, 35_000, 35, { techs: ['missilistica', 'elettronica'], factories: 3, universities: 2, resources: { rare_earths: 2 } }, 'Negazione del mare contro flotte nemiche.'),
-  E('ipersonici', 'Missili ipersonici', 'missili', 'Ipersonico', 96, 300_000, 90, { techs: ['missilistica_avanzata', 'elettronica_avanzata'], factories: 5, universities: 5, resources: { rare_earths: 5, lithium: 3 } }, 'Velocità e manovra che saturano le difese.'),
+  E('missili_corto', 'Missili balistici a corto raggio', 'missili', 'Balistico', 66, 30_000, 40, { techs: ['missilistica'], factories: 2, universities: 2, resources: { rare_earths: 2 } }),
+  E('missili_medio', 'Missili balistici a medio raggio', 'missili', 'Balistico', 82, 120_000, 70, { techs: ['missilistica_avanzata'], factories: 3, universities: 3, resources: { rare_earths: 3 } }),
+  E('cruise', 'Missili da crociera', 'missili', 'Cruise', 84, 40_000, 45, { techs: ['missilistica_avanzata', 'elettronica_avanzata'], factories: 3, universities: 3, resources: { rare_earths: 2 } }),
+  E('antinave', 'Missili antinave', 'missili', 'Antinave', 76, 35_000, 35, { techs: ['missilistica', 'elettronica'], factories: 3, universities: 2, resources: { rare_earths: 2 } }),
+  E('ipersonici', 'Missili ipersonici', 'missili', 'Ipersonico', 96, 300_000, 90, { techs: ['missilistica_avanzata', 'elettronica_avanzata'], factories: 5, universities: 5, resources: { rare_earths: 5, lithium: 3 } }),
 
   // Droni
-  E('droni_ricognizione', 'Droni da ricognizione', 'droni', 'ISR', 50, 3_000, 8, { techs: ['elettronica'], factories: 1, universities: 1, resources: { rare_earths: 1 } }, 'Osservazione e designazione di bersagli.'),
-  E('droni_attacco', 'Droni da attacco (UCAV)', 'droni', 'Combattimento', 74, 25_000, 28, { techs: ['elettronica_avanzata', 'aeronautica'], factories: 2, universities: 2, resources: { rare_earths: 2, bauxite: 2 } }, 'Attacco persistente senza rischio per l’equipaggio.'),
-  E('droni_kamikaze', 'Munizioni vaganti (kamikaze)', 'droni', 'Attacco di saturazione', 78, 8_000, 16, { techs: ['elettronica_avanzata', 'missilistica'], factories: 2, universities: 2, resources: { rare_earths: 2 } }, 'Saturazione economica di difese e blindati.'),
-  E('droni_navali', 'Droni navali e sottomarini', 'droni', 'Navale senza equipaggio', 82, 15_000, 22, { techs: ['elettronica_avanzata', 'cantieristica'], ports: 2, universities: 3, resources: { rare_earths: 2, iron: 2 } }, 'Guerra asimmetrica su superficie e sott’acqua.'),
-  E('sciame', 'Sciami autonomi di droni', 'droni', 'Autonomia', 93, 40_000, 40, { techs: ['elettronica_avanzata', 'intelligenza_artificiale'], factories: 3, universities: 5, resources: { rare_earths: 4, lithium: 2 } }, 'Coordinamento autonomo di massa in combattimento.'),
+  E('droni_ricognizione', 'Droni da ricognizione', 'droni', 'ISR', 50, 3_000, 8, { techs: ['elettronica'], factories: 1, universities: 1, resources: { rare_earths: 1 } }),
+  E('droni_attacco', 'Droni da attacco (UCAV)', 'droni', 'Combattimento', 74, 25_000, 28, { techs: ['elettronica_avanzata', 'aeronautica'], factories: 2, universities: 2, resources: { rare_earths: 2, bauxite: 2 } }),
+  E('droni_kamikaze', 'Munizioni vaganti (kamikaze)', 'droni', 'Attacco di saturazione', 78, 8_000, 16, { techs: ['elettronica_avanzata', 'missilistica'], factories: 2, universities: 2, resources: { rare_earths: 2 } }),
+  E('droni_navali', 'Droni navali e sottomarini', 'droni', 'Navale senza equipaggio', 82, 15_000, 22, { techs: ['elettronica_avanzata', 'cantieristica'], ports: 2, universities: 3, resources: { rare_earths: 2, iron: 2 } }),
+  E('sciame', 'Sciami autonomi di droni', 'droni', 'Autonomia', 93, 40_000, 40, { techs: ['elettronica_avanzata', 'intelligenza_artificiale'], factories: 3, universities: 5, resources: { rare_earths: 4, lithium: 2 } }),
 ];
 
 export function equipmentById(id: string): Equipment | undefined {
@@ -308,14 +511,17 @@ function missingRequirements(equipment: Equipment, capacity: NationCapacity): st
   const reasons: string[] = [];
   const need = equipment.requires;
   for (const tech of need.techs || []) {
-    if (!capacity.technologies.includes(tech)) reasons.push(`tecnologia mancante: ${tech}`);
+    if (!capacity.technologies.includes(tech)) {
+      // Nome leggibile della tecnologia, non l'identificatore interno.
+      reasons.push(`manca la tecnologia ${technologyById(tech)?.name || tech}`);
+    }
   }
-  if ((need.factories || 0) > capacity.factories) reasons.push(`fabbriche insufficienti (${capacity.factories}/${need.factories})`);
-  if ((need.ports || 0) > capacity.ports) reasons.push(`cantieri/porti insufficienti (${capacity.ports}/${need.ports})`);
-  if ((need.universities || 0) > capacity.universities) reasons.push(`università insufficienti (${capacity.universities}/${need.universities})`);
+  if ((need.factories || 0) > capacity.factories) reasons.push(`servono ${need.factories} fabbriche (ne hai ${capacity.factories})`);
+  if ((need.ports || 0) > capacity.ports) reasons.push(`servono ${need.ports} cantieri o porti (ne hai ${capacity.ports})`);
+  if ((need.universities || 0) > capacity.universities) reasons.push(`servono ${need.universities} università (ne hai ${capacity.universities})`);
   for (const [kind, required] of Object.entries(need.resources || {})) {
     const available = capacity.endowment[kind as NaturalResourceKind] || 0;
-    if (available < (required || 0)) reasons.push(`risorsa insufficiente: ${NATURAL_RESOURCE_LABELS[kind as NaturalResourceKind]} (${available}/${required})`);
+    if (available < (required || 0)) reasons.push(`risorsa insufficiente: ${NATURAL_RESOURCE_LABELS[kind as NaturalResourceKind]} (hai ${available}, servono ${required})`);
   }
   return reasons;
 }
@@ -354,6 +560,36 @@ export function procurementOption(equipment: Equipment, capacity: NationCapacity
 
 /** Valore militare dell'arsenale: somma quantità × qualità × peso di dominio. */
 export const DOMAIN_WEIGHT: Record<Domain, number> = { terra: 1, aria: 2.2, mare: 2.4, missili: 3, droni: 1.6 };
+
+/**
+ * I cinque domini militari spiegati: cosa coprono e quanto pesano nella forza
+ * dell'arsenale. Serve a rendere leggibile il numero `strength` (quantità ×
+ * qualità × peso) e a capire cosa si sta comprando.
+ */
+export interface DomainInfo {
+  label: string;
+  weight: number;
+  description: string;
+}
+
+export const DOMAIN_INFO: Record<Domain, DomainInfo> = {
+  terra: { label: 'Forze di terra', weight: DOMAIN_WEIGHT.terra, description: 'Fanteria, corazzati, artiglieria e difesa aerea: tengono il terreno e lo conquistano.' },
+  aria: { label: 'Aeronautica', weight: DOMAIN_WEIGHT.aria, description: 'Caccia, bombardieri, trasporti e radar volanti: conquistano il cielo e colpiscono in profondità.' },
+  mare: { label: 'Marina', weight: DOMAIN_WEIGHT.mare, description: 'Pattugliatori, fregate, sommergibili e portaerei: controllano le rotte e proiettano forza oltremare.' },
+  missili: { label: 'Missili', weight: DOMAIN_WEIGHT.missili, description: 'Balistici, da crociera, antinave e ipersonici: colpiscono a distanza senza rischio per gli equipaggi.' },
+  droni: { label: 'Droni', weight: DOMAIN_WEIGHT.droni, description: 'Ricognizione, attacco, munizioni vaganti e sciami: pressione continua a costo contenuto.' },
+};
+
+/**
+ * Contributo di una singola voce alla forza dell'arsenale:
+ * `quantità × qualità × peso del dominio / 100`. È la stessa formula di
+ * `arsenalStrength`, esposta per riga perché il numero sia interpretabile.
+ */
+export function equipmentStrength(id: string, quantity: number): number {
+  const equipment = equipmentById(id);
+  if (!equipment || !Number.isFinite(quantity) || quantity <= 0) return 0;
+  return Math.round(quantity * equipment.quality * DOMAIN_WEIGHT[equipment.domain]) / 100;
+}
 
 export function arsenalStrength(units: Record<string, number>): number {
   let total = 0;

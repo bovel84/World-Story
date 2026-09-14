@@ -1956,7 +1956,38 @@ html, body { margin: 0; }
 .arms-list span { color: #afbad0; font-size: 12px; }
 .arms-line-meta { display: flex; align-items: center; gap: 10px; }
 .arms-line-meta em { color: #f0edff; font-style: normal; font-variant-numeric: tabular-nums; }
-.arms-tier { font-size: 11px; text-transform: capitalize; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.15); }
+/* Scheda dell'arsenale: non più una riga sola ma un blocco con che cos'è. */
+.arms-list li.arms-line-card { display: flex; flex-direction: column; gap: 6px; }
+.arms-line-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.arms-line-role { margin: 0; color: #cfc8e8; font: 600 12.5px/1.4 system-ui, sans-serif; }
+.arms-line-desc { margin: 0; color: #a9b6cc; font: 400 12px/1.5 system-ui, sans-serif; }
+.arms-line-share { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+.arms-line-share span { color: #9fd8bf; font: 600 11.5px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.arms-line-share i { display: block; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.arms-line-share em { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #7a60d0, #8fd8b6); }
+
+/* Caratteristiche tecniche: etichetta sopra, valore sotto (tabellare). */
+.arms-specs { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px 12px; margin: 4px 0 0; }
+.arms-specs div { display: flex; flex-direction: column; gap: 1px; padding: 5px 8px; border-left: 2px solid rgba(120, 96, 208, 0.5); background: rgba(255, 255, 255, 0.03); }
+.arms-specs dt { color: #8f9db5; font: 700 10px/1.2 system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.05em; }
+.arms-specs dd { margin: 0; color: #e6eaff; font: 500 12px/1.3 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+
+/* Legenda: come si legge l'arsenale. */
+.arms-legend { display: flex; flex-direction: column; gap: 6px; }
+.arms-legend p { margin: 0; color: #b9c4d8; font: 12.5px/1.5 system-ui, sans-serif; }
+.arms-legend b { color: #e6eaff; }
+.arms-legend i { color: #c8bdf0; font-style: normal; font-variant-numeric: tabular-nums; }
+.arms-domains { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; list-style: none; margin: 4px 0 0; padding: 0; }
+.arms-domains li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid rgba(120, 96, 208, 0.3); border-radius: 10px; background: rgba(120, 96, 208, 0.07); }
+.arms-domains b { color: #f0edff; font-size: 12.5px; }
+.arms-domains span { color: #c8bdf0; font-size: 11px; font-variant-numeric: tabular-nums; }
+.arms-domains em { color: #9aa6bd; font-size: 11px; font-style: normal; line-height: 1.4; }
+.arms-item-role { margin: 3px 0 0; color: #cfc8e8; font: 600 12px/1.4 system-ui, sans-serif; }
+.arms-item-details { margin-top: 5px; }
+.arms-item-details summary { color: #a99af0; font: 600 11.5px/1.4 system-ui, sans-serif; cursor: pointer; }
+.arms-item-details summary:focus-visible { outline: 2px solid #a58df8; outline-offset: 2px; }
+.arms-item-details p { margin: 5px 0 0; color: #a9b6cc; font: 400 12px/1.5 system-ui, sans-serif; }
+.arms-tier { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.15); }
 .arms-tier.tone-positive { color: #8fd8b6; border-color: rgba(90, 170, 140, 0.5); }
 .arms-tier.tone-warning { color: #f0c778; border-color: rgba(224, 168, 80, 0.5); }
 .arms-tier.tone-negative { color: #f09a9a; border-color: rgba(224, 110, 110, 0.5); }

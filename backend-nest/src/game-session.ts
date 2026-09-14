@@ -28,7 +28,7 @@ import {
   applyStockEffects, decayModifiers, describeNationalEffects, hasModifiers, parseNationalEffects,
   type NationalEffect, type NationalModifiers,
 } from './core/simulation/NationalEffects';
-import { arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, combatAttrition, describeArsenal, describeEndowment, equipmentById, EQUIPMENT_CATALOG, NATURAL_RESOURCE_KINDS, naturalResourcesFor, procurementOption, type NationCapacity, type NaturalEndowment, type NaturalResourceKind } from './core/simulation/MilitaryIndustry';
+import { arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, combatAttrition, describeArsenal, describeEndowment, DOMAIN_INFO, equipmentById, equipmentStrength, EQUIPMENT_CATALOG, NATURAL_RESOURCE_KINDS, naturalResourcesFor, procurementOption, type NationCapacity, type NaturalEndowment, type NaturalResourceKind } from './core/simulation/MilitaryIndustry';
 import {
   advanceLedger, applyGlobalExtraction, describeLedger, effectiveEndowment, emptyMarket, executeTrade,
   marketQuote, seedLedger, seedMarket, summarizeLedger, tradePressureDelta,
@@ -975,10 +975,22 @@ export class GameSession {
       id: line.equipment.id,
       name: line.equipment.name,
       domain: line.equipment.domain,
+      domainLabel: DOMAIN_INFO[line.equipment.domain].label,
       category: line.equipment.category,
       quality: line.equipment.quality,
       tier: line.equipment.tier,
       quantity: line.quantity,
+      // Che cos'è: scheda descrittiva statica + contributo alla forza.
+      role: line.equipment.role,
+      description: line.equipment.description,
+      specs: line.equipment.specs,
+      strength: equipmentStrength(line.equipment.id, line.quantity),
+    }));
+    const totalStrength = arsenalStrength(units);
+    const enrichedLines = lines.map(line => ({
+      ...line,
+      // Quanto pesa questa voce sul totale: rende leggibile il «×37».
+      sharePct: totalStrength > 0 ? Math.round((line.strength / totalStrength) * 1000) / 10 : 0,
     }));
     const catalog = EQUIPMENT_CATALOG.map(equipment => {
       const option = procurementOption(equipment, capacity);
@@ -995,12 +1007,15 @@ export class GameSession {
     return {
       polityId,
       units,
-      strength: arsenalStrength(units),
+      strength: totalStrength,
       qualityIndex: arsenalQualityIndex(units),
       combatFactor,
       baseMilitaryPower: Math.round(Number(account?.militaryPower || 0)),
       effectiveMilitaryPower: Math.round(Number(account?.militaryPower || 0) * combatFactor * 10) / 10,
-      lines,
+      lines: enrichedLines,
+      /** Legenda dei domini: cosa sono e quanto pesano nella forza. */
+      domains: (Object.keys(DOMAIN_INFO) as Array<keyof typeof DOMAIN_INFO>)
+        .map(domain => ({ domain, ...DOMAIN_INFO[domain] })),
       naturalResources: endowment,
       naturalResourcesText: describeEndowment(endowment),
       debt: Math.round(debtOf(this.resourceStock(polityId)) * 100) / 100,

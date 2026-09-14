@@ -19,12 +19,31 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
+/** Caratteristica tecnica di un equipaggiamento (lettura, non calcolo). */
+export interface EquipmentSpec { label: string; value: string; }
+
 /** Voce del catalogo militare pubblicata dal motore (con fattibilità). */
 export interface ArsenalCatalogItem {
   id: string; name: string; domain: string; category: string;
-  quality: number; tier: string; costMln: number; weaponsCost: number; notes: string;
+  quality: number; tier: string; costMln: number; weaponsCost: number;
+  /** Che cos'è: ruolo operativo, descrizione estesa e caratteristiche. */
+  role: string; description: string; specs: EquipmentSpec[];
   canBuild: boolean; canBuy: boolean; buildCostMln: number; buyCostMln: number; reasons: string[];
 }
+
+/** Riga dell'arsenale in servizio, con scheda e contributo alla forza. */
+export interface ArsenalLine {
+  id: string; name: string; domain: string; domainLabel: string; category: string;
+  quality: number; tier: string; quantity: number;
+  role: string; description: string; specs: EquipmentSpec[];
+  /** Contributo alla forza dell'arsenale (quantità × qualità × peso dominio). */
+  strength: number;
+  /** Quota percentuale di questa voce sulla forza totale. */
+  sharePct: number;
+}
+
+/** Legenda di un dominio militare: cosa copre e quanto pesa. */
+export interface DomainInfo { domain: string; label: string; weight: number; description: string; }
 
 /** Ordine di produzione militare con percentuale di completamento. */
 export interface ProductionOrder {
@@ -52,9 +71,11 @@ export interface ArsenalResponse {
   combatFactor: number;
   baseMilitaryPower: number;
   effectiveMilitaryPower: number;
-  lines: Array<{ id: string; name: string; domain: string; category: string; quality: number; tier: string; quantity: number }>;
+  lines: ArsenalLine[];
   naturalResources: Record<string, number>;
   naturalResourcesText: string;
+  /** Legenda dei domini militari: cosa sono e quanto pesano nella forza. */
+  domains: DomainInfo[];
   /** Debito pubblico (mld USD) e tetto di credito. */
   debt: number;
   creditLimit: number;

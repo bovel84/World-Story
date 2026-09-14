@@ -82,6 +82,28 @@ describe('arsenale e procurement', () => {
     // L'esercito di partenza (level 4) riceve armi individuali e trasporti.
     expect(arsenal.units.fucili).toBeGreaterThan(0);
     expect(arsenal.lines.some((line: any) => line.domain === 'terra')).toBe(true);
+    // Ogni riga dice *che cos'è* il mezzo, non solo quanti ce ne sono.
+    const first = arsenal.lines[0] as any;
+    expect(first.role).toBeTruthy();
+    expect(first.description.length).toBeGreaterThan(60);
+    expect(first.specs.length).toBeGreaterThanOrEqual(3);
+    expect(first.specs[0].label).toBeTruthy();
+    expect(first.domainLabel).toBeTruthy();
+    expect(first.strength).toBeGreaterThan(0);
+    // Le quote sommano a circa 100% e spiegano il «×N».
+    const share = arsenal.lines.reduce((total: number, line: any) => total + line.sharePct, 0);
+    expect(Math.round(share)).toBeGreaterThan(95);
+    expect(Math.round(share)).toBeLessThan(105);
+    // La legenda dei domini accompagna la forza dell'arsenale.
+    expect(arsenal.domains.map((domain: any) => domain.domain)).toEqual(['terra', 'aria', 'mare', 'missili', 'droni']);
+    expect(arsenal.domains.find((domain: any) => domain.domain === 'missili').weight).toBeGreaterThan(
+      arsenal.domains.find((domain: any) => domain.domain === 'terra').weight,
+    );
+    // Anche il catalogo porta la scheda descrittiva.
+    const caccia = arsenal.catalog.find((item: any) => item.id === 'caccia_5') as any;
+    expect(caccia.role).toBeTruthy();
+    expect(caccia.description.length).toBeGreaterThan(60);
+    expect(caccia.specs.length).toBeGreaterThanOrEqual(3);
     const ids = arsenal.catalog.map((item: any) => item.id);
     expect(ids).toContain('carri_4');
     expect(ids).toContain('caccia_5');
