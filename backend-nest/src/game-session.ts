@@ -4561,6 +4561,17 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     const knownIds = new Set(actions.map(action => action.id));
     const converted = convertedActions || [];
 
+    // Avanzamento del solo mondo (nessun ordine nel lotto): un esito emesso
+    // dal provider non è attribuibile ad alcun ordine e non può mutare nulla.
+    // Ignorarlo evita che una riga spuria faccia fallire un turno world-only,
+    // mentre senza ordini reali il fail-closed non protegge niente.
+    if (actions.length === 0) {
+      if ((outcomes || []).length > 0) {
+        console.warn('[GameSession] outcomesByActionId: ignorati', outcomes!.length, 'esiti senza ordini nel lotto');
+      }
+      return result;
+    }
+
     for (const outcome of outcomes || []) {
       let actionId = outcome.actionId;
       if (!actionId) {

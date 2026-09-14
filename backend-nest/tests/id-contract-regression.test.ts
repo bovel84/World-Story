@@ -127,6 +127,36 @@ describe('C01 — esiti associati mediante actionId', () => {
     ]));
   });
 
+  it('avanza il solo mondo anche se il provider emette un esito spurio senza ordini', async () => {
+    const provider = {
+      consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
+      async generate(mechanic: string) {
+        if (mechanic === 'converter') return { content: JSON.stringify({ type: 'action', text: 'irrilevante' }) };
+        return { content: JSON.stringify({ type: 'develop', description: '', priority: 1 }) };
+      },
+      async stream(mechanic: string, _system: string, _user: string, onToken: (count: number) => void) {
+        if (mechanic !== 'jump') throw new Error(`Unexpected streamed mechanic: ${mechanic}`);
+        const content = JSON.stringify({
+          events: [{ headline: 'Il mondo procede', description: 'Nessun ordine del giocatore.', date: '1951-01-02', mapChanges: [] }],
+          narration: 'Il mondo procede senza interventi del governo.',
+          // Riga spuria: nessun ordine nel lotto, quindi non è attribuibile.
+          actionOutcomes: [{ actionId: 'azione-mai-esistita', status: 'accepted', summary: 'Fantasma' }],
+          voided: [], startChat: [], relationshipChanges: [], worldChanges: { regionOwners: {}, regionColors: {} },
+        });
+        onToken(content.length);
+        return { content };
+      },
+      clearCache() {},
+    };
+    initSessionRegistry(provider as any);
+    const { session } = getSessionRegistry().createSession(WORLD_ID, 'Player', `${WORLD_ID}-A`);
+    expect(session.getPendingActions()).toHaveLength(0);
+
+    const result = await session.processWorldAdvance(2);
+    expect(result).toMatchObject({ narration: expect.stringContaining('mondo procede') });
+    expect(session.getPendingActions()).toHaveLength(0);
+  });
+
   it('C07: include projectId e sourceActionId nel contesto dei processi', () => {
     const variables = new PromptBuilder({
       id: 'prompt-project-fixture', currentDate: '1951-01-01', currentTurn: 1,
