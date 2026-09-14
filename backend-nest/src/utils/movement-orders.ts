@@ -1,7 +1,13 @@
 import { normalizeName } from './name-resolver';
 
-export const UNIT_TYPES = new Set(['battalion', 'army', 'fleet', 'missile']);
+/**
+ * Formazioni realmente spostabili. Include `mobilization`: un reparto in
+ * formazione è già sul terreno e può essere trasferito (con l'equipaggiamento
+ * disponibile), non è una semplice intenzione.
+ */
+export const UNIT_TYPES = new Set(['battalion', 'army', 'fleet', 'missile', 'mobilization']);
 
+interface MovementObject { type?: string; name?: string; metadata?: Record<string, any> | null }
 interface MovementRegion {
   id: string;
   name: string;
@@ -9,12 +15,41 @@ interface MovementRegion {
   objects: any[];
 }
 
+/** Tipo operativo effettivo: una mobilitazione conta come il reparto previsto. */
+export function unitEffectiveType(object: MovementObject): string {
+  if (object?.type === 'mobilization') {
+    const planned = object.metadata?.plannedType;
+    return typeof planned === 'string' && planned ? planned : 'battalion';
+  }
+  return String(object?.type || '');
+}
+
+/** Il modello chiede `battalion` e l'unità è una mobilitazione pianificata come tale. */
+export function unitMatchesType(object: MovementObject, requested?: string): boolean {
+  if (!requested) return true;
+  if (object?.type === requested) return true;
+  return unitEffectiveType(object) === requested;
+}
+
+/** Prefisso di token distintivo dell'unità presente nell'ordine ("3 battaglione"). */
+export function unitNameMatchesPrefix(orderName: string, unitName: string): boolean {
+  const order = normalizeName(orderName);
+  const unit = normalizeName(unitName);
+  if (!order || !unit) return false;
+  if (unit === order || unit.startsWith(`${order} `)) return true;
+  const orderTokens = order.split(' ').filter(Boolean);
+  const unitTokens = unit.split(' ').filter(Boolean);
+  if (orderTokens.length < 2 || unitTokens.length < 2) return false;
+  const prefix = orderTokens.join(' ');
+  return unitTokens.join(' ').startsWith(`${prefix} `);
+}
+
 /** Serializable, pre-event intent: never discover newly spawned replacements at completion. */
 export interface MovementIntent {
   actionId: string;
   unitId: string;
   unitName: string;
-  unitType: 'battalion' | 'army' | 'fleet' | 'missile';
+  unitType: string;
   originId: string;
   targetId: string;
   fingerprint: string;
@@ -31,8 +66,36 @@ export function exactMovementRegion<T extends MovementRegion>(regions: T[], key?
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-interface Mention<T> { value: T; start: number; end: number }
-function mentions<T>(text: string, values: T[], name: (value: T) => string): Mention<T>[] {
+/**
+ * Destinazione di un movimento: id esatto, nome esatto, poi prefisso/inclusione
+ * **solo se univoci**, infine una città/porto con quel nome dentro una sola
+ * provincia. Mai "random"/direzioni: un marker materiale non va inventato.
+ */
+export function resolveMovementRegion<T extends MovementRegion>(regions: T[], key?: string): T | undefined {
+  const exact = exactMovementRegion(regions, key);
+  if (exact) return exact;
+  if (!key) return undefined;
+  const needle = normalizeName(key);
+  if (!needle) return undefined;
+  const prefix = regions.filter(region => {
+    const name = normalizeName(region.name);
+    // Solo troncamento ("Поль" → "Польша"): mai accettare un nome con token
+    // aggiuntivi non verificabili ("Italia orientale").
+    return name.startsWith(needle);
+  });
+  if (prefix.length === 1) return prefix[0];
+  const contained = regions.filter(region => {
+    const name = normalizeName(region.name);
+    return name.includes(needle);
+  });
+  if (contained.length === 1) return contained[0];
+  const byObject = regions.filter(region => (region.objects || [])
+    .some((object: MovementObject) => normalizeName(object.name || '') === needle));
+  return byObject.length === 1 ? byObject[0] : undefined;
+}
+
+interface Mention<T> { value: T; start: number; end: number; exact: boolean }
+function mentions<T>(text: string, values: T[], name: (value: T) => string, exact = true): Mention<T>[] {
   const found: Mention<T>[] = [];
   for (const value of values) {
     const needle = normalizeName(name(value) || '');
@@ -41,7 +104,7 @@ function mentions<T>(text: string, values: T[], name: (value: T) => string): Men
     while (start >= 0) {
       const end = start + needle.length;
       if ((start === 0 || text[start - 1] === ' ') && (end === text.length || text[end] === ' ')) {
-        found.push({ value, start, end });
+        found.push({ value, start, end, exact });
       }
       start = text.indexOf(needle, start + 1);
     }
@@ -50,6 +113,81 @@ function mentions<T>(text: string, values: T[], name: (value: T) => string): Men
   // also select a second province when the order explicitly names "Roma Nord".
   return found.filter(item => !found.some(other => other.start <= item.start && other.end >= item.end
     && (other.start < item.start || other.end > item.end)));
+}
+
+type UnitRef = { region: MovementRegion; object: any };
+/** Menzione dell'unità: nome pieno oppure prefisso di token univoco ("3 battaglione"). */
+function unitMentions(folded: string, units: UnitRef[]): Mention<UnitRef>[] {
+  const found = [...mentions(folded, units, unit => unit.object.name, true)];
+  for (const unit of units) {
+    const tokens = normalizeName(unit.object.name || '').split(' ').filter(Boolean);
+    if (tokens.length < 2) continue;
+    let span: { start: number; end: number } | null = null;
+    for (let length = Math.min(tokens.length, 5); length >= 2; length--) {
+      const needle = tokens.slice(0, length).join(' ');
+      const start = folded.indexOf(needle);
+      if (start < 0) continue;
+      const end = start + needle.length;
+      if ((start === 0 || folded[start - 1] === ' ') && (end === folded.length || folded[end] === ' ')) {
+        span = { start, end };
+        break;
+      }
+    }
+    if (span) found.push({ value: unit, ...span, exact: false });
+  }
+  const merged = new Map<string, Mention<UnitRef>>();
+  for (const item of found) {
+    const key = item.value.object.id || item.value.object.name;
+    const previous = merged.get(key);
+    // Prefer the longest span; an exact full-name win is recorded as exact.
+    if (!previous || (item.end - item.start) > (previous.end - previous.start)) merged.set(key, item);
+  }
+  return [...merged.values()];
+}
+
+/**
+ * Menzione di regione tollerante al troncamento: "gwanda" identifica
+ * "Gwanda ZWE" se il prefisso è univoco. Mai quando l'ordine aggiunge token
+ * non verificabili ("Italia orientale").
+ */
+function regionMentions(folded: string, regions: MovementRegion[]): Mention<MovementRegion>[] {
+  const found = [...mentions(folded, regions, region => region.name, true)];
+  for (const region of regions) {
+    const tokens = normalizeName(region.name).split(' ').filter(Boolean);
+    if (tokens.length < 2) continue;
+    for (let length = tokens.length - 1; length >= 1; length--) {
+      const needle = tokens.slice(0, length).join(' ');
+      const start = folded.indexOf(needle);
+      if (start < 0) continue;
+      const end = start + needle.length;
+      if ((start === 0 || folded[start - 1] === ' ') && (end === folded.length || folded[end] === ' ')) {
+        // Il prefisso deve identificare UNA sola regione al mondo.
+        const matches = regions.filter(other => {
+          const name = normalizeName(other.name);
+          return name === needle || name.startsWith(`${needle} `);
+        });
+        if (matches.length === 1) found.push({ value: region, start, end, exact: false });
+        break;
+      }
+    }
+  }
+  const merged = new Map<string, Mention<MovementRegion>>();
+  for (const item of found) {
+    const previous = merged.get(item.value.id);
+    if (!previous || (item.end - item.start) > (previous.end - previous.start)) merged.set(item.value.id, item);
+  }
+  return [...merged.values()];
+}
+
+const GENERIC_UNIT_TYPES: Array<[RegExp, string | null]> = [
+  [/^battaglion/, 'battalion'], [/^armat/, 'army'], [/^esercit/, 'army'],
+  [/^flott/, 'fleet'], [/^missil/, 'missile'], [/^trupp/, null], [/^unita$/, null],
+];
+function genericUnitType(folded: string): string | null | undefined {
+  for (const word of folded.split(' ')) {
+    for (const [pattern, type] of GENERIC_UNIT_TYPES) if (pattern.test(word)) return type;
+  }
+  return undefined;
 }
 
 /** Intentionally narrow: one unconditional destination, explicit units or all troops from one origin. */
@@ -68,12 +206,13 @@ export function parseMovementOrder(
   const units = regions.flatMap(region => (region.objects || [])
     .filter(object => UNIT_TYPES.has(object.type))
     .map(object => ({ region, object })));
-  const named = mentions(folded, units, unit => unit.object.name);
+  const named = unitMentions(folded, units);
   // Region names inside unit names are not destinations.
-  const places = mentions(folded, regions, region => region.name)
+  const places = regionMentions(folded, regions)
     .filter(place => !named.some(unit => unit.start <= place.start && unit.end >= place.end));
-  const sources = places.filter(place => /(?:^| )(?:da|dal|dalla|dallo|dalle|dai|dagli|dall|from) (?:regione |provincia )?$/.test(folded.slice(0, place.start)));
-  const destinations = places.filter(place => /(?:^| )(?:a|ad|al|alla|allo|alle|ai|agli|all|in|nel|nella|nelle|nell|verso|su|contro|to|into|toward|towards) (?:regione |provincia )?$/.test(folded.slice(0, place.start)));
+  const article = '(?:il |lo |la |le |gli |i |l\u2019|l\u0027)?';
+  const sources = places.filter(place => new RegExp(`(?:^| )(?:da|dal|dalla|dallo|dalle|dai|dagli|dall|from) (?:regione |provincia )?${article}$`).test(folded.slice(0, place.start)));
+  const destinations = places.filter(place => new RegExp(`(?:^| )(?:a|ad|al|alla|allo|alle|ai|agli|all|in|nel|nella|nelle|nell|verso|su|contro|to|into|toward|towards) (?:regione |provincia )?${article}$`).test(folded.slice(0, place.start)));
   // Every mentioned province must have an explicit role. No "last mention wins".
   if (places.some(place => !sources.includes(place) && !destinations.includes(place))) return [];
   const targets = new Set(destinations.map(place => place.value.id));
@@ -89,18 +228,32 @@ export function parseMovementOrder(
   for (const mention of [...named, ...places]) {
     for (let i = mention.start; i < mention.end; i++) masked[i] = ' ';
   }
-  const connective = /^(?:ordina\w*|ordin\w*|di|a|ad|al|alla|allo|alle|ai|agli|all|da|dal|dalla|dallo|dalle|dai|dagli|dall|in|nel|nella|nelle|nell|verso|su|contro|fino|e|ed|il|lo|la|le|gli|i|l|un|una|unit|unita|truppe|battaglioni|armate|eserciti|flotte|missili|tutte|tutti|regione|provincia|immediatamente|subito|ora|from|to|into|toward|towards|all|the|troops|units|and|please)$/;
+  const connective = /^(?:ordina\w*|ordin\w*|di|a|ad|al|alla|allo|alle|ai|agli|all|da|dal|dalla|dallo|dalle|dai|dagli|dall|in|nel|nella|nelle|nell|verso|su|contro|fino|e|ed|il|lo|la|le|gli|i|l|un|una|unit|unita|truppe|battaglioni|battaglione|armate|armata|eserciti|esercito|flotte|flotta|missili|missile|tutte|tutti|regione|provincia|immediatamente|subito|ora|from|to|into|toward|towards|all|the|troops|units|and|please)$/;
   if (masked.join('').trim().split(/\s+/).some(word => !movementVerb.test(word) && !connective.test(word))) return [];
   const collective = /\b(?:tutte le truppe|tutte le unit(?:a)?|tutti i battaglioni|tutti gli eserciti|all (?:the )?(?:troops|units))\b/.test(folded);
-  let selected = [...new Set(named.map(item => item.value))];
+  let selected = [...new Map(named.map(item => [item.value.object.id || item.value.object.name, item.value])).values()];
   if (collective) {
     if (origins.size !== 1 || named.length > 0) return [];
     selected = units.filter(unit => unit.region.id === [...origins][0]
       && (unit.object.owner || unit.region.owner) === playerId);
-    if (/\btutti i battaglioni\b/.test(folded)) selected = selected.filter(unit => unit.object.type === 'battalion');
-    if (/\btutti gli eserciti\b/.test(folded)) selected = selected.filter(unit => unit.object.type === 'army');
+    if (/\btutti i battaglioni\b/.test(folded)) selected = selected.filter(unit => unitEffectiveType(unit.object) === 'battalion');
+    if (/\btutti gli eserciti\b/.test(folded)) selected = selected.filter(unit => unitEffectiveType(unit.object) === 'army');
+  } else if (!selected.length) {
+    // Riferimento generico ("il battaglione", "l'esercito"): ammesso solo se
+    // identifica UNA sola formazione del giocatore (all'origine, o nel mondo).
+    const requested = genericUnitType(folded);
+    if (requested === undefined) return [];
+    const pool = units.filter(unit => (unit.object.owner || unit.region.owner) === playerId
+      && (requested === null || unitEffectiveType(unit.object) === requested));
+    const scoped = origins.size === 1 ? pool.filter(unit => unit.region.id === [...origins][0]) : pool;
+    if (scoped.length === 1) selected = [scoped[0]];
+    else if (pool.length === 1) selected = [pool[0]];
+    else return [];
   } else {
-    if (!selected.length) return [];
+    // A short reference ("3 battaglione") must identify exactly one formation;
+    // only full, unambiguous names may move several units in one order.
+    const tolerant = named.some(item => !item.exact);
+    if (tolerant && selected.length > 1) return [];
     // Do not pick between same-name formations (including hostile formations).
     if (selected.some(unit => units.filter(other => normalizeName(other.object.name || '') === normalizeName(unit.object.name || '')).length !== 1)) return [];
   }
@@ -108,6 +261,6 @@ export function parseMovementOrder(
   if (origins.size && selected.some(unit => unit.region.id !== [...origins][0] && unit.region.id !== targetId)) return [];
   return selected.filter(unit => typeof unit.object.id === 'string' && unit.object.id
     && units.filter(other => other.object.id === unit.object.id).length === 1)
-    .map(unit => ({ actionId, unitId: unit.object.id, unitName: unit.object.name, unitType: unit.object.type,
+    .map(unit => ({ actionId, unitId: unit.object.id, unitName: unit.object.name, unitType: unitEffectiveType(unit.object),
       originId: unit.region.id, targetId, fingerprint: JSON.stringify(unit.object) }));
 }

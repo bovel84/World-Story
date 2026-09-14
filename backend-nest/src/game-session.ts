@@ -32,7 +32,7 @@ import { refreshMandateStockDecisions } from './services/MandateDecisionService'
 import { withinDeadline } from './core/simulation/deadline';
 import { canNpcCapture, indexPolities, npcRepresentatives } from './core/simulation/npc-policy';
 import { normalizeName, RegionResolver, PolityResolver } from './utils/name-resolver';
-import { exactMovementRegion, MovementIntent, parseMovementOrder, UNIT_TYPES } from './utils/movement-orders';
+import { exactMovementRegion, MovementIntent, parseMovementOrder, resolveMovementRegion, UNIT_TYPES, unitMatchesType, unitNameMatchesPrefix } from './utils/movement-orders';
 import { colorForPolity, normalizeHexColor } from './utils/color';
 import path from 'path';
 import { loadSimulationCatalog } from './scenario/loader';
@@ -2770,32 +2770,51 @@ export class GameSession {
   private applyUnitChange(change: MapChange, movedDate: string): RegionState[] {
     const feature = change.feature;
     const name = feature?.name ? normalizeName(feature.name) : '';
-    const type = change.type === 'move_battalion' ? 'battalion' : feature?.type;
-    if (type && !UNIT_TYPES.has(type)) return [];
+    const requestedType = change.type === 'move_battalion' ? 'battalion' : feature?.type;
+    if (requestedType && !UNIT_TYPES.has(requestedType)) return [];
     const regions = [...this.regions.values()];
-    const origin = exactMovementRegion(regions, change.regionId || change.regionName);
-    const candidates = regions.flatMap(region => (region.objects || [])
-      .filter(unit => UNIT_TYPES.has(unit.type) && (!type || unit.type === type)
-        && (feature?.id ? unit.id === feature.id : !!name && normalizeName(unit.name || '') === name))
+    const origin = resolveMovementRegion(regions, change.regionId || change.regionName);
+    const movable = regions.flatMap(region => (region.objects || [])
+      .filter(unit => UNIT_TYPES.has(unit.type))
       .map(unit => ({ region, unit })));
+    const allowed = movable.filter(candidate => unitMatchesType(candidate.unit, requestedType));
+    let candidates = feature?.id
+      ? allowed.filter(candidate => candidate.unit.id === feature.id)
+      : name ? allowed.filter(candidate => normalizeName(candidate.unit.name || '') === name) : [];
+    // Il modello cita spesso il nome breve («3° Battaglione») di un reparto con
+    // nome lungo: accettiamo un prefisso distintivo solo se identifica UNA unità.
+    if (candidates.length === 0 && !feature?.id && name) {
+      const tolerant = allowed.filter(candidate => unitNameMatchesPrefix(feature!.name!, candidate.unit.name || ''));
+      if (tolerant.length === 1) candidates = tolerant;
+    }
     // The legacy unnamed command is safe only with one battalion at an exact origin.
     if (!feature?.id && !name && change.type === 'move_battalion' && origin) {
       candidates.push(...(origin.objects || []).filter(unit => unit.type === 'battalion')
         .map(unit => ({ region: origin, unit })));
     }
-    if (candidates.length !== 1) return [];
+    if (candidates.length !== 1) {
+      if (change.type === 'move_unit' || change.type === 'move_battalion' || change.type === 'remove_unit') {
+        console.warn('[GameSession]', change.type, 'non applicato: unità non identificata in modo univoco',
+          { nome: feature?.name, id: feature?.id, tipo: requestedType, candidati: candidates.length });
+      }
+      return [];
+    }
     const { region: source, unit } = candidates[0];
     if (change.type === 'remove_unit') {
       source.objects = source.objects.filter(object => object !== unit);
       return [source];
     }
-    const target = exactMovementRegion(regions, change.targetRegionName);
-    if (!target || target.status === 'destroyed' || source.id === target.id) return [];
+    const target = resolveMovementRegion(regions, change.targetRegionName);
+    if (!target || target.status === 'destroyed' || source.id === target.id) {
+      console.warn('[GameSession]', change.type, 'non applicato: destinazione non risolta',
+        { destinazione: change.targetRegionName, origine: source.name, unità: unit.name });
+      return [];
+    }
     const center = this.regionCenter(target);
     if (!center) return [];
     const previous = this.regionCenter(source);
     unit.metadata = {
-      ...(unit.metadata || {}), status: 'operational', movedDate,
+      ...(unit.metadata || {}), status: unit.metadata?.status || 'operational', movedDate,
       previousRegionId: source.id, previousRegionName: source.name,
       previousLng: Number.isFinite(unit.lng) ? unit.lng : previous?.lng,
       previousLat: Number.isFinite(unit.lat) ? unit.lat : previous?.lat,
@@ -2854,7 +2873,7 @@ export class GameSession {
         || JSON.stringify(unit) !== intent.fingerprint) continue;
       const touched = this.applyMapChanges([{
         type: 'move_unit', regionId: origin.id, targetRegionName: target.id,
-        feature: { type: intent.unitType, id: intent.unitId, name: intent.unitName },
+        feature: { type: intent.unitType as any, id: intent.unitId, name: intent.unitName },
       }], movedDate);
       for (const region of touched) changed.set(region.id, region);
     }

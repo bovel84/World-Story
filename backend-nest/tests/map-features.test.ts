@@ -502,10 +502,24 @@ describe('movement order regressions', () => {
     expect(saved.objects.find((o: any) => o.id === unit.id)).toEqual(unit);
   });
 
-  it.each(['random', 'coastal', 'Поль', 'Польша sconosciuta'])('never guesses a destination from %s', targetRegionName => {
+  it.each(['random', 'coastal', 'Польша sconosciuta'])('never guesses a destination from %s', targetRegionName => {
     const { session, source, unit, move } = fixture();
     expect(session.applyMapChanges([move({ targetRegionName })])).toEqual([]);
     expect(source.objects).toContain(unit);
+  });
+
+  it('risolve un troncamento univoco ma rifiuta un prefisso ambiguo', () => {
+    const { session, source, target, intermediate, unit, move, add } = fixture();
+    // "Поль" è un troncamento univoco di Польша: si risolve.
+    expect(session.applyMapChanges([move({ targetRegionName: 'Поль' })]).map((r: any) => r.id)).toEqual([source.id, target.id]);
+    // Con due province che condividono il prefisso non si indovina più.
+    intermediate.name = 'Польша Nord';
+    const second = add('army-b', 'II Armata', source);
+    expect(session.applyMapChanges([move({
+      feature: { type: 'army', name: 'II Armata', id: 'army-b' }, targetRegionName: 'Поль',
+    })])).toEqual([]);
+    expect(source.objects).toContain(second);
+    expect(unit).toBeDefined();
   });
 
   it('rejects ambiguous region names, unit names and duplicate IDs', () => {
@@ -561,8 +575,49 @@ describe('movement order regressions', () => {
     reconcile('Sposta tutte le truppe da ФРГ a Польша');
     expect(target.objects).toContain(legacy);
     expect(legacy.owner).toBe('DEU');
-    expect(source.objects).toEqual(expect.arrayContaining([enemy, facility, forming]));
+    // Anche una formazione in costituzione è una truppa: si sposta col resto.
+    expect(target.objects).toContain(forming);
+    expect(source.objects).toEqual(expect.arrayContaining([enemy, facility]));
     expect(reconcile('Sposta Nemici da ФРГ a Польша')).toEqual([]);
+  });
+
+  it('esegue l\'ordine reale: nome generico del reparto e regione citata tronca', () => {
+    const { session, source, intermediate, add, reconcile } = fixture();
+    source.name = 'Francistown';
+    intermediate.name = 'Gwanda ZWE';
+    const forming = add('mob-3', '3° Battaglione di Fanteria di Francistown', source, 'DEU', 'mobilization');
+    forming.metadata = { plannedType: 'battalion', status: 'forming' };
+    const action = { id: 'ord', text: 'sposta il battaglione verso il gwanda' };
+    const changed = session.reconcileAcceptedMoves([action], [{ actionId: 'ord', status: 'accepted' }]);
+    expect(changed.map((r: any) => r.id).sort()).toEqual([source.id, intermediate.id].sort());
+    expect(intermediate.objects.some((o: any) => o.id === 'mob-3')).toBe(true);
+    expect(source.objects.some((o: any) => o.id === 'mob-3')).toBe(false);
+  });
+
+  it('sposta una formazione in costituzione citata con il nome breve', () => {
+    const { session, source, target, intermediate, add } = fixture();
+    const forming = add('forming-3', '3° Battaglione di Fanteria di Francistown', source, 'DEU', 'mobilization');
+    forming.metadata = { ...forming.metadata, plannedType: 'battalion', status: 'forming' };
+    // Il modello cita un nome breve e una destinazione valida: il motore deve
+    // trovare l'unità e spostarla, non ignorarla.
+    session.applyMapChanges([{
+      type: 'move_unit', regionName: source.name, targetRegionName: intermediate.name,
+      feature: { type: 'battalion', name: '3° Battaglione' },
+    }], '1951-02-01');
+    expect(source.objects.some((o: any) => o.id === forming.id)).toBe(false);
+    expect(intermediate.objects.find((o: any) => o.id === forming.id)).toMatchObject({
+      type: 'mobilization', metadata: { plannedType: 'battalion', previousRegionId: source.id, movedDate: '1951-02-01' },
+    });
+  });
+
+  it('riconcilia un ordine accettato che cita il nome breve del reparto', () => {
+    const { session, source, target, add } = fixture();
+    const forming = add('forming-3b', '3° Battaglione di Fanteria di Francistown', source, 'DEU', 'mobilization');
+    forming.metadata = { ...forming.metadata, plannedType: 'battalion', status: 'forming' };
+    const action = { id: 'order-short', text: 'sposta il 3 battaglione verso ' + target.name };
+    const changed = session.reconcileAcceptedMoves([action], [{ actionId: action.id, status: 'accepted' }]);
+    expect(changed.map((r: any) => r.id).sort()).toEqual([source.id, target.id].sort());
+    expect(target.objects.some((o: any) => o.id === forming.id)).toBe(true);
   });
 
   it.each(['rejected', 'partial', 'pending', 'voided'])('does not execute %s outcomes', status => {
