@@ -36,6 +36,24 @@ const assessmentStore = new AssessmentStore<unknown>();
  * LLMError → 424 с понятным сообщением (провайдер/причина),
  * "not found" → 404, всё остальное → 500.
  */
+/** Errori di dominio deterministici: 400 con codice leggibile per la UI. */
+const TRADE_ERROR_CODES = [
+  'unknown_resource', 'resource_not_held', 'insufficient_stockpile',
+  'insufficient_money', 'quantity_invalid', 'trade_mode_invalid', 'trade_unavailable',
+];
+const PROCURE_ERROR_CODES = [
+  'equipment_unknown', 'equipment_quantity_invalid', 'build_unavailable', 'buy_unavailable',
+];
+function respondDomainError(res: any, e: any, codes: string[], fallback: string): void {
+  const message = typeof e?.message === 'string' ? e.message : '';
+  const code = codes.find(candidate => message.includes(candidate));
+  if (code) {
+    res.status(400).json({ error: message || code, code });
+    return;
+  }
+  respondRouteError(res, e, fallback);
+}
+
 function respondRouteError(res: any, e: any, fallback: string): void {
   if (e instanceof LLMError) {
     // I Quick Tunnel sostituiscono i 502 JSON con una pagina HTML generica.
@@ -232,7 +250,7 @@ gamesRouter.post('/:id/arsenal/:mode(build|buy)', (req, res) => {
     }
     res.json(session.procureEquipment(req.params.mode as 'build' | 'buy', equipmentId, quantity));
   } catch (e: any) {
-    respondRouteError(res, e, 'Failed to procure equipment');
+    respondDomainError(res, e, PROCURE_ERROR_CODES, 'Failed to procure equipment');
   }
 });
 
@@ -253,7 +271,7 @@ gamesRouter.post('/:id/resources/trade', (req, res) => {
     }
     res.json(session.tradeResource(mode, resourceId, quantity));
   } catch (e: any) {
-    respondRouteError(res, e, 'Failed to trade resource');
+    respondDomainError(res, e, TRADE_ERROR_CODES, 'Failed to trade resource');
   }
 });
 
