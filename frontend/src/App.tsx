@@ -453,7 +453,14 @@ function App() {
     if (!currentGameId) return;
     try {
       const result = await gameApi.procure(currentGameId, mode, equipmentId, quantity);
-      notify(`${mode === 'build' ? 'Costruiti' : 'Importati'} ${result.quantity} × ${result.name}.`, 'success');
+      if (result.complete) {
+        notify(`Importati ${result.quantity} × ${result.name}.`, 'success');
+      } else {
+        notify(`Ordine avviato: ${result.quantity} × ${result.name} — completamento ${result.order?.progress ?? 0}%.`, 'success');
+      }
+      if (result.financedMln > 0) {
+        notify(`Spesa finanziata a debito: ${(result.financedMln / 1000).toFixed(3)} mld (debito ${result.debtMld.toFixed(2)} mld).`, 'info');
+      }
       const [arms, national] = await Promise.all([
         gameApi.arsenal(currentGameId),
         gameApi.nationalState(currentGameId),
@@ -463,8 +470,12 @@ function App() {
       setNationalAccounts(national.accounts || {});
     } catch (error: any) {
       console.error('[App] Procurement fallito:', error);
-      const unavailable = String(error?.message || '').includes('build_unavailable');
-      notify(unavailable ? 'Capacità insufficienti per costruire questa arma.' : 'Acquisto non riuscito.', 'error');
+      const message = String(error?.message || '');
+      const reason = message.includes('credit_exhausted') ? 'Cassa e credito insufficienti: debito al limite.'
+        : message.includes('build_unavailable') ? 'Capacità insufficienti per costruire questa arma.'
+        : message.includes('equipment_quantity_invalid') ? 'Quantità richiesta troppo grande.'
+        : 'Acquisto non riuscito.';
+      notify(reason, 'error');
     }
   }, [currentGameId]);
 

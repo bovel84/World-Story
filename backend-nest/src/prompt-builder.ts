@@ -70,6 +70,9 @@ interface GameData {
     summary: string;
     startedDate: string;
     expectedDate?: string | null;
+    /** Percentuale di completamento calcolata dal motore (0-99). */
+    progress?: number;
+    progressNote?: string;
   }>;
   /** Conti nazionali calcolati dal motore, non stimati dall'LLM. */
   worldState?: { accounts?: Record<string, {
@@ -105,7 +108,12 @@ interface GameData {
     resources?: {
       stock?: { money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
       natural?: Array<{ kind: string; label: string; endowment: number; reserve: number; maxReserve: number; stockpile: number; depletionPct: number; depleted: boolean }>;
+      debt?: number;
+      creditLimit?: number;
+      creditHeadroom?: number;
     };
+    /** Ordini di produzione militare in corso con percentuale di completamento. */
+    production?: Array<{ id: string; name: string; quantity: number; progress: number; note?: string }>;
   };
   actions: ActionData[];
   results: TurnResultData[];
@@ -432,7 +440,9 @@ export class PromptBuilder {
       const due = process.expectedDate
         ? ` — completamento previsto: ${process.expectedDate}${overdue ? ' (scadenza raggiunta: verificare esito o impedimento, non completare automaticamente)' : ''}`
         : ' — completamento previsto: data non determinata';
-      return `- [projectId:${process.id}; sourceActionId:${process.sourceActionId}] ${process.title}${due}. Stato: ${process.summary} (avviato: ${process.startedDate})`;
+      const progress = Number.isFinite(process.progress) ? ` Avanzamento ${process.progress}%.` : '';
+      const note = process.progressNote ? ` Nota di rischio: ${process.progressNote}.` : '';
+      return `- [projectId:${process.id}; sourceActionId:${process.sourceActionId}] ${process.title}${due}.${progress}${note} Stato: ${process.summary} (avviato: ${process.startedDate})`;
     }).join('\n');
   }
 
@@ -475,6 +485,16 @@ export class PromptBuilder {
       if (stock) {
         const techs = stock.technologies?.length ? stock.technologies.join(', ') : 'nessuna';
         lines.push(`Magazzino materiale: denaro ${fmt(Number(stock.money || 0))} mld; cibo ${fmt(Number(stock.food || 0))}; vestiario ${fmt(Number(stock.clothing || 0))}; armamenti ${fmt(Number(stock.weapons || 0))}; carburante ${fmt(Number(stock.fuel || 0))}; ricerca ${fmt(Number(stock.research || 0))}; tecnologie: ${techs}.`);
+        const debt = Number(this.game.worldState?.resources?.debt || 0);
+        const headroom = Number(this.game.worldState?.resources?.creditHeadroom || 0);
+        const limit = Number(this.game.worldState?.resources?.creditLimit || 0);
+        lines.push(debt > 0
+          ? `Debito pubblico ${fmt(debt)} mld su un tetto di ${fmt(limit)} mld (credito residuo ${fmt(headroom)} mld). Gli interessi pesano sul saldo: ogni nuova spesa può andare a debito solo entro il tetto.`
+          : `Nessun debito pubblico. Credito disponibile ${fmt(headroom)} mld (tetto ${fmt(limit)} mld): una spesa può andare a debito entro il tetto.`);
+      }
+      const production = this.game.worldState?.production;
+      if (production && production.length > 0) {
+        lines.push(`Produzione militare in corso: ${production.map(order => `${order.name} ×${order.quantity} al ${order.progress}%${order.note ? ` (${order.note})` : ''}`).join('; ')}. Non dichiarare consegnato ciò che non ha raggiunto il 100%.`);
       }
       const natural = this.game.worldState?.resources?.natural;
       if (natural && natural.length > 0) {

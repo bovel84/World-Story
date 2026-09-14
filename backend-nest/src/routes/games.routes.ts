@@ -42,7 +42,7 @@ const TRADE_ERROR_CODES = [
   'insufficient_money', 'quantity_invalid', 'trade_mode_invalid', 'trade_unavailable',
 ];
 const PROCURE_ERROR_CODES = [
-  'equipment_unknown', 'equipment_quantity_invalid', 'build_unavailable', 'buy_unavailable',
+  'equipment_unknown', 'equipment_quantity_invalid', 'build_unavailable', 'buy_unavailable', 'procurement_mode_invalid', 'credit_exhausted',
 ];
 function respondDomainError(res: any, e: any, codes: string[], fallback: string): void {
   const message = typeof e?.message === 'string' ? e.message : '';
@@ -235,6 +235,16 @@ gamesRouter.get('/:id/arsenal', (req, res) => {
     res.json(session.getArsenal());
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get arsenal');
+  }
+});
+
+// Ordini di produzione militare con percentuale di completamento.
+gamesRouter.get('/:id/production', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json(session.getProduction());
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to get production orders');
   }
 });
 

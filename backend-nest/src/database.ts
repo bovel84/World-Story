@@ -711,6 +711,9 @@ export function initDatabase() {
     )
   `);
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_ongoing_processes_action ON ongoing_processes(game_id, source_action_id)');
+  // Percentuale di completamento e nota di rischio dei progetti in corso.
+  try { db.exec('ALTER TABLE ongoing_processes ADD COLUMN progress INTEGER'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE ongoing_processes ADD COLUMN progress_note TEXT'); } catch { /* già presente */ }
 
   // Stato dinamico delle regioni di una singola partita. Geometria e metadati
   // restano nel world, ma proprietario/economia/oggetti non sono condivisi.
@@ -869,6 +872,18 @@ export function initDatabase() {
       updated_date TEXT,
       recorded_at TEXT NOT NULL,
       PRIMARY KEY (game_id, polity_id)
+    )
+  `);
+
+  // Ordini di produzione militare con percentuale di completamento. Una riga per
+  // ordine: l'avanzamento è del motore, non una dichiarazione del modello.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_production_orders (
+      game_id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      data TEXT NOT NULL DEFAULT '{}',
+      recorded_at TEXT NOT NULL,
+      PRIMARY KEY (game_id, order_id)
     )
   `);
 

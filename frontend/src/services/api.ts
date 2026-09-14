@@ -26,6 +26,23 @@ export interface ArsenalCatalogItem {
   canBuild: boolean; canBuy: boolean; buildCostMln: number; buyCostMln: number; reasons: string[];
 }
 
+/** Ordine di produzione militare con percentuale di completamento. */
+export interface ProductionOrder {
+  id: string;
+  equipmentId: string;
+  name: string;
+  domain: string;
+  quantity: number;
+  progress: number;
+  spentMln: number;
+  startedTurn: number;
+  startedDate: string;
+  status: 'in_progress' | 'completed' | 'failed';
+  note: string;
+  qualityLoss: number;
+  updatedDate: string;
+}
+
 /** Arsenale, risorse naturali reali e capacità industriale della nazione. */
 export interface ArsenalResponse {
   polityId: string;
@@ -38,7 +55,12 @@ export interface ArsenalResponse {
   lines: Array<{ id: string; name: string; domain: string; category: string; quality: number; tier: string; quantity: number }>;
   naturalResources: Record<string, number>;
   naturalResourcesText: string;
-  capacity: { factories: number; ports: number; universities: number; money: number; weapons: number; technologies: string[] };
+  /** Debito pubblico (mld USD) e tetto di credito. */
+  debt: number;
+  creditLimit: number;
+  /** Ordini di produzione con percentuale di completamento. */
+  production: { orders: ProductionOrder[]; inProgress: number };
+  capacity: { factories: number; ports: number; universities: number; money: number; weapons: number; credit: number; technologies: string[] };
   catalog: ArsenalCatalogItem[];
 }
 
@@ -344,6 +366,9 @@ export const gameApi = {
       account?: Record<string, any>;
       natural?: NaturalResourceSummary[];
       market?: ResourceQuote[];
+      debt?: number;
+      creditLimit?: number;
+      creditHeadroom?: number;
     };
   }> =>
     fetchApi(`/games/${gameId}/national-state`),
@@ -354,8 +379,15 @@ export const gameApi = {
     account?: Record<string, any>;
     natural: NaturalResourceSummary[];
     market: ResourceQuote[];
+    debt: number;
+    creditLimit: number;
+    creditHeadroom: number;
   }> =>
     fetchApi(`/games/${gameId}/resources`),
+
+  /** Ordini di produzione militare con percentuale di completamento. */
+  production: (gameId: string): Promise<{ orders: ProductionOrder[]; inProgress: number }> =>
+    fetchApi(`/games/${gameId}/production`),
 
   /** Vende (`sell`) o compra (`buy`) una risorsa naturale sul mercato mondiale. */
   tradeResource: (gameId: string, mode: 'sell' | 'buy', resourceId: string, quantity: number): Promise<{
@@ -373,6 +405,7 @@ export const gameApi = {
   /** Costruisce (`build`) o importa (`buy`) equipaggiamento militare. */
   procure: (gameId: string, mode: 'build' | 'buy', equipmentId: string, quantity = 1): Promise<{
     mode: string; equipmentId: string; name: string; quantity: number; spentMln: number;
+    financedMln: number; debtMld: number; complete: boolean; order?: ProductionOrder;
     units: Record<string, number>; strength: number;
   }> =>
     fetchApi(`/games/${gameId}/arsenal/${mode}`, {

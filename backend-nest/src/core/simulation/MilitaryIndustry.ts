@@ -288,6 +288,8 @@ export interface NationCapacity {
   technologies: string[];
   money: number;
   weapons: number;
+  /** Credito residuo disponibile (mld USD) prima del tetto del debito. */
+  credit?: number;
   endowment: NaturalEndowment;
 }
 
@@ -338,13 +340,15 @@ export function procurementOption(equipment: Equipment, capacity: NationCapacity
   const factor = resourceCostFactor(equipment, capacity.endowment);
   const buildCostMln = Math.round(equipment.costMln * factor);
   const buyCostMln = Math.round(equipment.costMln * IMPORT_MARKUP);
-  const affordBuild = capacity.money * 1000 >= buildCostMln && capacity.weapons >= equipment.weaponsCost;
+  // Potere d'acquisto = cassa + credito residuo: si può andare a debito.
+  const purchasingPowerMln = capacity.money * 1000 + Math.max(0, (capacity.credit || 0) * 1000);
+  const affordBuild = purchasingPowerMln >= buildCostMln && capacity.weapons >= equipment.weaponsCost;
   if (!affordBuild) {
-    if (capacity.money * 1000 < buildCostMln) reasons.push('tesoreria insufficiente');
+    if (purchasingPowerMln < buildCostMln) reasons.push('cassa e credito insufficienti (debito al limite)');
     if (capacity.weapons < equipment.weaponsCost) reasons.push('scorte di armamenti insufficienti');
   }
   const canBuild = reasons.length === 0;
-  const canBuy = capacity.money * 1000 >= buyCostMln;
+  const canBuy = purchasingPowerMln >= buyCostMln;
   return { equipment, canBuild, canBuy, buildCostMln, buyCostMln, resourceFactor: factor, reasons };
 }
 

@@ -1959,6 +1959,16 @@ html, body { margin: 0; }
 .arms-tier.tone-warning { color: #f0c778; border-color: rgba(224, 168, 80, 0.5); }
 .arms-tier.tone-negative { color: #f09a9a; border-color: rgba(224, 110, 110, 0.5); }
 .arms-catalog { display: flex; flex-direction: column; gap: 16px; }
+.arms-production { display: flex; flex-direction: column; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.arms-production-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid rgba(120, 96, 208, 0.3); border-radius: 10px; background: rgba(120, 96, 208, 0.07); }
+.arms-production-item.status-failed { border-color: rgba(224, 110, 110, 0.5); background: rgba(224, 110, 110, 0.1); }
+.arms-production-head { display: flex; justify-content: space-between; gap: 10px; }
+.arms-production-head b { color: #f0edff; font-size: 13px; }
+.arms-production-head span { color: #c8bdf0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.arms-progress { position: relative; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.arms-progress span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #7a60d0, #8fd8b6); transition: width 0.4s ease; }
+.arms-production-item.status-failed .arms-progress span { background: #e06e6e; }
+.arms-production-meta { color: #9aa6bd; font-size: 11px; font-style: normal; }
 .arms-domain h4 { margin: 0 0 8px; color: #cfc8e8; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
 .arms-domain ul { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; }
 .arms-domain li { padding: 10px 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; background: rgba(255,255,255,0.03); }

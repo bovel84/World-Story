@@ -21,6 +21,12 @@ import type { NaturalEndowment, NaturalResourceKind } from './MilitaryIndustry';
 
 export type ResourceKind = 'money' | 'food' | 'clothing' | 'weapons' | 'fuel' | 'research';
 
+/** Tasso d'interesse mensile sul debito pubblico (≈10% annuo). */
+export const DEBT_MONTHLY_INTEREST = 0.008;
+/** Limite di debito rispetto al PIL nominale (60%) e minimo operativo (mld). */
+export const DEBT_TO_GDP_LIMIT = 0.6;
+export const MIN_CREDIT_LIMIT = 5;
+
 export interface ResourceStock {
   /** Tesoreria in miliardi USD (può diventare negativa: debito pubblico). */
   money: number;
@@ -87,6 +93,50 @@ export const TECHNOLOGIES: Technology[] = [
 
 export function technologyById(id: string): Technology | undefined {
   return TECHNOLOGIES.find(tech => tech.id === id);
+}
+
+/**
+ * Debito pubblico di una nazione. La tesoreria può essere negativa: la parte
+ * negativa è debito, non un errore. Il motore calcola tutto, il modello no.
+ */
+export function debtOf(stock: ResourceStock): number {
+  return Math.max(0, -(Number(stock.money) || 0));
+}
+
+/** Tetto di credito: 60% del PIL nominale, almeno un anno di entrate. */
+export function creditLimit(account?: NationalAccount): number {
+  const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions || 0));
+  const annualRevenue = Math.abs(Number(account?.monthlyRevenue || 0)) * 12;
+  const limit = Math.max(MIN_CREDIT_LIMIT, gdp * DEBT_TO_GDP_LIMIT, annualRevenue * 0.9);
+  return Math.round(limit * 100) / 100;
+}
+
+/** Spazio di credito residuo prima di toccare il tetto del debito. */
+export function creditHeadroom(stock: ResourceStock, account?: NationalAccount): number {
+  return Math.max(0, creditLimit(account) - debtOf(stock));
+}
+
+export interface Financing {
+  ok: boolean;
+  /** Quota pagata con la cassa disponibile. */
+  cashUsed: number;
+  /** Quota coperta andando a debito. */
+  debtUsed: number;
+  error?: 'credit_exhausted';
+}
+
+/**
+ * Verifica se una spesa è coperta da cassa + credito residuo. Non muta nulla:
+ * il chiamante applica la spesa e la tesoreria può diventare negativa (debito).
+ */
+export function financePurchase(stock: ResourceStock, account: NationalAccount | undefined, cost: number): Financing {
+  const spend = Math.max(0, Number(cost) || 0);
+  const cashUsed = Math.min(Math.max(0, stock.money), spend);
+  const debtUsed = Math.max(0, spend - cashUsed);
+  if (debtUsed > creditHeadroom(stock, account) + 1e-9) {
+    return { ok: false, cashUsed: 0, debtUsed: 0, error: 'credit_exhausted' };
+  }
+  return { ok: true, cashUsed: Math.round(cashUsed * 1000) / 1000, debtUsed: Math.round(debtUsed * 1000) / 1000 };
 }
 
 /** Somma algebrica di due stock, con clamp dei materiali a zero. */
@@ -191,9 +241,11 @@ export function advanceStock(
   const weaponsBonus = has(stock, 'industria_bellica') ? 1.4 : 1;
   // Estrazione ed export di risorse naturali: reddito anche senza industria.
   const resourceRevenue = (oil * 0.5 + gas * 0.4 + gold * 0.2 + diamonds * 0.2 + copper * 0.12 + iron * 0.1) * period;
+  // Interessi sul debito pubblico: chi va a debito paga un costo ricorrente.
+  const interest = debtOf(stock) * DEBT_MONTHLY_INTEREST * period;
 
   const flow: MaterialFlow = {
-    money: ((account.monthlyBalance || 0) + resourceRevenue) * period,
+    money: ((account.monthlyBalance || 0) + resourceRevenue) * period - interest,
     food: ((popM * 0.012 + factories * 0.9 + fertile * 0.25) * foodBonus - (popM * 0.02 + (troops + mobilized) * 0.06)) * period,
     clothing: ((factories * 0.7 + popM * 0.004) * clothingBonus - (popM * 0.008 + (troops + mobilized) * 0.01)) * period,
     weapons: ((factories * 0.5 + iron * 0.12 + coal * 0.06) * weaponsBonus + universities * 0.2 - (troops + mobilized) * 0.004) * period,
@@ -294,7 +346,11 @@ export function describeStock(stock: ResourceStock, account?: NationalAccount): 
   ];
   const tech = techs.length ? ` Tecnologie: ${techs.join(', ')}.` : ' Nessuna tecnologia sbloccata.';
   const burden = account ? ` Fabbisogno militare ${round(account.defenceBurdenPct)}% del PIL.` : '';
-  return `Magazzino nazionale: ${parts.join(', ')}.${tech}${burden}`;
+  const debt = debtOf(stock);
+  const debtText = debt > 0
+    ? ` Debito pubblico ${round(debt)} mld (interessi ${round(debt * DEBT_MONTHLY_INTEREST * 12)} mld/anno; tetto di credito ${round(creditLimit(account))} mld).`
+    : ' Nessun debito pubblico.';
+  return `Magazzino nazionale: ${parts.join(', ')}.${debtText}${tech}${burden}`;
 }
 
 export { EMPTY_STOCK };

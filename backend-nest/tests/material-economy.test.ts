@@ -7,8 +7,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  TECHNOLOGIES, advanceStock, applyFlow, describeStock, movementCost, normalizeStock,
-  payMovement, seedStock, technologyById, unlockTechnologies, type ResourceStock,
+  DEBT_MONTHLY_INTEREST, TECHNOLOGIES, advanceStock, applyFlow, creditHeadroom, creditLimit, debtOf,
+  describeStock, financePurchase, movementCost, normalizeStock, payMovement, seedStock,
+  technologyById, unlockTechnologies, type ResourceStock,
 } from '../src/core/simulation/MaterialEconomy';
 import type { NationalAccount } from '../src/core/simulation/WorldStateEngine';
 
@@ -119,5 +120,36 @@ describe('MaterialEconomy', () => {
     expect(text).toMatch(/Tesoreria/);
     expect(text).toMatch(/Motorizzazione/);
     expect(text).toMatch(/Fabbisogno militare/);
+    expect(text).toMatch(/Nessun debito/);
+  });
+
+  it('il debito è la tesoreria negativa, con interessi e tetto di credito', () => {
+    expect(debtOf(stock({ money: 10 }))).toBe(0);
+    expect(debtOf(stock({ money: -7.5 }))).toBe(7.5);
+    const limit = creditLimit(account());
+    expect(limit).toBeGreaterThanOrEqual(5);
+    expect(creditHeadroom(stock({ money: 0 }), account())).toBeCloseTo(limit, 2);
+    expect(creditHeadroom(stock({ money: -limit }), account())).toBe(0);
+    // Il debito matura interessi nel tick.
+    const tick = advanceStock(stock({ money: -100 }), account(), 30);
+    expect(tick.stock.money).toBeLessThan(-100);
+    expect(tick.stock.money).toBeCloseTo(-100 - 100 * DEBT_MONTHLY_INTEREST + 0.2, 2);
+    expect(describeStock(stock({ money: -50 }), account())).toMatch(/Debito pubblico/);
+  });
+
+  it('financePurchase copre con cassa e credito, e rifiuta oltre il tetto', () => {
+    const limit = creditLimit(account());
+    const cash = financePurchase(stock({ money: 10 }), account(), 4);
+    expect(cash).toEqual({ ok: true, cashUsed: 4, debtUsed: 0 });
+    const mixed = financePurchase(stock({ money: 1 }), account(), 4);
+    expect(mixed.ok).toBe(true);
+    expect(mixed.cashUsed).toBe(1);
+    expect(mixed.debtUsed).toBe(3);
+    const over = financePurchase(stock({ money: 0 }), account(), limit + 1);
+    expect(over.ok).toBe(false);
+    expect(over.error).toBe('credit_exhausted');
+    // Con il debito già al tetto non c'è spazio.
+    const maxed = financePurchase(stock({ money: -limit }), account(), 1);
+    expect(maxed.error).toBe('credit_exhausted');
   });
 });

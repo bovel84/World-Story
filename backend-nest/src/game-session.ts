@@ -10,7 +10,7 @@ import { constructionProgressPatch } from './utils/construction-progress';
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
-import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, resourceRepository, arsenalRepository, naturalResourceRepository } from './repositories';
+import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, resourceRepository, arsenalRepository, naturalResourceRepository, productionRepository } from './repositories';
 import { captureEconomicSnapshot, invalidateStrictEffectStaging, restoreEconomicSnapshot, validateEconomicSnapshot } from './repositories/economy-snapshot.repository';
 import { withCanonicalTransaction } from './database';
 import { semanticStateHash } from './domain/semantic-hash';
@@ -18,7 +18,11 @@ import type { ChatRecord, ChatSummary, ChatMessageRecord, ChatParticipant, GameC
 import db from './database';
 import { RelationshipMatrix } from './core/RelationshipMatrix';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
-import { advanceStock, describeStock, movementCost, normalizeStock, payMovement, seedStock, type ResourceStock } from './core/simulation/MaterialEconomy';
+import { advanceStock, creditHeadroom, creditLimit, debtOf, describeStock, financePurchase, movementCost, normalizeStock, payMovement, seedStock, type ResourceStock } from './core/simulation/MaterialEconomy';
+import {
+  advanceOrder, projectProgress, stableRoll,
+  type ProductionContext, type ProductionOrder,
+} from './core/simulation/MilitaryProduction';
 import { arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, combatAttrition, describeArsenal, describeEndowment, equipmentById, EQUIPMENT_CATALOG, NATURAL_RESOURCE_KINDS, naturalResourcesFor, procurementOption, type NationCapacity, type NaturalEndowment, type NaturalResourceKind } from './core/simulation/MilitaryIndustry';
 import {
   advanceLedger, applyGlobalExtraction, describeLedger, effectiveEndowment, emptyMarket, executeTrade,
@@ -664,6 +668,8 @@ export class GameSession {
     const bulletin = WorldStateEngine.playerBulletin(tick.accounts[this.playerPolityId]);
     if (bulletin) lines.push(`📊 ${bulletin}`);
     lines.push(...this.advanceResources(days, tick.accounts));
+    lines.push(...this.advanceProduction(days, tick.accounts[this.playerPolityId]));
+    lines.push(...this.advanceProjects(days, asOfDate));
     return lines;
   }
 
@@ -763,11 +769,15 @@ export class GameSession {
     const ledger = this.resourceLedger(this.playerPolityId);
     const market = this.ensureMarket();
     const natural = summarizeLedger(ledger, account);
+    const stock = this.resourceStock(this.playerPolityId);
     return {
-      stock: this.resourceStock(this.playerPolityId),
+      stock,
       account,
       natural,
       market: natural.map(summary => marketQuote(market, summary.kind)),
+      debt: Math.round(debtOf(stock) * 100) / 100,
+      creditLimit: creditLimit(account),
+      creditHeadroom: Math.round(creditHeadroom(stock, account) * 100) / 100,
     };
   }
 
@@ -884,6 +894,7 @@ export class GameSession {
       technologies: stock.technologies,
       money: stock.money,
       weapons: stock.weapons,
+      credit: creditHeadroom(stock, account),
       endowment: naturalResourcesFor(polityId),
     };
   }
@@ -940,12 +951,16 @@ export class GameSession {
       lines,
       naturalResources: endowment,
       naturalResourcesText: describeEndowment(endowment),
+      debt: Math.round(debtOf(this.resourceStock(polityId)) * 100) / 100,
+      creditLimit: creditLimit(account),
+      production: this.getProduction(),
       capacity: {
         factories: capacity.factories,
         ports: capacity.ports,
         universities: capacity.universities,
         money: capacity.money,
         weapons: capacity.weapons,
+        credit: capacity.credit || 0,
         technologies: capacity.technologies,
       },
       catalog,
@@ -953,9 +968,15 @@ export class GameSession {
   }
 
   /**
-   * Costruisce (`build`) o importa (`buy`) equipaggiamento militare. La
-   * costruzione richiede tecnologie, industria e risorse naturali; l'acquisto
-   * paga solo un sovrapprezzo. Le scorte e l'arsenale sono aggiornati insieme.
+   * Costruisce (`build`) o importa (`buy`) equipaggiamento militare.
+   *
+   * - L'**acquisto** all'estero è immediato: consegna subito, pagando il
+   *   sovrapprezzo.
+   * - La **costruzione** apre un ordine con percentuale di completamento: si
+   *   paga all'avvio, la consegna arriva a lavori finiti e può subire ritardi o
+   *   difetti.
+   * - Se la cassa non basta si va **a debito** entro il tetto di credito
+   *   (60% del PIL nominale); oltre il tetto la spesa è rifiutata.
    */
   procureEquipment(mode: 'build' | 'buy', equipmentId: string, quantity = 1) {
     const polityId = this.playerPolityId;
@@ -963,35 +984,180 @@ export class GameSession {
     if (!equipment) throw new Error(`equipment_unknown: ${equipmentId}`);
     const qty = Math.max(1, Math.floor(Number(quantity) || 1));
     if (qty > 1000) throw new Error('equipment_quantity_invalid');
+    if (mode !== 'build' && mode !== 'buy') throw new Error('procurement_mode_invalid');
+    const account = WorldStateEngine.accounts(this.regions.values())[polityId];
     const capacity = this.nationCapacity(polityId);
     const option = procurementOption(equipment, capacity);
     if (mode === 'build' && !option.canBuild) {
+      if (option.reasons.some(reason => reason.includes('credito'))) {
+        throw new Error('credit_exhausted: cassa e credito insufficienti (debito al limite)');
+      }
       throw new Error(`build_unavailable: ${option.reasons.join('; ') || 'capacità insufficienti'}`);
     }
     if (mode === 'buy' && !option.canBuy) {
-      throw new Error('buy_unavailable: tesoreria insufficiente');
+      throw new Error('credit_exhausted: cassa e credito insufficienti (debito al limite)');
     }
-    if (mode !== 'build' && mode !== 'buy') throw new Error('procurement_mode_invalid');
     const unitCostMln = mode === 'build' ? option.buildCostMln : option.buyCostMln;
     const spentMln = unitCostMln * qty;
+    const spentMld = spentMln / 1000;
     const stock = this.resourceStock(polityId);
-    this.saveResourceStock(polityId, {
+    const financing = financePurchase(stock, account, spentMld);
+    if (!financing.ok) throw new Error('credit_exhausted: debito al limite del tetto');
+    const nextStock: ResourceStock = {
       ...stock,
-      money: Math.round((stock.money - spentMln / 1000) * 1000) / 1000,
+      money: Math.round((stock.money - spentMld) * 1000) / 1000,
       weapons: mode === 'build' ? Math.max(0, stock.weapons - equipment.weaponsCost * qty) : stock.weapons,
-    });
-    const units = { ...this.arsenalUnits(polityId) };
-    units[equipmentId] = (units[equipmentId] || 0) + qty;
-    this.saveArsenal(polityId, units);
+    };
+    this.saveResourceStock(polityId, nextStock);
+    const financedMln = Math.round(financing.debtUsed * 1000);
+    const debtMld = debtOf(nextStock);
+
+    if (mode === 'buy') {
+      const units = { ...this.arsenalUnits(polityId) };
+      units[equipmentId] = (units[equipmentId] || 0) + qty;
+      this.saveArsenal(polityId, units);
+      return {
+        mode, equipmentId, name: equipment.name, quantity: qty, spentMln,
+        financedMln, debtMld, complete: true, units, strength: arsenalStrength(units),
+      };
+    }
+
+    const order = this.startProductionOrder(equipmentId, qty, spentMln);
+    const units = this.arsenalUnits(polityId);
     return {
-      mode,
+      mode, equipmentId, name: equipment.name, quantity: qty, spentMln,
+      financedMln, debtMld, complete: false, units, strength: arsenalStrength(units), order,
+    };
+  }
+
+  private productionContext(): ProductionContext {
+    const account = WorldStateEngine.accounts(this.regions.values())[this.playerPolityId];
+    const stock = this.resourceStock(this.playerPolityId);
+    return {
+      factories: Math.max(0, account?.factories || 0),
+      ports: Math.max(0, account?.ports || 0),
+      universities: Math.max(0, account?.universities || 0),
+      stability: Number(account?.stability ?? 50),
+      socialTension: Number(account?.socialTension ?? 0),
+      technologies: stock.technologies,
+    };
+  }
+
+  /** Apre un ordine di produzione: il costo è già stato pagato all'avvio. */
+  private startProductionOrder(equipmentId: string, quantity: number, spentMln: number): ProductionOrder {
+    const equipment = equipmentById(equipmentId)!;
+    const order: ProductionOrder = {
+      id: `ord-${shortId(8)}`,
       equipmentId,
       name: equipment.name,
-      quantity: qty,
+      domain: equipment.domain,
+      quantity,
+      progress: 0,
       spentMln,
-      units,
-      strength: arsenalStrength(units),
+      startedTurn: this.currentTurn,
+      startedDate: this.currentDate,
+      status: 'in_progress',
+      note: '',
+      qualityLoss: 0,
+      updatedDate: this.currentDate,
     };
+    this.saveProductionOrder(order);
+    return order;
+  }
+
+  /** Ordini di produzione del giocatore, per API e dossier. */
+  getProduction() {
+    const orders = this.playerProductionOrders()
+      .slice()
+      .sort((a, b) => {
+        const rank = (order: ProductionOrder) => order.status === 'in_progress' ? 0 : 1;
+        return rank(a) - rank(b) || a.startedTurn - b.startedTurn;
+      });
+    return { orders, inProgress: orders.filter(order => order.status === 'in_progress').length };
+  }
+
+  private playerProductionOrders(): ProductionOrder[] {
+    if (!this.productionLoaded) {
+      try {
+        for (const order of productionRepository.list(this.id)) this.productionOrders.set(order.id, order);
+      } catch (error) {
+        console.warn('[GameSession] Lettura ordini di produzione non disponibile:', error);
+      }
+      this.productionLoaded = true;
+    }
+    return [...this.productionOrders.values()];
+  }
+
+  private saveProductionOrder(order: ProductionOrder): void {
+    this.productionOrders.set(order.id, order);
+    try {
+      productionRepository.upsert(this.id, order);
+    } catch (error) {
+      console.warn('[GameSession] Impossibile salvare l’ordine di produzione:', error);
+    }
+  }
+
+  /** Avanza gli ordini di produzione del giocatore e consegna a lavori finiti. */
+  private advanceProduction(days: number, account?: NationalAccount): string[] {
+    if (this.isStrictGame() || days <= 0) return [];
+    const orders = this.playerProductionOrders().filter(order => order.status === 'in_progress');
+    if (orders.length === 0) return [];
+    const months = days / 30;
+    const context = this.productionContext();
+    const bulletins: string[] = [];
+    for (const order of orders) {
+      const seed = `${this.id}:${order.id}:${this.currentTurn}`;
+      const result = advanceOrder(order, context, months, seed);
+      if (result.completed) {
+        const units = { ...this.arsenalUnits(this.playerPolityId) };
+        units[order.equipmentId] = (units[order.equipmentId] || 0) + result.delivered;
+        this.saveArsenal(this.playerPolityId, units);
+        productionRepository.remove(this.id, order.id);
+        this.productionOrders.delete(order.id);
+        const defect = result.order.qualityLoss > 0 ? ` (${Math.round(result.order.qualityLoss)}% difettose)` : '';
+        bulletins.push(`🏭 Produzione completata: ${result.delivered}/${order.quantity} × ${order.name}${defect}.`);
+      } else if (result.failed) {
+        productionRepository.remove(this.id, order.id);
+        this.productionOrders.delete(order.id);
+        bulletins.push(`⚠️ Produzione fallita: ${order.name} — ${result.order.note}.`);
+      } else {
+        this.saveProductionOrder(result.order);
+        if (result.setbackPct > 0) {
+          bulletins.push(`⚠️ ${order.name}: imprevisto in produzione, avanzamento ${Math.round(result.order.progress)}% (−${result.setbackPct}%).`);
+        }
+      }
+    }
+    void account;
+    return bulletins;
+  }
+
+  /**
+   * Percentuale di completamento dei progetti in corso, con rischio di
+   * slittamento della scadenza: non sempre le cose vanno come previsto.
+   */
+  private advanceProjects(days: number, asOfDate: string): string[] {
+    if (this.isStrictGame() || days <= 0) return [];
+    const processes = gameRepository.getOngoingProcesses(this.id);
+    if (processes.length === 0) return [];
+    const account = WorldStateEngine.accounts(this.regions.values())[this.playerPolityId];
+    const stability = Number(account?.stability ?? 50);
+    const tension = Number(account?.socialTension ?? 0);
+    const risk = Math.min(0.5, 0.05 + Math.max(0, 60 - stability) / 300 + Math.max(0, tension - 30) / 500);
+    const bulletins: string[] = [];
+    for (const process of processes) {
+      const progress = projectProgress(process.started_date, process.expected_date, asOfDate);
+      const roll = stableRoll(`${this.id}:${process.id}:${this.currentTurn}`);
+      let note = '';
+      let expected: string | null = null;
+      if (roll < risk && process.expected_date) {
+        const slip = 15 + Math.round(stableRoll(`${this.id}:${process.id}:${this.currentTurn}:slip`) * 45);
+        expected = addDays(process.expected_date, slip);
+        note = `slittamento di ${slip} giorni (rischio ${Math.round(risk * 100)}%)`;
+        bulletins.push(`⏳ Progetto «${process.title}»: ${note}. Avanzamento ${progress}%.`);
+      }
+      gameRepository.updateOngoingProcessProgress(this.id, process.id, progress, note, expected);
+    }
+    return bulletins;
   }
 
   // Diplomatic relationships
@@ -1005,6 +1171,10 @@ export class GameSession {
 
   /** Arsenale militare per polity (quantità per voce di catalogo). */
   private arsenals = new Map<string, Record<string, number>>();
+
+  /** Ordini di produzione con percentuale di completamento (giocatore). */
+  private productionOrders = new Map<string, ProductionOrder>();
+  private productionLoaded = false;
 
   /** Conti nazionali delle province INIZIALI del mondo (dati di partenza). */
   private initialAccountsCache?: Record<string, NationalAccount>;
@@ -1113,7 +1283,22 @@ export class GameSession {
       // dalla mappa e quindi non può contraddire la memoria narrativa.
       worldState: {
         accounts: effectiveAccounts,
-        resources: { stock: this.resourceStock(this.playerPolityId), account: accounts[this.playerPolityId], natural: summarizeLedger(this.resourceLedger(this.playerPolityId), accounts[this.playerPolityId]) },
+        resources: (() => {
+          const stock = this.resourceStock(this.playerPolityId);
+          const account = accounts[this.playerPolityId];
+          return {
+            stock,
+            account,
+            natural: summarizeLedger(this.resourceLedger(this.playerPolityId), account),
+            debt: Math.round(debtOf(stock) * 100) / 100,
+            creditLimit: creditLimit(account),
+            creditHeadroom: Math.round(creditHeadroom(stock, account) * 100) / 100,
+          };
+        })(),
+        // Ordini di produzione in corso con percentuale di completamento.
+        production: this.getProduction().orders
+          .filter(order => order.status === 'in_progress')
+          .map(order => ({ id: order.id, name: order.name, quantity: order.quantity, progress: Math.round(order.progress), note: order.note })),
         // Arsenale e risorse naturali: tratti materiali della nazione, non
         // inventati dal modello. Il catalogo completo resta nelle API.
         arsenal: {
@@ -1165,6 +1350,11 @@ export class GameSession {
         summary: process.summary,
         startedDate: process.started_date,
         expectedDate: process.expected_date || undefined,
+        // Percentuale di completamento calcolata dal motore, non dal modello.
+        progress: Number(process.progress) >= 0 && process.progress !== null
+          ? Number(process.progress)
+          : projectProgress(process.started_date, process.expected_date, this.currentDate),
+        progressNote: process.progress_note || undefined,
       })),
       actions: this.actions,
       results: this.results,

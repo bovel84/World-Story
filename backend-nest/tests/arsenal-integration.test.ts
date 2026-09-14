@@ -103,19 +103,61 @@ describe('arsenale e procurement', () => {
     expect(arsenalRepository.get(gameId, 'DEU')?.units.droni_attacco).toBe(2);
   });
 
-  it('costruisce solo con tecnologia e industria, consumando scorte', () => {
+  it('costruisce con tecnologia e industria: la consegna arriva solo a lavori finiti', () => {
     const { session } = createGame();
     // Senza la tecnologia bellica la costruzione è rifiutata…
     expect(() => session.procureEquipment('build', 'fucili', 1)).toThrow(/build_unavailable/);
-    // …ma con la tecnologia (e fabbriche/risorse presenti) riesce.
+    // …ma con la tecnologia (e fabbriche/risorse presenti) parte l'ordine.
     const stock = session.getResources().stock;
     (session as any).resourceStocks.set('DEU', {
       ...stock, technologies: ['industria_bellica'], money: 100, weapons: 500,
     });
-    const built = session.procureEquipment('build', 'fucili', 3);
-    expect(built.mode).toBe('build');
-    expect(built.units.fucili).toBeGreaterThanOrEqual(3);
+    const beforeArms = session.getArsenal().units.fucili ?? 0;
+    const started = session.procureEquipment('build', 'fucili', 3);
+    expect(started.mode).toBe('build');
+    expect(started.complete).toBe(false);
+    expect(started.order.progress).toBe(0);
+    expect(started.order.quantity).toBe(3);
+    // La consegna NON è immediata: l'arsenale resta quello di partenza.
+    expect(session.getArsenal().units.fucili ?? 0).toBe(beforeArms);
     expect(session.getResources().stock.weapons).toBe(500 - 4 * 3);
+    expect(session.getProduction().inProgress).toBe(1);
+    // Dopo alcuni mesi la linea si risolve: consegna o (raro) fallimento.
+    const engine = session as any;
+    const bulletins: string[] = [];
+    for (let month = 0; month < 12 && session.getProduction().inProgress > 0; month += 1) {
+      engine.currentTurn = engine.currentTurn + 1;
+      bulletins.push(...engine.advanceProduction(30, undefined));
+    }
+    expect(session.getProduction().inProgress).toBe(0);
+    const completed = bulletins.some(bulletin => bulletin.includes('Produzione completata'));
+    const failed = bulletins.some(bulletin => bulletin.includes('Produzione fallita'));
+    expect(completed || failed).toBe(true);
+    if (completed) {
+      expect(session.getArsenal().units.fucili ?? 0).toBeGreaterThan(beforeArms);
+    } else {
+      expect(failed).toBe(true);
+    }
+  });
+
+  it('la costruzione può andare a debito e rispettare il tetto di credito', () => {
+    const { session } = createGame();
+    const stock = session.getResources().stock;
+    (session as any).resourceStocks.set('DEU', {
+      ...stock, technologies: ['industria_bellica', 'meccanica_avanzata'], money: 0, weapons: 500_000, research: 0,
+    });
+    const started = session.procureEquipment('build', 'fucili', 200);
+    expect(started.financedMln).toBeGreaterThan(0);
+    expect(started.debtMld).toBeGreaterThan(0);
+    expect(session.getResources().stock.money).toBeLessThan(0);
+    expect(session.getResources().debt).toBeGreaterThan(0);
+    expect(session.getResources().creditHeadroom).toBeLessThan(session.getResources().creditLimit);
+    // Con il debito già al tetto la spesa è rifiutata.
+    const limit = session.getResources().creditLimit;
+    (session as any).resourceStocks.set('DEU', {
+      ...session.getResources().stock, money: -limit, weapons: 500_000,
+    });
+    expect(() => session.procureEquipment('build', 'fucili', 1)).toThrow(/credit_exhausted/);
   });
 
   it('rifiuta un equipaggiamento inesistente e quantità non valide', () => {

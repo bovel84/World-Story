@@ -29,6 +29,7 @@ interface DeskContentProps {
     money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[];
     natural?: Awaited<ReturnType<typeof gameApi.resources>>['natural'];
     market?: Awaited<ReturnType<typeof gameApi.resources>>['market'];
+    debt?: number; creditLimit?: number; creditHeadroom?: number;
   } | null;
   nationalArms?: ArsenalResponse | null;
   procureEquipment?: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;

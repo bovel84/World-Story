@@ -481,16 +481,28 @@ export const gameRepository = {
 
   getOngoingProcesses: (gameId: string) => {
     return db.prepare(`
-      SELECT id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, updated_at
+      SELECT id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, progress, progress_note, updated_at
       FROM ongoing_processes WHERE game_id = ? AND status = 'ongoing' ORDER BY updated_at DESC
     `).all(gameId) as any[];
   },
 
   snapshotOngoingProcesses: (gameId: string) => {
     return db.prepare(`
-      SELECT id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, updated_at
+      SELECT id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, progress, progress_note, updated_at
       FROM ongoing_processes WHERE game_id = ? ORDER BY rowid
     `).all(gameId) as any[];
+  },
+
+  /** Aggiorna avanzamento e nota di rischio di un progetto in corso. */
+  updateOngoingProcessProgress: (gameId: string, processId: string, progress: number, note: string, expectedDate?: string | null) => {
+    return db.prepare(`
+      UPDATE ongoing_processes
+      SET progress = ?, progress_note = ?, expected_date = COALESCE(?, expected_date), updated_at = ?
+      WHERE game_id = ? AND id = ? AND status = 'ongoing'
+    `).run(
+      Math.max(0, Math.min(100, Math.round(progress))), note || null,
+      expectedDate || null, new Date().toISOString(), gameId, processId,
+    ).changes;
   },
 
   replaceOngoingProcesses: (gameId: string, processes: any[]) => {
@@ -498,13 +510,13 @@ export const gameRepository = {
       db.prepare('DELETE FROM ongoing_processes WHERE game_id = ?').run(gameId);
       const insert = db.prepare(`
         INSERT INTO ongoing_processes
-          (id, game_id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, game_id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, progress, progress_note, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       processes.forEach(process => insert.run(
         process.id, gameId, process.source_action_id, process.source_run_id,
         process.title, process.summary, process.status, process.started_date,
-        process.expected_date || null, process.updated_at,
+        process.expected_date || null, process.progress ?? null, process.progress_note || null, process.updated_at,
       ));
     })();
   },

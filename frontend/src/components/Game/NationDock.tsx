@@ -67,6 +67,10 @@ export interface NationResources {
   natural?: NaturalResourceSummary[];
   /** Quotazioni di mercato per le risorse possedute. */
   market?: ResourceQuote[];
+  /** Debito pubblico, tetto di credito e spazio residuo (mld USD). */
+  debt?: number;
+  creditLimit?: number;
+  creditHeadroom?: number;
 }
 
 interface NationDockProps {
@@ -570,6 +574,20 @@ export const NationDock: React.FC<NationDockProps> = ({
                     tone="neutral"
                     hint="Punti non ancora spesi in tecnologie"
                   />
+                  <Metric
+                    label="Debito pubblico"
+                    value={formatMoney(Number(resources.debt ?? 0), { currency: 'mld', decimals: 2 })}
+                    tone={Number(resources.debt ?? 0) > 0 ? 'warning' : 'positive'}
+                    hint={Number(resources.debt ?? 0) > 0
+                      ? `Su un tetto di ${formatMoney(Number(resources.creditLimit ?? 0), { currency: 'mld', decimals: 0 })}`
+                      : 'Nessun debito: si può ancora andare a debito'}
+                  />
+                  <Metric
+                    label="Credito residuo"
+                    value={formatMoney(Number(resources.creditHeadroom ?? 0), { currency: 'mld', decimals: 2 })}
+                    tone={Number(resources.creditHeadroom ?? 0) > 0 ? 'positive' : 'negative'}
+                    hint="Spazio per nuove spese a debito"
+                  />
                 </MetricGrid>
               ) : (
                 <EmptyState>Il magazzino materiale non è ancora pubblicato per questa partita.</EmptyState>
@@ -663,7 +681,9 @@ export const NationDock: React.FC<NationDockProps> = ({
                   <Metric label="Fabbriche" value={formatNumber(arms.capacity.factories)} hint="Industria meccanica e bellica" />
                   <Metric label="Porti / cantieri" value={formatNumber(arms.capacity.ports)} hint="Costruzione navale" />
                   <Metric label="Università" value={formatNumber(arms.capacity.universities)} hint="Ricerca e sviluppo" />
-                  <Metric label="Tesoreria" value={formatMoney(Number(arms.capacity.money), { currency: 'mld', decimals: 2 })} tone="neutral" hint="Budget per gli acquisti" />
+                  <Metric label="Tesoreria" value={formatMoney(Number(arms.capacity.money), { currency: 'mld', decimals: 2, sign: true })} tone={Number(arms.capacity.money) >= 0 ? 'neutral' : 'warning'} hint="Budget per gli acquisti" />
+                  <Metric label="Debito pubblico" value={formatMoney(Number(arms.debt ?? 0), { currency: 'mld', decimals: 2 })} tone={Number(arms.debt ?? 0) > 0 ? 'warning' : 'positive'} hint={`Tetto di credito ${formatMoney(Number(arms.creditLimit ?? 0), { currency: 'mld', decimals: 0 })}`} />
+                  <Metric label="Credito residuo" value={formatMoney(Number(arms.capacity.credit ?? 0), { currency: 'mld', decimals: 2 })} tone={Number(arms.capacity.credit ?? 0) > 0 ? 'positive' : 'negative'} hint="Spazio per costruire a debito" />
                   <Metric label="Scorte armamenti" value={formatNumber(arms.capacity.weapons)} hint="Input per la produzione" />
                 </MetricGrid>
               ) : (
@@ -693,6 +713,41 @@ export const NationDock: React.FC<NationDockProps> = ({
                 </ul>
               ) : (
                 <EmptyState>Nessun equipaggiamento in servizio: costruisci o importa dal catalogo.</EmptyState>
+              )}
+            </DossierBlock>
+
+            <DossierBlock
+              title="Produzione in corso"
+              description="Percentuale di completamento degli ordini: la consegna non è istantanea e può subire ritardi o difetti."
+            >
+              {arms && arms.production && arms.production.orders.length > 0 ? (
+                <ul className="arms-production">
+                  {arms.production.orders.map((order) => (
+                    <li key={order.id} className={`arms-production-item status-${order.status}`}>
+                      <div className="arms-production-head">
+                        <b>{order.name}</b>
+                        <span>×{formatNumber(order.quantity)} · {order.progress}%</span>
+                      </div>
+                      <div
+                        className="arms-progress"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={order.progress}
+                        aria-label={`Avanzamento ${order.name}`}
+                      >
+                        <span style={{ width: `${Math.max(0, Math.min(100, order.progress))}%` }} />
+                      </div>
+                      <em className="arms-production-meta">
+                        {order.status === 'failed'
+                          ? `fallita${order.note ? ` · ${order.note}` : ''}`
+                          : `${DOMAIN_LABELS[order.domain] || order.domain} · avviata ${order.startedDate}${order.qualityLoss > 0 ? ` · ${Math.round(order.qualityLoss)}% difettose` : ''}${order.note ? ` · ${order.note}` : ''}`}
+                      </em>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState>Nessun ordine in corso: le costruzioni avviate compariranno qui con la percentuale di completamento.</EmptyState>
               )}
             </DossierBlock>
 
