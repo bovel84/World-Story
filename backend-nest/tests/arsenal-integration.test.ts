@@ -123,4 +123,39 @@ describe('arsenale e procurement', () => {
     expect(() => session.procureEquipment('buy', 'astronave', 1)).toThrow(/equipment_unknown/);
     expect(() => session.procureEquipment('buy', 'fucili', 100000)).toThrow(/quantity_invalid/);
   });
+
+  it('la potenza militare effettiva include il fattore dell’arsenale', () => {
+    const { session } = createGame();
+    (session as any).arsenals.set('DEU', {});
+    const empty = session.effectiveMilitaryPower();
+    (session as any).arsenals.set('DEU', { fucili: 160, apc: 6 });
+    const armed = session.effectiveMilitaryPower();
+    expect(empty).toBeLessThan(armed);
+    const arsenal = session.getArsenal();
+    expect(arsenal.effectiveMilitaryPower).toBeCloseTo(armed, 1);
+    expect(arsenal.combatFactor).toBeGreaterThan(1);
+    expect(arsenal.qualityIndex).toBeGreaterThan(0);
+  });
+
+  it('una conquista tra nazioni ostili consuma l’arsenale del vincitore', () => {
+    const { session, gameId } = createGame();
+    (session as any).relationships.set('DEU', 'SAU', 'hostile');
+    const before = session.getArsenal().units;
+    expect(before.fucili).toBeGreaterThan(0);
+    const sauRegion = session.getRegion(`${WORLD_ID}_SAU`);
+    session.applyMapChanges([{ type: 'transfer', regionId: sauRegion.id, newOwner: 'DEU' }]);
+    expect(session.getRegion(`${WORLD_ID}_SAU`).owner).toBe('DEU');
+    const after = session.getArsenal().units;
+    const lost = (before.fucili || 0) - (after.fucili || 0) + (before.apc || 0) - (after.apc || 0);
+    expect(lost).toBeGreaterThan(0);
+    void gameId;
+  });
+
+  it('un passaggio non ostile non consuma l’arsenale', () => {
+    const { session } = createGame();
+    const before = session.getArsenal().units;
+    const sauRegion = session.getRegion(`${WORLD_ID}_SAU`);
+    session.applyMapChanges([{ type: 'transfer', regionId: sauRegion.id, newOwner: 'DEU' }]);
+    expect(session.getArsenal().units).toEqual(before);
+  });
 });

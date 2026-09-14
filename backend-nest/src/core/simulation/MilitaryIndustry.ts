@@ -372,3 +372,51 @@ export function describeArsenal(units: Record<string, number>): ArsenalLine[] {
     .filter((line): line is ArsenalLine => Boolean(line.equipment) && line.quantity > 0)
     .sort((a, b) => b.quantity * b.equipment.quality - a.quantity * a.equipment.quality);
 }
+
+/** Qualità media dell'arsenale, pesata sulle quantità (0–100; 0 se vuoto). */
+export function arsenalQualityIndex(units: Record<string, number>): number {
+  let quantity = 0;
+  let weighted = 0;
+  for (const [id, count] of Object.entries(units || {})) {
+    const equipment = equipmentById(id);
+    if (!equipment || !Number.isFinite(count) || count <= 0) continue;
+    quantity += count;
+    weighted += equipment.quality * count;
+  }
+  return quantity > 0 ? Math.round(weighted / quantity) : 0;
+}
+
+/**
+ * Moltiplicatore di combattimento della nazione in [0.6, 1.6]:
+ * unisce la **qualità media** delle armi e la **copertura** rispetto alle forze.
+ * Un esercito senza equipaggiamento registrato combatte sotto la sua potenza
+ * nominale; un arsenale moderno e capiente la moltiplica.
+ */
+export function arsenalCombatFactor(units: Record<string, number>, forces: number): number {
+  const quality = arsenalQualityIndex(units);
+  const equipmentIndex = arsenalStrength(units);
+  const expected = Math.max(1, forces) * 1.2;
+  const coverage = Math.min(1.5, equipmentIndex / expected);
+  const qualityFactor = 0.7 + (quality / 100) * 0.9;        // 0.70 … 1.60
+  const coverageFactor = 0.7 + Math.min(1, coverage) * 0.6;  // 0.70 … 1.30
+  return Math.round(Math.min(1.6, Math.max(0.6, qualityFactor * coverageFactor)) * 1000) / 1000;
+}
+
+/**
+ * Perdite di equipaggiamento in battaglia: `intensity` in [0, 0.5] è la frazione
+ * persa. Deterministica e quantizzata (mai valori frazionari).
+ */
+export function combatAttrition(
+  units: Record<string, number>, intensity: number,
+): { units: Record<string, number>; lost: number } {
+  const ratio = Math.min(0.5, Math.max(0, intensity));
+  const next: Record<string, number> = {};
+  let lost = 0;
+  for (const [id, count] of Object.entries(units || {})) {
+    if (!Number.isFinite(count) || count <= 0) continue;
+    const keep = Math.floor(count * (1 - ratio));
+    lost += count - keep;
+    if (keep > 0) next[id] = keep;
+  }
+  return { units: next, lost };
+}

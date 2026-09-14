@@ -19,7 +19,7 @@ import db from './database';
 import { RelationshipMatrix } from './core/RelationshipMatrix';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { advanceStock, describeStock, movementCost, normalizeStock, payMovement, seedStock, type ResourceStock } from './core/simulation/MaterialEconomy';
-import { arsenalStrength, describeArsenal, describeEndowment, equipmentById, EQUIPMENT_CATALOG, naturalResourcesFor, procurementOption, type NationCapacity } from './core/simulation/MilitaryIndustry';
+import { arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, combatAttrition, describeArsenal, describeEndowment, equipmentById, EQUIPMENT_CATALOG, naturalResourcesFor, procurementOption, type NationCapacity } from './core/simulation/MilitaryIndustry';
 import { addDays, dateInPeriod, explicitDays, jumpHorizon, resolvePeriod } from './core/simulation/calendar';
 import {
   validateStrictMapChanges,
@@ -793,6 +793,19 @@ export class GameSession {
   }
 
   /**
+   * Potenza militare effettiva = potenza della mappa × fattore dell'arsenale
+   * (qualità media delle armi e copertura rispetto alle forze). È il valore che
+   * pesa sui combattimenti narrati dal modello e sull'attrito delle conquiste.
+   */
+  effectiveMilitaryPower(polityId = this.playerPolityId): number {
+    const account = WorldStateEngine.accounts(this.regions.values())[polityId];
+    const base = Math.max(0, Number(account?.militaryPower || 0));
+    const factor = arsenalCombatFactor(this.arsenalUnits(polityId),
+      Number(account?.forces || 0) + Number(account?.mobilized || 0));
+    return Math.round(base * factor * 10) / 10;
+  }
+
+  /**
    * Arsenale, risorse naturali, capacità industriale e catalogo completo con la
    * fattibilità di costruzione/acquisto per ogni voce.
    */
@@ -800,6 +813,8 @@ export class GameSession {
     const polityId = this.playerPolityId;
     const capacity = this.nationCapacity(polityId);
     const units = this.arsenalUnits(polityId);
+    const account = WorldStateEngine.accounts(this.regions.values())[polityId];
+    const combatFactor = arsenalCombatFactor(units, Number(account?.forces || 0) + Number(account?.mobilized || 0));
     const endowment = capacity.endowment;
     const lines = describeArsenal(units).map(line => ({
       id: line.equipment.id,
@@ -826,6 +841,10 @@ export class GameSession {
       polityId,
       units,
       strength: arsenalStrength(units),
+      qualityIndex: arsenalQualityIndex(units),
+      combatFactor,
+      baseMilitaryPower: Math.round(Number(account?.militaryPower || 0)),
+      effectiveMilitaryPower: Math.round(Number(account?.militaryPower || 0) * combatFactor * 10) / 10,
       lines,
       naturalResources: endowment,
       naturalResourcesText: describeEndowment(endowment),
@@ -968,6 +987,10 @@ export class GameSession {
       polityNames[owner] = this.publicPolityName(owner);
     }
     const accounts = WorldStateEngine.accounts(this.regions.values());
+    // Arsenale della nazione giocatore: pesa sulla potenza militare effettiva.
+    const playerArsenalUnits = this.arsenalUnits(this.playerPolityId);
+    const playerArsenalFactor = arsenalCombatFactor(playerArsenalUnits,
+      Number(accounts[this.playerPolityId]?.forces || 0) + Number(accounts[this.playerPolityId]?.mobilized || 0));
 
     return {
       id: this.id,
@@ -984,9 +1007,17 @@ export class GameSession {
         // Arsenale e risorse naturali: tratti materiali della nazione, non
         // inventati dal modello. Il catalogo completo resta nelle API.
         arsenal: {
-          units: this.arsenalUnits(this.playerPolityId),
-          strength: arsenalStrength(this.arsenalUnits(this.playerPolityId)),
+          units: playerArsenalUnits,
+          strength: arsenalStrength(playerArsenalUnits),
+          qualityIndex: arsenalQualityIndex(playerArsenalUnits),
           naturalResources: naturalResourcesFor(this.playerPolityId),
+        },
+        // Potenza militare effettiva: è il numero su cui si risolvono i
+        // combattimenti narrati (potenza mappa × qualità/copertura dell'arsenale).
+        military: {
+          combatFactor: playerArsenalFactor,
+          baseMilitaryPower: Math.round(Number(accounts[this.playerPolityId]?.militaryPower || 0)),
+          effectiveMilitaryPower: Math.round(Number(accounts[this.playerPolityId]?.militaryPower || 0) * playerArsenalFactor * 10) / 10,
         },
       },
       world: {
@@ -2422,6 +2453,35 @@ export class GameSession {
   }
 
   /**
+   * Attrito di conquista: quando una provincia passa di mano tra nazioni ostili,
+   * il vincitore consuma equipaggiamento e prontezza in proporzione alla difesa
+   * incontrata. È il modo in cui l'arsenale materiale pesa sulla guerra.
+   */
+  private applyConquestAttrition(
+    region: RegionState, previousOwner: string, newOwner: string,
+    accounts: Record<string, NationalAccount>,
+  ): void {
+    if (!previousOwner || previousOwner === newOwner) return;
+    if (previousOwner === 'neutral' || newOwner === 'neutral') return;
+    if (this.relationships.get(previousOwner, newOwner) !== 'hostile') return;
+    const defender = accounts[previousOwner];
+    const winner = accounts[newOwner];
+    const winnerBase = Math.max(0, Number(winner?.militaryPower || 0));
+    const winnerFactor = arsenalCombatFactor(this.arsenalUnits(newOwner),
+      Number(winner?.forces || 0) + Number(winner?.mobilized || 0));
+    const effective = Math.max(1, winnerBase * winnerFactor);
+    const defence = Math.max(0, region.militaryPower) + Math.max(0, Number(defender?.militaryPower || 0)) * 0.15;
+    const intensity = Math.min(0.3, (defence / effective) * 0.18);
+    if (intensity <= 0.005) return;
+    const { units, lost } = combatAttrition(this.arsenalUnits(newOwner), intensity);
+    if (lost > 0) {
+      this.saveArsenal(newOwner, units);
+      console.log(`[GameSession] Attrito di conquista: ${newOwner} perde ${lost} equipaggiamenti a ${region.name}.`);
+    }
+    region.militaryPower = Math.max(1, Math.round(region.militaryPower * (1 - Math.min(0.5, intensity * 1.5))));
+  }
+
+  /**
    * Apply world changes from simulation.
    * Keys могут быть как regionId (legacy), так и ИМЕНА регионов/политий —
    * резолвим оба варианта.
@@ -2436,6 +2496,8 @@ export class GameSession {
     const resolvers = this.buildResolvers();
 
     if (changes.regionOwners) {
+      // Attrito di conquista: conti calcolati una sola volta per il lotto.
+      const accounts = this.isStrictGame() ? undefined : WorldStateEngine.accounts(this.regions.values());
       for (const [regionKey, newOwner] of Object.entries(changes.regionOwners)) {
         const region = this.regions.get(regionKey) || resolvers.regions.resolve(regionKey);
         if (!region) {
@@ -2448,7 +2510,9 @@ export class GameSession {
         const ownerResolution = resolvers.polities.resolve(newOwner);
         const ownerId = ownerResolution?.polityId || newOwner;
         const explicitColor = changes.regionColors?.[regionKey] || changes.regionColors?.[region.id];
+        const previousOwner = liveRegion.owner;
         this.transferRegion(liveRegion, ownerId, explicitColor || resolvers.polities.colorOf(ownerId));
+        if (accounts) this.applyConquestAttrition(liveRegion, previousOwner, ownerId, accounts);
       }
     }
 
@@ -2732,6 +2796,13 @@ export class GameSession {
     if (!mapChanges || mapChanges.length === 0) return [];
     const resolvers = this.buildResolvers();
     const changed = new Map<string, RegionState>();
+    // Attrito di conquista (solo legacy): i conti si calcolano una volta per lotto.
+    let conquestAccounts: Record<string, NationalAccount> | null = null;
+    const conquestAttrition = (region: RegionState, previousOwner: string, newOwner: string) => {
+      if (this.isStrictGame() || previousOwner === newOwner) return;
+      conquestAccounts ??= WorldStateEngine.accounts(this.regions.values());
+      this.applyConquestAttrition(region, previousOwner, newOwner, conquestAccounts);
+    };
     const facilityTypes = new Set([
       'factory', 'port', 'university', 'base', 'airbase', 'naval_base',
       'fortification', 'radar', 'missile_site', 'infrastructure', 'power_plant',
@@ -2772,11 +2843,13 @@ export class GameSession {
           const ownerResolution = resolvers.polities.resolve(change.newOwner);
           if (!ownerResolution) break;
           const previous = `${liveRegion.owner}:${liveRegion.color}`;
+          const previousOwner = liveRegion.owner;
           this.transferRegion(
             liveRegion,
             ownerResolution.polityId,
             change.newColor || resolvers.polities.colorOf(ownerResolution.polityId),
           );
+          conquestAttrition(liveRegion, previousOwner, ownerResolution.polityId);
           mutated = `${liveRegion.owner}:${liveRegion.color}` !== previous;
           break;
         }
@@ -2789,11 +2862,13 @@ export class GameSession {
             const ownerResolution = resolvers.polities.resolve(change.newOwner);
             if (ownerResolution) {
               const previous = `${liveRegion.owner}:${liveRegion.color}`;
+              const previousOwner = liveRegion.owner;
               this.transferRegion(
                 liveRegion,
                 ownerResolution.polityId,
                 change.newColor || resolvers.polities.colorOf(ownerResolution.polityId),
               );
+              conquestAttrition(liveRegion, previousOwner, ownerResolution.polityId);
               mutated ||= `${liveRegion.owner}:${liveRegion.color}` !== previous;
             }
           } else if (change.newColor && change.newColor !== liveRegion.color) {

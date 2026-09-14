@@ -93,7 +93,12 @@ interface GameData {
     nominalGdpUsdBillions: number;
     gdpPerCapitaUsd: number;
     government: string;
-  }> };  
+  }>;
+    /** Potenza militare effettiva (arsenale incluso), calcolata dal motore. */
+    military?: { combatFactor?: number; baseMilitaryPower?: number; effectiveMilitaryPower?: number };
+    /** Arsenale e risorse naturali della nazione giocatore. */
+    arsenal?: { units?: Record<string, number>; strength?: number; qualityIndex?: number; naturalResources?: Record<string, number> };
+  };
   actions: ActionData[];
   results: TurnResultData[];
 }
@@ -454,6 +459,10 @@ export class PromptBuilder {
     ];
     if (playerAccount) {
       lines.push(`Dossier nazionale calcolato dal motore: governo ${playerAccount.government}; popolazione ${fmt(playerAccount.population)}; PIL nominale stimato ${fmt(playerAccount.nominalGdpUsdBillions)} miliardi USD; PIL pro capite circa ${fmt(playerAccount.gdpPerCapitaUsd)} USD; entrate mensili ${fmt(playerAccount.monthlyRevenue)}; uscite mensili ${fmt(playerAccount.monthlyExpenses)}; saldo ${fmt(playerAccount.monthlyBalance)}; crescita annua ${(playerAccount.annualGrowthRate * 100).toFixed(1)}%; stabilità ${playerAccount.stability}/100; spesa militare ${playerAccount.defenceBurdenPct}% del PIL; riserve mobilitate ${playerAccount.mobilized}; sforzo bellico ${playerAccount.warEffort}/100; tensione sociale ${playerAccount.socialTension}/100; infrastrutture: ${playerAccount.factories} fabbriche, ${playerAccount.ports} porti, ${playerAccount.universities} università.`);
+      const military = this.game.worldState?.military;
+      if (military && Number.isFinite(Number(military.effectiveMilitaryPower))) {
+        lines.push(`Forze armate effettive: potenza militare ${fmt(Number(military.effectiveMilitaryPower))} (base ${fmt(Number(military.baseMilitaryPower || 0))} × fattore arsenale ${military.combatFactor}); qualità media delle armi ${this.game.worldState?.arsenal?.qualityIndex ?? 0}/100. I combattimenti devono usare la potenza effettiva, non quella nominale.`);
+      }
     }
     const playerObjects = this.strategicObjectSummaries(owned, 20);
     lines.push(playerObjects.length

@@ -559,6 +559,8 @@ export const NationDock: React.FC<NationDockProps> = ({
               {arms ? (
                 <MetricGrid>
                   <Metric label="Forza militare" value={formatNumber(arms.strength)} tone="neutral" hint="Quantità × qualità × dominio" />
+                  <Metric label="Potenza effettiva" value={formatNumber(arms.effectiveMilitaryPower)} tone={arms.combatFactor >= 1 ? 'positive' : 'warning'} hint={`Base ${formatNumber(arms.baseMilitaryPower)} × fattore arsenale ${arms.combatFactor}`} />
+                  <Metric label="Qualità media armi" value={`${formatNumber(arms.qualityIndex)}/100`} tone={arms.qualityIndex >= 60 ? 'positive' : arms.qualityIndex >= 30 ? 'warning' : 'negative'} hint="Pesa sui combattimenti" />
                   <Metric label="Fabbriche" value={formatNumber(arms.capacity.factories)} hint="Industria meccanica e bellica" />
                   <Metric label="Porti / cantieri" value={formatNumber(arms.capacity.ports)} hint="Costruzione navale" />
                   <Metric label="Università" value={formatNumber(arms.capacity.universities)} hint="Ricerca e sviluppo" />

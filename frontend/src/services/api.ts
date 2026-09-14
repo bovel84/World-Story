@@ -31,6 +31,10 @@ export interface ArsenalResponse {
   polityId: string;
   units: Record<string, number>;
   strength: number;
+  qualityIndex: number;
+  combatFactor: number;
+  baseMilitaryPower: number;
+  effectiveMilitaryPower: number;
   lines: Array<{ id: string; name: string; domain: string; category: string; quality: number; tier: string; quantity: number }>;
   naturalResources: Record<string, number>;
   naturalResourcesText: string;

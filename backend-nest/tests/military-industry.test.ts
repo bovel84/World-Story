@@ -4,9 +4,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  EQUIPMENT_CATALOG, IMPORT_MARKUP, arsenalStrength, describeArsenal, describeEndowment,
-  equipmentById, naturalResourcesFor, procurementOption, resourceCostFactor, tierForQuality,
-  type NationCapacity,
+  EQUIPMENT_CATALOG, IMPORT_MARKUP, arsenalCombatFactor, arsenalQualityIndex, arsenalStrength,
+  combatAttrition, describeArsenal, describeEndowment, equipmentById, naturalResourcesFor,
+  procurementOption, resourceCostFactor, tierForQuality, type NationCapacity,
 } from '../src/core/simulation/MilitaryIndustry';
 import { advanceStock, seedStock, type ResourceStock } from '../src/core/simulation/MaterialEconomy';
 import type { NationalAccount } from '../src/core/simulation/WorldStateEngine';
@@ -78,6 +78,33 @@ describe('catalogo e qualità', () => {
     expect(strong).toBeGreaterThan(weak);
     expect(arsenalStrength({ carri_4: 1 })).toBeGreaterThan(arsenalStrength({ fucili: 1 }));
     expect(describeArsenal({ fucili: 2, carri_4: 5 })[0].equipment.id).toBe('carri_4');
+  });
+
+  it('misura la qualità media pesata sulle quantità', () => {
+    expect(arsenalQualityIndex({})).toBe(0);
+    expect(arsenalQualityIndex({ fucili: 10 })).toBe(35);
+    // (10×35 + 10×84) / 20 = 59,5 → 60
+    expect(arsenalQualityIndex({ fucili: 10, carri_4: 10 })).toBe(60);
+  });
+
+  it('la potenza effettiva premia un arsenale moderno e penalizza il vuoto', () => {
+    const empty = arsenalCombatFactor({}, 10);
+    const modern = arsenalCombatFactor({ carri_4: 40, caccia_5: 10 }, 10);
+    expect(empty).toBeLessThanOrEqual(0.7);
+    expect(modern).toBeGreaterThan(1);
+    // Il fattore è limitato all'intervallo dichiarato.
+    expect(arsenalCombatFactor({ sciame: 10_000 }, 1)).toBeLessThanOrEqual(1.6);
+    expect(empty).toBeGreaterThanOrEqual(0.6);
+  });
+
+  it('l’attrito di battaglia è deterministico e quantizzato', () => {
+    const { units, lost } = combatAttrition({ fucili: 100, apc: 10 }, 0.2);
+    expect(units.fucili).toBe(80);
+    expect(units.apc).toBe(8);
+    expect(lost).toBe(22);
+    expect(combatAttrition({}, 0.5).lost).toBe(0);
+    // Non azzera mai completamente sotto intensità massima.
+    expect(combatAttrition({ fucili: 1 }, 0.5).units.fucili).toBeUndefined();
   });
 });
 
