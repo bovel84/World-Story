@@ -1913,10 +1913,41 @@ html, body { margin: 0; }
 .nation-tech-list li { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid rgba(120, 96, 208, 0.35); border-radius: 10px; background: rgba(120, 96, 208, 0.08); }
 .nation-tech-list b { color: #f0edff; font-size: 13px; text-transform: capitalize; }
 .nation-tech-list span { color: #afbad0; font-size: 12px; }
-.resource-chips { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0 0 8px; padding: 0; }
-.resource-chips li { display: flex; align-items: baseline; gap: 6px; padding: 6px 10px; border: 1px solid rgba(90, 170, 140, 0.35); border-radius: 999px; background: rgba(90, 170, 140, 0.1); }
-.resource-chips b { color: #dff5ea; font-size: 12px; }
-.resource-chips span { color: #8fd8b6; font-size: 12px; font-variant-numeric: tabular-nums; }
+.resource-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.resource-chips li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid rgba(90, 170, 140, 0.35);
+  border-radius: 12px;
+  background: rgba(90, 170, 140, 0.1);
+}
+.resource-chips li b { color: #dff5ea; font-size: 12px; }
+.resource-chips li span { color: #8fd8b6; font-size: 12px; font-variant-numeric: tabular-nums; }
+.resource-chips li em { color: #86a79a; font-size: 11px; font-style: normal; font-variant-numeric: tabular-nums; }
+.resource-chips li.depleted { border-color: rgba(220, 120, 100, 0.5); background: rgba(220, 120, 100, 0.12); }
+.resource-chips li.depleted span,
+.resource-chips li.depleted em { color: #e0a191; }
+.resource-market { margin-top: 10px; }
+.resource-market-head { margin: 0 0 6px; color: #9fb8ae; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.resource-market-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.07); flex-wrap: wrap; }
+.resource-market-name { display: flex; flex-direction: column; gap: 2px; min-width: 160px; }
+.resource-market-name b { color: #dff5ea; font-size: 12px; }
+.resource-market-name em { color: #86a79a; font-size: 11px; font-style: normal; font-variant-numeric: tabular-nums; }
+.resource-trade { display: flex; align-items: center; gap: 6px; }
+.resource-trade-qty { width: 64px; padding: 4px 6px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(0, 0, 0, 0.25); color: #e8f4ee; font-variant-numeric: tabular-nums; }
+.resource-trade-btn { padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(90, 170, 140, 0.5); background: rgba(90, 170, 140, 0.18); color: #dff5ea; font-size: 12px; cursor: pointer; }
+.resource-trade-btn:hover:not(:disabled) { background: rgba(90, 170, 140, 0.32); }
+.resource-trade-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.resource-trade-buy { border-color: rgba(120, 160, 220, 0.5); background: rgba(120, 160, 220, 0.18); }
 .arms-list { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; }
 .arms-list li { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid rgba(120, 96, 208, 0.3); border-radius: 10px; background: rgba(120, 96, 208, 0.07); }
 .arms-list b { display: block; color: #f0edff; font-size: 13px; }

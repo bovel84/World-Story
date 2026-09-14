@@ -10,7 +10,7 @@ import { constructionProgressPatch } from './utils/construction-progress';
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
-import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, resourceRepository, arsenalRepository } from './repositories';
+import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, resourceRepository, arsenalRepository, naturalResourceRepository } from './repositories';
 import { captureEconomicSnapshot, invalidateStrictEffectStaging, restoreEconomicSnapshot, validateEconomicSnapshot } from './repositories/economy-snapshot.repository';
 import { withCanonicalTransaction } from './database';
 import { semanticStateHash } from './domain/semantic-hash';
@@ -19,7 +19,12 @@ import db from './database';
 import { RelationshipMatrix } from './core/RelationshipMatrix';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { advanceStock, describeStock, movementCost, normalizeStock, payMovement, seedStock, type ResourceStock } from './core/simulation/MaterialEconomy';
-import { arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, combatAttrition, describeArsenal, describeEndowment, equipmentById, EQUIPMENT_CATALOG, naturalResourcesFor, procurementOption, type NationCapacity } from './core/simulation/MilitaryIndustry';
+import { arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, combatAttrition, describeArsenal, describeEndowment, equipmentById, EQUIPMENT_CATALOG, NATURAL_RESOURCE_KINDS, naturalResourcesFor, procurementOption, type NationCapacity, type NaturalEndowment, type NaturalResourceKind } from './core/simulation/MilitaryIndustry';
+import {
+  advanceLedger, applyGlobalExtraction, describeLedger, effectiveEndowment, emptyMarket, executeTrade,
+  marketQuote, seedLedger, seedMarket, summarizeLedger, tradePressureDelta,
+  type ResourceLedger, type WorldMarket,
+} from './core/simulation/ResourceMarket';
 import { addDays, dateInPeriod, explicitDays, jumpHorizon, resolvePeriod } from './core/simulation/calendar';
 import {
   validateStrictMapChanges,
@@ -726,7 +731,14 @@ export class GameSession {
     const lines: string[] = [];
     for (const [polityId, account] of Object.entries(snapshot)) {
       if (!polityId || polityId === 'neutral' || account.provinces === 0) continue;
-      const tick = advanceStock(this.resourceStock(polityId), account, days, naturalResourcesFor(polityId));
+      // Risorse naturali dinamiche: estrazione, esaurimento, accumulo in magazzino.
+      const ledger = this.resourceLedger(polityId);
+      const natural = advanceLedger(ledger, account, days);
+      this.saveResourceLedger(polityId, natural.ledger);
+      applyGlobalExtraction(this.ensureMarket(), natural.extracted);
+      // Una risorsa esaurita smette di dare i bonus di produzione del giacimento.
+      const effective = effectiveEndowment(natural.ledger, naturalResourcesFor(polityId));
+      const tick = advanceStock(this.resourceStock(polityId), account, days, effective);
       this.saveResourceStock(polityId, tick.stock);
       if (polityId !== this.playerPolityId) continue;
       for (const tech of tick.unlocked) {
@@ -734,6 +746,13 @@ export class GameSession {
       }
       for (const shortage of tick.flow.shortages) lines.push(`⚠️ Carenza materiale — ${shortage}.`);
       lines.push(`🏭 ${describeStock(tick.stock, account)}`);
+      const extractedKinds = NATURAL_RESOURCE_KINDS.filter(kind => (natural.extracted[kind] || 0) > 0);
+      if (extractedKinds.length > 0) {
+        lines.push(`⛏️ Estrazione risorse: ${extractedKinds.map(kind => `${natural.extracted[kind]} ${kind}`).join(', ')}.`);
+      }
+      for (const kind of natural.depleted) {
+        lines.push(`🪫 Risorsa esaurita: ${kind} — le produzioni che ne dipendevano perdono il bonus del giacimento.`);
+      }
     }
     return lines;
   }
@@ -741,7 +760,84 @@ export class GameSession {
   /** Magazzino del paese giocatore, per API e dossier. */
   getResources() {
     const account = WorldStateEngine.accounts(this.regions.values())[this.playerPolityId];
-    return { stock: this.resourceStock(this.playerPolityId), account };
+    const ledger = this.resourceLedger(this.playerPolityId);
+    const market = this.ensureMarket();
+    const natural = summarizeLedger(ledger, account);
+    return {
+      stock: this.resourceStock(this.playerPolityId),
+      account,
+      natural,
+      market: natural.map(summary => marketQuote(market, summary.kind)),
+    };
+  }
+
+  /** Compravendita di risorse naturali: cassa ↔ magazzino, prezzo di mercato. */
+  tradeResource(mode: 'sell' | 'buy', kind: string, quantity: number) {
+    if (mode !== 'sell' && mode !== 'buy') throw new Error('trade_mode_invalid');
+    if (!NATURAL_RESOURCE_KINDS.includes(kind as NaturalResourceKind)) throw new Error('unknown_resource');
+    const resourceKind = kind as NaturalResourceKind;
+    const ledger = this.resourceLedger(this.playerPolityId);
+    const stock = this.resourceStock(this.playerPolityId);
+    const market = this.ensureMarket();
+    const result = executeTrade(ledger, stock, market, resourceKind, quantity, mode);
+    if (!result.ok) throw new Error(result.error || 'trade_failed');
+    this.saveResourceLedger(this.playerPolityId, result.ledger);
+    this.saveResourceStock(this.playerPolityId, result.stock);
+    const qty = Math.floor(quantity);
+    market.pressure[resourceKind] = Math.max(-0.4, Math.min(0.8,
+      (market.pressure[resourceKind] || 0) + tradePressureDelta(resourceKind, qty, mode)));
+    return { ok: true, mode, kind: resourceKind, quantity: qty, unitPrice: result.unitPrice, total: result.total, quote: marketQuote(market, resourceKind) };
+  }
+
+  /** Riserva naturale: cache → DB → semina dal giacimento immutabile. */
+  private resourceLedger(polityId: string): ResourceLedger {
+    const cached = this.resourceLedgers.get(polityId);
+    if (cached) return cached;
+    try {
+      const stored = naturalResourceRepository.get(this.id, polityId);
+      if (stored) {
+        this.resourceLedgers.set(polityId, stored.ledger);
+        return stored.ledger;
+      }
+    } catch (error) {
+      console.warn('[GameSession] Lettura risorse naturali non disponibile:', error);
+    }
+    const seeded = seedLedger(naturalResourcesFor(polityId));
+    this.saveResourceLedger(polityId, seeded);
+    return seeded;
+  }
+
+  private saveResourceLedger(polityId: string, ledger: ResourceLedger): void {
+    this.resourceLedgers.set(polityId, ledger);
+    try {
+      naturalResourceRepository.upsert(this.id, polityId, ledger, this.currentTurn, this.currentDate);
+    } catch (error) {
+      console.warn('[GameSession] Impossibile salvare le risorse naturali:', error);
+    }
+  }
+
+  /** Mercato mondiale: riserve globali e pressione di prezzo. Una volta per partita. */
+  private ensureMarket(): WorldMarket {
+    if (this.marketSeeded) return this.market;
+    const endowments: Record<string, NaturalEndowment> = {};
+    for (const polityId of Object.keys(this.initialAccounts())) {
+      if (!polityId || polityId === 'neutral') continue;
+      endowments[polityId] = naturalResourcesFor(polityId);
+    }
+    this.market = seedMarket(endowments);
+    try {
+      for (const record of naturalResourceRepository.list(this.id)) {
+        const extracted: Partial<Record<NaturalResourceKind, number>> = {};
+        for (const [kind, node] of Object.entries(record.ledger)) {
+          extracted[kind as NaturalResourceKind] = node.extractedTotal;
+        }
+        applyGlobalExtraction(this.market, extracted);
+      }
+    } catch (error) {
+      console.warn('[GameSession] Mercato risorse non ricostruibile:', error);
+    }
+    this.marketSeeded = true;
+    return this.market;
   }
 
   /** Arsenale della polity: cache → DB → seed dal suo esercito di partenza. */
@@ -903,6 +999,9 @@ export class GameSession {
 
   /** Magazzino materiale per polity (cibo, vestiario, armamenti, carburante…). */
   private resourceStocks = new Map<string, ResourceStock>();
+  private resourceLedgers = new Map<string, ResourceLedger>();
+  private market: WorldMarket = emptyMarket();
+  private marketSeeded = false;
 
   /** Arsenale militare per polity (quantità per voce di catalogo). */
   private arsenals = new Map<string, Record<string, number>>();
@@ -1014,14 +1113,14 @@ export class GameSession {
       // dalla mappa e quindi non può contraddire la memoria narrativa.
       worldState: {
         accounts: effectiveAccounts,
-        resources: { stock: this.resourceStock(this.playerPolityId), account: accounts[this.playerPolityId] },
+        resources: { stock: this.resourceStock(this.playerPolityId), account: accounts[this.playerPolityId], natural: summarizeLedger(this.resourceLedger(this.playerPolityId), accounts[this.playerPolityId]) },
         // Arsenale e risorse naturali: tratti materiali della nazione, non
         // inventati dal modello. Il catalogo completo resta nelle API.
         arsenal: {
           units: playerArsenalUnits,
           strength: arsenalStrength(playerArsenalUnits),
           qualityIndex: arsenalQualityIndex(playerArsenalUnits),
-          naturalResources: naturalResourcesFor(this.playerPolityId),
+          naturalResources: effectiveEndowment(this.resourceLedger(this.playerPolityId), naturalResourcesFor(this.playerPolityId)),
         },
         // Potenza militare effettiva: è il numero su cui si risolvono i
         // combattimenti narrati (potenza mappa × qualità/copertura dell'arsenale).

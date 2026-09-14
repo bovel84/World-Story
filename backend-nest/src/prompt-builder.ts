@@ -101,6 +101,11 @@ interface GameData {
     military?: { combatFactor?: number; baseMilitaryPower?: number; effectiveMilitaryPower?: number };
     /** Arsenale e risorse naturali della nazione giocatore. */
     arsenal?: { units?: Record<string, number>; strength?: number; qualityIndex?: number; naturalResources?: Record<string, number> };
+    /** Magazzino materiale e riserve naturali dinamiche. */
+    resources?: {
+      stock?: { money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
+      natural?: Array<{ kind: string; label: string; endowment: number; reserve: number; maxReserve: number; stockpile: number; depletionPct: number; depleted: boolean }>;
+    };
   };
   actions: ActionData[];
   results: TurnResultData[];
@@ -465,6 +470,19 @@ export class PromptBuilder {
       const military = this.game.worldState?.military;
       if (military && Number.isFinite(Number(military.effectiveMilitaryPower))) {
         lines.push(`Forze armate effettive: potenza militare ${fmt(Number(military.effectiveMilitaryPower))} (base ${fmt(Number(military.baseMilitaryPower || 0))} × fattore arsenale ${military.combatFactor}); qualità media delle armi ${this.game.worldState?.arsenal?.qualityIndex ?? 0}/100. I combattimenti devono usare la potenza effettiva, non quella nominale.`);
+      }
+      const stock = this.game.worldState?.resources?.stock;
+      if (stock) {
+        const techs = stock.technologies?.length ? stock.technologies.join(', ') : 'nessuna';
+        lines.push(`Magazzino materiale: denaro ${fmt(Number(stock.money || 0))} mld; cibo ${fmt(Number(stock.food || 0))}; vestiario ${fmt(Number(stock.clothing || 0))}; armamenti ${fmt(Number(stock.weapons || 0))}; carburante ${fmt(Number(stock.fuel || 0))}; ricerca ${fmt(Number(stock.research || 0))}; tecnologie: ${techs}.`);
+      }
+      const natural = this.game.worldState?.resources?.natural;
+      if (natural && natural.length > 0) {
+        lines.push(`Risorse naturali (giacimento 0-5 / riserva / magazzino): ${natural.map(n => `${n.label} ${n.endowment}/5, riserva ${n.reserve}/${n.maxReserve}${n.depleted ? ' ESAURITA' : ` (${n.depletionPct}% consumata)`}${n.stockpile > 0 ? `, magazzino ${n.stockpile}` : ''}`).join('; ')}. L'estrazione consuma la riserva; le risorse si possono vendere o comprare sul mercato.`);
+      }
+      const arsenalUnits = this.game.worldState?.arsenal?.units;
+      if (arsenalUnits && Object.keys(arsenalUnits).length > 0) {
+        lines.push(`Arsenale (quantità per voce): ${Object.entries(arsenalUnits).map(([id, qty]) => `${id}×${qty}`).join(', ')}.`);
       }
     }
     const playerObjects = this.strategicObjectSummaries(owned, 20);

@@ -20,7 +20,7 @@ import {
   NATION_SECTION_LABEL,
 } from '../../stores/nationDock';
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
-import type { ArsenalResponse } from '../../services/api';
+import type { ArsenalResponse, NaturalResourceSummary, ResourceQuote } from '../../services/api';
 import { deltaTone, sparkPoints, trendFrom, trendLabel, type Trend, type TrendTone } from './accountTrend';
 import {
   financeBalance,
@@ -63,6 +63,10 @@ export interface NationResources {
   fuel?: number;
   research?: number;
   technologies?: string[];
+  /** Riserve e magazzino delle risorse naturali dinamiche. */
+  natural?: NaturalResourceSummary[];
+  /** Quotazioni di mercato per le risorse possedute. */
+  market?: ResourceQuote[];
 }
 
 interface NationDockProps {
@@ -76,6 +80,8 @@ interface NationDockProps {
   arms?: ArsenalResponse | null;
   /** Costruisce o importa equipaggiamento. */
   procure?: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
+  /** Vende o compra una risorsa naturale sul mercato. */
+  trade?: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;
   /** Serie storica dei conti del paese (dal più vecchio al più recente). */
   accountHistory?: HistoryPoint[];
   regions?: Region[];
@@ -241,6 +247,48 @@ function Footnote({ children }: { children: React.ReactNode }) {
   return <p className="nation-footnote">{children}</p>;
 }
 
+/**
+ * Riga di mercato per una risorsa: quantità + vendita/acquisto. Il componente
+ * tiene la propria quantità, così ogni risorsa ha un controllo indipendente.
+ */
+function ResourceTradeRow({
+  summary, trade, busy,
+}: {
+  summary: NaturalResourceSummary;
+  trade: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;
+  busy: boolean;
+}) {
+  const [qty, setQty] = useState(1);
+  const quantity = Math.max(1, Math.floor(Number(qty) || 1));
+  return (
+    <div className="resource-trade" role="group" aria-label={`Mercato ${summary.label}`}>
+      <input
+        className="resource-trade-qty"
+        type="number"
+        min={1}
+        step={1}
+        value={qty}
+        inputMode="numeric"
+        aria-label={`Quantità per ${summary.label}`}
+        disabled={busy}
+        onChange={(event) => setQty(Math.max(1, Math.floor(Number(event.target.value) || 1)))}
+      />
+      <button
+        type="button"
+        className="resource-trade-btn"
+        disabled={busy || summary.stockpile < 1}
+        onClick={() => void trade('sell', summary.kind, quantity)}
+      >Vendi</button>
+      <button
+        type="button"
+        className="resource-trade-btn resource-trade-buy"
+        disabled={busy}
+        onClick={() => void trade('buy', summary.kind, quantity)}
+      >Compra</button>
+    </div>
+  );
+}
+
 function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="nation-empty" role="note">{children}</div>;
 }
@@ -252,6 +300,7 @@ export const NationDock: React.FC<NationDockProps> = ({
   resources,
   arms,
   procure,
+  trade,
   accountHistory = [],
   regions = [],
   ongoingProcesses = [],
@@ -261,6 +310,16 @@ export const NationDock: React.FC<NationDockProps> = ({
   latestNarration,
 }) => {
   const [state, setState] = useState(initialNationDockState);
+  const [trading, setTrading] = useState(false);
+  const runTrade = async (mode: 'sell' | 'buy', resourceId: string, quantity: number) => {
+    if (!trade || trading) return;
+    setTrading(true);
+    try {
+      await trade(mode, resourceId, quantity);
+    } finally {
+      setTrading(false);
+    }
+  };
   const active = state.activeSection;
   const assets = useMemo(() => summarizeNationalAssets(regions, account), [regions, account]);
   const financeAvailable = hasNationalFinance(account);
@@ -271,6 +330,8 @@ export const NationDock: React.FC<NationDockProps> = ({
   const mobilized = Number(account?.mobilized ?? 0);
   const defenceBurdenPct = Number(account?.defenceBurdenPct ?? 0);
   const growth = Number(account?.annualGrowthRate ?? 0);
+  const natural = resources?.natural ?? [];
+  const market = resources?.market ?? [];
 
   // Fabbisogno mensile stimato dal conto nazionale: serve solo a dare un tono
   // leggibile alle scorte (mai a inventare un valore).
@@ -518,21 +579,59 @@ export const NationDock: React.FC<NationDockProps> = ({
 
             <DossierBlock
               title="Risorse naturali"
-              description="La dotazione reale della nazione: abilita industrie e tecnologie."
+              description="Giacimento reale, riserva residua, estrazione, magazzino e quotazioni di mercato."
             >
-              {arms && Object.keys(arms.naturalResources).length > 0 ? (
+              {natural.length > 0 ? (
+                <>
+                  <ul className="resource-chips">
+                    {natural.map((node) => (
+                      <li key={node.kind} className={node.depleted ? 'resource-chip depleted' : 'resource-chip'}>
+                        <b>{node.label}</b>
+                        <span>{node.endowment}/5</span>
+                        <em>
+                          riserva {formatNumber(node.reserve)}/{formatNumber(node.maxReserve)}
+                          {node.depleted ? ' · esaurita' : ` · ${node.depletionPct}% consumata`}
+                          {node.renewable ? ' · rinnovabile' : ''}
+                        </em>
+                        <em>estrazione {formatNumber(node.extractionPerMonth)}/mese · magazzino {formatNumber(node.stockpile)}</em>
+                      </li>
+                    ))}
+                  </ul>
+                  {market.length > 0 && (
+                    <div className="resource-market">
+                      <p className="resource-market-head">Mercato mondiale · prezzo di vendita e di acquisto per unità</p>
+                      {market.map((quote) => {
+                        const node = natural.find((entry) => entry.kind === quote.kind);
+                        return (
+                          <div key={quote.kind} className="resource-market-row">
+                            <div className="resource-market-name">
+                              <b>{quote.label}</b>
+                              <em>
+                                vendi {formatMoney(quote.bid, { currency: 'mld', decimals: 3 })} ·
+                                compra {formatMoney(quote.ask, { currency: 'mld', decimals: 3 })}
+                                {quote.scarcityPct > 0 ? ` · scarsità ${quote.scarcityPct}%` : ''}
+                              </em>
+                            </div>
+                            {node && trade && <ResourceTradeRow summary={node} trade={runTrade} busy={trading} />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              ) : arms && Object.keys(arms.naturalResources).length > 0 ? (
                 <ul className="resource-chips">
                   {Object.entries(arms.naturalResources)
                     .filter(([, value]) => Number(value) > 0)
                     .sort((a, b) => Number(b[1]) - Number(a[1]))
                     .map(([kind, value]) => (
-                      <li key={kind}><b>{RESOURCE_LABELS[kind] || kind}</b><span>{value}/5</span></li>
+                      <li key={kind} className="resource-chip"><b>{RESOURCE_LABELS[kind] || kind}</b><span>{value}/5</span></li>
                     ))}
                 </ul>
               ) : (
                 <EmptyState>Nessuna risorsa naturale registrata per questa nazione.</EmptyState>
               )}
-              <Footnote><b>Fonte</b> dotazioni nazionali reali · sono un tratto della nazione, non una stima del client.</Footnote>
+              <Footnote><b>Fonte</b> dotazioni nazionali reali · l'estrazione consuma la riserva (le rinnovabili si rigenerano); vendere e comprare muove denaro e magazzino.</Footnote>
             </DossierBlock>
 
             <DossierBlock

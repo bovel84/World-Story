@@ -14,4 +14,6 @@ export { resourceRepository } from './resource.repository';
 export type { ResourceStockRecord } from './resource.repository';
 export { arsenalRepository } from './arsenal.repository';
 export type { ArsenalRecord } from './arsenal.repository';
+export { naturalResourceRepository } from './natural-resource.repository';
+export type { NaturalResourceRecord } from './natural-resource.repository';
 export type { ChatRecord, ChatSummary, ChatMessageRecord, ChatRole, ChatParticipant, GameChatSnapshot } from './chat.repository';

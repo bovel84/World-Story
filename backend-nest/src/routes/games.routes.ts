@@ -236,6 +236,27 @@ gamesRouter.post('/:id/arsenal/:mode(build|buy)', (req, res) => {
   }
 });
 
+// Compravendita di risorse naturali sul mercato mondiale (denaro ↔ magazzino).
+gamesRouter.post('/:id/resources/trade', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const mode = String(req.body?.mode || '');
+    const resourceId = String(req.body?.resourceId || '');
+    const quantity = Number(req.body?.quantity ?? 0);
+    if (mode !== 'sell' && mode !== 'buy') {
+      res.status(400).json({ error: 'mode deve essere "sell" o "buy"' });
+      return;
+    }
+    if (!resourceId) {
+      res.status(400).json({ error: 'resourceId è obbligatorio' });
+      return;
+    }
+    res.json(session.tradeResource(mode, resourceId, quantity));
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to trade resource');
+  }
+});
+
 gamesRouter.post('/:id/action', async (req, res) => {
   console.log('[API] POST /api/games/:id/action called');
   const text = req.body.text;

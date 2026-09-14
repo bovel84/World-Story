@@ -42,6 +42,31 @@ export interface ArsenalResponse {
   catalog: ArsenalCatalogItem[];
 }
 
+/** Stato dinamico di una risorsa naturale: giacimento, riserva, magazzino. */
+export interface NaturalResourceSummary {
+  kind: string;
+  label: string;
+  renewable: boolean;
+  endowment: number;
+  reserve: number;
+  maxReserve: number;
+  stockpile: number;
+  extractionPerMonth: number;
+  depletionPct: number;
+  depleted: boolean;
+}
+
+/** Quotazione di mercato di una risorsa naturale. */
+export interface ResourceQuote {
+  kind: string;
+  label: string;
+  base: number;
+  mid: number;
+  bid: number;
+  ask: number;
+  scarcityPct: number;
+}
+
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -313,13 +338,33 @@ export const gameApi = {
     accounts: Record<string, any>;
     /** Storico dei conti del paese giocatore, dal più vecchio al più recente. */
     history?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
-    /** Magazzino materiale del giocatore (legacy): stock + conto di riferimento. */
+    /** Magazzino materiale del giocatore (legacy): stock, conto e risorse naturali. */
     resources?: {
       stock?: { money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
       account?: Record<string, any>;
+      natural?: NaturalResourceSummary[];
+      market?: ResourceQuote[];
     };
   }> =>
     fetchApi(`/games/${gameId}/national-state`),
+
+  /** Magazzino materiale e risorse naturali dinamiche del giocatore. */
+  resources: (gameId: string): Promise<{
+    stock: { money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
+    account?: Record<string, any>;
+    natural: NaturalResourceSummary[];
+    market: ResourceQuote[];
+  }> =>
+    fetchApi(`/games/${gameId}/resources`),
+
+  /** Vende (`sell`) o compra (`buy`) una risorsa naturale sul mercato mondiale. */
+  tradeResource: (gameId: string, mode: 'sell' | 'buy', resourceId: string, quantity: number): Promise<{
+    ok: boolean; mode: string; kind: string; quantity: number; unitPrice: number; total: number; quote: ResourceQuote;
+  }> =>
+    fetchApi(`/games/${gameId}/resources/trade`, {
+      method: 'POST',
+      body: JSON.stringify({ mode, resourceId, quantity }),
+    }),
 
   /** Arsenale militare, risorse naturali reali e catalogo con fattibilità. */
   arsenal: (gameId: string): Promise<ArsenalResponse> =>

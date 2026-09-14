@@ -858,6 +858,20 @@ export function initDatabase() {
     )
   `);
 
+  // Riserve e magazzino delle risorse naturali dinamiche (estrazione,
+  // esaurimento, commercio). Una riga per partita/polity.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_natural_resources (
+      game_id TEXT NOT NULL,
+      polity_id TEXT NOT NULL,
+      ledger TEXT NOT NULL DEFAULT '{}',
+      updated_turn INTEGER NOT NULL DEFAULT 0,
+      updated_date TEXT,
+      recorded_at TEXT NOT NULL,
+      PRIMARY KEY (game_id, polity_id)
+    )
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS saves (
       id TEXT PRIMARY KEY,

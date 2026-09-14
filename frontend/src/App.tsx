@@ -249,7 +249,11 @@ function App() {
   const [nationalHistory, setNationalHistory] = useState<Array<{ date: string; turn?: number; account: Record<string, any> }>>([]);
   // Magazzino materiale del paese giocatore (cibo, vestiario, armamenti,
   // carburante, denaro, ricerca e tecnologie).
-  const [nationalResources, setNationalResources] = useState<{ money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] } | null>(null);
+  const [nationalResources, setNationalResources] = useState<{
+    money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[];
+    natural?: Awaited<ReturnType<typeof gameApi.resources>>['natural'];
+    market?: Awaited<ReturnType<typeof gameApi.resources>>['market'];
+  } | null>(null);
   // Arsenale militare e risorse naturali reali del paese giocatore.
   const [nationalArms, setNationalArms] = useState<Awaited<ReturnType<typeof gameApi.arsenal>> | null>(null);
   const [mandateDecisions, setMandateDecisions] = useState<Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>>([]);
@@ -418,7 +422,7 @@ function App() {
     // mandato appartengono invece solo al percorso strict e un 409 significa
     // semplicemente «nessuna decisione applicabile», non un errore del dossier.
     gameApi.nationalState(currentGameId)
-      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(national.resources?.stock || null); } })
+      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(national.resources || null); } })
       .catch(error => console.warn('[App] Impossibile caricare il conto nazionale:', error));
     gameApi.arsenal(currentGameId)
       .then((arms) => { if (!cancelled) setNationalArms(arms); })
@@ -455,12 +459,35 @@ function App() {
         gameApi.nationalState(currentGameId),
       ]);
       setNationalArms(arms);
-      setNationalResources(national.resources?.stock || null);
+      setNationalResources(national.resources || null);
       setNationalAccounts(national.accounts || {});
     } catch (error: any) {
       console.error('[App] Procurement fallito:', error);
       const unavailable = String(error?.message || '').includes('build_unavailable');
       notify(unavailable ? 'Capacità insufficienti per costruire questa arma.' : 'Acquisto non riuscito.', 'error');
+    }
+  }, [currentGameId]);
+
+  // Vendi o compra una risorsa naturale sul mercato: denaro ↔ magazzino.
+  const tradeNaturalResource = useCallback(async (mode: 'sell' | 'buy', resourceId: string, quantity: number) => {
+    if (!currentGameId) return;
+    try {
+      const result = await gameApi.tradeResource(currentGameId, mode, resourceId, quantity);
+      notify(
+        `${mode === 'sell' ? 'Vendute' : 'Comprate'} ${result.quantity} unità di ${result.quote.label} per ${result.total} mld.`,
+        'success',
+      );
+      const national = await gameApi.nationalState(currentGameId);
+      setNationalResources(national.resources || null);
+    } catch (error: any) {
+      console.error('[App] Scambio risorsa fallito:', error);
+      const message = String(error?.message || '');
+      const reason = message.includes('insufficient_stockpile') ? 'Magazzino insufficiente per vendere.'
+        : message.includes('insufficient_money') ? 'Cassa insufficiente per comprare.'
+        : message.includes('resource_not_held') ? 'La nazione non possiede questa risorsa.'
+        : message.includes('unknown_resource') ? 'Risorsa sconosciuta.'
+        : 'Scambio non riuscito.';
+      notify(reason, 'error');
     }
   }, [currentGameId]);
 
@@ -2216,6 +2243,7 @@ function App() {
               nationalResources={nationalResources}
               nationalArms={nationalArms}
               procureEquipment={procureEquipment}
+              tradeResource={tradeNaturalResource}
               nationalHistory={nationalHistory}
               campaignProgress={campaignProgress}
               latestNationalNarration={latestNationalNarration}

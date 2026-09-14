@@ -9,7 +9,7 @@ import type { ArsenalResponse } from '../../services/api';
 import { SaveGameModal } from '../Game/SaveGameModal';
 import { useToast } from '../ui/ToastProvider';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { chatsApi } from '../../services/api';
+import { chatsApi, gameApi } from '../../services/api';
 import type { Region, World, Game } from '../../types';
 import type { Suggestion } from '../../stores';
 import type { ActiveModule } from '../../stores/moduleState';
@@ -25,9 +25,14 @@ interface DeskContentProps {
   nationalName: string;
   governmentType: string;
   nationalAccount: any;
-  nationalResources?: { money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] } | null;
+  nationalResources?: {
+    money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[];
+    natural?: Awaited<ReturnType<typeof gameApi.resources>>['natural'];
+    market?: Awaited<ReturnType<typeof gameApi.resources>>['market'];
+  } | null;
   nationalArms?: ArsenalResponse | null;
   procureEquipment?: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
+  tradeResource?: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;
   nationalHistory?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
   campaignProgress: number;
   latestNationalNarration: string;
@@ -93,6 +98,7 @@ export function DeskContent({
   nationalResources,
   nationalArms,
   procureEquipment,
+  tradeResource,
   nationalHistory = [],
   campaignProgress,
   latestNationalNarration,
@@ -377,6 +383,7 @@ export function DeskContent({
             resources={nationalResources}
             arms={nationalArms}
             procure={procureEquipment}
+            trade={tradeResource}
             accountHistory={nationalHistory}
             regions={currentWorld?.regions ? Object.values(currentWorld.regions).filter((region) => region.owner === playerPolityId) as Region[] : []}
             ongoingProcesses={ongoingProcesses}
