@@ -312,10 +312,14 @@ describe('Engine invariants across a real session', () => {
     jumpMode = 'auto';
     const { session } = createGame();
     const gdp = session.getRegion(`${WORLD_ID}_DEU`).gdp;
+    // La crescita dipende dalla capacità industriale del paese (base nazionale
+    // + impianti): il test usa il tasso dichiarato dal motore, non una costante.
+    const growth = session.getNationalAccounts().DEU.annualGrowthRate;
     session.queueAction('Attendere il trattato');
     await session.processNextAction(0);
     const elapsed = (Date.parse('1951-03-10') - Date.parse('1951-01-01')) / 86400000;
-    expect(session.getRegion(`${WORLD_ID}_DEU`).gdp).toBeCloseTo(gdp * 1.012 ** (elapsed / 365), 8);
+    expect(growth).toBeGreaterThan(0);
+    expect(session.getRegion(`${WORLD_ID}_DEU`).gdp).toBeCloseTo(gdp * (1 + growth) ** (elapsed / 365), 8);
     jumpMode = 'normal';
   });
 
@@ -366,13 +370,14 @@ describe('Engine invariants across a real session', () => {
   it('advanceDate moves calendar and economy together and persists both', async () => {
     const { gameId, session } = createGame();
     const gdp = session.getRegion(`${WORLD_ID}_DEU`).gdp;
+    const growth = session.getNationalAccounts().DEU.annualGrowthRate;
     const { newDate } = await session.advanceDate(90);
     expect(newDate).toBe('1951-04-01');
-    expect(session.getRegion(`${WORLD_ID}_DEU`).gdp).toBeCloseTo(gdp * 1.012 ** (90 / 365), 8);
+    expect(session.getRegion(`${WORLD_ID}_DEU`).gdp).toBeCloseTo(gdp * (1 + growth) ** (90 / 365), 8);
     // Persisted, not only in memory
     expect(db.prepare('SELECT * FROM games WHERE id = ?').get(gameId).current_date).toBe('1951-04-01');
     expect(db.prepare('SELECT gdp FROM game_regions WHERE game_id = ? AND region_id = ?').get(gameId, `${WORLD_ID}_DEU`).gdp)
-      .toBeCloseTo(gdp * 1.012 ** (90 / 365), 8);
+      .toBeCloseTo(gdp * (1 + growth) ** (90 / 365), 8);
   });
 
   it('live ticks broadcast economic changes even when borders stay unchanged', async () => {

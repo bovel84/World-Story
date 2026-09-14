@@ -60,6 +60,8 @@ export interface ProductionOrder {
   note: string;
   qualityLoss: number;
   updatedDate: string;
+  /** Data di consegna prevista, ricalcolata dal motore sul ritmo reale. */
+  expectedDate?: string | null;
 }
 
 /** Arsenale, risorse naturali reali e capacità industriale della nazione. */
@@ -523,6 +525,10 @@ export const gameApi = {
     status: 'ongoing';
     started_date: string;
     expected_date?: string | null;
+    /** Percentuale di completamento calcolata dal motore (0-100). */
+    progress?: number | null;
+    /** Nota del motore sull'avanzamento (ritardi, vincoli, difetti). */
+    progress_note?: string | null;
     updated_at: string;
   }> }> => {
     return fetchApi(`/games/${gameId}/ongoing-processes`);

@@ -30,7 +30,26 @@ describe('nationDossier (G5-A)', () => {
       region('a', ['factory', 'city', 'army']),
       region('b', ['factory', 'port', 'capital', 'battalion', 'university']),
     ]);
-    expect(assets).toEqual({ provinces: 2, population: 20, gdpBillions: 8, factories: 2, ports: 1, universities: 1, forces: 2, cities: 2 });
+    expect(assets).toEqual({
+      provinces: 2, population: 20, gdpBillions: 8, factories: 2, ports: 1, universities: 1, forces: 2, cities: 2,
+      baseFactories: 0, basePorts: 0, baseUniversities: 0, baseForces: 0, capacitySources: undefined,
+    });
+  });
+
+  it('espone la quota di disponibilità che deriva dal profilo del paese', () => {
+    const assets = summarizeNationalAssets([region('a', ['factory'])], {
+      factories: 6, ports: 2, universities: 3, forces: 4,
+      capacityBase: { factories: 5, ports: 2, universities: 3, forces: 4 },
+      capacitySources: 'PIL 20 mld, 2,7 milioni di abitanti, 4 province costiere',
+    });
+    expect(assets.baseFactories).toBe(5);
+    expect(assets.basePorts).toBe(2);
+    expect(assets.baseUniversities).toBe(3);
+    expect(assets.baseForces).toBe(4);
+    expect(assets.capacitySources).toContain('PIL 20 mld');
+    // Conteggio assente: nessuna base inventata dal client.
+    expect(summarizeNationalAssets([]).baseFactories).toBe(0);
+    expect(summarizeNationalAssets([]).capacitySources).toBeUndefined();
   });
 
   it('riconosce le voci finanziarie pubblicate e rispetta il saldo dichiarato', () => {

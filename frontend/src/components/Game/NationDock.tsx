@@ -55,6 +55,10 @@ export interface NationAccount {
   /** Tesoreria e debito registrati nel punto storico (mld USD). */
   money?: number;
   debt?: number;
+  /** Disponibilità derivata dal profilo del paese (non dagli oggetti di mappa). */
+  capacityBase?: { factories?: number; ports?: number; universities?: number; forces?: number };
+  /** Fonti leggibili del profilo di capacità (PIL, abitanti, costa). */
+  capacitySources?: string;
 }
 
 /** Magazzino materiale del paese (shape di `MaterialEconomy.ResourceStock`). */
@@ -110,6 +114,11 @@ export interface HistoryPoint {
 
 /** Tono semantico di una cifra: colore e barra laterale della carta. */
 export type Tone = 'positive' | 'negative' | 'warning' | 'neutral';
+
+/** Conteggio con grammatica corretta: «1 provincia», «2 province». */
+function plural(value: number, singular: string, pluralForm: string): string {
+  return `${formatNumber(value)} ${value === 1 ? singular : pluralForm}`;
+}
 
 function formatDate(value?: string | null): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '');
@@ -312,6 +321,41 @@ function formatBillions(mln: number): string {
   const value = mln / 1000;
   const decimals = value < 1 ? 3 : value < 100 ? 1 : 0;
   return formatMoney(value, { currency: 'mld', decimals });
+}
+
+/**
+ * Avanzamento leggibile: percentuale in evidenza, barra e nota.
+ * Un progetto senza stato si legge come «in corso», mai come un numero muto.
+ */
+function ProgressRow({ label, percent, note, status }: {
+  label: string;
+  percent: number;
+  note?: string;
+  status?: 'ongoing' | 'failed' | 'done';
+}) {
+  const value = Math.max(0, Math.min(100, Number.isFinite(Number(percent)) ? Number(percent) : 0));
+  const tone = status === 'failed' ? 'negative' : value >= 60 ? 'positive' : 'warning';
+  return (
+    <div className="nation-progress-row">
+      <div className="nation-progress-head">
+        <b>{label}</b>
+        <span className={`nation-progress-pct tone-${tone}`}>
+          {status === 'failed' ? 'interrotto' : `${formatPercent(value)} completato`}
+        </span>
+      </div>
+      <div
+        className="nation-progress-track"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(value)}
+        aria-label={`Avanzamento ${label}`}
+      >
+        <span style={{ width: `${value}%` }} />
+      </div>
+      {note && <small className="nation-progress-note">{note}</small>}
+    </div>
+  );
 }
 
 function EmptyState({ children }: { children: React.ReactNode }) {
@@ -529,7 +573,7 @@ export const NationDock: React.FC<NationDockProps> = ({
         {active === 'progetti' && (
           <DossierBlock
             title="Progetti e processi in corso"
-            description="Ciò che è già avviato e la prossima scadenza registrata."
+            description="Che cosa è avviato, a che punto è e quando è previsto l'esito."
           >
             {ongoingProcesses.length === 0 ? (
               <EmptyState>Nessun processo in corso alla data del bollettino.</EmptyState>
@@ -537,13 +581,23 @@ export const NationDock: React.FC<NationDockProps> = ({
               <ul className="nation-process-list">
                 {ongoingProcesses.map((process) => (
                   <li key={process.id}>
-                    <div><b>{process.title}</b><span>{process.summary}</span></div>
-                    <small>Avviato {formatDate(process.started_date)} · {process.expected_date ? `stimato ${formatDate(process.expected_date)}` : 'nessuna data stimata'}</small>
+                    <b>{process.title}</b>
+                    <span>{process.summary}</span>
+                    <ProgressRow
+                      label="Realizzazione"
+                      percent={Number(process.progress ?? 0)}
+                      note={process.expected_date
+                        ? `Avviato ${formatDate(process.started_date)} · esito previsto ${formatDate(process.expected_date)}`
+                        : `Avviato ${formatDate(process.started_date)} · nessuna scadenza dichiarata${process.progress_note ? ` · ${process.progress_note}` : ''}`}
+                    />
+                    {process.expected_date && process.progress_note && (
+                      <small className="nation-process-note">{process.progress_note}</small>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
-            <Footnote>I processi sono letti dal registro della simulazione: questa sezione non crea né modifica progetti.</Footnote>
+            <Footnote>L'avanzamento è calcolato dal motore tra la data di avvio e la scadenza dichiarata; un progetto senza scadenza resta «in corso» finché il modello non ne dichiara l'esito.</Footnote>
           </DossierBlock>
         )}
 
@@ -584,7 +638,7 @@ export const NationDock: React.FC<NationDockProps> = ({
                   hero
                 />
               </MetricGrid>
-              <Footnote><b>Come si muove la cassa</b> ogni mese la tesoreria cambia del saldo mensile (entrate + reddito da risorse − uscite − interessi sul debito). Un saldo negativo la riduce; sotto zero la differenza è debito pubblico.</Footnote>
+              <Footnote><b>Come si muove la cassa</b> ogni mese la tesoreria cambia del saldo mensile (entrate + reddito da risorse − uscite − interessi sul debito). Le scelte del giocatore la muovono subito: un ordine eseguito preleva una spesa una tantum, gli acquisti militari e le compravendite sul mercato si pagano al momento, i movimenti di truppe costano carburante e denaro. Un saldo negativo la riduce; sotto zero la differenza è debito pubblico.</Footnote>
             </DossierBlock>
 
             <DossierBlock
@@ -766,14 +820,23 @@ export const NationDock: React.FC<NationDockProps> = ({
 
             <DossierBlock
               title="Capacità produttive e territoriali"
-              description="Le infrastrutture che sostengono crescita e logistica."
+              description="Che cosa il paese è in grado di fare: la disponibilità dipende dal profilo della nazione, non solo da ciò che è disegnato sulla mappa."
             >
               <MetricGrid>
                 <Metric label="Province" value={formatNumber(assets.provinces)} />
-                <Metric label="Fabbriche" value={formatNumber(assets.factories)} />
-                <Metric label="Porti" value={formatNumber(assets.ports)} />
+                <Metric label="Fabbriche" value={formatNumber(assets.factories)} hint={assets.baseFactories > 0 ? `${formatNumber(assets.baseFactories)} dal profilo del paese, ${formatNumber(Math.max(0, assets.factories - assets.baseFactories))} costruite sulla mappa` : undefined} />
+                <Metric label="Porti e cantieri" value={formatNumber(assets.ports)} hint={assets.basePorts > 0 ? `${formatNumber(assets.basePorts)} dalla costa, ${formatNumber(Math.max(0, assets.ports - assets.basePorts))} costruiti sulla mappa` : 'nessuno sbocco al mare'} />
                 <Metric label="Città e capitali" value={formatNumber(assets.cities)} />
               </MetricGrid>
+              <p className="nation-capacity-source">
+                <b>Da dove viene la disponibilità</b>{' '}
+                {assets.capacitySources
+                  ? `${assets.capacitySources}.`
+                  : 'profilo della nazione ricavato dal conto nazionale.'}{' '}
+                La base è il profilo reale del paese (PIL, abitanti, costa, forze): {plural(assets.baseFactories, 'fabbrica', 'fabbriche')},
+                {' '}{plural(assets.basePorts, 'porto', 'porti')}, {plural(assets.baseUniversities, 'università', 'università')},
+                {' '}{plural(assets.baseForces, 'reparto', 'reparti')}. Ciò che si costruisce nel gioco si somma a questa base.
+              </p>
               <Footnote><b>Fonte</b> conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Università e personale sono nella sezione Conoscenze.</Footnote>
             </DossierBlock>
           </>
@@ -863,25 +926,15 @@ export const NationDock: React.FC<NationDockProps> = ({
                 <ul className="arms-production">
                   {arms.production.orders.map((order) => (
                     <li key={order.id} className={`arms-production-item status-${order.status}`}>
-                      <div className="arms-production-head">
-                        <b>{order.name}</b>
-                        <span>×{formatNumber(order.quantity)} · {order.progress}%</span>
-                      </div>
-                      <div
-                        className="arms-progress"
-                        role="progressbar"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={order.progress}
-                        aria-label={`Avanzamento ${order.name}`}
-                      >
-                        <span style={{ width: `${Math.max(0, Math.min(100, order.progress))}%` }} />
-                      </div>
-                      <em className="arms-production-meta">
-                        {order.status === 'failed'
-                          ? `fallita${order.note ? ` · ${order.note}` : ''}`
-                          : `${DOMAIN_LABELS[order.domain] || order.domain} · avviata ${order.startedDate}${order.qualityLoss > 0 ? ` · ${Math.round(order.qualityLoss)}% difettose` : ''}${order.note ? ` · ${order.note}` : ''}`}
-                      </em>
+                      <ProgressRow
+                        label={`${order.name} ×${formatNumber(order.quantity)}`}
+                        percent={order.status === 'failed' ? 0 : Number(order.progress)}
+                        status={order.status === 'failed' ? 'failed' : 'ongoing'}
+                        note={order.status === 'failed'
+                          ? `Ordine fallito${order.note ? ` · ${order.note}` : ''} · la spesa sostenuta non è recuperabile`
+                          : `Avviata il ${formatDate(order.startedDate)}${order.expectedDate ? ` · consegna prevista ${formatDate(order.expectedDate)}` : ''}${order.qualityLoss > 0 ? ` · ${Math.round(order.qualityLoss)}% dei pezzi difettosi` : ''}${order.note ? ` · ${order.note}` : ''}`}
+                      />
+                      <em className="arms-production-meta">{DOMAIN_LABELS[order.domain] || order.domain}</em>
                     </li>
                   ))}
                 </ul>

@@ -8,6 +8,10 @@ export interface FeasibilityResult {
     inputs: Array<{ resourceId: string; name: string; quantity: string; unit: string }>;
     upkeep: Array<{ line: { resourceId: string; name: string; quantity: string; unit: string }; periodDays: number }>;
     basis: 'recipe' | 'upkeep' | 'request' | 'none';
+    /** Come è stata ricavata la stima (motore legacy: gettito annuo). */
+    note?: string;
+    /** Categoria riconosciuta nell'ordine (Infrastrutture, Ricerca…). */
+    category?: string;
   };
   prerequisites: string[];
   risks: string[];
@@ -101,7 +105,11 @@ export function FeasibilityCheck({
           </div>
 
           <section className="feasibility-section">
-            <h3 className="feasibility-section-title">Costi stimati dal catalogo</h3>
+            <h3 className="feasibility-section-title">
+              {result.costs.basis === 'request'
+                ? `Spesa stimata${result.costs.category ? ` · ${result.costs.category}` : ''}`
+                : 'Costi stimati dal catalogo'}
+            </h3>
             {result.costs.basis === 'none' ? (
               <p className="feasibility-costs-empty">
                 Nessun consumo materiale dichiarato per questo tipo d'ordine.
@@ -127,6 +135,13 @@ export function FeasibilityCheck({
                   </div>
                 ))}
               </dl>
+            )}
+            {result.costs.basis === 'request' && (
+              <p className="feasibility-basis-note">
+                {result.costs.note ? `Stima: ${result.costs.note}. ` : ''}
+                La somma è prelevata dalla tesoreria quando l'ordine viene eseguito; se la cassa non basta
+                il paese va in debito, entro il tetto di credito.
+              </p>
             )}
           </section>
 

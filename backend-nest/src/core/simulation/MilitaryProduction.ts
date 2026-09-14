@@ -32,6 +32,8 @@ export interface ProductionOrder {
   /** Percentuale cumulata di unità difettose (0-40). */
   qualityLoss: number;
   updatedDate: string;
+  /** Data di consegna prevista, ricalcolata dal ritmo reale della linea. */
+  expectedDate?: string | null;
 }
 
 export interface ProductionContext {

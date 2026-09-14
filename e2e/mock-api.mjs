@@ -109,6 +109,8 @@ export const MOCK_ACCOUNTS = {
     monthlyRevenue: 3.4, monthlyExpenses: 2.6, monthlyBalance: 0.8, annualGrowthRate: 0.024,
     stability: 62, defenceBurdenPct: 4.1, warEffort: 22, socialTension: 38,
     nominalGdpUsdBillions: 100, gdpPerCapitaUsd: 100000, government: 'Repubblica presidenziale',
+    capacityBase: { factories: 2, ports: 1, universities: 1, forces: 2 },
+    capacitySources: 'PIL 100 mld, 1,0 milioni di abitanti, 100000 USD pro capite (reddito alto), 1 provincia costiera',
   },
   BETA: {
     polityId: 'BETA', provinces: 1, population: 800000, gdp: 80, militaryPower: 80,
@@ -195,7 +197,15 @@ export const MOCK_ARSENAL = {
   naturalResources: { diamonds: 5 },
   naturalResourcesText: 'Diamanti 5/5',
   debt: 0, creditLimit: 49.92,
-  production: { orders: [], inProgress: 0 },
+  production: {
+    orders: [{
+      id: 'ord-mock-1', equipmentId: 'fucili', name: 'Fucili d’assalto', domain: 'terra',
+      quantity: 40, progress: 42, spentMln: 32, startedTurn: 2, startedDate: '1951-01-15',
+      status: 'in_progress', note: 'imprevisto: −9% (linea rallentata)', qualityLoss: 1.4,
+      updatedDate: '1951-03-01', expectedDate: '1951-06-20',
+    }],
+    inProgress: 1,
+  },
   capacity: { factories: 2, ports: 1, universities: 1, money: 185.85, weapons: 160, credit: 49.92, technologies: ['ferrovie'] },
   domains: [
     { domain: 'terra', label: 'Forze di terra', weight: 1, description: 'Fanteria, corazzati, artiglieria e difesa aerea: tengono il terreno e lo conquistano.' },
@@ -205,6 +215,26 @@ export const MOCK_ARSENAL = {
     { domain: 'droni', label: 'Droni', weight: 1.6, description: 'Ricognizione, attacco, munizioni vaganti e sciami: pressione continua.' },
   ],
 };
+
+/**
+ * Processi in corso: il contratto reale dell'API include la percentuale di
+ * completamento calcolata dal motore e la nota di rischio. Un processo senza
+ * scadenza dichiarata resta «in corso».
+ */
+export const MOCK_ONGOING_PROCESSES = [
+  {
+    id: 'proc-1', source_action_id: 'mock-action-1', source_run_id: 'run-1',
+    title: 'Ferrovia transnazionale', summary: 'Collegamento ferroviario verso il confine orientale.',
+    status: 'ongoing', started_date: '1951-01-10', expected_date: '1951-09-30',
+    progress: 38, progress_note: null, updated_at: '1951-03-01T00:00:00Z',
+  },
+  {
+    id: 'proc-2', source_action_id: 'mock-action-2', source_run_id: 'run-2',
+    title: 'Riforma agraria', summary: 'Ridistribuzione delle terre coltivabili.',
+    status: 'ongoing', started_date: '1951-02-01', expected_date: null,
+    progress: 35, progress_note: 'senza scadenza dichiarata: resta in corso', updated_at: '1951-03-01T00:00:00Z',
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Helper di risposta
@@ -324,7 +354,7 @@ export function installMockApi(page, opts = {}) {
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/timeline`, (route) =>
     json(route, { timeline: [], currentDate: '1951-01-01', hasMore: false, nextAfter: 0 }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/ongoing-processes`, (route) =>
-    json(route, { processes: [] }));
+    json(route, { processes: MOCK_ONGOING_PROCESSES }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/national-state`, (route) =>
     json(route, { accounts: MOCK_ACCOUNTS, history: MOCK_ACCOUNT_HISTORY, resources: MOCK_RESOURCES }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/arsenal`, (route) => json(route, MOCK_ARSENAL));
@@ -361,7 +391,14 @@ export function installMockApi(page, opts = {}) {
     } catch { /* body non JSON → testo di default */ }
     return json(route, {
       feasible: true,
-      costs: { timeDays: 30, inputs: [], upkeep: [], basis: 'request' },
+      costs: {
+        timeDays: 45,
+        inputs: [{ resourceId: 'money', name: 'Tesoreria', quantity: '12,40', unit: 'mld' }],
+        upkeep: [],
+        basis: 'request',
+        note: '25% del gettito annuo (Infrastrutture)',
+        category: 'Infrastrutture',
+      },
       prerequisites: [],
       risks: [],
       warnings: [],

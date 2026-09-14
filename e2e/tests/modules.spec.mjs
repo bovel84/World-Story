@@ -70,6 +70,14 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     // «Registra ordine» apre la verifica di fattibilità: solo un esito
     // fattibile accoda l'ordine (G4-B).
     await expect(page.locator('.feasibility-check')).toBeVisible();
+    // La stima dichiara *quanto* costa l'ordine e da dove esce il denaro:
+    // la cassa deve risentire delle scelte del giocatore.
+    const verifica = page.locator('.feasibility-check');
+    await expect(verifica).toContainText('Spesa stimata · Infrastrutture');
+    await expect(verifica).toContainText('Tesoreria');
+    await expect(verifica).toContainText('12,40 mld');
+    await expect(verifica).toContainText('25% del gettito annuo');
+    await expect(verifica).toContainText('il paese va in debito');
     await expect(page.locator('.btn-feasibility-register')).toContainText('Registra ordine');
     await page.locator('.btn-feasibility-register').click();
 
@@ -95,11 +103,30 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(page.locator('.nation-spark').first()).toBeVisible();
     await expect(page.locator('.nation-trend').first()).toContainText('vs mese scorso');
 
-    // Passa a «Progetti»: mostra lo stato vuoto e la nota di provenienza.
+    // Le schede non si tagliano fuori dalla colonna: prima Armamenti,
+    // Conoscenze e Politiche restavano irraggiungibili su desktop.
+    const deskBox = await page.locator('.game-shell-desk').boundingBox();
+    const tabs = page.locator('.nation-dock-tab');
+    await expect(tabs).toHaveCount(7);
+    for (const tab of await tabs.all()) {
+      const box = await tab.boundingBox();
+      expect(box.x + box.width).toBeLessThanOrEqual(deskBox.x + deskBox.width + 1);
+    }
+    const strip = await page.locator('.nation-dock-tabs').evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+    expect(strip.scroll).toBeLessThanOrEqual(strip.client + 1);
+
+    // Passa a «Progetti»: la percentuale di realizzazione è leggibile, non
+    // solo una barra senza numero.
     await page.locator('.nation-dock-tab', { hasText: 'Progetti' }).click();
     await expect(page.locator('.nation-dock-tab.active')).toHaveText('Progetti');
-    await expect(page.locator('.nation-empty')).toBeVisible();
-    await expect(page.locator('.nation-footnote')).toContainText('registro della simulazione');
+    const progetti = page.locator('.nation-block[aria-label="Progetti e processi in corso"]');
+    await expect(progetti).toContainText('Ferrovia transnazionale');
+    await expect(progetti.locator('.nation-progress-pct').first()).toHaveText('38% completato');
+    await expect(progetti.locator('[role="progressbar"]').first()).toHaveAttribute('aria-valuenow', '38');
+    await expect(progetti).toContainText('esito previsto 30 set 1951');
+    // Un progetto senza scadenza dichiarata resta «in corso», con la sua nota.
+    await expect(progetti).toContainText('nessuna scadenza dichiarata');
+    await expect(progetti.locator('.nation-progress-pct').nth(1)).toHaveText('35% completato');
 
     // Sezione «Cassa»: la valuta è la cifra centrale, con variazione reale e
     // mai letta come zero quando il magazzino è annidato in `stock`.
@@ -118,6 +145,13 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(magazzino).toBeVisible();
     await expect(magazzino).toContainText('Cibo');
     await expect(magazzino).not.toContainText('Tesoreria');
+    // La disponibilità dipende dal paese: il Dossier dice da dove viene.
+    const capacita = page.locator('.nation-block[aria-label="Capacità produttive e territoriali"]');
+    await expect(capacita).toContainText('Da dove viene la disponibilità');
+    await expect(capacita).toContainText('PIL 100 mld');
+    await expect(capacita).toContainText('1 provincia costiera');
+    await expect(capacita).toContainText('2 dal profilo del paese');
+    await expect(capacita).toContainText('2 fabbriche, 1 porto, 1 università, 2 reparti');
     // La stessa infrastruttura non è ripetuta in Armamenti.
     await page.locator('.nation-dock-tab', { hasText: 'Armamenti' }).click();
     await expect(page.locator('.nation-block[aria-label="Forza dell\'arsenale"]')).not.toContainText('Università');
@@ -135,6 +169,12 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     const legenda = page.locator('.nation-block[aria-label="Come si legge l\'arsenale"]');
     await expect(legenda).toContainText('quantità × qualità × peso del dominio');
     await expect(legenda).toContainText('Forze di terra');
+    // Produzione in corso: percentuale e data prevista leggibili.
+    const produzione = page.locator('.nation-block[aria-label="Produzione in corso"]');
+    await expect(produzione.locator('.nation-progress-pct').first()).toHaveText('42% completato');
+    await expect(produzione.locator('[role="progressbar"]').first()).toHaveAttribute('aria-valuenow', '42');
+    await expect(produzione).toContainText('consegna prevista 20 giu 1951');
+    await expect(produzione).toContainText('imprevisto');
     // Il catalogo dice cosa si compra, con i requisiti in chiaro.
     await expect(page.locator('.arms-item-details').first()).toContainText('Che cos\'è e cosa sa fare');
     const aria = page.locator('.arms-domain', { hasText: 'Aeronautica' });

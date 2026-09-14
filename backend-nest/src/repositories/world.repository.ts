@@ -5,6 +5,7 @@
 
 import db from '../database';
 import { enrichGeographicObjects, getCapitalsRegistry } from '../utils/cities';
+import { coastalFromGeojson } from '../core/simulation/NationCapacity';
 import { largestRingCentroid } from '../utils/geo';
 
 // Migrazione lazy: ogni mondo viene arricchito una volta per processo e salvato.
@@ -42,6 +43,8 @@ export interface RegionRecord {
   status: string;
   metadata?: Record<string, any>;
   flag?: string;
+  /** Provincia con sbocco al mare: dedotta una volta dal GeoJSON. */
+  coastal: boolean;
 }
 
 export const worldRepository = {
@@ -161,6 +164,9 @@ export const worldRepository = {
       status: row.status,
       metadata: JSON.parse(row.metadata || '{}'),
       flag: row.flag,
+      // La costa serve alla capacità navale del paese: si legge dal GeoJSON e
+      // resta in cache per id, così un tick non ri-scandisce 7 MB di mappe.
+      coastal: coastalFromGeojson(row.id, row.geojson),
     }));
   },
 

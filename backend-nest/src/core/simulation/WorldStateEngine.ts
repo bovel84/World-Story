@@ -1,4 +1,5 @@
 import { estimatedNominalGdpUsdBillions, governmentForPolity } from '../../utils/country-facts';
+import { baselineCapacity, coastalFromGeojson } from './NationCapacity';
 import { MAX_JUMP_DAYS } from './calendar';
 
 /**
@@ -18,6 +19,10 @@ export interface WorldStateRegion {
   militaryPower: number;
   objects?: Array<{ type?: string; level?: number }>;
   status?: string;
+  /** Provincia con sbocco al mare: abilita i porti di base del paese. */
+  coastal?: boolean;
+  /** GeoJSON della provincia: usato solo per dedurre la costa se `coastal` manca. */
+  geojson?: string | null;
 }
 
 export interface NationalAccount {
@@ -53,6 +58,14 @@ export interface NationalAccount {
   arsenalCombatFactor?: number;
   /** Potenza militare effettiva = potenza di mappa × fattore arsenale. */
   effectiveMilitaryPower?: number;
+  /**
+   * Quota di fabbriche, cantieri, atenei e reparti che deriva dal profilo del
+   * paese (PIL, abitanti, costa, potenza militare) e non dagli oggetti della
+   * mappa: la disponibilità dipende dalla nazione, e il Dossier può dirlo.
+   */
+  capacityBase?: { factories: number; ports: number; universities: number; forces: number };
+  /** Frase leggibile sulle fonti del profilo di capacità. */
+  capacitySources?: string;
 }
 
 export interface WorldStateTick {
@@ -67,6 +80,8 @@ const finiteNonNegative = (value: unknown): number =>
 export class WorldStateEngine {
   static accounts(regions: Iterable<WorldStateRegion>): Record<string, NationalAccount> {
     const accounts: Record<string, NationalAccount> = Object.create(null);
+    // Province costiere per polity: i porti sono geografia, non popolazione.
+    const coastalProvinces: Record<string, number> = Object.create(null);
     for (const region of regions) {
       const polityId = region.owner || 'neutral';
       const account = accounts[polityId] ||= {
@@ -96,6 +111,8 @@ export class WorldStateEngine {
       account.population += finiteNonNegative(region.population);
       account.gdp += finiteNonNegative(region.gdp);
       account.militaryPower += finiteNonNegative(region.militaryPower);
+      const coastal = region.coastal ?? coastalFromGeojson(region.id, region.geojson);
+      if (coastal) coastalProvinces[polityId] = (coastalProvinces[polityId] || 0) + 1;
       // One scan of map objects, with no temporary arrays per asset type.
       for (const object of region.objects || []) {
         const level = Math.max(1, finiteNonNegative(object.level));
@@ -110,6 +127,24 @@ export class WorldStateEngine {
     }
 
     for (const account of Object.values(accounts)) {
+      // La base nazionale (popolazione, reddito, costa, forze) si somma agli
+      // oggetti della mappa: senza di essa ogni paese senza impianti disegnati
+      // avrebbe disponibilità identiche e pari a zero.
+      const baseline = baselineCapacity({
+        polityId: account.polityId,
+        population: account.population,
+        coastalProvinces: coastalProvinces[account.polityId] || 0,
+        militaryPower: account.militaryPower,
+      });
+      account.factories += baseline.factories;
+      account.ports += baseline.ports;
+      account.universities += baseline.universities;
+      account.forces += baseline.forces;
+      account.capacityBase = {
+        factories: baseline.factories, ports: baseline.ports,
+        universities: baseline.universities, forces: baseline.forces,
+      };
+      account.capacitySources = baseline.sources;
       // Infrastructure affects productive capacity, but is capped so a map
       // full of objects cannot make an economy explode exponentially. Una
       // nazione che richiama riserve comprime la crescita civile: l'economia

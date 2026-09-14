@@ -466,16 +466,24 @@ export const gameRepository = {
   upsertOngoingProcess: (process: {
     id: string; gameId: string; sourceActionId: string; sourceRunId: string;
     title: string; summary: string; startedDate: string; expectedDate?: string;
+    /** Avanzamento già calcolato dal motore (0-100). */
+    progress?: number; progressNote?: string;
   }) => {
     db.prepare(`
       INSERT INTO ongoing_processes
-        (id, game_id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'ongoing', ?, ?, ?)
+        (id, game_id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, progress, progress_note, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ongoing', ?, ?, ?, ?, ?)
       ON CONFLICT(game_id, source_action_id) DO UPDATE SET
-        summary = excluded.summary, expected_date = excluded.expected_date, updated_at = excluded.updated_at
+        summary = excluded.summary, expected_date = excluded.expected_date,
+        progress = COALESCE(excluded.progress, ongoing_processes.progress),
+        progress_note = COALESCE(excluded.progress_note, ongoing_processes.progress_note),
+        updated_at = excluded.updated_at
     `).run(
       process.id, process.gameId, process.sourceActionId, process.sourceRunId,
-      process.title, process.summary, process.startedDate, process.expectedDate || null, new Date().toISOString(),
+      process.title, process.summary, process.startedDate, process.expectedDate || null,
+      Number.isFinite(Number(process.progress)) ? Math.max(0, Math.min(100, Math.round(Number(process.progress)))) : null,
+      process.progressNote || null,
+      new Date().toISOString(),
     );
   },
 

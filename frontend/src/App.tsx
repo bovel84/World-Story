@@ -187,6 +187,7 @@ function App() {
   const [timelineError, setTimelineError] = useState('');
   const [ongoingProcesses, setOngoingProcesses] = useState<Array<{
     id: string; title: string; summary: string; started_date: string; expected_date?: string | null;
+    progress?: number | null; progress_note?: string | null;
   }>>([]);
   const timelineRequestRef = useRef(0);
   const promptEditorRef = useRef<HTMLTextAreaElement>(null);
@@ -421,6 +422,11 @@ function App() {
     gameApi.nationalState(currentGameId)
       .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(normalizeResources(national.resources)); } })
       .catch(error => console.warn('[App] Impossibile caricare il conto nazionale:', error));
+    // I progetti in corso portano la percentuale di realizzazione calcolata dal
+    // motore: senza questa lettura il Dossier restava senza avanzamento.
+    gameApi.ongoingProcesses(currentGameId)
+      .then((processData) => { if (!cancelled) setOngoingProcesses(processData.processes || []); })
+      .catch(error => console.warn('[App] Impossibile caricare i processi in corso:', error));
     gameApi.arsenal(currentGameId)
       .then((arms) => { if (!cancelled) setNationalArms(arms); })
       .catch(error => console.warn('[App] Impossibile caricare l’arsenale:', error));

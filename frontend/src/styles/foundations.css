@@ -1300,6 +1300,7 @@
 .feasibility-costs dt { color: var(--ws-text-secondary, #b8c3d2); font-size: 11px; }
 .feasibility-costs dd { margin: 3px 0 0; font-size: 14px; font-weight: 700; }
 .feasibility-costs-empty { margin: 0; color: var(--ws-text-secondary, #b8c3d2); font-size: 13px; }
+.feasibility-basis-note { margin: 9px 0 0; color: var(--ws-text-secondary, #b8c3d2); font-size: 12px; line-height: 1.5; }
 .feasibility-list { margin: 0; padding: 0 0 0 4px; list-style: none; font-size: 13px; line-height: 1.6; }
 .feasibility-prereqs .feasibility-checkmark { color: var(--ws-success, #22c55e); margin-right: 6px; }
 .feasibility-risks .feasibility-warning { color: var(--ws-danger, #9f3028); margin-right: 6px; }

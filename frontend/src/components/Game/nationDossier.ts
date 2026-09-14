@@ -7,6 +7,10 @@ export interface NationalProcess {
   summary: string;
   started_date: string;
   expected_date?: string | null;
+  /** Percentuale di completamento calcolata dal motore (0-100). */
+  progress?: number | null;
+  /** Nota del motore sull'avanzamento (ritardi, vincoli, difetti). */
+  progress_note?: string | null;
 }
 
 export interface NationalAssets {
@@ -18,6 +22,16 @@ export interface NationalAssets {
   universities: number;
   forces: number;
   cities: number;
+  /**
+   * Quota di ciascuna capacità che deriva dal profilo del paese (PIL,
+   * abitanti, costa, potenza militare) invece che dagli oggetti della mappa.
+   */
+  baseFactories: number;
+  basePorts: number;
+  baseUniversities: number;
+  baseForces: number;
+  /** Frase del motore sulle fonti della disponibilità (PIL, abitanti, costa). */
+  capacitySources?: string;
 }
 
 const finiteNumber = (value: unknown): number | undefined =>
@@ -45,6 +59,11 @@ export function summarizeNationalAssets(regions: Region[], account?: NationAccou
     universities: finiteNumber(account?.universities) ?? objectCount(regions, ['university', 'academy']),
     forces: finiteNumber(account?.forces) ?? objectCount(regions, ['army', 'battalion', 'fleet']),
     cities: objectCount(regions, ['city', 'capital']),
+    baseFactories: finiteNumber(account?.capacityBase?.factories) ?? 0,
+    basePorts: finiteNumber(account?.capacityBase?.ports) ?? 0,
+    baseUniversities: finiteNumber(account?.capacityBase?.universities) ?? 0,
+    baseForces: finiteNumber(account?.capacityBase?.forces) ?? 0,
+    capacitySources: typeof account?.capacitySources === 'string' ? account.capacitySources : undefined,
   };
 }
 

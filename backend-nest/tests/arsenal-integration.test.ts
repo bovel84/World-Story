@@ -144,6 +144,10 @@ describe('arsenale e procurement', () => {
     expect(session.getArsenal().units.fucili ?? 0).toBe(beforeArms);
     expect(session.getResources().stock.weapons).toBe(500 - 4 * 3);
     expect(session.getProduction().inProgress).toBe(1);
+    // La consegna ha una data prevista, ricalcolata dal ritmo reale della linea.
+    const pending = session.getProduction().orders[0];
+    expect(pending.expectedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(pending.expectedDate! > session.getCurrentDate()).toBe(true);
     // Dopo alcuni mesi la linea si risolve: consegna o (raro) fallimento.
     const engine = session as any;
     const bulletins: string[] = [];

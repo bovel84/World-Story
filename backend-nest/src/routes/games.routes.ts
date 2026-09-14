@@ -202,7 +202,9 @@ gamesRouter.get('/:id', (req, res) => {
 gamesRouter.get('/:id/ongoing-processes', (req, res) => {
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    res.json({ processes: gameRepository.getOngoingProcesses(session.id) });
+    // L'avanzamento arriva sempre valorizzato: la sessione lo ricalcola dalle
+    // date per i progetti creati prima che il motore lo persistesse.
+    res.json({ processes: session.getOngoingProcesses() });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get ongoing processes');
   }
@@ -806,16 +808,39 @@ gamesRouter.post('/:id/actions/evaluate', (req, res) => {
 });
 
 
-/** Le partite create prima del catalogo autoritativo devono poter continuare
- * a registrare ordini. Non inventiamo costi: li rinviamo alla simulazione
- * legacy, mentre le partite strict restano fail-closed. */
-function respondLegacyFeasibility(res: any): void {
+/**
+ * Le partite create prima del catalogo autoritativo devono poter continuare a
+ * registrare ordini. Il costo non è inventato dal modello né nascosto al
+ * giocatore: lo stima il motore dal conto nazionale (OrderCost) e lo stesso
+ * importo viene addebitato alla tesoreria quando l'ordine è eseguito.
+ */
+function respondLegacyFeasibility(res: any, session: any, text: string): void {
+  let costs: any = { timeDays: 0, inputs: [], upkeep: [], basis: 'none' };
+  let warnings = ['Partita legacy: la stima viene dal conto nazionale e sarà addebitata all\'esecuzione.'];
+  try {
+    const estimate = session.estimateOrderCost(text);
+    costs = {
+      timeDays: estimate.timeDays,
+      inputs: [{
+        resourceId: 'money',
+        name: 'Tesoreria',
+        quantity: estimate.amountMld.toFixed(2).replace('.', ','),
+        unit: 'mld',
+      }],
+      upkeep: [],
+      basis: 'request',
+      note: estimate.basis,
+      category: estimate.label,
+    };
+  } catch (error) {
+    warnings = ['Partita legacy: stima del costo non disponibile, l\'ordine resta registrabile.'];
+  }
   res.json({
     feasible: true,
-    costs: { timeDays: 0, inputs: [], upkeep: [], basis: 'none' },
+    costs,
     prerequisites: [],
     risks: [],
-    warnings: ['Partita legacy: costi e prerequisiti saranno valutati durante la simulazione.'],
+    warnings,
     summary: 'Ordine registrabile (modalità legacy)',
   });
 }
@@ -832,7 +857,7 @@ gamesRouter.post('/:id/actions/check-feasibility', async (req, res) => {
     const templateId = (game.world as { template_id?: unknown }).template_id;
     if (typeof templateId !== 'string' || !templateId) {
       if (gameRepository.getEconomyMode(req.params.id) === 'legacy') {
-        respondLegacyFeasibility(res);
+        respondLegacyFeasibility(res, getSessionRegistry().getSessionOrThrow(req.params.id), text);
         return;
       }
       res.status(409).json({ error: 'Verifica non disponibile: catalog binding mancante', code: 'catalog_binding_missing' });
@@ -843,7 +868,7 @@ gamesRouter.post('/:id/actions/check-feasibility', async (req, res) => {
     const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId));
     if (!loaded.catalog) {
       if (gameRepository.getEconomyMode(req.params.id) === 'legacy') {
-        respondLegacyFeasibility(res);
+        respondLegacyFeasibility(res, getSessionRegistry().getSessionOrThrow(req.params.id), text);
         return;
       }
       res.status(422).json({ error: 'Catalogo server non valido', report: loaded.report });

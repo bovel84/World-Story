@@ -20,7 +20,7 @@ import { RelationshipMatrix } from './core/RelationshipMatrix';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { advanceStock, creditHeadroom, creditLimit, debtOf, describeStock, financePurchase, movementCost, normalizeStock, payMovement, seedStock, type ResourceStock } from './core/simulation/MaterialEconomy';
 import {
-  advanceOrder, projectProgress, stableRoll,
+  advanceOrder, productionRate, projectProgress, stableRoll,
   type ProductionContext, type ProductionOrder,
 } from './core/simulation/MilitaryProduction';
 import {
@@ -28,6 +28,7 @@ import {
   applyStockEffects, decayModifiers, describeNationalEffects, hasModifiers, parseNationalEffects,
   type NationalEffect, type NationalModifiers,
 } from './core/simulation/NationalEffects';
+import { affordableCharge, describeOrderCost, estimateOrderCost, type OrderCostEstimate } from './core/simulation/OrderCost';
 import { arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, combatAttrition, describeArsenal, describeEndowment, DOMAIN_INFO, equipmentById, equipmentStrength, EQUIPMENT_CATALOG, NATURAL_RESOURCE_KINDS, naturalResourcesFor, procurementOption, type NationCapacity, type NaturalEndowment, type NaturalResourceKind } from './core/simulation/MilitaryIndustry';
 import {
   advanceLedger, applyGlobalExtraction, describeLedger, effectiveEndowment, emptyMarket, executeTrade,
@@ -83,6 +84,8 @@ export interface RegionState {
   svgPath?: string;
   borders: string[];
   status: 'active' | 'occupied' | 'destroyed' | 'independent';
+  /** Provincia con sbocco al mare: capacità navale di base del paese. */
+  coastal?: boolean;
 }
 
 export interface PlayerInfo {
@@ -347,6 +350,7 @@ function worldInitialAccounts(worldId: string): Record<string, NationalAccount> 
       militaryPower: region.militaryPower,
       objects: region.objects || [],
       status: region.status,
+      coastal: region.coastal,
     }));
     accounts = WorldStateEngine.accounts(regions);
   } catch (error) {
@@ -1134,13 +1138,28 @@ export class GameSession {
 
   /** Ordini di produzione del giocatore, per API e dossier. */
   getProduction() {
+    const context = this.productionContext();
     const orders = this.playerProductionOrders()
       .slice()
       .sort((a, b) => {
         const rank = (order: ProductionOrder) => order.status === 'in_progress' ? 0 : 1;
         return rank(a) - rank(b) || a.startedTurn - b.startedTurn;
-      });
+      })
+      .map(order => this.withOrderEta(order, context));
     return { orders, inProgress: orders.filter(order => order.status === 'in_progress').length };
+  }
+
+  /**
+   * Data di consegna prevista dal ritmo reale della linea: si ricalcola a ogni
+   * lettura, così un imprevisto sposta la data invece di nasconderla.
+   */
+  private withOrderEta(order: ProductionOrder, context: ProductionContext): ProductionOrder {
+    if (order.status !== 'in_progress') return order;
+    const equipment = equipmentById(order.equipmentId);
+    const rate = equipment ? productionRate(equipment, context) : 0;
+    if (rate <= 0) return { ...order, expectedDate: null };
+    const months = Math.max(0, (100 - order.progress) / rate);
+    return { ...order, expectedDate: addDays(this.currentDate, Math.round(months * 30)) };
   }
 
   private playerProductionOrders(): ProductionOrder[] {
@@ -1203,7 +1222,9 @@ export class GameSession {
    * slittamento della scadenza: non sempre le cose vanno come previsto.
    */
   private advanceProjects(days: number, asOfDate: string): string[] {
-    if (this.isStrictGame() || days <= 0) return [];
+    // `days === 0` è ammesso: serve a rinfrescare l'avanzamento alla data
+    // corrente (chiusura di un run) senza inventare tempo trascorso.
+    if (this.isStrictGame() || days < 0) return [];
     const processes = gameRepository.getOngoingProcesses(this.id);
     if (processes.length === 0) return [];
     const account = this.sessionAccounts()[this.playerPolityId];
@@ -1212,7 +1233,12 @@ export class GameSession {
     const risk = Math.min(0.5, 0.05 + Math.max(0, 60 - stability) / 300 + Math.max(0, tension - 30) / 500);
     const bulletins: string[] = [];
     for (const process of processes) {
-      const progress = projectProgress(process.started_date, process.expected_date, asOfDate);
+      // Un progetto non torna mai indietro: lo slittamento sposta la scadenza,
+      // non cancella i mesi già trascorsi.
+      const progress = Math.max(
+        Number.isFinite(Number(process.progress)) ? Math.max(0, Number(process.progress)) : 0,
+        projectProgress(process.started_date, process.expected_date, asOfDate),
+      );
       const roll = stableRoll(`${this.id}:${process.id}:${this.currentTurn}`);
       let note = '';
       let expected: string | null = null;
@@ -2219,6 +2245,7 @@ export class GameSession {
         svgPath: region.svgPath,
         borders: region.borders,
         status: (region.status || 'active') as 'active' | 'occupied' | 'destroyed' | 'independent',
+        coastal: region.coastal,
       });
     }
 
@@ -2340,6 +2367,7 @@ export class GameSession {
           svgPath: region.svgPath,
           borders: region.borders,
           status: (region.status || 'active') as 'active' | 'occupied' | 'destroyed' | 'independent',
+          coastal: region.coastal,
         });
       }
       if (!gameRegions.size) this.syncRegionsToDB();
@@ -4662,6 +4690,18 @@ export class GameSession {
     // Economia deterministica fino alla data finale effettiva.
     const elapsedDays = Math.round((Date.parse(finalDate) - Date.parse(lastEventDate)) / 86_400_000);
     const bulletins = this.isStrictGame() || elapsedDays > 0 ? this.advanceWorldState(elapsedDays, finalDate) : [];
+    // Anche a tempo invariato l'avanzamento dei progetti va rinfrescato: un
+    // progetto non deve restare senza percentuale leggibile nel Dossier.
+    bulletins.push(...this.refreshProjectProgress(finalDate));
+    // La cassa segue le scelte del giocatore: gli ordini che il run ha eseguito
+    // vengono regolati ora, prima che cronaca e checkpoint li raccontino.
+    const orderTexts = new Map(state.batchActionIds
+      .map(id => [id, this.pendingActions.find(action => action.id === id)?.text || ''] as const));
+    const orderCostLines = this.settleOrderCosts(completion.actionOutcomes, state.batchActionIds, orderTexts);
+    bulletins.push(...orderCostLines);
+    // Il punto storico della tesoreria va riscritto dopo la spesa ordinata:
+    // altrimenti la serie mostrata dal Dossier ignora le scelte del giocatore.
+    if (orderCostLines.length > 0) this.recordAccountSnapshot(finalDate);
 
     // Record finale: riepilogo tecnico del periodo, non seconda fonte di
     // mutazioni. Gli eventi applicati vivono nei record per-evento.
@@ -4780,6 +4820,15 @@ export class GameSession {
         expectedDate: action.result!.outcome!.expectedDate && action.result!.outcome!.expectedDate > state.periodStart
           ? action.result!.outcome!.expectedDate
           : undefined,
+        // Avanzamento subito calcolato alla data del commit: un progetto non
+        // deve restare senza percentuale leggibile nel Dossier.
+        progress: projectProgress(
+          state.periodStart,
+          action.result!.outcome!.expectedDate && action.result!.outcome!.expectedDate > state.periodStart
+            ? action.result!.outcome!.expectedDate
+            : null,
+          finalDate,
+        ),
       });
     });
     batchActions.forEach(action => {
@@ -5106,6 +5155,85 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
   /** Dossier aggregati aggiornati dalla fonte di verità provinciale. */
   getNationalAccounts() {
     return this.sessionAccounts();
+  }
+
+  /**
+   * Progetti in corso con avanzamento **sempre** leggibile. Le righe create
+   * prima del calcolo dell'avanzamento hanno `progress` nullo: qui la
+   * percentuale viene ricalcolata dalle date (stessa formula del tick), così
+   * l'interfaccia non mostra mai un progetto senza stato di avanzamento.
+   */
+  getOngoingProcesses() {
+    return gameRepository.getOngoingProcesses(this.id).map(process => ({
+      ...process,
+      // L'avanzamento è quello del motore: se il valore persistito è più
+      // vecchio della data corrente (progetto mai toccato da un salto di
+      // tempo) vince il calcolo dalle date. Mai un 0% su un progetto avviato.
+      progress: Math.max(
+        Number.isFinite(Number(process.progress)) ? Math.max(0, Number(process.progress)) : 0,
+        projectProgress(process.started_date, process.expected_date, this.currentDate),
+      ),
+    }));
+  }
+
+  /** Rinfresca l'avanzamento dei progetti a una data (idempotente). */
+  refreshProjectProgress(asOfDate: string = this.currentDate): string[] {
+    return this.advanceProjects(0, asOfDate);
+  }
+
+  /**
+   * Costo deterministico di un ordine in testo libero, dal conto nazionale.
+   * È la stessa stima che l'interfaccia mostra prima di registrare l'ordine.
+   */
+  estimateOrderCost(text: string): OrderCostEstimate {
+    return estimateOrderCost(text, this.sessionAccounts()[this.playerPolityId]);
+  }
+
+  /**
+   * Addebita alla tesoreria gli ordini che il run ha **eseguito** (esito
+   * accettato o parziale): la cassa segue le scelte del giocatore. Se la cassa
+   * più il credito residuo non bastano, si paga quanto è coperto e il resto
+   * resta dichiarato come non onorato — il tetto del debito non si sfonda.
+   */
+  private settleOrderCosts(
+    actionOutcomes: Array<{ actionId?: string; action?: string; status?: string }> | undefined,
+    batchActionIds: string[],
+    texts: Map<string, string>,
+  ): string[] {
+    if (this.isStrictGame()) return [];
+    const polityId = this.playerPolityId;
+    const account = this.sessionAccounts()[polityId];
+    if (!account || batchActionIds.length === 0) return [];
+    // Un esito può arrivare per id oppure per testo dell'ordine (contratto
+    // legacy): entrambe le chiavi sono accettate, come in outcomesByActionId.
+    const statusByAction = new Map<string, string>();
+    for (const outcome of actionOutcomes || []) {
+      const status = String(outcome.status || '');
+      if (outcome.actionId) statusByAction.set(String(outcome.actionId), status);
+      if (outcome.action) statusByAction.set(`text:${outcome.action}`, status);
+    }
+    const lines: string[] = [];
+    for (const actionId of batchActionIds) {
+      const status = statusByAction.get(actionId) ?? statusByAction.get(`text:${texts.get(actionId) || ''}`);
+      if (status !== 'accepted' && status !== 'partial') continue;
+      const text = texts.get(actionId) || '';
+      if (!text.trim()) continue;
+      const estimate = this.estimateOrderCost(text);
+      const stock = this.resourceStock(polityId);
+      // Il tetto del debito non si sfonda: si paga quanto cassa + credito coprono.
+      const { charge, shortfall } = affordableCharge(estimate.amountMld, stock.money, creditHeadroom(stock, account));
+      if (charge <= 0) {
+        lines.push(`La cassa non copre l'ordine «${text.slice(0, 60)}» (${estimate.label}, ${estimate.amountMld} mld): nessuna spesa registrata, credito esaurito.`);
+        continue;
+      }
+      const nextStock: ResourceStock = { ...stock, money: Math.round((stock.money - charge) * 1000) / 1000 };
+      this.saveResourceStock(polityId, nextStock);
+      lines.push(`💸 ${describeOrderCost({ ...estimate, amountMld: charge }, text)}`);
+      if (shortfall > 0.01) {
+        lines.push(`L'ordine è stato finanziato solo in parte (${charge} mld su ${estimate.amountMld}): il credito residuo è esaurito.`);
+      }
+    }
+    return lines;
   }
 
   /** Rende definitivo uno snapshot caricato: prima questa operazione mutava
@@ -5931,6 +6059,18 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // L'economia aggiorna comunque i valori fino alla data dell'evento,
       // ma nell'auto-jump non aggiunge un secondo dispaccio alla prima svolta.
       const economyBulletins = this.isStrictGame() || period.elapsedDays > 0 ? this.advanceWorldState(period.elapsedDays, period.end) : [];
+      // Avanzamento dei progetti sempre rinfrescato, anche a tempo invariato.
+      economyBulletins.push(...this.refreshProjectProgress(period.end));
+      // La cassa segue le scelte del giocatore: gli ordini eseguiti in questo
+      // periodo vengono regolati nella stessa transazione dell'esito.
+      const orderCostLines = this.settleOrderCosts(
+        promptResult.actionOutcomes,
+        actions.map(action => action.id),
+        new Map(actions.map(action => [action.id, action.text] as const)),
+      );
+      economyBulletins.push(...orderCostLines);
+      // Il punto storico della tesoreria va riscritto dopo la spesa ordinata.
+      if (orderCostLines.length > 0) this.recordAccountSnapshot(period.end);
       const economyEvents = autoJump ? [] : economyBulletins;
 
       // Il salto viene deciso da UN'unica sequenza causale (la simulazione
@@ -6035,6 +6175,13 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           expectedDate: action.result!.outcome!.expectedDate && action.result!.outcome!.expectedDate > periodStart
             ? action.result!.outcome!.expectedDate
             : undefined,
+          progress: projectProgress(
+            periodStart,
+            action.result!.outcome!.expectedDate && action.result!.outcome!.expectedDate > periodStart
+              ? action.result!.outcome!.expectedDate
+              : null,
+            this.currentDate,
+          ),
         });
       });
       // Un progetto si chiude solo per il suo ID esplicito e con outcome
