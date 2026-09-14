@@ -52,6 +52,9 @@ export interface NationAccount {
   nominalGdpUsdBillions?: number;
   gdpPerCapitaUsd?: number;
   government?: string;
+  /** Tesoreria e debito registrati nel punto storico (mld USD). */
+  money?: number;
+  debt?: number;
 }
 
 /** Magazzino materiale del paese (shape di `MaterialEconomy.ResourceStock`). */
@@ -338,6 +341,12 @@ export const NationDock: React.FC<NationDockProps> = ({
   const growth = Number(account?.annualGrowthRate ?? 0);
   const natural = resources?.natural ?? [];
   const market = resources?.market ?? [];
+  // La valuta è la cifra centrale del dossier: tesoreria, debito e credito
+  // residuo vivono nella sezione «Cassa» e nella sintesi.
+  const treasury = Number(resources?.money ?? 0);
+  const debt = Number(resources?.debt ?? 0);
+  const creditLimitValue = Number(resources?.creditLimit ?? 0);
+  const creditHeadroomValue = Number(resources?.creditHeadroom ?? 0);
   const activeModifiers = resources?.modifiers;
   const modifiersActive = Boolean(activeModifiers && (
     Number(activeModifiers.stability ?? 0) !== 0
@@ -357,8 +366,15 @@ export const NationDock: React.FC<NationDockProps> = ({
   const fuelMonthly = Number(account?.forces ?? 0) * 0.03 + Number(account?.factories ?? 0) * 0.05;
   const coverHint = (value: number, monthly: number) => {
     const months = resourceMonths(value, monthly);
-    return Number.isFinite(months) ? `${months.toFixed(1)} mesi di copertura` : 'nessun consumo registrato';
+    if (!Number.isFinite(months)) return 'nessun consumo registrato';
+    // Niente falsa precisione: oltre un anno si parla in anni, oltre dieci di
+    // «oltre 10 anni». Una scorta enorme non diventa «8000,0 mesi».
+    if (months >= 120) return 'oltre 10 anni di copertura';
+    if (months >= 24) return `${Math.round(months / 12)} anni di copertura`;
+    if (months >= 10) return `${Math.round(months)} mesi di copertura`;
+    return `${months.toFixed(1)} mesi di copertura`;
   };
+  const provincesLabel = (value: number) => `${formatNumber(value)} ${value === 1 ? 'provincia' : 'province'}`;
 
   // Le tendenze derivano dallo storico pubblicato dal motore: se la serie ha
   // meno di due punti la variazione non viene mostrata (mai inventata).
@@ -397,9 +413,17 @@ export const NationDock: React.FC<NationDockProps> = ({
           <>
             <DossierBlock
               title="Sintesi"
-              description="Le tre cifre che descrivono lo stato della nazione in questo momento."
+              description="Tesoreria, bilancio e tenuta interna: lo stato della nazione a colpo d'occhio."
             >
               <MetricGrid>
+                <Metric
+                  label="Tesoreria"
+                  value={formatMoney(treasury, { currency: 'mld', decimals: 2, sign: true })}
+                  tone={treasury > 0 ? 'positive' : treasury < 0 ? 'negative' : 'warning'}
+                  hint={debt > 0 ? `Debito ${formatMoney(debt, { currency: 'mld', decimals: 1 })}` : 'Riserva valutaria disponibile'}
+                  trend={mkTrend((point) => point.account.money, moneyDelta, 'up')}
+                  hero
+                />
                 <Metric
                   label="Saldo mensile"
                   value={formatMoney(balance, { currency: 'mld', decimals: 2, sign: true })}
@@ -463,7 +487,7 @@ export const NationDock: React.FC<NationDockProps> = ({
                 </div>
                 <p className="nation-narration">{latestNarration}</p>
               </div>
-              <Footnote><b>Fonte</b> Conto nazionale e mappa autorevole · Stabilità {formatPercent(stability)} · {formatNumber(assets.provinces)} province.</Footnote>
+              <Footnote><b>Fonte</b> Conto nazionale e mappa autorevole · Stabilità {formatPercent(stability)} · {provincesLabel(assets.provinces)}.</Footnote>
             </DossierBlock>
           </>
         )}
@@ -492,6 +516,44 @@ export const NationDock: React.FC<NationDockProps> = ({
         {active === 'bilancio' && (
           <>
             <DossierBlock
+              title="Tesoreria e debito"
+              description="La valuta della nazione: ciò che è in cassa, ciò che si è preso a prestito e quanto credito resta."
+            >
+              <MetricGrid>
+                <Metric
+                  label="Tesoreria"
+                  value={formatMoney(treasury, { currency: 'mld', decimals: 2, sign: true })}
+                  tone={treasury > 0 ? 'positive' : treasury < 0 ? 'negative' : 'warning'}
+                  hint={treasury < 0 ? 'Cassa negativa: il disavanzo è debito' : 'Riserva valutaria disponibile'}
+                  trend={mkTrend((point) => point.account.money, moneyDelta, 'up')}
+                  hero
+                />
+                <Metric
+                  label="Debito pubblico"
+                  value={formatMoney(debt, { currency: 'mld', decimals: 2 })}
+                  tone={debt > 0 ? 'warning' : 'positive'}
+                  hint={debt > 0 ? `Su un tetto di ${formatMoney(creditLimitValue, { currency: 'mld', decimals: 0 })}` : 'Nessun debito: si può ancora andare a debito'}
+                  trend={mkTrend((point) => point.account.debt, moneyDelta, 'down')}
+                />
+                <Metric
+                  label="Credito residuo"
+                  value={formatMoney(creditHeadroomValue, { currency: 'mld', decimals: 2 })}
+                  tone={creditHeadroomValue > 0 ? 'positive' : 'negative'}
+                  hint="Spazio per nuove spese a debito"
+                />
+                <Metric
+                  label="Saldo mensile"
+                  value={formatMoney(balance, { currency: 'mld', decimals: 2, sign: true })}
+                  tone={balance >= 0 ? 'positive' : 'negative'}
+                  hint="Entrate meno uscite: come cambia la cassa ogni mese"
+                  trend={mkTrend((point) => point.account.monthlyBalance, moneyDelta, 'up')}
+                  hero
+                />
+              </MetricGrid>
+              <Footnote><b>Come si muove la cassa</b> ogni mese la tesoreria cambia del saldo mensile (entrate + reddito da risorse − uscite − interessi sul debito). Un saldo negativo la riduce; sotto zero la differenza è debito pubblico.</Footnote>
+            </DossierBlock>
+
+            <DossierBlock
               title="Flussi mensili"
               description="Quanto entra, quanto esce e come cresce l'economia."
             >
@@ -499,8 +561,8 @@ export const NationDock: React.FC<NationDockProps> = ({
                 <MetricGrid>
                   <Metric label="Entrate mensili" value={formatMoney(Number(account?.monthlyRevenue ?? 0), { currency: 'mld', decimals: 2, sign: true })} tone="positive" trend={mkTrend((point) => point.account.monthlyRevenue, moneyDelta, 'up')} />
                   <Metric label="Uscite mensili" value={formatMoney(Number(account?.monthlyExpenses ?? 0), { currency: 'mld', decimals: 2, sign: true })} tone="neutral" trend={mkTrend((point) => point.account.monthlyExpenses, moneyDelta, 'down')} />
-                  <Metric label="Saldo mensile" value={formatMoney(balance, { currency: 'mld', decimals: 2, sign: true })} tone={balance >= 0 ? 'positive' : 'negative'} trend={mkTrend((point) => point.account.monthlyBalance, moneyDelta, 'up')} />
                   <Metric label="Crescita annua" value={formatPercent(growth * 100, 1)} tone={growth > 0 ? 'positive' : growth < 0 ? 'negative' : 'neutral'} trend={mkTrend((point) => Number(point.account.annualGrowthRate ?? 0) * 100, pointDelta, 'up')} />
+                  <Metric label="PIL nominale" value={formatMoney(assets.gdpBillions, { currency: 'mld', decimals: 1 })} tone="neutral" hint="Prodotto interno lordo pubblicato dal motore" />
                 </MetricGrid>
               ) : (
                 <EmptyState>Questo scenario non pubblica ancora voci di bilancio nel conto nazionale.</EmptyState>
@@ -536,7 +598,7 @@ export const NationDock: React.FC<NationDockProps> = ({
               </MetricGrid>
             </DossierBlock>
 
-            <Footnote><b>Fonte</b> WorldStateEngine.accounts · valori letti, non stimati dal client.</Footnote>
+            <Footnote><b>Fonte</b> MaterialEconomy e WorldStateEngine.accounts · valori letti, non stimati dal client.</Footnote>
           </>
         )}
 
@@ -544,16 +606,10 @@ export const NationDock: React.FC<NationDockProps> = ({
           <>
             <DossierBlock
               title="Magazzino materiale"
-              description="Scorte reali del paese: cibo, vestiario, armamenti, carburante e denaro."
+              description="Scorte reali del paese: cibo, vestiario, armi, carburante e ricerca. La valuta è in Cassa."
             >
               {resources ? (
                 <MetricGrid>
-                  <Metric
-                    label="Tesoreria"
-                    value={formatMoney(Number(resources.money ?? 0), { currency: 'mld', decimals: 2, sign: true })}
-                    tone={Number(resources.money ?? 0) >= 0 ? 'positive' : 'negative'}
-                    hint="Riserva valutaria disponibile"
-                  />
                   <Metric
                     label="Cibo"
                     value={formatNumber(Number(resources.food ?? 0))}
@@ -567,7 +623,7 @@ export const NationDock: React.FC<NationDockProps> = ({
                     hint={coverHint(Number(resources.clothing ?? 0), clothingMonthly)}
                   />
                   <Metric
-                    label="Armamenti"
+                    label="Scorte armi"
                     value={formatNumber(Number(resources.weapons ?? 0))}
                     tone={resourceTone(Number(resources.weapons ?? 0), weaponsMonthly)}
                     hint={coverHint(Number(resources.weapons ?? 0), weaponsMonthly)}
@@ -584,25 +640,11 @@ export const NationDock: React.FC<NationDockProps> = ({
                     tone="neutral"
                     hint="Punti non ancora spesi in tecnologie"
                   />
-                  <Metric
-                    label="Debito pubblico"
-                    value={formatMoney(Number(resources.debt ?? 0), { currency: 'mld', decimals: 2 })}
-                    tone={Number(resources.debt ?? 0) > 0 ? 'warning' : 'positive'}
-                    hint={Number(resources.debt ?? 0) > 0
-                      ? `Su un tetto di ${formatMoney(Number(resources.creditLimit ?? 0), { currency: 'mld', decimals: 0 })}`
-                      : 'Nessun debito: si può ancora andare a debito'}
-                  />
-                  <Metric
-                    label="Credito residuo"
-                    value={formatMoney(Number(resources.creditHeadroom ?? 0), { currency: 'mld', decimals: 2 })}
-                    tone={Number(resources.creditHeadroom ?? 0) > 0 ? 'positive' : 'negative'}
-                    hint="Spazio per nuove spese a debito"
-                  />
                 </MetricGrid>
               ) : (
                 <EmptyState>Il magazzino materiale non è ancora pubblicato per questa partita.</EmptyState>
               )}
-              <Footnote><b>Fonte</b> MaterialEconomy · il movimento consuma cibo e, se motorizzato, carburante.</Footnote>
+              <Footnote><b>Fonte</b> MaterialEconomy · il movimento consuma cibo e, se motorizzato, carburante. Denaro, debito e credito sono nella sezione Cassa.</Footnote>
             </DossierBlock>
 
             {modifiersActive && (
@@ -698,7 +740,7 @@ export const NationDock: React.FC<NationDockProps> = ({
                 <Metric label="Porti" value={formatNumber(assets.ports)} />
                 <Metric label="Città e capitali" value={formatNumber(assets.cities)} />
               </MetricGrid>
-              <Footnote><b>Fonte</b> Conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Stock e flussi non vengono inventati.</Footnote>
+              <Footnote><b>Fonte</b> conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Università e personale sono nella sezione Conoscenze.</Footnote>
             </DossierBlock>
           </>
         )}
@@ -707,25 +749,19 @@ export const NationDock: React.FC<NationDockProps> = ({
           <>
             <DossierBlock
               title="Forza dell'arsenale"
-              description="Quantità possedute, qualità e capacità industriale della nazione."
+              description="Quanto vale l'apparato militare: quantità, qualità e potenza effettiva sui combattimenti."
             >
               {arms ? (
                 <MetricGrid>
                   <Metric label="Forza militare" value={formatNumber(arms.strength)} tone="neutral" hint="Quantità × qualità × dominio" />
                   <Metric label="Potenza effettiva" value={formatNumber(arms.effectiveMilitaryPower)} tone={arms.combatFactor >= 1 ? 'positive' : 'warning'} hint={`Base ${formatNumber(arms.baseMilitaryPower)} × fattore arsenale ${arms.combatFactor}`} />
                   <Metric label="Qualità media armi" value={`${formatNumber(arms.qualityIndex)}/100`} tone={arms.qualityIndex >= 60 ? 'positive' : arms.qualityIndex >= 30 ? 'warning' : 'negative'} hint="Pesa sui combattimenti" />
-                  <Metric label="Fabbriche" value={formatNumber(arms.capacity.factories)} hint="Industria meccanica e bellica" />
-                  <Metric label="Porti / cantieri" value={formatNumber(arms.capacity.ports)} hint="Costruzione navale" />
-                  <Metric label="Università" value={formatNumber(arms.capacity.universities)} hint="Ricerca e sviluppo" />
-                  <Metric label="Tesoreria" value={formatMoney(Number(arms.capacity.money), { currency: 'mld', decimals: 2, sign: true })} tone={Number(arms.capacity.money) >= 0 ? 'neutral' : 'warning'} hint="Budget per gli acquisti" />
-                  <Metric label="Debito pubblico" value={formatMoney(Number(arms.debt ?? 0), { currency: 'mld', decimals: 2 })} tone={Number(arms.debt ?? 0) > 0 ? 'warning' : 'positive'} hint={`Tetto di credito ${formatMoney(Number(arms.creditLimit ?? 0), { currency: 'mld', decimals: 0 })}`} />
-                  <Metric label="Credito residuo" value={formatMoney(Number(arms.capacity.credit ?? 0), { currency: 'mld', decimals: 2 })} tone={Number(arms.capacity.credit ?? 0) > 0 ? 'positive' : 'negative'} hint="Spazio per costruire a debito" />
-                  <Metric label="Scorte armamenti" value={formatNumber(arms.capacity.weapons)} hint="Input per la produzione" />
+                  <Metric label="Scorte armi" value={formatNumber(arms.capacity.weapons)} hint="Input per la produzione" />
                 </MetricGrid>
               ) : (
                 <EmptyState>Arsenale non ancora pubblicato per questa partita.</EmptyState>
               )}
-              <Footnote><b>Fonte</b> MilitaryIndustry · valori letti dal motore, non stimati nel browser.</Footnote>
+              <Footnote><b>Fonte</b> MilitaryIndustry · budget e industrie sono in Cassa e Risorse; qui solo ciò che combatte.</Footnote>
             </DossierBlock>
 
             <DossierBlock
@@ -837,7 +873,7 @@ export const NationDock: React.FC<NationDockProps> = ({
               {resources?.technologies && resources.technologies.length > 0 ? (
                 <ul className="nation-tech-list">
                   {resources.technologies.map((tech) => (
-                    <li key={tech}><b>{tech.replace(/_/g, ' ')}</b><span>Ricerca applicata e disponibile per l'economia e le forze armate.</span></li>
+                    <li key={tech}><b>{tech.replace(/_/g, ' ')}</b><span>Disponibile per economia e forze armate.</span></li>
                   ))}
                 </ul>
               ) : (
@@ -847,15 +883,15 @@ export const NationDock: React.FC<NationDockProps> = ({
             </DossierBlock>
 
             <DossierBlock
-              title="Conoscenze e personale"
-              description="Capitale umano e capacità formative disponibili."
+              title="Capitale umano"
+              description="Popolazione, formazione e forze disponibili."
             >
               <MetricGrid>
                 <Metric label="Popolazione" value={formatNumber(assets.population)} />
-                <Metric label="Università" value={formatNumber(assets.universities)} />
+                <Metric label="Università" value={formatNumber(assets.universities)} hint="Producono punti ricerca" />
                 <Metric label="Unità e forze" value={formatNumber(assets.forces)} />
-                <Metric label="PIL pro capite" value={account?.gdpPerCapitaUsd != null ? formatMoney(Number(account.gdpPerCapitaUsd), { currency: '$', decimals: 0 }) : '—'} />
               </MetricGrid>
+              <Footnote><b>Fonte</b> conto nazionale; in mancanza, oggetti delle regioni possedute. Il PIL pro capite è nelle Politiche.</Footnote>
             </DossierBlock>
           </>
         )}
@@ -868,7 +904,7 @@ export const NationDock: React.FC<NationDockProps> = ({
             >
               <MetricGrid>
                 <Metric label="Forma di governo" value={governmentType} />
-                <Metric label="Territorio amministrato" value={`${formatNumber(assets.provinces)} province`} />
+                <Metric label="Territorio amministrato" value={provincesLabel(assets.provinces)} />
                 <Metric label="Processi attivi" value={formatNumber(ongoingProcesses.length)} />
               </MetricGrid>
             </DossierBlock>
@@ -878,12 +914,12 @@ export const NationDock: React.FC<NationDockProps> = ({
               description="Il consenso e la pressione sociale sul governo."
             >
               <MetricGrid>
-                <Metric label="Stabilità" value={formatPercent(stability)} tone={stabilityTone(stability)} />
-                <Metric label="Tensione sociale" value={formatPercent(socialTension)} tone={tensionTone(socialTension)} />
+                <Metric label="Stabilità" value={formatPercent(stability)} tone={stabilityTone(stability)} trend={mkTrend((point) => point.account.stability, pointDelta, 'up')} />
+                <Metric label="Tensione sociale" value={formatPercent(socialTension)} tone={tensionTone(socialTension)} trend={mkTrend((point) => point.account.socialTension, pointDelta, 'down')} />
+                <Metric label="PIL pro capite" value={account?.gdpPerCapitaUsd != null ? formatMoney(Number(account.gdpPerCapitaUsd), { currency: '$', decimals: 0 }) : '—'} hint="Tenore di vita medio pubblicato dal motore" />
               </MetricGrid>
+              <Footnote><b>Fonte</b> conto nazionale e modificatori attivi (sezione Risorse). Nessuna decisione viene presa da questa schermata.</Footnote>
             </DossierBlock>
-
-            <Footnote>Mandati e servizi saranno mostrati qui solo quando il read model ne pubblicherà stato e responsabilità.</Footnote>
           </>
         )}
       </div>

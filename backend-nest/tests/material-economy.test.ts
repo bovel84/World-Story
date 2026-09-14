@@ -43,6 +43,23 @@ describe('MaterialEconomy', () => {
     expect(seeded.technologies).toEqual([]);
   });
 
+  it('non nasce mai con tesoreria zero, nemmeno con un conto incompleto', () => {
+    // Un conto senza PIL (o con valori non numerici) non deve produrre NaN,
+    // che normalizzato diventerebbe una tesoreria a zero.
+    const missing = seedStock({ ...account(), nominalGdpUsdBillions: undefined as unknown as number });
+    expect(Number.isFinite(missing.money)).toBe(true);
+    expect(missing.money).toBeGreaterThanOrEqual(5);
+    const broken = seedStock({
+      ...account(),
+      nominalGdpUsdBillions: Number.NaN, population: undefined as unknown as number,
+      forces: 'x' as unknown as number, factories: null as unknown as number,
+    });
+    expect(Object.values(broken).filter(value => typeof value === 'number').every(Number.isFinite)).toBe(true);
+    expect(broken.money).toBeGreaterThanOrEqual(5);
+    // Una nazione ricca parte con una riserva proporzionata al PIL.
+    expect(seedStock(account({ nominalGdpUsdBillions: 1000 })).money).toBe(20);
+  });
+
   it('produce cibo e consuma per popolazione e truppe, accumulando il saldo', () => {
     const before = stock({ food: 500 });
     const rich = advanceStock(before, account({ population: 20_000_000, forces: 4, mobilized: 0, factories: 20 }), 30);

@@ -1,14 +1,17 @@
 /**
  * World Story — Stato delle sezioni del Dossier Nazione (U03 µ1)
  * ===========================================================
- * Il dossier (maestro §10.3) è organizzato in sezioni progressive:
- *  1. Situazione   — decisioni che richiedono attenzione, cassa, autonomia
- *  2. Progetti     — attivi/bloccati/previsti, dipendenze, prossima milestone
- *  3. Bilancio     — liquidità, impegni, entrate/uscite reali e previste, debito
- *  4. Risorse      — stock/accesso, filiere, consumi, trasporti
- *  5. Armamenti    — arsenale, qualità delle armi, costruzione/acquisto
- *  6. Conoscenze   — capacità disponibili/mancanti, ricerca/formazione
- *  7. Politiche    — mandati/delega, servizi essenziali, istituzioni
+ * Il dossier è organizzato in sezioni progressive, senza duplicazioni:
+ *  1. Situazione — decisioni che richiedono attenzione, tesoreria, stabilità
+ *  2. Progetti   — ciò che è già avviato e la prossima scadenza registrata
+ *  3. Cassa      — tesoreria, debito, credito e flussi: la valuta al centro
+ *  4. Risorse    — scorte materiali, industria, risorse naturali e mercato
+ *  5. Armamenti  — arsenale, qualità, produzione e catalogo
+ *  6. Conoscenze — tecnologie sbloccate, capitale umano e formazione
+ *  7. Politiche  — assetto istituzionale e coesione interna
+ *
+ * Ogni cifra compare in una sola sezione: le infrastrutture stanno in Risorse,
+ * il denaro in Cassa, il combattente in Armamenti.
  *
  * Invarianti (UI01/UI04):
  *  - all'apertura del dossier la sezione attiva è «Situazione» (decisioni
@@ -54,9 +57,9 @@ export const NATION_SECTIONS: NationSection[] = [
 export const NATION_SECTION_LABEL: Record<NationSection, string> = {
   situazione: 'Situazione',
   progetti: 'Progetti',
-  bilancio: 'Bilancio',
-  risorse: 'Risorse e produzione',
+  bilancio: 'Cassa',
+  risorse: 'Risorse e industria',
   armamenti: 'Armamenti',
-  conoscenze: 'Conoscenze e personale',
-  politiche: 'Politiche e servizi',
+  conoscenze: 'Conoscenze',
+  politiche: 'Politiche',
 };

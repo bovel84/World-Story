@@ -634,7 +634,17 @@ export class GameSession {
       if (!branchId) return;
       const account = (accounts ?? this.sessionAccounts())[this.playerPolityId];
       if (!account) return;
-      nationalAccountRepository.append(this.id, branchId, this.playerPolityId, this.currentTurn, date, account as unknown as Record<string, unknown>);
+      // Il punto storico porta anche il magazzino materiale: così il Dossier può
+      // mostrare come cresce o cala la tesoreria senza inventare serie.
+      const payload: Record<string, unknown> = { ...account };
+      if (!this.isStrictGame()) {
+        try {
+          const stock = this.resourceStock(this.playerPolityId);
+          payload.money = Number(stock.money) || 0;
+          payload.debt = Math.round(debtOf(stock) * 100) / 100;
+        } catch { /* magazzino non disponibile: il punto resta contabile */ }
+      }
+      nationalAccountRepository.append(this.id, branchId, this.playerPolityId, this.currentTurn, date, payload);
     } catch (error) {
       console.warn('[GameSession] Impossibile registrare lo storico dei conti:', error);
     }
@@ -677,7 +687,6 @@ export class GameSession {
     // L'overlay dei modificatori nazionali (proposti dal modello) entra nei
     // conti usati dall'economia: stabilità, tensione, entrate e crescita.
     const tickAccounts = applyModifiersToAccounts(rawTick.accounts, polityId => this.modifiersFor(polityId));
-    this.recordAccountSnapshot(asOfDate, tickAccounts);
     const lines: string[] = [];
     // Leve nazionali applicate al turno precedente, ora visibili in cronaca.
     if (this.pendingNationalNotes.length > 0) lines.push(...this.pendingNationalNotes.splice(0));
@@ -686,6 +695,9 @@ export class GameSession {
     lines.push(...this.advanceResources(days, tickAccounts));
     lines.push(...this.advanceProduction(days, tickAccounts[this.playerPolityId]));
     lines.push(...this.advanceProjects(days, asOfDate));
+    // Il punto storico è registrato a fine tick, dopo il magazzino, così la
+    // tesoreria della data coincide con quella mostrata dal Dossier.
+    this.recordAccountSnapshot(asOfDate, tickAccounts);
     return lines;
   }
 
@@ -696,6 +708,16 @@ export class GameSession {
     try {
       const stored = resourceRepository.get(this.id, polityId);
       if (stored) {
+        // Riparazione mirata: un magazzino interamente a zero per una nazione
+        // che esiste è una riga mai seminata (non una nazione senza risorse) e
+        // va riseminata dai dati di partenza.
+        const isEmpty = !(stored.stock.money > 0) && !(stored.stock.food > 0) && !(stored.stock.weapons > 0);
+        const account = this.initialAccounts()[polityId] ?? this.sessionAccounts()[polityId];
+        if (isEmpty && account) {
+          const repaired = seedStock(account, naturalResourcesFor(polityId));
+          this.saveResourceStock(polityId, repaired);
+          return repaired;
+        }
         this.resourceStocks.set(polityId, stored.stock);
         return stored.stock;
       }
@@ -706,7 +728,12 @@ export class GameSession {
     // del mondo), non dallo stato corrente di una partita già avanzata.
     const account = this.initialAccounts()[polityId]
       ?? this.sessionAccounts()[polityId];
-    const seeded = account ? seedStock(account, naturalResourcesFor(polityId)) : normalizeStock({});
+    if (!account) {
+      // Nessun conto: non si persiste un magazzino vuoto (sarebbe una
+      // tesoreria a zero permanente). Al prossimo tick, con un conto, si semina.
+      return normalizeStock({});
+    }
+    const seeded = seedStock(account, naturalResourcesFor(polityId));
     this.saveResourceStock(polityId, seeded);
     return seeded;
   }
@@ -6325,10 +6352,15 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     const newDate = addDays(periodStart, days);
 
     const tick = WorldStateEngine.advance(this.regions.values(), days);
-    const resourceLines = this.advanceResources(days, tick.accounts);
-    const bulletin = WorldStateEngine.playerBulletin(tick.accounts[this.playerPolityId]);
+    // Anche il salto di tempo applica i modificatori nazionali e il magazzino,
+    // poi registra il punto storico: senza di esso il Dossier non potrebbe
+    // mostrare come cresce o cala la tesoreria durante un salto.
+    const tickAccounts = applyModifiersToAccounts(tick.accounts, polityId => this.modifiersFor(polityId));
+    const resourceLines = this.advanceResources(days, tickAccounts);
+    const bulletin = WorldStateEngine.playerBulletin(tickAccounts[this.playerPolityId]);
     this.currentTurn++;
     this.currentDate = newDate;
+    this.recordAccountSnapshot(newDate, tickAccounts);
 
     const id = shortId();
     const headline = `Il tempo avanza di ${days} ${days === 1 ? 'giorno' : 'giorni'}`;

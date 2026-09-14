@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Region } from '../../types';
-import { financeBalance, hasNationalFinance, summarizeNationalAssets } from './nationDossier';
+import { financeBalance, hasNationalFinance, normalizeResources, summarizeNationalAssets } from './nationDossier';
 
 const region = (id: string, objects: string[] = []): Region => ({
   id,
@@ -38,5 +38,29 @@ describe('nationDossier (G5-A)', () => {
     expect(financeBalance({ monthlyRevenue: 8, monthlyExpenses: 3 })).toBe(5);
     expect(financeBalance({ monthlyRevenue: 8, monthlyExpenses: 3, monthlyBalance: -1 })).toBe(-1);
     expect(hasNationalFinance({})).toBe(false);
+  });
+
+  it('legge la tesoreria dal magazzino annidato: mai zero per un valore annidato', () => {
+    const flat = normalizeResources({
+      stock: { money: 185.85, food: 20.87, clothing: 12, weapons: 160, fuel: 90, research: 40, technologies: ['ferrovie'] },
+      natural: [{ kind: 'diamonds' }],
+      market: [{ kind: 'diamonds' }],
+      debt: 4.2, creditLimit: 49.92, creditHeadroom: 45.72,
+      modifiers: { stability: -12 },
+    });
+    expect(flat).toMatchObject({ money: 185.85, food: 20.87, clothing: 12, weapons: 160, fuel: 90, research: 40, debt: 4.2, creditLimit: 49.92, creditHeadroom: 45.72 });
+    expect(flat?.technologies).toEqual(['ferrovie']);
+    expect(flat?.natural).toHaveLength(1);
+    expect(flat?.modifiers).toEqual({ stability: -12 });
+  });
+
+  it('accetta anche la forma già piatta e ignora i valori non numerici', () => {
+    const flat = normalizeResources({ money: 10, food: 'x', weapons: null, natural: 'no' });
+    expect(flat?.money).toBe(10);
+    expect(flat?.food).toBeUndefined();
+    expect(flat?.weapons).toBeUndefined();
+    expect(flat?.natural).toBeUndefined();
+    expect(normalizeResources(null)).toBeNull();
+    expect(normalizeResources('x')).toBeNull();
   });
 });

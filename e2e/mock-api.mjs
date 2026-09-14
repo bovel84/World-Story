@@ -119,12 +119,28 @@ export const MOCK_ACCOUNTS = {
   },
 };
 
+/** Magazzino materiale del paese giocatore: stessa forma annidata dell'API
+ *  reale (`stock`), così l'E2E copre la normalizzazione lato client. */
+export const MOCK_RESOURCES = {
+  stock: {
+    money: 185.85, food: 20.87, clothing: 12, weapons: 160, fuel: 90, research: 40,
+    technologies: ['ferrovie'],
+  },
+  natural: [{
+    kind: 'diamonds', label: 'Diamanti', endowment: 5, reserve: 120, maxReserve: 120,
+    depletionPct: 0, renewable: false, extractionPerMonth: 2.5, stockpile: 4, depleted: false,
+  }],
+  market: [{ kind: 'diamonds', label: 'Diamanti', bid: 1.196, ask: 1.534, mid: 1.365, scarcityPct: 0 }],
+  debt: 0, creditLimit: 49.92, creditHeadroom: 49.92,
+  modifiers: { stability: 0, socialTension: 0, warEffort: 0, revenueMultiplier: 1, growthModifier: 0 },
+};
+
 /** Storico dei conti del paese giocatore (ALPHA): tre rilevazioni mensili
  *  con una tendenza reale, così il dossier mostra sparkline e variazioni. */
 export const MOCK_ACCOUNT_HISTORY = [
-  { date: '1951-01-01', turn: 1, account: { ...MOCK_ACCOUNTS.ALPHA, monthlyBalance: 0.2, stability: 56, socialTension: 44, monthlyRevenue: 3.1, monthlyExpenses: 2.9, defenceBurdenPct: 3.6, mobilized: 1, warEffort: 16, annualGrowthRate: 0.021 } },
-  { date: '1951-02-01', turn: 2, account: { ...MOCK_ACCOUNTS.ALPHA, monthlyBalance: 0.5, stability: 59, socialTension: 41, monthlyRevenue: 3.3, monthlyExpenses: 2.8, defenceBurdenPct: 3.9, mobilized: 2, warEffort: 19, annualGrowthRate: 0.023 } },
-  { date: '1951-03-01', turn: 3, account: MOCK_ACCOUNTS.ALPHA },
+  { date: '1951-01-01', turn: 1, account: { ...MOCK_ACCOUNTS.ALPHA, monthlyBalance: 0.2, stability: 56, socialTension: 44, monthlyRevenue: 3.1, monthlyExpenses: 2.9, defenceBurdenPct: 3.6, mobilized: 1, warEffort: 16, annualGrowthRate: 0.021, money: 150.2, debt: 4.5 } },
+  { date: '1951-02-01', turn: 2, account: { ...MOCK_ACCOUNTS.ALPHA, monthlyBalance: 0.5, stability: 59, socialTension: 41, monthlyRevenue: 3.3, monthlyExpenses: 2.8, defenceBurdenPct: 3.9, mobilized: 2, warEffort: 19, annualGrowthRate: 0.023, money: 172.4, debt: 2.1 } },
+  { date: '1951-03-01', turn: 3, account: { ...MOCK_ACCOUNTS.ALPHA, money: 185.85, debt: 0 } },
 ];
 
 // ---------------------------------------------------------------------------
@@ -247,7 +263,7 @@ export function installMockApi(page, opts = {}) {
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/ongoing-processes`, (route) =>
     json(route, { processes: [] }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/national-state`, (route) =>
-    json(route, { accounts: MOCK_ACCOUNTS, history: MOCK_ACCOUNT_HISTORY }));
+    json(route, { accounts: MOCK_ACCOUNTS, history: MOCK_ACCOUNT_HISTORY, resources: MOCK_RESOURCES }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/chats`, (route) => json(route, { chats: [] }));
   // Coda ordini: GET restituisce la coda, POST accoda un ordine deterministico.
   // (U02 µ1: «Registra ordine» accoda senza avanzare tempo né spendere risorse.)

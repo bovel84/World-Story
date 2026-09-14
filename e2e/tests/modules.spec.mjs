@@ -100,5 +100,26 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(page.locator('.nation-dock-tab.active')).toHaveText('Progetti');
     await expect(page.locator('.nation-empty')).toBeVisible();
     await expect(page.locator('.nation-footnote')).toContainText('registro della simulazione');
+
+    // Sezione «Cassa»: la valuta è la cifra centrale, con variazione reale e
+    // mai letta come zero quando il magazzino è annidato in `stock`.
+    await page.locator('.nation-dock-tab', { hasText: 'Cassa' }).click();
+    await expect(page.locator('.nation-dock-tab.active')).toHaveText('Cassa');
+    const cassa = page.locator('.nation-block[aria-label="Tesoreria e debito"]');
+    await expect(cassa).toBeVisible();
+    await expect(cassa.locator('.nation-metric').first()).toContainText('Tesoreria');
+    await expect(cassa.locator('.nation-metric').first()).toContainText('185,85');
+    await expect(cassa.locator('.nation-spark').first()).toBeVisible();
+    await expect(cassa.locator('.nation-trend').first()).toContainText('vs mese scorso');
+
+    // Nessuna duplicazione: la tesoreria non compare nel magazzino materiale.
+    await page.locator('.nation-dock-tab', { hasText: 'Risorse e industria' }).click();
+    const magazzino = page.locator('.nation-block[aria-label="Magazzino materiale"]');
+    await expect(magazzino).toBeVisible();
+    await expect(magazzino).toContainText('Cibo');
+    await expect(magazzino).not.toContainText('Tesoreria');
+    // La stessa infrastruttura non è ripetuta in Armamenti.
+    await page.locator('.nation-dock-tab', { hasText: 'Armamenti' }).click();
+    await expect(page.locator('.nation-block[aria-label="Forza dell\'arsenale"]')).not.toContainText('Università');
   });
 });

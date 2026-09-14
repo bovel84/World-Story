@@ -5,6 +5,7 @@ import { ChatsPanel } from '../Game/ChatsPanel';
 import { EventFeed } from '../Game/EventFeed';
 import { DiplomacyPanel } from '../Game/DiplomacyPanel';
 import { NationDock } from '../Game/NationDock';
+import type { NationResources } from '../Game/NationDock';
 import type { ArsenalResponse } from '../../services/api';
 import { SaveGameModal } from '../Game/SaveGameModal';
 import { useToast } from '../ui/ToastProvider';
@@ -25,13 +26,7 @@ interface DeskContentProps {
   nationalName: string;
   governmentType: string;
   nationalAccount: any;
-  nationalResources?: {
-    money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[];
-    natural?: Awaited<ReturnType<typeof gameApi.resources>>['natural'];
-    market?: Awaited<ReturnType<typeof gameApi.resources>>['market'];
-    debt?: number; creditLimit?: number; creditHeadroom?: number;
-    modifiers?: { stability?: number; socialTension?: number; warEffort?: number; revenueMultiplier?: number; growthModifier?: number };
-  } | null;
+  nationalResources?: NationResources | null;
   nationalArms?: ArsenalResponse | null;
   procureEquipment?: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
   tradeResource?: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;

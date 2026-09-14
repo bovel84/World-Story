@@ -150,4 +150,30 @@ describe('risorse naturali dinamiche', () => {
     const stored = naturalResourceRepository.get(gameId, 'DEU');
     expect(stored?.ledger[kind]?.extractedTotal).toBeGreaterThan(0);
   });
+
+  it('parte sempre con una tesoreria positiva e la registra nello storico', async () => {
+    const { session } = createGame();
+    const start = session.getResources().stock.money;
+    expect(start).toBeGreaterThan(0);
+    await session.advanceDate(30);
+    const history = session.getNationalHistory();
+    expect(history.length).toBeGreaterThan(0);
+    // Il punto storico porta il denaro: è la serie su cui il Dossier disegna
+    // la crescita o il calo della valuta.
+    const point = history[history.length - 1] as { account: Record<string, unknown> };
+    expect(Number(point.account.money)).toBeGreaterThan(0);
+    expect(Number.isFinite(Number(point.account.debt))).toBe(true);
+  });
+
+  it('ripara un magazzino rimasto interamente a zero', async () => {
+    const { session, gameId } = createGame();
+    const { resourceRepository } = await import('../src/repositories');
+    resourceRepository.upsert(gameId, 'DEU', {
+      money: 0, food: 0, clothing: 0, weapons: 0, fuel: 0, research: 0, technologies: [],
+    }, 0, null);
+    (session as any).resourceStocks.clear();
+    const stock = session.getResources().stock;
+    expect(stock.money).toBeGreaterThan(0);
+    expect(stock.food).toBeGreaterThan(0);
+  });
 });

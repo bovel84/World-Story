@@ -1,5 +1,5 @@
 import type { Region } from '../../types';
-import type { NationAccount } from './NationDock';
+import type { NationAccount, NationResources } from './NationDock';
 
 export interface NationalProcess {
   id: string;
@@ -58,4 +58,42 @@ export function financeBalance(account?: NationAccount | null): number {
   const declared = finiteNumber(account?.monthlyBalance);
   if (declared !== undefined) return declared;
   return Number(account?.monthlyRevenue || 0) - Number(account?.monthlyExpenses || 0);
+}
+
+/**
+ * Normalizza il magazzino pubblicato dal motore nella forma piatta usata dal
+ * Dossier. L'API `resources` annida le scorte in `stock`; altri payload le
+ * espongono già piatte. Accettare entrambe le forme evita che la tesoreria
+ * venga letta come zero quando il valore è semplicemente annidato.
+ * Restituisce `null` solo se non c'è alcun magazzino da mostrare.
+ */
+export function normalizeResources(raw: unknown): NationResources | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const source = raw as Record<string, any>;
+  const stock: Record<string, any> = source.stock && typeof source.stock === 'object' ? source.stock : source;
+  const value = (input: unknown): number | undefined => {
+    if (input === null || input === undefined || input === '') return undefined;
+    return Number.isFinite(Number(input)) ? Number(input) : undefined;
+  };
+  const technologies = Array.isArray(source.technologies)
+    ? source.technologies.filter((id: unknown): id is string => typeof id === 'string')
+    : Array.isArray(stock.technologies)
+      ? stock.technologies.filter((id: unknown): id is string => typeof id === 'string')
+      : undefined;
+
+  return {
+    money: value(stock.money),
+    food: value(stock.food),
+    clothing: value(stock.clothing),
+    weapons: value(stock.weapons),
+    fuel: value(stock.fuel),
+    research: value(stock.research),
+    ...(technologies ? { technologies } : {}),
+    ...(Array.isArray(source.natural) ? { natural: source.natural } : {}),
+    ...(Array.isArray(source.market) ? { market: source.market } : {}),
+    debt: value(source.debt),
+    creditLimit: value(source.creditLimit),
+    creditHeadroom: value(source.creditHeadroom),
+    ...(source.modifiers && typeof source.modifiers === 'object' ? { modifiers: source.modifiers } : {}),
+  };
 }

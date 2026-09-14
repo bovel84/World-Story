@@ -174,17 +174,22 @@ export function normalizeStock(raw: unknown): ResourceStock {
 
 /** Scorte iniziali proporzionate all'economia e alle risorse naturali. */
 export function seedStock(account: NationalAccount, endowment: NaturalEndowment = {}): ResourceStock {
-  const popM = Math.max(0, account.population) / 1_000_000;
-  const troops = Math.max(0, account.forces) + Math.max(0, account.mobilized);
-  const factories = Math.max(0, account.factories);
-  const ports = Math.max(0, account.ports);
-  const universities = Math.max(0, account.universities);
-  const oil = endowment.oil || 0;
-  const iron = endowment.iron || 0;
-  const fertile = endowment.fertile_land || 0;
+  // Ogni campo è difeso: un conto con un valore mancante o non numerico non
+  // deve mai produrre una tesoreria a zero (né un `NaN` che poi diventa zero).
+  const n = (value: unknown): number => (Number.isFinite(Number(value)) ? Number(value) : 0);
+  const popM = Math.max(0, n(account.population)) / 1_000_000;
+  const troops = Math.max(0, n(account.forces)) + Math.max(0, n(account.mobilized));
+  const factories = Math.max(0, n(account.factories));
+  const ports = Math.max(0, n(account.ports));
+  const universities = Math.max(0, n(account.universities));
+  const oil = n(endowment.oil);
+  const iron = n(endowment.iron);
+  const fertile = n(endowment.fertile_land);
+  // Riserva valutaria di partenza: ~2% del PIL nominale, con un minimo
+  // operativo di 5 mld per qualunque nazione (anche a PIL nullo).
+  const money = Math.max(MIN_TREASURY, n(account.nominalGdpUsdBillions) * 0.02);
   return {
-    // Riserva valutaria: ~2% del PIL nominale, minimo operativo di 5 mld.
-    money: Math.max(5, account.nominalGdpUsdBillions * 0.02),
+    money,
     // ~4 mesi di consumo alimentare e 5 di vestiario, più la terra fertile.
     food: (popM * 0.02 + troops * 0.06) * 120 + factories * 30 + fertile * 40,
     clothing: (popM * 0.008 + troops * 0.01) * 150 + factories * 20,
@@ -194,6 +199,9 @@ export function seedStock(account: NationalAccount, endowment: NaturalEndowment 
     technologies: [],
   };
 }
+
+/** Riserva valutaria minima con cui qualunque nazione inizia a giocare. */
+export const MIN_TREASURY = 5;
 
 export interface MaterialFlow extends Partial<Record<ResourceKind, number>> {
   /** Motivo leggibile delle eventuali carenze (vuoto se tutto coperto). */

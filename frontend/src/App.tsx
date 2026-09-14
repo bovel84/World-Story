@@ -36,6 +36,7 @@ import { countUnread, markItemRead, markAllRead } from './components/Game/feedUn
 import { NewsFlash } from './components/Game/NewsFlash';
 import { ActionsPanel } from './components/Game/ActionsPanel';
 import { NationDock } from './components/Game/NationDock';
+import { normalizeResources } from './components/Game/nationDossier';
 import { FeasibilityCheck } from './components/Game/FeasibilityCheck';
 import type { FeasibilityResult } from './components/Game/FeasibilityCheck';
 import { useOrderDraftStore } from './stores/orderDraftStore';
@@ -249,11 +250,7 @@ function App() {
   const [nationalHistory, setNationalHistory] = useState<Array<{ date: string; turn?: number; account: Record<string, any> }>>([]);
   // Magazzino materiale del paese giocatore (cibo, vestiario, armamenti,
   // carburante, denaro, ricerca e tecnologie).
-  const [nationalResources, setNationalResources] = useState<{
-    money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[];
-    natural?: Awaited<ReturnType<typeof gameApi.resources>>['natural'];
-    market?: Awaited<ReturnType<typeof gameApi.resources>>['market'];
-  } | null>(null);
+  const [nationalResources, setNationalResources] = useState<Awaited<ReturnType<typeof normalizeResources>>>(null);
   // Arsenale militare e risorse naturali reali del paese giocatore.
   const [nationalArms, setNationalArms] = useState<Awaited<ReturnType<typeof gameApi.arsenal>> | null>(null);
   const [mandateDecisions, setMandateDecisions] = useState<Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>>([]);
@@ -422,7 +419,7 @@ function App() {
     // mandato appartengono invece solo al percorso strict e un 409 significa
     // semplicemente «nessuna decisione applicabile», non un errore del dossier.
     gameApi.nationalState(currentGameId)
-      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(national.resources || null); } })
+      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(normalizeResources(national.resources)); } })
       .catch(error => console.warn('[App] Impossibile caricare il conto nazionale:', error));
     gameApi.arsenal(currentGameId)
       .then((arms) => { if (!cancelled) setNationalArms(arms); })
@@ -466,7 +463,7 @@ function App() {
         gameApi.nationalState(currentGameId),
       ]);
       setNationalArms(arms);
-      setNationalResources(national.resources || null);
+      setNationalResources(normalizeResources(national.resources));
       setNationalAccounts(national.accounts || {});
     } catch (error: any) {
       console.error('[App] Procurement fallito:', error);
@@ -489,7 +486,7 @@ function App() {
         'success',
       );
       const national = await gameApi.nationalState(currentGameId);
-      setNationalResources(national.resources || null);
+      setNationalResources(normalizeResources(national.resources));
     } catch (error: any) {
       console.error('[App] Scambio risorsa fallito:', error);
       const message = String(error?.message || '');
