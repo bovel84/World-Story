@@ -93,6 +93,9 @@ interface GameData {
     nominalGdpUsdBillions: number;
     gdpPerCapitaUsd: number;
     government: string;
+    /** Potenza effettiva e fattore arsenale calcolati dal motore. */
+    effectiveMilitaryPower?: number;
+    arsenalCombatFactor?: number;
   }>;
     /** Potenza militare effettiva (arsenale incluso), calcolata dal motore. */
     military?: { combatFactor?: number; baseMilitaryPower?: number; effectiveMilitaryPower?: number };
@@ -483,7 +486,11 @@ export class PromptBuilder {
           ? `; PIL ${fmt(account.gdp)}, saldo mensile ${fmt(account.monthlyBalance)}, stabilità ${account.stability}/100, riserve mobilitate ${account.mobilized}, sforzo bellico ${account.warEffort}/100, tensione sociale ${account.socialTension}/100`
           : '';
         const objects = this.strategicObjectSummaries(allOwned, 8);
-        lines.push(`- ${this.polityDisplayName(owner, allOwned)} [${owner}]: rapporto ${relation}; confina tramite ${borderRegions.map(region => region.name).join(', ')}; potenza militare stimata ${fmt(sum(allOwned, 'militaryPower'))}${economy}.${objects.length ? ` Oggetti osservabili: ${objects.join('; ')}.` : ''}`);
+        const effectivePower = Number(account?.effectiveMilitaryPower);
+        const powerLabel = Number.isFinite(effectivePower) && effectivePower > 0
+          ? `${fmt(effectivePower)} effettiva (nominale ${fmt(sum(allOwned, 'militaryPower'))})`
+          : `stimata ${fmt(sum(allOwned, 'militaryPower'))}`;
+        lines.push(`- ${this.polityDisplayName(owner, allOwned)} [${owner}]: rapporto ${relation}; confina tramite ${borderRegions.map(region => region.name).join(', ')}; potenza militare ${powerLabel}${economy}.${objects.length ? ` Oggetti osservabili: ${objects.join('; ')}.` : ''}`);
       }
     }
 

@@ -798,11 +798,7 @@ export class GameSession {
    * pesa sui combattimenti narrati dal modello e sull'attrito delle conquiste.
    */
   effectiveMilitaryPower(polityId = this.playerPolityId): number {
-    const account = WorldStateEngine.accounts(this.regions.values())[polityId];
-    const base = Math.max(0, Number(account?.militaryPower || 0));
-    const factor = arsenalCombatFactor(this.arsenalUnits(polityId),
-      Number(account?.forces || 0) + Number(account?.mobilized || 0));
-    return Math.round(base * factor * 10) / 10;
+    return this.nationalEffectiveMilitaryPower(polityId);
   }
 
   /**
@@ -991,6 +987,21 @@ export class GameSession {
     const playerArsenalUnits = this.arsenalUnits(this.playerPolityId);
     const playerArsenalFactor = arsenalCombatFactor(playerArsenalUnits,
       Number(accounts[this.playerPolityId]?.forces || 0) + Number(accounts[this.playerPolityId]?.mobilized || 0));
+    // Potenza effettiva per tutte le politie con arsenale già noto (il
+    // giocatore e ogni nazione NPC i cui armamenti sono stati seminati).
+    const effectiveAccounts: typeof accounts = {};
+    for (const [id, account] of Object.entries(accounts)) {
+      const units = id === this.playerPolityId ? playerArsenalUnits : this.arsenals.get(id);
+      if (!units) { effectiveAccounts[id] = account; continue; }
+      const factor = arsenalCombatFactor(units,
+        Number(account.forces || 0) + Number(account.mobilized || 0));
+      effectiveAccounts[id] = {
+        ...account,
+        arsenalStrength: arsenalStrength(units),
+        arsenalCombatFactor: factor,
+        effectiveMilitaryPower: Math.round(Number(account.militaryPower || 0) * factor * 10) / 10,
+      } as NationalAccount;
+    }
 
     return {
       id: this.id,
@@ -1002,7 +1013,7 @@ export class GameSession {
       // Stato materiale del mondo: è ricostruito dal motore deterministico
       // dalla mappa e quindi non può contraddire la memoria narrativa.
       worldState: {
-        accounts,
+        accounts: effectiveAccounts,
         resources: { stock: this.resourceStock(this.playerPolityId), account: accounts[this.playerPolityId] },
         // Arsenale e risorse naturali: tratti materiali della nazione, non
         // inventati dal modello. Il catalogo completo resta nelle API.
@@ -1540,6 +1551,8 @@ export class GameSession {
       const population = owned.reduce((sum, r) => sum + (r.population || 0), 0);
       const gdp = owned.reduce((sum, r) => sum + (r.gdp || 0), 0);
       const military = owned.reduce((sum, r) => sum + (r.militaryPower || 0), 0);
+      const ownedAccounts = WorldStateEngine.accounts(owned);
+      const effectiveMilitary = this.nationalEffectiveMilitaryPower(p.id, ownedAccounts);
       const relationship = this.relationships.get(p.id, this.playerPolityId);
       const profile = strategicProfileForPolity(p.id);
       const hostileNeighbours = this.hostileNeighbourCount(p.id);
@@ -1551,17 +1564,17 @@ export class GameSession {
         hostileNeighbours,
         hostileActors: allRelations.filter(value => value === 'hostile').length,
         alliedActors: allRelations.filter(value => value === 'ally').length,
-        militaryPower: military,
-        playerMilitaryPower: this.nationalMilitaryPower(this.playerPolityId),
-        monthlyBalance: WorldStateEngine.accounts(owned)[p.id]?.monthlyBalance,
-        stability: WorldStateEngine.accounts(owned)[p.id]?.stability,
+        militaryPower: effectiveMilitary,
+        playerMilitaryPower: this.nationalEffectiveMilitaryPower(this.playerPolityId, ownedAccounts),
+        monthlyBalance: ownedAccounts[p.id]?.monthlyBalance,
+        stability: ownedAccounts[p.id]?.stability,
       });
       const memory = this.recentStrategicMemory(p.id, 2);
       return {
         name: p.name,
         relationship,
         personality: `${profile.personality}; dottrina ${profile.doctrine}; stile ${profile.negotiationStyle}; propensione alla forza ${Math.round(profile.aggression * 100)}%; rischio ${profile.riskTolerance}/100; affidabilità verso impegni registrati ${profile.allianceReliability}/100`,
-        interests: `priorità: ${priorities.join('; ')}; linee rosse: ${profile.redLines.join('; ')}; capacità: ${owned.length} regioni, popolazione ${population}, PIL ${gdp}, potenza militare ${military}; memoria recente: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato'}`,
+        interests: `priorità: ${priorities.join('; ')}; linee rosse: ${profile.redLines.join('; ')}; capacità: ${owned.length} regioni, popolazione ${population}, PIL ${gdp}, potenza militare effettiva ${effectiveMilitary} (nominale ${military}); memoria recente: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato'}`,
       };
     });
   }
@@ -1581,8 +1594,8 @@ export class GameSession {
       const priority = currentStrategicPriorities(profile, {
         relationshipToPlayer: this.relationships.get(polityId, this.playerPolityId),
         hostileNeighbours: this.hostileNeighbourCount(polityId),
-        militaryPower: this.nationalMilitaryPower(polityId),
-        playerMilitaryPower: this.nationalMilitaryPower(this.playerPolityId),
+        militaryPower: this.nationalEffectiveMilitaryPower(polityId),
+        playerMilitaryPower: this.nationalEffectiveMilitaryPower(this.playerPolityId),
       })[0] || profile.baselinePriorities[0];
       const chat = this.ensureChat([displayName]);
       const sender = chat.participants.find(participant => participant.role === 'polity')?.name || chat.polityName;
@@ -2262,6 +2275,19 @@ export class GameSession {
       .reduce((total, region) => total + (Number(region.militaryPower) || 0), 0);
   }
 
+  /**
+   * Potenza militare effettiva di una politia: potenza di mappa × fattore
+   * dell'arsenale (qualità e copertura delle armi). Vale per il giocatore e per
+   * tutte le nazioni NPC, così le decisioni dell'IA tengono conto dell'arsenale.
+   */
+  private nationalEffectiveMilitaryPower(polityId: string, accounts?: Record<string, NationalAccount>): number {
+    const base = this.nationalMilitaryPower(polityId);
+    const arsenal = this.arsenalUnits(polityId);
+    const book = accounts || WorldStateEngine.accounts(this.regions.values());
+    const forces = Number(book[polityId]?.forces || 0) + Number(book[polityId]?.mobilized || 0);
+    return Math.round(base * arsenalCombatFactor(arsenal, forces) * 10) / 10;
+  }
+
   private hostileNeighbourCount(polityId: string): number {
     const hostile = new Set<string>();
     for (const region of this.regions.values()) {
@@ -2380,7 +2406,7 @@ export class GameSession {
     // Solo se il mondo non offre alcun aggancio geografico o diplomatico il
     // dossier ripiega sulle potenze più forti, per non restare vuoto.
     const selected = (relevantOwners.length > 0 ? relevantOwners : strongestOwners).slice(0, 10);
-    const playerMilitaryPower = accounts[this.playerPolityId]?.militaryPower || this.nationalMilitaryPower(this.playerPolityId);
+    const playerMilitaryPower = Number(accounts[this.playerPolityId]?.effectiveMilitaryPower) || this.nationalEffectiveMilitaryPower(this.playerPolityId, accounts);
     const displayName = (polityId: string): string => {
       const owned = Array.from(this.regions.values()).filter(region => region.owner === polityId);
       const registeredName = countryRepository.findByCode(polityId)?.name;
@@ -2405,7 +2431,7 @@ export class GameSession {
         hostileNeighbours: this.hostileNeighbourCount(polityId),
         hostileActors: registeredRelations.filter(entry => entry.value === 'hostile').length,
         alliedActors: registeredRelations.filter(entry => entry.value === 'ally').length,
-        militaryPower: account?.militaryPower,
+        militaryPower: this.nationalEffectiveMilitaryPower(polityId, accounts),
         playerMilitaryPower,
         monthlyBalance: account?.monthlyBalance,
         stability: account?.stability,
@@ -2453,9 +2479,11 @@ export class GameSession {
   }
 
   /**
-   * Attrito di conquista: quando una provincia passa di mano tra nazioni ostili,
-   * il vincitore consuma equipaggiamento e prontezza in proporzione alla difesa
-   * incontrata. È il modo in cui l'arsenale materiale pesa sulla guerra.
+   * Attrito di conquista: ogni volta che una provincia passa di mano tra due
+   * nazioni reali, il vincitore consuma equipaggiamento e prontezza in
+   * proporzione alla difesa incontrata. È il modo in cui l'arsenale materiale
+   * pesa sulla guerra, indipendentemente dallo stato diplomatico registrato:
+   * anche un'occupazione "pacifica" logora chi la esegue.
    */
   private applyConquestAttrition(
     region: RegionState, previousOwner: string, newOwner: string,
@@ -2463,7 +2491,6 @@ export class GameSession {
   ): void {
     if (!previousOwner || previousOwner === newOwner) return;
     if (previousOwner === 'neutral' || newOwner === 'neutral') return;
-    if (this.relationships.get(previousOwner, newOwner) !== 'hostile') return;
     const defender = accounts[previousOwner];
     const winner = accounts[newOwner];
     const winnerBase = Math.max(0, Number(winner?.militaryPower || 0));

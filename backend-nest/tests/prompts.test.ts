@@ -304,6 +304,28 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
     expect(strategicVars.STRATEGIC_STATE).toContain('potenza militare stimata 60');
   });
 
+  it('mostra la potenza effettiva delle nazioni confinanti quando l’arsenale è noto', () => {
+    const armedGame: any = {
+      ...game,
+      relationships: { DEU: { POL: 'hostile' }, POL: { DEU: 'hostile' } },
+      worldState: {
+        accounts: {
+          DEU: { polityId: 'DEU', provinces: 1, population: 10, gdp: 20, militaryPower: 30, factories: 0, ports: 0, universities: 0, forces: 2, mobilized: 0, monthlyRevenue: 1, monthlyExpenses: 1, monthlyBalance: 0, annualGrowthRate: 0, stability: 50, defenceBurdenPct: 2, warEffort: 10, socialTension: 5, nominalGdpUsdBillions: 100, gdpPerCapitaUsd: 1000, government: 'repubblica', effectiveMilitaryPower: 18 },
+          POL: { polityId: 'POL', provinces: 1, population: 40, gdp: 50, militaryPower: 60, factories: 0, ports: 0, universities: 0, forces: 3, mobilized: 0, monthlyRevenue: 1, monthlyExpenses: 1, monthlyBalance: 0, annualGrowthRate: 0, stability: 50, defenceBurdenPct: 2, warEffort: 10, socialTension: 5, nominalGdpUsdBillions: 100, gdpPerCapitaUsd: 1000, government: 'repubblica', effectiveMilitaryPower: 36 },
+        },
+      },
+      world: {
+        ...game.world,
+        regions: {
+          w1_DEU: { ...game.world.regions.w1_DEU, population: 10, gdp: 20, militaryPower: 30, borders: ['w1_POL'] },
+          w1_POL: { ...game.world.regions.w1_POL, population: 40, gdp: 50, militaryPower: 60, borders: ['w1_DEU'] },
+        },
+      },
+    };
+    const vars = new PromptBuilder(armedGame).buildVariables();
+    expect(vars.STRATEGIC_STATE).toContain('potenza militare 36 effettiva (nominale 60)');
+  });
+
   it('для провинциальной карты передаёт настоящее имя страны, все регионы и суммарные ресурсы', () => {
     const provincialGame: any = {
       ...game,

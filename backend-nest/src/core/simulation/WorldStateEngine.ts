@@ -47,6 +47,12 @@ export interface NationalAccount {
   nominalGdpUsdBillions: number;
   gdpPerCapitaUsd: number;
   government: string;
+  /** Forza dell'arsenale (quantità × qualità × dominio), se calcolata. */
+  arsenalStrength?: number;
+  /** Fattore di combattimento dell'arsenale (0.6-1.6), se calcolato. */
+  arsenalCombatFactor?: number;
+  /** Potenza militare effettiva = potenza di mappa × fattore arsenale. */
+  effectiveMilitaryPower?: number;
 }
 
 export interface WorldStateTick {

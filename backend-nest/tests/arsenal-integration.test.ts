@@ -137,8 +137,19 @@ describe('arsenale e procurement', () => {
     expect(arsenal.qualityIndex).toBeGreaterThan(0);
   });
 
+  it('una conquista consuma l’arsenale del vincitore anche senza ostilità registrata', () => {
+    const { session } = createGame();
+    const before = session.getArsenal().units;
+    const sauRegion = session.getRegion(`${WORLD_ID}_SAU`);
+    session.applyMapChanges([{ type: 'transfer', regionId: sauRegion.id, newOwner: 'DEU' }]);
+    expect(session.getRegion(`${WORLD_ID}_SAU`).owner).toBe('DEU');
+    const after = session.getArsenal().units;
+    const lost = (before.fucili || 0) - (after.fucili || 0) + (before.apc || 0) - (after.apc || 0);
+    expect(lost).toBeGreaterThan(0);
+  });
+
   it('una conquista tra nazioni ostili consuma l’arsenale del vincitore', () => {
-    const { session, gameId } = createGame();
+    const { session } = createGame();
     (session as any).relationships.set('DEU', 'SAU', 'hostile');
     const before = session.getArsenal().units;
     expect(before.fucili).toBeGreaterThan(0);
@@ -148,13 +159,13 @@ describe('arsenale e procurement', () => {
     const after = session.getArsenal().units;
     const lost = (before.fucili || 0) - (after.fucili || 0) + (before.apc || 0) - (after.apc || 0);
     expect(lost).toBeGreaterThan(0);
-    void gameId;
   });
 
-  it('un passaggio non ostile non consuma l’arsenale', () => {
+  it('il passaggio di una provincia neutrale non consuma l’arsenale', () => {
     const { session } = createGame();
     const before = session.getArsenal().units;
     const sauRegion = session.getRegion(`${WORLD_ID}_SAU`);
+    (session as any).regions.get(sauRegion.id).owner = 'neutral';
     session.applyMapChanges([{ type: 'transfer', regionId: sauRegion.id, newOwner: 'DEU' }]);
     expect(session.getArsenal().units).toEqual(before);
   });
