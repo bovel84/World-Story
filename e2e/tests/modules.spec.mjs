@@ -122,4 +122,20 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await page.locator('.nation-dock-tab', { hasText: 'Armamenti' }).click();
     await expect(page.locator('.nation-block[aria-label="Forza dell\'arsenale"]')).not.toContainText('Università');
   });
+
+  test('U03 mobile: la barra moduli resta toccabile e apre il Dossier', async ({ page }) => {
+    // Regressione: i controlli zoom della mappa (z-index inline alto) si
+    // sovrapponevano alla barra moduli fissa e ne rubavano il tocco.
+    await page.setViewportSize({ width: 390, height: 844 });
+    installMockApi(page);
+    await reachHud(page);
+
+    await page.locator('.rail-btn[aria-label="Nazione"]').click();
+    await expect(page.locator('.nation-desk')).toBeVisible();
+    await page.locator('.nation-dock-tab', { hasText: 'Cassa' }).click();
+    await expect(page.locator('.nation-block[aria-label="Tesoreria e debito"]')).toContainText('185,85');
+    // La diplomazia interna non deve coprire le schede (era un foglio fixed).
+    await page.locator('.nation-dock-tab', { hasText: 'Risorse e industria' }).click();
+    await expect(page.locator('.nation-block[aria-label="Magazzino materiale"]')).toBeVisible();
+  });
 });

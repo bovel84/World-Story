@@ -1867,7 +1867,9 @@ html, body { margin: 0; }
 /* Navigazione: una sola riga scorrevole, agganciata in alto mentre si legge. */
 .nation-dock-tabs {
   position: sticky;
-  top: 0;
+  /* Sotto la testata sticky del modulo (vedi --ws-nation-header-h): a `top: 0`
+     la testata copriva le schede e il cambio sezione diventava impossibile. */
+  top: var(--ws-nation-header-h, 66px);
   z-index: 3;
   display: flex;
   gap: 6px;

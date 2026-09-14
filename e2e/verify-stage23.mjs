@@ -39,7 +39,7 @@ try {
   );
   await page.locator('.btn-play').click();
   const gameId = (await (await gameResponse).json()).game_id;
-  await page.locator('.game-wrapper').waitFor({ timeout: 180_000 });
+  await page.locator('.game-shell').waitFor({ timeout: 180_000 });
 
   const game = await page.evaluate(async id => {
     const response = await fetch(`/api/games/${id}`);

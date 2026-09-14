@@ -22,9 +22,9 @@ await page.locator('.template-card').first().click();
 await page.locator('.country-list-item').first().click();
 await page.locator('.btn-play').click();
 try {
-  await page.waitForSelector('.game-wrapper', { timeout: 60000 });
+  await page.waitForSelector('.game-shell', { timeout: 60000 });
 } catch {
-  console.log('[warn] .game-wrapper non visibile, proseguo comunque');
+  console.log('[warn] .game-shell non visibile, proseguo comunque');
 }
 await page.waitForSelector('.hud-bar', { timeout: 30000 }).catch(() => {});
 await page.waitForTimeout(3000);
@@ -41,7 +41,6 @@ const chain = await page.evaluate(() => {
   }
   return {
     path,
-    gameWrapperExists: !!document.querySelector('.game-wrapper'),
     gameShellExists: !!document.querySelector('.game-shell'),
   };
 });

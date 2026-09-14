@@ -25,7 +25,7 @@ await page.locator('.rail-btn[aria-label="Nazione"]').click({ force: true });
 await page.waitForTimeout(1400);
 console.log('nation-dock present:', await page.locator('.nation-dock').count());
 
-const TABS = ['Situazione', 'Bilancio', 'Progetti', 'Risorse e produzione', 'Conoscenze e personale', 'Politiche e servizi'];
+const TABS = ['Situazione', 'Progetti', 'Cassa', 'Risorse e industria', 'Armamenti', 'Conoscenze', 'Politiche'];
 
 async function measure(label, width, height) {
   await page.setViewportSize({ width, height });

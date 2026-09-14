@@ -40,7 +40,7 @@ const chain = await page.evaluate(() => {
   }
   return {
     path,
-    gameWrapperExists: !!document.querySelector('.game-wrapper'),
+    gameShellExists: !!document.querySelector('.game-shell'),
     gameShellExists: !!document.querySelector('.game-shell'),
     shellChildren: Array.from(document.querySelector('.game-shell')?.children || []).map(c => `${c.tagName.toLowerCase()}.${String(c.className)}`),
   };

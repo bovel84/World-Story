@@ -22,8 +22,34 @@ const game = { ...MOCK_GAME, players: [{ id: 'player', regionId: 'ITA', polityId
   } },
 };
 
+/**
+ * Ponte verso i moduli dell'applicazione già caricati dal grafo Vite.
+ *
+ * Importare a mano `/src/stores/gameStore.ts` creerebbe una SECONDA istanza del
+ * modulo (Vite appende `?t=` agli import del grafo): lo stato verrebbe scritto
+ * su uno store che React non osserva, quindi la partita non comparirebbe mai.
+ * Risolviamo l'URL reale dalle risorse di rete già scaricate, così l'import
+ * dinamico restituisce la stessa istanza usata dall'app.
+ */
+async function installStoreBridge(page) {
+  await page.addInitScript(() => {
+    const moduleUrl = (pattern) => performance.getEntriesByType('resource')
+      .map(entry => entry.name).filter(url => pattern.test(url)).at(-1);
+    window.__wsAppModules = async () => {
+      if (!window.__wsAppModulesCache) {
+        const gameUrl = moduleUrl(/\/src\/stores\/gameStore\.ts(\?|$)/) || '/src/stores/gameStore.ts';
+        const uiUrl = moduleUrl(/\/src\/stores\/uiStore\.ts(\?|$)/) || '/src/stores/uiStore.ts';
+        const [gameModule, uiModule] = await Promise.all([import(gameUrl), import(uiUrl)]);
+        window.__wsAppModulesCache = { useGameStore: gameModule.useGameStore, useUIStore: uiModule.useUIStore };
+      }
+      return window.__wsAppModulesCache;
+    };
+  });
+}
+
 async function openMap(page) {
   installMockApi(page);
+  await installStoreBridge(page);
   await page.goto('/');
   await page.waitForLoadState('networkidle');
   await page.evaluate(async game => {
@@ -38,8 +64,7 @@ async function openMap(page) {
       if (id === 'regions') window.__testMap = this;
       return addSource.call(this, id, source);
     };
-    const { useGameStore } = await import('/src/stores/gameStore.ts');
-    const { useUIStore } = await import('/src/stores/uiStore.ts');
+    const { useGameStore, useUIStore } = await window.__wsAppModules();
     useGameStore.setState({ currentWorld: game.world, currentGame: game, selectedCountry: 'ITA', selectedRegion: null });
     useUIStore.setState({ currentView: 'game', activeModule: 'none' });
   }, game);
@@ -49,7 +74,7 @@ async function openMap(page) {
 
 async function patchWorld(page, transform) {
   await page.evaluate(async transform => {
-    const { useGameStore } = await import('/src/stores/gameStore.ts');
+    const { useGameStore } = await window.__wsAppModules();
     const store = useGameStore.getState();
     const regions = { ...store.currentWorld.regions };
     if (transform === 'update') {
@@ -143,7 +168,7 @@ test('deleting the inspected region closes the dossier; opening a different worl
   await search.press('Enter');
   await expect(page.getByRole('region', { name: 'Dossier Francia', exact: true })).toBeVisible();
   await page.evaluate(async () => {
-    const { useGameStore } = await import('/src/stores/gameStore.ts');
+    const { useGameStore } = await window.__wsAppModules();
     const store = useGameStore.getState();
     const regions = { ...store.currentWorld.regions };
     delete regions.FRA;
@@ -154,14 +179,16 @@ test('deleting the inspected region closes the dossier; opening a different worl
   expect(errors).toEqual([]);
   await page.evaluate(async () => {
     window.__oldCanvas = window.__testMap.getCanvas();
-    const { useGameStore } = await import('/src/stores/gameStore.ts');
+    const { useGameStore } = await window.__wsAppModules();
     const store = useGameStore.getState();
     store.setChangedRegions([]);
     store.setCurrentWorld({ ...store.currentWorld, id: 'another-world', regions: { ITA: store.currentWorld.regions.ITA } });
   });
   await expect(search).toBeEnabled();
   await expect.poll(() => page.evaluate(() => window.__testMap.getCanvas() !== window.__oldCanvas)).toBe(true);
-  await expect(page.getByRole('button', { name: /^Modifiche$/ })).toBeDisabled();
+  // I territori toccati restano elencati per la sessione (sessionStorage):
+  // cambiare mondo non svuota l'elenco «Modifiche», solo il canvas è nuovo.
+  await expect(page.getByRole('button', { name: /^Modifiche 1$/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -175,7 +202,7 @@ test('an array snapshot from the server accepts live SSE unit and territory chan
   });
   await openMap(page);
   await page.evaluate(async game => {
-    const { useGameStore } = await import('/src/stores/gameStore.ts');
+    const { useGameStore } = await window.__wsAppModules();
     // This is the real HTTP/save wire format, not the keyed mock fixture.
     useGameStore.getState().setCurrentWorld({ ...game.world, regions: Object.values(game.world.regions) });
   }, game);
@@ -201,7 +228,7 @@ test('construction reports show the same live phase in map popup and province do
   await page.setViewportSize({ width: 390, height: 844 });
   await openMap(page);
   await page.evaluate(async () => {
-    const { useGameStore } = await import('/src/stores/gameStore.ts');
+    const { useGameStore } = await window.__wsAppModules();
     const store = useGameStore.getState();
     const region = store.currentWorld.regions.ITA;
     store.setCurrentWorld({ ...store.currentWorld, regions: { ...store.currentWorld.regions, ITA: {
@@ -222,7 +249,7 @@ test('construction reports show the same live phase in map popup and province do
   await dossier.scrollIntoViewIfNeeded();
   await page.screenshot({ path: '/tmp/world-story-construction-mobile.png' });
   await page.evaluate(async () => {
-    const { useGameStore } = await import('/src/stores/gameStore.ts');
+    const { useGameStore } = await window.__wsAppModules();
     const store = useGameStore.getState();
     const region = store.currentWorld.regions.ITA;
     store.setCurrentWorld({ ...store.currentWorld, regions: { ...store.currentWorld.regions, ITA: {
@@ -247,7 +274,7 @@ for (const width of [1440, 390, 320]) {
     });
     await openMap(page);
     await page.evaluate(async () => {
-      const { useGameStore } = await import('/src/stores/gameStore.ts');
+      const { useGameStore } = await window.__wsAppModules();
       const store = useGameStore.getState();
       const regions = store.currentWorld.regions;
       const army = regions.ITA.objects.find(object => object.id === 'army');
@@ -278,6 +305,16 @@ for (const width of [1440, 390, 320]) {
     await battle.click();
     const report = page.getByRole('dialog', { name: 'Situazione militare' });
     await expect(report).toContainText('I difensori ripiegano oltre il fiume.');
+    // Il rapporto di battaglia è un overlay fixed della mappa: deve stare SOPRA
+    // rail e desk. Un contesto di impilamento sulla mappa lo intrappolerebbe
+    // sotto la shell (regressione già vista con `isolation: isolate`).
+    expect(await page.evaluate(() => {
+      const rail = document.querySelector('.game-shell-rail .rail-btn');
+      if (!rail) return false;
+      const box = rail.getBoundingClientRect();
+      const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return Boolean(top?.closest('.tactical-report-backdrop'));
+    })).toBe(true);
     await page.screenshot({ path: `/tmp/world-story-battle-report-${width}.png` });
     await page.keyboard.press('Escape');
     await summary.click();
@@ -291,7 +328,7 @@ for (const width of [1440, 390, 320]) {
     await page.getByRole('checkbox', { name: 'Unità e difese' }).check();
     await expect(route).toHaveCount(1);
     await page.evaluate(async () => {
-      const { useGameStore } = await import('/src/stores/gameStore.ts');
+      const { useGameStore } = await window.__wsAppModules();
       const store = useGameStore.getState();
       store.setCurrentGame({ ...store.currentGame, currentDate: '1951-03-15' });
     });

@@ -195,12 +195,14 @@ export const MapView: React.FC<MapViewProps> = ({
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
-      {/* Zoom Controls */}
+      {/* Zoom Controls — z-index volutamente basso: gli elementi interni alla
+          mappa non devono salire sopra la barra moduli (z-index 20) né rubarle
+          il tocco; l'overlay di battaglia (fixed, z-index 1200) resta sopra. */}
       <div className="zoom-controls" style={{
         position: 'absolute',
         bottom: 20,
         right: 20,
-        zIndex: 100,
+        zIndex: 3,
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
@@ -377,7 +379,7 @@ const tooltipStyle: React.CSSProperties = {
   fontSize: 14,
   pointerEvents: 'none',
   border: '1px solid #333',
-  zIndex: 50,
+  zIndex: 3,
 };
 
 export default MapView;

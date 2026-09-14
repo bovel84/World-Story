@@ -23,7 +23,7 @@ await playBtn.click({ timeout: 10000 }).catch(async () => {
   await page.locator('.landing-cta').click().catch(() => {});
 });
 try {
-  await page.waitForSelector('.game-shell, .game-wrapper', { timeout: 60000 });
+  await page.waitForSelector('.game-shell, .game-shell', { timeout: 60000 });
 } catch { console.log('[warn] partita non caricata'); }
 await page.waitForTimeout(4000);
 

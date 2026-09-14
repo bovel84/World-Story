@@ -483,6 +483,10 @@
   min-height: 0;
   background: var(--ws-surface-map-shell);
   position: relative;
+  /* NIENTE z-index/isolation qui: creerebbe un contesto di impilamento che
+     intrappolerebbe gli overlay fixed interni alla mappa (il rapporto di
+     battaglia, z-index 1200) sotto rail e desk. I controlli interni che
+     evadevano sono corretti alla fonte, nel loro z-index inline. */
 }
 
 .game-shell-desk {
@@ -1027,6 +1031,9 @@
   :root {
     --ws-rail-w: 0;
     --ws-desk-w: 100%;
+    /* Altezza della barra moduli mobile: la usano mappa e controlli interni
+       per non finire sotto di essa. */
+    --ws-rail-h: 56px;
   }
 
   .game-shell,
@@ -1072,6 +1079,12 @@
     box-sizing: border-box;
   }
 
+  /* I controlli zoom restano sopra la barra moduli: né coperti né capaci di
+     intercettare il tocco destinato ai pulsanti dei moduli. */
+  .map-view-container .zoom-controls {
+    bottom: calc(var(--ws-rail-h, 56px) + env(safe-area-inset-bottom, 0px) + 16px) !important;
+  }
+
   /* Rail mobile: bottom bar fissa con le icone dei moduli, sempre accessibile */
   .game-shell-rail {
     position: fixed;
@@ -1090,6 +1103,11 @@
     z-index: var(--ws-z-module);
     overflow-x: auto;
     overflow-y: hidden;
+  }
+
+  /* Testata del Dossier più bassa sul telefono: le schede sticky seguono. */
+  .game-shell-desk > .nation-desk {
+    --ws-nation-header-h: 60px;
   }
 
   .game-shell-rail .command-rail {
@@ -1501,21 +1519,21 @@
   position: relative;
 }
 @media (max-width: 767px) {
+  /* La diplomazia del dossier nazionale resta un BLOCCO interno al desk.
+     Renderla `position: fixed` la faceva diventare un foglio a tutta larghezza
+     sopra il Dossier, che rubava il tocco alle schede e nascondeva i contenuti.
+     Restano solo gli aggiustamenti di leggibilità/contrasto. */
   .diplomacy-panel {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    top: auto;
-    height: min(64dvh, 540px);
-    border-radius: var(--ws-radius-panel, 12px) var(--ws-radius-panel, 12px) 0 0;
-    border: 0;
-    border-top: 1px solid var(--ws-surface-command-raised);
-    background: var(--ws-surface-command, #14243a);
-    animation: desk-slide-up .25s ease-out;
-    z-index: calc(var(--ws-z-module) + 1);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    overflow-y: auto;
+    position: relative;
+    height: auto;
+    max-height: none;
+    border-radius: 0;
+    border-top: 0;
+    background: transparent;
+    animation: none;
+    z-index: auto;
+    padding-bottom: 0;
+    overflow: visible;
   }
   /* Titolo leggibile: override editorial.css che lo rendeva scuro su scuro */
   .diplomacy-panel .diplomacy-header span:first-child {
@@ -1615,6 +1633,13 @@
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+/* Il Dossier ha una testata sticky: le schede devono agganciarsi SOTTO di
+   essa, altrimenti la testata (z-index più alto) le copre e non si può più
+   cambiare sezione. L'altezza vive in una variabile, per breakpoint. */
+.game-shell-desk > .nation-desk {
+  --ws-nation-header-h: 66px;
 }
 
 /* Chat diplomatiche: testata e composer fissi, elenco/thread con scroll interno */

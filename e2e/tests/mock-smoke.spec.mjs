@@ -36,14 +36,15 @@ test.describe('Q01 µ1 — smoke mock (creazione partita)', () => {
     await page.locator('.country-list-item').first().click();
     await page.locator('.btn-play').click();
 
-    // 5. HUD di gioco
-    await expect(page.locator('.game-wrapper')).toBeVisible({ timeout: 20_000 });
+    // 5. HUD di gioco (shell a griglia: HUD, rail, mappa, desk)
+    await expect(page.locator('.game-shell')).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('.hud-bar')).toBeVisible();
     await expect(page.locator('.hud-turn-badge')).toContainText('TURNO 1');
-    await expect(page.locator('.game-map')).toBeVisible();
+    await expect(page.locator('.game-shell-map')).toBeVisible();
+    await expect(page.locator('.game-shell-rail')).toBeVisible();
 
-    // 6. La mappa SVG è renderizzata (regioni Alfa/Beta)
-    await expect(page.locator('.game-map svg')).toBeVisible();
+    // 6. La mappa SVG è renderizzata (regioni Alfa/Beta senza geojson)
+    await expect(page.locator('.game-shell-map svg').first()).toBeVisible();
   });
 
   test('generazione mondo fallita → errore e ritorno al menu (stato di errore)', async ({ page }) => {

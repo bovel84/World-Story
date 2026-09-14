@@ -71,7 +71,7 @@ try {
   // 5. Генерация мира (реальный LLM) — лоадер, затем игра
   await page.waitForTimeout(3000);
   await shot(page, '04-world-gen-loader.png');
-  await page.waitForSelector('.game-wrapper', { timeout: 10 * 60 * 1000 });
+  await page.waitForSelector('.game-shell', { timeout: 10 * 60 * 1000 });
   await page.waitForTimeout(5000); // карта/тайлы догружаются
   await shot(page, '05-game-hud.png');
   log('game loaded');

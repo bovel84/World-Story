@@ -26,7 +26,7 @@ const m = await page.evaluate(() => {
   return {
     scrollY: window.scrollY,
     hud: r(document.querySelector('.hud-bar')),
-    map: r(document.querySelector('.game-map')),
+    map: r(document.querySelector('.game-shell-map')),
     canvas: r(document.querySelector('.maplibregl-canvas')),
   };
 });

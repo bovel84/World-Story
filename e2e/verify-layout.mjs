@@ -21,7 +21,7 @@ try {
   await playBtn.waitFor({ timeout: 15000 });
   await playBtn.click();
   console.log('[verify] resume save clicked');
-  await page.waitForSelector('.game-wrapper', { timeout: 60000 });
+  await page.waitForSelector('.game-shell', { timeout: 60000 });
   await page.waitForTimeout(4000);
 
   // Кликаем элемент в самом низу правой панели — Playwright проскроллит к нему
@@ -33,7 +33,7 @@ try {
 
   const m = await page.evaluate(() => {
     const hud = document.querySelector('.hud-bar, [class*="hud-"]');
-    const map = document.querySelector('.game-map');
+    const map = document.querySelector('.game-shell-map');
     const r = (el) => el ? el.getBoundingClientRect() : null;
     return {
       scrollY: window.scrollY,
