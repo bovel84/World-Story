@@ -19,6 +19,25 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
+/** Voce del catalogo militare pubblicata dal motore (con fattibilità). */
+export interface ArsenalCatalogItem {
+  id: string; name: string; domain: string; category: string;
+  quality: number; tier: string; costMln: number; weaponsCost: number; notes: string;
+  canBuild: boolean; canBuy: boolean; buildCostMln: number; buyCostMln: number; reasons: string[];
+}
+
+/** Arsenale, risorse naturali reali e capacità industriale della nazione. */
+export interface ArsenalResponse {
+  polityId: string;
+  units: Record<string, number>;
+  strength: number;
+  lines: Array<{ id: string; name: string; domain: string; category: string; quality: number; tier: string; quantity: number }>;
+  naturalResources: Record<string, number>;
+  naturalResourcesText: string;
+  capacity: { factories: number; ports: number; universities: number; money: number; weapons: number; technologies: string[] };
+  catalog: ArsenalCatalogItem[];
+}
+
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -298,8 +317,21 @@ export const gameApi = {
   }> =>
     fetchApi(`/games/${gameId}/national-state`),
 
-  /** M07/G5-C — eccezioni di mandato già aperte dal tick canonico (sola lettura). */
-  mandateDecisions: (gameId: string): Promise<{ decisions: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>; decisionRequired: boolean }> =>
+  /** Arsenale militare, risorse naturali reali e catalogo con fattibilità. */
+  arsenal: (gameId: string): Promise<ArsenalResponse> =>
+    fetchApi(`/games/${gameId}/arsenal`),
+
+  /** Costruisce (`build`) o importa (`buy`) equipaggiamento militare. */
+  procure: (gameId: string, mode: 'build' | 'buy', equipmentId: string, quantity = 1): Promise<{
+    mode: string; equipmentId: string; name: string; quantity: number; spentMln: number;
+    units: Record<string, number>; strength: number;
+  }> =>
+    fetchApi(`/games/${gameId}/arsenal/${mode}`, {
+      method: 'POST',
+      body: JSON.stringify({ equipmentId, quantity }),
+    }),
+
+  /** M07/G5-C — eccezioni di mandato già aperte dal tick canonico (sola lettura). */  mandateDecisions: (gameId: string): Promise<{ decisions: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>; decisionRequired: boolean }> =>
     fetchApi(`/games/${gameId}/mandates/decisions`),
 
   acknowledgeMandateDecision: (gameId: string, mandateId: string, kind: string): Promise<{ decision: any }> =>

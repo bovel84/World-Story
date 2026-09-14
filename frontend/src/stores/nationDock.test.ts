@@ -20,12 +20,13 @@ describe('nationDock (U03 µ1, UI01/UI04)', () => {
     expect(initialNationDockState.activeSection).toBe('situazione');
   });
 
-  it('le sei sezioni del maestro §10.3 sono presenti nell’ordine canonico', () => {
+  it('le sette sezioni del maestro §10.3 sono presenti nell’ordine canonico', () => {
     expect(NATION_SECTIONS).toEqual([
       'situazione',
       'progetti',
       'bilancio',
       'risorse',
+      'armamenti',
       'conoscenze',
       'politiche',
     ]);
@@ -60,7 +61,7 @@ describe('nationDock (U03 µ1, UI01/UI04)', () => {
   });
 
   it('tutte le sezioni sono valori validi del tipo NationSection', () => {
-    const valid: NationSection[] = ['situazione', 'progetti', 'bilancio', 'risorse', 'conoscenze', 'politiche'];
+    const valid: NationSection[] = ['situazione', 'progetti', 'bilancio', 'risorse', 'armamenti', 'conoscenze', 'politiche'];
     for (const section of NATION_SECTIONS) {
       expect(valid).toContain(section);
     }

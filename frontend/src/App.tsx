@@ -250,6 +250,8 @@ function App() {
   // Magazzino materiale del paese giocatore (cibo, vestiario, armamenti,
   // carburante, denaro, ricerca e tecnologie).
   const [nationalResources, setNationalResources] = useState<{ money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] } | null>(null);
+  // Arsenale militare e risorse naturali reali del paese giocatore.
+  const [nationalArms, setNationalArms] = useState<Awaited<ReturnType<typeof gameApi.arsenal>> | null>(null);
   const [mandateDecisions, setMandateDecisions] = useState<Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>>([]);
   useEffect(() => {
     const chatStore = useChatStore.getState();
@@ -410,7 +412,7 @@ function App() {
 
   // Il bollettino usa dati aggregati dal motore, non formule del browser.
   useEffect(() => {
-    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setNationalResources(null); setMandateDecisions([]); return; }
+    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setNationalResources(null); setNationalArms(null); setMandateDecisions([]); return; }
     let cancelled = false;
     // Il conto nazionale è disponibile anche nei giochi legacy; le decisioni
     // mandato appartengono invece solo al percorso strict e un 409 significa
@@ -418,6 +420,9 @@ function App() {
     gameApi.nationalState(currentGameId)
       .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(national.resources?.stock || null); } })
       .catch(error => console.warn('[App] Impossibile caricare il conto nazionale:', error));
+    gameApi.arsenal(currentGameId)
+      .then((arms) => { if (!cancelled) setNationalArms(arms); })
+      .catch(error => console.warn('[App] Impossibile caricare l’arsenale:', error));
     gameApi.mandateDecisions(currentGameId)
       .then((decisions) => { if (!cancelled) setMandateDecisions(decisions.decisions || []); })
       .catch((error: any) => {
@@ -438,6 +443,26 @@ function App() {
       notify('Impossibile registrare il promemoria del mandato.', 'error');
     }
   };
+
+  // Costruisci o importa equipaggiamento: aggiorna arsenale e scorte.
+  const procureEquipment = useCallback(async (mode: 'build' | 'buy', equipmentId: string, quantity = 1) => {
+    if (!currentGameId) return;
+    try {
+      const result = await gameApi.procure(currentGameId, mode, equipmentId, quantity);
+      notify(`${mode === 'build' ? 'Costruiti' : 'Importati'} ${result.quantity} × ${result.name}.`, 'success');
+      const [arms, national] = await Promise.all([
+        gameApi.arsenal(currentGameId),
+        gameApi.nationalState(currentGameId),
+      ]);
+      setNationalArms(arms);
+      setNationalResources(national.resources?.stock || null);
+      setNationalAccounts(national.accounts || {});
+    } catch (error: any) {
+      console.error('[App] Procurement fallito:', error);
+      const unavailable = String(error?.message || '').includes('build_unavailable');
+      notify(unavailable ? 'Capacità insufficienti per costruire questa arma.' : 'Acquisto non riuscito.', 'error');
+    }
+  }, [currentGameId]);
 
   useEffect(() => {
     useChatStore.getState().setChatPanelVisible(
@@ -2189,6 +2214,8 @@ function App() {
               governmentType={governmentType}
               nationalAccount={nationalAccount}
               nationalResources={nationalResources}
+              nationalArms={nationalArms}
+              procureEquipment={procureEquipment}
               nationalHistory={nationalHistory}
               campaignProgress={campaignProgress}
               latestNationalNarration={latestNationalNarration}

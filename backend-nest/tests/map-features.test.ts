@@ -859,8 +859,10 @@ describe('movement order regressions', () => {
     const { resourceRepository } = await import('../src/repositories');
     const { WorldStateEngine } = await import('../src/core/simulation/WorldStateEngine');
     const { seedStock } = await import('../src/core/simulation/MaterialEconomy');
-    // Il seed salvato coincide con quello calcolato dalle province INIZIALI.
-    const initial = seedStock(WorldStateEngine.accounts(worldRepository.getRegions(WORLD_ID))['DEU']);
+    const { naturalResourcesFor } = await import('../src/core/simulation/MilitaryIndustry');
+    // Il seed salvato coincide con quello calcolato dalle province INIZIALI
+    // e dalle risorse naturali reali della nazione.
+    const initial = seedStock(WorldStateEngine.accounts(worldRepository.getRegions(WORLD_ID))['DEU'], naturalResourcesFor('DEU'));
     expect(resourceRepository.get(gameId, 'DEU')?.stock).toEqual(initial);
     // Se lo stato corrente cambia (conquiste/crescita), il magazzino d'origine
     // resta quello dei dati di partenza.

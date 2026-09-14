@@ -10,7 +10,7 @@ import { constructionProgressPatch } from './utils/construction-progress';
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
-import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, resourceRepository } from './repositories';
+import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, resourceRepository, arsenalRepository } from './repositories';
 import { captureEconomicSnapshot, invalidateStrictEffectStaging, restoreEconomicSnapshot, validateEconomicSnapshot } from './repositories/economy-snapshot.repository';
 import { withCanonicalTransaction } from './database';
 import { semanticStateHash } from './domain/semantic-hash';
@@ -19,6 +19,7 @@ import db from './database';
 import { RelationshipMatrix } from './core/RelationshipMatrix';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { advanceStock, describeStock, movementCost, normalizeStock, payMovement, seedStock, type ResourceStock } from './core/simulation/MaterialEconomy';
+import { arsenalStrength, describeArsenal, describeEndowment, equipmentById, EQUIPMENT_CATALOG, naturalResourcesFor, procurementOption, type NationCapacity } from './core/simulation/MilitaryIndustry';
 import { addDays, dateInPeriod, explicitDays, jumpHorizon, resolvePeriod } from './core/simulation/calendar';
 import {
   validateStrictMapChanges,
@@ -678,7 +679,7 @@ export class GameSession {
     // del mondo), non dallo stato corrente di una partita già avanzata.
     const account = this.initialAccounts()[polityId]
       ?? WorldStateEngine.accounts(this.regions.values())[polityId];
-    const seeded = account ? seedStock(account) : normalizeStock({});
+    const seeded = account ? seedStock(account, naturalResourcesFor(polityId)) : normalizeStock({});
     this.saveResourceStock(polityId, seeded);
     return seeded;
   }
@@ -725,7 +726,7 @@ export class GameSession {
     const lines: string[] = [];
     for (const [polityId, account] of Object.entries(snapshot)) {
       if (!polityId || polityId === 'neutral' || account.provinces === 0) continue;
-      const tick = advanceStock(this.resourceStock(polityId), account, days);
+      const tick = advanceStock(this.resourceStock(polityId), account, days, naturalResourcesFor(polityId));
       this.saveResourceStock(polityId, tick.stock);
       if (polityId !== this.playerPolityId) continue;
       for (const tech of tick.unlocked) {
@@ -743,11 +744,153 @@ export class GameSession {
     return { stock: this.resourceStock(this.playerPolityId), account };
   }
 
+  /** Arsenale della polity: cache → DB → seed dal suo esercito di partenza. */
+  private arsenalUnits(polityId: string): Record<string, number> {
+    const cached = this.arsenals.get(polityId);
+    if (cached) return cached;
+    try {
+      const stored = arsenalRepository.get(this.id, polityId);
+      if (stored) {
+        this.arsenals.set(polityId, stored.units);
+        return stored.units;
+      }
+    } catch (error) {
+      console.warn('[GameSession] Lettura arsenale non disponibile:', error);
+    }
+    const account = this.initialAccounts()[polityId];
+    const troops = Math.max(0, account?.forces || 0) + Math.max(0, account?.mobilized || 0);
+    const forces = Math.max(0, account?.forces || 0);
+    const units: Record<string, number> = {};
+    // Dotazione di partenza: armi individuali e trasporti per le forze esistenti.
+    if (troops > 0) units.fucili = Math.round(troops * 40 + (account?.mobilized || 0) * 10);
+    if (forces > 0) units.apc = Math.round(forces * 1.5);
+    this.saveArsenal(polityId, units);
+    return units;
+  }
+
+  private saveArsenal(polityId: string, units: Record<string, number>): void {
+    this.arsenals.set(polityId, units);
+    try {
+      arsenalRepository.upsert(this.id, polityId, units, this.currentTurn, this.currentDate);
+    } catch (error) {
+      console.warn('[GameSession] Impossibile salvare l’arsenale:', error);
+    }
+  }
+
+  /** Capacità industriale e tecnologica corrente della polity giocatore. */
+  private nationCapacity(polityId = this.playerPolityId): NationCapacity {
+    const account = WorldStateEngine.accounts(this.regions.values())[polityId];
+    const stock = this.resourceStock(polityId);
+    return {
+      factories: Math.max(0, account?.factories || 0),
+      ports: Math.max(0, account?.ports || 0),
+      universities: Math.max(0, account?.universities || 0),
+      technologies: stock.technologies,
+      money: stock.money,
+      weapons: stock.weapons,
+      endowment: naturalResourcesFor(polityId),
+    };
+  }
+
+  /**
+   * Arsenale, risorse naturali, capacità industriale e catalogo completo con la
+   * fattibilità di costruzione/acquisto per ogni voce.
+   */
+  getArsenal() {
+    const polityId = this.playerPolityId;
+    const capacity = this.nationCapacity(polityId);
+    const units = this.arsenalUnits(polityId);
+    const endowment = capacity.endowment;
+    const lines = describeArsenal(units).map(line => ({
+      id: line.equipment.id,
+      name: line.equipment.name,
+      domain: line.equipment.domain,
+      category: line.equipment.category,
+      quality: line.equipment.quality,
+      tier: line.equipment.tier,
+      quantity: line.quantity,
+    }));
+    const catalog = EQUIPMENT_CATALOG.map(equipment => {
+      const option = procurementOption(equipment, capacity);
+      return {
+        ...equipment,
+        canBuild: option.canBuild,
+        canBuy: option.canBuy,
+        buildCostMln: option.buildCostMln,
+        buyCostMln: option.buyCostMln,
+        resourceFactor: option.resourceFactor,
+        reasons: option.reasons,
+      };
+    });
+    return {
+      polityId,
+      units,
+      strength: arsenalStrength(units),
+      lines,
+      naturalResources: endowment,
+      naturalResourcesText: describeEndowment(endowment),
+      capacity: {
+        factories: capacity.factories,
+        ports: capacity.ports,
+        universities: capacity.universities,
+        money: capacity.money,
+        weapons: capacity.weapons,
+        technologies: capacity.technologies,
+      },
+      catalog,
+    };
+  }
+
+  /**
+   * Costruisce (`build`) o importa (`buy`) equipaggiamento militare. La
+   * costruzione richiede tecnologie, industria e risorse naturali; l'acquisto
+   * paga solo un sovrapprezzo. Le scorte e l'arsenale sono aggiornati insieme.
+   */
+  procureEquipment(mode: 'build' | 'buy', equipmentId: string, quantity = 1) {
+    const polityId = this.playerPolityId;
+    const equipment = equipmentById(equipmentId);
+    if (!equipment) throw new Error(`equipment_unknown: ${equipmentId}`);
+    const qty = Math.max(1, Math.floor(Number(quantity) || 1));
+    if (qty > 1000) throw new Error('equipment_quantity_invalid');
+    const capacity = this.nationCapacity(polityId);
+    const option = procurementOption(equipment, capacity);
+    if (mode === 'build' && !option.canBuild) {
+      throw new Error(`build_unavailable: ${option.reasons.join('; ') || 'capacità insufficienti'}`);
+    }
+    if (mode === 'buy' && !option.canBuy) {
+      throw new Error('buy_unavailable: tesoreria insufficiente');
+    }
+    if (mode !== 'build' && mode !== 'buy') throw new Error('procurement_mode_invalid');
+    const unitCostMln = mode === 'build' ? option.buildCostMln : option.buyCostMln;
+    const spentMln = unitCostMln * qty;
+    const stock = this.resourceStock(polityId);
+    this.saveResourceStock(polityId, {
+      ...stock,
+      money: Math.round((stock.money - spentMln / 1000) * 1000) / 1000,
+      weapons: mode === 'build' ? Math.max(0, stock.weapons - equipment.weaponsCost * qty) : stock.weapons,
+    });
+    const units = { ...this.arsenalUnits(polityId) };
+    units[equipmentId] = (units[equipmentId] || 0) + qty;
+    this.saveArsenal(polityId, units);
+    return {
+      mode,
+      equipmentId,
+      name: equipment.name,
+      quantity: qty,
+      spentMln,
+      units,
+      strength: arsenalStrength(units),
+    };
+  }
+
   // Diplomatic relationships
   private relationships: RelationshipMatrix = new RelationshipMatrix();
 
   /** Magazzino materiale per polity (cibo, vestiario, armamenti, carburante…). */
   private resourceStocks = new Map<string, ResourceStock>();
+
+  /** Arsenale militare per polity (quantità per voce di catalogo). */
+  private arsenals = new Map<string, Record<string, number>>();
 
   /** Conti nazionali delle province INIZIALI del mondo (dati di partenza). */
   private initialAccountsCache?: Record<string, NationalAccount>;
@@ -835,7 +978,17 @@ export class GameSession {
       consolidationTail: this.llm.consolidation.keepRawTail,
       // Stato materiale del mondo: è ricostruito dal motore deterministico
       // dalla mappa e quindi non può contraddire la memoria narrativa.
-      worldState: { accounts, resources: { stock: this.resourceStock(this.playerPolityId), account: accounts[this.playerPolityId] } },
+      worldState: {
+        accounts,
+        resources: { stock: this.resourceStock(this.playerPolityId), account: accounts[this.playerPolityId] },
+        // Arsenale e risorse naturali: tratti materiali della nazione, non
+        // inventati dal modello. Il catalogo completo resta nelle API.
+        arsenal: {
+          units: this.arsenalUnits(this.playerPolityId),
+          strength: arsenalStrength(this.arsenalUnits(this.playerPolityId)),
+          naturalResources: naturalResourcesFor(this.playerPolityId),
+        },
+      },
       world: {
         name: this.worldName,
         basePrompt: this.worldBasePrompt,

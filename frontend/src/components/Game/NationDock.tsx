@@ -20,6 +20,7 @@ import {
   NATION_SECTION_LABEL,
 } from '../../stores/nationDock';
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
+import type { ArsenalResponse } from '../../services/api';
 import { deltaTone, sparkPoints, trendFrom, trendLabel, type Trend, type TrendTone } from './accountTrend';
 import {
   financeBalance,
@@ -71,6 +72,10 @@ interface NationDockProps {
   account?: NationAccount | null;
   /** Magazzino materiale pubblicato dal motore (legacy). */
   resources?: NationResources | null;
+  /** Arsenale, risorse naturali e catalogo militare (legacy). */
+  arms?: ArsenalResponse | null;
+  /** Costruisce o importa equipaggiamento. */
+  procure?: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
   /** Serie storica dei conti del paese (dal più vecchio al più recente). */
   accountHistory?: HistoryPoint[];
   regions?: Region[];
@@ -122,6 +127,19 @@ export function resourceMonths(value: number, monthly: number): number {
   if (monthly <= 0) return value > 0 ? Infinity : 0;
   return value / monthly;
 }
+
+/** Etichette dei domini militari del catalogo. */
+const DOMAIN_LABELS: Record<string, string> = {
+  terra: 'Forze di terra', aria: 'Aeronautica', mare: 'Marina', missili: 'Missili', droni: 'Droni',
+};
+const TIER_TONE: Record<string, Tone> = {
+  obsoleto: 'negative', datato: 'warning', moderno: 'neutral', avanzato: 'positive', nuova_generazione: 'positive',
+};
+const RESOURCE_LABELS: Record<string, string> = {
+  oil: 'Petrolio', gas: 'Gas', coal: 'Carbone', iron: 'Ferro', copper: 'Rame', bauxite: 'Bauxite',
+  uranium: 'Uranio', gold: 'Oro', diamonds: 'Diamanti', lithium: 'Litio', rare_earths: 'Terre rare',
+  timber: 'Legname', fertile_land: 'Terra fertile', fisheries: 'Pesca', water: 'Acqua',
+};
 
 /** Micro-grafico SVG della serie storica. Nessuna libreria esterna. */
 function Sparkline({ trend, tone }: { trend: Trend; tone: TrendTone }) {
@@ -232,6 +250,8 @@ export const NationDock: React.FC<NationDockProps> = ({
   governmentType,
   account,
   resources,
+  arms,
+  procure,
   accountHistory = [],
   regions = [],
   ongoingProcesses = [],
@@ -497,6 +517,25 @@ export const NationDock: React.FC<NationDockProps> = ({
             </DossierBlock>
 
             <DossierBlock
+              title="Risorse naturali"
+              description="La dotazione reale della nazione: abilita industrie e tecnologie."
+            >
+              {arms && Object.keys(arms.naturalResources).length > 0 ? (
+                <ul className="resource-chips">
+                  {Object.entries(arms.naturalResources)
+                    .filter(([, value]) => Number(value) > 0)
+                    .sort((a, b) => Number(b[1]) - Number(a[1]))
+                    .map(([kind, value]) => (
+                      <li key={kind}><b>{RESOURCE_LABELS[kind] || kind}</b><span>{value}/5</span></li>
+                    ))}
+                </ul>
+              ) : (
+                <EmptyState>Nessuna risorsa naturale registrata per questa nazione.</EmptyState>
+              )}
+              <Footnote><b>Fonte</b> dotazioni nazionali reali · sono un tratto della nazione, non una stima del client.</Footnote>
+            </DossierBlock>
+
+            <DossierBlock
               title="Capacità produttive e territoriali"
               description="Le infrastrutture che sostengono crescita e logistica."
             >
@@ -507,6 +546,92 @@ export const NationDock: React.FC<NationDockProps> = ({
                 <Metric label="Città e capitali" value={formatNumber(assets.cities)} />
               </MetricGrid>
               <Footnote><b>Fonte</b> Conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Stock e flussi non vengono inventati.</Footnote>
+            </DossierBlock>
+          </>
+        )}
+
+        {active === 'armamenti' && (
+          <>
+            <DossierBlock
+              title="Forza dell'arsenale"
+              description="Quantità possedute, qualità e capacità industriale della nazione."
+            >
+              {arms ? (
+                <MetricGrid>
+                  <Metric label="Forza militare" value={formatNumber(arms.strength)} tone="neutral" hint="Quantità × qualità × dominio" />
+                  <Metric label="Fabbriche" value={formatNumber(arms.capacity.factories)} hint="Industria meccanica e bellica" />
+                  <Metric label="Porti / cantieri" value={formatNumber(arms.capacity.ports)} hint="Costruzione navale" />
+                  <Metric label="Università" value={formatNumber(arms.capacity.universities)} hint="Ricerca e sviluppo" />
+                  <Metric label="Tesoreria" value={formatMoney(Number(arms.capacity.money), { currency: 'mld', decimals: 2 })} tone="neutral" hint="Budget per gli acquisti" />
+                  <Metric label="Scorte armamenti" value={formatNumber(arms.capacity.weapons)} hint="Input per la produzione" />
+                </MetricGrid>
+              ) : (
+                <EmptyState>Arsenale non ancora pubblicato per questa partita.</EmptyState>
+              )}
+              <Footnote><b>Fonte</b> MilitaryIndustry · valori letti dal motore, non stimati nel browser.</Footnote>
+            </DossierBlock>
+
+            <DossierBlock
+              title="Arsenale"
+              description="Equipaggiamento in servizio, con la fascia di qualità."
+            >
+              {arms && arms.lines.length > 0 ? (
+                <ul className="arms-list">
+                  {arms.lines.map((line) => (
+                    <li key={line.id}>
+                      <div>
+                        <b>{line.name}</b>
+                        <span>{DOMAIN_LABELS[line.domain] || line.domain} · {line.category}</span>
+                      </div>
+                      <div className="arms-line-meta">
+                        <em>×{formatNumber(line.quantity)}</em>
+                        <span className={`arms-tier tone-${TIER_TONE[line.tier] || 'neutral'}`}>{line.tier.replace(/_/g, ' ')} · {line.quality}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState>Nessun equipaggiamento in servizio: costruisci o importa dal catalogo.</EmptyState>
+              )}
+            </DossierBlock>
+
+            <DossierBlock
+              title="Produzione e acquisti"
+              description="Costruisci con tecnologia, industria e risorse proprie, oppure importa pagando un sovrapprezzo."
+            >
+              {arms ? (
+                <div className="arms-catalog">
+                  {['terra', 'aria', 'mare', 'missili', 'droni'].map((domain) => (
+                    <div key={domain} className="arms-domain">
+                      <h4>{DOMAIN_LABELS[domain]}</h4>
+                      <ul>
+                        {arms.catalog.filter((item) => item.domain === domain).map((item) => (
+                          <li key={item.id}>
+                            <div className="arms-item-head">
+                              <b>{item.name}</b>
+                              <span className={`arms-tier tone-${TIER_TONE[item.tier] || 'neutral'}`}>{item.tier.replace(/_/g, ' ')} · qualità {item.quality}</span>
+                            </div>
+                            <div className="arms-item-cost">
+                              Costruzione {formatMoney(item.buildCostMln / 1000, { currency: 'mld', decimals: 3 })}
+                              {' · '}Importazione {formatMoney(item.buyCostMln / 1000, { currency: 'mld', decimals: 3 })}
+                            </div>
+                            {!item.canBuild && item.reasons.length > 0 && (
+                              <div className="arms-reasons">Manca: {item.reasons.join(', ')}</div>
+                            )}
+                            <div className="arms-actions">
+                              <button type="button" disabled={!item.canBuild || !procure} onClick={() => void procure?.('build', item.id, 1)}>Costruisci</button>
+                              <button type="button" className="secondary" disabled={!item.canBuy || !procure} onClick={() => void procure?.('buy', item.id, 1)}>Importa</button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState>Catalogo militare non disponibile.</EmptyState>
+              )}
+              <Footnote><b>Fonte</b> MilitaryIndustry · la costruzione aggiorna scorte e arsenale in modo atomico.</Footnote>
             </DossierBlock>
           </>
         )}

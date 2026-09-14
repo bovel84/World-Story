@@ -843,6 +843,21 @@ export function initDatabase() {
     }
   });
 
+  // Arsenale militare (quantità per voce di catalogo: carri, aerei, navi,
+  // missili, droni). Separato dalle scorte materiali perché ha una struttura
+  // propria (mappa id → quantità) e non partecipa alla produzione giornaliera.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_arsenals (
+      game_id TEXT NOT NULL,
+      polity_id TEXT NOT NULL,
+      units TEXT NOT NULL DEFAULT '{}',
+      updated_turn INTEGER NOT NULL DEFAULT 0,
+      updated_date TEXT,
+      recorded_at TEXT NOT NULL,
+      PRIMARY KEY (game_id, polity_id)
+    )
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS saves (
       id TEXT PRIMARY KEY,

@@ -6,8 +6,9 @@
  *  2. Progetti     — attivi/bloccati/previsti, dipendenze, prossima milestone
  *  3. Bilancio     — liquidità, impegni, entrate/uscite reali e previste, debito
  *  4. Risorse      — stock/accesso, filiere, consumi, trasporti
- *  5. Conoscenze   — capacità disponibili/mancanti, ricerca/formazione
- *  6. Politiche    — mandati/delega, servizi essenziali, istituzioni
+ *  5. Armamenti    — arsenale, qualità delle armi, costruzione/acquisto
+ *  6. Conoscenze   — capacità disponibili/mancanti, ricerca/formazione
+ *  7. Politiche    — mandati/delega, servizi essenziali, istituzioni
  *
  * Invarianti (UI01/UI04):
  *  - all'apertura del dossier la sezione attiva è «Situazione» (decisioni
@@ -23,6 +24,7 @@ export type NationSection =
   | 'progetti'
   | 'bilancio'
   | 'risorse'
+  | 'armamenti'
   | 'conoscenze'
   | 'politiche';
 
@@ -43,6 +45,7 @@ export const NATION_SECTIONS: NationSection[] = [
   'progetti',
   'bilancio',
   'risorse',
+  'armamenti',
   'conoscenze',
   'politiche',
 ];
@@ -53,6 +56,7 @@ export const NATION_SECTION_LABEL: Record<NationSection, string> = {
   progetti: 'Progetti',
   bilancio: 'Bilancio',
   risorse: 'Risorse e produzione',
+  armamenti: 'Armamenti',
   conoscenze: 'Conoscenze e personale',
   politiche: 'Politiche e servizi',
 };

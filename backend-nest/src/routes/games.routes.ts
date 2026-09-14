@@ -210,6 +210,32 @@ gamesRouter.get('/:id/resources', (req, res) => {
   }
 });
 
+// Arsenale militare, risorse naturali reali e catalogo con fattibilità.
+gamesRouter.get('/:id/arsenal', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json(session.getArsenal());
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to get arsenal');
+  }
+});
+
+// Costruzione o acquisto di equipaggiamento (usa e getta: nessuna coda).
+gamesRouter.post('/:id/arsenal/:mode(build|buy)', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const equipmentId = String(req.body?.equipmentId || '');
+    const quantity = Number(req.body?.quantity ?? 1);
+    if (!equipmentId) {
+      res.status(400).json({ error: 'equipmentId è obbligatorio' });
+      return;
+    }
+    res.json(session.procureEquipment(req.params.mode as 'build' | 'buy', equipmentId, quantity));
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to procure equipment');
+  }
+});
+
 gamesRouter.post('/:id/action', async (req, res) => {
   console.log('[API] POST /api/games/:id/action called');
   const text = req.body.text;

@@ -17,6 +17,7 @@
  */
 
 import type { NationalAccount } from './WorldStateEngine';
+import type { NaturalEndowment, NaturalResourceKind } from './MilitaryIndustry';
 
 export type ResourceKind = 'money' | 'food' | 'clothing' | 'weapons' | 'fuel' | 'research';
 
@@ -57,6 +58,31 @@ export const TECHNOLOGIES: Technology[] = [
     effects: 'movimento meccanizzato: costo carburante −30%, marcia più rapida' },
   { id: 'logistica_avanzata', name: 'Logistica avanzata', cost: 280, requires: ['motorizzazione'],
     effects: 'consumi di movimento −25% su tutti i reparti' },
+  // Filiera militare-industriale: sblocca la costruzione di armamenti dedicati.
+  { id: 'elettronica', name: 'Elettronica', cost: 140, requires: ['industria_bellica'],
+    effects: 'sensori, comunicazioni e guida di precisione' },
+  { id: 'meccanica_avanzata', name: 'Meccanica avanzata', cost: 150, requires: ['industria_bellica'],
+    effects: 'veicoli corazzati e artiglieria semovente' },
+  { id: 'cantieristica', name: 'Cantieristica', cost: 160, requires: ['industria_bellica'],
+    effects: 'costruzione di unità navali leggere' },
+  { id: 'aeronautica', name: 'Aeronautica', cost: 170, requires: ['industria_bellica'],
+    effects: 'aerei da combattimento e trasporto' },
+  { id: 'corazzati', name: 'Corazzati', cost: 190, requires: ['meccanica_avanzata'],
+    effects: 'carri armati di terza generazione' },
+  { id: 'missilistica', name: 'Missilistica', cost: 200, requires: ['elettronica', 'industria_bellica'],
+    effects: 'missili balistici, antinave e difesa aerea' },
+  { id: 'cantieristica_avanzata', name: 'Cantieristica avanzata', cost: 230, requires: ['cantieristica', 'elettronica'],
+    effects: 'fregate, cacciatorpediniere e sottomarini' },
+  { id: 'aeronautica_avanzata', name: 'Aeronautica avanzata', cost: 240, requires: ['aeronautica', 'elettronica'],
+    effects: 'caccia di quarta generazione e ISR' },
+  { id: 'elettronica_avanzata', name: 'Elettronica avanzata', cost: 250, requires: ['elettronica'],
+    effects: 'guerra elettronica, droni da combattimento e precisione' },
+  { id: 'corazzati_avanzati', name: 'Corazzati avanzati', cost: 260, requires: ['corazzati', 'elettronica'],
+    effects: 'carri di quarta generazione e reti dati' },
+  { id: 'missilistica_avanzata', name: 'Missilistica avanzata', cost: 280, requires: ['missilistica', 'elettronica_avanzata'],
+    effects: 'missili a medio raggio, da crociera e ipersonici' },
+  { id: 'intelligenza_artificiale', name: 'Intelligenza artificiale', cost: 320, requires: ['elettronica_avanzata'],
+    effects: 'autonomia e sciami di droni' },
 ];
 
 export function technologyById(id: string): Technology | undefined {
@@ -96,21 +122,24 @@ export function normalizeStock(raw: unknown): ResourceStock {
   };
 }
 
-/** Scorte iniziali proporzionate all'economia: nessuna partita parte a secco. */
-export function seedStock(account: NationalAccount): ResourceStock {
+/** Scorte iniziali proporzionate all'economia e alle risorse naturali. */
+export function seedStock(account: NationalAccount, endowment: NaturalEndowment = {}): ResourceStock {
   const popM = Math.max(0, account.population) / 1_000_000;
   const troops = Math.max(0, account.forces) + Math.max(0, account.mobilized);
   const factories = Math.max(0, account.factories);
   const ports = Math.max(0, account.ports);
   const universities = Math.max(0, account.universities);
+  const oil = endowment.oil || 0;
+  const iron = endowment.iron || 0;
+  const fertile = endowment.fertile_land || 0;
   return {
     // Riserva valutaria: ~2% del PIL nominale, minimo operativo di 5 mld.
     money: Math.max(5, account.nominalGdpUsdBillions * 0.02),
-    // ~4 mesi di consumo alimentare e 5 di vestiario.
-    food: (popM * 0.02 + troops * 0.06) * 120 + factories * 30,
+    // ~4 mesi di consumo alimentare e 5 di vestiario, più la terra fertile.
+    food: (popM * 0.02 + troops * 0.06) * 120 + factories * 30 + fertile * 40,
     clothing: (popM * 0.008 + troops * 0.01) * 150 + factories * 20,
-    weapons: troops * 0.6 + factories * 25 + 20,
-    fuel: (troops * 0.03 + factories * 0.05 + ports * 0.02) * 150 + 40,
+    weapons: troops * 0.6 + factories * 25 + iron * 30 + 20,
+    fuel: (troops * 0.03 + factories * 0.05 + ports * 0.02) * 150 + oil * 90 + 40,
     research: universities * 20,
     technologies: [],
   };
@@ -136,7 +165,9 @@ const has = (stock: ResourceStock, id: string) => stock.technologies.includes(id
  * Le riserve richiamate (`mobilized`) consumano equipaggiamento per diventare
  * operative. Il denaro segue il saldo mensile dei conti nazionali.
  */
-export function advanceStock(stock: ResourceStock, account: NationalAccount, days: number): MaterialTick {
+export function advanceStock(
+  stock: ResourceStock, account: NationalAccount, days: number, endowment: NaturalEndowment = {},
+): MaterialTick {
   const period = Math.max(0, days) / 30; // mesi
   const popM = Math.max(0, account.population) / 1_000_000;
   const troops = Math.max(0, account.forces);
@@ -145,16 +176,28 @@ export function advanceStock(stock: ResourceStock, account: NationalAccount, day
   const ports = Math.max(0, account.ports);
   const universities = Math.max(0, account.universities);
 
-  const foodBonus = has(stock, 'agricoltura_meccanizzata') ? 1.35 : 1;
+  const oil = endowment.oil || 0;
+  const gas = endowment.gas || 0;
+  const iron = endowment.iron || 0;
+  const coal = endowment.coal || 0;
+  const gold = endowment.gold || 0;
+  const diamonds = endowment.diamonds || 0;
+  const copper = endowment.copper || 0;
+  const fertile = endowment.fertile_land || 0;
+  const fisheries = endowment.fisheries || 0;
+
+  const foodBonus = (has(stock, 'agricoltura_meccanizzata') ? 1.35 : 1) * (1 + fertile * 0.06 + fisheries * 0.03);
   const clothingBonus = has(stock, 'industria_tessile') ? 1.3 : 1;
   const weaponsBonus = has(stock, 'industria_bellica') ? 1.4 : 1;
+  // Estrazione ed export di risorse naturali: reddito anche senza industria.
+  const resourceRevenue = (oil * 0.5 + gas * 0.4 + gold * 0.2 + diamonds * 0.2 + copper * 0.12 + iron * 0.1) * period;
 
   const flow: MaterialFlow = {
-    money: (account.monthlyBalance || 0) * period,
-    food: ((popM * 0.012 + factories * 0.9) * foodBonus - (popM * 0.02 + (troops + mobilized) * 0.06)) * period,
+    money: ((account.monthlyBalance || 0) + resourceRevenue) * period,
+    food: ((popM * 0.012 + factories * 0.9 + fertile * 0.25) * foodBonus - (popM * 0.02 + (troops + mobilized) * 0.06)) * period,
     clothing: ((factories * 0.7 + popM * 0.004) * clothingBonus - (popM * 0.008 + (troops + mobilized) * 0.01)) * period,
-    weapons: (factories * 0.5 * weaponsBonus + universities * 0.2 - (troops + mobilized) * 0.004) * period,
-    fuel: (ports * 1.1 + factories * 0.4 - troops * 0.03 - factories * 0.05) * period,
+    weapons: ((factories * 0.5 + iron * 0.12 + coal * 0.06) * weaponsBonus + universities * 0.2 - (troops + mobilized) * 0.004) * period,
+    fuel: (ports * 1.1 + factories * 0.4 + oil * 0.7 + gas * 0.35 - troops * 0.03 - factories * 0.05) * period,
     research: (universities * 0.35 + popM * 0.002) * period,
     shortages: [],
   };

@@ -5,6 +5,7 @@ import { ChatsPanel } from '../Game/ChatsPanel';
 import { EventFeed } from '../Game/EventFeed';
 import { DiplomacyPanel } from '../Game/DiplomacyPanel';
 import { NationDock } from '../Game/NationDock';
+import type { ArsenalResponse } from '../../services/api';
 import { SaveGameModal } from '../Game/SaveGameModal';
 import { useToast } from '../ui/ToastProvider';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -25,6 +26,8 @@ interface DeskContentProps {
   governmentType: string;
   nationalAccount: any;
   nationalResources?: { money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] } | null;
+  nationalArms?: ArsenalResponse | null;
+  procureEquipment?: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
   nationalHistory?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
   campaignProgress: number;
   latestNationalNarration: string;
@@ -88,6 +91,8 @@ export function DeskContent({
   governmentType,
   nationalAccount,
   nationalResources,
+  nationalArms,
+  procureEquipment,
   nationalHistory = [],
   campaignProgress,
   latestNationalNarration,
@@ -370,6 +375,8 @@ export function DeskContent({
             governmentType={governmentType}
             account={nationalAccount}
             resources={nationalResources}
+            arms={nationalArms}
+            procure={procureEquipment}
             accountHistory={nationalHistory}
             regions={currentWorld?.regions ? Object.values(currentWorld.regions).filter((region) => region.owner === playerPolityId) as Region[] : []}
             ongoingProcesses={ongoingProcesses}
