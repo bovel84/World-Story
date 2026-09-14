@@ -71,6 +71,8 @@ export interface NationResources {
   debt?: number;
   creditLimit?: number;
   creditHeadroom?: number;
+  /** Modificatori nazionali attivi (proposti dal modello, decadono nel tempo). */
+  modifiers?: { stability?: number; socialTension?: number; warEffort?: number; revenueMultiplier?: number; growthModifier?: number };
 }
 
 interface NationDockProps {
@@ -336,6 +338,14 @@ export const NationDock: React.FC<NationDockProps> = ({
   const growth = Number(account?.annualGrowthRate ?? 0);
   const natural = resources?.natural ?? [];
   const market = resources?.market ?? [];
+  const activeModifiers = resources?.modifiers;
+  const modifiersActive = Boolean(activeModifiers && (
+    Number(activeModifiers.stability ?? 0) !== 0
+    || Number(activeModifiers.socialTension ?? 0) !== 0
+    || Number(activeModifiers.warEffort ?? 0) !== 0
+    || Number(activeModifiers.revenueMultiplier ?? 1) !== 1
+    || Number(activeModifiers.growthModifier ?? 0) !== 0
+  ));
 
   // Fabbisogno mensile stimato dal conto nazionale: serve solo a dare un tono
   // leggibile alle scorte (mai a inventare un valore).
@@ -594,6 +604,32 @@ export const NationDock: React.FC<NationDockProps> = ({
               )}
               <Footnote><b>Fonte</b> MaterialEconomy · il movimento consuma cibo e, se motorizzato, carburante.</Footnote>
             </DossierBlock>
+
+            {modifiersActive && (
+              <DossierBlock
+                title="Direttive attive"
+                description="Effetti decisi dalla simulazione sulla vita della nazione: decadono se non rinnovati."
+              >
+                <MetricGrid>
+                  {Number(resources?.modifiers?.stability ?? 0) !== 0 && (
+                    <Metric label="Stabilità" value={`${Number(resources?.modifiers?.stability) > 0 ? '+' : ''}${formatNumber(Number(resources?.modifiers?.stability))}`} tone={Number(resources?.modifiers?.stability) > 0 ? 'positive' : 'negative'} hint="Effetto attivo sull'indice" />
+                  )}
+                  {Number(resources?.modifiers?.socialTension ?? 0) !== 0 && (
+                    <Metric label="Tensione sociale" value={`${Number(resources?.modifiers?.socialTension) > 0 ? '+' : ''}${formatNumber(Number(resources?.modifiers?.socialTension))}`} tone={Number(resources?.modifiers?.socialTension) > 0 ? 'negative' : 'positive'} hint="Effetto attivo sull'indice" />
+                  )}
+                  {Number(resources?.modifiers?.warEffort ?? 0) !== 0 && (
+                    <Metric label="Sforzo bellico" value={`${Number(resources?.modifiers?.warEffort) > 0 ? '+' : ''}${formatNumber(Number(resources?.modifiers?.warEffort))}`} tone={Number(resources?.modifiers?.warEffort) > 0 ? 'warning' : 'neutral'} hint="Effetto attivo sull'indice" />
+                  )}
+                  {Number(resources?.modifiers?.revenueMultiplier ?? 1) !== 1 && (
+                    <Metric label="Entrate" value={`×${formatMoney(Number(resources?.modifiers?.revenueMultiplier), { decimals: 2 })}`} tone={Number(resources?.modifiers?.revenueMultiplier) >= 1 ? 'positive' : 'negative'} hint="Moltiplicatore sulle entrate" />
+                  )}
+                  {Number(resources?.modifiers?.growthModifier ?? 0) !== 0 && (
+                    <Metric label="Crescita" value={`${Number(resources?.modifiers?.growthModifier) > 0 ? '+' : ''}${formatPercent(Number(resources?.modifiers?.growthModifier) * 100, 1)}`} tone={Number(resources?.modifiers?.growthModifier) > 0 ? 'positive' : 'negative'} hint="Effetto attivo sulla crescita annua" />
+                  )}
+                </MetricGrid>
+                <Footnote><b>Fonte</b> il motore valida e limita ogni effetto proposto dalla simulazione; qui si vede solo ciò che è stato applicato.</Footnote>
+              </DossierBlock>
+            )}
 
             <DossierBlock
               title="Risorse naturali"

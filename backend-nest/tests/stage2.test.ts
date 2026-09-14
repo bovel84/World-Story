@@ -596,17 +596,24 @@ describe('Ciclo di vita dei processi', () => {
     jumpMode = 'normal';
   });
 
-  it('chiude un processo partial quando lo stesso ordine ha esito accepted', async () => {
+  it('non chiude un progetto sotto la soglia di completamento; lo chiude quando è maturo', async () => {
     jumpMode = 'outcome';
     const { session } = createGame();
     session.queueAction('Preparare una misura economica');
     const first = await session.processNextAction(30);
     projectToCompleteId = gameRepository.getOngoingProcesses(session.id)[0].id;
 
+    // Primo tentativo di chiusura: il cantiere non è materialmente pronto
+    // (avanzamento sotto soglia), quindi il motore NON chiude.
     jumpMode = 'outcome_complete';
     session.queueAction('Preparare una misura economica');
     await session.processNextAction(30);
+    expect(db.prepare('SELECT status FROM ongoing_processes WHERE game_id = ? AND source_action_id = ?')
+      .get(session.id, first.id)).toMatchObject({ status: 'ongoing' });
 
+    // Il tempo passa e il progetto matura: la chiusura esplicita è accettata.
+    session.queueAction('Preparare una misura economica');
+    await session.processNextAction(240);
     expect(db.prepare('SELECT status, summary FROM ongoing_processes WHERE game_id = ? AND source_action_id = ?')
       .get(session.id, first.id)).toMatchObject({
         status: 'completed',

@@ -30,6 +30,7 @@ interface DeskContentProps {
     natural?: Awaited<ReturnType<typeof gameApi.resources>>['natural'];
     market?: Awaited<ReturnType<typeof gameApi.resources>>['market'];
     debt?: number; creditLimit?: number; creditHeadroom?: number;
+    modifiers?: { stability?: number; socialTension?: number; warEffort?: number; revenueMultiplier?: number; growthModifier?: number };
   } | null;
   nationalArms?: ArsenalResponse | null;
   procureEquipment?: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;

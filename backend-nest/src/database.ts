@@ -887,6 +887,20 @@ export function initDatabase() {
     )
   `);
 
+  // Modificatori nazionali proposti dal modello (stabilità, tensione, entrate…),
+  // validati e limitati dal motore, con decadimento nel tempo.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_national_modifiers (
+      game_id TEXT NOT NULL,
+      polity_id TEXT NOT NULL,
+      modifiers TEXT NOT NULL DEFAULT '{}',
+      updated_turn INTEGER NOT NULL DEFAULT 0,
+      updated_date TEXT,
+      recorded_at TEXT NOT NULL,
+      PRIMARY KEY (game_id, polity_id)
+    )
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS saves (
       id TEXT PRIMARY KEY,

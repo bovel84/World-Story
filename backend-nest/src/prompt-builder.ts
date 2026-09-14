@@ -114,6 +114,8 @@ interface GameData {
     };
     /** Ordini di produzione militare in corso con percentuale di completamento. */
     production?: Array<{ id: string; name: string; quantity: number; progress: number; note?: string }>;
+    /** Modificatori nazionali attivi (stabilità, tensione, entrate, crescita). */
+    modifiers?: { stability?: number; socialTension?: number; warEffort?: number; revenueMultiplier?: number; growthModifier?: number };
   };
   actions: ActionData[];
   results: TurnResultData[];
@@ -495,6 +497,18 @@ export class PromptBuilder {
       const production = this.game.worldState?.production;
       if (production && production.length > 0) {
         lines.push(`Produzione militare in corso: ${production.map(order => `${order.name} ×${order.quantity} al ${order.progress}%${order.note ? ` (${order.note})` : ''}`).join('; ')}. Non dichiarare consegnato ciò che non ha raggiunto il 100%.`);
+      }
+      const modifiers = this.game.worldState?.modifiers;
+      if (modifiers && (modifiers.stability || modifiers.socialTension || modifiers.warEffort
+        || (modifiers.revenueMultiplier && modifiers.revenueMultiplier !== 1) || modifiers.growthModifier)) {
+        const parts = [
+          modifiers.stability ? `stabilità ${modifiers.stability > 0 ? '+' : ''}${modifiers.stability}` : '',
+          modifiers.socialTension ? `tensione sociale ${modifiers.socialTension > 0 ? '+' : ''}${modifiers.socialTension}` : '',
+          modifiers.warEffort ? `sforzo bellico ${modifiers.warEffort > 0 ? '+' : ''}${modifiers.warEffort}` : '',
+          modifiers.revenueMultiplier && modifiers.revenueMultiplier !== 1 ? `entrate ×${modifiers.revenueMultiplier}` : '',
+          modifiers.growthModifier ? `crescita ${modifiers.growthModifier > 0 ? '+' : ''}${(modifiers.growthModifier * 100).toFixed(1)}%` : '',
+        ].filter(Boolean);
+        lines.push(`Modificatori nazionali attivi (da tue decisioni precedenti, decadono nel tempo): ${parts.join('; ')}.`);
       }
       const natural = this.game.worldState?.resources?.natural;
       if (natural && natural.length > 0) {

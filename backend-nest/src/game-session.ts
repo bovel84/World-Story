@@ -10,7 +10,7 @@ import { constructionProgressPatch } from './utils/construction-progress';
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
-import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, resourceRepository, arsenalRepository, naturalResourceRepository, productionRepository } from './repositories';
+import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, resourceRepository, arsenalRepository, naturalResourceRepository, productionRepository, modifiersRepository } from './repositories';
 import { captureEconomicSnapshot, invalidateStrictEffectStaging, restoreEconomicSnapshot, validateEconomicSnapshot } from './repositories/economy-snapshot.repository';
 import { withCanonicalTransaction } from './database';
 import { semanticStateHash } from './domain/semantic-hash';
@@ -23,6 +23,11 @@ import {
   advanceOrder, projectProgress, stableRoll,
   type ProductionContext, type ProductionOrder,
 } from './core/simulation/MilitaryProduction';
+import {
+  EFFECT_LIMITS, EMPTY_MODIFIERS, applyArsenalEffects, applyModifierEffects, applyModifiersToAccounts,
+  applyStockEffects, decayModifiers, describeNationalEffects, hasModifiers, parseNationalEffects,
+  type NationalEffect, type NationalModifiers,
+} from './core/simulation/NationalEffects';
 import { arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, combatAttrition, describeArsenal, describeEndowment, equipmentById, EQUIPMENT_CATALOG, NATURAL_RESOURCE_KINDS, naturalResourcesFor, procurementOption, type NationCapacity, type NaturalEndowment, type NaturalResourceKind } from './core/simulation/MilitaryIndustry';
 import {
   advanceLedger, applyGlobalExtraction, describeLedger, effectiveEndowment, emptyMarket, executeTrade,
@@ -287,6 +292,12 @@ export interface WorldChanges {
   regionGDP?: Record<string, number>;
   regionMilitary?: Record<string, number>;
   regionPopulation?: Record<string, number>;
+  /**
+   * Leve del modello sulla vita della nazione: scorte, arsenale, società,
+   * economia. Vengono validate e limitate dal motore (mai applicate alla
+   * lettera). Solo percorso legacy: in strict vale il canale canonico.
+   */
+  nationalEffects?: unknown;
 }
 
 export interface SaveData {
@@ -621,7 +632,7 @@ export class GameSession {
     try {
       const branchId = gameRepository.getHeadBranch(this.id);
       if (!branchId) return;
-      const account = (accounts ?? WorldStateEngine.accounts(this.regions.values()))[this.playerPolityId];
+      const account = (accounts ?? this.sessionAccounts())[this.playerPolityId];
       if (!account) return;
       nationalAccountRepository.append(this.id, branchId, this.playerPolityId, this.currentTurn, date, account as unknown as Record<string, unknown>);
     } catch (error) {
@@ -662,13 +673,18 @@ export class GameSession {
         ...mandateDecisions.map(decision => `Le scorte di ${decision.resourceId} sono pari a ${decision.availableStock}, sotto la soglia di ${decision.minStock}. Il governo di ${this.publicPolityName(this.playerPolityId)} deve autorizzare ${decision.kind === 'stock_shortfall_outside_authorization' ? 'un acquisto straordinario' : 'prezzo e quantità dell’intervento'}.`),
       ];
     }
-    const tick = WorldStateEngine.advance(this.regions.values(), days);
-    this.recordAccountSnapshot(asOfDate, tick.accounts);
+    const rawTick = WorldStateEngine.advance(this.regions.values(), days);
+    // L'overlay dei modificatori nazionali (proposti dal modello) entra nei
+    // conti usati dall'economia: stabilità, tensione, entrate e crescita.
+    const tickAccounts = applyModifiersToAccounts(rawTick.accounts, polityId => this.modifiersFor(polityId));
+    this.recordAccountSnapshot(asOfDate, tickAccounts);
     const lines: string[] = [];
-    const bulletin = WorldStateEngine.playerBulletin(tick.accounts[this.playerPolityId]);
+    // Leve nazionali applicate al turno precedente, ora visibili in cronaca.
+    if (this.pendingNationalNotes.length > 0) lines.push(...this.pendingNationalNotes.splice(0));
+    const bulletin = WorldStateEngine.playerBulletin(tickAccounts[this.playerPolityId]);
     if (bulletin) lines.push(`📊 ${bulletin}`);
-    lines.push(...this.advanceResources(days, tick.accounts));
-    lines.push(...this.advanceProduction(days, tick.accounts[this.playerPolityId]));
+    lines.push(...this.advanceResources(days, tickAccounts));
+    lines.push(...this.advanceProduction(days, tickAccounts[this.playerPolityId]));
     lines.push(...this.advanceProjects(days, asOfDate));
     return lines;
   }
@@ -689,7 +705,7 @@ export class GameSession {
     // Il magazzino nasce dai dati di partenza della nazione (province iniziali
     // del mondo), non dallo stato corrente di una partita già avanzata.
     const account = this.initialAccounts()[polityId]
-      ?? WorldStateEngine.accounts(this.regions.values())[polityId];
+      ?? this.sessionAccounts()[polityId];
     const seeded = account ? seedStock(account, naturalResourcesFor(polityId)) : normalizeStock({});
     this.saveResourceStock(polityId, seeded);
     return seeded;
@@ -733,7 +749,7 @@ export class GameSession {
    */
   private advanceResources(days: number, accounts?: Record<string, NationalAccount>): string[] {
     if (this.isStrictGame() || days <= 0) return [];
-    const snapshot = accounts ?? WorldStateEngine.accounts(this.regions.values());
+    const snapshot = accounts ?? this.sessionAccounts();
     const lines: string[] = [];
     for (const [polityId, account] of Object.entries(snapshot)) {
       if (!polityId || polityId === 'neutral' || account.provinces === 0) continue;
@@ -760,12 +776,20 @@ export class GameSession {
         lines.push(`🪫 Risorsa esaurita: ${kind} — le produzioni che ne dipendevano perdono il bonus del giacimento.`);
       }
     }
+    // I modificatori nazionali decadono verso la neutralità: nessun effetto dura
+    // per sempre se la causa che lo ha generato non viene rinnovata.
+    for (const polityId of Object.keys(snapshot)) {
+      if (!polityId || polityId === 'neutral' || snapshot[polityId].provinces === 0) continue;
+      const current = this.modifiersFor(polityId);
+      if (!hasModifiers(current)) continue;
+      this.saveModifiers(polityId, decayModifiers(current));
+    }
     return lines;
   }
 
   /** Magazzino del paese giocatore, per API e dossier. */
   getResources() {
-    const account = WorldStateEngine.accounts(this.regions.values())[this.playerPolityId];
+    const account = this.sessionAccounts()[this.playerPolityId];
     const ledger = this.resourceLedger(this.playerPolityId);
     const market = this.ensureMarket();
     const natural = summarizeLedger(ledger, account);
@@ -778,6 +802,7 @@ export class GameSession {
       debt: Math.round(debtOf(stock) * 100) / 100,
       creditLimit: creditLimit(account),
       creditHeadroom: Math.round(creditHeadroom(stock, account) * 100) / 100,
+      modifiers: this.modifiersFor(this.playerPolityId),
     };
   }
 
@@ -885,7 +910,7 @@ export class GameSession {
 
   /** Capacità industriale e tecnologica corrente della polity giocatore. */
   private nationCapacity(polityId = this.playerPolityId): NationCapacity {
-    const account = WorldStateEngine.accounts(this.regions.values())[polityId];
+    const account = this.sessionAccounts()[polityId];
     const stock = this.resourceStock(polityId);
     return {
       factories: Math.max(0, account?.factories || 0),
@@ -916,7 +941,7 @@ export class GameSession {
     const polityId = this.playerPolityId;
     const capacity = this.nationCapacity(polityId);
     const units = this.arsenalUnits(polityId);
-    const account = WorldStateEngine.accounts(this.regions.values())[polityId];
+    const account = this.sessionAccounts()[polityId];
     const combatFactor = arsenalCombatFactor(units, Number(account?.forces || 0) + Number(account?.mobilized || 0));
     const endowment = capacity.endowment;
     const lines = describeArsenal(units).map(line => ({
@@ -985,7 +1010,7 @@ export class GameSession {
     const qty = Math.max(1, Math.floor(Number(quantity) || 1));
     if (qty > 1000) throw new Error('equipment_quantity_invalid');
     if (mode !== 'build' && mode !== 'buy') throw new Error('procurement_mode_invalid');
-    const account = WorldStateEngine.accounts(this.regions.values())[polityId];
+    const account = this.sessionAccounts()[polityId];
     const capacity = this.nationCapacity(polityId);
     const option = procurementOption(equipment, capacity);
     if (mode === 'build' && !option.canBuild) {
@@ -1031,7 +1056,7 @@ export class GameSession {
   }
 
   private productionContext(): ProductionContext {
-    const account = WorldStateEngine.accounts(this.regions.values())[this.playerPolityId];
+    const account = this.sessionAccounts()[this.playerPolityId];
     const stock = this.resourceStock(this.playerPolityId);
     return {
       factories: Math.max(0, account?.factories || 0),
@@ -1139,7 +1164,7 @@ export class GameSession {
     if (this.isStrictGame() || days <= 0) return [];
     const processes = gameRepository.getOngoingProcesses(this.id);
     if (processes.length === 0) return [];
-    const account = WorldStateEngine.accounts(this.regions.values())[this.playerPolityId];
+    const account = this.sessionAccounts()[this.playerPolityId];
     const stability = Number(account?.stability ?? 50);
     const tension = Number(account?.socialTension ?? 0);
     const risk = Math.min(0.5, 0.05 + Math.max(0, 60 - stability) / 300 + Math.max(0, tension - 30) / 500);
@@ -1175,6 +1200,88 @@ export class GameSession {
   /** Ordini di produzione con percentuale di completamento (giocatore). */
   private productionOrders = new Map<string, ProductionOrder>();
   private productionLoaded = false;
+
+  /** Modificatori nazionali proposti dal modello (persistenti, poi decadono). */
+  private nationalModifiers = new Map<string, NationalModifiers>();
+  private modifiersLoaded = false;
+  /** Note delle leve nazionali applicate, mostrate nella cronaca successiva. */
+  private pendingNationalNotes: string[] = [];
+
+  /** Modificatori di una polity: cache → DB → neutralità. */
+  private modifiersFor(polityId: string): NationalModifiers {
+    if (!this.modifiersLoaded) {
+      try {
+        for (const row of modifiersRepository.list(this.id)) this.nationalModifiers.set(row.polityId, row.modifiers);
+      } catch (error) {
+        console.warn('[GameSession] Lettura modificatori nazionali non disponibile:', error);
+      }
+      this.modifiersLoaded = true;
+    }
+    return this.nationalModifiers.get(polityId) || { ...EMPTY_MODIFIERS };
+  }
+
+  private saveModifiers(polityId: string, modifiers: NationalModifiers): void {
+    this.nationalModifiers.set(polityId, modifiers);
+    try {
+      modifiersRepository.upsert(this.id, polityId, modifiers, this.currentTurn, this.currentDate);
+    } catch (error) {
+      console.warn('[GameSession] Impossibile salvare i modificatori nazionali:', error);
+    }
+  }
+
+  /**
+   * Conti nazionali con l'overlay dei modificatori: ciò che il modello decide
+   * sulla nazione entra davvero nei numeri che il motore usa (economia,
+   * produzione, credito, dossier).
+   */
+  private sessionAccounts(regions?: Iterable<RegionState>): Record<string, NationalAccount> {
+    const accounts = WorldStateEngine.accounts(regions ?? this.regions.values());
+    return applyModifiersToAccounts(accounts, polityId => this.modifiersFor(polityId));
+  }
+
+  /**
+   * Leve del modello sulla vita della nazione (scorte, arsenale, società,
+   * economia). Ogni proposta è validata, quantizzata e limitata dal motore.
+   */
+  private applyNationalEffects(raw: unknown): { applied: NationalEffect[]; bulletins: string[] } {
+    if (this.isStrictGame()) return { applied: [], bulletins: [] };
+    const effects = parseNationalEffects(raw);
+    if (effects.length === 0) return { applied: [], bulletins: [] };
+    const resolvers = this.buildResolvers();
+    const byPolity = new Map<string, NationalEffect[]>();
+    for (const effect of effects) {
+      const target = effect.polityId ? resolvers.polities.resolve(effect.polityId)?.polityId : this.playerPolityId;
+      const polityId = target || this.playerPolityId;
+      const list = byPolity.get(polityId) || [];
+      list.push(effect);
+      byPolity.set(polityId, list);
+    }
+    const applied: NationalEffect[] = [];
+    const bulletins: string[] = [];
+    for (const [polityId, list] of byPolity) {
+      const account = this.sessionAccounts()[polityId];
+      const stockResult = applyStockEffects(this.resourceStock(polityId), list, account);
+      if (stockResult.applied.length > 0) this.saveResourceStock(polityId, stockResult.stock);
+      const arsenalResult = applyArsenalEffects(this.arsenalUnits(polityId), list);
+      if (arsenalResult.applied.length > 0) this.saveArsenal(polityId, arsenalResult.units);
+      const modifierResult = applyModifierEffects(this.modifiersFor(polityId), list);
+      if (modifierResult.applied.length > 0) this.saveModifiers(polityId, modifierResult.modifiers);
+      const changed: NationalEffect[] = [
+        ...stockResult.applied.map(entry => entry.effect),
+        ...list.filter(effect => effect.kind === 'arsenal'
+          && arsenalResult.applied.some(entry => entry.equipmentId === effect.equipmentId)),
+        ...modifierResult.applied,
+      ];
+      applied.push(...changed);
+      const name = this.publicPolityName(polityId);
+      for (const line of describeNationalEffects(changed)) bulletins.push(`🏛️ ${name} — ${line}`);
+      for (const reason of stockResult.rejected) {
+        bulletins.push(`🏛️ ${name} — effetto ignorato (limite di turno): ${reason}`);
+      }
+    }
+    console.log(`[GameSession] nationalEffects applicati: ${applied.length}`);
+    return { applied, bulletins };
+  }
 
   /** Conti nazionali delle province INIZIALI del mondo (dati di partenza). */
   private initialAccountsCache?: Record<string, NationalAccount>;
@@ -1251,7 +1358,7 @@ export class GameSession {
     for (const [owner] of regionsByPolity) {
       polityNames[owner] = this.publicPolityName(owner);
     }
-    const accounts = WorldStateEngine.accounts(this.regions.values());
+    const accounts = this.sessionAccounts();
     // Arsenale della nazione giocatore: pesa sulla potenza militare effettiva.
     const playerArsenalUnits = this.arsenalUnits(this.playerPolityId);
     const playerArsenalFactor = arsenalCombatFactor(playerArsenalUnits,
@@ -1299,6 +1406,8 @@ export class GameSession {
         production: this.getProduction().orders
           .filter(order => order.status === 'in_progress')
           .map(order => ({ id: order.id, name: order.name, quantity: order.quantity, progress: Math.round(order.progress), note: order.note })),
+        // Modificatori nazionali attivi (proposti dal modello, poi decadono).
+        modifiers: this.modifiersFor(this.playerPolityId),
         // Arsenale e risorse naturali: tratti materiali della nazione, non
         // inventati dal modello. Il catalogo completo resta nelle API.
         arsenal: {
@@ -2854,6 +2963,11 @@ export class GameSession {
         const liveRegion = region && this.regions.get(region.id);
         if (liveRegion && Number.isFinite(pop) && pop >= 0) liveRegion.population = pop;
       }
+    }
+
+    if (changes.nationalEffects) {
+      const { bulletins } = this.applyNationalEffects(changes.nationalEffects);
+      for (const bulletin of bulletins) this.pendingNationalNotes.push(bulletin);
     }
   }
 
@@ -4949,7 +5063,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
 
   /** Dossier aggregati aggiornati dalla fonte di verità provinciale. */
   getNationalAccounts() {
-    return WorldStateEngine.accounts(this.regions.values());
+    return this.sessionAccounts();
   }
 
   /** Rende definitivo uno snapshot caricato: prima questa operazione mutava
@@ -5883,11 +5997,31 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       });
       // Un progetto si chiude solo per il suo ID esplicito e con outcome
       // accepted: un titolo o un testo riformulato non può chiudere un altro.
+      // Inoltre il cantiere deve essere materialmente pronto: se il progetto ha
+      // una scadenza dichiarata e l'avanzamento è sotto soglia, il motore NON
+      // chiude e il progetto resta aperto. Senza scadenza vale l'esito del
+      // modello (è l'unico segnale di chiusura disponibile).
+      const ongoingNow = gameRepository.getOngoingProcesses(this.id);
+      const progressById = new Map(ongoingNow
+        .filter(process => process.expected_date)
+        .map(process => [
+          process.id,
+          Number.isFinite(Number(process.progress)) && process.progress !== null
+            ? Number(process.progress)
+            : projectProgress(process.started_date, process.expected_date, this.currentDate),
+        ]));
       actions.forEach(action => {
         const outcome = action.result?.outcome;
         if (!outcome?.completesProjectId) return;
-        if (outcome.status !== 'accepted'
-          || gameRepository.completeOngoingProcessById(this.id, outcome.completesProjectId, outcome.summary) !== 1) {
+        if (outcome.status !== 'accepted') {
+          throw new Error('simulation_protocol_error: completesProjectId is invalid or not accepted');
+        }
+        const progress = progressById.get(outcome.completesProjectId);
+        if (progress !== undefined && progress < EFFECT_LIMITS.projectCompletionThreshold) {
+          this.pendingNationalNotes.push(`⏳ Progetto non chiuso: avanzamento ${progress}% sotto la soglia del ${EFFECT_LIMITS.projectCompletionThreshold}%. Il cantiere resta aperto.`);
+          return;
+        }
+        if (gameRepository.completeOngoingProcessById(this.id, outcome.completesProjectId, outcome.summary) !== 1) {
           throw new Error('simulation_protocol_error: completesProjectId is invalid or not accepted');
         }
       });

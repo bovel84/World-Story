@@ -369,6 +369,7 @@ export const gameApi = {
       debt?: number;
       creditLimit?: number;
       creditHeadroom?: number;
+      modifiers?: { stability?: number; socialTension?: number; warEffort?: number; revenueMultiplier?: number; growthModifier?: number };
     };
   }> =>
     fetchApi(`/games/${gameId}/national-state`),
@@ -382,6 +383,7 @@ export const gameApi = {
     debt: number;
     creditLimit: number;
     creditHeadroom: number;
+    modifiers?: { stability?: number; socialTension?: number; warEffort?: number; revenueMultiplier?: number; growthModifier?: number };
   }> =>
     fetchApi(`/games/${gameId}/resources`),
 

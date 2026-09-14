@@ -211,4 +211,51 @@ describe('arsenale e procurement', () => {
     session.applyMapChanges([{ type: 'transfer', regionId: sauRegion.id, newOwner: 'DEU' }]);
     expect(session.getArsenal().units).toEqual(before);
   });
+
+  it('il modello agisce sulla nazione: scorte, arsenale e modificatori', () => {
+    const { session } = createGame();
+    const beforeResources = session.getResources();
+    const beforeArms = session.getArsenal().units.fucili ?? 0;
+    const beforeStability = session.getNationalAccounts().DEU.stability;
+    (session as any).applyWorldChanges({
+      nationalEffects: [
+        { kind: 'stock', resource: 'food', delta: 10, reason: 'raccolto record' },
+        { kind: 'stock', resource: 'money', delta: -5, reason: 'spesa straordinaria' },
+        { kind: 'arsenal', equipmentId: 'fucili', delta: 5, reason: 'mobilitazione generale' },
+        { kind: 'modifier', field: 'stability', delta: -12, reason: 'sconfitta al fronte' },
+        { kind: 'economy', revenueMultiplierDelta: 0.1, reason: 'boom delle esportazioni' },
+      ],
+    });
+    const afterResources = session.getResources();
+    expect(afterResources.stock.food).toBeGreaterThan(beforeResources.stock.food);
+    expect(afterResources.stock.money).toBeLessThan(beforeResources.stock.money);
+    expect(session.getArsenal().units.fucili ?? 0).toBeGreaterThan(beforeArms);
+    expect(afterResources.modifiers.stability).toBe(-12);
+    expect(afterResources.modifiers.revenueMultiplier).toBeCloseTo(1.1, 5);
+    // L'overlay dei modificatori entra davvero nei conti letti dal motore.
+    const afterStability = session.getNationalAccounts().DEU.stability;
+    expect(afterStability).toBeCloseTo(Math.max(0, beforeStability - 12), 1);
+    // Le note sono pronte per la cronaca del tick successivo.
+    expect((session as any).pendingNationalNotes.length).toBeGreaterThan(0);
+  });
+
+  it('un effetto senza motivo viene ignorato dal motore', () => {
+    const { session } = createGame();
+    const before = session.getResources().stock.food;
+    (session as any).applyWorldChanges({
+      nationalEffects: [{ kind: 'stock', resource: 'food', delta: 100 }],
+    });
+    expect(session.getResources().stock.food).toBe(before);
+    expect((session as any).pendingNationalNotes).toEqual([]);
+  });
+
+  it('i modificatori nazionali decadono nel tempo se non rinnovati', async () => {
+    const { session } = createGame();
+    (session as any).applyWorldChanges({
+      nationalEffects: [{ kind: 'modifier', field: 'socialTension', delta: 20, reason: 'disordini diffusi' }],
+    });
+    expect(session.getResources().modifiers.socialTension).toBe(20);
+    await session.advanceDate(30);
+    expect(Math.abs(session.getResources().modifiers.socialTension)).toBeLessThan(20);
+  });
 });

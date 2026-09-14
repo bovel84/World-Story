@@ -69,6 +69,8 @@ const FORBIDDEN_WORLD_KEYS: readonly string[] = [
   'regionPopulation',
   'newFeatures',
   'deletedFeatures',
+  // In strict le leve materiali passano solo dal canale canonico, mai da testo.
+  'nationalEffects',
 ];
 
 /**

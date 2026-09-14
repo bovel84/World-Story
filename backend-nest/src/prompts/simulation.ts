@@ -561,9 +561,24 @@ Il tuo output DEVE essere nel seguente formato JSON:
   ],
   "worldChanges": {
     "regionOwners": { "NOME regione": "NOME politia" },
-    "regionColors": { "NOME regione": "#hex" }
+    "regionColors": { "NOME regione": "#hex" },
+    "nationalEffects": [
+      { "kind": "stock", "resource": "money|food|clothing|weapons|fuel|research", "delta": 0, "reason": "causa concreta", "sourceActionId": "ID ordine", "polityId": "NOME politia (opzionale, default la tua nazione)" },
+      { "kind": "arsenal", "equipmentId": "id catalogo", "delta": 0, "reason": "perdite, catture, aiuti", "sourceActionId": "ID ordine" },
+      { "kind": "modifier", "field": "stability|socialTension|warEffort", "delta": 0, "reason": "perché l'indice cambia stabilmente" },
+      { "kind": "economy", "revenueMultiplierDelta": 0.0, "growthModifierDelta": 0.0, "reason": "riforma, shock, sanzioni" }
+    ]
   }
 }
+
+Regole nationalEffects (sei tu il motore del cambiamento: le tue decisioni devono avere conseguenze materiali verificabili):
+- Servono SOLO quando un fatto del periodo cambia davvero la vita della nazione: mobilitazione, razionamento, requisizioni, aiuti esteri, sanzioni, riforme, perdite al fronte, cattura di depositi, disordini. Niente "effetti di colore".
+- Ogni voce DEVE avere una "reason" concreta e, se nasce da un ordine del giocatore, il suo "sourceActionId" esatto. Senza motivo l'effetto viene ignorato.
+- Il motore limita ogni delta per turno e per risorsa (il tetto dipende dal PIL e dalle scorte): non chiedere salti enormi, verrebbero ridotti o scartati. Meglio molti effetti piccoli e coerenti lungo i turni.
+- "money" può scendere sotto zero: è debito pubblico, entro il tetto di credito. Non regalare denaro: ogni +money va motivato (credito, export, aiuti).
+- "modifier" è persistente e poi decade: usalo per cause durature (riforma, repressione, mobilitazione generale), non per un episodio di un giorno.
+- Non puoi dichiarare completato un progetto non finito: la chiusura avviene per "completesProjectId" con outcome "accepted", e il motore rifiuta la chiusura sotto la soglia di completamento.
+- In strict queste leve sono vietate: lì valgono solo gli effetti canonici.
 
 Regole mapChanges:
 - Territorio/politie: "transfer", "create"/"update"/"delete", "create_polity".
