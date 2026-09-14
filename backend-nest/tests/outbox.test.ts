@@ -129,4 +129,15 @@ describe('F02 passo 3 — outbox separato e ripetibile', () => {
     expect(outboxRows.every((row: any) => row.delivery_state === 'published')).toBe(true);
     expect(received.some(item => item.type === 'world_event' && item.data.headline === 'Svolta del periodo')).toBe(true);
   });
+
+  it('non marca published quando il broadcaster segnala che non ci sono client', async () => {
+    const { session } = getSessionRegistry().createSession(WORLD_ID, 'Player', REGION_ID);
+    session.setSSEBroadcaster(() => false);
+
+    await session.processWorldAdvance(30);
+
+    const outboxRows = db.prepare(`SELECT delivery_state, published_at FROM simulation_outbox WHERE game_id = ?`).all(session.id) as any[];
+    expect(outboxRows.length).toBeGreaterThan(0);
+    expect(outboxRows.every((row: any) => row.delivery_state === 'pending' && row.published_at === null)).toBe(true);
+  });
 });

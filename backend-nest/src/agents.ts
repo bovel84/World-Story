@@ -12,7 +12,7 @@
 import { LLMRouter } from './llm';
 import { NPCCountryAgent, NPCCountryContext, createNPCCountries, type NPCAction } from './npc-agents';
 import { PromptEngine } from './prompt-builder';
-import type { SimulationEvent } from './prompts/types';
+import type { SimulationChatStart, SimulationEvent } from './prompts/types';
 import type { StrictEffect } from './core/simulation/EffectValidator';
 
 export class GameController {
@@ -59,7 +59,7 @@ export class GameController {
       completesProcess?: string;
     }>;
     voided?: { action: string; reason: string }[];
-    startChat?: { polityName: string; topic: string }[];
+    startChat?: SimulationChatStart[];
     relationshipChanges?: { from: string; to: string; relationship: 'ally' | 'neutral' | 'hostile'; reason?: string }[];
     targetDate?: string;
     /** §7.2/T36: lo stream è terminato senza record complete (budget). */

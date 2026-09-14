@@ -111,6 +111,11 @@ beforeAll(async () => {
         population: 3000000, gdp: 100, militaryPower: 100, flag: 'POL',
         geojson: squareGeojson(30, 40, 40, 50),
       },
+      {
+        id: `${WORLD_ID}_ITA`, name: 'Italia', color: '#0000FF', owner: 'ITA',
+        population: 2000000, gdp: 100, militaryPower: 100, flag: 'ITA',
+        geojson: squareGeojson(10, 30, 20, 40),
+      },
     ]
   );
 
@@ -249,5 +254,521 @@ describe('Этап 4: персистентность map features', () => {
     const dbPol = gameRepository.getGameRegions(gameId).find((r: any) => r.id === `${WORLD_ID}_POL`);
     expect(dbDeu.objects.some((o: any) => o.id === spawned.id)).toBe(true);
     expect(dbPol.objects.some((o: any) => o.id === spawned.id)).toBe(false);
+  });
+
+  it('le iniziative NPC creano marker attribuiti alla politia che agisce', () => {
+    const { session } = createGame();
+    session.applyMapChanges([
+      { type: 'start_mobilization', regionName: 'Польша', feature: { type: 'fleet', name: 'Flotta baltica' } },
+      { type: 'start_construction', regionName: 'Польша', feature: { type: 'naval_base', name: 'Base di Gdynia' } },
+    ]);
+    const pol = session.getRegion(`${WORLD_ID}_POL`);
+    const fleet = pol.objects.find((o: any) => o.name === 'Flotta baltica');
+    expect(fleet).toMatchObject({ type: 'mobilization', owner: 'POL', metadata: { plannedType: 'fleet', status: 'forming' } });
+    const site = pol.objects.find((o: any) => o.name === 'Base di Gdynia');
+    expect(site).toMatchObject({ type: 'construction_site', owner: 'POL', metadata: { plannedType: 'naval_base', status: 'under_construction' } });
+
+    // Il completamento conserva l'attribuzione e non dipende dal giocatore.
+    session.applyMapChanges([
+      { type: 'complete_mobilization', regionName: 'Польша', feature: { type: 'fleet', name: 'Flotta baltica' } },
+      { type: 'complete_construction', regionName: 'Польша', feature: { type: 'naval_base', name: 'Base di Gdynia' } },
+    ]);
+    expect(pol.objects.find((o: any) => o.type === 'fleet' && o.name === 'Flotta baltica'))
+      .toMatchObject({ owner: 'POL', metadata: { status: 'operational' } });
+    expect(pol.objects.find((o: any) => o.type === 'naval_base' && o.name === 'Base di Gdynia'))
+      .toMatchObject({ owner: 'POL', metadata: { status: 'operational' } });
+  });
+
+  it('rappresenta un cantiere e lo trasforma nella stessa fortificazione operativa', async () => {
+    const { gameId, session } = createGame();
+
+    session.applyMapChanges([{
+      type: 'start_construction',
+      regionName: 'ФРГ',
+      feature: { type: 'fortification', name: 'Linea del Reno' },
+    }]);
+    const region = session.getRegion(`${WORLD_ID}_DEU`);
+    const site = region.objects.find((object: any) => object.name === 'Linea del Reno');
+    expect(site).toMatchObject({
+      type: 'construction_site',
+      owner: 'DEU',
+      metadata: { status: 'under_construction', plannedType: 'fortification' },
+    });
+
+    session.applyMapChanges([{
+      type: 'update_construction', regionName: 'ФРГ',
+      feature: { type: 'fortification', id: site.id, name: 'Nome non autorevole', metadata: {
+        phase: 'foundations', status: 'paused', blocker: 'Consegna dei materiali in ritardo',
+        nextStep: 'Riprendere le fondazioni alla consegna', expectedDate: '1951-06-01',
+        owner: 'POL', plannedType: 'army', progress: 99,
+      } },
+    }]);
+    expect(region.objects.filter((object: any) => object.id === site.id)).toHaveLength(1);
+    expect(site).toMatchObject({ type: 'construction_site', owner: 'DEU', metadata: {
+      phase: 'foundations', status: 'paused', blocker: 'Consegna dei materiali in ritardo', plannedType: 'fortification',
+    } });
+    expect(site.metadata.progress).toBeUndefined();
+    expect(site.metadata.owner).toBeUndefined();
+    const unchanged = JSON.stringify(region.objects);
+    session.applyMapChanges([{
+      type: 'update_construction', regionName: 'ФРГ',
+      feature: { type: 'fortification', id: 'missing-id', name: 'Linea del Reno', metadata: { phase: 'testing' } },
+    }]);
+    expect(JSON.stringify(region.objects)).toBe(unchanged);
+    await session.syncRegionsToDB();
+    const savedSite = gameRepository.getGameRegions(gameId).find((r: any) => r.id === region.id).objects.find((o: any) => o.id === site.id);
+    expect(savedSite.metadata).toEqual(site.metadata);
+
+    session.applyMapChanges([{
+      type: 'complete_construction',
+      regionName: 'ФРГ',
+      feature: { type: 'fortification', name: 'Linea del Reno' },
+    }]);
+    const completed = region.objects.filter((object: any) => object.name === 'Linea del Reno');
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({
+      id: site.id,
+      type: 'fortification',
+      owner: 'DEU',
+      metadata: { status: 'operational', phase: 'completed', blocker: '', nextStep: '' },
+    });
+
+    session.syncRegionsToDB();
+    const persisted = gameRepository.getGameRegions(gameId).find((r: any) => r.id === `${WORLD_ID}_DEU`);
+    expect(persisted.objects).toContainEqual(completed[0]);
+  });
+
+  it('crea, sposta e rimuove un esercito mantenendo la proprietà del contatore', () => {
+    const { session } = createGame();
+
+    session.applyMapChanges([{
+      type: 'start_mobilization',
+      regionName: 'ФРГ',
+      feature: { type: 'army', name: 'I Armata' },
+    }]);
+    const source = session.getRegion(`${WORLD_ID}_DEU`);
+    const forming = source.objects.find((object: any) => object.name === 'I Armata');
+    expect(forming).toMatchObject({
+      type: 'mobilization',
+      owner: 'DEU',
+      metadata: { status: 'forming', plannedType: 'army' },
+    });
+
+    session.applyMapChanges([{
+      type: 'complete_mobilization',
+      regionName: 'ФРГ',
+      feature: { type: 'army', name: 'I Armata' },
+    }, {
+      // Un provider legacy può ripetere lo spawn nella stessa risposta: non
+      // deve creare un secondo contatore sopra il primo.
+      type: 'spawn_unit',
+      regionName: 'ФРГ',
+      feature: { type: 'army', name: 'I Armata' },
+    }]);
+    const army = source.objects.find((object: any) => object.name === 'I Armata');
+    expect(source.objects.filter((object: any) => object.name === 'I Armata')).toHaveLength(1);
+    expect(army).toMatchObject({ id: forming.id, type: 'army', owner: 'DEU', metadata: { status: 'operational' } });
+
+    session.applyMapChanges([{
+      type: 'move_unit',
+      regionName: 'ФРГ',
+      targetRegionName: 'Польша',
+      feature: { type: 'army', id: army.id, name: 'I Armata' },
+    }]);
+    const target = session.getRegion(`${WORLD_ID}_POL`);
+    expect(source.objects.some((object: any) => object.id === army.id)).toBe(false);
+    expect(target.objects.find((object: any) => object.id === army.id)).toMatchObject({
+      type: 'army',
+      owner: 'DEU',
+      metadata: { previousRegionId: `${WORLD_ID}_DEU` },
+    });
+
+    session.applyMapChanges([{
+      type: 'remove_unit',
+      regionName: 'Польша',
+      feature: { type: 'army', id: army.id, name: 'I Armata' },
+    }]);
+    expect(target.objects.some((object: any) => object.id === army.id)).toBe(false);
+  });
+
+  it("muove un'unità anche quando il modello confonde la provincia di origine", () => {
+    const { session } = createGame();
+    session.applyMapChanges([{
+      type: 'spawn_unit',
+      regionName: 'ФРГ',
+      feature: { type: 'battalion', name: '3-й штурмовой' },
+    }]);
+    const unit = session.getRegion(`${WORLD_ID}_DEU`).objects.find((object: any) => object.name === '3-й штурмовой');
+    expect(unit).toBeDefined();
+
+    // Origine dichiarata SBAGLIATA (Польша), destinazione corretta: il motore
+    // deve trovare l'unità dov'è davvero e spostarla comunque.
+    session.applyMapChanges([{
+      type: 'move_unit',
+      regionName: 'Польша',
+      targetRegionName: 'Польша',
+      feature: { type: 'battalion', name: '3-й штурмовой' },
+    }]);
+    expect(session.getRegion(`${WORLD_ID}_DEU`).objects.some((o: any) => o.name === '3-й штурмовой')).toBe(false);
+    expect(session.getRegion(`${WORLD_ID}_POL`).objects.some((o: any) => o.name === '3-й штурмовой')).toBe(true);
+  });
+
+  it('una provincia occupata prende SEMPRE il colore della nazione che la controlla', () => {
+    const { session } = createGame();
+    const pol = session.getRegion(`${WORLD_ID}_POL`);
+    const before = pol.color;
+    // Il modello propone un colore sbagliato (quello del vecchio sovrano):
+    // per una politia già nota vince il colore canonico del nuovo occupante.
+    session.applyMapChanges([{ type: 'transfer', regionName: 'Польша', newOwner: 'DEU', newColor: before }]);
+    expect(pol.owner).toBe('DEU');
+    expect(pol.color).not.toBe(before);
+    expect(pol.color).toBe(session.getRegion(`${WORLD_ID}_DEU`).color);
+  });
+
+  it('una nuova politia senza colore esplicito riceve comunque un colore stabile', () => {
+    const { session } = createGame();
+    const pol = session.getRegion(`${WORLD_ID}_POL`);
+    const before = pol.color;
+    session.applyMapChanges([{ type: 'transfer', regionName: 'Польша', newOwner: 'Repubblica di Varsavia' }]);
+    expect(pol.owner).toBe('Repubblica di Varsavia');
+    expect(pol.color).not.toBe(before);
+    expect(pol.color).toMatch(/^#[0-9A-F]{6}$/);
+
+    // Deterministico: un secondo trasferimento non cambia il colore.
+    const first = pol.color;
+    session.applyMapChanges([{ type: 'transfer', regionName: 'Польша', newOwner: 'Repubblica di Varsavia' }]);
+    expect(pol.color).toBe(first);
+  });
+
+  it('completa un movimento accettato che il modello ha dimenticato nelle mapChanges', () => {
+    const { session } = createGame();
+    session.applyMapChanges([{
+      type: 'spawn_unit',
+      regionName: 'ФРГ',
+      feature: { type: 'army', name: 'II Armata' },
+    }]);
+    const action = { id: 'ord-move-1', text: 'Ordina alla II Armata di spostarsi in Польша.' } as any;
+    const accepted = [{ actionId: 'ord-move-1', action: '', status: 'accepted', summary: 'ok' } as any];
+    const changed = (session as any).reconcileAcceptedMoves([action], accepted);
+    expect(changed.map((region: any) => region.id).sort()).toEqual([`${WORLD_ID}_DEU`, `${WORLD_ID}_POL`].sort());
+    expect(session.getRegion(`${WORLD_ID}_DEU`).objects.some((o: any) => o.name === 'II Armata')).toBe(false);
+    expect(session.getRegion(`${WORLD_ID}_POL`).objects.some((o: any) => o.name === 'II Armata')).toBe(true);
+
+    // Un ordine respinto non muove nulla.
+    session.applyMapChanges([{
+      type: 'spawn_unit',
+      regionName: 'ФРГ',
+      feature: { type: 'army', name: 'III Armata' },
+    }]);
+    const rejectedAction = { id: 'ord-move-2', text: 'Ordina alla III Armata di spostarsi in Польша.' } as any;
+    const rejected = [{ actionId: 'ord-move-2', action: '', status: 'rejected', summary: 'no' } as any];
+    expect((session as any).reconcileAcceptedMoves([rejectedAction], rejected)).toEqual([]);
+    expect(session.getRegion(`${WORLD_ID}_DEU`).objects.some((o: any) => o.name === 'III Armata')).toBe(true);
+  });
+});
+
+describe('movement order regressions', () => {
+  function fixture() {
+    const { session, gameId } = createGame();
+    const source = session.getRegion(`${WORLD_ID}_DEU`);
+    const target = session.getRegion(`${WORLD_ID}_POL`);
+    const intermediate = session.getRegion(`${WORLD_ID}_ITA`);
+    const add = (id: string, name: string, region = source, owner: string | undefined = 'DEU', type = 'army') => {
+      const unit = { id, name, type, owner, lat: 42, lng: 12, metadata: { strength: 80 } };
+      region.objects ||= [];
+      region.objects.push(unit);
+      return unit;
+    };
+    const unit = add('army-a', 'I Armata');
+    const move = (extra: any = {}) => ({ type: 'move_unit', regionName: source.name,
+      targetRegionName: target.name, feature: { type: 'army', name: unit.name, id: unit.id }, ...extra });
+    const reconcile = (text: string, status = 'accepted') => session.reconcileAcceptedMoves(
+      [{ id: 'order', text }], [{ actionId: 'order', action: text, status }]);
+    return { session, gameId, source, target, intermediate, add, unit, move, reconcile };
+  }
+
+  it.each([undefined, 'Regione inesistente', 'Польша'])('locates a unique unit with origin %s and preserves route metadata on repeat', async regionName => {
+    const { session, gameId, source, target, unit, move } = fixture();
+    const changed = session.applyMapChanges([move({ regionName })], '1951-02-01');
+    expect(changed.map((r: any) => r.id)).toEqual([source.id, target.id]);
+    expect(target.objects).toContain(unit);
+    expect(unit).toMatchObject({ owner: 'DEU', metadata: { strength: 80, previousLng: 12, previousLat: 42,
+      previousRegionId: source.id, previousRegionName: source.name, movedDate: '1951-02-01' } });
+    const before = JSON.stringify(unit);
+    expect(session.applyMapChanges([move()], '1951-03-01')).toEqual([]);
+    expect(JSON.stringify(unit)).toBe(before);
+    await session.syncRegionsToDB();
+    const saved = gameRepository.getGameRegions(gameId).find((r: any) => r.id === target.id);
+    expect(saved.objects.find((o: any) => o.id === unit.id)).toEqual(unit);
+  });
+
+  it.each(['random', 'coastal', 'Поль', 'Польша sconosciuta'])('never guesses a destination from %s', targetRegionName => {
+    const { session, source, unit, move } = fixture();
+    expect(session.applyMapChanges([move({ targetRegionName })])).toEqual([]);
+    expect(source.objects).toContain(unit);
+  });
+
+  it('rejects ambiguous region names, unit names and duplicate IDs', () => {
+    const { session, source, target, intermediate, unit, add, move } = fixture();
+    intermediate.name = target.name;
+    expect(session.applyMapChanges([move()])).toEqual([]);
+    intermediate.name = 'Italia';
+    const other = add('army-b', unit.name, intermediate);
+    expect(session.applyMapChanges([move({ feature: { type: 'army', name: unit.name } })])).toEqual([]);
+    other.id = unit.id;
+    expect(session.applyMapChanges([move()])).toEqual([]);
+    expect(source.objects).toContain(unit);
+  });
+
+  it('an unknown ID cannot fall back to a name or the legacy first battalion', () => {
+    const { session, source, unit, move } = fixture();
+    expect(session.applyMapChanges([move({ feature: { type: 'army', id: 'missing', name: unit.name } })])).toEqual([]);
+    unit.type = 'battalion';
+    expect(session.applyMapChanges([move({ type: 'move_battalion', feature: { type: 'battalion', id: 'missing', name: unit.name } })])).toEqual([]);
+    expect(source.objects).toContain(unit);
+  });
+
+  it('only an unambiguous unnamed legacy battalion is allowed', () => {
+    const { session, source, target, unit, add, move } = fixture();
+    unit.type = 'battalion';
+    const other = add('b', 'Other', source, 'DEU', 'battalion');
+    expect(session.applyMapChanges([move({ type: 'move_battalion', feature: undefined })])).toEqual([]);
+    source.objects = source.objects.filter((o: any) => o !== other);
+    session.applyMapChanges([move({ type: 'move_battalion', feature: undefined })]);
+    expect(target.objects).toContain(unit);
+  });
+
+  it('moves multiple explicitly named units without substring matches', () => {
+    const { source, target, unit, add, reconcile } = fixture();
+    const second = add('b', 'II Armata');
+    const unrelated = add('c', 'III Armata');
+    reconcile('Sposta I Armata e II Armata da ФРГ a Польша.');
+    expect(target.objects).toEqual(expect.arrayContaining([unit, second]));
+    expect(source.objects).toContain(unrelated);
+  });
+
+  it('uses object ownership for troops abroad and falls back to region owner only when absent', () => {
+    const { source, target, intermediate, unit, add, reconcile } = fixture();
+    source.objects = source.objects.filter((o: any) => o !== unit);
+    intermediate.objects.push(unit);
+    reconcile('Sposta I Armata da Italia a Польша');
+    expect(target.objects).toContain(unit);
+    const legacy = add('legacy', 'Guardia');
+    delete (legacy as any).owner;
+    const enemy = add('enemy', 'Nemici', source, 'POL');
+    const facility = add('factory', 'Fabbrica', source, 'DEU', 'factory');
+    const forming = add('forming', 'Reclute', source, 'DEU', 'mobilization');
+    reconcile('Sposta tutte le truppe da ФРГ a Польша');
+    expect(target.objects).toContain(legacy);
+    expect(legacy.owner).toBe('DEU');
+    expect(source.objects).toEqual(expect.arrayContaining([enemy, facility, forming]));
+    expect(reconcile('Sposta Nemici da ФРГ a Польша')).toEqual([]);
+  });
+
+  it.each(['rejected', 'partial', 'pending', 'voided'])('does not execute %s outcomes', status => {
+    const { source, unit, reconcile } = fixture();
+    expect(reconcile('Sposta I Armata in Польша', status)).toEqual([]);
+    expect(source.objects).toContain(unit);
+  });
+
+  it.each([
+    'Non spostare I Armata in Польша',
+    'Sposta I Armata in Польша (non ancora)',
+    'Sposta I Armata in Польша oppure in Italia',
+    'Se possibile sposta I Armata in Польша',
+    'Prepara I Armata a spostarsi in Польша',
+    'Sposta I Armata verso Польша e Italia',
+    'Sposta I Armata da ФРГ',
+    'Sposta tutte le truppe in Польша',
+    'Sposta I Armata in una provincia sconosciuta',
+    'Sposta I Armata in Italia orientale',
+    'Sposta I Armata e Armata Fantasma in Польша',
+    'Sposta I Armata e lascia II Armata in Польша',
+  ])('does not infer ambiguous, conditional, pending or negated intent: %s', text => {
+    const { source, unit, reconcile } = fixture();
+    expect(reconcile(text)).toEqual([]);
+    expect(source.objects).toContain(unit);
+  });
+
+  it.each(['army', 'fleet', 'missile'])('an accepted attack alone never relocates a %s in the real batch path', async type => {
+    const { session, gameId, source, intermediate: target, unit } = fixture();
+    unit.type = type;
+    unit.name = { army: 'I Armata', fleet: 'I Flotta', missile: 'I Missile' }[type]!;
+    const before = JSON.parse(JSON.stringify(unit));
+    const action = session.queueAction(`Ordina alla ${unit.name} di attaccare in Italia`);
+    vi.spyOn(session.gameController, 'processTurnWithPrompts').mockResolvedValue({
+      events: [{ headline: 'Bombardamento', description: 'Attacco a distanza eseguito', date: '1951-01-10', mapChanges: [] }],
+      narration: 'Ordine accettato', convertedActions: [],
+      actionOutcomes: [{ actionId: action.id, status: 'accepted', summary: 'Attacco eseguito' }],
+      voided: [], startChat: [], worldChanges: { regionOwners: {}, regionColors: {} },
+    });
+    await session.processNextAction(31);
+    expect(session.getRegion(source.id).objects.find((o: any) => o.id === unit.id)).toEqual(before);
+    expect(session.getRegion(target.id).objects.some((o: any) => o.id === unit.id)).toBe(false);
+    const saved = gameRepository.getGameRegions(gameId);
+    expect(saved.find((r: any) => r.id === source.id).objects.find((o: any) => o.id === unit.id)).toEqual(before);
+    expect(saved.find((r: any) => r.id === target.id).objects.some((o: any) => o.id === unit.id)).toBe(false);
+  });
+
+  it('conservatively skips mixed relocation and attack orders', () => {
+    const { source, unit, reconcile } = fixture();
+    expect(reconcile('Sposta I Armata in Italia e attacca in Italia')).toEqual([]);
+    expect(source.objects).toContain(unit);
+  });
+
+  it('never returns a unit to the origin on a repeated accepted order', () => {
+    const { target, unit, reconcile } = fixture();
+    const text = 'Sposta I Armata da ФРГ a Польша';
+    reconcile(text);
+    const metadata = { ...unit.metadata };
+    expect(reconcile(text)).toEqual([]);
+    expect(target.objects).toContain(unit);
+    expect(unit.metadata).toEqual(metadata);
+  });
+
+  it('collective units can move from foreign territory but never take the local army along', () => {
+    const { source, intermediate, unit, add, reconcile } = fixture();
+    source.objects = source.objects.filter((o: any) => o !== unit);
+    intermediate.objects.push(unit);
+    const enemy = add('foreign', 'Guardia italiana', intermediate, 'ITA');
+    reconcile('Sposta tutte le unità da Italia a ФРГ');
+    expect(source.objects).toContain(unit);
+    expect(intermediate.objects).toContain(enemy);
+  });
+
+  it('competing accepted destinations and explicit no-op movements are never overridden', () => {
+    const { session, source, unit, move } = fixture();
+    const actions = [{ id: 'a', text: 'Sposta I Armata in Польша' }, { id: 'b', text: 'Sposta I Armata in Italia' }];
+    const outcomes = actions.map(action => ({ actionId: action.id, status: 'accepted' }));
+    const intents = session.captureMovementIntents(actions);
+    expect(session.reconcileAcceptedMoves(actions, outcomes, intents)).toEqual([]);
+    expect(session.reconcileAcceptedMoves([actions[0]], [outcomes[0]], [intents[0]], [move({ targetRegionName: source.name })])).toEqual([]);
+    expect(source.objects).toContain(unit);
+  });
+
+  it('duplicate destination names also block natural-language reconciliation', () => {
+    const { source, target, intermediate, unit, reconcile } = fixture();
+    intermediate.name = target.name;
+    expect(reconcile('Sposta I Armata in Польша')).toEqual([]);
+    expect(source.objects).toContain(unit);
+  });
+
+  it('duplicate formation names are ambiguous even when one belongs to the enemy', () => {
+    const { source, target, unit, add, reconcile } = fixture();
+    add('enemy', unit.name, target, 'POL');
+    expect(reconcile('Sposta I Armata da ФРГ a Польша')).toEqual([]);
+    expect(source.objects).toContain(unit);
+  });
+
+  it('outcome IDs are authoritative, conflicting or missing outcomes never authorize a move', () => {
+    const { session, unit, source } = fixture();
+    const action = { id: 'a', text: 'Sposta I Armata in Польша' };
+    for (const outcomes of [[], [{ actionId: 'wrong', action: action.text, status: 'accepted' }],
+      [{ actionId: 'a', status: 'accepted' }, { actionId: 'a', status: 'rejected' }]]) {
+      expect(session.reconcileAcceptedMoves([action], outcomes)).toEqual([]);
+    }
+    expect(source.objects).toContain(unit);
+    // Two different queued actions with the same text are not identifiable by text alone.
+    expect(session.reconcileAcceptedMoves([action, { ...action, id: 'b' }], [{ action: action.text, status: 'accepted' }])).toEqual([]);
+  });
+
+  it('pre-event intents neither override partial advances nor move newly spawned replacements', () => {
+    const { session, source, intermediate, unit, add, move } = fixture();
+    const action = { id: 'a', text: 'Sposta I Armata in Польша' };
+    const intents = session.captureMovementIntents([action]);
+    const outcomes = [{ actionId: 'a', status: 'accepted' }];
+    session.applyMapChanges([move({ targetRegionName: intermediate.name })]);
+    expect(session.reconcileAcceptedMoves([action], outcomes, intents)).toEqual([]);
+    expect(intermediate.objects).toContain(unit);
+    session.applyMapChanges([move({ type: 'remove_unit', regionName: 'missing' })]);
+    const replacement = add('replacement', unit.name);
+    expect(session.reconcileAcceptedMoves([action], outcomes, intents)).toEqual([]);
+    expect(source.objects).toContain(replacement);
+  });
+
+  it.each([false, true])('respects explicit partial model movement in the real batch/playback path (playback=%s)', async playback => {
+    const { session, source, target, intermediate, unit, move } = fixture();
+    const action = session.queueAction('Sposta I Armata da ФРГ a Польша');
+    const events = [{ headline: 'Avanzata parziale', description: 'Avanzata in Italia', date: '1951-01-10',
+      mapChanges: [move({ targetRegionName: intermediate.name })] }];
+    if (playback) events.push({ headline: 'Rifornimenti', description: 'Le unità attendono rifornimenti', date: '1951-01-20', mapChanges: [] });
+    vi.spyOn(session.gameController, 'processTurnWithPrompts').mockResolvedValue({
+      events, narration: 'Ordine accettato', convertedActions: [], actionOutcomes: [{ actionId: action.id, action: action.text, status: 'accepted', summary: 'ok' }],
+      voided: [], startChat: [], worldChanges: { regionOwners: {}, regionColors: {} },
+    });
+    await session.processNextAction(31);
+    if (playback) {
+      const state = session._revivePausedRunState(JSON.parse(JSON.stringify(session.pausedRun)));
+      expect(state.movementIntents).toHaveLength(1);
+      expect(state.movementChanges).toHaveLength(1);
+      session.pausedRun = state;
+      while (session.pausedRun) await session.continueSimulation(state.runId);
+    }
+    expect(source.objects.some((o: any) => o.id === unit.id)).toBe(false);
+    expect(target.objects.some((o: any) => o.id === unit.id)).toBe(false);
+    expect(session.getRegion(intermediate.id).objects.find((o: any) => o.id === unit.id))
+      .toMatchObject({ metadata: { movedDate: '1951-01-10', previousLng: 12, previousLat: 42 } });
+  });
+
+  it.each([false, true])('auto-jump never reconciles an arrival discarded after a preparation checkpoint (streaming=%s)', async streaming => {
+    const { session, gameId, source, target, unit, move } = fixture();
+    const before = JSON.parse(JSON.stringify(unit));
+    const action = session.queueAction('Sposta I Armata da ФРГ a Польша');
+    const events = [
+      { headline: 'Preparativi', description: 'Le truppe si preparano alla partenza', date: '1951-01-10', mapChanges: [] },
+      { headline: 'Arrivo', description: 'Le truppe raggiungono la destinazione', date: '1951-01-20', mapChanges: [move()] },
+    ];
+    vi.spyOn(session.gameController, 'processTurnWithPrompts').mockImplementation(async (...args: any[]) => {
+      expect(args[4]).toBe(true);
+      if (streaming) events.forEach((event, index) => args[5](event, index));
+      return {
+        // Streaming sanitization may already have removed the over-budget event.
+        events: streaming ? events.slice(0, 1) : events,
+        narration: 'Ordine eseguito', convertedActions: [], targetDate: '1951-01-20',
+        actionOutcomes: [{ actionId: action.id, status: 'accepted', summary: 'Arrivo completato', eventHeadlines: ['Arrivo'] }],
+        voided: [], startChat: [], worldChanges: { regionOwners: {}, regionColors: {} },
+      };
+    });
+    await session.processNextAction(0);
+    expect(session.currentDate).toBe('1951-01-10');
+    expect(session.pausedRun).toBeFalsy();
+    expect(session.getRegion(source.id).objects.find((o: any) => o.id === unit.id)).toEqual(before);
+    expect(session.getRegion(target.id).objects.some((o: any) => o.id === unit.id)).toBe(false);
+    const saved = gameRepository.getGameRegions(gameId);
+    expect(saved.find((r: any) => r.id === source.id).objects.find((o: any) => o.id === unit.id)).toEqual(before);
+    expect(saved.find((r: any) => r.id === target.id).objects.some((o: any) => o.id === unit.id)).toBe(false);
+  });
+
+  it('an incomplete playback does not execute accepted future movements', async () => {
+    const { session, source, target, unit } = fixture();
+    const action = session.queueAction('Sposta I Armata da ФРГ a Польша');
+    vi.spyOn(session.gameController, 'processTurnWithPrompts').mockResolvedValue({
+      events: [
+        { headline: 'Preparativi', description: 'Si discute', date: '1951-01-10', mapChanges: [] },
+        { headline: 'Attesa', description: 'Non si avanza', date: '1951-01-20', mapChanges: [] },
+      ], narration: '', convertedActions: [], incomplete: true,
+      actionOutcomes: [{ actionId: action.id, status: 'accepted', summary: 'ok' }], voided: [], startChat: [],
+    });
+    await session.processNextAction(31);
+    while (session.pausedRun) await session.continueSimulation(session.pausedRun.runId);
+    expect(session.getRegion(source.id).objects.some((o: any) => o.id === unit.id)).toBe(true);
+    expect(session.getRegion(target.id).objects.some((o: any) => o.id === unit.id)).toBe(false);
+  });
+
+  it.each([false, true])('reconciles omitted mapChanges in real batch/playback and persists both regions (playback=%s)', async playback => {
+    const { session, gameId, source, target, unit } = fixture();
+    const action = session.queueAction('Sposta I Armata da ФРГ a Польша');
+    const events = [{ headline: 'Ordine eseguito', description: 'Le truppe avanzano', date: '1951-01-10', mapChanges: [] }];
+    if (playback) events.push({ headline: 'Fine avanzata', description: 'Schieramento completato', date: '1951-01-20', mapChanges: [] });
+    vi.spyOn(session.gameController, 'processTurnWithPrompts').mockResolvedValue({
+      events, narration: 'Ordine accettato', convertedActions: [], actionOutcomes: [{ actionId: action.id, action: action.text, status: 'accepted', summary: 'ok' }],
+      voided: [], startChat: [], worldChanges: { regionOwners: {}, regionColors: {} },
+    });
+    await session.processNextAction(31);
+    if (playback) while (session.pausedRun) await session.continueSimulation(session.pausedRun.runId);
+    const saved = gameRepository.getGameRegions(gameId);
+    expect(saved.find((r: any) => r.id === source.id).objects.some((o: any) => o.id === unit.id)).toBe(false);
+    expect(saved.find((r: any) => r.id === target.id).objects.find((o: any) => o.id === unit.id))
+      .toMatchObject({ owner: 'DEU', metadata: { movedDate: '1951-02-01', previousLng: 12, previousLat: 42 } });
   });
 });

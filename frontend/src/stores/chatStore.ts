@@ -117,8 +117,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   appendMessage: (chatId, message) => set((state) => {
     const existing = state.messagesByChat[chatId] || [];
     if (message.id && existing.some(m => m.id === message.id)) return {};
+    // L'elenco chat mostra l'ultimo messaggio e la sua data: teniamolo allineato
+    // anche quando il messaggio nasce localmente (invio/auto), non solo via SSE.
+    const chats = state.chats.map(c => (c.id === chatId ? {
+      ...c,
+      lastMessage: message.content,
+      lastMessageAt: message.createdAt || new Date().toISOString(),
+      lastMessageGameDate: message.gameDate || c.lastMessageGameDate,
+    } : c));
     return {
       messagesByChat: { ...state.messagesByChat, [chatId]: [...existing, message] },
+      chats,
     };
   }),
 
@@ -152,6 +161,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }),
       lastMessage: message.content,
       lastMessageAt: message.createdAt || new Date().toISOString(),
+      lastMessageGameDate: message.gameDate || known?.lastMessageGameDate,
       unread: isOpen ? 0 : (known?.unread || 0) + 1,
     };
     const chats = known

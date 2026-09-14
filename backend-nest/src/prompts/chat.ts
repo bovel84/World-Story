@@ -47,10 +47,15 @@ const RELATIONSHIP_TEXT: Record<string, string> = {
   neutral: 'neutrale: apertura prudente, senza concessioni gratuite',
 };
 
+function compact(value: unknown, maxChars: number): string {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length <= maxChars ? text : `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
 function renderHistory(history: ChatHistoryItem[], playerPolityName: string): string {
   if (history.length === 0) return '(La trattativa sta iniziando)';
-  return history
-    .map(m => `${m.role === 'player' ? `${playerPolityName} (giocatore)` : m.role}: ${m.content}`)
+  return history.slice(-16)
+    .map(m => `${m.role === 'player' ? `${playerPolityName} (voce ufficiale)` : m.role}: ${compact(m.content, 700)}`)
     .join('\n');
 }
 
@@ -64,7 +69,7 @@ export function buildNextSpeakerPrompt(vars: NextSpeakerPromptVars): string {
     : 'Il giocatore resta in ascolto: scegli una nazione con una replica utile; evita l’ultima che ha parlato se un altro partecipante può portare avanti la trattativa.';
 
   return `Sei il moderatore invisibile di una chat diplomatica in un gioco storico.
-Il giocatore rappresenta ${vars.playerPolityName}.
+Il giocatore parla e agisce come ${vars.playerPolityName}: i suoi messaggi sono dichiarazioni ufficiali del governo di ${vars.playerPolityName}, e le altre nazioni devono riconoscerlo come tale.
 Le sole nazioni autorizzate a rispondere sono: ${vars.participantNames.join(', ')}.
 
 Cronaca della chat:
@@ -82,7 +87,7 @@ export function buildChatPrompt(vars: ChatPromptVars): string {
     ? vars.recentEvents.map(e => `- ${e}`).join('\n')
     : '(Nessun evento recente rilevante)';
   const latest = vars.playerMessage.trim()
-    ? `\n[${vars.mode === 'reaction' ? 'Ordini ed eventi appena conclusisi' : 'Messaggio appena inviato dal giocatore'}]\n${vars.playerMessage.trim()}\n`
+    ? `\n[${vars.mode === 'reaction' ? 'Ordini ed eventi appena conclusisi' : `Dichiarazione ufficiale appena inviata da ${vars.playerPolityName}`}]\n${vars.playerMessage.trim()}\n`
     : '';
   const modeRule = vars.mode === 'reply'
     ? `Rispondi direttamente all’ultimo messaggio di ${vars.playerPolityName}.`
@@ -91,6 +96,11 @@ export function buildChatPrompt(vars: ChatPromptVars): string {
       : 'Il giocatore non interviene: continua in modo naturale il confronto con le altre nazioni.';
 
   return `Stai simulando una diplomazia a turni. Interpreta esclusivamente ${speaker.name}, in prima persona plurale, come governo o leadership della nazione.
+
+[Identità dell'interlocutore umano]
+- Chi scrive come «${vars.playerPolityName} (voce ufficiale)» è il governo di ${vars.playerPolityName} in persona: i suoi messaggi sono dichiarazioni ufficiali di quella nazione, non commenti di uno spettatore.
+- Rivolgiti sempre a ${vars.playerPolityName} come soggetto politico reale — per nome, al governo, al capo di Stato o ai ministri — e rispondi come faresti con un omologo. MAI le parole «giocatore», «utente» o «umano», mai toni da assistente o da narratore: parli nazione con nazione.
+- Tratta le dichiarazioni di ${vars.playerPolityName} come atti impegnativi del suo governo (proposte, ultimatum, garanzie), da valutare sul merito con gli strumenti reali di ${speaker.name}.
 
 [Identità e interessi]
 - Nazione che parla: ${speaker.name}
@@ -104,17 +114,17 @@ ${vars.difficultyContext}
 La difficoltà stabilisce quanta influenza, preparazione o contropartita serve perché ${speaker.name} accetti una proposta. Non concedere risultati che contraddicono questo livello.
 
 [Lore prima del primo turno]
-${vars.worldContext || '(Storia alternativa)'}
+${compact(vars.worldContext, 3_000) || '(Storia alternativa)'}
 
 [Regole specifiche del preset]
-${vars.simulationRules || '(Nessuna regola aggiuntiva)'}
+${compact(vars.simulationRules, 2_000) || '(Nessuna regola aggiuntiva)'}
 
 [Data ed eventi recenti]
 Data di gioco: ${vars.date}
 ${events}
 
 [Mappa e rapporti di forza attuali]
-${vars.mapContext}
+${compact(vars.mapContext, 5_000)}
 
 [Cronaca della trattativa]
 ${renderHistory(vars.history, vars.playerPolityName)}
@@ -153,7 +163,8 @@ export function parseChatResponse(text: string): ParsedChatResponse {
       if (message) return { message };
     } catch { /* prova il prossimo candidato */ }
   }
-  return { message: raw };
+  const withoutFence = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  return { message: withoutFence.substring(0, 1_200) || '…' };
 }
 
 function normalizedName(value: string): string {

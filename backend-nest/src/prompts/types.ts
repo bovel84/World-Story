@@ -34,6 +34,8 @@ export interface PromptVariables {
   GRAND_MAP_DESCRIPTION_NO_CITY: string;
   /** Stato materiale e diplomatico verificabile al momento del turno. */
   STRATEGIC_STATE: string;
+  /** Identità persistente, priorità correnti e memoria canonica degli NPC rilevanti. */
+  NPC_STRATEGIC_PROFILES: string;
   /** Processi in corso (partial) con data prevista: il simulatore deve portarli avanti. */
   ONGOING_PROCESSES?: string;
 
@@ -50,15 +52,37 @@ export interface PromptVariables {
   isBeta?: boolean;
 }
 
+export type PolityReactionStance = 'supportive' | 'opposed' | 'conditional' | 'neutral';
+export type PolityReactionRole = 'counterparty' | 'ally' | 'mediator' | 'observer';
+
+/** Risposta autonoma di una politia non giocante direttamente coinvolta. */
+export interface SimulationPolityReaction {
+  polityName: string;
+  role: PolityReactionRole;
+  stance: PolityReactionStance;
+  response: string;
+  /** Interesse del dossier che ha guidato la decisione. */
+  priority?: string;
+  /** Misura autonoma realmente decisa dalla politia nel periodo. */
+  counterAction?: string;
+}
+
 export interface SimulationEvent {
   headline: string;
   description: string;
   date: string;
   mapChanges: MapChange[];
+  /** Decisioni/reazioni NPC: non sono azioni eseguite dal giocatore. */
+  reactions?: SimulationPolityReaction[];
 }
 
 export interface MapChange {
-  type: 'transfer' | 'create' | 'update' | 'delete' | 'spawn_battalion' | 'move_battalion' | 'create_polity' | 'build_facility';
+  type: 'transfer' | 'create' | 'update' | 'delete'
+    | 'spawn_battalion' | 'move_battalion'
+    | 'spawn_unit' | 'move_unit' | 'remove_unit'
+    | 'start_mobilization' | 'complete_mobilization' | 'cancel_mobilization'
+    | 'create_polity' | 'build_facility'
+    | 'start_construction' | 'update_construction' | 'complete_construction' | 'cancel_construction';
   /** Имя региона, как показано LLM в описании карты (основной способ адресации) */
   regionName?: string;
   /** Legacy: прямой id региона (принимается для совместимости) */
@@ -73,8 +97,13 @@ export interface MapChange {
 }
 
 export interface MapFeature {
-  type: 'city' | 'battalion' | 'factory' | 'port' | 'base' | 'university' | 'radar';
+  type: 'city' | 'battalion' | 'army' | 'fleet' | 'missile'
+    | 'factory' | 'port' | 'base' | 'airbase' | 'naval_base'
+    | 'fortification' | 'radar' | 'missile_site' | 'university'
+    | 'infrastructure' | 'power_plant' | 'construction_site' | 'mobilization';
   name: string;
+  /** ID opzionale per muovere/rimuovere/completare un oggetto esistente. */
+  id?: string;
   x?: number;
   y?: number;
   metadata?: Record<string, any>;
@@ -96,6 +125,28 @@ export interface ActionOutcome {
   completesProcess?: string;
 }
 
+export type DiplomaticChatKind =
+  | 'meeting'
+  | 'summit'
+  | 'negotiation'
+  | 'conference'
+  | 'ultimatum'
+  | 'technical'
+  | 'statement';
+
+/**
+ * Canale diplomatico nato da un evento della simulazione.
+ * `polityName` resta per i provider legacy; il nuovo contratto usa
+ * `participants` e collega l'apertura a un dispaccio canonico.
+ */
+export interface SimulationChatStart {
+  polityName?: string;
+  participants?: string[];
+  topic: string;
+  kind?: DiplomaticChatKind;
+  eventHeadline?: string;
+}
+
 export interface SimulationResult {
   events: SimulationEvent[];
   narration: string;
@@ -105,8 +156,8 @@ export interface SimulationResult {
   actionOutcomes?: ActionOutcome[];
   /** Нереалистичные действия игрока, отклонённые simulaцией, с пояснением */
   voided: VoidedAction[];
-  /** ИИ инициирует дипломатический чат. */
-  startChat?: { polityName: string; topic: string }[];
+  /** Un evento può aprire una chat diretta o una riunione multinazionale. */
+  startChat?: SimulationChatStart[];
   /** Conseguenze diplomatiche, incluse quelle negoziate nelle chat. */
   relationshipChanges?: { from: string; to: string; relationship: 'ally' | 'neutral' | 'hostile'; reason?: string }[];
   /** Per auto-jump: effettiva data d'arrivo scelta dalla simulazione */

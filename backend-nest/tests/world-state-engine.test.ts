@@ -35,4 +35,38 @@ describe('WorldStateEngine', () => {
     expect(tick.changedRegions).toContain('active');
     expect(WorldStateEngine.playerBulletin(tick.accounts.AAA)).toContain('Bilancio mensile');
   });
+
+  it('la mobilitazione delle riserve pesa su bilancio, stabilità e crescita', () => {
+    const peaceful = WorldStateEngine.accounts([
+      { id: 'p', owner: 'AAA', population: 1_000_000, gdp: 200, militaryPower: 30,
+        objects: [{ type: 'factory', level: 1 }, { type: 'battalion', level: 1 }] },
+    ]).AAA;
+    const mobilizing = WorldStateEngine.accounts([
+      { id: 'p', owner: 'AAA', population: 1_000_000, gdp: 200, militaryPower: 30,
+        objects: [
+          { type: 'factory', level: 1 },
+          { type: 'battalion', level: 1 },
+          { type: 'mobilization', level: 3 },
+        ] },
+    ]).AAA;
+
+    expect(mobilizing.mobilized).toBe(3);
+    expect(mobilizing.monthlyExpenses).toBeGreaterThan(peaceful.monthlyExpenses);
+    expect(mobilizing.monthlyBalance).toBeLessThan(peaceful.monthlyBalance);
+    expect(mobilizing.stability).toBeLessThan(peaceful.stability);
+    expect(mobilizing.warEffort).toBeGreaterThan(peaceful.warEffort);
+    expect(mobilizing.socialTension).toBeGreaterThan(peaceful.socialTension);
+    expect(mobilizing.annualGrowthRate).toBeLessThan(peaceful.annualGrowthRate);
+  });
+
+  it('il bollettino espone riserve, sforzo bellico e tensione sociale', () => {
+    const account = WorldStateEngine.accounts([
+      { id: 'p', owner: 'AAA', population: 500_000, gdp: 100, militaryPower: 10,
+        objects: [{ type: 'mobilization', level: 2 }] },
+    ]).AAA;
+    const bulletin = WorldStateEngine.playerBulletin(account) || '';
+    expect(bulletin).toContain('Riserve mobilitate');
+    expect(bulletin).toContain('sforzo bellico');
+    expect(bulletin).toContain('tensione sociale');
+  });
 });

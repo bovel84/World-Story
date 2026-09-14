@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
+import type { WorldEventPayload } from './dispatches';
 
 export interface SSEEvent {
   type: string;
@@ -36,18 +37,20 @@ interface UseSSEOptions {
     newDate?: string;
     newTurn?: number;
   }) => void;
-  // Eventi del mondo generati dalla simulazione live (senza azione del giocatore)
-  onWorldEvent?: (data: {
-    narration: string;
-    events: string[];
-    eventDetails?: Array<{ id: string; date: string; headline: string; detail: string; source: 'world' | 'diplomacy' }>;
-    newTurn: number;
-    newDate: string;
-    changedRegions?: any[];
-  }) => void;
+  // Eventi committati: formato canonico a evento singolo o legacy aggregato.
+  onWorldEvent?: (data: WorldEventPayload) => void;
   onActionVoided?: (data: { action: string; reason: string }) => void;
   // Fase 3: messaggio in arrivo da una chat diplomatica
-  onChatMessage?: (data: { chatId: string; polityId: string; polityName: string; message: any }) => void;
+  onChatMessage?: (data: {
+    chatId: string;
+    polityId: string;
+    polityName: string;
+    participants?: Array<{ id: string; name: string; color: string; role?: 'player' | 'polity' }>;
+    meetingKind?: 'meeting' | 'summit' | 'negotiation' | 'conference' | 'ultimatum' | 'technical' | 'statement';
+    eventHeadline?: string;
+    senderName?: string;
+    message: any;
+  }) => void;
   // Fase 3: commento proattivo del consulente dopo il turno
   onAdvisorProactive?: (data: { content: string }) => void;
   onError?: (error: any) => void;

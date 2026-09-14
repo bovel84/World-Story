@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const scarLayerSource = fs.readFileSync(path.resolve(__dirname, '..', 'Map', 'TemporalScarLayer.tsx'), 'utf8');
 const mapSource = fs.readFileSync(path.resolve(__dirname, '..', 'Map', 'MapboxMapView.tsx'), 'utf8');
+const mapModelSource = fs.readFileSync(path.resolve(__dirname, '..', 'Map', 'mapModel.ts'), 'utf8');
 const appSource = fs.readFileSync(path.resolve(__dirname, '..', '..', 'App.tsx'), 'utf8');
 const feedSource = fs.readFileSync(path.resolve(__dirname, 'EventFeed.tsx'), 'utf8');
 
@@ -44,5 +45,16 @@ describe('G4-C — cicatrice temporale e dispacci con causa e mappa', () => {
 
   it('«Mostra sulla mappa» seleziona la regione senza mutare il mondo', () => {
     expect(appSource).toContain('setSelectedRegion(regionId)');
+  });
+
+  it('mostra unità, fortificazioni e cantieri come contatori territoriali distinti', () => {
+    expect(mapModelSource).toContain("fortification: { color:");
+    expect(mapModelSource).toContain("construction_site: { color:");
+    expect(mapSource).toContain("const militaryTypes = new Set(['army', 'battalion', 'fleet', 'missile'])");
+    expect(mapSource).toContain("obj.type === 'construction_site'");
+    expect(mapModelSource).toContain("mobilization: { color:");
+    expect(mapModelSource).toContain('plannedType');
+    expect(mapSource).toContain("anchor: 'center', offset");
+    expect(mapSource).toContain('objectOwnerColor');
   });
 });

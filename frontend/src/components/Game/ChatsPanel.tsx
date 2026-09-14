@@ -13,6 +13,8 @@ import { chatsApi } from '../../services/api';
 import { useChatStore } from '../../stores';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import type { Region } from '../../types';
+import { publicNarrativeText } from '../../services/publicNarrative';
+import { formatGameDate, formatChatStamp, orderChatsByLatest } from './chatTimeline';
 
 interface ChatsPanelProps {
   gameId: string;
@@ -28,15 +30,6 @@ interface PolityOption {
   id: string;
   name: string;
   color: string;
-}
-
-function formatGameDate(value?: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '');
-  if (!match) return '';
-  const months = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
-  // Leggiamo la data di simulazione come calendario, mai come timestamp locale:
-  // così una chat non mostra date di sistema o scostamenti di fuso orario.
-  return `${Number(match[3])} ${months[Number(match[2]) - 1]} ${match[1]}`;
 }
 
 const ISO3_TO_ISO2: Record<string, string> = {
@@ -80,6 +73,8 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
   const [error, setError] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const playerRegion = regions.find(region => region.owner === playerPolityId);
+  const playerPolityName = playerRegion?.polityName || playerRegion?.name || playerPolityId;
 
   // Partita locale senza backend — chat non disponibili
   const isLocal = gameId.startsWith('local_');
@@ -250,10 +245,12 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     const region = regions.find(r => r.owner === polityId || r.polityName === name || r.name === name);
     return flagEmoji(region?.flag || polityId);
   };
-  const messageMeta = (message: { turn?: number; gameDate?: string }) => {
-    const parts = [message.turn ? `T${message.turn}` : '', formatGameDate(message.gameDate)].filter(Boolean);
-    return parts.join(' · ') || 'Data di simulazione non registrata';
-  };
+  const messageMeta = (message: { turn?: number; gameDate?: string }) =>
+    formatGameDate(message.gameDate) || 'Data non registrata';
+
+  // Elenco sempre dal più recente: una chat appena aggiornata sale in cima,
+  // così si vede subito quale conversazione è l'ultima.
+  const orderedChats = orderChatsByLatest(chats);
 
   // Colore del mittente dai partecipanti della chat attiva
   const senderColor = (name: string): string => {
@@ -278,6 +275,12 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
           </span>
           <span className="chat-thread-title">{activeTitle}</span>
           {activeInterlocutors.length > 1 && <span className="group-chat-badge">Gruppo · {activeInterlocutors.length}</span>}
+          <span className="chat-thread-stamp" title="Data dell'ultimo messaggio">
+            {formatChatStamp(
+              activeMessages.length ? activeMessages[activeMessages.length - 1].gameDate : activeChat?.lastMessageGameDate,
+              activeChat?.lastMessageAt || activeChat?.createdAt,
+            )}
+          </span>
           <button
             className="btn-chat-auto"
             onClick={handleAutoChat}
@@ -308,14 +311,14 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
                 {m.role === 'player' && (
                   <div className="chat-message-meta player-meta">
                     <span className="chat-flag" title="La tua nazione">{flagForPolity(activeChat?.participants?.find(p => p.role === 'player')?.id)}</span>
-                    <span>Tu · {messageMeta(m)}</span>
+                    <span>{playerPolityName} · {messageMeta(m)}</span>
                   </div>
                 )}
                 <div
                   className={`chat-bubble ${m.role}`}
                   style={m.role === 'polity' ? { '--nation-color': senderColor(m.senderName || '') } as React.CSSProperties : undefined}
                 >
-                  {m.content}
+                  {publicNarrativeText(m.content, playerPolityName)}
                 </div>
               </div>
             ))
@@ -415,23 +418,35 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
             Premi «Nuova chat» per aprire un canale diplomatico.
           </div>
         ) : (
-          chats.map(c => {
+          orderedChats.map(c => {
             const interlocutors = c.participants?.filter(p => p.role !== 'player') || [];
-            const title = interlocutors.length > 0 ? interlocutors.map(p => p.name).join(' · ') : c.polityName;
+            const title = interlocutors.length > 0
+              ? interlocutors.map(p => p.name).join(' · ')
+              : c.polityName || 'Trattativa diplomatica';
+            const stamp = formatChatStamp(c.lastMessageGameDate, c.lastMessageAt || c.createdAt);
+            const unread = c.unread > 0;
             return (
-            <div key={c.id} className="chat-item" onClick={() => openChat(c.id)}>
+            <div
+              key={c.id}
+              className={`chat-item${unread ? ' unread' : ''}`}
+              onClick={() => openChat(c.id)}
+              title={stamp ? `${title} · ultimo messaggio ${stamp}` : title}
+            >
               <span className="chat-list-flags">
                 {(interlocutors.length ? interlocutors : [{ id: c.polityId, name: c.polityName }]).slice(0, 3).map((p: any, i) => (
                   <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
                 ))}
               </span>
               <div className="chat-item-main">
-                <div className="chat-item-name">{title}</div>
+                <div className="chat-item-top">
+                  <span className="chat-item-name">{title}</span>
+                  {stamp && <time className="chat-item-date" dateTime={c.lastMessageAt || c.lastMessageGameDate}>{stamp}</time>}
+                </div>
                 {interlocutors.length > 1 && <span className="group-chat-badge compact">Gruppo · {interlocutors.length}</span>}
                 {c.lastMessage && <div className="chat-item-last">{c.lastMessage}</div>}
               </div>
               {c.lastMessage && <span className="chat-list-reaction" title={reactionForMessage(c.lastMessage).label}>{reactionForMessage(c.lastMessage).icon}</span>}
-              {c.unread > 0 && <span className="chat-unread-badge">{c.unread}</span>}
+              {unread && <span className="chat-unread-badge" title={`${c.unread} messaggi non letti`}>{c.unread}</span>}
             </div>
             );
           })

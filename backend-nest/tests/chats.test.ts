@@ -13,7 +13,20 @@ let getSessionRegistry: any;
 let capturedPrompt = '';
 let capturedChatPrompt = '';
 let chatReply = 'Accettiamo il patto di non aggressione alle condizioni discusse.';
-let stubStartChat: { polityName: string; topic: string }[] = [];
+let chatShouldFail = false;
+let stubStartChat: Array<{
+  polityName?: string;
+  participants?: string[];
+  topic: string;
+  kind?: 'meeting' | 'summit' | 'negotiation' | 'conference' | 'ultimatum' | 'technical' | 'statement';
+  eventHeadline?: string;
+}> = [];
+let stubEventReactions: Array<{
+  polityName: string;
+  role: 'counterparty' | 'ally' | 'mediator' | 'observer';
+  stance: 'supportive' | 'opposed' | 'conditional' | 'neutral';
+  response: string;
+}> = [];
 let stubRelationshipChanges: any[] = [];
 
 const WORLD_ID = 'chats_world';
@@ -21,7 +34,7 @@ const WORLD_ID = 'chats_world';
 function jumpResponse(): any {
   return {
     events: [
-      { headline: 'Vertice di frontiera', description: 'Le delegazioni firmano un protocollo di sicurezza.', date: '1951-02-01', mapChanges: [] },
+      { headline: 'Vertice di frontiera', description: 'Le delegazioni discutono un protocollo di sicurezza.', date: '1951-02-01', mapChanges: [], reactions: stubEventReactions },
     ],
     narration: 'Un mese di diplomazia prudente modifica gli equilibri regionali.',
     voided: [],
@@ -43,6 +56,7 @@ const stubProvider: any = {
       return { content: JSON.stringify(jumpResponse()) };
     }
     if (mechanic === 'chat') {
+      if (chatShouldFail) throw new Error('modello free temporaneamente non disponibile');
       if (user.includes('moderatore invisibile')) {
         return { content: JSON.stringify({ speaker: 'Cecoslovacchia' }) };
       }
@@ -99,7 +113,9 @@ beforeEach(() => {
   capturedPrompt = '';
   capturedChatPrompt = '';
   chatReply = 'Accettiamo il patto di non aggressione alle condizioni discusse.';
+  chatShouldFail = false;
   stubStartChat = [];
+  stubEventReactions = [];
   stubRelationshipChanges = [];
 });
 
@@ -185,6 +201,127 @@ describe('Chat diplomatiche', () => {
     expect(session.getTimeline().flatMap((entry: any) => entry.events)).toEqual(expect.arrayContaining([
       expect.objectContaining({ source: 'diplomacy', chatId: chat.id, date: '1951-01-31' }),
     ]));
+  });
+
+  it('un evento auto-jump apre una riunione con tutte le nazioni coinvolte', async () => {
+    stubStartChat = [{
+      participants: ['Polonia', 'Cecoslovacchia'],
+      topic: 'Convocazione urgente per concordare osservatori e regole comuni lungo la frontiera.',
+      kind: 'meeting',
+      eventHeadline: 'Vertice di frontiera',
+    }];
+    const { session } = createGame();
+    const sseEvents: { type: string; data: any }[] = [];
+    session.setSSEBroadcaster((type: any, data: any) => sseEvents.push({ type, data }));
+
+    session.queueAction('Convocare consultazioni con i vicini');
+    await session.processNextAction(0);
+
+    const chat = session.getChats()[0];
+    expect(chat.participants.filter((p: any) => p.role === 'polity').map((p: any) => p.id))
+      .toEqual(['POL', 'CZE']);
+    const firstMessage = session.getChatMessages(chat.id)[0];
+    expect(firstMessage.senderName).toBe('Polonia');
+    expect(firstMessage.gameDate).toBe('1951-02-01');
+    expect(firstMessage.content).toContain('osservatori');
+    expect(sseEvents.find(e => e.type === 'chat_message')?.data).toEqual(expect.objectContaining({
+      chatId: chat.id,
+      meetingKind: 'meeting',
+      eventHeadline: 'Vertice di frontiera',
+    }));
+    expect(session.getTimeline().flatMap((entry: any) => entry.events)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'diplomacy',
+        chatId: chat.id,
+        date: '1951-02-01',
+        headline: expect.stringContaining('riunione multilaterale'),
+      }),
+    ]));
+    // Coerenza dei soggetti: la riunione è fra Polonia e Cecoslovacchia e il
+    // dispaccio non deve farvi comparire anche la nazione del giocatore.
+    const meetingEvent = session.getTimeline().flatMap((entry: any) => entry.events)
+      .find((event: any) => event.chatId === chat.id);
+    expect(meetingEvent.detail).toContain('prendono parte Polonia, Cecoslovacchia.');
+    expect(meetingEvent.detail).not.toContain('Germania');
+  });
+
+  it('rende visibili le reazioni autonome e apre i canali delle controparti', async () => {
+    stubEventReactions = [
+      {
+        polityName: 'Polonia',
+        role: 'counterparty',
+        stance: 'opposed',
+        response: 'Varsavia respinge il dispositivo unilaterale e chiede il ritiro delle unità avanzate.',
+      },
+      {
+        polityName: 'Cecoslovacchia',
+        role: 'mediator',
+        stance: 'conditional',
+        response: 'Praga offre una missione di osservazione soltanto con mandato concordato da entrambe le parti.',
+      },
+    ];
+    const { session } = createGame();
+    const sseEvents: { type: string; data: any }[] = [];
+    session.setSSEBroadcaster((type: any, data: any) => sseEvents.push({ type, data }));
+
+    session.queueAction('Imporre un dispositivo di frontiera alla Polonia con mediazione cecoslovacca');
+    await session.processNextAction(0);
+
+    const chats = session.getChats();
+    expect(chats.map((chat: any) => chat.polityId).sort()).toEqual(['CZE', 'POL']);
+    expect(session.getChatMessages(chats.find((chat: any) => chat.polityId === 'POL').id)[0].content)
+      .toContain('respinge');
+    expect(session.getChatMessages(chats.find((chat: any) => chat.polityId === 'CZE').id)[0].content)
+      .toContain('mandato concordato');
+    const worldEvent = session.getTimeline().flatMap((entry: any) => entry.events)
+      .find((event: any) => event.headline === 'Vertice di frontiera');
+    expect(worldEvent.detail).toContain('Reazioni internazionali:');
+    expect(worldEvent.detail).toContain('Polonia si dichiara contraria');
+    expect(worldEvent.detail).toContain('Cecoslovacchia si dichiara condizionata');
+    expect(sseEvents.filter(event => event.type === 'chat_message')).toHaveLength(2);
+  });
+
+  it('genera una reazione fallback quando il provider omette reactions', async () => {
+    const { session } = createGame();
+    session.queueAction('Inviare un ultimatum alla Polonia');
+
+    await session.processNextAction(0);
+
+    await vi.waitFor(() => {
+      const chat = session.getChats().find((item: any) => item.polityId === 'POL');
+      expect(chat).toBeTruthy();
+      expect(session.getChatMessages(chat.id)[0].content).toBe(chatReply);
+    });
+  });
+
+  it('usa una presa d’atto prudente se il modello free fallisce nella reazione fallback', async () => {
+    chatShouldFail = true;
+    const { session } = createGame();
+    session.queueAction('Inviare una richiesta formale alla Polonia');
+
+    await session.processNextAction(0);
+
+    await vi.waitFor(() => {
+      const chat = session.getChats().find((item: any) => item.polityId === 'POL');
+      expect(chat).toBeTruthy();
+      expect(session.getChatMessages(chat.id)[0].content.toLowerCase()).toContain('non considera concluso alcun accordo');
+      expect(session.getChatMessages(chat.id)[0].content).toContain('priorità');
+    });
+  });
+
+  it('non apre in auto-jump una chat collegata a un evento non applicato', async () => {
+    stubStartChat = [{
+      participants: ['Polonia', 'Cecoslovacchia'],
+      topic: 'Discussione riferita a un futuro che non è entrato nel mondo.',
+      kind: 'conference',
+      eventHeadline: 'Evento futuro scartato',
+    }];
+    const { session } = createGame();
+    session.queueAction('Osservare gli sviluppi diplomatici');
+
+    await session.processNextAction(0);
+
+    expect(session.getChats()).toHaveLength(0);
   });
 
   it('rewind ripristina le chat del checkpoint e rimuove i messaggi futuri', async () => {

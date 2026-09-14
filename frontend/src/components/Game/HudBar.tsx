@@ -21,6 +21,7 @@ import React, { useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { TimeDesk } from './TimeDesk';
 import type { TimelineEntry, TimelineEvent } from '../../services/api';
+import { publicNarrativeText } from '../../services/publicNarrative';
 
 // ============================================================================
 // Tipi
@@ -50,6 +51,8 @@ export interface HudBarProps {
   /** Dispacci pronti da consultare nella cronaca laterale. */
   dispatchCount?: number;
   dispatchLive?: boolean;
+  /** Il mondo sta avanzando/generando (salto o turno in elaborazione). */
+  advancing?: boolean;
   /** Ordini già registrati: saranno presi in carico al salto. */
   pendingOrdersCount?: number;
   onOpenDispatches?: () => void;
@@ -70,6 +73,7 @@ export interface HudBarProps {
   /** G22: il checkpoint in lettura è gestito solo dal lettore di sessione. */
   activePlayback?: { simulationId: string; eventId: string; revision?: number } | null;
   onFocusPlaybackReader?: () => void;
+  playerPolityName?: string;
 }
 
 export interface TimelinePanelProps {
@@ -94,6 +98,7 @@ export interface TimelinePanelProps {
   onFocusPlaybackReader?: () => void;
   /** Chiudi il pannello */
   onClose: () => void;
+  playerPolityName?: string;
 }
 
 // ============================================================================
@@ -147,6 +152,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   activePlayback,
   onFocusPlaybackReader,
   onClose,
+  playerPolityName,
 }) => {
   const [showHistory, setShowHistory] = useState(true);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
@@ -159,7 +165,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
       return [{
         id: `turn-${entry.turn}`,
         date: entry.date,
-        headline: `Turno ${entry.turn}`,
+        headline: `Cronaca del ${formatDateIt(entry.date)}`,
         detail: entry.narration,
         source: 'world' as const,
         turn: entry.turn,
@@ -240,11 +246,11 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                       <span className="hud-timeline-entry-turn">T{event.turn}</span>
                       {event.source === 'diplomacy' && <span className="hud-timeline-source">Diplomazia</span>}
                     </span>
-                    <span className="hud-timeline-entry-title">{event.headline}</span>
+                    <span className="hud-timeline-entry-title">{publicNarrativeText(event.headline, playerPolityName)}</span>
                     <span className="hud-timeline-chevron" aria-hidden="true">{expanded ? '−' : '+'}</span>
                   </button>
                   {expanded && event.detail && (
-                    <div className="hud-timeline-entry-detail">{event.detail}</div>
+                    <div className="hud-timeline-entry-detail">{publicNarrativeText(event.detail, playerPolityName)}</div>
                   )}
                   {expanded && isActivePlaybackEvent && (
                     <div className="hud-timeline-active-reader">
@@ -315,6 +321,7 @@ export const HudBar: React.FC<HudBarProps> = ({
   ongoingProcesses,
   dispatchCount = 0,
   dispatchLive = false,
+  advancing = false,
   pendingOrdersCount = 0,
   onOpenDispatches,
   onTimelineOpen,
@@ -325,6 +332,7 @@ export const HudBar: React.FC<HudBarProps> = ({
   onContinueFrom,
   activePlayback,
   onFocusPlaybackReader,
+  playerPolityName,
 }) => {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [timeDeskOpen, setTimeDeskOpen] = useState(false);
@@ -384,13 +392,23 @@ export const HudBar: React.FC<HudBarProps> = ({
       <div className="hud-right">
         <button
           type="button"
-          className="hud-advance-btn"
+          className={`hud-advance-btn${advancing ? ' hud-advance-btn--busy' : ''}`}
           onClick={openTimeDesk}
           disabled={loading || !!activePlayback}
-          aria-label={pendingOrdersCount ? `Avanza il tempo: ${pendingOrdersCount} ordini pronti` : 'Avanza il tempo'}
+          aria-busy={advancing || undefined}
+          aria-label={advancing ? 'Il mondo sta avanzando: generazione in corso' : pendingOrdersCount ? `Avanza il tempo: ${pendingOrdersCount} ordini pronti` : 'Avanza il tempo'}
         >
-          <span>Avanza</span>
-          {pendingOrdersCount > 0 && <b>{pendingOrdersCount}</b>}
+          {advancing ? (
+            <>
+              <span className="hud-advance-spinner" aria-hidden="true" />
+              <span>Genera…</span>
+            </>
+          ) : (
+            <>
+              <span>Avanza</span>
+              {pendingOrdersCount > 0 && <b>{pendingOrdersCount}</b>}
+            </>
+          )}
         </button>
         <div className="hud-date-pill">
           <button
@@ -443,6 +461,7 @@ export const HudBar: React.FC<HudBarProps> = ({
             activePlayback={activePlayback}
             onFocusPlaybackReader={onFocusPlaybackReader}
             onClose={() => setTimelineOpen(false)}
+            playerPolityName={playerPolityName}
           />
           </AccessibleDialog>
       )}

@@ -790,6 +790,23 @@ export function initDatabase() {
     )
   `);
 
+  // Serie storica dei conti nazionali (una riga per paese e data di gioco,
+  // per ramo). Serve a mostrare tendenze reali nel dossier: nessun valore di
+  // trend è calcolato nel browser a partire da una storia inventata.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS national_account_history (
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL,
+      game_date TEXT NOT NULL,
+      turn INTEGER NOT NULL,
+      polity_id TEXT NOT NULL,
+      account TEXT NOT NULL,
+      recorded_at TEXT NOT NULL,
+      PRIMARY KEY (game_id, branch_id, game_date, polity_id)
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_account_history_game_branch ON national_account_history(game_id, branch_id, polity_id, game_date)');
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS saves (
       id TEXT PRIMARY KEY,

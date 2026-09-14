@@ -35,6 +35,8 @@ export interface ChatRecord {
 /** Riga dell'elenco: con ultimo messaggio e contatore unread */
 export interface ChatSummary extends ChatRecord {
   lastMessage: string | null;
+  /** Data del mondo dell'ultimo messaggio — per ordinare e datare l'elenco. */
+  lastMessageGameDate: string | null;
   unread: number;
 }
 
@@ -159,6 +161,9 @@ export const chatRepository = {
         (SELECT m.content FROM chat_messages m
           WHERE m.chat_id = c.id
           ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1) AS last_message,
+        (SELECT m.game_date FROM chat_messages m
+          WHERE m.chat_id = c.id
+          ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1) AS last_message_game_date,
         (SELECT COUNT(*) FROM chat_messages m
           WHERE m.chat_id = c.id AND m.role = 'polity' AND m.read = 0) AS unread
       FROM chats c
@@ -169,6 +174,7 @@ export const chatRepository = {
     return rows.map(row => ({
       ...rowToChat(row),
       lastMessage: row.last_message || null,
+      lastMessageGameDate: row.last_message_game_date || null,
       unread: Number(row.unread) || 0,
     }));
   },

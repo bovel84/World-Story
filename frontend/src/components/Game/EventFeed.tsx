@@ -9,6 +9,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
+import { publicNarrativeText } from '../../services/publicNarrative';
+import { classifyDispatch } from './dispatchCategory';
 
 export interface FeedItem {
   id: string;
@@ -19,6 +21,8 @@ export interface FeedItem {
   kind: 'timeline' | 'world' | 'live';
   /** G4-C: regioni toccate dall'evento, per «Mostra sulla mappa». */
   regionIds?: string[];
+  /** Letto dal giocatore: i dispacci nuovi arrivano senza questo flag. */
+  read?: boolean;
 }
 
 const ARTICLE_SECTION: Record<FeedItem['kind'], string> = {
@@ -40,6 +44,12 @@ interface EventFeedProps {
   focusedRegionName?: string;
   /** G4-C: seleziona una regione sulla mappa e chiude l'articolo. */
   onFocusRegion?: (regionId: string) => void;
+  /** Segna un singolo dispaccio come letto (all'apertura dell'articolo). */
+  onMarkRead?: (id: string) => void;
+  /** Segna tutti i dispacci come letti. */
+  onMarkAllRead?: () => void;
+  /** La persona al comando compare sempre come la nazione governata. */
+  playerPolityName?: string;
 }
 
 export function EventFeed({
@@ -47,11 +57,20 @@ export function EventFeed({
   processing,
   focusedRegionName,
   onFocusRegion,
+  onMarkRead,
+  onMarkAllRead,
+  playerPolityName,
 }: EventFeedProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
   const closeArticleRef = useRef<HTMLButtonElement>(null);
   const [openArticle, setOpenArticle] = useState<FeedItem | null>(null);
+  const unreadCount = items.reduce((total, item) => total + (item.read ? 0 : 1), 0);
+
+  const openItem = (item: FeedItem) => {
+    setOpenArticle(item);
+    if (!item.read) onMarkRead?.(item.id);
+  };
 
   // Auto-scroll: resta in coda (ultimi eventi in basso) solo se l'utente
   // non ha scrollato indietro manualmente.
@@ -60,7 +79,7 @@ export function EventFeed({
     if (el && stickBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [items, open]);
+  }, [items]);
 
   const handleScroll = () => {
     const el = listRef.current;
@@ -75,13 +94,31 @@ export function EventFeed({
       <div className="event-feed-header">
         <span className="event-feed-title">
           Dispacci del mondo
-          <span className="event-feed-readonly">archivio della simulazione</span>
+          <span className="event-feed-readonly">cronaca internazionale</span>
           {processing && <span className="feed-live-dot" title="Elaborazione in corso" />}
         </span>
         <span className="btn-feed-live" title="Il tempo avanza solo con un comando manuale">
           tempo manuale
         </span>
       </div>
+
+      {(unreadCount > 0 || items.length > 0) && (
+        <div className="event-feed-unread-bar">
+          {unreadCount > 0 ? (
+            <span className="event-feed-unread-count" role="status">
+              <span className="event-feed-unread-dot" aria-hidden="true" />
+              {unreadCount === 1 ? '1 dispaccio da leggere' : `${unreadCount} dispacci da leggere`}
+            </span>
+          ) : (
+            <span className="event-feed-unread-count read-all">Tutti i dispacci letti</span>
+          )}
+          {unreadCount > 0 && onMarkAllRead && (
+            <button type="button" className="event-feed-mark-all" onClick={onMarkAllRead}>
+              Segna tutti come letti
+            </button>
+          )}
+        </div>
+      )}
 
       {focusedRegionName && (
         <div className="event-feed-focus">
@@ -96,24 +133,33 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
           </div>
         ) : (
           items.map((item) => {
-            const isFocus = !!focusedRegionName && item.text.includes(focusedRegionName);
+            const publicHeadline = publicNarrativeText(item.text, playerPolityName);
+            const category = classifyDispatch(item.text, item.detail);
+            const isFocus = !!focusedRegionName && publicHeadline.includes(focusedRegionName);
+            const unread = !item.read;
             return (
               <button
                 key={item.id}
                 type="button"
-                className={`event-feed-item kind-${item.kind}${isFocus ? ' focused' : ''}`}
-                onClick={() => setOpenArticle(item)}
-                aria-label={`Apri il dispaccio: ${item.text}`}
+                className={`event-feed-item kind-${item.kind} cat-${category.key}${isFocus ? ' focused' : ''}${unread ? ' unread' : ''}`}
+                onClick={() => openItem(item)}
+                aria-label={`${unread ? 'Non letto. ' : ''}[${category.label}] Apri il dispaccio: ${publicHeadline}`}
               >
                 <span className="feed-item-date">{formatFeedDate(item.date)}</span>
-                <span className="feed-item-text">{item.text}</span>
+                <span className="feed-item-text">
+                  <span className={`feed-item-badge cat-${category.key}`}>{category.label}</span>
+                  {publicHeadline}
+                </span>
+                {unread && <span className="feed-item-new" title="Da leggere">NUOVO</span>}
               </button>
             );
           })
         )}
       </div>
 
-      {openArticle && (
+      {openArticle && (() => {
+        const articleCategory = classifyDispatch(openArticle.text, openArticle.detail);
+        return (
         <AccessibleDialog
           open={true}
           onClose={() => setOpenArticle(null)}
@@ -126,6 +172,9 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
               <div className="newspaper-masthead">World Story · Archivio</div>
               <div className="newspaper-article-meta">
                 <span>{ARTICLE_SECTION[openArticle.kind]}</span>
+                <span className={`feed-item-badge cat-${articleCategory.key}`}>
+                  {articleCategory.label}
+                </span>
                 <span>{formatFeedDate(openArticle.date)}</span>
               </div>
               <button ref={closeArticleRef} type="button" className="newspaper-article-close" onClick={() => setOpenArticle(null)}>
@@ -133,17 +182,17 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
               </button>
             </header>
             <div className="newspaper-article-body">
-              <p className="newspaper-article-kicker">Dispaccio verificato</p>
-              <h1 id="article-headline">{openArticle.text.replace(/^Evento \d+:\s*/, '')}</h1>
+              <p className="newspaper-article-kicker">Corrispondenza</p>
+              <h1 id="article-headline">{publicNarrativeText(openArticle.text.replace(/^Evento \d+:\s*/, ''), playerPolityName)}</h1>
               <div className="newspaper-article-rule" />
               {openArticle.detail ? (
                 <p className="newspaper-article-why" role="note">
                   <span className="article-why-label">Perché è accaduto:</span>{' '}
-                  {openArticle.detail}
+                  {publicNarrativeText(openArticle.detail, playerPolityName)}
                 </p>
               ) : (
                 <p className="newspaper-article-lead">
-                  Il fatto è stato registrato nella cronaca del turno. Le conseguenze saranno riportate nei prossimi dispacci del mondo.
+                  Non sono ancora disponibili ulteriori particolari su questo sviluppo.
                 </p>
               )}
               {openArticle.regionIds?.length ? (
@@ -160,10 +209,11 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
                   </button>
                 </div>
               ) : null}
-              <p className="newspaper-article-byline">Archivio della simulazione · Consultazione senza effetti sul mondo</p>
+              <p className="newspaper-article-byline">World Story · Redazione internazionale</p>
             </div>
         </AccessibleDialog>
-      )}
+        );
+      })()}
       </section>
   );
 }

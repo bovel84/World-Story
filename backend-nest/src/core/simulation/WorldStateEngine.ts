@@ -30,11 +30,19 @@ export interface NationalAccount {
   ports: number;
   universities: number;
   forces: number;
+  /** Riserve richiamate ma non ancora operative (oggetti "mobilization"). */
+  mobilized: number;
   monthlyRevenue: number;
   monthlyExpenses: number;
   monthlyBalance: number;
   annualGrowthRate: number;
   stability: number;
+  /** Spesa militare in percentuale del PIL nominale (0-100). */
+  defenceBurdenPct: number;
+  /** Indice 0-100 dello sforzo bellico materiale (forze + riserve richiamate). */
+  warEffort: number;
+  /** Indice 0-100 di tensione sociale interna (mobilitazione, casse, università). */
+  socialTension: number;
   /** Scala nominale comparabile fra paesi (miliardi USD, stima 2024). */
   nominalGdpUsdBillions: number;
   gdpPerCapitaUsd: number;
@@ -65,11 +73,15 @@ export class WorldStateEngine {
         ports: 0,
         universities: 0,
         forces: 0,
+        mobilized: 0,
         monthlyRevenue: 0,
         monthlyExpenses: 0,
         monthlyBalance: 0,
         annualGrowthRate: 0,
         stability: 50,
+        defenceBurdenPct: 0,
+        warEffort: 0,
+        socialTension: 0,
         nominalGdpUsdBillions: 0,
         gdpPerCapitaUsd: 0,
         government: governmentForPolity(polityId),
@@ -86,17 +98,22 @@ export class WorldStateEngine {
           case 'port': account.ports += level; break;
           case 'university': account.universities += level; break;
           case 'army': case 'battalion': case 'fleet': case 'missile': account.forces += level; break;
+          case 'mobilization': account.mobilized += level; break;
         }
       }
     }
 
     for (const account of Object.values(accounts)) {
       // Infrastructure affects productive capacity, but is capped so a map
-      // full of objects cannot make an economy explode exponentially.
-      account.annualGrowthRate = Math.min(
+      // full of objects cannot make an economy explode exponentially. Una
+      // nazione che richiama riserve comprime la crescita civile: l'economia
+      // di guerra sottrae manodopera e capitali ai settori produttivi.
+      const baseGrowth = Math.min(
         0.065,
         0.012 + account.factories * 0.0018 + account.ports * 0.001 + account.universities * 0.0012,
       );
+      const warDrag = 1 - Math.min(0.45, account.mobilized * 0.035 + account.forces * 0.004);
+      account.annualGrowthRate = Math.max(0, baseGrowth * warDrag);
       // I valori provinciali sono un indice di simulazione; entrate e uscite
       // usano invece una scala nominale comparabile (miliardi USD), così il
       // bollettino non dipende dal numero di province di una nazione.
@@ -104,14 +121,31 @@ export class WorldStateEngine {
       account.gdpPerCapitaUsd = Math.round(account.nominalGdpUsdBillions * 1_000_000_000 / Math.max(account.population, 1));
       const taxRate = Math.min(0.18, 0.09 + account.factories * 0.00035 + account.ports * 0.0002);
       account.monthlyRevenue = account.nominalGdpUsdBillions * taxRate / 12;
-      const defenceRate = Math.min(0.09, 0.012 + account.forces * 0.0007 + (account.militaryPower / Math.max(account.nominalGdpUsdBillions, 1)) * 0.004);
+      // Le riserve richiamate costano denaro prima ancora di essere operative:
+      // la spesa militare cresce con forze e mobilitazioni e comprime il saldo.
+      const defenceRate = Math.min(
+        0.16,
+        0.012 + account.forces * 0.0007 + account.mobilized * 0.0018
+          + (account.militaryPower / Math.max(account.nominalGdpUsdBillions, 1)) * 0.004,
+      );
+      account.defenceBurdenPct = Math.round(defenceRate * 1000) / 10;
       account.monthlyExpenses = account.nominalGdpUsdBillions * (0.032 + defenceRate) / 12;
       account.monthlyBalance = account.monthlyRevenue - account.monthlyExpenses;
       // A transparent, bounded indicator rather than an LLM-invented value.
+      // Le riserve richiamate pesano sul consenso (logoramento), non solo sull'esercito.
       account.stability = Math.round(Math.max(0, Math.min(100,
         48 + Math.min(24, account.monthlyBalance / Math.max(account.nominalGdpUsdBillions, 1) * 900)
         + Math.min(12, account.universities * 0.8)
-        - Math.min(20, account.forces * 0.35),
+        - Math.min(20, account.forces * 0.35)
+        - Math.min(20, account.mobilized * 3.2),
+      )));
+      const forceLoad = account.forces + account.mobilized * 0.6;
+      account.warEffort = Math.round(Math.max(0, Math.min(100, forceLoad * 3.2 + account.defenceBurdenPct * 2.2)));
+      const deficitRatio = account.monthlyBalance < 0
+        ? Math.min(12, (-account.monthlyBalance) / Math.max(account.nominalGdpUsdBillions, 1) * 700)
+        : 0;
+      account.socialTension = Math.round(Math.max(0, Math.min(100,
+        16 + account.mobilized * 6 + account.forces * 1.4 - account.universities * 1.1 + deficitRatio,
       )));
     }
     return accounts;
@@ -152,6 +186,6 @@ export class WorldStateEngine {
     if (!account) return null;
     const money = (value: number) => new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 }).format(value);
     const sign = account.monthlyBalance >= 0 ? '+' : '−';
-    return `Quadro nazionale: ${account.government}; popolazione ${money(account.population)}; PIL nominale stimato $${money(account.nominalGdpUsdBillions)} mld (circa $${money(account.gdpPerCapitaUsd)} pro capite). Bilancio mensile: entrate ${money(account.monthlyRevenue)}, uscite ${money(account.monthlyExpenses)}, saldo ${sign}${money(Math.abs(account.monthlyBalance))}. Crescita annua ${Math.round(account.annualGrowthRate * 1000) / 10}%, stabilità ${account.stability}/100.`;
+    return `Quadro nazionale: ${account.government}; popolazione ${money(account.population)}; PIL nominale stimato $${money(account.nominalGdpUsdBillions)} mld (circa $${money(account.gdpPerCapitaUsd)} pro capite). Bilancio mensile: entrate ${money(account.monthlyRevenue)}, uscite ${money(account.monthlyExpenses)}, saldo ${sign}${money(Math.abs(account.monthlyBalance))} (spesa militare ${money(account.defenceBurdenPct)}% del PIL). Crescita annua ${Math.round(account.annualGrowthRate * 1000) / 10}%, stabilità ${account.stability}/100. Riserve mobilitate: ${money(account.mobilized)}; sforzo bellico ${account.warEffort}/100; tensione sociale ${account.socialTension}/100.`;
   }
 }

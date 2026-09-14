@@ -54,6 +54,7 @@ function chatPayload(chat: any) {
     participants: chat.participants,
     createdAt: chat.createdAt,
     lastMessageAt: chat.lastMessageAt,
+    lastMessageGameDate: chat.lastMessageGameDate ?? null,
     lastMessage: chat.lastMessage ?? null,
     unread: Number(chat.unread) || 0,
   };

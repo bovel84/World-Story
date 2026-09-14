@@ -30,7 +30,9 @@ import { useGameStore, useUIStore, useActionsStore, useChatStore, selectTotalUnr
 import type { ActiveModule } from './stores/moduleState';
 import { useSimulationStore } from './stores/simulationRuntime';
 import { useSSE } from './services/sse';
+import { normalizeWorldEventPayload } from './services/dispatches';
 import { EventFeed, type FeedItem } from './components/Game/EventFeed';
+import { countUnread, markItemRead, markAllRead } from './components/Game/feedUnread';
 import { NewsFlash } from './components/Game/NewsFlash';
 import { ActionsPanel } from './components/Game/ActionsPanel';
 import { NationDock } from './components/Game/NationDock';
@@ -44,7 +46,6 @@ import { ProvinceInspector } from './components/Shell/ProvinceInspector';
 import { GameShell } from './components/Shell/GameShell';
 import { ConfirmDialog } from './components/ui/ConfirmDialog';
 import { useToast } from './components/ui/ToastProvider';
-import { MapLegend } from './components/Shell/MapLegend';
 
 // DISATTIVATO: editor mappe (temporaneo) — helper punti nel path SVG usato solo
 // al salvataggio mappe dall’editor (handleSaveMapLocal/handleSaveMap)
@@ -244,6 +245,8 @@ function App() {
   // Collegamento di chatStore alla partita corrente (cambiando partita il feed del consulente si azzera)
   const currentGameId = currentGame?.id || null;
   const [nationalAccounts, setNationalAccounts] = useState<Record<string, any>>({});
+  // Storico dei conti del paese giocatore: alimenta le tendenze del Dossier.
+  const [nationalHistory, setNationalHistory] = useState<Array<{ date: string; turn?: number; account: Record<string, any> }>>([]);
   const [mandateDecisions, setMandateDecisions] = useState<Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>>([]);
   useEffect(() => {
     const chatStore = useChatStore.getState();
@@ -312,6 +315,9 @@ function App() {
       date,
       detail,
       regionIds: regionIds?.length ? regionIds : undefined,
+      // Ogni nuovo dispaccio arriva da leggere; l'archivio viene marcato letto
+      // al pre-caricamento della timeline.
+      read: false,
     };
     setFeedItems(prev => {
       if (eventId && prev.some(existing => existing.id === item.id)) return prev;
@@ -334,11 +340,40 @@ function App() {
     setNewsOpen(false);
   }, [currentGameId]);
 
+  /** Riconcilia i dettagli restituiti via HTTP con lo stesso feed dell'SSE.
+   * Gli ID canonici rendono innocui ordine di arrivo e duplicati per azione. */
+  const publishEventDetails = useCallback((details: any[]) => {
+    const unique = new Map<string, any>();
+    for (const detail of details || []) {
+      if (!detail?.headline) continue;
+      const key = detail.id || `${detail.date || ''}|${detail.headline}`;
+      if (!unique.has(key)) unique.set(key, detail);
+    }
+    for (const detail of unique.values()) {
+      pushFeed(detail.headline, 'world', detail.date, detail.detail, detail.id, true);
+    }
+  }, [pushFeed]);
+
+  /** Segna un dispaccio come letto (apertura articolo o dismissione notizia). */
+  const markFeedRead = useCallback((id: string) => {
+    setFeedItems(prev => markItemRead(prev, id));
+  }, []);
+
+  /** «Segna tutti come letti» dal pannello Dispacci. */
+  const markAllFeedRead = useCallback(() => {
+    setFeedItems(prev => markAllRead(prev));
+  }, []);
+
   const dismissNews = (showNext: boolean) => {
+    const current = newsQueue[0];
+    if (current) markFeedRead(current.id);
     const hasNext = newsQueue.length > 1;
     setNewsQueue(prev => prev.slice(1));
     setNewsOpen(showNext && hasNext);
   };
+
+  /** Dispacci ancora da leggere: il badge della HUD mostra questo, non il totale. */
+  const unreadFeedCount = React.useMemo(() => countUnread(feedItems), [feedItems]);
 
   // Al cambio partita: prediscarica la cronaca storica dalla timeline
   useEffect(() => {
@@ -350,15 +385,16 @@ function App() {
         const items: FeedItem[] = [];
         for (const entry of data.timeline || []) {
           for (const ev of entry.events || []) {
-            items.push({ id: `tl-${ev.id}`, date: ev.date, text: ev.headline, detail: ev.detail || entry.narration, kind: 'timeline' });
+            items.push({ id: `tl-${ev.id}`, date: ev.date, text: ev.headline, detail: ev.detail || entry.narration, kind: 'timeline', read: true });
           }
         }
         setTimeline(data.timeline || []);
         setFeedItems(prev => {
           // SSE è istantaneo quando il proxy lo consente; questo merge è il
           // recupero affidabile quando lo stream viene chiuso da Cloudflare.
+          // I dispacci già presenti conservano il loro stato di lettura.
           const byId = new Map(prev.map(item => [item.id, item]));
-          for (const item of items) byId.set(item.id, item);
+          for (const item of items) if (!byId.has(item.id)) byId.set(item.id, item);
           return [...byId.values()].slice(-120);
         });
       })
@@ -371,13 +407,13 @@ function App() {
 
   // Il bollettino usa dati aggregati dal motore, non formule del browser.
   useEffect(() => {
-    if (!currentGameId) { setNationalAccounts({}); setMandateDecisions([]); return; }
+    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setMandateDecisions([]); return; }
     let cancelled = false;
     // Il conto nazionale è disponibile anche nei giochi legacy; le decisioni
     // mandato appartengono invece solo al percorso strict e un 409 significa
     // semplicemente «nessuna decisione applicabile», non un errore del dossier.
     gameApi.nationalState(currentGameId)
-      .then((national) => { if (!cancelled) setNationalAccounts(national.accounts || {}); })
+      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); } })
       .catch(error => console.warn('[App] Impossibile caricare il conto nazionale:', error));
     gameApi.mandateDecisions(currentGameId)
       .then((decisions) => { if (!cancelled) setMandateDecisions(decisions.decisions || []); })
@@ -787,6 +823,8 @@ function App() {
     }
 
     setLoading(true);
+    setIsProcessingTurn(true);
+    setTurnProgress('Avvio della simulazione…');
     // F06 µ2: token di generazione — game switch e restore invalidano questa risposta.
     const commandToken = useSimulationStore.getState().beginCommand();
 
@@ -802,17 +840,21 @@ function App() {
       // F06 µ2: l’esito va allo stesso reducer di SSE e polling.
       const sim = useSimulationStore.getState();
       if (result.type === 'world_advanced' && result.revision) {
-        for (const detail of result.result?.eventDetails || []) {
+        const details = result.result?.eventDetails || [];
+        for (const detail of details) {
           sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: detail.id, payload: { event: { id: detail.id, date: detail.date, headline: detail.headline, detail: detail.detail, source: detail.source }, changedRegions: [] } });
         }
+        publishEventDetails(details);
         if (!result.result?.eventDetails?.length && result.simulationId) {
           sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: result.simulationId, payload: { event: { id: result.simulationId, date: result.result?.periodEnd || '', headline: result.result?.narration || 'Periodo', source: 'world' }, changedRegions: [] } });
         }
       }
       if (result.type === 'actions_processed' && result.revision) {
-        for (const detail of (result.actions || []).flatMap(a => a.result?.eventDetails || [])) {
+        const details = (result.actions || []).flatMap(a => a.result?.eventDetails || []);
+        for (const detail of details) {
           sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: detail.id, payload: { event: { id: detail.id, date: detail.date, headline: detail.headline, detail: detail.detail, source: detail.source }, changedRegions: [] } });
         }
+        publishEventDetails(details);
       }
       if (result.type === 'awaiting_next' && result.event) {
         sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: result.event.id, payload: { event: { id: result.event.id, date: result.event.date, headline: result.event.headline, detail: result.event.detail, source: result.event.source }, awaitingNext: { remaining: result.remaining ?? 0, destination: result.destination }, checkpointId: result.checkpointId, changedRegions: result.changedRegions } });
@@ -911,27 +953,15 @@ function App() {
       // possono arrivare in ordini diversi o lo stream può essere perso.
       const authoritativeGame = await gameApi.get(currentGame.id);
       setCurrentGame(authoritativeGame);
-      if (authoritativeGame.world && currentWorld) {
-        const regions = { ...currentWorld.regions };
-        const serverRegions = Array.isArray(authoritativeGame.world.regions)
-          ? authoritativeGame.world.regions
-          : Object.values(authoritativeGame.world.regions);
-        for (const region of serverRegions as any[]) {
-          if (regions[region.id]) {
-            regions[region.id] = {
-              ...regions[region.id],
-              owner: region.owner,
-              color: region.color,
-              population: region.population,
-              militaryPower: region.militaryPower,
-              gdp: region.gdp,
-              objects: region.objects ?? regions[region.id].objects,
-            };
-          }
-        }
-        setCurrentWorld({ ...currentWorld, regions });
-      }
-      await handleTimelineOpen();
+      // The complete snapshot includes names, geometry and newly added regions;
+      // a whitelist merge against the pre-turn world silently discarded them.
+      if (authoritativeGame.world) setCurrentWorld(authoritativeGame.world);
+      // Anche senza SSE, il polling finale deve rendere subito visibili nuove
+      // riunioni e badge diplomatici nati dagli eventi appena committati.
+      await Promise.all([
+        handleTimelineOpen(),
+        useChatStore.getState().refreshChats(),
+      ]);
     } catch (e: any) {
       console.error('Time-skip failed:', e);
       // Se il client è rimasto indietro (tab in background, refresh o SSE
@@ -950,9 +980,10 @@ function App() {
         setTurnProgress(simulationErrorMessage(e));
         setTimeout(() => setTurnProgress(''), 8000);
       }
+    } finally {
+      setLoading(false);
+      setIsProcessingTurn(false);
     }
-
-    setLoading(false);
   };
 
   // Fase 2: Rewind — torna al turno precedente
@@ -1458,6 +1489,7 @@ function App() {
       setTimelineNextAfter(timelineData.nextAfter ?? 0);
       setOngoingProcesses(processData.processes || []);
       setNationalAccounts(nationalData.accounts || {});
+      setNationalHistory(nationalData.history || []);
       setFeedItems([]);
       clearOrderDraft();
       clearSuggestions();
@@ -1762,7 +1794,15 @@ function App() {
     // Messaggio diplomatico live: aggiorna thread/lista e badge senza polling.
     onChatMessage: (data) => {
       const chatStore = useChatStore.getState();
+      const isNewChannel = !chatStore.chats.some(chat => chat.id === data.chatId);
       chatStore.handleIncomingChatMessage(data);
+      if (isNewChannel) {
+        const interlocutors = (data.participants || [])
+          .filter(participant => participant.role !== 'player')
+          .map(participant => participant.name);
+        const label = interlocutors.length > 1 ? 'Nuova riunione diplomatica' : 'Nuovo canale diplomatico';
+        notify(`${label}${interlocutors.length ? `: ${interlocutors.join(', ')}` : ''}`, 'info');
+      }
       const updated = useChatStore.getState();
       if (updated.chatPanelVisible && updated.activeChatId === data.chatId && currentGame?.id) {
         chatsApi.markRead(currentGame.id, data.chatId)
@@ -1780,21 +1820,28 @@ function App() {
         });
       }
     },
-    // Eventi del battito del mondo: la simulazione live avanza anche senza azioni
+    // Dispacci committati: l'outbox F02 invia un evento canonico alla volta;
+    // advanceDate e i server precedenti possono ancora inviare un blocco.
     onWorldEvent: (data) => {
       console.log('[SSE] World event:', data);
-      const worldRegionIds = (data.changedRegions || []).map((r: any) => r.id);
-      for (const [index, ev] of (data.events || []).entries()) {
-        const detail = data.eventDetails?.[index];
-        pushFeed(ev, 'world', detail?.date || data.newDate, detail?.detail, detail?.id, true, index === 0 ? worldRegionIds : undefined);
+      for (const dispatch of normalizeWorldEventPayload(data)) {
+        pushFeed(
+          dispatch.headline,
+          'world',
+          dispatch.date,
+          dispatch.detail,
+          dispatch.eventId,
+          true,
+          dispatch.regionIds,
+        );
       }
-      // Aggiorna data/turno e le regioni cambiate (conquisti NPC ecc.) —
-      // G4-C: il passaggio da applyCheckpointRegions cattura anche le cicatrici.
+      // Aggiorna data/turno e le regioni cambiate (payload aggregato legacy).
+      // L'evento outbox singolo viene seguito dal turn_complete autorevole.
       if (data.newTurn && data.newDate) {
         setCurrentGame(prev => prev ? {
           ...prev,
-          currentTurn: data.newTurn,
-          currentDate: data.newDate,
+          currentTurn: data.newTurn!,
+          currentDate: data.newDate!,
         } : prev);
       }
       if (data.changedRegions?.length) {
@@ -1809,7 +1856,7 @@ function App() {
       // Il run scaglionato è chiuso: il lettore non chiede più decisioni.
       setPausedReader(null);
       if (data?.pausedBudget) {
-        pushFeed('⏸ Budget di simulazione esaurito: destinazione non raggiunta. Avanza di nuovo per continuare il periodo.', 'world', data.newDate);
+        pushFeed('Nessun ulteriore sviluppo viene confermato nel periodo. Avanza di nuovo per proseguire la cronaca.', 'world', data.newDate);
       }
 
       // Il feed: gli eventi «live» di questo turno diventano eventi definitivi
@@ -1873,16 +1920,21 @@ function App() {
     },
     onError: (error) => {
       console.error('[SSE] Error:', error);
-      setIsProcessingTurn(false);
-      activeSimulationIdRef.current = undefined;
-      setTurnProgress('');
+      // Il job HTTP asincrono resta autorevole anche se Cloudflare interrompe
+      // temporaneamente SSE: non nascondere il progresso né sbloccare Avanza.
     },
   });
 
+  // Keep map props stable when chat/HUD state changes without a world update.
+  const regions: Region[] = React.useMemo(() => Object.values(currentWorld?.regions || {}), [currentWorld?.regions]);
+  useEffect(() => {
+    if (!currentWorld) return;
+    if (selectedRegion && !currentWorld.regions[selectedRegion]) setSelectedRegion(null);
+    if (selectedProvinceId && !currentWorld.regions[selectedProvinceId]) setSelectedProvinceId(null);
+  }, [currentWorld?.regions, selectedRegion, selectedProvinceId, setSelectedRegion]);
+
   const renderGame = () => {
     if (!currentWorld) return null;
-
-    const regions: Region[] = Object.values(currentWorld.regions);
     const currentRegion = regions.find(r => r.id === selectedRegion);
     const provinceMetadata = currentRegion?.metadata || {};
     const isPaxProvince = Boolean(provinceMetadata.pax_region_id);
@@ -1923,7 +1975,7 @@ function App() {
     const externalRegionSelected = Boolean(currentRegion && currentRegion.id !== playerRegionId && currentRegion.owner !== playerPolityId);
     const selectedIsPlayerProvince = Boolean(currentRegion && (currentRegion.id === playerRegionId || currentRegion.owner === playerPolityId));
     const selectedRegionOwnerName = currentRegion?.polityName || currentRegion?.owner || null;
-    const latestNationalNarration = timeline.length > 0 ? timeline[timeline.length - 1].narration : "In attesa del primo dispaccio della simulazione.";
+    const latestNationalNarration = timeline.length > 0 ? timeline[timeline.length - 1].narration : "In attesa del primo dispaccio nazionale.";
 
     // Rail items per CommandRail
     const railItems = [
@@ -1955,7 +2007,7 @@ function App() {
         id: "news" as const,
         icon: "▤",
         label: "Notizie",
-        badge: feedItems.length > 0 ? feedItems.length : 0,
+        badge: unreadFeedCount,
         active: activeModule === "news",
         onClick: () => openModule("news"),
       },
@@ -1972,13 +2024,20 @@ function App() {
     const mapContent = regions.some(r => r.geojson) ? (
       <Suspense fallback={<div className="map-loading-fallback" role="status">Caricamento mappa…</div>}>
         <MapboxMapView
+          key={currentWorld?.id}
           regions={regions}
+          activeLayer={mapLegendLayer}
+          onLayerChange={setMapLegendLayer}
+          filters={mapLegendFilters}
+          onFiltersChange={(partial) => setMapLegendFilters(prev => ({ ...prev, ...partial }))}
           selectedRegionId={selectedRegion || undefined}
           onRegionClick={handleCountryChange}
           changedRegionIds={changedRegions}
           temporalScars={temporalScars}
+          events={feedItems}
+          currentDate={currentGame?.currentDate}
           showFlags={!!selectedCountry}
-          playerCountryCode={selectedCountry || undefined}
+          playerCountryCode={playerPolityId}
         />
       </Suspense>
     ) : regions.some(r => r.svgPath) ? (
@@ -2035,8 +2094,9 @@ function App() {
               timelineHasMore={timelineHasMore}
               timelineLoadingOlder={timelineLoadingOlder}
               ongoingProcesses={ongoingProcesses}
-              dispatchCount={feedItems.length}
+              dispatchCount={unreadFeedCount}
               dispatchLive={isProcessingTurn}
+              advancing={isProcessingTurn}
               pendingOrdersCount={pendingActions.length}
               onOpenDispatches={() => openModule("news")}
               onTimelineOpen={handleTimelineOpen}
@@ -2057,6 +2117,7 @@ function App() {
                 revision: pausedReader.revision,
               } : null}
               onFocusPlaybackReader={() => document.getElementById("simulation-event-reader")?.focus({ preventScroll: true })}
+              playerPolityName={nationalName}
             />
             {newsOpen && (
               <NewsFlash
@@ -2068,10 +2129,12 @@ function App() {
                   dismissNews(false);
                   openModule("news");
                 }}
+                playerPolityName={nationalName}
               />
             )}
             {isProcessingTurn && (
-              <div className="turn-progress-banner">
+              <div className="turn-progress-banner" role="status" aria-live="polite">
+                <span className="turn-progress-spinner" aria-hidden="true" />
                 <span className="turn-progress-text">{turnProgress || "Elaborazione mossa..."}</span>
                 <button
                   className="btn-intervene"
@@ -2088,6 +2151,7 @@ function App() {
                 loading={loading}
                 onContinue={handleContinueNext}
                 onIntervene={handleInterveneHere}
+                playerPolityName={nationalName}
               />
             )}
           </>
@@ -2098,14 +2162,6 @@ function App() {
               items={railItems}
               activeModule={activeModule}
               onModuleClick={openModule}
-            />
-            <MapLegend
-              regions={regions}
-              selectedRegionId={selectedProvinceId}
-              activeLayer={mapLegendLayer}
-              onLayerChange={setMapLegendLayer}
-              filters={mapLegendFilters}
-              onFiltersChange={(partial) => setMapLegendFilters(prev => ({ ...prev, ...partial }))}
             />
           </>
         }
@@ -2129,6 +2185,7 @@ function App() {
               nationalName={nationalName}
               governmentType={governmentType}
               nationalAccount={nationalAccount}
+              nationalHistory={nationalHistory}
               campaignProgress={campaignProgress}
               latestNationalNarration={latestNationalNarration}
               currentRegionOwnerName={selectedRegionOwnerName}
@@ -2165,6 +2222,8 @@ function App() {
                 // dall'evento; la selezione esistente guida già zoom e highlight.
                 setSelectedRegion(regionId);
               }}
+              onMarkFeedRead={markFeedRead}
+              onMarkAllFeedRead={markAllFeedRead}
               playerPolityId={playerPolityId}
               showSaveModal={showSaveModal}
               setShowSaveModal={setShowSaveModal}
@@ -2287,7 +2346,7 @@ function App() {
 
               const gameResponse = await gameApi.create({
                 world_id: worldData.worldId,
-                player_name: 'Player',
+                player_name: countryCode,
                 player_region_id: actualRegionId,
                 difficulty,
               });

@@ -51,6 +51,9 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
   const sourceId = templateId || cloneFromTemplateId;
   const [loading, setLoading] = useState(!!sourceId);
   const [saving, setSaving] = useState(false);
+  const [assisting, setAssisting] = useState(false);
+  const [aiBrief, setAiBrief] = useState('');
+  const [aiNotice, setAiNotice] = useState('');
   const [error, setError] = useState('');
   // M01 µ4: rapporto del catalogo di scenario per la checklist dell'editor.
   const [scenarioReport, setScenarioReport] = useState<ScenarioReportView | null>(null);
@@ -110,6 +113,38 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
       setError('');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'GeoJSON non valido');
+    }
+  };
+
+  const assistWithAi = async () => {
+    if (!aiBrief.trim() && !data.name.trim() && !data.base_prompt.trim()) {
+      setError('Descrivi lo scenario che vuoi creare, anche in poche righe.');
+      return;
+    }
+    setAssisting(true);
+    setError('');
+    setAiNotice('');
+    try {
+      const { preset } = await templatesApi.assistPreset(aiBrief.trim(), {
+        ...data,
+        country_codes: normalizedCodes,
+      });
+      setData(prev => ({
+        ...prev,
+        ...preset,
+        // Un preset già salvato mantiene sempre il proprio identificatore.
+        id: templateId ? prev.id : (preset.id || prev.id),
+        prompts: prev.prompts,
+        author: prev.author,
+        version: prev.version,
+        map_geojson: prev.map_geojson,
+      }));
+      if (preset.country_codes?.length) setCodes(preset.country_codes.join(', '));
+      setAiNotice('Bozza preparata. Controlla e modifica ogni sezione prima di salvarla.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'L’assistente IA non è disponibile.');
+    } finally {
+      setAssisting(false);
     }
   };
 
@@ -175,6 +210,27 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
               <span>Pronto per la simulazione</span>
               <div>{qualityChecks.map(check => <i key={check.label} className={check.ready ? 'ready' : ''}>{check.ready ? '✓' : '○'} {check.label}</i>)}</div>
             </aside>
+
+            <section className="preset-ai-assistant" aria-labelledby="preset-ai-title">
+              <div className="preset-ai-heading">
+                <div>
+                  <span>Assistente scenarista</span>
+                  <strong id="preset-ai-title">Dall’idea a una bozza completa</strong>
+                </div>
+                <button type="button" onClick={assistWithAi} disabled={assisting || loading}>
+                  {assisting ? 'Preparazione…' : (data.name.trim() ? 'Migliora con IA' : 'Crea con IA')}
+                </button>
+              </div>
+              <textarea
+                rows={3}
+                value={aiBrief}
+                onChange={event => setAiBrief(event.target.value)}
+                placeholder="Esempio: Europa nel 1914, crisi di luglio già iniziata, diplomazia rigorosa e mobilitazioni lente…"
+                aria-label="Idea per l’assistente IA"
+              />
+              <small>L’IA propone nome, paesi, premessa, dossier e regole. Nulla viene salvato finché non confermi.</small>
+              {aiNotice && <p className="preset-ai-notice" role="status" aria-live="polite">{aiNotice}</p>}
+            </section>
 
             {tab === 'scenario' && <>
               <p className="preset-guide">Imposta ciò che il giocatore trova al primo giorno. Questa pagina definisce l’identità del pacchetto e le nazioni disponibili; le cause della storia sono nelle sezioni successive.</p>

@@ -1,215 +1,84 @@
-import { useMemo, useState } from 'react';
+import { useId, useState } from 'react';
 import type { Region } from '../../types';
+import { DEFAULT_MAP_FILTERS, type MapFilters, type MapLayer } from '../Map/mapModel';
 
 export interface MapLegendProps {
   regions: Region[];
   selectedRegionId?: string | null;
-  /** Livello attivo: "political" | "terrain" | "changes" */
-  activeLayer: 'political' | 'terrain' | 'changes';
-  onLayerChange: (layer: 'political' | 'terrain' | 'changes') => void;
-  /** Filtri opzionali per il livello politico */
-  filters?: {
-    showCities?: boolean;
-    showPorts?: boolean;
-    showIndustry?: boolean;
-    showUnits?: boolean;
-  };
-  onFiltersChange?: (filters: Partial<MapLegendProps['filters']>) => void;
+  activeLayer: MapLayer;
+  onLayerChange: (layer: MapLayer) => void;
+  filters?: Partial<MapFilters>;
+  onFiltersChange?: (filters: Partial<MapFilters>) => void;
   className?: string;
 }
 
 const LAYERS = [
-  { id: 'political' as const, label: 'Politica', icon: '🗺️' },
-  { id: 'terrain' as const, label: 'Terreno', icon: '⛰️' },
-  { id: 'changes' as const, label: 'Cambiamenti', icon: '⚡' },
-] as const;
-
-const TERRAIN_ITEMS = [
-  { label: 'Pianure e foreste', background: 'linear-gradient(90deg, #2d5a27, #4a7c3a)' },
-  { label: 'Colline', background: 'linear-gradient(90deg, #8b7355, #a68a64)' },
-  { label: 'Montagne', background: 'linear-gradient(90deg, #6b5b4a, #8b7d6b)' },
-  { label: 'Deserti', background: 'linear-gradient(90deg, #d4c48a, #e8d8a8)' },
-  { label: 'Acqua', background: 'linear-gradient(90deg, #1a3a5c, #2d5a8a)' },
-] as const;
-
-const CHANGE_ITEMS = [
-  { label: 'Confine precedente (cicatrice)', swatchStyle: { background: '#e9b85a', border: '2px dashed #9f3028' } },
-  { label: 'Nuovo controllo', swatchStyle: { background: '#9f3028' } },
-  { label: 'Liberato', swatchStyle: { background: '#5fa978' } },
-  { label: 'Conteso', swatchStyle: { background: '#667eea' } },
-] as const;
-
+  { id: 'political' as const, label: 'Politica' },
+  { id: 'terrain' as const, label: 'Terreno' },
+  { id: 'changes' as const, label: 'Modifiche' },
+];
+const FILTERS = [
+  { id: 'showCities' as const, label: 'Città' },
+  { id: 'showPorts' as const, label: 'Porti e basi navali' },
+  { id: 'showIndustry' as const, label: 'Opere e industria' },
+  { id: 'showUnits' as const, label: 'Unità e difese' },
+];
 const LEGEND_COLLAPSED_KEY = 'ws-map-legend-collapsed';
-
 function readCollapsedPreference(): boolean {
-  try {
-    return localStorage.getItem(LEGEND_COLLAPSED_KEY) === '1';
-  } catch {
-    return false;
-  }
+  try { return localStorage.getItem(LEGEND_COLLAPSED_KEY) !== '0'; }
+  catch { return true; }
 }
 
-export function MapLegend({
-  regions,
-  selectedRegionId,
-  activeLayer,
-  onLayerChange,
-  filters,
-  onFiltersChange,
-  className = '',
-}: MapLegendProps) {
-  const ownerColors = useMemo(() => {
-    const map = new Map<string, string>();
-    regions.forEach(r => {
-      if (r.owner && r.owner !== 'neutral' && !map.has(r.owner)) {
-        map.set(r.owner, r.color);
-      }
-    });
-    return map;
-  }, [regions]);
-
-  const [collapsed, setCollapsed] = useState<boolean>(readCollapsedPreference);
-
-  const toggleCollapsed = () => {
-    setCollapsed(prev => {
-      try {
-        localStorage.setItem(LEGEND_COLLAPSED_KEY, prev ? '0' : '1');
-      } catch {
-        // localStorage indisponibile: ci si limita allo stato in memoria.
-      }
-      return !prev;
-    });
-  };
-
+export function MapLegend({ regions, selectedRegionId, activeLayer, onLayerChange, filters, onFiltersChange, className = '' }: MapLegendProps) {
+  const [collapsed, setCollapsed] = useState(readCollapsedPreference);
+  const bodyId = useId();
+  const layerGroup = useId();
+  const selected = regions.find(region => region.id === selectedRegionId);
   return (
-    <div
-      className={`map-legend${collapsed ? ' collapsed' : ''}${className ? ` ${className}` : ''}`}
-      role="region"
-      aria-label="Legenda mappa"
-    >
-      {/* Intestazione collassabile: la legenda resta accessibile senza rubare
-          spazio alla mappa, e la scelta persiste in localStorage. */}
-      <button
-        type="button"
-        className="map-legend-toggle"
-        aria-expanded={!collapsed}
-        onClick={toggleCollapsed}
-      >
-        <span className="map-legend-toggle-icon" aria-hidden="true">🗺️</span>
-        Legenda mappa
-        <span className="map-legend-chevron" aria-hidden="true">▼</span>
+    <section className={`map-legend${collapsed ? ' collapsed' : ''} ${className}`} aria-label="Legenda mappa">
+      <button type="button" className="map-legend-toggle" aria-expanded={!collapsed} aria-controls={bodyId}
+        onClick={() => setCollapsed(previous => {
+          try { localStorage.setItem(LEGEND_COLLAPSED_KEY, previous ? '0' : '1'); } catch { /* memory only */ }
+          return !previous;
+        })}>
+        <span aria-hidden="true">▱</span>
+        Livelli e legenda <span className="map-layer-caption">{LAYERS.find(layer => layer.id === activeLayer)?.label}</span>
+        <span className="map-legend-chevron" aria-hidden="true">⌄</span>
       </button>
-
-      <div className="map-legend-body">
-        {/* Selettore livello */}
-        <div className="map-legend-layers" role="tablist" aria-label="Livelli mappa">
-          {LAYERS.map(({ id, label, icon }) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={activeLayer === id}
-              className={`map-legend-layer${activeLayer === id ? ' active' : ''}`}
-              onClick={() => onLayerChange(id)}
-            >
-              <span className="map-legend-layer-icon" aria-hidden="true">{icon}</span>
-              <span className="map-legend-layer-label">{label}</span>
-            </button>
-          ))}
+      <div className="map-legend-body" id={bodyId} hidden={collapsed}>
+        <fieldset className="map-layer-options">
+          <legend>Vista della mappa</legend>
+          {LAYERS.map(layer => <label key={layer.id}>
+            <input type="radio" name={layerGroup} value={layer.id} checked={activeLayer === layer.id}
+              onChange={() => onLayerChange(layer.id)} />
+            <span>{layer.label}</span>
+          </label>)}
+        </fieldset>
+        <p className="map-legend-explanation">{activeLayer === 'terrain'
+          ? 'Immagini satellitari con colori politici attenuati. I confini restano visibili.'
+          : activeLayer === 'changes'
+            ? 'In risalto gli ultimi territori aggiornati nella sessione. Usa “Modifiche” in alto per raggiungerli.'
+            : 'I colori indicano il controllo dei territori. Seleziona un territorio per aprire il dossier.'}</p>
+        {onFiltersChange && <fieldset className="map-asset-options">
+          <legend>Elementi visibili</legend>
+          {FILTERS.map(filter => <label key={filter.id}>
+            <input type="checkbox" checked={filters?.[filter.id] ?? DEFAULT_MAP_FILTERS[filter.id]}
+              onChange={event => onFiltersChange({ [filter.id]: event.target.checked })} />{filter.label}
+          </label>)}
+        </fieldset>}
+        <div className="map-key">
+          <span><i className="map-key-selected" /> Territorio selezionato</span>
+          <span><i className="map-key-changed" /> Territorio aggiornato</span>
+          <span><i className="map-key-scar" /> Controllo precedente (temporaneo)</span>
+          <span><i className="map-key-route" /> Spostamento eseguito (ultimi 30 giorni)</span>
+          <span><i className="map-key-battle" /> Scontro segnalato nei dispacci</span>
         </div>
-
-        {/* Contenuto per livello */}
-        {activeLayer === 'political' && (
-          <div className="map-legend-content" role="tabpanel">
-            <fieldset className="map-legend-filters">
-              <legend>Filtri</legend>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={filters?.showCities ?? true}
-                  onChange={e => onFiltersChange?.({ showCities: e.target.checked })}
-                />
-                Città
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={filters?.showPorts ?? true}
-                  onChange={e => onFiltersChange?.({ showPorts: e.target.checked })}
-                />
-                Porti
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={filters?.showIndustry ?? true}
-                  onChange={e => onFiltersChange?.({ showIndustry: e.target.checked })}
-                />
-                Industria
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={filters?.showUnits ?? true}
-                  onChange={e => onFiltersChange?.({ showUnits: e.target.checked })}
-                />
-                Unità
-              </label>
-            </fieldset>
-
-            <div className="map-legend-owners">
-              <strong>Proprietari</strong>
-              <div className="map-legend-owners-grid">
-                {Array.from(ownerColors.entries()).slice(0, 12).map(([owner, color]) => (
-                  <div key={owner} className="map-legend-owner">
-                    <span className="map-legend-swatch" style={{ backgroundColor: color }} />
-                    <span className="map-legend-owner-name">{owner}</span>
-                  </div>
-                ))}
-              </div>
-              {ownerColors.size > 12 && <span className="map-legend-more">+{ownerColors.size - 12} altri</span>}
-            </div>
-          </div>
-        )}
-
-        {activeLayer === 'terrain' && (
-          <div className="map-legend-content" role="tabpanel">
-            <p className="map-legend-hint">Colori per tipologia di terreno.</p>
-            <div className="map-legend-terrain-swatch">
-              {TERRAIN_ITEMS.map(({ label, background }) => (
-                <div key={label} className="map-legend-swatch-row">
-                  <span className="map-legend-terrain-bar" style={{ background }} aria-hidden="true" />
-                  <span>{label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeLayer === 'changes' && (
-          <div className="map-legend-content" role="tabpanel">
-            <p className="map-legend-hint">Cambiamenti territoriali recenti (ultimi 30 giorni).</p>
-            <div className="map-legend-change-swatch">
-              {CHANGE_ITEMS.map(({ label, swatchStyle }) => (
-                <div key={label} className="map-legend-swatch-row">
-                  <span className="map-legend-change-bar" style={swatchStyle} aria-hidden="true" />
-                  <span>{label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Provincia selezionata */}
-        {selectedRegionId && (
-          <div className="map-legend-selected">
-            <strong>Selezionata: </strong>
-            {regions.find(r => r.id === selectedRegionId)?.name || selectedRegionId}
-          </div>
-        )}
+        {selected && <p className="map-legend-selection"><span style={{ background: selected.color }} />
+          {selected.name} · {selected.polityName || selected.owner}
+        </p>}
+        <p className="map-legend-explanation">Trascina per spostarti, usa la rotella o due dita per lo zoom. Con il focus sulla mappa: frecce, + / − e 0.</p>
       </div>
-    </div>
+    </section>
   );
 }
-
 export default MapLegend;

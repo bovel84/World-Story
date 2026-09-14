@@ -37,17 +37,17 @@ describe('UTC simulation calendar', () => {
     expect(resolvePeriod({ ...base, target: '2024-01-20', eventDates: ['2024-01-20'] }))
       .toEqual({ end: '2024-01-20', elapsedDays: 19 });
   });
-  it('uses the first event when targetDate is missing, later or invalid', () => {
+  it('uses the last accepted event when targetDate is missing, later or invalid', () => {
     for (const target of [undefined, '2024-01-02', '2024-02-30', '2099-01-01']) {
       expect(resolvePeriod({ ...base, target, eventDates: ['2024-01-20'] }).end).toBe('2024-01-20');
     }
-    // A late targetDate or extra records must not make auto-jump pass the
-    // first important event.
+    // A late targetDate must not make auto-jump pass the last accepted event:
+    // with one event per queued order, the last one is the hard stop.
     expect(resolvePeriod({
       ...base,
       target: '2024-02-15',
       eventDates: ['2024-01-12', '2024-01-20'],
-    })).toEqual({ end: '2024-01-12', elapsedDays: 11 });
+    })).toEqual({ end: '2024-01-20', elapsedDays: 19 });
   });
   it('does not advance an interrupted turn with no applied events', () => {
     expect(resolvePeriod({ ...base, interrupted: true, target: '2024-12-31', eventDates: [] }))

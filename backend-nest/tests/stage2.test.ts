@@ -23,7 +23,7 @@ let capturedPrompt = '';
 /** Счётчик вызовов механики consolidation */
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
-let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' = 'normal';
+let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_multi' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' = 'normal';
 /** projectId da copiare nell'outcome di chiusura del fixture F01. */
 let projectToCompleteId: string | undefined;
 
@@ -61,6 +61,20 @@ function jumpResponse(): any {
         startChat: [],
         worldChanges: { regionOwners: {}, regionColors: {} },
         targetDate: '1951-03-10',
+      };
+    case 'auto_multi':
+      // Auto-jump con più ordini: un evento per ciascun ordine, targetDate
+      // sulla data dell'ultimo evento emesso.
+      return {
+        events: [
+          { headline: 'Prima svolta dell’ordine', description: 'La prima conseguenza verificabile del primo ordine.', date: '1951-03-10', mapChanges: [] },
+          { headline: 'Seconda svolta dell’ordine', description: 'La conseguenza del secondo ordine, dopo la prima svolta.', date: '1951-04-02', mapChanges: [] },
+        ],
+        narration: 'Un evento per ciascun ordine in coda.',
+        voided: [],
+        startChat: [],
+        worldChanges: { regionOwners: {}, regionColors: {} },
+        targetDate: '1951-04-02',
       };
     case 'fixed_same':
       return {
@@ -211,6 +225,19 @@ const stubProvider: any = {
   consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
   async generate(mechanic: string, system: string, user: string) {
     if (mechanic === 'converter') {
+      // Il batch converter elenca gli ordini come [actionId:...] nel prompt:
+      // un modello reale risponde con UN elemento per ciascuno (index per
+      // riallacciare l'actionId), non con un oggetto singolo.
+      const batchCount = (user.match(/\[actionId:/g) || []).length;
+      if (batchCount > 0) {
+        return {
+          content: JSON.stringify(Array.from({ length: batchCount }, (_, i) => ({
+            type: 'action',
+            text: 'Действие игрока',
+            index: i + 1,
+          }))),
+        };
+      }
       return { content: JSON.stringify({ type: 'action', text: 'Действие игрока' }) };
     }
     if (mechanic === 'consolidation') {
@@ -608,6 +635,11 @@ describe('Этап 2: очередь действий', () => {
       { actionId: first.id, text: first.text },
       { actionId: second.id, text: second.text },
     ]);
+    const gameData = simulate.mock.calls[0][0] as any;
+    expect(gameData.npcStrategicProfiles).toContain('[POL]');
+    expect(gameData.npcStrategicProfiles).toContain('profilo persistente');
+    expect(gameData.npcStrategicProfiles).toContain('Priorità correnti');
+    expect(gameData.npcStrategicProfiles).toContain('Memoria strategica');
     expect(processed.map((action: any) => action.id)).toEqual([first.id, second.id]);
     expect(processed.every((action: any) => action.status === 'completed')).toBe(true);
     expect(processed.map((action: any) => action.result.turn)).toEqual([1, 1]);
@@ -615,6 +647,29 @@ describe('Этап 2: очередь действий', () => {
     expect(session.getCurrentDate()).toBe('1951-01-31');
     simulate.mockRestore();
     jumpMode = 'normal';
+  });
+
+  it('ricostruisce la memoria NPC soltanto dai dispacci canonici persistiti', () => {
+    const { session } = createGame();
+    (session as any).results.push({
+      id: 'memory-turn',
+      turn: 1,
+      narration: 'La Polonia prende posizione.',
+      events: ['La Polonia respinge la proposta'],
+      date: '1951-01-15',
+      timelineEvents: [{
+        id: 'memory-event',
+        date: '1951-01-15',
+        headline: 'La Polonia respinge la proposta tedesca',
+        detail: 'Varsavia invoca la sicurezza delle frontiere e mantiene aperto soltanto un tavolo tecnico.',
+        source: 'world',
+      }],
+    });
+
+    const gameData = (session as any).buildGameData(['Riaprire il negoziato con la Polonia']);
+    expect(gameData.npcStrategicProfiles).toContain('[POL]');
+    expect(gameData.npcStrategicProfiles).toContain('La Polonia respinge la proposta tedesca');
+    expect(gameData.npcStrategicProfiles).toContain('sicurezza delle frontiere');
   });
 
   it('удаляет ожидающее действие и не оставляет скрытый приказ на сервере', () => {
@@ -721,7 +776,7 @@ describe('Этап 2: voided-действия', () => {
 
     expect(action.status).toBe('completed');
     const events = action.result.events as string[];
-    expect(events.some(e => e.includes('⊘ Respinto') && e.includes('Захватить весь мир за неделю'))).toBe(true);
+    expect(events.some(e => e.includes('non attua la direttiva') && e.includes('Захватить весь мир за неделю'))).toBe(true);
     expect(events.some(e => e.includes('Нереалистично для 1951 года'))).toBe(true);
     jumpMode = 'normal';
   });
@@ -810,7 +865,7 @@ describe('Этап 2: Intervene', () => {
     expect(events).toContain('ФРГ аннексировала Польшу');
     expect(events).not.toContain('ФРГ аннексировала Чехословакия');
     expect(events).not.toContain('ФРГ аннексировала Францию');
-    expect(events.some(e => e.includes('Intervene'))).toBe(true);
+    expect(events.some(e => e.includes('La cronaca si arresta alla data scelta dal governo'))).toBe(true);
 
     // Il checkpoint per-evento è stato pubblicato con `checkpoint: true`, non
     // come anteprima di streaming; la chiusura arriva con turn_complete.
@@ -827,7 +882,7 @@ describe('Этап 2: Intervene', () => {
 });
 
 describe('Этап 2: auto-jump «к следующему событию»', () => {
-  it('non applica effetti globali, chat o narrazione successivi al primo evento', async () => {
+  it('non applica effetti globali o chat future, ma conserva la reazione al primo evento', async () => {
     jumpMode = 'auto_future';
     const { session } = createGame();
     session.queueAction('Attendere la risposta polacca');
@@ -836,7 +891,10 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
 
     expect(session.getCurrentDate()).toBe('1951-03-10');
     expect(session.getRegion(`${WORLD_ID}_FRA`).owner).toBe('FRA');
-    expect(session.getChats()).toHaveLength(0);
+    expect(session.getChats()).toHaveLength(1);
+    expect(session.getChats()[0].polityId).toBe('POL');
+    expect(session.getChatMessages(session.getChats()[0].id)
+      .some((message: any) => message.content === 'Discussione futura da non aprire')).toBe(false);
     expect(action.result.events).toContain('Il primo evento importante');
     expect(action.result.events).not.toContain('Un evento futuro da non applicare');
     expect(action.result.narration).toContain('La Polonia risponde alla proposta tedesca.');
@@ -906,6 +964,26 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     expect(session.getCurrentDate()).toBe('1951-03-10');
     expect(action.result.events).toContain('Primo evento del giorno');
     expect(action.result.events).not.toContain('Secondo evento stesso giorno');
+    jumpMode = 'normal';
+  });
+
+  it('auto-jump con più ordini: accetta fino a N eventi, data arrestata all’ultimo evento', async () => {
+    jumpMode = 'auto_multi';
+    const { session } = createGame();
+    session.queueAction('Primo ordine in coda');
+    session.queueAction('Secondo ordine in coda');
+    const batch = await session.processAllPendingActions(0);
+
+    // Il motore accetta più svolte quando il provider le giustifica; la data
+    // di arrivo è quella dell'ultimo evento accettato, non oltre.
+    expect(session.getCurrentDate()).toBe('1951-04-02');
+    const result = (batch as any[])[0].result;
+    expect(result.events).toContain('Prima svolta dell’ordine');
+    expect(result.events).toContain('Seconda svolta dell’ordine');
+    // Il prompt vieta la traduzione meccanica ordine → dispaccio e consente
+    // di raggruppare gli ordini appartenenti alla stessa catena causale.
+    expect(capturedPrompt).toContain('NON trasformare automaticamente ciascun ordine');
+    expect(capturedPrompt).toContain('data dell’ultimo evento emesso');
     jumpMode = 'normal';
   });
 });
@@ -1117,7 +1195,7 @@ describe('§9.3 — playback «un evento alla volta» per i salti fissi', () => 
     expect(db.prepare('SELECT pending_state FROM simulation_runs WHERE id = ?').get(batch.simulationId).pending_state).toBeNull();
     // Il periodo è dichiarato NON completato: la ripresa è un nuovo salto.
     const events = second.result.events as string[];
-    expect(events.some(e => e.includes('Budget di simulazione esaurito'))).toBe(true);
+    expect(events.some(e => e.includes('Nessun ulteriore sviluppo viene confermato nel periodo'))).toBe(true);
     expect(session.getPendingActions()).toHaveLength(0);
     jumpMode = 'normal';
   });

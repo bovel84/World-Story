@@ -107,7 +107,11 @@ export class PolityResolver {
   private byNormalized: Map<string, PolityInfo> = new Map();
   private entries: { normalized: string; polity: PolityInfo }[] = [];
 
-  constructor(regions: ResolvableRegion[], private playerPolityId?: string) {
+  constructor(
+    regions: ResolvableRegion[],
+    private playerPolityId?: string,
+    polityAliases: Record<string, string[]> = {},
+  ) {
     const polities = new Map<string, PolityInfo>();
 
     for (const region of regions) {
@@ -125,6 +129,9 @@ export class PolityResolver {
     for (const polity of polities.values()) {
       this.addAlias(polity, polity.polityId);
       this.addAlias(polity, polity.displayName);
+      for (const alias of polityAliases[polity.polityId] || []) {
+        this.addAlias(polity, alias);
+      }
       if (polity.isPlayer) {
         this.addAlias(polity, 'player');
         this.addAlias(polity, 'giocatore');

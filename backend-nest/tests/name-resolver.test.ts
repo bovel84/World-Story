@@ -66,6 +66,16 @@ describe('PolityResolver', () => {
     expect(res?.polityId).toBe('Варшавский блок');
   });
 
+  it('risolve anche gli alias nazionali quando la mappa contiene province', () => {
+    const provincial = new PolityResolver([
+      { id: 'p1', name: 'Lazio', owner: 'ITA', color: '#008C45' },
+      { id: 'p2', name: 'Toscana', owner: 'ITA', color: '#008C45' },
+    ], undefined, { ITA: ['Italy', 'Italia'] });
+
+    expect(provincial.resolve('Italy')).toEqual({ polityId: 'ITA', isNew: false });
+    expect(provincial.resolve('Italia')).toEqual({ polityId: 'ITA', isNew: false });
+  });
+
   it('colorOf возвращает цвет существующей политии', () => {
     expect(resolver.colorOf('SOV')).toBe('#CC0000');
     expect(resolver.colorOf('Атлантида')).toBeUndefined();

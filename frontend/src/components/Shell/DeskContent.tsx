@@ -24,6 +24,7 @@ interface DeskContentProps {
   nationalName: string;
   governmentType: string;
   nationalAccount: any;
+  nationalHistory?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
   campaignProgress: number;
   latestNationalNarration: string;
   currentRegionOwnerName: string | null;
@@ -58,6 +59,10 @@ interface DeskContentProps {
   feedItems: any[];
   /** G4-C: seleziona una regione sulla mappa (da «Mostra sulla mappa»). */
   onFocusRegion: (regionId: string) => void;
+  /** Segna un dispaccio come letto all'apertura dell'articolo. */
+  onMarkFeedRead?: (id: string) => void;
+  /** «Segna tutti come letti» dal pannello Dispacci. */
+  onMarkAllFeedRead?: () => void;
   playerPolityId: string;
   showSaveModal: boolean;
   setShowSaveModal: (v: boolean) => void;
@@ -81,6 +86,7 @@ export function DeskContent({
   nationalName,
   governmentType,
   nationalAccount,
+  nationalHistory = [],
   campaignProgress,
   latestNationalNarration,
   currentRegionOwnerName,
@@ -113,6 +119,8 @@ export function DeskContent({
   onAcknowledgeMandateDecision,
   feedItems,
   onFocusRegion,
+  onMarkFeedRead,
+  onMarkAllFeedRead,
   playerPolityId,
   showSaveModal,
   setShowSaveModal,
@@ -329,6 +337,9 @@ export function DeskContent({
           processing={isProcessingTurn}
           focusedRegionName={currentRegion?.name}
           onFocusRegion={onFocusRegion}
+          onMarkRead={onMarkFeedRead}
+          onMarkAllRead={onMarkAllFeedRead}
+          playerPolityName={nationalName}
         />
       </div>
     );
@@ -356,6 +367,7 @@ export function DeskContent({
             nationalName={nationalName}
             governmentType={governmentType}
             account={nationalAccount}
+            accountHistory={nationalHistory}
             regions={currentWorld?.regions ? Object.values(currentWorld.regions).filter((region) => region.owner === playerPolityId) as Region[] : []}
             ongoingProcesses={ongoingProcesses}
             mandateDecisions={mandateDecisions}

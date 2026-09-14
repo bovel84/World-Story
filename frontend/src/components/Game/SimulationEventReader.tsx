@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
+import { publicNarrativeText } from '../../services/publicNarrative';
 
 /** L'ancora canonica della pagina in lettura (§9.3/G22). */
 export interface PlaybackReaderState {
@@ -20,6 +21,7 @@ interface SimulationEventReaderProps {
   loading: boolean;
   onContinue: () => void;
   onIntervene: () => void;
+  playerPolityName?: string;
 }
 
 /**
@@ -35,6 +37,7 @@ export function SimulationEventReader({
   loading,
   onContinue,
   onIntervene,
+  playerPolityName,
 }: SimulationEventReaderProps) {
   const continueButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -100,8 +103,8 @@ export function SimulationEventReader({
                 </div>
                 <article>
                   <time>{event.date}</time>
-                  <h3>{event.headline}</h3>
-                  {event.detail && <p>{event.detail}</p>}
+                  <h3>{publicNarrativeText(event.headline, playerPolityName)}</h3>
+                  {event.detail && <p>{publicNarrativeText(event.detail, playerPolityName)}</p>}
                   {current && <small>Checkpoint attivo</small>}
                 </article>
               </li>

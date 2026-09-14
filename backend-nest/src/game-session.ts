@@ -6,17 +6,18 @@
  */
 
 import { shortId } from './utils/short-id';
+import { constructionProgressPatch } from './utils/construction-progress';
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
-import { worldRepository, gameRepository, relationshipRepository, chatRepository } from './repositories';
+import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository } from './repositories';
 import { captureEconomicSnapshot, invalidateStrictEffectStaging, restoreEconomicSnapshot, validateEconomicSnapshot } from './repositories/economy-snapshot.repository';
 import { withCanonicalTransaction } from './database';
 import { semanticStateHash } from './domain/semantic-hash';
 import type { ChatRecord, ChatSummary, ChatMessageRecord, ChatParticipant, GameChatSnapshot } from './repositories';
 import db from './database';
 import { RelationshipMatrix } from './core/RelationshipMatrix';
-import { WorldStateEngine } from './core/simulation/WorldStateEngine';
+import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { addDays, dateInPeriod, explicitDays, jumpHorizon, resolvePeriod } from './core/simulation/calendar';
 import {
   validateStrictMapChanges,
@@ -30,7 +31,9 @@ import { bootstrapCatalogEconomy } from './services/StrictEffectProducerService'
 import { refreshMandateStockDecisions } from './services/MandateDecisionService';
 import { withinDeadline } from './core/simulation/deadline';
 import { canNpcCapture, indexPolities, npcRepresentatives } from './core/simulation/npc-policy';
-import { RegionResolver, PolityResolver } from './utils/name-resolver';
+import { normalizeName, RegionResolver, PolityResolver } from './utils/name-resolver';
+import { exactMovementRegion, MovementIntent, parseMovementOrder, UNIT_TYPES } from './utils/movement-orders';
+import { colorForPolity, normalizeHexColor } from './utils/color';
 import path from 'path';
 import { loadSimulationCatalog } from './scenario/loader';
 import { AssessmentStatus, ReasonCode, Blocker, Requirement, FeasibilityFacts, AlternativeProposal, OrderAssessment } from "./core/feasibility/FeasibilityService";
@@ -38,16 +41,17 @@ import { normalizeOrderIntent } from "./core/feasibility/intent";
 import { FeasibilityService } from "./core/feasibility/FeasibilityService";
 import { estimateIntentCosts, type CostEstimate } from "./core/feasibility/costs";
 import { Difficulty, difficultyPromptBlock, normalizeDifficulty } from './prompts/difficulty';
-import { personalityForPolity } from './npc-agents';
+import { currentStrategicPriorities, strategicProfileForPolity } from './npc-agents';
 import { countryRepository } from './repositories/country.repository';
 import { polityDisplayNameIt } from './utils/country-facts';
+import { publicNarrativeText } from './utils/public-narrative';
 import {
   buildChatPrompt,
   buildNextSpeakerPrompt,
   parseChatResponse,
   parseNextSpeakerResponse,
 } from './prompts/chat';
-import type { ActionOutcome, ConvertedAction, MapChange, SimulationEvent } from './prompts/types';
+import type { ActionOutcome, ConvertedAction, MapChange, MapFeature, SimulationChatStart, SimulationEvent } from './prompts/types';
 import type { RelationshipType } from './core/RelationshipMatrix';
 import type { SSEEventType } from './sse';
 
@@ -165,6 +169,9 @@ export interface PausedRunState {
   remainingEvents: SimulationEvent[];
   /** ID degli ordini presi in carico dal run (non vanno reinviati). */
   batchActionIds: string[];
+  /** Pre-event movement intents survive playback/restart; absent legacy state never guesses. */
+  movementIntents?: MovementIntent[];
+  movementChanges?: MapChange[];
   /** Titolo evento → ordini che l'hanno causato. */
   headlineToActionIds: Record<string, string[]>;
   /** Lo stream è terminato senza record complete: budget esaurito (T36). */
@@ -491,10 +498,7 @@ export class GameSession {
       const tick = WorldStateEngine.advance(this.regions.values(), GameSession.LIVE_TICK_DAYS);
 
       const playerAccount = tick.accounts[this.playerPolityId];
-      const playerName = polityDisplayNameIt(
-        this.playerPolityId,
-        countryRepository.findByCode(this.playerPolityId)?.name,
-      );
+      const playerName = this.publicPolityName(this.playerPolityId);
       const balance = playerAccount?.monthlyBalance || 0;
       // Il titolo resta una notizia breve; cifre e qualifiche appartengono al
       // corpo del dispaccio, non alla riga che deve essere letta sulla mappa.
@@ -502,9 +506,9 @@ export class GameSession {
         ? `${playerName}: aggiornamento dei conti nazionali`
         : 'Settimana senza svolte nel teatro di gioco';
       const quietDispatch = playerAccount
-        ? `Nel monitoraggio settimanale il motore registra per ${playerName} una crescita annua stimata al ${(playerAccount.annualGrowthRate * 100).toFixed(1)}%. Il saldo pubblico mensile resta ${balance >= 0 ? 'positivo' : 'negativo'} a ${Math.abs(balance).toFixed(2)} miliardi USD. Sono stime del modello economico, non nuovi eventi politici.`
-        : 'I governi mantengono le posizioni e non emergono fatti che richiedano una modifica della mappa.';
-      const events = randomEvents.length > 0 ? randomEvents : [quietHeadline];
+        ? `Il ministero delle Finanze di ${playerName} stima una crescita annua del ${(playerAccount.annualGrowthRate * 100).toFixed(1)}%. Il saldo pubblico mensile resta ${balance >= 0 ? 'positivo' : 'negativo'} per ${Math.abs(balance).toFixed(2)} miliardi di dollari.`
+        : 'I governi mantengono le posizioni e non emergono nuove svolte politiche o territoriali.';
+      const events = (randomEvents.length > 0 ? randomEvents : [quietHeadline]).map(event => this.publicText(event));
       const id = shortId();
       const narration = randomEvents.length > 0
         ? `Il mondo procede: ${randomEvents.length} ${randomEvents.length === 1 ? 'evento' : 'eventi'} registrati in questo periodo.`
@@ -522,8 +526,8 @@ export class GameSession {
           date: this.currentDate,
           headline,
           detail: randomEvents.length > 0
-            ? `Evento ambientale del mondo (turno ${this.currentTurn - 1}).`
-            : `Dati del motore alla data ${this.currentDate}: ${quietDispatch}`, 
+            ? 'Le autorità locali confermano lo sviluppo e ne valutano le conseguenze immediate.'
+            : quietDispatch,
           source: 'world' as const,
         })),
       };
@@ -571,6 +575,28 @@ export class GameSession {
     });
   }
 
+  /** Registra il punto storico dei conti nazionali del giocatore per la data
+   * indicata. Best-effort: un errore di persistenza non deve interrompere il
+   * tick economico, ma non deve nemmeno produrre una tendenza inventata. */
+  private recordAccountSnapshot(date: string, accounts?: Record<string, NationalAccount>): void {
+    try {
+      const branchId = gameRepository.getHeadBranch(this.id);
+      if (!branchId) return;
+      const account = (accounts ?? WorldStateEngine.accounts(this.regions.values()))[this.playerPolityId];
+      if (!account) return;
+      nationalAccountRepository.append(this.id, branchId, this.playerPolityId, this.currentTurn, date, account as unknown as Record<string, unknown>);
+    } catch (error) {
+      console.warn('[GameSession] Impossibile registrare lo storico dei conti:', error);
+    }
+  }
+
+  /** Serie storica dei conti del paese giocatore sul ramo corrente. */
+  getNationalHistory(limit = 24) {
+    const branchId = gameRepository.getHeadBranch(this.id);
+    if (!branchId) return [];
+    return nationalAccountRepository.list(this.id, branchId, this.playerPolityId, limit);
+  }
+
   /** Avanza le variabili lente del mondo e restituisce un fatto verificabile
    * per il bollettino del paese giocatore. */
   private advanceWorldState(days: number, asOfDate: string = this.currentDate): string[] {
@@ -591,12 +617,14 @@ export class GameSession {
         .filter(actor => actor.polityId === this.playerPolityId)
         .map(actor => actor.actorId);
       const mandateDecisions = refreshMandateStockDecisions(this.id, branchId, asOfDate, ownerActorRefs);
+      this.recordAccountSnapshot(asOfDate);
       return [
-        ...tick.settledCashflows.map(flow => `📒 Scadenza ${flow.cashflowId}: ${flow.status} (${flow.paid})`),
-        ...mandateDecisions.map(decision => `⚠️ Mandato ${decision.mandateId}: scorte ${decision.resourceId} ${decision.availableStock}/${decision.minStock}; decisione giocatore richiesta (${decision.kind === 'stock_shortfall_outside_authorization' ? 'acquisto fuori autorizzazione' : 'prezzo e quantità da confermare'})`),
+        ...tick.settledCashflows.map(flow => `Una scadenza finanziaria è stata regolata con stato ${this.publicText(flow.status)} e un pagamento di ${flow.paid}.`),
+        ...mandateDecisions.map(decision => `Le scorte di ${decision.resourceId} sono pari a ${decision.availableStock}, sotto la soglia di ${decision.minStock}. Il governo di ${this.publicPolityName(this.playerPolityId)} deve autorizzare ${decision.kind === 'stock_shortfall_outside_authorization' ? 'un acquisto straordinario' : 'prezzo e quantità dell’intervento'}.`),
       ];
     }
     const tick = WorldStateEngine.advance(this.regions.values(), days);
+    this.recordAccountSnapshot(asOfDate, tick.accounts);
     const bulletin = WorldStateEngine.playerBulletin(tick.accounts[this.playerPolityId]);
     return bulletin ? [`📊 ${bulletin}`] : [];
   }
@@ -605,7 +633,7 @@ export class GameSession {
   private relationships: RelationshipMatrix = new RelationshipMatrix();
 
   // SSE broadcaster for real-time updates
-  private sseBroadcaster: ((type: SSEEventType, data: any) => void) | null = null;
+  private sseBroadcaster: ((type: SSEEventType, data: any) => boolean | void) | null = null;
 
   constructor(gameId: string, worldId: string, provider: LLMRouter) {
     this.id = gameId;
@@ -621,7 +649,7 @@ export class GameSession {
   /**
    * Set SSE broadcaster for real-time updates
    */
-  setSSEBroadcaster(broadcaster: (type: SSEEventType, data: any) => void): void {
+  setSSEBroadcaster(broadcaster: (type: SSEEventType, data: any) => boolean | void): void {
     this.sseBroadcaster = broadcaster;
   }
 
@@ -631,8 +659,7 @@ export class GameSession {
   private broadcast(type: SSEEventType, data: any): boolean {
     if (!this.sseBroadcaster) return false;
     try {
-      this.sseBroadcaster(type, data);
-      return true;
+      return this.sseBroadcaster(type, data) !== false;
     } catch (error) {
       // SSE è post-commit/best-effort: non può attivare un falso rollback RAM.
       console.error('[GameSession] SSE broadcast failed:', type, error);
@@ -640,10 +667,29 @@ export class GameSession {
     }
   }
 
+  /** Nome nazionale destinato a cronaca, diplomazia e prompt pubblici. */
+  private publicPolityName(polityId: string): string {
+    const registeredName = countryRepository.findByCode(polityId)?.name;
+    const owned = Array.from(this.regions.values()).filter(region => region.owner === polityId);
+    // Un'unica regione può rappresentare una nazione storica o alternativa
+    // (es. Germania Ovest, Cecoslovacchia): conserva quel nome curato. Se è
+    // soltanto il nome inglese del registro, preferisci invece l'italiano.
+    const curatedSingleName = owned.length === 1 && owned[0].name
+      && normalizeName(owned[0].name) !== normalizeName(registeredName || '')
+      ? owned[0].name
+      : undefined;
+    return curatedSingleName || polityDisplayNameIt(polityId, registeredName || owned[0]?.name || polityId);
+  }
+
+  /** Applica il filtro editoriale usando sempre l'identità nazionale corrente. */
+  private publicText(value: unknown): string {
+    return publicNarrativeText(value, this.publicPolityName(this.playerPolityId));
+  }
+
   /**
    * Build game data object for prompt engine
    */
-  private buildGameData(): any {
+  private buildGameData(focusTexts: string[] = []): any {
     const player = this.players[0];
 
     // Convert regions Map to object for compatibility
@@ -655,13 +701,10 @@ export class GameSession {
       regionsByPolity.get(region.owner)!.push(region);
     }
     const polityNames: Record<string, string> = {};
-    for (const [owner, owned] of regionsByPolity) {
-      // Una sola regione può avere un nome storico/custom più preciso del
-      // registro ISO. Il nome nazionale serve soprattutto alle mappe provinciali.
-      polityNames[owner] = owned.length === 1
-        ? owned[0].name
-        : (countryRepository.findByCode(owner)?.name || owner);
+    for (const [owner] of regionsByPolity) {
+      polityNames[owner] = this.publicPolityName(owner);
     }
+    const accounts = WorldStateEngine.accounts(this.regions.values());
 
     return {
       id: this.id,
@@ -672,7 +715,7 @@ export class GameSession {
       consolidationTail: this.llm.consolidation.keepRawTail,
       // Stato materiale del mondo: è ricostruito dal motore deterministico
       // dalla mappa e quindi non può contraddire la memoria narrativa.
-      worldState: { accounts: WorldStateEngine.accounts(this.regions.values()) },
+      worldState: { accounts },
       world: {
         name: this.worldName,
         basePrompt: this.worldBasePrompt,
@@ -681,9 +724,12 @@ export class GameSession {
       },
       // Этап 5: правила симуляции мира → HISTORICAL_PRESET_SIMULATION_RULES
       simulationRules: this.worldSimulationRules ?? undefined,
+      // Gli adapter permissivi per modelli free restano disattivati nelle
+      // partite strict, che devono fallire chiuse su ogni protocollo invalido.
+      strictMode: this.isStrictGame(),
       players: this.players.map(p => ({
         id: p.id,
-        name: p.name,
+        name: p.polityId === this.playerPolityId ? this.publicPolityName(this.playerPolityId) : p.name,
         regionId: p.regionId,
         polityId: p.polityId,
       })),
@@ -693,6 +739,9 @@ export class GameSession {
       // Stato diplomatico persistente: il prompt usa questi rapporti per
       // motivare le reazioni delle altre politie, non per inventarle.
       relationships: this.relationships.toJSON(),
+      // Identità stabile + priorità dinamiche + memoria per le politie davvero
+      // rilevanti al teatro corrente. È la stessa fonte usata dalle chat.
+      npcStrategicProfiles: this.buildNpcStrategicDossiers(focusTexts, accounts),
       // I progetti attivi sono contesto canonico anche senza nuovi ordini.
       // LLM riceve ID e date, non deve riconoscerli per titolo.
       ongoingProcesses: gameRepository.getOngoingProcesses(this.id).map((process: any) => ({
@@ -759,11 +808,7 @@ export class GameSession {
       if (interlocutors.some(p => p.id === resolution.polityId)) continue;
 
       const polityRegions = Array.from(this.regions.values()).filter(r => r.owner === resolution.polityId);
-      // Nei mondi provinciali il primo territorio è una provincia: per la chat
-      // usiamo il nome della NAZIONE dal registro ISO, non quello della provincia.
-      const displayName = polityRegions.length > 1
-        ? (countryRepository.findByCode(resolution.polityId)?.name || resolution.polityId)
-        : (polityRegions[0]?.name || resolution.polityId);
+      const displayName = this.publicPolityName(resolution.polityId);
       const color = this.polityColor(resolution.polityId) || polityRegions[0]?.color || '#888888';
       interlocutors.push({ id: resolution.polityId, name: displayName, color, role: 'polity' });
     }
@@ -776,7 +821,7 @@ export class GameSession {
     const participants: ChatParticipant[] = [
       {
         id: this.playerPolityId,
-        name: player?.name || this.playerPolityId,
+        name: this.publicPolityName(this.playerPolityId),
         color: player?.color || '#667eea',
         role: 'player',
       },
@@ -798,6 +843,217 @@ export class GameSession {
       polityColor: primary.color,
       participants,
     });
+  }
+
+  /** Conserva soltanto reazioni attribuite a politie realmente presenti. */
+  private canonicalizeEventReactions(event: SimulationEvent, actionTexts: string[] = []): SimulationEvent {
+    const resolver = this.buildResolvers().polities;
+    const seen = new Set<string>();
+    // Una reazione è valida solo se la politia è pertinente al teatro della
+    // crisi (nominata, vicina o con un rapporto). Le potenze lontane senza
+    // interesse documentato restano fuori dal dispaccio e dalle chat.
+    const relevantPolities = this.crisisRelevantPolityIds([event.headline, event.description, ...actionTexts]);
+    const reactions = (event.reactions || []).flatMap(reaction => {
+      const resolution = resolver.resolve(reaction.polityName);
+      if (!resolution || resolution.isNew || resolution.polityId === 'neutral'
+          || resolution.polityId === this.playerPolityId || seen.has(resolution.polityId)) return [];
+      if (!relevantPolities.has(resolution.polityId)) return [];
+      seen.add(resolution.polityId);
+      return [{
+        ...reaction,
+        polityName: this.publicPolityName(resolution.polityId),
+        priority: reaction.priority ? this.publicText(reaction.priority) : undefined,
+        response: this.publicText(reaction.response),
+        counterAction: reaction.counterAction ? this.publicText(reaction.counterAction) : undefined,
+      }];
+    });
+    const canonical = { ...event, description: this.publicText(event.description), reactions };
+    return this.reconcileNpcMaterialMeasures({ ...canonical, description: this.eventDetail(canonical) });
+  }
+
+  /** Il dispaccio mostra esplicitamente le decisioni delle controparti. */
+  private eventDetail(event: SimulationEvent): string {
+    const base = (event.description || '').trim();
+    if (!event.reactions?.length) return base;
+    const stanceLabels: Record<string, string> = {
+      supportive: 'favorevole',
+      opposed: 'contraria',
+      conditional: 'condizionata',
+      neutral: 'neutrale',
+    };
+    const reactions = event.reactions.map(reaction => {
+      const priority = reaction.priority ? ` La decisione tutela ${reaction.priority}.` : '';
+      const counterAction = reaction.counterAction ? ` La misura annunciata è: ${reaction.counterAction}.` : '';
+      return `• ${reaction.polityName} si dichiara ${stanceLabels[reaction.stance] || reaction.stance}: ${reaction.response}${priority}${counterAction}`;
+    });
+    return `${base}${base ? '\n\n' : ''}Reazioni internazionali:\n${reactions.join('\n')}`;
+  }
+
+  /** Ogni reazione strutturata diventa anche un messaggio diplomatico reale. */
+  private reactionChatStarts(events: SimulationEvent[], pruneIrrelevant = false): SimulationChatStart[] {
+    const resolver = pruneIrrelevant ? this.buildResolvers().polities : null;
+    const actionTexts = pruneIrrelevant ? this.actions.slice(-10).map(action => action.text) : [];
+    return events.flatMap(event => {
+      const relevant = pruneIrrelevant
+        ? this.crisisRelevantPolityIds([event.headline, event.description, ...actionTexts])
+        : null;
+      return (event.reactions || []).flatMap(reaction => {
+        if (relevant && resolver) {
+          const resolution = resolver.resolve(reaction.polityName);
+          if (!resolution || resolution.isNew || !relevant.has(resolution.polityId)) return [];
+        }
+        return [{
+          polityName: reaction.polityName,
+          participants: [reaction.polityName],
+          topic: [reaction.response, reaction.counterAction ? `Misura annunciata: ${reaction.counterAction}` : '']
+            .filter(Boolean).join(' '),
+          kind: 'statement' as const,
+          eventHeadline: event.headline,
+        }];
+      });
+    });
+  }
+
+  /**
+   * Trasforma le aperture diplomatiche strutturate della simulazione in chat
+   * dirette o riunioni di gruppo. Nei salti automatici accetta esclusivamente
+   * aperture collegate per titolo a un evento realmente applicato: una chat
+   * riferita a un futuro scartato non può attraversare il checkpoint.
+   */
+  private openSimulationChats(
+    starts: SimulationChatStart[] | undefined,
+    options: {
+      turn: number;
+      fallbackDate: string;
+      simulationId?: string;
+      events?: Array<{ headline: string; date: string }>;
+      requireEventLink?: boolean;
+    },
+  ): {
+    timelineEvents: TimelineEventRecord[];
+    broadcasts: Array<Record<string, unknown>>;
+    participantPolityIds: Set<string>;
+  } {
+    const timelineEvents: TimelineEventRecord[] = [];
+    const broadcasts: Array<Record<string, unknown>> = [];
+    const participantPolityIds = new Set<string>();
+    const eventByHeadline = new Map(
+      (options.events || []).map(event => [event.headline.trim().toLocaleLowerCase('it'), event] as const),
+    );
+    const opened = new Set<string>();
+    const resolver = this.buildResolvers().polities;
+
+    for (const start of starts || []) {
+      const eventHeadline = (start.eventHeadline || '').trim();
+      const linkedEvent = eventHeadline
+        ? eventByHeadline.get(eventHeadline.toLocaleLowerCase('it'))
+        : undefined;
+      if (options.requireEventLink && !linkedEvent) {
+        console.warn('[GameSession] startChat ignorata: evento causale non applicato:', eventHeadline || '(mancante)');
+        continue;
+      }
+
+      const requestedNames = [...(Array.isArray(start.participants) ? start.participants : [])];
+      if (start.polityName && !requestedNames.some(name =>
+        name.toLocaleLowerCase('it') === start.polityName!.toLocaleLowerCase('it'))) {
+        requestedNames.unshift(start.polityName);
+      }
+      const validPolityIds: string[] = [];
+      for (const rawName of requestedNames) {
+        const resolution = resolver.resolve(String(rawName || '').trim());
+        if (!resolution || resolution.isNew || resolution.polityId === 'neutral'
+            || resolution.polityId === this.playerPolityId
+            || validPolityIds.includes(resolution.polityId)) continue;
+        validPolityIds.push(resolution.polityId);
+        if (validPolityIds.length >= 8) break;
+      }
+      if (validPolityIds.length === 0) {
+        console.warn('[GameSession] startChat ignorata: nessuna politia partecipante valida');
+        continue;
+      }
+      // Crisi locali: una potenza lontana senza interesse documentato non
+      // entra in una riunione né in una nota di comodo. Il filtro agisce solo
+      // quando il mondo offre dati di adiacenza reali, così non svuota i mondi
+      // senza confini registrati (fixture e test).
+      if (this.hasGeographicAdjacency()) {
+        const relevant = this.crisisRelevantPolityIds([linkedEvent?.headline || '']);
+        const kept = validPolityIds.filter(id => relevant.has(id));
+        if (kept.length === 0) {
+          console.warn('[GameSession] startChat ignorata: partecipanti fuori dal teatro della crisi:', requestedNames.join(', '));
+          continue;
+        }
+        if (kept.length < validPolityIds.length) {
+          validPolityIds.length = 0;
+          validPolityIds.push(...kept);
+        }
+      }
+
+      const duplicateKey = [
+        [...validPolityIds].sort().join('|'),
+        eventHeadline.toLocaleLowerCase('it'),
+      ].join('::');
+      if (opened.has(duplicateKey)) continue;
+      opened.add(duplicateKey);
+
+      try {
+        const chat = this.ensureChat(validPolityIds);
+        const initiatorId = validPolityIds[0];
+        const sender = chat.participants.find(p => p.id === initiatorId && p.role === 'polity')
+          || chat.participants.find(p => p.role === 'polity');
+        if (!sender) continue;
+        const gameDate = linkedEvent?.date || options.fallbackDate;
+        const topic = this.publicText(start.topic) || 'Desideriamo discutere gli ultimi sviluppi.';
+        const firstMessage = chatRepository.addMessage(
+          chat.id, 'polity', topic, options.turn, sender.name, gameDate,
+        );
+        const group = validPolityIds.length > 1;
+        const openingByKind: Record<string, string> = {
+          meeting: group ? 'convoca una riunione multilaterale' : 'chiede una riunione',
+          summit: 'propone un vertice',
+          negotiation: 'avvia un negoziato',
+          conference: 'convoca una conferenza',
+          ultimatum: 'apre un confronto su un ultimatum',
+          technical: 'propone un tavolo tecnico',
+          statement: 'invia una nota diplomatica',
+        };
+        const kind = start.kind || (group ? 'meeting' : 'negotiation');
+        // Il canale contiene sempre anche il giocatore (serve a leggere e
+        // rispondere), ma il dispaccio non deve far apparire la sua nazione
+        // in un incontro fra terzi: elenchiamo solo i partecipanti NPC
+        // realmente convocati.
+        const npcParticipantNames = validPolityIds
+          .map(id => this.publicPolityName(id))
+          .filter((name): name is string => !!name && name !== this.publicPolityName(this.playerPolityId));
+        const participantsText = group && npcParticipantNames.length > 0
+          ? `Alla riunione prendono parte ${npcParticipantNames.join(', ')}. `
+          : '';
+        timelineEvents.push({
+          id: `chat-${firstMessage.id}`,
+          date: gameDate,
+          headline: `${sender.name} ${openingByKind[kind] || openingByKind.negotiation}`,
+          detail: `${eventHeadline ? `In seguito a «${this.publicText(eventHeadline)}». ` : ''}${participantsText}${sender.name} dichiara: ${firstMessage.content}`,
+          source: 'diplomacy',
+          simulationId: options.simulationId,
+          chatId: chat.id,
+          speakerName: sender.name,
+        });
+        broadcasts.push({
+          chatId: chat.id,
+          polityId: chat.polityId,
+          polityName: chat.polityName,
+          participants: chat.participants,
+          senderName: sender.name,
+          meetingKind: kind,
+          eventHeadline: eventHeadline || undefined,
+          message: firstMessage,
+        });
+        validPolityIds.forEach(id => participantPolityIds.add(id));
+      } catch (error) {
+        console.warn('[GameSession] startChat: impossibile aprire il canale diplomatico:', requestedNames, error);
+      }
+    }
+
+    return { timelineEvents, broadcasts, participantPolityIds };
   }
 
   /**
@@ -824,7 +1080,7 @@ export class GameSession {
       'player',
       content.trim(),
       this.currentTurn,
-      player?.name || 'Giocatore',
+      this.publicPolityName(this.playerPolityId),
       this.currentDate,
     );
 
@@ -882,23 +1138,29 @@ export class GameSession {
     let speakerName = participantsVars[0].name;
     if (participantsVars.length > 1) {
       const nextSpeakerPrompt = buildNextSpeakerPrompt({
-        playerPolityName: this.players[0]?.name || this.playerPolityId,
+        playerPolityName: this.publicPolityName(this.playerPolityId),
         participantNames: participantsVars.map(p => p.name),
         history,
         playerMessage,
         mode: mode === 'reaction' ? 'auto' : mode,
       });
-      const selection = await this.llm.generate(
-        'chat',
-        'Seleziona il prossimo interlocutore diplomatico. Rispondi soltanto con JSON {"speaker"}.',
-        nextSpeakerPrompt,
-        { temperature: 0.25, maxTokens: 120 },
-      );
-      speakerName = parseNextSpeakerResponse(
-        selection.content,
-        participantsVars.map(p => p.name),
-        speakerName,
-      );
+      try {
+        const selection = await this.llm.generate(
+          'chat',
+          'Seleziona il prossimo interlocutore diplomatico. Rispondi soltanto con JSON {"speaker"}.',
+          nextSpeakerPrompt,
+          { temperature: 0.15, maxTokens: 120 },
+        );
+        speakerName = parseNextSpeakerResponse(
+          selection.content,
+          participantsVars.map(p => p.name),
+          speakerName,
+        );
+      } catch (error) {
+        // La selezione è ausiliaria: se un modello free la salta, il primo
+        // partecipante valido può comunque rispondere senza perdere la chat.
+        console.warn('[GameSession] Selezione interlocutore non disponibile; uso il fallback canonico:', error);
+      }
     }
     const respondingParticipant = participantsVars.find(p => p.name === speakerName) || participantsVars[0];
     const recentEvents = this.results
@@ -906,7 +1168,7 @@ export class GameSession {
       .flatMap(result => result.timelineEvents?.map(event => event.headline) || result.events)
       .slice(-8);
     const prompt = buildChatPrompt({
-      playerPolityName: this.players[0]?.name || this.playerPolityId,
+      playerPolityName: this.publicPolityName(this.playerPolityId),
       participants: participantsVars,
       respondingParticipant,
       worldContext: this.worldBasePrompt || 'Storia alternativa',
@@ -974,14 +1236,69 @@ export class GameSession {
       const population = owned.reduce((sum, r) => sum + (r.population || 0), 0);
       const gdp = owned.reduce((sum, r) => sum + (r.gdp || 0), 0);
       const military = owned.reduce((sum, r) => sum + (r.militaryPower || 0), 0);
-      const { personality, aggression } = personalityForPolity(p.id);
+      const relationship = this.relationships.get(p.id, this.playerPolityId);
+      const profile = strategicProfileForPolity(p.id);
+      const hostileNeighbours = this.hostileNeighbourCount(p.id);
+      const allRelations = [...new Set(Array.from(this.regions.values()).map(region => region.owner))]
+        .filter(owner => owner && owner !== 'neutral' && owner !== p.id)
+        .map(owner => this.relationships.get(p.id, owner));
+      const priorities = currentStrategicPriorities(profile, {
+        relationshipToPlayer: relationship,
+        hostileNeighbours,
+        hostileActors: allRelations.filter(value => value === 'hostile').length,
+        alliedActors: allRelations.filter(value => value === 'ally').length,
+        militaryPower: military,
+        playerMilitaryPower: this.nationalMilitaryPower(this.playerPolityId),
+        monthlyBalance: WorldStateEngine.accounts(owned)[p.id]?.monthlyBalance,
+        stability: WorldStateEngine.accounts(owned)[p.id]?.stability,
+      });
+      const memory = this.recentStrategicMemory(p.id, 2);
       return {
         name: p.name,
-        relationship: this.relationships.get(p.id, this.playerPolityId),
-        personality: `${personality} (propensione alla forza ${Math.round(aggression * 100)}%)`,
-        interests: `difendere ${owned.length} regioni; popolazione ${population}; PIL ${gdp}; potenza militare ${military}; migliorare la propria sicurezza e influenza senza ignorare il lore del preset`,
+        relationship,
+        personality: `${profile.personality}; dottrina ${profile.doctrine}; stile ${profile.negotiationStyle}; propensione alla forza ${Math.round(profile.aggression * 100)}%; rischio ${profile.riskTolerance}/100; affidabilità verso impegni registrati ${profile.allianceReliability}/100`,
+        interests: `priorità: ${priorities.join('; ')}; linee rosse: ${profile.redLines.join('; ')}; capacità: ${owned.length} regioni, popolazione ${population}, PIL ${gdp}, potenza militare ${military}; memoria recente: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato'}`,
       };
     });
+  }
+
+  /** Risposta minima e prudente quando il modello free non produce una nota.
+   * Non concede, rifiuta o inventa contromisure: rende visibile che la
+   * controparte ha ricevuto l'iniziativa e conserva la propria priorità. */
+  private persistNpcReactionFallback(
+    polityId: string,
+    input: { turn?: number; date?: string },
+  ): void {
+    try {
+      const owned = Array.from(this.regions.values()).filter(region => region.owner === polityId);
+      if (!owned.length) return;
+      const displayName = this.publicPolityName(polityId);
+      const profile = strategicProfileForPolity(polityId);
+      const priority = currentStrategicPriorities(profile, {
+        relationshipToPlayer: this.relationships.get(polityId, this.playerPolityId),
+        hostileNeighbours: this.hostileNeighbourCount(polityId),
+        militaryPower: this.nationalMilitaryPower(polityId),
+        playerMilitaryPower: this.nationalMilitaryPower(this.playerPolityId),
+      })[0] || profile.baselinePriorities[0];
+      const chat = this.ensureChat([displayName]);
+      const sender = chat.participants.find(participant => participant.role === 'polity')?.name || chat.polityName;
+      const content = `${sender} prende formalmente atto degli sviluppi comunicati. Non considera concluso alcun accordo e non assume nuovi impegni senza una decisione verificabile; valuterà i prossimi passi secondo la priorità «${priority}».`;
+      const reply = chatRepository.addMessage(
+        chat.id, 'polity', content, input.turn ?? this.currentTurn, sender, input.date || this.currentDate,
+      );
+      this.broadcast('chat_message', {
+        chatId: chat.id,
+        polityId: chat.polityId,
+        polityName: chat.polityName,
+        participants: chat.participants,
+        senderName: sender,
+        message: reply,
+        reaction: true,
+        degraded: true,
+      });
+    } catch (error) {
+      console.warn('[GameSession] Anche il fallback di reazione NPC è fallito:', polityId, error);
+    }
   }
 
   /**
@@ -995,22 +1312,24 @@ export class GameSession {
    * ma anche reazioni visibili.
    *
    * Fire-and-forget: il turno è già committato; un errore LLM non lo tocca.
-   * Limite: massimo 2 reazioni per turno (costo LLM controllato).
+   * Limite fallback: massimo 4 reazioni per turno (solo controparti riconosciute).
    */
   async generateNpcReactions(input: {
     actionTexts: string[];
     eventHeadlines: string[];
     candidatePolityIds: string[];
+    turn?: number;
+    date?: string;
   }): Promise<void> {
     if (input.actionTexts.length === 0 && input.eventHeadlines.length === 0) return;
     const candidates = input.candidatePolityIds
       .filter(id => id && id !== this.playerPolityId && id !== 'neutral')
       .filter((id, index, all) => all.indexOf(id) === index)
       .filter(id => Array.from(this.regions.values()).some(r => r.owner === id))
-      .slice(0, 2);
+      .slice(0, 4);
     if (candidates.length === 0) return;
 
-    const playerPolityName = this.players[0]?.name || this.playerPolityId;
+    const playerPolityName = this.publicPolityName(this.playerPolityId);
     const reactionBrief = [
       input.actionTexts.length > 0
         ? `Ordini resi pubblici da ${playerPolityName} in questo turno: ${input.actionTexts.join(' | ')}`
@@ -1026,9 +1345,7 @@ export class GameSession {
         if (owned.length === 0) continue;
         // Stessa convenzione di ensureChat: nome nazionale dal registro ISO
         // per i mondi provinciali, nome della regione per le politie singole.
-        const displayName = owned.length > 1
-          ? (countryRepository.findByCode(polityId)?.name || polityId)
-          : owned[0].name;
+        const displayName = this.publicPolityName(polityId);
         const chat = this.ensureChat([displayName]);
         const sender = chat.participants.find(p => p.role === 'polity')?.name || chat.polityName;
         const history = chatRepository.getMessages(chat.id)
@@ -1045,7 +1362,7 @@ export class GameSession {
           simulationRules: this.worldSimulationRules || '',
           mapContext: this.buildChatMapContext(),
           difficultyContext: difficultyPromptBlock(this.difficulty),
-          date: this.currentDate,
+          date: input.date || this.currentDate,
           recentEvents: input.eventHeadlines.slice(0, 8),
           history,
           playerMessage: reactionBrief,
@@ -1062,9 +1379,9 @@ export class GameSession {
           chat.id,
           'polity',
           parsed.message,
-          this.currentTurn,
+          input.turn ?? this.currentTurn,
           sender,
-          this.currentDate,
+          input.date || this.currentDate,
         );
         this.broadcast('chat_message', {
           chatId: chat.id,
@@ -1078,6 +1395,7 @@ export class GameSession {
         console.log('[GameSession] NPC reaction generated by', sender);
       } catch (e) {
         console.warn('[GameSession] NPC reaction failed for', polityId, e);
+        this.persistNpcReactionFallback(polityId, input);
       }
     }
   }
@@ -1107,7 +1425,7 @@ export class GameSession {
       const messages = chatRepository.getMessages(chat.id).slice(-15);
       if (messages.length === 0) continue;
       const lines = messages.map(m =>
-        m.role === 'player' ? `Giocatore: ${m.content}` : `${m.senderName || chat.polityName}: ${m.content}`
+        m.role === 'player' ? `${this.publicPolityName(this.playerPolityId)}: ${m.content}` : `${m.senderName || chat.polityName}: ${m.content}`
       );
       parts.push(`[Trattative con ${chat.polityName}]\n${lines.join('\n')}`);
     }
@@ -1409,16 +1727,20 @@ export class GameSession {
       turn: r.turn,
       date: r.date || '',
       events: r.timelineEvents?.length
-        ? [...r.timelineEvents]
+        ? r.timelineEvents.map(event => ({
+            ...event,
+            headline: this.publicText(event.headline),
+            detail: this.publicText(event.detail),
+          }))
         : (r.events || []).map((headline, index) => ({
             id: `${r.id}-${index}`,
             date: r.date || '',
-            headline,
-            detail: r.narration || '',
+            headline: this.publicText(headline),
+            detail: this.publicText(r.narration),
             source: 'world' as const,
             simulationId: r.simulationId,
           })),
-      narration: r.narration || '',
+      narration: this.publicText(r.narration),
     }));
     // I messaggi delle chat restano nel loro thread. La timeline riceve solo
     // eventi diplomatici esplicitamente committati dal simulatore (apertura
@@ -1438,10 +1760,361 @@ export class GameSession {
    */
   private buildResolvers(): { regions: RegionResolver; polities: PolityResolver } {
     const all = Array.from(this.regions.values());
+    const polityAliases: Record<string, string[]> = {};
+    for (const owner of new Set(all.map(region => region.owner))) {
+      if (!owner || owner === 'neutral') continue;
+      const registeredName = countryRepository.findByCode(owner)?.name;
+      polityAliases[owner] = [
+        registeredName,
+        polityDisplayNameIt(owner, registeredName),
+      ].filter((name): name is string => !!name);
+    }
     return {
       regions: new RegionResolver(all),
-      polities: new PolityResolver(all, this.playerPolityId),
+      polities: new PolityResolver(all, this.playerPolityId, polityAliases),
     };
+  }
+
+  /**
+   * Individua le politie nominate esplicitamente in ordini e dispacci. È il
+   * fallback deterministico quando un provider omette il campo reactions:
+   * almeno le controparti riconoscibili ricevono una presa di posizione in chat.
+   */
+  private mentionedNpcPolityIds(texts: string[]): string[] {
+    const owners = [...new Set(Array.from(this.regions.values()).map(region => region.owner))]
+      .filter(owner => owner && owner !== 'neutral' && owner !== this.playerPolityId);
+    const found: string[] = [];
+    for (const text of texts) {
+      const normalizedText = ` ${normalizeName(text)} `;
+      for (const owner of owners) {
+        if (found.includes(owner)) continue;
+        const registeredName = countryRepository.findByCode(owner)?.name;
+        const aliases = [
+          registeredName,
+          polityDisplayNameIt(owner, registeredName),
+          ...Array.from(this.regions.values()).filter(region => region.owner === owner).map(region => region.name),
+        ]
+          .filter((name): name is string => !!name)
+          .map(normalizeName)
+          .filter(alias => alias.length >= 3);
+        const words = normalizedText.trim().split(/\s+/);
+        const named = aliases.some(alias =>
+          normalizedText.includes(` ${alias} `)
+          || (!alias.includes(' ') && alias.length >= 5 && words.some(word => word.startsWith(alias)))
+          // Forme aggettivali italiane ("cecoslovacca", "botswane"): radice condivisa.
+          || (!alias.includes(' ') && alias.length >= 6
+            && words.some(word => word.length >= 6 && word.startsWith(alias.slice(0, 6))))
+        );
+        const escapedOwner = owner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const coded = new RegExp(`(^|[^A-Z])${escapedOwner}([^A-Z]|$)`).test(text);
+        if (named || coded) found.push(owner);
+      }
+    }
+    return found;
+  }
+
+  /** Vicini geografici (proprietari dei territori confinanti) di una politia. */
+  private frontierOwnerIds(polityId: string, cache?: Map<string, Set<string>>): Set<string> {
+    const cached = cache?.get(polityId);
+    if (cached) return cached;
+    const owners = new Set<string>();
+    for (const region of this.regions.values()) {
+      if (region.owner !== polityId) continue;
+      for (const borderId of region.borders || []) {
+        const other = this.regions.get(borderId)?.owner;
+        if (other && other !== 'neutral' && other !== polityId) owners.add(other);
+      }
+    }
+    cache?.set(polityId, owners);
+    return owners;
+  }
+
+  /** Il mondo fornisce informazioni di adiacenza? Se no, nessun filtro geografico è applicabile. */
+  private hasGeographicAdjacency(): boolean {
+    for (const region of this.regions.values()) {
+      if ((region.borders || []).length > 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Politie pertinenti a una crisi: quelle nominate nei testi, i vicini
+   * geografici del giocatore e dei soggetti in scena, e le politie con un
+   * rapporto registrato. Esclude le potenze lontane senza interesse
+   * documentato: una crisi di confine non deve generare note di comodo da
+   * capitali irrilevanti. `seedPolityIds` espande soltanto la geografia e i
+   * rapporti, non rende automaticamente pertinente chi lo propone.
+   */
+  private crisisRelevantPolityIds(texts: string[], seedPolityIds: string[] = []): Set<string> {
+    const relevant = new Set<string>(this.mentionedNpcPolityIds(texts));
+    const cache = new Map<string, Set<string>>();
+    const seeds = [this.playerPolityId, ...seedPolityIds, ...relevant];
+    for (const seed of seeds) {
+      for (const neighbour of this.frontierOwnerIds(seed, cache)) {
+        if (neighbour !== this.playerPolityId) relevant.add(neighbour);
+      }
+    }
+    for (const region of this.regions.values()) {
+      const owner = region.owner;
+      if (!owner || owner === 'neutral' || owner === this.playerPolityId || relevant.has(owner)) continue;
+      if (this.relationships.get(owner, this.playerPolityId) !== 'neutral') { relevant.add(owner); continue; }
+      for (const seed of seeds) {
+        if (this.relationships.get(owner, seed) !== 'neutral') { relevant.add(owner); break; }
+      }
+    }
+    return relevant;
+  }
+
+  /** Regione di una politia dove collocare una misura materiale: quella
+   * nominata nel testo, altrimenti la capitale, altrimenti la più popolosa. */
+  private npcMeasureRegion(polityId: string, texts: string[]): RegionState | undefined {
+    const owned = [...this.regions.values()]
+      .filter(region => region.owner === polityId && region.status !== 'destroyed');
+    if (owned.length === 0) return undefined;
+    const normalized = texts.map(text => ` ${normalizeName(text)} `);
+    const named = owned.find(region =>
+      normalized.some(text => text.includes(` ${normalizeName(region.name)} `)));
+    if (named) return named;
+    const capital = owned.find(region =>
+      (region.objects || []).some((object: any) => object.type === 'capital'));
+    return capital || owned.sort((a, b) => (b.population || 0) - (a.population || 0))[0];
+  }
+
+  /**
+   * Riconosce una misura materiale avviata nel testo di una controazione NPC.
+   * Conservativo: solo formulazioni inequivocabili di mobilitazione o cantiere.
+   */
+  private detectNpcMaterialMeasure(
+    text: string,
+  ): { type: MapChange['type']; featureType: MapFeature['type']; label: string } | null {
+    const lower = text.toLowerCase();
+    const rules: Array<{ re: RegExp; type: MapChange['type']; featureType: MapFeature['type']; label: string }> = [
+      { re: /\b(flotta|navale|marina militare|squadra navale)/, type: 'start_mobilization', featureType: 'fleet', label: 'Flotta mobilitata' },
+      { re: /\b(missil|batteria costiera)/, type: 'start_mobilization', featureType: 'missile', label: 'Batteria missilistica mobilitata' },
+      { re: /\b(mobilit|reclut|richiam|leva|riserve)/, type: 'start_mobilization', featureType: 'battalion', label: 'Riserve mobilitate' },
+      { re: /\b(base aerea|aeroporto|airbase)/, type: 'start_construction', featureType: 'airbase', label: 'Base aerea' },
+      { re: /\b(base navale|porto militare|arsenale)/, type: 'start_construction', featureType: 'naval_base', label: 'Base navale' },
+      { re: /\b(radar|sorveglianza aerea)/, type: 'start_construction', featureType: 'radar', label: 'Stazione radar' },
+      { re: /\b(fortific|trince|bunker|linea difensiva)/, type: 'start_construction', featureType: 'fortification', label: 'Fortificazioni' },
+      { re: /\b(universit)/, type: 'start_construction', featureType: 'university', label: 'Università' },
+      { re: /\b(fabbrica|acciaieria|impianto industriale)/, type: 'start_construction', featureType: 'factory', label: 'Impianto industriale' },
+      { re: /\b(ferrovia|strada|corridoio|infrastruttur|oleodotto)/, type: 'start_construction', featureType: 'infrastructure', label: 'Opera infrastrutturale' },
+      { re: /\b(centrale (elettrica|energetica)|diga)/, type: 'start_construction', featureType: 'power_plant', label: 'Centrale elettrica' },
+      { re: /\b(cantiere|costru|edifica)/, type: 'start_construction', featureType: 'base', label: 'Nuova opera' },
+    ];
+    for (const rule of rules) {
+      if (rule.re.test(lower)) return { type: rule.type, featureType: rule.featureType, label: rule.label };
+    }
+    return null;
+  }
+
+  /**
+   * Contratto mappa per gli NPC: se una controazione attestata avvia una
+   * misura materiale (mobilitazione, cantieri, difese) e il modello ha
+   * dimenticato la mapChange, il motore la materializza nel territorio della
+   * politia, senza inventare nulla che il testo non affermi già.
+   */
+  private reconcileNpcMaterialMeasures(event: SimulationEvent): SimulationEvent {
+    const reactions = event.reactions || [];
+    if (reactions.length === 0) return event;
+    const resolver = this.buildResolvers();
+    const existing = event.mapChanges || [];
+    const existingRegionIds = new Set<string>();
+    for (const change of existing) {
+      const key = change.regionName || change.regionId;
+      if (!key) continue;
+      const direct = this.regions.get(key);
+      const resolved = direct || resolver.regions.resolve(key);
+      const regionId = direct?.id || (resolved ? (this.regions.get(resolved.id)?.id) : undefined);
+      if (regionId) existingRegionIds.add(regionId);
+    }
+    const additions: MapChange[] = [];
+    for (const reaction of reactions) {
+      const resolution = resolver.polities.resolve(reaction.polityName);
+      if (!resolution || resolution.isNew || resolution.polityId === this.playerPolityId) continue;
+      const text = `${reaction.response || ''} ${reaction.counterAction || ''}`;
+      const measure = this.detectNpcMaterialMeasure(text);
+      if (!measure) continue;
+      const region = this.npcMeasureRegion(resolution.polityId, [text, event.headline, event.description]);
+      if (!region || existingRegionIds.has(region.id)) continue;
+      additions.push({
+        type: measure.type,
+        regionName: region.name,
+        feature: { type: measure.featureType, name: `${measure.label} ${this.publicPolityName(resolution.polityId)}` },
+      });
+      existingRegionIds.add(region.id);
+    }
+    if (additions.length === 0) return event;
+    return { ...event, mapChanges: [...existing, ...additions] };
+  }
+
+  private nationalMilitaryPower(polityId: string): number {
+    return Array.from(this.regions.values())
+      .filter(region => region.owner === polityId)
+      .reduce((total, region) => total + (Number(region.militaryPower) || 0), 0);
+  }
+
+  private hostileNeighbourCount(polityId: string): number {
+    const hostile = new Set<string>();
+    for (const region of this.regions.values()) {
+      if (region.owner !== polityId) continue;
+      for (const borderId of region.borders || []) {
+        const other = this.regions.get(borderId)?.owner;
+        if (other && other !== polityId && other !== 'neutral'
+            && this.relationships.get(polityId, other) === 'hostile') hostile.add(other);
+      }
+    }
+    return hostile.size;
+  }
+
+  /**
+   * Memoria strategica verificabile: recupera soltanto eventi canonici già
+   * persistiti che nominano la politia. Nessun riassunto LLM separato può
+   * quindi inventare un precedente o sopravvivere a un rewind illegittimo.
+   */
+  private recentStrategicMemory(polityId: string, limit = 3): string[] {
+    const candidates: Array<{ date: string; turn: number; text: string }> = [];
+    for (const result of this.results) {
+      for (const event of result.timelineEvents || []) {
+        const text = `${event.headline} ${event.detail || ''}`;
+        if (!this.mentionedNpcPolityIds([text]).includes(polityId)) continue;
+        const detail = String(event.detail || '').replace(/\s+/g, ' ').trim();
+        const compactDetail = detail.length > 180 ? `${detail.slice(0, 179).trimEnd()}…` : detail;
+        candidates.push({
+          date: event.date || result.date || '',
+          turn: result.turn,
+          text: `${event.date || result.date || ''}: ${event.headline}${compactDetail ? ` — ${compactDetail}` : ''}`,
+        });
+      }
+    }
+    // Anche promesse, rifiuti e condizioni nelle chat sono memoria canonica:
+    // provengono da righe persistite, non da un riassunto inventato ad hoc.
+    for (const chat of chatRepository.getChatsByGame(this.id)) {
+      if (!chat.participants.some(participant => participant.id === polityId)) continue;
+      for (const message of chatRepository.getMessages(chat.id).slice(-6)) {
+        const content = String(message.content || '').replace(/\s+/g, ' ').trim();
+        if (!content) continue;
+        const compactContent = content.length > 180 ? `${content.slice(0, 179).trimEnd()}…` : content;
+        const speaker = message.role === 'player'
+          ? this.publicPolityName(this.playerPolityId)
+          : (message.senderName || chat.polityName);
+        candidates.push({
+          date: message.gameDate || '',
+          turn: message.turn,
+          text: `${message.gameDate || `turno ${message.turn}`}: ${speaker} in diplomazia — ${compactContent}`,
+        });
+      }
+    }
+    return candidates
+      .sort((a, b) => b.date.localeCompare(a.date) || b.turn - a.turn)
+      .map(candidate => candidate.text)
+      .filter((text, index, all) => all.indexOf(text) === index)
+      .slice(0, limit);
+  }
+
+  /**
+   * Dossier passati al simulatore globale. Prima vengono le controparti
+   * nominate negli ordini, poi attori della memoria recente, confinanti e
+   * relazioni non neutrali. Il limite evita di trasformare il prompt in un
+   * atlante di personalità irrilevanti.
+   */
+  private buildNpcStrategicDossiers(
+    focusTexts: string[],
+    accounts: ReturnType<typeof WorldStateEngine.accounts>,
+  ): string {
+    const owners = [...new Set(Array.from(this.regions.values()).map(region => region.owner))]
+      .filter(owner => owner && owner !== 'neutral' && owner !== this.playerPolityId);
+    if (owners.length === 0) return 'Nessuna politia non giocante presente.';
+
+    const recentTexts = this.results.slice(-8).flatMap(result =>
+      (result.timelineEvents || []).map(event => `${event.headline} ${event.detail || ''}`)
+    );
+    const recentOwners = this.mentionedNpcPolityIds(recentTexts);
+    const focusedOwners = this.mentionedNpcPolityIds(focusTexts);
+    const chatOwners = chatRepository.getChatsByGame(this.id)
+      .flatMap(chat => chat.participants.map(participant => participant.id))
+      .filter(owner => owners.includes(owner));
+    const frontierOwners = new Set<string>();
+    for (const region of this.regions.values()) {
+      if (region.owner !== this.playerPolityId) continue;
+      for (const borderId of region.borders || []) {
+        const owner = this.regions.get(borderId)?.owner;
+        if (owner && owner !== 'neutral' && owner !== this.playerPolityId) frontierOwners.add(owner);
+      }
+    }
+    const relatedOwners = owners.filter(owner => this.relationships.get(this.playerPolityId, owner) !== 'neutral');
+    const strongestOwners = [...owners].sort((a, b) => (accounts[b]?.militaryPower || 0) - (accounts[a]?.militaryPower || 0));
+    // Il dossier copre il teatro della crisi, non l'intero globo. Ancore fisse:
+    // gli ordini del turno e i rapporti registrati. Da lì si espande ai vicini;
+    // le potenze lontane entrano solo con un ruolo documentato, non perché sono
+    // potenti, e le vecchie menzioni non riportano in scena un attore estraneo.
+    const anchors = new Set<string>([...focusedOwners, ...relatedOwners]);
+    const regionalOwners = new Set<string>();
+    for (const owner of [this.playerPolityId, ...anchors]) {
+      for (const neighbour of this.frontierOwnerIds(owner)) {
+        if (neighbour !== this.playerPolityId) regionalOwners.add(neighbour);
+      }
+    }
+    const theatreOwners = new Set<string>([
+      ...focusedOwners,
+      ...frontierOwners,
+      ...regionalOwners,
+      ...relatedOwners,
+    ]);
+    const relevantOwners = [...new Set([
+      ...focusedOwners,
+      ...regionalOwners,
+      ...frontierOwners,
+      ...relatedOwners,
+      ...recentOwners.filter(owner => theatreOwners.has(owner)),
+      ...chatOwners.filter(owner => theatreOwners.has(owner)),
+    ])];
+    // Solo se il mondo non offre alcun aggancio geografico o diplomatico il
+    // dossier ripiega sulle potenze più forti, per non restare vuoto.
+    const selected = (relevantOwners.length > 0 ? relevantOwners : strongestOwners).slice(0, 10);
+    const playerMilitaryPower = accounts[this.playerPolityId]?.militaryPower || this.nationalMilitaryPower(this.playerPolityId);
+    const displayName = (polityId: string): string => {
+      const owned = Array.from(this.regions.values()).filter(region => region.owner === polityId);
+      const registeredName = countryRepository.findByCode(polityId)?.name;
+      return owned.length > 1
+        ? (registeredName || polityId)
+        : (owned[0]?.name || registeredName || polityId);
+    };
+    const allPolityIds = [this.playerPolityId, ...owners];
+
+    return selected.map(polityId => {
+      const owned = Array.from(this.regions.values()).filter(region => region.owner === polityId);
+      const name = displayName(polityId);
+      const account = accounts[polityId];
+      const relationship = this.relationships.get(polityId, this.playerPolityId);
+      const profile = strategicProfileForPolity(polityId);
+      const registeredRelations = allPolityIds
+        .filter(otherId => otherId !== polityId)
+        .map(otherId => ({ otherId, value: this.relationships.get(polityId, otherId) }))
+        .filter(entry => entry.value !== 'neutral');
+      const priorities = currentStrategicPriorities(profile, {
+        relationshipToPlayer: relationship,
+        hostileNeighbours: this.hostileNeighbourCount(polityId),
+        hostileActors: registeredRelations.filter(entry => entry.value === 'hostile').length,
+        alliedActors: registeredRelations.filter(entry => entry.value === 'ally').length,
+        militaryPower: account?.militaryPower,
+        playerMilitaryPower,
+        monthlyBalance: account?.monthlyBalance,
+        stability: account?.stability,
+        mobilized: account?.mobilized,
+        warEffort: account?.warEffort,
+        socialTension: account?.socialTension,
+      });
+      const memory = this.recentStrategicMemory(polityId, 3);
+      return [
+        `- ${name} [${polityId}] — profilo persistente: ${profile.personality}, dottrina ${profile.doctrine}, stile negoziale ${profile.negotiationStyle}, decisione ${profile.decisionTempo}.`,
+        `  Tratti: propensione alla forza ${Math.round(profile.aggression * 100)}/100; rischio ${profile.riskTolerance}/100; affidabilità verso impegni registrati ${profile.allianceReliability}/100; focus economico ${profile.economicFocus}/100; sensibilità alla sovranità ${profile.sovereigntySensitivity}/100.`,
+        `  Priorità correnti: ${priorities.join('; ')}. Linee rosse: ${profile.redLines.join('; ')}.`,
+        ...(account ? [`  Economia e sforzo: saldo mensile ${Math.round(account.monthlyBalance * 10) / 10}, stabilità ${account.stability}/100, spesa militare ${account.defenceBurdenPct}% del PIL, riserve mobilitate ${account.mobilized}, sforzo bellico ${account.warEffort}/100, tensione sociale ${account.socialTension}/100.`] : []),
+        `  Rapporti registrati: ${registeredRelations.length ? registeredRelations.slice(0, 8).map(entry => `${displayName(entry.otherId)} [${entry.otherId}] ${entry.value}`).join('; ') : 'nessun rapporto non neutrale'}.`,
+        `  Memoria strategica: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato: non inventarne uno'}.`,
+      ].join('\n');
+    }).join('\n');
   }
 
   /** Colore canonico di una politia: colore più frequente tra i territori posseduti. */
@@ -1457,11 +2130,18 @@ export class GameSession {
   /**
    * Unico punto di trasferimento territoriale: owner E colore cambiano insieme.
    * Evita province conquistate che conservano il colore della vecchia nazione.
+   *
+   * Regola non negoziabile: il colore del territorio è quello della nazione che
+   * lo controlla. Per una politia già nota vince il suo colore canonico; per una
+   * politia nuova si accetta il colore esplicito dichiarato e, in mancanza, se ne
+   * deriva uno stabile dall'id. Un `newColor` sbagliato proposto dal modello non
+   * può lasciare una provincia occupata del colore del vecchio sovrano.
    */
   private transferRegion(region: RegionState, newOwner: string, explicitColor?: string): void {
-    const inherited = explicitColor || this.polityColor(newOwner, region.id);
+    const canonical = this.polityColor(newOwner, region.id);
+    const explicit = explicitColor ? normalizeHexColor(explicitColor) || undefined : undefined;
     region.owner = newOwner;
-    if (inherited) region.color = inherited;
+    region.color = canonical || explicit || colorForPolity(newOwner);
   }
 
   /**
@@ -1647,131 +2327,536 @@ export class GameSession {
     }
   }
 
+  /** Кэш геометрий для определения границы (point-in-polygon). */
+  private regionGeometryCache: Map<string, any> = new Map();
+
+  private regionGeometry(regionId: string): any | null {
+    if (this.regionGeometryCache.has(regionId)) return this.regionGeometryCache.get(regionId);
+    let geometry: any = null;
+    try {
+      const row = db.prepare('SELECT geojson FROM world_regions WHERE id = ?').get(regionId) as any;
+      if (row?.geojson) {
+        const gj = JSON.parse(row.geojson);
+        const geom = gj?.geometry ?? gj;
+        if (geom?.type === 'Polygon' || geom?.type === 'MultiPolygon') geometry = geom;
+      }
+    } catch {
+      geometry = null;
+    }
+    this.regionGeometryCache.set(regionId, geometry);
+    return geometry;
+  }
+
+  private static pointInRing(x: number, y: number, ring: any[]): boolean {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i]?.[0];
+      const yi = ring[i]?.[1];
+      const xj = ring[j]?.[0];
+      const yj = ring[j]?.[1];
+      if (typeof xi !== 'number' || typeof yi !== 'number' || typeof xj !== 'number' || typeof yj !== 'number') continue;
+      if (((yi > y) !== (yj > y)) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
+  private pointInGeometry(lng: number, lat: number, geometry: any): boolean {
+    const polygons: any[] = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+    for (const poly of polygons) {
+      if (!Array.isArray(poly) || !poly.length || !Array.isArray(poly[0])) continue;
+      if (!GameSession.pointInRing(lng, lat, poly[0])) continue;
+      let inHole = false;
+      for (let i = 1; i < poly.length; i++) {
+        if (Array.isArray(poly[i]) && GameSession.pointInRing(lng, lat, poly[i])) {
+          inHole = true;
+          break;
+        }
+      }
+      if (!inHole) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Punto di schieramento di frontiera: parte dal centroide della provincia e
+   * avanza verso la provincia più vicina della politia indicata, fermandosi
+   * all'ultimo punto ancora dentro i confini della provincia. Così una
+   * formazione "di frontiera" compare sul confine e non nel centro abitato.
+   */
+  private frontierPosition(region: RegionState, targetPolityId: string): { lat: number; lng: number } | null {
+    const start = this.regionCenter(region);
+    const geometry = this.regionGeometry(region.id);
+    if (!start || !geometry) return null;
+    let toward: { lat: number; lng: number } | null = null;
+    let bestDist = Infinity;
+    for (const other of this.regions.values()) {
+      if (other.owner !== targetPolityId) continue;
+      const center = this.regionCenter(other);
+      if (!center) continue;
+      const dist = (center.lat - start.lat) ** 2 + (center.lng - start.lng) ** 2;
+      if (dist < bestDist) {
+        bestDist = dist;
+        toward = center;
+      }
+    }
+    if (!toward) return null;
+    let last = { ...start };
+    const steps = 32;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const point = {
+        lat: start.lat + (toward.lat - start.lat) * t,
+        lng: start.lng + (toward.lng - start.lng) * t,
+      };
+      if (this.pointInGeometry(point.lng, point.lat, geometry)) last = point;
+      else break;
+    }
+    return last;
+  }
+
+  /**
+   * Materializza "di frontiera" come posizione, non solo come nome: se una
+   * formazione creata o mobilitata si chiama o è descritta come di frontiera
+   * verso una politia nominata, il marker viene spostato sul confine.
+   */
+  private applyFrontierPlacements(
+    event: SimulationEvent,
+    changed: RegionState[],
+    actionTexts: string[] = [],
+  ): RegionState[] {
+    if (changed.length === 0) return changed;
+    const formationTypes = new Set(['mobilization', 'battalion', 'army', 'fleet', 'missile']);
+    const texts = [event.headline || '', this.eventDetail(event) || '', ...actionTexts];
+    const namedInEvent = this.mentionedNpcPolityIds(texts).filter(id => id !== this.playerPolityId);
+    for (const region of changed) {
+      if (!region.objects?.length) continue;
+      for (const object of region.objects as any[]) {
+        if (!formationTypes.has(object.type)) continue;
+        const name = String(object.name || '');
+        if (!/frontier|frontiera|di confine|confine|border/i.test(name)) continue;
+        const direct = this.mentionedNpcPolityIds([name]).filter(id => id !== this.playerPolityId);
+        const target = direct[0] || namedInEvent[0];
+        if (!target) continue;
+        const position = this.frontierPosition(region, target);
+        if (!position) continue;
+        object.lat = position.lat;
+        object.lng = position.lng;
+      }
+    }
+    return changed;
+  }
+
   /**
    * Apply mapChanges from a single simulation event (transfer/create/update/delete).
    * Регионы и политии адресуются ИМЕНАМИ (так их видит LLM в описании карты).
    */
-  private applyMapChanges(mapChanges: MapChange[] | undefined): RegionState[] {
+  private applyMapChanges(mapChanges: MapChange[] | undefined, movedDate = this.currentDate): RegionState[] {
     if (this.isStrictGame()) validateStrictMapChanges(mapChanges);
     if (!mapChanges || mapChanges.length === 0) return [];
     const resolvers = this.buildResolvers();
     const changed = new Map<string, RegionState>();
+    const facilityTypes = new Set([
+      'factory', 'port', 'university', 'base', 'airbase', 'naval_base',
+      'fortification', 'radar', 'missile_site', 'infrastructure', 'power_plant',
+    ]);
+    const unitTypes = new Set(['battalion', 'army', 'fleet', 'missile']);
+    const objectChangeTypes = new Set([
+      'build_facility', 'start_construction', 'update_construction', 'complete_construction', 'cancel_construction',
+      'start_mobilization', 'complete_mobilization', 'cancel_mobilization',
+      'spawn_battalion', 'move_battalion', 'spawn_unit', 'move_unit', 'remove_unit',
+    ]);
+    const exactRegion = (key: string | undefined): RegionState | undefined =>
+      exactMovementRegion([...this.regions.values()], key);
+    const validFeatureName = (feature: MapChange['feature']): string | null => {
+      if (!feature || typeof feature.name !== 'string' || !feature.name.trim()) return null;
+      return feature.name.trim().slice(0, 160);
+    };
 
     for (const change of mapChanges) {
-      const regionKey = change.regionName || change.regionId;
-      // Works require an exact destination: the fuzzy resolver would happily
-      // accept 'random'/'coastal' and build a factory on the wrong province.
-      let liveRegion: RegionState | undefined;
-      if (change.type === 'build_facility') {
-        const direct = regionKey ? this.regions.get(regionKey) : undefined;
-        const resolved = !direct && regionKey ? resolvers.regions.resolve(regionKey) : undefined;
-        liveRegion = direct ?? (resolved ? this.regions.get(resolved.id) : undefined);
-      } else {
-        liveRegion = this.resolveRegionFlexible(regionKey, resolvers.regions);
+      const regionKey = change.regionId || change.regionName;
+      // Movement/removal can locate a unique unit even with an omitted or stale origin.
+      if (change.type === 'move_unit' || change.type === 'move_battalion' || change.type === 'remove_unit') {
+        for (const region of this.applyUnitChange(change, movedDate)) changed.set(region.id, region);
+        continue;
       }
+      // Oggetti e opere richiedono destinazioni reali. Mai interpretare
+      // "random"/"coastal" come una provincia e collocare il marker a caso.
+      const liveRegion = objectChangeTypes.has(change.type)
+        ? exactRegion(regionKey)
+        : this.resolveRegionFlexible(regionKey, resolvers.regions);
       if (!liveRegion) {
         console.warn('[GameSession] mapChange: region not resolved:', regionKey);
         continue;
       }
+      let mutated = false;
 
       switch (change.type) {
         case 'transfer': {
           const ownerResolution = resolvers.polities.resolve(change.newOwner);
           if (!ownerResolution) break;
-          // Owner e colore vengono trasferiti atomicamente.
+          const previous = `${liveRegion.owner}:${liveRegion.color}`;
           this.transferRegion(
             liveRegion,
             ownerResolution.polityId,
             change.newColor || resolvers.polities.colorOf(ownerResolution.polityId),
           );
+          mutated = `${liveRegion.owner}:${liveRegion.color}` !== previous;
           break;
         }
         case 'update': {
-          if (change.newColor) liveRegion.color = change.newColor;
-          if (change.newName) liveRegion.name = change.newName;
+          // Un `update` con un nuovo proprietario è di fatto un passaggio
+          // territoriale: lo trattiamo come tale, così la provincia occupata
+          // prende il colore dell'occupante anche se il modello ha scelto il
+          // tipo sbagliato.
+          if (change.newOwner) {
+            const ownerResolution = resolvers.polities.resolve(change.newOwner);
+            if (ownerResolution) {
+              const previous = `${liveRegion.owner}:${liveRegion.color}`;
+              this.transferRegion(
+                liveRegion,
+                ownerResolution.polityId,
+                change.newColor || resolvers.polities.colorOf(ownerResolution.polityId),
+              );
+              mutated ||= `${liveRegion.owner}:${liveRegion.color}` !== previous;
+            }
+          } else if (change.newColor && change.newColor !== liveRegion.color) {
+            liveRegion.color = change.newColor;
+            mutated = true;
+          }
+          if (change.newName && change.newName !== liveRegion.name) {
+            liveRegion.name = change.newName;
+            mutated = true;
+          }
           break;
         }
         case 'delete': {
+          mutated = liveRegion.owner !== 'neutral' || liveRegion.color !== '#888888';
           liveRegion.owner = 'neutral';
           liveRegion.color = '#888888';
           break;
         }
         case 'create_polity':
         case 'create': {
-          // Создание новой политии: регион получает нового владельца (+ цвет)
           const ownerResolution = resolvers.polities.resolve(change.newOwner || change.newName);
           if (ownerResolution) {
+            const previous = `${liveRegion.owner}:${liveRegion.color}`;
             this.transferRegion(
               liveRegion,
               ownerResolution.polityId,
               change.newColor || resolvers.polities.colorOf(ownerResolution.polityId),
             );
+            mutated = `${liveRegion.owner}:${liveRegion.color}` !== previous;
           }
           break;
         }
-        case 'build_facility': {
-          // Explicit completed works only. No keyword detection on requests or
-          // denied orders; no fabricated cities/capitals from narrative text.
+        case 'start_construction': {
           const feature = change.feature;
-          if (!feature || !['factory', 'port', 'university', 'base', 'radar'].includes(feature.type)
-            || typeof feature.name !== 'string' || !feature.name.trim()
-            || liveRegion.status === 'destroyed') break;
-          const name = feature.name.trim().slice(0, 160);
-          if ((liveRegion.objects || []).some(o => o.type === feature.type && o.name === name)) break;
+          const name = validFeatureName(feature);
+          if (!feature || !name || !facilityTypes.has(feature.type) || liveRegion.status === 'destroyed') break;
+          liveRegion.objects ||= [];
+          const duplicate = liveRegion.objects.some((object: any) =>
+            normalizeName(object.name) === normalizeName(name)
+            && (object.type === feature.type
+              || (object.type === 'construction_site' && object.metadata?.plannedType === feature.type))
+          );
+          const center = this.regionCenter(liveRegion);
+          if (duplicate || !center) break;
+          liveRegion.objects.push({
+            id: feature.id || shortId(),
+            type: 'construction_site',
+            name,
+            level: 1,
+            owner: liveRegion.owner,
+            lat: center.lat,
+            lng: center.lng,
+            metadata: {
+              ...constructionProgressPatch(feature.metadata),
+              status: 'under_construction',
+              plannedType: feature.type,
+              startedDate: this.currentDate,
+            },
+          });
+          mutated = true;
+          break;
+        }
+        case 'update_construction': {
+          const feature = change.feature;
+          if (!feature || liveRegion.status === 'destroyed') break;
+          const name = validFeatureName(feature);
+          const site = (liveRegion.objects || []).find((object: any) =>
+            object.type === 'construction_site'
+            && object.metadata?.plannedType === feature.type
+            && (feature.id ? object.id === feature.id : !!name && normalizeName(object.name) === normalizeName(name)));
+          if (!site) break; // Never create a missing site or alter an operational facility.
+          const patch = constructionProgressPatch(feature.metadata);
+          mutated = Object.entries(patch).some(([key, value]) => site.metadata?.[key] !== value);
+          if (mutated) site.metadata = { ...site.metadata, ...patch, lastUpdatedDate: this.currentDate };
+          break;
+        }
+        case 'build_facility':
+        case 'complete_construction': {
+          const feature = change.feature;
+          const name = validFeatureName(feature);
+          if (!feature || !name || !facilityTypes.has(feature.type) || liveRegion.status === 'destroyed') break;
+          liveRegion.objects ||= [];
+          const existingFinal = liveRegion.objects.find((object: any) =>
+            object.type === feature.type && normalizeName(object.name) === normalizeName(name));
+          if (existingFinal) break;
+          const siteIndex = liveRegion.objects.findIndex((object: any) =>
+            object.type === 'construction_site'
+            && ((feature.id && object.id === feature.id) || normalizeName(object.name) === normalizeName(name))
+            && (!object.metadata?.plannedType || object.metadata.plannedType === feature.type));
           const center = this.regionCenter(liveRegion);
           if (!center) break;
+          if (siteIndex >= 0) {
+            const site = liveRegion.objects[siteIndex];
+            liveRegion.objects[siteIndex] = {
+              ...site,
+              type: feature.type,
+              name,
+              owner: site.owner || liveRegion.owner,
+              level: Math.max(1, Number(site.level) || 1),
+              lat: site.lat ?? center.lat,
+              lng: site.lng ?? center.lng,
+              metadata: {
+                ...(site.metadata || {}),
+                ...(feature.metadata || {}),
+                status: 'operational',
+                phase: 'completed',
+                blocker: '',
+                nextStep: '',
+                plannedType: undefined,
+                completedDate: this.currentDate,
+              },
+            };
+          } else {
+            // Compatibilità: un evento può attestare direttamente un'opera già
+            // terminata senza che i turni storici avessero un marker cantiere.
+            liveRegion.objects.push({
+              id: feature.id || shortId(), type: feature.type, name, level: 1,
+              owner: liveRegion.owner, lat: center.lat, lng: center.lng,
+              metadata: { ...(feature.metadata || {}), status: 'operational', completedDate: this.currentDate },
+            });
+          }
+          mutated = true;
+          break;
+        }
+        case 'cancel_construction': {
+          const feature = change.feature;
+          const name = validFeatureName(feature);
+          if (!feature || (!feature.id && !name)) break;
           liveRegion.objects ||= [];
-          liveRegion.objects.push({ id: shortId(), type: feature.type, name, level: 1,
-            lat: center.lat, lng: center.lng });
+          const before = liveRegion.objects.length;
+          liveRegion.objects = liveRegion.objects.filter((object: any) =>
+            object.type !== 'construction_site'
+            || (feature.id ? object.id !== feature.id : normalizeName(object.name) !== normalizeName(name || '')));
+          mutated = liveRegion.objects.length !== before;
           break;
         }
-        case 'spawn_battalion': {
-          liveRegion.objects = liveRegion.objects || [];
-          // Этап 4: формат маркера согласован с фронтом — { id, type, name, lat, lng },
-          // type ровно 'battalion'. Координаты — центр региона (geojson/SVG).
+        case 'start_mobilization': {
+          const feature = change.feature;
+          const name = validFeatureName(feature);
+          if (!feature || !name || !unitTypes.has(feature.type) || liveRegion.status === 'destroyed') break;
+          liveRegion.objects ||= [];
+          const duplicate = liveRegion.objects.some((object: any) =>
+            normalizeName(object.name) === normalizeName(name)
+            && (object.type === feature.type
+              || (object.type === 'mobilization' && object.metadata?.plannedType === feature.type))
+          );
           const center = this.regionCenter(liveRegion);
+          if (duplicate || !center) break;
           liveRegion.objects.push({
-            id: shortId(),
-            type: 'battalion',
-            name: change.feature?.name || `Battaglione ${liveRegion.name} ${(liveRegion.objects.filter((o: any) => o.type === 'battalion').length) + 1}`,
-            lat: center?.lat ?? 0,
-            lng: center?.lng ?? 0,
+            id: feature.id || shortId(),
+            type: 'mobilization',
+            name,
+            level: 1,
+            owner: liveRegion.owner,
+            lat: center.lat,
+            lng: center.lng,
+            metadata: {
+              ...(feature.metadata || {}),
+              status: 'forming',
+              plannedType: feature.type,
+              startedDate: this.currentDate,
+            },
           });
+          mutated = true;
           break;
         }
-        case 'move_battalion': {
-          const target = this.resolveRegionFlexible(change.targetRegionName, resolvers.regions);
-          if (!target) break;
-          const objects = liveRegion.objects || [];
-          const featureId = (change.feature as any)?.id;
-          const featureName = change.feature?.name;
-          // Батальон адресуется по id; если id не передан или не найден — по имени;
-          // последний fallback — первый батальон региона (прежнее поведение).
-          let idx = featureId
-            ? objects.findIndex((o: any) => o.type === 'battalion' && o.id === featureId)
-            : -1;
-          if (idx < 0 && featureName) {
-            idx = objects.findIndex((o: any) => o.type === 'battalion' && o.name === featureName);
+        case 'complete_mobilization': {
+          const feature = change.feature;
+          const name = validFeatureName(feature);
+          if (!feature || !name || !unitTypes.has(feature.type) || liveRegion.status === 'destroyed') break;
+          liveRegion.objects ||= [];
+          if (liveRegion.objects.some((object: any) => object.type === feature.type
+              && normalizeName(object.name) === normalizeName(name))) break;
+          const mobilizationIndex = liveRegion.objects.findIndex((object: any) =>
+            object.type === 'mobilization'
+            && ((feature.id && object.id === feature.id) || normalizeName(object.name) === normalizeName(name))
+            && (!object.metadata?.plannedType || object.metadata.plannedType === feature.type));
+          const center = this.regionCenter(liveRegion);
+          if (!center) break;
+          if (mobilizationIndex >= 0) {
+            const mobilization = liveRegion.objects[mobilizationIndex];
+            liveRegion.objects[mobilizationIndex] = {
+              ...mobilization,
+              type: feature.type,
+              name,
+              owner: mobilization.owner || liveRegion.owner,
+              lat: mobilization.lat ?? center.lat,
+              lng: mobilization.lng ?? center.lng,
+              metadata: {
+                ...(mobilization.metadata || {}),
+                ...(feature.metadata || {}),
+                status: 'operational',
+                plannedType: undefined,
+                deployedDate: this.currentDate,
+              },
+            };
+          } else {
+            liveRegion.objects.push({
+              id: feature.id || shortId(), type: feature.type, name, level: 1,
+              owner: liveRegion.owner, lat: center.lat, lng: center.lng,
+              metadata: { ...(feature.metadata || {}), status: 'operational', deployedDate: this.currentDate },
+            });
           }
-          if (idx < 0) {
-            idx = objects.findIndex((o: any) => o.type === 'battalion');
-          }
-          if (idx >= 0) {
-            const [b] = objects.splice(idx, 1);
-            target.objects = target.objects || [];
-            // Координаты — центр целевого региона, иначе маркер остался бы на старом месте
-            const center = this.regionCenter(target);
-            if (center) {
-              b.lat = center.lat;
-              b.lng = center.lng;
-            }
-            target.objects.push(b);
-            changed.set(target.id, target);
-          }
+          mutated = true;
+          break;
+        }
+        case 'cancel_mobilization': {
+          const feature = change.feature;
+          const name = validFeatureName(feature);
+          if (!feature || (!feature.id && !name)) break;
+          liveRegion.objects ||= [];
+          const before = liveRegion.objects.length;
+          liveRegion.objects = liveRegion.objects.filter((object: any) =>
+            object.type !== 'mobilization'
+            || (feature.id ? object.id !== feature.id : normalizeName(object.name) !== normalizeName(name || '')));
+          mutated = liveRegion.objects.length !== before;
+          break;
+        }
+        case 'spawn_battalion':
+        case 'spawn_unit': {
+          const feature = change.feature;
+          const requestedType = change.type === 'spawn_battalion' ? 'battalion' : feature?.type;
+          if (!requestedType || !unitTypes.has(requestedType) || liveRegion.status === 'destroyed') break;
+          liveRegion.objects ||= [];
+          const name = validFeatureName(feature)
+            || `${requestedType === 'army' ? 'Armata' : requestedType === 'fleet' ? 'Flotta' : requestedType === 'missile' ? 'Batteria' : 'Battaglione'} ${liveRegion.name} ${liveRegion.objects.filter((object: any) => object.type === requestedType).length + 1}`;
+          if (liveRegion.objects.some((object: any) => object.type === requestedType
+              && normalizeName(object.name) === normalizeName(name))) break;
+          const center = this.regionCenter(liveRegion);
+          if (!center) break;
+          liveRegion.objects.push({
+            id: feature?.id || shortId(),
+            type: requestedType,
+            name,
+            level: 1,
+            owner: liveRegion.owner,
+            lat: center.lat,
+            lng: center.lng,
+            metadata: { ...(feature?.metadata || {}), status: 'operational', deployedDate: this.currentDate },
+          });
+          mutated = true;
           break;
         }
       }
-      changed.set(liveRegion.id, liveRegion);
+      if (mutated) changed.set(liveRegion.id, liveRegion);
+    }
+    return [...changed.values()];
+  }
+
+  /** Resolve identity before mutating: IDs never fall back to names; ambiguous names never guess. */
+  private applyUnitChange(change: MapChange, movedDate: string): RegionState[] {
+    const feature = change.feature;
+    const name = feature?.name ? normalizeName(feature.name) : '';
+    const type = change.type === 'move_battalion' ? 'battalion' : feature?.type;
+    if (type && !UNIT_TYPES.has(type)) return [];
+    const regions = [...this.regions.values()];
+    const origin = exactMovementRegion(regions, change.regionId || change.regionName);
+    const candidates = regions.flatMap(region => (region.objects || [])
+      .filter(unit => UNIT_TYPES.has(unit.type) && (!type || unit.type === type)
+        && (feature?.id ? unit.id === feature.id : !!name && normalizeName(unit.name || '') === name))
+      .map(unit => ({ region, unit })));
+    // The legacy unnamed command is safe only with one battalion at an exact origin.
+    if (!feature?.id && !name && change.type === 'move_battalion' && origin) {
+      candidates.push(...(origin.objects || []).filter(unit => unit.type === 'battalion')
+        .map(unit => ({ region: origin, unit })));
+    }
+    if (candidates.length !== 1) return [];
+    const { region: source, unit } = candidates[0];
+    if (change.type === 'remove_unit') {
+      source.objects = source.objects.filter(object => object !== unit);
+      return [source];
+    }
+    const target = exactMovementRegion(regions, change.targetRegionName);
+    if (!target || target.status === 'destroyed' || source.id === target.id) return [];
+    const center = this.regionCenter(target);
+    if (!center) return [];
+    const previous = this.regionCenter(source);
+    unit.metadata = {
+      ...(unit.metadata || {}), status: 'operational', movedDate,
+      previousRegionId: source.id, previousRegionName: source.name,
+      previousLng: Number.isFinite(unit.lng) ? unit.lng : previous?.lng,
+      previousLat: Number.isFinite(unit.lat) ? unit.lat : previous?.lat,
+    };
+    if (!unit.owner) unit.owner = source.owner;
+    unit.lat = center.lat;
+    unit.lng = center.lng;
+    source.objects = source.objects.filter(object => object !== unit);
+    target.objects ||= [];
+    target.objects.push(unit);
+    return [source, target];
+  }
+
+  private captureMovementIntents(actions: PendingAction[]): MovementIntent[] {
+    if (this.isStrictGame()) return [];
+    return actions.flatMap(action => parseMovementOrder(action.text, [...this.regions.values()], this.playerPolityId, action.id));
+  }
+
+  /**
+   * Un ordine di movimento accettato dal modello ma senza `move_unit`
+   * lascerebbe l'unità ferma: il motore applica allora il movimento dovuto.
+   * Agisce solo su esiti `accepted`, con unità e destinazione realmente
+   * esistenti, e mai due volte sulla stessa unità.
+   */
+  private reconcileAcceptedMoves(
+    actions: PendingAction[],
+    outcomes: ActionOutcome[],
+    intents = this.captureMovementIntents(actions),
+    explicitChanges: MapChange[] = [],
+    movedDate = this.currentDate,
+  ): RegionState[] {
+    if (this.isStrictGame()) return [];
+    const accepted = new Set(actions.filter(action => {
+      // An ID is authoritative. Legacy text matching is allowed only without an ID,
+      // and only for a unique queued text. Conflicting outcomes do not execute.
+      const matching = outcomes.filter(outcome => outcome.actionId
+        ? outcome.actionId === action.id
+        : outcome.action === action.text && actions.filter(other => other.text === action.text).length === 1);
+      return matching.length > 0 && matching.every(outcome => outcome.status === 'accepted');
+    }).map(action => action.id));
+    const eligible = intents.filter(intent => accepted.has(intent.actionId));
+    const changed = new Map<string, RegionState>();
+    for (const intent of eligible) {
+      // Competing destinations or any explicit model move/removal take precedence.
+      if (eligible.some(other => other.unitId === intent.unitId && other.targetId !== intent.targetId)) continue;
+      if (explicitChanges.some(change => ['move_unit', 'move_battalion', 'remove_unit'].includes(change.type)
+        && (change.feature?.id ? change.feature.id === intent.unitId
+          : change.feature?.name ? normalizeName(change.feature.name) === normalizeName(intent.unitName)
+            : change.type === 'move_battalion'))) continue;
+      const origin = this.regions.get(intent.originId);
+      const target = this.regions.get(intent.targetId);
+      const unit = origin?.objects?.find(object => object.id === intent.unitId);
+      // A partial advance, removal, ownership change or replacement is never undone.
+      if (!origin || !target || !unit || origin.id === target.id
+        || (unit.owner || origin.owner) !== this.playerPolityId
+        || JSON.stringify(unit) !== intent.fingerprint) continue;
+      const touched = this.applyMapChanges([{
+        type: 'move_unit', regionId: origin.id, targetRegionName: target.id,
+        feature: { type: intent.unitType, id: intent.unitId, name: intent.unitName },
+      }], movedDate);
+      for (const region of touched) changed.set(region.id, region);
     }
     return [...changed.values()];
   }
@@ -2303,6 +3388,8 @@ export class GameSession {
       revisionBase: this.currentTurn + 1,
       remainingEvents: [...opts.proposedEvents],
       batchActionIds: opts.actions.map(action => action.id),
+      movementIntents: this.captureMovementIntents(opts.actions),
+      movementChanges: [],
       headlineToActionIds,
       incomplete: opts.promptResult.incomplete === true,
       changedRegions: [],
@@ -2339,6 +3426,9 @@ export class GameSession {
     state: PausedRunState,
     event: SimulationEvent,
   ): Promise<PausedBatchResult | CompletedBatchResult> {
+    // Stesso contratto mappa della simulazione batch: le misure materiali
+    // attestate dalle controparti NPC diventano marker anche nel playback.
+    event = this.reconcileNpcMaterialMeasures(event);
     const runId = state.runId;
     const lastDate = this.currentDate;
     const eventDate = event.date;
@@ -2357,6 +3447,7 @@ export class GameSession {
       results: [...this.results],
       appliedCount: state.appliedCount,
       changedRegionsCount: state.changedRegions.length,
+      movementChanges: [...(state.movementChanges || [])],
       remainingEvents: [event, ...state.remainingEvents],
       currentEventId: state.currentEventId,
       checkpointId: state.checkpointId,
@@ -2369,7 +3460,10 @@ export class GameSession {
     let closeReason: 'paused_budget' | 'completed' | null = null;
     try {
     // Effetti mappa dell’evento: solo ora la proposta diventa applicata.
-    const changedRegions = this.applyMapChanges(event.mapChanges).map(region => ({
+    const changedRegions = this.applyFrontierPlacements(
+      event,
+      this.applyMapChanges(event.mapChanges, event.date),
+    ).map(region => ({
       id: region.id,
       owner: region.owner,
       color: region.color,
@@ -2385,6 +3479,9 @@ export class GameSession {
       else state.changedRegions.push(region);
     }
 
+    state.movementChanges = [...(state.movementChanges || []), ...(event.mapChanges || [])
+      .filter(change => ['move_unit', 'move_battalion', 'remove_unit'].includes(change.type))];
+
     // Economia deterministica dalla data dell'ultimo checkpoint a questa data.
     const elapsedDays = Math.round((Date.parse(eventDate) - Date.parse(lastDate)) / 86_400_000);
     const bulletins: string[] = [];
@@ -2398,8 +3495,8 @@ export class GameSession {
     const timelineEvents: TimelineEventRecord[] = [{
       id: `${stepId}-0`,
       date: eventDate,
-      headline: event.headline,
-      detail: event.description,
+      headline: this.publicText(event.headline),
+      detail: this.publicText(event.description),
       source: 'world',
       simulationId: runId,
       sourceActionIds,
@@ -2410,7 +3507,7 @@ export class GameSession {
       turn: state.jumpTurn,
       narration: event.description,
       countryResponse: '',
-      events: [event.headline, ...bulletins],
+      events: [this.publicText(event.headline), ...bulletins],
       timelineEvents,
       date: eventDate,
     };
@@ -2422,6 +3519,7 @@ export class GameSession {
     let committedRevision = 0;
     let committedCheckpointId = '';
     let remainingEvents = 0;
+    const reactionChatBroadcasts: Array<Record<string, unknown>> = [];
     withCanonicalTransaction(() => {
       // M06: tick e checkpoint condividono la stessa transazione/savepoint.
       // Un fault successivo annulla anche ledger e stato cashflow.
@@ -2437,6 +3535,16 @@ export class GameSession {
           simulationId: runId,
         })));
       }
+      const reactionChatEffects = this.openSimulationChats(this.reactionChatStarts([event], true), {
+        turn: state.jumpTurn,
+        fallbackDate: eventDate,
+        simulationId: runId,
+        events: [event],
+        requireEventLink: true,
+      });
+      timelineEvents.push(...reactionChatEffects.timelineEvents);
+      reactionChatBroadcasts.push(...reactionChatEffects.broadcasts);
+
       this.results.push(turnResult);
       // F03/A10: l’esito del batch è associato all’ID alla creazione; non verrà
       // mai letto per posizione da processWorldAdvance.
@@ -2473,25 +3581,18 @@ export class GameSession {
         id: checkpointId, runId, gameId: this.id, revision,
         turn: state.jumpTurn, date: eventDate, data: this.captureCheckpointData(),
       });
-      gameRepository.addSimulationEvents([{
-        id: `${stepId}-0`,
+      gameRepository.addSimulationEvents(timelineEvents.map(timelineEvent => ({
+        id: timelineEvent.id,
         runId,
         checkpointId,
         gameId: this.id,
-        date: eventDate,
-        headline: event.headline,
-        detail: event.description,
-        source: 'world',
-        sourceActionIds,
-      }]);
-      this.enqueueOutboxRows(runId, checkpointId, revision, state.jumpTurn, [{
-        id: `${stepId}-0`,
-        date: eventDate,
-        headline: event.headline,
-        detail: event.description,
-        source: 'world',
-        sourceActionIds,
-      }]);
+        date: timelineEvent.date,
+        headline: timelineEvent.headline,
+        detail: timelineEvent.detail,
+        source: timelineEvent.source,
+        sourceActionIds: timelineEvent.sourceActionIds,
+      })));
+      this.enqueueOutboxRows(runId, checkpointId, revision, state.jumpTurn, timelineEvents);
 
       remainingEvents = state.remainingEvents.length;
 
@@ -2520,6 +3621,9 @@ export class GameSession {
       committedCheckpointId = checkpointId;
     });
 
+    // La chat nasce solo dopo il commit del checkpoint che contiene l'evento.
+    for (const payload of reactionChatBroadcasts) this.broadcast('chat_message', payload);
+
     if (!closeReason) {
     const remaining = remainingEvents;
     const revision = committedRevision;
@@ -2529,7 +3633,7 @@ export class GameSession {
     this.broadcast('jump_event', {
       turn: state.jumpTurn,
       index: eventOrdinal,
-      event,
+      event: { ...event, headline: this.publicText(event.headline), description: this.publicText(event.description) },
       eventId: state.currentEventId,
       checkpointId: state.checkpointId,
       revision: state.revision,
@@ -2550,8 +3654,8 @@ export class GameSession {
       event: {
         id: `${stepId}-0`,
         date: eventDate,
-        headline: event.headline,
-        detail: event.description,
+        headline: this.publicText(event.headline),
+        detail: this.publicText(event.description),
         source: 'world',
         sourceActionIds,
       },
@@ -2573,6 +3677,7 @@ export class GameSession {
       this.results = staging.results;
       state.appliedCount = staging.appliedCount;
       state.changedRegions.length = staging.changedRegionsCount;
+      state.movementChanges = staging.movementChanges;
       state.remainingEvents = [...staging.remainingEvents];
       state.currentEventId = staging.currentEventId;
       state.checkpointId = staging.checkpointId;
@@ -2630,7 +3735,7 @@ export class GameSession {
     const appliedRows = gameRepository.getSimulationEvents(this.id, runId);
     const appliedHeadlines = new Set(appliedRows.map(row => row.headline));
     const voided = completion.voided || [];
-    const voidedHeadlines = voided.map(v => `⊘ Respinto: ${v.action}${v.reason ? ` — ${v.reason}` : ''}`);
+    const voidedHeadlines = voided.map(v => `${this.publicPolityName(this.playerPolityId)} non attua la direttiva «${this.publicText(v.action)}»${v.reason ? `: ${this.publicText(v.reason)}` : '.'}`);
 
     // Gli effetti globali del record «complete» appartengono all'intero
     // periodo: si applicano soltanto quando la destinazione è raggiunta.
@@ -2670,35 +3775,32 @@ export class GameSession {
       }
       // F02 passo 2: la transazione è aperta prima dell’if destinationReached.
       relationshipRepository.upsertForGame(this.id, persistedRelationshipChanges);
-      for (const startChat of completion.startChat) {
-        try {
-          const chat = this.ensureChat([startChat.polityName]);
-          const sender = chat.participants.find(p => p.role === 'polity')?.name || chat.polityName;
-          const firstMessage = chatRepository.addMessage(
-            chat.id, 'polity', startChat.topic || 'Desideriamo discutere gli ultimi sviluppi.',
-            state.jumpTurn, sender, finalDate,
-          );
-          chatTimelineEvents.push({
-            id: `chat-${firstMessage.id}`,
-            date: finalDate,
-            headline: `${sender} apre un canale diplomatico`,
-            detail: `${sender}: ${firstMessage.content}`,
-            source: 'diplomacy',
-            simulationId: runId,
-            chatId: chat.id,
-            speakerName: sender,
-          });
-          chatBroadcasts.push({
-            chatId: chat.id,
-            polityId: chat.polityId,
-            polityName: chat.polityName,
-            participants: chat.participants,
-            senderName: sender,
-            message: firstMessage,
-          });
-        } catch (e) {
-          console.warn('[GameSession] startChat: politia non trovata:', startChat.polityName, e);
-        }
+      const chatEffects = this.openSimulationChats(completion.startChat, {
+        turn: state.jumpTurn,
+        fallbackDate: finalDate,
+        simulationId: runId,
+        events: appliedRows,
+      });
+      chatTimelineEvents.push(...chatEffects.timelineEvents);
+      chatBroadcasts.push(...chatEffects.broadcasts);
+    }
+
+    // Anche nel playback scaglionato un movimento accettato deve avvenire: se
+    // il modello ha omesso `move_unit`, il motore lo completa e lo aggiunge al
+    // delta cumulativo del run.
+    if (destinationReached) {
+      const reconciliationActions = state.batchActionIds
+        .map(id => this.pendingActions.find(action => action.id === id))
+        .filter((action): action is PendingAction => !!action);
+      for (const region of this.reconcileAcceptedMoves(reconciliationActions, completion.actionOutcomes || [], state.movementIntents || [], state.movementChanges || [], finalDate)) {
+        const snapshot = {
+          id: region.id, owner: region.owner, color: region.color, name: region.name,
+          population: region.population, gdp: region.gdp, militaryPower: region.militaryPower,
+          objects: region.objects,
+        };
+        const existing = state.changedRegions.find(changed => changed.id === region.id);
+        if (existing) Object.assign(existing, snapshot);
+        else state.changedRegions.push(snapshot);
       }
     }
 
@@ -2709,11 +3811,11 @@ export class GameSession {
     // Record finale: riepilogo tecnico del periodo, non seconda fonte di
     // mutazioni. Gli eventi applicati vivono nei record per-evento.
     const interruptionHeadline = reason === 'paused_budget'
-      ? '⏸ Budget di simulazione esaurito: destinazione non raggiunta'
-      : '⏸ Simulazione interrotta dal giocatore (Intervene)';
-    narration = destinationReached
+      ? 'Nessun ulteriore sviluppo viene confermato nel periodo'
+      : 'La cronaca si arresta alla data scelta dal governo';
+    narration = this.publicText(destinationReached
       ? completion.narration
-      : appliedRows.map(row => row.detail).filter(Boolean).join('\n\n') || interruptionHeadline;
+      : appliedRows.map(row => row.detail).filter(Boolean).join('\n\n') || interruptionHeadline);
     const finalTimelineEvents: TimelineEventRecord[] = [
       ...bulletins.map((bulletin, index) => ({
         id: `${shortId()}-b${index}`,
@@ -2726,8 +3828,8 @@ export class GameSession {
       ...persistedRelationshipChanges.map((change, index) => ({
         id: `${shortId()}-rel-${index}`,
         date: finalDate,
-        headline: `Rapporti diplomatici: ${change.from} ↔ ${change.to}`,
-        detail: `${change.newRelationship}: ${change.reason}`,
+        headline: `${this.publicPolityName(change.from)} e ${this.publicPolityName(change.to)} ridefiniscono i rapporti`,
+        detail: `Il rapporto diventa ${this.publicText(change.newRelationship)}: ${this.publicText(change.reason)}`,
         source: 'diplomacy' as const,
         simulationId: runId,
       })),
@@ -2784,9 +3886,9 @@ export class GameSession {
       const outcome = outcomes.get(item.id);
       const rejected = voided.find((result: any) => result.action === item.text);
       const outcomeStatus = outcome?.status || (rejected ? 'rejected' : undefined);
-      const outcomeSummary = outcome?.summary || rejected?.reason;
+      const outcomeSummary = this.publicText(outcome?.summary || rejected?.reason);
       const outcomeEvents = outcome?.eventHeadlines?.length
-        ? outcome.eventHeadlines.filter((headline: string) => appliedHeadlines.has(headline))
+        ? outcome.eventHeadlines.map((headline: string) => this.publicText(headline)).filter((headline: string) => appliedHeadlines.has(headline))
         : rejected ? voidedHeadlines.filter(headline => headline.includes(rejected.action)) : runEvents;
       item.status = 'completed';
       item.deliveryStatus = 'issued';
@@ -3077,6 +4179,8 @@ export class GameSession {
         revisionBase: Number.isInteger(raw.revisionBase) ? raw.revisionBase : this.currentTurn + 1,
         remainingEvents,
         batchActionIds: Array.isArray(raw.batchActionIds) ? raw.batchActionIds : [],
+        movementIntents: Array.isArray(raw.movementIntents) ? raw.movementIntents : [],
+        movementChanges: Array.isArray(raw.movementChanges) ? raw.movementChanges : [],
         headlineToActionIds: raw.headlineToActionIds && typeof raw.headlineToActionIds === 'object' ? raw.headlineToActionIds : {},
         incomplete: raw.incomplete === true,
         changedRegions: Array.isArray(raw.changedRegions) ? raw.changedRegions : [],
@@ -3597,6 +4701,10 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
 
       // jumpDays <= 0 — auto-jump «к следующему важному событию» (горизонт — год)
       const autoJump = jumpDays <= 0;
+      // In auto-jump ogni ordine in coda ha diritto al proprio evento: il
+      // limite di eventi accettati è il numero di ordini del lotto (minimo 1,
+      // per l'avanzamento del mondo senza ordini).
+      const autoJumpEventLimit = Math.max(1, actions.length);
       simulationRunId = shortId();
       this.activeSimulationRunId = simulationRunId;
       this.activeSimulationAbort = new AbortController();
@@ -3631,7 +4739,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       });
 
       // Build game data for prompt engine
-      const gameData = this.buildGameData();
+      const gameData = this.buildGameData(actions.map(item => item.text));
 
       // Gli eventi escono dal token stream UNO ALLA VOLTA. In auto-jump un
       // oggetto JSON completo viene applicato alla mappa e inviato al browser
@@ -3639,6 +4747,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // applicate: il primo commit avviene solo a stream concluso, e i
       // successivi soltanto dopo la conferma esplicita del giocatore.
       this.interveneRequested = false;
+      const movementIntents = this.captureMovementIntents(actions);
       const appliedEvents: SimulationEvent[] = [];
       const proposedEvents: SimulationEvent[] = [];
       // Gli stream possono mostrare una proposta evento, ma la mappa del
@@ -3656,25 +4765,30 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           intervened = true;
           return false;
         }
+        const canonicalEvent = this.canonicalizeEventReactions(event, actions.map(item => item.text));
         // Reject invalid/backdated dates before any map effect. Count consumed
         // events separately below so streaming fallbacks cannot reapply them.
         const previousDate = (apply ? appliedEvents.at(-1) : proposedEvents.at(-1))?.date || periodStart;
-        if (!dateInPeriod(event.date, previousDate, horizonDate)) {
-          console.warn('[GameSession] Event outside turn period:', event.date);
+        if (!dateInPeriod(canonicalEvent.date, previousDate, horizonDate)) {
+          console.warn('[GameSession] Event outside turn period:', canonicalEvent.date);
           return false;
         }
         if (!apply) {
-          proposedEvents.push(event);
+          proposedEvents.push(canonicalEvent);
           return true;
         }
-        // In auto-jump il primo evento significativo è anche il punto di
-        // arresto: ignora rigorosamente gli eventuali record successivi di un
-        // modello che non abbia rispettato il limite del prompt.
-        if (autoJump && appliedEvents.length > 0) {
-          console.warn('[GameSession] Auto-jump: event after the first ignored');
+        // In auto-jump il limite di eventi accettati è il numero di ordini in
+        // coda: ignora rigorosamente gli eventuali record successivi di un
+        // modello che non abbia rispettato il budget del prompt.
+        if (autoJump && appliedEvents.length >= autoJumpEventLimit) {
+          console.warn(`[GameSession] Auto-jump: event after the limit of ${autoJumpEventLimit} ignored`);
           return false;
         }
-        const changedRegions = this.applyMapChanges(event.mapChanges).map(region => ({
+        const changedRegions = this.applyFrontierPlacements(
+          canonicalEvent,
+          this.applyMapChanges(canonicalEvent.mapChanges, canonicalEvent.date),
+          actions.map(item => item.text),
+        ).map(region => ({
           id: region.id,
           owner: region.owner,
           color: region.color,
@@ -3685,13 +4799,17 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           objects: region.objects,
         }));
         changedRegions.forEach(region => checkpointChanges.set(region.id, region));
-        appliedEvents.push(event);
+        appliedEvents.push(canonicalEvent);
         // È una sola anteprima narrativa: nessun delta o data viene ancora
         // pubblicato, poiché DB e checkpoint non sono stati committati.
         this.broadcast('jump_event', {
           turn: this.currentTurn,
           index,
-          event,
+          event: {
+            ...canonicalEvent,
+            headline: this.publicText(canonicalEvent.headline),
+            description: this.publicText(canonicalEvent.description),
+          },
           streaming: true,
           checkpoint: false,
         });
@@ -3783,8 +4901,8 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         this.activeSimulationAbort = null;
         this.broadcast('turn_complete', {
           turn: this.currentTurn,
-          narration: '⏸ Simulazione interrotta dal giocatore prima del primo evento',
-          events: ['⏸ Simulazione interrotta: nessun evento applicato'],
+          narration: `La cronaca resta ferma: ${this.publicPolityName(this.playerPolityId)} non conferma l’avanzamento del periodo.`,
+          events: ['Nessun nuovo sviluppo viene confermato'],
           newTurn: this.currentTurn,
           newDate: this.currentDate,
           intervened: true,
@@ -3798,6 +4916,25 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // con il codice storico (un solo checkpoint a destinazione).
       if (!autoJump) {
         for (const [i, event] of proposedEvents.entries()) acceptEvent(event, i, true);
+      }
+
+      // Un ordine di movimento dichiarato «accepted» dal modello ma privo di
+      // `move_unit` lascerebbe l'unità ferma: il motore completa il movimento
+      // dovuto, con unità e destinazione reali, e lo aggiunge al checkpoint.
+      // Completion outcomes cover the whole generated timeline, not a prefix.
+      // Never infer arrival when any event was rejected/truncated (including
+      // streamed events omitted from the sanitized result after the auto-jump cap).
+      const allEventsApplied = appliedEvents.length === Math.max(consumedEvents, events.length);
+      if (!intervened && !promptResult.incomplete && allEventsApplied && !(autoJump && appliedEvents.length === 0)) {
+        const reconciled = this.reconcileAcceptedMoves(actions, promptResult.actionOutcomes || [], movementIntents,
+          appliedEvents.flatMap(event => event.mapChanges || []), autoJump ? appliedEvents.at(-1)!.date : horizonDate);
+        for (const region of reconciled) {
+          checkpointChanges.set(region.id, {
+            id: region.id, owner: region.owner, color: region.color, name: region.name,
+            population: region.population, gdp: region.gdp, militaryPower: region.militaryPower,
+            objects: region.objects,
+          });
+        }
       }
 
       const period = resolvePeriod({ start: periodStart, days: timeJump, auto: autoJump,
@@ -3845,14 +4982,20 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // Нереалистичные действия, отклонённые simulaцией
       const voided = promptResult.voided || [];
       for (const v of voided) {
-        this.broadcast('action_voided', { turn: this.currentTurn, action: v.action, reason: v.reason });
+        this.broadcast('action_voided', {
+          turn: this.currentTurn,
+          action: this.publicText(v.action),
+          reason: this.publicText(v.reason),
+          polityName: this.publicPolityName(this.playerPolityId),
+        });
       }
 
       // Gli effetti globali legacy non sono associati a un evento datato.
-      // Durante l'auto-jump il primo evento è il confine invalicabile: solo i
-      // suoi `mapChanges` già validati possono mutare il mondo. Applicare qui
-      // worldChanges, relazioni o chat della risposta completa farebbe entrare
-      // nel checkpoint conseguenze che appartengono a eventi futuri scartati.
+      // Durante l'auto-jump gli eventi accettati sono il confine invalicabile:
+      // solo i loro `mapChanges` già validati possono mutare il mondo.
+      // Applicare qui worldChanges, relazioni o chat della risposta completa
+      // farebbe entrare nel checkpoint conseguenze che appartengono a eventi
+      // futuri scartati.
       const applyCompletionEffects = !intervened && !autoJump;
       if (applyCompletionEffects && promptResult.worldChanges) {
         this.applyWorldChanges(promptResult.worldChanges);
@@ -3869,6 +5012,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // letto fuori (broadcast/return): callback intera o errore propagato.
       let turnResult!: TurnResultRecord;
       const chatBroadcasts: Array<Record<string, unknown>> = [];
+      let openedChatPolityIds = new Set<string>();
       const polityResolver = this.buildResolvers().polities;
       for (const change of applyCompletionEffects ? promptResult.relationshipChanges || [] : []) {
         const from = polityResolver.resolve(change.from);
@@ -3891,42 +5035,26 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       relationshipRepository.upsertForGame(this.id, persistedRelationshipChanges);
 
       // Le nazioni possono aprire autonomamente un canale dopo un evento.
-      // L'apertura è un evento diplomatico esplicito, datato al checkpoint
-      // finale, non una deduzione fatta in seguito dal testo dei messaggi.
+      // In auto-jump entra soltanto una chat legata per titolo a un dispaccio
+      // realmente applicato; nei salti fissi conclusi è valida anche la forma
+      // legacy senza collegamento esplicito.
       const chatTimelineEvents: TimelineEventRecord[] = [];
-      for (const startChat of applyCompletionEffects ? promptResult.startChat || [] : []) {
-        try {
-          const chat = this.ensureChat([startChat.polityName]);
-          const sender = chat.participants.find(p => p.role === 'polity')?.name || chat.polityName;
-          const firstMessage = chatRepository.addMessage(
-            chat.id,
-            'polity',
-            startChat.topic || 'Desideriamo discutere gli ultimi sviluppi.',
-            this.currentTurn,
-            sender,
-            period.end,
-          );
-          chatTimelineEvents.push({
-            id: `chat-${firstMessage.id}`,
-            date: period.end,
-            headline: `${sender} apre un canale diplomatico`,
-            detail: `${sender}: ${firstMessage.content}`,
-            source: 'diplomacy',
-            chatId: chat.id,
-            speakerName: sender,
-          });
-          chatBroadcasts.push({
-            chatId: chat.id,
-            polityId: chat.polityId,
-            polityName: chat.polityName,
-            participants: chat.participants,
-            senderName: sender,
-            message: firstMessage,
-          });
-        } catch (e) {
-          console.warn('[GameSession] startChat: politia non trovata:', startChat.polityName, e);
-        }
-      }
+      const explicitChatStarts = applyCompletionEffects || (autoJump && !intervened)
+        ? promptResult.startChat || []
+        : [];
+      const chatEffects = this.openSimulationChats(
+        [...explicitChatStarts, ...this.reactionChatStarts(appliedEvents)],
+        {
+          turn: this.currentTurn,
+          fallbackDate: period.end,
+          simulationId: simulationRunId || undefined,
+          events: appliedEvents,
+          requireEventLink: autoJump,
+        },
+      );
+      chatTimelineEvents.push(...chatEffects.timelineEvents);
+      chatBroadcasts.push(...chatEffects.broadcasts);
+      openedChatPolityIds = chatEffects.participantPolityIds;
 
       // An intention (even a rejected order containing "build") is not a
       // completed construction. Objects are applied only via event mapChanges.
@@ -3966,18 +5094,18 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       }));
 
       // Create turn result (заголовки только ПРИМЕНЁННЫХ событий + voided)
-      const llmEventHeadlines = appliedEvents.map((e: any) => e.headline).filter(Boolean);
-      const voidedHeadlines = voided.map(v => `⊘ Respinto: ${v.action}${v.reason ? ` — ${v.reason}` : ''}`);
-      if (intervened) llmEventHeadlines.push('⏸ Simulazione interrotta dal giocatore (Intervene)');
+      const llmEventHeadlines = appliedEvents.map((event: any) => this.publicText(event.headline)).filter(Boolean);
+      const voidedHeadlines = voided.map(v => `${this.publicPolityName(this.playerPolityId)} non attua la direttiva «${this.publicText(v.action)}»${v.reason ? `: ${this.publicText(v.reason)}` : '.'}`);
+      if (intervened) llmEventHeadlines.push('La cronaca si arresta alla data scelta dal governo');
       turnResult = {
         id: shortId(),
         simulationId: simulationRunId || undefined,
         turn: this.currentTurn,
         // In auto-jump non riutilizzare il riassunto completo della LLM: può
-        // descrivere il futuro oltre il primo evento accettato.
-        narration: (intervened || autoJump)
+        // descrivere il futuro oltre gli eventi accettati.
+        narration: this.publicText((intervened || autoJump)
           ? appliedEvents.map(e => e.description).join('\n\n')
-          : promptResult.narration,
+          : promptResult.narration),
         countryResponse: promptResult.convertedActions.map((a: any) => a.text).join('\n'),
         events: [...voidedHeadlines, ...llmEventHeadlines, ...economyEvents, ...npcEvents, ...randomEvents],
       };
@@ -3999,9 +5127,9 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         const outcome = outcomes.get(item.id);
         const rejected = voided.find(result => result.action === item.text);
         const outcomeStatus = outcome?.status || (rejected ? 'rejected' : undefined);
-        const outcomeSummary = outcome?.summary || rejected?.reason;
+        const outcomeSummary = this.publicText(outcome?.summary || rejected?.reason);
         const outcomeEvents = outcome?.eventHeadlines?.length
-          ? outcome.eventHeadlines.filter(headline => turnResult.events.includes(headline))
+          ? outcome.eventHeadlines.map(headline => this.publicText(headline)).filter(headline => turnResult.events.includes(headline))
           : rejected ? voidedHeadlines.filter(headline => headline.includes(rejected.action)) : turnResult.events;
         item.status = 'completed';
         item.deliveryStatus = 'issued';
@@ -4082,7 +5210,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // Timeline: conserva data, titolo e dettaglio originale di ogni evento.
       turnResult.date = this.currentDate;
       const detailedByHeadline = new Map(
-        appliedEvents.map(event => [event.headline, event] as const)
+        appliedEvents.map(event => [this.publicText(event.headline), event] as const)
       );
       const sourceActionsByHeadline = new Map<string, string[]>();
       actions.forEach(action => {
@@ -4099,7 +5227,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           id: `${turnResult.id}-${index}`,
           date: detailed?.date || this.currentDate,
           headline,
-          detail: detailed?.description || (headline.startsWith('⊘') ? headline : turnResult.narration),
+          detail: detailed?.description || (voidedHeadlines.includes(headline) ? headline : turnResult.narration),
           source: 'world' as const,
           simulationId: simulationRunId || undefined,
           sourceActionIds: sourceActionsByHeadline.get(headline) || [],
@@ -4109,8 +5237,8 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         turnResult.timelineEvents.push({
           id: `${turnResult.id}-relationship-${index}`,
           date: this.currentDate,
-          headline: `Rapporti diplomatici: ${change.from} ↔ ${change.to}`,
-          detail: `${change.newRelationship}: ${change.reason}`,
+          headline: `${this.publicPolityName(change.from)} e ${this.publicPolityName(change.to)} ridefiniscono i rapporti`,
+          detail: `Il rapporto diventa ${this.publicText(change.newRelationship)}: ${this.publicText(change.reason)}`,
           source: 'diplomacy',
           simulationId: simulationRunId || undefined,
         });
@@ -4206,15 +5334,20 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
             if (resolved && !resolved.isNew) reactionCandidates.add(resolved.polityId);
           }
         }
-        // Le politie che hanno già aperto un canale via startChat hanno già
-        // reagito: non duplicare la nota.
-        for (const startChat of applyCompletionEffects ? promptResult.startChat || [] : []) {
-          const resolved = polityResolver.resolve(startChat.polityName);
-          if (resolved && !resolved.isNew) reactionCandidates.delete(resolved.polityId);
-        }
-        // Fallback: nessun diretto interessato, ma un vicino ostile reagisce
-        // comunque alla mossa del giocatore (deterrenza, protesta di confine).
-        if (reactionCandidates.size === 0) {
+        // Fallback deterministico per provider che omettono `reactions`: nomi
+        // come Israele, Israel, Stati Uniti, United States o USA negli ordini
+        // e nei dispacci identificano comunque le controparti da far reagire.
+        for (const polityId of this.mentionedNpcPolityIds([
+          ...actions.map(action => action.text),
+          ...appliedEvents.flatMap(event => [event.headline, event.description]),
+        ])) reactionCandidates.add(polityId);
+        const hadDirectlyInvolvedPolity = reactionCandidates.size > 0 || openedChatPolityIds.size > 0;
+        // Le politie che hanno già aperto un canale o partecipano a una
+        // riunione generata dall'evento hanno già reagito: non duplicare note.
+        for (const polityId of openedChatPolityIds) reactionCandidates.delete(polityId);
+        // Fallback: soltanto se nessuna controparte diretta è stata rilevata,
+        // un vicino ostile può reagire alla mossa (deterrenza/protesta).
+        if (reactionCandidates.size === 0 && !hadDirectlyInvolvedPolity) {
           const playerRegions = Array.from(this.regions.values()).filter(r => r.owner === this.playerPolityId);
           const frontierOwners = new Set<string>();
           for (const region of playerRegions) {
@@ -4232,6 +5365,8 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           actionTexts: actions.map(item => item.text),
           eventHeadlines: turnResult.events.filter(headline => !headline.startsWith('⊘')),
           candidatePolityIds: [...reactionCandidates],
+          turn: turnResult.turn,
+          date: turnResult.date || this.currentDate,
         }).catch(e => console.warn('[GameSession] NPC reactions failed:', e));
       }
 
@@ -4363,7 +5498,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         id: `${id}-0`,
         date: this.currentDate,
         headline,
-        detail: `Periodo trascorso senza un’azione esplicita del giocatore (${periodStart} → ${this.currentDate}).`,
+        detail: `${this.publicPolityName(this.playerPolityId)} non ha impartito nuove direttive tra il ${periodStart} e il ${this.currentDate}.`,
         source: 'world',
       }, ...(bulletin ? [{
         id: `${id}-1`,

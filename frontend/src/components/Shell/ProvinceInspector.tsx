@@ -1,5 +1,7 @@
 import { useMemo, type ReactNode } from 'react';
 import type { Region, MapObject } from '../../types';
+import { constructionReport } from '../../utils/construction';
+import './ProvinceInspector.css';
 
 interface ProvinceInspectorProps {
   /** Provincia selezionata (null = nessuna) */
@@ -29,16 +31,11 @@ export function ProvinceInspector({
   onClose,
   children,
 }: ProvinceInspectorProps) {
-  if (!region) return null;
-
-  const ownerName = getOwnerName(region, allRegions);
-  const isPlayer = region.owner === 'player';
-  const metadata = region.metadata || {};
-
+  // Keep hooks unconditional: a selected region can disappear in a live update.
   // Calcola asset dalla lista objects
   const assets = useMemo(() => {
     const counts = { factories: 0, ports: 0, cities: 0, capital: 0, units: 0, infrastructure: 0 };
-    (region.objects || []).forEach(obj => {
+    (region?.objects || []).forEach(obj => {
       switch (obj.type) {
         case 'factory': counts.factories++; break;
         case 'port': counts.ports++; break;
@@ -53,7 +50,12 @@ export function ProvinceInspector({
       if (obj.type === 'radar') counts.infrastructure++;
     });
     return counts;
-  }, [region.objects]);
+  }, [region?.objects]);
+
+  if (!region) return null;
+  const ownerName = getOwnerName(region, allRegions);
+  const isPlayer = region.owner === 'player';
+  const metadata = region.metadata || {};
 
   const infrastructureLevel = metadata.infrastructure_level
     ? Number(metadata.infrastructure_level)
@@ -95,6 +97,21 @@ export function ProvinceInspector({
           <span title="Città">● <b>{assets.cities + assets.capital}</b></span>
           <span title="Unità militari">▲ <b>{assets.units}</b></span>
         </div>
+
+        {region.objects?.some(object => object.type === 'construction_site') && (
+          <section className="province-construction" aria-label="Cantieri nel territorio">
+            <h4>Cantieri nel territorio</h4>
+            <p>Le previsioni possono cambiare. Un’opera entra in servizio solo dopo il completamento confermato.</p>
+            {region.objects.filter(object => object.type === 'construction_site').map(object => (
+              <article key={object.id}>
+                <h5>{object.name}</h5>
+                <dl>{constructionReport(object).map(row => <div key={row.label}>
+                  <dt>{row.label}</dt><dd>{row.value}</dd>
+                </div>)}</dl>
+              </article>
+            ))}
+          </section>
+        )}
 
         {tags.length > 0 && (
           <div className="province-inspector-tags">

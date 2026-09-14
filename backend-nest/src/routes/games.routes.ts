@@ -81,7 +81,7 @@ gamesRouter.post('/', (req, res) => {
   try {
     const { session, playerId, gameId } = getSessionRegistry().createSession(
       worldId,
-      playerName || 'Player',
+      playerName || '',
       playerRegionId,
       req.body.playerColor || req.body.player_color || '#FF0000',
       req.body.difficulty
@@ -193,7 +193,7 @@ gamesRouter.get('/:id/ongoing-processes', (req, res) => {
 gamesRouter.get('/:id/national-state', (req, res) => {
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    res.json({ accounts: session.getNationalAccounts() });
+    res.json({ accounts: session.getNationalAccounts(), history: session.getNationalHistory() });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get national state');
   }
@@ -259,7 +259,9 @@ gamesRouter.get('/:id/events', (req, res) => {
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
     session.setSSEBroadcaster((type, data) => {
+      if (!hasClients(gameId)) return false;
       broadcastToGame(gameId, type, data);
+      return true;
     });
     // F02 passo 3: un client che si (ri)connette riceve subito gli eventi
     // committati mentre era assente: il pubblicatore è ripetibile e gli ID
@@ -1054,7 +1056,7 @@ gamesRouter.post('/:id/simulations/:runId/restore', async (req, res) => {
 gamesRouter.post('/:id/simulation-jobs', (req, res) => {
   const gameId = req.params.id;
   const mode = req.body?.mode === 'next_event' ? 'next_event' : 'fixed';
-  const rawJumpDays = req.body?.jump_days ?? 30;
+  const rawJumpDays = mode === 'next_event' ? 0 : (req.body?.jump_days ?? 30);
   const jump_days = Number.isFinite(Number(rawJumpDays)) ? Number(rawJumpDays) : 30;
   const rawIdempotencyKey = req.get('Idempotency-Key') || req.body?.idempotencyKey;
   const idempotencyKey = typeof rawIdempotencyKey === 'string' && rawIdempotencyKey.length <= 128
@@ -1067,7 +1069,10 @@ gamesRouter.post('/:id/simulation-jobs', (req, res) => {
       res.status(409).json({ error: 'Simulazione già attiva per questa partita', code: 'simulation_in_progress' });
       return;
     }
-    const submitted = simulationJobService.submit(gameId, 'jump', { mode, jump_days }, idempotencyKey);
+    const periodStart = session.getCurrentDate();
+    const submitted = simulationJobService.submit(
+      gameId, 'jump', { mode, jump_days, periodStart }, idempotencyKey, { mode, jump_days },
+    );
     if (submitted.replayed) {
       // Stessa chiave e stesso payload: il job esistente è la risposta, non si
       // genera nulla di nuovo.
@@ -1095,6 +1100,37 @@ gamesRouter.get('/:id/simulation-jobs/:jobId', (req, res) => {
     res.json(simulationJobService.publicJob(job));
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get simulation job');
+  }
+});
+
+/** Risultato compatibile del job asincrono: ogni richiesta resta breve, quindi
+ * Cloudflare non può troncare una generazione LLM ancora in corso. */
+gamesRouter.get('/:id/simulation-jobs/:jobId/result', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const job = gameRepository.getJob(req.params.jobId);
+    if (!job || job.game_id !== req.params.id) {
+      res.status(404).json({ error: 'Job non trovato' });
+      return;
+    }
+    if (job.status === 'failed') {
+      respondJobFailure(res, job);
+      return;
+    }
+    if (job.status !== 'completed') {
+      res.status(202).json({ type: 'job_pending', jobId: job.id, status: job.status, runId: job.run_id ?? null });
+      return;
+    }
+    const payload = JSON.parse(job.payload_json || '{}') as { periodStart?: string; jump_days?: number };
+    respondTimeSkipResult(
+      res,
+      session,
+      JSON.parse(job.result_json || 'null'),
+      payload.periodStart || session.getCurrentDate(),
+      Number.isFinite(payload.jump_days) ? Number(payload.jump_days) : 30,
+    );
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to get simulation job result');
   }
 });
 

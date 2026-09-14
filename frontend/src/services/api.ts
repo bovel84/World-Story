@@ -286,7 +286,11 @@ export const gameApi = {
     });
   },
 
-  nationalState: (gameId: string): Promise<{ accounts: Record<string, any> }> =>
+  nationalState: (gameId: string): Promise<{
+    accounts: Record<string, any>;
+    /** Storico dei conti del paese giocatore, dal più vecchio al più recente. */
+    history?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
+  }> =>
     fetchApi(`/games/${gameId}/national-state`),
 
   /** M07/G5-C — eccezioni di mandato già aperte dal tick canonico (sola lettura). */
@@ -425,7 +429,7 @@ export const gameApi = {
   /**
    * Time-skip: process pending actions OR just advance date
    */
-  timeSkip: (gameId: string, jumpDays?: number, idempotencyKey?: string): Promise<{
+  timeSkip: async (gameId: string, jumpDays?: number, idempotencyKey?: string): Promise<{
     type: 'actions_processed' | 'date_advanced' | 'world_advanced' | 'no_event_found' | 'simulation_replayed' | 'awaiting_next';
     paused?: boolean;
     event?: { id: string; date: string; headline: string; detail: string; source: string; sourceActionIds?: string[] };
@@ -454,14 +458,38 @@ export const gameApi = {
     startDate?: string;
     searchedUntil?: string;
   }> => {
-    return fetchApi(`/games/${gameId}/time-skip`, {
+    const headers = idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined;
+    const body = jumpDays === 0
+      ? { mode: 'next_event' }
+      : { mode: 'fixed', jump_days: jumpDays ?? 30 };
+
+    // Il provider può impiegare minuti: la POST accetta il lavoro subito e il
+    // browser interroga richieste brevi, evitando i timeout del proxy Cloudflare.
+    const accepted = await fetchApi<{ jobId: string; status: string }>(`/games/${gameId}/simulation-jobs`, {
       method: 'POST',
-      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
-      // Il nuovo contratto rende esplicito l'auto-jump, senza il sentinella 0.
-      body: JSON.stringify(jumpDays === 0
-        ? { mode: 'next_event' }
-        : { jump_days: jumpDays ?? 30 }),
+      headers,
+      body: JSON.stringify(body),
     });
+    if (!accepted.jobId) throw new ApiError(500, 'Il server non ha restituito l’identificativo della simulazione');
+
+    const deadline = Date.now() + 10 * 60_000;
+    for (;;) {
+      try {
+        const job = await fetchApi<{ status: string; error?: string }>(`/games/${gameId}/simulation-jobs/${accepted.jobId}`);
+        if (job.status === 'completed' || job.status === 'failed') {
+          // Su failed questa chiamata restituisce il 424/500 con il dettaglio;
+          // su completed ricostruisce lo stesso contratto del vecchio time-skip.
+          return await fetchApi(`/games/${gameId}/simulation-jobs/${accepted.jobId}/result`);
+        }
+      } catch (error) {
+        const transient = error instanceof ApiError && [502, 503, 504].includes(error.status);
+        if (!transient || Date.now() >= deadline) throw error;
+      }
+      if (Date.now() >= deadline) {
+        throw new ApiError(408, 'La simulazione è ancora in corso. Riapri la partita per sincronizzare i dispacci.');
+      }
+      await new Promise(resolve => window.setTimeout(resolve, 1500));
+    }
   },
 
   /**
@@ -576,8 +604,11 @@ export interface ChatSummaryData {
   polityColor: string;
   /** Partecipanti della chat (chat di gruppo: più nazioni) */
   participants?: { id: string; name: string; color: string; role?: 'player' | 'polity' }[];
+  createdAt?: string;
   lastMessage?: string;
   lastMessageAt?: string;
+  /** Data del mondo dell'ultimo messaggio (es. «2026-03-04») — per datare l'elenco. */
+  lastMessageGameDate?: string;
   unread: number;
 }
 
@@ -891,6 +922,13 @@ export const templatesApi = {
     report: ScenarioReportView | null;
   }> => {
     return fetchApi(`/templates/${templateId}/scenario`);
+  },
+
+  assistPreset: (brief: string, draft: PresetEditorData): Promise<{ preset: Partial<PresetEditorData> }> => {
+    return fetchApi('/templates/assist', {
+      method: 'POST',
+      body: JSON.stringify({ brief, draft }),
+    });
   },
 
   createPreset: (preset: PresetEditorData): Promise<{ template: PresetEditorData }> => {

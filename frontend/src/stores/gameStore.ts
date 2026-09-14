@@ -91,7 +91,11 @@ export const useGameStore = create<GameState>((set) => ({
       ? gameOrUpdater(state.currentGame)
       : gameOrUpdater
   })),
-  setCurrentWorld: (world) => set({ currentWorld: world }),
+  // HTTP/save snapshots use an array; SSE checkpoints address regions by ID.
+  // Normalize at the store boundary so no loading path can drop live deltas.
+  setCurrentWorld: (world) => set({ currentWorld: world && Array.isArray(world.regions)
+    ? { ...world, regions: Object.fromEntries(world.regions.map(region => [region.id, region])) }
+    : world }),
   setSelectedRegion: (regionId) => set({ selectedRegion: regionId }),
 
   setHistory: (history) => set({ history }),

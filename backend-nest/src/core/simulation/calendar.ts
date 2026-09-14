@@ -51,13 +51,12 @@ export function resolvePeriod(input: {
 }): { end: string; elapsedDays: number } {
   const horizon = addDays(input.start, jumpHorizon(input.days));
   const dates = input.eventDates.filter(date => dateInPeriod(date, input.start, horizon)).sort();
-  const first = dates[0];
   const last = dates.at(-1);
-  // Never simulate unseen time after Intervene. In auto-jump the first
-  // accepted event is the hard stop; an LLM-provided targetDate must never
-  // move the clock beyond that event.
+  // Never simulate unseen time after Intervene. In auto-jump the accepted
+  // events (one per queued order) are the hard stop; an LLM-provided
+  // targetDate must never move the clock beyond the last accepted event.
   const end = input.interrupted ? last || input.start
-    : input.auto ? first || input.start
+    : input.auto ? last || input.start
     : horizon;
   return { end, elapsedDays: (timestamp(end) - timestamp(input.start)) / DAY_MS };
 }

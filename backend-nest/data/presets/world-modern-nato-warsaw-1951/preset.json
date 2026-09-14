@@ -1,0 +1,14 @@
+{
+  "id": "world-modern-nato-warsaw-1951",
+  "name": "Equilibrio Euro-Atlantico 1951",
+  "description": "Preset per gestire un mondo moderno in fase di ricostruzione dopo la Seconda Guerra Mondiale, con tensioni tra l'Occidente e l'Est, dove il giocatore deve bilanciare interessi nazionali e alleanze.",
+  "start_date": "1951-01-01",
+  "country_codes": [
+    "ITA"
+  ],
+  "base_prompt": "Alla fine del 1950, l'Europa occidentale si trova in una fase di rapida ricostruzione economica sotto la guida della NATO. L'Unione Europea non esiste ancora come istituzione unitaria, ma i principi di integrazione sono emersi. L'Italia, con la sua posizione geografica strategica e la sua storia di neutralità complessa, cerca di mantenere relazioni bilanciate tra Washington e Mosca. Il Giocatore deve definire la posizione italiana nel nuovo ordine mondiale e gestire le tensioni tra gli interessi occidentali e sovietici.",
+  "historical_accuracy": 0.82,
+  "prompts": {},
+  "author": "",
+  "version": "1.0.0"
+}

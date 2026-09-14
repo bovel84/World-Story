@@ -86,15 +86,16 @@ Il tuo output DEVE essere in formato JSON:
 VERY IMPORTANT: Rispondi SOLO con JSON valido.`;
 }
 
-export function parseConverterResponse(text: string): ConvertedAction {
+export function parseConverterResponse(text: string, fallbackText = ''): ConvertedAction {
   try {
     const parsed = parseJsonLoose<any>(text);
+    const convertedText = typeof parsed?.text === 'string' ? parsed.text.trim().substring(0, 650) : '';
 
     return {
       type: parsed.type === 'chat' ? 'chat' : 'action',
-      text: parsed.text || text,
-      targetPolity: parsed.targetPolity,
-      chatMessage: parsed.chatMessage,
+      text: convertedText || fallbackText.trim().substring(0, 650) || text.trim().substring(0, 650),
+      targetPolity: typeof parsed.targetPolity === 'string' ? parsed.targetPolity : undefined,
+      chatMessage: typeof parsed.chatMessage === 'string' ? parsed.chatMessage : undefined,
     };
   } catch (e) {
     console.error('[PARSER] Failed to parse converter response:', e);
@@ -102,7 +103,7 @@ export function parseConverterResponse(text: string): ConvertedAction {
     // Fallback: restituisci come azione
     return {
       type: 'action',
-      text: text.substring(0, 650),
+      text: fallbackText.trim().substring(0, 650) || text.trim().substring(0, 650),
     };
   }
 }

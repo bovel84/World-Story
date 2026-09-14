@@ -29,6 +29,22 @@ export interface OpenAICompatibleOptions {
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_RETRIES = 2;
 
+/** OpenAI/OpenRouter possono restituire content come stringa oppure array di
+ * parti testuali (spec multimodale). Uniformiamo entrambe senza usare il
+ * reasoning interno come risposta finale. */
+function messageText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!Array.isArray(value)) return '';
+  return value.map(part => {
+    if (typeof part === 'string') return part;
+    if (!part || typeof part !== 'object') return '';
+    const record = part as Record<string, unknown>;
+    return typeof record.text === 'string'
+      ? record.text
+      : typeof record.content === 'string' ? record.content : '';
+  }).join('');
+}
+
 export class OpenAICompatibleProvider implements LLMProvider {
   readonly name: string;
   readonly model: string;
@@ -98,7 +114,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
     let data = await run(base);
     const choice = data?.choices?.[0];
-    let content = choice?.message?.content;
+    let content = messageText(choice?.message?.content);
     const finishReason = choice?.finish_reason;
     const completionTokens = data?.usage?.completion_tokens ?? 0;
 
@@ -113,7 +129,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     ) {
       console.error(`[LLM] content vuoto con finish_reason=${finishReason}: il reasoning ha esaurito il budget (${completionTokens} token). Riprovo con max_tokens x4.`);
       data = await run(Math.min(base * 4, 32768));
-      content = data?.choices?.[0]?.message?.content;
+      content = messageText(data?.choices?.[0]?.message?.content);
     }
 
     if (typeof content !== 'string' || content.length === 0) {
@@ -177,13 +193,29 @@ export class OpenAICompatibleProvider implements LLMProvider {
           if (payload === '[DONE]') continue;
           try {
             const chunk = JSON.parse(payload);
-            const delta = chunk?.choices?.[0]?.delta?.content;
-            if (typeof delta === 'string' && delta.length > 0) {
+            const delta = messageText(chunk?.choices?.[0]?.delta?.content);
+            if (delta.length > 0) {
               content += delta;
               onToken(content.length, content);
             }
           } catch { /* неполный JSON-чанк — пропускаем */ }
         }
+      }
+      // Alcuni proxy chiudono l'ultimo frame SSE senza newline finale.
+      buffer += decoder.decode();
+      for (const line of buffer.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const payload = trimmed.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          const chunk = JSON.parse(payload);
+          const delta = messageText(chunk?.choices?.[0]?.delta?.content);
+          if (delta.length > 0) {
+            content += delta;
+            onToken(content.length, content);
+          }
+        } catch { /* frame finale non valido: il contenuto precedente resta */ }
       }
     } finally {
       reader.releaseLock();

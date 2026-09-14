@@ -97,6 +97,36 @@ export const MOCK_GAME = {
   queueVersion: 0,
 };
 
+/**
+ * Conti nazionali fittizi (shape di `WorldStateEngine.accounts`) per il Dossier
+ * Nazione: rendono leggibili bilancio, capacità, sforzo bellico e coesione
+ * anche nel percorso E2E offline.
+ */
+export const MOCK_ACCOUNTS = {
+  ALPHA: {
+    polityId: 'ALPHA', provinces: 1, population: 1000000, gdp: 100, militaryPower: 100,
+    factories: 4, ports: 2, universities: 2, forces: 3, mobilized: 2,
+    monthlyRevenue: 3.4, monthlyExpenses: 2.6, monthlyBalance: 0.8, annualGrowthRate: 0.024,
+    stability: 62, defenceBurdenPct: 4.1, warEffort: 22, socialTension: 38,
+    nominalGdpUsdBillions: 100, gdpPerCapitaUsd: 100000, government: 'Repubblica presidenziale',
+  },
+  BETA: {
+    polityId: 'BETA', provinces: 1, population: 800000, gdp: 80, militaryPower: 80,
+    factories: 2, ports: 1, universities: 1, forces: 4, mobilized: 5,
+    monthlyRevenue: 1.9, monthlyExpenses: 2.4, monthlyBalance: -0.5, annualGrowthRate: 0.008,
+    stability: 38, defenceBurdenPct: 9.2, warEffort: 68, socialTension: 64,
+    nominalGdpUsdBillions: 80, gdpPerCapitaUsd: 100000, government: 'Repubblica presidenziale',
+  },
+};
+
+/** Storico dei conti del paese giocatore (ALPHA): tre rilevazioni mensili
+ *  con una tendenza reale, così il dossier mostra sparkline e variazioni. */
+export const MOCK_ACCOUNT_HISTORY = [
+  { date: '1951-01-01', turn: 1, account: { ...MOCK_ACCOUNTS.ALPHA, monthlyBalance: 0.2, stability: 56, socialTension: 44, monthlyRevenue: 3.1, monthlyExpenses: 2.9, defenceBurdenPct: 3.6, mobilized: 1, warEffort: 16, annualGrowthRate: 0.021 } },
+  { date: '1951-02-01', turn: 2, account: { ...MOCK_ACCOUNTS.ALPHA, monthlyBalance: 0.5, stability: 59, socialTension: 41, monthlyRevenue: 3.3, monthlyExpenses: 2.8, defenceBurdenPct: 3.9, mobilized: 2, warEffort: 19, annualGrowthRate: 0.023 } },
+  { date: '1951-03-01', turn: 3, account: MOCK_ACCOUNTS.ALPHA },
+];
+
 // ---------------------------------------------------------------------------
 // Helper di risposta
 // ---------------------------------------------------------------------------
@@ -217,7 +247,7 @@ export function installMockApi(page, opts = {}) {
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/ongoing-processes`, (route) =>
     json(route, { processes: [] }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/national-state`, (route) =>
-    json(route, { accounts: {} }));
+    json(route, { accounts: MOCK_ACCOUNTS, history: MOCK_ACCOUNT_HISTORY }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/chats`, (route) => json(route, { chats: [] }));
   // Coda ordini: GET restituisce la coda, POST accoda un ordine deterministico.
   // (U02 µ1: «Registra ordine» accoda senza avanzare tempo né spendere risorse.)
@@ -241,6 +271,22 @@ export function installMockApi(page, opts = {}) {
       if (body && typeof body.text === 'string') text = body.text;
     } catch { /* body non JSON → testo di default */ }
     return json(route, { original: text, enhanced: `[Riformulato] ${text}` });
+  });
+  // Verifica fattibilità: il compositore d'ordine la richiede prima di accodare.
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/actions/check-feasibility`, (route) => {
+    let text = 'Ordine di prova';
+    try {
+      const body = JSON.parse(route.request().postData() || '{}');
+      if (body && typeof body.text === 'string') text = body.text;
+    } catch { /* body non JSON → testo di default */ }
+    return json(route, {
+      feasible: true,
+      costs: { timeDays: 30, inputs: [], upkeep: [], basis: 'request' },
+      prerequisites: [],
+      risks: [],
+      warnings: [],
+      summary: `Fattibile: ${text}`,
+    });
   });
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/relationships`, (route) => json(route, {}));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/suggestions`, (route) =>

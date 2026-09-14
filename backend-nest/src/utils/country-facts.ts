@@ -49,6 +49,9 @@ const ITALIAN_POLITY_NAMES: Record<string, string> = {
   FRA: 'Francia', ITA: 'Italia', RUS: 'Russia', CHN: 'Cina', JPN: 'Giappone',
   KOR: 'Corea del Sud', PRK: 'Corea del Nord', ARE: 'Emirati Arabi Uniti',
   SAU: 'Arabia Saudita', CHE: 'Svizzera', NLD: 'Paesi Bassi', CZE: 'Cechia',
+  POL: 'Polonia', ISR: 'Israele', UKR: 'Ucraina', TUR: 'Turchia', IND: 'India',
+  BRA: 'Brasile', CAN: 'Canada', ESP: 'Spagna', PRT: 'Portogallo', GRC: 'Grecia',
+  EGY: 'Egitto', IRN: 'Iran', IRQ: 'Iraq', SYR: 'Siria', LBN: 'Libano', JOR: 'Giordania',
 };
 
 export function governmentForPolity(polityId: string): string {

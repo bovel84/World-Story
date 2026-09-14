@@ -218,6 +218,31 @@ describe('OpenAICompatibleProvider: retry/timeout/HTTP-ошибки', () => {
     expect(err.message).toMatch(/timeout della richiesta/);
   });
 
+  it('accetta content OpenRouter in formato array multimodale', async () => {
+    mockFetchSequence([async () => jsonResponse(200, {
+      choices: [{ message: { content: [{ type: 'text', text: '{"ok":true}' }] } }],
+    })]);
+    const p = new OpenAICompatibleProvider({
+      baseUrl: 'http://test.local/v1', model: 'm', timeoutMs: 1000, retries: 0,
+    });
+    await expect(p.generate('s', 'u')).resolves.toMatchObject({ content: '{"ok":true}' });
+  });
+
+  it('consuma l’ultimo frame SSE anche senza newline finale', async () => {
+    const payload = `data: ${JSON.stringify({ choices: [{ delta: { content: 'ultimo frame' } }] })}`;
+    mockFetchSequence([async () => new Response(payload, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })]);
+    const p = new OpenAICompatibleProvider({
+      baseUrl: 'http://test.local/v1', model: 'm', timeoutMs: 1000, retries: 0,
+    });
+    const progress: string[] = [];
+    const result = await p.stream('s', 'u', (_chars, content) => progress.push(content || ''));
+    expect(result.content).toBe('ultimo frame');
+    expect(progress.at(-1)).toBe('ultimo frame');
+  });
+
   it('пустой content в ответе — LLMError', async () => {
     mockFetchSequence([async () => jsonResponse(200, { choices: [{ message: {} }] })]);
     const p = new OpenAICompatibleProvider({

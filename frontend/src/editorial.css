@@ -238,6 +238,42 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .suggestion-action { border-radius: 0 !important; border-color: var(--op-rule) !important; background: #faf5eb !important; color: var(--op-ink) !important; }
 .suggestion-action:hover { background: #e4d8c3 !important; }
 .suggestion-action-plus { color: var(--op-red) !important; }
+/* Azioni proposte: inchiostro pieno su carta. Il vecchio tema scuro lasciava
+   qui i suoi colori chiari (#9d9db4 descrizione, #b8b8ca corpo, #eeeef7 titolo
+   azione, #9aa7ff CTA) sopra la carta editoriale: contrasto sotto 3:1, testo
+   illeggibile. Ogni livello della proposta torna a inchiostro leggibile. */
+.suggestion-topic { color: var(--op-ink) !important; }
+.suggestion-topic:before { color: var(--op-red) !important; }
+.suggestion-item:before { color: var(--op-rule) !important; }
+.suggestion-description { color: #4d5750 !important; }
+.suggestion-action-body { color: #4d5750 !important; }
+.suggestion-action-body :is(span, b, strong) { color: var(--op-ink) !important; }
+.suggestion-action-cta { color: var(--op-red) !important; }
+.suggestion-action.queued .suggestion-action-cta { color: #15543a !important; }
+.suggestions-error {
+  border-left-color: var(--op-red) !important;
+  background: #f1dfd2 !important;
+  color: var(--op-red-dark) !important;
+}
+.order-limits-note { color: var(--op-muted) !important; }
+.pending-text { color: var(--op-ink) !important; }
+.council-sub { color: var(--op-muted) !important; }
+/* L'intestazione del modulo Ordini vive sulla scrivania navy: l'inchiostro
+   scuro di carta resta illeggibile lì. Titolo e note tornano chiari. */
+.suggestions-content .council-title { color: #f2f6ff !important; }
+.suggestions-content .council-sub { color: #b9c8dd !important; }
+.suggestions-content .order-limits-note { color: #b9c8dd !important; }
+.pending-header { color: #4d5750 !important; }
+.pending-number { color: var(--op-red) !important; }
+.free-order-label { color: #b9c8dd !important; }
+/* La riga dell'ordine in attesa era una scheda scura semitrasparente dentro la
+   carta chiara: torna un foglio chiaro con inchiostro leggibile. */
+.pending-item {
+  border-color: var(--op-rule) !important;
+  background: #faf5eb !important;
+  color: var(--op-ink) !important;
+}
+.pending-item .btn-edit-pending, .pending-item .btn-remove-pending { opacity: 1; }
 .manual-action-input textarea, .chat-input-row textarea, .advisor-chat textarea { border-radius: 0 !important; border: 1px solid var(--op-ink) !important; background: #fffaf0 !important; color: var(--op-ink) !important; font-family: var(--op-copy); }
 .pending-item { border-bottom-color: var(--op-rule) !important; }
 .btn-remove-pending { color: var(--op-red) !important; }
@@ -807,6 +843,15 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   color: #adbed3 !important;
   -webkit-text-fill-color: #adbed3 !important;
 }
+/* Chat con messaggi non letti: striscia rossa + titolo acceso, oltre al badge. */
+.game-shell-desk .chat-item.unread {
+  border-left: 3px solid #e65764 !important;
+  background: #161f33 !important;
+}
+.game-shell-desk .chat-item.unread .chat-item-name { color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
+.game-shell-desk .chat-item-date,
+.game-shell-desk .chat-thread-stamp { color: #9fb0c8 !important; -webkit-text-fill-color: #9fb0c8 !important; }
+.game-shell-desk .chat-item.unread .chat-item-date { color: #f0b7bd !important; -webkit-text-fill-color: #f0b7bd !important; }
 .game-shell-desk .chat-thread-title {
   color: #f0f5ff !important;
   -webkit-text-fill-color: #f0f5ff !important;

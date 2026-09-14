@@ -17,7 +17,7 @@ export function buildSuggestionsPrompt(vars: PromptVariables): string {
 
 Il tuo compito è proporre un ventaglio ampio di azioni possibili per il giocatore, utili ai suoi obiettivi, alle sue campagne e ai suoi problemi più urgenti.
 
-Prima individua 6-9 "Temi di preoccupazione" che il giocatore dovrebbe tenere d'occhio. Può essere una rivolta che sta maturando e va sedata, una questione economica, rapporti o conflitti con altre politie, affari interni — qualsiasi cosa possa preoccupare un capo di Stato. La maggior parte dei temi va costruita sullo stato attuale della mappa e sulla cronaca degli eventi della partita. Alcuni temi devono riguardare gli obiettivi specifici del giocatore, deducibili dalle sue azioni passate.
+Individua fino a 6 "Temi di preoccupazione" realmente documentati; proponine meno se la storia del paese non ne giustifica altri. Può essere una rivolta che sta maturando e va sedata, una questione economica, rapporti o conflitti con altre politie, affari interni — qualsiasi cosa possa preoccupare un capo di Stato. La maggior parte dei temi va costruita sullo stato attuale della mappa e sulla cronaca degli eventi della partita. Alcuni temi devono riguardare gli obiettivi specifici del giocatore, deducibili dalle sue azioni passate.
 
 Poi, per ogni tema, proponi da 2 a 5 azioni concrete tra cui scegliere.
 
@@ -28,6 +28,14 @@ Territori e risorse: ${vars.PLAYER_POLITY_REGIONS}
 Forze disponibili: ${vars.PLAYER_POLITY_BATTALION_SUMMARIES}
 Azioni già intraprese:
 ${vars.PLAYER_EVERY_ACTION_NOT_PREVIOUS || '(Nessuna azione passata)'}
+
+[Impegni e progetti ancora aperti — non proporli nuovamente da zero]
+
+${vars.ONGOING_PROCESSES || '(Nessuno registrato)'}
+
+[Stato strategico attuale]
+
+${vars.STRATEGIC_STATE}
 
 [Premessa e regole dello scenario]
 
@@ -41,11 +49,11 @@ Per ogni "Tema di preoccupazione":
 
 Nome: Una frase immersiva breve (es. "Prevenire il colpo di Stato" o "La minaccia crescente a oriente")
 
-Descrizione: 2-3 frasi, NON più di 25 parole: la sostanza del problema, le sue cause e il contesto, perché è importante. Non scrivere il numero di parole nel testo.
+Descrizione: 2-3 frasi, circa 40-75 parole: antefatto preciso della storia del paese, situazione ancora aperta e motivo per agire adesso. Spiega cosa si rischia o a cosa si rinuncia scegliendo le diverse strade, solo quando documentato.
 
 Per ogni azione:
 - Nome: un titolo immersivo della strategia (es. "Costringerli a svelarsi" o "Soffocare la rivolta nell'uovo")
-- Contenuto: un'azione eseguibile e concreta (fino a 30 parole). Ancorati alla mappa (cita regioni e politie con i loro nomi esatti) e agli eventi recenti. Esempi di buone azioni: ridislocare battaglioni in una regione specifica, aprire trattative con una nazione precisa, operazione congiunta con un alleato, diffondere disinformazione, dimostrazione di forza per provocare una reazione, preparativi segreti per il prossimo salto temporale. Niente consigli generici tipo "migliorare l'economia" — solo passi precisi ed eseguibili!
+- Contenuto: un'azione eseguibile e concreta (20-45 parole). Ancorati alla mappa (cita regioni e politie con i loro nomi esatti) e agli eventi recenti. Esempi di buone azioni: ridislocare battaglioni in una regione specifica, aprire trattative con una nazione precisa, operazione congiunta con un alleato, diffondere disinformazione, dimostrazione di forza per provocare una reazione, preparativi segreti per il prossimo salto temporale. Niente consigli generici tipo "migliorare l'economia" — solo passi precisi ed eseguibili!
 
 [Descrizione della mappa]
 
@@ -72,11 +80,11 @@ Il tuo output DEVE essere in formato JSON:
   "suggestions": [
     {
       "topic": "Nome del tema",
-      "description": "Descrizione del problema (15-25 parole)",
+      "description": "Antefatto nazionale, problema ancora aperto e motivo per decidere adesso (40-75 parole)",
       "actions": [
         {
           "title": "Nome della strategia",
-          "content": "Descrizione dell'azione (fino a 30 parole)"
+          "content": "Ordine concreto collegato all'antefatto (20-45 parole)"
         }
       ]
     }
@@ -102,10 +110,12 @@ Stai scrivendo ordini che il giocatore può eseguire subito come ${vars.PLAYER_P
 - Ogni content deve specificare almeno tre elementi tra: strumento/forza impiegata, obiettivo nominato, luogo o politia con nome esatto, metodo operativo, risultato cercato, condizione diplomatica.
 - Le azioni devono poter essere copiate senza modifiche nel simulatore. Niente analisi, spiegazioni, probabilità, conseguenze garantite o testo rivolto al giocatore.
 - Non inventare guerre, alleanze, crisi, unità, tecnologie, organizzazioni o territori assenti dal contesto. Se un dato non è disponibile, formula l'ordine senza fabbricarlo.
-- Collega la maggioranza dei temi a fatti precisi della cronaca, della diplomazia, della mappa o alle precedenti azioni del giocatore. Evita temi intercambiabili applicabili a qualunque paese.
+- Ogni tema deve spiegare il proprio legame con la storia di ${vars.PLAYER_POLITY}: richiama un fatto, una scelta, una promessa o un processo documentato, identifica ciò che resta da risolvere e perché conta adesso. Se esiste solo una condizione della mappa o del preset, dichiarala come contesto strutturale senza inventare un evento passato.
+- Non proporre nuovamente iniziative completate, richieste già respinte alle stesse condizioni o progetti già aperti come se fossero nuovi. Per questi ultimi proponi soltanto passi successivi pertinenti o alternative esplicite alla linea precedente.
+- La spiegazione storica va nella description; ogni content richiama brevemente l'obiettivo o il progetto concreto, ma resta un ordine autonomo. Non usare «alla luce degli eventi recenti» senza nominare il fatto pertinente.
 - All'interno di ogni tema, le opzioni devono essere strategie realmente alternative: per esempio prudente/diplomatica, assertiva/materiale e clandestina/indiretta. Non parafrasare la stessa idea.
 - Nel complesso varia gli strumenti di potere: diplomazia, economia, sicurezza, intelligence, politica interna, ricerca/logistica e forza militare soltanto quando pertinenti allo scenario.
-- Titoli delle azioni: evocativi ma chiari, da 2 a 6 parole. Content: 18-30 parole, denso di dettagli utili. Descrizioni dei temi: 15-25 parole.
+- Titoli delle azioni: evocativi ma chiari, da 2 a 6 parole. Content: 20-45 parole, denso di dettagli utili. Descrizioni dei temi: 40-75 parole, con antefatto nazionale e posta in gioco. Meglio pochi temi fondati che riempire una quota con consigli generici.
 - Prima di rispondere verifica mentalmente: nomi esatti, nessun anacronismo, nessun fatto inventato, nessun duplicato, limiti di lunghezza rispettati.
 
 Esempio di forma corretta (adatta sempre nomi e mezzi al contesto reale):
@@ -121,7 +131,7 @@ export function parseSuggestionsResponse(text: string, strict = false): Suggesti
       throw new Error('Il campo suggestions non è un array');
     }
 
-    return parsed.suggestions.flatMap((item: any): Suggestion[] => {
+    const suggestions = parsed.suggestions.flatMap((item: any): Suggestion[] => {
       if (!item || typeof item !== 'object' || !Array.isArray(item.actions)) return [];
       const topic = typeof item.topic === 'string' ? item.topic.trim() : '';
       const description = typeof item.description === 'string' ? item.description.trim() : '';
@@ -133,6 +143,7 @@ export function parseSuggestionsResponse(text: string, strict = false): Suggesti
       });
       return topic && actions.length > 0 ? [{ topic, description, actions }] : [];
     });
+    return suggestions;
   } catch (e) {
     console.error('[PARSER] Failed to parse suggestions:', e);
     if (strict) throw e;

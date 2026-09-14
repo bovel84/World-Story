@@ -164,6 +164,8 @@ describe('F05 µ1 — job asincroni del salto', () => {
     await waitFor(() => jumpCalls >= 1);
     const running = await callRoute('GET', `/games/${session.id}/simulation-jobs/${jobId}`);
     expect(running.body).toMatchObject({ id: jobId, status: 'running' });
+    const pendingResult = await callRoute('GET', `/games/${session.id}/simulation-jobs/${jobId}/result`);
+    expect(pendingResult).toMatchObject({ status: 202, body: { type: 'job_pending', jobId } });
 
     releaseJump!();
     let job: any = null;
@@ -177,6 +179,10 @@ describe('F05 µ1 — job asincroni del salto', () => {
     expect(job.runId).toBeTruthy();
     const run = gameRepository.getSimulationRun(session.id, job.runId);
     expect(run?.status).toBe('completed');
+    const completedResult = await callRoute('GET', `/games/${session.id}/simulation-jobs/${jobId}/result`);
+    expect(completedResult.status).toBe(200);
+    expect(completedResult.body).toMatchObject({ type: 'world_advanced', simulationId: job.runId });
+    expect(completedResult.body.result.eventDetails.length).toBeGreaterThan(0);
     blockJump = false;
   });
 

@@ -380,12 +380,12 @@ describe('обогащение дефолтных промптов матери�
     expect(prompt).toContain("NON togliere nulla dall'intenzione del giocatore");
   });
 
-  it('suggestions: правила actions.txt (6-9 тем, ≤25 слов, 2-5 действий, ≤30 слов, привязка к карте)', () => {
+  it('suggestions: fino a 6 temi documentati, 2-5 azioni concrete, ordini copiabili', () => {
     const prompt = suggestionsModule.buildSuggestionsPrompt(vars);
-    expect(prompt).toContain('6-9');
-    expect(prompt).toContain('25 parole');
+    expect(prompt).toContain('fino a 6');
+    expect(prompt).toContain('40-75 parole');
     expect(prompt).toContain('2 a 5');
-    expect(prompt).toContain('30 parole');
+    expect(prompt).toContain('20-45 parole');
     expect(prompt).toContain('titolo immersivo della strategia');
     expect(prompt).toContain('Territori e risorse');
     expect(prompt).toContain('Azioni già intraprese');
@@ -396,7 +396,7 @@ describe('обогащение дефолтных промптов матери�
     expect(quality).toContain('AZIONI IN STILE PAX HISTORIA');
     expect(quality).toContain('prima persona plurale');
     expect(quality).toContain('Non inventare');
-    expect(quality).toContain('18-30 parole');
+    expect(quality).toContain('prima persona plurale e al presente');
   });
 });
 

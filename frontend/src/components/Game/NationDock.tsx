@@ -4,6 +4,11 @@
  * Read model nazionale: espone solo dati già pubblicati dal motore o dalla
  * mappa autorevole; nessun valore economico, tecnologico o istituzionale è
  * stimato nel browser.
+ *
+ * Leggibilità (revisione): il dossier è organizzato in blocchi tematici con
+ * etichette brevi, carte uniformi e numeri tabulari. Ogni cifra ha un tono
+ * (positivo/attenzione/negativo) derivato dai valori del motore, così lo stato
+ * della nazione si legge a colpo d'occhio.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -15,6 +20,7 @@ import {
   NATION_SECTION_LABEL,
 } from '../../stores/nationDock';
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
+import { deltaTone, sparkPoints, trendFrom, trendLabel, type Trend, type TrendTone } from './accountTrend';
 import {
   financeBalance,
   hasNationalFinance,
@@ -33,11 +39,15 @@ export interface NationAccount {
   ports?: number;
   universities?: number;
   forces?: number;
+  mobilized?: number;
   monthlyRevenue?: number;
   monthlyExpenses?: number;
   monthlyBalance?: number;
   annualGrowthRate?: number;
   stability?: number;
+  defenceBurdenPct?: number;
+  warEffort?: number;
+  socialTension?: number;
   nominalGdpUsdBillions?: number;
   gdpPerCapitaUsd?: number;
   government?: string;
@@ -48,6 +58,8 @@ interface NationDockProps {
   nationalName: string;
   governmentType: string;
   account?: NationAccount | null;
+  /** Serie storica dei conti del paese (dal più vecchio al più recente). */
+  accountHistory?: HistoryPoint[];
   regions?: Region[];
   ongoingProcesses?: NationalProcess[];
   mandateDecisions?: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>;
@@ -56,6 +68,16 @@ interface NationDockProps {
   latestNarration: string;
 }
 
+/** Un punto dello storico: data di gioco e conto già pubblicato dal motore. */
+export interface HistoryPoint {
+  date: string;
+  turn?: number;
+  account: NationAccount;
+}
+
+/** Tono semantico di una cifra: colore e barra laterale della carta. */
+export type Tone = 'positive' | 'negative' | 'warning' | 'neutral';
+
 function formatDate(value?: string | null): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '');
   if (!match) return value || 'Data non pubblicata';
@@ -63,22 +85,129 @@ function formatDate(value?: string | null): string {
   return `${Number(match[3])} ${months[Number(match[2]) - 1]} ${match[1]}`;
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: 'positive' | 'negative' }) {
+/** Soglie di stato: derivano dalle stesse cifre del motore, non da giudizi. */
+export function stabilityTone(value: number): Tone {
+  return value >= 55 ? 'positive' : value >= 40 ? 'warning' : 'negative';
+}
+export function tensionTone(value: number): Tone {
+  return value >= 55 ? 'negative' : value > 30 ? 'warning' : 'positive';
+}
+export function warEffortTone(value: number): Tone {
+  return value >= 50 ? 'negative' : value > 0 ? 'warning' : 'neutral';
+}
+export function defenceTone(value: number): Tone {
+  return value >= 8 ? 'negative' : value >= 5 ? 'warning' : 'positive';
+}
+
+/** Micro-grafico SVG della serie storica. Nessuna libreria esterna. */
+function Sparkline({ trend, tone }: { trend: Trend; tone: TrendTone }) {
+  const points = sparkPoints(trend.series);
+  if (points.length < 2) return null;
+  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x} ${point.y}`).join(' ');
+  const last = points[points.length - 1];
+  const from = trend.dates[0];
+  const to = trend.dates[trend.dates.length - 1];
   return (
-    <span className={`nation-metric${tone ? ` ${tone}` : ''}`}>
-      <small>{label}</small><b>{value}</b>
+    <svg
+      className={`nation-spark spark-${tone}`}
+      viewBox="0 0 56 18"
+      width="56"
+      height="18"
+      role="img"
+      aria-label={`Andamento dal ${from} al ${to}`}
+      focusable="false"
+    >
+      <path d={path} />
+      <circle cx={last.x} cy={last.y} r="1.8" />
+    </svg>
+  );
+}
+
+interface MetricTrend {
+  trend: Trend | null;
+  /** Variazione formattata, es. «+0,12 mld». */
+  deltaText: string;
+  tone: TrendTone;
+}
+
+function Metric({
+  label,
+  value,
+  tone = 'neutral',
+  hint,
+  trend,
+  hero = false,
+}: {
+  label: string;
+  value: string;
+  tone?: Tone;
+  hint?: string;
+  trend?: MetricTrend;
+  hero?: boolean;
+}) {
+  return (
+    <div className={`nation-metric tone-${tone}${hero ? ' nation-metric-hero' : ''}`}>
+      <small>{label}</small>
+      <b>{value}</b>
+      {trend?.trend && (
+        <span className={`nation-trend nation-trend-${trend.tone}`}>
+          <Sparkline trend={trend.trend} tone={trend.tone} />
+          <em>{`${trend.deltaText} ${trendLabel(trend.trend.dates)}`}</em>
+        </span>
+      )}
+      {hint && <em className="nation-metric-hint">{hint}</em>}
+    </div>
+  );
+}
+
+function MetricGrid({ children }: { children: React.ReactNode }) {
+  return <div className="nation-metric-grid">{children}</div>;
+}
+
+/** Cifra in stile editoriale, per il bollettino su carta chiara. */
+function LedgerMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="nation-ledger-cell">
+      <small>{label}</small>
+      <b>{value}</b>
     </span>
   );
 }
 
-function NoPublishedData({ children }: { children: React.ReactNode }) {
-  return <p className="nation-data-note" role="note">{children}</p>;
+/** Blocco tematico: titolo + eventuale descrizione + corpo. */
+function DossierBlock({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="nation-block" aria-label={title}>
+      <header className="nation-block-head">
+        <h3 className="nation-block-title">{title}</h3>
+        {description && <p className="nation-block-desc">{description}</p>}
+      </header>
+      <div className="nation-block-body">{children}</div>
+    </section>
+  );
+}
+
+function Footnote({ children }: { children: React.ReactNode }) {
+  return <p className="nation-footnote">{children}</p>;
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return <div className="nation-empty" role="note">{children}</div>;
 }
 
 export const NationDock: React.FC<NationDockProps> = ({
   nationalName,
   governmentType,
   account,
+  accountHistory = [],
   regions = [],
   ongoingProcesses = [],
   mandateDecisions = [],
@@ -92,7 +221,27 @@ export const NationDock: React.FC<NationDockProps> = ({
   const financeAvailable = hasNationalFinance(account);
   const balance = financeBalance(account);
   const stability = Number(account?.stability ?? 0);
+  const socialTension = Number(account?.socialTension ?? 0);
+  const warEffort = Number(account?.warEffort ?? 0);
+  const mobilized = Number(account?.mobilized ?? 0);
+  const defenceBurdenPct = Number(account?.defenceBurdenPct ?? 0);
   const growth = Number(account?.annualGrowthRate ?? 0);
+
+  // Le tendenze derivano dallo storico pubblicato dal motore: se la serie ha
+  // meno di due punti la variazione non viene mostrata (mai inventata).
+  const moneyDelta = (delta: number) => formatMoney(delta, { currency: 'mld', decimals: 2, sign: true });
+  const pointDelta = (delta: number) => `${formatMoney(delta, { decimals: 1, sign: true })} pt`;
+  const countDelta = (delta: number) => formatMoney(delta, { decimals: 0, sign: true });
+  const mkTrend = useMemo(() => (
+    pick: (point: HistoryPoint) => number | undefined | null,
+    formatDelta: (delta: number) => string,
+    goodDirection: 'up' | 'down',
+  ): MetricTrend | undefined => {
+    const trend = trendFrom(accountHistory, pick);
+    if (!trend) return undefined;
+    const flat = Math.abs(trend.delta) < 1e-9;
+    return { trend, deltaText: flat ? 'stabile' : formatDelta(trend.delta), tone: deltaTone(trend.delta, goodDirection) };
+  }, [accountHistory]);
 
   return (
     <div className="nation-dock">
@@ -113,8 +262,42 @@ export const NationDock: React.FC<NationDockProps> = ({
       <div className="nation-dock-body">
         {active === 'situazione' && (
           <>
-            <section className="nation-section" aria-label="Decisioni richieste">
-              <div className="nation-section-title">Decisioni richieste</div>
+            <DossierBlock
+              title="Sintesi"
+              description="Le tre cifre che descrivono lo stato della nazione in questo momento."
+            >
+              <MetricGrid>
+                <Metric
+                  label="Saldo mensile"
+                  value={formatMoney(balance, { currency: 'mld', decimals: 2, sign: true })}
+                  tone={balance >= 0 ? 'positive' : 'negative'}
+                  hint={financeAvailable ? 'Entrate meno uscite' : 'Bilancio non pubblicato'}
+                  trend={mkTrend((point) => point.account.monthlyBalance, moneyDelta, 'up')}
+                  hero
+                />
+                <Metric
+                  label="Stabilità"
+                  value={formatPercent(stability)}
+                  tone={stabilityTone(stability)}
+                  hint="Consenso e tenuta istituzionale"
+                  trend={mkTrend((point) => point.account.stability, pointDelta, 'up')}
+                  hero
+                />
+                <Metric
+                  label="Tensione sociale"
+                  value={formatPercent(socialTension)}
+                  tone={tensionTone(socialTension)}
+                  hint="Pressione interna su popolazione e governo"
+                  trend={mkTrend((point) => point.account.socialTension, pointDelta, 'down')}
+                  hero
+                />
+              </MetricGrid>
+            </DossierBlock>
+
+            <DossierBlock
+              title="Decisioni richieste"
+              description="Scorte sotto soglia e processi che attendono un'autorizzazione."
+            >
               <div className="nation-decisions">
                 {mandateDecisions.map((decision) => (
                   <div key={`${decision.mandateId}-${decision.kind}`} className="nation-decision-live">
@@ -125,12 +308,11 @@ export const NationDock: React.FC<NationDockProps> = ({
                 ))}
                 {mandateDecisions.length === 0 && (ongoingProcesses.length > 0 ? (
                   <div className="nation-decision-live"><b>{ongoingProcesses.length} {ongoingProcesses.length === 1 ? 'processo richiede monitoraggio' : 'processi richiedono monitoraggio'}</b><span>Apri Progetti per vedere le prossime scadenze registrate.</span></div>
-                ) : <div className="nation-decision-empty">Nessuna decisione richiede attenzione immediata.</div>)}
+                ) : <EmptyState>Nessuna decisione richiede attenzione immediata.</EmptyState>)}
               </div>
-            </section>
+            </DossierBlock>
 
-            <section className="nation-section" aria-label="Stato della nazione">
-              <div className="nation-section-title">Stato della nazione</div>
+            <DossierBlock title="Bollettino nazionale">
               <div className="nation-bulletin nation-bulletin-card">
                 <div className="nation-bulletin-kicker">Bollettino</div>
                 <h2>{nationalName}</h2>
@@ -141,23 +323,25 @@ export const NationDock: React.FC<NationDockProps> = ({
                   <i><em style={{ width: `${Math.max(0, Math.min(100, campaignProgress))}%` }} /></i>
                 </div>
                 <div className="nation-ledger">
-                  <Metric label="POPOLAZIONE" value={formatNumber(assets.population)} />
-                  <Metric label="PIL NOM." value={formatMoney(assets.gdpBillions, { currency: 'mld', decimals: 1 })} />
-                  <Metric label="ENTRATE / MESE" value={formatMoney(Number(account?.monthlyRevenue ?? 0), { currency: 'mld', decimals: 2, sign: true })} />
-                  <Metric label="USCITE / MESE" value={formatMoney(Number(account?.monthlyExpenses ?? 0), { currency: 'mld', decimals: 2, sign: true })} />
+                  <LedgerMetric label="Popolazione" value={formatNumber(assets.population)} />
+                  <LedgerMetric label="PIL nominale" value={formatMoney(assets.gdpBillions, { currency: 'mld', decimals: 1 })} />
+                  <LedgerMetric label="Entrate / mese" value={formatMoney(Number(account?.monthlyRevenue ?? 0), { currency: 'mld', decimals: 2, sign: true })} />
+                  <LedgerMetric label="Uscite / mese" value={formatMoney(Number(account?.monthlyExpenses ?? 0), { currency: 'mld', decimals: 2, sign: true })} />
                 </div>
                 <p className="nation-narration">{latestNarration}</p>
               </div>
-              <p className="nation-section-depends"><b>Fonte</b> Conto nazionale e mappa autorevole · Stabilità {formatPercent(stability)} · Province {formatNumber(assets.provinces)}.</p>
-            </section>
+              <Footnote><b>Fonte</b> Conto nazionale e mappa autorevole · Stabilità {formatPercent(stability)} · {formatNumber(assets.provinces)} province.</Footnote>
+            </DossierBlock>
           </>
         )}
 
         {active === 'progetti' && (
-          <section className="nation-section" aria-label="Progetti e processi in corso">
-            <div className="nation-section-title">Progetti e processi in corso</div>
+          <DossierBlock
+            title="Progetti e processi in corso"
+            description="Ciò che è già avviato e la prossima scadenza registrata."
+          >
             {ongoingProcesses.length === 0 ? (
-              <div className="nation-decision-empty">Nessun processo in corso alla data del bollettino.</div>
+              <EmptyState>Nessun processo in corso alla data del bollettino.</EmptyState>
             ) : (
               <ul className="nation-process-list">
                 {ongoingProcesses.map((process) => (
@@ -168,64 +352,116 @@ export const NationDock: React.FC<NationDockProps> = ({
                 ))}
               </ul>
             )}
-            <NoPublishedData>I processi sono letti dal registro della simulazione: questa sezione non crea né modifica progetti.</NoPublishedData>
-          </section>
+            <Footnote>I processi sono letti dal registro della simulazione: questa sezione non crea né modifica progetti.</Footnote>
+          </DossierBlock>
         )}
 
         {active === 'bilancio' && (
-          <section className="nation-section" aria-label="Bilancio nazionale">
-            <div className="nation-section-title">Bilancio nazionale</div>
-            {financeAvailable ? (
-              <div className="nation-data-grid">
-                <Metric label="ENTRATE MENSILI" value={formatMoney(Number(account?.monthlyRevenue ?? 0), { currency: 'mld', decimals: 2, sign: true })} tone="positive" />
-                <Metric label="USCITE MENSILI" value={formatMoney(Number(account?.monthlyExpenses ?? 0), { currency: 'mld', decimals: 2, sign: true })} tone="negative" />
-                <Metric label="SALDO MENSILE" value={formatMoney(balance, { currency: 'mld', decimals: 2, sign: true })} tone={balance >= 0 ? 'positive' : 'negative'} />
-                <Metric label="CRESCITA ANNUA" value={formatPercent(growth)} tone={growth >= 0 ? 'positive' : 'negative'} />
-              </div>
-            ) : (
-              <NoPublishedData>Questo scenario non pubblica ancora voci di bilancio nel conto nazionale.</NoPublishedData>
-            )}
-            <p className="nation-section-depends"><b>Fonte</b> WorldStateEngine.accounts · valori letti, non stimati dal client.</p>
-          </section>
+          <>
+            <DossierBlock
+              title="Flussi mensili"
+              description="Quanto entra, quanto esce e come cresce l'economia."
+            >
+              {financeAvailable ? (
+                <MetricGrid>
+                  <Metric label="Entrate mensili" value={formatMoney(Number(account?.monthlyRevenue ?? 0), { currency: 'mld', decimals: 2, sign: true })} tone="positive" trend={mkTrend((point) => point.account.monthlyRevenue, moneyDelta, 'up')} />
+                  <Metric label="Uscite mensili" value={formatMoney(Number(account?.monthlyExpenses ?? 0), { currency: 'mld', decimals: 2, sign: true })} tone="neutral" trend={mkTrend((point) => point.account.monthlyExpenses, moneyDelta, 'down')} />
+                  <Metric label="Saldo mensile" value={formatMoney(balance, { currency: 'mld', decimals: 2, sign: true })} tone={balance >= 0 ? 'positive' : 'negative'} trend={mkTrend((point) => point.account.monthlyBalance, moneyDelta, 'up')} />
+                  <Metric label="Crescita annua" value={formatPercent(growth * 100, 1)} tone={growth > 0 ? 'positive' : growth < 0 ? 'negative' : 'neutral'} trend={mkTrend((point) => Number(point.account.annualGrowthRate ?? 0) * 100, pointDelta, 'up')} />
+                </MetricGrid>
+              ) : (
+                <EmptyState>Questo scenario non pubblica ancora voci di bilancio nel conto nazionale.</EmptyState>
+              )}
+            </DossierBlock>
+
+            <DossierBlock
+              title="Pressione militare"
+              description="Il costo dell'apparato militare e delle riserve richiamate."
+            >
+              <MetricGrid>
+                <Metric
+                  label="Spesa militare"
+                  value={defenceBurdenPct > 0 ? `${formatPercent(defenceBurdenPct, 1)} del PIL` : '—'}
+                  tone={defenceTone(defenceBurdenPct)}
+                  hint="Quota del PIL destinata alla difesa"
+                  trend={mkTrend((point) => point.account.defenceBurdenPct, pointDelta, 'down')}
+                />
+                <Metric
+                  label="Riserve mobilitate"
+                  value={formatNumber(mobilized)}
+                  tone={mobilized > 0 ? 'warning' : 'positive'}
+                  hint="Formazioni richiamate, non ancora operative"
+                  trend={mkTrend((point) => point.account.mobilized, countDelta, 'down')}
+                />
+                <Metric
+                  label="Sforzo bellico"
+                  value={formatPercent(warEffort)}
+                  tone={warEffortTone(warEffort)}
+                  hint="Forze e riserve sul totale nazionale"
+                  trend={mkTrend((point) => point.account.warEffort, pointDelta, 'down')}
+                />
+              </MetricGrid>
+            </DossierBlock>
+
+            <Footnote><b>Fonte</b> WorldStateEngine.accounts · valori letti, non stimati dal client.</Footnote>
+          </>
         )}
 
         {active === 'risorse' && (
-          <section className="nation-section" aria-label="Capacità produttive e territoriali">
-            <div className="nation-section-title">Capacità produttive e territoriali</div>
-            <div className="nation-data-grid">
-              <Metric label="PROVINCE" value={formatNumber(assets.provinces)} />
-              <Metric label="FABBRICHE" value={formatNumber(assets.factories)} />
-              <Metric label="PORTI" value={formatNumber(assets.ports)} />
-              <Metric label="CITTÀ E CAPITALI" value={formatNumber(assets.cities)} />
-            </div>
-            <p className="nation-section-depends"><b>Fonte</b> Conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Stock e flussi non vengono inventati.</p>
-          </section>
+          <DossierBlock
+            title="Capacità produttive e territoriali"
+            description="Le infrastrutture che sostengono crescita e logistica."
+          >
+            <MetricGrid>
+              <Metric label="Province" value={formatNumber(assets.provinces)} />
+              <Metric label="Fabbriche" value={formatNumber(assets.factories)} />
+              <Metric label="Porti" value={formatNumber(assets.ports)} />
+              <Metric label="Città e capitali" value={formatNumber(assets.cities)} />
+            </MetricGrid>
+            <Footnote><b>Fonte</b> Conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Stock e flussi non vengono inventati.</Footnote>
+          </DossierBlock>
         )}
 
         {active === 'conoscenze' && (
-          <section className="nation-section" aria-label="Conoscenze e personale">
-            <div className="nation-section-title">Conoscenze e personale</div>
-            <div className="nation-data-grid">
-              <Metric label="UNIVERSITÀ" value={formatNumber(assets.universities)} />
-              <Metric label="UNITÀ E FORZE" value={formatNumber(assets.forces)} />
-              <Metric label="POPOLAZIONE" value={formatNumber(assets.population)} />
-              <Metric label="PIL PRO CAPITE" value={account?.gdpPerCapitaUsd != null ? formatMoney(Number(account.gdpPerCapitaUsd), { currency: '$', decimals: 0 }) : 'Non pubblicato'} />
-            </div>
-            <NoPublishedData>Il catalogo non espone ancora un inventario delle tecnologie: il dossier mostra soltanto capacità e personale già registrati.</NoPublishedData>
-          </section>
+          <DossierBlock
+            title="Conoscenze e personale"
+            description="Capitale umano e capacità formative disponibili."
+          >
+            <MetricGrid>
+              <Metric label="Popolazione" value={formatNumber(assets.population)} />
+              <Metric label="Università" value={formatNumber(assets.universities)} />
+              <Metric label="Unità e forze" value={formatNumber(assets.forces)} />
+              <Metric label="PIL pro capite" value={account?.gdpPerCapitaUsd != null ? formatMoney(Number(account.gdpPerCapitaUsd), { currency: '$', decimals: 0 }) : '—'} />
+            </MetricGrid>
+            <Footnote>Il catalogo non espone ancora un inventario delle tecnologie: il dossier mostra soltanto capacità e personale già registrati.</Footnote>
+          </DossierBlock>
         )}
 
         {active === 'politiche' && (
-          <section className="nation-section" aria-label="Politiche e istituzioni">
-            <div className="nation-section-title">Politiche e istituzioni</div>
-            <div className="nation-data-grid">
-              <Metric label="FORMA DI GOVERNO" value={governmentType} />
-              <Metric label="STABILITÀ" value={formatPercent(stability)} tone={stability >= 50 ? 'positive' : 'negative'} />
-              <Metric label="TERRITORIO AMMINISTRATO" value={`${formatNumber(assets.provinces)} province`} />
-              <Metric label="PROCESSI ATTIVI" value={formatNumber(ongoingProcesses.length)} />
-            </div>
-            <NoPublishedData>Mandati e servizi saranno mostrati qui solo quando il read model ne pubblicherà stato e responsabilità.</NoPublishedData>
-          </section>
+          <>
+            <DossierBlock
+              title="Assetto istituzionale"
+              description="Chi governa, su quale territorio e con quali processi aperti."
+            >
+              <MetricGrid>
+                <Metric label="Forma di governo" value={governmentType} />
+                <Metric label="Territorio amministrato" value={`${formatNumber(assets.provinces)} province`} />
+                <Metric label="Processi attivi" value={formatNumber(ongoingProcesses.length)} />
+              </MetricGrid>
+            </DossierBlock>
+
+            <DossierBlock
+              title="Coesione interna"
+              description="Il consenso e la pressione sociale sul governo."
+            >
+              <MetricGrid>
+                <Metric label="Stabilità" value={formatPercent(stability)} tone={stabilityTone(stability)} />
+                <Metric label="Tensione sociale" value={formatPercent(socialTension)} tone={tensionTone(socialTension)} />
+              </MetricGrid>
+            </DossierBlock>
+
+            <Footnote>Mandati e servizi saranno mostrati qui solo quando il read model ne pubblicherà stato e responsabilità.</Footnote>
+          </>
         )}
       </div>
     </div>

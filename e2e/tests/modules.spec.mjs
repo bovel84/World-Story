@@ -3,12 +3,11 @@
  * ======================================================
  *
  * Verifica, interamente offline e con API mockate nel browser, i moduli della
- * scrivania di gioco introdotti da U01/U02/U03:
- *   - U01: un solo modulo attivo alla volta (activeModule enum);
- *   - U02: compositore d'ordine con «Registra ordine» (bozza accodata senza
- *          avanzare tempo né spendere risorse);
- *   - U03: Dossier Nazione a sezioni con default «Situazione» e placeholder
- *          «Da cosa dipende?» per le sezioni non alimentate.
+ * scrivania di gioco:
+ *   - un solo modulo attivo alla volta (rail → desk);
+ *   - compositore d'ordine con «Registra ordine» (bozza accodata senza
+ *     avanzare tempo né spendere risorse);
+ *   - Dossier Nazione a sezioni con default «Situazione».
  *
  * Le asserzioni sono su DOM/stato, non su screenshot. Nessun backend reale,
  * nessun provider LLM, nessuna rete esterna.
@@ -24,39 +23,37 @@ async function reachHud(page) {
   await page.locator('.template-card').first().click();
   await page.locator('.country-list-item').first().click();
   await page.locator('.btn-play').click();
-  await expect(page.locator('.game-wrapper')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.game-shell')).toBeVisible({ timeout: 20_000 });
 }
 
-test.describe('Q01 µ2 — moduli della scrivania (U01/U02/U03)', () => {
-  test('U01: un solo modulo attivo alla volta (Ordini → Nazione)', async ({ page }) => {
+test.describe('Q01 µ2 — moduli della scrivania', () => {
+  test('un solo modulo attivo alla volta (Ordini → Nazione)', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
     // Nessun modulo aperto all'ingresso: la mappa è libera.
-    // (action-desk è renderizzato solo quando attivo; nation-desk è sempre nel
-    // DOM ma collassato → verifichiamo la visibilità, non il conteggio.)
-    await expect(page.locator('.action-desk')).toHaveCount(0);
+    await expect(page.locator('.suggestions-content')).toHaveCount(0);
     await expect(page.locator('.nation-desk')).toBeHidden();
 
     // Apri «Ordini»: il pannello azioni è visibile.
-    await page.locator('.fab-btn[aria-label="Ordini"]').click();
-    await expect(page.locator('.action-desk')).toBeVisible();
+    await page.locator('.rail-btn[aria-label="Ordini"]').click();
+    await expect(page.locator('.suggestions-content')).toBeVisible();
     await expect(page.locator('.nation-desk')).toBeHidden();
 
     // Chiudi e apri «Nazione»: il pannello azioni sparisce, il dossier appare.
-    await page.locator('.action-desk .btn-close').click();
-    await expect(page.locator('.action-desk')).toHaveCount(0);
-    await page.locator('.fab-btn[aria-label="Nazione"]').click();
+    await page.locator('.suggestions-content .desk-close-x').click();
+    await expect(page.locator('.suggestions-content')).toHaveCount(0);
+    await page.locator('.rail-btn[aria-label="Nazione"]').click();
     await expect(page.locator('.nation-desk')).toBeVisible();
-    await expect(page.locator('.action-desk')).toHaveCount(0);
+    await expect(page.locator('.suggestions-content')).toHaveCount(0);
   });
 
   test('U02: compositore d\'ordine — «Registra ordine» accoda senza avanzare tempo', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
-    await page.locator('.fab-btn[aria-label="Ordini"]').click();
-    await expect(page.locator('.action-desk')).toBeVisible();
+    await page.locator('.rail-btn[aria-label="Ordini"]').click();
+    await expect(page.locator('.suggestions-content')).toBeVisible();
 
     // Il compositore libero è presente con l'etichetta corretta.
     await expect(page.locator('#free-player-order')).toBeVisible();
@@ -70,26 +67,38 @@ test.describe('Q01 µ2 — moduli della scrivania (U01/U02/U03)', () => {
     await expect(page.locator('.btn-add-pending')).toBeEnabled();
     await page.locator('.btn-add-pending').click();
 
+    // «Registra ordine» apre la verifica di fattibilità: solo un esito
+    // fattibile accoda l'ordine (G4-B).
+    await expect(page.locator('.feasibility-check')).toBeVisible();
+    await expect(page.locator('.btn-feasibility-register')).toContainText('Registra ordine');
+    await page.locator('.btn-feasibility-register').click();
+
     // L'ordine appare nella coda (pendingActions) e la bozza si svuota.
     await expect(page.locator('.pending-item').first()).toContainText('Costruire una ferrovia verso il confine');
     await expect(page.locator('#free-player-order')).toHaveValue('');
   });
 
-  test('U03: Dossier Nazione — sezioni con default «Situazione» e placeholder', async ({ page }) => {
+  test('U03: Dossier Nazione — sezioni con default «Situazione»', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
-    await page.locator('.fab-btn[aria-label="Nazione"]').click();
+    await page.locator('.rail-btn[aria-label="Nazione"]').click();
     await expect(page.locator('.nation-desk')).toBeVisible();
 
-    // Default: sezione «Situazione» (decisioni richieste).
+    // Default: sezione «Situazione» (sintesi + decisioni richieste).
     await expect(page.locator('.nation-dock-tab.active')).toHaveText('Situazione');
-    await expect(page.locator('.nation-section[aria-label="Decisioni richieste"]')).toBeVisible();
+    await expect(page.locator('.nation-block[aria-label="Decisioni richieste"]')).toBeVisible();
+    await expect(page.locator('.nation-block[aria-label="Sintesi"]')).toBeVisible();
 
-    // Passa a «Progetti»: mostra il placeholder «Da cosa dipende?».
+    // Le carte di sintesi mostrano la tendenza reale dalla storia (3 punti):
+    // sparkline SVG + variazione rispetto al mese precedente.
+    await expect(page.locator('.nation-spark').first()).toBeVisible();
+    await expect(page.locator('.nation-trend').first()).toContainText('vs mese scorso');
+
+    // Passa a «Progetti»: mostra lo stato vuoto e la nota di provenienza.
     await page.locator('.nation-dock-tab', { hasText: 'Progetti' }).click();
     await expect(page.locator('.nation-dock-tab.active')).toHaveText('Progetti');
-    await expect(page.locator('.nation-section-empty')).toBeVisible();
-    await expect(page.locator('.nation-section-depends')).toContainText('Da cosa dipende?');
+    await expect(page.locator('.nation-empty')).toBeVisible();
+    await expect(page.locator('.nation-footnote')).toContainText('registro della simulazione');
   });
 });

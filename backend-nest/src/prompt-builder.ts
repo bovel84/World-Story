@@ -4,9 +4,10 @@
  * Сервис для построения переменных промптов
  */
 
-import { PromptVariables, SimulationResult, SimulationEvent, ConvertedAction, Suggestion, AdvisorMessage, difficultyPromptBlock, normalizeDifficulty } from './prompts';
+import { PromptVariables, SimulationResult, SimulationEvent, ConvertedAction, Suggestion, AdvisorMessage, ActionOutcome, difficultyPromptBlock, normalizeDifficulty } from './prompts';
 import {
   buildSimulationPrompt,
+  buildConstrainedSimulationPrompt,
   buildAutoJumpInstruction,
   buildCausalityGuard,
   buildSimulationNarrativeContract,
@@ -19,6 +20,8 @@ import { buildAdvisorPrompt, parseAdvisorResponse, buildAdvisorDialogSuffix } fr
 import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
+import { buildNarrativeMemory } from './prompts/narrative-memory';
+import { buildNationalDecisionContext, buildActionElaborationGuard } from './prompts/national-context';
 import { addDays, formatItalianDate } from './core/simulation/calendar';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
 import { LLMError, LLMRouter } from './llm';
@@ -37,6 +40,8 @@ interface GameData {
   chatTranscripts?: string;
   /** Этап 5: кастомные правила симуляции мира (rules.md пресет-пакета) */
   simulationRules?: string;
+  /** In strict gli errori di protocollo restano fail-closed, senza adapter. */
+  strictMode?: boolean;
   /** Переопределённые промпты мира (секция "prompts" пресета; объект или JSON-строка) */
   prompts?: PromptOverrides | string | null;
   world: {
@@ -55,6 +60,8 @@ interface GameData {
   polityNames?: Record<string, string>;
   /** Relazioni persistenti tra politie, indicizzate per polityId. */
   relationships?: Record<string, Record<string, string>>;
+  /** Dossier NPC: identità stabile, priorità dinamiche e memoria canonica. */
+  npcStrategicProfiles?: string;
   /** Processi in corso (esiti partial) che la simulazione deve portare avanti. */
   ongoingProcesses?: Array<{
     id: string;
@@ -73,11 +80,16 @@ interface GameData {
     factories: number;
     ports: number;
     universities: number;
+    forces?: number;
+    mobilized?: number;
     monthlyRevenue: number;
     monthlyExpenses: number;
     monthlyBalance: number;
     annualGrowthRate: number;
     stability: number;
+    defenceBurdenPct?: number;
+    warEffort?: number;
+    socialTension?: number;
     nominalGdpUsdBillions: number;
     gdpPerCapitaUsd: number;
     government: string;
@@ -162,6 +174,11 @@ function getAllRegions(regions: any): RegionData[] {
   return Object.values(regions);
 }
 
+function clipConstrained(value: unknown, maxChars: number): string {
+  const text = String(value || '').trim();
+  return text.length <= maxChars ? text : `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
 interface ActionData {
   id: string;
   playerId: string;
@@ -231,6 +248,7 @@ export class PromptBuilder {
       GRAND_MAP_DESCRIPTION: this.buildMapDescription(),
       GRAND_MAP_DESCRIPTION_NO_CITY: this.buildMapDescriptionNoCity(),
       STRATEGIC_STATE: this.buildStrategicState(playerPolityId),
+      NPC_STRATEGIC_PROFILES: this.game.npcStrategicProfiles || 'Nessun dossier NPC specifico disponibile.',
       ONGOING_PROCESSES: this.buildOngoingProcesses(),
 
       ALL_EVENTS_WITH_CONSOLIDATION: this.buildEventHistory(),
@@ -267,6 +285,31 @@ export class PromptBuilder {
     // Показываем и имя, и id-алиас: LLM адресует политию по имени,
     // движок резолвит и то, и другое (см. utils/name-resolver).
     return `Politia "${displayName}" [${owner}]${playerMark} (colore ${regionList[0].color}):`;
+  }
+
+  /** Oggetti operativi/cantieri già esistenti: servono al modello per poterli
+   * completare, muovere o rimuovere per nome senza crearne duplicati. */
+  private strategicObjectSummaries(regionList: RegionData[], limit = 14): string[] {
+    return regionList.flatMap(region => (region.objects || [])
+      .filter((object: any) => object?.type && object.type !== 'city' && object.type !== 'capital')
+      .map((object: any) => ({ region, object })))
+      // Keep unfinished work visible even when the country owns many facilities.
+      .sort((a, b) => Number(b.object.type === 'construction_site' || b.object.type === 'mobilization')
+        - Number(a.object.type === 'construction_site' || a.object.type === 'mobilization'))
+      .slice(0, limit)
+      .map(({ region, object }: any) => {
+        const meta = object.metadata || {};
+        const status = meta.status ? `, ${meta.status}` : '';
+        const planned = meta.plannedType ? `→${meta.plannedType}` : '';
+        const report = object.type === 'construction_site' ? [
+          meta.phase && `fase: ${meta.phase}`,
+          meta.startedDate && `avviato: ${meta.startedDate}`,
+          meta.expectedDate && `previsione, non certezza: ${meta.expectedDate}`,
+          meta.blocker && `impedimento: ${this.compact(meta.blocker, 180)}`,
+          meta.nextStep && `prossimo passo: ${this.compact(meta.nextStep, 180)}`,
+        ].filter(Boolean).join('; ') : '';
+        return `${object.name || 'oggetto senza nome'} [id:${object.id}; ${object.type}${planned}${status}] in ${region.name}${report ? ` — ${report}` : ''}`;
+      });
   }
 
   /** Limite esplicito: la memoria operativa deve essere leggibile dal modello,
@@ -354,6 +397,8 @@ export class PromptBuilder {
 
       description += `${this.polityHeader(owner, regionList)}\n`;
       description += regionList.map(r => r.name).join(', ');
+      const strategicObjects = this.strategicObjectSummaries(regionList);
+      if (strategicObjects.length) description += `\n- Oggetti territoriali: ${strategicObjects.join('; ')}`;
       description += '\n\n';
     }
 
@@ -369,9 +414,10 @@ export class PromptBuilder {
   private buildOngoingProcesses(): string {
     const processes = this.game.ongoingProcesses || [];
     if (!processes.length) return '';
-    return processes.map(process => {
+    return [...processes].sort((a, b) => (a.expectedDate || '9999').localeCompare(b.expectedDate || '9999')).map(process => {
+      const overdue = process.expectedDate && process.expectedDate <= this.game.currentDate;
       const due = process.expectedDate
-        ? ` — completamento previsto: ${process.expectedDate}`
+        ? ` — completamento previsto: ${process.expectedDate}${overdue ? ' (scadenza raggiunta: verificare esito o impedimento, non completare automaticamente)' : ''}`
         : ' — completamento previsto: data non determinata';
       return `- [projectId:${process.id}; sourceActionId:${process.sourceActionId}] ${process.title}${due}. Stato: ${process.summary} (avviato: ${process.startedDate})`;
     }).join('\n');
@@ -407,8 +453,12 @@ export class PromptBuilder {
       `Territori controllati: ${owned.length <= 42 ? owned.map(region => region.name).join(', ') : `${owned.slice(0, 42).map(region => region.name).join(', ')}, più altre ${owned.length - 42} province`}.`,
     ];
     if (playerAccount) {
-      lines.push(`Dossier nazionale calcolato dal motore: governo ${playerAccount.government}; popolazione ${fmt(playerAccount.population)}; PIL nominale stimato ${fmt(playerAccount.nominalGdpUsdBillions)} miliardi USD; PIL pro capite circa ${fmt(playerAccount.gdpPerCapitaUsd)} USD; entrate mensili ${fmt(playerAccount.monthlyRevenue)}; uscite mensili ${fmt(playerAccount.monthlyExpenses)}; saldo ${fmt(playerAccount.monthlyBalance)}; crescita annua ${(playerAccount.annualGrowthRate * 100).toFixed(1)}%; stabilità ${playerAccount.stability}/100; infrastrutture: ${playerAccount.factories} fabbriche, ${playerAccount.ports} porti, ${playerAccount.universities} università.`);
+      lines.push(`Dossier nazionale calcolato dal motore: governo ${playerAccount.government}; popolazione ${fmt(playerAccount.population)}; PIL nominale stimato ${fmt(playerAccount.nominalGdpUsdBillions)} miliardi USD; PIL pro capite circa ${fmt(playerAccount.gdpPerCapitaUsd)} USD; entrate mensili ${fmt(playerAccount.monthlyRevenue)}; uscite mensili ${fmt(playerAccount.monthlyExpenses)}; saldo ${fmt(playerAccount.monthlyBalance)}; crescita annua ${(playerAccount.annualGrowthRate * 100).toFixed(1)}%; stabilità ${playerAccount.stability}/100; spesa militare ${playerAccount.defenceBurdenPct}% del PIL; riserve mobilitate ${playerAccount.mobilized}; sforzo bellico ${playerAccount.warEffort}/100; tensione sociale ${playerAccount.socialTension}/100; infrastrutture: ${playerAccount.factories} fabbriche, ${playerAccount.ports} porti, ${playerAccount.universities} università.`);
     }
+    const playerObjects = this.strategicObjectSummaries(owned, 20);
+    lines.push(playerObjects.length
+      ? `Oggetti territoriali e formazioni del giocatore: ${playerObjects.join('; ')}.`
+      : 'Oggetti territoriali e formazioni del giocatore: nessuno registrato.');
 
     if (neighbours.size === 0) {
       lines.push('Confini terrestri con altre politie: nessuno registrato sulla mappa.');
@@ -421,9 +471,10 @@ export class PromptBuilder {
           || 'neutral';
         const account = this.game.worldState?.accounts?.[owner];
         const economy = account
-          ? `; PIL ${fmt(account.gdp)}, saldo mensile ${fmt(account.monthlyBalance)}, stabilità ${account.stability}/100`
+          ? `; PIL ${fmt(account.gdp)}, saldo mensile ${fmt(account.monthlyBalance)}, stabilità ${account.stability}/100, riserve mobilitate ${account.mobilized}, sforzo bellico ${account.warEffort}/100, tensione sociale ${account.socialTension}/100`
           : '';
-        lines.push(`- ${this.polityDisplayName(owner, allOwned)} [${owner}]: rapporto ${relation}; confina tramite ${borderRegions.map(region => region.name).join(', ')}; potenza militare stimata ${fmt(sum(allOwned, 'militaryPower'))}${economy}.`);
+        const objects = this.strategicObjectSummaries(allOwned, 8);
+        lines.push(`- ${this.polityDisplayName(owner, allOwned)} [${owner}]: rapporto ${relation}; confina tramite ${borderRegions.map(region => region.name).join(', ')}; potenza militare stimata ${fmt(sum(allOwned, 'militaryPower'))}${economy}.${objects.length ? ` Oggetti osservabili: ${objects.join('; ')}.` : ''}`);
       }
     }
 
@@ -452,8 +503,10 @@ export class PromptBuilder {
       + `Risorse aggregate: popolazione ${fmt(sum('population'))}; PIL ${fmt(sum('gdp'))}; potenza militare ${fmt(sum('militaryPower'))}.`;
   }
 
-  // Battaglioni del giocatore, raggruppati per regione per evitare che il
+  // Formazioni del giocatore, raggruppate per regione per evitare che il
   // generatore proponga movimenti di unità inesistenti o nel posto sbagliato.
+  // Il nome della variabile resta legacy, ma include armate/flotte/missili e
+  // mobilitazioni non ancora operative.
   private buildPlayerBattalions(playerRegionId: string, playerPolityId?: string): string {
     const allRegions = getAllRegions(this.game.world.regions);
     const fallback = getRegion(this.game.world.regions, playerRegionId);
@@ -461,12 +514,23 @@ export class PromptBuilder {
       ? allRegions.filter(region => region.owner === playerPolityId)
       : (fallback ? [fallback] : []);
 
+    const operationalTypes = new Set(['battalion', 'army', 'fleet', 'missile']);
     const placements = owned.flatMap(region => {
-      const count = (region.objects || []).filter((object: any) => object.type === 'battalion').length;
-      return count > 0 ? [`${count} unità in ${region.name}`] : [];
+      const operational = (region.objects || []).filter((object: any) => operationalTypes.has(object.type));
+      const mobilizations = (region.objects || []).filter((object: any) => object.type === 'mobilization');
+      if (!operational.length && !mobilizations.length) return [];
+      const names = [...operational, ...mobilizations].map((object: any) => {
+        const name = object.name || 'unità senza nome';
+        const planned = object.type === 'mobilization' && object.metadata?.plannedType
+          ? `→${object.metadata.plannedType}`
+          : '';
+        return `${name} [${object.type}${planned}]`;
+      });
+      const mobilizationLabel = mobilizations.length ? `; ${mobilizations.length} mobilitazioni in corso` : '';
+      return [`${operational.length} unità in ${region.name}${mobilizationLabel}: ${names.join(', ')}`];
     });
 
-    return placements.length > 0 ? placements.join('; ') : 'Nessuna unità militare registrata sulla mappa';
+    return placements.length > 0 ? placements.join('; ') : 'Nessuna unità o mobilitazione militare registrata sulla mappa';
   }
 
   // Действия за текущий раунд
@@ -490,47 +554,10 @@ export class PromptBuilder {
       .join('\n');
   }
 
-  // Cronaca di un singolo turno: narrazione + dettaglio completo degli eventi.
-  // Includere i dettagli (non solo il riassunto) è essenziale perché l'LLM
-  // possa mantenere continuità: senza, gli eventi dei turni successivi
-  // risultano scollegati e casuali.
-  private formatTurnHistory(r: TurnResultData): string {
-    const lines: string[] = [`Turno ${r.turn}: ${this.compact(r.narration, 420)}`];
-    const events = (r.timelineEvents?.length
-      ? r.timelineEvents
-      : (r.events || []).map((headline, index) => ({
-          id: `${r.id}-${index}`,
-          date: r.date || '',
-          headline,
-          detail: '',
-        })))
-      .slice(-4);
-    for (const ev of events) {
-      const date = ev.date ? ` (${ev.date})` : '';
-      const headline = this.compact(ev.headline, 160);
-      const detail = this.compact(ev.detail || '', 280);
-      lines.push(detail && detail !== headline
-        ? `  • ${headline}${date}: ${detail}`
-        : `  • ${headline}${date}`);
-    }
-    return lines.join('\n');
-  }
-
-  // История событий: консолидированное саммари ранних раундов + сырой хвост
+  // Separate budgets for recent facts and long-term memory; the latest
+  // committed event remains available even in the constrained-model path.
   private buildEventHistory(): string {
-    if (this.game.results.length === 0 && !this.game.consolidatedHistory) return '';
-
-    const consolidated = this.game.consolidatedHistory?.trim();
-    // La memoria canonica è già un riassunto. Il resto è una finestra corta
-    // di fatti recenti: basta a proseguire le catene causali senza duplicare
-    // centinaia di turni in ogni chiamata.
-    const rawTail = this.game.results.slice(-5);
-    const recent = rawTail.map(r => this.formatTurnHistory(r)).join('\n\n');
-    if (!consolidated) return this.compact(recent, 6_000);
-
-    const out = `[Memoria canonica dei turni precedenti]\n${this.compact(consolidated, 3_600)}`
-      + (recent ? `\n\n[Ultimi 5 turni — fatti verificabili]\n${recent}` : '');
-    return this.compact(out, 8_000);
+    return buildNarrativeMemory(this.game.results, this.game.consolidatedHistory);
   }
 
   // Группировка регионов по владельцам
@@ -567,6 +594,108 @@ export class PromptEngine {
     this.llm = llm;
   }
 
+  /** I modelli OpenRouter gratuiti e quelli <=4B ricevono un protocollo più
+   * corto: meno istruzioni duplicate e più budget utile per il JSON. */
+  private isConstrainedModel(mechanic: 'jump' | 'converter' | 'suggestions' = 'jump'): boolean {
+    const describe = (this.llm as any)?.describe;
+    if (typeof describe !== 'function') return false;
+    const model = String(describe.call(this.llm)?.[mechanic]?.model || '').toLowerCase();
+    return /:free(?:$|[/?#])/.test(model)
+      || /(?:^|[-_/])(?:[0-4](?:\.\d+)?)b(?:$|[-_/:])/.test(model);
+  }
+
+  /**
+   * Gli esiti con ID inventati non devono far fallire un turno già valido.
+   * Rimappiamo solo casi non ambigui (testo esatto o singolo ordine), scartiamo
+   * duplicati/extra e preserviamo come unresolved ciò che non è dimostrabile.
+   */
+  private sanitizeSimulationResult(
+    game: GameData,
+    result: SimulationResult,
+    actions: Array<{ actionId?: string; text: string }>,
+    maxEvents: number,
+    autoJump: boolean,
+    repair = false,
+  ): SimulationResult {
+    const boundedEvents = (result.events || []).slice(0, maxEvents);
+    // Fuori dai modelli free l'adattatore è disattivato: ID ignoti, progetti
+    // invalidi e protocolli sbagliati devono continuare a fallire chiuse
+    // (C01/C02) invece di essere ridotti silenziosamente.
+    if (!repair || game.strictMode) {
+      return {
+        ...result,
+        events: boundedEvents,
+        targetDate: autoJump && boundedEvents.length > 0 ? boundedEvents.at(-1)!.date : result.targetDate,
+      };
+    }
+    const canonicalActions = actions.filter(action => !!action.actionId) as Array<{ actionId: string; text: string }>;
+    const knownIds = new Set(canonicalActions.map(action => action.actionId));
+    const used = new Set<string>();
+    const comparable = (value: string | undefined) => String(value || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('it').replace(/\s+/g, ' ').trim();
+    const knownProjects = new Set((game.ongoingProcesses || []).map(project => project.id));
+    const inputOutcomes = Array.isArray(result.actionOutcomes) ? result.actionOutcomes : [];
+    const actionOutcomes: ActionOutcome[] = [];
+
+    for (const outcome of inputOutcomes) {
+      let actionId = outcome.actionId && knownIds.has(outcome.actionId) && !used.has(outcome.actionId)
+        ? outcome.actionId
+        : undefined;
+      if (!actionId && outcome.action) {
+        const matches = canonicalActions.filter(action =>
+          !used.has(action.actionId) && comparable(action.text) === comparable(outcome.action));
+        if (matches.length === 1) actionId = matches[0].actionId;
+      }
+      if (!actionId && canonicalActions.length === 1 && inputOutcomes.length === 1 && !used.size) {
+        actionId = canonicalActions[0].actionId;
+      }
+      if (!actionId || used.has(actionId)) continue;
+      used.add(actionId);
+      actionOutcomes.push({
+        ...outcome,
+        actionId,
+        action: outcome.action || canonicalActions.find(action => action.actionId === actionId)?.text || '',
+        completesProjectId: outcome.status === 'accepted' && outcome.completesProjectId
+          && knownProjects.has(outcome.completesProjectId)
+          ? outcome.completesProjectId
+          : undefined,
+      });
+    }
+
+    // Un voided esplicito è sufficiente per ricostruire in sicurezza l'esito
+    // rejected quando il modello piccolo ha dimenticato actionOutcomes.
+    for (const rejected of result.voided || []) {
+      const matches = canonicalActions.filter(action =>
+        !used.has(action.actionId) && comparable(action.text) === comparable(rejected.action));
+      const source = matches.length === 1
+        ? matches[0]
+        : canonicalActions.length === 1 && (result.voided || []).length === 1 && !used.size
+          ? canonicalActions[0]
+          : undefined;
+      if (!source || !rejected.reason?.trim()) continue;
+      used.add(source.actionId);
+      actionOutcomes.push({
+        actionId: source.actionId,
+        action: source.text,
+        status: 'rejected',
+        summary: rejected.reason.trim(),
+        eventHeadlines: [],
+      });
+    }
+
+    const events = boundedEvents;
+    return {
+      ...result,
+      events,
+      actionOutcomes,
+      targetDate: autoJump && events.length > 0 ? events.at(-1)!.date : result.targetDate,
+      worldChanges: result.worldChanges && typeof result.worldChanges === 'object'
+        ? result.worldChanges
+        : { regionOwners: {}, regionColors: {}, newFeatures: [], deletedFeatures: [] },
+    };
+  }
+
   async runSimulation(
     game: GameData,
     actions: Array<string | { actionId: string; text: string }>,
@@ -591,27 +720,39 @@ export class PromptEngine {
       .join('\n');
 
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'simulation');
-    // Пресетный шаблон заменяет дефолтный промпт целиком; правила auto-jump
-    // (если режим включён) дописываем после него, чтобы механика не ломалась.
-    const basePrompt = promptOverride
-      ? renderPromptTemplate(promptOverride, vars)
-        + buildCausalityGuard(vars)
-        + (autoJump ? buildAutoJumpInstruction(vars) : '')
-      : buildSimulationPrompt(vars, { autoJump });
-    // Budget basso: privilegiamo una catena di conseguenze credibile rispetto
-    // a una lista di notizie scollegate. Il modello può sempre concludere prima.
-    const maxEvents = autoJump ? 1 : Math.min(12, Math.max(1, Math.ceil(jumpDays / 21)));
-    // Anche un override del preset riceve il contratto canonico: può definire
-    // il mondo, non rimuovere causalità, autonomia del giocatore e rigore
-    // della cronaca. Con gli override riportiamo esplicitamente il canone.
-    const prompt = basePrompt
-      + buildSimulationNarrativeContract(vars, Boolean(promptOverride))
-      + buildIncrementalOutputInstruction(vars, maxEvents, !!autoJump);
+    // Budget eventi: nel salto fisso è proporzionale alla durata; in ogni caso
+    // non può scendere sotto il numero di ordini in coda. Il modello può
+    // concludere prima se manca una causa verificabile.
+    const actionsCount = normalizedActions.length;
+    const maxEvents = autoJump
+      ? Math.max(1, actionsCount)
+      : Math.min(30, Math.max(1, Math.ceil(jumpDays / 21), actionsCount));
+    const renderedOverride = promptOverride ? renderPromptTemplate(promptOverride, vars) : undefined;
+    const constrained = !game.strictMode && this.isConstrainedModel('jump');
+    const prompt = constrained
+      ? buildConstrainedSimulationPrompt(vars, {
+          autoJump,
+          eventBudget: maxEvents,
+          presetOverride: renderedOverride,
+        })
+      : (() => {
+          const basePrompt = renderedOverride
+            ? renderedOverride
+              + buildCausalityGuard(vars)
+              + (autoJump ? buildAutoJumpInstruction(vars, maxEvents) : '')
+            : buildSimulationPrompt(vars, { autoJump, eventBudget: maxEvents });
+          // I preset possono definire il mondo, non rimuovere causalità,
+          // autonomia del giocatore e rigore della cronaca.
+          return basePrompt
+            + buildSimulationNarrativeContract(vars, Boolean(promptOverride))
+            + buildIncrementalOutputInstruction(vars, maxEvents, !!autoJump);
+        })();
 
     let parsedObjectCount = 0;
     let emittedCount = 0;
     const emitted = new Set<string>();
     const emitEvent = (event: SimulationEvent) => {
+      if (emittedCount >= maxEvents) return;
       const key = JSON.stringify(event);
       if (emitted.has(key)) return;
       emitted.add(key);
@@ -621,9 +762,18 @@ export class PromptEngine {
     // system — короткая ролевая инструкция, user — большой промпт.
     // Ogni volta che nello stream si chiude un oggetto JSON `event`, lo
     // normalizziamo e lo consegniamo subito alla sessione di gioco.
-    const response = await this.llm.stream(
+    const system = constrained
+      ? 'Simula causa ed effetto. Copia gli actionId. Rispetta l’autonomia NPC. Rispondi solo in NDJSON valido: righe event, poi una riga complete.'
+      : 'Sei il simulatore di una storia alternativa. Non parafrasare gli ordini: simula decisioni autonome delle controparti rispettando personalità, priorità e memoria fornite. Ogni nazione NPC direttamente coinvolta deve rispondere nel campo reactions; il giocatore non può accettare accordi al suo posto. Usa mapChanges per cantieri, mobilitazioni, unità e opere realmente avviati o completati. Produci JSON Lines valido.';
+    const requestOptions = {
+      temperature: constrained ? 0.35 : 0.7,
+      jsonMode: false,
+      maxTokens: Math.min(8_000, Math.max(4_096, 2_800 + maxEvents * 700)),
+      signal,
+    };
+    let response = await this.llm.stream(
       'jump',
-      'Sei il simulatore di una storia alternativa. Ogni evento deve derivare esplicitamente da ordini, cronaca, diplomazia o stato della mappa forniti; non inventare eventi indipendenti. Produci JSON Lines valido.',
+      system,
       prompt,
       (chars, content) => {
         onProgress?.(chars);
@@ -636,12 +786,58 @@ export class PromptEngine {
         parsedObjectCount = objects.length;
       },
       // NDJSON non è un singolo documento JSON: disattiva response_format.
-      { temperature: 0.7, jsonMode: false, signal }
+      requestOptions,
     );
 
-    const result = parseIncrementalSimulationResponse(response.content);
+    let rawObjects = extractCompleteJsonObjects(response.content);
+    let result = parseIncrementalSimulationResponse(response.content);
+    const looksLikeProtocol = () => rawObjects.some(raw =>
+      !!parseIncrementalSimulationRecord(raw)
+      || Array.isArray(raw?.events) || typeof raw?.narration === 'string')
+      || /"(?:events|narration|actionOutcomes)"\s*:/.test(response.content);
+
+    // Un solo retry di formato, solo per modelli piccoli e soltanto quando non
+    // è stato riconosciuto alcun record. Non ripetiamo mai eventi già emessi.
+    if (constrained && emittedCount === 0 && !looksLikeProtocol()) {
+      const retryPrompt = `${prompt}\n\n[CORREZIONE FORMATO]\nLa risposta precedente non era leggibile. Ripeti una sola volta: nessun commento, una riga JSON per evento e infine la riga JSON type=complete. Copia gli actionId senza modificarli.`;
+      response = await this.llm.generate(
+        'jump',
+        system,
+        retryPrompt,
+        { ...requestOptions, temperature: 0.15 },
+      );
+      rawObjects = extractCompleteJsonObjects(response.content);
+      result = parseIncrementalSimulationResponse(response.content);
+    }
+
+    const hasCompletion = rawObjects.some(raw => parseIncrementalSimulationRecord(raw)?.type === 'complete')
+      || rawObjects.some(raw => Array.isArray(raw?.events) && typeof raw?.narration === 'string');
+    // Se gli eventi sono arrivati ma la chiusura è stata troncata, chiediamo
+    // soltanto il piccolo record complete: niente seconda simulazione e niente
+    // rischio di applicare due volte la mappa.
+    if (constrained && result.events.length > 0 && !hasCompletion) {
+      const closurePrompt = `Completa un output di simulazione già emesso. NON generare altri eventi.\nOrdini: ${JSON.stringify(normalizedActions)}\nEventi già validi: ${JSON.stringify(result.events.map(event => ({ headline: event.headline, date: event.date, description: event.description })))}\nRispondi SOLO con una riga JSON: {"type":"complete","narration":"sintesi","actionOutcomes":[{"actionId":"ID esatto","status":"accepted|partial|rejected","summary":"esito","eventHeadlines":[]}],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":${autoJump ? JSON.stringify(result.events.at(-1)?.date || vars.TARGET_ROUND_DATE) : JSON.stringify(vars.TARGET_ROUND_DATE)}}`;
+      try {
+        const closure = await this.llm.generate(
+          'jump',
+          'Chiudi il protocollo senza aggiungere eventi. Copia gli actionId e rispondi soltanto con JSON valido.',
+          closurePrompt,
+          { temperature: 0.1, maxTokens: 2_400, jsonMode: false, signal },
+        );
+        const completion = extractCompleteJsonObjects(closure.content)
+          .map(parseIncrementalSimulationRecord)
+          .find((record): record is Extract<ReturnType<typeof parseIncrementalSimulationRecord>, { type: 'complete' }> => record?.type === 'complete');
+        if (completion) result = { ...completion.result, events: result.events, incomplete: false };
+      } catch (error) {
+        // Gli eventi completi restano recuperabili come run incompleto; non
+        // trasformiamo una chiusura ausiliaria fallita in 502/424 del turno.
+        console.warn('[PromptEngine] Chiusura compatta non disponibile:', error);
+      }
+    }
+
+    result = this.sanitizeSimulationResult(game, result, normalizedActions, maxEvents, !!autoJump, constrained);
     // Provider senza streaming o modello che usa ancora il vecchio formato:
-    // preserva la compatibilità, pubblicando gli eventi appena arriva la risposta.
+    // pubblica gli eventi validati appena arriva la risposta completa.
     for (const event of result.events) emitEvent(event);
     return result;
   }
@@ -651,16 +847,19 @@ export class PromptEngine {
     const vars = builder.buildVariablesForAction(actionText);
 
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'converter');
-    const prompt = promptOverride ? renderPromptTemplate(promptOverride, vars) : buildConverterPrompt(vars);
-    // F05 µ2: l’abort del run arresto arriva fino agli adattatori, convertitore compreso.
+    const constrained = this.isConstrainedModel('converter');
+    const prompt = constrained
+      ? `Riformula UN ordine per la simulazione senza cambiarne l'intenzione. Italiano, massimo 650 caratteri.\nPolitia: ${vars.PLAYER_POLITY}. Data: ${vars.ORIGIN_ROUND_DATE}.\nStato utile: ${clipConstrained(vars.STRATEGIC_STATE, 2_500)}\nMappa utile: ${clipConstrained(vars.GRAND_MAP_DESCRIPTION_NO_CITY, 2_500)}\n${promptOverride ? `Regole preset: ${clipConstrained(renderPromptTemplate(promptOverride, vars), 1_500)}\n` : ''}ORDINE ORIGINALE (non perderlo): ${actionText}\nRispondi SOLO: {"type":"action|chat","text":"ordine preciso","targetPolity":"solo chat","chatMessage":"solo chat"}`
+      : promptOverride ? renderPromptTemplate(promptOverride, vars) : buildConverterPrompt(vars);
+    // F05 µ2: l'abort del run arresto arriva fino agli adattatori, convertitore compreso.
     const response = await this.llm.generate(
       'converter',
       'Sei l\'analista degli ordini in un gioco strategico globale. Rispondi SOLO con JSON.',
-      prompt,
-      { temperature: 0.5, signal }
+      prompt + buildNationalDecisionContext(vars) + buildActionElaborationGuard(),
+      { temperature: constrained ? 0.25 : 0.5, maxTokens: constrained ? 1_200 : undefined, signal }
     );
 
-    return parseConverterResponse(response.content);
+    return parseConverterResponse(response.content, actionText);
   }
 
   /**
@@ -692,25 +891,46 @@ export class PromptEngine {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
 
-    const prompt = buildBatchConverterPrompt(vars, normalized.map((action, index) => ({
+    const converterInputs = normalized.map((action, index) => ({
       // Le chiamate pubbliche legacy senza ID restano leggibili, ma non
       // attraversano il percorso canonico GameSession → GameController.
       actionId: action.actionId || `legacy-converter-${index + 1}`,
       text: action.text,
-    })));
+    }));
+    const constrained = this.isConstrainedModel('converter');
+    const prompt = constrained
+      ? `Riformula ogni ordine senza cambiarne l'intenzione. Non eliminare record. Copia ogni actionId ESATTAMENTE. Italiano, massimo 650 caratteri per text.\nPolitia: ${vars.PLAYER_POLITY}; data: ${vars.ORIGIN_ROUND_DATE}.\nStato utile: ${clipConstrained(vars.STRATEGIC_STATE, 2_500)}\nINPUT: ${JSON.stringify(converterInputs)}\nRispondi SOLO con un array JSON: [{"actionId":"ID esatto","type":"action|chat","text":"ordine preciso","targetPolity":"solo chat","chatMessage":"solo chat"}]`
+      : buildBatchConverterPrompt(vars, converterInputs);
     const response = await this.llm.generate(
       'converter',
       'Sei l\'analista degli ordini in un gioco strategico globale. Rispondi SOLO con JSON.',
-      prompt,
-      { temperature: 0.5 }
+      prompt + buildNationalDecisionContext(vars) + buildActionElaborationGuard(),
+      { temperature: constrained ? 0.2 : 0.5, maxTokens: constrained ? Math.min(4_000, 700 + normalized.length * 700) : undefined }
     );
 
-    return parseBatchConverterResponse(response.content).map(converted => {
-      if (converted.actionId) return converted;
-      // Adapter esplicito per il vecchio converter: solo un `index` dichiarato
-      // dal provider può riallacciare l'output, mai l'ordine dell'array.
-      const source = converted.legacyIndex ? normalized[converted.legacyIndex - 1] : undefined;
-      return { ...converted, actionId: source?.actionId };
+    const parsed = parseBatchConverterResponse(response.content);
+    const used = new Set<number>();
+    // Ogni input sopravvive anche a JSON parziale, record extra o ID copiati
+    // male. Accettiamo un record soltanto per ID canonico, indice legacy
+    // esplicito o lotto singolo; altrimenti conserviamo l'ordine originale.
+    return normalized.map((source, sourceIndex) => {
+      let parsedIndex = parsed.findIndex((converted, index) =>
+        !used.has(index) && !!source.actionId && converted.actionId === source.actionId);
+      if (parsedIndex < 0) {
+        parsedIndex = parsed.findIndex((converted, index) =>
+          !used.has(index) && converted.legacyIndex === sourceIndex + 1);
+      }
+      if (parsedIndex < 0 && normalized.length === 1 && parsed.length === 1) parsedIndex = 0;
+      if (parsedIndex < 0) {
+        return { actionId: source.actionId, type: 'action' as const, text: source.text };
+      }
+      used.add(parsedIndex);
+      const converted = parsed[parsedIndex];
+      return {
+        ...converted,
+        actionId: source.actionId,
+        text: converted.text?.trim() ? converted.text : source.text,
+      };
     });
   }
 
@@ -762,21 +982,72 @@ export class PromptEngine {
     return response.content;
   }
 
+  private safeSuggestionFallback(vars: PromptVariables, game: GameData): Suggestion[] {
+    const suggestions: Suggestion[] = [
+      {
+        topic: 'Verificare le capacità nazionali',
+        description: 'Un quadro aggiornato evita di impegnare risorse, forze o infrastrutture che la politia non possiede realmente.',
+        actions: [
+          { title: 'Inventario operativo', content: 'Incarichiamo l’amministrazione di censire risorse, forze e infrastrutture disponibili, indicando carenze verificabili prima di autorizzare nuovi impegni.' },
+          { title: 'Priorità di bilancio', content: 'Ordiniamo una revisione delle spese correnti, proteggendo gli impegni essenziali e rinviando programmi privi di copertura materiale verificata.' },
+        ],
+      },
+      {
+        topic: 'Preparare la sicurezza territoriale',
+        description: 'La pianificazione difensiva può rafforzare la prontezza senza inventare unità né aprire automaticamente nuove ostilità.',
+        actions: [
+          { title: 'Valutazione delle frontiere', content: 'Ordiniamo allo stato maggiore di valutare frontiere e collegamenti registrati, predisponendo opzioni logistiche proporzionate senza iniziare ostilità.' },
+          { title: 'Piano di mobilitazione', content: 'Prepariamo un piano graduale di reclutamento e addestramento, subordinando ogni nuova formazione alla disponibilità documentata di personale ed equipaggiamento.' },
+        ],
+      },
+      {
+        topic: 'Mantenere aperta la diplomazia',
+        description: `Per ${vars.PLAYER_POLITY}, contatti esplorativi prudenti possono chiarire intenzioni e condizioni senza dichiarare accordi inesistenti.`,
+        actions: [
+          { title: 'Riesame dei rapporti', content: 'Incarichiamo il ministero degli esteri di riesaminare i rapporti registrati, preparando contatti esplorativi senza promettere accordi o concessioni.' },
+          { title: 'Garanzie verificabili', content: 'Formuliamo una proposta tecnica basata su reciprocità, calendario e verifiche, lasciando a ciascuna controparte la propria decisione autonoma.' },
+        ],
+      },
+    ];
+    const lastTurn = game.results.at(-1);
+    const latest = lastTurn?.timelineEvents?.at(-1)?.headline || lastTurn?.events?.at(-1);
+    if (latest) {
+      const headline = clipConstrained(latest, 180);
+      suggestions[1] = {
+        topic: 'Dare seguito alla cronaca nazionale',
+        description: `La cronaca registra «${headline}». Prima di cambiare la linea di ${vars.PLAYER_POLITY}, occorre chiarire gli effetti ancora aperti senza presumere nuovi sviluppi.`,
+        actions: [
+          { title: 'Valutare gli effetti', content: `Incarichiamo l’amministrazione di valutare gli effetti per ${vars.PLAYER_POLITY} dell’evento «${headline}», distinguendo fatti confermati e questioni ancora aperte.` },
+          { title: 'Verificare gli impegni', content: `Riesaminiamo gli impegni nazionali collegati a «${headline}», individuando quali richiedano ancora una decisione senza autorizzare nuove spese.` },
+        ],
+      };
+    }
+    return suggestions.map(suggestion => ({ ...suggestion,
+      description: `Proposta prudenziale di riserva: l’IA non ha restituito proposte utilizzabili. ${suggestion.description}`,
+    }));
+  }
+
   async getSuggestions(game: GameData): Promise<Suggestion[]> {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
 
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'suggestions');
+    const constrained = this.isConstrainedModel('suggestions');
     const basePrompt = promptOverride ? renderPromptTemplate(promptOverride, vars) : buildSuggestionsPrompt(vars);
-    // Le regole di qualità sono sempre applicate, anche ai prompt salvati nei
-    // preset o già persistiti nel DB.
-    const prompt = basePrompt + buildSuggestionsQualityInstruction(vars);
+    // Per i modelli free chiediamo meno schede e passiamo soltanto il teatro
+    // rilevante: la qualità resta, ma la risposta difficilmente viene troncata.
+    const prompt = (constrained
+      ? `Genera fino a 4 temi fondati nella storia di ${vars.PLAYER_POLITY}, con 2-3 ordini alternativi per tema. Non riempire una quota se mancano fatti.\nTerritori/risorse: ${clipConstrained(vars.PLAYER_POLITY_REGIONS, 1_500)}\nForze: ${clipConstrained(vars.PLAYER_POLITY_BATTALION_SUMMARIES, 1_500)}\nStato: ${clipConstrained(vars.STRATEGIC_STATE, 3_000)}\nRegole scenario: ${clipConstrained(vars.HISTORICAL_PRESET_SIMULATION_RULES, 1_000)}\n${promptOverride ? `Regole preset: ${clipConstrained(basePrompt, 1_500)}\n` : ''}${buildNationalDecisionContext(vars)}\nRispondi SOLO: {"suggestions":[{"topic":"tema nazionale","description":"antefatto, problema aperto e motivo per decidere (40-75 parole)","actions":[{"title":"2-6 parole","content":"ordine contestualizzato, 20-45 parole"}]}]}`
+      : basePrompt + (promptOverride ? buildNationalDecisionContext(vars) : ''))
+      + buildSuggestionsQualityInstruction(vars);
     const system = 'Genera ordini strategici immediatamente giocabili in stile Pax Historia. Usa solo fatti presenti nel contesto e rispondi SOLO con JSON valido.';
-    const options = { temperature: 0.65, maxTokens: 8000 };
+    const options = { temperature: constrained ? 0.35 : 0.65, maxTokens: constrained ? 5_000 : 8_000 };
     const response = await this.llm.generate('suggestions', system, prompt, options);
 
     try {
-      return parseSuggestionsResponse(response.content, true);
+      const parsed = parseSuggestionsResponse(response.content, true);
+      if (constrained && parsed.length === 0) throw new Error('Risposta free senza proposte valide');
+      return parsed;
     } catch {
       // Non lasciare per cinque minuti una risposta malformata nella cache:
       // invalida soltanto questa richiesta e prova una correzione più vincolata.
@@ -787,10 +1058,13 @@ export class PromptEngine {
           'suggestions',
           system,
           retryPrompt,
-          { temperature: 0.25, maxTokens: 8000 },
+          { temperature: 0.2, maxTokens: constrained ? 5_000 : 8_000 },
         );
-        return parseSuggestionsResponse(retried.content, true);
+        const parsed = parseSuggestionsResponse(retried.content, true);
+        if (constrained && parsed.length === 0) throw new Error('Seconda risposta free senza proposte valide');
+        return parsed;
       } catch {
+        if (constrained) return this.safeSuggestionFallback(vars, game);
         const provider = this.llm.describe().suggestions.provider;
         throw new LLMError('Il modello non ha restituito proposte nel formato richiesto. Riprova.', {
           provider,

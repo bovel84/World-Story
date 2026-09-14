@@ -30,8 +30,8 @@ export const LLM_PROVIDER_PRESETS: LLMProviderPreset[] = [
     baseUrl: 'https://ollama.com/v1',
     needsKey: true,
     docsUrl: 'https://ollama.com/keys',
-    description: 'Modelli Ollama nel cloud (gpt-oss, qwen3, llama4, deepseek…), API OpenAI-compatible.',
-    defaultModel: 'gpt-oss:20b',
+    description: 'Modelli Ollama nel cloud (gpt-oss, glm-5.3, deepseek-v4, kimi-k2.7, qwen3.5…), API OpenAI-compatible.',
+    defaultModel: 'glm-5.3-flash',
   },
   {
     id: 'ollama-local',
@@ -40,8 +40,8 @@ export const LLM_PROVIDER_PRESETS: LLMProviderPreset[] = [
     baseUrl: 'http://localhost:11434/v1',
     needsKey: false,
     docsUrl: 'https://ollama.com',
-    description: 'Modelli sul tuo computer, nessuna chiave richiesta.',
-    defaultModel: 'qwen2.5:14b',
+    description: 'Modelli sul tuo computer (qwen3, gemma4, gpt-oss, deepseek-v4…), nessuna chiave richiesta.',
+    defaultModel: 'qwen3:14b',
   },
   {
     id: 'openrouter',

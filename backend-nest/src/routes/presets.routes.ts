@@ -14,6 +14,9 @@ import { loadSimulationCatalog } from '../scenario/loader';
 import {
   getPresetFlagPath, loadPreset, PRESETS_DIR, PRESET_ID_RE, validatePresetJson,
 } from '../utils/preset-loader';
+import { getLLMRouter } from '../llm';
+import { parseJsonLoose } from '../utils/json-repair';
+import { LLMError } from '../llm/types';
 
 export const presetsRouter = Router();
 
@@ -36,6 +39,55 @@ function presetPayload(preset: any) {
     author: preset.author || '',
     version: preset.version || '',
   };
+}
+
+export type AiPresetDraft = {
+  id?: string;
+  name?: string;
+  description?: string;
+  start_date?: string;
+  country_codes?: string[];
+  base_prompt?: string;
+  historical_accuracy?: number;
+  lore?: string;
+  simulation_rules?: string;
+};
+
+function clipped(value: unknown, max: number): string {
+  return String(value || '').trim().slice(0, max);
+}
+
+export function normalizeAiPreset(raw: any, previous: AiPresetDraft): AiPresetDraft {
+  const source = raw?.preset && typeof raw.preset === 'object' ? raw.preset : raw;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    throw new Error('La risposta IA non contiene una bozza di scenario');
+  }
+  const name = clipped(source.name ?? source.nome ?? previous.name, 120);
+  const suggestedId = clipped(source.id, 64).toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^[_-]+|[_-]+$/g, '');
+  const fallbackId = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 64);
+  const rawCodes = source.country_codes ?? source.countryCodes ?? source.paesi_giocabili ?? previous.country_codes;
+  const countryCodes = (Array.isArray(rawCodes) ? rawCodes : String(rawCodes || '').split(/[\s,;]+/))
+    .map((code: unknown) => String(code || '').trim().toUpperCase())
+    .filter((code: string, index: number, all: string[]) => /^[A-Z]{3}$/.test(code) && all.indexOf(code) === index)
+    .slice(0, 80);
+  const date = clipped(source.start_date ?? source.startDate ?? source.data_iniziale ?? previous.start_date, 10);
+  const accuracyRaw = Number(source.historical_accuracy ?? source.historicalAccuracy ?? previous.historical_accuracy ?? 0.8);
+  const result: AiPresetDraft = {
+    id: PRESET_ID_RE.test(suggestedId) ? suggestedId : (PRESET_ID_RE.test(fallbackId) ? fallbackId : previous.id),
+    name,
+    description: clipped(source.description ?? source.presentazione ?? previous.description, 800),
+    start_date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : (previous.start_date || '1951-01-01'),
+    country_codes: countryCodes,
+    base_prompt: clipped(source.base_prompt ?? source.basePrompt ?? source.premessa ?? previous.base_prompt, 6_000),
+    historical_accuracy: Number.isFinite(accuracyRaw) ? Math.max(0, Math.min(1, accuracyRaw)) : 0.8,
+    lore: clipped(source.lore ?? source.dossier_storico ?? previous.lore, 12_000),
+    simulation_rules: clipped(source.simulation_rules ?? source.simulationRules ?? source.regole ?? previous.simulation_rules, 8_000),
+  };
+  if (!result.name || !result.base_prompt || !result.country_codes?.length) {
+    throw new Error('La bozza IA è incompleta: servono nome, premessa e paesi giocabili');
+  }
+  return result;
 }
 
 function writeAtomic(file: string, content: string): void {
@@ -104,6 +156,65 @@ function savePreset(id: string, body: any, create: boolean): any {
   }
   return loadPreset(id);
 }
+
+// POST /api/templates/assist — prepara una bozza rivedibile, senza salvarla.
+presetsRouter.post('/assist', async (req, res) => {
+  const brief = clipped(req.body?.brief, 4_000);
+  const current = (req.body?.draft && typeof req.body.draft === 'object' ? req.body.draft : {}) as AiPresetDraft;
+  const currentExcerpt: AiPresetDraft = {
+    id: clipped(current.id, 64), name: clipped(current.name, 120),
+    description: clipped(current.description, 800), start_date: clipped(current.start_date, 10),
+    country_codes: Array.isArray(current.country_codes) ? current.country_codes.slice(0, 80) : [],
+    base_prompt: clipped(current.base_prompt, 6_000), historical_accuracy: current.historical_accuracy,
+    lore: clipped(current.lore, 12_000), simulation_rules: clipped(current.simulation_rules, 8_000),
+  };
+  if (!brief && !currentExcerpt.name && !currentExcerpt.base_prompt) {
+    res.status(400).json({ error: 'Descrivi lo scenario o compila almeno nome e premessa.' });
+    return;
+  }
+
+  const system = `Sei un curatore di scenari storico-strategici. Trasforma l'idea dell'autore in una bozza coerente e modificabile. Scrivi in italiano. Non produrre spiegazioni, markdown o dati tecnici del motore: restituisci soltanto JSON.`;
+  const basePrompt = `Crea o migliora un preset di World Story. Non salvare nulla: l'autore revisionerà la bozza.
+- Conserva le idee già presenti; completa le lacune senza cambiare arbitrariamente epoca o conflitto.
+- Usa una data YYYY-MM-DD e codici paese ISO-A3 reali.
+- "base_prompt" descrive la situazione canonica al giorno iniziale.
+- "lore" espone alleanze, conflitti, attori, risorse e questioni aperte.
+- "simulation_rules" contiene 5-10 regole concrete di plausibilità, tempi e comportamento degli attori, non istruzioni sul JSON.
+- Non inventare precisione documentaria: quando il brief è alternativo, distingui chiaramente la premessa immaginaria dai fatti storici precedenti.
+- historical_accuracy è tra 0 e 1.
+
+IDEA DELL'AUTORE:
+${brief || '(migliora i campi esistenti)'}
+
+BOZZA CORRENTE:
+${JSON.stringify(currentExcerpt)}
+
+Rispondi SOLO con:
+{"id":"slug","name":"...","description":"...","start_date":"YYYY-MM-DD","country_codes":["ITA"],"base_prompt":"...","historical_accuracy":0.8,"lore":"...","simulation_rules":"..."}`;
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const user = attempt === 0
+        ? basePrompt
+        : `${basePrompt}\n\n[CORREZIONE FORMATO] La risposta precedente non era una bozza JSON completa. Restituisci un singolo oggetto con tutti i campi richiesti.`;
+      const response = await getLLMRouter().generate('advisor', system, user, {
+        temperature: attempt === 0 ? 0.35 : 0.1,
+        maxTokens: 2_600,
+        jsonMode: true,
+      });
+      const preset = normalizeAiPreset(parseJsonLoose(response.content), currentExcerpt);
+      res.json({ preset });
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  const message = lastError instanceof LLMError
+    ? lastError.message
+    : lastError instanceof Error ? lastError.message : 'risposta non valida';
+  res.status(424).json({ error: `L’assistente IA non ha prodotto una bozza utilizzabile: ${message}` });
+});
 
 // POST /api/templates — crea un preset modificabile
 presetsRouter.post('/', (req, res) => {

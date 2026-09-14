@@ -10,6 +10,8 @@ import { enrichGeographicObjects } from './utils/cities';
 import { LLMRouter } from './llm';
 import { GameSession, SaveData } from './game-session';
 import { gameRepository, worldRepository } from './repositories';
+import { countryRepository } from './repositories/country.repository';
+import { polityDisplayNameIt } from './utils/country-facts';
 import db from './database';
 import path from 'path';
 import { loadSimulationCatalog } from './scenario/loader';
@@ -61,13 +63,17 @@ class SessionRegistry {
       economyModelVersion,
     });
 
-    // Add player to database. polityId = owner of the chosen region
-    // (unified polity-id convention: 'USA' for templates, 'player' for custom maps).
+    // Il soggetto pubblico è sempre la nazione controllata. Il nome profilo
+    // ricevuto dal client non deve riapparire in chat o nella cronaca.
+    const nationalName = polityDisplayNameIt(
+      region.owner,
+      countryRepository.findByCode(region.owner)?.name || region.name || region.owner,
+    );
     const playerId = shortId();
     gameRepository.addPlayer({
       id: playerId,
       gameId,
-      name: playerName || 'Player',
+      name: nationalName,
       regionId: playerRegionId,
       color: playerColor,
       polityId: region.owner,
@@ -77,7 +83,7 @@ class SessionRegistry {
     const session = new GameSession(gameId, worldId, this.provider);
 
     // Initialize session (sets up agents, loads regions)
-    session.initialize(playerRegionId, playerName, playerColor, difficulty);
+    session.initialize(playerRegionId, nationalName, playerColor, difficulty);
 
     // Cache session
     this.sessions.set(gameId, session);

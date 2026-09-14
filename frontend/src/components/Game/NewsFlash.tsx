@@ -1,6 +1,8 @@
 import { useRef } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import type { FeedItem } from './EventFeed';
+import { publicNarrativeText } from '../../services/publicNarrative';
+import { classifyDispatch } from './dispatchCategory';
 
 interface NewsFlashProps {
   item: FeedItem | null;
@@ -8,6 +10,7 @@ interface NewsFlashProps {
   onClose: () => void;
   onNext: () => void;
   onOpenArchive: () => void;
+  playerPolityName?: string;
 }
 
 const SECTION: Record<FeedItem['kind'], string> = {
@@ -20,9 +23,10 @@ const SECTION: Record<FeedItem['kind'], string> = {
  * Presenta solo un dispaccio appena arrivato: non legge la timeline e non può
  * quindi anticipare eventi futuri. L'archivio completo resta nella HUD.
  */
-export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive }: NewsFlashProps) {
+export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive, playerPolityName }: NewsFlashProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   if (!item) return null;
+  const category = classifyDispatch(item.text, item.detail);
 
   return (
     <AccessibleDialog
@@ -36,12 +40,15 @@ export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive }
     >
         <header className="news-flash-header">
           <span className="news-flash-kicker">{SECTION[item.kind]}</span>
+          <span className={`feed-item-badge cat-${category.key}`}>{category.label}</span>
           <span className="news-flash-date">{item.date || 'Ora'}</span>
         </header>
         <div className="news-flash-body">
           <span className="news-flash-mark" aria-hidden="true">▤</span>
-          <h2 id="news-flash-title">{item.text.replace(/^Evento \d+:\s*/, '')}</h2>
-          <p>{item.detail || 'Il fatto è stato registrato nella cronaca del mondo. Le sue conseguenze emergeranno con i prossimi aggiornamenti.'}</p>
+          <h2 id="news-flash-title">{publicNarrativeText(item.text.replace(/^Evento \d+:\s*/, ''), playerPolityName)}</h2>
+          <p>{item.detail
+            ? publicNarrativeText(item.detail, playerPolityName)
+            : 'Non sono ancora disponibili ulteriori particolari su questo sviluppo.'}</p>
         </div>
         <footer className="news-flash-footer">
           <button type="button" className="news-flash-archive" onClick={onOpenArchive}>Apri archivio</button>

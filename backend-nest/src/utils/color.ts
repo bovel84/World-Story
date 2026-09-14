@@ -80,6 +80,46 @@ export function ensureVisibleOnDark(hex: string, threshold: number = DARK_LUMINA
 }
 
 /**
+ * Детерминированный цвет из произвольной строки (id/имя политии без цвета).
+ * Одна и та же полития всегда получает один и тот же читаемый на тёмной
+ * карте цвет: оккупированная провинция не может остаться в цвете старой
+ * нации только потому, что новый владелец ещё не имел ни одного региона.
+ */
+export function colorFromString(seed: string): string {
+  const text = String(seed || '').trim() || 'neutral';
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  // HSL с фиксированной насыщенностью/яркостью: цвета различимы и не тёмные.
+  const hue = Math.abs(hash) % 360;
+  const s = 0.62;
+  const l = 0.58;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r1, g1, b1] = hue < 60 ? [c, x, 0]
+    : hue < 120 ? [x, c, 0]
+    : hue < 180 ? [0, c, x]
+    : hue < 240 ? [0, x, c]
+    : hue < 300 ? [x, 0, c]
+    : [c, 0, x];
+  const channel = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0').toUpperCase();
+  return `#${channel(r1)}${channel(g1)}${channel(b1)}`;
+}
+
+/**
+ * Цвет политии без известного цвета: нейтральные — серые, остальные —
+ * детерминированный оттенок из id/имени.
+ */
+export function colorForPolity(polityId: string | undefined | null): string {
+  const id = String(polityId || '').trim().toLowerCase();
+  if (!id || id === 'neutral') return FALLBACK_COLOR;
+  return colorFromString(id);
+}
+
+/**
  * Цвет региона при генерации мира:
  *  1. если у пресета есть кураторский цвет для кода страны (country_colors) — он;
  *  2. иначе — прежний цвет (реестр/пресет countries[]) + анти-тёмный post-process.

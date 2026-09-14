@@ -4,8 +4,18 @@
  * и бага №5 (LLM адресует регионы/политии по именам, не по id).
  */
 import { describe, it, expect } from 'vitest';
-import { parseSimulationResponse, buildSimulationPrompt, buildSimulationNarrativeContract } from '../src/prompts/simulation';
+import { parseSimulationResponse, buildSimulationPrompt, buildConstrainedSimulationPrompt, buildSimulationNarrativeContract } from '../src/prompts/simulation';
 import { PromptBuilder } from '../src/prompt-builder';
+import { parseConverterResponse } from '../src/prompts/converter';
+
+describe('resilienza del convertitore', () => {
+  it('conserva l’ordine originale se il modello free restituisce prosa non JSON', () => {
+    expect(parseConverterResponse('Non riesco a produrre JSON.', 'Mobilitiamo una brigata a Gaza')).toEqual({
+      type: 'action',
+      text: 'Mobilitiamo una brigata a Gaza',
+    });
+  });
+});
 
 describe('parseSimulationResponse', () => {
   it('парсит валидный JSON с событиями и mapChanges по именам', () => {
@@ -39,6 +49,108 @@ describe('parseSimulationResponse', () => {
     const result = parseSimulationResponse('совсем не json');
     expect(result.events).toEqual([]);
     expect(typeof result.narration).toBe('string');
+  });
+
+  it('normalizza le reazioni strutturate delle politie coinvolte', () => {
+    const result = parseSimulationResponse(JSON.stringify({
+      events: [{
+        headline: 'Israele risponde alla proposta palestinese',
+        description: 'La proposta raggiunge Gerusalemme.',
+        date: '2024-01-02',
+        mapChanges: [],
+        reactions: [
+          { polityName: 'Israel', role: 'counterparty', stance: 'conditional', priority: 'sicurezza delle frontiere', response: 'Israele richiede garanzie verificabili.', counterAction: 'Convoca una verifica tecnica.' },
+          { polityName: 'USA', role: 'observer', stance: 'neutral', response: '' },
+          { polityName: 'USA', response: 'Washington offre una mediazione tecnica.' },
+        ],
+      }],
+    }));
+
+    expect(result.events[0].reactions).toEqual([
+      expect.objectContaining({
+        polityName: 'Israel',
+        role: 'counterparty',
+        stance: 'conditional',
+        priority: 'sicurezza delle frontiere',
+        counterAction: 'Convoca una verifica tecnica.',
+      }),
+      expect.objectContaining({ polityName: 'USA', role: 'counterparty', stance: 'neutral' }),
+    ]);
+  });
+
+  it('ripara alias italiani e schemi semplificati dei modelli free', () => {
+    const result = parseSimulationResponse(JSON.stringify({
+      eventi: [{
+        titolo: 'Mobilitazione a Gaza',
+        descrizione: 'Il reclutamento prende avvio.',
+        data: '2024-01-04',
+        map_changes: [{
+          type: 'create_army',
+          region: 'Gaza',
+          unitName: 'Forza territoriale',
+        }],
+        reazioni: [{
+          country: 'Israele',
+          role: 'controparte',
+          position: 'condizionata',
+          decision: 'Richiede garanzie verificabili.',
+          counter_action: 'Rafforza il monitoraggio di frontiera.',
+        }],
+      }],
+      narrazione: 'La mobilitazione resta parziale.',
+      action_outcomes: [{
+        action_id: 'ordine-1',
+        status: 'parziale',
+        sintesi: 'Il reclutamento è iniziato.',
+        event_headlines: ['Mobilitazione a Gaza'],
+      }],
+      world_changes: { regionOwners: {}, regionColors: {} },
+      target_date: '2024-01-04',
+    }));
+
+    expect(result.events[0]).toMatchObject({
+      headline: 'Mobilitazione a Gaza',
+      date: '2024-01-04',
+      mapChanges: [{
+        type: 'spawn_unit',
+        regionName: 'Gaza',
+        feature: { type: 'army', name: 'Forza territoriale' },
+      }],
+      reactions: [{
+        polityName: 'Israele',
+        role: 'counterparty',
+        stance: 'conditional',
+        counterAction: 'Rafforza il monitoraggio di frontiera.',
+      }],
+    });
+    expect(result.actionOutcomes?.[0]).toMatchObject({ actionId: 'ordine-1', status: 'partial' });
+    expect(result.targetDate).toBe('2024-01-04');
+  });
+
+  it('normalizza riunioni multinazionali legate a un evento e conserva il formato legacy', () => {
+    const result = parseSimulationResponse(JSON.stringify({
+      events: [],
+      startChat: [
+        {
+          participants: ['Polonia', 'Cecoslovacchia', 'Polonia'],
+          topic: 'Riunione urgente sulla frontiera.',
+          kind: 'meeting',
+          eventHeadline: 'Vertice di frontiera',
+        },
+        { polityName: 'Francia', topic: 'Nota diplomatica.' },
+        { participants: [null, ''], topic: 'Record invalido.' },
+      ],
+    }));
+
+    expect(result.startChat).toEqual([
+      expect.objectContaining({
+        polityName: 'Polonia',
+        participants: ['Polonia', 'Cecoslovacchia'],
+        kind: 'meeting',
+        eventHeadline: 'Vertice di frontiera',
+      }),
+      expect.objectContaining({ polityName: 'Francia', participants: ['Francia'] }),
+    ]);
   });
 });
 
@@ -88,6 +200,67 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
     expect(prompt).toContain('causa verificabile');
     expect(prompt).toContain('CICLO MONDIALE OBBLIGATORIO');
     expect(prompt).toContain("Ogni avanzamento temporale simula l'intero mondo");
+    expect(prompt).toContain('riunione di gruppo');
+    expect(prompt).toContain('eventHeadline');
+    expect(prompt).toContain('participants');
+    expect(prompt).toContain('reactions');
+    expect(prompt).toContain('non deve essere la parafrasi');
+    expect(prompt).toContain('non vale come accettazione altrui');
+    expect(prompt).toContain('Personalità, priorità e memoria NPC');
+    expect(prompt).toContain('counterAction');
+    expect(prompt).toContain('Le mapChanges riguardano TUTTE le politie');
+    expect(prompt).toContain('nel territorio della politia che agisce');
+    expect(prompt).toContain('start_construction');
+    expect(prompt).toContain('spawn_unit');
+    expect(prompt).toContain('INIZIATIVA AUTONOMA DELLE NAZIONI NPC');
+    expect(prompt).toContain('fortification');
+    expect(prompt).toContain('blocco navale');
+    expect(prompt).toContain('almeno un\'iniziativa autonoma');
+    expect(prompt).toContain('Crisi locali e conflitti di confine');
+    expect(prompt).toContain('note di comodo');
+    expect(prompt).toContain('la provincia controllata più vicina a X');
+    expect(prompt).toContain('REAZIONI INTERNE ED ECONOMIA DELLA GUERRA');
+    expect(prompt).toContain('tensione sociale');
+  });
+
+  it('offre un protocollo compatto ai modelli con capacità ridotta', () => {
+    const constrained = buildConstrainedSimulationPrompt({
+      ...vars,
+      PLAYER_ACTIONS_THIS_ROUND: '[actionId:a1] Avviare una mobilitazione limitata',
+      NPC_STRATEGIC_PROFILES: 'Israele [ISR]: sicurezza delle frontiere',
+    }, { autoJump: true, eventBudget: 1 });
+    expect(constrained).toContain('PROTOCOLLO COMPATTO');
+    expect(constrained).toContain('[actionId:a1]');
+    expect(constrained).toContain('start_mobilization');
+    expect(constrained).toContain('Una controazione materiale');
+    expect(constrained).toContain('nel territorio della politia che agisce');
+    expect(constrained).toContain('Iniziativa NPC');
+    expect(constrained).toContain("preparazione d'invasione");
+    expect(constrained).toContain('non potenze lontane senza interesse documentato');
+    expect(constrained).toContain('nasce in una provincia controllata da chi la crea');
+    expect(constrained).toContain('4c. Reazioni interne ed economia');
+    expect(constrained).toContain('ULTIMA riga obbligatoria');
+    expect(constrained.length).toBeLessThan(buildSimulationPrompt(vars).length);
+  });
+
+  it('conserva antefatti recenti e premessa anche nel percorso compatto con override', () => {
+    const results = Array.from({ length: 10 }, (_, index) => ({
+      id: `r${index}`, turn: index + 1, narration: 'Sintesi precedente. '.repeat(100),
+      timelineEvents: [{ id: `e${index}`, date: '1952-06-14', headline: `Fatto ${index}`,
+        detail: `${index === 9 ? 'ULTIMO_ANTEFATTO' : 'VECCHIO_FATTO'}: trattativa ancora aperta. ${'Dettagli confermati. '.repeat(80)}` }],
+    }));
+    const historyVars = new PromptBuilder({ ...game, results, consolidatedHistory: `MEMORIA_STORICA ${'Fatti remoti. '.repeat(600)}` }).buildVariables();
+    const compact = buildConstrainedSimulationPrompt(historyVars, { presetOverride: 'Istruzioni editoriali senza placeholder.' });
+    expect(compact).toContain('ULTIMO_ANTEFATTO');
+    expect(compact).toContain('MEMORIA_STORICA');
+    expect(compact).toContain('LORE_MARKER');
+    expect(compact).toContain('Istruzioni editoriali senza placeholder.');
+    expect(historyVars.ALL_EVENTS_WITH_CONSOLIDATION.length).toBeLessThanOrEqual(4500);
+    for (const prompt of [compact, buildSimulationPrompt(historyVars), buildSimulationNarrativeContract(historyVars, true)]) {
+      expect(prompt).toContain('antefatto documentato');
+      expect(prompt).not.toContain('3 frasi dense');
+      expect(prompt).not.toContain('3 frasi con causa');
+    }
   });
 
   it('applica un contratto narrativo anche ai preset che sovrascrivono il prompt', () => {
@@ -96,6 +269,20 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
     expect(contract).toContain('LORE_MARKER');
     expect(contract).toContain('non prende iniziative senza un ordine esplicito');
     expect(contract).toContain('causa già visibile');
+    expect(contract).toContain('non dichiarare firmato un accordo');
+    expect(contract).toContain('Personalità, priorità e memoria NPC');
+    expect(contract).toContain('mapChanges');
+    expect(contract).toContain('nel territorio della politia che agisce');
+    expect(contract).toContain('INIZIATIVA AUTONOMA DELLE NAZIONI NPC');
+  });
+
+  it('passa al simulatore il dossier strategico persistente degli NPC', () => {
+    const npcVars = new PromptBuilder({
+      ...game,
+      npcStrategicProfiles: 'Israele [ISR] — profilo persistente: security_first; memoria strategica: rifiuto del turno 2.',
+    }).buildVariables();
+    expect(npcVars.NPC_STRATEGIC_PROFILES).toContain('Israele [ISR]');
+    expect(buildSimulationPrompt(npcVars)).toContain('memoria strategica: rifiuto del turno 2');
   });
 
   it('passa uno stato strategico verificabile con confini, risorse e relazioni', () => {
