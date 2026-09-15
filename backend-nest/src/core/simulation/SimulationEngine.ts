@@ -44,6 +44,45 @@ export class SimulationEngine {
   }
 
   /**
+   * Stable state fingerprint used only as deterministic entropy.
+   * Replays of the same canonical state must produce the same roll,
+   * independently of Map insertion order or process lifetime.
+   */
+  private regionFingerprint(region: RegionState): string {
+    return [
+      region.id,
+      region.owner,
+      region.population,
+      region.gdp,
+      region.militaryPower,
+      region.status,
+      [...region.borders].sort().join(','),
+    ].join('|');
+  }
+
+  private worldFingerprint(): string {
+    return [...this.regions.values()]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map(region => this.regionFingerprint(region))
+      .join('||');
+  }
+
+  /** FNV-1a 32 bit mapped to [0, 1). No global mutable RNG state. */
+  private deterministicRoll(scope: string): number {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < scope.length; i++) {
+      hash ^= scope.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0) / 0x100000000;
+  }
+
+  private deterministicIndex(length: number, scope: string): number {
+    if (length <= 1) return 0;
+    return Math.min(length - 1, Math.floor(this.deterministicRoll(scope) * length));
+  }
+
+  /**
    * Sync regions state from GameSession after each turn.
    * This ensures NPC decisions are based on current (not initial) region stats.
    */
@@ -165,8 +204,18 @@ export class SimulationEngine {
     const powerRatio = sourcePower / Math.max(targetPower, 1);
     const successChance = Math.min(0.95, Math.max(0.05, powerRatio * 0.6 + 0.2));
 
-    // Roll for success
-    const roll = Math.random();
+    // Stable roll: same state + same action + same horizon => same outcome.
+    const roll = this.deterministicRoll([
+      'player-attack',
+      jumpDays,
+      this.regionFingerprint(source),
+      this.regionFingerprint(target),
+      action.description,
+      action.cost.gdp,
+      action.cost.population,
+      action.cost.militaryPower,
+      action.expectedOutcome.successProbability,
+    ].join('|'));
     const success = roll < successChance && action.expectedOutcome.successProbability > 0.3;
 
     // Calculate losses
@@ -462,13 +511,14 @@ export class SimulationEngine {
       relationshipChanges: [],
     };
 
-    // Find all regions owned by this NPC
+    // Find all regions owned by this NPC. Sort to avoid Map-order entropy.
     const npcRegions: RegionState[] = [];
     for (const region of this.regions.values()) {
       if (region.owner === npcId) {
         npcRegions.push(region);
       }
     }
+    npcRegions.sort((a, b) => a.id.localeCompare(b.id));
 
     if (npcRegions.length === 0) return delta;
 
@@ -495,20 +545,23 @@ export class SimulationEngine {
         }
       }
     }
+    potentialTargets.sort((a, b) => a.id.localeCompare(b.id));
 
     // Attack hostile neighbors first, then neutral if aggressive
     const hostileTargets = potentialTargets.filter(
       r => relationships && relationships.get(npcId, r.owner) === 'hostile'
     );
     const attackPool = hostileTargets.length > 0 ? hostileTargets : potentialTargets;
+    const npcScope = ['npc-turn', npcId, jumpDays, this.worldFingerprint()].join('|');
+    const attackScope = `${npcScope}|attack|${attackPool.map(region => region.id).join(',')}`;
 
     // NPC attacks if aggressive and has a target
     if (
       attackPool.length > 0 &&
-      Math.random() < 0.25 * this.config.aggressionMultiplier &&
+      this.deterministicRoll(`${attackScope}|gate`) < 0.25 * this.config.aggressionMultiplier &&
       totalPower > 150
     ) {
-      const target = attackPool[Math.floor(Math.random() * attackPool.length)];
+      const target = attackPool[this.deterministicIndex(attackPool.length, `${attackScope}|target`)];
       const source = npcRegions.find(r => r.borders.includes(target.id) || target.borders.includes(r.id)) || npcRegions[0];
 
       const sourcePower = source.militaryPower;
@@ -516,7 +569,7 @@ export class SimulationEngine {
       const powerRatio = sourcePower / Math.max(targetPower, 1);
       const successChance = Math.min(0.85, Math.max(0.15, powerRatio * 0.5 + 0.2));
 
-      const roll = Math.random();
+      const roll = this.deterministicRoll(`${attackScope}|outcome|${source.id}|${target.id}`);
       const success = roll < successChance;
 
       const sourceLosses = Math.floor(targetPower * 0.08 * jumpDays / 30 * (success ? 0.4 : 0.9));
@@ -574,11 +627,11 @@ export class SimulationEngine {
 
     // Trade (only if not attacking)
     if (
-      Math.random() < 0.3 &&
+      this.deterministicRoll(`${npcScope}|trade-gate`) < 0.3 &&
       avgGdp > 50 &&
       delta.regionChanges.length === 0
     ) {
-      const source = npcRegions[Math.floor(Math.random() * npcRegions.length)];
+      const source = npcRegions[this.deterministicIndex(npcRegions.length, `${npcScope}|trade-source`)];
       const tradeIncome = Math.floor(
         source.population / 1_000_000 * 5 * (jumpDays / 30)
       );
@@ -589,8 +642,8 @@ export class SimulationEngine {
     }
 
     // Military buildup
-    if (Math.random() < 0.2 * this.config.aggressionMultiplier) {
-      const source = npcRegions[Math.floor(Math.random() * npcRegions.length)];
+    if (this.deterministicRoll(`${npcScope}|build-gate`) < 0.2 * this.config.aggressionMultiplier) {
+      const source = npcRegions[this.deterministicIndex(npcRegions.length, `${npcScope}|build-source`)];
       const buildAmount = Math.floor(source.gdp * 0.1);
       delta.militaryChanges[source.id] = (delta.militaryChanges[source.id] || 0) + Math.floor(buildAmount * 0.5);
       delta.gdpChanges[source.id] = (delta.gdpChanges[source.id] || 0) - buildAmount;

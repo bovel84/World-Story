@@ -16,6 +16,14 @@ import type { SimulationChatStart, SimulationEvent } from './prompts/types';
 import type { StrictEffect } from './core/simulation/EffectValidator';
 import type { GovernmentSnapshot } from './core/simulation/GovernmentFactions';
 import type { GovernmentVoices } from './prompts/government';
+import { prepareSimulationGameData } from './prompts/strict-simulation';
+
+// Compatibility re-export for tests and callers that imported these helpers
+// from agents.ts before the strict contract was split into its own module.
+export {
+  STRICT_SIMULATION_CONTRACT,
+  withStrictSimulationContract,
+} from './prompts/strict-simulation';
 
 export class GameController {
   private provider: LLMRouter;
@@ -79,9 +87,13 @@ export class GameController {
     const convertedActions = await this.promptEngine!.convertActionsBatch(gameData, actions, signal);
     console.log('[GameController] Converted', convertedActions.length, 'actions via batch LLM call');
 
+    // Strict mode adds a prompt-only contract. The server validator remains
+    // authoritative and runs after the provider response in GameSession.
+    const simulationGameData = await prepareSimulationGameData(gameData);
+
     // 2. Запускаем симуляцию (time-rewind) со стримингом прогресса генерации
     const simulationResult = await this.promptEngine!.runSimulation(
-      gameData,
+      simulationGameData,
       convertedActions.map(action => ({
         actionId: action.actionId || '',
         text: action.text,

@@ -1,0 +1,44 @@
+name: Quality Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore Rollup Linux native binary
+        run: npm --prefix frontend install --no-save --package-lock=false @rollup/rollup-linux-x64-gnu@4.59.0
+
+      - name: Backend unit tests
+        run: npm --prefix backend-nest test
+
+      - name: Frontend unit tests
+        run: cd frontend && ../node_modules/.bin/vitest run
+
+      - name: Build backend and frontend
+        run: npm run build
