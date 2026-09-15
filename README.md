@@ -13,31 +13,17 @@ i numeri: se la cassa non copre un ordine, l'ordine fallisce davvero.
 
 ---
 
-## Indice
-
-- [Caratteristiche](#caratteristiche)
-- [Stack e architettura](#stack-e-architettura)
-- [Struttura del progetto](#struttura-del-progetto)
-- [Avvio rapido](#avvio-rapido)
-- [Configurazione](#configurazione)
-- [Script e test](#script-e-test)
-- [Deploy](#deploy)
-- [Documentazione](#documentazione)
-- [Licenza](#licenza)
-
----
-
 ## Caratteristiche
 
 ### Gioco
 
 - **Ordini in linguaggio naturale** — «Nazionalizza le acciaierie e avvia un
-  piano di riarmo» viene convertito in un'azione concreta, con costo e esito.
+  piano di riarmo» viene convertito in un'azione concreta, con costo ed esito.
 - **Simulazione a checkpoint** — il salto temporale produce eventi datati uno
-  alla volta; puoi seguire la cronaca, **continuare** o **intervenire** fermando
-  il mondo all'istante che preferisci.
+  alla volta; puoi seguire la cronaca, **continuare** o **intervenire**
+  fermando il mondo all'istante che preferisci.
 - **Mondo che ricorda** — cronologia consolidata, progetti in corso, processi
-  che maturano nel tempo, cicatrici temporali e un feed eventi persistente.
+  che maturano nel tempo e un feed eventi persistente.
 - **Nazione viva** — Dossier con tesoreria, bilancio, fazioni di governo,
   progetti, cassa, risorse naturali, industria, armamenti e conoscenze.
 - **Leve del giocatore** — pressione fiscale scelta liberamente, emissione di
@@ -50,8 +36,8 @@ i numeri: se la cassa non copre un ordine, l'ordine fallisce davvero.
   nazione cade. Si può tornare indietro di un turno o ricominciare.
 - **Diplomazia e advisor** — chat con le altre nazioni e un consulente che
   commenta la situazione.
-- **Mappe** — rendering MapLibre con overlay tattico, unità in movimento,
-  province ispezionabili e strati tematici.
+- **Mappe** — rendering vettoriale con overlay tattico, unità in movimento e
+  province ispezionabili.
 
 ### Motore
 
@@ -62,12 +48,10 @@ i numeri: se la cassa non copre un ordine, l'ordine fallisce davvero.
 - **Modalità storica vs moderna** — i fatti di riferimento moderni non vengono
   applicati ai mondi storici (niente anacronismi): una partita del 1951 usa la
   tabella di conversione del PIL dell'epoca.
-- **Strict economy** (opzionale) — percorso con validazione degli effetti,
-  catalogo di simulazione, ledger e prenotazioni.
-- **Job asincroni e SSE** — i run LLM sopravvivono a ricariche e disconnessioni;
-  il browser riceve eventi in tempo reale via Server-Sent Events.
 - **Sessioni ripristinabili** — le partite attive vengono ricaricate dal
   database al riavvio del server.
+- **Job asincroni e SSE** — i run LLM sopravvivono a ricariche e disconnessioni;
+  il browser riceve gli eventi in tempo reale via Server-Sent Events.
 
 ---
 
@@ -77,10 +61,9 @@ i numeri: se la cassa non copre un ordine, l'ordine fallisce davvero.
 |------------|------------|
 | Frontend   | React 18, TypeScript, Vite, Zustand, MapLibre GL |
 | Backend    | Node.js, Express, TypeScript, better-sqlite3 |
-| IA         | LLM multi-provider: `openai-compatible`, `anthropic`, `minimax` |
+| IA         | LLM OpenAI-compatibile (Ollama, LM Studio, OpenRouter, vLLM…) o Anthropic |
 | Database   | SQLite (file locale) |
 | Test       | Vitest (unit), Playwright (e2e + a11y) |
-| Deploy     | Cloudflare Worker + tunnel, oppure processo locale |
 
 Il backend serve **anche** la build React (`frontend/dist`), quindi in
 produzione un unico processo espone UI e API sullo stesso host.
@@ -103,15 +86,14 @@ World Story/
 │   │   ├── prompts/           # template dei prompt LLM
 │   │   ├── repositories/      # accesso dati
 │   │   ├── routes/            # API REST
-│   │   ├── llm/               # router multi-provider
+│   │   ├── llm/               # router dei provider
 │   │   ├── game-session.ts    # stato e regole di una partita
 │   │   └── database.ts        # schema e migrazioni
 │   ├── data/presets/          # mondi predefiniti (1951, 2024, WWII…)
 │   └── tests/                 # unit e integrazione
 ├── e2e/                       # Playwright (mock + accessibilità)
-├── cloudflare/                # Worker e configurazione tunnel
 ├── docs/                      # specifiche, piani e report
-├── scripts/                   # avvio, deploy, import preset
+├── scripts/                   # avvio e utilità
 ├── start.command              # launcher macOS
 └── ROADMAP.md
 ```
@@ -124,7 +106,7 @@ World Story/
 
 - **Node.js ≥ 18** (consigliato 20/22)
 - npm
-- Un provider LLM raggiungibile (Ollama, OpenRouter, Anthropic, MiniMax…) con
+- Un provider LLM raggiungibile (Ollama, LM Studio, OpenRouter, Anthropic…) con
   la relativa chiave API
 
 ### Installazione
@@ -145,9 +127,9 @@ Poi imposta almeno una chiave e, se serve, il provider:
 
 ```dotenv
 LLM_API_KEY=la_tua_chiave
-# LLM_PROVIDER=openai-compatible
-# LLM_BASE_URL=https://ollama.com/v1
-# LLM_MODEL=glm-5.3-flash
+LLM_PROVIDER=openai-compatible
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_MODEL=qwen2.5:14b
 ```
 
 In alternativa puoi configurare tutto da `backend-nest/llm.config.json` (per
@@ -172,7 +154,7 @@ npm --prefix backend-nest start
 ```
 
 Su macOS puoi usare il launcher `start.command` (doppio clic): avvia il
-backend, sincronizza il tunnel e apre il browser.
+backend e apre il browser.
 
 ---
 
@@ -180,15 +162,14 @@ backend, sincronizza il tunnel e apre il browser.
 
 ### Variabili d'ambiente (`backend-nest/.env`)
 
-| Variabile          | Default                      | Descrizione |
-|--------------------|------------------------------|-------------|
-| `LLM_API_KEY`      | —                            | Chiave API generica per il provider attivo |
-| `MINIMAX_API_KEY`  | —                            | Chiave dedicata MiniMax (fallback) |
-| `LLM_PROVIDER`     | `minimax`                    | `openai-compatible` \| `anthropic` \| `minimax` |
-| `LLM_BASE_URL`     | `https://api.minimax.io/v1`  | Endpoint del provider |
-| `LLM_MODEL`        | `MiniMax-M2.5`               | Modello predefinito |
-| `PORT`             | `8000`                       | Porta del server |
-| `OPEN_PAX_DB_PATH` | `./data/world-story.db`      | Percorso del database SQLite |
+| Variabile          | Default                     | Descrizione |
+|--------------------|-----------------------------|-------------|
+| `LLM_API_KEY`      | —                           | Chiave API del provider attivo |
+| `LLM_PROVIDER`     | `openai-compatible`         | `openai-compatible` \| `anthropic` |
+| `LLM_BASE_URL`     | `http://localhost:11434/v1` | Endpoint del provider |
+| `LLM_MODEL`        | —                           | Modello predefinito |
+| `PORT`             | `8000`                      | Porta del server |
+| `OPEN_PAX_DB_PATH` | `./data/world-story.db`     | Percorso del database SQLite |
 
 ### `llm.config.json`
 
@@ -207,26 +188,12 @@ Vedi `backend-nest/llm.config.example.json` per l'esempio completo.
 
 ---
 
-## Script e test
+## Test
 
 ```bash
-# Test unitari (backend + frontend)
-npm run test:unit
-
-# Solo backend (Vitest)
-npm --prefix backend-nest test
-
-# Solo frontend (Vitest)
-cd frontend && ../node_modules/.bin/vitest run
-
-# End-to-end (Playwright, API mockate — nessun credito LLM)
-npm run test:e2e:mock
-
-# Accessibilità
-npm run test:a11y
-
-# Performance
-npm run test:perf
+npm run test:unit       # backend + frontend (Vitest)
+npm run test:e2e:mock   # end-to-end (Playwright, API mockate)
+npm run test:a11y       # audit di accessibilità
 ```
 
 Copertura attuale: **855 test backend**, **183 test frontend**, **17 e2e** e
@@ -235,36 +202,10 @@ build a ogni push su `main` e su ogni pull request.
 
 ---
 
-## Deploy
-
-### Worker Cloudflare + tunnel
-
-Il gioco può essere esposto tramite un Worker Cloudflare che inoltra al backend
-locale attraverso un tunnel. Vedi `docs/CLOUDFLARE_RUNBOOK.md` e
-`cloudflare/wrangler.jsonc`.
-
-```bash
-bash scripts/deploy-cloudflare.sh
-```
-
-### Processo locale (produzione)
-
-```bash
-npm run build
-npm --prefix backend-nest start
-```
-
-Il backend pubblica anche `frontend/dist`, quindi l'app è completa su una sola
-porta.
-
----
-
 ## Documentazione
 
 - [`ROADMAP.md`](ROADMAP.md) — roadmap tecnica
 - [`docs/`](docs) — specifiche, piani esecutivi e report di implementazione
-- [`docs/CLOUDFLARE_RUNBOOK.md`](docs/CLOUDFLARE_RUNBOOK.md) — deploy e tunnel
-- [`docs/PIANO_MAESTRO_REALISMO_NAZIONALE_UX.md`](docs/PIANO_MAESTRO_REALISMO_NAZIONALE_UX.md) — modello di realismo nazionale
 
 ---
 
