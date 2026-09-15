@@ -38,6 +38,8 @@ export interface PromptVariables {
   NPC_STRATEGIC_PROFILES: string;
   /** Processi in corso (partial) con data prevista: il simulatore deve portarli avanti. */
   ONGOING_PROCESSES?: string;
+  /** Anime del governo: interessi, umori, pressioni e richieste della nazione. */
+  GOVERNMENT_STATE?: string;
 
   // События
   ALL_EVENTS_WITH_CONSOLIDATION: string;
@@ -61,6 +63,8 @@ export interface SimulationPolityReaction {
   role: PolityReactionRole;
   stance: PolityReactionStance;
   response: string;
+  /** Messaggio diretto della nazione al giocatore nel canale diplomatico (prima persona). */
+  note?: string;
   /** Interesse del dossier che ha guidato la decisione. */
   priority?: string;
   /** Misura autonoma realmente decisa dalla politia nel periodo. */

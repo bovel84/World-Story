@@ -18,18 +18,26 @@
 
 import type { NationalAccount } from './WorldStateEngine';
 import type { NaturalEndowment, NaturalResourceKind } from './MilitaryIndustry';
+import {
+  annualInterestMld, debtPrincipal, issueDebtTranche, maturedDebts, marketRatePct, rolloverTranche,
+  type SovereignDebt,
+} from './SovereignDebt';
 
 export type ResourceKind = 'money' | 'food' | 'clothing' | 'weapons' | 'fuel' | 'research';
 
-/** Tasso d'interesse mensile sul debito pubblico (≈10% annuo). */
-export const DEBT_MONTHLY_INTEREST = 0.008;
+/** Tasso annuo dello scoperto di cassa (debito forzoso, più caro del mercato). */
+export const OVERDRAFT_ANNUAL_RATE_PCT = 8;
+/** Tasso d'interesse mensile dello scoperto di cassa (retrocompatibile). */
+export const DEBT_MONTHLY_INTEREST = OVERDRAFT_ANNUAL_RATE_PCT / 1200;
 /** Limite di debito rispetto al PIL nominale (60%) e minimo operativo (mld). */
 export const DEBT_TO_GDP_LIMIT = 0.6;
-export const MIN_CREDIT_LIMIT = 5;
+export const MIN_CREDIT_LIMIT = 1;
 
 export interface ResourceStock {
-  /** Tesoreria in miliardi USD (può diventare negativa: debito pubblico). */
+  /** Cassa/riserve in miliardi USD (può diventare negativa: scoperto di conto). */
   money: number;
+  /** Portafoglio del debito pubblico: titoli con tasso e scadenza. */
+  debts: SovereignDebt[];
   /** Scorte alimentari (indice in migliaia di razioni-giorno equivalenti). */
   food: number;
   /** Scorte di vestiario/equipaggiamento personale. */
@@ -96,18 +104,41 @@ export function technologyById(id: string): Technology | undefined {
 }
 
 /**
- * Debito pubblico di una nazione. La tesoreria può essere negativa: la parte
- * negativa è debito, non un errore. Il motore calcola tutto, il modello no.
+ * Debito pubblico totale = portafoglio titoli + scoperto di cassa. La tesoreria
+ * può essere negativa: la parte negativa è debito forzoso, non un errore.
  */
 export function debtOf(stock: ResourceStock): number {
+  const overdraft = Math.max(0, -(Number(stock.money) || 0));
+  return Math.round((debtPrincipal(stock.debts) + overdraft) * 1000) / 1000;
+}
+
+/** Scoperto di cassa puro (cassa negativa), distinto dai titoli emessi. */
+export function overdraftOf(stock: ResourceStock): number {
   return Math.max(0, -(Number(stock.money) || 0));
 }
 
-/** Tetto di credito: 60% del PIL nominale, almeno un anno di entrate. */
+/** Interessi passivi annui sull'intero debito (titoli + scoperto di cassa). */
+export function annualDebtServiceMld(stock: ResourceStock): number {
+  const bonds = annualInterestMld(stock.debts);
+  const overdraft = overdraftOf(stock) * OVERDRAFT_ANNUAL_RATE_PCT / 100;
+  return Math.round((bonds + overdraft) * 1000) / 1000;
+}
+
+/** Quota di PIL di margine garantita oltre il debito di partenza. */
+export const DEBT_HEADROOM_RATIO = 0.15;
+
+/**
+ * Tetto di credito: il massimo fra il 60% del PIL, il debito ereditato più un
+ * margine del 15% del PIL, e nove mesi di entrate. Così una nazione che parte
+ * con un debito alto (es. Italia, Giappone) non nasce già senza spazio di
+ * manovra, ma non può nemmeno indebitarsi senza limite.
+ */
 export function creditLimit(account?: NationalAccount): number {
   const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions || 0));
   const annualRevenue = Math.abs(Number(account?.monthlyRevenue || 0)) * 12;
-  const limit = Math.max(MIN_CREDIT_LIMIT, gdp * DEBT_TO_GDP_LIMIT, annualRevenue * 0.9);
+  const inheritedDebtRatio = Math.max(0, Number(account?.debtBurdenPct || 0)) / 100;
+  const ceilingRatio = Math.max(DEBT_TO_GDP_LIMIT, inheritedDebtRatio + DEBT_HEADROOM_RATIO);
+  const limit = Math.max(MIN_CREDIT_LIMIT, gdp * ceilingRatio, annualRevenue * 0.9);
   return Math.round(limit * 100) / 100;
 }
 
@@ -143,6 +174,9 @@ export function financePurchase(stock: ResourceStock, account: NationalAccount |
 export function applyFlow(stock: ResourceStock, flow: Partial<Record<ResourceKind, number>>): ResourceStock {
   return {
     money: stock.money + (flow.money || 0),
+    // Il portafoglio del debito non è un flusso: cambia solo con emissioni,
+    // rollover e rimborsi.
+    debts: Array.isArray(stock.debts) ? stock.debts : [],
     food: Math.max(0, stock.food + (flow.food || 0)),
     clothing: Math.max(0, stock.clothing + (flow.clothing || 0)),
     weapons: Math.max(0, stock.weapons + (flow.weapons || 0)),
@@ -152,15 +186,83 @@ export function applyFlow(stock: ResourceStock, flow: Partial<Record<ResourceKin
   };
 }
 
+/**
+ * Il debito ereditato dal registro 2024 è valido solo nei mondi moderni. In un
+ * mondo storico le tranche seminate da `seedInheritedDebt` (id
+ * `debt-inherited-*`) sono dati anacronistici e vanno eliminate anche dai
+ * salvataggi creati prima di questa correzione. Il debito emesso dal giocatore
+ * (id diversi) resta intatto.
+ */
+export function dropRegistryInheritedDebt(stock: ResourceStock): ResourceStock {
+  const debts = Array.isArray(stock.debts) ? stock.debts : [];
+  const kept = debts.filter(debt => !String(debt.id || '').startsWith('debt-inherited-'));
+  return kept.length === debts.length ? stock : { ...stock, debts: kept };
+}
+
+/**
+ * Riporta le scorte materiali entro la capacità di stoccaggio: il surplus oltre
+ * il tetto si perde (deperimento/insufficienza di silos). Serve a rendere reale
+ * il magazzino di una nazione fragile e a correggere i salvataggi più vecchi,
+ * dove le scorte erano un multiplo fisso del consumo e non avevano limite.
+ */
+export function capStock(
+  stock: ResourceStock, account?: NationalAccount,
+): { stock: ResourceStock; spoiled: Partial<Record<ResourceKind, number>> } {
+  const capacity = storageCapacity(account);
+  const spoiled: Partial<Record<ResourceKind, number>> = {};
+  const next: ResourceStock = { ...stock, technologies: [...stock.technologies] };
+  for (const kind of ['food', 'clothing', 'weapons', 'fuel'] as const) {
+    const cap = capacity[kind];
+    if (next[kind] > cap + 1e-9) {
+      spoiled[kind] = Math.round((next[kind] - cap) * 1000) / 1000;
+      next[kind] = Math.round(cap * 1000) / 1000;
+    }
+  }
+  return { stock: next, spoiled };
+}
+
 const EMPTY_STOCK: ResourceStock = {
-  money: 0, food: 0, clothing: 0, weapons: 0, fuel: 0, research: 0, technologies: [],
+  money: 0, debts: [], food: 0, clothing: 0, weapons: 0, fuel: 0, research: 0, technologies: [],
 };
 
+/**
+ * Legge un portafoglio di titoli da dati persistiti. Retrocompatibile: una
+ * vecchia riga con il solo campo scalare `debt` diventa un titolo senza
+ * scadenza, così nessun salvataggio diventa invalido.
+ */
+function normalizeDebts(raw: unknown, legacyDebt: number): SovereignDebt[] {
+  const list = Array.isArray(raw) ? raw : [];
+  const debts: SovereignDebt[] = [];
+  for (const item of list) {
+    const value = (item || {}) as Partial<SovereignDebt>;
+    const principal = Math.max(0, Number(value.principal) || 0);
+    if (principal <= 0) continue;
+    const termYears = Math.max(1, Math.round(Number(value.termYears) || 10));
+    debts.push({
+      id: typeof value.id === 'string' && value.id ? value.id : `debt-${debts.length + 1}`,
+      label: typeof value.label === 'string' && value.label ? value.label : `Titolo ${termYears} anni`,
+      principal: Math.round(principal * 1000) / 1000,
+      annualRatePct: Math.max(0, Number(value.annualRatePct) || 0),
+      issuedDate: typeof value.issuedDate === 'string' ? value.issuedDate.slice(0, 10) : '',
+      maturityDate: typeof value.maturityDate === 'string' ? value.maturityDate.slice(0, 10) : '',
+      termYears,
+    });
+  }
+  if (debts.length === 0 && legacyDebt > 0) {
+    debts.push({
+      id: 'debt-legacy', label: 'Debito ereditato', principal: Math.round(legacyDebt * 1000) / 1000,
+      annualRatePct: marketRatePct(0, 10), issuedDate: '', maturityDate: '', termYears: 10,
+    });
+  }
+  return debts;
+}
+
 export function normalizeStock(raw: unknown): ResourceStock {
-  const value = (raw || {}) as Partial<ResourceStock>;
+  const value = (raw || {}) as Partial<ResourceStock> & { debt?: unknown };
   const number = (input: unknown, fallback = 0) => Number.isFinite(Number(input)) ? Number(input) : fallback;
   return {
     money: number(value.money),
+    debts: normalizeDebts(value.debts, Math.max(0, number(value.debt))),
     food: Math.max(0, number(value.food)),
     clothing: Math.max(0, number(value.clothing)),
     weapons: Math.max(0, number(value.weapons)),
@@ -172,36 +274,141 @@ export function normalizeStock(raw: unknown): ResourceStock {
   };
 }
 
-/** Scorte iniziali proporzionate all'economia e alle risorse naturali. */
-export function seedStock(account: NationalAccount, endowment: NaturalEndowment = {}): ResourceStock {
+/**
+ * Classe di sviluppo dell'economia. Il PIL pro capite è il dato reale che
+ * distingue una nazione ricca (grandi riserve strategiche, filiere complete)
+ * da una fragile (scorte sottili, dipendenza dagli aiuti e dalle importazioni).
+ */
+export type DevelopmentClass = 'low' | 'lower' | 'upper' | 'high';
+
+export function developmentClass(account?: NationalAccount): DevelopmentClass {
+  const perCapita = Math.max(0, Number(account?.gdpPerCapitaUsd) || 0);
+  if (perCapita >= 28000) return 'high';
+  if (perCapita >= 8000) return 'upper';
+  if (perCapita >= 2500) return 'lower';
+  return 'low';
+}
+
+/** Fabbisogno mensile di ciascun materiale: quanto la nazione consuma davvero. */
+export interface MaterialNeeds { food: number; clothing: number; weapons: number; fuel: number }
+
+export function materialNeeds(account?: NationalAccount): MaterialNeeds {
+  const popM = Math.max(0, Number(account?.population) || 0) / 1_000_000;
+  const troops = Math.max(0, Number(account?.forces) || 0) + Math.max(0, Number(account?.mobilized) || 0);
+  const factories = Math.max(0, Number(account?.factories) || 0);
+  return {
+    food: popM * 0.02 + troops * 0.06,
+    clothing: popM * 0.008 + troops * 0.01,
+    weapons: Math.max(0.2, troops * 0.004),
+    fuel: troops * 0.03 + factories * 0.05,
+  };
+}
+
+/**
+ * Mesi di scorta strategica che la nazione tiene per ciascun materiale.
+ * Le economie fragili non hanno magazzini profondi: è la differenza fra una
+ * dispensa di settimane e una riserva strategica di mesi.
+ */
+const RESERVE_MONTHS: Record<DevelopmentClass, MaterialNeeds> = {
+  high:  { food: 6, clothing: 8, weapons: 16, fuel: 6 },
+  upper: { food: 5, clothing: 7, weapons: 14, fuel: 5 },
+  lower: { food: 3, clothing: 5, weapons: 11, fuel: 4 },
+  low:   { food: 2, clothing: 3, weapons: 8,  fuel: 3 },
+};
+
+/**
+ * Capacità di stoccaggio del magazzino materiale: mesi di riserva × fabbisogno.
+ * È il tetto reale delle scorte: oltre quello il surplus si perde (deperimento)
+ * e non può più essere accumulato. Una nazione povera ha magazzini piccoli.
+ */
+export function storageCapacity(account?: NationalAccount): MaterialNeeds {
+  const needs = materialNeeds(account);
+  const months = RESERVE_MONTHS[developmentClass(account)];
+  const cap = (need: number, reserveMonths: number, floor: number) =>
+    Math.round(Math.max(floor, need * reserveMonths) * 1000) / 1000;
+  return {
+    food: cap(needs.food, months.food, 2),
+    clothing: cap(needs.clothing, months.clothing, 1.5),
+    weapons: cap(needs.weapons, months.weapons, 4),
+    fuel: cap(needs.fuel, months.fuel, 2),
+  };
+}
+
+/** Quota di capacità con cui una nazione nasce: fragile → dispense quasi vuote. */
+const INITIAL_FILL: Record<DevelopmentClass, number> = {
+  high: 0.7, upper: 0.6, lower: 0.5, low: 0.4,
+};
+
+/**
+ * Debito ereditato come scaletta di scadenze (3/8/15 anni): così una parte
+ * torna a scadere periodicamente e va rifinanziata, invece di un blocco unico.
+ */
+function seedInheritedDebt(inheritedDebt: number, date: string, debtRatioPct: number): SovereignDebt[] {
+  if (!(inheritedDebt > 0)) return [];
+  const ladder: Array<{ termYears: number; share: number }> = [
+    { termYears: 3, share: 0.3 }, { termYears: 8, share: 0.4 }, { termYears: 15, share: 0.3 },
+  ];
+  const debts: SovereignDebt[] = [];
+  let index = 0;
+  for (const step of ladder) {
+    index += 1;
+    const principal = Math.round(inheritedDebt * step.share * 1000) / 1000;
+    if (principal <= 0) continue;
+    const issued = date || '';
+    const { debts: withTranche } = issueDebtTranche(debts, {
+      amountMld: principal, termYears: step.termYears, date: issued, debtRatioPct,
+      id: `debt-inherited-${index}`, label: `Debito ereditato ${step.termYears} anni`,
+    });
+    debts.push(withTranche[withTranche.length - 1]);
+  }
+  return debts;
+}
+
+/**
+ * Scorte iniziali proporzionate all'economia e alle risorse naturali.
+ * `asOfDate` (facoltativa) fa nascere il debito ereditato con vere scadenze.
+ */
+export function seedStock(account: NationalAccount, endowment: NaturalEndowment = {}, asOfDate = ''): ResourceStock {
   // Ogni campo è difeso: un conto con un valore mancante o non numerico non
   // deve mai produrre una tesoreria a zero (né un `NaN` che poi diventa zero).
   const n = (value: unknown): number => (Number.isFinite(Number(value)) ? Number(value) : 0);
-  const popM = Math.max(0, n(account.population)) / 1_000_000;
-  const troops = Math.max(0, n(account.forces)) + Math.max(0, n(account.mobilized));
-  const factories = Math.max(0, n(account.factories));
-  const ports = Math.max(0, n(account.ports));
   const universities = Math.max(0, n(account.universities));
   const oil = n(endowment.oil);
+  const gas = n(endowment.gas);
+  const coal = n(endowment.coal);
   const iron = n(endowment.iron);
   const fertile = n(endowment.fertile_land);
-  // Riserva valutaria di partenza: ~2% del PIL nominale, con un minimo
-  // operativo di 5 mld per qualunque nazione (anche a PIL nullo).
-  const money = Math.max(MIN_TREASURY, n(account.nominalGdpUsdBillions) * 0.02);
+  const fisheries = n(endowment.fisheries);
+  // La cassa di partenza è la riserva valutaria (~2% del PIL); il debito
+  // pubblico ereditato resta distinto, come voce a sé: la nazione nasce con
+  // entrambi, non con una tesoreria falsata dal debito.
+  const gdp = n(account.nominalGdpUsdBillions);
+  const money = Math.max(MIN_TREASURY, gdp * 0.02);
+  const debtRatioPct = Math.max(0, n(account.debtBurdenPct));
+  const inheritedDebt = debtRatioPct / 100 * gdp;
+  // Le scorte di partenza sono una QUOTA della capacità di stoccaggio, non un
+  // multiplo fisso del consumo: una nazione fragile nasce con dispense sottili,
+  // una ricca con riserve strategiche. Terra fertile e risorse danno un margine.
+  const capacity = storageCapacity(account);
+  const fill = INITIAL_FILL[developmentClass(account)];
+  const foodFill = Math.min(1, fill + fertile * 0.03 + fisheries * 0.02);
+  const weaponFill = Math.min(1, fill + iron * 0.02 + coal * 0.01);
+  const fuelFill = Math.min(1, fill + oil * 0.03 + gas * 0.02);
+  const part = (value: number) => Math.round(value * 1000) / 1000;
   return {
     money,
-    // ~4 mesi di consumo alimentare e 5 di vestiario, più la terra fertile.
-    food: (popM * 0.02 + troops * 0.06) * 120 + factories * 30 + fertile * 40,
-    clothing: (popM * 0.008 + troops * 0.01) * 150 + factories * 20,
-    weapons: troops * 0.6 + factories * 25 + iron * 30 + 20,
-    fuel: (troops * 0.03 + factories * 0.05 + ports * 0.02) * 150 + oil * 90 + 40,
+    debts: seedInheritedDebt(inheritedDebt, asOfDate, debtRatioPct),
+    food: part(capacity.food * foodFill),
+    clothing: part(capacity.clothing * fill),
+    weapons: part(capacity.weapons * weaponFill),
+    fuel: part(capacity.fuel * fuelFill),
     research: universities * 20,
     technologies: [],
   };
 }
 
 /** Riserva valutaria minima con cui qualunque nazione inizia a giocare. */
-export const MIN_TREASURY = 5;
+export const MIN_TREASURY = 0.3;
 
 export interface MaterialFlow extends Partial<Record<ResourceKind, number>> {
   /** Motivo leggibile delle eventuali carenze (vuoto se tutto coperto). */
@@ -213,6 +420,12 @@ export interface MaterialTick {
   flow: MaterialFlow;
   /** Tecnologie sbloccate in questo tick spendendo i punti ricerca. */
   unlocked: Technology[];
+  /** Titoli giunti a scadenza e rifinanziati in questo tick. */
+  rolledDebts: SovereignDebt[];
+  /** Interessi passivi maturati nel periodo (mld). */
+  interestPaid: number;
+  /** Materiale perso perché il magazzino era oltre la capacità. */
+  spoiled: Partial<Record<ResourceKind, number>>;
 }
 
 const has = (stock: ResourceStock, id: string) => stock.technologies.includes(id);
@@ -222,14 +435,16 @@ const has = (stock: ResourceStock, id: string) => stock.technologies.includes(id
  * università e popolazione; i consumi con la popolazione e le forze armate.
  * Le riserve richiamate (`mobilized`) consumano equipaggiamento per diventare
  * operative. Il denaro segue il saldo mensile dei conti nazionali.
+ *
+ * Se `asOfDate` è nota, i titoli giunti a scadenza vengono **rifinanziati** al
+ * tasso di mercato corrente: è il rollover, il momento in cui il debito torna.
  */
 export function advanceStock(
   stock: ResourceStock, account: NationalAccount, days: number, endowment: NaturalEndowment = {},
+  asOfDate?: string,
 ): MaterialTick {
   const period = Math.max(0, days) / 30; // mesi
   const popM = Math.max(0, account.population) / 1_000_000;
-  const troops = Math.max(0, account.forces);
-  const mobilized = Math.max(0, account.mobilized);
   const factories = Math.max(0, account.factories);
   const ports = Math.max(0, account.ports);
   const universities = Math.max(0, account.universities);
@@ -247,35 +462,58 @@ export function advanceStock(
   const foodBonus = (has(stock, 'agricoltura_meccanizzata') ? 1.35 : 1) * (1 + fertile * 0.06 + fisheries * 0.03);
   const clothingBonus = has(stock, 'industria_tessile') ? 1.3 : 1;
   const weaponsBonus = has(stock, 'industria_bellica') ? 1.4 : 1;
+  // Fabbisogno e capacità di stoccaggio reali: il magazzino ha un tetto.
+  const needs = materialNeeds(account);
+  const capacity = storageCapacity(account);
+  // Agricoltura: contano terra fertile, pesca e lavoro rurale, non le fabbriche.
+  // Una nazione povera e arida produce meno di quanto consuma e resta in deficit.
+  const foodYield = (fertile * 0.55 + fisheries * 0.25 + popM * 0.004 * (1 + fertile * 0.08)) * foodBonus;
   // Estrazione ed export di risorse naturali: reddito anche senza industria.
   const resourceRevenue = (oil * 0.5 + gas * 0.4 + gold * 0.2 + diamonds * 0.2 + copper * 0.12 + iron * 0.1) * period;
-  // Interessi sul debito pubblico: chi va a debito paga un costo ricorrente.
-  const interest = debtOf(stock) * DEBT_MONTHLY_INTEREST * period;
+  // Interessi sul debito pubblico: chi ha emesso titoli o è scoperto paga un
+  // costo ricorrente, calcolato titolo per titolo al suo tasso.
+  const interest = annualDebtServiceMld(stock) / 12 * period;
 
   const flow: MaterialFlow = {
     money: ((account.monthlyBalance || 0) + resourceRevenue) * period - interest,
-    food: ((popM * 0.012 + factories * 0.9 + fertile * 0.25) * foodBonus - (popM * 0.02 + (troops + mobilized) * 0.06)) * period,
-    clothing: ((factories * 0.7 + popM * 0.004) * clothingBonus - (popM * 0.008 + (troops + mobilized) * 0.01)) * period,
-    weapons: ((factories * 0.5 + iron * 0.12 + coal * 0.06) * weaponsBonus + universities * 0.2 - (troops + mobilized) * 0.004) * period,
-    fuel: (ports * 1.1 + factories * 0.4 + oil * 0.7 + gas * 0.35 - troops * 0.03 - factories * 0.05) * period,
+    food: (foodYield - needs.food) * period,
+    clothing: ((factories * 0.7 + popM * 0.004) * clothingBonus - needs.clothing) * period,
+    weapons: ((factories * 0.5 + iron * 0.12 + coal * 0.06) * weaponsBonus + universities * 0.2 - needs.weapons) * period,
+    fuel: (ports * 1.1 + factories * 0.4 + oil * 0.7 + gas * 0.35 - needs.fuel) * period,
     research: (universities * 0.35 + popM * 0.002) * period,
     shortages: [],
   };
 
-  const next = applyFlow(stock, flow);
+  // Il magazzino ha un tetto: oltre la capacità il surplus si perde (deperimento).
+  const { stock: next, spoiled } = capStock(applyFlow(stock, flow), account);
   // Diagnostica: la carenza si registra solo se il fabbisogno non era coperto.
   const check = (kind: ResourceKind, label: string, required: number) => {
     if (required > 0 && flow[kind]! < 0 && stock[kind] + flow[kind]! < 0) {
       flow.shortages.push(`${label}: deficit di ${Math.abs(Math.round((stock[kind] + flow[kind]!) * 10) / 10)}`);
     }
   };
-  check('food', 'Cibo', popM * 0.02 + (troops + mobilized) * 0.06);
-  check('clothing', 'Vestiario', popM * 0.008 + (troops + mobilized) * 0.01);
-  check('weapons', 'Armamenti', (troops + mobilized) * 0.004);
-  check('fuel', 'Carburante', troops * 0.03 + factories * 0.05);
+  check('food', 'Cibo', needs.food);
+  check('clothing', 'Vestiario', needs.clothing);
+  check('weapons', 'Armamenti', needs.weapons);
+  check('fuel', 'Carburante', needs.fuel);
 
   const { stock: spent, unlocked } = unlockTechnologies(next);
-  return { stock: spent, flow, unlocked };
+
+  // Scadenze: i titoli maturati si rifinanziano al tasso di mercato corrente.
+  // Il capitale resta, cambiano tasso e nuova scadenza: è il rollover.
+  const rolledDebts: SovereignDebt[] = [];
+  let withRollover = spent;
+  if (asOfDate) {
+    const matured = maturedDebts(spent.debts, asOfDate);
+    if (matured.length > 0) {
+      const principal = debtPrincipal(spent.debts);
+      const ratio = account.nominalGdpUsdBillions > 0 ? principal / account.nominalGdpUsdBillions * 100 : 0;
+      const outstanding = spent.debts.filter(debt => !matured.some(due => due.id === debt.id));
+      for (const due of matured) rolledDebts.push(rolloverTranche(due, asOfDate, ratio));
+      withRollover = { ...spent, debts: [...outstanding, ...rolledDebts] };
+    }
+  }
+  return { stock: withRollover, flow, unlocked, rolledDebts, interestPaid: Math.round(interest * 1000) / 1000, spoiled };
 }
 
 /** Sblocca in ordine di costo le tecnologie i cui prerequisiti sono soddisfatti. */
@@ -340,23 +578,46 @@ export function payMovement(stock: ResourceStock, cost: MovementCost): MovementP
   };
 }
 
+/**
+ * La nazione **fa debito**: emette un titolo, incassa cassa oggi e registra la
+ * passività con tasso di mercato e scadenza. Rispetta il tetto di credito:
+ * oltre quello il mercato non presta più.
+ */
+export function issueSovereignDebt(
+  stock: ResourceStock,
+  account: NationalAccount | undefined,
+  options: { amountMld: number; termYears: number; date: string },
+): { ok: boolean; stock: ResourceStock; tranche?: SovereignDebt; error?: 'credit_exhausted' | 'amount_invalid' } {
+  const amount = Math.round((Number(options.amountMld) || 0) * 1000) / 1000;
+  const termYears = Math.max(1, Math.round(Number(options.termYears) || 10));
+  if (!(amount > 0)) return { ok: false, stock, error: 'amount_invalid' };
+  if (amount > creditHeadroom(stock, account) + 1e-9) return { ok: false, stock, error: 'credit_exhausted' };
+  const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions) || 0);
+  const ratio = gdp > 0 ? debtOf(stock) / gdp * 100 : 0;
+  const { debts, tranche } = issueDebtTranche(stock.debts, {
+    amountMld: amount, termYears, date: options.date, debtRatioPct: ratio,
+  });
+  return { ok: true, stock: { ...stock, money: Math.round((stock.money + amount) * 1000) / 1000, debts }, tranche };
+}
+
 /** Rendiconto leggibile per il bollettino e il prompt del modello. */
 export function describeStock(stock: ResourceStock, account?: NationalAccount): string {
   const round = (value: number, digits = 1) => Math.round(value * 10 ** digits) / 10 ** digits;
   const techs = stock.technologies.map(id => technologyById(id)?.name || id);
+  const capacity = storageCapacity(account);
   const parts = [
     `Tesoreria ${round(stock.money)} mld`,
-    `cibo ${round(stock.food)}`,
-    `vestiario ${round(stock.clothing)}`,
-    `armamenti ${round(stock.weapons)}`,
-    `carburante ${round(stock.fuel)}`,
+    `cibo ${round(stock.food)}/${round(capacity.food)}`,
+    `vestiario ${round(stock.clothing)}/${round(capacity.clothing)}`,
+    `armamenti ${round(stock.weapons)}/${round(capacity.weapons)}`,
+    `carburante ${round(stock.fuel)}/${round(capacity.fuel)}`,
     `ricerca ${round(stock.research)}`,
   ];
   const tech = techs.length ? ` Tecnologie: ${techs.join(', ')}.` : ' Nessuna tecnologia sbloccata.';
   const burden = account ? ` Fabbisogno militare ${round(account.defenceBurdenPct)}% del PIL.` : '';
   const debt = debtOf(stock);
   const debtText = debt > 0
-    ? ` Debito pubblico ${round(debt)} mld (interessi ${round(debt * DEBT_MONTHLY_INTEREST * 12)} mld/anno; tetto di credito ${round(creditLimit(account))} mld).`
+    ? ` Debito pubblico ${round(debt)} mld su ${stock.debts.length} titoli (interessi ${round(annualDebtServiceMld(stock))} mld/anno; tetto di credito ${round(creditLimit(account))} mld).`
     : ' Nessun debito pubblico.';
   return `Magazzino nazionale: ${parts.join(', ')}.${debtText}${tech}${burden}`;
 }

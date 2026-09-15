@@ -65,11 +65,17 @@ describe('nationDossier (G5-A)', () => {
       natural: [{ kind: 'diamonds' }],
       market: [{ kind: 'diamonds' }],
       debt: 4.2, creditLimit: 49.92, creditHeadroom: 45.72,
+      debts: [{ id: 'debt-1', label: 'Titolo 10 anni', principal: 4.2, annualRatePct: 3.1, issuedDate: '1951-01-01', maturityDate: '1961-01-01', termYears: 10 }],
+      overdraft: 0, annualInterest: 0.13, averageMaturityYears: 10, debtRatioPct: 18.6, marketRatePct: 3.1,
       modifiers: { stability: -12 },
     });
     expect(flat).toMatchObject({ money: 185.85, food: 20.87, clothing: 12, weapons: 160, fuel: 90, research: 40, debt: 4.2, creditLimit: 49.92, creditHeadroom: 45.72 });
     expect(flat?.technologies).toEqual(['ferrovie']);
     expect(flat?.natural).toHaveLength(1);
+    expect(flat?.debts).toHaveLength(1);
+    expect(flat?.debtRatioPct).toBe(18.6);
+    expect(flat?.annualInterest).toBe(0.13);
+    expect(flat?.averageMaturityYears).toBe(10);
     expect(flat?.modifiers).toEqual({ stability: -12 });
   });
 

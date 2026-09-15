@@ -59,7 +59,7 @@ describe('parseSimulationResponse', () => {
         date: '2024-01-02',
         mapChanges: [],
         reactions: [
-          { polityName: 'Israel', role: 'counterparty', stance: 'conditional', priority: 'sicurezza delle frontiere', response: 'Israele richiede garanzie verificabili.', counterAction: 'Convoca una verifica tecnica.' },
+          { polityName: 'Israel', role: 'counterparty', stance: 'conditional', priority: 'sicurezza delle frontiere', response: 'Israele richiede garanzie verificabili.', counterAction: 'Convoca una verifica tecnica.', note: 'Chiediamo garanzie verificabili prima di ogni ritiro.' },
           { polityName: 'USA', role: 'observer', stance: 'neutral', response: '' },
           { polityName: 'USA', response: 'Washington offre una mediazione tecnica.' },
         ],
@@ -73,6 +73,7 @@ describe('parseSimulationResponse', () => {
         stance: 'conditional',
         priority: 'sicurezza delle frontiere',
         counterAction: 'Convoca una verifica tecnica.',
+        note: 'Chiediamo garanzie verificabili prima di ogni ritiro.',
       }),
       expect.objectContaining({ polityName: 'USA', role: 'counterparty', stance: 'neutral' }),
     ]);
@@ -208,6 +209,7 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
     expect(prompt).toContain('non vale come accettazione altrui');
     expect(prompt).toContain('Personalità, priorità e memoria NPC');
     expect(prompt).toContain('counterAction');
+    expect(prompt).toContain('Il campo "note" è diverso');
     expect(prompt).toContain('Le mapChanges riguardano TUTTE le politie');
     expect(prompt).toContain('nel territorio della politia che agisce');
     expect(prompt).toContain('start_construction');
@@ -324,6 +326,29 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
     };
     const vars = new PromptBuilder(armedGame).buildVariables();
     expect(vars.STRATEGIC_STATE).toContain('potenza militare 36 effettiva (nominale 60)');
+  });
+
+  it('mostra il magazzino materiale con capacità, copertura e tetto reale', () => {
+    const materialGame: any = {
+      ...game,
+      worldState: {
+        accounts: {
+          DEU: { polityId: 'DEU', provinces: 1, population: 60_000_000, gdp: 2000, militaryPower: 300, factories: 3, ports: 1, universities: 2, forces: 10, mobilized: 0, monthlyRevenue: 10, monthlyExpenses: 9, monthlyBalance: 1, annualGrowthRate: 0.02, stability: 50, defenceBurdenPct: 2, warEffort: 10, socialTension: 5, nominalGdpUsdBillions: 4500, gdpPerCapitaUsd: 45000, government: 'repubblica' },
+        },
+        resources: {
+          stock: { money: 20, food: 4, clothing: 3, weapons: 10, fuel: 2, research: 10, technologies: [] },
+          capacity: { food: 8, clothing: 6, weapons: 20, fuel: 5 },
+          needs: { food: 1.2, clothing: 0.5, weapons: 0.3, fuel: 0.6 },
+        },
+      },
+    };
+    const vars = new PromptBuilder(materialGame).buildVariables();
+    // Il modello vede la copertura reale e il tetto del magazzino, così le sue
+    // leve materiali restano dentro la capacità della nazione.
+    expect(vars.STRATEGIC_STATE).toContain('Magazzino materiale');
+    expect(vars.STRATEGIC_STATE).toContain('mesi di copertura');
+    expect(vars.STRATEGIC_STATE).toContain('Capacità di stoccaggio');
+    expect(buildSimulationPrompt(vars)).toContain('Capacità di stoccaggio');
   });
 
   it('для провинциальной карты передаёт настоящее имя страны, все регионы и суммарные ресурсы', () => {

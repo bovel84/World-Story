@@ -14,6 +14,8 @@ import { NPCCountryAgent, NPCCountryContext, createNPCCountries, type NPCAction 
 import { PromptEngine } from './prompt-builder';
 import type { SimulationChatStart, SimulationEvent } from './prompts/types';
 import type { StrictEffect } from './core/simulation/EffectValidator';
+import type { GovernmentSnapshot } from './core/simulation/GovernmentFactions';
+import type { GovernmentVoices } from './prompts/government';
 
 export class GameController {
   private provider: LLMRouter;
@@ -147,6 +149,16 @@ export class GameController {
     }
 
     return this.promptEngine!.getAdvisorStream(gameData, message, history, onToken);
+  }
+
+  /**
+   * Anime del governo: il modello dà voce alle fazioni calcolate dal motore.
+   */
+  async getGovernmentVoiceWithPrompts(gameData: any, snapshot: GovernmentSnapshot): Promise<GovernmentVoices | null> {
+    if (!this.promptEngine) {
+      this.initPromptEngine(gameData);
+    }
+    return this.promptEngine!.getGovernmentVoice(gameData, snapshot);
   }
 
   /**

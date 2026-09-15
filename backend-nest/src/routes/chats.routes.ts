@@ -52,6 +52,9 @@ function chatPayload(chat: any) {
     polityName: chat.polityName,
     polityColor: chat.polityColor,
     participants: chat.participants,
+    subject: chat.subject ?? null,
+    archived: !!chat.archived,
+    archivedAt: chat.archivedAt ?? null,
     createdAt: chat.createdAt,
     lastMessageAt: chat.lastMessageAt,
     lastMessageGameDate: chat.lastMessageGameDate ?? null,
@@ -72,17 +75,22 @@ function messagePayload(m: any) {
   };
 }
 
-// Elenco chat della partita
+// Elenco chat della partita. Di default solo le discussioni attive; con
+// ?includeArchived=1 anche quelle archiviate (la UI le mostra a parte).
 chatsRouter.get('/:id/chats', (req, res) => {
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    res.json({ chats: session.getChats().map(chatPayload) });
+    const includeArchived = req.query.includeArchived === '1' || req.query.includeArchived === 'true';
+    res.json({ chats: session.getChats(includeArchived).map(chatPayload) });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get chats');
   }
 });
 
-// Crea (o restituisce l'esistente) chat con una o più politie — idempotente
+// Apre una NUOVA discussione con una o più politie. Ogni discussione è una chat
+// distinta: le precedenti con gli stessi interlocutori vanno in archivio.
+// `subject` dà un titolo alla discussione; `dedupeKey` rende idempotente un
+// riepilogo della stessa riunione.
 chatsRouter.post('/:id/chats', (req, res) => {
   const body = req.body || {};
   // Nuovo formato: polityNames[] (gruppo). Retrocompatibilità: polityName singolo.
@@ -94,13 +102,41 @@ chatsRouter.post('/:id/chats', (req, res) => {
     res.status(400).json({ error: 'polityNames is required (array of polity names)' });
     return;
   }
+  const subject = typeof body.subject === 'string' ? body.subject.trim().slice(0, 120) : undefined;
+  const dedupeKey = typeof body.dedupeKey === 'string' && body.dedupeKey.trim()
+    ? body.dedupeKey.trim().slice(0, 200)
+    : undefined;
 
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    const chat = session.ensureChat(names);
+    const chat = session.ensureChat(names, { subject, dedupeKey, origin: 'player' });
     res.json({ chat: chatPayload(chat) });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to create chat');
+  }
+});
+
+// Archivia una discussione: esce dall'elenco attivo ma resta consultabile.
+chatsRouter.post('/:id/chats/:chatId/archive', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    session.archiveChat(req.params.chatId);
+    const chat = session.getChats(true).find((item: any) => item.id === req.params.chatId);
+    res.json({ chat: chat ? chatPayload(chat) : null });
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to archive chat');
+  }
+});
+
+// Riapre una discussione archiviata.
+chatsRouter.post('/:id/chats/:chatId/unarchive', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    session.unarchiveChat(req.params.chatId);
+    const chat = session.getChats(true).find((item: any) => item.id === req.params.chatId);
+    res.json({ chat: chat ? chatPayload(chat) : null });
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to unarchive chat');
   }
 });
 

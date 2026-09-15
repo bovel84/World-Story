@@ -546,8 +546,10 @@ export function procurementOption(equipment: Equipment, capacity: NationCapacity
   const factor = resourceCostFactor(equipment, capacity.endowment);
   const buildCostMln = Math.round(equipment.costMln * factor);
   const buyCostMln = Math.round(equipment.costMln * IMPORT_MARKUP);
-  // Potere d'acquisto = cassa + credito residuo: si può andare a debito.
-  const purchasingPowerMln = capacity.money * 1000 + Math.max(0, (capacity.credit || 0) * 1000);
+  // Potere d'acquisto = cassa disponibile + credito residuo: si può andare a
+  // debito. Una tesoreria negativa è debito già contato nel credito residuo,
+  // quindi la cassa non può mai sottrarre potere d'acquisto.
+  const purchasingPowerMln = Math.max(0, capacity.money) * 1000 + Math.max(0, (capacity.credit || 0) * 1000);
   const affordBuild = purchasingPowerMln >= buildCostMln && capacity.weapons >= equipment.weaponsCost;
   if (!affordBuild) {
     if (purchasingPowerMln < buildCostMln) reasons.push('cassa e credito insufficienti (debito al limite)');

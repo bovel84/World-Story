@@ -146,4 +146,22 @@ describe('la cassa segue le scelte del giocatore', () => {
     expect(after).toBeGreaterThan(before);
   });
 
+  it('alla scadenza il progetto è chiuso e passa tra i «Completati»', async () => {
+    const partial = await spendOf('partial');
+    expect(partial.session.getOngoingProcesses()).toHaveLength(1);
+
+    // Oltre la scadenza dichiarata (1952-01-01) il motore chiude il progetto:
+    // non resta «in corso» al 99% per sempre.
+    const bulletins = partial.session.refreshProjectProgress('1952-02-01');
+    expect(bulletins.join(' ')).toContain('completato');
+    expect(partial.session.getOngoingProcesses()).toHaveLength(0);
+
+    const completed = partial.session.getCompletedProcesses();
+    expect(completed).toHaveLength(1);
+    expect(completed[0].status).toBe('completed');
+    expect(completed[0].progress).toBe(100);
+    // La data di chiusura è quella di GIOCO, non il timestamp reale.
+    expect(completed[0].completed_date).toBe('1952-02-01');
+  });
+
 });

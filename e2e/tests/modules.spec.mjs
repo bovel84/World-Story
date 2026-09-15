@@ -107,7 +107,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     // Conoscenze e Politiche restavano irraggiungibili su desktop.
     const deskBox = await page.locator('.game-shell-desk').boundingBox();
     const tabs = page.locator('.nation-dock-tab');
-    await expect(tabs).toHaveCount(7);
+    await expect(tabs).toHaveCount(8);
     for (const tab of await tabs.all()) {
       const box = await tab.boundingBox();
       expect(box.x + box.width).toBeLessThanOrEqual(deskBox.x + deskBox.width + 1);
@@ -119,7 +119,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     // solo una barra senza numero.
     await page.locator('.nation-dock-tab', { hasText: 'Progetti' }).click();
     await expect(page.locator('.nation-dock-tab.active')).toHaveText('Progetti');
-    const progetti = page.locator('.nation-block[aria-label="Progetti e processi in corso"]');
+    const progetti = page.locator('.nation-block[aria-label="Progetti e processi"]');
     await expect(progetti).toContainText('Ferrovia transnazionale');
     await expect(progetti.locator('.nation-progress-pct').first()).toHaveText('38% completato');
     await expect(progetti.locator('[role="progressbar"]').first()).toHaveAttribute('aria-valuenow', '38');
@@ -127,6 +127,21 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     // Un progetto senza scadenza dichiarata resta «in corso», con la sua nota.
     await expect(progetti).toContainText('nessuna scadenza dichiarata');
     await expect(progetti.locator('.nation-progress-pct').nth(1)).toHaveText('35% completato');
+
+    // Sezione «Governo»: le anime del consiglio premono per i loro interessi.
+    await page.locator('.nation-dock-tab', { hasText: 'Governo' }).click();
+    await expect(page.locator('.nation-dock-tab.active')).toHaveText('Governo');
+    const governo = page.locator('.nation-block[aria-label="Consiglio dei ministri"]');
+    await expect(governo).toBeVisible();
+    await expect(governo).toContainText('Forze armate');
+    await expect(governo).toContainText('Lavoro e sindacati');
+    await expect(governo.locator('.nation-faction-card')).toHaveCount(7);
+    await expect(governo.locator('.nation-faction-card.is-dominant')).toContainText('Dominante');
+    await expect(governo.locator('.nation-faction-card.is-angriest')).toContainText('Preme di più');
+    // Le anime parlano con il motore LLM: la petizione è prosa, non statistica.
+    await expect(governo.locator('.nation-faction-voice')).toHaveCount(7);
+    await expect(governo).toContainText('servono mezzi e riserve addestrate');
+    await expect(governo).toContainText('Il consiglio si stringe attorno al bilancio');
 
     // Sezione «Cassa»: la valuta è la cifra centrale, con variazione reale e
     // mai letta come zero quando il magazzino è annidato in `stock`.
@@ -138,12 +153,37 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(cassa.locator('.nation-metric').first()).toContainText('185,85');
     await expect(cassa.locator('.nation-spark').first()).toBeVisible();
     await expect(cassa.locator('.nation-trend').first()).toContainText('vs mese scorso');
+    // Portafoglio del debito: titoli con tasso e scadenza, interessi annui,
+    // tasso di mercato e la possibilità di fare nuovo debito.
+    const debito = cassa.locator('.nation-debt-block');
+    await expect(debito).toBeVisible();
+    await expect(debito).toContainText('Portafoglio del debito');
+    await expect(debito).toContainText('Titolo 10 anni');
+    await expect(debito).toContainText('scadenza');
+    await expect(debito).toContainText('Interessi annui');
+    const borrow = debito.locator('.nation-borrow');
+    await expect(borrow).toBeVisible();
+    await expect(borrow.locator('button')).toBeEnabled();
+    await expect(borrow).toContainText('Spazio disponibile');
+    // Composizione del bilancio: le voci dietro i totali pubblicati dal motore.
+    const composizione = page.locator('.nation-block[aria-label="Composizione del bilancio"]');
+    await expect(composizione).toBeVisible();
+    await expect(composizione).toContainText('Imposta sul reddito');
+    await expect(composizione).toContainText('Difesa');
+    await expect(composizione).toContainText('Istruzione e ricerca');
+    // Il verdetto dice a colpo d'occhio come sta andando la nazione.
+    await page.locator('.nation-dock-tab', { hasText: 'Situazione' }).click();
+    const verdetto = page.locator('.nation-verdict');
+    await expect(verdetto).toBeVisible();
+    await expect(verdetto.locator('.nation-verdict-head')).toContainText('Come sta andando');
 
     // Nessuna duplicazione: la tesoreria non compare nel magazzino materiale.
     await page.locator('.nation-dock-tab', { hasText: 'Risorse e industria' }).click();
     const magazzino = page.locator('.nation-block[aria-label="Magazzino materiale"]');
     await expect(magazzino).toBeVisible();
     await expect(magazzino).toContainText('Cibo');
+    await expect(magazzino).toContainText('capacità');
+    await expect(magazzino).toContainText('mesi di copertura');
     await expect(magazzino).not.toContainText('Tesoreria');
     // La disponibilità dipende dal paese: il Dossier dice da dove viene.
     const capacita = page.locator('.nation-block[aria-label="Capacità produttive e territoriali"]');
@@ -182,6 +222,14 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(aria).toContainText('Requisiti non soddisfatti');
     await expect(aria).toContainText('manca la tecnologia Aeronautica avanzata');
     await expect(aria).toContainText('servono 5 fabbriche (ne hai 2)');
+
+    // Governo: una richiesta diventa un ordine reale. «Porta in consiglio»
+    // riempie la bozza e apre il compositore, senza spendere nulla.
+    await page.locator('.nation-dock-tab', { hasText: 'Governo' }).click();
+    const governoOrdine = page.locator('.nation-block[aria-label="Consiglio dei ministri"]');
+    await governoOrdine.locator('.nation-demand-order').first().click();
+    await expect(page.locator('#free-player-order')).toContainText('Difesa');
+    await expect(page.locator('#free-player-order')).toContainText('copertura di bilancio');
   });
 
   test('U03 mobile: la barra moduli resta toccabile e apre il Dossier', async ({ page }) => {

@@ -23,7 +23,7 @@ let capturedPrompt = '';
 /** Счётчик вызовов механики consolidation */
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
-let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_multi' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' = 'normal';
+let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' = 'normal';
 /** projectId da copiare nell'outcome di chiusura del fixture F01. */
 let projectToCompleteId: string | undefined;
 
@@ -179,7 +179,8 @@ function jumpResponse(): any {
     case 'auto_future':
       return {
         events: [
-          { headline: 'Il primo evento importante', description: 'La Polonia risponde alla proposta tedesca.', date: '1951-03-10', mapChanges: [] },
+          { headline: 'Il primo evento importante', description: 'La Polonia risponde alla proposta tedesca.', date: '1951-03-10', mapChanges: [],
+            reactions: [{ polityName: 'Polonia', role: 'counterparty', stance: 'conditional', response: 'Condiziona l’apertura a garanzie di confine.', counterAction: 'Richiama le riserve di confine.' }] },
           { headline: 'Un evento futuro da non applicare', description: 'La Francia subisce un cambio di governo successivo.', date: '1951-03-20', mapChanges: [] },
         ],
         narration: 'Il primo evento viene seguito da una crisi futura che non deve comparire.',
@@ -188,6 +189,22 @@ function jumpResponse(): any {
         relationshipChanges: [{ from: 'DEU', to: 'POL', relationship: 'ally', reason: 'Esito futuro' }],
         worldChanges: { regionOwners: { 'Francia': 'ФРГ' }, regionColors: {} },
         targetDate: '1951-03-20',
+      };
+    case 'auto_late_reaction':
+      // Auto-jump: i fatti di contorno NON fermano il salto; il salto si
+      // arresta sulla decisione NPC che risponde agli ordini del giocatore.
+      return {
+        events: [
+          { headline: 'Fatto di contorno del periodo', description: 'Un cantiere lontano dalle trattative avanza senza decisioni verso il giocatore.', date: '1951-02-20', mapChanges: [] },
+          { headline: 'La controparte decide', description: 'La Polonia risponde alla proposta tedesca con una decisione concreta.', date: '1951-03-10', mapChanges: [],
+            reactions: [{ polityName: 'Polonia', role: 'counterparty', stance: 'conditional', response: 'Accetta un negoziato limitato.', counterAction: 'Richiama le riserve di confine.' }] },
+          { headline: 'Conseguenza oltre la decisione', description: 'Fatto successivo alla decisione che non deve entrare nel checkpoint.', date: '1951-04-01', mapChanges: [{ type: 'transfer', regionName: 'Польша', newOwner: 'ФРГ' }] },
+        ],
+        narration: 'Il salto si ferma sulla decisione polacca.',
+        voided: [],
+        startChat: [],
+        worldChanges: { regionOwners: {}, regionColors: {} },
+        targetDate: '1951-04-01',
       };
     case 'intervene':
       return {
@@ -912,7 +929,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     expect(action.result.narration).toContain('La Polonia risponde alla proposta tedesca.');
     expect(action.result.narration).not.toContain('crisi futura');
     expect(capturedPrompt).toContain('Questa modalità PREVALE su qualunque istruzione del preset');
-    expect(capturedPrompt).toContain('targetDate DEVE essere identica alla data dell’unico evento emesso');
+    expect(capturedPrompt).toContain('Fermati SOLO sull\'evento che contiene quella decisione');
     expect(capturedPrompt).toContain('"targetDate":null');
     expect(capturedPrompt).toContain("oppure prendere un'iniziativa propria SOLO se deriva");
     jumpMode = 'normal';
@@ -967,15 +984,17 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     jumpMode = 'normal';
   });
 
-  it('T24: nell\'auto-jump due eventi sulla stessa data applicano solo il primo, senza aggiungere un giorno', async () => {
+  it('T24: nell\'auto-jump i fatti sulla stessa data restano sul medesimo giorno', async () => {
     jumpMode = 'auto_same';
     const { session } = createGame();
     session.queueAction('Attendere la svolta');
     const action = await session.processNextAction(0);
 
+    // Nessuno dei due eventi porta una decisione NPC: il budget li applica
+    // entrambi senza inventare un giorno in più.
     expect(session.getCurrentDate()).toBe('1951-03-10');
     expect(action.result.events).toContain('Primo evento del giorno');
-    expect(action.result.events).not.toContain('Secondo evento stesso giorno');
+    expect(action.result.events).toContain('Secondo evento stesso giorno');
     jumpMode = 'normal';
   });
 
@@ -995,7 +1014,25 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     // Il prompt vieta la traduzione meccanica ordine → dispaccio e consente
     // di raggruppare gli ordini appartenenti alla stessa catena causale.
     expect(capturedPrompt).toContain('NON trasformare automaticamente ciascun ordine');
-    expect(capturedPrompt).toContain('data dell’ultimo evento emesso');
+    expect(capturedPrompt).toContain('Fermati sull\'evento che contiene quella decisione');
+    jumpMode = 'normal';
+  });
+
+  it('auto-jump: prosegue oltre i fatti di contorno e si ferma sulla decisione NPC', async () => {
+    jumpMode = 'auto_late_reaction';
+    const { session } = createGame();
+    session.queueAction('Proporre un negoziato alla Polonia');
+
+    const action = await session.processNextAction(0);
+
+    // Il fatto di contorno si applica, la decisione polacca chiude il salto,
+    // la conseguenza successiva resta fuori dal checkpoint.
+    expect(session.getCurrentDate()).toBe('1951-03-10');
+    expect(action.result.events).toContain('Fatto di contorno del periodo');
+    expect(action.result.events).toContain('La controparte decide');
+    expect(action.result.events).not.toContain('Conseguenza oltre la decisione');
+    // La conseguenza troncata non ha trasferito la Polonia alla Germania.
+    expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('POL');
     jumpMode = 'normal';
   });
 });

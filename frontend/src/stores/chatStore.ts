@@ -8,6 +8,7 @@
 
 import { create } from 'zustand';
 import { chatsApi, type ChatSummaryData, type ChatMessageData } from '../services/api';
+import { archiveSiblingThreads } from '../components/Game/chatTimeline';
 
 export type ChatSummary = ChatSummaryData;
 export type ChatMessage = ChatMessageData;
@@ -46,6 +47,10 @@ interface ChatState {
   setChatPanelVisible: (visible: boolean) => void;
   refreshChats: () => Promise<void>;
   upsertChat: (chat: ChatSummary) => void;
+  /** Archivia una discussione (esce dall'elenco attivo, resta consultabile). */
+  archiveChat: (chatId: string) => Promise<void>;
+  /** Riapre una discussione archiviata. */
+  unarchiveChat: (chatId: string) => Promise<void>;
   setActiveChat: (chatId: string | null) => void;
   setMessages: (chatId: string, messages: ChatMessage[]) => void;
   appendMessage: (chatId: string, message: ChatMessage) => void;
@@ -90,7 +95,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { gameId } = get();
     if (!gameId || gameId.startsWith('local_')) return;
     try {
-      const data = await chatsApi.list(gameId);
+      // Anche le archiviate: la UI le mostra in una sezione separata e il
+      // totale non letti deve escluderle, non ignorarle del tutto.
+      const data = await chatsApi.list(gameId, true);
       if (get().gameId === gameId) set({ chats: data.chats || [] });
     } catch (e) {
       console.warn('[ChatStore] Impossibile caricare le chat:', e);
@@ -108,6 +115,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
   }),
 
   setActiveChat: (chatId) => set({ activeChatId: chatId }),
+
+  archiveChat: async (chatId) => {
+    const { gameId } = get();
+    // Ottimistico: l'archivio è reversibile e non deve attendere il server.
+    set((state) => ({
+      chats: state.chats.map(c => (c.id === chatId ? { ...c, archived: true, unread: 0 } : c)),
+    }));
+    if (!gameId || gameId.startsWith('local_')) return;
+    try {
+      const { chat } = await chatsApi.archive(gameId, chatId);
+      if (chat) set((state) => ({ chats: state.chats.map(c => (c.id === chatId ? { ...c, ...chat } : c)) }));
+    } catch (e) {
+      console.warn('[ChatStore] Impossibile archiviare la discussione:', e);
+      set((state) => ({ chats: state.chats.map(c => (c.id === chatId ? { ...c, archived: false } : c)) }));
+    }
+  },
+
+  unarchiveChat: async (chatId) => {
+    const { gameId } = get();
+    set((state) => ({
+      chats: state.chats.map(c => (c.id === chatId ? { ...c, archived: false, archivedAt: null } : c)),
+    }));
+    if (!gameId || gameId.startsWith('local_')) return;
+    try {
+      const { chat } = await chatsApi.unarchive(gameId, chatId);
+      if (chat) set((state) => ({ chats: state.chats.map(c => (c.id === chatId ? { ...c, ...chat } : c)) }));
+    } catch (e) {
+      console.warn('[ChatStore] Impossibile riaprire la discussione:', e);
+      set((state) => ({ chats: state.chats.map(c => (c.id === chatId ? { ...c, archived: true } : c)) }));
+    }
+  },
 
   setMessages: (chatId, messages) => set((state) => ({
     messagesByChat: { ...state.messagesByChat, [chatId]: messages },
@@ -168,7 +206,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ? [updated, ...state.chats.filter(c => c.id !== chatId)]
       : [updated, ...state.chats];
 
-    return { messagesByChat, chats };
+    return { messagesByChat, chats: archiveSiblingThreads(chats, chatId) };
   }),
 
   addAdvisorMessage: (msg) => set((state) => ({
@@ -191,6 +229,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   reset: () => set(initialState),
 }));
 
-/** Totale unread su tutte le chat (per i badge) */
+/** Totale unread sulle discussioni ATTIVE (le archiviate non pesano sui badge) */
 export const selectTotalUnread = (state: ChatState): number =>
-  state.chats.reduce((sum, c) => sum + (c.unread || 0), 0);
+  state.chats.reduce((sum, c) => sum + (c.archived ? 0 : (c.unread || 0)), 0);

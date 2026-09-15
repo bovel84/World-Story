@@ -2139,9 +2139,120 @@ html, body { margin: 0; }
 .nation-progress-row .nation-progress-note { color: #93a3bb; font: 500 11.5px/1.5 system-ui, sans-serif; }
 .nation-process-note { display: block; margin-top: 4px; color: #93a3bb; }
 
+/* Progetti raggruppati per ambito (Difesa, Infrastrutture, Ricerca…). */
+.nation-process-group { display: flex; flex-direction: column; gap: 8px; margin: 0 0 14px; }
+.nation-process-group:last-of-type { margin-bottom: 0; }
+.nation-process-category { margin: 0; padding-bottom: 5px; border-bottom: 1px solid #2c3d57; color: #9fb7d8; font: 700 11px/1.2 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.nation-process-group.is-completed .nation-process-category { color: #7fc79a; border-bottom-color: #2f5340; }
+.nation-process-group.is-completed .nation-process-list li { border-color: #2f5340; background: #0f1f19; }
+
 /* Provenienza della disponibilità: da che cosa il paese è «disponibile». */
 .nation-capacity-source { margin: 10px 0 0; padding: 9px 11px; border: 1px solid #2c3d57; border-radius: 10px; background: #101c2f; color: #b9c7db; font: 500 12px/1.6 system-ui, sans-serif; }
 .nation-capacity-source b { color: #e8eef8; }
+
+/* «Come sta andando»: il giudizio sintetico, in testa alla Situazione. */
+.nation-verdict { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding: 12px 14px 12px 16px; border: 1px solid #354966; border-left: 4px solid #6f83a3; border-radius: 10px; background: #101d31; }
+.nation-verdict.tone-positive { border-left-color: #5fb98a; background: #0f2620; }
+.nation-verdict.tone-warning { border-left-color: #d9b061; background: #241f11; }
+.nation-verdict.tone-negative { border-left-color: #d97b7b; background: #271418; }
+.nation-verdict-head { display: flex; flex-direction: column; gap: 2px; }
+.nation-verdict-kicker { color: #9b8adb; font: 700 10px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.nation-verdict-head b { color: #f3f6fc; font: 700 19px/1.1 Georgia, serif; }
+.nation-verdict.tone-positive .nation-verdict-head b { color: #a9e8c4; }
+.nation-verdict.tone-warning .nation-verdict-head b { color: #f0ce8f; }
+.nation-verdict.tone-negative .nation-verdict-head b { color: #f0a9a9; }
+.nation-verdict p { margin: 0; color: #b9c7db; font: 12.5px/1.5 system-ui, sans-serif; }
+.nation-verdict-signals { display: flex; flex-wrap: wrap; gap: 5px 8px; margin: 0; padding: 0; list-style: none; }
+.nation-verdict-signals li { padding: 3px 8px; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 999px; background: rgba(255, 255, 255, 0.04); color: #c6d3e6; font: 500 11px/1.3 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+
+/* Composizione del bilancio: entrate e uscite, voce per voce. */
+.nation-budget-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.nation-budget-group { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #354966; border-radius: 10px; background: #101d31; }
+.nation-budget-group.nation-budget-revenue { border-top: 3px solid #5fb98a; }
+.nation-budget-group.nation-budget-expense { border-top: 3px solid #8a93a8; }
+.nation-budget-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.nation-budget-head h4 { margin: 0; color: #e8eef8; font: 700 13px/1.2 system-ui, sans-serif; }
+.nation-budget-head b { color: #eef3fc; font: 700 15px/1.1 Georgia, serif; font-variant-numeric: tabular-nums; }
+.nation-budget-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.nation-budget-row { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; align-items: center; }
+.nation-budget-label { grid-column: 1; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.nation-budget-label span { color: #c6d3e6; font: 500 12px/1.3 system-ui, sans-serif; }
+.nation-budget-label em { color: #93a6c2; font: 600 11px/1.3 system-ui, sans-serif; font-style: normal; font-variant-numeric: tabular-nums; }
+.nation-budget-amount { grid-column: 2; color: #eef3fc; font: 600 12.5px/1.3 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.nation-budget-row .nation-share-bar { grid-column: 1 / -1; }
+.nation-share-bar { display: block; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.nation-share-bar > i { display: block; height: 100%; border-radius: 999px; background: #6f83a3; transition: width .25s ease; }
+.nation-share-bar.tone-positive > i { background: linear-gradient(90deg, #3f9d76, #5fb98a); }
+.nation-share-bar.tone-warning > i { background: linear-gradient(90deg, #b28b3f, #d9b061); }
+.nation-share-bar.tone-negative > i { background: linear-gradient(90deg, #a95656, #d97b7b); }
+
+/* Debito: il portafoglio di titoli con tasso e scadenza. */
+.nation-debt-block { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.nation-subhead { margin: 0; color: #dbe6f5; font: 700 12.5px/1.2 system-ui, sans-serif; letter-spacing: .02em; }
+.nation-debt-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.nation-debt-row { display: flex; flex-direction: column; gap: 4px; padding: 9px 11px; border: 1px solid #354966; border-radius: 9px; background: #101d31; }
+.nation-debt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.nation-debt-head span { color: #c6d3e6; font: 500 12px/1.3 system-ui, sans-serif; }
+.nation-debt-head b { color: #eef3fc; font: 600 12.5px/1.3 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.nation-debt-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.nation-debt-meta em { color: #93a6c2; font: 500 11px/1.3 system-ui, sans-serif; font-style: normal; font-variant-numeric: tabular-nums; }
+.nation-debt-overdraft { margin: 0; color: #f0ce8f; font: 500 12px/1.45 system-ui, sans-serif; }
+.nation-borrow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding: 11px; border: 1px dashed #41597a; border-radius: 10px; background: rgba(16, 29, 49, 0.7); }
+.nation-borrow label { display: flex; flex-direction: column; gap: 4px; }
+.nation-borrow label span { color: #9fb0c9; font: 600 10.5px/1 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; }
+.nation-borrow input, .nation-borrow select { min-width: 96px; padding: 6px 8px; border: 1px solid #3c5274; border-radius: 7px; background: #0c1626; color: #e8eef8; font: 600 12.5px/1.2 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.nation-borrow button { padding: 7px 14px; border: 1px solid #6d5cc0; border-radius: 8px; background: linear-gradient(180deg, #6a58bd, #55479c); color: #f2effd; font: 700 12px/1 system-ui, sans-serif; cursor: pointer; }
+.nation-borrow button:disabled { opacity: .5; cursor: not-allowed; }
+.nation-borrow-hint { color: #93a6c2; font: 500 11px/1.3 system-ui, sans-serif; }
+
+/* Governo: le anime del consiglio dei ministri. */
+.nation-government-summary { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.nation-government-headline { margin: 0; padding: 11px 13px; border: 1px solid #4a3f78; border-left: 4px solid #a99af0; border-radius: 10px; background: #191b36; color: #e4e1f8; font: 600 13.5px/1.5 system-ui, sans-serif; }
+.nation-government-status { margin: 0; color: #b9c7db; font: 500 12px/1.4 system-ui, sans-serif; font-style: italic; }
+.nation-government-status.is-error { color: #f0ce8f; font-style: normal; }
+.nation-faction-voice { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 10px 13px 10px 15px; border-left: 3px solid #7564b1; border-radius: 0 9px 9px 0; background: rgba(120, 96, 208, 0.1); }
+.nation-faction-voice.tone-positive { border-left-color: #5fb98a; background: rgba(95, 185, 138, 0.1); }
+.nation-faction-voice.tone-warning { border-left-color: #d9b061; background: rgba(217, 176, 97, 0.1); }
+.nation-faction-voice.tone-negative { border-left-color: #d97b7b; background: rgba(217, 123, 123, 0.1); }
+.nation-voice-kicker { color: #9b8adb; font: 700 9.5px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.nation-faction-voice p { margin: 0; color: #e6e1fb; font: italic 12.5px/1.55 Georgia, serif; }
+.nation-faction-speaking { margin: 0; color: #8fa0bc; font: italic 12.5px/1.5 Georgia, serif; animation: nation-speaking 1.4s ease-in-out infinite; }
+@keyframes nation-speaking { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .nation-faction-speaking { animation: none; opacity: .8; } }
+.nation-faction-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.nation-faction-card { display: flex; flex-direction: column; gap: 10px; padding: 13px 14px 13px 16px; border: 1px solid #354966; border-left: 4px solid #6f83a3; border-radius: 11px; background: #101d31; }
+.nation-faction-card.tone-positive { border-left-color: #5fb98a; }
+.nation-faction-card.tone-warning { border-left-color: #d9b061; }
+.nation-faction-card.tone-negative { border-left-color: #d97b7b; }
+.nation-faction-card.is-dominant { box-shadow: inset 0 0 0 1px #7564b1; }
+.nation-faction-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.nation-faction-head b { display: block; color: #f3f6fc; font: 700 15px/1.2 Georgia, serif; }
+.nation-faction-head > div > span { display: block; margin-top: 2px; color: #9fb0c9; font: 500 11.5px/1.35 system-ui, sans-serif; }
+.nation-faction-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.nation-badge { padding: 2px 8px; border-radius: 999px; font: 700 10px/1.6 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+.nation-badge-dominant { border: 1px solid #7564b1; background: #262044; color: #d8d0ff; }
+.nation-badge-angriest { border: 1px solid #b96a6a; background: #2c171b; color: #f4c4c4; }
+.nation-stance { padding: 2px 9px; border-radius: 999px; border: 1px solid #4a5f7e; color: #c6d3e6; font: 700 10.5px/1.6 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+.nation-stance.tone-positive { border-color: #3f9d76; background: #12301f; color: #a9e8c4; }
+.nation-stance.tone-warning { border-color: #b28b3f; background: #2a2210; color: #f0ce8f; }
+.nation-stance.tone-negative { border-color: #b96a6a; background: #2c171b; color: #f0a9a9; }
+.nation-faction-gauges { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.nation-gauge { display: flex; flex-direction: column; gap: 4px; }
+.nation-gauge > span { display: flex; justify-content: space-between; gap: 8px; color: #a3b4cd; font: 600 11px/1.3 system-ui, sans-serif; }
+.nation-gauge > span b { color: #eef3fc; font-variant-numeric: tabular-nums; }
+.nation-faction-demand { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid #2c3d57; border-radius: 9px; background: #0d1728; }
+.nation-demand-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.nation-lever { padding: 2px 8px; border-radius: 4px; background: #2a1f4d; color: #cfc5ff; font: 700 10px/1.6 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
+.nation-demand-head b { color: #eef3fc; font: 600 13px/1.3 system-ui, sans-serif; }
+.nation-faction-demand p { margin: 0; color: #b3c1d5; font: 12px/1.5 system-ui, sans-serif; }
+.nation-demand-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.nation-demand-order { padding: 6px 12px; border: 1px solid #7564b1; border-radius: 8px; background: #262044; color: #ece9ff; font: 700 11.5px/1 system-ui, sans-serif; cursor: pointer; }
+.nation-demand-order:hover { background: #332a58; }
+.nation-demand-order:focus-visible { outline: 2px solid #a58df8; outline-offset: 2px; }
+.nation-demand-actions em { font: 600 11px/1.3 system-ui, sans-serif; font-style: normal; }
+.nation-demand-actions em.tone-negative { color: #f0a9a9; }
+.nation-demand-actions em.tone-warning { color: #f0ce8f; }
+.nation-demand-actions em.tone-positive { color: #a9e8c4; }
 
 /* Cifre del bollettino su carta chiara: restano inchiostro editoriale. */
 .nation-bulletin-card .nation-ledger-cell { padding: 8px 7px; display: flex; flex-direction: column; gap: 4px; }
@@ -2396,3 +2507,57 @@ html, body { margin: 0; }
 .world-news-panel .event-feed-item.cat-war:hover { background: #2a1a1f !important; border-color: #e2604f !important; }
 .world-news-panel .event-feed-item.cat-war .feed-item-text { color: #ffe3df !important; }
 .newspaper-article-header .feed-item-badge { margin: 0 6px; }
+
+/* ==========================================================================
+   Menù di gioco (fuori dal dossier): Salva / Carica / Mondo / Modello
+   Pulsante unico nella barra HUD, con popover ancorato.
+   ========================================================================== */
+.game-menu { position: relative; display: inline-flex; flex-shrink: 0; }
+.game-menu-btn { font-size: 1.05rem; }
+.game-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 1600;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: #0c121cd9;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  box-shadow: 0 18px 40px #000000b3;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.game-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #dfe6f2;
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.game-menu-item:hover,
+.game-menu-item:focus-visible {
+  background: #1e2a3ecc;
+  color: #fff;
+  outline: none;
+}
+.game-menu-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: rgba(255, 255, 255, 0.12);
+}
+/* Mobile: il popover resta dentro lo schermo */
+@media (max-width: 480px) {
+  .game-menu-dropdown { min-width: 160px; }
+}

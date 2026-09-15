@@ -11,7 +11,7 @@
  * della nazione si legge a colpo d'occhio.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { Region } from '../../types';
 import {
   initialNationDockState,
@@ -20,14 +20,27 @@ import {
   NATION_SECTION_LABEL,
 } from '../../stores/nationDock';
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
-import type { ArsenalResponse, NaturalResourceSummary, ResourceQuote } from '../../services/api';
+import type { ArsenalResponse, BudgetLine, GovernmentFaction, GovernmentSnapshot, GovernmentVoicesResponse, NaturalResourceSummary, ResourceQuote, SovereignDebtTranche } from '../../services/api';
 import { deltaTone, sparkPoints, trendFrom, trendLabel, type Trend, type TrendTone } from './accountTrend';
 import {
   financeBalance,
   hasNationalFinance,
   summarizeNationalAssets,
+  type CompletedProcess,
   type NationalProcess,
 } from './nationDossier';
+import { groupProjectsByCategory } from './projectCategory';
+import {
+  LEVER_LABEL,
+  STANCE_LABEL,
+  factionOrderText,
+  nationalVerdict,
+  pressureLabel,
+  pressureTone,
+  satisfactionTone,
+  stanceTone,
+  type NationalVerdict,
+} from './governmentDossier';
 
 /** Conto nazionale aggregato (shape di `WorldStateEngine.accounts`). */
 export interface NationAccount {
@@ -47,6 +60,10 @@ export interface NationAccount {
   annualGrowthRate?: number;
   stability?: number;
   defenceBurdenPct?: number;
+  /** Debito pubblico lordo ereditato in % del PIL (dal registro reale). */
+  debtBurdenPct?: number;
+  /** Rapporto debito/PIL effettivo (titoli emessi + scoperto), calcolato dal motore. */
+  debtRatioPct?: number;
   warEffort?: number;
   socialTension?: number;
   nominalGdpUsdBillions?: number;
@@ -78,13 +95,25 @@ export interface NationResources {
   debt?: number;
   creditLimit?: number;
   creditHeadroom?: number;
+  /** Portafoglio del debito: titoli con tasso e scadenza. */
+  debts?: SovereignDebtTranche[];
+  /** Scoperto di cassa puro, distinto dai titoli emessi. */
+  overdraft?: number;
+  /** Interessi passivi annui sull'intero debito (mld). */
+  annualInterest?: number;
+  /** Scadenza media ponderata residua dei titoli (anni). */
+  averageMaturityYears?: number;
+  debtRatioPct?: number;
+  /** Tasso di mercato oggi per una nuova emissione. */
+  marketRatePct?: number;
+  /** Capacità di stoccaggio e fabbisogno mensile del magazzino materiale. */
+  capacity?: { food?: number; clothing?: number; weapons?: number; fuel?: number };
+  needs?: { food?: number; clothing?: number; weapons?: number; fuel?: number };
   /** Modificatori nazionali attivi (proposti dal modello, decadono nel tempo). */
   modifiers?: { stability?: number; socialTension?: number; warEffort?: number; revenueMultiplier?: number; growthModifier?: number };
 }
 
 interface NationDockProps {
-  /** Nome della POLITY del giocatore (mai la provincia selezionata). */
-  nationalName: string;
   governmentType: string;
   account?: NationAccount | null;
   /** Magazzino materiale pubblicato dal motore (legacy). */
@@ -99,10 +128,22 @@ interface NationDockProps {
   accountHistory?: HistoryPoint[];
   regions?: Region[];
   ongoingProcesses?: NationalProcess[];
+  /** Progetti chiusi di recente, mostrati sotto «Completati». */
+  completedProcesses?: CompletedProcess[];
   mandateDecisions?: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>;
   onAcknowledgeMandateDecision?: (mandateId: string, kind: string) => Promise<void>;
-  campaignProgress: number;
-  latestNarration: string;
+  /** Anime del governo e dettaglio del bilancio calcolati dal motore. */
+  government?: GovernmentSnapshot | null;
+  /** Trasforma la richiesta di una fazione in una bozza d'ordine reale. */
+  onDraftOrder?: (text: string) => void;
+  /** Voci delle anime del governo generate dall'LLM (per il turno corrente). */
+  governmentVoices?: GovernmentVoicesResponse | null;
+  governmentVoicesLoading?: boolean;
+  governmentVoicesError?: string | null;
+  /** Chiede al motore LLM di far parlare il consiglio (on-demand). */
+  onLoadGovernmentVoices?: () => void;
+  /** La nazione fa debito: emette titoli con tasso di mercato e scadenza. */
+  onBorrowDebt?: (amountMld: number, termYears: number) => Promise<void>;
 }
 
 /** Un punto dello storico: data di gioco e conto già pubblicato dal motore. */
@@ -230,15 +271,6 @@ function MetricGrid({ children }: { children: React.ReactNode }) {
   return <div className="nation-metric-grid">{children}</div>;
 }
 
-/** Cifra in stile editoriale, per il bollettino su carta chiara. */
-function LedgerMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="nation-ledger-cell">
-      <small>{label}</small>
-      <b>{value}</b>
-    </span>
-  );
-}
 
 /** Blocco tematico: titolo + eventuale descrizione + corpo. */
 function DossierBlock({
@@ -362,6 +394,157 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="nation-empty" role="note">{children}</div>;
 }
 
+/** Barra sottile per quote, soddisfazione e pressione (sola presentazione). */
+function ShareBar({ value, tone = 'neutral' }: { value: number; tone?: Tone }) {
+  const width = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
+  return (
+    <span className={`nation-share-bar tone-${tone}`} aria-hidden="true">
+      <i style={{ width: `${width}%` }} />
+    </span>
+  );
+}
+
+/** Ripartizione di entrate o uscite: ogni voce con importo e quota. */
+function BudgetBreakdown({ title, lines, total, kind }: {
+  title: string;
+  lines: BudgetLine[];
+  total: number;
+  kind: 'revenue' | 'expense';
+}) {
+  if (lines.length === 0) return null;
+  return (
+    <div className={`nation-budget-group nation-budget-${kind}`}>
+      <div className="nation-budget-head">
+        <h4>{title}</h4>
+        <b>{formatMoney(total, { currency: 'mld', decimals: 2, sign: true })}</b>
+      </div>
+      <ul className="nation-budget-list">
+        {lines.map((line) => (
+          <li key={line.id} className="nation-budget-row">
+            <div className="nation-budget-label">
+              <span>{line.label}</span>
+              <em>{formatPercent(line.sharePct, 1)}</em>
+            </div>
+            <ShareBar value={line.sharePct} tone={kind === 'revenue' ? 'positive' : 'neutral'} />
+            <b className="nation-budget-amount">{formatMoney(line.amount, { currency: 'mld', decimals: 2 })}</b>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Portafoglio del debito: ogni titolo emesso con tasso e scadenza. È la fonte
+ * del debito pubblico, distinta dallo scoperto di cassa: si vede quanto costa
+ * ogni emissione e quando torna a scadenza.
+ */
+function DebtPortfolio({ tranches, total }: { tranches: SovereignDebtTranche[]; total: number }) {
+  if (tranches.length === 0) return null;
+  const ordered = [...tranches].sort((a, b) => a.maturityDate.localeCompare(b.maturityDate));
+  return (
+    <ul className="nation-debt-list">
+      {ordered.map((tranche) => (
+        <li key={tranche.id} className="nation-debt-row">
+          <div className="nation-debt-head">
+            <span>{tranche.label}</span>
+            <b>{formatMoney(tranche.principal, { currency: 'mld', decimals: 2 })}</b>
+          </div>
+          <ShareBar value={total > 0 ? (tranche.principal / total) * 100 : 0} tone="warning" />
+          <div className="nation-debt-meta">
+            <em>{formatPercent(tranche.annualRatePct, 1)} annuo</em>
+            <em>scadenza {formatDate(tranche.maturityDate)}</em>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Giudizio su «come sta andando la nazione», derivato dai numeri del motore. */
+function VerdictBanner({ verdict }: { verdict: NationalVerdict }) {
+  return (
+    <div className={`nation-verdict tone-${verdict.tone}`} role="status">
+      <div className="nation-verdict-head">
+        <span className="nation-verdict-kicker">Come sta andando</span>
+        <b>{verdict.title}</b>
+      </div>
+      <p>{verdict.detail}</p>
+      <ul className="nation-verdict-signals">
+        {verdict.signals.map((signal) => <li key={signal}>{signal}</li>)}
+      </ul>
+    </div>
+  );
+}
+
+/** Una delle anime del governo: interesse, influenza, umore e richiesta. */
+function FactionCard({ faction, dominant, angriest, onDraftOrder, voice, speaking }: {
+  faction: GovernmentFaction;
+  dominant: boolean;
+  angriest: boolean;
+  onDraftOrder?: (text: string) => void;
+  /** Petizione generata dal motore LLM (facoltativa). */
+  voice?: string;
+  /** Il consiglio sta parlando: mostra un segnaposto invece del nulla. */
+  speaking?: boolean;
+}) {
+  const stance = stanceTone(faction.stance);
+  return (
+    <article className={`nation-faction-card tone-${stance}${dominant ? ' is-dominant' : ''}${angriest ? ' is-angriest' : ''}`}>
+      <header className="nation-faction-head">
+        <div>
+          <b>{faction.name}</b>
+          <span>{faction.interest}</span>
+        </div>
+        <div className="nation-faction-badges">
+          {dominant && <span className="nation-badge nation-badge-dominant">Dominante</span>}
+          {angriest && <span className="nation-badge nation-badge-angriest">Preme di più</span>}
+          <span className={`nation-stance tone-${stance}`}>{STANCE_LABEL[faction.stance]}</span>
+        </div>
+      </header>
+      <div className="nation-faction-gauges">
+        <div className="nation-gauge">
+          <span>Influenza <b>{formatPercent(faction.powerPct, 1)}</b></span>
+          <ShareBar value={faction.powerPct} tone="neutral" />
+        </div>
+        <div className="nation-gauge">
+          <span>Soddisfazione <b>{formatPercent(faction.satisfaction, 0)}</b></span>
+          <ShareBar value={faction.satisfaction} tone={satisfactionTone(faction.satisfaction)} />
+        </div>
+        <div className="nation-gauge">
+          <span>Pressione <b>{formatPercent(faction.pressure, 0)}</b></span>
+          <ShareBar value={faction.pressure} tone={pressureTone(faction.pressure)} />
+        </div>
+      </div>
+      {voice ? (
+        <blockquote className={`nation-faction-voice tone-${stance}`}>
+          <span className="nation-voice-kicker">La voce in consiglio</span>
+          <p>{voice}</p>
+        </blockquote>
+      ) : speaking ? (
+        <p className="nation-faction-speaking" role="status">Sta prendendo la parola…</p>
+      ) : null}
+      <div className="nation-faction-demand">
+        <div className="nation-demand-head">
+          <span className="nation-lever">{LEVER_LABEL[faction.demand.lever]}</span>
+          <b>{faction.demand.title}</b>
+        </div>
+        <p>{faction.demand.detail}</p>
+        <div className="nation-demand-actions">
+          {onDraftOrder && (
+            <button
+              type="button"
+              className="nation-demand-order"
+              onClick={() => onDraftOrder(factionOrderText(faction))}
+            >Porta in consiglio</button>
+          )}
+          <em className={`tone-${pressureTone(faction.pressure)}`}>{pressureLabel(faction.pressure)} · urgenza {formatPercent(faction.demand.urgency, 0)}</em>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 /**
  * Caratteristiche tecniche di un equipaggiamento (sola lettura del catalogo).
  * Serve a rispondere a «che cos'è questo mezzo», non solo «quanti ne ho».
@@ -381,7 +564,6 @@ function EquipmentSpecs({ specs }: { specs: Array<{ label: string; value: string
 }
 
 export const NationDock: React.FC<NationDockProps> = ({
-  nationalName,
   governmentType,
   account,
   resources,
@@ -391,13 +573,34 @@ export const NationDock: React.FC<NationDockProps> = ({
   accountHistory = [],
   regions = [],
   ongoingProcesses = [],
+  completedProcesses = [],
   mandateDecisions = [],
   onAcknowledgeMandateDecision,
-  campaignProgress,
-  latestNarration,
+  government,
+  onDraftOrder,
+  governmentVoices,
+  governmentVoicesLoading = false,
+  governmentVoicesError,
+  onLoadGovernmentVoices,
+  onBorrowDebt,
 }) => {
   const [state, setState] = useState(initialNationDockState);
   const [trading, setTrading] = useState(false);
+  const [borrowing, setBorrowing] = useState(false);
+  const [borrowAmount, setBorrowAmount] = useState('');
+  const [borrowTerm, setBorrowTerm] = useState(10);
+  const runBorrow = async () => {
+    if (!onBorrowDebt || borrowing) return;
+    const amount = Number(borrowAmount.replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    setBorrowing(true);
+    try {
+      await onBorrowDebt(amount, borrowTerm);
+      setBorrowAmount('');
+    } finally {
+      setBorrowing(false);
+    }
+  };
   const runTrade = async (mode: 'sell' | 'buy', resourceId: string, quantity: number) => {
     if (!trade || trading) return;
     setTrading(true);
@@ -409,6 +612,8 @@ export const NationDock: React.FC<NationDockProps> = ({
   };
   const active = state.activeSection;
   const assets = useMemo(() => summarizeNationalAssets(regions, account), [regions, account]);
+  // I progetti in corso sono raggruppati per ambito (Difesa, Infrastrutture…).
+  const projectGroups = useMemo(() => groupProjectsByCategory(ongoingProcesses), [ongoingProcesses]);
   const financeAvailable = hasNationalFinance(account);
   const balance = financeBalance(account);
   const stability = Number(account?.stability ?? 0);
@@ -423,9 +628,30 @@ export const NationDock: React.FC<NationDockProps> = ({
   // residuo vivono nella sezione «Cassa» e nella sintesi.
   const treasury = Number(resources?.money ?? 0);
   const debt = Number(resources?.debt ?? 0);
+  const debtRatioPct = Number(resources?.debtRatioPct ?? account?.debtRatioPct ?? account?.debtBurdenPct ?? 0);
   const creditLimitValue = Number(resources?.creditLimit ?? 0);
   const creditHeadroomValue = Number(resources?.creditHeadroom ?? 0);
+  // Portafoglio del debito: titoli con tasso e scadenza, interessi e rollover.
+  const debtTranches = resources?.debts ?? [];
+  const annualInterest = Number(resources?.annualInterest ?? 0);
+  const averageMaturity = Number(resources?.averageMaturityYears ?? 0);
+  const marketRate = Number(resources?.marketRatePct ?? 0);
+  const overdraft = Number(resources?.overdraft ?? 0);
   const activeModifiers = resources?.modifiers;
+  // Bilancio dettagliato e giudizio complessivo: entrambi derivano dalle cifre
+  // del motore; il verdetto è una soglia applicata ai numeri, non una stima.
+  const budget = government?.budget ?? null;
+  const verdict = useMemo(() => nationalVerdict(account, budget), [account, budget]);
+  const factions = government?.factions ?? [];
+
+  // Le voci del consiglio si chiedono al motore solo quando la scheda Governo
+  // è aperta: una chiamata on-demand, non un costo a ogni apertura del dossier.
+  useEffect(() => {
+    if (active !== 'governo') return;
+    if (!onLoadGovernmentVoices) return;
+    if (governmentVoices || governmentVoicesLoading) return;
+    onLoadGovernmentVoices();
+  }, [active, onLoadGovernmentVoices, governmentVoices, governmentVoicesLoading]);
   const modifiersActive = Boolean(activeModifiers && (
     Number(activeModifiers.stability ?? 0) !== 0
     || Number(activeModifiers.socialTension ?? 0) !== 0
@@ -434,24 +660,28 @@ export const NationDock: React.FC<NationDockProps> = ({
     || Number(activeModifiers.growthModifier ?? 0) !== 0
   ));
 
-  // Fabbisogno mensile stimato dal conto nazionale: serve solo a dare un tono
-  // leggibile alle scorte (mai a inventare un valore).
+  // Fabbisogno mensile e capacità di stoccaggio: il motore li pubblica; se
+  // mancano si ricade sulla formula del conto, mai su un valore inventato.
   const popM = Number(account?.population ?? 0) / 1_000_000;
   const troops = Number(account?.forces ?? 0) + Number(account?.mobilized ?? 0);
-  const foodMonthly = popM * 0.02 + troops * 0.06;
-  const clothingMonthly = popM * 0.008 + troops * 0.01;
-  const weaponsMonthly = troops * 0.004;
-  const fuelMonthly = Number(account?.forces ?? 0) * 0.03 + Number(account?.factories ?? 0) * 0.05;
-  const coverHint = (value: number, monthly: number) => {
+  const foodMonthly = Number(resources?.needs?.food ?? (popM * 0.02 + troops * 0.06));
+  const clothingMonthly = Number(resources?.needs?.clothing ?? (popM * 0.008 + troops * 0.01));
+  const weaponsMonthly = Number(resources?.needs?.weapons ?? troops * 0.004);
+  const fuelMonthly = Number(resources?.needs?.fuel ?? (Number(account?.forces ?? 0) * 0.03 + Number(account?.factories ?? 0) * 0.05));
+  const capacity = resources?.capacity;
+  const coverHint = (value: number, monthly: number, cap?: number) => {
+    const capText = cap && cap > 0 ? ` · capacità ${formatNumber(cap)}` : '';
     const months = resourceMonths(value, monthly);
-    if (!Number.isFinite(months)) return 'nessun consumo registrato';
+    if (!Number.isFinite(months)) return `nessun consumo registrato${capText}`;
     // Niente falsa precisione: oltre un anno si parla in anni, oltre dieci di
     // «oltre 10 anni». Una scorta enorme non diventa «8000,0 mesi».
-    if (months >= 120) return 'oltre 10 anni di copertura';
-    if (months >= 24) return `${Math.round(months / 12)} anni di copertura`;
-    if (months >= 10) return `${Math.round(months)} mesi di copertura`;
-    return `${months.toFixed(1)} mesi di copertura`;
+    if (months >= 120) return `oltre 10 anni di copertura${capText}`;
+    if (months >= 24) return `${Math.round(months / 12)} anni di copertura${capText}`;
+    if (months >= 10) return `${Math.round(months)} mesi di copertura${capText}`;
+    return `${formatMoney(months, { decimals: 1 })} mesi di copertura${capText}`;
   };
+  /** Con la capacità nota le scorte si leggono come «quanto / tetto». */
+  const matValue = (value: number, cap?: number) => (cap && cap > 0 ? `${formatNumber(value)} / ${formatNumber(cap)}` : formatNumber(value));
   const provincesLabel = (value: number) => `${formatNumber(value)} ${value === 1 ? 'provincia' : 'province'}`;
 
   // Le tendenze derivano dallo storico pubblicato dal motore: se la serie ha
@@ -527,6 +757,7 @@ export const NationDock: React.FC<NationDockProps> = ({
                   hero
                 />
               </MetricGrid>
+              <VerdictBanner verdict={verdict} />
             </DossierBlock>
 
             <DossierBlock
@@ -546,58 +777,127 @@ export const NationDock: React.FC<NationDockProps> = ({
                 ) : <EmptyState>Nessuna decisione richiede attenzione immediata.</EmptyState>)}
               </div>
             </DossierBlock>
+          </>
+        )}
 
-            <DossierBlock title="Bollettino nazionale">
-              <div className="nation-bulletin nation-bulletin-card">
-                <div className="nation-bulletin-kicker">Bollettino</div>
-                <h2>{nationalName}</h2>
-                <p className="nation-government">{governmentType}</p>
-                <div className="nation-progress">
-                  <span>Avanzamento campagna</span>
-                  <b>{formatPercent(campaignProgress)}</b>
-                  <i><em style={{ width: `${Math.max(0, Math.min(100, campaignProgress))}%` }} /></i>
-                </div>
-                <div className="nation-ledger">
-                  <LedgerMetric label="Popolazione" value={formatNumber(assets.population)} />
-                  <LedgerMetric label="PIL nominale" value={formatMoney(assets.gdpBillions, { currency: 'mld', decimals: 1 })} />
-                  <LedgerMetric label="Entrate / mese" value={formatMoney(Number(account?.monthlyRevenue ?? 0), { currency: 'mld', decimals: 2, sign: true })} />
-                  <LedgerMetric label="Uscite / mese" value={formatMoney(Number(account?.monthlyExpenses ?? 0), { currency: 'mld', decimals: 2, sign: true })} />
-                </div>
-                <p className="nation-narration">{latestNarration}</p>
-              </div>
-              <Footnote><b>Fonte</b> Conto nazionale e mappa autorevole · Stabilità {formatPercent(stability)} · {provincesLabel(assets.provinces)}.</Footnote>
+        {active === 'governo' && (
+          <>
+            <DossierBlock
+              title="Consiglio dei ministri"
+              description="Le anime del governo: chi ha più influenza, chi è soddisfatto e chi adesso preme per cambiare rotta."
+            >
+              {government ? (
+                <>
+                  <div className="nation-government-summary">
+                    <p className="nation-government-headline">{governmentVoices?.council || government.headline}</p>
+                    <MetricGrid>
+                      <Metric
+                        label="Coesione del governo"
+                        value={formatPercent(government.cohesion, 0)}
+                        tone={satisfactionTone(government.cohesion)}
+                        hint="Soddisfazione media ponderata per influenza"
+                      />
+                      <Metric
+                        label="Pressione politica"
+                        value={formatPercent(government.pressureIndex, 0)}
+                        tone={pressureTone(government.pressureIndex)}
+                        hint="Quanto il consiglio preme sul governo"
+                      />
+                      <Metric
+                        label="Fazioni attive"
+                        value={formatNumber(factions.length)}
+                        hint="Interessi rappresentati nel consiglio"
+                      />
+                    </MetricGrid>
+                    {(governmentVoicesLoading || governmentVoicesError) && (
+                      <p className={`nation-government-status${governmentVoicesError ? ' is-error' : ''}`} role="status">
+                        {governmentVoicesError || 'Il consiglio sta discutendo…'}
+                      </p>
+                    )}
+                  </div>
+                  {factions.length > 0 ? (
+                    <ul className="nation-faction-list">
+                      {factions.map((faction) => (
+                        <li key={faction.id}>
+                          <FactionCard
+                            faction={faction}
+                            dominant={faction.id === government.dominantId}
+                            angriest={faction.id === government.angriestId}
+                            onDraftOrder={onDraftOrder}
+                            voice={governmentVoices?.voices?.[faction.id]}
+                            speaking={governmentVoicesLoading}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <EmptyState>Nessuna fazione registrata per questo governo.</EmptyState>
+                  )}
+                  <Footnote><b>Come funziona</b> il motore calcola chi esiste, quanta influenza ha e che cosa chiede; il modello dà voce a ciascuna anima in una petizione breve, coerente con umore e pressione. Le cifre restano la fonte, mai il copione. Ogni richiesta può diventare un ordine reale: «Porta in consiglio» riempie la bozza e apre il compositore, senza spendere nulla finché l'ordine non è registrato e il tempo non avanza.</Footnote>
+                </>
+              ) : (
+                <EmptyState>Le anime del governo non sono ancora pubblicate per questa partita.</EmptyState>
+              )}
             </DossierBlock>
           </>
         )}
 
         {active === 'progetti' && (
           <DossierBlock
-            title="Progetti e processi in corso"
-            description="Che cosa è avviato, a che punto è e quando è previsto l'esito."
+            title="Progetti e processi"
+            description="Che cosa è avviato, in che ambito, a che punto è e quando è previsto l'esito."
           >
-            {ongoingProcesses.length === 0 ? (
-              <EmptyState>Nessun processo in corso alla data del bollettino.</EmptyState>
+            {ongoingProcesses.length === 0 && completedProcesses.length === 0 ? (
+              <EmptyState>Nessun progetto registrato alla data corrente.</EmptyState>
             ) : (
-              <ul className="nation-process-list">
-                {ongoingProcesses.map((process) => (
-                  <li key={process.id}>
-                    <b>{process.title}</b>
-                    <span>{process.summary}</span>
-                    <ProgressRow
-                      label="Realizzazione"
-                      percent={Number(process.progress ?? 0)}
-                      note={process.expected_date
-                        ? `Avviato ${formatDate(process.started_date)} · esito previsto ${formatDate(process.expected_date)}`
-                        : `Avviato ${formatDate(process.started_date)} · nessuna scadenza dichiarata${process.progress_note ? ` · ${process.progress_note}` : ''}`}
-                    />
-                    {process.expected_date && process.progress_note && (
-                      <small className="nation-process-note">{process.progress_note}</small>
-                    )}
-                  </li>
+              <>
+                {projectGroups.map((group) => (
+                  <section key={group.category.key} className="nation-process-group">
+                    <h4 className="nation-process-category">{group.category.label}</h4>
+                    <ul className="nation-process-list">
+                      {group.projects.map((process) => (
+                        <li key={process.id}>
+                          <b>{process.title}</b>
+                          <span>{process.summary}</span>
+                          <ProgressRow
+                            label="Realizzazione"
+                            percent={Number(process.progress ?? 0)}
+                            note={process.expected_date
+                              ? `Avviato ${formatDate(process.started_date)} · esito previsto ${formatDate(process.expected_date)}`
+                              : `Avviato ${formatDate(process.started_date)} · nessuna scadenza dichiarata${process.progress_note ? ` · ${process.progress_note}` : ''}`}
+                          />
+                          {process.expected_date && process.progress_note && (
+                            <small className="nation-process-note">{process.progress_note}</small>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
                 ))}
-              </ul>
+
+                {completedProcesses.length > 0 && (
+                  <section className="nation-process-group is-completed">
+                    <h4 className="nation-process-category">Completati</h4>
+                    <ul className="nation-process-list">
+                      {completedProcesses.map((process) => (
+                        <li key={process.id}>
+                          <b>{process.title}</b>
+                          <span>{process.summary}</span>
+                          <ProgressRow
+                            label="Realizzazione"
+                            percent={100}
+                            note={process.completed_date
+                              ? `Avviato ${formatDate(process.started_date)} · completato il ${formatDate(process.completed_date)}`
+                              : `Avviato ${formatDate(process.started_date)} · completato entro la scadenza prevista`}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </>
             )}
-            <Footnote>L'avanzamento è calcolato dal motore tra la data di avvio e la scadenza dichiarata; un progetto senza scadenza resta «in corso» finché il modello non ne dichiara l'esito.</Footnote>
+            <Footnote>I progetti sono raggruppati per ambito. L'avanzamento è calcolato dal motore tra la data di avvio e la scadenza dichiarata; alla scadenza il progetto è chiuso e passa in «Completati». Senza scadenza resta «in corso» finché il modello non ne dichiara l'esito.</Footnote>
           </DossierBlock>
         )}
 
@@ -620,7 +920,9 @@ export const NationDock: React.FC<NationDockProps> = ({
                   label="Debito pubblico"
                   value={formatMoney(debt, { currency: 'mld', decimals: 2 })}
                   tone={debt > 0 ? 'warning' : 'positive'}
-                  hint={debt > 0 ? `Su un tetto di ${formatMoney(creditLimitValue, { currency: 'mld', decimals: 0 })}` : 'Nessun debito: si può ancora andare a debito'}
+                  hint={debt > 0
+                    ? `${debtRatioPct !== 0 ? `Debito al ${formatPercent(debtRatioPct, 1)} del PIL` : 'Debito in essere'} · su un tetto di ${formatMoney(creditLimitValue, { currency: 'mld', decimals: 0 })}`
+                    : 'Nessun debito: si può ancora andare a debito'}
                   trend={mkTrend((point) => point.account.debt, moneyDelta, 'down')}
                 />
                 <Metric
@@ -638,6 +940,65 @@ export const NationDock: React.FC<NationDockProps> = ({
                   hero
                 />
               </MetricGrid>
+              {(debtTranches.length > 0 || debt > 0) && (
+                <div className="nation-debt-block">
+                  <h4 className="nation-subhead">Portafoglio del debito</h4>
+                  <MetricGrid>
+                    <Metric
+                      label="Interessi annui"
+                      value={formatMoney(annualInterest, { currency: 'mld', decimals: 2 })}
+                      tone={annualInterest > 0 ? 'negative' : 'positive'}
+                      hint="Costo del debito ogni anno"
+                    />
+                    <Metric
+                      label="Scadenza media"
+                      value={`${formatMoney(averageMaturity, { decimals: 1 })} anni`}
+                      tone="neutral"
+                      hint="Quanto in là torna il debito"
+                    />
+                    <Metric
+                      label="Tasso di mercato"
+                      value={formatPercent(marketRate, 1)}
+                      tone={marketRate >= 8 ? 'negative' : marketRate >= 4 ? 'warning' : 'positive'}
+                      hint="Tasso per una nuova emissione oggi"
+                    />
+                  </MetricGrid>
+                  <DebtPortfolio tranches={debtTranches} total={debt} />
+                  {overdraft > 0 && (
+                    <p className="nation-debt-overdraft">
+                      Scoperto di cassa: {formatMoney(overdraft, { currency: 'mld', decimals: 2 })} — cassa negativa, distinta dai titoli emessi.
+                    </p>
+                  )}
+                  {onBorrowDebt && (
+                    <form className="nation-borrow" onSubmit={(event) => { event.preventDefault(); void runBorrow(); }}>
+                      <label>
+                        <span>Nuova emissione</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          inputMode="decimal"
+                          value={borrowAmount}
+                          placeholder="mld"
+                          onChange={(event) => setBorrowAmount(event.target.value)}
+                          aria-label="Importo da prendere a prestito in miliardi"
+                        />
+                      </label>
+                      <label>
+                        <span>Durata</span>
+                        <select value={borrowTerm} onChange={(event) => setBorrowTerm(Number(event.target.value))} aria-label="Durata del titolo">
+                          {[2, 5, 10, 15, 30].map((term) => <option key={term} value={term}>{term} anni</option>)}
+                        </select>
+                      </label>
+                      <button type="submit" disabled={borrowing || creditHeadroomValue <= 0}>
+                        {borrowing ? 'Emissione…' : 'Emetti titoli'}
+                      </button>
+                      <span className="nation-borrow-hint">Spazio disponibile: {formatMoney(creditHeadroomValue, { currency: 'mld', decimals: 2 })}</span>
+                    </form>
+                  )}
+                  <Footnote><b>Il debito ha un prezzo e una data</b> ogni titolo paga interessi ogni anno e torna a scadenza: alla maturità il motore lo rifinanzia al tasso di mercato del momento. Più la nazione è indebitata, più alti sono tasso e premio di rischio; un rapporto debito/PIL elevato alza la tensione sociale e logora la stabilità. La cassa negativa è scoperto, non un titolo: si paga al tasso di sconto.</Footnote>
+                </div>
+              )}
               <Footnote><b>Come si muove la cassa</b> ogni mese la tesoreria cambia del saldo mensile (entrate + reddito da risorse − uscite − interessi sul debito). Le scelte del giocatore la muovono subito: un ordine eseguito preleva una spesa una tantum, gli acquisti militari e le compravendite sul mercato si pagano al momento, i movimenti di truppe costano carburante e denaro. Un saldo negativo la riduce; sotto zero la differenza è debito pubblico.</Footnote>
             </DossierBlock>
 
@@ -656,6 +1017,25 @@ export const NationDock: React.FC<NationDockProps> = ({
                 <EmptyState>Questo scenario non pubblica ancora voci di bilancio nel conto nazionale.</EmptyState>
               )}
             </DossierBlock>
+
+            {budget && (budget.revenue.length > 0 || budget.expense.length > 0) && (
+              <DossierBlock
+                title="Composizione del bilancio"
+                description="Le voci dietro i due totali: da dove entrano le entrate, dove escono le uscite."
+              >
+                <div className="nation-budget-columns">
+                  <BudgetBreakdown title="Entrate mensili" lines={budget.revenue} total={budget.revenueTotal} kind="revenue" />
+                  <BudgetBreakdown title="Uscite mensili" lines={budget.expense} total={budget.expenseTotal} kind="expense" />
+                </div>
+                <MetricGrid>
+                  <Metric label="Pressione fiscale effettiva" value={formatPercent(budget.effectiveTaxRatePct, 1)} tone="neutral" hint="Entrate annue sul PIL" />
+                  <Metric label="Spesa sociale" value={`${formatPercent(budget.socialBurdenPct, 1)} del PIL`} tone="neutral" hint="Sanità e sostegno sociale" />
+                  <Metric label="Istruzione e ricerca" value={`${formatPercent(budget.educationBurdenPct, 1)} del PIL`} tone="neutral" hint="Scuola, atenei e laboratori" />
+                  <Metric label="Spesa militare" value={`${formatPercent(budget.defenceBurdenPct, 1)} del PIL`} tone={defenceTone(budget.defenceBurdenPct)} hint="Quota dichiarata dal conto" />
+                </MetricGrid>
+                <Footnote><b>Come si legge</b> ogni voce è una ripartizione deterministica dei totali pubblicati dal motore, calcolata sui driver reali (fabbriche, porti, atenei, riserve, popolazione). La difesa è la quota esatta dichiarata dal conto; la somma delle voci è il totale. Nessun importo è stimato nel browser.</Footnote>
+              </DossierBlock>
+            )}
 
             <DossierBlock
               title="Pressione militare"
@@ -694,33 +1074,33 @@ export const NationDock: React.FC<NationDockProps> = ({
           <>
             <DossierBlock
               title="Magazzino materiale"
-              description="Scorte reali del paese: cibo, vestiario, armi, carburante e ricerca. La valuta è in Cassa."
+              description="Scorte reali del paese: cibo, vestiario, armi, carburante e ricerca. Ogni voce ha un tetto di stoccaggio."
             >
               {resources ? (
                 <MetricGrid>
                   <Metric
                     label="Cibo"
-                    value={formatNumber(Number(resources.food ?? 0))}
+                    value={matValue(Number(resources.food ?? 0), capacity?.food)}
                     tone={resourceTone(Number(resources.food ?? 0), foodMonthly)}
-                    hint={coverHint(Number(resources.food ?? 0), foodMonthly)}
+                    hint={coverHint(Number(resources.food ?? 0), foodMonthly, capacity?.food)}
                   />
                   <Metric
                     label="Vestiario"
-                    value={formatNumber(Number(resources.clothing ?? 0))}
+                    value={matValue(Number(resources.clothing ?? 0), capacity?.clothing)}
                     tone={resourceTone(Number(resources.clothing ?? 0), clothingMonthly)}
-                    hint={coverHint(Number(resources.clothing ?? 0), clothingMonthly)}
+                    hint={coverHint(Number(resources.clothing ?? 0), clothingMonthly, capacity?.clothing)}
                   />
                   <Metric
                     label="Scorte armi"
-                    value={formatNumber(Number(resources.weapons ?? 0))}
+                    value={matValue(Number(resources.weapons ?? 0), capacity?.weapons)}
                     tone={resourceTone(Number(resources.weapons ?? 0), weaponsMonthly)}
-                    hint={coverHint(Number(resources.weapons ?? 0), weaponsMonthly)}
+                    hint={coverHint(Number(resources.weapons ?? 0), weaponsMonthly, capacity?.weapons)}
                   />
                   <Metric
                     label="Carburante"
-                    value={formatNumber(Number(resources.fuel ?? 0))}
+                    value={matValue(Number(resources.fuel ?? 0), capacity?.fuel)}
                     tone={resourceTone(Number(resources.fuel ?? 0), fuelMonthly)}
-                    hint={coverHint(Number(resources.fuel ?? 0), fuelMonthly)}
+                    hint={coverHint(Number(resources.fuel ?? 0), fuelMonthly, capacity?.fuel)}
                   />
                   <Metric
                     label="Ricerca"
@@ -732,7 +1112,7 @@ export const NationDock: React.FC<NationDockProps> = ({
               ) : (
                 <EmptyState>Il magazzino materiale non è ancora pubblicato per questa partita.</EmptyState>
               )}
-              <Footnote><b>Fonte</b> MaterialEconomy · il movimento consuma cibo e, se motorizzato, carburante. Denaro, debito e credito sono nella sezione Cassa.</Footnote>
+              <Footnote><b>Fonte</b> MaterialEconomy · le scorte nascono da una quota della capacità reale (mesi di riserva secondo il PIL pro capite) e non possono superare il tetto: il surplus si perde. Una nazione fragile ha magazzini piccoli e resta in carenza se la produzione non copre il fabbisogno. La leva materiale del modello (aiuti, requisizioni, perdite) muove queste stesse scorte. Denaro, debito e credito sono nella sezione Cassa.</Footnote>
             </DossierBlock>
 
             {modifiersActive && (

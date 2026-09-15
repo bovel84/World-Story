@@ -1,4 +1,4 @@
-import { estimatedNominalGdpUsdBillions, governmentForPolity } from '../../utils/country-facts';
+import { estimatedNominalGdpUsdBillions, governmentForPolity, referenceDebtToGdpPct } from '../../utils/country-facts';
 import { baselineCapacity, coastalFromGeojson } from './NationCapacity';
 import { MAX_JUMP_DAYS } from './calendar';
 
@@ -44,11 +44,27 @@ export interface NationalAccount {
   stability: number;
   /** Spesa militare in percentuale del PIL nominale (0-100). */
   defenceBurdenPct: number;
+  /**
+   * Debito pubblico lordo in percentuale del PIL (0-100+), dal registro reale.
+   * È il carico che la nazione eredita: la tesoreria di partenza è la posizione
+   * netta (riserve − debito) e il tetto di credito garantisce un margine.
+   * Resta 0 nei mondi storici, dove il debito 2024 sarebbe anacronistico.
+   */
+  debtBurdenPct?: number;
+  /**
+   * Rapporto debito/PIL effettivo al momento della lettura (titoli emessi +
+   * scoperto di cassa): cresce quando la nazione fa nuovo debito. È questo che
+   * pesa su tensione e stabilità e che le fazioni vedono.
+   */
+  debtRatioPct?: number;
+  /** Interessi passivi annui sul debito in % delle entrate pubbliche. */
+  debtServicePct?: number;
   /** Indice 0-100 dello sforzo bellico materiale (forze + riserve richiamate). */
   warEffort: number;
   /** Indice 0-100 di tensione sociale interna (mobilitazione, casse, università). */
   socialTension: number;
-  /** Scala nominale comparabile fra paesi (miliardi USD, stima 2024). */
+  /** Scala nominale comparabile fra paesi (miliardi USD): fatti 2024 nei mondi
+   *  moderni, indice di mappa su scala storica nei mondi pre-1990. */
   nominalGdpUsdBillions: number;
   gdpPerCapitaUsd: number;
   government: string;
@@ -76,9 +92,28 @@ export interface WorldStateTick {
 const finiteNonNegative = (value: unknown): number =>
   Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
 
+/** Opzioni della lettura dei conti nazionali. */
+export interface WorldStateOptions {
+  /**
+   * Fatti 2024 applicabili (PIL, popolazione di riferimento, debito pubblico).
+   * `false` per i preset pre-1990: il motore usa solo i dati della mappa, così
+   * un mondo del 1951 non eredita PIL e debito odierni.
+   */
+  modernFacts?: boolean;
+  /**
+   * Data di partenza dello scenario (ISO). Serve alla tabella di conversione
+   * storica per scegliere il PIL dell'epoca giusta (1939, 1951…).
+   */
+  startDate?: string | null;
+}
+
 /** Calculates and advances only facts that are derivable from the map. */
 export class WorldStateEngine {
-  static accounts(regions: Iterable<WorldStateRegion>): Record<string, NationalAccount> {
+  static accounts(
+    regions: Iterable<WorldStateRegion>,
+    options: WorldStateOptions = {},
+  ): Record<string, NationalAccount> {
+    const modernFacts = options.modernFacts !== false;
     const accounts: Record<string, NationalAccount> = Object.create(null);
     // Province costiere per polity: i porti sono geografia, non popolazione.
     const coastalProvinces: Record<string, number> = Object.create(null);
@@ -101,6 +136,7 @@ export class WorldStateEngine {
         annualGrowthRate: 0,
         stability: 50,
         defenceBurdenPct: 0,
+        debtBurdenPct: 0,
         warEffort: 0,
         socialTension: 0,
         nominalGdpUsdBillions: 0,
@@ -135,6 +171,9 @@ export class WorldStateEngine {
         population: account.population,
         coastalProvinces: coastalProvinces[account.polityId] || 0,
         militaryPower: account.militaryPower,
+        modernFacts,
+        gdpIndex: account.gdp,
+        startDate: options.startDate,
       });
       account.factories += baseline.factories;
       account.ports += baseline.ports;
@@ -158,7 +197,11 @@ export class WorldStateEngine {
       // I valori provinciali sono un indice di simulazione; entrate e uscite
       // usano invece una scala nominale comparabile (miliardi USD), così il
       // bollettino non dipende dal numero di province di una nazione.
-      account.nominalGdpUsdBillions = estimatedNominalGdpUsdBillions(account.polityId, account.population);
+      account.nominalGdpUsdBillions = estimatedNominalGdpUsdBillions(account.polityId, account.population, {
+        modernFacts,
+        gdpIndex: account.gdp,
+        startDate: options.startDate,
+      });
       account.gdpPerCapitaUsd = Math.round(account.nominalGdpUsdBillions * 1_000_000_000 / Math.max(account.population, 1));
       const taxRate = Math.min(0.18, 0.09 + account.factories * 0.00035 + account.ports * 0.0002);
       account.monthlyRevenue = account.nominalGdpUsdBillions * taxRate / 12;
@@ -170,6 +213,11 @@ export class WorldStateEngine {
           + (account.militaryPower / Math.max(account.nominalGdpUsdBillions, 1)) * 0.004,
       );
       account.defenceBurdenPct = Math.round(defenceRate * 1000) / 10;
+      // Il debito pubblico è un fatto ereditato dalla storia del paese, non
+      // qualcosa che nasce a zero. Solo nei mondi moderni però: applicare il
+      // debito 2024 a una partita del 1951 sarebbe anacronistico, quindi lì si
+      // parte da zero e la nazione costruisce il proprio debito giocando.
+      account.debtBurdenPct = modernFacts ? referenceDebtToGdpPct(account.polityId) : 0;
       account.monthlyExpenses = account.nominalGdpUsdBillions * (0.032 + defenceRate) / 12;
       account.monthlyBalance = account.monthlyRevenue - account.monthlyExpenses;
       // A transparent, bounded indicator rather than an LLM-invented value.
@@ -193,11 +241,15 @@ export class WorldStateEngine {
   }
 
   /** Advance population, productive output and peacetime readiness. */
-  static advance(regions: Iterable<WorldStateRegion>, days: number): WorldStateTick {
+  static advance(
+    regions: Iterable<WorldStateRegion>,
+    days: number,
+    options: WorldStateOptions = {},
+  ): WorldStateTick {
     if (!Number.isInteger(days) || days < 0 || days > MAX_JUMP_DAYS) throw new Error('Invalid economic period');
     const yearFraction = days / 365;
     const list = Array.from(regions);
-    const before = this.accounts(list);
+    const before = this.accounts(list, options);
     if (days === 0) return { accounts: before, changedRegions: [] };
     const changedRegions: string[] = [];
 
@@ -220,7 +272,7 @@ export class WorldStateEngine {
         changedRegions.push(region.id);
       }
     }
-    return { accounts: this.accounts(list), changedRegions };
+    return { accounts: this.accounts(list, options), changedRegions };
   }
 
   static playerBulletin(account: NationalAccount | undefined): string | null {

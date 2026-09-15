@@ -169,11 +169,44 @@ describe('risorse naturali dinamiche', () => {
     const { session, gameId } = createGame();
     const { resourceRepository } = await import('../src/repositories');
     resourceRepository.upsert(gameId, 'DEU', {
-      money: 0, food: 0, clothing: 0, weapons: 0, fuel: 0, research: 0, technologies: [],
+      money: 0, debts: [], food: 0, clothing: 0, weapons: 0, fuel: 0, research: 0, technologies: [],
     }, 0, null);
     (session as any).resourceStocks.clear();
     const stock = session.getResources().stock;
     expect(stock.money).toBeGreaterThan(0);
     expect(stock.food).toBeGreaterThan(0);
+  });
+
+  it('trimma un magazzino legacy oltre la capacità reale', async () => {
+    const { session, gameId } = createGame();
+    const { resourceRepository } = await import('../src/repositories');
+    resourceRepository.upsert(gameId, 'DEU', {
+      money: 0, debts: [], food: 9999, clothing: 9999, weapons: 9999, fuel: 9999, research: 0, technologies: [],
+    }, 0, null);
+    (session as any).resourceStocks.clear();
+    const resources = session.getResources();
+    expect(resources.stock.food).toBeLessThanOrEqual(Number(resources.capacity.food) + 1e-9);
+    expect(resources.stock.food).toBeLessThan(9999);
+  });
+
+  it('la nazione può fare debito: cassa subito, interessi e tensione dopo', () => {
+    const { session } = createGame();
+    const polity = session.getResources().account.polityId;
+    const before = session.getResources();
+    const beforeTension = session.getNationalAccounts()[polity].socialTension;
+    const borrowed = session.borrowSovereignDebt(5, 10);
+    expect(borrowed.ok).toBe(true);
+    expect(borrowed.tranche.principal).toBe(5);
+    const after = session.getResources();
+    expect(after.stock.money).toBeGreaterThan(before.stock.money);
+    expect(after.debt).toBeCloseTo(before.debt + 5, 1);
+    expect(after.debts.length).toBe(before.debts.length + 1);
+    expect(after.annualInterest).toBeGreaterThan(0);
+    expect(after.debtRatioPct).toBeGreaterThan(before.debtRatioPct);
+    // Il debito ha un riflesso sociale: la tensione non cala.
+    expect(session.getNationalAccounts()[polity].socialTension).toBeGreaterThanOrEqual(beforeTension);
+    // Oltre il tetto di credito il motore rifiuta l'operazione.
+    expect(() => session.borrowSovereignDebt(after.creditLimit + 100, 5)).toThrow(/credit_exhausted/);
+    expect(() => session.borrowSovereignDebt(0, 5)).toThrow(/amount_invalid/);
   });
 });

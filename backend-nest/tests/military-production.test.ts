@@ -125,10 +125,14 @@ describe('avanzamento degli ordini', () => {
 });
 
 describe('avanzamento dei progetti', () => {
-  it('calcola la percentuale dalle date, senza mai mostrare 100', () => {
+  it('calcola la percentuale dalle date e tocca il 100% solo alla scadenza', () => {
     expect(projectProgress('2026-01-01', '2026-03-01', '2026-01-01')).toBe(0);
     expect(projectProgress('2026-01-01', '2026-03-01', '2026-02-01')).toBeGreaterThanOrEqual(50);
-    expect(projectProgress('2026-01-01', '2026-03-01', '2026-05-01')).toBe(99);
+    // Prima della scadenza il progetto non è mai dato per chiuso.
+    expect(projectProgress('2026-01-01', '2026-03-01', '2026-02-28')).toBeLessThanOrEqual(99);
+    // Alla scadenza e oltre il progetto è completato.
+    expect(projectProgress('2026-01-01', '2026-03-01', '2026-03-01')).toBe(100);
+    expect(projectProgress('2026-01-01', '2026-03-01', '2026-05-01')).toBe(100);
     // Senza scadenza: stima prudente, non certezza.
     expect(projectProgress('2026-01-01', null, '2026-06-01')).toBe(35);
     expect(projectProgress(null, '2026-03-01', '2026-02-01')).toBe(0);

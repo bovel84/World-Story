@@ -29,6 +29,12 @@ export interface CapacityInput {
   /** Province con sbocco al mare (o isole): i porti sono geografia. */
   coastalProvinces: number;
   militaryPower: number;
+  /** Fatti 2024 applicabili? `false` per i mondi pre-1990 (nessun anacronismo). */
+  modernFacts?: boolean;
+  /** Indice di PIL della mappa (relativo): usato dai mondi storici. */
+  gdpIndex?: number;
+  /** Data di partenza dello scenario: sceglie la riga storica della tabella. */
+  startDate?: string | null;
 }
 
 export interface CapacityBaseline {
@@ -81,7 +87,11 @@ export function baselineCapacity(input: CapacityInput): CapacityBaseline {
   const population = positive(input.population);
   const populationM = population / 1_000_000;
   const populationScale = Math.sqrt(populationM);
-  const gdpBillions = estimatedNominalGdpUsdBillions(input.polityId, population);
+  const gdpBillions = estimatedNominalGdpUsdBillions(input.polityId, population, {
+    modernFacts: input.modernFacts,
+    gdpIndex: input.gdpIndex,
+    startDate: input.startDate,
+  });
   const incomePerCapitaUsd = population > 0 ? (gdpBillions * 1_000_000_000) / population : 0;
   const wealthTier = wealthTierFor(incomePerCapitaUsd);
   const economicScale = economicScaleFor(gdpBillions);

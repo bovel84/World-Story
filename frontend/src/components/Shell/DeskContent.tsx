@@ -6,7 +6,7 @@ import { EventFeed } from '../Game/EventFeed';
 import { DiplomacyPanel } from '../Game/DiplomacyPanel';
 import { NationDock } from '../Game/NationDock';
 import type { NationResources } from '../Game/NationDock';
-import type { ArsenalResponse } from '../../services/api';
+import type { ArsenalResponse, GovernmentSnapshot, GovernmentVoicesResponse } from '../../services/api';
 import { SaveGameModal } from '../Game/SaveGameModal';
 import { useToast } from '../ui/ToastProvider';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -31,14 +31,17 @@ interface DeskContentProps {
   procureEquipment?: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
   tradeResource?: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;
   nationalHistory?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
-  campaignProgress: number;
-  latestNationalNarration: string;
-  currentRegionOwnerName: string | null;
-  selectedIsPlayerProvince: boolean;
-  isPaxProvince: boolean;
-  provinceAssets: { factories: number; ports: number; cities: number; capital: boolean; units: number };
-  provinceMetadata: { surface_type?: string; tags?: string[] };
-  infrastructureLevel: number;
+  /** Anime del governo e dettaglio del bilancio pubblicati dal motore. */
+  nationalGovernment?: GovernmentSnapshot | null;
+  /** Trasforma la richiesta di una fazione in una bozza d'ordine. */
+  onDraftGovernmentPetition?: (text: string) => void;
+  /** Voci del consiglio generate dall'LLM (on-demand, per il turno corrente). */
+  governmentVoices?: GovernmentVoicesResponse | null;
+  governmentVoicesLoading?: boolean;
+  governmentVoicesError?: string | null;
+  onLoadGovernmentVoices?: () => void;
+  /** La nazione fa debito: emette titoli con tasso e scadenza. */
+  onBorrowDebt?: (amountMld: number, termYears: number) => Promise<void>;
   pendingActions: Array<{ id: string; text: string }>;
   suggestions: Suggestion[];
   orderDraftText: string;
@@ -59,7 +62,8 @@ interface DeskContentProps {
   setEditingActionText: (text: string) => void;
   isProcessingTurn: boolean;
   /** Processi letti dal registro simulazione, per il dossier nazionale G5-A. */
-  ongoingProcesses: Array<{ id: string; title: string; summary: string; started_date: string; expected_date?: string | null }>;
+  ongoingProcesses: Array<{ id: string; title: string; summary: string; started_date: string; expected_date?: string | null; progress?: number | null; progress_note?: string | null }>;
+  completedProcesses?: Array<{ id: string; title: string; summary: string; started_date: string; expected_date?: string | null; completed_date?: string | null }>;
   mandateDecisions: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>;
   onAcknowledgeMandateDecision: (mandateId: string, kind: string) => Promise<void>;
   feedItems: any[];
@@ -70,11 +74,6 @@ interface DeskContentProps {
   /** «Segna tutti come letti» dal pannello Dispacci. */
   onMarkAllFeedRead?: () => void;
   playerPolityId: string;
-  showSaveModal: boolean;
-  setShowSaveModal: (v: boolean) => void;
-  setShowPromptEditor: (v: boolean) => void;
-  setShowLLMSettings: (v: boolean) => void;
-  onOpenSavePicker: () => void;
   currentGameId: string | undefined;
   onGenerateSuggestions?: () => void;
   suggestionsLoading?: boolean;
@@ -97,14 +96,13 @@ export function DeskContent({
   procureEquipment,
   tradeResource,
   nationalHistory = [],
-  campaignProgress,
-  latestNationalNarration,
-  currentRegionOwnerName,
-  selectedIsPlayerProvince,
-  isPaxProvince,
-  provinceAssets,
-  provinceMetadata,
-  infrastructureLevel,
+  nationalGovernment = null,
+  onDraftGovernmentPetition,
+  governmentVoices = null,
+  governmentVoicesLoading = false,
+  governmentVoicesError = null,
+  onLoadGovernmentVoices,
+  onBorrowDebt,
   pendingActions,
   suggestions,
   orderDraftText,
@@ -125,6 +123,7 @@ export function DeskContent({
   setEditingActionText,
   isProcessingTurn,
   ongoingProcesses,
+  completedProcesses = [],
   mandateDecisions,
   onAcknowledgeMandateDecision,
   feedItems,
@@ -132,11 +131,6 @@ export function DeskContent({
   onMarkFeedRead,
   onMarkAllFeedRead,
   playerPolityId,
-  showSaveModal,
-  setShowSaveModal,
-  setShowPromptEditor,
-  setShowLLMSettings,
-  onOpenSavePicker,
   currentGameId,
   onGenerateSuggestions,
   suggestionsLoading,
@@ -362,7 +356,7 @@ export function DeskContent({
         <header className="nation-module-header">
           <div>
             <div className="nation-module-kicker">Dossier nazionale</div>
-            <div className="nation-module-title">Nazione</div>
+            <div className="nation-module-title">{nationalName || 'Nazione'}</div>
           </div>
           <button
             className="nation-module-close"
@@ -374,7 +368,6 @@ export function DeskContent({
 
         {selectedRegion && !externalRegionSelected && (
           <NationDock
-            nationalName={nationalName}
             governmentType={governmentType}
             account={nationalAccount}
             resources={nationalResources}
@@ -382,58 +375,19 @@ export function DeskContent({
             procure={procureEquipment}
             trade={tradeResource}
             accountHistory={nationalHistory}
+            government={nationalGovernment}
+            onDraftOrder={onDraftGovernmentPetition}
+            governmentVoices={governmentVoices}
+            governmentVoicesLoading={governmentVoicesLoading}
+            governmentVoicesError={governmentVoicesError}
+            onLoadGovernmentVoices={onLoadGovernmentVoices}
+            onBorrowDebt={onBorrowDebt}
             regions={currentWorld?.regions ? Object.values(currentWorld.regions).filter((region) => region.owner === playerPolityId) as Region[] : []}
             ongoingProcesses={ongoingProcesses}
+            completedProcesses={completedProcesses}
             mandateDecisions={mandateDecisions}
             onAcknowledgeMandateDecision={onAcknowledgeMandateDecision}
-            campaignProgress={campaignProgress}
-            latestNarration={latestNationalNarration}
           />
-        )}
-
-        {selectedRegion && !externalRegionSelected && (
-          <div className="country-selector">
-            <label>La tua nazione:</label>
-            <div className="country-locked">
-              {currentGame?.players[0] && (
-                <span style={{ color: currentRegion?.color || '#fff' }}>
-                  {currentRegion?.name || 'Sconosciuto'}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {currentRegion && (
-          <div className="country-info province-detail-card">
-            <div className="province-detail-kicker">{selectedIsPlayerProvince ? 'Provincia · La tua nazione' : 'Provincia selezionata'}</div>
-            <div className="country-name province-detail-title" style={{ color: currentRegion.color }}>
-              {currentRegion.name}
-            </div>
-            {!selectedIsPlayerProvince && currentRegionOwnerName && (
-              <div className="province-owner">Appartenente a: {currentRegionOwnerName}</div>
-            )}
-            <div className="country-stats">
-              <span><b>POP.</b> {currentRegion.population?.toLocaleString() || '1,000,000'}</span>
-              <span><b>PIL</b> {currentRegion.gdp || 100}</span>
-              <span><b>FORZE</b> {currentRegion.militaryPower || 100}</span>
-            </div>
-            {isPaxProvince && selectedIsPlayerProvince && (
-              <div className="province-dossier">
-                <div className="province-dossier-kicker">Provincia · {provinceMetadata.surface_type || 'Terra'}</div>
-                <div className="province-assets">
-                  <span title="Livello infrastrutture, sviluppabile con gli ordini">⌁ INFRA <b>L{infrastructureLevel}</b></span>
-                  <span title="Impianti industriali presenti">⚙ FAB. <b>{provinceAssets.factories}</b></span>
-                  <span title="Porti presenti">⚓ PORTI <b>{provinceAssets.ports}</b></span>
-                  <span title="Centri urbani nella provincia">● CITTÀ <b>{provinceAssets.cities + (provinceAssets.capital ? 1 : 0)}</b></span>
-                  <span title="Unità militari schierate">▲ UNITÀ <b>{provinceAssets.units}</b></span>
-                </div>
-                {Array.isArray(provinceMetadata.tags) && provinceMetadata.tags.length > 0 && (
-                  <div className="province-tags">{provinceMetadata.tags.slice(0, 3).join(' · ')}</div>
-                )}
-              </div>
-            )}
-          </div>
         )}
 
         {currentGame && selectedRegion && !externalRegionSelected && (
@@ -444,13 +398,6 @@ export function DeskContent({
             refreshKey={currentGame.currentTurn}
           />
         )}
-
-        <div className="save-load-section">
-          <button className="btn-save" onClick={() => setShowSaveModal(true)}>Salva</button>
-          <button className="btn-load" onClick={onOpenSavePicker}>Carica</button>
-          <button className="btn-edit-prompt" onClick={() => { setShowPromptEditor(true); }} title="Modifica il prompt del mondo">Mondo</button>
-          <button className="btn-edit-prompt" onClick={() => setShowLLMSettings(true)} title="Scegli il modello IA">Modello</button>
-        </div>
       </div>
     );
   }

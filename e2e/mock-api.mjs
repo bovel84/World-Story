@@ -133,7 +133,19 @@ export const MOCK_RESOURCES = {
     depletionPct: 0, renewable: false, extractionPerMonth: 2.5, stockpile: 4, depleted: false,
   }],
   market: [{ kind: 'diamonds', label: 'Diamanti', bid: 1.196, ask: 1.534, mid: 1.365, scarcityPct: 0 }],
-  debt: 0, creditLimit: 49.92, creditHeadroom: 49.92,
+  capacity: { food: 24, clothing: 16, weapons: 200, fuel: 120 },
+  needs: { food: 3.2, clothing: 1.4, weapons: 0.8, fuel: 1.1 },
+  debt: 12.4,
+  debts: [
+    { id: 'debt-1951-1', label: 'Titolo 10 anni', principal: 8.4, annualRatePct: 3.1, issuedDate: '1951-01-01', maturityDate: '1961-01-01', termYears: 10 },
+    { id: 'debt-1951-2', label: 'Titolo 5 anni', principal: 4, annualRatePct: 2.8, issuedDate: '1951-01-01', maturityDate: '1956-01-01', termYears: 5 },
+  ],
+  overdraft: 0,
+  annualInterest: 0.37,
+  averageMaturityYears: 8.4,
+  debtRatioPct: 18.6,
+  marketRatePct: 3.1,
+  creditLimit: 49.92, creditHeadroom: 37.52,
   modifiers: { stability: 0, socialTension: 0, warEffort: 0, revenueMultiplier: 1, growthModifier: 0 },
 };
 
@@ -144,6 +156,101 @@ export const MOCK_ACCOUNT_HISTORY = [
   { date: '1951-02-01', turn: 2, account: { ...MOCK_ACCOUNTS.ALPHA, monthlyBalance: 0.5, stability: 59, socialTension: 41, monthlyRevenue: 3.3, monthlyExpenses: 2.8, defenceBurdenPct: 3.9, mobilized: 2, warEffort: 19, annualGrowthRate: 0.023, money: 172.4, debt: 2.1 } },
   { date: '1951-03-01', turn: 3, account: { ...MOCK_ACCOUNTS.ALPHA, money: 185.85, debt: 0 } },
 ];
+
+/** Anime del governo e dettaglio del bilancio: stessa forma dello snapshot
+ *  reale, così l'E2E copre la pagina Governo senza backend. */
+export const MOCK_GOVERNMENT = {
+  factions: [
+    {
+      id: 'militari', name: 'Forze armate', interest: 'Difesa, ordine e prestigio',
+      powerPct: 18, satisfaction: 58, stance: 'neutrale', pressure: 31,
+      demand: { lever: 'difesa', title: 'Più fondi ai comandi', detail: 'La difesa vale il 4,1% del PIL: i comandi chiedono un rafforzamento moderato.', direction: 'alza', urgency: 40 },
+      footprint: 'Spinge la spesa militare e le riserve richiamate.',
+    },
+    {
+      id: 'industriali', name: 'Industria e padronato', interest: 'Meno tasse, più infrastrutture e mercati',
+      powerPct: 16, satisfaction: 62, stance: 'favorevole', pressure: 24,
+      demand: { lever: 'infrastrutture', title: 'Più infrastrutture per l’industria', detail: 'Porti, ferrovie e energia assorbono il 18,4% delle uscite.', direction: 'alza', urgency: 45 },
+      footprint: 'Vuole alleggerire il prelievo e costruire capacità produttiva.',
+    },
+    {
+      id: 'lavoratori', name: 'Lavoro e sindacati', interest: 'Salari, welfare e diritti',
+      powerPct: 15, satisfaction: 52, stance: 'neutrale', pressure: 28,
+      demand: { lever: 'welfare', title: 'Welfare: più sanità e sostegno sociale', detail: 'Sanità e sostegno valgono il 6,2% del PIL.', direction: 'alza', urgency: 48 },
+      footprint: 'Premia sanità, sostegno sociale e tenuta dei salari.',
+    },
+    {
+      id: 'tecnocrati', name: 'Università e tecnici', interest: 'Istruzione, ricerca e competenza',
+      powerPct: 11, satisfaction: 66, stance: 'favorevole', pressure: 20,
+      demand: { lever: 'istruzione', title: 'Istruzione e ricerca: più atenei e laboratori', detail: 'Scuola e ricerca assorbono il 14,1% delle uscite.', direction: 'alza', urgency: 34 },
+      footprint: 'Collega la spesa per istruzione alla crescita futura.',
+    },
+    {
+      id: 'finanza', name: 'Finanza e creditori', interest: 'Conti in ordine e moneta stabile',
+      powerPct: 13, satisfaction: 74, stance: 'favorevole', pressure: 18,
+      demand: { lever: 'debito', title: 'Mantenere il pareggio', detail: 'Il bilancio è in attivo: la finanza chiede prudenza.', direction: 'mantieni', urgency: 30 },
+      footprint: 'Vigila su disavanzo, debito e credito residuo.',
+    },
+    {
+      id: 'province', name: 'Province e prefetti', interest: 'Strade, ordine locale e autonomia',
+      powerPct: 12, satisfaction: 57, stance: 'neutrale', pressure: 26,
+      demand: { lever: 'infrastrutture', title: 'Strade, acquedotti e presidi locali', detail: 'Le province governano 1 territorio.', direction: 'alza', urgency: 43 },
+      footprint: 'Porta sul tavolo del consiglio il territorio e i servizi locali.',
+    },
+    {
+      id: 'opinione', name: 'Opinione pubblica', interest: 'Consenso, quiete e benessere diffuso',
+      powerPct: 15, satisfaction: 43, stance: 'critico', pressure: 38,
+      demand: { lever: 'ordine', title: 'Distensione: calmare la piazza', detail: 'La tensione sociale è al 38/100.', direction: 'alza', urgency: 38 },
+      footprint: 'Misura il consenso e la pressione della piazza.',
+    },
+  ],
+  dominantId: 'militari',
+  angriestId: 'opinione',
+  cohesion: 59,
+  pressureIndex: 27,
+  headline: 'Forze armate ha la maggiore influenza; Opinione pubblica preme di più: distensione: calmare la piazza.',
+  budget: {
+    currency: 'mld',
+    revenue: [
+      { id: 'incomeTax', label: 'Imposta sul reddito', amount: 1.36, sharePct: 40 },
+      { id: 'corporateTax', label: 'Imposte su imprese e produzione', amount: 0.82, sharePct: 24.1 },
+      { id: 'tradeDuties', label: 'Dazi e commercio estero', amount: 0.48, sharePct: 14.1 },
+      { id: 'resourceRoyalties', label: 'Royalties e concessioni', amount: 0.4, sharePct: 11.8 },
+      { id: 'otherRevenue', label: 'Altre entrate', amount: 0.34, sharePct: 10 },
+    ],
+    expense: [
+      { id: 'defence', label: 'Difesa', amount: 0.34, sharePct: 13.1 },
+      { id: 'administration', label: 'Amministrazione pubblica', amount: 0.6, sharePct: 23.1 },
+      { id: 'education', label: 'Istruzione e ricerca', amount: 0.37, sharePct: 14.1 },
+      { id: 'health', label: 'Sanità e assistenza', amount: 0.45, sharePct: 17.3 },
+      { id: 'infrastructure', label: 'Infrastrutture e trasporti', amount: 0.48, sharePct: 18.4 },
+      { id: 'social', label: 'Sostegno sociale e lavoro', amount: 0.22, sharePct: 8.5 },
+      { id: 'otherExpense', label: 'Altre uscite', amount: 0.14, sharePct: 5.4 },
+    ],
+    revenueTotal: 3.4,
+    expenseTotal: 2.6,
+    balance: 0.8,
+    effectiveTaxRatePct: 10.2,
+    defenceBurdenPct: 4.1,
+    socialBurdenPct: 10.8,
+    educationBurdenPct: 4.4,
+  },
+};
+
+/** Voci del consiglio generate dall'LLM (mock): petizioni brevi per fazione. */
+export const MOCK_GOVERNMENT_VOICES = {
+  council: 'Il consiglio si stringe attorno al bilancio: le forze armate chiedono mezzi, il lavoro chiede tutele.',
+  voices: {
+    militari: 'I confini non si difendono con i proclami: servono mezzi e riserve addestrate, e li chiediamo ora.',
+    industriali: 'Le imprese non possono attendere: alleggerite il prelievo e aprite i cantieri.',
+    lavoratori: 'I salari non bastano più: sanità e sostegno sociale non sono un lusso.',
+    tecnocrati: 'Senza ricerca non c’è futuro: gli atenei chiedono fondi e laboratori.',
+    finanza: 'I conti sono in ordine: manteniamo il pareggio senza avventure.',
+    province: 'Le strade e i presidi locali attendono da troppo tempo.',
+    opinione: 'La piazza è stanca: date risposte su prezzi e lavoro, o la fiducia si spegne.',
+  },
+  generated: true,
+};
 
 // ---------------------------------------------------------------------------
 // Arsenale: forma esatta dell'API reale (schede descrittive + contributo).
@@ -356,9 +463,35 @@ export function installMockApi(page, opts = {}) {
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/ongoing-processes`, (route) =>
     json(route, { processes: MOCK_ONGOING_PROCESSES }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/national-state`, (route) =>
-    json(route, { accounts: MOCK_ACCOUNTS, history: MOCK_ACCOUNT_HISTORY, resources: MOCK_RESOURCES }));
+    json(route, { accounts: MOCK_ACCOUNTS, history: MOCK_ACCOUNT_HISTORY, resources: MOCK_RESOURCES, government: MOCK_GOVERNMENT }));
+  // La nazione fa debito: il mock risponde con un titolo deterministico.
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/finance/borrow`, (route) => {
+    if (route.request().method() !== 'POST') return notFound(route);
+    let amountMld = 5;
+    let termYears = 10;
+    try {
+      const body = JSON.parse(route.request().postData() || '{}');
+      if (Number.isFinite(Number(body?.amountMld))) amountMld = Number(body.amountMld);
+      if (Number.isFinite(Number(body?.termYears))) termYears = Number(body.termYears);
+    } catch { /* body non JSON → valori di default */ }
+    return json(route, {
+      ok: true,
+      tranche: {
+        id: 'debt-mock-1', label: `Titolo ${termYears} anni`, principal: amountMld,
+        annualRatePct: 3.4, issuedDate: '1951-01-01', maturityDate: `19${51 + termYears}-01-01`, termYears,
+      },
+      debt: 12.4 + amountMld, annualInterest: 0.54, debtRatioPct: 20.1, creditHeadroom: 37.52 - amountMld,
+    });
+  });
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/voices`, (route) =>
+    json(route, MOCK_GOVERNMENT_VOICES));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/arsenal`, (route) => json(route, MOCK_ARSENAL));
-  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/chats`, (route) => json(route, { chats: [] }));
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/chats*`, (route) => {
+    if (route.request().method() === 'POST' && /\/chats$/.test(new URL(route.request().url()).pathname)) {
+      return json(route, { chat: { id: 'mock-chat-1', polityId: 'POL', polityName: 'Polonia', polityColor: '#888888', participants: [], unread: 0, archived: false } });
+    }
+    return json(route, { chats: [] });
+  });
   // Coda ordini: GET restituisce la coda, POST accoda un ordine deterministico.
   // (U02 µ1: «Registra ordine» accoda senza avanzare tempo né spendere risorse.)
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/actions/queue`, (route) => {

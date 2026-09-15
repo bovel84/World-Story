@@ -44,6 +44,7 @@ const TRADE_ERROR_CODES = [
 const PROCURE_ERROR_CODES = [
   'equipment_unknown', 'equipment_quantity_invalid', 'build_unavailable', 'buy_unavailable', 'procurement_mode_invalid', 'credit_exhausted',
 ];
+const DEBT_ERROR_CODES = ['amount_invalid', 'credit_exhausted'];
 function respondDomainError(res: any, e: any, codes: string[], fallback: string): void {
   const message = typeof e?.message === 'string' ? e.message : '';
   const code = codes.find(candidate => message.includes(candidate));
@@ -204,7 +205,7 @@ gamesRouter.get('/:id/ongoing-processes', (req, res) => {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
     // L'avanzamento arriva sempre valorizzato: la sessione lo ricalcola dalle
     // date per i progetti creati prima che il motore lo persistesse.
-    res.json({ processes: session.getOngoingProcesses() });
+    res.json({ processes: session.getOngoingProcesses(), completed: session.getCompletedProcesses() });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get ongoing processes');
   }
@@ -213,9 +214,28 @@ gamesRouter.get('/:id/ongoing-processes', (req, res) => {
 gamesRouter.get('/:id/national-state', (req, res) => {
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    res.json({ accounts: session.getNationalAccounts(), history: session.getNationalHistory(), resources: session.getResources() });
+    res.json({
+      accounts: session.getNationalAccounts(),
+      history: session.getNationalHistory(),
+      resources: session.getResources(),
+      // Anime del governo + dettaglio del bilancio: il Dossier Nazione legge
+      // voci e pressioni calcolate dal motore, mai stimate nel browser.
+      government: session.getGovernment(),
+    });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get national state');
+  }
+});
+
+// Anime del governo: voci generate dall'LLM sulle fazioni calcolate dal motore.
+// On-demand (come il consigliere) e valide per il turno corrente.
+gamesRouter.get('/:id/government/voices', async (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const voices = await session.getGovernmentVoices();
+    res.json(voices);
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to get government voices');
   }
 });
 
@@ -284,6 +304,23 @@ gamesRouter.post('/:id/resources/trade', (req, res) => {
     res.json(session.tradeResource(mode, resourceId, quantity));
   } catch (e: any) {
     respondDomainError(res, e, TRADE_ERROR_CODES, 'Failed to trade resource');
+  }
+});
+
+// La nazione fa debito: emette titoli per incassare cassa oggi, con interessi
+// e scadenza. Il tetto di credito e il tasso di mercato li fissa il motore.
+gamesRouter.post('/:id/finance/borrow', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const amountMld = Number(req.body?.amountMld ?? 0);
+    const termYears = Number(req.body?.termYears ?? 10);
+    if (!Number.isFinite(amountMld) || amountMld <= 0) {
+      res.status(400).json({ error: 'amountMld deve essere un numero positivo' });
+      return;
+    }
+    res.json(session.borrowSovereignDebt(amountMld, termYears));
+  } catch (e: any) {
+    respondDomainError(res, e, DEBT_ERROR_CODES, 'Failed to issue sovereign debt');
   }
 });
 

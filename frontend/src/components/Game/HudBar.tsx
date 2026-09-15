@@ -74,6 +74,8 @@ export interface HudBarProps {
   activePlayback?: { simulationId: string; eventId: string; revision?: number } | null;
   onFocusPlaybackReader?: () => void;
   playerPolityName?: string;
+  /** Azioni globali di partita (Salva/Carica/Mondo/Modello) mostrate nella barra. */
+  menu?: React.ReactNode;
 }
 
 export interface TimelinePanelProps {
@@ -333,6 +335,7 @@ export const HudBar: React.FC<HudBarProps> = ({
   activePlayback,
   onFocusPlaybackReader,
   playerPolityName,
+  menu,
 }) => {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [timeDeskOpen, setTimeDeskOpen] = useState(false);
@@ -378,6 +381,7 @@ export const HudBar: React.FC<HudBarProps> = ({
           {dispatchCount > 0 && <span className="hud-dispatch-count">{dispatchCount > 99 ? '99+' : dispatchCount}</span>}
           {dispatchLive && <span className="hud-dispatch-live" aria-label="Nuovi aggiornamenti in arrivo" />}
         </button>
+        {menu}
       </div>
 
       {/* Centro: nome del mondo + badge del turno */}

@@ -71,6 +71,7 @@ export function buildNextSpeakerPrompt(vars: NextSpeakerPromptVars): string {
   return `Sei il moderatore invisibile di una chat diplomatica in un gioco storico.
 Il giocatore parla e agisce come ${vars.playerPolityName}: i suoi messaggi sono dichiarazioni ufficiali del governo di ${vars.playerPolityName}, e le altre nazioni devono riconoscerlo come tale.
 Le sole nazioni autorizzate a rispondere sono: ${vars.participantNames.join(', ')}.
+Non introdurre altri paesi, non attribuire loro una battuta e non trattarli come presenti in una conversazione che non li riguarda.
 
 Cronaca della chat:
 ${renderHistory(vars.history, vars.playerPolityName)}
@@ -94,6 +95,7 @@ export function buildChatPrompt(vars: ChatPromptVars): string {
     : vars.mode === 'reaction'
       ? `${vars.playerPolityName} non ha scritto in chat: ${speaker.name} prende formalmente posizione — nota ufficiale, protesta, apprezzamento, richiesta o avvertimento — reagendo agli ordini e agli eventi descritti qui sopra.`
       : 'Il giocatore non interviene: continua in modo naturale il confronto con le altre nazioni.';
+  const presentNames = vars.participants.map(p => p.name).join(', ');
 
   return `Stai simulando una diplomazia a turni. Interpreta esclusivamente ${speaker.name}, in prima persona plurale, come governo o leadership della nazione.
 
@@ -133,7 +135,9 @@ ${latest}
 ${modeRule}
 - Porta la conversazione verso una posizione, una condizione, un accordo o un rifiuto chiaro: non trascinarla senza scopo.
 - Valuta seriamente offerte e richieste, ma difendi gli interessi e il carattere di ${speaker.name}.
-- Richiama solo fatti compatibili con lore, data, eventi e mappa; considera forza militare, territori e relazioni.
+- Le sole nazioni presenti in questa trattativa sono: ${presentNames}. Non far parlare né trattare come presenti altre nazioni: un altro paese può essere citato solo come attore esterno della situazione, mai come interlocutore.
+- Usa forza, territori e relazioni per decidere, ma NON citare cifre, percentuali, punteggi, livelli, indici, PIL, popolazione, numero di regioni o divisioni, tassi o statistiche. Traduci i dati in giudizi politici naturali («una forza militare superiore», «un’economia fragile», «una popolazione esigua»).
+- Parla come un diplomatico: frasi naturali, tono da nota ufficiale o colloquio tra governi. Non menzionare dossier, priorità interne, difficoltà di gioco o campi tecnici.
 - Adatta il tono a quello del giocatore, restando professionale. Niente teatralità, gergo moderno eccessivo o spiegazioni da narratore.
 - Non dire mai di essere un’IA e non parlare della meccanica del gioco.
 - Scrivi in italiano, in modo concreto, normalmente 2–5 frasi e massimo 1200 caratteri.

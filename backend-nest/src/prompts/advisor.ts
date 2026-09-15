@@ -73,6 +73,12 @@ ${vars.PLAYER_POLITY_BATTALION_SUMMARIES || 'Nessuna unità'}
 
 ${vars.PLAYER_ACTIONS_THIS_ROUND || 'Nessuna azione'}
 
+[Anime del governo — chi preme dentro la nazione]
+
+${vars.GOVERNMENT_STATE || '(Nessuna anima del governo registrata per questa nazione.)'}
+
+Quando consigli, tieni presenti le anime insoddisfatte e la loro pressione: puoi segnalare chi dentro il governo frena o minaccia, ma non inventare ministri, partiti o richieste non elencate, e non ridurti a un elenco di cifre.
+
 [Tutte le azioni del giocatore nella partita]
 
 ${vars.PLAYER_EVERY_ACTION_NOT_PREVIOUS || 'Nessuna azione passata'}

@@ -769,8 +769,11 @@ describe('movement order regressions', () => {
     const { session, gameId, source, target, unit, move } = fixture();
     const before = JSON.parse(JSON.stringify(unit));
     const action = session.queueAction('Sposta I Armata da ФРГ a Польша');
+    // L'auto-jump si arresta sulla decisione NPC (controparte diretta):
+    // l'arrivo successivo resta fuori dal checkpoint.
     const events = [
-      { headline: 'Preparativi', description: 'Le truppe si preparano alla partenza', date: '1951-01-10', mapChanges: [] },
+      { headline: 'Preparativi', description: 'Le truppe si preparano alla partenza', date: '1951-01-10', mapChanges: [],
+        reactions: [{ polityName: 'Polonia', role: 'counterparty', stance: 'opposed', response: 'Contesta il movimento di truppe al confine.' }] },
       { headline: 'Arrivo', description: 'Le truppe raggiungono la destinazione', date: '1951-01-20', mapChanges: [move()] },
     ];
     vi.spyOn(session.gameController, 'processTurnWithPrompts').mockImplementation(async (...args: any[]) => {
@@ -861,8 +864,13 @@ describe('movement order regressions', () => {
     const { seedStock } = await import('../src/core/simulation/MaterialEconomy');
     const { naturalResourcesFor } = await import('../src/core/simulation/MilitaryIndustry');
     // Il seed salvato coincide con quello calcolato dalle province INIZIALI
-    // e dalle risorse naturali reali della nazione.
-    const initial = seedStock(WorldStateEngine.accounts(worldRepository.getRegions(WORLD_ID))['DEU'], naturalResourcesFor('DEU'));
+    // e dalle risorse naturali reali della nazione. Il mondo è del 1951: il
+    // motore legge la mappa, non i fatti 2024 (PIL, debito, popolazione).
+    const initial = seedStock(
+      WorldStateEngine.accounts(worldRepository.getRegions(WORLD_ID), { modernFacts: false, startDate: '1951-01-01' })['DEU'],
+      naturalResourcesFor('DEU'),
+      '1951-01-01',
+    );
     expect(resourceRepository.get(gameId, 'DEU')?.stock).toEqual(initial);
     // Se lo stato corrente cambia (conquiste/crescita), il magazzino d'origine
     // resta quello dei dati di partenza.

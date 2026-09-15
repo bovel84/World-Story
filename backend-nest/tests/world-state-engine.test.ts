@@ -69,4 +69,16 @@ describe('WorldStateEngine', () => {
     expect(bulletin).toContain('sforzo bellico');
     expect(bulletin).toContain('tensione sociale');
   });
+
+  it('esclude i fatti 2024 dai mondi storici e usa la tabella di conversione', () => {
+    const regions = [{ id: 'roma', owner: 'ITA', population: 47_000_000, gdp: 120, militaryPower: 40 }];
+    const modern = WorldStateEngine.accounts(regions).ITA;
+    const historical = WorldStateEngine.accounts(regions, { modernFacts: false, startDate: '1951-01-01' }).ITA;
+    // Il mondo moderno usa il registro reale: PIL 2024 e debito pubblico.
+    expect(modern.nominalGdpUsdBillions).toBeGreaterThan(1_000);
+    expect(modern.debtBurdenPct).toBeGreaterThan(100);
+    // Il mondo storico legge la tabella 1951 (Italia 12 mld) e nessun debito 2024.
+    expect(historical.nominalGdpUsdBillions).toBe(12);
+    expect(historical.debtBurdenPct).toBe(0);
+  });
 });

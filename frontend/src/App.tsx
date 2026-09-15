@@ -23,7 +23,7 @@ import { HudBar } from './components/Game/HudBar';
 import { GameLoader, WORLD_GEN_PHASES } from './components/Game/GameLoader';
 import { Fab } from './components/Game/Fab';
 // DISATTIVATO: editor mappe (temporaneo) — mapApi era usato solo dall’editor/«Le mie mappe»
-import { chatsApi, gameApi, worldApi, savesApi, llmApi, type TimelineEntry } from './services/api';
+import { chatsApi, gameApi, worldApi, savesApi, llmApi, type GovernmentSnapshot, type GovernmentVoicesResponse, type TimelineEntry } from './services/api';
 import { getStoredKey, migrateLegacyKey } from './services/llmKeyStore';
 import type { Region, World, Game } from './types';
 import { useGameStore, useUIStore, useActionsStore, useChatStore, selectTotalUnread, type FloatingPanelTab } from './stores';
@@ -43,6 +43,7 @@ import { useOrderDraftStore } from './stores/orderDraftStore';
 import { SimulationEventReader, type PlaybackReaderState } from './components/Game/SimulationEventReader';
 import { CommandRail } from './components/Shell/CommandRail';
 import { DeskContent } from './components/Shell/DeskContent';
+import { GameMenu } from './components/Shell/GameMenu';
 import { ProvinceInspector } from './components/Shell/ProvinceInspector';
 import { GameShell } from './components/Shell/GameShell';
 import { ConfirmDialog } from './components/ui/ConfirmDialog';
@@ -189,6 +190,10 @@ function App() {
     id: string; title: string; summary: string; started_date: string; expected_date?: string | null;
     progress?: number | null; progress_note?: string | null;
   }>>([]);
+  const [completedProcesses, setCompletedProcesses] = useState<Array<{
+    id: string; title: string; summary: string; started_date: string; expected_date?: string | null;
+    completed_date?: string | null;
+  }>>([]);
   const timelineRequestRef = useRef(0);
   const promptEditorRef = useRef<HTMLTextAreaElement>(null);
   const [timelineHasMore, setTimelineHasMore] = useState(false);
@@ -210,6 +215,7 @@ function App() {
         setTimelineHasMore(Boolean(data.hasMore));
         setTimelineNextAfter(data.nextAfter ?? 0);
         setOngoingProcesses(processData.processes || []);
+        setCompletedProcesses(processData.completed || []);
       }
     } catch (e) {
       console.error('[App] Impossibile caricare la timeline:', e);
@@ -254,6 +260,14 @@ function App() {
   const [nationalResources, setNationalResources] = useState<Awaited<ReturnType<typeof normalizeResources>>>(null);
   // Arsenale militare e risorse naturali reali del paese giocatore.
   const [nationalArms, setNationalArms] = useState<Awaited<ReturnType<typeof gameApi.arsenal>> | null>(null);
+  // Anime del governo e dettaglio del bilancio: pubblicati dal motore nel
+  // national-state; la pagina Governo del dossier li legge, non li stima.
+  const [nationalGovernment, setNationalGovernment] = useState<GovernmentSnapshot | null>(null);
+  // Voci delle anime del governo: generate dall'LLM su richiesta quando si apre
+  // la scheda Governo, valide per il turno corrente.
+  const [governmentVoices, setGovernmentVoices] = useState<GovernmentVoicesResponse | null>(null);
+  const [governmentVoicesLoading, setGovernmentVoicesLoading] = useState(false);
+  const [governmentVoicesError, setGovernmentVoicesError] = useState<string | null>(null);
   const [mandateDecisions, setMandateDecisions] = useState<Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>>([]);
   useEffect(() => {
     const chatStore = useChatStore.getState();
@@ -414,18 +428,21 @@ function App() {
 
   // Il bollettino usa dati aggregati dal motore, non formule del browser.
   useEffect(() => {
-    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setNationalResources(null); setNationalArms(null); setMandateDecisions([]); return; }
+    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setNationalResources(null); setNationalArms(null); setNationalGovernment(null); setGovernmentVoices(null); setGovernmentVoicesError(null); setMandateDecisions([]); return; }
+    // Cambia il turno: le voci del consiglio appartengono al turno e vanno rigenerate.
+    setGovernmentVoices(null);
+    setGovernmentVoicesError(null);
     let cancelled = false;
     // Il conto nazionale è disponibile anche nei giochi legacy; le decisioni
     // mandato appartengono invece solo al percorso strict e un 409 significa
     // semplicemente «nessuna decisione applicabile», non un errore del dossier.
     gameApi.nationalState(currentGameId)
-      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(normalizeResources(national.resources)); } })
+      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(normalizeResources(national.resources)); setNationalGovernment(national.government ?? null); } })
       .catch(error => console.warn('[App] Impossibile caricare il conto nazionale:', error));
     // I progetti in corso portano la percentuale di realizzazione calcolata dal
     // motore: senza questa lettura il Dossier restava senza avanzamento.
     gameApi.ongoingProcesses(currentGameId)
-      .then((processData) => { if (!cancelled) setOngoingProcesses(processData.processes || []); })
+      .then((processData) => { if (!cancelled) { setOngoingProcesses(processData.processes || []); setCompletedProcesses(processData.completed || []); } })
       .catch(error => console.warn('[App] Impossibile caricare i processi in corso:', error));
     gameApi.arsenal(currentGameId)
       .then((arms) => { if (!cancelled) setNationalArms(arms); })
@@ -451,6 +468,40 @@ function App() {
     }
   };
 
+  // Una fazione del governo propone: la richiesta diventa una bozza d'ordine
+  // reale nel compositore. Nessuna spesa finché l'ordine non è registrato e il
+  // tempo non avanza; il giocatore resta l'unico a decidere.
+  const draftGovernmentPetition = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    updateOrderDraft(trimmed);
+    openModule('orders');
+    notify('Richiesta portata in consiglio: completa l’ordine e registralo.', 'info');
+  }, [updateOrderDraft, openModule, notify]);
+
+  // Le anime del governo parlano con il motore LLM: una chiamata on-demand per
+  // turno, quando il giocatore apre la scheda Governo. Se il modello non
+  // risponde, la scheda resta utilizzabile con la richiesta deterministica.
+  const governmentVoicesRequestedRef = useRef<string | null>(null);
+  const loadGovernmentVoices = useCallback(async () => {
+    if (!currentGameId) return;
+    // Un tentativo per turno: un errore non deve innescare un ciclo di retry.
+    const requestKey = `${currentGameId}:${currentGame?.currentTurn ?? 0}`;
+    if (governmentVoicesRequestedRef.current === requestKey) return;
+    governmentVoicesRequestedRef.current = requestKey;
+    setGovernmentVoicesLoading(true);
+    setGovernmentVoicesError(null);
+    try {
+      const voices = await gameApi.governmentVoices(currentGameId);
+      setGovernmentVoices(voices);
+    } catch (error) {
+      console.warn('[App] Impossibile far parlare il consiglio:', error);
+      setGovernmentVoicesError('Il consiglio non ha risposto: restano le richieste ufficiali.');
+    } finally {
+      setGovernmentVoicesLoading(false);
+    }
+  }, [currentGameId, currentGame?.currentTurn]);
+
   // Costruisci o importa equipaggiamento: aggiorna arsenale e scorte.
   const procureEquipment = useCallback(async (mode: 'build' | 'buy', equipmentId: string, quantity = 1) => {
     if (!currentGameId) return;
@@ -471,6 +522,7 @@ function App() {
       setNationalArms(arms);
       setNationalResources(normalizeResources(national.resources));
       setNationalAccounts(national.accounts || {});
+      setNationalGovernment(national.government ?? null);
     } catch (error: any) {
       console.error('[App] Procurement fallito:', error);
       const message = String(error?.message || '');
@@ -493,6 +545,7 @@ function App() {
       );
       const national = await gameApi.nationalState(currentGameId);
       setNationalResources(normalizeResources(national.resources));
+      setNationalGovernment(national.government ?? null);
     } catch (error: any) {
       console.error('[App] Scambio risorsa fallito:', error);
       const message = String(error?.message || '');
@@ -501,6 +554,29 @@ function App() {
         : message.includes('resource_not_held') ? 'La nazione non possiede questa risorsa.'
         : message.includes('unknown_resource') ? 'Risorsa sconosciuta.'
         : 'Scambio non riuscito.';
+      notify(reason, 'error');
+    }
+  }, [currentGameId]);
+
+  // La nazione fa debito: emette titoli per cassa, con interessi e scadenza.
+  const borrowSovereignDebt = useCallback(async (amountMld: number, termYears: number) => {
+    if (!currentGameId) return;
+    try {
+      const result = await gameApi.borrowDebt(currentGameId, amountMld, termYears);
+      notify(
+        `Emessi ${result.tranche.principal.toFixed(2)} mld al ${result.tranche.annualRatePct}% a ${termYears} anni: cassa in aumento, interessi ${result.annualInterest.toFixed(2)} mld/anno.`,
+        'success',
+      );
+      const national = await gameApi.nationalState(currentGameId);
+      setNationalResources(normalizeResources(national.resources));
+      setNationalAccounts(national.accounts || {});
+      setNationalGovernment(national.government ?? null);
+    } catch (error: any) {
+      console.error('[App] Emissione di debito fallita:', error);
+      const message = String(error?.message || '');
+      const reason = message.includes('credit_exhausted') ? 'Tetto di credito raggiunto: il mercato non presta oltre.'
+        : message.includes('amount_invalid') ? 'Importo non valido: indica una cifra positiva.'
+        : 'Emissione non riuscita.';
       notify(reason, 'error');
     }
   }, [currentGameId]);
@@ -1557,8 +1633,12 @@ function App() {
       setTimelineHasMore(Boolean(timelineData.hasMore));
       setTimelineNextAfter(timelineData.nextAfter ?? 0);
       setOngoingProcesses(processData.processes || []);
+      setCompletedProcesses(processData.completed || []);
       setNationalAccounts(nationalData.accounts || {});
       setNationalHistory(nationalData.history || []);
+      setNationalGovernment(nationalData.government ?? null);
+      setGovernmentVoices(null);
+      setGovernmentVoicesError(null);
       setFeedItems([]);
       clearOrderDraft();
       clearSuggestions();
@@ -2005,19 +2085,6 @@ function App() {
   const renderGame = () => {
     if (!currentWorld) return null;
     const currentRegion = regions.find(r => r.id === selectedRegion);
-    const provinceMetadata = currentRegion?.metadata || {};
-    const isPaxProvince = Boolean(provinceMetadata.pax_region_id);
-    const provinceAssets = (currentRegion?.objects || []).reduce((assets, object) => {
-      if (object.type === "factory") assets.factories += 1;
-      else if (object.type === "port") assets.ports += 1;
-      else if (object.type === "radar") assets.infrastructure += 1;
-      else if (object.type === "capital") assets.capital = true;
-      else if (object.type === "city") assets.cities += 1;
-      else if (object.type === "army" || object.type === "battalion" || object.type === "fleet") assets.units += 1;
-      return assets;
-    }, { factories: 0, ports: 0, infrastructure: 0, cities: 0, units: 0, capital: false });
-    const infrastructureLevel = Number(provinceMetadata.infrastructure_level)
-      || Math.min(5, 1 + provinceAssets.infrastructure + (provinceAssets.capital ? 2 : provinceAssets.cities > 0 ? 1 : 0));
 
     // Polis del giocatore (owner = polityId; da players.polityId, oppure dedotto dalla regione capitale)
     const playerPolityId = currentGame?.players?.[0]?.polityId
@@ -2031,7 +2098,6 @@ function App() {
     const nationalPopulation = Number(nationalAccount?.population ?? nationalRegions.reduce((sum, region) => sum + Number(region.population || 0), 0));
     const estimatedRevenue = Number(nationalAccount?.monthlyRevenue ?? 0);
     const estimatedExpenses = Number(nationalAccount?.monthlyExpenses ?? 0);
-    const campaignProgress = currentGame ? Math.round((currentGame.currentTurn / currentGame.maxTurns) * 100) : 0;
     const governmentTypes: Record<string, string> = {
       PSE: "Autorità nazionale palestinese", USA: "Repubblica federale presidenziale",
       RUS: "Repubblica federale presidenziale", CHN: "Repubblica popolare a partito unico",
@@ -2042,9 +2108,6 @@ function App() {
     const playerRegionId = currentGame?.players?.[0]?.regionId || nationalReference?.id || null;
     // Provincia esterna selezionata: il bollettino nazionale si nasconde, resta solo il dettaglio provincia.
     const externalRegionSelected = Boolean(currentRegion && currentRegion.id !== playerRegionId && currentRegion.owner !== playerPolityId);
-    const selectedIsPlayerProvince = Boolean(currentRegion && (currentRegion.id === playerRegionId || currentRegion.owner === playerPolityId));
-    const selectedRegionOwnerName = currentRegion?.polityName || currentRegion?.owner || null;
-    const latestNationalNarration = timeline.length > 0 ? timeline[timeline.length - 1].narration : "In attesa del primo dispaccio nazionale.";
 
     // Rail items per CommandRail
     const railItems = [
@@ -2187,6 +2250,15 @@ function App() {
               } : null}
               onFocusPlaybackReader={() => document.getElementById("simulation-event-reader")?.focus({ preventScroll: true })}
               playerPolityName={nationalName}
+              menu={(
+                <GameMenu
+                  onSave={() => setShowSaveModal(true)}
+                  onLoad={() => setShowSavePicker(true)}
+                  onEditWorld={() => setShowPromptEditor(true)}
+                  onEditModel={() => setShowLLMSettings(true)}
+                  disabled={isProcessingTurn}
+                />
+              )}
             />
             {newsOpen && (
               <NewsFlash
@@ -2259,14 +2331,13 @@ function App() {
               procureEquipment={procureEquipment}
               tradeResource={tradeNaturalResource}
               nationalHistory={nationalHistory}
-              campaignProgress={campaignProgress}
-              latestNationalNarration={latestNationalNarration}
-              currentRegionOwnerName={selectedRegionOwnerName}
-              selectedIsPlayerProvince={selectedIsPlayerProvince}
-              isPaxProvince={isPaxProvince}
-              provinceAssets={provinceAssets}
-              provinceMetadata={provinceMetadata}
-              infrastructureLevel={infrastructureLevel}
+              nationalGovernment={nationalGovernment}
+              onDraftGovernmentPetition={draftGovernmentPetition}
+              governmentVoices={governmentVoices}
+              governmentVoicesLoading={governmentVoicesLoading}
+              governmentVoicesError={governmentVoicesError}
+              onLoadGovernmentVoices={loadGovernmentVoices}
+              onBorrowDebt={borrowSovereignDebt}
               pendingActions={pendingActions}
               suggestions={suggestions}
               orderDraftText={orderDraftText}
@@ -2287,6 +2358,7 @@ function App() {
               setEditingActionText={setEditingActionText}
               isProcessingTurn={isProcessingTurn}
               ongoingProcesses={ongoingProcesses}
+              completedProcesses={completedProcesses}
               mandateDecisions={mandateDecisions}
               onAcknowledgeMandateDecision={acknowledgeMandateDecision}
               feedItems={feedItems}
@@ -2298,11 +2370,6 @@ function App() {
               onMarkFeedRead={markFeedRead}
               onMarkAllFeedRead={markAllFeedRead}
               playerPolityId={playerPolityId}
-              showSaveModal={showSaveModal}
-              setShowSaveModal={setShowSaveModal}
-              setShowPromptEditor={setShowPromptEditor}
-              setShowLLMSettings={setShowLLMSettings}
-              onOpenSavePicker={() => setShowSavePicker(true)}
               onGenerateSuggestions={generateSuggestions}
               suggestionsLoading={suggestionsLoading}
               suggestionsError={suggestionsError}

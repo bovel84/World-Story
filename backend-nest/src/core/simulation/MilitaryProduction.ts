@@ -149,8 +149,9 @@ export function advanceOrder(
 
 /**
  * Percentuale di completamento di un progetto dalle sue date. Deterministica e
- * onesta: senza scadenza si resta su una stima prudente, e non si mostra mai
- * 100% finché il progetto non è chiuso davvero.
+ * onesta: senza scadenza si resta su una stima prudente. Sotto la scadenza non
+ * si mostra mai 100% (il progetto non è chiuso); quando la scadenza dichiarata
+ * è raggiunta o superata, il progetto è completato: 100%.
  */
 export function projectProgress(startedDate?: string | null, expectedDate?: string | null, now?: string): number {
   if (!startedDate) return 0;
@@ -160,5 +161,6 @@ export function projectProgress(startedDate?: string | null, expectedDate?: stri
   const current = now ? Date.parse(`${now}T00:00:00Z`) : Date.now();
   if (!Number.isFinite(end) || end <= start) return 35;
   const ratio = (current - start) / (end - start);
+  if (ratio >= 1) return 100;
   return Math.max(0, Math.min(99, Math.round(ratio * 100)));
 }

@@ -47,3 +47,29 @@ export function orderChatsByLatest<T extends { lastMessageAt?: string; lastMessa
 ): T[] {
   return [...chats].sort((a, b) => chatSortKey(b).localeCompare(chatSortKey(a)));
 }
+
+/** Insieme canonico degli interlocutori, usato per capire se due chat parlano con le stesse nazioni. */
+export function participantSetKey(participants?: { id: string; role?: string }[]): string {
+  return [...new Set((participants || []).map(p => p.id).filter(Boolean))].sort().join('|');
+}
+
+/**
+ * Una nuova discussione con gli stessi interlocutori rende obsoleta la
+ * precedente: quando arriva un messaggio su `chatId`, le altre chat attive con
+ * gli stessi partecipanti vengono marcate come archiviate nella UI. La stessa
+ * regola è applicata dal backend, qui serve a non mostrare due discussioni
+ * attive in contemporanea nell'attesa del refresh.
+ */
+export function archiveSiblingThreads<
+  T extends { id: string; participants?: { id: string; role?: string }[]; archived?: boolean },
+>(chats: T[], chatId: string): T[] {
+  const incoming = chats.find(chat => chat.id === chatId);
+  if (!incoming) return chats;
+  const key = participantSetKey(incoming.participants);
+  if (!key) return chats;
+  return chats.map(chat => (
+    chat.id !== chatId && !chat.archived && participantSetKey(chat.participants) === key
+      ? { ...chat, archived: true }
+      : chat
+  ));
+}

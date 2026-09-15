@@ -16,6 +16,7 @@ import {
 } from './types';
 import { parseJsonLoose } from '../utils/json-repair';
 import { buildImmersionContract, EVENT_DESCRIPTION_GUIDE } from './immersion';
+import { buildGovernmentNarrativeGuard } from './government';
 import { DomainContractError, parseActionOutcome } from '../domain/contracts';
 
 /**
@@ -25,17 +26,18 @@ import { DomainContractError, parseActionOutcome } from '../domain/contracts';
  * dai template preset sovrascritti (prompt-builder la aggiunge dopo il render).
  */
 export function buildAutoJumpInstruction(vars: PromptVariables, eventBudget = 1): string {
-  // Con più ordini in coda l'auto-jump può produrre più svolte, ma gli ordini
-  // collegati vanno sintetizzati in catene causali: non un dispaccio-copia per riga.
-  const stopRules = eventBudget > 1
-    ? `- Il turno contiene ${eventBudget} ordini del giocatore: genera da 1 a ${eventBudget} eventi significativi in ordine cronologico. NON trasformare automaticamente ciascun ordine in un dispaccio separato: raggruppa gli ordini collegati e narra soprattutto decisioni, opposizioni e controproposte degli altri attori.
-- Ogni ordine deve comunque ricevere il proprio actionOutcome, anche quando più ordini confluiscono nello stesso evento.
-- Fermati dopo l'ultimo evento: la data dell'ultimo evento emesso deve essere anche il campo "targetDate" (YYYY-MM-DD). Non descrivere né calcolare fatti successivi all'ultimo evento.`
-    : `- Genera ESATTAMENTE un solo evento davvero significativo: il primo in ordine cronologico.
-- Fermati immediatamente a quell'evento: la sua data deve essere anche il campo "targetDate" (YYYY-MM-DD). Non descrivere né calcolare fatti successivi.`;
+  // L'auto-jump non si ferma al primo fatto di cronaca: prosegue finché una
+  // nazione non decide concretamente in risposta agli ordini del giocatore.
+  // Il budget concede lo spazio per attraversare i fatti di contorno.
+  const budgetRule = eventBudget > 1
+    ? `- Il turno contiene ordini del giocatore: puoi emettere da 1 a ${eventBudget} eventi significativi in ordine cronologico. NON trasformare automaticamente ciascun ordine in un dispaccio separato: raggruppa gli ordini collegati e narra soprattutto decisioni, opposizioni e controproposte degli altri attori.
+- Ogni ordine deve comunque ricevere il proprio actionOutcome, anche quando più ordini confluiscono nello stesso evento.`
+    : `- Puoi emettere più eventi in ordine cronologico: prima i fatti di contorno, poi la decisione che chiude il salto.`;
   return `\nRegole auto-jump:
 - Il giocatore ha chiesto di avanzare nel tempo FINO AL PROSSIMO EVENTO IMPORTANTE (entro l'orizzonte del ${vars.TARGET_ROUND_DATE}).
-${stopRules}
+${budgetRule}
+- NON fermare il salto al primo fatto importante in sé: prosegui attraverso i fatti di contorno finché una nazione non assume una decisione concreta in risposta agli ordini del giocatore. Fermati SOLO sull'evento che contiene quella decisione: una reazione di ruolo "counterparty" (la controparte diretta risponde) oppure una reazione con "counterAction" (misura autonoma realmente decisa). La data di quell'evento deve essere anche il campo "targetDate" (YYYY-MM-DD).
+- Se entro l'orizzonte nessuna nazione decide nulla di verificabile, non inventare una reazione: completa con "targetDate":null.
 - Questa modalità PREVALE su qualunque istruzione del preset che chieda di distribuire eventi sull'intero periodo, generare molti eventi o non interrompere la simulazione.`;
 }
 
@@ -56,7 +58,8 @@ export function buildDispatchStyleGuard(): string {
 I campi letti dal giocatore — "headline", "description", "narration", "summary", "response", "counterAction", "topic" e il testo di "reason" — sono dispacci di cronaca in italiano: frasi complete, tono giornalistico-storico, con attori e luoghi nominati.
 - VIETATO in questi campi: etichette di stato o ruolo ("neutral", "supportive", "opposed", "conditional", "hostile", "ally", "counterparty", "mediator", "observer"), nomi di campi JSON o meccaniche di gioco ("headline", "description", "mapChanges", "reactions", "stance", "partial", "rejected", "voided", "targetDate", "actionId"), ID, hashtag, parentesi quadre, elenchi puntati o sequence di etichette separate da virgole.
 - La posizione diplomatica va RACCONTATA in forma narrativa, mai riportata come parola chiave: scrivi «La Turchia annuncia la propria neutralità nel conflitto», NON «Turchia neutral». I valori enumerati (stance, relationship, role, status) appartengono soltanto ai campi JSON dedicati.
-- Nessun inglese nei dispacci salvo nomi propri; nessuna sigla tecnica; nessun riferimento a turni, mappe, regole o al fatto che si tratta di una simulazione.`;
+- Nessun inglese nei dispacci salvo nomi propri; nessuna sigla tecnica; nessun riferimento a turni, mappe, regole o al fatto che si tratta di una simulazione.
+- Il campo "note" è diverso: è il messaggio diretto che la nazione invia al giocatore nel canale diplomatico. Prima persona, tono umano e concreto, una o due frasi, nessuna cifra, punteggio o etichetta, nessun nome di campo. Non è un dispaccio e non deve ripetere la cronaca, né contenere «Misura annunciata», «counterAction» o formule da bollettino.`;
 }
 
 /**
@@ -194,6 +197,11 @@ ${vars.HISTORICAL_PRESET_SIMULATION_RULES}` : '';
 - Una misura NPC materialmente avviata (mobilitazione, unità terrestre o navale creata o spostata, cantiere aperto, opera completata) diventa un marker reale: registrala nelle "mapChanges" dello stesso evento, nel territorio della politia che agisce.
 ${buildNpcAgencyGuard(vars)}
 ${buildDomesticReactionGuard(vars)}
+
+[Anime del governo — chi preme dentro la nazione]
+
+${vars.GOVERNMENT_STATE || '(Nessuna anima del governo registrata per questa nazione.)'}
+${buildGovernmentNarrativeGuard(vars)}
 - Se non esiste una causa verificabile per un fatto ulteriore, non inventarlo: registra gli esiti disponibili e lascia il mondo coerente.${buildImmersionContract()}${presetContext}`;
 }
 
@@ -215,11 +223,11 @@ Ignora SOLO il formato JSON finale descritto sopra e serializza invece la rispos
 - Emetti un evento SOLO se deriva da una causa verificabile: un ordine del giocatore, un fatto della cronaca, una trattativa diplomatica o lo stato strategico/mappa fornito. Non riempire il limite con fatti indipendenti.
 - Ogni evento è una REAZIONE: a un ordine del giocatore, a un altro evento già emesso o a un fatto documentato della cronaca. NON limitarti a riscrivere l'ordine al passato. Ordini collegati confluiscono nella stessa catena; ordini scollegati possono produrre eventi distinti.
 - Non superare ${maxEvents} eventi significativi.${autoJump ? (maxEvents > 1
-  ? `\n- Modalità auto-jump: emetti da 1 a ${maxEvents} eventi, sintetizzando gli ordini collegati, e fermati sulla data dell’ultimo evento emesso.`
-  : '\n- Modalità auto-jump: emetti soltanto il primo evento importante e fermati sulla sua data.') : ''}
+  ? `\n- Modalità auto-jump: emetti da 1 a ${maxEvents} eventi in ordine cronologico, sintetizzando gli ordini collegati. NON fermarti al primo fatto importante in sé: prosegui finché una nazione non decide concretamente in risposta agli ordini del giocatore. Fermati sull'evento che contiene quella decisione (controparte diretta o misura autonoma con "counterAction"): la sua data è il campo targetDate.`
+  : '\n- Modalità auto-jump: emetti i fatti di contorno in ordine cronologico e fermati sull\'evento in cui una nazione decide concretamente in risposta agli ordini del giocatore.') : ''}
 
 Per ogni evento emetti immediatamente:
-{"type":"event","headline":"Soggetto NPC, decisione/reazione concreta e luogo","description":"${EVENT_DESCRIPTION_GUIDE}","date":"YYYY-MM-DD","mapChanges":[],"reactions":[{"polityName":"NOME politia NPC esistente","role":"counterparty|ally|mediator|observer","stance":"supportive|opposed|conditional|neutral","priority":"priorità del dossier che guida la decisione","response":"decisione ufficiale concreta, motivata e coerente con interessi e risorse","counterAction":"eventuale misura autonoma realmente decisa nel periodo"}]}
+{"type":"event","headline":"Soggetto NPC, decisione/reazione concreta e luogo","description":"${EVENT_DESCRIPTION_GUIDE}","date":"YYYY-MM-DD","mapChanges":[],"reactions":[{"polityName":"NOME politia NPC esistente","role":"counterparty|ally|mediator|observer","stance":"supportive|opposed|conditional|neutral","priority":"priorità del dossier che guida la decisione","response":"decisione ufficiale concreta, motivata e coerente con interessi e risorse","counterAction":"eventuale misura autonoma realmente decisa nel periodo","note":"messaggio diretto al giocatore, prima persona, una o due frasi senza cifre"}]}
 
 Regole obbligatorie per "reactions":
 - Se l'ordine nomina, contatta, minaccia, influenza o richiede cooperazione a una politia NPC, quella politia deve comparire e decidere autonomamente; massimo 4 reazioni direttamente pertinenti.
@@ -230,6 +238,7 @@ Regole obbligatorie per "reactions":
 - Teatro della crisi: reagiscono la controparte diretta e i vicini; non aggiungere potenze lontane senza interesse documentato.
 - Un accordo può risultare concluso solo se ogni controparte necessaria risponde "supportive" o "conditional" con condizioni soddisfatte. Altrimenti descrivi proposta, rifiuto, rinvio o controproposta e usa un outcome partial/rejected.
 - La descrizione deve raccontare queste decisioni; non elencare banalmente ciò che il giocatore ha ordinato. Per un fatto esclusivamente interno usa "reactions": [].
+- "note" è il messaggio che la politia invia al giocatore nel canale diplomatico: prima persona, tono umano e concreto, una o due frasi, senza cifre, punteggi, etichette o nomi di campo. Non ripetere la cronaca: scrivi ciò che la nazione comunica. "response" resta il testo di cronaca del dispaccio.
 
 Regole oggetti territoriali (mapChanges):
 - Le mapChanges descrivono il mondo intero, non solo gli ordini del giocatore: anche le iniziative materiali decise dalle altre politie nel periodo (mobilitazioni, spostamenti, cantieri, opere) compaiono qui, nel territorio della politia che agisce.
@@ -252,9 +261,7 @@ Se un dispaccio richiede un contatto diplomatico, non lasciare "startChat" vuoto
 - "eventHeadline" è obbligatorio: impedisce che una chat riferita a un evento futuro o scartato entri nella partita.
 
 ${autoJump
-  ? maxEvents > 1
-    ? 'In auto-jump targetDate DEVE essere identica alla data dell’ultimo evento emesso. Se nessun evento importante è causalmente giustificato entro l’orizzonte, NON inventarne uno: non emettere righe event e completa con "targetDate":null.'
-    : 'In auto-jump targetDate DEVE essere identica alla data dell’unico evento emesso. Se nessun evento importante è causalmente giustificato entro l’orizzonte, NON inventarne uno: non emettere righe event e completa con "targetDate":null.'
+  ? 'In auto-jump targetDate DEVE essere la data dell’evento che contiene la decisione NPC che ferma il salto (reazione di ruolo "counterparty" o misura autonoma con "counterAction"). Non fermarti al primo fatto di cronaca: se i fatti di contorno precedono la decisione, emettili comunque in ordine cronologico. Se nessun evento porta una decisione NPC con causa verificabile entro l’orizzonte, non inventarne uno: non emettere righe event e completa con "targetDate":null.'
   : 'Non aspettare di avere pianificato tutti gli eventi: completa e pubblica il primo, poi passa al seguente.'}`;
 }
 
@@ -263,7 +270,8 @@ ${autoJump
  * @param opts.autoJump — modalità «al prossimo evento importante»: il modello
  *   sceglie da solo la data effettiva di arrivo e la restituisce in targetDate.
  * @param opts.eventBudget — numero massimo di eventi ammessi nel turno
- *   (auto-jump: massimo pari agli ordini in coda; gli ordini collegati si raggruppano).
+ *   (auto-jump: budget condiviso col motore, con spazio per attraversare i
+ *   fatti di contorno fino alla decisione NPC che ferma il salto).
  */
 const clipForConstrainedModel = (value: string | undefined, maxChars: number): string => {
   const normalized = String(value || '').trim();
@@ -317,12 +325,12 @@ REGOLE:
 1. Ogni evento: causa già visibile → decisione autonoma → conseguenza proporzionata. Non copiare l’ordine come notizia.
 2. Il giocatore controlla solo ${vars.PLAYER_POLITY}. Altre politie decidono per sé secondo priorità, risorse, rapporti e memoria. Nessun accordo è concluso senza reaction favorevole/condizionata della controparte. Coerenza dei soggetti: nomina solo chi agisce, subisce o ha un interesse documentato; ${vars.PLAYER_POLITY} compare solo se il fatto la tocca direttamente, mai come comparsa o spettatrice. "reactions"/"startChat" solo per le politie direttamente coinvolte: in una crisi locale reagiscono la controparte e i vicini, non potenze lontane senza interesse documentato.
 3. Ordine composto: se solo una fase è fattibile usa partial e mostra soltanto quella fase; se nulla è fattibile usa rejected/voided e nessun mapChanges.
-4. Reazione NPC: indica priority, response e solo se reale counterAction. Una controazione materiale (mobilitazione, unità terrestre o navale, cantiere, opera completata) deve avere anche le mapChanges corrispondenti nello stesso evento, nel territorio della politia che agisce. Se influenza un altro NPC, anche quello reagisce autonomamente. Massimo 4 reazioni pertinenti.
+4. Reazione NPC: indica priority, response e solo se reale counterAction. Una controazione materiale (mobilitazione, unità terrestre o navale, cantiere, opera completata) deve avere anche le mapChanges corrispondenti nello stesso evento, nel territorio della politia che agisce. Se influenza un altro NPC, anche quello reagisce autonomamente. Massimo 4 reazioni pertinenti. "note" è il messaggio diretto al giocatore nel canale diplomatico: prima persona, una o due frasi d'uomo politico, senza cifre né etichette.
 4b. Iniziativa NPC: le nazioni non giocate non sono comparse. Quando una causa documentata esiste (confine teso, minaccia, alleanza, ultimatum, crisi aperta, opportunità), almeno una adotta una misura autonoma concreta, difensiva (fortification, base, airbase, radar, missile_site, mobilitazione di riserve, patto difensivo) o offensiva (concentramento, raid, blocco navale, ultimatum armato, preparazione d'invasione), con la mapChange corrispondente se materiale. Se non c'è causa, il mondo può restare fermo.
 4c. Reazioni interne ed economia: se una nazione mobilita, schiera, spende o impone un embargo, l'evento narra anche cosa ne pensano popolazione e istituzioni (consenso o protesta, dibattito o repressione) e il costo economico proporzionato (deficit, tasse, razionamenti), preso dal Dossier nazionale calcolato dal motore (saldo, stabilità, riserve mobilitate, sforzo bellico, tensione sociale). Niente cifre inventate. Vale anche per le nazioni NPC.
 5. Mappa: start_construction/update_construction/complete_construction per cantieri/opere; start_mobilization/complete_mobilization per formazioni in preparazione/operative; spawn_unit/move_unit/remove_unit per unità operative. Tipi unità: battalion|army|fleet|missile. Tipi opere: factory|port|university|base|airbase|naval_base|fortification|radar|missile_site|infrastructure|power_plant. Annunci, studi e ordini respinti non creano marker. Una nuova formazione nasce in una provincia controllata da chi la crea, la più vicina al riferimento citato ("vicino a X", "al confine con X"); non nel territorio di un'altra politia senza incursione esplicita. Se un ordine accettato dispone che una formazione esistente avanzi o si sposti, emetti SEMPRE "move_unit" (unità, origine, destinazione): senza di esso l'unità resterebbe ferma.
 6. Scontri: per ogni battaglia scrivi una cronaca militare completa (attaccante, difensore, provincia contesa, andamento, perdite proporzionate, esito e conseguenza) e fai reagire la controparte in "reactions". Province occupate: il motore assegna il colore dell'occupante, usa "transfer" col nome del nuovo proprietario.
-7. Genera massimo ${maxEvents} eventi cronologici.${opts.autoJump ? ' Fermati al primo/ultimo evento significativo consentito dal budget.' : ''}
+7. Genera massimo ${maxEvents} eventi cronologici.${opts.autoJump ? ' In auto-jump NON fermarti al primo fatto importante: prosegui oltre i fatti di contorno e fermati sull’evento in cui una nazione decide concretamente in risposta agli ordini (reazione di ruolo "counterparty" o con "counterAction"): la sua data è il campo targetDate.' : ''}
 8. Nei salti lunghi produci più dispacci concreti e datati (mobilitazioni, scontri, occupazioni, trattative, economia), non un unico riassunto.
 9. Dispacci in italiano narrativo: headline e description sono frasi complete per il giocatore. VIETATE etichette tecniche o di stato ("neutral", "supportive", "opposed", "conditional", "hostile", "ally", "counterparty", nomi di campi JSON, "partial", "voided", ID). La posizione diplomatica va raccontata («La Turchia annuncia la propria neutralità»), mai scritta come parola chiave («Turchia neutral»).
 10. Il giocatore incarna ${vars.PLAYER_POLITY}: ogni suo ordine è un atto ufficiale della nazione. Nei dispacci l'attore è sempre ${vars.PLAYER_POLITY} (governo, capo di Stato, ministri), MAI «il giocatore» o «l'utente»; le altre nazioni la nominano e trattano con lei come soggetto politico reale.
@@ -330,7 +338,7 @@ REGOLE:
 ${buildImmersionContract()}
 OUTPUT NDJSON, una riga JSON per oggetto, niente markdown.
 Riga evento:
-{"type":"event","headline":"attore + decisione concreta","description":"${EVENT_DESCRIPTION_GUIDE}","date":"YYYY-MM-DD","mapChanges":[],"reactions":[{"polityName":"nome esistente","role":"counterparty|ally|mediator|observer","stance":"supportive|opposed|conditional|neutral","priority":"interesse rilevante","response":"decisione concreta","counterAction":"misura concreta opzionale"}]}
+{"type":"event","headline":"attore + decisione concreta","description":"${EVENT_DESCRIPTION_GUIDE}","date":"YYYY-MM-DD","mapChanges":[],"reactions":[{"polityName":"nome esistente","role":"counterparty|ally|mediator|observer","stance":"supportive|opposed|conditional|neutral","priority":"interesse rilevante","response":"decisione concreta","counterAction":"misura concreta opzionale","note":"messaggio diretto al giocatore, prima persona, 1-2 frasi"}]}
 
 ULTIMA riga obbligatoria:
 {"type":"complete","narration":"sintesi dei soli eventi emessi","actionOutcomes":[{"actionId":"ID ESATTO","status":"accepted|partial|rejected","summary":"esito specifico","expectedDate":"YYYY-MM-DD solo se partial","eventHeadlines":[]}],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":${completionDateJson}}
@@ -490,6 +498,11 @@ ${vars.STRATEGIC_STATE}
 
 ${vars.NPC_STRATEGIC_PROFILES}
 
+[Anime del governo — chi preme dentro la nazione]
+
+${vars.GOVERNMENT_STATE || '(Nessuna anima del governo registrata per questa nazione.)'}
+${buildGovernmentNarrativeGuard(vars)}
+
 Questi dossier stabiliscono come le politie valutano ordini e azioni altrui. Mantieni la personalità fra i turni; aggiorna la posizione solo quando capacità, rapporti o memoria mostrano un nuovo fatto concreto. Se un NPC agisce contro interessi o impegni di un altro NPC, anche l'attore colpito decide per sé. Non inventare ricordi assenti.
 
 [Processi in corso]
@@ -501,6 +514,11 @@ Se la sezione non è vuota, questi impegni sono già avviati e NON risolti:
 - per concludere un processo, l'ordine del giocatore che lo porta a termine (anche riformulato) dichiara in actionOutcomes "completesProjectId" copiando il projectId mostrato; mai il titolo;
 - se il processo matura ma richiede ancora tempo, aggiorna l'esito dell'ordine collegato con "partial" e una nuova expectedDate;
 - non inventare il completamento: se niente nel periodo può concluderlo, lascialo aperto e non menzionarlo.
+
+[Anime del governo — chi preme dentro la nazione]
+
+${vars.GOVERNMENT_STATE || '(Nessuna anima del governo registrata per questa nazione.)'}
+${buildGovernmentNarrativeGuard(vars)}
 
 Tutte queste informazioni riflettono la situazione geopolitica alla data: ${vars.ORIGIN_ROUND_DATE}
 
@@ -536,7 +554,8 @@ Il tuo output DEVE essere nel seguente formato JSON:
           "stance": "supportive|opposed|conditional|neutral",
           "priority": "priorità del dossier che guida la decisione",
           "response": "decisione ufficiale concreta e motivata",
-          "counterAction": "eventuale misura autonoma realmente decisa nel periodo"
+          "counterAction": "eventuale misura autonoma realmente decisa nel periodo",
+          "note": "messaggio diretto al giocatore, prima persona, una o due frasi senza cifre"
         }
       ]
     }
@@ -805,6 +824,7 @@ function normalizeReaction(raw: any): SimulationPolityReaction | null {
   const polityName = firstString(raw.polityName, raw.polity, raw.country, raw.nation, raw.actor);
   const counterAction = firstString(raw.counterAction, raw.counter_action, raw.measure, raw.actionTaken);
   const response = firstString(raw.response, raw.decision, raw.message, raw.statement, raw.text, counterAction);
+  const note = firstString(raw.note, raw.diplomaticNote, raw.chatMessage, raw.messaggio, raw.directMessage);
   if (!polityName || !response) return null;
 
   const roleAliases: Record<string, SimulationPolityReaction['role']> = {
@@ -822,6 +842,7 @@ function normalizeReaction(raw: any): SimulationPolityReaction | null {
     role: roleAliases[normalizedToken(raw.role)] || 'counterparty',
     stance: stanceAliases[normalizedToken(raw.stance || raw.position)] || 'neutral',
     response: response.substring(0, 2_000),
+    note: note?.substring(0, 800),
     priority: firstString(raw.priority, raw.interest)?.substring(0, 300),
     counterAction: counterAction?.substring(0, 800),
   };

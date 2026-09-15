@@ -18,13 +18,16 @@ import type { ChatRecord, ChatSummary, ChatMessageRecord, ChatParticipant, GameC
 import db from './database';
 import { RelationshipMatrix } from './core/RelationshipMatrix';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
-import { advanceStock, creditHeadroom, creditLimit, debtOf, describeStock, financePurchase, movementCost, normalizeStock, payMovement, seedStock, type ResourceStock } from './core/simulation/MaterialEconomy';
+import { governmentSnapshot } from './core/simulation/GovernmentFactions';
+import type { GovernmentVoices } from './prompts/government';
+import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, financePurchase, issueSovereignDebt, materialNeeds, movementCost, normalizeStock, overdraftOf, payMovement, seedStock, storageCapacity, type ResourceStock } from './core/simulation/MaterialEconomy';
+import { averageMaturityYears, describeDebtTranche, marketRatePct } from './core/simulation/SovereignDebt';
 import {
   advanceOrder, productionRate, projectProgress, stableRoll,
   type ProductionContext, type ProductionOrder,
 } from './core/simulation/MilitaryProduction';
 import {
-  EFFECT_LIMITS, EMPTY_MODIFIERS, applyArsenalEffects, applyModifierEffects, applyModifiersToAccounts,
+  EFFECT_LIMITS, EMPTY_MODIFIERS, applyArsenalEffects, applyDebtBurdenToAccounts, applyModifierEffects, applyModifiersToAccounts,
   applyStockEffects, decayModifiers, describeNationalEffects, hasModifiers, parseNationalEffects,
   type NationalEffect, type NationalModifiers,
 } from './core/simulation/NationalEffects';
@@ -36,6 +39,8 @@ import {
   type ResourceLedger, type WorldMarket,
 } from './core/simulation/ResourceMarket';
 import { addDays, dateInPeriod, explicitDays, jumpHorizon, resolvePeriod } from './core/simulation/calendar';
+import { autoJumpEventBudget, isDecisiveNpcDecision } from './core/simulation/EventBudget';
+import { reactionThreadKey, simulationThreadKey } from './core/chat/threads';
 import {
   validateStrictMapChanges,
   validateStrictWorldChanges,
@@ -60,7 +65,7 @@ import { estimateIntentCosts, type CostEstimate } from "./core/feasibility/costs
 import { Difficulty, difficultyPromptBlock, normalizeDifficulty } from './prompts/difficulty';
 import { currentStrategicPriorities, strategicProfileForPolity } from './npc-agents';
 import { countryRepository } from './repositories/country.repository';
-import { polityDisplayNameIt } from './utils/country-facts';
+import { polityDisplayNameIt, hasModernReferenceFacts } from './utils/country-facts';
 import { publicNarrativeText } from './utils/public-narrative';
 import {
   buildChatPrompt,
@@ -352,7 +357,13 @@ function worldInitialAccounts(worldId: string): Record<string, NationalAccount> 
       status: region.status,
       coastal: region.coastal,
     }));
-    accounts = WorldStateEngine.accounts(regions);
+    // I fatti 2024 (PIL, popolazione, debito) valgono solo per i mondi dal
+    // 1990 in poi: i preset storici leggono esclusivamente la mappa.
+    const startDate = worldRepository.findById(worldId)?.start_date;
+    accounts = WorldStateEngine.accounts(regions, {
+      modernFacts: hasModernReferenceFacts(startDate),
+      startDate,
+    });
   } catch (error) {
     console.warn('[GameSession] Dati iniziali del mondo non disponibili:', error);
   }
@@ -549,7 +560,7 @@ export class GameSession {
       const randomEvents = this.applyRandomEvents();
       // Anche senza ordini il tempo ha un costo/effetto: economia, popolazione
       // e prontezza vengono aggiornate dal motore, non dal narratore.
-      const tick = WorldStateEngine.advance(this.regions.values(), GameSession.LIVE_TICK_DAYS);
+      const tick = WorldStateEngine.advance(this.regions.values(), GameSession.LIVE_TICK_DAYS, this.worldStateOptions());
 
       const playerAccount = tick.accounts[this.playerPolityId];
       const playerName = this.publicPolityName(this.playerPolityId);
@@ -687,7 +698,7 @@ export class GameSession {
         ...mandateDecisions.map(decision => `Le scorte di ${decision.resourceId} sono pari a ${decision.availableStock}, sotto la soglia di ${decision.minStock}. Il governo di ${this.publicPolityName(this.playerPolityId)} deve autorizzare ${decision.kind === 'stock_shortfall_outside_authorization' ? 'un acquisto straordinario' : 'prezzo e quantità dell’intervento'}.`),
       ];
     }
-    const rawTick = WorldStateEngine.advance(this.regions.values(), days);
+    const rawTick = WorldStateEngine.advance(this.regions.values(), days, this.worldStateOptions());
     // L'overlay dei modificatori nazionali (proposti dal modello) entra nei
     // conti usati dall'economia: stabilità, tensione, entrate e crescita.
     const tickAccounts = applyModifiersToAccounts(rawTick.accounts, polityId => this.modifiersFor(polityId));
@@ -696,13 +707,57 @@ export class GameSession {
     if (this.pendingNationalNotes.length > 0) lines.push(...this.pendingNationalNotes.splice(0));
     const bulletin = WorldStateEngine.playerBulletin(tickAccounts[this.playerPolityId]);
     if (bulletin) lines.push(`📊 ${bulletin}`);
-    lines.push(...this.advanceResources(days, tickAccounts));
+    // Le anime del governo entrano nella cronaca del turno: chi preme e per
+    // che cosa è un fatto della partita, non solo una schermata del dossier.
+    const government = governmentSnapshot(tickAccounts[this.playerPolityId]);
+    if (government.factions.length > 0) lines.push(`🏛️ Governo — ${government.headline}`);
+    lines.push(...this.advanceResources(days, tickAccounts, asOfDate));
     lines.push(...this.advanceProduction(days, tickAccounts[this.playerPolityId]));
     lines.push(...this.advanceProjects(days, asOfDate));
     // Il punto storico è registrato a fine tick, dopo il magazzino, così la
     // tesoreria della data coincide con quella mostrata dal Dossier.
     this.recordAccountSnapshot(asOfDate, tickAccounts);
     return lines;
+  }
+
+  /**
+   * Magazzino già noto (cache o DB), senza seminarne uno nuovo. Serve agli
+   * overlay di sola lettura (rapporto debito/PIL) che non devono creare righe.
+   */
+  private peekResourceStock(polityId: string): ResourceStock | null {
+    const cached = this.resourceStocks.get(polityId);
+    if (cached) return cached;
+    try {
+      const stored = resourceRepository.get(this.id, polityId);
+      if (!stored) return null;
+      // I mondi storici non ereditano il debito 2024: la bonifica vale anche
+      // per le righe scritte prima di questa correzione.
+      const { stock: eraStock, changed, legacyModernSeed } = this.stockForEra(stored.stock);
+      // Residuo della semina moderna in un mondo storico: si risemina dai dati
+      // dell'epoca (cassa e scorte erano su scala 2024).
+      const account = this.initialAccounts()[polityId];
+      if (legacyModernSeed && account) {
+        const reseeded = seedStock(account, naturalResourcesFor(polityId), this.currentDate);
+        this.saveResourceStock(polityId, reseeded);
+        return reseeded;
+      }
+      // Una riga interamente a zero è una semina mancata, non una nazione
+      // senza risorse: non va messa in cache (il repair la risemina), e per
+      // l'overlay di sola lettura equivale a nessun magazzino noto.
+      const empty = !(eraStock.money > 0)
+        && eraStock.debts.length === 0
+        && !(eraStock.food > 0) && !(eraStock.clothing > 0)
+        && !(eraStock.weapons > 0) && !(eraStock.fuel > 0);
+      if (empty) return null;
+      // Realismo anche in lettura: le scorte legacy oltre la capacità reale
+      // vengono riportate al tetto, non solo al tick successivo.
+      const { stock: trimmed, spoiled } = account ? capStock(eraStock, account) : { stock: eraStock, spoiled: {} };
+      if (Object.keys(spoiled).length > 0 || changed) this.saveResourceStock(polityId, trimmed);
+      this.resourceStocks.set(polityId, trimmed);
+      return trimmed;
+    } catch {
+      return null;
+    }
   }
 
   /** Magazzino materiale della polity: cache → DB → seed dai dati iniziali. */
@@ -712,18 +767,39 @@ export class GameSession {
     try {
       const stored = resourceRepository.get(this.id, polityId);
       if (stored) {
+        // I mondi storici non ereditano il debito 2024: la bonifica vale anche
+        // per le righe scritte prima di questa correzione.
+        const { stock: eraStock, changed, legacyModernSeed } = this.stockForEra(stored.stock);
+        const account = this.initialAccounts()[polityId] ?? this.sessionAccounts()[polityId];
+        // Residuo della semina moderna in un mondo storico: si risemina dai
+        // dati dell'epoca (cassa e scorte erano su scala 2024).
+        if (legacyModernSeed && account) {
+          const reseeded = seedStock(account, naturalResourcesFor(polityId), this.currentDate);
+          this.saveResourceStock(polityId, reseeded);
+          return reseeded;
+        }
         // Riparazione mirata: un magazzino interamente a zero per una nazione
         // che esiste è una riga mai seminata (non una nazione senza risorse) e
-        // va riseminata dai dati di partenza.
-        const isEmpty = !(stored.stock.money > 0) && !(stored.stock.food > 0) && !(stored.stock.weapons > 0);
-        const account = this.initialAccounts()[polityId] ?? this.sessionAccounts()[polityId];
+        // va riseminata dai dati di partenza. Una riga con titoli di debito è
+        // «seminata» anche a cassa zero.
+        const isEmpty = !(eraStock.money > 0)
+          && eraStock.debts.length === 0
+          && !(eraStock.food > 0)
+          && !(eraStock.clothing > 0)
+          && !(eraStock.weapons > 0)
+          && !(eraStock.fuel > 0);
         if (isEmpty && account) {
-          const repaired = seedStock(account, naturalResourcesFor(polityId));
+          const repaired = seedStock(account, naturalResourcesFor(polityId), this.currentDate);
           this.saveResourceStock(polityId, repaired);
           return repaired;
         }
-        this.resourceStocks.set(polityId, stored.stock);
-        return stored.stock;
+        // Realismo del magazzino anche per i salvataggi vecchi: le scorte oltre
+        // la capacità reale (multipli fissi del consumo) vengono riportate al
+        // tetto, così una nazione fragile non mostra dispense piene.
+        const { stock: trimmed, spoiled } = account ? capStock(eraStock, account) : { stock: eraStock, spoiled: {} };
+        if (Object.keys(spoiled).length > 0 || changed) this.saveResourceStock(polityId, trimmed);
+        this.resourceStocks.set(polityId, trimmed);
+        return trimmed;
       }
     } catch (error) {
       console.warn('[GameSession] Lettura magazzino non disponibile:', error);
@@ -737,7 +813,7 @@ export class GameSession {
       // tesoreria a zero permanente). Al prossimo tick, con un conto, si semina.
       return normalizeStock({});
     }
-    const seeded = seedStock(account, naturalResourcesFor(polityId));
+    const seeded = seedStock(account, naturalResourcesFor(polityId), this.currentDate);
     this.saveResourceStock(polityId, seeded);
     return seeded;
   }
@@ -746,6 +822,32 @@ export class GameSession {
   private initialAccounts(): Record<string, NationalAccount> {
     if (!this.initialAccountsCache) this.initialAccountsCache = worldInitialAccounts(this.worldId);
     return this.initialAccountsCache;
+  }
+
+  /**
+   * Opzioni del motore coerenti con l'epoca dello scenario: i fatti 2024 si
+   * applicano solo ai mondi dal 1990 in poi. Un preset storico legge solo la
+   * mappa e non eredita PIL, popolazione o debito odierni.
+   */
+  private worldStateOptions(): { modernFacts: boolean; startDate: string } {
+    return { modernFacts: hasModernReferenceFacts(this.worldStartDate), startDate: this.worldStartDate };
+  }
+
+  /**
+   * Bonifica del magazzino secondo l'epoca. Nei mondi storici il debito
+   * ereditato dal registro 2024 è anacronistico: va rimosso anche dai
+   * salvataggi scritti prima di questa correzione. Se la nazione non ha ancora
+   * emesso debito proprio, la riga è un residuo della semina moderna e va
+   * riseminata dai dati storici (altrimenti cassa e scorte restano su scala
+   * 2024, incoerenti col PIL dell'epoca).
+   */
+  private stockForEra(stock: ResourceStock): { stock: ResourceStock; changed: boolean; legacyModernSeed: boolean } {
+    if (this.worldStateOptions().modernFacts) return { stock, changed: false, legacyModernSeed: false };
+    const debts = Array.isArray(stock.debts) ? stock.debts : [];
+    const hadInherited = debts.some(debt => String(debt.id || '').startsWith('debt-inherited-'));
+    if (!hadInherited) return { stock, changed: false, legacyModernSeed: false };
+    const cleaned = dropRegistryInheritedDebt(stock);
+    return { stock: cleaned, changed: true, legacyModernSeed: cleaned.debts.length === 0 };
   }
 
   /**
@@ -762,7 +864,9 @@ export class GameSession {
     } catch { /* tabella non ancora pronta: si semina comunque */ }
     const account = this.initialAccounts()[this.playerPolityId];
     if (!account || account.provinces === 0) return;
-    this.saveResourceStock(this.playerPolityId, seedStock(account));
+    // Le scorte iniziali nascono dalle risorse naturali reali della nazione,
+    // come nel percorso di riparazione: i due seed devono coincidere.
+    this.saveResourceStock(this.playerPolityId, seedStock(account, naturalResourcesFor(this.playerPolityId), this.currentDate));
   }
 
   private saveResourceStock(polityId: string, stock: ResourceStock): void {
@@ -778,7 +882,7 @@ export class GameSession {
    * Avanza il magazzino di ogni polity del periodo indicato. Le scorte sono
    * persistenti: qui maturano produzione, consumi, ricerca e tecnologie.
    */
-  private advanceResources(days: number, accounts?: Record<string, NationalAccount>): string[] {
+  private advanceResources(days: number, accounts?: Record<string, NationalAccount>, asOfDate: string = this.currentDate): string[] {
     if (this.isStrictGame() || days <= 0) return [];
     const snapshot = accounts ?? this.sessionAccounts();
     const lines: string[] = [];
@@ -791,7 +895,7 @@ export class GameSession {
       applyGlobalExtraction(this.ensureMarket(), natural.extracted);
       // Una risorsa esaurita smette di dare i bonus di produzione del giacimento.
       const effective = effectiveEndowment(natural.ledger, naturalResourcesFor(polityId));
-      const tick = advanceStock(this.resourceStock(polityId), account, days, effective);
+      const tick = advanceStock(this.resourceStock(polityId), account, days, effective, asOfDate);
       this.saveResourceStock(polityId, tick.stock);
       if (polityId !== this.playerPolityId) continue;
       for (const tech of tick.unlocked) {
@@ -799,6 +903,16 @@ export class GameSession {
       }
       for (const shortage of tick.flow.shortages) lines.push(`⚠️ Carenza materiale — ${shortage}.`);
       lines.push(`🏭 ${describeStock(tick.stock, account)}`);
+      // Materiale perso perché il magazzino era oltre la capacità reale.
+      const lost = Object.entries(tick.spoiled).filter(([, value]) => (value || 0) > 0.01);
+      if (lost.length > 0) {
+        const detail = lost.map(([kind, value]) => `${kind} ${Math.round((value as number) * 10) / 10}`).join(', ');
+        lines.push(`📦 Magazzino al tetto: perduto ${detail} (capacità di stoccaggio superata).`);
+      }
+      // Scadenze: il debito che torna va rifinanziato al tasso di mercato.
+      for (const rolled of tick.rolledDebts) {
+        lines.push(`📜 Scadenza del debito — ${describeDebtTranche(rolled)}: rifinanziato al nuovo tasso.`);
+      }
       const extractedKinds = NATURAL_RESOURCE_KINDS.filter(kind => (natural.extracted[kind] || 0) > 0);
       if (extractedKinds.length > 0) {
         lines.push(`⛏️ Estrazione risorse: ${extractedKinds.map(kind => `${natural.extracted[kind]} ${kind}`).join(', ')}.`);
@@ -825,15 +939,61 @@ export class GameSession {
     const market = this.ensureMarket();
     const natural = summarizeLedger(ledger, account);
     const stock = this.resourceStock(this.playerPolityId);
+    const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions) || 0);
+    const debtRatioPct = gdp > 0 ? debtOf(stock) / gdp * 100 : 0;
     return {
       stock,
       account,
       natural,
       market: natural.map(summary => marketQuote(market, summary.kind)),
       debt: Math.round(debtOf(stock) * 100) / 100,
+      /** Debito pubblico in essere: titoli con tasso e scadenza. */
+      debts: stock.debts,
+      overdraft: Math.round(overdraftOf(stock) * 100) / 100,
+      /** Interessi passivi annui sull'intero debito (mld). */
+      annualInterest: Math.round(annualDebtServiceMld(stock) * 100) / 100,
+      /** Scadenza media ponderata residua dei titoli (anni). */
+      averageMaturityYears: averageMaturityYears(stock.debts, this.currentDate),
+      debtRatioPct: Math.round(debtRatioPct * 10) / 10,
+      /** Capacità di stoccaggio e fabbisogno mensile del magazzino materiale. */
+      capacity: storageCapacity(account),
+      needs: materialNeeds(account),
       creditLimit: creditLimit(account),
       creditHeadroom: Math.round(creditHeadroom(stock, account) * 100) / 100,
+      /** Tasso di mercato che la nazione otterrebbe oggi per una nuova emissione. */
+      marketRatePct: marketRatePct(debtRatioPct, 10),
       modifiers: this.modifiersFor(this.playerPolityId),
+    };
+  }
+
+  /**
+   * La nazione **fa debito**: emette titoli, incassa cassa oggi e si assume
+   * interessi e scadenza. Il motore fissa il tasso di mercato (durata + rischio)
+   * e rifiuta l'operazione oltre il tetto di credito. Ogni emissione ha un
+   * riflesso sociale: il rapporto debito/PIL sale e con esso la tensione.
+   */
+  borrowSovereignDebt(amountMld: number, termYears = 10) {
+    const polityId = this.playerPolityId;
+    const account = this.sessionAccounts()[polityId];
+    const stock = this.resourceStock(polityId);
+    const result = issueSovereignDebt(stock, account, { amountMld, termYears, date: this.currentDate });
+    if (!result.ok) {
+      throw new Error(result.error === 'amount_invalid'
+        ? 'amount_invalid: importo non positivo'
+        : 'credit_exhausted: tetto di credito raggiunto');
+    }
+    this.saveResourceStock(polityId, result.stock);
+    const tranche = result.tranche!;
+    const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions) || 0);
+    const debtRatioPct = gdp > 0 ? debtOf(result.stock) / gdp * 100 : 0;
+    return {
+      ok: true,
+      tranche,
+      stock: result.stock,
+      debt: Math.round(debtOf(result.stock) * 100) / 100,
+      annualInterest: Math.round(annualDebtServiceMld(result.stock) * 100) / 100,
+      debtRatioPct: Math.round(debtRatioPct * 10) / 10,
+      creditHeadroom: Math.round(creditHeadroom(result.stock, account) * 100) / 100,
     };
   }
 
@@ -1239,6 +1399,18 @@ export class GameSession {
         Number.isFinite(Number(process.progress)) ? Math.max(0, Number(process.progress)) : 0,
         projectProgress(process.started_date, process.expected_date, asOfDate),
       );
+      // Scadenza dichiarata raggiunta: il progetto è chiuso. Non resta
+      // «in corso» al 99% quando la data prevista è ormai passata.
+      if (process.expected_date && asOfDate >= process.expected_date) {
+        gameRepository.completeOngoingProcessById(
+          this.id,
+          process.id,
+          `${process.summary} Opera completata entro la scadenza prevista del ${process.expected_date}.`,
+          asOfDate,
+        );
+        bulletins.push(`✅ Progetto «${process.title}»: completato alla scadenza prevista.`);
+        continue;
+      }
       const roll = stableRoll(`${this.id}:${process.id}:${this.currentTurn}`);
       let note = '';
       let expected: string | null = null;
@@ -1274,6 +1446,8 @@ export class GameSession {
   private modifiersLoaded = false;
   /** Note delle leve nazionali applicate, mostrate nella cronaca successiva. */
   private pendingNationalNotes: string[] = [];
+  /** Voci del consiglio generate dall'LLM, valide per il turno corrente. */
+  private governmentVoices: { key: string; data: GovernmentVoices } | null = null;
 
   /** Modificatori di una polity: cache → DB → neutralità. */
   private modifiersFor(polityId: string): NationalModifiers {
@@ -1303,8 +1477,32 @@ export class GameSession {
    * produzione, credito, dossier).
    */
   private sessionAccounts(regions?: Iterable<RegionState>): Record<string, NationalAccount> {
-    const accounts = WorldStateEngine.accounts(regions ?? this.regions.values());
-    return applyModifiersToAccounts(accounts, polityId => this.modifiersFor(polityId));
+    const accounts = WorldStateEngine.accounts(regions ?? this.regions.values(), this.worldStateOptions());
+    const overlaid = applyModifiersToAccounts(accounts, polityId => this.modifiersFor(polityId));
+    // Il rapporto debito/PIL mostrato e usato dalle fazioni è quello EFFETTIVO
+    // (titoli emessi + scoperto), per il giocatore e per gli NPC: le stesse
+    // regole materiali valgono per tutti. Il debito alto pesa su tensione e
+    // stabilità di chiunque lo contragga.
+    return applyDebtBurdenToAccounts(overlaid, polityId => {
+      // Si usano i valori di base del motore (non quelli già modificati dal
+      // modello): l'effetto sociale del debito non deve muoversi con le
+      // fluttuazioni di un turno, ma con la ricchezza reale della nazione.
+      const base = accounts[polityId] ?? overlaid[polityId];
+      const gdp = Math.max(0, Number(base?.nominalGdpUsdBillions) || 0);
+      if (gdp <= 0) return null;
+      // Il magazzino del giocatore è sempre noto (anche da DB). Quello degli NPC
+      // si legge solo se già in cache: un tick lo popola per tutte le nazioni,
+      // e così una lettura dei conti non diventa N query al database.
+      const stock = polityId === this.playerPolityId
+        ? this.peekResourceStock(polityId)
+        : this.resourceStocks.get(polityId) ?? null;
+      if (!stock) return null;
+      const revenue = Math.abs(Number(base?.monthlyRevenue) || 0) * 12;
+      return {
+        debtRatioPct: debtOf(stock) / gdp * 100,
+        serviceRatioPct: revenue > 0 ? annualDebtServiceMld(stock) / revenue * 100 : 0,
+      };
+    });
   }
 
   /**
@@ -1466,8 +1664,12 @@ export class GameSession {
             account,
             natural: summarizeLedger(this.resourceLedger(this.playerPolityId), account),
             debt: Math.round(debtOf(stock) * 100) / 100,
+            annualInterest: Math.round(annualDebtServiceMld(stock) * 100) / 100,
+            averageMaturityYears: averageMaturityYears(stock.debts, this.currentDate),
             creditLimit: creditLimit(account),
             creditHeadroom: Math.round(creditHeadroom(stock, account) * 100) / 100,
+            capacity: storageCapacity(account),
+            needs: materialNeeds(account),
           };
         })(),
         // Ordini di produzione in corso con percentuale di completamento.
@@ -1491,6 +1693,13 @@ export class GameSession {
           baseMilitaryPower: Math.round(Number(accounts[this.playerPolityId]?.militaryPower || 0)),
           effectiveMilitaryPower: Math.round(Number(accounts[this.playerPolityId]?.militaryPower || 0) * playerArsenalFactor * 10) / 10,
         },
+        // Anime del governo: chi preme dentro la nazione. Il motore le calcola
+        // dalle stesse cifre del dossier; le voci LLM, se generate, restano
+        // valide solo per il turno corrente e non attraversano il salto.
+        government: governmentSnapshot(accounts[this.playerPolityId]),
+        governmentVoices: this.governmentVoices?.key === this.governmentVoiceKey()
+          ? this.governmentVoices.data
+          : undefined,
       },
       world: {
         name: this.worldName,
@@ -1546,8 +1755,26 @@ export class GameSession {
   // =========================================================================
 
   /** Elenco chat del gioco (per l'elenco frontend). */
-  getChats(): ChatSummary[] {
-    return chatRepository.getChatsByGame(this.id);
+  getChats(includeArchived = false): ChatSummary[] {
+    return chatRepository.getChatsByGame(this.id, includeArchived);
+  }
+
+  /** Archivia una discussione (resta consultabile nell'archivio). */
+  archiveChat(chatId: string): void {
+    const chat = chatRepository.getChatById(chatId);
+    if (!chat || chat.gameId !== this.id) {
+      throw new Error(`Chat not found: ${chatId}`);
+    }
+    chatRepository.archiveChat(chatId);
+  }
+
+  /** Riapre una discussione archiviata. */
+  unarchiveChat(chatId: string): void {
+    const chat = chatRepository.getChatById(chatId);
+    if (!chat || chat.gameId !== this.id) {
+      throw new Error(`Chat not found: ${chatId}`);
+    }
+    chatRepository.unarchiveChat(chatId);
   }
 
   /** Messaggi della chat (404 se la chat è di un'altra partita). */
@@ -1572,8 +1799,17 @@ export class GameSession {
    * Trova o crea la chat con le nazioni indicate PER NOME (come le chiama il
    * giocatore). Con più nomi crea una chat di gruppo: i partecipanti sono
    * risolti via PolityResolver; nome giocatore/neutral/inesistenti → errore.
+   *
+   * Ogni discussione è una chat distinta: con gli stessi interlocutori le
+   * precedenti vanno in archivio. Per non moltiplicare i canali si riapre
+   * soltanto una bozza ancora vuota; `dedupeKey` rende idempotenti i
+   * ritentativi dello stesso evento o turno.
    */
-  ensureChat(polityNames: string[]): ChatRecord {
+  ensureChat(polityNames: string[], options: {
+    dedupeKey?: string;
+    subject?: string;
+    origin?: 'player' | 'simulation';
+  } = {}): ChatRecord {
     const resolvers = this.buildResolvers();
     const interlocutors: ChatParticipant[] = [];
 
@@ -1608,8 +1844,23 @@ export class GameSession {
       },
       ...interlocutors,
     ];
-    const existing = chatRepository.getChatByParticipantIds(this.id, participants.map(p => p.id));
-    if (existing) return existing;
+    const participantIds = participants.map(p => p.id);
+
+    // Ritentativo dello stesso evento/turno: restituisci la chat già creata.
+    if (options.dedupeKey) {
+      const existing = chatRepository.getChatByDedupeKey(this.id, options.dedupeKey);
+      if (existing) return existing;
+    }
+
+    // Bozza ancora vuota: riaprila invece di crearne una nuova. La simulazione
+    // crea sempre una discussione propria e non scrive nella bozza del giocatore.
+    if (options.origin !== 'simulation') {
+      const draft = chatRepository.getEmptyChatByParticipants(this.id, participantIds);
+      if (draft) return draft;
+    }
+
+    // Nuova discussione: le precedenti con gli stessi interlocutori vanno in archivio.
+    chatRepository.archiveChatsForParticipants(this.id, participantIds);
 
     const primary = interlocutors[0];
     const displayName = interlocutors.length > 1
@@ -1623,6 +1874,8 @@ export class GameSession {
       polityName: displayName,
       polityColor: primary.color,
       participants,
+      subject: options.subject,
+      dedupeKey: options.dedupeKey,
     });
   }
 
@@ -1645,6 +1898,7 @@ export class GameSession {
         polityName: this.publicPolityName(resolution.polityId),
         priority: reaction.priority ? this.publicText(reaction.priority) : undefined,
         response: this.publicText(reaction.response),
+        note: reaction.note ? this.publicText(reaction.note) : undefined,
         counterAction: reaction.counterAction ? this.publicText(reaction.counterAction) : undefined,
       }];
     });
@@ -1686,8 +1940,11 @@ export class GameSession {
         return [{
           polityName: reaction.polityName,
           participants: [reaction.polityName],
-          topic: [reaction.response, reaction.counterAction ? `Misura annunciata: ${reaction.counterAction}` : '']
-            .filter(Boolean).join(' '),
+          // Il canale diplomatico parla con la voce della nazione: usiamo la sua
+          // nota diretta quando c'è, altrimenti la decisione (senza etichette
+          // da bollettino come «Misura annunciata»).
+          topic: (reaction.note && reaction.note.trim())
+            || [reaction.response, reaction.counterAction].filter(Boolean).join(' '),
           kind: 'statement' as const,
           eventHeadline: event.headline,
         }];
@@ -1777,7 +2034,16 @@ export class GameSession {
       opened.add(duplicateKey);
 
       try {
-        const chat = this.ensureChat(validPolityIds);
+        const chat = this.ensureChat(validPolityIds, {
+          dedupeKey: simulationThreadKey({
+            simulationId: options.simulationId,
+            turn: options.turn,
+            eventHeadline,
+            participantIds: validPolityIds,
+          }),
+          subject: this.publicText(start.topic).slice(0, 90),
+          origin: 'simulation',
+        });
         const initiatorId = validPolityIds[0];
         const sender = chat.participants.find(p => p.id === initiatorId && p.role === 'polity')
           || chat.participants.find(p => p.role === 'polity');
@@ -2017,7 +2283,7 @@ export class GameSession {
       const population = owned.reduce((sum, r) => sum + (r.population || 0), 0);
       const gdp = owned.reduce((sum, r) => sum + (r.gdp || 0), 0);
       const military = owned.reduce((sum, r) => sum + (r.militaryPower || 0), 0);
-      const ownedAccounts = WorldStateEngine.accounts(owned);
+      const ownedAccounts = WorldStateEngine.accounts(owned, this.worldStateOptions());
       const effectiveMilitary = this.nationalEffectiveMilitaryPower(p.id, ownedAccounts);
       const relationship = this.relationships.get(p.id, this.playerPolityId);
       const profile = strategicProfileForPolity(p.id);
@@ -2039,8 +2305,8 @@ export class GameSession {
       return {
         name: p.name,
         relationship,
-        personality: `${profile.personality}; dottrina ${profile.doctrine}; stile ${profile.negotiationStyle}; propensione alla forza ${Math.round(profile.aggression * 100)}%; rischio ${profile.riskTolerance}/100; affidabilità verso impegni registrati ${profile.allianceReliability}/100`,
-        interests: `priorità: ${priorities.join('; ')}; linee rosse: ${profile.redLines.join('; ')}; capacità: ${owned.length} regioni, popolazione ${population}, PIL ${gdp}, potenza militare effettiva ${effectiveMilitary} (nominale ${military}); memoria recente: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato'}`,
+        personality: `${profile.personality}; dottrina ${profile.doctrine}; stile ${profile.negotiationStyle}`,
+        interests: `priorità: ${priorities.join('; ')}; linee rosse: ${profile.redLines.join('; ')}; memoria recente: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato'}; [valutazione interna riservata: usa questi dati per decidere, non citarli mai nei messaggi] propensione alla forza ${Math.round(profile.aggression * 100)}%; rischio ${profile.riskTolerance}/100; affidabilità verso gli impegni ${profile.allianceReliability}/100; capacità: ${owned.length} regioni, popolazione ${population}, PIL ${gdp}, potenza militare effettiva ${effectiveMilitary} (nominale ${military})`,
       };
     });
   }
@@ -2063,7 +2329,10 @@ export class GameSession {
         militaryPower: this.nationalEffectiveMilitaryPower(polityId),
         playerMilitaryPower: this.nationalEffectiveMilitaryPower(this.playerPolityId),
       })[0] || profile.baselinePriorities[0];
-      const chat = this.ensureChat([displayName]);
+      const chat = this.ensureChat([displayName], {
+        dedupeKey: reactionThreadKey(polityId, input.turn ?? this.currentTurn),
+        origin: 'simulation',
+      });
       const sender = chat.participants.find(participant => participant.role === 'polity')?.name || chat.polityName;
       const content = `${sender} prende formalmente atto degli sviluppi comunicati. Non considera concluso alcun accordo e non assume nuovi impegni senza una decisione verificabile; valuterà i prossimi passi secondo la priorità «${priority}».`;
       const reply = chatRepository.addMessage(
@@ -2129,7 +2398,12 @@ export class GameSession {
         // Stessa convenzione di ensureChat: nome nazionale dal registro ISO
         // per i mondi provinciali, nome della regione per le politie singole.
         const displayName = this.publicPolityName(polityId);
-        const chat = this.ensureChat([displayName]);
+        const reactionSubject = (input.eventHeadlines[0] || input.actionTexts[0] || '').trim().slice(0, 90);
+        const chat = this.ensureChat([displayName], {
+          dedupeKey: reactionThreadKey(polityId, input.turn ?? this.currentTurn),
+          subject: reactionSubject || undefined,
+          origin: 'simulation',
+        });
         const sender = chat.participants.find(p => p.role === 'polity')?.name || chat.polityName;
         const history = chatRepository.getMessages(chat.id)
           .map(m => ({ role: m.role === 'player' ? 'player' : (m.senderName || chat.polityName), content: m.content }));
@@ -2201,7 +2475,7 @@ export class GameSession {
 
   /** Trascritti delle chat recenti per il prompt di simulazione (le trattative contano). */
   private buildChatTranscripts(): string {
-    const chats = chatRepository.getChatsByGame(this.id).slice(0, 3);
+    const chats = chatRepository.getChatsByGame(this.id, true).slice(0, 3);
     const parts: string[] = [];
 
     for (const chat of chats) {
@@ -2751,7 +3025,7 @@ export class GameSession {
   private nationalEffectiveMilitaryPower(polityId: string, accounts?: Record<string, NationalAccount>): number {
     const base = this.nationalMilitaryPower(polityId);
     const arsenal = this.arsenalUnits(polityId);
-    const book = accounts || WorldStateEngine.accounts(this.regions.values());
+    const book = accounts || WorldStateEngine.accounts(this.regions.values(), this.worldStateOptions());
     const forces = Number(book[polityId]?.forces || 0) + Number(book[polityId]?.mobilized || 0);
     return Math.round(base * arsenalCombatFactor(arsenal, forces) * 10) / 10;
   }
@@ -2791,7 +3065,7 @@ export class GameSession {
     }
     // Anche promesse, rifiuti e condizioni nelle chat sono memoria canonica:
     // provengono da righe persistite, non da un riassunto inventato ad hoc.
-    for (const chat of chatRepository.getChatsByGame(this.id)) {
+    for (const chat of chatRepository.getChatsByGame(this.id, true)) {
       if (!chat.participants.some(participant => participant.id === polityId)) continue;
       for (const message of chatRepository.getMessages(chat.id).slice(-6)) {
         const content = String(message.content || '').replace(/\s+/g, ' ').trim();
@@ -2833,7 +3107,7 @@ export class GameSession {
     );
     const recentOwners = this.mentionedNpcPolityIds(recentTexts);
     const focusedOwners = this.mentionedNpcPolityIds(focusTexts);
-    const chatOwners = chatRepository.getChatsByGame(this.id)
+    const chatOwners = chatRepository.getChatsByGame(this.id, true)
       .flatMap(chat => chat.participants.map(participant => participant.id))
       .filter(owner => owners.includes(owner));
     const frontierOwners = new Set<string>();
@@ -2992,7 +3266,7 @@ export class GameSession {
 
     if (changes.regionOwners) {
       // Attrito di conquista: conti calcolati una sola volta per il lotto.
-      const accounts = this.isStrictGame() ? undefined : WorldStateEngine.accounts(this.regions.values());
+      const accounts = this.isStrictGame() ? undefined : WorldStateEngine.accounts(this.regions.values(), this.worldStateOptions());
       for (const [regionKey, newOwner] of Object.entries(changes.regionOwners)) {
         const region = this.regions.get(regionKey) || resolvers.regions.resolve(regionKey);
         if (!region) {
@@ -3300,7 +3574,7 @@ export class GameSession {
     let conquestAccounts: Record<string, NationalAccount> | null = null;
     const conquestAttrition = (region: RegionState, previousOwner: string, newOwner: string) => {
       if (this.isStrictGame() || previousOwner === newOwner) return;
-      conquestAccounts ??= WorldStateEngine.accounts(this.regions.values());
+      conquestAccounts ??= WorldStateEngine.accounts(this.regions.values(), this.worldStateOptions());
       this.applyConquestAttrition(region, previousOwner, newOwner, conquestAccounts);
     };
     const facilityTypes = new Set([
@@ -4835,7 +5109,7 @@ export class GameSession {
       const outcome = action.result?.outcome;
       if (!outcome?.completesProjectId) return;
       if (outcome.status !== 'accepted'
-        || gameRepository.completeOngoingProcessById(this.id, outcome.completesProjectId, outcome.summary) !== 1) {
+        || gameRepository.completeOngoingProcessById(this.id, outcome.completesProjectId, outcome.summary, finalDate) !== 1) {
         throw new Error('simulation_protocol_error: completesProjectId is invalid or not accepted');
       }
     });
@@ -5158,6 +5432,39 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
   }
 
   /**
+   * Le anime del governo e il dettaglio del bilancio del paese giocatore.
+   * Tutto è derivato dal conto nazionale già overlayato dai modificatori:
+   * nessuna cifra nuova, solo lettura leggibile delle stesse fonti.
+   */
+  getGovernment() {
+    return governmentSnapshot(this.sessionAccounts()[this.playerPolityId]);
+  }
+
+  /** Chiave del turno corrente per la cache delle voci del consiglio. */
+  private governmentVoiceKey(): string {
+    return `${this.currentTurn}:${this.currentDate}`;
+  }
+
+  /**
+   * Voci delle anime del governo, generate dall'LLM per il turno corrente.
+   * La snapshot è quella del motore: il modello non inventa fazioni né
+   * richieste. Se l'LLM non risponde, la UI mostra la richiesta deterministica.
+   */
+  async getGovernmentVoices(): Promise<{ council: string; voices: Record<string, string>; generated: boolean }> {
+    if (this.hasActiveRun()) throw new SimulationInProgressError();
+    const snapshot = this.getGovernment();
+    const key = this.governmentVoiceKey();
+    if (this.governmentVoices && this.governmentVoices.key === key) {
+      return { ...this.governmentVoices.data, generated: true };
+    }
+    const gameData = this.buildGameData();
+    const parsed = await this.gameController.getGovernmentVoiceWithPrompts(gameData, snapshot);
+    if (!parsed) return { council: '', voices: {}, generated: false };
+    this.governmentVoices = { key, data: parsed };
+    return { ...parsed, generated: true };
+  }
+
+  /**
    * Progetti in corso con avanzamento **sempre** leggibile. Le righe create
    * prima del calcolo dell'avanzamento hanno `progress` nullo: qui la
    * percentuale viene ricalcolata dalle date (stessa formula del tick), così
@@ -5179,6 +5486,18 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
   /** Rinfresca l'avanzamento dei progetti a una data (idempotente). */
   refreshProjectProgress(asOfDate: string = this.currentDate): string[] {
     return this.advanceProjects(0, asOfDate);
+  }
+
+  /** Progetti chiusi di recente, letti dal motore (read model del Dossier). */
+  getCompletedProcesses(limit = 20) {
+    return gameRepository.getCompletedProcesses(this.id, limit).map(process => ({
+      ...process,
+      status: 'completed' as const,
+      progress: 100,
+      // Data di gioco della chiusura; per i progetti chiusi prima dell'introduzione
+      // della colonna resta il fallback sul timestamp di aggiornamento.
+      completed_date: process.completed_date || (process.updated_at || '').slice(0, 10) || null,
+    }));
   }
 
   /**
@@ -5695,10 +6014,11 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
 
       // jumpDays <= 0 — auto-jump «к следующему важному событию» (горизонт — год)
       const autoJump = jumpDays <= 0;
-      // In auto-jump ogni ordine in coda ha diritto al proprio evento: il
-      // limite di eventi accettati è il numero di ordini del lotto (minimo 1,
-      // per l'avanzamento del mondo senza ordini).
-      const autoJumpEventLimit = Math.max(1, actions.length);
+      // In auto-jump ogni ordine in coda ha diritto al proprio evento, ma il
+      // salto non si ferma al primo fatto di cronaca: il budget condiviso col
+      // prompt consente di attraversare i fatti di contorno fino alla decisione
+      // NPC che risponde agli ordini (o al tetto, se nessuno decide).
+      const autoJumpEventLimit = autoJumpEventBudget(actions.length);
       simulationRunId = shortId();
       this.activeSimulationRunId = simulationRunId;
       this.activeSimulationAbort = new AbortController();
@@ -5753,6 +6073,10 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       }>();
       let consumedEvents = 0;
       let intervened = false;
+      // Auto-jump: applicata la decisione NPC che risponde agli ordini, il
+      // salto si ferma lì. Gli eventi successivi (conseguenze oltre la
+      // decisione) restano fuori dal checkpoint e si gestiranno al prossimo salto.
+      let autoJumpStopReached = false;
       const acceptEvent = (event: SimulationEvent, index: number, apply: boolean): boolean => {
         consumedEvents = Math.max(consumedEvents, index + 1);
         if (this.interveneRequested) {
@@ -5771,9 +6095,13 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           proposedEvents.push(canonicalEvent);
           return true;
         }
-        // In auto-jump il limite di eventi accettati è il numero di ordini in
-        // coda: ignora rigorosamente gli eventuali record successivi di un
-        // modello che non abbia rispettato il budget del prompt.
+        // In auto-jump il salto si arresta sulla prima decisione NPC che
+        // risponde agli ordini del giocatore, oppure al tetto del budget se
+        // nessuno decide: ignora gli eventuali record successivi del modello.
+        if (autoJump && autoJumpStopReached) {
+          console.log('[GameSession] Auto-jump: event after the decisive NPC decision ignored');
+          return false;
+        }
         if (autoJump && appliedEvents.length >= autoJumpEventLimit) {
           console.warn(`[GameSession] Auto-jump: event after the limit of ${autoJumpEventLimit} ignored`);
           return false;
@@ -5794,6 +6122,11 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
         }));
         changedRegions.forEach(region => checkpointChanges.set(region.id, region));
         appliedEvents.push(canonicalEvent);
+        // La decisione che chiude il salto entra nel checkpoint; le sue
+        // conseguenze successive no (il controllo è DOPO l'applicazione).
+        if (autoJump && isDecisiveNpcDecision(canonicalEvent)) {
+          autoJumpStopReached = true;
+        }
         // È una sola anteprima narrativa: nessun delta o data viene ancora
         // pubblicato, poiché DB e checkpoint non sono stati committati.
         this.broadcast('jump_event', {
@@ -6210,7 +6543,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
           this.pendingNationalNotes.push(`⏳ Progetto non chiuso: avanzamento ${progress}% sotto la soglia del ${EFFECT_LIMITS.projectCompletionThreshold}%. Il cantiere resta aperto.`);
           return;
         }
-        if (gameRepository.completeOngoingProcessById(this.id, outcome.completesProjectId, outcome.summary) !== 1) {
+        if (gameRepository.completeOngoingProcessById(this.id, outcome.completesProjectId, outcome.summary, period.end) !== 1) {
           throw new Error('simulation_protocol_error: completesProjectId is invalid or not accepted');
         }
       });
@@ -6367,13 +6700,13 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
             if (resolved && !resolved.isNew) reactionCandidates.add(resolved.polityId);
           }
         }
-        // Fallback deterministico per provider che omettono `reactions`: nomi
-        // come Israele, Israel, Stati Uniti, United States o USA negli ordini
-        // e nei dispacci identificano comunque le controparti da far reagire.
-        for (const polityId of this.mentionedNpcPolityIds([
-          ...actions.map(action => action.text),
-          ...appliedEvents.flatMap(event => [event.headline, event.description]),
-        ])) reactionCandidates.add(polityId);
+        // Fallback deterministico per provider che omettono `reactions`:
+        // solo le controparti che il giocatore ha davvero interpellato con
+        // i suoi ordini aprono un canale. Un nome citato di sfondo in un
+        // dispaccio non basta: evitiamo note di comodo da nazioni incoerenti.
+        for (const polityId of this.mentionedNpcPolityIds(actions.map(action => action.text))) {
+          reactionCandidates.add(polityId);
+        }
         const hadDirectlyInvolvedPolity = reactionCandidates.size > 0 || openedChatPolityIds.size > 0;
         // Le politie che hanno già aperto un canale o partecipano a una
         // riunione generata dall'evento hanno già reagito: non duplicare note.
@@ -6513,12 +6846,12 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     const elapsedTurn = this.currentTurn;
     const newDate = addDays(periodStart, days);
 
-    const tick = WorldStateEngine.advance(this.regions.values(), days);
+    const tick = WorldStateEngine.advance(this.regions.values(), days, this.worldStateOptions());
     // Anche il salto di tempo applica i modificatori nazionali e il magazzino,
     // poi registra il punto storico: senza di esso il Dossier non potrebbe
     // mostrare come cresce o cala la tesoreria durante un salto.
     const tickAccounts = applyModifiersToAccounts(tick.accounts, polityId => this.modifiersFor(polityId));
-    const resourceLines = this.advanceResources(days, tickAccounts);
+    const resourceLines = this.advanceResources(days, tickAccounts, newDate);
     const bulletin = WorldStateEngine.playerBulletin(tickAccounts[this.playerPolityId]);
     this.currentTurn++;
     this.currentDate = newDate;

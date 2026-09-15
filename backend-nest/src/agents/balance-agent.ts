@@ -10,6 +10,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { LLMRouter } from '../llm';
 import { getCountry, type Country } from '../utils/countries';
+import { hasModernReferenceFacts, referencePopulation } from '../utils/country-facts';
 import { parseJsonLoose } from '../utils/json-repair';
 
 export interface CountryState {
@@ -48,7 +49,7 @@ export class BalanceAgent {
   // normalmente a 7 blocchi, elaborati con concorrenza limitata.
   private readonly COUNTRIES_PER_REQUEST = 16;
   private readonly REQUEST_CONCURRENCY = 3;
-  private readonly CACHE_VERSION = 3;
+  private readonly CACHE_VERSION = 4;
 
   constructor(provider: LLMRouter) {
     this.provider = provider;
@@ -97,6 +98,7 @@ export class BalanceAgent {
     if (cached) {
       onProgress?.(total, total);
       console.log('[BalanceAgent] Cache hit:', total, 'countries');
+      this.applyReferenceBaseline(cached, template.start_date);
       return { date: template.start_date, countries: cached };
     }
 
@@ -106,6 +108,7 @@ export class BalanceAgent {
     const reused = await this.reuseExistingWorld(template, validCountries, fingerprint);
     if (reused) {
       onProgress?.(total, total);
+      this.applyReferenceBaseline(reused, template.start_date);
       this.saveCache(template, validCountries, reused, fingerprint);
       console.log('[BalanceAgent] Reused an existing world:', total, 'countries');
       return { date: template.start_date, countries: reused };
@@ -131,6 +134,7 @@ export class BalanceAgent {
     }
 
     await this.balanceWorld(countries, mode);
+    this.applyReferenceBaseline(countries, template.start_date);
     this.saveCache(template, validCountries, countries, fingerprint);
     onProgress?.(total, total);
 
@@ -139,6 +143,24 @@ export class BalanceAgent {
       date: template.start_date,
       countries,
     };
+  }
+
+  /**
+   * Ancoraggio ai fatti reali per i mondi moderni: la popolazione di partenza
+   * di ogni nazione viene presa dal registro (World Bank) invece che dal modello.
+   * Per i preset storici non si tocca nulla: i dati odierni sarebbero anacronistici.
+   */
+  private applyReferenceBaseline(countries: Map<string, CountryState>, startDate: string): void {
+    if (!hasModernReferenceFacts(startDate)) return;
+    let overridden = 0;
+    for (const state of countries.values()) {
+      const population = referencePopulation(state.code);
+      if (population && population > 0) {
+        state.population = population;
+        overridden++;
+      }
+    }
+    if (overridden > 0) console.log('[BalanceAgent] Baseline reale applicata a', overridden, 'nazioni');
   }
 
   private cacheFile(

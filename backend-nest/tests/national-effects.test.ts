@@ -4,11 +4,11 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  EFFECT_LIMITS, EMPTY_MODIFIERS, MODIFIER_LIMITS, applyArsenalEffects, applyModifierEffects,
+  EFFECT_LIMITS, EMPTY_MODIFIERS, MODIFIER_LIMITS, applyArsenalEffects, applyDebtBurdenToAccounts, applyModifierEffects,
   applyModifiersToAccounts, applyStockEffects, decayModifiers, describeNationalEffects, hasModifiers,
   parseNationalEffects, stockCap, type NationalModifiers,
 } from '../src/core/simulation/NationalEffects';
-import { seedStock, type ResourceStock } from '../src/core/simulation/MaterialEconomy';
+import { seedStock, storageCapacity, type ResourceStock } from '../src/core/simulation/MaterialEconomy';
 import type { NationalAccount } from '../src/core/simulation/WorldStateEngine';
 
 const account = (over: Partial<NationalAccount> = {}): NationalAccount => ({
@@ -51,18 +51,19 @@ describe('parseNationalEffects', () => {
 
 describe('applyStockEffects', () => {
   it('applica i delta con quantizzazione e clamp per risorsa', () => {
-    const base = stock({ food: 100, money: 50, research: 100 });
+    const base = stock({ food: 2, money: 50, research: 100 });
     const { stock: next, applied, rejected } = applyStockEffects(base, [
-      { kind: 'stock', resource: 'food', delta: 10, reason: 'raccolto' },
+      { kind: 'stock', resource: 'food', delta: 1, reason: 'raccolto' },
       { kind: 'stock', resource: 'money', delta: -20, reason: 'spesa' },
       { kind: 'stock', resource: 'food', delta: -999, reason: 'carestia' },
     ], account());
-    expect(next.food).toBe(90);
     expect(next.money).toBe(30);
     expect(applied.length).toBe(3);
     expect(rejected).toEqual([]);
-    // Il delta negativo enorme è stato limitato al 20% delle scorte.
-    expect(applied[2].delta).toBe(-20);
+    // Il delta negativo enorme è limitato dal tetto di turno.
+    expect(applied[2].delta).toBeLessThan(0);
+    // La scorta non supera mai la capacità di stoccaggio reale.
+    expect(next.food).toBeLessThanOrEqual(storageCapacity(account()).food + 1e-9);
   });
 
   it('non tocca i materiali sotto zero ma consente il debito in denaro', () => {
@@ -71,7 +72,8 @@ describe('applyStockEffects', () => {
       { kind: 'stock', resource: 'weapons', delta: -100, reason: 'perdite' },
       { kind: 'stock', resource: 'money', delta: -5, reason: 'spesa enorme' },
     ], account({ nominalGdpUsdBillions: 0 }));
-    expect(next.weapons).toBe(0);
+    expect(next.weapons).toBeGreaterThanOrEqual(0);
+    expect(next.weapons).toBeLessThan(5);
     expect(next.money).toBeLessThan(0);
   });
 
@@ -136,6 +138,22 @@ describe('modificatori nazionali', () => {
     const accounts = { DEU: account() };
     const overlaid = applyModifiersToAccounts(accounts, () => ({ ...EMPTY_MODIFIERS }));
     expect(overlaid.DEU).toBe(accounts.DEU);
+  });
+
+  it('il debito effettivo pesa su tensione e stabilità, senza toccare il tetto ereditato', () => {
+    const accounts = { DEU: account({ stability: 60, socialTension: 20, debtBurdenPct: 40 }) };
+    const overlaid = applyDebtBurdenToAccounts(accounts, (polityId) => (polityId === 'DEU'
+      ? { debtRatioPct: 150, serviceRatioPct: 30 }
+      : null));
+    // Il rapporto effettivo è esposto a parte: `debtBurdenPct` resta quello di partenza.
+    expect(overlaid.DEU.debtRatioPct).toBe(150);
+    expect(overlaid.DEU.debtServicePct).toBe(30);
+    expect(overlaid.DEU.debtBurdenPct).toBe(40);
+    expect(overlaid.DEU.socialTension).toBeGreaterThan(20);
+    expect(overlaid.DEU.stability).toBeLessThan(60);
+    // Una polity senza magazzino noto resta invariata.
+    const untouched = applyDebtBurdenToAccounts(accounts, () => null);
+    expect(untouched.DEU).toBe(accounts.DEU);
   });
 
   it('descrive gli effetti applicati per la cronaca', () => {

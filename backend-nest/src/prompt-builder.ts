@@ -22,7 +22,15 @@ import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
 import { buildNarrativeMemory } from './prompts/narrative-memory';
 import { buildNationalDecisionContext, buildActionElaborationGuard } from './prompts/national-context';
+import {
+  buildGovernmentStateBlock,
+  buildGovernmentVoicePrompt,
+  parseGovernmentVoices,
+  type GovernmentVoices,
+} from './prompts/government';
+import type { GovernmentSnapshot } from './core/simulation/GovernmentFactions';
 import { addDays, formatItalianDate } from './core/simulation/calendar';
+import { autoJumpEventBudget } from './core/simulation/EventBudget';
 import { equipmentById } from './core/simulation/MilitaryIndustry';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
 import { LLMError, LLMRouter } from './llm';
@@ -92,6 +100,8 @@ interface GameData {
     annualGrowthRate: number;
     stability: number;
     defenceBurdenPct?: number;
+    debtBurdenPct?: number;
+    debtRatioPct?: number;
     warEffort?: number;
     socialTension?: number;
     nominalGdpUsdBillions: number;
@@ -112,11 +122,21 @@ interface GameData {
       debt?: number;
       creditLimit?: number;
       creditHeadroom?: number;
+      /** Interessi passivi annui e scadenza media del portafoglio (mld, anni). */
+      annualInterest?: number;
+      averageMaturityYears?: number;
+      /** Capacità di stoccaggio e fabbisogno mensile del magazzino materiale. */
+      capacity?: { food?: number; clothing?: number; weapons?: number; fuel?: number };
+      needs?: { food?: number; clothing?: number; weapons?: number; fuel?: number };
     };
     /** Ordini di produzione militare in corso con percentuale di completamento. */
     production?: Array<{ id: string; name: string; quantity: number; progress: number; note?: string }>;
     /** Modificatori nazionali attivi (stabilità, tensione, entrate, crescita). */
     modifiers?: { stability?: number; socialTension?: number; warEffort?: number; revenueMultiplier?: number; growthModifier?: number };
+    /** Anime del governo calcolate dal motore: chi preme dentro la nazione. */
+    government?: GovernmentSnapshot;
+    /** Voci del consiglio generate dall'LLM (facoltative, per-turno). */
+    governmentVoices?: GovernmentVoices;
   };
   actions: ActionData[];
   results: TurnResultData[];
@@ -274,6 +294,7 @@ export class PromptBuilder {
       STRATEGIC_STATE: this.buildStrategicState(playerPolityId),
       NPC_STRATEGIC_PROFILES: this.game.npcStrategicProfiles || 'Nessun dossier NPC specifico disponibile.',
       ONGOING_PROCESSES: this.buildOngoingProcesses(),
+      GOVERNMENT_STATE: this.buildGovernmentState(),
 
       ALL_EVENTS_WITH_CONSOLIDATION: this.buildEventHistory(),
       CHATS_NON_CONSOLIDATED_ROUNDS: this.game.chatTranscripts ?? '',
@@ -449,6 +470,13 @@ export class PromptBuilder {
     }).join('\n');
   }
 
+  private buildGovernmentState(): string {
+    return buildGovernmentStateBlock(
+      this.game.worldState?.government,
+      this.game.worldState?.governmentVoices,
+    );
+  }
+
   private buildStrategicState(playerPolityId?: string): string {
     const regions = getAllRegions(this.game.world.regions);
     if (!playerPolityId) return 'Stato strategico non disponibile.';
@@ -479,7 +507,7 @@ export class PromptBuilder {
       `Territori controllati: ${owned.length <= 42 ? owned.map(region => region.name).join(', ') : `${owned.slice(0, 42).map(region => region.name).join(', ')}, più altre ${owned.length - 42} province`}.`,
     ];
     if (playerAccount) {
-      lines.push(`Dossier nazionale calcolato dal motore: governo ${playerAccount.government}; popolazione ${fmt(playerAccount.population)}; PIL nominale stimato ${fmt(playerAccount.nominalGdpUsdBillions)} miliardi USD; PIL pro capite circa ${fmt(playerAccount.gdpPerCapitaUsd)} USD; entrate mensili ${fmt(playerAccount.monthlyRevenue)}; uscite mensili ${fmt(playerAccount.monthlyExpenses)}; saldo ${fmt(playerAccount.monthlyBalance)}; crescita annua ${(playerAccount.annualGrowthRate * 100).toFixed(1)}%; stabilità ${playerAccount.stability}/100; spesa militare ${playerAccount.defenceBurdenPct}% del PIL; riserve mobilitate ${playerAccount.mobilized}; sforzo bellico ${playerAccount.warEffort}/100; tensione sociale ${playerAccount.socialTension}/100; infrastrutture: ${playerAccount.factories} fabbriche, ${playerAccount.ports} porti, ${playerAccount.universities} università.`);
+      lines.push(`Dossier nazionale calcolato dal motore: governo ${playerAccount.government}; popolazione ${fmt(playerAccount.population)}; PIL nominale stimato ${fmt(playerAccount.nominalGdpUsdBillions)} miliardi USD; PIL pro capite circa ${fmt(playerAccount.gdpPerCapitaUsd)} USD; entrate mensili ${fmt(playerAccount.monthlyRevenue)}; uscite mensili ${fmt(playerAccount.monthlyExpenses)}; saldo ${fmt(playerAccount.monthlyBalance)}; crescita annua ${(playerAccount.annualGrowthRate * 100).toFixed(1)}%; stabilità ${playerAccount.stability}/100; spesa militare ${playerAccount.defenceBurdenPct}% del PIL; debito pubblico ${fmt(playerAccount.debtRatioPct ?? playerAccount.debtBurdenPct ?? 0)}% del PIL; riserve mobilitate ${playerAccount.mobilized}; sforzo bellico ${playerAccount.warEffort}/100; tensione sociale ${playerAccount.socialTension}/100; infrastrutture: ${playerAccount.factories} fabbriche, ${playerAccount.ports} porti, ${playerAccount.universities} università.`);
       const military = this.game.worldState?.military;
       if (military && Number.isFinite(Number(military.effectiveMilitaryPower))) {
         lines.push(`Forze armate effettive: potenza militare ${fmt(Number(military.effectiveMilitaryPower))} (base ${fmt(Number(military.baseMilitaryPower || 0))} × fattore arsenale ${military.combatFactor}); qualità media delle armi ${this.game.worldState?.arsenal?.qualityIndex ?? 0}/100. I combattimenti devono usare la potenza effettiva, non quella nominale.`);
@@ -487,13 +515,21 @@ export class PromptBuilder {
       const stock = this.game.worldState?.resources?.stock;
       if (stock) {
         const techs = stock.technologies?.length ? stock.technologies.join(', ') : 'nessuna';
-        lines.push(`Magazzino materiale: denaro ${fmt(Number(stock.money || 0))} mld; cibo ${fmt(Number(stock.food || 0))}; vestiario ${fmt(Number(stock.clothing || 0))}; armamenti ${fmt(Number(stock.weapons || 0))}; carburante ${fmt(Number(stock.fuel || 0))}; ricerca ${fmt(Number(stock.research || 0))}; tecnologie: ${techs}.`);
+        const capacity = this.game.worldState?.resources?.capacity;
+        const needs = this.game.worldState?.resources?.needs;
+        const coverage = (value: number, need?: number) => (need && need > 0 ? ` (${Math.round(value / need * 10) / 10} mesi di copertura)` : '');
+        lines.push(`Magazzino materiale: denaro ${fmt(Number(stock.money || 0))} mld; cibo ${fmt(Number(stock.food || 0))}${coverage(Number(stock.food || 0), needs?.food)}; vestiario ${fmt(Number(stock.clothing || 0))}${coverage(Number(stock.clothing || 0), needs?.clothing)}; armamenti ${fmt(Number(stock.weapons || 0))}${coverage(Number(stock.weapons || 0), needs?.weapons)}; carburante ${fmt(Number(stock.fuel || 0))}${coverage(Number(stock.fuel || 0), needs?.fuel)}; ricerca ${fmt(Number(stock.research || 0))}; tecnologie: ${techs}.`);
+        if (capacity) {
+          lines.push(`Capacità di stoccaggio (tetto reale delle scorte): cibo ${fmt(Number(capacity.food || 0))}, vestiario ${fmt(Number(capacity.clothing || 0))}, armamenti ${fmt(Number(capacity.weapons || 0))}, carburante ${fmt(Number(capacity.fuel || 0))}. Le scorte non possono superare il tetto: il surplus si perde. Una nazione povera ha magazzini piccoli e resta in carenza se la produzione non copre il fabbisogno.`);
+        }
         const debt = Number(this.game.worldState?.resources?.debt || 0);
         const headroom = Number(this.game.worldState?.resources?.creditHeadroom || 0);
         const limit = Number(this.game.worldState?.resources?.creditLimit || 0);
+        const interest = Number(this.game.worldState?.resources?.annualInterest || 0);
+        const maturity = Number(this.game.worldState?.resources?.averageMaturityYears || 0);
         lines.push(debt > 0
-          ? `Debito pubblico ${fmt(debt)} mld su un tetto di ${fmt(limit)} mld (credito residuo ${fmt(headroom)} mld). Gli interessi pesano sul saldo: ogni nuova spesa può andare a debito solo entro il tetto.`
-          : `Nessun debito pubblico. Credito disponibile ${fmt(headroom)} mld (tetto ${fmt(limit)} mld): una spesa può andare a debito entro il tetto.`);
+          ? `Debito pubblico ${fmt(debt)} mld su un tetto di ${fmt(limit)} mld (credito residuo ${fmt(headroom)} mld); interessi passivi ${fmt(interest)} mld/anno, scadenza media ${fmt(maturity)} anni: alla maturità i titoli si rifinanziano al tasso di mercato. Gli interessi pesano sul saldo e ogni nuova spesa può andare a debito solo entro il tetto; un debito alto alza la tensione sociale.`
+          : `Nessun debito pubblico. Credito disponibile ${fmt(headroom)} mld (tetto ${fmt(limit)} mld): una spesa può andare a debito entro il tetto, con interessi e scadenza.`);
       }
       const production = this.game.worldState?.production;
       if (production && production.length > 0) {
@@ -802,7 +838,7 @@ export class PromptEngine {
     // concludere prima se manca una causa verificabile.
     const actionsCount = normalizedActions.length;
     const maxEvents = autoJump
-      ? Math.max(1, actionsCount)
+      ? autoJumpEventBudget(actionsCount)
       : Math.min(30, Math.max(1, Math.ceil(jumpDays / 21), actionsCount));
     const renderedOverride = promptOverride ? renderPromptTemplate(promptOverride, vars) : undefined;
     const constrained = !game.strictMode && this.isConstrainedModel('jump');
@@ -1102,6 +1138,26 @@ export class PromptEngine {
     return suggestions.map(suggestion => ({ ...suggestion,
       description: `Proposta prudenziale di riserva: l’IA non ha restituito proposte utilizzabili. ${suggestion.description}`,
     }));
+  }
+
+  /**
+   * Dà voce alle anime del governo. Il roster e le richieste sono quelli
+   * calcolati dal motore: il modello scrive soltanto come le fazioni le
+   * esprimono. In caso di risposta inutilizzabile ritorna null e la UI mostra
+   * la richiesta deterministica.
+   */
+  async getGovernmentVoice(game: GameData, snapshot: GovernmentSnapshot): Promise<GovernmentVoices | null> {
+    if (!snapshot || snapshot.factions.length === 0) return null;
+    const builder = new PromptBuilder(game);
+    const vars = builder.buildVariables();
+    const prompt = buildGovernmentVoicePrompt(vars, snapshot);
+    const system = 'Sei la voce collettiva del governo in una storia alternativa. Rispondi solo con JSON valido, in italiano.';
+    try {
+      const response = await this.llm.generate('advisor', system, prompt, { temperature: 0.7, maxTokens: 1_400 });
+      return parseGovernmentVoices(response.content, snapshot.factions.map((faction) => faction.id));
+    } catch {
+      return null;
+    }
   }
 
   async getSuggestions(game: GameData): Promise<Suggestion[]> {

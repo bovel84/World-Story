@@ -108,8 +108,9 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
   test('picker salvataggi: dialog e focus iniziale accessibili', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
-    await page.getByRole('button', { name: 'Nazione' }).click();
-    await page.locator('.btn-load').click();
+    // Le azioni di partita vivono nel menù HUD, fuori dal Dossier Nazione.
+    await page.locator('.game-menu-btn').click();
+    await page.locator('.game-menu-item', { hasText: 'Carica' }).click();
     const dialog = page.getByRole('dialog', { name: 'Carica un salvataggio' });
     await expect(dialog).toBeVisible();
     await expect(page.locator('#root')).toHaveAttribute('aria-hidden', 'true');

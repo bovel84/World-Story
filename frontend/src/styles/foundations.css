@@ -1791,6 +1791,37 @@
   font: 700 11px/1 system-ui, sans-serif;
 }
 
+/* Discussione con un tema: una riga breve sotto il titolo delle nazioni */
+.chat-item-subject {
+  margin-top: 2px;
+  overflow: hidden;
+  color: #8ea6c6;
+  font: 600 11px/1.3 system-ui, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Discussioni chiuse: righe attenuate, sempre visibili nell'archivio */
+.chat-item.archived { opacity: .72; background: #141f33; }
+.chat-item.archived:hover { opacity: 1; }
+.chats-archive { flex: none; border-top: 1px solid #2b3c56; }
+.btn-toggle-archive {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: #9fb0c8;
+  font: 700 12px/1.2 system-ui, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.btn-toggle-archive:hover { color: #f0f5ff; background: #1b2942; }
+.chats-list.archived { max-height: 34vh; overflow-y: auto; }
+.btn-chat-archive { flex: none; padding: 5px 9px; border: 1px solid #394f6c; border-radius: 8px; background: #18263d; color: #cfd9e8; font: 600 11px/1.1 system-ui, sans-serif; cursor: pointer; }
+.btn-chat-archive:hover { border-color: #927be4; color: #fff; }
+.chat-archived-banner { flex: none; padding: 7px 12px; background: #3a2c14; color: #f0d9a8; font: 600 11px/1.3 system-ui, sans-serif; text-align: center; }
+
 /* Picker «Nuova chat» */
 .btn-new-chat {
   flex: none;

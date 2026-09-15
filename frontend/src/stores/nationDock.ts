@@ -3,12 +3,13 @@
  * ===========================================================
  * Il dossier è organizzato in sezioni progressive, senza duplicazioni:
  *  1. Situazione — decisioni che richiedono attenzione, tesoreria, stabilità
- *  2. Progetti   — ciò che è già avviato e la prossima scadenza registrata
- *  3. Cassa      — tesoreria, debito, credito e flussi: la valuta al centro
- *  4. Risorse    — scorte materiali, industria, risorse naturali e mercato
- *  5. Armamenti  — arsenale, qualità, produzione e catalogo
- *  6. Conoscenze — tecnologie sbloccate, capitale umano e formazione
- *  7. Politiche  — assetto istituzionale e coesione interna
+ *  2. Governo    — le anime del governo che spingono per i loro interessi
+ *  3. Progetti   — ciò che è già avviato e la prossima scadenza registrata
+ *  4. Cassa      — tesoreria, debito, credito e flussi: la valuta al centro
+ *  5. Risorse    — scorte materiali, industria, risorse naturali e mercato
+ *  6. Armamenti  — arsenale, qualità, produzione e catalogo
+ *  7. Conoscenze — tecnologie sbloccate, capitale umano e formazione
+ *  8. Politiche  — assetto istituzionale e coesione interna
  *
  * Ogni cifra compare in una sola sezione: le infrastrutture stanno in Risorse,
  * il denaro in Cassa, il combattente in Armamenti.
@@ -24,6 +25,7 @@
 
 export type NationSection =
   | 'situazione'
+  | 'governo'
   | 'progetti'
   | 'bilancio'
   | 'risorse'
@@ -45,6 +47,7 @@ export function setSection(state: NationDockState, section: NationSection): Nati
 /** Ordine canonico delle sezioni (per la navigazione a schede). */
 export const NATION_SECTIONS: NationSection[] = [
   'situazione',
+  'governo',
   'progetti',
   'bilancio',
   'risorse',
@@ -56,6 +59,7 @@ export const NATION_SECTIONS: NationSection[] = [
 /** Etichetta leggibile di ogni sezione (italiano). */
 export const NATION_SECTION_LABEL: Record<NationSection, string> = {
   situazione: 'Situazione',
+  governo: 'Governo',
   progetti: 'Progetti',
   bilancio: 'Cassa',
   risorse: 'Risorse e industria',

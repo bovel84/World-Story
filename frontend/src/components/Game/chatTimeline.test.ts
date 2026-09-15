@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { formatChatStamp, formatGameDate, orderChatsByLatest, chatSortKey } from './chatTimeline';
+import {
+  formatChatStamp,
+  formatGameDate,
+  orderChatsByLatest,
+  chatSortKey,
+  participantSetKey,
+  archiveSiblingThreads,
+} from './chatTimeline';
 
 describe('chatTimeline — date e ordinamento delle chat diplomatiche', () => {
   it('formatta la data del mondo senza scostamenti di fuso orario', () => {
@@ -38,5 +45,24 @@ describe('chatTimeline — date e ordinamento delle chat diplomatiche', () => {
   it('usa la data del mondo come chiave quando manca il timestamp', () => {
     expect(chatSortKey({ lastMessageGameDate: '2026-02-01' })).toBe('2026-02-01');
     expect(chatSortKey({})).toBe('');
+  });
+
+  it('una nuova discussione archivia le precedenti con gli stessi interlocutori', () => {
+    const chats = [
+      { id: 'old', participants: [{ id: 'DEU', role: 'player' }, { id: 'POL', role: 'polity' }] },
+      { id: 'group', participants: [{ id: 'DEU', role: 'player' }, { id: 'POL', role: 'polity' }, { id: 'CZE', role: 'polity' }] },
+      { id: 'new', participants: [{ id: 'POL', role: 'polity' }, { id: 'DEU', role: 'player' }] },
+    ];
+    const next = archiveSiblingThreads(chats, 'new');
+    expect(next.find(c => c.id === 'old')?.archived).toBe(true);
+    // Il gruppo ha interlocutori diversi: non è la stessa discussione.
+    expect(next.find(c => c.id === 'group')?.archived).toBeUndefined();
+    expect(next.find(c => c.id === 'new')?.archived).toBeUndefined();
+  });
+
+  it('canonicalizza l’insieme dei partecipanti indipendentemente dall’ordine', () => {
+    expect(participantSetKey([{ id: 'POL' }, { id: 'DEU' }, { id: 'POL' }])).toBe('DEU|POL');
+    expect(participantSetKey([])).toBe('');
+    expect(participantSetKey(undefined)).toBe('');
   });
 });

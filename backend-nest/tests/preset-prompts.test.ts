@@ -397,6 +397,16 @@ describe('обогащение дефолтных промптов матери�
     expect(quality).toContain('prima persona plurale');
     expect(quality).toContain('Non inventare');
     expect(quality).toContain('prima persona plurale e al presente');
+    // Prosa discorsiva: nessun indicatore o statistica nel testo per il giocatore.
+    expect(quality).toContain('PROSA DISCORSIVA');
+    expect(quality).toContain('soddisfazione 32/100');
+    expect(quality).toContain('non con un elenco di indicatori');
+  });
+
+  it('suggestions: lo stato strategico e le anime del governo sono dati interni', () => {
+    const prompt = suggestionsModule.buildSuggestionsPrompt(vars);
+    expect(prompt).toContain('dati interni per il tuo ragionamento, mai da citare nel testo');
+    expect(prompt).toContain('non riportarli mai come cifre nel testo');
   });
 });
 

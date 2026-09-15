@@ -11,6 +11,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { chatsApi } from '../../services/api';
 import { useChatStore } from '../../stores';
+import type { ChatSummary } from '../../stores/chatStore';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import type { Region } from '../../types';
 import { publicNarrativeText } from '../../services/publicNarrative';
@@ -60,9 +61,11 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
   const {
     chats, activeChatId, messagesByChat,
     refreshChats, upsertChat, setActiveChat, setMessages, appendMessage, markRead,
+    archiveChat, unarchiveChat,
   } = useChatStore();
 
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -120,7 +123,10 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
         // riunione resta bloccata su «Apertura…». Il codice polity (p.id,
         // es. «CHN») è invece sempre un alias valido nel PolityResolver.
         const names = polities.map(p => p.id);
-        const { chat } = await chatsApi.create(gameId, names);
+        const { chat } = await chatsApi.create(gameId, names, {
+          subject: 'Riunione plenaria',
+          dedupeKey: `meeting:${[...names].sort().join('|')}`,
+        });
         upsertChat(chat);
         setActiveChat(chat.id);
         const data = await chatsApi.messages(gameId, chat.id);
@@ -151,7 +157,9 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     }
   };
 
-  // Crea una nuova chat con una o più nazioni (idempotente sul backend)
+  // Apre una NUOVA discussione con una o più nazioni. Le precedenti con gli
+  // stessi interlocutori sono archiviate: risincronizziamo l'elenco per vederle
+  // subito sotto «Archivio» invece che ancora in cima.
   const handleCreateChat = async (names: string[]) => {
     if (names.length === 0) return;
     try {
@@ -161,6 +169,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
       setSelectedPolityIds(new Set());
       setShowNewChat(false);
       await openChat(chat.id);
+      void refreshChats();
     } catch (e) {
       console.error('[ChatsPanel] Impossibile creare la chat:', e);
       setError(e instanceof Error ? e.message : 'Impossibile creare la chat.');
@@ -249,13 +258,51 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     formatGameDate(message.gameDate) || 'Data non registrata';
 
   // Elenco sempre dal più recente: una chat appena aggiornata sale in cima,
-  // così si vede subito quale conversazione è l'ultima.
+  // così si vede subito quale conversazione è l'ultima. Le discussioni chiuse
+  // finiscono nell'archivio, non nell'elenco attivo.
   const orderedChats = orderChatsByLatest(chats);
+  const activeChats = orderedChats.filter(c => !c.archived);
+  const archivedChats = orderedChats.filter(c => c.archived);
 
   // Colore del mittente dai partecipanti della chat attiva
   const senderColor = (name: string): string => {
     const p = activeChat?.participants?.find(pp => pp.name === name);
     return p?.color || activeChat?.polityColor || '#888';
+  };
+
+  // Riga dell'elenco: usata sia per le discussioni attive sia per l'archivio.
+  const renderChatItem = (c: ChatSummary) => {
+    const interlocutors = c.participants?.filter(p => p.role !== 'player') || [];
+    const title = interlocutors.length > 0
+      ? interlocutors.map(p => p.name).join(' · ')
+      : c.polityName || 'Trattativa diplomatica';
+    const stamp = formatChatStamp(c.lastMessageGameDate, c.lastMessageAt || c.createdAt);
+    const unread = c.unread > 0;
+    return (
+      <div
+        key={c.id}
+        className={`chat-item${unread ? ' unread' : ''}${c.archived ? ' archived' : ''}`}
+        onClick={() => openChat(c.id)}
+        title={stamp ? `${title} · ultimo messaggio ${stamp}` : title}
+      >
+        <span className="chat-list-flags">
+          {(interlocutors.length ? interlocutors : [{ id: c.polityId, name: c.polityName }]).slice(0, 3).map((p: any, i) => (
+            <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
+          ))}
+        </span>
+        <div className="chat-item-main">
+          <div className="chat-item-top">
+            <span className="chat-item-name">{title}</span>
+            {stamp && <time className="chat-item-date" dateTime={c.lastMessageAt || c.lastMessageGameDate}>{stamp}</time>}
+          </div>
+          {c.subject && <div className="chat-item-subject">{c.subject}</div>}
+          {interlocutors.length > 1 && <span className="group-chat-badge compact">Gruppo · {interlocutors.length}</span>}
+          {c.lastMessage && <div className="chat-item-last">{c.lastMessage}</div>}
+        </div>
+        {c.lastMessage && <span className="chat-list-reaction" title={reactionForMessage(c.lastMessage).label}>{reactionForMessage(c.lastMessage).icon}</span>}
+        {unread && <span className="chat-unread-badge" title={`${c.unread} messaggi non letti`}>{c.unread}</span>}
+      </div>
+    );
   };
 
   // --- Thread dei messaggi ---
@@ -289,7 +336,30 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
           >
             {autoRunning ? 'In corso' : 'Prosegui dialogo'}
           </button>
+          {activeChat?.archived ? (
+            <button
+              className="btn-chat-archive reopen"
+              onClick={() => { if (activeChat) unarchiveChat(activeChat.id); }}
+              title="Riapri questa discussione archiviata"
+            >
+              ↩ Riapri
+            </button>
+          ) : (
+            <button
+              className="btn-chat-archive"
+              onClick={() => { if (activeChatId) archiveChat(activeChatId); }}
+              title="Archivia la discussione: esce dall'elenco attivo ma resta consultabile"
+            >
+              Archivia
+            </button>
+          )}
         </div>
+
+        {activeChat?.archived && (
+          <div className="chat-archived-banner" role="status">
+            Discussione archiviata · riaprila per continuare
+          </div>
+        )}
 
         <div className="chat-messages">
           {loadingMessages && activeMessages.length === 0 ? (
@@ -337,9 +407,9 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
           <textarea
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Messaggio alla politia..."
+            placeholder={activeChat?.archived ? 'Discussione archiviata — riaprila per scrivere' : 'Messaggio alla politia...'}
             rows={2}
-            disabled={sending || autoRunning}
+            disabled={sending || autoRunning || !!activeChat?.archived}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -350,7 +420,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
           <button
             className="btn-chat-send"
             onClick={handleSend}
-            disabled={!inputText.trim() || sending || autoRunning}
+            disabled={!inputText.trim() || sending || autoRunning || !!activeChat?.archived}
             title="Invia"
           >
             {sending ? '…' : 'Invia'}
@@ -377,7 +447,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
       {showNewChat && (
         <div className="new-chat-picker">
           <div className="picker-hint">
-            Seleziona una nazione per una chat diretta, oppure più nazioni per una trattativa di gruppo.
+            Ogni trattativa è una nuova discussione: seleziona una nazione per un canale diretto, oppure più nazioni per un incontro di gruppo. Le discussioni precedenti vanno in archivio.
           </div>
           {polities.length === 0 ? (
             <div className="chats-empty">Nessun paese disponibile per le negoziazioni</div>
@@ -411,47 +481,32 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
 
       {error && <div className="chat-error" role="alert">{error}</div>}
       <div className="chats-list">
-        {chats.length === 0 ? (
+        {activeChats.length === 0 && archivedChats.length === 0 ? (
           <div className="chats-empty">
-            Nessuna chat.
+            Nessuna discussione.
             <br />
             Premi «Nuova chat» per aprire un canale diplomatico.
           </div>
+        ) : activeChats.length === 0 ? (
+          <div className="chats-empty">Nessuna discussione aperta · le precedenti sono in archivio</div>
         ) : (
-          orderedChats.map(c => {
-            const interlocutors = c.participants?.filter(p => p.role !== 'player') || [];
-            const title = interlocutors.length > 0
-              ? interlocutors.map(p => p.name).join(' · ')
-              : c.polityName || 'Trattativa diplomatica';
-            const stamp = formatChatStamp(c.lastMessageGameDate, c.lastMessageAt || c.createdAt);
-            const unread = c.unread > 0;
-            return (
-            <div
-              key={c.id}
-              className={`chat-item${unread ? ' unread' : ''}`}
-              onClick={() => openChat(c.id)}
-              title={stamp ? `${title} · ultimo messaggio ${stamp}` : title}
-            >
-              <span className="chat-list-flags">
-                {(interlocutors.length ? interlocutors : [{ id: c.polityId, name: c.polityName }]).slice(0, 3).map((p: any, i) => (
-                  <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
-                ))}
-              </span>
-              <div className="chat-item-main">
-                <div className="chat-item-top">
-                  <span className="chat-item-name">{title}</span>
-                  {stamp && <time className="chat-item-date" dateTime={c.lastMessageAt || c.lastMessageGameDate}>{stamp}</time>}
-                </div>
-                {interlocutors.length > 1 && <span className="group-chat-badge compact">Gruppo · {interlocutors.length}</span>}
-                {c.lastMessage && <div className="chat-item-last">{c.lastMessage}</div>}
-              </div>
-              {c.lastMessage && <span className="chat-list-reaction" title={reactionForMessage(c.lastMessage).label}>{reactionForMessage(c.lastMessage).icon}</span>}
-              {unread && <span className="chat-unread-badge" title={`${c.unread} messaggi non letti`}>{c.unread}</span>}
-            </div>
-            );
-          })
+          activeChats.map(renderChatItem)
         )}
       </div>
+
+      {archivedChats.length > 0 && (
+        <div className="chats-archive">
+          <button
+            type="button"
+            className="btn-toggle-archive"
+            onClick={() => setShowArchive(v => !v)}
+            aria-expanded={showArchive}
+          >
+            {showArchive ? '▾' : '▸'} Archivio ({archivedChats.length})
+          </button>
+          {showArchive && <div className="chats-list archived">{archivedChats.map(renderChatItem)}</div>}
+        </div>
+      )}
     </div>
   );
 };

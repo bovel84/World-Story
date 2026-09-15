@@ -24,8 +24,10 @@ try {
   await page.waitForSelector('.game-shell', { timeout: 60000 });
   await page.waitForTimeout(4000);
 
-  // Кликаем элемент в самом низу правой панели — Playwright проскроллит к нему
-  await page.click('.btn-edit-prompt');
+  // Azioni globali ora nel menù HUD, fuori dal dossier: apriamo il menù e «Mondo».
+  await page.click('.game-menu-btn');
+  await page.waitForTimeout(400);
+  await page.locator('.game-menu-item', { hasText: 'Mondo' }).click();
   await page.waitForTimeout(800);
   await page.keyboard.press('Escape');
   await page.click('.prompt-editor-overlay').catch(() => {});

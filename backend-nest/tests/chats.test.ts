@@ -26,6 +26,8 @@ let stubEventReactions: Array<{
   role: 'counterparty' | 'ally' | 'mediator' | 'observer';
   stance: 'supportive' | 'opposed' | 'conditional' | 'neutral';
   response: string;
+  counterAction?: string;
+  note?: string;
 }> = [];
 let stubRelationshipChanges: any[] = [];
 
@@ -281,6 +283,48 @@ describe('Chat diplomatiche', () => {
     expect(sseEvents.filter(event => event.type === 'chat_message')).toHaveLength(2);
   });
 
+  it('la chat apre con la nota diretta della nazione, non col dispaccio di cronaca', async () => {
+    stubEventReactions = [{
+      polityName: 'Polonia',
+      role: 'counterparty',
+      stance: 'opposed',
+      response: 'Varsavia ordina il richiamo delle riserve e riorienta le uscite verso la difesa.',
+      counterAction: 'Mobilitazione del Gruppo tattico Vistola nel territorio polacco.',
+      note: 'Non accettiamo il vostro dispositivo di frontiera: ritirate le unità avanzate e torniamo a parlare.',
+    }];
+    const { session } = createGame();
+    session.queueAction('Imporre un dispositivo di frontiera alla Polonia');
+    await session.processNextAction(0);
+
+    const chat = session.getChats().find((item: any) => item.polityId === 'POL');
+    expect(chat).toBeTruthy();
+    const first = session.getChatMessages(chat.id)[0];
+    // Messaggio in prima persona della controparte…
+    expect(first.content).toContain('Non accettiamo il vostro dispositivo');
+    // …e niente etichette da bollettino né il testo di cronaca.
+    expect(first.content).not.toContain('Misura annunciata');
+    expect(first.content).not.toContain('Varsavia ordina il richiamo');
+  });
+
+  it('senza nota usa la decisione, senza l’etichetta «Misura annunciata»', async () => {
+    stubEventReactions = [{
+      polityName: 'Polonia',
+      role: 'counterparty',
+      stance: 'opposed',
+      response: 'Varsavia respinge il dispositivo unilaterale.',
+      counterAction: 'Richiamo delle riserve di confine.',
+    }];
+    const { session } = createGame();
+    session.queueAction('Imporre un dispositivo di frontiera alla Polonia');
+    await session.processNextAction(0);
+
+    const chat = session.getChats().find((item: any) => item.polityId === 'POL');
+    const first = session.getChatMessages(chat.id)[0];
+    expect(first.content).toContain('respinge');
+    expect(first.content).toContain('Richiamo delle riserve');
+    expect(first.content).not.toContain('Misura annunciata');
+  });
+
   it('genera una reazione fallback quando il provider omette reactions', async () => {
     const { session } = createGame();
     session.queueAction('Inviare un ultimatum alla Polonia');
@@ -309,6 +353,65 @@ describe('Chat diplomatiche', () => {
     });
   });
 
+  it('apre una nuova discussione con la stessa nazione e archivia la precedente', async () => {
+    const { session } = createGame();
+    const first = session.ensureChat(['Polonia']);
+    await session.sendChatMessage(first.id, 'Proponiamo un patto di non aggressione.');
+
+    // La prima discussione ha ormai un contenuto: una nuova apertura è una
+    // discussione nuova, non la continuazione della precedente.
+    const second = session.ensureChat(['Polonia']);
+    expect(second.id).not.toBe(first.id);
+    expect(session.getChats().map((c: any) => c.id)).toEqual([second.id]);
+    expect(session.getChats(true).map((c: any) => c.id).sort())
+      .toEqual([first.id, second.id].sort());
+    expect(session.getChats(true).find((c: any) => c.id === first.id)?.archived).toBe(true);
+    // La discussione archiviata resta consultabile con i suoi messaggi.
+    expect(session.getChatMessages(first.id)).not.toHaveLength(0);
+  });
+
+  it('riapre una bozza ancora vuota invece di moltiplicare le chat', () => {
+    const { session } = createGame();
+    const a = session.ensureChat(['Polonia']);
+    const b = session.ensureChat(['Polonia']);
+    expect(b.id).toBe(a.id);
+    expect(session.getChats()).toHaveLength(1);
+  });
+
+  it('archivia e riapre una discussione su comando', async () => {
+    const { session } = createGame();
+    const chat = session.ensureChat(['Polonia']);
+    await session.sendChatMessage(chat.id, 'Nota diplomatica riservata.');
+
+    session.archiveChat(chat.id);
+    expect(session.getChats()).toHaveLength(0);
+    expect(session.getChats(true).find((c: any) => c.id === chat.id)?.archived).toBe(true);
+
+    session.unarchiveChat(chat.id);
+    expect(session.getChats().map((c: any) => c.id)).toContain(chat.id);
+  });
+
+  it('ogni turno di reazioni apre una nuova discussione e archivia la precedente', async () => {
+    const { session } = createGame();
+    session.queueAction('Chiedere spiegazioni formali alla Polonia');
+    await session.processNextAction(0);
+    await vi.waitFor(() => {
+      expect(session.getChats().some((c: any) => c.polityId === 'POL')).toBe(true);
+    });
+    const first = session.getChats().find((c: any) => c.polityId === 'POL');
+
+    session.queueAction('Inviare una nuova richiesta alla Polonia');
+    await session.processNextAction(30);
+    await vi.waitFor(() => {
+      const active = session.getChats().find((c: any) => c.polityId === 'POL');
+      expect(active?.id).toBeTruthy();
+      expect(active?.id).not.toBe(first.id);
+    });
+    // La discussione del turno precedente è archiviata, non cancellata.
+    expect(session.getChats(true).find((c: any) => c.id === first.id)?.archived).toBe(true);
+    expect(session.getChatMessages(first.id)).not.toHaveLength(0);
+  });
+
   it('non apre in auto-jump una chat collegata a un evento non applicato', async () => {
     stubStartChat = [{
       participants: ['Polonia', 'Cecoslovacchia'],
@@ -322,6 +425,21 @@ describe('Chat diplomatiche', () => {
     await session.processNextAction(0);
 
     expect(session.getChats()).toHaveLength(0);
+  });
+
+  it('lo stile diplomatico vieta cifre e statistiche e limita i presenti', async () => {
+    const { session } = createGame();
+    const chat = session.ensureChat(['Polonia']);
+
+    await session.sendChatMessage(chat.id, 'Proponiamo un patto di non aggressione.');
+
+    // Stile naturale: nessuna cifra o metrica nei messaggi.
+    expect(capturedChatPrompt).toContain('NON citare cifre, percentuali, punteggi');
+    expect(capturedChatPrompt).toContain('giudizi politici naturali');
+    // Coerenza: solo i partecipanti reali possono parlare.
+    expect(capturedChatPrompt).toContain('Le sole nazioni presenti in questa trattativa sono: Polonia');
+    // La vecchia formula che invitava a "considerare forza militare" è sparita.
+    expect(capturedChatPrompt).not.toContain('considera forza militare, territori e relazioni');
   });
 
   it('rewind ripristina le chat del checkpoint e rimuove i messaggi futuri', async () => {

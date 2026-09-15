@@ -94,15 +94,19 @@ export function advanceLedger(
   for (const kind of NATURAL_RESOURCE_KINDS) {
     const node = ledger[kind];
     if (!node) continue;
+    // Il magazzino della risorsa estratta ha un tetto (mesi di estrazione):
+    // non si accumula materiale all'infinito. A silos pieni l'estrazione si ferma.
+    const stockpileCap = Math.max(node.endowment * BASE_EXTRACTION * 6, 10);
+    const stockpileRoom = Math.max(0, stockpileCap - node.stockpile);
     const gross = extractionRate(node, account) * period;
-    const take = Math.min(node.reserve, gross);
+    const take = Math.min(node.reserve, gross, stockpileRoom);
     const regen = isRenewable(kind) ? node.endowment * RESERVE_PER_POINT * RENEWAL_RATE * period : 0;
     const reserve = Math.min(node.maxReserve, Math.max(0, node.reserve - take + regen));
     const round = (value: number) => Math.round(value * 1000) / 1000;
     next[kind] = {
       ...node,
       reserve: round(reserve),
-      stockpile: round(node.stockpile + take),
+      stockpile: round(Math.min(stockpileCap, node.stockpile + take)),
       extractedTotal: round(node.extractedTotal + take),
     };
     if (take > 0) extracted[kind] = round(take);

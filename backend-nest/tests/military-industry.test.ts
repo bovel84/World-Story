@@ -29,7 +29,7 @@ function capacity(overrides: Partial<NationCapacity> = {}): NationCapacity {
 }
 
 function stock(overrides: Partial<ResourceStock> = {}): ResourceStock {
-  return { money: 100, food: 100, clothing: 100, weapons: 100, fuel: 100, research: 0, technologies: [], ...overrides };
+  return { money: 100, debts: [], food: 100, clothing: 100, weapons: 100, fuel: 100, research: 0, technologies: [], ...overrides };
 }
 
 describe('risorse naturali reali', () => {
@@ -197,7 +197,7 @@ describe('le risorse naturali pesano sulla produzione', () => {
   it('una nazione petrolifera produce carburante anche senza porti', () => {
     const without = advanceStock(stock({ fuel: 10 }), account({ ports: 0, factories: 0 }), 30, {});
     const withOil = advanceStock(stock({ fuel: 10 }), account({ ports: 0, factories: 0 }), 30, { oil: 5 });
-    expect(withOil.stock.fuel).toBeGreaterThan(without.stock.fuel);
+    expect(withOil.flow.fuel).toBeGreaterThan(without.flow.fuel);
   });
 
   it('ferro e carbone alimentano gli armamenti, la terra fertile il cibo', () => {

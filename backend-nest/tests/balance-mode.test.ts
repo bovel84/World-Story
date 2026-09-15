@@ -17,6 +17,7 @@ process.env.OPEN_PAX_DB_PATH = TEST_DB;
 
 import { BalanceAgent, type CountryState, type SimulationGenerationOptions } from '../src/agents/balance-agent';
 import { catalogFingerprint, loadSimulationCatalog } from '../src/scenario/loader';
+import { referencePopulation } from '../src/utils/country-facts';
 import type { LLMRouter } from '../src/llm';
 
 const FIXTURE_DIR = path.join(process.cwd(), 'data', 'presets', 'realism_test_world');
@@ -183,5 +184,35 @@ describe('M01 µ3 — impronta di catalogo', () => {
     // il pilota ha una propria impronta (≠ null): cache e riuso separati dai legacy
     const pilot = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', 'cold_war_1951_v2'));
     expect(pilot.catalog && catalogFingerprint(pilot.report.catalogHashes)).toMatch(/^[0-9a-f]{24}$/);
+  });
+});
+
+describe('baseline reale delle nazioni moderne', () => {
+  it('sostituisce la popolazione inventata con quella di riferimento (2026)', async () => {
+    const template = { ...countryTemplate('tpl-ref-pop'), start_date: '2026-01-01' };
+    const stub = makeStubProvider({
+      USA: { population: 10_000_000 },
+      GBR: { population: 10_000_000 },
+      FRA: { population: 10_000_000 },
+    });
+    const agent = new BalanceAgent(stub.provider);
+    const world = await agent.generateInitialWorldState(template, undefined, undefined, { mode: 'strict', catalogFingerprint: 'refpop0001' });
+    expect(world.countries.get('USA')!.population).toBe(referencePopulation('USA'));
+    expect(world.countries.get('FRA')!.population).toBe(referencePopulation('FRA'));
+    // Il dato reale non può coincidere con il segnaposto del modello.
+    expect(world.countries.get('USA')!.population).not.toBe(10_000_000);
+  });
+
+  it('per un mondo storico lascia le stime del bilanciatore', async () => {
+    const template = { ...countryTemplate('tpl-ref-pop-hist'), start_date: '1939-09-01' };
+    const stub = makeStubProvider({
+      USA: { population: 131_000_000 },
+      GBR: { population: 47_000_000 },
+      FRA: { population: 41_000_000 },
+    });
+    const agent = new BalanceAgent(stub.provider);
+    const world = await agent.generateInitialWorldState(template, undefined, undefined, { mode: 'strict', catalogFingerprint: 'refpop0002' });
+    expect(world.countries.get('USA')!.population).toBe(131_000_000);
+    expect(world.countries.get('GBR')!.population).toBe(47_000_000);
   });
 });

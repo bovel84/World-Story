@@ -87,6 +87,17 @@ export interface ArsenalResponse {
   catalog: ArsenalCatalogItem[];
 }
 
+/** Titolo del debito pubblico: capitale, tasso annuo e scadenza. */
+export interface SovereignDebtTranche {
+  id: string;
+  label: string;
+  principal: number;
+  annualRatePct: number;
+  issuedDate: string;
+  maturityDate: string;
+  termYears: number;
+}
+
 /** Stato dinamico di una risorsa naturale: giacimento, riserva, magazzino. */
 export interface NaturalResourceSummary {
   kind: string;
@@ -110,6 +121,76 @@ export interface ResourceQuote {
   bid: number;
   ask: number;
   scarcityPct: number;
+}
+
+/** Voce del bilancio nazionale: importo mensile (mld) e quota sul totale. */
+export interface BudgetLine {
+  id: string;
+  label: string;
+  amount: number;
+  sharePct: number;
+}
+
+/** Dettaglio del bilancio pubblicato dal motore (somma delle voci = totale). */
+export interface NationalBudgetDetail {
+  currency: 'mld';
+  revenue: BudgetLine[];
+  expense: BudgetLine[];
+  revenueTotal: number;
+  expenseTotal: number;
+  balance: number;
+  effectiveTaxRatePct: number;
+  defenceBurdenPct: number;
+  socialBurdenPct: number;
+  educationBurdenPct: number;
+}
+
+export type FactionStance = 'alleato' | 'favorevole' | 'neutrale' | 'critico' | 'ostile';
+export type FactionLever = 'difesa' | 'tasse' | 'welfare' | 'istruzione' | 'infrastrutture' | 'debito' | 'ordine';
+
+/** Richiesta concreta di una fazione del governo. */
+export interface FactionDemand {
+  lever: FactionLever;
+  title: string;
+  detail: string;
+  direction: 'alza' | 'abbassa' | 'mantieni';
+  urgency: number;
+}
+
+/** Un'anima del governo: interesse, influenza, umore e richiesta. */
+export interface GovernmentFaction {
+  id: string;
+  name: string;
+  interest: string;
+  powerPct: number;
+  satisfaction: number;
+  stance: FactionStance;
+  pressure: number;
+  demand: FactionDemand;
+  footprint: string;
+}
+
+/** Snapshot del governo: anime attive + dettaglio del bilancio. */
+export interface GovernmentSnapshot {
+  factions: GovernmentFaction[];
+  dominantId: string | null;
+  angriestId: string | null;
+  cohesion: number;
+  pressureIndex: number;
+  headline: string;
+  budget: NationalBudgetDetail;
+  /** Debito pubblico: rapporto sul PIL e peso degli interessi sulle entrate. */
+  debt?: { ratioPct: number; servicePct: number };
+}
+
+/** Voci del consiglio generate dall'LLM sulle fazioni del motore. */
+export interface GovernmentVoicesResponse {
+  /** Sintesi scorrevole del consiglio. */
+  council: string;
+  /** Petizione per id di fazione. */
+  voices: Record<string, string>;
+  /** False quando il modello non ha risposto: la UI usa la richiesta deterministica. */
+  generated: boolean;
 }
 
 
@@ -383,9 +464,11 @@ export const gameApi = {
     accounts: Record<string, any>;
     /** Storico dei conti del paese giocatore, dal più vecchio al più recente. */
     history?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
+    /** Anime del governo e dettaglio del bilancio, calcolati dal motore. */
+    government?: GovernmentSnapshot | null;
     /** Magazzino materiale del giocatore (legacy): stock, conto e risorse naturali. */
     resources?: {
-      stock?: { money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
+      stock?: { money?: number; debt?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
       account?: Record<string, any>;
       natural?: NaturalResourceSummary[];
       market?: ResourceQuote[];
@@ -397,18 +480,53 @@ export const gameApi = {
   }> =>
     fetchApi(`/games/${gameId}/national-state`),
 
+  /** Anime del governo: voci generate dall'LLM (on-demand, per il turno corrente). */
+  governmentVoices: (gameId: string): Promise<GovernmentVoicesResponse> =>
+    fetchApi(`/games/${gameId}/government/voices`),
+
   /** Magazzino materiale e risorse naturali dinamiche del giocatore. */
   resources: (gameId: string): Promise<{
-    stock: { money?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
+    stock: { money?: number; debt?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
     account?: Record<string, any>;
     natural: NaturalResourceSummary[];
     market: ResourceQuote[];
     debt: number;
+    /** Portafoglio del debito: titoli con tasso e scadenza. */
+    debts?: SovereignDebtTranche[];
+    /** Scoperto di cassa puro, distinto dai titoli emessi. */
+    overdraft?: number;
+    /** Interessi passivi annui sull'intero debito (mld). */
+    annualInterest?: number;
+    /** Scadenza media ponderata residua dei titoli (anni). */
+    averageMaturityYears?: number;
+    debtRatioPct?: number;
     creditLimit: number;
     creditHeadroom: number;
+    /** Capacità di stoccaggio e fabbisogno mensile del magazzino materiale. */
+    capacity?: { food?: number; clothing?: number; weapons?: number; fuel?: number };
+    needs?: { food?: number; clothing?: number; weapons?: number; fuel?: number };
+    /** Tasso di mercato oggi per una nuova emissione. */
+    marketRatePct?: number;
     modifiers?: { stability?: number; socialTension?: number; warEffort?: number; revenueMultiplier?: number; growthModifier?: number };
   }> =>
     fetchApi(`/games/${gameId}/resources`),
+
+  /**
+   * La nazione fa debito: emette titoli per incassare cassa oggi, con interessi
+   * e scadenza. Il motore fissa tasso di mercato e tetto di credito.
+   */
+  borrowDebt: (gameId: string, amountMld: number, termYears: number): Promise<{
+    ok: boolean;
+    tranche: SovereignDebtTranche;
+    debt: number;
+    annualInterest: number;
+    debtRatioPct: number;
+    creditHeadroom: number;
+  }> =>
+    fetchApi(`/games/${gameId}/finance/borrow`, {
+      method: 'POST',
+      body: JSON.stringify({ amountMld, termYears }),
+    }),
 
   /** Ordini di produzione militare con percentuale di completamento. */
   production: (gameId: string): Promise<{ orders: ProductionOrder[]; inProgress: number }> =>
@@ -516,21 +634,34 @@ export const gameApi = {
     });
   },
 
-  ongoingProcesses: (gameId: string): Promise<{ processes: Array<{
-    id: string;
-    source_action_id: string;
-    source_run_id: string;
-    title: string;
-    summary: string;
-    status: 'ongoing';
-    started_date: string;
-    expected_date?: string | null;
-    /** Percentuale di completamento calcolata dal motore (0-100). */
-    progress?: number | null;
-    /** Nota del motore sull'avanzamento (ritardi, vincoli, difetti). */
-    progress_note?: string | null;
-    updated_at: string;
-  }> }> => {
+  ongoingProcesses: (gameId: string): Promise<{
+    processes: Array<{
+      id: string;
+      source_action_id: string;
+      source_run_id: string;
+      title: string;
+      summary: string;
+      status: 'ongoing';
+      started_date: string;
+      expected_date?: string | null;
+      /** Percentuale di completamento calcolata dal motore (0-100). */
+      progress?: number | null;
+      /** Nota del motore sull'avanzamento (ritardi, vincoli, difetti). */
+      progress_note?: string | null;
+      updated_at: string;
+    }>;
+    /** Progetti chiusi di recente: restano consultabili nel Dossier. */
+    completed?: Array<{
+      id: string;
+      title: string;
+      summary: string;
+      status: 'completed';
+      started_date: string;
+      expected_date?: string | null;
+      progress?: number | null;
+      completed_date?: string | null;
+    }>;
+  }> => {
     return fetchApi(`/games/${gameId}/ongoing-processes`);
   },
 
@@ -757,6 +888,11 @@ export interface ChatSummaryData {
   lastMessageAt?: string;
   /** Data del mondo dell'ultimo messaggio (es. «2026-03-04») — per datare l'elenco. */
   lastMessageGameDate?: string;
+  /** Titolo breve della discussione (tema dell'evento che l'ha aperta). */
+  subject?: string | null;
+  /** Una discussione archiviata esce dall'elenco attivo ma resta consultabile. */
+  archived?: boolean;
+  archivedAt?: string | null;
   unread: number;
 }
 
@@ -795,21 +931,38 @@ export interface TimelineEntry {
 
 export const chatsApi = {
   /**
-* Elenco delle chat diplomatiche della partita
+   * Elenco delle chat diplomatiche della partita.
+   * `includeArchived` aggiunge le discussioni chiuse (mostrate a parte nella UI).
    */
-  list: (gameId: string): Promise<{ chats: ChatSummaryData[] }> => {
-    return fetchApi(`/games/${gameId}/chats`);
+  list: (gameId: string, includeArchived = false): Promise<{ chats: ChatSummaryData[] }> => {
+    const query = includeArchived ? '?includeArchived=1' : '';
+    return fetchApi(`/games/${gameId}/chats${query}`);
   },
 
   /**
-   * Crea (o ottiene l'esistente) chat con UNA o più politie — idempotente.
-   * Con più nomi crea una chat di gruppo (stile Pax Historia).
+   * Apre una NUOVA discussione con una o più politie. Le precedenti con gli
+   * stessi interlocutori vengono archiviate dal backend. `dedupeKey` rende
+   * idempotente la riapertura della stessa riunione.
    */
-  create: (gameId: string, polityNames: string[]): Promise<{ chat: ChatSummaryData }> => {
+  create: (
+    gameId: string,
+    polityNames: string[],
+    options: { subject?: string; dedupeKey?: string } = {},
+  ): Promise<{ chat: ChatSummaryData }> => {
     return fetchApi(`/games/${gameId}/chats`, {
       method: 'POST',
-      body: JSON.stringify({ polityNames }),
+      body: JSON.stringify({ polityNames, ...options }),
     });
+  },
+
+  /** Archivia una discussione: esce dall'elenco attivo, resta consultabile. */
+  archive: (gameId: string, chatId: string): Promise<{ chat: ChatSummaryData | null }> => {
+    return fetchApi(`/games/${gameId}/chats/${chatId}/archive`, { method: 'POST' });
+  },
+
+  /** Riapre una discussione archiviata. */
+  unarchive: (gameId: string, chatId: string): Promise<{ chat: ChatSummaryData | null }> => {
+    return fetchApi(`/games/${gameId}/chats/${chatId}/unarchive`, { method: 'POST' });
   },
 
   /**

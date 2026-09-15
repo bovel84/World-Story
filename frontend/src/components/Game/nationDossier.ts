@@ -13,6 +13,17 @@ export interface NationalProcess {
   progress_note?: string | null;
 }
 
+/** Progetto già chiuso, mostrato nella sezione «Completati» del Dossier. */
+export interface CompletedProcess {
+  id: string;
+  title: string;
+  summary: string;
+  started_date: string;
+  expected_date?: string | null;
+  /** Data (mondo) in cui il motore ha registrato la chiusura. */
+  completed_date?: string | null;
+}
+
 export interface NationalAssets {
   provinces: number;
   population: number;
@@ -113,6 +124,14 @@ export function normalizeResources(raw: unknown): NationResources | null {
     debt: value(source.debt),
     creditLimit: value(source.creditLimit),
     creditHeadroom: value(source.creditHeadroom),
+    ...(Array.isArray(source.debts) ? { debts: source.debts } : {}),
+    overdraft: value(source.overdraft),
+    annualInterest: value(source.annualInterest),
+    averageMaturityYears: value(source.averageMaturityYears),
+    debtRatioPct: value(source.debtRatioPct),
+    marketRatePct: value(source.marketRatePct),
+    ...(source.capacity && typeof source.capacity === 'object' ? { capacity: source.capacity } : {}),
+    ...(source.needs && typeof source.needs === 'object' ? { needs: source.needs } : {}),
     ...(source.modifiers && typeof source.modifiers === 'object' ? { modifiers: source.modifiers } : {}),
   };
 }

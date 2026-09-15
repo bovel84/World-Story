@@ -1,6 +1,7 @@
 import type { ResourceKind, ResourceStock } from './MaterialEconomy';
-import { creditLimit, debtOf } from './MaterialEconomy';
+import { creditLimit, debtOf, storageCapacity } from './MaterialEconomy';
 import type { NationalAccount } from './WorldStateEngine';
+import { tensionFromDebtRatio } from './SovereignDebt';
 import { equipmentById } from './MilitaryIndustry';
 
 /**
@@ -124,13 +125,19 @@ export function applyStockEffects(
     if (effect.kind !== 'stock') continue;
     const resource = effect.resource;
     const cap = stockCap(resource, stock, account);
-    const delta = clamp(effect.delta, -cap, cap);
+    let delta = clamp(effect.delta, -cap, cap);
     if (delta === 0) { rejected.push(effect.reason); continue; }
     if (resource === 'money') {
       next.money = round(next.money + delta);
+    } else if (resource === 'research') {
+      next.research = round(Math.max(0, next.research + delta));
     } else {
-      const floor = Math.max(0, next[resource] + delta);
-      next[resource] = round(floor);
+      // Il magazzino ha un tetto reale: un aiuto non può sfondare i silos.
+      const ceiling = storageCapacity(account)[resource as 'food' | 'clothing' | 'weapons' | 'fuel'] ?? 0;
+      const value = round(Math.max(0, Math.min(ceiling, next[resource] + delta)));
+      delta = round(value - next[resource]);
+      if (delta === 0) { rejected.push(effect.reason); continue; }
+      next[resource] = value;
     }
     applied.push({ effect: { ...effect, delta }, delta });
   }
@@ -145,7 +152,11 @@ export function stockCap(resource: ResourceKind, stock: ResourceStock, account?:
   }
   if (resource === 'research') return Math.max(10, stock.research * 0.25 + 10);
   const current = Number(stock[resource] || 0);
-  return Math.max(5, current * 0.2);
+  // Il tetto di turno tiene conto della capacità di stoccaggio reale: un aiuto
+  // o una requisizione non possono valere una frazione arbitraria di scorte
+  // minuscole. Minimo assoluto basso per non gonfiare i paesi fragili.
+  const ceiling = storageCapacity(account)[resource as 'food' | 'clothing' | 'weapons' | 'fuel'] ?? 0;
+  return Math.max(1, current * 0.2, ceiling * 0.35);
 }
 
 /** Applica i delta all'arsenale (catture, perdite, aiuti), con tetto per voce. */
@@ -250,6 +261,37 @@ export function applyModifiersToAccounts(
 /** Debito disponibile residuo: utile al modello per sapere quanto può spendere. */
 export function affordability(stock: ResourceStock, account?: NationalAccount): { debt: number; headroom: number } {
   return { debt: Math.round(debtOf(stock) * 100) / 100, headroom: Math.round(Math.max(0, creditLimit(account) - debtOf(stock)) * 100) / 100 };
+}
+
+/**
+ * Overlay del debito reale sui conti nazionali: il rapporto debito/PIL effettivo
+ * (titoli + scoperto) diventa `debtRatioPct` e alza la tensione, logorando la
+ * stabilità: la nazione che si indebita ne paga il prezzo sociale, non solo
+ * quello finanziario. `debtBurdenPct` resta il rapporto di partenza, che fissa
+ * il tetto di credito: il tetto non cresce da solo con il nuovo debito.
+ *
+ * `debtFor` restituisce `null` per le polity senza magazzino noto: si evita di
+ * seminarne uno solo per leggere un numero.
+ */
+export function applyDebtBurdenToAccounts(
+  accounts: Record<string, NationalAccount>,
+  debtFor: (polityId: string) => { debtRatioPct: number; serviceRatioPct: number } | null,
+): Record<string, NationalAccount> {
+  const rounded = (value: number, digits = 1) => Math.round(value * 10 ** digits) / 10 ** digits;
+  const out: Record<string, NationalAccount> = {};
+  for (const [polityId, account] of Object.entries(accounts)) {
+    const debt = debtFor(polityId);
+    if (!debt || !Number.isFinite(debt.debtRatioPct)) { out[polityId] = account; continue; }
+    const { socialTension, stability } = tensionFromDebtRatio(debt.debtRatioPct, debt.serviceRatioPct);
+    out[polityId] = {
+      ...account,
+      debtRatioPct: rounded(debt.debtRatioPct),
+      debtServicePct: rounded(Math.max(0, debt.serviceRatioPct)),
+      socialTension: rounded(clamp((account.socialTension || 0) + socialTension, 0, 100)),
+      stability: rounded(clamp((account.stability || 0) + stability, 0, 100)),
+    };
+  }
+  return out;
 }
 
 /** Riga leggibile per la cronaca: mostra cosa il modello ha davvero cambiato. */

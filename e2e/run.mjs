@@ -115,10 +115,12 @@ try {
   // (шаг 9 «Дипломатия» удалён — ОТКЛЮЧЕНО: переговоры; скриншот 11-diplomacy.png больше не создаётся,
   //  нумерация остальных скриншотов не менялась)
 
-  // 10. Сохранение игры через новую модалку
+  // 10. Сохранение игры через новую модалку (menù HUD, fuori dal dossier)
   await page.click('.btn-close'); // закрыть панель
   await page.waitForTimeout(500);
-  await page.click('.btn-save');
+  await page.click('.game-menu-btn');
+  await page.waitForTimeout(200);
+  await page.locator('.game-menu-item', { hasText: 'Salva' }).click();
   await page.waitForSelector('.save-modal-card, [class*="save-modal"]', { timeout: 5000 });
   await shot(page, '12-save-modal.png');
   await page.click('button.save-modal-submit');

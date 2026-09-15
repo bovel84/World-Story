@@ -33,9 +33,15 @@ ${vars.PLAYER_EVERY_ACTION_NOT_PREVIOUS || '(Nessuna azione passata)'}
 
 ${vars.ONGOING_PROCESSES || '(Nessuno registrato)'}
 
-[Stato strategico attuale]
+[Stato strategico attuale — dati interni per il tuo ragionamento, mai da citare nel testo]
 
 ${vars.STRATEGIC_STATE}
+
+[Anime del governo — chi preme dentro la nazione]
+
+${vars.GOVERNMENT_STATE || '(Nessuna anima del governo registrata per questa nazione.)'}
+
+Tieni conto delle anime insoddisfatte quando esiste un fatto concreto (pressione fiscale, spesa militare, welfare, ricerca, conti pubblici). Non inventare ministeri, partiti o richieste non elencati. Questi indicatori servono solo a decidere COSA proporre: non riportarli mai come cifre nel testo.
 
 [Premessa e regole dello scenario]
 
@@ -105,6 +111,9 @@ export function buildSuggestionsQualityInstruction(vars: PromptVariables): strin
 [STANDARD QUALITATIVO OBBLIGATORIO — AZIONI IN STILE PAX HISTORIA]
 
 Stai scrivendo ordini che il giocatore può eseguire subito come ${vars.PLAYER_POLITY}, non una lista di consigli.
+
+- Lingua e stile: PROSA DISCORSIVA. Temi e ordini sono frasi continue, tono da briefing politico o da memoria di governo, mai un bollettino. VIETATO inserire cifre, percentuali, punteggi, livelli, indici, rapporti, tassi o statistiche — compresi «soddisfazione 32/100», «pressione 19/100», «stabilità 46/100», «tensione sociale 29,1», «coesione», «PIL», «popolazione», «potenza militare». L'umore politico si racconta a parole («un'opinione pubblica esasperata», «un governo che perde coesione», «conti pubblici sotto pressione»), non con un elenco di indicatori.
+- Non nominare anime del governo, fazioni, dossier, indicatori o meccaniche di gioco: i dati numerici del contesto servono solo a orientare la proposta, non a comparire nel testo.
 
 - Ogni content deve essere una frase autonoma in prima persona plurale e al presente: “Dispieghiamo…”, “Proponiamo…”, “Finanziamo…”, “Incarichiamo…”. Non usare “dovremmo”, “potremmo”, “considerare” o formule passive.
 - Ogni content deve specificare almeno tre elementi tra: strumento/forza impiegata, obiettivo nominato, luogo o politia con nome esatto, metodo operativo, risultato cercato, condizione diplomatica.

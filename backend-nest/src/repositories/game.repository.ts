@@ -489,14 +489,14 @@ export const gameRepository = {
 
   getOngoingProcesses: (gameId: string) => {
     return db.prepare(`
-      SELECT id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, progress, progress_note, updated_at
+      SELECT id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, progress, progress_note, completed_date, updated_at
       FROM ongoing_processes WHERE game_id = ? AND status = 'ongoing' ORDER BY updated_at DESC
     `).all(gameId) as any[];
   },
 
   snapshotOngoingProcesses: (gameId: string) => {
     return db.prepare(`
-      SELECT id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, progress, progress_note, updated_at
+      SELECT id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, progress, progress_note, completed_date, updated_at
       FROM ongoing_processes WHERE game_id = ? ORDER BY rowid
     `).all(gameId) as any[];
   },
@@ -518,24 +518,41 @@ export const gameRepository = {
       db.prepare('DELETE FROM ongoing_processes WHERE game_id = ?').run(gameId);
       const insert = db.prepare(`
         INSERT INTO ongoing_processes
-          (id, game_id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, progress, progress_note, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, game_id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, progress, progress_note, completed_date, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       processes.forEach(process => insert.run(
         process.id, gameId, process.source_action_id, process.source_run_id,
         process.title, process.summary, process.status, process.started_date,
-        process.expected_date || null, process.progress ?? null, process.progress_note || null, process.updated_at,
+        process.expected_date || null, process.progress ?? null, process.progress_note || null,
+        process.completed_date || null, process.updated_at,
       ));
     })();
   },
 
-  /** Chiude soltanto il progetto canonico indicato dall'outcome. */
-  completeOngoingProcessById: (gameId: string, projectId: string, summary: string) => {
+  /**
+   * Chiude il progetto canonico indicato dall'outcome. Idempotente: se il
+   * progetto è già stato chiuso alla scadenza, non è un errore — aggiorna
+   * soltanto il riepilogo. `completedDate` è la data di GIOCO della chiusura
+   * (non il tempo reale): il Dossier non mostra date anacronistiche. Restituisce
+   * 0 se il progetto non esiste o non è chiudibile (annullato/fallito).
+   */
+  completeOngoingProcessById: (gameId: string, projectId: string, summary: string, completedDate?: string | null) => {
     return db.prepare(`
       UPDATE ongoing_processes
-      SET status = 'completed', summary = ?, updated_at = ?
-      WHERE game_id = ? AND id = ? AND status = 'ongoing'
-    `).run(summary, new Date().toISOString(), gameId, projectId).changes;
+      SET status = 'completed', summary = ?, progress = 100,
+          completed_date = COALESCE(completed_date, ?), updated_at = ?
+      WHERE game_id = ? AND id = ? AND status IN ('ongoing', 'completed')
+    `).run(summary, completedDate || null, new Date().toISOString(), gameId, projectId).changes;
+  },
+
+  /** Progetti chiusi di recente (per il Dossier: «Completati»). */
+  getCompletedProcesses: (gameId: string, limit = 20) => {
+    return db.prepare(`
+      SELECT id, source_action_id, source_run_id, title, summary, status, started_date, expected_date, progress, progress_note, completed_date, updated_at
+      FROM ongoing_processes WHERE game_id = ? AND status = 'completed'
+      ORDER BY COALESCE(completed_date, updated_at) DESC LIMIT ?
+    `).all(gameId, Math.max(1, Math.min(100, limit))) as any[];
   },
 
   getSimulationRun: (gameId: string, runId: string) => {

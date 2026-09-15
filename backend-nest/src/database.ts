@@ -705,6 +705,8 @@ export function initDatabase() {
       status TEXT NOT NULL DEFAULT 'ongoing',
       started_date TEXT NOT NULL,
       expected_date TEXT,
+      /* Data di gioco in cui il motore ha chiuso il progetto (non il tempo reale). */
+      completed_date TEXT,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
       FOREIGN KEY (source_run_id) REFERENCES simulation_runs(id) ON DELETE CASCADE
@@ -714,6 +716,7 @@ export function initDatabase() {
   // Percentuale di completamento e nota di rischio dei progetti in corso.
   try { db.exec('ALTER TABLE ongoing_processes ADD COLUMN progress INTEGER'); } catch { /* già presente */ }
   try { db.exec('ALTER TABLE ongoing_processes ADD COLUMN progress_note TEXT'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE ongoing_processes ADD COLUMN completed_date TEXT'); } catch { /* già presente */ }
 
   // Stato dinamico delle regioni di una singola partita. Geometria e metadati
   // restano nel world, ma proprietario/economia/oggetti non sono condivisi.
@@ -959,6 +962,10 @@ export function initDatabase() {
       polity_color TEXT DEFAULT '#888888',
       participants TEXT NOT NULL DEFAULT '[]',
       participant_key TEXT NOT NULL DEFAULT '',
+      subject TEXT,
+      dedupe_key TEXT,
+      archived INTEGER NOT NULL DEFAULT 0,
+      archived_at TEXT,
       created_at TEXT,
       last_message_at TEXT,
       FOREIGN KEY(game_id) REFERENCES games(id) ON DELETE CASCADE
@@ -984,6 +991,10 @@ export function initDatabase() {
   for (const sql of [
     "ALTER TABLE chats ADD COLUMN participants TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE chats ADD COLUMN participant_key TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE chats ADD COLUMN subject TEXT",
+    "ALTER TABLE chats ADD COLUMN dedupe_key TEXT",
+    "ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE chats ADD COLUMN archived_at TEXT",
     "ALTER TABLE chat_messages ADD COLUMN sender_name TEXT",
     "ALTER TABLE chat_messages ADD COLUMN game_date TEXT",
   ]) {
@@ -1012,6 +1023,10 @@ export function initDatabase() {
           polity_color TEXT DEFAULT '#888888',
           participants TEXT NOT NULL DEFAULT '[]',
           participant_key TEXT NOT NULL DEFAULT '',
+          subject TEXT,
+          dedupe_key TEXT,
+          archived INTEGER NOT NULL DEFAULT 0,
+          archived_at TEXT,
           created_at TEXT,
           last_message_at TEXT,
           FOREIGN KEY(game_id) REFERENCES games(id) ON DELETE CASCADE
@@ -1034,10 +1049,16 @@ export function initDatabase() {
     }
   }
 
+  // Una chat è una discussione: più discussioni con gli stessi interlocutori
+  // possono coesistere (le precedenti vanno in archivio). Il vecchio indice
+  // UNIQUE(game_id, participant_key) impediva esattamente questo: va tolto
+  // PRIMA del backfill, altrimenti la normalizzazione dei partecipanti
+  // fallirebbe su chiavi legittimamente duplicate.
+  db.exec('DROP INDEX IF EXISTS ux_chats_participants');
+
   // Normalizza participants includendo sempre il giocatore e calcola la chiave
   // canonica. Questo backfill rende utilizzabili anche le chat già esistenti.
   const chatRows = db.prepare('SELECT * FROM chats ORDER BY rowid ASC').all() as any[];
-  const canonicalByGameAndKey = new Map<string, string>();
   for (const row of chatRows) {
     let participants: any[] = [];
     try {
@@ -1061,26 +1082,21 @@ export function initDatabase() {
     ].filter(p => p.id);
     const deduped = [...new Map(normalized.map(p => [p.id, p])).values()];
     const participantKey = deduped.map(p => p.id).sort().join('|');
-    const duplicateKey = `${row.game_id}\u0000${participantKey}`;
-    const canonicalId = canonicalByGameAndKey.get(duplicateKey);
 
-    if (canonicalId) {
-      db.prepare('UPDATE chat_messages SET chat_id = ? WHERE chat_id = ?').run(canonicalId, row.id);
-      db.prepare(`
-        UPDATE chats SET last_message_at = MAX(COALESCE(last_message_at, ''), COALESCE(?, '')) WHERE id = ?
-      `).run(row.last_message_at, canonicalId);
-      db.prepare('DELETE FROM chats WHERE id = ?').run(row.id);
-      continue;
-    }
-
-    canonicalByGameAndKey.set(duplicateKey, row.id);
     db.prepare('UPDATE chats SET participants = ?, participant_key = ? WHERE id = ?')
       .run(JSON.stringify(deduped), participantKey, row.id);
   }
 
+  // Indice non unico: serve solo a velocizzare la ricerca per partecipanti.
+  // La deduplica delle discussioni è affidata a dedupe_key (una sola chat per
+  // evento/turno), non all'insieme dei partecipanti.
   db.exec(`
-    CREATE UNIQUE INDEX IF NOT EXISTS ux_chats_participants
+    CREATE INDEX IF NOT EXISTS ix_chats_participants
     ON chats(game_id, participant_key)
+  `);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_chats_dedupe
+    ON chats(game_id, dedupe_key) WHERE dedupe_key IS NOT NULL
   `);
 
   console.log('✅ Database initialized');

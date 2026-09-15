@@ -9,6 +9,7 @@
 
 import db from '../database';
 import { shortId } from '../utils/short-id';
+import { canonicalParticipantKey } from '../core/chat/threads';
 
 export type ChatRole = 'player' | 'polity';
 
@@ -28,6 +29,13 @@ export interface ChatRecord {
   polityColor: string;
   /** Tutti gli interlocutori della chat (per chat di gruppo può essere > 1) */
   participants: ChatParticipant[];
+  /** Chiave canonica dell'insieme di interlocutori (colonna participant_key) */
+  participantKey: string;
+  /** Titolo breve della discussione (es. il tema dell'evento che l'ha aperta) */
+  subject: string | null;
+  /** Una discussione è archiviata quando ne nasce una nuova con gli stessi interlocutori */
+  archived: boolean;
+  archivedAt: string | null;
   createdAt: string;
   lastMessageAt: string | null;
 }
@@ -55,7 +63,7 @@ export interface ChatMessageRecord {
 }
 
 function participantKey(ids: string[]): string {
-  return [...new Set(ids.filter(Boolean))].sort().join('|');
+  return canonicalParticipantKey(ids);
 }
 
 function parseParticipants(raw: any, fallbackId: string, fallbackName: string, fallbackColor: string): ChatParticipant[] {
@@ -86,6 +94,10 @@ function rowToChat(row: any): ChatRecord {
     polityName: row.polity_name,
     polityColor: color,
     participants: parseParticipants(row.participants, row.polity_id, row.polity_name, color),
+    participantKey: row.participant_key || '',
+    subject: row.subject || null,
+    archived: !!row.archived,
+    archivedAt: row.archived_at || null,
     createdAt: row.created_at,
     lastMessageAt: row.last_message_at || null,
   };
@@ -111,7 +123,13 @@ function rowToMessage(row: any): ChatMessageRecord {
 }
 
 export const chatRepository = {
-  /** Crea una chat idempotente sull'insieme canonico dei partecipanti. */
+  /**
+   * Crea una NUOVA discussione. Ogni discussione è una chat distinta: con gli
+   * stessi interlocutori le precedenti vanno in archivio (vedi
+   * `archiveChatsForParticipants`). Se `dedupeKey` è indicata, un secondo
+   * tentativo per lo stesso evento/turno restituisce la chat già creata invece
+   * di duplicarla.
+   */
   createChat(chat: {
     id: string;
     gameId: string;
@@ -119,17 +137,20 @@ export const chatRepository = {
     polityName: string;
     polityColor?: string;
     participants?: ChatParticipant[];
+    subject?: string;
+    dedupeKey?: string;
   }): ChatRecord {
     const now = new Date().toISOString();
     const participants = chat.participants && chat.participants.length > 0
       ? chat.participants
       : [{ id: chat.polityId, name: chat.polityName, color: chat.polityColor || '#888888', role: 'polity' as const }];
     const key = participantKey(participants.map(p => p.id));
+    const subject = (chat.subject || '').trim() || null;
     db.prepare(`
-      INSERT INTO chats
-        (id, game_id, polity_id, polity_name, polity_color, participants, participant_key, created_at, last_message_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
-      ON CONFLICT(game_id, participant_key) DO NOTHING
+      INSERT OR IGNORE INTO chats
+        (id, game_id, polity_id, polity_name, polity_color, participants, participant_key,
+         subject, dedupe_key, archived, archived_at, created_at, last_message_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, NULL)
     `).run(
       chat.id,
       chat.gameId,
@@ -138,12 +159,64 @@ export const chatRepository = {
       chat.polityColor || '#888888',
       JSON.stringify(participants),
       key,
+      subject,
+      chat.dedupeKey || null,
       now,
     );
 
-    const row = db.prepare('SELECT * FROM chats WHERE game_id = ? AND participant_key = ?')
-      .get(chat.gameId, key) as any;
+    const row = chat.dedupeKey
+      ? db.prepare('SELECT * FROM chats WHERE game_id = ? AND dedupe_key = ?').get(chat.gameId, chat.dedupeKey) as any
+      : db.prepare('SELECT * FROM chats WHERE id = ?').get(chat.id) as any;
     return rowToChat(row);
+  },
+
+  /** Chat già creata per lo stesso evento/turno (idempotenza dei ritentativi). */
+  getChatByDedupeKey(gameId: string, dedupeKey: string): ChatRecord | null {
+    const row = db.prepare('SELECT * FROM chats WHERE game_id = ? AND dedupe_key = ?')
+      .get(gameId, dedupeKey) as any;
+    return row ? rowToChat(row) : null;
+  },
+
+  /**
+   * Bozza ancora vuota con lo stesso insieme di interlocutori (nessun messaggio).
+   * Serve a non moltiplicare i canali quando il giocatore apre due volte la
+   * stessa trattativa prima di scrivere.
+   */
+  getEmptyChatByParticipants(gameId: string, ids: string[]): ChatRecord | null {
+    const row = db.prepare(`
+      SELECT c.* FROM chats c
+      WHERE c.game_id = ? AND c.participant_key = ? AND c.archived = 0
+        AND NOT EXISTS (SELECT 1 FROM chat_messages m WHERE m.chat_id = c.id)
+      ORDER BY c.created_at DESC LIMIT 1
+    `).get(gameId, participantKey(ids)) as any;
+    return row ? rowToChat(row) : null;
+  },
+
+  /** Archivia le discussioni precedenti con lo stesso insieme di interlocutori. */
+  archiveChatsForParticipants(gameId: string, ids: string[], exceptChatId?: string): string[] {
+    const now = new Date().toISOString();
+    const rows = db.prepare(`
+      SELECT id FROM chats
+      WHERE game_id = ? AND participant_key = ? AND archived = 0 AND id != ?
+    `).all(gameId, participantKey(ids), exceptChatId || '') as any[];
+    const idsToArchive = rows.map(row => String(row.id));
+    if (idsToArchive.length > 0) {
+      const placeholders = idsToArchive.map(() => '?').join(', ');
+      db.prepare(`UPDATE chats SET archived = 1, archived_at = ? WHERE id IN (${placeholders})`)
+        .run(now, ...idsToArchive);
+    }
+    return idsToArchive;
+  },
+
+  /** Archivia una singola discussione (comando esplicito del giocatore). */
+  archiveChat(chatId: string): void {
+    db.prepare('UPDATE chats SET archived = 1, archived_at = ? WHERE id = ?')
+      .run(new Date().toISOString(), chatId);
+  },
+
+  /** Riapre una discussione archiviata (torna nell'elenco attivo). */
+  unarchiveChat(chatId: string): void {
+    db.prepare('UPDATE chats SET archived = 0, archived_at = NULL WHERE id = ?').run(chatId);
   },
 
   /** Trova una chat del gioco i cui partecipanti coincidono esattamente. */
@@ -154,7 +227,7 @@ export const chatRepository = {
   },
 
   /** Список чатов игры, свежие сверху, с последним сообщением и unread. */
-  getChatsByGame(gameId: string): ChatSummary[] {
+  getChatsByGame(gameId: string, includeArchived = false): ChatSummary[] {
     const rows = db.prepare(`
       SELECT
         c.*,
@@ -167,7 +240,7 @@ export const chatRepository = {
         (SELECT COUNT(*) FROM chat_messages m
           WHERE m.chat_id = c.id AND m.role = 'polity' AND m.read = 0) AS unread
       FROM chats c
-      WHERE c.game_id = ?
+      WHERE c.game_id = ?${includeArchived ? '' : ' AND c.archived = 0'}
       ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
     `).all(gameId) as any[];
 
@@ -219,7 +292,7 @@ export const chatRepository = {
 
   /** Snapshot completo per Save/Rewind: chat e messaggi appartengono al ramo. */
   snapshotGameChats(gameId: string): GameChatSnapshot[] {
-    return this.getChatsByGame(gameId).map(chat => ({
+    return this.getChatsByGame(gameId, true).map(chat => ({
       chat: {
         id: chat.id,
         gameId: chat.gameId,
@@ -227,6 +300,10 @@ export const chatRepository = {
         polityName: chat.polityName,
         polityColor: chat.polityColor,
         participants: chat.participants,
+        participantKey: chat.participantKey,
+        subject: chat.subject,
+        archived: chat.archived,
+        archivedAt: chat.archivedAt,
         createdAt: chat.createdAt,
         lastMessageAt: chat.lastMessageAt,
       },
@@ -240,8 +317,9 @@ export const chatRepository = {
       db.prepare('DELETE FROM chat_messages WHERE chat_id IN (SELECT id FROM chats WHERE game_id = ?)').run(gameId);
       db.prepare('DELETE FROM chats WHERE game_id = ?').run(gameId);
       const insertChat = db.prepare(`
-        INSERT INTO chats (id, game_id, polity_id, polity_name, polity_color, participants, participant_key, created_at, last_message_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO chats (id, game_id, polity_id, polity_name, polity_color, participants, participant_key,
+                           subject, dedupe_key, archived, archived_at, created_at, last_message_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
       `);
       const insertMessage = db.prepare(`
         INSERT INTO chat_messages (id, chat_id, role, content, turn, read, sender_name, game_date, created_at)
@@ -251,6 +329,7 @@ export const chatRepository = {
         insertChat.run(
           chat.id, gameId, chat.polityId, chat.polityName, chat.polityColor,
           JSON.stringify(chat.participants), participantKey(chat.participants.map(p => p.id)),
+          chat.subject || null, chat.archived ? 1 : 0, chat.archivedAt || null,
           chat.createdAt, chat.lastMessageAt,
         );
         messages.forEach(message => insertMessage.run(

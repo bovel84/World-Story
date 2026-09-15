@@ -131,6 +131,23 @@ afterAll(() => {
 });
 
 describe('Pertinenza delle reazioni NPC', () => {
+  it('non apre un canale per una potenza citata solo di sfondo nel dispaccio', async () => {
+    // L'ordine non nomina la Malesia: un cenno di sfondo nel dispaccio non
+    // basta a farle aprire una chat con il giocatore.
+    stubEvents = [{
+      headline: 'Botswana rafforza la frontiera settentrionale',
+      description: 'La Malesia osserva con attenzione gli sviluppi regionali, senza esserne coinvolta.',
+      date: '1951-02-01',
+      mapChanges: [],
+      reactions: [],
+    }];
+    const session = createGame().session;
+    session.queueAction('Rafforzare la frontiera settentrionale');
+    await session.processNextAction(0);
+
+    expect(session.getChats().map((chat: any) => chat.polityId)).not.toContain('MYS');
+  });
+
   it('scarta le reazioni di potenze lontane e conserva controparte e vicini', async () => {
     stubReactions = [
       { polityName: 'Zimbabwe', role: 'counterparty', stance: 'opposed', response: 'Harare mobilita le riserve e rinforza Gwanda.' },
