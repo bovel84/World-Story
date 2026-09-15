@@ -1335,7 +1335,7 @@ gamesRouter.get('/:id/simulation-jobs/:jobId', (req, res) => {
 });
 
 /** Risultato compatibile del job asincrono: ogni richiesta resta breve, quindi
- * Cloudflare non può troncare una generazione LLM ancora in corso. */
+ * un proxy lento non può troncare una generazione LLM ancora in corso. */
 gamesRouter.get('/:id/simulation-jobs/:jobId/result', (req, res) => {
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);

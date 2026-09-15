@@ -2,7 +2,7 @@
  * World Story — LLMSettingsModal
  * ===========================
  * Menu di scelta del modello IA: preset dei provider (Ollama Cloud/locale,
- * OpenRouter, NVIDIA, MiniMax, Anthropic, endpoint OpenAI-compatibili),
+ * OpenRouter, NVIDIA, Anthropic, endpoint OpenAI-compatibili),
  * caricamento dell'elenco modelli dal provider, verifica di connessione e
  * salvataggio della configurazione (hot reload del backend).
  */
@@ -126,7 +126,7 @@ export function LLMSettingsModal({ open, onClose, onSaved }: LLMSettingsModalPro
   }, [open, provider, baseUrl, model]);
 
   const loadModels = async () => {
-    if (provider !== 'minimax' && !baseUrl.trim()) {
+    if (!baseUrl.trim()) {
       setError('Indica prima la Base URL del provider.');
       return;
     }
@@ -152,7 +152,7 @@ export function LLMSettingsModal({ open, onClose, onSaved }: LLMSettingsModalPro
   };
 
   const runTest = async () => {
-    if (!model.trim() || (!baseUrl.trim() && provider !== 'anthropic' && provider !== 'minimax')) {
+    if (!model.trim() || (!baseUrl.trim() && provider !== 'anthropic')) {
       setError('Servono Base URL e modello per la verifica.');
       return;
     }
@@ -397,7 +397,6 @@ const FALLBACK_PROVIDERS: LLMProviderPreset[] = [
   { id: 'ollama-local', label: 'Ollama locale', provider: 'openai-compatible', baseUrl: 'http://localhost:11434/v1', needsKey: false },
   { id: 'openrouter', label: 'OpenRouter', provider: 'openai-compatible', baseUrl: 'https://openrouter.ai/api/v1', needsKey: true },
   { id: 'nvidia', label: 'NVIDIA NIM', provider: 'openai-compatible', baseUrl: 'https://integrate.api.nvidia.com/v1', needsKey: true },
-  { id: 'minimax', label: 'MiniMax', provider: 'minimax', baseUrl: 'https://api.minimax.io/v1', needsKey: true },
   { id: 'anthropic', label: 'Anthropic', provider: 'anthropic', baseUrl: 'https://api.anthropic.com', needsKey: true },
   { id: 'custom', label: 'Altro (OpenAI-compatible)', provider: 'openai-compatible', baseUrl: '', needsKey: false },
 ];

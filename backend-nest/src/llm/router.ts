@@ -2,7 +2,6 @@ import type { LLMProvider, Mechanic, LLMGenerateOptions, LLMResponse } from './t
 import type { LLMFullConfig, MechanicConfig, ConsolidationConfig } from './config';
 import { OpenAICompatibleProvider } from './openai-compatible';
 import { AnthropicProvider } from './anthropic';
-import { createMiniMaxProvider } from './minimax';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE_MAX = 100;
@@ -18,7 +17,6 @@ export function buildProvider(cfg: MechanicConfig): LLMProvider {
   };
   switch (cfg.provider) {
     case 'anthropic': return new AnthropicProvider(common);
-    case 'minimax': return createMiniMaxProvider(common);
     case 'openai-compatible': return new OpenAICompatibleProvider({ ...common, name: 'openai-compatible' });
     default: throw new Error(`Provider LLM sconosciuto: ${String(cfg.provider)}`);
   }

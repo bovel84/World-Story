@@ -14,7 +14,6 @@ const DB_FILE = path.join(os.tmpdir(), `world-story-llm-db-${process.pid}.db`);
 
 const ENV_KEYS = [
   'LLM_CONFIG_PATH', 'LLM_PROVIDER', 'LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL',
-  'MINIMAX_API_KEY', 'MINIMAX_BASE_URL',
 ];
 const savedEnv: Record<string, string | undefined> = {};
 for (const key of ENV_KEYS) {
@@ -163,14 +162,13 @@ describe('POST /api/llm/models', () => {
     expect(String(data.error)).toMatch(/openai-compatible/);
   });
 
-  it('avvisa invece di fallire per MiniMax', async () => {
+  it('richiede una API key per l\'elenco modelli di Anthropic', async () => {
     const { status, data } = await call('POST', '/models', {
-      provider: 'minimax',
-      baseUrl: 'https://api.minimax.io/v1',
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
     });
-    expect(status).toBe(200);
-    expect(data.models).toEqual([]);
-    expect(String(data.warning)).toMatch(/manualmente/i);
+    expect(status).toBe(424);
+    expect(String(data.error)).toMatch(/anthropic/i);
   });
 });
 

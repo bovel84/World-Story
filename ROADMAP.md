@@ -29,7 +29,7 @@ world-story/
 │   │   ├── models.ts                # TypeScript модели
 │   │   ├── agents.ts                # AI агенты
 │   │   ├── npc-agents.ts            # NPC агенты для стран
-│   │   ├── llm.ts                   # MiniMax LLM провайдер
+│   │   ├── llm/                     # провайдеры LLM (OpenAI-compatible, Anthropic)
 │   │   ├── prompt-builder.ts        # Построение промптов
 │   │   ├── turn-controller.ts       # Управление ходами
 │   │   ├── game-session.ts          # GameSession класс (per-game state)
@@ -307,15 +307,16 @@ cd World Story
 Создайте файл `backend-nest/.env`:
 
 ```env
-MINIMAX_API_KEY=ваш_ключ_minimax_здесь
+LLM_API_KEY=ваш_ключ_здесь
+LLM_PROVIDER=openai-compatible
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_MODEL=qwen2.5:14b
 PORT=8000
 ```
 
-**Где получить API ключ:**
-1. Зарегистрируйтесь на [platform.minimaxi.com](https://platform.minimaxi.com)
-2. Перейдите в раздел API Keys
-3. Создайте новый ключ
-4. Скопируйте его в файл `.env`
+**Где получить API ключ:** у выбранного провайдера (Ollama, OpenRouter, Anthropic…).
+Ключ также можно задать через `backend-nest/llm.config.json` (секция `default`)
+или из интерфейса игры через «Impostazioni tecniche».
 
 ### 3. Запуск
 

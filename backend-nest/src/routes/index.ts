@@ -21,7 +21,7 @@ export { healthRouter, countriesRouter, templatesRouter, presetsRouter, mapsRout
 
 // Combined router for mounting all routes
 export function registerRoutes(app: Router): void {
-  // Health check (alias sotto /api: il Worker Cloudflare inoltra solo /api/*)
+  // Health check (alias sotto /api: alcuni proxy inoltrano solo /api/*)
   app.use('/health', healthRouter);
   app.use('/api/health', healthRouter);
 

@@ -3,7 +3,7 @@
  * =====================
  */
 
-// Загружаем .env (MINIMAX_API_KEY, LLM_* и т.д.) ДО любых импортов конфигов
+// Загружаем .env (LLM_* и т.д.) ДО любых импортов конфигов
 import 'dotenv/config';
 
 import express from 'express';
@@ -48,9 +48,8 @@ for (const [mechanic, cfg] of Object.entries(llmRouter.describe())) {
 // Register all route files
 registerRoutes(app);
 
-// In produzione lo stesso processo pubblica anche la build React. Questo è
-// necessario per l'upstream del Worker Cloudflare e mantiene funzionanti le
-// rotte SPA aperte direttamente dal browser.
+// In produzione lo stesso processo pubblica anche la build React. Questo
+// mantiene funzionanti le rotte SPA aperte direttamente dal browser.
 const frontendDist = path.resolve(__dirname, '../../frontend/dist');
 const frontendIndex = path.join(frontendDist, 'index.html');
 if (fs.existsSync(frontendIndex)) {

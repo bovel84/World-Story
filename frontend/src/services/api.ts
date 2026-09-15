@@ -299,10 +299,10 @@ async function fetchApi<T>(
     const isHtml = response.headers.get('content-type')?.includes('text/html')
       || /^\s*<!doctype html/i.test(rawError);
     const errorText = isHtml && [502, 503, 504].includes(response.status)
-      ? 'Backend temporaneamente non raggiungibile tramite Cloudflare. Riprova tra pochi secondi.'
+      ? 'Backend temporaneamente non raggiungibile attraverso il proxy. Riprova tra pochi secondi.'
       : rawError.slice(0, 1000);
-    // Evita di riversare in console intere pagine HTML di Cloudflare: il
-    // messaggio compatto resta leggibile anche durante un riavvio del tunnel.
+    // Evita di riversare in console intere pagine HTML del proxy: il
+    // messaggio compatto resta leggibile anche durante un riavvio del backend.
     console.error('[API Error]', response.status, endpoint, errorText);
     throw new ApiError(response.status, `API Error: ${response.statusText || response.status} - ${errorText}`);
   }
@@ -386,8 +386,8 @@ export const worldApi = {
    *
    * Flusso ASINCRONO: il POST risponde subito con { jobId } e il client
    * interroga GET /worlds/jobs/:jobId finché il job non è completato.
-   * Necessario perché la generazione può durare minuti e dietro Cloudflare
-   * Tunnel le richieste oltre ~100s vengono interrotte con un errore 524.
+   * Necessario perché la generazione può durare minuti e i proxy
+   * interrompono le richieste oltre ~100s con un errore 524.
    *
    * onProgress (opzionale) riceve { done, total, stage } dal backend per
    * mostrare l'avanzamento reale nel loader.
@@ -867,7 +867,7 @@ export const gameApi = {
       : { mode: 'fixed', jump_days: jumpDays ?? 30 };
 
     // Il provider può impiegare minuti: la POST accetta il lavoro subito e il
-    // browser interroga richieste brevi, evitando i timeout del proxy Cloudflare.
+    // browser interroga richieste brevi, evitando i timeout del proxy.
     const accepted = await fetchApi<{ jobId: string; status: string }>(`/games/${gameId}/simulation-jobs`, {
       method: 'POST',
       headers,
@@ -1558,7 +1558,7 @@ export const mapApi = {
 export interface LLMProviderPreset {
   id: string;
   label: string;
-  provider: 'openai-compatible' | 'anthropic' | 'minimax';
+  provider: 'openai-compatible' | 'anthropic';
   baseUrl: string;
   needsKey: boolean;
   docsUrl?: string;

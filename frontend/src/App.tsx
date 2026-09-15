@@ -424,7 +424,7 @@ function App() {
         setTimeline(data.timeline || []);
         setFeedItems(prev => {
           // SSE è istantaneo quando il proxy lo consente; questo merge è il
-          // recupero affidabile quando lo stream viene chiuso da Cloudflare.
+          // recupero affidabile quando lo stream viene chiuso dal proxy.
           // I dispacci già presenti conservano il loro stato di lettura.
           const byId = new Map(prev.map(item => [item.id, item]));
           for (const item of items) if (!byId.has(item.id)) byId.set(item.id, item);
@@ -2147,7 +2147,7 @@ function App() {
     },
     onError: (error) => {
       console.error('[SSE] Error:', error);
-      // Il job HTTP asincrono resta autorevole anche se Cloudflare interrompe
+      // Il job HTTP asincrono resta autorevole anche se il proxy interrompe
       // temporaneamente SSE: non nascondere il progresso né sbloccare Avanza.
     },
   });

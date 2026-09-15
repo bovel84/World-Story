@@ -91,8 +91,8 @@ function citiesForRegion(geometry: any, countryCode: string, limit = 6): any[] {
 
 // Generazione asincrona del mondo. La generazione completa (BalanceAgent su
 // preset da 200+ paesi) dura diversi minuti e NON può restare dentro una
-// richiesta HTTP: Cloudflare Tunnel (trycloudflare.com) interrompe le
-// risposte oltre ~100s con un errore 524. Il POST crea un job e risponde
+// richiesta HTTP: un proxy che interrompe le risposte oltre ~100s con un
+// errore 524. Il POST crea un job e risponde
 // subito con { jobId }; il lavoro prosegue in background e il client
 // interroga GET /worlds/jobs/:jobId finché lo stato diventa "completed".
 async function runWorldGeneration(

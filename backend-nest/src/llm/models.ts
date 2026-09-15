@@ -2,7 +2,7 @@
  * World Story — Registro dei provider LLM
  * ====================================
  * Preset dei provider compatibili (Ollama Cloud/locale, OpenRouter, NVIDIA,
- * MiniMax, Anthropic, endpoint OpenAI-compatibili personalizzati) e ricerca
+ * Anthropic, endpoint OpenAI-compatibili personalizzati) e ricerca
  * dei modelli disponibili via endpoint /models.
  */
 
@@ -62,16 +62,6 @@ export const LLM_PROVIDER_PRESETS: LLMProviderPreset[] = [
     docsUrl: 'https://build.nvidia.com',
     description: 'Catalogo NVIDIA NIM (Llama, Nemotron, DeepSeek…), API OpenAI-compatible.',
     defaultModel: 'meta/llama-3.3-70b-instruct',
-  },
-  {
-    id: 'minimax',
-    label: 'MiniMax',
-    provider: 'minimax',
-    baseUrl: 'https://api.minimax.io/v1',
-    needsKey: true,
-    docsUrl: 'https://platform.minimaxi.com',
-    description: 'Provider predefinito di World Story (MiniMax-M2.5).',
-    defaultModel: 'MiniMax-M2.5',
   },
   {
     id: 'anthropic',
@@ -156,7 +146,6 @@ function parseOpenAIModelList(data: any): ModelListItem[] {
 
 /**
  * Elenca i modelli disponibili per il provider indicato.
- * MiniMax non espone un elenco: restituisce un warning invece di fallire.
  */
 export async function listAvailableModels(params: {
   provider: string;
@@ -164,10 +153,6 @@ export async function listAvailableModels(params: {
   apiKey?: string;
 }): Promise<ModelListResult> {
   const provider = (params.provider || '').trim();
-
-  if (provider === 'minimax') {
-    return { models: [], warning: 'MiniMax non espone un elenco pubblico: inserisci il modello manualmente (es. MiniMax-M2.5).' };
-  }
 
   const base = normalizeBaseUrl(params.baseUrl);
   if (!base) {

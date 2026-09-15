@@ -242,7 +242,7 @@ Chat/nazioni selezionate tramite `div` cliccabili; dialog con focus iniziale in 
 
 Gli script `e2e` esaminati contengono selettori obsoleti e assunzioni sul submit ordini che ora chiude soltanto il piano; viewport configurate desktop. Il comando test E2E è un placeholder e il frontend non ha una suite propria configurata.
 
-`deploy-cloudflare.sh` compila frontend e distribuisce Worker; non automatizza backup coerente, migrazione/backend restart/version check/test funzionali/rollback. Health 200 non prova quale motore sia caricato. **Q01/Q02.**
+`script di deploy` compila frontend e distribuisce il proxy; non automatizza backup coerente, migrazione/backend restart/version check/test funzionali/rollback. Health 200 non prova quale motore sia caricato. **Q01/Q02.**
 
 ### A22 — Audit di sicurezza necessario prima di ampliare il servizio pubblico
 

@@ -25,7 +25,7 @@ import type { MechanicConfig } from '../llm/config';
 
 export const llmRouter = Router();
 
-const VALID_PROVIDERS: MechanicConfig['provider'][] = ['openai-compatible', 'anthropic', 'minimax'];
+const VALID_PROVIDERS: MechanicConfig['provider'][] = ['openai-compatible', 'anthropic'];
 
 interface RawLLMFile {
   default?: Record<string, unknown>;
@@ -45,13 +45,8 @@ function readRawConfig(): RawLLMFile {
   }
 }
 
-function envKeyInfo(provider: string): { set: boolean; source: 'env' | null } {
-  // MINIMAX_API_KEY non è una chiave generica: segnalarla come disponibile
-  // con OpenRouter/Ollama produce un falso positivo nella UI.
-  const set = Boolean(
-    process.env.LLM_API_KEY
-    || (provider === 'minimax' && process.env.MINIMAX_API_KEY),
-  );
+function envKeyInfo(): { set: boolean; source: 'env' | null } {
+  const set = Boolean(process.env.LLM_API_KEY);
   return { set, source: set ? 'env' : null };
 }
 
@@ -74,8 +69,7 @@ function configView() {
   const file = llmConfigFilePath();
   const raw = readRawConfig();
   const resolved = resolvedDefaults();
-  const configuredProvider = String(raw.default?.provider ?? resolved.provider ?? '');
-  const envKey = envKeyInfo(configuredProvider);
+  const envKey = envKeyInfo();
   const fileKey = fileKeyInfo(raw.default?.apiKey);
   // Chiave solo-memoria inviata dal browser (localStorage) — mai su disco
   const memoryKeySet = getLLMRouter().hasMemoryApiKey;
@@ -120,7 +114,7 @@ llmRouter.get('/status', (_req, res) => {
   res.json({ mechanics: router.describe() });
 });
 
-// Preset dei provider (Ollama Cloud/locale, OpenRouter, NVIDIA, MiniMax, Anthropic, custom)
+// Preset dei provider (Ollama Cloud/locale, OpenRouter, NVIDIA, Anthropic, custom)
 llmRouter.get('/providers', (_req, res) => {
   res.json({ providers: LLM_PROVIDER_PRESETS });
 });
@@ -261,7 +255,7 @@ llmRouter.post('/models', async (req, res) => {
     res.json(result);
   } catch (e: any) {
     if (e instanceof LLMError) {
-      // Non usare 502: i Quick Tunnel Cloudflare sostituiscono la risposta
+      // Non usare 502: alcuni proxy sostituiscono la risposta
       // JSON dell'origine con una pagina HTML "Bad gateway", nascondendo il
       // vero errore del provider al frontend. 424 mantiene il payload JSON e
       // descrive correttamente una dipendenza esterna fallita.

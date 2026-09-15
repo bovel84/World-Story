@@ -3,7 +3,7 @@
  * ==========================
  * Единый интерфейс провайдеров (Этап 1 роадмапа): любая модель —
  * локальная (Ollama, LM Studio) или облачная (OpenAI, OpenRouter,
- * Anthropic, MiniMax) — за одним контрактом.
+ * Anthropic) — за одним контрактом.
  */
 
 /** Игровые механики, которым можно назначать разные модели (аналог тиров Light/Pro/Max). */
@@ -42,7 +42,7 @@ export interface LLMGenerateOptions {
 }
 
 export interface LLMProvider {
-  /** Короткое имя для логов/статуса: 'openai-compatible' | 'anthropic' | 'minimax' */
+  /** Короткое имя для логов/статуса: 'openai-compatible' | 'anthropic' */
   readonly name: string;
   /** Модель, которую реально дёргает этот провайдер (для /api/llm/status) */
   readonly model: string;

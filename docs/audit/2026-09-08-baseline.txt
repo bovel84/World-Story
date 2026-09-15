@@ -9,7 +9,7 @@ Fingerprint source tree (rilevato durante il riesame dei documenti):
 80f883de878b83d8544c2ffedd3967c91adc94c4d9872ca6a0eda6ed80cc469b
 
 Algoritmo riproducibile:
-- radici backend-nest/src, backend-nest/tests, frontend/src, e2e, scripts, cloudflare;
+- radici backend-nest/src, backend-nest/tests, frontend/src, e2e, scripts;
 - file con suffisso .ts .tsx .css .js .mjs .sh .json .jsonc;
 - escludere path contenenti node_modules o .wrangler;
 - ordinare lessicograficamente i percorsi relativi;

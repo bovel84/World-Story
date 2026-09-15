@@ -44,7 +44,7 @@
 
 - Layer LLM: provider `openai-compatible` → Ollama Cloud (glm-5.3-flash), tutte le 9 meccaniche
 - Preset come pacchetti: lore.md + rules.md + base_prompt/prompts (5 preset)
-- UX mobile completa: bottom-sheet, FAB, tema Dispacci, Worker Cloudflare con URL fisso
+- UX mobile completa: bottom-sheet, FAB, tema Dispacci, deploy online con URL fisso
 - Live simulazione con fallback polling; test 224/224 verdi alla baseline F00
 
 ## Prossimi passi

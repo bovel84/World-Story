@@ -179,8 +179,8 @@ Scegli UNA sola azione, quella più coerente con la tua personalità e la situaz
     try {
       const result = await this.provider.generate('npc', system, user, {
         temperature: 0.7,
-        // MiniMax-M2.5 — reasoning-модель: «мысли» съедают ~500-1500 токенов
-        // до начала ответа; лимит 500 приводил к finish_reason=length и пустому content.
+        // I modelli reasoning spendono ~500-1500 token di «pensiero»
+        // prima della risposta; un limite troppo basso produce content vuoto.
         maxTokens: 2500,
       });
 

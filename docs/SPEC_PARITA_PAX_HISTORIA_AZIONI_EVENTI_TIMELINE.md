@@ -177,7 +177,7 @@ Riferimenti per simbolo anziché per numero di riga, perché i file sono in evol
 | G20 / P1 | Rewind conserva un solo snapshot per ordine; save può leggere una mappa parziale con data vecchia. Chat non comprese nello snapshot letto. | Snapshot per salto/checkpoint, rollback di cronaca, coda, relazioni, chat, piani e memoria del ramo. | `game-session.ts`: save/load/rewind; `session-registry.ts`; repository chat/saves. |
 | G21 / P1 | `getTimeline()` crea «Svolta nelle trattative» da parole chiave anche in messaggi non conclusivi. Aperture chat nel turno usano la data ancora precedente al completamento. | Separare messaggi da eventi diplomatici effettivi, assegnare data/checkpoint e stato di accordo corretti. | `game-session.ts`: `getTimeline`, `generateChatReply`, `startChat`; `chat.repository.ts`. |
 | G22 / P1 | **Implementato:** `SimulationEventReader` separato dall'archivio e stato del checkpoint recuperabile dal run. | Lettura progressiva, controllo Intervene ancorato a ID/revisione, navigazione storica senza mutazioni. | `SimulationEventReader.tsx`; `EventFeed.tsx`; `HudBar.tsx`; `App.tsx`; contratto playback. |
-| G23 / P1 | Build+deploy Worker non dimostrano che il backend Express sia aggiornato. Lo script compila solo il frontend e usa URL assoluto di quick tunnel. | Rilascio coordinato backend/frontend e prova del comportamento in produzione; preferire API same-origin via Worker. | `scripts/deploy-cloudflare.sh`; `cloudflare/worker.js`; avvio backend. |
+| G23 / P1 | Build+deploy del proxy non dimostrano che il backend Express sia aggiornato. Lo script compila solo il frontend e usa URL assoluto del tunnel. | Rilascio coordinato backend/frontend e prova del comportamento in produzione; preferire API same-origin via proxy. | script di deploy; proxy di produzione; avvio backend. |
 | G24 / P2 | Brainstorm esiste; il compositore non offre un flusso completo di miglioramento con anteprima e conferma. | Enhance senza inviare/attuare automaticamente, conservando intento e riferimenti originali. | `App.tsx`; `prompts/converter.ts`; API azioni. |
 
 **Nota:** l'analisi strutturale ha trovato un indice del codice datato 3/9/2026, non aggiornato per diversi file. I rilievi principali sopra sono fondati sulla rilettura dei sorgenti, non sull'indice né sulla vecchia roadmap.
@@ -372,7 +372,7 @@ Responsabilità:
 
 ### 9.2 Job persistenti anziché POST lunghi
 
-Decisione World Story, utile anche dietro Cloudflare: il comando crea un job e risponde rapidamente; SSE/polling riportano lo stato. La richiesta HTTP non deve rimanere aperta per l'intera risposta della LLM.
+Decisione World Story, utile anche dietro un proxy: il comando crea un job e risponde rapidamente; SSE/polling riportano lo stato. La richiesta HTTP non deve rimanere aperta per l'intera risposta della LLM.
 
 Stati proposti:
 
@@ -568,7 +568,7 @@ Tutti i percorsi sono relativi alla radice World Story.
 | Componenti | `frontend/src/components/Game/HudBar.tsx`, `EventFeed.tsx`, `SaveGameModal.tsx`, `ChatsPanel.tsx`, `AdvisorChat.tsx` |
 | Mappa | `frontend/src/components/Map/MapboxMapView.tsx`, `MapView.tsx`: sincronizzazione per revisione, non riscrittura geografica |
 | Stili | `frontend/src/index.css`, `frontend/src/editorial.css`: solo adattamenti funzionali |
-| Rilascio | `scripts/deploy-cloudflare.sh`, `cloudflare/worker.js`, `cloudflare/wrangler.jsonc`, configurazione del processo backend realmente in uso |
+| Rilascio | script di deploy, configurazione del processo backend realmente in uso |
 
 Test esistenti da conservare/adattare consapevolmente: `stage2.test.ts`, `incremental-events.test.ts`, `engine-invariants.test.ts`, `world-state-engine.test.ts`, `chats.test.ts`, `map-features.test.ts`, `prompts.test.ts`, `preset-prompts.test.ts`, `presets.test.ts`, `smoke.test.ts`. La precedente sessione ha eseguito 41 test mirati e build; questo documento non implica che i nuovi requisiti siano già coperti.
 
@@ -617,7 +617,7 @@ Dipende da B–D. Copre test completi, confronto §16 e G23.
 
 - Audit dei side effect e dei percorsi alternativi.
 - Prove su vecchi salvataggi copiati e due partite isolate.
-- Test frontend/backend dietro il percorso Cloudflare.
+- Test frontend/backend dietro il percorso proxy.
 - Deploy solo su autorizzazione del proprietario e con piano di rollback.
 
 ### Regola di collaborazione
@@ -726,9 +726,9 @@ Le scelte tecniche interne possono differire dal riferimento. La parità richies
 
 ### Rilascio
 
-L'installazione attuale usa un Worker Cloudflare per asset/proxy e un backend Express locale esposto via tunnel. Non è un backend interamente ospitato sul Worker.
+L'installazione attuale usa un proxy per asset/API e un backend Express locale esposto via tunnel. Non è un backend interamente ospitato sul proxy.
 
-Lo script `scripts/deploy-cloudflare.sh` letto compila il frontend, trova il quick tunnel e distribuisce il Worker; non compila né riavvia esplicitamente il backend. Un HTTP 200 su homepage e `/api/health` prova raggiungibilità, non l'avvenuto caricamento della nuova orchestrazione.
+Lo script di deploy letto compila il frontend, trova il tunnel e distribuisce il proxy; non compila né riavvia esplicitamente il backend. Un HTTP 200 su homepage e `/api/health` prova raggiungibilità, non l'avvenuto caricamento della nuova orchestrazione.
 
 Il rilascio futuro deve quindi:
 

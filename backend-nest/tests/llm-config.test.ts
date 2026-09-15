@@ -11,8 +11,7 @@ import { loadLLMConfig, type LLMConfig } from '../src/llm/config';
 import { ALL_MECHANICS } from '../src/llm/types';
 
 const ENV_KEYS = [
-  'LLM_PROVIDER', 'LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL',
-  'MINIMAX_API_KEY', 'MINIMAX_BASE_URL', 'LLM_CONFIG_PATH',
+  'LLM_PROVIDER', 'LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL', 'LLM_CONFIG_PATH',
   'LLM_CONSOLIDATION_START_ROUND', 'LLM_CONSOLIDATION_CHUNK_SIZE', 'LLM_CONSOLIDATION_KEEP_RAW_TAIL',
 ];
 const savedEnv: Record<string, string | undefined> = {};
@@ -34,12 +33,12 @@ afterAll(() => {
 const NO_FILE = path.join(os.tmpdir(), `no-such-llm-config-${process.pid}.json`);
 
 describe('loadLLMConfig: env-fallback (обратная совместимость)', () => {
-  it('без файла и env — все механики на MiniMax по умолчанию', () => {
+  it('senza file e env — tutte le meccaniche su un default OpenAI-compatible locale', () => {
     const { mechanics: cfg } = loadLLMConfig(NO_FILE);
     for (const m of ALL_MECHANICS) {
-      expect(cfg[m].provider).toBe('minimax');
-      expect(cfg[m].baseUrl).toBe('https://api.minimax.io/v1');
-      expect(cfg[m].model).toBe('MiniMax-M2.5');
+      expect(cfg[m].provider).toBe('openai-compatible');
+      expect(cfg[m].baseUrl).toBe('http://localhost:11434/v1');
+      expect(cfg[m].model).toBe('qwen2.5:14b');
       expect(cfg[m].timeoutMs).toBe(120_000);
       expect(cfg[m].retries).toBe(4);
     }
@@ -52,16 +51,15 @@ describe('loadLLMConfig: env-fallback (обратная совместимост
     expect(cfg.npc.cache).toBe(false);
   });
 
-  it('MINIMAX_API_KEY подхватывается из env', () => {
-    process.env.MINIMAX_API_KEY = 'mm-key-123';
+  it('LLM_API_KEY viene letta dall\'ambiente', () => {
+    process.env.LLM_API_KEY = 'llm-key-123';
     process.env.LLM_MODEL = 'Custom-Model';
     const { mechanics: cfg } = loadLLMConfig(NO_FILE);
-    expect(cfg.jump.apiKey).toBe('mm-key-123');
+    expect(cfg.jump.apiKey).toBe('llm-key-123');
     expect(cfg.jump.model).toBe('Custom-Model');
   });
 
-  it('LLM_* env имеют приоритет над MINIMAX_*', () => {
-    process.env.MINIMAX_API_KEY = 'mm-key';
+  it('LLM_PROVIDER/LLM_BASE_URL configurano provider ed endpoint', () => {
     process.env.LLM_API_KEY = 'llm-key';
     process.env.LLM_BASE_URL = 'http://localhost:11434/v1';
     process.env.LLM_PROVIDER = 'openai-compatible';
@@ -111,8 +109,8 @@ describe('loadLLMConfig: файл llm.config.json', () => {
     fs.rmSync(file);
   });
 
-  it('non riusa MINIMAX_API_KEY quando il file seleziona un altro provider', () => {
-    process.env.MINIMAX_API_KEY = 'minimax-only-key';
+  it('non riusa chiavi env specifiche di altri provider', () => {
+    process.env.OPENROUTER_API_KEY = 'other-provider-key';
     const file = writeTmpConfig({
       default: {
         provider: 'openai-compatible',
@@ -122,6 +120,7 @@ describe('loadLLMConfig: файл llm.config.json', () => {
     });
     const { mechanics: cfg } = loadLLMConfig(file);
     expect(cfg.jump.apiKey).toBe('');
+    delete process.env.OPENROUTER_API_KEY;
     fs.rmSync(file);
   });
 

@@ -4,7 +4,7 @@ import type { Mechanic } from './types';
 import { ALL_MECHANICS } from './types';
 
 export interface MechanicConfig {
-  provider: 'openai-compatible' | 'anthropic' | 'minimax';
+  provider: 'openai-compatible' | 'anthropic';
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -54,21 +54,19 @@ function resolveApiKey(raw: string | undefined): string {
   return raw ?? '';
 }
 
-/** MINIMAX_API_KEY è un fallback specifico: non va inviato ad altri provider. */
-function envApiKeyFor(provider: MechanicConfig['provider']): string {
-  return process.env.LLM_API_KEY
-    || (provider === 'minimax' ? process.env.MINIMAX_API_KEY : '')
-    || '';
+/** Chiave API generica del provider attivo (LLM_API_KEY). */
+function envApiKeyFor(): string {
+  return process.env.LLM_API_KEY || '';
 }
 
 function defaultConfig(): LLMConfig {
-  const envBase = process.env.LLM_BASE_URL || process.env.MINIMAX_BASE_URL || 'https://api.minimax.io/v1';
-  const envModel = process.env.LLM_MODEL || 'MiniMax-M2.5';
-  const envProvider = (process.env.LLM_PROVIDER as MechanicConfig['provider']) || 'minimax';
+  const envBase = process.env.LLM_BASE_URL || 'http://localhost:11434/v1';
+  const envModel = process.env.LLM_MODEL || 'qwen2.5:14b';
+  const envProvider = (process.env.LLM_PROVIDER as MechanicConfig['provider']) || 'openai-compatible';
   const cfg = {} as LLMConfig;
   for (const m of ALL_MECHANICS) {
     cfg[m] = {
-      provider: envProvider, baseUrl: envBase, apiKey: envApiKeyFor(envProvider), model: envModel,
+      provider: envProvider, baseUrl: envBase, apiKey: envApiKeyFor(), model: envModel,
       timeoutMs: 120_000, retries: 4, stream: true, cache: DEFAULT_CACHE_MECHANICS.has(m),
     };
   }
@@ -79,7 +77,6 @@ function defaultConfig(): LLMConfig {
  * Загружает конфигурацию LLM. Приоритет:
  * 1. llm.config.json (путь из LLM_CONFIG_PATH или рядом с cwd) — секции default + mechanics (+ consolidation).
  * 2. Env-переменные LLM_PROVIDER/LLM_BASE_URL/LLM_API_KEY/LLM_MODEL.
- * 3. Обратная совместимость: MINIMAX_API_KEY/MINIMAX_BASE_URL → все механики на MiniMax.
  */
 export function loadLLMConfig(configPath?: string): LLMFullConfig {
   const file = configPath
@@ -105,7 +102,7 @@ export function loadLLMConfig(configPath?: string): LLMFullConfig {
       const explicitApiKey = mechanicOverride.apiKey ?? base.apiKey;
       merged.apiKey = explicitApiKey !== undefined
         ? resolveApiKey(explicitApiKey)
-        : envApiKeyFor(merged.provider);
+        : envApiKeyFor();
       if (merged.cache === undefined) merged.cache = DEFAULT_CACHE_MECHANICS.has(m);
       if (!merged.baseUrl || !merged.model) {
         throw new Error(`llm.config.json: meccanica "${m}": servono baseUrl e model`);

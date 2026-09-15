@@ -14,7 +14,7 @@ export interface OpenAICompatibleOptions {
   baseUrl: string;
   apiKey?: string;          // для Ollama/LM Studio можно любой непустой
   model: string;
-  /** Путь чат-эндпоинта (по умолчанию /chat/completions; у MiniMax свой) */
+  /** Путь чат-эндпоинта (по умолчанию /chat/completions; некоторые API используют свой) */
   chatPath?: string;
   timeoutMs?: number;
   retries?: number;
@@ -118,7 +118,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const finishReason = choice?.finish_reason;
     const completionTokens = data?.usage?.completion_tokens ?? 0;
 
-    // I modelli reasoning (GLM, DeepSeek, MiniMax…) possono spendere l'intero
+    // I modelli reasoning (GLM, DeepSeek…) possono spendere l'intero
     // budget di completamento nei token di «thinking» (finish_reason=length)
     // senza emettere alcun message.content. In quel caso riproviamo UNA volta
     // con il budget quadruplicato, come già fa il fallback di stream().
@@ -222,7 +222,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     }
 
     if (content.length === 0) {
-      // Modelli reasoning (es. GLM/MiniMax) possono spendere l'intero budget in
+      // Modelli reasoning (es. GLM/DeepSeek) possono spendere l'intero budget in
       // reasoning senza emettere content in streaming. Riproviamo UNA volta
       // senza streaming e con budget quadruplicato: la risposta completa
       // contiene anche il message.content finale.

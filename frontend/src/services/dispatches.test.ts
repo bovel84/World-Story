@@ -54,7 +54,7 @@ describe('normalizzazione dispacci SSE', () => {
   });
 });
 
-describe('avanzamento asincrono attraverso Cloudflare', () => {
+describe('avanzamento asincrono attraverso il proxy', () => {
   it('accetta un job breve, ne interroga lo stato e recupera il risultato', () => {
     expect(apiSource).toContain('/simulation-jobs`');
     expect(apiSource).toContain('/simulation-jobs/${accepted.jobId}`');

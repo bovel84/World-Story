@@ -5,8 +5,7 @@
  *
  * Perché esiste: la generazione completa (BalanceAgent su ~200+ paesi) dura
  * diversi minuti. Non può restare sincrona dentro una richiesta HTTP perché
- * Cloudflare Tunnel (trycloudflare.com) interrompe le risposte oltre ~100s
- * con un errore 524.
+ * i proxy interrompono le risposte oltre ~100s con un errore 524.
  *
  * Flusso:
  *   1. POST /worlds/generate  → crea il job, lancia il lavoro in background
