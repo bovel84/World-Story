@@ -1,5 +1,6 @@
 import { estimatedNominalGdpUsdBillions, governmentForPolity, referenceDebtToGdpPct } from '../../utils/country-facts';
 import { baselineCapacity, coastalFromGeojson } from './NationCapacity';
+import { fiscalEffects } from './FiscalPolicy';
 import { MAX_JUMP_DAYS } from './calendar';
 
 /**
@@ -67,6 +68,12 @@ export interface NationalAccount {
    *  moderni, indice di mappa su scala storica nei mondi pre-1990. */
   nominalGdpUsdBillions: number;
   gdpPerCapitaUsd: number;
+  /**
+   * Pressione fiscale applicata alla nazione, in % del PIL. Per il giocatore è
+   * l'aliquota scelta nella Politica fiscale; per gli altri è quella calcolata
+   * dal profilo del paese. Serve alla UI per mostrare il livello di prelievo.
+   */
+  taxRatePct?: number;
   government: string;
   /** Forza dell'arsenale (quantità × qualità × dominio), se calcolata. */
   arsenalStrength?: number;
@@ -105,6 +112,11 @@ export interface WorldStateOptions {
    * storica per scegliere il PIL dell'epoca giusta (1939, 1951…).
    */
   startDate?: string | null;
+  /**
+   * Aliquote fiscali scelte dal giocatore (polity → % del PIL). Assenti per le
+   * nazioni NPC, che restano sull'aliquota calcolata dal profilo del paese.
+   */
+  taxRateByPolity?: Record<string, number>;
 }
 
 /** Calculates and advances only facts that are derivable from the map. */
@@ -184,6 +196,15 @@ export class WorldStateEngine {
         universities: baseline.universities, forces: baseline.forces,
       };
       account.capacitySources = baseline.sources;
+      // Politica fiscale: se il giocatore ha scelto un'aliquota si usa quella,
+      // altrimenti quella calcolata dal profilo (fabbriche e porti). Gli effetti
+      // sul consenso si misurano rispetto all'aliquota che il paese applicherebbe
+      // da sé, così «non cambiare nulla» non è già una punizione.
+      const baseTaxRate = Math.min(0.18, 0.09 + account.factories * 0.00035 + account.ports * 0.0002);
+      const hasTaxPolicy = options.taxRateByPolity?.[account.polityId] !== undefined
+        && options.taxRateByPolity?.[account.polityId] !== null;
+      const configuredTaxPct = hasTaxPolicy ? options.taxRateByPolity![account.polityId] : null;
+      const fiscal = configuredTaxPct !== null ? fiscalEffects(configuredTaxPct, baseTaxRate * 100) : null;
       // Infrastructure affects productive capacity, but is capped so a map
       // full of objects cannot make an economy explode exponentially. Una
       // nazione che richiama riserve comprime la crescita civile: l'economia
@@ -193,7 +214,7 @@ export class WorldStateEngine {
         0.012 + account.factories * 0.0018 + account.ports * 0.001 + account.universities * 0.0012,
       );
       const warDrag = 1 - Math.min(0.45, account.mobilized * 0.035 + account.forces * 0.004);
-      account.annualGrowthRate = Math.max(0, baseGrowth * warDrag);
+      account.annualGrowthRate = Math.max(0, baseGrowth * warDrag + (fiscal?.growthDelta ?? 0));
       // I valori provinciali sono un indice di simulazione; entrate e uscite
       // usano invece una scala nominale comparabile (miliardi USD), così il
       // bollettino non dipende dal numero di province di una nazione.
@@ -203,7 +224,10 @@ export class WorldStateEngine {
         startDate: options.startDate,
       });
       account.gdpPerCapitaUsd = Math.round(account.nominalGdpUsdBillions * 1_000_000_000 / Math.max(account.population, 1));
-      const taxRate = Math.min(0.18, 0.09 + account.factories * 0.00035 + account.ports * 0.0002);
+      const taxRate = configuredTaxPct !== null
+        ? Math.max(0.02, Math.min(0.6, Number(configuredTaxPct) / 100))
+        : baseTaxRate;
+      account.taxRatePct = Math.round(taxRate * 1000) / 10;
       account.monthlyRevenue = account.nominalGdpUsdBillions * taxRate / 12;
       // Le riserve richiamate costano denaro prima ancora di essere operative:
       // la spesa militare cresce con forze e mobilitazioni e comprime il saldo.
@@ -226,7 +250,8 @@ export class WorldStateEngine {
         48 + Math.min(24, account.monthlyBalance / Math.max(account.nominalGdpUsdBillions, 1) * 900)
         + Math.min(12, account.universities * 0.8)
         - Math.min(20, account.forces * 0.35)
-        - Math.min(20, account.mobilized * 3.2),
+        - Math.min(20, account.mobilized * 3.2)
+        + (fiscal?.stabilityDelta ?? 0),
       )));
       const forceLoad = account.forces + account.mobilized * 0.6;
       account.warEffort = Math.round(Math.max(0, Math.min(100, forceLoad * 3.2 + account.defenceBurdenPct * 2.2)));
@@ -234,7 +259,8 @@ export class WorldStateEngine {
         ? Math.min(12, (-account.monthlyBalance) / Math.max(account.nominalGdpUsdBillions, 1) * 700)
         : 0;
       account.socialTension = Math.round(Math.max(0, Math.min(100,
-        16 + account.mobilized * 6 + account.forces * 1.4 - account.universities * 1.1 + deficitRatio,
+        16 + account.mobilized * 6 + account.forces * 1.4 - account.universities * 1.1 + deficitRatio
+        + (fiscal?.tensionDelta ?? 0),
       )));
     }
     return accounts;

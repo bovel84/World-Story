@@ -23,7 +23,7 @@ import { HudBar } from './components/Game/HudBar';
 import { GameLoader, WORLD_GEN_PHASES } from './components/Game/GameLoader';
 import { Fab } from './components/Game/Fab';
 // DISATTIVATO: editor mappe (temporaneo) — mapApi era usato solo dall’editor/«Le mie mappe»
-import { chatsApi, gameApi, worldApi, savesApi, llmApi, type GovernmentSnapshot, type GovernmentVoicesResponse, type TimelineEntry } from './services/api';
+import { chatsApi, gameApi, worldApi, savesApi, llmApi, type FiscalPolicyInfo, type GovernmentSnapshot, type GovernmentVoicesResponse, type PeacetimePressure, type TimelineEntry } from './services/api';
 import { getStoredKey, migrateLegacyKey } from './services/llmKeyStore';
 import type { Region, World, Game } from './types';
 import { useGameStore, useUIStore, useActionsStore, useChatStore, selectTotalUnread, type FloatingPanelTab } from './stores';
@@ -263,6 +263,13 @@ function App() {
   // Anime del governo e dettaglio del bilancio: pubblicati dal motore nel
   // national-state; la pagina Governo del dossier li legge, non li stima.
   const [nationalGovernment, setNationalGovernment] = useState<GovernmentSnapshot | null>(null);
+  // Politica fiscale scelta dal giocatore: aliquota, limiti ed effetti.
+  const [nationalFiscalPolicy, setNationalFiscalPolicy] = useState<FiscalPolicyInfo | null>(null);
+  const [fiscalPolicyBusy, setFiscalPolicyBusy] = useState(false);
+  // Sfide di pace attive e ultime chiuse: generate dal motore, scelte dal giocatore.
+  const [nationalPressures, setNationalPressures] = useState<PeacetimePressure[]>([]);
+  const [recentPressures, setRecentPressures] = useState<PeacetimePressure[]>([]);
+  const [pressureBusy, setPressureBusy] = useState(false);
   // Voci delle anime del governo: generate dall'LLM su richiesta quando si apre
   // la scheda Governo, valide per il turno corrente.
   const [governmentVoices, setGovernmentVoices] = useState<GovernmentVoicesResponse | null>(null);
@@ -428,7 +435,7 @@ function App() {
 
   // Il bollettino usa dati aggregati dal motore, non formule del browser.
   useEffect(() => {
-    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setNationalResources(null); setNationalArms(null); setNationalGovernment(null); setGovernmentVoices(null); setGovernmentVoicesError(null); setMandateDecisions([]); return; }
+    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setNationalResources(null); setNationalArms(null); setNationalGovernment(null); setNationalFiscalPolicy(null); setNationalPressures([]); setRecentPressures([]); setGovernmentVoices(null); setGovernmentVoicesError(null); setMandateDecisions([]); return; }
     // Cambia il turno: le voci del consiglio appartengono al turno e vanno rigenerate.
     setGovernmentVoices(null);
     setGovernmentVoicesError(null);
@@ -437,8 +444,13 @@ function App() {
     // mandato appartengono invece solo al percorso strict e un 409 significa
     // semplicemente «nessuna decisione applicabile», non un errore del dossier.
     gameApi.nationalState(currentGameId)
-      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(normalizeResources(national.resources)); setNationalGovernment(national.government ?? null); } })
+      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(normalizeResources(national.resources)); setNationalGovernment(national.government ?? null); setNationalFiscalPolicy(national.fiscalPolicy ?? null); } })
       .catch(error => console.warn('[App] Impossibile caricare il conto nazionale:', error));
+    // Le sfide di pace nascono dal motore e vivono nel dossier: leggerle qui
+    // evita che un turno senza sfide visibili sembri vuoto.
+    gameApi.peacetimePressures(currentGameId)
+      .then((data) => { if (!cancelled) { setNationalPressures(data.pressures || []); setRecentPressures(data.recent || []); } })
+      .catch(error => console.warn('[App] Impossibile caricare le sfide del momento:', error));
     // I progetti in corso portano la percentuale di realizzazione calcolata dal
     // motore: senza questa lettura il Dossier restava senza avanzamento.
     gameApi.ongoingProcesses(currentGameId)
@@ -578,6 +590,55 @@ function App() {
         : message.includes('amount_invalid') ? 'Importo non valido: indica una cifra positiva.'
         : 'Emissione non riuscita.';
       notify(reason, 'error');
+    }
+  }, [currentGameId]);
+
+  // Politica fiscale: il giocatore sceglie l'aliquota; il motore ricalcola
+  // entrate, saldo, stabilità, tensione e crescita. Una manovra brusca lascia
+  // un costo politico transitorio (modificatore che poi decade).
+  const setFiscalPolicy = useCallback(async (taxRatePct: number) => {
+    if (!currentGameId) return;
+    setFiscalPolicyBusy(true);
+    try {
+      const result = await gameApi.setFiscalPolicy(currentGameId, taxRatePct);
+      setNationalFiscalPolicy(result.policy);
+      notify(result.note, 'success');
+      const national = await gameApi.nationalState(currentGameId);
+      setNationalAccounts(national.accounts || {});
+      setNationalGovernment(national.government ?? null);
+      setNationalFiscalPolicy(national.fiscalPolicy ?? result.policy);
+    } catch (error: any) {
+      console.error('[App] Cambio della politica fiscale fallito:', error);
+      notify('Modifica della pressione fiscale non riuscita.', 'error');
+    } finally {
+      setFiscalPolicyBusy(false);
+    }
+  }, [currentGameId]);
+
+  // Risposta a una sfida di pace: modificatori, cassa e relazioni applicati dal
+  // motore; poi si rilegge lo stato per allineare dossier e conti.
+  const resolvePressure = useCallback(async (pressureId: string, optionId: string) => {
+    if (!currentGameId) return;
+    setPressureBusy(true);
+    try {
+      const result = await gameApi.resolvePeacetimePressure(currentGameId, pressureId, optionId);
+      notify(result.effect?.note || 'Sfida affrontata.', 'success');
+      setNationalPressures((previous) => previous.filter((item) => item.id !== pressureId));
+      setRecentPressures((previous) => [result.pressure, ...previous].slice(0, 6));
+      const [national, pressures] = await Promise.all([
+        gameApi.nationalState(currentGameId),
+        gameApi.peacetimePressures(currentGameId),
+      ]);
+      setNationalAccounts(national.accounts || {});
+      setNationalGovernment(national.government ?? null);
+      setNationalResources(normalizeResources(national.resources));
+      setNationalPressures(pressures.pressures || []);
+      setRecentPressures(pressures.recent || []);
+    } catch (error: any) {
+      console.error('[App] Risposta alla sfida fallita:', error);
+      notify(String(error?.message || 'Non è stato possibile rispondere alla sfida.'), 'error');
+    } finally {
+      setPressureBusy(false);
     }
   }, [currentGameId]);
 
@@ -2332,6 +2393,13 @@ function App() {
               tradeResource={tradeNaturalResource}
               nationalHistory={nationalHistory}
               nationalGovernment={nationalGovernment}
+              nationalFiscalPolicy={nationalFiscalPolicy}
+              onSetFiscalPolicy={setFiscalPolicy}
+              fiscalPolicyBusy={fiscalPolicyBusy}
+              nationalPressures={nationalPressures}
+              recentPressures={recentPressures}
+              onResolvePressure={resolvePressure}
+              pressureBusy={pressureBusy}
               onDraftGovernmentPetition={draftGovernmentPetition}
               governmentVoices={governmentVoices}
               governmentVoicesLoading={governmentVoicesLoading}

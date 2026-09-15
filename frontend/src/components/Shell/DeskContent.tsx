@@ -6,7 +6,7 @@ import { EventFeed } from '../Game/EventFeed';
 import { DiplomacyPanel } from '../Game/DiplomacyPanel';
 import { NationDock } from '../Game/NationDock';
 import type { NationResources } from '../Game/NationDock';
-import type { ArsenalResponse, GovernmentSnapshot, GovernmentVoicesResponse } from '../../services/api';
+import type { ArsenalResponse, FiscalPolicyInfo, GovernmentSnapshot, GovernmentVoicesResponse, PeacetimePressure } from '../../services/api';
 import { SaveGameModal } from '../Game/SaveGameModal';
 import { useToast } from '../ui/ToastProvider';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -42,6 +42,15 @@ interface DeskContentProps {
   onLoadGovernmentVoices?: () => void;
   /** La nazione fa debito: emette titoli con tasso e scadenza. */
   onBorrowDebt?: (amountMld: number, termYears: number) => Promise<void>;
+  /** Politica fiscale scelta dal giocatore (aliquota, limiti, effetti). */
+  nationalFiscalPolicy?: FiscalPolicyInfo | null;
+  onSetFiscalPolicy?: (taxRatePct: number) => Promise<void>;
+  fiscalPolicyBusy?: boolean;
+  /** Sfide di pace attive e ultime chiuse. */
+  nationalPressures?: PeacetimePressure[];
+  recentPressures?: PeacetimePressure[];
+  onResolvePressure?: (pressureId: string, optionId: string) => Promise<void>;
+  pressureBusy?: boolean;
   pendingActions: Array<{ id: string; text: string }>;
   suggestions: Suggestion[];
   orderDraftText: string;
@@ -103,6 +112,13 @@ export function DeskContent({
   governmentVoicesError = null,
   onLoadGovernmentVoices,
   onBorrowDebt,
+  nationalFiscalPolicy = null,
+  onSetFiscalPolicy,
+  fiscalPolicyBusy = false,
+  nationalPressures = [],
+  recentPressures = [],
+  onResolvePressure,
+  pressureBusy = false,
   pendingActions,
   suggestions,
   orderDraftText,
@@ -382,6 +398,13 @@ export function DeskContent({
             governmentVoicesError={governmentVoicesError}
             onLoadGovernmentVoices={onLoadGovernmentVoices}
             onBorrowDebt={onBorrowDebt}
+            fiscalPolicy={nationalFiscalPolicy}
+            onSetFiscalPolicy={onSetFiscalPolicy}
+            fiscalPolicyBusy={fiscalPolicyBusy}
+            pressures={nationalPressures}
+            recentPressures={recentPressures}
+            onResolvePressure={onResolvePressure}
+            pressureBusy={pressureBusy}
             regions={currentWorld?.regions ? Object.values(currentWorld.regions).filter((region) => region.owner === playerPolityId) as Region[] : []}
             ongoingProcesses={ongoingProcesses}
             completedProcesses={completedProcesses}

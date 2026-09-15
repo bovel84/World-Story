@@ -526,6 +526,15 @@ export function initDatabase() {
     if (!e.message.includes('duplicate column name')) { /* уже есть */ }
   }
 
+  // Migration: aliquota fiscale scelta dal giocatore (% del PIL). NULL = il
+  // motore usa l'aliquota calcolata dal profilo del paese.
+  try {
+    db.exec('ALTER TABLE games ADD COLUMN tax_rate_pct REAL DEFAULT NULL');
+    console.log('[Migration] Added tax_rate_pct to games');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) { /* уже есть */ }
+  }
+
   // Players table
   db.exec(`
     CREATE TABLE IF NOT EXISTS players (
@@ -717,6 +726,39 @@ export function initDatabase() {
   try { db.exec('ALTER TABLE ongoing_processes ADD COLUMN progress INTEGER'); } catch { /* già presente */ }
   try { db.exec('ALTER TABLE ongoing_processes ADD COLUMN progress_note TEXT'); } catch { /* già presente */ }
   try { db.exec('ALTER TABLE ongoing_processes ADD COLUMN completed_date TEXT'); } catch { /* già presente */ }
+
+  // Pressioni di pace: le sfide interne ed esterne del turno. Determinate dal
+  // motore dagli indicatori reali, scelte dal giocatore (o lasciate scadere).
+  // Migrazione: la prima stesura usava `id` come chiave globale e due partite
+  // con le stesse sfide si annullavano a vicenda; la chiave ora è composta.
+  try {
+    const sql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='game_pressures'").get() as any)?.sql || '';
+    if (sql && !/PRIMARY KEY\s*\(\s*game_id/i.test(sql)) db.exec('DROP TABLE game_pressures');
+  } catch { /* tabella assente: la crea lo statement sotto */ }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_pressures (
+      id TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      polity_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      template TEXT NOT NULL,
+      title TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      severity INTEGER NOT NULL DEFAULT 1,
+      source TEXT NOT NULL DEFAULT '',
+      options TEXT NOT NULL DEFAULT '[]',
+      inaction TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'active',
+      created_date TEXT NOT NULL,
+      created_turn INTEGER NOT NULL,
+      resolved_date TEXT,
+      resolved_option TEXT,
+      resolution TEXT,
+      PRIMARY KEY (game_id, id),
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_game_pressures_game_status ON game_pressures(game_id, status, created_turn)');
 
   // Stato dinamico delle regioni di una singola partita. Geometria e metadati
   // restano nel world, ma proprietario/economia/oggetti non sono condivisi.

@@ -515,6 +515,12 @@ Se la sezione non è vuota, questi impegni sono già avviati e NON risolti:
 - se il processo matura ma richiede ancora tempo, aggiorna l'esito dell'ordine collegato con "partial" e una nuova expectedDate;
 - non inventare il completamento: se niente nel periodo può concluderlo, lascialo aperto e non menzionarlo.
 
+[Sfide del momento — pressioni di pace]
+
+${vars.PEACETIME_PRESSURES || '(Nessuna sfida aperta: la nazione vive un periodo ordinario, non inventarne di straordinarie.)'}
+
+Queste sfide sono già aperte e attese dal paese. Nel periodo simulato devono produrre conseguenze concrete e coerenti con la scelta del governo: se il giocatore le affronta in un ordine, collegale all'ordine; altrimenti mostra l'effetto dell'inerzia senza risolverle d'autorità.
+
 [Anime del governo — chi preme dentro la nazione]
 
 ${vars.GOVERNMENT_STATE || '(Nessuna anima del governo registrata per questa nazione.)'}

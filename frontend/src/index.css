@@ -2165,6 +2165,53 @@ html, body { margin: 0; }
 .nation-verdict-signals { display: flex; flex-wrap: wrap; gap: 5px 8px; margin: 0; padding: 0; list-style: none; }
 .nation-verdict-signals li { padding: 3px 8px; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 999px; background: rgba(255, 255, 255, 0.04); color: #c6d3e6; font: 500 11px/1.3 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
 
+/* Politica fiscale: il giocatore sceglie l'aliquota e vede il trade-off. */
+.nation-tax-control { display: flex; flex-direction: column; gap: 8px; }
+.nation-tax-control label { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.nation-tax-control label span { color: #9fb0c9; font: 600 10.5px/1 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; }
+.nation-tax-control label b { color: #f3f6fc; font: 700 20px/1 Georgia, serif; font-variant-numeric: tabular-nums; }
+.nation-tax-control input[type="range"] { width: 100%; accent-color: #8a76dd; cursor: pointer; }
+.nation-tax-control input[type="range"]:disabled { cursor: not-allowed; opacity: .55; }
+.nation-tax-scale { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; color: #8fa0bc; font: 500 11px/1.2 system-ui, sans-serif; }
+.nation-tax-scale em { color: #c9b6f2; font-style: normal; font-weight: 600; }
+.nation-tax-effects { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 0; padding: 0; list-style: none; }
+.nation-tax-effects li { color: #c6d3e6; font: 500 12px/1.45 system-ui, sans-serif; }
+.nation-tax-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 11px; }
+.nation-tax-actions button { padding: 7px 14px; border: 1px solid #6d5cc0; border-radius: 8px; background: linear-gradient(180deg, #6a58bd, #55479c); color: #f2effd; font: 700 12px/1 system-ui, sans-serif; cursor: pointer; }
+.nation-tax-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.nation-tax-actions em { color: #93a6c2; font: 500 11.5px/1.35 system-ui, sans-serif; font-style: normal; }
+
+/* Sfide del momento: pressioni interne ed esterne, con le risposte. */
+.nation-pressures { display: flex; flex-direction: column; gap: 12px; }
+.nation-pressure-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.nation-pressure-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 13px 12px 15px; border: 1px solid #354966; border-left: 4px solid #6f83a3; border-radius: 11px; background: #101d31; }
+.nation-pressure-card.kind-internal { border-left-color: #b08a4f; }
+.nation-pressure-card.kind-external { border-left-color: #5d84c4; }
+.nation-pressure-card.severity-3 { box-shadow: inset 0 0 0 1px rgba(217, 123, 123, 0.35); }
+.nation-pressure-head { display: flex; flex-direction: column; gap: 3px; }
+.nation-pressure-kind { color: #9b8adb; font: 700 9.5px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.nation-pressure-head b { color: #f3f6fc; font: 700 15px/1.2 Georgia, serif; }
+.nation-pressure-card p { margin: 0; color: #c6d3e6; font: 12.5px/1.5 system-ui, sans-serif; }
+.nation-pressure-source { color: #8fa0bc; font: 500 11px/1.3 system-ui, sans-serif; }
+.nation-pressure-options { display: flex; flex-direction: column; gap: 6px; }
+.nation-pressure-options label { display: flex; gap: 8px; padding: 8px 10px; border: 1px solid #2f425f; border-radius: 9px; background: rgba(12, 22, 38, 0.7); cursor: pointer; }
+.nation-pressure-options label.is-selected { border-color: #7564b1; background: rgba(117, 100, 177, 0.14); }
+.nation-pressure-options input { margin-top: 2px; accent-color: #8a76dd; }
+.nation-pressure-options span { display: flex; flex-direction: column; gap: 2px; }
+.nation-pressure-options b { color: #eef3fc; font: 600 12.5px/1.3 system-ui, sans-serif; }
+.nation-pressure-options em { color: #9fb0c9; font: 500 11.5px/1.4 system-ui, sans-serif; font-style: normal; }
+.nation-pressure-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.nation-pressure-actions button { padding: 7px 14px; border: 1px solid #6d5cc0; border-radius: 8px; background: linear-gradient(180deg, #6a58bd, #55479c); color: #f2effd; font: 700 12px/1 system-ui, sans-serif; cursor: pointer; }
+.nation-pressure-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.nation-pressure-actions em { color: #b9c7db; font: 500 11.5px/1.35 system-ui, sans-serif; font-style: normal; font-variant-numeric: tabular-nums; }
+.nation-pressure-actions em.is-negative { color: #f0a9a9; }
+.nation-pressure-recent { margin-top: 2px; color: #9fb0c9; font: 500 12px/1.45 system-ui, sans-serif; }
+.nation-pressure-recent summary { cursor: pointer; color: #c9b6f2; font-weight: 600; }
+.nation-pressure-recent ul { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
+.nation-pressure-recent li { display: flex; flex-direction: column; gap: 1px; padding-left: 10px; border-left: 2px solid #41597a; }
+.nation-pressure-recent b { color: #dbe6f5; font: 600 12px/1.3 system-ui, sans-serif; }
+.nation-pressure-recent span { color: #93a6c2; font: 500 11.5px/1.4 system-ui, sans-serif; }
+
 /* Composizione del bilancio: entrate e uscite, voce per voce. */
 .nation-budget-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .nation-budget-group { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #354966; border-radius: 10px; background: #101d31; }

@@ -137,6 +137,16 @@ interface GameData {
     government?: GovernmentSnapshot;
     /** Voci del consiglio generate dall'LLM (facoltative, per-turno). */
     governmentVoices?: GovernmentVoices;
+    /** Sfide di pace attive: interne ed esterne, generate dal motore. */
+    pressures?: Array<{
+      id: string;
+      kind: 'internal' | 'external';
+      title: string;
+      detail: string;
+      severity: number;
+      source: string;
+      options: Array<{ id: string; label: string; detail: string }>;
+    }>;
   };
   actions: ActionData[];
   results: TurnResultData[];
@@ -295,6 +305,7 @@ export class PromptBuilder {
       NPC_STRATEGIC_PROFILES: this.game.npcStrategicProfiles || 'Nessun dossier NPC specifico disponibile.',
       ONGOING_PROCESSES: this.buildOngoingProcesses(),
       GOVERNMENT_STATE: this.buildGovernmentState(),
+      PEACETIME_PRESSURES: this.buildPeacetimePressures(),
 
       ALL_EVENTS_WITH_CONSOLIDATION: this.buildEventHistory(),
       CHATS_NON_CONSOLIDATED_ROUNDS: this.game.chatTranscripts ?? '',
@@ -475,6 +486,19 @@ export class PromptBuilder {
       this.game.worldState?.government,
       this.game.worldState?.governmentVoices,
     );
+  }
+
+  /** Sfide di pace aperte: il narratore le conosce, il giocatore le decide. */
+  private buildPeacetimePressures(): string {
+    const pressures = this.game.worldState?.pressures;
+    if (!pressures || pressures.length === 0) return '';
+    return pressures.map(pressure => {
+      const options = pressure.options && pressure.options.length > 0
+        ? ` Opzioni: ${pressure.options.map(option => `${option.label} → ${option.detail}`).join(' | ')}`
+        : '';
+      const kind = pressure.kind === 'internal' ? 'interna' : 'esterna';
+      return `- [${kind}, gravità ${pressure.severity}/3] ${pressure.title} — ${pressure.detail} (chi preme: ${pressure.source}).${options}`;
+    }).join('\n');
   }
 
   private buildStrategicState(playerPolityId?: string): string {

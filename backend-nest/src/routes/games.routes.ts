@@ -221,6 +221,8 @@ gamesRouter.get('/:id/national-state', (req, res) => {
       // Anime del governo + dettaglio del bilancio: il Dossier Nazione legge
       // voci e pressioni calcolate dal motore, mai stimate nel browser.
       government: session.getGovernment(),
+      // Politica fiscale scelta dal giocatore (aliquota, limiti, effetti).
+      fiscalPolicy: session.getFiscalPolicy(),
     });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get national state');
@@ -321,6 +323,71 @@ gamesRouter.post('/:id/finance/borrow', (req, res) => {
     res.json(session.borrowSovereignDebt(amountMld, termYears));
   } catch (e: any) {
     respondDomainError(res, e, DEBT_ERROR_CODES, 'Failed to issue sovereign debt');
+  }
+});
+
+// Politica fiscale: il giocatore sceglie l'aliquota (% del PIL). Il motore
+// ricalcola entrate, saldo, stabilità, tensione e crescita di conseguenza.
+gamesRouter.get('/:id/fiscal-policy', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json({ policy: session.getFiscalPolicy() });
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to read fiscal policy');
+  }
+});
+
+gamesRouter.put('/:id/fiscal-policy', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const taxRatePct = Number(req.body?.taxRatePct);
+    if (!Number.isFinite(taxRatePct)) {
+      res.status(400).json({ error: 'taxRatePct deve essere un numero' });
+      return;
+    }
+    const result = session.setFiscalPolicy(taxRatePct);
+    res.json({
+      policy: result.policy,
+      note: result.note,
+      account: session.getNationalAccounts()[session.getPlayerPolityId()],
+    });
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to set fiscal policy');
+  }
+});
+
+// Sfide di pace: interne ed esterne, generate dal motore dagli indicatori.
+gamesRouter.get('/:id/pressures', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json(session.getPeacetimePressures());
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to read peacetime pressures');
+  }
+});
+
+// Il giocatore risponde a una sfida: modificatori, cassa e relazioni. La
+// scelta è idempotente (una sfida chiusa non produce un secondo effetto).
+gamesRouter.post('/:id/pressures/:pressureId/resolve', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const optionId = String(req.body?.optionId || '');
+    if (!optionId) {
+      res.status(400).json({ error: 'optionId è obbligatorio' });
+      return;
+    }
+    res.json(session.resolvePeacetimePressure(req.params.pressureId, optionId));
+  } catch (e: any) {
+    const message = String(e?.message || '');
+    if (message.includes('insufficient_funds')) {
+      res.status(400).json({ error: 'Cassa insufficiente per questa scelta.' });
+      return;
+    }
+    if (message.includes('pressure_')) {
+      res.status(409).json({ error: 'Questa sfida non è più aperta.' });
+      return;
+    }
+    respondRouteError(res, e, 'Failed to resolve peacetime pressure');
   }
 });
 

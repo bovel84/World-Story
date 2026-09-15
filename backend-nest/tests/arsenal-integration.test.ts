@@ -276,11 +276,14 @@ describe('arsenale e procurement', () => {
   });
 
   it('i modificatori nazionali decadono nel tempo se non rinnovati', async () => {
-    const { session } = createGame();
+    const { gameId, session } = createGame();
     (session as any).applyWorldChanges({
       nationalEffects: [{ kind: 'modifier', field: 'socialTension', delta: 20, reason: 'disordini diffusi' }],
     });
     expect(session.getResources().modifiers.socialTension).toBe(20);
+    // Le sfide di pace aggiungono un costo d'inerzia: qui interessa solo il
+    // decadimento, quindi si azzerano le pressioni del turno.
+    db.prepare('DELETE FROM game_pressures WHERE game_id = ?').run(gameId);
     await session.advanceDate(30);
     expect(Math.abs(session.getResources().modifiers.socialTension)).toBeLessThan(20);
   });

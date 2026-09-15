@@ -20,7 +20,7 @@ import {
   NATION_SECTION_LABEL,
 } from '../../stores/nationDock';
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
-import type { ArsenalResponse, BudgetLine, GovernmentFaction, GovernmentSnapshot, GovernmentVoicesResponse, NaturalResourceSummary, ResourceQuote, SovereignDebtTranche } from '../../services/api';
+import type { ArsenalResponse, BudgetLine, FiscalPolicyInfo, GovernmentFaction, GovernmentSnapshot, GovernmentVoicesResponse, NaturalResourceSummary, PeacetimePressure, ResourceQuote, SovereignDebtTranche } from '../../services/api';
 import { deltaTone, sparkPoints, trendFrom, trendLabel, type Trend, type TrendTone } from './accountTrend';
 import {
   financeBalance,
@@ -60,6 +60,8 @@ export interface NationAccount {
   annualGrowthRate?: number;
   stability?: number;
   defenceBurdenPct?: number;
+  /** Pressione fiscale applicata alla nazione, in % del PIL. */
+  taxRatePct?: number;
   /** Debito pubblico lordo ereditato in % del PIL (dal registro reale). */
   debtBurdenPct?: number;
   /** Rapporto debito/PIL effettivo (titoli emessi + scoperto), calcolato dal motore. */
@@ -144,6 +146,18 @@ interface NationDockProps {
   onLoadGovernmentVoices?: () => void;
   /** La nazione fa debito: emette titoli con tasso di mercato e scadenza. */
   onBorrowDebt?: (amountMld: number, termYears: number) => Promise<void>;
+  /** Politica fiscale corrente (aliquota scelta, limiti ed effetti). */
+  fiscalPolicy?: FiscalPolicyInfo | null;
+  /** Cambia la pressione fiscale: il motore ricalcola tutto di conseguenza. */
+  onSetFiscalPolicy?: (taxRatePct: number) => Promise<void>;
+  fiscalPolicyBusy?: boolean;
+  /** Sfide del momento: pressioni interne ed esterne generate dal motore. */
+  pressures?: PeacetimePressure[] | null;
+  /** Ultime sfide chiuse (risolte o ignorate), per memoria storica. */
+  recentPressures?: PeacetimePressure[] | null;
+  /** Risponde a una sfida: il motore applica gli effetti. */
+  onResolvePressure?: (pressureId: string, optionId: string) => Promise<void>;
+  pressureBusy?: boolean;
 }
 
 /** Un punto dello storico: data di gioco e conto già pubblicato dal motore. */
@@ -477,6 +491,100 @@ function VerdictBanner({ verdict }: { verdict: NationalVerdict }) {
   );
 }
 
+/** Sfide del momento: il motore le genera, il giocatore decide la risposta. */
+function PressuresBlock({ pressures, recent, onResolve, busy, money }: {
+  pressures: PeacetimePressure[];
+  recent: PeacetimePressure[];
+  onResolve?: (pressureId: string, optionId: string) => Promise<void>;
+  busy?: boolean;
+  money?: number;
+}) {
+  const [choice, setChoice] = useState<Record<string, string>>({});
+  if (pressures.length === 0) {
+    return (
+      <div className="nation-pressures">
+        <EmptyState>Nessuna sfida aperta: il turno è sotto controllo. Le prossime arriveranno con il tempo.</EmptyState>
+        {recent.length > 0 && (
+          <details className="nation-pressure-recent">
+            <summary>Ultime sfide chiuse</summary>
+            <ul>
+              {recent.map((pressure) => (
+                <li key={pressure.id}>
+                  <b>{pressure.title}</b>
+                  <span>{pressure.resolution || (pressure.status === 'expired' ? 'Ignorata: la conseguenza è arrivata da sola.' : 'Chiusa.')}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="nation-pressures">
+      <ul className="nation-pressure-list">
+        {pressures.map((pressure) => {
+          const selected = choice[pressure.id] ?? pressure.options[0]?.id ?? '';
+          const option = pressure.options.find((item) => item.id === selected);
+          const cost = Number(option?.effect?.moneyDeltaMld || 0);
+          const unaffordable = cost < 0 && typeof money === 'number' && money + cost < 0;
+          return (
+            <li key={pressure.id} className={`nation-pressure-card kind-${pressure.kind} severity-${pressure.severity}`}>
+              <div className="nation-pressure-head">
+                <span className="nation-pressure-kind">{pressure.kind === 'internal' ? 'Interna' : 'Esterna'} · gravità {pressure.severity}/3</span>
+                <b>{pressure.title}</b>
+              </div>
+              <p>{pressure.detail}</p>
+              <span className="nation-pressure-source">Chi preme: {pressure.source}</span>
+              <div className="nation-pressure-options" role="radiogroup" aria-label={`Risposta a ${pressure.title}`}>
+                {pressure.options.map((item) => (
+                  <label key={item.id} className={item.id === selected ? 'is-selected' : ''}>
+                    <input
+                      type="radio"
+                      name={`pressure-${pressure.id}`}
+                      value={item.id}
+                      checked={item.id === selected}
+                      disabled={busy}
+                      onChange={() => setChoice((previous) => ({ ...previous, [pressure.id]: item.id }))}
+                    />
+                    <span><b>{item.label}</b><em>{item.detail}</em></span>
+                  </label>
+                ))}
+              </div>
+              <div className="nation-pressure-actions">
+                <button
+                  type="button"
+                  onClick={() => selected && void onResolve?.(pressure.id, selected)}
+                  disabled={busy || !selected || unaffordable || !onResolve}
+                >{busy ? 'Applico…' : 'Decidi'}</button>
+                {cost < 0 && (
+                  <em className={unaffordable ? 'is-negative' : ''}>
+                    Costo {formatMoney(Math.abs(cost), { currency: 'mld', decimals: 2 })}{unaffordable ? ' · cassa insufficiente' : ''}
+                  </em>
+                )}
+                {cost > 0 && <em>Incasso {formatMoney(cost, { currency: 'mld', decimals: 2 })}</em>}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {recent.length > 0 && (
+        <details className="nation-pressure-recent">
+          <summary>Ultime sfide chiuse</summary>
+          <ul>
+            {recent.map((pressure) => (
+              <li key={pressure.id}>
+                <b>{pressure.title}</b>
+                <span>{pressure.resolution || (pressure.status === 'expired' ? 'Ignorata: la conseguenza è arrivata da sola.' : 'Chiusa.')}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 /** Una delle anime del governo: interesse, influenza, umore e richiesta. */
 function FactionCard({ faction, dominant, angriest, onDraftOrder, voice, speaking }: {
   faction: GovernmentFaction;
@@ -583,12 +691,27 @@ export const NationDock: React.FC<NationDockProps> = ({
   governmentVoicesError,
   onLoadGovernmentVoices,
   onBorrowDebt,
+  fiscalPolicy,
+  onSetFiscalPolicy,
+  fiscalPolicyBusy = false,
+  pressures,
+  recentPressures,
+  onResolvePressure,
+  pressureBusy = false,
 }) => {
   const [state, setState] = useState(initialNationDockState);
   const [trading, setTrading] = useState(false);
   const [borrowing, setBorrowing] = useState(false);
   const [borrowAmount, setBorrowAmount] = useState('');
   const [borrowTerm, setBorrowTerm] = useState(10);
+  // Aliquota in corso di modifica: parte dal valore pubblicato dal motore.
+  const [taxDraft, setTaxDraft] = useState<number | null>(null);
+  const effectiveTaxPct = fiscalPolicy?.taxRatePct ?? account?.taxRatePct ?? null;
+  const runSetTax = async () => {
+    if (!onSetFiscalPolicy || fiscalPolicyBusy || taxDraft === null) return;
+    await onSetFiscalPolicy(taxDraft);
+    setTaxDraft(null);
+  };
   const runBorrow = async () => {
     if (!onBorrowDebt || borrowing) return;
     const amount = Number(borrowAmount.replace(',', '.'));
@@ -758,6 +881,19 @@ export const NationDock: React.FC<NationDockProps> = ({
                 />
               </MetricGrid>
               <VerdictBanner verdict={verdict} />
+            </DossierBlock>
+
+            <DossierBlock
+              title="Sfide del momento"
+              description="Pressioni interne ed esterne generate dal motore: ogni turno porta qualcosa da decidere. Ignorarle ha un costo."
+            >
+              <PressuresBlock
+                pressures={pressures || []}
+                recent={recentPressures || []}
+                onResolve={onResolvePressure}
+                busy={pressureBusy}
+                money={account?.money}
+              />
             </DossierBlock>
 
             <DossierBlock
@@ -1414,6 +1550,57 @@ export const NationDock: React.FC<NationDockProps> = ({
                 <Metric label="Territorio amministrato" value={provincesLabel(assets.provinces)} />
                 <Metric label="Processi attivi" value={formatNumber(ongoingProcesses.length)} />
               </MetricGrid>
+            </DossierBlock>
+
+            <DossierBlock
+              title="Politica fiscale"
+              description="Quanto lo Stato preleva dal PIL. Decidi tu: più entrate oggi, meno consenso e crescita domani."
+            >
+              {effectiveTaxPct === null ? (
+                <Footnote>Il conto nazionale non è ancora disponibile: l'aliquota si potrà scegliere appena il motore pubblica le entrate.</Footnote>
+              ) : (
+                <>
+                  <div className="nation-tax-control">
+                    <label htmlFor="nation-tax-rate">
+                      <span>Pressione fiscale</span>
+                      <b>{formatPercent(taxDraft ?? effectiveTaxPct, 1)}</b>
+                    </label>
+                    <input
+                      id="nation-tax-rate"
+                      type="range"
+                      min={fiscalPolicy?.minPct ?? 4}
+                      max={fiscalPolicy?.maxPct ?? 45}
+                      step={0.5}
+                      value={taxDraft ?? effectiveTaxPct}
+                      disabled={!onSetFiscalPolicy || fiscalPolicyBusy}
+                      aria-label="Pressione fiscale in percentuale del PIL"
+                      onChange={(event) => setTaxDraft(Number(event.target.value))}
+                    />
+                    <div className="nation-tax-scale">
+                      <span>{fiscalPolicy?.minPct ?? 4}%</span>
+                      <em>{fiscalPolicy?.label ?? '—'}</em>
+                      <span>{fiscalPolicy?.maxPct ?? 45}%</span>
+                    </div>
+                  </div>
+                  {(fiscalPolicy?.effects?.length ?? 0) > 0 && (
+                    <ul className="nation-tax-effects">
+                      {fiscalPolicy!.effects.map((line) => <li key={line}>{line}</li>)}
+                    </ul>
+                  )}
+                  <div className="nation-tax-actions">
+                    <button
+                      type="button"
+                      onClick={runSetTax}
+                      disabled={taxDraft === null || fiscalPolicyBusy || !onSetFiscalPolicy}
+                    >{fiscalPolicyBusy ? 'Applico…' : 'Applica aliquota'}</button>
+                    <em>
+                      {fiscalPolicy?.configured
+                        ? `Scelta dal governo · profilo ${formatPercent(fiscalPolicy.defaultPct, 1)}`
+                        : `Predefinita dal profilo ${formatPercent(fiscalPolicy?.defaultPct ?? effectiveTaxPct, 1)}`}
+                    </em>
+                  </div>
+                </>
+              )}
             </DossierBlock>
 
             <DossierBlock

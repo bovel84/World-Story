@@ -10,7 +10,7 @@ import { constructionProgressPatch } from './utils/construction-progress';
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
-import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, resourceRepository, arsenalRepository, naturalResourceRepository, productionRepository, modifiersRepository } from './repositories';
+import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, resourceRepository, arsenalRepository, naturalResourceRepository, productionRepository, modifiersRepository, type PressureRecord } from './repositories';
 import { captureEconomicSnapshot, invalidateStrictEffectStaging, restoreEconomicSnapshot, validateEconomicSnapshot } from './repositories/economy-snapshot.repository';
 import { withCanonicalTransaction } from './database';
 import { semanticStateHash } from './domain/semantic-hash';
@@ -18,6 +18,8 @@ import type { ChatRecord, ChatSummary, ChatMessageRecord, ChatParticipant, GameC
 import db from './database';
 import { RelationshipMatrix } from './core/RelationshipMatrix';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
+import { clampTaxRatePct, DEFAULT_FISCAL_POLICY, describeFiscalEffects, fiscalShockModifier, FISCAL_MAX_PCT, FISCAL_MIN_PCT, fiscalLabel, type FiscalPolicy } from './core/simulation/FiscalPolicy';
+import { describePressure, generatePressures, type Pressure, type PressureEffect, type PressureNeighbour, type PressureSnapshot, type RelationStance } from './core/simulation/PeacetimePressures';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import type { GovernmentVoices } from './prompts/government';
 import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, financePurchase, issueSovereignDebt, materialNeeds, movementCost, normalizeStock, overdraftOf, payMovement, seedStock, storageCapacity, type ResourceStock } from './core/simulation/MaterialEconomy';
@@ -408,6 +410,11 @@ export class GameSession {
   private playerPolityId: string = 'player';
   /** Сложность игры (Этап 2) */
   private difficulty: Difficulty = 'normal';
+  /**
+   * Politica fiscale del giocatore: aliquota scelta (% del PIL). `null` = non
+   * ancora impostata → il motore usa l'aliquota calcolata dal profilo del paese.
+   */
+  private taxRatePct: number | null = null;
   /** Консолидированная история ранних раундов и граница её покрытия (Этап 2) */
   private consolidatedHistory: string = '';
   private consolidatedUpTo: number = 0;
@@ -829,8 +836,82 @@ export class GameSession {
    * applicano solo ai mondi dal 1990 in poi. Un preset storico legge solo la
    * mappa e non eredita PIL, popolazione o debito odierni.
    */
-  private worldStateOptions(): { modernFacts: boolean; startDate: string } {
-    return { modernFacts: hasModernReferenceFacts(this.worldStartDate), startDate: this.worldStartDate };
+  private worldStateOptions(): { modernFacts: boolean; startDate: string; taxRateByPolity?: Record<string, number> } {
+    return {
+      modernFacts: hasModernReferenceFacts(this.worldStartDate),
+      startDate: this.worldStartDate,
+      taxRateByPolity: this.taxRatePct !== null && this.playerPolityId
+        ? { [this.playerPolityId]: this.taxRatePct }
+        : undefined,
+    };
+  }
+
+  /** Politica fiscale corrente del giocatore (aliquota e riferimento). */
+  getFiscalPolicy(): FiscalPolicy & {
+    label: string;
+    minPct: number;
+    maxPct: number;
+    effects: string[];
+    /** Aliquota calcolata dal profilo, usata finché il giocatore non sceglie. */
+    defaultPct: number;
+    /** True se il giocatore ha scelto esplicitamente l'aliquota. */
+    configured: boolean;
+  } {
+    const defaultPct = this.engineBaseTaxPct();
+    const taxRatePct = this.taxRatePct ?? defaultPct;
+    return {
+      taxRatePct,
+      label: fiscalLabel(taxRatePct),
+      minPct: FISCAL_MIN_PCT,
+      maxPct: FISCAL_MAX_PCT,
+      effects: describeFiscalEffects(taxRatePct, defaultPct),
+      defaultPct,
+      configured: this.taxRatePct !== null,
+    };
+  }
+
+  /** Aliquota che il motore applicherebbe senza una scelta del giocatore. */
+  private engineBaseTaxPct(): number {
+    try {
+      const base = WorldStateEngine.accounts(this.regions.values(), {
+        modernFacts: hasModernReferenceFacts(this.worldStartDate),
+        startDate: this.worldStartDate,
+      })[this.playerPolityId];
+      return Math.round(Number(base?.taxRatePct ?? DEFAULT_FISCAL_POLICY.taxRatePct) * 10) / 10;
+    } catch {
+      return DEFAULT_FISCAL_POLICY.taxRatePct;
+    }
+  }
+
+  /**
+   * Cambia la pressione fiscale scelta dal giocatore. Validata e persistita;
+   * una manovra brusca lascia un costo politico transitorio (modificatore che
+   * poi decade), mentre il livello scelto agisce in modo permanente sui conti.
+   */
+  setFiscalPolicy(taxRatePct: number): { policy: ReturnType<GameSession['getFiscalPolicy']>; note: string } {
+    const next = clampTaxRatePct(taxRatePct);
+    const previous = this.taxRatePct ?? this.engineBaseTaxPct();
+    this.taxRatePct = next;
+    try {
+      gameRepository.setTaxRatePct(this.id, next);
+    } catch (error) {
+      console.warn('[GameSession] Impossibile salvare l\'aliquota fiscale:', error);
+    }
+    // Costo politico della manovra (una volta sola), indipendente dal livello.
+    const shock = fiscalShockModifier(previous, next);
+    if (shock.stabilityDelta !== 0 || shock.tensionDelta !== 0) {
+      const modifiers = this.modifiersFor(this.playerPolityId);
+      this.saveModifiers(this.playerPolityId, {
+        ...modifiers,
+        stability: modifiers.stability + shock.stabilityDelta,
+        socialTension: modifiers.socialTension + shock.tensionDelta,
+      });
+    }
+    // Le voci del consiglio erano tarate sull'aliquota precedente: si invalidano.
+    this.governmentVoices = null;
+    const note = `Pressione fiscale al ${next}% del PIL (${fiscalLabel(next).toLowerCase()}).`;
+    this.pendingNationalNotes.push(note);
+    return { policy: this.getFiscalPolicy(), note };
   }
 
   /**
@@ -994,6 +1075,189 @@ export class GameSession {
       annualInterest: Math.round(annualDebtServiceMld(result.stock) * 100) / 100,
       debtRatioPct: Math.round(debtRatioPct * 10) / 10,
       creditHeadroom: Math.round(creditHeadroom(result.stock, account) * 100) / 100,
+    };
+  }
+
+  // ── Pressioni di pace: le sfide interne ed esterne del turno ──────────────
+
+  /** Vicini rilevanti per le pressioni esterne, dal più armato. */
+  private pressureNeighbours(): PressureNeighbour[] {
+    const power = new Map<string, number>();
+    for (const region of this.regions.values()) {
+      const owner = region.owner;
+      if (!owner || owner === 'neutral' || owner === this.playerPolityId) continue;
+      power.set(owner, (power.get(owner) || 0) + (Number(region.militaryPower) || 0));
+    }
+    return [...power.entries()]
+      .filter(([, value]) => value > 0)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 8)
+      .map(([polityId, militaryPower]) => ({
+        polityId,
+        name: this.publicPolityName(polityId),
+        militaryPower,
+        stance: this.relationships.get(polityId, this.playerPolityId) as RelationStance,
+      }));
+  }
+
+  /** Mesi di cibo in magazzino del giocatore, `null` se non calcolabile. */
+  private foodCoverageMonths(account?: NationalAccount): number | null {
+    try {
+      const needs = materialNeeds(account ?? this.sessionAccounts()[this.playerPolityId]);
+      if (!needs.food || needs.food <= 0) return null;
+      const stock = this.resourceStock(this.playerPolityId);
+      return Math.max(0, Number(stock.food || 0)) / needs.food;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Fotografia degli indicatori da cui nascono le sfide del turno. */
+  private pressureSnapshot(): PressureSnapshot {
+    const account = this.sessionAccounts()[this.playerPolityId];
+    const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions) || 0);
+    const annualDeficitPct = gdp > 0
+      ? Math.max(0, -(Number(account?.monthlyBalance || 0) * 12) / gdp * 100)
+      : 0;
+    return {
+      polityId: this.playerPolityId,
+      name: this.publicPolityName(this.playerPolityId),
+      turn: this.currentTurn,
+      date: this.currentDate,
+      seed: this.id,
+      atWar: Number(account?.warEffort || 0) >= 60,
+      stability: Number(account?.stability ?? 50),
+      socialTension: Number(account?.socialTension ?? 20),
+      annualGrowthRate: Number(account?.annualGrowthRate ?? 0.01),
+      deficitRatioPct: annualDeficitPct,
+      debtRatioPct: Number(account?.debtRatioPct ?? 0),
+      taxRatePct: Number(account?.taxRatePct ?? 10),
+      militaryPower: this.nationalMilitaryPower(this.playerPolityId),
+      provinces: Number(account?.provinces ?? 0),
+      mobilized: Number(account?.mobilized ?? 0),
+      foodCoverageMonths: this.foodCoverageMonths(account),
+      neighbours: this.pressureNeighbours(),
+    };
+  }
+
+  /**
+   * Genera le sfide del turno corrente solo se non ce ne sono già di attive.
+   * Chiamata al caricamento: un riavvio non crea sfide nuove a metà turno.
+   */
+  private ensurePeacetimePressures(): void {
+    try {
+      // Se il turno corrente ha già avuto le sue sfide (anche se il giocatore
+      // le ha risolte tutte), non se ne inventano altre a metà turno.
+      if (gameRepository.listPressures(this.id).some(record => record.createdTurn === this.currentTurn)) return;
+      const pressures = generatePressures(this.pressureSnapshot(), { maxPressures: 3 });
+      gameRepository.insertPressures(this.id, this.playerPolityId, pressures, this.currentDate, this.currentTurn);
+    } catch (error) {
+      console.warn('[GameSession] Pressioni di pace non disponibili:', error);
+    }
+  }
+
+  /**
+   * Chiude il turno delle pressioni: le sfide ignorate pesano (inerzia) e ne
+   * nascono di nuove dagli indicatori aggiornati.
+   */
+  private refreshPeacetimePressures(): void {
+    try {
+      const expired = gameRepository.expirePressures(this.id);
+      for (const record of expired) {
+        this.applyPressureEffect(record.inaction, `${record.title}: sfida ignorata`);
+      }
+      const pressures = generatePressures(this.pressureSnapshot(), { maxPressures: 3 });
+      gameRepository.insertPressures(this.id, this.playerPolityId, pressures, this.currentDate, this.currentTurn);
+    } catch (error) {
+      console.warn('[GameSession] Pressioni di pace non disponibili:', error);
+    }
+  }
+
+  /** Applica la conseguenza di una scelta (o dell'inerzia) alla nazione. */
+  private applyPressureEffect(effect: PressureEffect, reason: string): void {
+    const modifierEffects: NationalEffect[] = [];
+    if (effect.stability) modifierEffects.push({ kind: 'modifier', field: 'stability', delta: effect.stability, reason });
+    if (effect.socialTension) modifierEffects.push({ kind: 'modifier', field: 'socialTension', delta: effect.socialTension, reason });
+    if (effect.growthModifier !== undefined || effect.revenueMultiplierDelta !== undefined) {
+      modifierEffects.push({
+        kind: 'economy',
+        growthModifierDelta: effect.growthModifier,
+        revenueMultiplierDelta: effect.revenueMultiplierDelta,
+        reason,
+      });
+    }
+    if (modifierEffects.length > 0) {
+      const { modifiers } = applyModifierEffects(this.modifiersFor(this.playerPolityId), modifierEffects);
+      this.saveModifiers(this.playerPolityId, modifiers);
+    }
+    if (effect.moneyDeltaMld) {
+      const stock = this.resourceStock(this.playerPolityId);
+      const money = Math.round((Number(stock.money || 0) + effect.moneyDeltaMld) * 100) / 100;
+      this.saveResourceStock(this.playerPolityId, { ...stock, money: Math.max(0, money) });
+    }
+    if (effect.relationship) {
+      const { target, direction } = effect.relationship;
+      if (direction === 'improve') this.relationships.improve(this.playerPolityId, target);
+      else this.relationships.degrade(this.playerPolityId, target);
+      try {
+        relationshipRepository.upsertForGame(this.id, [{
+          from: this.playerPolityId,
+          to: target,
+          newRelationship: this.relationships.get(this.playerPolityId, target),
+          reason,
+        }]);
+      } catch (error) {
+        console.warn('[GameSession] Relazione non salvata:', error);
+      }
+    }
+    if (effect.note) this.pendingNationalNotes.push(`⚑ ${effect.note}`);
+  }
+
+  /**
+   * Le sfide del momento per il dossier: attive da risolvere e le ultime
+   * chiuse, così il giocatore vede anche l'eco delle scelte passate.
+   */
+  getPeacetimePressures(): {
+    pressures: PressureRecord[];
+    recent: PressureRecord[];
+    foodCoverageMonths: number | null;
+  } {
+    const all = gameRepository.listPressures(this.id);
+    return {
+      pressures: all.filter(record => record.status === 'active'),
+      recent: all.filter(record => record.status !== 'active').slice(0, 6),
+      foodCoverageMonths: this.foodCoverageMonths(),
+    };
+  }
+
+  /**
+   * Il giocatore risponde a una sfida. La scelta è idempotente: risolvere due
+   * volte la stessa pressione non applica l'effetto una seconda volta.
+   */
+  resolvePeacetimePressure(pressureId: string, optionId: string): {
+    pressure: PressureRecord;
+    effect: PressureEffect;
+    account?: NationalAccount;
+  } {
+    const record = gameRepository.listPressures(this.id, 'active').find(item => item.id === pressureId);
+    if (!record) throw new Error('pressure_not_active: la sfida non è più aperta');
+    const option = record.options.find(item => item.id === optionId);
+    if (!option) throw new Error('pressure_option_unknown: opzione non valida');
+    if (option.effect.moneyDeltaMld && option.effect.moneyDeltaMld < 0) {
+      const stock = this.resourceStock(this.playerPolityId);
+      if (Number(stock.money || 0) + option.effect.moneyDeltaMld < 0) {
+        throw new Error('insufficient_funds: cassa insufficiente per questa scelta');
+      }
+    }
+    this.applyPressureEffect(option.effect, `${record.title}: ${option.label}`);
+    if (!gameRepository.resolvePressure(this.id, pressureId, optionId, option.effect.note, this.currentDate)) {
+      throw new Error('pressure_not_active: la sfida è stata già chiusa');
+    }
+    this.governmentVoices = null;
+    return {
+      pressure: { ...record, status: 'resolved', resolvedOption: optionId, resolution: option.effect.note, resolvedDate: this.currentDate },
+      effect: option.effect,
+      account: this.sessionAccounts()[this.playerPolityId],
     };
   }
 
@@ -1700,6 +1964,17 @@ export class GameSession {
         governmentVoices: this.governmentVoices?.key === this.governmentVoiceKey()
           ? this.governmentVoices.data
           : undefined,
+        // Sfide del momento: generate dal motore, scelte dal giocatore. Il
+        // narratore le riceve come fatti aperti, non come invenzioni.
+        pressures: gameRepository.listPressures(this.id, 'active').map(record => ({
+          id: record.id,
+          kind: record.kind,
+          title: record.title,
+          detail: record.detail,
+          severity: record.severity,
+          source: record.source,
+          options: record.options.map(option => ({ id: option.id, label: option.label, detail: option.detail })),
+        })),
       },
       world: {
         name: this.worldName,
@@ -2504,6 +2779,7 @@ export class GameSession {
     this.worldStartDate = world.start_date || '1951-01-01';
     this.worldSimulationRules = world.simulation_rules || undefined;
     this.difficulty = normalizeDifficulty(difficulty);
+    this.taxRatePct = gameRepository.getTaxRatePct(this.id);
 
     // Load all regions into session state
     for (const region of world.regions) {
@@ -2571,6 +2847,11 @@ export class GameSession {
 
     this.currentDate = world.start_date || '1951-01-01';
 
+    // Il primo turno di una nuova partita deve già avere le sue sfide. Va fatto
+    // prima degli `await`: `initialize` non è atteso dal registry e un lettore
+    // immediato non deve trovare il dossier vuoto.
+    this.ensurePeacetimePressures();
+
     // Sync all regions to DB on init (ensure baseline is persisted)
     await this.syncRegionsToDB();
 
@@ -2600,6 +2881,7 @@ export class GameSession {
     this.currentDate = data.currentDate;
     this.players = data.players || [];
     this.difficulty = normalizeDifficulty(data.difficulty);
+    this.taxRatePct = gameRepository.getTaxRatePct(this.id);
     this.consolidatedHistory = data.consolidatedHistory || '';
     this.consolidatedUpTo = data.consolidatedUpTo || 0;
 
@@ -2702,6 +2984,9 @@ export class GameSession {
       .filter(r => r.owner !== 'neutral' && r.owner !== this.playerPolityId)
       .map(r => ({ id: r.id, name: r.name, owner: r.owner }));
     this.gameController.setupNPCCountries(regionConfigs);
+
+    // Un riavvio non azzera le sfide del turno in corso.
+    this.ensurePeacetimePressures();
 
     console.log('[GameSession] Reconstructed session from DB, turn:', this.currentTurn);
   }
@@ -4343,6 +4628,7 @@ export class GameSession {
     this.consolidatedHistory = saveData.consolidatedHistory || '';
     this.consolidatedUpTo = saveData.consolidatedUpTo || 0;
     this.difficulty = normalizeDifficulty(saveData.difficulty);
+    this.taxRatePct = gameRepository.getTaxRatePct(this.id);
     this.interveneRequested = false;
     // La coda appartiene al ramo salvato: ripristinala invece di perderla.
     // §9.3: gli ordini «processing» del playback sospeso tornano insieme al
@@ -4407,6 +4693,7 @@ export class GameSession {
       }
       throw e;
     }
+    this.ensurePeacetimePressures();
     console.log('[GameSession] Loaded from save, turn:', this.currentTurn);
     return { branchId: gameRepository.getHeadBranch(this.id) };
   }
@@ -4466,6 +4753,8 @@ export class GameSession {
       return null;
     }
 
+    // Le sfide nate nei turni annullati non appartengono più alla storia.
+    gameRepository.deletePressuresAfterTurn(this.id, (Number(saveData.currentTurn) || 0) - 1);
     this.loadFromSave(saveData, save.content_hash ?? undefined);
     // Результат откаченного хода записан с turn == восстановленному currentTurn
     gameRepository.deleteAfterTurn(this.id, this.currentTurn - 1);
@@ -5429,6 +5718,11 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
   /** Dossier aggregati aggiornati dalla fonte di verità provinciale. */
   getNationalAccounts() {
     return this.sessionAccounts();
+  }
+
+  /** Polity del paese giocatore (es. `ITA`). */
+  getPlayerPolityId(): string {
+    return this.playerPolityId;
   }
 
   /**
@@ -6567,6 +6861,9 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // Advance turn and date
       this.currentTurn++;
       this.currentDate = period.end;
+      // Le sfide del turno appena chiuso scadono (l'inerzia pesa) e ne
+      // nascono di nuove dagli indicatori aggiornati.
+      this.refreshPeacetimePressures();
 
       // Now set periodEnd (after advancing)
       actions.forEach(item => {
@@ -6855,6 +7152,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     const bulletin = WorldStateEngine.playerBulletin(tickAccounts[this.playerPolityId]);
     this.currentTurn++;
     this.currentDate = newDate;
+    this.refreshPeacetimePressures();
     this.recordAccountSnapshot(newDate, tickAccounts);
 
     const id = shortId();

@@ -145,7 +145,42 @@ export interface NationalBudgetDetail {
   educationBurdenPct: number;
 }
 
+/** Politica fiscale corrente del giocatore (aliquota scelta, % del PIL). */
+export interface FiscalPolicyInfo {
+  taxRatePct: number;
+  label: string;
+  minPct: number;
+  maxPct: number;
+  effects: string[];
+  /** Aliquota calcolata dal profilo, usata finché il giocatore non sceglie. */
+  defaultPct: number;
+  /** True se il giocatore ha scelto esplicitamente l'aliquota. */
+  configured: boolean;
+}
+
 export type FactionStance = 'alleato' | 'favorevole' | 'neutrale' | 'critico' | 'ostile';
+
+/** Sfida di pace: interna o esterna, con le opzioni di risposta. */
+export interface PeacetimePressure {
+  id: string;
+  kind: 'internal' | 'external';
+  template: string;
+  title: string;
+  detail: string;
+  severity: number;
+  source: string;
+  options: Array<{
+    id: string;
+    label: string;
+    detail: string;
+    effect?: { moneyDeltaMld?: number; note?: string };
+  }>;
+  status: 'active' | 'resolved' | 'expired' | string;
+  createdDate: string;
+  createdTurn: number;
+  resolvedOption?: string | null;
+  resolution?: string | null;
+}
 export type FactionLever = 'difesa' | 'tasse' | 'welfare' | 'istruzione' | 'infrastrutture' | 'debito' | 'ordine';
 
 /** Richiesta concreta di una fazione del governo. */
@@ -466,6 +501,8 @@ export const gameApi = {
     history?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
     /** Anime del governo e dettaglio del bilancio, calcolati dal motore. */
     government?: GovernmentSnapshot | null;
+    /** Politica fiscale corrente del giocatore (aliquota, limiti, effetti). */
+    fiscalPolicy?: FiscalPolicyInfo | null;
     /** Magazzino materiale del giocatore (legacy): stock, conto e risorse naturali. */
     resources?: {
       stock?: { money?: number; debt?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
@@ -531,6 +568,43 @@ export const gameApi = {
   /** Ordini di produzione militare con percentuale di completamento. */
   production: (gameId: string): Promise<{ orders: ProductionOrder[]; inProgress: number }> =>
     fetchApi(`/games/${gameId}/production`),
+
+  /** Politica fiscale: aliquota scelta dal giocatore e suoi effetti. */
+  fiscalPolicy: (gameId: string): Promise<{ policy: FiscalPolicyInfo }> =>
+    fetchApi(`/games/${gameId}/fiscal-policy`),
+
+  /**
+   * Cambia la pressione fiscale. Il motore ricalcola entrate, saldo, stabilità,
+   * tensione e crescita; una manovra brusca lascia un costo politico transitorio.
+   */
+  setFiscalPolicy: (gameId: string, taxRatePct: number): Promise<{
+    policy: FiscalPolicyInfo;
+    note: string;
+    account?: Record<string, any>;
+  }> =>
+    fetchApi(`/games/${gameId}/fiscal-policy`, {
+      method: 'PUT',
+      body: JSON.stringify({ taxRatePct }),
+    }),
+
+  /** Sfide di pace attive e ultime chiuse: le pressioni del turno. */
+  peacetimePressures: (gameId: string): Promise<{
+    pressures: PeacetimePressure[];
+    recent: PeacetimePressure[];
+    foodCoverageMonths: number | null;
+  }> =>
+    fetchApi(`/games/${gameId}/pressures`),
+
+  /** Risponde a una sfida: il motore applica modificatori, cassa e relazioni. */
+  resolvePeacetimePressure: (gameId: string, pressureId: string, optionId: string): Promise<{
+    pressure: PeacetimePressure;
+    effect: { note?: string; moneyDeltaMld?: number };
+    account?: Record<string, any>;
+  }> =>
+    fetchApi(`/games/${gameId}/pressures/${encodeURIComponent(pressureId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ optionId }),
+    }),
 
   /** Vende (`sell`) o compra (`buy`) una risorsa naturale sul mercato mondiale. */
   tradeResource: (gameId: string, mode: 'sell' | 'buy', resourceId: string, quantity: number): Promise<{

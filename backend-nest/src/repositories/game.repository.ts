@@ -7,6 +7,7 @@ import db from '../database';
 import { worldRepository } from './world.repository';
 import { semanticStateHash } from '../domain/semantic-hash';
 import { randomUUID } from 'node:crypto';
+import type { Pressure, PressureEffect, PressureKind, PressureOption } from '../core/simulation/PeacetimePressures';
 
 function bumpQueueVersion(gameId: string): void {
   db.prepare('UPDATE games SET queue_version = queue_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(gameId);
@@ -48,6 +49,20 @@ export const gameRepository = {
   getHeadBranch: (gameId: string): string | null => {
     const row = db.prepare('SELECT head_branch_id FROM games WHERE id = ?').get(gameId) as { head_branch_id?: string } | undefined;
     return row?.head_branch_id ?? null;
+  },
+
+  /**
+   * Aliquota fiscale scelta dal giocatore (% del PIL). `null` = mai impostata:
+   * il motore usa l'aliquota calcolata dal profilo del paese.
+   */
+  getTaxRatePct: (gameId: string): number | null => {
+    const row = db.prepare('SELECT tax_rate_pct FROM games WHERE id = ?').get(gameId) as { tax_rate_pct?: number | null } | undefined;
+    const value = row?.tax_rate_pct;
+    return value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Number(value);
+  },
+
+  setTaxRatePct: (gameId: string, taxRatePct: number): void => {
+    db.prepare('UPDATE games SET tax_rate_pct = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(taxRatePct, gameId);
   },
 
   createBranch: (branch: { id: string; gameId: string; name: string; parentBranchId?: string | null; originCheckpointId?: string | null }) => {
@@ -800,4 +815,111 @@ export const gameRepository = {
     db.prepare('DELETE FROM actions WHERE game_id = ? AND turn > ?').run(gameId, turn);
     db.prepare('DELETE FROM turn_results WHERE game_id = ? AND turn > ?').run(gameId, turn);
   },
+
+  // ── Pressioni di pace: le sfide del turno ─────────────────────────────────
+
+  /** Pressioni registrate per la partita, dalla più recente. */
+  listPressures: (gameId: string, status?: string): PressureRecord[] => {
+    const rows = (status
+      ? db.prepare('SELECT * FROM game_pressures WHERE game_id = ? AND status = ? ORDER BY created_turn DESC, severity DESC, id').all(gameId, status)
+      : db.prepare('SELECT * FROM game_pressures WHERE game_id = ? ORDER BY created_turn DESC, severity DESC, id').all(gameId)) as any[];
+    return rows.map(mapPressureRow);
+  },
+
+  /** Registra le pressioni generate per un turno (idempotente sull'id). */
+  insertPressures: (gameId: string, polityId: string, pressures: Pressure[], date: string, turn: number): void => {
+    if (pressures.length === 0) return;
+    const stmt = db.prepare(`
+      INSERT OR IGNORE INTO game_pressures
+        (id, game_id, polity_id, kind, template, title, detail, severity, source, options, inaction, status, created_date, created_turn)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+    `);
+    db.transaction((items: Pressure[]) => {
+      for (const pressure of items) {
+        stmt.run(
+          pressure.id, gameId, polityId, pressure.kind, pressure.template, pressure.title,
+          pressure.detail, pressure.severity, pressure.source,
+          JSON.stringify(pressure.options), JSON.stringify(pressure.inaction), date, turn,
+        );
+      }
+    })(pressures);
+  },
+
+  /**
+   * Chiude una pressione con la scelta del giocatore. Ritorna `false` se non
+   * era attiva (già risolta o scaduta): la risoluzione è idempotente.
+   */
+  resolvePressure: (gameId: string, pressureId: string, optionId: string, resolution: string, date: string): boolean => {
+    const result = db.prepare(`
+      UPDATE game_pressures
+         SET status = 'resolved', resolved_option = ?, resolution = ?, resolved_date = ?
+       WHERE game_id = ? AND id = ? AND status = 'active'
+    `).run(optionId, resolution, date, gameId, pressureId);
+    return result.changes === 1;
+  },
+
+  /** Marca come `expired` le pressioni attive non risolte di un turno passato. */
+  expirePressures: (gameId: string): PressureRecord[] => {
+    const active = gameRepository.listPressures(gameId, 'active');
+    if (active.length === 0) return [];
+    db.prepare("UPDATE game_pressures SET status = 'expired' WHERE game_id = ? AND status = 'active'").run(gameId);
+    return active;
+  },
+
+  /** Ripulisce le pressioni di una partita (usato dal rewind). */
+  deletePressuresAfterTurn: (gameId: string, turn: number) => {
+    db.prepare('DELETE FROM game_pressures WHERE game_id = ? AND created_turn > ?').run(gameId, turn);
+  },
 };
+
+export interface PressureRecord {
+  id: string;
+  gameId: string;
+  polityId: string;
+  kind: PressureKind;
+  template: string;
+  title: string;
+  detail: string;
+  severity: number;
+  source: string;
+  options: PressureOption[];
+  inaction: PressureEffect;
+  status: 'active' | 'resolved' | 'expired' | string;
+  createdDate: string;
+  createdTurn: number;
+  resolvedDate?: string | null;
+  resolvedOption?: string | null;
+  resolution?: string | null;
+}
+
+function parseJson<T>(value: unknown, fallback: T): T {
+  if (typeof value !== 'string' || value.length === 0) return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return (parsed ?? fallback) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function mapPressureRow(row: any): PressureRecord {
+  return {
+    id: row.id,
+    gameId: row.game_id,
+    polityId: row.polity_id,
+    kind: row.kind,
+    template: row.template,
+    title: row.title,
+    detail: row.detail,
+    severity: Number(row.severity ?? 1),
+    source: row.source ?? '',
+    options: parseJson<PressureOption[]>(row.options, []),
+    inaction: parseJson<PressureEffect>(row.inaction, { note: '' }),
+    status: row.status,
+    createdDate: row.created_date,
+    createdTurn: Number(row.created_turn ?? 0),
+    resolvedDate: row.resolved_date ?? null,
+    resolvedOption: row.resolved_option ?? null,
+    resolution: row.resolution ?? null,
+  };
+}

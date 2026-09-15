@@ -40,6 +40,8 @@ export interface PromptVariables {
   ONGOING_PROCESSES?: string;
   /** Anime del governo: interessi, umori, pressioni e richieste della nazione. */
   GOVERNMENT_STATE?: string;
+  /** Sfide di pace aperte (interne ed esterne) generate dal motore. */
+  PEACETIME_PRESSURES?: string;
 
   // События
   ALL_EVENTS_WITH_CONSOLIDATION: string;

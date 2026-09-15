@@ -81,4 +81,47 @@ describe('WorldStateEngine', () => {
     expect(historical.nominalGdpUsdBillions).toBe(12);
     expect(historical.debtBurdenPct).toBe(0);
   });
+
+  it('senza scelta del giocatore usa l’aliquota calcolata dal profilo', () => {
+    const account = WorldStateEngine.accounts([
+      { id: 'p', owner: 'AAA', population: 1_000_000, gdp: 100, militaryPower: 10,
+        objects: [{ type: 'factory', level: 1 }] },
+    ]).AAA;
+    // La base è 9% + 0,035% per fabbrica, arrotondata al decimo di punto.
+    expect(account.taxRatePct).toBeCloseTo(9.0, 5);
+    const impliedRate = (account.monthlyRevenue * 12) / account.nominalGdpUsdBillions;
+    expect(impliedRate).toBeGreaterThanOrEqual(0.09);
+    expect(impliedRate).toBeLessThan(0.095);
+  });
+
+  it('l’aliquota scelta dal giocatore sostituisce quella del profilo e muove i conti', () => {
+    const regions = [
+      { id: 'p', owner: 'AAA', population: 1_000_000, gdp: 100, militaryPower: 10,
+        objects: [{ type: 'factory', level: 1 }] },
+    ];
+    const base = WorldStateEngine.accounts(regions).AAA;
+    const low = WorldStateEngine.accounts(regions, { taxRateByPolity: { AAA: 4 } }).AAA;
+    const high = WorldStateEngine.accounts(regions, { taxRateByPolity: { AAA: 30 } }).AAA;
+
+    expect(low.taxRatePct).toBe(4);
+    expect(high.taxRatePct).toBe(30);
+    // Più prelievo, più entrate e saldo migliore…
+    expect(high.monthlyRevenue).toBeGreaterThan(base.monthlyRevenue);
+    expect(low.monthlyRevenue).toBeLessThan(base.monthlyRevenue);
+    expect(high.monthlyBalance).toBeGreaterThan(low.monthlyBalance);
+    // …ma meno consenso, più tensione e meno crescita.
+    expect(high.stability).toBeLessThan(low.stability);
+    expect(high.socialTension).toBeGreaterThan(low.socialTension);
+    expect(high.annualGrowthRate).toBeLessThan(low.annualGrowthRate);
+  });
+
+  it('l’aliquota vale solo per la polity indicata', () => {
+    const regions = [
+      { id: 'a', owner: 'AAA', population: 1_000_000, gdp: 100, militaryPower: 10 },
+      { id: 'b', owner: 'BBB', population: 1_000_000, gdp: 100, militaryPower: 10 },
+    ];
+    const accounts = WorldStateEngine.accounts(regions, { taxRateByPolity: { AAA: 25 } });
+    expect(accounts.AAA.taxRatePct).toBe(25);
+    expect(accounts.BBB.taxRatePct).toBeCloseTo(9.0, 5);
+  });
 });
