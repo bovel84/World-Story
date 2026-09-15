@@ -23,7 +23,7 @@ import { HudBar } from './components/Game/HudBar';
 import { GameLoader, WORLD_GEN_PHASES } from './components/Game/GameLoader';
 import { Fab } from './components/Game/Fab';
 // DISATTIVATO: editor mappe (temporaneo) — mapApi era usato solo dall’editor/«Le mie mappe»
-import { chatsApi, gameApi, worldApi, savesApi, llmApi, type FiscalPolicyInfo, type GovernmentSnapshot, type GovernmentVoicesResponse, type PeacetimePressure, type TimelineEntry } from './services/api';
+import { chatsApi, gameApi, worldApi, savesApi, llmApi, type CrisisSnapshot, type FiscalPolicyInfo, type GameEnding, type GovernmentSnapshot, type GovernmentVoicesResponse, type PeacetimePressure, type TimelineEntry } from './services/api';
 import { getStoredKey, migrateLegacyKey } from './services/llmKeyStore';
 import type { Region, World, Game } from './types';
 import { useGameStore, useUIStore, useActionsStore, useChatStore, selectTotalUnread, type FloatingPanelTab } from './stores';
@@ -38,6 +38,7 @@ import { ActionsPanel } from './components/Game/ActionsPanel';
 import { NationDock } from './components/Game/NationDock';
 import { normalizeResources } from './components/Game/nationDossier';
 import { FeasibilityCheck } from './components/Game/FeasibilityCheck';
+import { GameOverOverlay } from './components/Game/GameOverOverlay';
 import type { FeasibilityResult } from './components/Game/FeasibilityCheck';
 import { useOrderDraftStore } from './stores/orderDraftStore';
 import { SimulationEventReader, type PlaybackReaderState } from './components/Game/SimulationEventReader';
@@ -270,6 +271,10 @@ function App() {
   const [nationalPressures, setNationalPressures] = useState<PeacetimePressure[]>([]);
   const [recentPressures, setRecentPressures] = useState<PeacetimePressure[]>([]);
   const [pressureBusy, setPressureBusy] = useState(false);
+  // Crisi nazionale: rischi di rivolta, default e invasione. Se la nazione
+  // cade, `gameEnding` porta l'epilogo e la partita si chiude.
+  const [nationalCrisis, setNationalCrisis] = useState<CrisisSnapshot | null>(null);
+  const [gameEnding, setGameEnding] = useState<GameEnding | null>(null);
   // Voci delle anime del governo: generate dall'LLM su richiesta quando si apre
   // la scheda Governo, valide per il turno corrente.
   const [governmentVoices, setGovernmentVoices] = useState<GovernmentVoicesResponse | null>(null);
@@ -435,7 +440,7 @@ function App() {
 
   // Il bollettino usa dati aggregati dal motore, non formule del browser.
   useEffect(() => {
-    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setNationalResources(null); setNationalArms(null); setNationalGovernment(null); setNationalFiscalPolicy(null); setNationalPressures([]); setRecentPressures([]); setGovernmentVoices(null); setGovernmentVoicesError(null); setMandateDecisions([]); return; }
+    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setNationalResources(null); setNationalArms(null); setNationalGovernment(null); setNationalFiscalPolicy(null); setNationalPressures([]); setRecentPressures([]); setNationalCrisis(null); setGameEnding(null); setGovernmentVoices(null); setGovernmentVoicesError(null); setMandateDecisions([]); return; }
     // Cambia il turno: le voci del consiglio appartengono al turno e vanno rigenerate.
     setGovernmentVoices(null);
     setGovernmentVoicesError(null);
@@ -444,7 +449,7 @@ function App() {
     // mandato appartengono invece solo al percorso strict e un 409 significa
     // semplicemente «nessuna decisione applicabile», non un errore del dossier.
     gameApi.nationalState(currentGameId)
-      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(normalizeResources(national.resources)); setNationalGovernment(national.government ?? null); setNationalFiscalPolicy(national.fiscalPolicy ?? null); } })
+      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(normalizeResources(national.resources)); setNationalGovernment(national.government ?? null); setNationalFiscalPolicy(national.fiscalPolicy ?? null); setNationalCrisis(national.crisis ?? null); setGameEnding(national.crisis?.ending ?? null); } })
       .catch(error => console.warn('[App] Impossibile caricare il conto nazionale:', error));
     // Le sfide di pace nascono dal motore e vivono nel dossier: leggerle qui
     // evita che un turno senza sfide visibili sembri vuoto.
@@ -1205,6 +1210,9 @@ function App() {
       await gameApi.rewind(currentGame.id);
       const updatedGame = await gameApi.get(currentGame.id);
       setCurrentGame(updatedGame);
+      // Il turno annullato cancella anche il collasso: si torna a giocare.
+      setGameEnding(null);
+      setNationalCrisis(null);
 
       if (updatedGame.world && currentWorld) {
         const newRegions = { ...currentWorld.regions };
@@ -2001,6 +2009,15 @@ function App() {
     onActionVoided: (data) => {
       setTurnProgress(`⊘ Azione rifiutata: ${data.reason || data.action}`);
     },
+    // La nazione è caduta: la partita si chiude con un epilogo, non con un
+    // ennesimo turno. Il pannello resta finché il giocatore non sceglie.
+    onGameOver: (data) => {
+      if (data?.ending) {
+        setGameEnding(data.ending);
+        setIsProcessingTurn(false);
+        setTurnProgress('');
+      }
+    },
     // Messaggio diplomatico live: aggiorna thread/lista e badge senza polling.
     onChatMessage: (data) => {
       const chatStore = useChatStore.getState();
@@ -2400,6 +2417,7 @@ function App() {
               recentPressures={recentPressures}
               onResolvePressure={resolvePressure}
               pressureBusy={pressureBusy}
+              nationalCrisis={nationalCrisis}
               onDraftGovernmentPetition={draftGovernmentPetition}
               governmentVoices={governmentVoices}
               governmentVoicesLoading={governmentVoicesLoading}
@@ -2619,6 +2637,17 @@ function App() {
               }
             })();
           }}
+        />
+      )}
+      {gameEnding && (
+        <GameOverOverlay
+          ending={gameEnding}
+          date={gameEnding.date || currentGame?.currentDate}
+          turn={gameEnding.turn || currentGame?.currentTurn}
+          busy={loading}
+          onRewind={() => void handleRewindConfirmed()}
+          onNewGame={() => { setGameEnding(null); setCurrentView('select-template'); }}
+          onClose={() => setGameEnding(null)}
         />
       )}
       {showLoadSaveConfirm && (

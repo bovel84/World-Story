@@ -6,7 +6,7 @@ import { EventFeed } from '../Game/EventFeed';
 import { DiplomacyPanel } from '../Game/DiplomacyPanel';
 import { NationDock } from '../Game/NationDock';
 import type { NationResources } from '../Game/NationDock';
-import type { ArsenalResponse, FiscalPolicyInfo, GovernmentSnapshot, GovernmentVoicesResponse, PeacetimePressure } from '../../services/api';
+import type { ArsenalResponse, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, GovernmentVoicesResponse, PeacetimePressure } from '../../services/api';
 import { SaveGameModal } from '../Game/SaveGameModal';
 import { useToast } from '../ui/ToastProvider';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -51,6 +51,8 @@ interface DeskContentProps {
   recentPressures?: PeacetimePressure[];
   onResolvePressure?: (pressureId: string, optionId: string) => Promise<void>;
   pressureBusy?: boolean;
+  /** Crisi nazionale: rischi di collasso ed eventuale epilogo. */
+  nationalCrisis?: CrisisSnapshot | null;
   pendingActions: Array<{ id: string; text: string }>;
   suggestions: Suggestion[];
   orderDraftText: string;
@@ -119,6 +121,7 @@ export function DeskContent({
   recentPressures = [],
   onResolvePressure,
   pressureBusy = false,
+  nationalCrisis = null,
   pendingActions,
   suggestions,
   orderDraftText,
@@ -405,6 +408,7 @@ export function DeskContent({
             recentPressures={recentPressures}
             onResolvePressure={onResolvePressure}
             pressureBusy={pressureBusy}
+            crisis={nationalCrisis}
             regions={currentWorld?.regions ? Object.values(currentWorld.regions).filter((region) => region.owner === playerPolityId) as Region[] : []}
             ongoingProcesses={ongoingProcesses}
             completedProcesses={completedProcesses}

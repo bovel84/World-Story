@@ -164,4 +164,21 @@ describe('la cassa segue le scelte del giocatore', () => {
     expect(completed[0].completed_date).toBe('1952-02-01');
   });
 
+  it('un ordine che la cassa non può coprire è annullato dal motore', async () => {
+    jumpMode = 'accepted';
+    const { session } = createGame();
+    // Cassa scoperta oltre il tetto del credito: la realtà non si aggira.
+    // Il modello ha dichiarato l’ordine «accepted», ma i soldi non ci sono.
+    const stock = session.getResources().stock;
+    stock.money = -100;
+
+    session.queueAction(ORDER);
+    const action = await session.processNextAction(30);
+
+    // Il motore declassa l’esito: niente successo senza copertura.
+    expect(action?.result?.outcome?.status).toBe('voided');
+    const events = session.getResults().flatMap((result: any) => result.events).join(' | ');
+    expect(events).toContain('ordine annullato');
+    expect(events).toContain('non attua la direttiva');
+  });
 });

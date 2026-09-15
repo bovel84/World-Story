@@ -760,6 +760,27 @@ export function initDatabase() {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_game_pressures_game_status ON game_pressures(game_id, status, created_turn)');
 
+  // Stato di crisi della partita: serie di turni critici per dimensione e
+  // l'eventuale epilogo (rivoluzione, default, invasione).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_crisis_state (
+      game_id TEXT PRIMARY KEY,
+      revolt_streak INTEGER NOT NULL DEFAULT 0,
+      insolvency_streak INTEGER NOT NULL DEFAULT 0,
+      invasion_streak INTEGER NOT NULL DEFAULT 0,
+      overall TEXT NOT NULL DEFAULT 'calm',
+      ending_kind TEXT,
+      ending_dimension TEXT,
+      ending_title TEXT,
+      ending_summary TEXT,
+      ending_date TEXT,
+      ending_turn INTEGER,
+      updated_turn INTEGER NOT NULL DEFAULT 0,
+      updated_date TEXT,
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+
   // Stato dinamico delle regioni di una singola partita. Geometria e metadati
   // restano nel world, ma proprietario/economia/oggetti non sono condivisi.
   db.exec(`

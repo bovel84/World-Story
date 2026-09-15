@@ -42,6 +42,8 @@ export interface PromptVariables {
   GOVERNMENT_STATE?: string;
   /** Sfide di pace aperte (interne ed esterne) generate dal motore. */
   PEACETIME_PRESSURES?: string;
+  NATION_CRISIS?: string;
+  ORDER_FUNDING?: string;
 
   // События
   ALL_EVENTS_WITH_CONSOLIDATION: string;

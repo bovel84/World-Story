@@ -20,7 +20,7 @@ import {
   NATION_SECTION_LABEL,
 } from '../../stores/nationDock';
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
-import type { ArsenalResponse, BudgetLine, FiscalPolicyInfo, GovernmentFaction, GovernmentSnapshot, GovernmentVoicesResponse, NaturalResourceSummary, PeacetimePressure, ResourceQuote, SovereignDebtTranche } from '../../services/api';
+import type { ArsenalResponse, BudgetLine, CrisisRisk, CrisisSnapshot, FiscalPolicyInfo, GovernmentFaction, GovernmentSnapshot, GovernmentVoicesResponse, NaturalResourceSummary, PeacetimePressure, ResourceQuote, SovereignDebtTranche } from '../../services/api';
 import { deltaTone, sparkPoints, trendFrom, trendLabel, type Trend, type TrendTone } from './accountTrend';
 import {
   financeBalance,
@@ -30,6 +30,7 @@ import {
   type NationalProcess,
 } from './nationDossier';
 import { groupProjectsByCategory } from './projectCategory';
+import { CRISIS_LEVEL_LABEL, crisisStreakText } from './crisisPanel';
 import {
   LEVER_LABEL,
   STANCE_LABEL,
@@ -158,6 +159,8 @@ interface NationDockProps {
   /** Risponde a una sfida: il motore applica gli effetti. */
   onResolvePressure?: (pressureId: string, optionId: string) => Promise<void>;
   pressureBusy?: boolean;
+  /** Crisi nazionale: rischi di rivolta, default, invasione ed epilogo. */
+  crisis?: CrisisSnapshot | null;
 }
 
 /** Un punto dello storico: data di gioco e conto già pubblicato dal motore. */
@@ -492,6 +495,58 @@ function VerdictBanner({ verdict }: { verdict: NationalVerdict }) {
 }
 
 /** Sfide del momento: il motore le genera, il giocatore decide la risposta. */
+/**
+ * Crisi nazionale: le tre strade del collasso (rivolta, default, invasione)
+ * con punteggio, fattori reali e turni di criticità già accumulati. Sono cifre
+ * del motore: il browser non stima nulla.
+ */
+function CrisisBlock({ crisis }: { crisis?: CrisisSnapshot | null }) {
+  if (!crisis) {
+    return <EmptyState>Il motore non ha ancora valutato la tenuta della nazione.</EmptyState>;
+  }
+  const { state, finished, ending, collapseStreak } = crisis;
+  return (
+    <div className="nation-crisis">
+      <p className={`nation-crisis-headline level-${state.level}`}>{state.headline}</p>
+      <p className="nation-crisis-summary">{state.summary}</p>
+      <ul className="nation-crisis-risks">
+        {state.risks.map((risk: CrisisRisk) => {
+          const streak = Number(state.streaks?.[risk.dimension] ?? 0);
+          return (
+            <li key={risk.dimension} className={`nation-crisis-risk level-${risk.level}`}>
+              <div className="nation-crisis-risk-head">
+                <b>{risk.title}</b>
+                <span className={`nation-crisis-badge level-${risk.level}`}>
+                  {CRISIS_LEVEL_LABEL[risk.level]} · {formatNumber(risk.score)}/100
+                </span>
+              </div>
+              <div
+                className="nation-crisis-bar"
+                role="img"
+                aria-label={`${risk.title}: ${formatNumber(risk.score)} su 100`}
+              >
+                <span style={{ width: `${Math.min(100, Math.max(0, risk.score))}%` }} />
+              </div>
+              <p>{risk.detail}</p>
+              <span className="nation-crisis-drivers">{risk.drivers.join(' · ')}</span>
+              {risk.level !== 'calm' && (
+                <span className={`nation-crisis-streak${risk.level === 'watch' ? ' is-watch' : ''}`}>
+                  {crisisStreakText(risk, streak, collapseStreak)}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {finished && ending && (
+        <p className="nation-crisis-ending">
+          La partita è finita: {ending.title}. {ending.summary}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function PressuresBlock({ pressures, recent, onResolve, busy, money }: {
   pressures: PeacetimePressure[];
   recent: PeacetimePressure[];
@@ -698,6 +753,7 @@ export const NationDock: React.FC<NationDockProps> = ({
   recentPressures,
   onResolvePressure,
   pressureBusy = false,
+  crisis,
 }) => {
   const [state, setState] = useState(initialNationDockState);
   const [trading, setTrading] = useState(false);
@@ -881,6 +937,13 @@ export const NationDock: React.FC<NationDockProps> = ({
                 />
               </MetricGrid>
               <VerdictBanner verdict={verdict} />
+            </DossierBlock>
+
+            <DossierBlock
+              title="Crisi della nazione"
+              description="Le tre strade del collasso — rivolta, default, invasione — calcolate dagli indicatori reali. Se una resta critica per troppi turni, la partita finisce."
+            >
+              <CrisisBlock crisis={crisis} />
             </DossierBlock>
 
             <DossierBlock

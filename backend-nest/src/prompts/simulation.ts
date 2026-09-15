@@ -481,6 +481,7 @@ Turno: ${vars.CURRENT_ROUND_NUMBER}
 Azioni del giocatore in questo turno:
 
 ${vars.PLAYER_ACTIONS_THIS_ROUND || '(Nessuna azione)'}
+${vars.ORDER_FUNDING ? `\n[Ordini senza copertura — deciso dal motore]\n\nCassa e credito di questa nazione non coprono questi ordini. Non sono un'opinione narrativa: sono un vincolo di realtà. Nel periodo simulato NON possono riuscire — se il giocatore li ha ordinati, essi falliscono, si arenano o restano sulla carta. L'esito di questi ordini deve essere "voided" (nessuna copertura) oppure "partial" (copertura parziale), mai "accepted".\n\n${vars.ORDER_FUNDING}` : ''}
 
 [Tutte le azioni passate]
 
@@ -520,6 +521,12 @@ Se la sezione non è vuota, questi impegni sono già avviati e NON risolti:
 ${vars.PEACETIME_PRESSURES || '(Nessuna sfida aperta: la nazione vive un periodo ordinario, non inventarne di straordinarie.)'}
 
 Queste sfide sono già aperte e attese dal paese. Nel periodo simulato devono produrre conseguenze concrete e coerenti con la scelta del governo: se il giocatore le affronta in un ordine, collegale all'ordine; altrimenti mostra l'effetto dell'inerzia senza risolverle d'autorità.
+
+[Crisi nazionale — quanto la nazione è vicina al collasso]
+
+${vars.NATION_CRISIS || '(Nessuna crisi in corso: il governo non è a rischio di caduta.)'}
+
+La nazione può cadere: rivolta interna, default sul debito, invasione da un vicino più forte. Questi rischi sono calcolati dai numeri reali, non dalle parole. Se una dimensione è critica, il periodo deve mostrarla: nessun ordine può essere un successo pieno mentre lo Stato è sull'orlo del collasso. Non dichiarare mai un esito che i numeri smentiscono — il fallimento fa parte del gioco.
 
 [Anime del governo — chi preme dentro la nazione]
 

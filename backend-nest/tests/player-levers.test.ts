@@ -127,8 +127,7 @@ describe('la pressione fiscale è una scelta del giocatore', () => {
   });
 });
 
-describe('le sfide di pace danno vita al turno', () => {
-  it('ogni nazione ha sempre almeno una sfida interna e una esterna', () => {
+describe('le sfide di pace danno vita al turno', () => {  it('ogni nazione ha sempre almeno una sfida interna e una esterna', () => {
     const { session } = createGame();
     const { pressures } = session.getPeacetimePressures();
     expect(pressures.length).toBeGreaterThanOrEqual(2);
@@ -198,5 +197,125 @@ describe('le sfide di pace danno vita al turno', () => {
       (afterModifiers.stability ?? 0) !== (beforeModifiers.stability ?? 0)
       || (afterModifiers.socialTension ?? 0) !== (beforeModifiers.socialTension ?? 0),
     ).toBe(true);
+  });
+});
+
+describe('crisi e fine partita', () => {
+  it('una nazione sana vede le tre strade del collasso senza rischi', () => {
+    const { session } = createGame();
+    const crisis = session.getCrisis();
+    expect(crisis.finished).toBe(false);
+    expect(crisis.ending).toBeNull();
+    expect(crisis.state.risks.map((risk: any) => risk.dimension).sort()).toEqual(['insolvency', 'invasion', 'revolt']);
+    for (const risk of crisis.state.risks) {
+      expect(risk.score).toBeGreaterThanOrEqual(0);
+      expect(risk.drivers.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('un epilogo salvato chiude la partita e blocca ogni leva', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    repos.gameRepository.saveCrisisState({
+      gameId,
+      streaks: { revolt: 3, insolvency: 0, invasion: 0 },
+      overall: 'critical',
+      ending: {
+        kind: 'revolution',
+        dimension: 'revolt',
+        title: 'Il governo è caduto',
+        summary: 'La piazza ha travolto il governo.',
+        date: '1951-06-01',
+        turn: 3,
+      },
+      updatedTurn: 3,
+      updatedDate: '1951-06-01',
+    });
+    repos.gameRepository.setStatus(gameId, 'finished');
+
+    const { GameSession } = await import('../src/game-session');
+    const restored = new GameSession(gameId, WORLD_ID, stubProvider);
+    await restored.reconstructFromDB({
+      currentTurn: session.getCurrentTurn(),
+      currentDate: session.getCurrentDate(),
+      players: [session.getPlayer()],
+    });
+
+    expect(restored.isFinished()).toBe(true);
+    expect(restored.getEnding()?.kind).toBe('revolution');
+    expect(restored.getStatus()).toBe('finished');
+    expect(() => restored.queueAction(ORDER)).toThrow(/game_over/);
+    expect(() => restored.setFiscalPolicy(20)).toThrow(/game_over/);
+    await expect(restored.advanceDate(30)).rejects.toThrow(/game_over/);
+
+    // La crisi mostrata porta l'epilogo, non solo i punteggi.
+    expect(restored.getCrisis().finished).toBe(true);
+    expect(restored.getCrisis().ending?.title).toBe('Il governo è caduto');
+  });
+
+  it('il rewind annulla il collasso e restituisce la partita', async () => {
+    const { gameId, session } = createGame();
+    // Un turno vero per generare lo snapshot di rewind.
+    session.queueAction(ORDER);
+    await session.processNextAction(30);
+
+    const repos = await import('../src/repositories');
+    repos.gameRepository.saveCrisisState({
+      gameId,
+      streaks: { revolt: 3, insolvency: 0, invasion: 0 },
+      overall: 'critical',
+      ending: {
+        kind: 'revolution',
+        dimension: 'revolt',
+        title: 'Il governo è caduto',
+        summary: 'La piazza ha travolto il governo.',
+        date: '1951-06-01',
+        turn: 3,
+      },
+      updatedTurn: 3,
+      updatedDate: '1951-06-01',
+    });
+    repos.gameRepository.setStatus(gameId, 'finished');
+
+    const { GameSession } = await import('../src/game-session');
+    const restored = new GameSession(gameId, WORLD_ID, stubProvider);
+    await restored.reconstructFromDB({
+      currentTurn: session.getCurrentTurn(),
+      currentDate: session.getCurrentDate(),
+      players: [session.getPlayer()],
+    });
+    expect(restored.isFinished()).toBe(true);
+
+    const rewound = restored.rewind();
+    expect(rewound).not.toBeNull();
+    expect(restored.isFinished()).toBe(false);
+    expect(restored.getEnding()).toBeNull();
+    expect(restored.getStatus()).toBe('playing');
+    // Tornata giocabile.
+    expect(() => restored.queueAction(ORDER)).not.toThrow();
+    expect(restored.getCrisis().state.streaks.revolt).toBe(0);
+  });
+
+  it('una nazione indebitata oltre misura finisce in default', async () => {
+    const { session } = createGame();
+    // Un debito fuori da ogni ragione: nessuna trattativa, nessuna utopia.
+    const stock = session.getResources().stock;
+    stock.debts = [{
+      id: 'test-debt', label: 'Titoli di prova', principal: 400,
+      annualRatePct: 12, issuedDate: '1951-01-01', maturityDate: '1990-01-01', termYears: 39,
+    }];
+    const insolvency = session.getCrisis().state.risks.find((risk: any) => risk.dimension === 'insolvency');
+    expect(insolvency.level).toBe('critical');
+
+    for (let turn = 0; turn < 4 && !session.isFinished(); turn++) {
+      session.queueAction(ORDER);
+      await session.processNextAction(30);
+    }
+
+    expect(session.isFinished()).toBe(true);
+    expect(session.getEnding()?.kind).toBe('default');
+    expect(session.getStatus()).toBe('finished');
+    // Da qui non si governa più.
+    expect(() => session.queueAction(ORDER)).toThrow(/game_over/);
   });
 });

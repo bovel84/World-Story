@@ -147,6 +147,24 @@ interface GameData {
       source: string;
       options: Array<{ id: string; label: string; detail: string }>;
     }>;
+    /** Crisi nazionale: quanto la nazione è vicina al collasso. */
+    crisis?: {
+      level: 'calm' | 'watch' | 'critical';
+      headline: string;
+      summary: string;
+      risks: Array<{
+        dimension: 'revolt' | 'insolvency' | 'invasion';
+        level: 'calm' | 'watch' | 'critical';
+        score: number;
+        title: string;
+        drivers: string[];
+        streak: number;
+      }>;
+    };
+    /** Epilogo: presente solo quando la partita è finita. */
+    ending?: { kind: 'revolution' | 'default' | 'invasion'; title: string; summary: string };
+    /** Ordini che la tesoreria non può coprire: vincoli già decisi dal motore. */
+    orderFunding?: string;
   };
   actions: ActionData[];
   results: TurnResultData[];
@@ -306,6 +324,8 @@ export class PromptBuilder {
       ONGOING_PROCESSES: this.buildOngoingProcesses(),
       GOVERNMENT_STATE: this.buildGovernmentState(),
       PEACETIME_PRESSURES: this.buildPeacetimePressures(),
+      NATION_CRISIS: this.buildNationCrisis(),
+      ORDER_FUNDING: this.game.worldState?.orderFunding || '',
 
       ALL_EVENTS_WITH_CONSOLIDATION: this.buildEventHistory(),
       CHATS_NON_CONSOLIDATED_ROUNDS: this.game.chatTranscripts ?? '',
@@ -499,6 +519,25 @@ export class PromptBuilder {
       const kind = pressure.kind === 'internal' ? 'interna' : 'esterna';
       return `- [${kind}, gravità ${pressure.severity}/3] ${pressure.title} — ${pressure.detail} (chi preme: ${pressure.source}).${options}`;
     }).join('\n');
+  }
+
+  /** Crisi: il narratore sa quanto la nazione è vicina al collasso. */
+  private buildNationCrisis(): string {
+    const crisis = this.game.worldState?.crisis;
+    const ending = this.game.worldState?.ending;
+    if (ending) {
+      return `LA PARTITA È FINITA — ${ending.title}. ${ending.summary} Non raccontare più un governo che agisce: la nazione è caduta.`;
+    }
+    if (!crisis) return '';
+    const risks = crisis.risks
+      .map(risk => `- ${risk.title}: ${risk.level} (${risk.score}/100, ${risk.streak} turni di criticità su 3). Fattori: ${risk.drivers.join(', ')}.`)
+      .join('\n');
+    const warning = crisis.level === 'critical'
+      ? 'ATTENZIONE: la nazione è a un passo dal collasso. Non promettere successi che i numeri non sostengono: descrivi la crisi, non nasconderla.'
+      : crisis.level === 'watch'
+        ? 'La situazione è tesa: gli errori si pagano e il tempo stringe.'
+        : 'La nazione regge: nessuna delle tre strade del collasso è vicina.';
+    return `${crisis.headline}. ${crisis.summary}\n${warning}\n${risks}`;
   }
 
   private buildStrategicState(playerPolityId?: string): string {

@@ -8,6 +8,7 @@ import { worldRepository } from './world.repository';
 import { semanticStateHash } from '../domain/semantic-hash';
 import { randomUUID } from 'node:crypto';
 import type { Pressure, PressureEffect, PressureKind, PressureOption } from '../core/simulation/PeacetimePressures';
+import type { CrisisDimension, CrisisLevel, EndingKind } from '../core/simulation/NationCrisis';
 
 function bumpQueueVersion(gameId: string): void {
   db.prepare('UPDATE games SET queue_version = queue_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(gameId);
@@ -870,7 +871,92 @@ export const gameRepository = {
   deletePressuresAfterTurn: (gameId: string, turn: number) => {
     db.prepare('DELETE FROM game_pressures WHERE game_id = ? AND created_turn > ?').run(gameId, turn);
   },
+
+  // ── Crisi e fine partita ──────────────────────────────────────────────────
+
+  /** Cambia lo stato della partita (`playing` ↔ `finished`). */
+  setStatus: (gameId: string, status: string) => {
+    db.prepare('UPDATE games SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(status, gameId);
+  },
+
+  /** Stato di crisi registrato (serie e epilogo), o `null` se mai valutato. */
+  getCrisisState: (gameId: string): CrisisStateRecord | null => {
+    const row = db.prepare('SELECT * FROM game_crisis_state WHERE game_id = ?').get(gameId) as any;
+    if (!row) return null;
+    return {
+      gameId: row.game_id,
+      streaks: {
+        revolt: Number(row.revolt_streak || 0),
+        insolvency: Number(row.insolvency_streak || 0),
+        invasion: Number(row.invasion_streak || 0),
+      },
+      overall: row.overall as CrisisLevel,
+      ending: row.ending_kind
+        ? {
+            kind: row.ending_kind as EndingKind,
+            dimension: (row.ending_dimension || 'revolt') as CrisisDimension,
+            title: row.ending_title || '',
+            summary: row.ending_summary || '',
+            date: row.ending_date || '',
+            turn: Number(row.ending_turn || 0),
+          }
+        : null,
+      updatedTurn: Number(row.updated_turn || 0),
+      updatedDate: row.updated_date || null,
+    };
+  },
+
+  /** Salva serie e (se presente) epilogo. Idempotente per partita. */
+  saveCrisisState: (record: CrisisStateRecord) => {
+    const ending = record.ending;
+    db.prepare(`
+      INSERT INTO game_crisis_state
+        (game_id, revolt_streak, insolvency_streak, invasion_streak, overall,
+         ending_kind, ending_dimension, ending_title, ending_summary, ending_date, ending_turn,
+         updated_turn, updated_date)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(game_id) DO UPDATE SET
+        revolt_streak = excluded.revolt_streak,
+        insolvency_streak = excluded.insolvency_streak,
+        invasion_streak = excluded.invasion_streak,
+        overall = excluded.overall,
+        ending_kind = COALESCE(game_crisis_state.ending_kind, excluded.ending_kind),
+        ending_dimension = COALESCE(game_crisis_state.ending_dimension, excluded.ending_dimension),
+        ending_title = COALESCE(game_crisis_state.ending_title, excluded.ending_title),
+        ending_summary = COALESCE(game_crisis_state.ending_summary, excluded.ending_summary),
+        ending_date = COALESCE(game_crisis_state.ending_date, excluded.ending_date),
+        ending_turn = COALESCE(game_crisis_state.ending_turn, excluded.ending_turn),
+        updated_turn = excluded.updated_turn,
+        updated_date = excluded.updated_date
+    `).run(
+      record.gameId,
+      record.streaks.revolt, record.streaks.insolvency, record.streaks.invasion,
+      record.overall,
+      ending?.kind ?? null, ending?.dimension ?? null, ending?.title ?? null, ending?.summary ?? null, ending?.date ?? null, ending?.turn ?? null,
+      record.updatedTurn, record.updatedDate,
+    );
+  },
+  /** Azzera serie ed epilogo: il rewind restituisce una nuova possibilità. */
+  resetCrisisState: (gameId: string) => {
+    db.prepare(`
+      UPDATE game_crisis_state SET
+        revolt_streak = 0, insolvency_streak = 0, invasion_streak = 0, overall = 'calm',
+        ending_kind = NULL, ending_dimension = NULL, ending_title = NULL,
+        ending_summary = NULL, ending_date = NULL, ending_turn = NULL,
+        updated_turn = 0, updated_date = NULL
+      WHERE game_id = ?
+    `).run(gameId);
+  },
 };
+
+export interface CrisisStateRecord {
+  gameId: string;
+  streaks: Record<CrisisDimension, number>;
+  overall: CrisisLevel;
+  ending: { kind: EndingKind; dimension: CrisisDimension; title: string; summary: string; date: string; turn: number } | null;
+  updatedTurn: number;
+  updatedDate: string | null;
+}
 
 export interface PressureRecord {
   id: string;

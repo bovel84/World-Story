@@ -26,6 +26,7 @@ export type SSEEventType =
   | 'action_voided'
   | 'chat_message'
   | 'advisor_proactive'
+  | 'game_over'
   | 'error'
   | 'ping';
 

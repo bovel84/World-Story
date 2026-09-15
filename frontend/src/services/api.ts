@@ -181,6 +181,50 @@ export interface PeacetimePressure {
   resolvedOption?: string | null;
   resolution?: string | null;
 }
+
+/** Dimensione della crisi nazionale: rivolta, default o invasione. */
+export type CrisisDimension = 'revolt' | 'insolvency' | 'invasion';
+export type CrisisLevel = 'calm' | 'watch' | 'critical';
+
+/** Rischio calcolato dal motore su una delle tre strade del collasso. */
+export interface CrisisRisk {
+  dimension: CrisisDimension;
+  level: CrisisLevel;
+  /** Punteggio 0-100: deterministico, non un giudizio del modello. */
+  score: number;
+  title: string;
+  detail: string;
+  /** Fattori reali che hanno prodotto il punteggio. */
+  drivers: string[];
+}
+
+/** Epilogo: la nazione è caduta e la partita è finita. */
+export interface GameEnding {
+  kind: 'revolution' | 'default' | 'invasion';
+  dimension: CrisisDimension;
+  title: string;
+  summary: string;
+  date: string;
+  turn: number;
+  criticalDimensions: CrisisDimension[];
+}
+
+export interface NationCrisisState {
+  level: CrisisLevel;
+  risks: CrisisRisk[];
+  headline: string;
+  summary: string;
+  streaks: Record<CrisisDimension, number>;
+  ending: GameEnding | null;
+}
+
+export interface CrisisSnapshot {
+  state: NationCrisisState;
+  ending: GameEnding | null;
+  finished: boolean;
+  /** Turni consecutivi di criticità che portano al collasso. */
+  collapseStreak: number;
+}
 export type FactionLever = 'difesa' | 'tasse' | 'welfare' | 'istruzione' | 'infrastrutture' | 'debito' | 'ordine';
 
 /** Richiesta concreta di una fazione del governo. */
@@ -503,6 +547,8 @@ export const gameApi = {
     government?: GovernmentSnapshot | null;
     /** Politica fiscale corrente del giocatore (aliquota, limiti, effetti). */
     fiscalPolicy?: FiscalPolicyInfo | null;
+    /** Crisi nazionale: rischi di collasso ed eventuale epilogo. */
+    crisis?: CrisisSnapshot | null;
     /** Magazzino materiale del giocatore (legacy): stock, conto e risorse naturali. */
     resources?: {
       stock?: { money?: number; debt?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
@@ -594,6 +640,10 @@ export const gameApi = {
     foodCoverageMonths: number | null;
   }> =>
     fetchApi(`/games/${gameId}/pressures`),
+
+  /** Crisi nazionale: rischi di rivolta, default, invasione ed epilogo. */
+  crisis: (gameId: string): Promise<CrisisSnapshot> =>
+    fetchApi(`/games/${gameId}/crisis`),
 
   /** Risponde a una sfida: il motore applica modificatori, cassa e relazioni. */
   resolvePeacetimePressure: (gameId: string, pressureId: string, optionId: string): Promise<{

@@ -55,6 +55,8 @@ interface UseSSEOptions {
   onAdvisorProactive?: (data: { content: string }) => void;
   onError?: (error: any) => void;
   onConnected?: () => void;
+  /** La nazione è caduta: la partita è finita (rivolta, default, invasione). */
+  onGameOver?: (data: { ending: any; turn?: number; date?: string }) => void;
 }
 
 export function useSSE(gameId: string | null, options: UseSSEOptions) {
@@ -192,6 +194,15 @@ export function useSSE(gameId: string | null, options: UseSSEOptions) {
         optionsRef.current.onAdvisorProactive?.(data);
       } catch (err) {
         console.error('[SSE] Failed to parse advisor_proactive:', err);
+      }
+    });
+
+    eventSource.addEventListener('game_over', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        optionsRef.current.onGameOver?.(data);
+      } catch (err) {
+        console.error('[SSE] Failed to parse game_over:', err);
       }
     });
 

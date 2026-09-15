@@ -20,6 +20,7 @@ import { RelationshipMatrix } from './core/RelationshipMatrix';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { clampTaxRatePct, DEFAULT_FISCAL_POLICY, describeFiscalEffects, fiscalShockModifier, FISCAL_MAX_PCT, FISCAL_MIN_PCT, fiscalLabel, type FiscalPolicy } from './core/simulation/FiscalPolicy';
 import { describePressure, generatePressures, type Pressure, type PressureEffect, type PressureNeighbour, type PressureSnapshot, type RelationStance } from './core/simulation/PeacetimePressures';
+import { advanceCrisis, assessCrisis, CRISIS_COLLAPSE_STREAK, describeCrisis, type CrisisDimension, type CrisisEnding, type CrisisInput, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import type { GovernmentVoices } from './prompts/government';
 import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, financePurchase, issueSovereignDebt, materialNeeds, movementCost, normalizeStock, overdraftOf, payMovement, seedStock, storageCapacity, type ResourceStock } from './core/simulation/MaterialEconomy';
@@ -151,6 +152,14 @@ export class SimulationPausedError extends Error {
   constructor(public runId: string) {
     super('Un salto in pausa attende una decisione: Continua o Intervieni prima di avanzare di nuovo');
     this.name = 'SimulationPausedError';
+  }
+}
+
+/** La partita è finita: la nazione è caduta (rivolta, default o invasione). */
+export class GameOverError extends Error {
+  constructor(public ending: CrisisEnding) {
+    super(`game_over: ${ending.title}`);
+    this.name = 'GameOverError';
   }
 }
 
@@ -415,6 +424,16 @@ export class GameSession {
    * ancora impostata → il motore usa l'aliquota calcolata dal profilo del paese.
    */
   private taxRatePct: number | null = null;
+  /**
+   * Epilogo della partita: presente solo quando la nazione è caduta (rivolta,
+   * default o invasione). Blocca ogni ulteriore avanzamento del tempo.
+   */
+  private ending: CrisisEnding | null = null;
+  /**
+   * Ordini che la tesoreria non può sostenere, calcolati prima della
+   * simulazione e consegnati al narratore: nessun successo che la cassa smentisce.
+   */
+  private pendingFundingNotes: string | null = null;
   /** Консолидированная история ранних раундов и граница её покрытия (Этап 2) */
   private consolidatedHistory: string = '';
   private consolidatedUpTo: number = 0;
@@ -547,6 +566,8 @@ export class GameSession {
   async worldTick(): Promise<void> {
     if (this.isStrictGame()) throw new Error('strict_legacy_path_forbidden: worldTick');
     if (this.isProcessing) return;
+    // Dopo il collasso il mondo non batte più: la partita è finita.
+    if (this.ending) return;
 
     await this.withLock(async () => {
       // Snapshot owner/colore per il diff (regioni cambiate)
@@ -889,6 +910,7 @@ export class GameSession {
    * poi decade), mentre il livello scelto agisce in modo permanente sui conti.
    */
   setFiscalPolicy(taxRatePct: number): { policy: ReturnType<GameSession['getFiscalPolicy']>; note: string } {
+    this.assertPlayable();
     const next = clampTaxRatePct(taxRatePct);
     const previous = this.taxRatePct ?? this.engineBaseTaxPct();
     this.taxRatePct = next;
@@ -1054,6 +1076,7 @@ export class GameSession {
    * riflesso sociale: il rapporto debito/PIL sale e con esso la tensione.
    */
   borrowSovereignDebt(amountMld: number, termYears = 10) {
+    this.assertPlayable();
     const polityId = this.playerPolityId;
     const account = this.sessionAccounts()[polityId];
     const stock = this.resourceStock(polityId);
@@ -1224,7 +1247,8 @@ export class GameSession {
   } {
     const all = gameRepository.listPressures(this.id);
     return {
-      pressures: all.filter(record => record.status === 'active'),
+      // Dopo il collasso non c'è più niente da decidere.
+      pressures: this.ending ? [] : all.filter(record => record.status === 'active'),
       recent: all.filter(record => record.status !== 'active').slice(0, 6),
       foodCoverageMonths: this.foodCoverageMonths(),
     };
@@ -1239,6 +1263,7 @@ export class GameSession {
     effect: PressureEffect;
     account?: NationalAccount;
   } {
+    this.assertPlayable();
     const record = gameRepository.listPressures(this.id, 'active').find(item => item.id === pressureId);
     if (!record) throw new Error('pressure_not_active: la sfida non è più aperta');
     const option = record.options.find(item => item.id === optionId);
@@ -1261,8 +1286,151 @@ export class GameSession {
     };
   }
 
+  // ── Crisi e fine partita ──────────────────────────────────────────────────
+
+  /**
+   * Blocca ogni azione quando la nazione è caduta: dopo il collasso non si
+   * governa più, si può solo tornare indietro o ricominciare.
+   */
+  private assertPlayable(): void {
+    if (this.ending) throw new GameOverError(this.ending);
+  }
+
+  private crisisInput(): CrisisInput {
+    const account = this.sessionAccounts()[this.playerPolityId];
+    const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions) || 0);
+    let overdraftMld = 0;
+    let foodCoverageMonths: number | null = null;
+    try {
+      const stock = this.resourceStock(this.playerPolityId);
+      overdraftMld = overdraftOf(stock);
+      const needs = materialNeeds(account);
+      if (needs.food > 0) foodCoverageMonths = Math.max(0, Number(stock.food || 0)) / needs.food;
+    } catch { /* magazzino non disponibile: nessuna misura inventata */ }
+    const hostileNeighbours = this.pressureNeighbours()
+      .filter(neighbour => neighbour.stance === 'hostile')
+      .map(neighbour => ({ polityId: neighbour.polityId, name: neighbour.name, militaryPower: neighbour.militaryPower }));
+    return {
+      stability: Number(account?.stability ?? 50),
+      socialTension: Number(account?.socialTension ?? 20),
+      annualGrowthRate: Number(account?.annualGrowthRate ?? 0.01),
+      monthlyBalance: Number(account?.monthlyBalance ?? 0),
+      nominalGdpUsdBillions: gdp,
+      // Debito e servizio EFFETTIVI: l'overlay dei conti li calcola già dal
+      // magazzino (titoli + scoperto) su PIL ed entrate reali.
+      debtRatioPct: Number(account?.debtRatioPct ?? account?.debtBurdenPct ?? 0),
+      debtServicePct: Number(account?.debtServicePct ?? 0),
+      baselineDebtRatioPct: Number(account?.debtBurdenPct ?? 0),
+      overdraftMld,
+      foodCoverageMonths,
+      taxRatePct: Number(account?.taxRatePct ?? 10),
+      militaryPower: this.nationalEffectiveMilitaryPower(this.playerPolityId),
+      hostileNeighbours,
+      // Mobilitazione piena CONTRO un vicino ostile: senza i due segnali
+      // insieme un esercito grande non è una guerra in corso.
+      atWar: hostileNeighbours.length > 0 && Number(account?.warEffort || 0) >= 70,
+    };
+  }
+
+  /**
+   * Valuta la crisi senza scrivere nulla: serve al dossier e ai prompt.
+   * `advance: false` non fa scorrere la scala.
+   */
+  private peekCrisis(): CrisisState {
+    const previous = gameRepository.getCrisisState(this.id);
+    return advanceCrisis(this.crisisInput(), previous?.streaks ?? {}, {
+      turn: this.currentTurn,
+      date: this.currentDate,
+      advance: false,
+    });
+  }
+
+  /**
+   * Valuta la crisi. Con `advance` (default) fa scorrere la scala di un turno;
+   * senza, è una lettura pura per il dossier. Se il collasso scatta, chiude la
+   * partita una volta sola.
+   */
+  private evaluateCrisis(advance = true): CrisisState {
+    const previous = gameRepository.getCrisisState(this.id);
+    const state = advanceCrisis(this.crisisInput(), previous?.streaks ?? {}, {
+      turn: this.currentTurn,
+      date: this.currentDate,
+      advance,
+    });
+    try {
+      gameRepository.saveCrisisState({
+        gameId: this.id,
+        streaks: state.streaks,
+        overall: state.level,
+        ending: state.ending ?? previous?.ending ?? null,
+        updatedTurn: this.currentTurn,
+        updatedDate: this.currentDate,
+      });
+    } catch (error) {
+      console.warn('[GameSession] Stato di crisi non salvato:', error);
+    }
+    if (advance && state.ending) this.finishGame(state.ending);
+    return state;
+  }
+
+  /** Chiude la partita: stato, epilogo persistito ed evento ai client. */
+  private finishGame(ending: CrisisEnding): void {
+    if (this.ending) return;
+    this.ending = ending;
+    this.status = 'finished';
+    try {
+      gameRepository.setStatus(this.id, 'finished');
+    } catch (error) {
+      console.warn('[GameSession] Chiusura della partita non salvata:', error);
+    }
+    this.pendingNationalNotes.push(`⛔ ${ending.title}: ${ending.summary}`);
+    this.broadcast('game_over', {
+      ending,
+      turn: this.currentTurn,
+      date: this.currentDate,
+    });
+  }
+
+  /**
+   * Ripristina l'epilogo salvato: una partita finita resta finita anche dopo
+   * un riavvio o una ricostruzione della sessione.
+   */
+  private restoreEnding(): void {
+    const saved = gameRepository.getCrisisState(this.id)?.ending;
+    if (!saved) {
+      this.ending = null;
+      return;
+    }
+    this.ending = { ...saved, criticalDimensions: [saved.dimension] };
+    this.status = 'finished';
+  }
+
+  /**
+   * Stato di crisi per il dossier e l'HUD: rischi, serie di criticità e
+   * l'eventuale epilogo. Sola lettura: non fa avanzare la scala.
+   */
+  getCrisis(): { state: CrisisState; ending: CrisisEnding | null; finished: boolean; collapseStreak: number } {
+    const state = this.peekCrisis();
+    return {
+      state,
+      ending: this.ending ?? state.ending,
+      finished: Boolean(this.ending),
+      collapseStreak: CRISIS_COLLAPSE_STREAK,
+    };
+  }
+
+  /** True quando la nazione è caduta: la UI mostra l'epilogo. */
+  isFinished(): boolean {
+    return Boolean(this.ending);
+  }
+
+  getEnding(): CrisisEnding | null {
+    return this.ending;
+  }
+
   /** Compravendita di risorse naturali: cassa ↔ magazzino, prezzo di mercato. */
   tradeResource(mode: 'sell' | 'buy', kind: string, quantity: number) {
+    this.assertPlayable();
     if (mode !== 'sell' && mode !== 'buy') throw new Error('trade_mode_invalid');
     if (!NATURAL_RESOURCE_KINDS.includes(kind as NaturalResourceKind)) throw new Error('unknown_resource');
     const resourceKind = kind as NaturalResourceKind;
@@ -1975,6 +2143,29 @@ export class GameSession {
           source: record.source,
           options: record.options.map(option => ({ id: option.id, label: option.label, detail: option.detail })),
         })),
+        // Crisi: il narratore deve sapere quanto la nazione è vicina al
+        // collasso, per non raccontare un successo che la realtà smentisce.
+        crisis: (() => {
+          const state = this.peekCrisis();
+          return {
+            level: state.level,
+            headline: state.headline,
+            summary: state.summary,
+            risks: state.risks.map(risk => ({
+              dimension: risk.dimension,
+              level: risk.level,
+              score: risk.score,
+              title: risk.title,
+              drivers: risk.drivers,
+              streak: state.streaks[risk.dimension],
+            })),
+          };
+        })(),
+        ending: this.ending
+          ? { kind: this.ending.kind, title: this.ending.title, summary: this.ending.summary }
+          : undefined,
+        // Ordini senza copertura: il narratore sa già che non possono riuscire.
+        orderFunding: this.pendingFundingNotes ?? undefined,
       },
       world: {
         name: this.worldName,
@@ -2780,6 +2971,7 @@ export class GameSession {
     this.worldSimulationRules = world.simulation_rules || undefined;
     this.difficulty = normalizeDifficulty(difficulty);
     this.taxRatePct = gameRepository.getTaxRatePct(this.id);
+    this.restoreEnding();
 
     // Load all regions into session state
     for (const region of world.regions) {
@@ -2882,6 +3074,7 @@ export class GameSession {
     this.players = data.players || [];
     this.difficulty = normalizeDifficulty(data.difficulty);
     this.taxRatePct = gameRepository.getTaxRatePct(this.id);
+    this.restoreEnding();
     this.consolidatedHistory = data.consolidatedHistory || '';
     this.consolidatedUpTo = data.consolidatedUpTo || 0;
 
@@ -4629,6 +4822,7 @@ export class GameSession {
     this.consolidatedUpTo = saveData.consolidatedUpTo || 0;
     this.difficulty = normalizeDifficulty(saveData.difficulty);
     this.taxRatePct = gameRepository.getTaxRatePct(this.id);
+    this.restoreEnding();
     this.interveneRequested = false;
     // La coda appartiene al ramo salvato: ripristinala invece di perderla.
     // §9.3: gli ordini «processing» del playback sospeso tornano insieme al
@@ -4755,7 +4949,12 @@ export class GameSession {
 
     // Le sfide nate nei turni annullati non appartengono più alla storia.
     gameRepository.deletePressuresAfterTurn(this.id, (Number(saveData.currentTurn) || 0) - 1);
+    // Un turno annullato cancella anche il collasso: si torna a giocare.
+    gameRepository.resetCrisisState(this.id);
     this.loadFromSave(saveData, save.content_hash ?? undefined);
+    this.status = 'playing';
+    gameRepository.setStatus(this.id, 'playing');
+    this.ending = null;
     // Результат откаченного хода записан с turn == восстановленному currentTurn
     gameRepository.deleteAfterTurn(this.id, this.currentTurn - 1);
     // Снапшот потреблён — повторный rewind подряд невозможен
@@ -5181,6 +5380,21 @@ export class GameSession {
     const appliedRows = gameRepository.getSimulationEvents(this.id, runId);
     const appliedHeadlines = new Set(appliedRows.map(row => row.headline));
     const voided = completion.voided || [];
+    // La cassa segue le scelte del giocatore: gli ordini che il run ha eseguito
+    // vengono regolati ora, prima che la cronaca li racconti. Chi non ha i
+    // soldi vede l'ordine annullato dal motore, non dal narratore.
+    const orderTexts = new Map(state.batchActionIds
+      .map(id => [id, this.pendingActions.find(action => action.id === id)?.text || ''] as const));
+    const orderCostSettlement = this.settleOrderCosts(completion.actionOutcomes, state.batchActionIds, orderTexts);
+    for (const order of orderCostSettlement.unfunded) {
+      voided.push({ action: order.action, reason: order.reason });
+      this.broadcast('action_voided', {
+        turn: this.currentTurn,
+        action: this.publicText(order.action),
+        reason: order.reason,
+        polityName: this.publicPolityName(this.playerPolityId),
+      });
+    }
     const voidedHeadlines = voided.map(v => `${this.publicPolityName(this.playerPolityId)} non attua la direttiva «${this.publicText(v.action)}»${v.reason ? `: ${this.publicText(v.reason)}` : '.'}`);
 
     // Gli effetti globali del record «complete» appartengono all'intero
@@ -5257,14 +5471,12 @@ export class GameSession {
     // progetto non deve restare senza percentuale leggibile nel Dossier.
     bulletins.push(...this.refreshProjectProgress(finalDate));
     // La cassa segue le scelte del giocatore: gli ordini che il run ha eseguito
-    // vengono regolati ora, prima che cronaca e checkpoint li raccontino.
-    const orderTexts = new Map(state.batchActionIds
-      .map(id => [id, this.pendingActions.find(action => action.id === id)?.text || ''] as const));
-    const orderCostLines = this.settleOrderCosts(completion.actionOutcomes, state.batchActionIds, orderTexts);
-    bulletins.push(...orderCostLines);
+    // vengono regolati nella stessa transazione dell'esito (già calcolati sopra,
+    // così gli ordini non finanziabili entrano anche fra i «voided»).
+    bulletins.push(...orderCostSettlement.lines);
     // Il punto storico della tesoreria va riscritto dopo la spesa ordinata:
     // altrimenti la serie mostrata dal Dossier ignora le scelte del giocatore.
-    if (orderCostLines.length > 0) this.recordAccountSnapshot(finalDate);
+    if (orderCostSettlement.lines.length > 0) this.recordAccountSnapshot(finalDate);
 
     // Record finale: riepilogo tecnico del periodo, non seconda fonte di
     // mutazioni. Gli eventi applicati vivono nei record per-evento.
@@ -5812,41 +6024,86 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     actionOutcomes: Array<{ actionId?: string; action?: string; status?: string }> | undefined,
     batchActionIds: string[],
     texts: Map<string, string>,
-  ): string[] {
-    if (this.isStrictGame()) return [];
+  ): { lines: string[]; unfunded: Array<{ actionId: string; action: string; reason: string }> } {
+    const empty = { lines: [] as string[], unfunded: [] as Array<{ actionId: string; action: string; reason: string }> };
+    if (this.isStrictGame()) return empty;
     const polityId = this.playerPolityId;
     const account = this.sessionAccounts()[polityId];
-    if (!account || batchActionIds.length === 0) return [];
+    if (!account || batchActionIds.length === 0) return empty;
     // Un esito può arrivare per id oppure per testo dell'ordine (contratto
     // legacy): entrambe le chiavi sono accettate, come in outcomesByActionId.
-    const statusByAction = new Map<string, string>();
+    // Conserviamo il riferimento all'esito per poterlo declassare quando i
+    // soldi non bastano: la realtà dell'ordine la decide il motore, non la
+    // narrazione.
+    const byAction = new Map<string, { status: string; outcome: { status?: string } }>();
     for (const outcome of actionOutcomes || []) {
       const status = String(outcome.status || '');
-      if (outcome.actionId) statusByAction.set(String(outcome.actionId), status);
-      if (outcome.action) statusByAction.set(`text:${outcome.action}`, status);
+      const entry = { status, outcome: outcome as { status?: string } };
+      if (outcome.actionId) byAction.set(String(outcome.actionId), entry);
+      if (outcome.action) byAction.set(`text:${outcome.action}`, entry);
     }
     const lines: string[] = [];
+    const unfunded: Array<{ actionId: string; action: string; reason: string }> = [];
     for (const actionId of batchActionIds) {
-      const status = statusByAction.get(actionId) ?? statusByAction.get(`text:${texts.get(actionId) || ''}`);
-      if (status !== 'accepted' && status !== 'partial') continue;
       const text = texts.get(actionId) || '';
+      const entry = byAction.get(actionId) ?? byAction.get(`text:${text}`);
+      const status = entry?.status;
+      if (status !== 'accepted' && status !== 'partial') continue;
       if (!text.trim()) continue;
       const estimate = this.estimateOrderCost(text);
       const stock = this.resourceStock(polityId);
       // Il tetto del debito non si sfonda: si paga quanto cassa + credito coprono.
       const { charge, shortfall } = affordableCharge(estimate.amountMld, stock.money, creditHeadroom(stock, account));
       if (charge <= 0) {
-        lines.push(`La cassa non copre l'ordine «${text.slice(0, 60)}» (${estimate.label}, ${estimate.amountMld} mld): nessuna spesa registrata, credito esaurito.`);
+        // Nessuna copertura: l'ordine non è attuabile e il motore lo annulla.
+        // Il giocatore non può comprare ciò che non può pagare.
+        const reason = `la cassa non copre l'ordine (${estimate.label}, ${estimate.amountMld} mld) e il credito è esaurito`;
+        unfunded.push({ actionId, action: text, reason });
+        entry!.outcome.status = 'voided';
+        entry!.status = 'voided';
+        lines.push(`La cassa non copre l'ordine «${text.slice(0, 60)}» (${estimate.label}, ${estimate.amountMld} mld): ordine annullato, nessuna spesa registrata.`);
         continue;
       }
       const nextStock: ResourceStock = { ...stock, money: Math.round((stock.money - charge) * 1000) / 1000 };
       this.saveResourceStock(polityId, nextStock);
       lines.push(`💸 ${describeOrderCost({ ...estimate, amountMld: charge }, text)}`);
       if (shortfall > 0.01) {
+        // Copertura parziale: nessun successo pieno. L'esito scende a
+        // "partial" anche se il modello l'aveva dichiarato completo.
+        if (entry) {
+          entry.outcome.status = 'partial';
+          entry.status = 'partial';
+        }
         lines.push(`L'ordine è stato finanziato solo in parte (${charge} mld su ${estimate.amountMld}): il credito residuo è esaurito.`);
       }
     }
-    return lines;
+    return { lines, unfunded };
+  }
+
+  /**
+   * Ordini che cassa e credito non possono coprire: al narratore arrivano
+   * come vincoli già decisi, con l'esito atteso («voided» o «partial»).
+   */
+  private orderFundingNotes(actions: PendingAction[]): string | null {
+    if (actions.length === 0) return null;
+    const polityId = this.playerPolityId;
+    const account = this.sessionAccounts()[polityId];
+    if (!account) return null;
+    const stock = this.resourceStock(polityId);
+    const headroom = creditHeadroom(stock, account);
+    const lines: string[] = [];
+    for (const action of actions) {
+      if (!action.text.trim()) continue;
+      const estimate = estimateOrderCost(action.text, account);
+      if (estimate.amountMld <= 0) continue;
+      const { charge, shortfall } = affordableCharge(estimate.amountMld, stock.money, headroom);
+      if (charge <= 0) {
+        lines.push(`- [actionId:${action.id}] «${action.text.slice(0, 90)}» costa ${estimate.amountMld} mld: cassa e credito non coprono nulla. Non può riuscire — nel periodo esso fallisce o resta sulla carta: outcome "voided".`);
+      } else if (shortfall > 0.01) {
+        lines.push(`- [actionId:${action.id}] «${action.text.slice(0, 90)}» costa ${estimate.amountMld} mld ma solo ${charge} mld sono coperti: nessun successo pieno — outcome "partial" e risultato dimezzato.`);
+      }
+    }
+    return lines.length > 0 ? lines.join('\n') : null;
   }
 
   /** Rende definitivo uno snapshot caricato: prima questa operazione mutava
@@ -5990,6 +6247,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
    * Add action to pending queue (without processing)
    */
   queueAction(text: string): PendingAction {
+    this.assertPlayable();
     const action: PendingAction = {
       id: shortId(),
       text,
@@ -6228,6 +6486,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
    */
   async processNextAction(jumpDays: number = 30): Promise<PendingAction | null> {
     const result = await this.withLock(async () => {
+      this.assertPlayable();
       if (this.pausedRun) throw new SimulationPausedError(this.pausedRun.runId);
       const action = this.pendingActions.find(item => item.status === 'pending');
       if (!action) return [];
@@ -6347,7 +6606,11 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       });
 
       // Build game data for prompt engine
+      // Il narratore conosce in anticipo quali ordini la tesoreria non può
+      // sostenere: nessun successo narrato che la cassa smentisce.
+      this.pendingFundingNotes = this.orderFundingNotes(actions);
       const gameData = this.buildGameData(actions.map(item => item.text));
+      this.pendingFundingNotes = null;
 
       // Gli eventi escono dal token stream UNO ALLA VOLTA. In auto-jump un
       // oggetto JSON completo viene applicato alla mappa e inviato al browser
@@ -6690,14 +6953,26 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       economyBulletins.push(...this.refreshProjectProgress(period.end));
       // La cassa segue le scelte del giocatore: gli ordini eseguiti in questo
       // periodo vengono regolati nella stessa transazione dell'esito.
-      const orderCostLines = this.settleOrderCosts(
+      const orderCostSettlement = this.settleOrderCosts(
         promptResult.actionOutcomes,
         actions.map(action => action.id),
         new Map(actions.map(action => [action.id, action.text] as const)),
       );
-      economyBulletins.push(...orderCostLines);
+      economyBulletins.push(...orderCostSettlement.lines);
+      // Chi non ha i soldi non compra: il motore annulla l'ordine e lo dichiara.
+      for (const order of orderCostSettlement.unfunded) {
+        if (!voided.some(entry => entry.action === order.action)) {
+          voided.push({ action: order.action, reason: order.reason });
+        }
+        this.broadcast('action_voided', {
+          turn: this.currentTurn,
+          action: this.publicText(order.action),
+          reason: order.reason,
+          polityName: this.publicPolityName(this.playerPolityId),
+        });
+      }
       // Il punto storico della tesoreria va riscritto dopo la spesa ordinata.
-      if (orderCostLines.length > 0) this.recordAccountSnapshot(period.end);
+      if (orderCostSettlement.lines.length > 0) this.recordAccountSnapshot(period.end);
       const economyEvents = autoJump ? [] : economyBulletins;
 
       // Il salto viene deciso da UN'unica sequenza causale (la simulazione
@@ -6864,6 +7139,9 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
       // Le sfide del turno appena chiuso scadono (l'inerzia pesa) e ne
       // nascono di nuove dagli indicatori aggiornati.
       this.refreshPeacetimePressures();
+      // La scala di crisi fa un passo: tre turni critici consecutivi e la
+      // nazione cade (rivolta, default o invasione).
+      this.evaluateCrisis();
 
       // Now set periodEnd (after advancing)
       actions.forEach(item => {
@@ -7133,6 +7411,7 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
    */
   async advanceDate(jumpDays: number = 30): Promise<{ newDate: string; newTurn: number }> {
     if (this.isStrictGame()) throw new Error('strict_legacy_path_forbidden: advanceDate');
+    this.assertPlayable();
     // §9.3: un run in pausa possiede il turno: nemmeno il percorso legacy
     // può far avanzare il mondo dietro la finestra di lettura del giocatore.
     if (this.pausedRun) throw new SimulationPausedError(this.pausedRun.runId);
@@ -7142,6 +7421,9 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     const periodStart = this.currentDate;
     const elapsedTurn = this.currentTurn;
     const newDate = addDays(periodStart, days);
+    // Anche un salto di tempo puro è reversibile: se il collasso scatta qui,
+    // il giocatore può tornare al turno precedente.
+    this.saveRewindSnapshot();
 
     const tick = WorldStateEngine.advance(this.regions.values(), days, this.worldStateOptions());
     // Anche il salto di tempo applica i modificatori nazionali e il magazzino,
@@ -7153,6 +7435,8 @@ Non inventare nuovi fatti né statistiche. Il riassunto sarà l'unica memoria re
     this.currentTurn++;
     this.currentDate = newDate;
     this.refreshPeacetimePressures();
+    // Un salto di tempo è comunque tempo che passa: la crisi avanza.
+    this.evaluateCrisis();
     this.recordAccountSnapshot(newDate, tickAccounts);
 
     const id = shortId();

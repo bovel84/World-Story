@@ -8,7 +8,7 @@ import { shortId } from '../utils/short-id';
 import { gameRepository } from '../repositories';
 import { countryRepository } from '../repositories/country.repository';
 import { getSessionRegistry } from '../session-registry';
-import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, type TurnResultRecord, type PausedBatchResult } from '../game-session';
+import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult } from '../game-session';
 import { IdempotencyConflictError, simulationJobService } from '../jobs/SimulationJobService';
 import { addDays, jumpHorizon } from '../core/simulation/calendar';
 import { addSSEClient, removeSSEClient, broadcastToGame, hasClients } from '../sse';
@@ -74,6 +74,9 @@ function respondRouteError(res: any, e: any, fallback: string): void {
     // G22: il lettore ha cambiato pagina/checkpoint: il vecchio controllo
     // non può interrompere il run successivo.
     res.status(409).json({ error: e.message, code: 'stale_checkpoint', simulationId: e.runId });
+  } else if (e instanceof GameOverError) {
+    // La nazione è caduta: nessuna azione è più possibile, solo l'epilogo.
+    res.status(409).json({ error: e.message, code: 'game_over', ending: e.ending });
   } else if (typeof e?.message === 'string' && e.message.includes('not found')) {
     res.status(404).json({ error: e.message });
   } else {
@@ -223,6 +226,8 @@ gamesRouter.get('/:id/national-state', (req, res) => {
       government: session.getGovernment(),
       // Politica fiscale scelta dal giocatore (aliquota, limiti, effetti).
       fiscalPolicy: session.getFiscalPolicy(),
+      // Crisi nazionale: rischi di collasso ed eventuale epilogo.
+      crisis: session.getCrisis(),
     });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get national state');
@@ -388,6 +393,17 @@ gamesRouter.post('/:id/pressures/:pressureId/resolve', (req, res) => {
       return;
     }
     respondRouteError(res, e, 'Failed to resolve peacetime pressure');
+  }
+});
+
+// Crisi nazionale: rischi di rivolta, default e invasione, con l'epilogo se
+// la partita è già finita. Sola lettura.
+gamesRouter.get('/:id/crisis', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json(session.getCrisis());
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to read national crisis');
   }
 });
 
@@ -1517,6 +1533,9 @@ function respondJobFailure(res: any, job: any): void {
     res.status(409).json({ error: job.error, code: 'simulation_in_progress' });
   } else if (job.error_name === 'SimulationPausedError') {
     res.status(409).json({ error: job.error, code: 'simulation_paused' });
+  } else if (job.error_name === 'GameOverError') {
+    // La nazione è caduta: nessun turno può più avanzare.
+    res.status(409).json({ error: job.error, code: 'game_over' });
   } else {
     res.status(500).json({ error: job.error || 'job_failed' });
   }
