@@ -43,13 +43,34 @@ describe('governmentDossier — lettura del governo e del bilancio', () => {
     expect(verdict.tone).toBe('negative');
   });
 
-  it('classifica fragile un disavanzo contenuto', () => {
+  it('classifica fragile un disavanzo che pesa sul PIL', () => {
     const verdict = nationalVerdict({
-      nominalGdpUsdBillions: 2000, monthlyRevenue: 20, monthlyExpenses: 22,
-      monthlyBalance: -2, annualGrowthRate: 0.01, stability: 55, socialTension: 30,
-    }, budget({ balance: -2, revenueTotal: 20, expenseTotal: 22 }));
+      nominalGdpUsdBillions: 2000, monthlyRevenue: 20, monthlyExpenses: 26,
+      monthlyBalance: -6, annualGrowthRate: 0.01, stability: 55, socialTension: 30,
+    }, budget({ balance: -6, revenueTotal: 20, expenseTotal: 26 }));
     expect(verdict.level).toBe('fragile');
     expect(verdict.tone).toBe('warning');
+  });
+
+  it('un avanzo con consenso medio resta in equilibrio, senza contraddirsi', () => {
+    // Caso reale: saldo attivo e debito sotto controllo, ma stabilità media.
+    const verdict = nationalVerdict({
+      nominalGdpUsdBillions: 27, monthlyRevenue: 0.2, monthlyExpenses: 0.13,
+      monthlyBalance: 0.07, annualGrowthRate: 0.018, stability: 46, socialTension: 29,
+    }, budget(), { ratioPct: 54.5, servicePct: 18.2 });
+    expect(verdict.level).toBe('equilibrata');
+    // Il dettaglio nomina la debolezza reale, non «senza margini ampi».
+    expect(verdict.detail).toContain('stabilità politica');
+    // Il debito entra tra i segnali letti dal motore.
+    expect(verdict.signals.join(' ')).toContain('Debito pubblico 54.5% del PIL');
+  });
+
+  it('un debito insostenibile rende fragile una nazione in avanzo', () => {
+    const verdict = nationalVerdict({
+      nominalGdpUsdBillions: 100, monthlyRevenue: 2, monthlyExpenses: 1.5,
+      monthlyBalance: 0.5, annualGrowthRate: 0.01, stability: 60, socialTension: 20,
+    }, budget(), { ratioPct: 110, servicePct: 22 });
+    expect(verdict.level).toBe('fragile');
   });
 
   it('un conto assente non produce un giudizio positivo inventato', () => {

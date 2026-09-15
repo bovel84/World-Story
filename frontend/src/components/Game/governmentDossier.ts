@@ -96,39 +96,55 @@ const number = (value: unknown): number =>
 
 /**
  * «Come sta andando la nazione»: un giudizio unico che intreccia saldo, debito
- * implicito, crescita, stabilità e tensione. Le soglie sono dichiarate e
- * derivano solo dai numeri del conto nazionale.
+ * (rapporto e peso degli interessi), crescita, stabilità e tensione. Le soglie
+ * sono dichiarate e derivano solo dai numeri del motore: un avanzo non diventa
+ * mai «senza margini», un debito alto non viene ignorato.
  */
 export function nationalVerdict(
   account?: VerdictAccount | null,
   budget?: NationalBudgetDetail | null,
+  debt?: { ratioPct?: number; servicePct?: number } | null,
 ): NationalVerdict {
+  // Conto assente: nessun giudizio inventato. Si dichiara che i dati non ci
+  // sono ancora, senza spacciare l'assenza di informazioni per una crisi.
+  if (!account) {
+    return {
+      level: 'equilibrata',
+      tone: 'neutral',
+      title: 'Nazione in equilibrio',
+      detail: 'Conto nazionale non ancora disponibile: il giudizio arriverà con i primi dati di gioco.',
+      signals: ['Nessun dato di bilancio pubblicato dal motore'],
+    };
+  }
   const gdp = Math.max(0, number(account?.nominalGdpUsdBillions));
   const balance = number(account?.monthlyBalance);
-  const revenue = number(account?.monthlyRevenue);
-  const expenses = number(account?.monthlyExpenses);
   const growthPct = number(account?.annualGrowthRate) * 100;
   const stability = Math.max(0, Math.min(100, number(account?.stability)));
   const tension = Math.max(0, Math.min(100, number(account?.socialTension)));
-  const taxRatePct = budget?.effectiveTaxRatePct ?? (gdp > 0 ? (revenue * 12 / gdp) * 100 : 0);
   const defencePct = budget?.defenceBurdenPct ?? number(account?.defenceBurdenPct);
-  // Disavanzo annuo in percentuale del PIL: il saldo è mensile.
-  const deficitPct = gdp > 0 ? (balance * 12 / gdp) * 100 : 0;
+  const debtRatio = Math.max(0, number(debt?.ratioPct));
+  const debtService = Math.max(0, number(debt?.servicePct));
+  // Disavanzo annuo in percentuale del PIL: positivo = disavanzo, negativo = avanzo.
+  const deficitPct = gdp > 0 ? (-balance * 12 / gdp) * 100 : 0;
 
   const signals: string[] = [];
-  signals.push(`Saldo ${balance >= 0 ? 'attivo' : 'passivo'} di ${round(Math.abs(balance), 2)} mld al mese (${round(deficitPct)}% del PIL l'anno)`);
-  signals.push(`Pressione fiscale effettiva ${round(taxRatePct)}% del PIL`);
-  if (defencePct > 0) signals.push(`Difesa ${round(defencePct)}% del PIL`);
+  const fiscalYear = deficitPct > 0.05
+    ? `disavanzo ${round(deficitPct)}% del PIL l'anno`
+    : deficitPct < -0.05
+      ? `avanzo ${round(-deficitPct)}% del PIL l'anno`
+      : 'pareggio di bilancio';
+  signals.push(`Saldo ${balance >= 0 ? 'attivo' : 'passivo'} di ${round(Math.abs(balance), 2)} mld al mese · ${fiscalYear}`);
+  signals.push(`Spesa militare ${round(defencePct)}% del PIL`);
+  if (debtRatio > 0) {
+    signals.push(`Debito pubblico ${round(debtRatio)}% del PIL${debtService > 0 ? ` · interessi ${round(debtService)}% delle entrate` : ''}`);
+  }
   signals.push(`Crescita annua ${growthPct >= 0 ? '+' : ''}${round(growthPct)}%`);
   signals.push(`Stabilità ${round(stability)}/100 · tensione ${round(tension)}/100`);
-  if (expenses > 0 && revenue > 0) {
-    signals.push(`Copertura delle uscite con le entrate: ${round((revenue / expenses) * 100)}%`);
-  }
 
   let level: VerdictLevel;
-  if (balance < 0 && (deficitPct <= -5 || tension >= 60)) level = 'critica';
-  else if (balance < 0 || growthPct < 0 || tension >= 50) level = 'fragile';
-  else if (growthPct >= 1.5 && stability >= 55 && tension < 35) level = 'solida';
+  if (deficitPct >= 8 || debtService >= 50 || tension >= 70 || (debtRatio >= 130 && deficitPct > 0)) level = 'critica';
+  else if (deficitPct >= 3 || debtRatio >= 100 || debtService >= 30 || stability < 40 || tension >= 55) level = 'fragile';
+  else if (deficitPct <= -1 && debtRatio < 60 && stability >= 58 && tension < 35 && growthPct >= 1) level = 'solida';
   else level = 'equilibrata';
 
   const tone: VerdictTone = level === 'solida' ? 'positive'
@@ -140,12 +156,22 @@ export function nationalVerdict(
       : level === 'fragile' ? 'Nazione fragile'
         : 'Nazione in difficoltà';
 
+  // Il dettaglio nomina la debolezza reale del momento, così non contraddice i
+  // segnali (es. un avanzo non viene descritto come «senza margini»).
+  const weakness = stability < 55
+    ? `la stabilità politica è nella media (${round(stability)}/100) e un evento imprevisto può erodere il consenso`
+    : debtRatio >= 60
+      ? `il debito è moderato (${round(debtRatio)}% del PIL) e va tenuto sotto controllo`
+      : growthPct < 1
+        ? `la crescita è lenta (${growthPct >= 0 ? '+' : ''}${round(growthPct)}%)`
+        : 'i margini restano contenuti';
+
   const detail = level === 'solida'
-    ? 'Le entrate coprono le uscite, l\'economia cresce e la piazza tiene. È il momento di consolidare.'
+    ? 'Le entrate coprono le uscite, l\'economia cresce, il debito è sotto controllo e la piazza tiene: è il momento di consolidare.'
     : level === 'equilibrata'
-      ? 'I conti tengono ma senza margini ampi: una guerra o una spesa straordinaria possono cambiare il quadro.'
+      ? `Nessuna crisi aperta, ma ${weakness}.`
       : level === 'fragile'
-        ? 'Il saldo o il consenso vacillano: ogni nuova spesa va motivata e il debito va sorvegliato.'
+        ? 'Il saldo o il consenso vacillano: ogni nuova spesa va coperta e il debito sorvegliato.'
         : 'Disavanzo e tensione si alimentano a vicenda: senza una correzione il governo rischia il tracollo.';
 
   return { level, tone, title, detail, signals };

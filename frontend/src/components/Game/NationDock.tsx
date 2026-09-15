@@ -641,7 +641,7 @@ export const NationDock: React.FC<NationDockProps> = ({
   // Bilancio dettagliato e giudizio complessivo: entrambi derivano dalle cifre
   // del motore; il verdetto è una soglia applicata ai numeri, non una stima.
   const budget = government?.budget ?? null;
-  const verdict = useMemo(() => nationalVerdict(account, budget), [account, budget]);
+  const verdict = useMemo(() => nationalVerdict(account, budget, government?.debt), [account, budget, government?.debt]);
   const factions = government?.factions ?? [];
 
   // Le voci del consiglio si chiedono al motore solo quando la scheda Governo
