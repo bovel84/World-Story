@@ -153,6 +153,9 @@ function applyMapChanges(state: SimulationUiState, payload: any): Record<string,
     next[change.regionId] = {
       owner: change.owner ?? next[change.regionId]?.owner,
       color: change.color ?? next[change.regionId]?.color,
+      // F06 µ3: un delta incrementale non deve cancellare gli objects già noti
+      // (arrivano dallo snapshot canonico, non dal flusso).
+      objects: change.objects ?? next[change.regionId]?.objects,
     };
   }
   return next;

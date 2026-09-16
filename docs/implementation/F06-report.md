@@ -67,3 +67,16 @@ Nessuno: µ1 è il livello di riduzione pura, non collegato alle viste.
 ## Crediti / DB reale / deploy
 
 Zero chiamate LLM reali, zero deploy. Nessun dato toccato; test puri senza network.
+## Revisione indipendente (revisore ≠ implementatore) — esito
+
+Verdetto **ACCETTABILE** dopo la correzione del difetto **M-1** (objects mappa
+persi sul ramo nuovo). Dettaglio completo in `REVIEW-INDIPENDENTE-F06.md`.
+
+- **M-1**: `applyMapChanges` riscriveva la entry con soli `{owner,color}`
+  cancellando gli `objects`; il call-site del restore (`useWorldAdvance`) ometteva
+  `objects` (mentre `useResumeSave` li passava). Corretto + due prove rosso→verde
+  (`simulationStore.test.ts`, `branchReplaceObjects.test.ts`).
+- Tutti i claim A06/A12/A13/A14 verificati con prove riproducibili; vedi verbale.
+- Residui non bloccanti: envelope senza `branchId` accettato (contratto lato
+  server), `lastSequence = worldRevision` come fencing, `mapRegions` del reducer
+  non ancora consumato dai componenti mappa.
