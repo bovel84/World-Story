@@ -972,11 +972,23 @@ export class PromptEngine {
     let parsedObjectCount = 0;
     let emittedCount = 0;
     const emitted = new Set<string>();
+    // B2: se un evento dello stream non rispetta il contratto delle reactions
+    // non viene pubblicato e la pubblicazione LIVE si ferma. Gli eventi
+    // successivi escono in ordine a stream concluso (dopo l'unico repair):
+    // pubblicarli subito li farebbe arrivare prima dell'evento riparato, e in
+    // auto-jump applicherebbe le mappe fuori ordine cronologico.
+    let livePublication = true;
+    let streamPublicationHalted = false;
     const emitEvent = (event: SimulationEvent) => {
       if (emittedCount >= maxEvents) return;
-      // Durante lo streaming escono solo eventi con reactions dentro il
-      // contratto: un event fuori contesto non viene mai applicato alla sessione.
-      if (reactionContext && validateReactionDecisions(event.reactions, reactionContext).length > 0) return;
+      if (livePublication && streamPublicationHalted) return;
+      if (reactionContext && validateReactionDecisions(event.reactions, reactionContext).length > 0) {
+        if (livePublication) {
+          streamPublicationHalted = true;
+          console.warn('[PromptEngine] Reazioni fuori contratto nello stream: pubblicazione live sospesa, in attesa del repair.');
+        }
+        return;
+      }
       const key = JSON.stringify(event);
       if (emitted.has(key)) return;
       emitted.add(key);
@@ -1076,16 +1088,31 @@ export class PromptEngine {
         context: reactionContext,
         repair: ({ events, issues, context }) => this.repairReactionFormat(system, events, issues, context, signal),
       });
-      if (outcome.repaired) result = { ...result, events: outcome.events as SimulationEvent[] };
+      if (outcome.repaired) {
+        // La perdita di un attore fuori contesto è la degradazione ammessa del
+        // fail-closed: resta visibile nei log, mai silenziosa.
+        const dropped = result.events.reduce((total, event, index) => {
+          const before = (event.reactions || []).length;
+          const after = (outcome.events[index]?.reactions || []).length;
+          if (before > after) console.warn(`[PromptEngine] Reaction fuori contesto omesse dal repair: ${before - after} (evento "${String(event.headline).slice(0, 80)}")`);
+          return total + Math.max(0, before - after);
+        }, 0);
+        if (dropped > 0) console.warn(`[PromptEngine] Repair reactions: ${dropped} reaction omesse in totale.`);
+        result = { ...result, events: outcome.events as SimulationEvent[] };
+      }
     }
     // Provider senza streaming o modello che usa ancora il vecchio formato:
-    // pubblica gli eventi validati appena arriva la risposta completa.
+    // pubblica gli eventi validati appena arriva la risposta completa. La
+    // sospensione vale solo per la fase live: qui si riprende in ordine.
+    livePublication = false;
     for (const event of result.events) emitEvent(event);
     return result;
   }
 
   /**
-   * Unico repair di FORMATO per le reactions: corregge solo actorId/optionId.
+   * Unico repair di FORMATO per le reactions: corregge solo `actorId`/`optionId`
+   * — oppure **omette** una reaction il cui attore non è ammesso dal motore,
+   * perché non esiste alcun `actorId` compatibile con cui sostituirla.
    * Gli eventi (headline, date, description, mapChanges) restano quelli già
    * emessi: la simulazione non viene rigenerata né sostituita.
    */
@@ -1105,6 +1132,10 @@ export class PromptEngine {
       'Attori e opzioni ammessi (copia gli ID esatti, scegli UNA opzione per ogni attore):',
       allowed,
       `Problemi rilevati dal motore: ${issues.map(issue => issue.message).join(' | ')}`,
+      'Regole di correzione:',
+      '- se la reaction ha un attore ammesso: scegli per lui un solo optionId fra i suoi;',
+      '- se la reaction ha un attore NON in elenco: OMETTILA (non rimapparla su un altro attore, non inventare ID);',
+      '- non superare il numero massimo di reactions indicato; "reactions": [] è ammesso.',
       'Eventi da correggere:',
       JSON.stringify({
         events: events.map(event => ({
@@ -1123,17 +1154,25 @@ export class PromptEngine {
       jsonMode: true,
       signal,
     });
-    try {
-      return parseSimulationResponse(repaired.content).events;
-    } catch (error) {
-      if (error instanceof LLMContractError) {
-        throw new LLMContractError(`repair reactions non interpretabile: ${error.message}`, {
-          mechanic: 'jump',
-          excerpt: repaired.content,
-        });
+    // Il modello può rispondere nel formato richiesto ({"events":[...]}) o
+    // proseguire il protocollo NDJSON della simulazione: entrambe le forme
+    // correggono la stessa cronaca, quindi si accettano senza una seconda
+    // chiamata ausiliaria.
+    const parseAttempts = [parseSimulationResponse, parseIncrementalSimulationResponse];
+    let lastError: unknown;
+    for (const parse of parseAttempts) {
+      try {
+        const events = parse(repaired.content).events;
+        if (events.length > 0) return events;
+        lastError = new LLMContractError('repair reactions: nessun evento nella risposta', { mechanic: 'jump' });
+      } catch (error) {
+        lastError = error;
       }
-      throw error;
     }
+    throw new LLMContractError(
+      `repair reactions non interpretabile: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+      { mechanic: 'jump', excerpt: repaired.content },
+    );
   }
 
   async convertAction(game: GameData, actionText: string, signal?: AbortSignal): Promise<ConvertedAction> {

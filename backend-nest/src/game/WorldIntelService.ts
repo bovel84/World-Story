@@ -15,7 +15,7 @@
 import { chatRepository } from '../repositories';
 import { countryRepository } from '../repositories/country.repository';
 import { RegionResolver, PolityResolver, normalizeName } from '../utils/name-resolver';
-import { polityDisplayNameIt } from '../utils/country-facts';
+import { polityDisplayNameIt, polityNameAliases } from '../utils/country-facts';
 import { currentStrategicPriorities, strategicProfileForPolity } from '../npc-agents';
 import { arsenalCombatFactor } from '../core/simulation/MilitaryIndustry';
 import { measureMaterialCategory, reactionAllowsMaterialCategory } from '../core/simulation/ReactionDecisions';
@@ -43,11 +43,8 @@ export class WorldIntelService {
     const polityAliases: Record<string, string[]> = {};
     for (const owner of new Set(all.map(region => region.owner))) {
       if (!owner || owner === 'neutral') continue;
-      const registeredName = countryRepository.findByCode(owner)?.name;
-      polityAliases[owner] = [
-        registeredName,
-        polityDisplayNameIt(owner, registeredName),
-      ].filter((name): name is string => !!name);
+      // Stessa fonte degli alias usati dal resolver: code, registro, italiano.
+      polityAliases[owner] = polityNameAliases(owner, countryRepository.findByCode(owner)?.name);
     }
     return {
       regions: new RegionResolver(all),

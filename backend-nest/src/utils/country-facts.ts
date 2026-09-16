@@ -676,6 +676,20 @@ export function polityDisplayNameIt(polityId: string, fallback?: string): string
 }
 
 /**
+ * Alias con cui una politia può essere nominata in un testo: codice stato, nome
+ * del registro e nome italiano curato. È l'unica fonte usata sia dal resolver
+ * dei nomi sia dal ReactionContext, così il riconoscimento delle politie
+ * nominate non può divergere fra i due percorsi.
+ */
+export function polityNameAliases(polityId: string, registeredName?: string): string[] {
+  return [...new Set([
+    polityId,
+    registeredName,
+    polityDisplayNameIt(polityId, registeredName),
+  ].filter((name): name is string => typeof name === 'string' && name.trim().length > 0))];
+}
+
+/**
  * Popolazione di riferimento reale (2024, ultimo anno disponibile). Usata per
  * ancorare la base di partenza di una nazione moderna a un fatto verificabile:
  * il modello non deve inventare abitanti che poi falsano PIL, bilancio e tesoreria.
