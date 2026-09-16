@@ -1610,7 +1610,7 @@ export interface LLMSavePayload {
     model?: string;
   };
   mechanics?: Record<string, { model?: string; apiKey?: string; baseUrl?: string; provider?: string }>;
-  /** false → la chiave resta solo in memoria server (mai su disco); vive nel browser */
+  /** true → la chiave può essere scritta su disco; omesso/false → resta solo in memoria server (default opt-in). */
   persistApiKey?: boolean;
 }
 

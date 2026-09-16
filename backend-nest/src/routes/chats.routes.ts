@@ -13,7 +13,7 @@
 
 import { Router } from 'express';
 import { getSessionRegistry } from '../session-registry';
-import { LLMError } from '../llm';
+import { LLMError, LLMContractError } from '../llm';
 import { ContextChangedError, SimulationInProgressError } from '../game-session';
 
 export const chatsRouter = Router();
@@ -28,6 +28,8 @@ function respondRouteError(res: any, e: any, fallback: string): void {
     // I Quick Tunnel sostituiscono i 502 JSON con una pagina HTML generica.
     // 424 conserva il dettaglio del provider per la UI.
     res.status(424).json({ error: `LLM (${e.provider}): ${e.message}` });
+  } else if (e instanceof LLMContractError) {
+    res.status(424).json({ error: e.message, code: 'llm_contract_error', mechanic: e.mechanic });
   } else if (e instanceof SimulationInProgressError) {
     // F04 passo 3: politica esplicita durante un run — 409.
     res.status(409).json({ error: e.message, code: 'simulation_in_progress' });

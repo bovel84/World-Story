@@ -112,6 +112,9 @@ ${vars.PLAYER_ACTIONS_THIS_ROUND || '(nessun ordine)'}
 FATTI MATERIALI E DIPLOMATICI:
 ${clipForConstrainedModel(vars.STRATEGIC_STATE, 5_000)}
 
+CONTESTO DI REAZIONE (attori e opzioni ammesse dal motore):
+${clipForConstrainedModel(vars.REACTION_CONTEXT, 2_500) || '(nessuno)'}
+
 NPC RILEVANTI — identità e memoria vincolanti:
 ${clipForConstrainedModel(vars.NPC_STRATEGIC_PROFILES, 6_500)}
 
@@ -136,7 +139,7 @@ ${opts.presetOverride ? `\nISTRUZIONI AGGIUNTIVE DEL PRESET (non sostituiscono p
 
 REGOLE:
 1. Ogni evento: causa già visibile → decisione autonoma → conseguenza proporzionata. Non copiare l’ordine come notizia.
-2. Il giocatore controlla solo ${vars.PLAYER_POLITY}. Altre politie decidono per sé secondo priorità, risorse, rapporti e memoria. Nessun accordo è concluso senza reaction favorevole/condizionata della controparte. Coerenza dei soggetti: nomina solo chi agisce, subisce o ha un interesse documentato; ${vars.PLAYER_POLITY} compare solo se il fatto la tocca direttamente, mai come comparsa o spettatrice. "reactions"/"startChat" solo per le politie direttamente coinvolte: in una crisi locale reagiscono la controparte e i vicini, non potenze lontane senza interesse documentato.
+2. Il giocatore controlla solo ${vars.PLAYER_POLITY}. Altre politie decidono per sé secondo priorità, risorse, rapporti e memoria. Nessun accordo è concluso senza reaction favorevole/condizionata della controparte. Coerenza dei soggetti: nomina solo chi agisce, subisce o ha un interesse documentato; ${vars.PLAYER_POLITY} compare solo se il fatto la tocca direttamente, mai come comparsa o spettatrice. "reactions"/"startChat" solo per gli attori elencati nel CONTESTO DI REAZIONE.
 3. Ordine composto: se solo una fase è fattibile usa partial e mostra soltanto quella fase; se nulla è fattibile usa rejected/voided e nessun mapChanges.
 4. Reazione NPC: indica priority, response e solo se reale counterAction. Una controazione materiale (mobilitazione, unità terrestre o navale, cantiere, opera completata) deve avere anche le mapChanges corrispondenti nello stesso evento, nel territorio della politia che agisce. Se influenza un altro NPC, anche quello reagisce autonomamente. Massimo 4 reazioni pertinenti. "note" è il messaggio diretto al giocatore nel canale diplomatico: prima persona, una o due frasi d'uomo politico, senza cifre né etichette.
 4b. Iniziativa NPC: le nazioni non giocate non sono comparse. Quando una causa documentata esiste (confine teso, minaccia, alleanza, ultimatum, crisi aperta, opportunità), almeno una adotta una misura autonoma concreta, difensiva (fortification, base, airbase, radar, missile_site, mobilitazione di riserve, patto difensivo) o offensiva (concentramento, raid, blocco navale, ultimatum armato, preparazione d'invasione), con la mapChange corrispondente se materiale. Se non c'è causa, il mondo può restare fermo.
@@ -166,6 +169,12 @@ Il giocatore può tentare qualsiasi cosa, ma il successo delle sue azioni dipend
 
 ${buildPlayerIdentityGuard(vars)}
 ${buildSubjectCoherenceGuard(vars)}
+
+[Contesto di reazione — attori, vincoli e opzioni ammesse dal motore]
+
+Questo contesto è già filtrato dal motore: chi non è elencato qui non è coinvolto causalmente. Scegli le reazioni solo fra gli attori e le opzioni elencate; non introdurre altre nazioni.
+
+${vars.REACTION_CONTEXT || '(nessun contesto disponibile: usa cronaca e stato strategico per identificare controparti dirette e vicini)'}
 
 ${vars.DIFFICULTY_DESCRIPTION_JUMP_FORWARD}
 
@@ -204,11 +213,10 @@ Nell'apertura della descrizione spiega il contesto e il grilletto concreto: una 
 - Preferisci pochi eventi collegati in una stessa catena a molti eventi indipendenti. Se nel periodo non segue altro in modo credibile, fermati prima del limite.
 
 [CICLO MONDIALE OBBLIGATORIO]
-Ogni avanzamento temporale simula l'intero mondo, non soltanto la politia del giocatore. Valuta per tutte le altre politie le conseguenze nel periodo: reazioni a ordini, sviluppo di trattative, mobilitazioni, commercio, crisi o impegni già presenti nella cronaca e nello stato strategico.
-- Se un ordine del giocatore coinvolge o influenza un'altra politia, inserisci nello stesso evento una risposta autonoma e concreta della controparte nel campo "reactions". Una proposta, richiesta, minaccia o offerta del giocatore non vale come accettazione altrui: senza consenso esplicito della controparte resta proposta pendente o viene respinta.
-- Ogni NPC decide in quest'ordine: priorità pertinente → capacità/costi → rapporti e memoria → posizione → eventuale controazione. Riporta la priorità in "priority" e una misura autonoma effettiva in "counterAction". Non cambiare personalità per rendere il turno più spettacolare. Le mapChanges riguardano TUTTE le politie: una misura NPC che avvia una mobilitazione, crea o sposta un'unità terrestre o navale, apre un cantiere o completa un'opera diventa marker nello stesso evento, nel territorio della politia che agisce.
-- Anche senza ordini del giocatore, fai progredire almeno un filone già documentato di una politia non giocante quando esiste una causa verificabile; il giocatore può osservare il mondo ma la sua politia non agisce senza ordine.
-- Dai priorità a 1-3 reazioni o iniziative internazionali collegate, invece di elencare notizie scollegate. Se nessuna causa è documentata, non inventare un fatto: avanza comunque tempo ed economia in modo coerente.
+Ogni avanzamento temporale simula l'intero mondo, non soltanto la politia del giocatore: valuta le conseguenze del periodo per gli attori elencati nel [Contesto di reazione].
+- Una proposta, richiesta, minaccia o offerta del giocatore non vale come accettazione altrui: senza consenso esplicito della controparte resta proposta pendente o viene respinta.
+- Ogni NPC decide per priorità pertinente, capacità e costi, rapporti e memoria; riporta la priorità in "priority" e una misura autonoma effettiva in "counterAction". Le mapChanges riguardano TUTTE le politie: una misura NPC materiale diventa marker nello stesso evento, nel territorio della politia che agisce.
+- Anche senza ordini del giocatore, fai progredire almeno un filone già documentato quando esiste una causa verificabile; la politia del giocatore non agisce senza ordine. Se nessuna causa è documentata, non inventare un fatto: avanza comunque tempo ed economia in modo coerente.
 ${buildNpcAgencyGuard(vars)}
 ${buildDomesticReactionGuard(vars)}
 
@@ -244,17 +252,6 @@ Nel gioco esiste una mappa dinamica. Curalo con attenzione i trasferimenti di re
 - NON inventare un secondo filone mondiale solo per coprire più paesi: segui prima le conseguenze delle azioni del giocatore e delle crisi già aperte. Un paese lontano entra nella cronaca soltanto se ha un collegamento esplicito con tali cause
 - Copri il mondo tramite catene causali reali: politica, economia e guerra devono restare collegate alla politia del giocatore, alla cronaca o alla diplomazia
 - NON scrivere MAI "(fictional)", "(a-historical)" o "Player Polity" nei titoli e nei testi degli eventi. Chiama la politia del giocatore semplicemente con il suo nome
-
-[Regole di modifica della mappa]
-
-- Creare una nuova politia — nuovo nome, colore, regioni
-- Eliminare una politia — tutte le regioni diventano neutrali
-- Aggiornare una politia — cambiare nome/colore di una esistente
-- Trasferire una regione — semplice cambio di proprietario (il motore assegna sempre il colore della nazione che la controlla: non serve indicare un colore per una nazione già esistente).
-- Rappresentare oggetti territoriali concreti: cantieri, opere completate, unità operative, movimenti e rimozioni. Gli oggetti compaiono soltanto nello stesso evento che prova l'effetto materiale, mai perché un ordine li nomina. Anche le iniziative materiali delle altre nazioni usano le stesse regole e la stessa mappa.
-- IMPORTANTE: regioni e politie vanno indicate SOLO con i nomi, esattamente come
-  compaiono nell'[Descrizione della mappa] qui sotto (es. "Germania", "USA").
-  Nessun id, nessuna coordinata, nessun nome inventato.
 
 *Trasferimento di regioni.*
 - In guerra e in conflitto i passaggi sono frequenti; in tempo di pace sono rari ma possibili (cessione, vendita, trattato)
@@ -341,11 +338,6 @@ ${vars.NATION_CRISIS || '(Nessuna crisi in corso: il governo non è a rischio di
 
 La nazione può cadere: rivolta interna, default sul debito, invasione da un vicino più forte. Questi rischi sono calcolati dai numeri reali, non dalle parole. Se una dimensione è critica, il periodo deve mostrarla: nessun ordine può essere un successo pieno mentre lo Stato è sull'orlo del collasso. Non dichiarare mai un esito che i numeri smentiscono — il fallimento fa parte del gioco.
 
-[Anime del governo — chi preme dentro la nazione]
-
-${vars.GOVERNMENT_STATE || '(Nessuna anima del governo registrata per questa nazione.)'}
-${buildGovernmentNarrativeGuard(vars)}
-
 Tutte queste informazioni riflettono la situazione geopolitica alla data: ${vars.ORIGIN_ROUND_DATE}
 
 [Diplomazia]
@@ -356,65 +348,7 @@ ${vars.CHATS_NON_CONSOLIDATED_ROUNDS || '(Non ci è stata diplomazia)'}
 
 Ora simula gli eventi tra il ${vars.ORIGIN_ROUND_DATE} e il ${vars.TARGET_ROUND_DATE}.
 
-Il tuo output DEVE essere nel seguente formato JSON:
-{
-  "events": [
-    {
-      "headline": "Titolo dell'evento",
-      "description": "${EVENT_DESCRIPTION_GUIDE}",
-      "date": "YYYY-MM-DD",
-      "mapChanges": [
-        {
-          "type": "transfer|create|update|delete|create_polity|start_construction|update_construction|complete_construction|build_facility|start_mobilization|complete_mobilization|spawn_unit|move_unit|remove_unit",
-          "regionName": "NOME della regione dalla descrizione della mappa",
-          "targetRegionName": "NOME destinazione solo per move_unit",
-          "newOwner": "NOME della politia dalla descrizione della mappa (se transfer/create)",
-          "newColor": "#hex (se update o nuova politia)",
-          "feature": { "type": "tipo oggetto", "name": "nome univoco" }
-        }
-      ],
-      "reactions": [
-        {
-          "polityName": "NOME politia NPC esistente",
-          "role": "counterparty|ally|mediator|observer",
-          "stance": "supportive|opposed|conditional|neutral",
-          "priority": "priorità del dossier che guida la decisione",
-          "response": "decisione ufficiale concreta e motivata",
-          "counterAction": "eventuale misura autonoma realmente decisa nel periodo",
-          "note": "messaggio diretto al giocatore, prima persona, una o due frasi senza cifre"
-        }
-      ]
-    }
-  ],
-  "narration": "Narrativa complessiva del periodo (3-5 frasi)",
-  "actionOutcomes": [
-    { "actionId": "ID esatto di ciascun ordine ricevuto", "status": "accepted|partial|rejected", "summary": "esito specifico dell'ordine", "expectedDate": "YYYY-MM-DD solo se partial", "eventHeadlines": ["titolo evento pertinente"] }
-  ],
-  "voided": [
-    { "action": "testo dell'azione del giocatore", "reason": "perché è irrealistica" }
-  ],
-  "startChat": [
-    {
-      "participants": ["NOME della politia promotrice", "EVENTUALE altra politia coinvolta"],
-      "topic": "primo messaggio concreto e ordine del giorno",
-      "kind": "meeting|summit|negotiation|conference|ultimatum|technical|statement",
-      "eventHeadline": "titolo ESATTO dell'evento che apre il contatto"
-    }
-  ],
-  "relationshipChanges": [
-    { "from": "NOME politia", "to": "NOME politia", "relationship": "ally|neutral|hostile", "reason": "accordo o evento che causa il cambiamento" }
-  ],
-  "worldChanges": {
-    "regionOwners": { "NOME regione": "NOME politia" },
-    "regionColors": { "NOME regione": "#hex" },
-    "nationalEffects": [
-      { "kind": "stock", "resource": "money|food|clothing|weapons|fuel|research", "delta": 0, "reason": "causa concreta", "sourceActionId": "ID ordine", "polityId": "NOME politia (opzionale, default la tua nazione)" },
-      { "kind": "arsenal", "equipmentId": "id catalogo", "delta": 0, "reason": "perdite, catture, aiuti", "sourceActionId": "ID ordine" },
-      { "kind": "modifier", "field": "stability|socialTension|warEffort", "delta": 0, "reason": "perché l'indice cambia stabilmente" },
-      { "kind": "economy", "revenueMultiplierDelta": 0.0, "growthModifierDelta": 0.0, "reason": "riforma, shock, sanzioni" }
-    ]
-  }
-}
+Formato di output: vedi il [PROTOCOLLO EVENTI PROGRESSIVI — PRIORITÀ MASSIMA] in coda; gli effetti materiali vanno in "worldChanges.nationalEffects".
 
 Regole nationalEffects (sei tu il motore del cambiamento: le tue decisioni devono avere conseguenze materiali verificabili):
 - Servono SOLO quando un fatto del periodo cambia davvero la vita della nazione: mobilitazione, razionamento, requisizioni, aiuti esteri, sanzioni, riforme, perdite al fronte, cattura di depositi, disordini. Niente "effetti di colore".
@@ -425,24 +359,11 @@ Regole nationalEffects (sei tu il motore del cambiamento: le tue decisioni devon
 - Non puoi dichiarare completato un progetto non finito: la chiusura avviene per "completesProjectId" con outcome "accepted", e il motore rifiuta la chiusura sotto la soglia di completamento.
 - In strict queste leve sono vietate: lì valgono solo gli effetti canonici.
 
-Regole mapChanges:
-- Territorio/politie: "transfer", "create"/"update"/"delete", "create_polity".
-- Cantiere materialmente aperto: "start_construction" con feature.type finale fra factory, port, university, base, airbase, naval_base, fortification, radar, missile_site, infrastructure, power_plant. Opera divenuta operativa: "complete_construction" con stesso nome e tipo finale; "build_facility" è il sinonimo legacy per un'opera già completata.
-- Mobilitazione/reclutamento realmente iniziato ma non ancora operativo: "start_mobilization"; quando la formazione diventa operativa usa "complete_mobilization" con stesso nome/tipo, se annullata "cancel_mobilization". Una formazione già operativa usa "spawn_unit" con feature.type battalion, army, fleet o missile.
-- Movimento reale di unità esistente: "move_unit" con targetRegionName; distruzione/scioglimento: "remove_unit". "spawn_battalion" e "move_battalion" restano sinonimi legacy.
-- Una richiesta, un annuncio, uno studio, un ordine respinto o un piano senza lavori NON crea oggetti. Un outcome partial può creare un cantiere o una mobilitazione soltanto se attività materiali sono iniziate: non rappresentare in anticipo il risultato finale desiderato.
-- Collocazione: una nuova formazione, mobilitazione o fortificazione nasce in una provincia controllata dalla politia che la crea; se l'ordine dice "vicino a X", "al confine con X" o "di frontiera", scegli la provincia controllata più vicina a X. Non creare una formazione nel territorio di un'altra politia senza un ordine esplicito di incursione o invasione.
-- Misure NPC difensive e offensive (fortificazioni, basi aeree, radar, batterie costiere e missilistiche, mobilitazioni di riserve, concentramenti, raid, blocchi navali, preparazioni d'invasione) delle altre nazioni seguono le stesse regole e diventano marker quando sono materialmente iniziate o operative.
-- "regionName", "targetRegionName" e "newOwner" usano SOLO nomi presenti nella mappa (salvo nuova politia). NON usare coordinate e non duplicare oggetti già esistenti.
-- Se non cambia né il controllo territoriale né un oggetto fisico/operativo, lascia "mapChanges" vuoto. "worldChanges.regionOwners" duplica i passaggi di proprietà finali per nome.
-
 Regole reactions:
-- Se un ordine nomina, contatta, minaccia, influenza o richiede cooperazione a una politia NPC, quella politia deve comparire nello stesso evento e decidere autonomamente; massimo 4 reazioni direttamente pertinenti.
 - Segui il dossier persistente dell'NPC: "priority" deve richiamare l'interesse che guida la decisione e "counterAction" contiene soltanto una misura concreta davvero adottata nel periodo.
 - Se un'azione o controazione NPC influenza direttamente un'altra politia NPC, anche quella politia decide autonomamente nel medesimo evento o nel successivo evento causale.
 - Non eseguire decisioni per le controparti. Un accordo può risultare concluso solo se ogni controparte necessaria risponde supportive o conditional con condizioni soddisfatte. Altrimenti l'ordine resta proposta, rinvio, rifiuto o controproposta e il suo outcome è partial/rejected.
 - La descrizione racconta iniziativa, risposta e conseguenza: non deve essere la parafrasi al passato dell'elenco ordini. Per un fatto esclusivamente interno usa "reactions": [].
-- Teatro della crisi: in un conflitto o in una crisi di confine reagiscono la controparte diretta, i vicini (del giocatore e della controparte) e le organizzazioni regionali pertinenti. Non aggiungere potenze lontane senza interesse documentato né note di comodo da capitali irrilevanti.
 ${buildDispatchStyleGuard()}
 ${buildPlayerIdentityGuard(vars)}
 ${buildSubjectCoherenceGuard(vars)}

@@ -97,6 +97,7 @@ describe('POST /api/llm/config', () => {
 
   it('salva default + override di meccanica e ricarica il router a caldo', async () => {
     const save = await call('POST', '/config', {
+      persistApiKey: true,
       default: {
         provider: 'openai-compatible',
         baseUrl: 'https://ollama.com/v1',
@@ -144,6 +145,28 @@ describe('POST /api/llm/config', () => {
       mechanics: { warp_drive: { model: 'x' } },
     });
     expect(status).toBe(400);
+  });
+
+  it('senza persistApiKey la chiave resta in memoria e non finisce su disco (opt-in)', async () => {
+    const save = await call('POST', '/config', {
+      default: {
+        provider: 'openai-compatible',
+        baseUrl: 'https://in-memory.example/v1',
+        model: 'mem-model',
+        apiKey: 'memory-only-key',
+      },
+    });
+    expect(save.status).toBe(200);
+
+    const onDisk = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    expect(onDisk.default.apiKey).toBeUndefined();
+    expect(JSON.stringify(onDisk)).not.toContain('memory-only-key');
+
+    // La chiave è applicata al router solo in memoria.
+    const view = await call('GET', '/config');
+    expect(view.data.default.apiKeySet).toBe(true);
+    expect(view.data.default.apiKeySource).toBe('browser');
+    expect(view.text).not.toContain('memory-only-key');
   });
 });
 

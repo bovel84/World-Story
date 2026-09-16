@@ -125,12 +125,13 @@ llmRouter.get('/config', (_req, res) => {
 });
 
 // Aggiorna la configurazione e ricarica il router a caldo.
-// Il body può portare persistApiKey: false → la chiave viene applicata SOLO
-// in memoria (mai scritta su disco): la chiave vive nel browser e il frontend
-// la reinvia a ogni caricamento.
+// Il body può portare persistApiKey: true → la chiave viene scritta su disco.
+// Opt-in esplicito: senza `persistApiKey === true` la chiave resta SOLO in
+// memoria (vive nel browser e viene reinviata a ogni caricamento), e qualunque
+// chiave in chiaro già presente su disco viene rimossa.
 llmRouter.post('/config', (req, res) => {
   const body = req.body || {};
-  const persistApiKey = body.persistApiKey !== false; // default true (retrocompat.)
+  const persistApiKey = body.persistApiKey === true;
   const d = body.default && typeof body.default === 'object' ? body.default : {};
 
   if (d.provider !== undefined && !VALID_PROVIDERS.includes(d.provider)) {
@@ -159,9 +160,9 @@ llmRouter.post('/config', (req, res) => {
   if (d.baseUrl !== undefined) raw.default.baseUrl = d.baseUrl.trim();
   if (d.model !== undefined) raw.default.model = d.model.trim();
   if (d.apiKey !== undefined && persistApiKey) raw.default.apiKey = d.apiKey;
-  // La chiave non deve stare su disco: con persistApiKey=false, se il browser
-  // invia una nuova chiave, rimuoviamo qualunque chiave in chiaro dal file
-  // (i riferimenti env:XXX restano — non sono segreti).
+  // La chiave non deve stare su disco salvo richiesta esplicita: senza
+  // persistApiKey=true, se il browser invia una nuova chiave, rimuoviamo
+  // qualunque chiave in chiaro dal file (i riferimenti env:XXX restano).
   if (!persistApiKey && typeof d.apiKey === 'string' && d.apiKey.trim()) {
     if (raw.default.apiKey && !String(raw.default.apiKey).startsWith('env:')) {
       delete raw.default.apiKey;

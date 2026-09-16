@@ -13,6 +13,7 @@ import { arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, naturalResou
 import { effectiveEndowment, summarizeLedger } from '../core/simulation/ResourceMarket';
 import { annualDebtServiceMld, creditHeadroom, creditLimit, debtOf, materialNeeds, storageCapacity, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { averageMaturityYears } from '../core/simulation/SovereignDebt';
+import { buildReactionContext, renderReactionContext } from '../core/simulation/ReactionContext';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import type { ResourceLedger } from '../core/simulation/ResourceMarket';
 import type { RegionState } from '../game-session';
@@ -91,6 +92,12 @@ export class GameDataService {
       } as NationalAccount;
     }
 
+    // Righe DB riusate sia dal contesto di reazione sia dal read model.
+    const pressureRows = gameRepository.listPressures(this.ctx.gameId, 'active');
+    const processRows = gameRepository.getOngoingProcesses(this.ctx.gameId);
+    const playerStock = this.ctx.resourceStock(this.ctx.playerPolityId());
+    const playerAccountForContext = accounts[this.ctx.playerPolityId()];
+
     return {
       id: this.ctx.gameId,
       currentDate: this.ctx.currentDate(),
@@ -148,7 +155,7 @@ export class GameDataService {
           : undefined,
         // Sfide del momento: generate dal motore, scelte dal giocatore. Il
         // narratore le riceve come fatti aperti, non come invenzioni.
-        pressures: gameRepository.listPressures(this.ctx.gameId, 'active').map(record => ({
+        pressures: pressureRows.map(record => ({
           id: record.id,
           kind: record.kind,
           title: record.title,
@@ -207,9 +214,35 @@ export class GameDataService {
       // Identità stabile + priorità dinamiche + memoria per le politie davvero
       // rilevanti al teatro corrente. È la stessa fonte usata dalle chat.
       npcStrategicProfiles: this.ctx.buildNpcStrategicDossiers(focusTexts, accounts),
+      // Il motore decide chi è coinvolto e quali opzioni sono materialmente
+      // possibili: il prompt riceve un contesto già filtrato e limitato.
+      reactionContext: renderReactionContext(buildReactionContext({
+        playerPolityId: this.ctx.playerPolityId(),
+        playerPolityName: polityNames[this.ctx.playerPolityId()],
+        focusTexts,
+        actions: this.ctx.actions().map((action: any) => ({ actionId: action.id, text: action.text })),
+        polityNames,
+        regions: regionsObj,
+        relationships: this.ctx.relationships() as Record<string, Record<string, string>> | undefined,
+        accounts: effectiveAccounts,
+        resources: {
+          debt: debtOf(playerStock),
+          creditLimit: creditLimit(playerAccountForContext),
+          creditHeadroom: creditHeadroom(playerStock, playerAccountForContext),
+          stock: playerStock as unknown as Record<string, number>,
+        },
+        government: {
+          factions: governmentSnapshot(playerAccountForContext).factions.map(faction => ({
+            id: faction.id, name: faction.name, pressure: faction.pressure, stance: faction.stance,
+          })),
+        },
+        pressures: pressureRows.map(record => ({ id: record.id, kind: record.kind, title: record.title, detail: record.detail })),
+        ongoingProcesses: processRows.map((process: any) => ({ id: process.id, title: process.title, sourceActionId: process.source_action_id })),
+        crisis: { level: this.ctx.peekCrisis().level, headline: this.ctx.peekCrisis().headline },
+      })),
       // I progetti attivi sono contesto canonico anche senza nuovi ordini.
       // LLM riceve ID e date, non deve riconoscerli per titolo.
-      ongoingProcesses: gameRepository.getOngoingProcesses(this.ctx.gameId).map((process: any) => ({
+      ongoingProcesses: processRows.map((process: any) => ({
         id: process.id,
         sourceActionId: process.source_action_id,
         title: process.title,
