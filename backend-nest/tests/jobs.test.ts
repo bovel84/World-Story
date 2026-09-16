@@ -376,4 +376,21 @@ describe('F05 µ2 — arresto controllato, heartbeat, ripresa/chiusura', () => {
     const oldRun = db.prepare('SELECT status FROM simulation_runs WHERE id = ?').get('run-resume-1') as any;
     expect(oldRun.status).toBe('interrupted');
   });
+
+  it('startup() reclama i job in coda sopravvissuti al crash, senza rigenerarli', async () => {
+    const session = freshSession();
+    const survivorId = 'job-survivor-1';
+    // Job rimasto 'queued' quando il processo è caduto prima del claim.
+    db.prepare(`INSERT INTO simulation_jobs (id, game_id, type, status, payload_json, payload_hash, idempotency_key, lease_owner, lease_expires_at, created_at, updated_at)
+      VALUES (?, ?, 'jump', 'queued', '{"mode":"fixed","jump_days":30}', 'h', 'survivor-key', NULL, NULL, ?, ?)`)
+      .run(survivorId, session.id, new Date().toISOString(), new Date().toISOString());
+
+    const callsBefore = jumpCalls;
+    simulationJobService.startup(); // come farebbe il processo dopo il riavvio
+    const job = await waitForJob(session.id, survivorId);
+    expect(job.status).toBe('completed');
+    // Il sopravvissuto esegue il salto una sola volta: reclamo, non rigenerazione.
+    expect(jumpCalls).toBe(callsBefore + 1);
+    expect(job.runId).toBeTruthy();
+  });
 });

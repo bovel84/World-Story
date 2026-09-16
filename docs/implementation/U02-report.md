@@ -87,3 +87,24 @@ Verifica: frontend **34 file / 199 test** verdi; tsc pulito; build OK; E2E mock
 **17/17**. Restano non implementati: riepilogo conflitti batch e priorità
 modificabile (passo 3) — richiede che `/actions/evaluate` esponga il lotto
 (`BatchAllocator`) e quindi una modifica di contratto della route.
+
+## µ2 passo 3 — Conflitti batch e priorità modificabile: **BLOCCATO** (dati/contratti mancanti)
+
+L'allocatore batch esiste ma è **codice morto in produzione**: `allocateBatch`
+(`src/core/feasibility/BatchAllocator.ts`) è referenziato **solo** da
+`tests/batch-allocator.test.ts`; nessun percorso applicativo costruisce
+`BatchOrder[]`/`BatchDemand`/`BatchPools` e lo invoca. Per cablarlo — e far
+emergere i conflitti di lotto (§5.3.10) in `/actions/evaluate` — servono dati
+che oggi **non esistono**:
+
+| Dato necessario a `BatchDemand`/`BatchPools` | Stato nel codice | Conseguenza |
+|---|---|---|
+| **Materiali** richiesti per intent | `estimateIntentCosts` restituisce `inputs: CostLine[]` (resourceId + baseUnits, `basis` recipe/upkeep/request/none) | disponibile in forma autorevole |
+| **Pool materiali mutabili** | `FeasibilityService` legge solo `catalog.initialState.inventory` (inventario **statico** di scenario), non lo stock runtime della nazione | manca un accessor ai pool mutabili |
+| **Fondi** (`funds.currencyId` + `minorUnits`) | l'economia usa `NationalAccount.money` in **mld** (numero); non esiste conversione canonica mld → `minorUnits`/`currencyId` nel percorso feasibility | manca il tasso/contratto di conversione |
+| **Workforce** (`qualification` + `persons`) | le qualifiche esistono in `ProductionEngine`/`WorkEngine`/`scenario/types.ts`, ma nessuna funzione produce la **domanda per intent** | manca la fonte della domanda |
+
+Cablaggio completo ⇒ **inventare** unità/conversioni/accessor, vietato dal piano
+(§1.1). Decisione onesta: **non implementare**. Sbloccabile solo dopo una scelta
+di contratto su conversione fondi (mld↔minorUnits), accessor ai pool mutabili e
+fonte della domanda di manodopera. Da rivalutare come micro-consegna dedicata.
