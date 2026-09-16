@@ -110,6 +110,13 @@ export interface ReactionContextInput {
    */
   currentActions?: CurrentReactionAction[];
   polityNames: Record<string, string>;
+  /**
+   * Alias aggiuntivi per il riconoscimento delle politie nominate (nome
+   * italiano curato, codice stato). Servono perché il contratto fail-closed
+   * possa elencare la controparte anche quando l'ordine la nomina con un nome
+   * diverso da quello della regione.
+   */
+  polityAliases?: Record<string, string[]>;
   regions: Record<string, ReactionRegionInput>;
   relationships?: Record<string, Record<string, string>>;
   accounts?: Record<string, ReactionAccountInput>;
@@ -165,19 +172,40 @@ function mentionedPolityIds(input: ReactionContextInput): string[] {
   const found: string[] = [];
   for (const text of input.focusTexts) {
     const normalized = ` ${normalizeName(text)} `;
+    // Parole piene del testo: servono a riconoscere le forme flesse che il
+    // resolver già accetta («mediazione cecoslovacca» → Cecoslovacchia).
+    const words = normalized.trim().split(' ').filter(word => word.length >= 5);
     for (const owner of owners) {
       if (found.includes(owner)) continue;
       const aliases = [
         input.polityNames[owner],
         owner,
         ...Object.values(input.regions).filter(region => region.owner === owner).map(region => region.name),
+        ...(input.polityAliases?.[owner] || []),
       ]
         .filter((name): name is string => typeof name === 'string' && name.length >= 3)
         .map(normalizeName);
-      if (aliases.some(alias => alias && normalized.includes(` ${alias} `))) found.push(owner);
+      if (aliases.some(alias => alias && normalized.includes(` ${alias} `))) {
+        found.push(owner);
+        continue;
+      }
+      // Stessa radice: se il motore non elencasse un attore nominato, il
+      // contratto fail-closed rifiuterebbe una reazione legittima.
+      const tokens = aliases.flatMap(alias => alias.split(' ')).filter(token => token.length >= 5);
+      if (words.some(word => tokens.some(token => sameStem(word, token)))) found.push(owner);
     }
   }
   return found;
+}
+
+/** Prefisso comune abbastanza lungo da distinguere una forma flessa da un'altra politia. */
+function sameStem(word: string, token: string): boolean {
+  if (word === token) return true;
+  const required = Math.min(8, word.length, token.length);
+  if (required < 5) return false;
+  let shared = 0;
+  while (shared < required && word[shared] === token[shared]) shared += 1;
+  return shared >= required;
 }
 
 function stance(input: ReactionContextInput, from: string, to: string): string {

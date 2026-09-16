@@ -22,6 +22,8 @@ let stubStartChat: Array<{
   eventHeadline?: string;
 }> = [];
 let stubEventReactions: Array<{
+  actorId: string;
+  optionId: string;
   polityName: string;
   role: 'counterparty' | 'ally' | 'mediator' | 'observer';
   stance: 'supportive' | 'opposed' | 'conditional' | 'neutral';
@@ -250,12 +252,16 @@ describe('Chat diplomatiche', () => {
   it('rende visibili le reazioni autonome e apre i canali delle controparti', async () => {
     stubEventReactions = [
       {
+        actorId: 'POL',
+        optionId: 'POL:reject',
         polityName: 'Polonia',
         role: 'counterparty',
         stance: 'opposed',
         response: 'Varsavia respinge il dispositivo unilaterale e chiede il ritiro delle unità avanzate.',
       },
       {
+        actorId: 'CZE',
+        optionId: 'CZE:condition',
         polityName: 'Cecoslovacchia',
         role: 'mediator',
         stance: 'conditional',
@@ -285,6 +291,9 @@ describe('Chat diplomatiche', () => {
 
   it('la chat apre con la nota diretta della nazione, non col dispaccio di cronaca', async () => {
     stubEventReactions = [{
+      actorId: 'POL',
+      // Mobilitare è l'opzione che ammette l'effetto materiale annunciato.
+      optionId: 'POL:mobilize',
       polityName: 'Polonia',
       role: 'counterparty',
       stance: 'opposed',
@@ -308,6 +317,8 @@ describe('Chat diplomatiche', () => {
 
   it('senza nota usa la decisione, senza l’etichetta «Misura annunciata»', async () => {
     stubEventReactions = [{
+      actorId: 'POL',
+      optionId: 'POL:mobilize',
       polityName: 'Polonia',
       role: 'counterparty',
       stance: 'opposed',

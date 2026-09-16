@@ -154,4 +154,28 @@ describe('buildReactionContext', () => {
     expect(rendered).toContain('ZWE:negotiate');
     expect(rendered).toContain('Rispondono al massimo');
   });
+
+  it('riconosce la controparte nominata con alias italiano o con una forma flessa', () => {
+    // Il contratto fail-closed rifiuta un attore non elencato: il motore deve
+    // quindi riconoscere anche i nomi con cui il giocatore nomina davvero la
+    // controparte (nome italiano del registro, forma flessa).
+    const byAlias = buildReactionContext(input({
+      focusTexts: ['Negoziare con la Polonia'],
+      currentActions: [],
+      polityNames: { POL: 'Польша' },
+      polityAliases: { POL: ['POL', 'Polonia'] },
+      regions: { r1: { id: 'r1', name: 'Польша', owner: 'POL' } },
+    }));
+    expect(byAlias.actors.map(actor => actor.id)).toContain('POL');
+
+    const flexed = buildReactionContext(input({
+      focusTexts: ['Mediazione cecoslovacca nella crisi'],
+      currentActions: [],
+      regions: {
+        r1: { id: 'r1', name: 'Botswana', owner: 'BWA', borders: [] },
+        r2: { id: 'r2', name: 'Cecoslovacchia', owner: 'CZE', borders: [] },
+      },
+    }));
+    expect(flexed.actors.map(actor => actor.id)).toContain('CZE');
+  });
 });

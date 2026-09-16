@@ -7,6 +7,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { ReactionContext } from '../src/core/simulation/ReactionContext';
+import { buildReactionContext } from '../src/core/simulation/ReactionContext';
 import {
   measureMaterialCategory,
   optionMaterialScope,
@@ -74,6 +75,21 @@ describe('validator reactions — fail-closed', () => {
 
   it('E — una reazione valida passa senza rilievi', () => {
     expect(validateReactionDecisions([{ actorId: 'FRA', optionId: 'FRA:condition' }], context())).toEqual([]);
+  });
+
+  it('E2 — un attore nominato solo con l’alias italiano resta ammesso dal motore', () => {
+    // Il contesto è l'unica fonte degli attori ammessi: gli alias con cui il
+    // giocatore nomina la controparte devono produrre lo stesso actorId.
+    const ctx = buildReactionContext({
+      playerPolityId: 'BWA',
+      playerPolityName: 'Botswana',
+      focusTexts: ['Negoziare con la Polonia'],
+      polityNames: { POL: 'Польша' },
+      polityAliases: { POL: ['POL', 'Polonia'] },
+      regions: { r1: { id: 'r1', name: 'Польша', owner: 'POL' } },
+    });
+    expect(ctx.actors.map(actor => actor.id)).toEqual(['POL']);
+    expect(validateReactionDecisions([{ actorId: 'POL', optionId: 'POL:negotiate' }], ctx)).toEqual([]);
   });
 
   it('F — più reactions del tetto del motore sono invalide', () => {

@@ -24,6 +24,25 @@ let capturedPrompt = '';
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
 let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' = 'normal';
+/**
+ * Un convertitore reale non perde il soggetto dell'ordine. I test che
+ * verificano il contratto delle reazioni hanno bisogno che il nome della
+ * controparte sopravviva alla conversione (senza, il ReactionContext non può
+ * elencarla e il validator fail-closed rifiuterebbe la sua decisione).
+ */
+let converterPreservesOriginal = false;
+
+function originalOrderFromConverterPrompt(user: string): string | undefined {
+  const markers = [
+    /ORDINE ORIGINALE \(non perderlo\): ([\s\S]*?)\n/,
+    /Azione del giocatore da convertire:\s*\n\s*([\s\S]*?)\n\s*\nIl tuo compito:/,
+  ];
+  for (const marker of markers) {
+    const found = user.match(marker)?.[1]?.trim();
+    if (found) return found;
+  }
+  return undefined;
+}
 /** projectId da copiare nell'outcome di chiusura del fixture F01. */
 let projectToCompleteId: string | undefined;
 
@@ -180,7 +199,7 @@ function jumpResponse(): any {
       return {
         events: [
           { headline: 'Il primo evento importante', description: 'La Polonia risponde alla proposta tedesca.', date: '1951-03-10', mapChanges: [],
-            reactions: [{ polityName: 'Polonia', role: 'counterparty', stance: 'conditional', response: 'Condiziona l’apertura a garanzie di confine.', counterAction: 'Richiama le riserve di confine.' }] },
+            reactions: [{ actorId: 'POL', optionId: 'POL:condition', polityName: 'Polonia', role: 'counterparty', stance: 'conditional', response: 'Condiziona l’apertura a garanzie di confine.', counterAction: 'Richiama le riserve di confine.' }] },
           { headline: 'Un evento futuro da non applicare', description: 'La Francia subisce un cambio di governo successivo.', date: '1951-03-20', mapChanges: [] },
         ],
         narration: 'Il primo evento viene seguito da una crisi futura che non deve comparire.',
@@ -197,7 +216,7 @@ function jumpResponse(): any {
         events: [
           { headline: 'Fatto di contorno del periodo', description: 'Un cantiere lontano dalle trattative avanza senza decisioni verso il giocatore.', date: '1951-02-20', mapChanges: [] },
           { headline: 'La controparte decide', description: 'La Polonia risponde alla proposta tedesca con una decisione concreta.', date: '1951-03-10', mapChanges: [],
-            reactions: [{ polityName: 'Polonia', role: 'counterparty', stance: 'conditional', response: 'Accetta un negoziato limitato.', counterAction: 'Richiama le riserve di confine.' }] },
+            reactions: [{ actorId: 'POL', optionId: 'POL:condition', polityName: 'Polonia', role: 'counterparty', stance: 'conditional', response: 'Accetta un negoziato limitato.', counterAction: 'Richiama le riserve di confine.' }] },
           { headline: 'Conseguenza oltre la decisione', description: 'Fatto successivo alla decisione che non deve entrare nel checkpoint.', date: '1951-04-01', mapChanges: [{ type: 'transfer', regionName: 'Польша', newOwner: 'ФРГ' }] },
         ],
         narration: 'Il salto si ferma sulla decisione polacca.',
@@ -242,6 +261,13 @@ const stubProvider: any = {
   consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
   async generate(mechanic: string, system: string, user: string) {
     if (mechanic === 'converter') {
+      // Con un solo ordine e il flag attivo il convertitore conserva il testo
+      // originale: è il comportamento di un modello reale («non togliere
+      // nulla dall'intenzione del giocatore»).
+      const preserved = converterPreservesOriginal ? originalOrderFromConverterPrompt(user) : undefined;
+      if (preserved) {
+        return { content: JSON.stringify({ type: 'action', text: preserved }) };
+      }
       // Il batch converter elenca gli ordini come [actionId:...] nel prompt:
       // un modello reale risponde con UN elemento per ciascuno (index per
       // riallacciare l'actionId), non con un oggetto singolo.
@@ -913,8 +939,9 @@ describe('Этап 2: Intervene', () => {
 describe('Этап 2: auto-jump «к следующему событию»', () => {
   it('non applica effetti globali o chat future, ma conserva la reazione al primo evento', async () => {
     jumpMode = 'auto_future';
+    converterPreservesOriginal = true; // l'ordine nomina la controparte: il nome sopravvive
     const { session } = createGame();
-    session.queueAction('Attendere la risposta polacca');
+    session.queueAction('Attendere la risposta della Polonia');
 
     const action = await session.processNextAction(0);
 
@@ -933,6 +960,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     expect(capturedPrompt).toContain('"targetDate":null');
     expect(capturedPrompt).toContain("oppure prendere un'iniziativa propria SOLO se deriva");
     jumpMode = 'normal';
+    converterPreservesOriginal = false;
   });
 
   it('дата берётся из targetDate ответа LLM, а не +365 дней', async () => {
@@ -1020,6 +1048,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
 
   it('auto-jump: prosegue oltre i fatti di contorno e si ferma sulla decisione NPC', async () => {
     jumpMode = 'auto_late_reaction';
+    converterPreservesOriginal = true; // l'ordine nomina la Polonia
     const { session } = createGame();
     session.queueAction('Proporre un negoziato alla Polonia');
 
@@ -1034,6 +1063,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     // La conseguenza troncata non ha trasferito la Polonia alla Germania.
     expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('POL');
     jumpMode = 'normal';
+    converterPreservesOriginal = false;
   });
 });
 

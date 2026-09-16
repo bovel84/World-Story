@@ -14,6 +14,7 @@ import { effectiveEndowment, summarizeLedger } from '../core/simulation/Resource
 import { annualDebtServiceMld, creditHeadroom, creditLimit, debtOf, materialNeeds, storageCapacity, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { averageMaturityYears } from '../core/simulation/SovereignDebt';
 import { buildReactionContext, renderReactionContext, type CurrentReactionAction, type ReactionContext } from '../core/simulation/ReactionContext';
+import { polityDisplayNameIt } from '../utils/country-facts';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import type { ResourceLedger } from '../core/simulation/ResourceMarket';
 import type { RegionState } from '../game-session';
@@ -68,8 +69,14 @@ export class GameDataService {
       regionsByPolity.get(region.owner)!.push(region);
     }
     const polityNames: Record<string, string> = {};
+    const polityAliases: Record<string, string[]> = {};
     for (const [owner] of regionsByPolity) {
       polityNames[owner] = this.ctx.publicPolityName(owner);
+      // Nome italiano del registro (es. POL → Polonia) e codice stato: un
+      // ordine può nominare la controparte con un nome diverso da quello
+      // della regione, e il contratto fail-closed deve poterla elencare.
+      const italian = polityDisplayNameIt(owner, '');
+      polityAliases[owner] = [...new Set([owner, italian].filter(name => name.length >= 3))];
     }
     const accounts = this.ctx.sessionAccounts();
     // Arsenale della nazione giocatore: pesa sulla potenza militare effettiva.
@@ -107,6 +114,7 @@ export class GameDataService {
       focusTexts,
       currentActions,
       polityNames,
+      polityAliases,
       regions: regionsObj,
       relationships: this.ctx.relationships() as Record<string, Record<string, string>> | undefined,
       accounts: effectiveAccounts,
