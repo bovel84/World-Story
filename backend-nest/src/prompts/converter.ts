@@ -88,7 +88,7 @@ VERY IMPORTANT: Rispondi SOLO con JSON valido.`;
 
 export function parseConverterResponse(text: string, fallbackText = ''): ConvertedAction {
   try {
-    const parsed = parseJsonLoose<any>(text);
+    const parsed = parseJsonLoose<any>(text, { mechanic: 'converter' });
     const convertedText = typeof parsed?.text === 'string' ? parsed.text.trim().substring(0, 650) : '';
 
     return {
@@ -198,7 +198,7 @@ VERY IMPORTANT: Rispondi SOLO con un array JSON valido. Nessun testo aggiuntivo.
  */
 export function parseBatchConverterResponse(text: string): ConvertedAction[] {
   try {
-    const parsed = parseJsonLoose<any[]>(text);
+    const parsed = parseJsonLoose<any[]>(text, { mechanic: 'converter' });
 
     if (!Array.isArray(parsed)) {
       throw new Error('Response is not an array');

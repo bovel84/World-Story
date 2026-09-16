@@ -17,6 +17,7 @@ import {
   type SimulationPolityReaction,
 } from '../types';
 import { parseJsonLoose } from '../../utils/json-repair';
+import { LLMContractError } from '../../llm/contract-error';
 import { DomainContractError, parseActionOutcome } from '../../domain/contracts';
 
 export type IncrementalSimulationRecord =
@@ -46,7 +47,8 @@ export function extractCompleteJsonObjects(text: string): any[] {
       try {
         records.push(JSON.parse(candidate));
       } catch {
-        try { records.push(parseJsonLoose(candidate)); } catch { /* record non riparabile */ }
+        try { records.push(parseJsonLoose(candidate, { mechanic: 'jump' })); }
+        catch (e) { if (!(e instanceof LLMContractError)) throw e; /* record non riparabile */ }
       }
       start = -1;
     }
@@ -223,7 +225,7 @@ function normalizeReaction(raw: any): SimulationPolityReaction | null {
 export function parseSimulationResponse(text: string): SimulationResult {
   const emptyWorldChanges = { regionOwners: {}, regionColors: {}, newFeatures: [], deletedFeatures: [] };
   try {
-    const parsed = parseJsonLoose<any>(text);
+    const parsed = parseJsonLoose<any>(text, { mechanic: 'jump' });
 
     // Normalizzazione severa degli eventi: gli elementi corrotti vengono
     // scartati invece di far fallire il parse
@@ -388,7 +390,11 @@ export function parseSimulationResponse(text: string): SimulationResult {
       effects,
     };
   } catch (e) {
-    console.error('[PARSER] Failed to parse simulation response:', e);
+    if (e instanceof LLMContractError) {
+      console.error(`[PARSER] Contratto LLM violato (${e.mechanic ?? 'jump'}):`, e.message);
+    } else {
+      console.error('[PARSER] Failed to parse simulation response:', e);
+    }
 
     // Fallback: restituisci il testo come narrativa
     return {

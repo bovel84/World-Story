@@ -135,7 +135,7 @@ Mantieni esattamente lo schema JSON richiesto e rispondi SOLO con JSON valido.`;
 
 export function parseSuggestionsResponse(text: string, strict = false): Suggestion[] {
   try {
-    const parsed = parseJsonLoose<any>(text);
+    const parsed = parseJsonLoose<any>(text, { mechanic: 'suggestions' });
     if (!Array.isArray(parsed?.suggestions)) {
       throw new Error('Il campo suggestions non è un array');
     }

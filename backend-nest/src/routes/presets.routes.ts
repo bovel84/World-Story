@@ -203,7 +203,7 @@ Rispondi SOLO con:
         maxTokens: 2_600,
         jsonMode: true,
       });
-      const preset = normalizeAiPreset(parseJsonLoose(response.content), currentExcerpt);
+      const preset = normalizeAiPreset(parseJsonLoose(response.content, { mechanic: 'presets' }), currentExcerpt);
       res.json({ preset });
       return;
     } catch (error) {

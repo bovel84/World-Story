@@ -327,7 +327,7 @@ GDP e military sono indici relativi agli USA=100. Usa esclusivamente i codici fo
     const user = `Data: ${date}\nScenario: ${worldPrompt}\nNazioni:\n${countries.map(c => `${c.code}: ${c.name}`).join('\n')}`;
     try {
       const response = await this.provider.generate('balance', system, user, { temperature: 0.35, jsonMode: true });
-      const parsed = parseJsonLoose<any>(response.content);
+      const parsed = parseJsonLoose<any>(response.content, { mechanic: 'balance' });
       const rawCountries = parsed?.countries && typeof parsed.countries === 'object' ? parsed.countries : parsed;
       return countries.map(country => {
         const raw = rawCountries?.[country.code];

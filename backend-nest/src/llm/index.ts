@@ -3,6 +3,7 @@ import { loadLLMConfig, type LLMFullConfig } from './config';
 import path from 'node:path';
 
 export * from './types';
+export { LLMContractError } from './contract-error';
 export { LLMRouter } from './router';
 export { loadLLMConfig } from './config';
 export type { LLMConfig, LLMFullConfig, MechanicConfig, ConsolidationConfig } from './config';

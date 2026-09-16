@@ -107,7 +107,7 @@ Rispondi SOLO con JSON valido, in questa forma esatta:
 export function parseGovernmentVoices(content: string, validIds: string[]): GovernmentVoices | null {
   let parsed: any;
   try {
-    parsed = parseJsonLoose(content);
+    parsed = parseJsonLoose(content, { mechanic: 'government' });
   } catch {
     return null;
   }

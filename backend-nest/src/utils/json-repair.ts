@@ -5,6 +5,7 @@
  * висячие запятые, незакрытые скобки, одинарные кавычки.
  * repairJson пытается выжать валидный объект из такого ответа.
  */
+import { LLMContractError } from '../llm/contract-error';
 
 /** Снять markdown-ограждения ```json ... ``` */
 function stripFences(text: string): string {
@@ -95,9 +96,9 @@ function closeUnfinished(text: string): string {
 
 /**
  * Распарсить ответ LLM как JSON-объект с ремонтом.
- * Бросает Error, только если объект извлечь не удалось совсем.
+ * Бросает `LLMContractError`, только если объект извлечь не удалось совсем.
  */
-export function parseJsonLoose<T = any>(text: string): T {
+export function parseJsonLoose<T = any>(text: string, context?: { mechanic?: string }): T {
   const stripped = stripFences(text);
 
   // 1. Как есть
@@ -105,7 +106,12 @@ export function parseJsonLoose<T = any>(text: string): T {
 
   // 2. Сбалансированный фрагмент
   const balanced = extractBalanced(stripped);
-  if (!balanced) throw new Error('JSON object not found in LLM response');
+  if (!balanced) {
+    throw new LLMContractError('JSON object not found in LLM response', {
+      mechanic: context?.mechanic,
+      excerpt: text,
+    });
+  }
   try { return JSON.parse(balanced) as T; } catch { /* дальше */ }
 
   // 3. Без висячих запятых
@@ -114,5 +120,12 @@ export function parseJsonLoose<T = any>(text: string): T {
 
   // 4. Добиваем незакрытые скобки/строки (ответ обрезан по maxTokens)
   const closed = removeTrailingCommas(closeUnfinished(noTrailing));
-  return JSON.parse(closed) as T;
+  try {
+    return JSON.parse(closed) as T;
+  } catch {
+    throw new LLMContractError('LLM response is not valid JSON', {
+      mechanic: context?.mechanic,
+      excerpt: text,
+    });
+  }
 }
