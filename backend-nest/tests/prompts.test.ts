@@ -4,7 +4,7 @@
  * и бага №5 (LLM адресует регионы/политии по именам, не по id).
  */
 import { describe, it, expect } from 'vitest';
-import { parseSimulationResponse, buildSimulationPrompt, buildConstrainedSimulationPrompt, buildSimulationNarrativeContract } from '../src/prompts/simulation';
+import { parseSimulationResponse, buildSimulationPrompt, buildConstrainedSimulationPrompt, buildSimulationNarrativeContract, buildIncrementalOutputInstruction } from '../src/prompts/simulation';
 import { LLMContractError } from '../src/llm';
 import { PromptBuilder } from '../src/prompt-builder';
 import { parseConverterResponse } from '../src/prompts/converter';
@@ -193,7 +193,10 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
   });
 
   it('полный промпт симуляции содержит лор и имена', () => {
-    const prompt = buildSimulationPrompt(vars);
+    // In runSimulation il prompt di simulazione è sempre composto con il
+    // protocollo incrementale, che ora contiene il formato di output e le
+    // regole mappa: il prompt base resta volutamente più snello.
+    const prompt = buildSimulationPrompt(vars) + buildIncrementalOutputInstruction(vars, 4);
     expect(prompt).toContain('LORE_MARKER');
     expect(prompt).toContain('Польша');
     expect(prompt).toContain('regionName');
@@ -223,6 +226,7 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
     expect(prompt).toContain('la provincia controllata più vicina a X');
     expect(prompt).toContain('REAZIONI INTERNE ED ECONOMIA DELLA GUERRA');
     expect(prompt).toContain('tensione sociale');
+    expect(prompt).toContain('[Contesto di reazione — attori, vincoli e opzioni ammesse dal motore]');
   });
 
   it('offre un protocollo compatto ai modelli con capacità ridotta', () => {
@@ -238,7 +242,7 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
     expect(constrained).toContain('nel territorio della politia che agisce');
     expect(constrained).toContain('Iniziativa NPC');
     expect(constrained).toContain("preparazione d'invasione");
-    expect(constrained).toContain('non potenze lontane senza interesse documentato');
+    expect(constrained).toContain('CONTESTO DI REAZIONE');
     expect(constrained).toContain('nasce in una provincia controllata da chi la crea');
     expect(constrained).toContain('4c. Reazioni interne ed economia');
     expect(constrained).toContain('ULTIMA riga obbligatoria');
