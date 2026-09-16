@@ -16,7 +16,9 @@
     "jump": {
       "timeoutMs": 300000,
       "extraBody": {
-        "reasoning_effort": "medium"
+        "reasoning": {
+          "effort": "medium"
+        }
       }
     }
   }

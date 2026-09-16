@@ -223,4 +223,76 @@ describe('completamento nel percorso reale di simulazione', () => {
     )).rejects.toThrow(/fuori contratto/);
     expect(llm.generate).toHaveBeenCalledTimes(1);
   });
+
+  it('il repair compatto (fixes/omit) corregge l\'optionId senza riscrivere gli eventi', async () => {
+    const ndjson = JSON.stringify({
+      type: 'event',
+      headline: 'Botswana attacca le posizioni zimbabwesi a Gwanda',
+      description: 'Le forze botswane aprono le ostilità lungo la frontiera.',
+      date: '1951-02-01',
+      mapChanges: [],
+      // Attore ammesso ma optionId assente: il repair deve sceglierlo senza
+      // rigenerare l'evento (era il fallimento reale: «3 → 1 eventi»).
+      reactions: [{ actorId: 'ZWE', polityName: 'Zimbabwe', stance: 'opposed', response: 'Harare mobilita le riserve.' }],
+      sourceActionIds: ['a1'],
+    });
+    const llm: any = {
+      describe: () => ({ jump: { model: 'vendor/test' } }),
+      stream: vi.fn(async (_m: string, _s: string, _p: string, onToken: any) => {
+        onToken(ndjson.length, ndjson + '\n');
+        return { content: ndjson + '\n' };
+      }),
+      generate: vi.fn(async () => ({
+        content: JSON.stringify({ fixes: [{ eventIndex: 0, reactionIndex: 0, actorId: 'ZWE', optionId: 'ZWE:counter' }] }),
+      })),
+    };
+
+    const result = await new PromptEngine(llm).runSimulation(
+      gameData(context()),
+      [{ actionId: 'a1', text: 'Attaccare le posizioni dello Zimbabwe a Gwanda' }],
+      30,
+    );
+
+    expect(llm.generate).toHaveBeenCalledTimes(1);
+    expect(result.events[0].headline).toBe('Botswana attacca le posizioni zimbabwesi a Gwanda');
+    expect(result.events[0].reactions?.[0]).toMatchObject({ actorId: 'ZWE', optionId: 'ZWE:counter' });
+  });
+
+  it('il repair legacy a eventi completi viene riconciliato: si adottano solo le reactions', async () => {
+    const ndjson = JSON.stringify({
+      type: 'event',
+      headline: 'Botswana attacca le posizioni zimbabwesi a Gwanda',
+      description: 'Le forze botswane aprono le ostilità lungo la frontiera.',
+      date: '1951-02-01',
+      mapChanges: [],
+      reactions: [{ actorId: 'ZWE', polityName: 'Zimbabwe', stance: 'opposed', response: 'Harare mobilita le riserve.' }],
+      sourceActionIds: ['a1'],
+    });
+    const llm: any = {
+      describe: () => ({ jump: { model: 'vendor/test' } }),
+      stream: vi.fn(async (_m: string, _s: string, _p: string, onToken: any) => {
+        onToken(ndjson.length, ndjson + '\n');
+        return { content: ndjson + '\n' };
+      }),
+      // Il modello riscrive l'evento con la stessa headline: la cronaca resta
+      // quella originale, si adottano soltanto le reactions corrette.
+      generate: vi.fn(async () => ({
+        content: JSON.stringify({ events: [{
+          headline: 'Botswana attacca le posizioni zimbabwesi a Gwanda',
+          description: 'DESCRIZIONE RISCRITTA DAL REPAIR.',
+          date: '1951-02-01',
+          reactions: [{ actorId: 'ZWE', optionId: 'ZWE:negotiate', polityName: 'Zimbabwe', role: 'counterparty', stance: 'opposed', response: 'Harare apre un negoziato.' }],
+        }] }),
+      })),
+    };
+
+    const result = await new PromptEngine(llm).runSimulation(
+      gameData(context()),
+      [{ actionId: 'a1', text: 'Attaccare le posizioni dello Zimbabwe a Gwanda' }],
+      30,
+    );
+
+    expect(result.events[0].description).toBe('Le forze botswane aprono le ostilità lungo la frontiera.');
+    expect(result.events[0].reactions?.[0]).toMatchObject({ actorId: 'ZWE', optionId: 'ZWE:negotiate' });
+  });
 });
