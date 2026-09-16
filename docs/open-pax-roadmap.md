@@ -39,7 +39,7 @@
 | U01 Shell operativa + migrazione CSS | ✅ fatto (parte di codice) | **CHIUSO** — `REVIEW-INDIPENDENTE-U01.md`; guardia `cssDiscipline.test.ts`; screenshot/tastiera reali → Q01 |
 | U02 Ordini guidati e catena fattibilità | ✅ fatto (parti realizzabili) | **CHIUSO** — `REVIEW-INDIPENDENTE-U02.md`; catena dati/deficit/fonti + alternative; passo 3 (batch) bloccato |
 | U03 Dossier Nazione, chat/accordi, lettore | ✅ fatto (parti realizzabili) | **CHIUSO** — `REVIEW-INDIPENDENTE-U03.md`; residui dati/dispositivi dichiarati |
-| Q01 Harness frontend/E2E, a11y, perf | ✅ fatto (parte automatizzabile) | **CHIUSO** — `REVIEW-INDIPENDENTE-Q01.md`; config Playwright portabile; axe/dispositivi/eval narrativa bloccati |
+| Q01 Harness frontend/E2E, a11y, perf | ✅ fatto (parte automatizzabile) | **CHIUSO** — `REVIEW-INDIPENDENTE-Q01.md`; config Playwright portabile; job CI informativo `.github/workflows/e2e.yml`; axe/dispositivi/eval narrativa bloccati |
 | Q02 Compatibilità, sicurezza, rilascio | ⬜ non avviato | Dipende da GATE-3 |
 
 ## Verifiche di qualità (stato reale, 2026-09-16)
@@ -57,7 +57,9 @@
    conversione canonica mld↔minorUnits e fonte della domanda di manodopera. Vedi `U02-report.md`.
 3. **Q01 axe** — `npm --prefix e2e install --save-dev @axe-core/playwright && npx playwright install --with-deps chromium` (rete).
 4. **Q01 dispositivi reali / eval narrativa** — hardware e risposte LLM salvate + budget.
-5. **Q01 E2E in CI** — `e2e/` non è un workspace: servono le sue dipendenze + `npx playwright install --with-deps chromium`.
+5. **Q01 E2E in CI** — risolto come job informativo `.github/workflows/e2e.yml`
+   (`continue-on-error`, non richiesto dal ruleset): esegue E2E mock + a11y + perf.
+   Da rendere `required` dopo validazione su Linux.
 
 ## Prossimi passi
 

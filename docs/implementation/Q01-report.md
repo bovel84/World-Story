@@ -101,3 +101,15 @@ Verdetto **ACCETTABILE**. Dettaglio in `REVIEW-INDIPENDENTE-Q01.md`.
 - **Blocchi con comando esatto**: axe (`npm --prefix e2e install --save-dev @axe-core/playwright`
   + `npx playwright install --with-deps chromium`), dispositivi reali (manuale),
   eval narrativa (risposte salvate), E2E in CI (dipendenze `e2e/` non workspace).
+
+## µ5 — E2E/accessibilità/performance in CI (job informativo)
+
+`e2e/` non è un workspace (`npm ci` non ne installa le dipendenze) e la matrice
+browser richiede Chromium: aggiunto `.github/workflows/e2e.yml` che esegue
+`test:e2e:mock`, l'audit a11y e la baseline perf con
+`cd e2e && npm ci && npx playwright install --with-deps chromium`.
+
+Il job è **`continue-on-error: true`** e **non** è richiesto dal ruleset di `main`
+(che richiede solo `test-build`): esercita l'harness a ogni PR senza bloccare i merge
+finché non è validato su Linux. La config Playwright è portabile (Chromium incluso
+quando il Chrome di sistema non esiste), quindi il job usa il browser bundled.

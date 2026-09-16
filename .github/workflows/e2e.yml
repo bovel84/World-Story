@@ -1,0 +1,57 @@
+name: E2E (mock)
+
+# Q01 — harness E2E/accessibilità/performance in CI.
+#
+# Il gate RICHIESTO su main resta `test-build` (vedi il ruleset): questo job è
+# informativo (`continue-on-error`) finché non è validato su Linux, così non
+# blocca i merge pur esercitando l'harness a ogni PR. Rete provider LLM mai
+# usata: le API `/api/**` sono mockate nel browser (vedi `e2e/mock-api.mjs`).
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-mock-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Restore Rollup Linux native binary
+        run: npm --prefix frontend install --no-save --package-lock=false @rollup/rollup-linux-x64-gnu@4.59.0
+
+      - name: Install e2e dependencies and Chromium
+        run: cd e2e && npm ci && npx playwright install --with-deps chromium
+
+      - name: E2E mock (smoke, moduli, mappa, viewport)
+        run: cd e2e && node_modules/.bin/playwright test
+
+      - name: Accessibility audit
+        run: cd e2e && node_modules/.bin/playwright test --config=playwright.a11y.config.mjs
+
+      - name: Build frontend (perf baseline)
+        run: npm run build:frontend
+
+      - name: Performance baseline
+        run: npm run test:perf

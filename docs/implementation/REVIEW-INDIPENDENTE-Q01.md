@@ -31,10 +31,11 @@ il config è utilizzabile senza override forzati.
 1. **axe** (passo 5): `npm --prefix e2e install --save-dev @axe-core/playwright && npx playwright install --with-deps chromium` (richiede rete). Poi aggiungere un test axe nel progetto a11y. L'audit DOM attuale **non** sostituisce axe.
 2. **Dispositivi reali** Safari iOS / Chrome Android (tastiera virtuale, viewport): manuale, richiede hardware; non automatizzabile in questo ambiente.
 3. **Eval narrativa** (passo 6): richiede un set di risposte LLM salvate + budget approvato; criteri già definiti nel piano (nessun fatto contraddetto, niente successi gratuiti, zero future leak).
-4. **E2E in CI**: il gate `test-build` esegue backend/vitest/build. Per aggiungere
-   `test:e2e:mock` servono (a) le dipendenze `e2e/` (non è un workspace: `npm ci`
-   non le installa) e (b) `npx playwright install --with-deps chromium`. Non è stato
-   aggiunto al gate protetto per non introdurre flakiness Linux non verificabile qui.
+4. **E2E in CI** — risolto come job **informativo**: `.github/workflows/e2e.yml`
+   esegue `test:e2e:mock`, l'audit a11y e la baseline perf con le dipendenze
+   `e2e/` + `npx playwright install --with-deps chromium`. È `continue-on-error`
+   e **non** è un check richiesto dal ruleset (che richiede solo `test-build`),
+   così non blocca i merge finché non è validato su Linux.
 
 ## Osservazioni residue (non bloccanti)
 
