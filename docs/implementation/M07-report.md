@@ -230,3 +230,15 @@ target), coerenza `committed+spent ≤ authorized` lasciata al servizio finanza.
 
 Verifica aggiornata: backend **118 file / 991 test** verdi; `npx vitest run
 tests/m07-snapshot-review.test.ts` → 18/18; DB temporaneo, nessun credito.
+
+## M07 passo 2 (priorità manutenzione/servizi): CONFERMATO BLOCCATO (settimo riesame)
+
+Il catalogo dichiara i termini di manutenzione (`FacilityType.maintenance`:
+`resourceId`/`baseUnits`/`periodDays`) e gli impianti come `initialState.facilities`
+(`FacilityInstance`), consumati in **sola lettura** da `FeasibilityService`
+(intent `produce`). Non esiste un runtime di impianti (stato operativo mutabile,
+scadenzario di manutenzione, assegnazione personale/capacità) né un modello
+servizi: implementare «priorità manutenzione/servizi» richiederebbe di inventare
+dati, vietato dal piano §1.1. Il sottoflusso «scorte minime / fuori
+autorizzazione» resta l'unica parte attuabile ed è già coperto da
+`MandateStockEngine`/`mandate-decisions.test.ts`.

@@ -98,3 +98,15 @@ Zero chiamate LLM reali, zero deploy, nessun dato reale toccato. Tutte le prove 
 ## Decisione revisore
 
 Attesa revisione indipendente (test, call path, effetti vietati). Lo sviluppatore non si auto-approva.
+## Revisione indipendente: **ACCETTABILE** (difetto M-1 corretto)
+
+Vedi `REVIEW-INDIPENDENTE-F04.md`. DoD C12/C05/C08/C17 verificato da test e
+call path. Difetto trovato: `continueChat` («Lascia che parlino») non aveva il
+409 upfront e con un run attivo eseguiva fino a 8 chiamate provider pagate prima
+di fallire al write-back. Corretto con `assertNoActiveRun()` all'inizio, come
+`sendChatMessage`; prova rosso→verde in `chat-fence.test.ts`. Residui non
+bloccanti: `ensureChat`/`archiveChat`/`markChatRead` non fenced (nessun costo
+LLM; `ensureChat` è usato anche dal motore), route di selezione ramo assente,
+evento SSE di branch-replacement rimandato, rewind sul ramo corrente.
+
+Verifica: backend **118 file / 992 test** verdi; `chat-fence.test.ts` 5/5.
