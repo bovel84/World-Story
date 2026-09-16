@@ -52,6 +52,10 @@ interface TimeDeskProps {
   dateISO: string;
   loading: boolean;
   pendingOrdersCount: number;
+  /** LW03 — gli ordini registrati, mostrati come «piano» prima del salto. */
+  pendingOrders?: Array<{ id: string; text: string }>;
+  /** LW04 — presenza del consiglio al momento della decisione. */
+  council?: { tone: string; headline: string; detail: string } | null;
   ongoingProcesses?: Array<{
     id: string;
     title: string;
@@ -73,6 +77,8 @@ export function TimeDesk({
   dateISO,
   loading,
   pendingOrdersCount,
+  pendingOrders = [],
+  council = null,
   ongoingProcesses = [],
   activePlayback = false,
   onTimeSkip,
@@ -106,6 +112,12 @@ export function TimeDesk({
         </div>
       ) : (
         <>
+          {council && (
+            <p className={`time-desk-council tone-${council.tone}`} title={council.detail}>
+              <span aria-hidden="true">🏛️</span> {council.headline}
+            </p>
+          )}
+
           <section className="time-desk-context" aria-label="Elementi che saranno presi in carico">
             <div className="time-desk-context-item">
               <span>Ordini pronti</span>
@@ -118,6 +130,21 @@ export function TimeDesk({
               <small>potrebbero maturare nel periodo</small>
             </div>
           </section>
+
+          {pendingOrders.length > 0 && (
+            <section className="time-desk-plan" aria-label="Piano in esecuzione al salto">
+              <h3>Piano</h3>
+              <ul>
+                {pendingOrders.map((order, index) => (
+                  <li key={order.id}>
+                    <span className="time-desk-plan-index" aria-hidden="true">{index + 1}</span>
+                    <span>{order.text}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="time-desk-plan-note">Gli ordini sono già registrati: il salto li prende in carico, non li riscrive.</p>
+            </section>
+          )}
 
           {ongoingProcesses.length > 0 && (
             <section className="time-desk-process-list" aria-label="Processi che potrebbero maturare">
@@ -137,7 +164,7 @@ export function TimeDesk({
 
           <div className="time-desk-rule"><span>scegli una destinazione</span></div>
           <button type="button" className="time-desk-next" onClick={() => beginSkip(0)} disabled={locked}>
-            Vai al prossimo evento importante
+            {pendingOrders.length > 0 ? 'Esegui piano e avanza' : 'Vai al prossimo evento importante'}
           </button>
 
           <div className="time-desk-presets" aria-label="Destinazioni rapide">

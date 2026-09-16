@@ -11,6 +11,7 @@ import type {
   FactionLever,
   FactionStance,
   GovernmentFaction,
+  GovernmentSnapshot,
   NationalBudgetDetail,
 } from '../../services/api';
 
@@ -204,4 +205,41 @@ export function factionOrderText(faction: GovernmentFaction): string {
     faction.demand.detail,
     'Valutare copertura di bilancio, tempi e conseguenze prima di procedere.',
   ].join(' ');
+}
+
+/** LW04 — presenza del consiglio: chi preme, chi guida, quanto è coeso. */
+export interface CouncilPresence {
+  tone: VerdictTone;
+  /** Frase breve: «Il consiglio preme: coesione 52%, pressione 68%». */
+  headline: string;
+  /** Chi guida l'agenda e chi è più critico, più la lettura del motore. */
+  detail: string;
+  dominantName: string | null;
+  angriestName: string | null;
+  pressureLabel: string;
+}
+
+/**
+ * Traduce lo snapshot del governo in una riga di presenza politica. Usa solo
+ * i campi già calcolati dal motore (coesione, pressione, fazioni); nessuna
+ * nuova metrica e nessuna chiamata all'LLM.
+ */
+export function councilPresence(government?: GovernmentSnapshot | null): CouncilPresence | null {
+  if (!government || government.factions.length === 0) return null;
+  const dominant = government.factions.find(f => f.id === government.dominantId) ?? null;
+  const angriest = government.factions.find(f => f.id === government.angriestId) ?? null;
+  const pressure = round(government.pressureIndex);
+  const cohesion = round(government.cohesion);
+  const parts: string[] = [];
+  if (dominant) parts.push(`${dominant.name} guida l'agenda (${round(dominant.powerPct)}% di influenza)`);
+  if (angriest && angriest.id !== dominant?.id) parts.push(`${angriest.name} è il più critico`);
+  if (government.headline) parts.push(government.headline);
+  return {
+    tone: pressureTone(government.pressureIndex),
+    headline: `Il consiglio ${pressureLabel(government.pressureIndex)}: coesione ${cohesion}%, pressione ${pressure}%`,
+    detail: parts.join(' · '),
+    dominantName: dominant?.name ?? null,
+    angriestName: angriest?.name ?? null,
+    pressureLabel: pressureLabel(government.pressureIndex),
+  };
 }

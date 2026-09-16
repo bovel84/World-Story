@@ -2682,3 +2682,67 @@ html, body { margin: 0; }
   .game-over-header h2 { font-size: 21px; }
   .game-over-footer button { flex: 1 1 100%; }
 }
+
+/* ── LW01: Briefing strategico ──────────────────────────────────────────── */
+.strategic-briefing {
+  --sb-accent: #6f83a3;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 14px 18px;
+  border: 1px solid #354966;
+  border-left: 4px solid var(--sb-accent);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #131f34, #0e1828);
+}
+.strategic-briefing.level-critical { --sb-accent: #d97b7b; }
+.strategic-briefing.level-attention { --sb-accent: #d9b061; }
+.strategic-briefing.level-stable { --sb-accent: #5fb98a; }
+.strategic-briefing-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.strategic-briefing-kicker { margin: 0; color: #9b8adb; font: 700 10px/1 system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+.strategic-briefing-status { margin: 4px 0 0; color: #f3f6fc; font: 700 19px/1.15 Georgia, serif; }
+.strategic-briefing.level-critical .strategic-briefing-status { color: #f0a9a9; }
+.strategic-briefing.level-attention .strategic-briefing-status { color: #f0ce8f; }
+.strategic-briefing.level-stable .strategic-briefing-status { color: #a9e8c4; }
+.strategic-briefing-context { margin: 4px 0 0; color: #8fa0bc; font: 500 11.5px/1.4 system-ui, sans-serif; }
+.strategic-briefing-pill { flex: none; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: rgba(255, 255, 255, 0.06); color: #c6d3e6; font: 700 13px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.strategic-briefing-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.strategic-briefing-item { display: flex; align-items: flex-start; gap: 9px; padding: 7px 10px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 9px; background: rgba(255, 255, 255, 0.03); }
+.strategic-briefing-item.is-critical { border-color: rgba(207, 93, 93, 0.42); background: rgba(120, 40, 40, 0.14); }
+.strategic-briefing-item.is-warning { border-color: rgba(201, 154, 78, 0.36); background: rgba(120, 92, 34, 0.12); }
+.strategic-briefing-item.is-opportunity, .strategic-briefing-item.is-positive { border-color: rgba(95, 185, 138, 0.32); background: rgba(40, 100, 74, 0.12); }
+.strategic-briefing-icon { flex: none; font-size: 12px; line-height: 1.5; }
+.strategic-briefing-text { display: flex; flex-direction: column; gap: 2px; }
+.strategic-briefing-text b { color: #e8eefb; font: 600 13px/1.35 system-ui, sans-serif; }
+.strategic-briefing-text small { color: #9fb0c9; font: 500 11.5px/1.4 system-ui, sans-serif; }
+.strategic-briefing-empty { margin: 0; color: #b9c7db; font: 500 12.5px/1.5 system-ui, sans-serif; }
+.strategic-briefing-more { margin: 0; color: #8fa0bc; font: 600 11.5px/1.4 system-ui, sans-serif; }
+
+/* ── LW02: effetti reali per turno nella Timeline ───────────────────────── */
+.hud-timeline-impact { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 9px 11px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 9px; background: rgba(255, 255, 255, 0.03); }
+.hud-timeline-impact-title { color: #8fa0bc; font: 700 10px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.hud-timeline-impact-list { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 0; padding: 0; list-style: none; }
+.hud-timeline-impact-list li { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); font: 500 11.5px/1.3 system-ui, sans-serif; }
+.hud-timeline-impact-label { color: #9fb0c9; }
+.hud-timeline-impact-list b { font-variant-numeric: tabular-nums; }
+.hud-timeline-impact-list li.tone-positive b { color: #a9e8c4; }
+.hud-timeline-impact-list li.tone-negative b { color: #f0a9a9; }
+.hud-timeline-impact-list li.tone-warning b { color: #f0ce8f; }
+.hud-timeline-impact-list li.tone-neutral b { color: #c6d3e6; }
+
+/* ── LW03: piano visibile nel desk del tempo ────────────────────────────── */
+.time-desk-plan { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding: 12px 14px; border: 1px solid #354966; border-radius: 11px; background: #101d31; }
+.time-desk-plan h3 { margin: 0; color: #f3f6fc; font: 700 15px/1.2 Georgia, serif; }
+.time-desk-plan ul { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.time-desk-plan li { display: flex; align-items: flex-start; gap: 9px; color: #e3ebf7; font: 500 13px/1.4 system-ui, sans-serif; }
+.time-desk-plan-index { flex: none; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: rgba(111, 131, 163, 0.28); color: #cfe0f5; font: 700 11px/1 system-ui, sans-serif; }
+.time-desk-plan-note { margin: 0; color: #8fa0bc; font: 500 11.5px/1.45 system-ui, sans-serif; }
+
+/* ── LW04: presenza del consiglio nel desk del tempo ─────────────────────── */
+.time-desk-council { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; padding: 9px 12px; border: 1px solid #354966; border-left: 4px solid #6f83a3; border-radius: 10px; background: #101d31; color: #dbe6f6; font: 600 12.5px/1.4 system-ui, sans-serif; }
+.time-desk-council.tone-positive { border-left-color: #5fb98a; }
+.time-desk-council.tone-warning { border-left-color: #d9b061; color: #f0ce8f; }
+.time-desk-council.tone-negative { border-left-color: #d97b7b; color: #f0a9a9; }
+
+/* ── LW06: sintesi diplomatica nell'intestazione ────────────────────────── */
+.diplomacy-summary { flex: 1; text-align: right; margin-right: 8px; color: #9fb0c9; font: 600 11px/1.3 system-ui, sans-serif; }

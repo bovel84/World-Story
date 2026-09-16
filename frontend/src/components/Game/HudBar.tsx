@@ -17,11 +17,12 @@
  * Stili — alla fine di frontend/src/index.css, sezione «Fase 6: HUD-bar e timeline».
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { TimeDesk } from './TimeDesk';
 import type { TimelineEntry, TimelineEvent } from '../../services/api';
 import { publicNarrativeText } from '../../services/publicNarrative';
+import { impactsByTurn, type HistoryPointLike } from './checkpointImpact';
 
 // ============================================================================
 // Tipi
@@ -55,6 +56,12 @@ export interface HudBarProps {
   advancing?: boolean;
   /** Ordini già registrati: saranno presi in carico al salto. */
   pendingOrdersCount?: number;
+  /** Ordini pronti mostrati come «piano» prima del salto (LW03). */
+  pendingOrders?: Array<{ id: string; text: string }>;
+  /** Storico dei conti pubblicato dal motore, per i delta per turno (LW02). */
+  history?: HistoryPointLike[];
+  /** LW04 — presenza del consiglio mostrata nel desk del tempo. */
+  council?: { tone: string; headline: string; detail: string } | null;
   onOpenDispatches?: () => void;
   /** Chiamato quando il pannello Timeline si apre — il padre (ri)carica gli eventi */
   onTimelineOpen?: () => void;
@@ -101,6 +108,8 @@ export interface TimelinePanelProps {
   /** Chiudi il pannello */
   onClose: () => void;
   playerPolityName?: string;
+  /** Storico dei conti pubblicato dal motore: delta reali per turno (LW02). */
+  history?: HistoryPointLike[];
 }
 
 // ============================================================================
@@ -155,10 +164,15 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onFocusPlaybackReader,
   onClose,
   playerPolityName,
+  history = [],
 }) => {
   const [showHistory, setShowHistory] = useState(true);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const controlsLocked = loading || !!activePlayback;
+
+  // LW02 — delta reali per turno, calcolati dallo storico dei conti pubblicato
+  // dal motore. Nessuna stima nel browser: solo before → after.
+  const impacts = useMemo(() => impactsByTurn(history), [history]);
 
   // Eventi appiattiti e ordinati dal più recente. Il fallback tollera risposte
   // precedenti, dove events era ancora string[].
@@ -254,6 +268,23 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   {expanded && event.detail && (
                     <div className="hud-timeline-entry-detail">{publicNarrativeText(event.detail, playerPolityName)}</div>
                   )}
+                  {expanded && (() => {
+                    const impact = impacts.get(event.turn);
+                    if (!impact || !impact.hasChanges) return null;
+                    return (
+                      <div className="hud-timeline-impact" aria-label={`Effetti nel turno ${event.turn}`}>
+                        <span className="hud-timeline-impact-title">Effetti nel turno</span>
+                        <ul className="hud-timeline-impact-list">
+                          {impact.deltas.slice(0, 6).map(delta => (
+                            <li key={delta.id} className={`tone-${delta.tone}`}>
+                              <span className="hud-timeline-impact-label">{delta.label}</span>
+                              <b>{delta.text}</b>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })()}
                   {expanded && isActivePlaybackEvent && (
                     <div className="hud-timeline-active-reader">
                       <span>Checkpoint attivo · revisione {activePlayback?.revision ?? '—'}</span>
@@ -325,6 +356,9 @@ export const HudBar: React.FC<HudBarProps> = ({
   dispatchLive = false,
   advancing = false,
   pendingOrdersCount = 0,
+  pendingOrders = [],
+  history = [],
+  council = null,
   onOpenDispatches,
   onTimelineOpen,
   onBack,
@@ -466,6 +500,7 @@ export const HudBar: React.FC<HudBarProps> = ({
             onFocusPlaybackReader={onFocusPlaybackReader}
             onClose={() => setTimelineOpen(false)}
             playerPolityName={playerPolityName}
+            history={history}
           />
           </AccessibleDialog>
       )}
@@ -482,6 +517,8 @@ export const HudBar: React.FC<HudBarProps> = ({
             dateISO={dateISO}
             loading={loading}
             pendingOrdersCount={pendingOrdersCount}
+            pendingOrders={pendingOrders}
+            council={council}
             ongoingProcesses={ongoingProcesses}
             activePlayback={!!activePlayback}
             onTimeSkip={handleTimeSkip}
