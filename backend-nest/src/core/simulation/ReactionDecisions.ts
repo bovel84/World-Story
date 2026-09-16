@@ -45,6 +45,43 @@ export interface ReactionEventLike {
   reactions?: ReactionDecisionLike[];
 }
 
+/**
+ * Digest compatto e limitato della FORMA delle reactions.
+ *
+ * Serve a diagnosticare i fallimenti reali del contratto: quando un modello
+ * remoto non produce `actorId`/`optionId` non basta sapere *che* manca il campo,
+ * serve sapere *come* ha chiamato i campi. Il digest non contiene la narrazione:
+ * solo i nomi delle chiavi presenti e i valori identificativi (troncati), quindi
+ * può stare nel messaggio d'errore persistito in `simulation_jobs.error`.
+ */
+export function describeReactionShape(
+  events: readonly ReactionEventLike[],
+  options: { maxReactions?: number; maxLength?: number } = {},
+): string {
+  const maxReactions = options.maxReactions ?? 4;
+  const maxLength = options.maxLength ?? 600;
+  const parts: string[] = [];
+  events.forEach((event, eventIndex) => {
+    const reactions = Array.isArray(event.reactions) ? event.reactions : [];
+    for (const reaction of reactions.slice(0, maxReactions)) {
+      const raw = reaction as unknown as Record<string, unknown>;
+      const value = (key: string) => {
+        const rawValue = raw[key];
+        if (rawValue === undefined) return 'assente';
+        if (rawValue === null) return 'null';
+        if (typeof rawValue === 'object') return Array.isArray(rawValue) ? `[${rawValue.length}]` : '{}';
+        return `"${String(rawValue).slice(0, 40)}"`;
+      };
+      parts.push(
+        `e${eventIndex}{keys=[${Object.keys(raw).join(',')}] actorId=${value('actorId')}`
+        + ` optionId=${value('optionId')} polityName=${value('polityName')}}`,
+      );
+    }
+  });
+  const text = parts.slice(0, maxReactions * 2).join(' ') || '(nessuna reaction)';
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
+
 export type ReactionDecisionCode =
   | 'missing_actor_id'
   | 'unknown_actor'
@@ -322,9 +359,12 @@ export async function repairReactionDecisions(input: {
 
   // Il repair NON rigenera la simulazione: gli eventi devono restare quelli.
   if (!Array.isArray(repairedEvents) || repairedEvents.length !== events.length) {
-    throw new LLMContractError('reaction repair: il numero di eventi è cambiato (la simulazione non va rigenerata)', {
-      mechanic: 'jump',
-    });
+    const count = Array.isArray(repairedEvents) ? repairedEvents.length : 'non-array';
+    throw new LLMContractError(
+      `reaction repair: il numero di eventi è cambiato (${events.length} → ${count}; la simulazione non va rigenerata)`
+      + ` — forma: ${describeReactionShape(repairedEvents || [])}`,
+      { mechanic: 'jump' },
+    );
   }
   for (let index = 0; index < events.length; index += 1) {
     if (eventChronicleKey(repairedEvents[index]) !== eventChronicleKey(events[index])) {
@@ -350,7 +390,12 @@ export async function repairReactionDecisions(input: {
   const remaining = reactionIssuesPerEvent(repairedEvents, context);
   if (remaining.size > 0) {
     const codes = [...remaining.values()].flat().map(issue => issue.code).join(', ');
-    throw new LLMContractError(`reactions fuori contratto dopo un repair (${codes})`, { mechanic: 'jump' });
+    // La forma osservata è l'unico modo per capire un modello che rinomina i campi:
+    // senza di essa un fallimento in produzione non è diagnosticabile.
+    const shape = describeReactionShape(repairedEvents);
+    throw new LLMContractError(`reactions fuori contratto dopo un repair (${codes}) — forma: ${shape}`, {
+      mechanic: 'jump',
+    });
   }
   return { events: repairedEvents, issues: [], repaired: true };
 }

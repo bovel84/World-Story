@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ReactionContext } from '../src/core/simulation/ReactionContext';
 import { buildReactionContext } from '../src/core/simulation/ReactionContext';
 import {
+  describeReactionShape,
   measureMaterialCategory,
   optionMaterialScope,
   reactionAllowsMaterialCategory,
@@ -290,5 +291,37 @@ describe('validator reactions — effetti materiali (relazione minima)', () => {
   it('una reaction legacy senza optionId conserva il comportamento precedente', () => {
     expect(optionMaterialScope(undefined)).toBeUndefined();
     expect(reactionAllowsMaterialCategory({}, measureMaterialCategory('spawn_unit'))).toBe(true);
+  });
+});
+
+describe('describeReactionShape (diagnostica dei fallimenti reali)', () => {
+  it('mostra le chiavi presenti e i valori identificativi troncati', () => {
+    const shape = describeReactionShape([
+      {
+        headline: 'Evento',
+        reactions: [
+          { polityName: 'Polonia', actorID: 'POL', optionId: null, response: 'x'.repeat(200) },
+        ] as never,
+      },
+    ]);
+    expect(shape).toContain('e0{keys=[polityName,actorID,optionId,response]');
+    expect(shape).toContain('actorId=assente');
+    expect(shape).toContain('optionId=null');
+    expect(shape).toContain('polityName="Polonia"');
+    // La narrazione non entra mai nel digest.
+    expect(shape).not.toContain('xxxx');
+  });
+
+  it('segnala un attore senza actorId e resta limitato', () => {
+    const shape = describeReactionShape([
+      { reactions: [{ polityName: 'A' }, { polityName: 'B' }, { polityName: 'C' }] as never },
+      { reactions: [{ polityName: 'D' }] as never },
+    ]);
+    expect(shape).toContain('actorId=assente');
+    expect(shape.length).toBeLessThanOrEqual(601);
+  });
+
+  it('descrive esplicitamente il caso senza reaction', () => {
+    expect(describeReactionShape([{ reactions: [] }])).toBe('(nessuna reaction)');
   });
 });

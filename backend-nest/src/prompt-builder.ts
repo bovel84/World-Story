@@ -22,7 +22,7 @@ import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSugges
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
 import { buildNarrativeMemory } from './prompts/narrative-memory';
-import { repairReactionDecisions, validateReactionDecisions, type ReactionDecisionIssue, type ReactionEventLike } from './core/simulation/ReactionDecisions';
+import { repairReactionDecisions, validateReactionDecisions, describeReactionShape, type ReactionDecisionIssue, type ReactionEventLike } from './core/simulation/ReactionDecisions';
 import type { ReactionContext } from './core/simulation/ReactionContext';
 import { buildNationalDecisionContext, buildActionElaborationGuard } from './prompts/national-context';
 import {
@@ -1086,7 +1086,15 @@ export class PromptEngine {
       const outcome = await repairReactionDecisions({
         events: result.events,
         context: reactionContext,
-        repair: ({ events, issues, context }) => this.repairReactionFormat(system, events, issues, context, signal),
+        repair: ({ events, issues, context }) => {
+          // Diagnostica: la forma *originale* delle reactions spiega perché il
+          // modello non ha rispettato il contratto (es. chiavi rinominate).
+          console.warn(
+            `[PromptEngine] Repair reactions richiesto: ${issues.map(issue => issue.code).join(', ')}`
+            + ` — forma originale: ${describeReactionShape(events)}`,
+          );
+          return this.repairReactionFormat(system, events, issues, context, signal);
+        },
       });
       if (outcome.repaired) {
         // La perdita di un attore fuori contesto è la degradazione ammessa del
@@ -1163,12 +1171,24 @@ export class PromptEngine {
     for (const parse of parseAttempts) {
       try {
         const events = parse(repaired.content).events;
-        if (events.length > 0) return events;
+        if (events.length > 0) {
+          // Evidenza per il caso "reactions ancora fuori contratto dopo il repair":
+          // senza l'output grezzo (troncato) un fallimento reale non è spiegabile.
+          console.warn(
+            `[PromptEngine] Repair reactions: risposta del modello (${events.length} eventi, ${repaired.content.length} caratteri):`
+            + ` ${repaired.content.slice(0, 1_000)}`,
+          );
+          return events;
+        }
         lastError = new LLMContractError('repair reactions: nessun evento nella risposta', { mechanic: 'jump' });
       } catch (error) {
         lastError = error;
       }
     }
+    console.warn(
+      `[PromptEngine] Repair reactions non interpretabile: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+      + ` — risposta (${repaired.content.length} caratteri): ${repaired.content.slice(0, 1_000)}`,
+    );
     throw new LLMContractError(
       `repair reactions non interpretabile: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
       { mechanic: 'jump', excerpt: repaired.content },
