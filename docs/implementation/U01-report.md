@@ -66,3 +66,14 @@
 ## Prossima micro-consegna (µ2)
 - **Passo 1:** prototipo desktop/mobile statico sui dati reali di esempio e token del maestro (§10.2), con screenshot di tutti gli stati (chiuso/aperto/loading/empty/error/disabled).
 - Oppure **passo 3:** shell grid + registro z-index (map 0, shell 10, module 20, overlay 30, dialog 40, toast 50) + `GameShell`/`CommandSheet`/`AccessibleDialog` con focus/inert/return e safe area.
+
+## Revisione indipendente (revisore ≠ implementatore) — esito: **U01 CHIUSO** (parte di codice)
+
+Verdetto **ACCETTABILE**. Dettaglio in `REVIEW-INDIPENDENTE-U01.md`.
+
+- µ1 (passo 2) verificata: `moduleState.test.ts` (9 casi) prova l'invariante «un solo
+  modulo attivo» e «Nazione chiusa all'ingresso».
+- Passo 4/5 (DoD CSS) coperto da guardia ripetibile `src/styles/cssDiscipline.test.ts`
+  (3 casi): nessun `!important` nei moduli migrati, vendor non travasato.
+- Residui manuali dichiarati: passo 1 (screenshot) e test UI06–UI12 (tastiera/viewport/
+  contrasto/reflow) demandati a Q01 (harness browser).
