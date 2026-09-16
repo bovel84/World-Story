@@ -108,3 +108,26 @@ Cablaggio completo ⇒ **inventare** unità/conversioni/accessor, vietato dal pi
 (§1.1). Decisione onesta: **non implementare**. Sbloccabile solo dopo una scelta
 di contratto su conversione fondi (mld↔minorUnits), accessor ai pool mutabili e
 fonte della domanda di manodopera. Da rivalutare come micro-consegna dedicata.
+
+## µ3 — Catena della fattibilità (passo 2, parti realizzabili senza dati nuovi)
+
+- Nuovo modello puro `frontend/src/components/Game/feasibilityChain.ts`:
+  `buildFeasibilityChain({orderText, costs, prerequisites, explanation})` →
+  catena ordinata di nodi **richiesta → costo → deficit**, ognuno con **fonte**
+  del dato (bozza, catalogo ricetta/mantenimento, richiesta esplicita, preflight).
+- Presentazione `FeasibilityChainPanel.tsx`: flusso `<ol>` (mobile) + **lista
+  equivalente** `<table>` su desktop (≥720px), dallo stesso modello; il
+  significato è nel testo («Richiesta/Costo/Deficit», fonti), **leggibile senza
+  colori**. Nessuna libreria grafica.
+- Integrato in `FeasibilityCheck.tsx` (sezione dopo i costi). CSS scoped in
+  `foundations.css` + utility `.visually-hidden`; nessun `!important`.
+- Prove: `feasibilityChain.test.ts` (6 casi) + source-contract in
+  `feasibilityCheck.test.ts`.
+
+Verifica: frontend **36 file / 208 test** verdi; tsc pulito; build OK.
+
+Restano **non implementati** (dipendenze dati non disponibili, non inventabili):
+- passo 3 conflitti batch/priorità (vedi blocco sopra);
+- parte del passo 2 «deficit/fonti» sui **pool runtime** e sul ledger: la catena
+  usa i dati autorevoli già esposti da `/actions/check-feasibility`
+  (costi catalogo/richiesta e blocker del preflight), non inventa pool.
