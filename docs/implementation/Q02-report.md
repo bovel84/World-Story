@@ -204,3 +204,42 @@ launchd → readiness.
 - **Token single-owner non attivato**: la modalità resta `open-single-user` (comportamento invariato).
   Attivarlo cambierebbe l'accesso all'istanza (serve `?owner_token=`).
 - **Nessuno smoke con provider LLM reale**: richiede budget approvato; lo smoke di questo rilascio è mock.
+
+## 9. Deploy v0.2.1 (autorizzato dall'utente, 2026-09-16)
+
+Rilascio della revisione `82f823e` (contratto delle reazioni NPC, PR #18 e #19),
+con lo stesso percorso fail-closed del §8 — nessuna scorciatoia.
+
+**Rilascio** — `node scripts/release.js --execute --authorized` (9/9 passi ok):
+`preflight` **0 run attivi** → test backend **127 file / 1077** e frontend **39 / 220** → build
+workspaces → **backup SQLite** `backups/world-story-2026-09-16T11-44-12-673Z.db`
+(426.082.304 byte, `integrity: ok`) → migrazione idempotente → restart launchd → readiness →
+`frontend-compat` **servito == locale** (`82f823e`) → smoke mock **17/17**.
+
+**Cloudflare** — `bash scripts/deploy-cloudflare.sh`:
+- Worker `world-story` versione **`b38583b5-5fc4-445a-95e4-728f6136b623`**; unico asset nuovo
+  `/build-id.txt` (conferma che l'intervento era solo backend: nessun sorgente frontend modificato).
+- KV `backend_url` = `https://ind-strikes-meant-adaptive.trycloudflare.com` (tunnel invariato).
+
+**GitHub** — tag **`v0.2.1`** + release
+**https://github.com/bovel84/World-Story/releases/tag/v0.2.1**.
+
+**Verifica post-deploy**
+
+| Controllo | Esito |
+|---|---|
+| `/build-id.txt` pubblico | `82f823e` (= `main`) |
+| `GET /api/health` pubblico | **200** — `status: ok`, `build.frontend: 82f823e`, 48 tabelle, `auth: open-single-user` |
+| Home pubblica + bundle | **200** — `index-BjHW41kD.js` (397.376 byte) |
+| Letture reali via Worker | **200** su `/api/saves`, `/api/countries/ITA`, `/api/games/<id>` (partita reale, turno 2) |
+| Servizi launchd | `com.openpax.backend` (pid nuovo), `com.openpax.tunnel`, `com.openpax.tunnelfollow` attivi |
+
+**Nota di ordine dei passi e copertura reale dei controlli**: il passo `frontend-compat` legge
+`build.frontend` dal backend e lo confronta con `frontend/dist/build-id.txt` — quindi è una verifica
+di *coerenza locale* (il backend riavviato vede la build appena prodotta) e **non** prova che il
+Worker stia servendo quella build. Quella prova è data separatamente dal fetch pubblico di
+`/build-id.txt` (`82f823e`) e dal bundle (`index-BjHW41kD.js`), entrambi verificati qui sopra.
+Per lo stesso motivo il rilascio può riavviare il backend prima del deploy del Worker senza finestra
+di incompatibilità: in questo rilascio alcun sorgente frontend è cambiato (unico asset nuovo:
+`/build-id.txt`). Un rilascio con modifiche frontend richiede il deploy del Worker e poi un giro di
+verifica pubblico sull'artefatto servito.
