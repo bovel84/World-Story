@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { deriveStrategicBriefing } from './strategicBriefing';
+import { deriveStrategicBriefing, compactBriefing } from './strategicBriefing';
 import type { CrisisSnapshot, GovernmentSnapshot, PeacetimePressure } from '../../services/api';
 
 function pressure(over: Partial<PeacetimePressure>): PeacetimePressure {
@@ -113,6 +113,33 @@ describe('LW01 — deriveStrategicBriefing', () => {
     expect(ids).toContain('gov-agenda');
   });
 
+  it('preferisce resources.money alla cassa del conto (BUG 1)', () => {
+    const b = deriveStrategicBriefing({ resources: { money: 3 } as never, account: { money: -5 } });
+    expect(b.items.map(i => i.id)).not.toContain('treasury-negative');
+    expect(b.items.map(i => i.id)).not.toContain('treasury-low');
+  });
+
+  it('segnala la tesoreria negativa da resources.money (BUG 1)', () => {
+    const b = deriveStrategicBriefing({ resources: { money: -0.4 } as never });
+    expect(b.items.map(i => i.id)).toContain('treasury-negative');
+  });
+
+  it('usa account.money solo se resources.money manca (BUG 1)', () => {
+    const b = deriveStrategicBriefing({ account: { money: -0.2 } });
+    expect(b.items.map(i => i.id)).toContain('treasury-negative');
+  });
+
+  it('senza tesoreria pubblicata NON inventa un warning (BUG 1)', () => {
+    const fromResources = deriveStrategicBriefing({ resources: {} as never });
+    const fromAccount = deriveStrategicBriefing({ account: { monthlyBalance: 1 } });
+    const fromNothing = deriveStrategicBriefing({});
+    for (const b of [fromResources, fromAccount, fromNothing]) {
+      const ids = b.items.map(i => i.id);
+      expect(ids).not.toContain('treasury-negative');
+      expect(ids).not.toContain('treasury-low');
+    }
+  });
+
   it('integra fatti del mondo e quadro diplomatico', () => {
     const b = deriveStrategicBriefing({
       worldFacts: [{ id: 'w-turchia', severity: 'warning', label: 'La Turchia riarma lo stretto', detail: '3 divisioni' }],
@@ -126,7 +153,38 @@ describe('LW01 — deriveStrategicBriefing', () => {
 
   it('il Dossier mostra la card del briefing nella Situazione', () => {
     const dock = fs.readFileSync(path.resolve(__dirname, 'NationDock.tsx'), 'utf8');
-    expect(dock).toContain('deriveStrategicBriefing');
+    const screen = fs.readFileSync(path.resolve(__dirname, 'GameScreen.tsx'), 'utf8');
+    // Derivazione UNA sola volta in GameScreen (nessuna duplicazione della logica).
+    expect(screen).toContain('deriveStrategicBriefing');
     expect(dock).toContain('<StrategicBriefingCard');
+    expect(dock).not.toContain('deriveStrategicBriefing(');
+  });
+});
+
+describe('LW06.1 — compactBriefing (MIGLIORIA 1)', () => {
+  it('mostra solo le voci azionabili e rispetta il limite', () => {
+    const briefing = deriveStrategicBriefing({
+      account: { money: -1, monthlyBalance: -3, socialTension: 70 },
+      ongoingProcesses: [{ id: 'x', title: 'Acciaieria', progress: 90 }],
+    });
+    const compact = compactBriefing(briefing, 2);
+    expect(compact.visible).toBe(true);
+    expect(compact.items).toHaveLength(2);
+    expect(compact.items.every(i => i.severity !== 'info' && i.severity !== 'positive')).toBe(true);
+    expect(compact.hiddenCount).toBeGreaterThan(0);
+  });
+
+  it('niente rumore quando non c’è nulla da segnalare', () => {
+    const stable = deriveStrategicBriefing({});
+    const compact = compactBriefing(stable);
+    expect(compact.visible).toBe(false);
+    expect(compact.items).toHaveLength(0);
+  });
+
+  it('ignora solo-info/positivo ma tiene le opportunità', () => {
+    const onlyInfo = deriveStrategicBriefing({ fiscalPolicy: { taxRatePct: 45, label: 'Pressione massima', minPct: 4, maxPct: 45, effects: ['x'], defaultPct: 10, configured: true } });
+    expect(compactBriefing(onlyInfo).visible).toBe(false);
+    const opportunity = deriveStrategicBriefing({ ongoingProcesses: [{ id: 'x', title: 'Acciaieria', progress: 90 }] });
+    expect(compactBriefing(opportunity).items[0].severity).toBe('opportunity');
   });
 });

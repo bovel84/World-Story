@@ -52,14 +52,38 @@ function isHostile(relationships: WorldPresenceInput['relationships'], from: str
 
 /**
  * Deriva i fatti del mondo. Deterministica: stesso input → stesso output.
- * L'ordine è: guerre/scontri, variazioni territoriali, diplomazia.
+ * Ordine di preferenza (MIGLIORIA 4):
+ *  1. evento reale dal feed (scontri, poi diplomazia) → più informativo;
+ *  2. variazione territoriale (solo se il feed non offre nulla);
+ *  3. nessun fatto inventato.
+ * Il feed è cronologico (vecchio → nuovo): si legge dalla coda per prendere i
+ * dispacci più recenti (BUG 3).
  */
 export function deriveWorldPresence(input: WorldPresenceInput): WorldPresence {
-  const limit = input.limit ?? 3;
+  const limit = Math.max(input.limit ?? 3, 1);
   const byId = new Map(asList(input.regions).map(region => [region.id, region]));
-  const facts: WorldFact[] = [];
 
-  // --- 1. Regioni estere cambiate nel turno, raggruppate per proprietario ---
+  // --- 1. Eventi reali dal feed, dal più recente ----------------------------
+  // Scontri prima della diplomazia: più urgenti e più concreti.
+  const newest = [...(input.feedItems ?? [])].reverse();
+  const warFacts: WorldFact[] = [];
+  const diplomacyFacts: WorldFact[] = [];
+  for (const item of newest) {
+    const category = classifyDispatch(item.text, item.detail);
+    if (category.key !== 'war' && category.key !== 'diplomacy') continue;
+    const fact: WorldFact = {
+      id: `world-feed-${item.id}`,
+      severity: category.key === 'war' ? 'warning' : 'info',
+      label: item.text,
+      detail: category.label,
+    };
+    if (category.key === 'war') warFacts.push(fact);
+    else diplomacyFacts.push(fact);
+    if (warFacts.length + diplomacyFacts.length >= limit) break;
+  }
+  const feedFacts = [...warFacts, ...diplomacyFacts].slice(0, limit);
+
+  // --- 2. Variazioni territoriali (solo se non c'è una notizia reale) -------
   const byOwner = new Map<string, Region[]>();
   for (const regionId of input.changedRegionIds) {
     const region = byId.get(regionId);
@@ -69,30 +93,21 @@ export function deriveWorldPresence(input: WorldPresenceInput): WorldPresence {
     byOwner.set(region.owner, bucket);
   }
   let changedForeignCount = 0;
+  const territorialFacts: WorldFact[] = [];
   for (const [owner, regions] of byOwner) {
     changedForeignCount += regions.length;
     const name = polityLabel(regions[0]);
-    facts.push({
+    const placeNames = regions.slice(0, 2).map(region => region.name).filter(Boolean).join(', ');
+    territorialFacts.push({
       id: `world-owner-${owner}`,
       severity: isHostile(input.relationships, input.playerPolityId, owner) ? 'warning' : 'info',
-      label: `${name}: movimento nel turno`,
-      detail: `${regions.length} ${regions.length === 1 ? 'regione aggiornata' : 'regioni aggiornate'}${isHostile(input.relationships, input.playerPolityId, owner) ? ' · potenza ostile' : ''}`,
+      label: `${name}: ${regions.length === 1 ? 'un territorio aggiornato' : `${regions.length} territori aggiornati`}`,
+      detail: `${placeNames}${regions.length > 2 ? ` e altri ${regions.length - 2}` : ''}${isHostile(input.relationships, input.playerPolityId, owner) ? ' · potenza ostile' : ''}`,
     });
   }
 
-  // --- 2. Dispacci recenti con scontri o diplomazia ------------------------
-  const recent = (input.feedItems ?? []).slice(0, Math.max(limit, 1));
-  for (const item of recent) {
-    const category = classifyDispatch(item.text, item.detail);
-    if (category.key !== 'war' && category.key !== 'diplomacy') continue;
-    facts.push({
-      id: `world-feed-${item.id}`,
-      severity: category.key === 'war' ? 'warning' : 'info',
-      label: item.text,
-      detail: category.label,
-    });
-    if (facts.length >= limit * 2) break;
-  }
-
-  return { facts: facts.slice(0, Math.max(limit, 1) * 2), changedForeignCount };
+  // Una notizia reale vale più di un movimento generico: se c'è, il territorio
+  // resta sullo sfondo (osservabile dalla mappa) e non sporca il briefing.
+  const facts = feedFacts.length > 0 ? feedFacts : territorialFacts.slice(0, limit);
+  return { facts, changedForeignCount };
 }

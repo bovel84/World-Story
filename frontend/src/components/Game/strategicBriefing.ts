@@ -107,6 +107,16 @@ function num(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Numero opzionale: `null` quando il campo non è pubblicato. Evita che un
+ * valore assente diventi uno zero economico reale (BUG 1 — tesoreria).
+ */
+function optionalNumber(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function mld(value: number): string {
   return `${value >= 0 ? '+' : ''}${value.toFixed(2)} mld`;
 }
@@ -154,18 +164,24 @@ export function deriveStrategicBriefing(input: StrategicBriefingInput): Strategi
   }
 
   // --- 3. Cassa, saldo e debito -------------------------------------------
-  if (account) {
-    const money = num(account.money);
-    const balance = num(account.monthlyBalance);
-    const stability = num(account.stability);
-    const tension = num(account.socialTension);
-    const debtRatio = num(account.debtRatioPct ?? account.debtBurdenPct);
-
+  // La tesoreria vive nel magazzino materiale (`resources.money`) e solo in
+  // fallback nel conto (`account.money`). Se nessuno dei due è pubblicato NON
+  // si genera alcun warning: un campo assente non è una cassa a zero.
+  const money = optionalNumber(input.resources?.money) ?? optionalNumber(account?.money);
+  if (money !== null) {
     if (money < 0) {
       items.push({ id: 'treasury-negative', severity: 'critical', icon: ICON.critical, label: 'Tesoreria in scoperto', detail: `Cassa ${money.toFixed(2)} mld` });
     } else if (money < 0.5) {
       items.push({ id: 'treasury-low', severity: 'warning', icon: ICON.warning, label: 'Tesoreria quasi esaurita', detail: `Cassa ${money.toFixed(2)} mld` });
     }
+  }
+
+  if (account) {
+    const balance = num(account.monthlyBalance);
+    const stability = num(account.stability);
+    const tension = num(account.socialTension);
+    const debtRatio = num(account.debtRatioPct ?? account.debtBurdenPct);
+
     if (balance < -0.5) {
       items.push({ id: 'balance-deficit', severity: balance < -2 ? 'critical' : 'warning', icon: balance < -2 ? ICON.critical : ICON.warning, label: 'Deficit mensile crescente', detail: `Saldo ${mld(balance)}` });
     }
@@ -291,4 +307,34 @@ export function deriveStrategicBriefing(input: StrategicBriefingInput): Strategi
     : 'Nessuna criticità rilevata: il paese regge.';
 
   return { level, statusLabel, headline, items };
+}
+
+/**
+ * MIGLIORIA 1 — vista compatta del briefing per la schermata principale.
+ *
+ * Riusa lo **stesso** output di `deriveStrategicBriefing` e ne mostra solo le
+ * voci azionabili (critiche, di attenzione e le opportunità), al massimo
+ * `maxItems`. Se non c'è nulla che richiede attenzione, `visible` è falso:
+ * nessun rumore nella HUD.
+ */
+export interface CompactBriefing {
+  visible: boolean;
+  level: BriefingLevel;
+  statusLabel: string;
+  items: BriefingItem[];
+  /** Voci del briefing non mostrate per limite di spazio. */
+  hiddenCount: number;
+}
+
+export function compactBriefing(briefing: StrategicBriefing, maxItems = 3): CompactBriefing {
+  const actionable = briefing.items.filter(item =>
+    item.severity === 'critical' || item.severity === 'warning' || item.severity === 'opportunity');
+  const items = actionable.slice(0, Math.max(maxItems, 1));
+  return {
+    visible: items.length > 0,
+    level: briefing.level,
+    statusLabel: briefing.statusLabel,
+    items,
+    hiddenCount: Math.max(briefing.items.length - items.length, 0),
+  };
 }

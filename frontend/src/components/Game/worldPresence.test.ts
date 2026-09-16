@@ -31,7 +31,7 @@ describe('LW05 — deriveWorldPresence', () => {
     const owners = presence.facts.map(f => f.id);
     expect(owners).toContain('world-owner-TUR');
     expect(owners).toContain('world-owner-SUN');
-    expect(presence.facts.find(f => f.id === 'world-owner-TUR')?.detail).toContain('2 regioni aggiornate');
+    expect(presence.facts.find(f => f.id === 'world-owner-TUR')?.label).toContain('2 territori aggiornati');
   });
 
   it('ignora le regioni del giocatore e quelle neutrali', () => {
@@ -75,5 +75,44 @@ describe('LW05 — deriveWorldPresence', () => {
   it('non inventa fatti quando non c’è nulla da osservare', () => {
     const presence = deriveWorldPresence({ regions: {}, changedRegionIds: [], playerPolityId: 'ITA' });
     expect(presence.facts).toHaveLength(0);
+  });
+
+  it('LW06.1/BUG 3 — legge il feed dalla coda: gli ultimi eventi, non i primi', () => {
+    const feedItems = [
+      { id: 'e1', text: 'Vecchia battaglia dimenticata' },
+      { id: 'e2', text: 'Vecchio summit' },
+      { id: 'e3', text: 'Battaglia recente sul fronte' },
+      { id: 'e4', text: 'Vertice diplomatico recente' },
+      { id: 'e5', text: 'Nuova offensiva di artiglieria' },
+    ];
+    const presence = deriveWorldPresence({ regions: {}, changedRegionIds: [], playerPolityId: 'ITA', feedItems, limit: 3 });
+    const ids = presence.facts.map(f => f.id);
+    expect(ids).toContain('world-feed-e5');
+    expect(ids).toContain('world-feed-e4');
+    expect(ids).toContain('world-feed-e3');
+    expect(ids).not.toContain('world-feed-e1');
+    expect(ids).not.toContain('world-feed-e2');
+    expect(ids).toHaveLength(3);
+  });
+
+  it('LW06.1/MIGLIORIA 4 — una notizia reale prevale sul movimento territoriale generico', () => {
+    const presence = deriveWorldPresence({
+      regions,
+      changedRegionIds: ['tur', 'tur2', 'sun'],
+      playerPolityId: 'ITA',
+      feedItems: [{ id: 'a', text: 'Battaglia navale al largo' }],
+    });
+    const ids = presence.facts.map(f => f.id);
+    expect(ids).toEqual(['world-feed-a']);
+    expect(ids).not.toContain('world-owner-TUR');
+    // Il conteggio territoriale resta comunque disponibile.
+    expect(presence.changedForeignCount).toBe(3);
+  });
+
+  it('senza notizie reali mostra il cambiamento territoriale con i luoghi', () => {
+    const presence = deriveWorldPresence({ regions, changedRegionIds: ['tur', 'tur2'], playerPolityId: 'ITA' });
+    const fact = presence.facts.find(f => f.id === 'world-owner-TUR');
+    expect(fact?.label).toContain('Turchia');
+    expect(fact?.detail).toContain('tur');
   });
 });
