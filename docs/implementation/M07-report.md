@@ -251,3 +251,30 @@ di manutenzione** basato sui termini dichiarati (`FacilityType.maintenance`:
 `resourceId`/`baseUnits`/`periodDays`) e un'**assegnazione di personale/capacità**. È una
 decisione di prodotto/catalogo: senza, implementare significherebbe inventare dati (vietato
 §1.1). Le scorte minime (unica parte attuabile) sono già coperte da `MandateStockEngine`.
+
+## M07 passo 2 — Proiezione obblighi di manutenzione (incremento fedele, read-only)
+
+Supera parzialmente il blocco «priorità manutenzione/servizi» **senza inventare dati**:
+`FacilityInstance` non ha una data di ultima manutenzione, quindi non eseguiamo la
+manutenzione, ma **proiettiamo l'obbligo dichiarato** e la copertura di scorta.
+
+- **Core puro** `src/core/maintenance/MaintenanceObligations.ts`:
+  `assessMaintenanceObligations({ facilities, facilityTypes, ownerActorIds, ownedStock })`
+  → per ogni impianto **posseduto** con termine `FacilityType.maintenance`
+  (`resourceId`/`baseUnits`/`periodDays`), calcola disponibilità posseduta e
+  **deficit**, ordinando per deficit decrescente (priorità). Solo dati autorevoli:
+  termini di catalogo + saldi `reconstructOwnedStock` (ledger, `ownerRef`).
+- **Route read-only** `GET /:id/mandates/decisions` estesa in modo **additivo**:
+  `{ decisions, decisionRequired, maintenance, maintenanceRequired, canonical }`.
+  Nessuna mutazione, nessuno scadenzario, nessun bootstrap nei GET.
+- **Dossier** (`NationDock`): blocco «Manutenzione non coperta · <tipo>» con obbligo,
+  disponibilità e deficit; il default «nessuna decisione» non compare se c'è un deficit.
+
+Prove: `tests/maintenance-obligations.test.ts` (**6 casi** puri) +
+source-contract `frontend/src/components/Game/maintenanceObligations.test.ts` (3).
+Verifica: backend **118 file / 999 test** verdi; frontend **38 file / 214 test** verdi;
+tsc pulito; build OK; E2E mock 17/17; a11y 3/3.
+
+Restano fuori (blocco invariato): **esecuzione/scadenzario** (richiede stato operativo
+mutabile per impianto → decisione di prodotto/catalogo). La proiezione è informativa e
+alimenta la decisione del giocatore.

@@ -46,6 +46,21 @@ export interface MandateDecision {
   status: string;
 }
 
+/** M07 passo 2 — obblighi di manutenzione degli impianti (proiezione read-only). */
+export interface MaintenanceObligationView {
+  facilityId: string;
+  typeId: string;
+  typeName: string;
+  regionId: string;
+  operational: boolean;
+  resourceId: string;
+  baseUnits: string;
+  periodDays: number;
+  available: string;
+  sufficient: boolean;
+  shortfall: string;
+}
+
 export type NotifyFn = (message: string, kind?: 'info' | 'success' | 'error') => void;
 
 export interface UseNationSnapshotOptions {
@@ -84,6 +99,7 @@ export interface NationSnapshot {
   setGovernmentVoicesError: React.Dispatch<React.SetStateAction<string | null>>;
   mandateDecisions: MandateDecision[];
   setMandateDecisions: React.Dispatch<React.SetStateAction<MandateDecision[]>>;
+  maintenanceObligations: MaintenanceObligationView[];
   /** Azzera l'intero snapshot (nessuna partita attiva). */
   resetNational: () => void;
   procureEquipment: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
@@ -116,6 +132,7 @@ export function useNationSnapshot({
   const [governmentVoicesLoading, setGovernmentVoicesLoading] = useState(false);
   const [governmentVoicesError, setGovernmentVoicesError] = useState<string | null>(null);
   const [mandateDecisions, setMandateDecisions] = useState<MandateDecision[]>([]);
+  const [maintenanceObligations, setMaintenanceObligations] = useState<MaintenanceObligationView[]>([]);
 
   const resetNational = useCallback(() => {
     setNationalAccounts({});
@@ -131,6 +148,7 @@ export function useNationSnapshot({
     setGovernmentVoices(null);
     setGovernmentVoicesError(null);
     setMandateDecisions([]);
+    setMaintenanceObligations([]);
   }, []);
 
   // Il bollettino usa dati aggregati dal motore, non formule del browser.
@@ -168,9 +186,14 @@ export function useNationSnapshot({
       .then((arms) => { if (!cancelled) setNationalArms(arms); })
       .catch(error => console.warn('[App] Impossibile caricare l’arsenale:', error));
     gameApi.mandateDecisions(gameId)
-      .then((decisions) => { if (!cancelled) setMandateDecisions(decisions.decisions || []); })
+      .then((decisions) => {
+        if (!cancelled) {
+          setMandateDecisions(decisions.decisions || []);
+          setMaintenanceObligations(decisions.maintenance || []);
+        }
+      })
       .catch((error: any) => {
-        if (!cancelled) setMandateDecisions([]);
+        if (!cancelled) { setMandateDecisions([]); setMaintenanceObligations([]); }
         if (error?.status !== 409) console.warn('[App] Impossibile caricare le decisioni mandato:', error);
       });
     return () => { cancelled = true; };
@@ -356,6 +379,7 @@ export function useNationSnapshot({
     governmentVoicesLoading,
     governmentVoicesError, setGovernmentVoicesError,
     mandateDecisions, setMandateDecisions,
+    maintenanceObligations,
     resetNational,
     procureEquipment,
     tradeNaturalResource,

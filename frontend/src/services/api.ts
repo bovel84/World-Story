@@ -680,7 +680,7 @@ export const gameApi = {
       body: JSON.stringify({ equipmentId, quantity }),
     }),
 
-  /** M07/G5-C — eccezioni di mandato già aperte dal tick canonico (sola lettura). */  mandateDecisions: (gameId: string): Promise<{ decisions: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>; decisionRequired: boolean }> =>
+  /** M07/G5-C — eccezioni di mandato già aperte dal tick canonico (sola lettura). */  mandateDecisions: (gameId: string): Promise<{ decisions: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>; decisionRequired: boolean; maintenance: Array<{ facilityId: string; typeId: string; typeName: string; regionId: string; operational: boolean; resourceId: string; baseUnits: string; periodDays: number; available: string; sufficient: boolean; shortfall: string }>; maintenanceRequired: boolean }> =>
     fetchApi(`/games/${gameId}/mandates/decisions`),
 
   acknowledgeMandateDecision: (gameId: string, mandateId: string, kind: string): Promise<{ decision: any }> =>

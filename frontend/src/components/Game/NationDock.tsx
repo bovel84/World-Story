@@ -41,7 +41,7 @@ export type { HistoryPoint, NationAccount, NationDockProps, NationResources, Ton
 export const NationDock: React.FC<NationDockProps> = (props) => {
   const {
     governmentType, account, resources, arms, procure, trade,
-    ongoingProcesses, completedProcesses = [], mandateDecisions = [], onAcknowledgeMandateDecision,
+    ongoingProcesses, completedProcesses = [], mandateDecisions = [], maintenanceObligations = [], onAcknowledgeMandateDecision,
     government, onDraftOrder, governmentVoices, governmentVoicesLoading, governmentVoicesError,
     onBorrowDebt, fiscalPolicy, onSetFiscalPolicy, fiscalPolicyBusy,
     pressures, recentPressures, onResolvePressure, pressureBusy, crisis,
@@ -147,7 +147,15 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                     {onAcknowledgeMandateDecision && <button type="button" className="nation-decision-ack" onClick={() => void onAcknowledgeMandateDecision(decision.mandateId, decision.kind)}>Prendi atto</button>}
                   </div>
                 ))}
-                {mandateDecisions.length === 0 && (ongoingProcesses.length > 0 ? (
+                {maintenanceObligations.filter(item => !item.sufficient).map((item) => (
+                  <div key={`maint-${item.facilityId}`} className="nation-decision-live">
+                    <b>Manutenzione non coperta · {item.typeName}</b>
+                    <span>
+                      Serve {item.baseUnits} {item.resourceId} ogni {item.periodDays} giorni · disponibile {item.available}, mancano {item.shortfall}.
+                    </span>
+                  </div>
+                ))}
+                {mandateDecisions.length === 0 && !maintenanceObligations.some(item => !item.sufficient) && (ongoingProcesses.length > 0 ? (
                   <div className="nation-decision-live"><b>{ongoingProcesses.length} {ongoingProcesses.length === 1 ? 'processo richiede monitoraggio' : 'processi richiedono monitoraggio'}</b><span>Apri Progetti per vedere le prossime scadenze registrate.</span></div>
                 ) : <EmptyState>Nessuna decisione richiede attenzione immediata.</EmptyState>)}
               </div>

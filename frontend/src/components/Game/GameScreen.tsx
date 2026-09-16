@@ -305,6 +305,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             ongoingProcesses={timeline.ongoingProcesses}
             completedProcesses={timeline.completedProcesses}
             mandateDecisions={nation.mandateDecisions}
+            maintenanceObligations={nation.maintenanceObligations}
             onAcknowledgeMandateDecision={nation.acknowledgeMandateDecision}
             feedItems={feed.feedItems}
             onFocusRegion={(regionId) => {

@@ -27,6 +27,8 @@ import { createMandateRecord, getMandateRemaining, MandateConflictError } from '
 import { MandateError } from '../../core/mandates/MandateEngine';
 import { MandateDecisionError, acknowledgeMandateDecision, cancelMandateAndResolveDecisions, listOpenMandateDecisions } from '../../services/MandateDecisionService';
 import { parseInteger } from '../../domain/quantities';
+import { reconstructOwnedStock } from '../../repositories/ledger.repository';
+import { assessMaintenanceObligations } from '../../core/maintenance/MaintenanceObligations';
 import {
   TRADE_ERROR_CODES, PROCURE_ERROR_CODES, DEBT_ERROR_CODES,
   respondDomainError, respondRouteError, normalizeAdvisorHistory,
@@ -204,14 +206,32 @@ router.get('/:id/mandates/decisions', (req, res) => {
     // dashboard è legittimamente vuota (non è un errore operativo del client).
     if ('error' in bound) {
       if (bound.error.payload.code === 'economy_mode_legacy') {
-        res.status(200).json({ decisions: [], decisionRequired: false, canonical: true });
+        res.status(200).json({ decisions: [], decisionRequired: false, maintenance: [], maintenanceRequired: false, canonical: true });
         return;
       }
       res.status(bound.error.status).json(bound.error.payload);
       return;
     }
     const decisions = listOpenMandateDecisions(req.params.id, bound.branchId);
-    res.status(200).json({ decisions, decisionRequired: decisions.length > 0, canonical: true });
+    // M07 passo 2: obblighi di manutenzione degli impianti posseduti (proiezione
+    // read-only; nessuna mutazione, nessuno scadenzario). Priorità per deficit.
+    const playerPolityId = bound.session.getPlayer()?.polityId;
+    const ownerActorIds = new Set(
+      bound.catalog.actors.filter(actor => actor.polityId === playerPolityId).map(actor => actor.actorId),
+    );
+    const maintenance = assessMaintenanceObligations({
+      facilities: bound.catalog.initialState.facilities,
+      facilityTypes: bound.catalog.facilityTypes,
+      ownerActorIds,
+      ownedStock: reconstructOwnedStock(bound.branchId),
+    });
+    res.status(200).json({
+      decisions,
+      decisionRequired: decisions.length > 0,
+      maintenance,
+      maintenanceRequired: maintenance.some(item => !item.sufficient),
+      canonical: true,
+    });
   } catch (e) { respondMandateError(res, e); }
 });
 
