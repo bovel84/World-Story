@@ -10,6 +10,7 @@ import { gameApi } from '../../services/api';
 // import { chatsApi } from '../../services/api';
 // import { useChatStore, useUIStore } from '../../stores';
 import type { Region } from '../../types';
+import { deriveDiplomacyPresence, type DiplomacyEntry } from './diplomacyPresence';
 
 interface DiplomacyPanelProps {
   gameId: string;
@@ -24,11 +25,7 @@ interface RelationshipData {
   [polityId: string]: { [polityId: string]: string };
 }
 
-interface RelationshipEntry {
-  id: string;
-  name: string;
-  relationship: string;
-}
+type RelationshipEntry = DiplomacyEntry;
 
 const REL_COLOR: Record<string, string> = {
   ally: '#22c55e',
@@ -121,30 +118,17 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
     );
   }
 
-  const relMap = relationships[regionOwner] || {};
-  const entries: RelationshipEntry[] = Object.entries(relMap)
-    .filter(([id, rel]) => rel !== 'neutral')
-    .map(([id, rel]) => {
-      // id = polityId; il nome lo ricaviamo dalla regione di quella politia (owner = polityId).
-      // Coerenza: mostra il PAESE (regione capitale/nazionale), non una provincia qualsiasi.
-      const regionsOfPolity = regions.filter(r => r.owner === id);
-      const capitalRegion = regionsOfPolity.find((r: any) => r.metadata?.isCapitalProvince);
-      const region = capitalRegion || regionsOfPolity[0];
-      return {
-        id,
-        name: region?.name || id,
-        relationship: rel,
-      };
-    })
-    .sort((a, b) => {
-      const order = { ally: 0, hostile: 1 };
-      return (order[a.relationship as keyof typeof order] ?? 2) - (order[b.relationship as keyof typeof order] ?? 2);
-    });
+  const presence = deriveDiplomacyPresence({ relationships, regionOwner, regions });
+  const entries: RelationshipEntry[] = [...presence.allies, ...presence.hostiles];
+  entries.sort((a, b) => {
+    const order = { ally: 0, hostile: 1 };
+    return (order[a.relationship as keyof typeof order] ?? 2) - (order[b.relationship as keyof typeof order] ?? 2);
+  });
 
   const allies = entries.filter(e => e.relationship === 'ally');
   const hostiles = entries.filter(e => e.relationship === 'hostile');
 
-  if (entries.length === 0) {
+  if (entries.length === 0 && presence.neutrals === 0) {
     return (
       <div className="diplomacy-panel">
         <div className="diplomacy-header">
@@ -165,11 +149,23 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
       <button type="button" className="desk-close-x" onClick={closeSelf} aria-label="Chiudi pannello diplomazia" title="Chiudi">✕</button>
       <div className="diplomacy-header" onClick={() => setCollapsed(c => !c)} style={{ cursor: 'pointer' }}>
         <span>Relazioni estere</span>
+        <span className="diplomacy-summary" title="Quadro letto dal motore">{presence.summary}</span>
         <span style={{ fontSize: 11, color: '#888' }}>{collapsed ? '▶' : '▼'}</span>
       </div>
 
       {!collapsed && (
         <div className="diplomacy-content">
+          {allies.length === 0 && hostiles.length === 0 && (
+            <div className="diplomacy-section">
+              <div className="diplomacy-section-title" style={{ color: REL_COLOR.neutral }}>Nessuna alleanza o ostilità aperta</div>
+              {presence.neutrals > 0 && (
+                <div className="diplomacy-entry">
+                  <span className="diplomacy-status-dot" style={{ backgroundColor: REL_COLOR.neutral }} />
+                  <span>{presence.neutrals} {presence.neutrals === 1 ? 'partner neutrale' : 'partner neutrali'}</span>
+                </div>
+              )}
+            </div>
+          )}
           {allies.length > 0 && (
             <div className="diplomacy-section">
               <div className="diplomacy-section-title" style={{ color: REL_COLOR.ally }}>
