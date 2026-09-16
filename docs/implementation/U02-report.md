@@ -131,3 +131,18 @@ Restano **non implementati** (dipendenze dati non disponibili, non inventabili):
 - parte del passo 2 «deficit/fonti» sui **pool runtime** e sul ledger: la catena
   usa i dati autorevoli già esposti da `/actions/check-feasibility`
   (costi catalogo/richiesta e blocker del preflight), non inventa pool.
+
+### Riesame del blocco (2026-09-16) — prova aggiornata
+
+Ricerca mirata degli accessor necessari a un `BatchDemand`/`BatchPools` **fedele**:
+
+| Fonte | Esito della ricerca |
+|---|---|
+| **Pool materiali** | ✅ **disponibile**: `reconstructOwnedStock(branchId)` (`src/repositories/ledger.repository.ts:160`) ricostruisce i saldi per owner+holder+risorsa; già usato da `MandateDecisionService`. |
+| **Fondi** | ⛔ **assente**: nessun accessor al tesoro canonico e **nessuna** conversione `mld↔minorUnits` (`grep MLD/toMinorUnits` → vuoto). |
+| **Manodopera** | ⛔ **assente**: `allocateWorkforce` (M05) consuma un pool e `WorkforceDemand[]`, ma nessuna funzione produce la **domanda per intent**. |
+
+Conclusione invariata: si potrebbe cablare un batch **solo-materiali**, ma mostrerebbe
+«nessun conflitto» anche quando fondi o manodopera sono contesi → fuorviante. Non si
+implementa una feature parziale. **Sblocco richiesto** (decisione di prodotto/contratto):
+(a) accessor al tesoro + tasso mld↔minorUnits; (b) domanda di manodopera per intent.
