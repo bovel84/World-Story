@@ -24,25 +24,6 @@ let capturedPrompt = '';
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
 let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' = 'normal';
-/**
- * Un convertitore reale non perde il soggetto dell'ordine. I test che
- * verificano il contratto delle reazioni hanno bisogno che il nome della
- * controparte sopravviva alla conversione (senza, il ReactionContext non può
- * elencarla e il validator fail-closed rifiuterebbe la sua decisione).
- */
-let converterPreservesOriginal = false;
-
-function originalOrderFromConverterPrompt(user: string): string | undefined {
-  const markers = [
-    /ORDINE ORIGINALE \(non perderlo\): ([\s\S]*?)\n/,
-    /Azione del giocatore da convertire:\s*\n\s*([\s\S]*?)\n\s*\nIl tuo compito:/,
-  ];
-  for (const marker of markers) {
-    const found = user.match(marker)?.[1]?.trim();
-    if (found) return found;
-  }
-  return undefined;
-}
 /** projectId da copiare nell'outcome di chiusura del fixture F01. */
 let projectToCompleteId: string | undefined;
 
@@ -261,13 +242,6 @@ const stubProvider: any = {
   consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
   async generate(mechanic: string, system: string, user: string) {
     if (mechanic === 'converter') {
-      // Con un solo ordine e il flag attivo il convertitore conserva il testo
-      // originale: è il comportamento di un modello reale («non togliere
-      // nulla dall'intenzione del giocatore»).
-      const preserved = converterPreservesOriginal ? originalOrderFromConverterPrompt(user) : undefined;
-      if (preserved) {
-        return { content: JSON.stringify({ type: 'action', text: preserved }) };
-      }
       // Il batch converter elenca gli ordini come [actionId:...] nel prompt:
       // un modello reale risponde con UN elemento per ciascuno (index per
       // riallacciare l'actionId), non con un oggetto singolo.
@@ -939,7 +913,6 @@ describe('Этап 2: Intervene', () => {
 describe('Этап 2: auto-jump «к следующему событию»', () => {
   it('non applica effetti globali o chat future, ma conserva la reazione al primo evento', async () => {
     jumpMode = 'auto_future';
-    converterPreservesOriginal = true; // l'ordine nomina la controparte: il nome sopravvive
     const { session } = createGame();
     session.queueAction('Attendere la risposta della Polonia');
 
@@ -960,7 +933,6 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     expect(capturedPrompt).toContain('"targetDate":null');
     expect(capturedPrompt).toContain("oppure prendere un'iniziativa propria SOLO se deriva");
     jumpMode = 'normal';
-    converterPreservesOriginal = false;
   });
 
   it('дата берётся из targetDate ответа LLM, а не +365 дней', async () => {
@@ -1048,7 +1020,6 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
 
   it('auto-jump: prosegue oltre i fatti di contorno e si ferma sulla decisione NPC', async () => {
     jumpMode = 'auto_late_reaction';
-    converterPreservesOriginal = true; // l'ordine nomina la Polonia
     const { session } = createGame();
     session.queueAction('Proporre un negoziato alla Polonia');
 
@@ -1063,7 +1034,6 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     // La conseguenza troncata non ha trasferito la Polonia alla Germania.
     expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('POL');
     jumpMode = 'normal';
-    converterPreservesOriginal = false;
   });
 });
 

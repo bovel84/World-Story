@@ -11,6 +11,7 @@ import {
   estimatedNominalGdpUsdBillions,
   hasModernReferenceFacts,
   historicalNominalGdpUsdBillions,
+  polityNameAliases,
   referenceDebtToGdpPct,
   referenceGdpUsdBillions,
   referencePopulation,
@@ -77,5 +78,19 @@ describe('country-facts — registro reale 2024', () => {
     expect(estimatedNominalGdpUsdBillions('USA', 153_000_000)).toBeGreaterThan(25_000);
     // E il percorso storico instrada la tabella anche via `estimated`.
     expect(estimatedNominalGdpUsdBillions('USA', 153_000_000, { modernFacts: false, startDate: '1951-01-01' })).toBe(346);
+  });
+
+  it('gli alias di una politia sono codice, nome del registro e nome italiano', () => {
+    // Unica fonte condivisa con il resolver dei nomi e col ReactionContext:
+    // il contratto fail-closed elenca la controparte solo se la riconosce.
+    const aliases = polityNameAliases('POL', 'Poland');
+    expect(aliases).toContain('POL');
+    expect(aliases).toContain('Poland');
+    expect(aliases).toContain('Polonia');
+    // Nessun duplicato quando il registro coincide col nome italiano.
+    expect(polityNameAliases('ITA', 'Italia')).toEqual(['ITA', 'Italia']);
+    // Paese fuori tabella: resta il codice, più il nome del registro se c'è.
+    expect(polityNameAliases('ZZZ')).toEqual(['ZZZ']);
+    expect(polityNameAliases('ZZZ', 'Zedland')).toEqual(['ZZZ', 'Zedland']);
   });
 });

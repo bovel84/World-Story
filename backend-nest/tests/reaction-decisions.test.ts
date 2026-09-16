@@ -102,6 +102,32 @@ describe('validator reactions — fail-closed', () => {
     expect(issues.map(issue => issue.code)).toContain('too_many_reactions');
   });
 
+  it('F2 — gli attori interni non consumano il tetto delle reazioni diplomatiche', () => {
+    // Il motore calcola `maxReactions` sulle sole politie: il validator deve
+    // contare allo stesso modo, o segnalerebbe un output che il motore ammette.
+    const ctx = context({
+      maxReactions: 1,
+      actors: [
+        ...context().actors,
+        {
+          id: 'faction:esercito', name: 'Stato maggiore', role: 'internal_faction', because: 'interna',
+          interests: ['difesa'], options: [{ id: 'faction:esercito:oppose', label: 'Opporsi' }],
+        },
+      ],
+    });
+    const withInternal = validateReactionDecisions([
+      { actorId: 'FRA', optionId: 'FRA:condition' },
+      { actorId: 'faction:esercito', optionId: 'faction:esercito:oppose' },
+    ], ctx);
+    expect(withInternal).toEqual([]);
+    // Due politie con tetto 1 restano un errore.
+    const twoPolities = validateReactionDecisions([
+      { actorId: 'FRA', optionId: 'FRA:condition' },
+      { actorId: 'GER', optionId: 'GER:mobilize' },
+    ], ctx);
+    expect(twoPolities.map(issue => issue.code)).toEqual(['too_many_reactions']);
+  });
+
   it('G — una reaction legacy (senza actorId/optionId) resta leggibile ma non è output valido', () => {
     // Dati persistiti: la forma senza actorId/optionId deve restare leggibile.
     const legacyPayload = JSON.stringify({
@@ -179,6 +205,66 @@ describe('validator reactions — repair (un solo tentativo)', () => {
     const events = withReactions([{ actorId: 'FRA', optionId: 'GER:mobilize' }]);
     await expect(repairReactionDecisions({ events, context: context(), repair }))
       .rejects.toBeInstanceOf(LLMContractError);
+  });
+
+  it('H6 — il repair non può toccare gli effetti materiali né la descrizione', async () => {
+    const original = withReactions([{ actorId: 'FRA', optionId: 'GER:mobilize' }]);
+    original[0].description = 'La crisi si apre.';
+    original[0].mapChanges = [{ type: 'start_mobilization' }];
+
+    const addEffect = vi.fn(async () => [{
+      ...original[0],
+      mapChanges: [{ type: 'start_mobilization' }, { type: 'spawn_unit' }],
+      reactions: [{ actorId: 'FRA', optionId: 'FRA:condition' }],
+    }]);
+    await expect(repairReactionDecisions({ events: original, context: context(), repair: addEffect }))
+      .rejects.toThrow(/cronaca/);
+
+    const rewriteChronicle = vi.fn(async () => [{
+      ...original[0],
+      description: 'Testo riscritto dal repair.',
+      reactions: [{ actorId: 'FRA', optionId: 'FRA:condition' }],
+    }]);
+    await expect(repairReactionDecisions({ events: original, context: context(), repair: rewriteChronicle }))
+      .rejects.toThrow(/cronaca/);
+  });
+
+  it('H7 — il repair non può perdere la reaction di un attore ammesso dal motore', async () => {
+    const events = withReactions([
+      { actorId: 'FRA', optionId: 'FRA:condition' },
+      { actorId: 'USA', optionId: 'USA:negotiate' },
+    ]);
+    // Il modello “corregge” eliminando anche la reazione legittima di FRA.
+    const repair = vi.fn(async () => [{ ...events[0], reactions: [] }]);
+    await expect(repairReactionDecisions({ events, context: context(), repair }))
+      .rejects.toThrow(/attore ammesso/);
+  });
+
+  it('H8 — l’attore fuori contesto può invece essere omesso (degradazione esplicita)', async () => {
+    const events = withReactions([
+      { actorId: 'FRA', optionId: 'FRA:condition' },
+      { actorId: 'USA', optionId: 'USA:negotiate' },
+    ]);
+    const repair = vi.fn(async () => [{
+      ...events[0],
+      reactions: [{ actorId: 'FRA', optionId: 'FRA:condition' }],
+    }]);
+    const result = await repairReactionDecisions({ events, context: context(), repair });
+    expect(repair).toHaveBeenCalledTimes(1);
+    expect(result.repaired).toBe(true);
+    expect(result.events[0].reactions).toEqual([{ actorId: 'FRA', optionId: 'FRA:condition' }]);
+  });
+
+  it('H9 — con too_many_reactions il repair può ridurre anche reazioni di attori ammessi', async () => {
+    const ctx = context({ maxReactions: 1 });
+    const events = withReactions([
+      { actorId: 'FRA', optionId: 'FRA:condition' },
+      { actorId: 'GER', optionId: 'GER:mobilize' },
+    ]);
+    const repair = vi.fn(async () => [{ ...events[0], reactions: [{ actorId: 'FRA', optionId: 'FRA:condition' }] }]);
+    const result = await repairReactionDecisions({ events, context: ctx, repair });
+    expect(result.repaired).toBe(true);
+    expect(result.events[0].reactions).toHaveLength(1);
   });
 });
 

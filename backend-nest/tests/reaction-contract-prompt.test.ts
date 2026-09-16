@@ -6,8 +6,9 @@
  * REAZIONE (una sola fonte, niente istruzioni contraddittorie).
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'fs';
 import { buildConstrainedSimulationPrompt, buildSimulationPrompt, buildIncrementalOutputInstruction } from '../src/prompts/simulation/prompt';
-import { buildReactionContractGuard } from '../src/prompts/simulation/guards';
+import { buildCausalityGuard, buildReactionContractGuard, buildSimulationNarrativeContract } from '../src/prompts/simulation/guards';
 import type { PromptVariables } from '../src/prompts/types';
 
 function vars(overrides: Partial<PromptVariables> = {}): PromptVariables {
@@ -58,6 +59,23 @@ describe('contratto reazioni nel prompt', () => {
     expect(prompt.match(/CONTRATTO DELLE REAZIONI/g)).toHaveLength(1);
   });
 
+  it('anche il percorso con prompt override del preset dichiara il contratto una sola volta', () => {
+    // `buildSimulationPrompt` da solo non contiene il contratto (vive nella
+    // sezione di protocollo dell'output): ogni prompt realmente assemblato —
+    // override del preset compreso — lo riceve da
+    // `buildIncrementalOutputInstruction`.
+    const v = vars();
+    const overridePath = 'ISTRUZIONI DEL PRESET'
+      + buildCausalityGuard(v)
+      + buildSimulationNarrativeContract(v, true)
+      + buildIncrementalOutputInstruction(v, 3, true);
+    expect(overridePath.match(/CONTRATTO DELLE REAZIONI/g)).toHaveLength(1);
+    expect(overridePath).toContain('"actorId"');
+    expect(overridePath).toContain('"optionId"');
+    // E il prompt standard non duplica la regola quando è assemblato davvero.
+    expect(standardPrompt(v).match(/CONTRATTO DELLE REAZIONI/g)).toHaveLength(1);
+  });
+
   it('le vecchie regole di riselezione degli attori sono state rimosse', () => {
     for (const prompt of [buildConstrainedSimulationPrompt(vars(), {}), standardPrompt(vars())]) {
       expect(prompt).not.toContain('quella politia deve comparire');
@@ -75,5 +93,30 @@ describe('contratto reazioni nel prompt', () => {
     expect(guard).not.toContain('"polityName"');
     // L'ID dell'attore va copiato, non il nome della nazione.
     expect(guard).toContain('non sostituire l\'ID con il nome della nazione');
+  });
+});
+
+/**
+ * L'unico repair di formato deve poter *omettere* una reaction il cui attore non
+ * è ammesso: rimapparla su un altro attore sarebbe indovinare una decisione, e
+ * senza questa istruzione un modello reale tenderebbe a conservarla, facendo
+ * fallire il turno (fail-closed) invece di correggerlo.
+ */
+describe('repair di formato delle reactions (source contract)', () => {
+  const source = readFileSync(new URL('../src/prompt-builder.ts', import.meta.url), 'utf8');
+
+  it('il repair può omettere le reactions fuori contesto e non rimapparle', () => {
+    expect(source).toContain('OMETTILA');
+    expect(source).toContain('non rimapparla su un altro attore');
+    expect(source).toContain('non superare il numero massimo di reactions');
+  });
+
+  it('il repair conserva la cronaca: nessun nuovo evento, nessuna rigenerazione', () => {
+    expect(source).toContain('NON modificare headline, date, description, mapChanges');
+  });
+
+  it('esiste UNA sola chiamata ausiliaria di repair nel percorso di simulazione', () => {
+    expect(source.match(/private async repairReactionFormat/g)).toHaveLength(1);
+    expect(source.match(/repairReactionDecisions\(/g)).toHaveLength(1);
   });
 });

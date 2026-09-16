@@ -45,11 +45,46 @@ let stubStartChat: Array<{
 
 const WORLD_ID = 'relevance_world';
 
+/**
+ * Comportamento del modello sull'UNICA chiamata ausiliaria di repair del
+ * contratto reactions: `null` = non sa correggere (resta fuori contratto).
+ */
+let repairOmitUnknownActors = false;
+let repairCalls = 0;
+
+const REPAIR_PROMPT_MARKER = 'Correggi SOLO i campi';
+
 const stubProvider: any = {
   consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
-  async generate(mechanic: string, _system: string, _user: string) {
+  async generate(mechanic: string, _system: string, user: string) {
     if (mechanic === 'jump') {
-      const events = stubEvents.map(event => ({ ...event, reactions: event.reactions?.length ? event.reactions : stubReactions }));
+      const eventsWithReactions = () => stubEvents.map(event => ({
+        ...event,
+        reactions: event.reactions?.length ? event.reactions : stubReactions,
+      }));
+      if (user.includes(REPAIR_PROMPT_MARKER)) {
+        repairCalls += 1;
+        // Il repair vede solo gli attori ammessi: se sa correggere omette le
+        // reazioni degli altri e conserva la cronaca; altrimenti restituisce la
+        // stessa risposta, che resta fuori contratto (fail-closed).
+        const events = repairOmitUnknownActors
+          ? eventsWithReactions().map(event => ({
+              ...event,
+              reactions: event.reactions.filter(reaction => ['ZWE', 'ZAF'].includes(reaction.actorId)),
+            }))
+          : eventsWithReactions();
+        return {
+          content: JSON.stringify({
+            events,
+            narration: 'La crisi di frontiera entra nella sua fase armata.',
+            voided: [],
+            startChat: [],
+            relationshipChanges: [],
+            worldChanges: { regionOwners: {}, regionColors: {} },
+          }),
+        };
+      }
+      const events = eventsWithReactions();
       return {
         content: JSON.stringify({
           events,
@@ -112,6 +147,8 @@ beforeAll(async () => {
 beforeEach(() => {
   stubReactions = [];
   stubStartChat = [];
+  repairOmitUnknownActors = false;
+  repairCalls = 0;
   stubEvents = [{
     headline: 'Botswana attacca le posizioni zimbabwesi a Gwanda',
     description: 'Le forze botswane aprono le ostilità lungo la frontiera di Gwanda contro lo Zimbabwe.',
@@ -253,6 +290,74 @@ describe('Pertinenza delle reazioni NPC', () => {
     const worldEvent = session.getTimeline().flatMap((entry: any) => entry.events)
       .find((event: any) => event.headline === 'Botswana attacca le posizioni zimbabwesi a Gwanda');
     expect(worldEvent.detail).toContain('Zimbabwe');
+  });
+
+  it('il repair di formato omette la reaction fuori contesto senza perdere l’evento', async () => {
+    stubReactions = [
+      { actorId: 'ZWE', optionId: 'ZWE:counter', polityName: 'Zimbabwe', role: 'counterparty', stance: 'opposed', response: 'Harare mobilita le riserve e rinforza Gwanda.' },
+      { actorId: 'MYS', optionId: 'MYS:negotiate', polityName: 'Malaysia', role: 'observer', stance: 'neutral', response: 'Kuala Lumpur invia una nota di comodo.' },
+    ];
+    const session = createGame().session;
+    session.queueAction('Attaccare le posizioni dello Zimbabwe a Gwanda');
+    repairOmitUnknownActors = true;
+
+    await session.processNextAction(0);
+
+    // Una sola chiamata ausiliaria, nessun retry.
+    expect(repairCalls).toBe(1);
+    // L'evento è conservato: il repair non rigenera la simulazione.
+    const worldEvent = session.getTimeline().flatMap((entry: any) => entry.events)
+      .find((event: any) => event.headline === 'Botswana attacca le posizioni zimbabwesi a Gwanda');
+    expect(worldEvent).toBeTruthy();
+    expect(worldEvent.detail).toContain('Zimbabwe');
+    // La reaction fuori contesto è stata omessa, non rimappata su un altro attore.
+    expect(worldEvent.detail).not.toContain('Malaysia');
+    expect(session.getChats().map((chat: any) => chat.polityId)).toContain('ZWE');
+    expect(session.getChats().map((chat: any) => chat.polityId)).not.toContain('MYS');
+  });
+
+  it('l’attribuzione usa l’actorId validato, non l’etichetta polityName', async () => {
+    // Il contratto valida `actorId`: se il modello scrive un `polityName`
+    // incoerente, la decisione va attribuita all'attore ammesso dal motore e
+    // non alla nazione nominata per errore.
+    stubReactions = [{
+      actorId: 'ZWE',
+      optionId: 'ZWE:counter',
+      polityName: 'Malaysia',
+      role: 'counterparty',
+      stance: 'opposed',
+      response: 'Harare mobilita le riserve e rinforza Gwanda.',
+    }];
+    const session = createGame().session;
+    session.queueAction('Attaccare le posizioni dello Zimbabwe a Gwanda');
+    await session.processNextAction(0);
+
+    const worldEvent = session.getTimeline().flatMap((entry: any) => entry.events)
+      .find((event: any) => event.headline === 'Botswana attacca le posizioni zimbabwesi a Gwanda');
+    expect(worldEvent.detail).toContain('Zimbabwe');
+    expect(worldEvent.detail).not.toContain('Malaysia');
+    expect(session.getChats().map((chat: any) => chat.polityId)).toContain('ZWE');
+    expect(session.getChats().map((chat: any) => chat.polityId)).not.toContain('MYS');
+  });
+
+  it('un evento legacy senza actorId resta leggibile e non viene riscritto', async () => {
+    // §5: distinguere «dato persistito legacy» da «nuovo output LLM». Un evento
+    // storico (o di un run in pausa salvato prima del contratto) non deve
+    // ricevere `actorId`/`optionId` dal motore: resta esattamente com'è.
+    const session = createGame().session;
+    const canonical = (session as any).canonicalizeEventReactions({
+      headline: 'Botswana attacca le posizioni zimbabwesi a Gwanda',
+      description: 'Le forze botswane aprono le ostilità lungo la frontiera di Gwanda.',
+      date: '1951-02-01',
+      mapChanges: [],
+      reactions: [{ polityName: 'Zimbabwe', role: 'counterparty', stance: 'opposed', response: 'Harare mobilita le riserve.' }],
+    }, ['Attaccare le posizioni dello Zimbabwe a Gwanda']);
+
+    expect(canonical.reactions).toHaveLength(1);
+    expect(canonical.reactions[0].actorId).toBeUndefined();
+    expect(canonical.reactions[0].optionId).toBeUndefined();
+    expect(canonical.reactions[0].polityName).toBe('Zimbabwe');
+    expect(canonical.reactions[0].response).toBe('Harare mobilita le riserve.');
   });
 
   it('schiera una formazione di frontiera del giocatore sul confine, non al centro provincia', async () => {

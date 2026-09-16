@@ -51,8 +51,7 @@ export type ReactionDecisionCode =
   | 'missing_option_id'
   | 'unknown_option'
   | 'option_not_owned_by_actor'
-  | 'too_many_reactions'
-  | 'material_scope_violation';
+  | 'too_many_reactions';
 
 export interface ReactionDecisionIssue {
   /** Indice della reazione nell'elenco dell'evento (-1 = problema dell'evento). */
@@ -82,6 +81,10 @@ export function optionMaterialScope(optionId: string | undefined): MaterialCateg
     case 'mobilize':
     case 'counter':
       return ['military', 'construction'];
+    // La leva di un embargo è commerciale, non militare: la categoria dichiara
+    // l'intento di §7. Oggi il rilevamento automatico del motore non produce
+    // alcuna misura classificata `trade`, quindi l'effetto pratico è che una
+    // decisione di embargo non auto-materializza unità o cantieri.
     case 'embargo':
       return ['trade'];
     // Negoziare, accettare con condizioni, respingere, mediare, sostenere,
@@ -96,6 +99,9 @@ export function measureMaterialCategory(type: string | undefined): MaterialCateg
   switch (String(type || '')) {
     case 'start_mobilization':
     case 'complete_mobilization':
+    // Riduzioni: oggi il rilevamento automatico del motore non le produce
+    // (`detectNpcMaterialMeasure` emette solo avvii e cantieri), quindi la
+    // classificazione è qui per completezza e non restringe alcun percorso.
     case 'cancel_mobilization':
     case 'spawn_unit':
     case 'move_unit':
@@ -131,6 +137,18 @@ export function reactionAllowsMaterialCategory(
 export function findReactionActor(context: ReactionContext, actorId: string | undefined) {
   if (!actorId) return undefined;
   return context.actors.find(actor => actor.id === actorId);
+}
+
+/**
+ * Il tetto `maxReactions` del motore conta soltanto le politie: gli attori
+ * interni (fazioni, settori) hanno un budget proprio e non consumano quello
+ * delle reazioni diplomatiche. Il validator deve contare come il motore, o
+ * segnalerebbe `too_many_reactions` su un output che il motore stesso ammette.
+ */
+function countsTowardReactionBudget(reaction: ReactionDecisionLike, context: ReactionContext): boolean {
+  const actor = findReactionActor(context, reaction.actorId);
+  if (!actor) return true; // attore ignoto: è già un errore, conta comunque
+  return actor.role !== 'internal_faction' && actor.role !== 'economic_sector';
 }
 
 /** Validazione di UNA reazione. `index` serve solo a localizzare il rilievo. */
@@ -194,11 +212,12 @@ export function validateReactionDecisions(
   const list = reactions || [];
   const issues: ReactionDecisionIssue[] = [];
   // `reactions: []` è valido: un fatto interno non deve forzare una reazione.
-  if (list.length > context.maxReactions) {
+  const budgeted = list.filter(reaction => countsTowardReactionBudget(reaction, context)).length;
+  if (budgeted > context.maxReactions) {
     issues.push({
       index: -1,
       code: 'too_many_reactions',
-      message: `${list.length} reactions superano il tetto di ${context.maxReactions} deciso dal motore.`,
+      message: `${budgeted} reactions superano il tetto di ${context.maxReactions} deciso dal motore.`,
     });
   }
   list.forEach((reaction, index) => {
@@ -207,29 +226,17 @@ export function validateReactionDecisions(
   return issues;
 }
 
-/** Violazioni materiali: una reazione non può giustificare effetti fuori scope. */
-export function validateReactionMaterialScope(
-  reaction: ReactionDecisionLike,
-  categories: Array<MaterialCategory | undefined>,
-): ReactionDecisionIssue[] {
-  const scope = optionMaterialScope(reaction.optionId);
-  if (scope === undefined) return [];
-  const offending = categories.find(category => category !== undefined && !scope.includes(category));
-  if (!offending) return [];
-  return [{
-    index: -1,
-    code: 'material_scope_violation',
-    message: `optionId "${reaction.optionId}" non ammette effetti materiali "${offending}".`,
-    optionId: reaction.optionId,
-  }];
-}
-
 export interface ReactionRepairInput {
   events: ReactionEventLike[];
   issues: ReactionDecisionIssue[];
   context: ReactionContext;
 }
 
+/**
+ * Repair di formato (una sola chiamata). Può correggere o **omettere** una
+ * reaction, ma deve restituire gli stessi eventi: stesso numero, stesse
+ * `headline`/`date`, stesse `mapChanges`.
+ */
 export type ReactionRepairFn = (input: ReactionRepairInput) => Promise<ReactionEventLike[]>;
 
 export interface ReactionRepairResult {
@@ -239,8 +246,41 @@ export interface ReactionRepairResult {
   repaired: boolean;
 }
 
-function eventKey(event: ReactionEventLike): string {
-  return `${String(event.headline || '').trim()}|${String(event.date || '').trim()}`;
+/** Impronta canonica di una mapChange: l'ordine delle chiavi non conta. */
+function canonicalMapChange(change: any): string {
+  const feature = change?.feature || {};
+  return JSON.stringify([
+    String(change?.type || ''),
+    String(change?.regionName || change?.regionId || ''),
+    String(change?.targetRegionName || ''),
+    String(change?.newOwner || ''),
+    String(feature?.type || ''),
+    String(feature?.name || ''),
+  ]);
+}
+
+/**
+ * Cronaca dell'evento che il repair NON può toccare: headline, data,
+ * descrizione e effetti materiali. Solo reazioni e testo diplomatico possono
+ * cambiare, altrimenti il "repair di formato" diventerebbe una seconda
+ * simulazione (o un modo per iniettare effetti non legati alla decisione).
+ */
+function eventChronicleKey(event: ReactionEventLike): string {
+  const changes = (event.mapChanges || []).map(canonicalMapChange);
+  return JSON.stringify([
+    String(event.headline || '').trim(),
+    String(event.date || '').trim(),
+    String(event.description || '').trim(),
+    changes,
+  ]);
+}
+
+/** Attori ammessi dal motore che compaiono nelle reazioni di un evento. */
+function allowedActorKeys(event: ReactionEventLike, context: ReactionContext): string[] {
+  return (event.reactions || [])
+    .map(reaction => findReactionActor(context, reaction.actorId)?.id)
+    .filter((actorId): actorId is string => !!actorId)
+    .sort();
 }
 
 function reactionIssuesPerEvent(events: ReactionEventLike[], context: ReactionContext): Map<number, ReactionDecisionIssue[]> {
@@ -255,9 +295,17 @@ function reactionIssuesPerEvent(events: ReactionEventLike[], context: ReactionCo
 /**
  * Fail-closed con UN SOLO repair di formato:
  *  - valido → nessuna chiamata;
- *  - invalido → una chiamata `repair` che deve preservare gli eventi (stesse
- *    headline/date, stesso numero) e correggere solo `actorId`/`optionId`;
- *  - ancora invalido o eventi alterati → `LLMContractError`.
+ *  - invalido → una chiamata `repair` che deve preservare la cronaca (stesso
+ *    numero di eventi, stesse headline/date/descrizione/mapChanges) e può solo
+ *    correggere od omettere le reazioni fuori contratto;
+ *  - ancora invalido, cronaca alterata o reazione di un attore AMMESSO persa a
+ *    sproposito → `LLMContractError`.
+ *
+ * Le reazioni di attori fuori contesto possono essere omesse (non esistono
+ * actorId/optionId compatibili con cui sostituirle): è la degradazione
+ * documentata, e non silenziosa, del percorso fail-closed. L'unica eccezione
+ * in cui si possono perdere anche reazioni di attori ammessi è la correzione di
+ * `too_many_reactions`, cioè quando il motore ha chiesto di ridurne il numero.
  */
 export async function repairReactionDecisions(input: {
   events: ReactionEventLike[];
@@ -269,6 +317,7 @@ export async function repairReactionDecisions(input: {
   if (initial.size === 0) return { events, issues: [], repaired: false };
 
   const issues = [...initial.values()].flat();
+  const mayTrimReactions = issues.some(issue => issue.code === 'too_many_reactions');
   const repairedEvents = await repair({ events, issues, context });
 
   // Il repair NON rigenera la simulazione: gli eventi devono restare quelli.
@@ -278,10 +327,23 @@ export async function repairReactionDecisions(input: {
     });
   }
   for (let index = 0; index < events.length; index += 1) {
-    if (eventKey(repairedEvents[index]) !== eventKey(events[index])) {
-      throw new LLMContractError(`reaction repair: evento ${index} alterato nella cronaca (headline/data devono restare identici)`, {
-        mechanic: 'jump',
-      });
+    if (eventChronicleKey(repairedEvents[index]) !== eventChronicleKey(events[index])) {
+      throw new LLMContractError(
+        `reaction repair: evento ${index} alterato nella cronaca (headline, data, descrizione e mapChanges devono restare identici)`,
+        { mechanic: 'jump' },
+      );
+    }
+  }
+  if (!mayTrimReactions) {
+    for (let index = 0; index < events.length; index += 1) {
+      const before = allowedActorKeys(events[index], context);
+      const after = allowedActorKeys(repairedEvents[index], context);
+      if (before.join('|') !== after.join('|')) {
+        throw new LLMContractError(
+          `reaction repair: evento ${index} ha perso la reazione di un attore ammesso dal motore (${before.join(', ')} → ${after.join(', ') || 'nessuna'})`,
+          { mechanic: 'jump' },
+        );
+      }
     }
   }
 

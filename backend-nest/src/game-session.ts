@@ -1453,14 +1453,24 @@ export class GameSession {
     // crisi (nominata, vicina o con un rapporto). Le potenze lontane senza
     // interesse documentato restano fuori dal dispaccio e dalle chat.
     const relevantPolities = this.crisisRelevantPolityIds([event.headline, event.description, ...actionTexts]);
+    const knownOwners = new Set(Array.from(this.regions.values()).map(region => region.owner));
     const reactions = (event.reactions || []).flatMap(reaction => {
-      const resolution = resolver.resolve(reaction.polityName);
+      // Il contratto ha già validato `actorId` contro il ReactionContext: se
+      // c'è, è la fonte autorevole dell'attribuzione e la selezione degli
+      // attori è del motore, non del testo dell'evento. Senza `actorId`
+      // (dato legacy) resta il percorso storico su `polityName`.
+      const actorId = typeof reaction.actorId === 'string' ? reaction.actorId.trim() : '';
+      const validatedActor = actorId && knownOwners.has(actorId);
+      const resolution = validatedActor ? { polityId: actorId, isNew: false } : resolver.resolve(reaction.polityName);
       if (!resolution || resolution.isNew || resolution.polityId === 'neutral'
           || resolution.polityId === this.playerPolityId || seen.has(resolution.polityId)) return [];
-      if (!relevantPolities.has(resolution.polityId)) return [];
+      if (!validatedActor && !relevantPolities.has(resolution.polityId)) return [];
       seen.add(resolution.polityId);
       return [{
         ...reaction,
+        // `actorId` è aggiunto/canonicalizzato SOLO quando il contratto l'ha già
+        // validato: una reaction legacy senza `actorId` non viene riscritta (§5).
+        actorId: validatedActor ? resolution.polityId : reaction.actorId,
         polityName: this.publicPolityName(resolution.polityId),
         priority: reaction.priority ? this.publicText(reaction.priority) : undefined,
         response: this.publicText(reaction.response),
