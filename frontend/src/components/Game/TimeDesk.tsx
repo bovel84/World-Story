@@ -54,6 +54,8 @@ interface TimeDeskProps {
   pendingOrdersCount: number;
   /** LW03 — gli ordini registrati, mostrati come «piano» prima del salto. */
   pendingOrders?: Array<{ id: string; text: string }>;
+  /** LW04 — presenza del consiglio al momento della decisione. */
+  council?: { tone: string; headline: string; detail: string } | null;
   ongoingProcesses?: Array<{
     id: string;
     title: string;
@@ -76,6 +78,7 @@ export function TimeDesk({
   loading,
   pendingOrdersCount,
   pendingOrders = [],
+  council = null,
   ongoingProcesses = [],
   activePlayback = false,
   onTimeSkip,
@@ -109,6 +112,12 @@ export function TimeDesk({
         </div>
       ) : (
         <>
+          {council && (
+            <p className={`time-desk-council tone-${council.tone}`} title={council.detail}>
+              <span aria-hidden="true">🏛️</span> {council.headline}
+            </p>
+          )}
+
           <section className="time-desk-context" aria-label="Elementi che saranno presi in carico">
             <div className="time-desk-context-item">
               <span>Ordini pronti</span>

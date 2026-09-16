@@ -14,6 +14,7 @@ import type {
   CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, PeacetimePressure,
 } from '../../services/api';
 import type { NationAccount, NationResources } from './NationDock/types';
+import { councilPresence } from './governmentDossier';
 
 /** Gravità di una voce del briefing. */
 export type BriefingSeverity = 'critical' | 'warning' | 'opportunity' | 'positive' | 'info';
@@ -236,6 +237,11 @@ export function deriveStrategicBriefing(input: StrategicBriefingInput): Strategi
     }
     if (government.cohesion >= 70) {
       items.push({ id: 'gov-cohesion', severity: 'positive', icon: ICON.positive, label: 'Governo coeso', detail: `Coesione ${government.cohesion.toFixed(0)}%` });
+    }
+    // LW04 — chi guida l'agenda del consiglio, come presenza politica.
+    const council = councilPresence(government);
+    if (council?.dominantName) {
+      items.push({ id: 'gov-agenda', severity: 'info', icon: ICON.info, label: `Agenda del consiglio: ${council.dominantName}`, detail: council.detail });
     }
   }
 

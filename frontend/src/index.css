@@ -2737,3 +2737,9 @@ html, body { margin: 0; }
 .time-desk-plan li { display: flex; align-items: flex-start; gap: 9px; color: #e3ebf7; font: 500 13px/1.4 system-ui, sans-serif; }
 .time-desk-plan-index { flex: none; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: rgba(111, 131, 163, 0.28); color: #cfe0f5; font: 700 11px/1 system-ui, sans-serif; }
 .time-desk-plan-note { margin: 0; color: #8fa0bc; font: 500 11.5px/1.45 system-ui, sans-serif; }
+
+/* ── LW04: presenza del consiglio nel desk del tempo ─────────────────────── */
+.time-desk-council { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; padding: 9px 12px; border: 1px solid #354966; border-left: 4px solid #6f83a3; border-radius: 10px; background: #101d31; color: #dbe6f6; font: 600 12.5px/1.4 system-ui, sans-serif; }
+.time-desk-council.tone-positive { border-left-color: #5fb98a; }
+.time-desk-council.tone-warning { border-left-color: #d9b061; color: #f0ce8f; }
+.time-desk-council.tone-negative { border-left-color: #d97b7b; color: #f0a9a9; }

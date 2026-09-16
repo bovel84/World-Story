@@ -60,6 +60,8 @@ export interface HudBarProps {
   pendingOrders?: Array<{ id: string; text: string }>;
   /** Storico dei conti pubblicato dal motore, per i delta per turno (LW02). */
   history?: HistoryPointLike[];
+  /** LW04 — presenza del consiglio mostrata nel desk del tempo. */
+  council?: { tone: string; headline: string; detail: string } | null;
   onOpenDispatches?: () => void;
   /** Chiamato quando il pannello Timeline si apre — il padre (ri)carica gli eventi */
   onTimelineOpen?: () => void;
@@ -356,6 +358,7 @@ export const HudBar: React.FC<HudBarProps> = ({
   pendingOrdersCount = 0,
   pendingOrders = [],
   history = [],
+  council = null,
   onOpenDispatches,
   onTimelineOpen,
   onBack,
@@ -515,6 +518,7 @@ export const HudBar: React.FC<HudBarProps> = ({
             loading={loading}
             pendingOrdersCount={pendingOrdersCount}
             pendingOrders={pendingOrders}
+            council={council}
             ongoingProcesses={ongoingProcesses}
             activePlayback={!!activePlayback}
             onTimeSkip={handleTimeSkip}

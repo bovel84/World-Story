@@ -16,6 +16,7 @@ import { selectTotalUnread, useActionsStore, useChatStore, useGameStore, useUISt
 import { useOrderDraftStore } from '../../stores/orderDraftStore';
 import { useToast } from '../ui/ToastProvider';
 import { deriveNationalContext } from './nationalContext';
+import { councilPresence } from './governmentDossier';
 import type { NationSnapshot } from '../../hooks/useNationSnapshot';
 import type { WorldTimeline } from '../../hooks/useWorldTimeline';
 import type { Feed } from '../../hooks/useFeed';
@@ -119,6 +120,9 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     openModule: (module) => openModule(module as ActiveModule),
   });
 
+  // LW04 — presenza del consiglio al momento della decisione (desk del tempo).
+  const council = useMemo(() => councilPresence(nation.nationalGovernment), [nation.nationalGovernment]);
+
   const handleRewind = () => {
     if (!currentGame || loading) return;
     shell.setShowRewindConfirm(true);
@@ -169,6 +173,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             pendingOrdersCount={pendingActions.length}
             pendingOrders={pendingActions.map(action => ({ id: action.id, text: action.text }))}
             history={nation.nationalHistory}
+            council={council}
             onOpenDispatches={() => openModule('news')}
             onTimelineOpen={timeline.handleTimelineOpen}
             onLoadOlder={timeline.loadOlderTimeline}

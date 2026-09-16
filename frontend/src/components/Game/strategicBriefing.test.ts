@@ -99,13 +99,18 @@ describe('LW01 — deriveStrategicBriefing', () => {
     const b = deriveStrategicBriefing({
       government: government({
         pressureIndex: 78,
+        dominantId: 'industriali',
         angriestId: 'militari',
-        factions: [{ id: 'militari', name: 'Militari', interest: 'difesa', powerPct: 30, satisfaction: 20, stance: 'ostile', pressure: 80, demand: { lever: 'difesa', title: 'Più fondi', detail: 'Servono cannoni.', direction: 'alza', urgency: 3 }, footprint: '' }],
+        factions: [
+          { id: 'industriali', name: 'Industriali', interest: 'industria', powerPct: 40, satisfaction: 60, stance: 'favorevole', pressure: 30, demand: { lever: 'infrastrutture', title: 'Più acciaio', detail: 'Servono acciaierie.', direction: 'alza', urgency: 2 }, footprint: '' },
+          { id: 'militari', name: 'Militari', interest: 'difesa', powerPct: 30, satisfaction: 20, stance: 'ostile', pressure: 80, demand: { lever: 'difesa', title: 'Più fondi', detail: 'Servono cannoni.', direction: 'alza', urgency: 3 }, footprint: '' },
+        ],
       }),
     });
     const ids = b.items.map(i => i.id);
     expect(ids).toContain('gov-pressure');
     expect(ids).toContain('gov-militari');
+    expect(ids).toContain('gov-agenda');
   });
 
   it('integra fatti del mondo e quadro diplomatico', () => {

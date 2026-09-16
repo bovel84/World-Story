@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { GovernmentFaction, NationalBudgetDetail } from '../../services/api';
+import type { GovernmentFaction, GovernmentSnapshot, NationalBudgetDetail } from '../../services/api';
 import {
+  councilPresence,
   factionOrderText,
   hasBudgetDetail,
   nationalVerdict,
@@ -110,5 +111,29 @@ describe('governmentDossier — lettura del governo e del bilancio', () => {
     expect(text).toContain('Difesa');
     expect(text).toContain('Riarmo');
     expect(text).toContain('copertura di bilancio');
+  });
+
+  it('LW04 — riassume la presenza del consiglio senza inventare dati', () => {
+    const faction = (id: string, name: string, powerPct: number): GovernmentFaction => ({
+      id, name, interest: 'i', powerPct, satisfaction: 50, stance: 'neutrale', pressure: 40,
+      demand: { lever: 'difesa', title: 't', detail: 'd', direction: 'mantieni', urgency: 1 }, footprint: '',
+    });
+    const snapshot: GovernmentSnapshot = {
+      factions: [faction('industriali', 'Industriali', 45), faction('militari', 'Militari', 25)],
+      dominantId: 'industriali', angriestId: 'militari', cohesion: 58, pressureIndex: 62,
+      headline: 'Il consiglio è diviso.', budget: budget(),
+    };
+    const presence = councilPresence(snapshot);
+    expect(presence?.dominantName).toBe('Industriali');
+    expect(presence?.angriestName).toBe('Militari');
+    expect(presence?.headline).toContain('coesione 58%');
+    expect(presence?.headline).toContain('pressione 62%');
+    expect(presence?.detail).toContain('Industriali');
+    expect(presence?.tone).toBe('negative');
+  });
+
+  it('LW04 — nessun consiglio pubblicato, nessuna presenza inventata', () => {
+    expect(councilPresence(null)).toBeNull();
+    expect(councilPresence({ factions: [] } as unknown as GovernmentSnapshot)).toBeNull();
   });
 });
