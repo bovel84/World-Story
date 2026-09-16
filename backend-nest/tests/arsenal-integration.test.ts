@@ -131,7 +131,7 @@ describe('arsenale e procurement', () => {
     expect(() => session.procureEquipment('build', 'fucili', 1)).toThrow(/build_unavailable/);
     // …ma con la tecnologia (e fabbriche/risorse presenti) parte l'ordine.
     const stock = session.getResources().stock;
-    (session as any).resourceStocks.set('DEU', {
+    (session as any).nationState.resourceStocks.set('DEU', {
       ...stock, technologies: ['industria_bellica'], money: 100, weapons: 500,
     });
     const beforeArms = session.getArsenal().units.fucili ?? 0;
@@ -169,7 +169,7 @@ describe('arsenale e procurement', () => {
   it('la costruzione può andare a debito e rispettare il tetto di credito', () => {
     const { session } = createGame();
     const stock = session.getResources().stock;
-    (session as any).resourceStocks.set('DEU', {
+    (session as any).nationState.resourceStocks.set('DEU', {
       ...stock, technologies: ['industria_bellica', 'meccanica_avanzata'], money: 0, weapons: 500_000, research: 0,
     });
     const started = session.procureEquipment('build', 'fucili', 200);
@@ -180,7 +180,7 @@ describe('arsenale e procurement', () => {
     expect(session.getResources().creditHeadroom).toBeLessThan(session.getResources().creditLimit);
     // Con il debito già al tetto la spesa è rifiutata.
     const limit = session.getResources().creditLimit;
-    (session as any).resourceStocks.set('DEU', {
+    (session as any).nationState.resourceStocks.set('DEU', {
       ...session.getResources().stock, money: -limit, weapons: 500_000,
     });
     expect(() => session.procureEquipment('build', 'fucili', 1)).toThrow(/credit_exhausted/);
@@ -194,9 +194,9 @@ describe('arsenale e procurement', () => {
 
   it('la potenza militare effettiva include il fattore dell’arsenale', () => {
     const { session } = createGame();
-    (session as any).arsenals.set('DEU', {});
+    (session as any).military.saveArsenal('DEU', {});
     const empty = session.effectiveMilitaryPower();
-    (session as any).arsenals.set('DEU', { fucili: 160, apc: 6 });
+    (session as any).military.saveArsenal('DEU', { fucili: 160, apc: 6 });
     const armed = session.effectiveMilitaryPower();
     expect(empty).toBeLessThan(armed);
     const arsenal = session.getArsenal();
@@ -218,7 +218,7 @@ describe('arsenale e procurement', () => {
 
   it('una conquista tra nazioni ostili consuma l’arsenale del vincitore', () => {
     const { session } = createGame();
-    (session as any).relationships.set('DEU', 'SAU', 'hostile');
+    (session as any).diplomacy.matrix().set('DEU', 'SAU', 'hostile');
     const before = session.getArsenal().units;
     expect(before.fucili).toBeGreaterThan(0);
     const sauRegion = session.getRegion(`${WORLD_ID}_SAU`);

@@ -125,7 +125,7 @@ describe('risorse naturali dinamiche', () => {
   it('compra risorse pagando il prezzo di mercato', () => {
     const { session } = createGame();
     const kind = session.getResources().natural[0].kind;
-    (session as any).resourceStocks.set('DEU', { ...session.getResources().stock, money: 1000 });
+    (session as any).nationState.resourceStocks.set('DEU', { ...session.getResources().stock, money: 1000 });
     const result = session.tradeResource('buy', kind, 2);
     expect(result.ok).toBe(true);
     expect(session.getResources().stock.money).toBeLessThan(1000);
@@ -171,7 +171,7 @@ describe('risorse naturali dinamiche', () => {
     resourceRepository.upsert(gameId, 'DEU', {
       money: 0, debts: [], food: 0, clothing: 0, weapons: 0, fuel: 0, research: 0, technologies: [],
     }, 0, null);
-    (session as any).resourceStocks.clear();
+    (session as any).nationState.resourceStocks.clear();
     const stock = session.getResources().stock;
     expect(stock.money).toBeGreaterThan(0);
     expect(stock.food).toBeGreaterThan(0);
@@ -183,7 +183,7 @@ describe('risorse naturali dinamiche', () => {
     resourceRepository.upsert(gameId, 'DEU', {
       money: 0, debts: [], food: 9999, clothing: 9999, weapons: 9999, fuel: 9999, research: 0, technologies: [],
     }, 0, null);
-    (session as any).resourceStocks.clear();
+    (session as any).nationState.resourceStocks.clear();
     const resources = session.getResources();
     expect(resources.stock.food).toBeLessThanOrEqual(Number(resources.capacity.food) + 1e-9);
     expect(resources.stock.food).toBeLessThan(9999);
