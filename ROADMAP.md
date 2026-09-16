@@ -1,5 +1,17 @@
 # World Story — Technical Roadmap
 
+> **Stato reale (2026-09-16).** Questo file è la roadmap **tecnica storica** (struttura del
+> progetto, fasi 1–6 completate). Lo **stato aggiornato dei pacchetti** (F00–F06, M01–M07,
+> U01–U03, Q01) e i blocchi residui vivono in
+> [`docs/open-pax-roadmap.md`](docs/open-pax-roadmap.md), con i verbali di revisione
+> indipendente in [`docs/implementation/`](docs/implementation/).
+>
+> **Sintesi 2026-09-16:** tutti i pacchetti del piano esecutivo sono chiusi per le parti
+> realizzabili (M06 chiuso con 5 revisioni; M07 chiuso salvo «priorità manutenzione/servizi»
+> bloccato per assenza del runtime impianti; U01/U02/U03/Q01 chiusi per le parti
+> automatizzabili). Verifiche: backend 118 file / 993 test, frontend 37 file / 211 test,
+> E2E mock 17/17, a11y 3/3, perf OK; build e Quality Gate verdi. Q02 non avviato.
+
 ## Структура проекта
 
 ```
