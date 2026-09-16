@@ -34,6 +34,8 @@ import {
   respondLegacyFeasibility, respondTimeSkipResult, respondJobFailure,
   assessmentStore,
 } from './helpers';
+import { validateBody } from '../validation';
+import { timeSkipSchema } from './schemas';
 
 export function registerSimulationRoutes(router: Router): void {
 router.get('/:id/simulations/:runId', (req, res) => {
@@ -135,6 +137,7 @@ router.post('/:id/simulations/:runId/restore', async (req, res) => {
 // 202. Il client riconcilia con GET del job e con il lettore di run.
 router.post('/:id/simulation-jobs', (req, res) => {
   const gameId = req.params.id;
+  if (!validateBody(res, timeSkipSchema, req.body)) return;
   const mode = req.body?.mode === 'next_event' ? 'next_event' : 'fixed';
   const rawJumpDays = mode === 'next_event' ? 0 : (req.body?.jump_days ?? 30);
   const jump_days = Number.isFinite(Number(rawJumpDays)) ? Number(rawJumpDays) : 30;

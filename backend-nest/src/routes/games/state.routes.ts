@@ -34,9 +34,12 @@ import {
   respondLegacyFeasibility, respondTimeSkipResult, respondJobFailure,
   assessmentStore,
 } from './helpers';
+import { validateBody } from '../validation';
+import { createGameSchema } from './schemas';
 
 export function registerStateRoutes(router: Router): void {
 router.post('/', (req, res) => {
+  if (!validateBody(res, createGameSchema, req.body)) return;
   const worldId = req.body.worldId || req.body.world_id;
   const playerName = req.body.playerName || req.body.player_name;
   const playerRegionId = req.body.playerRegionId || req.body.player_region_id;

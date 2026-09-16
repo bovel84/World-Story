@@ -34,10 +34,13 @@ import {
   respondLegacyFeasibility, respondTimeSkipResult, respondJobFailure,
   assessmentStore,
 } from './helpers';
+import { validateBody } from '../validation';
+import { saveSchema } from './schemas';
 
 export function registerSaveRoutes(router: Router): void {
 router.post('/:id/save', (req, res) => {
   const gameId = req.params.id;
+  if (!validateBody(res, saveSchema, req.body)) return;
   const { name } = req.body;
 
   try {

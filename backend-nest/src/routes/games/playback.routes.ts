@@ -34,10 +34,13 @@ import {
   respondLegacyFeasibility, respondTimeSkipResult, respondJobFailure,
   assessmentStore,
 } from './helpers';
+import { validateBody } from '../validation';
+import { timeSkipSchema, interveneSchema } from './schemas';
 
 export function registerPlaybackRoutes(router: Router): void {
 router.post('/:id/time-skip', async (req, res) => {
   const gameId = req.params.id;
+  if (!validateBody(res, timeSkipSchema, req.body)) return;
   // Contratto canonico: mode=next_event. Il valore 0 resta soltanto una
   // compatibilità per client vecchi, mai un dettaglio esposto dalla UI.
   const mode = req.body?.mode === 'next_event' ? 'next_event' : 'fixed';
@@ -117,71 +120,6 @@ router.post('/:id/time-skip', async (req, res) => {
   }
 });
 
-/** Ricostruisce la risposta time-skip dall’esito del job (µ3: una sola forma). */
-function respondTimeSkipResult(res: any, session: any, result: any, periodStart: string, jumpDays: number): void {
-  if (Array.isArray(result)) {
-    res.json({
-      type: 'actions_processed',
-      simulationId: result.at(-1)?.result?.simulationId,
-      processedCount: result.length,
-      actions: result,
-      // F06 µ2: la revisione canonica permette al client di ordinare il delta.
-      revision: gameRepository.getWorldRevision(session.id),
-    });
-    return;
-  }
-  const pausedResult = result as PausedBatchResult | null;
-  if (pausedResult?.paused === true) {
-    res.json(pausedResult);
-    return;
-  }
-  const worldResult = result as TurnResultRecord | null;
-  if (!worldResult) {
-    res.json({
-      type: 'no_event_found',
-      simulationId: gameRepository.getLatestSimulationRun(session.id)?.id,
-      startDate: periodStart,
-      searchedUntil: addDays(periodStart, jumpHorizon(jumpDays)),
-    });
-    return;
-  }
-  res.json({
-    type: 'world_advanced',
-    simulationId: worldResult.simulationId,
-    // F06 µ2: la revisione canonica permette al client di ordinare il delta.
-    revision: gameRepository.getWorldRevision(session.id),
-    result: {
-      simulationId: worldResult.simulationId,
-      turn: worldResult.turn,
-      narration: worldResult.narration,
-      events: worldResult.events,
-      eventDetails: worldResult.timelineEvents || [],
-      periodStart,
-      periodEnd: session.getCurrentDate(),
-    },
-    newDate: session.getCurrentDate(),
-    newTurn: session.getCurrentTurn(),
-  });
-}
-
-/** Mappa il fallimento di un job sugli stessi codici HTTP del percorso inline. */
-function respondJobFailure(res: any, job: any): void {
-  if (job.error_name === 'LLMError') {
-    // I Quick Tunnel sostituiscono i 502 JSON con una pagina HTML generica.
-    // 424 conserva il dettaglio del provider per la UI.
-    res.status(424).json({ error: job.error });
-  } else if (job.error_name === 'SimulationInProgressError') {
-    res.status(409).json({ error: job.error, code: 'simulation_in_progress' });
-  } else if (job.error_name === 'SimulationPausedError') {
-    res.status(409).json({ error: job.error, code: 'simulation_paused' });
-  } else if (job.error_name === 'GameOverError') {
-    // La nazione è caduta: nessun turno può più avanzare.
-    res.status(409).json({ error: job.error, code: 'game_over' });
-  } else {
-    res.status(500).json({ error: job.error || 'job_failed' });
-  }
-}
-
 // Этап 2: Rewind — откат на ход назад
 /** §9.3 — «Continua»: autorizza il checkpoint per-evento successivo del
  * salto fisso sospeso. L'ultimo «Continua» porta il mondo a destinazione. */
@@ -235,6 +173,7 @@ router.get('/:id/rewind', (req, res) => {
 // Fase 2: Intervene — прервать применение оставшихся событий пачки
 router.post('/:id/intervene', async (req, res) => {
   const gameId = req.params.id;
+  if (!validateBody(res, interveneSchema, req.body)) return;
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
     const simulationId = req.body?.simulationId || req.body?.simulation_id;

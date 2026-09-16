@@ -34,9 +34,12 @@ import {
   respondLegacyFeasibility, respondTimeSkipResult, respondJobFailure,
   assessmentStore,
 } from './helpers';
+import { validateBody } from '../validation';
+import { evaluateActionSchema, queueActionSchema, actionTextSchema, processActionSchema } from './schemas';
 
 export function registerActionsRoutes(router: Router): void {
 router.post('/:id/actions/evaluate', (req, res) => {
+  if (!validateBody(res, evaluateActionSchema, req.body)) return;
   try {
     const game = gameRepository.findById(req.params.id);
     if (!game || !game.world) { res.status(404).json({ error: 'Game not found' }); return; }
@@ -60,47 +63,10 @@ router.post('/:id/actions/evaluate', (req, res) => {
   } catch (e) { respondRouteError(res, e, 'Failed to evaluate actions'); }
 });
 
-
-/**
- * Le partite create prima del catalogo autoritativo devono poter continuare a
- * registrare ordini. Il costo non è inventato dal modello né nascosto al
- * giocatore: lo stima il motore dal conto nazionale (OrderCost) e lo stesso
- * importo viene addebitato alla tesoreria quando l'ordine è eseguito.
- */
-function respondLegacyFeasibility(res: any, session: any, text: string): void {
-  let costs: any = { timeDays: 0, inputs: [], upkeep: [], basis: 'none' };
-  let warnings = ['Partita legacy: la stima viene dal conto nazionale e sarà addebitata all\'esecuzione.'];
-  try {
-    const estimate = session.estimateOrderCost(text);
-    costs = {
-      timeDays: estimate.timeDays,
-      inputs: [{
-        resourceId: 'money',
-        name: 'Tesoreria',
-        quantity: estimate.amountMld.toFixed(2).replace('.', ','),
-        unit: 'mld',
-      }],
-      upkeep: [],
-      basis: 'request',
-      note: estimate.basis,
-      category: estimate.label,
-    };
-  } catch (error) {
-    warnings = ['Partita legacy: stima del costo non disponibile, l\'ordine resta registrabile.'];
-  }
-  res.json({
-    feasible: true,
-    costs,
-    prerequisites: [],
-    risks: [],
-    warnings,
-    summary: 'Ordine registrabile (modalità legacy)',
-  });
-}
-
 /** G4-B — verifica fattibilità da testo libero: sola lettura, non accoda.
  * La conversione intent e la valutazione avvengono interamente in sessione. */
 router.post('/:id/actions/check-feasibility', async (req, res) => {
+  if (!validateBody(res, actionTextSchema, req.body)) return;
   try {
     const game = gameRepository.findById(req.params.id);
     if (!game || !game.world) { res.status(404).json({ error: 'Game not found' }); return; }
@@ -160,6 +126,7 @@ router.post('/:id/actions/check-feasibility', async (req, res) => {
 
 router.post('/:id/actions/queue', (req, res) => {
   const gameId = req.params.id;
+  if (!validateBody(res, queueActionSchema, req.body)) return;
   const { text } = req.body;
 
   if (!text) {
@@ -247,6 +214,7 @@ router.patch('/:id/actions/queue/:actionId', (req, res) => {
 
 router.post('/:id/actions/process', async (req, res) => {
   const gameId = req.params.id;
+  if (!validateBody(res, processActionSchema, req.body)) return;
   const { jump_days = 30 } = req.body;
   res.set('Deprecation', 'true');
 
@@ -278,6 +246,7 @@ router.post('/:id/actions/process', async (req, res) => {
 
 router.post('/:id/actions/process-all', async (req, res) => {
   const gameId = req.params.id;
+  if (!validateBody(res, processActionSchema, req.body)) return;
   const { jump_days = 30 } = req.body;
   // F05 µ3: delega al percorso job — lo stesso worker e lo stesso lotto
   // causale; la risposta resta compatibile con la forma sincrona.

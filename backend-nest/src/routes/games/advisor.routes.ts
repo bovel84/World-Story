@@ -34,9 +34,12 @@ import {
   respondLegacyFeasibility, respondTimeSkipResult, respondJobFailure,
   assessmentStore,
 } from './helpers';
+import { validateBody } from '../validation';
+import { actionTextSchema, advisorSchema } from './schemas';
 
 export function registerAdvisorRoutes(router: Router): void {
 router.post('/:id/action', async (req, res) => {
+  if (!validateBody(res, actionTextSchema, req.body)) return;
   console.log('[API] POST /api/games/:id/action called');
   const text = req.body.text;
   const gameId = req.params.id;
@@ -63,6 +66,7 @@ router.post('/:id/action', async (req, res) => {
 // click esplicito del giocatore sul testo proposto.
 router.post('/:id/actions/enhance', async (req, res) => {
   const gameId = req.params.id;
+  if (!validateBody(res, actionTextSchema, req.body)) return;
   const text = req.body?.text;
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
@@ -149,6 +153,7 @@ router.get('/:id/advisor', async (req, res) => {
 // Этап 3: живой Советник — многоходовой диалог (message + history в теле)
 router.post('/:id/advisor', async (req, res) => {
   const gameId = req.params.id;
+  if (!validateBody(res, advisorSchema, req.body)) return;
   const message = typeof req.body?.message === 'string' ? req.body.message : '';
   const history = normalizeAdvisorHistory(req.body?.history);
 
@@ -165,6 +170,7 @@ router.post('/:id/advisor', async (req, res) => {
 // Этап 3: стриминг ответа Советника (text/plain; токены пишем по мере поступления)
 router.post('/:id/advisor/stream', async (req, res) => {
   const gameId = req.params.id;
+  if (!validateBody(res, advisorSchema, req.body)) return;
   const message = typeof req.body?.message === 'string' ? req.body.message : '';
   const history = normalizeAdvisorHistory(req.body?.history);
 
