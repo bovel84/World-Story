@@ -9,9 +9,16 @@
  */
 
 import { defineConfig, devices } from 'playwright/test';
+import fs from 'node:fs';
 
 const FRONTEND_PORT = 5173;
 const BASE_URL = `http://localhost:${FRONTEND_PORT}`;
+
+// Portabile come `playwright.config.mjs`: Chrome di sistema su macOS, Chromium
+// incluso su Linux/CI quando CHROME_PATH non è impostato.
+const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME_PATH = process.env.CHROME_PATH || (fs.existsSync(MAC_CHROME) ? MAC_CHROME : undefined);
+const launchOptions = CHROME_PATH ? { executablePath: CHROME_PATH } : {};
 
 export default defineConfig({
   testDir: './a11y',
@@ -24,9 +31,7 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    launchOptions: {
-      executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    },
+    launchOptions,
   },
   projects: [
     {

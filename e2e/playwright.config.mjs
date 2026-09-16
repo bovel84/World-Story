@@ -14,9 +14,17 @@
  */
 
 import { defineConfig, devices } from 'playwright/test';
+import fs from 'node:fs';
 
 const FRONTEND_PORT = 5173;
 const BASE_URL = `http://localhost:${FRONTEND_PORT}`;
+
+// Portabile: su macOS si può usare il Chrome di sistema (i binari Playwright
+// richiedono macOS 12+); su Linux/CI, senza CHROME_PATH, si usa il Chromium
+// incluso in Playwright. Nessun override forzato quando il path non esiste.
+const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME_PATH = process.env.CHROME_PATH || (fs.existsSync(MAC_CHROME) ? MAC_CHROME : undefined);
+const launchOptions = CHROME_PATH ? { executablePath: CHROME_PATH } : {};
 
 export default defineConfig({
   testDir: './tests',
@@ -31,10 +39,9 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     // macOS 11: i binari Playwright richiedono macOS 12+. Usiamo il Chrome di
-    // sistema (stesso approccio degli script legacy e2e/*.mjs).
-    launchOptions: {
-      executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    },
+    // sistema quando disponibile (vedi CHROME_PATH sopra), altrimenti il
+    // Chromium incluso (CI/Linux).
+    launchOptions,
   },
   projects: [
     {
