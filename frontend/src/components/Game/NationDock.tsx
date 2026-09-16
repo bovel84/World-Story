@@ -11,12 +11,14 @@
  * della nazione si legge a colpo d'occhio.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   setSection,
   NATION_SECTIONS,
   NATION_SECTION_LABEL,
 } from '../../stores/nationDock';
+import { deriveStrategicBriefing } from './strategicBriefing';
+import { StrategicBriefingCard } from './StrategicBriefingCard';
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
 import {
   pressureTone,
@@ -55,6 +57,20 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     moneyDelta, pointDelta, countDelta, mkTrend,
   } = useNationDockModel(props);
 
+  // LW01 — Briefing strategico: proiezione pura dello stato già pubblicato dal
+  // motore. Nessuna nuova simulazione, nessuna chiamata all'LLM.
+  const briefing = useMemo(() => deriveStrategicBriefing({
+    account,
+    resources,
+    crisis,
+    pressures,
+    ongoingProcesses,
+    mandateDecisions,
+    maintenanceObligations,
+    government,
+    fiscalPolicy,
+  }), [account, resources, crisis, pressures, ongoingProcesses, mandateDecisions, maintenanceObligations, government, fiscalPolicy]);
+
   return (
     <div className="nation-dock">
       <nav className="nation-dock-tabs" aria-label="Sezioni del dossier">
@@ -74,6 +90,8 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
       <div className="nation-dock-body">
         {active === 'situazione' && (
           <>
+            <StrategicBriefingCard briefing={briefing} />
+
             <DossierBlock
               title="Sintesi"
               description="Tesoreria, bilancio e tenuta interna: lo stato della nazione a colpo d'occhio."
