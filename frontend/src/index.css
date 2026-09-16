@@ -2717,3 +2717,23 @@ html, body { margin: 0; }
 .strategic-briefing-text small { color: #9fb0c9; font: 500 11.5px/1.4 system-ui, sans-serif; }
 .strategic-briefing-empty { margin: 0; color: #b9c7db; font: 500 12.5px/1.5 system-ui, sans-serif; }
 .strategic-briefing-more { margin: 0; color: #8fa0bc; font: 600 11.5px/1.4 system-ui, sans-serif; }
+
+/* ── LW02: effetti reali per turno nella Timeline ───────────────────────── */
+.hud-timeline-impact { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 9px 11px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 9px; background: rgba(255, 255, 255, 0.03); }
+.hud-timeline-impact-title { color: #8fa0bc; font: 700 10px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.hud-timeline-impact-list { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 0; padding: 0; list-style: none; }
+.hud-timeline-impact-list li { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); font: 500 11.5px/1.3 system-ui, sans-serif; }
+.hud-timeline-impact-label { color: #9fb0c9; }
+.hud-timeline-impact-list b { font-variant-numeric: tabular-nums; }
+.hud-timeline-impact-list li.tone-positive b { color: #a9e8c4; }
+.hud-timeline-impact-list li.tone-negative b { color: #f0a9a9; }
+.hud-timeline-impact-list li.tone-warning b { color: #f0ce8f; }
+.hud-timeline-impact-list li.tone-neutral b { color: #c6d3e6; }
+
+/* ── LW03: piano visibile nel desk del tempo ────────────────────────────── */
+.time-desk-plan { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding: 12px 14px; border: 1px solid #354966; border-radius: 11px; background: #101d31; }
+.time-desk-plan h3 { margin: 0; color: #f3f6fc; font: 700 15px/1.2 Georgia, serif; }
+.time-desk-plan ul { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.time-desk-plan li { display: flex; align-items: flex-start; gap: 9px; color: #e3ebf7; font: 500 13px/1.4 system-ui, sans-serif; }
+.time-desk-plan-index { flex: none; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: rgba(111, 131, 163, 0.28); color: #cfe0f5; font: 700 11px/1 system-ui, sans-serif; }
+.time-desk-plan-note { margin: 0; color: #8fa0bc; font: 500 11.5px/1.45 system-ui, sans-serif; }

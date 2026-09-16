@@ -167,6 +167,8 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             dispatchLive={shell.isProcessingTurn}
             advancing={shell.isProcessingTurn}
             pendingOrdersCount={pendingActions.length}
+            pendingOrders={pendingActions.map(action => ({ id: action.id, text: action.text }))}
+            history={nation.nationalHistory}
             onOpenDispatches={() => openModule('news')}
             onTimelineOpen={timeline.handleTimelineOpen}
             onLoadOlder={timeline.loadOlderTimeline}
