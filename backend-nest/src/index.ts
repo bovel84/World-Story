@@ -14,6 +14,7 @@ import { initLLMRouter } from './llm';
 import { initDatabase } from './database';
 import { initSessionRegistry } from './session-registry';
 import { registerRoutes } from './routes';
+import { ownerGuard, ownerAuthMode } from './security/owner-guard';
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -27,6 +28,11 @@ app.use((req, res, next) => {
   console.log(`[HTTP] ${req.method} ${req.path}`);
   next();
 });
+
+// Q02 µ2: protezione single-owner. Se WORLD_STORY_OWNER_TOKEN è configurato
+// ogni /api/* richiede il token (eccetto /health e /api/health). Senza token
+// la modalità resta `open-single-user` (uso locale) e nulla cambia.
+app.use(ownerGuard);
 
 // Initialize Database
 initDatabase();
@@ -47,6 +53,7 @@ for (const [mechanic, cfg] of Object.entries(llmRouter.describe())) {
 
 // Register all route files
 registerRoutes(app);
+console.log(`[Auth] modalità proprietario: ${ownerAuthMode()}`);
 
 // In produzione lo stesso processo pubblica anche la build React. Questo
 // mantiene funzionanti le rotte SPA aperte direttamente dal browser.

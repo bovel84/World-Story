@@ -51,6 +51,8 @@ jobs:
         run: cd e2e && node_modules/.bin/playwright test --config=playwright.a11y.config.mjs
 
       - name: Build frontend (perf baseline)
+        env:
+          WORLD_STORY_BUILD_ID: ${{ github.sha }}
         run: npm run build:frontend
 
       - name: Performance baseline

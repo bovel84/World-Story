@@ -6,11 +6,13 @@
 > [`docs/open-pax-roadmap.md`](docs/open-pax-roadmap.md), con i verbali di revisione
 > indipendente in [`docs/implementation/`](docs/implementation/).
 >
-> **Sintesi 2026-09-16:** tutti i pacchetti del piano esecutivo sono chiusi per le parti
-> realizzabili (M06 chiuso con 5 revisioni; M07 chiuso salvo «priorità manutenzione/servizi»
-> bloccato per assenza del runtime impianti; U01/U02/U03/Q01 chiusi per le parti
-> automatizzabili). Verifiche: backend 118 file / 999 test, frontend 38 file / 214 test,
-> E2E mock 17/17, a11y 3/3, perf OK; build e Quality Gate verdi. Q02 non avviato.
+> **Sintesi 2026-09-16:** **tutti i pacchetti del piano esecutivo sono chiusi** per le parti
+> realizzabili (F00–F06, M01–M07, U01–U03, Q01, **Q02**). M06 chiuso con 5 revisioni; M07 chiuso
+> salvo «esecuzione manutenzione» bloccata per assenza del runtime impianti (gli obblighi sono
+> proiettati e visibili); Q01/Q02 chiusi per le parti automatizzabili. Verifiche: backend 124 file
+> / 1033 test, frontend 39 file / 220 test, E2E mock 17/17, a11y 3/3, perf OK; build e Quality Gate
+> verdi. Restano bloccati solo rilascio pubblico (autorizzazione), smoke LLM reale (budget) e
+> verifiche manuali su dispositivi reali.
 
 ## Структура проекта
 

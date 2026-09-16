@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import type { WorldEventPayload } from './dispatches';
+import { withOwnerToken } from './ownerToken';
 
 export interface SSEEvent {
   type: string;
@@ -75,7 +76,7 @@ export function useSSE(gameId: string | null, options: UseSSEOptions) {
 
     // Base URL API da env (senza hardcode), lo stesso di services/api.ts
     const apiBase = import.meta.env.VITE_API_URL || '/api';
-    const url = `${apiBase}/games/${gameId}/events`;
+    const url = withOwnerToken(`${apiBase}/games/${gameId}/events`);
     console.log('[SSE] Connecting to:', url);
 
     const eventSource = new EventSource(url);

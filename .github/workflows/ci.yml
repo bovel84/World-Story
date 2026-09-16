@@ -41,4 +41,7 @@ jobs:
         run: cd frontend && ../node_modules/.bin/vitest run
 
       - name: Build backend and frontend
+        env:
+          # Q02 µ3: stampa il build ID negli artefatti (health/version).
+          WORLD_STORY_BUILD_ID: ${{ github.sha }}
         run: npm run build

@@ -20,6 +20,7 @@ revisione indipendente presenti per **ogni** pacchetto; roadmap aggiornate; Qual
 | **U02** Ordini guidati + catena fattibilità | ✅ CHIUSO (passo 3 bloccato) | `REVIEW-INDIPENDENTE-U02.md` |
 | **U03** Dossier/chat/lettore | ✅ CHIUSO | `REVIEW-INDIPENDENTE-U03.md` |
 | **Q01** Harness frontend/E2E | ✅ CHIUSO (axe/dispositivi/eval bloccati) | `REVIEW-INDIPENDENTE-Q01.md` |
+| **Q02** Compatibilità/sicurezza/rilascio | ✅ CHIUSO (parte automatizzabile) | `Q02-report.md` + `REVIEW-INDIPENDENTE-Q02.md` |
 
 ## Consegne via PR (main protetto, gate `test-build` verde)
 
@@ -32,14 +33,15 @@ revisione indipendente presenti per **ogni** pacchetto; roadmap aggiornate; Qual
 | #11 | Verbali F00/F01/F03 | `c89c26e` |
 | #12 | Q01 — workflow E2E/a11y/perf in CI | `9453568` |
 | #13 | Raffinamento blocchi U02/M07 + report finale | `4a1fddf` |
-| #14 | M07 — proiezione obblighi di manutenzione (read-only) + wiring dossier | (questo) |
+| #14 | M07 — proiezione obblighi di manutenzione (read-only) + wiring dossier | `97c2e48` |
+| #15 | Q02 — guardia single-owner, inventario endpoint, health/version, script fail-closed | (questo) |
 
 Precedenti: PR #1–#6 (blocco 2, revisioni M07 µ4g e F04/F05/F06).
 
 ## Stato del Quality Gate
 
-- Backend: **118 file / 999 test** verdi; `tsc` pulito; build OK.
-- Frontend: **38 file / 214 test** verdi; `tsc` pulito; build OK.
+- Backend: **124 file / 1033 test** verdi; `tsc` pulito; build OK.
+- Frontend: **39 file / 220 test** verdi; `tsc` pulito; build OK.
 - E2E mock **17/17**; a11y **3/3**; perf **OK** (JS 1.47 MB, CSS 0.54 MB).
 - CI: `test-build` (richiesto dal ruleset) **verde**; nuovo job **`e2e-mock`** (E2E + a11y +
   perf) **verde su Linux** — informativo e non richiesto dal ruleset.
@@ -56,6 +58,7 @@ Precedenti: PR #1–#6 (blocco 2, revisioni M07 µ4g e F04/F05/F06).
    Un batch solo-materiali sarebbe fuorviante → non implementato. Vedi `U02-report.md`.
 3. **Q01 axe / dispositivi reali / eval narrativa** — `@axe-core/playwright` (rete),
    hardware reale, risposte LLM salvate + budget.
-4. **Q02** Compatibilità/sicurezza/rilascio — non avviato (dipende da GATE-3).
+4. **Q02 rilascio pubblico / smoke LLM reale** — implementati e documentati, ma **non eseguiti**:
+   servono autorizzazione esplicita e budget. `node scripts/release.js --plan-only` è sicuro ora.
 
 Nessun difetto bloccante aperto nei pacchetti consegnati.
