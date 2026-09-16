@@ -11,6 +11,23 @@ import { PromptVariables } from '../types';
 import { buildImmersionContract } from '../immersion';
 import { buildGovernmentNarrativeGuard } from '../government';
 
+/**
+ * Contratto delle reazioni: l'unica regola autoritativa su chi può reagire.
+ * Il motore ha già filtrato attori e opzioni (`ReactionContext`): il prompt non
+ * deve più riselezionare gli attori dal testo dell'evento.
+ */
+export function buildReactionContractGuard(): string {
+  return `
+[CONTRATTO DELLE REAZIONI — regola autoritativa]
+Gli attori ammessi sono ESCLUSIVAMENTE quelli elencati nel CONTESTO DI REAZIONE (ATTORI RILEVANTI E OPZIONI AMMESSE). Non riselezionare gli attori dal testo: la selezione l'ha già fatta il motore.
+- Per ogni reaction copia \`actorId\` ESATTAMENTE come è scritto fra parentesi quadre nell'elenco (es. FRA).
+- Scegli UN SOLO \`optionId\` fra le opzioni di QUEL attore (es. FRA:condition). Non usare l'opzione di un altro attore e non inventare ID.
+- Non introdurre altri attori, non aggiungere osservatori, non sostituire l'ID con il nome della nazione.
+- Non superare il numero massimo di reactions indicato dal contesto. Se nessun attore del contesto ha una causa concreta per decidere, usa "reactions": []: un fatto esclusivamente interno non richiede reazioni.
+- Dentro la categoria scelta decidi tu il resto: quali condizioni, quale motivazione politica ("priority"), quale tono e formulazione ("response", "note") e quale eventuale misura autonoma ("counterAction"). "optionId" è la categoria della decisione, non un testo da copiare.
+- "counterAction" resta narrativo: non può produrre effetti materiali fuori dalla categoria dell'opzione scelta (un negoziato non mobilita unità).`;
+}
+
 export function buildAutoJumpInstruction(vars: PromptVariables, eventBudget = 1): string {
   // L'auto-jump non si ferma al primo fatto di cronaca: prosegue finché una
   // nazione non decide concretamente in risposta agli ordini del giocatore.
@@ -76,10 +93,8 @@ export function buildSubjectCoherenceGuard(vars: PromptVariables): string {
 - Non aggiungere nazioni estranee come spettatrici, osservatrici o mediatrici non richieste: un evento non è «mondiale» perché elenca molti paesi.
 - ${vars.PLAYER_POLITY} compare in un evento delle altre politie solo se quel fatto la tocca direttamente (confine, accordo, risorsa, rischio, richiesta). Evita frasi di pura presenza come «${vars.PLAYER_POLITY} osserva con attenzione» o «${vars.PLAYER_POLITY} segue gli sviluppi».
 - Le altre politie nominano ${vars.PLAYER_POLITY} soltanto se hanno un motivo verificabile per farlo; altrimenti il dispaccio resta fra i soli soggetti coinvolti.
-- "reactions" e "startChat" contengono esclusivamente le politie direttamente toccate dal fatto, non il vicinato in generale né tutte le grandi potenze.
-- Crisi locali e conflitti di confine restano fra i soggetti del teatro: la controparte diretta, i suoi vicini e quelli della nazione del giocatore, e le organizzazioni regionali realmente presenti. Non far reagire grandi potenze lontane né Stati senza un interesse documentato (basi, alleanze, rotte commerciali, debiti, minoranze, legami coloniali).
-- "reactions" e "startChat" non producono «note di comodo» da capitali irrilevanti: se una nazione non ha vicinanza geografica, un rapporto registrato o una causa esplicita nel testo dell'evento, non compare.
-- La controparte direttamente attaccata o minacciata reagisce sempre e, se mobilita, schiera o costruisce, lo fa con le mapChanges corrispondenti nello stesso evento.`;
+- La controparte direttamente attaccata o minacciata reagisce sempre e, se mobilita, schiera o costruisce, lo fa con le mapChanges corrispondenti nello stesso evento.
+- Per chi può comparire in "reactions" e "startChat" vale il solo CONTESTO DI REAZIONE: la selezione degli attori è già stata fatta dal motore, non riselezionarla dal testo dell'evento.`;
 }
 
 /**
@@ -128,7 +143,7 @@ Ogni ordine del giocatore deve avere un esito realistico, una reazione o un rifi
 
 [CICLO MONDIALE OBBLIGATORIO]
 Ogni avanzamento temporale simula l'intero mondo, non soltanto la politia del giocatore. Valuta per tutte le altre politie le conseguenze nel periodo: reazioni a ordini, sviluppo di trattative, mobilitazioni, commercio, crisi o impegni già presenti nella cronaca e nello stato strategico.
-- Se un ordine del giocatore coinvolge o influenza un'altra politia, inserisci nello stesso evento una risposta autonoma e concreta della controparte nel campo "reactions". Una proposta, richiesta, minaccia o offerta del giocatore non vale come accettazione altrui: senza consenso esplicito della controparte resta proposta pendente o viene respinta.
+- Se un ordine del giocatore coinvolge o influenza un'altra politia, la risposta autonoma della controparte va nel campo "reactions" — ma solo se quella politia è fra gli attori ammessi dal CONTESTO DI REAZIONE. Una proposta, richiesta, minaccia o offerta del giocatore non vale come accettazione altrui: senza consenso esplicito della controparte resta proposta pendente o viene respinta.
 - Anche senza ordini del giocatore, fai progredire almeno un filone già documentato di una politia non giocante quando esiste una causa verificabile; il giocatore può osservare il mondo ma la sua politia non agisce senza ordine.
 - Dai priorità a 1-3 reazioni o iniziative internazionali collegate, invece di elencare notizie scollegate. Se nessuna causa è documentata, non inventare un fatto: avanza comunque tempo ed economia in modo coerente.
 ${buildDispatchStyleGuard()}
@@ -179,7 +194,7 @@ ${vars.HISTORICAL_PRESET_SIMULATION_RULES}` : '';
 - Rispetta i tempi: trattative, mobilitazioni, riforme, cantieri, guerre e mutamenti di regime maturano in più fasi salvo prova contraria nel contesto.
 - Narra in italiano sobrio da cronaca storica. Ogni dispaccio deve nominare attore, luogo, data o periodo, grilletto concreto e conseguenza; una narrazione finale riassume solo i fatti effettivamente emessi.
 - Un evento diplomatico può aprire una chat diretta, un vertice, una conferenza, un negoziato, un confronto su ultimatum o un tavolo tecnico. In tal caso inserisci in "startChat" tutte e sole le politie non giocanti direttamente coinvolte e collega la chat al titolo esatto del dispaccio con "eventHeadline". Con più politie nasce una riunione di gruppo; non aggiungere osservatori senza una causa nel contesto.
-- Le politie NPC seguono il dossier [Personalità, priorità e memoria NPC]: la risposta deve indicare quale interesse guida la decisione e quale eventuale controazione concreta viene adottata. Una controazione militare, diplomatica o economica deve essere proporzionata alle capacità e ai precedenti registrati. Quando incide direttamente su un altro NPC, quest'ultimo valuta e risponde per sé.
+- Le politie NPC seguono il dossier [Personalità, priorità e memoria NPC]: la risposta deve indicare quale interesse guida la decisione e quale eventuale controazione concreta viene adottata. Una controazione militare, diplomatica o economica deve essere proporzionata alle capacità e ai precedenti registrati. Quando incide direttamente su un altro NPC presente nel CONTESTO DI REAZIONE, quest'ultimo valuta e risponde per sé.
 - Una misura NPC materialmente avviata (mobilitazione, unità terrestre o navale creata o spostata, cantiere aperto, opera completata) diventa un marker reale: registrala nelle "mapChanges" dello stesso evento, nel territorio della politia che agisce.
 ${buildNpcAgencyGuard(vars)}
 ${buildDomesticReactionGuard(vars)}

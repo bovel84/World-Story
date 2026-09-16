@@ -1,0 +1,79 @@
+/**
+ * Contratto prompt delle reazioni — test di copertura del testo.
+ * Verifica che il contratto `actorId`/`optionId` sia presente in ENTRAMBI i
+ * protocolli (compatto e standard/incrementale) e che la regola di riselezione
+ * degli attori sia stata rimossa perché ora è autoritativa nel CONTESTO DI
+ * REAZIONE (una sola fonte, niente istruzioni contraddittorie).
+ */
+import { describe, expect, it } from 'vitest';
+import { buildConstrainedSimulationPrompt, buildSimulationPrompt, buildIncrementalOutputInstruction } from '../src/prompts/simulation/prompt';
+import { buildReactionContractGuard } from '../src/prompts/simulation/guards';
+import type { PromptVariables } from '../src/prompts/types';
+
+function vars(overrides: Partial<PromptVariables> = {}): PromptVariables {
+  return {
+    PLAYER_POLITY: 'Italia',
+    ORIGIN_ROUND_DATE: '1951-01-01',
+    TARGET_ROUND_DATE: '1951-03-01',
+    PLAYER_ACTIONS_THIS_ROUND: '[a1] Invia ultimatum alla Germania',
+    REACTION_CONTEXT: 'ATTORI RILEVANTI E OPZIONI AMMESSE:\n[FRA] Francia\n  - FRA:condition Accetta con condizioni',
+    STRATEGIC_STATE: 'stato',
+    NPC_STRATEGIC_PROFILES: 'profili',
+    ONGOING_PROCESSES: '',
+    ALL_EVENTS_WITH_CONSOLIDATION: '',
+    CHATS_NON_CONSOLIDATED_ROUNDS: '',
+    GRAND_MAP_DESCRIPTION_NO_CITY: '',
+    WORLD_BEFORE_ROUND_ONE_TEXT: '',
+    HISTORICAL_PRESET_SIMULATION_RULES: '',
+    DIFFICULTY_DESCRIPTION_JUMP_FORWARD: '',
+    WORLD_NAME: 'Mondo',
+    ...overrides,
+  } as PromptVariables;
+}
+
+function standardPrompt(v: PromptVariables): string {
+  return buildSimulationPrompt(v) + buildIncrementalOutputInstruction(v, 3);
+}
+
+describe('contratto reazioni nel prompt', () => {
+  it('la regola autoritativa è unica e definita una sola volta', () => {
+    const guard = buildReactionContractGuard();
+    expect(guard).toContain('CONTRATTO DELLE REAZIONI');
+    expect(guard).toContain('actorId');
+    expect(guard).toContain('optionId');
+    expect(guard.match(/CONTRATTO DELLE REAZIONI/g)).toHaveLength(1);
+  });
+
+  it('il protocollo COMPATTO chiede actorId e optionId e contiene la regola autoritativa', () => {
+    const prompt = buildConstrainedSimulationPrompt(vars(), {});
+    expect(prompt).toContain('"actorId"');
+    expect(prompt).toContain('"optionId"');
+    expect(prompt.match(/CONTRATTO DELLE REAZIONI/g)).toHaveLength(1);
+  });
+
+  it('il protocollo STANDARD/INCREMENTALE chiede actorId e optionId e contiene la regola autoritativa', () => {
+    const prompt = standardPrompt(vars());
+    expect(prompt).toContain('"actorId"');
+    expect(prompt).toContain('"optionId"');
+    expect(prompt.match(/CONTRATTO DELLE REAZIONI/g)).toHaveLength(1);
+  });
+
+  it('le vecchie regole di riselezione degli attori sono state rimosse', () => {
+    for (const prompt of [buildConstrainedSimulationPrompt(vars(), {}), standardPrompt(vars())]) {
+      expect(prompt).not.toContain('quella politia deve comparire');
+      expect(prompt).not.toContain('Teatro della crisi');
+      expect(prompt).not.toContain('non aggiungere potenze lontane senza interesse documentato');
+      // Il testo resta coerente: la selezione la fa il motore.
+      expect(prompt).toContain('CONTESTO DI REAZIONE');
+    }
+  });
+
+  it('l’esempio JSON resta un ordine di campi valido per il parser', () => {
+    const guard = buildReactionContractGuard();
+    // La regola autoritativa non deve contenere un secondo esempio JSON
+    // autorevole: l'unico esempio resta quello del protocollo evento.
+    expect(guard).not.toContain('"polityName"');
+    // L'ID dell'attore va copiato, non il nome della nazione.
+    expect(guard).toContain('non sostituire l\'ID con il nome della nazione');
+  });
+});

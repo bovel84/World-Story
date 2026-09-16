@@ -221,8 +221,12 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
     expect(prompt).toContain('fortification');
     expect(prompt).toContain('blocco navale');
     expect(prompt).toContain('almeno un\'iniziativa autonoma');
-    expect(prompt).toContain('Crisi locali e conflitti di confine');
-    expect(prompt).toContain('note di comodo');
+    // La riselezione degli attori non è più nel prompt: è autoritativa nel
+    // CONTESTO DI REAZIONE (contratto del motore).
+    expect(prompt).toContain('CONTRATTO DELLE REAZIONI');
+    expect(prompt).toContain('actorId');
+    expect(prompt).toContain('optionId');
+    expect(prompt).toContain('non sostituire l\'ID con il nome della nazione');
     expect(prompt).toContain('la provincia controllata più vicina a X');
     expect(prompt).toContain('REAZIONI INTERNE ED ECONOMIA DELLA GUERRA');
     expect(prompt).toContain('tensione sociale');
