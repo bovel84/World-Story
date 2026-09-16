@@ -5,6 +5,10 @@ import { normalizeWorldEventPayload } from './dispatches';
 
 const apiSource = fs.readFileSync(path.resolve(__dirname, 'api.ts'), 'utf8');
 const appSource = fs.readFileSync(path.resolve(__dirname, '..', 'App.tsx'), 'utf8');
+// Fase 2: il gestore SSE vive in `useSimulationStream`.
+const streamSource = fs.readFileSync(path.resolve(__dirname, '..', 'hooks', 'useSimulationStream.ts'), 'utf8');
+// Fase 2: il salto temporale vive in `useWorldAdvance`.
+const worldAdvanceSource = fs.readFileSync(path.resolve(__dirname, '..', 'hooks', 'useWorldAdvance.ts'), 'utf8');
 
 describe('normalizzazione dispacci SSE', () => {
   it('legge il formato canonico dell’outbox a evento singolo', () => {
@@ -47,10 +51,10 @@ describe('normalizzazione dispacci SSE', () => {
   });
 
   it('il frontend inoltra il formato canonico al feed visibile', () => {
-    expect(appSource).toContain('normalizeWorldEventPayload(data)');
-    expect(appSource).toContain('dispatch.eventId');
-    expect(appSource).toContain('dispatch.detail');
-    expect(appSource).toContain('publishEventDetails(details)');
+    expect(streamSource).toContain('normalizeWorldEventPayload(data)');
+    expect(streamSource).toContain('dispatch.eventId');
+    expect(streamSource).toContain('dispatch.detail');
+    expect(worldAdvanceSource).toContain('publishEventDetails(details)');
   });
 });
 

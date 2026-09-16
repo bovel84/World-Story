@@ -3,1338 +3,130 @@
  * ==============================
  */
 
-import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
-import type { TemporalScar } from './components/Map/TemporalScarLayer';
-import { MapView } from './components/Map/MapView';
+import { Suspense, lazy } from 'react';
 // DISATTIVATO: editor mappe (temporaneo)
 // import { MapEditor, type EditorRegion, type EditorObject } from './components/Editor';
 // import { CreateWorld, type WorldConfig } from './components/WorldBuilder/CreateWorld';
 import { TemplateSelector } from './components/Game/TemplateSelector';
-import { CountrySelector } from './components/Game/CountrySelector';
-import { DiplomacyPanel } from './components/Game/DiplomacyPanel';
-import { ChatsPanel } from './components/Game/ChatsPanel';
-import { AdvisorChat } from './components/Game/AdvisorChat';
 import { Landing } from './components/Game/Landing';
-import { SaveGameModal } from './components/Game/SaveGameModal';
-import { SavePickerModal, type SaveSummary } from './components/Game/SavePickerModal';
-const MapboxMapView = lazy(async () => ({ default: (await import('./components/Map/MapboxMapView')).MapboxMapView }));
 const LLMSettingsModal = lazy(() => import('./components/Game/LLMSettingsModal'));
-import { HudBar } from './components/Game/HudBar';
 import { GameLoader, WORLD_GEN_PHASES } from './components/Game/GameLoader';
-import { Fab } from './components/Game/Fab';
 // DISATTIVATO: editor mappe (temporaneo) — mapApi era usato solo dall’editor/«Le mie mappe»
-import { chatsApi, gameApi, worldApi, savesApi, llmApi, type CrisisSnapshot, type FiscalPolicyInfo, type GameEnding, type GovernmentSnapshot, type GovernmentVoicesResponse, type PeacetimePressure, type TimelineEntry } from './services/api';
-import { getStoredKey, migrateLegacyKey } from './services/llmKeyStore';
-import type { Region, World, Game } from './types';
-import { useGameStore, useUIStore, useActionsStore, useChatStore, selectTotalUnread, type FloatingPanelTab } from './stores';
-import type { ActiveModule } from './stores/moduleState';
-import { useSimulationStore } from './stores/simulationRuntime';
-import { useSSE } from './services/sse';
-import { normalizeWorldEventPayload } from './services/dispatches';
-import { EventFeed, type FeedItem } from './components/Game/EventFeed';
-import { countUnread, markItemRead, markAllRead } from './components/Game/feedUnread';
-import { NewsFlash } from './components/Game/NewsFlash';
-import { ActionsPanel } from './components/Game/ActionsPanel';
-import { NationDock } from './components/Game/NationDock';
-import { normalizeResources } from './components/Game/nationDossier';
-import { FeasibilityCheck } from './components/Game/FeasibilityCheck';
-import { GameOverOverlay } from './components/Game/GameOverOverlay';
-import type { FeasibilityResult } from './components/Game/FeasibilityCheck';
-import { useOrderDraftStore } from './stores/orderDraftStore';
-import { SimulationEventReader, type PlaybackReaderState } from './components/Game/SimulationEventReader';
-import { CommandRail } from './components/Shell/CommandRail';
-import { DeskContent } from './components/Shell/DeskContent';
-import { GameMenu } from './components/Shell/GameMenu';
-import { ProvinceInspector } from './components/Shell/ProvinceInspector';
-import { GameShell } from './components/Shell/GameShell';
-import { ConfirmDialog } from './components/ui/ConfirmDialog';
+import { useGameStore, useUIStore } from './stores';
+import { useNationSnapshot } from './hooks/useNationSnapshot';
+import { useWorldTimeline } from './hooks/useWorldTimeline';
+import { useFeed } from './hooks/useFeed';
+import { useOrderQueue } from './hooks/useOrderQueue';
+import { useSimulationPlayback } from './hooks/useSimulationPlayback';
+import { useSimulationStream } from './hooks/useSimulationStream';
+import { useWorldAdvance } from './hooks/useWorldAdvance';
+import { useResumeSave } from './hooks/useResumeSave';
+import { useShellState } from './hooks/useShellState';
+import { useAppLifecycle } from './hooks/useAppLifecycle';
+import { CountryStage } from './components/Game/CountryStage';
+import { GameScreen } from './components/Game/GameScreen';
+import { GameModals } from './components/Game/GameModals';
 import { useToast } from './components/ui/ToastProvider';
 
-// DISATTIVATO: editor mappe (temporaneo) — helper punti nel path SVG usato solo
-// al salvataggio mappe dall’editor (handleSaveMapLocal/handleSaveMap)
-// // Funzione di supporto: punti nel path SVG
-// const pointsToPath = (points: { x: number; y: number }[]): string => {
-//   if (points.length === 0) return '';
-//   return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-// };
-
-/** Traduce gli errori tecnici del provider in un messaggio operativo breve. */
-const simulationErrorMessage = (error: unknown): string => {
-  const raw = error instanceof Error ? error.message : String(error || '');
-  const marker = raw.indexOf(' - ');
-  const payload = marker >= 0 ? raw.slice(marker + 3) : raw;
-  let detail = payload;
-  try {
-    const parsed = JSON.parse(payload);
-    if (parsed?.error) detail = String(parsed.error);
-  } catch { /* risposta non JSON */ }
-  if (/\b401\b|unauthori[sz]ed|authentication/i.test(detail)) {
-    return 'Chiave API assente o non valida: apri “Modello”, inserisci la chiave del provider e salva.';
-  }
-  return detail && detail.length < 240
-    ? `Elaborazione non riuscita: ${detail}`
-    : 'Elaborazione non riuscita. Controlla il modello IA e riprova.';
-};
-
-// Funzione di supporto: formattazione intervallo di date
-const formatDateRange = (start: string, end: string): string => {
-  try {
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-
-    const months = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
-
-    const startStr = `${startDate.getDate()} ${months[startDate.getMonth()]} ${startDate.getFullYear()}`;
-    const endStr = `${endDate.getDate()} ${months[endDate.getMonth()]} ${endDate.getFullYear()}`;
-
-    return `${startStr} — ${endStr}`;
-  } catch {
-    return `${start} — ${end}`;
-  }
-};
+// DISATTIVATO: editor mappe (temporaneo) — helper e wiring di riattivazione in
+// components/Editor/REATTIVAZIONE_EDITOR.md
 
 function App() {
   const { notify } = useToast();
 
   // Stores
   const {
-    currentGame, currentWorld, selectedRegion, history, pendingActions, changedRegions,
-    generatedWorld, selectedCountry,
-    setCurrentGame, setCurrentWorld, setSelectedRegion, setHistory, addHistory,
-    setPendingActions, addPendingAction, removePendingAction, clearPendingActions,
-    setChangedRegions, clearChangedRegions, setGeneratedWorld, setSelectedCountry,
-    reset: resetGame
+    currentGame,
+    setCurrentGame, setCurrentWorld, setSelectedRegion,
   } = useGameStore();
 
   const {
-    currentView, loading, showJumpMenu, jumpDays, showSavesMenu,
-    showPromptEditor, editingPrompt,
-    activeModule, actionsMaximized, actionsSize, isResizing,
+    currentView, loading,
+    activeModule,
     // DISATTIVATO: editor mappe (temporaneo) — selectedMapForWorld, savedMaps,
     selectedTemplate,
-    setCurrentView, setLoading, setShowJumpMenu, setJumpDays, setShowSavesMenu,
-    setShowPromptEditor, setEditingPrompt,
-    openModule, closeModule, toggleModule,
-    setActionsMaximized, setActionsSize, setIsResizing,
+    setCurrentView, setLoading,
     // DISATTIVATO: editor mappe (temporaneo) — setSelectedMapForWorld, setSavedMaps, addSavedMap,
     setSelectedTemplate,
-    resetUI
   } = useUIStore();
 
-  // U01 µ1: un solo modulo attivo alla volta. I valori legacy (showActions,
-  // panelOpen, panelTab) sono DERIVATI da activeModule, non più booleans
-  // concorrenti. panelSheetOpen resta un dettaglio visivo del pannello Nazione.
-  const showActions = activeModule !== 'none' && activeModule !== 'nation';
-  const panelOpen = activeModule === 'nation';
-  const moduleToPanelTab = (m: ActiveModule): FloatingPanelTab => {
-    switch (m) {
-      case 'orders': return 'suggestions';
-      case 'diplomacy': return 'chats';
-      case 'advisor': return 'advisor';
-      case 'news': return 'news';
-      case 'nation': return 'nation';
-      case 'none': return 'suggestions';
-    }
-  };
-  const panelTab = moduleToPanelTab(activeModule);
-
+  // Fase 2: coda ordini, suggerimenti, modifica e fattibilità vivono in `useOrderQueue`.
+  const ordersBundle = useOrderQueue({ gameId: currentGame?.id || null });
   const {
-    suggestions,
-    setSuggestions, clearSuggestions,
-    reset: resetActions
-  } = useActionsStore();
-
-  // U02 µ1: bozza d'ordine (compositore libero). Stato puro in orderDraft.ts.
-  const {
-    text: orderDraftText,
-    enhancedPreview,
-    enhanceLoading,
-    enhanceError,
-    update: updateOrderDraft,
-    startEnhance: startOrderEnhance,
-    enhanceSuccess: orderEnhanceSuccess,
-    enhanceFailure: orderEnhanceFailure,
-    acceptEnhanced: acceptOrderEnhanced,
-    rejectEnhanced: rejectOrderEnhanced,
-    clear: clearOrderDraft,
-  } = useOrderDraftStore();
-
-  // Brainstorm di azioni: stato e messaggio sono visibili anche al primo caricamento.
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [suggestionsError, setSuggestionsError] = useState('');
-
-  // Modifica di un ordine in coda prima della presa in carico (G04 / §6.1).
-  const [editingActionId, setEditingActionId] = useState<string | null>(null);
-  const [editingActionText, setEditingActionText] = useState('');
-
-  // Provincia selezionata per ispettore (click su mappa)
-  const [selectedProvinceId, setSelectedProvinceId] = useState<string | null>(null);
-
-  // Legenda mappa: livello attivo e filtri
-  const [mapLegendLayer, setMapLegendLayer] = useState<'political' | 'terrain' | 'changes'>('political');
-  const [mapLegendFilters, setMapLegendFilters] = useState({
-    showCities: true,
-    showPorts: true,
-    showIndustry: true,
-    showUnits: true,
-  });
-
+    setEditingActionId,
+    setEditingActionText,
+    showFeasibility,
+    setShowFeasibility,
+    verifyingText,
+    feasibilityResult,
+    feasibilityLoading,
+    feasibilityError,
+    handleFeasibilityRegister,
+    handleFeasibilityBack,
+    handleFeasibilityReverify,
+  } = ordersBundle;
 
   // Fase 3: Consulente live (tab del pannello flottante) + chat diplomatiche riattivate.
-  const totalUnread = useChatStore(selectTotalUnread);
 
-  // Timeline del mondo: eventi del turno correnti + fetch quando il pannello si apre
-  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
-  const [timelineLoading, setTimelineLoading] = useState(false);
-  const [timelineError, setTimelineError] = useState('');
-  const [ongoingProcesses, setOngoingProcesses] = useState<Array<{
-    id: string; title: string; summary: string; started_date: string; expected_date?: string | null;
-    progress?: number | null; progress_note?: string | null;
-  }>>([]);
-  const [completedProcesses, setCompletedProcesses] = useState<Array<{
-    id: string; title: string; summary: string; started_date: string; expected_date?: string | null;
-    completed_date?: string | null;
-  }>>([]);
-  const timelineRequestRef = useRef(0);
-  const promptEditorRef = useRef<HTMLTextAreaElement>(null);
-  const [timelineHasMore, setTimelineHasMore] = useState(false);
-  const [timelineNextAfter, setTimelineNextAfter] = useState(0);
-  const [timelineLoadingOlder, setTimelineLoadingOlder] = useState(false);
-  const handleTimelineOpen = async () => {
-    const requestedGameId = currentGame?.id;
-    if (!requestedGameId) return;
-    const requestId = ++timelineRequestRef.current;
-    setTimelineLoading(true);
-    setTimelineError('');
-    try {
-      const [data, processData] = await Promise.all([
-        gameApi.timeline(requestedGameId, { after: 0, limit: 200 }),
-        gameApi.ongoingProcesses(requestedGameId),
-      ]);
-      if (requestId === timelineRequestRef.current && useChatStore.getState().gameId === requestedGameId) {
-        setTimeline(data.timeline || []);
-        setTimelineHasMore(Boolean(data.hasMore));
-        setTimelineNextAfter(data.nextAfter ?? 0);
-        setOngoingProcesses(processData.processes || []);
-        setCompletedProcesses(processData.completed || []);
-      }
-    } catch (e) {
-      console.error('[App] Impossibile caricare la timeline:', e);
-      if (requestId === timelineRequestRef.current) {
-        setTimelineError(e instanceof Error ? e.message : 'Impossibile caricare la timeline.');
-      }
-    } finally {
-      if (requestId === timelineRequestRef.current) setTimelineLoading(false);
-    }
-  };
+  const currentGameId = currentGame?.id || null;
 
-  // §11.3 — recupero progressivo della cronaca persistita (paginazione).
-  const loadOlderTimeline = async () => {
-    const requestedGameId = currentGame?.id;
-    if (!requestedGameId || timelineLoadingOlder || !timelineHasMore) return;
-    const requestId = timelineRequestRef.current;
-    setTimelineLoadingOlder(true);
-    try {
-      const data = await gameApi.timeline(requestedGameId, { after: timelineNextAfter, limit: 200 });
-      if (requestId === timelineRequestRef.current && useChatStore.getState().gameId === requestedGameId) {
-        setTimeline(prev => {
-          const seen = new Set(prev.map(e => e.turn));
-          return [...prev, ...(data.timeline || []).filter(e => !seen.has(e.turn))];
-        });
-        setTimelineHasMore(Boolean(data.hasMore));
-        setTimelineNextAfter(data.nextAfter ?? timelineNextAfter);
-      }
-    } catch (e) {
-      console.error('[App] Impossibile caricare la cronaca precedente:', e);
-    } finally {
-      if (requestId === timelineRequestRef.current) setTimelineLoadingOlder(false);
-    }
-  };
+  // Fase 2: cronaca e processi (timeline, paginazione) vivono in `useWorldTimeline`.
+  const timelineBundle = useWorldTimeline({ gameId: currentGameId, currentTurn: currentGame?.currentTurn });
+  const {
+    setTimeline,
+    setTimelineHasMore,
+    setTimelineNextAfter,
+    setOngoingProcesses,
+    setCompletedProcesses,
+    handleTimelineOpen,
+    resetTimeline,
+  } = timelineBundle;
+
 
   // Collegamento di chatStore alla partita corrente (cambiando partita il feed del consulente si azzera)
-  const currentGameId = currentGame?.id || null;
-  const [nationalAccounts, setNationalAccounts] = useState<Record<string, any>>({});
-  // Storico dei conti del paese giocatore: alimenta le tendenze del Dossier.
-  const [nationalHistory, setNationalHistory] = useState<Array<{ date: string; turn?: number; account: Record<string, any> }>>([]);
-  // Magazzino materiale del paese giocatore (cibo, vestiario, armamenti,
-  // carburante, denaro, ricerca e tecnologie).
-  const [nationalResources, setNationalResources] = useState<Awaited<ReturnType<typeof normalizeResources>>>(null);
-  // Arsenale militare e risorse naturali reali del paese giocatore.
-  const [nationalArms, setNationalArms] = useState<Awaited<ReturnType<typeof gameApi.arsenal>> | null>(null);
-  // Anime del governo e dettaglio del bilancio: pubblicati dal motore nel
-  // national-state; la pagina Governo del dossier li legge, non li stima.
-  const [nationalGovernment, setNationalGovernment] = useState<GovernmentSnapshot | null>(null);
-  // Politica fiscale scelta dal giocatore: aliquota, limiti ed effetti.
-  const [nationalFiscalPolicy, setNationalFiscalPolicy] = useState<FiscalPolicyInfo | null>(null);
-  const [fiscalPolicyBusy, setFiscalPolicyBusy] = useState(false);
-  // Sfide di pace attive e ultime chiuse: generate dal motore, scelte dal giocatore.
-  const [nationalPressures, setNationalPressures] = useState<PeacetimePressure[]>([]);
-  const [recentPressures, setRecentPressures] = useState<PeacetimePressure[]>([]);
-  const [pressureBusy, setPressureBusy] = useState(false);
-  // Crisi nazionale: rischi di rivolta, default e invasione. Se la nazione
-  // cade, `gameEnding` porta l'epilogo e la partita si chiude.
-  const [nationalCrisis, setNationalCrisis] = useState<CrisisSnapshot | null>(null);
-  const [gameEnding, setGameEnding] = useState<GameEnding | null>(null);
-  // Voci delle anime del governo: generate dall'LLM su richiesta quando si apre
-  // la scheda Governo, valide per il turno corrente.
-  const [governmentVoices, setGovernmentVoices] = useState<GovernmentVoicesResponse | null>(null);
-  const [governmentVoicesLoading, setGovernmentVoicesLoading] = useState(false);
-  const [governmentVoicesError, setGovernmentVoicesError] = useState<string | null>(null);
-  const [mandateDecisions, setMandateDecisions] = useState<Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>>([]);
-  useEffect(() => {
-    const chatStore = useChatStore.getState();
-    chatStore.setGameId(currentGameId);
-    timelineRequestRef.current++;
-    setTimeline([]);
-    setTimelineError('');
-    setTimelineLoading(false);
-    setFeedItems([]); // la cronaca riparte dalla timeline della nuova partita
-    if (currentGameId) chatStore.refreshChats();
-  }, [currentGameId]);
+  // Fase 2: lo stato del Dossier Nazione — conti, storico, magazzino, arsenale,
+  // governo, fisco, sfide di pace, crisi, voci del consiglio e promemoria dei
+  // mandati — e le azioni che lo mutano vivono in `useNationSnapshot`.
+  const nationBundle = useNationSnapshot({ gameId: currentGameId, currentTurn: currentGame?.currentTurn, notify });
+  const {
+    setNationalAccounts,
+    setNationalHistory,
+    setNationalGovernment,
+    setNationalCrisis,
+    gameEnding,
+    setGameEnding,
+    setGovernmentVoices,
+    setGovernmentVoicesError,
+  } = nationBundle;
 
-  // Chiavi API solo-browser, con fallback per provider (services/llmKeyStore.ts): a ogni
-  // apertura di partita (o avvio app) chiediamo al server la config attiva e
-  // reinviamo la chiave salvata per quel modello o endpoint del provider — il
-  // server non la conserva né su disco né tra un riavvio e l'altro.
-  const rehydrateBrowserApiKey = useCallback(async () => {
-    try {
-      const cfg = await llmApi.config();
-      const d = cfg.default;
-      migrateLegacyKey(d.provider || '', d.baseUrl || '', d.model || '');
-      const storedKey = getStoredKey(d.provider || '', d.baseUrl || '', d.model || '');
-      if (!storedKey) return;
-      await llmApi.save({
-        default: { apiKey: storedKey },
-        persistApiKey: false,
-      });
-    } catch { /* silenzioso: la UI segnalerà comunque un eventuale errore LLM */ }
-  }, []);
-
-  useEffect(() => {
-    void rehydrateBrowserApiKey();
-  }, [currentGameId, rehydrateBrowserApiKey]);
+  // Fase 2: ciclo di vita di sessione (chat, pannello, chiavi LLM) in `useAppLifecycle`.
+  const { rehydrateBrowserApiKey } = useAppLifecycle({
+    gameId: currentGameId,
+    activeModule,
+    resetTimeline,
+  });
 
   // ── Cronaca live (feed eventi sempre in vista) ─────────────────────────
   // Accumula gli eventi di TUTTI i turni (azione del giocatore + simulazione
   // live del mondo). I «live» sono gli eventi jump che arrivano in streaming
   // durante l'elaborazione; i «world» arrivano dal battito del mondo.
-  const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
-  /** Dispacci arrivati ora: mostrati uno per volta, mai dalla timeline storica. */
-  const [newsQueue, setNewsQueue] = useState<FeedItem[]>([]);
-  const [newsOpen, setNewsOpen] = useState(false);
-  const announcedNewsIdsRef = useRef(new Set<string>());
-  const feedSeqRef = useRef(0);
-  const streamedEventCountRef = useRef(0);
-  const activeSimulationIdRef = useRef<string | undefined>();
+  // Fase 2: cronaca live, coda delle notizie e stato di lettura vivono in `useFeed`.
+  const feedBundle = useFeed({ gameId: currentGameId, setTimeline });
+  const {
+    setFeedItems,
+    pushFeed,
+    publishEventDetails,
+  } = feedBundle;
+
   // La nazione è un modulo su richiesta: non riaprire mai il dossier rimasto
   // dall'ultima sessione sopra la mappa (activeModule parte da 'none').
 
-  const pushFeed = useCallback((
-    text: string,
-    kind: FeedItem['kind'],
-    date?: string,
-    detail?: string,
-    eventId?: string,
-    announce = true,
-    /** G4-C: regioni toccate dall'evento, per «Mostra sulla mappa». */
-    regionIds?: string[],
-  ) => {
-    // Gli eventi provenienti dal server hanno un ID stabile: riusarlo rende
-    // innocui replay SSE, riconnessioni e refetch della cronaca.
-    const item: FeedItem = {
-      id: eventId ? `tl-${eventId}` : `f${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      text,
-      kind,
-      date,
-      detail,
-      regionIds: regionIds?.length ? regionIds : undefined,
-      // Ogni nuovo dispaccio arriva da leggere; l'archivio viene marcato letto
-      // al pre-caricamento della timeline.
-      read: false,
-    };
-    setFeedItems(prev => {
-      if (eventId && prev.some(existing => existing.id === item.id)) return prev;
-      const next = [...prev, item];
-      // Cap: tieni gli ultimi 120 eventi
-      return next.length > 120 ? next.slice(next.length - 120) : next;
-    });
-    // Solo il flusso live/SSE mette la notizia in primo piano. La timeline
-    // ricaricata è archivio e non deve riaprire vecchie notizie.
-    if (announce && !announcedNewsIdsRef.current.has(item.id)) {
-      announcedNewsIdsRef.current.add(item.id);
-      setNewsQueue(prev => [...prev, item]);
-      setNewsOpen(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    announcedNewsIdsRef.current.clear();
-    setNewsQueue([]);
-    setNewsOpen(false);
-  }, [currentGameId]);
-
-  /** Riconcilia i dettagli restituiti via HTTP con lo stesso feed dell'SSE.
-   * Gli ID canonici rendono innocui ordine di arrivo e duplicati per azione. */
-  const publishEventDetails = useCallback((details: any[]) => {
-    const unique = new Map<string, any>();
-    for (const detail of details || []) {
-      if (!detail?.headline) continue;
-      const key = detail.id || `${detail.date || ''}|${detail.headline}`;
-      if (!unique.has(key)) unique.set(key, detail);
-    }
-    for (const detail of unique.values()) {
-      pushFeed(detail.headline, 'world', detail.date, detail.detail, detail.id, true);
-    }
-  }, [pushFeed]);
-
-  /** Segna un dispaccio come letto (apertura articolo o dismissione notizia). */
-  const markFeedRead = useCallback((id: string) => {
-    setFeedItems(prev => markItemRead(prev, id));
-  }, []);
-
-  /** «Segna tutti come letti» dal pannello Dispacci. */
-  const markAllFeedRead = useCallback(() => {
-    setFeedItems(prev => markAllRead(prev));
-  }, []);
-
-  const dismissNews = (showNext: boolean) => {
-    const current = newsQueue[0];
-    if (current) markFeedRead(current.id);
-    const hasNext = newsQueue.length > 1;
-    setNewsQueue(prev => prev.slice(1));
-    setNewsOpen(showNext && hasNext);
-  };
-
-  /** Dispacci ancora da leggere: il badge della HUD mostra questo, non il totale. */
-  const unreadFeedCount = React.useMemo(() => countUnread(feedItems), [feedItems]);
-
-  // Al cambio partita: prediscarica la cronaca storica dalla timeline
-  useEffect(() => {
-    if (!currentGameId) return;
-    let cancelled = false;
-    const refreshTimeline = () => gameApi.timeline(currentGameId)
-      .then(data => {
-        if (cancelled) return;
-        const items: FeedItem[] = [];
-        for (const entry of data.timeline || []) {
-          for (const ev of entry.events || []) {
-            items.push({ id: `tl-${ev.id}`, date: ev.date, text: ev.headline, detail: ev.detail || entry.narration, kind: 'timeline', read: true });
-          }
-        }
-        setTimeline(data.timeline || []);
-        setFeedItems(prev => {
-          // SSE è istantaneo quando il proxy lo consente; questo merge è il
-          // recupero affidabile quando lo stream viene chiuso dal proxy.
-          // I dispacci già presenti conservano il loro stato di lettura.
-          const byId = new Map(prev.map(item => [item.id, item]));
-          for (const item of items) if (!byId.has(item.id)) byId.set(item.id, item);
-          return [...byId.values()].slice(-120);
-        });
-      })
-      .catch(e => console.warn('[App] Feed: impossibile aggiornare la timeline:', e));
-    void refreshTimeline();
-    const timer = window.setInterval(() => void refreshTimeline(), 15_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [currentGameId]);
-
-
-  // Il bollettino usa dati aggregati dal motore, non formule del browser.
-  useEffect(() => {
-    if (!currentGameId) { setNationalAccounts({}); setNationalHistory([]); setNationalResources(null); setNationalArms(null); setNationalGovernment(null); setNationalFiscalPolicy(null); setNationalPressures([]); setRecentPressures([]); setNationalCrisis(null); setGameEnding(null); setGovernmentVoices(null); setGovernmentVoicesError(null); setMandateDecisions([]); return; }
-    // Cambia il turno: le voci del consiglio appartengono al turno e vanno rigenerate.
-    setGovernmentVoices(null);
-    setGovernmentVoicesError(null);
-    let cancelled = false;
-    // Il conto nazionale è disponibile anche nei giochi legacy; le decisioni
-    // mandato appartengono invece solo al percorso strict e un 409 significa
-    // semplicemente «nessuna decisione applicabile», non un errore del dossier.
-    gameApi.nationalState(currentGameId)
-      .then((national) => { if (!cancelled) { setNationalAccounts(national.accounts || {}); setNationalHistory(national.history || []); setNationalResources(normalizeResources(national.resources)); setNationalGovernment(national.government ?? null); setNationalFiscalPolicy(national.fiscalPolicy ?? null); setNationalCrisis(national.crisis ?? null); setGameEnding(national.crisis?.ending ?? null); } })
-      .catch(error => console.warn('[App] Impossibile caricare il conto nazionale:', error));
-    // Le sfide di pace nascono dal motore e vivono nel dossier: leggerle qui
-    // evita che un turno senza sfide visibili sembri vuoto.
-    gameApi.peacetimePressures(currentGameId)
-      .then((data) => { if (!cancelled) { setNationalPressures(data.pressures || []); setRecentPressures(data.recent || []); } })
-      .catch(error => console.warn('[App] Impossibile caricare le sfide del momento:', error));
-    // I progetti in corso portano la percentuale di realizzazione calcolata dal
-    // motore: senza questa lettura il Dossier restava senza avanzamento.
-    gameApi.ongoingProcesses(currentGameId)
-      .then((processData) => { if (!cancelled) { setOngoingProcesses(processData.processes || []); setCompletedProcesses(processData.completed || []); } })
-      .catch(error => console.warn('[App] Impossibile caricare i processi in corso:', error));
-    gameApi.arsenal(currentGameId)
-      .then((arms) => { if (!cancelled) setNationalArms(arms); })
-      .catch(error => console.warn('[App] Impossibile caricare l’arsenale:', error));
-    gameApi.mandateDecisions(currentGameId)
-      .then((decisions) => { if (!cancelled) setMandateDecisions(decisions.decisions || []); })
-      .catch((error: any) => {
-        if (!cancelled) setMandateDecisions([]);
-        if (error?.status !== 409) console.warn('[App] Impossibile caricare le decisioni mandato:', error);
-      });
-    return () => { cancelled = true; };
-  }, [currentGameId, currentGame?.currentTurn]);
-
-  const acknowledgeMandateDecision = async (mandateId: string, kind: string) => {
-    if (!currentGame) return;
-    try {
-      await gameApi.acknowledgeMandateDecision(currentGame.id, mandateId, kind);
-      setMandateDecisions((previous) => previous.filter((item) => !(item.mandateId === mandateId && item.kind === kind)));
-      notify('Promemoria del mandato registrato.', 'success');
-    } catch (error) {
-      console.error('[App] Impossibile registrare la decisione mandato:', error);
-      notify('Impossibile registrare il promemoria del mandato.', 'error');
-    }
-  };
-
-  // Una fazione del governo propone: la richiesta diventa una bozza d'ordine
-  // reale nel compositore. Nessuna spesa finché l'ordine non è registrato e il
-  // tempo non avanza; il giocatore resta l'unico a decidere.
-  const draftGovernmentPetition = useCallback((text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    updateOrderDraft(trimmed);
-    openModule('orders');
-    notify('Richiesta portata in consiglio: completa l’ordine e registralo.', 'info');
-  }, [updateOrderDraft, openModule, notify]);
-
-  // Le anime del governo parlano con il motore LLM: una chiamata on-demand per
-  // turno, quando il giocatore apre la scheda Governo. Se il modello non
-  // risponde, la scheda resta utilizzabile con la richiesta deterministica.
-  const governmentVoicesRequestedRef = useRef<string | null>(null);
-  const loadGovernmentVoices = useCallback(async () => {
-    if (!currentGameId) return;
-    // Un tentativo per turno: un errore non deve innescare un ciclo di retry.
-    const requestKey = `${currentGameId}:${currentGame?.currentTurn ?? 0}`;
-    if (governmentVoicesRequestedRef.current === requestKey) return;
-    governmentVoicesRequestedRef.current = requestKey;
-    setGovernmentVoicesLoading(true);
-    setGovernmentVoicesError(null);
-    try {
-      const voices = await gameApi.governmentVoices(currentGameId);
-      setGovernmentVoices(voices);
-    } catch (error) {
-      console.warn('[App] Impossibile far parlare il consiglio:', error);
-      setGovernmentVoicesError('Il consiglio non ha risposto: restano le richieste ufficiali.');
-    } finally {
-      setGovernmentVoicesLoading(false);
-    }
-  }, [currentGameId, currentGame?.currentTurn]);
-
-  // Costruisci o importa equipaggiamento: aggiorna arsenale e scorte.
-  const procureEquipment = useCallback(async (mode: 'build' | 'buy', equipmentId: string, quantity = 1) => {
-    if (!currentGameId) return;
-    try {
-      const result = await gameApi.procure(currentGameId, mode, equipmentId, quantity);
-      if (result.complete) {
-        notify(`Importati ${result.quantity} × ${result.name}.`, 'success');
-      } else {
-        notify(`Ordine avviato: ${result.quantity} × ${result.name} — completamento ${result.order?.progress ?? 0}%.`, 'success');
-      }
-      if (result.financedMln > 0) {
-        notify(`Spesa finanziata a debito: ${(result.financedMln / 1000).toFixed(3)} mld (debito ${result.debtMld.toFixed(2)} mld).`, 'info');
-      }
-      const [arms, national] = await Promise.all([
-        gameApi.arsenal(currentGameId),
-        gameApi.nationalState(currentGameId),
-      ]);
-      setNationalArms(arms);
-      setNationalResources(normalizeResources(national.resources));
-      setNationalAccounts(national.accounts || {});
-      setNationalGovernment(national.government ?? null);
-    } catch (error: any) {
-      console.error('[App] Procurement fallito:', error);
-      const message = String(error?.message || '');
-      const reason = message.includes('credit_exhausted') ? 'Cassa e credito insufficienti: debito al limite.'
-        : message.includes('build_unavailable') ? 'Capacità insufficienti per costruire questa arma.'
-        : message.includes('equipment_quantity_invalid') ? 'Quantità richiesta troppo grande.'
-        : 'Acquisto non riuscito.';
-      notify(reason, 'error');
-    }
-  }, [currentGameId]);
-
-  // Vendi o compra una risorsa naturale sul mercato: denaro ↔ magazzino.
-  const tradeNaturalResource = useCallback(async (mode: 'sell' | 'buy', resourceId: string, quantity: number) => {
-    if (!currentGameId) return;
-    try {
-      const result = await gameApi.tradeResource(currentGameId, mode, resourceId, quantity);
-      notify(
-        `${mode === 'sell' ? 'Vendute' : 'Comprate'} ${result.quantity} unità di ${result.quote.label} per ${result.total} mld.`,
-        'success',
-      );
-      const national = await gameApi.nationalState(currentGameId);
-      setNationalResources(normalizeResources(national.resources));
-      setNationalGovernment(national.government ?? null);
-    } catch (error: any) {
-      console.error('[App] Scambio risorsa fallito:', error);
-      const message = String(error?.message || '');
-      const reason = message.includes('insufficient_stockpile') ? 'Magazzino insufficiente per vendere.'
-        : message.includes('insufficient_money') ? 'Cassa insufficiente per comprare.'
-        : message.includes('resource_not_held') ? 'La nazione non possiede questa risorsa.'
-        : message.includes('unknown_resource') ? 'Risorsa sconosciuta.'
-        : 'Scambio non riuscito.';
-      notify(reason, 'error');
-    }
-  }, [currentGameId]);
-
-  // La nazione fa debito: emette titoli per cassa, con interessi e scadenza.
-  const borrowSovereignDebt = useCallback(async (amountMld: number, termYears: number) => {
-    if (!currentGameId) return;
-    try {
-      const result = await gameApi.borrowDebt(currentGameId, amountMld, termYears);
-      notify(
-        `Emessi ${result.tranche.principal.toFixed(2)} mld al ${result.tranche.annualRatePct}% a ${termYears} anni: cassa in aumento, interessi ${result.annualInterest.toFixed(2)} mld/anno.`,
-        'success',
-      );
-      const national = await gameApi.nationalState(currentGameId);
-      setNationalResources(normalizeResources(national.resources));
-      setNationalAccounts(national.accounts || {});
-      setNationalGovernment(national.government ?? null);
-    } catch (error: any) {
-      console.error('[App] Emissione di debito fallita:', error);
-      const message = String(error?.message || '');
-      const reason = message.includes('credit_exhausted') ? 'Tetto di credito raggiunto: il mercato non presta oltre.'
-        : message.includes('amount_invalid') ? 'Importo non valido: indica una cifra positiva.'
-        : 'Emissione non riuscita.';
-      notify(reason, 'error');
-    }
-  }, [currentGameId]);
-
-  // Politica fiscale: il giocatore sceglie l'aliquota; il motore ricalcola
-  // entrate, saldo, stabilità, tensione e crescita. Una manovra brusca lascia
-  // un costo politico transitorio (modificatore che poi decade).
-  const setFiscalPolicy = useCallback(async (taxRatePct: number) => {
-    if (!currentGameId) return;
-    setFiscalPolicyBusy(true);
-    try {
-      const result = await gameApi.setFiscalPolicy(currentGameId, taxRatePct);
-      setNationalFiscalPolicy(result.policy);
-      notify(result.note, 'success');
-      const national = await gameApi.nationalState(currentGameId);
-      setNationalAccounts(national.accounts || {});
-      setNationalGovernment(national.government ?? null);
-      setNationalFiscalPolicy(national.fiscalPolicy ?? result.policy);
-    } catch (error: any) {
-      console.error('[App] Cambio della politica fiscale fallito:', error);
-      notify('Modifica della pressione fiscale non riuscita.', 'error');
-    } finally {
-      setFiscalPolicyBusy(false);
-    }
-  }, [currentGameId]);
-
-  // Risposta a una sfida di pace: modificatori, cassa e relazioni applicati dal
-  // motore; poi si rilegge lo stato per allineare dossier e conti.
-  const resolvePressure = useCallback(async (pressureId: string, optionId: string) => {
-    if (!currentGameId) return;
-    setPressureBusy(true);
-    try {
-      const result = await gameApi.resolvePeacetimePressure(currentGameId, pressureId, optionId);
-      notify(result.effect?.note || 'Sfida affrontata.', 'success');
-      setNationalPressures((previous) => previous.filter((item) => item.id !== pressureId));
-      setRecentPressures((previous) => [result.pressure, ...previous].slice(0, 6));
-      const [national, pressures] = await Promise.all([
-        gameApi.nationalState(currentGameId),
-        gameApi.peacetimePressures(currentGameId),
-      ]);
-      setNationalAccounts(national.accounts || {});
-      setNationalGovernment(national.government ?? null);
-      setNationalResources(normalizeResources(national.resources));
-      setNationalPressures(pressures.pressures || []);
-      setRecentPressures(pressures.recent || []);
-    } catch (error: any) {
-      console.error('[App] Risposta alla sfida fallita:', error);
-      notify(String(error?.message || 'Non è stato possibile rispondere alla sfida.'), 'error');
-    } finally {
-      setPressureBusy(false);
-    }
-  }, [currentGameId]);
-
-  useEffect(() => {
-    useChatStore.getState().setChatPanelVisible(
-      Boolean(showActions && panelTab === 'chats' && currentGameId)
-    );
-  }, [activeModule, currentGameId]);
-
-  // Refs (not in store - DOM refs)
-  const actionsRef = useRef<HTMLDivElement>(null);
-  const historyEndRef = useRef<HTMLDivElement>(null);
-
-  // Scorri la cronologia in basso
-  useEffect(() => {
-    historyEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [history]);
-
-  // Resize handler for actions panel
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing || !actionsRef.current) return;
-      const rect = actionsRef.current.getBoundingClientRect();
-      const newWidth = Math.max(300, Math.min(800, e.clientX - rect.left));
-      const newHeight = Math.max(300, Math.min(700, window.innerHeight - rect.top - 20));
-      setActionsSize({ width: newWidth, height: newHeight });
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isResizing, setActionsSize, setIsResizing]);
-
-  // DISATTIVATO: editor mappe (temporaneo) — caricamento mappe salvate per «Le mie mappe»/editor
-  // useEffect(() => {
-  //   const loadMaps = async () => {
-  //     const maps: LocalMap[] = [];
-  //
-  //     try {
-  //       const serverMaps = await mapApi.list();
-  //       for (const m of serverMaps) {
-  //         try {
-  //           const fullMap = await mapApi.get(m.id);
-  //           maps.push({
-  //             id: `server_${m.id}`,
-  //             name: fullMap.name,
-  //             regions: fullMap.regions.map(r => ({
-  //               id: r.id,
-  //               name: r.name,
-  //               color: r.color,
-  //               path: r.path,
-  //             })),
-  //           });
-  //         } catch (e) { /* skip */ }
-  //       }
-  //     } catch (e) { /* skip */ }
-  //
-  //     for (let i = 0; i < localStorage.length; i++) {
-  //       const key = localStorage.key(i);
-  //       if (key?.startsWith('map_')) {
-  //         try {
-  //           const data = JSON.parse(localStorage.getItem(key) || '{}');
-  //           if (!maps.find(m => m.name === data.name)) {
-  //             maps.push({ id: key, ...data });
-  //           }
-  //         } catch (e) { /* skip */ }
-  //       }
-  //     }
-  //
-  //     setSavedMaps(maps);
-  //   };
-  //
-  //   loadMaps();
-  // }, [setSavedMaps]);
-
-  // DISATTIVATO: editor mappe (temporaneo) — salvataggio mappe, scelta mappa e creazione mondo
-  // da mappa personalizzata (handleSaveMapLocal / handleSaveMap / handleSelectMap / handleCreateWorld)
-  /*
-  // Salva la mappa localmente
-  const handleSaveMapLocal = (regions: EditorRegion[], mapName: string, objects?: EditorObject[]): LocalMap => {
-    const mapData: LocalMap = {
-      id: `map_${Date.now()}`,
-      name: mapName,
-      regions: regions.map(r => ({
-        id: r.id,
-        name: r.name,
-        color: r.color,
-        path: pointsToPath(r.points),
-      })),
-      objects: objects?.map(o => ({
-        id: o.id,
-        type: o.type,
-        name: o.name,
-        x: o.x,
-        y: o.y,
-        regionId: o.regionId,
-      })),
-    };
-    localStorage.setItem(mapData.id, JSON.stringify(mapData));
-    addSavedMap(mapData);
-    return mapData;
-  };
-
-  // Salva la mappa sul server
-  const handleSaveMap = async (regions: EditorRegion[], mapName: string, objects?: EditorObject[]) => {
-    setLoading(true);
-    const mapRegions = regions.map(r => ({
-      id: r.id,
-      name: r.name,
-      color: r.color,
-      path: pointsToPath(r.points),
-    }));
-
-    let serverMapId = null;
-    try {
-      const mapData = {
-        name: mapName,
-        width: 2000,
-        height: 1500,
-        regions: mapRegions,
-        objects: objects?.map(o => ({
-          id: o.id,
-          type: o.type,
-          name: o.name,
-          x: o.x,
-          y: o.y,
-          regionId: o.regionId,
-        })) || [],
-      };
-      const result = await mapApi.create(mapData);
-      serverMapId = result.id;
-      notify(`Mappa “${mapName}” salvata sul server.`, 'success');
-    } catch (e) {
-      console.warn('Failed to save map to server:', e);
-    }
-
-    const localMap = handleSaveMapLocal(regions, mapName, objects);
-    if (serverMapId) {
-      const updatedMap = { ...localMap, id: `server_${serverMapId}` };
-      localStorage.removeItem(localMap.id);
-      localStorage.setItem(updatedMap.id, JSON.stringify(updatedMap));
-      setSavedMaps(prev => prev.filter(m => m.id !== localMap.id).concat(updatedMap));
-    }
-
-    setCurrentView('menu');
-    setLoading(false);
-  };
-
-  // Scegli la mappa per creare il mondo
-  const handleSelectMap = (map: LocalMap) => {
-    setSelectedMapForWorld(map);
-    setCurrentView('create-world');
-  };
-
-  // Crea il mondo dalla configurazione
-  const handleCreateWorld = async (config: WorldConfig) => {
-    setLoading(true);
-
-    if (!selectedMapForWorld?.id.startsWith('server_')) {
-      notify('Prima salva la mappa sul server (pulsante “Salva” nell’editor di mappe).', 'info');
-      setLoading(false);
-      return;
-    }
-
-    const mapId = selectedMapForWorld.id.replace('server_', '');
-
-    const initialOwners = config.regions
-      .filter(r => r.owner !== 'neutral')
-      .map(r => ({ id: r.id, owner: r.owner }));
-
-    try {
-      const result = await worldApi.createFromMap({
-        mapId,
-        name: config.name,
-        description: config.description,
-        startDate: config.startDate,
-        basePrompt: config.basePrompt,
-        historicalAccuracy: config.historicalAccuracy / 100,
-        initialOwners,
-      });
-
-      const world = await worldApi.get(result.world_id);
-      const mapObjects = selectedMapForWorld?.objects || [];
-
-      const regions: Region[] = Object.values(world.regions || {}).map((r: any) => {
-        const regionObjects = mapObjects
-          .filter((o: any) => o.regionId === r.id)
-          .map((o: any) => ({
-            id: o.id,
-            type: o.type,
-            name: o.name,
-            x: o.x,
-            y: o.y,
-            level: 1,
-            metadata: {},
-          }));
-
-        return {
-          id: r.id,
-          name: r.name,
-          svgPath: r.svgPath,
-          color: r.color,
-          owner: r.owner || 'neutral',
-          population: r.population || 1000000,
-          gdp: r.gdp || 100,
-          militaryPower: r.militaryPower || 100,
-          objects: regionObjects,
-          borders: r.borders || [],
-          status: r.status || 'active',
-          metadata: {},
-        };
-      });
-
-      setCurrentWorld({
-        ...world,
-        regions: regions.reduce((acc: any, r) => { acc[r.id] = r; return acc; }, {}),
-      } as World);
-
-      const playerRegionInWorld = regions.find(r => r.owner === 'player');
-      const initialPlayerRegionId = playerRegionInWorld?.id || regions[0]?.id || null;
-
-      if (result.world_id && initialPlayerRegionId) {
-        try {
-          const gameResponse = await gameApi.create({
-            world_id: result.world_id,
-            player_name: 'Player',
-            player_region_id: initialPlayerRegionId,
-            difficulty,
-          });
-          const game = await gameApi.get(gameResponse.game_id);
-          setCurrentGame(game);
-
-          const playerRegionId = game.players[0]?.regionId || initialPlayerRegionId;
-          setSelectedRegion(playerRegionId);
-        } catch (e) {
-          console.error('[DEBUG] Failed to create game via API:', e);
-          setCurrentGame({
-            id: 'local_' + Date.now(),
-            world: { ...world, regions: regions.reduce((acc: any, r) => { acc[r.id] = r; return acc; }, {}) } as World,
-            players: [{ id: 'player_1', name: 'Player', regionId: initialPlayerRegionId, color: '#ff0000' }],
-            currentTurn: 1,
-            maxTurns: 100,
-            status: 'playing' as any,
-          } as Game);
-          setSelectedRegion(initialPlayerRegionId);
-        }
-      }
-
-      setCurrentView('game');
-    } catch (e) {
-      console.error('[DEBUG] Failed to create world via API:', e);
-      const mapObjects = selectedMapForWorld?.objects || [];
-      const regions: Region[] = selectedMapForWorld?.regions.map(r => {
-        const regionObjects = mapObjects
-          .filter((o: any) => o.regionId === r.id)
-          .map((o: any) => ({
-            id: o.id,
-            type: o.type,
-            name: o.name,
-            x: o.x,
-            y: o.y,
-            level: 1,
-            metadata: {},
-          }));
-
-        return {
-          id: r.id,
-          name: r.name,
-          svgPath: r.path,
-          color: r.color,
-          owner: 'neutral',
-          population: 1000000,
-          gdp: 100,
-          militaryPower: 100,
-          objects: regionObjects,
-          borders: [],
-          status: 'active' as any,
-          metadata: {},
-        };
-      }) || [];
-
-      const regionsWithOwner = regions.map(r => {
-        const ownerConfig = config.regions.find(cr => cr.id === r.id);
-        return {
-          ...r,
-          owner: ownerConfig?.owner || 'neutral',
-        };
-      });
-
-      setCurrentWorld({
-        id: selectedMapForWorld?.id || 'local',
-        name: selectedMapForWorld?.name || 'Local World',
-        description: 'Mappa locale',
-        startDate: '1951-01-01',
-        basePrompt: 'Storia alternativa',
-        historicalAccuracy: 0.8,
-        regions: regionsWithOwner.reduce((acc: any, r) => { acc[r.id] = r; return acc; }, {}),
-        blocs: {},
-      });
-
-      const playerConfigRegion = config.regions.find(cr => cr.owner === 'player');
-      const playerRegionId = playerConfigRegion?.id || regions[0]?.id || null;
-      setSelectedRegion(playerRegionId);
-
-      if (playerRegionId) {
-        setCurrentGame({
-          id: 'local_' + Date.now(),
-          world: { ...currentWorld, regions: regionsWithOwner.reduce((acc: any, r) => { acc[r.id] = r; return acc; }, {}) },
-          players: [{ id: 'player_1', name: 'Player', regionId: playerRegionId, color: '#ff0000' }],
-          currentTurn: 1,
-          maxTurns: 100,
-          status: 'playing' as any,
-        } as Game);
-      }
-
-      setCurrentView('game');
-    }
-    setLoading(false);
-  };
-  */
+  // DISATTIVATO: editor mappe (temporaneo) — caricamento mappe, salvataggio e
+  // creazione mondo da mappa: codice in components/Editor/REATTIVAZIONE_EDITOR.md
 
   // Invia le azioni (più di una)
-  const handleSubmitActions = async (actions: string[]) => {
-    if (!currentGame || actions.length === 0 || !selectedRegion) {
-      return;
-    }
-
-    setLoading(true);
-
-    const turn = currentGame.currentTurn;
-    const actionsText = actions.join(' | ');
-
-    if (currentGame.id.startsWith('local_')) {
-      addHistory({
-        turn,
-        action: actionsText,
-        result: `Il mondo ha reagito a ${actions.length} azioni in ${jumpDays} giorni...`,
-        date: `${jumpDays} giorni`,
-      });
-      setCurrentGame({ ...currentGame, currentTurn: turn + 1 });
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const result = await gameApi.submitAction({
-        game_id: currentGame.id,
-        player_id: currentGame.players[0].id,
-        text: actionsText,
-      });
-
-      // L'ordine è soltanto registrato. La data, mappa e cronaca restano
-      // intatte fino al comando esplicito dal pannello Timeline.
-      addPendingAction({ id: result.action.id, text: result.action.text });
-      const authoritativeQueue = await gameApi.getPendingActions(currentGame.id);
-      setPendingActions(authoritativeQueue.pendingActions || []);
-    } catch (e) {
-      // Un fallimento di registrazione non è un evento del mondo e non deve
-      // produrre una falsa voce nella cronaca.
-      console.error('Failed to queue action:', e);
-    }
-
-    setLoading(false);
-  };
-
   // Time-skip handler (Phase 4)
-  const handleTimeSkip = async (days: number) => {
-    if (!currentGame) return;
-    // §9.3/§9.2: un run in pausa possiede il turno. Un nuovo salto è rifiutato
-    // finché il giocatore non decide sul checkpoint mostrato.
-    if (pausedReader || currentGame.pausedSimulation?.simulationId) {
-      // Un refresh può arrivare prima della ricostruzione del lettore: il run
-      // server è comunque autorevole e va riaperto, mai aggirato con un salto.
-      if (!pausedReader) await restorePausedReader(currentGame);
-      setTurnProgress('⏸ Un evento attende la tua decisione: Continua o Intervieni prima di avanzare di nuovo.');
-      setTimeout(() => setTurnProgress(''), 5000);
-      return;
-    }
-
-    setLoading(true);
-    setIsProcessingTurn(true);
-    setTurnProgress('Avvio della simulazione…');
-    // F06 µ2: token di generazione — game switch e restore invalidano questa risposta.
-    const commandToken = useSimulationStore.getState().beginCommand();
-
-    try {
-      const idempotencyKey = typeof crypto?.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `jump-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const result = await gameApi.timeSkip(currentGame.id, days, idempotencyKey);
-      // F06 passo 3: guardia all’applicazione per risposte vecchie — un game
-      // switch o un restore avvenuti durante l’attesa scartano la risposta.
-      if (useSimulationStore.getState().isStale(commandToken)) return;
-
-      // F06 µ2: l’esito va allo stesso reducer di SSE e polling.
-      const sim = useSimulationStore.getState();
-      if (result.type === 'world_advanced' && result.revision) {
-        const details = result.result?.eventDetails || [];
-        for (const detail of details) {
-          sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: detail.id, payload: { event: { id: detail.id, date: detail.date, headline: detail.headline, detail: detail.detail, source: detail.source }, changedRegions: [] } });
-        }
-        publishEventDetails(details);
-        if (!result.result?.eventDetails?.length && result.simulationId) {
-          sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: result.simulationId, payload: { event: { id: result.simulationId, date: result.result?.periodEnd || '', headline: result.result?.narration || 'Periodo', source: 'world' }, changedRegions: [] } });
-        }
-      }
-      if (result.type === 'actions_processed' && result.revision) {
-        const details = (result.actions || []).flatMap(a => a.result?.eventDetails || []);
-        for (const detail of details) {
-          sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: detail.id, payload: { event: { id: detail.id, date: detail.date, headline: detail.headline, detail: detail.detail, source: detail.source }, changedRegions: [] } });
-        }
-        publishEventDetails(details);
-      }
-      if (result.type === 'awaiting_next' && result.event) {
-        sim.dispatch({ scope: 'timeline', worldRevision: result.revision, sequence: result.revision, eventId: result.event.id, payload: { event: { id: result.event.id, date: result.event.date, headline: result.event.headline, detail: result.event.detail, source: result.event.source }, awaitingNext: { remaining: result.remaining ?? 0, destination: result.destination }, checkpointId: result.checkpointId, changedRegions: result.changedRegions } });
-      }
-
-      if (result.type === 'actions_processed') {
-        for (const action of result.actions || []) {
-          if (action.result) {
-            addHistory({
-              turn: action.result.turn,
-              action: action.text,
-              result: action.result.narration,
-              events: action.result.events,
-              eventDetails: action.result.eventDetails,
-              periodStart: action.result.periodStart,
-              periodEnd: action.result.periodEnd,
-            });
-          }
-        }
-
-        const lastAction = result.actions?.[result.actions.length - 1];
-        if (lastAction?.result) {
-          setCurrentGame(prev => prev ? {
-            ...prev,
-            currentTurn: (lastAction.result as any).turn + 1,
-            currentDate: (lastAction.result as any).periodEnd,
-          } : prev);
-        }
-      } else if (result.type === 'world_advanced' && result.result) {
-        addHistory({
-          turn: result.result.turn,
-          action: days <= 0 ? 'Fino al prossimo evento importante' : 'Salto temporale',
-          result: result.result.narration,
-          events: result.result.events,
-          eventDetails: result.result.eventDetails,
-          periodStart: result.result.periodStart,
-          periodEnd: result.result.periodEnd,
-        });
-        setCurrentGame(prev => prev ? {
-          ...prev,
-          currentTurn: result.newTurn!,
-          currentDate: result.newDate!,
-        } : prev);
-      } else if (result.type === 'no_event_found') {
-        // Nessun checkpoint è stato creato: la UI conserva data, mappa,
-        // cronaca e coda e comunica soltanto l'esito della ricerca.
-        setTurnProgress(`Nessun evento importante fino al ${result.searchedUntil || 'limite di ricerca'}.`);
-      } else if (result.type === 'awaiting_next') {
-        // §9.3: il salto fisso si è fermato al checkpoint del primo evento.
-        // Il resto del periodo NON è svelato e attende la conferma esplicita.
-        // Un retry idempotente non riporta l'evento: riconcilia dal server.
-        if (result.event) {
-          setPausedReader({
-            simulationId: result.simulationId!,
-            event: result.event,
-            remaining: result.remaining ?? 0,
-            destination: result.destination ?? '',
-            checkpointId: result.checkpointId,
-            revision: result.revision,
-            disclosedEvents: [result.event],
-          });
-          setCurrentGame(prev => prev ? { ...prev, currentDate: result.newDate!, currentTurn: result.newTurn! } : prev);
-          applyCheckpointRegions(result.changedRegions);
-        } else {
-          const refreshed = await gameApi.get(currentGame.id);
-          setCurrentGame(refreshed);
-          await restorePausedReader(refreshed);
-        }
-      } else if (result.type === 'simulation_replayed') {
-        // Un retry HTTP ha già prodotto questo checkpoint: non aggiungere una
-        // seconda storia; il refetch autorevole sotto riallinea UI e mappa.
-        setTurnProgress('Checkpoint già elaborato: sincronizzazione in corso…');
-      } else if (result.type === 'date_advanced') {
-        const startDate = currentGame.currentDate || '1951-01-01';
-        addHistory({
-          turn: currentGame.currentTurn,
-          action: `⏭️ Salto temporale`,
-          result: `Avanzato di ${days} giorni`,
-          periodStart: startDate,
-          periodEnd: result.newDate,
-        });
-
-        setCurrentGame(prev => prev ? {
-          ...prev,
-          currentTurn: result.newTurn!,
-          currentDate: result.newDate,
-        } : prev);
-      }
-
-      // HTTP, SSE e polling possono arrivare in ordine diverso: la coda
-      // persistita è l'unica sorgente di verità dopo un salto.
-      const authoritativeQueue = await gameApi.getPendingActions(currentGame.id);
-      setPendingActions(authoritativeQueue.pendingActions || []);
-
-      // Il checkpoint server è autorevole anche per la mappa: HTTP e SSE
-      // possono arrivare in ordini diversi o lo stream può essere perso.
-      const authoritativeGame = await gameApi.get(currentGame.id);
-      setCurrentGame(authoritativeGame);
-      // The complete snapshot includes names, geometry and newly added regions;
-      // a whitelist merge against the pre-turn world silently discarded them.
-      if (authoritativeGame.world) setCurrentWorld(authoritativeGame.world);
-      // Anche senza SSE, il polling finale deve rendere subito visibili nuove
-      // riunioni e badge diplomatici nati dagli eventi appena committati.
-      await Promise.all([
-        handleTimelineOpen(),
-        useChatStore.getState().refreshChats(),
-      ]);
-    } catch (e: any) {
-      console.error('Time-skip failed:', e);
-      // Se il client è rimasto indietro (tab in background, refresh o SSE
-      // perso), il 409 non è un errore da mostrare come fallimento generico:
-      // riconciliamo e riapriamo il checkpoint decisionale.
-      if (e?.status === 409) {
-        try {
-          const refreshed = await gameApi.get(currentGame.id);
-          setCurrentGame(refreshed);
-          await restorePausedReader(refreshed);
-          setTurnProgress('⏸ Playback ripristinato al checkpoint attivo.');
-        } catch (reconcileError) {
-          console.error('Unable to reconcile paused simulation:', reconcileError);
-        }
-      } else {
-        setTurnProgress(simulationErrorMessage(e));
-        setTimeout(() => setTurnProgress(''), 8000);
-      }
-    } finally {
-      setLoading(false);
-      setIsProcessingTurn(false);
-    }
-  };
-
   // Fase 2: Rewind — torna al turno precedente
-  const handleRewind = () => {
-    if (!currentGame || loading) return;
-    setShowRewindConfirm(true);
-  };
-
-  const handleRewindConfirmed = async () => {
-    if (!currentGame || loading) return;
-    setLoading(true);
-    try {
-      await gameApi.rewind(currentGame.id);
-      const updatedGame = await gameApi.get(currentGame.id);
-      setCurrentGame(updatedGame);
-      // Il turno annullato cancella anche il collasso: si torna a giocare.
-      setGameEnding(null);
-      setNationalCrisis(null);
-
-      if (updatedGame.world && currentWorld) {
-        const newRegions = { ...currentWorld.regions };
-        const gameRegions = Array.isArray(updatedGame.world.regions)
-          ? updatedGame.world.regions
-          : Object.values(updatedGame.world.regions);
-        gameRegions.forEach((r: any) => {
-          if (newRegions[r.id]) {
-            newRegions[r.id] = {
-              ...newRegions[r.id],
-              owner: r.owner,
-              color: r.color,
-              population: r.population,
-              militaryPower: r.militaryPower,
-              gdp: r.gdp,
-            };
-          }
-        });
-        setCurrentWorld({ ...currentWorld, regions: newRegions });
-      }
-
-      addHistory({
-        turn: updatedGame.currentTurn,
-        action: '⏪ Ripristino',
-        result: 'Ultima mossa annullata, il mondo è tornato allo stato precedente',
-      });
-    } catch (e) {
-      console.error('Rewind failed:', e);
-      notify('Impossibile annullare la mossa: lo snapshot è disponibile dopo la prima mossa giocata.', 'error');
-    }
-
-    setLoading(false);
-  };
-
-  // Ripristino esplicito del checkpoint che ha prodotto un evento timeline.
-  const handleRestoreCheckpoint = async (simulationId: string) => {
-    if (!currentGame || loading) return;
-    setLoading(true);
-    try {
-      const restored = await gameApi.restoreSimulationCheckpoint(currentGame.id, simulationId);
-      const updatedGame = await gameApi.get(currentGame.id);
-      setCurrentGame(updatedGame);
-      // F06 µ2: il restore apre un ramo nuovo — reset canonico del client con
-      // il suo anchor, e invalidazione di TUTTI i comandi in volo (chat,
-      // advisor, coda, preflight — non soltanto il polling della cronaca).
-      const rawRegions = Array.isArray(updatedGame.world.regions)
-        ? updatedGame.world.regions
-        : Object.values(updatedGame.world.regions || {});
-      useSimulationStore.getState().branchReplace({
-        gameId: currentGame.id,
-        branchId: restored.branchId || 'unknown',
-        anchor: restored.anchor
-          ? { checkpointId: restored.anchor.checkpointId, revision: restored.anchor.revision }
-          : { revision: restored.revision },
-        snapshot: {
-          date: restored.newDate,
-          mapRegions: Object.fromEntries((rawRegions as any[]).map((region: any) => [region.id, { owner: region.owner, color: region.color }])),
-          pendingActions: [],
-          history: [],
-          news: [],
-          chats: [],
-        },
-      });
-      useSimulationStore.getState().invalidateCommand();
-      // §9.3: il checkpoint ripristinato può appartenere a un run in pausa.
-      await restorePausedReader(updatedGame);
-      if (updatedGame.world && currentWorld) {
-        const regions = { ...currentWorld.regions };
-        const serverRegions = Array.isArray(updatedGame.world.regions)
-          ? updatedGame.world.regions
-          : Object.values(updatedGame.world.regions);
-        for (const region of serverRegions as any[]) {
-          if (regions[region.id]) regions[region.id] = {
-            ...regions[region.id],
-            owner: region.owner,
-            color: region.color,
-            population: region.population,
-            militaryPower: region.militaryPower,
-            gdp: region.gdp,
-            objects: region.objects ?? regions[region.id].objects,
-          };
-        }
-        setCurrentWorld({ ...currentWorld, regions });
-      }
-      await handleTimelineOpen();
-      addHistory({
-        turn: restored.newTurn,
-        action: '⏪ Ripristino checkpoint',
-        result: `Ripristinato checkpoint ${restored.checkpointId} del run ${restored.simulationId}.`,
-        periodEnd: restored.newDate,
-      });
-    } catch (error) {
-      console.error('Checkpoint restore failed:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Continua da un evento: ripristina il checkpoint del run e lancia subito
-  // il prossimo salto canonico (fino al prossimo evento importante).
-  const handleContinueFrom = async (simulationId: string) => {
-    if (!currentGame || loading) return;
-    await handleRestoreCheckpoint(simulationId);
-    // F06 passo 5: «Continua» procede soltanto dopo una risposta restore
-    // valida con il suo nuovo anchor: senza ramo nuovo e checkpoint di origine
-    // non c'è un futuro legittimo da continuare.
-    const canonical = useSimulationStore.getState().state;
-    if (!canonical || canonical.branchId === 'unknown' || !canonical.reader?.checkpointId) return;
-    await handleTimeSkip(0);
-  };
-
-  // Intervene — ferma lo stream dopo l'ultimo evento già pubblicato
-  const handleIntervene = async () => {
-    if (!currentGame) return;
-    try {
-      await gameApi.intervene(currentGame.id, activeSimulationIdRef.current);
-      setTurnProgress('⏸ Intervieni: arresto dopo l\'evento corrente…');
-    } catch (e) {
-      console.error('Intervene failed:', e);
-    }
-  };
-
   // =========================================================================
   // §9.3 — Playback «un evento alla volta» per i salti fissi
   // =========================================================================
@@ -1342,432 +134,38 @@ function App() {
   /** Aggiorna la mappa col delta di un checkpoint per-evento committato. */
   // G4-C — cicatrici temporali: il confine precedente di ogni regione appena
   // cambiata resta visibile qualche secondo come documentazione del mutamento.
-  const [temporalScars, setTemporalScars] = useState<TemporalScar[]>([]);
-  const scarTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // Fase 2: playback per-evento, cicatrici e ripresa del run in pausa vivono in
+  // `useSimulationPlayback`.
+  const playbackBundle = useSimulationPlayback();
+  const {
+    pausedReader,
+    setPausedReader,
+    setTemporalScars,
+    scarTimersRef,
+    applyCheckpointRegions,
+    restorePausedReader,
+  } = playbackBundle;
 
-  const applyCheckpointRegions = (changedRegions: any[] | undefined) => {
-    if (!changedRegions?.length) return;
-    const liveWorld = useGameStore.getState().currentWorld;
-    const previousStates: TemporalScar[] = [];
-    if (liveWorld) {
-      const regions = { ...liveWorld.regions };
-      for (const changed of changedRegions) {
-        const before = regions[changed.id];
-        if (!before) continue;
-        // Cicatrice solo su vero cambio di padronanza: aggiornamenti non territoriali
-        // (oggetti, statistiche) non lasciano segno sul confine.
-        const ownerChanged = !!changed.owner && changed.owner !== before.owner;
-        if (ownerChanged) {
-          previousStates.push({
-            id: changed.id,
-            name: changed.name || before.name || changed.id,
-            previousOwner: before.owner || '',
-            previousColor: before.color || '#8a8f9a',
-            startedAt: Date.now(),
-          });
-        }
-        regions[changed.id] = { ...before, ...changed };
-      }
-      setCurrentWorld({ ...liveWorld, regions });
-    }
-    if (previousStates.length > 0) {
-      const fresh = previousStates.map(scar => ({ ...scar, startedAt: Date.now() }));
-      setTemporalScars(prev => [
-        // Le cicatrici già presenti sulla stessa regione vengono sostituite:
-        // vale l'ultimo confine noto.
-        ...prev.filter(existing => !fresh.some(item => item.id === existing.id)),
-        ...fresh,
-      ]);
-      const scarIds = fresh.map(scar => scar.id);
-      const timer = setTimeout(() => {
-        setTemporalScars(prev => prev.filter(existing => !scarIds.includes(existing.id)));
-      }, 9000);
-      scarTimersRef.current.push(timer);
-    }
-    setChangedRegions(changedRegions.map((region: any) => region.id));
-    setTimeout(() => clearChangedRegions(), 3000);
-  };
-
-  /** Il run scaglionato è chiuso: finalizza cronaca, data e turno con gli
-   * stessi percorsi di actions_processed/world_advanced. */
-  const applyRunCompletion = async (outcome: {
-    type: string;
-    simulationId: string;
-    actions?: any[];
-    newDate: string;
-    newTurn: number;
-    result?: { turn: number; narration: string; events: string[]; eventDetails?: any[]; periodStart: string; periodEnd: string };
-  }) => {
-    setPausedReader(null);
-    for (const action of outcome.actions || []) {
-      if (action.result) {
-        addHistory({
-          turn: action.result.turn,
-          action: action.text,
-          result: action.result.narration,
-          events: action.result.events,
-          eventDetails: action.result.eventDetails,
-          periodStart: action.result.periodStart,
-          periodEnd: action.result.periodEnd,
-        });
-      }
-    }
-    if (outcome.result && !(outcome.actions || []).some((action: any) => action.result)) {
-      addHistory({
-        turn: outcome.result.turn,
-        action: outcome.type === 'paused_budget' ? '⏸ Salto sospeso: budget esaurito' : 'Salto temporale',
-        result: outcome.result.narration,
-        events: outcome.result.events,
-        eventDetails: outcome.result.eventDetails,
-        periodStart: outcome.result.periodStart,
-        periodEnd: outcome.result.periodEnd,
-      });
-    }
-    setCurrentGame(prev => prev ? { ...prev, currentTurn: outcome.newTurn, currentDate: outcome.newDate } : prev);
-  };
-
-  /** Dopo refresh o ripristino, un run in pausa riapre il lettore al suo
-   * checkpoint: il playback scaglionato è durevole (§9.2). */
-  const restorePausedReader = async (game: Game) => {
-    const paused = (game as any).pausedSimulation;
-    if (!paused?.simulationId) {
-      setPausedReader(null);
-      return;
-    }
-    try {
-      const run = await gameApi.getSimulationRun(game.id, paused.simulationId);
-      const lastEvent = run.events?.[run.events.length - 1];
-      if (run.awaitingNext && lastEvent) {
-        setPausedReader({
-          simulationId: paused.simulationId,
-          event: {
-            id: lastEvent.id,
-            date: lastEvent.date,
-            headline: lastEvent.headline,
-            detail: lastEvent.detail,
-            source: lastEvent.source,
-          },
-          remaining: run.awaitingNext.remaining,
-          destination: run.awaitingNext.destination,
-          checkpointId: run.awaitingNext.checkpointId,
-          revision: run.awaitingNext.revision,
-          disclosedEvents: run.events.map(event => ({
-            id: event.id, date: event.date, headline: event.headline,
-            detail: event.detail, source: event.source,
-          })),
-        });
-      } else {
-        setPausedReader(null);
-      }
-    } catch (e) {
-      console.warn('[App] Impossibile ricostruire il run in pausa:', e);
-      setPausedReader(null);
-    }
-  };
-
-  /** «Continua»: autorizza il checkpoint per-evento successivo del run sospeso. */
-  const handleContinueNext = async () => {
-    if (!currentGame || !pausedReader || loading) return;
-    setLoading(true);
-    try {
-      const result = await gameApi.continueSimulation(currentGame.id, pausedReader.simulationId);
-      if (result.type === 'awaiting_next' && result.event) {
-        setPausedReader(previous => {
-          const earlier = previous?.simulationId === result.simulationId
-            ? (previous.disclosedEvents || [previous.event])
-            : [];
-          return {
-            simulationId: result.simulationId,
-            event: result.event!,
-            remaining: result.remaining ?? 0,
-            destination: result.destination ?? '',
-            checkpointId: result.checkpointId,
-            revision: result.revision,
-            // HTTP e SSE possono arrivare in ordine diverso: l'ID canonico
-            // impedisce di duplicare una pagina già letta nel foglio G22.
-            disclosedEvents: [...earlier.filter(event => event.id !== result.event!.id), result.event!],
-          };
-        });
-        setCurrentGame(prev => prev ? { ...prev, currentDate: result.newDate, currentTurn: result.newTurn } : prev);
-        applyCheckpointRegions(result.changedRegions);
-      } else {
-        // run_completed / paused_budget / intervened: il salto è chiuso.
-        await applyRunCompletion(result);
-      }
-      // La coda autorevole dopo ogni decisione del lettore (G14/G15).
-      const authoritativeQueue = await gameApi.getPendingActions(currentGame.id);
-      setPendingActions(authoritativeQueue.pendingActions || []);
-    } catch (e) {
-      console.error('Continue simulation failed:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /** «Intervieni qui»: chiude il salto al checkpoint mostrato (§9.3). */
-  const handleInterveneHere = async () => {
-    if (!currentGame || !pausedReader || loading) return;
-    setLoading(true);
-    try {
-      const result = await gameApi.intervene(currentGame.id, pausedReader.simulationId,
-        pausedReader.revision != null
-          ? { eventId: pausedReader.event.id, revision: pausedReader.revision }
-          : undefined);
-      if (result.intervened) {
-        await applyRunCompletion(result as any);
-      } else {
-        setPausedReader(null);
-      }
-      const authoritativeQueue = await gameApi.getPendingActions(currentGame.id);
-      setPendingActions(authoritativeQueue.pendingActions || []);
-    } catch (e) {
-      console.error('Intervene here failed:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Scegli il paese (click su mappa: seleziona regione + apre ispettore provincia)
-  const handleCountryChange = (regionId: string) => {
-    setSelectedRegion(regionId);
-    setSelectedProvinceId(regionId);
-    // Se un modulo è aperto, lo chiudiamo per mostrare l'ispettore
-    if (activeModule !== 'none') closeModule();
-  };
-
-  const generateSuggestions = async () => {
-    if (!currentGame || suggestionsLoading) return;
-    setSuggestionsLoading(true);
-    setSuggestionsError('');
-    try {
-      const data = await gameApi.getSuggestions(currentGame.id);
-      setSuggestions(data.suggestions || []);
-      if (!data.suggestions?.length) {
-        setSuggestionsError('Nessuna proposta ricevuta. Prova a generarle di nuovo.');
-      }
-    } catch (e) {
-      console.error('[Suggestions] Generation failed:', e);
-      setSuggestionsError(simulationErrorMessage(e));
-    } finally {
-      setSuggestionsLoading(false);
-    }
-  };
-
-  const queuePlayerAction = async (text: string): Promise<boolean> => {
-    if (!currentGame || !text.trim()) return false;
-    if (pendingActions.some(action => action.text.trim() === text.trim())) return true;
-    setSuggestionsError('');
-    try {
-      const queued = await gameApi.queueAction(currentGame.id, text.trim());
-      addPendingAction({ id: queued.id, text: queued.text });
-      return true;
-    } catch (e) {
-      console.error('[Actions] Failed to queue action:', e);
-      setSuggestionsError('Impossibile aggiungere l’azione alla coda. Riprova.');
-      return false;
-    }
-  };
-
-  const removeQueuedAction = async (actionId: string) => {
-    if (!currentGame) return;
-    setSuggestionsError('');
-    try {
-      await gameApi.removePendingAction(currentGame.id, actionId);
-      removePendingAction(actionId);
-    } catch (e) {
-      console.error('[Actions] Failed to remove action:', e);
-      setSuggestionsError('L’azione è già in elaborazione o non può essere rimossa.');
-    }
-  };
-
-  // Modifica persistita di un ordine in coda: non fa passare tempo e non
-  // altera l'intenzione originale oltre il testo che il giocatore conferma.
-  const updateQueuedAction = async (actionId: string, newText: string) => {
-    if (!currentGame) return;
-    setSuggestionsError('');
-    try {
-      const { action } = await gameApi.updatePendingAction(currentGame.id, actionId, newText);
-      setPendingActions(pendingActions.map(a => a.id === action.id ? { ...a, text: action.text } : a));
-      setEditingActionId(null);
-      setEditingActionText('');
-    } catch (e) {
-      console.error('[Actions] Failed to update action:', e);
-      setSuggestionsError('L’azione è già in elaborazione o non può essere modificata.');
-    }
-  };
-
-  // G24 — «Migliora formulazione»: produce un'anteprima riformulata senza
-  // accodare né simulare. L'accettazione della proposta è un click esplicito.
-  const enhanceOrder = async (text: string) => {
-    if (!currentGame) return;
-    setSuggestionsError('');
-    startOrderEnhance();
-    try {
-      const { enhanced } = await gameApi.enhanceAction(currentGame.id, text);
-      orderEnhanceSuccess(enhanced);
-    } catch (e) {
-      console.error('[Actions] Failed to enhance action:', e);
-      orderEnhanceFailure('Il miglioramento della formulazione non è disponibile ora.');
-    }
-  };
-
-  // G4-B: verifica fattibilità da testo libero («Registra ordine» apre la verifica;
-  // solo un esito fattibile accoda l'ordine). L'errore tecnico conserva la bozza.
-  const [showFeasibility, setShowFeasibility] = useState(false);
-  const [verifyingText, setVerifyingText] = useState('');
-  const [feasibilityResult, setFeasibilityResult] = useState<FeasibilityResult | null>(null);
-  const [feasibilityLoading, setFeasibilityLoading] = useState(false);
-  const [feasibilityError, setFeasibilityError] = useState<string | null>(null);
-
-  const verifyOrder = async (text: string) => {
-    if (!currentGame) return;
-    setVerifyingText(text);
-    setFeasibilityLoading(true);
-    setFeasibilityError(null);
-    setFeasibilityResult(null);
-    try {
-      const result = await gameApi.checkFeasibility(currentGame.id, text);
-      setFeasibilityResult(result);
-      setFeasibilityLoading(false);
-      setShowFeasibility(true);
-    } catch (e) {
-      console.error('[Actions] Failed to verify feasibility:', e);
-      setFeasibilityError('La verifica di fattibilità non è disponibile ora.');
-      setFeasibilityLoading(false);
-      setShowFeasibility(true);
-    }
-  };
-
-  const handleFeasibilityRegister = async () => {
-    if (feasibilityResult?.feasible && verifyingText.trim()) {
-      if (await queuePlayerAction(verifyingText.trim())) {
-        clearOrderDraft();
-        setShowFeasibility(false);
-        setVerifyingText('');
-        setFeasibilityResult(null);
-      }
-    }
-  };
-
-  const handleFeasibilityBack = () => {
-    setShowFeasibility(false);
-    setVerifyingText('');
-    setFeasibilityResult(null);
-  };
-
-  const handleFeasibilityReverify = () => {
-    if (verifyingText.trim()) {
-      verifyOrder(verifyingText);
-    }
-  };
-
-  // U02 µ1 / G4-B: «Registra ordine» apre la verifica di fattibilità; solo un
-  // esito fattibile accoda. La bozza resta intatta finché l'accodamento non riesce.
-  const registerOrder = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    await verifyOrder(trimmed);
-  };
-
-  // Apertura del pannello: riallinea sempre la coda locale con quella server.
-  // Il modulo attivo è già stato impostato da openModule nel chiamante (U01).
-  const openActionsPanel = (brainstorm = false) => {
-    if (currentGame) {
-      gameApi.getPendingActions(currentGame.id)
-        .then(data => setPendingActions(data.pendingActions || []))
-        .catch(e => console.error('[Actions] Failed to sync queue:', e));
-    }
-    if (brainstorm && suggestions.length === 0) void generateSuggestions();
-  };
-
-  // Fase 6: ripresa di una partita salvata dalla landing
-  const handleResumeSave = async (save: any) => {
-    if (!save?.id || !save?.game_id) return;
-    setLoading(true);
-    try {
-      await gameApi.loadSave(save.id);
-      const game = await gameApi.get(save.game_id);
-      // Riallineamento atomico: i read model sono letti dallo stesso snapshot
-      // prima di pubblicarlo al client, anche quando il gameId non cambia.
-      const [queueData, timelineData, processData, nationalData] = await Promise.all([
-        gameApi.getPendingActions(game.id),
-        gameApi.timeline(game.id, { after: 0, limit: 200 }),
-        gameApi.ongoingProcesses(game.id),
-        gameApi.nationalState(game.id),
-      ]);
-      setCurrentGame(game);
-      setCurrentWorld(game.world);
-      setPendingActions(queueData.pendingActions || []);
-      setTimeline(timelineData.timeline || []);
-      setTimelineHasMore(Boolean(timelineData.hasMore));
-      setTimelineNextAfter(timelineData.nextAfter ?? 0);
-      setOngoingProcesses(processData.processes || []);
-      setCompletedProcesses(processData.completed || []);
-      setNationalAccounts(nationalData.accounts || {});
-      setNationalHistory(nationalData.history || []);
-      setNationalGovernment(nationalData.government ?? null);
-      setGovernmentVoices(null);
-      setGovernmentVoicesError(null);
-      setFeedItems([]);
-      clearOrderDraft();
-      clearSuggestions();
-      setEditingActionId(null);
-      setEditingActionText('');
-      scarTimersRef.current.forEach(clearTimeout);
-      scarTimersRef.current = [];
-      setTemporalScars([]);
-      clearChangedRegions();
-      // Forza il reset anche se si carica un save della stessa partita.
-      const chatStore = useChatStore.getState();
-      chatStore.setGameId(null);
-      chatStore.setGameId(game.id);
-      void chatStore.refreshChats();
-      // F06 passo 4: il caricamento esplicito di un save sostituisce lo
-      // snapshot canonico (mappa INCLUSI oggetti, coda, history, news, chat,
-      // advisor, reader) e invalida tutti i comandi in volo. L'init effect
-      // non basta: il gameId può coincidere con la sessione precedente.
-      const savedRegions = Array.isArray(game.world.regions)
-        ? game.world.regions
-        : Object.values(game.world.regions || {});
-      useSimulationStore.getState().branchReplace({
-        gameId: game.id,
-        branchId: game.headBranchId || 'unknown',
-        anchor: { revision: game.worldRevision ?? 0 },
-        snapshot: {
-          date: game.currentDate,
-          mapRegions: Object.fromEntries((savedRegions as any[]).map((region: any) => [
-            region.id,
-            { owner: region.owner, color: region.color, objects: region.objects || [] },
-          ])),
-          pendingActions: [],
-          history: [],
-          news: [],
-          chats: [],
-        },
-      });
-      useSimulationStore.getState().invalidateCommand();
-      // §9.3: anche il playback in pausa sopravvive al caricamento.
-      await restorePausedReader(game);
-      const regionId = game.players?.[0]?.regionId;
-      if (regionId) {
-        setSelectedRegion(regionId);
-        // Ripristiniamo il codice paese del giocatore (per le bandiere sulla mappa).
-        // Nei mondi provinciali l'id regione è una provincia: il codice paese
-        // giusto è la polity del giocatore (owner della regione).
-        const regionOwner = Object.values(game.world?.regions || {})
-          .find((r: any) => r.id === regionId)?.owner;
-        const code = game.players[0]?.polityId || regionOwner || String(regionId).split('_').pop();
-        if (code) setSelectedCountry(String(code));
-      }
-      setHistory([]);
-      setCurrentView('game');
-    } catch (e) {
-      console.error('[Save] Failed to resume save:', e);
-      notify('Errore di caricamento del salvataggio.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Fase 2: la ripresa di un salvataggio (riallineamento atomico + reset dello
+  // snapshot canonico) vive in `useResumeSave`.
+  const { handleResumeSave } = useResumeSave({
+    setTimeline,
+    setTimelineHasMore,
+    setTimelineNextAfter,
+    setOngoingProcesses,
+    setCompletedProcesses,
+    setNationalAccounts,
+    setNationalHistory,
+    setNationalGovernment,
+    setGovernmentVoices,
+    setGovernmentVoicesError,
+    setFeedItems,
+    setEditingActionId,
+    setEditingActionText,
+    scarTimersRef,
+    setTemporalScars,
+    restorePausedReader,
+  });
 
   // Render del menu principale — Fase 6: landing in stile pax_home
   const renderMenu = () => (
@@ -1781,729 +179,76 @@ function App() {
     />
   );
 
-  // Format date for display
-  const formatDate = (dateStr: string): string => {
-    const months = [
-      'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
-      'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'
-    ];
-    const date = new Date(dateStr);
-    return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
-  };
+  // Fase 2: lo stato di shell (turno in corso, difficoltà, modali, fasi del
+  // loader) e i suoi effetti vivono in `useShellState`.
+  const shellBundle = useShellState();
+  const {
+    setIsProcessingTurn,
+    setTurnProgress,
+    difficulty,
+    setDifficulty,
+    showSaveModal,
+    setShowSaveModal,
+    showSavePicker,
+    setShowSavePicker,
+    genPhase,
+    setGenPhase,
+    genProgress,
+    setGenProgress,
+    showLLMSettings,
+    setShowLLMSettings,
+    showRewindConfirm,
+    setShowRewindConfirm,
+    showLoadSaveConfirm,
+    setShowLoadSaveConfirm,
+  } = shellBundle;
 
-  // Fase 7: bottom-sheet del pannello su mobile
-  const [panelSheetOpen, setPanelSheetOpen] = useState(false);
-  // A ogni ingresso in partita la mappa è libera: Nazione si apre soltanto
-  // dal suo modulo, sia su desktop sia su telefono.
-  useEffect(() => {
-    if (currentView !== 'game') return;
-    setPanelSheetOpen(false);
-    closeModule();
-  }, [currentView, closeModule]);
-
-  // Chiusura pannello diplomazia (e altri moduli) via evento globale dal DeskContent
-  useEffect(() => {
-    if (currentView !== 'game') return;
-    const handler = () => closeModule();
-    window.addEventListener('ws:close-module', handler);
-    return () => window.removeEventListener('ws:close-module', handler);
-  }, [currentView, closeModule]);
-  // SSE real-time updates
-  const [isProcessingTurn, setIsProcessingTurn] = useState(false);
-  const [turnProgress, setTurnProgress] = useState<string>('');
-  /** §9.3: lettore del playback «un evento alla volta» di un salto fisso. */
-  /** G22: il lettore attivo è separato dall'archivio EventFeed. */
-  const [pausedReader, setPausedReader] = useState<PlaybackReaderState | null>(null);
-
-  // Riconcilia qualunque percorso che abbia ottenuto un Game già in pausa
-  // (apertura diretta, refresh, save/load): il lettore G22 non può restare
-  // invisibile mentre il server giustamente blocca un nuovo salto.
-  useEffect(() => {
-    const runId = currentGame?.pausedSimulation?.simulationId;
-    if (runId && pausedReader?.simulationId !== runId) {
-      void restorePausedReader(currentGame);
-    }
-  }, [currentGame?.id, currentGame?.pausedSimulation?.simulationId, pausedReader?.simulationId]);
-  // Fase 2: difficoltà della nuova partita
-  const [difficulty, setDifficulty] = useState<string>('normal');
-
-  // Fase 6: modale di salvataggio (al posto di prompt()) e fasi del loader di generazione del mondo
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [showSavePicker, setShowSavePicker] = useState(false);
-  const [genPhase, setGenPhase] = useState(0);
-  // Avanzamento reale (0..1) della generazione del mondo, dal polling del job
-  const [genProgress, setGenProgress] = useState<number | null>(null);
-  // Menu di scelta del modello IA (landing + pannello di gioco)
-  const [showLLMSettings, setShowLLMSettings] = useState(false);
-  // Dialog di conferma per azioni distruttive
-  const [showRewindConfirm, setShowRewindConfirm] = useState(false);
-  const [showLoadSaveConfirm, setShowLoadSaveConfirm] = useState<SaveSummary | null>(null);
-
-  // Rotazione delle fasi del loader mentre avviene la generazione del mondo nella schermata di scelta paese
-  useEffect(() => {
-    if (!loading || currentView !== 'select-country') return;
-    setGenPhase(0);
-    setGenProgress(null);
-    const t = setInterval(() => {
-      setGenPhase(p => Math.min(p + 1, WORLD_GEN_PHASES.length - 1));
-    }, 12000);
-    return () => clearInterval(t);
-  }, [loading, currentView]);
-
-  // F06 µ2: unico stato di riconciliazione — ogni partita caricata inizializza
-  // il reducer con ramo e revisione canonica; lo scaricamento invalida i comandi.
-  useEffect(() => {
-    const sim = useSimulationStore.getState();
-    if (currentGame) {
-      if (!sim.state || sim.state.gameId !== currentGame.id) {
-        sim.initGame(currentGame.id, currentGame.headBranchId || 'unknown', currentGame.worldRevision ?? 0);
-      }
-    } else if (sim.state) {
-      useSimulationStore.getState().invalidateCommand();
-    }
-  }, [currentGame?.id, currentGame?.headBranchId]);
-
-  // F06 passo 6: se SSE cade, il polling del run recupera i checkpoint già
-  // commessi: gli eventi vanno allo stesso reducer (la dedup per eventId rende
-  // innocui i doppioni) e il lettore in pausa si riconcilia con awaitingNext.
-  useEffect(() => {
-    const gameId = currentGame?.id;
-    if (!gameId) return;
-    const timer = window.setInterval(async () => {
-      const runId = activeSimulationIdRef.current || pausedReader?.simulationId;
-      if (!runId) return;
-      try {
-        const data = await gameApi.getSimulationRun(gameId, runId);
-        const sim = useSimulationStore.getState();
-        const runClosed = !data.awaitingNext && data.run?.status === 'completed';
-        for (const event of data.events || []) {
-          sim.dispatch({
-            scope: 'timeline',
-            eventId: event.id,
-            payload: {
-              event: { id: event.id, date: event.date, headline: event.headline, detail: event.detail, source: event.source || 'world' },
-              changedRegions: [],
-              checkpointId: event.checkpointId,
-              awaitingNext: data.awaitingNext && data.awaitingNext.eventId === event.id
-                ? { remaining: data.awaitingNext.remaining, destination: data.awaitingNext.destination }
-                : undefined,
-              runCompleted: runClosed && event.id === data.events?.[data.events.length - 1]?.id,
-            },
-          });
-        }
-        if (data.awaitingNext && pausedReader?.simulationId === runId
-            && (pausedReader.remaining !== data.awaitingNext.remaining
-                || pausedReader.destination !== data.awaitingNext.destination)) {
-          setPausedReader(prev => prev && prev.simulationId === runId ? {
-            ...prev,
-            remaining: data.awaitingNext!.remaining,
-            destination: data.awaitingNext!.destination,
-            revision: data.awaitingNext!.revision ?? prev.revision,
-            checkpointId: data.awaitingNext!.checkpointId ?? prev.checkpointId,
-          } : prev);
-        }
-        if (runClosed && pausedReader?.simulationId === runId) {
-          setPausedReader(null);
-        }
-      } catch { /* run non più in memoria: nessuna azione */ }
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [currentGame?.id, pausedReader?.simulationId, pausedReader?.remaining, pausedReader?.destination]);
-
-  useSSE(currentGame?.id || null, {
-    onTurnStart: (data) => {
-      console.log('[SSE] Turn started:', data);
-      activeSimulationIdRef.current = data?.simulationId;
-      streamedEventCountRef.current = 0;
-      setIsProcessingTurn(true);
-      setTurnProgress('Elaborazione mossa...');
-    },
-    onGeneratingNarration: () => {
-      console.log('[SSE] Generating narration...');
-      setTurnProgress('Generazione narrazione...');
-    },
-    onLLMProgress: (data) => {
-      const ready = data.eventsReady ?? streamedEventCountRef.current;
-      setTurnProgress(ready > 0
-        ? `Generazione del prossimo evento… ${ready} già ${ready === 1 ? 'pubblicato' : 'pubblicati'}`
-        : `Generazione del primo evento… ${data.chars} car.`);
-    },
-    onJumpEvent: (data) => {
-      // §9.3: checkpoint per-evento committato — data, mappa e lettore si
-      // aggiornano insieme al checkpoint, con ID canonico per la dedup HTTP/SSE.
-      if (data.checkpoint) {
-        // F06 µ2: l’evento va allo stesso reducer di HTTP e polling.
-        useSimulationStore.getState().dispatch({
-          scope: 'timeline',
-          worldRevision: data.revision,
-          sequence: data.revision ?? data.index + 1,
-          eventId: data.eventId || (data.simulationId ? `${data.simulationId}-${data.index}` : undefined),
-          payload: {
-            event: { id: data.eventId || (data.simulationId ? `${data.simulationId}-${data.index}` : ''), date: data.event?.date || '', headline: data.event?.headline || '', detail: data.event?.description, source: 'world' },
-            changedRegions: data.changedRegions,
-            awaitingNext: data.awaitingNext ? { remaining: data.awaitingNext.remaining, destination: data.awaitingNext.destination } : undefined,
-            checkpointId: data.checkpointId,
-          },
-        });
-        if (data.event?.date) {
-          setCurrentGame(prev => prev ? { ...prev, currentDate: data.event.date } : prev);
-        }
-        applyCheckpointRegions(data.changedRegions);
-        if (data.event?.headline) {
-          // Il checkpoint che richiede decisione è già presentato dal lettore
-          // G22: non sovrapponiamo una seconda notizia centrale.
-          pushFeed(data.event.headline, 'world', data.event.date, data.event.description, data.eventId, !data.awaitingNext, (data.changedRegions || []).map((r: any) => r.id));
-        }
-        if (data.awaitingNext && data.simulationId) {
-          const event = {
-            id: data.eventId || `${data.simulationId}-${data.index}`,
-            date: data.event.date,
-            headline: data.event.headline,
-            detail: data.event.description,
-            source: 'world',
-          };
-          setPausedReader(previous => {
-            const earlier = previous && previous.simulationId === data.simulationId
-              ? (previous.disclosedEvents || [previous.event])
-              : [];
-            return {
-              simulationId: data.simulationId!, event,
-              remaining: data.awaitingNext!.remaining,
-              destination: data.awaitingNext!.destination,
-              checkpointId: data.checkpointId, revision: data.revision,
-              disclosedEvents: [...earlier.filter(item => item.id !== event.id), event],
-            };
-          });
-        }
-        setTurnProgress(`Evento applicato: ${data.event?.headline || ''}`);
-        return;
-      }
-      const number = data.index + 1;
-      streamedEventCountRef.current = Math.max(streamedEventCountRef.current, number);
-      setTurnProgress(`Evento ${number}: ${data.event?.headline || ''}`);
-      // Feed live: l'evento appare nel momento esatto in cui il modello lo completa.
-      // F06 passo 6: le ANTEPRIME non commesse non aprono mai il bollettino
-      // (news flash riservato ai checkpoint commessi); restano solo in cronaca.
-      if (data.event?.headline) {
-        pushFeed(`Evento ${number}: ${data.event.headline}`, 'live', data.event.date, data.event.description, undefined, false);
-      }
-      // Anteprime LLM non mutano mai il client: data e mappa si aggiornano
-      // solo con il checkpoint committato (turn_complete).
-      if (data.checkpoint && data.event?.date) {
-        setCurrentGame(prev => prev ? { ...prev, currentDate: data.event.date } : prev);
-      }
-      if (data.checkpoint && data.changedRegions?.length) {
-        const liveWorld = useGameStore.getState().currentWorld;
-        if (liveWorld) {
-          const regions = { ...liveWorld.regions };
-          for (const changed of data.changedRegions || []) {
-            if (regions[changed.id]) regions[changed.id] = { ...regions[changed.id], ...changed };
-          }
-          setCurrentWorld({ ...liveWorld, regions });
-        }
-        const ids = data.changedRegions.map((region: any) => region.id);
-        setChangedRegions(ids);
-        setTimeout(() => clearChangedRegions(), 3000);
-      }
-    },
-    onActionVoided: (data) => {
-      setTurnProgress(`⊘ Azione rifiutata: ${data.reason || data.action}`);
-    },
-    // La nazione è caduta: la partita si chiude con un epilogo, non con un
-    // ennesimo turno. Il pannello resta finché il giocatore non sceglie.
-    onGameOver: (data) => {
-      if (data?.ending) {
-        setGameEnding(data.ending);
-        setIsProcessingTurn(false);
-        setTurnProgress('');
-      }
-    },
-    // Messaggio diplomatico live: aggiorna thread/lista e badge senza polling.
-    onChatMessage: (data) => {
-      const chatStore = useChatStore.getState();
-      const isNewChannel = !chatStore.chats.some(chat => chat.id === data.chatId);
-      chatStore.handleIncomingChatMessage(data);
-      if (isNewChannel) {
-        const interlocutors = (data.participants || [])
-          .filter(participant => participant.role !== 'player')
-          .map(participant => participant.name);
-        const label = interlocutors.length > 1 ? 'Nuova riunione diplomatica' : 'Nuovo canale diplomatico';
-        notify(`${label}${interlocutors.length ? `: ${interlocutors.join(', ')}` : ''}`, 'info');
-      }
-      const updated = useChatStore.getState();
-      if (updated.chatPanelVisible && updated.activeChatId === data.chatId && currentGame?.id) {
-        chatsApi.markRead(currentGame.id, data.chatId)
-          .then(() => useChatStore.getState().markRead(data.chatId))
-          .catch(e => console.warn('[App] Impossibile segnare la chat come letta:', e));
-      }
-    },
-    // Fase 3: commento proattivo del consulente dopo il turno — nel feed con nota
-    onAdvisorProactive: (data) => {
-      if (data?.content) {
-        useChatStore.getState().addAdvisorMessage({
-          role: 'assistant',
-          content: data.content,
-          proactive: true,
-        });
-      }
-    },
-    // Dispacci committati: l'outbox F02 invia un evento canonico alla volta;
-    // advanceDate e i server precedenti possono ancora inviare un blocco.
-    onWorldEvent: (data) => {
-      console.log('[SSE] World event:', data);
-      for (const dispatch of normalizeWorldEventPayload(data)) {
-        pushFeed(
-          dispatch.headline,
-          'world',
-          dispatch.date,
-          dispatch.detail,
-          dispatch.eventId,
-          true,
-          dispatch.regionIds,
-        );
-      }
-      // Aggiorna data/turno e le regioni cambiate (payload aggregato legacy).
-      // L'evento outbox singolo viene seguito dal turn_complete autorevole.
-      if (data.newTurn && data.newDate) {
-        setCurrentGame(prev => prev ? {
-          ...prev,
-          currentTurn: data.newTurn!,
-          currentDate: data.newDate!,
-        } : prev);
-      }
-      if (data.changedRegions?.length) {
-        applyCheckpointRegions(data.changedRegions);
-      }
-    },
-    onTurnComplete: (data) => {
-      console.log('[SSE] Turn complete:', data);
-      setIsProcessingTurn(false);
-      activeSimulationIdRef.current = undefined;
-      setTurnProgress('');
-      // Il run scaglionato è chiuso: il lettore non chiede più decisioni.
-      setPausedReader(null);
-      if (data?.pausedBudget) {
-        pushFeed('Nessun ulteriore sviluppo viene confermato nel periodo. Avanza di nuovo per proseguire la cronaca.', 'world', data.newDate);
-      }
-
-      // Il feed: gli eventi «live» di questo turno diventano eventi definitivi
-      setFeedItems(prev => {
-        const keep = prev.filter(i => i.kind !== 'live');
-        const next = [...keep];
-        for (const [index, ev] of (data?.events || []).entries()) {
-          const eventId = data?.eventDetails?.[index]?.id;
-          const id = eventId ? `tl-${eventId}` : `tc-${Date.now()}-${index}`;
-          if (next.some(item => item.id === id)) continue;
-          next.push({
-            id,
-            date: data?.eventDetails?.[index]?.date || data?.newDate,
-            text: ev,
-            detail: data?.eventDetails?.[index]?.detail || data?.narration,
-            kind: 'world',
-          });
-        }
-        return next.length > 120 ? next.slice(next.length - 120) : next;
-      });
-
-      // Add to history
-      if (data) {
-        addHistory({
-          turn: data.turn,
-          action: data.action || 'Mossa',
-          result: data.narration,
-          events: data.events,
-          eventDetails: data.eventDetails,
-          periodEnd: data.newDate,
-        });
-
-        // Update current game state
-        if (data.newTurn && data.newDate) {
-          setCurrentGame(prev => prev ? {
-            ...prev,
-            currentTurn: data.newTurn,
-            currentDate: data.newDate,
-          } : prev);
-        }
-        if (data.changedRegions?.length) {
-          const liveWorld = useGameStore.getState().currentWorld;
-          if (liveWorld) {
-            const regions = { ...liveWorld.regions };
-            for (const changed of data.changedRegions) {
-              if (regions[changed.id]) regions[changed.id] = { ...regions[changed.id], ...changed };
-            }
-            setCurrentWorld({ ...liveWorld, regions });
-          }
-          setChangedRegions(data.changedRegions.map((region: any) => region.id));
-          setTimeout(() => clearChangedRegions(), 3000);
-        }
-        void handleTimelineOpen();
-      }
-    },
-    onConnected: () => {
-      console.log('[SSE] Connected to game events');
-      // Una riconnessione SSE spesso indica un riavvio del backend: reinvia
-      // subito la chiave browser prima della prossima elaborazione LLM.
-      void rehydrateBrowserApiKey();
-    },
-    onError: (error) => {
-      console.error('[SSE] Error:', error);
-      // Il job HTTP asincrono resta autorevole anche se il proxy interrompe
-      // temporaneamente SSE: non nascondere il progresso né sbloccare Avanza.
-    },
+  // Fase 2: la sottoscrizione SSE (turni, eventi, dispacci, chat, crisi) vive in
+  // `useSimulationStream`; il ref del run attivo serve a Intervieni e alla ripresa.
+  const { activeSimulationIdRef } = useSimulationStream({
+    gameId: currentGame?.id || null,
+    pushFeed,
+    setFeedItems,
+    applyCheckpointRegions,
+    setPausedReader,
+    pausedReader,
+    handleTimelineOpen,
+    rehydrateBrowserApiKey,
+    setGameEnding,
+    setIsProcessingTurn,
+    setTurnProgress,
   });
 
-  // Keep map props stable when chat/HUD state changes without a world update.
-  const regions: Region[] = React.useMemo(() => Object.values(currentWorld?.regions || {}), [currentWorld?.regions]);
-  useEffect(() => {
-    if (!currentWorld) return;
-    if (selectedRegion && !currentWorld.regions[selectedRegion]) setSelectedRegion(null);
-    if (selectedProvinceId && !currentWorld.regions[selectedProvinceId]) setSelectedProvinceId(null);
-  }, [currentWorld?.regions, selectedRegion, selectedProvinceId, setSelectedRegion]);
+  // Fase 2: i comandi che fanno avanzare o tornare indietro il mondo vivono in
+  // `useWorldAdvance`.
+  const advanceBundle = useWorldAdvance({
+    publishEventDetails,
+    applyCheckpointRegions,
+    setPausedReader,
+    restorePausedReader,
+    pausedReader,
+    handleTimelineOpen,
+    setGameEnding,
+    setNationalCrisis,
+    activeSimulationIdRef,
+    setIsProcessingTurn,
+    setTurnProgress,
+  });
 
-  const renderGame = () => {
-    if (!currentWorld) return null;
-    const currentRegion = regions.find(r => r.id === selectedRegion);
-
-    // Polis del giocatore (owner = polityId; da players.polityId, oppure dedotto dalla regione capitale)
-    const playerPolityId = currentGame?.players?.[0]?.polityId
-      ?? regions.find(r => r.id === currentGame?.players?.[0]?.regionId)?.owner
-      ?? "player";
-    const nationalRegions = regions.filter(region => region.owner === playerPolityId);
-    const nationalReference = nationalRegions.find(region => region.id === currentGame?.players?.[0]?.regionId) || nationalRegions[0];
-    const nationalName = nationalReference?.polityName || nationalReference?.name || playerPolityId;
-    const nationalAccount = nationalAccounts[playerPolityId];
-    const nationalGdp = Number(nationalAccount?.nominalGdpUsdBillions ?? nationalRegions.reduce((sum, region) => sum + Number(region.gdp || 0), 0));
-    const nationalPopulation = Number(nationalAccount?.population ?? nationalRegions.reduce((sum, region) => sum + Number(region.population || 0), 0));
-    const estimatedRevenue = Number(nationalAccount?.monthlyRevenue ?? 0);
-    const estimatedExpenses = Number(nationalAccount?.monthlyExpenses ?? 0);
-    const governmentTypes: Record<string, string> = {
-      PSE: "Autorità nazionale palestinese", USA: "Repubblica federale presidenziale",
-      RUS: "Repubblica federale presidenziale", CHN: "Repubblica popolare a partito unico",
-      GBR: "Monarchia parlamentare", FRA: "Repubblica semipresidenziale",
-      DEU: "Repubblica federale parlamentare", ITA: "Repubblica parlamentare",
-    };
-    const governmentType = nationalAccount?.government || governmentTypes[playerPolityId] || "Repubblica presidenziale";
-    const playerRegionId = currentGame?.players?.[0]?.regionId || nationalReference?.id || null;
-    // Provincia esterna selezionata: il bollettino nazionale si nasconde, resta solo il dettaglio provincia.
-    const externalRegionSelected = Boolean(currentRegion && currentRegion.id !== playerRegionId && currentRegion.owner !== playerPolityId);
-
-    // Rail items per CommandRail
-    const railItems = [
-      {
-        id: "orders" as const,
-        icon: "⚡",
-        label: "Ordini",
-        badge: 0,
-        active: activeModule === "orders",
-        onClick: () => openModule("orders"),
-      },
-      {
-        id: "diplomacy" as const,
-        icon: "💬",
-        label: "Diplomazia",
-        badge: totalUnread > 0 ? totalUnread : 0,
-        active: activeModule === "diplomacy",
-        onClick: () => openModule("diplomacy"),
-      },
-      {
-        id: "advisor" as const,
-        icon: "✦",
-        label: "Consulente",
-        badge: 0,
-        active: activeModule === "advisor",
-        onClick: () => openModule("advisor"),
-      },
-      {
-        id: "news" as const,
-        icon: "▤",
-        label: "Notizie",
-        badge: unreadFeedCount,
-        active: activeModule === "news",
-        onClick: () => openModule("news"),
-      },
-      {
-        id: "nation" as const,
-        icon: "⌂",
-        label: "Nazione",
-        badge: 0,
-        active: activeModule === "nation",
-        onClick: () => openModule("nation"),
-      },
-    ];
-
-    const mapContent = regions.some(r => r.geojson) ? (
-      <Suspense fallback={<div className="map-loading-fallback" role="status">Caricamento mappa…</div>}>
-        <MapboxMapView
-          key={currentWorld?.id}
-          regions={regions}
-          activeLayer={mapLegendLayer}
-          onLayerChange={setMapLegendLayer}
-          filters={mapLegendFilters}
-          onFiltersChange={(partial) => setMapLegendFilters(prev => ({ ...prev, ...partial }))}
-          selectedRegionId={selectedRegion || undefined}
-          onRegionClick={handleCountryChange}
-          changedRegionIds={changedRegions}
-          temporalScars={temporalScars}
-          events={feedItems}
-          currentDate={currentGame?.currentDate}
-          showFlags={!!selectedCountry}
-          playerCountryCode={playerPolityId}
-        />
-      </Suspense>
-    ) : regions.some(r => r.svgPath) ? (
-      <MapView
-        regions={regions}
-        selectedRegionId={selectedRegion || undefined}
-        onRegionClick={handleCountryChange}
-        changedRegionIds={changedRegions}
-      />
-    ) : (
-      <div style={{
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "#0a0a0f",
-        color: "#667eea",
-        padding: "40px",
-        textAlign: "center",
-      }}>
-        <div style={{ fontSize: "48px", marginBottom: "16px" }}>🗺️</div>
-        <h3>Mappa non disponibile</h3>
-        <p style={{ color: "#b8c3d2", maxWidth: "360px" }}>
-          Questo mondo non contiene geometrie regionali. Torna agli scenari e genera una nuova partita: il problema non si risolve attendendo.
-        </p>
-        <button
-          type="button"
-          className="btn-submit-actions"
-          onClick={() => {
-            setCurrentView("menu");
-            setCurrentWorld(null);
-            setCurrentGame(null);
-          }}
-        >
-          Torna agli scenari
-        </button>
-      </div>
-    );
-
-    return (
-      <GameShell
-        hud={
-          <>
-            <HudBar
-              worldName={currentWorld?.name || ""}
-              turn={currentGame?.currentTurn || 1}
-              dateISO={currentGame?.currentDate || "1951-01-01"}
-              loading={loading}
-              timeline={timeline}
-              timelineLoading={timelineLoading}
-              timelineError={timelineError}
-              timelineHasMore={timelineHasMore}
-              timelineLoadingOlder={timelineLoadingOlder}
-              ongoingProcesses={ongoingProcesses}
-              dispatchCount={unreadFeedCount}
-              dispatchLive={isProcessingTurn}
-              advancing={isProcessingTurn}
-              pendingOrdersCount={pendingActions.length}
-              onOpenDispatches={() => openModule("news")}
-              onTimelineOpen={handleTimelineOpen}
-              onLoadOlder={loadOlderTimeline}
-              onBack={() => {
-                setCurrentView("menu");
-                setCurrentWorld(null);
-                setCurrentGame(null);
-                setHistory([]);
-              }}
-              onRewind={handleRewind}
-              onTimeSkip={handleTimeSkip}
-              onRestoreCheckpoint={handleRestoreCheckpoint}
-              onContinueFrom={handleContinueFrom}
-              activePlayback={pausedReader ? {
-                simulationId: pausedReader.simulationId,
-                eventId: pausedReader.event.id,
-                revision: pausedReader.revision,
-              } : null}
-              onFocusPlaybackReader={() => document.getElementById("simulation-event-reader")?.focus({ preventScroll: true })}
-              playerPolityName={nationalName}
-              menu={(
-                <GameMenu
-                  onSave={() => setShowSaveModal(true)}
-                  onLoad={() => setShowSavePicker(true)}
-                  onEditWorld={() => setShowPromptEditor(true)}
-                  onEditModel={() => setShowLLMSettings(true)}
-                  disabled={isProcessingTurn}
-                />
-              )}
-            />
-            {newsOpen && (
-              <NewsFlash
-                item={newsQueue[0] || null}
-                pendingCount={newsQueue.length}
-                onClose={() => dismissNews(false)}
-                onNext={() => dismissNews(true)}
-                onOpenArchive={() => {
-                  dismissNews(false);
-                  openModule("news");
-                }}
-                playerPolityName={nationalName}
-              />
-            )}
-            {isProcessingTurn && (
-              <div className="turn-progress-banner" role="status" aria-live="polite">
-                <span className="turn-progress-spinner" aria-hidden="true" />
-                <span className="turn-progress-text">{turnProgress || "Elaborazione mossa..."}</span>
-                <button
-                  className="btn-intervene"
-                  onClick={handleIntervene}
-                  title="Ferma la simulazione dopo l'evento corrente"
-                >
-                  ⏸ Intervene
-                </button>
-              </div>
-            )}
-            {pausedReader && (
-              <SimulationEventReader
-                playback={pausedReader}
-                loading={loading}
-                onContinue={handleContinueNext}
-                onIntervene={handleInterveneHere}
-                playerPolityName={nationalName}
-              />
-            )}
-          </>
-        }
-        rail={
-          <>
-            <CommandRail
-              items={railItems}
-              activeModule={activeModule}
-              onModuleClick={openModule}
-            />
-          </>
-        }
-        map={mapContent}
-        desk={
-          selectedProvinceId && activeModule === 'none' ? (
-            <ProvinceInspector
-              region={regions.find(r => r.id === selectedProvinceId) ?? null}
-              allRegions={regions}
-              onClose={() => setSelectedProvinceId(null)}
-            />
-          ) : (
-            <DeskContent
-              activeModule={activeModule}
-              closeModule={closeModule}
-              currentGame={currentGame}
-              currentWorld={currentWorld}
-              currentRegion={currentRegion ?? null}
-              selectedRegion={selectedRegion}
-              externalRegionSelected={externalRegionSelected}
-              nationalName={nationalName}
-              governmentType={governmentType}
-              nationalAccount={nationalAccount}
-              nationalResources={nationalResources}
-              nationalArms={nationalArms}
-              procureEquipment={procureEquipment}
-              tradeResource={tradeNaturalResource}
-              nationalHistory={nationalHistory}
-              nationalGovernment={nationalGovernment}
-              nationalFiscalPolicy={nationalFiscalPolicy}
-              onSetFiscalPolicy={setFiscalPolicy}
-              fiscalPolicyBusy={fiscalPolicyBusy}
-              nationalPressures={nationalPressures}
-              recentPressures={recentPressures}
-              onResolvePressure={resolvePressure}
-              pressureBusy={pressureBusy}
-              nationalCrisis={nationalCrisis}
-              onDraftGovernmentPetition={draftGovernmentPetition}
-              governmentVoices={governmentVoices}
-              governmentVoicesLoading={governmentVoicesLoading}
-              governmentVoicesError={governmentVoicesError}
-              onLoadGovernmentVoices={loadGovernmentVoices}
-              onBorrowDebt={borrowSovereignDebt}
-              pendingActions={pendingActions}
-              suggestions={suggestions}
-              orderDraftText={orderDraftText}
-              updateOrderDraft={updateOrderDraft}
-              enhancedPreview={enhancedPreview}
-              enhanceLoading={enhanceLoading}
-              enhanceError={enhanceError}
-              enhanceOrder={enhanceOrder}
-              acceptOrderEnhanced={acceptOrderEnhanced}
-              rejectOrderEnhanced={rejectOrderEnhanced}
-              registerOrder={registerOrder}
-              queuePlayerAction={queuePlayerAction}
-              removeQueuedAction={removeQueuedAction}
-              updateQueuedAction={updateQueuedAction}
-              editingActionId={editingActionId}
-              editingActionText={editingActionText}
-              setEditingActionId={setEditingActionId}
-              setEditingActionText={setEditingActionText}
-              isProcessingTurn={isProcessingTurn}
-              ongoingProcesses={ongoingProcesses}
-              completedProcesses={completedProcesses}
-              mandateDecisions={mandateDecisions}
-              onAcknowledgeMandateDecision={acknowledgeMandateDecision}
-              feedItems={feedItems}
-              onFocusRegion={(regionId) => {
-                // G4-C: «Mostra sulla mappa» seleziona la regione toccata
-                // dall'evento; la selezione esistente guida già zoom e highlight.
-                setSelectedRegion(regionId);
-              }}
-              onMarkFeedRead={markFeedRead}
-              onMarkAllFeedRead={markAllFeedRead}
-              playerPolityId={playerPolityId}
-              onGenerateSuggestions={generateSuggestions}
-              suggestionsLoading={suggestionsLoading}
-              suggestionsError={suggestionsError}
-              currentGameId={currentGame?.id}
-            />
-          )}
-        deskOpen={activeModule !== "none" || selectedProvinceId !== null}
-      />
-    );
-
-  };
-
-  // DISATTIVATO: editor mappe (temporaneo) — render dell’editor e della creazione mondo da mappa
-  /*
-  // Render dell’editor
-  const renderEditor = () => (
-    <MapEditor
-      onSave={handleSaveMap}
-      onCancel={() => setCurrentView('menu')}
+  const renderGame = () => (
+    <GameScreen
+      nation={nationBundle}
+      timeline={timelineBundle}
+      feed={feedBundle}
+      orders={ordersBundle}
+      playback={playbackBundle}
+      advance={advanceBundle}
+      shell={shellBundle}
     />
   );
 
-  const renderCreateWorld = () => {
-    if (!selectedMapForWorld) {
-      return (
-        <div className="error-container">
-          <p>Nessuna mappa selezionata</p>
-          <button onClick={() => setCurrentView('menu')}>Torna al menu</button>
-        </div>
-      );
-    }
-
-    return (
-      <CreateWorld
-        mapId={selectedMapForWorld.id.startsWith('server_')
-          ? selectedMapForWorld.id.replace('server_', '')
-          : selectedMapForWorld.id.replace('map_', '')}
-        mapName={selectedMapForWorld.name}
-        regions={selectedMapForWorld.regions}
-        onSave={handleCreateWorld}
-        onCancel={() => {
-          setSelectedMapForWorld(null);
-          setCurrentView('menu');
-        }}
-      />
-    );
-  };
-  */
+  // DISATTIVATO: editor mappe (temporaneo) — render editor/create-world:
+  // codice da ripristinare in components/Editor/REATTIVAZIONE_EDITOR.md
 
   return (
     <div className="app">
@@ -2530,69 +275,28 @@ function App() {
         />
       )}
       {currentView === 'select-country' && selectedTemplate && (
-        <div>
-          <div className="difficulty-selector">
-            <label htmlFor="difficulty-select">Difficoltà:</label>
-            <select
-              id="difficulty-select"
-              value={difficulty}
-              onChange={(e) => setDifficulty(e.target.value)}
-            >
-              <option value="story">Storia (molto facile)</option>
-              <option value="easy">Facile</option>
-              <option value="normal">Normale</option>
-              <option value="hard">Difficile</option>
-              <option value="very_hard">Molto difficile</option>
-            </select>
-          </div>
-          <CountrySelector
+        // Fase 2: la schermata di scelta paese + generazione mondo è `CountryStage`.
+        <CountryStage
           template={selectedTemplate}
           difficulty={difficulty}
-          onSelect={async (countryCode) => {
-            setSelectedCountry(countryCode);
-            setLoading(true);
-            try {
-              const worldData = await worldApi.generateFromTemplate(
-                selectedTemplate.id,
-                countryCode,
-                (p) => {
-                  // Avanzamento reale dal backend + fase coerente col progresso
-                  const ratio = p.total > 0 ? p.done / p.total : 0;
-                  setGenProgress(ratio);
-                  setGenPhase(Math.min(
-                    WORLD_GEN_PHASES.length - 1,
-                    Math.floor(ratio * WORLD_GEN_PHASES.length)
-                  ));
-                }
-              );
-              setGeneratedWorld(worldData);
-
-              // Use correct region ID (prefixed with worldId)
-              const actualRegionId = worldData.regionIds?.[countryCode] || countryCode;
-
-              const gameResponse = await gameApi.create({
-                world_id: worldData.worldId,
-                player_name: countryCode,
-                player_region_id: actualRegionId,
-                difficulty,
-              });
-
-              const game = await gameApi.get(gameResponse.game_id);
-              setCurrentGame(game);
-              setCurrentWorld(game.world);
-              setSelectedRegion(actualRegionId);
-              setCurrentView('game');
-            } catch (e) {
-              console.error('[Game] Failed to generate world:', e);
-              notify('Generazione del mondo fallita. Riprova.', 'error');
-              setCurrentView('menu');
-            } finally {
-              setLoading(false);
-            }
-          }}
+          onDifficultyChange={setDifficulty}
           onBack={() => setCurrentView('select-template')}
+          onProgress={(ratio) => {
+            setGenProgress(ratio);
+            setGenPhase(Math.min(WORLD_GEN_PHASES.length - 1, Math.floor(ratio * WORLD_GEN_PHASES.length)));
+          }}
+          onGenerated={(game, actualRegionId) => {
+            setCurrentGame(game);
+            setCurrentWorld(game.world);
+            setSelectedRegion(actualRegionId);
+            setCurrentView('game');
+          }}
+          onFailure={() => {
+            notify('Generazione del mondo fallita. Riprova.', 'error');
+            setCurrentView('menu');
+          }}
+          setLoading={setLoading}
         />
-        </div>
       )}
       {currentView === 'game' && renderGame()}
       {/* Menu di scelta del modello IA (Landing + pannello di gioco) */}
@@ -2601,79 +305,37 @@ function App() {
           <LLMSettingsModal open={true} onClose={() => setShowLLMSettings(false)} />
         </Suspense>
       )}
-      <ConfirmDialog
-        open={showRewindConfirm}
-        onClose={() => setShowRewindConfirm(false)}
-        onConfirm={handleRewindConfirmed}
-        title="Annullare l'ultima mossa?"
-        message="Il mondo tornerà allo stato precedente. Questa azione non può essere annullata."
-        confirmLabel="Annulla mossa"
-        cancelLabel="Mantieni"
-        variant="destructive"
-      />
-      <SavePickerModal
-        open={showSavePicker}
+      {/* Fase 2: i dialoghi sovrapposti della partita vivono in `GameModals`. */}
+      <GameModals
+        showRewindConfirm={showRewindConfirm}
+        onCloseRewind={() => setShowRewindConfirm(false)}
+        onConfirmRewind={advanceBundle.handleRewindConfirmed}
+        showSavePicker={showSavePicker}
         currentGameId={currentGame?.id}
-        onClose={() => setShowSavePicker(false)}
-        onSelect={(save) => { setShowSavePicker(false); setShowLoadSaveConfirm(save); }}
+        onCloseSavePicker={() => setShowSavePicker(false)}
+        onSelectSave={(save) => { setShowSavePicker(false); setShowLoadSaveConfirm(save); }}
+        showSaveModal={showSaveModal}
+        currentGame={currentGame}
+        onCloseSaveModal={() => setShowSaveModal(false)}
+        gameEnding={gameEnding}
+        currentDate={currentGame?.currentDate}
+        currentTurn={currentGame?.currentTurn}
+        loading={loading}
+        onNewGame={() => { setGameEnding(null); setCurrentView('select-template'); }}
+        onCloseEnding={() => setGameEnding(null)}
+        saveToLoad={showLoadSaveConfirm}
+        onCloseLoadConfirm={() => setShowLoadSaveConfirm(null)}
+        onConfirmLoad={handleResumeSave}
+        showFeasibility={showFeasibility}
+        feasibilityResult={feasibilityResult}
+        feasibilityLoading={feasibilityLoading}
+        feasibilityError={feasibilityError}
+        verifyingText={verifyingText}
+        onCloseFeasibility={() => setShowFeasibility(false)}
+        onRegister={handleFeasibilityRegister}
+        onBack={handleFeasibilityBack}
+        onReverify={handleFeasibilityReverify}
       />
-      {/* Fase 6: la modale di salvataggio era importata ma mai renderizzata: il
-          bottone SALVA del desk non faceva nulla. Render + chiamata API. */}
-      {showSaveModal && currentGame && (
-        <SaveGameModal
-          open={true}
-          defaultName={`Partita ${new Date().toLocaleDateString('it-IT')}`}
-          onClose={() => setShowSaveModal(false)}
-          onSave={(name) => {
-            void (async () => {
-              try {
-                await gameApi.saveGame(currentGame.id, name);
-                notify(`Partita salvata: ${name}`, 'success');
-              } catch (e) {
-                console.error('[Save] Failed to save game:', e);
-                notify('Errore durante il salvataggio.', 'error');
-              } finally {
-                setShowSaveModal(false);
-              }
-            })();
-          }}
-        />
-      )}
-      {gameEnding && (
-        <GameOverOverlay
-          ending={gameEnding}
-          date={gameEnding.date || currentGame?.currentDate}
-          turn={gameEnding.turn || currentGame?.currentTurn}
-          busy={loading}
-          onRewind={() => void handleRewindConfirmed()}
-          onNewGame={() => { setGameEnding(null); setCurrentView('select-template'); }}
-          onClose={() => setGameEnding(null)}
-        />
-      )}
-      {showLoadSaveConfirm && (
-        <ConfirmDialog
-          open={true}
-          onClose={() => setShowLoadSaveConfirm(null)}
-          onConfirm={() => void handleResumeSave(showLoadSaveConfirm)}
-          title="Caricare il salvataggio?"
-          message={`Caricare "${showLoadSaveConfirm.name}" (Mossa ${showLoadSaveConfirm.current_turn ?? '—'})? Lo stato locale sarà sostituito dallo snapshot.`}
-          confirmLabel="Carica"
-          cancelLabel="Annulla"
-          variant="destructive"
-        />
-      )}
-      {showFeasibility && (
-        <FeasibilityCheck
-          result={feasibilityResult}
-          loading={feasibilityLoading}
-          error={feasibilityError}
-          orderText={verifyingText}
-          onClose={() => setShowFeasibility(false)}
-          onRegister={handleFeasibilityRegister}
-          onBack={handleFeasibilityBack}
-          onReverify={handleFeasibilityReverify}
-        />
-      )}
       {/* DISATTIVATO: editor mappe (temporaneo) — rotte 'editor' e 'create-world'
       {currentView === 'editor' && renderEditor()}
       {currentView === 'create-world' && renderCreateWorld()}

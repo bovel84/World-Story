@@ -4,6 +4,10 @@ import { describe, expect, it } from 'vitest';
 
 const feasibilitySource = fs.readFileSync(path.resolve(__dirname, 'FeasibilityCheck.tsx'), 'utf8');
 const appSource = fs.readFileSync(path.resolve(__dirname, '..', '..', 'App.tsx'), 'utf8');
+// Fase 2: la logica della coda ordini e della verifica vive in `useOrderQueue`.
+const orderQueueSource = fs.readFileSync(path.resolve(__dirname, '..', '..', 'hooks', 'useOrderQueue.ts'), 'utf8');
+// Fase 2: i dialoghi sovrapposti vivono in `GameModals`.
+const gameModalsSource = fs.readFileSync(path.resolve(__dirname, 'GameModals.tsx'), 'utf8');
 const apiSource = fs.readFileSync(path.resolve(__dirname, '..', '..', 'services', 'api.ts'), 'utf8');
 
 describe('G4-B — verifica fattibilità prima della registrazione', () => {
@@ -15,8 +19,8 @@ describe('G4-B — verifica fattibilità prima della registrazione', () => {
   it('«Registra ordine» apre la verifica e non accoda direttamente', () => {
     // registerOrder instrada verso verifyOrder: la coda è toccata solo
     // da handleFeasibilityRegister, cioè dopo un esito fattibile.
-    expect(appSource).toContain('await verifyOrder(trimmed)');
-    expect(appSource).not.toContain('if (await queuePlayerAction(trimmed)) {\n      clearOrderDraft();');
+    expect(orderQueueSource).toContain('await verifyOrder(trimmed)');
+    expect(orderQueueSource).not.toContain('if (await queuePlayerAction(trimmed)) {');
   });
 
   it('il dialog mostra costi da catalogo, prerequisiti, rischi e avvisi', () => {
@@ -46,8 +50,8 @@ describe('G4-B — verifica fattibilità prima della registrazione', () => {
   });
 
   it('il dialog è montato in App con lo stato di verifica dedicato', () => {
-    expect(appSource).toContain('<FeasibilityCheck');
-    expect(appSource).toContain('setShowFeasibility(true)');
-    expect(appSource).toContain('setFeasibilityLoading(true)');
+    expect(gameModalsSource).toContain('<FeasibilityCheck');
+    expect(orderQueueSource).toContain('setShowFeasibility(true)');
+    expect(orderQueueSource).toContain('setFeasibilityLoading(true)');
   });
 });
