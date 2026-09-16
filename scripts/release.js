@@ -95,8 +95,7 @@ function stepList(flags, dbPath) {
   ];
 }
 
-function preflight(flags, dbPath) {
-  if (!fs.existsSync(dbPath)) {
+function preflight(flags, dbPath) {  if (!fs.existsSync(dbPath)) {
     return { ok: false, error: 'db_not_found', dbPath };
   }
   let runs = [];
@@ -139,6 +138,15 @@ function localFrontendBuildId() {
   return fs.readFileSync(file, 'utf8').trim() || null;
 }
 
+/**
+ * Env del passo di migrazione: DEVE puntare allo stesso DB del preflight.
+ * Senza `OPEN_PAX_DB_PATH` `database.ts` userebbe il path di default del cwd,
+ * migrando il database sbagliato.
+ */
+function migrationEnv(dbPath) {
+  return { ...process.env, OPEN_PAX_DB_PATH: dbPath };
+}
+
 function execute(flags, dbPath, backupPath) {
   const results = [];
   const run = (id, command, args, options) => {
@@ -157,7 +165,9 @@ function execute(flags, dbPath, backupPath) {
   }
   results.push({ id: 'active-runs', status: 'ok', activeRuns: 0 });
 
-  run('migration', process.execPath, ['-e', "require('./backend-nest/dist/database').initDatabase()"]);
+  run('migration', process.execPath, ['-e', "require('./backend-nest/dist/database').initDatabase()"], {
+    env: migrationEnv(dbPath),
+  });
 
   if (!flags.restartCommand) {
     throw new Error('restart_command_required: passare --restart-command "<comando>" per aggiornare il backend');
@@ -228,9 +238,13 @@ function main() {
   console.log(JSON.stringify({ ok: true, mode: 'execute', preflight: checks, plan, executed }, null, 2));
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(JSON.stringify({ ok: false, error: String((error && error.message) || error) }));
-  process.exitCode = 1;
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(JSON.stringify({ ok: false, error: String((error && error.message) || error) }));
+    process.exitCode = 1;
+  }
 }
+
+module.exports = { parseArgs, resolveDbPath, stepList, preflight, activeRuns, migrationEnv, main };
