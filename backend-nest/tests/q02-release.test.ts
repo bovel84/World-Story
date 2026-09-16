@@ -138,7 +138,7 @@ describe('Q02 µ4 — preflight di rilascio', () => {
   it('la migrazione opera sullo stesso DB del preflight (OPEN_PAX_DB_PATH)', () => {
     // Difetto trovato durante il primo deploy reale: senza questa env la
     // migrazione avrebbe toccato il database di default del cwd.
-    const { migrationEnv, resolveDbPath, parseArgs } = require(path.join(REPO_ROOT, 'scripts', 'release.js'));
+    const { migrationEnv, resolveDbPath, parseArgs, readinessTimeoutMs } = require(path.join(REPO_ROOT, 'scripts', 'release.js'));
     expect(migrationEnv(dbPath).OPEN_PAX_DB_PATH).toBe(dbPath);
     expect(parseArgs(['--execute', '--authorized', '--db', dbPath])).toMatchObject({
       mode: 'execute',
@@ -147,5 +147,8 @@ describe('Q02 µ4 — preflight di rilascio', () => {
     });
     expect(parseArgs(['--execute']).authorized).toBeUndefined();
     expect(resolveDbPath(dbPath)).toBe(path.resolve(dbPath));
+    expect(readinessTimeoutMs({})).toBe(300_000);
+    expect(readinessTimeoutMs({ readinessTimeoutSec: 45 })).toBe(45_000);
+    expect(readinessTimeoutMs({ readinessTimeoutSec: -1 })).toBe(300_000);
   });
 });

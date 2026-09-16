@@ -163,3 +163,44 @@ di produzione verificato nel preflight. Fix: `migrationEnv(dbPath)` + regression
 - `npm run build` OK (build ID frontend emesso: `frontend/dist/build-id.txt`).
 - E2E mock **17/17**, a11y **3/3**, perf **OK** (JS 1.47 MB, CSS 0.54 MB).
 - `git diff --check` pulito; Quality Gate `test-build` + `e2e-mock` verdi su `main`.
+
+---
+
+## 8. Deploy eseguito (autorizzato dall'utente, 2026-09-16)
+
+L'utente ha autorizzato esplicitamente il rilascio pubblico («fai il deploy su cloudflare e github»),
+quindi il passo 5 è stato **eseguito** con la procedura fail-closed di Q02.
+
+**Backend (rilascio fail-closed)** — `node scripts/release.js --execute --authorized ...`:
+tests → build → **backup SQLite** (`backups/world-story-2026-09-16T09-33-29-061Z.db`,
+423.591.936 byte, `integrity: ok`) → inventario run attivi (**0**) → migrazione → restart del servizio
+launchd → readiness.
+
+**Cloudflare** — `bash scripts/deploy-cloudflare.sh`:
+- Worker `world-story` versione **`f00cd12b-9ba4-48b1-8886-0c9c5d3d2139`**, 6 asset caricati
+  (incluso `build-id.txt`), KV `backend_url` = `https://ind-strikes-meant-adaptive.trycloudflare.com`.
+- Sito: **https://world-story.bovel-cannas.workers.dev**
+
+**GitHub** — tag **`v0.2.0`** + release
+**https://github.com/bovel84/World-Story/releases/tag/v0.2.0** (note con l'intero stato della roadmap).
+
+**Verifica post-deploy**
+
+| Controllo | Esito |
+|---|---|
+| `GET /api/health` pubblico | **200** — `status: ok`, `build.frontend: 713cefd`, `schema.economySnapshot: 1`, `modelVersions: cold_war_1951_v2@2, realism_test_world@1`, `auth: open-single-user` |
+| Home pubblica | **200**, asset `index-BjHW41kD.js` / `index-DjGAp8yv.css` |
+| `/build-id.txt` pubblico | `713cefd` (= `main`) |
+| Smoke E2E mock | **17/17** |
+| Audit a11y | **3/3** |
+
+**Difetti trovati dal deploy reale e corretti (PR #16 e PR #17)**
+1. Il passo `migration` non passava `OPEN_PAX_DB_PATH` → avrebbe migrato il DB di default del cwd.
+2. Il readiness timeout di 60 s è troppo corto: il primo boot dopo il deploy ricostruisce in memoria
+   tutte le sessioni attive dal DB (osservato **>60 s**). Ora default **300 s**, regolabile con
+   `--readiness-timeout <secondi>`.
+
+**Non eseguito (dichiarato)**
+- **Token single-owner non attivato**: la modalità resta `open-single-user` (comportamento invariato).
+  Attivarlo cambierebbe l'accesso all'istanza (serve `?owner_token=`).
+- **Nessuno smoke con provider LLM reale**: richiede budget approvato; lo smoke di questo rilascio è mock.
