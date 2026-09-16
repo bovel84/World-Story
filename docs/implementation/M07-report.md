@@ -216,3 +216,17 @@ Verifica: backend **65 file / 496 test** verdi; build OK; `git diff --check` pul
 - **S-14 source fence:** capture e restore verificano `game_branches.game_id`; source/target cross-game rifiutati prima di query/delete. Test target cross-game e M02 v1 reale.
 
 Verifica: backend **65 file / 496 test** verdi; build OK; `git diff --check` pulito. Settimo riesame pendente.
+
+## µ4g — Settimo riesame indipendente: **ACCETTABILE** (con rilievo di copertura chiuso)
+
+Vedi `REVIEW-M07-MU4G.md`. Le remediation S-12 (plafond/execution/date
+canoniche), S-13 (decoder M02/runtime) e S-14 (source/target fence) sono
+presenti e corrette; nessun bypass residuo trovato. Il riesame ha rilevato che i
+claim erano privi di test dedicati: chiuso con `tests/m07-snapshot-review.test.ts`
+(18 casi). Osservazioni residue non bloccanti: `reservation_operations` /
+`finance_operations` non validati semanticamente (l'hash semantico copre
+`economicState`), `sourceBranchId` come metadato non fenceato (il fence è sul
+target), coerenza `committed+spent ≤ authorized` lasciata al servizio finanza.
+
+Verifica aggiornata: backend **118 file / 991 test** verdi; `npx vitest run
+tests/m07-snapshot-review.test.ts` → 18/18; DB temporaneo, nessun credito.

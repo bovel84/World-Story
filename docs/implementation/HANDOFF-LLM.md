@@ -7,6 +7,35 @@
 
 ---
 
+## 0. Aggiornamento 2026-09-16 (stato reale, prevale sulle sezioni sotto)
+
+Le sezioni 1–7 sono **storiche** (scritte a M07 µ4g / U03 µ1, con 496 test
+backend e lavoro non committato). Dopo di esse il progetto ha ricevuto ulteriori
+feature di prodotto (dossier, economia, militare, crisi, fisco) e una lunga fase
+di refactoring; **tutto è committato e `main` è protetto** (Ruleset «Quality Gate
+su main»: PR obbligatoria + check `test-build` + no force-push/delete).
+
+Stato al 2026-09-16:
+
+- **Backend 118 file / 991 test verdi**; **frontend 192 test / 33 file**; E2E mock
+  **17/17**; `test:a11y` 1/1; `test:perf` OK; build backend+frontend verdi.
+- **M07 µ4g: ACCETTABILE** — settimo riesame indipendente chiuso
+  (`REVIEW-M07-MU4G.md`); i claim S-12/S-13/S-14 sono verificati da 18 nuovi
+  test (`tests/m07-snapshot-review.test.ts`).
+- Refactoring completato: `game-session.ts` 7489→2443; `App.tsx` 2685→347;
+  `NationDock.tsx` 1687→863 (+ `NationDock/` con hook e widget);
+  `simulation.ts`→`prompts/simulation/`; `games.routes.ts` 1638→24.
+- Blocco 2 chiuso: contratto LLM severo (`LLMContractError` + repair unico),
+  `ReactionContext` deterministico, prompt simulazione −16%, `persistApiKey`
+  opt-in.
+
+Prossimi passi reali (in ordine): M07 priorità manutenzione/servizi; U02/U03 µ2+;
+Q01 µ5 (axe non installato, dispositivi reali non disponibili) e µ6 (eval
+narrativa); M01 µ2-ter (fonti storiche, gate realismo ancora chiuso); revisioni
+indipendenti residue di F00–F06 e M01.
+
+---
+
 ## 1. Dove si è arrivati
 
 Progetto: **World Story**, monorepo `frontend/` (React+Vite) + `backend-nest/`
