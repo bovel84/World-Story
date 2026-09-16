@@ -127,3 +127,9 @@ Nessun provider reale, rete esterna, DB reale, partita pubblica, deploy o migraz
 ## Decisione revisore
 
 **Da correggere / proseguire.** Le micro-consegne rimuovono il fallback ID, chiudono i progetti solo per `projectId`, separano consegna/attuazione con `queueVersion` e vietano l’accettazione implicita; F01 richiede ancora l’integrazione runtime completa delle proposte evento e la revisione indipendente.
+
+## Revisione indipendente (revisore ≠ implementatore) — esito: **F01 CHIUSO**
+
+Verdetto **ACCETTABILE**. Dettaglio in `REVIEW-INDIPENDENTE-F01.md`. Prove rieseguite:
+`integrity-regressions`/ `id-contract-regression`/ `f03-route-contract`/ `outcome-contract`/
+`queue-contract`/ `domain-contracts` → **6 file, 24 test verdi**; nessun `it.fails` residuo.

@@ -98,3 +98,9 @@ Nessun credito, provider reale, DB reale, partita pubblica, migrazione reale o d
 ## Decisione revisore
 
 **Da correggere / proseguire.** Questa è una baseline F00, non una chiusura del gate. F01 è stato avviato con la micro-consegna `actionId`; restano le riproduzioni dinamiche residue e la revisione indipendente.
+
+## Revisione indipendente (revisore ≠ implementatore) — esito: **F00 CHIUSO**
+
+Verdetto **ACCETTABILE**. Dettaglio in `REVIEW-INDIPENDENTE-F00.md`. Prove rieseguite:
+`integrity-regressions`/ `id-contract-regression`/ `f03-route-contract`/ `outcome-contract`/
+`queue-contract`/ `domain-contracts` → **6 file, 24 test verdi**; nessun `it.fails` residuo.

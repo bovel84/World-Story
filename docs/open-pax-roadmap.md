@@ -12,10 +12,10 @@
 
 | Pacchetto | Stato | Revisione indipendente |
 |---|---|---|
-| F00 Baseline affidabile e regressioni | ✅ fatto | ⬜ da produrre (non bloccante) |
-| F01 ID e contratti end-to-end | ✅ fatto | ⬜ da produrre (non bloccante) |
+| F00 Baseline affidabile e regressioni | ✅ fatto | ✅ `REVIEW-INDIPENDENTE-F00.md` |
+| F01 ID e contratti end-to-end | ✅ fatto | ✅ `REVIEW-INDIPENDENTE-F01.md` |
 | F02 Checkpoint atomici, revisioni, rami, outbox | ✅ fatto | ✅ `REVIEW-INDIPENDENTE-F02.md` |
-| F03 Contratto pubblico run, no esiti per posizione | ✅ fatto | ⬜ da produrre (non bloccante) |
+| F03 Contratto pubblico run, no esiti per posizione | ✅ fatto | ✅ `REVIEW-INDIPENDENTE-F03.md` |
 | F04 Save/Load/Rewind e chat sicuri per ramo | ✅ fatto | ✅ `REVIEW-INDIPENDENTE-F04.md` (difetto M-1 corretto) |
 | F05 Job asincroni, lease e recovery post-crash | ✅ fatto | ✅ `REVIEW-INDIPENDENTE-F05.md` |
 | F06 Unico stato client, reset ramo, riconciliazione | ✅ fatto | ✅ `REVIEW-INDIPENDENTE-F06.md` (difetto M-1 corretto) |
@@ -63,4 +63,5 @@
 
 1. **Q02** — compatibilità, sicurezza, rilascio coordinato (GATE-3).
 2. **Chunk splitting** del bundle (baseline registrata).
-3. Revisioni indipendenti residue F00/F01/F03 (non bloccanti, già coperte da test).
+3. Revisioni indipendenti residue F00/F01/F03 — **fatte** (`REVIEW-INDIPENDENTE-F00/F01/F03.md`).
+   Restano come miglioramento di processo solo eventuali riesami periodici.

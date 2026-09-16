@@ -67,3 +67,8 @@ Zero chiamate LLM reali, zero deploy, nessun dato reale toccato. Tutte le prove 
 ## Decisione revisore
 
 Attesa revisione indipendente (test, call path, effetti vietati). Lo sviluppatore non si auto-approva.
+## Revisione indipendente (revisore ≠ implementatore) — esito: **F03 CHIUSO**
+
+Verdetto **ACCETTABILE**. Dettaglio in `REVIEW-INDIPENDENTE-F03.md`. Prove rieseguite:
+`integrity-regressions`/ `id-contract-regression`/ `f03-route-contract`/ `outcome-contract`/
+`queue-contract`/ `domain-contracts` → **6 file, 24 test verdi**; nessun `it.fails` residuo.
