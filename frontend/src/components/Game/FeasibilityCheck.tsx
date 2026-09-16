@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { explainFeasibility } from './feasibilityExplanation';
+import { buildFeasibilityChain } from './feasibilityChain';
+import { FeasibilityChain } from './FeasibilityChainPanel';
 
 export interface FeasibilityResult {
   feasible: boolean;
@@ -60,6 +62,14 @@ export function FeasibilityCheck({
   const explanation = useMemo(
     () => (result ? explainFeasibility(result.rawAssessment) : null),
     [result],
+  );
+
+  // U02 passo 2: catena dati/costi/deficit/fonti, leggibile senza colori.
+  const chain = useMemo(
+    () => (result && explanation
+      ? buildFeasibilityChain({ orderText, costs: result.costs, prerequisites: result.prerequisites, explanation })
+      : null),
+    [result, explanation, orderText],
   );
 
   if (!result && !loading && !error) return null;
@@ -151,6 +161,8 @@ export function FeasibilityCheck({
               </p>
             )}
           </section>
+
+          {chain && <FeasibilityChain view={chain} />}
 
           {result.prerequisites.length > 0 && (
             <section className="feasibility-section">

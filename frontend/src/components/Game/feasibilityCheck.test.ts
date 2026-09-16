@@ -61,4 +61,9 @@ describe('G4-B — verifica fattibilità prima della registrazione', () => {
     expect(feasibilitySource).toContain('feasibility-alternatives');
     expect(feasibilitySource).toContain('Servono dati');
   });
+
+  it('mostra la catena dati/deficit/fonti (U02 passo 2)', () => {
+    expect(feasibilitySource).toContain('buildFeasibilityChain');
+    expect(feasibilitySource).toContain('<FeasibilityChain');
+  });
 });
