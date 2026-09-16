@@ -33,7 +33,7 @@ import { addDays, formatItalianDate } from './core/simulation/calendar';
 import { autoJumpEventBudget } from './core/simulation/EventBudget';
 import { equipmentById } from './core/simulation/MilitaryIndustry';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
-import { LLMError, LLMRouter } from './llm';
+import { LLMError, LLMContractError, LLMRouter } from './llm';
 
 interface GameData {
   id: string;
@@ -872,6 +872,36 @@ export class PromptEngine {
     };
   }
 
+  /**
+   * Unico tentativo di repair del contratto di simulazione.
+   * Chiede al modello di *convertire* la risposta già prodotta nello schema
+   * canonico, senza rigenerare eventi né aggiungere contenuti. Se anche questo
+   * fallisce, il chiamante propaga `LLMContractError`: nessun fallback vuoto.
+   */
+  private async repairSimulationContract(system: string, previous: string, signal?: AbortSignal): Promise<string> {
+    const repairPrompt = [
+      'La risposta precedente non rispetta il contratto di output della simulazione.',
+      'Converti la risposta precedente nello schema richiesto SENZA inventare, aggiungere o rimuovere eventi, esiti o cause.',
+      'Non rigenerare la simulazione: traduci soltanto ciò che è già scritto.',
+      'Formato: JSON Lines. Una riga JSON per ogni evento presente:',
+      '{"type":"event","headline":"...","date":"AAAA-MM-GG","description":"...","mapChanges":[],"reactions":[]}',
+      'e infine UNA riga JSON di chiusura:',
+      '{"type":"complete","narration":"...","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"AAAA-MM-GG"}',
+      'Se non riconosci alcun evento, rispondi soltanto con la riga complete che riporta il testo originale in narration.',
+      'Nessun commento, nessun markdown, nessun testo fuori dal JSON.',
+      '',
+      'RISPOSTA PRECEDENTE:',
+      previous.slice(0, 6_000),
+    ].join('\n');
+    const repaired = await this.llm.generate('jump', system, repairPrompt, {
+      temperature: 0.1,
+      maxTokens: 4_096,
+      jsonMode: false,
+      signal,
+    });
+    return repaired.content;
+  }
+
   async runSimulation(
     game: GameData,
     actions: Array<string | { actionId: string; text: string }>,
@@ -965,33 +995,41 @@ export class PromptEngine {
       requestOptions,
     );
 
-    let rawObjects = extractCompleteJsonObjects(response.content);
-    let result = parseIncrementalSimulationResponse(response.content);
-    const looksLikeProtocol = () => rawObjects.some(raw =>
-      !!parseIncrementalSimulationRecord(raw)
-      || Array.isArray(raw?.events) || typeof raw?.narration === 'string')
-      || /"(?:events|narration|actionOutcomes)"\s*:/.test(response.content);
-
-    // Un solo retry di formato, solo per modelli piccoli e soltanto quando non
-    // è stato riconosciuto alcun record. Non ripetiamo mai eventi già emessi.
-    if (constrained && emittedCount === 0 && !looksLikeProtocol()) {
-      const retryPrompt = `${prompt}\n\n[CORREZIONE FORMATO]\nLa risposta precedente non era leggibile. Ripeti una sola volta: nessun commento, una riga JSON per evento e infine la riga JSON type=complete. Copia gli actionId senza modificarli.`;
-      response = await this.llm.generate(
-        'jump',
-        system,
-        retryPrompt,
-        { ...requestOptions, temperature: 0.15 },
-      );
-      rawObjects = extractCompleteJsonObjects(response.content);
-      result = parseIncrementalSimulationResponse(response.content);
+    let content = response.content;
+    let rawObjects = extractCompleteJsonObjects(content);
+    let result: SimulationResult;
+    let repairAttempted = false;
+    try {
+      result = parseIncrementalSimulationResponse(content);
+    } catch (initialError) {
+      if (!(initialError instanceof LLMContractError)) throw initialError;
+      // Contratto totalmente incompatibile: UN solo repair, che converte la
+      // risposta precedente nello schema — mai una nuova simulazione e mai un
+      // fallback vuoto che farebbe sembrare riuscito un turno senza eventi.
+      repairAttempted = true;
+      const repairedContent = await this.repairSimulationContract(system, content, signal);
+      try {
+        result = parseIncrementalSimulationResponse(repairedContent);
+        content = repairedContent;
+        rawObjects = extractCompleteJsonObjects(content);
+      } catch (repairError) {
+        if (repairError instanceof LLMContractError) {
+          throw new LLMContractError(
+            `repair non riuscito: la risposta resta fuori contratto (${repairError.message})`,
+            { mechanic: 'jump', excerpt: repairedContent },
+          );
+        }
+        throw repairError;
+      }
     }
 
     const hasCompletion = rawObjects.some(raw => parseIncrementalSimulationRecord(raw)?.type === 'complete')
       || rawObjects.some(raw => Array.isArray(raw?.events) && typeof raw?.narration === 'string');
     // Se gli eventi sono arrivati ma la chiusura è stata troncata, chiediamo
     // soltanto il piccolo record complete: niente seconda simulazione e niente
-    // rischio di applicare due volte la mappa.
-    if (constrained && result.events.length > 0 && !hasCompletion) {
+    // rischio di applicare due volte la mappa. Saltato se il repair è già
+    // avvenuto: un solo tentativo ausiliario per risposta.
+    if (!repairAttempted && constrained && result.events.length > 0 && !hasCompletion) {
       const closurePrompt = `Completa un output di simulazione già emesso. NON generare altri eventi.\nOrdini: ${JSON.stringify(normalizedActions)}\nEventi già validi: ${JSON.stringify(result.events.map(event => ({ headline: event.headline, date: event.date, description: event.description })))}\nRispondi SOLO con una riga JSON: {"type":"complete","narration":"sintesi","actionOutcomes":[{"actionId":"ID esatto","status":"accepted|partial|rejected","summary":"esito","eventHeadlines":[]}],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":${autoJump ? JSON.stringify(result.events.at(-1)?.date || vars.TARGET_ROUND_DATE) : JSON.stringify(vars.TARGET_ROUND_DATE)}}`;
       try {
         const closure = await this.llm.generate(

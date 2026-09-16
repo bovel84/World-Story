@@ -12,7 +12,7 @@ import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckp
 import { IdempotencyConflictError, simulationJobService } from '../../jobs/SimulationJobService';
 import { addDays, jumpHorizon } from '../../core/simulation/calendar';
 import { addSSEClient, removeSSEClient, broadcastToGame, hasClients } from '../../sse';
-import { LLMError } from '../../llm';
+import { LLMError, LLMContractError } from '../../llm';
 import path from 'path';
 import { loadSimulationCatalog } from '../../scenario/loader';
 import type { SimulationCatalog } from '../../scenario/types';
@@ -51,6 +51,10 @@ export function respondRouteError(res: any, e: any, fallback: string): void {
     // I Quick Tunnel sostituiscono i 502 JSON con una pagina HTML generica.
     // 424 conserva il dettaglio del provider per la UI.
     res.status(424).json({ error: `LLM (${e.provider}): ${e.message}` });
+  } else if (e instanceof LLMContractError) {
+    // Il modello ha risposto, ma fuori contratto (anche dopo il repair):
+    // 424 con codice esplicito, mai un turno vuoto presentato come riuscito.
+    res.status(424).json({ error: e.message, code: 'llm_contract_error', mechanic: e.mechanic });
   } else if (e instanceof SimulationInProgressError) {
     res.status(409).json({ error: e.message, code: 'simulation_in_progress' });
   } else if (typeof e?.message === 'string' && e.message.includes('snapshot_hash_mismatch')) {

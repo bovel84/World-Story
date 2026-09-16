@@ -24,6 +24,35 @@ export type IncrementalSimulationRecord =
   | { type: 'event'; event: SimulationEvent }
   | { type: 'complete'; result: SimulationResult };
 
+/** Chiavi che rendono riconoscibile un payload di simulazione. */
+const SIMULATION_SHAPE_KEYS = [
+  'events', 'eventi', 'narration', 'narrazione', 'summary',
+  'actionOutcomes', 'action_outcomes', 'voided', 'rejected',
+  'startChat', 'start_chat', 'relationshipChanges', 'relationship_changes',
+  'diplomacy', 'worldChanges', 'world_changes', 'targetDate', 'target_date', 'effects',
+] as const;
+
+/**
+ * Una risposta è «di simulazione» solo se contiene almeno una delle chiavi del
+ * contratto. Un oggetto JSON valido ma estraneo (o `{}`) non è accettabile: non
+ * deve mai degradare in una simulazione vuota che sembra riuscita.
+ */
+function hasRecognizableSimulationShape(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  return SIMULATION_SHAPE_KEYS.some(key => key in (parsed as Record<string, unknown>));
+}
+
+/** Risultato vuoto *deliberato*: usato solo per basi interne, mai come fallback. */
+export function emptySimulationResult(): SimulationResult {
+  return {
+    events: [],
+    narration: '',
+    diplomacy: [],
+    worldChanges: { regionOwners: {}, regionColors: {}, newFeatures: [], deletedFeatures: [] },
+    voided: [],
+  };
+}
+
 /** Estrae oggetti JSON completi anche se il modello li formatta su più righe. */
 export function extractCompleteJsonObjects(text: string): any[] {
   const records: any[] = [];
@@ -91,7 +120,7 @@ export function parseIncrementalSimulationResponse(text: string): SimulationResu
   // §9.2/T36: eventi emessi ma nessuna chiusura del periodo = budget esaurito
   // prima della destinazione. Il chiamante non può dichiarare il salto
   // completato sulla parola di una risposta troncata.
-  return { ...(complete?.result || parseSimulationResponse('{}')), events, incomplete: records.length > 0 && !complete };
+  return { ...(complete?.result || emptySimulationResult()), events, incomplete: records.length > 0 && !complete };
 }
 
 const MAP_CHANGE_TYPES = new Set<MapChange['type']>([
@@ -226,6 +255,14 @@ export function parseSimulationResponse(text: string): SimulationResult {
   const emptyWorldChanges = { regionOwners: {}, regionColors: {}, newFeatures: [], deletedFeatures: [] };
   try {
     const parsed = parseJsonLoose<any>(text, { mechanic: 'jump' });
+    // Contratto totalmente incompatibile: meglio un errore esplicito che una
+    // simulazione vuota presentata come valida.
+    if (!hasRecognizableSimulationShape(parsed)) {
+      throw new LLMContractError('LLM response does not match the simulation contract', {
+        mechanic: 'jump',
+        excerpt: text,
+      });
+    }
 
     // Normalizzazione severa degli eventi: gli elementi corrotti vengono
     // scartati invece di far fallire il parse
@@ -392,17 +429,12 @@ export function parseSimulationResponse(text: string): SimulationResult {
   } catch (e) {
     if (e instanceof LLMContractError) {
       console.error(`[PARSER] Contratto LLM violato (${e.mechanic ?? 'jump'}):`, e.message);
-    } else {
-      console.error('[PARSER] Failed to parse simulation response:', e);
+      throw e;
     }
-
-    // Fallback: restituisci il testo come narrativa
-    return {
-      events: [],
-      narration: text.substring(0, 500),
-      diplomacy: [],
-      worldChanges: emptyWorldChanges,
-      voided: [],
-    };
+    console.error('[PARSER] Failed to parse simulation response:', e);
+    throw new LLMContractError('LLM response is not a usable simulation payload', {
+      mechanic: 'jump',
+      excerpt: text,
+    });
   }
 }

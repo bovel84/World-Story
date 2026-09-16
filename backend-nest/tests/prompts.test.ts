@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { parseSimulationResponse, buildSimulationPrompt, buildConstrainedSimulationPrompt, buildSimulationNarrativeContract } from '../src/prompts/simulation';
+import { LLMContractError } from '../src/llm';
 import { PromptBuilder } from '../src/prompt-builder';
 import { parseConverterResponse } from '../src/prompts/converter';
 
@@ -45,10 +46,9 @@ describe('parseSimulationResponse', () => {
     expect(result.narration).toBe('ok');
   });
 
-  it('на мусоре возвращает fallback, не падает', () => {
-    const result = parseSimulationResponse('совсем не json');
-    expect(result.events).toEqual([]);
-    expect(typeof result.narration).toBe('string');
+  it('su una risposta fuori contratto lancia LLMContractError (nessun fallback vuoto)', () => {
+    expect(() => parseSimulationResponse('совсем не json')).toThrow(LLMContractError);
+    expect(() => parseSimulationResponse('{}')).toThrow(LLMContractError);
   });
 
   it('normalizza le reazioni strutturate delle politie coinvolte', () => {
