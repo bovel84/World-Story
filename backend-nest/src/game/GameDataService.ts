@@ -13,7 +13,7 @@ import { arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, naturalResou
 import { effectiveEndowment, summarizeLedger } from '../core/simulation/ResourceMarket';
 import { annualDebtServiceMld, creditHeadroom, creditLimit, debtOf, materialNeeds, storageCapacity, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { averageMaturityYears } from '../core/simulation/SovereignDebt';
-import { buildReactionContext, renderReactionContext } from '../core/simulation/ReactionContext';
+import { buildReactionContext, renderReactionContext, type CurrentReactionAction, type ReactionContext } from '../core/simulation/ReactionContext';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import type { ResourceLedger } from '../core/simulation/ResourceMarket';
 import type { RegionState } from '../game-session';
@@ -56,7 +56,7 @@ export interface GameDataContext {
 export class GameDataService {
   constructor(private readonly ctx: GameDataContext) {}
 
-  build(focusTexts: string[] = []): any {
+  build(focusTexts: string[] = [], currentActions: CurrentReactionAction[] = []): any {
     const player = this.ctx.players()[0];
 
     // Convert regions Map to object for compatibility
@@ -97,6 +97,34 @@ export class GameDataService {
     const processRows = gameRepository.getOngoingProcesses(this.ctx.gameId);
     const playerStock = this.ctx.resourceStock(this.ctx.playerPolityId());
     const playerAccountForContext = accounts[this.ctx.playerPolityId()];
+
+    // Contesto di reazione: chi è coinvolto e quali opzioni sono ammesse. È
+    // calcolato una volta sola perché serve sia al prompt (testo) sia al
+    // validator deterministico delle reactions (forma strutturata).
+    const reactionContextData: ReactionContext = buildReactionContext({
+      playerPolityId: this.ctx.playerPolityId(),
+      playerPolityName: polityNames[this.ctx.playerPolityId()],
+      focusTexts,
+      currentActions,
+      polityNames,
+      regions: regionsObj,
+      relationships: this.ctx.relationships() as Record<string, Record<string, string>> | undefined,
+      accounts: effectiveAccounts,
+      resources: {
+        debt: debtOf(playerStock),
+        creditLimit: creditLimit(playerAccountForContext),
+        creditHeadroom: creditHeadroom(playerStock, playerAccountForContext),
+        stock: playerStock as unknown as Record<string, number>,
+      },
+      government: {
+        factions: governmentSnapshot(playerAccountForContext).factions.map(faction => ({
+          id: faction.id, name: faction.name, pressure: faction.pressure, stance: faction.stance,
+        })),
+      },
+      pressures: pressureRows.map(record => ({ id: record.id, kind: record.kind, title: record.title, detail: record.detail })),
+      ongoingProcesses: processRows.map((process: any) => ({ id: process.id, title: process.title, sourceActionId: process.source_action_id })),
+      crisis: { level: this.ctx.peekCrisis().level, headline: this.ctx.peekCrisis().headline },
+    });
 
     return {
       id: this.ctx.gameId,
@@ -216,30 +244,12 @@ export class GameDataService {
       npcStrategicProfiles: this.ctx.buildNpcStrategicDossiers(focusTexts, accounts),
       // Il motore decide chi è coinvolto e quali opzioni sono materialmente
       // possibili: il prompt riceve un contesto già filtrato e limitato.
-      reactionContext: renderReactionContext(buildReactionContext({
-        playerPolityId: this.ctx.playerPolityId(),
-        playerPolityName: polityNames[this.ctx.playerPolityId()],
-        focusTexts,
-        actions: this.ctx.actions().map((action: any) => ({ actionId: action.id, text: action.text })),
-        polityNames,
-        regions: regionsObj,
-        relationships: this.ctx.relationships() as Record<string, Record<string, string>> | undefined,
-        accounts: effectiveAccounts,
-        resources: {
-          debt: debtOf(playerStock),
-          creditLimit: creditLimit(playerAccountForContext),
-          creditHeadroom: creditHeadroom(playerStock, playerAccountForContext),
-          stock: playerStock as unknown as Record<string, number>,
-        },
-        government: {
-          factions: governmentSnapshot(playerAccountForContext).factions.map(faction => ({
-            id: faction.id, name: faction.name, pressure: faction.pressure, stance: faction.stance,
-          })),
-        },
-        pressures: pressureRows.map(record => ({ id: record.id, kind: record.kind, title: record.title, detail: record.detail })),
-        ongoingProcesses: processRows.map((process: any) => ({ id: process.id, title: process.title, sourceActionId: process.source_action_id })),
-        crisis: { level: this.ctx.peekCrisis().level, headline: this.ctx.peekCrisis().headline },
-      })),
+      // `currentActions` è il lotto del turno corrente (con ID canonico): lo
+      // storico azioni non entra mai nel trigger.
+      reactionContext: renderReactionContext(reactionContextData),
+      // Stesso contesto in forma strutturata: serve al validator deterministico
+      // delle reactions (actorId/optionId) nel percorso di simulazione.
+      reactionContextData,
       // I progetti attivi sono contesto canonico anche senza nuovi ordini.
       // LLM riceve ID e date, non deve riconoscerli per titolo.
       ongoingProcesses: processRows.map((process: any) => ({

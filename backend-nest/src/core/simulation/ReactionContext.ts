@@ -102,9 +102,13 @@ export interface ReactionAccountInput {
 export interface ReactionContextInput {
   playerPolityId: string;
   playerPolityName: string;
-  /** Ordini/azioni del turno corrente. */
+  /** Ordini/azioni del turno corrente (solo testo, senza ID canonico). */
   focusTexts: string[];
-  actions?: Array<{ actionId?: string; text: string }>;
+  /**
+   * Ordini del turno CORRENTE con il loro ID canonico. NON è lo storico:
+   * lo storico azioni non deve mai determinare il trigger del turno.
+   */
+  currentActions?: CurrentReactionAction[];
   polityNames: Record<string, string>;
   regions: Record<string, ReactionRegionInput>;
   relationships?: Record<string, Record<string, string>>;
@@ -119,6 +123,12 @@ export interface ReactionContextInput {
   pressures?: Array<{ id: string; kind: string; title: string; detail: string }>;
   ongoingProcesses?: Array<{ id: string; title: string; sourceActionId: string }>;
   crisis?: { level?: string; headline?: string };
+}
+
+/** Ordine del turno corrente: testo + ID canonico della stessa azione. */
+export interface CurrentReactionAction {
+  actionId?: string;
+  text: string;
 }
 
 const MAX_ACTORS = 8;
@@ -250,10 +260,20 @@ export function buildReactionContext(input: ReactionContextInput): ReactionConte
   const creditHeadroom = Number(resources.creditHeadroom ?? 0);
   const playerAccount = input.accounts?.[input.playerPolityId] || {};
 
-  // Trigger: la causa esplicita, in ordine di priorità.
-  const firstAction = input.actions?.[0];
-  const trigger: Trigger = input.focusTexts.length > 0 || firstAction
-    ? { kind: 'player_action', summary: firstAction?.text || input.focusTexts[0], sourceRef: firstAction?.actionId }
+  // Trigger: la causa esplicita, in ordine di priorità. Gli ordini del turno
+  // corrente vengono PRIMA dello storico (che qui non entra mai): `summary` e
+  // `sourceRef` devono riferirsi alla stessa azione. Se esiste solo il testo
+  // (focusTexts) senza ID canonico, non si associa l'ID di una vecchia azione.
+  const currentAction = (input.currentActions || []).find(
+    action => action && typeof action.text === 'string' && action.text.trim().length > 0,
+  );
+  const firstFocus = input.focusTexts.find(text => typeof text === 'string' && text.trim().length > 0);
+  const trigger: Trigger = currentAction
+    ? (currentAction.actionId
+      ? { kind: 'player_action', summary: currentAction.text, sourceRef: currentAction.actionId }
+      : { kind: 'player_action', summary: currentAction.text })
+    : firstFocus
+    ? { kind: 'player_action', summary: firstFocus }
     : input.ongoingProcesses?.length
       ? { kind: 'world_process', summary: input.ongoingProcesses[0].title, sourceRef: input.ongoingProcesses[0].id }
       : input.pressures?.find(pressure => pressure.kind === 'external')

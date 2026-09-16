@@ -185,7 +185,12 @@ export class TurnPipelineService {
       // Il narratore conosce in anticipo quali ordini la tesoreria non può
       // sostenere: nessun successo narrato che la cassa smentisce.
       this.state.pendingFundingNotes = this.ctx.orderFundingNotes(actions);
-      const gameData = this.ctx.buildGameData(actions.map(item => item.text));
+      // Il trigger del turno usa le azioni del lotto CORRENTE con il loro ID
+      // canonico: lo storico azioni non determina mai la causa del turno.
+      const gameData = this.ctx.buildGameData(
+        actions.map(item => item.text),
+        actions.map(item => ({ actionId: item.id, text: item.text })),
+      );
       this.state.pendingFundingNotes = null;
 
       // Gli eventi escono dal token stream UNO ALLA VOLTA. In auto-jump un

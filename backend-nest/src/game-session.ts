@@ -22,6 +22,7 @@ import { NationStateService } from './game/NationStateService';
 import { SimulationCoordinator } from './game/SimulationCoordinator';
 import { WorldMutationService } from './game/WorldMutationService';
 import { GameDataService } from './game/GameDataService';
+import type { CurrentReactionAction } from './core/simulation/ReactionContext';
 import { WorldIntelService } from './game/WorldIntelService';
 import { NpcTurnService } from './game/NpcTurnService';
 import { SessionStateStore } from './game/SessionStateStore';
@@ -1401,8 +1402,8 @@ export class GameSession {
    * Build game data object for prompt engine
    */
   /** Read model GameData per il motore di prompt (implementazione in GameDataService). */
-  private buildGameData(focusTexts: string[] = []): any {
-    return this.gameData.build(focusTexts);
+  private buildGameData(focusTexts: string[] = [], currentActions: CurrentReactionAction[] = []): any {
+    return this.gameData.build(focusTexts, currentActions);
   }
 
   // =========================================================================
