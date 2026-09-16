@@ -117,9 +117,13 @@ node scripts/db-restore.js <backup> <db>
 riavviare la revisione precedente del backend (stesso comando di deploy)
 ```
 
-Prove: `tests/q02-release.test.ts` — **9 casi** (backup coerente, db mancante, restore + safety copy,
+Prove: `tests/q02-release.test.ts` — **10 casi** (backup coerente, db mancante, restore + safety copy,
 backup mancante, piano con 10 passi e rollback, run attivi bloccanti/sbloccabili, db mancante,
-`--execute` non autorizzato, flag sconosciuto).
+`--execute` non autorizzato, flag sconosciuto, **migrazione sullo stesso DB del preflight**).
+
+**Difetto trovato durante il primo deploy reale (e corretto):** il passo `migration` era lanciato senza
+`OPEN_PAX_DB_PATH`, quindi `database.ts` avrebbe usato il database di default del `cwd` invece di quello
+di produzione verificato nel preflight. Fix: `migrationEnv(dbPath)` + regressione dedicata.
 
 ## 5. Matrice audit/spec (passo 6)
 

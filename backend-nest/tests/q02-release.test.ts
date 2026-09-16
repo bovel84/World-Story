@@ -134,4 +134,18 @@ describe('Q02 µ4 — preflight di rilascio', () => {
     expect(result.code).toBe(1);
     expect(jsonFrom(result.stderr).error).toContain('flag sconosciuto');
   });
+
+  it('la migrazione opera sullo stesso DB del preflight (OPEN_PAX_DB_PATH)', () => {
+    // Difetto trovato durante il primo deploy reale: senza questa env la
+    // migrazione avrebbe toccato il database di default del cwd.
+    const { migrationEnv, resolveDbPath, parseArgs } = require(path.join(REPO_ROOT, 'scripts', 'release.js'));
+    expect(migrationEnv(dbPath).OPEN_PAX_DB_PATH).toBe(dbPath);
+    expect(parseArgs(['--execute', '--authorized', '--db', dbPath])).toMatchObject({
+      mode: 'execute',
+      authorized: true,
+      db: dbPath,
+    });
+    expect(parseArgs(['--execute']).authorized).toBeUndefined();
+    expect(resolveDbPath(dbPath)).toBe(path.resolve(dbPath));
+  });
 });
