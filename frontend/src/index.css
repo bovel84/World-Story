@@ -2746,3 +2746,53 @@ html, body { margin: 0; }
 
 /* ── LW06: sintesi diplomatica nell'intestazione ────────────────────────── */
 .diplomacy-summary { flex: 1; text-align: right; margin-right: 8px; color: #9fb0c9; font: 600 11px/1.3 system-ui, sans-serif; }
+
+/* ── LW06.1: briefing compatto nella schermata principale ───────────────── */
+.compact-briefing {
+  --cb-accent: #6f83a3;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 12px 0;
+  padding: 8px 12px 8px 14px;
+  border: 1px solid #354966;
+  border-left: 4px solid var(--cb-accent);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(19, 31, 52, 0.96), rgba(14, 24, 40, 0.96));
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.32);
+}
+.compact-briefing.level-critical { --cb-accent: #d97b7b; }
+.compact-briefing.level-attention { --cb-accent: #d9b061; }
+.compact-briefing.level-stable { --cb-accent: #5fb98a; }
+.compact-briefing-status { flex: none; color: #f3f6fc; font: 700 10.5px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.compact-briefing.level-critical .compact-briefing-status { color: #f0a9a9; }
+.compact-briefing.level-attention .compact-briefing-status { color: #f0ce8f; }
+.compact-briefing.level-stable .compact-briefing-status { color: #a9e8c4; }
+.compact-briefing-list { display: flex; flex: 1; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; list-style: none; }
+.compact-briefing-list li { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: #dbe6f6; font: 500 12.5px/1.3 system-ui, sans-serif; }
+.compact-briefing-list li.tone-critical .compact-briefing-label { color: #f0a9a9; }
+.compact-briefing-list li.tone-warning .compact-briefing-label { color: #f0ce8f; }
+.compact-briefing-list li.tone-opportunity .compact-briefing-label { color: #a9e8c4; }
+.compact-briefing-icon { flex: none; font-size: 11px; }
+.compact-briefing-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compact-briefing-open { flex: none; min-height: 30px; padding: 0 12px; border: 1px solid #40587a; border-radius: 8px; background: rgba(111, 131, 163, 0.2); color: #dbe6f6; font: 600 12px/1 system-ui, sans-serif; cursor: pointer; }
+.compact-briefing-open:hover, .compact-briefing-open:focus-visible { filter: brightness(1.15); }
+.compact-briefing-dismiss { flex: none; width: 26px; height: 26px; border: 0; border-radius: 999px; background: transparent; color: #8fa0bc; font: 700 15px/1 system-ui, sans-serif; cursor: pointer; }
+.compact-briefing-dismiss:hover, .compact-briefing-dismiss:focus-visible { color: #dbe6f6; }
+@media (max-width: 720px) {
+  .compact-briefing { flex-wrap: wrap; }
+  .compact-briefing-list { flex-basis: 100%; }
+}
+
+/* ── LW06.1: variazioni reali nel lettore del checkpoint ─────────────────── */
+.simulation-reader-impact { display: flex; flex-direction: column; gap: 7px; margin: 4px 0 2px; padding: 11px 13px; border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; background: rgba(255, 255, 255, 0.035); }
+.simulation-reader-impact h4 { margin: 0; color: #9b8adb; font: 700 10.5px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.simulation-reader-impact-list { display: flex; flex-wrap: wrap; gap: 7px 12px; margin: 0; padding: 0; list-style: none; }
+.simulation-reader-impact-list li { display: inline-flex; align-items: baseline; gap: 7px; padding: 3px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); color: #9fb0c9; font: 500 12px/1.3 system-ui, sans-serif; }
+.simulation-reader-impact-list b { font-variant-numeric: tabular-nums; }
+.simulation-reader-impact-list li.tone-positive b { color: #a9e8c4; }
+.simulation-reader-impact-list li.tone-negative b { color: #f0a9a9; }
+.simulation-reader-impact-list li.tone-warning b { color: #f0ce8f; }
+.simulation-reader-impact-list li.tone-neutral b { color: #c6d3e6; }
+.simulation-reader-impact small { color: #8fa0bc; font: 500 11px/1.45 system-ui, sans-serif; }

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { publicNarrativeText } from '../../services/publicNarrative';
+import type { CheckpointImpact } from './checkpointImpact';
 
 /** L'ancora canonica della pagina in lettura (§9.3/G22). */
 export interface PlaybackReaderState {
@@ -22,6 +23,13 @@ interface SimulationEventReaderProps {
   onContinue: () => void;
   onIntervene: () => void;
   playerPolityName?: string;
+  /**
+   * LW06.1 / MIGLIORIA 2 — variazioni REALI del periodo del checkpoint,
+   * derivate dallo storico del motore. Solo presentazione: la semantica del
+   * checkpoint (revision, simulationId, continue/intervene) resta invariata.
+   * `null`/assente = nessun effetto disponibile, nessun testo inventato.
+   */
+  impact?: CheckpointImpact | null;
 }
 
 /**
@@ -38,6 +46,7 @@ export function SimulationEventReader({
   onContinue,
   onIntervene,
   playerPolityName,
+  impact = null,
 }: SimulationEventReaderProps) {
   const continueButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -111,6 +120,23 @@ export function SimulationEventReader({
             );
           })}
         </ol>
+
+        {impact && impact.hasChanges && (
+          // Dicitura NON causale: il motore conosce il delta del periodo, non
+          // l'attribuzione al singolo evento. Nessuna frase di causalità forte.
+          <section className="simulation-reader-impact" aria-label="Variazioni registrate nel periodo">
+            <h4>Variazioni registrate nel periodo</h4>
+            <ul className="simulation-reader-impact-list">
+              {impact.deltas.slice(0, 6).map(delta => (
+                <li key={delta.id} className={`tone-${delta.tone}`}>
+                  <span>{delta.label}</span>
+                  <b>{delta.text}</b>
+                </li>
+              ))}
+            </ul>
+            <small>Delta del turno dai conti registrati dal motore; non un giudizio di causa.</small>
+          </section>
+        )}
 
         <footer className="simulation-reader-actions">
           <button ref={continueButtonRef} type="button" className="btn-continue-next" onClick={onContinue} disabled={loading}>

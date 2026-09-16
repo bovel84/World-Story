@@ -32,7 +32,7 @@ describe('LW03 — Piano visibile prima dell’avanzamento', () => {
   it('il pannello Timeline integra i delta del motore (LW02)', () => {
     const checkpointImpact = fs.readFileSync(path.resolve(__dirname, 'checkpointImpact.ts'), 'utf8');
     expect(checkpointImpact).toContain('deriveCheckpointImpact');
-    expect(hud).toContain('impactsByTurn(history)');
+    expect(hud).toContain('impactsByTurn(history, timelineRefs)');
     expect(frontend).toBeTruthy();
   });
 });

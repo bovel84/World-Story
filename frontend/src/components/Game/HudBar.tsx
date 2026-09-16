@@ -171,8 +171,14 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   const controlsLocked = loading || !!activePlayback;
 
   // LW02 — delta reali per turno, calcolati dallo storico dei conti pubblicato
-  // dal motore. Nessuna stima nel browser: solo before → after.
-  const impacts = useMemo(() => impactsByTurn(history), [history]);
+  // dal motore. La Timeline fornisce turno/data di ogni entry: la transizione
+  // viene agganciata al turno che l'ha davvero prodotta (nessun `turn - 1`
+  // hardcoded, nessun effetto del turno successivo).
+  const timelineRefs = useMemo(
+    () => (timeline || []).map(entry => ({ turn: entry.turn, date: entry.date })),
+    [timeline],
+  );
+  const impacts = useMemo(() => impactsByTurn(history, timelineRefs), [history, timelineRefs]);
 
   // Eventi appiattiti e ordinati dal più recente. Il fallback tollera risposte
   // precedenti, dove events era ancora string[].

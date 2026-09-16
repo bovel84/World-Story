@@ -127,22 +127,79 @@ export interface HistoryPointLike {
   account: Record<string, unknown>;
 }
 
+/** Riferimento minimo a una entry della Timeline: turno e data di fine. */
+export interface TimelineTurnRef {
+  turn: number;
+  date: string;
+}
+
+interface HistorySegment {
+  turn: number;
+  last: HistoryPointLike;
+}
+
 /**
- * Impatto per turno dallo storico dei conti: confronta ogni punto col
- * precedente. La chiave è il numero di turno (o l'indice, se assente).
- * Non ordina l'input: si aspetta la serie dal più vecchio al più recente,
- * come la restituisce il motore.
+ * Raggruppa i punti storici in segmenti consecutivi con lo stesso turno. Il
+ * motore può registrare più snapshot per lo stesso turno (playback per-evento):
+ * la somma del turno è la differenza tra l'ultimo punto del turno precedente e
+ * l'ultimo punto del turno corrente.
  */
-export function impactsByTurn(history: readonly HistoryPointLike[]): Map<number, CheckpointImpact> {
+function segmentHistory(history: readonly HistoryPointLike[]): HistorySegment[] {
+  const segments: HistorySegment[] = [];
+  history.forEach((point, index) => {
+    const turn = typeof point.turn === 'number' ? point.turn : index;
+    const current = segments[segments.length - 1];
+    if (current && current.turn === turn) current.last = point;
+    else segments.push({ turn, last: point });
+  });
+  return segments;
+}
+
+/**
+ * Impatto per turno dallo storico dei conti.
+ *
+ * La transizione BEFORE → AFTER appartiene al turno che l'ha **davvero**
+ * prodotta. La data di fine dello snapshot combacia con la data dell'entry di
+ * Timeline generata dallo stesso avanzamento: se la Timeline è disponibile si
+ * usa quel turno (robusto rispetto alle due convenzioni di `turn` osservate nel
+ * motore: snapshot registrato prima o dopo l'incremento). Senza Timeline si
+ * ripiega sul turno dello snapshot stesso (deterministico, compatibile legacy).
+ *
+ * Non ordina l'input: si aspetta la serie dal più vecchio al più recente.
+ */
+export function impactsByTurn(
+  history: readonly HistoryPointLike[],
+  timeline?: readonly TimelineTurnRef[],
+): Map<number, CheckpointImpact> {
   const result = new Map<number, CheckpointImpact>();
-  for (let i = 1; i < history.length; i += 1) {
-    const previous = history[i - 1];
-    const current = history[i];
-    const turn = typeof current.turn === 'number' ? current.turn : i;
-    result.set(turn, deriveCheckpointImpact(
-      { account: previous.account as Partial<NationAccount> },
-      { account: current.account as Partial<NationAccount> },
-    ));
+  const segments = segmentHistory(history);
+  const turnByDate = new Map<string, number>();
+  for (const entry of timeline ?? []) {
+    if (entry?.date && !turnByDate.has(entry.date)) turnByDate.set(entry.date, entry.turn);
+  }
+  for (let i = 1; i < segments.length; i += 1) {
+    const before = segments[i - 1].last;
+    const after = segments[i].last;
+    const impact = deriveCheckpointImpact(
+      { account: before.account as Partial<NationAccount> },
+      { account: after.account as Partial<NationAccount> },
+    );
+    const key = turnByDate.get(after.date) ?? segments[i].turn;
+    result.set(key, impact);
   }
   return result;
+}
+
+/**
+ * Impatto registrato esattamente alla data indicata (per il checkpoint in
+ * lettura). Se il motore non ha registrato un punto a quella data, restituisce
+ * `null`: nessun effetto inventato.
+ */
+export function deriveImpactAtDate(history: readonly HistoryPointLike[], date: string): CheckpointImpact | null {
+  const index = history.findIndex(point => point.date === date);
+  if (index <= 0) return null;
+  return deriveCheckpointImpact(
+    { account: history[index - 1].account as Partial<NationAccount> },
+    { account: history[index].account as Partial<NationAccount> },
+  );
 }

@@ -18,6 +18,9 @@ import { useToast } from '../ui/ToastProvider';
 import { deriveNationalContext } from './nationalContext';
 import { councilPresence } from './governmentDossier';
 import { deriveWorldPresence } from './worldPresence';
+import { deriveStrategicBriefing } from './strategicBriefing';
+import { deriveImpactAtDate } from './checkpointImpact';
+import { CompactBriefing } from './CompactBriefing';
 import type { NationSnapshot } from '../../hooks/useNationSnapshot';
 import type { WorldTimeline } from '../../hooks/useWorldTimeline';
 import type { Feed } from '../../hooks/useFeed';
@@ -132,6 +135,32 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     feedItems: feed.feedItems,
   }).facts, [regions, changedRegions, playerPolityId, feed.feedItems]);
 
+  // LW01/LW06.1 — il briefing è derivato UNA sola volta, qui, e condiviso con
+  // la striscia compatta nella HUD e con la card nel Dossier. Stesso read model,
+  // nessuna seconda verità.
+  const briefing = useMemo(() => deriveStrategicBriefing({
+    account: nationalAccount,
+    resources: nation.nationalResources,
+    crisis: nation.nationalCrisis,
+    pressures: nation.nationalPressures,
+    ongoingProcesses: timeline.ongoingProcesses,
+    mandateDecisions: nation.mandateDecisions,
+    maintenanceObligations: nation.maintenanceObligations,
+    government: nation.nationalGovernment,
+    fiscalPolicy: nation.nationalFiscalPolicy,
+    worldFacts,
+  }), [
+    nationalAccount, nation.nationalResources, nation.nationalCrisis, nation.nationalPressures,
+    timeline.ongoingProcesses, nation.mandateDecisions, nation.maintenanceObligations,
+    nation.nationalGovernment, nation.nationalFiscalPolicy, worldFacts,
+  ]);
+
+  // LW06.1 / MIGLIORIA 2 — variazioni reali del periodo del checkpoint in
+  // lettura, derivate dallo storico conti del motore (stessa data del punto).
+  const checkpointImpact = useMemo(() => (
+    playback.pausedReader ? deriveImpactAtDate(nation.nationalHistory, playback.pausedReader.event.date) : null
+  ), [playback.pausedReader, nation.nationalHistory]);
+
   const handleRewind = () => {
     if (!currentGame || loading) return;
     shell.setShowRewindConfirm(true);
@@ -226,6 +255,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
               playerPolityName={nationalName}
             />
           )}
+          <CompactBriefing briefing={briefing} onOpenDossier={() => openModule('nation')} />
           {shell.isProcessingTurn && (
             <div className="turn-progress-banner" role="status" aria-live="polite">
               <span className="turn-progress-spinner" aria-hidden="true" />
@@ -245,6 +275,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
               loading={loading}
               onContinue={playback.handleContinueNext}
               onIntervene={playback.handleInterveneHere}
+              impact={checkpointImpact}
               playerPolityName={nationalName}
             />
           )}
@@ -293,7 +324,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             onResolvePressure={nation.resolvePressure}
             pressureBusy={nation.pressureBusy}
             nationalCrisis={nation.nationalCrisis}
-            worldFacts={worldFacts}
+            briefing={briefing}
             onDraftGovernmentPetition={draftGovernmentPetition}
             governmentVoices={nation.governmentVoices}
             governmentVoicesLoading={nation.governmentVoicesLoading}
