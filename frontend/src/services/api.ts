@@ -17,6 +17,8 @@ import type {
   WorldTemplate
 } from '../types';
 
+import { ownerHeaders } from './ownerToken';
+
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 /** Caratteristica tecnica di un equipaggiamento (lettura, non calcolo). */
@@ -289,6 +291,7 @@ async function fetchApi<T>(
   const response = await fetch(url, {
     ...options,
     headers: {
+      ...ownerHeaders(),
       'Content-Type': 'application/json',
       ...options.headers,
     },
@@ -1165,7 +1168,7 @@ export const advisorApi = {
     try {
       response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...ownerHeaders(), 'Content-Type': 'application/json' },
         body,
       });
     } catch (e) {
@@ -1368,7 +1371,9 @@ export const templatesApi = {
 * Esporta il preset come archivio zip: otteniamo il blob e avviamo il download
    */
   exportPreset: async (templateId: string): Promise<void> => {
-    const response = await fetch(`${API_BASE}/templates/${templateId}/export`);
+    const response = await fetch(`${API_BASE}/templates/${templateId}/export`, {
+      headers: ownerHeaders(),
+    });
     if (!response.ok) {
       const text = await response.text();
       console.error('[API Error]', response.status, `/templates/${templateId}/export`, text);
@@ -1399,7 +1404,7 @@ export const templatesApi = {
       `${API_BASE}/templates/import${overwrite ? '?overwrite=1' : ''}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/zip' },
+        headers: { ...ownerHeaders(), 'Content-Type': 'application/zip' },
         body: file,
       }
     );

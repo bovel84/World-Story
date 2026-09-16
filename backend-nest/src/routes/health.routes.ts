@@ -4,9 +4,11 @@
  */
 
 import { Router } from 'express';
+import { buildInfo } from '../health/build-info';
 
 export const healthRouter = Router();
 
 healthRouter.get('/', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  // Q02 µ3: build/versione senza segreti (token, chiavi LLM, percorsi).
+  res.json(buildInfo());
 });

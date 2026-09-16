@@ -1,6 +1,6 @@
 # World Story — Roadmap e stato
 
-**Aggiornato:** 2026-09-16 (chiusura pacchetti residui: M06/M07/U01/U02/U03/Q01 e revisioni indipendenti).
+**Aggiornato:** 2026-09-16 (chiusura pacchetti residui: M06/M07/U01/U02/U03/Q01 **e Q02** — roadmap completa per le parti realizzabili).
 
 > Fonte operativa: [PIANO_ESECUTIVO_LLM_REALISMO_UX.md](PIANO_ESECUTIVO_LLM_REALISMO_UX.md).
 > Verbali e report in [`docs/implementation/`](implementation/). Ogni pacchetto è consegnato
@@ -40,12 +40,12 @@
 | U02 Ordini guidati e catena fattibilità | ✅ fatto (parti realizzabili) | **CHIUSO** — `REVIEW-INDIPENDENTE-U02.md`; catena dati/deficit/fonti + alternative; passo 3 (batch) bloccato |
 | U03 Dossier Nazione, chat/accordi, lettore | ✅ fatto (parti realizzabili) | **CHIUSO** — `REVIEW-INDIPENDENTE-U03.md`; residui dati/dispositivi dichiarati |
 | Q01 Harness frontend/E2E, a11y, perf | ✅ fatto (parte automatizzabile) | **CHIUSO** — `REVIEW-INDIPENDENTE-Q01.md`; config Playwright portabile; job CI informativo `.github/workflows/e2e.yml`; axe/dispositivi/eval narrativa bloccati |
-| Q02 Compatibilità, sicurezza, rilascio | ⬜ non avviato | Dipende da GATE-3 |
+| Q02 Compatibilità, sicurezza, rilascio | ✅ fatto (parte automatizzabile) | **CHIUSO** — `Q02-report.md` + `REVIEW-INDIPENDENTE-Q02.md`; guardia single-owner, inventario 99 endpoint (54 mutanti), health/version senza segreti, script fail-closed con backup/rollback; rilascio pubblico e smoke LLM reale bloccati per autorizzazione/budget |
 
 ## Verifiche di qualità (stato reale, 2026-09-16)
 
-- Backend: **118 file / 999 test** verdi; `tsc` pulito.
-- Frontend: **38 file / 214 test** verdi; `tsc` pulito; `npm run build` verde.
+- Backend: **124 file / 1033 test** verdi; `tsc` pulito.
+- Frontend: **39 file / 220 test** verdi; `tsc` pulito; `npm run build` verde (build ID in `frontend/dist/build-id.txt`).
 - E2E mock: **17/17**; a11y: **3/3**; perf: **OK** (JS 1.47 MB, CSS 0.54 MB; soglie 2 MB / 1 MB).
 - `git diff --check` pulito; Quality Gate `test-build` verde su `main`.
 
@@ -61,10 +61,19 @@
 5. **Q01 E2E in CI** — risolto come job informativo `.github/workflows/e2e.yml`
    (`continue-on-error`, non richiesto dal ruleset): esegue E2E mock + a11y + perf.
    Da rendere `required` dopo validazione su Linux.
+6. **Q02 rilascio pubblico** — non eseguito: richiede **autorizzazione esplicita**. Comando pronto:
+   `node scripts/release.js --execute --authorized --db <path> --restart-command "<cmd>"`
+   (preflight in sola lettura: `node scripts/release.js --plan-only --db <path>`).
+7. **Q02 smoke LLM reale / deploy staging** — richiede **budget approvato**; alternativa mock già in
+   CI, mai spacciata per prova LLM di produzione. Vedi `Q02-report.md` §6.
+8. **Q02 axe/dispositivi reali** — bloccati come in Q01 (rete/hardware).
 
 ## Prossimi passi
 
-1. **Q02** — compatibilità, sicurezza, rilascio coordinato (GATE-3).
-2. **Chunk splitting** del bundle (baseline registrata).
+1. **Chunk splitting** del bundle (baseline registrata).
+2. **Rilascio autorizzato** con `scripts/release.js` (quando l'utente lo autorizza).
 3. Revisioni indipendenti residue F00/F01/F03 — **fatte** (`REVIEW-INDIPENDENTE-F00/F01/F03.md`).
    Restano come miglioramento di processo solo eventuali riesami periodici.
+
+**Nessun pacchetto del piano esecutivo è più aperto**: la roadmap è completa per tutto ciò che è
+realizzabile senza autorizzazioni esterne o decisioni di prodotto.

@@ -265,3 +265,26 @@ Il bootstrap Express esaminato abilita CORS generico e monta router; non costitu
 4. **Certificazione:** regressioni browser, migrazioni, recupero crash, prestazioni, sicurezza e deploy coordinato.
 
 I dettagli normativi sono nel [piano maestro](PIANO_MAESTRO_REALISMO_NAZIONALE_UX.md). Istruzioni, dipendenze, file e test per ogni consegna sono nel [piano esecutivo](PIANO_ESECUTIVO_LLM_REALISMO_UX.md).
+
+---
+
+## 9. Aggiornamento matrice — Q02 (16 settembre 2026)
+
+Il pacchetto **Q02 (compatibilità, sicurezza, rilascio coordinato)** ha aggiornato la matrice
+audit/spec per la voce «Certificazione» del §8.4 (migrazioni, sicurezza, deploy coordinato):
+
+| Requisito | Prova automatica | Data |
+|---|---|---|
+| Legacy leggibile, conversione mai implicita, migrazioni ripetibili e rollback su copia | `backend-nest/tests/q02-legacy-migration.test.ts` (+ `economy-snapshot.test.ts`, `scenario-catalog.test.ts`) | 2026-09-16 |
+| Protezione single-owner: utente diverso, game ID indovinato, settings provider | `backend-nest/tests/owner-guard.test.ts` (unità + integrazione HTTP reale) | 2026-09-16 |
+| Inventario endpoint mutanti verificabile (99 endpoint, 54 mutanti) | `backend-nest/tests/endpoint-inventory.test.ts` + `docs/implementation/q02-endpoint-inventory.json` | 2026-09-16 |
+| Health/version senza segreti, API same-origin, nessun URL di tunnel nel bundle | `backend-nest/tests/health-version.test.ts`, `frontend/src/services/ownerToken.test.ts` | 2026-09-16 |
+| Script fail-closed, backup SQLite coerente, rollback documentato, nessun job ucciso alla cieca | `backend-nest/tests/q02-release.test.ts` | 2026-09-16 |
+
+Dettagli e ambito delle verifiche in [`implementation/Q02-report.md`](implementation/Q02-report.md);
+revisione indipendente in [`implementation/REVIEW-INDIPENDENTE-Q02.md`](implementation/REVIEW-INDIPENDENTE-Q02.md).
+
+**Verifiche manuali non svolte (dichiarate):** rilascio pubblico, deploy in produzione/staging reale,
+smoke con provider LLM a pagamento, dispositivi reali (Safari iOS / Chrome Android), audit axe completo.
+Il **confronto Pax residuo** resta una campagna separata autorizzata, non una condizione inventata per
+le nuove funzioni World Story.
