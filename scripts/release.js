@@ -49,6 +49,7 @@ function parseArgs(argv) {
     else if (arg === '--backup-dir') flags.backupDir = argv[++i];
     else if (arg === '--health-url') flags.healthUrl = argv[++i];
     else if (arg === '--restart-command') flags.restartCommand = argv[++i];
+    else if (arg === '--readiness-timeout') flags.readinessTimeoutSec = Number(argv[++i]);
     else if (arg === '--json') flags.json = true;
     else if (arg === '--help' || arg === '-h') flags.help = true;
     else throw new Error(`flag sconosciuto: ${arg}`);
@@ -95,7 +96,20 @@ function stepList(flags, dbPath) {
   ];
 }
 
-function preflight(flags, dbPath) {  if (!fs.existsSync(dbPath)) {
+/**
+ * Attesa del readiness. Il primo boot dopo un deploy è lento: il backend
+ * ricostruisce in memoria tutte le sessioni attive dal DB (osservato >60 s con
+ * molte partite). Default 300 s, sovrascrivibile con `--readiness-timeout`.
+ */
+function readinessTimeoutMs(flags) {
+  const seconds = Number.isFinite(flags.readinessTimeoutSec) && flags.readinessTimeoutSec > 0
+    ? flags.readinessTimeoutSec
+    : 300;
+  return seconds * 1000;
+}
+
+function preflight(flags, dbPath) {
+  if (!fs.existsSync(dbPath)) {
     return { ok: false, error: 'db_not_found', dbPath };
   }
   let runs = [];
@@ -175,7 +189,7 @@ function execute(flags, dbPath, backupPath) {
   run('backend-update', 'bash', ['-lc', flags.restartCommand]);
 
   const healthUrl = flags.healthUrl || 'http://localhost:8000/api/health';
-  const health = pollHealth(healthUrl, 60_000, 2_000);
+  const health = pollHealth(healthUrl, readinessTimeoutMs(flags), 2_000);
   results.push({ id: 'readiness', status: 'ok' });
 
   const served = health.build ? health.build.frontend : null;
@@ -247,4 +261,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { parseArgs, resolveDbPath, stepList, preflight, activeRuns, migrationEnv, main };
+module.exports = { parseArgs, resolveDbPath, stepList, preflight, activeRuns, migrationEnv, readinessTimeoutMs, main };
