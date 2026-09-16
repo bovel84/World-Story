@@ -53,6 +53,8 @@ interface DeskContentProps {
   pressureBusy?: boolean;
   /** Crisi nazionale: rischi di collasso ed eventuale epilogo. */
   nationalCrisis?: CrisisSnapshot | null;
+  /** LW05 — fatti esteri già derivati dal mondo simulato. */
+  worldFacts?: import('../Game/strategicBriefing').BriefingWorldFact[];
   pendingActions: Array<{ id: string; text: string }>;
   suggestions: Suggestion[];
   orderDraftText: string;
@@ -123,6 +125,7 @@ export function DeskContent({
   onResolvePressure,
   pressureBusy = false,
   nationalCrisis = null,
+  worldFacts = [],
   pendingActions,
   suggestions,
   orderDraftText,
@@ -411,6 +414,7 @@ export function DeskContent({
             onResolvePressure={onResolvePressure}
             pressureBusy={pressureBusy}
             crisis={nationalCrisis}
+            worldFacts={worldFacts}
             regions={currentWorld?.regions ? Object.values(currentWorld.regions).filter((region) => region.owner === playerPolityId) as Region[] : []}
             ongoingProcesses={ongoingProcesses}
             completedProcesses={completedProcesses}

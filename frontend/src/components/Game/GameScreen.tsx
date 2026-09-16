@@ -17,6 +17,7 @@ import { useOrderDraftStore } from '../../stores/orderDraftStore';
 import { useToast } from '../ui/ToastProvider';
 import { deriveNationalContext } from './nationalContext';
 import { councilPresence } from './governmentDossier';
+import { deriveWorldPresence } from './worldPresence';
 import type { NationSnapshot } from '../../hooks/useNationSnapshot';
 import type { WorldTimeline } from '../../hooks/useWorldTimeline';
 import type { Feed } from '../../hooks/useFeed';
@@ -122,6 +123,14 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
 
   // LW04 — presenza del consiglio al momento della decisione (desk del tempo).
   const council = useMemo(() => councilPresence(nation.nationalGovernment), [nation.nationalGovernment]);
+
+  // LW05 — presenza del mondo: variazioni estere già simulate, rese osservabili.
+  const worldFacts = useMemo(() => deriveWorldPresence({
+    regions,
+    changedRegionIds: changedRegions,
+    playerPolityId,
+    feedItems: feed.feedItems,
+  }).facts, [regions, changedRegions, playerPolityId, feed.feedItems]);
 
   const handleRewind = () => {
     if (!currentGame || loading) return;
@@ -284,6 +293,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             onResolvePressure={nation.resolvePressure}
             pressureBusy={nation.pressureBusy}
             nationalCrisis={nation.nationalCrisis}
+            worldFacts={worldFacts}
             onDraftGovernmentPetition={draftGovernmentPetition}
             governmentVoices={nation.governmentVoices}
             governmentVoicesLoading={nation.governmentVoicesLoading}

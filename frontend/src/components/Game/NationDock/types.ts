@@ -11,6 +11,7 @@ import type {
 } from '../../../services/api';
 import type { Trend, TrendTone } from '../accountTrend';
 import type { CompletedProcess, NationalProcess } from '../nationDossier';
+import type { BriefingWorldFact } from '../strategicBriefing';
 
 export interface NationAccount {
   polityId?: string;
@@ -131,6 +132,8 @@ export interface NationDockProps {
   pressureBusy?: boolean;
   /** Crisi nazionale: rischi di rivolta, default, invasione ed epilogo. */
   crisis?: CrisisSnapshot | null;
+  /** LW05 — fatti esteri già derivati dal mondo simulato (osservabilità). */
+  worldFacts?: BriefingWorldFact[];
 }
 
 /** Un punto dello storico: data di gioco e conto già pubblicato dal motore. */

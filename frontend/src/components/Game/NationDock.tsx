@@ -46,7 +46,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     ongoingProcesses, completedProcesses = [], mandateDecisions = [], maintenanceObligations = [], onAcknowledgeMandateDecision,
     government, onDraftOrder, governmentVoices, governmentVoicesLoading, governmentVoicesError,
     onBorrowDebt, fiscalPolicy, onSetFiscalPolicy, fiscalPolicyBusy,
-    pressures, recentPressures, onResolvePressure, pressureBusy, crisis,
+    pressures, recentPressures, onResolvePressure, pressureBusy, crisis, worldFacts,
     setState, active, trading, borrowing, borrowAmount, setBorrowAmount, borrowTerm, setBorrowTerm,
     taxDraft, setTaxDraft, effectiveTaxPct, runSetTax, runBorrow, runTrade,
     assets, projectGroups, financeAvailable, balance, stability, socialTension, warEffort, mobilized,
@@ -69,7 +69,8 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     maintenanceObligations,
     government,
     fiscalPolicy,
-  }), [account, resources, crisis, pressures, ongoingProcesses, mandateDecisions, maintenanceObligations, government, fiscalPolicy]);
+    worldFacts,
+  }), [account, resources, crisis, pressures, ongoingProcesses, mandateDecisions, maintenanceObligations, government, fiscalPolicy, worldFacts]);
 
   return (
     <div className="nation-dock">
