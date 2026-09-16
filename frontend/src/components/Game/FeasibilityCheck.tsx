@@ -1,5 +1,6 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
+import { explainFeasibility } from './feasibilityExplanation';
 
 export interface FeasibilityResult {
   feasible: boolean;
@@ -17,7 +18,7 @@ export interface FeasibilityResult {
   risks: string[];
   warnings: string[];
   summary: string;
-  rawAssessment?: any;
+  rawAssessment?: unknown;
 }
 
 interface FeasibilityCheckProps {
@@ -54,6 +55,12 @@ export function FeasibilityCheck({
   useEffect(() => {
     registerButtonRef.current?.focus({ preventScroll: true });
   }, [result]);
+
+  // U02 µ2: vista strutturata di blocker/alternative dall'assessment grezzo.
+  const explanation = useMemo(
+    () => (result ? explainFeasibility(result.rawAssessment) : null),
+    [result],
+  );
 
   if (!result && !loading && !error) return null;
 
@@ -175,6 +182,43 @@ export function FeasibilityCheck({
                   <li key={i}><span className="feasibility-info" aria-hidden="true">ℹ</span>{warn}</li>
                 ))}
               </ul>
+            </section>
+          )}
+
+          {explanation && explanation.needsData && (
+            <section className="feasibility-section feasibility-needs-data" role="status">
+              <h3 className="feasibility-section-title">Servono dati</h3>
+              <p className="feasibility-needs-data-note">
+                Il motore non ha dati autorevoli sufficienti: l'ordine non è dichiarato
+                impossibile, ma non può essere valutato finché il dato manca.
+              </p>
+              {explanation.dataNotes.length > 0 && (
+                <ul className="feasibility-list">
+                  {explanation.dataNotes.map((note, i) => (
+                    <li key={i}><span className="feasibility-info" aria-hidden="true">ℹ</span>{note}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
+          {explanation && explanation.alternatives.length > 0 && (
+            <section className="feasibility-section">
+              <h3 className="feasibility-section-title">Alternative possibili</h3>
+              <ul className="feasibility-list feasibility-alternatives">
+                {explanation.alternatives.map((alternative, i) => (
+                  <li key={`${alternative.kind}-${i}`}>
+                    <b>{alternative.label}</b>
+                    {alternative.missing.length > 0 && (
+                      <span> · manca {alternative.missing.join(', ')}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="feasibility-alternatives-note">
+                Sono proposte: nessuna parte da sola. Torna alla bozza per scegliere e poi
+                registra l'ordine.
+              </p>
             </section>
           )}
 

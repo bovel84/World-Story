@@ -54,4 +54,11 @@ describe('G4-B — verifica fattibilità prima della registrazione', () => {
     expect(orderQueueSource).toContain('setShowFeasibility(true)');
     expect(orderQueueSource).toContain('setFeasibilityLoading(true)');
   });
+
+  it('espone alternative da confermare e distingue i dati mancanti (U02 µ2)', () => {
+    expect(feasibilitySource).toContain('explainFeasibility');
+    expect(feasibilitySource).toContain('Alternative possibili');
+    expect(feasibilitySource).toContain('feasibility-alternatives');
+    expect(feasibilitySource).toContain('Servono dati');
+  });
 });
