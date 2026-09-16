@@ -241,6 +241,8 @@ function normalizeReaction(raw: any): SimulationPolityReaction | null {
     neutral: 'neutral', neutrale: 'neutral', pending: 'neutral',
   };
   return {
+    actorId: firstString(raw.actorId, raw.actor_id)?.substring(0, 120),
+    optionId: firstString(raw.optionId, raw.option_id)?.substring(0, 160),
     polityName: polityName.substring(0, 200),
     role: roleAliases[normalizedToken(raw.role)] || 'counterparty',
     stance: stanceAliases[normalizedToken(raw.stance || raw.position)] || 'neutral',
