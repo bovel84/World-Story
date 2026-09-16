@@ -85,3 +85,19 @@ Nessun credito LLM consumato, nessun DB reale toccato, nessun deploy. Tutti i te
 ## Decisione revisore
 
 **Da revisionare** (revisore ≠ implementatore). Non auto-accettare.
+
+## Revisione indipendente (revisore ≠ implementatore) — esito: **Q01 CHIUSO** (parte automatizzabile)
+
+Verdetto **ACCETTABILE**. Dettaglio in `REVIEW-INDIPENDENTE-Q01.md`.
+
+- Verificato con **esecuzione reale**: `test:e2e:mock` 17/17, `test:a11y` 3/3,
+  `test:perf` OK, `test:unit` backend 118/993 + frontend 37/211.
+- Passo 4 (matrice viewport + screenshot) risulta **già implementato** in
+  `map-live.spec.mjs` (1440/390/320, screenshot, asserzioni reflow).
+- Passo 5 (tastiera) parzialmente automatizzato in `a11y.spec.mjs` (focus/return,
+  `:focus-visible`, `aria-hidden`, DOM multi-regola).
+- **Portabilità**: config Playwright ora usa il Chromium incluso quando il Chrome
+  di sistema/`CHROME_PATH` non è disponibile (abilita CI/Linux senza override forzati).
+- **Blocchi con comando esatto**: axe (`npm --prefix e2e install --save-dev @axe-core/playwright`
+  + `npx playwright install --with-deps chromium`), dispositivi reali (manuale),
+  eval narrativa (risposte salvate), E2E in CI (dipendenze `e2e/` non workspace).
