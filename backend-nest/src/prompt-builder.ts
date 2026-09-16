@@ -22,7 +22,7 @@ import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSugges
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
 import { buildNarrativeMemory } from './prompts/narrative-memory';
-import { repairReactionDecisions, validateReactionDecisions, describeReactionShape, type ReactionDecisionIssue, type ReactionEventLike } from './core/simulation/ReactionDecisions';
+import { repairReactionDecisions, validateReactionDecisions, describeReactionShape, completeEventReactions, completeEventReactionsList, type ReactionDecisionIssue, type ReactionEventLike } from './core/simulation/ReactionDecisions';
 import type { ReactionContext } from './core/simulation/ReactionContext';
 import { buildNationalDecisionContext, buildActionElaborationGuard } from './prompts/national-context';
 import {
@@ -1017,7 +1017,11 @@ export class PromptEngine {
         const objects = extractCompleteJsonObjects(content);
         for (const raw of objects.slice(parsedObjectCount)) {
           const record = parseIncrementalSimulationRecord(raw);
-          if (record?.type === 'event') emitEvent(record.event);
+          if (record?.type === 'event') {
+            // Lo stream e la persistenza devono vedere gli stessi ID: il
+            // completamento è applicato qui e sugli eventi finali.
+            emitEvent(reactionContext ? completeEventReactions(record.event, reactionContext) : record.event);
+          }
         }
         parsedObjectCount = objects.length;
       },
@@ -1080,6 +1084,16 @@ export class PromptEngine {
     }
 
     result = this.sanitizeSimulationResult(game, result, normalizedActions, maxEvents, !!autoJump, constrained);
+    if (reactionContext) {
+      // Completamento deterministico PRIMA della validazione: se il modello
+      // omette `actorId`/`optionId` ma il contesto del motore li determina in
+      // modo univoco, l'evento viene normalizzato qui (e persistito con gli ID),
+      // invece di costare un repair o far fallire il turno.
+      const completed = completeEventReactionsList(result.events, reactionContext);
+      if (completed.completedEvents > 0) {
+        result = { ...result, events: completed.events };
+      }
+    }
     // Contratto delle reactions: se l'output resta fuori contesto, UN SOLO
     // repair di formato (non rigenera la simulazione) e poi errore esplicito.
     if (reactionContext && result.events.length > 0) {

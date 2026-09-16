@@ -176,6 +176,107 @@ export function findReactionActor(context: ReactionContext, actorId: string | un
   return context.actors.find(actor => actor.id === actorId);
 }
 
+/** Normalizzazione per confrontare nomi e ID (case, accenti, punteggiatura). */
+function normalizedLabel(value: string | undefined): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/**
+ * Attori del contesto nominati da `polityName` (ID esatto o nome, anche dentro
+ * una frase tipo «la Polonia»). Conservativo: se il nome è ambiguo non risolve
+ * nulla e la decisione resta al repair.
+ */
+function findActorsNamed(context: ReactionContext, polityName: string | undefined) {
+  const label = normalizedLabel(polityName);
+  if (!label) return [];
+  const exact = context.actors.filter(actor => normalizedLabel(actor.id) === label
+    || normalizedLabel(actor.name) === label);
+  if (exact.length > 0) return exact;
+  return context.actors.filter((actor) => {
+    const name = normalizedLabel(actor.name);
+    if (name.length < 4) return false;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^| )${escaped}( |$)`).test(label);
+  });
+}
+
+/**
+ * Completamento deterministico del contratto da parte del MOTORE.
+ *
+ * Il motore decide **chi** reagisce (il contesto) e **quali** opzioni esistono;
+ * l'LLM sceglie una di quelle opzioni. Se il modello omette `actorId` ma il
+ * contesto lo determina in modo univoco, l'attore resta una decisione del
+ * motore, non un'invenzione: senza questo completamento un turno legittimo
+ * fallisce per un campo che il motore conosce già.
+ *
+ * Regole (tutte conservative — in caso di dubbio non si completa nulla):
+ *  1. `actorId` presente → autorevole, si limita a validarlo il validator;
+ *  2. `actorId` assente + `optionId` di un solo attore del contesto → quello
+ *     (l'opzione è la decisione dell'LLM: se è di un altro attore non si tocca);
+ *  3. `actorId` assente + `polityName` univoco → quell'attore; se ha una sola
+ *     opzione ammessa anche l'`optionId` è forzato dal motore.
+ *
+ * Nessun attore fuori dal contesto viene mai introdotto: l'invariante del
+ * contratto resta "gli attori sono quelli decisi dal motore".
+ */
+export function completeReactionDecision(
+  reaction: ReactionDecisionLike,
+  context: ReactionContext,
+): ReactionDecisionLike {
+  const actorId = typeof reaction.actorId === 'string' ? reaction.actorId.trim() : '';
+  if (actorId) return reaction;
+  const optionId = typeof reaction.optionId === 'string' ? reaction.optionId.trim() : '';
+  const named = findActorsNamed(context, reaction.polityName);
+  const namedActor = named.length === 1 ? named[0] : undefined;
+
+  if (optionId) {
+    const owners = context.actors.filter(actor => actor.options.some(option => option.id === optionId));
+    if (owners.length === 1 && (!namedActor || namedActor.id === owners[0].id)) {
+      return { ...reaction, actorId: owners[0].id };
+    }
+    return reaction;
+  }
+
+  if (!namedActor) return reaction;
+  const completed = { ...reaction, actorId: namedActor.id };
+  return namedActor.options.length === 1
+    ? { ...completed, optionId: namedActor.options[0].id }
+    : completed;
+}
+
+/** Applica il completamento alle reactions di un evento (stesso riferimento se nulla cambia). */
+export function completeEventReactions<T extends ReactionEventLike>(event: T, context: ReactionContext): T {
+  const reactions = event.reactions || [];
+  let changed = false;
+  const completed = reactions.map((reaction) => {
+    const next = completeReactionDecision(reaction, context);
+    if (next !== reaction) changed = true;
+    return next;
+  });
+  // Il tipo concreto dell'evento (es. SimulationEvent) resta tale: si tocca solo
+  // il campo `reactions`.
+  return changed ? ({ ...event, reactions: completed } as T) : event;
+}
+
+/** Applica il completamento a tutti gli eventi (stessi riferimenti se nulla cambia). */
+export function completeEventReactionsList<T extends ReactionEventLike>(
+  events: T[],
+  context: ReactionContext,
+): { events: T[]; completedEvents: number } {
+  let completedEvents = 0;
+  const completed = events.map((event) => {
+    const next = completeEventReactions(event, context);
+    if (next !== event) completedEvents += 1;
+    return next;
+  });
+  return { events: completed, completedEvents };
+}
+
 /**
  * Il tetto `maxReactions` del motore conta soltanto le politie: gli attori
  * interni (fazioni, settori) hanno un budget proprio e non consumano quello
@@ -349,13 +450,22 @@ export async function repairReactionDecisions(input: {
   context: ReactionContext;
   repair: ReactionRepairFn;
 }): Promise<ReactionRepairResult> {
-  const { events, context, repair } = input;
+  const { context, repair } = input;
+  // Completamento deterministico del motore: un attore deducibile dal contesto
+  // non deve costare un repair (né far fallire il turno). Idempotente.
+  const { events, completedEvents } = completeEventReactionsList(input.events, context);
+  if (completedEvents > 0) {
+    console.warn(`[PromptEngine] Contratto reactions completato dal motore: ${completedEvents} evento/i con actorId/optionId derivati dal contesto.`);
+  }
   const initial = reactionIssuesPerEvent(events, context);
   if (initial.size === 0) return { events, issues: [], repaired: false };
 
   const issues = [...initial.values()].flat();
   const mayTrimReactions = issues.some(issue => issue.code === 'too_many_reactions');
-  const repairedEvents = await repair({ events, issues, context });
+  const repairedRaw = await repair({ events, issues, context });
+  // Anche l'output del repair passa dal completamento: il modello può omettere
+  // un ID che il contesto determina.
+  const repairedEvents = completeEventReactionsList(repairedRaw || [], context).events;
 
   // Il repair NON rigenera la simulazione: gli eventi devono restare quelli.
   if (!Array.isArray(repairedEvents) || repairedEvents.length !== events.length) {
