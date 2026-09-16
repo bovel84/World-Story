@@ -23,6 +23,9 @@ let chatsRouter: any;
 const WORLD_ID = 'fence-world';
 let releaseChat: (() => void) | null = null;
 let gateChat = false;
+/** Contatore delle chiamate provider della meccanica 'chat' (per provare che
+ * il 409 durante un run NON costa credito). */
+let chatCalls = 0;
 
 function provider(): any {
   return {
@@ -37,6 +40,7 @@ function provider(): any {
         }) };
       }
       if (mechanic === 'chat') {
+        chatCalls += 1;
         if (user.includes('moderatore invisibile')) return { content: JSON.stringify({ speaker: 'Polonia' }) };
         if (gateChat) await new Promise<void>(resolve => { releaseChat = resolve; });
         return { content: JSON.stringify({ message: 'Replica della controparte' }) };
@@ -164,5 +168,17 @@ describe('F04 passo 3 — fencing chat/advisor', () => {
   it('l’advisor durante un run risponde 409 (politica esplicita)', async () => {
     const { session } = await pausedGame();
     await expect(session.getAdvisor('Che facciamo?')).rejects.toThrow(/already in progress/i);
+  });
+
+  it('«Lascia che parlino» durante un run sospeso: 409 senza chiamare il provider', async () => {
+    const { session } = await pausedGame();
+    expect(session.hasActiveRun()).toBe(true);
+    const chat = session.ensureChat(['Polonia']);
+
+    const before = chatCalls;
+    await expect(session.continueChat(chat.id, 2)).rejects.toThrow(/already in progress/i);
+    // Politica esplicita: il rifiuto precede la generazione, non la segue.
+    expect(chatCalls).toBe(before);
+    expect(messageCount(chat.id)).toBe(0);
   });
 });

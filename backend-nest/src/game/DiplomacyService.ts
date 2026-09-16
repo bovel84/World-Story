@@ -438,6 +438,10 @@ export class DiplomacyService {
     if (!chat || chat.gameId !== this.ctx.gameId) {
       throw new Error(`Chat not found: ${chatId}`);
     }
+    // F04 passo 3: come per `sendChatMessage`, durante un run (anche in pausa)
+    // la politica è 409 ESPLICITO prima di generare: nessuna scrittura nel
+    // contesto congelato e nessuna chiamata al provider sprecata.
+    this.ctx.assertNoActiveRun();
 
     const replies: ChatMessageRecord[] = [];
     const rounds = Math.max(1, Math.min(exchanges, 4));
