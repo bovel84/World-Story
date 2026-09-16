@@ -262,3 +262,22 @@ describe('F06 µ2 — store runtime e guardia anti-stale', () => {
     expect(useSimulationStore.getState().isStale(token)).toBe(true);
   });
 });
+describe('F06 µ3 — gli objects mappa sopravvivono ai delta incrementali', () => {
+  it('un delta mappa aggiorna owner/color senza cancellare gli objects già noti', () => {
+    const seeded = replaceCanonicalSnapshot(BASE, {
+      worldRevision: 1,
+      snapshot: { mapRegions: { 'r-A': { owner: 'POL', color: '#fff', objects: [{ id: 'o1', type: 'factory' }] } } },
+    });
+    expect(seeded.mapRegions['r-A'].objects).toEqual([{ id: 'o1', type: 'factory' }]);
+
+    const afterDelta = applyEnvelope(seeded, {
+      scope: 'map',
+      branchId: 'branch-A',
+      worldRevision: 2,
+      payload: { changedRegions: [{ regionId: 'r-A', owner: 'DEU', color: '#000' }] },
+    });
+
+    expect(afterDelta.mapRegions['r-A']).toMatchObject({ owner: 'DEU', color: '#000' });
+    expect(afterDelta.mapRegions['r-A'].objects).toEqual([{ id: 'o1', type: 'factory' }]);
+  });
+});

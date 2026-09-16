@@ -306,7 +306,7 @@ export function useWorldAdvance({
           : { revision: restored.revision },
         snapshot: {
           date: restored.newDate,
-          mapRegions: Object.fromEntries((rawRegions as any[]).map((region: any) => [region.id, { owner: region.owner, color: region.color }])),
+          mapRegions: Object.fromEntries((rawRegions as any[]).map((region: any) => [region.id, { owner: region.owner, color: region.color, objects: region.objects || [] }])),
           pendingActions: [],
           history: [],
           news: [],
