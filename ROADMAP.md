@@ -9,7 +9,7 @@
 > **Sintesi 2026-09-16:** tutti i pacchetti del piano esecutivo sono chiusi per le parti
 > realizzabili (M06 chiuso con 5 revisioni; M07 chiuso salvo «priorità manutenzione/servizi»
 > bloccato per assenza del runtime impianti; U01/U02/U03/Q01 chiusi per le parti
-> automatizzabili). Verifiche: backend 118 file / 993 test, frontend 37 file / 211 test,
+> automatizzabili). Verifiche: backend 118 file / 999 test, frontend 38 file / 214 test,
 > E2E mock 17/17, a11y 3/3, perf OK; build e Quality Gate verdi. Q02 non avviato.
 
 ## Структура проекта

@@ -102,6 +102,8 @@ export interface NationDockProps {
   /** Progetti chiusi di recente, mostrati sotto «Completati». */
   completedProcesses?: CompletedProcess[];
   mandateDecisions?: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>;
+  /** M07 passo 2 — obblighi di manutenzione degli impianti (proiezione read-only). */
+  maintenanceObligations?: Array<{ facilityId: string; typeId: string; typeName: string; regionId: string; operational: boolean; resourceId: string; baseUnits: string; periodDays: number; available: string; sufficient: boolean; shortfall: string }>;
   onAcknowledgeMandateDecision?: (mandateId: string, kind: string) => Promise<void>;
   /** Anime del governo e dettaglio del bilancio calcolati dal motore. */
   government?: GovernmentSnapshot | null;

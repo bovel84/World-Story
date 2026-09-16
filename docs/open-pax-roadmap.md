@@ -30,7 +30,7 @@
 | M04 Produzione, energia, logistica | ✅ fatto | |
 | M05 Progetti a fasi, tecnologia, personale | ✅ fatto | |
 | M06 Collegamento al simulatore | ✅ fatto | **CHIUSO** — 5 revisioni; `REVIEW-INDIPENDENTE-M06-CHIUSURA.md` |
-| M07 Delega, servizi, politiche nazionali (R2) | ✅ fatto (con 1 sotto-passaggio bloccato) | **CHIUSO** — `REVIEW-INDIPENDENTE-M07.md`; «priorità manutenzione/servizi» bloccato (manca il runtime impianti) |
+| M07 Delega, servizi, politiche nazionali (R2) | ✅ fatto (esecuzione manutenzione bloccata) | **CHIUSO** — `REVIEW-INDIPENDENTE-M07.md`; obblighi di manutenzione ora **proiettati** (read-only) nel dossier; resta bloccata solo l'*esecuzione* (runtime impianti) |
 
 ### Grafica/accessibilità e harness
 
@@ -44,15 +44,16 @@
 
 ## Verifiche di qualità (stato reale, 2026-09-16)
 
-- Backend: **118 file / 993 test** verdi; `tsc` pulito.
-- Frontend: **37 file / 211 test** verdi; `tsc` pulito; `npm run build` verde.
+- Backend: **118 file / 999 test** verdi; `tsc` pulito.
+- Frontend: **38 file / 214 test** verdi; `tsc` pulito; `npm run build` verde.
 - E2E mock: **17/17**; a11y: **3/3**; perf: **OK** (JS 1.47 MB, CSS 0.54 MB; soglie 2 MB / 1 MB).
 - `git diff --check` pulito; Quality Gate `test-build` verde su `main`.
 
 ## Blocchi reali (con comando/decisione richiesta)
 
-1. **M07 «priorità manutenzione/servizi»** — manca il runtime impianti (stato operativo,
-   scadenzario, personale): serve una decisione di prodotto/catalogo. Vedi `REVIEW-INDIPENDENTE-M07.md`.
+1. **M07 esecuzione manutenzione** — gli obblighi sono ora proiettati e visibili; per
+   *eseguirli* serve un runtime impianti (stato operativo mutabile + scadenzario): decisione
+   di prodotto/catalogo. Vedi `REVIEW-INDIPENDENTE-M07.md`.
 2. **U02 passo 3 (conflitti batch/priorità)** — servono accessor ai pool materiali mutabili,
    conversione canonica mld↔minorUnits e fonte della domanda di manodopera. Vedi `U02-report.md`.
 3. **Q01 axe** — `npm --prefix e2e install --save-dev @axe-core/playwright && npx playwright install --with-deps chromium` (rete).

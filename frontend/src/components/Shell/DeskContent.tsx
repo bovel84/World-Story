@@ -76,6 +76,7 @@ interface DeskContentProps {
   ongoingProcesses: Array<{ id: string; title: string; summary: string; started_date: string; expected_date?: string | null; progress?: number | null; progress_note?: string | null }>;
   completedProcesses?: Array<{ id: string; title: string; summary: string; started_date: string; expected_date?: string | null; completed_date?: string | null }>;
   mandateDecisions: Array<{ mandateId: string; kind: string; resourceId: string; minStock: string; availableStock: string; shortfall: string; asOfDate: string; status: string }>;
+  maintenanceObligations: Array<{ facilityId: string; typeId: string; typeName: string; regionId: string; operational: boolean; resourceId: string; baseUnits: string; periodDays: number; available: string; sufficient: boolean; shortfall: string }>;
   onAcknowledgeMandateDecision: (mandateId: string, kind: string) => Promise<void>;
   feedItems: any[];
   /** G4-C: seleziona una regione sulla mappa (da «Mostra sulla mappa»). */
@@ -144,6 +145,7 @@ export function DeskContent({
   ongoingProcesses,
   completedProcesses = [],
   mandateDecisions,
+  maintenanceObligations,
   onAcknowledgeMandateDecision,
   feedItems,
   onFocusRegion,
@@ -413,6 +415,7 @@ export function DeskContent({
             ongoingProcesses={ongoingProcesses}
             completedProcesses={completedProcesses}
             mandateDecisions={mandateDecisions}
+            maintenanceObligations={maintenanceObligations}
             onAcknowledgeMandateDecision={onAcknowledgeMandateDecision}
           />
         )}

@@ -41,3 +41,16 @@ forza-lavoro (MAT10) e dall'autorizzazione trasporto: **aperto** ma non un difet
 
 Nessun difetto bloccante nei mandati/flussi; l'unico residuo è dichiarato e motivato.
 **M07 CHIUSO** per le parti realizzabili (R2).
+
+## Aggiornamento (2026-09-16) — passo 2 parzialmente sbloccato con proiezione read-only
+
+Il blocco «priorità manutenzione/servizi» è **parzialmente superato**: senza inventare
+dati, gli **obblighi dichiarati** e il **deficit di scorta** sono ora proiettati e mostrati
+al giocatore. Vedi `M07-report.md` §«Proiezione obblighi di manutenzione».
+
+- Prova: `tests/maintenance-obligations.test.ts` (6 casi) + source-contract frontend (3).
+- Resta **bloccata l'esecuzione** (scadenzario/runtime impianti): richiede stato operativo
+  mutabile per `FacilityInstance` — decisione di prodotto/catalogo.
+
+Esito invariato: **M07 CHIUSO** per le parti realizzabili; l'esecuzione della manutenzione
+resta l'unico residuo motivato.

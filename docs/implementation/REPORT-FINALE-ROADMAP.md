@@ -15,7 +15,7 @@ revisione indipendente presenti per **ogni** pacchetto; roadmap aggiornate; Qual
 | **F05** Job asincroni/lease/recovery | ✅ CHIUSO | `REVIEW-INDIPENDENTE-F05.md` |
 | **F06** Unico stato client | ✅ CHIUSO | `REVIEW-INDIPENDENTE-F06.md` (difetto M-1 corretto) |
 | **M06** Collegamento al simulatore | ✅ CHIUSO | `REVIEW-INDIPENDENTE-M06-CHIUSURA.md` (5 revisioni) |
-| **M07** Delega/servizi/politiche (R2) | ✅ CHIUSO (1 sotto-passaggio bloccato) | `REVIEW-INDIPENDENTE-M07.md` + µ2/µ3/µ4a–µ4g |
+| **M07** Delega/servizi/politiche (R2) | ✅ CHIUSO (esecuzione manutenzione bloccata) | `REVIEW-INDIPENDENTE-M07.md` + µ2/µ3/µ4a–µ4g; obblighi di manutenzione **proiettati** (read-only) e mostrati nel dossier |
 | **U01** Shell + migrazione CSS | ✅ CHIUSO | `REVIEW-INDIPENDENTE-U01.md` |
 | **U02** Ordini guidati + catena fattibilità | ✅ CHIUSO (passo 3 bloccato) | `REVIEW-INDIPENDENTE-U02.md` |
 | **U03** Dossier/chat/lettore | ✅ CHIUSO | `REVIEW-INDIPENDENTE-U03.md` |
@@ -31,23 +31,25 @@ revisione indipendente presenti per **ogni** pacchetto; roadmap aggiornate; Qual
 | #10 | Verbali U02/U03/M06/M07 + roadmap + report | `9d79338` |
 | #11 | Verbali F00/F01/F03 | `c89c26e` |
 | #12 | Q01 — workflow E2E/a11y/perf in CI | `9453568` |
-| #13 | Raffinamento blocchi U02/M07 + report finale | (questo) |
+| #13 | Raffinamento blocchi U02/M07 + report finale | `4a1fddf` |
+| #14 | M07 — proiezione obblighi di manutenzione (read-only) + wiring dossier | (questo) |
 
 Precedenti: PR #1–#6 (blocco 2, revisioni M07 µ4g e F04/F05/F06).
 
 ## Stato del Quality Gate
 
-- Backend: **118 file / 993 test** verdi; `tsc` pulito; build OK.
-- Frontend: **37 file / 211 test** verdi; `tsc` pulito; build OK.
+- Backend: **118 file / 999 test** verdi; `tsc` pulito; build OK.
+- Frontend: **38 file / 214 test** verdi; `tsc` pulito; build OK.
 - E2E mock **17/17**; a11y **3/3**; perf **OK** (JS 1.47 MB, CSS 0.54 MB).
 - CI: `test-build` (richiesto dal ruleset) **verde**; nuovo job **`e2e-mock`** (E2E + a11y +
   perf) **verde su Linux** — informativo e non richiesto dal ruleset.
 
 ## Cosa resta (blocchi reali, con sblocco richiesto)
 
-1. **M07 «priorità manutenzione/servizi»** — manca un modello dati per gli impianti
-   (stato operativo mutabile, scadenzario di manutenzione, assegnazione personale/capacità):
-   decisione di prodotto/catalogo. Vedi `M07-report.md`.
+1. **M07 esecuzione manutenzione** — gli obblighi dichiarati e i deficit di scorta sono ora
+   **proiettati e visibili** nel dossier (dati autorevoli del catalogo + ledger, nessuna
+   mutazione). Per *eseguire* la manutenzione serve un runtime impianti (stato operativo
+   mutabile + scadenzario): decisione di prodotto/catalogo. Vedi `M07-report.md`.
 2. **U02 passo 3 (batch/priorità)** — la ricerca aggiornata conferma: i **pool materiali**
    esistono (`reconstructOwnedStock`), ma **fondi** (nessun accessor al tesoro, nessuna
    conversione mld↔minorUnits) e **manodopera per-intent** (nessuna domanda) sono assenti.
