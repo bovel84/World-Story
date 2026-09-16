@@ -1137,6 +1137,13 @@ export class PromptEngine {
    * perché non esiste alcun `actorId` compatibile con cui sostituirla.
    * Gli eventi (headline, date, description, mapChanges) restano quelli già
    * emessi: la simulazione non viene rigenerata né sostituita.
+   *
+   * Il modello reale non deve più *riscrivere* gli eventi: risponde con una
+   * PATCH mirata (indice evento + indice reaction) applicata dal motore. Un
+   * modello che prova a ripetere intere descrizioni di tre eventi tende a
+   * troncare o a restituirne uno solo — ed è esattamente il fallimento osservato
+   * in produzione (`il numero di eventi è cambiato (3 → 1)`). La patch è breve,
+   * quindi non si tronca e la cronaca non può essere toccata per costruzione.
    */
   private async repairReactionFormat(
     system: string,
@@ -1148,52 +1155,71 @@ export class PromptEngine {
     const allowed = context.actors
       .map(actor => `- ${actor.id} (${actor.name}): ${actor.options.map(option => option.id).join(', ') || '(nessuna opzione)'}`)
       .join('\n');
+    // Bersagli della patch: SOLO le reaction segnalate dal motore, indicizzate.
+    // L'indice dell'evento non è nel DTO di `issue` (che numera le reaction):
+    // la mappa si ricostruisce qui con lo stesso validator deterministico.
+    const targets: Array<Record<string, unknown>> = [];
+    events.forEach((event, eventIndex) => {
+      const eventIssues = validateReactionDecisions(event.reactions, context);
+      const flagged = new Set(eventIssues.filter(issue => issue.index >= 0).map(issue => issue.index));
+      for (const issue of eventIssues.filter(issue => issue.index < 0)) {
+        (event.reactions || []).forEach((_reaction, reactionIndex) => flagged.add(reactionIndex));
+        targets.push({ eventIndex, reactionIndex: -1, problemi: [issue.code] });
+      }
+      for (const reactionIndex of [...flagged].sort((a, b) => a - b)) {
+        const reaction = ((event.reactions || [])[reactionIndex] || {}) as { actorId?: string; polityName?: string; response?: string };
+        targets.push({
+          eventIndex,
+          reactionIndex,
+          actorId: reaction.actorId,
+          polityName: reaction.polityName,
+          response: typeof reaction.response === 'string' ? reaction.response.slice(0, 240) : undefined,
+          problemi: eventIssues.filter(issue => issue.index === reactionIndex).map(issue => issue.code),
+        });
+      }
+    });
     const prompt = [
-      'Correggi SOLO i campi "actorId" e "optionId" delle reactions degli eventi seguenti.',
-      'NON modificare headline, date, description, mapChanges, né il numero o l\'ordine degli eventi.',
+      'Correggi SOLO i campi "actorId" e "optionId" delle reactions indicate qui sotto, oppure OMETTI una reaction che non può essere corretta.',
+      'NON modificare headline, date, description, mapChanges: gli eventi restano esattamente quelli già emessi.',
       'Attori e opzioni ammessi (copia gli ID esatti, scegli UNA opzione per ogni attore):',
       allowed,
       `Problemi rilevati dal motore: ${issues.map(issue => issue.message).join(' | ')}`,
+      'Reactions da correggere (usa eventIndex e reactionIndex ESATTAMENTE come indicati):',
+      JSON.stringify(targets),
       'Regole di correzione:',
-      '- se la reaction ha un attore ammesso: scegli per lui un solo optionId fra i suoi;',
+      '- se la reaction ha un attore ammesso: scegli per lui un solo optionId fra le sue opzioni;',
       '- se la reaction ha un attore NON in elenco: OMETTILA (non rimapparla su un altro attore, non inventare ID);',
       '- non superare il numero massimo di reactions indicato; "reactions": [] è ammesso.',
-      'Eventi da correggere:',
-      JSON.stringify({
-        events: events.map(event => ({
-          headline: event.headline,
-          date: event.date,
-          description: event.description,
-          mapChanges: event.mapChanges || [],
-          reactions: event.reactions || [],
-        })),
-      }),
-      'Rispondi SOLO con un oggetto JSON {"events":[...]} completo: stesso numero, stesso ordine, stesse headline, stesse date e stesse mapChanges, con actorId/optionId validi.',
+      'Rispondi SOLO con un oggetto JSON, senza altro testo:',
+      '{"fixes":[{"eventIndex":0,"reactionIndex":0,"actorId":"DEU","optionId":"DEU:condition"}],"omit":[{"eventIndex":0,"reactionIndex":1}]}',
+      'In "fixes" elenca SOLO le reaction da correggere; in "omit" SOLO quelle da eliminare. Non restituire gli eventi.',
     ].join('\n');
     const repaired = await this.llm.generate('jump', system, prompt, {
       temperature: 0.05,
-      maxTokens: 4_096,
+      maxTokens: 2_048,
       jsonMode: true,
       signal,
     });
-    // Il modello può rispondere nel formato richiesto ({"events":[...]}) o
-    // proseguire il protocollo NDJSON della simulazione: entrambe le forme
-    // correggono la stessa cronaca, quindi si accettano senza una seconda
-    // chiamata ausiliaria.
+    console.warn(
+      `[PromptEngine] Repair reactions: risposta del modello (${repaired.content.length} caratteri):`
+      + ` ${repaired.content.slice(0, 1_000)}`,
+    );
+
+    // 1) Patch compatta: la forma attesa. Il motore la applica agli eventi
+    // originali, quindi lunghezza e cronaca restano identiche per costruzione.
+    const patched = this.applyReactionRepairPatch(events, repaired.content);
+    if (patched) return patched;
+
+    // 2) Compatibilità: alcuni modelli rispondono ancora con gli eventi completi
+    // (o col protocollo NDJSON della simulazione). In quel caso si adottano SOLO
+    // le reactions, riconciliate per headline: la cronaca restituita dal repair
+    // non viene mai applicata e non può rigenerare la simulazione.
     const parseAttempts = [parseSimulationResponse, parseIncrementalSimulationResponse];
     let lastError: unknown;
     for (const parse of parseAttempts) {
       try {
-        const events = parse(repaired.content).events;
-        if (events.length > 0) {
-          // Evidenza per il caso "reactions ancora fuori contratto dopo il repair":
-          // senza l'output grezzo (troncato) un fallimento reale non è spiegabile.
-          console.warn(
-            `[PromptEngine] Repair reactions: risposta del modello (${events.length} eventi, ${repaired.content.length} caratteri):`
-            + ` ${repaired.content.slice(0, 1_000)}`,
-          );
-          return events;
-        }
+        const repairedEvents = parse(repaired.content).events;
+        if (repairedEvents.length > 0) return this.reconcileRepairedReactions(events, repairedEvents);
         lastError = new LLMContractError('repair reactions: nessun evento nella risposta', { mechanic: 'jump' });
       } catch (error) {
         lastError = error;
@@ -1207,6 +1233,74 @@ export class PromptEngine {
       `repair reactions non interpretabile: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
       { mechanic: 'jump', excerpt: repaired.content },
     );
+  }
+
+  /**
+   * Applica la patch `{fixes, omit}` del repair agli eventi originali.
+   * Restituisce `null` quando la risposta non è una patch riconoscibile, così il
+   * chiamante può ancora accettare il formato legacy "eventi completi".
+   */
+  private applyReactionRepairPatch(events: ReactionEventLike[], content: string): SimulationEvent[] | null {
+    const candidates: any[] = [];
+    const trimmed = content.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+    try { candidates.push(JSON.parse(trimmed)); } catch { /* risposta con prosa attorno: sotto */ }
+    candidates.push(...extractCompleteJsonObjects(content));
+
+    for (const parsed of candidates) {
+      const fixes = Array.isArray(parsed?.fixes) ? parsed.fixes : Array.isArray(parsed) ? parsed : [];
+      const omit = Array.isArray(parsed?.omit) ? parsed.omit : [];
+      if (fixes.length === 0 && omit.length === 0) continue;
+
+      const patched = events.map(event => ({
+        ...event,
+        reactions: [...(event.reactions || [])],
+      })) as SimulationEvent[];
+
+      for (const fix of fixes) {
+        const event = patched[Number(fix?.eventIndex)];
+        if (!event || !Array.isArray(event.reactions)) continue;
+        const reaction = event.reactions[Number(fix.reactionIndex)];
+        if (!reaction) continue;
+        event.reactions[Number(fix.reactionIndex)] = {
+          ...reaction,
+          ...(typeof fix.actorId === 'string' && fix.actorId.trim() ? { actorId: fix.actorId.trim() } : {}),
+          ...(typeof fix.optionId === 'string' && fix.optionId.trim() ? { optionId: fix.optionId.trim() } : {}),
+        };
+      }
+      // Le omissioni si applicano in ordine decrescente: uno splice dal basso
+      // non deve spostare gli indici delle reaction ancora da eliminare.
+      const omitByEvent = new Map<number, number[]>();
+      for (const entry of omit) {
+        const eventIndex = Number(entry?.eventIndex);
+        const reactionIndex = Number(entry?.reactionIndex);
+        if (!Number.isInteger(eventIndex) || !Number.isInteger(reactionIndex)) continue;
+        omitByEvent.set(eventIndex, [...(omitByEvent.get(eventIndex) || []), reactionIndex]);
+      }
+      for (const [eventIndex, indexes] of omitByEvent) {
+        const event = patched[eventIndex];
+        if (!event || !Array.isArray(event.reactions)) continue;
+        for (const reactionIndex of [...indexes].sort((a, b) => b - a)) {
+          if (reactionIndex >= 0 && reactionIndex < event.reactions.length) event.reactions.splice(reactionIndex, 1);
+        }
+      }
+      return patched;
+    }
+    return null;
+  }
+
+  /**
+   * Riconcilia una risposta legacy "eventi completi" adottando SOLO le reactions
+   * e mantenendo intatta la cronaca già emessa (headline, date, description,
+   * mapChanges non provengono mai dal repair).
+   */
+  private reconcileRepairedReactions(events: ReactionEventLike[], repairedEvents: SimulationEvent[]): SimulationEvent[] {
+    const label = (value: unknown) => String(value || '').trim().toLowerCase();
+    return events.map((event, index) => {
+      let match = repairedEvents.find(candidate => label(candidate.headline) === label(event.headline));
+      if (!match && repairedEvents.length === events.length) match = repairedEvents[index];
+      if (!match) return event as SimulationEvent;
+      return { ...event, reactions: (match.reactions || []) as SimulationEvent['reactions'] } as SimulationEvent;
+    });
   }
 
   async convertAction(game: GameData, actionText: string, signal?: AbortSignal): Promise<ConvertedAction> {

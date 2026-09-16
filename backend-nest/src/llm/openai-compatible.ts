@@ -176,6 +176,20 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const decoder = new TextDecoder();
     let buffer = '';
     let content = '';
+    // `finish_reason=length` segnala una risposta tagliata dal tetto di token:
+    // sui modelli reasoning il contenuto può essere non vuoto ma troncato a metà
+    // JSON, e un parse riuscito solo in apparenza farebbe fallire il turno.
+    let finishReason: string | undefined;
+    const absorbChunk = (payload: string) => {
+      const chunk = JSON.parse(payload);
+      const choice = chunk?.choices?.[0];
+      if (typeof choice?.finish_reason === 'string') finishReason = choice.finish_reason;
+      const delta = messageText(choice?.delta?.content);
+      if (delta.length > 0) {
+        content += delta;
+        onToken(content.length, content);
+      }
+    };
 
     try {
       while (true) {
@@ -192,12 +206,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
           const payload = trimmed.slice(5).trim();
           if (payload === '[DONE]') continue;
           try {
-            const chunk = JSON.parse(payload);
-            const delta = messageText(chunk?.choices?.[0]?.delta?.content);
-            if (delta.length > 0) {
-              content += delta;
-              onToken(content.length, content);
-            }
+            absorbChunk(payload);
           } catch { /* неполный JSON-чанк — пропускаем */ }
         }
       }
@@ -209,12 +218,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         const payload = trimmed.slice(5).trim();
         if (!payload || payload === '[DONE]') continue;
         try {
-          const chunk = JSON.parse(payload);
-          const delta = messageText(chunk?.choices?.[0]?.delta?.content);
-          if (delta.length > 0) {
-            content += delta;
-            onToken(content.length, content);
-          }
+          absorbChunk(payload);
         } catch { /* frame finale non valido: il contenuto precedente resta */ }
       }
     } finally {
@@ -234,6 +238,25 @@ export class OpenAICompatibleProvider implements LLMProvider {
         }
       } catch { /* il fallback fallisce → errore originale */ }
       throw new LLMError(`${this.name}: stream vuoto dal modello`, { provider: this.name, retriable: true });
+    }
+
+    if (finishReason === 'length') {
+      // Contenuto troncato dal tetto di token: un JSON parziale non è una
+      // risposta valida. Riproviamo UNA volta con budget quadruplicato (stesso
+      // tetto del fallback «stream vuoto») e usiamo solo il risultato completo.
+      try {
+        const fallback = await this.generate(system, user, {
+          ...options,
+          maxTokens: Math.min((options.maxTokens ?? 4096) * 4, 32_768),
+        });
+        if (fallback.content.length > 0) {
+          onToken(fallback.content.length, fallback.content);
+          return fallback;
+        }
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
+        console.error(`[LLM] retry dopo troncamento (finish_reason=length) fallito: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
     return { content };
