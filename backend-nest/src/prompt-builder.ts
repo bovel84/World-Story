@@ -168,6 +168,8 @@ interface GameData {
   };
   actions: ActionData[];
   results: TurnResultData[];
+  /** Contesto di reazione già filtrato dal motore (attori, vincoli, opzioni). */
+  reactionContext?: string;
 }
 
 /** Нормализовать prompts-запись: объект или JSON-строка → чистый словарь. */
@@ -326,6 +328,7 @@ export class PromptBuilder {
       PEACETIME_PRESSURES: this.buildPeacetimePressures(),
       NATION_CRISIS: this.buildNationCrisis(),
       ORDER_FUNDING: this.game.worldState?.orderFunding || '',
+      REACTION_CONTEXT: this.game.reactionContext || '',
 
       ALL_EVENTS_WITH_CONSOLIDATION: this.buildEventHistory(),
       CHATS_NON_CONSOLIDATED_ROUNDS: this.game.chatTranscripts ?? '',
