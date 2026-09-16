@@ -243,3 +243,61 @@ Per lo stesso motivo il rilascio può riavviare il backend prima del deploy del 
 di incompatibilità: in questo rilascio alcun sorgente frontend è cambiato (unico asset nuovo:
 `/build-id.txt`). Un rilascio con modifiche frontend richiede il deploy del Worker e poi un giro di
 verifica pubblico sull'artefatto servito.
+
+## 10. Difetto trovato in produzione: 502 sporadici dal proxy (hotfix v0.2.2)
+
+**Sintomo** (segnalato dall'utente sul sito pubblico): cliccando *Avanza* compaiono 502 sporadici —
+`[API Error] 502 /games/<id>/simulation-jobs/<jobId> Backend temporaneamente non raggiungibile
+attraverso il proxy`. La simulazione proseguiva (il frontend tratta 502/503/504 come transitori e
+riprova ogni 1,5 s), ma l'errore era reale e ricorrente.
+
+**Causa**: non il backend irraggiungibile, ma una **corsa sui socket keep-alive**. Log del tunnel:
+
+```
+error="Unable to reach the origin service ... read tcp [::1]:57077->[::1]:8000:
+       read: connection reset by peer"
+```
+
+`cloudflared` tiene in pool le connessioni verso l'origine e le riusa; il server Node, con il default
+`keepAliveTimeout = 5s`, chiude un socket inattivo da più di 5 s. Quando il proxy scrive su quel
+socket già chiuso, il reset arriva dal lato origine e la richiesta fallisce.
+
+**Riproduzione sul percorso di produzione** (prima del fix): 5 cicli di *pausa 25 s + burst di 6
+richieste concorrenti* via tunnel → 2 eventi `connection reset by peer` (contatore 190 → 194). Il
+ciclo sequenziale con 6 s di pausa **non** li produceva: il difetto si manifesta quando il proxy
+assegna a una richiesta una connessione rimasta a riposo, quindi serve il pattern «SPA ferma, poi
+click» tipico dell'uso reale.
+
+**Fix** (`backend-nest/src/http/proxy-timeouts.ts`, applicato al server in `src/index.ts`):
+`keepAliveTimeout` **120 s** e `headersTimeout` **125 s** (deve restare maggiore). Il timeout
+keep-alive dell'origine supera così l'inattività tollerata dal proxy: la chiusura la decide sempre il
+proxy. `requestTimeout` **non** è stato abbassato, perché le simulazioni possono durare minuti.
+
+**Test**: `backend-nest/tests/proxy-timeouts.test.ts` (3) — coerenza dei valori, source contract su
+`index.ts`, e **riuso reale del socket dopo 6 s di inattività** (stessa porta locale). Verificato che
+senza il fix il terzo test fallisce (il server chiude il socket, la seconda richiesta usa una porta
+diversa: riprodotto a parte con il default Node `keepAliveTimeout: 5000 ms`).
+
+**Verifica post-deploy** (percorso utente attraverso il Worker):
+
+| Prova | Prima | Dopo |
+|---|---|---|
+| stessa riproduzione (5 × [25 s di pausa + burst di 6]) | 4 righe di reset | **0** (194 → 194) |
+| mix di 5 endpoint, inclusa `/games/:id/simulation-jobs/:jobId` | — | **20/20 HTTP 200** |
+| `/build-id.txt` e `/api/health` pubblici | — | `cdf9e78`, `status: ok` |
+
+**Rilascio**: fail-closed 9/9 — 0 run attivi, test backend **128 file / 1080** e frontend **39 / 220**,
+backup `backups/world-story-2026-09-16T12-20-12-070Z.db` (429.498.368 byte, `integrity: ok`),
+migrazione idempotente, restart, readiness, `frontend-compat`, smoke **17/17**. Worker `world-story`
+versione `d76ccfeb-6e15-4f64-a89e-4fa8064791f3` (unico asset nuovo: `/build-id.txt`).
+
+**Nota su `frontend-compat`**: il passo confronta `build.frontend` del backend con
+`frontend/dist/build-id.txt`, cioè due letture della **stessa** sorgente locale: è una coerenza
+locale, **non** una prova su ciò che il Worker serve. La prova sull'artefatto pubblico è il fetch di
+`/build-id.txt` (fatto: `cdf9e78`). Un rilascio con modifiche frontend richiede quindi il deploy del
+Worker **e** la verifica pubblica dell'artefatto.
+
+**Residui dichiarati**: il tunnel è un quick tunnel `trycloudflare.com` (URL soggetto a rotazione,
+ripubblicato in KV dal follower); nei log restano errori periodici di risoluzione DNS
+(`lookup region1.v2.argotunnel.com: i/o timeout`) che riguardano la rete locale. Nessuno smoke con
+provider LLM reale in questo rilascio.
