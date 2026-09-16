@@ -15,6 +15,7 @@ import { initDatabase } from './database';
 import { initSessionRegistry } from './session-registry';
 import { registerRoutes } from './routes';
 import { ownerGuard, ownerAuthMode } from './security/owner-guard';
+import { applyProxySafeTimeouts } from './http/proxy-timeouts';
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -79,6 +80,12 @@ sessionRegistry.reloadActiveSessions();
 const server = app.listen(PORT, () => {
   console.log(`🚀 World Story API running on http://localhost:${PORT}`);
 });
+
+// Il backend è dietro un proxy (Worker Cloudflare → quick tunnel): con il default
+// di Node (5 s) un socket keep-alive inattivo viene chiuso mentre il proxy lo
+// tiene in pool, e la richiesta successiva scritta lì muore con
+// "connection reset by peer" → 502 sporadici. Vedi src/http/proxy-timeouts.ts.
+applyProxySafeTimeouts(server);
 
 /**
  * Graceful shutdown: flush in-memory session state to the DB before
