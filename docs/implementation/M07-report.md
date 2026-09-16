@@ -242,3 +242,12 @@ servizi: implementare «priorità manutenzione/servizi» richiederebbe di invent
 dati, vietato dal piano §1.1. Il sottoflusso «scorte minime / fuori
 autorizzazione» resta l'unica parte attuabile ed è già coperto da
 `MandateStockEngine`/`mandate-decisions.test.ts`.
+
+### Sblocco richiesto (esatto) — «priorità manutenzione/servizi»
+
+Serve un **modello dati per gli impianti**: stato operativo mutabile per `FacilityInstance`
+(oltre a `initialState.facilities`, oggi read-only in `FeasibilityService`), uno **scadenzario
+di manutenzione** basato sui termini dichiarati (`FacilityType.maintenance`:
+`resourceId`/`baseUnits`/`periodDays`) e un'**assegnazione di personale/capacità**. È una
+decisione di prodotto/catalogo: senza, implementare significherebbe inventare dati (vietato
+§1.1). Le scorte minime (unica parte attuabile) sono già coperte da `MandateStockEngine`.
