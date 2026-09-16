@@ -17,7 +17,7 @@
       "timeoutMs": 300000,
       "extraBody": {
         "reasoning": {
-          "effort": "medium"
+          "effort": "low"
         }
       }
     }
