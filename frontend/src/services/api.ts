@@ -750,7 +750,7 @@ export const gameApi = {
     risks: string[];
     warnings: string[];
     summary: string;
-    rawAssessment?: any;
+    rawAssessment?: unknown;
   }> => {
     return fetchApi(`/games/${gameId}/actions/check-feasibility`, {
       method: 'POST',

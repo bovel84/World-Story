@@ -63,3 +63,27 @@
 ## Prossima micro-consegna (µ2)
 - **Passo 2:** catena della fattibilità (`FeasibilityChain`) con dati/deficit/fonti; dettaglio a elenco su mobile, diagramma accessibile e lista equivalente su desktop; leggibilità anche senza colori. Dipende da M03 per i dati reali; in assenza, mock congelati dichiarati.
 - Oppure **passo 3:** conflitti batch e priorità modificabile con bottoni/tastiera, «Registra» non muta tempo/cassa, date/costi stimati distinguibili dai fatti.
+
+## µ2 (parziale) — Alternative a confronto e dati mancanti distinti (passo 4 + parte del 2)
+
+La route `check-feasibility` appiattiva i blocker in prerequisiti/rischi/avvisi ma
+la UI **scartava le `alternatives`** (`alternative_path`) e non distingueva
+`needs_data` da `blocked`.
+
+- Nuovo modulo puro `frontend/src/components/Game/feasibilityExplanation.ts`:
+  `explainFeasibility(rawAssessment)` → blocker con reason code ed etichetta
+  leggibile, alternative con `requiresConfirmation: true`, distinzione
+  `needsData` (status `needs_data` o blocker `DATA_UNAVAILABLE`) e note sui dati.
+- `FeasibilityCheck.tsx`: sezioni «Servono dati» (quando manca il dato
+  autorevole) e «Alternative possibili» con nota esplicita «nessuna parte da
+  sola: torna alla bozza» — nessuna accettazione o chiamata a pagamento
+  silenziosa. `rawAssessment` passa da `any` a `unknown` (componente e `api.ts`).
+- CSS scoped in `foundations.css` (nessun `!important`).
+- Prove: `feasibilityExplanation.test.ts` (6 casi: input non valido, mappatura
+  blocker, needs_data da status e da DATA_UNAVAILABLE, alternative da confermare,
+  igiene dei tipi) + asserzione source-contract in `feasibilityCheck.test.ts`.
+
+Verifica: frontend **34 file / 199 test** verdi; tsc pulito; build OK; E2E mock
+**17/17**. Restano non implementati: riepilogo conflitti batch e priorità
+modificabile (passo 3) — richiede che `/actions/evaluate` esponga il lotto
+(`BatchAllocator`) e quindi una modifica di contratto della route.

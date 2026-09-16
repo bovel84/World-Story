@@ -1305,6 +1305,10 @@
 .feasibility-prereqs .feasibility-checkmark { color: var(--ws-success, #22c55e); margin-right: 6px; }
 .feasibility-risks .feasibility-warning { color: var(--ws-danger, #9f3028); margin-right: 6px; }
 .feasibility-warnings .feasibility-info { color: var(--ws-accent-history, #cda65b); margin-right: 6px; }
+.feasibility-needs-data { padding: 10px 12px; border-left: 3px solid var(--ws-accent-history, #cda65b); background: rgba(205,166,91,.08); }
+.feasibility-needs-data-note { margin: 0 0 6px; color: var(--ws-text-primary, #f4f0e8); font-size: 12px; line-height: 1.5; }
+.feasibility-alternatives li { padding: 3px 0; }
+.feasibility-alternatives .feasibility-alternatives-note, .feasibility-alternatives-note { margin: 8px 0 0; color: var(--ws-text-secondary, #b8c3d2); font-size: 12px; line-height: 1.5; }
 .feasibility-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--ws-border, #405572); }
 .btn-feasibility-back { min-height: 42px; padding: 0 16px; border: 1px solid var(--ws-border, #405572); border-radius: 4px; color: inherit; background: transparent; cursor: pointer; }
 .btn-feasibility-back:hover { border-color: var(--ws-accent-history, #cda65b); }
