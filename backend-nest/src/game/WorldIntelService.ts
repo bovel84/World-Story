@@ -18,6 +18,7 @@ import { RegionResolver, PolityResolver, normalizeName } from '../utils/name-res
 import { polityDisplayNameIt } from '../utils/country-facts';
 import { currentStrategicPriorities, strategicProfileForPolity } from '../npc-agents';
 import { arsenalCombatFactor } from '../core/simulation/MilitaryIndustry';
+import { measureMaterialCategory, reactionAllowsMaterialCategory } from '../core/simulation/ReactionDecisions';
 import { WorldStateEngine, type NationalAccount } from '../core/simulation/WorldStateEngine';
 import type { SimulationEvent, MapChange, MapFeature } from '../prompts/types';
 import type { RegionState, TurnResultRecord } from '../game-session';
@@ -214,6 +215,10 @@ export class WorldIntelService {
       const text = `${reaction.response || ''} ${reaction.counterAction || ''}`;
       const measure = this.detectNpcMaterialMeasure(text);
       if (!measure) continue;
+      // §7: la controazione resta narrativa, ma non può materializzare una
+      // categoria che l'opzione scelta non ammette (un negoziato non mobilita
+      // unità). Reazioni legacy senza optionId: comportamento invariato.
+      if (!reactionAllowsMaterialCategory(reaction, measureMaterialCategory(measure.type))) continue;
       const region = this.npcMeasureRegion(resolution.polityId, [text, event.headline, event.description]);
       if (!region || existingRegionIds.has(region.id)) continue;
       additions.push({

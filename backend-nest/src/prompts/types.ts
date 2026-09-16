@@ -65,6 +65,17 @@ export type PolityReactionRole = 'counterparty' | 'ally' | 'mediator' | 'observe
 
 /** Risposta autonoma di una politia non giocante direttamente coinvolta. */
 export interface SimulationPolityReaction {
+  /**
+   * ID canonico del `RelevantActor` scelto nel CONTESTO DI REAZIONE.
+   * Obbligatorio per le reazioni prodotte dal contratto corrente; opzionale
+   * nei dati persistiti legacy, che restano leggibili senza riscritture.
+   */
+  actorId?: string;
+  /**
+   * ID canonico di UNA delle opzioni di `actorId`. Obbligatorio per le nuove
+   * reazioni; il validator rifiuta un'opzione che appartiene a un altro attore.
+   */
+  optionId?: string;
   polityName: string;
   role: PolityReactionRole;
   stance: PolityReactionStance;

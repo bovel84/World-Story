@@ -16,6 +16,7 @@ import {
   buildSubjectCoherenceGuard,
   buildNpcAgencyGuard,
   buildDomesticReactionGuard,
+  buildReactionContractGuard,
 } from './guards';
 
 export function buildIncrementalOutputInstruction(
@@ -40,17 +41,18 @@ Ignora SOLO il formato JSON finale descritto sopra e serializza invece la rispos
   : '\n- Modalità auto-jump: emetti i fatti di contorno in ordine cronologico e fermati sull\'evento in cui una nazione decide concretamente in risposta agli ordini del giocatore.') : ''}
 
 Per ogni evento emetti immediatamente:
-{"type":"event","headline":"Soggetto NPC, decisione/reazione concreta e luogo","description":"${EVENT_DESCRIPTION_GUIDE}","date":"YYYY-MM-DD","mapChanges":[],"reactions":[{"polityName":"NOME politia NPC esistente","role":"counterparty|ally|mediator|observer","stance":"supportive|opposed|conditional|neutral","priority":"priorità del dossier che guida la decisione","response":"decisione ufficiale concreta, motivata e coerente con interessi e risorse","counterAction":"eventuale misura autonoma realmente decisa nel periodo","note":"messaggio diretto al giocatore, prima persona, una o due frasi senza cifre"}]}
+{"type":"event","headline":"Soggetto NPC, decisione/reazione concreta e luogo","description":"${EVENT_DESCRIPTION_GUIDE}","date":"YYYY-MM-DD","mapChanges":[],"reactions":[{"actorId":"ID esatto di un attore del CONTESTO DI REAZIONE (es. FRA)","optionId":"ID esatto di UNA opzione di quell'attore (es. FRA:condition)","polityName":"nome della stessa politia","role":"counterparty|ally|mediator|observer","stance":"supportive|opposed|conditional|neutral","priority":"priorità del dossier che guida la decisione","response":"decisione ufficiale concreta, motivata e coerente con interessi e risorse","counterAction":"eventuale misura autonoma realmente decisa nel periodo","note":"messaggio diretto al giocatore, prima persona, una o due frasi senza cifre"}]}
 
 Regole obbligatorie per "reactions":
-- Se l'ordine nomina, contatta, minaccia, influenza o richiede cooperazione a una politia NPC, quella politia deve comparire e decidere autonomamente; massimo 4 reazioni direttamente pertinenti.
+- Attori e opzioni: vale il solo CONTESTO DI REAZIONE (regola autoritativa qui sotto). Non riselezionare gli attori dal testo dell'evento e non inventare ID.
 - Segui [Personalità, priorità e memoria NPC]. "priority" nomina l'interesse che guida la risposta; "counterAction" descrive solo una misura davvero decisa nel periodo, non un'intenzione vaga.
-- Se un'azione o controazione NPC influenza direttamente un'altra politia NPC, anche quella politia decide autonomamente nel medesimo evento o nel successivo evento causale.
+- Se un'azione o controazione NPC colpisce un'altra politia che è fra gli attori ammessi dal CONTESTO DI REAZIONE, anche quella decide autonomamente nel medesimo evento o nel successivo evento causale.
 - Iniziativa autonoma: una nazione NPC con una causa documentata adotta una misura concreta, difensiva o offensiva; se è materiale ha la mapChange corrispondente nello stesso evento. In ogni avanzamento con causa documentata compare almeno un'iniziativa NPC autonoma.
 - Reazione interna: se qualcuno mobilita, schiera, spende o impone un embargo, la sua popolazione e le sue istituzioni reagiscono nello stesso evento (consenso o protesta, dibattito o repressione) con il costo economico proporzionato preso dal Dossier nazionale.
-- Teatro della crisi: reagiscono la controparte diretta e i vicini; non aggiungere potenze lontane senza interesse documentato.
 - Un accordo può risultare concluso solo se ogni controparte necessaria risponde "supportive" o "conditional" con condizioni soddisfatte. Altrimenti descrivi proposta, rifiuto, rinvio o controproposta e usa un outcome partial/rejected.
 - La descrizione deve raccontare queste decisioni; non elencare banalmente ciò che il giocatore ha ordinato. Per un fatto esclusivamente interno usa "reactions": [].
+
+${buildReactionContractGuard()}
 - "note" è il messaggio che la politia invia al giocatore nel canale diplomatico: prima persona, tono umano e concreto, una o due frasi, senza cifre, punteggi, etichette o nomi di campo. Non ripetere la cronaca: scrivi ciò che la nazione comunica. "response" resta il testo di cronaca del dispaccio.
 
 Regole oggetti territoriali (mapChanges):
@@ -114,6 +116,7 @@ ${clipForConstrainedModel(vars.STRATEGIC_STATE, 5_000)}
 
 CONTESTO DI REAZIONE (attori e opzioni ammesse dal motore):
 ${clipForConstrainedModel(vars.REACTION_CONTEXT, 2_500) || '(nessuno)'}
+${buildReactionContractGuard()}
 
 NPC RILEVANTI — identità e memoria vincolanti:
 ${clipForConstrainedModel(vars.NPC_STRATEGIC_PROFILES, 6_500)}
@@ -139,9 +142,9 @@ ${opts.presetOverride ? `\nISTRUZIONI AGGIUNTIVE DEL PRESET (non sostituiscono p
 
 REGOLE:
 1. Ogni evento: causa già visibile → decisione autonoma → conseguenza proporzionata. Non copiare l’ordine come notizia.
-2. Il giocatore controlla solo ${vars.PLAYER_POLITY}. Altre politie decidono per sé secondo priorità, risorse, rapporti e memoria. Nessun accordo è concluso senza reaction favorevole/condizionata della controparte. Coerenza dei soggetti: nomina solo chi agisce, subisce o ha un interesse documentato; ${vars.PLAYER_POLITY} compare solo se il fatto la tocca direttamente, mai come comparsa o spettatrice. "reactions"/"startChat" solo per gli attori elencati nel CONTESTO DI REAZIONE.
+2. Il giocatore controlla solo ${vars.PLAYER_POLITY}. Altre politie decidono per sé secondo priorità, risorse, rapporti e memoria. Nessun accordo è concluso senza reaction favorevole/condizionata della controparte. Coerenza dei soggetti: nomina solo chi agisce, subisce o ha un interesse documentato; ${vars.PLAYER_POLITY} compare solo se il fatto la tocca direttamente, mai come comparsa o spettatrice.
 3. Ordine composto: se solo una fase è fattibile usa partial e mostra soltanto quella fase; se nulla è fattibile usa rejected/voided e nessun mapChanges.
-4. Reazione NPC: indica priority, response e solo se reale counterAction. Una controazione materiale (mobilitazione, unità terrestre o navale, cantiere, opera completata) deve avere anche le mapChanges corrispondenti nello stesso evento, nel territorio della politia che agisce. Se influenza un altro NPC, anche quello reagisce autonomamente. Massimo 4 reazioni pertinenti. "note" è il messaggio diretto al giocatore nel canale diplomatico: prima persona, una o due frasi d'uomo politico, senza cifre né etichette.
+4. Reazione NPC: indica actorId e optionId presi dal CONTESTO DI REAZIONE, poi priority, response e solo se reale counterAction. Una controazione materiale (mobilitazione, unità terrestre o navale, cantiere, opera completata) deve avere anche le mapChanges corrispondenti nello stesso evento, nel territorio della politia che agisce e nella categoria ammessa dall'opzione scelta. Se una controazione colpisce un altro attore del contesto, questi decide per sé nel medesimo evento. "note" è il messaggio diretto al giocatore nel canale diplomatico: prima persona, una o due frasi d'uomo politico, senza cifre né etichette.
 4b. Iniziativa NPC: le nazioni non giocate non sono comparse. Quando una causa documentata esiste (confine teso, minaccia, alleanza, ultimatum, crisi aperta, opportunità), almeno una adotta una misura autonoma concreta, difensiva (fortification, base, airbase, radar, missile_site, mobilitazione di riserve, patto difensivo) o offensiva (concentramento, raid, blocco navale, ultimatum armato, preparazione d'invasione), con la mapChange corrispondente se materiale. Se non c'è causa, il mondo può restare fermo.
 4c. Reazioni interne ed economia: se una nazione mobilita, schiera, spende o impone un embargo, l'evento narra anche cosa ne pensano popolazione e istituzioni (consenso o protesta, dibattito o repressione) e il costo economico proporzionato (deficit, tasse, razionamenti), preso dal Dossier nazionale calcolato dal motore (saldo, stabilità, riserve mobilitate, sforzo bellico, tensione sociale). Niente cifre inventate. Vale anche per le nazioni NPC.
 5. Mappa: start_construction/update_construction/complete_construction per cantieri/opere; start_mobilization/complete_mobilization per formazioni in preparazione/operative; spawn_unit/move_unit/remove_unit per unità operative. Tipi unità: battalion|army|fleet|missile. Tipi opere: factory|port|university|base|airbase|naval_base|fortification|radar|missile_site|infrastructure|power_plant. Annunci, studi e ordini respinti non creano marker. Una nuova formazione nasce in una provincia controllata da chi la crea, la più vicina al riferimento citato ("vicino a X", "al confine con X"); non nel territorio di un'altra politia senza incursione esplicita. Se un ordine accettato dispone che una formazione esistente avanzi o si sposti, emetti SEMPRE "move_unit" (unità, origine, destinazione): senza di esso l'unità resterebbe ferma.
@@ -154,7 +157,7 @@ REGOLE:
 ${buildImmersionContract()}
 OUTPUT NDJSON, una riga JSON per oggetto, niente markdown.
 Riga evento:
-{"type":"event","headline":"attore + decisione concreta","description":"${EVENT_DESCRIPTION_GUIDE}","date":"YYYY-MM-DD","mapChanges":[],"reactions":[{"polityName":"nome esistente","role":"counterparty|ally|mediator|observer","stance":"supportive|opposed|conditional|neutral","priority":"interesse rilevante","response":"decisione concreta","counterAction":"misura concreta opzionale","note":"messaggio diretto al giocatore, prima persona, 1-2 frasi"}]}
+{"type":"event","headline":"attore + decisione concreta","description":"${EVENT_DESCRIPTION_GUIDE}","date":"YYYY-MM-DD","mapChanges":[],"reactions":[{"actorId":"ID esatto (es. FRA)","optionId":"ID esatto di un'opzione di quell'attore (es. FRA:condition)","polityName":"nome esistente","role":"counterparty|ally|mediator|observer","stance":"supportive|opposed|conditional|neutral","priority":"interesse rilevante","response":"decisione concreta","counterAction":"misura concreta opzionale","note":"messaggio diretto al giocatore, prima persona, 1-2 frasi"}]}
 
 ULTIMA riga obbligatoria:
 {"type":"complete","narration":"sintesi dei soli eventi emessi","actionOutcomes":[{"actionId":"ID ESATTO","status":"accepted|partial|rejected","summary":"esito specifico","expectedDate":"YYYY-MM-DD solo se partial","eventHeadlines":[]}],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":${completionDateJson}}

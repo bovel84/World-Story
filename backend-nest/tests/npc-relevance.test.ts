@@ -17,6 +17,8 @@ let worldRepository: any;
 let getSessionRegistry: any;
 
 type Reaction = {
+  actorId: string;
+  optionId: string;
   polityName: string;
   role: 'counterparty' | 'ally' | 'mediator' | 'observer';
   stance: 'supportive' | 'opposed' | 'conditional' | 'neutral';
@@ -148,11 +150,10 @@ describe('Pertinenza delle reazioni NPC', () => {
     expect(session.getChats().map((chat: any) => chat.polityId)).not.toContain('MYS');
   });
 
-  it('scarta le reazioni di potenze lontane e conserva controparte e vicini', async () => {
+  it('accetta le reazioni di controparte e vicini conformi al contratto', async () => {
     stubReactions = [
-      { polityName: 'Zimbabwe', role: 'counterparty', stance: 'opposed', response: 'Harare mobilita le riserve e rinforza Gwanda.' },
-      { polityName: 'Sudafrica', role: 'mediator', stance: 'conditional', response: 'Pretoria offre mediazione regionale.' },
-      { polityName: 'Malaysia', role: 'observer', stance: 'neutral', response: 'Kuala Lumpur invia una nota di comodo.' },
+      { actorId: 'ZWE', optionId: 'ZWE:counter', polityName: 'Zimbabwe', role: 'counterparty', stance: 'opposed', response: 'Harare mobilita le riserve e rinforza Gwanda.' },
+      { actorId: 'ZAF', optionId: 'ZAF:mediate', polityName: 'Sudafrica', role: 'mediator', stance: 'conditional', response: 'Pretoria offre mediazione regionale.' },
     ];
     const session = createGame().session;
     session.queueAction('Attaccare le posizioni dello Zimbabwe a Gwanda');
@@ -160,12 +161,27 @@ describe('Pertinenza delle reazioni NPC', () => {
 
     const chatPolities = session.getChats().map((chat: any) => chat.polityId);
     expect(chatPolities).toContain('ZWE');
-    expect(chatPolities).not.toContain('MYS');
 
     const worldEvent = session.getTimeline().flatMap((entry: any) => entry.events)
       .find((event: any) => event.headline === 'Botswana attacca le posizioni zimbabwesi a Gwanda');
     expect(worldEvent.detail).toContain('Zimbabwe');
-    expect(worldEvent.detail).not.toContain('Malaysia');
+    expect(worldEvent.detail).toContain('Sudafrica');
+    // La potenza lontana non è nel CONTESTO DI REAZIONE: il motore non le
+    // consente di decidere, quindi non può comparire nel dispaccio.
+    expect((session as any).buildGameData(['Attaccare le posizioni dello Zimbabwe a Gwanda']).reactionContext).not.toContain('MYS');
+  });
+
+  it('una reaction di una potenza fuori dal teatro fallisce chiusa invece di essere accettata', async () => {
+    stubReactions = [
+      { actorId: 'ZWE', optionId: 'ZWE:counter', polityName: 'Zimbabwe', role: 'counterparty', stance: 'opposed', response: 'Harare mobilita le riserve.' },
+      // La Malesia non è fra i RelevantActor del contesto: il contratto la rifiuta.
+      { actorId: 'MYS', optionId: 'MYS:negotiate', polityName: 'Malaysia', role: 'observer', stance: 'neutral', response: 'Kuala Lumpur invia una nota di comodo.' },
+    ];
+    const session = createGame().session;
+    session.queueAction('Attaccare le posizioni dello Zimbabwe a Gwanda');
+    await expect(session.processNextAction(0)).rejects.toThrow(/reactions fuori contratto|fuori contratto/);
+    expect(session.getTimeline().flatMap((entry: any) => entry.events)
+      .some((event: any) => String(event.detail || '').includes('Malaysia'))).toBe(false);
   });
 
   it('rimuove un partecipante fuori dal teatro da una riunione avviata dal modello', async () => {
@@ -195,6 +211,10 @@ describe('Pertinenza delle reazioni NPC', () => {
 
   it('materializza la misura materiale di una controrazione NPC senza mapChange', async () => {
     stubReactions = [{
+      actorId: 'ZWE',
+      // L'opzione di controazione ammette effetti militari: la misura
+      // materializzata dal motore resta dentro la categoria della decisione.
+      optionId: 'ZWE:counter',
       polityName: 'Zimbabwe',
       role: 'counterparty',
       stance: 'opposed',
@@ -208,6 +228,31 @@ describe('Pertinenza delle reazioni NPC', () => {
     const zimbabwe = [...(session as any).regions.values()].find((region: any) => region.owner === 'ZWE');
     const objects = zimbabwe.objects || [];
     expect(objects.some((object: any) => object.type === 'mobilization')).toBe(true);
+  });
+
+  it('un negoziato non materializza automaticamente una misura militare (§7)', async () => {
+    stubReactions = [{
+      actorId: 'ZWE',
+      // «Accettare con condizioni» non ammette effetti materiali: il motore non
+      // trasforma il testo della controazione in unità o cantieri.
+      optionId: 'ZWE:condition',
+      polityName: 'Zimbabwe',
+      role: 'counterparty',
+      stance: 'conditional',
+      response: 'Harare accetta un negoziato limitato sulle garanzie di confine.',
+      counterAction: 'Mobilitazione generale delle riserve lungo la frontiera.',
+    }];
+    const session = createGame().session;
+    session.queueAction('Attaccare le posizioni dello Zimbabwe a Gwanda');
+    await session.processNextAction(0);
+
+    const zimbabwe = [...(session as any).regions.values()].find((region: any) => region.owner === 'ZWE');
+    const objects = zimbabwe.objects || [];
+    expect(objects.some((object: any) => object.type === 'mobilization')).toBe(false);
+    // La reazione resta narrata: la decisione politica non viene persa.
+    const worldEvent = session.getTimeline().flatMap((entry: any) => entry.events)
+      .find((event: any) => event.headline === 'Botswana attacca le posizioni zimbabwesi a Gwanda');
+    expect(worldEvent.detail).toContain('Zimbabwe');
   });
 
   it('schiera una formazione di frontiera del giocatore sul confine, non al centro provincia', async () => {

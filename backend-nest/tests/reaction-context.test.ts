@@ -18,7 +18,7 @@ function input(overrides: Partial<ReactionContextInput> = {}): ReactionContextIn
     playerPolityId: 'BWA',
     playerPolityName: 'Botswana',
     focusTexts: ['Attaccare le posizioni dello Zimbabwe a Gwanda'],
-    actions: [{ actionId: 'a1', text: 'Attaccare le posizioni dello Zimbabwe a Gwanda' }],
+    currentActions: [{ actionId: 'a1', text: 'Attaccare le posizioni dello Zimbabwe a Gwanda' }],
     polityNames: { BWA: 'Botswana', ZWE: 'Zimbabwe', ZAF: 'Sudafrica', MYS: 'Malaysia' },
     regions: {
       bwa: { id: 'bwa', name: 'Botswana', owner: 'BWA', borders: ['zwe', 'zaf'] },
@@ -64,10 +64,47 @@ describe('buildReactionContext', () => {
     expect(context.trigger.summary).toContain('Zimbabwe');
   });
 
+  // Q02-bis / A: il trigger è l'ordine del turno CORRENTE, mai lo storico.
+  it('A — usa l’ordine corrente e non la prima azione dello storico', () => {
+    const context = buildReactionContext(input({
+      focusTexts: ['Invia ultimatum alla Germania'],
+      currentActions: [{ actionId: 'A9', text: 'Invia ultimatum alla Germania' }],
+    }));
+    expect(context.trigger).toMatchObject({
+      kind: 'player_action',
+      summary: 'Invia ultimatum alla Germania',
+      sourceRef: 'A9',
+    });
+    // Le vecchie azioni non esistono più nel contratto del trigger.
+    expect(context.trigger.sourceRef).not.toBe('A1');
+    expect(context.trigger.summary).not.toContain('Firma un accordo con Francia');
+  });
+
+  it('A2 — summary e sourceRef appartengono sempre alla stessa azione', () => {
+    const context = buildReactionContext(input({
+      focusTexts: ['Costruisci una fabbrica', 'Invia ultimatum alla Germania'],
+      currentActions: [
+        { actionId: 'A2', text: 'Costruisci una fabbrica' },
+        { actionId: 'A9', text: 'Invia ultimatum alla Germania' },
+      ],
+    }));
+    expect(context.trigger.sourceRef).toBe('A2');
+    expect(context.trigger.summary).toBe('Costruisci una fabbrica');
+  });
+
+  it('A3 — senza ID canonico non associa l’ID di un’altra azione', () => {
+    const context = buildReactionContext(input({
+      focusTexts: ['Invia ultimatum alla Germania'],
+      currentActions: [{ text: 'Invia ultimatum alla Germania' }],
+    }));
+    expect(context.trigger).toMatchObject({ kind: 'player_action', summary: 'Invia ultimatum alla Germania' });
+    expect(context.trigger.sourceRef).toBeUndefined();
+  });
+
   it('risale al processo mondiale quando non ci sono ordini nel turno', () => {
     const context = buildReactionContext(input({
       focusTexts: [],
-      actions: [],
+      currentActions: [],
       ongoingProcesses: [{ id: 'p1', title: 'Riforma agraria in corso', sourceActionId: 'a0' }],
     }));
     expect(context.trigger.kind).toBe('world_process');
@@ -116,5 +153,29 @@ describe('buildReactionContext', () => {
     expect(rendered).toContain('VINCOLI MATERIALI');
     expect(rendered).toContain('ZWE:negotiate');
     expect(rendered).toContain('Rispondono al massimo');
+  });
+
+  it('riconosce la controparte nominata con alias italiano o con una forma flessa', () => {
+    // Il contratto fail-closed rifiuta un attore non elencato: il motore deve
+    // quindi riconoscere anche i nomi con cui il giocatore nomina davvero la
+    // controparte (nome italiano del registro, forma flessa).
+    const byAlias = buildReactionContext(input({
+      focusTexts: ['Negoziare con la Polonia'],
+      currentActions: [],
+      polityNames: { POL: 'Польша' },
+      polityAliases: { POL: ['POL', 'Polonia'] },
+      regions: { r1: { id: 'r1', name: 'Польша', owner: 'POL' } },
+    }));
+    expect(byAlias.actors.map(actor => actor.id)).toContain('POL');
+
+    const flexed = buildReactionContext(input({
+      focusTexts: ['Mediazione cecoslovacca nella crisi'],
+      currentActions: [],
+      regions: {
+        r1: { id: 'r1', name: 'Botswana', owner: 'BWA', borders: [] },
+        r2: { id: 'r2', name: 'Cecoslovacchia', owner: 'CZE', borders: [] },
+      },
+    }));
+    expect(flexed.actors.map(actor => actor.id)).toContain('CZE');
   });
 });

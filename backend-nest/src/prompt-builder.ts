@@ -15,12 +15,15 @@ import {
   extractCompleteJsonObjects,
   parseIncrementalSimulationRecord,
   parseIncrementalSimulationResponse,
+  parseSimulationResponse,
 } from './prompts/simulation';
 import { buildAdvisorPrompt, parseAdvisorResponse, buildAdvisorDialogSuffix } from './prompts/advisor';
 import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
 import { buildNarrativeMemory } from './prompts/narrative-memory';
+import { repairReactionDecisions, validateReactionDecisions, type ReactionDecisionIssue, type ReactionEventLike } from './core/simulation/ReactionDecisions';
+import type { ReactionContext } from './core/simulation/ReactionContext';
 import { buildNationalDecisionContext, buildActionElaborationGuard } from './prompts/national-context';
 import {
   buildGovernmentStateBlock,
@@ -170,6 +173,11 @@ interface GameData {
   results: TurnResultData[];
   /** Contesto di reazione già filtrato dal motore (attori, vincoli, opzioni). */
   reactionContext?: string;
+  /**
+   * Stesso contesto in forma strutturata: serve al validator deterministico
+   * delle reactions (`actorId`/`optionId`) e non è mai serializzato nel prompt.
+   */
+  reactionContextData?: ReactionContext;
 }
 
 /** Нормализовать prompts-запись: объект или JSON-строка → чистый словарь. */
@@ -923,6 +931,10 @@ export class PromptEngine {
     const normalizedActions: Array<{ actionId?: string; text: string }> = actions.map(action => typeof action === 'string'
       ? { text: action }
       : action);
+    // Contesto strutturato del motore: se presente, le reactions dell'LLM sono
+    // validate in modo deterministico (actorId/optionId) con UN solo repair di
+    // formato. Nei dati legacy senza contesto la validazione non si applica.
+    const reactionContext = game.reactionContextData;
     // L'identità entra nel prompt: il testo è descrittivo, non una chiave.
     vars.PLAYER_ACTIONS_THIS_ROUND = normalizedActions
       .map(action => action.actionId ? `[actionId:${action.actionId}] ${action.text}` : action.text)
@@ -962,6 +974,9 @@ export class PromptEngine {
     const emitted = new Set<string>();
     const emitEvent = (event: SimulationEvent) => {
       if (emittedCount >= maxEvents) return;
+      // Durante lo streaming escono solo eventi con reactions dentro il
+      // contratto: un event fuori contesto non viene mai applicato alla sessione.
+      if (reactionContext && validateReactionDecisions(event.reactions, reactionContext).length > 0) return;
       const key = JSON.stringify(event);
       if (emitted.has(key)) return;
       emitted.add(key);
@@ -1053,10 +1068,72 @@ export class PromptEngine {
     }
 
     result = this.sanitizeSimulationResult(game, result, normalizedActions, maxEvents, !!autoJump, constrained);
+    // Contratto delle reactions: se l'output resta fuori contesto, UN SOLO
+    // repair di formato (non rigenera la simulazione) e poi errore esplicito.
+    if (reactionContext && result.events.length > 0) {
+      const outcome = await repairReactionDecisions({
+        events: result.events,
+        context: reactionContext,
+        repair: ({ events, issues, context }) => this.repairReactionFormat(system, events, issues, context, signal),
+      });
+      if (outcome.repaired) result = { ...result, events: outcome.events as SimulationEvent[] };
+    }
     // Provider senza streaming o modello che usa ancora il vecchio formato:
     // pubblica gli eventi validati appena arriva la risposta completa.
     for (const event of result.events) emitEvent(event);
     return result;
+  }
+
+  /**
+   * Unico repair di FORMATO per le reactions: corregge solo actorId/optionId.
+   * Gli eventi (headline, date, description, mapChanges) restano quelli già
+   * emessi: la simulazione non viene rigenerata né sostituita.
+   */
+  private async repairReactionFormat(
+    system: string,
+    events: ReactionEventLike[],
+    issues: ReactionDecisionIssue[],
+    context: ReactionContext,
+    signal?: AbortSignal,
+  ): Promise<SimulationEvent[]> {
+    const allowed = context.actors
+      .map(actor => `- ${actor.id} (${actor.name}): ${actor.options.map(option => option.id).join(', ') || '(nessuna opzione)'}`)
+      .join('\n');
+    const prompt = [
+      'Correggi SOLO i campi "actorId" e "optionId" delle reactions degli eventi seguenti.',
+      'NON modificare headline, date, description, mapChanges, né il numero o l\'ordine degli eventi.',
+      'Attori e opzioni ammessi (copia gli ID esatti, scegli UNA opzione per ogni attore):',
+      allowed,
+      `Problemi rilevati dal motore: ${issues.map(issue => issue.message).join(' | ')}`,
+      'Eventi da correggere:',
+      JSON.stringify({
+        events: events.map(event => ({
+          headline: event.headline,
+          date: event.date,
+          description: event.description,
+          mapChanges: event.mapChanges || [],
+          reactions: event.reactions || [],
+        })),
+      }),
+      'Rispondi SOLO con un oggetto JSON {"events":[...]} completo: stesso numero, stesso ordine, stesse headline, stesse date e stesse mapChanges, con actorId/optionId validi.',
+    ].join('\n');
+    const repaired = await this.llm.generate('jump', system, prompt, {
+      temperature: 0.05,
+      maxTokens: 4_096,
+      jsonMode: true,
+      signal,
+    });
+    try {
+      return parseSimulationResponse(repaired.content).events;
+    } catch (error) {
+      if (error instanceof LLMContractError) {
+        throw new LLMContractError(`repair reactions non interpretabile: ${error.message}`, {
+          mechanic: 'jump',
+          excerpt: repaired.content,
+        });
+      }
+      throw error;
+    }
   }
 
   async convertAction(game: GameData, actionText: string, signal?: AbortSignal): Promise<ConvertedAction> {
