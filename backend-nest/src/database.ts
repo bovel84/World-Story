@@ -767,6 +767,31 @@ export function initDatabase() {
   try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
   try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated_date TEXT'); } catch { /* già presente */ }
 
+  // GAMEPLAY-LONG: memoria politica delle fazioni. Il motore registra le
+  // decisioni che riguardano una fazione (favore, torto, richiesta ignorata,
+  // impegno mantenuto o tradito); la fotografia del governo vi aggiunge il
+  // termine politico. Righe immutabili: si potano solo col rewind.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_faction_memory (
+      id TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
+      polity_id TEXT NOT NULL,
+      faction_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      lever TEXT,
+      weight REAL NOT NULL DEFAULT 0,
+      turn INTEGER NOT NULL,
+      game_date TEXT NOT NULL,
+      text TEXT NOT NULL DEFAULT '',
+      source_event_id TEXT,
+      recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (game_id, branch_id, id),
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_game_faction_memory_lookup ON game_faction_memory(game_id, branch_id, polity_id, turn)');
+
   // Stato di crisi della partita: giorni di criticità accumulati per dimensione
   // (una volta erano «turni consecutivi», ora è TEMPO CALENDARIO trascorso),
   // gli avanzamenti in cui la criticità è stata osservata e l'eventuale epilogo

@@ -15,7 +15,7 @@
  * dall'esterno i conti e le opzioni del motore tramite `NationStateContext`.
  */
 
-import { resourceRepository, naturalResourceRepository, modifiersRepository, gameRepository, type PressureRecord } from '../repositories';
+import { resourceRepository, naturalResourceRepository, modifiersRepository, gameRepository, factionMemoryRepository, type PressureRecord } from '../repositories';
 import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, materialNeeds, normalizeStock, overdraftOf, seedStock, storageCapacity, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { averageMaturityYears, describeDebtTranche, marketRatePct } from '../core/simulation/SovereignDebt';
 import {
@@ -27,6 +27,8 @@ import {
   type PressureEffect, type PressureNeighbour, type PressureSnapshot, type PressureWindow, type RelationStance,
 } from '../core/simulation/PeacetimePressures';
 import { advanceCrisis, type CrisisEnding, type CrisisInput, type CrisisState } from '../core/simulation/NationCrisis';
+import { factionMemoryFromPressure, type FactionMemoryEvent } from '../core/simulation/FactionMemory';
+import type { GovernmentMemoryInput } from '../core/simulation/GovernmentFactions';
 import { daysBetween } from '../core/simulation/calendar';
 import { NATURAL_RESOURCE_KINDS, naturalResourcesFor, type NaturalEndowment, type NaturalResourceKind } from '../core/simulation/MilitaryIndustry';
 import { EMPTY_MODIFIERS, applyArsenalEffects, applyModifierEffects, applyStockEffects, decayModifiers, describeNationalEffects, hasModifiers, parseNationalEffects, type NationalEffect, type NationalModifiers } from '../core/simulation/NationalEffects';
@@ -574,6 +576,8 @@ export class NationStateService {
         if (window.expired) {
           if (gameRepository.expirePressure(this.ctx.gameId, record.id, this.ctx.currentDate())) {
             this.ctx.applyPressureEffect(record.inaction, `${record.title}: sfida ignorata oltre la scadenza`);
+            // GAMEPLAY-LONG: chi aveva portato la richiesta non dimentica il silenzio.
+            this.recordPressureMemory(record, null, record.inaction, null);
           }
           continue;
         }
@@ -587,6 +591,66 @@ export class NationStateService {
       this.openNewPressures();
     } catch (error) {
       console.warn('[GameSession] Pressioni di pace non disponibili:', error);
+    }
+  }
+
+  // ── Memoria politica delle fazioni (GAMEPLAY-LONG P1) ───────────────────
+
+  /**
+   * Registra nella memoria politica ciò che una decisione ha significato:
+   * il motore ha già applicato l'effetto, qui si annota **chi** ne esce
+   * favorito o danneggiato. Nessun umore inventato e nessuna scrittura di
+   * numeri: la soddisfazione resta derivata dal bilancio.
+   */
+  recordPressureMemory(
+    record: PressureRecord,
+    optionId: string | null,
+    effect: PressureEffect | null | undefined,
+    optionLabel?: string | null,
+  ): FactionMemoryEvent[] {
+    if (this.ctx.isStrictGame()) return [];
+    try {
+      const events = factionMemoryFromPressure({
+        pressureId: record.id,
+        template: record.template,
+        kind: record.kind,
+        title: record.title,
+        severity: Number(record.severity) || 1,
+        gameDate: this.ctx.currentDate(),
+        turn: this.ctx.currentTurn(),
+        optionId,
+        optionLabel: optionLabel ?? null,
+        effect: effect ?? null,
+      });
+      factionMemoryRepository.insertMany(this.ctx.gameId, this.ctx.playerPolityId(), events);
+      return events;
+    } catch (error) {
+      // La memoria non deve mai bloccare una decisione di gioco.
+      console.warn('[NationStateService] Memoria delle fazioni non disponibile:', error);
+      return [];
+    }
+  }
+
+  /** Memoria politica della nazione giocatore, pronta per la fotografia del governo. */
+  governmentMemory(): GovernmentMemoryInput | null {
+    if (this.ctx.isStrictGame()) return null;
+    try {
+      const events = factionMemoryRepository.list(this.ctx.gameId, { polityId: this.ctx.playerPolityId() });
+      if (events.length === 0) return null;
+      return { events, today: this.ctx.currentDate() };
+    } catch (error) {
+      console.warn('[NationStateService] Memoria delle fazioni non leggibile:', error);
+      return null;
+    }
+  }
+
+  /** Pota la memoria dopo un salto indietro: il passato riscritto non lascia tracce. */
+  pruneFactionMemoryAfterTurn(turn: number): number {
+    try {
+      return factionMemoryRepository.deleteAfterTurn(this.ctx.gameId, turn);
+    } catch (error) {
+      console.warn('[NationStateService] Potatura della memoria non riuscita:', error);
+      return 0;
     }
   }
 

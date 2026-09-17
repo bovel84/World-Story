@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { GovernmentFaction, GovernmentSnapshot, NationalBudgetDetail } from '../../services/api';
 import {
+  factionMemoryView,
+  resentfulFactions,
   councilPresence,
   factionOrderText,
   hasBudgetDetail,
@@ -135,5 +137,59 @@ describe('governmentDossier — lettura del governo e del bilancio', () => {
   it('LW04 — nessun consiglio pubblicato, nessuna presenza inventata', () => {
     expect(councilPresence(null)).toBeNull();
     expect(councilPresence({ factions: [] } as unknown as GovernmentSnapshot)).toBeNull();
+  });
+});
+
+describe('GAMEPLAY-LONG — memoria politica delle fazioni', () => {
+  const faction = (id: string, name: string, memory?: GovernmentFaction['politicalMemory']): GovernmentFaction => ({
+    id, name, interest: 'i', powerPct: 20, satisfaction: 50, stance: 'neutrale', pressure: 40,
+    demand: { lever: 'difesa', title: 't', detail: 'd', direction: 'mantieni', urgency: 1 }, footprint: '',
+    ...(memory ? { politicalMemory: memory } : {}),
+  });
+  const memory = (over: Partial<NonNullable<GovernmentFaction['politicalMemory']>> = {}) => ({
+    trust: 50, resentment: 0, trend: 'stabile' as const, favors: 0, grievances: 0, pressure: 0,
+    lastEvent: null,
+    ...over,
+  });
+
+  it('senza memoria non c’è nulla da raccontare', () => {
+    expect(factionMemoryView(faction('militari', 'Militari'))).toBeNull();
+    expect(factionMemoryView(null)).toBeNull();
+  });
+
+  it('traduce fiducia e tendenza in una riga leggibile', () => {
+    const view = factionMemoryView(faction('lavoratori', 'Lavoro', memory({
+      trust: 38, resentment: 22, trend: 'in calo',
+      lastEvent: { kind: 'grievance', turn: 7, gameDate: '1951-08-01', text: 'Promessa tradita sulle tasse.', weight: -18 },
+    })));
+    expect(view?.trust).toBe(38);
+    expect(view?.label).toBe('Fiducia in calo');
+    expect(view?.text).toContain('Fiducia 38/100, in calo');
+    expect(view?.text).toContain('Promessa tradita sulle tasse.');
+    expect(view?.tone).toBe('warning');
+  });
+
+  it('un risentimento alto è un tono negativo', () => {
+    expect(factionMemoryView(faction('lavoratori', 'Lavoro', memory({ trust: 30, resentment: 55, trend: 'in calo' })))?.tone)
+      .toBe('negative');
+    expect(factionMemoryView(faction('militari', 'Militari', memory({ trust: 70, resentment: 0, trend: 'in ripresa' })))?.tone)
+      .toBe('positive');
+  });
+
+  it('P2: al massimo due fazioni risentite in evidenza, dalla più risentita', () => {
+    const government = {
+      factions: [
+        faction('industriali', 'Industria', memory({ trust: 45, resentment: 24 })),
+        faction('lavoratori', 'Lavoro', memory({ trust: 32, resentment: 48 })),
+        faction('finanza', 'Finanza', memory({ trust: 40, resentment: 30 })),
+        faction('militari', 'Militari', memory({ trust: 70, resentment: 0 })),
+      ],
+      dominantId: 'militari', angriestId: 'lavoratori', cohesion: 50, pressureIndex: 50,
+      headline: '', budget: budget(), trustIndex: 47,
+    } as unknown as GovernmentSnapshot;
+    const resentful = resentfulFactions(government);
+    expect(resentful.map(entry => entry.faction.id)).toEqual(['lavoratori', 'finanza']);
+    expect(resentfulFactions(government, 3)).toHaveLength(3);
+    expect(resentfulFactions(null)).toEqual([]);
   });
 });

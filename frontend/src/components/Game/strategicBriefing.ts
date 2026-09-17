@@ -16,6 +16,7 @@ import type {
 import type { NationAccount, NationResources } from './NationDock/types';
 import { councilPresence } from './governmentDossier';
 import { pressureWindowText, splitPressuresByAttention } from './pressureWindow';
+import { resentfulFactions } from './governmentDossier';
 
 /** Gravità di una voce del briefing. */
 export type BriefingSeverity = 'critical' | 'warning' | 'opportunity' | 'positive' | 'info';
@@ -176,6 +177,18 @@ export function deriveStrategicBriefing(input: StrategicBriefingInput): Strategi
       icon: ICON.info,
       label: `Altre Questioni nel dossier: ${dossier.length}`,
       detail: dossier.map(pressure => pressure.title).join(' · '),
+    });
+  }
+
+  // --- 2b. Fazioni che non dimenticano (memoria politica, GAMEPLAY-LONG) ---
+  // P2: al massimo due righe. Il resto resta nella scheda del governo.
+  for (const { faction, memory } of resentfulFactions(input.government)) {
+    items.push({
+      id: `faction-resentment-${faction.id}`,
+      severity: memory.resentment >= 40 ? 'warning' : 'info',
+      icon: memory.resentment >= 40 ? ICON.warning : ICON.info,
+      label: `${faction.name} contesta il governo`,
+      detail: memory.text,
     });
   }
 

@@ -276,6 +276,20 @@ export interface GovernmentFaction {
   pressure: number;
   demand: FactionDemand;
   footprint: string;
+  /**
+   * GAMEPLAY-LONG: come il governo ha **trattato** questa fazione (fiducia,
+   * risentimento, tendenza, ultima decisione). Assente se non è mai successo
+   * nulla di politicamente rilevante.
+   */
+  politicalMemory?: {
+    trust: number;
+    resentment: number;
+    trend: 'in ripresa' | 'stabile' | 'in calo';
+    lastEvent: { kind: string; turn: number; gameDate: string; text: string; weight: number } | null;
+    favors: number;
+    grievances: number;
+    pressure: number;
+  };
 }
 
 /** Snapshot del governo: anime attive + dettaglio del bilancio. */
@@ -289,6 +303,10 @@ export interface GovernmentSnapshot {
   budget: NationalBudgetDetail;
   /** Debito pubblico: rapporto sul PIL e peso degli interessi sulle entrate. */
   debt?: { ratioPct: number; servicePct: number };
+  /** Fazioni che si sentono tradite (memoria politica), dalla più risentita. */
+  resentful?: { factionId: string; name: string; resentment: number; trust: number; trend: string; text: string }[];
+  /** Fiducia politica media verso il governo (0-100); `null` senza memoria. */
+  trustIndex?: number | null;
 }
 
 /** Voci del consiglio generate dall'LLM sulle fazioni del motore. */

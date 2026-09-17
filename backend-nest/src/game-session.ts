@@ -37,6 +37,7 @@ import { clampTaxRatePct, DEFAULT_FISCAL_POLICY, describeFiscalEffects, fiscalSh
 import { type PressureEffect } from './core/simulation/PeacetimePressures';
 import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
+import type { FactionMemoryEvent } from './core/simulation/FactionMemory';
 import type { GovernmentVoices } from './prompts/government';
 import { annualDebtServiceMld, creditHeadroom, debtOf, issueSovereignDebt, type ResourceStock } from './core/simulation/MaterialEconomy';
 import {
@@ -575,7 +576,7 @@ export class GameSession {
     if (bulletin) lines.push(`📊 ${bulletin}`);
     // Le anime del governo entrano nella cronaca del turno: chi preme e per
     // che cosa è un fatto della partita, non solo una schermata del dossier.
-    const government = governmentSnapshot(tickAccounts[this.playerPolityId]);
+    const government = governmentSnapshot(tickAccounts[this.playerPolityId], this.nationState.governmentMemory());
     if (government.factions.length > 0) lines.push(`🏛️ Governo — ${government.headline}`);
     lines.push(...this.advanceResources(days, tickAccounts, asOfDate));
     lines.push(...this.advanceProduction(days, tickAccounts[this.playerPolityId]));
@@ -810,6 +811,8 @@ export class GameSession {
     pressure: PressureRecord;
     effect: PressureEffect;
     account?: NationalAccount;
+    /** GAMEPLAY-LONG: gli eventi di memoria politica registrati dalla decisione. */
+    memory: FactionMemoryEvent[];
   } {
     this.assertPlayable();
     const record = gameRepository.listPressures(this.id, 'active').find(item => item.id === pressureId);
@@ -826,11 +829,14 @@ export class GameSession {
     if (!gameRepository.resolvePressure(this.id, pressureId, optionId, option.effect.note, this.currentDate)) {
       throw new Error('pressure_not_active: la sfida è stata già chiusa');
     }
+    // GAMEPLAY-LONG P1: la fazione che premeva ricorda com'è stata trattata.
+    const memory = this.nationState.recordPressureMemory(record, optionId, option.effect, option.label);
     this.governmentVoices = null;
     return {
       pressure: { ...record, status: 'resolved', resolvedOption: optionId, resolution: option.effect.note, resolvedDate: this.currentDate },
       effect: option.effect,
       account: this.sessionAccounts()[this.playerPolityId],
+      memory,
     };
   }
 
@@ -1986,6 +1992,11 @@ export class GameSession {
 
     // Le sfide nate nei turni annullati non appartengono più alla storia.
     gameRepository.deletePressuresAfterTurn(this.id, (Number(saveData.currentTurn) || 0) - 1);
+    // Il passato riscritto non deve lasciare memoria politica di decisioni mai
+    // avvenute. Il taglio è sul turno ripristinato (non su quello precedente,
+    // come per le pressioni che si rigenerano): una decisione presa durante il
+    // turno a cui si torna appartiene ancora allo stato restaurato.
+    this.nationState.pruneFactionMemoryAfterTurn(Number(saveData.currentTurn) || 0);
     // Un turno annullato cancella anche il collasso: si torna a giocare.
     gameRepository.resetCrisisState(this.id);
     this.loadFromSave(saveData, hash);
@@ -2160,7 +2171,7 @@ export class GameSession {
    * nessuna cifra nuova, solo lettura leggibile delle stesse fonti.
    */
   getGovernment() {
-    return governmentSnapshot(this.sessionAccounts()[this.playerPolityId]);
+    return governmentSnapshot(this.sessionAccounts()[this.playerPolityId], this.nationState.governmentMemory());
   }
 
   /** Chiave del turno corrente per la cache delle voci del consiglio. */

@@ -14,7 +14,7 @@ import { CRISIS_LEVEL_LABEL, crisisDaysText } from '../crisisPanel';
 import { PRESSURE_PRIORITY_LABEL, pressureWindowText, pressureWindowTone, splitPressuresByAttention } from '../pressureWindow';
 import {
   LEVER_LABEL, STANCE_LABEL, factionOrderText, pressureLabel, pressureTone,
-  satisfactionTone, stanceTone, type NationalVerdict,
+  factionMemoryView, satisfactionTone, stanceTone, type NationalVerdict,
 } from '../governmentDossier';
 import { formatDate } from './format';
 import type { MetricTrend, Tone } from './types';
@@ -448,6 +448,9 @@ export function FactionCard({ faction, dominant, angriest, onDraftOrder, voice, 
   speaking?: boolean;
 }) {
   const stance = stanceTone(faction.stance);
+  // GAMEPLAY-LONG: la fazione ricorda come è stata trattata. La soddisfazione
+  // resta quella del bilancio; qui si mostra la fiducia politica.
+  const memory = factionMemoryView(faction);
   return (
     <article className={`nation-faction-card tone-${stance}${dominant ? ' is-dominant' : ''}${angriest ? ' is-angriest' : ''}`}>
       <header className="nation-faction-head">
@@ -475,6 +478,12 @@ export function FactionCard({ faction, dominant, angriest, onDraftOrder, voice, 
           <ShareBar value={faction.pressure} tone={pressureTone(faction.pressure)} />
         </div>
       </div>
+      {memory && (
+        <p className={`nation-faction-memory tone-${memory.tone}`}>
+          <span className="nation-memory-kicker">{memory.label}</span>
+          {memory.text}
+        </p>
+      )}
       {voice ? (
         <blockquote className={`nation-faction-voice tone-${stance}`}>
           <span className="nation-voice-kicker">La voce in consiglio</span>

@@ -207,6 +207,66 @@ export function factionOrderText(faction: GovernmentFaction): string {
   ].join(' ');
 }
 
+/** GAMEPLAY-LONG — memoria politica di una fazione, in una riga. */
+export interface FactionMemoryView {
+  tone: VerdictTone;
+  /** Fiducia politica verso il governo (0-100). */
+  trust: number;
+  /** Risentimento non ancora decantato (0-100). */
+  resentment: number;
+  trend: 'in ripresa' | 'stabile' | 'in calo';
+  /** Frase pronta: «Fiducia 38/100, in calo — "Promessa tradita sulle tasse."» */
+  text: string;
+  /** Etichetta breve per il badge. */
+  label: string;
+}
+
+const MEMORY_TREND_LABEL: Record<string, string> = {
+  'in ripresa': 'Fiducia in ripresa',
+  stabile: 'Fiducia stabile',
+  'in calo': 'Fiducia in calo',
+};
+
+/**
+ * Traduce la memoria politica della fazione in testo e tono. Il motore ha già
+ * fatto i conti (fiducia, risentimento, tendenza): qui si sceglie solo come
+ * dirlo. Nessuna metrica nuova, nessuna stima del client.
+ */
+export function factionMemoryView(faction: GovernmentFaction | null | undefined): FactionMemoryView | null {
+  const memory = faction?.politicalMemory;
+  if (!faction || !memory) return null;
+  const trust = round(memory.trust);
+  const resentment = round(memory.resentment);
+  const trend: FactionMemoryView['trend'] = memory.trend === 'in ripresa' || memory.trend === 'in calo'
+    ? memory.trend
+    : 'stabile';
+  const tone: VerdictTone = memory.resentment >= 40 ? 'negative' : memory.trust < 42 ? 'warning' : memory.trust >= 60 ? 'positive' : 'neutral';
+  const last = memory.lastEvent?.text ? ` — «${memory.lastEvent.text}»` : '';
+  return {
+    tone,
+    trust,
+    resentment,
+    trend,
+    label: MEMORY_TREND_LABEL[trend] ?? 'Fiducia stabile',
+    text: `Fiducia ${trust}/100, ${trend}${last}`,
+  };
+}
+
+/** Chi si sente tradito, dal più risentito: la memoria che merita una riga. */
+export function resentfulFactions(
+  government?: GovernmentSnapshot | null,
+  limit = 2,
+): { faction: GovernmentFaction; memory: FactionMemoryView }[] {
+  if (!government || government.factions.length === 0) return [];
+  const flagged = new Set((government.resentful ?? []).map(entry => entry.factionId));
+  return government.factions
+    .filter(faction => (faction.politicalMemory?.resentment ?? 0) >= 20 || flagged.has(faction.id))
+    .sort((a, b) => (b.politicalMemory?.resentment ?? 0) - (a.politicalMemory?.resentment ?? 0))
+    .slice(0, Math.max(0, limit))
+    .map(faction => ({ faction, memory: factionMemoryView(faction)! }))
+    .filter(entry => entry.memory);
+}
+
 /** LW04 — presenza del consiglio: chi preme, chi guida, quanto è coeso. */
 export interface CouncilPresence {
   tone: VerdictTone;
