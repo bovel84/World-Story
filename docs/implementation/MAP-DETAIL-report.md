@@ -255,3 +255,65 @@ Proiezione eseguita sui `map.geojson` reali (script usa le funzioni pure):
 4. **Backfill dei confini dei mondi legacy**: rigenerazione dei `borders` per i
    salvataggi provinciali con `borders = []` (migrazione dati, da pianificare a
    parte).
+
+---
+
+## 9. FASE 2 — gerarchia editabile per i preset storici (`map_grouping`)
+
+La proposta 1 è stata implementata: `grouped` può usare una gerarchia **reale e
+scelta dall'autore**, così si possono creare preset storici (es. province
+raggruppate per `eyalet`, `gau`, `oblast`, `region`).
+
+### Problema
+Il raggruppamento riconosceva automaticamente solo una lista fissa di chiavi
+(`region`, `admin1`, …): un autore che usava una chiave storica propria non
+poteva farvi affidamento, e non esisteva alcun modo di **dichiararla** nel
+preset.
+
+### Soluzione
+- **Nuovo campo opzionale `map_grouping`** (`preset.json`), validato dal loader
+  (`/^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/`; spazi trim; `''` = automatico). Classe D,
+  **nessuna migrazione**.
+- **`groupingKeysFor(map_grouping)`**: la chiave dichiarata ha priorità, poi le
+  chiavi note; se la chiave non raggruppa davvero (assente o univoca) si ricade
+  automaticamente su gerarchia nota → criterio geografico. Nessuna regressione.
+- **Preset editor**: campo editabile «Proprietà della gerarchia» con suggerimenti
+  (`<datalist>`) generati dalle proprietà **realmente** rilevate sulla mappa
+  caricata (`detectGroupingKeys`, funzione pura in `frontend/.../mapGrouping.ts`),
+  più avviso non bloccante se la chiave non è tra quelle rilevate. Vuoto =
+  raggruppamento geografico automatico. Il campo è attivo con «Regioni
+  raggruppate».
+- La generazione (`worlds.routes.ts`) passa `hierarchyKeys: groupingKeysFor(preset.map_grouping)`
+  a `deriveGroups`.
+
+### File (FASE 2)
+- `backend-nest/src/utils/map-detail.ts` — `isMapGrouping`, `normalizeMapGrouping`,
+  `MAP_GROUPING_RE`, `groupingKeysFor`.
+- `backend-nest/src/utils/preset-loader.ts` — campo + validazione + normalizzazione.
+- `backend-nest/src/routes/presets.routes.ts` — salva/ritorna `map_grouping`.
+- `backend-nest/src/routes/worlds.routes.ts` — usa la chiave dichiarata.
+- `backend-nest/tests/map-detail.test.ts` — chiave storica, fallback, validazione,
+  `groupingKeysFor`.
+- `backend-nest/tests/presets.test.ts` — validazione `map_grouping`.
+- `frontend/src/components/Game/mapGrouping.ts` — **nuovo**, funzioni pure
+  (`hasProvinceFeatures`, `detectGroupingKeys`).
+- `frontend/src/components/Game/PresetEditorModal.tsx` — campo editabile +
+  suggerimenti.
+- `frontend/src/services/api.ts` — `map_grouping` in `PresetEditorData`.
+- `frontend/src/components/Game/presetMapDetail.test.ts` — test delle funzioni
+  pure e del controllo.
+- `frontend/src/index.css` — stile del controllo di raggruppamento.
+
+### CORE ENGINE FREEZE (FASE 2)
+Nessun file del freeze toccato: la scelta della gerarchia è una proprietà del
+preset e una proiezione di generazione, **non** stato di gioco persistito.
+
+### Esempio d'uso per un preset storico
+```jsonc
+{
+  "id": "ottoman_1914",
+  "map_detail": "grouped",
+  "map_grouping": "eyalet",   // proprietà presente in map.geojson
+  // le province con lo stesso `eyalet` formano una regione di gioco
+}
+```

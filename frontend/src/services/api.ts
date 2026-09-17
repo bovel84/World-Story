@@ -1320,6 +1320,8 @@ export interface PresetEditorData {
   version?: string;
   /** Livello di dettaglio della mappa: nations | grouped | full (opzionale). */
   map_detail?: PresetMapDetail;
+  /** Proprietà GeoJSON usata per raggruppare le province in `grouped`. */
+  map_grouping?: string;
   map_geojson?: any;
 }
 

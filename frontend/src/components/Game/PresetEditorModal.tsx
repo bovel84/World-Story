@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { templatesApi, type PresetEditorData, type PresetMapDetail, type ScenarioReportView } from '../../services/api';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
+import { detectGroupingKeys, hasProvinceFeatures } from './mapGrouping';
 
 interface Props {
   /** Preset esistente da aggiornare. */
@@ -35,18 +36,6 @@ const MAP_DETAIL_OPTIONS: Array<{ value: PresetMapDetail; label: string; hint: s
   { value: 'grouped', label: 'Regioni raggruppate', hint: 'Poche regioni per paese' },
   { value: 'full', label: 'Massimo dettaglio', hint: 'Una regione per provincia' },
 ];
-
-/** Vero se la mappa caricata porta province (`properties.country` ≠ `code`). */
-function hasProvinceFeatures(map: any): boolean {
-  const features = map?.features;
-  if (!Array.isArray(features)) return false;
-  return features.some((feature: any) => {
-    const props = feature?.properties || {};
-    return typeof props.country === 'string' && props.country !== ''
-      && typeof props.code === 'string' && props.code !== ''
-      && props.country !== props.code;
-  });
-}
 
 /** File del catalogo di scenario (M01) con etichette per la checklist. */
 const CATALOG_FILES: Array<{ key: string; label: string; hint: string }> = [
@@ -173,6 +162,11 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
   const effectiveDetail: PresetMapDetail = data.map_detail && (provinceMap || data.map_detail === 'nations')
     ? data.map_detail
     : (provinceMap ? 'full' : 'nations');
+  // Gerarchie reali suggerite dalla mappa caricata (per il raggruppamento).
+  const groupingKeys = useMemo(() => (provinceMap ? detectGroupingKeys(data.map_geojson) : []), [provinceMap, data.map_geojson]);
+  const grouping = (data.map_grouping || '').trim();
+  // Avviso non bloccante: la chiave dichiarata non è una delle gerarchie rilevate.
+  const groupingUnknown = !!grouping && groupingKeys.length > 0 && !groupingKeys.includes(grouping);
 
   const save = async () => {
     if (!data.id.trim() || !data.name.trim() || !data.base_prompt.trim() || normalizedCodes.length === 0) {
@@ -192,6 +186,8 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
       prompts,
       // Senza mappa provinciale resta disponibile solo «Solo nazioni».
       map_detail: provinceMap ? effectiveDetail : 'nations',
+      // Vuoto = raggruppamento automatico (gerarchia nota o geografico).
+      map_grouping: provinceMap && grouping ? grouping : '',
     };
     try {
       if (templateId) await templatesApi.updatePreset(templateId, payload);
@@ -388,6 +384,28 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
                 ))}
                 {!provinceMap && <p className="preset-guide">Senza una mappa provinciale (con <code>properties.country</code>) è disponibile solo «Solo nazioni».</p>}
               </fieldset>
+              {provinceMap && <fieldset className="preset-map-detail preset-map-grouping" disabled={effectiveDetail !== 'grouped'}>
+                <legend>Raggruppamento delle province</legend>
+                <label htmlFor="preset-map-grouping">Proprietà della gerarchia</label>
+                <input
+                  id="preset-map-grouping"
+                  list="preset-map-grouping-keys"
+                  value={data.map_grouping || ''}
+                  placeholder="Automatico (criterio geografico)"
+                  onChange={e => patch('map_grouping', e.target.value)}
+                />
+                <datalist id="preset-map-grouping-keys">
+                  {groupingKeys.map(key => <option key={key} value={key} />)}
+                </datalist>
+                <p className="preset-guide">
+                  {effectiveDetail !== 'grouped'
+                    ? 'Disponibile con «Regioni raggruppate».'
+                    : groupingKeys.length > 0
+                      ? <>Proprietà rilevate sulla mappa: {groupingKeys.map(key => <code key={key}>{key}</code>)}. Lascia vuoto per il raggruppamento geografico automatico.</>
+                      : 'Nessuna gerarchia rilevata: le province verranno raggruppate geograficamente. Aggiungi una proprietà (es. region) al GeoJSON per un raggruppamento storico personalizzato.'}
+                </p>
+                {groupingUnknown && <p className="preset-guide warning">«{grouping}» non è tra le proprietà rilevate: verrà ignorata e si userà il criterio automatico.</p>}
+              </fieldset>}
             </div>}
           </div>
         )}

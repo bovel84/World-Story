@@ -21,7 +21,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { isMapDetail, normalizeMapDetail, type MapDetail } from './map-detail';
+import { isMapDetail, isMapGrouping, normalizeMapDetail, normalizeMapGrouping, type MapDetail } from './map-detail';
 
 export const PRESETS_DIR = path.join(process.cwd(), 'data', 'presets');
 export const LEGACY_TEMPLATES_DIR = path.join(process.cwd(), 'data', 'templates');
@@ -52,6 +52,8 @@ export interface PresetPackage {
   lore?: string;
   /** Livello di dettaglio della mappa: nations | grouped | full (opzionale). */
   map_detail?: MapDetail;
+  /** Proprietà GeoJSON usata per il raggruppamento in `grouped` (opzionale). */
+  map_grouping?: string;
   has_custom_map: boolean;
   flags: string[];
   author?: string;
@@ -131,6 +133,10 @@ export function validatePresetJson(raw: any, context = 'preset.json'): Omit<Pres
   if (raw.map_detail !== undefined && !isMapDetail(raw.map_detail)) {
     throw new Error(`${context}: map_detail deve essere "nations", "grouped" o "full"`);
   }
+  const grouping = typeof raw.map_grouping === 'string' ? raw.map_grouping.trim() : raw.map_grouping;
+  if (grouping !== undefined && grouping !== '' && !isMapGrouping(grouping)) {
+    throw new Error(`${context}: map_grouping deve essere il nome di una proprietà GeoJSON (lettere, cifre, _ . -)`);
+  }
   return {
     id: raw.id,
     name: raw.name,
@@ -143,6 +149,7 @@ export function validatePresetJson(raw: any, context = 'preset.json'): Omit<Pres
     country_colors: raw.country_colors,
     prompts: raw.prompts,
     map_detail: normalizeMapDetail(raw.map_detail),
+    map_grouping: normalizeMapGrouping(grouping),
     author: typeof raw.author === 'string' ? raw.author : undefined,
     version: typeof raw.version === 'string' ? raw.version : undefined,
   };
