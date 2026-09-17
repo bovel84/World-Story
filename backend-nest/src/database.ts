@@ -759,6 +759,13 @@ export function initDatabase() {
     )
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_game_pressures_game_status ON game_pressures(game_id, status, created_turn)');
+  // GAMEPLAY-LONG: la finestra di decisione di una sfida è in GIORNI DI
+  // CALENDARIO (durata + scadenza) e `escalated` ricorda che una sfida grave è
+  // già peggiorata una volta: non si applica due volte la stessa conseguenza.
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN duration_days INTEGER'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN deadline_date TEXT'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated_date TEXT'); } catch { /* già presente */ }
 
   // Stato di crisi della partita: giorni di criticità accumulati per dimensione
   // (una volta erano «turni consecutivi», ora è TEMPO CALENDARIO trascorso),

@@ -15,6 +15,7 @@ import type {
 } from '../../services/api';
 import type { NationAccount, NationResources } from './NationDock/types';
 import { councilPresence } from './governmentDossier';
+import { pressureWindowText, splitPressuresByAttention } from './pressureWindow';
 
 /** Gravità di una voce del briefing. */
 export type BriefingSeverity = 'critical' | 'warning' | 'opportunity' | 'positive' | 'info';
@@ -152,14 +153,29 @@ export function deriveStrategicBriefing(input: StrategicBriefingInput): Strategi
   }
 
   // --- 2. Sfide del momento ------------------------------------------------
+  // GAMEPLAY-LONG P2: il mondo non deve diventare una pila di notifiche. Il
+  // briefing evidenzia solo le questioni che il MOTORE segnala come urgenti
+  // (`highlighted`, al massimo due) e riassume le altre in una riga: restano
+  // nel dossier, a un clic di distanza, senza interrompere il giocatore.
   const activePressures = (input.pressures ?? []).filter(p => p.status === 'active');
-  for (const pressure of activePressures) {
+  const { highlighted, dossier } = splitPressuresByAttention(activePressures);
+  for (const pressure of highlighted) {
     items.push({
       id: `pressure-${pressure.id}`,
-      severity: pressure.severity >= 3 ? 'warning' : 'info',
-      icon: pressure.severity >= 3 ? ICON.warning : ICON.info,
+      severity: pressure.severity >= 3 || pressure.priority === 'critica' ? 'warning' : 'info',
+      icon: pressure.severity >= 3 || pressure.priority === 'critica' ? ICON.warning : ICON.info,
       label: `${pressure.kind === 'external' ? 'Sfida estera' : 'Sfida interna'}: ${pressure.title}`,
-      detail: `Gravità ${pressure.severity}/3 · ${pressure.source}`,
+      detail: [pressureWindowText(pressure.window), `Gravità ${pressure.severity}/3 · ${pressure.source}`]
+        .filter(Boolean).join(' · '),
+    });
+  }
+  if (dossier.length > 0) {
+    items.push({
+      id: 'pressure-dossier',
+      severity: 'info',
+      icon: ICON.info,
+      label: `Altre Questioni nel dossier: ${dossier.length}`,
+      detail: dossier.map(pressure => pressure.title).join(' · '),
     });
   }
 

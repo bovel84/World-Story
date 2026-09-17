@@ -2247,6 +2247,16 @@ html, body { margin: 0; }
 .nation-pressure-card.kind-external { border-left-color: #5d84c4; }
 .nation-pressure-card.severity-3 { box-shadow: inset 0 0 0 1px rgba(217, 123, 123, 0.35); }
 .nation-pressure-head { display: flex; flex-direction: column; gap: 3px; }
+/* GAMEPLAY-LONG: la finestra di decisione di una sfida (giorni di calendario). */
+.nation-pressure-window { color: #9fb0c9; font: 600 11px/1.35 system-ui, sans-serif; }
+.nation-pressure-window.tone-positive { color: #7fc79a; }
+.nation-pressure-window.tone-warning { color: #e0b96a; }
+.nation-pressure-window.tone-negative { color: #e08c8c; }
+/* P2: le questioni che non richiedono attenzione restano nel dossier. */
+.nation-pressure-dossier { border: 1px solid #2c3f5c; border-radius: 11px; padding: 10px 12px; background: rgba(12, 22, 38, 0.5); }
+.nation-pressure-dossier > summary { color: #a9b8d2; font: 700 11.5px/1.3 system-ui, sans-serif; cursor: pointer; }
+.nation-pressure-dossier .nation-pressure-list { margin-top: 10px; }
+.nation-pressure-card.is-dossier { opacity: .88; border-left-width: 3px; }
 .nation-pressure-kind { color: #9b8adb; font: 700 9.5px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
 .nation-pressure-head b { color: #f3f6fc; font: 700 15px/1.2 Georgia, serif; }
 .nation-pressure-card p { margin: 0; color: #c6d3e6; font: 12.5px/1.5 system-ui, sans-serif; }

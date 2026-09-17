@@ -22,7 +22,10 @@ import {
   advanceLedger, applyGlobalExtraction, effectiveEndowment, emptyMarket, marketQuote, seedLedger, seedMarket, summarizeLedger,
   type ResourceLedger, type WorldMarket,
 } from '../core/simulation/ResourceMarket';
-import { generatePressures, type PressureEffect, type PressureNeighbour, type PressureSnapshot, type RelationStance } from '../core/simulation/PeacetimePressures';
+import {
+  PRESSURE_MAX_ACTIVE, generatePressures, highlightPressures, pressurePriority, pressureWindow, scalePressureEffect,
+  type PressureEffect, type PressureNeighbour, type PressureSnapshot, type PressureWindow, type RelationStance,
+} from '../core/simulation/PeacetimePressures';
 import { advanceCrisis, type CrisisEnding, type CrisisInput, type CrisisState } from '../core/simulation/NationCrisis';
 import { daysBetween } from '../core/simulation/calendar';
 import { NATURAL_RESOURCE_KINDS, naturalResourcesFor, type NaturalEndowment, type NaturalResourceKind } from '../core/simulation/MilitaryIndustry';
@@ -66,6 +69,15 @@ export interface NationStateContext {
   resolvePolity(name: string): string | undefined;
   arsenalUnits(polityId: string): Record<string, number>;
   saveArsenal(polityId: string, units: Record<string, number>): void;
+}
+
+/** Sfida di pace come la vede la UI: finestra temporale, priorità e evidenza. */
+export interface PressureView extends PressureRecord {
+  window: PressureWindow;
+  /** P0/P2: `critica` | `rilevante` | `ordinaria`. */
+  priority: string;
+  /** Merita attenzione adesso (max 2 per volta, salvo crisi). */
+  highlighted: boolean;
 }
 
 export class NationStateService {
@@ -499,43 +511,112 @@ export class NationStateService {
       // le ha risolte tutte), non se ne inventano altre a metà turno.
       const currentTurn = this.ctx.currentTurn();
       if (gameRepository.listPressures(this.ctx.gameId).some(record => record.createdTurn === currentTurn)) return;
-      const pressures = generatePressures(this.pressureSnapshot(), { maxPressures: 3 });
-      gameRepository.insertPressures(this.ctx.gameId, this.ctx.playerPolityId(), pressures, this.ctx.currentDate(), currentTurn);
+      this.openNewPressures();
     } catch (error) {
       console.warn('[GameSession] Pressioni di pace non disponibili:', error);
     }
   }
 
   /**
-   * Chiude il turno delle pressioni: le sfide ignorate pesano (inerzia) e ne
-   * nascono di nuove dagli indicatori aggiornati.
+   * Finestra temporale di una sfida già aperta, rispetto alla data corrente.
+   * GAMEPLAY-LONG: il tempo trascorso è quello del calendario di gioco, quindi
+   * un avanzamento di 7 giorni e uno di 365 non producono lo stesso stato.
+   */
+  private pressureWindowOf(record: PressureRecord): PressureWindow {
+    const fallback = record.createdDate;
+    const from = fallback || this.ctx.currentDate();
+    return pressureWindow(
+      {
+        createdDate: from,
+        durationDays: record.durationDays,
+        severity: record.severity,
+        escalated: record.escalated,
+      },
+      this.ctx.currentDate(),
+      daysBetween(from, this.ctx.currentDate()),
+    );
+  }
+
+  /**
+   * Apre nuove sfide solo se c'è spazio e se non sono già aperte: le stesse
+   * questioni non si ripetono mentre il giocatore le sta ancora valutando — è
+   * il modo più semplice per non trasformare il gioco in una pila di notifiche
+   * (P2). La generazione resta deterministica e basata sugli indicatori correnti.
+   */
+  private openNewPressures(): void {
+    const active = gameRepository.listPressures(this.ctx.gameId, 'active');
+    const room = PRESSURE_MAX_ACTIVE - active.length;
+    if (room <= 0) return;
+    const openTemplates = new Set(active.map(record => record.template));
+    const candidate = generatePressures(this.pressureSnapshot(), { maxPressures: room })
+      .filter(pressure => !openTemplates.has(pressure.template));
+    if (candidate.length === 0) return;
+    gameRepository.insertPressures(
+      this.ctx.gameId, this.ctx.playerPolityId(), candidate, this.ctx.currentDate(), this.ctx.currentTurn(),
+    );
+  }
+
+  /**
+   * Fa scorrere il tempo delle sfide di pace:
+   *
+   *  - le sfide **nei termini restano aperte** (non scadono più ogni turno);
+   *  - una sfida **oltre la scadenza** applica l'effetto dell'inerzia e si chiude;
+   *  - una sfida **grave** che resta aperta oltre il 60% della sua finestra
+   *    peggiora una volta sola, con **metà** dell'effetto di inazione: il tempo
+   *    che passa non è gratis, ma nemmeno la condanna immediata;
+   *  - se c'è spazio, nascono nuove sfide dagli indicatori aggiornati.
    */
   refreshPeacetimePressures(): void {
     try {
-      const expired = gameRepository.expirePressures(this.ctx.gameId);
-      for (const record of expired) {
-        this.ctx.applyPressureEffect(record.inaction, `${record.title}: sfida ignorata`);
+      const active = gameRepository.listPressures(this.ctx.gameId, 'active');
+      for (const record of active) {
+        const window = this.pressureWindowOf(record);
+        if (window.expired) {
+          if (gameRepository.expirePressure(this.ctx.gameId, record.id, this.ctx.currentDate())) {
+            this.ctx.applyPressureEffect(record.inaction, `${record.title}: sfida ignorata oltre la scadenza`);
+          }
+          continue;
+        }
+        if (window.escalationDue) {
+          const escalated = scalePressureEffect(record.inaction);
+          if (gameRepository.markPressureEscalated(this.ctx.gameId, record.id, this.ctx.currentDate())) {
+            this.ctx.applyPressureEffect(escalated, `${record.title}: la sfida si inasprisce (${window.daysElapsed} giorni senza risposta)`);
+          }
+        }
       }
-      const pressures = generatePressures(this.pressureSnapshot(), { maxPressures: 3 });
-      gameRepository.insertPressures(this.ctx.gameId, this.ctx.playerPolityId(), pressures, this.ctx.currentDate(), this.ctx.currentTurn());
+      this.openNewPressures();
     } catch (error) {
       console.warn('[GameSession] Pressioni di pace non disponibili:', error);
     }
   }
 
   /**
-   * Le sfide del momento per il dossier: attive da risolvere e le ultime
-   * chiuse, così il giocatore vede anche l'eco delle scelte passate.
+   * Le sfide del momento per il dossier: attive da risolvere (con la loro
+   * finestra temporale) e le ultime chiuse, così il giocatore vede anche l'eco
+   * delle scelte passate. P2: solo le più urgenti vanno evidenziate, le altre
+   * restano nel dossier senza interrompere.
    */
   getPeacetimePressures(hasEnding: boolean): {
-    pressures: PressureRecord[];
+    pressures: PressureView[];
     recent: PressureRecord[];
     foodCoverageMonths: number | null;
   } {
     const all = gameRepository.listPressures(this.ctx.gameId);
+    // Dopo il collasso non c'è più niente da decidere.
+    const active = hasEnding ? [] : all.filter(record => record.status === 'active');
+    const windows: Record<string, Pick<PressureWindow, 'expired' | 'urgency' | 'daysElapsed' | 'daysLeft'>> = {};
+    const withWindow = active.map(record => {
+      const window = this.pressureWindowOf(record);
+      windows[record.id] = window;
+      return {
+        ...record,
+        window,
+        priority: pressurePriority(record, window),
+      };
+    });
+    const highlighted = highlightPressures(withWindow, windows);
     return {
-      // Dopo il collasso non c'è più niente da decidere.
-      pressures: hasEnding ? [] : all.filter(record => record.status === 'active'),
+      pressures: withWindow.map(record => ({ ...record, highlighted: highlighted.has(record.id) })),
       recent: all.filter(record => record.status !== 'active').slice(0, 6),
       foodCoverageMonths: this.foodCoverageMonths(),
     };

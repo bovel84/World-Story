@@ -11,6 +11,7 @@ import type {
 import { formatMoney, formatNumber, formatPercent } from '../../../utils/format';
 import { sparkPoints, trendLabel, type Trend, type TrendTone } from '../accountTrend';
 import { CRISIS_LEVEL_LABEL, crisisDaysText } from '../crisisPanel';
+import { PRESSURE_PRIORITY_LABEL, pressureWindowText, pressureWindowTone, splitPressuresByAttention } from '../pressureWindow';
 import {
   LEVER_LABEL, STANCE_LABEL, factionOrderText, pressureLabel, pressureTone,
   satisfactionTone, stanceTone, type NationalVerdict,
@@ -348,22 +349,32 @@ export function PressuresBlock({ pressures, recent, onResolve, busy, money }: {
       </div>
     );
   }
-  return (
-    <div className="nation-pressures">
-      <ul className="nation-pressure-list">
-        {pressures.map((pressure) => {
-          const selected = choice[pressure.id] ?? pressure.options[0]?.id ?? '';
-          const option = pressure.options.find((item) => item.id === selected);
-          const cost = Number(option?.effect?.moneyDeltaMld || 0);
-          const unaffordable = cost < 0 && typeof money === 'number' && money + cost < 0;
-          return (
-            <li key={pressure.id} className={`nation-pressure-card kind-${pressure.kind} severity-${pressure.severity}`}>
-              <div className="nation-pressure-head">
-                <span className="nation-pressure-kind">{pressure.kind === 'internal' ? 'Interna' : 'Esterna'} · gravità {pressure.severity}/3</span>
-                <b>{pressure.title}</b>
-              </div>
-              <p>{pressure.detail}</p>
-              <span className="nation-pressure-source">Chi preme: {pressure.source}</span>
+  // P2: solo le questioni che meritano attenzione occupano la scena; le altre
+  // restano nella stessa scheda, raggruppate e consultabili.
+  const { highlighted, dossier } = splitPressuresByAttention(pressures);
+  const renderPressureCard = (pressure: PeacetimePressure) => {
+    const selected = choice[pressure.id] ?? pressure.options[0]?.id ?? '';
+    const option = pressure.options.find((item) => item.id === selected);
+    const cost = Number(option?.effect?.moneyDeltaMld || 0);
+    const unaffordable = cost < 0 && typeof money === 'number' && money + cost < 0;
+    // GAMEPLAY-LONG: la finestra temporale dice quanto tempo resta prima che
+    // l'inerzia presenti il conto; la priorità dice se merita attenzione.
+    const deadlineText = pressureWindowText(pressure.window);
+    const tone = pressureWindowTone(pressure.window);
+    return (
+      <li key={pressure.id} className={`nation-pressure-card kind-${pressure.kind} severity-${pressure.severity}${pressure.highlighted === false ? ' is-dossier' : ''}`}>
+        <div className="nation-pressure-head">
+          <span className="nation-pressure-kind">
+            {pressure.kind === 'internal' ? 'Interna' : 'Esterna'} · gravità {pressure.severity}/3
+            {pressure.priority ? ` · ${PRESSURE_PRIORITY_LABEL[pressure.priority] ?? pressure.priority}` : ''}
+          </span>
+          <b>{pressure.title}</b>
+        </div>
+        {deadlineText && (
+          <span className={`nation-pressure-window${tone ? ` tone-${tone}` : ''}`}>{deadlineText}</span>
+        )}
+        <p>{pressure.detail}</p>
+        <span className="nation-pressure-source">Chi preme: {pressure.source}</span>
               <div className="nation-pressure-options" role="radiogroup" aria-label={`Risposta a ${pressure.title}`}>
                 {pressure.options.map((item) => (
                   <label key={item.id} className={item.id === selected ? 'is-selected' : ''}>
@@ -394,8 +405,20 @@ export function PressuresBlock({ pressures, recent, onResolve, busy, money }: {
               </div>
             </li>
           );
-        })}
+  };
+  return (
+    <div className="nation-pressures">
+      <ul className="nation-pressure-list">
+        {highlighted.map(pressure => renderPressureCard(pressure))}
       </ul>
+      {dossier.length > 0 && (
+        <details className="nation-pressure-dossier">
+          <summary>Altre questioni nel dossier ({dossier.length})</summary>
+          <ul className="nation-pressure-list">
+            {dossier.map(pressure => renderPressureCard(pressure))}
+          </ul>
+        </details>
+      )}
       {recent.length > 0 && (
         <details className="nation-pressure-recent">
           <summary>Ultime sfide chiuse</summary>

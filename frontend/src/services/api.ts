@@ -180,6 +180,24 @@ export interface PeacetimePressure {
   status: 'active' | 'resolved' | 'expired' | string;
   createdDate: string;
   createdTurn: number;
+  /**
+   * GAMEPLAY-LONG: finestra di decisione in GIORNI di calendario. Una sfida nei
+   * termini resta aperta; oltre la scadenza il motore applica l'inerzia.
+   */
+  durationDays?: number;
+  deadlineDate?: string | null;
+  escalated?: boolean;
+  window?: {
+    daysElapsed: number;
+    daysLeft: number;
+    expired: boolean;
+    escalationDue: boolean;
+    urgency: 'scaduta' | 'imminente' | 'prossima' | 'aperta';
+  };
+  /** P2: peso della questione per il briefing. */
+  priority?: 'critica' | 'rilevante' | 'ordinaria';
+  /** Merita attenzione adesso (max 2 per volta, salvo crisi). */
+  highlighted?: boolean;
   resolvedOption?: string | null;
   resolution?: string | null;
 }

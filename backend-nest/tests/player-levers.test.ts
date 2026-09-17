@@ -179,22 +179,85 @@ describe('le sfide di pace danno vita al turno', () => {  it('ogni nazione ha se
     expect(open.some((item: any) => item.id === pressure.id)).toBe(false);
   });
 
-  it('ignorare le sfide ha un costo e ne fa nascere di nuove al turno dopo', async () => {
+  it('le sfide ignorate NON scadono a ogni turno: la finestra è in giorni (P0)', async () => {
     const { session } = createGame();
     const before = session.getPeacetimePressures().pressures;
-    const beforeModifiers = session.getResources().modifiers;
+    expect(before.length).toBeGreaterThanOrEqual(2);
 
-    session.queueAction(ORDER);
-    await session.processNextAction(30);
-
+    // Un avanzamento di 30 giorni non chiude nulla: le sfide restano aperte.
+    await session.advanceDate(30);
     const after = session.getPeacetimePressures();
-    // Le sfide del turno precedente non sono più aperte.
     for (const pressure of before) {
-      expect(after.pressures.some((item: any) => item.id === pressure.id)).toBe(false);
+      const still = after.pressures.find((item: any) => item.id === pressure.id);
+      expect(still).toBeTruthy();
+      expect(still.window.daysElapsed).toBe(30);
+      expect(still.window.daysLeft).toBeGreaterThan(0);
+      expect(still.window.expired).toBe(false);
     }
-    // E la nazione ha di nuovo qualcosa da decidere.
-    expect(after.pressures.length).toBeGreaterThanOrEqual(2);
-    // L'inerzia non è gratuita: almeno un modificatore si è mosso.
+    // La finestra è leggibile e la priorità distingue ciò che merita attenzione.
+    for (const pressure of after.pressures) {
+      expect(['critica', 'rilevante', 'ordinaria']).toContain(pressure.priority);
+      expect(typeof pressure.highlighted).toBe('boolean');
+    }
+    // Al massimo due questioni in evidenza (P2): il resto resta nel dossier.
+    expect(after.pressures.filter((item: any) => item.highlighted).length).toBeLessThanOrEqual(2);
+
+    // Oltre la finestra più lunga, l'inerzia presenta il conto.
+    const beforeModifiers = session.getResources().modifiers;
+    await session.advanceDate(130);
+    const later = session.getPeacetimePressures();
+    for (const pressure of before) {
+      expect(later.pressures.some((item: any) => item.id === pressure.id)).toBe(false);
+    }
+    // Le sfide sono finite fra quelle chiuse, marcate come scadute.
+    const expired = later.recent.filter((item: any) => item.status === 'expired');
+    expect(expired.length).toBeGreaterThan(0);
+    expect(expired[0].resolvedDate).toBeTruthy();
+    // E l'inerzia ha lasciato il segno.
+    const afterModifiers = session.getResources().modifiers;
+    expect(
+      (afterModifiers.stability ?? 0) !== (beforeModifiers.stability ?? 0)
+      || (afterModifiers.socialTension ?? 0) !== (beforeModifiers.socialTension ?? 0),
+    ).toBe(true);
+  });
+
+  it('P0: una sfida con deadline di 60 giorni resta aperta a 30, scade dopo (P0 tempo)', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    const player = session.getPlayer();
+    const pressure = {
+      id: 'test:deadline#t1',
+      kind: 'internal' as const,
+      template: 'test-deadline',
+      title: 'Vertenza degli armatori',
+      detail: 'Gli armatori chiedono un accordo sul carburante.',
+      severity: 1 as const,
+      source: 'Armatori',
+      durationDays: 60,
+      options: [{
+        id: 'meet', label: 'Ricevere gli armatori', detail: 'Un incontro e una promessa.',
+        effect: { socialTension: -4, note: 'Armatori ricevuti: tensione in calo.' },
+      }],
+      inaction: { socialTension: 9, stability: -4, note: 'Vertenza ignorata: gli armatori bloccano i porti.' },
+    };
+    repos.gameRepository.insertPressures(gameId, player.polityId, [pressure as any], session.getCurrentDate(), session.getCurrentTurn());
+
+    // A 30 giorni la sfida è ancora aperta e nei termini.
+    await session.advanceDate(30);
+    let active = session.getPeacetimePressures().pressures.find((item: any) => item.id === pressure.id);
+    expect(active).toBeTruthy();
+    expect(active!.window.daysElapsed).toBe(30);
+    expect(active!.window.daysLeft).toBe(30);
+    expect(active!.window.expired).toBe(false);
+
+    // Oltre la scadenza si chiude e applica l'effetto dell'inazione.
+    const beforeModifiers = session.getResources().modifiers;
+    await session.advanceDate(35);
+    const view = session.getPeacetimePressures();
+    expect(view.pressures.some((item: any) => item.id === pressure.id)).toBe(false);
+    const closed = view.recent.find((item: any) => item.id === pressure.id);
+    expect(closed?.status).toBe('expired');
+    expect(closed?.resolution).toMatch(/inerzia/i);
     const afterModifiers = session.getResources().modifiers;
     expect(
       (afterModifiers.stability ?? 0) !== (beforeModifiers.stability ?? 0)
