@@ -73,3 +73,94 @@ export function archiveSiblingThreads<
       : chat
   ));
 }
+
+// ---------------------------------------------------------------------------
+// Ordine dei messaggi di un thread
+// ---------------------------------------------------------------------------
+
+/** Campi di un messaggio che partecipano all'ordinamento (tutti opzionali tranne id/role). */
+export interface ChatOrderFields {
+  id?: string;
+  role?: string;
+  /** Data del MONDO (YYYY-MM-DD): chiave primaria. */
+  gameDate?: string | null;
+  /** Turno del mondo: chiave più fine della data (più messaggi nello stesso giorno). */
+  turn?: number | null;
+  /** Sequenza di inserimento del server (rowid): tie-breaker stabile. */
+  seq?: number | null;
+  /** Timestamp del SERVER (ISO): fallback quando `seq` non è disponibile. */
+  createdAt?: string | null;
+}
+
+const isoDay = (value?: string | null): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '');
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+};
+
+/**
+ * Chiave di ordinamento di un messaggio, come tupla confrontabile.
+ *
+ * Perché **non** l'ordine di arrivo: i tre percorsi che riempiono il thread
+ * (fetch dal server, invio/risposta locale, messaggio in arrivo via SSE)
+ * possono consegnare i messaggi in ordini diversi — e il server stesso può
+ * contenere messaggi inseriti **dopo** ma appartenenti a una data precedente
+ * (una nota collegata a un evento vecchio). L'ordine mostrato deve essere
+ * quello della **timeline del mondo**, non quello di consegna.
+ *
+ * Ordine delle chiavi (crescente):
+ *  1. `gameDate` — la data del mondo è la fonte primaria (0 = nota, 1 = ignota);
+ *  2. `turn` — nello stesso giorno possono cadere più turni: il turno è più fine;
+ *  3. `seq` — sequenza di inserimento del server (rowid): tie-breaker stabile
+ *     per i messaggi dello stesso giorno **e** dello stesso turno;
+ *  4. `createdAt` — timestamp del server, solo quando `seq` manca (payload
+ *     vecchi o messaggi creati altrove): non è mai il timestamp locale;
+ *  5. `id` — ultimo criterio, così due messaggi identici hanno comunque un
+ *     ordine deterministico.
+ */
+export function chatMessageOrderKey(message: ChatOrderFields): Array<number | string> {
+  const day = isoDay(message?.gameDate);
+  const turn = Number(message?.turn);
+  const seq = Number(message?.seq);
+  const createdAt = typeof message?.createdAt === 'string' ? message.createdAt : '';
+  return [
+    day ? 0 : 1, day,
+    Number.isFinite(turn) && turn > 0 ? 0 : 1, Number.isFinite(turn) ? turn : 0,
+    Number.isFinite(seq) ? 0 : 1, Number.isFinite(seq) ? seq : 0,
+    createdAt ? 0 : 1, createdAt,
+    String(message?.id || ''),
+  ];
+}
+
+/**
+ * Ordina i messaggi di un thread secondo la timeline del mondo. Funzione
+ * **pura**, non muta l'input e **deterministica**: lo stesso elenco produce
+ * sempre lo stesso ordine, anche con date identiche e senza `seq`.
+ */
+export function orderChatMessages<T extends ChatOrderFields>(messages: readonly T[] | null | undefined): T[] {
+  if (!Array.isArray(messages) || messages.length < 2) return Array.isArray(messages) ? [...messages] : [];
+  return [...messages].sort((a, b) => compareChatMessages(a, b));
+}
+
+/** Confronto fra due messaggi: negativo se `a` precede `b`. */
+export function compareChatMessages(a: ChatOrderFields, b: ChatOrderFields): number {
+  const left = chatMessageOrderKey(a);
+  const right = chatMessageOrderKey(b);
+  for (let index = 0; index < left.length; index += 1) {
+    const l = left[index];
+    const r = right[index];
+    if (l === r) continue;
+    if (typeof l === 'number' && typeof r === 'number') return l - r;
+    return String(l).localeCompare(String(r));
+  }
+  return 0;
+}
+
+/**
+ * Ultimo messaggio nella timeline del mondo (il più recente per data/turno/seq),
+ * non l'ultimo arrivato: serve a tenere corretto «ultimo messaggio» in elenco
+ * quando un messaggio vecchio arriva in ritardo.
+ */
+export function lastChatMessage<T extends ChatOrderFields>(messages: readonly T[] | null | undefined): T | null {
+  const ordered = orderChatMessages(messages);
+  return ordered.length > 0 ? ordered[ordered.length - 1] : null;
+}

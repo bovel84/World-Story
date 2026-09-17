@@ -8,7 +8,7 @@
 
 import { create } from 'zustand';
 import { chatsApi, type ChatSummaryData, type ChatMessageData } from '../services/api';
-import { archiveSiblingThreads } from '../components/Game/chatTimeline';
+import { archiveSiblingThreads, lastChatMessage, orderChatMessages } from '../components/Game/chatTimeline';
 
 export type ChatSummary = ChatSummaryData;
 export type ChatMessage = ChatMessageData;
@@ -147,24 +147,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  // I messaggi si mostrano nell'ordine della timeline del MONDO, non in quello
+  // di arrivo: il fetch dal server, l'invio locale e il messaggio in arrivo via
+  // SSE possono consegnare gli stessi messaggi in ordini diversi. L'ordinatore
+  // è puro e deterministico (`orderChatMessages`).
   setMessages: (chatId, messages) => set((state) => ({
-    messagesByChat: { ...state.messagesByChat, [chatId]: messages },
+    messagesByChat: { ...state.messagesByChat, [chatId]: orderChatMessages(messages) },
   })),
 
   // Aggiungi un messaggio al thread (protezione dai duplicati per id — risposta POST e SSE possono arrivare insieme)
   appendMessage: (chatId, message) => set((state) => {
     const existing = state.messagesByChat[chatId] || [];
     if (message.id && existing.some(m => m.id === message.id)) return {};
-    // L'elenco chat mostra l'ultimo messaggio e la sua data: teniamolo allineato
-    // anche quando il messaggio nasce localmente (invio/auto), non solo via SSE.
+    const thread = orderChatMessages([...existing, message]);
+    // Un messaggio vecchio arrivato in ritardo va nella sua posizione: l'elenco
+    // chat mostra l'ultimo messaggio **della timeline**, non l'ultimo arrivato.
+    const latest = lastChatMessage(thread) || message;
     const chats = state.chats.map(c => (c.id === chatId ? {
       ...c,
-      lastMessage: message.content,
-      lastMessageAt: message.createdAt || new Date().toISOString(),
-      lastMessageGameDate: message.gameDate || c.lastMessageGameDate,
+      lastMessage: latest.content,
+      lastMessageAt: latest.createdAt || c.lastMessageAt || new Date().toISOString(),
+      lastMessageGameDate: latest.gameDate || c.lastMessageGameDate,
     } : c));
     return {
-      messagesByChat: { ...state.messagesByChat, [chatId]: [...existing, message] },
+      messagesByChat: { ...state.messagesByChat, [chatId]: thread },
       chats,
     };
   }),
@@ -180,9 +186,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const existing = state.messagesByChat[chatId] || [];
     const isDup = !!(message.id && existing.some(m => m.id === message.id));
     if (isDup) return {};
+    // Anche il percorso SSE passa dall'ordinatore: un messaggio consegnato in
+    // ritardo (o appartenente a un turno precedente) va nella sua posizione
+    // della timeline, non in coda.
+    const thread = orderChatMessages([...existing, message]);
+    const latest = lastChatMessage(thread) || message;
     const messagesByChat = {
       ...state.messagesByChat,
-      [chatId]: [...existing, message],
+      [chatId]: thread,
     };
 
     // Solo una chat realmente visibile non accumula non letti.
@@ -197,9 +208,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         participants: payload.participants,
         unread: 0,
       }),
-      lastMessage: message.content,
-      lastMessageAt: message.createdAt || new Date().toISOString(),
-      lastMessageGameDate: message.gameDate || known?.lastMessageGameDate,
+      lastMessage: latest.content,
+      lastMessageAt: latest.createdAt || known?.lastMessageAt || new Date().toISOString(),
+      lastMessageGameDate: latest.gameDate || known?.lastMessageGameDate,
       unread: isOpen ? 0 : (known?.unread || 0) + 1,
     };
     const chats = known

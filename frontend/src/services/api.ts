@@ -1041,6 +1041,12 @@ export interface ChatMessageData {
   /** Data del mondo in cui il messaggio è stato inviato. */
   gameDate?: string;
   createdAt?: string;
+  /**
+   * Sequenza di inserimento del server (rowid): tie-breaker stabile per
+   * ordinare i messaggi che condividono la stessa data del mondo e lo stesso
+   * turno. `null`/assente sui payload più vecchi.
+   */
+  seq?: number | null;
 }
 
 export interface TimelineEvent {

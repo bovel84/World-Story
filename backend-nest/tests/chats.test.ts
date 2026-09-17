@@ -289,6 +289,44 @@ describe('Chat diplomatiche', () => {
     expect(sseEvents.filter(event => event.type === 'chat_message')).toHaveLength(2);
   });
 
+  it('espone la sequenza di inserimento (`seq`) per l’ordinamento stabile del client', async () => {
+    const { session } = createGame();
+    const chat = session.ensureChat(['Polonia']);
+    const { message, reply } = await session.sendChatMessage(chat.id, 'Proponiamo un patto');
+
+    // `seq` è il rowid della riga: stessa sequenza con cui il server ordina.
+    expect(typeof message.seq).toBe('number');
+    expect(typeof reply.seq).toBe('number');
+    expect(Number(reply.seq)).toBeGreaterThan(Number(message.seq));
+
+    const stored = session.getChatMessages(chat.id);
+    expect(stored.map((m: any) => m.seq)).toEqual([message.seq, reply.seq]);
+    const rowids = db.prepare('SELECT rowid FROM chat_messages WHERE chat_id = ? ORDER BY rowid').all(chat.id)
+      .map((row: any) => Number(row.rowid));
+    expect(stored.map((m: any) => Number(m.seq))).toEqual(rowids);
+
+    // Il payload della rotta espone la stessa sequenza (il client ordina con questa).
+    const { messagePayload } = await import('../src/routes/chats.routes');
+    expect(messagePayload(stored[0]).seq).toBe(stored[0].seq);
+    expect(messagePayload({ ...stored[0], seq: undefined }).seq).toBeNull();
+  });
+
+  it('la sequenza via SSE accompagna il messaggio che apre il canale', async () => {
+    stubStartChat = [{ polityName: 'Polonia', topic: 'Chiediamo un negoziato urgente sulla frontiera.' }];
+    const { session } = createGame();
+    const sseEvents: { type: string; data: any }[] = [];
+    session.setSSEBroadcaster((type: any, data: any) => sseEvents.push({ type, data }));
+
+    session.queueAction('Rafforzare la frontiera');
+    await session.processNextAction(30);
+
+    const broadcast = sseEvents.find(e => e.type === 'chat_message');
+    const chat = session.getChats()[0];
+    const stored = session.getChatMessages(chat.id)[0];
+    expect(typeof broadcast?.data.message.seq).toBe('number');
+    expect(broadcast?.data.message.seq).toBe(stored.seq);
+  });
+
   it('la chat apre con la nota diretta della nazione, non col dispaccio di cronaca', async () => {
     stubEventReactions = [{
       actorId: 'POL',
