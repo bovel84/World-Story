@@ -219,3 +219,66 @@ Proiezione reale (stessa logica della generazione, raggruppando per
    scelta più consapevole.
 4. **Dataset provinciale per il 1945** (Pax Historia WW2) se l'obiettivo è
    abilitare `full`/`grouped` anche su `paxh_ww2_provinces`.
+
+---
+
+## 9. Correzione — compatibilità mappa nativa / paesi del preset
+
+Segnalazione: creando una partita da un preset con `map_base` provinciale la
+```
+generazione falliva con «Mappa dello scenario incompleta. Nessuna geometria per: KAZ»
+```
+(es. `cold_war_1951` salvato con `map_base: modern_world_provinces`).
+
+### Causa reale
+La mappa nativa scelta **non copriva tutti i paesi** del preset. `modern_world_provinces`
+ha 112 paesi e **non contiene KAZ**, mentre `cold_war_1951` lo elenca. La
+proiezione salta i paesi senza geometria e la guardia di generazione (corretta)
+abortiva. Il selettore non avvisava dell'incompatibilità.
+
+### Correzione applicata
+- L'endpoint `GET /api/templates/maps/native` ora espone per ogni mappa i
+  **codici ISO-A3 coperti** (`codes`, calcolati dalle feature reali: `country`
+  per le province, altrimenti `code`).
+- Nuove funzioni pure (frontend, `mapGrouping.ts`):
+  - `requiredCountryCodes(country_codes, override, known)` → i codici che
+    producono davvero una politia: con un override `countries` sono quelli, altrimenti
+    i `country_codes` **filtrati sul registro noto** (un codice sconosciuto come
+    `YUG` non genera politia e non richiede geometria); `null` se il registro non
+    è disponibile (in quel caso non si blocca nulla).
+  - `nativeMapMissingCodes(required, covered)` → i codici mancanti.
+- **Editor**: le mappe native che non coprono i paesi richiesti sono
+  **disabilitate** con l'elenco (`· non copre: KAZ`); se la mappa selezionata è
+  incompatibile compare un avviso e il **salvataggio è bloccato** con un
+  messaggio chiaro. Il registro si legge da `GET /api/countries` (endpoint già
+  esistente).
+- **Riparazione dati**: `cold_war_1951` è stato riportato alla mappa **standard**
+  (l'edit precedente non era compatibile).
+
+### File (correzione)
+- `backend-nest/src/utils/native-maps.ts` — `codes` in `NativeMapInfo`.
+- `backend-nest/tests/native-maps.test.ts` — copertura codici.
+- `frontend/src/services/api.ts` — `NativeMapInfo.codes`, `PresetEditorData.countries`.
+- `frontend/src/components/Game/mapGrouping.ts` — `requiredCountryCodes`,
+  `nativeMapMissingCodes`.
+- `frontend/src/components/Game/PresetEditorModal.tsx` — gating + blocco salvataggio.
+- `frontend/src/components/Game/presetMapDetail.test.ts` — test compatibilità.
+- `e2e/mock-api.mjs` — `codes` nel mock.
+
+### Test e Quality Gate (esiti reali)
+Backend **1138 / 131 file** · Frontend **306 / 48 file** · `tsc --noEmit` be+fe
+**0 errori** · `npm run build` **OK** · E2E mock **21** · a11y **3** ·
+`test:perf` **OK**. Test nuovi: codici coperti per mappa (standard ha KAZ,
+`modern_world_provinces` no), filtro registro, caso reale Guerra Fredda
+(`modern_world` manca KAZ, `pax_modern` è compatibile).
+
+### CORE ENGINE FREEZE
+Nessun file del motore toccato: solo catalogo mappe, validazione/presentazione e
+rigenerazione dell'inventario endpoint. La guardia di generazione resta invariata.
+
+### Limiti residui
+- Il controllo richiede il registro dei paesi; senza di esso (fetch fallita) non
+  blocca nulla e resta solo la guardia di generazione.
+- Per `cold_war_1951` l'unica mappa provinciale compatibile sarebbe
+  `pax_modern_provinces` (manca solo `YUG`, non risolvibile dal registro), ma è
+  del mondo moderno: per un 1951 la scelta consigliata resta la mappa standard.

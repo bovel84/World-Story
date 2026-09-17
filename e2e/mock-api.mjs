@@ -420,8 +420,8 @@ export function installMockApi(page, opts = {}) {
   // ── Template ─────────────────────────────────────────────────────────────
   page.route(`${API_BASE}/templates/maps/native`, (route) => json(route, {
     maps: [
-      { id: 'standard', label: 'Mappa mondiale standard', hasProvinces: false, features: 2 },
-      { id: 'modern_world_provinces', label: 'Mondo Provinciale Moderno', hasProvinces: true, features: 4 },
+      { id: 'standard', label: 'Mappa mondiale standard', hasProvinces: false, features: 2, codes: ['ALPHA', 'BETA'] },
+      { id: 'modern_world_provinces', label: 'Mondo Provinciale Moderno', hasProvinces: true, features: 4, codes: ['ALPHA'] },
     ],
   }));
   page.route(`${API_BASE}/templates`, (route) => json(route, { templates: [MOCK_TEMPLATE] }));

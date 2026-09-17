@@ -92,6 +92,17 @@ describe('MAP-NATIVE — catalogo e whitelist', () => {
     expect(byId['paxh_ww2_provinces'].hasProvinces).toBe(false);
     expect(maps.every(m => m.features > 0)).toBe(true);
   });
+
+  it('espone i codici paese coperti (compatibilità mappa/paesi)', () => {
+    const byId = Object.fromEntries(listNativeMaps().map(m => [m.id, m]));
+    expect(byId['standard'].codes).toHaveLength(243);
+    expect(byId['standard'].codes).toContain('KAZ');
+    expect(byId['modern_world_provinces'].codes).toHaveLength(112);
+    expect(byId['modern_world_provinces'].codes).toContain('USA');
+    expect(byId['modern_world_provinces'].codes).not.toContain('KAZ');
+    expect(byId['pax_modern_provinces'].codes).toContain('KAZ');
+    expect(byId['paxh_ww2_provinces'].codes).toContain('KAZ');
+  });
 });
 
 describe('MAP-NATIVE — precedenza della sorgente', () => {

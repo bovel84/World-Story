@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { templatesApi, type NativeMapInfo, type PresetEditorData, type PresetMapBase, type PresetMapDetail, type ScenarioReportView } from '../../services/api';
+import { countriesApi, templatesApi, type NativeMapInfo, type PresetEditorData, type PresetMapBase, type PresetMapDetail, type ScenarioReportView } from '../../services/api';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
-import { detectGroupingKeys, effectiveProvinceMap, hasProvinceFeatures, mapDetailOptionDisabled } from './mapGrouping';
+import { detectGroupingKeys, effectiveProvinceMap, hasProvinceFeatures, mapDetailOptionDisabled, nativeMapMissingCodes, requiredCountryCodes } from './mapGrouping';
 
 interface Props {
   /** Preset esistente da aggiornare. */
@@ -68,6 +68,8 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
   const [scenarioHasCatalog, setScenarioHasCatalog] = useState(false);
   // MAP-NATIVE: catalogo delle mappe native scegliibili (fetch read-only).
   const [nativeMaps, setNativeMaps] = useState<NativeMapInfo[]>([]);
+  // Registro dei codici paese noti al motore (per la compatibilità mappa/paesi).
+  const [knownCodes, setKnownCodes] = useState<string[]>([]);
   const mapInput = useRef<HTMLInputElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -75,6 +77,9 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
     templatesApi.getNativeMaps()
       .then(r => setNativeMaps(r.maps || []))
       .catch(() => setNativeMaps([]));
+    countriesApi.getAll()
+      .then(r => setKnownCodes((r.countries || []).map(c => c.code)))
+      .catch(() => setKnownCodes([]));
   }, []);
 
   useEffect(() => {
@@ -175,6 +180,24 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
     return nativeMaps.some(m => m.id === raw) ? raw : 'standard';
   }, [data.map_base, nativeMaps]);
   const selectedNative = nativeMaps.find(m => m.id === selectedBase);
+  // Compatibilità mappa/paesi: la generazione richiede geometria per ogni
+  // politia. `requiredCodes` sono i codici che producono davvero una politia
+  // (override `countries` oppure filtrati sul registro). Se il registro non è
+  // disponibile non si blocca nulla.
+  const compatibilityReady = knownCodes.length > 0;
+  const requiredCodes = useMemo(
+    () => requiredCountryCodes(normalizedCodes, (data.countries || []).map(c => c.code), knownCodes) ?? [],
+    [normalizedCodes, data.countries, knownCodes],
+  );
+  const missingByMap = useMemo(() => {
+    const out = new Map<PresetMapBase, string[]>();
+    if (compatibilityReady) {
+      for (const m of nativeMaps) out.set(m.id, nativeMapMissingCodes(requiredCodes, m.codes));
+    }
+    return out;
+  }, [compatibilityReady, nativeMaps, requiredCodes]);
+  const selectedMissing = hasOwnMap ? [] : (missingByMap.get(selectedBase) ?? []);
+  const mapIncompatible = compatibilityReady && !hasOwnMap && selectedMissing.length > 0;
   // La mappa provinciale effettiva: il file proprio vince sulla mappa nativa.
   const provinceMap = effectiveProvinceMap(hasOwnMap, ownProvinceMap, selectedNative?.hasProvinces ?? false);
   const activeMapLabel = hasOwnMap
@@ -196,6 +219,11 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
     if (!data.id.trim() || !data.name.trim() || !data.base_prompt.trim() || normalizedCodes.length === 0) {
       setError('Compila ID, nome, paesi giocabili e premessa del mondo.');
       setTab('scenario');
+      return;
+    }
+    if (mapIncompatible) {
+      setError(`La mappa «${selectedNative?.label ?? selectedBase}» non contiene la geometria per: ${selectedMissing.join(', ')}. Scegli un'altra mappa nativa o rimuovi quei paesi.`);
+      setTab('mappa');
       return;
     }
     setSaving(true);
@@ -391,26 +419,31 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
                     <span>Mappa mondiale standard<small>1 regione per paese</small></span>
                   </label>
                 )}
-                {nativeMaps.map(m => (
-                  <label key={m.id} className="preset-map-base-option">
-                    <input
-                      type="radio"
-                      name="preset-map-base"
-                      value={m.id}
-                      checked={!hasOwnMap && selectedBase === m.id}
-                      disabled={hasOwnMap}
-                      onChange={() => patch('map_base', m.id)}
-                    />
-                    <span>
-                      {m.label}
-                      <small>
-                        {m.hasProvinces ? `${m.features} province` : `${m.features} regioni (1 per paese)`}
-                        {m.id === 'standard' ? ' · standard' : ''}
-                      </small>
-                    </span>
-                  </label>
-                ))}
+                {nativeMaps.map(m => {
+                  const missing = missingByMap.get(m.id) ?? [];
+                  return (
+                    <label key={m.id} className="preset-map-base-option">
+                      <input
+                        type="radio"
+                        name="preset-map-base"
+                        value={m.id}
+                        checked={!hasOwnMap && selectedBase === m.id}
+                        disabled={hasOwnMap || missing.length > 0}
+                        onChange={() => patch('map_base', m.id)}
+                      />
+                      <span>
+                        {m.label}
+                        <small>
+                          {m.hasProvinces ? `${m.features} province` : `${m.features} regioni (1 per paese)`}
+                          {m.id === 'standard' ? ' · standard' : ''}
+                          {missing.length > 0 ? ` · non copre: ${missing.join(', ')}` : ''}
+                        </small>
+                      </span>
+                    </label>
+                  );
+                })}
                 {hasOwnMap && <p className="preset-guide warning">Il file <code>map.geojson</code> caricato ha la precedenza sulla mappa nativa. Rimuovilo per usare una mappa nativa.</p>}
+                {mapIncompatible && <p className="preset-guide warning">La mappa selezionata non contiene la geometria per: <strong>{selectedMissing.join(', ')}</strong>. Scegli una mappa compatibile o rimuovi quei paesi.</p>}
               </fieldset>
               <p className="preset-guide">Mappa attiva: <strong>{activeMapLabel}</strong> · Livello: <strong>{effectiveDetail}</strong></p>
               <details className="preset-map-advanced">

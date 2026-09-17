@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { detectGroupingKeys, effectiveProvinceMap, hasProvinceFeatures, mapDetailOptionDisabled } from './mapGrouping';
+import { detectGroupingKeys, effectiveProvinceMap, hasProvinceFeatures, mapDetailOptionDisabled, nativeMapMissingCodes, requiredCountryCodes } from './mapGrouping';
 
 const editor = fs.readFileSync(path.resolve(__dirname, 'PresetEditorModal.tsx'), 'utf8');
 const css = fs.readFileSync(path.resolve(__dirname, '../../index.css'), 'utf8');
@@ -55,6 +55,14 @@ describe('MAP-DETAIL — preset editor', () => {
     expect(css).toContain('.preset-map-base-option');
     expect(css).toMatch(/\.preset-map-base-option\s*\{[^}]*min-height:\s*44px/);
     expect(css).toMatch(/\.preset-map-base-option\s*\{[^}]*cursor:\s*pointer/);
+  });
+
+  it('blocca le mappe native incompatibili con i paesi del preset', () => {
+    expect(editor).toContain('countriesApi.getAll()');
+    expect(editor).toContain('disabled={hasOwnMap || missing.length > 0}');
+    expect(editor).toContain('mapIncompatible');
+    expect(editor).toContain('requiredCountryCodes');
+    expect(editor).toContain('nativeMapMissingCodes');
   });
 
   it('permette di scegliere/modificare la proprietà di raggruppamento', () => {
@@ -104,6 +112,33 @@ describe('MAP-DETAIL — abilitazione delle opzioni (funzione pura)', () => {
     for (const value of ['nations', 'grouped', 'full'] as const) {
       expect(mapDetailOptionDisabled(true, value)).toBe(false);
     }
+  });
+});
+
+describe('MAP-NATIVE — compatibilità mappa/paesi (funzioni pure)', () => {
+  it('requiredCountryCodes filtra i codici sconosciuti al registro', () => {
+    // YUG non è nel registro: non produce politia, quindi non serve geometria.
+    expect(requiredCountryCodes(['USA', 'YUG', 'KAZ'], [], ['USA', 'KAZ', 'FRA'])).toEqual(['USA', 'KAZ']);
+    expect(requiredCountryCodes(['usa', 'kaz'], [], ['USA', 'KAZ'])).toEqual(['USA', 'KAZ']);
+  });
+
+  it('con un override countries usa tutti i codici del preset', () => {
+    expect(requiredCountryCodes(['USA'], ['YUG', 'ALP'], ['USA'])).toEqual(['YUG', 'ALP']);
+  });
+
+  it('senza registro disponibile non filtra (nessun blocco)', () => {
+    expect(requiredCountryCodes(['USA', 'YUG'], [], [])).toBeNull();
+  });
+
+  it('nativeMapMissingCodes elenca ciò che la mappa non copre', () => {
+    expect(nativeMapMissingCodes(['USA', 'KAZ'], ['USA', 'FRA'])).toEqual(['KAZ']);
+    expect(nativeMapMissingCodes(['USA'], ['usa'])).toEqual([]);
+  });
+
+  it('caso reale Guerra Fredda: modern_world manca KAZ, pax_modern è compatibile', () => {
+    const required = requiredCountryCodes(['USA', 'YUG', 'KAZ'], [], ['USA', 'KAZ'])!;
+    expect(nativeMapMissingCodes(required, ['USA', 'KAZ'])).toEqual([]);
+    expect(nativeMapMissingCodes(required, ['USA'])).toEqual(['KAZ']);
   });
 });
 

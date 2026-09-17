@@ -52,6 +52,8 @@ export interface NativeMapInfo {
   hasProvinces: boolean;
   /** Numero di feature GeoJSON (regioni potenziali). */
   features: number;
+  /** Codici ISO-A3 dei paesi coperti dalla mappa (union di country/code). */
+  codes: string[];
 }
 
 export function isNativeMapId(value: unknown): value is NativeMapId {
@@ -97,7 +99,19 @@ export function loadNativeMap(id: unknown): { features?: MapFeature[] } | null {
 
 const statsCache = new Map<NativeMapId, NativeMapInfo>();
 
-/** Metadati di una mappa nativa (feature, presenza province), con cache. */
+/** Codici paese coperti dalle feature: `country` per le province, altrimenti `code`. */
+function coveredCodes(features: MapFeature[]): string[] {
+  const codes = new Set<string>();
+  for (const feature of features) {
+    const props = (feature?.properties || {}) as Record<string, unknown>;
+    const parent = props.country;
+    if (typeof parent === 'string' && parent && parent !== props.code) codes.add(parent);
+    else if (typeof props.code === 'string' && props.code) codes.add(props.code);
+  }
+  return [...codes].sort();
+}
+
+/** Metadati di una mappa nativa (feature, presenza province, codici coperti), con cache. */
 export function nativeMapInfo(id: NativeMapId): NativeMapInfo {
   const cached = statsCache.get(id);
   if (cached) return cached;
@@ -109,6 +123,7 @@ export function nativeMapInfo(id: NativeMapId): NativeMapInfo {
     label: def.label,
     hasProvinces: hasProvinceFeatures(features),
     features: features.length,
+    codes: coveredCodes(features),
   };
   statsCache.set(id, info);
   return info;
