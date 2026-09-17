@@ -21,6 +21,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { isMapDetail, normalizeMapDetail, type MapDetail } from './map-detail';
 
 export const PRESETS_DIR = path.join(process.cwd(), 'data', 'presets');
 export const LEGACY_TEMPLATES_DIR = path.join(process.cwd(), 'data', 'templates');
@@ -49,6 +50,8 @@ export interface PresetPackage {
   simulation_rules?: string;
   /** lore.md — расширенный лор */
   lore?: string;
+  /** Livello di dettaglio della mappa: nations | grouped | full (opzionale). */
+  map_detail?: MapDetail;
   has_custom_map: boolean;
   flags: string[];
   author?: string;
@@ -125,6 +128,9 @@ export function validatePresetJson(raw: any, context = 'preset.json'): Omit<Pres
       }
     }
   }
+  if (raw.map_detail !== undefined && !isMapDetail(raw.map_detail)) {
+    throw new Error(`${context}: map_detail deve essere "nations", "grouped" o "full"`);
+  }
   return {
     id: raw.id,
     name: raw.name,
@@ -136,6 +142,7 @@ export function validatePresetJson(raw: any, context = 'preset.json'): Omit<Pres
     countries: raw.countries,
     country_colors: raw.country_colors,
     prompts: raw.prompts,
+    map_detail: normalizeMapDetail(raw.map_detail),
     author: typeof raw.author === 'string' ? raw.author : undefined,
     version: typeof raw.version === 'string' ? raw.version : undefined,
   };

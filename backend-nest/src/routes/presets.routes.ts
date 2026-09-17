@@ -32,6 +32,7 @@ function presetPayload(preset: any) {
     countries: preset.countries,
     country_colors: preset.country_colors,
     prompts: preset.prompts,
+    map_detail: preset.map_detail,
     lore: preset.lore || '',
     simulation_rules: preset.simulation_rules || '',
     source: preset.source,
@@ -117,6 +118,7 @@ function savePreset(id: string, body: any, create: boolean): any {
     countries: body.countries ?? previous?.countries,
     country_colors: body.country_colors ?? previous?.country_colors,
     prompts: body.prompts ?? previous?.prompts,
+    map_detail: body.map_detail ?? previous?.map_detail,
     author: body.author ?? previous?.author,
     version: body.version ?? previous?.version,
   };
