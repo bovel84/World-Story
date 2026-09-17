@@ -35,6 +35,7 @@ import {
   ProgressRow, ResourceTradeRow, VerdictBanner,
 } from './NationDock/widgets';
 import { useNationDockModel } from './NationDock/useNationDockModel';
+import { MaterialBalanceList } from './MaterialBalanceList';
 
 // Ri-esportati per i consumatori storici (`DeskContent`, `nationDossier`).
 export type { HistoryPoint, NationAccount, NationDockProps, NationResources, Tone } from './NationDock/types';
@@ -54,6 +55,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     budget, verdict, factions, modifiersActive, foodMonthly,
     clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue, provincesLabel,
     moneyDelta, pointDelta, countDelta, mkTrend,
+    materialRows, weaponsRows, armsSummary, lineSummary,
   } = useNationDockModel(props);
 
   return (
@@ -463,38 +465,43 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               description="Scorte reali del paese: cibo, vestiario, armi, carburante e ricerca. Ogni voce ha un tetto di stoccaggio."
             >
               {resources ? (
-                <MetricGrid>
-                  <Metric
-                    label="Cibo"
-                    value={matValue(Number(resources.food ?? 0), capacity?.food)}
-                    tone={resourceTone(Number(resources.food ?? 0), foodMonthly)}
-                    hint={coverHint(Number(resources.food ?? 0), foodMonthly, capacity?.food)}
-                  />
-                  <Metric
-                    label="Vestiario"
-                    value={matValue(Number(resources.clothing ?? 0), capacity?.clothing)}
-                    tone={resourceTone(Number(resources.clothing ?? 0), clothingMonthly)}
-                    hint={coverHint(Number(resources.clothing ?? 0), clothingMonthly, capacity?.clothing)}
-                  />
-                  <Metric
-                    label="Scorte armi"
-                    value={matValue(Number(resources.weapons ?? 0), capacity?.weapons)}
-                    tone={resourceTone(Number(resources.weapons ?? 0), weaponsMonthly)}
-                    hint={coverHint(Number(resources.weapons ?? 0), weaponsMonthly, capacity?.weapons)}
-                  />
-                  <Metric
-                    label="Carburante"
-                    value={matValue(Number(resources.fuel ?? 0), capacity?.fuel)}
-                    tone={resourceTone(Number(resources.fuel ?? 0), fuelMonthly)}
-                    hint={coverHint(Number(resources.fuel ?? 0), fuelMonthly, capacity?.fuel)}
-                  />
-                  <Metric
-                    label="Ricerca"
-                    value={formatNumber(Number(resources.research ?? 0))}
-                    tone="neutral"
-                    hint="Punti non ancora spesi in tecnologie"
-                  />
-                </MetricGrid>
+                <>
+                  <MetricGrid>
+                    <Metric
+                      label="Cibo"
+                      value={matValue(Number(resources.food ?? 0), capacity?.food)}
+                      tone={resourceTone(Number(resources.food ?? 0), foodMonthly)}
+                      hint={coverHint(Number(resources.food ?? 0), foodMonthly, capacity?.food)}
+                    />
+                    <Metric
+                      label="Vestiario"
+                      value={matValue(Number(resources.clothing ?? 0), capacity?.clothing)}
+                      tone={resourceTone(Number(resources.clothing ?? 0), clothingMonthly)}
+                      hint={coverHint(Number(resources.clothing ?? 0), clothingMonthly, capacity?.clothing)}
+                    />
+                    <Metric
+                      label="Scorte armi"
+                      value={matValue(Number(resources.weapons ?? 0), capacity?.weapons)}
+                      tone={resourceTone(Number(resources.weapons ?? 0), weaponsMonthly)}
+                      hint={coverHint(Number(resources.weapons ?? 0), weaponsMonthly, capacity?.weapons)}
+                    />
+                    <Metric
+                      label="Carburante"
+                      value={matValue(Number(resources.fuel ?? 0), capacity?.fuel)}
+                      tone={resourceTone(Number(resources.fuel ?? 0), fuelMonthly)}
+                      hint={coverHint(Number(resources.fuel ?? 0), fuelMonthly, capacity?.fuel)}
+                    />
+                    <Metric
+                      label="Ricerca"
+                      value={formatNumber(Number(resources.research ?? 0))}
+                      tone="neutral"
+                      hint="Punti non ancora spesi in tecnologie"
+                    />
+                  </MetricGrid>
+                  {/* Sintesi prima del dettaglio: quanto entra, quanto esce. */}
+                  <p className="material-balance-title">Ritmo del mese: quanto produci e quanto consumi</p>
+                  <MaterialBalanceList rows={materialRows} showAvailability={false} />
+                </>
               ) : (
                 <EmptyState>Il magazzino materiale non è ancora pubblicato per questa partita.</EmptyState>
               )}
@@ -611,6 +618,19 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
         {active === 'armamenti' && (
           <>
             <DossierBlock
+              title="Quanto hai e quanto produci"
+              description="La sintesi che serve a decidere: disponibilità, produzione, consumo e saldo delle scorte che alimentano l'arsenale."
+            >
+              <MaterialBalanceList
+                rows={weaponsRows}
+                emptyText="Il motore non pubblica il bilancio delle scorte di armamenti per questa partita."
+              />
+              <p className="material-balance-title">Armamenti in servizio</p>
+              <p className="arms-summary-line">{armsSummary}</p>
+              <Footnote><b>Da dove vengono le cifre</b> scorte, fabbisogno e produzione mensile sono del motore (MaterialEconomy), non una stima del Dossier; cibo, vestiario e carburante sono nella sezione Risorse e industria. La produzione di un mezzo è la somma degli ordini aperti qui sotto, con la data prevista dal ritmo reale della linea.</Footnote>
+            </DossierBlock>
+
+            <DossierBlock
               title="Forza dell'arsenale"
               description="Quanto vale l'apparato militare: quantità, qualità e potenza effettiva sui combattimenti."
             >
@@ -669,9 +689,14 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                           <span className={`arms-tier tone-${TIER_TONE[line.tier] || 'neutral'}`}>{TIER_LABEL(line.tier)} · qualità {line.quality}/100</span>
                         </div>
                       </div>
-                      <p className="arms-line-role">{line.role}</p>
-                      <p className="arms-line-desc">{line.description}</p>
-                      <EquipmentSpecs specs={line.specs} />
+                      {/* Sintesi prima del dettaglio: quanto ho e quanto produco. */}
+                      <p className="arms-line-summary">{lineSummary(line)}</p>
+                      <details className="arms-line-detail">
+                        <summary>Dettaglio tecnico: che cos'è, a cosa serve, caratteristiche</summary>
+                        <p className="arms-line-role">{line.role}</p>
+                        <p className="arms-line-desc">{line.description}</p>
+                        <EquipmentSpecs specs={line.specs} />
+                      </details>
                       <div className="arms-line-share">
                         <span>Forza {formatMoney(line.strength, { decimals: 1 })} · {formatMoney(line.sharePct, { decimals: 1 })}% dell'arsenale</span>
                         <i aria-hidden="true"><em style={{ width: `${Math.max(0, Math.min(100, line.sharePct))}%` }} /></i>

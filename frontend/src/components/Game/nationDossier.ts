@@ -132,6 +132,11 @@ export function normalizeResources(raw: unknown): NationResources | null {
     marketRatePct: value(source.marketRatePct),
     ...(source.capacity && typeof source.capacity === 'object' ? { capacity: source.capacity } : {}),
     ...(source.needs && typeof source.needs === 'object' ? { needs: source.needs } : {}),
+    // Bilancio materiale del mese (MATERIEL-CLARITY): solo righe con un
+    // materiale riconoscibile; il resto non viene inventato.
+    ...(Array.isArray(source.balance)
+      ? { balance: source.balance.filter((row: any) => row && typeof row === 'object' && typeof row.kind === 'string') }
+      : {}),
     ...(source.modifiers && typeof source.modifiers === 'object' ? { modifiers: source.modifiers } : {}),
   };
 }

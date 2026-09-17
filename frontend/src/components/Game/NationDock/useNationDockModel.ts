@@ -18,6 +18,8 @@ import {
 } from '../nationDossier';
 import { groupProjectsByCategory } from '../projectCategory';
 import { nationalVerdict } from '../governmentDossier';
+import { deriveMaterialRows, materialRowsOf } from '../materialBalance';
+import { arsenalBrief, arsenalBriefText, arsenalLineSummary, arsenalProductionFor } from '../arsenalSummary';
 import { resourceMonths } from './format';
 import type { HistoryPoint, MetricTrend, NationDockProps } from './types';
 
@@ -25,6 +27,7 @@ export function useNationDockModel(props: NationDockProps) {
   const {
     account,
     resources,
+    arms,
     trade,
     accountHistory = [],
     regions = [],
@@ -132,6 +135,15 @@ export function useNationDockModel(props: NationDockProps) {
   const weaponsMonthly = Number(resources?.needs?.weapons ?? troops * 0.004);
   const fuelMonthly = Number(resources?.needs?.fuel ?? (Number(account?.forces ?? 0) * 0.03 + Number(account?.factories ?? 0) * 0.05));
   const capacity = resources?.capacity;
+  // Sintesi materiale (MATERIEL-CLARITY): righe del motore → righe leggibili.
+  // Se il motore non pubblica il bilancio, la lista è vuota e la scheda lo dice.
+  const materialRows = useMemo(() => deriveMaterialRows(resources?.balance), [resources?.balance]);
+  const weaponsRows = useMemo(() => materialRowsOf(materialRows, ['weapons']), [materialRows]);
+  // Arsenale: quanti mezzi sono in servizio e quanti in produzione, per riga.
+  const armsOrders = arms?.production?.orders ?? [];
+  const armsSummary = useMemo(() => arsenalBriefText(arsenalBrief(arms?.lines, armsOrders)), [arms?.lines, armsOrders]);
+  const lineSummary = (line: { id: string; quantity: number; name: string; strength?: number; sharePct?: number }) =>
+    arsenalLineSummary(line, arsenalProductionFor(armsOrders, line.id));
   const coverHint = (value: number, monthly: number, cap?: number) => {
     const capText = cap && cap > 0 ? ` · capacità ${formatNumber(cap)}` : '';
     const months = resourceMonths(value, monthly);
@@ -175,5 +187,6 @@ export function useNationDockModel(props: NationDockProps) {
     overdraft, activeModifiers, budget, verdict, factions, modifiersActive, popM, troops,
     foodMonthly, clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue,
     provincesLabel, moneyDelta, pointDelta, countDelta, mkTrend,
+    materialRows, weaponsRows, armsSummary, lineSummary,
   };
 }
