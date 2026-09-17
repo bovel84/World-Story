@@ -1,8 +1,8 @@
 {
   "summary": {
-    "total": 99,
+    "total": 100,
     "mutating": 54,
-    "reading": 45,
+    "reading": 46,
     "byFile": {
       "chats.routes.ts": 8,
       "countries.routes.ts": 2,
@@ -17,7 +17,7 @@
       "health.routes.ts": 1,
       "llm.routes.ts": 6,
       "maps.routes.ts": 4,
-      "presets.routes.ts": 8,
+      "presets.routes.ts": 9,
       "saves.routes.ts": 2,
       "templates.routes.ts": 2,
       "worlds.routes.ts": 7
@@ -550,6 +550,12 @@
       "method": "post",
       "path": "/import",
       "mutating": true,
+      "file": "presets.routes.ts"
+    },
+    {
+      "method": "get",
+      "path": "/maps/native",
+      "mutating": false,
       "file": "presets.routes.ts"
     },
     {

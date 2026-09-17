@@ -22,6 +22,7 @@
 import fs from 'fs';
 import path from 'path';
 import { isMapDetail, isMapGrouping, normalizeMapDetail, normalizeMapGrouping, type MapDetail } from './map-detail';
+import { isNativeMapId, normalizeMapBase, type NativeMapId } from './native-maps';
 
 export const PRESETS_DIR = path.join(process.cwd(), 'data', 'presets');
 export const LEGACY_TEMPLATES_DIR = path.join(process.cwd(), 'data', 'templates');
@@ -54,6 +55,8 @@ export interface PresetPackage {
   map_detail?: MapDetail;
   /** Proprietà GeoJSON usata per il raggruppamento in `grouped` (opzionale). */
   map_grouping?: string;
+  /** Mappa nativa di riferimento usata se il preset non ha un map.geojson proprio. */
+  map_base?: NativeMapId;
   has_custom_map: boolean;
   flags: string[];
   author?: string;
@@ -137,6 +140,12 @@ export function validatePresetJson(raw: any, context = 'preset.json'): Omit<Pres
   if (grouping !== undefined && grouping !== '' && !isMapGrouping(grouping)) {
     throw new Error(`${context}: map_grouping deve essere il nome di una proprietà GeoJSON (lettere, cifre, _ . -)`);
   }
+  // Whitelist rigida: solo le mappe native note. Un id libero sarebbe un path
+  // traversal (il file verrebbe risolto dal nome), quindi va rifiutato.
+  const mapBase = typeof raw.map_base === 'string' ? raw.map_base.trim() : raw.map_base;
+  if (mapBase !== undefined && mapBase !== '' && !isNativeMapId(mapBase)) {
+    throw new Error(`${context}: map_base non è una mappa nativa valida (standard, modern_world_provinces, pax_modern_provinces, paxh_ww2_provinces)`);
+  }
   return {
     id: raw.id,
     name: raw.name,
@@ -150,6 +159,7 @@ export function validatePresetJson(raw: any, context = 'preset.json'): Omit<Pres
     prompts: raw.prompts,
     map_detail: normalizeMapDetail(raw.map_detail),
     map_grouping: normalizeMapGrouping(grouping),
+    map_base: normalizeMapBase(mapBase),
     author: typeof raw.author === 'string' ? raw.author : undefined,
     version: typeof raw.version === 'string' ? raw.version : undefined,
   };

@@ -418,6 +418,12 @@ export function installMockApi(page, opts = {}) {
     json(route, { ALPHA: { capital: 'Capitale Alfa', lat: 5, lng: 5 }, BETA: { capital: 'Capitale Beta', lat: 15, lng: 5 } }));
 
   // ── Template ─────────────────────────────────────────────────────────────
+  page.route(`${API_BASE}/templates/maps/native`, (route) => json(route, {
+    maps: [
+      { id: 'standard', label: 'Mappa mondiale standard', hasProvinces: false, features: 2 },
+      { id: 'modern_world_provinces', label: 'Mondo Provinciale Moderno', hasProvinces: true, features: 4 },
+    ],
+  }));
   page.route(`${API_BASE}/templates`, (route) => json(route, { templates: [MOCK_TEMPLATE] }));
   page.route(`${API_BASE}/templates/${MOCK_TEMPLATE.id}`, (route) => json(route, MOCK_TEMPLATE));
 

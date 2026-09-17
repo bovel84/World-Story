@@ -26,6 +26,7 @@ import {
 } from '../utils/map-detail';
 import { pointInGeometry } from '../utils/geo';
 import { paxSettlementObjectsForGeometry } from '../utils/pax-geography';
+import { loadNativeMap, resolveMapSource } from '../utils/native-maps';
 
 export const worldsRouter = Router();
 
@@ -118,8 +119,13 @@ async function runWorldGeneration(
     );
 
   try {
-    // Геометрия регионов: кастомная карта пакета (map.geojson) или
-    // стандартная Natural Earth (data/geojson/countries.geojson)
+    // Geometria delle regioni: map.geojson proprio del preset (vince sempre),
+    // altrimenti la mappa nativa dichiarata con `map_base`, altrimenti la
+    // mappa mondiale standard (Natural Earth). La scelta NON copia i file.
+    const mapSource = resolveMapSource({ hasCustomMap: preset.has_custom_map, mapBase: preset.map_base });
+    const sourceMap = mapSource.kind === 'preset'
+      ? loadPresetMap(templateId)
+      : loadNativeMap(mapSource.id);
     let geojsonFeatures: Record<string, any> = {};
     // Мировые пакеты уровня ПРОВИНЦИЙ: feature.properties.country = код страны-владельца.
     // Каждая province — отдельный регион игры, но полития (owner) — страна-мать.
@@ -134,19 +140,8 @@ async function runWorldGeneration(
         geojsonFeatures[code] = feature;
       }
     };
-    if (preset.has_custom_map) {
-      const customMap = loadPresetMap(templateId);
-      for (const feature of customMap?.features || []) {
-        ingestFeature(feature);
-      }
-    } else {
-      const geojsonPath = path.join(process.cwd(), 'data', 'geojson', 'countries.geojson');
-      if (fs.existsSync(geojsonPath)) {
-        const geojsonData = JSON.parse(fs.readFileSync(geojsonPath, 'utf-8'));
-        for (const feature of geojsonData.features || []) {
-          ingestFeature(feature);
-        }
-      }
+    for (const feature of sourceMap?.features || []) {
+      ingestFeature(feature);
     }
 
     // Livello di dettaglio della mappa scelto dal preset (retrocompatibile:

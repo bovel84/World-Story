@@ -1322,10 +1322,26 @@ export interface PresetEditorData {
   map_detail?: PresetMapDetail;
   /** Proprietà GeoJSON usata per raggruppare le province in `grouped`. */
   map_grouping?: string;
+  /** Mappa nativa di riferimento (usata se non c'è un map.geojson proprio). */
+  map_base?: PresetMapBase;
   map_geojson?: any;
 }
 
 export type PresetMapDetail = 'nations' | 'grouped' | 'full';
+
+/** Mappe native scegliibili nell'editor (whitelist applicata dal backend). */
+export type PresetMapBase =
+  | 'standard'
+  | 'modern_world_provinces'
+  | 'pax_modern_provinces'
+  | 'paxh_ww2_provinces';
+
+export interface NativeMapInfo {
+  id: PresetMapBase;
+  label: string;
+  hasProvinces: boolean;
+  features: number;
+}
 
 export const templatesApi = {
   /**
@@ -1344,6 +1360,14 @@ export const templatesApi = {
 
   getEditable: (templateId: string): Promise<PresetEditorData> => {
     return fetchApi(`/templates/${templateId}/edit`);
+  },
+
+  /**
+   * MAP-NATIVE: elenco delle mappe native scegliibili (id, nome, province).
+   * Read-only, whitelist rigida lato backend.
+   */
+  getNativeMaps: (): Promise<{ maps: NativeMapInfo[] }> => {
+    return fetchApi('/templates/maps/native');
   },
 
   /**
