@@ -135,7 +135,7 @@ describe('MAP-NATIVE — compatibilità mappa/paesi (funzioni pure)', () => {
     expect(nativeMapMissingCodes(['USA'], ['usa'])).toEqual([]);
   });
 
-  it('caso reale Guerra Fredda: modern_world manca KAZ, pax_modern è compatibile', () => {
+  it('caso reale: la mappa provinciale moderna manca KAZ, pax_modern è compatibile', () => {
     const required = requiredCountryCodes(['USA', 'YUG', 'KAZ'], [], ['USA', 'KAZ'])!;
     expect(nativeMapMissingCodes(required, ['USA', 'KAZ'])).toEqual([]);
     expect(nativeMapMissingCodes(required, ['USA'])).toEqual(['KAZ']);

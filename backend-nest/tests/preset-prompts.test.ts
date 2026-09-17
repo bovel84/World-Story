@@ -6,7 +6,7 @@
  *   converter, suggestions, advisor), работает алиас "jump",
  *   ленивый DB-fallback достаёт prompts из worlds по id игры,
  *   отсутствие секции prompts не ломает дефолтные промпты,
- *   пресет modern_world несёт валидную секцию prompts,
+ *   пресет pachetto può portare una sezione prompts valida,
  *   дефолтные промпты обогащены правилами оригинала (forward/desript/actions).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -410,9 +410,30 @@ describe('обогащение дефолтных промптов матери�
   });
 });
 
-describe('пресет modern_world несёт секцию prompts', () => {
+describe('un preset-pacchetto porta una sezione prompts (override dal pacchetto)', () => {
+  const ID = `testprompts${process.pid}`;
+  const dir = path.join(process.cwd(), 'data', 'presets', ID);
+
+  afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
   it('loadPreset отдаёт prompts с simulation и suggestions; шаблон рендерится переменными', () => {
-    const preset = presetLoader.loadPreset('modern_world');
+    // Preset tecnico temporaneo: mantiene la copertura dell'override dei prompt
+    // anche senza un preset di contenuto "moderno" nel catalogo.
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'preset.json'), JSON.stringify({
+      id: ID,
+      name: 'Test Prompts Override',
+      description: 'Preset tecnico per il test delle override dei prompt.',
+      start_date: '1951-01-01',
+      country_codes: ['DEU', 'POL'],
+      base_prompt: 'Prompt di base di prova.',
+      prompts: {
+        simulation: 'Sei il simulatore. Il giocatore governa ${PLAYER_POLITY}. Rispondi con JSON.',
+        suggestions: 'Analista di stato maggiore per ${PLAYER_POLITY}.',
+      },
+    }));
+
+    const preset = presetLoader.loadPreset(ID);
     expect(preset).not.toBeNull();
     expect(preset!.prompts?.simulation).toBeTruthy();
     expect(preset!.prompts?.suggestions).toBeTruthy();
@@ -420,11 +441,13 @@ describe('пресет modern_world несёт секцию prompts', () => {
     // Рендер шаблона пресета реальными переменными игры
     const vars = new promptBuilderModule.PromptBuilder(makeGame()).buildVariables();
     const rendered = override.renderPromptTemplate(preset!.prompts!.simulation, vars);
+    const renderedSuggestions = override.renderPromptTemplate(preset!.prompts!.suggestions, vars);
 
     // Все плейсхолдеры шаблона — известные переменные, ничего не осталось
     expect(rendered).not.toMatch(/\$\{[A-Z_]+\}/);
+    expect(renderedSuggestions).not.toMatch(/\$\{[A-Z_]+\}/);
     expect(rendered).toContain('ФРГ'); // подставленный PLAYER_POLITY
-    expect(rendered).toContain("guerra dell'informazione"); // специфика современности
-    expect(rendered).toContain('"events"'); // JSON-контракт сохранён
+    expect(rendered).toContain('JSON'); // contratto esplicito nel template
+    expect(renderedSuggestions).toContain('ФРГ');
   });
 });
