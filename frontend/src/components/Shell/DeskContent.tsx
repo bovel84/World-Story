@@ -14,6 +14,7 @@ import { chatsApi, gameApi } from '../../services/api';
 import type { Region, World, Game } from '../../types';
 import type { Suggestion } from '../../stores';
 import { resolveSuggestionToggle } from '../Game/suggestionToggle';
+import { suggestionsEmptyHint } from '../Game/suggestionsLifecycle';
 import type { ActiveModule } from '../../stores/moduleState';
 
 interface DeskContentProps {
@@ -195,6 +196,10 @@ export function DeskContent({
         >
           ✕
         </button>
+
+        {suggestions.length === 0 && !suggestionsLoading && !suggestionsError && (
+          <p className="suggestions-empty" role="status">{suggestionsEmptyHint()}</p>
+        )}
 
         {suggestions.length > 0 && (
           <div

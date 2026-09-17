@@ -73,6 +73,20 @@ function mockRegions() {
   };
 }
 
+/** Proposte strategiche fittizie (ARMY-MOVE P3): deterministiche, non storiche. */
+export const MOCK_SUGGESTIONS = [
+  {
+    topic: 'Difesa federale',
+    description: 'Rafforzare il confine meridionale prima della prossima stagione.',
+    actions: [{ title: 'Richiamare le riserve', content: 'Richiamare due battaglioni di riserva al confine.' }],
+  },
+  {
+    topic: 'Tesoreria',
+    description: 'La cassa perde terreno: servono entrate o tagli espliciti.',
+    actions: [{ title: 'Rivedere la spesa', content: 'Ridurre la spesa militare straordinaria del 5%.' }],
+  },
+];
+
 export const MOCK_GAME = {
   id: MOCK_GAME_ID,
   world: {
@@ -367,9 +381,11 @@ function notFound(route) {
  * Installa gli handler mock su una pagina. `opts` può contenere:
  *  - `failWorldGen`: se true, il job di generazione mondo fallisce (per testare
  *    lo stato di errore della UI).
+ *  - `advanceResult`: esito restituito dall'avanzamento del turno (default
+ *    `world_advanced`); usato per verificare i casi in cui il mondo NON cambia.
  */
 export function installMockApi(page, opts = {}) {
-  const { failWorldGen = false } = opts;
+  const { failWorldGen = false, advanceResult = null } = opts;
 
   // Blocca TUTTA la rete esterna: nessun tile, nessun font, nessun provider.
   // Solo le richieste verso l'app (localhost) e le API mock passano.
@@ -467,7 +483,12 @@ export function installMockApi(page, opts = {}) {
     });
   });
 
-  page.route(`${API_BASE}/games/${MOCK_GAME_ID}`, (route) => json(route, MOCK_GAME));
+  // Il server è autorevole: dopo un avanzamento il giocatore rilegge lo stato e
+  // deve vedere il turno nuovo (non quello del fixture statico).
+  let worldAdvanced = false;
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}`, (route) => json(route, worldAdvanced
+    ? { ...MOCK_GAME, currentTurn: 2, currentDate: '1951-02-01', worldRevision: 2 }
+    : MOCK_GAME));
 
   // ── Stato di gioco (chiamate fatte all'apertura dell'HUD) ────────────────
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/timeline`, (route) =>
@@ -551,8 +572,39 @@ export function installMockApi(page, opts = {}) {
     });
   });
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/relationships`, (route) => json(route, {}));
+  // ARMY-MOVE P3: proposte non vuote, così l'E2E può verificare che il pannello
+  // si azzeri all'avanzamento del turno e si rigeneri solo su richiesta.
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/suggestions`, (route) =>
-    json(route, { suggestions: [] }));
+    json(route, { suggestions: MOCK_SUGGESTIONS }));
+
+  // ── Avanzamento (ARMY-MOVE P3) ───────────────────────────────────────────
+  // Il salto è asincrono: POST del job, polling dello stato, poi l'esito.
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/simulation-jobs`, (route) => {
+    if (route.request().method() !== 'POST') return notFound(route);
+    return json(route, { jobId: 'mock-advance-job', status: 'running' });
+  });
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/simulation-jobs/mock-advance-job`, (route) =>
+    json(route, { jobId: 'mock-advance-job', status: 'completed' }));
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/simulation-jobs/mock-advance-job/result`, (route) => {
+    // Solo un esito che committa un turno cambia lo stato del mondo.
+    if (!advanceResult || advanceResult.type !== 'no_event_found') worldAdvanced = true;
+    return json(route, advanceResult || {
+      type: 'world_advanced',
+      simulationId: 'mock-simulation-2',
+      revision: 2,
+      newTurn: 2,
+      newDate: '1951-02-01',
+      result: {
+        simulationId: 'mock-simulation-2',
+        turn: 1,
+        narration: 'Il periodo passa senza crisi: la Confederazione consolida le proprie posizioni.',
+        events: ['Consolidamento interno'],
+        eventDetails: [],
+        periodStart: '1951-01-01',
+        periodEnd: '1951-02-01',
+      },
+    });
+  });
 
   // ── SSE: risposta valida che invia `connected` e resta aperta ────────────
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/events`, (route) => {
