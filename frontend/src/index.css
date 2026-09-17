@@ -2866,3 +2866,14 @@ html, body { margin: 0; }
 .simulation-reader-impact-list li.tone-warning b { color: #f0ce8f; }
 .simulation-reader-impact-list li.tone-neutral b { color: #c6d3e6; }
 .simulation-reader-impact small { color: #8fa0bc; font: 500 11px/1.45 system-ui, sans-serif; }
+
+/* ── WORLD-ALIVE P1: la proposta già nel piano resta cliccabile (toggle) ─── */
+/* Il bottone non è più `disabled` quando è in coda: resta un controllo attivo
+   che la rimuove. Il `!important` è locale e serve solo a vincere il blocco
+   legacy `.action-desk .suggestion-action:hover:not(:disabled)` già presente. */
+.suggestion-action.queued { cursor: pointer; }
+.action-desk .suggestion-action.queued:hover:not(:disabled) {
+  border-color: #7cf7b0 !important;
+  background: rgba(124, 247, 176, 0.12) !important;
+}
+.action-desk .suggestion-action.queued:hover:not(:disabled) .suggestion-action-cta { color: #7cf7b0; }
