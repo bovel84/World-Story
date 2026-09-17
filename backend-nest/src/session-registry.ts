@@ -17,6 +17,38 @@ import path from 'path';
 import { loadSimulationCatalog } from './scenario/loader';
 import { semanticStateHash } from './domain/semantic-hash';
 
+/**
+ * Stato di sessione di una regione: geometria, adiacenza e stato statico dal
+ * world, stato dinamico dalla copia isolata della partita.
+ *
+ * L'adiacenza (`borders`) deve essere trasferita: senza di essa ogni lettura
+ * «chi confina con me» (contesto di reazione, vicini ostili, piazzamenti di
+ * frontiera) degrada a un elenco arbitrario di politie lontane. La mappa
+ * equivalente di `SessionBootstrapService` la includeva già: questa copia
+ * duplicata l'aveva silenziosamente dimenticata.
+ */
+function regionStatesFromDb(worldId: string, gameId: string): [string, any][] {
+  const dynamicRegions = new Map(gameRepository.getGameRegions(gameId).map(region => [region.id, region]));
+  const dbRegions = worldRepository.getRegions(worldId);
+  return dbRegions.map(r => {
+    const state: any = dynamicRegions.get(r.id);
+    return [r.id, {
+      id: r.id,
+      name: r.name,
+      color: state?.color || r.color,
+      owner: state?.owner || r.owner,
+      population: state?.population ?? r.population,
+      gdp: state?.gdp ?? r.gdp,
+      militaryPower: state?.militaryPower ?? r.militaryPower,
+      objects: state?.objects || r.objects || [],
+      svgPath: r.svgPath,
+      borders: r.borders || [],
+      status: r.status || 'active',
+      coastal: r.coastal,
+    }];
+  });
+}
+
 class SessionRegistry {
   private sessions: Map<string, GameSession> = new Map();
   private provider: LLMRouter;
@@ -114,22 +146,7 @@ class SessionRegistry {
     const players = gameRepository.getPlayers(gameId);
 
     // Geometria dal world, stato dinamico dalla copia isolata della partita.
-    const dynamicRegions = new Map(gameRepository.getGameRegions(gameId).map(region => [region.id, region]));
-    const dbRegions = worldRepository.getRegions(game.world_id);
-    const regionStates: [string, any][] = dbRegions.map(r => {
-      const state = dynamicRegions.get(r.id);
-      return [r.id, {
-        id: r.id,
-        name: r.name,
-        color: state?.color || r.color,
-        owner: state?.owner || r.owner,
-        population: state?.population ?? r.population,
-        gdp: state?.gdp ?? r.gdp,
-        militaryPower: state?.militaryPower ?? r.militaryPower,
-        objects: state?.objects || r.objects || [],
-        svgPath: r.svgPath,
-      }];
-    });
+    const regionStates = regionStatesFromDb(game.world_id, gameId);
 
     session.reconstructFromDB({
       currentTurn: game.current_turn,
@@ -261,22 +278,7 @@ class SessionRegistry {
         const players = gameRepository.getPlayers(game.id);
 
         // Geometria dal world, stato dinamico dalla copia isolata della partita.
-        const dynamicRegions = new Map(gameRepository.getGameRegions(game.id).map(region => [region.id, region]));
-        const dbRegions = worldRepository.getRegions(game.world_id);
-        const regionStates: [string, any][] = dbRegions.map(r => {
-          const state = dynamicRegions.get(r.id);
-          return [r.id, {
-            id: r.id,
-            name: r.name,
-            color: state?.color || r.color,
-            owner: state?.owner || r.owner,
-            population: state?.population ?? r.population,
-            gdp: state?.gdp ?? r.gdp,
-            militaryPower: state?.militaryPower ?? r.militaryPower,
-            objects: state?.objects || r.objects || [],
-            svgPath: r.svgPath,
-          }];
-        });
+        const regionStates = regionStatesFromDb(game.world_id, game.id);
 
         session.reconstructFromDB({
           currentTurn: game.current_turn,

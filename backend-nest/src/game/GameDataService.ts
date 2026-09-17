@@ -19,6 +19,8 @@ import { countryRepository } from '../repositories/country.repository';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import type { ResourceLedger } from '../core/simulation/ResourceMarket';
 import type { RegionState } from '../game-session';
+import { playerMilitaryPosture, renderMilitaryPosture } from './MilitaryPosture';
+import { playerCentricRelationships } from './reactionInputs';
 
 export interface GameDataContext {
   gameId: string;
@@ -108,6 +110,15 @@ export class GameDataService {
     // Contesto di reazione: chi è coinvolto e quali opzioni sono ammesse. È
     // calcolato una volta sola perché serve sia al prompt (testo) sia al
     // validator deterministico delle reactions (forma strutturata).
+    //
+    // I rapporti passati qui sono SOLO quelli che riguardano il giocatore: la
+    // matrice completa faceva entrare fra gli attori qualunque politia con un
+    // rapporto registrato altrove, riempiendo il tetto di 8 con nazioni lontane
+    // al posto dei vicini reali (che il motore ricava dall'adiacenza).
+    const playerRelationships = playerCentricRelationships(
+      this.ctx.relationships() as Record<string, Record<string, string>> | undefined,
+      this.ctx.playerPolityId(),
+    );
     const reactionContextData: ReactionContext = buildReactionContext({
       playerPolityId: this.ctx.playerPolityId(),
       playerPolityName: polityNames[this.ctx.playerPolityId()],
@@ -116,7 +127,7 @@ export class GameDataService {
       polityNames,
       polityAliases,
       regions: regionsObj,
-      relationships: this.ctx.relationships() as Record<string, Record<string, string>> | undefined,
+      relationships: playerRelationships,
       accounts: effectiveAccounts,
       resources: {
         debt: debtOf(playerStock),
@@ -254,7 +265,18 @@ export class GameDataService {
       // possibili: il prompt riceve un contesto già filtrato e limitato.
       // `currentActions` è il lotto del turno corrente (con ID canonico): lo
       // storico azioni non entra mai nel trigger.
-      reactionContext: renderReactionContext(reactionContextData),
+      reactionContext: [
+        renderReactionContext(reactionContextData),
+        // Una mossa militare materiale esiste sulla mappa ma non è un ordine
+        // testuale: senza questa riga il contesto mostrerebbe attori e opzioni
+        // militari senza che nulla di materiale li motivi. Il blocco resta
+        // fuori dalla forma strutturata: il contratto actorId/optionId e il
+        // validator non cambiano.
+        renderMilitaryPosture(
+          playerMilitaryPosture(Object.values(regionsObj), this.ctx.playerPolityId()),
+          polityNames[this.ctx.playerPolityId()],
+        ),
+      ].filter(Boolean).join('\n'),
       // Stesso contesto in forma strutturata: serve al validator deterministico
       // delle reactions (actorId/optionId) nel percorso di simulazione.
       reactionContextData,
