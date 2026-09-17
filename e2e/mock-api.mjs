@@ -112,6 +112,37 @@ export const MOCK_SUGGESTIONS = [
   },
 ];
 
+/**
+ * GAMEPLAY-LONG — impegni già firmati: un trattato in vigore con scadenza e un
+ * ultimatum scaduto. Il mock **non** ricalcola date o stati: li riceve dal
+ * payload, come farebbe il backend vero.
+ */
+export const MOCK_COMMITMENTS = {
+  commitments: [
+    {
+      id: 'ITA|FRA|treaty|confine', type: 'treaty', actor: 'ITA', counterparty: 'FRA',
+      description: 'Patto sui confini alpini', createdDate: '1951-01-01', createdTurn: 1,
+      status: 'active', deadline: '1951-03-02', sourceEventId: null, importance: 3,
+      updatedDate: '1951-01-01', updatedTurn: 1, note: 'Ratificato dal parlamento.',
+    },
+    {
+      id: 'ITA|POL|ultimatum|corridoio', type: 'ultimatum', actor: 'ITA', counterparty: 'POL',
+      description: 'Ultimatum sul corridoio baltico', createdDate: '1950-12-01', createdTurn: 0,
+      status: 'expired', deadline: '1950-12-31', sourceEventId: null, importance: 2,
+      updatedDate: '1951-01-01', updatedTurn: 1, note: '',
+    },
+  ],
+  // Ciò che il motore segnala come meritevole di attenzione (briefing).
+  attention: [
+    {
+      id: 'ITA|FRA|treaty|confine', type: 'treaty', actor: 'ITA', counterparty: 'FRA',
+      description: 'Patto sui confini alpini', createdDate: '1951-01-01', createdTurn: 1,
+      status: 'active', deadline: '1951-03-02', sourceEventId: null, importance: 3,
+      updatedDate: '1951-01-01', updatedTurn: 1, note: 'Ratificato dal parlamento.',
+    },
+  ],
+};
+
 export const MOCK_GAME = {
   id: MOCK_GAME_ID,
   world: {
@@ -536,6 +567,8 @@ export function installMockApi(page, opts = {}) {
       history: accountHistory || MOCK_ACCOUNT_HISTORY,
       resources: resources ? { ...MOCK_RESOURCES, ...resources } : MOCK_RESOURCES,
       government: MOCK_GOVERNMENT,
+      // GAMEPLAY-LONG: registro strutturato degli impegni (il motore è l'autorità).
+      commitments: MOCK_COMMITMENTS,
     }));
   // La nazione fa debito: il mock risponde con un titolo deterministico.
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/finance/borrow`, (route) => {

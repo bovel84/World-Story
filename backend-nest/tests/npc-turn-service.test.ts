@@ -43,6 +43,142 @@ function makeService(npcCountryIds: string[] = []) {
   return { svc, regions, calls };
 }
 
+describe('NpcTurnService — eventi causali (GAMEPLAY-LONG)', () => {
+  /**
+   * Mondo a un solo proprietario (FRA), così la causa è univoca: gli eventi non
+   * dipendono dall'ordine alfabetico delle politie.
+   */
+  const causalService = (
+    regions: Array<Record<string, unknown>>,
+    options: { relationship?: string; neighbourPower?: number; neighbour?: boolean } = {},
+  ) => {
+    const map = new Map<string, any>();
+    regions.forEach((def, index) => {
+      map.set(`r${index}`, {
+        id: `r${index}`, name: `Città ${index}`, owner: 'FRA', color: '#fff',
+        borders: options.neighbour ? ['n0'] : [], population: 10, gdp: 10, militaryPower: 10,
+        objects: [], status: 'active', ...def,
+      });
+    });
+    if (options.neighbour) {
+      map.set('n0', {
+        id: 'n0', name: 'Vienna', owner: 'AUT', color: '#eee', borders: ['r0'],
+        population: 10, gdp: 10, militaryPower: 10, objects: [], status: 'active',
+      });
+    }
+    const svc = new NpcTurnService({
+      regions: () => map,
+      playerPolityId: () => 'PLAYER',
+      currentTurn: () => 1,
+      results: () => [],
+      gameController: { getNPCCountries: () => [], processNPCTurn: async () => ({ type: 'develop' }) },
+      relationship: () => options.relationship ?? 'neutral',
+      transferRegion: () => {},
+      publicPolityName: id => (id === 'FRA' ? 'Francia' : id === 'AUT' ? 'Austria' : 'Italia'),
+      nationalMilitaryPower: () => options.neighbourPower ?? 10,
+    });
+    return { svc, regions: map };
+  };
+
+  it('la fame nasce dal PIL per abitante, non dal caso', () => {
+    const { svc, regions } = causalService([{ population: 100, gdp: 30, militaryPower: 2 }]);
+    const before = JSON.parse(JSON.stringify([...regions.values()]));
+    const events = svc.applyRandomEvents();
+    expect(events[0]).toContain('Carestia');
+    // L'evento **osserva** lo stato: le cifre le muove il motore, non il fatto narrato.
+    expect([...regions.values()]).toEqual(before);
+  });
+
+  it('lo sforzo militare insostenibile pesa sulle casse civili', () => {
+    const { svc } = causalService([{ population: 100, gdp: 100, militaryPower: 150 }]);
+    const events = svc.applyRandomEvents();
+    expect(events[0]).toContain('sforzo militare');
+    expect(events[0]).toContain('Francia');
+  });
+
+  it('la stessa condizione non si ripete a ogni battito', () => {
+    let turn = 1;
+    const map = new Map<string, any>();
+    map.set('r0', { id: 'r0', name: 'Città 0', owner: 'FRA', color: '#fff', borders: [], population: 100, gdp: 30, militaryPower: 2, objects: [], status: 'active' });
+    const svc = new NpcTurnService({
+      regions: () => map, playerPolityId: () => 'PLAYER', currentTurn: () => turn, results: () => [],
+      gameController: { getNPCCountries: () => [], processNPCTurn: async () => ({ type: 'develop' }) },
+      relationship: () => 'neutral', transferRegion: () => {}, publicPolityName: () => 'Francia',
+    });
+    expect(svc.applyRandomEvents()[0]).toContain('Carestia');
+    const orig = Math.random;
+    Math.random = () => 0.9;
+    try {
+      // Turno successivo: la carestia è ancora vera, ma il dispaccio non la ripete.
+      turn = 2;
+      expect(svc.applyRandomEvents()).toEqual([]);
+      // Dopo il raffreddamento la condizione torna a farsi sentire.
+      turn = 6;
+      expect(svc.applyRandomEvents()[0]).toContain('Carestia');
+    } finally { Math.random = orig; }
+  });
+
+  it('l’escalation richiede una relazione ostile e uno squilibrio di forze', () => {
+    const hostile = causalService([{ population: 100, gdp: 100, militaryPower: 100 }], {
+      relationship: 'hostile', neighbour: true, neighbourPower: 40,
+    });
+    expect(hostile.svc.applyRandomEvents()[0]).toContain('Manovre al confine');
+    // Senza ostilità registrata non c’è escalation: nessun evento inventato.
+    const peaceful = causalService([{ population: 100, gdp: 100, militaryPower: 100 }], {
+      relationship: 'neutral', neighbour: true, neighbourPower: 40,
+    });
+    const orig = Math.random;
+    Math.random = () => 0.9;
+    try {
+      expect(peaceful.svc.applyRandomEvents()).toEqual([]);
+    } finally { Math.random = orig; }
+    // Con ostilità ma senza superiorità non si schierano forze.
+    const balanced = causalService([{ population: 100, gdp: 100, militaryPower: 30 }], {
+      relationship: 'hostile', neighbour: true, neighbourPower: 100,
+    });
+    Math.random = () => 0.9;
+    try {
+      expect(balanced.svc.applyRandomEvents()).toEqual([]);
+    } finally { Math.random = orig; }
+  });
+
+  it('le tensioni territoriali emergono da molte province povere', () => {
+    const poor = causalService(Array.from({ length: 6 }, () => ({ population: 100, gdp: 100, militaryPower: 1 })));
+    expect(poor.svc.applyRandomEvents()[0]).toContain('Tensioni provinciali');
+    // Poche province: nessuna tensione territoriale, quindi nessuna causa.
+    const small = causalService([{ population: 100, gdp: 100, militaryPower: 1 }]);
+    const orig = Math.random;
+    Math.random = () => 0.9;
+    try {
+      expect(small.svc.applyRandomEvents()).toEqual([]);
+    } finally { Math.random = orig; }
+  });
+
+  it('l’innovazione segnala la ricchezza diffusa, ma non in presenza di ostilità', () => {
+    const rich = causalService([{ population: 100, gdp: 400, militaryPower: 20 }]);
+    const events = rich.svc.applyRandomEvents();
+    expect(events[0]).toContain('Innovazione');
+    const atWar = causalService([{ population: 100, gdp: 400, militaryPower: 20 }], {
+      relationship: 'hostile', neighbour: true, neighbourPower: 10,
+    });
+    expect(atWar.svc.applyRandomEvents()[0]).not.toContain('Innovazione');
+  });
+
+  it('lo stato che non offre cause lascia spazio al solo rumore secondario', () => {
+    const { svc, regions } = causalService([{ population: 10, gdp: 10, militaryPower: 10 }]);
+    const orig = Math.random;
+    Math.random = () => 0.9;
+    try {
+      expect(svc.applyRandomEvents()).toEqual([]);
+    } finally { Math.random = orig; }
+    Math.random = () => 0;
+    try {
+      expect(svc.applyRandomEvents()[0]).toContain('Terremoto');
+      expect(regions.get('r0').population).toBe(Math.floor(10 * 0.95));
+    } finally { Math.random = orig; }
+  });
+});
+
 describe('NpcTurnService — eventi casuali', () => {
   it('nessun evento sopra la soglia', () => {
     const { svc } = makeService();

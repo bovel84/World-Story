@@ -15,15 +15,21 @@
  * dall'esterno i conti e le opzioni del motore tramite `NationStateContext`.
  */
 
-import { resourceRepository, naturalResourceRepository, modifiersRepository, gameRepository, type PressureRecord } from '../repositories';
+import { resourceRepository, naturalResourceRepository, modifiersRepository, gameRepository, factionMemoryRepository, type PressureRecord } from '../repositories';
 import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, materialNeeds, normalizeStock, overdraftOf, seedStock, storageCapacity, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { averageMaturityYears, describeDebtTranche, marketRatePct } from '../core/simulation/SovereignDebt';
 import {
   advanceLedger, applyGlobalExtraction, effectiveEndowment, emptyMarket, marketQuote, seedLedger, seedMarket, summarizeLedger,
   type ResourceLedger, type WorldMarket,
 } from '../core/simulation/ResourceMarket';
-import { generatePressures, type PressureEffect, type PressureNeighbour, type PressureSnapshot, type RelationStance } from '../core/simulation/PeacetimePressures';
+import {
+  PRESSURE_MAX_ACTIVE, generatePressures, highlightPressures, pressurePriority, pressureWindow, scalePressureEffect,
+  type PressureEffect, type PressureNeighbour, type PressureSnapshot, type PressureWindow, type RelationStance,
+} from '../core/simulation/PeacetimePressures';
 import { advanceCrisis, type CrisisEnding, type CrisisInput, type CrisisState } from '../core/simulation/NationCrisis';
+import { factionMemoryFromPressure, type FactionMemoryEvent } from '../core/simulation/FactionMemory';
+import type { GovernmentMemoryInput } from '../core/simulation/GovernmentFactions';
+import { daysBetween } from '../core/simulation/calendar';
 import { NATURAL_RESOURCE_KINDS, naturalResourcesFor, type NaturalEndowment, type NaturalResourceKind } from '../core/simulation/MilitaryIndustry';
 import { EMPTY_MODIFIERS, applyArsenalEffects, applyModifierEffects, applyStockEffects, decayModifiers, describeNationalEffects, hasModifiers, parseNationalEffects, type NationalEffect, type NationalModifiers } from '../core/simulation/NationalEffects';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
@@ -65,6 +71,15 @@ export interface NationStateContext {
   resolvePolity(name: string): string | undefined;
   arsenalUnits(polityId: string): Record<string, number>;
   saveArsenal(polityId: string, units: Record<string, number>): void;
+}
+
+/** Sfida di pace come la vede la UI: finestra temporale, priorità e evidenza. */
+export interface PressureView extends PressureRecord {
+  window: PressureWindow;
+  /** P0/P2: `critica` | `rilevante` | `ordinaria`. */
+  priority: string;
+  /** Merita attenzione adesso (max 2 per volta, salvo crisi). */
+  highlighted: boolean;
 }
 
 export class NationStateService {
@@ -498,43 +513,174 @@ export class NationStateService {
       // le ha risolte tutte), non se ne inventano altre a metà turno.
       const currentTurn = this.ctx.currentTurn();
       if (gameRepository.listPressures(this.ctx.gameId).some(record => record.createdTurn === currentTurn)) return;
-      const pressures = generatePressures(this.pressureSnapshot(), { maxPressures: 3 });
-      gameRepository.insertPressures(this.ctx.gameId, this.ctx.playerPolityId(), pressures, this.ctx.currentDate(), currentTurn);
+      this.openNewPressures();
     } catch (error) {
       console.warn('[GameSession] Pressioni di pace non disponibili:', error);
     }
   }
 
   /**
-   * Chiude il turno delle pressioni: le sfide ignorate pesano (inerzia) e ne
-   * nascono di nuove dagli indicatori aggiornati.
+   * Finestra temporale di una sfida già aperta, rispetto alla data corrente.
+   * GAMEPLAY-LONG: il tempo trascorso è quello del calendario di gioco, quindi
+   * un avanzamento di 7 giorni e uno di 365 non producono lo stesso stato.
+   */
+  private pressureWindowOf(record: PressureRecord): PressureWindow {
+    const fallback = record.createdDate;
+    const from = fallback || this.ctx.currentDate();
+    return pressureWindow(
+      {
+        createdDate: from,
+        durationDays: record.durationDays,
+        severity: record.severity,
+        escalated: record.escalated,
+      },
+      this.ctx.currentDate(),
+      daysBetween(from, this.ctx.currentDate()),
+    );
+  }
+
+  /**
+   * Apre nuove sfide solo se c'è spazio e se non sono già aperte: le stesse
+   * questioni non si ripetono mentre il giocatore le sta ancora valutando — è
+   * il modo più semplice per non trasformare il gioco in una pila di notifiche
+   * (P2). La generazione resta deterministica e basata sugli indicatori correnti.
+   */
+  private openNewPressures(): void {
+    const active = gameRepository.listPressures(this.ctx.gameId, 'active');
+    const room = PRESSURE_MAX_ACTIVE - active.length;
+    if (room <= 0) return;
+    const openTemplates = new Set(active.map(record => record.template));
+    const candidate = generatePressures(this.pressureSnapshot(), { maxPressures: room })
+      .filter(pressure => !openTemplates.has(pressure.template));
+    if (candidate.length === 0) return;
+    gameRepository.insertPressures(
+      this.ctx.gameId, this.ctx.playerPolityId(), candidate, this.ctx.currentDate(), this.ctx.currentTurn(),
+    );
+  }
+
+  /**
+   * Fa scorrere il tempo delle sfide di pace:
+   *
+   *  - le sfide **nei termini restano aperte** (non scadono più ogni turno);
+   *  - una sfida **oltre la scadenza** applica l'effetto dell'inerzia e si chiude;
+   *  - una sfida **grave** che resta aperta oltre il 60% della sua finestra
+   *    peggiora una volta sola, con **metà** dell'effetto di inazione: il tempo
+   *    che passa non è gratis, ma nemmeno la condanna immediata;
+   *  - se c'è spazio, nascono nuove sfide dagli indicatori aggiornati.
    */
   refreshPeacetimePressures(): void {
     try {
-      const expired = gameRepository.expirePressures(this.ctx.gameId);
-      for (const record of expired) {
-        this.ctx.applyPressureEffect(record.inaction, `${record.title}: sfida ignorata`);
+      const active = gameRepository.listPressures(this.ctx.gameId, 'active');
+      for (const record of active) {
+        const window = this.pressureWindowOf(record);
+        if (window.expired) {
+          if (gameRepository.expirePressure(this.ctx.gameId, record.id, this.ctx.currentDate())) {
+            this.ctx.applyPressureEffect(record.inaction, `${record.title}: sfida ignorata oltre la scadenza`);
+            // GAMEPLAY-LONG: chi aveva portato la richiesta non dimentica il silenzio.
+            this.recordPressureMemory(record, null, record.inaction, null);
+          }
+          continue;
+        }
+        if (window.escalationDue) {
+          const escalated = scalePressureEffect(record.inaction);
+          if (gameRepository.markPressureEscalated(this.ctx.gameId, record.id, this.ctx.currentDate())) {
+            this.ctx.applyPressureEffect(escalated, `${record.title}: la sfida si inasprisce (${window.daysElapsed} giorni senza risposta)`);
+          }
+        }
       }
-      const pressures = generatePressures(this.pressureSnapshot(), { maxPressures: 3 });
-      gameRepository.insertPressures(this.ctx.gameId, this.ctx.playerPolityId(), pressures, this.ctx.currentDate(), this.ctx.currentTurn());
+      this.openNewPressures();
     } catch (error) {
       console.warn('[GameSession] Pressioni di pace non disponibili:', error);
     }
   }
 
+  // ── Memoria politica delle fazioni (GAMEPLAY-LONG P1) ───────────────────
+
   /**
-   * Le sfide del momento per il dossier: attive da risolvere e le ultime
-   * chiuse, così il giocatore vede anche l'eco delle scelte passate.
+   * Registra nella memoria politica ciò che una decisione ha significato:
+   * il motore ha già applicato l'effetto, qui si annota **chi** ne esce
+   * favorito o danneggiato. Nessun umore inventato e nessuna scrittura di
+   * numeri: la soddisfazione resta derivata dal bilancio.
+   */
+  recordPressureMemory(
+    record: PressureRecord,
+    optionId: string | null,
+    effect: PressureEffect | null | undefined,
+    optionLabel?: string | null,
+  ): FactionMemoryEvent[] {
+    if (this.ctx.isStrictGame()) return [];
+    try {
+      const events = factionMemoryFromPressure({
+        pressureId: record.id,
+        template: record.template,
+        kind: record.kind,
+        title: record.title,
+        severity: Number(record.severity) || 1,
+        gameDate: this.ctx.currentDate(),
+        turn: this.ctx.currentTurn(),
+        optionId,
+        optionLabel: optionLabel ?? null,
+        effect: effect ?? null,
+      });
+      factionMemoryRepository.insertMany(this.ctx.gameId, this.ctx.playerPolityId(), events);
+      return events;
+    } catch (error) {
+      // La memoria non deve mai bloccare una decisione di gioco.
+      console.warn('[NationStateService] Memoria delle fazioni non disponibile:', error);
+      return [];
+    }
+  }
+
+  /** Memoria politica della nazione giocatore, pronta per la fotografia del governo. */
+  governmentMemory(): GovernmentMemoryInput | null {
+    if (this.ctx.isStrictGame()) return null;
+    try {
+      const events = factionMemoryRepository.list(this.ctx.gameId, { polityId: this.ctx.playerPolityId() });
+      if (events.length === 0) return null;
+      return { events, today: this.ctx.currentDate() };
+    } catch (error) {
+      console.warn('[NationStateService] Memoria delle fazioni non leggibile:', error);
+      return null;
+    }
+  }
+
+  /** Pota la memoria dopo un salto indietro: il passato riscritto non lascia tracce. */
+  pruneFactionMemoryAfterTurn(turn: number): number {
+    try {
+      return factionMemoryRepository.deleteAfterTurn(this.ctx.gameId, turn);
+    } catch (error) {
+      console.warn('[NationStateService] Potatura della memoria non riuscita:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Le sfide del momento per il dossier: attive da risolvere (con la loro
+   * finestra temporale) e le ultime chiuse, così il giocatore vede anche l'eco
+   * delle scelte passate. P2: solo le più urgenti vanno evidenziate, le altre
+   * restano nel dossier senza interrompere.
    */
   getPeacetimePressures(hasEnding: boolean): {
-    pressures: PressureRecord[];
+    pressures: PressureView[];
     recent: PressureRecord[];
     foodCoverageMonths: number | null;
   } {
     const all = gameRepository.listPressures(this.ctx.gameId);
+    // Dopo il collasso non c'è più niente da decidere.
+    const active = hasEnding ? [] : all.filter(record => record.status === 'active');
+    const windows: Record<string, Pick<PressureWindow, 'expired' | 'urgency' | 'daysElapsed' | 'daysLeft'>> = {};
+    const withWindow = active.map(record => {
+      const window = this.pressureWindowOf(record);
+      windows[record.id] = window;
+      return {
+        ...record,
+        window,
+        priority: pressurePriority(record, window),
+      };
+    });
+    const highlighted = highlightPressures(withWindow, windows);
     return {
-      // Dopo il collasso non c'è più niente da decidere.
-      pressures: hasEnding ? [] : all.filter(record => record.status === 'active'),
+      pressures: withWindow.map(record => ({ ...record, highlighted: highlighted.has(record.id) })),
       recent: all.filter(record => record.status !== 'active').slice(0, 6),
       foodCoverageMonths: this.foodCoverageMonths(),
     };
@@ -585,7 +731,7 @@ export class NationStateService {
    */
   peekCrisis(): CrisisState {
     const previous = gameRepository.getCrisisState(this.ctx.gameId);
-    return advanceCrisis(this.crisisInput(), previous?.streaks ?? {}, {
+    return advanceCrisis(this.crisisInput(), previous ?? {}, {
       turn: this.ctx.currentTurn(),
       date: this.ctx.currentDate(),
       advance: false,
@@ -593,21 +739,37 @@ export class NationStateService {
   }
 
   /**
-   * Valuta la crisi. Con `advance` (default) fa scorrere la scala di un turno;
-   * senza, è una lettura pura per il dossier. Se il collasso scatta, chiude la
-   * partita una volta sola.
+   * Giorni di calendario trascorsi dall'ultima valutazione della crisi.
+   *
+   * GAMEPLAY-LONG: la crisi progredisce sul TEMPO TRASCORSO, non sul numero di
+   * turni. La data dell'ultima valutazione è persistita in `game_crisis_state`,
+   * quindi un salto di 7 giorni e uno di 365 pesano in modo diverso. Senza una
+   * valutazione precedente (primo turno di una partita) non c'è tempo da
+   * accumulare: 0, e nessun collasso può scattare al primo passo.
+   */
+  private crisisElapsedDays(previous: { updatedDate?: string | null } | null): number {
+    if (!previous?.updatedDate) return 0;
+    return daysBetween(previous.updatedDate, this.ctx.currentDate());
+  }
+
+  /**
+   * Valuta la crisi. Con `advance` (default) fa scorrere la scala dei giorni
+   * trascorsi; senza, è una lettura pura per il dossier. Se il collasso scatta,
+   * chiude la partita una volta sola.
    */
   evaluateCrisis(advance = true): CrisisState {
     const previous = gameRepository.getCrisisState(this.ctx.gameId);
-    const state = advanceCrisis(this.crisisInput(), previous?.streaks ?? {}, {
+    const state = advanceCrisis(this.crisisInput(), previous ?? {}, {
       turn: this.ctx.currentTurn(),
       date: this.ctx.currentDate(),
       advance,
+      days: this.crisisElapsedDays(previous),
     });
     try {
       gameRepository.saveCrisisState({
         gameId: this.ctx.gameId,
-        streaks: state.streaks,
+        criticalDays: state.criticalDays,
+        episodes: state.episodes,
         overall: state.level,
         ending: state.ending ?? previous?.ending ?? null,
         updatedTurn: this.ctx.currentTurn(),

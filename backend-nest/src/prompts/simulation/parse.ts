@@ -30,6 +30,7 @@ const SIMULATION_SHAPE_KEYS = [
   'actionOutcomes', 'action_outcomes', 'voided', 'rejected',
   'startChat', 'start_chat', 'relationshipChanges', 'relationship_changes',
   'diplomacy', 'worldChanges', 'world_changes', 'targetDate', 'target_date', 'effects',
+  'commitments', 'commitmentUpdates', 'commitment_updates',
 ] as const;
 
 /**
@@ -424,6 +425,18 @@ export function parseSimulationResponse(text: string): SimulationResult {
       actionOutcomes,
       voided,
       startChat,
+      // GAMEPLAY-LONG: il registro degli impegni è facoltativo e viene
+      // validato dal motore; qui si mantiene solo ciò che è un oggetto.
+      ...(Array.isArray(parsed.commitments)
+        ? { commitments: parsed.commitments.filter((item: unknown) => item && typeof item === 'object' && !Array.isArray(item)).slice(0, 8) as Array<Record<string, unknown>> }
+        : {}),
+      ...(Array.isArray(parsed.commitmentUpdates || parsed.commitment_updates)
+        ? {
+            commitmentUpdates: (parsed.commitmentUpdates || parsed.commitment_updates)
+              .filter((item: unknown) => item && typeof item === 'object' && !Array.isArray(item))
+              .slice(0, 8) as Array<Record<string, unknown>>,
+          }
+        : {}),
       relationshipChanges,
       targetDate: firstString(parsed.targetDate, parsed.target_date),
       effects,

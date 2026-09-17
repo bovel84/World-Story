@@ -15,6 +15,8 @@
  * gli stessi tetti degli altri effetti nazionali.
  */
 
+import { addDays } from './calendar';
+
 export type PressureKind = 'internal' | 'external';
 
 export type RelationStance = 'ally' | 'neutral' | 'hostile';
@@ -57,6 +59,161 @@ export interface Pressure {
   options: PressureOption[];
   /** Conseguenza se il turno passa senza una scelta. */
   inaction: PressureEffect;
+  /**
+   * GAMEPLAY-LONG: finestra di decisione in GIORNI DI CALENDARIO. Una sfida non
+   * dura «un turno»: resta aperta finché il tempo trascorso non supera la
+   * finestra, poi l'inerzia presenta il conto. Più grave = finestra più corta.
+   */
+  durationDays: number;
+}
+
+/* ------------------------------------------------------------------ *
+ * Finestra temporale delle sfide (tempo di calendario)
+ * ------------------------------------------------------------------ */
+
+/** Giorni di decisione concessi per gravità: una sfida grave non aspetta. */
+export const PRESSURE_DURATION_DAYS: Record<1 | 2 | 3, number> = { 1: 120, 2: 90, 3: 60 };
+/** Frazione della finestra oltre la quale una sfida grave peggiora da sola. */
+export const PRESSURE_ESCALATION_AT = 0.6;
+/** Quanto dell'effetto di inazione si paga nell'escalation (mezza dose). */
+export const PRESSURE_ESCALATION_SHARE = 0.5;
+/** Quante sfide possono restare aperte insieme: oltre, il dossier basta. */
+export const PRESSURE_MAX_ACTIVE = 3;
+/** Fino a quante sfide meritano un posto in evidenza (P2: meno micro-management). */
+export const PRESSURE_MAX_HIGHLIGHTED = 2;
+
+/**
+ * Data di scadenza di una sfida: apertura + finestra in giorni di calendario.
+ * Deterministica e senza fuso orario (usa il calendario di gioco).
+ */
+export function pressureDeadline(createdDate: string, durationDays: number): string {
+  const duration = Math.max(1, Math.floor(Number(durationDays) || 0)) || 1;
+  try {
+    return addDays(createdDate, duration);
+  } catch {
+    return createdDate;
+  }
+}
+
+/** Finestra di decisione di una sfida, dalla sua gravità. */
+export function pressureDurationDays(severity: number): number {
+  const level = (severity >= 3 ? 3 : severity === 2 ? 2 : 1) as 1 | 2 | 3;
+  return PRESSURE_DURATION_DAYS[level];
+}
+
+/**
+ * Stato della finestra di una sfida rispetto alla data corrente: quanto tempo
+ * è passato, quanto ne resta, se è scaduta e se una sfida grave deve già
+ * peggiorare prima della scadenza.
+ */
+export interface PressureWindow {
+  /** Giorni trascorsi dall'apertura. */
+  daysElapsed: number;
+  /** Giorni che restano prima della scadenza (0 se scaduta). */
+  daysLeft: number;
+  /** Oltre la scadenza: l'inerzia presenta il conto. */
+  expired: boolean;
+  /** Una sfida grave peggiora prima della scadenza se il tempo trascorso è molto. */
+  escalationDue: boolean;
+  /** Leggibilità per UI e prompt. */
+  urgency: 'scaduta' | 'imminente' | 'prossima' | 'aperta';
+}
+
+/**
+ * Valuta la finestra di una sfida. `daysElapsed` è calcolato sulla data di
+ * apertura, quindi un salto di 7 giorni e uno di 365 danno risposte diverse.
+ * `escalated` evita di applicare due volte il peggioramento.
+ */
+export function pressureWindow(
+  pressure: { createdDate: string; durationDays?: number | null; severity?: number; escalated?: boolean },
+  currentDate: string,
+  daysElapsedInput?: number,
+): PressureWindow {
+  const duration = Math.max(1, Math.floor(Number(pressure.durationDays) || pressureDurationDays(Number(pressure.severity) || 1)));
+  const elapsed = Math.max(0, Math.floor(Number(daysElapsedInput) || 0));
+  const left = Math.max(0, duration - elapsed);
+  const expired = elapsed > duration;
+  const escalationDue = !expired
+    && !pressure.escalated
+    && Number(pressure.severity) >= 2
+    && elapsed >= Math.round(duration * PRESSURE_ESCALATION_AT);
+  const urgency: PressureWindow['urgency'] = expired
+    ? 'scaduta'
+    : left <= 15
+      ? 'imminente'
+      // Metà finestra consumata: la scadenza si avvicina.
+      : elapsed * 2 >= duration
+        ? 'prossima'
+        : 'aperta';
+  return { daysElapsed: elapsed, daysLeft: left, expired, escalationDue, urgency };
+}
+
+const round2 = (value: number) => Math.round(value * 100) / 100;
+/** I modificatori di crescita/gettito sono frazioni piccole: servono più decimali. */
+const round4 = (value: number) => Math.round(value * 10_000) / 10_000;
+
+/**
+ * Riduce un effetto a una frazione: serve all'escalation, che è **metà**
+ * dell'effetto di inazione — mai un numero inventato, solo la stessa
+ * conseguenza applicata in anticipo e più leggera.
+ */
+export function scalePressureEffect(effect: PressureEffect, share = PRESSURE_ESCALATION_SHARE): PressureEffect {
+  const factor = Math.max(0, Math.min(1, Number(share) || 0));
+  const scaled: PressureEffect = { note: effect.note };
+  for (const key of ['stability', 'socialTension'] as const) {
+    const value = Number(effect[key]);
+    if (Number.isFinite(value) && value !== 0) scaled[key] = Math.round(value * factor);
+  }
+  for (const key of ['growthModifier', 'revenueMultiplierDelta'] as const) {
+    const value = Number(effect[key]);
+    if (Number.isFinite(value) && value !== 0) scaled[key] = round4(value * factor);
+  }
+  {
+    const value = Number(effect.moneyDeltaMld);
+    if (Number.isFinite(value) && value !== 0) scaled.moneyDeltaMld = round2(value * factor);
+  }
+  if (effect.relationship) scaled.relationship = { ...effect.relationship };
+  return scaled;
+}
+
+/**
+ * Priorità di una sfida per il briefing (P2): non tutte le questioni hanno lo
+ * stesso peso. `critica` = gravità 3 o scadenza imminente; `rilevante` =
+ * gravità 2 o finestra oltre metà; `ordinaria` = il resto, che resta nel
+ * dossier senza interrompere il giocatore.
+ */
+export type PressurePriority = 'critica' | 'rilevante' | 'ordinaria';
+
+export function pressurePriority(
+  pressure: { severity?: number },
+  window: Pick<PressureWindow, 'expired' | 'urgency' | 'daysElapsed' | 'daysLeft'>,
+): PressurePriority {
+  const severity = Number(pressure.severity) || 1;
+  if (window.expired || severity >= 3 || window.urgency === 'imminente') return 'critica';
+  if (severity === 2 || window.daysElapsed > window.daysLeft) return 'rilevante';
+  return 'ordinaria';
+}
+
+/**
+ * Sceglie quali sfide meritano di essere evidenziate: al massimo
+ * `PRESSURE_MAX_HIGHLIGHTED`, le più urgenti. Le altre restano attive nella
+ * lista completa — visibili, ma senza chiedere attenzione.
+ */
+export function highlightPressures<T extends { id: string; severity?: number }>(
+  pressures: T[],
+  windows: Record<string, Pick<PressureWindow, 'expired' | 'urgency' | 'daysElapsed' | 'daysLeft'>>,
+  max = PRESSURE_MAX_HIGHLIGHTED,
+): Set<string> {
+  const rank: Record<PressurePriority, number> = { critica: 0, rilevante: 1, ordinaria: 2 };
+  const ordered = [...pressures].sort((left, right) => {
+    const a = rank[pressurePriority(left, windows[left.id])];
+    const b = rank[pressurePriority(right, windows[right.id])];
+    if (a !== b) return a - b;
+    const severityDiff = (Number(right.severity) || 1) - (Number(left.severity) || 1);
+    if (severityDiff !== 0) return severityDiff;
+    return left.id.localeCompare(right.id);
+  });
+  return new Set(ordered.slice(0, Math.max(0, max)).map(item => item.id));
 }
 
 export interface PressureNeighbour {
@@ -141,8 +298,11 @@ function severityFor(score: number): 1 | 2 | 3 {
  * Modelli di pressione
  * ------------------------------------------------------------------ */
 
+/** Bozza di sfida: gravità e finestra sono decise dal generatore. */
+type PressureDraft = Omit<Pressure, 'severity' | 'durationDays'>;
+
 interface Candidate {
-  pressure: Pressure;
+  pressure: PressureDraft & { severity: 1 | 2 | 3 };
   score: number;
 }
 
@@ -151,7 +311,7 @@ type Builder = (snapshot: PressureSnapshot, rng: () => number) => Candidate | nu
 
 const MAX_SCORE = 3;
 
-function candidate(pressure: Omit<Pressure, 'severity'>, score: number): Candidate {
+function candidate(pressure: PressureDraft, score: number): Candidate {
   const bounded = Math.max(0, Math.min(MAX_SCORE, score));
   return { pressure: { ...pressure, severity: severityFor(bounded) }, score: bounded };
 }
@@ -647,7 +807,12 @@ export function generatePressures(snapshot: PressureSnapshot, options: GenerateO
 
   // L'id è unico per turno: la stessa sfida può tornare in turni diversi senza
   // collidere con la versione già chiusa (che resta nella memoria del dossier).
-  const withTurn = (pressure: Pressure): Pressure => ({ ...pressure, id: `${pressure.id}#t${snapshot.turn}` });
+  // GAMEPLAY-LONG: ogni sfida nasce con la propria finestra di calendario.
+  const withTurn = (pressure: PressureDraft & { severity: 1 | 2 | 3 }): Pressure => ({
+    ...pressure,
+    id: `${pressure.id}#t${snapshot.turn}`,
+    durationDays: pressureDurationDays(pressure.severity),
+  });
   return dedupe(chosen.map(item => withTurn(item.pressure)));
 }
 
@@ -672,6 +837,9 @@ function dedupe(pressures: Pressure[]): Pressure[] {
 }
 
 /** Riepilogo compatto per prompt e bollettino. */
-export function describePressure(pressure: Pressure): string {
-  return `${pressure.title} (${pressure.kind === 'internal' ? 'interna' : 'esterna'}, gravità ${pressure.severity}/3): ${pressure.detail}`;
+export function describePressure(pressure: Pressure, window?: PressureWindow): string {
+  const base = `${pressure.title} (${pressure.kind === 'internal' ? 'interna' : 'esterna'}, gravità ${pressure.severity}/3): ${pressure.detail}`;
+  if (!window) return base;
+  if (window.expired) return `${base} — scaduta: la conseguenza dell'inazione è già arrivata.`;
+  return `${base} — aperta da ${window.daysElapsed} giorni, ne restano ${window.daysLeft} prima che l'inerzia presenti il conto.`;
 }

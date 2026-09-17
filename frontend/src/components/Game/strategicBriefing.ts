@@ -11,10 +11,13 @@
  */
 
 import type {
-  CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, PeacetimePressure,
+  Commitment, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, PeacetimePressure, PowerAgenda,
 } from '../../services/api';
 import type { NationAccount, NationResources } from './NationDock/types';
-import { councilPresence } from './governmentDossier';
+import { councilPresence, resentfulFactions } from './governmentDossier';
+import { pressureWindowText, splitPressuresByAttention } from './pressureWindow';
+import { agendaBriefingDetail, mostUrgentAgenda } from './powersAgenda';
+import { commitmentBriefingLine, commitmentStatusLabel, commitmentTypeLabel } from './commitments';
 
 /** Gravità di una voce del briefing. */
 export type BriefingSeverity = 'critical' | 'warning' | 'opportunity' | 'positive' | 'info';
@@ -83,6 +86,13 @@ export interface StrategicBriefingInput {
   worldFacts?: ReadonlyArray<BriefingWorldFact> | null;
   /** Quadro diplomatico derivato dal read model LW06. */
   diplomacy?: { allies: readonly string[]; hostiles: readonly string[] } | null;
+  /** GAMEPLAY-LONG: strategie in corso delle potenze del teatro. */
+  strategicAgenda?: { powers?: PowerAgenda[] | null } | null;
+  playerPolityId?: string | null;
+  /** GAMEPLAY-LONG: registro degli impegni (solo quelli che stringono). */
+  commitments?: { commitments?: Commitment[] | null; attention?: Commitment[] | null } | null;
+  /** Data del mondo: serve a leggere le scadenze, non a inventarle. */
+  today?: string;
 }
 
 const ICON: Record<BriefingSeverity, string> = {
@@ -152,14 +162,70 @@ export function deriveStrategicBriefing(input: StrategicBriefingInput): Strategi
   }
 
   // --- 2. Sfide del momento ------------------------------------------------
+  // GAMEPLAY-LONG P2: il mondo non deve diventare una pila di notifiche. Il
+  // briefing evidenzia solo le questioni che il MOTORE segnala come urgenti
+  // (`highlighted`, al massimo due) e riassume le altre in una riga: restano
+  // nel dossier, a un clic di distanza, senza interrompere il giocatore.
   const activePressures = (input.pressures ?? []).filter(p => p.status === 'active');
-  for (const pressure of activePressures) {
+  const { highlighted, dossier } = splitPressuresByAttention(activePressures);
+  for (const pressure of highlighted) {
     items.push({
       id: `pressure-${pressure.id}`,
-      severity: pressure.severity >= 3 ? 'warning' : 'info',
-      icon: pressure.severity >= 3 ? ICON.warning : ICON.info,
+      severity: pressure.severity >= 3 || pressure.priority === 'critica' ? 'warning' : 'info',
+      icon: pressure.severity >= 3 || pressure.priority === 'critica' ? ICON.warning : ICON.info,
       label: `${pressure.kind === 'external' ? 'Sfida estera' : 'Sfida interna'}: ${pressure.title}`,
-      detail: `Gravità ${pressure.severity}/3 · ${pressure.source}`,
+      detail: [pressureWindowText(pressure.window), `Gravità ${pressure.severity}/3 · ${pressure.source}`]
+        .filter(Boolean).join(' · '),
+    });
+  }
+  if (dossier.length > 0) {
+    items.push({
+      id: 'pressure-dossier',
+      severity: 'info',
+      icon: ICON.info,
+      label: `Altre Questioni nel dossier: ${dossier.length}`,
+      detail: dossier.map(pressure => pressure.title).join(' · '),
+    });
+  }
+
+  // --- 2b. Fazioni che non dimenticano (memoria politica, GAMEPLAY-LONG) ---
+  // P2: al massimo due righe. Il resto resta nella scheda del governo.
+  for (const { faction, memory } of resentfulFactions(input.government)) {
+    items.push({
+      id: `faction-resentment-${faction.id}`,
+      severity: memory.resentment >= 40 ? 'warning' : 'info',
+      icon: memory.resentment >= 40 ? ICON.warning : ICON.info,
+      label: `${faction.name} contesta il governo`,
+      detail: memory.text,
+    });
+  }
+
+  // --- 2c. Che cosa inseguono le potenze (una sola riga, P2) ---------------
+  // Il briefing non è un secondo dossier: qui entra solo la strategia più
+  // urgente fra quelle del motore, e solo se è davvero decisiva.
+  const urgentAgenda = mostUrgentAgenda(input.strategicAgenda, input.playerPolityId);
+  if (urgentAgenda) {
+    items.push({
+      id: `agenda-${urgentAgenda.polityId}`,
+      severity: 'info',
+      icon: ICON.info,
+      label: `Strategia di ${urgentAgenda.name}`,
+      detail: agendaBriefingDetail(urgentAgenda),
+    });
+  }
+
+  // --- 2d. Impegni che stringono (P2: solo quelli davvero urgenti) ---------
+  // Il registro completo vive nel Dossier; qui entra ciò che il motore segnala
+  // come meritevole di attenzione (scadenza vicina o importanza decisiva).
+  const today = input.today || '';
+  const attention = (input.commitments?.attention ?? []).slice(0, 2);
+  for (const commitment of attention) {
+    items.push({
+      id: `commitment-${commitment.id}`,
+      severity: commitment.status === 'broken' ? 'warning' : 'info',
+      icon: commitment.status === 'broken' ? ICON.warning : ICON.info,
+      label: `${commitmentTypeLabel(commitment.type)} ${commitmentStatusLabel(commitment.status)}`,
+      detail: commitmentBriefingLine(commitment, today),
     });
   }
 

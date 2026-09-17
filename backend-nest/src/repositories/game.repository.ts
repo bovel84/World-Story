@@ -7,7 +7,10 @@ import db from '../database';
 import { worldRepository } from './world.repository';
 import { semanticStateHash } from '../domain/semantic-hash';
 import { randomUUID } from 'node:crypto';
-import type { Pressure, PressureEffect, PressureKind, PressureOption } from '../core/simulation/PeacetimePressures';
+import {
+  pressureDeadline, pressureDurationDays,
+  type Pressure, type PressureEffect, type PressureKind, type PressureOption,
+} from '../core/simulation/PeacetimePressures';
 import type { CrisisDimension, CrisisLevel, EndingKind } from '../core/simulation/NationCrisis';
 
 function bumpQueueVersion(gameId: string): void {
@@ -827,20 +830,30 @@ export const gameRepository = {
     return rows.map(mapPressureRow);
   },
 
-  /** Registra le pressioni generate per un turno (idempotente sull'id). */
+  /**
+   * Registra le pressioni generate per un turno (idempotente sull'id).
+   * GAMEPLAY-LONG: con la finestra di calendario (`duration_days`) e la
+   * scadenza esplicita (`deadline_date`), così l'inerzia non arriva più al
+   * turno successivo ma alla scadenza.
+   */
   insertPressures: (gameId: string, polityId: string, pressures: Pressure[], date: string, turn: number): void => {
     if (pressures.length === 0) return;
     const stmt = db.prepare(`
       INSERT OR IGNORE INTO game_pressures
-        (id, game_id, polity_id, kind, template, title, detail, severity, source, options, inaction, status, created_date, created_turn)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+        (id, game_id, polity_id, kind, template, title, detail, severity, source, options, inaction, status,
+         created_date, created_turn, duration_days, deadline_date, escalated)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 0)
     `);
     db.transaction((items: Pressure[]) => {
       for (const pressure of items) {
+        const durationDays = Math.max(1, Math.floor(Number(pressure.durationDays) || 0))
+          || pressureDurationDays(pressure.severity);
+        const deadline = pressureDeadline(date, durationDays);
         stmt.run(
           pressure.id, gameId, polityId, pressure.kind, pressure.template, pressure.title,
           pressure.detail, pressure.severity, pressure.source,
           JSON.stringify(pressure.options), JSON.stringify(pressure.inaction), date, turn,
+          durationDays, deadline,
         );
       }
     })(pressures);
@@ -859,12 +872,25 @@ export const gameRepository = {
     return result.changes === 1;
   },
 
-  /** Marca come `expired` le pressioni attive non risolte di un turno passato. */
-  expirePressures: (gameId: string): PressureRecord[] => {
-    const active = gameRepository.listPressures(gameId, 'active');
-    if (active.length === 0) return [];
-    db.prepare("UPDATE game_pressures SET status = 'expired' WHERE game_id = ? AND status = 'active'").run(gameId);
-    return active;
+  /**
+   * Marca come `expired` UNA pressione scaduta: l'inerzia arriva quando il
+   * tempo trascorso supera la finestra, non a ogni nuovo turno.
+   */
+  expirePressure: (gameId: string, pressureId: string, date: string, resolution = 'Scaduta: la finestra di decisione è terminata e l\'inerzia ha presentato il conto.'): boolean => {
+    const result = db.prepare(`
+      UPDATE game_pressures SET status = 'expired', resolved_date = ?, resolution = ?
+       WHERE game_id = ? AND id = ? AND status = 'active'
+    `).run(date, resolution, gameId, pressureId);
+    return result.changes === 1;
+  },
+
+  /** Registra che una sfida grave è già peggiorata una volta (escalation). */
+  markPressureEscalated: (gameId: string, pressureId: string, date: string): boolean => {
+    const result = db.prepare(`
+      UPDATE game_pressures SET escalated = 1, escalated_date = ?
+       WHERE game_id = ? AND id = ? AND status = 'active' AND escalated = 0
+    `).run(date, gameId, pressureId);
+    return result.changes === 1;
   },
 
   /** Ripulisce le pressioni di una partita (usato dal rewind). */
@@ -879,16 +905,24 @@ export const gameRepository = {
     db.prepare('UPDATE games SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(status, gameId);
   },
 
-  /** Stato di crisi registrato (serie e epilogo), o `null` se mai valutato. */
+  /** Stato di crisi registrato (giorni critici, avvertimenti ed epilogo), o `null` se mai valutato. */
   getCrisisState: (gameId: string): CrisisStateRecord | null => {
     const row = db.prepare('SELECT * FROM game_crisis_state WHERE game_id = ?').get(gameId) as any;
     if (!row) return null;
     return {
       gameId: row.game_id,
-      streaks: {
+      // GAMEPLAY-LONG: le colonne `*_streak` conservano i GIORNI di criticità
+      // accumulati (nei salvataggi precedenti erano turni: 0-3 giorni, quindi
+      // innocui per la nuova soglia a 90 giorni).
+      criticalDays: {
         revolt: Number(row.revolt_streak || 0),
         insolvency: Number(row.insolvency_streak || 0),
         invasion: Number(row.invasion_streak || 0),
+      },
+      episodes: {
+        revolt: Number(row.revolt_episodes || 0),
+        insolvency: Number(row.insolvency_episodes || 0),
+        invasion: Number(row.invasion_episodes || 0),
       },
       overall: row.overall as CrisisLevel,
       ending: row.ending_kind
@@ -906,19 +940,23 @@ export const gameRepository = {
     };
   },
 
-  /** Salva serie e (se presente) epilogo. Idempotente per partita. */
+  /** Salva giorni critici, avvertimenti e (se presente) epilogo. Idempotente per partita. */
   saveCrisisState: (record: CrisisStateRecord) => {
     const ending = record.ending;
     db.prepare(`
       INSERT INTO game_crisis_state
-        (game_id, revolt_streak, insolvency_streak, invasion_streak, overall,
+        (game_id, revolt_streak, insolvency_streak, invasion_streak,
+         revolt_episodes, insolvency_episodes, invasion_episodes, overall,
          ending_kind, ending_dimension, ending_title, ending_summary, ending_date, ending_turn,
          updated_turn, updated_date)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(game_id) DO UPDATE SET
         revolt_streak = excluded.revolt_streak,
         insolvency_streak = excluded.insolvency_streak,
         invasion_streak = excluded.invasion_streak,
+        revolt_episodes = excluded.revolt_episodes,
+        insolvency_episodes = excluded.insolvency_episodes,
+        invasion_episodes = excluded.invasion_episodes,
         overall = excluded.overall,
         ending_kind = COALESCE(game_crisis_state.ending_kind, excluded.ending_kind),
         ending_dimension = COALESCE(game_crisis_state.ending_dimension, excluded.ending_dimension),
@@ -930,17 +968,20 @@ export const gameRepository = {
         updated_date = excluded.updated_date
     `).run(
       record.gameId,
-      record.streaks.revolt, record.streaks.insolvency, record.streaks.invasion,
+      record.criticalDays.revolt, record.criticalDays.insolvency, record.criticalDays.invasion,
+      record.episodes.revolt, record.episodes.insolvency, record.episodes.invasion,
       record.overall,
       ending?.kind ?? null, ending?.dimension ?? null, ending?.title ?? null, ending?.summary ?? null, ending?.date ?? null, ending?.turn ?? null,
       record.updatedTurn, record.updatedDate,
     );
   },
-  /** Azzera serie ed epilogo: il rewind restituisce una nuova possibilità. */
+  /** Azzera giorni critici, avvertimenti ed epilogo: il rewind restituisce una nuova possibilità. */
   resetCrisisState: (gameId: string) => {
     db.prepare(`
       UPDATE game_crisis_state SET
-        revolt_streak = 0, insolvency_streak = 0, invasion_streak = 0, overall = 'calm',
+        revolt_streak = 0, insolvency_streak = 0, invasion_streak = 0,
+        revolt_episodes = 0, insolvency_episodes = 0, invasion_episodes = 0,
+        overall = 'calm',
         ending_kind = NULL, ending_dimension = NULL, ending_title = NULL,
         ending_summary = NULL, ending_date = NULL, ending_turn = NULL,
         updated_turn = 0, updated_date = NULL
@@ -951,7 +992,10 @@ export const gameRepository = {
 
 export interface CrisisStateRecord {
   gameId: string;
-  streaks: Record<CrisisDimension, number>;
+  /** Giorni di criticità piena accumulati per dimensione. */
+  criticalDays: Record<CrisisDimension, number>;
+  /** Avanzamenti in cui la dimensione è stata osservata critica. */
+  episodes: Record<CrisisDimension, number>;
   overall: CrisisLevel;
   ending: { kind: EndingKind; dimension: CrisisDimension; title: string; summary: string; date: string; turn: number } | null;
   updatedTurn: number;
@@ -973,6 +1017,12 @@ export interface PressureRecord {
   status: 'active' | 'resolved' | 'expired' | string;
   createdDate: string;
   createdTurn: number;
+  /** GAMEPLAY-LONG: finestra di decisione in giorni di calendario. */
+  durationDays: number;
+  /** Data oltre la quale l'inerzia presenta il conto. */
+  deadlineDate: string | null;
+  /** Una sfida grave è già peggiorata una volta (escalation applicata). */
+  escalated: boolean;
   resolvedDate?: string | null;
   resolvedOption?: string | null;
   resolution?: string | null;
@@ -1004,6 +1054,16 @@ function mapPressureRow(row: any): PressureRecord {
     status: row.status,
     createdDate: row.created_date,
     createdTurn: Number(row.created_turn ?? 0),
+    // Finestra in giorni: i salvataggi precedenti non hanno la colonna, quindi
+    // si ricade sulla durata della gravità e sulla scadenza calcolata.
+    durationDays: Number(row.duration_days) > 0
+      ? Number(row.duration_days)
+      : pressureDurationDays(Number(row.severity ?? 1)),
+    deadlineDate: row.deadline_date
+      || (typeof row.created_date === 'string' && row.created_date
+        ? pressureDeadline(row.created_date, Number(row.duration_days) > 0 ? Number(row.duration_days) : pressureDurationDays(Number(row.severity ?? 1)))
+        : null),
+    escalated: Number(row.escalated ?? 0) === 1,
     resolvedDate: row.resolved_date ?? null,
     resolvedOption: row.resolved_option ?? null,
     resolution: row.resolution ?? null,

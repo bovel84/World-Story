@@ -31,11 +31,21 @@ export interface NpcTurnContext {
   transferRegion(region: RegionState, owner: string, color?: string): void;
   /** Identificativo stabile della partita: seme del PRNG dei conflitti. */
   seed?: () => string;
+  /** Nome pubblico di una polity (eventi causali, GAMEPLAY-LONG). */
+  publicPolityName?(polityId: string): string;
+  /** Potenza militare effettiva di una polity (eventi causali, GAMEPLAY-LONG). */
+  nationalMilitaryPower?(polityId: string): number;
   /** Degrada la relazione (matrix.degrade): apre il conflitto fra due politie. */
   degradeRelationship?: (from: string, to: string) => void;
 }
 
 export class NpcTurnService {
+  /** Turni minimi fra due registrazioni della stessa condizione sistemica. */
+  static readonly CAUSAL_EVENT_COOLDOWN_TURNS = 4;
+
+  /** Ultimo turno in cui una condizione sistemica è stata registrata. */
+  private causalEventLog = new Map<string, number>();
+
   private static readonly TURN_NPC_LIMIT = 3;
   private static readonly NPC_TURN_TIMEOUT_MS = 12_000;
 
@@ -50,6 +60,11 @@ export class NpcTurnService {
   private readonly npcInFlight = new Set<string>();
 
   constructor(private readonly ctx: NpcTurnContext) {}
+
+  /** Nome leggibile della polity: dal contesto se disponibile, altrimenti il codice. */
+  private polityLabel(polityId: string): string {
+    return this.ctx.publicPolityName?.(polityId) || polityId;
+  }
 
   async processNPCTurns(limit = NpcTurnService.TURN_NPC_LIMIT, days = 30): Promise<string[]> {
     const npcEvents: string[] = [];
@@ -225,9 +240,143 @@ export class NpcTurnService {
   }
 
   /**
-   * Apply random events (15% chance)
+   * Eventi del mondo senza ordini del giocatore (GAMEPLAY-LONG).
+   *
+   * Prima **causa**, poi rumore: un evento nasce dallo stato reale (carestia
+   * dove il PIL per abitante è insufficiente, sforzo militare insostenibile,
+   * escalation fra confinanti ostili, tensioni territoriali, innovazione dove
+   * c'è ricchezza diffusa). Solo se lo stato non offre alcuna causa si ricade
+   * sull'evento casuale legacy, che resta **rumore secondario**: non è più il
+   * motore della storia.
    */
   applyRandomEvents(): string[] {
+    const causal = this.stateDrivenEvents();
+    if (causal.length > 0) return causal;
+    return this.randomWorldEvent();
+  }
+
+  /**
+   * Cause sistemiche e **di sola lettura**: nessun dado e nessuna mutazione.
+   * Le cifre le muove già il motore (`WorldStateEngine`, economia, conflitti);
+   * qui si registra ciò che quello stato significa, così il narratore non deve
+   * inventare. Ripetizione evitata con un tempo di raffreddamento in turni.
+   */
+  private stateDrivenEvents(): string[] {
+    const conditions = this.stateConditions();
+    const turn = this.ctx.currentTurn();
+    const due = conditions.filter(condition => {
+      const last = this.causalEventLog.get(condition.key);
+      return last === undefined || turn - last >= NpcTurnService.CAUSAL_EVENT_COOLDOWN_TURNS;
+    });
+    for (const condition of due) this.causalEventLog.set(condition.key, turn);
+    // Al massimo due fatti per battito: il dispaccio resta leggibile.
+    return due.slice(0, 2).map(condition => condition.text);
+  }
+
+  /** Condizioni sistemiche osservate sullo stato, in ordine di gravità. */
+  private stateConditions(): { key: string; text: string }[] {
+    const conditions: { key: string; text: string }[] = [];
+    const byOwner = new Map<string, RegionState[]>();
+    for (const region of this.ctx.regions().values()) {
+      if (!region.owner || region.owner === 'neutral') continue;
+      const list = byOwner.get(region.owner) ?? [];
+      list.push(region);
+      byOwner.set(region.owner, list);
+    }
+    const owners = [...byOwner.keys()].sort();
+    const totals = (regions: RegionState[]) => ({
+      population: regions.reduce((sum, r) => sum + (r.population || 0), 0),
+      gdp: regions.reduce((sum, r) => sum + (r.gdp || 0), 0),
+      military: regions.reduce((sum, r) => sum + (r.militaryPower || 0), 0),
+    });
+
+    // 1. Carestia: il PIL per abitante non basta a sfamare la nazione.
+    for (const owner of owners) {
+      const regions = byOwner.get(owner)!;
+      const { population, gdp } = totals(regions);
+      if (population <= 0 || gdp / population >= 0.6) continue;
+      conditions.push({
+        key: `famine:${owner}`,
+        text: `Carestia in ${this.polityLabel(owner)}: la popolazione è allo stremo e i prezzi salgono`,
+      });
+      break;
+    }
+
+    // 2. Sforzo militare insostenibile: la spesa militare mangia il PIL.
+    for (const owner of owners) {
+      const regions = byOwner.get(owner)!;
+      const { gdp, military } = totals(regions);
+      if (gdp <= 0 || military / gdp <= 1.2) continue;
+      conditions.push({
+        key: `militarization:${owner}`,
+        text: `${this.polityLabel(owner)}: lo sforzo militare pesa sulle casse, tagli alle spese civili`,
+      });
+      break;
+    }
+
+    // 3. Escalation fra confinanti ostili con forte squilibrio di forze.
+    for (const owner of owners) {
+      const regions = byOwner.get(owner)!;
+      const ownPower = totals(regions).military;
+      for (const borderId of regions.flatMap(region => region.borders || [])) {
+        const neighbour = this.ctx.regions().get(borderId);
+        if (!neighbour?.owner || neighbour.owner === 'neutral' || neighbour.owner === owner) continue;
+        if (this.ctx.relationship(owner, neighbour.owner) !== 'hostile') continue;
+        const otherPower = this.ctx.nationalMilitaryPower?.(neighbour.owner) ?? 0;
+        if (otherPower <= 0 || ownPower < otherPower * 1.25) continue;
+        conditions.push({
+          key: `escalation:${owner}:${neighbour.owner}`,
+          text: `Manovre al confine fra ${this.polityLabel(owner)} e ${this.polityLabel(neighbour.owner)}: le forze si schierano`,
+        });
+        break;
+      }
+    }
+
+    // 4. Tensioni territoriali: molte province e poca ricchezza per abitarle.
+    for (const owner of owners) {
+      const regions = byOwner.get(owner)!;
+      const { population, gdp } = totals(regions);
+      if (regions.length < 5 || population <= 0 || gdp / population >= 1.2) continue;
+      conditions.push({
+        key: `territorial:${owner}`,
+        text: `Tensioni provinciali in ${this.polityLabel(owner)}: presidi e richieste locali`,
+      });
+      break;
+    }
+
+    // 5. Innovazione: dove c'è ricchezza diffusa e nessuna ostilità aperta.
+    for (const owner of owners) {
+      const regions = byOwner.get(owner)!;
+      const { population, gdp } = totals(regions);
+      if (population <= 0 || gdp / population < 2.5) continue;
+      if (this.hasHostileRelationship(owner, byOwner)) continue;
+      conditions.push({
+        key: `innovation:${owner}`,
+        text: `Innovazione in ${this.polityLabel(owner)}: la produzione cresce`,
+      });
+      break;
+    }
+
+    return conditions;
+  }
+
+  /** Esiste una relazione ostile registrata fra questa polity e un vicino? */
+  private hasHostileRelationship(owner: string, byOwner: Map<string, RegionState[]>): boolean {
+    for (const region of byOwner.get(owner) ?? []) {
+      for (const borderId of region.borders || []) {
+        const neighbourOwner = this.ctx.regions().get(borderId)?.owner;
+        if (!neighbourOwner || neighbourOwner === 'neutral' || neighbourOwner === owner) continue;
+        if (this.ctx.relationship(owner, neighbourOwner) === 'hostile') return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Evento casuale legacy (15%): rumore secondario, usato solo quando lo stato
+   * del mondo non offre alcuna causa sistemica.
+   */
+  private randomWorldEvent(): string[] {
     const randomEvents: string[] = [];
 
     if (Math.random() < 0.15) {
@@ -267,4 +416,5 @@ export class NpcTurnService {
 
     return randomEvents;
   }
+
 }

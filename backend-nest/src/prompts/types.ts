@@ -36,6 +36,8 @@ export interface PromptVariables {
   STRATEGIC_STATE: string;
   /** Identità persistente, priorità correnti e memoria canonica degli NPC rilevanti. */
   NPC_STRATEGIC_PROFILES: string;
+  /** GAMEPLAY-LONG: registro strutturato degli impegni in vigore. */
+  ACTIVE_COMMITMENTS: string;
   /** Processi in corso (partial) con data prevista: il simulatore deve portarli avanti. */
   ONGOING_PROCESSES?: string;
   /** Anime del governo: interessi, umori, pressioni e richieste della nazione. */
@@ -179,6 +181,13 @@ export interface SimulationResult {
   voided: VoidedAction[];
   /** Un evento può aprire una chat diretta o una riunione multinazionale. */
   startChat?: SimulationChatStart[];
+  /**
+   * GAMEPLAY-LONG: impegni proposti dal modello. Il motore li valida
+   * (`CommitmentService.parseModelProposals`) e resta l'autorità sullo stato.
+   */
+  commitments?: Array<Record<string, unknown>>;
+  /** Aggiornamenti di stato sugli impegni già registrati (id esatto + status). */
+  commitmentUpdates?: Array<Record<string, unknown>>;
   /** Conseguenze diplomatiche, incluse quelle negoziate nelle chat. */
   relationshipChanges?: { from: string; to: string; relationship: 'ally' | 'neutral' | 'hostile'; reason?: string }[];
   /** Per auto-jump: effettiva data d'arrivo scelta dalla simulazione */

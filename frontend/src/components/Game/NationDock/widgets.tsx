@@ -6,15 +6,21 @@
 import React, { useState } from 'react';
 import type {
   BudgetLine, CrisisRisk, CrisisSnapshot, GovernmentFaction,
-  NaturalResourceSummary, PeacetimePressure, SovereignDebtTranche,
+  Commitment, NaturalResourceSummary, PeacetimePressure, PowerAgenda, SovereignDebtTranche,
 } from '../../../services/api';
 import { formatMoney, formatNumber, formatPercent } from '../../../utils/format';
 import { sparkPoints, trendLabel, type Trend, type TrendTone } from '../accountTrend';
-import { CRISIS_LEVEL_LABEL, crisisStreakText } from '../crisisPanel';
+import { CRISIS_LEVEL_LABEL, crisisDaysText } from '../crisisPanel';
+import { PRESSURE_PRIORITY_LABEL, pressureWindowText, pressureWindowTone, splitPressuresByAttention } from '../pressureWindow';
 import {
   LEVER_LABEL, STANCE_LABEL, factionOrderText, pressureLabel, pressureTone,
-  satisfactionTone, stanceTone, type NationalVerdict,
+  factionMemoryView, satisfactionTone, stanceTone, type NationalVerdict,
 } from '../governmentDossier';
+import { agendasWithObjectives, objectivePriorityTone, objectiveProgressTone, objectiveSummary } from '../powersAgenda';
+import {
+  activeCommitmentsOf, commitmentPartiesText, commitmentStatusLabel, commitmentTimingText,
+  commitmentTone, commitmentTypeLabel, sortCommitments,
+} from '../commitments';
 import { formatDate } from './format';
 import type { MetricTrend, Tone } from './types';
 
@@ -277,14 +283,14 @@ export function CrisisBlock({ crisis }: { crisis?: CrisisSnapshot | null }) {
   if (!crisis) {
     return <EmptyState>Il motore non ha ancora valutato la tenuta della nazione.</EmptyState>;
   }
-  const { state, finished, ending, collapseStreak } = crisis;
+  const { state, finished, ending, collapseDays } = crisis;
   return (
     <div className="nation-crisis">
       <p className={`nation-crisis-headline level-${state.level}`}>{state.headline}</p>
       <p className="nation-crisis-summary">{state.summary}</p>
       <ul className="nation-crisis-risks">
         {state.risks.map((risk: CrisisRisk) => {
-          const streak = Number(state.streaks?.[risk.dimension] ?? 0);
+          const days = Number(state.criticalDays?.[risk.dimension] ?? 0);
           return (
             <li key={risk.dimension} className={`nation-crisis-risk level-${risk.level}`}>
               <div className="nation-crisis-risk-head">
@@ -304,7 +310,7 @@ export function CrisisBlock({ crisis }: { crisis?: CrisisSnapshot | null }) {
               <span className="nation-crisis-drivers">{risk.drivers.join(' · ')}</span>
               {risk.level !== 'calm' && (
                 <span className={`nation-crisis-streak${risk.level === 'watch' ? ' is-watch' : ''}`}>
-                  {crisisStreakText(risk, streak, collapseStreak)}
+                  {crisisDaysText(risk, days, collapseDays ?? state.collapseDays ?? 90)}
                 </span>
               )}
             </li>
@@ -348,22 +354,32 @@ export function PressuresBlock({ pressures, recent, onResolve, busy, money }: {
       </div>
     );
   }
-  return (
-    <div className="nation-pressures">
-      <ul className="nation-pressure-list">
-        {pressures.map((pressure) => {
-          const selected = choice[pressure.id] ?? pressure.options[0]?.id ?? '';
-          const option = pressure.options.find((item) => item.id === selected);
-          const cost = Number(option?.effect?.moneyDeltaMld || 0);
-          const unaffordable = cost < 0 && typeof money === 'number' && money + cost < 0;
-          return (
-            <li key={pressure.id} className={`nation-pressure-card kind-${pressure.kind} severity-${pressure.severity}`}>
-              <div className="nation-pressure-head">
-                <span className="nation-pressure-kind">{pressure.kind === 'internal' ? 'Interna' : 'Esterna'} · gravità {pressure.severity}/3</span>
-                <b>{pressure.title}</b>
-              </div>
-              <p>{pressure.detail}</p>
-              <span className="nation-pressure-source">Chi preme: {pressure.source}</span>
+  // P2: solo le questioni che meritano attenzione occupano la scena; le altre
+  // restano nella stessa scheda, raggruppate e consultabili.
+  const { highlighted, dossier } = splitPressuresByAttention(pressures);
+  const renderPressureCard = (pressure: PeacetimePressure) => {
+    const selected = choice[pressure.id] ?? pressure.options[0]?.id ?? '';
+    const option = pressure.options.find((item) => item.id === selected);
+    const cost = Number(option?.effect?.moneyDeltaMld || 0);
+    const unaffordable = cost < 0 && typeof money === 'number' && money + cost < 0;
+    // GAMEPLAY-LONG: la finestra temporale dice quanto tempo resta prima che
+    // l'inerzia presenti il conto; la priorità dice se merita attenzione.
+    const deadlineText = pressureWindowText(pressure.window);
+    const tone = pressureWindowTone(pressure.window);
+    return (
+      <li key={pressure.id} className={`nation-pressure-card kind-${pressure.kind} severity-${pressure.severity}${pressure.highlighted === false ? ' is-dossier' : ''}`}>
+        <div className="nation-pressure-head">
+          <span className="nation-pressure-kind">
+            {pressure.kind === 'internal' ? 'Interna' : 'Esterna'} · gravità {pressure.severity}/3
+            {pressure.priority ? ` · ${PRESSURE_PRIORITY_LABEL[pressure.priority] ?? pressure.priority}` : ''}
+          </span>
+          <b>{pressure.title}</b>
+        </div>
+        {deadlineText && (
+          <span className={`nation-pressure-window${tone ? ` tone-${tone}` : ''}`}>{deadlineText}</span>
+        )}
+        <p>{pressure.detail}</p>
+        <span className="nation-pressure-source">Chi preme: {pressure.source}</span>
               <div className="nation-pressure-options" role="radiogroup" aria-label={`Risposta a ${pressure.title}`}>
                 {pressure.options.map((item) => (
                   <label key={item.id} className={item.id === selected ? 'is-selected' : ''}>
@@ -394,8 +410,20 @@ export function PressuresBlock({ pressures, recent, onResolve, busy, money }: {
               </div>
             </li>
           );
-        })}
+  };
+  return (
+    <div className="nation-pressures">
+      <ul className="nation-pressure-list">
+        {highlighted.map(pressure => renderPressureCard(pressure))}
       </ul>
+      {dossier.length > 0 && (
+        <details className="nation-pressure-dossier">
+          <summary>Altre questioni nel dossier ({dossier.length})</summary>
+          <ul className="nation-pressure-list">
+            {dossier.map(pressure => renderPressureCard(pressure))}
+          </ul>
+        </details>
+      )}
       {recent.length > 0 && (
         <details className="nation-pressure-recent">
           <summary>Ultime sfide chiuse</summary>
@@ -425,6 +453,9 @@ export function FactionCard({ faction, dominant, angriest, onDraftOrder, voice, 
   speaking?: boolean;
 }) {
   const stance = stanceTone(faction.stance);
+  // GAMEPLAY-LONG: la fazione ricorda come è stata trattata. La soddisfazione
+  // resta quella del bilancio; qui si mostra la fiducia politica.
+  const memory = factionMemoryView(faction);
   return (
     <article className={`nation-faction-card tone-${stance}${dominant ? ' is-dominant' : ''}${angriest ? ' is-angriest' : ''}`}>
       <header className="nation-faction-head">
@@ -452,6 +483,12 @@ export function FactionCard({ faction, dominant, angriest, onDraftOrder, voice, 
           <ShareBar value={faction.pressure} tone={pressureTone(faction.pressure)} />
         </div>
       </div>
+      {memory && (
+        <p className={`nation-faction-memory tone-${memory.tone}`}>
+          <span className="nation-memory-kicker">{memory.label}</span>
+          {memory.text}
+        </p>
+      )}
       {voice ? (
         <blockquote className={`nation-faction-voice tone-${stance}`}>
           <span className="nation-voice-kicker">La voce in consiglio</span>
@@ -499,3 +536,85 @@ export function EquipmentSpecs({ specs }: { specs: Array<{ label: string; value:
   );
 }
 
+
+/**
+ * GAMEPLAY-LONG — «Strategie delle potenze»: che cosa stanno inseguendo le
+ * nazioni del teatro, da quando e a che punto sono. Sono gli obiettivi del
+ * motore: il client li ordina e li veste, non li inventa.
+ */
+export function PowersAgendaList({ powers, playerPolityId }: {
+  powers: PowerAgenda[];
+  playerPolityId?: string | null;
+}) {
+  const ranked = agendasWithObjectives({ powers }, playerPolityId);
+  if (ranked.length === 0) {
+    return <EmptyState>Nessuna potenza del teatro ha una strategia in corso registrata dal motore.</EmptyState>;
+  }
+  return (
+    <ul className="nation-agenda-list">
+      {ranked.map((power) => (
+        <li key={power.polityId} className="nation-agenda-power">
+          <div className="nation-agenda-head">
+            <b>{power.name}</b>
+            <span>{power.objectives.length === 1 ? '1 obiettivo attivo' : `${power.objectives.length} obiettivi attivi`}</span>
+          </div>
+          <ul className="nation-agenda-objectives">
+            {[...power.objectives].sort((a, b) => b.priority - a.priority).map((objective) => (
+              <li key={objective.id} className={`tone-${objectivePriorityTone(objective.priority)}`}>
+                <span className="nation-agenda-goal">{objective.description}</span>
+                <span className={`nation-agenda-meta tone-${objectiveProgressTone(objective.progress)}`}>
+                  {objectiveSummary(objective)}
+                </span>
+                <span className="nation-agenda-progress" aria-hidden="true">
+                  <i style={{ width: `${Math.max(0, Math.min(100, Math.round(objective.progress)))}%` }} />
+                </span>
+                <span className="nation-agenda-reason">{objective.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * GAMEPLAY-LONG — «Impegni della partita»: trattati, promesse, ultimatum con
+ * stato e scadenza. La cronaca racconta, questo registro ricorda.
+ */
+export function CommitmentsList({ commitments, today }: {
+  commitments: Commitment[];
+  today: string;
+}) {
+  const sorted = sortCommitments(commitments, today);
+  if (sorted.length === 0) {
+    return <EmptyState>Nessun impegno registrato: la partita non ha ancora firmato nulla.</EmptyState>;
+  }
+  const activeCount = activeCommitmentsOf(sorted).length;
+  return (
+    <div className="nation-commitments">
+      <p className="nation-commitments-summary">
+        {activeCount === 1 ? '1 impegno in vigore' : `${activeCount} impegni in vigore`}
+        {sorted.length > activeCount ? ` · ${sorted.length - activeCount} conclusi` : ''}
+      </p>
+      <ul className="nation-commitment-list">
+        {sorted.map((commitment) => (
+          <li key={commitment.id} className={`nation-commitment tone-${commitmentTone(commitment)}`}>
+            <div className="nation-commitment-head">
+              <span className="nation-commitment-type">{commitmentTypeLabel(commitment.type)}</span>
+              <span className={`nation-commitment-status tone-${commitmentTone(commitment)}`}>
+                {commitmentStatusLabel(commitment.status)}
+              </span>
+            </div>
+            <b>{commitment.description}</b>
+            <span className="nation-commitment-parties">
+              {commitmentPartiesText(commitment)} · importanza {commitment.importance}/3
+            </span>
+            <span className="nation-commitment-timing">{commitmentTimingText(commitment, today)}</span>
+            {commitment.note && <span className="nation-commitment-note">{commitment.note}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

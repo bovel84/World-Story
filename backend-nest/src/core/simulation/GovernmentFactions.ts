@@ -19,6 +19,9 @@
 
 import type { NationalAccount } from './WorldStateEngine';
 import { nationalBudgetDetail, type NationalBudgetDetail } from './NationalBudget';
+import {
+  factionMemoryByFaction, type FactionMemoryEvent, type FactionMemoryState,
+} from './FactionMemory';
 
 export type FactionStance = 'alleato' | 'favorevole' | 'neutrale' | 'critico' | 'ostile';
 
@@ -49,6 +52,19 @@ export interface GovernmentFaction {
   demand: FactionDemand;
   /** Segno sintetico del loro effetto sulla nazione, per la lettura. */
   footprint: string;
+  /**
+   * GAMEPLAY-LONG: come il governo ha **trattato** questa fazione (fiducia,
+   * risentimento, tendenza, ultima decisione). Assente se non è mai successo
+   * nulla di politicamente rilevante: i numeri di oggi bastano.
+   */
+  politicalMemory?: FactionMemoryState;
+}
+
+/** Eventi di memoria politica da considerare nella fotografia del governo. */
+export interface GovernmentMemoryInput {
+  events: FactionMemoryEvent[];
+  /** Data del mondo (non quella di sistema): la memoria decade col tempo di gioco. */
+  today: string;
 }
 
 export interface GovernmentSnapshot {
@@ -63,6 +79,10 @@ export interface GovernmentSnapshot {
   pressureIndex: number;
   /** Frase di sintesi in italiano. */
   headline: string;
+  /** Fazioni che si sentono tradite, dalla più risentita (memoria politica). */
+  resentful: { factionId: string; name: string; resentment: number; trust: number; trend: FactionMemoryState['trend']; text: string }[];
+  /** Fiducia politica media verso il governo (0-100); `null` se nessuna memoria. */
+  trustIndex: number | null;
   budget: NationalBudgetDetail;
   /** Debito pubblico: rapporto sul PIL e peso degli interessi sulle entrate. */
   debt: { ratioPct: number; servicePct: number };
@@ -87,8 +107,16 @@ const expenseShare = (budget: NationalBudgetDetail, id: string): number =>
 /**
  * Snapshot del governo a partire dal conto nazionale. Puro e deterministico.
  */
-export function governmentSnapshot(account?: NationalAccount | null): GovernmentSnapshot {
+export function governmentSnapshot(
+  account?: NationalAccount | null,
+  memory?: GovernmentMemoryInput | null,
+): GovernmentSnapshot {
   const budget = nationalBudgetDetail(account);
+  // La memoria politica non sostituisce i numeri: pesa solo sulla pressione e
+  // sul racconto. Senza eventi registrati la fotografia è identica a prima.
+  const memoryByFaction = memory && Array.isArray(memory.events) && memory.events.length > 0
+    ? factionMemoryByFaction(memory.events, { today: memory.today })
+    : ({} as Record<string, FactionMemoryState>);
   const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions) || 0);
   const stability = clamp(Number(account?.stability) || 0);
   const socialTension = clamp(Number(account?.socialTension) || 0);
@@ -287,7 +315,11 @@ export function governmentSnapshot(account?: NationalAccount | null): Government
   const factions: GovernmentFaction[] = raw.map((faction) => {
     const powerPct = round1((Math.max(0.01, faction.power) / rawSum) * 100);
     const satisfaction = round1(faction.satisfaction);
-    const pressure = clamp(round0((100 - satisfaction) * (powerPct / 100) * 1.7));
+    const politicalMemory = memoryByFaction[faction.id];
+    // La pressione nasce dai numeri; la memoria aggiunge un termine limitato
+    // (±18 punti, riproporzionati all'influenza): chi è stato tradito preme di più.
+    const memoryTerm = politicalMemory ? round0(politicalMemory.pressure * (powerPct / 100)) : 0;
+    const pressure = clamp(round0((100 - satisfaction) * (powerPct / 100) * 1.7) + memoryTerm);
     return {
       id: faction.id,
       name: faction.name,
@@ -298,6 +330,7 @@ export function governmentSnapshot(account?: NationalAccount | null): Government
       pressure,
       demand: faction.demand,
       footprint: faction.footprint,
+      ...(politicalMemory ? { politicalMemory } : {}),
     };
   });
   // Correzione del centesimo: la somma dell'influenza deve fare esattamente 100.
@@ -319,12 +352,28 @@ export function governmentSnapshot(account?: NationalAccount | null): Government
 
   const dominant = factions.find((faction) => faction.id === dominantId) ?? null;
   const angriest = factions.find((faction) => faction.id === angriestId) ?? null;
+  const resentful = factions
+    .filter(faction => (faction.politicalMemory?.resentment ?? 0) >= 20)
+    .sort((a, b) => (b.politicalMemory?.resentment ?? 0) - (a.politicalMemory?.resentment ?? 0))
+    .map(faction => ({
+      factionId: faction.id,
+      name: faction.name,
+      resentment: faction.politicalMemory!.resentment,
+      trust: faction.politicalMemory!.trust,
+      trend: faction.politicalMemory!.trend,
+      text: faction.politicalMemory!.lastEvent?.text ?? '',
+    }));
+  const withMemory = factions.filter(faction => faction.politicalMemory);
+  const trustIndex = withMemory.length > 0
+    ? clamp(round0(withMemory.reduce((sum, faction) => sum + faction.politicalMemory!.trust, 0) / withMemory.length))
+    : null;
+
   const headline = dominant && angriest && dominant.id !== angriest.id
     ? `${dominant.name} ha la maggiore influenza; ${angriest.name} preme di più: ${angriest.demand.title.toLowerCase()}.`
     : dominant
       ? `${dominant.name} domina il consiglio e chiede: ${dominant.demand.title.toLowerCase()}.`
       : 'Il governo non ha anime registrate per questo scenario.';
 
-  return { factions, dominantId, angriestId, cohesion, pressureIndex, headline, budget,
+  return { factions, dominantId, angriestId, cohesion, pressureIndex, headline, resentful, trustIndex, budget,
     debt: { ratioPct: round1(debtBurdenPct), servicePct: round1(Math.max(0, Number(account?.debtServicePct) || 0)) } };
 }

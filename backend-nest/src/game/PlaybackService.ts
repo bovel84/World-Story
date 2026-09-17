@@ -22,6 +22,7 @@ import type { RelationshipType } from '../core/RelationshipMatrix';
 import type { SimulationEvent } from '../prompts/types';
 import type { MovementIntent } from '../utils/movement-orders';
 import type { PendingAction, OrderSettlementEntry } from './OrderExecutionService';
+import type { CommitmentResult } from './CommitmentService';
 import type { SimulationCoordinator } from './SimulationCoordinator';
 import type { DiplomacyService } from './DiplomacyService';
 import type { OrderExecutionService } from './OrderExecutionService';
@@ -35,6 +36,12 @@ export interface PlaybackContext {
   coordinator: SimulationCoordinator;
   diplomacy: DiplomacyService;
   orders: OrderExecutionService;
+  /** GAMEPLAY-LONG: registra gli impegni nati nel turno. */
+  recordCommitments(input: {
+    startChat?: readonly { participants?: string[]; polityName?: string; kind?: string; topic?: string; eventHeadline?: string }[];
+    proposals?: unknown;
+    updates?: unknown;
+  }): CommitmentResult;
   isStrictGame(): boolean;
   publicText(value: unknown): string;
   publicPolityName(polityId: string): string;
@@ -502,6 +509,12 @@ export class PlaybackService {
         fallbackDate: finalDate,
         simulationId: runId,
         events: appliedRows,
+      });
+      // GAMEPLAY-LONG: anche il percorso in pausa registra gli impegni del turno.
+      this.ctx.recordCommitments({
+        startChat: completion.startChat,
+        proposals: (completion as { commitments?: unknown }).commitments,
+        updates: (completion as { commitmentUpdates?: unknown }).commitmentUpdates,
       });
       chatTimelineEvents.push(...chatEffects.timelineEvents);
       chatBroadcasts.push(...chatEffects.broadcasts);

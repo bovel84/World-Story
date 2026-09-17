@@ -90,6 +90,10 @@ export interface DiplomacyContext {
   nationalEffectiveMilitaryPower(polityId: string, accounts?: Record<string, NationalAccount>): number;
   hostileNeighbourCount(polityId: string): number;
   recentStrategicMemory(polityId: string, limit?: number): string[];
+  /** Agenda strategica della polity (GAMEPLAY-LONG): strategia, non intenzioni. */
+  strategicAgenda?(polityId: string): string;
+  /** Impegni in vigore che legano la polity (GAMEPLAY-LONG). */
+  commitmentsForPolity?(polityId: string): string;
 }
 
 export class DiplomacyService {
@@ -600,11 +604,16 @@ export class DiplomacyService {
         stability: ownedAccounts[p.id]?.stability,
       });
       const memory = this.ctx.recentStrategicMemory(p.id, 2);
+      // GAMEPLAY-LONG: la chat resta coerente con la strategia in corso: la
+      // controparte non cambia obiettivi a ogni messaggio.
+      const agenda = this.ctx.strategicAgenda?.(p.id) ?? '';
+      // GAMEPLAY-LONG: gli accordi non si dimenticano fra un messaggio e l'altro.
+      const commitments = this.ctx.commitmentsForPolity?.(p.id) ?? '';
       return {
         name: p.name,
         relationship,
         personality: `${profile.personality}; dottrina ${profile.doctrine}; stile ${profile.negotiationStyle}`,
-        interests: `priorità: ${priorities.join('; ')}; linee rosse: ${profile.redLines.join('; ')}; memoria recente: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato'}; [valutazione interna riservata: usa questi dati per decidere, non citarli mai nei messaggi] propensione alla forza ${Math.round(profile.aggression * 100)}%; rischio ${profile.riskTolerance}/100; affidabilità verso gli impegni ${profile.allianceReliability}/100; capacità: ${owned.length} regioni, popolazione ${population}, PIL ${gdp}, potenza militare effettiva ${effectiveMilitary} (nominale ${military})`,
+        interests: `priorità: ${priorities.join('; ')}; linee rosse: ${profile.redLines.join('; ')}; memoria recente: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato'}; agenda in corso: ${agenda || 'nessun obiettivo attivo'}; impegni in vigore: ${commitments || 'nessuno registrato'}; [valutazione interna riservata: usa questi dati per decidere, non citarli mai nei messaggi] propensione alla forza ${Math.round(profile.aggression * 100)}%; rischio ${profile.riskTolerance}/100; affidabilità verso gli impegni ${profile.allianceReliability}/100; capacità: ${owned.length} regioni, popolazione ${population}, PIL ${gdp}, potenza militare effettiva ${effectiveMilitary} (nominale ${military})`,
       };
     });
   }

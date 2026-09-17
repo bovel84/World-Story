@@ -51,6 +51,8 @@ export interface GameDataContext {
   ending(): any;
   pendingFundingNotes(): string | null;
   buildNpcStrategicDossiers(focusTexts: string[], accounts: Record<string, NationalAccount>): string;
+  /** GAMEPLAY-LONG: impegni in vigore, pronti per il prompt. */
+  activeCommitments?(): string;
   relationships(): unknown;
   chatTranscripts(): unknown;
   actions(): any[];
@@ -225,7 +227,8 @@ export class GameDataService {
               score: risk.score,
               title: risk.title,
               drivers: risk.drivers,
-              streak: state.streaks[risk.dimension],
+              // GAMEPLAY-LONG: giorni di criticità accumulati (non più turni).
+              days: state.criticalDays[risk.dimension],
             })),
           };
         })(),
@@ -261,6 +264,9 @@ export class GameDataService {
       // Identità stabile + priorità dinamiche + memoria per le politie davvero
       // rilevanti al teatro corrente. È la stessa fonte usata dalle chat.
       npcStrategicProfiles: this.ctx.buildNpcStrategicDossiers(focusTexts, accounts),
+      // Il registro degli impegni è strutturato e dura più della cronaca: il
+      // narratore lo riceve come vincolo, non come ricordo approssimativo.
+      activeCommitments: this.ctx.activeCommitments?.() ?? '',
       // Il motore decide chi è coinvolto e quali opzioni sono materialmente
       // possibili: il prompt riceve un contesto già filtrato e limitato.
       // `currentActions` è il lotto del turno corrente (con ID canonico): lo

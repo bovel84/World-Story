@@ -35,8 +35,13 @@ import { OutboxService } from './game/OutboxService';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { clampTaxRatePct, DEFAULT_FISCAL_POLICY, describeFiscalEffects, fiscalShockModifier, FISCAL_MAX_PCT, FISCAL_MIN_PCT, fiscalLabel, type FiscalPolicy } from './core/simulation/FiscalPolicy';
 import { type PressureEffect } from './core/simulation/PeacetimePressures';
-import { CRISIS_COLLAPSE_STREAK, type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
+import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
+import type { FactionMemoryEvent } from './core/simulation/FactionMemory';
+import { commitmentsWorthAttention, type Commitment } from './core/simulation/Commitments';
+import type { CommitmentResult } from './game/CommitmentService';
+import { NpcAgendaService } from './game/NpcAgendaService';
+import { CommitmentService } from './game/CommitmentService';
 import type { GovernmentVoices } from './prompts/government';
 import { annualDebtServiceMld, creditHeadroom, debtOf, issueSovereignDebt, type ResourceStock } from './core/simulation/MaterialEconomy';
 import {
@@ -362,6 +367,10 @@ export class GameSession {
   private worldIntel: WorldIntelService;
   /** Turni NPC ed eventi casuali (Fase 1: estratto da GameSession). */
   private npcTurns: NpcTurnService;
+  /** GAMEPLAY-LONG: obiettivi persistenti delle polity non giocanti. */
+  private npcAgenda: NpcAgendaService;
+  /** GAMEPLAY-LONG: registro strutturato degli impegni (trattati, promesse…). */
+  private commitments: CommitmentService;
   /** Macchina a stati del playback scaglionato (Fase 1: estratto da GameSession). */
   private playback: PlaybackService;
   /** Orchestratore del lotto di ordini (Fase 1: estratto da GameSession). */
@@ -575,7 +584,7 @@ export class GameSession {
     if (bulletin) lines.push(`📊 ${bulletin}`);
     // Le anime del governo entrano nella cronaca del turno: chi preme e per
     // che cosa è un fatto della partita, non solo una schermata del dossier.
-    const government = governmentSnapshot(tickAccounts[this.playerPolityId]);
+    const government = governmentSnapshot(tickAccounts[this.playerPolityId], this.nationState.governmentMemory());
     if (government.factions.length > 0) lines.push(`🏛️ Governo — ${government.headline}`);
     lines.push(...this.advanceResources(days, tickAccounts, asOfDate));
     lines.push(...this.advanceProduction(days, tickAccounts[this.playerPolityId]));
@@ -810,6 +819,8 @@ export class GameSession {
     pressure: PressureRecord;
     effect: PressureEffect;
     account?: NationalAccount;
+    /** GAMEPLAY-LONG: gli eventi di memoria politica registrati dalla decisione. */
+    memory: FactionMemoryEvent[];
   } {
     this.assertPlayable();
     const record = gameRepository.listPressures(this.id, 'active').find(item => item.id === pressureId);
@@ -826,11 +837,14 @@ export class GameSession {
     if (!gameRepository.resolvePressure(this.id, pressureId, optionId, option.effect.note, this.currentDate)) {
       throw new Error('pressure_not_active: la sfida è stata già chiusa');
     }
+    // GAMEPLAY-LONG P1: la fazione che premeva ricorda com'è stata trattata.
+    const memory = this.nationState.recordPressureMemory(record, optionId, option.effect, option.label);
     this.governmentVoices = null;
     return {
       pressure: { ...record, status: 'resolved', resolvedOption: optionId, resolution: option.effect.note, resolvedDate: this.currentDate },
       effect: option.effect,
       account: this.sessionAccounts()[this.playerPolityId],
+      memory,
     };
   }
 
@@ -887,16 +901,16 @@ export class GameSession {
   }
 
   /**
-   * Stato di crisi per il dossier e l'HUD: rischi, serie di criticità e
+   * Stato di crisi per il dossier e l'HUD: rischi, giorni di criticità e
    * l'eventuale epilogo. Sola lettura: non fa avanzare la scala.
    */
-  getCrisis(): { state: CrisisState; ending: CrisisEnding | null; finished: boolean; collapseStreak: number } {
+  getCrisis(): { state: CrisisState; ending: CrisisEnding | null; finished: boolean; collapseDays: number } {
     const state = this.peekCrisis();
     return {
       state,
       ending: this.ending ?? state.ending,
       finished: Boolean(this.ending),
-      collapseStreak: CRISIS_COLLAPSE_STREAK,
+      collapseDays: state.collapseDays,
     };
   }
 
@@ -1096,6 +1110,20 @@ export class GameSession {
       relationship: (from, to) => this.diplomacy.matrix().get(from, to),
       arsenalUnits: polityId => this.military.arsenalUnits(polityId),
       worldStateOptions: () => this.worldStateOptions(),
+      // GAMEPLAY-LONG: l'agenda strategica entra nel dossier NPC.
+      npcAgenda: polityId => this.npcAgenda.describe(polityId),
+    });
+    this.npcAgenda = new NpcAgendaService({
+      gameId: this.id,
+      currentDate: () => this.currentDate,
+      currentTurn: () => this.currentTurn,
+      isStrictGame: () => this.isStrictGame(),
+    });
+    this.commitments = new CommitmentService({
+      gameId: this.id,
+      currentDate: () => this.currentDate,
+      currentTurn: () => this.currentTurn,
+      isStrictGame: () => this.isStrictGame(),
     });
     this.gameController = new GameController(provider);
     this.promptEngine = new PromptEngine(provider);
@@ -1109,6 +1137,9 @@ export class GameSession {
       transferRegion: (region, owner, color) => this.transferRegion(region, owner, color),
       seed: () => this.id,
       degradeRelationship: (from, to) => this.diplomacy.matrix().degrade(from, to),
+      // GAMEPLAY-LONG: gli eventi causali del tick live parlano la lingua del mondo.
+      publicPolityName: polityId => this.publicPolityName(polityId),
+      nationalMilitaryPower: polityId => this.nationalMilitaryPower(polityId),
     });
     this.timeline = new TimelineService(gameId, value => this.publicText(value));
     this.geometry = new RegionGeometryService<RegionState>(() => this.regions);
@@ -1185,7 +1216,13 @@ export class GameSession {
       peekCrisis: () => this.peekCrisis(),
       ending: () => this.ending,
       pendingFundingNotes: () => this.pendingFundingNotes,
-      buildNpcStrategicDossiers: (focusTexts, accounts) => this.buildNpcStrategicDossiers(focusTexts, accounts),
+      buildNpcStrategicDossiers: (focusTexts, accounts) => {
+        // Prima di raccontare la strategia delle potenze, il motore la rivede
+        // (memoizzata per turno): il modello legge uno stato, non lo decide.
+        this.refreshNpcAgenda();
+        return this.buildNpcStrategicDossiers(focusTexts, accounts);
+      },
+      activeCommitments: () => this.commitments.describeForPrompt(),
       relationships: () => this.diplomacy.toJSON(),
       chatTranscripts: () => this.diplomacy.buildChatTranscripts(),
       actions: () => this.actions,
@@ -1252,6 +1289,8 @@ export class GameSession {
       nationalEffectiveMilitaryPower: (polityId, accounts) => this.nationalEffectiveMilitaryPower(polityId, accounts),
       hostileNeighbourCount: polityId => this.hostileNeighbourCount(polityId),
       recentStrategicMemory: (polityId, limit) => this.recentStrategicMemory(polityId, limit),
+      strategicAgenda: polityId => this.npcAgenda.describe(polityId),
+      commitmentsForPolity: polityId => this.commitments.describeForPolity(polityId),
     });
     // F04 §9.4: ogni partita nasce (o riapre) sul suo ramo principale.
     // Idempotente: le sessioni ricostruite dal DB non duplicano il ramo.
@@ -1261,6 +1300,7 @@ export class GameSession {
       coordinator: this.coordinator,
       diplomacy: this.diplomacy,
       orders: this.orders,
+      recordCommitments: input => this.recordCommitments(input),
       isStrictGame: () => this.isStrictGame(),
       publicText: value => this.publicText(value),
       publicPolityName: polityId => this.publicPolityName(polityId),
@@ -1320,6 +1360,7 @@ export class GameSession {
       getAdvisorUnchecked: (...args: any[]) => (this.getAdvisorUnchecked as any)(...args),
       refreshProjectProgress: asOfDate => this.refreshProjectProgress(asOfDate),
       refreshPeacetimePressures: () => this.refreshPeacetimePressures(),
+      recordCommitments: input => this.recordCommitments(input),
       evaluateCrisis: advance => this.evaluateCrisis(advance),
       settleOrderCosts: (...args: any[]) => (this.settleOrderCosts as any)(...args),
       orderFundingNotes: actions => this.orderFundingNotes(actions),
@@ -1986,6 +2027,16 @@ export class GameSession {
 
     // Le sfide nate nei turni annullati non appartengono più alla storia.
     gameRepository.deletePressuresAfterTurn(this.id, (Number(saveData.currentTurn) || 0) - 1);
+    // Il passato riscritto non deve lasciare memoria politica di decisioni mai
+    // avvenute. Il taglio è sul turno ripristinato (non su quello precedente,
+    // come per le pressioni che si rigenerano): una decisione presa durante il
+    // turno a cui si torna appartiene ancora allo stato restaurato.
+    this.nationState.pruneFactionMemoryAfterTurn(Number(saveData.currentTurn) || 0);
+    // Anche l'agenda torna alla versione precedente: la strategia riscritta
+    // non resta appesa al futuro che è stato annullato.
+    this.npcAgenda.pruneAfterTurn(Number(saveData.currentTurn) || 0);
+    this.commitments.pruneAfterTurn(Number(saveData.currentTurn) || 0);
+    this.npcAgendaKey = null;
     // Un turno annullato cancella anche il collasso: si torna a giocare.
     gameRepository.resetCrisisState(this.id);
     this.loadFromSave(saveData, hash);
@@ -2160,7 +2211,109 @@ export class GameSession {
    * nessuna cifra nuova, solo lettura leggibile delle stesse fonti.
    */
   getGovernment() {
-    return governmentSnapshot(this.sessionAccounts()[this.playerPolityId]);
+    return governmentSnapshot(this.sessionAccounts()[this.playerPolityId], this.nationState.governmentMemory());
+  }
+
+  /**
+   * Rivede l'agenda strategica delle polity del teatro (GAMEPLAY-LONG).
+   * Memoizzata per turno e data: una revisione per avanzamento, non per prompt,
+   * così la strategia resta stabile e non costa chiamate LLM.
+   */
+  private npcAgendaKey: string | null = null;
+  private refreshNpcAgenda(): void {
+    if (this.isStrictGame()) return;
+    const key = `${this.currentTurn}:${this.currentDate}`;
+    if (this.npcAgendaKey === key) return;
+    this.npcAgendaKey = key;
+    const contexts = this.worldIntel.npcAgendaContexts(this.sessionAccounts());
+    const targets = Object.entries(contexts).map(([polityId, entry]) => ({
+      polityId, profile: entry.profile, context: entry.context,
+    }));
+    const result = this.npcAgenda.refresh(targets);
+    for (const objective of result.opened) {
+      console.log(`[GameSession] Agenda strategica: ${objective.polityId} apre «${objective.description}» (priorità ${objective.priority}/3).`);
+    }
+    for (const objective of result.closed) {
+      console.log(`[GameSession] Agenda strategica: ${objective.polityId} chiude «${objective.description}» (${objective.status}).`);
+    }
+  }
+
+  /**
+   * Registro strutturato degli impegni: ciò che la partita ha firmato e che la
+   * cronaca consolidata non deve far dimenticare (GAMEPLAY-LONG).
+   */
+  getCommitments(): {
+    commitments: Commitment[];
+    attention: Commitment[];
+  } {
+    if (this.isStrictGame()) return { commitments: [], attention: [] };
+    const all = this.commitments.all();
+    return {
+      commitments: all,
+      attention: commitmentsWorthAttention(all, { today: this.currentDate }),
+    };
+  }
+
+  /**
+   * Registra nel registro gli impegni nati nel turno: ultimatum aperti in chat
+   * (tipo strutturato nel payload) e proposte validate del modello. Il motore
+   * resta l'autorità sullo stato: qui si applicano, non si inventano.
+   */
+  private recordCommitments(input: {
+    startChat?: readonly { participants?: string[]; polityName?: string; kind?: string; topic?: string; eventHeadline?: string }[];
+    proposals?: unknown;
+    updates?: unknown;
+    sourceEventIdByHeadline?: Map<string, string>;
+  }): CommitmentResult {
+    if (this.isStrictGame()) return { commitments: [], created: [], updated: [], written: 0 };
+    const proposals = [
+      ...this.commitments.fromChatStarts(input.startChat ?? [], {
+        date: this.currentDate,
+        issuer: this.playerPolityId,
+        sourceEventIdByHeadline: input.sourceEventIdByHeadline,
+      }),
+      ...this.commitments.parseModelProposals(input.proposals, input.updates, this.playerPolityId),
+    ];
+    if (proposals.length === 0) {
+      // Anche senza nuove proposte le scadenze scorrono: un ultimatum non resta
+      // aperto in eterno solo perché nessuno ha parlato.
+      const result = this.commitments.apply([]);
+      return result;
+    }
+    return this.commitments.apply(proposals);
+  }
+
+  /**
+   * Agenda strategica delle potenze del teatro: che cosa stanno inseguendo,
+   * da quando, con quanta urgenza e a che punto sono. Read model per il
+   * dossier del giocatore (e per capire «perché è successo?»).
+   */
+  getStrategicAgenda(): {
+    powers: {
+      polityId: string; name: string;
+      objectives: { id: string; description: string; type: string; priority: number; progress: number; since: string; reviewDate: string; reason: string }[];
+    }[];
+  } {
+    if (this.isStrictGame()) return { powers: [] };
+    const byPolity = this.npcAgenda.agendaFor();
+    const powers = Object.entries(byPolity)
+      .map(([polityId, objectives]) => ({
+        polityId,
+        name: this.publicPolityName(polityId),
+        objectives: objectives.map(objective => ({
+          id: objective.id,
+          description: objective.description,
+          type: objective.type,
+          priority: objective.priority,
+          progress: Math.round(objective.progress),
+          since: objective.createdDate,
+          reviewDate: objective.reviewDate,
+          reason: objective.reason,
+        })),
+      }))
+      .filter(power => power.objectives.length > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { powers };
   }
 
   /** Chiave del turno corrente per la cache delle voci del consiglio. */

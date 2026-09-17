@@ -759,9 +759,106 @@ export function initDatabase() {
     )
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_game_pressures_game_status ON game_pressures(game_id, status, created_turn)');
+  // GAMEPLAY-LONG: la finestra di decisione di una sfida è in GIORNI DI
+  // CALENDARIO (durata + scadenza) e `escalated` ricorda che una sfida grave è
+  // già peggiorata una volta: non si applica due volte la stessa conseguenza.
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN duration_days INTEGER'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN deadline_date TEXT'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated_date TEXT'); } catch { /* già presente */ }
 
-  // Stato di crisi della partita: serie di turni critici per dimensione e
-  // l'eventuale epilogo (rivoluzione, default, invasione).
+  // GAMEPLAY-LONG: registro strutturato degli impegni (trattati, promesse,
+  // ultimatum, accordi). Versioni append-only come l'agenda: il rewind fa
+  // riemergere lo stato precedente e la cronaca può consolidarsi senza
+  // portarsi via ciò che è stato firmato.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_commitments (
+      id TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
+      commitment_key TEXT NOT NULL,
+      commitment_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      counterparty TEXT,
+      description TEXT NOT NULL DEFAULT '',
+      importance INTEGER NOT NULL DEFAULT 2,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_date TEXT NOT NULL,
+      created_turn INTEGER NOT NULL,
+      deadline TEXT,
+      source_event_id TEXT,
+      note TEXT NOT NULL DEFAULT '',
+      updated_date TEXT NOT NULL,
+      updated_turn INTEGER NOT NULL,
+      recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (game_id, branch_id, id),
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_game_commitments_lookup ON game_commitments(game_id, branch_id, status, importance)');
+
+  // GAMEPLAY-LONG: agenda strategica degli NPC. Righe = VERSIONI di un
+  // obiettivo (`objective_key` identifica l'istanza): la strategia dura più
+  // turni e il rewind fa riemergere la versione precedente.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_npc_agenda (
+      id TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
+      objective_key TEXT NOT NULL,
+      polity_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      target_polity_id TEXT,
+      target_region_id TEXT,
+      description TEXT NOT NULL DEFAULT '',
+      priority INTEGER NOT NULL DEFAULT 2,
+      status TEXT NOT NULL DEFAULT 'active',
+      progress REAL NOT NULL DEFAULT 0,
+      measure TEXT NOT NULL DEFAULT 'events',
+      baseline REAL,
+      reason TEXT NOT NULL DEFAULT '',
+      created_date TEXT NOT NULL,
+      created_turn INTEGER NOT NULL,
+      review_date TEXT NOT NULL,
+      reviewed_date TEXT NOT NULL,
+      reviewed_turn INTEGER NOT NULL,
+      recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (game_id, branch_id, id),
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_game_npc_agenda_lookup ON game_npc_agenda(game_id, branch_id, polity_id, status)');
+
+  // GAMEPLAY-LONG: memoria politica delle fazioni. Il motore registra le
+  // decisioni che riguardano una fazione (favore, torto, richiesta ignorata,
+  // impegno mantenuto o tradito); la fotografia del governo vi aggiunge il
+  // termine politico. Righe immutabili: si potano solo col rewind.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_faction_memory (
+      id TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
+      polity_id TEXT NOT NULL,
+      faction_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      lever TEXT,
+      weight REAL NOT NULL DEFAULT 0,
+      turn INTEGER NOT NULL,
+      game_date TEXT NOT NULL,
+      text TEXT NOT NULL DEFAULT '',
+      source_event_id TEXT,
+      recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (game_id, branch_id, id),
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_game_faction_memory_lookup ON game_faction_memory(game_id, branch_id, polity_id, turn)');
+
+  // Stato di crisi della partita: giorni di criticità accumulati per dimensione
+  // (una volta erano «turni consecutivi», ora è TEMPO CALENDARIO trascorso),
+  // gli avanzamenti in cui la criticità è stata osservata e l'eventuale epilogo
+  // (rivoluzione, default, invasione).
   db.exec(`
     CREATE TABLE IF NOT EXISTS game_crisis_state (
       game_id TEXT PRIMARY KEY,
@@ -780,6 +877,12 @@ export function initDatabase() {
       FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
     )
   `);
+  // GAMEPLAY-LONG: le colonne `*_streak` contengono ora i GIORNI di criticità
+  // accumulati (retrocompatibili: nei vecchi salvataggi 0-3 giorni). Qui si
+  // aggiungono i contatori degli avvertimenti osservati.
+  try { db.exec('ALTER TABLE game_crisis_state ADD COLUMN revolt_episodes INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_crisis_state ADD COLUMN insolvency_episodes INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_crisis_state ADD COLUMN invasion_episodes INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
 
   // Stato dinamico delle regioni di una singola partita. Geometria e metadati
   // restano nel world, ma proprietario/economia/oggetti non sono condivisi.

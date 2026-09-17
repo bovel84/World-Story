@@ -3,7 +3,7 @@
  * motore. Il Dossier non ricalcola nulla, quindi qui si testa la traduzione.
  */
 import { describe, expect, it } from 'vitest';
-import { CRISIS_DIMENSION_LABEL, CRISIS_LEVEL_LABEL, crisisLevelTone, crisisStreakText, criticalCount } from './crisisPanel';
+import { CRISIS_DIMENSION_LABEL, CRISIS_LEVEL_LABEL, crisisDaysText, crisisLevelTone, criticalCount } from './crisisPanel';
 import type { CrisisRisk } from '../../services/api';
 
 const risk = (level: CrisisRisk['level']): CrisisRisk => ({
@@ -34,11 +34,15 @@ describe('presentazione della crisi', () => {
     expect(crisisLevelTone('critical')).toBe('negative');
   });
 
-  it('la frase sulla serie dipende dal livello', () => {
-    expect(crisisStreakText(risk('critical'), 2, 3)).toContain('2/3 turni');
-    expect(crisisStreakText(risk('critical'), 0, 3)).toContain('a un passo');
-    expect(crisisStreakText(risk('watch'), 0, 3)).toContain('Allarme');
-    expect(crisisStreakText(risk('calm'), 0, 3)).toBe('');
+  it('la frase sui giorni di criticità dipende dal livello', () => {
+    expect(crisisDaysText(risk('critical'), 30, 90)).toContain('30/90 giorni');
+    expect(crisisDaysText(risk('critical'), 95, 90)).toContain('a un passo dal collasso');
+    expect(crisisDaysText(risk('critical'), 0, 90)).toContain('90 giorni di criticità');
+    expect(crisisDaysText(risk('watch'), 12, 90)).toContain('Allarme da 12 giorni');
+    expect(crisisDaysText(risk('watch'), 0, 90)).toContain('Allarme');
+    // In recupero l'arretrato che si consuma è un'informazione utile.
+    expect(crisisDaysText(risk('calm'), 8, 90)).toContain('Recupero');
+    expect(crisisDaysText(risk('calm'), 0, 90)).toBe('');
   });
 
   it('conta le dimensioni critiche per l’HUD', () => {

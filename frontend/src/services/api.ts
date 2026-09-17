@@ -180,6 +180,24 @@ export interface PeacetimePressure {
   status: 'active' | 'resolved' | 'expired' | string;
   createdDate: string;
   createdTurn: number;
+  /**
+   * GAMEPLAY-LONG: finestra di decisione in GIORNI di calendario. Una sfida nei
+   * termini resta aperta; oltre la scadenza il motore applica l'inerzia.
+   */
+  durationDays?: number;
+  deadlineDate?: string | null;
+  escalated?: boolean;
+  window?: {
+    daysElapsed: number;
+    daysLeft: number;
+    expired: boolean;
+    escalationDue: boolean;
+    urgency: 'scaduta' | 'imminente' | 'prossima' | 'aperta';
+  };
+  /** P2: peso della questione per il briefing. */
+  priority?: 'critica' | 'rilevante' | 'ordinaria';
+  /** Merita attenzione adesso (max 2 per volta, salvo crisi). */
+  highlighted?: boolean;
   resolvedOption?: string | null;
   resolution?: string | null;
 }
@@ -216,7 +234,16 @@ export interface NationCrisisState {
   risks: CrisisRisk[];
   headline: string;
   summary: string;
-  streaks: Record<CrisisDimension, number>;
+  /**
+   * GAMEPLAY-LONG: giorni di criticità accumulati per dimensione. La crisi
+   * progredisce sul TEMPO CALENDARIO trascorso, non sul numero di turni: un
+   * avanzamento di 7 giorni e uno di 365 non pesano uguale.
+   */
+  criticalDays: Record<CrisisDimension, number>;
+  /** Avanzamenti in cui la dimensione è stata vista critica (avvertimenti). */
+  episodes?: Record<CrisisDimension, number>;
+  /** Giorni di criticità piena che portano al collasso. */
+  collapseDays?: number;
   ending: GameEnding | null;
 }
 
@@ -224,8 +251,8 @@ export interface CrisisSnapshot {
   state: NationCrisisState;
   ending: GameEnding | null;
   finished: boolean;
-  /** Turni consecutivi di criticità che portano al collasso. */
-  collapseStreak: number;
+  /** Giorni di criticità piena che portano al collasso. */
+  collapseDays: number;
 }
 export type FactionLever = 'difesa' | 'tasse' | 'welfare' | 'istruzione' | 'infrastrutture' | 'debito' | 'ordine';
 
@@ -249,6 +276,20 @@ export interface GovernmentFaction {
   pressure: number;
   demand: FactionDemand;
   footprint: string;
+  /**
+   * GAMEPLAY-LONG: come il governo ha **trattato** questa fazione (fiducia,
+   * risentimento, tendenza, ultima decisione). Assente se non è mai successo
+   * nulla di politicamente rilevante.
+   */
+  politicalMemory?: {
+    trust: number;
+    resentment: number;
+    trend: 'in ripresa' | 'stabile' | 'in calo';
+    lastEvent: { kind: string; turn: number; gameDate: string; text: string; weight: number } | null;
+    favors: number;
+    grievances: number;
+    pressure: number;
+  };
 }
 
 /** Snapshot del governo: anime attive + dettaglio del bilancio. */
@@ -262,6 +303,47 @@ export interface GovernmentSnapshot {
   budget: NationalBudgetDetail;
   /** Debito pubblico: rapporto sul PIL e peso degli interessi sulle entrate. */
   debt?: { ratioPct: number; servicePct: number };
+  /** Fazioni che si sentono tradite (memoria politica), dalla più risentita. */
+  resentful?: { factionId: string; name: string; resentment: number; trust: number; trend: string; text: string }[];
+  /** Fiducia politica media verso il governo (0-100); `null` senza memoria. */
+  trustIndex?: number | null;
+}
+
+/** GAMEPLAY-LONG: un impegno registrato dal motore (trattato, promessa…). */
+export interface Commitment {
+  id: string;
+  type: string;
+  actor: string;
+  counterparty: string | null;
+  description: string;
+  createdDate: string;
+  createdTurn: number;
+  status: 'active' | 'fulfilled' | 'broken' | 'expired' | 'superseded' | string;
+  deadline: string | null;
+  sourceEventId: string | null;
+  importance: number;
+  updatedDate: string;
+  updatedTurn: number;
+  note: string;
+}
+
+/** GAMEPLAY-LONG: obiettivo strategico di una polity non giocante. */
+export interface StrategicObjective {
+  id: string;
+  description: string;
+  type: string;
+  priority: number;
+  progress: number;
+  since: string;
+  reviewDate: string;
+  reason: string;
+}
+
+/** Che cosa sta inseguendo una potenza del teatro, da quando e a che punto è. */
+export interface PowerAgenda {
+  polityId: string;
+  name: string;
+  objectives: StrategicObjective[];
 }
 
 /** Voci del consiglio generate dall'LLM sulle fazioni del motore. */
@@ -552,6 +634,10 @@ export const gameApi = {
     fiscalPolicy?: FiscalPolicyInfo | null;
     /** Crisi nazionale: rischi di collasso ed eventuale epilogo. */
     crisis?: CrisisSnapshot | null;
+    /** GAMEPLAY-LONG: obiettivi persistenti delle potenze del teatro. */
+    strategicAgenda?: { powers: PowerAgenda[] } | null;
+    /** Registro strutturato degli impegni: ciò che la partita ha firmato. */
+    commitments?: { commitments: Commitment[]; attention: Commitment[] } | null;
     /** Magazzino materiale del giocatore (legacy): stock, conto e risorse naturali. */
     resources?: {
       stock?: { money?: number; debt?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
