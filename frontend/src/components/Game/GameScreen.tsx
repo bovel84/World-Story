@@ -54,7 +54,7 @@ export interface GameScreenProps {
 export function GameScreen({ nation, timeline, feed, orders, playback, advance, shell }: GameScreenProps) {
   const {
     currentGame, currentWorld, selectedRegion, setSelectedRegion, setCurrentGame, setCurrentWorld,
-    setHistory, pendingActions, changedRegions,
+    setHistory, pendingActions, changedRegions, history: actionHistory,
   } = useGameStore();
   const { suggestions } = useActionsStore();
   const { loading, activeModule, openModule, closeModule, setShowPromptEditor, setCurrentView } = useUIStore();
@@ -161,6 +161,18 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     playback.pausedReader ? deriveImpactAtDate(nation.nationalHistory, playback.pausedReader.event.date) : null
   ), [playback.pausedReader, nation.nationalHistory]);
 
+  // DECISION-IMPACT: le decisioni del turno in lettura, con l'effetto che il
+  // motore ha loro attribuito (nessun ricalcolo client). La chiave è la stessa
+  // del delta LW02: la data registrata del checkpoint. Se nessuna decisione
+  // riletta corrisponde, il blocco mostra solo la variazione del periodo.
+  const readerDecisions = useMemo(() => {
+    const date = playback.pausedReader?.event?.date;
+    if (!date) return [];
+    return actionHistory
+      .filter(item => item.periodEnd === date)
+      .map(item => ({ turn: item.turn, action: item.action, settlement: item.settlement ?? null }));
+  }, [actionHistory, playback.pausedReader?.event?.date]);
+
   const handleRewind = () => {
     if (!currentGame || loading) return;
     shell.setShowRewindConfirm(true);
@@ -211,6 +223,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             pendingOrdersCount={pendingActions.length}
             pendingOrders={pendingActions.map(action => ({ id: action.id, text: action.text }))}
             history={nation.nationalHistory}
+            decisions={actionHistory}
             council={council}
             onOpenDispatches={() => openModule('news')}
             onTimelineOpen={timeline.handleTimelineOpen}
@@ -276,6 +289,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
               onContinue={playback.handleContinueNext}
               onIntervene={playback.handleInterveneHere}
               impact={checkpointImpact}
+              decisions={readerDecisions}
               playerPolityName={nationalName}
             />
           )}

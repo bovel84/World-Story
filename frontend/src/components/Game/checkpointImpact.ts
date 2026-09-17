@@ -10,6 +10,7 @@
  * anche il magazzino materiale quando disponibile.
  */
 
+import { formatMoney } from '../../utils/format';
 import type { NationAccount, NationResources } from './NationDock/types';
 
 export type ImpactTone = 'positive' | 'negative' | 'warning' | 'neutral';
@@ -87,6 +88,9 @@ function toneFor(delta: number, goodDirection: 'up' | 'down' | 'none'): ImpactTo
 
 function format(delta: number, spec: MetricSpec): string {
   const decimals = spec.decimals ?? 1;
+  // Gli importi usano la formattazione italiana condivisa (`utils/format`):
+  // stessi numeri del Dossier, nessuna seconda convenzione.
+  if (spec.unit === ' mld') return formatMoney(delta, { currency: 'mld', decimals, sign: true });
   const sign = delta > 0 ? '+' : delta < 0 ? '−' : '';
   const value = Math.abs(delta).toFixed(decimals);
   const suffix = spec.points ? ' pt' : spec.unit ?? '';

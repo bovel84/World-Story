@@ -127,6 +127,9 @@ export function useWorldAdvance({
               result: action.result.narration,
               events: action.result.events,
               eventDetails: action.result.eventDetails,
+              // DECISION-IMPACT: effetto misurabile già attribuito dal motore.
+              settlement: action.result.settlement,
+              outcomeStatus: action.result.outcome?.status,
               periodStart: action.result.periodStart,
               periodEnd: action.result.periodEnd,
             });
