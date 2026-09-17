@@ -1990,6 +1990,40 @@ html, body { margin: 0; }
 .arms-line-share i { display: block; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
 .arms-line-share em { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #7a60d0, #8fd8b6); }
 
+/* MATERIEL-CLARITY — sintesi scansionabile del bilancio materiale.
+   Prima la sintesi (disponibilità, produzione, consumo, saldo, stato), poi il
+   dettaglio tecnico, che resta disponibile nella sezione espandibile. */
+.material-balance-title { margin: 12px 0 6px; color: #8fa0bc; font: 700 10.5px/1 system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; }
+.material-balance { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.material-balance-row { display: flex; flex-direction: column; gap: 6px; padding: 9px 11px; border: 1px solid rgba(255, 255, 255, 0.1); border-left: 3px solid rgba(255, 255, 255, 0.25); border-radius: 10px; background: rgba(255, 255, 255, 0.03); }
+.material-balance-row.state-critico { border-left-color: #e2705f; }
+.material-balance-row.state-teso { border-left-color: #e0b25f; }
+.material-balance-row.state-al_tetto { border-left-color: #7fa8e0; }
+.material-balance-row.state-sufficiente { border-left-color: #6fc79a; }
+.material-balance-name { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.material-balance-name b { color: #f0edff; font: 700 13px/1.2 system-ui, sans-serif; }
+.material-balance-state { font: 700 10.5px/1 system-ui, sans-serif; letter-spacing: 0.05em; text-transform: uppercase; }
+.material-balance-state.tone-positive { color: #8fd8b6; }
+.material-balance-state.tone-warning { color: #e6c07a; }
+.material-balance-state.tone-negative { color: #f09a8a; }
+.material-balance-state.tone-neutral { color: #9fb0c9; }
+.material-balance-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 6px 10px; margin: 0; }
+.material-balance-figures div { display: flex; flex-direction: column; gap: 1px; }
+.material-balance-figures dt { color: #8f9db5; font: 700 9.5px/1.2 system-ui, sans-serif; letter-spacing: 0.05em; text-transform: uppercase; }
+.material-balance-figures dd { margin: 0; color: #e6eaff; font: 600 13px/1.3 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.material-balance-figures dd.tone-positive { color: #8fd8b6; }
+.material-balance-figures dd.tone-negative { color: #f09a8a; }
+.material-balance-hint { color: #9aa6bd; font: 400 11px/1.4 system-ui, sans-serif; font-style: normal; }
+.material-balance-empty { margin: 0; color: #9aa6bd; font: 400 12px/1.5 system-ui, sans-serif; }
+
+/* Riga di sintesi di un armamento + dettaglio tecnico espandibile. */
+.arms-line-summary { margin: 0; color: #c8bdf0; font: 600 12px/1.4 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.arms-line-detail { border-top: 1px dashed rgba(255, 255, 255, 0.12); padding-top: 6px; }
+.arms-line-detail > summary { cursor: pointer; color: #9fb0c9; font: 600 11.5px/1.4 system-ui, sans-serif; }
+.arms-line-detail > summary:hover { color: #d8dcf0; }
+.arms-line-detail[open] > summary { margin-bottom: 6px; }
+.arms-summary-line { margin: 4px 0 0; color: #e6eaff; font: 600 13px/1.4 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+
 /* Caratteristiche tecniche: etichetta sopra, valore sotto (tabellare). */
 .arms-specs { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px 12px; margin: 4px 0 0; }
 .arms-specs div { display: flex; flex-direction: column; gap: 1px; padding: 5px 8px; border-left: 2px solid rgba(120, 96, 208, 0.5); background: rgba(255, 255, 255, 0.03); }

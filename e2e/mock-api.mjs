@@ -174,6 +174,15 @@ export const MOCK_RESOURCES = {
   market: [{ kind: 'diamonds', label: 'Diamanti', bid: 1.196, ask: 1.534, mid: 1.365, scarcityPct: 0 }],
   capacity: { food: 24, clothing: 16, weapons: 200, fuel: 120 },
   needs: { food: 3.2, clothing: 1.4, weapons: 0.8, fuel: 1.1 },
+  // Bilancio materiale del mese (MATERIEL-CLARITY). Valori fittizi ma
+  // coerenti con scorte e fabbisogno: due avanzi e un deficit reale, così la
+  // sintesi mostra sia il verde sia il rosso.
+  balance: [
+    { kind: 'food', label: 'Cibo', stock: 20.87, capacity: 24, productionPerMonth: 3.6, consumptionPerMonth: 3.2, balancePerMonth: 0.4, spoiledPerMonth: 0 },
+    { kind: 'clothing', label: 'Vestiario', stock: 12, capacity: 16, productionPerMonth: 1.5, consumptionPerMonth: 1.4, balancePerMonth: 0.1, spoiledPerMonth: 0 },
+    { kind: 'weapons', label: 'Armamenti', stock: 160, capacity: 200, productionPerMonth: 1.1, consumptionPerMonth: 0.8, balancePerMonth: 0.3, spoiledPerMonth: 0 },
+    { kind: 'fuel', label: 'Carburante', stock: 0.5, capacity: 120, productionPerMonth: 0.6, consumptionPerMonth: 1.1, balancePerMonth: -0.5, spoiledPerMonth: 0 },
+  ],
   debt: 12.4,
   debts: [
     { id: 'debt-1951-1', label: 'Titolo 10 anni', principal: 8.4, annualRatePct: 3.1, issuedDate: '1951-01-01', maturityDate: '1961-01-01', termYears: 10 },
@@ -410,7 +419,7 @@ function notFound(route) {
  *    `world_advanced`); usato per verificare i casi in cui il mondo NON cambia.
  */
 export function installMockApi(page, opts = {}) {
-  const { failWorldGen = false, advanceResult = null, accountHistory = null } = opts;
+  const { failWorldGen = false, advanceResult = null, accountHistory = null, resources = null } = opts;
 
   // Blocca TUTTA la rete esterna: nessun tile, nessun font, nessun provider.
   // Solo le richieste verso l'app (localhost) e le API mock passano.
@@ -525,7 +534,7 @@ export function installMockApi(page, opts = {}) {
     json(route, {
       accounts: MOCK_ACCOUNTS,
       history: accountHistory || MOCK_ACCOUNT_HISTORY,
-      resources: MOCK_RESOURCES,
+      resources: resources ? { ...MOCK_RESOURCES, ...resources } : MOCK_RESOURCES,
       government: MOCK_GOVERNMENT,
     }));
   // La nazione fa debito: il mock risponde con un titolo deterministico.

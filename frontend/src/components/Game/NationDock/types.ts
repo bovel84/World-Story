@@ -51,6 +51,8 @@ export interface NationAccount {
 }
 
 /** Magazzino materiale del paese (shape di `MaterialEconomy.ResourceStock`). */
+import type { MaterialBalanceRow } from '../materialBalance';
+
 export interface NationResources {
   money?: number;
   food?: number;
@@ -81,6 +83,11 @@ export interface NationResources {
   /** Capacità di stoccaggio e fabbisogno mensile del magazzino materiale. */
   capacity?: { food?: number; clothing?: number; weapons?: number; fuel?: number };
   needs?: { food?: number; clothing?: number; weapons?: number; fuel?: number };
+  /**
+   * Bilancio materiale del mese (MATERIEL-CLARITY): quanto si produce, quanto
+   * si consuma, saldo e materiale perso al tetto. Derivato dal motore.
+   */
+  balance?: MaterialBalanceRow[] | null;
   /** Modificatori nazionali attivi (proposti dal modello, decadono nel tempo). */
   modifiers?: { stability?: number; socialTension?: number; warEffort?: number; revenueMultiplier?: number; growthModifier?: number };
 }

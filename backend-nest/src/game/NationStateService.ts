@@ -27,6 +27,7 @@ import { advanceCrisis, type CrisisEnding, type CrisisInput, type CrisisState } 
 import { NATURAL_RESOURCE_KINDS, naturalResourcesFor, type NaturalEndowment, type NaturalResourceKind } from '../core/simulation/MilitaryIndustry';
 import { EMPTY_MODIFIERS, applyArsenalEffects, applyModifierEffects, applyStockEffects, decayModifiers, describeNationalEffects, hasModifiers, parseNationalEffects, type NationalEffect, type NationalModifiers } from '../core/simulation/NationalEffects';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
+import { materialBalance } from './materialBalance';
 
 /** Regione minima richiesta dalle pressioni esterne. */
 export interface NationStateRegion {
@@ -157,6 +158,14 @@ export class NationStateService {
       /** Capacità di stoccaggio e fabbisogno mensile del magazzino materiale. */
       capacity: storageCapacity(account),
       needs: materialNeeds(account),
+      /**
+       * Bilancio materiale del mese (quanto produco, quanto consumo, saldo e
+       * materiale perso al tetto). Derivato dalle stesse funzioni del motore
+       * sullo stato corrente: nessuna scrittura, nessuno stato duplicato.
+       * Nei giochi in modalità stretta il magazzino non avanza (il motore
+       * restituisce `null`): il bilancio non viene inventato.
+       */
+      balance: this.ctx.isStrictGame() ? null : materialBalance(stock, account, effectiveEndowment(ledger, naturalResourcesFor(this.ctx.playerPolityId()))),
       creditLimit: creditLimit(account),
       creditHeadroom: Math.round(creditHeadroom(stock, account) * 100) / 100,
       /** Tasso di mercato che la nazione otterrebbe oggi per una nuova emissione. */
