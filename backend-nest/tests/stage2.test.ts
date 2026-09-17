@@ -1384,3 +1384,29 @@ describe('§9.3 — playback «un evento alla volta» per i salti fissi', () => 
     jumpMode = 'normal';
   });
 });
+
+describe('MAP-COMPLETE-ACTIONS P2/P3 — la coda elaborata si svuota (nessun accumulo)', () => {
+  it('dopo l’avanzamento le azioni elaborate lasciano la coda autorevole (RAM e DB)', async () => {
+    jumpMode = 'normal';
+    const { gameId, session } = createGame();
+
+    // Tre turni consecutivi: la coda non deve mai accumulare gli ordini chiusi.
+    for (let turn = 0; turn < 3; turn++) {
+      const queued = session.queueAction(`Direttiva di prova ${turn}`);
+      expect(session.getPendingActions().map((a: any) => a.id)).toContain(queued.id);
+
+      await session.processAllPendingActions(30);
+
+      // Coda autorevole in RAM vuota…
+      expect(session.getPendingActions()).toHaveLength(0);
+      // …e nessuna riga residua nel DB (stessa verità).
+      const rows = db.prepare('SELECT COUNT(*) AS n FROM pending_actions WHERE game_id = ?').get(gameId) as any;
+      expect(rows.n).toBe(0);
+    }
+
+    // Il giocatore può ricreare la stessa azione: la coda non è una cronologia.
+    const recreated = session.queueAction('Direttiva di prova 0');
+    expect(session.getPendingActions().map((a: any) => a.id)).toEqual([recreated.id]);
+    jumpMode = 'normal';
+  });
+});
