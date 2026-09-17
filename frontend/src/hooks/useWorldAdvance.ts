@@ -16,7 +16,8 @@
  */
 import { gameApi } from '../services/api';
 import type { GameEnding } from '../services/api';
-import { useChatStore, useGameStore, useUIStore } from '../stores';
+import { useActionsStore, useChatStore, useGameStore, useUIStore } from '../stores';
+import { shouldResetSuggestions } from '../components/Game/suggestionsLifecycle';
 import { useSimulationStore } from '../stores/simulationRuntime';
 import { useToast } from '../components/ui/ToastProvider';
 import { simulationErrorMessage } from '../utils/errors';
@@ -58,6 +59,9 @@ export function useWorldAdvance({
 }: UseWorldAdvanceOptions): WorldAdvance {
   const { loading, setLoading } = useUIStore();
   const { notify } = useToast();
+  // ARMY-MOVE P3: le proposte elaborate sono una fotografia del turno; le
+  // azzera qui, nello stesso punto in cui si rilegge la coda autorevole.
+  const clearSuggestions = useActionsStore((state) => state.clearSuggestions);
   const {
     currentGame, currentWorld, setCurrentGame, setCurrentWorld,
     setPendingActions, addHistory,
@@ -202,6 +206,11 @@ export function useWorldAdvance({
       // persistita è l'unica sorgente di verità dopo un salto.
       const authoritativeQueue = await gameApi.getPendingActions(currentGame.id);
       setPendingActions(authoritativeQueue.pendingActions || []);
+      // ARMY-MOVE P3: chiuso il turno, le proposte elaborate valgono zero —
+      // erano costruite sulla fotografia precedente e si rigenerano soltanto
+      // su richiesta («Elabora proposte»). `no_event_found` non ha committato
+      // nulla e le conserva.
+      if (shouldResetSuggestions(result.type)) clearSuggestions();
 
       // Il checkpoint server è autorevole anche per la mappa: HTTP e SSE
       // possono arrivare in ordini diversi o lo stream può essere perso.
@@ -226,6 +235,9 @@ export function useWorldAdvance({
           const refreshed = await gameApi.get(currentGame.id);
           setCurrentGame(refreshed);
           await restorePausedReader(refreshed);
+          // Il client era indietro: il turno è già committato lato server, la
+          // fotografia delle proposte è superata come in un avanzamento normale.
+          clearSuggestions();
           setTurnProgress('⏸ Playback ripristinato al checkpoint attivo.');
         } catch (reconcileError) {
           console.error('Unable to reconcile paused simulation:', reconcileError);
@@ -247,6 +259,9 @@ export function useWorldAdvance({
       await gameApi.rewind(currentGame.id);
       const updatedGame = await gameApi.get(currentGame.id);
       setCurrentGame(updatedGame);
+      // La mossa annullata riporta il mondo indietro: la fotografia su cui
+      // erano costruite le proposte non è più quella.
+      clearSuggestions();
       // Il turno annullato cancella anche il collasso: si torna a giocare.
       setGameEnding(null);
       setNationalCrisis(null);
@@ -292,6 +307,9 @@ export function useWorldAdvance({
       const restored = await gameApi.restoreSimulationCheckpoint(currentGame.id, simulationId);
       const updatedGame = await gameApi.get(currentGame.id);
       setCurrentGame(updatedGame);
+      // Il ripristino sostituisce la fotografia del mondo: le proposte del
+      // ramo abbandonato non descrivono più nulla.
+      clearSuggestions();
       // F06 µ2: il restore apre un ramo nuovo — reset canonico del client con
       // il suo anchor, e invalidazione di TUTTI i comandi in volo (chat,
       // advisor, coda, preflight — non soltanto il polling della cronaca).
