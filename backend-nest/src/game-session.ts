@@ -1137,6 +1137,9 @@ export class GameSession {
       transferRegion: (region, owner, color) => this.transferRegion(region, owner, color),
       seed: () => this.id,
       degradeRelationship: (from, to) => this.diplomacy.matrix().degrade(from, to),
+      // GAMEPLAY-LONG: gli eventi causali del tick live parlano la lingua del mondo.
+      publicPolityName: polityId => this.publicPolityName(polityId),
+      nationalMilitaryPower: polityId => this.nationalMilitaryPower(polityId),
     });
     this.timeline = new TimelineService(gameId, value => this.publicText(value));
     this.geometry = new RegionGeometryService<RegionState>(() => this.regions);
