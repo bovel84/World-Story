@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { detectGroupingKeys, hasProvinceFeatures, mapDetailOptionDisabled } from './mapGrouping';
+import { detectGroupingKeys, effectiveProvinceMap, hasProvinceFeatures, mapDetailOptionDisabled } from './mapGrouping';
 
 const editor = fs.readFileSync(path.resolve(__dirname, 'PresetEditorModal.tsx'), 'utf8');
 const css = fs.readFileSync(path.resolve(__dirname, '../../index.css'), 'utf8');
@@ -43,12 +43,53 @@ describe('MAP-DETAIL — preset editor', () => {
     expect(css).toContain('.preset-map-detail input:disabled + span');
   });
 
+  it('offre un selettore di mappa nativa, non solo il caricamento file', () => {
+    expect(editor).toContain('preset-map-base');
+    expect(editor).toContain('templatesApi.getNativeMaps()');
+    expect(editor).toContain('name="preset-map-base"');
+    // Salva la mappa nativa scelta.
+    expect(editor).toContain('map_base: selectedBase');
+  });
+
+  it('il selettore nativo è toccabile su mobile (target ≥44px, cursore)', () => {
+    expect(css).toContain('.preset-map-base-option');
+    expect(css).toMatch(/\.preset-map-base-option\s*\{[^}]*min-height:\s*44px/);
+    expect(css).toMatch(/\.preset-map-base-option\s*\{[^}]*cursor:\s*pointer/);
+  });
+
   it('permette di scegliere/modificare la proprietà di raggruppamento', () => {
     // Campo editabile con suggerimenti: serve a creare preset storici.
     expect(editor).toContain('preset-map-grouping');
     expect(editor).toContain('list="preset-map-grouping-keys"');
     expect(editor).toContain('placeholder="Automatico (criterio geografico)"');
     expect(editor).toContain("map_grouping: provinceMap && grouping ? grouping : ''");
+  });
+});
+
+describe('MAP-NATIVE — abilitazione con mappa nativa (funzioni pure)', () => {
+  it('il file proprio vince sulla mappa nativa', () => {
+    // hasOwnMap=true → conta la mappa propria, non quella nativa.
+    expect(effectiveProvinceMap(true, false, true)).toBe(false);
+    expect(effectiveProvinceMap(true, true, false)).toBe(true);
+  });
+
+  it('senza file proprio conta la mappa nativa scelta', () => {
+    expect(effectiveProvinceMap(false, false, true)).toBe(true);   // es. pax_modern_provinces
+    expect(effectiveProvinceMap(false, false, false)).toBe(false); // es. standard / paxh_ww2
+  });
+
+  it('una mappa nativa provinciale abilita i tre livelli', () => {
+    const provinceMap = effectiveProvinceMap(false, false, true);
+    for (const value of ['nations', 'grouped', 'full'] as const) {
+      expect(mapDetailOptionDisabled(provinceMap, value)).toBe(false);
+    }
+  });
+
+  it('una mappa nativa senza province lascia solo «Solo nazioni»', () => {
+    const provinceMap = effectiveProvinceMap(false, false, false);
+    expect(mapDetailOptionDisabled(provinceMap, 'nations')).toBe(false);
+    expect(mapDetailOptionDisabled(provinceMap, 'grouped')).toBe(true);
+    expect(mapDetailOptionDisabled(provinceMap, 'full')).toBe(true);
   });
 });
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { templatesApi, type PresetEditorData, type PresetMapDetail, type ScenarioReportView } from '../../services/api';
+import { templatesApi, type NativeMapInfo, type PresetEditorData, type PresetMapBase, type PresetMapDetail, type ScenarioReportView } from '../../services/api';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
-import { detectGroupingKeys, hasProvinceFeatures, mapDetailOptionDisabled } from './mapGrouping';
+import { detectGroupingKeys, effectiveProvinceMap, hasProvinceFeatures, mapDetailOptionDisabled } from './mapGrouping';
 
 interface Props {
   /** Preset esistente da aggiornare. */
@@ -66,8 +66,16 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
   // M01 µ4: rapporto del catalogo di scenario per la checklist dell'editor.
   const [scenarioReport, setScenarioReport] = useState<ScenarioReportView | null>(null);
   const [scenarioHasCatalog, setScenarioHasCatalog] = useState(false);
+  // MAP-NATIVE: catalogo delle mappe native scegliibili (fetch read-only).
+  const [nativeMaps, setNativeMaps] = useState<NativeMapInfo[]>([]);
   const mapInput = useRef<HTMLInputElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    templatesApi.getNativeMaps()
+      .then(r => setNativeMaps(r.maps || []))
+      .catch(() => setNativeMaps([]));
+  }, []);
 
   useEffect(() => {
     if (!templateId) { setScenarioReport(null); setScenarioHasCatalog(false); return; }
@@ -156,14 +164,30 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
     }
   };
 
-  const provinceMap = useMemo(() => hasProvinceFeatures(data.map_geojson), [data.map_geojson]);
+  const hasOwnMap = !!data.map_geojson;
+  const ownProvinceMap = useMemo(() => hasProvinceFeatures(data.map_geojson), [data.map_geojson]);
+  // MAP-NATIVE: mappa nativa scelta. Finché il catalogo non è caricato ci si
+  // fida del valore del preset (prodotto dal backend con la stessa whitelist).
+  const selectedBase: PresetMapBase = useMemo(() => {
+    const raw = data.map_base;
+    if (!raw) return 'standard';
+    if (nativeMaps.length === 0) return raw;
+    return nativeMaps.some(m => m.id === raw) ? raw : 'standard';
+  }, [data.map_base, nativeMaps]);
+  const selectedNative = nativeMaps.find(m => m.id === selectedBase);
+  // La mappa provinciale effettiva: il file proprio vince sulla mappa nativa.
+  const provinceMap = effectiveProvinceMap(hasOwnMap, ownProvinceMap, selectedNative?.hasProvinces ?? false);
+  const activeMapLabel = hasOwnMap
+    ? `file caricato (${data.map_geojson?.features?.length || 0} regioni)`
+    : (selectedNative?.label ?? 'Mappa mondiale standard');
   // Livello effettivo mostrato: il default rispecchia il comportamento attuale
   // (mappa provinciale → full, altrimenti nations).
   const effectiveDetail: PresetMapDetail = data.map_detail && (provinceMap || data.map_detail === 'nations')
     ? data.map_detail
     : (provinceMap ? 'full' : 'nations');
-  // Gerarchie reali suggerite dalla mappa caricata (per il raggruppamento).
-  const groupingKeys = useMemo(() => (provinceMap ? detectGroupingKeys(data.map_geojson) : []), [provinceMap, data.map_geojson]);
+  // Gerarchie reali suggerite dalla mappa: quelle del file proprio, oppure
+  // quelle note per la mappa nativa provinciale selezionata.
+  const groupingKeys = useMemo(() => (hasOwnMap && provinceMap ? detectGroupingKeys(data.map_geojson) : []), [hasOwnMap, provinceMap, data.map_geojson]);
   const grouping = (data.map_grouping || '').trim();
   // Avviso non bloccante: la chiave dichiarata non è una delle gerarchie rilevate.
   const groupingUnknown = !!grouping && groupingKeys.length > 0 && !groupingKeys.includes(grouping);
@@ -186,6 +210,8 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
       prompts,
       // Senza mappa provinciale resta disponibile solo «Solo nazioni».
       map_detail: provinceMap ? effectiveDetail : 'nations',
+      // Mappa nativa di riferimento: il file proprio, se presente, ha la precedenza.
+      map_base: selectedBase,
       // Vuoto = raggruppamento automatico (gerarchia nota o geografico).
       map_grouping: provinceMap && grouping ? grouping : '',
     };
@@ -356,17 +382,51 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
             })()}
 
             {tab === 'mappa' && <div className="preset-map-editor">
-              <p className="preset-guide">Una mappa personalizzata è facoltativa. Senza file il preset usa la mappa mondiale standard e i paesi indicati sopra.</p>
-              <div className="preset-map-drop" onClick={() => mapInput.current?.click()}>
-                <span>🗺</span>
-                <strong>{data.map_geojson ? `${data.map_geojson.features?.length || 0} province/regioni caricate` : 'Usa la mappa mondiale standard'}</strong>
-                <small>Carica un file .geojson con properties.code e, per le province, properties.country</small>
-              </div>
-              <input ref={mapInput} type="file" accept=".geojson,.json,application/geo+json" hidden onChange={e => readMap(e.target.files?.[0])} />
-              <div className="preset-map-actions">
-                <button type="button" onClick={() => mapInput.current?.click()}>Scegli GeoJSON</button>
-                {data.map_geojson && <button type="button" className="danger" onClick={() => patch('map_geojson', null)}>Rimuovi mappa</button>}
-              </div>
+              <p className="preset-guide">Scegli una <strong>mappa nativa</strong> del gioco: non serve caricare file. Le mappe provinciali rendono disponibili i livelli «Regioni raggruppate» e «Massimo dettaglio».</p>
+              <fieldset className="preset-map-base">
+                <legend>Mappa nativa</legend>
+                {nativeMaps.length === 0 && (
+                  <label className="preset-map-base-option">
+                    <input type="radio" name="preset-map-base" checked readOnly />
+                    <span>Mappa mondiale standard<small>1 regione per paese</small></span>
+                  </label>
+                )}
+                {nativeMaps.map(m => (
+                  <label key={m.id} className="preset-map-base-option">
+                    <input
+                      type="radio"
+                      name="preset-map-base"
+                      value={m.id}
+                      checked={!hasOwnMap && selectedBase === m.id}
+                      disabled={hasOwnMap}
+                      onChange={() => patch('map_base', m.id)}
+                    />
+                    <span>
+                      {m.label}
+                      <small>
+                        {m.hasProvinces ? `${m.features} province` : `${m.features} regioni (1 per paese)`}
+                        {m.id === 'standard' ? ' · standard' : ''}
+                      </small>
+                    </span>
+                  </label>
+                ))}
+                {hasOwnMap && <p className="preset-guide warning">Il file <code>map.geojson</code> caricato ha la precedenza sulla mappa nativa. Rimuovilo per usare una mappa nativa.</p>}
+              </fieldset>
+              <p className="preset-guide">Mappa attiva: <strong>{activeMapLabel}</strong> · Livello: <strong>{effectiveDetail}</strong></p>
+              <details className="preset-map-advanced">
+                <summary>Opzione avanzata: carica un GeoJSON proprio</summary>
+                <p className="preset-guide">Una mappa personalizzata è facoltativa; se caricata ha la precedenza sulla mappa nativa.</p>
+                <div className="preset-map-drop" onClick={() => mapInput.current?.click()}>
+                  <span>🗺</span>
+                  <strong>{data.map_geojson ? `${data.map_geojson.features?.length || 0} province/regioni caricate` : 'Nessun file caricato'}</strong>
+                  <small>Carica un file .geojson con properties.code e, per le province, properties.country</small>
+                </div>
+                <input ref={mapInput} type="file" accept=".geojson,.json,application/geo+json" hidden onChange={e => readMap(e.target.files?.[0])} />
+                <div className="preset-map-actions">
+                  <button type="button" onClick={() => mapInput.current?.click()}>Scegli GeoJSON</button>
+                  {data.map_geojson && <button type="button" className="danger" onClick={() => patch('map_geojson', null)}>Rimuovi mappa</button>}
+                </div>
+              </details>
               {/* Niente `disabled` sul fieldset: disabiliterebbe tutti i radio.
                   Ogni radio ha la sua condizione, così «Solo nazioni» resta
                   selezionabile anche senza mappa provinciale. */}

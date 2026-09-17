@@ -38,6 +38,18 @@ export function mapDetailOptionDisabled(hasProvinceMap: boolean, value: MapDetai
 }
 
 /**
+ * Il preset ha una mappa provinciale effettiva? Il file proprio vince sulla
+ * mappa nativa scelta (stessa precedenza della generazione). PURA.
+ */
+export function effectiveProvinceMap(
+  hasOwnMap: boolean,
+  ownHasProvinces: boolean,
+  nativeHasProvinces: boolean,
+): boolean {
+  return hasOwnMap ? ownHasProvinces : nativeHasProvinces;
+}
+
+/**
  * Proprietà GeoJSON che possono raggruppare le province in `grouped`:
  * presenti su più feature e con un numero di valori distinti intermedio
  * (non univoci come `code`, non costanti), di tipo scalare. Suggerisce le
