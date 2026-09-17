@@ -426,6 +426,12 @@ export function installMockApi(page, opts = {}) {
   }));
   page.route(`${API_BASE}/templates`, (route) => json(route, { templates: [MOCK_TEMPLATE] }));
   page.route(`${API_BASE}/templates/${MOCK_TEMPLATE.id}`, (route) => json(route, MOCK_TEMPLATE));
+  // Editor del preset (tab «5. Mappa»): dati editabili + rapporto catalogo.
+  // Il preset mock non ha map.geojson: il selettore di mappe native è attivo.
+  page.route(`${API_BASE}/templates/${MOCK_TEMPLATE.id}/edit`, (route) =>
+    json(route, { ...MOCK_TEMPLATE, map_geojson: null }));
+  page.route(`${API_BASE}/templates/${MOCK_TEMPLATE.id}/scenario`, (route) =>
+    json(route, { presetId: MOCK_TEMPLATE.id, hasCatalog: false, report: null }));
 
   // ── Generazione mondo (flusso asincrono job) ─────────────────────────────
   page.route(`${API_BASE}/worlds/generate`, (route) => {

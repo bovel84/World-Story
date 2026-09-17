@@ -142,6 +142,53 @@ describe('MAP-NATIVE — compatibilità mappa/paesi (funzioni pure)', () => {
   });
 });
 
+describe('MAP-UI-POLISH — presentazione della sezione Mappa (solo CSS/markup)', () => {
+  it('la card è il controllo: radio nascosto, spunta solo sulla scelta', () => {
+    // Il radio nativo è invisibile (1×1) ma resta accessibile/focusabile.
+    expect(css).toMatch(/\.preset-editor \.preset-map-base-option > input\[type="radio"\] \{[^}]*width:\s*1px/);
+    expect(editor).toContain('preset-map-base-check');
+    expect(css).toContain('.preset-editor .preset-map-base-option.selected .preset-map-base-check { opacity: 1; }');
+  });
+
+  it('lo stato selezionato è evidente (bordo accento + sfondo dedicato)', () => {
+    expect(editor).toContain("`preset-map-base-option${selected ? ' selected' : ''}${disabled ? ' disabled' : ''}`");
+    expect(css).toContain('.preset-editor .preset-map-base-option.selected { border-color: #9c87ed; background: #302950; }');
+    expect(css).toContain('.preset-editor .preset-map-detail-option.selected { border-color: #9c87ed; background: #302950; }');
+  });
+
+  it('il numero di regioni è un badge scansionabile', () => {
+    expect(editor).toContain('preset-map-base-badge');
+    expect(editor).toContain("m.hasProvinces ? 'province' : 'paesi'");
+    expect(css).toMatch(/\.preset-editor \.preset-map-base-badge \{[^}]*white-space:\s*nowrap/);
+  });
+
+  it('il riepilogo «Mappa attiva» è un box separato dal footer', () => {
+    expect(editor).toContain('preset-map-summary');
+    expect(editor).toContain('<small>Mappa attiva</small>');
+    expect(editor).toContain('<small>Livello</small>');
+    // Il footer è sticky su mobile: la sezione riserva spazio in fondo.
+    expect(css).toContain('.preset-editor-body { padding-bottom: calc(26px + env(safe-area-inset-bottom)) !important; }');
+  });
+
+  it('i livelli di dettaglio sono card toccabili come le mappe', () => {
+    expect(css).toMatch(/\.preset-editor \.preset-map-detail-option \{[^}]*min-height:\s*44px/);
+    expect(css).toMatch(/\.preset-editor \.preset-map-detail-option \{[^}]*cursor:\s*pointer/);
+  });
+
+  it('il testo delle card navy resta leggibile nonostante il tema del modale', () => {
+    // Il tema editoriale impone `!important` all'inchiostro scuro su strong/small:
+    // le tinte chiare vanno forzate per non finire scure su fondo scuro.
+    expect(css).toContain('.preset-editor .preset-map-base-text strong { color: #dce8f8 !important;');
+    expect(css).toContain('.preset-editor .preset-map-base-option .preset-map-base-text small { color: #9bacbf !important;');
+    expect(css).toContain('.preset-editor .preset-map-summary-item strong { color: #dce8f8 !important;');
+  });
+
+  it('l\'intro è una nota discreta sul fondo chiaro, non un blocco in gara col selettore', () => {
+    expect(editor).toContain('className="preset-map-intro"');
+    expect(css).toContain('.preset-editor .preset-map-intro { margin: 0; padding: 0 2px; color: #526170 !important;');
+  });
+});
+
 describe('MAP-DETAIL — mapGrouping (funzioni pure)', () => {
   const feature = (code: string, props: Record<string, unknown> = {}) => ({
     type: 'Feature',
