@@ -172,6 +172,8 @@ router.get('/:id/national-state', (req, res) => {
       fiscalPolicy: session.getFiscalPolicy(),
       // Crisi nazionale: rischi di collasso ed eventuale epilogo.
       crisis: session.getCrisis(),
+      // GAMEPLAY-LONG: obiettivi persistenti delle potenze del teatro.
+      strategicAgenda: session.getStrategicAgenda(),
     });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get national state');

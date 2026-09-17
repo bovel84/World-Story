@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import type {
   BudgetLine, CrisisRisk, CrisisSnapshot, GovernmentFaction,
-  NaturalResourceSummary, PeacetimePressure, SovereignDebtTranche,
+  NaturalResourceSummary, PeacetimePressure, PowerAgenda, SovereignDebtTranche,
 } from '../../../services/api';
 import { formatMoney, formatNumber, formatPercent } from '../../../utils/format';
 import { sparkPoints, trendLabel, type Trend, type TrendTone } from '../accountTrend';
@@ -16,6 +16,7 @@ import {
   LEVER_LABEL, STANCE_LABEL, factionOrderText, pressureLabel, pressureTone,
   factionMemoryView, satisfactionTone, stanceTone, type NationalVerdict,
 } from '../governmentDossier';
+import { agendasWithObjectives, objectivePriorityTone, objectiveProgressTone, objectiveSummary } from '../powersAgenda';
 import { formatDate } from './format';
 import type { MetricTrend, Tone } from './types';
 
@@ -531,3 +532,44 @@ export function EquipmentSpecs({ specs }: { specs: Array<{ label: string; value:
   );
 }
 
+
+/**
+ * GAMEPLAY-LONG — «Strategie delle potenze»: che cosa stanno inseguendo le
+ * nazioni del teatro, da quando e a che punto sono. Sono gli obiettivi del
+ * motore: il client li ordina e li veste, non li inventa.
+ */
+export function PowersAgendaList({ powers, playerPolityId }: {
+  powers: PowerAgenda[];
+  playerPolityId?: string | null;
+}) {
+  const ranked = agendasWithObjectives({ powers }, playerPolityId);
+  if (ranked.length === 0) {
+    return <EmptyState>Nessuna potenza del teatro ha una strategia in corso registrata dal motore.</EmptyState>;
+  }
+  return (
+    <ul className="nation-agenda-list">
+      {ranked.map((power) => (
+        <li key={power.polityId} className="nation-agenda-power">
+          <div className="nation-agenda-head">
+            <b>{power.name}</b>
+            <span>{power.objectives.length === 1 ? '1 obiettivo attivo' : `${power.objectives.length} obiettivi attivi`}</span>
+          </div>
+          <ul className="nation-agenda-objectives">
+            {[...power.objectives].sort((a, b) => b.priority - a.priority).map((objective) => (
+              <li key={objective.id} className={`tone-${objectivePriorityTone(objective.priority)}`}>
+                <span className="nation-agenda-goal">{objective.description}</span>
+                <span className={`nation-agenda-meta tone-${objectiveProgressTone(objective.progress)}`}>
+                  {objectiveSummary(objective)}
+                </span>
+                <span className="nation-agenda-progress" aria-hidden="true">
+                  <i style={{ width: `${Math.max(0, Math.min(100, Math.round(objective.progress)))}%` }} />
+                </span>
+                <span className="nation-agenda-reason">{objective.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ul>
+  );
+}

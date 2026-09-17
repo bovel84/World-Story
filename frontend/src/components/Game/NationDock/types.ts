@@ -5,7 +5,7 @@
  */
 import type { Region } from '../../../types';
 import type {
-  ArsenalResponse, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot,
+  ArsenalResponse, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, PowerAgenda,
   GovernmentVoicesResponse, NaturalResourceSummary, PeacetimePressure,
   ResourceQuote, SovereignDebtTranche,
 } from '../../../services/api';
@@ -141,6 +141,10 @@ export interface NationDockProps {
   crisis?: CrisisSnapshot | null;
   /** LW06.1 — briefing già derivato una sola volta in `GameScreen`. */
   briefing?: StrategicBriefing;
+  /** GAMEPLAY-LONG — obiettivi persistenti delle potenze del teatro. */
+  strategicAgenda?: { powers: PowerAgenda[] } | null;
+  /** Polity della nazione giocata: serve a ordinare le strategie per rilevanza. */
+  playerPolityId?: string | null;
 }
 
 /** Un punto dello storico: data di gioco e conto già pubblicato dal motore. */

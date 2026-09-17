@@ -179,6 +179,8 @@ export function useNationDockModel(props: NationDockProps) {
   return {
     ...props,
     account, resources, trade, accountHistory, regions, ongoingProcesses,
+    // GAMEPLAY-LONG: identità della nazione giocata, per ordinare le strategie.
+    playerPolityId: props.playerPolityId,
     state, setState, trading, borrowing, borrowAmount, setBorrowAmount, borrowTerm, setBorrowTerm,
     taxDraft, setTaxDraft, effectiveTaxPct, runSetTax, runBorrow, runTrade,
     active, assets, projectGroups, financeAvailable, balance, stability, socialTension, warEffort,

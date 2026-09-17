@@ -11,12 +11,12 @@
  */
 
 import type {
-  CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, PeacetimePressure,
+  CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, PeacetimePressure, PowerAgenda,
 } from '../../services/api';
 import type { NationAccount, NationResources } from './NationDock/types';
-import { councilPresence } from './governmentDossier';
+import { councilPresence, resentfulFactions } from './governmentDossier';
 import { pressureWindowText, splitPressuresByAttention } from './pressureWindow';
-import { resentfulFactions } from './governmentDossier';
+import { agendaBriefingDetail, mostUrgentAgenda } from './powersAgenda';
 
 /** Gravità di una voce del briefing. */
 export type BriefingSeverity = 'critical' | 'warning' | 'opportunity' | 'positive' | 'info';
@@ -85,6 +85,9 @@ export interface StrategicBriefingInput {
   worldFacts?: ReadonlyArray<BriefingWorldFact> | null;
   /** Quadro diplomatico derivato dal read model LW06. */
   diplomacy?: { allies: readonly string[]; hostiles: readonly string[] } | null;
+  /** GAMEPLAY-LONG: strategie in corso delle potenze del teatro. */
+  strategicAgenda?: { powers?: PowerAgenda[] | null } | null;
+  playerPolityId?: string | null;
 }
 
 const ICON: Record<BriefingSeverity, string> = {
@@ -189,6 +192,20 @@ export function deriveStrategicBriefing(input: StrategicBriefingInput): Strategi
       icon: memory.resentment >= 40 ? ICON.warning : ICON.info,
       label: `${faction.name} contesta il governo`,
       detail: memory.text,
+    });
+  }
+
+  // --- 2c. Che cosa inseguono le potenze (una sola riga, P2) ---------------
+  // Il briefing non è un secondo dossier: qui entra solo la strategia più
+  // urgente fra quelle del motore, e solo se è davvero decisiva.
+  const urgentAgenda = mostUrgentAgenda(input.strategicAgenda, input.playerPolityId);
+  if (urgentAgenda) {
+    items.push({
+      id: `agenda-${urgentAgenda.polityId}`,
+      severity: 'info',
+      icon: ICON.info,
+      label: `Strategia di ${urgentAgenda.name}`,
+      detail: agendaBriefingDetail(urgentAgenda),
     });
   }
 

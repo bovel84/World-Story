@@ -17,6 +17,7 @@ import { countryRepository } from '../repositories/country.repository';
 import { RegionResolver, PolityResolver, normalizeName } from '../utils/name-resolver';
 import { polityDisplayNameIt, polityNameAliases } from '../utils/country-facts';
 import { currentStrategicPriorities, strategicProfileForPolity } from '../npc-agents';
+import type { NpcAgendaContext, NpcAgendaProfile } from '../core/simulation/NpcAgenda';
 import { arsenalCombatFactor } from '../core/simulation/MilitaryIndustry';
 import { measureMaterialCategory, reactionAllowsMaterialCategory } from '../core/simulation/ReactionDecisions';
 import { WorldStateEngine, type NationalAccount } from '../core/simulation/WorldStateEngine';
@@ -40,6 +41,8 @@ export interface WorldIntelContext {
   relationship(from: string, to: string): string;
   arsenalUnits(polityId: string): Record<string, number>;
   worldStateOptions(): { modernFacts: boolean; startDate: string; taxRateByPolity?: Record<string, number> };
+  /** Agenda strategica corrente di una polity (motore, sola lettura). */
+  npcAgenda?(polityId: string): string;
 }
 
 export class WorldIntelService {
@@ -378,63 +381,9 @@ export class WorldIntelService {
       .filter(owner => owner && owner !== 'neutral' && owner !== this.ctx.playerPolityId());
     if (owners.length === 0) return 'Nessuna politia non giocante presente.';
 
-    const recentTexts = this.ctx.results().slice(-8).flatMap(result =>
-      (result.timelineEvents || []).map(event => `${event.headline} ${event.detail || ''}`)
-    );
-    const recentOwners = this.mentionedNpcPolityIds(recentTexts);
-    const focusedOwners = this.mentionedNpcPolityIds(focusTexts);
     const matchers = this.polityMatchers(byOwner);
-    const chatOwners = chatRepository.getChatsByGame(this.ctx.gameId, true)
-      .flatMap(chat => chat.participants.map(participant => participant.id))
-      .filter(owner => owners.includes(owner));
-    const frontierOwners = new Set<string>();
-    for (const region of byOwner.get(this.ctx.playerPolityId()) || []) {
-      for (const borderId of region.borders || []) {
-        const owner = this.ctx.regions().get(borderId)?.owner;
-        if (owner && owner !== 'neutral' && owner !== this.ctx.playerPolityId()) frontierOwners.add(owner);
-      }
-    }
-    const relatedOwners = owners.filter(owner => this.ctx.relationship(this.ctx.playerPolityId(), owner) !== 'neutral');
-    const strongestOwners = [...owners].sort((a, b) => (accounts[b]?.militaryPower || 0) - (accounts[a]?.militaryPower || 0));
-    // Il dossier copre il teatro della crisi, non l'intero globo. Ancore fisse:
-    // gli ordini del turno e i rapporti registrati. Da lì si espande ai vicini;
-    // le potenze lontane entrano solo con un ruolo documentato, non perché sono
-    // potenti, e le vecchie menzioni non riportano in scena un attore estraneo.
-    const anchors = new Set<string>([...focusedOwners, ...relatedOwners]);
-    const regionalOwners = new Set<string>();
-    // Cache condivisa: i vicini di più ancore non ricalcolano l'intera mappa.
-    const frontierCache = new Map<string, Set<string>>();
-    for (const owner of [this.ctx.playerPolityId(), ...anchors]) {
-      for (const neighbour of this.frontierOwnerIds(owner, frontierCache)) {
-        if (neighbour !== this.ctx.playerPolityId()) regionalOwners.add(neighbour);
-      }
-    }
-    const theatreOwners = new Set<string>([
-      ...focusedOwners,
-      ...frontierOwners,
-      ...regionalOwners,
-      ...relatedOwners,
-    ]);
-    const relevantOwners = [...new Set([
-      ...focusedOwners,
-      ...regionalOwners,
-      ...frontierOwners,
-      ...relatedOwners,
-      ...recentOwners.filter(owner => theatreOwners.has(owner)),
-      ...chatOwners.filter(owner => theatreOwners.has(owner)),
-    ])];
-    // Solo se il mondo non offre alcun aggancio geografico o diplomatico il
-    // dossier ripiega sulle potenze più forti, per non restare vuoto.
-    const selected = (relevantOwners.length > 0 ? relevantOwners : strongestOwners).slice(0, 10);
-    const playerMilitaryPower = Number(accounts[this.ctx.playerPolityId()]?.effectiveMilitaryPower) || this.nationalEffectiveMilitaryPower(this.ctx.playerPolityId(), accounts, byOwner);
-    const displayName = (polityId: string): string => {
-      const owned = byOwner.get(polityId) || [];
-      const registeredName = countryRepository.findByCode(polityId)?.name;
-      return owned.length > 1
-        ? (registeredName || polityId)
-        : (owned[0]?.name || registeredName || polityId);
-    };
-    const allPolityIds = [this.ctx.playerPolityId(), ...owners];
+    const { selected, playerMilitaryPower, displayName, allPolityIds } =
+      this.strategicTheatre(byOwner, owners, accounts, focusTexts);
 
     return selected.map(polityId => {
       const owned = byOwner.get(polityId) || [];
@@ -460,6 +409,7 @@ export class WorldIntelService {
         socialTension: account?.socialTension,
       });
       const memory = this.recentStrategicMemory(polityId, 3, matchers.find(entry => entry.id === polityId));
+      const agenda = this.ctx.npcAgenda?.(polityId) ?? '';
       return [
         `- ${name} [${polityId}] — profilo persistente: ${profile.personality}, dottrina ${profile.doctrine}, stile negoziale ${profile.negotiationStyle}, decisione ${profile.decisionTempo}.`,
         `  Tratti: propensione alla forza ${Math.round(profile.aggression * 100)}/100; rischio ${profile.riskTolerance}/100; affidabilità verso impegni registrati ${profile.allianceReliability}/100; focus economico ${profile.economicFocus}/100; sensibilità alla sovranità ${profile.sovereigntySensitivity}/100.`,
@@ -467,8 +417,155 @@ export class WorldIntelService {
         ...(account ? [`  Economia e sforzo: saldo mensile ${Math.round(account.monthlyBalance * 10) / 10}, stabilità ${account.stability}/100, spesa militare ${account.defenceBurdenPct}% del PIL, riserve mobilitate ${account.mobilized}, sforzo bellico ${account.warEffort}/100, tensione sociale ${account.socialTension}/100.`] : []),
         `  Rapporti registrati: ${registeredRelations.length ? registeredRelations.slice(0, 8).map(entry => `${displayName(entry.otherId)} [${entry.otherId}] ${entry.value}`).join('; ') : 'nessun rapporto non neutrale'}.`,
         `  Memoria strategica: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato: non inventarne uno'}.`,
+        // GAMEPLAY-LONG: la strategia persiste fra i turni. Il modello la
+        // racconta e può aggiornarla, ma non la inventa: gli obiettivi sono del
+        // motore, con data di nascita, priorità, progresso e motivo misurati.
+        `  Agenda strategica: ${agenda || 'nessun obiettivo attivo registrato: non inventarne uno'}.`,
       ].join('\n');
     }).join('\n');
+  }
+
+  /**
+   * Il teatro strategico del turno: le stesse politie del dossier, scelte con
+   * le stesse ancore (ordini, rapporti, frontiera, chat) e non «le più forti
+   * del globo». Estratto perché lo usano sia il dossier sia l'agenda.
+   */
+  private strategicTheatre(
+    byOwner: Map<string, RegionState[]>,
+    owners: string[],
+    accounts: ReturnType<typeof WorldStateEngine.accounts>,
+    focusTexts: string[],
+  ): {
+    selected: string[];
+    playerMilitaryPower: number;
+    allPolityIds: string[];
+    displayName: (polityId: string) => string;
+  } {
+    const recentTexts = this.ctx.results().slice(-8).flatMap(result =>
+      (result.timelineEvents || []).map(event => `${event.headline} ${event.detail || ''}`)
+    );
+    const recentOwners = this.mentionedNpcPolityIds(recentTexts);
+    const focusedOwners = this.mentionedNpcPolityIds(focusTexts);
+    const chatOwners = chatRepository.getChatsByGame(this.ctx.gameId, true)
+      .flatMap(chat => chat.participants.map(participant => participant.id))
+      .filter(owner => owners.includes(owner));
+    const frontierOwners = new Set<string>();
+    for (const region of byOwner.get(this.ctx.playerPolityId()) || []) {
+      for (const borderId of region.borders || []) {
+        const owner = this.ctx.regions().get(borderId)?.owner;
+        if (owner && owner !== 'neutral' && owner !== this.ctx.playerPolityId()) frontierOwners.add(owner);
+      }
+    }
+    const relatedOwners = owners.filter(owner => this.ctx.relationship(this.ctx.playerPolityId(), owner) !== 'neutral');
+    const strongestOwners = [...owners].sort((a, b) => (accounts[b]?.militaryPower || 0) - (accounts[a]?.militaryPower || 0));
+    const anchors = new Set<string>([...focusedOwners, ...relatedOwners]);
+    const regionalOwners = new Set<string>();
+    const frontierCache = new Map<string, Set<string>>();
+    for (const owner of [this.ctx.playerPolityId(), ...anchors]) {
+      for (const neighbour of this.frontierOwnerIds(owner, frontierCache)) {
+        if (neighbour !== this.ctx.playerPolityId()) regionalOwners.add(neighbour);
+      }
+    }
+    const theatreOwners = new Set<string>([
+      ...focusedOwners,
+      ...frontierOwners,
+      ...regionalOwners,
+      ...relatedOwners,
+    ]);
+    const relevantOwners = [...new Set([
+      ...focusedOwners,
+      ...regionalOwners,
+      ...frontierOwners,
+      ...relatedOwners,
+      ...recentOwners.filter(owner => theatreOwners.has(owner)),
+      ...chatOwners.filter(owner => theatreOwners.has(owner)),
+    ])];
+    const selected = (relevantOwners.length > 0 ? relevantOwners : strongestOwners).slice(0, 10);
+    const playerMilitaryPower = Number(accounts[this.ctx.playerPolityId()]?.effectiveMilitaryPower)
+      || this.nationalEffectiveMilitaryPower(this.ctx.playerPolityId(), accounts, byOwner);
+    const displayName = (polityId: string): string => {
+      const owned = byOwner.get(polityId) || [];
+      const registeredName = countryRepository.findByCode(polityId)?.name;
+      return owned.length > 1
+        ? (registeredName || polityId)
+        : (owned[0]?.name || registeredName || polityId);
+    };
+    return {
+      selected,
+      playerMilitaryPower,
+      allPolityIds: [this.ctx.playerPolityId(), ...owners],
+      displayName,
+    };
+  }
+
+  /**
+   * Contesto di ogni polity del teatro per l'agenda strategica: relazioni,
+   * minacce, forze, conti e bersagli (chi è ostile, chi è alleato) più
+   * l'evidenza recente in cronaca. Stessa fonte del dossier: nessun numero nuovo.
+   */
+  npcAgendaContexts(
+    accounts: ReturnType<typeof WorldStateEngine.accounts>,
+  ): Record<string, { profile: NpcAgendaProfile; context: NpcAgendaContext }> {
+    const byOwner = this.groupRegionsByOwner();
+    const owners = [...byOwner.keys()]
+      .filter(owner => owner && owner !== 'neutral' && owner !== this.ctx.playerPolityId());
+    if (owners.length === 0) return {};
+    const { selected, playerMilitaryPower, allPolityIds, displayName } =
+      this.strategicTheatre(byOwner, owners, accounts, []);
+    // Evidenza recente: quante volte la cronaca recente ha toccato un bersaglio.
+    const recentTexts = this.ctx.results().slice(-12).flatMap(result =>
+      (result.timelineEvents || []).map(event => `${event.headline} ${event.detail || ''}`)
+    );
+    const targetEvidence: Record<string, number> = {};
+    for (const polityId of allPolityIds) {
+      if (polityId === this.ctx.playerPolityId()) continue;
+      const names = [polityId, displayName(polityId), this.ctx.publicPolityName(polityId)]
+        .filter(Boolean).map(value => String(value).toLowerCase());
+      targetEvidence[polityId] = recentTexts.filter(text => {
+        const haystack = text.toLowerCase();
+        return names.some(name => name.length >= 3 && haystack.includes(name));
+      }).length;
+    }
+    const result: Record<string, { profile: NpcAgendaProfile; context: NpcAgendaContext }> = {};
+    for (const polityId of selected) {
+      const account = accounts[polityId];
+      const profile = strategicProfileForPolity(polityId);
+      const registeredRelations = allPolityIds
+        .filter(otherId => otherId !== polityId)
+        .map(otherId => ({ otherId, value: this.ctx.relationship(polityId, otherId) }))
+        .filter(entry => entry.value !== 'neutral');
+      const hostile = registeredRelations
+        .filter(entry => entry.value === 'hostile')
+        .sort((a, b) => a.otherId.localeCompare(b.otherId))[0]?.otherId ?? null;
+      const ally = registeredRelations
+        .filter(entry => entry.value === 'ally')
+        .sort((a, b) => a.otherId.localeCompare(b.otherId))[0]?.otherId ?? null;
+      result[polityId] = {
+        profile: {
+          personality: profile.personality,
+          economicFocus: profile.economicFocus,
+          sovereigntySensitivity: profile.sovereigntySensitivity,
+        },
+        context: {
+          relationshipToPlayer: this.ctx.relationship(polityId, this.ctx.playerPolityId()),
+          hostileNeighbours: this.hostileNeighbourCount(polityId, byOwner),
+          hostileActors: registeredRelations.filter(entry => entry.value === 'hostile').length,
+          alliedActors: registeredRelations.filter(entry => entry.value === 'ally').length,
+          militaryPower: this.nationalEffectiveMilitaryPower(polityId, accounts, byOwner),
+          playerMilitaryPower,
+          monthlyBalance: account?.monthlyBalance,
+          stability: account?.stability,
+          socialTension: account?.socialTension,
+          warEffort: account?.warEffort,
+          hostileTarget: hostile,
+          allyTarget: ally,
+          hostileTargetName: hostile ? displayName(hostile) : null,
+          allyTargetName: ally ? displayName(ally) : null,
+          targetEvidence,
+        },
+      };
+    }
+    return result;
   }
 
   /** Colore canonico di una politia: colore più frequente tra i territori posseduti. */

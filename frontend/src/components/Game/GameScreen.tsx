@@ -149,10 +149,14 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     government: nation.nationalGovernment,
     fiscalPolicy: nation.nationalFiscalPolicy,
     worldFacts,
+    // GAMEPLAY-LONG: una riga sulla strategia più urgente fra le potenze.
+    strategicAgenda: nation.strategicAgenda,
+    playerPolityId,
   }), [
     nationalAccount, nation.nationalResources, nation.nationalCrisis, nation.nationalPressures,
     timeline.ongoingProcesses, nation.mandateDecisions, nation.maintenanceObligations,
     nation.nationalGovernment, nation.nationalFiscalPolicy, worldFacts,
+    nation.strategicAgenda, playerPolityId,
   ]);
 
   // LW06.1 / MIGLIORIA 2 — variazioni reali del periodo del checkpoint in
@@ -338,6 +342,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             onResolvePressure={nation.resolvePressure}
             pressureBusy={nation.pressureBusy}
             nationalCrisis={nation.nationalCrisis}
+            strategicAgenda={nation.strategicAgenda}
             briefing={briefing}
             onDraftGovernmentPetition={draftGovernmentPetition}
             governmentVoices={nation.governmentVoices}

@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   gameApi,
   type CrisisSnapshot,
+  type PowerAgenda,
   type FiscalPolicyInfo,
   type GameEnding,
   type GovernmentSnapshot,
@@ -89,6 +90,8 @@ export interface NationSnapshot {
   setRecentPressures: React.Dispatch<React.SetStateAction<PeacetimePressure[]>>;
   pressureBusy: boolean;
   nationalCrisis: CrisisSnapshot | null;
+  /** GAMEPLAY-LONG: obiettivi persistenti delle potenze del teatro. */
+  strategicAgenda: { powers: PowerAgenda[] } | null;
   setNationalCrisis: React.Dispatch<React.SetStateAction<CrisisSnapshot | null>>;
   gameEnding: GameEnding | null;
   setGameEnding: React.Dispatch<React.SetStateAction<GameEnding | null>>;
@@ -127,6 +130,7 @@ export function useNationSnapshot({
   const [recentPressures, setRecentPressures] = useState<PeacetimePressure[]>([]);
   const [pressureBusy, setPressureBusy] = useState(false);
   const [nationalCrisis, setNationalCrisis] = useState<CrisisSnapshot | null>(null);
+  const [strategicAgenda, setStrategicAgenda] = useState<{ powers: PowerAgenda[] } | null>(null);
   const [gameEnding, setGameEnding] = useState<GameEnding | null>(null);
   const [governmentVoices, setGovernmentVoices] = useState<GovernmentVoicesResponse | null>(null);
   const [governmentVoicesLoading, setGovernmentVoicesLoading] = useState(false);
@@ -173,6 +177,7 @@ export function useNationSnapshot({
           setNationalGovernment(national.government ?? null);
           setNationalFiscalPolicy(national.fiscalPolicy ?? null);
           setNationalCrisis(national.crisis ?? null);
+          setStrategicAgenda(national.strategicAgenda ?? null);
           setGameEnding(national.crisis?.ending ?? null);
         }
       })
@@ -374,6 +379,7 @@ export function useNationSnapshot({
     recentPressures, setRecentPressures,
     pressureBusy,
     nationalCrisis, setNationalCrisis,
+    strategicAgenda,
     gameEnding, setGameEnding,
     governmentVoices, setGovernmentVoices,
     governmentVoicesLoading,

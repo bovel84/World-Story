@@ -32,7 +32,7 @@ import {
 import {
   BudgetBreakdown, CrisisBlock, DebtPortfolio, DossierBlock, EmptyState,
   EquipmentSpecs, FactionCard, Footnote, Metric, MetricGrid, PressuresBlock,
-  ProgressRow, ResourceTradeRow, VerdictBanner,
+  PowersAgendaList, ProgressRow, ResourceTradeRow, VerdictBanner,
 } from './NationDock/widgets';
 import { useNationDockModel } from './NationDock/useNationDockModel';
 import { MaterialBalanceList } from './MaterialBalanceList';
@@ -46,7 +46,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     ongoingProcesses, completedProcesses = [], mandateDecisions = [], maintenanceObligations = [], onAcknowledgeMandateDecision,
     government, onDraftOrder, governmentVoices, governmentVoicesLoading, governmentVoicesError,
     onBorrowDebt, fiscalPolicy, onSetFiscalPolicy, fiscalPolicyBusy,
-    pressures, recentPressures, onResolvePressure, pressureBusy, crisis, briefing,
+    pressures, recentPressures, onResolvePressure, pressureBusy, crisis, briefing, strategicAgenda,
     setState, active, trading, borrowing, borrowAmount, setBorrowAmount, borrowTerm, setBorrowTerm,
     taxDraft, setTaxDraft, effectiveTaxPct, runSetTax, runBorrow, runTrade,
     assets, projectGroups, financeAvailable, balance, stability, socialTension, warEffort, mobilized,
@@ -55,7 +55,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     budget, verdict, factions, modifiersActive, foodMonthly,
     clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue, provincesLabel,
     moneyDelta, pointDelta, countDelta, mkTrend,
-    materialRows, weaponsRows, armsSummary, lineSummary,
+    materialRows, weaponsRows, armsSummary, lineSummary, playerPolityId,
   } = useNationDockModel(props);
 
   return (
@@ -138,6 +138,13 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 busy={pressureBusy}
                 money={account?.money}
               />
+            </DossierBlock>
+
+            <DossierBlock
+              title="Strategie delle potenze"
+              description="Che cosa stanno inseguendo le nazioni del teatro: obiettivi persistenti del motore, con la data di nascita, il motivo e il progresso misurato sugli indicatori del turno."
+            >
+              <PowersAgendaList powers={strategicAgenda?.powers || []} playerPolityId={playerPolityId} />
             </DossierBlock>
 
             <DossierBlock

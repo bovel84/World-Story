@@ -38,6 +38,7 @@ import { type PressureEffect } from './core/simulation/PeacetimePressures';
 import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import type { FactionMemoryEvent } from './core/simulation/FactionMemory';
+import { NpcAgendaService } from './game/NpcAgendaService';
 import type { GovernmentVoices } from './prompts/government';
 import { annualDebtServiceMld, creditHeadroom, debtOf, issueSovereignDebt, type ResourceStock } from './core/simulation/MaterialEconomy';
 import {
@@ -363,6 +364,8 @@ export class GameSession {
   private worldIntel: WorldIntelService;
   /** Turni NPC ed eventi casuali (Fase 1: estratto da GameSession). */
   private npcTurns: NpcTurnService;
+  /** GAMEPLAY-LONG: obiettivi persistenti delle polity non giocanti. */
+  private npcAgenda: NpcAgendaService;
   /** Macchina a stati del playback scaglionato (Fase 1: estratto da GameSession). */
   private playback: PlaybackService;
   /** Orchestratore del lotto di ordini (Fase 1: estratto da GameSession). */
@@ -1102,6 +1105,14 @@ export class GameSession {
       relationship: (from, to) => this.diplomacy.matrix().get(from, to),
       arsenalUnits: polityId => this.military.arsenalUnits(polityId),
       worldStateOptions: () => this.worldStateOptions(),
+      // GAMEPLAY-LONG: l'agenda strategica entra nel dossier NPC.
+      npcAgenda: polityId => this.npcAgenda.describe(polityId),
+    });
+    this.npcAgenda = new NpcAgendaService({
+      gameId: this.id,
+      currentDate: () => this.currentDate,
+      currentTurn: () => this.currentTurn,
+      isStrictGame: () => this.isStrictGame(),
     });
     this.gameController = new GameController(provider);
     this.promptEngine = new PromptEngine(provider);
@@ -1191,7 +1202,12 @@ export class GameSession {
       peekCrisis: () => this.peekCrisis(),
       ending: () => this.ending,
       pendingFundingNotes: () => this.pendingFundingNotes,
-      buildNpcStrategicDossiers: (focusTexts, accounts) => this.buildNpcStrategicDossiers(focusTexts, accounts),
+      buildNpcStrategicDossiers: (focusTexts, accounts) => {
+        // Prima di raccontare la strategia delle potenze, il motore la rivede
+        // (memoizzata per turno): il modello legge uno stato, non lo decide.
+        this.refreshNpcAgenda();
+        return this.buildNpcStrategicDossiers(focusTexts, accounts);
+      },
       relationships: () => this.diplomacy.toJSON(),
       chatTranscripts: () => this.diplomacy.buildChatTranscripts(),
       actions: () => this.actions,
@@ -1258,6 +1274,7 @@ export class GameSession {
       nationalEffectiveMilitaryPower: (polityId, accounts) => this.nationalEffectiveMilitaryPower(polityId, accounts),
       hostileNeighbourCount: polityId => this.hostileNeighbourCount(polityId),
       recentStrategicMemory: (polityId, limit) => this.recentStrategicMemory(polityId, limit),
+      strategicAgenda: polityId => this.npcAgenda.describe(polityId),
     });
     // F04 §9.4: ogni partita nasce (o riapre) sul suo ramo principale.
     // Idempotente: le sessioni ricostruite dal DB non duplicano il ramo.
@@ -1997,6 +2014,10 @@ export class GameSession {
     // come per le pressioni che si rigenerano): una decisione presa durante il
     // turno a cui si torna appartiene ancora allo stato restaurato.
     this.nationState.pruneFactionMemoryAfterTurn(Number(saveData.currentTurn) || 0);
+    // Anche l'agenda torna alla versione precedente: la strategia riscritta
+    // non resta appesa al futuro che è stato annullato.
+    this.npcAgenda.pruneAfterTurn(Number(saveData.currentTurn) || 0);
+    this.npcAgendaKey = null;
     // Un turno annullato cancella anche il collasso: si torna a giocare.
     gameRepository.resetCrisisState(this.id);
     this.loadFromSave(saveData, hash);
@@ -2172,6 +2193,63 @@ export class GameSession {
    */
   getGovernment() {
     return governmentSnapshot(this.sessionAccounts()[this.playerPolityId], this.nationState.governmentMemory());
+  }
+
+  /**
+   * Rivede l'agenda strategica delle polity del teatro (GAMEPLAY-LONG).
+   * Memoizzata per turno e data: una revisione per avanzamento, non per prompt,
+   * così la strategia resta stabile e non costa chiamate LLM.
+   */
+  private npcAgendaKey: string | null = null;
+  private refreshNpcAgenda(): void {
+    if (this.isStrictGame()) return;
+    const key = `${this.currentTurn}:${this.currentDate}`;
+    if (this.npcAgendaKey === key) return;
+    this.npcAgendaKey = key;
+    const contexts = this.worldIntel.npcAgendaContexts(this.sessionAccounts());
+    const targets = Object.entries(contexts).map(([polityId, entry]) => ({
+      polityId, profile: entry.profile, context: entry.context,
+    }));
+    const result = this.npcAgenda.refresh(targets);
+    for (const objective of result.opened) {
+      console.log(`[GameSession] Agenda strategica: ${objective.polityId} apre «${objective.description}» (priorità ${objective.priority}/3).`);
+    }
+    for (const objective of result.closed) {
+      console.log(`[GameSession] Agenda strategica: ${objective.polityId} chiude «${objective.description}» (${objective.status}).`);
+    }
+  }
+
+  /**
+   * Agenda strategica delle potenze del teatro: che cosa stanno inseguendo,
+   * da quando, con quanta urgenza e a che punto sono. Read model per il
+   * dossier del giocatore (e per capire «perché è successo?»).
+   */
+  getStrategicAgenda(): {
+    powers: {
+      polityId: string; name: string;
+      objectives: { id: string; description: string; type: string; priority: number; progress: number; since: string; reviewDate: string; reason: string }[];
+    }[];
+  } {
+    if (this.isStrictGame()) return { powers: [] };
+    const byPolity = this.npcAgenda.agendaFor();
+    const powers = Object.entries(byPolity)
+      .map(([polityId, objectives]) => ({
+        polityId,
+        name: this.publicPolityName(polityId),
+        objectives: objectives.map(objective => ({
+          id: objective.id,
+          description: objective.description,
+          type: objective.type,
+          priority: objective.priority,
+          progress: Math.round(objective.progress),
+          since: objective.createdDate,
+          reviewDate: objective.reviewDate,
+          reason: objective.reason,
+        })),
+      }))
+      .filter(power => power.objectives.length > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { powers };
   }
 
   /** Chiave del turno corrente per la cache delle voci del consiglio. */

@@ -309,6 +309,25 @@ export interface GovernmentSnapshot {
   trustIndex?: number | null;
 }
 
+/** GAMEPLAY-LONG: obiettivo strategico di una polity non giocante. */
+export interface StrategicObjective {
+  id: string;
+  description: string;
+  type: string;
+  priority: number;
+  progress: number;
+  since: string;
+  reviewDate: string;
+  reason: string;
+}
+
+/** Che cosa sta inseguendo una potenza del teatro, da quando e a che punto è. */
+export interface PowerAgenda {
+  polityId: string;
+  name: string;
+  objectives: StrategicObjective[];
+}
+
 /** Voci del consiglio generate dall'LLM sulle fazioni del motore. */
 export interface GovernmentVoicesResponse {
   /** Sintesi scorrevole del consiglio. */
@@ -597,6 +616,8 @@ export const gameApi = {
     fiscalPolicy?: FiscalPolicyInfo | null;
     /** Crisi nazionale: rischi di collasso ed eventuale epilogo. */
     crisis?: CrisisSnapshot | null;
+    /** GAMEPLAY-LONG: obiettivi persistenti delle potenze del teatro. */
+    strategicAgenda?: { powers: PowerAgenda[] } | null;
     /** Magazzino materiale del giocatore (legacy): stock, conto e risorse naturali. */
     resources?: {
       stock?: { money?: number; debt?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };

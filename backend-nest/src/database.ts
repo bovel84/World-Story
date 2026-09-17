@@ -767,6 +767,38 @@ export function initDatabase() {
   try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
   try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated_date TEXT'); } catch { /* già presente */ }
 
+  // GAMEPLAY-LONG: agenda strategica degli NPC. Righe = VERSIONI di un
+  // obiettivo (`objective_key` identifica l'istanza): la strategia dura più
+  // turni e il rewind fa riemergere la versione precedente.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_npc_agenda (
+      id TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
+      objective_key TEXT NOT NULL,
+      polity_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      target_polity_id TEXT,
+      target_region_id TEXT,
+      description TEXT NOT NULL DEFAULT '',
+      priority INTEGER NOT NULL DEFAULT 2,
+      status TEXT NOT NULL DEFAULT 'active',
+      progress REAL NOT NULL DEFAULT 0,
+      measure TEXT NOT NULL DEFAULT 'events',
+      baseline REAL,
+      reason TEXT NOT NULL DEFAULT '',
+      created_date TEXT NOT NULL,
+      created_turn INTEGER NOT NULL,
+      review_date TEXT NOT NULL,
+      reviewed_date TEXT NOT NULL,
+      reviewed_turn INTEGER NOT NULL,
+      recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (game_id, branch_id, id),
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_game_npc_agenda_lookup ON game_npc_agenda(game_id, branch_id, polity_id, status)');
+
   // GAMEPLAY-LONG: memoria politica delle fazioni. Il motore registra le
   // decisioni che riguardano una fazione (favore, torto, richiesta ignorata,
   // impegno mantenuto o tradito); la fotografia del governo vi aggiunge il
