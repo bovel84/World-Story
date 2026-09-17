@@ -13,6 +13,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { chatsApi, gameApi } from '../../services/api';
 import type { Region, World, Game } from '../../types';
 import type { Suggestion } from '../../stores';
+import { resolveSuggestionToggle } from '../Game/suggestionToggle';
 import type { ActiveModule } from '../../stores/moduleState';
 
 interface DeskContentProps {
@@ -213,22 +214,27 @@ export function DeskContent({
                 <div className="suggestion-description">{suggestion.description}</div>
                 {suggestion.actions.map((action, actionIndex) => {
                   const content = action.content.trim();
-                  const queued = pendingActions.some(item => item.text.trim() === content);
+                  const toggle = resolveSuggestionToggle(pendingActions, content);
+                  const queued = toggle.kind === 'remove';
                   return (
                     <button
                       type="button"
                       key={`${action.title}-${actionIndex}`}
                       className={`suggestion-action${queued ? ' queued' : ''}`}
-                      disabled={queued || !content}
-                      onClick={() => void queuePlayerAction(content)}
-                      title={queued ? 'Azione già nel piano' : 'Aggiungi questa proposta al piano'}
+                      disabled={!content}
+                      aria-pressed={queued}
+                      onClick={() => {
+                        if (toggle.kind === 'remove') void removeQueuedAction(toggle.id);
+                        else void queuePlayerAction(content);
+                      }}
+                      title={queued ? 'Rimuovi questa proposta dal piano' : 'Aggiungi questa proposta al piano'}
                     >
                       <span className="suggestion-action-plus" aria-hidden="true">{queued ? '✓' : '+'}</span>
                       <span className="suggestion-action-body">
                         <b>{action.title}</b>
                         <span>{content}</span>
                       </span>
-                      <span className="suggestion-action-cta">{queued ? 'Aggiunta' : 'Usa'}</span>
+                      <span className="suggestion-action-cta">{queued ? 'Rimuovi' : 'Usa'}</span>
                     </button>
                   );
                 })}

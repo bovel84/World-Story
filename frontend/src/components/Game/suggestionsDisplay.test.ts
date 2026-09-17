@@ -21,8 +21,8 @@ describe('pannello Ordini — proposte generate', () => {
 
   it('permette di aggiungere una proposta al piano e riconosce i duplicati', () => {
     expect(deskSource).toContain('queuePlayerAction(content)');
-    expect(deskSource).toContain("item.text.trim() === content");
-    expect(deskSource).toContain("queued ? 'Aggiunta' : 'Usa'");
+    expect(deskSource).toContain('resolveSuggestionToggle(pendingActions, content)');
+    expect(deskSource).toContain("queued ? 'Rimuovi' : 'Usa'");
   });
 
   it('annuncia ai lettori di schermo l’arrivo dei risultati', () => {
