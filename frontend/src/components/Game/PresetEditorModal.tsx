@@ -410,45 +410,56 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
             })()}
 
             {tab === 'mappa' && <div className="preset-map-editor">
-              <p className="preset-guide">Scegli una <strong>mappa nativa</strong> del gioco: non serve caricare file. Le mappe provinciali rendono disponibili i livelli «Regioni raggruppate» e «Massimo dettaglio».</p>
+              <p className="preset-map-intro">Scegli una <strong>mappa nativa</strong> del gioco: non serve caricare file. Le mappe provinciali rendono disponibili i livelli «Regioni raggruppate» e «Massimo dettaglio».</p>
               <fieldset className="preset-map-base">
                 <legend>Mappa nativa</legend>
                 {nativeMaps.length === 0 && (
-                  <label className="preset-map-base-option">
+                  <label className="preset-map-base-option selected">
                     <input type="radio" name="preset-map-base" checked readOnly />
-                    <span>Mappa mondiale standard<small>1 regione per paese</small></span>
+                    <span className="preset-map-base-text">
+                      <strong>Mappa mondiale standard</strong>
+                      <small>Una regione per paese · predefinita</small>
+                    </span>
+                    <i className="preset-map-base-check" aria-hidden="true">✓</i>
                   </label>
                 )}
                 {nativeMaps.map(m => {
                   const missing = missingByMap.get(m.id) ?? [];
+                  const selected = !hasOwnMap && selectedBase === m.id;
+                  const disabled = hasOwnMap || missing.length > 0;
                   return (
-                    <label key={m.id} className="preset-map-base-option">
+                    <label key={m.id} className={`preset-map-base-option${selected ? ' selected' : ''}${disabled ? ' disabled' : ''}`}>
                       <input
                         type="radio"
                         name="preset-map-base"
                         value={m.id}
-                        checked={!hasOwnMap && selectedBase === m.id}
+                        checked={selected}
                         disabled={hasOwnMap || missing.length > 0}
                         onChange={() => patch('map_base', m.id)}
                       />
-                      <span>
-                        {m.label}
+                      <span className="preset-map-base-text">
+                        <strong>{m.label}</strong>
                         <small>
-                          {m.hasProvinces ? `${m.features} province` : `${m.features} regioni (1 per paese)`}
-                          {m.id === 'standard' ? ' · standard' : ''}
+                          {m.hasProvinces ? 'Mappa provinciale' : 'Una regione per paese'}
+                          {m.id === 'standard' ? ' · predefinita' : ''}
                           {missing.length > 0 ? ` · non copre: ${missing.join(', ')}` : ''}
                         </small>
                       </span>
+                      <em className="preset-map-base-badge">{m.features}<small>{m.hasProvinces ? 'province' : 'paesi'}</small></em>
+                      <i className="preset-map-base-check" aria-hidden="true">✓</i>
                     </label>
                   );
                 })}
                 {hasOwnMap && <p className="preset-guide warning">Il file <code>map.geojson</code> caricato ha la precedenza sulla mappa nativa. Rimuovilo per usare una mappa nativa.</p>}
                 {mapIncompatible && <p className="preset-guide warning">La mappa selezionata non contiene la geometria per: <strong>{selectedMissing.join(', ')}</strong>. Scegli una mappa compatibile o rimuovi quei paesi.</p>}
+                <div className="preset-map-summary" role="status" aria-live="polite">
+                  <span className="preset-map-summary-item"><small>Mappa attiva</small><strong>{activeMapLabel}</strong></span>
+                  <span className="preset-map-summary-item"><small>Livello</small><strong>{effectiveDetail}</strong></span>
+                </div>
               </fieldset>
-              <p className="preset-guide">Mappa attiva: <strong>{activeMapLabel}</strong> · Livello: <strong>{effectiveDetail}</strong></p>
               <details className="preset-map-advanced">
                 <summary>Opzione avanzata: carica un GeoJSON proprio</summary>
-                <p className="preset-guide">Una mappa personalizzata è facoltativa; se caricata ha la precedenza sulla mappa nativa.</p>
+                <p className="preset-map-advanced-hint">Una mappa personalizzata è facoltativa; se caricata ha la precedenza sulla mappa nativa.</p>
                 <div className="preset-map-drop" onClick={() => mapInput.current?.click()}>
                   <span>🗺</span>
                   <strong>{data.map_geojson ? `${data.map_geojson.features?.length || 0} province/regioni caricate` : 'Nessun file caricato'}</strong>
@@ -465,19 +476,24 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
                   selezionabile anche senza mappa provinciale. */}
               <fieldset className="preset-map-detail">
                 <legend>Dettaglio della mappa</legend>
-                {MAP_DETAIL_OPTIONS.map(option => (
-                  <label key={option.value}>
-                    <input
-                      type="radio"
-                      name="preset-map-detail"
-                      value={option.value}
-                      checked={effectiveDetail === option.value}
-                      disabled={mapDetailOptionDisabled(provinceMap, option.value)}
-                      onChange={() => patch('map_detail', option.value)}
-                    />
-                    <span>{option.label}<small>{option.hint}</small></span>
-                  </label>
-                ))}
+                {MAP_DETAIL_OPTIONS.map(option => {
+                  const selected = effectiveDetail === option.value;
+                  const disabled = mapDetailOptionDisabled(provinceMap, option.value);
+                  return (
+                    <label key={option.value} className={`preset-map-detail-option${selected ? ' selected' : ''}${disabled ? ' disabled' : ''}`}>
+                      <input
+                        type="radio"
+                        name="preset-map-detail"
+                        value={option.value}
+                        checked={effectiveDetail === option.value}
+                        disabled={mapDetailOptionDisabled(provinceMap, option.value)}
+                        onChange={() => patch('map_detail', option.value)}
+                      />
+                      <span className="preset-map-detail-text"><strong>{option.label}</strong><small>{option.hint}</small></span>
+                      <i className="preset-map-detail-check" aria-hidden="true">✓</i>
+                    </label>
+                  );
+                })}
                 {!provinceMap && <p className="preset-guide">Senza una mappa provinciale (con <code>properties.country</code>) è disponibile solo «Solo nazioni».</p>}
               </fieldset>
               {provinceMap && <fieldset className="preset-map-detail preset-map-grouping" disabled={effectiveDetail !== 'grouped'}>
