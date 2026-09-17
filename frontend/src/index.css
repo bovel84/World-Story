@@ -2484,29 +2484,33 @@ html, body { margin: 0; }
 .hud-date-compact { display: none; }
 
 @media (max-width: 480px) {
+  /* Le tre icone di sinistra (menu ☰, dispacci, impostazioni ⚙) devono stare
+     nella loro colonna: la griglia usa `auto` per left e badge così nessun
+     controllo esce dal proprio riquadro e copre il turno. */
   .hud-bar {
     display: grid !important;
-    grid-template-columns: 76px 62px minmax(0, 1fr) !important;
+    grid-template-columns: auto auto minmax(0, 1fr) !important;
     align-items: center !important;
     height: var(--ws-hud-h, 52px) !important;
     min-height: var(--ws-hud-h, 52px) !important;
     padding: 3px 6px !important;
-    gap: 3px !important;
+    gap: 4px !important;
     box-sizing: border-box !important;
+    overflow: hidden !important;
   }
-  .hud-left { grid-column: 1; display: flex !important; align-items: center; gap: 2px; min-width: 0; }
+  .hud-left { grid-column: 1; display: flex !important; align-items: center; gap: 4px; min-width: 0; }
   .hud-logo { display: none !important; }
-  .hud-icon-btn { width: 36px !important; height: 36px !important; min-width: 36px !important; }
-  .hud-dispatch-toggle { width: 34px !important; height: 36px !important; min-width: 34px !important; padding: 0 !important; justify-content: center !important; }
+  .hud-icon-btn { width: 34px !important; height: 34px !important; min-width: 34px !important; }
+  .hud-dispatch-toggle { width: 32px !important; height: 34px !important; min-width: 32px !important; padding: 0 !important; justify-content: center !important; }
   .hud-dispatch-label { display: none !important; }
   .hud-center { grid-column: 2; position: static !important; transform: none !important; display: block !important; min-width: 0; }
   .hud-world-name { display: none !important; }
-  .hud-turn-badge { display: grid !important; width: 62px; height: 32px; place-items: center; padding: 0 !important; font-size: 10px !important; white-space: nowrap; }
+  .hud-turn-badge { display: grid !important; min-width: 52px; height: 32px; place-items: center; padding: 0 4px !important; font-size: 10px !important; white-space: nowrap; box-sizing: border-box; }
   .hud-right { grid-column: 3; display: flex !important; align-items: center; min-width: 0; margin: 0 !important; gap: 4px !important; }
-  .hud-advance-btn { flex: 0 0 76px; min-width: 76px !important; min-height: 36px !important; padding: 0 6px !important; font-size: 11px !important; justify-content: center; }
-  .hud-date-pill { display: flex !important; flex: 1 1 auto; min-width: 0; max-width: none !important; height: 36px; padding: 2px !important; box-sizing: border-box; }
-  .hud-date-nav { width: 25px !important; height: 32px !important; min-width: 25px !important; }
-  .hud-date-display { display: grid !important; flex: 1 1 auto; min-width: 0; padding: 0 2px !important; place-items: center; font-size: 11px !important; overflow: visible !important; }
+  .hud-advance-btn { flex: 0 0 68px; min-width: 68px !important; min-height: 34px !important; padding: 0 6px !important; font-size: 11px !important; justify-content: center; }
+  .hud-date-pill { display: flex !important; flex: 1 1 auto; min-width: 0; max-width: none !important; height: 34px; padding: 2px !important; box-sizing: border-box; }
+  .hud-date-nav { width: 24px !important; height: 30px !important; min-width: 24px !important; }
+  .hud-date-display { display: grid !important; flex: 1 1 auto; min-width: 0; padding: 0 2px !important; place-items: center; font-size: 10px !important; overflow: hidden !important; text-overflow: ellipsis; white-space: nowrap; }
   .hud-date-long { display: none !important; }
   .hud-date-compact { display: inline !important; white-space: nowrap; }
 
@@ -2519,9 +2523,10 @@ html, body { margin: 0; }
 }
 
 @media (max-width: 370px) {
-  .hud-bar { grid-template-columns: 40px 62px minmax(0, 1fr) !important; }
+  /* Spazio minimo: si rinuncia al solo toggle dispacci dell'HUD (resta nella
+     rail moduli in basso), così menu e impostazioni restano nella colonna. */
   .hud-dispatch-toggle { display: none !important; }
-  .hud-advance-btn { flex-basis: 70px; min-width: 70px !important; }
+  .hud-advance-btn { flex-basis: 64px; min-width: 64px !important; }
 }
 
 /* Categorie dei dispacci: rendono immediatamente riconoscibili scontri,
