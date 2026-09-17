@@ -4,11 +4,242 @@
   "description": "La Grande Depressione ha svuotato le democrazie e aperto la strada ai totalitarismi. Riarmo, guerra civile spagnola, espansionismo giapponese e tedesco e imperi coloniali in tensione: il mondo naviga senza rotta verso un nuovo conflitto.",
   "start_date": "1936-01-01",
   "country_codes": [
-    "USA", "CAN", "MEX", "BRA", "GBR", "FRA", "DEU", "ITA", "RUS", "ESP",
-    "PRT", "NLD", "BEL", "CHE", "SWE", "NOR", "DNK", "FIN", "POL", "CZE",
-    "AUT", "HUN", "ROU", "BGR", "SRB", "HRV", "SVN", "MKD", "CHN", "JPN",
-    "IND", "IDN", "VNM", "THA", "PHL", "IRN", "IRQ", "TUR", "SAU", "EGY",
-    "ZAF", "AUS"
+    "USA",
+    "CAN",
+    "MEX",
+    "BRA",
+    "GBR",
+    "FRA",
+    "DEU",
+    "ITA",
+    "RUS",
+    "ESP",
+    "PRT",
+    "NLD",
+    "BEL",
+    "CHE",
+    "SWE",
+    "NOR",
+    "DNK",
+    "FIN",
+    "POL",
+    "CZE",
+    "AUT",
+    "HUN",
+    "ROU",
+    "BGR",
+    "SRB",
+    "CHN",
+    "JPN",
+    "IND",
+    "IDN",
+    "VNM",
+    "THA",
+    "PHL",
+    "IRN",
+    "IRQ",
+    "TUR",
+    "SAU",
+    "EGY",
+    "ZAF",
+    "AUS"
+  ],
+  "countries": [
+    {
+      "code": "USA",
+      "name": "Stati Uniti d'America",
+      "color": "#3C3B6E"
+    },
+    {
+      "code": "CAN",
+      "name": "Dominion del Canada",
+      "color": "#FF0000"
+    },
+    {
+      "code": "MEX",
+      "name": "Stati Uniti Messicani",
+      "color": "#006847"
+    },
+    {
+      "code": "BRA",
+      "name": "Repubblica del Brasile",
+      "color": "#009C3B"
+    },
+    {
+      "code": "GBR",
+      "name": "Impero Britannico",
+      "color": "#012169"
+    },
+    {
+      "code": "FRA",
+      "name": "Repubblica Francese",
+      "color": "#002395"
+    },
+    {
+      "code": "DEU",
+      "name": "Germania nazista",
+      "color": "#000000"
+    },
+    {
+      "code": "ITA",
+      "name": "Italia fascista",
+      "color": "#008C45"
+    },
+    {
+      "code": "RUS",
+      "name": "Unione Sovietica",
+      "color": "#D52B1E"
+    },
+    {
+      "code": "ESP",
+      "name": "Repubblica Spagnola",
+      "color": "#AA151B"
+    },
+    {
+      "code": "PRT",
+      "name": "Portogallo (Estado Novo)",
+      "color": "#006600"
+    },
+    {
+      "code": "NLD",
+      "name": "Regno dei Paesi Bassi",
+      "color": "#AE1C28"
+    },
+    {
+      "code": "BEL",
+      "name": "Regno del Belgio",
+      "color": "#000000"
+    },
+    {
+      "code": "CHE",
+      "name": "Confederazione Svizzera",
+      "color": "#FF0000"
+    },
+    {
+      "code": "SWE",
+      "name": "Regno di Svezia",
+      "color": "#006AA7"
+    },
+    {
+      "code": "NOR",
+      "name": "Regno di Norvegia",
+      "color": "#EF2B2D"
+    },
+    {
+      "code": "DNK",
+      "name": "Regno di Danimarca",
+      "color": "#C8102E"
+    },
+    {
+      "code": "FIN",
+      "name": "Repubblica di Finlandia",
+      "color": "#003580"
+    },
+    {
+      "code": "POL",
+      "name": "Seconda Repubblica Polacca",
+      "color": "#DC143C"
+    },
+    {
+      "code": "CZE",
+      "name": "Cecoslovacchia",
+      "color": "#11457E"
+    },
+    {
+      "code": "AUT",
+      "name": "Repubblica d'Austria",
+      "color": "#ED2939"
+    },
+    {
+      "code": "HUN",
+      "name": "Regno d'Ungheria",
+      "color": "#CD2A3E"
+    },
+    {
+      "code": "ROU",
+      "name": "Regno di Romania",
+      "color": "#002B7F"
+    },
+    {
+      "code": "BGR",
+      "name": "Regno di Bulgaria",
+      "color": "#00966E"
+    },
+    {
+      "code": "SRB",
+      "name": "Regno di Jugoslavia",
+      "color": "#0C4076"
+    },
+    {
+      "code": "CHN",
+      "name": "Repubblica di Cina",
+      "color": "#DE2910"
+    },
+    {
+      "code": "JPN",
+      "name": "Impero del Giappone",
+      "color": "#FFFFFF"
+    },
+    {
+      "code": "IND",
+      "name": "Raj Britannico",
+      "color": "#FF9933"
+    },
+    {
+      "code": "IDN",
+      "name": "Indie Orientali Olandesi",
+      "color": "#FF0000"
+    },
+    {
+      "code": "VNM",
+      "name": "Indocina Francese",
+      "color": "#DA251D"
+    },
+    {
+      "code": "THA",
+      "name": "Regno del Siam",
+      "color": "#A51931"
+    },
+    {
+      "code": "PHL",
+      "name": "Commonwealth delle Filippine",
+      "color": "#0038A8"
+    },
+    {
+      "code": "IRN",
+      "name": "Impero Persiano",
+      "color": "#239F40"
+    },
+    {
+      "code": "IRQ",
+      "name": "Regno dell'Iraq",
+      "color": "#000000"
+    },
+    {
+      "code": "TUR",
+      "name": "Repubblica di Turchia",
+      "color": "#E30A17"
+    },
+    {
+      "code": "SAU",
+      "name": "Regno dell'Arabia Saudita",
+      "color": "#006C35"
+    },
+    {
+      "code": "EGY",
+      "name": "Regno d'Egitto",
+      "color": "#C09300"
+    },
+    {
+      "code": "ZAF",
+      "name": "Unione Sudafricana",
+      "color": "#007A3D"
+    },
+    {
+      "code": "AUS",
+      "name": "Commonwealth d'Australia",
+      "color": "#00008B"
+    }
   ],
   "base_prompt": "1 gennaio 1936. Il mondo esce da anni di crisi economica e le democrazie liberali appaiono esauste. In Germania Hitler ha preso il potere e riarma la Renania; in Italia Mussolini ha invaso l'Etiopia e sogna un impero; in Unione Sovietica Stalin consolida il potere assoluto con piani quinquennali e purghe. Il Giappone militare occupa la Manciuria e preme sulla Cina, mentre la Società delle Nazioni si dimostra incapace di fermarlo. La Spagna è sull'orlo della guerra civile, gli imperi coloniali si contendono Africa e Asia, gli Stati Uniti restano isolazionisti. Nessuno vuole una nuova guerra mondiale, ma tutti si preparano.",
   "historical_accuracy": 0.85,

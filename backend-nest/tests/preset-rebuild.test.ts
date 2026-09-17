@@ -32,6 +32,32 @@ const DATE_BY_ID: Record<string, string> = {
   mondo_1989: '1989-06-04',
 };
 
+// WORLD-ALIVE P2 — coerenza storica: i codici dei moderni Stati nati dopo la
+// data d'inizio (o repubbliche di unioni ancora esistenti a quella data) sono
+// stati rimossi, quindi i conteggi scendono sotto i 25 di PRESETS-REBUILD.
+// Il numero esatto è fissato qui per rendere il cambio esplicito e verificabile.
+const COUNT_BY_ID: Record<string, number> = {
+  europa_1815: 15,
+  europa_1914: 21,
+  mondo_1936: 39,
+  mondo_1989: 31,
+};
+
+// Nomi storici obbligatori (WORLD-ALIVE P2): il campo `countries` deve
+// sovrascrivere il nome moderno del registro data/countries.json.
+const HISTORICAL_NAME_BY_ID: Record<string, Record<string, string>> = {
+  europa_1815: { TUR: 'Impero Ottomano', RUS: 'Impero Russo', AUT: "Impero d'Austria", DEU: 'Confederazione Germanica' },
+  europa_1914: {
+    TUR: 'Impero Ottomano',
+    AUT: 'Austria-Ungheria',
+    RUS: 'Impero Russo',
+    DEU: 'Impero Tedesco',
+    GBR: 'Impero Britannico',
+  },
+  mondo_1936: { RUS: 'Unione Sovietica', DEU: 'Germania nazista', ITA: 'Italia fascista', SRB: 'Regno di Jugoslavia' },
+  mondo_1989: { RUS: 'Unione Sovietica', DEU: 'Repubblica Federale di Germania', SRB: 'Jugoslavia (RSFJ)' },
+};
+
 function mapFileFor(id: string): string {
   return id === 'standard'
     ? path.join(process.cwd(), 'data', 'geojson', 'countries.geojson')
@@ -72,11 +98,27 @@ describe('PRESETS-REBUILD — i quattro preset nuovi', () => {
       expect(preset!.start_date).toBe(DATE_BY_ID[id]);
       expect(preset!.has_custom_map).toBe(false);
 
-      // 25–45 nazioni ISO-A3 reali, uniche.
-      expect(preset!.country_codes.length).toBeGreaterThanOrEqual(25);
-      expect(preset!.country_codes.length).toBeLessThanOrEqual(45);
+      // Coerenza storica (WORLD-ALIVE P2): conteggio fissato per preset, codici
+      // ISO-A3 reali e unici. Il numero scende rispetto a PRESETS-REBUILD perché
+      // gli Stati anacronistici sono stati rimossi.
+      expect(preset!.country_codes.length).toBe(COUNT_BY_ID[id]);
       expect(new Set(preset!.country_codes).size).toBe(preset!.country_codes.length);
       for (const code of preset!.country_codes) expect(code).toMatch(/^[A-Z]{3}$/);
+
+      // `countries` dà i nomi storici e deve coprire ESATTAMENTE i country_codes:
+      // BalanceAgent usa l'override così com'è, senza filtrare per country_codes.
+      const overrides = preset!.countries ?? [];
+      expect(overrides.length, `${id}: countries deve coprire tutti i country_codes`).toBe(preset!.country_codes.length);
+      expect(new Set(overrides.map(c => c.code))).toEqual(new Set(preset!.country_codes));
+      for (const c of overrides) {
+        expect(c.name.trim().length, `${id}/${c.code}: nome storico mancante`).toBeGreaterThan(2);
+        expect(c.color).toMatch(/^#[0-9A-Fa-f]{6}$/);
+      }
+      // Nomi storici chiave (non il nome moderno del registro).
+      const nameByCode = new Map(overrides.map(c => [c.code, c.name]));
+      for (const [code, expectedName] of Object.entries(HISTORICAL_NAME_BY_ID[id])) {
+        expect(nameByCode.get(code), `${id}: ${code} deve chiamarsi "${expectedName}"`).toBe(expectedName);
+      }
 
       // Mappa nativa in whitelist e livello coerente.
       expect(isNativeMapId(preset!.map_base)).toBe(true);
@@ -140,4 +182,26 @@ describe('PRESETS-REBUILD — i quattro preset nuovi', () => {
       );
     });
   }
+
+  it('i codici anacronistici sono rimossi e le entità del periodo restano', () => {
+    const anachronistic: Record<string, string[]> = {
+      europa_1815: ['BEL', 'GRC', 'CZE', 'HUN', 'ROU', 'BGR', 'SRB', 'HRV', 'SVN', 'SVK', 'UKR', 'BLR', 'LTU', 'LVA', 'EST', 'FIN', 'IRL', 'ALB', 'BIH', 'MNE', 'MDA'],
+      europa_1914: ['POL', 'CZE', 'HUN', 'HRV', 'SVN', 'SVK', 'UKR', 'BLR', 'LTU', 'LVA', 'EST', 'FIN', 'IRL', 'BIH', 'MKD', 'MDA'],
+      mondo_1936: ['HRV', 'SVN', 'MKD'],
+      mondo_1989: ['SVK', 'HRV', 'SVN', 'UKR', 'BLR', 'LTU', 'LVA', 'EST', 'KAZ', 'GEO', 'ARM', 'AZE', 'UZB'],
+    };
+    for (const id of NEW_PRESETS) {
+      const codes = new Set(loadPreset(id)!.country_codes);
+      for (const code of anachronistic[id]) {
+        expect(codes.has(code), `${id}: ${code} è anacronistico e non deve essere nel preset`).toBe(false);
+      }
+    }
+    // Entità reali del 1914 che RESTANO: l'Albania è indipendente dal 1912 e il
+    // Montenegro è un regno indipendente fino al 1918 (l'elenco del task li
+    // dava per inesistenti, ma storicamente erano presenti — vedi report P2).
+    const y1914 = new Set(loadPreset('europa_1914')!.country_codes);
+    for (const code of ['ALB', 'MNE', 'SRB', 'BGR', 'ROU', 'GRC', 'BEL']) {
+      expect(y1914.has(code), `europa_1914: ${code} esisteva nel 1914 e deve restare`).toBe(true);
+    }
+  });
 });
