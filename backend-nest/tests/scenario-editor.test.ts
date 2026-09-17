@@ -99,8 +99,8 @@ describe('M01 µ4 — GET /templates/:id/scenario (rapporto per l’editor)', ()
     expect(payload.report.catalogHashes.manifest).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('preset legacy: hasCatalog false, report null (nessun finto rapporto)', async () => {
-    const { payload } = await callRoute('GET', '/templates/cold_war_1951/scenario');
+  it('preset senza catalogo: hasCatalog false, report null (nessun finto rapporto)', async () => {
+    const { payload } = await callRoute('GET', '/templates/europa_1815/scenario');
     expect(payload.hasCatalog).toBe(false);
     expect(payload.report).toBeNull();
   });

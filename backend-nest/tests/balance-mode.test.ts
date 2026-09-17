@@ -176,14 +176,14 @@ describe('M01 µ3 — riuso baseline guardato dall’impronta (MAT18)', () => {
 });
 
 describe('M01 µ3 — impronta di catalogo', () => {
-  it('catalogFingerprint cambia al variare delle regole e identifica il pilota', () => {
+  it('catalogFingerprint cambia al variare delle regole e identifica il catalogo della fixture', () => {
     const h1 = { manifest: 'm1', resources: 'r1' };
     const h2 = { manifest: 'm2', resources: 'r1' };
     expect(catalogFingerprint(h1)).not.toBe(catalogFingerprint(h2));
     expect(catalogFingerprint(h1)).toBe(catalogFingerprint({ resources: 'r1', manifest: 'm1' }));
-    // il pilota ha una propria impronta (≠ null): cache e riuso separati dai legacy
-    const pilot = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', 'cold_war_1951_v2'));
-    expect(pilot.catalog && catalogFingerprint(pilot.report.catalogHashes)).toMatch(/^[0-9a-f]{24}$/);
+    // il catalogo della fixture ha una propria impronta (≠ null): cache e riuso separati dai legacy
+    const fixture = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', 'realism_test_world'));
+    expect(fixture.catalog && catalogFingerprint(fixture.report.catalogHashes)).toMatch(/^[0-9a-f]{24}$/);
   });
 });
 

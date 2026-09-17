@@ -62,8 +62,9 @@ function zipOf(files: Record<string, string | Buffer>): Buffer {
 
 describe('preset-zip: экспорт', () => {
   it('экспорт легаси-шаблона → синтезированный zip с одним preset.json', () => {
-    // Синтетический легаси-шаблон (cold_war_1951 теперь полноценный пакет
-    // с rules.md + lore.md, поэтому legacy-ветку проверяем на своём файле)
+    // Синтетический легаси-шаблон: legacy-ветку проверяем на своём файле,
+    // la cartella data/templates può essere vuota (nessun preset legacy bundled).
+    fs.mkdirSync(LEGACY_TEMPLATES_DIR, { recursive: true });
     fs.writeFileSync(legacyFile, JSON.stringify({
       id: LEGACY_ID,
       name: 'Тестовый легаси',
@@ -89,8 +90,8 @@ describe('preset-zip: экспорт', () => {
     expect(raw.start_date).toBe('1970-01-01');
   });
 
-  it('экспорт штатного пакета cold_war_1951 → preset.json + rules.md + lore.md', () => {
-    const buf = buildPresetZip('cold_war_1951');
+  it('экспорт штатного пакета europa_1914 → preset.json + rules.md + lore.md', () => {
+    const buf = buildPresetZip('europa_1914');
     expect(buf).toBeTruthy();
 
     const zip = new AdmZip(buf!);
@@ -98,10 +99,10 @@ describe('preset-zip: экспорт', () => {
     expect(names).toEqual(['lore.md', 'preset.json', 'rules.md']);
 
     const raw = JSON.parse(zip.getEntry('preset.json')!.getData().toString('utf-8'));
-    expect(raw.id).toBe('cold_war_1951');
-    expect(raw.country_codes).toContain('USA');
+    expect(raw.id).toBe('europa_1914');
     expect(raw.country_codes).toContain('RUS');
-    expect(raw.start_date).toBe('1951-01-01');
+    expect(raw.country_codes).toContain('DEU');
+    expect(raw.start_date).toBe('1914-06-28');
     expect(zip.getEntry('rules.md')!.getData().toString('utf-8').length).toBeGreaterThan(0);
   });
 

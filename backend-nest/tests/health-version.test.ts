@@ -57,8 +57,8 @@ describe('Q02 µ3 — health/version', () => {
   it('riporta i modelVersion dei cataloghi dichiarati', () => {
     const versions = buildInfo().modelVersions;
     expect(versions.length).toBeGreaterThan(0);
-    const coldWar = versions.find((entry) => entry.id === 'cold_war_1951_v2');
-    expect(coldWar).toMatchObject({ version: 2, mode: 'strict' });
+    const fixture = versions.find((entry) => entry.id === 'realism_test_world');
+    expect(fixture).toMatchObject({ version: 1, mode: 'strict' });
     for (const entry of versions) {
       expect(entry.id).not.toContain('/');
       expect(Number.isInteger(entry.version)).toBe(true);

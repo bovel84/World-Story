@@ -94,25 +94,25 @@ afterAll(() => {
 });
 
 describe('Этап 5: каталог пресетов', () => {
-  it('listPresets видит штатные пакеты cold_war_1951 и modern_world как source=preset', () => {
+  it('listPresets видит новые штатные пакеты europa_1815 и mondo_1989 как source=preset', () => {
     const presets = presetLoader.listPresets();
     const byId = new Map(presets.map(p => [p.id, p]));
 
-    const coldWar = byId.get('cold_war_1951');
-    const modern = byId.get('modern_world');
+    const europa = byId.get('europa_1815');
+    const mondo = byId.get('mondo_1989');
 
-    expect(coldWar).toBeDefined();
-    expect(modern).toBeDefined();
-    expect(coldWar!.source).toBe('preset');
-    expect(modern!.source).toBe('preset');
-    // Пакет выигрывает у легаси-шаблона с тем же id — без дублей в списке
-    expect(presets.filter(p => p.id === 'cold_war_1951')).toHaveLength(1);
-    expect(presets.filter(p => p.id === 'modern_world')).toHaveLength(1);
+    expect(europa).toBeDefined();
+    expect(mondo).toBeDefined();
+    expect(europa!.source).toBe('preset');
+    expect(mondo!.source).toBe('preset');
+    // Un pachetto è unico nel listino — senza duplicati
+    expect(presets.filter(p => p.id === 'europa_1815')).toHaveLength(1);
+    expect(presets.filter(p => p.id === 'mondo_1989')).toHaveLength(1);
     // rules.md и lore.md подхвачены пакетом
-    expect(coldWar!.simulation_rules).toBeTruthy();
-    expect(coldWar!.lore).toBeTruthy();
-    expect(modern!.simulation_rules).toBeTruthy();
-    expect(modern!.lore).toBeTruthy();
+    expect(europa!.simulation_rules).toBeTruthy();
+    expect(europa!.lore).toBeTruthy();
+    expect(mondo!.simulation_rules).toBeTruthy();
+    expect(mondo!.lore).toBeTruthy();
   });
 
   it('loadPreset парсит легаси-формат со строковыми country_codes', () => {

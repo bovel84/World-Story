@@ -1,0 +1,19 @@
+{
+  "id": "mondo_1989",
+  "name": "Mondo 1989 — Il Crollo dei Blocchi",
+  "description": "La Guerra Fredda si sgretola: riforme, crisi economiche e rivolte pacifiche smontano l'ordine di Yalta. Imperi e federazioni si dissolvono, nuove nazioni chiedono riconoscimento e le grandi potenze gestiscono la transizione senza sapere come finirà.",
+  "start_date": "1989-06-04",
+  "country_codes": [
+    "GBR", "FRA", "DEU", "ITA", "ESP", "PRT", "NLD", "BEL", "CHE", "SWE",
+    "NOR", "DNK", "FIN", "POL", "CZE", "SVK", "HUN", "ROU", "BGR", "SRB",
+    "HRV", "SVN", "UKR", "BLR", "LTU", "LVA", "EST", "RUS", "KAZ", "GEO",
+    "ARM", "AZE", "UZB", "USA", "CAN", "BRA", "CHN", "JPN", "IND", "KOR",
+    "AUS", "EGY", "ZAF", "TUR"
+  ],
+  "base_prompt": "4 giugno 1989. Il blocco sovietico si sta creando crepe profonde: in Polonia il sindacato Solidarnosc ha vinto le prime elezioni semilibere, in Ungheria si smonta la cortina di ferro, a Pechino l'esercito reprime le proteste di piazza Tiananmen. Michail Gorbaciov promuove glasnost e perestrojka ma non controlla più l'esito. In Europa orientale i regimi comunisti vacillano; nell'Unione Sovietica le nazionalità baltiche, caucasiche e centroasiatiche chiedono sovranità. Gli Stati Uniti di Bush e l'Europa occidentale assistono a una transizione che nessuno ha pianificato. Il mondo bipolare finisce, ma il nuovo ordine non esiste ancora.",
+  "historical_accuracy": 0.85,
+  "map_base": "standard",
+  "map_detail": "nations",
+  "author": "World Story",
+  "version": "1.0"
+}
