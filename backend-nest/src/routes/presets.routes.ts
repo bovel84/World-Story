@@ -17,6 +17,7 @@ import {
 import { getLLMRouter } from '../llm';
 import { parseJsonLoose } from '../utils/json-repair';
 import { LLMError } from '../llm/types';
+import { listNativeMaps } from '../utils/native-maps';
 
 export const presetsRouter = Router();
 
@@ -34,6 +35,7 @@ function presetPayload(preset: any) {
     prompts: preset.prompts,
     map_detail: preset.map_detail,
     map_grouping: preset.map_grouping,
+    map_base: preset.map_base,
     lore: preset.lore || '',
     simulation_rules: preset.simulation_rules || '',
     source: preset.source,
@@ -121,6 +123,7 @@ function savePreset(id: string, body: any, create: boolean): any {
     prompts: body.prompts ?? previous?.prompts,
     map_detail: body.map_detail ?? previous?.map_detail,
     map_grouping: body.map_grouping ?? previous?.map_grouping,
+    map_base: body.map_base ?? previous?.map_base,
     author: body.author ?? previous?.author,
     version: body.version ?? previous?.version,
   };
@@ -229,6 +232,13 @@ presetsRouter.post('/', (req, res) => {
   } catch (e: any) {
     res.status(e?.code === 'EXISTS' ? 409 : 400).json({ error: e?.message || 'Preset non valido' });
   }
+});
+
+// GET /api/templates/maps/native — elenco delle mappe native scegliibili.
+// Read-only, whitelist rigida lato modulo (nessun id/path arbitrario).
+// Registrato prima di `/:id/...`: il path a due segmenti non collide con `/:id`.
+presetsRouter.get('/maps/native', (_req, res) => {
+  res.json({ maps: listNativeMaps() });
 });
 
 // GET /api/templates/:id/edit — contenuto completo per l'editor
