@@ -4,10 +4,98 @@
   "description": "Dopo Napoleone, il Congresso di Vienna ridisegna l'Europa su equilibrio, legittimità dinastica e restaurazione. Le grandi potenze governano insieme un continente di imperi multi-etnici, mentre liberalismo e nazionalismi premono dal basso.",
   "start_date": "1815-06-09",
   "country_codes": [
-    "GBR", "FRA", "RUS", "AUT", "DEU", "ESP", "PRT", "SWE", "NOR", "DNK",
-    "NLD", "BEL", "CHE", "ITA", "TUR", "GRC", "POL", "CZE", "HUN", "ROU",
-    "BGR", "SRB", "HRV", "SVN", "SVK", "UKR", "BLR", "LTU", "LVA", "EST",
-    "FIN", "IRL", "ALB", "BIH", "MNE", "MDA"
+    "GBR",
+    "FRA",
+    "RUS",
+    "AUT",
+    "DEU",
+    "ESP",
+    "PRT",
+    "SWE",
+    "NOR",
+    "DNK",
+    "NLD",
+    "CHE",
+    "ITA",
+    "TUR",
+    "POL"
+  ],
+  "countries": [
+    {
+      "code": "GBR",
+      "name": "Regno Unito di Gran Bretagna e Irlanda",
+      "color": "#012169"
+    },
+    {
+      "code": "FRA",
+      "name": "Regno di Francia",
+      "color": "#002395"
+    },
+    {
+      "code": "RUS",
+      "name": "Impero Russo",
+      "color": "#D52B1E"
+    },
+    {
+      "code": "AUT",
+      "name": "Impero d'Austria",
+      "color": "#ED2939"
+    },
+    {
+      "code": "DEU",
+      "name": "Confederazione Germanica",
+      "color": "#000000"
+    },
+    {
+      "code": "ESP",
+      "name": "Regno di Spagna",
+      "color": "#AA151B"
+    },
+    {
+      "code": "PRT",
+      "name": "Regno di Portogallo",
+      "color": "#006600"
+    },
+    {
+      "code": "SWE",
+      "name": "Regno di Svezia",
+      "color": "#006AA7"
+    },
+    {
+      "code": "NOR",
+      "name": "Regno di Norvegia",
+      "color": "#EF2B2D"
+    },
+    {
+      "code": "DNK",
+      "name": "Regno di Danimarca",
+      "color": "#C8102E"
+    },
+    {
+      "code": "NLD",
+      "name": "Regno Unito dei Paesi Bassi",
+      "color": "#AE1C28"
+    },
+    {
+      "code": "CHE",
+      "name": "Confederazione Svizzera",
+      "color": "#FF0000"
+    },
+    {
+      "code": "ITA",
+      "name": "Stati Italiani pre-unitari",
+      "color": "#008C45"
+    },
+    {
+      "code": "TUR",
+      "name": "Impero Ottomano",
+      "color": "#E30A17"
+    },
+    {
+      "code": "POL",
+      "name": "Regno di Polonia (Congresso)",
+      "color": "#DC143C"
+    }
   ],
   "base_prompt": "9 giugno 1815. A Vienna le grandi potenze firmano l'Atto finale del Congresso: Metternich, Castlereagh, Talleyrand e Alessandro I hanno ridisegnato l'Europa per impedire il ritorno di un egemone. Napoleone è stato sconfitto ma è da poco fuggito dall'Elba e a Waterloo si decideranno le sorti della Francia. La Santa Alleanza e la Quadruplice Alleanza promettono stabilità; la Gran Bretagna domina i mari e il commercio, l'Austria controlla Germania e Italia, la Russia preme nei Balcani, la Prussia attende la sua ora. La Restaurazione convive con fame, debiti di guerra e prime inquietudini liberali. L'Europa è un equilibrio fragile: ogni tua mossa può romperlo.",
   "historical_accuracy": 0.9,
