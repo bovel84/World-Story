@@ -1,0 +1,18 @@
+{
+  "id": "europa_1815",
+  "name": "Europa 1815 — Il Concerto delle Potenze",
+  "description": "Dopo Napoleone, il Congresso di Vienna ridisegna l'Europa su equilibrio, legittimità dinastica e restaurazione. Le grandi potenze governano insieme un continente di imperi multi-etnici, mentre liberalismo e nazionalismi premono dal basso.",
+  "start_date": "1815-06-09",
+  "country_codes": [
+    "GBR", "FRA", "RUS", "AUT", "DEU", "ESP", "PRT", "SWE", "NOR", "DNK",
+    "NLD", "BEL", "CHE", "ITA", "TUR", "GRC", "POL", "CZE", "HUN", "ROU",
+    "BGR", "SRB", "HRV", "SVN", "SVK", "UKR", "BLR", "LTU", "LVA", "EST",
+    "FIN", "IRL", "ALB", "BIH", "MNE", "MDA"
+  ],
+  "base_prompt": "9 giugno 1815. A Vienna le grandi potenze firmano l'Atto finale del Congresso: Metternich, Castlereagh, Talleyrand e Alessandro I hanno ridisegnato l'Europa per impedire il ritorno di un egemone. Napoleone è stato sconfitto ma è da poco fuggito dall'Elba e a Waterloo si decideranno le sorti della Francia. La Santa Alleanza e la Quadruplice Alleanza promettono stabilità; la Gran Bretagna domina i mari e il commercio, l'Austria controlla Germania e Italia, la Russia preme nei Balcani, la Prussia attende la sua ora. La Restaurazione convive con fame, debiti di guerra e prime inquietudini liberali. L'Europa è un equilibrio fragile: ogni tua mossa può romperlo.",
+  "historical_accuracy": 0.9,
+  "map_base": "standard",
+  "map_detail": "nations",
+  "author": "World Story",
+  "version": "1.0"
+}

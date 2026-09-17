@@ -1,0 +1,19 @@
+{
+  "id": "mondo_1936",
+  "name": "Mondo 1936 — Il Mondo alla Deriva",
+  "description": "La Grande Depressione ha svuotato le democrazie e aperto la strada ai totalitarismi. Riarmo, guerra civile spagnola, espansionismo giapponese e tedesco e imperi coloniali in tensione: il mondo naviga senza rotta verso un nuovo conflitto.",
+  "start_date": "1936-01-01",
+  "country_codes": [
+    "USA", "CAN", "MEX", "BRA", "GBR", "FRA", "DEU", "ITA", "RUS", "ESP",
+    "PRT", "NLD", "BEL", "CHE", "SWE", "NOR", "DNK", "FIN", "POL", "CZE",
+    "AUT", "HUN", "ROU", "BGR", "SRB", "HRV", "SVN", "MKD", "CHN", "JPN",
+    "IND", "IDN", "VNM", "THA", "PHL", "IRN", "IRQ", "TUR", "SAU", "EGY",
+    "ZAF", "AUS"
+  ],
+  "base_prompt": "1 gennaio 1936. Il mondo esce da anni di crisi economica e le democrazie liberali appaiono esauste. In Germania Hitler ha preso il potere e riarma la Renania; in Italia Mussolini ha invaso l'Etiopia e sogna un impero; in Unione Sovietica Stalin consolida il potere assoluto con piani quinquennali e purghe. Il Giappone militare occupa la Manciuria e preme sulla Cina, mentre la Società delle Nazioni si dimostra incapace di fermarlo. La Spagna è sull'orlo della guerra civile, gli imperi coloniali si contendono Africa e Asia, gli Stati Uniti restano isolazionisti. Nessuno vuole una nuova guerra mondiale, ma tutti si preparano.",
+  "historical_accuracy": 0.85,
+  "map_base": "pax_modern_provinces",
+  "map_detail": "grouped",
+  "author": "World Story",
+  "version": "1.0"
+}

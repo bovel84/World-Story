@@ -1,0 +1,18 @@
+{
+  "id": "europa_1914",
+  "name": "Europa 1914 — La Polveriera",
+  "description": "L'attentato di Sarajevo accende un continente diviso in blocchi rigidi, armato da una corsa al riarmo senza precedenti. Nazionalismi, imperi in competizione e piani militari automatici trasformano una crisi locale in una guerra industriale di massa.",
+  "start_date": "1914-06-28",
+  "country_codes": [
+    "GBR", "FRA", "RUS", "DEU", "AUT", "ESP", "PRT", "SWE", "NOR", "DNK",
+    "NLD", "BEL", "CHE", "ITA", "TUR", "GRC", "POL", "CZE", "HUN", "ROU",
+    "BGR", "SRB", "HRV", "SVN", "SVK", "UKR", "BLR", "LTU", "LVA", "EST",
+    "FIN", "IRL", "ALB", "BIH", "MNE", "MKD", "MDA"
+  ],
+  "base_prompt": "28 giugno 1914. A Sarajevo l'arciduca Francesco Ferdinando è stato assassinato: l'Europa entra nella settimana decisiva. L'Austria-Ungheria accusa la Serbia, la Germania promette il suo appoggio incondizionato, la Russia non abbandonerà Belgrado. La Triplice Alleanza e la Triplice Intesa hanno trasformato l'equilibrio in blocchi rigidi: un ultimatum, una mobilitazione, un piano di guerra e le ferrovie faranno il resto. Le potenze sono convinte che la guerra sarà breve; l'industria, il carbone e l'acciaio dicono il contrario. L'Europa è una polveriera e la miccia è già accesa.",
+  "historical_accuracy": 0.9,
+  "map_base": "pax_modern_provinces",
+  "map_detail": "full",
+  "author": "World Story",
+  "version": "1.0"
+}
