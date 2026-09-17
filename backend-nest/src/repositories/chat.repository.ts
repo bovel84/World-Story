@@ -60,6 +60,15 @@ export interface ChatMessageRecord {
   senderName?: string;
   /** Data del mondo, non il timestamp reale. */
   gameDate?: string;
+  /**
+   * Sequenza monotona di **inserimento** (SQLite `rowid` della riga): è la
+   * stessa chiave con cui il server rompe i pareggi
+   * (`ORDER BY created_at ASC, rowid ASC`). Serve al client come tie-breaker
+   * **stabile e deterministico** fra messaggi dello stesso istante del mondo
+   * (stessa `gameDate` e stesso `turn`), senza dipendere dall'ordine di arrivo.
+   * Non richiede alcuna migrazione: `rowid` esiste già.
+   */
+  seq?: number;
 }
 
 function participantKey(ids: string[]): string {
@@ -109,6 +118,7 @@ export interface GameChatSnapshot {
 }
 
 function rowToMessage(row: any): ChatMessageRecord {
+  const seq = Number(row.seq);
   return {
     id: row.id,
     chatId: row.chat_id,
@@ -119,6 +129,7 @@ function rowToMessage(row: any): ChatMessageRecord {
     createdAt: row.created_at,
     senderName: row.sender_name || undefined,
     gameDate: row.game_date || undefined,
+    ...(Number.isFinite(seq) ? { seq } : {}),
   };
 }
 
@@ -262,10 +273,15 @@ export const chatRepository = {
     return row ? rowToChat(row) : null;
   },
 
-  /** Messaggi della chat in ordine cronologico. */
+  /**
+   * Messaggi della chat in ordine cronologico di **inserimento**: `created_at`
+   * con `rowid` come tie-breaker stabile. `seq` esposto al client è lo stesso
+   * `rowid`, così l'ordinamento del client può essere identico a quello del
+   * server anche quando più messaggi condividono la data del mondo.
+   */
   getMessages(chatId: string): ChatMessageRecord[] {
     const rows = db.prepare(
-      'SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC'
+      'SELECT *, rowid AS seq FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC'
     ).all(chatId) as any[];
     return rows.map(rowToMessage);
   },
@@ -281,13 +297,19 @@ export const chatRepository = {
   ): ChatMessageRecord {
     const id = shortId();
     const now = new Date().toISOString();
-    db.prepare(`
+    const info = db.prepare(`
       INSERT INTO chat_messages (id, chat_id, role, content, turn, read, sender_name, game_date, created_at)
       VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
     `).run(id, chatId, role, content, turn, senderName || null, gameDate || null, now);
     db.prepare('UPDATE chats SET last_message_at = ? WHERE id = ?').run(now, chatId);
 
-    return { id, chatId, role, content, turn, read: false, createdAt: now, senderName, gameDate };
+    // `seq` = rowid appena assegnato: la stessa sequenza che ordina il thread
+    // sul server, esposta al client (nessuna colonna nuova, nessuna migrazione).
+    const seq = Number(info.lastInsertRowid);
+    return {
+      id, chatId, role, content, turn, read: false, createdAt: now, senderName, gameDate,
+      ...(Number.isFinite(seq) ? { seq } : {}),
+    };
   },
 
   /** Snapshot completo per Save/Rewind: chat e messaggi appartengono al ramo. */

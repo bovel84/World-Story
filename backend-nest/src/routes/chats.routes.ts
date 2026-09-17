@@ -65,7 +65,14 @@ function chatPayload(chat: any) {
   };
 }
 
-function messagePayload(m: any) {
+/**
+ * Messaggio per il client. `seq` è la sequenza di inserimento del server (rowid
+ * della riga): il client la usa come tie-breaker stabile per ordinare i messaggi
+ * che condividono la stessa data del mondo, senza affidarsi all'ordine di
+ * arrivo (fetch, invio locale, SSE possono arrivare in ordine diverso).
+ */
+export function messagePayload(m: any) {
+  const seq = Number(m?.seq);
   return {
     id: m.id,
     role: m.role,
@@ -74,6 +81,7 @@ function messagePayload(m: any) {
     senderName: m.senderName,
     gameDate: m.gameDate,
     createdAt: m.createdAt,
+    seq: Number.isFinite(seq) ? seq : null,
   };
 }
 
