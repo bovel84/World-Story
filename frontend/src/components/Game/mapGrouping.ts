@@ -50,6 +50,32 @@ export function effectiveProvinceMap(
 }
 
 /**
+ * Codici paese effettivamente generabili per il preset. PURA.
+ * - con un override `countries` nel preset → quei codici;
+ * - altrimenti i `country_codes` filtrati per il registro noto (i codici
+ *   sconosciuti al registro NON producono politia, quindi non servono geometria).
+ * Restituisce `null` se il registro non è disponibile (nessun filtro affidabile):
+ * in quel caso il chiamante non deve bloccare nulla.
+ */
+export function requiredCountryCodes(
+  countryCodes: string[],
+  overrideCodes: string[],
+  knownCodes: string[],
+): string[] | null {
+  const normalize = (codes: string[]) => [...new Set(codes.map(c => c.toUpperCase()).filter(Boolean))];
+  if (overrideCodes.length > 0) return normalize(overrideCodes);
+  if (knownCodes.length === 0) return null;
+  const known = new Set(knownCodes.map(c => c.toUpperCase()));
+  return normalize(countryCodes.filter(code => known.has(code.toUpperCase())));
+}
+
+/** Codici richiesti NON coperti dalla mappa nativa. PURA. */
+export function nativeMapMissingCodes(required: string[], covered: string[]): string[] {
+  const have = new Set((covered || []).map(c => c.toUpperCase()));
+  return required.filter(code => !have.has(code.toUpperCase()));
+}
+
+/**
  * Proprietà GeoJSON che possono raggruppare le province in `grouped`:
  * presenti su più feature e con un numero di valori distinti intermedio
  * (non univoci come `code`, non costanti), di tipo scalare. Suggerisce le

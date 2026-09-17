@@ -1312,6 +1312,8 @@ export interface PresetEditorData {
   country_codes: string[];
   base_prompt: string;
   historical_accuracy?: number;
+  /** Paesi del preset con nome/colore (override del registro se presente). */
+  countries?: Array<{ code: string; name: string; color?: string }>;
   lore?: string;
   simulation_rules?: string;
   /** Override avanzati dei prompt IA; il contratto di simulazione resta invariabile. */
@@ -1341,6 +1343,8 @@ export interface NativeMapInfo {
   label: string;
   hasProvinces: boolean;
   features: number;
+  /** Codici ISO-A3 dei paesi coperti dalla mappa. */
+  codes: string[];
 }
 
 export const templatesApi = {
