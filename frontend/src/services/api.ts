@@ -216,7 +216,16 @@ export interface NationCrisisState {
   risks: CrisisRisk[];
   headline: string;
   summary: string;
-  streaks: Record<CrisisDimension, number>;
+  /**
+   * GAMEPLAY-LONG: giorni di criticità accumulati per dimensione. La crisi
+   * progredisce sul TEMPO CALENDARIO trascorso, non sul numero di turni: un
+   * avanzamento di 7 giorni e uno di 365 non pesano uguale.
+   */
+  criticalDays: Record<CrisisDimension, number>;
+  /** Avanzamenti in cui la dimensione è stata vista critica (avvertimenti). */
+  episodes?: Record<CrisisDimension, number>;
+  /** Giorni di criticità piena che portano al collasso. */
+  collapseDays?: number;
   ending: GameEnding | null;
 }
 
@@ -224,8 +233,8 @@ export interface CrisisSnapshot {
   state: NationCrisisState;
   ending: GameEnding | null;
   finished: boolean;
-  /** Turni consecutivi di criticità che portano al collasso. */
-  collapseStreak: number;
+  /** Giorni di criticità piena che portano al collasso. */
+  collapseDays: number;
 }
 export type FactionLever = 'difesa' | 'tasse' | 'welfare' | 'istruzione' | 'infrastrutture' | 'debito' | 'ordine';
 

@@ -35,7 +35,7 @@ import { OutboxService } from './game/OutboxService';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { clampTaxRatePct, DEFAULT_FISCAL_POLICY, describeFiscalEffects, fiscalShockModifier, FISCAL_MAX_PCT, FISCAL_MIN_PCT, fiscalLabel, type FiscalPolicy } from './core/simulation/FiscalPolicy';
 import { type PressureEffect } from './core/simulation/PeacetimePressures';
-import { CRISIS_COLLAPSE_STREAK, type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
+import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import type { GovernmentVoices } from './prompts/government';
 import { annualDebtServiceMld, creditHeadroom, debtOf, issueSovereignDebt, type ResourceStock } from './core/simulation/MaterialEconomy';
@@ -887,16 +887,16 @@ export class GameSession {
   }
 
   /**
-   * Stato di crisi per il dossier e l'HUD: rischi, serie di criticità e
+   * Stato di crisi per il dossier e l'HUD: rischi, giorni di criticità e
    * l'eventuale epilogo. Sola lettura: non fa avanzare la scala.
    */
-  getCrisis(): { state: CrisisState; ending: CrisisEnding | null; finished: boolean; collapseStreak: number } {
+  getCrisis(): { state: CrisisState; ending: CrisisEnding | null; finished: boolean; collapseDays: number } {
     const state = this.peekCrisis();
     return {
       state,
       ending: this.ending ?? state.ending,
       finished: Boolean(this.ending),
-      collapseStreak: CRISIS_COLLAPSE_STREAK,
+      collapseDays: state.collapseDays,
     };
   }
 

@@ -24,6 +24,7 @@ import {
 } from '../core/simulation/ResourceMarket';
 import { generatePressures, type PressureEffect, type PressureNeighbour, type PressureSnapshot, type RelationStance } from '../core/simulation/PeacetimePressures';
 import { advanceCrisis, type CrisisEnding, type CrisisInput, type CrisisState } from '../core/simulation/NationCrisis';
+import { daysBetween } from '../core/simulation/calendar';
 import { NATURAL_RESOURCE_KINDS, naturalResourcesFor, type NaturalEndowment, type NaturalResourceKind } from '../core/simulation/MilitaryIndustry';
 import { EMPTY_MODIFIERS, applyArsenalEffects, applyModifierEffects, applyStockEffects, decayModifiers, describeNationalEffects, hasModifiers, parseNationalEffects, type NationalEffect, type NationalModifiers } from '../core/simulation/NationalEffects';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
@@ -585,7 +586,7 @@ export class NationStateService {
    */
   peekCrisis(): CrisisState {
     const previous = gameRepository.getCrisisState(this.ctx.gameId);
-    return advanceCrisis(this.crisisInput(), previous?.streaks ?? {}, {
+    return advanceCrisis(this.crisisInput(), previous ?? {}, {
       turn: this.ctx.currentTurn(),
       date: this.ctx.currentDate(),
       advance: false,
@@ -593,21 +594,37 @@ export class NationStateService {
   }
 
   /**
-   * Valuta la crisi. Con `advance` (default) fa scorrere la scala di un turno;
-   * senza, è una lettura pura per il dossier. Se il collasso scatta, chiude la
-   * partita una volta sola.
+   * Giorni di calendario trascorsi dall'ultima valutazione della crisi.
+   *
+   * GAMEPLAY-LONG: la crisi progredisce sul TEMPO TRASCORSO, non sul numero di
+   * turni. La data dell'ultima valutazione è persistita in `game_crisis_state`,
+   * quindi un salto di 7 giorni e uno di 365 pesano in modo diverso. Senza una
+   * valutazione precedente (primo turno di una partita) non c'è tempo da
+   * accumulare: 0, e nessun collasso può scattare al primo passo.
+   */
+  private crisisElapsedDays(previous: { updatedDate?: string | null } | null): number {
+    if (!previous?.updatedDate) return 0;
+    return daysBetween(previous.updatedDate, this.ctx.currentDate());
+  }
+
+  /**
+   * Valuta la crisi. Con `advance` (default) fa scorrere la scala dei giorni
+   * trascorsi; senza, è una lettura pura per il dossier. Se il collasso scatta,
+   * chiude la partita una volta sola.
    */
   evaluateCrisis(advance = true): CrisisState {
     const previous = gameRepository.getCrisisState(this.ctx.gameId);
-    const state = advanceCrisis(this.crisisInput(), previous?.streaks ?? {}, {
+    const state = advanceCrisis(this.crisisInput(), previous ?? {}, {
       turn: this.ctx.currentTurn(),
       date: this.ctx.currentDate(),
       advance,
+      days: this.crisisElapsedDays(previous),
     });
     try {
       gameRepository.saveCrisisState({
         gameId: this.ctx.gameId,
-        streaks: state.streaks,
+        criticalDays: state.criticalDays,
+        episodes: state.episodes,
         overall: state.level,
         ending: state.ending ?? previous?.ending ?? null,
         updatedTurn: this.ctx.currentTurn(),

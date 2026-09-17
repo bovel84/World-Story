@@ -37,6 +37,22 @@ export function dateInPeriod(date: unknown, start: string, end: string): date is
   return typeof date === 'string' && Number.isFinite(timestamp(date)) && date >= start && date <= end;
 }
 
+/**
+ * Giorni di calendario fra due date di gioco (`to - from`).
+ *
+ * GAMEPLAY-LONG: è la misura con cui il motore fa progredire crisi e pressioni
+ * — un salto di 7 giorni e uno di 365 non possono pesare uguale. Restituisce 0
+ * quando una delle due date non è valida o quando l'ordine è invertito, così
+ * nessun consumatore può accumulare tempo che non è stato simulato.
+ */
+export function daysBetween(from: string | null | undefined, to: string | null | undefined): number {
+  const start = timestamp(String(from || ''));
+  const end = timestamp(String(to || ''));
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
+  const days = Math.round((end - start) / DAY_MS);
+  return days > 0 ? days : 0;
+}
+
 /** Grammatical Italian date ("12 gennaio 1951"), independent of host timezone. */
 export function formatItalianDate(date: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);

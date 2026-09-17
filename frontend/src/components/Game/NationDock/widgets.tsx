@@ -10,7 +10,7 @@ import type {
 } from '../../../services/api';
 import { formatMoney, formatNumber, formatPercent } from '../../../utils/format';
 import { sparkPoints, trendLabel, type Trend, type TrendTone } from '../accountTrend';
-import { CRISIS_LEVEL_LABEL, crisisStreakText } from '../crisisPanel';
+import { CRISIS_LEVEL_LABEL, crisisDaysText } from '../crisisPanel';
 import {
   LEVER_LABEL, STANCE_LABEL, factionOrderText, pressureLabel, pressureTone,
   satisfactionTone, stanceTone, type NationalVerdict,
@@ -277,14 +277,14 @@ export function CrisisBlock({ crisis }: { crisis?: CrisisSnapshot | null }) {
   if (!crisis) {
     return <EmptyState>Il motore non ha ancora valutato la tenuta della nazione.</EmptyState>;
   }
-  const { state, finished, ending, collapseStreak } = crisis;
+  const { state, finished, ending, collapseDays } = crisis;
   return (
     <div className="nation-crisis">
       <p className={`nation-crisis-headline level-${state.level}`}>{state.headline}</p>
       <p className="nation-crisis-summary">{state.summary}</p>
       <ul className="nation-crisis-risks">
         {state.risks.map((risk: CrisisRisk) => {
-          const streak = Number(state.streaks?.[risk.dimension] ?? 0);
+          const days = Number(state.criticalDays?.[risk.dimension] ?? 0);
           return (
             <li key={risk.dimension} className={`nation-crisis-risk level-${risk.level}`}>
               <div className="nation-crisis-risk-head">
@@ -304,7 +304,7 @@ export function CrisisBlock({ crisis }: { crisis?: CrisisSnapshot | null }) {
               <span className="nation-crisis-drivers">{risk.drivers.join(' · ')}</span>
               {risk.level !== 'calm' && (
                 <span className={`nation-crisis-streak${risk.level === 'watch' ? ' is-watch' : ''}`}>
-                  {crisisStreakText(risk, streak, collapseStreak)}
+                  {crisisDaysText(risk, days, collapseDays ?? state.collapseDays ?? 90)}
                 </span>
               )}
             </li>

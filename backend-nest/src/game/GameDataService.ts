@@ -225,7 +225,8 @@ export class GameDataService {
               score: risk.score,
               title: risk.title,
               drivers: risk.drivers,
-              streak: state.streaks[risk.dimension],
+              // GAMEPLAY-LONG: giorni di criticità accumulati (non più turni).
+              days: state.criticalDays[risk.dimension],
             })),
           };
         })(),

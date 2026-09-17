@@ -48,7 +48,7 @@ function makeCtx() {
     productionOrders: () => [],
     governmentVoices: () => null,
     governmentVoiceKey: () => 'k',
-    peekCrisis: () => ({ level: 'low', headline: 'h', summary: 's', risks: [], streaks: {} }),
+    peekCrisis: () => ({ level: 'low', headline: 'h', summary: 's', risks: [], criticalDays: {}, episodes: {}, collapseDays: 90 }),
     ending: () => null,
     pendingFundingNotes: () => null,
     buildNpcStrategicDossiers: () => 'dossier-testo',

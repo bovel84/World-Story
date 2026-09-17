@@ -22,9 +22,9 @@ function crisis(level: 'calm' | 'watch' | 'critical'): CrisisSnapshot {
     state: {
       level,
       risks: [{ dimension: 'revolt', level, score: level === 'critical' ? 82 : level === 'watch' ? 55 : 12, title: 'Rischio di rivolta', detail: 'Consenso consumato.', drivers: [] }],
-      headline: '', summary: '', streaks: { revolt: 0, insolvency: 0, invasion: 0 }, ending: null,
+      headline: '', summary: '', criticalDays: { revolt: 0, insolvency: 0, invasion: 0 }, ending: null,
     },
-    ending: null, finished: false, collapseStreak: 0,
+    ending: null, finished: false, collapseDays: 90,
   };
 }
 

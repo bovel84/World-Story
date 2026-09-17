@@ -760,8 +760,10 @@ export function initDatabase() {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_game_pressures_game_status ON game_pressures(game_id, status, created_turn)');
 
-  // Stato di crisi della partita: serie di turni critici per dimensione e
-  // l'eventuale epilogo (rivoluzione, default, invasione).
+  // Stato di crisi della partita: giorni di criticità accumulati per dimensione
+  // (una volta erano «turni consecutivi», ora è TEMPO CALENDARIO trascorso),
+  // gli avanzamenti in cui la criticità è stata osservata e l'eventuale epilogo
+  // (rivoluzione, default, invasione).
   db.exec(`
     CREATE TABLE IF NOT EXISTS game_crisis_state (
       game_id TEXT PRIMARY KEY,
@@ -780,6 +782,12 @@ export function initDatabase() {
       FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
     )
   `);
+  // GAMEPLAY-LONG: le colonne `*_streak` contengono ora i GIORNI di criticità
+  // accumulati (retrocompatibili: nei vecchi salvataggi 0-3 giorni). Qui si
+  // aggiungono i contatori degli avvertimenti osservati.
+  try { db.exec('ALTER TABLE game_crisis_state ADD COLUMN revolt_episodes INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_crisis_state ADD COLUMN insolvency_episodes INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_crisis_state ADD COLUMN invasion_episodes INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
 
   // Stato dinamico delle regioni di una singola partita. Geometria e metadati
   // restano nel world, ma proprietario/economia/oggetti non sono condivisi.

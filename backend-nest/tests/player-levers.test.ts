@@ -221,7 +221,8 @@ describe('crisi e fine partita', () => {
     const repos = await import('../src/repositories');
     repos.gameRepository.saveCrisisState({
       gameId,
-      streaks: { revolt: 3, insolvency: 0, invasion: 0 },
+      criticalDays: { revolt: 95, insolvency: 0, invasion: 0 },
+      episodes: { revolt: 3, insolvency: 0, invasion: 0 },
       overall: 'critical',
       ending: {
         kind: 'revolution',
@@ -265,7 +266,8 @@ describe('crisi e fine partita', () => {
     const repos = await import('../src/repositories');
     repos.gameRepository.saveCrisisState({
       gameId,
-      streaks: { revolt: 3, insolvency: 0, invasion: 0 },
+      criticalDays: { revolt: 95, insolvency: 0, invasion: 0 },
+      episodes: { revolt: 3, insolvency: 0, invasion: 0 },
       overall: 'critical',
       ending: {
         kind: 'revolution',
@@ -296,7 +298,7 @@ describe('crisi e fine partita', () => {
     expect(restored.getStatus()).toBe('playing');
     // Tornata giocabile.
     expect(() => restored.queueAction(ORDER)).not.toThrow();
-    expect(restored.getCrisis().state.streaks.revolt).toBe(0);
+    expect(restored.getCrisis().state.criticalDays.revolt).toBe(0);
   });
 
   it('una nazione indebitata oltre misura finisce in default', async () => {

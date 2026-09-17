@@ -14,11 +14,27 @@
  *     il territorio viene occupato.
  *
  * Il crollo non è un fulmine a ciel sereno: ogni dimensione attraversa una
- * scala (calma → allarme → critica) e solo dopo `CRISIS_COLLAPSE_STREAK`
- * turni consecutivi di criticità si arriva alla fine. Chi reagisce in tempo
- * riporta la crisi sotto controllo; chi ignora gli avvertimenti perde.
+ * scala (calma → allarme → critica) e la progressione verso il collasso è
+ * misurata in **giorni di calendario**, non in turni. Il giocatore può avanzare
+ * di 7, 30, 90, 180 o 365 giorni: una settimana di criticità non pesa come un
+ * anno, e un salto lungo non può far cadere la nazione senza che il pericolo sia
+ * stato prima visibile.
  *
- * Il modulo è **puro e deterministico**: stessi indicatori, stesso esito.
+ * Regole della progressione (tutte deterministiche):
+ *   - criticità piena → si accumula un giorno per giorno trascorso;
+ *   - allarme → si accumula più lentamente (`CRISIS_WATCH_RATE`);
+ *   - calma → l'arretrato si riduce (`CRISIS_RECOVERY_RATE`) e la crisi
+ *     dimentica gli avvertimenti precedenti.
+ *
+ * Il collasso scatta solo quando la dimensione **è critica adesso** e
+ * l'arretrato ha superato `CRISIS_COLLAPSE_DAYS`, e in ogni caso dopo almeno
+ * `CRISIS_MIN_EPISODES` avanzamenti osservati — a meno che la criticità non sia
+ * durata da sola più di `CRISIS_ABRUPT_DAYS` (in quel caso la nazione non si è
+ * più rialzata). Chi reagisce in tempo riporta la crisi sotto controllo; chi
+ * ignora gli avvertimenti perde.
+ *
+ * Il modulo è **puro e deterministico**: stessi indicatori, stessi giorni,
+ * stesso esito.
  */
 
 export type CrisisDimension = 'revolt' | 'insolvency' | 'invasion';
@@ -28,8 +44,18 @@ export type EndingKind = 'revolution' | 'default' | 'invasion';
 /** Soglie dichiarate della scala di crisi. */
 export const CRISIS_WATCH_SCORE = 45;
 export const CRISIS_CRITICAL_SCORE = 70;
-/** Turni consecutivi di criticità prima del collasso. */
-export const CRISIS_COLLAPSE_STREAK = 3;
+/** Giorni di criticità piena che mettono la nazione a un passo dal collasso. */
+export const CRISIS_COLLAPSE_DAYS = 90;
+/** Criticità piena durata così tanto, in un solo avanzamento, da non lasciare scampo. */
+export const CRISIS_ABRUPT_DAYS = 180;
+/** Quanto pesa un giorno di allarme nell'arretrato (0.3 = tre giorni di allarme ≈ un giorno critico). */
+export const CRISIS_WATCH_RATE = 0.3;
+/** Quanto recupera un giorno di calma sull'arretrato critico. */
+export const CRISIS_RECOVERY_RATE = 1.2;
+/** Avanzamenti critici osservati prima che il collasso possa scattare (avvertimento obbligatorio). */
+export const CRISIS_MIN_EPISODES = 2;
+/** Tetto di sicurezza dell'arretrato (dieci anni): evita numeri senza senso nei salvataggi lunghi. */
+export const CRISIS_MAX_DAYS = 3650;
 
 export interface CrisisNeighbour {
   polityId: string;
@@ -66,11 +92,11 @@ export interface CrisisInput {
 export interface CrisisRisk {
   dimension: CrisisDimension;
   level: CrisisLevel;
-  /** Punteggio 0-100, deterministico e leggibile. */
+  /** Punteggio 0-100, deterministico e leggibile (include la persistenza). */
   score: number;
   title: string;
   detail: string;
-  /** Fattori che hanno portato il punteggio: numeri reali, non giudizi. */
+  /** Fattori che hanno portato al punteggio: numeri reali, non giudizi. */
   drivers: string[];
 }
 
@@ -86,14 +112,26 @@ export interface CrisisEnding {
   criticalDimensions: CrisisDimension[];
 }
 
+/** Arretrato di criticità già accumulato (persistito fra i turni). */
+export interface CrisisPersistence {
+  /** Giorni di criticità piena (o equivalenti in allarme) per dimensione. */
+  criticalDays?: Partial<Record<CrisisDimension, number>>;
+  /** Quanti avanzamenti hanno visto la dimensione critica. */
+  episodes?: Partial<Record<CrisisDimension, number>>;
+}
+
 export interface CrisisState {
   level: CrisisLevel;
   risks: CrisisRisk[];
   /** Riga breve per l'HUD. */
   headline: string;
   summary: string;
-  /** Turni consecutivi di criticità per dimensione (0 se non critica). */
-  streaks: Record<CrisisDimension, number>;
+  /** Giorni di criticità accumulati per dimensione (0 se mai stata critica). */
+  criticalDays: Record<CrisisDimension, number>;
+  /** Avanzamenti in cui la dimensione è stata vista critica. */
+  episodes: Record<CrisisDimension, number>;
+  /** Giorni di criticità piena che portano al collasso (per UI e prompt). */
+  collapseDays: number;
   /** Collasso raggiunto: la partita è finita. */
   ending: CrisisEnding | null;
 }
@@ -222,24 +260,45 @@ const SCORERS: Record<CrisisDimension, (input: CrisisInput) => { score: number; 
 };
 
 /**
+ * Bonus di persistenza: una crisi che dura non è uguale a una crisi appena
+ * iniziata. Dopo ~90 giorni di arretrato il punteggio guadagna fino a 12 punti
+ * — abbastanza per rendere visibile la deriva, mai per inventare un collasso.
+ */
+export function persistenceBonus(days: number): number {
+  const safe = Math.max(0, Number(days) || 0);
+  if (safe <= 0) return 0;
+  return Math.min(12, round1(safe / 7.5));
+}
+
+/**
  * Valuta le tre dimensioni di crisi. Non modifica lo stato: restituisce solo
  * punteggi, livelli e spiegazioni. La progressione verso il collasso è gestita
- * da `advanceCrisis`, che ha bisogno anche dei turni precedenti.
+ * da `advanceCrisis`, che ha bisogno anche dell'arretrato precedente e dei
+ * giorni di calendario trascorsi.
  */
-export function assessCrisis(input: CrisisInput): {
+export function assessCrisis(
+  input: CrisisInput,
+  options: { persistence?: Partial<Record<CrisisDimension, number>> } = {},
+): {
   risks: CrisisRisk[];
   level: CrisisLevel;
   levels: Record<CrisisDimension, CrisisLevel>;
 } {
   const risks = (Object.keys(SCORERS) as CrisisDimension[]).map(dimension => {
     const { score, drivers } = SCORERS[dimension](input);
+    const days = Math.max(0, Math.floor(Number(options.persistence?.[dimension] || 0)));
+    const bonus = persistenceBonus(days);
+    const total = round1(clamp(score + bonus));
+    const allDrivers = days > 0
+      ? [...drivers, `criticità da ${days} ${days === 1 ? 'giorno' : 'giorni'}`]
+      : [...drivers];
     return {
       dimension,
-      score,
-      level: levelFor(score),
+      score: total,
+      level: levelFor(total),
       title: DIMENSION_INFO[dimension].title,
       detail: DIMENSION_INFO[dimension].detail,
-      drivers,
+      drivers: allDrivers,
     } satisfies CrisisRisk;
   });
   const levels = risks.reduce((out, risk) => {
@@ -263,54 +322,110 @@ function headlineFor(level: CrisisLevel, risks: CrisisRisk[]): string {
   return level === 'critical' ? `Crisi: ${label}` : `Allarme: ${label}`;
 }
 
-function summaryFor(level: CrisisLevel, risks: CrisisRisk[]): string {
+function summaryFor(
+  level: CrisisLevel,
+  risks: CrisisRisk[],
+  criticalDays: Record<CrisisDimension, number>,
+): string {
   if (level === 'calm') {
     return 'Nessuna delle tre strade del collasso è vicina: consenso, conti e difese reggono.';
   }
   const worst = [...risks].sort((left, right) => right.score - left.score)[0];
-  const prefix = level === 'critical'
-    ? `Situazione critica: al prossimo turno di stallo la nazione rischia il collasso.`
-    : `Attenzione: la deriva va corretta prima che diventi critica.`;
-  return `${prefix} ${worst.detail}`;
+  const days = Math.max(0, Math.floor(Number(criticalDays[worst.dimension] || 0)));
+  if (level === 'critical') {
+    const prefix = days >= CRISIS_COLLAPSE_DAYS
+      ? `Criticità da ${days} giorni: la nazione è a un passo dal collasso.`
+      : days > 0
+        ? `Criticità da ${days} giorni: la crisi va interrotta prima che diventi irreversibile.`
+        : `Situazione critica: se la criticità dura, la nazione rischia il collasso.`;
+    return `${prefix} ${worst.detail}`;
+  }
+  return days > 0
+    ? `Attenzione: allarme da ${days} giorni, va corretto prima che diventi critico. ${worst.detail}`
+    : `Attenzione: la deriva va corretta prima che diventi critica. ${worst.detail}`;
+}
+
+function clampDays(value: unknown): number {
+  return Math.max(0, Math.min(CRISIS_MAX_DAYS, Math.floor(Number(value) || 0)));
 }
 
 /**
- * Avanza la scala di crisi di un turno. Una dimensione critica accumula un
- * turno di stallo; se torna sotto controllo la sua serie si azzera. Al
- * raggiungimento di `CRISIS_COLLAPSE_STREAK` turni critici la partita finisce.
+ * Fa scorrere la scala di crisi del **tempo di calendario** trascorso.
  *
- * `advance` è false quando si valuta soltanto (lettura del dossier): in quel
- * caso le serie non cambiano e non può scattare un collasso.
+ * - `options.days` = giorni di calendario effettivamente simulati in questo
+ *   avanzamento (7, 30, 90, 365…): è la misura della progressione;
+ * - `previous` = arretrato e avvertimenti già accumulati (persistiti);
+ * - `advance: false` = lettura pura (dossier): non cambia nulla e non può
+ *   chiudere la partita.
+ *
+ * Il collasso scatta solo se la dimensione è critica adesso e l'arretrato ha
+ * superato `CRISIS_COLLAPSE_DAYS`, con almeno `CRISIS_MIN_EPISODES` avanzamenti
+ * osservati oppure con una criticità ininterrotta oltre `CRISIS_ABRUPT_DAYS`.
  */
 export function advanceCrisis(
   input: CrisisInput,
-  previousStreaks: Partial<Record<CrisisDimension, number>> = {},
-  options: { turn?: number; date?: string; advance?: boolean } = {},
+  previous: CrisisPersistence = {},
+  options: { turn?: number; date?: string; advance?: boolean; days?: number } = {},
 ): CrisisState {
-  const { risks, level } = assessCrisis(input);
   const advance = options.advance !== false;
-  const streaks = { ...previousStreaks } as Record<CrisisDimension, number>;
-  for (const risk of risks) {
-    const prior = Math.max(0, Number(streaks[risk.dimension] || 0));
-    streaks[risk.dimension] = !advance
-      ? prior
-      : risk.level === 'critical'
-        ? Math.min(CRISIS_COLLAPSE_STREAK, prior + 1)
-        : 0;
+  const elapsed = advance ? Math.max(0, Math.floor(Number(options.days) || 0)) : 0;
+
+  const priorDays = {} as Record<CrisisDimension, number>;
+  const priorEpisodes = {} as Record<CrisisDimension, number>;
+  for (const dimension of Object.keys(SCORERS) as CrisisDimension[]) {
+    priorDays[dimension] = clampDays(previous.criticalDays?.[dimension]);
+    priorEpisodes[dimension] = Math.max(0, Math.floor(Number(previous.episodes?.[dimension]) || 0));
   }
+
+  const { levels } = assessCrisis(input);
+  const criticalDays = { ...priorDays };
+  const episodes = { ...priorEpisodes };
+  for (const dimension of Object.keys(SCORERS) as CrisisDimension[]) {
+    const days = priorDays[dimension];
+    const seen = priorEpisodes[dimension];
+    if (!advance || elapsed <= 0) {
+      criticalDays[dimension] = days;
+      episodes[dimension] = seen;
+      continue;
+    }
+    if (levels[dimension] === 'critical') {
+      criticalDays[dimension] = clampDays(days + elapsed);
+      episodes[dimension] = seen + 1;
+    } else if (levels[dimension] === 'watch') {
+      // L'allarme logora più lentamente, ma non è gratis.
+      criticalDays[dimension] = clampDays(days + Math.round(elapsed * CRISIS_WATCH_RATE));
+      episodes[dimension] = seen;
+    } else {
+      // La calma consuma l'arretrato e fa dimenticare gli avvertimenti.
+      criticalDays[dimension] = clampDays(days - Math.round(elapsed * CRISIS_RECOVERY_RATE));
+      episodes[dimension] = 0;
+    }
+  }
+
+  // I punteggi e i livelli finali tengono conto dell'arretrato: la stessa crisi
+  // che dura da mesi pesa più di una appena iniziata.
+  const { risks, level } = assessCrisis(input, { persistence: criticalDays });
 
   let ending: CrisisEnding | null = null;
   const collapsed = risks
-    .filter(risk => streaks[risk.dimension] >= CRISIS_COLLAPSE_STREAK)
+    .filter(risk => risk.level === 'critical'
+      && criticalDays[risk.dimension] >= CRISIS_COLLAPSE_DAYS
+      && (episodes[risk.dimension] >= CRISIS_MIN_EPISODES
+        || criticalDays[risk.dimension] >= CRISIS_ABRUPT_DAYS))
     .sort((left, right) => right.score - left.score);
-  if (advance && collapsed.length > 0) {
+  // Senza tempo trascorso non può scattare nulla: il collasso richiede sempre
+  // giorni di calendario simulati in questo avanzamento.
+  if (advance && elapsed > 0 && collapsed.length > 0) {
     const worst = collapsed[0];
     const info = DIMENSION_INFO[worst.dimension];
+    const days = criticalDays[worst.dimension];
     ending = {
       kind: info.kind,
       dimension: worst.dimension,
       title: info.endingTitle,
-      summary: info.endingSummary,
+      summary: days >= CRISIS_ABRUPT_DAYS
+        ? `${info.endingSummary} La criticità durava da ${days} giorni senza interruzioni.`
+        : info.endingSummary,
       date: String(options.date || ''),
       turn: Math.max(0, Math.floor(Number(options.turn) || 0)),
       criticalDimensions: collapsed.map(risk => risk.dimension),
@@ -321,14 +436,19 @@ export function advanceCrisis(
     level,
     risks,
     headline: headlineFor(level, risks),
-    summary: summaryFor(level, risks),
-    streaks,
+    summary: summaryFor(level, risks, criticalDays),
+    criticalDays,
+    episodes,
+    collapseDays: CRISIS_COLLAPSE_DAYS,
     ending,
   };
 }
 
 /** Riga compatta per il prompt: la nazione conosce la propria crisi. */
 export function describeCrisis(state: CrisisState): string {
-  const parts = state.risks.map(risk => `${risk.title}: ${risk.level} (${risk.score}/100, serie ${state.streaks[risk.dimension]}/${CRISIS_COLLAPSE_STREAK})`);
+  const parts = state.risks.map(risk => {
+    const days = Math.max(0, Math.floor(Number(state.criticalDays?.[risk.dimension] || 0)));
+    return `${risk.title}: ${risk.level} (${risk.score}/100, ${days}/${CRISIS_COLLAPSE_DAYS} giorni di criticità)`;
+  });
   return `${state.headline}. ${parts.join(' · ')}`;
 }

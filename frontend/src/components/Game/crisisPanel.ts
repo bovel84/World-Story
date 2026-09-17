@@ -30,21 +30,28 @@ export function crisisLevelTone(level: CrisisLevel): CrisisTone {
 }
 
 /**
- * Frase sulla serie di criticità. Solo una dimensione critica accumula turni
- * verso il collasso; l'allarme è un avvertimento senza contatore.
+ * Frase sui giorni di criticità accumulati. La crisi avanza col tempo
+ * trascorso: solo una dimensione critica accumula giorni verso il collasso,
+ * l'allarme logora più lentamente e la calma consuma l'arretrato.
  */
-export function crisisStreakText(risk: CrisisRisk, streak: number, collapseStreak: number): string {
-  const safeStreak = Math.max(0, Math.floor(Number(streak) || 0));
-  const limit = Math.max(1, Math.floor(Number(collapseStreak) || 1));
+export function crisisDaysText(risk: CrisisRisk, days: number, collapseDays: number): string {
+  const safeDays = Math.max(0, Math.floor(Number(days) || 0));
+  const limit = Math.max(1, Math.floor(Number(collapseDays) || 1));
   if (risk.level === 'critical') {
-    return safeStreak > 0
-      ? `${safeStreak}/${limit} turni di criticità: all'ultimo la nazione cade.`
-      : 'Un turno critico in più e la nazione è a un passo dal collasso.';
+    if (safeDays >= limit) {
+      return `${safeDays}/${limit} giorni di criticità: la nazione è a un passo dal collasso.`;
+    }
+    return safeDays > 0
+      ? `${safeDays}/${limit} giorni di criticità: il tempo gioca contro di noi.`
+      : `La crisi è appena iniziata: ${limit} giorni di criticità portano al collasso.`;
   }
   if (risk.level === 'watch') {
-    return 'Allarme: va corretto prima che diventi critico.';
+    return safeDays > 0
+      ? `Allarme da ${safeDays} giorni: va corretto prima che diventi critico.`
+      : 'Allarme: va corretto prima che diventi critico.';
   }
-  return '';
+  // In calma l'arretrato si consuma: mostrarlo dice al giocatore che sta recuperando.
+  return safeDays > 0 ? `Recupero in corso: ${safeDays} giorni di criticità ancora da smaltire.` : '';
 }
 
 /** Quante dimensioni sono critiche: serve all'HUD per un colpo d'occhio. */
