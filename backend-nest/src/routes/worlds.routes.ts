@@ -27,6 +27,7 @@ import {
 import { pointInGeometry } from '../utils/geo';
 import { paxSettlementObjectsForGeometry } from '../utils/pax-geography';
 import { loadNativeMap, resolveMapSource } from '../utils/native-maps';
+import { curatedPolityCodes, hasPolity, mapPolitiesFromFeatures, partitionMapFeatures } from '../utils/map-polities';
 
 export const worldsRouter = Router();
 
@@ -129,20 +130,12 @@ async function runWorldGeneration(
     let geojsonFeatures: Record<string, any> = {};
     // Мировые пакеты уровня ПРОВИНЦИЙ: feature.properties.country = код страны-владельца.
     // Каждая province — отдельный регион игры, но полития (owner) — страна-мать.
-    const provinceFeaturesByCountry: Record<string, any[]> = {};
-    const ingestFeature = (feature: any): void => {
-      const code = feature.properties?.code;
-      if (!code) return;
-      const parent = feature.properties?.country;
-      if (parent && parent !== code) {
-        (provinceFeaturesByCountry[parent] ??= []).push(feature);
-      } else {
-        geojsonFeatures[code] = feature;
-      }
-    };
-    for (const feature of sourceMap?.features || []) {
-      ingestFeature(feature);
-    }
+    let provinceFeaturesByCountry: Record<string, any[]> = {};
+    // Partizione delle feature con le regole della generazione (vedi
+    // utils/map-polities): una funzione pura, riusata dai test per provare che
+    // ogni polity della mappa ha una geometria.
+    ({ countryFeatures: geojsonFeatures, provinceFeaturesByCountry } =
+      partitionMapFeatures(sourceMap?.features || []));
 
     // Livello di dettaglio della mappa scelto dal preset (retrocompatibile:
     // senza campo, mappa provinciale → full, altrimenti nations come oggi).
@@ -158,6 +151,22 @@ async function runWorldGeneration(
       return provinceAdjacency;
     };
 
+    // MAP-COMPLETE: il concetto di «nazioni giocabili» è abolito. TUTTE le
+    // entità della sorgente geometrica diventano politie; il preset decide solo
+    // chi ha nome/colore storico (`countries`) e chi è consigliato al giocatore.
+    // L'elenco è costruito una volta dalle feature della mappa: nessuna fonte
+    // parallela, nessun secondo elenco da mantenere.
+    const mapPolities = mapPolitiesFromFeatures(preset, sourceMap?.features || []);
+    const curatedCodes = curatedPolityCodes(preset);
+    if (mapPolities.length === 0) {
+      throw new Error(`La mappa dello scenario non contiene alcuna entità: impossibile generare il mondo (preset ${templateId}).`);
+    }
+    // La nazione del giocatore deve esistere sulla mappa: nessuna politia
+    // fantasma, nessuna partita senza geometria.
+    if (playerCountryCode && !hasPolity(mapPolities, playerCountryCode)) {
+      throw new Error(`La nazione scelta (${playerCountryCode}) non è presente nella mappa del preset ${templateId}. Scegli una delle ${mapPolities.length} entità della mappa.`);
+    }
+
     const balanceAgent = new BalanceAgent(getLLMRouter());
     // M01 passo 4: il catalogo simulation/ del preset decide modalità di
     // bilanciamento e impronta di contenuto per cache e riuso (MAT18).
@@ -169,11 +178,14 @@ async function runWorldGeneration(
         }
       : undefined;
     // Кастомные страны пакета (имена/цвета) перекрывают реестр data/countries.json
+    // MAP-COMPLETE: al bilanciatore vanno TUTTE le politie della mappa; il
+    // modello è interrogato solo per quelle curate dal preset (curatedCodes).
     const worldState = await balanceAgent.generateInitialWorldState(
       preset,
-      preset.countries,
+      mapPolities,
       onProgress,
-      simulationOptions
+      simulationOptions,
+      curatedCodes,
     );
 
     // Цвета карты: приоритет у кураторской палитры пресета (country_colors);

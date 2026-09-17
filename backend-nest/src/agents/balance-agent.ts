@@ -35,6 +35,15 @@ export interface WorldState {
   countries: Map<string, CountryState>;
 }
 
+/**
+ * MAP-COMPLETE: baseline condiviso per le politie non curate dal preset.
+ * Valori prudenti e dichiarati (popolazione, indici USA=100), mai presentati
+ * come dati storici: servono solo a rendere il territorio esistente e giocabile.
+ */
+export const BASELINE_POPULATION = 8_000_000;
+export const BASELINE_GDP_INDEX = 5;
+export const BASELINE_MILITARY_INDEX = 5;
+
 /** M01 passo 4: modalità di catalogo e impronta di contenuto (MAT18). */
 export interface SimulationGenerationOptions {
   /** strict = nessun bilanciamento di alleanze/potenze non autorizzato. */
@@ -69,7 +78,15 @@ export class BalanceAgent {
     },
     countriesOverride?: { code: string; name: string; color: string }[],
     onProgress?: (done: number, total: number) => void,
-    options?: SimulationGenerationOptions
+    options?: SimulationGenerationOptions,
+    /**
+     * MAP-COMPLETE: codici che meritano i dati del modello (nomi/colori storici
+     * del preset, le «nazioni consigliate»). Le altre politie della mappa —
+     * centinaia di territori che prima non esistevano affatto — ricevono un
+     * baseline deterministico: la mappa è completa senza moltiplicare i costi
+     * LLM. Assente/vuoto = comportamento storico (tutte via modello).
+     */
+    curatedCodes?: string[],
   ): Promise<WorldState> {
     console.log('[BalanceAgent] Generating initial world state for template:', template.name);
     // M01 passo 4: la modalità del catalogo decide il bilanciamento; l'impronta
@@ -116,11 +133,28 @@ export class BalanceAgent {
 
     // 3) Primo avvio assoluto: blocchi da 16 paesi, tre richieste concorrenti.
     // Il vecchio percorso faceva una chiamata per ciascuna nazione.
-    const batches: Country[][] = [];
-    for (let i = 0; i < validCountries.length; i += this.COUNTRIES_PER_REQUEST) {
-      batches.push(validCountries.slice(i, i + this.COUNTRIES_PER_REQUEST));
+    // MAP-COMPLETE: solo le politie curate dal preset passano dal modello; le
+    // altre (territori presenti in mappa ma non curati) ricevono un baseline
+    // deterministico, così il costo LLM resta quello di prima.
+    const curatedSet = new Set((curatedCodes ?? []).map(code => String(code || '').trim().toUpperCase()).filter(Boolean));
+    const modelCountries = curatedSet.size > 0
+      ? validCountries.filter(country => curatedSet.has(country.code.toUpperCase()))
+      : validCountries;
+    const baselineCountries = curatedSet.size > 0
+      ? validCountries.filter(country => !curatedSet.has(country.code.toUpperCase()))
+      : [];
+    if (baselineCountries.length > 0) {
+      console.log('[BalanceAgent] Baseline deterministico per', baselineCountries.length, 'politie non curate');
+      for (const country of baselineCountries) {
+        countries.set(country.code, this.baselineState(country, template.start_date));
+      }
     }
-    let done = 0;
+
+    const batches: Country[][] = [];
+    for (let i = 0; i < modelCountries.length; i += this.COUNTRIES_PER_REQUEST) {
+      batches.push(modelCountries.slice(i, i + this.COUNTRIES_PER_REQUEST));
+    }
+    let done = baselineCountries.length;
     for (let i = 0; i < batches.length; i += this.REQUEST_CONCURRENCY) {
       const wave = batches.slice(i, i + this.REQUEST_CONCURRENCY);
       const results = await Promise.all(wave.map(batch =>
@@ -316,6 +350,29 @@ export class BalanceAgent {
       code: country.code, name: country.name, color: country.color,
       population: 10_000_000, gdp: 10, military: 10,
       ideology: 'neutral', allies: [], enemies: [], status: 'minor',
+    };
+  }
+
+  /**
+   * MAP-COMPLETE — baseline deterministico per le politie della mappa che il
+   * preset non cura. Non è un dato storico: è un valore prudente e dichiarato
+   * che rende il territorio esistente e giocabile, senza chiedere al modello di
+   * inventare la storia di centinaia di micro-territori. Per i mondi moderni
+   * (≥1990) la popolazione di riferimento reale viene comunque applicata da
+   * `applyReferenceBaseline`.
+   */
+  private baselineState(country: Country, startDate: string): CountryState {
+    return {
+      code: country.code,
+      name: country.name,
+      color: country.color,
+      population: hasModernReferenceFacts(startDate) ? (referencePopulation(country.code) ?? BASELINE_POPULATION) : BASELINE_POPULATION,
+      gdp: BASELINE_GDP_INDEX,
+      military: BASELINE_MILITARY_INDEX,
+      ideology: this.inferIdeology(country.code, startDate),
+      allies: [],
+      enemies: [],
+      status: 'minor',
     };
   }
 

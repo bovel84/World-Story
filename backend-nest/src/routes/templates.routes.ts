@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import { countryRepository } from '../repositories/country.repository';
 import { listPresets, loadPreset } from '../utils/preset-loader';
+import { curatedPolityCodes, mapPolitiesForPreset } from '../utils/map-polities';
 
 export const templatesRouter = Router();
 
@@ -42,7 +43,18 @@ templatesRouter.get('/:id', (req, res) => {
   }
 
   // Кастомные страны пакета (имена/цвета) перекрывают общий реестр data/countries.json
-  const countries = preset.countries ?? countryRepository.findByCodes(preset.country_codes);
+  // MAP-COMPLETE: `countries` NON è più l'elenco delle «nazioni giocabili» ma
+  // TUTTE le politie della mappa (il giocatore sceglie fra queste).
+  // `country_codes` resta nello schema come elenco delle nazioni CONSIGLIATE
+  // (nome/colore storico e dati dal modello). Se la mappa non è leggibile si
+  // ricade sul registro, per non lasciare il selettore vuoto.
+  let countries = countryRepository.findByCodes(preset.country_codes);
+  try {
+    const polities = mapPolitiesForPreset(preset);
+    if (polities.length > 0) countries = polities;
+  } catch (e) {
+    console.warn('[Templates] Politie di mappa non calcolate per', req.params.id, '-', e);
+  }
 
   // Формат ответа совместим со старым: id/name/description/start_date/
   // country_codes/countries/base_prompt на месте, плюс поля пакета
@@ -50,5 +62,8 @@ templatesRouter.get('/:id', (req, res) => {
   res.json({
     ...preset,
     countries,
+    // Politie totali della mappa (≠ nazioni consigliate) — informazione esplicita.
+    polity_count: countries.length,
+    recommended_codes: curatedPolityCodes(preset),
   });
 });

@@ -120,7 +120,7 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
     { label: 'Premessa del mondo', ready: data.base_prompt.trim().length >= 60 },
     { label: 'Dossier storico', ready: (data.lore || '').trim().length >= 120 },
     { label: 'Regole vincolanti', ready: (data.simulation_rules || '').trim().length >= 80 },
-    { label: 'Paesi giocabili', ready: normalizedCodes.length > 0 },
+    { label: 'Nazioni consigliate', ready: normalizedCodes.length > 0 },
   ], [data.base_prompt, data.lore, data.simulation_rules, normalizedCodes.length]);
 
   const readMap = async (file?: File) => {
@@ -217,7 +217,7 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
 
   const save = async () => {
     if (!data.id.trim() || !data.name.trim() || !data.base_prompt.trim() || normalizedCodes.length === 0) {
-      setError('Compila ID, nome, paesi giocabili e premessa del mondo.');
+      setError('Compila ID, nome, nazioni consigliate e premessa del mondo.');
       setTab('scenario');
       return;
     }
@@ -321,7 +321,7 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
                 <label>Versione<input value={data.version || ''} onChange={e => patch('version', e.target.value)} /></label>
               </div>
               <label>Presentazione per il giocatore<textarea rows={3} value={data.description} onChange={e => patch('description', e.target.value)} placeholder="Due righe per spiegare il conflitto e la promessa del mondo." /></label>
-              <label>Paesi giocabili (ISO-A3) <small>separati da virgola: ITA, FRA, DEU</small><textarea rows={3} className="preset-codes" value={codes} onChange={e => setCodes(e.target.value)} /></label>
+              <label>Nazioni consigliate (ISO-A3) <small>separate da virgola: ITA, FRA, DEU — il resto della mappa esiste comunque</small><textarea rows={3} className="preset-codes" value={codes} onChange={e => setCodes(e.target.value)} /></label>
             </>}
 
             {tab === 'mondo' && <>

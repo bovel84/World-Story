@@ -31,6 +31,9 @@ test.describe('Q01 µ1 — smoke mock (creazione partita)', () => {
     await page.locator('.template-card').first().click();
     await expect(page.locator('.country-list-item').first()).toBeVisible();
     await expect(page.locator('.country-list-item').first()).toContainText('Alfa');
+    // MAP-COMPLETE: la mappa è completa e le nazioni consigliate sono marcate.
+    await expect(page.locator('.map-completeness')).toContainText('2');
+    await expect(page.locator('.country-list-item').first().locator('.country-recommended')).toBeVisible();
 
     // 4. Seleziona paese e conferma → generazione mondo (mock) → HUD
     await page.locator('.country-list-item').first().click();
