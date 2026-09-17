@@ -16,7 +16,14 @@ import { loadSimulationCatalog, catalogFingerprint } from '../scenario/loader';
 import { createWorldGenJob, getWorldGenJob, setWorldGenProgress, updateWorldGenJob } from '../utils/world-gen-jobs';
 import { computeBorders } from '../utils/borders';
 import { resolveRegionColor } from '../utils/color';
-import { geometryAreaDeg2, largestRingCentroid, pointInGeometry } from '../utils/geo';
+import {
+  buildProvinceAdjacency,
+  deriveGroupBorders,
+  deriveGroups,
+  distributeCountryStats,
+  resolveMapDetail,
+} from '../utils/map-detail';
+import { pointInGeometry } from '../utils/geo';
 import { paxSettlementObjectsForGeometry } from '../utils/pax-geography';
 
 export const worldsRouter = Router();
@@ -141,6 +148,20 @@ async function runWorldGeneration(
       }
     }
 
+    // Livello di dettaglio della mappa scelto dal preset (retrocompatibile:
+    // senza campo, mappa provinciale → full, altrimenti nations come oggi).
+    const hasProvinceMap = Object.values(provinceFeaturesByCountry).some(list => list.length > 0);
+    const mapDetail = resolveMapDetail(preset.map_detail, hasProvinceMap);
+    // Adiacenza delle province calcolata una sola volta, e solo se c'è una
+    // mappa provinciale: serve ai confini di ogni livello.
+    let provinceAdjacency: Record<string, string[]> | null = null;
+    const getProvinceAdjacency = (): Record<string, string[]> => {
+      if (!provinceAdjacency) {
+        provinceAdjacency = buildProvinceAdjacency(Object.values(provinceFeaturesByCountry).flat());
+      }
+      return provinceAdjacency;
+    };
+
     const balanceAgent = new BalanceAgent(getLLMRouter());
     // M01 passo 4: il catalogo simulation/ del preset decide modalità di
     // bilanciamento e impronta di contenuto per cache e riuso (MAT18).
@@ -171,6 +192,8 @@ async function runWorldGeneration(
     // Per mondi provinciali: codice paese → id della provincia-capitale
     // (il giocatore inizia dalla capitale della politia scelta)
     const homeRegionByCountry: Record<string, string> = {};
+    // Gruppi proiettati per paese: servono a derivare i confini tra regioni.
+    const provinceGroupsByCountry: Record<string, ReturnType<typeof deriveGroups>> = {};
 
     for (const [code, state] of worldState.countries) {
       countriesObj[code] = state;
@@ -183,41 +206,39 @@ async function runWorldGeneration(
       // la provincia-capitale riceve un bonus. Owner = codice paese.
       // ---------------------------------------------------------------------
       if (provinceFeatures && provinceFeatures.length > 0) {
-        const withArea = provinceFeatures.map(f => ({
-          f,
-          area: geometryAreaDeg2(f.geometry) || 0.0001,
-        }));
-        // Peso: area; la capitale vale 1.6× — è il cuore demografico-economico
-        const weights = withArea.map(w => ({
-          ...w,
-          weight: w.area * (w.f.properties?.is_capital ? 1.6 : 1),
-        }));
-        const totalWeight = weights.reduce((s, w) => s + w.weight, 0) || 1;
+        // Proiezione del livello scelto: 1 regione per provincia (`full`),
+        // 1 per paese (`nations`) o gruppi (`grouped`). Statistiche distribuite
+        // con la stessa formula storica (peso d'area + bonus capitale).
+        const groups = deriveGroups(provinceFeatures, mapDetail, { owner: code, countryName: state.name });
+        const stats = distributeCountryStats(
+          { population: state.population || 0, gdp: state.gdp || 0, military: state.military || 0 },
+          groups,
+        );
         const cap = getCapitals()[code];
 
-        for (const w of weights) {
-          const props = w.f.properties || {};
-          const provCode = props.code;
-          const isCapital = !!props.is_capital;
-          const share = w.weight / totalWeight;
-
-          // Oggetti: capitale reale sulla provincia-capitale + città della registry
+        groups.forEach((group, index) => {
+          const isCapital = group.hasCapital;
+          const groupStats = stats[index];
+          // Oggetti: capitale reale sul gruppo che contiene la capitale + città
+          // dell'area. `full` mantiene il comportamento storico.
           const capitalObjects = (isCapital && cap && typeof cap.lat === 'number')
             ? [{ id: shortId(), type: 'capital', name: cap.capital, lat: cap.lat, lng: cap.lng }]
             : [];
-          // Tutte le città principali geolocalizzate che ricadono nella provincia.
-          // Il frontend decide quali etichette mostrare in base allo zoom.
-          const cityObjects = citiesForRegion(w.f.geometry, code, Infinity);
+          const cityObjects = citiesForRegion(group.geometry, code, mapDetail === 'full' ? Infinity : 24);
 
-          regionsObj[provCode] = {
-            id: provCode,
-            name: props.name || provCode,
+          regionsObj[group.code] = {
+            id: group.code,
+            name: group.name,
             color: state.color || '#888888',
-            geojson: JSON.stringify(w.f),
-            owner: code, // la politia è il paese — la conquista cambia il proprietario della provincia
-            population: Math.max(100000, Math.round((state.population || 0) * share)),
-            gdp: Math.max(1, Math.round((state.gdp || 0) * share)),
-            militaryPower: Math.max(1, Math.round((state.military || 0) * share * (isCapital ? 1.25 : 1))),
+            geojson: JSON.stringify({
+              type: 'Feature',
+              properties: group.properties,
+              geometry: group.geometry,
+            }),
+            owner: code, // la politia è il paese — la conquista cambia il proprietario della regione
+            population: groupStats.population,
+            gdp: groupStats.gdp,
+            militaryPower: groupStats.militaryPower,
             objects: [...capitalObjects, ...cityObjects],
             borders: [],
             status: 'active',
@@ -226,14 +247,16 @@ async function runWorldGeneration(
               ideology: state.ideology,
               country: code,
               isCapitalProvince: isCapital,
+              mapDetail,
             },
           };
-          if (isCapital) homeRegionByCountry[code] = provCode;
+          if (isCapital) homeRegionByCountry[code] = group.code;
+        });
+        // Fallback se nessun gruppo contiene la capitale
+        if (!homeRegionByCountry[code] && groups[0]) {
+          homeRegionByCountry[code] = groups[0].code;
         }
-        // Fallback se nessuna provincia segnata come capitale
-        if (!homeRegionByCountry[code] && provinceFeatures[0]?.properties?.code) {
-          homeRegionByCountry[code] = provinceFeatures[0].properties.code;
-        }
+        provinceGroupsByCountry[code] = groups;
         continue;
       }
 
@@ -312,13 +335,21 @@ async function runWorldGeneration(
     // Borders are computed from actual geometry (turf) once, here — the NPC
     // expansion logic depends on them to only spread into adjacent regions.
     const templateCodes = Object.keys(regionsObj);
-    const bordersMap = computeBorders(
+    const countryBorders = computeBorders(
       Object.fromEntries(
         templateCodes
           .filter(code => geojsonFeatures[code])
           .map(code => [code, geojsonFeatures[code].geometry ?? geojsonFeatures[code]])
       )
     );
+    // I mondi provinciali derivano i confini dall'adiacenza tra le province
+    // membri, a ogni livello. Due gruppi sono confinanti se almeno una
+    // provincia di A confina con una di B: nessuna adiacenza inventata.
+    const provinceGroups = Object.values(provinceGroupsByCountry).flat();
+    const provinceBorders = provinceGroups.length > 0
+      ? deriveGroupBorders(provinceGroups, getProvinceAdjacency())
+      : {};
+    const bordersMap: Record<string, string[]> = { ...countryBorders, ...provinceBorders };
 
     const regionsArray = Object.entries(regionsObj).map(([code, region]) => ({
       id: `${worldId}_${code}`,

@@ -1318,8 +1318,12 @@ export interface PresetEditorData {
   prompts?: Record<string, string>;
   author?: string;
   version?: string;
+  /** Livello di dettaglio della mappa: nations | grouped | full (opzionale). */
+  map_detail?: PresetMapDetail;
   map_geojson?: any;
 }
+
+export type PresetMapDetail = 'nations' | 'grouped' | 'full';
 
 export const templatesApi = {
   /**

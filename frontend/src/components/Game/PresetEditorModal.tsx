@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { templatesApi, type PresetEditorData, type ScenarioReportView } from '../../services/api';
+import { templatesApi, type PresetEditorData, type PresetMapDetail, type ScenarioReportView } from '../../services/api';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 
 interface Props {
@@ -28,6 +28,25 @@ const EMPTY: PresetEditorData = {
 };
 
 type EditorTab = 'scenario' | 'mondo' | 'istruzioni' | 'catalogo' | 'mappa';
+
+/** Livelli di dettaglio della mappa e relativa disponibilità. */
+const MAP_DETAIL_OPTIONS: Array<{ value: PresetMapDetail; label: string; hint: string }> = [
+  { value: 'nations', label: 'Solo nazioni', hint: 'Una regione per paese' },
+  { value: 'grouped', label: 'Regioni raggruppate', hint: 'Poche regioni per paese' },
+  { value: 'full', label: 'Massimo dettaglio', hint: 'Una regione per provincia' },
+];
+
+/** Vero se la mappa caricata porta province (`properties.country` ≠ `code`). */
+function hasProvinceFeatures(map: any): boolean {
+  const features = map?.features;
+  if (!Array.isArray(features)) return false;
+  return features.some((feature: any) => {
+    const props = feature?.properties || {};
+    return typeof props.country === 'string' && props.country !== ''
+      && typeof props.code === 'string' && props.code !== ''
+      && props.country !== props.code;
+  });
+}
 
 /** File del catalogo di scenario (M01) con etichette per la checklist. */
 const CATALOG_FILES: Array<{ key: string; label: string; hint: string }> = [
@@ -148,6 +167,13 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
     }
   };
 
+  const provinceMap = useMemo(() => hasProvinceFeatures(data.map_geojson), [data.map_geojson]);
+  // Livello effettivo mostrato: il default rispecchia il comportamento attuale
+  // (mappa provinciale → full, altrimenti nations).
+  const effectiveDetail: PresetMapDetail = data.map_detail && (provinceMap || data.map_detail === 'nations')
+    ? data.map_detail
+    : (provinceMap ? 'full' : 'nations');
+
   const save = async () => {
     if (!data.id.trim() || !data.name.trim() || !data.base_prompt.trim() || normalizedCodes.length === 0) {
       setError('Compila ID, nome, paesi giocabili e premessa del mondo.');
@@ -164,6 +190,8 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
       id: data.id.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_'),
       country_codes: normalizedCodes,
       prompts,
+      // Senza mappa provinciale resta disponibile solo «Solo nazioni».
+      map_detail: provinceMap ? effectiveDetail : 'nations',
     };
     try {
       if (templateId) await templatesApi.updatePreset(templateId, payload);
@@ -343,6 +371,23 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
                 <button type="button" onClick={() => mapInput.current?.click()}>Scegli GeoJSON</button>
                 {data.map_geojson && <button type="button" className="danger" onClick={() => patch('map_geojson', null)}>Rimuovi mappa</button>}
               </div>
+              <fieldset className="preset-map-detail" disabled={!provinceMap}>
+                <legend>Dettaglio della mappa</legend>
+                {MAP_DETAIL_OPTIONS.map(option => (
+                  <label key={option.value}>
+                    <input
+                      type="radio"
+                      name="preset-map-detail"
+                      value={option.value}
+                      checked={effectiveDetail === option.value}
+                      disabled={!provinceMap && option.value !== 'nations'}
+                      onChange={() => patch('map_detail', option.value)}
+                    />
+                    <span>{option.label}<small>{option.hint}</small></span>
+                  </label>
+                ))}
+                {!provinceMap && <p className="preset-guide">Senza una mappa provinciale (con <code>properties.country</code>) è disponibile solo «Solo nazioni».</p>}
+              </fieldset>
             </div>}
           </div>
         )}

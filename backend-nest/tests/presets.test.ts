@@ -154,6 +154,10 @@ describe('Этап 5: каталог пресетов', () => {
     const ok = v({ id: 'ok_id', name: 'X', country_codes: ['USA'], base_prompt: 'p' });
     expect(ok.id).toBe('ok_id');
     expect(ok.country_codes).toEqual(['USA']);
+    // map_detail: assente = retrocompatibile; valori ammessi passano; altri no
+    expect(ok.map_detail).toBeUndefined();
+    expect(v({ id: 'ok_id', name: 'X', country_codes: ['USA'], base_prompt: 'p', map_detail: 'grouped' }).map_detail).toBe('grouped');
+    expect(() => v({ id: 'ok_id', name: 'X', country_codes: ['USA'], base_prompt: 'p', map_detail: 'province' })).toThrow(/map_detail/);
   });
 });
 
