@@ -26,6 +26,8 @@ export interface LiveTickContext {
   publicPolityName(polityId: string): string;
   broadcast(type: any, data: any): boolean | void;
   applyRandomEvents(): string[];
+  /** WORLD-ALIVE P3: conflitti deterministici del mondo (NPC), senza LLM. */
+  applyWorldConflicts(): string[];
   worldStateOptions(): { modernFacts: boolean; startDate: string; taxRateByPolity?: Record<string, number> };
   syncRegionsToDB(): Promise<void> | void;
   withLock<T>(fn: () => Promise<T>): Promise<T | null>;
@@ -61,6 +63,13 @@ export class LiveTickService {
       // fermi. Le reazioni NPC ragionate restano nel turno degli ordini; qui
       // registriamo esclusivamente fatti deterministici e immediati.
       const randomEvents = this.ctx.applyRandomEvents();
+      // WORLD-ALIVE P3: il mondo si muove anche senza ordini. Questo passo è
+      // **deterministico** (seme partita+turno) e non attende la LLM: usa le
+      // politiche esistenti (`indexPolities`, `canNpcCapture`, `transferRegion`)
+      // e le relazioni già registrate. Le conquiste entrano nel diff sotto,
+      // quindi finiscono su mappa, timeline e dispacci come qualsiasi altro
+      // cambiamento di proprietario.
+      const conflictEvents = this.ctx.applyWorldConflicts();
       // Anche senza ordini il tempo ha un costo/effetto: economia, popolazione
       // e prontezza vengono aggiornate dal motore, non dal narratore.
       const tick = WorldStateEngine.advance(this.state.regions.values(), LiveTickService.LIVE_TICK_DAYS, this.ctx.worldStateOptions());
@@ -76,11 +85,23 @@ export class LiveTickService {
       const quietDispatch = playerAccount
         ? `Il ministero delle Finanze di ${playerName} stima una crescita annua del ${(playerAccount.annualGrowthRate * 100).toFixed(1)}%. Il saldo pubblico mensile resta ${balance >= 0 ? 'positivo' : 'negativo'} per ${Math.abs(balance).toFixed(2)} miliardi di dollari.`
         : 'I governi mantengono le posizioni e non emergono nuove svolte politiche o territoriali.';
-      const events = (randomEvents.length > 0 ? randomEvents : [quietHeadline]).map(event => this.ctx.publicText(event));
+      const worldEvents = [...conflictEvents, ...randomEvents];
+      const events = (worldEvents.length > 0 ? worldEvents : [quietHeadline]).map(event => this.ctx.publicText(event));
       const id = shortId();
-      const narration = randomEvents.length > 0
-        ? `Il mondo procede: ${randomEvents.length} ${randomEvents.length === 1 ? 'evento' : 'eventi'} registrati in questo periodo.`
-        : quietDispatch;
+      // Dettaglio per riga: i primi `conflictEvents.length` sono sviluppi
+      // militari, gli altri eventi casuali (o la riga di quiete).
+      const details = (worldEvents.length > 0 ? worldEvents : [quietHeadline]).map((_, index) => (
+        index < conflictEvents.length
+          ? 'Le cancellerie confermano il movimento delle forze e ne valutano le conseguenze.'
+          : randomEvents.length > 0
+            ? 'Le autorità locali confermano lo sviluppo e ne valutano le conseguenze immediate.'
+            : quietDispatch
+      ));
+      const narration = conflictEvents.length > 0
+        ? `${conflictEvents.length} ${conflictEvents.length === 1 ? 'sviluppo militare' : 'sviluppi militari'} nel teatro: il mondo non resta fermo.`
+        : randomEvents.length > 0
+          ? `Il mondo procede: ${randomEvents.length} ${randomEvents.length === 1 ? 'evento' : 'eventi'} registrati in questo periodo.`
+          : quietDispatch;
 
       const turnResult: TurnResultRecord = {
         id,
@@ -93,9 +114,7 @@ export class LiveTickService {
           id: `${id}-${index}`,
           date: this.state.currentDate,
           headline,
-          detail: randomEvents.length > 0
-            ? 'Le autorità locali confermano lo sviluppo e ne valutano le conseguenze immediate.'
-            : quietDispatch,
+          detail: details[index],
           source: 'world' as const,
         })),
       };
