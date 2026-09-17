@@ -711,6 +711,13 @@ export class TurnPipelineService {
       // Completed orders no longer belong to the future queue. Persist the
       // removal only after their common result has been constructed.
       gameRepository.removePendingActions(this.ctx.gameId, actions.map(item => item.id));
+      // Anche la coda viva perde gli ordini conclusi (MAP-COMPLETE-ACTIONS
+      // P2/P3): la UI rilegge la coda autorevole dopo il salto, quindi se la
+      // RAM conservasse gli ordini completati la lista si accumulerebbe turno
+      // dopo turno. Stessa pulizia già fatta dal percorso in pausa
+      // (`PlaybackService`), con lo stesso `replaceQueue`.
+      this.ctx.orders.replaceQueue(this.ctx.orders.queue()
+        .filter(action => !actions.some(item => item.id === action.id)));
 
       // Advance turn and date
       this.state.currentTurn++;
