@@ -2352,6 +2352,26 @@ html, body { margin: 0; }
 .nation-stance.tone-warning { border-color: #b28b3f; background: #2a2210; color: #f0ce8f; }
 .nation-stance.tone-negative { border-color: #b96a6a; background: #2c171b; color: #f0a9a9; }
 .nation-faction-gauges { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+/* GAMEPLAY-LONG: registro degli impegni (trattati, promesse, ultimatum). */
+.nation-commitments { display: flex; flex-direction: column; gap: 10px; }
+.nation-commitments-summary { margin: 0; color: #9fb0c9; font: 600 11px/1.3 system-ui, sans-serif; }
+.nation-commitment-list { display: flex; flex-direction: column; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.nation-commitment { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid #354966; border-left: 4px solid #6f83a3; border-radius: 10px; background: #101d31; }
+.nation-commitment.tone-critical { border-left-color: #d97b7b; }
+.nation-commitment.tone-warning { border-left-color: #d9b273; }
+.nation-commitment.tone-positive { border-left-color: #7fc79a; }
+.nation-commitment.tone-neutral { border-left-color: #6f83a3; }
+.nation-commitment-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nation-commitment-type { color: #9b8adb; font: 700 9.5px/1.2 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.nation-commitment-status { font: 700 10px/1.2 system-ui, sans-serif; }
+.nation-commitment-status.tone-critical { color: #e08c8c; }
+.nation-commitment-status.tone-warning { color: #e0b96a; }
+.nation-commitment-status.tone-positive { color: #7fc79a; }
+.nation-commitment-status.tone-neutral { color: #9fb0c9; }
+.nation-commitment b { color: #eef3fc; font: 600 12.5px/1.4 system-ui, sans-serif; }
+.nation-commitment-parties, .nation-commitment-timing { color: #9fb0c9; font: 500 11px/1.35 system-ui, sans-serif; }
+.nation-commitment-note { color: #b6c3d8; font: 500 11px/1.4 system-ui, sans-serif; font-style: italic; }
+
 /* GAMEPLAY-LONG: strategie delle potenze (agenda NPC del motore). */
 .nation-agenda-list { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .nation-agenda-power { display: flex; flex-direction: column; gap: 8px; padding: 11px 12px; border: 1px solid #354966; border-radius: 11px; background: #101d31; }

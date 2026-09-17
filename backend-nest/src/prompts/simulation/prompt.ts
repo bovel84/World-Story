@@ -312,6 +312,11 @@ ${vars.STRATEGIC_STATE}
 
 ${vars.NPC_STRATEGIC_PROFILES}
 
+[Impegni in vigore — registro strutturato, non cronaca]
+
+${vars.ACTIVE_COMMITMENTS}
+Questi impegni sono vincolanti: chi li ha presi non può ignorarli e le altre politie li usano per giudicare le sue mosse. Non inventarne di nuovi che contraddicano un impegno in vigore; se un impegno viene onorato o tradito, aggiornalo con "commitmentUpdates".
+
 [Anime del governo — chi preme dentro la nazione]
 
 ${vars.GOVERNMENT_STATE || '(Nessuna anima del governo registrata per questa nazione.)'}
@@ -392,6 +397,13 @@ Regole actionOutcomes e voided:
   ultimatum e rifiuti devono influenzare eventi e narrazione. Quando cambiano
   concretamente i rapporti fra due politie, registralo in relationshipChanges;
   altrimenti usa "relationshipChanges": []. Usa soltanto ally, neutral, hostile.
+- "commitments" (facoltativo): il registro strutturato degli impegni dura per
+  tutta la partita, mentre la cronaca viene riassunta. Registra qui SOLO gli
+  impegni che il turno ha davvero prodotto (un accordo firmato, una promessa
+  presa, una garanzia data, un ultimatum lanciato): {"type":"treaty|promise|guarantee|ultimatum|trade-agreement|territorial-access|ceasefire|military-commitment|future-obligation","actor":"POLITY","counterparty":"POLITY o null","description":"oggetto concreto","deadline":"AAAA-MM-GG o null","importance":1|2|3}.
+  Non ripetere impegni già presenti in [Impegni in vigore]: quelli si aggiornano
+  con "commitmentUpdates": [{"id":"id esatto","status":"fulfilled|broken|expired|superseded","note":"perché"}].
+  Se il turno non produce impegni, ometti il campo o usa "commitments": [].
 ${autoJumpInstruction}
 
 VERY IMPORTANT: Rispondi SOLO con JSON valido, senza formattazione markdown, senza spiegazioni.`;

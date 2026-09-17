@@ -74,6 +74,8 @@ interface GameData {
   relationships?: Record<string, Record<string, string>>;
   /** Dossier NPC: identità stabile, priorità dinamiche e memoria canonica. */
   npcStrategicProfiles?: string;
+  /** GAMEPLAY-LONG: registro strutturato degli impegni in vigore. */
+  activeCommitments?: string;
   /** Processi in corso (esiti partial) che la simulazione deve portare avanti. */
   ongoingProcesses?: Array<{
     id: string;
@@ -331,6 +333,7 @@ export class PromptBuilder {
       GRAND_MAP_DESCRIPTION_NO_CITY: this.buildMapDescriptionNoCity(),
       STRATEGIC_STATE: this.buildStrategicState(playerPolityId),
       NPC_STRATEGIC_PROFILES: this.game.npcStrategicProfiles || 'Nessun dossier NPC specifico disponibile.',
+      ACTIVE_COMMITMENTS: this.game.activeCommitments || '(Nessun impegno in vigore registrato.)',
       ONGOING_PROCESSES: this.buildOngoingProcesses(),
       GOVERNMENT_STATE: this.buildGovernmentState(),
       PEACETIME_PRESSURES: this.buildPeacetimePressures(),

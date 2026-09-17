@@ -5,7 +5,7 @@
  */
 import type { Region } from '../../../types';
 import type {
-  ArsenalResponse, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, PowerAgenda,
+  ArsenalResponse, Commitment, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, PowerAgenda,
   GovernmentVoicesResponse, NaturalResourceSummary, PeacetimePressure,
   ResourceQuote, SovereignDebtTranche,
 } from '../../../services/api';
@@ -145,6 +145,10 @@ export interface NationDockProps {
   strategicAgenda?: { powers: PowerAgenda[] } | null;
   /** Polity della nazione giocata: serve a ordinare le strategie per rilevanza. */
   playerPolityId?: string | null;
+  /** Registro strutturato degli impegni (trattati, promesse, ultimatum). */
+  commitments?: { commitments: Commitment[]; attention: Commitment[] } | null;
+  /** Data del mondo: serve a mostrare le scadenze, non a calcolarle. */
+  today?: string;
 }
 
 /** Un punto dello storico: data di gioco e conto già pubblicato dal motore. */

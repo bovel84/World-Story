@@ -12,6 +12,7 @@ export { relationshipRepository } from './relationship.repository';
 export { chatRepository } from './chat.repository';
 export { factionMemoryRepository, factionMemoryId } from './faction-memory.repository';
 export { npcAgendaRepository } from './npc-agenda.repository';
+export { commitmentRepository } from './commitment.repository';
 export { nationalAccountRepository } from './national-account.repository';
 export type { AccountHistoryPoint } from './national-account.repository';
 export { resourceRepository } from './resource.repository';

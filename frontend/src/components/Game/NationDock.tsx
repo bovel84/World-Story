@@ -32,7 +32,7 @@ import {
 import {
   BudgetBreakdown, CrisisBlock, DebtPortfolio, DossierBlock, EmptyState,
   EquipmentSpecs, FactionCard, Footnote, Metric, MetricGrid, PressuresBlock,
-  PowersAgendaList, ProgressRow, ResourceTradeRow, VerdictBanner,
+  CommitmentsList, PowersAgendaList, ProgressRow, ResourceTradeRow, VerdictBanner,
 } from './NationDock/widgets';
 import { useNationDockModel } from './NationDock/useNationDockModel';
 import { MaterialBalanceList } from './MaterialBalanceList';
@@ -46,7 +46,8 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     ongoingProcesses, completedProcesses = [], mandateDecisions = [], maintenanceObligations = [], onAcknowledgeMandateDecision,
     government, onDraftOrder, governmentVoices, governmentVoicesLoading, governmentVoicesError,
     onBorrowDebt, fiscalPolicy, onSetFiscalPolicy, fiscalPolicyBusy,
-    pressures, recentPressures, onResolvePressure, pressureBusy, crisis, briefing, strategicAgenda,
+    pressures, recentPressures, onResolvePressure, pressureBusy, crisis, briefing, strategicAgenda, commitments,
+    today: worldDate,
     setState, active, trading, borrowing, borrowAmount, setBorrowAmount, borrowTerm, setBorrowTerm,
     taxDraft, setTaxDraft, effectiveTaxPct, runSetTax, runBorrow, runTrade,
     assets, projectGroups, financeAvailable, balance, stability, socialTension, warEffort, mobilized,
@@ -138,6 +139,13 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 busy={pressureBusy}
                 money={account?.money}
               />
+            </DossierBlock>
+
+            <DossierBlock
+              title="Impegni della partita"
+              description="Trattati, promesse, garanzie e ultimatum registrati dal motore: stato, controparte, importanza e scadenza. La cronaca racconta, il registro ricorda."
+            >
+              <CommitmentsList commitments={commitments?.commitments || []} today={worldDate || ''} />
             </DossierBlock>
 
             <DossierBlock

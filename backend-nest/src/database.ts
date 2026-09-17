@@ -767,6 +767,37 @@ export function initDatabase() {
   try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
   try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated_date TEXT'); } catch { /* già presente */ }
 
+  // GAMEPLAY-LONG: registro strutturato degli impegni (trattati, promesse,
+  // ultimatum, accordi). Versioni append-only come l'agenda: il rewind fa
+  // riemergere lo stato precedente e la cronaca può consolidarsi senza
+  // portarsi via ciò che è stato firmato.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_commitments (
+      id TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
+      commitment_key TEXT NOT NULL,
+      commitment_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      counterparty TEXT,
+      description TEXT NOT NULL DEFAULT '',
+      importance INTEGER NOT NULL DEFAULT 2,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_date TEXT NOT NULL,
+      created_turn INTEGER NOT NULL,
+      deadline TEXT,
+      source_event_id TEXT,
+      note TEXT NOT NULL DEFAULT '',
+      updated_date TEXT NOT NULL,
+      updated_turn INTEGER NOT NULL,
+      recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (game_id, branch_id, id),
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_game_commitments_lookup ON game_commitments(game_id, branch_id, status, importance)');
+
   // GAMEPLAY-LONG: agenda strategica degli NPC. Righe = VERSIONI di un
   // obiettivo (`objective_key` identifica l'istanza): la strategia dura più
   // turni e il rewind fa riemergere la versione precedente.

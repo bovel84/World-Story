@@ -309,6 +309,24 @@ export interface GovernmentSnapshot {
   trustIndex?: number | null;
 }
 
+/** GAMEPLAY-LONG: un impegno registrato dal motore (trattato, promessa…). */
+export interface Commitment {
+  id: string;
+  type: string;
+  actor: string;
+  counterparty: string | null;
+  description: string;
+  createdDate: string;
+  createdTurn: number;
+  status: 'active' | 'fulfilled' | 'broken' | 'expired' | 'superseded' | string;
+  deadline: string | null;
+  sourceEventId: string | null;
+  importance: number;
+  updatedDate: string;
+  updatedTurn: number;
+  note: string;
+}
+
 /** GAMEPLAY-LONG: obiettivo strategico di una polity non giocante. */
 export interface StrategicObjective {
   id: string;
@@ -618,6 +636,8 @@ export const gameApi = {
     crisis?: CrisisSnapshot | null;
     /** GAMEPLAY-LONG: obiettivi persistenti delle potenze del teatro. */
     strategicAgenda?: { powers: PowerAgenda[] } | null;
+    /** Registro strutturato degli impegni: ciò che la partita ha firmato. */
+    commitments?: { commitments: Commitment[]; attention: Commitment[] } | null;
     /** Magazzino materiale del giocatore (legacy): stock, conto e risorse naturali. */
     resources?: {
       stock?: { money?: number; debt?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };

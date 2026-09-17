@@ -31,6 +31,7 @@ import type { SimulationCoordinator } from './SimulationCoordinator';
 import type { DiplomacyService } from './DiplomacyService';
 import type { PlaybackService } from './PlaybackService';
 import type { SessionStateStore } from './SessionStateStore';
+import type { CommitmentResult } from './CommitmentService';
 import { SimulationPausedError, SimulationInProgressError, type ActionRecord, type PausedBatchResult, type RegionState, type TimelineEventRecord, type TurnResultRecord } from '../game-session';
 
 export interface TurnPipelineContext {
@@ -67,6 +68,12 @@ export interface TurnPipelineContext {
   getAdvisorUnchecked(...args: any[]): Promise<string>;
   refreshProjectProgress(asOfDate?: string): string[];
   refreshPeacetimePressures(): void;
+  /** GAMEPLAY-LONG: registra gli impegni nati nel turno (registro strutturato). */
+  recordCommitments(input: {
+    startChat?: readonly { participants?: string[]; polityName?: string; kind?: string; topic?: string; eventHeadline?: string }[];
+    proposals?: unknown;
+    updates?: unknown;
+  }): CommitmentResult;
   evaluateCrisis(advance?: boolean): any;
   settleOrderCosts(...args: any[]): any;
   orderFundingNotes(actions: PendingAction[]): string | null;
@@ -512,8 +519,9 @@ export class TurnPipelineService {
       const explicitChatStarts = applyCompletionEffects || (autoJump && !intervened)
         ? promptResult.startChat || []
         : [];
+      const chatStarts = [...explicitChatStarts, ...this.ctx.reactionChatStarts(appliedEvents)];
       const chatEffects = this.ctx.diplomacy.openSimulationChats(
-        [...explicitChatStarts, ...this.ctx.reactionChatStarts(appliedEvents)],
+        chatStarts,
         {
           turn: this.state.currentTurn,
           fallbackDate: period.end,
@@ -522,6 +530,17 @@ export class TurnPipelineService {
           requireEventLink: autoJump,
         },
       );
+      // GAMEPLAY-LONG: gli impegni nati nel turno entrano nel registro
+      // strutturato (ultimatum dalle chat, proposte validate del modello): la
+      // cronaca potrà essere riassunta, il registro no.
+      const commitmentEffects = this.ctx.recordCommitments({
+        startChat: chatStarts,
+        proposals: (promptResult as { commitments?: unknown }).commitments,
+        updates: (promptResult as { commitmentUpdates?: unknown }).commitmentUpdates,
+      });
+      for (const commitment of commitmentEffects.created) {
+        console.log(`[GameSession] Impegno registrato: ${commitment.type} ${commitment.actor} → ${commitment.counterparty ?? 'interno'} (${commitment.description}).`);
+      }
       chatTimelineEvents.push(...chatEffects.timelineEvents);
       chatBroadcasts.push(...chatEffects.broadcasts);
       openedChatPolityIds = chatEffects.participantPolityIds;

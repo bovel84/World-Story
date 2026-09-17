@@ -38,7 +38,10 @@ import { type PressureEffect } from './core/simulation/PeacetimePressures';
 import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import type { FactionMemoryEvent } from './core/simulation/FactionMemory';
+import { commitmentsWorthAttention, type Commitment } from './core/simulation/Commitments';
+import type { CommitmentResult } from './game/CommitmentService';
 import { NpcAgendaService } from './game/NpcAgendaService';
+import { CommitmentService } from './game/CommitmentService';
 import type { GovernmentVoices } from './prompts/government';
 import { annualDebtServiceMld, creditHeadroom, debtOf, issueSovereignDebt, type ResourceStock } from './core/simulation/MaterialEconomy';
 import {
@@ -366,6 +369,8 @@ export class GameSession {
   private npcTurns: NpcTurnService;
   /** GAMEPLAY-LONG: obiettivi persistenti delle polity non giocanti. */
   private npcAgenda: NpcAgendaService;
+  /** GAMEPLAY-LONG: registro strutturato degli impegni (trattati, promesse…). */
+  private commitments: CommitmentService;
   /** Macchina a stati del playback scaglionato (Fase 1: estratto da GameSession). */
   private playback: PlaybackService;
   /** Orchestratore del lotto di ordini (Fase 1: estratto da GameSession). */
@@ -1114,6 +1119,12 @@ export class GameSession {
       currentTurn: () => this.currentTurn,
       isStrictGame: () => this.isStrictGame(),
     });
+    this.commitments = new CommitmentService({
+      gameId: this.id,
+      currentDate: () => this.currentDate,
+      currentTurn: () => this.currentTurn,
+      isStrictGame: () => this.isStrictGame(),
+    });
     this.gameController = new GameController(provider);
     this.promptEngine = new PromptEngine(provider);
     this.npcTurns = new NpcTurnService({
@@ -1208,6 +1219,7 @@ export class GameSession {
         this.refreshNpcAgenda();
         return this.buildNpcStrategicDossiers(focusTexts, accounts);
       },
+      activeCommitments: () => this.commitments.describeForPrompt(),
       relationships: () => this.diplomacy.toJSON(),
       chatTranscripts: () => this.diplomacy.buildChatTranscripts(),
       actions: () => this.actions,
@@ -1275,6 +1287,7 @@ export class GameSession {
       hostileNeighbourCount: polityId => this.hostileNeighbourCount(polityId),
       recentStrategicMemory: (polityId, limit) => this.recentStrategicMemory(polityId, limit),
       strategicAgenda: polityId => this.npcAgenda.describe(polityId),
+      commitmentsForPolity: polityId => this.commitments.describeForPolity(polityId),
     });
     // F04 §9.4: ogni partita nasce (o riapre) sul suo ramo principale.
     // Idempotente: le sessioni ricostruite dal DB non duplicano il ramo.
@@ -1284,6 +1297,7 @@ export class GameSession {
       coordinator: this.coordinator,
       diplomacy: this.diplomacy,
       orders: this.orders,
+      recordCommitments: input => this.recordCommitments(input),
       isStrictGame: () => this.isStrictGame(),
       publicText: value => this.publicText(value),
       publicPolityName: polityId => this.publicPolityName(polityId),
@@ -1343,6 +1357,7 @@ export class GameSession {
       getAdvisorUnchecked: (...args: any[]) => (this.getAdvisorUnchecked as any)(...args),
       refreshProjectProgress: asOfDate => this.refreshProjectProgress(asOfDate),
       refreshPeacetimePressures: () => this.refreshPeacetimePressures(),
+      recordCommitments: input => this.recordCommitments(input),
       evaluateCrisis: advance => this.evaluateCrisis(advance),
       settleOrderCosts: (...args: any[]) => (this.settleOrderCosts as any)(...args),
       orderFundingNotes: actions => this.orderFundingNotes(actions),
@@ -2017,6 +2032,7 @@ export class GameSession {
     // Anche l'agenda torna alla versione precedente: la strategia riscritta
     // non resta appesa al futuro che è stato annullato.
     this.npcAgenda.pruneAfterTurn(Number(saveData.currentTurn) || 0);
+    this.commitments.pruneAfterTurn(Number(saveData.currentTurn) || 0);
     this.npcAgendaKey = null;
     // Un turno annullato cancella anche il collasso: si torna a giocare.
     gameRepository.resetCrisisState(this.id);
@@ -2217,6 +2233,51 @@ export class GameSession {
     for (const objective of result.closed) {
       console.log(`[GameSession] Agenda strategica: ${objective.polityId} chiude «${objective.description}» (${objective.status}).`);
     }
+  }
+
+  /**
+   * Registro strutturato degli impegni: ciò che la partita ha firmato e che la
+   * cronaca consolidata non deve far dimenticare (GAMEPLAY-LONG).
+   */
+  getCommitments(): {
+    commitments: Commitment[];
+    attention: Commitment[];
+  } {
+    if (this.isStrictGame()) return { commitments: [], attention: [] };
+    const all = this.commitments.all();
+    return {
+      commitments: all,
+      attention: commitmentsWorthAttention(all, { today: this.currentDate }),
+    };
+  }
+
+  /**
+   * Registra nel registro gli impegni nati nel turno: ultimatum aperti in chat
+   * (tipo strutturato nel payload) e proposte validate del modello. Il motore
+   * resta l'autorità sullo stato: qui si applicano, non si inventano.
+   */
+  private recordCommitments(input: {
+    startChat?: readonly { participants?: string[]; polityName?: string; kind?: string; topic?: string; eventHeadline?: string }[];
+    proposals?: unknown;
+    updates?: unknown;
+    sourceEventIdByHeadline?: Map<string, string>;
+  }): CommitmentResult {
+    if (this.isStrictGame()) return { commitments: [], created: [], updated: [], written: 0 };
+    const proposals = [
+      ...this.commitments.fromChatStarts(input.startChat ?? [], {
+        date: this.currentDate,
+        issuer: this.playerPolityId,
+        sourceEventIdByHeadline: input.sourceEventIdByHeadline,
+      }),
+      ...this.commitments.parseModelProposals(input.proposals, input.updates, this.playerPolityId),
+    ];
+    if (proposals.length === 0) {
+      // Anche senza nuove proposte le scadenze scorrono: un ultimatum non resta
+      // aperto in eterno solo perché nessuno ha parlato.
+      const result = this.commitments.apply([]);
+      return result;
+    }
+    return this.commitments.apply(proposals);
   }
 
   /**

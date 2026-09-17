@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import type {
   BudgetLine, CrisisRisk, CrisisSnapshot, GovernmentFaction,
-  NaturalResourceSummary, PeacetimePressure, PowerAgenda, SovereignDebtTranche,
+  Commitment, NaturalResourceSummary, PeacetimePressure, PowerAgenda, SovereignDebtTranche,
 } from '../../../services/api';
 import { formatMoney, formatNumber, formatPercent } from '../../../utils/format';
 import { sparkPoints, trendLabel, type Trend, type TrendTone } from '../accountTrend';
@@ -17,6 +17,10 @@ import {
   factionMemoryView, satisfactionTone, stanceTone, type NationalVerdict,
 } from '../governmentDossier';
 import { agendasWithObjectives, objectivePriorityTone, objectiveProgressTone, objectiveSummary } from '../powersAgenda';
+import {
+  activeCommitmentsOf, commitmentPartiesText, commitmentStatusLabel, commitmentTimingText,
+  commitmentTone, commitmentTypeLabel, sortCommitments,
+} from '../commitments';
 import { formatDate } from './format';
 import type { MetricTrend, Tone } from './types';
 
@@ -571,5 +575,46 @@ export function PowersAgendaList({ powers, playerPolityId }: {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * GAMEPLAY-LONG — «Impegni della partita»: trattati, promesse, ultimatum con
+ * stato e scadenza. La cronaca racconta, questo registro ricorda.
+ */
+export function CommitmentsList({ commitments, today }: {
+  commitments: Commitment[];
+  today: string;
+}) {
+  const sorted = sortCommitments(commitments, today);
+  if (sorted.length === 0) {
+    return <EmptyState>Nessun impegno registrato: la partita non ha ancora firmato nulla.</EmptyState>;
+  }
+  const activeCount = activeCommitmentsOf(sorted).length;
+  return (
+    <div className="nation-commitments">
+      <p className="nation-commitments-summary">
+        {activeCount === 1 ? '1 impegno in vigore' : `${activeCount} impegni in vigore`}
+        {sorted.length > activeCount ? ` · ${sorted.length - activeCount} conclusi` : ''}
+      </p>
+      <ul className="nation-commitment-list">
+        {sorted.map((commitment) => (
+          <li key={commitment.id} className={`nation-commitment tone-${commitmentTone(commitment)}`}>
+            <div className="nation-commitment-head">
+              <span className="nation-commitment-type">{commitmentTypeLabel(commitment.type)}</span>
+              <span className={`nation-commitment-status tone-${commitmentTone(commitment)}`}>
+                {commitmentStatusLabel(commitment.status)}
+              </span>
+            </div>
+            <b>{commitment.description}</b>
+            <span className="nation-commitment-parties">
+              {commitmentPartiesText(commitment)} · importanza {commitment.importance}/3
+            </span>
+            <span className="nation-commitment-timing">{commitmentTimingText(commitment, today)}</span>
+            {commitment.note && <span className="nation-commitment-note">{commitment.note}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

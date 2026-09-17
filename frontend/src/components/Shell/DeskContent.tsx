@@ -6,7 +6,7 @@ import { EventFeed } from '../Game/EventFeed';
 import { DiplomacyPanel } from '../Game/DiplomacyPanel';
 import { NationDock } from '../Game/NationDock';
 import type { NationResources } from '../Game/NationDock';
-import type { ArsenalResponse, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, GovernmentVoicesResponse, PeacetimePressure, PowerAgenda } from '../../services/api';
+import type { ArsenalResponse, Commitment, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, GovernmentVoicesResponse, PeacetimePressure, PowerAgenda } from '../../services/api';
 import { SaveGameModal } from '../Game/SaveGameModal';
 import { useToast } from '../ui/ToastProvider';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -57,6 +57,8 @@ interface DeskContentProps {
   nationalCrisis?: CrisisSnapshot | null;
   /** GAMEPLAY-LONG: obiettivi persistenti delle potenze del teatro. */
   strategicAgenda?: { powers: PowerAgenda[] } | null;
+  /** Registro strutturato degli impegni (trattati, promesse, ultimatum). */
+  commitments?: { commitments: Commitment[]; attention: Commitment[] } | null;
   /** LW06.1 — briefing già derivato in `GameScreen` (stessa read model). */
   briefing?: import('../Game/strategicBriefing').StrategicBriefing;
   pendingActions: Array<{ id: string; text: string }>;
@@ -130,6 +132,7 @@ export function DeskContent({
   pressureBusy = false,
   nationalCrisis = null,
   strategicAgenda = null,
+  commitments = null,
   briefing,
   pendingActions,
   suggestions,
@@ -430,6 +433,8 @@ export function DeskContent({
             pressureBusy={pressureBusy}
             crisis={nationalCrisis}
             strategicAgenda={strategicAgenda}
+            commitments={commitments}
+            today={currentGame?.currentDate || ''}
             briefing={briefing}
             regions={currentWorld?.regions ? Object.values(currentWorld.regions).filter((region) => region.owner === playerPolityId) as Region[] : []}
             ongoingProcesses={ongoingProcesses}
