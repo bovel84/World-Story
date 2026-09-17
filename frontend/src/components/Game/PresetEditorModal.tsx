@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { templatesApi, type PresetEditorData, type PresetMapDetail, type ScenarioReportView } from '../../services/api';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
-import { detectGroupingKeys, hasProvinceFeatures } from './mapGrouping';
+import { detectGroupingKeys, hasProvinceFeatures, mapDetailOptionDisabled } from './mapGrouping';
 
 interface Props {
   /** Preset esistente da aggiornare. */
@@ -367,7 +367,10 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
                 <button type="button" onClick={() => mapInput.current?.click()}>Scegli GeoJSON</button>
                 {data.map_geojson && <button type="button" className="danger" onClick={() => patch('map_geojson', null)}>Rimuovi mappa</button>}
               </div>
-              <fieldset className="preset-map-detail" disabled={!provinceMap}>
+              {/* Niente `disabled` sul fieldset: disabiliterebbe tutti i radio.
+                  Ogni radio ha la sua condizione, così «Solo nazioni» resta
+                  selezionabile anche senza mappa provinciale. */}
+              <fieldset className="preset-map-detail">
                 <legend>Dettaglio della mappa</legend>
                 {MAP_DETAIL_OPTIONS.map(option => (
                   <label key={option.value}>
@@ -376,7 +379,7 @@ export function PresetEditorModal({ templateId, cloneFromTemplateId, onClose, on
                       name="preset-map-detail"
                       value={option.value}
                       checked={effectiveDetail === option.value}
-                      disabled={!provinceMap && option.value !== 'nations'}
+                      disabled={mapDetailOptionDisabled(provinceMap, option.value)}
                       onChange={() => patch('map_detail', option.value)}
                     />
                     <span>{option.label}<small>{option.hint}</small></span>

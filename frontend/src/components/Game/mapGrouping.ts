@@ -22,6 +22,22 @@ export function hasProvinceFeatures(map: any): boolean {
 }
 
 /**
+ * Livelli di dettaglio della mappa (allineato a `PresetMapDetail` di
+ * `services/api`).
+ */
+export type MapDetailLevel = 'nations' | 'grouped' | 'full';
+
+/**
+ * Un'opzione del livello mappa è disabilitata **solo** se il preset non ha una
+ * mappa provinciale e l'opzione non è «nations». Regola pura e testabile:
+ * il campo non va mai disabilitato a livello di fieldset, perché
+ * `<fieldset disabled>` bloccherebbe anche «nations».
+ */
+export function mapDetailOptionDisabled(hasProvinceMap: boolean, value: MapDetailLevel): boolean {
+  return !hasProvinceMap && value !== 'nations';
+}
+
+/**
  * Proprietà GeoJSON che possono raggruppare le province in `grouped`:
  * presenti su più feature e con un numero di valori distinti intermedio
  * (non univoci come `code`, non costanti), di tipo scalare. Suggerisce le

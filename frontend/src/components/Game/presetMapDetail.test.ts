@@ -12,9 +12,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { detectGroupingKeys, hasProvinceFeatures } from './mapGrouping';
+import { detectGroupingKeys, hasProvinceFeatures, mapDetailOptionDisabled } from './mapGrouping';
 
 const editor = fs.readFileSync(path.resolve(__dirname, 'PresetEditorModal.tsx'), 'utf8');
+const css = fs.readFileSync(path.resolve(__dirname, '../../index.css'), 'utf8');
 
 describe('MAP-DETAIL — preset editor', () => {
   it('offre i tre livelli con etichette chiare', () => {
@@ -24,8 +25,22 @@ describe('MAP-DETAIL — preset editor', () => {
   });
 
   it('disabilita full/grouped quando la mappa non è provinciale', () => {
-    expect(editor).toContain("disabled={!provinceMap && option.value !== 'nations'}");
+    expect(editor).toContain("disabled={mapDetailOptionDisabled(provinceMap, option.value)}");
     expect(editor).toContain("map_detail: provinceMap ? effectiveDetail : 'nations'");
+  });
+
+  it('il fieldset del livello NON è disabilitato (non blocca «Solo nazioni»)', () => {
+    // Regressione: `<fieldset disabled>` disabiliterebbe anche il radio disponibile.
+    expect(editor).not.toMatch(/<fieldset className="preset-map-detail" disabled/);
+    expect(editor).toContain('<fieldset className="preset-map-detail">');
+  });
+
+  it('il fieldset del raggruppamento resta disabilitato solo fuori da grouped', () => {
+    expect(editor).toContain("disabled={effectiveDetail !== 'grouped'}");
+  });
+
+  it('il grigio delle opzioni deriva dallo stato del radio, non dal fieldset', () => {
+    expect(css).toContain('.preset-map-detail input:disabled + span');
   });
 
   it('permette di scegliere/modificare la proprietà di raggruppamento', () => {
@@ -34,6 +49,20 @@ describe('MAP-DETAIL — preset editor', () => {
     expect(editor).toContain('list="preset-map-grouping-keys"');
     expect(editor).toContain('placeholder="Automatico (criterio geografico)"');
     expect(editor).toContain("map_grouping: provinceMap && grouping ? grouping : ''");
+  });
+});
+
+describe('MAP-DETAIL — abilitazione delle opzioni (funzione pura)', () => {
+  it('senza mappa provinciale solo «Solo nazioni» è abilitata', () => {
+    expect(mapDetailOptionDisabled(false, 'nations')).toBe(false); // abilitato
+    expect(mapDetailOptionDisabled(false, 'grouped')).toBe(true);
+    expect(mapDetailOptionDisabled(false, 'full')).toBe(true);
+  });
+
+  it('con mappa provinciale tutte e tre le opzioni sono abilitate', () => {
+    for (const value of ['nations', 'grouped', 'full'] as const) {
+      expect(mapDetailOptionDisabled(true, value)).toBe(false);
+    }
   });
 });
 
