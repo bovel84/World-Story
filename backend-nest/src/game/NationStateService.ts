@@ -32,6 +32,8 @@ import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 export interface NationStateRegion {
   owner: string;
   militaryPower: number;
+  /** Id delle regioni confinanti (`RegionState.borders`), per l'adiacenza. */
+  borders?: string[];
 }
 
 export interface NationStateContext {
@@ -394,13 +396,34 @@ export class NationStateService {
 
   // ── Pressioni di pace ───────────────────────────────────────────────────
 
-  /** Vicini rilevanti per le pressioni esterne, dal più armato. */
+  /** Vicini rilevanti per le pressioni esterne, dal più armato.
+   *  Sono vicini solo i polity che possiedono almeno una regione confinante con
+   *  una regione del giocatore (`region.borders`, id di regione già calcolati da
+   *  `computeBorders`). Così un polity lontano non entra mai nelle sfide estere
+   *  solo perché molto armato. Senza adiacenza disponibile non si inventa un
+   *  vicino: la lista resta vuota. */
   pressureNeighbours(): PressureNeighbour[] {
     const playerPolityId = this.ctx.playerPolityId();
+    const regions = this.ctx.regions();
+
+    // 1) Polity che toccano davvero il giocatore (confine regione-regione).
+    const neighbourPolityIds = new Set<string>();
+    for (const region of regions.values()) {
+      if (region.owner !== playerPolityId) continue;
+      for (const borderId of region.borders ?? []) {
+        const owner = regions.get(borderId)?.owner;
+        if (!owner || owner === 'neutral' || owner === playerPolityId) continue;
+        neighbourPolityIds.add(owner);
+      }
+    }
+    if (neighbourPolityIds.size === 0) return [];
+
+    // 2) Potenza dei soli vicini reali, ordinata dalla più alta.
     const power = new Map<string, number>();
-    for (const region of this.ctx.regions().values()) {
+    for (const region of regions.values()) {
       const owner = region.owner;
       if (!owner || owner === 'neutral' || owner === playerPolityId) continue;
+      if (!neighbourPolityIds.has(owner)) continue;
       power.set(owner, (power.get(owner) || 0) + (Number(region.militaryPower) || 0));
     }
     return [...power.entries()]

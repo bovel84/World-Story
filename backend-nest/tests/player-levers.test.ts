@@ -54,16 +54,19 @@ beforeAll(async () => {
       {
         id: `${WORLD_ID}_ITA`, name: 'Italia', color: '#FF0000', owner: 'ITA',
         population: 47_000_000, gdp: 2400, militaryPower: 110, flag: 'ITA', coastal: true,
+        borders: [`${WORLD_ID}_FRA`, `${WORLD_ID}_AUT`],
         objects: [{ id: 'f1', type: 'factory', name: 'Acciaierie', level: 4 }],
       },
       {
         id: `${WORLD_ID}_FRA`, name: 'Francia', color: '#0000FF', owner: 'FRA',
         population: 42_000_000, gdp: 2200, militaryPower: 160, flag: 'FRA', coastal: true,
+        borders: [`${WORLD_ID}_ITA`, `${WORLD_ID}_AUT`],
         objects: [{ id: 'f2', type: 'factory', name: 'Officine', level: 5 }],
       },
       {
         id: `${WORLD_ID}_AUT`, name: 'Austria', color: '#FFFF00', owner: 'AUT',
         population: 7_000_000, gdp: 400, militaryPower: 40, flag: 'AUT',
+        borders: [`${WORLD_ID}_ITA`, `${WORLD_ID}_FRA`],
       },
     ],
   );
