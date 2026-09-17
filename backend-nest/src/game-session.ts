@@ -1106,6 +1106,8 @@ export class GameSession {
       gameController: this.gameController,
       relationship: (from, to) => this.diplomacy.matrix().get(from, to),
       transferRegion: (region, owner, color) => this.transferRegion(region, owner, color),
+      seed: () => this.id,
+      degradeRelationship: (from, to) => this.diplomacy.matrix().degrade(from, to),
     });
     this.timeline = new TimelineService(gameId, value => this.publicText(value));
     this.geometry = new RegionGeometryService<RegionState>(() => this.regions);
@@ -1345,6 +1347,7 @@ export class GameSession {
       publicPolityName: polityId => this.publicPolityName(polityId),
       broadcast: (type, data) => this.broadcast(type, data),
       applyRandomEvents: () => this.applyRandomEvents(),
+      applyWorldConflicts: () => this.applyWorldConflicts(),
       worldStateOptions: () => this.worldStateOptions(),
       syncRegionsToDB: () => this.syncRegionsToDB(),
       withLock: fn => this.withLock(fn),
@@ -1804,6 +1807,15 @@ export class GameSession {
   /** Eventi casuali (implementazione in NpcTurnService). */
   private applyRandomEvents(): string[] {
     return this.npcTurns.applyRandomEvents();
+  }
+
+  /**
+   * WORLD-ALIVE P3: conflitti deterministici del mondo fra politie NPC.
+   * Riusa `NpcTurnService` (politiche e `transferRegion`), senza LLM: il tick
+   * live non attende e le conquiste finiscono su mappa, timeline e dispacci.
+   */
+  private applyWorldConflicts(): string[] {
+    return this.npcTurns.processWorldConflictTick(GameSession.LIVE_TICK_DAYS);
   }
 
   /**

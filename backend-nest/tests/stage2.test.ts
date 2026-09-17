@@ -408,6 +408,36 @@ describe('Engine invariants across a real session', () => {
     expect(messages[0].newDate).toBe('1951-01-08');
     expect(messages[0].eventDetails).toHaveLength(messages[0].events.length);
   });
+
+  it('WORLD-ALIVE P3 — un conflitto ostile produce una conquista visibile in mappa e dispacci', async () => {
+    const { session } = createGame();
+    const messages: any[] = [];
+    session.setSSEBroadcaster((type: string, data: any) => { if (type === 'world_event') messages.push(data); });
+
+    // Mondo minimo: POL (NPC forte) confinante con il DEU del giocatore, già ostili.
+    const deu = session.getRegion(`${WORLD_ID}_DEU`);
+    const pol = session.getRegion(`${WORLD_ID}_POL`);
+    deu.borders = [`${WORLD_ID}_POL`];
+    pol.borders = [`${WORLD_ID}_DEU`];
+    deu.militaryPower = 10;
+    pol.militaryPower = 1000;
+    (session as any).diplomacy.matrix().set('POL', 'DEU', 'hostile');
+
+    let captured = false;
+    for (let tick = 0; tick < 200 && !captured; tick++) {
+      messages.length = 0;
+      await session.worldTick();
+      const event = messages[0]?.events?.find((headline: string) => /conquista/.test(headline));
+      if (event) captured = true;
+    }
+
+    expect(captured).toBe(true);
+    expect(session.getRegion(`${WORLD_ID}_DEU`).owner).toBe('POL');
+    // La conquista è nel diff delle regioni cambiate (mappa) e nei dispacci della timeline.
+    expect(messages[0].changedRegions.some((r: any) => r.id === `${WORLD_ID}_DEU` && r.owner === 'POL')).toBe(true);
+    expect(messages[0].eventDetails).toHaveLength(messages[0].events.length);
+    expect(session.getResults().some(result => result.events.some((headline: string) => /conquista/.test(headline)))).toBe(true);
+  });
 });
 
 describe('Auto-jump senza eventi', () => {
