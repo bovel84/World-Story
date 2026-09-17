@@ -89,7 +89,7 @@ export function normalizeAiPreset(raw: any, previous: AiPresetDraft): AiPresetDr
     simulation_rules: clipped(source.simulation_rules ?? source.simulationRules ?? source.regole ?? previous.simulation_rules, 8_000),
   };
   if (!result.name || !result.base_prompt || !result.country_codes?.length) {
-    throw new Error('La bozza IA è incompleta: servono nome, premessa e paesi giocabili');
+    throw new Error('La bozza IA è incompleta: servono nome, premessa e nazioni consigliate');
   }
   return result;
 }
@@ -184,6 +184,7 @@ presetsRouter.post('/assist', async (req, res) => {
   const basePrompt = `Crea o migliora un preset di World Story. Non salvare nulla: l'autore revisionerà la bozza.
 - Conserva le idee già presenti; completa le lacune senza cambiare arbitrariamente epoca o conflitto.
 - Usa una data YYYY-MM-DD e codici paese ISO-A3 reali.
+- "country_codes" elenca le NAZIONI CONSIGLIATE al giocatore (nome e colore storico, dati curati). Non limita il mondo: tutte le entità della mappa esistono comunque.
 - "base_prompt" descrive la situazione canonica al giorno iniziale.
 - "lore" espone alleanze, conflitti, attori, risorse e questioni aperte.
 - "simulation_rules" contiene 5-10 regole concrete di plausibilità, tempi e comportamento degli attori, non istruzioni sul JSON.

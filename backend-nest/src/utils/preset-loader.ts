@@ -10,6 +10,12 @@
  *                   дефолтных промптов ИИ (simulation/jump, converter,
  *                   suggestions, advisor; плейсхолдеры ${VAR} / {{VAR}}),
  *                   author, version
+ *
+ * MAP-COMPLETE: `country_codes` больше НЕ список «играбельных наций». Мир
+ * рождается из ВСЕХ сущностей карты; `country_codes` — рекомендованные нации
+ * (историческое имя/цвет в `countries`, данные от модели), остальные получают
+ * детерминированный базлайн. Валидация `country_codes` сохранена для
+ * обратной совместимости.
  *   rules.md      — кастомные правила симуляции (→ HISTORICAL_PRESET_SIMULATION_RULES)
  *   lore.md       — расширенный лор мира (→ WORLD_BEFORE_ROUND_ONE_TEXT)
  *   map.geojson   — кастомная геометрия (FeatureCollection, properties.code)
@@ -38,10 +44,19 @@ export interface PresetPackage {
   name: string;
   description: string;
   start_date: string;
+  /**
+   * MAP-COMPLETE: non è più l'elenco delle «nazioni giocabili». Tutte le
+   * entità della mappa esistono comunque; questi codici sono le nazioni
+   * CONSIGLIATE (nome/colore storico in `countries`, dati dal modello).
+   */
   country_codes: string[];
   base_prompt: string;
   historical_accuracy?: number;
-  /** Кастомные страны (имена/цвета), перекрывают data/countries.json */
+  /**
+   * Кастомные страны (имена/цвета), перекрывают data/countries.json.
+   * MAP-COMPLETE: valgono per i codici elencati; le altre politie della mappa
+   * usano registro/nome della feature e un baseline deterministico.
+   */
   countries?: PresetCountry[];
   /** Кураторская палитра карты: код страны → приглушённый цвет (#RRGGBB) */
   country_colors?: Record<string, string>;

@@ -861,6 +861,26 @@
   text-align: left;
   transition: border-color .15s, background .15s, transform .15s;
 }
+.country-selector .template-info .map-completeness {
+  margin-top: 6px !important;
+  color: #9fb2cb !important;
+  font: 600 12px/1.4 system-ui, sans-serif !important;
+}
+.country-selector .template-info .map-completeness strong { color: #dce8fa !important; }
+.country-selector .country-list-item.recommended,
+.country-selector .country-card.recommended {
+  border-color: #6d5bb5 !important;
+}
+.country-selector .country-recommended {
+  color: #ffd479 !important;
+  font: 800 12px/1 system-ui, sans-serif !important;
+  letter-spacing: .04em;
+}
+.country-selector .country-list-item .country-recommended,
+.country-selector .country-card .country-recommended {
+  margin-left: 6px;
+  flex: none;
+}
 .country-selector .country-list-item:hover,
 .country-selector .country-card:hover,
 .country-selector .country-list-item.selected,

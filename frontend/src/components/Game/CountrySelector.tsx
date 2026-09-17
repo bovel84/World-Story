@@ -20,7 +20,14 @@ interface CountrySelectorProps {
 }
 
 export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSelect, onBack, difficulty }) => {
+  // MAP-COMPLETE: `countries` è TUTTE le politie della mappa (non più solo le
+  // «nazioni giocabili»). `country_codes` è l'elenco delle CONSIGLIATE: nome e
+  // colore storico già applicati dal server, dati curati dal modello.
   const countries: Country[] = useMemo(() => template.countries ?? [], [template]);
+  const recommendedCodes = useMemo(
+    () => new Set((template.country_codes ?? []).map(code => code.toUpperCase())),
+    [template.country_codes],
+  );
   // Paese selezionato (ma non ancora confermato)
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
   // false → i dati geografici non sono caricati, mostriamo la griglia fallback senza mappa
@@ -31,15 +38,22 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
   // Codici paese del template — cliccabili sulla mappa
   const availableCodes = useMemo(() => countries.map((c) => c.code), [countries]);
 
-  // Paesi filtrati dalla ricerca
+  // Paesi filtrati dalla ricerca — le nazioni consigliate restano in cima
+  // (ordine stabile: prima chi ha un ruolo storico nello scenario).
   const filteredCountries = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return countries;
-    return countries.filter(c =>
-      c.name.toLowerCase().includes(q) ||
-      c.code.toLowerCase().includes(q)
-    );
-  }, [countries, search]);
+    const base = q
+      ? countries.filter(c =>
+          c.name.toLowerCase().includes(q) ||
+          c.code.toLowerCase().includes(q))
+      : countries;
+    return [...base].sort((a, b) => {
+      const ra = recommendedCodes.has(a.code.toUpperCase()) ? 0 : 1;
+      const rb = recommendedCodes.has(b.code.toUpperCase()) ? 0 : 1;
+      if (ra !== rb) return ra - rb;
+      return a.name.localeCompare(b.name);
+    });
+  }, [countries, search, recommendedCodes]);
 
   // Testo descrizione difficoltà
   const difficultyLabel: Record<string, { label: string; effect: string }> = {
@@ -68,6 +82,10 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
 
       <div className="template-info">
         <div className="start-date">Inizio simulazione · {template.start_date}</div>
+        <div className="map-completeness">
+          Mappa completa: <strong>{countries.length}</strong> entità
+          {recommendedCodes.size > 0 && <> · <strong>{recommendedCodes.size}</strong> consigliate (★)</>}
+        </div>
         <details className="template-lore">
           <summary>Contesto dello scenario</summary>
           <p>{template.description}</p>
@@ -103,7 +121,7 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
               <button
                 key={country.code}
                 type="button"
-                className={`country-list-item${selectedCode === country.code ? ' selected' : ''}`}
+                className={`country-list-item${selectedCode === country.code ? ' selected' : ''}${recommendedCodes.has(country.code.toUpperCase()) ? ' recommended' : ''}`}
                 onClick={() => setSelectedCode(country.code)}
                 aria-pressed={selectedCode === country.code}
               >
@@ -112,6 +130,9 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
                   style={{ backgroundColor: country.color }}
                 />
                 <div className="country-name">{country.name}</div>
+                {recommendedCodes.has(country.code.toUpperCase()) && (
+                  <span className="country-recommended" title="Nazione consigliata per questo scenario">★</span>
+                )}
                 <div className="country-code">{country.code}</div>
               </button>
             ))}
@@ -124,7 +145,7 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
             <button
               key={country.code}
               type="button"
-              className={`country-card${selectedCode === country.code ? ' selected' : ''}`}
+              className={`country-card${selectedCode === country.code ? ' selected' : ''}${recommendedCodes.has(country.code.toUpperCase()) ? ' recommended' : ''}`}
               onClick={() => setSelectedCode(country.code)}
               aria-pressed={selectedCode === country.code}
             >
@@ -133,6 +154,9 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
                 style={{ backgroundColor: country.color }}
               />
               <div className="country-name">{country.name}</div>
+              {recommendedCodes.has(country.code.toUpperCase()) && (
+                <span className="country-recommended" title="Nazione consigliata per questo scenario">★</span>
+              )}
               <div className="country-code">{country.code}</div>
             </button>
           ))}
@@ -146,7 +170,12 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({ template, onSe
             <div className="country-dossier-color" style={{ backgroundColor: selectedCountry.color }} />
             <div>
               <div className="country-dossier-name">{selectedCountry.name}</div>
-              <div className="country-dossier-code">{selectedCountry.code}</div>
+              <div className="country-dossier-code">
+                {selectedCountry.code}
+                {recommendedCodes.has(selectedCountry.code.toUpperCase()) && (
+                  <span className="country-recommended" title="Nazione consigliata per questo scenario"> ★ consigliata</span>
+                )}
+              </div>
             </div>
           </div>
           <div className="country-dossier-meta">
