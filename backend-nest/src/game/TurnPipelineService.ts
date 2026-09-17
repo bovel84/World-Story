@@ -71,6 +71,8 @@ export interface TurnPipelineContext {
   settleOrderCosts(...args: any[]): any;
   orderFundingNotes(actions: PendingAction[]): string | null;
   reconcileAcceptedMoves(...args: any[]): any;
+  /** ARMY-MOVE: motivazioni esplicite per i movimenti accettati non eseguiti. */
+  movementNotices(...args: any[]): string[];
   withLock<T>(fn: () => Promise<T>): Promise<T | null>;
 }
 
@@ -398,6 +400,11 @@ export class TurnPipelineService {
             population: region.population, gdp: region.gdp, militaryPower: region.militaryPower,
             objects: region.objects,
           });
+        }
+        // Nessun movimento accettato resta silenzioso: la ragione entra nei
+        // dispacci del turno (drenati da advanceWorldState, più sotto).
+        for (const note of this.ctx.movementNotices(actions, promptResult.actionOutcomes || [], movementIntents)) {
+          this.state.pendingNationalNotes.push(note);
         }
       }
 

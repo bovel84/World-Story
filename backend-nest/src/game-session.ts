@@ -58,7 +58,8 @@ import { type StrictEffect } from './core/simulation/EffectValidator';
 import { runStrictTick } from './core/simulation/TurnOrchestrator';
 import { refreshMandateStockDecisions } from './services/MandateDecisionService';
 import { normalizeName, RegionResolver, PolityResolver } from './utils/name-resolver';
-import { MovementIntent, parseMovementOrder } from './utils/movement-orders';
+import { MovementIntent, analyzeMovementOrder, parseMovementOrder } from './utils/movement-orders';
+import { buildMovementNotices } from './game/movementNotices';
 import { colorForPolity, normalizeHexColor } from './utils/color';
 import path from 'path';
 import { loadSimulationCatalog } from './scenario/loader';
@@ -1283,6 +1284,7 @@ export class GameSession {
       refreshProjectProgress: asOfDate => this.refreshProjectProgress(asOfDate),
       settleOrderCosts: (...args: any[]) => (this.settleOrderCosts as any)(...args),
       reconcileAcceptedMoves: (...args: any[]) => (this.reconcileAcceptedMoves as any)(...args),
+      movementNotices: (...args: any[]) => (this.movementNotices as any)(...args),
     });
     this.turnPipeline = new TurnPipelineService({
       gameId: this.id,
@@ -1322,6 +1324,7 @@ export class GameSession {
       settleOrderCosts: (...args: any[]) => (this.settleOrderCosts as any)(...args),
       orderFundingNotes: actions => this.orderFundingNotes(actions),
       reconcileAcceptedMoves: (...args: any[]) => (this.reconcileAcceptedMoves as any)(...args),
+      movementNotices: (...args: any[]) => (this.movementNotices as any)(...args),
       withLock: fn => this.withLock(fn),
     });
     this.bootstrap = new SessionBootstrapService({
@@ -1763,14 +1766,7 @@ export class GameSession {
     movedDate = this.currentDate,
   ): RegionState[] {
     if (this.isStrictGame()) return [];
-    const accepted = new Set(actions.filter(action => {
-      // An ID is authoritative. Legacy text matching is allowed only without an ID,
-      // and only for a unique queued text. Conflicting outcomes do not execute.
-      const matching = outcomes.filter(outcome => outcome.actionId
-        ? outcome.actionId === action.id
-        : outcome.action === action.text && actions.filter(other => other.text === action.text).length === 1);
-      return matching.length > 0 && matching.every(outcome => outcome.status === 'accepted');
-    }).map(action => action.id));
+    const accepted = this.acceptedActionIds(actions, outcomes);
     const eligible = intents.filter(intent => accepted.has(intent.actionId));
     const changed = new Map<string, RegionState>();
     for (const intent of eligible) {
@@ -1786,7 +1782,9 @@ export class GameSession {
       // A partial advance, removal, ownership change or replacement is never undone.
       if (!origin || !target || !unit || origin.id === target.id
         || (unit.owner || origin.owner) !== this.playerPolityId
-        || JSON.stringify(unit) !== intent.fingerprint) continue;
+        || JSON.stringify(unit) !== intent.fingerprint) {
+        continue;
+      }
       const touched = this.applyMapChanges([{
         type: 'move_unit', regionId: origin.id, targetRegionName: target.id,
         feature: { type: intent.unitType as any, id: intent.unitId, name: intent.unitName },
@@ -1794,6 +1792,44 @@ export class GameSession {
       for (const region of touched) changed.set(region.id, region);
     }
     return [...changed.values()];
+  }
+
+  /**
+   * Ordini con esito pienamente accettato. Un ID è autorevole; il testo legacy
+   * è ammesso solo senza ID e solo per un ordine unico in coda. Esiti
+   * contrastanti non eseguono nulla.
+   */
+  private acceptedActionIds(actions: PendingAction[], outcomes: ActionOutcome[]): Set<string> {
+    return new Set(actions.filter(action => {
+      const matching = outcomes.filter(outcome => outcome.actionId
+        ? outcome.actionId === action.id
+        : outcome.action === action.text && actions.filter(other => other.text === action.text).length === 1);
+      return matching.length > 0 && matching.every(outcome => outcome.status === 'accepted');
+    }).map(action => action.id));
+  }
+
+  /**
+   * ARMY-MOVE: motivazioni esplicite per gli ordini di movimento accettati che
+   * non hanno spostato nulla. Riusa la stessa analisi del parser deterministico
+   * e la posizione reale delle unità: nessun blocco resta silenzioso.
+   */
+  private movementNotices(
+    actions: PendingAction[],
+    outcomes: ActionOutcome[],
+    intents: MovementIntent[] = this.captureMovementIntents(actions),
+  ): string[] {
+    if (this.isStrictGame()) return [];
+    const regions = [...this.regions.values()];
+    const acceptedIds = this.acceptedActionIds(actions, outcomes);
+    return buildMovementNotices({
+      accepted: actions.filter(action => acceptedIds.has(action.id)).map(action => ({ actionId: action.id, text: action.text })),
+      analyses: actions.map(action => ({
+        actionId: action.id,
+        block: analyzeMovementOrder(action.text, regions, this.playerPolityId, action.id).block,
+      })),
+      intents,
+      regions,
+    });
   }
 
   /**

@@ -149,6 +149,12 @@ function unitMentions(folded: string, units: UnitRef[]): Mention<UnitRef>[] {
  * Menzione di regione tollerante al troncamento: "gwanda" identifica
  * "Gwanda ZWE" se il prefisso è univoco. Mai quando l'ordine aggiunge token
  * non verificabili ("Italia orientale").
+ *
+ * Terza via, allineata a `resolveMovementRegion`: un ordine può indicare una
+ * **città** ("Vienna", "Monaco") invece di una regione. La città è valida solo
+ * se quel nome identifica UNA sola regione: se lo stesso nome esiste in più
+ * regioni la menzione è ambigua e il parser rifiuta l'ordine invece di
+ * spostare un reparto nel paese sbagliato.
  */
 function regionMentions(folded: string, regions: MovementRegion[]): Mention<MovementRegion>[] {
   const found = [...mentions(folded, regions, region => region.name, true)];
@@ -176,6 +182,34 @@ function regionMentions(folded: string, regions: MovementRegion[]): Mention<Move
     const previous = merged.get(item.value.id);
     if (!previous || (item.end - item.start) > (previous.end - previous.start)) merged.set(item.value.id, item);
   }
+  // Città/porti: indice unico nome → regioni, costruito una volta per ordine.
+  const byObjectName = new Map<string, MovementRegion[]>();
+  for (const region of regions) {
+    for (const object of region.objects || []) {
+      const name = normalizeName(object?.name || '');
+      if (name.length < 3) continue;
+      const list = byObjectName.get(name) || [];
+      list.push(region);
+      byObjectName.set(name, list);
+    }
+  }
+  const words = folded.trim().split(' ').filter(Boolean);
+  for (let start = 0; start < words.length; start++) {
+    for (let length = Math.min(3, words.length - start); length >= 1; length--) {
+      const needle = words.slice(start, start + length).join(' ');
+      if (needle.length < 3) continue;
+      const matches = byObjectName.get(needle);
+      if (!matches || matches.length !== 1) continue;
+      const region = matches[0];
+      if ([...merged.values()].some(item => item.value.id === region.id)) break;
+      const span = folded.indexOf(needle);
+      if (span < 0 || (span > 0 && folded[span - 1] !== ' ')) break;
+      const end = span + needle.length;
+      if (end !== folded.length && folded[end] !== ' ') break;
+      merged.set(region.id, { value: region, start: span, end, exact: false });
+      break;
+    }
+  }
   return [...merged.values()];
 }
 
@@ -190,19 +224,57 @@ function genericUnitType(folded: string): string | null | undefined {
   return undefined;
 }
 
-/** Intentionally narrow: one unconditional destination, explicit units or all troops from one origin. */
-export function parseMovementOrder(
+/** Perché un ordine di movimento NON è stato eseguito. Sempre spiegabile al giocatore. */
+export type MovementBlockCode =
+  | 'negated'
+  | 'no_destination'
+  | 'ambiguous_destination'
+  | 'no_unit'
+  | 'ambiguous_unit'
+  | 'not_owned'
+  | 'origin_mismatch'
+  | 'unknown_words';
+
+export interface MovementBlock {
+  code: MovementBlockCode;
+  /** Motivazione leggibile: finisce nel dispaccio/risultato dell'ordine. */
+  message: string;
+}
+
+export interface MovementAnalysis {
+  intents: MovementIntent[];
+  /** Presente solo se il testo È un ordine di movimento ma non è eseguibile. */
+  block?: MovementBlock;
+}
+
+function blocked(code: MovementBlockCode, message: string): MovementAnalysis {
+  return { intents: [], block: { code, message } };
+}
+
+/**
+ * Analizza un ordine di movimento: produce gli intenti eseguibili **e**, quando
+ * l'ordine è di movimento ma non è eseguibile, la ragione esatta. È la stessa
+ * logica di `parseMovementOrder` (che ora la riusa): un solo parser, una sola
+ * verità, e nessun blocco silenzioso.
+ *
+ * Intentionally narrow: one unconditional destination, explicit units or all
+ * troops from one origin.
+ */
+export function analyzeMovementOrder(
   text: string, regions: MovementRegion[], playerId: string, actionId: string,
-): MovementIntent[] {
+): MovementAnalysis {
   // Keep parenthetical instructions/negations; the shared name normalizer
   // otherwise drops their contents (appropriate for labels, not commands).
   const folded = normalizeName(String(text || '').replace(/[()]/g, ' '));
   // An attack can be conducted at range: only explicit relocation verbs
   // authorize a fallback move. Mixed attack/move orders fail the word check below.
   const movementVerb = /^(?:muov\w*|spost\w*|avanz\w*|invad\w*|occup\w*|schier\w*|trasfer\w*|marcia\w*|conquist\w*|invia\w*|deploy\w*|move\w*)$/;
-  if (!folded.split(' ').some(word => movementVerb.test(word))) return [];
+  // Non è un ordine di movimento: nessun blocco, non c'è nulla da spiegare.
+  if (!folded.split(' ').some(word => movementVerb.test(word))) return { intents: [] };
   // Do not interpret negations, alternatives, conditions or preparatory orders as execution.
-  if (/\b(non|mai|senza|nessun\w*|evita\w*|annulla\w*|ferma\w*|rinvia\w*|aspetta\w*|attendi\w*|pianifica\w*|prepara\w*|valuta\w*|se|qualora|oppure|o|not|never|don|without|if|unless|or|plan\w*)\b/.test(folded)) return [];
+  if (/\b(non|mai|senza|nessun\w*|evita\w*|annulla\w*|ferma\w*|rinvia\w*|aspetta\w*|attendi\w*|pianifica\w*|prepara\w*|valuta\w*|se|qualora|oppure|o|not|never|don|without|if|unless|or|plan\w*)\b/.test(folded)) {
+    return blocked('negated', 'ordine negativo, condizionale o preparatorio: nessuno spostamento eseguito nel periodo.');
+  }
   const units = regions.flatMap(region => (region.objects || [])
     .filter(object => UNIT_TYPES.has(object.type))
     .map(object => ({ region, object })));
@@ -214,13 +286,22 @@ export function parseMovementOrder(
   const sources = places.filter(place => new RegExp(`(?:^| )(?:da|dal|dalla|dallo|dalle|dai|dagli|dall|from) (?:regione |provincia )?${article}$`).test(folded.slice(0, place.start)));
   const destinations = places.filter(place => new RegExp(`(?:^| )(?:a|ad|al|alla|allo|alle|ai|agli|all|in|nel|nella|nelle|nell|verso|su|contro|to|into|toward|towards) (?:regione |provincia )?${article}$`).test(folded.slice(0, place.start)));
   // Every mentioned province must have an explicit role. No "last mention wins".
-  if (places.some(place => !sources.includes(place) && !destinations.includes(place))) return [];
+  if (places.some(place => !sources.includes(place) && !destinations.includes(place))) {
+    return blocked('ambiguous_destination', 'non è chiaro quale luogo sia la destinazione: indica una sola destinazione con «in …» o «verso …».');
+  }
   const targets = new Set(destinations.map(place => place.value.id));
   const origins = new Set(sources.map(place => place.value.id));
-  if (targets.size !== 1 || origins.size > 1) return [];
+  if (targets.size === 0) {
+    return blocked('no_destination', 'nessuna destinazione riconosciuta: indica la regione o la città di destinazione per nome.');
+  }
+  if (targets.size !== 1 || origins.size > 1) {
+    return blocked('ambiguous_destination', 'destinazione o origine ambigue: indica una sola destinazione e una sola origine.');
+  }
   const targetId = [...targets][0];
   // Repeated/duplicate normalized province names are ambiguous even in directional phrases.
-  if (places.some(place => !exactMovementRegion(regions, place.value.name))) return [];
+  if (places.some(place => !exactMovementRegion(regions, place.value.name))) {
+    return blocked('ambiguous_destination', 'il nome del luogo indicato è ambiguo: più regioni hanno lo stesso nome, specifica la destinazione.');
+  }
   // Account for every remaining word. This rejects unknown named units,
   // truncated place names ("Italia orientale"), and mixed orders such as
   // "sposta A e lascia B", rather than moving a recognized subset by accident.
@@ -229,38 +310,67 @@ export function parseMovementOrder(
     for (let i = mention.start; i < mention.end; i++) masked[i] = ' ';
   }
   const connective = /^(?:ordina\w*|ordin\w*|di|a|ad|al|alla|allo|alle|ai|agli|all|da|dal|dalla|dallo|dalle|dai|dagli|dall|in|nel|nella|nelle|nell|verso|su|contro|fino|e|ed|il|lo|la|le|gli|i|l|un|una|unit|unita|truppe|battaglioni|battaglione|armate|armata|eserciti|esercito|flotte|flotta|missili|missile|tutte|tutti|regione|provincia|immediatamente|subito|ora|from|to|into|toward|towards|all|the|troops|units|and|please)$/;
-  if (masked.join('').trim().split(/\s+/).some(word => !movementVerb.test(word) && !connective.test(word))) return [];
+  const unknown = masked.join('').trim().split(/\s+/).filter(word => word && !movementVerb.test(word) && !connective.test(word));
+  if (unknown.length > 0) {
+    return blocked('unknown_words', `l'ordine contiene elementi non verificabili («${unknown.slice(0, 3).join(' ')}»): riformula indicando formazione e destinazione.`);
+  }
   const collective = /\b(?:tutte le truppe|tutte le unit(?:a)?|tutti i battaglioni|tutti gli eserciti|all (?:the )?(?:troops|units))\b/.test(folded);
   let selected = [...new Map(named.map(item => [item.value.object.id || item.value.object.name, item.value])).values()];
   if (collective) {
-    if (origins.size !== 1 || named.length > 0) return [];
+    if (origins.size !== 1 || named.length > 0) {
+      return blocked('no_unit', 'per spostare tutte le truppe indica una sola origine («da …») e nessuna formazione specifica.');
+    }
     selected = units.filter(unit => unit.region.id === [...origins][0]
       && (unit.object.owner || unit.region.owner) === playerId);
     if (/\btutti i battaglioni\b/.test(folded)) selected = selected.filter(unit => unitEffectiveType(unit.object) === 'battalion');
     if (/\btutti gli eserciti\b/.test(folded)) selected = selected.filter(unit => unitEffectiveType(unit.object) === 'army');
+    if (selected.length === 0) {
+      return blocked('no_unit', 'nessuna formazione di questa nazione si trova nell\'origine indicata.');
+    }
   } else if (!selected.length) {
     // Riferimento generico ("il battaglione", "l'esercito"): ammesso solo se
     // identifica UNA sola formazione del giocatore (all'origine, o nel mondo).
     const requested = genericUnitType(folded);
-    if (requested === undefined) return [];
+    if (requested === undefined) {
+      return blocked('no_unit', 'nessuna formazione riconosciuta: indica il nome della formazione da spostare.');
+    }
     const pool = units.filter(unit => (unit.object.owner || unit.region.owner) === playerId
       && (requested === null || unitEffectiveType(unit.object) === requested));
     const scoped = origins.size === 1 ? pool.filter(unit => unit.region.id === [...origins][0]) : pool;
     if (scoped.length === 1) selected = [scoped[0]];
     else if (pool.length === 1) selected = [pool[0]];
-    else return [];
+    else return blocked('ambiguous_unit', 'la formazione indicata non è univoca: specifica il nome esatto.');
   } else {
     // A short reference ("3 battaglione") must identify exactly one formation;
     // only full, unambiguous names may move several units in one order.
     const tolerant = named.some(item => !item.exact);
-    if (tolerant && selected.length > 1) return [];
+    if (tolerant && selected.length > 1) {
+      return blocked('ambiguous_unit', 'il riferimento breve alla formazione non è univoco: indica il nome completo.');
+    }
     // Do not pick between same-name formations (including hostile formations).
-    if (selected.some(unit => units.filter(other => normalizeName(other.object.name || '') === normalizeName(unit.object.name || '')).length !== 1)) return [];
+    if (selected.some(unit => units.filter(other => normalizeName(other.object.name || '') === normalizeName(unit.object.name || '')).length !== 1)) {
+      return blocked('ambiguous_unit', 'più formazioni hanno lo stesso nome: lo spostamento non può essere deciso dal motore.');
+    }
   }
-  if (selected.some(unit => (unit.object.owner || unit.region.owner) !== playerId)) return [];
-  if (origins.size && selected.some(unit => unit.region.id !== [...origins][0] && unit.region.id !== targetId)) return [];
-  return selected.filter(unit => typeof unit.object.id === 'string' && unit.object.id
+  if (selected.some(unit => (unit.object.owner || unit.region.owner) !== playerId)) {
+    return blocked('not_owned', 'la formazione indicata non appartiene a questa nazione.');
+  }
+  if (origins.size && selected.some(unit => unit.region.id !== [...origins][0] && unit.region.id !== targetId)) {
+    return blocked('origin_mismatch', 'la formazione indicata non si trova nell\'origine dichiarata.');
+  }
+  const intents = selected.filter(unit => typeof unit.object.id === 'string' && unit.object.id
     && units.filter(other => other.object.id === unit.object.id).length === 1)
     .map(unit => ({ actionId, unitId: unit.object.id, unitName: unit.object.name, unitType: unitEffectiveType(unit.object),
       originId: unit.region.id, targetId, fingerprint: JSON.stringify(unit.object) }));
+  if (intents.length === 0) {
+    return blocked('no_unit', 'nessuna formazione identificabile in modo univoco: lo spostamento non è stato eseguito.');
+  }
+  return { intents };
+}
+
+/** Intenti eseguibili di un ordine di movimento (compatibilità: solo gli intenti). */
+export function parseMovementOrder(
+  text: string, regions: MovementRegion[], playerId: string, actionId: string,
+): MovementIntent[] {
+  return analyzeMovementOrder(text, regions, playerId, actionId).intents;
 }
