@@ -23,6 +23,13 @@ import { WorldStateEngine, type NationalAccount } from '../core/simulation/World
 import type { SimulationEvent, MapChange, MapFeature } from '../prompts/types';
 import type { RegionState, TurnResultRecord } from '../game-session';
 
+/** Riconoscitore precompilato di una politia nei testi (alias + codice stato). */
+interface PolityMatcher {
+  id: string;
+  aliases: string[];
+  coded: RegExp;
+}
+
 export interface WorldIntelContext {
   gameId: string;
   regions(): Map<string, RegionState>;
@@ -37,6 +44,68 @@ export interface WorldIntelContext {
 
 export class WorldIntelService {
   constructor(private readonly ctx: WorldIntelContext) {}
+
+  /**
+   * Riconoscitore di una politia nei testi: nome del registro, nome italiano
+   * curato, nomi delle sue regioni, più il codice stato come parola isolata.
+   * Costruito una volta e riusato: era il costo che rendeva il contesto di
+   * turno O(politie × regioni) su ogni singolo testo.
+   */
+  private polityMatchers(byOwner: Map<string, RegionState[]>): PolityMatcher[] {
+    const playerId = this.ctx.playerPolityId();
+    const matchers: PolityMatcher[] = [];
+    for (const [owner, regionList] of byOwner) {
+      if (!owner || owner === 'neutral' || owner === playerId) continue;
+      const registeredName = countryRepository.findByCode(owner)?.name;
+      const aliases = [
+        registeredName,
+        polityDisplayNameIt(owner, registeredName),
+        ...regionList.map(region => region.name),
+      ]
+        .filter((name): name is string => !!name)
+        .map(normalizeName)
+        .filter(alias => alias.length >= 3);
+      const escapedOwner = owner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      matchers.push({
+        id: owner,
+        aliases,
+        coded: new RegExp(`(^|[^A-Z])${escapedOwner}([^A-Z]|$)`),
+      });
+    }
+    return matchers;
+  }
+
+  /** Il testo nomina quella politia? Stesse regole del resolver dei nomi. */
+  private matchesText(matcher: PolityMatcher, text: string): boolean {
+    const normalizedText = ` ${normalizeName(text)} `;
+    const words = normalizedText.trim().split(/\s+/);
+    const named = matcher.aliases.some(alias =>
+      normalizedText.includes(` ${alias} `)
+      || (!alias.includes(' ') && alias.length >= 5 && words.some(word => word.startsWith(alias)))
+      // Forme aggettivali italiane ("cecoslovacca", "botswane"): radice condivisa.
+      || (!alias.includes(' ') && alias.length >= 6
+        && words.some(word => word.length >= 6 && word.startsWith(alias.slice(0, 6))))
+    );
+    return named || matcher.coded.test(text);
+  }
+
+  /**
+   * Indice regioni → proprietario, costruito in UN solo passaggio. I mondi
+   * provinciali hanno migliaia di regioni: ricostruire questo elenco per ogni
+   * politia (o per ogni testo) trasformava i costruttori di contesto in un
+   * prodotto politie × regioni, pagato più volte per turno.
+   */
+  private groupRegionsByOwner(): Map<string, RegionState[]> {
+    const byOwner = new Map<string, RegionState[]>();
+    for (const region of this.ctx.regions().values()) {
+      const owner = region.owner;
+      if (!owner) continue;
+      const list = byOwner.get(owner);
+      if (list) list.push(region);
+      else byOwner.set(owner, [region]);
+    }
+    return byOwner;
+  }
 
   buildResolvers(): { regions: RegionResolver; polities: PolityResolver } {
     const all = Array.from(this.ctx.regions().values());
@@ -58,33 +127,15 @@ export class WorldIntelService {
    * almeno le controparti riconoscibili ricevono una presa di posizione in chat.
    */
   mentionedNpcPolityIds(texts: string[]): string[] {
-    const owners = [...new Set(Array.from(this.ctx.regions().values()).map(region => region.owner))]
-      .filter(owner => owner && owner !== 'neutral' && owner !== this.ctx.playerPolityId());
+    const matchers = this.polityMatchers(this.groupRegionsByOwner());
     const found: string[] = [];
+    const foundIds = new Set<string>();
     for (const text of texts) {
-      const normalizedText = ` ${normalizeName(text)} `;
-      for (const owner of owners) {
-        if (found.includes(owner)) continue;
-        const registeredName = countryRepository.findByCode(owner)?.name;
-        const aliases = [
-          registeredName,
-          polityDisplayNameIt(owner, registeredName),
-          ...Array.from(this.ctx.regions().values()).filter(region => region.owner === owner).map(region => region.name),
-        ]
-          .filter((name): name is string => !!name)
-          .map(normalizeName)
-          .filter(alias => alias.length >= 3);
-        const words = normalizedText.trim().split(/\s+/);
-        const named = aliases.some(alias =>
-          normalizedText.includes(` ${alias} `)
-          || (!alias.includes(' ') && alias.length >= 5 && words.some(word => word.startsWith(alias)))
-          // Forme aggettivali italiane ("cecoslovacca", "botswane"): radice condivisa.
-          || (!alias.includes(' ') && alias.length >= 6
-            && words.some(word => word.length >= 6 && word.startsWith(alias.slice(0, 6))))
-        );
-        const escapedOwner = owner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const coded = new RegExp(`(^|[^A-Z])${escapedOwner}([^A-Z]|$)`).test(text);
-        if (named || coded) found.push(owner);
+      for (const matcher of matchers) {
+        if (foundIds.has(matcher.id)) continue;
+        if (!this.matchesText(matcher, text)) continue;
+        found.push(matcher.id);
+        foundIds.add(matcher.id);
       }
     }
     return found;
@@ -229,10 +280,9 @@ export class WorldIntelService {
     return { ...event, mapChanges: [...existing, ...additions] };
   }
 
-  nationalMilitaryPower(polityId: string): number {
-    return Array.from(this.ctx.regions().values())
-      .filter(region => region.owner === polityId)
-      .reduce((total, region) => total + (Number(region.militaryPower) || 0), 0);
+  nationalMilitaryPower(polityId: string, byOwner?: Map<string, RegionState[]>): number {
+    const owned = byOwner ? (byOwner.get(polityId) || []) : Array.from(this.ctx.regions().values()).filter(region => region.owner === polityId);
+    return owned.reduce((total, region) => total + (Number(region.militaryPower) || 0), 0);
   }
 
   /**
@@ -240,18 +290,22 @@ export class WorldIntelService {
    * dell'arsenale (qualità e copertura delle armi). Vale per il giocatore e per
    * tutte le nazioni NPC, così le decisioni dell'IA tengono conto dell'arsenale.
    */
-  nationalEffectiveMilitaryPower(polityId: string, accounts?: Record<string, NationalAccount>): number {
-    const base = this.nationalMilitaryPower(polityId);
+  nationalEffectiveMilitaryPower(
+    polityId: string,
+    accounts?: Record<string, NationalAccount>,
+    byOwner?: Map<string, RegionState[]>,
+  ): number {
+    const base = this.nationalMilitaryPower(polityId, byOwner);
     const arsenal = this.ctx.arsenalUnits(polityId);
     const book = accounts || WorldStateEngine.accounts(this.ctx.regions().values(), this.ctx.worldStateOptions());
     const forces = Number(book[polityId]?.forces || 0) + Number(book[polityId]?.mobilized || 0);
     return Math.round(base * arsenalCombatFactor(arsenal, forces) * 10) / 10;
   }
 
-  hostileNeighbourCount(polityId: string): number {
+  hostileNeighbourCount(polityId: string, byOwner?: Map<string, RegionState[]>): number {
     const hostile = new Set<string>();
-    for (const region of this.ctx.regions().values()) {
-      if (region.owner !== polityId) continue;
+    const owned = byOwner ? (byOwner.get(polityId) || []) : Array.from(this.ctx.regions().values()).filter(region => region.owner === polityId);
+    for (const region of owned) {
       for (const borderId of region.borders || []) {
         const other = this.ctx.regions().get(borderId)?.owner;
         if (other && other !== polityId && other !== 'neutral'
@@ -265,13 +319,16 @@ export class WorldIntelService {
    * Memoria strategica verificabile: recupera soltanto eventi canonici già
    * persistiti che nominano la politia. Nessun riassunto LLM separato può
    * quindi inventare un precedente o sopravvivere a un rewind illegittimo.
+   * `matcher` è il riconoscitore già costruito per QUESTA politia: evita di
+   * riesaminare tutte le politie per ogni evento (mondi con 200+ politie).
    */
-  recentStrategicMemory(polityId: string, limit = 3): string[] {
+  recentStrategicMemory(polityId: string, limit = 3, matcher?: PolityMatcher): string[] {
+    const own = matcher ?? this.polityMatchers(this.groupRegionsByOwner()).find(entry => entry.id === polityId);
     const candidates: Array<{ date: string; turn: number; text: string }> = [];
     for (const result of this.ctx.results()) {
       for (const event of result.timelineEvents || []) {
         const text = `${event.headline} ${event.detail || ''}`;
-        if (!this.mentionedNpcPolityIds([text]).includes(polityId)) continue;
+        if (!own || !this.matchesText(own, text)) continue;
         const detail = String(event.detail || '').replace(/\s+/g, ' ').trim();
         const compactDetail = detail.length > 180 ? `${detail.slice(0, 179).trimEnd()}…` : detail;
         candidates.push({
@@ -316,7 +373,8 @@ export class WorldIntelService {
     focusTexts: string[],
     accounts: ReturnType<typeof WorldStateEngine.accounts>,
   ): string {
-    const owners = [...new Set(Array.from(this.ctx.regions().values()).map(region => region.owner))]
+    const byOwner = this.groupRegionsByOwner();
+    const owners = [...byOwner.keys()]
       .filter(owner => owner && owner !== 'neutral' && owner !== this.ctx.playerPolityId());
     if (owners.length === 0) return 'Nessuna politia non giocante presente.';
 
@@ -325,12 +383,12 @@ export class WorldIntelService {
     );
     const recentOwners = this.mentionedNpcPolityIds(recentTexts);
     const focusedOwners = this.mentionedNpcPolityIds(focusTexts);
+    const matchers = this.polityMatchers(byOwner);
     const chatOwners = chatRepository.getChatsByGame(this.ctx.gameId, true)
       .flatMap(chat => chat.participants.map(participant => participant.id))
       .filter(owner => owners.includes(owner));
     const frontierOwners = new Set<string>();
-    for (const region of this.ctx.regions().values()) {
-      if (region.owner !== this.ctx.playerPolityId()) continue;
+    for (const region of byOwner.get(this.ctx.playerPolityId()) || []) {
       for (const borderId of region.borders || []) {
         const owner = this.ctx.regions().get(borderId)?.owner;
         if (owner && owner !== 'neutral' && owner !== this.ctx.playerPolityId()) frontierOwners.add(owner);
@@ -344,8 +402,10 @@ export class WorldIntelService {
     // potenti, e le vecchie menzioni non riportano in scena un attore estraneo.
     const anchors = new Set<string>([...focusedOwners, ...relatedOwners]);
     const regionalOwners = new Set<string>();
+    // Cache condivisa: i vicini di più ancore non ricalcolano l'intera mappa.
+    const frontierCache = new Map<string, Set<string>>();
     for (const owner of [this.ctx.playerPolityId(), ...anchors]) {
-      for (const neighbour of this.frontierOwnerIds(owner)) {
+      for (const neighbour of this.frontierOwnerIds(owner, frontierCache)) {
         if (neighbour !== this.ctx.playerPolityId()) regionalOwners.add(neighbour);
       }
     }
@@ -366,9 +426,9 @@ export class WorldIntelService {
     // Solo se il mondo non offre alcun aggancio geografico o diplomatico il
     // dossier ripiega sulle potenze più forti, per non restare vuoto.
     const selected = (relevantOwners.length > 0 ? relevantOwners : strongestOwners).slice(0, 10);
-    const playerMilitaryPower = Number(accounts[this.ctx.playerPolityId()]?.effectiveMilitaryPower) || this.nationalEffectiveMilitaryPower(this.ctx.playerPolityId(), accounts);
+    const playerMilitaryPower = Number(accounts[this.ctx.playerPolityId()]?.effectiveMilitaryPower) || this.nationalEffectiveMilitaryPower(this.ctx.playerPolityId(), accounts, byOwner);
     const displayName = (polityId: string): string => {
-      const owned = Array.from(this.ctx.regions().values()).filter(region => region.owner === polityId);
+      const owned = byOwner.get(polityId) || [];
       const registeredName = countryRepository.findByCode(polityId)?.name;
       return owned.length > 1
         ? (registeredName || polityId)
@@ -377,7 +437,7 @@ export class WorldIntelService {
     const allPolityIds = [this.ctx.playerPolityId(), ...owners];
 
     return selected.map(polityId => {
-      const owned = Array.from(this.ctx.regions().values()).filter(region => region.owner === polityId);
+      const owned = byOwner.get(polityId) || [];
       const name = displayName(polityId);
       const account = accounts[polityId];
       const relationship = this.ctx.relationship(polityId, this.ctx.playerPolityId());
@@ -388,10 +448,10 @@ export class WorldIntelService {
         .filter(entry => entry.value !== 'neutral');
       const priorities = currentStrategicPriorities(profile, {
         relationshipToPlayer: relationship,
-        hostileNeighbours: this.hostileNeighbourCount(polityId),
+        hostileNeighbours: this.hostileNeighbourCount(polityId, byOwner),
         hostileActors: registeredRelations.filter(entry => entry.value === 'hostile').length,
         alliedActors: registeredRelations.filter(entry => entry.value === 'ally').length,
-        militaryPower: this.nationalEffectiveMilitaryPower(polityId, accounts),
+        militaryPower: this.nationalEffectiveMilitaryPower(polityId, accounts, byOwner),
         playerMilitaryPower,
         monthlyBalance: account?.monthlyBalance,
         stability: account?.stability,
@@ -399,7 +459,7 @@ export class WorldIntelService {
         warEffort: account?.warEffort,
         socialTension: account?.socialTension,
       });
-      const memory = this.recentStrategicMemory(polityId, 3);
+      const memory = this.recentStrategicMemory(polityId, 3, matchers.find(entry => entry.id === polityId));
       return [
         `- ${name} [${polityId}] — profilo persistente: ${profile.personality}, dottrina ${profile.doctrine}, stile negoziale ${profile.negotiationStyle}, decisione ${profile.decisionTempo}.`,
         `  Tratti: propensione alla forza ${Math.round(profile.aggression * 100)}/100; rischio ${profile.riskTolerance}/100; affidabilità verso impegni registrati ${profile.allianceReliability}/100; focus economico ${profile.economicFocus}/100; sensibilità alla sovranità ${profile.sovereigntySensitivity}/100.`,
