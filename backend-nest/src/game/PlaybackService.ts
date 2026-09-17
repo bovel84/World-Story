@@ -58,6 +58,8 @@ export interface PlaybackContext {
   refreshProjectProgress(asOfDate?: string): string[];
   settleOrderCosts(...args: any[]): any;
   reconcileAcceptedMoves(...args: any[]): any;
+  /** ARMY-MOVE: motivazioni esplicite per i movimenti accettati non eseguiti. */
+  movementNotices(...args: any[]): string[];
 }
 
 export class PlaybackService {
@@ -521,6 +523,10 @@ export class PlaybackService {
         const existing = state.changedRegions.find(changed => changed.id === region.id);
         if (existing) Object.assign(existing, snapshot);
         else state.changedRegions.push(snapshot);
+      }
+      // ARMY-MOVE: anche il percorso in pausa spiega i movimenti non eseguiti.
+      for (const note of this.ctx.movementNotices(reconciliationActions, completion.actionOutcomes || [], state.movementIntents || [])) {
+        this.state.pendingNationalNotes.push(note);
       }
     }
 

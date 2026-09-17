@@ -23,7 +23,9 @@ let capturedPrompt = '';
 /** Счётчик вызовов механики consolidation */
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
-let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' = 'normal';
+let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' | 'move_accepted' = 'normal';
+/** Testo dell'ordine a cui la risposta `move_accepted` attribuisce un esito accettato. */
+let moveOrderText = '';
 /** projectId da copiare nell'outcome di chiusura del fixture F01. */
 let projectToCompleteId: string | undefined;
 
@@ -31,6 +33,23 @@ const WORLD_ID = 'stage2_world';
 
 function jumpResponse(): any {
   switch (jumpMode) {
+    case 'move_accepted':
+      // Un ordine di movimento accettato SENZA `move_unit`: il motore deve
+      // completare lo spostamento (reconcileAcceptedMoves) o spiegare il blocco.
+      return {
+        events: [
+          { headline: 'La Dieta delibera sul dispiegamento federale', description: 'Discussione e voti.', date: '1951-01-20', mapChanges: [] },
+        ],
+        narration: 'Il governo federale dispone il movimento delle formazioni.',
+        actionOutcomes: [{
+          action: moveOrderText,
+          status: 'accepted',
+          summary: 'Ordine accettato: la Dieta dispone il movimento.',
+        }],
+        voided: [],
+        startChat: [],
+        worldChanges: { regionOwners: {}, regionColors: {} },
+      };
     case 'voided':
       return {
         events: [],
@@ -1407,6 +1426,53 @@ describe('MAP-COMPLETE-ACTIONS P2/P3 — la coda elaborata si svuota (nessun acc
     // Il giocatore può ricreare la stessa azione: la coda non è una cronologia.
     const recreated = session.queueAction('Direttiva di prova 0');
     expect(session.getPendingActions().map((a: any) => a.id)).toEqual([recreated.id]);
+    jumpMode = 'normal';
+  });
+});
+
+
+describe('ARMY-MOVE — le truppe si muovono e i blocchi sono espliciti', () => {
+  it('un ordine di movimento accettato senza move_unit sposta davvero l’unità', async () => {
+    jumpMode = 'move_accepted';
+    const { session } = createGame();
+    const deu = session.getRegion(`${WORLD_ID}_DEU`);
+    deu.borders = [`${WORLD_ID}_POL`];
+    // Geometria minima: il centro della regione serve a materializzare il marker.
+    deu.svgPath = 'M 100 100 L 200 100 L 200 200 L 100 200 Z';
+    session.getRegion(`${WORLD_ID}_POL`).svgPath = 'M 300 300 L 400 300 L 400 400 L 300 400 Z';
+    deu.objects.push({ id: 'unit-1', type: 'battalion', name: 'Battaglione Sud', owner: 'DEU', level: 1 });
+    // La mappa fixture usa nomi russi: la risoluzione deterministica lavora sul
+    // nome della sessione, quindi il test la rende leggibile senza toccare il world.
+    session.getRegion(`${WORLD_ID}_POL`).name = 'Polonia';
+
+    moveOrderText = 'Sposta il Battaglione Sud in Polonia';
+    session.queueAction(moveOrderText);
+    await session.processNextAction(30);
+
+    expect(session.getRegion(`${WORLD_ID}_DEU`).objects.some((object: any) => object.id === 'unit-1')).toBe(false);
+    const moved = session.getRegion(`${WORLD_ID}_POL`).objects.find((object: any) => object.id === 'unit-1');
+    expect(moved).toBeTruthy();
+    // La posizione aggiornata è materiale e registrata nel movimento.
+    expect(moved.metadata?.previousRegionId).toBe(`${WORLD_ID}_DEU`);
+    jumpMode = 'normal';
+  });
+
+  it('un movimento impossibile produce una motivazione esplicita, non silenzio', async () => {
+    jumpMode = 'move_accepted';
+    const { session } = createGame();
+    const deu = session.getRegion(`${WORLD_ID}_DEU`);
+    deu.borders = [`${WORLD_ID}_POL`];
+    deu.objects.push({ id: 'unit-2', type: 'battalion', name: 'Battaglione Nord', owner: 'DEU', level: 1 });
+
+    moveOrderText = 'Sposta il Battaglione Nord verso il confine settentrionale';
+    session.queueAction(moveOrderText);
+    await session.processNextAction(30);
+
+    // L'unità resta ferma…
+    expect(session.getRegion(`${WORLD_ID}_DEU`).objects.some((object: any) => object.id === 'unit-2')).toBe(true);
+    // …e il gioco lo dice nei dispacci del turno.
+    const events = session.getResults().at(-1).events.join(' | ');
+    expect(events).toContain('Movimento non eseguito');
     jumpMode = 'normal';
   });
 });

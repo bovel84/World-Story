@@ -531,6 +531,7 @@ export class WorldMutationService {
       if (change.type === 'move_unit' || change.type === 'move_battalion' || change.type === 'remove_unit') {
         console.warn('[GameSession]', change.type, 'non applicato: unità non identificata in modo univoco',
           { nome: feature?.name, id: feature?.id, tipo: requestedType, candidati: candidates.length });
+        this.ctx.pushNationalNote(`🚫 Movimento non eseguito — nessuna formazione identificata in modo univoco${feature?.name ? ` per «${feature.name}»` : ''}: il reparto resta dov'è. Specifica il nome esatto della formazione.`);
       }
       return [];
     }
@@ -543,10 +544,25 @@ export class WorldMutationService {
     if (!target || target.status === 'destroyed' || source.id === target.id) {
       console.warn('[GameSession]', change.type, 'non applicato: destinazione non risolta',
         { destinazione: change.targetRegionName, origine: source.name, unità: unit.name });
+      // Il caso più frequente su una mappa a livello di paese: la destinazione
+      // indicata è il territorio già controllato (una città interna non è una
+      // regione). Il giocatore deve leggerlo, non trovarsi l'unità ferma.
+      if (target && source.id === target.id) {
+        this.ctx.pushNationalNote(`🚫 Movimento non eseguito — «${unit.name}» è già in ${source.name}: la destinazione indicata coincide con la regione di partenza. Su questa mappa un reparto si sposta in un'altra regione, non dentro la propria.`);
+      } else {
+        this.ctx.pushNationalNote(`🚫 Movimento non eseguito — «${unit.name}» resta in ${source.name}: la destinazione ${change.targetRegionName ? `«${change.targetRegionName}»` : 'indicata'} non è una regione valida della mappa.`);
+      }
       return [];
     }
     const center = this.ctx.geometry.regionCenter(target);
-    if (!center) return [];
+    if (!center) {
+      // Silenzio mai: senza geometria il marker non può esistere, quindi lo
+      // spostamento non avviene e il giocatore deve saperlo.
+      console.warn('[GameSession]', change.type, 'non applicato: geometria della destinazione assente',
+        { destinazione: target.name, origine: source.name, unità: unit.name });
+      this.ctx.pushNationalNote(`🚫 Movimento non eseguito — «${unit.name}» resta in ${source.name}: la mappa non ha una posizione valida per ${target.name}.`);
+      return [];
+    }
     // Il movimento ha un costo materiale: cibo, carburante (se motorizzato) e
     // denaro. Non blocca il gioco, ma registra carenze e consuma le scorte.
     const payer = unit.owner || source.owner || this.ctx.playerPolityId();
