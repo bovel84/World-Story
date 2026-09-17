@@ -158,6 +158,12 @@ describe('Этап 5: каталог пресетов', () => {
     expect(ok.map_detail).toBeUndefined();
     expect(v({ id: 'ok_id', name: 'X', country_codes: ['USA'], base_prompt: 'p', map_detail: 'grouped' }).map_detail).toBe('grouped');
     expect(() => v({ id: 'ok_id', name: 'X', country_codes: ['USA'], base_prompt: 'p', map_detail: 'province' })).toThrow(/map_detail/);
+    // map_grouping: assente = automatico; chiave valida passa; valori non validi no
+    expect(ok.map_grouping).toBeUndefined();
+    expect(v({ id: 'ok_id', name: 'X', country_codes: ['USA'], base_prompt: 'p', map_grouping: 'eyalet' }).map_grouping).toBe('eyalet');
+    expect(v({ id: 'ok_id', name: 'X', country_codes: ['USA'], base_prompt: 'p', map_grouping: '  region ' }).map_grouping).toBe('region');
+    expect(v({ id: 'ok_id', name: 'X', country_codes: ['USA'], base_prompt: 'p', map_grouping: '' }).map_grouping).toBeUndefined();
+    expect(() => v({ id: 'ok_id', name: 'X', country_codes: ['USA'], base_prompt: 'p', map_grouping: 'has space' })).toThrow(/map_grouping/);
   });
 });
 

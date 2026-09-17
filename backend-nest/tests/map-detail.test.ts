@@ -13,14 +13,18 @@ import path from 'path';
 process.env.OPEN_PAX_DB_PATH = path.join(os.tmpdir(), `world-story-mapdetail-${process.pid}-${Date.now()}.db`);
 
 import {
+  GROUPING_HIERARCHY_KEYS,
   MAP_DETAILS,
   buildProvinceAdjacency,
   deriveGroupBorders,
   deriveGroups,
   distributeCountryStats,
+  groupingKeysFor,
   hasProvinceFeatures,
   isMapDetail,
+  isMapGrouping,
   normalizeMapDetail,
+  normalizeMapGrouping,
   resolveMapDetail,
   type DerivedGroup,
   type MapFeature,
@@ -164,6 +168,72 @@ describe('MAP-DETAIL — grouped', () => {
     const members = first.flatMap(g => g.memberCodes).sort();
     expect(members).toEqual(['P1', 'P2', 'P3', 'P4', 'P5', 'P6']);
     expect(first[0].geometry.type).toBe('MultiPolygon');
+  });
+
+  it('per un preset storico usa la chiave dichiarata (map_grouping), anche fuori dalla lista nota', () => {
+    const features = [
+      province('OT1', 'OTT', 28, 41, { eyalet: 'Rumelia' }),
+      province('OT2', 'OTT', 29, 41, { eyalet: 'Rumelia' }),
+      province('OT3', 'OTT', 32, 39, { eyalet: 'Anatolia' }),
+      province('OT4', 'OTT', 35, 39, { eyalet: 'Anatolia' }),
+    ];
+    // `eyalet` non è tra le chiavi note: senza map_grouping si userebbe il clustering.
+    const auto = deriveGroups(features, 'grouped', { owner: 'OTT', countryName: 'Impero ottomano' });
+    const groups = deriveGroups(features, 'grouped', {
+      owner: 'OTT',
+      countryName: 'Impero ottomano',
+      hierarchyKeys: groupingKeysFor('eyalet'),
+    });
+    expect(groups).toHaveLength(2);
+    expect(groups.map(g => g.name)).toEqual(['Impero ottomano · Anatolia', 'Impero ottomano · Rumelia']);
+    expect(groups[0].memberCodes.sort()).toEqual(['OT3', 'OT4']);
+    expect(groups[1].memberCodes.sort()).toEqual(['OT1', 'OT2']);
+    // La chiave dichiarata ha priorità; l'output automatico resta valido.
+    expect(auto).not.toBeNull();
+  });
+
+  it('se la chiave dichiarata non raggruppa, ricade su gerarchia nota/geografico', () => {
+    const features = [
+      province('X1', 'XXX', 0, 0, { region: 'A' }),
+      province('X2', 'XXX', 1, 0, { region: 'A' }),
+      province('X3', 'XXX', 2, 0, { region: 'B' }),
+      province('X4', 'XXX', 3, 0, { region: 'B' }),
+    ];
+    // `missing` non esiste → si usa `region`, la gerarchia nota presente.
+    const groups = deriveGroups(features, 'grouped', {
+      owner: 'XXX',
+      countryName: 'Test',
+      hierarchyKeys: groupingKeysFor('missing'),
+    });
+    expect(groups).toHaveLength(2);
+    expect(groups.map(g => g.name)).toEqual(['Test · A', 'Test · B']);
+  });
+
+  it('groupingKeysFor mette la chiave dichiarata in testa e non duplica', () => {
+    expect(groupingKeysFor()).toEqual(GROUPING_HIERARCHY_KEYS);
+    expect(groupingKeysFor('  admin1  ')[0]).toBe('admin1');
+    expect(groupingKeysFor('admin1')).toEqual([
+      'admin1',
+      ...GROUPING_HIERARCHY_KEYS.filter(key => key !== 'admin1'),
+    ]);
+  });
+});
+
+describe('MAP-DETAIL — validazione di map_grouping', () => {
+  it('accetta chiavi di proprietà valide e normalizza gli spazi', () => {
+    expect(isMapGrouping('region')).toBe(true);
+    expect(isMapGrouping('admin.1-x')).toBe(true);
+    expect(normalizeMapGrouping('  eyalet ')).toBe('eyalet');
+  });
+
+  it('rifiuta valori non validi o vuoti', () => {
+    expect(isMapGrouping('1bad')).toBe(false);
+    expect(isMapGrouping('has space')).toBe(false);
+    expect(isMapGrouping('')).toBe(false);
+    expect(isMapGrouping(42)).toBe(false);
+    expect(normalizeMapGrouping('')).toBeUndefined();
+    expect(normalizeMapGrouping('   ')).toBeUndefined();
+    expect(normalizeMapGrouping(undefined)).toBeUndefined();
   });
 });
 

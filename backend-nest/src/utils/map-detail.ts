@@ -83,6 +83,36 @@ export function normalizeMapDetail(value: unknown): MapDetail | undefined {
 }
 
 /**
+ * Chiave di proprietà GeoJSON dichiarata dal preset per il raggruppamento
+ * (`map_grouping`). Permette di creare preset storici con gerarchie
+ * amministrative proprie (es. `gau`, `oblast`, `eyalet`).
+ */
+export const MAP_GROUPING_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
+
+export function isMapGrouping(value: unknown): value is string {
+  return typeof value === 'string' && MAP_GROUPING_RE.test(value);
+}
+
+export function normalizeMapGrouping(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (trimmed === '') return undefined;
+  return isMapGrouping(trimmed) ? trimmed : undefined;
+}
+
+/**
+ * Chiavi di gerarchia da provare, in ordine: la chiave dichiarata dal preset
+ * (`map_grouping`) ha priorità, poi quelle riconosciute automaticamente. Se la
+ * chiave dichiarata non raggruppa davvero (assente o unica per feature) il
+ * raggruppamento ricade sulle chiavi automatiche e poi sul criterio geografico.
+ */
+export function groupingKeysFor(mapGrouping?: string): readonly string[] {
+  const declared = normalizeMapGrouping(mapGrouping);
+  if (!declared) return GROUPING_HIERARCHY_KEYS;
+  return [declared, ...GROUPING_HIERARCHY_KEYS.filter(key => key !== declared)];
+}
+
+/**
  * Livello effettivo del preset. Retrocompatibilità: senza campo, un preset con
  * mappa provinciale resta `full`, uno senza resta `nations` (identico a oggi).
  * `full`/`grouped` richiedono una mappa provinciale: altrimenti si ricade su

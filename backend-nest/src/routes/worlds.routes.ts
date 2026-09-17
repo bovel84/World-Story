@@ -21,6 +21,7 @@ import {
   deriveGroupBorders,
   deriveGroups,
   distributeCountryStats,
+  groupingKeysFor,
   resolveMapDetail,
 } from '../utils/map-detail';
 import { pointInGeometry } from '../utils/geo';
@@ -209,7 +210,11 @@ async function runWorldGeneration(
         // Proiezione del livello scelto: 1 regione per provincia (`full`),
         // 1 per paese (`nations`) o gruppi (`grouped`). Statistiche distribuite
         // con la stessa formula storica (peso d'area + bonus capitale).
-        const groups = deriveGroups(provinceFeatures, mapDetail, { owner: code, countryName: state.name });
+        const groups = deriveGroups(provinceFeatures, mapDetail, {
+          owner: code,
+          countryName: state.name,
+          hierarchyKeys: groupingKeysFor(preset.map_grouping),
+        });
         const stats = distributeCountryStats(
           { population: state.population || 0, gdp: state.gdp || 0, military: state.military || 0 },
           groups,
