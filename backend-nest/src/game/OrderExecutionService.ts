@@ -30,6 +30,23 @@ import type { ActionOutcome, ConvertedAction } from '../prompts/types';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import type { TimelineEventRecord } from './TimelineService';
 
+/**
+ * Effetto materiale di una decisione sulla tesoreria, in forma strutturata.
+ * Prodotto dal motore nello stesso punto in cui addebita la spesa ordinata:
+ * nessun valore ricostruito o stimato a posteriori.
+ */
+export interface OrderSettlementEntry {
+  actionId: string;
+  /** `charged` = pagata per intero; `partial` = coperta solo in parte; `unfunded` = annullata. */
+  kind: 'charged' | 'partial' | 'unfunded';
+  /** Importo richiesto dalla stima del motore (mld). */
+  requestedMld: number;
+  /** Importo davvero addebitato alla tesoreria (mld; 0 se non coperta). */
+  chargedMld: number;
+  /** Categoria leggibile della stima (es. «Infrastrutture»). */
+  label: string;
+}
+
 /** Ordine in coda: stato posseduto da questo servizio. */
 export interface PendingAction {
   id: string;
@@ -53,6 +70,12 @@ export interface PendingAction {
       completesProjectId?: string;
     };
     objects: any[];
+    /**
+     * DECISION-IMPACT: effetto misurabile già calcolato dal motore per questa
+     * decisione (addebito in tesoreria, copertura parziale, ordine annullato).
+     * Assente quando l'ordine non è stato eseguito o in modalità strict.
+     */
+    settlement?: OrderSettlementEntry;
     turn: number;
     periodStart: string;  // Date before processing this action
     periodEnd: string;    // Date after processing this action
@@ -181,13 +204,17 @@ export class OrderExecutionService {
    * accettato o parziale): la cassa segue le scelte del giocatore. Se la cassa
    * più il credito residuo non bastano, si paga quanto è coperto e il resto
    * resta dichiarato come non onorato — il tetto del debito non si sfonda.
+   *
+   * Restituisce anche `entries`: la stessa contabilità in forma **strutturata**
+   * (una voce per decisione), così il client può attribuire alla singola
+   * decisione l'effetto misurabile senza interpretare il testo del bollettino.
    */
   settleOrderCosts(
     actionOutcomes: Array<{ actionId?: string; action?: string; status?: string }> | undefined,
     batchActionIds: string[],
     texts: Map<string, string>,
-  ): { lines: string[]; unfunded: Array<{ actionId: string; action: string; reason: string }> } {
-    const empty = { lines: [] as string[], unfunded: [] as Array<{ actionId: string; action: string; reason: string }> };
+  ): { lines: string[]; unfunded: Array<{ actionId: string; action: string; reason: string }>; entries: OrderSettlementEntry[] } {
+    const empty = { lines: [] as string[], unfunded: [] as Array<{ actionId: string; action: string; reason: string }>, entries: [] as OrderSettlementEntry[] };
     if (this.ctx.isStrictGame()) return empty;
     const polityId = this.ctx.playerPolityId();
     const account = this.ctx.accounts()[polityId];
@@ -206,6 +233,7 @@ export class OrderExecutionService {
     }
     const lines: string[] = [];
     const unfunded: Array<{ actionId: string; action: string; reason: string }> = [];
+    const entries: OrderSettlementEntry[] = [];
     for (const actionId of batchActionIds) {
       const text = texts.get(actionId) || '';
       const entry = byAction.get(actionId) ?? byAction.get(`text:${text}`);
@@ -221,6 +249,7 @@ export class OrderExecutionService {
         // Il giocatore non può comprare ciò che non può pagare.
         const reason = `la cassa non copre l'ordine (${estimate.label}, ${estimate.amountMld} mld) e il credito è esaurito`;
         unfunded.push({ actionId, action: text, reason });
+        entries.push({ actionId, kind: 'unfunded', requestedMld: estimate.amountMld, chargedMld: 0, label: estimate.label });
         entry!.outcome.status = 'voided';
         entry!.status = 'voided';
         lines.push(`La cassa non copre l'ordine «${text.slice(0, 60)}» (${estimate.label}, ${estimate.amountMld} mld): ordine annullato, nessuna spesa registrata.`);
@@ -228,8 +257,16 @@ export class OrderExecutionService {
       }
       const nextStock: ResourceStock = { ...stock, money: Math.round((stock.money - charge) * 1000) / 1000 };
       this.ctx.saveResourceStock(polityId, nextStock);
+      const partial = shortfall > 0.01;
+      entries.push({
+        actionId,
+        kind: partial ? 'partial' : 'charged',
+        requestedMld: estimate.amountMld,
+        chargedMld: charge,
+        label: estimate.label,
+      });
       lines.push(`💸 ${describeOrderCost({ ...estimate, amountMld: charge }, text)}`);
-      if (shortfall > 0.01) {
+      if (partial) {
         // Copertura parziale: nessun successo pieno. L'esito scende a
         // "partial" anche se il modello l'aveva dichiarato completo.
         if (entry) {
@@ -239,7 +276,7 @@ export class OrderExecutionService {
         lines.push(`L'ordine è stato finanziato solo in parte (${charge} mld su ${estimate.amountMld}): il credito residuo è esaurito.`);
       }
     }
-    return { lines, unfunded };
+    return { lines, unfunded, entries };
   }
 
   /**

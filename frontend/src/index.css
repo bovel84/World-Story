@@ -2887,6 +2887,26 @@ html, body { margin: 0; }
 .simulation-reader-impact-list li.tone-neutral b { color: #c6d3e6; }
 .simulation-reader-impact small { color: #8fa0bc; font: 500 11px/1.45 system-ui, sans-serif; }
 
+/* ── DECISION-IMPACT: quanto hanno inciso le decisioni del giocatore ─────── */
+/* Stessa grammatica visiva dei delta LW02 (pill + tono), con una riga per
+   decisione perché qui l'attribuzione è per ordine, non per turno. */
+.decision-impact { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; padding: 10px 12px; border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; background: rgba(255, 255, 255, 0.035); }
+.decision-impact-title { color: #8fa0bc; font: 700 10px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.decision-impact-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.decision-impact-list li { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'action amount' 'detail detail'; gap: 2px 10px; padding: 7px 9px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); }
+.decision-impact-action { grid-area: action; color: #dce6f5; font: 600 12px/1.35 system-ui, sans-serif; overflow-wrap: anywhere; }
+.decision-impact-amount { grid-area: amount; font: 700 12.5px/1.35 system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.decision-impact-detail { grid-area: detail; color: #9fb0c9; font: 500 11px/1.4 system-ui, sans-serif; }
+.decision-impact-list li.tone-positive .decision-impact-amount { color: #a9e8c4; }
+.decision-impact-list li.tone-negative .decision-impact-amount { color: #f0a9a9; }
+.decision-impact-list li.tone-warning .decision-impact-amount { color: #f0ce8f; }
+.decision-impact-list li.tone-neutral .decision-impact-amount { color: #c6d3e6; }
+.decision-impact-total,.decision-impact-rest { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 0; color: #b9c7db; font: 500 11.5px/1.45 system-ui, sans-serif; }
+.decision-impact-total { justify-content: space-between; padding-top: 2px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.decision-impact-total b { color: #f0a9a9; font-variant-numeric: tabular-nums; }
+.decision-impact-rest b { color: #e3ebf7; font-variant-numeric: tabular-nums; }
+.decision-impact-note { color: #8fa0bc; font: 500 11px/1.45 system-ui, sans-serif; }
+
 /* ── WORLD-ALIVE P1: la proposta già nel piano resta cliccabile (toggle) ─── */
 /* Il bottone non è più `disabled` quando è in coda: resta un controllo attivo
    che la rimuove. Il `!important` è locale e serve solo a vincere il blocco

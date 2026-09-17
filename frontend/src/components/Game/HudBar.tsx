@@ -23,6 +23,8 @@ import { TimeDesk } from './TimeDesk';
 import type { TimelineEntry, TimelineEvent } from '../../services/api';
 import { publicNarrativeText } from '../../services/publicNarrative';
 import { impactsByTurn, type HistoryPointLike } from './checkpointImpact';
+import { DecisionImpactBlock } from './DecisionImpactBlock';
+import type { HistoryItem } from '../../stores';
 
 // ============================================================================
 // Tipi
@@ -60,6 +62,8 @@ export interface HudBarProps {
   pendingOrders?: Array<{ id: string; text: string }>;
   /** Storico dei conti pubblicato dal motore, per i delta per turno (LW02). */
   history?: HistoryPointLike[];
+  /** Decisioni del giocatore con l'effetto attribuito dal motore (DECISION-IMPACT). */
+  decisions?: HistoryItem[];
   /** LW04 — presenza del consiglio mostrata nel desk del tempo. */
   council?: { tone: string; headline: string; detail: string } | null;
   onOpenDispatches?: () => void;
@@ -110,6 +114,8 @@ export interface TimelinePanelProps {
   playerPolityName?: string;
   /** Storico dei conti pubblicato dal motore: delta reali per turno (LW02). */
   history?: HistoryPointLike[];
+  /** Decisioni del giocatore con l'effetto attribuito dal motore (DECISION-IMPACT). */
+  decisions?: HistoryItem[];
 }
 
 // ============================================================================
@@ -165,6 +171,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onClose,
   playerPolityName,
   history = [],
+  decisions = [],
 }) => {
   const [showHistory, setShowHistory] = useState(true);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
@@ -179,6 +186,17 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     [timeline],
   );
   const impacts = useMemo(() => impactsByTurn(history, timelineRefs), [history, timelineRefs]);
+  // DECISION-IMPACT: decisioni raggruppate per turno, con l'effetto che il
+  // motore ha loro attribuito quando il turno è stato eseguito.
+  const decisionsByTurn = useMemo(() => {
+    const byTurn = new Map<number, HistoryItem[]>();
+    for (const item of decisions) {
+      const list = byTurn.get(item.turn);
+      if (list) list.push(item);
+      else byTurn.set(item.turn, [item]);
+    }
+    return byTurn;
+  }, [decisions]);
 
   // Eventi appiattiti e ordinati dal più recente. Il fallback tollera risposte
   // precedenti, dove events era ancora string[].
@@ -276,19 +294,32 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   )}
                   {expanded && (() => {
                     const impact = impacts.get(event.turn);
-                    if (!impact || !impact.hasChanges) return null;
+                    const turnDecisions = decisionsByTurn.get(event.turn) || [];
+                    if ((!impact || !impact.hasChanges) && turnDecisions.length === 0) return null;
                     return (
-                      <div className="hud-timeline-impact" aria-label={`Effetti nel turno ${event.turn}`}>
-                        <span className="hud-timeline-impact-title">Effetti nel turno</span>
-                        <ul className="hud-timeline-impact-list">
-                          {impact.deltas.slice(0, 6).map(delta => (
-                            <li key={delta.id} className={`tone-${delta.tone}`}>
-                              <span className="hud-timeline-impact-label">{delta.label}</span>
-                              <b>{delta.text}</b>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
+                      <>
+                        {impact && impact.hasChanges && (
+                          <div className="hud-timeline-impact" aria-label={`Effetti nel turno ${event.turn}`}>
+                            <span className="hud-timeline-impact-title">Effetti nel turno</span>
+                            <ul className="hud-timeline-impact-list">
+                              {impact.deltas.slice(0, 6).map(delta => (
+                                <li key={delta.id} className={`tone-${delta.tone}`}>
+                                  <span className="hud-timeline-impact-label">{delta.label}</span>
+                                  <b>{delta.text}</b>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {turnDecisions.length > 0 && (
+                          <DecisionImpactBlock
+                            decisions={turnDecisions}
+                            turnImpact={impact ?? null}
+                            turn={event.turn}
+                            className="hud-timeline-decision-impact"
+                          />
+                        )}
+                      </>
                     );
                   })()}
                   {expanded && isActivePlaybackEvent && (
@@ -364,6 +395,7 @@ export const HudBar: React.FC<HudBarProps> = ({
   pendingOrdersCount = 0,
   pendingOrders = [],
   history = [],
+  decisions = [],
   council = null,
   onOpenDispatches,
   onTimelineOpen,
@@ -507,6 +539,7 @@ export const HudBar: React.FC<HudBarProps> = ({
             onClose={() => setTimelineOpen(false)}
             playerPolityName={playerPolityName}
             history={history}
+            decisions={decisions}
           />
           </AccessibleDialog>
       )}

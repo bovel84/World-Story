@@ -805,6 +805,13 @@ export const gameApi = {
       events: string[];
       eventDetails?: Array<{ id: string; date: string; headline: string; detail: string; source: 'world' | 'diplomacy' }>;
       outcome?: { status: 'accepted' | 'partial' | 'rejected'; summary: string };
+      /** DECISION-IMPACT: addebito che il motore ha applicato a questo ordine. */
+      settlement?: {
+        kind: 'charged' | 'partial' | 'unfunded';
+        requestedMld: number;
+        chargedMld: number;
+        label: string;
+      };
       objects: any[];
       turn: number;
       periodStart: string;

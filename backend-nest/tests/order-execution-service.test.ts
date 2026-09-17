@@ -122,7 +122,49 @@ describe('OrderExecutionService — economia', () => {
   it('in strict non addebita nulla', () => {
     const { service } = makeService({ strict: true });
     const result = service.settleOrderCosts([{ actionId: 'a1', status: 'accepted' }], ['a1'], new Map([['a1', 'x']]));
-    expect(result).toEqual({ lines: [], unfunded: [] });
+    expect(result).toEqual({ lines: [], unfunded: [], entries: [] });
+  });
+
+  it('restituisce l\'effetto strutturato per decisione (charged / partial / unfunded)', () => {
+    const rich = makeService({ stock: stock({ money: 1000 }) });
+    const charged = rich.service.settleOrderCosts(
+      [{ actionId: 'a1', action: 'Costruire una ferrovia', status: 'accepted' }],
+      ['a1'],
+      new Map([['a1', 'Costruire una ferrovia']]),
+    );
+    expect(charged.entries).toHaveLength(1);
+    expect(charged.entries[0]).toMatchObject({ actionId: 'a1', kind: 'charged' });
+    expect(charged.entries[0].chargedMld).toBeGreaterThan(0);
+    expect(charged.entries[0].chargedMld).toBe(charged.entries[0].requestedMld);
+    expect(charged.entries[0].label.length).toBeGreaterThan(0);
+
+    // Cassa insufficiente ma credito parziale → copertura parziale dichiarata.
+    const partial = makeService({ stock: stock({ money: 5, debts: [debt(100000)] }) }).service
+      .settleOrderCosts(
+        [{ actionId: 'a1', action: 'Costruire una ferrovia', status: 'accepted' }],
+        ['a1'],
+        new Map([['a1', 'Costruire una ferrovia']]),
+      );
+    expect(partial.entries[0]).toMatchObject({ actionId: 'a1', kind: 'partial' });
+    expect(partial.entries[0].chargedMld).toBeLessThan(partial.entries[0].requestedMld);
+
+    // Nessuna copertura → ordine annullato, addebito zero (nessun numero inventato).
+    const unfunded = makeService({ stock: stock({ money: 0, debts: [debt(100000)] }) }).service
+      .settleOrderCosts(
+        [{ actionId: 'a1', action: 'Costruire una ferrovia', status: 'accepted' }],
+        ['a1'],
+        new Map([['a1', 'Costruire una ferrovia']]),
+      );
+    expect(unfunded.entries[0]).toMatchObject({ actionId: 'a1', kind: 'unfunded', chargedMld: 0 });
+    expect(unfunded.entries[0].requestedMld).toBeGreaterThan(0);
+
+    // Un ordine respinto non produce alcun effetto: non è attribuibile.
+    const rejected = rich.service.settleOrderCosts(
+      [{ actionId: 'a2', action: 'x', status: 'rejected' }],
+      ['a2'],
+      new Map([['a2', 'x']]),
+    );
+    expect(rejected.entries).toEqual([]);
   });
 
   it('orderFundingNotes elenca solo gli ordini non sostenibili', () => {

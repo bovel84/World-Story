@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { publicNarrativeText } from '../../services/publicNarrative';
 import type { CheckpointImpact } from './checkpointImpact';
+import { DecisionImpactBlock } from './DecisionImpactBlock';
+import type { DecisionRecord } from './decisionImpact';
 
 /** L'ancora canonica della pagina in lettura (§9.3/G22). */
 export interface PlaybackReaderState {
@@ -30,6 +32,12 @@ interface SimulationEventReaderProps {
    * `null`/assente = nessun effetto disponibile, nessun testo inventato.
    */
   impact?: CheckpointImpact | null;
+  /**
+   * DECISION-IMPACT — le decisioni del turno in lettura con l'effetto misurato
+   * dal motore. Assente = nessun effetto attribuibile: resta la sola variazione
+   * del periodo (nessun importo inventato).
+   */
+  decisions?: readonly DecisionRecord[];
 }
 
 /**
@@ -47,6 +55,7 @@ export function SimulationEventReader({
   onIntervene,
   playerPolityName,
   impact = null,
+  decisions = [],
 }: SimulationEventReaderProps) {
   const continueButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -137,6 +146,10 @@ export function SimulationEventReader({
             <small>Delta del turno dai conti registrati dal motore; non un giudizio di causa.</small>
           </section>
         )}
+
+        {/* DECISION-IMPACT: quanto hanno inciso le scelte del giocatore, con
+            l'effetto attribuito dal motore al momento dell'esecuzione. */}
+        <DecisionImpactBlock decisions={decisions} turnImpact={impact} className="simulation-reader-decision-impact" />
 
         <footer className="simulation-reader-actions">
           <button ref={continueButtonRef} type="button" className="btn-continue-next" onClick={onContinue} disabled={loading}>

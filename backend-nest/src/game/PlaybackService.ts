@@ -21,7 +21,7 @@ import { shortId } from '../utils/short-id';
 import type { RelationshipType } from '../core/RelationshipMatrix';
 import type { SimulationEvent } from '../prompts/types';
 import type { MovementIntent } from '../utils/movement-orders';
-import type { PendingAction } from './OrderExecutionService';
+import type { PendingAction, OrderSettlementEntry } from './OrderExecutionService';
 import type { SimulationCoordinator } from './SimulationCoordinator';
 import type { DiplomacyService } from './DiplomacyService';
 import type { OrderExecutionService } from './OrderExecutionService';
@@ -618,6 +618,9 @@ export class PlaybackService {
     const outcomes = this.ctx.outcomesByActionId(
       batchActions, completion.actionOutcomes, completion.convertedActions,
     );
+    const settlementByActionId = new Map<string, OrderSettlementEntry>(
+      (orderCostSettlement.entries || []).map((entry: OrderSettlementEntry) => [String(entry.actionId), entry]),
+    );
     batchActions.forEach(item => {
       const outcome = outcomes.get(item.id);
       const rejected = voided.find((result: any) => result.action === item.text);
@@ -644,6 +647,7 @@ export class PlaybackService {
           }
           : undefined,
         objects: playerRegion.objects,
+        settlement: settlementByActionId.get(item.id),
         turn: state.jumpTurn,
         periodStart: state.periodStart,
         periodEnd: finalDate,

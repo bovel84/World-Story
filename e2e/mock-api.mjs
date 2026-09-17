@@ -73,6 +73,31 @@ function mockRegions() {
   };
 }
 
+/**
+ * Cronaca fittizia: una entry per il turno 1, così i pannelli della Timeline
+ * (effetti del turno, decisioni) hanno qualcosa da mostrare negli E2E mock.
+ * Deterministica e dichiaratamente non storica.
+ */
+export const MOCK_TIMELINE = [
+  {
+    turn: 1,
+    date: '1951-02-01',
+    narration: 'Il primo periodo di governo si chiude senza crisi.',
+    events: [
+      {
+        id: 'mock-event-1',
+        date: '1951-02-01',
+        headline: 'Avviati i lavori sulla linea ferroviaria',
+        detail: 'Il cantiere apre con i fondi stanziati dal governo.',
+        source: 'world',
+      },
+    ],
+  },
+];
+
+/** Effetto attribuito dal motore all'ordine di prova (DECISION-IMPACT). */
+export const MOCK_SETTLEMENT = { kind: 'charged', requestedMld: 12.4, chargedMld: 12.4, label: 'Infrastrutture' };
+
 /** Proposte strategiche fittizie (ARMY-MOVE P3): deterministiche, non storiche. */
 export const MOCK_SUGGESTIONS = [
   {
@@ -385,7 +410,7 @@ function notFound(route) {
  *    `world_advanced`); usato per verificare i casi in cui il mondo NON cambia.
  */
 export function installMockApi(page, opts = {}) {
-  const { failWorldGen = false, advanceResult = null } = opts;
+  const { failWorldGen = false, advanceResult = null, accountHistory = null } = opts;
 
   // Blocca TUTTA la rete esterna: nessun tile, nessun font, nessun provider.
   // Solo le richieste verso l'app (localhost) e le API mock passano.
@@ -491,12 +516,18 @@ export function installMockApi(page, opts = {}) {
     : MOCK_GAME));
 
   // ── Stato di gioco (chiamate fatte all'apertura dell'HUD) ────────────────
-  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/timeline`, (route) =>
-    json(route, { timeline: [], currentDate: '1951-01-01', hasMore: false, nextAfter: 0 }));
+  // Il client chiede la cronaca con `?after=&limit=`: il glob copre la query.
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/timeline*`, (route) =>
+    json(route, { timeline: MOCK_TIMELINE, currentDate: '1951-01-01', hasMore: false, nextAfter: 0 }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/ongoing-processes`, (route) =>
     json(route, { processes: MOCK_ONGOING_PROCESSES }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/national-state`, (route) =>
-    json(route, { accounts: MOCK_ACCOUNTS, history: MOCK_ACCOUNT_HISTORY, resources: MOCK_RESOURCES, government: MOCK_GOVERNMENT }));
+    json(route, {
+      accounts: MOCK_ACCOUNTS,
+      history: accountHistory || MOCK_ACCOUNT_HISTORY,
+      resources: MOCK_RESOURCES,
+      government: MOCK_GOVERNMENT,
+    }));
   // La nazione fa debito: il mock risponde con un titolo deterministico.
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/finance/borrow`, (route) => {
     if (route.request().method() !== 'POST') return notFound(route);

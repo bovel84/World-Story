@@ -25,7 +25,7 @@ import { loadSimulationCatalog } from '../scenario/loader';
 import { shortId } from '../utils/short-id';
 import type { RelationshipType } from '../core/RelationshipMatrix';
 import type { SimulationEvent } from '../prompts/types';
-import type { PendingAction } from './OrderExecutionService';
+import type { PendingAction, OrderSettlementEntry } from './OrderExecutionService';
 import type { OrderExecutionService } from './OrderExecutionService';
 import type { SimulationCoordinator } from './SimulationCoordinator';
 import type { DiplomacyService } from './DiplomacyService';
@@ -617,6 +617,12 @@ export class TurnPipelineService {
       const outcomes = this.ctx.outcomesByActionId(
         actions, promptResult.actionOutcomes, promptResult.convertedActions,
       );
+      // DECISION-IMPACT: la contabilità già fatta dal motore (addebito per
+      // ordine) viaggia con l'esito strutturato dell'ordine, così il client può
+      // attribuire alla singola decisione un effetto misurabile senza dedurlo.
+      const settlementByActionId = new Map<string, OrderSettlementEntry>(
+        (orderCostSettlement.entries || []).map((entry: OrderSettlementEntry) => [String(entry.actionId), entry]),
+      );
       actions.forEach(item => {
         const outcome = outcomes.get(item.id);
         const rejected = voided.find((result: any) => result.action === item.text);
@@ -642,6 +648,7 @@ export class TurnPipelineService {
             }
             : undefined,
           objects: playerRegion.objects,
+          settlement: settlementByActionId.get(item.id),
           turn: this.state.currentTurn,
           periodStart,
           periodEnd: '', // Will be set after date advance

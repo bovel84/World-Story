@@ -11,7 +11,7 @@ describe('LW02 — deriveCheckpointImpact', () => {
       { account: { money: 9.7, stability: 56, socialTension: 36 } },
     );
     const byId = Object.fromEntries(impact.deltas.map(d => [d.id, d]));
-    expect(byId.money.text).toBe('−0.30 mld');
+    expect(byId.money.text).toBe('−0,30 mld');
     expect(byId.money.tone).toBe('negative');
     expect(byId.stability.text).toBe('−4 pt');
     expect(byId.stability.tone).toBe('negative');
@@ -63,7 +63,7 @@ describe('LW02 — impactsByTurn', () => {
       { date: '1951-03-01', turn: 3, account: { money: 9.5, stability: 61 } },
     ]);
     expect(impacts.get(1)).toBeUndefined(); // nessun punto precedente
-    expect(impacts.get(2)?.deltas.find(d => d.id === 'money')?.text).toBe('−1.00 mld');
+    expect(impacts.get(2)?.deltas.find(d => d.id === 'money')?.text).toBe('−1,00 mld');
     expect(impacts.get(3)?.deltas.find(d => d.id === 'stability')?.tone).toBe('positive');
   });
 
@@ -87,7 +87,7 @@ describe('LW06.1 — BUG 2: allineamento della Timeline', () => {
       ],
       [{ turn: 1, date: '1951-02-01' }],
     );
-    expect(impacts.get(1)?.deltas.find(d => d.id === 'money')?.text).toBe('−2.00 mld');
+    expect(impacts.get(1)?.deltas.find(d => d.id === 'money')?.text).toBe('−2,00 mld');
     // Nessun effetto attribuito al turno successivo.
     expect(impacts.get(2)).toBeUndefined();
   });
@@ -101,8 +101,8 @@ describe('LW06.1 — BUG 2: allineamento della Timeline', () => {
       ],
       [{ turn: 1, date: '1951-02-01' }, { turn: 2, date: '1951-03-01' }],
     );
-    expect(impacts.get(1)?.deltas[0].text).toBe('−2.00 mld');
-    expect(impacts.get(2)?.deltas[0].text).toBe('+1.00 mld');
+    expect(impacts.get(1)?.deltas[0].text).toBe('−2,00 mld');
+    expect(impacts.get(2)?.deltas[0].text).toBe('+1,00 mld');
     expect(impacts.get(3)).toBeUndefined();
   });
 
@@ -115,7 +115,7 @@ describe('LW06.1 — BUG 2: allineamento della Timeline', () => {
       ],
       [{ turn: 1, date: '1951-02-01' }, { turn: 2, date: '1951-03-01' }],
     );
-    expect(impacts.get(2)?.deltas[0].text).toBe('+4.00 mld');
+    expect(impacts.get(2)?.deltas[0].text).toBe('+4,00 mld');
   });
 
   it('aggrega più snapshot dello stesso turno in un solo delta', () => {
@@ -127,7 +127,7 @@ describe('LW06.1 — BUG 2: allineamento della Timeline', () => {
       ],
       [{ turn: 1, date: '1951-03-01' }],
     );
-    expect(impacts.get(1)?.deltas[0].text).toBe('−3.00 mld');
+    expect(impacts.get(1)?.deltas[0].text).toBe('−3,00 mld');
   });
 
   it('percorso legacy (advanceDate): snapshot al turno incrementato, Timeline al turno precedente', () => {
@@ -141,7 +141,7 @@ describe('LW06.1 — BUG 2: allineamento della Timeline', () => {
       ],
       [{ turn: 1, date: '1951-02-01' }, { turn: 2, date: '1951-03-01' }],
     );
-    expect(impacts.get(2)?.deltas[0].text).toBe('−4.00 mld');
+    expect(impacts.get(2)?.deltas[0].text).toBe('−4,00 mld');
     expect(impacts.get(3)).toBeUndefined();
   });
 });

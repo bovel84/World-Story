@@ -11,6 +11,19 @@ export interface HistoryItem {
   action: string;
   result: string;
   events?: string[];
+  /**
+   * DECISION-IMPACT: effetto misurabile che il motore ha attribuito a questa
+   * decisione (addebito in tesoreria, copertura parziale, ordine annullato).
+   * Assente quando l'ordine non è stato eseguito o per i turni riletti dal
+   * server, che non conservano l'addebito per singolo ordine.
+   */
+  settlement?: {
+    kind: 'charged' | 'partial' | 'unfunded';
+    requestedMld: number;
+    chargedMld: number;
+    label: string;
+  };
+  outcomeStatus?: string;
   eventDetails?: Array<{
     id: string;
     date: string;
