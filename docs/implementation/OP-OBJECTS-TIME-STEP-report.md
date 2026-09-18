@@ -360,6 +360,48 @@ dell'overlay interno, non del payload).
 
 ---
 
+## §18-bis. Verifica live dopo il deploy
+
+Deploy: `bash scripts/deploy-cloudflare.sh` (il backend locale risale dopo il solito errore di
+attesa 150 s, poi `--skip-backend` per frontend + Worker + KV). Worker Version ID
+**`16c51d96-2dde-47c4-8ae3-adf8b66286dc`**.
+
+`GET /api/health` sul Worker (`https://world-story.bovel-cannas.workers.dev`):
+
+```json
+{"status":"ok","build":{"backend":"dev","frontend":"22c561c"},
+ "schema":{"database":{"tables":52}},"auth":"open-single-user"}
+```
+
+`frontend: 22c561c` è il commit di questo pacchetto (squash della PR #72) ✓.
+
+**Percorso di lettura invariato** (nessuna regressione, il flusso resta **mensile**). Partita
+`23fd1fe361ae`, valori identici a quelli registrati in OP-OBJECTS FLOW §18-bis:
+
+| grandezza | valore live |
+|---|---|
+| `needs` | `{food 1.867 · clothing 0.555 · weapons 1.6 · fuel 0.74}` |
+| `capacity` | `{food 11.205 · clothing 4.44 · weapons 25.6 · fuel 4.44}` |
+| `flow` armamenti | `facilities +6.354 · army −1.6 · natural +0.3 → total +5.054` |
+| `flow` carburante | `facilities +3.93 · army −0.24 · natural +3.85 → total +7.04` |
+| `balance` | `balancePerMonth` = `flow.total` per ogni materiale |
+| `/arsenal` | `GBR-garrison` Carburante **0,24** · Armamenti **1,6** · Cibo **0,48**; `factory-GBR-10` Ritmo **100%**, Ferro/Carbone **0,016**, output Vestiario **0,7** · Armamenti **0,5** · Carburante **0,4** |
+
+**Salto lungo via HTTP**: `POST /api/games/23fd1fe361ae/time-skip {jump_days: 180, mode: fixed}`
+risponde `424 {"error":"openai-compatible: HTTP 401 — Unauthorized"}`: è il **blocco noto del
+provider LLM** (`LLM_API_KEY` assente in `backend-nest/.env`), non un effetto di questo pacchetto —
+la stessa chiamata falliva prima. Verificato che **la partita non è stata mutata** (stock
+identico: `money 73,91 · fuel 3,907 · weapons 3`).
+
+La verifica del **salto lungo su dati reali** è quindi affidata a due prove eseguite davvero:
+
+1. la **sonda su copia del DB reale** (§16): `advance 180` ≡ `6 × advance 30`, identici fino
+   all'ultima cifra, su `23fd1fe361ae` (GBR) e `246c9cda8b8f` (DEU 1815);
+2. la suite `tests/op-objects-time-step.test.ts` (24 test), che riproduce la stessa sequenza su
+   uno stato controllato e verifica anche i bollettini aggregati di un salto annuale.
+
+---
+
 ## §19. Nota CORE ENGINE FREEZE
 
 Sono stati toccati file dell'**engine congelato** (`core/simulation/**`, `GameSession`,
