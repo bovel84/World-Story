@@ -192,6 +192,16 @@ describe('COUNTRY-CLARITY · sala operativa nazionale', () => {
     expect(picture.resources.status).toBe('pressure');
   });
 
+  it('paese senza sbocco al mare: la domanda sulle forze non chiede una flotta', () => {
+    const picture = nationalOperatingPicture(modernInput({
+      account: { ...modernInput().account, ports: 0 },
+      arsenal: { ...modernInput().arsenal, lines: [line('Fucili d’ordinanza', 'Fanteria', 'terra', 480), line('Artiglieria da campagna', 'Artiglieria', 'terra', 6)] },
+    }));
+    expect(picture.military.coverage.map(row => row.id)).not.toContain('navalSupport');
+    expect(picture.answers.find(item => item.id === 'infrastrutture')?.answer).toContain('0 porti');
+    expect(picture.answers.find(item => item.id === 'sufficienza')?.answer).not.toContain('Supporto navale');
+  });
+
   it('valori a zero non diventano «dato mancante»', () => {
     const picture = nationalOperatingPicture({
       account: { forces: 0, mobilized: 0, population: 0, factories: 0, monthlyBalance: 0 },

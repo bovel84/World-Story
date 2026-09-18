@@ -174,7 +174,12 @@ export function equipmentCoverage(account?: Partial<NationAccount> | null, arsen
   const forces = Math.max(0, finiteOrNull(account?.forces) ?? 0);
   const mobilized = Math.max(0, finiteOrNull(account?.mobilized) ?? 0);
   const lines = arsenal?.lines ?? [];
-  return ESTABLISHMENT.map(entry => {
+  // Senza porti il motore dice che il paese non ha cantieri (`NationCapacity`:
+  // «i porti sono geografia»): chiedere una flotta a chi non ha mare sarebbe una
+  // penalità inventata, quindi la categoria navale non entra nel fabbisogno.
+  // Con il dato assente (non zero) la categoria resta: assenza ≠ zero.
+  const landlocked = finiteOrNull(account?.ports) === 0;
+  return ESTABLISHMENT.filter(entry => !(landlocked && entry.id === 'navalSupport')).map(entry => {
     const required = Math.ceil(entry.perForce * forces + (entry.perMobilized ?? 0) * mobilized);
     const matched = lines.filter(line => {
       if (entry.categories && !entry.categories.includes(line.category)) return false;
@@ -212,7 +217,12 @@ export function readinessPicture(input: {
   const mobilized = Math.max(0, finiteOrNull(account?.mobilized) ?? 0);
   const qualityIndex = finiteOrNull(arsenal?.qualityIndex) ?? 0;
 
-  const weightTotal = ESTABLISHMENT.reduce((total, entry) => total + entry.weight, 0);
+  // Il peso si normalizza sulle categorie **presenti**: se una categoria non
+  // esiste per questo paese (nessun porto, nessun mare) la scala resta 0–100.
+  const weightTotal = coverage.reduce((total, row) => {
+    const entry = ESTABLISHMENT.find(item => item.id === row.id);
+    return total + (entry?.weight ?? 0);
+  }, 0);
   const weighted = coverage.reduce((total, row) => {
     const entry = ESTABLISHMENT.find(item => item.id === row.id);
     return total + row.pct * (entry?.weight ?? 0);
