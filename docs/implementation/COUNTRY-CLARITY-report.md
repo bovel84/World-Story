@@ -157,6 +157,8 @@ Nessun numero infinito o ingannevole (test dedicato, inclusi input estremi). Imp
 
 ## 12. Layout finale (descrizione precisa)
 
+**Frase di testa.** Quando il paese non tiene, la testa cita il **problema** del dominio peggiore (il suo primo driver non positivo, con la causa), mai la sintesi: una sintesi positiva accanto a uno stato critico sarebbe fuorviante. Il dominio peggiore è il primo in ordine canonico con quello stato (economia → risorse → industria → forze armate → governo), quindi nessuna scelta arbitraria a parità di gravità.
+
 **Desktop (>1100 px).** In Situazione: verdetto a tutta larghezza con pill di stato colorata a sinistra; sotto, «Da decidere per primo» con una riga per attenzione (bordo sinistro colorato per gravità, etichetta, dominio, causa); poi una griglia di 5 carte di dominio (`auto-fit, minmax(230px, 1fr)` → 4–5 per riga), ciascuna con nome, pill di stato, frase di sintesi, 4 cifre in monospazio tabulare su due colonne, al massimo 3 problemi con bordo colorato e il pulsante «Apri …»; infine la sala operativa in griglia `auto-fit, minmax(240px, 1fr)` (3–4 risposte per riga).
 
 **Tablet (700–1100 px).** Le carte scendono a 2–3 per riga, le risposte a 2: nessuna modifica strutturale.
