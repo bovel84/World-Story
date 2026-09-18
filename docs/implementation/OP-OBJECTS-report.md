@@ -480,6 +480,41 @@ Nessuna formula del motore è stata toccata: solo convenzioni di presentazione
 dichiarate, la scelta delle righe da mostrare e la lunghezza di un'etichetta.
 Backend **153 file / 1409 test**; frontend **67 file / 485 test**.
 
+## 37. Verifica live post-deploy (attraverso il Worker)
+
+Worker **`db0d21e4-e313-4ef8-bbcf-0b3e5f55aa9a`**, `build.frontend c6338ab`, 51 tabelle,
+`auth: open-single-user`. Numeri reali dall'API pubblica, non da fixture:
+
+**Gioco del 1815 `246c9cda8b8f`** (Eserciti pre-industriali) — 11 oggetti:
+`{force:1, army:1, facility:2, construction:3, mine:4}`. Forze armate: 3.200 uomini in
+armi, riserva 1.440, prontezza 4%, 11,8 mesi di carburante. Armata: «Reparti di
+guarnigione», 3 reparti (somma = `forces`), azione **bloccata** con motivo
+«Mancano 2.720 pezzi — Armi individuali». Addetti: acciaieria **9.000**, ateneo
+**1.200**, miniere 340–1.360. Tre opere con etichetta ≤ **77 caratteri** e titolo
+integrale sotto «Perché?». Catena degli armamenti **rotta** (copertura 5,6%), catena
+navale senza navi.
+
+**Gioco moderno `23fd1fe361ae`** — 25 oggetti:
+`{force:1, army:1, facility:17, mine:6}`. Forze armate: 96.000 uomini, riserva 86.400,
+prontezza 47%, 5,3 mesi di carburante. Ogni acciaieria **9.000 addetti** (prima
+923.314), ogni ateneo 1.200. Nessuna riga ferma: anteprima della creazione di un
+reparto →
+
+```
+Reparti                 8 → 9
+Uomini in armi          96.000 → 108.000
+Riserva addestrata      86.400 → 97.200
+Copertura armi indiv.   100% → 77,8%
+Pronto operativo        47% → 35%
+Carburante (scorte)     5,3 → 5,1 mesi
+Consumo carburante      0,74 → 0,77 /mese
+Spese dello Stato       15,299 → 15,515 mld
+Saldo mensile           13,495 → 13,279 mld
+```
+
+(L'azione è disponibile: 72.000 fucili in deposito su 9.000 richiesti; costo immediato
+41.000 mln.) Nessun errore di schema, nessuna migrazione: 51 tabelle prima e dopo.
+
 ## 35. File toccati e commit
 
 **Nuovi**
