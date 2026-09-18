@@ -5,6 +5,8 @@
  * /intervene in pausa, conflitto 409 simulation_paused su nuovo salto.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { CRISIS_RECOVERY_RATE, CRISIS_WATCH_RATE } from '../src/core/simulation/NationCrisis';
+import { daysBetween } from '../src/core/simulation/calendar';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
@@ -159,29 +161,44 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
     expect(game.body.pausedSimulation).toBeNull();
   });
 
-  it('il playback scaglionato fa avanzare la crisi dei giorni di ogni passo', async () => {
-    const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_DEU` });
-    const gameId = created.body.game_id || created.body.game?.id || created.body.id;
-    const repos = await import('../src/repositories');
-    // Punto di partenza controllato: 55 giorni di criticità già accumulati.
+  /**
+   * PLAYBACK-CRISIS-LEG — scenario controllato della segnalazione:
+   *   periodStart 1951-01-01 · crisi iniziale 55 giorni
+   *   evento 1 1951-01-20 · evento 2 1951-02-10 · destinazione 1951-04-01
+   * La regola attesa è quella del motore (`CRISIS_WATCH_RATE` / recupero /
+   * criticità piena), calcolata sul livello osservato a ogni passo.
+   */
+  const CRISIS_LEG_DAYS = { first: 19, second: 21, final: 50 };
+
+  function seedCrisis57(gameId: string, repos: any, insolvency = 55) {
     repos.gameRepository.saveCrisisState({
       gameId,
-      criticalDays: { revolt: 0, insolvency: 55, invasion: 0 },
+      criticalDays: { revolt: 0, insolvency, invasion: 0 },
       episodes: { revolt: 0, insolvency: 1, invasion: 0 },
       overall: 'critical',
       ending: null,
       updatedTurn: 1,
       updatedDate: '1951-01-01',
     });
-    const session = getSessionRegistry().getSession(gameId);
+  }
+
+  function crisisStepper(session: any) {
     const levelOf = () => session.getCrisis().state.risks
       .find((risk: any) => risk.dimension === 'insolvency').level as 'critical' | 'watch' | 'calm';
-    /** Giorni attesi dopo `span` giorni simulati, dalla regola del motore. */
-    const step = (days: number, span: number, level = levelOf()) => level === 'critical'
+    return (days: number, span: number, level = levelOf()) => level === 'critical'
       ? days + span
       : level === 'watch'
-        ? days + Math.round(span * 0.3)
-        : Math.max(0, days - Math.round(span * 1.2));
+        ? days + Math.round(span * CRISIS_WATCH_RATE)
+        : Math.max(0, days - Math.round(span * CRISIS_RECOVERY_RATE));
+  }
+
+  it('playback scaglionato: il tratto finale porta la crisi alla destinazione', async () => {
+    const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_DEU` });
+    const gameId = created.body.game_id || created.body.game?.id || created.body.id;
+    const repos = await import('../src/repositories');
+    seedCrisis57(gameId, repos);
+    const session = getSessionRegistry().getSession(gameId);
+    const step = crisisStepper(session);
 
     await callRoute('POST', `/games/${gameId}/actions/queue`, { text: 'Direttiva di prova' });
     const skip = await callRoute('POST', `/games/${gameId}/time-skip`, { jump_days: 90 });
@@ -189,7 +206,7 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
     // Primo evento al 1951-01-20: 19 giorni simulati e già contabilizzati nel
     // checkpoint mostrato al giocatore (il pericolo si vede prima del collasso).
     const afterFirst = repos.gameRepository.getCrisisState(gameId)!;
-    const expectedFirst = step(55, 19);
+    const expectedFirst = step(55, CRISIS_LEG_DAYS.first);
     expect(afterFirst.updatedDate).toBe('1951-01-20');
     expect(afterFirst.criticalDays.insolvency).toBe(expectedFirst);
 
@@ -197,9 +214,50 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
     expect(second.body.type).toBe('awaiting_next');
     // Secondo passo (1951-01-20 → 1951-02-10): altri 21 giorni, stessa regola.
     const afterSecond = repos.gameRepository.getCrisisState(gameId)!;
+    const expectedSecond = step(expectedFirst, CRISIS_LEG_DAYS.second);
     expect(afterSecond.updatedDate).toBe('1951-02-10');
-    expect(afterSecond.criticalDays.insolvency).toBe(step(expectedFirst, 21));
-    expect(afterSecond.updatedDate).not.toBe(afterFirst.updatedDate);
+    expect(afterSecond.criticalDays.insolvency).toBe(expectedSecond);
+
+    // Completion: il tratto 1951-02-10 → 1951-04-01 non è tempo morto.
+    const done = await callRoute('POST', `/games/${gameId}/simulations/${skip.body.simulationId}/next`);
+    expect(done.body.type).toBe('run_completed');
+    expect(done.body.newDate).toBe('1951-04-01');
+    const afterCompletion = repos.gameRepository.getCrisisState(gameId)!;
+    expect(afterCompletion.updatedDate).toBe('1951-04-01');
+    expect(afterCompletion.criticalDays.insolvency).toBe(step(expectedSecond, CRISIS_LEG_DAYS.final));
+    // Crisi ed economia sono alla stessa data: stesso orologio simulato.
+    expect(session.getCurrentDate()).toBe('1951-04-01');
+    expect(daysBetween('1951-02-10', '1951-04-01')).toBe(CRISIS_LEG_DAYS.final);
+    expect(daysBetween('1951-01-01', '1951-01-20')).toBe(CRISIS_LEG_DAYS.first);
+    expect(daysBetween('1951-01-20', '1951-02-10')).toBe(CRISIS_LEG_DAYS.second);
+  });
+
+  it('playback scaglionato: «Intervieni» non simula il tempo fino alla destinazione', async () => {
+    const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_DEU` });
+    const gameId = created.body.game_id || created.body.game?.id || created.body.id;
+    const repos = await import('../src/repositories');
+    seedCrisis57(gameId, repos);
+    const session = getSessionRegistry().getSession(gameId);
+    const step = crisisStepper(session);
+
+    await callRoute('POST', `/games/${gameId}/actions/queue`, { text: 'Direttiva di prova' });
+    const skip = await callRoute('POST', `/games/${gameId}/time-skip`, { jump_days: 90 });
+    expect(skip.body.type).toBe('awaiting_next');
+    const expectedFirst = step(55, CRISIS_LEG_DAYS.first);
+    const second = await callRoute('POST', `/games/${gameId}/simulations/${skip.body.simulationId}/next`);
+    expect(second.body.type).toBe('awaiting_next');
+    const expectedSecond = step(expectedFirst, CRISIS_LEG_DAYS.second);
+
+    const outcome = await callRoute('POST', `/games/${gameId}/intervene`, {
+      simulationId: skip.body.simulationId, eventId: second.body.event.id, revision: second.body.revision,
+    });
+    expect(outcome.body.type).toBe('intervened');
+    expect(outcome.body.newDate).toBe('1951-02-10');
+    const after = repos.gameRepository.getCrisisState(gameId)!;
+    expect(after.updatedDate).toBe('1951-02-10');
+    expect(after.criticalDays.insolvency).toBe(expectedSecond);
+    expect(after.updatedDate).not.toBe('1951-04-01');
+    expect(session.getCurrentDate()).toBe('1951-02-10');
   });
 
   it('intervene in pausa chiude il run al checkpoint mostrato', async () => {
