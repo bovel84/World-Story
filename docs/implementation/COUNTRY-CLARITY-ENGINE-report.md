@@ -221,18 +221,67 @@ Prove di sensibilità:
 
 ## 7. Verifica live (post-deploy)
 
-Con il gioco reale `aa8c25b40bb6` (10 aprile 2026, preset
-`modern_world_provinces`, partita legacy):
+Deploy: Worker `world-story`, Version ID `5ff954f1-4d5e-4672-aa6d-6682ff20343c`,
+`build.frontend a82c433`, `status ok`, 51 tabelle, `auth: open-single-user`.
 
-- `GET /api/games/aa8c25b40bb6/arsenal` → `epoch: "moderno"`,
-  `epochLabel: "Era moderna"`, 8 categorie di dotazione, manpower con uomini
-  (attivi, riserva, richiamabili), copertura per categoria e prontezza con
-  driver, `industrialCapacity` con totale/occupazione/allocazioni.
-- Il Dossier mostra le nuove schede FORZE (Personale, Equipaggiamento,
-  Prontezza) e INDUSTRIA (Stabilimenti, Assegnazioni, Produzioni) senza
-  richieste aggiuntive al motore.
+Gioco reale `aa8c25b40bb6` (10 aprile 2026, preset `modern_world_provinces`,
+partita legacy), `GET /api/games/aa8c25b40bb6/arsenal`:
 
-*(Sezione aggiornata con l'output reale al momento del deploy.)*
+```
+epoch = moderno · epochLabel = Era moderna
+establishment: 8 → individualWeapons, armoredMobility, supportWeapons, artillery,
+                   airSupport, navalSupport, missiles, drones
+
+manpower: population 45.884.002 · bacino 6.423.760 · attivi 72.000 (6 reparti × 12.000)
+          · riserva 64.800 · richiamati 0 · richiamabili 64.800
+
+coverage:
+  Armi individuali      240 / 240  100%   (Fucili d'assalto ×240)
+  Mobilità corazzata      9 / 9    100%   (Veicoli corazzati da trasporto ×9)
+  Armi di supporto        0 / 5      0%
+  Artiglieria             0 / 3      0%
+  Supporto aereo          0 / 2      0%
+  Missili                 0 / 1      0%
+  Droni                   0 / 1      0%
+  (nessuna riga navale: ports = 0, il paese non ha sbocco al mare)
+
+readiness: 47 · fragile
+  critical Copertura armi di supporto 0% | 0 in servizio su 5 della dotazione.
+  critical Copertura artiglieria 0% | 0 in servizio su 3 della dotazione.
+  critical Copertura supporto aereo 0% | 0 in servizio su 2 della dotazione.
+  critical Copertura missili 0% | 0 in servizio su 1 della dotazione.
+  critical Copertura droni 0% | 0 in servizio su 1 della dotazione.
+  positive Carburante: 6,1 mesi | Copertura piena delle operazioni (2 in magazzino).
+  warning  Qualità media armi 36/100 | Pesa sui combattimenti insieme alla copertura.
+
+industrialCapacity: total 38 (3 fabbriche × 10 + 4 atenei × 2) · used 26 · free 12
+                    · utilization 68,4% · demand 26 · satisfaction 100% · overflowFactor 1
+                    · saturated false · byKind { military 0, progetti 26, manutenzione 0 }
+  progetto  porto commerciale su Santa Fe   16 linee
+  progetto  delegazione tecnica a La Paz     7 linee
+  progetto  negoziato con il Brasile         3 linee
+```
+
+Che cosa dimostra, punto per punto:
+
+1. **Uomini, non reparti** (P1): 72.000 attivi da 6 reparti, con riserva
+   addestrata (64.800) e riservisti richiamabili (64.800) — il dato che prima
+   era `null` ora è calcolato dal motore.
+2. **Dotazioni d'epoca** (P2): 8 categorie moderne, le stesse della dottrina,
+   con pesi che sommano a 1.
+3. **Copertura dal personale e dall'arsenale** (P3): 240 armi individuali
+   richieste = 6 reparti × 40, cioè **esattamente** ciò che il seed del motore
+   ha assegnato (100%); 9 mezzi corazzati = 6 × 1,5.
+4. **Prontezza del motore** (P4): 47% `fragile`, lo **stesso** valore che
+   COUNTRY-CLARITY calcolava nel browser — ma ora con driver e soglie del
+   motore, e senza che il frontend contenga più la formula.
+5. **Senza sbocco al mare** (P2.3): `ports = 0` → nessuna riga navale, nessuna
+   penalità inventata; readiness normalizzata sulle categorie presenti.
+6. **Capacità industriale reale** (P5/P6): 38 linee (3 fabbriche × 10 + 4 atenei
+   × 2) e **26 occupate da tre progetti reali** (16 + 7 + 3), non «3 su 3».
+   Prima il Dossier avrebbe detto «3 lavorazioni su 3 stabilimenti».
+7. **Nessuna chiamata in più** (P9): lo stesso `GET /arsenal` che il Dossier già
+   caricava.
 
 ---
 
