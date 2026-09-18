@@ -8,7 +8,7 @@ import { shortId } from '../../utils/short-id';
 import { gameRepository } from '../../repositories';
 import { countryRepository } from '../../repositories/country.repository';
 import { getSessionRegistry } from '../../session-registry';
-import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult } from '../../game-session';
+import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult, type CompletedBatchResult } from '../../game-session';
 import { IdempotencyConflictError, simulationJobService } from '../../jobs/SimulationJobService';
 import { addDays, jumpHorizon } from '../../core/simulation/calendar';
 import { addSSEClient, removeSSEClient, broadcastToGame, hasClients } from '../../sse';
@@ -176,6 +176,15 @@ export function respondTimeSkipResult(res: any, session: any, result: any, perio
   const pausedResult = result as PausedBatchResult | null;
   if (pausedResult?.paused === true) {
     res.json(pausedResult);
+    return;
+  }
+  // PLAYBACK-INTERMEDIATE-OVER: il salto può chiudersi dentro il playback
+  // (budget esaurito, intervento, collasso della nazione). L'esito del playback
+  // è già la risposta terminale: stessa forma che il client riceve da
+  // `POST /games/:id/simulations/:runId/next`.
+  const playbackClose = result as CompletedBatchResult | null;
+  if (playbackClose?.type === 'game_over' || playbackClose?.type === 'paused_budget' || playbackClose?.type === 'intervened') {
+    res.json(playbackClose);
     return;
   }
   const worldResult = result as TurnResultRecord | null;

@@ -123,28 +123,31 @@ afterAll(() => {
   } catch { /* tmp */ }
 });
 
-  it('collasso in un passo per-evento: il game_over esce una volta, a commit avvenuto', async () => {
+  it('collasso in un passo per-evento: il run si chiude al collasso, un solo game_over', async () => {
     const { gameId, session } = createGame();
     seedCrisis(gameId, 0, 2);
     session.queueAction('Direttiva di prova');
     const events: Array<{ type: string; data: any }> = [];
     session.setSSEBroadcaster((type: string, data: any) => { events.push({ type, data }); });
     // Prima svolta oltre la soglia: la nazione cade su un passo per-evento, non
-    // sul tratto finale. Anche qui il game_over deve uscire a transazione
-    // riuscita e una volta sola.
+    // sul tratto finale. Il game_over esce a transazione riuscita, una volta
+    // sola, e — da PLAYBACK-INTERMEDIATE-OVER — chiude qui il run: niente
+    // `awaiting_next`, niente eventi successivi (vedi
+    // playback-intermediate-over.test.ts).
     jumpScript = eventsScript([
       { headline: 'Lunga deriva', description: 'Il debito diventa insostenibile.', date: '2026-04-06', mapChanges: [] },
       { headline: 'Ultimo avviso', description: 'La piazza scende in strada.', date: '2026-04-20', mapChanges: [] },
     ]);
     try {
       const first = await session.processWorldAdvance(120) as any;
-      expect(first.type).toBe('awaiting_next');
+      expect(first.type).toBe('game_over');
       const leg = daysBetween(PERIOD_START, '2026-04-06');
       expect(leg).toBeGreaterThanOrEqual(CRISIS_COLLAPSE_DAYS);
       expect(crisisOf(gameId).criticalDays.insolvency).toBe(leg);
       expect(crisisOf(gameId).updatedDate).toBe('2026-04-06');
       expect(crisisOf(gameId).ending).not.toBeNull();
       expect(session.isFinished()).toBe(true);
+      expect(session.getPausedRunInfo()).toBeNull();
       expect(events.filter(event => event.type === 'game_over')).toHaveLength(1);
     } finally {
       jumpScript = eventsScript();

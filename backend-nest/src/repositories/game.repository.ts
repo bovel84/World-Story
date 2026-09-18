@@ -205,7 +205,7 @@ export const gameRepository = {
     return run;
   },
 
-  finishSimulationRun: (id: string, status: 'completed' | 'no_event' | 'failed' | 'intervened' | 'interrupted' | 'paused_budget', data: {
+  finishSimulationRun: (id: string, status: 'completed' | 'no_event' | 'failed' | 'intervened' | 'interrupted' | 'paused_budget' | 'game_over', data: {
     checkpointDate?: string; checkpointId?: string; turn?: number; error?: string;
   } = {}) => {
     db.prepare(`

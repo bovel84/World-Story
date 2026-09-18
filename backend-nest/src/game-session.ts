@@ -236,7 +236,7 @@ export interface PausedBatchResult {
 /** Risposta di chiusura del playback: il run è terminato. */
 export interface CompletedBatchResult {
   paused?: false;
-  type: 'run_completed' | 'paused_budget' | 'intervened';
+  type: 'run_completed' | 'paused_budget' | 'intervened' | 'game_over';
   simulationId: string;
   actions: PendingAction[];
   result: {
@@ -2202,13 +2202,19 @@ export class GameSession {
     proposedEvents: SimulationEvent[];
     periodStart: string;
     horizonDate: string;
-  }): Promise<PendingAction[] | PausedBatchResult> {
+  }): Promise<PendingAction[] | PausedBatchResult | CompletedBatchResult> {
     return this.playback.startPausedPlaybackUnlocked(opts);
   }
 
   /** «Continua»: autorizza il checkpoint per-evento successivo del run sospeso. */
   async continueSimulation(runId: string): Promise<PausedBatchResult | CompletedBatchResult> {
     const result = await this.withLock(async () => {
+      // PLAYBACK-INTERMEDIATE-OVER: difesa server-side. Il run viene chiuso nel
+      // momento stesso in cui il checkpoint produce il game over, quindi qui non
+      // si dovrebbe mai arrivare a partita finita; se succede (client rimasto
+      // indietro, restore, corsa), l'errore di game over è
+      // il contratto esistente: nessun evento nuovo viene applicato.
+      this.assertPlayable();
       if (!this.pausedRun || this.pausedRun.runId !== runId) {
         throw new Error('Il run indicato non è in pausa per questa partita');
       }
@@ -2651,7 +2657,7 @@ export class GameSession {
   async processAllPendingActions(
     jumpDays: number = 30,
     idempotencyKey?: string,
-  ): Promise<PendingAction[] | PausedBatchResult> {
+  ): Promise<PendingAction[] | PausedBatchResult | CompletedBatchResult> {
     return this.turnPipeline.processAllPendingActions(jumpDays, idempotencyKey);
   }
 
@@ -2659,7 +2665,7 @@ export class GameSession {
   async processWorldAdvance(
     jumpDays: number = 30,
     idempotencyKey?: string,
-  ): Promise<TurnResultRecord | PausedBatchResult | null> {
+  ): Promise<TurnResultRecord | PausedBatchResult | CompletedBatchResult | null> {
     return this.turnPipeline.processWorldAdvance(jumpDays, idempotencyKey);
   }
 
@@ -2675,7 +2681,7 @@ export class GameSession {
     jumpDays: number,
     actions: PendingAction[],
     idempotencyKey?: string,
-  ): Promise<PendingAction[] | PausedBatchResult> {
+  ): Promise<PendingAction[] | PausedBatchResult | CompletedBatchResult> {
     return this.turnPipeline.processActionBatchUnlocked(jumpDays, actions, idempotencyKey);
   }
 

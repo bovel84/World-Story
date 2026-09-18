@@ -32,7 +32,7 @@ import type { DiplomacyService } from './DiplomacyService';
 import type { PlaybackService } from './PlaybackService';
 import type { SessionStateStore } from './SessionStateStore';
 import type { CommitmentResult } from './CommitmentService';
-import { SimulationPausedError, SimulationInProgressError, type ActionRecord, type PausedBatchResult, type RegionState, type TimelineEventRecord, type TurnResultRecord } from '../game-session';
+import { SimulationPausedError, SimulationInProgressError, type ActionRecord, type CompletedBatchResult, type PausedBatchResult, type RegionState, type TimelineEventRecord, type TurnResultRecord } from '../game-session';
 
 export interface TurnPipelineContext {
   gameId: string;
@@ -99,7 +99,7 @@ export class TurnPipelineService {
     jumpDays: number,
     actions: PendingAction[],
     idempotencyKey?: string,
-  ): Promise<PendingAction[] | PausedBatchResult> {
+  ): Promise<PendingAction[] | PausedBatchResult | CompletedBatchResult> {
     // Validate before taking a snapshot or mutating the queue.
     const timeJump = jumpHorizon(jumpDays);
     const periodStart = this.state.currentDate;
@@ -991,7 +991,7 @@ export class TurnPipelineService {
   /**
    * Process every currently pending order as one simultaneous batch.
    */
-  async processAllPendingActions(jumpDays: number = 30, idempotencyKey?: string): Promise<PendingAction[] | PausedBatchResult> {
+  async processAllPendingActions(jumpDays: number = 30, idempotencyKey?: string): Promise<PendingAction[] | PausedBatchResult | CompletedBatchResult> {
     const result = await this.ctx.withLock(async () => {
       if (this.state.pausedRun) throw new SimulationPausedError(this.state.pausedRun.runId);
       const pending = this.ctx.orders.queue().filter(action => action.status === 'pending');
@@ -1006,7 +1006,7 @@ export class TurnPipelineService {
    * orders. No placeholder player action is created: an empty `actions` array
    * explicitly means that only existing world processes may produce events.
    */
-  async processWorldAdvance(jumpDays: number = 30, idempotencyKey?: string): Promise<TurnResultRecord | PausedBatchResult | null> {
+  async processWorldAdvance(jumpDays: number = 30, idempotencyKey?: string): Promise<TurnResultRecord | PausedBatchResult | CompletedBatchResult | null> {
     // F03/A10: `executed` distingue il conflitto di lock (nessun callback
     // eseguito → SimulationInProgressError) dal no_event onesto (callback
     // eseguito, nessun risultato → null → la route risponde no_event_found).
