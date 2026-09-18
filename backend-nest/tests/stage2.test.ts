@@ -1184,7 +1184,9 @@ describe('Этап 2: консолидация истории', () => {
     expect(page3.timeline.length).toBe(50);
     expect(page3.hasMore).toBe(false);
     expect(page3.timeline.at(-1)!.turn).toBe(150);
-  });
+    // Test pesante (150 righe + tre pagine): su un runner condiviso il limite
+    // predefinito di 5 s non basta e il fallimento non direbbe nulla sul codice.
+  }, 20000);
 });
 
 describe('§9.3 — playback «un evento alla volta» per i salti fissi', () => {

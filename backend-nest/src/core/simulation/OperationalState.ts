@@ -33,7 +33,7 @@ import {
 } from './IndustrialCapacity';
 import type { IndustrialOrderLike } from './OperationalObjects';
 import {
-  FULL_TANK_MONTHS, OPERATING_STATUS_LABEL, fact, marginalProduction, shortTitle,
+  FULL_TANK_MONTHS, OPERATING_STATUS_LABEL, endowmentContribution, fact, marginalProduction, shortTitle,
   type OperatingObject, type OperatingStatus,
 } from './OperationalObjects';
 
@@ -90,7 +90,9 @@ export const FACILITY_RECIPES: Record<FacilityKind, FacilityRecipe> = {
   vehicle_factory: { inputs: { weapons: 0.4, fuel: 0.3 }, outputs: { weapons: 0.7 } },
   aircraft_factory: { inputs: { weapons: 0.3, fuel: 0.4 }, outputs: { weapons: 0.5 } },
   shipyard: { inputs: { iron: 1.2, coal: 0.4 }, outputs: { weapons: 0.4 } },
-  research_center: { inputs: { money: 0.02 }, outputs: { research: 0.35 } },
+  // Il centro di ricerca non ha una catena di materiali: il costo del denaro è
+  // una **spesa** (sezione «costi»), non un collo di bottiglia della produzione.
+  research_center: { inputs: {}, outputs: { research: 0.35 } },
   mine: { inputs: {}, outputs: {} },
 };
 
@@ -516,23 +518,19 @@ export function seedFacilities(input: {
   date: string;
   endowment?: Record<string, number>;
   /**
-   * Output dichiarati dal **motore** per un impianto di quel tipo
-   * (`marginalProduction` su un impianto): la scomposizione dell'aggregato
+   * Ricetta dichiarata dal **motore** per un impianto di quel tipo
+   * (`marginalPlant`: produce/consuma): la scomposizione dell'aggregato
    * nazionale diventa così la somma degli impianti. Assente ⇒ ricetta di base.
    */
-  profileOf?: (kind: FacilityKind) => Record<string, number> | undefined;
+  recipeOf?: (kind: FacilityKind) => FacilityRecipe | undefined;
 }): FacilityState[] {
   const ordered = orderedRegions(input.regions);
   const coastal = coastalRegions(input.regions);
   const facilities: FacilityState[] = [];
   // Ricetta di un impianto: input dichiarati (la catena dei materiali) e output
   // dal profilo del motore, quando disponibile.
-  const recipeFor = (kind: FacilityKind): FacilityRecipe => {
-    const base = FACILITY_RECIPES[kind];
-    const outputs = input.profileOf ? input.profileOf(kind) : undefined;
-    const positive = Object.fromEntries(Object.entries(outputs || {}).filter(([, value]) => nonNegative(value) > 0));
-    return Object.keys(positive).length > 0 ? { inputs: base.inputs, outputs: positive } : base;
-  };
+  const recipeFor = (kind: FacilityKind): FacilityRecipe =>
+    (input.recipeOf ? input.recipeOf(kind) : undefined) || FACILITY_RECIPES[kind];
   let index = 0;
   const push = (kind: FacilityKind, region: SeedRegion | undefined, workers: number) => {
     const capacity = facilityCapacityFor(kind);
@@ -986,6 +984,8 @@ export interface PersistentObjectsInput {
   stock?: Record<string, number>;
   /** Giacimenti dichiarati: alimentano gli input non materiali delle ricette. */
   endowment?: Record<string, number>;
+  /** Tecnologie possedute: servono al contributo estrattivo delle miniere. */
+  technologies?: readonly string[];
   /** Spese civili mensili da attribuire agli impianti (mld). */
   civilMonthlyMld?: number;
   /** Spese militari mensili da attribuire alle armate (mld). */
@@ -1073,9 +1073,16 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
   // ── Impianti e miniere ────────────────────────────────────────────────────
   const totalLines = input.facilities.filter(facility => facility.kind !== 'mine')
     .reduce((total, facility) => total + nonNegative(facility.capacity), 0);
+  const technologies = [...(input.technologies || [])];
   for (const facility of input.facilities) {
     if (facility.kind === 'mine') {
       const amount = nonNegative(facility.capacity);
+      // Contributo del giacimento: la **differenza del motore** fra un impianto
+      // con un punto di giacimento e uno senza, moltiplicata per i punti
+      // dichiarati dal registro del paese. Nessuna formula riscritta qui.
+      const contribution = facility.resourceKind
+        ? endowmentContribution(facility.resourceKind as NaturalResourceKind, technologies)
+        : {};
       objects.push({
         id: facility.id,
         kind: 'mine',
@@ -1090,8 +1097,14 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
           fact('stato', 'Giacimento', amount, 'numero'),
           fact('capacita', 'Sfruttamento', round1(Math.min(100, amount / 5 * 100)), 'pct'),
           fact('personale', 'Addetti', facility.workers, 'numero'),
-          fact('output', 'Contributo mensile', 0, 'per_mese', 'neutral',
-            'Il contributo del giacimento entra nel bilancio materiale del motore: qui non si ricalcola.'),
+          ...Object.entries(contribution)
+            .filter(([, perPoint]) => perPoint > 0)
+            .map(([id, perPoint]) => fact(
+              'output', `${materialLabel(id)} (a pieno regime)`, round3(perPoint * amount), 'per_mese', 'neutral',
+              `Contributo di un punto di giacimento ×${amount} punti dichiarati dal registro del paese.`,
+            )),
+          // Per le risorse che il motore non fa entrare in una voce separata non
+          // si mostra nulla: un contributo inventato sarebbe peggio del silenzio.
         ],
         problems: [],
         actions: [{ id: 'trade', label: 'Compra o vendi sul mercato', enabled: true, blockedReason: null }],
