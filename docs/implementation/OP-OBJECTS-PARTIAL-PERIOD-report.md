@@ -633,3 +633,31 @@ Nessuna modifica di frontend, nessun `preset.json`, nessuna migrazione, nessun n
 | `backend-nest/tests/op-objects-seed-determinism.test.ts` | **nuovo**, 11 test (§24, §18/§22, §23, §11, §19, §20, §21, §25, legacy) |
 | `backend-nest/tests/op-objects-time-step.test.ts` | il tick di prova passa la data come la produzione; il conteggio delle sospensioni in `43` è «mai più di uno» |
 | `docs/implementation/OP-OBJECTS-PARTIAL-PERIOD-report.md` | §14, §15, §19, §22 corretti; §26 nuovo |
+
+### §26.11 Deploy e verifica live
+
+Deploy: `bash scripts/deploy-cloudflare.sh` (il backend locale risale dopo il solito errore di attesa
+150 s), poi `--skip-backend` per frontend, Worker e KV.
+
+```json
+{"status":"ok","build":{"backend":"dev","frontend":"4696b29"},
+ "schema":{"database":{"tables":52}},"auth":"open-single-user"}
+```
+
+`frontend: 4696b29` è il commit di questo micro-fix (squash della PR #76) ✓.
+
+**Percorso di lettura invariato** (il micro-fix non tocca né le formule né i read model). Partita
+`23fd1fe361ae`, valori **identici** a quelli registrati in OP-OBJECTS FLOW §18-bis, OP-OBJECTS
+TIME-STEP §18-bis e PARTIAL-PERIOD §25:
+
+| grandezza | valore live |
+|---|---|
+| `needs` | `{food 1.8674696 · clothing 0.55498784 · weapons 1.6 · fuel 0.74}` |
+| `capacity` | `{food 11.205 · clothing 4.44 · weapons 25.6 · fuel 4.44}` |
+| `flow` | cibo `army −0.48 · civilian −1.387 · natural +5.304 → +3.437`; vestiario `facilities +7 · civilian −0.555 · natural +0.278 → +6.723`; armamenti `facilities +6.354 · army −1.6 · natural +0.3 → +5.054`; carburante `facilities +3.93 · army −0.24 · civilian −0.5 · natural +3.85 → +7.04` |
+| `/arsenal` | 17 impianti, 6 miniere, 1 armata, 1 forza; `factory-GBR-10` Ferro/Carbone **0,016**, output Vestiario **0,7 · Armamenti 0,5 · Carburante 0,4** |
+
+La verifica live **mutante** (un salto che tira i dadi dell'ordine) resta bloccata dal provider LLM
+(`POST /api/games/:id/time-skip` → `424 openai-compatible: HTTP 401`, `LLM_API_KEY` assente): il salto
+lungo è provato dalla sonda su dati controllati (§26.6) e dalla suite di 11 test, mentre il percorso
+di lettura è verificato live come sopra.
