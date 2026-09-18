@@ -371,7 +371,7 @@ gli 11 di mappa/preset.
 | backend `npx vitest run` | ✅ **153 file / 1407 test** |
 | backend `npm run build` | ✅ |
 | frontend `npx tsc --noEmit` | ✅ 0 errori |
-| frontend `npx vitest run` | ✅ **67 file / 484 test** |
+| frontend `npx vitest run` | ✅ **67 file / 485 test** |
 | frontend `npm run build` | ✅ |
 | `npm run test:e2e:mock` | ✅ **45/45** |
 
@@ -470,9 +470,15 @@ numero, solo la coerenza della struttura:
 4. **Nome provincia vuoto.** In alcuni mondi la provincia non ha nome: la notifica
    dopo la creazione non stampa più «in linea a ». La UI non inventa un toponimo.
 
+5. **Altre righe ferme.** `Consumo armamenti 0,2 → 0,2`: l'incremento di un reparto è
+   sotto il terzo decimale pubblicato. Regola generale nella vista: si mostrano solo
+   le righe che **cambiano ai decimali con cui si leggono** — una riga ferma non è una
+   conseguenza. Con un lotto grande (10 reparti) la riga ricompare da sola, perché il
+   consumo cambia davvero.
+
 Nessuna formula del motore è stata toccata: solo convenzioni di presentazione
 dichiarate, la scelta delle righe da mostrare e la lunghezza di un'etichetta.
-Backend **153 file / 1409 test**.
+Backend **153 file / 1409 test**; frontend **67 file / 485 test**.
 
 ## 35. File toccati e commit
 
