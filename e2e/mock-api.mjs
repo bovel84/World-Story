@@ -393,6 +393,54 @@ export const MOCK_ARSENAL = {
     inProgress: 1,
   },
   capacity: { factories: 2, ports: 1, universities: 1, money: 185.85, weapons: 160, credit: 49.92, technologies: ['ferrovie'] },
+  // Dottrina militare e capacità industriale pubblicate dal motore
+  // (COUNTRY-CLARITY ENGINE): ALPHA è un paese del 1951, quindi guerra fredda.
+  // Uomini, dotazioni, copertura e prontezza sono coerenti fra loro: la UI li
+  // mostra soltanto.
+  epoch: 'guerra_fredda',
+  epochLabel: 'Guerra fredda',
+  establishment: [
+    { category: 'individualWeapons', label: 'Armi individuali', perFormation: 40, perMobilized: 50, weight: 0.35, source: 'engine_seed', basis: 'Fanteria numerosa, con armi automatiche di ordinanza.' },
+    { category: 'armoredMobility', label: 'Mobilità corazzata', perFormation: 2, perMobilized: 2, weight: 0.2, source: 'doctrine', basis: 'Meccanizzazione di massa: la fanteria si muove protetta.' },
+    { category: 'artillery', label: 'Artiglieria', perFormation: 1.5, perMobilized: 1.5, weight: 0.15, source: 'doctrine', basis: 'Artiglieria e lanciarazzi coprono il fronte.' },
+    { category: 'supportWeapons', label: 'Armi di supporto', perFormation: 0.6, perMobilized: 0.6, weight: 0.1, source: 'doctrine', basis: 'Difesa aerea di punto per le colonne.' },
+    { category: 'airSupport', label: 'Supporto aereo', perFormation: 0.3, perMobilized: 0.3, weight: 0.1, source: 'doctrine', basis: 'Il caccia da superiorità aerea è la misura del potere aereo.' },
+    { category: 'navalSupport', label: 'Supporto navale', perFormation: 0.3, perMobilized: 0.3, weight: 0.1, source: 'doctrine', basis: 'Flotte di scorta per le rotte: solo per paesi con cantieri.' },
+  ],
+  manpower: {
+    population: 1000000, eligiblePopulation: 170000, totalMilitaryPool: 170000,
+    activePersonnel: 33000, reservePersonnel: 39600, mobilizedPersonnel: 22000,
+    availableReserve: 17600, formations: 3, mobilizedFormations: 2, menPerFormation: 11000,
+  },
+  coverage: [
+    { category: 'individualWeapons', label: 'Armi individuali', required: 220, available: 37, coveragePct: 16.8, missing: 183, items: ['Fucili d’assalto ×37'], weight: 0.35 },
+    { category: 'armoredMobility', label: 'Mobilità corazzata', required: 6, available: 6, coveragePct: 100, missing: 0, items: ['Carri armati di 3ª generazione ×6'], weight: 0.2 },
+    { category: 'artillery', label: 'Artiglieria', required: 5, available: 0, coveragePct: 0, missing: 5, items: [], weight: 0.15 },
+    { category: 'supportWeapons', label: 'Armi di supporto', required: 2, available: 0, coveragePct: 0, missing: 2, items: [], weight: 0.1 },
+    { category: 'airSupport', label: 'Supporto aereo', required: 1, available: 0, coveragePct: 0, missing: 1, items: [], weight: 0.1 },
+    { category: 'navalSupport', label: 'Supporto navale', required: 1, available: 0, coveragePct: 0, missing: 1, items: [], weight: 0.1 },
+  ],
+  readiness: {
+    readinessPct: 20,
+    status: 'critical',
+    drivers: [
+      { tone: 'critical', label: 'Copertura armi individuali 16,8%', detail: '37 in servizio su 220 della dotazione di riferimento.' },
+      { tone: 'critical', label: 'Copertura artiglieria 0%', detail: '0 in servizio su 5 della dotazione di riferimento.' },
+      { tone: 'warning', label: '22.000 riservisti richiamati', detail: 'Le riserve consumano equipaggiamento per diventare operative.' },
+      { tone: 'positive', label: 'Carburante: >12 mesi', detail: 'Copertura piena delle operazioni.' },
+    ],
+  },
+  industrialCapacity: {
+    total: 22, used: 8, free: 14, utilizationPct: 36.4, demand: 8, satisfactionPct: 100,
+    overflowFactor: 1, saturated: false,
+    allocations: [
+      { id: 'ord-mock-1', kind: 'military_production', label: 'Fucili d’assalto ×40', capacityDemand: 4, sector: 'Fanteria (terra)', basis: 'Voce di catalogo: 1 fabbrica richiesta.' },
+      { id: 'proc-1', kind: 'project', label: 'Ferrovia transnazionale', capacityDemand: 4, sector: 'Infrastrutture e progetti', basis: 'Progetto di 8 mesi, 38% completato.' },
+    ],
+    byKind: { military_production: 4, project: 4, maintenance: 0 },
+    defenceSharePct: 50,
+    totalBasis: '2 fabbriche × 10 linee · 1 porti × 4',
+  },
   domains: [
     { domain: 'terra', label: 'Forze di terra', weight: 1, description: 'Fanteria, corazzati, artiglieria e difesa aerea: tengono il terreno e lo conquistano.' },
     { domain: 'aria', label: 'Aeronautica', weight: 2.2, description: 'Caccia, bombardieri, trasporti e radar volanti: conquistano il cielo.' },
