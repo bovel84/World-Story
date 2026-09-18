@@ -397,3 +397,41 @@ Nessun file di frontend, nessun `preset.json`, nessuna migrazione.
 | `advanceWorldState(180)` vs `6 × 30` | scorte simili, conti del giorno finale | **identici fino all'ultima cifra, conti progressivi** |
 | cassa di un anno (nazione grande) | 6 × saldo finale (13,518228) | **somma progressiva (13,496962)** |
 | ordini di produzione | fattore del primo giorno, conto finale | **fattore e conto del periodo** |
+
+---
+
+## §25. Deploy e verifica live
+
+Deploy: `bash scripts/deploy-cloudflare.sh` (il backend locale risale dopo il solito errore di
+attesa 150 s), poi `--skip-backend` per frontend, Worker e KV.
+Worker Version ID **`93a9ca38-fa82-4f81-91d8-64ae929ad532`**.
+
+`GET /api/health` sul Worker (`https://world-story.bovel-cannas.workers.dev`):
+
+```json
+{"status":"ok","build":{"backend":"dev","frontend":"314b883"},
+ "schema":{"database":{"tables":52}},"auth":"open-single-user"}
+```
+
+`frontend: 314b883` è il commit di questo pacchetto (squash della PR #74) ✓.
+
+**Percorso di lettura invariato** (nessuna regressione: la lettura del Dossier resta il mese pieno,
+`stepDays` di default). Partita `23fd1fe361ae`, valori identici a quelli registrati in
+OP-OBJECTS FLOW §18-bis e OP-OBJECTS TIME-STEP §18-bis:
+
+| grandezza | valore live |
+|---|---|
+| `needs` | `{food 1.8674696 · clothing 0.55498784 · weapons 1.6 · fuel 0.74}` |
+| `capacity` | `{food 11.205 · clothing 4.44 · weapons 25.6 · fuel 4.44}` |
+| `flow` cibo | `army −0.48 · civilian −1.387 · natural +5.304 → total +3.437` |
+| `flow` vestiario | `facilities +7 · civilian −0.555 · natural +0.278 → total +6.723` |
+| `flow` armamenti | `facilities +6.354 · army −1.6 · natural +0.3 → total +5.054` |
+| `flow` carburante | `facilities +3.93 · army −0.24 · civilian −0.5 · natural +3.85 → total +7.04` |
+| `balance` | `balancePerMonth` = `flow.total` per ogni materiale |
+| `/arsenal` | `GBR-garrison` Carburante **0,24** · Armamenti **1,6** · Cibo **0,48**; `factory-GBR-10` Ritmo **100%**, Ferro/Carbone **0,016**, output Vestiario **0,7** · Armamenti **0,5** · Carburante **0,4** |
+
+La verifica **mutante** di un salto reale via HTTP resta bloccata dal **provider LLM**
+(`POST /api/games/:id/time-skip` → `424 openai-compatible: HTTP 401`, `LLM_API_KEY` assente in
+`backend-nest/.env`): è il blocco noto, non un effetto di questo pacchetto. L'equivalenza del salto
+lungo è quindi provata su dati controllati e ripetibili — suite `op-objects-time-step` (37 test) e
+misure §12–§13 — mentre il percorso di lettura è verificato live come sopra.
