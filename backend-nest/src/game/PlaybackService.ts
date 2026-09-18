@@ -95,7 +95,7 @@ export class PlaybackService {
     proposedEvents: SimulationEvent[];
     periodStart: string;
     horizonDate: string;
-  }): Promise<PendingAction[] | PausedBatchResult> {
+  }): Promise<PendingAction[] | PausedBatchResult | CompletedBatchResult> {
     const headlineToActionIds: Record<string, string[]> = {};
     const outcomes = this.ctx.outcomesByActionId(
       opts.actions, opts.promptResult.actionOutcomes, opts.promptResult.convertedActions,
@@ -137,11 +137,12 @@ export class PlaybackService {
     console.log('[GameSession] §9.3: playback scaglionato del salto fisso, run', state.runId,
       '— eventi proposti:', opts.proposedEvents.length);
     const stepResult = await this.commitPausedStepUnlocked(state, first);
-    // Con due o più proposte il primo checkpoint lascia sempre almeno un evento
-    // in attesa: il run non può chiudersi qui. Se accade, lo stato è incoerente.
-    if (!stepResult.paused) {
-      throw new Error('Stato del playback scaglionato incoerente al primo checkpoint');
-    }
+    // Con due o più proposte il primo checkpoint lascia almeno un evento in
+    // attesa, quindi il run non può chiudersi qui — con una sola eccezione:
+    // PLAYBACK-INTERMEDIATE-OVER, la nazione cade già al primo evento. In quel
+    // caso il passo ha chiuso il run al checkpoint del collasso (nessun
+    // `awaiting_next`): l'esito terminale del playback è la risposta, non un
+    // stato incoerente.
     return stepResult;
   }
 
@@ -190,7 +191,7 @@ export class PlaybackService {
     // M06 µ5f (quarta revisione B2): closeReason vive FUORI dal try, così la
     // completion dell'ultimo evento è invocata DOPO il catch: un suo fault
     // non ripassa dal rollback pre-step sopra un run già chiuso 'failed'.
-    let closeReason: 'paused_budget' | 'completed' | null = null;
+    let closeReason: 'paused_budget' | 'completed' | 'game_over' | null = null;
     const endingGuard = this.ctx.deferGameOver();
     try {
     // Effetti mappa dell’evento: solo ora la proposta diventa applicata.
@@ -335,10 +336,21 @@ export class PlaybackService {
 
       remainingEvents = state.remainingEvents.length;
 
-      // Fine del playback: l'ultimo evento chiude il run subito se il budget è
-      // esaurito o se la destinazione coincide con la data dell'evento.
-      // La chiusura NON avviene qui: solo il marker (nessun await in transazione).
-      if (remainingEvents === 0) {
+      // PLAYBACK-INTERMEDIATE-OVER: la partita terminata vince su tutto il resto.
+      // Se la crisi ha appena fatto cadere la nazione (`evaluateCrisis` sopra),
+      // questo checkpoint è l'ULTIMO del run: il run si chiude qui, nella stessa
+      // transazione del checkpoint, così non resta mai uno stato persistito
+      // «finished + awaiting_next» e gli eventi rimanenti non sono più
+      // autorizzabili. Nessun avanzamento fino alla destinazione.
+      if (this.state.ending) {
+        gameRepository.finishSimulationRun(runId, 'game_over', {
+          checkpointDate: eventDate,
+          checkpointId,
+          turn: state.jumpTurn,
+        });
+        this.state.pausedRun = null;
+        closeReason = 'game_over';
+      } else if (remainingEvents === 0) {
         if (state.incomplete) closeReason = 'paused_budget';
         else if (eventDate >= state.destination) closeReason = 'completed';
       }
@@ -445,7 +457,7 @@ export class PlaybackService {
    */
   async completePausedRunUnlocked(
     state: PausedRunState,
-    reason: 'completed' | 'paused_budget' | 'intervened',
+    reason: 'completed' | 'paused_budget' | 'intervened' | 'game_over',
   ): Promise<CompletedBatchResult> {
     const runId = state.runId;
     const completion = state.completion;
@@ -601,7 +613,9 @@ export class PlaybackService {
     // mutazioni. Gli eventi applicati vivono nei record per-evento.
     const interruptionHeadline = reason === 'paused_budget'
       ? 'Nessun ulteriore sviluppo viene confermato nel periodo'
-      : 'La cronaca si arresta alla data scelta dal governo';
+      : reason === 'game_over'
+        ? 'La nazione è caduta: la cronaca si ferma al collasso'
+        : 'La cronaca si arresta alla data scelta dal governo';
     narration = this.ctx.publicText(destinationReached
       ? completion.narration
       : appliedRows.map(row => row.detail).filter(Boolean).join('\n\n') || interruptionHeadline);
@@ -859,6 +873,9 @@ export class PlaybackService {
       changedRegions: state.changedRegions,
       intervened: reason === 'intervened',
       pausedBudget: reason === 'paused_budget',
+      // PLAYBACK-INTERMEDIATE-OVER: il run chiuso dal collasso lo dichiara anche
+      // nell'evento di fine turno, così il client non lo tratta come «Continua».
+      gameOver: reason === 'game_over',
     });
 
     // La consolazione della memoria e il commento del consigliere non devono

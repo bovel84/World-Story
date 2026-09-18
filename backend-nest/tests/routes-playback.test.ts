@@ -297,3 +297,43 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
     expect(game.body.pausedSimulation).toBeNull();
   });
 });
+/**
+ * PLAYBACK-INTERMEDIATE-OVER — l'esito terminale del playback deve arrivare al
+ * client così com'è. Prima della correzione un salto chiuso dentro il playback
+ * cadeva nel ramo `world_advanced` (narrazione e data `undefined`) perché
+ * `respondTimeSkipResult` conosceva solo l'array, `paused` e il turno normale.
+ */
+describe('PLAYBACK-INTERMEDIATE-OVER — mappatura HTTP dell’esito del playback', () => {
+  it('un salto chiuso dal collasso risponde con l’esito del playback, non con world_advanced', async () => {
+    const { respondTimeSkipResult } = await import('../src/routes/games/helpers');
+    const responses: any[] = [];
+    const res: any = { json: (body: any) => { responses.push(body); return res; } };
+    const session: any = { id: 'game_x' };
+
+    const closeResult = {
+      paused: false,
+      type: 'game_over',
+      simulationId: 'run_1',
+      newDate: '1951-01-20',
+      newTurn: 2,
+      result: { turn: 1, narration: 'La nazione è caduta', events: [], periodStart: '1951-01-01', periodEnd: '1951-01-20' },
+    };
+    respondTimeSkipResult(res, session, closeResult, '1951-01-01', 90);
+    expect(responses).toHaveLength(1);
+    // Verbatim: stessa forma di `POST /simulations/:runId/next`, mai persa.
+    expect(responses[0]).toBe(closeResult);
+    expect(responses[0].type).toBe('game_over');
+    expect(responses[0].newDate).toBe('1951-01-20');
+
+    // Anche le altre chiusure del playback conservano il proprio esito.
+    for (const type of ['paused_budget', 'intervened']) {
+      respondTimeSkipResult(res, session, { ...closeResult, type }, '1951-01-01', 90);
+      expect(responses.at(-1).type).toBe(type);
+    }
+
+    // I contratti storici (array di ordini, run in pausa, turno normale) sono
+    // coperti dai test sopra: qui conta che la chiusura del playback non venga
+    // mai degradata a `world_advanced`.
+    expect(responses.some((body: any) => body.type === 'world_advanced')).toBe(false);
+  });
+});
