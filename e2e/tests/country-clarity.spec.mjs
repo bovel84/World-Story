@@ -96,8 +96,10 @@ test.describe('COUNTRY-CLARITY — un solo schermo per capire il paese', () => {
     await expect(quadro).toContainText('Dottrina d’epoca: Guerra fredda');
     await expect(quadro).toContainText('Personale');
     await expect(quadro).toContainText('Riserva addestrata');
+    // Le armi individuali sono una quota degli uomini in armi, non 40 per reparto.
+    await expect(quadro).toContainText('80% degli uomini in armi');
     await expect(quadro).toContainText('Equipaggiamento — copertura per categoria');
-    await expect(quadro).toContainText('mancano 183 pezzi');
+    await expect(quadro).toContainText('mancano 43.963 pezzi');
     await expect(quadro).toContainText('Prontezza operativa');
     await expect(page.locator('.nation-block[aria-label="Quanto hai e quanto produci"]')).toBeVisible();
 
