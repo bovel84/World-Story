@@ -417,7 +417,7 @@ scoperto e che i test non potevano vedere.
 
 ### 18-bis. Verifica live sul Worker (deploy `55fcd13`)
 
-Worker Version ID `25d31e2c-034a-4632-9402-a966bbe5f06e`, tunel
+Worker Version ID `25d31e2c-034a-4632-9402-a966bbe5f06e`, tunnel
 `https://ind-strikes-meant-adaptive.trycloudflare.com`, `GET /api/health` →
 `{status:'ok', build:{backend:'dev', frontend:'55fcd13'}, schema:{database:{tables:52}}}`.
 
