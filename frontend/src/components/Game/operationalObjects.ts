@@ -304,12 +304,17 @@ export function formationActionView(impact: FormationImpactPayload | null | unde
   const equipment = plan.items
     .filter(item => item.consumed > 0 || item.missing > 0)
     .map(item => `${item.consumed}/${item.required} ${item.name.toLowerCase()}${item.missing > 0 ? ` (mancano ${formatNumber(item.missing)})` : ''}`);
-  const rows = impact.deltas.map(delta => ({
-    label: delta.label,
-    before: formatUnitValue(delta.before, delta.unit, deltaDecimals(delta.unit)),
-    after: formatUnitValue(delta.after, delta.unit, deltaDecimals(delta.unit)),
-    tone: delta.tone as ObjectTone,
-  }));
+  // Una riga che non si muove non è una conseguenza: si mostra solo ciò che cambia
+  // ai decimali con cui si legge (es. un consumo che resta 0,2 /mese non è un effetto).
+  const rows = impact.deltas
+    .filter(delta => formatUnitValue(delta.before, delta.unit, deltaDecimals(delta.unit))
+      !== formatUnitValue(delta.after, delta.unit, deltaDecimals(delta.unit)))
+    .map(delta => ({
+      label: delta.label,
+      before: formatUnitValue(delta.before, delta.unit, deltaDecimals(delta.unit)),
+      after: formatUnitValue(delta.after, delta.unit, deltaDecimals(delta.unit)),
+      tone: delta.tone as ObjectTone,
+    }));
   return {
     blocked: plan.blocked,
     blockedReason: plan.blockedReason,

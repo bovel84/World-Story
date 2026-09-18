@@ -229,6 +229,22 @@ describe('OP-OBJECTS — azione: creazione di reparti', () => {
     expect(view.why).toContain('motore');
   });
 
+  it('nasconde le righe che non si muovono: una riga ferma non è una conseguenza', () => {
+    const withFlat: FormationImpactPayload = {
+      ...impact,
+      deltas: [
+        ...impact.deltas,
+        { label: 'Consumo armamenti', unit: 'per_mese', before: 0.2, after: 0.2004, tone: 'neutral' },
+        { label: 'Reparti di riserva', unit: 'numero', before: 3, after: 3, tone: 'neutral' },
+      ],
+    };
+    const view = formationActionView(withFlat)!;
+    expect(view.rows.some(row => row.label === 'Consumo armamenti')).toBe(false);
+    expect(view.rows.some(row => row.label === 'Reparti di riserva')).toBe(false);
+    // Le righe che cambiano restano tutte.
+    expect(view.rows.map(row => row.label)).toEqual(['Reparti', 'Prontezza', 'Consumo carburante', 'Uomini in armi', 'Spesa militare']);
+  });
+
   it('mantiene l\'azione bloccata con il motivo del motore', () => {
     const blocked: FormationImpactPayload = {
       ...impact,
