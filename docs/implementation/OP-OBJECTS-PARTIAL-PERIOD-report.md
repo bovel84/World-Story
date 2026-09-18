@@ -251,11 +251,23 @@ Test `production-order-progressive` intercetta il contratto (tempo, conto, fatto
 periodo e verifica che un salto di 180 giorni consegni ai sei periodi gli **stessi** fattori dei sei
 turni separati. Il `facilityFactor` del Dossier resta la lettura del mese pieno.
 
+Il quarto numero che gli ordini ricevono è la **data canonica del periodo** (OP-OBJECTS
+SEED-DETERMINISM, §26): il tiro di produzione dipende da quella, non dal turno. Vedi §26 per la
+correzione e la nuova prova di equivalenza anche sulla storia produttiva.
+
 ## §15. Playback, crisi, branching
 
 - Il modello del **playback** non è stato toccato: le sue gambe continuano a chiamare
   `advanceWorldState(elapsedDays, data)` e ora ogni gamba vive i propri periodi (mondo e magazzino
   insieme). Una gamba da 90 giorni sono tre periodi, come tre turni da 30.
+- **Correzione documentale (OP-OBJECTS SEED-DETERMINISM, §26):** il percorso canonico del playback
+  **fa avanzare gli ordini di produzione**. `PlaybackService` (righe 262 e 600) chiama
+  `ctx.advanceWorldState(elapsedDays, data)` → `game-session.advanceWorldState` (~617-630) →
+  `nationState.advanceResources(..., { onPlayerSlice })` → `advanceProduction(stepDays, conto,
+  fattori, registro, { stepDate })`. La riga «`time-skip` playback non avanza gli ordini», scritta
+  nello step precedente, era **sbagliata** ed è stata corretta in §22. Il limite vero è un altro: il
+  percorso **legacy** `advanceDate()` chiama `advanceResources(days, conti, newDate)` **senza hook**,
+  quindi lì gli ordini non avanzano.
 - **Crisi** (`evaluateCrisis`, soglie 90/180), **branching/rewind**, **FactionMemory**,
   **NpcAgenda/GovernmentVoices**, **PeacetimePressures**, **Commitments** non sono stati modificati.
 - Nessun checkpoint nuovo.
@@ -317,11 +329,17 @@ falliscono** — tutti quelli elencati sopra tranne i due già verdi per costruz
 che passa perché misura poco.
 
 **Irrobustimento necessario:** i test sugli ordini confrontavano la *percentuale di avanzamento*, che
-dipende da un imprevisto di produzione deterministico ma **legato all'id di partita** (id casuale a
+dipendeva da un imprevisto di produzione deterministico ma **legato all'id di partita** (id casuale a
 ogni esecuzione): erano quindi instabili anche prima di questo pacchetto (verificato su `main`: 1
 esecuzione su 3 rossa). Ora osservano il **contratto** deterministico (tempo, conto, fattori per
 periodo) e resta un'asserzione qualitativa sull'avanzamento. Le altre verifiche sono state lasciate
 intatte.
+
+**Aggiornamento OP-OBJECTS SEED-DETERMINISM (§26):** il tiro dipende dalla data del periodo e
+dall'id dell'ordine, quindi **non** è più legato all'id di partita. La nuova suite
+`op-objects-seed-determinism.test.ts` impone un id d'ordine **fisso** e confronta i percorsi fino ai
+semi usati; il conteggio dei bollettini di sospensione in `43` è diventato «mai più di uno» invece di
+«esattamente uno», perché l'ordine può ora anche chiudersi prima di arrivare al periodo a secco.
 
 ## §20. Quality gate (eseguito davvero)
 
@@ -364,13 +382,17 @@ nella loro semantica. Nessun nuovo motore, nessuna seconda contabilità, nessun 
   questo mese», non un periodo.
 - **Impianto con ricetta non allineata al motore**: `refreshRecipes` può riallinearla (comportamento
   preesistente), quindi i test costruiscono impianti con le chiavi del motore.
-- **Imprevisti di produzione**: restano legati all'id di partita (hash) — la suite li ha resi non
-  misurabili nel confronto fra percorsi, ma restano parte del gioco.
+- **Imprevisti di produzione**: il tiro dipende dalla **data del periodo** e dall'id dell'ordine
+  (OP-OBJECTS SEED-DETERMINISM, §26): due percorsi con le stesse date e lo stesso ordine tirano gli
+  stessi dadi, ma due partite diverse o due ordini diversi no. Non è più legato all'id di partita né
+  al turno, quindi non è più un ostacolo al confronto fra percorsi.
 - **Capacità industriale del periodo**: gli ordini ricevono tempo, conto e fattore materiale del
   periodo; la *capacità* industriale resta letta dallo stato corrente del paese (che nei periodi è
   comunque già avanzato), non ricalcolata come serie storica.
-- **`time-skip` playback** continua a non avanzare gli ordini di produzione (asimmetria già
-  dichiarata nello step precedente).
+- **Ordini di produzione e `time-skip`**: nel percorso **canonico** (`PlaybackService` →
+  `advanceWorldState` → `onPlayerSlice` → `advanceProduction`) gli ordini **avanzano**, con il tempo,
+  il conto e i materiali di ogni periodo. Resta il limite del percorso **legacy** `advanceDate()`,
+  che chiama `advanceResources` senza hook: lì il mondo e il magazzino avanzano ma gli ordini no.
 
 ## §23. File toccati
 
@@ -435,3 +457,179 @@ La verifica **mutante** di un salto reale via HTTP resta bloccata dal **provider
 `backend-nest/.env`): è il blocco noto, non un effetto di questo pacchetto. L'equivalenza del salto
 lungo è quindi provata su dati controllati e ripetibili — suite `op-objects-time-step` (37 test) e
 misure §12–§13 — mentre il percorso di lettura è verificato live come sopra.
+
+---
+
+## §26. OP-OBJECTS SEED-DETERMINISM — il tiro dipende dal periodo simulato
+
+*(micro-fix successivo a questo pacchetto, stesso report perché corregge ciò che §14/§15/§22
+dichiaravano)*
+
+### §26.1 Causa esatta
+
+`MilitaryService.advanceProduction` calcolava il seme del tiro di produzione così:
+
+```ts
+const base = `${this.ctx.gameId}:${order.id}:${this.ctx.currentTurn()}`;
+const seed = index === 0 ? base : `${base}:${index}`;
+const result = advanceOrder(order, context, months * materialFactor, seed);
+```
+
+Nel percorso a periodi `advanceProduction` è chiamata **una volta per periodo materiale** (il tick
+passa `slice.stepDays`, sempre ≤ 30 giorni), quindi `splitMaterialPeriod(days)` produce **un solo**
+step e `index` è **sempre 0**: il suffisso `:${index}` non entrava mai. Poiché `currentTurn()` **non
+cambia** durante un salto, i sei periodi di `advanceWorldState(180)` usavano **lo stesso seme** — lo
+stesso identico tiro, ripetuto sei volte. Un anno fermo non poteva quindi differire dalla somma dei
+suoi dodici mesi su `progress`, `qualityLoss`, `failure` e unità consegnate, a parità di materiali,
+conto e capacità.
+
+### §26.2 Vecchio seme → nuovo seme
+
+| | seme |
+|---|---|
+| prima | `${gameId}:${orderId}:${turno}` (+ `:${index}` solo nel ciclo interno, mai nel percorso a periodi) |
+| dopo | `${orderId}:${data del periodo}` |
+
+La coordinata temporale del tiro è la **data simulata** del substep, non il turno né il numero di
+chiamate: il risultato di un evento deterministico dipende da *(stato del mondo, ordine, data
+simulata)*, non da quanto era grande il bottone «avanti».
+
+`productionRollSeed({ orderId, date, phase? })` è la funzione pura che lo costruisce
+(`core/simulation/MilitaryProduction.ts`, accanto a `stableRoll`). `stableRoll`, le probabilità
+(`setbackChance`: instabilità, tensione, complessità, tecnologie, `techReady`) e le formule **non sono
+state toccate**: è cambiata solo la coordinata del dado.
+
+**L'id di partita non è nel seme** (percorso «a» della specifica): l'id dell'ordine è già unico per
+partita e casuale (`shortId`), quindi il `gameId` non aggiungeva informazione temporale ma impediva
+soltanto di confrontare due percorsi della stessa simulazione (due partite non possono avere lo stesso
+`gameId`). Così il seme esprime esattamente *(ordine, data)* e il test non deve normalizzare nulla.
+`phase` resta nella firma come **secondo tiro sulla stessa data**, mai come coordinata: il
+chiamante di produzione non lo usa, perché un indice di chiamata rimetterebbe in piedi il difetto
+(dipendenza dalla granularità delle chiamate).
+
+### §26.3 Come arriva `stepDate`
+
+`NationStateService.advanceResources` conosce già la data di ogni substep
+(`MaterialSliceInfo.stepDate`) e la passa nel gancio:
+
+```
+game-session.advanceWorldState  (una sola pipeline temporale)
+  → nationState.advanceResources(days, conti, asOfDate, { onPlayerSlice })
+      → onPlayerSlice({ stepDays, stepDate, factors })
+          → advanceProduction(stepDays, conto del periodo, factors, registro, { stepDate })
+              → productionRollSeed({ orderId, date: stepDate })
+```
+
+`advanceProduction` ha un **quinto parametro opzionale** `temporal?: { stepDate?: string }`: non è
+stata rifatta la firma a oggetto e nessun altro chiamante è cambiato. Se la data non è dichiarata
+(percorso legacy/test) il seme ripiega su `this.ctx.currentDate()`, come prima.
+
+Con un blocco di più periodi in **una sola** chiamata (`advanceProduction(90, …, { stepDate })`) le
+date interne sono `endDate − (days − elapsed)`: 90 giorni in una chiamata e tre chiamate da 30 vedono
+le **stesse** date, quindi gli stessi tiri.
+
+`updatedDate` dell'ordine segue il periodo vissuto: dopo ogni periodo è la data del substep appena
+lavorato (nessuna data inventata).
+
+### §26.4 `productionContext` leggeva lo snapshot sbagliato
+
+`productionContext()` usava `this.ctx.accounts()[player]`, e `nationCapacity()`/`industrialCapacity()`
+leggevano a loro volta `ctx.accounts()`. Quel conto è `sessionAccounts()`, cioè **conti + modificatori
++ peso sociale del debito** dello stato **corrente**: in un salto lungo è il conto dell'ultimo mese,
+non quello del mese che si sta lavorando. Ora:
+
+- `productionContext(account?)` costruisce il contesto dal conto **passato al periodo**
+  (stabilità, tensione, fabbriche, porti, università, tecnologie);
+- `nationCapacity(polityId, account?)` usa lo stesso conto (`creditHeadroom` compreso);
+- il tick chiama `industrialCapacity(polityId, this.nationCapacity(polityId, account))`.
+
+Le letture del Dossier restano sul default (nessun cambio di read model).
+
+**Prova che le due fonti sono davvero diverse:** con un titolo da 1,5 mld su un PIL di 1 mld (150%),
+il conto *mostrato* dalla sessione porta `socialTension` più alta e `stability` più bassa del conto
+del tick. Il test asserisce che il contesto del tiro coincide **con il conto del periodo** e — con il
+codice precedente — fallisce.
+
+### §26.5 Test con imprevisto reale
+
+`tests/op-objects-seed-determinism.test.ts` (nuovo, **11 test**). Il caso §20 non pesca un tiro
+buono: cerca sul motore vero la prima data il cui `stableRoll` cade sotto `setbackChance × 0,4`
+(escludendo il ramo catastrofico) e la prima data con tiro `> 0,6`, poi fa vivere alle due partite lo
+**stesso mese** cambiando solo la data. La prima produce `note = "imprevisto: −17% (linea rallentata,
+rischio …)"`, `qualityLoss > 0` e la riga «imprevisto in produzione» nel bollettino; la seconda ha
+`note = ""` e `qualityLoss = 0`. Un secondo caso (§21) cerca la data che attiva il ramo catastrofico
+(`roll < chance × 0,25` e `stableRoll(seed:fail) < 0,5`) e verifica l'ordine rimosso e il bollettino
+«Produzione fallita».
+
+### §26.6 `180 == 6 × 30` e `45 == 30 + 15` (storia produttiva, non solo stock)
+
+Ordine a id fisso `ord-seed-fixed`, `missili_corto` (13,4%/mese: resta aperto sei periodi).
+
+| | semi usati (6 periodi) |
+|---|---|
+| `advanceWorldState(180)` | `2026-01-31 · 2026-03-02 · 2026-04-01 · 2026-05-01 · 2026-05-31 · 2026-06-30` |
+| `6 × advanceWorldState(30)` | **identici** |
+
+Sei date, **sei tiri diversi** (prima: un solo tiro ripetuto). `progress` all'ingresso di ogni
+periodo, nei due percorsi: `[0, 0, 3,6697, 7,3394, 11,0091, 14,6788]` — identici, conto e contesto di
+ogni periodo compresi. Stato finale dell'ordine identico: `progress 18,3485 · qualityLoss 2,55 ·
+status in_progress` (il primo periodo ha incassato un imprevisto da −17% che ha azzerato
+l'avanzamento: il tiro è reale, non un caso `roll > chance`).
+
+`45 giorni` ≡ `30 + 15`: semi `2026-01-31` e `2026-02-15`, `progress` in ingresso `[0, 0]`, finale
+`1,8349` in entrambi i percorsi — e il secondo periodo vale esattamente **metà** del primo
+(18,35 × 0,5), cioè quindici giorni sono mezzo mese anche nel tiro.
+
+**Equivalenza di consegna** (`fucili`, ordine che si chiude): nei due percorsi l'ordine risulta
+`null` (completato) e l'arsenale contiene le **stesse 1949 unità** (2000 − 2,55% difettose) — i
+difetti dipendono dai dadi, e i dadi ora sono gli stessi.
+
+**Prova di mordente:** rimettendo il vecchio calcolo del seme (solo la riga del seed, resto del
+pacchetto presente) **8 degli 11 test falliscono**; rimettendo `productionContext()` senza il
+parametro **falliscono i 2 test del contesto**, compreso quello sul salto reale con debito.
+
+### §26.7 Documentazione corretta
+
+- §15: il percorso canonico del playback (`PlaybackService` righe 262 e 600 → `advanceWorldState` →
+  `advanceResources` → `onPlayerSlice` → `advanceProduction`) **fa avanzare gli ordini**: la riga
+  «`time-skip` non avanza gli ordini» era sbagliata.
+- §22: il limite vero è il percorso **legacy** `advanceDate()`, che chiama `advanceResources` senza
+  hook; gli «imprevisti di produzione» non sono più legati all'id di partita né al turno, ma a
+  *(data, ordine)*.
+
+### §26.8 Test e quality gate (eseguiti)
+
+| comando | esito |
+|---|---|
+| backend `npx tsc --noEmit` | ✅ |
+| backend `npm test` | ✅ **157 file / 1494 test** (erano 157/1483: +1 file, +11 test) |
+| backend `npm run build` | ✅ |
+| frontend `npx tsc --noEmit` / `npx vitest run` / `npm run build` | ✅ 67 file / 488 test, build ok |
+| `npm run test:e2e:mock` | ✅ 45/45 |
+
+Nessuna modifica di frontend, nessun `preset.json`, nessuna migrazione, nessun nuovo motore.
+
+### §26.9 Limiti residui
+
+- Il **seme degli ordini in corso cambia** rispetto alla versione precedente (era
+  `gameId:order:turno`): l'imprevisto di un ordine già aperto può cadere in un mese diverso da quello
+  che il giocatore aveva visto. Nessuna partita si rompe, nessun salvataggio migra: cambia solo
+  *quando* arriva l'imprevisto, ed è il prezzo della coerenza temporale.
+- Il **percorso legacy** `advanceDate()` non avanza gli ordini (nessun hook) e il suo fallback di
+  data è la data della sessione: invariato e dichiarato.
+- La **probabilità** di imprevisto non è scalata dal tempo (`max(1, period)`): un periodo da 15 giorni
+  ha la stessa probabilità di un mese. Scelta preesistente, non toccata da questo micro-fix.
+- Il **numero di tiri** resta uno per ordine per periodo materiale: non esiste una storia dei tiri
+  persistita, quindi il seme è ricostruito dalle date (deterministico e rigiocabile, ma senza memoria
+  dei dadi già tirati).
+
+### §26.10 File toccati (micro-fix)
+
+| file | intervento |
+|---|---|
+| `backend-nest/src/core/simulation/MilitaryProduction.ts` | `productionRollSeed({ orderId, date, phase? })`: il seme è *(ordine, data del periodo)*. `stableRoll`, `setbackChance`, `productionRate`, `advanceOrder` **non** cambiano |
+| `backend-nest/src/game/MilitaryService.ts` | quinto parametro `temporal.stepDate`; date dei periodi interni; `productionContext(account?)` e `nationCapacity(polityId, account?)` dal conto del periodo; `industrialCapacity(polityId, conto)`; `updatedDate = stepDate` |
+| `backend-nest/src/game-session.ts` | il gancio del tick materiale passa `{ stepDate: slice.stepDate }`; il wrapper `advanceProduction` inoltra il parametro |
+| `backend-nest/tests/op-objects-seed-determinism.test.ts` | **nuovo**, 11 test (§24, §18/§22, §23, §11, §19, §20, §21, §25, legacy) |
+| `backend-nest/tests/op-objects-time-step.test.ts` | il tick di prova passa la data come la produzione; il conteggio delle sospensioni in `43` è «mai più di uno» |
+| `docs/implementation/OP-OBJECTS-PARTIAL-PERIOD-report.md` | §14, §15, §19, §22 corretti; §26 nuovo |

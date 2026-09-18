@@ -66,6 +66,24 @@ export function stableRoll(seed: string): number {
   return (hash >>> 0) / 4294967296;
 }
 
+/**
+ * OP-OBJECTS SEED-DETERMINISM: il seme di un tiro produttivo dipende dalla
+ * **data simulata** del periodo. Il risultato di un evento deterministico è
+ * (stato del mondo, ordine, data simulata) — non (quanto era grande il bottone
+ * «avanti»). Con il seme sul turno, un salto di 180 giorni ripeteva lo stesso
+ * tiro sei volte, perché il turno non cambia dentro il salto.
+ *
+ * Un blocco di più periodi e la sua sequenza di periodi brevi vedono le stesse
+ * date, quindi gli stessi semi: `advanceProduction(90)` ≡ `3 × 30 giorni`.
+ *
+ * `phase` è **solo** un secondo tiro sulla stessa data (mai una coordinata
+ * temporale: un indice di chiamata rimetterebbe in piedi il difetto).
+ */
+export function productionRollSeed(input: { orderId: string; date: string; phase?: string }): string {
+  const base = `${input.orderId}:${input.date}`;
+  return input.phase ? `${base}:${input.phase}` : base;
+}
+
 /** Avanzamento mensile in punti percentuali per una voce del catalogo. */
 export function productionRate(equipment: Equipment, context: ProductionContext): number {
   const baseMonths = DOMAIN_MONTHS[equipment.domain] || 4;
