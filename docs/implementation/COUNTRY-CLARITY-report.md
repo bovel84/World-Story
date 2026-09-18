@@ -220,3 +220,50 @@ COUNTRY-CLARITY P7   ricerca e infrastrutture nella sala operativa
 8. **Trend dei domini non economici**: dove lo storico del motore non esiste (industria, governo) il trend non viene mostrato, invece di essere stimato.
 9. **`ESTABLISHMENT`**: quattro delle sei dotazioni di riferimento sono convenzioni del read model (dichiarate e testate), non dati del motore; le altre due sono ancorate al seed dell'arsenale. La categoria navale non entra nel fabbisogno dei paesi senza porti.
 10. **Copertura 0% su una categoria**: è un dato reale (il paese non possiede nulla in quella categoria) e viene mostrato come tale, con la categoria nominata nel dettaglio.
+
+## 17. Verifica live post-deploy
+
+Deploy: Worker `https://world-story.bovel-cannas.workers.dev`, `build.frontend f2f77cb`, `status ok`, 51 tabelle. Verifica sulla partita reale `aa8c25b40bb6` (10 aprile 2026): `GET /api/games/aa8c25b40bb6/national-state` (200) e `GET /api/games/aa8c25b40bb6/arsenal` (200), passati attraverso i read model con gli stessi input che riceve il Dossier (`resources` normalizzato, conto e base del giocatore).
+
+```
+status=critical
+headline=Il punto debole è economia e cassa: Debito al 96% del PIL — 610 mld in essere,
+         26 mld di credito residuo · in aumento rispetto al turno precedente.
+summary=Critico · 5 attenzioni da decidere
+[critical] Economia e cassa      :: Lo Stato incassa +2,27 mld più di quanto spende ogni mese.
+[stable]   Risorse e magazzino   :: Scorte coperte: nessun materiale sotto la soglia di allerta.
+[healthy]  Industria e produzione:: 3 stabilimenti, 0 occupati da lavorazioni attive, 3 liberi.
+[fragile]  Forze armate          :: 6 reparti sotto le armi · prontezza 47% · 0 sistemi prodotti in casa.
+[pressure] Governo e società     :: Pressione politica al 8%: 4 fazioni sostengono, 2 premono.
+coverage: Armi individuali 100% (240/240) | Armi di supporto 0% (0/5) | Mobilità corazzata 100% (9/9)
+          | Artiglieria 0% (0/3) | Supporto aereo 0% (0/2)      ← nessuna voce navale: 0 porti
+attention: Debito al 96% del PIL | Interessi 30,1 mld/anno | Cassa negativa
+           | Prontezza operativa 47% | 0 sistemi producibili in casa
+Q Come sta il paese?                  -> Critico
+Q Qual è il problema più urgente?     -> Debito al 96% del PIL
+Q Quante forze ho sotto le armi?      -> 6 reparti sotto le armi
+Q Quanti reparti sono mobilitati?     -> 0 reparti
+Q Con quali equipaggiamenti combattono? -> 2 categorie in servizio
+Q Sono equipaggiati a sufficienza?    -> Copertura più debole: 0%
+Q Quanto carburante possiedo?         -> non critica
+Q Quanto tempo posso sostenere le operazioni? -> Prontezza 47%
+Q Che cosa producono le mie fabbriche? -> Nessuna lavorazione attiva
+Q Quanto della capacità industriale sto usando? -> 0%
+Q Quali armi produco internamente?    -> Nessun sistema producibile
+Q Quali devo importare?               -> 10 sistemi solo dall'estero
+Q Quanta ricerca ho e che cosa ho sbloccato? -> 85 punti ricerca
+Q Che infrastrutture ho?              -> 3 stabilimenti · 0 porti · 4 atenei
+Q Quanto produce e quanto spende il paese? -> AVANZO
+Q Sto accumulando debito?             -> +610 mld (96% del PIL)
+Q Quale fazione politica mi sostiene? -> Lavoro e sindacati (97%)
+Q Quale fazione è arrabbiata e perché? -> Opinione pubblica (22%)
+Q Quali progetti sono in corso e cosa li rallenta? -> Nessun progetto in corso
+Q Quali promesse sto mantenendo o tradendo? -> 0 mantenute · 0 aperte
+```
+
+Due difetti emersi **solo** dalla verifica live e corretti con due interventi successivi (PR #56 e #57):
+
+1. **Testa contraddittoria**: stato critico con sintesi positiva del dominio → «Il punto debole è economia e cassa: lo Stato incassa…». Ora la testa cita il primo driver non positivo del dominio peggiore (il problema, con la causa) e mai la sintesi.
+2. **Flotta a chi non ha mare**: la copertura più debole era «Supporto navale 0%» e la prontezza perdeva 7 punti (42% → **47%** dopo la correzione) per una categoria che un paese con 0 porti non può nemmeno costruire.
+
+Nessun numero della verifica è stimato: sono tutti valori pubblicati dal motore per la partita reale.
