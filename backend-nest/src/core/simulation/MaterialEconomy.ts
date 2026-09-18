@@ -330,25 +330,46 @@ export function materialNeeds(account?: NationalAccount): MaterialNeeds {
  * È l'unico modo in cui OP-OBJECTS tocca le scorte: fornisce i numeri, il motore
  * li applica. Nessuno stock viene scritto qui.
  */
+/**
+ * Contributo degli oggetti al tick materiale: **un contratto, nessun campo
+ * ambiguo**. Il tempo lo scala **una volta sola**, in `advanceStock` (`period =
+ * days / 30`); il prelievo dai giacimenti è l'unica eccezione già scalata.
+ *
+ * | campo | unità | chi lo scala |
+ * |---|---|---|
+ * | `production` / `consumption` | **mensile** | `advanceStock` × `period` |
+ * | `militaryNeeds` | **mensile** | `advanceStock` × `period` (via `effectiveMaterialNeeds`) |
+ * | `naturalInputs` | **quantità del periodo** | nessuno: prelevata dal silo |
+ * | `facilityFactors` | frazione 0…1 del fabbisogno **del periodo** | già scala |
+ *
+ * Il difetto che questo contratto chiude: un periodo parziale (15, 5, 45 giorni)
+ * allocava il fabbisogno **mensile** contro la disponibilità del periodo e poi
+ * lo scalava di nuovo nel tempo — o non lo scalava affatto (OP-OBJECTS
+ * PARTIAL-PERIOD).
+ */
 export interface MaterialFlowOverlay {
-  /** Produzione mensile degli impianti (già allocata sugli input disponibili). */
+  /** Produzione **mensile** degli impianti (già allocata sugli input disponibili). */
   production: Partial<Record<ResourceKind, number>>;
-  /** Consumo mensile degli oggetti dal magazzino (input degli impianti). */
+  /** Consumo **mensile** degli oggetti dal magazzino (input degli impianti). */
   consumption: Partial<Record<ResourceKind, number>>;
   /**
-   * Fabbisogno **militare** degli oggetti: sostituisce quello dei reparti
-   * generici. Se assente si usa `legacyMilitaryNeeds`.
+   * Fabbisogno **militare** degli oggetti, **mensile**: sostituisce quello dei
+   * reparti generici. Se assente si usa `legacyMilitaryNeeds`.
    */
   militaryNeeds?: MaterialNeeds;
-  /** Materiali estratti presi dalla filiera (giacimenti, non scorte). */
+  /**
+   * Materiali estratti presi dalla filiera (giacimenti, non scorte),
+   * **quantità del periodo**: già scalata dal tempo, non va riscalata.
+   */
   naturalInputs?: Partial<Record<NaturalResourceKind, number>>;
   /** Quota navale del carburante, per il dettaglio del flusso (esercito/marina). */
   navyFuel?: number;
   /**
    * Fattore materiale per impianto del **passaggio di allocazione** da cui
-   * nasce questo overlay. Gli ordini di produzione lo riusano invece di
-   * ricalcolarlo su scorte già decurtate: le schede e il motore devono leggere
-   * lo stesso passaggio (OP-OBJECTS TIME-STEP).
+   * nasce questo overlay: frazione 0…1 del fabbisogno **del periodo** coperta.
+   * Gli ordini di produzione lo riusano invece di ricalcolarlo su scorte già
+   * decurtate: le schede e il motore devono leggere lo stesso passaggio
+   * (OP-OBJECTS TIME-STEP).
    */
   facilityFactors?: Record<string, number>;
 }

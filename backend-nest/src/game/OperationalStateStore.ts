@@ -24,6 +24,7 @@ import {
   facilityRecipeStale,
   monthlyNeedsPerFormation,
   shipConsumptionFactor,
+  MATERIAL_MONTH_DAYS,
   type FacilityAllocation,
   type FacilityKind,
 } from '../core/simulation/OperationalState';
@@ -282,9 +283,14 @@ export class OperationalStateStore {
    * a substep** vale `false`, perché l'estrazione del periodo è già stata
    * versata nel silo da `advanceLedger`: sommarla di nuovo sarebbe un doppio
    * conteggio (OP-OBJECTS TIME-STEP).
+   *
+   * `stepDays` sono i giorni del periodo: se la lettura somma l'estrazione
+   * **mensile** e il periodo è parziale, se ne somma solo la parte che il tempo
+   * concede (15 giorni ⇒ mezzo mese di gettito). Assente o 30 ⇒ come prima.
    */
-  availability(options?: { monthlyExtraction?: boolean }): Record<string, number> {
+  availability(options?: { monthlyExtraction?: boolean; stepDays?: number }): Record<string, number> {
     const monthlyExtraction = options?.monthlyExtraction !== false;
+    const period = Math.max(0, options?.stepDays === undefined ? MATERIAL_MONTH_DAYS : options.stepDays) / MATERIAL_MONTH_DAYS;
     const availability: Record<string, number> = {};
     let stock: ResourceStock | null = null;
     try {
@@ -302,7 +308,7 @@ export class OperationalStateStore {
       for (const [kind, node] of Object.entries(ledger)) {
         if (!node) continue;
         const silo = Math.max(0, Number(node.stockpile) || 0);
-        const month = monthlyExtraction ? Math.max(0, extractionRate(node, account)) : 0;
+        const month = monthlyExtraction ? Math.max(0, extractionRate(node, account)) * period : 0;
         availability[kind] = Math.round((silo + month) * 1000) / 1000;
       }
     } catch (error) {
@@ -314,19 +320,26 @@ export class OperationalStateStore {
   /**
    * Pass di allocazione degli impianti: **una sola** scorta divisa fra tutti.
    * Gli stessi numeri vanno al tick, alla scheda e agli ordini.
+   *
+   * `stepDays` è il tempo del periodo: la copertura si misura sul fabbisogno
+   * **del periodo** (15 giorni ⇒ mezzo fabbisogno mensile). Assente ⇒ mese pieno.
    */
-  allocation(options?: { monthlyExtraction?: boolean }): FacilityAllocation {
+  allocation(options?: { monthlyExtraction?: boolean; stepDays?: number }): FacilityAllocation {
     const snapshot = this.snapshot();
     return allocateFacilityProduction({
       facilities: snapshot.facilities,
       availability: this.availability(options),
       activity: this.inputs.activity ? this.inputs.activity() : 1,
+      stepDays: options?.stepDays,
     });
   }
 
   /**
    * Fattore materiale reale di un impianto (0 se fermo o senza input), senza il
    * fattore di capacità industriale: quello lo applica già il motore al tempo.
+   *
+   * Lettura del **Dossier**: mese pieno (`stepDays` di default). Nel tick il
+   * fattore del periodo arriva dall'overlay, non da qui.
    */
   facilityFactor(facilityId: string | null | undefined): number {
     if (!facilityId) return 1;
@@ -360,8 +373,12 @@ export class OperationalStateStore {
    * Flusso materiale degli oggetti reali, per il tick del motore.
    * `null` quando lo stato persistente non esiste (partita legacy): in quel caso
    * il motore usa il percorso di sempre, senza alcun doppio conteggio.
+   *
+   * Contratto di unità: `production`/`consumption` sono **mensili** (li scala
+   * `advanceStock` × `period`), `naturalInputs` è la quantità **del periodo**
+   * (la preleva dal silo `drawResourceStockpile`, nessuno la riscala).
    */
-  materialFlow(options?: { monthlyExtraction?: boolean }): MaterialFlowOverlay | null {
+  materialFlow(options?: { monthlyExtraction?: boolean; stepDays?: number }): MaterialFlowOverlay | null {
     try {
       const snapshot = this.snapshot();
       if (snapshot.facilities.length === 0 && snapshot.armies.length === 0 && snapshot.ships.length === 0) return null;
