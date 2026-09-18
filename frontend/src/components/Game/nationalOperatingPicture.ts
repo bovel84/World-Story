@@ -171,13 +171,20 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
 
   const status = worstStatus(domains.map(domain => domain.status));
   const attention = attentionFrom(domains, 5);
-  const worst = [...domains].sort((a, b) => domains.indexOf(b) - domains.indexOf(a)).find(domain => domain.status === status) ?? domains[0];
+  // Il dominio peggiore è il **primo** in ordine canonico con quello stato:
+  // stessa priorità dell'elenco (situazione, forze armate, industria, risorse,
+  // economia, governo) e nessuna scelta arbitraria a parità di gravità.
+  const worst = domains.find(domain => domain.status === status) ?? domains[0];
 
+  // Quando il paese non tiene, la frase in testa cita il **problema** del
+  // dominio peggiore (il primo driver non positivo), non la sua sintesi: una
+  // sintesi positiva accanto a uno stato critico sarebbe fuorviante.
+  const worstDriver = worst.drivers.find(driver => driver.tone === 'critical' || driver.tone === 'warning') ?? null;
   const headline = status === 'healthy'
     ? 'Il paese tiene: nessun dominio in difficoltà.'
     : status === 'stable'
       ? 'Situazione sotto controllo, con margini da difendere.'
-      : `Il punto debole è ${worst.label.toLowerCase()}: ${worst.headline}`;
+      : `Il punto debole è ${worst.label.toLowerCase()}: ${worstDriver?.label ?? worst.headline}${worstDriver?.detail ? ` — ${worstDriver.detail}` : ''}`;
 
   const summary = `${DOMAIN_STATUS_LABEL[status]} · ${attention.length === 0 ? 'nessuna attenzione urgente' : `${attention.length} attenzioni da decidere`}`;
 

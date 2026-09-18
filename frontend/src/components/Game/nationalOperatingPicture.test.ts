@@ -64,6 +64,29 @@ describe('COUNTRY-CLARITY · sala operativa nazionale', () => {
     expect(new Set(picture.attention.map(item => item.label)).size).toBe(picture.attention.length);
   });
 
+  it('la frase in testa cita il problema del dominio peggiore, non la sua sintesi', () => {
+    const picture = nationalOperatingPicture(modernInput());
+    const worst = picture.domains.find(domain => domain.status === picture.status);
+    expect(worst).toBeDefined();
+    const problem = worst!.drivers.find(driver => driver.tone === 'critical' || driver.tone === 'warning');
+    expect(problem).toBeDefined();
+    expect(picture.headline).toContain(`Il punto debole è ${worst!.label.toLowerCase()}`);
+    expect(picture.headline).toContain(problem!.label);
+    if (problem!.detail) expect(picture.headline).toContain(problem!.detail);
+    // Mai la sintesi del dominio accanto a uno stato che non tiene.
+    expect(picture.headline).not.toContain(`: ${worst!.headline}`);
+
+    // Sintesi positiva + stato critico (debito oltre i tre quarti del PIL):
+    // la testa deve comunque dire il problema.
+    const indebted = nationalOperatingPicture(modernInput({
+      resources: { ...modernInput().resources, money: -69.5, debt: 610, debtRatioPct: 95.6, annualInterest: 30, creditHeadroom: 0 },
+    }));
+    const indebtedWorst = indebted.domains.find(domain => domain.status === indebted.status)!;
+    const indebtedProblem = indebtedWorst.drivers.find(driver => driver.tone === 'critical' || driver.tone === 'warning')!;
+    expect(indebted.headline).toContain(indebtedProblem.label);
+    expect(indebted.headline).not.toContain(indebtedWorst.headline);
+  });
+
   it('ogni dominio espone le 10 risposte del modello mentale, tutte piene', () => {
     const picture = nationalOperatingPicture(modernInput());
     expect(picture.answers.map(answer => answer.id)).toEqual([
