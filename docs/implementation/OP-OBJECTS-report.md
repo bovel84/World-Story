@@ -1,7 +1,8 @@
 # OP-OBJECTS — Sala di governo: oggetti reali, non numeri aggregati
 
 **Base** `36cd8c0` · **Commit** `2b12574` (P1 motore) · `04207ef` (P2 UI) · `f0a714e` (P3 lavorazioni)
-· **Branch** `main` · **Report** `docs/implementation/OP-OBJECTS-report.md`
+· **Mergiata** `1e140ea` (#63) · **Deploy** Worker `21184407-8f1f-41c3-b06e-dfacfb46985a`, `build.frontend 1e140ea`
+· **FIX** (numeri del personale, titoli delle opere) `docs` §36 · **Report** `docs/implementation/OP-OBJECTS-report.md`
 
 Direzione del lavoro: **STOCK → CONSUMO → PRODUZIONE → COSTO → AZIONE → CONSEGUENZA**.
 Principio invariato e mai violato: **ENGINE DATA → READ MODEL → UI**. La UI non inventa
@@ -141,7 +142,7 @@ Acciaieria Italia · Impianto industriale · Operativo
 Linee di lavorazione 4 · Utilizzo 40% · Ritmo di lavoro 40%
 Output: Armamenti 0,7/mese · Vestiario 0,4/mese
 Input: Carburante 0,2/mese · Minerali ferrosi 0,34/mese · Carbone 0,52/mese
-Personale: Addetti 110 · Costo operativo 0,44 mld
+Personale: Addetti 9.000 · Costo operativo 0,44 mld
 Ordine in lavorazione: Fucili d'assalto ×30 · 42%
 Consegna prevista: 20 giu 1951
 ```
@@ -271,6 +272,18 @@ e manutenzione già pubblicati.
 
 Nessuna formula riscritta: manpower, copertura, prontezza, capacità industriale,
 ritmo di produzione e bilanci materiali restano **una sola implementazione**.
+
+## 26-bis. Personale e costi degli impianti: convenzioni dichiarate
+
+Il motore non pubblica l'occupazione industriale. La prima versione ricavava gli
+addetti da una quota di popolazione (11%): la verifica live su un gioco reale ha
+mostrato **923.314 addetti in una acciaieria** e 44.319 per miniera — un numero che
+nessun giocatore può credere. La convenzione è stata sostituita con un valore **per
+linea**, plausibile e dichiarato (`STAFF_PER_LINE`: 900 per linea di fabbrica, 1.200
+per linea di cantiere, 600 per linea di ricerca; miniere: 340 addetti per punto di
+giacimento). Il costo operativo resta la quota di spesa civile ripartita per linee.
+
+Dettaglio della correzione in §36.
 
 ## 27. Nuovi modelli (punto 36)
 
@@ -405,9 +418,10 @@ Non sono stati toccati: crisi, playback, branching, rewind, `FactionMemory`,
    convenzioni dichiarate; al massimo 4 navi rappresentate per tipo.
 3. **Nomi degli impianti**: dichiarati (`PLANT_NAME_POOL`) con provincia assegnata per
    popolazione/costa; il motore conta le fabbriche, non gli stabilimenti.
-4. **Addetti e costo operativo di un impianto**: quota convenzionale (11% della
-   popolazione per l'industria, spesa civile ripartita per linee). Non sono un dato
-   del motore: sono dichiarati come convenzione nel payload.
+4. **Addetti e costo operativo di un impianto**: convenzione dichiarata — addetti
+   **per linea** (900 fabbrica · 1.200 cantiere · 600 ricerca; 340 per punto di
+   giacimento) e spesa civile ripartita per linee. Il motore non pubblica
+   l'occupazione industriale: la scheda non la ricava dal PIL (vedi §36).
 5. **Manutenzione per singola nave**: quando il motore ha lavori aperti, l'attribuzione
    alle unità è convenzionale (il motore conosce le linee, non l'ordine di cantiere).
 6. **PRIMA → DOPO disponibile solo per la creazione di reparti** (P9): procurement,
@@ -427,6 +441,28 @@ Non sono stati toccati: crisi, playback, branching, rewind, `FactionMemory`,
 12. **`landOrders`/`navalOrders`**: gli ordini non consegnati sono ora usati per le
     lavorazioni assegnate; il progresso è quello dell'ordine (aggregato nazionale), non
     un progresso per impianto registrato dal motore.
+
+## 36. FIX post-deploy — numeri plausibili e titoli brevi
+
+La verifica live (dopo il merge `1e140ea`, Worker `21184407…`) ha mostrato due
+difetti che i test non coglievano perché non guardavano la **plausibilità** del
+numero, solo la coerenza della struttura:
+
+1. **Addetti assurdi.** `workforce = popolazione × 11%` distribuito sulle linee
+   produceva `923.314` addetti per una acciaieria e `44.319` per una miniera su un
+   gioco reale del 1815. Intervento: `STAFF_PER_LINE` (per linea, dichiarato) e
+   `STAFF_PER_MINE_POINT` (per punto di giacimento); la convenzione nel payload è
+   aggiornata; due test nuovi verificano il valore per linea e che il totale degli
+   addetti resti una frazione plausibile della popolazione.
+2. **Titoli delle opere = paragrafi.** Le costruzioni derivavano il `label` dal
+   titolo grezzo del progetto: fino a 300 caratteri nel punto più visibile della
+   scheda, contro la regola «la vista principale è di numeri». Intervento:
+   `shortTitle()` (78 caratteri, taglio all'ultima parola) e titolo completo
+   riportato sotto «Perché?» (`Opera: …`). Un test nuovo copre il taglio e la
+   conservazione del testo integrale.
+
+Nessuna formula del motore è stata toccata: solo convenzioni di presentazione
+dichiarate e la lunghezza di un'etichetta. Backend **153 file / 1409 test**.
 
 ## 35. File toccati e commit
 

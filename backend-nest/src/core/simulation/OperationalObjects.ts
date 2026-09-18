@@ -173,7 +173,19 @@ const n = (value: number, decimals = 0) =>
  * la somma sugli impianti resta il totale nazionale (nessuna invenzione per
  * singolo stabilimento).
  */
-export const INDUSTRIAL_LABOUR_SHARE = 0.11;
+/**
+ * Addetti per linea di lavorazione: **convenzione dichiarata**. Il motore non
+ * pubblica l'occupazione industriale, quindi la scheda di un impianto non può
+ * ricavarla dal PIL senza inventare una cifra enorme (l'11% della popolazione
+ * dava 900.000 addetti a una acciaieria). Meglio un numero per linea, plausibile
+ * e dichiarato, che un aggregato nazionale spacciato per organico di stabilimento.
+ */
+export const STAFF_PER_LINE: Record<'factory' | 'shipyard' | 'university', number> = {
+  factory: 900, shipyard: 1200, university: 600,
+};
+
+/** Addetti di una miniera: convenzione dichiarata, proporzionale al giacimento. */
+export const STAFF_PER_MINE_POINT = 340;
 
 /** Mesi di scorta che valgono «serbatoio pieno» (riusa la soglia operativa del motore). */
 export const FULL_TANK_MONTHS = 3;
@@ -193,6 +205,18 @@ const PLANT_NAME_POOL: Record<'factory' | 'shipyard' | 'university', string[]> =
 const EMPTY_STOCK: ResourceStock = {
   money: 0, food: 0, clothing: 0, weapons: 0, fuel: 0, research: 0, technologies: [], debts: [],
 };
+
+/**
+ * Titolo breve di un'opera: la vista principale non deve contenere paragrafi.
+ * Il titolo completo resta disponibile sotto «Perché?».
+ */
+export function shortTitle(title: string, max = 78): string {
+  const clean = String(title || '').replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > 40 ? cut.slice(0, lastSpace) : cut).replace(/[,;:]$/, '')}…`;
+}
 
 /**
  * Distribuzione degli ordini sugli impianti dello stesso tipo: ogni ordine va a
@@ -827,7 +851,7 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
   const plan = formationPlan({ epoch, units });
   const objects: OperatingObject[] = [];
   const conventions: string[] = [
-    `Personale degli impianti: ${round1(INDUSTRIAL_LABOUR_SHARE * 100)}% della popolazione lavora nell'industria e il totale è distribuito sugli impianti in proporzione alle linee di lavorazione.`,
+    'Personale di un impianto: convenzione dichiarata — 900 addetti per linea di fabbrica, 1.200 per linea di cantiere, 600 per linea di ricerca. Il motore non pubblica l\'occupazione industriale: la scheda non la ricava dal PIL.',
     'Equipaggiamento per armata: attribuito in proporzione ai reparti (il motore non registra quale reparto possiede quale pezzo); la somma delle armate è il totale nazionale.',
     'Produzione e input di un impianto: contributo marginale calcolato dal motore (`advanceStock`) sullo stesso profilo, non una formula riscritta.',
     'Le navi rappresentate sono derivate dalle unità navali dell\'arsenale: il motore conta gli scafi per tipo, non i singoli esemplari.',
@@ -885,8 +909,8 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
     const slot = layout.find(item => item.kind === kind && item.index === index);
     return slot ? plantAllocatedLines(allocations, slot.perPlant, slot.start) : 0;
   };
-  const workforce = Math.round(nonNegative(account.population) * INDUSTRIAL_LABOUR_SHARE);
-  const staffOf = (lines: number) => (totalLines > 0 ? Math.round(workforce * (lines / totalLines)) : 0);
+  const staffOf = (kind: 'factory' | 'shipyard' | 'university', lines: number) =>
+    Math.max(0, Math.round(nonNegative(lines) * STAFF_PER_LINE[kind]));
   const civilMonthlyMld = Math.max(0, round2(
     nonNegative(account.monthlyExpenses)
     - nonNegative(account.nominalGdpUsdBillions) * nonNegative(account.defenceBurdenPct) / 100 / 12,
@@ -938,7 +962,7 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
         fact('input', 'Carburante', round2(factoryProfile.fuel * activity), 'per_mese'),
         fact('input', 'Minerali ferrosi', round2(ironInput * activity), 'per_mese'),
         fact('input', 'Carbone', round2(coalInput * activity), 'per_mese'),
-        fact('personale', 'Addetti', staffOf(CAPACITY_PER_FACTORY), 'numero'),
+        fact('personale', 'Addetti', staffOf('factory', CAPACITY_PER_FACTORY), 'numero'),
         fact('costi', 'Costo operativo', civilCostOf(CAPACITY_PER_FACTORY), 'mld'),
         // §13: che cosa sta producendo l'impianto, con l'avanzamento reale.
         ...(productionOrder ? [
@@ -999,7 +1023,7 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
           : []),
         fact('input', 'Acciaio e componenti', round2(ironInput * 2 * shipyardActivity), 'per_mese'),
         fact('input', 'Carburante movimentato', round2(shipyardProfile.fuel * shipyardActivity), 'per_mese'),
-        fact('personale', 'Addetti', staffOf(CAPACITY_PER_PORT), 'numero'),
+        fact('personale', 'Addetti', staffOf('shipyard', CAPACITY_PER_PORT), 'numero'),
         fact('costi', 'Costo operativo', civilCostOf(CAPACITY_PER_PORT), 'mld'),
         fact('autonomia', 'Unità in manutenzione', inMaintenanceLines > 0 ? inMaintenanceLines : 0, 'numero',
           inMaintenanceLines > 0 ? 'warning' : 'neutral'),
@@ -1039,7 +1063,7 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
         fact('capacita', 'Linee di ricerca', CAPACITY_PER_UNIVERSITY, 'numero'),
         fact('capacita', 'Linee occupate da progetti', researchLines, 'numero'),
         fact('output', 'Punti ricerca', round2(universityProfile.research * universityActivity), 'per_mese', universityActivity <= 0 ? 'critical' : 'neutral'),
-        fact('personale', 'Addetti', staffOf(CAPACITY_PER_UNIVERSITY), 'numero'),
+        fact('personale', 'Addetti', staffOf('university', CAPACITY_PER_UNIVERSITY), 'numero'),
         fact('costi', 'Costo operativo', civilCostOf(CAPACITY_PER_UNIVERSITY), 'mld'),
         ...(researchProject ? [
           fact('output', 'Progetto in corso', null, 'testo', 'neutral', String(researchProject.title || '')),
@@ -1082,7 +1106,7 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
         fact('stato', 'Giacimento', amount, 'numero'),
         fact(view.section, view.label, value, 'per_mese', value > 0 ? 'positive' : 'critical'),
         fact('capacita', 'Sfruttamento', round1(Math.min(100, amount / 5 * 100)), 'pct'),
-        fact('personale', 'Addetti', Math.max(1, Math.round(workforce * 0.04)), 'numero'),
+        fact('personale', 'Addetti', Math.max(120, Math.round(amount * STAFF_PER_MINE_POINT)), 'numero'),
         fact('costi', 'Costo operativo', round2(civilCostOf(1)), 'mld'),
       ],
       problems: value <= 0
@@ -1093,7 +1117,8 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
     });
   }
 
-  // ── Costruzioni in corso ──────────────────────────────────────────────────
+
+// ── Costruzioni in corso ──────────────────────────────────────────────────
   for (const project of input.projects) {
     const allocation = projectAllocation(project);
     const months = projectRemainingMonths(project, input.date);
@@ -1102,7 +1127,7 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
     objects.push({
       id: `construction-${project.id}`,
       kind: 'construction',
-      label: String(project.title || 'Lavori in corso'),
+      label: shortTitle(String(project.title || 'Lavori in corso')),
       subtitle: region ? `Cantiere in ${region.name}` : 'Cantiere nazionale',
       status: 'under_construction',
       statusLabel: OPERATING_STATUS_LABEL.under_construction,
@@ -1121,7 +1146,7 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
         ? [{ severity: 'critical' as const, label: 'Cantiere fermo: nessuna capacità industriale', detail: 'Senza impianti i lavori non avanzano.' }]
         : [],
       actions: [],
-      why: 'Un\'opera in costruzione occupa linee e materiali ma non produce nulla: il motore non la conta fra gli impianti finché non è completata (il cantiere è un oggetto `construction_site`, non una fabbrica).',
+      why: `Un\'opera in costruzione occupa linee e materiali ma non produce nulla: il motore non la conta fra gli impianti finché non è completata (il cantiere è un oggetto \`construction_site\`, non una fabbrica).${shortTitle(String(project.title || '')) !== String(project.title || '').trim() ? ` Opera: ${String(project.title || '').replace(/\s+/g, ' ').trim()}` : ''}`,
     });
   }
 

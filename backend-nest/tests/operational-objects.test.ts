@@ -14,8 +14,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  CATEGORY_EQUIPMENT, INDUSTRIAL_LABOUR_SHARE, endowmentContribution, formationImpact, formationPlan,
-  marginalProduction, navalInventory, navalShips, operatingPicture, plantAllocatedLines, plantOrders,
+  CATEGORY_EQUIPMENT, STAFF_PER_LINE, STAFF_PER_MINE_POINT, endowmentContribution, formationImpact, formationPlan,
+  marginalProduction, navalInventory, navalShips, operatingPicture, plantAllocatedLines, plantOrders, shortTitle,
   type IndustrialOrderLike, type OperationalInput, type OperationalRegion, type OperatingObject,
 } from '../src/core/simulation/OperationalObjects';
 import {
@@ -382,7 +382,7 @@ describe('OP-OBJECTS — quadro completo e convenzioni', () => {
     expect(result.counts.facility).toBeGreaterThan(0);
     expect(result.counts.construction).toBe(1);
     expect(result.conventions.length).toBeGreaterThanOrEqual(3);
-    expect(result.conventions.join(' ')).toContain(`${Math.round(INDUSTRIAL_LABOUR_SHARE * 100)}%`);
+    expect(result.conventions.join(' ')).toContain('900 addetti per linea di fabbrica');
   });
 
   it('ogni oggetto usa la stessa grammatica: sezioni ammesse e problemi con severità', () => {
@@ -452,6 +452,37 @@ describe('OP-OBJECTS — quadro completo e convenzioni', () => {
     const delivery = plants[0].facts.find(fact => fact.label === 'Consegna prevista');
     expect(delivery?.unit).toBe('data');
     expect(delivery?.text).toBe('1951-06-20');
+  });
+
+  it('gli addetti di un impianto sono per linea: mai frazioni di popolazione', () => {
+    const result = picture();
+    const factories = byKind(result.objects, 'facility').filter(object => object.subtitle === 'Impianto industriale');
+    for (const factory of factories) {
+      expect(Number(factOf(factory, 'Addetti')!.value)).toBe(900 * 10);
+    }
+    const university = byKind(result.objects, 'facility').find(object => object.subtitle === 'Ricerca e formazione tecnica')!;
+    expect(Number(factOf(university, 'Addetti')!.value)).toBe(STAFF_PER_LINE.university * 2);
+    const mine = byKind(result.objects, 'mine')[0];
+    // Gli addetti di una miniera seguono il giacimento dichiarato dal registro.
+    const endowment = Number(factOf(mine, 'Giacimento')!.value);
+    expect(Number(factOf(mine, 'Addetti')!.value)).toBe(Math.max(120, Math.round(endowment * STAFF_PER_MINE_POINT)));
+    // Nessun impianto assorbe più persone di quante ne ha il paese.
+    const total = result.objects.flatMap(object => object.facts)
+      .filter(item => item.label === 'Addetti')
+      .reduce((sum, item) => sum + Number(item.value), 0);
+    expect(total).toBeLessThan(accounts().population / 10);
+  });
+
+  it('il titolo di un’opera lunga è abbreviato; il testo completo resta nel «Perché?»', () => {
+    const long = 'Presentiamo alla Dieta di Francoforte un piano di riarmo federale che porti la spesa militare al livello richiesto dallo Stato maggiore, con riserve addestrate per coscrizione';
+    const short = shortTitle(long);
+    expect(short.length).toBeLessThanOrEqual(79);
+    expect(short.endsWith('…')).toBe(true);
+    expect(shortTitle('Ferrovia transnazionale')).toBe('Ferrovia transnazionale');
+    const result = picture({ projects: [{ id: 'p2', title: long, started_date: '1951-01-01', expected_date: '1952-01-01', progress: 20 }], orders: [] });
+    const construction = byKind(result.objects, 'construction')[0];
+    expect(construction.label).toBe(short);
+    expect(construction.why).toContain('Opera: Presentiamo alla Dieta');
   });
 
   it('la rotazione degli ordini non duplica il lavoro fra impianti', () => {
