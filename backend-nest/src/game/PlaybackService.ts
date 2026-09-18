@@ -727,6 +727,15 @@ export class PlaybackService {
     // Data/turno definitivi e checkpoint di chiusura del run. F02 passo 4:
     // CAS sull’ancora pre-commit — un mondo mutato altrove blocca il commit.
     this.state.currentDate = finalDate;
+    // PLAYBACK-CRISIS-LEG: anche il tratto fra l’ultimo evento e la destinazione
+    // è tempo simulato. La crisi avanza degli **stessi** giorni già portati
+    // all’economia (`elapsedDays`, nessun secondo calcolo del tempo) e alla
+    // stessa data finale: stessa sequenza degli altri percorsi (economia →
+    // `currentDate` → crisi), così l’ancora salvata in `game_crisis_state` è la
+    // data finale e il tratto non viene contato due volte al turno successivo.
+    // Su «Intervieni» o budget esaurito `destinationReached` è falso e
+    // `elapsedDays` vale 0: nessun giorno futuro viene simulato.
+    if (destinationReached && elapsedDays > 0) this.ctx.evaluateCrisis(elapsedDays);
     this.state.interveneRequested = false;
     this.state.pausedRun = null; // prima della cattura: il checkpoint non referenzia più il run
     this.ctx.syncRegionsToDB();
