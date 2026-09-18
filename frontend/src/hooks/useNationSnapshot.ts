@@ -25,11 +25,14 @@ import {
   type GovernmentSnapshot,
   type GovernmentVoicesResponse,
   type PeacetimePressure,
+  type FormationImpactPayload,
 } from '../services/api';
 import { normalizeResources } from '../components/Game/nationDossier';
 
 export type NationalResources = Awaited<ReturnType<typeof normalizeResources>>;
 export type NationalArms = Awaited<ReturnType<typeof gameApi.arsenal>>;
+/** OP-OBJECTS — parametri della creazione di reparti (armata esistente o nuova). */
+export interface FormationOptions { formations?: number; armyId?: string | null; name?: string }
 export type NationalAccountMap = Record<string, any>;
 export interface NationalHistoryEntry {
   date: string;
@@ -109,6 +112,10 @@ export interface NationSnapshot {
   /** Azzera l'intero snapshot (nessuna partita attiva). */
   resetNational: () => void;
   procureEquipment: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
+  /** OP-OBJECTS — anteprima PRIMA → DOPO della creazione di reparti (sola lettura). */
+  previewFormation: (options?: FormationOptions) => Promise<FormationImpactPayload>;
+  /** OP-OBJECTS — crea davvero i reparti: il motore paga e aggiorna il mondo. */
+  raiseFormation: (options?: FormationOptions) => Promise<void>;
   tradeNaturalResource: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;
   borrowSovereignDebt: (amountMld: number, termYears: number) => Promise<void>;
   setFiscalPolicy: (taxRatePct: number) => Promise<void>;
@@ -276,6 +283,46 @@ export function useNationSnapshot({
     }
   }, [gameId, notify]);
 
+  /**
+   * OP-OBJECTS — creazione di reparti. Il motore calcola l'anteprima PRIMA → DOPO
+   * e, alla conferma, paga il materiale, scala il deposito e aggiunge l'armata al
+   * mondo: qui si ricaricano soltanto i dati pubblicati, senza ricalcolare nulla.
+   */
+  const previewFormation = useCallback(async (options: FormationOptions = {}) => {
+    if (!gameId) throw new Error('formation_blocked: nessuna partita attiva');
+    return gameApi.formationPreview(gameId, options);
+  }, [gameId]);
+
+  const raiseFormation = useCallback(async (options: FormationOptions = {}) => {
+    if (!gameId) return;
+    try {
+      const result = await gameApi.raiseFormation(gameId, options);
+      notify(
+        `${result.formations > 1 ? `${result.formations} reparti` : result.name} in linea a ${result.regionName}: ${result.spentMln >= 1000 ? `${(result.spentMln / 1000).toFixed(3)} mld` : `${Math.round(result.spentMln)} mln`} di materiale.`,
+        'success',
+      );
+      if (result.financedMln > 0) {
+        notify(`Spesa finanziata a debito: ${(result.financedMln / 1000).toFixed(3)} mld.`, 'info');
+      }
+      const [arms, national] = await Promise.all([
+        gameApi.arsenal(gameId),
+        gameApi.nationalState(gameId),
+      ]);
+      setNationalArms(arms);
+      setNationalResources(normalizeResources(national.resources));
+      setNationalAccounts(national.accounts || {});
+      setNationalGovernment(national.government ?? null);
+    } catch (error: any) {
+      console.error('[App] Formazione reparto fallita:', error);
+      const message = String(error?.message || '');
+      const reason = message.includes('formation_blocked')
+        ? message.replace(/^.*formation_blocked:\s*/, '') || 'Materiale insufficiente per formare il reparto.'
+        : message.includes('credit_exhausted') ? 'Cassa e credito insufficienti: debito al limite.'
+        : 'Reparto non formato.';
+      notify(reason, 'error');
+    }
+  }, [gameId, notify]);
+
   // Vendi o compra una risorsa naturale sul mercato: denaro ↔ magazzino.
   const tradeNaturalResource = useCallback(async (mode: 'sell' | 'buy', resourceId: string, quantity: number) => {
     if (!gameId) return;
@@ -394,6 +441,8 @@ export function useNationSnapshot({
     maintenanceObligations,
     resetNational,
     procureEquipment,
+    previewFormation,
+    raiseFormation,
     tradeNaturalResource,
     borrowSovereignDebt,
     setFiscalPolicy,

@@ -202,6 +202,127 @@ export interface ArsenalResponse {
   readiness: MilitaryReadinessPayload;
   /** Capacità industriale: linee, occupazione, saturazione. */
   industrialCapacity: IndustrialCapacityPayload;
+  /** OP-OBJECTS — oggetti concreti e catene produttive (sala di governo). */
+  objects: OperatingPicturePayload;
+}
+
+// ── OP-OBJECTS: la sala di governo (oggetti concreti) ───────────────────────
+
+/** Le sezioni della grammatica universale degli oggetti. */
+export type OperatingFactSection = 'stato' | 'capacita' | 'personale' | 'input' | 'output' | 'costi' | 'autonomia';
+
+/** Come si legge un fatto: numero, percentuale, miliardi, milioni, flusso, mesi, testo. */
+export type OperatingFactUnit = 'numero' | 'pct' | 'mld' | 'mln' | 'per_mese' | 'mesi' | 'testo';
+
+export interface OperatingFactPayload {
+  section: OperatingFactSection;
+  label: string;
+  value: number | null;
+  unit: OperatingFactUnit;
+  text?: string | null;
+  tone?: 'positive' | 'warning' | 'critical' | 'neutral';
+}
+
+export interface OperatingProblemPayload {
+  severity: 'critical' | 'warning';
+  label: string;
+  detail?: string | null;
+}
+
+export interface OperatingActionPayload {
+  id: 'raise_formation' | 'procure' | 'trade';
+  label: string;
+  enabled: boolean;
+  blockedReason?: string | null;
+}
+
+export type OperatingKindPayload =
+  | 'force' | 'army' | 'facility' | 'construction' | 'navy' | 'fleet' | 'ship' | 'mine';
+
+/** Un oggetto concreto del paese: armata, impianto, cantiere, nave, miniera. */
+export interface OperatingObjectPayload {
+  id: string;
+  kind: OperatingKindPayload;
+  label: string;
+  subtitle?: string | null;
+  status: 'operational' | 'degraded' | 'maintenance' | 'idle' | 'under_construction' | 'critical';
+  statusLabel: string;
+  parentId?: string | null;
+  regionId?: string | null;
+  regionName?: string | null;
+  facts: OperatingFactPayload[];
+  problems: OperatingProblemPayload[];
+  actions: OperatingActionPayload[];
+  why?: string | null;
+}
+
+export interface OperatingChainPayload {
+  id: string;
+  label: string;
+  steps: Array<{ label: string; value: number; unit: OperatingFactUnit; tone: string; detail?: string | null }>;
+  broken: boolean;
+  summary: string;
+}
+
+/** Quadro operativo pubblicato dal motore dentro `/arsenal`. */
+export interface OperatingPicturePayload {
+  objects: OperatingObjectPayload[];
+  chains: OperatingChainPayload[];
+  counts: Record<string, number>;
+  conventions: string[];
+}
+
+/** Una riga PRIMA → DOPO della creazione di reparti (numeri del motore). */
+export interface FormationDeltaPayload {
+  label: string;
+  unit: OperatingFactUnit;
+  before: number;
+  after: number;
+  tone: 'positive' | 'warning' | 'critical' | 'neutral';
+}
+
+export interface FormationPlanItemPayload {
+  equipmentId: string;
+  name: string;
+  required: number;
+  available: number;
+  consumed: number;
+  missing: number;
+  unitCostMln: number;
+}
+
+export interface FormationImpactPayload {
+  plan: {
+    men: number;
+    items: FormationPlanItemPayload[];
+    riflesRequired: number;
+    riflesAvailable: number;
+    riflesMissing: number;
+    initialCostMln: number;
+    blocked: boolean;
+    blockedReason: string | null;
+    basis: string;
+  };
+  armyId: string | null;
+  armyName: string;
+  targetRegionId: string;
+  target: { regionId: string; regionName: string; armyName: string; armyId: string | null };
+  before: Record<string, number>;
+  after: Record<string, number>;
+  deltas: FormationDeltaPayload[];
+  why: string;
+}
+
+/** Esito reale della creazione di reparti (il motore ha già applicato tutto). */
+export interface RaiseFormationResult extends FormationImpactPayload {
+  applied: boolean;
+  formations: number;
+  name: string;
+  regionId: string;
+  regionName: string;
+  spentMln: number;
+  financedMln: number;
+  impact: FormationImpactPayload;
 }
 
 /** Titolo del debito pubblico: capitale, tasso annuo e scadenza. */
@@ -872,6 +993,26 @@ export const gameApi = {
   /** Arsenale militare, risorse naturali reali e catalogo con fattibilità. */
   arsenal: (gameId: string): Promise<ArsenalResponse> =>
     fetchApi(`/games/${gameId}/arsenal`),
+
+  /** OP-OBJECTS — anteprima della creazione di reparti: PRIMA → DOPO, sola lettura. */
+  formationPreview: (gameId: string, options: { formations?: number; armyId?: string | null; name?: string } = {}): Promise<FormationImpactPayload> => {
+    const params = new URLSearchParams();
+    if (options.formations) params.set('formations', String(options.formations));
+    if (options.armyId) params.set('armyId', options.armyId);
+    if (options.name) params.set('name', options.name);
+    const query = params.toString();
+    return fetchApi(`/games/${gameId}/military/formation${query ? `?${query}` : ''}`);
+  },
+
+  /**
+   * OP-OBJECTS — crea davvero i reparti: il motore paga il materiale, lo toglie
+   * dal deposito e aggiunge l'armata al mondo. La risposta porta il PRIMA → DOPO.
+   */
+  raiseFormation: (gameId: string, options: { formations?: number; armyId?: string | null; name?: string } = {}): Promise<RaiseFormationResult> =>
+    fetchApi(`/games/${gameId}/military/formation`, {
+      method: 'POST',
+      body: JSON.stringify(options),
+    }),
 
   /** Costruisce (`build`) o importa (`buy`) equipaggiamento militare. */
   procure: (gameId: string, mode: 'build' | 'buy', equipmentId: string, quantity = 1): Promise<{
