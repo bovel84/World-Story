@@ -42,6 +42,7 @@ import {
   type ArmyOperationalState, type MilitaryPersonnelState,
 } from '../core/simulation/OperationalState';
 import type { OperationalStateStore } from './OperationalStateStore';
+import { splitMaterialPeriod } from './NationStateService';
 import { materialBalance } from './materialBalance';
 import { effectiveMaterialNeeds, materialNeeds } from '../core/simulation/MaterialEconomy';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
@@ -58,6 +59,22 @@ const nonNegative = (value: unknown): number => {
   return Number.isFinite(number) && number > 0 ? number : 0;
 };
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
+
+/**
+ * Registro dei bollettini di produzione di **un salto di tempo**: le voci già
+ * pubblicate non si ripetono e lo stato di lavorazione di ogni ordine è quello
+ * lasciato dal periodo precedente. Condiviso da tutti i periodi materiali dello
+ * stesso salto (OP-OBJECTS TIME-STEP: un anno fermo è **una** riga, non dodici).
+ */
+export interface ProductionNotices {
+  seen: Set<string>;
+  state: Map<string, string>;
+}
+
+/** Registro vuoto: una chiamata isolata non ha memoria dei periodi precedenti. */
+export function createProductionNotices(): ProductionNotices {
+  return { seen: new Set<string>(), state: new Map<string, string>() };
+}
 
 /** Dipendenze fornite da GameSession: stato che NON appartiene al dominio militare. */
 export interface MilitaryContext {
@@ -1023,8 +1040,16 @@ export class MilitaryService {
    * della linea × disponibilità reale dei materiali. Un ordine senza impianto
    * (partita legacy) o senza store non ha vincoli oggettuali: fattore 1.
    */
-  private facilityMaterialFactor(order: ProductionOrder): number {
+  private facilityMaterialFactor(order: ProductionOrder, factors?: Record<string, number>): number {
     if (!order.facilityId) return 1;
+    // Se il periodo porta con sé il **passaggio di allocazione** (tick del
+    // mondo) si usa quello: ricalcolarlo dopo il prelievo dei materiali
+    // leggerebbe un silo già vuoto e l'ordine si fermerebbe mentre l'impianto
+    // ha appena lavorato a pieno regime (OP-OBJECTS TIME-STEP).
+    const declared = factors?.[order.facilityId];
+    if (typeof declared === 'number' && Number.isFinite(declared)) {
+      return Math.max(0, Math.min(1, declared));
+    }
     const store = this.operational();
     if (!store) return 1;
     try {
@@ -1056,61 +1081,89 @@ export class MilitaryService {
   }
 
   /** Avanza gli ordini di produzione del giocatore e consegna a lavori finiti. */
-  advanceProduction(days: number, account?: NationalAccount): string[] {
+  advanceProduction(days: number, account?: NationalAccount, factors?: Record<string, number>, notices?: ProductionNotices): string[] {
     if (this.ctx.isStrictGame() || days <= 0) return [];
-    const orders = this.playerProductionOrders().filter(order => order.status === 'in_progress');
-    if (orders.length === 0) return [];
-    const context = this.productionContext();
-    const bulletins: string[] = [];
     const polityId = this.ctx.playerPolityId();
-    // Capacità industriale: se la domanda supera le linee disponibili, il lavoro
-    // avanza più lentamente per tutti (stesso fattore per ogni ordine aperto).
-    const capacity = this.industrialCapacity(polityId);
-    if (capacity.blocked) {
-      // Nessuna linea e lavoro da fare: non si avanza di un punto e non si
-      // inventa un ritmo del 25%. Gli ordini restano aperti, in attesa.
-      bulletins.push('🏭 Produzione bloccata: nessuna capacità industriale disponibile — nessuna linea di lavorazione. Le consegne restano ferme finché non si costruiscono impianti.');
-      return bulletins;
-    }
-    const months = (days / 30) * capacity.overflowFactor;
-    if (capacity.saturated && orders.length > 0) {
-      bulletins.push(`🏭 Industria satura: ${capacity.demand} linee richieste su ${capacity.total} disponibili — la produzione avanza al ${Math.round(capacity.overflowFactor * 100)}% del ritmo.`);
-    }
-    for (const order of orders) {
-      // L'impianto che ospita l'ordine deve essere operativo **e** avere i
-      // materiali: se il fattore è zero la lavorazione non avanza di un punto.
-      const materialFactor = this.facilityMaterialFactor(order);
-      if (materialFactor <= 0) {
-        bulletins.push(`🏭 ${order.name}: lavorazione sospesa — l'impianto assegnato è fermo o senza materiali. La consegna prevista è sospesa.`);
-        continue;
+    const bulletins: string[] = [];
+    // Deduplica: un anno di sospensione non produce dodici messaggi identici.
+    // `notices` è condiviso da tutti i periodi dello stesso salto: senza di esso
+    // ogni periodo aprirebbe il proprio registro e il messaggio tornerebbe.
+    const report = notices ?? createProductionNotices();
+    const seen = report.seen;
+    const state = report.state;
+    const push = (line: string) => {
+      if (seen.has(line)) return;
+      seen.add(line);
+      bulletins.push(line);
+    };
+    // OP-OBJECTS TIME-STEP: gli ordini avanzano a **periodi materiali**, come il
+    // magazzino. Il fattore dell'impianto (capacità × materiali) si ricalcola a
+    // ogni periodo: non è il fattore del primo giorno moltiplicato per sei mesi.
+    const steps = splitMaterialPeriod(days);
+    for (let index = 0; index < steps.length; index++) {
+      const step = steps[index];
+      const orders = this.playerProductionOrders().filter(order => order.status === 'in_progress');
+      if (orders.length === 0) continue;
+      const context = this.productionContext();
+      // Capacità industriale del periodo: se la domanda supera le linee
+      // disponibili, il lavoro avanza più lentamente per tutti (stesso fattore
+      // per ogni ordine aperto in quel periodo).
+      const capacity = this.industrialCapacity(polityId);
+      if (capacity.blocked) {
+        // Nessuna linea e lavoro da fare: non si avanza di un punto e non si
+        // inventa un ritmo del 25%. Gli ordini restano aperti, in attesa.
+        push('🏭 Produzione bloccata: nessuna capacità industriale disponibile — nessuna linea di lavorazione. Le consegne restano ferme finché non si costruiscono impianti.');
+        break;
       }
-      const seed = `${this.ctx.gameId}:${order.id}:${this.ctx.currentTurn()}`;
-      const result = advanceOrder(order, context, months * materialFactor, seed);
-      if (result.completed) {
-        const units = { ...this.arsenalUnits(polityId) };
-        units[order.equipmentId] = (units[order.equipmentId] || 0) + result.delivered;
-        this.saveArsenal(polityId, units);
-        this.releaseFacility(order);
-        productionRepository.remove(this.ctx.gameId, order.id);
-        this.productionOrders.delete(order.id);
-        const defect = result.order.qualityLoss > 0 ? ` (${Math.round(result.order.qualityLoss)}% difettose)` : '';
-        bulletins.push(`🏭 Produzione completata: ${result.delivered}/${order.quantity} × ${order.name}${defect}.`);
-        // OP-OBJECTS PERSISTENT: gli scafi consegnati **entrano in servizio** come
-        // navi reali, con il loro equipaggio preso dalla riserva addestrata.
-        if (equipmentById(order.equipmentId)?.domain === 'mare' && result.delivered > 0) {
-          bulletins.push(...this.putShipsInService({
-            equipmentId: order.equipmentId, name: order.name, quantity: result.delivered, depot: units,
-          }));
+      const months = (step / 30) * capacity.overflowFactor;
+      if (capacity.saturated) {
+        push(`🏭 Industria satura: ${capacity.demand} linee richieste su ${capacity.total} disponibili — la produzione avanza al ${Math.round(capacity.overflowFactor * 100)}% del ritmo.`);
+      }
+      for (const order of orders) {
+        // L'impianto che ospita l'ordine deve essere operativo **e** avere i
+        // materiali: se il fattore è zero la lavorazione non avanza di un punto.
+        // Nel primo periodo si riusa il passaggio di allocazione del tick.
+        const materialFactor = this.facilityMaterialFactor(order, index === 0 ? factors : undefined);
+        const working = materialFactor > 0 ? 'attiva' : 'sospesa';
+        const previous = state.get(order.id);
+        state.set(order.id, working);
+        // Il messaggio di sospensione compare al **cambio di stato**: dodici
+        // periodi fermi restano una riga sola.
+        if (working === 'sospesa') {
+          if (previous !== 'sospesa') {
+            push(`🏭 ${order.name}: lavorazione sospesa — l'impianto assegnato è fermo o senza materiali. La consegna prevista è sospesa.`);
+          }
+          continue;
         }
-      } else if (result.failed) {
-        this.releaseFacility(order);
-        productionRepository.remove(this.ctx.gameId, order.id);
-        this.productionOrders.delete(order.id);
-        bulletins.push(`⚠️ Produzione fallita: ${order.name} — ${result.order.note}.`);
-      } else {
-        this.saveProductionOrder(result.order);
-        if (result.setbackPct > 0) {
-          bulletins.push(`⚠️ ${order.name}: imprevisto in produzione, avanzamento ${Math.round(result.order.progress)}% (−${result.setbackPct}%).`);
+        const base = `${this.ctx.gameId}:${order.id}:${this.ctx.currentTurn()}`;
+        const seed = index === 0 ? base : `${base}:${index}`;
+        const result = advanceOrder(order, context, months * materialFactor, seed);
+        if (result.completed) {
+          const units = { ...this.arsenalUnits(polityId) };
+          units[order.equipmentId] = (units[order.equipmentId] || 0) + result.delivered;
+          this.saveArsenal(polityId, units);
+          this.releaseFacility(order);
+          productionRepository.remove(this.ctx.gameId, order.id);
+          this.productionOrders.delete(order.id);
+          const defect = result.order.qualityLoss > 0 ? ` (${Math.round(result.order.qualityLoss)}% difettose)` : '';
+          push(`🏭 Produzione completata: ${result.delivered}/${order.quantity} × ${order.name}${defect}.`);
+          // OP-OBJECTS PERSISTENT: gli scafi consegnati **entrano in servizio** come
+          // navi reali, con il loro equipaggio preso dalla riserva addestrata.
+          if (equipmentById(order.equipmentId)?.domain === 'mare' && result.delivered > 0) {
+            for (const line of this.putShipsInService({
+              equipmentId: order.equipmentId, name: order.name, quantity: result.delivered, depot: units,
+            })) push(line);
+          }
+        } else if (result.failed) {
+          this.releaseFacility(order);
+          productionRepository.remove(this.ctx.gameId, order.id);
+          this.productionOrders.delete(order.id);
+          push(`⚠️ Produzione fallita: ${order.name} — ${result.order.note}.`);
+        } else {
+          this.saveProductionOrder(result.order);
+          if (result.setbackPct > 0) {
+            push(`⚠️ ${order.name}: imprevisto in produzione, avanzamento ${Math.round(result.order.progress)}% (−${result.setbackPct}%).`);
+          }
         }
       }
     }

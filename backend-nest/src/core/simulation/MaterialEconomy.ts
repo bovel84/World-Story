@@ -344,6 +344,13 @@ export interface MaterialFlowOverlay {
   naturalInputs?: Partial<Record<NaturalResourceKind, number>>;
   /** Quota navale del carburante, per il dettaglio del flusso (esercito/marina). */
   navyFuel?: number;
+  /**
+   * Fattore materiale per impianto del **passaggio di allocazione** da cui
+   * nasce questo overlay. Gli ordini di produzione lo riusano invece di
+   * ricalcolarlo su scorte già decurtate: le schede e il motore devono leggere
+   * lo stesso passaggio (OP-OBJECTS TIME-STEP).
+   */
+  facilityFactors?: Record<string, number>;
 }
 
 /** Fabbisogno efficace: civile + militare degli **oggetti** (o legacy). */

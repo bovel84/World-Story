@@ -273,11 +273,18 @@ export class OperationalStateStore {
   }
 
   /**
-   * Disponibilità del mese per materiale: le **scorte** per i materiali e la
-   * **estrazione** (silo + gettito mensile) per i giacimenti. Un giacimento non
-   * è uno stock infinito: se l'estrazione è zero, la filiera si ferma.
+   * Disponibilità del periodo per materiale: le **scorte** per i materiali e il
+   * **silo** per i giacimenti. Un giacimento non è uno stock infinito: se il
+   * silo è vuoto, la filiera si ferma.
+   *
+   * `monthlyExtraction` (default `true`) somma al silo il gettito di un mese:
+   * è la lettura del Dossier («quanto posso lavorare questo mese»). Nel **tick
+   * a substep** vale `false`, perché l'estrazione del periodo è già stata
+   * versata nel silo da `advanceLedger`: sommarla di nuovo sarebbe un doppio
+   * conteggio (OP-OBJECTS TIME-STEP).
    */
-  availability(): Record<string, number> {
+  availability(options?: { monthlyExtraction?: boolean }): Record<string, number> {
+    const monthlyExtraction = options?.monthlyExtraction !== false;
     const availability: Record<string, number> = {};
     let stock: ResourceStock | null = null;
     try {
@@ -295,7 +302,7 @@ export class OperationalStateStore {
       for (const [kind, node] of Object.entries(ledger)) {
         if (!node) continue;
         const silo = Math.max(0, Number(node.stockpile) || 0);
-        const month = Math.max(0, extractionRate(node, account));
+        const month = monthlyExtraction ? Math.max(0, extractionRate(node, account)) : 0;
         availability[kind] = Math.round((silo + month) * 1000) / 1000;
       }
     } catch (error) {
@@ -308,11 +315,11 @@ export class OperationalStateStore {
    * Pass di allocazione degli impianti: **una sola** scorta divisa fra tutti.
    * Gli stessi numeri vanno al tick, alla scheda e agli ordini.
    */
-  allocation(): FacilityAllocation {
+  allocation(options?: { monthlyExtraction?: boolean }): FacilityAllocation {
     const snapshot = this.snapshot();
     return allocateFacilityProduction({
       facilities: snapshot.facilities,
-      availability: this.availability(),
+      availability: this.availability(options),
       activity: this.inputs.activity ? this.inputs.activity() : 1,
     });
   }
@@ -354,13 +361,19 @@ export class OperationalStateStore {
    * `null` quando lo stato persistente non esiste (partita legacy): in quel caso
    * il motore usa il percorso di sempre, senza alcun doppio conteggio.
    */
-  materialFlow(): MaterialFlowOverlay | null {
+  materialFlow(options?: { monthlyExtraction?: boolean }): MaterialFlowOverlay | null {
     try {
       const snapshot = this.snapshot();
       if (snapshot.facilities.length === 0 && snapshot.armies.length === 0 && snapshot.ships.length === 0) return null;
-      const allocation = this.allocation();
+      const allocation = this.allocation(options);
       const production: Partial<Record<'money' | 'food' | 'clothing' | 'weapons' | 'fuel' | 'research', number>> = {};
       const consumption: Partial<Record<'money' | 'food' | 'clothing' | 'weapons' | 'fuel' | 'research', number>> = {};
+      // Il fattore di ogni impianto viaggia con l'overlay: chi avanza gli ordini
+      // lo riusa invece di ricalcolarlo dopo il prelievo dei materiali.
+      const facilityFactors: Record<string, number> = {};
+      for (const entry of allocation.facilities) {
+        facilityFactors[entry.facilityId] = entry.materialFactor;
+      }
       for (const [id, value] of Object.entries(allocation.totalOutputs)) {
         if (id === 'money' || id === 'food' || id === 'clothing' || id === 'weapons' || id === 'fuel' || id === 'research') {
           production[id] = value;
@@ -377,6 +390,7 @@ export class OperationalStateStore {
         militaryNeeds: this.militaryNeeds(),
         naturalInputs: allocation.naturalInputs,
         navyFuel: Math.round(this.navyFuel() * 1000) / 1000,
+        facilityFactors,
       };
     } catch (error) {
       this.warn('flusso oggetti non calcolabile', error);

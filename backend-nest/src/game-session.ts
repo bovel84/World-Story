@@ -8,7 +8,7 @@
 import { shortId } from './utils/short-id';
 import { TimelineService, type TimelineEntry, type TimelineEventRecord, type TurnResultRecord } from './game/TimelineService';
 import { RegionGeometryService } from './game/RegionGeometryService';
-import { MilitaryService } from './game/MilitaryService';
+import { MilitaryService, createProductionNotices, type ProductionNotices } from './game/MilitaryService';
 import { OrderExecutionService, type PendingAction } from './game/OrderExecutionService';
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
@@ -606,8 +606,17 @@ export class GameSession {
     // che cosa è un fatto della partita, non solo una schermata del dossier.
     const government = governmentSnapshot(tickAccounts[this.playerPolityId], this.nationState.governmentMemory());
     if (government.factions.length > 0) lines.push(`🏛️ Governo — ${government.headline}`);
-    lines.push(...this.advanceResources(days, tickAccounts, asOfDate));
-    lines.push(...this.advanceProduction(days, tickAccounts[this.playerPolityId]));
+    // OP-OBJECTS TIME-STEP: il salto è **tanti periodi materiali**. Le risorse e
+    // la produzione militare avanzano nello stesso ordine di sempre (prima il
+    // magazzino, poi gli ordini) ma con la stessa grana temporale: gli ordini
+    // leggono il fattore materiale del periodo che stanno vivendo, non quello
+    // del primo giorno moltiplicato per l'intero salto. Il bollettino materiale
+    // resta **uno solo** per l'intero salto: il gancio consegna gli ordini al
+    // periodo, non spezza il report.
+    const notices = createProductionNotices();
+    lines.push(...this.nationState.advanceResources(days, tickAccounts, asOfDate, {
+      onPlayerSlice: slice => this.advanceProduction(slice.stepDays, tickAccounts[this.playerPolityId], slice.factors, notices),
+    }));
     lines.push(...this.advanceProjects(days, asOfDate));
     // Il punto storico è registrato a fine tick, dopo il magazzino, così la
     // tesoreria della data coincide con quella mostrata dal Dossier.
@@ -1267,8 +1276,8 @@ export class GameSession {
   }
 
   /** Avanza gli ordini di produzione del giocatore (stato nel servizio). */
-  private advanceProduction(days: number, account?: NationalAccount): string[] {
-    return this.military.advanceProduction(days, account);
+  private advanceProduction(days: number, account?: NationalAccount, factors?: Record<string, number>, notices?: ProductionNotices): string[] {
+    return this.military.advanceProduction(days, account, factors, notices);
   }
 
   /**
@@ -1547,7 +1556,9 @@ export class GameSession {
       saveArsenal: (polityId, units) => this.military.saveArsenal(polityId, units),
       // OP-OBJECTS FLOW: gli oggetti reali forniscono produzione e consumi al
       // tick materiale. `null` = percorso legacy (nessun doppio conteggio).
-      materialOverlay: () => this.operationalStoreFor().materialFlow(),
+      // TIME-STEP: nel substep l'estrazione è già nel silo (`monthlyExtraction:
+      // false`), nella lettura del Dossier no.
+      materialOverlay: (options?: { monthlyExtraction?: boolean }) => this.operationalStoreFor().materialFlow(options),
     });
     this.gameData = new GameDataService({
       gameId: this.id,
