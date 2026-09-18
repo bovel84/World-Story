@@ -22,7 +22,8 @@ function modernInput(overrides: Partial<OperatingPictureInput> = {}): OperatingP
       monthlyRevenue: 42, monthlyExpenses: 44, monthlyBalance: -2, nominalGdpUsdBillions: 900,
     },
     resources: {
-      money: 30, debt: 620, debtRatioPct: 69, annualInterest: 22, weapons: 900, fuel: 180, food: 400,
+      money: 30, debt: 620, debtRatioPct: 69, annualInterest: 22, weapons: 900, fuel: 180, food: 400, research: 60,
+      technologies: ['ferrovie', 'telegrafo'],
       needs: { weapons: 12, fuel: 60, food: 90 } as any,
       balance: [
         { kind: 'food', stock: 400, capacity: 900, productionPerMonth: 95, consumptionPerMonth: 90, balancePerMonth: 5, spoiledPerMonth: 0 },
@@ -68,7 +69,7 @@ describe('COUNTRY-CLARITY · sala operativa nazionale', () => {
     expect(picture.answers.map(answer => answer.id)).toEqual([
       'situazione', 'problema', 'manpower', 'mobilitati', 'equipaggiamenti', 'sufficienza',
       'carburante', 'operazioni', 'fabbriche', 'capacita', 'produzione-interna', 'importazioni',
-      'economia', 'debito', 'sostegno', 'opposizione', 'progetti', 'promesse',
+      'ricerca', 'infrastrutture', 'economia', 'debito', 'sostegno', 'opposizione', 'progetti', 'promesse',
     ]);
     for (const answer of picture.answers) {
       expect(answer.question.endsWith('?') || answer.id === 'problema').toBe(true);
@@ -101,6 +102,9 @@ describe('COUNTRY-CLARITY · sala operativa nazionale', () => {
     expect(answer('opposizione')).toContain('Nazionalisti');
     expect(answer('progetti')).toContain('1 progetti attivi');
     expect(answer('promesse')).toContain('1 mantenute');
+    expect(answer('ricerca')).toContain('punti ricerca');
+    expect(detail('ricerca')).toContain('5 atenei');
+    expect(answer('infrastrutture')).toContain('14 stabilimenti');
   });
 
   it('gli ordini di produzione e i blocchi industriali arrivano fino alle risposte', () => {
@@ -124,7 +128,7 @@ describe('COUNTRY-CLARITY · sala operativa nazionale', () => {
   it('dati mancanti: la sala operativa lo dichiara, non riempie i vuoti', () => {
     const picture = nationalOperatingPicture({});
     expect(picture.status).toBe('critical');
-    expect(picture.answers).toHaveLength(17); // senza manpower la risposta «mobilitati» non esiste
+    expect(picture.answers).toHaveLength(19); // senza manpower la risposta «mobilitati» non esiste
     expect(picture.answers.find(item => item.id === 'manpower')?.answer).toBe('Dato non pubblicato');
     expect(picture.answers.find(item => item.id === 'equipaggiamenti')?.answer).toBe('Nessun equipaggiamento in servizio');
     expect(picture.answers.find(item => item.id === 'carburante')?.answer).toBe('Dato non pubblicato');

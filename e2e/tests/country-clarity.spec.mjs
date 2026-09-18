@@ -52,7 +52,7 @@ test.describe('COUNTRY-CLARITY — un solo schermo per capire il paese', () => {
     await openDossier(page);
 
     const answers = page.locator('.op-board .op-answer');
-    await expect(answers).toHaveCount(18);
+    await expect(answers).toHaveCount(20);
     const answer = (question) => answers.filter({ hasText: question }).locator('b');
 
     await expect(answer('Come sta il paese?')).not.toBeEmpty();
@@ -72,6 +72,8 @@ test.describe('COUNTRY-CLARITY — un solo schermo per capire il paese', () => {
     await expect(answer('Quale fazione è arrabbiata e perché?')).not.toBeEmpty();
     await expect(answer('Quali progetti sono in corso e cosa li rallenta?')).not.toBeEmpty();
     await expect(answer('Quali promesse sto mantenendo o tradendo?')).toContainText('mantenute');
+    await expect(answer('Quanta ricerca ho e che cosa ho sbloccato?')).toContainText('punti ricerca');
+    await expect(answer('Che infrastrutture ho?')).toContainText('stabilimenti');
   });
 
   test('dal dominio si salta al dettaglio, e il dettaglio ripete gli stessi numeri', async ({ page }) => {

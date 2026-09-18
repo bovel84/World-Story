@@ -331,6 +331,25 @@ function operatingAnswers(args: {
       : 'Tutto ciò che è in servizio è producibile in casa o già acquisito.',
   });
 
+  // Ricerca e infrastrutture: le due leve che non hanno una sezione propria.
+  const technologies = Array.isArray(input.resources?.technologies) ? input.resources!.technologies! : [];
+  answers.push({
+    id: 'ricerca',
+    question: 'Quanta ricerca ho e che cosa ho sbloccato?',
+    answer: resources.researchPoints === null ? 'Ricerca non pubblicata' : `${formatNumber(resources.researchPoints)} punti ricerca`,
+    tone: resources.researchPoints === null ? 'neutral' : 'neutral',
+    detail: `${formatNumber(finiteOrNull(input.account?.universities) ?? 0)} atenei · ${technologies.length > 0 ? `${technologies.length} tecnologie sbloccate` : 'nessuna tecnologia sbloccata'}.`,
+  });
+  answers.push({
+    id: 'infrastrutture',
+    question: 'Che infrastrutture ho?',
+    answer: `${formatNumber(industry.capacityTotal)} stabilimenti · ${formatNumber(industry.ports)} porti · ${formatNumber(industry.universities)} atenei`,
+    tone: 'neutral',
+    detail: input.account?.capacitySources
+      ? `Base nazionale calcolata dal motore: ${input.account.capacitySources}.`
+      : 'Fabbriche, porti e atenei sono quelli del conto nazionale e della mappa.',
+  });
+
   answers.push({
     id: 'economia',
     question: 'Quanto produce e quanto spende il paese?',

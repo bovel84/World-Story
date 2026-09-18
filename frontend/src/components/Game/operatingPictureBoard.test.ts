@@ -52,10 +52,10 @@ describe('COUNTRY-CLARITY · quadro d’insieme (presentazione)', () => {
     }
   });
 
-  it('mostra la sala operativa: 18 risposte, tutte visibili', () => {
+  it('mostra la sala operativa: venti risposte, tutte visibili', () => {
     const picture = nationalOperatingPicture(input);
     const html = renderToStaticMarkup(AnswersGrid({ answers: picture.answers }));
-    expect(picture.answers).toHaveLength(18);
+    expect(picture.answers).toHaveLength(20);
     for (const answer of picture.answers) {
       expect(html).toContain(answer.question);
       expect(html).toContain(answer.answer);
