@@ -37,14 +37,27 @@ import {
 } from './NationDock/widgets';
 import { useNationDockModel } from './NationDock/useNationDockModel';
 import { MaterialBalanceList } from './MaterialBalanceList';
+import { ObjectsBoard } from './ObjectsBoard';
 import { DomainOperatingBlock, OperatingPictureBoard } from './OperatingPictureBoard';
 
 // Ri-esportati per i consumatori storici (`DeskContent`, `nationDossier`).
 export type { HistoryPoint, NationAccount, NationDockProps, NationResources, Tone } from './NationDock/types';
 
 export const NationDock: React.FC<NationDockProps> = (props) => {
+  // OP-OBJECTS: la creazione di reparti è un'azione del motore. Qui si tiene solo
+  // lo stato «in corso» del pulsante, non i numeri.
+  const [formationBusy, setFormationBusy] = React.useState(false);
+  const raiseFormation = React.useCallback(async (options: { formations?: number; armyId?: string | null; name?: string } = {}) => {
+    setFormationBusy(true);
+    try {
+      await props.onRaiseFormation?.(options);
+    } finally {
+      setFormationBusy(false);
+    }
+  }, [props.onRaiseFormation]);
   const {
     governmentType, account, resources, arms, procure, trade,
+    onPreviewFormation,
     ongoingProcesses, completedProcesses = [], mandateDecisions = [], maintenanceObligations = [], onAcknowledgeMandateDecision,
     government, onDraftOrder, governmentVoices, governmentVoicesLoading, governmentVoicesError,
     onBorrowDebt, fiscalPolicy, onSetFiscalPolicy, fiscalPolicyBusy,
@@ -661,6 +674,21 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
 
         {active === 'armamenti' && (
           <>
+            {arms?.objects && (
+              <DossierBlock
+                title="Sala di governo"
+                description="Gli oggetti concreti del paese: esercito, impianti, cantieri, marina. Clicca un settore per aprire i singoli oggetti e le loro azioni."
+              >
+                <ObjectsBoard
+                  arsenal={arms}
+                  onPreviewFormation={onPreviewFormation}
+                  onRaiseFormation={raiseFormation}
+                  busy={formationBusy}
+                />
+                <Footnote><b>Da dove vengono le cifre</b> ogni riga è un fatto pubblicato dal motore (arsenale, capacità industriale, prontezza, manpower). Le attribuzioni che il motore non conosce — quali reparti in una armata, quali navi in una flotta — sono convenzioni dichiarate sotto «Catene e convenzioni»: la somma delle parti è il totale nazionale.</Footnote>
+              </DossierBlock>
+            )}
+
             <DossierBlock
               title="Quadro delle forze armate"
               description="Reparti in armi, copertura per categoria, prontezza operativa e dipendenze dall'estero."

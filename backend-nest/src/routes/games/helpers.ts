@@ -36,6 +36,8 @@ export const TRADE_ERROR_CODES = [
 export const PROCURE_ERROR_CODES = [
   'equipment_unknown', 'equipment_quantity_invalid', 'build_unavailable', 'buy_unavailable', 'procurement_mode_invalid', 'credit_exhausted',
 ];
+/** Errori della formazione di reparti (OP-OBJECTS): dal motore, non dalla UI. */
+export const FORMATION_ERROR_CODES = ['formation_blocked', 'credit_exhausted', 'formation_invalid'];
 export const DEBT_ERROR_CODES = ['amount_invalid', 'credit_exhausted'];
 export function respondDomainError(res: any, e: any, codes: string[], fallback: string): void {
   const message = typeof e?.message === 'string' ? e.message : '';

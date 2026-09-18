@@ -335,6 +335,201 @@ export const MOCK_GOVERNMENT_VOICES = {
 // Arsenale: forma esatta dell'API reale (schede descrittive + contributo).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// OP-OBJECTS — sala di governo: oggetti concreti e azione di formazione.
+// Il mock espone il contratto di `/arsenal.objects` e le due rotte di
+// `military/formation`. Per coprire la UI espone **entrambi** gli stati
+// dell'azione (bloccata e disponibile): i numeri sono quelli del contratto, non
+// una simulazione alternativa.
+// ---------------------------------------------------------------------------
+
+export const MOCK_OBJECTS = {
+  counts: { force: 1, army: 2, facility: 4, construction: 1, mine: 1 },
+  conventions: [
+    'Le armate derivano dagli oggetti `army` della mappa; i reparti senza nome sono raggruppati nello schieramento nazionale.',
+    'Le linee di un impianto sono una quota della capacità industriale del motore; la somma degli impianti è il totale nazionale.',
+    'Nave, equipaggio e manutenzione vengono dall\'arsenale navale: una unità esiste solo quando è in servizio.',
+  ],
+  chains: [
+    {
+      id: 'steel', label: 'Minerali e industria → armamenti',
+      steps: [
+        { label: 'Miniere', value: 5, unit: 'numero', tone: 'positive', detail: 'Giacimenti sfruttati dal paese.' },
+        { label: 'Linee occupate', value: 8, unit: 'numero', tone: 'neutral', detail: 'Lavorazioni in corso.' },
+        { label: 'Armamenti', value: 1.4, unit: 'per_mese', tone: 'warning', detail: 'Produzione mensile degli impianti.' },
+        { label: 'Reparti equipaggiati', value: 0, unit: 'numero', tone: 'critical', detail: 'Copertura armi individuali 0,1%.' },
+      ],
+      broken: true,
+      summary: 'La filiera si rompe a valle: mancano armi individuali per i reparti in armi.',
+    },
+  ],
+  objects: [
+    {
+      id: 'force', kind: 'force', label: 'Forze armate', subtitle: '3 reparti · 55.000 uomini in armi',
+      status: 'critical', statusLabel: 'Critico', parentId: null, regionId: null, regionName: null,
+      facts: [
+        { section: 'personale', label: 'Uomini in armi', value: 55000, unit: 'numero', tone: 'neutral' },
+        { section: 'personale', label: 'Riserva addestrata', value: 39600, unit: 'numero', tone: 'neutral' },
+        { section: 'personale', label: 'Riservisti richiamabili', value: 17600, unit: 'numero', tone: 'neutral' },
+        { section: 'capacita', label: 'Prontezza', value: 15, unit: 'pct', tone: 'critical' },
+        { section: 'input', label: 'Carburante', value: 1.04, unit: 'per_mese', tone: 'neutral' },
+        { section: 'input', label: 'Armamenti', value: 0.42, unit: 'per_mese', tone: 'neutral' },
+        { section: 'costi', label: 'Spesa militare', value: 4.8, unit: 'mld', tone: 'neutral' },
+        { section: 'autonomia', label: 'Carburante (scorte)', value: 12.4, unit: 'mesi', tone: 'neutral' },
+      ],
+      problems: [
+        { severity: 'critical', label: 'Copertura armi individuali 0,1%', detail: '37 in servizio su 44.000 della dotazione di riferimento.' },
+        { severity: 'critical', label: 'Copertura artiglieria 0%', detail: '0 in servizio su 5 della dotazione di riferimento.' },
+      ],
+      actions: [{ id: 'raise_formation', label: 'Crea 1 reparto', enabled: true, blockedReason: null }],
+      why: 'La dotazione di riferimento è quella dell\'epoca (guerra fredda): il piano dei reparti è calcolato dal motore sul personale effettivo.',
+    },
+    {
+      id: 'army-alpha-1', kind: 'army', label: 'I Corpo', subtitle: 'Dislocata in Alpha',
+      status: 'critical', statusLabel: 'Critico', parentId: 'force', regionId: 'ALPHA', regionName: 'Alpha',
+      facts: [
+        { section: 'stato', label: 'Reparti', value: 2, unit: 'numero', tone: 'neutral' },
+        { section: 'personale', label: 'Uomini', value: 22000, unit: 'numero', tone: 'neutral' },
+        { section: 'capacita', label: 'Prontezza', value: 15, unit: 'pct', tone: 'critical' },
+        { section: 'output', label: 'Copertura armi individuali', value: 0.1, unit: 'pct', tone: 'critical' },
+        { section: 'costi', label: "Spesa dell\'armata", value: 1.92, unit: 'mld', tone: 'neutral' },
+        { section: 'autonomia', label: 'Carburante', value: 12.4, unit: 'mesi', tone: 'neutral' },
+      ],
+      problems: [{ severity: 'critical', label: 'Copertura armi individuali 0,1%', detail: '37 in servizio su 44.000 della dotazione di riferimento.' }],
+      actions: [{ id: 'raise_formation', label: 'Aggiungi 1 reparto a questa armata', enabled: true, blockedReason: null }],
+      why: 'Armata reale del mondo: i reparti sono quelli dichiarati sulla mappa.',
+    },
+    {
+      id: 'army-alpha-2', kind: 'army', label: 'II Corpo', subtitle: 'Reparti dello schieramento nazionale',
+      status: 'critical', statusLabel: 'Critico', parentId: 'force', regionId: null, regionName: null,
+      facts: [
+        { section: 'stato', label: 'Reparti', value: 1, unit: 'numero', tone: 'neutral' },
+        { section: 'personale', label: 'Uomini', value: 11000, unit: 'numero', tone: 'neutral' },
+        { section: 'capacita', label: 'Prontezza', value: 15, unit: 'pct', tone: 'critical' },
+        { section: 'costi', label: "Spesa dell\'armata", value: 0.96, unit: 'mld', tone: 'neutral' },
+      ],
+      problems: [],
+      actions: [{
+        id: 'raise_formation', label: 'Aggiungi 1 reparto a questa armata', enabled: false,
+        blockedReason: 'Servono 8.763 fucili in più: il deposito non basta.',
+      }],
+      why: 'Reparti derivati dal profilo del paese (capacità di base): il quadro li raggruppa.',
+    },
+    {
+      id: 'factory-ALPHA-1', kind: 'facility', label: 'Acciaierie Alpha', subtitle: 'Impianto industriale',
+      status: 'degraded', statusLabel: 'Ridotto', parentId: null, regionId: 'ALPHA', regionName: 'Alpha',
+      facts: [
+        { section: 'stato', label: 'Linee di lavorazione', value: 10, unit: 'numero', tone: 'neutral' },
+        { section: 'capacita', label: 'Utilizzo', value: 40, unit: 'pct', tone: 'neutral' },
+        { section: 'capacita', label: 'Ritmo di lavoro', value: 40, unit: 'pct', tone: 'warning' },
+        { section: 'output', label: 'Armamenti', value: 0.7, unit: 'per_mese', tone: 'neutral' },
+        { section: 'input', label: 'Minerali ferrosi', value: 0.34, unit: 'per_mese', tone: 'neutral' },
+        { section: 'input', label: 'Carbone', value: 0.52, unit: 'per_mese', tone: 'neutral' },
+        { section: 'personale', label: 'Addetti', value: 110, unit: 'numero', tone: 'neutral' },
+        { section: 'costi', label: 'Costo operativo', value: 0.44, unit: 'mld', tone: 'neutral' },
+        { section: 'output', label: 'Ordine in lavorazione', value: null, unit: 'testo', tone: 'neutral', text: 'Fucili d’assalto ×40 · 42%' },
+        { section: 'autonomia', label: 'Consegna prevista', value: null, unit: 'data', tone: 'neutral', text: '1951-06-20' },
+      ],
+      problems: [{ severity: 'warning', label: 'Capacità satura (96%)', detail: 'Un nuovo ordine su questo impianto slitta.' }],
+      actions: [{ id: 'procure', label: 'Avvia una produzione militare', enabled: true, blockedReason: null }],
+      why: 'Linee e utilizzo vengono dalla capacità industriale del motore; la produzione è il contributo marginale di un impianto.',
+    },
+    {
+      id: 'factory-ALPHA-2', kind: 'facility', label: 'Officine Alpha', subtitle: 'Impianto industriale',
+      status: 'idle', statusLabel: 'Fermo', parentId: null, regionId: 'ALPHA', regionName: 'Alpha',
+      facts: [
+        { section: 'stato', label: 'Linee di lavorazione', value: 10, unit: 'numero', tone: 'neutral' },
+        { section: 'capacita', label: 'Utilizzo', value: 0, unit: 'pct', tone: 'neutral' },
+        { section: 'output', label: 'Armamenti', value: 0, unit: 'per_mese', tone: 'critical' },
+      ],
+      problems: [{ severity: 'critical\', label: \'Impianto fermo: nessuna lavorazione\', detail: \'Le linee sono libere: la produzione dell\'impianto è zero finché non riceve un ordine.' }],
+      actions: [{ id: 'procure', label: 'Avvia una produzione militare', enabled: true, blockedReason: null }],
+      why: 'Un impianto senza ordini non produce: il motore non finge attività.',
+    },
+    {
+      id: 'shipyard-ALPHA-1', kind: 'facility', label: 'Cantieri Alpha', subtitle: 'Cantiere navale e porto',
+      status: 'idle', statusLabel: 'Fermo', parentId: null, regionId: 'ALPHA', regionName: 'Alpha',
+      facts: [
+        { section: 'stato', label: 'Linee di lavorazione', value: 4, unit: 'numero', tone: 'neutral' },
+        { section: 'capacita', label: 'Utilizzo', value: 0, unit: 'pct', tone: 'neutral' },
+        { section: 'output', label: 'Scafi in costruzione', value: 0, unit: 'numero', tone: 'neutral' },
+        { section: 'autonomia', label: 'Unità in manutenzione', value: 0, unit: 'numero', tone: 'neutral' },
+      ],
+      problems: [],
+      actions: [{ id: 'procure', label: 'Ordina una nave', enabled: true, blockedReason: null }],
+      why: 'I cantieri sono i porti del paese: senza sbocco al mare non esistono.',
+    },
+    {
+      id: 'university-ALPHA-1', kind: 'facility', label: 'Politecnico Alpha', subtitle: 'Ricerca e formazione tecnica',
+      status: 'operational', statusLabel: 'Operativo', parentId: null, regionId: 'ALPHA', regionName: 'Alpha',
+      facts: [
+        { section: 'output', label: 'Punti ricerca', value: 2, unit: 'per_mese', tone: 'positive' },
+        { section: 'input', label: 'Fondi', value: 0.3, unit: 'mld', tone: 'neutral' },
+      ],
+      problems: [], actions: [],
+      why: 'Atenei derivati dal profilo del paese; i punti ricerca crescono con gli atenei.',
+    },
+    {
+      id: 'construction-proc-1', kind: 'construction', label: 'Ferrovia transnazionale', subtitle: 'Cantiere in Alpha',
+      status: 'under_construction', statusLabel: 'In costruzione', parentId: null, regionId: 'ALPHA', regionName: 'Alpha',
+      facts: [
+        { section: 'stato', label: 'Avanzamento', value: 38, unit: 'pct', tone: 'neutral' },
+        { section: 'capacita', label: 'Linee occupate dai lavori', value: 4, unit: 'numero', tone: 'warning' },
+        { section: 'autonomia', label: 'Mesi al completamento', value: 5.5, unit: 'mesi', tone: 'neutral' },
+        { section: 'input', label: 'Materiali da costruzione', value: 6, unit: 'per_mese', tone: 'neutral' },
+        { section: 'costi', label: 'Spesa in corso', value: 0.18, unit: 'mld', tone: 'neutral' },
+        { section: 'output', label: 'Beneficio', value: 0, unit: 'numero', tone: 'neutral', text: 'Nessuno prima del completamento: l\'opera entra nei conti solo a lavori finiti.' },
+      ],
+      problems: [], actions: [],
+      why: 'Un\'opera in costruzione occupa linee e materiali ma non produce nulla: il motore non la conta fra gli impianti finché non è completata.',
+    },
+    {
+      id: 'mine-ALPHA-diamonds', kind: 'mine', label: 'Miniera di diamanti (Alpha)', subtitle: 'Giacimento 5/5 dal registro del paese',
+      status: 'operational', statusLabel: 'Operativo', parentId: null, regionId: 'ALPHA', regionName: 'Alpha',
+      facts: [
+        { section: 'stato', label: 'Giacimento', value: 5, unit: 'numero', tone: 'neutral' },
+        { section: 'output', label: 'Diamanti', value: 0.5, unit: 'per_mese', tone: 'positive' },
+        { section: 'personale', label: 'Addetti', value: 40, unit: 'numero', tone: 'neutral' },
+        { section: 'costi', label: 'Costo operativo', value: 0.04, unit: 'mld', tone: 'neutral' },
+      ],
+      problems: [],
+      actions: [{ id: 'trade', label: 'Compra o vendi sul mercato', enabled: true, blockedReason: null }],
+      why: 'Il contributo del giacimento è il delta di produzione che il motore calcola aggiungendo una unità di diamanti.',
+    },
+  ],
+};
+
+/** Anteprima PRIMA → DOPO: l'armata `army-alpha-2` è bloccata, le altre no. */
+export function mockFormationImpact(armyId, armyName = 'III Corpo') {
+  const blocked = armyId === 'army-alpha-2';
+  return {
+    plan: {
+      men: 11000,
+      items: [
+        { equipmentId: 'fucili', name: 'Fucili d’assalto', required: 8800, available: 20000, consumed: 8800, missing: 0, unitCostMln: 0.02 },
+        { equipmentId: 'carri_3', name: 'Carri armati', required: 2, available: 6, consumed: 2, missing: 0, unitCostMln: 4000 },
+      ],
+      riflesRequired: 8800, riflesAvailable: 20000, riflesMissing: 0,
+      initialCostMln: 8176, blocked, blockedReason: blocked ? 'Servono 8.763 fucili in più: il deposito non basta.' : null,
+      basis: 'La dotazione di riferimento è quella dell’epoca: 1 reparto = 11.000 uomini, 80% con arma individuale.',
+    },
+    armyId: armyId ?? null,
+    armyName,
+    targetRegionId: 'ALPHA',
+    target: { regionId: 'ALPHA', regionName: 'Alpha', armyName, armyId: armyId ?? null },
+    before: { formations: 3, activePersonnel: 55000, readinessPct: 15 },
+    after: { formations: 4, activePersonnel: 66000, readinessPct: 18 },
+    deltas: [
+      { label: 'Reparti', unit: 'numero', before: 3, after: 4, tone: 'positive' },
+      { label: 'Uomini in armi', unit: 'numero', before: 55000, after: 66000, tone: 'positive' },
+      { label: 'Prontezza', unit: 'pct', before: 15, after: 18, tone: 'positive' },
+      { label: 'Consumo carburante', unit: 'per_mese', before: 1.04, after: 1.12, tone: 'warning' },
+      { label: 'Spesa militare', unit: 'mld', before: 4.8, after: 4.88, tone: 'neutral' },
+    ],
+    why: 'Il PRIMA → DOPO è calcolato dal motore sui conti della nazione: aggiungere un reparto consuma equipaggiamento dal deposito e alza spesa e fabbisogni.',
+  };
+}
+
 export const MOCK_ARSENAL = {
   polityId: 'ALPHA',
   units: { fucili: 37, carri_3: 6 },
@@ -434,6 +629,8 @@ export const MOCK_ARSENAL = {
       { tone: 'positive', label: 'Carburante: >12 mesi', detail: 'Copertura piena delle operazioni.' },
     ],
   },
+  // OP-OBJECTS — la sala di governo: oggetti concreti e catene.
+  objects: MOCK_OBJECTS,
   industrialCapacity: {
     total: 22, used: 8, free: 14, utilizationPct: 36.4, demand: 8, satisfactionPct: 100,
     overflowFactor: 1, saturated: false, blocked: false,
@@ -644,6 +841,22 @@ export function installMockApi(page, opts = {}) {
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/voices`, (route) =>
     json(route, MOCK_GOVERNMENT_VOICES));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/arsenal`, (route) => json(route, MOCK_ARSENAL));
+  // OP-OBJECTS: anteprima (sola lettura) e creazione reale di reparti.
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/formation*`, (route) => {
+    const url = new URL(route.request().url());
+    const armyId = url.searchParams.get('armyId');
+    if (route.request().method() === 'POST') {
+      let body = {};
+      try { body = route.request().postDataJSON() || {}; } catch { body = {}; }
+      const impact = mockFormationImpact(body.armyId ?? null, body.name || 'III Corpo');
+      return json(route, {
+        ...impact, applied: true, formations: body.formations ?? 1,
+        name: body.armyId ? impact.armyName : 'III Corpo', regionId: 'ALPHA', regionName: 'Alpha',
+        spentMln: impact.plan.initialCostMln, financedMln: 0, impact,
+      });
+    }
+    return json(route, mockFormationImpact(armyId));
+  });
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/chats*`, (route) => {
     if (route.request().method() === 'POST' && /\/chats$/.test(new URL(route.request().url()).pathname)) {
       return json(route, { chat: { id: 'mock-chat-1', polityId: 'POL', polityName: 'Polonia', polityColor: '#888888', participants: [], unread: 0, archived: false } });
