@@ -21,9 +21,11 @@ function makeContext(overrides: Record<string, unknown> = {}) {
     gameId: GAME_ID,
     currentTurn: () => 3,
     currentDate: () => '1951-03-01',
+    worldStartDate: () => '1951-01-01',
     playerPolityId: () => 'AAA',
     isStrictGame: () => false,
-    // AAA: 10 forze + 2 mobilitate → fucili = 12*40 + 2*10 = 500, apc = 10*1.5 = 15
+    // AAA: 10 forze + 2 mobilitate → fucili = 10*40 + 2*50 = 500.
+    // Mobilità: 10 × 2 (profilo guerra fredda), non più la costante 1,5.
     accounts: () => ({ AAA: { forces: 10, mobilized: 2 } }),
     initialAccounts: () => ({ AAA: { forces: 10, mobilized: 2 } }),
     resourceStock: () => ({ money: 0, weapons: 0, technologies: [] }),
@@ -59,8 +61,25 @@ describe('MilitaryService', () => {
   it('semina l arsenale dall esercito di partenza e lo mette in cache', () => {
     const service = new MilitaryService(makeContext());
     const units = service.arsenalUnits('AAA');
-    expect(units).toEqual({ fucili: 500, apc: 15 });
-    expect(service.peekArsenal('AAA')).toEqual({ fucili: 500, apc: 15 });
+    expect(units).toEqual({ fucili: 500, apc: 20 });
+    expect(service.peekArsenal('AAA')).toEqual({ fucili: 500, apc: 20 });
+  });
+
+  it('l epoca dello scenario decide la dotazione di partenza', () => {
+    const army = { forces: 10, mobilized: 2 };
+    const modern = new MilitaryService(makeContext({
+      worldStartDate: () => '1990-01-01',
+      accounts: () => ({ DDD: army }), initialAccounts: () => ({ DDD: army }),
+    }));
+    expect(modern.epoch()).toBe('moderno');
+    expect(modern.arsenalUnits('DDD')).toEqual({ fucili: 500, apc: 15 });
+    // 1815: nessun mezzo corazzato nel mondo, quindi nemmeno nel seed.
+    const napoleonic = new MilitaryService(makeContext({
+      worldStartDate: () => '1815-06-18',
+      accounts: () => ({ CCC: army }), initialAccounts: () => ({ CCC: army }),
+    }));
+    expect(napoleonic.epoch()).toBe('pre_industriale');
+    expect(napoleonic.arsenalUnits('CCC')).toEqual({ fucili: 500 });
   });
 
   it('saveArsenal persiste e una nuova istanza rilegge dal DB', () => {
