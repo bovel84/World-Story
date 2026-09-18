@@ -920,6 +920,38 @@ export class GameSession {
     }
   }
 
+  /**
+   * PLAYBACK-ATOMIC-OVER: il `game_over` di un collasso avvenuto dentro una
+   * transazione non può uscire prima del commit — un rollback lo renderebbe
+   * falso. Finché la profondità è > 0 il payload resta qui e chi ha aperto la
+   * finestra lo pubblica (o lo scarta) alla fine della transazione.
+   */
+  private gameOverDeferDepth = 0;
+  private deferredGameOver: { ending: CrisisEnding; turn: number; date: string } | null = null;
+
+  /**
+   * Apre la finestra di rinvio del `game_over`: durante la transazione il
+   * collasso aggiorna lo stato deterministico (epilogo, stato, note, DB), ma il
+   * client riceve l'evento **solo** a commit riuscito.
+   */
+  private deferGameOver(): { flush(): void; discard(): void } {
+    this.gameOverDeferDepth += 1;
+    this.deferredGameOver = null;
+    const release = () => { this.gameOverDeferDepth = Math.max(0, this.gameOverDeferDepth - 1); };
+    return {
+      flush: () => {
+        release();
+        const payload = this.deferredGameOver;
+        this.deferredGameOver = null;
+        if (payload && this.gameOverDeferDepth === 0) this.broadcast('game_over', payload);
+      },
+      discard: () => {
+        release();
+        this.deferredGameOver = null;
+      },
+    };
+  }
+
   /** Chiude la partita: stato, epilogo persistito ed evento ai client. */
   private finishGame(ending: CrisisEnding): void {
     if (this.ending) return;
@@ -931,11 +963,11 @@ export class GameSession {
       console.warn('[GameSession] Chiusura della partita non salvata:', error);
     }
     this.pendingNationalNotes.push(`⛔ ${ending.title}: ${ending.summary}`);
-    this.broadcast('game_over', {
-      ending,
-      turn: this.currentTurn,
-      date: this.currentDate,
-    });
+    // PLAYBACK-ATOMIC-OVER: dentro una transazione il `game_over` aspetta il
+    // commit; un rollback lo scarta insieme allo stato RAM ripristinato.
+    const payload = { ending, turn: this.currentTurn, date: this.currentDate };
+    if (this.gameOverDeferDepth > 0) this.deferredGameOver = payload;
+    else this.broadcast('game_over', payload);
   }
 
   /**
@@ -1360,6 +1392,8 @@ export class GameSession {
       broadcast: (type, data) => this.broadcast(type, data),
       buildResolvers: () => this.buildResolvers(),
       captureCheckpointData: () => this.captureCheckpointData(),
+      // PLAYBACK-ATOMIC-OVER: il `game_over` del playback esce solo a commit riuscito.
+      deferGameOver: () => this.deferGameOver(),
       captureMovementIntents: actions => this.captureMovementIntents(actions),
       outcomesByActionId: (...args: any[]) => (this.outcomesByActionId as any)(...args),
       advanceWorldState: (days, asOfDate) => this.advanceWorldState(days, asOfDate),
