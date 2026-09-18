@@ -905,12 +905,38 @@ export const gameRepository = {
     db.prepare('UPDATE games SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(status, gameId);
   },
 
-  /** Stato di crisi registrato (giorni critici, avvertimenti ed epilogo), o `null` se mai valutato. */
-  getCrisisState: (gameId: string): CrisisStateRecord | null => {
-    const row = db.prepare('SELECT * FROM game_crisis_state WHERE game_id = ?').get(gameId) as any;
+  /**
+   * Ramo a cui appartiene la crisi: quello canonico della partita
+   * (`games.head_branch_id`), con `main` come ripiego.
+   *
+   * CRISIS-RESIDUAL P0.2: la crisi è per ramo, non per partita. Non esiste un
+   * secondo modello di branching: si usa lo stesso identificatore degli altri
+   * sistemi (agenda NPC, commitments, memoria delle fazioni).
+   */
+  crisisBranchId: (gameId: string, branchId?: string | null): string => {
+    if (branchId) return branchId;
+    const row = db.prepare('SELECT head_branch_id FROM games WHERE id = ?').get(gameId) as { head_branch_id?: string } | undefined;
+    return row?.head_branch_id || 'main';
+  },
+
+  /**
+   * Stato di crisi registrato dal ramo indicato (giorni critici, avvertimenti
+   * ed epilogo), o `null` se quel ramo non ha mai valutato la crisi.
+   *
+   * Retrocompatibilità: un salvataggio precedente alla separazione per ramo
+   * teneva la crisi sulla partita; quella riga vive sotto `main` e viene usata
+   * come ripiego finché il ramo corrente non scrive il proprio stato.
+   */
+  getCrisisState: (gameId: string, branchId?: string | null): CrisisStateRecord | null => {
+    const branch = gameRepository.crisisBranchId(gameId, branchId);
+    let row = db.prepare('SELECT * FROM game_crisis_state WHERE game_id = ? AND branch_id = ?').get(gameId, branch) as any;
+    if (!row && branch !== 'main') {
+      row = db.prepare("SELECT * FROM game_crisis_state WHERE game_id = ? AND branch_id = 'main'").get(gameId) as any;
+    }
     if (!row) return null;
     return {
       gameId: row.game_id,
+      branchId: row.branch_id || 'main',
       // GAMEPLAY-LONG: le colonne `*_streak` conservano i GIORNI di criticità
       // accumulati (nei salvataggi precedenti erano turni: 0-3 giorni, quindi
       // innocui per la nuova soglia a 90 giorni).
@@ -940,17 +966,25 @@ export const gameRepository = {
     };
   },
 
-  /** Salva giorni critici, avvertimenti e (se presente) epilogo. Idempotente per partita. */
-  saveCrisisState: (record: CrisisStateRecord) => {
+  /**
+   * Salva giorni critici, avvertimenti e (se presente) epilogo nel ramo
+   * corrente della partita. Idempotente per (partita, ramo).
+   *
+   * Con `replaceEnding` l'epilogo viene **sostituito** invece di essere
+   * conservato: serve al restore di un checkpoint, dove l'assenza di epilogo
+   * nello snapshot è un fatto (partita giocabile), non un dato mancante.
+   */
+  saveCrisisState: (record: CrisisStateRecord, options: { replaceEnding?: boolean } = {}) => {
+    const branch = gameRepository.crisisBranchId(record.gameId, record.branchId);
     const ending = record.ending;
     db.prepare(`
       INSERT INTO game_crisis_state
-        (game_id, revolt_streak, insolvency_streak, invasion_streak,
+        (game_id, branch_id, revolt_streak, insolvency_streak, invasion_streak,
          revolt_episodes, insolvency_episodes, invasion_episodes, overall,
          ending_kind, ending_dimension, ending_title, ending_summary, ending_date, ending_turn,
          updated_turn, updated_date)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(game_id) DO UPDATE SET
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(game_id, branch_id) DO UPDATE SET
         revolt_streak = excluded.revolt_streak,
         insolvency_streak = excluded.insolvency_streak,
         invasion_streak = excluded.invasion_streak,
@@ -958,16 +992,16 @@ export const gameRepository = {
         insolvency_episodes = excluded.insolvency_episodes,
         invasion_episodes = excluded.invasion_episodes,
         overall = excluded.overall,
-        ending_kind = COALESCE(game_crisis_state.ending_kind, excluded.ending_kind),
-        ending_dimension = COALESCE(game_crisis_state.ending_dimension, excluded.ending_dimension),
-        ending_title = COALESCE(game_crisis_state.ending_title, excluded.ending_title),
-        ending_summary = COALESCE(game_crisis_state.ending_summary, excluded.ending_summary),
-        ending_date = COALESCE(game_crisis_state.ending_date, excluded.ending_date),
-        ending_turn = COALESCE(game_crisis_state.ending_turn, excluded.ending_turn),
+        ending_kind = ${options.replaceEnding ? 'excluded.ending_kind' : 'COALESCE(game_crisis_state.ending_kind, excluded.ending_kind)'},
+        ending_dimension = ${options.replaceEnding ? 'excluded.ending_dimension' : 'COALESCE(game_crisis_state.ending_dimension, excluded.ending_dimension)'},
+        ending_title = ${options.replaceEnding ? 'excluded.ending_title' : 'COALESCE(game_crisis_state.ending_title, excluded.ending_title)'},
+        ending_summary = ${options.replaceEnding ? 'excluded.ending_summary' : 'COALESCE(game_crisis_state.ending_summary, excluded.ending_summary)'},
+        ending_date = ${options.replaceEnding ? 'excluded.ending_date' : 'COALESCE(game_crisis_state.ending_date, excluded.ending_date)'},
+        ending_turn = ${options.replaceEnding ? 'excluded.ending_turn' : 'COALESCE(game_crisis_state.ending_turn, excluded.ending_turn)'},
         updated_turn = excluded.updated_turn,
         updated_date = excluded.updated_date
     `).run(
-      record.gameId,
+      record.gameId, branch,
       record.criticalDays.revolt, record.criticalDays.insolvency, record.criticalDays.invasion,
       record.episodes.revolt, record.episodes.insolvency, record.episodes.invasion,
       record.overall,
@@ -975,8 +1009,14 @@ export const gameRepository = {
       record.updatedTurn, record.updatedDate,
     );
   },
-  /** Azzera giorni critici, avvertimenti ed epilogo: il rewind restituisce una nuova possibilità. */
-  resetCrisisState: (gameId: string) => {
+
+  /**
+   * Azzera giorni critici, avvertimenti ed epilogo del ramo: resta come rete di
+   * sicurezza per gli snapshot **legacy** (che non contengono lo stato di
+   * crisi). Un rewind moderno ripristina invece lo stato esatto precedente.
+   */
+  resetCrisisState: (gameId: string, branchId?: string | null) => {
+    const branch = gameRepository.crisisBranchId(gameId, branchId);
     db.prepare(`
       UPDATE game_crisis_state SET
         revolt_streak = 0, insolvency_streak = 0, invasion_streak = 0,
@@ -985,13 +1025,15 @@ export const gameRepository = {
         ending_kind = NULL, ending_dimension = NULL, ending_title = NULL,
         ending_summary = NULL, ending_date = NULL, ending_turn = NULL,
         updated_turn = 0, updated_date = NULL
-      WHERE game_id = ?
-    `).run(gameId);
+      WHERE game_id = ? AND branch_id = ?
+    `).run(gameId, branch);
   },
 };
 
 export interface CrisisStateRecord {
   gameId: string;
+  /** Ramo proprietario dello stato (default: ramo corrente della partita). */
+  branchId?: string;
   /** Giorni di criticità piena accumulati per dimensione. */
   criticalDays: Record<CrisisDimension, number>;
   /** Avanzamenti in cui la dimensione è stata osservata critica. */
@@ -1001,6 +1043,9 @@ export interface CrisisStateRecord {
   updatedTurn: number;
   updatedDate: string | null;
 }
+
+/** Stato di crisi come viaggia dentro uno snapshot: senza identificatori. */
+export type CrisisSnapshot = Omit<CrisisStateRecord, 'gameId' | 'branchId'>;
 
 export interface PressureRecord {
   id: string;

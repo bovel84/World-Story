@@ -13,7 +13,7 @@ import { OrderExecutionService, type PendingAction } from './game/OrderExecution
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
-import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, type PressureRecord } from './repositories';
+import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, type PressureRecord, type CrisisStateRecord, type CrisisSnapshot } from './repositories';
 import { captureEconomicSnapshot } from './repositories/economy-snapshot.repository';
 import type { ChatRecord, ChatSummary, ChatMessageRecord, GameChatSnapshot } from './repositories';
 import { DiplomacyService } from './game/DiplomacyService';
@@ -296,6 +296,14 @@ export interface SaveData {
   ongoingProcesses?: any[];
   /** M02 µ5: ledger, riserve e finanza del ramo; legacy/ignoto resta inattivo. */
   economicState?: unknown;
+  /**
+   * CRISIS-RESIDUAL P0.2: stato di crisi del ramo al momento del checkpoint.
+   * Un rewind o un restore devono riportare giorni critici, avvertimenti,
+   * livello ed epilogo **esattamente** a questo punto, non azzerarli.
+   * `undefined` = snapshot precedente a questa versione (nessuno stato da
+   * ripristinare); `null` = nessuna crisi registrata a quel punto.
+   */
+  crisis?: CrisisSnapshot | null;
 }
 
 /**
@@ -864,8 +872,52 @@ export class GameSession {
   }
 
   /** Valuta la crisi e, se scatta il collasso, chiude la partita. */
-  private evaluateCrisis(advance = true): CrisisState {
-    return this.nationState.evaluateCrisis(advance);
+  private evaluateCrisis(advance = true, periodDays?: number): CrisisState {
+    return this.nationState.evaluateCrisis(advance, periodDays);
+  }
+
+  /**
+   * Stato di crisi del ramo corrente, come viaggia dentro uno snapshot.
+   * `null` = il ramo non ha mai valutato la crisi.
+   */
+  private crisisSnapshot(): CrisisSnapshot | null {
+    const record = gameRepository.getCrisisState(this.id);
+    if (!record) return null;
+    const { gameId: _gameId, branchId: _branchId, ...snapshot } = record;
+    return snapshot;
+  }
+
+  /**
+   * Ripristina lo stato di crisi del checkpoint appena ripristinato.
+   *
+   * CRISIS-RESIDUAL P0.2: non basta non azzerare la crisi — va riportata
+   * **esattamente** al punto del checkpoint (giorni critici, avvertimenti,
+   * livello, epilogo, turno e data), sul ramo ora corrente. Gli snapshot
+   * precedenti a questa versione non contengono la crisi: per loro non si
+   * scrive nulla e resta la rete di sicurezza del rewind.
+   */
+  private restoreCrisisState(snapshot?: CrisisSnapshot | null): void {
+    if (snapshot === undefined) return;
+    const record: CrisisStateRecord = snapshot === null
+      ? {
+          gameId: this.id,
+          criticalDays: { revolt: 0, insolvency: 0, invasion: 0 },
+          episodes: { revolt: 0, insolvency: 0, invasion: 0 },
+          overall: 'calm',
+          ending: null,
+          updatedTurn: 0,
+          updatedDate: null,
+        }
+      : { ...snapshot, gameId: this.id };
+    try {
+      // `replaceEnding`: l'assenza di epilogo nello snapshot è un fatto
+      // (partita giocabile), non un dato mancante da conservare.
+      gameRepository.saveCrisisState(record, { replaceEnding: true });
+      this.ending = record.ending ? { ...record.ending, criticalDimensions: [record.ending.dimension] } : null;
+      this.status = record.ending ? 'finished' : 'playing';
+    } catch (error) {
+      console.warn('[GameSession] Stato di crisi non ripristinato:', error);
+    }
   }
 
   /** Chiude la partita: stato, epilogo persistito ed evento ai client. */
@@ -1259,7 +1311,8 @@ export class GameSession {
       applyState: state => this.applyPersistenceState(state),
       prepareRestore: () => this.prepareRestoreState(),
       syncRegionsToDB: () => this.syncRegionsToDB(),
-      afterRestore: () => this.afterRestoreState(),
+      // CRISIS-RESIDUAL P0.2: il restore consegna lo stato di crisi del checkpoint.
+      afterRestore: restored => this.afterRestoreState(restored),
     });
     this.diplomacy = new DiplomacyService({
       gameId: this.id,
@@ -1310,6 +1363,8 @@ export class GameSession {
       captureMovementIntents: actions => this.captureMovementIntents(actions),
       outcomesByActionId: (...args: any[]) => (this.outcomesByActionId as any)(...args),
       advanceWorldState: (days, asOfDate) => this.advanceWorldState(days, asOfDate),
+      // CRISIS-RESIDUAL P0.1: il playback scaglionato avanza la crisi come il salto.
+      evaluateCrisis: periodDays => this.evaluateCrisis(true, periodDays),
       applyFrontierPlacements: (...args: any[]) => (this.applyFrontierPlacements as any)(...args),
       applyMapChanges: (...args: any[]) => (this.applyMapChanges as any)(...args),
       applyWorldChanges: changes => this.applyWorldChanges(changes),
@@ -1361,7 +1416,8 @@ export class GameSession {
       refreshProjectProgress: asOfDate => this.refreshProjectProgress(asOfDate),
       refreshPeacetimePressures: () => this.refreshPeacetimePressures(),
       recordCommitments: input => this.recordCommitments(input),
-      evaluateCrisis: advance => this.evaluateCrisis(advance),
+      // CRISIS-RESIDUAL P0.1: la crisi riceve i giorni realmente simulati del periodo.
+      evaluateCrisis: (advance, periodDays) => this.evaluateCrisis(advance, periodDays),
       settleOrderCosts: (...args: any[]) => (this.settleOrderCosts as any)(...args),
       orderFundingNotes: actions => this.orderFundingNotes(actions),
       reconcileAcceptedMoves: (...args: any[]) => (this.reconcileAcceptedMoves as any)(...args),
@@ -1393,6 +1449,8 @@ export class GameSession {
       applyRandomEvents: () => this.applyRandomEvents(),
       applyWorldConflicts: () => this.applyWorldConflicts(),
       worldStateOptions: () => this.worldStateOptions(),
+      // CRISIS-RESIDUAL P0.1: il battito del mondo avanza la crisi come i salti.
+      evaluateCrisis: periodDays => { this.evaluateCrisis(true, periodDays); },
       syncRegionsToDB: () => this.syncRegionsToDB(),
       withLock: fn => this.withLock(fn),
     });
@@ -1945,6 +2003,10 @@ export class GameSession {
       chats: chatRepository.snapshotGameChats(this.id),
       ongoingProcesses: gameRepository.snapshotOngoingProcesses(this.id),
       economicState: captureEconomicSnapshot(this.id, gameRepository.getHeadBranch(this.id) || gameRepository.ensureMainBranch(this.id)),
+      // CRISIS-RESIDUAL P0.2: la crisi entra nel checkpoint come tutto il resto
+      // dello stato del ramo. `null` significa «nessuna crisi registrata a
+      // questo punto», ed è un fatto da ripristinare, non un dato mancante.
+      crisis: this.crisisSnapshot(),
     };
   }
 
@@ -1999,8 +2061,13 @@ export class GameSession {
     this.restoreEnding();
   }
 
-  /** Effetti collaterali del restore riuscito. */
-  private afterRestoreState(): void {
+  /**
+   * Effetti collaterali del restore riuscito: la crisi torna al punto del
+   * checkpoint (sul ramo appena creato, se il restore ne apre uno) e le sfide
+   * di pace vengono riallineate al nuovo presente.
+   */
+  private afterRestoreState(restored?: { crisis?: CrisisSnapshot | null }): void {
+    this.restoreCrisisState(restored?.crisis);
     this.ensurePeacetimePressures();
   }
 
@@ -2037,7 +2104,10 @@ export class GameSession {
     this.npcAgenda.pruneAfterTurn(Number(saveData.currentTurn) || 0);
     this.commitments.pruneAfterTurn(Number(saveData.currentTurn) || 0);
     this.npcAgendaKey = null;
-    // Un turno annullato cancella anche il collasso: si torna a giocare.
+    // Un turno annullato cancella il collasso e riporta la crisi al punto del
+    // checkpoint: la rete di sicurezza qui sotto copre i salvataggi precedenti
+    // alla crisi per ramo e gli snapshot che non contengono lo stato di crisi;
+    // un rewind moderno ripristina subito dopo lo stato esatto (`afterRestore`).
     gameRepository.resetCrisisState(this.id);
     this.loadFromSave(saveData, hash);
     this.status = 'playing';
@@ -2601,8 +2671,10 @@ export class GameSession {
     this.currentTurn++;
     this.currentDate = newDate;
     this.refreshPeacetimePressures();
-    // Un salto di tempo è comunque tempo che passa: la crisi avanza.
-    this.evaluateCrisis();
+    // Un salto di tempo è comunque tempo che passa: la crisi avanza. I giorni
+    // del periodo sono quelli realmente simulati (`days`), non il numero di
+    // turni: al primo avanzamento di una partita è l'unica misura disponibile.
+    this.evaluateCrisis(true, days);
     this.recordAccountSnapshot(newDate, tickAccounts);
 
     const id = shortId();

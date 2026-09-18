@@ -27,6 +27,7 @@ import type { RelationshipMap } from '../core/RelationshipMatrix';
 import type { PendingAction } from './OrderExecutionService';
 import type { TurnResultRecord } from './TimelineService';
 import type { SaveData, PausedRunState, PlayerInfo, RegionState, ActionRecord } from '../game-session';
+import type { CrisisSnapshot } from '../repositories';
 
 /**
  * Stato applicabile di una sessione: le 13 grandezze che il restore tocca in
@@ -67,8 +68,11 @@ export interface PersistenceContext {
   prepareRestore(): void;
   /** Sincronizza le regioni ripristinate sul DB. */
   syncRegionsToDB(): void;
-  /** Effetti post-restore riuscito (pressioni di pace). */
-  afterRestore(): void;
+  /**
+   * Effetti post-restore riuscito: crisi riportata al punto del checkpoint e
+   * sfide di pace riallineate al nuovo presente.
+   */
+  afterRestore(restored?: { crisis?: CrisisSnapshot | null }): void;
 }
 
 export class GamePersistenceService {
@@ -283,7 +287,10 @@ export class GamePersistenceService {
       }
       throw e;
     }
-    this.ctx.afterRestore();
+    // Dopo il commit (e dopo l'eventuale apertura del nuovo ramo) la crisi torna
+    // esattamente al punto del checkpoint salvato. Un salvataggio precedente a
+    // questa versione non contiene lo stato di crisi: per lui non si scrive nulla.
+    this.ctx.afterRestore({ crisis: saveData.crisis });
     console.log('[GameSession] Loaded from save, turn:', saveData.currentTurn);
     return { branchId: gameRepository.getHeadBranch(gameId) };
   }

@@ -743,27 +743,40 @@ export class NationStateService {
    *
    * GAMEPLAY-LONG: la crisi progredisce sul TEMPO TRASCORSO, non sul numero di
    * turni. La data dell'ultima valutazione è persistita in `game_crisis_state`,
-   * quindi un salto di 7 giorni e uno di 365 pesano in modo diverso. Senza una
-   * valutazione precedente (primo turno di una partita) non c'è tempo da
-   * accumulare: 0, e nessun collasso può scattare al primo passo.
+   * quindi un salto di 7 giorni e uno di 365 pesano in modo diverso.
+   *
+   * CRISIS-RESIDUAL P0.1: al **primo** avanzamento di una partita non esiste
+   * ancora uno stato di crisi (`previous === null`) e quindi non esiste una
+   * data da cui misurare: senza i giorni del periodo il primo salto valeva 0 e
+   * un anno simulato non accumulava nulla. Chi conosce il periodo simulato
+   * (`advanceDate`, pipeline del turno, battito del mondo) passa qui i giorni
+   * realmente trascorsi, che diventano la misura autorevole del primo passo.
+   *
+   * Dopo la prima valutazione resta la data persistita a fare da ancora: è il
+   * tempo di calendario non ancora contabilizzato, e non può essere contato due
+   * volte se nello stesso periodo la crisi viene valutata più di una volta.
    */
-  private crisisElapsedDays(previous: { updatedDate?: string | null } | null): number {
-    if (!previous?.updatedDate) return 0;
-    return daysBetween(previous.updatedDate, this.ctx.currentDate());
+  private crisisElapsedDays(previous: { updatedDate?: string | null } | null, periodDays?: number): number {
+    if (previous?.updatedDate) {
+      const elapsed = daysBetween(previous.updatedDate, this.ctx.currentDate());
+      if (Number.isFinite(elapsed) && elapsed >= 0) return elapsed;
+    }
+    return Math.max(0, Math.floor(Number(periodDays) || 0));
   }
 
   /**
    * Valuta la crisi. Con `advance` (default) fa scorrere la scala dei giorni
    * trascorsi; senza, è una lettura pura per il dossier. Se il collasso scatta,
-   * chiude la partita una volta sola.
+   * chiude la partita una volta sola. `periodDays` = giorni di calendario
+   * realmente simulati in questo avanzamento (7, 30, 90, 180, 365…).
    */
-  evaluateCrisis(advance = true): CrisisState {
+  evaluateCrisis(advance = true, periodDays?: number): CrisisState {
     const previous = gameRepository.getCrisisState(this.ctx.gameId);
     const state = advanceCrisis(this.crisisInput(), previous ?? {}, {
       turn: this.ctx.currentTurn(),
       date: this.ctx.currentDate(),
       advance,
-      days: this.crisisElapsedDays(previous),
+      days: this.crisisElapsedDays(previous, periodDays),
     });
     try {
       gameRepository.saveCrisisState({

@@ -74,7 +74,13 @@ export interface TurnPipelineContext {
     proposals?: unknown;
     updates?: unknown;
   }): CommitmentResult;
-  evaluateCrisis(advance?: boolean): any;
+  /**
+   * CRISIS-RESIDUAL P0.1: la crisi riceve i **giorni realmente simulati** nel
+   * periodo (`period.elapsedDays`), non il numero di turni né un valore
+   * ricostruito: il percorso con ordini e quello senza ordini devono avere la
+   * stessa semantica del tempo trascorso.
+   */
+  evaluateCrisis(advance?: boolean, periodDays?: number): any;
   settleOrderCosts(...args: any[]): any;
   orderFundingNotes(actions: PendingAction[]): string | null;
   reconcileAcceptedMoves(...args: any[]): any;
@@ -758,9 +764,10 @@ export class TurnPipelineService {
       // Le sfide del turno appena chiuso scadono (l'inerzia pesa) e ne
       // nascono di nuove dagli indicatori aggiornati.
       this.ctx.refreshPeacetimePressures();
-      // La scala di crisi fa un passo: tre turni critici consecutivi e la
-      // nazione cade (rivolta, default o invasione).
-      this.ctx.evaluateCrisis();
+      // La scala di crisi fa un passo **lungo il tempo realmente simulato**
+      // (7/30/90/180/365 giorni, o l'orizzonte di una ricerca automatica):
+      // tre turni critici e la nazione cade (rivolta, default o invasione).
+      this.ctx.evaluateCrisis(true, period.elapsedDays);
 
       // Now set periodEnd (after advancing)
       actions.forEach(item => {

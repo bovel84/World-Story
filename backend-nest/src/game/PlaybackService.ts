@@ -51,6 +51,13 @@ export interface PlaybackContext {
   captureMovementIntents(actions: PendingAction[]): MovementIntent[];
   outcomesByActionId(...args: any[]): any;
   advanceWorldState(days: number, asOfDate: string): string[];
+  /**
+   * CRISIS-RESIDUAL P0.1: il playback scaglionato fa avanzare la crisi dei
+   * giorni del passo, con la stessa semantica degli altri percorsi. Il
+   * checkpoint del passo porta con sé lo stato aggiornato, quindi il pericolo
+   * è visibile **prima** dell'eventuale collasso (Intervieni/Continua).
+   */
+  evaluateCrisis(periodDays: number): any;
   applyFrontierPlacements(...args: any[]): RegionState[];
   applyMapChanges(...args: any[]): RegionState[];
   applyWorldChanges(...args: any[]): void;
@@ -250,6 +257,11 @@ export class PlaybackService {
           simulationId: runId,
         })));
       }
+      // CRISIS-RESIDUAL P0.1: il tempo di questo passo fa avanzare anche la crisi.
+      // Va valutata PRIMA del checkpoint qui sotto, così il punto salvato porta
+      // con sé lo stato aggiornato: il giocatore vede il pericolo al checkpoint.
+      if (elapsedDays > 0) this.ctx.evaluateCrisis(elapsedDays);
+
       const reactionChatEffects = this.ctx.diplomacy.openSimulationChats(this.ctx.reactionChatStarts([event], true), {
         turn: state.jumpTurn,
         fallbackDate: eventDate,
