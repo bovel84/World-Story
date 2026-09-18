@@ -910,7 +910,10 @@ describe('OP-OBJECTS PARTIAL-PERIOD — test 38/45: equivalenza full-world', () 
       expect(ledger(long)[kind].stockpile, `silo ${kind}`).toBeCloseTo(ledger(short)[kind].stockpile, 6);
       expect(ledger(long)[kind].extractedTotal, `estratto ${kind}`).toBeCloseTo(ledger(short)[kind].extractedTotal, 6);
     }
-  });
+    // Due sessioni complete più 6/12 salti di mondo: sul runner di CI il tempo
+    // di parete supera i 5 s di default anche se il calcolo resta sotto il
+    // secondo (misurato: 0,6 s e 1,5 s in una corsa verde).
+  }, 20_000);
 
   it('365 == 12x30+5 full-world: un anno è i suoi dodici mesi più cinque giorni', () => {
     const long = createGame().session;
@@ -929,7 +932,7 @@ describe('OP-OBJECTS PARTIAL-PERIOD — test 38/45: equivalenza full-world', () 
     for (const kind of ['iron', 'coal']) {
       expect(ledger(long)[kind].stockpile, `silo ${kind}`).toBeCloseTo(ledger(short)[kind].stockpile, 6);
     }
-  });
+  }, 20_000);
 
   it('debt (29): la scadenza matura nella stessa data in un salto o in sei turni', () => {
     const long = createGame().session;
@@ -1162,7 +1165,9 @@ describe('OP-OBJECTS TIME-STEP — invarianti e giochi lunghi', () => {
     // 122 periodi materiali: nessun ciclo enorme, costo contenuto.
     expect(elapsed).toBeLessThan(20_000);
     console.log(`[op-objects-time-step] 3650 giorni (122 periodi) in ${elapsed}ms`);
-  });
+    // 122 periodi: il limite dei 20 s è sul **calcolo**, non sul tempo di parete
+    // di un runner condiviso (misurato 2,4 s in CI).
+  }, 30_000);
 
   it('49: cento anni di salto restano finiti e a costo contenuto', () => {
     const session = createGame().session;
@@ -1186,6 +1191,8 @@ describe('OP-OBJECTS TIME-STEP — invarianti e giochi lunghi', () => {
     expect(elapsed).toBeLessThan(60_000);
     console.log(`[op-objects-time-step] 36500 giorni (1217 periodi) in ${elapsed}ms`);
     // Dieci decenni di periodi materiali: il costo è alto ma lineare, e la
-    // misura resta sotto il minuto su una macchina da sviluppo.
-  }, 30_000);
+    // misura resta sotto il minuto su una macchina da sviluppo. Il timeout del
+    // test sta **sopra** quel limite, così l'asserzione sui 60 s è quella che
+    // decide (in CI il tempo di parete ha sfiorato i 27 s).
+  }, 90_000);
 });
