@@ -9,6 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
+import { MANPOWER_PROFILES } from '../src/core/simulation/MilitaryDoctrine';
 
 const TEST_DB = path.join(os.tmpdir(), `world-story-capacity-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
@@ -123,8 +124,28 @@ describe('quadro militare pubblicato dal motore', () => {
     const arsenal = session.getArsenal();
     const account = session.getResources().account;
     const individual = arsenal.coverage.find((row: any) => row.category === 'individualWeapons');
-    expect(individual.required).toBe(account.forces * 40 + account.mobilized * 50);
+    // Con la dottrina d'epoca: uomini in armi × quota d'epoca (moderno 75%).
+    const share = MANPOWER_PROFILES[arsenal.epoch].individualWeaponShare;
+    expect(individual.required).toBe(
+      Math.round((account.forces + account.mobilized) * arsenal.manpower.menPerFormation * share),
+    );
+    // Molto più di «40 per reparto»: le armi individuali sono quelle dei soldati.
+    expect(individual.required).toBeGreaterThan(account.forces * 40);
     expect(individual.coveragePct).toBe(100);
+  });
+
+  it('la dotazione di riferimento dichiara la quota di personale, non un finto per-reparto', () => {
+    const { session } = createGame();
+    const establishment = session.getArsenal().establishment;
+    const individual = establishment.find((entry: any) => entry.category === 'individualWeapons');
+    expect(individual.demand).toBe('personnel_share');
+    expect(individual.perFormation).toBeNull();
+    expect(individual.personnelSharePct).toBe(75);
+    // Le altre categorie restano per reparto, con un numero vero.
+    for (const entry of establishment.filter((item: any) => item.category !== 'individualWeapons')) {
+      expect(entry.demand ?? 'per_formation').toBe('per_formation');
+      expect(entry.perFormation).toBeGreaterThan(0);
+    }
   });
 
   it('la prontezza è un numero del motore, con i suoi driver', () => {

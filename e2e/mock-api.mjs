@@ -364,11 +364,12 @@ export const MOCK_ARSENAL = {
   catalog: [
     {
       id: 'fucili', name: 'Fucili d’assalto', domain: 'terra', category: 'Fanteria',
-      quality: 35, tier: 'datato', costMln: 800, weaponsCost: 4,
+      // Armi individuali: unità = singolo pezzo, non più «lotto» da 40.
+      quality: 35, tier: 'datato', costMln: 4, weaponsCost: 0.02,
       role: 'Arma individuale della fanteria di linea',
       description: 'Fucile automatico d’ordinanza: equipaggia il singolo soldato ed è la base di ogni reparto appiedato.',
       specs: [{ label: 'Calibro', value: '5,56 / 7,62 mm' }, { label: 'Gittata utile', value: '300–400 m' }],
-      canBuild: true, canBuy: true, buildCostMln: 800, buyCostMln: 1280, reasons: [],
+      canBuild: true, canBuy: true, buildCostMln: 4, buyCostMln: 6, reasons: [],
     },
     {
       id: 'caccia_5', name: 'Caccia di 5ª generazione', domain: 'aria', category: 'Aerei da combattimento',
@@ -400,20 +401,23 @@ export const MOCK_ARSENAL = {
   epoch: 'guerra_fredda',
   epochLabel: 'Guerra fredda',
   establishment: [
-    { category: 'individualWeapons', label: 'Armi individuali', perFormation: 40, perMobilized: 50, weight: 0.35, source: 'engine_seed', basis: 'Fanteria numerosa, con armi automatiche di ordinanza.' },
-    { category: 'armoredMobility', label: 'Mobilità corazzata', perFormation: 2, perMobilized: 2, weight: 0.2, source: 'doctrine', basis: 'Meccanizzazione di massa: la fanteria si muove protetta.' },
-    { category: 'artillery', label: 'Artiglieria', perFormation: 1.5, perMobilized: 1.5, weight: 0.15, source: 'doctrine', basis: 'Artiglieria e lanciarazzi coprono il fronte.' },
-    { category: 'supportWeapons', label: 'Armi di supporto', perFormation: 0.6, perMobilized: 0.6, weight: 0.1, source: 'doctrine', basis: 'Difesa aerea di punto per le colonne.' },
-    { category: 'airSupport', label: 'Supporto aereo', perFormation: 0.3, perMobilized: 0.3, weight: 0.1, source: 'doctrine', basis: 'Il caccia da superiorità aerea è la misura del potere aereo.' },
-    { category: 'navalSupport', label: 'Supporto navale', perFormation: 0.3, perMobilized: 0.3, weight: 0.1, source: 'doctrine', basis: 'Flotte di scorta per le rotte: solo per paesi con cantieri.' },
+    { category: 'individualWeapons', label: 'Armi individuali', perFormation: null, perMobilized: null, personnelSharePct: 80, demand: 'personnel_share', weight: 0.35, source: 'engine_seed', basis: 'Fanteria numerosa, con armi automatiche di ordinanza: la coda logistica si allarga.' },
+    { category: 'armoredMobility', label: 'Mobilità corazzata', perFormation: 2, perMobilized: 2, personnelSharePct: null, demand: 'per_formation', weight: 0.2, source: 'doctrine', basis: 'Meccanizzazione di massa: la fanteria si muove protetta.' },
+    { category: 'artillery', label: 'Artiglieria', perFormation: 1.5, perMobilized: 1.5, personnelSharePct: null, demand: 'per_formation', weight: 0.15, source: 'doctrine', basis: 'Artiglieria e lanciarazzi coprono il fronte.' },
+    { category: 'supportWeapons', label: 'Armi di supporto', perFormation: 0.6, perMobilized: 0.6, personnelSharePct: null, demand: 'per_formation', weight: 0.1, source: 'doctrine', basis: 'Difesa aerea di punto per le colonne.' },
+    { category: 'airSupport', label: 'Supporto aereo', perFormation: 0.3, perMobilized: 0.3, personnelSharePct: null, demand: 'per_formation', weight: 0.1, source: 'doctrine', basis: 'Il caccia da superiorità aerea è la misura del potere aereo.' },
+    { category: 'navalSupport', label: 'Supporto navale', perFormation: 0.3, perMobilized: 0.3, personnelSharePct: null, demand: 'per_formation', weight: 0.1, source: 'doctrine', basis: 'Flotte di scorta per le rotte: solo per paesi con cantieri.' },
   ],
   manpower: {
     population: 1000000, eligiblePopulation: 170000, totalMilitaryPool: 170000,
     activePersonnel: 33000, reservePersonnel: 39600, mobilizedPersonnel: 22000,
     availableReserve: 17600, formations: 3, mobilizedFormations: 2, menPerFormation: 11000,
+    mobilizationCap: 119000, mobilizationHeadroom: 97000, overMobilized: false,
   },
   coverage: [
-    { category: 'individualWeapons', label: 'Armi individuali', required: 220, available: 37, coveragePct: 16.8, missing: 183, items: ['Fucili d’assalto ×37'], weight: 0.35 },
+    // 5 reparti (3 + 2 richiamati) × 11.000 uomini × 80% = 44.000 armi individuali.
+    // Con 37 fucili in servizio la copertura è dello 0,1%: il motore non finge.
+    { category: 'individualWeapons', label: 'Armi individuali', required: 44000, available: 37, coveragePct: 0.1, missing: 43963, items: ['Fucili d’assalto ×37'], weight: 0.35 },
     { category: 'armoredMobility', label: 'Mobilità corazzata', required: 6, available: 6, coveragePct: 100, missing: 0, items: ['Carri armati di 3ª generazione ×6'], weight: 0.2 },
     { category: 'artillery', label: 'Artiglieria', required: 5, available: 0, coveragePct: 0, missing: 5, items: [], weight: 0.15 },
     { category: 'supportWeapons', label: 'Armi di supporto', required: 2, available: 0, coveragePct: 0, missing: 2, items: [], weight: 0.1 },
@@ -421,10 +425,10 @@ export const MOCK_ARSENAL = {
     { category: 'navalSupport', label: 'Supporto navale', required: 1, available: 0, coveragePct: 0, missing: 1, items: [], weight: 0.1 },
   ],
   readiness: {
-    readinessPct: 20,
+    readinessPct: 15,
     status: 'critical',
     drivers: [
-      { tone: 'critical', label: 'Copertura armi individuali 16,8%', detail: '37 in servizio su 220 della dotazione di riferimento.' },
+      { tone: 'critical', label: 'Copertura armi individuali 0,1%', detail: '37 in servizio su 44.000 della dotazione di riferimento.' },
       { tone: 'critical', label: 'Copertura artiglieria 0%', detail: '0 in servizio su 5 della dotazione di riferimento.' },
       { tone: 'warning', label: '22.000 riservisti richiamati', detail: 'Le riserve consumano equipaggiamento per diventare operative.' },
       { tone: 'positive', label: 'Carburante: >12 mesi', detail: 'Copertura piena delle operazioni.' },
@@ -432,7 +436,7 @@ export const MOCK_ARSENAL = {
   },
   industrialCapacity: {
     total: 22, used: 8, free: 14, utilizationPct: 36.4, demand: 8, satisfactionPct: 100,
-    overflowFactor: 1, saturated: false,
+    overflowFactor: 1, saturated: false, blocked: false,
     allocations: [
       { id: 'ord-mock-1', kind: 'military_production', label: 'Fucili d’assalto ×40', capacityDemand: 4, sector: 'Fanteria (terra)', basis: 'Voce di catalogo: 1 fabbrica richiesta.' },
       { id: 'proc-1', kind: 'project', label: 'Ferrovia transnazionale', capacityDemand: 4, sector: 'Infrastrutture e progetti', basis: 'Progetto di 8 mesi, 38% completato.' },

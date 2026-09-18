@@ -43,16 +43,26 @@ export interface ManpowerPayload {
   eligibleSharePct: number | null;
   /** Quota dei richiamati sulle forze in armi, in %. */
   mobilizedPct: number;
+  /** Tetto di richiamo simultaneo deciso dalla dottrina d'epoca. */
+  mobilizationCap: number;
+  /** Quanti riservisti si possono ancora richiamare dentro il tetto. */
+  mobilizationHeadroom: number;
+  /** I richiamati dichiarati dal motore superano il tetto d'epoca. */
+  overMobilized: boolean;
 }
 
 /** Dotazione di riferimento di una categoria per l'epoca dello scenario. */
 export interface EstablishmentRow {
   id: string;
   label: string;
-  /** Pezzi richiesti per reparto in servizio. */
-  perFormation: number;
-  /** Pezzi richiesti per reparto di riserva richiamato. */
-  perMobilized: number;
+  /** Pezzi per reparto: `null` per le categorie a quota di personale. */
+  perFormation: number | null;
+  /** Pezzi per reparto di riserva richiamato. */
+  perMobilized: number | null;
+  /** Quota d'epoca degli uomini in armi con arma individuale, in %. */
+  personnelSharePct: number | null;
+  /** Come si calcola il fabbisogno: per reparto o per quota di personale. */
+  demand: 'per_formation' | 'personnel_share';
   weight: number;
   /** `engine_seed` = costante del seed del motore; `doctrine` = dottrina d'epoca. */
   source: 'engine_seed' | 'doctrine' | 'unknown';
@@ -162,6 +172,9 @@ export function manpowerPayload(arsenal?: Partial<ArsenalResponse> | null): Manp
     menPerFormation: Math.max(0, finiteOrNull(source.menPerFormation) ?? 0),
     eligibleSharePct: population !== null && population > 0 && eligible !== null ? round1(eligible / population * 100) : null,
     mobilizedPct: activePersonnel + mobilizedPersonnel > 0 ? round1(mobilizedPersonnel / (activePersonnel + mobilizedPersonnel) * 100) : 0,
+    mobilizationCap: Math.max(0, finiteOrNull(source.mobilizationCap) ?? 0),
+    mobilizationHeadroom: Math.max(0, finiteOrNull(source.mobilizationHeadroom) ?? 0),
+    overMobilized: source.overMobilized === true,
   };
 }
 
@@ -197,8 +210,10 @@ export function establishmentRows(arsenal?: Partial<ArsenalResponse> | null): Es
   return (arsenal?.establishment ?? []).map(entry => ({
     id: entry.category,
     label: entry.label,
-    perFormation: Number(entry.perFormation) || 0,
-    perMobilized: Number(entry.perMobilized) || 0,
+    perFormation: finiteOrNull(entry.perFormation),
+    perMobilized: finiteOrNull(entry.perMobilized),
+    personnelSharePct: finiteOrNull(entry.personnelSharePct),
+    demand: entry.demand === 'personnel_share' ? 'personnel_share' : 'per_formation',
     weight: Number(entry.weight) || 0,
     source: entry.source ?? 'unknown',
     basis: entry.basis ?? '',

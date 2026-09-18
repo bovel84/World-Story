@@ -12,12 +12,18 @@
  *     i **reparti** (`forces`, `mobilized`); qui i reparti diventano personale
  *     con un rapporto dichiarato (`menPerFormation`) e si aggiunge il dato che
  *     mancava davvero: la **riserva** mobilitabile, derivata dalla popolazione
- *     in età utile. Nessuna simulazione cittadino per cittadino, nessun numero
- *     casuale, nessun LLM.
- *  3. **Establishment**: la dotazione di riferimento per reparto, per categoria
- *     di equipaggiamento e per epoca. È la stessa tabella usata dal **seed
- *     dell'arsenale**, dalla **copertura** e dalla **prontezza**: una sola
- *     formula, non una per il motore e una per la UI.
+ *     in età utile, con il **tetto di richiamo simultaneo**
+ *     (`maxMobilizedShare`). Nessuna simulazione cittadino per cittadino,
+ *     nessun numero casuale, nessun LLM.
+ *  3. **Establishment**: la dotazione di riferimento per categoria di
+ *     equipaggiamento e per epoca. Il fabbisogno si esprime in due modi:
+ *     **per reparto** (carri, artiglieria, aerei: mezzi che appartengono al
+ *     reparto) oppure **per quota di personale** (armi individuali: un fucile
+ *     per il 75-90% degli uomini in armi, secondo l'epoca). Le armi individuali
+ *     NON si contano più 40 per reparto: 72.000 uomini non possono essere armati
+ *     da 240 fucili. È la stessa regola usata dal **seed dell'arsenale**, dalla
+ *     **copertura** e dalla **prontezza**: una sola formula, non una per il
+ *     motore e una per la UI.
  *  4. **Copertura** per categoria: possesso reale sull'armamento richiesto dal
  *     personale effettivo. Solo categorie pertinenti all'epoca: in 1815 non si
  *     chiedono carri, aerei o missili.
@@ -73,22 +79,30 @@ export function epochForDate(startDate?: string | null): MilitaryEpoch {
  * Profilo demografico-militare di un'epoca. `eligibleShare` = quota della
  * popolazione in età utile; `menPerFormation` = uomini di un reparto;
  * `reserveRatio` = riservisti addestrati per ogni soldato in servizio;
- * `maxMobilizedShare` = quota massima di riserva richiamabile in una volta.
+ * `maxMobilizedShare` = quota massima del bacino richiamabile **in una volta**;
+ * `individualWeaponShare` = quota degli uomini in armi che ha un'arma
+ * individuale propria (il resto è coda logistica, stato maggiore, servizi).
  */
 export interface ManpowerProfile {
   eligibleShare: number;
   menPerFormation: number;
   reserveRatio: number;
   maxMobilizedShare: number;
+  individualWeaponShare: number;
 }
 
 export const MANPOWER_PROFILES: Record<MilitaryEpoch, ManpowerProfile> = {
-  pre_industriale: { eligibleShare: 0.16, menPerFormation: 800, reserveRatio: 0.6, maxMobilizedShare: 0.35 },
-  grande_guerra: { eligibleShare: 0.19, menPerFormation: 8000, reserveRatio: 1.2, maxMobilizedShare: 0.6 },
-  seconda_guerra: { eligibleShare: 0.21, menPerFormation: 10000, reserveRatio: 1.5, maxMobilizedShare: 0.8 },
-  guerra_fredda: { eligibleShare: 0.17, menPerFormation: 11000, reserveRatio: 1.2, maxMobilizedShare: 0.7 },
-  moderno: { eligibleShare: 0.14, menPerFormation: 12000, reserveRatio: 0.9, maxMobilizedShare: 0.5 },
+  pre_industriale: { eligibleShare: 0.16, menPerFormation: 800, reserveRatio: 0.6, maxMobilizedShare: 0.35, individualWeaponShare: 0.9 },
+  grande_guerra: { eligibleShare: 0.19, menPerFormation: 8000, reserveRatio: 1.2, maxMobilizedShare: 0.6, individualWeaponShare: 0.9 },
+  seconda_guerra: { eligibleShare: 0.21, menPerFormation: 10000, reserveRatio: 1.5, maxMobilizedShare: 0.8, individualWeaponShare: 0.85 },
+  guerra_fredda: { eligibleShare: 0.17, menPerFormation: 11000, reserveRatio: 1.2, maxMobilizedShare: 0.7, individualWeaponShare: 0.8 },
+  moderno: { eligibleShare: 0.14, menPerFormation: 12000, reserveRatio: 0.9, maxMobilizedShare: 0.5, individualWeaponShare: 0.75 },
 };
+
+/** Quota d'epoca degli uomini in armi con arma individuale propria. */
+export function individualWeaponShareFor(epoch: MilitaryEpoch): number {
+  return MANPOWER_PROFILES[epoch].individualWeaponShare;
+}
 
 export interface MilitaryManpower {
   population: number;
@@ -110,6 +124,16 @@ export interface MilitaryManpower {
   mobilizedFormations: number;
   /** Uomini per reparto usati dal profilo d'epoca. */
   menPerFormation: number;
+  /** Tetto di richiamo simultaneo: `totalMilitaryPool × maxMobilizedShare`. */
+  mobilizationCap: number;
+  /** Quanti riservisti si possono ancora richiamare dentro il tetto. */
+  mobilizationHeadroom: number;
+  /**
+   * I richiamati **dichiarati dal motore** superano il tetto d'epoca. Il fatto
+   * canonico non viene cancellato: la nazione resta con quei reparti sotto le
+   * armi e il quadro lo segnala (over-mobilization).
+   */
+  overMobilized: boolean;
 }
 
 export interface ManpowerInput {
@@ -135,6 +159,12 @@ const nonNegative = (value: unknown): number => {
  * I reparti in servizio sono un fatto del motore e **non** vengono ridotti da
  * una popolazione piccola: se una nazione ha sei reparti, li ha. È il bacino a
  * limitare quello che si può ancora chiamare, non ciò che è già in armi.
+ *
+ * `maxMobilizedShare` **non è più una costante morta**: il tetto di richiamo
+ * simultaneo è `bacino mobilitabile × quota d'epoca` e il quadro pubblica la
+ * testa disponibile (`mobilizationHeadroom`). I richiamati che il motore
+ * dichiara sono però un fatto: se superano il tetto, `overMobilized` lo dice
+ * invece di riscrivere il conto nazionale.
  */
 export function militaryManpower(input: ManpowerInput): MilitaryManpower {
   const profile = MANPOWER_PROFILES[input.epoch];
@@ -145,9 +175,13 @@ export function militaryManpower(input: ManpowerInput): MilitaryManpower {
   const eligiblePopulation = Math.round(population * profile.eligibleShare);
   const totalMilitaryPool = eligiblePopulation;
   const activePersonnel = Math.round(formations * profile.menPerFormation);
+  const requestedMobilizedPersonnel = Math.round(mobilizedFormations * profile.menPerFormation);
+  // Tetto di richiamo simultaneo: quanto del bacino si può tenere sotto le armi
+  // come riserva in una volta (regola d'epoca, non un numero casuale).
+  const mobilizationCap = Math.round(totalMilitaryPool * profile.maxMobilizedShare);
   // I richiamati non possono superare ciò che il bacino può dare oltre agli attivi.
   const mobilizedPersonnel = Math.min(
-    Math.round(mobilizedFormations * profile.menPerFormation),
+    requestedMobilizedPersonnel,
     Math.max(0, totalMilitaryPool - activePersonnel),
   );
   // Riserva addestrata: mai meno dei richiamati, mai più di quanto il bacino
@@ -167,6 +201,9 @@ export function militaryManpower(input: ManpowerInput): MilitaryManpower {
     formations,
     mobilizedFormations,
     menPerFormation: profile.menPerFormation,
+    mobilizationCap,
+    mobilizationHeadroom: Math.max(0, mobilizationCap - mobilizedPersonnel),
+    overMobilized: requestedMobilizedPersonnel > mobilizationCap,
   };
 }
 
@@ -192,13 +229,22 @@ export const EQUIPMENT_CATEGORY_LABEL: Record<EquipmentCategoryId, string> = {
   drones: 'Droni',
 };
 
+/**
+ * Come si esprime il fabbisogno di una categoria:
+ *  - `per_formation`: pezzi per reparto (carri, artiglieria, aerei, navi);
+ *  - `personnel_share`: armi individuali, una quota degli **uomini in armi**.
+ */
+export type EstablishmentDemandKind = 'per_formation' | 'personnel_share';
+
 export interface EstablishmentCategory {
   id: EquipmentCategoryId;
   label: string;
-  /** Pezzi richiesti per reparto in servizio permanente. */
-  perFormation: number;
+  /** Pezzi richiesti per reparto in servizio permanente (`per_formation`). */
+  perFormation?: number;
   /** Pezzi richiesti per reparto di riserva richiamato (default: perFormation). */
   perMobilized?: number;
+  /** Come si calcola il fabbisogno (default: `per_formation`). */
+  demand?: { kind: EstablishmentDemandKind };
   /** Peso nella prontezza operativa (i pesi di un'epoca sommano a 1). */
   weight: number;
   /** Voci del catalogo che contano per questa categoria. */
@@ -212,13 +258,28 @@ export interface EstablishmentCategory {
 }
 
 /**
- * Ancoraggio al motore: il seed dell'arsenale assegna **40 armi individuali per
- * reparto** e **50 per ogni reparto di riserva richiamato**
- * (`MilitaryService.arsenalUnits`). Questi due numeri sono l'unico requisito
- * preso dal seed; tutti gli altri sono dottrina dichiarata qui.
+ * Fabbisogno di **armi individuali**: una quota dichiarata degli uomini in armi
+ * (`individualWeaponShare`), non più N pezzi per reparto. Le armi individuali di
+ * una nazione sono quelle dei suoi soldati: 72.000 uomini non possono essere
+ * armati da 240 fucili.
+ *
+ * È la **stessa funzione** usata dal seed dell'arsenale e dalla copertura: il
+ * seed semina esattamente questo fabbisogno, quindi una nazione parte con le
+ * armi che le servono, senza trucchi numerici diversi fra le due letture.
+ *
+ * I reparti richiamati contano come **dichiarati dal motore** (`account.mobilized`),
+ * non come limitati dal bacino: il fatto canonico è quello, la riserva è un
+ * altro conto.
  */
-export const RIFLES_PER_FORMATION = 40;
-export const RIFLES_PER_MOBILIZED_FORMATION = 50;
+export function individualWeaponDemand(
+  epoch: MilitaryEpoch,
+  formations: number,
+  mobilizedFormations: number,
+): number {
+  const profile = MANPOWER_PROFILES[epoch];
+  const men = (nonNegative(formations) + nonNegative(mobilizedFormations)) * profile.menPerFormation;
+  return Math.round(men * profile.individualWeaponShare);
+}
 
 /** Voce di catalogo che rappresenta la mobilità terrestre in ogni epoca. */
 export const MOBILITY_EQUIPMENT_ID = 'apc';
@@ -226,8 +287,7 @@ export const MOBILITY_EQUIPMENT_ID = 'apc';
 const individualWeapons = (weight: number, basis: string): EstablishmentCategory => ({
   id: 'individualWeapons',
   label: EQUIPMENT_CATEGORY_LABEL.individualWeapons,
-  perFormation: RIFLES_PER_FORMATION,
-  perMobilized: RIFLES_PER_MOBILIZED_FORMATION,
+  demand: { kind: 'personnel_share' },
   weight,
   match: { categories: ['Fanteria'] },
   source: 'engine_seed',
@@ -241,10 +301,10 @@ const individualWeapons = (weight: number, basis: string): EstablishmentCategory
  */
 export const ESTABLISHMENT_BY_EPOCH: Record<MilitaryEpoch, EstablishmentCategory[]> = {
   pre_industriale: [
-    individualWeapons(1, 'Un esercito pre-industriale si misura sulle armi individuali: il catalogo dell’epoca non ha mezzi corazzati, aerei o missili.'),
+    individualWeapons(1, 'Un esercito pre-industriale si misura sulle armi individuali: la coscrizione arma quasi tutti gli uomini sotto le armi, e il catalogo dell’epoca non ha mezzi corazzati, aerei o missili.'),
   ],
   grande_guerra: [
-    individualWeapons(0.62, 'La fanteria di massa resta la base dell’esercito.'),
+    individualWeapons(0.62, 'La fanteria di massa resta la base dell’esercito: quasi ogni uomo in armi ha il suo fucile.'),
     {
       id: 'artillery', label: EQUIPMENT_CATEGORY_LABEL.artillery,
       perFormation: 2, weight: 0.23,
@@ -259,7 +319,7 @@ export const ESTABLISHMENT_BY_EPOCH: Record<MilitaryEpoch, EstablishmentCategory
     },
   ],
   seconda_guerra: [
-    individualWeapons(0.45, 'La fanteria resta il nerbo, ma non basta più da sola.'),
+    individualWeapons(0.45, 'La fanteria resta il nerbo, ma non basta più da sola: una parte degli uomini è in servizi, comando e logistica.'),
     {
       id: 'armoredMobility', label: EQUIPMENT_CATEGORY_LABEL.armoredMobility,
       perFormation: 1.5, weight: 0.2,
@@ -280,7 +340,7 @@ export const ESTABLISHMENT_BY_EPOCH: Record<MilitaryEpoch, EstablishmentCategory
     },
   ],
   guerra_fredda: [
-    individualWeapons(0.35, 'Fanteria numerosa, con armi automatiche di ordinanza.'),
+    individualWeapons(0.35, 'Fanteria numerosa, con armi automatiche di ordinanza: la coda logistica si allarga.'),
     {
       id: 'armoredMobility', label: EQUIPMENT_CATEGORY_LABEL.armoredMobility,
       perFormation: 2, weight: 0.2,
@@ -315,7 +375,7 @@ export const ESTABLISHMENT_BY_EPOCH: Record<MilitaryEpoch, EstablishmentCategory
   moderno: [
     // Le prime sei sono le categorie di COUNTRY-CLARITY, con gli stessi
     // requisiti già validati: ora però pesi e soglie vivono qui, non nella UI.
-    individualWeapons(0.3, 'Il singolo soldato è la base di ogni reparto appiedato.'),
+    individualWeapons(0.3, 'Il singolo soldato è la base di ogni reparto appiedato: una parte rilevante degli uomini in armi è in supporto, comando e logistica.'),
     {
       id: 'armoredMobility', label: EQUIPMENT_CATEGORY_LABEL.armoredMobility,
       perFormation: 1.5, weight: 0.2,
@@ -393,24 +453,27 @@ export interface CoverageInput {
 const round1 = (value: number) => Math.round(value * 10) / 10;
 
 /**
- * Copertura per categoria dagli **uomini effettivi**: il fabbisogno nasce da
- * `activePersonnel`/`mobilizedPersonnel`, non dal numero di reparti letto
- * direttamente. Le categorie non pertinenti all'epoca non compaiono; quelle
- * che richiedono il mare spariscono per i paesi senza porti.
+ * Copertura per categoria dal **personale effettivo**: le armi individuali si
+ * misurano sulla quota d'epoca degli uomini in armi, i mezzi per reparto sul
+ * numero di reparti che il motore dichiara. Le categorie non pertinenti
+ * all'epoca non compaiono; quelle che richiedono il mare spariscono per i paesi
+ * senza porti.
  */
 export function equipmentCoverage(input: CoverageInput): EquipmentCoverage[] {
   const { units, manpower, epoch } = input;
-  const menPerFormation = manpower.menPerFormation || 1;
-  const activeFormations = manpower.activePersonnel / menPerFormation;
-  const mobilizedFormations = manpower.mobilizedPersonnel / menPerFormation;
+  const formations = manpower.formations;
+  const mobilizedFormations = manpower.mobilizedFormations;
   const landlocked = finiteOrNull(input.ports) === 0;
 
   const entries = establishmentFor(epoch).filter(entry => !(entry.requiresPorts && landlocked));
   return entries.map(entry => {
-    const required = Math.ceil(
-      activeFormations * entry.perFormation
-      + mobilizedFormations * (entry.perMobilized ?? entry.perFormation),
-    );
+    const perFormation = entry.perFormation ?? 0;
+    const required = entry.demand?.kind === 'personnel_share'
+      ? individualWeaponDemand(epoch, formations, mobilizedFormations)
+      : Math.ceil(
+        formations * perFormation
+        + mobilizedFormations * (entry.perMobilized ?? perFormation),
+      );
     const matched: string[] = [];
     let available = 0;
     for (const [id, quantity] of Object.entries(units || {})) {
@@ -484,7 +547,8 @@ const finiteOrNull = (value: unknown): number | null => {
 };
 const number = (value: number | null, decimals = 0) =>
   value === null ? '—' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: decimals }).format(value);
-const percent = (value: number, decimals = 0) => `${new Intl.NumberFormat('it-IT', { maximumFractionDigits: decimals }).format(value)}%`;
+/** Sopra il 10% la frazione non serve; sotto, un «0%» nasconderebbe un 0,4%. */
+const percent = (value: number, decimals = 0) => `${new Intl.NumberFormat('it-IT', { maximumFractionDigits: value > 0 && value < 10 ? 1 : decimals }).format(value)}%`;
 
 /**
  * Prontezza operativa: media pesata della copertura (pesi dell'epoca,
@@ -565,6 +629,16 @@ export function militaryReadiness(input: ReadinessInput): MilitaryReadiness {
       detail: 'Le riserve consumano equipaggiamento per diventare operative: la prontezza ne risente finché non sono in linea.',
     });
   }
+  if (manpower.overMobilized) {
+    // Il tetto d'epoca è una regola strutturale: i reparti richiamati dal
+    // motore restano un fatto (non si cancellano), ma il quadro lo dichiara.
+    const requested = Math.round(manpower.mobilizedFormations * manpower.menPerFormation);
+    drivers.push({
+      tone: 'critical',
+      label: `Richiamo oltre il tetto d’epoca: ${number(requested)} su ${number(manpower.mobilizationCap)}`,
+      detail: `Il motore dichiara ${number(manpower.mobilizedFormations)} reparti richiamati (${number(requested)} uomini) oltre il richiamo simultaneo sostenibile: senza nuova industria e nuovi quadri la prontezza non regge.`,
+    });
+  }
 
   return { readinessPct, status: readinessStatusFor(readinessPct), drivers };
 }
@@ -573,9 +647,12 @@ export function militaryReadiness(input: ReadinessInput): MilitaryReadiness {
 
 /**
  * Arsenale di partenza di una nazione, con le **stesse** costanti della
- * copertura: armi individuali per tutti i reparti (più il sovrappiù per i
+ * copertura: armi individuali per la quota d'epoca degli uomini in armi (più i
  * richiamati) e mezzi di mobilità **solo se l'epoca li prevede** — così un
  * mondo del 1815 non nasce con veicoli corazzati che non esistono.
+ *
+ * Il seed semina **esattamente** il fabbisogno di armi individuali: la nazione
+ * parte armata al 100% e la copertura non mente né in eccesso né in difetto.
  */
 export function arsenalSeedUnits(
   epoch: MilitaryEpoch,
@@ -585,11 +662,11 @@ export function arsenalSeedUnits(
   const formations = nonNegative(forces);
   const calledUp = nonNegative(mobilized);
   const units: Record<string, number> = {};
-  const rifles = Math.round(formations * RIFLES_PER_FORMATION + calledUp * RIFLES_PER_MOBILIZED_FORMATION);
+  const rifles = individualWeaponDemand(epoch, formations, calledUp);
   if (rifles > 0) units.fucili = rifles;
   const mobility = establishmentFor(epoch).find(entry => entry.id === 'armoredMobility');
   if (mobility && formations > 0) {
-    units[MOBILITY_EQUIPMENT_ID] = Math.round(formations * mobility.perFormation);
+    units[MOBILITY_EQUIPMENT_ID] = Math.round(formations * (mobility.perFormation ?? 0));
   }
   return units;
 }

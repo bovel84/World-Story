@@ -31,7 +31,7 @@ function process(overrides: Partial<NationalProcess> = {}): NationalProcess {
 function capacity(overrides: Partial<IndustrialCapacityPayload> = {}): IndustrialCapacityPayload {
   return {
     total: 8, used: 1, free: 7, utilizationPct: 12.5, demand: 1, satisfactionPct: 100,
-    overflowFactor: 1, saturated: false,
+    overflowFactor: 1, saturated: false, blocked: false,
     allocations: [{ id: 'o1', kind: 'military_production', label: 'Carri armati di 3ª generazione ×12', capacityDemand: 16, sector: 'Corazzati (terra)', basis: 'Voce di catalogo: 3 fabbriche richieste.' }],
     byKind: { military_production: 16, project: 0, maintenance: 0 },
     defenceSharePct: 100,
@@ -100,6 +100,40 @@ describe('COUNTRY-CLARITY ENGINE · industria', () => {
     expect(picture.sectors.find(sector => sector.label === 'Manutenzione impianti')?.capacityDemand).toBe(5);
     expect(picture.drivers.some(driver => driver.label === 'Rallentamento: Acciaieria')).toBe(true);
     expect(picture.drivers.some(driver => driver.label.includes('impianti in manutenzione'))).toBe(true);
+  });
+
+  it('senza capacità e con lavori da fare la produzione è bloccata (P12)', () => {
+    const picture = industryOperatingPicture({
+      account: { factories: 0, ports: 0, universities: 0 },
+      productionOrders: [order()],
+      arsenal: {
+        catalog: CATALOG,
+        industrialCapacity: capacity({
+          total: 0, used: 0, free: 0, utilizationPct: 0, demand: 48,
+          satisfactionPct: 0, overflowFactor: 0, saturated: true, blocked: true,
+        }),
+      },
+    });
+    expect(picture.blocked).toBe(true);
+    expect(picture.overflowFactor).toBe(0);
+    expect(picture.headline).toContain('Produzione bloccata');
+    expect(picture.headline).not.toContain('25%');
+    expect(picture.drivers[0].label).toContain('Produzione bloccata');
+    expect(picture.drivers[0].tone).toBe('critical');
+    expect(picture.status).toBe('critical');
+  });
+
+  it('senza capacità e senza lavori non si parla di blocco', () => {
+    const picture = industryOperatingPicture({
+      account: { factories: 0 },
+      arsenal: {
+        catalog: CATALOG,
+        industrialCapacity: capacity({ total: 0, used: 0, free: 0, utilizationPct: 0, demand: 0, satisfactionPct: 100, overflowFactor: 1, saturated: false, blocked: false }),
+      },
+    });
+    expect(picture.blocked).toBe(false);
+    expect(picture.overflowFactor).toBe(1);
+    expect(picture.headline).not.toContain('Produzione bloccata');
   });
 
   it('industria satura: lo dice il motore, il read model lo ripete', () => {

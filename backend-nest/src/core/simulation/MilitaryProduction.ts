@@ -100,6 +100,10 @@ export function advanceOrder(
   if (order.status !== 'in_progress') return { order, completed: false, failed: false, delivered: 0, setbackPct: 0 };
   const equipment = equipmentById(order.equipmentId);
   const period = Math.max(0, months);
+  // Zero mesi di lavorazione = nessun avanzamento e **nessun imprevisto**: un
+  // ordine fermo (industria bloccata, fattore 0) non può arretrare né fallire,
+  // perché non è passato tempo di officina.
+  if (period <= 0) return { order, completed: false, failed: false, delivered: 0, setbackPct: 0 };
   if (!equipment) {
     return {
       order: { ...order, status: 'failed', note: 'voce di catalogo non più disponibile' },

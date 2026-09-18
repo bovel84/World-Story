@@ -108,6 +108,8 @@ export function DomainOperatingBlock({ picture, id, onOpenSection }: {
 }
 
 const n = (value: number) => new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(value);
+/** Frazioni di dotazione (0,06 navale per reparto) non vanno arrotondate a zero. */
+const num1 = (value: number) => new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 }).format(value);
 const pct = (value: number) => `${new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 }).format(value)}%`;
 
 /**
@@ -124,7 +126,9 @@ export function MilitaryForceDetail({ picture }: { picture: NationalOperatingPic
         <p className="op-detail-note">
           <b>Dottrina d’epoca: {epochLabel}.</b>{' '}
           {establishment.length > 0
-            ? establishment.map(entry => `${entry.label}: ${entry.perFormation} per reparto`).join(' · ') + '.'
+            ? establishment.map(entry => entry.demand === 'personnel_share'
+              ? `${entry.label}: ${pct(entry.personnelSharePct ?? 0)} degli uomini in armi`
+              : `${entry.label}: ${num1(entry.perFormation ?? 0)} per reparto`).join(' · ') + '.'
             : 'Il motore non pubblica dotazioni di riferimento per questo scenario.'}
         </p>
       )}
@@ -140,6 +144,8 @@ export function MilitaryForceDetail({ picture }: { picture: NationalOperatingPic
             <div><dt>Reparti</dt><dd>{n(manpower.standing)}</dd></div>
             <div><dt>Uomini per reparto</dt><dd>{n(manpower.menPerFormation)}</dd></div>
             <div><dt>Bacino mobilitabile</dt><dd>{n(manpower.eligiblePopulation)}{manpower.eligibleSharePct !== null ? ` (${pct(manpower.eligibleSharePct)} della popolazione)` : ''}</dd></div>
+            <div><dt>Richiamo simultaneo massimo</dt><dd>{n(manpower.mobilizationCap)}</dd></div>
+            <div><dt>Richiamabili entro il tetto</dt><dd>{n(manpower.mobilizationHeadroom)}</dd></div>
           </dl>
         </section>
       )}
@@ -197,7 +203,11 @@ export function IndustryDetail({ picture }: { picture: NationalOperatingPicture 
           <div><dt>Libere</dt><dd>{n(industry.capacityFree)}</dd></div>
         </dl>
         {industry.capacityPublished && industry.totalBasis && <p className="op-detail-note">{industry.totalBasis}</p>}
-        {industry.saturated && (
+        {industry.blocked ? (
+          <p className="op-detail-note tone-negative">
+            Produzione bloccata — nessuna capacità industriale disponibile: le lavorazioni non avanzano.
+          </p>
+        ) : industry.saturated && (
           <p className="op-detail-note tone-negative">
             Domanda {n(industry.demand)} linee: industria satura, il lavoro avanza al {pct(industry.overflowFactor * 100)} del ritmo.
           </p>
