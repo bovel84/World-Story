@@ -28,17 +28,17 @@ const input: OperatingPictureInput = {
   arsenal: {
     epoch: 'moderno', epochLabel: 'Era moderna',
     establishment: [
-      { category: 'individualWeapons', label: 'Armi individuali', perFormation: 40, perMobilized: 50, weight: 0.3, source: 'engine_seed', basis: 'Il singolo soldato è la base.' },
-      { category: 'armoredMobility', label: 'Mobilità corazzata', perFormation: 1.5, perMobilized: 1.5, weight: 0.2, source: 'doctrine', basis: 'Manovra protetta.' },
+      { category: 'individualWeapons', label: 'Armi individuali', perFormation: null, perMobilized: null, personnelSharePct: 75, demand: 'personnel_share', weight: 0.3, source: 'engine_seed', basis: 'Il singolo soldato è la base.' },
+      { category: 'armoredMobility', label: 'Mobilità corazzata', perFormation: 1.5, perMobilized: 1.5, personnelSharePct: null, demand: 'per_formation', weight: 0.2, source: 'doctrine', basis: 'Manovra protetta.' },
     ],
-    manpower: { population: 40_000_000, eligiblePopulation: 5_600_000, totalMilitaryPool: 5_600_000, activePersonnel: 96_000, reservePersonnel: 86_400, mobilizedPersonnel: 24_000, availableReserve: 62_400, formations: 8, mobilizedFormations: 2, menPerFormation: 12_000 },
+    manpower: { population: 40_000_000, eligiblePopulation: 5_600_000, totalMilitaryPool: 5_600_000, activePersonnel: 96_000, reservePersonnel: 86_400, mobilizedPersonnel: 24_000, availableReserve: 62_400, formations: 8, mobilizedFormations: 2, menPerFormation: 12_000, mobilizationCap: 2_800_000, mobilizationHeadroom: 2_776_000, overMobilized: false },
     coverage: [
-      { category: 'individualWeapons', label: 'Armi individuali', required: 420, available: 400, coveragePct: 95.2, missing: 20, items: ['Fucili ×400'], weight: 0.3 },
+      { category: 'individualWeapons', label: 'Armi individuali', required: 90_000, available: 70_000, coveragePct: 77.8, missing: 20_000, items: ['Fucili ×70000'], weight: 0.3 },
       { category: 'armoredMobility', label: 'Mobilità corazzata', required: 15, available: 0, coveragePct: 0, missing: 15, items: [], weight: 0.2 },
     ],
     readiness: { readinessPct: 64, status: 'pressure', drivers: [{ tone: 'critical', label: 'Copertura mobilità corazzata 0%', detail: '0 in servizio su 15.' }] },
     industrialCapacity: {
-      total: 90, used: 12, free: 78, utilizationPct: 13.3, demand: 12, satisfactionPct: 100, overflowFactor: 1, saturated: false,
+      total: 90, used: 12, free: 78, utilizationPct: 13.3, demand: 12, satisfactionPct: 100, overflowFactor: 1, saturated: false, blocked: false,
       allocations: [{ id: 'p1', kind: 'project', label: 'Metropolitana', capacityDemand: 12, sector: 'Infrastrutture e progetti', basis: 'Progetto di 9 mesi.' }],
       byKind: { military_production: 0, project: 12, maintenance: 0 }, defenceSharePct: 0, totalBasis: '9 fabbriche × 10 linee',
     },
@@ -99,9 +99,15 @@ describe('COUNTRY-CLARITY · quadro d’insieme (presentazione)', () => {
     expect(html).toContain('Uomini in armi');
     expect(html).toContain('120.000'); // 96.000 attivi + 24.000 richiamati
     expect(html).toContain('Riserva addestrata');
+    // Il tetto di richiamo è dato del motore, mostrato senza ricalcoli.
+    expect(html).toContain('Richiamo simultaneo massimo');
+    expect(html).toContain('2.800.000');
+    // Le armi individuali sono una quota degli uomini, non 40 per reparto.
+    expect(html).toContain('75% degli uomini in armi');
+    expect(html).toContain('Mobilità corazzata: 1,5 per reparto');
     expect(html).toContain('Equipaggiamento — copertura per categoria');
     expect(html).toContain('Armi individuali');
-    expect(html).toContain('mancano 20 pezzi');
+    expect(html).toContain('mancano 20.000 pezzi');
     expect(html).toContain('Copertura mobilità corazzata 0%');
   });
 
@@ -116,6 +122,26 @@ describe('COUNTRY-CLARITY · quadro d’insieme (presentazione)', () => {
     expect(html).toContain('9 fabbriche × 10 linee');
     // Fuori dalle lavorazioni attive non si parla di consegne.
     expect(html).not.toContain('Produzioni militari');
+  });
+
+  it('industria bloccata: la UI non inventa un ritmo del 25%', () => {
+    const blocked: OperatingPictureInput = {
+      ...input,
+      account: { ...input.account, factories: 0, ports: 0, universities: 0 },
+      arsenal: {
+        ...input.arsenal,
+        industrialCapacity: {
+          ...input.arsenal!.industrialCapacity!,
+          total: 0, used: 0, free: 0, utilizationPct: 0, demand: 48,
+          satisfactionPct: 0, overflowFactor: 0, saturated: true, blocked: true,
+        },
+      },
+    };
+    const picture = nationalOperatingPicture(blocked);
+    const html = renderToStaticMarkup(DomainOperatingBlock({ picture, id: 'industria' }));
+    expect(html).toContain('Produzione bloccata');
+    expect(html).not.toContain('del ritmo');
+    expect(picture.industry.blocked).toBe(true);
   });
 
   it('il Dossier apre con il quadro d’insieme e lo ripete in ogni sezione tematica', () => {

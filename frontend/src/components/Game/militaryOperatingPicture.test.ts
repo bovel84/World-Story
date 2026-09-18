@@ -30,17 +30,25 @@ function manpowerPayloadFixture(overrides: Partial<MilitaryManpowerPayload> = {}
     formations: 6,
     mobilizedFormations: 0,
     menPerFormation: 12_000,
+    mobilizationCap: 4_130_000,
+    mobilizationHeadroom: 4_130_000,
+    overMobilized: false,
     ...overrides,
   };
 }
 
 function coverageRow(overrides: Partial<EquipmentCoveragePayload> = {}): EquipmentCoveragePayload {
-  return { category: 'individualWeapons', label: 'Armi individuali', required: 240, available: 240, coveragePct: 100, missing: 0, items: ['Fucili d’assalto ×240'], weight: 0.3, ...overrides };
+  return { category: 'individualWeapons', label: 'Armi individuali', required: 54_000, available: 54_000, coveragePct: 100, missing: 0, items: ['Fucili d’assalto ×54000'], weight: 0.3, ...overrides };
 }
 
 const ESTABLISHMENT: EstablishmentCategoryPayload[] = [
-  { category: 'individualWeapons', label: 'Armi individuali', perFormation: 40, perMobilized: 50, weight: 0.3, source: 'engine_seed', basis: 'Il singolo soldato è la base di ogni reparto appiedato.' },
-  { category: 'armoredMobility', label: 'Mobilità corazzata', perFormation: 1.5, perMobilized: 1.5, weight: 0.2, source: 'doctrine', basis: 'Trasporto protetto e manovra.' },
+  {
+    category: 'individualWeapons', label: 'Armi individuali',
+    // Le armi individuali non si contano per reparto: sono una quota degli uomini.
+    perFormation: null, perMobilized: null, personnelSharePct: 75, demand: 'personnel_share',
+    weight: 0.3, source: 'engine_seed', basis: 'Il singolo soldato è la base di ogni reparto appiedato.',
+  },
+  { category: 'armoredMobility', label: 'Mobilità corazzata', perFormation: 1.5, perMobilized: 1.5, personnelSharePct: null, demand: 'per_formation', weight: 0.2, source: 'doctrine', basis: 'Trasporto protetto e manovra.' },
 ];
 
 const READINESS: MilitaryReadinessPayload = {
@@ -152,9 +160,29 @@ describe('COUNTRY-CLARITY ENGINE · forze armate', () => {
 
   it('le dotazioni di riferimento conservano origine e motivo', () => {
     const rows = establishmentRows(arsenal());
-    expect(rows[0]).toMatchObject({ id: 'individualWeapons', perFormation: 40, source: 'engine_seed' });
+    expect(rows[0]).toMatchObject({
+      id: 'individualWeapons',
+      perFormation: null,
+      personnelSharePct: 75,
+      demand: 'personnel_share',
+      source: 'engine_seed',
+    });
     expect(rows[1].source).toBe('doctrine');
+    expect(rows[1].demand).toBe('per_formation');
+    expect(rows[1].perFormation).toBe(1.5);
     expect(rows[0].basis).toContain('reparto appiedato');
+  });
+
+  it('il tetto di richiamo è un dato del motore, non una formula della UI', () => {
+    const payload = manpowerPayload(arsenal({
+      manpower: manpowerPayloadFixture({ mobilizationCap: 4_130_000, mobilizationHeadroom: 1_130_000, overMobilized: true }),
+    }))!;
+    expect(payload.mobilizationCap).toBe(4_130_000);
+    expect(payload.mobilizationHeadroom).toBe(1_130_000);
+    expect(payload.overMobilized).toBe(true);
+    // Senza il dato pubblicato il read model non inventa un tetto.
+    expect(manpowerPayload(arsenal({ manpower: manpowerPayloadFixture({ mobilizationCap: undefined as unknown as number }) }))!.mobilizationCap).toBe(0);
+    expect(manpowerPayload(arsenal({ manpower: manpowerPayloadFixture({ overMobilized: undefined as unknown as boolean }) }))!.overMobilized).toBe(false);
   });
 
   it('produzione in casa contro acquisto: ordini, ritmo e motivi del motore', () => {

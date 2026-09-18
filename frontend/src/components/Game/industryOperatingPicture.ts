@@ -76,6 +76,8 @@ export interface IndustryPicture extends DomainStatus {
   satisfactionPct: number;
   overflowFactor: number;
   saturated: boolean;
+  /** Nessuna capacità e lavoro da fare: la produzione è **bloccata** (fattore 0). */
+  blocked: boolean;
   defenceSharePct: number;
   /** Da dove nasce il totale delle linee (testo del motore). */
   totalBasis: string;
@@ -210,6 +212,7 @@ export function industryOperatingPicture(input: IndustryInput): IndustryPicture 
     satisfactionPct: capacityPublished ? round1(finiteOrNull(capacity!.satisfactionPct) ?? 100) : 100,
     overflowFactor: capacityPublished ? (finiteOrNull(capacity!.overflowFactor) ?? 1) : 1,
     saturated: capacityPublished ? capacity!.saturated === true : false,
+    blocked: capacityPublished ? capacity!.blocked === true : false,
     defenceSharePct: capacityPublished ? round1(finiteOrNull(capacity!.defenceSharePct) ?? 0) : 0,
     totalBasis: capacity?.totalBasis ?? '',
     byKind: capacity?.byKind ?? {},
@@ -261,6 +264,14 @@ export function industryOperatingPicture(input: IndustryInput): IndustryPicture 
       label: 'Capacità industriale non pubblicata dal motore',
       detail: 'Il Dossier non sostituisce il dato mancante con una stima: ordini, progetti e impianti sono elencati senza occupazione delle linee.',
     });
+  } else if (saturation.blocked) {
+    // Zero impianti e lavoro da fare: la produzione è **bloccata**, non
+    // rallentata al 25%. Lo dice il motore (`overflowFactor: 0`).
+    drivers.push({
+      tone: 'critical',
+      label: 'Produzione bloccata — nessuna capacità industriale disponibile',
+      detail: 'Non c’è nessuna linea di lavorazione: le consegne restano ferme finché la nazione non costruisce impianti.',
+    });
   } else if (capacityTotal === 0) {
     drivers.push({ tone: 'warning', label: 'Nessuno stabilimento registrato', detail: 'Il paese non ha fabbriche nel conto nazionale né sulla mappa.' });
   } else {
@@ -309,6 +320,7 @@ export function industryOperatingPicture(input: IndustryInput): IndustryPicture 
 
   let status: IndustryPicture['status'] = 'stable';
   if (!capacityPublished) status = 'pressure';
+  else if (saturation.blocked) status = 'critical';
   else if (capacityTotal === 0) status = 'pressure';
   else if (saturation.saturated) status = 'pressure';
   if (blocked >= 2) status = 'fragile';
@@ -317,11 +329,13 @@ export function industryOperatingPicture(input: IndustryInput): IndustryPicture 
 
   const headline = !capacityPublished
     ? 'Capacità industriale non pubblicata dal motore.'
-    : capacityTotal === 0
-      ? 'Nessuna capacità industriale registrata.'
-      : saturation.saturated
-        ? `${formatNumber(capacityTotal)} linee di lavorazione, ${formatNumber(demand)} richieste: industria satura, consegne rallentate al ${formatPercent(saturation.overflowFactor * 100, 0)}.`
-        : `${formatNumber(capacityTotal)} linee di lavorazione, ${formatNumber(capacityUsed)} occupate da lavorazioni attive, ${formatNumber(capacityFree)} libere.`;
+    : saturation.blocked
+      ? 'Produzione bloccata — nessuna capacità industriale disponibile.'
+      : capacityTotal === 0
+        ? 'Nessuna capacità industriale registrata.'
+        : saturation.saturated
+          ? `${formatNumber(capacityTotal)} linee di lavorazione, ${formatNumber(demand)} richieste: industria satura, consegne rallentate al ${formatPercent(saturation.overflowFactor * 100, 0)}.`
+          : `${formatNumber(capacityTotal)} linee di lavorazione, ${formatNumber(capacityUsed)} occupate da lavorazioni attive, ${formatNumber(capacityFree)} libere.`;
 
   return {
     status,

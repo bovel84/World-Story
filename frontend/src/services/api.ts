@@ -65,14 +65,28 @@ export interface MilitaryManpowerPayload {
   formations: number;
   mobilizedFormations: number;
   menPerFormation: number;
+  /** Tetto di richiamo simultaneo deciso dalla dottrina d'epoca. */
+  mobilizationCap: number;
+  /** Quanti riservisti si possono ancora richiamare dentro il tetto. */
+  mobilizationHeadroom: number;
+  /** I richiamati dichiarati dal motore superano il tetto d'epoca. */
+  overMobilized: boolean;
 }
 
 /** Dotazione di riferimento di una categoria, con la sua origine dichiarata. */
 export interface EstablishmentCategoryPayload {
   category: string;
   label: string;
-  perFormation: number;
-  perMobilized: number;
+  /**
+   * Pezzi per reparto: `null` per le categorie a **quota di personale** (armi
+   * individuali), che non hanno una dotazione per reparto.
+   */
+  perFormation: number | null;
+  perMobilized: number | null;
+  /** Quota d'epoca degli uomini in armi con arma individuale, in %. */
+  personnelSharePct: number | null;
+  /** Come si calcola il fabbisogno della categoria. */
+  demand: 'per_formation' | 'personnel_share';
   weight: number;
   source: 'engine_seed' | 'doctrine';
   basis: string;
@@ -124,6 +138,8 @@ export interface IndustrialCapacityPayload {
   /** Fattore di rallentamento applicato quando la domanda supera la capacità. */
   overflowFactor: number;
   saturated: boolean;
+  /** Nessuna capacità e lavoro da fare: la produzione è **bloccata** (fattore 0). */
+  blocked: boolean;
   allocations: IndustrialAllocationPayload[];
   byKind: Record<string, number>;
   defenceSharePct: number;
