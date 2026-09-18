@@ -13,6 +13,20 @@ import fs from 'fs';
 const TEST_DB = path.join(os.tmpdir(), `world-story-capacity-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
 
+// Spia deterministica sui mesi effettivamente passati alla lavorazione: è la
+// prova che il fattore di saturazione entra nel calcolo, non solo nel testo.
+const spy = vi.hoisted(() => ({ months: [] as number[] }));
+vi.mock('../src/core/simulation/MilitaryProduction', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/core/simulation/MilitaryProduction')>();
+  return {
+    ...actual,
+    advanceOrder: (order: never, context: never, months: number, seed: string) => {
+      spy.months.push(months);
+      return actual.advanceOrder(order, context, months, seed);
+    },
+  };
+});
+
 const WORLD_ID = 'cap_world';
 let db: any;
 let createGame: () => { gameId: string; session: any };
@@ -186,12 +200,14 @@ describe('industria satura', () => {
     expect(capacity.saturated).toBe(true);
     const engine = session as any;
     engine.currentTurn = engine.currentTurn + 1;
+    spy.months.length = 0;
     const bulletins: string[] = engine.advanceProduction(30, undefined);
     expect(bulletins.some((line: string) => line.includes('Industria satura'))).toBe(true);
-    const order = session.getProduction().orders[0];
-    // Nessun ordine può avanzare più del ritmo base moltiplicato per il fattore.
-    expect(order.progress).toBeGreaterThan(0);
-    expect(order.progress).toBeLessThanOrEqual(30 * (capacity.overflowFactor + 0.001));
+    // Un mese di calendario vale meno di un mese di lavorazione: il fattore del
+    // motore è applicato al tempo, non solo dichiarato nel bollettino.
+    expect(spy.months.length).toBeGreaterThan(0);
+    for (const months of spy.months) expect(months).toBeCloseTo(1 * capacity.overflowFactor, 3);
+    expect(session.getProduction().orders[0].progress).toBeGreaterThan(0);
   });
 
   it('senza saturazione l’industria non frena la produzione', () => {

@@ -73,8 +73,8 @@ export class MilitaryService {
   }
 
   /** Quadro industriale della nazione: ordini aperti + progetti + manutenzione. */
-  industrialCapacity(polityId: string): IndustrialCapacity {
-    const capacity = this.nationCapacity(polityId);
+  industrialCapacity(polityId: string, known?: NationCapacity): IndustrialCapacity {
+    const capacity = known ?? this.nationCapacity(polityId);
     return industrialCapacityOf({
       factories: capacity.factories,
       ports: capacity.ports,
@@ -207,7 +207,7 @@ export class MilitaryService {
       qualityIndex: arsenalQualityIndex(units),
       manpower,
     });
-    const industrial = this.industrialCapacity(polityId);
+    const industrial = this.industrialCapacity(polityId, capacity);
     return {
       polityId,
       units,
