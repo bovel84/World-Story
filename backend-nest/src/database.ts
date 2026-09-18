@@ -1095,6 +1095,20 @@ export function initDatabase() {
     )
   `);
 
+  // OP-OBJECTS PERSISTENT: stato proprio degli oggetti (impianti, navi, flotte,
+  // cantieri, equipaggi navali). Una riga per oggetto, `data` JSON: nessuna
+  // seconda contabilità, solo lo stato che l'aggregato non può esprimere.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_operational_objects (
+      game_id TEXT NOT NULL,
+      object_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      data TEXT NOT NULL DEFAULT '{}',
+      recorded_at TEXT NOT NULL,
+      PRIMARY KEY (game_id, object_id)
+    )
+  `);
+
   // Modificatori nazionali proposti dal modello (stabilità, tensione, entrate…),
   // validati e limitati dal motore, con decadimento nel tempo.
   db.exec(`

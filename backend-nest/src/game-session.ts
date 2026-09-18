@@ -52,7 +52,10 @@ import {
   type NationalEffect, type NationalModifiers,
 } from './core/simulation/NationalEffects';
 import { type OrderCostEstimate } from './core/simulation/OrderCost';
-import { NATURAL_RESOURCE_KINDS, type NaturalResourceKind } from './core/simulation/MilitaryIndustry';
+import { NATURAL_RESOURCE_KINDS, naturalResourcesFor, type NaturalResourceKind } from './core/simulation/MilitaryIndustry';
+import { militaryManpower } from './core/simulation/MilitaryDoctrine';
+import type { ArmyOperationalState, SeedArmyInput } from './core/simulation/OperationalState';
+import { OperationalStateStore } from './game/OperationalStateStore';
 import {
   executeTrade,
   marketQuote, tradePressureDelta,
@@ -365,6 +368,8 @@ export class GameSession {
   private geometry: RegionGeometryService<RegionState>;
   /** Arsenale e produzione militare (Fase 1: estratto da GameSession). */
   private military: MilitaryService;
+  /** OP-OBJECTS PERSISTENT: stato proprio degli oggetti, creato pigramente. */
+  private operationalStore: OperationalStateStore | null = null;
   /** Economia e fattibilità degli ordini (Fase 1: estratto da GameSession). */
   private orders: OrderExecutionService;
   /** Relazioni internazionali (Fase 1: estratto da GameSession). */
@@ -1100,7 +1105,7 @@ export class GameSession {
         if (!object) continue;
         object.level = Math.max(1, Math.round(Number(object.level) || 1)) + formations;
         this.syncRegionsToDB();
-        return { regionId: region.id, regionName: region.name, name: String(object.name || input.name) };
+        return { regionId: region.id, regionName: region.name, name: String(object.name || input.name), armyId: String(object.id) };
       }
     }
     const owned = this.playerRegionsForObjects();
@@ -1109,8 +1114,9 @@ export class GameSession {
     const live = this.regions.get(target.id);
     if (!live) return null;
     live.objects ||= [];
+    const armyId = `army-${shortId(8)}`;
     live.objects.push({
-      id: `army-${shortId(8)}`,
+      id: armyId,
       type: 'army',
       name: input.name,
       level: formations,
@@ -1118,7 +1124,114 @@ export class GameSession {
       metadata: { createdBy: 'player', createdDate: this.currentDate },
     } as never);
     this.syncRegionsToDB();
-    return { regionId: live.id, regionName: live.name, name: input.name };
+    return { regionId: live.id, regionName: live.name, name: input.name, armyId };
+  }
+
+  // ── OP-OBJECTS PERSISTENT: stato proprio degli oggetti ───────────────────
+
+  /**
+   * Gli oggetti `army` della mappa come seed dello stato persistente: 1 livello =
+   * 1 reparto. È il fatto da cui il motore deriva `forces`.
+   */
+  private armySeedsForObjects(): SeedArmyInput[] {
+    const seeds: SeedArmyInput[] = [];
+    for (const region of this.playerRegionsForObjects()) {
+      for (const object of region.objects || []) {
+        if (object.type !== 'army' && object.type !== 'battalion') continue;
+        const formations = Math.max(1, Math.round(Number(object.level) || 1));
+        seeds.push({
+          id: String(object.id || `army-${region.id}-${seeds.length + 1}`),
+          name: String(object.name || 'Armata'),
+          regionId: region.id,
+          regionName: region.name || null,
+          formations,
+          objectId: object.id ? String(object.id) : null,
+        });
+      }
+    }
+    return seeds;
+  }
+
+  /**
+   * Scrive i campi operativi dell'armata **sugli oggetti reali della mappa**
+   * (personale, equipaggiamento assegnato, fabbisogni, stato) e li persiste:
+   * un solo record per armata, nessuna duplicazione dello stato.
+   */
+  private saveArmiesForSession(armies: readonly ArmyOperationalState[]): void {
+    const byId = new Map(armies.filter(army => army.objectId).map(army => [String(army.objectId), army]));
+    if (byId.size === 0) return;
+    let changed = false;
+    for (const region of this.regions.values()) {
+      if (region.owner !== this.playerPolityId) continue;
+      for (const object of region.objects || []) {
+        const state = byId.get(String(object.id));
+        if (!state) continue;
+        object.personnel = state.personnel;
+        object.equipment = { ...state.equipment };
+        object.monthlyNeeds = { ...state.monthlyNeeds };
+        object.status = state.status;
+        object.operational = true;
+        changed = true;
+      }
+    }
+    if (changed) this.syncRegionsToDB();
+  }
+
+  /**
+   * Store dello stato proprio degli oggetti (impianti, navi, flotte, cantieri,
+   * equipaggi). Il **seed lazy** avviene qui, una volta sola, dagli aggregati
+   * correnti: non cambia il risultato nazionale (le navi escono dal deposito,
+   * le armate nascono con i loro uomini derivati dalla dottrina).
+   *
+   * FREEZE: nessuna regola nuova del motore; lo store legge gli stessi fatti
+   * (conti, scorte, regioni, progetti) e li espone come oggetti con stato.
+   */
+  private operationalStoreFor(): OperationalStateStore {
+    if (!this.operationalStore) {
+      this.operationalStore = new OperationalStateStore({
+        gameId: this.id,
+        playerPolityId: () => this.playerPolityId,
+        currentDate: () => this.currentDate,
+        epoch: () => this.military.epoch(),
+        depotUnits: () => this.military.peekArsenal(this.playerPolityId)
+          ?? this.military.arsenalUnits(this.playerPolityId),
+        saveDepotUnits: units => this.military.saveArsenal(this.playerPolityId, units),
+        factories: () => Number(this.sessionAccounts()[this.playerPolityId]?.factories || 0),
+        ports: () => Number(this.sessionAccounts()[this.playerPolityId]?.ports || 0),
+        universities: () => Number(this.sessionAccounts()[this.playerPolityId]?.universities || 0),
+        regions: () => this.playerRegionsForObjects(),
+        armyObjects: () => this.armySeedsForObjects(),
+        totalFormations: () => Number(this.sessionAccounts()[this.playerPolityId]?.forces || 0),
+        manpower: () => {
+          const account = this.sessionAccounts()[this.playerPolityId];
+          return militaryManpower({
+            population: Number(account?.population || 0),
+            formations: Number(account?.forces || 0),
+            mobilizedFormations: Number(account?.mobilized || 0),
+            epoch: this.military.epoch(),
+          });
+        },
+        endowment: () => naturalResourcesFor(this.playerPolityId),
+        projects: () => this.getOngoingProcesses(),
+        stock: () => this.resourceStock(this.playerPolityId),
+        activity: () => {
+          const capacity = this.military.industrialCapacity(this.playerPolityId);
+          return capacity.blocked ? 0 : capacity.overflowFactor;
+        },
+        saveArmies: armies => this.saveArmiesForSession(armies),
+        onWarn: (label, error) => console.warn(`[GameSession] ${label}:`, error),
+      });
+    }
+    return this.operationalStore;
+  }
+
+  /** Chiusura dei cantieri finiti: a lavori completati nasce l'impianto. */
+  private settleConstructions(): void {
+    try {
+      this.operationalStoreFor().syncConstructions();
+    } catch (error) {
+      console.warn('[GameSession] Cantieri persistenti non aggiornati:', error);
+    }
   }
 
   /** Anteprima della creazione di reparti: PRIMA → DOPO, numeri del motore. */
@@ -1394,6 +1507,8 @@ export class GameSession {
       // altre. Nessun secondo stato delle forze.
       playerRegions: () => this.playerRegionsForObjects(),
       addArmyObject: input => this.addArmyObjectForSession(input),
+      // OP-OBJECTS PERSISTENT: oggetti con stato proprio (seed lazy compreso).
+      operationalObjects: () => this.operationalStoreFor(),
     });
     this.orders = new OrderExecutionService({
       gameId: this.id,

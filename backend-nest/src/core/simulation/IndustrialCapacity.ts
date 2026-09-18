@@ -158,6 +158,12 @@ export interface IndustrialCapacityInput {
   factories: number;
   ports: number;
   universities: number;
+  /**
+   * OP-OBJECTS PERSISTENT: impianti reali con la **propria** capacità. Se
+   * presenti, la capacità nazionale è la loro somma e `factories/ports/
+   * universities` restano solo fallback legacy. Le miniere non contano linee.
+   */
+  facilities?: readonly { id: string; kind: string; capacity: number }[];
   orders?: readonly IndustrialOrderInput[];
   projects?: readonly IndustrialProjectInput[];
   maintenance?: readonly IndustrialMaintenanceInput[];
@@ -177,7 +183,21 @@ const integer = (value: string | number): number => {
 /** Linee di lavorazione disponibili, con la loro origine dichiarata. */
 export function industrialCapacityTotal(input: {
   factories: number; ports: number; universities: number;
+  facilities?: readonly { id: string; kind: string; capacity: number }[];
 }): { total: number; basis: string } {
+  const facilities = (input.facilities || []).filter(facility => facility.kind !== 'mine' && positive(facility.capacity) > 0);
+  if (facilities.length > 0) {
+    const total = facilities.reduce((sum, facility) => sum + positive(facility.capacity), 0);
+    const count = (predicate: (facility: { kind: string }) => boolean) => facilities.filter(predicate).length;
+    const factories = count(facility => facility.kind !== 'shipyard' && facility.kind !== 'research_center');
+    const shipyards = count(facility => facility.kind === 'shipyard');
+    const research = count(facility => facility.kind === 'research_center');
+    const parts: string[] = [];
+    if (factories > 0) parts.push(`${factories} fabbriche × ${CAPACITY_PER_FACTORY} linee`);
+    if (shipyards > 0) parts.push(`${shipyards} cantieri × ${CAPACITY_PER_PORT} linee`);
+    if (research > 0) parts.push(`${research} atenei × ${CAPACITY_PER_UNIVERSITY} linee`);
+    return { total, basis: `impianti censiti: ${parts.join(' · ')}` };
+  }
   const factories = positive(input.factories);
   const ports = positive(input.ports);
   const universities = positive(input.universities);

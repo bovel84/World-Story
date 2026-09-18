@@ -71,7 +71,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     budget, verdict, factions, modifiersActive, foodMonthly,
     clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue, provincesLabel,
     moneyDelta, pointDelta, countDelta, mkTrend,
-    materialRows, weaponsRows, armsSummary, lineSummary, playerPolityId, operatingPicture,
+    materialRows, weaponsRows, armsSummary, armsSplit, lineSummary, playerPolityId, operatingPicture,
   } = useNationDockModel(props);
 
   // COUNTRY-CLARITY: dal quadro d'insieme si salta alla sezione di dettaglio.
@@ -706,6 +706,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               />
               <p className="material-balance-title">Armamenti in servizio</p>
               <p className="arms-summary-line">{armsSummary}</p>
+              {armsSplit ? <p className="arms-summary-line obj-note">{armsSplit}</p> : null}
               <Footnote><b>Da dove vengono le cifre</b> scorte, fabbisogno e produzione mensile sono del motore (MaterialEconomy), non una stima del Dossier; cibo, vestiario e carburante sono nella sezione Risorse e industria. La produzione di un mezzo è la somma degli ordini aperti qui sotto, con la data prevista dal ritmo reale della linea.</Footnote>
             </DossierBlock>
 

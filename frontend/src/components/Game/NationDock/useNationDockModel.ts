@@ -19,7 +19,7 @@ import {
 import { groupProjectsByCategory } from '../projectCategory';
 import { nationalVerdict } from '../governmentDossier';
 import { deriveMaterialRows, materialRowsOf } from '../materialBalance';
-import { arsenalBrief, arsenalBriefText, arsenalLineSummary, arsenalProductionFor } from '../arsenalSummary';
+import { arsenalBrief, arsenalBriefText, arsenalLineSummary, arsenalProductionFor, arsenalSplit, arsenalSplitText } from '../arsenalSummary';
 import { resourceMonths } from './format';
 import { nationalOperatingPicture } from '../nationalOperatingPicture';
 import type { HistoryPoint, MetricTrend, NationDockProps } from './types';
@@ -164,6 +164,11 @@ export function useNationDockModel(props: NationDockProps) {
   // Arsenale: quanti mezzi sono in servizio e quanti in produzione, per riga.
   const armsOrders = arms?.production?.orders ?? [];
   const armsSummary = useMemo(() => arsenalBriefText(arsenalBrief(arms?.lines, armsOrders)), [arms?.lines, armsOrders]);
+  // OP-OBJECTS PERSISTENT: dove sono i pezzi — deposito o assegnati a un oggetto.
+  const armsSplit = useMemo(
+    () => arsenalSplitText(arsenalSplit(arms?.units, arms?.stockpile, arms?.assigned)),
+    [arms?.units, arms?.stockpile, arms?.assigned],
+  );
   const lineSummary = (line: { id: string; quantity: number; name: string; strength?: number; sharePct?: number }) =>
     arsenalLineSummary(line, arsenalProductionFor(armsOrders, line.id));
   const coverHint = (value: number, monthly: number, cap?: number) => {
@@ -211,6 +216,6 @@ export function useNationDockModel(props: NationDockProps) {
     overdraft, activeModifiers, budget, verdict, factions, modifiersActive, popM, troops,
     foodMonthly, clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue,
     provincesLabel, moneyDelta, pointDelta, countDelta, mkTrend,
-    materialRows, weaponsRows, armsSummary, lineSummary, operatingPicture,
+    materialRows, weaponsRows, armsSummary, armsSplit, lineSummary, operatingPicture,
   };
 }

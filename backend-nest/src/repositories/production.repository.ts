@@ -36,6 +36,7 @@ function parseOrder(raw: string): ProductionOrder | null {
       note: String(value.note || ''),
       qualityLoss: Math.max(0, Math.min(40, Number(value.qualityLoss) || 0)),
       updatedDate: String(value.updatedDate || value.startedDate || ''),
+      facilityId: value.facilityId ? String(value.facilityId) : null,
     };
   } catch {
     return null;

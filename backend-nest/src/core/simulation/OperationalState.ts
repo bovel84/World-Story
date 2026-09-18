@@ -1,0 +1,1254 @@
+/**
+ * World Story — OP-OBJECTS PERSISTENT: stato proprio degli oggetti
+ * =================================================================
+ * La direzione cambia: **OGGETTI REALI → AGGREGAZIONE → STATO NAZIONALE → UI**.
+ * Un'armata non riceve più una quota dell'aggregato: **possiede** uomini ed
+ * equipaggiamento; una fabbrica **possiede** tipo, capacità, lavoratori, ricetta e
+ * ordini; una nave **è** un oggetto con equipaggio, carburante e munizioni; una
+ * costruzione **è** un cantiere con requisiti e costo residuo.
+ *
+ * Questo modulo è **puro**: nessun I/O, nessun database, nessun `Math.random`.
+ * Definisce i tipi persistiti, il seed **lazy** dagli aggregati legacy (che non
+ * cambia il risultato aggregato), le funzioni di trasferimento (uomini,
+ * equipaggiamento, equipaggi), la produzione per impianto e l'aggregazione
+ * nazionale come **somma degli oggetti**.
+ *
+ * Scope: solo `Army · Facility · Ship · Fleet · Construction`. Niente diplomazia,
+ * NPC, crisi, playback, fazioni, mercato del lavoro, popolazione individuale.
+ */
+import type { MilitaryManpower, MilitaryEpoch, ReadinessTone } from './MilitaryDoctrine';
+import {
+  availableReserveOf as reserveAvailable,
+  personnelUnderArms,
+  type MilitaryPersonnelState,
+} from './PersonnelStock';
+import { MILITARY_EPOCH_LABEL, individualWeaponShareFor, militaryManpower } from './MilitaryDoctrine';
+import { EQUIPMENT_CATALOG, EQUIPMENT_CREW, equipmentById, NATURAL_RESOURCE_LABELS, type NaturalResourceKind } from './MilitaryIndustry';
+import type { MaterialNeeds, ResourceStock } from './MaterialEconomy';
+import { materialNeeds } from './MaterialEconomy';
+import type { NationalAccount } from './WorldStateEngine';
+import {
+  CAPACITY_PER_FACTORY, CAPACITY_PER_PORT, CAPACITY_PER_UNIVERSITY,
+  type IndustrialProjectInput,
+} from './IndustrialCapacity';
+import type { IndustrialOrderLike } from './OperationalObjects';
+import {
+  FULL_TANK_MONTHS, OPERATING_STATUS_LABEL, fact, marginalProduction, shortTitle,
+  type OperatingObject, type OperatingStatus,
+} from './OperationalObjects';
+
+const nonNegative = (value: unknown): number => {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+};
+const round1 = (value: number) => Math.round(value * 10) / 10;
+const round2 = (value: number) => Math.round(value * 100) / 100;
+const round3 = (value: number) => Math.round(value * 1000) / 1000;
+const n = (value: number) => Math.round(value).toLocaleString('it-IT');
+
+// ── 1. Tipi degli oggetti persistiti ────────────────────────────────────────
+
+/** Addetti per linea: **seed** dichiarato, non più ricalcolo a ogni lettura. */
+export const SEED_WORKERS_PER_LINE: Record<'factory' | 'shipyard' | 'university', number> = {
+  factory: 900, shipyard: 1200, university: 600,
+};
+/** Addetti di una miniera: seed proporzionale al giacimento dichiarato. */
+export const SEED_WORKERS_PER_MINE_POINT = 340;
+
+/**
+ * Tipi di impianto con una **funzione concreta**. Non nomi decorativi: ogni tipo
+ * ha una ricetta input → output con le risorse già esistenti nel motore.
+ */
+export type FacilityKind =
+  | 'steel_mill' | 'arms_factory' | 'vehicle_factory' | 'aircraft_factory'
+  | 'shipyard' | 'research_center' | 'mine';
+
+export const FACILITY_KIND_LABEL: Record<FacilityKind, string> = {
+  steel_mill: 'Acciaieria',
+  arms_factory: 'Fabbrica di armamenti',
+  vehicle_factory: 'Officine meccaniche',
+  aircraft_factory: 'Stabilimento aeronautico',
+  shipyard: 'Cantiere navale',
+  research_center: 'Centro di ricerca',
+  mine: 'Miniera',
+};
+
+/**
+ * Ricette dichiarate: input dalle **risorse già esistenti** (giacimenti e
+ * materiali del motore), output nei materiali del motore. Non sono una seconda
+ * formula nazionale: sono la **scomposizione** dell'output che il motore calcola
+ * con `advanceStock`, e servono a mostrare dove un impianto si blocca.
+ */
+export interface FacilityRecipe {
+  inputs: Record<string, number>;
+  outputs: Record<string, number>;
+}
+
+export const FACILITY_RECIPES: Record<FacilityKind, FacilityRecipe> = {
+  steel_mill: { inputs: { iron: 2, coal: 1.5 }, outputs: { weapons: 0.6 } },
+  arms_factory: { inputs: { iron: 0.8, coal: 0.6 }, outputs: { weapons: 0.8 } },
+  vehicle_factory: { inputs: { weapons: 0.4, fuel: 0.3 }, outputs: { weapons: 0.7 } },
+  aircraft_factory: { inputs: { weapons: 0.3, fuel: 0.4 }, outputs: { weapons: 0.5 } },
+  shipyard: { inputs: { iron: 1.2, coal: 0.4 }, outputs: { weapons: 0.4 } },
+  research_center: { inputs: { money: 0.02 }, outputs: { research: 0.35 } },
+  mine: { inputs: {}, outputs: {} },
+};
+
+/** Linee di lavorazione di un tipo di impianto (dal motore, non inventate). */
+export function facilityCapacityFor(kind: FacilityKind): number {
+  switch (kind) {
+    case 'shipyard': return CAPACITY_PER_PORT;
+    case 'research_center': return CAPACITY_PER_UNIVERSITY;
+    default: return CAPACITY_PER_FACTORY;
+  }
+}
+
+export interface FacilityState {
+  id: string;
+  kind: FacilityKind;
+  name: string;
+  regionId: string | null;
+  regionName: string | null;
+  /** Linee di lavorazione possedute dall'impianto. */
+  capacity: number;
+  /** Lavoratori: stato **persistente** (seed iniziale, poi solo trasferimenti). */
+  workers: number;
+  status: 'operational' | 'idle' | 'maintenance' | 'under_construction';
+  recipe?: FacilityRecipe;
+  /** Ordini realmente assegnati a questo impianto. */
+  activeOrders: string[];
+  /** Solo miniere: giacimento di origine dichiarata dal registro del paese. */
+  resourceKind?: string | null;
+  createdDate: string;
+  /** Oggetto materializzato da un aggregato legacy: i dati non sono suoi. */
+  legacyDerived: boolean;
+}
+
+export interface FleetState {
+  id: string;
+  name: string;
+  shipIds: string[];
+  createdDate: string;
+  legacyDerived: boolean;
+}
+
+export interface ShipState {
+  id: string;
+  name: string;
+  equipmentId: string;
+  fleetId: string | null;
+  crew: number;
+  /** Consumo mensile di carburante della nave (contribuisce all'aggregato). */
+  monthlyFuel: number;
+  /** Munizionamento imbarcato: id voce → pezzi. */
+  ammunition: Record<string, number>;
+  status: 'operational' | 'maintenance' | 'damaged' | 'under_construction';
+  portId: string | null;
+  regionId: string | null;
+  createdDate: string;
+  legacyDerived: boolean;
+}
+
+export interface ConstructionState {
+  id: string;
+  targetType: FacilityKind | 'ship';
+  targetName: string;
+  regionId: string | null;
+  regionName: string | null;
+  progress: number;
+  materialRequirements: Record<string, number>;
+  capacityDemand: number;
+  costRemaining: number;
+  expectedDate: string | null;
+  createdDate: string;
+  legacyDerived: boolean;
+}
+
+export interface ArmyOperationalState {
+  id: string;
+  name: string;
+  regionId: string | null;
+  regionName: string | null;
+  formations: number;
+  personnel: number;
+  /** Equipaggiamento **assegnato** all'armata (sottratto dal deposito). */
+  equipment: Record<string, number>;
+  monthlyNeeds: { fuel: number; weapons: number; food: number };
+  status: 'forming' | 'operational' | 'degraded' | 'maintenance';
+  /** Oggetto reale della mappa (armate derivate: `null`). */
+  objectId: string | null;
+  createdDate: string;
+  legacyDerived: boolean;
+}
+
+/** Stato persistente completo di una partita (le armate sono oggetti della mappa). */
+export interface OperationalStateSnapshot {
+  personnel: MilitaryPersonnelState;
+  armies: ArmyOperationalState[];
+  facilities: FacilityState[];
+  ships: ShipState[];
+  fleets: FleetState[];
+  constructions: ConstructionState[];
+}
+
+/** Stato vuoto: nessun oggetto persistente (partita legacy). */
+export function emptyOperationalState(date: string): OperationalStateSnapshot {
+  return {
+    personnel: { activePersonnel: 0, trainedReserve: 0, mobilizedPersonnel: 0, shipCrew: 0, updatedDate: date },
+    armies: [], facilities: [], ships: [], fleets: [], constructions: [],
+  };
+}
+
+// ── 2. Manpower: dottrina (capacità) vs stock (stato) ───────────────────────
+// Le funzioni vivono in `PersonnelStock.ts` (modulo senza dipendenze) e sono
+// riesportate qui: il quadro operativo, la formazione e i test usano le stesse.
+export {
+  personnelUnderArms, personnelOverlay, availableReserveOf, personnelInvariant,
+  transferMenToArmy, transferCrewToShip, transferCrewFromShip,
+} from './PersonnelStock';
+export type { MilitaryPersonnelState } from './PersonnelStock';
+
+// ── 3. Equipaggiamento: deposito vs assegnato ───────────────────────────────
+
+export interface EquipmentTransfer {
+  depot: Record<string, number>;
+  assigned: Record<string, number>;
+}
+
+const addTo = (bag: Record<string, number>, id: string, quantity: number): void => {
+  const next = Math.max(0, Math.round((bag[id] || 0) + quantity));
+  if (next > 0) bag[id] = next;
+  else delete bag[id];
+};
+
+/**
+ * Sposta i pezzi dal **deposito** all'**armata**. Non crea e non distrugge:
+ * `deposito + assegnato` resta il totale nazionale. `null` se il deposito non ha
+ * abbastanza pezzi (l'azione viene rifiutata, non forzata).
+ */
+export function transferEquipment(input: {
+  depot: Record<string, number>;
+  assigned: Record<string, number>;
+  items: Array<{ equipmentId: string; quantity: number }>;
+}): EquipmentTransfer | null {
+  const depot: Record<string, number> = { ...input.depot };
+  const assigned: Record<string, number> = { ...input.assigned };
+  for (const item of input.items) {
+    const wanted = Math.max(0, Math.round(nonNegative(item.quantity)));
+    if (wanted <= 0) continue;
+    if (nonNegative(depot[item.equipmentId]) < wanted) return null;
+  }
+  for (const item of input.items) {
+    const wanted = Math.max(0, Math.round(nonNegative(item.quantity)));
+    if (wanted <= 0) continue;
+    addTo(depot, item.equipmentId, -wanted);
+    addTo(assigned, item.equipmentId, wanted);
+  }
+  return { depot, assigned };
+}
+
+/** Totale nazionale per voce: deposito + assegnato (+ oggetti navali). */
+export function equipmentTotals(...bags: Array<Record<string, number>>): Record<string, number> {
+  const total: Record<string, number> = {};
+  for (const bag of bags) {
+    for (const [id, quantity] of Object.entries(bag || {})) addTo(total, id, nonNegative(quantity));
+  }
+  return total;
+}
+
+/** Invariante: il totale nazionale è esattamente la somma delle parti. */
+export function equipmentInvariant(
+  depot: Record<string, number>,
+  assigned: Record<string, number>,
+  nationalTotal: Record<string, number>,
+): boolean {
+  const sum = equipmentTotals(depot, assigned);
+  const ids = new Set([...Object.keys(sum), ...Object.keys(nationalTotal || {})]);
+  for (const id of ids) {
+    if (Math.abs(nonNegative(sum[id]) - nonNegative(nationalTotal?.[id])) > 1e-6) return false;
+  }
+  return true;
+}
+
+/** Equipaggiamento assegnato delle armate + munizionamento/ scafi delle navi. */
+export function assignedEquipmentOf(input: {
+  armies: readonly ArmyOperationalState[];
+  ships?: readonly ShipState[];
+}): Record<string, number> {
+  const total: Record<string, number> = {};
+  for (const army of input.armies) {
+    for (const [id, quantity] of Object.entries(army.equipment || {})) addTo(total, id, quantity);
+  }
+  for (const ship of input.ships || []) {
+    // Lo scafo è equipaggiamento in servizio, il munizionamento è assegnato.
+    addTo(total, ship.equipmentId, 1);
+    for (const [id, quantity] of Object.entries(ship.ammunition || {})) addTo(total, id, quantity);
+  }
+  return total;
+}
+
+// ── 4. Fabbriche: produzione dallo stato dell'oggetto ───────────────────────
+
+/**
+ * Materiali che vivono **in magazzino** (`ResourceStock`): per gli altri la
+ * disponibilità è il **giacimento** dichiarato dal registro del paese. Senza
+ * questa distinzione un'acciaieria risulterebbe ferma in un mondo in cui il
+ * ferro è un giacimento e non una scorta.
+ */
+const STOCK_MATERIALS = new Set(['food', 'clothing', 'weapons', 'fuel', 'research', 'money']);
+
+/** Etichette leggibili dei materiali del motore e dei giacimenti. */
+const MATERIAL_LABELS: Record<string, string> = {
+  food: 'Cibo', clothing: 'Vestiario', weapons: 'Armamenti', fuel: 'Carburante',
+  research: 'Punti ricerca', money: 'Cassa',
+};
+
+/** Nome leggibile di un materiale/giacimento/voce di catalogo. */
+export function materialLabel(id: string): string {
+  return MATERIAL_LABELS[id]
+    || NATURAL_RESOURCE_LABELS[id as NaturalResourceKind]
+    || equipmentById(id)?.name
+    || id;
+}
+
+/** Disponibilità di un input: scorta se è un materiale, giacimento altrimenti. */
+export function inputAvailability(
+  id: string,
+  stock: Record<string, number> | undefined,
+  endowment: Record<string, number> | undefined,
+): number {
+  return STOCK_MATERIALS.has(id) ? nonNegative(stock?.[id]) : nonNegative(endowment?.[id] ?? stock?.[id]);
+}
+
+export interface FacilityProductionResult {
+  /** Fattore applicato: `min(attività, disponibilità input)`, sempre 0…1. */
+  factor: number;
+  outputs: Record<string, number>;
+  inputs: Record<string, number>;
+  /** Input che limita la produzione (id e copertura %). */
+  bottleneck: { id: string; coveragePct: number; required: number; available: number } | null;
+}
+
+/**
+ * Produzione di un impianto dal suo **stato**: la ricetta dice cosa serve e cosa
+ * esce; lo stock reale dice quanto se ne può fare. Input insufficiente ⇒
+ * produzione ridotta in proporzione; input assente ⇒ produzione zero.
+ */
+export function facilityProduction(facility: FacilityState, ctx: {
+  stock?: Record<string, number>;
+  /** Giacimenti dichiarati (per gli input che non sono scorte materiali). */
+  endowment?: Record<string, number>;
+  /** Attività delle linee (0…1): impianto fermo ⇒ zero. */
+  activity?: number;
+}): FacilityProductionResult {
+  const recipe = facility.recipe ?? FACILITY_RECIPES[facility.kind];
+  const activity = Math.max(0, Math.min(1, ctx.activity === undefined ? 1 : ctx.activity));
+  if (facility.status === 'under_construction' || facility.status === 'idle' || activity <= 0) {
+    return { factor: 0, outputs: {}, inputs: {}, bottleneck: null };
+  }
+  const stock = ctx.stock || {};
+  let inputFactor = 1;
+  let bottleneck: FacilityProductionResult['bottleneck'] = null;
+  for (const [id, required] of Object.entries(recipe.inputs || {})) {
+    const need = nonNegative(required) * activity;
+    if (need <= 0) continue;
+    const have = inputAvailability(id, stock, ctx.endowment);
+    const coverage = Math.min(1, have / need);
+    if (coverage < inputFactor) {
+      inputFactor = coverage;
+      bottleneck = { id, coveragePct: round1(coverage * 100), required: round2(need), available: round2(have) };
+    }
+  }
+  const factor = Math.max(0, Math.min(activity, inputFactor));
+  const outputs: Record<string, number> = {};
+  for (const [id, quantity] of Object.entries(recipe.outputs || {})) {
+    const value = round3(nonNegative(quantity) * factor);
+    if (value > 0) outputs[id] = value;
+  }
+  const inputs: Record<string, number> = {};
+  for (const [id, quantity] of Object.entries(recipe.inputs || {})) {
+    const value = round3(nonNegative(quantity) * factor);
+    if (value > 0) inputs[id] = value;
+  }
+  return { factor: round3(factor), outputs, inputs, bottleneck };
+}
+
+// ── 5. Aggregazione: il paese è la somma degli oggetti ──────────────────────
+
+export interface OperationalAggregate {
+  /** Uomini sotto le armi di terra (somma delle armate). */
+  soldiers: number;
+  /** Equipaggi navali (somma delle navi). */
+  crew: number;
+  /** Uomini sotto le armi in totale. */
+  underArms: number;
+  fuelNeed: number;
+  weaponsNeed: number;
+  foodNeed: number;
+  /** Equipaggiamento assegnato agli oggetti (armate + navi). */
+  assigned: Record<string, number>;
+  /** Capacità industriale posseduta dagli impianti (linee). */
+  capacity: number;
+  /** Produzione mensile degli impianti (materiali del motore). */
+  output: Record<string, number>;
+  /** Consumo mensile di input degli impianti. */
+  input: Record<string, number>;
+  workers: number;
+  activeOrders: number;
+  ships: number;
+  fleets: number;
+  constructions: number;
+  /** Numero di oggetti derivati da un aggregato legacy (dati non propri). */
+  legacyDerived: number;
+}
+
+/**
+ * Aggregato nazionale come **somma degli oggetti**. I fabbisogni delle armate
+ * sono quelli dichiarati sull'oggetto; se un'armata è legacy, il chiamante le
+ * assegna un fabbisogno proporzionale (fallback dichiarato) prima di aggregare.
+ */
+export function aggregateObjects(input: {
+  armies: readonly ArmyOperationalState[];
+  facilities?: readonly FacilityState[];
+  ships?: readonly ShipState[];
+  fleets?: readonly FleetState[];
+  constructions?: readonly ConstructionState[];
+  /** Stock materiale reale (per la produzione effettiva degli impianti). */
+  stock?: Record<string, number>;
+  /** Giacimenti dichiarati (input non materiali delle ricette). */
+  endowment?: Record<string, number>;
+  /** Attività nazionale delle linee (0…1), dal motore. */
+  activity?: number;
+}): OperationalAggregate {
+  const armies = input.armies || [];
+  const facilities = input.facilities || [];
+  const ships = input.ships || [];
+  const fleets = input.fleets || [];
+  const constructions = input.constructions || [];
+
+  const soldiers = Math.round(armies.reduce((total, army) => total + nonNegative(army.personnel), 0));
+  const crew = Math.round(ships.reduce((total, ship) => total + nonNegative(ship.crew), 0));
+  const fuelNeed = round3(armies.reduce((total, army) => total + nonNegative(army.monthlyNeeds?.fuel), 0)
+    + ships.reduce((total, ship) => total + nonNegative(ship.monthlyFuel), 0));
+  const weaponsNeed = round3(armies.reduce((total, army) => total + nonNegative(army.monthlyNeeds?.weapons), 0));
+  const foodNeed = round3(armies.reduce((total, army) => total + nonNegative(army.monthlyNeeds?.food), 0));
+
+  const output: Record<string, number> = {};
+  const consumed: Record<string, number> = {};
+  let capacity = 0;
+  let workers = 0;
+  let activeOrders = 0;
+  for (const facility of facilities) {
+    // Le miniere non possiedono linee di lavorazione: il giacimento non è
+    // capacità industriale (stessa regola di `industrialCapacityTotal`).
+    if (facility.kind !== 'mine') capacity += nonNegative(facility.capacity);
+    workers += nonNegative(facility.workers);
+    activeOrders += (facility.activeOrders || []).length;
+    const production = facilityProduction(facility, { stock: input.stock, endowment: input.endowment, activity: input.activity ?? 1 });
+    for (const [id, quantity] of Object.entries(production.outputs)) addTo(output, id, quantity);
+    for (const [id, quantity] of Object.entries(production.inputs)) addTo(consumed, id, quantity);
+  }
+  const legacyDerived = [...armies, ...facilities, ...ships, ...fleets, ...constructions]
+    .filter(object => object.legacyDerived).length;
+  return {
+    soldiers,
+    crew,
+    underArms: soldiers + crew,
+    fuelNeed,
+    weaponsNeed,
+    foodNeed,
+    assigned: assignedEquipmentOf({ armies, ships }),
+    capacity: Math.round(capacity),
+    output: Object.fromEntries(Object.entries(output).map(([id, value]) => [id, round3(value)])),
+    input: Object.fromEntries(Object.entries(consumed).map(([id, value]) => [id, round3(value)])),
+    workers: Math.round(workers),
+    activeOrders,
+    ships: ships.length,
+    fleets: fleets.length,
+    constructions: constructions.length,
+    legacyDerived,
+  };
+}
+
+// ── 6. Seed lazy dagli aggregati legacy (non cambia il risultato) ────────────
+
+export interface SeedRegion {
+  id: string;
+  name?: string;
+  population?: number;
+  coastal?: boolean;
+}
+
+const orderedRegions = (regions: readonly SeedRegion[]): SeedRegion[] =>
+  [...regions].sort((a, b) => (nonNegative(b.population) - nonNegative(a.population)) || String(a.id).localeCompare(String(b.id)));
+const coastalRegions = (regions: readonly SeedRegion[]): SeedRegion[] =>
+  [...regions].sort((a, b) => Number(Boolean(b.coastal)) - Number(Boolean(a.coastal)) || (nonNegative(b.population) - nonNegative(a.population)));
+
+const FACTORY_KIND_CYCLE: FacilityKind[] = ['steel_mill', 'arms_factory', 'vehicle_factory', 'aircraft_factory'];
+const FACTORY_NAME_POOL: Record<string, string[]> = {
+  steel_mill: ['Acciaieria', 'Impianti siderurgici'],
+  arms_factory: ['Fabbrica di armamenti', 'Stabilimento balistico'],
+  vehicle_factory: ['Officine meccaniche', 'Fabbrica di veicoli'],
+  aircraft_factory: ['Stabilimento aeronautico', 'Officine aeronautiche'],
+  shipyard: ['Cantiere navale', 'Arsenale marittimo'],
+  research_center: ['Università e politecnico', 'Istituto di ricerca applicata'],
+  mine: ['Miniera'],
+};
+
+/** Nome dichiarato di un impianto (seed): tipo + provincia. */
+export function facilityNameFor(kind: FacilityKind, index: number, regionName: string): string {
+  const pool = FACTORY_NAME_POOL[kind] || ['Impianto'];
+  return `${pool[index % pool.length]} ${regionName}`.trim();
+}
+
+/**
+ * Materializza le **fabbriche** dagli aggregati legacy (`factories`, `ports`,
+ * `universities`): stesse linee di capacità del motore, tipo e ricetta concreti,
+ * lavoratori dal seed dichiarato. Gli aggregati non cambiano: cambia solo chi
+ * possiede il dato.
+ */
+export function seedFacilities(input: {
+  polityId: string;
+  factories: number;
+  ports: number;
+  universities: number;
+  regions: readonly SeedRegion[];
+  date: string;
+  endowment?: Record<string, number>;
+  /**
+   * Output dichiarati dal **motore** per un impianto di quel tipo
+   * (`marginalProduction` su un impianto): la scomposizione dell'aggregato
+   * nazionale diventa così la somma degli impianti. Assente ⇒ ricetta di base.
+   */
+  profileOf?: (kind: FacilityKind) => Record<string, number> | undefined;
+}): FacilityState[] {
+  const ordered = orderedRegions(input.regions);
+  const coastal = coastalRegions(input.regions);
+  const facilities: FacilityState[] = [];
+  // Ricetta di un impianto: input dichiarati (la catena dei materiali) e output
+  // dal profilo del motore, quando disponibile.
+  const recipeFor = (kind: FacilityKind): FacilityRecipe => {
+    const base = FACILITY_RECIPES[kind];
+    const outputs = input.profileOf ? input.profileOf(kind) : undefined;
+    const positive = Object.fromEntries(Object.entries(outputs || {}).filter(([, value]) => nonNegative(value) > 0));
+    return Object.keys(positive).length > 0 ? { inputs: base.inputs, outputs: positive } : base;
+  };
+  let index = 0;
+  const push = (kind: FacilityKind, region: SeedRegion | undefined, workers: number) => {
+    const capacity = facilityCapacityFor(kind);
+    facilities.push({
+      id: `${kind}-${input.polityId}-${index + 1}`,
+      kind,
+      name: facilityNameFor(kind, index, region?.name || 'nazionale'),
+      regionId: region?.id ?? null,
+      regionName: region?.name ?? null,
+      capacity,
+      workers,
+      status: 'operational',
+      recipe: recipeFor(kind),
+      activeOrders: [],
+      createdDate: input.date,
+      legacyDerived: true,
+    });
+    index += 1;
+  };
+  const factories = Math.max(0, Math.round(nonNegative(input.factories)));
+  for (let i = 0; i < factories; i += 1) {
+    const kind = FACTORY_KIND_CYCLE[i % FACTORY_KIND_CYCLE.length];
+    const region = ordered.length > 0 ? ordered[i % ordered.length] : undefined;
+    const capacity = facilityCapacityFor(kind);
+    facilities.push({
+      id: `factory-${input.polityId}-${facilities.length + 1}`,
+      kind,
+      name: facilityNameFor(kind, i, region?.name || 'nazionale'),
+      regionId: region?.id ?? null,
+      regionName: region?.name ?? null,
+      capacity,
+      workers: SEED_WORKERS_PER_LINE.factory * capacity,
+      status: 'operational',
+      recipe: recipeFor(kind),
+      activeOrders: [],
+      createdDate: input.date,
+      legacyDerived: true,
+    });
+  }
+  const ports = Math.max(0, Math.round(nonNegative(input.ports)));
+  for (let i = 0; i < ports; i += 1) {
+    const region = coastal.length > 0 ? coastal[i % coastal.length] : (ordered[i % Math.max(1, ordered.length)]);
+    push('shipyard', region, SEED_WORKERS_PER_LINE.shipyard * CAPACITY_PER_PORT);
+  }
+  const universities = Math.max(0, Math.round(nonNegative(input.universities)));
+  for (let i = 0; i < universities; i += 1) {
+    const region = ordered.length > 0 ? ordered[i % ordered.length] : undefined;
+    push('research_center', region, SEED_WORKERS_PER_LINE.university * CAPACITY_PER_UNIVERSITY);
+  }
+  // Miniere: un impianto per giacimento **dichiarato** (assente ≠ zero).
+  for (const [kind, amount] of Object.entries(input.endowment || {})) {
+    const points = nonNegative(amount);
+    if (points <= 0) continue;
+    const isMine = ['iron', 'coal', 'oil', 'gas', 'copper', 'bauxite', 'uranium', 'gold', 'diamonds', 'lithium', 'rare_earths', 'timber'].includes(kind);
+    if (!isMine) continue;
+    const region = ordered.length > 0 ? ordered[facilities.length % ordered.length] : undefined;
+    facilities.push({
+      id: `mine-${input.polityId}-${kind}`,
+      kind: 'mine',
+      name: `${FACILITY_KIND_LABEL.mine} di ${kind}${region?.name ? ` (${region.name})` : ''}`,
+      regionId: region?.id ?? null,
+      regionName: region?.name ?? null,
+      capacity: Math.max(1, Math.round(points)),
+      workers: Math.max(120, Math.round(points * SEED_WORKERS_PER_MINE_POINT)),
+      status: 'operational',
+      recipe: { inputs: {}, outputs: {} },
+      activeOrders: [],
+      resourceKind: kind,
+      createdDate: input.date,
+      legacyDerived: true,
+    });
+  }
+  return facilities;
+}
+
+/**
+ * Materializza le **navi** dagli scafi in arsenale: una nave per scafo, con
+ * equipaggio di catalogo e consumo di carburante attribuito. Le flotte
+ * raggruppano gli scafi per categoria (una flotta per categoria).
+ */
+export function seedShips(input: {
+  polityId: string;
+  units: Record<string, number>;
+  crewShareOfReserve?: boolean;
+  date: string;
+  regions?: readonly SeedRegion[];
+  regionId?: string | null;
+}): { ships: ShipState[]; fleets: FleetState[] } {
+  const ships: ShipState[] = [];
+  const fleets: FleetState[] = [];
+  const portRegions = coastalRegions(input.regions || []);
+  const naval = EQUIPMENT_CATALOG.filter(equipment => equipment.domain === 'mare');
+  let fleetIndex = 0;
+  for (const equipment of naval) {
+    const quantity = Math.max(0, Math.floor(nonNegative(input.units[equipment.id])));
+    if (quantity <= 0) continue;
+    const crew = Math.max(0, Math.round(nonNegative(EQUIPMENT_CREW[equipment.id])));
+    fleetIndex += 1;
+    const fleet: FleetState = {
+      id: `fleet-${input.polityId}-${fleetIndex}`,
+      name: `${fleetIndex}ª Flotta — ${equipment.category}`,
+      shipIds: [],
+      createdDate: input.date,
+      legacyDerived: true,
+    };
+    for (let i = 0; i < quantity; i += 1) {
+      const port = portRegions.length > 0 ? portRegions[i % portRegions.length] : undefined;
+      const ship: ShipState = {
+        id: `ship-${input.polityId}-${equipment.id}-${i + 1}`,
+        name: quantity > 1 ? `${equipment.name} ${i + 1}ª` : equipment.name,
+        equipmentId: equipment.id,
+        fleetId: fleet.id,
+        crew,
+        monthlyFuel: round3(equipment.domain === 'mare' ? Math.max(0.02, crew * 0.004) : 0),
+        ammunition: {},
+        status: 'operational',
+        portId: port?.id ?? null,
+        regionId: input.regionId ?? port?.id ?? null,
+        createdDate: input.date,
+        legacyDerived: true,
+      };
+      ships.push(ship);
+      fleet.shipIds.push(ship.id);
+    }
+    fleets.push(fleet);
+  }
+  return { ships, fleets };
+}
+
+/** Materializza i **cantieri** dai progetti in corso del motore. */
+export function seedConstructions(input: {
+  projects: readonly IndustrialProjectInput[];
+  regions: readonly SeedRegion[];
+  date: string;
+  capacityOf?: (project: IndustrialProjectInput) => number;
+}): ConstructionState[] {
+  const ordered = orderedRegions(input.regions);
+  return input.projects.map((project, index) => {
+    const region = ordered.length > 0 ? ordered[index % ordered.length] : undefined;
+    const title = String(project.title || 'Lavori in corso').replace(/\s+/g, ' ').trim();
+    return {
+      id: `construction-${project.id}`,
+      targetType: targetTypeForProject(title),
+      targetName: title,
+      regionId: region?.id ?? null,
+      regionName: region?.name ?? null,
+      progress: round1(nonNegative(project.progress)),
+      materialRequirements: materialRequirementsForProject(title),
+      capacityDemand: Math.max(1, Math.round(input.capacityOf ? input.capacityOf(project) : 4)),
+      costRemaining: round2(materialRequirementsForProject(title).money ?? 0),
+      expectedDate: project.expected_date ?? null,
+      createdDate: project.started_date || input.date,
+      legacyDerived: true,
+    };
+  });
+}
+
+/** Tipo di impianto che nascerà da un'opera: dal titolo, con regola dichiarata. */
+export function targetTypeForProject(title: string): FacilityKind | 'ship' {
+  const text = String(title || '').toLowerCase();
+  if (/ferrovia|strada|porto|ponte|diga|canale|rete/.test(text)) return 'steel_mill';
+  if (/acciaier|siderurg|minier|estraz/.test(text)) return 'steel_mill';
+  if (/cantiere|arsenale|navale|flotta|nave/.test(text)) return 'shipyard';
+  if (/universit|ateneo|ricerc|laborator|scuol|istituto/.test(text)) return 'research_center';
+  if (/aereo|aeronaut|aviazione/.test(text)) return 'aircraft_factory';
+  if (/carro|meccanizz|automezz|veicol/.test(text)) return 'vehicle_factory';
+  return 'arms_factory';
+}
+
+/** Materiali richiesti da un'opera: dal tipo di impianto che nascerà. */
+export function materialRequirementsForProject(title: string): Record<string, number> {
+  const target = targetTypeForProject(title);
+  if (target === 'ship') return { iron: 40, coal: 12, money: 6 };
+  const recipe = FACILITY_RECIPES[target];
+  const inputs: Record<string, number> = {};
+  for (const [id, quantity] of Object.entries(recipe.inputs)) inputs[id] = round2(quantity * 12);
+  inputs.money = round2((FACILITY_RECIPES[target].outputs.weapons || 0.5) * 18);
+  return inputs;
+}
+
+/** Personale iniziale: dallo stato dottrinale, una volta sola. */
+export function seedPersonnel(manpower: MilitaryManpower, date: string): MilitaryPersonnelState {
+  return {
+    activePersonnel: Math.round(nonNegative(manpower.activePersonnel)),
+    trainedReserve: Math.round(nonNegative(manpower.reservePersonnel)),
+    mobilizedPersonnel: Math.round(nonNegative(manpower.mobilizedPersonnel)),
+    shipCrew: 0,
+    updatedDate: date,
+  };
+}
+
+export interface SeedArmyInput {
+  id: string;
+  name: string;
+  regionId: string | null;
+  regionName: string | null;
+  formations: number;
+  objectId: string | null;
+}
+
+/**
+ * Materializza le **armate** dagli oggetti `army` della mappa più lo schieramento
+ * di guarnigione per i reparti senza nome. `personnel` = reparti × uomini per
+ * reparto (somma = attivi di terra): l'aggregato non cambia, cambia chi lo possiede.
+ * L'equipaggiamento resta **nel deposito** finché non viene assegnato davvero.
+ */
+export function seedArmies(input: {
+  polityId: string;
+  armies: readonly SeedArmyInput[];
+  accountedFormations: number;
+  totalFormations: number;
+  epoch: MilitaryEpoch;
+  date: string;
+  regionNameFor?: (regionId: string | null) => string | null;
+}): ArmyOperationalState[] {
+  const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
+  const needsPerFormation = monthlyNeedsPerFormation(input.epoch);
+  const state: ArmyOperationalState[] = input.armies.map(army => ({
+    id: army.objectId || army.id,
+    name: army.name,
+    regionId: army.regionId,
+    regionName: army.regionName,
+    formations: Math.max(0, Math.round(nonNegative(army.formations))),
+    personnel: Math.round(Math.max(0, Math.round(nonNegative(army.formations))) * menPerFormation),
+    equipment: {},
+    monthlyNeeds: {
+      fuel: round3(needsPerFormation.fuel * Math.max(0, Math.round(nonNegative(army.formations)))),
+      weapons: round3(needsPerFormation.weapons * Math.max(0, Math.round(nonNegative(army.formations)))),
+      food: round3(needsPerFormation.food * Math.max(0, Math.round(nonNegative(army.formations)))),
+    },
+    status: 'operational',
+    objectId: army.objectId,
+    createdDate: input.date,
+    legacyDerived: true,
+  }));
+  const leftover = Math.max(0, Math.round(input.totalFormations) - Math.round(input.accountedFormations));
+  if (leftover > 0) {
+    state.push({
+      id: `army-${input.polityId}-garrison`,
+      name: 'Reparti di guarnigione',
+      regionId: null,
+      regionName: null,
+      formations: leftover,
+      personnel: Math.round(leftover * menPerFormation),
+      equipment: {},
+      monthlyNeeds: {
+        fuel: round3(needsPerFormation.fuel * leftover),
+        weapons: round3(needsPerFormation.weapons * leftover),
+        food: round3(needsPerFormation.food * leftover),
+      },
+      status: 'operational',
+      objectId: null,
+      createdDate: input.date,
+      legacyDerived: true,
+    });
+  }
+  return state;
+}
+
+/**
+ * Fabbisogni mensili di **un reparto** (carburante, armamenti, cibo). Stessa
+ * aritmetica del motore: `materialNeeds` su un conto con un solo reparto.
+ */
+export function monthlyNeedsPerFormation(epoch: MilitaryEpoch): MaterialNeeds {
+  void epoch; // la dottrina d'epoca non cambia i consumi unitari del motore
+  // `materialNeeds` del motore sui soli reparti: popolazione e fabbriche a zero,
+  // quindi restano i consumi militari di **un** reparto. Nessun numero inventato.
+  const synthetic = { population: 0, forces: 1, mobilized: 0, factories: 0 } as unknown as NationalAccount;
+  const needs = materialNeeds(synthetic);
+  return {
+    food: round3(needs.food),
+    clothing: round3(needs.clothing),
+    weapons: round3(needs.weapons),
+    fuel: round3(needs.fuel),
+  };
+}
+
+// ── 7. Ordini → impianto ────────────────────────────────────────────────────
+
+/**
+ * Assegna un ordine a un impianto **reale**, in modo deterministico: il primo
+ * impianto con capacità libera sufficiente e meno lavoro già assegnato. Non è
+ * più una rotazione decisa al momento della lettura.
+ */
+export function assignOrderToFacility(input: {
+  order: IndustrialOrderLike;
+  facilities: readonly FacilityState[];
+  capacityDemand: number;
+}): string | null {
+  const candidates = input.facilities
+    .filter(facility => facility.kind !== 'mine' && facility.status !== 'under_construction')
+    .map(facility => ({
+      facility,
+      assigned: (facility.activeOrders || []).length,
+      free: Math.max(0, nonNegative(facility.capacity) * 4 - (facility.activeOrders || []).length * Math.max(1, nonNegative(input.capacityDemand))),
+    }))
+    .filter(candidate => candidate.free >= Math.max(1, nonNegative(input.capacityDemand)));
+  const pool: Array<{ facility: FacilityState; assigned: number; free: number }> = candidates.length > 0
+    ? candidates
+    : input.facilities.filter(facility => facility.kind !== 'mine').map(facility => ({ facility, assigned: (facility.activeOrders || []).length, free: 1 }));
+  if (pool.length === 0) return null;
+  pool.sort((a, b) => (a.assigned - b.assigned) || String(a.facility.id).localeCompare(String(b.facility.id)));
+  return pool[0].facility.id;
+}
+
+// ── 8. Costruzioni: completamento → oggetto finale ──────────────────────────
+
+export interface ConstructionAdvance {
+  constructions: ConstructionState[];
+  /** Impianti nati dal completamento (nessun beneficio prima). */
+  created: FacilityState[];
+  /** Navi nate dal completamento di un cantiere navale. */
+  createdShips: ShipState[];
+  completed: string[];
+}
+
+/**
+ * Avanzamento dei cantieri: le opere ancora in corso restano; quelle **finite**
+ * vengono chiuse e nasce l'oggetto finale (impianto). Nessun beneficio prima del
+ * completamento: finché l'opera è in corso non esiste alcun impianto.
+ */
+export function advanceConstructions(input: {
+  polityId: string;
+  constructions: readonly ConstructionState[];
+  /** Id dei progetti ancora in corso per il motore. */
+  ongoingProjectIds: readonly string[];
+  facilities: readonly FacilityState[];
+  date: string;
+  /** Capacità industriale disponibile per i lavori (fattore 0…1). */
+  activity?: number;
+}): ConstructionAdvance {
+  const ongoing = new Set(input.ongoingProjectIds.map(String));
+  const constructions: ConstructionState[] = [];
+  const created: FacilityState[] = [];
+  const completed: string[] = [];
+  for (const construction of input.constructions) {
+    const projectId = construction.id.replace(/^construction-/, '');
+    if (ongoing.has(projectId) || ongoing.has(construction.id)) {
+      constructions.push(construction);
+      continue;
+    }
+    // Il progetto non è più in corso: l'opera è finita (chiusa dal motore).
+    completed.push(construction.id);
+    if (construction.targetType === 'ship') continue;
+    const kind = construction.targetType as FacilityKind;
+    const capacity = facilityCapacityFor(kind);
+    created.push({
+      id: `${kind}-${input.polityId}-${input.facilities.length + created.length + 1}`,
+      kind,
+      name: construction.targetName,
+      regionId: construction.regionId,
+      regionName: construction.regionName,
+      capacity,
+      workers: SEED_WORKERS_PER_LINE.factory * capacity,
+      status: 'operational',
+      recipe: FACILITY_RECIPES[kind],
+      activeOrders: [],
+      createdDate: input.date,
+      legacyDerived: false,
+    });
+  }
+  return { constructions, created, createdShips: [], completed };
+}
+
+// ── 9. Etichette per la UI (stessa grammatica) ──────────────────────────────
+
+/** Stato dell'armata dalla copertura reale dell'equipaggiamento assegnato. */
+export function armyStatusFromCoverage(input: { assigned: number; required: number; hasRifles: boolean }): ArmyOperationalState['status'] {
+  if (!input.hasRifles) return 'forming';
+  if (input.required <= 0) return 'operational';
+  const coverage = input.assigned / input.required;
+  if (coverage >= 0.95) return 'operational';
+  if (coverage >= 0.6) return 'degraded';
+  return 'degraded';
+}
+
+/** Legenda leggibile dei tipi di oggetto persistente (per il report e i test). */
+export const PERSISTENT_KIND_LABEL: Record<string, string> = {
+  army: 'Armata',
+  facility: 'Impianto',
+  ship: 'Nave',
+  fleet: 'Flotta',
+  construction: 'Cantiere',
+  personnel: 'Personale militare',
+};
+
+/** Descrizione a una riga dell'aggregato (diagnostica e test). */
+export function aggregateSummary(aggregate: OperationalAggregate): string {
+  return `${n(aggregate.underArms)} uomini sotto le armi (${n(aggregate.soldiers)} terra + ${n(aggregate.crew)} equipaggi) · `
+    + `${n(aggregate.capacity)} linee · ${n(aggregate.workers)} lavoratori · ${aggregate.ships} navi · ${aggregate.constructions} cantieri`;
+}
+
+/** Le armi individuali richieste da un reparto (quota d'epoca degli uomini). */
+export function rifleRequirement(epoch: MilitaryEpoch, formations: number): number {
+  const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch }).menPerFormation;
+  return Math.round(menPerFormation * individualWeaponShareFor(epoch) * Math.max(0, Math.round(nonNegative(formations))));
+}
+
+/** Voce di catalogo corrispondente alle armi individuali d'epoca. */
+export function rifleEquipmentId(): string {
+  return 'fucili';
+}
+
+/** Equipaggiamento di una voce presente in arsenale (0 se assente). */
+export function equipmentQuantity(units: Record<string, number> | undefined, equipmentId: string): number {
+  return Math.max(0, Math.floor(nonNegative(units?.[equipmentId])));
+}
+
+/** Esiste la voce nel catalogo militare? (evita id inventati nello stato) */
+export function isKnownEquipment(equipmentId: string): boolean {
+  return Boolean(equipmentById(equipmentId));
+}
+
+/** Etichetta d'epoca per il report. */
+export function epochLabel(epoch: MilitaryEpoch): string {
+  return MILITARY_EPOCH_LABEL[epoch];
+}
+
+/** Risorse materiali di un impianto come mappa id → quantità (per la UI). */
+export function facilityStockView(facility: FacilityState, stock: ResourceStock | undefined): Array<{ id: string; available: number; required: number }> {
+  const recipe = facility.recipe ?? FACILITY_RECIPES[facility.kind];
+  return Object.entries(recipe.inputs || {}).map(([id, required]) => ({
+    id,
+    available: round2(nonNegative((stock as unknown as Record<string, number>)?.[id])),
+    required: round2(nonNegative(required)),
+  }));
+}
+
+// ── 10. Oggetti del quadro operativo letti dallo stato persistente ──────────
+
+export interface PersistentObjectsInput {
+  polityId: string;
+  date: string;
+  epoch: MilitaryEpoch;
+  armies: readonly ArmyOperationalState[];
+  facilities: readonly FacilityState[];
+  ships: readonly ShipState[];
+  fleets: readonly FleetState[];
+  constructions: readonly ConstructionState[];
+  personnel: MilitaryPersonnelState;
+  /** Ordini di produzione in corso, per id: le lavorazioni **assegnate**. */
+  ordersById?: Record<string, IndustrialOrderLike>;
+  /** Prontezza nazionale dal motore (per l'armata senza calcoli locali). */
+  readinessPct?: number;
+  /** Copertura armi individuali nazionale dal motore, in percentuale. */
+  individualCoveragePct?: number;
+  /** Attività nazionale delle linee (0…1) e blocco: dal motore. */
+  activity?: number;
+  blocked?: boolean;
+  /** Stock materiale reale: decide quanto un impianto può davvero produrre. */
+  stock?: Record<string, number>;
+  /** Giacimenti dichiarati: alimentano gli input non materiali delle ricette. */
+  endowment?: Record<string, number>;
+  /** Spese civili mensili da attribuire agli impianti (mld). */
+  civilMonthlyMld?: number;
+  /** Spese militari mensili da attribuire alle armate (mld). */
+  militaryMonthlyMld?: number;
+  /** Mesi di carburante disponibili (scorta nazionale / consumo). */
+  fuelMonths?: number | null;
+}
+
+const tone = (value: number, good: number, warn: number): ReadinessTone =>
+  value >= good ? 'positive' : value >= warn ? 'neutral' : value < warn / 2 ? 'critical' : 'warning';
+
+const textList = (bag: Record<string, number>): string =>
+  Object.entries(bag).filter(([, quantity]) => nonNegative(quantity) > 0)
+    .map(([id, quantity]) => `${equipmentById(id)?.name || id} ×${n(quantity)}`).join(' · ');
+
+/**
+ * Oggetti del quadro operativo costruiti **dallo stato persistente**: le armate
+ * hanno i loro uomini e il loro equipaggiamento, gli impianti i loro addetti e le
+ * loro lavorazioni, le navi il loro equipaggio. Nessun dato derivato da una quota
+ * dell'aggregato: dove lo stato non c'è (partita legacy) resta il percorso
+ * dichiarato del motore.
+ */
+export function persistentObjects(input: PersistentObjectsInput): OperatingObject[] {
+  const objects: OperatingObject[] = [];
+  const activity = Math.max(0, Math.min(1, input.activity === undefined ? 1 : input.activity));
+  const underArms = personnelUnderArms(input.personnel);
+  const fuelMonths = input.fuelMonths ?? null;
+
+  // ── Armate ────────────────────────────────────────────────────────────────
+  for (const army of input.armies) {
+    const required = rifleRequirement(input.epoch, army.formations);
+    const assigned = equipmentQuantity(army.equipment, rifleEquipmentId());
+    const coveragePct = required > 0 ? round1(Math.min(100, assigned / required * 100)) : 100;
+    const equipmentTotal = Math.round(sum(Object.values(army.equipment || {})));
+    const status: OperatingStatus = required > 0 && assigned <= 0
+      ? 'operational'
+      : coveragePct >= 95 ? 'operational' : coveragePct >= 60 ? 'degraded' : 'critical';
+    const share = underArms > 0 ? army.personnel / underArms : 0;
+    const armyFuelMonths = army.monthlyNeeds.fuel > 0 && fuelMonths !== null
+      ? fuelMonths
+      : null;
+    objects.push({
+      id: army.id,
+      kind: 'army',
+      label: army.name,
+      subtitle: `${n(army.formations)} reparti · ${n(army.personnel)} uomini${army.regionName ? ` · ${army.regionName}` : ''}`,
+      status,
+      statusLabel: OPERATING_STATUS_LABEL[status],
+      parentId: 'force',
+      regionId: army.regionId,
+      regionName: army.regionName,
+      facts: [
+        fact('stato', 'Reparti', army.formations, 'numero'),
+        fact('stato', 'Uomini', army.personnel, 'numero'),
+        fact('stato', 'Equipaggiamento assegnato', equipmentTotal, 'numero', 'neutral', textList(army.equipment) || 'Nessun pezzo assegnato: la dotazione è ancora nel deposito nazionale.'),
+        fact('capacita', 'Copertura armi individuali', coveragePct, 'pct',
+          tone(coveragePct, 95, 80), `${n(assigned)} fucili assegnati su ${n(required)} richiesti.`),
+        fact('personale', 'Riserva addestrata', input.personnel.trainedReserve, 'numero',
+          'neutral', `Riserva nazionale disponibile: ${n(reserveAvailable(input.personnel, { totalMilitaryPool: input.personnel.trainedReserve + underArms } as MilitaryManpower))} uomini.`),
+        fact('input', 'Carburante', army.monthlyNeeds.fuel, 'per_mese'),
+        fact('input', 'Armamenti', army.monthlyNeeds.weapons, 'per_mese'),
+        fact('input', 'Cibo', army.monthlyNeeds.food, 'per_mese'),
+        ...(input.militaryMonthlyMld !== undefined
+          ? [fact('costi', 'Spese dell\'armata', round3(nonNegative(input.militaryMonthlyMld) * share), 'mld',
+            'neutral', 'Quota delle spese militari mensili, in proporzione agli uomini dell\'armata.')]
+          : []),
+        ...(armyFuelMonths !== null
+          ? [fact('autonomia', 'Carburante (scorte)', round1(armyFuelMonths), 'mesi',
+            armyFuelMonths < FULL_TANK_MONTHS ? 'warning' : 'neutral', 'Scorta nazionale divisa per il consumo del paese.')]
+          : []),
+      ],
+      problems: [
+        ...(required > 0 && assigned <= 0
+          ? [{ severity: 'critical' as const, label: 'Nessuna arma individuale assegnata', detail: `Servono ${n(required)} fucili: il deposito non è stato ancora assegnato a questa armata.` }]
+          : []),
+        ...(coveragePct < 95 && assigned > 0
+          ? [{ severity: coveragePct < 60 ? 'critical' as const : 'warning' as const, label: `Copertura armi individuali ${coveragePct}%`, detail: `Mancano ${n(Math.max(0, required - assigned))} fucili alla dotazione d'epoca.` }]
+          : []),
+      ],
+      actions: [],
+      why: 'Armata come oggetto reale: uomini ed equipaggiamento **assegnati** sono suoi, non una quota dell\'aggregato. L\'equipaggiamento è stato tolto dal deposito nazionale (deposito + assegnato = totale).',
+    });
+  }
+
+  // ── Impianti e miniere ────────────────────────────────────────────────────
+  const totalLines = input.facilities.filter(facility => facility.kind !== 'mine')
+    .reduce((total, facility) => total + nonNegative(facility.capacity), 0);
+  for (const facility of input.facilities) {
+    if (facility.kind === 'mine') {
+      const amount = nonNegative(facility.capacity);
+      objects.push({
+        id: facility.id,
+        kind: 'mine',
+        label: facility.name,
+        subtitle: `Giacimento ${amount}/5 dal registro del paese`,
+        status: facility.status === 'idle' ? 'idle' : 'operational',
+        statusLabel: OPERATING_STATUS_LABEL[facility.status === 'idle' ? 'idle' : 'operational'],
+        parentId: null,
+        regionId: facility.regionId,
+        regionName: facility.regionName,
+        facts: [
+          fact('stato', 'Giacimento', amount, 'numero'),
+          fact('capacita', 'Sfruttamento', round1(Math.min(100, amount / 5 * 100)), 'pct'),
+          fact('personale', 'Addetti', facility.workers, 'numero'),
+          fact('output', 'Contributo mensile', 0, 'per_mese', 'neutral',
+            'Il contributo del giacimento entra nel bilancio materiale del motore: qui non si ricalcola.'),
+        ],
+        problems: [],
+        actions: [{ id: 'trade', label: 'Compra o vendi sul mercato', enabled: true, blockedReason: null }],
+        why: `Miniera persistente sullo stesso giacimento dichiarato dal registro del paese${facility.resourceKind ? ` (${facility.resourceKind})` : ''}; il contributo produttivo resta quello calcolato dal motore.`,
+      });
+      continue;
+    }
+    const production = facilityProduction(facility, { stock: input.stock, endowment: input.endowment, activity });
+    const lines = nonNegative(facility.capacity);
+    const utilization = totalLines > 0 ? round1(Math.min(100, (facility.activeOrders.length * 4) / Math.max(1, lines) * 100)) : 0;
+    const status: OperatingStatus = facility.status !== 'operational'
+      ? facility.status === 'idle' ? 'idle' : facility.status === 'maintenance' ? 'maintenance' : 'operational'
+      : production.factor <= 0 ? 'idle' : production.factor < 0.5 ? 'degraded' : 'operational';
+    const assignedOrders = facility.activeOrders
+      .map(id => input.ordersById?.[id])
+      .filter((order): order is IndustrialOrderLike => Boolean(order));
+    objects.push({
+      id: facility.id,
+      kind: 'facility',
+      label: facility.name,
+      subtitle: `${FACILITY_KIND_LABEL[facility.kind]}${facility.regionName ? ` · ${facility.regionName}` : ''}`,
+      status,
+      statusLabel: OPERATING_STATUS_LABEL[status],
+      parentId: null,
+      regionId: facility.regionId,
+      regionName: facility.regionName,
+      facts: [
+        fact('stato', 'Tipo', null, 'testo', 'neutral', FACILITY_KIND_LABEL[facility.kind]),
+        fact('stato', 'Linee di lavorazione', lines, 'numero'),
+        fact('stato', 'Stato impianto', null, 'testo', 'neutral', facility.status === 'operational' ? 'In funzione' : facility.status),
+        fact('capacita', 'Utilizzo', utilization, 'pct', utilization >= 95 ? 'warning' : 'neutral'),
+        fact('capacita', 'Ritmo di lavoro', round1(production.factor * 100), 'pct',
+          production.factor <= 0 ? 'critical' : production.factor < 0.5 ? 'warning' : 'neutral'),
+        fact('personale', 'Addetti', facility.workers, 'numero', 'neutral',
+          facility.legacyDerived ? 'Addetti dal seed dichiarato (900 per linea di fabbrica, 1.200 di cantiere, 600 di ricerca).' : 'Addetti dell\'impianto, stato persistente.'),
+        ...Object.entries(production.outputs).map(([id, quantity]) =>
+          fact('output', materialLabel(id), quantity, 'per_mese', production.factor <= 0 ? 'critical' : 'neutral')),
+        ...Object.entries(production.inputs).map(([id, quantity]) =>
+          fact('input', materialLabel(id), quantity, 'per_mese')),
+        ...(production.bottleneck
+          ? [fact('input', `Input limitante: ${materialLabel(production.bottleneck.id)}`, production.bottleneck.coveragePct, 'pct',
+            production.bottleneck.coveragePct < 50 ? 'critical' : 'warning',
+            `Disponibile ${n(production.bottleneck.available)} su ${n(production.bottleneck.required)} richiesti questo mese.`)]
+          : []),
+        ...(input.civilMonthlyMld !== undefined && totalLines > 0
+          ? [fact('costi', 'Costo operativo', round2(nonNegative(input.civilMonthlyMld) * (lines / totalLines)), 'mld',
+            'neutral', 'Quota dei costi civili mensili, in proporzione alle linee dell\'impianto.')]
+          : []),
+        ...assignedOrders.flatMap(order => [
+          fact('output', 'Ordine in lavorazione', null, 'testo', 'neutral',
+            `${order.name} ×${n(order.quantity)} · ${Math.round(nonNegative(order.progress))}%`),
+          ...(order.expectedDate ? [fact('autonomia', 'Consegna prevista', null, 'data', 'neutral', order.expectedDate)] : []),
+        ]),
+      ],
+      problems: [
+        ...(facility.status === 'idle'
+          ? [{ severity: 'critical' as const, label: 'Impianto fermo', detail: 'Nessuna linea attiva: la produzione è zero.' }]
+          : []),
+        ...(production.factor > 0 && production.factor < 0.6 && !facility.legacyDerived
+          ? [{ severity: 'warning' as const, label: `Produzione al ${round1(production.factor * 100)}%`, detail: production.bottleneck ? `Input insufficiente: ${production.bottleneck.id} al ${production.bottleneck.coveragePct}%.` : 'Attività delle linee ridotta.' }]
+          : []),
+      ],
+      actions: [],
+      why: `Impianto come oggetto: tipo e ricetta sono dichiarati, capacità, addetti e lavorazioni sono **suoi**. Output e input sono la scomposizione per impianto del profilo che il motore calcola con \`advanceStock\`; con input insufficiente la produzione si riduce in proporzione.`,
+    });
+  }
+
+  // ── Marina: flotte e navi ─────────────────────────────────────────────────
+  const shipById = new Map(input.ships.map(ship => [String(ship.id), ship]));
+  for (const fleet of input.fleets) {
+    const fleetShips = fleet.shipIds.map(id => shipById.get(String(id))).filter((ship): ship is ShipState => Boolean(ship));
+    const crew = Math.round(fleetShips.reduce((total, ship) => total + nonNegative(ship.crew), 0));
+    const fleetFuel = round3(fleetShips.reduce((total, ship) => total + nonNegative(ship.monthlyFuel), 0));
+    const status: OperatingStatus = fleetShips.length === 0 ? 'idle' : fleetShips.every(ship => ship.status === 'operational') ? 'operational' : 'degraded';
+    objects.push({
+      id: fleet.id,
+      kind: 'fleet',
+      label: fleet.name,
+      subtitle: `${fleetShips.length} navi · ${n(crew)} marinai`,
+      status,
+      statusLabel: OPERATING_STATUS_LABEL[status],
+      parentId: 'navy',
+      regionId: null,
+      regionName: null,
+      facts: [
+        fact('stato', 'Navi', fleetShips.length, 'numero'),
+        fact('personale', 'Equipaggi', crew, 'numero'),
+        fact('input', 'Carburante', fleetFuel, 'per_mese'),
+        ...(fuelMonths !== null ? [fact('autonomia', 'Carburante (scorte)', round1(fuelMonths), 'mesi', 'neutral', 'Scorta nazionale.')] : []),
+      ],
+      problems: [],
+      actions: [],
+      why: 'Flotta persistente: raggruppa navi reali, non una quota dell\'arsenale.',
+    });
+    for (const ship of fleetShips) {
+      const equipment = equipmentById(ship.equipmentId);
+      const status: OperatingStatus = ship.status === 'operational' ? 'operational' : ship.status === 'maintenance' ? 'maintenance' : 'critical';
+      objects.push({
+        id: ship.id,
+        kind: 'ship',
+        label: ship.name,
+        subtitle: `${equipment?.name || ship.equipmentId}${equipment ? ` · ${equipment.category}` : ''}`,
+        status,
+        statusLabel: OPERATING_STATUS_LABEL[status],
+        parentId: fleet.id,
+        regionId: ship.regionId,
+        regionName: null,
+        facts: [
+          fact('stato', 'Tipo', null, 'testo', 'neutral', equipment?.name || ship.equipmentId),
+          fact('stato', 'Stato', null, 'testo', 'neutral', ship.status === 'operational' ? 'In servizio' : ship.status),
+          fact('personale', 'Equipaggio', ship.crew, 'numero', 'neutral', 'Marinai imbarcati: uomini usciti dalla riserva addestrata.'),
+          fact('input', 'Carburante', ship.monthlyFuel, 'per_mese'),
+          fact('output', 'Munizionamento imbarcato', Math.round(sum(Object.values(ship.ammunition || {}))), 'numero',
+            'neutral', textList(ship.ammunition) || 'Nessun munizionamento assegnato alla nave.'),
+          ...(fuelMonths !== null ? [fact('autonomia', 'Carburante (scorte)', round1(fuelMonths), 'mesi', 'neutral', 'Scorta nazionale divisa per il consumo del paese.')] : []),
+        ],
+        problems: ship.crew <= 0
+          ? [{ severity: 'critical' as const, label: 'Nessun equipaggio', detail: 'Una nave senza equipaggio non è operativa.' }]
+          : [],
+        actions: [],
+        why: 'Nave persistente: scafo e equipaggio sono suoi, non una riga dell\'arsenale. Lo scafo è uscito dal deposito all\'ingresso in servizio.',
+      });
+    }
+  }
+
+  // ── Cantieri ──────────────────────────────────────────────────────────────
+  for (const construction of input.constructions) {
+    objects.push({
+      id: construction.id,
+      kind: 'construction',
+      label: shortTitle(construction.targetName),
+      subtitle: construction.regionName ? `Cantiere in ${construction.regionName}` : 'Cantiere nazionale',
+      status: 'under_construction',
+      statusLabel: OPERATING_STATUS_LABEL.under_construction,
+      parentId: null,
+      regionId: construction.regionId,
+      regionName: construction.regionName,
+      facts: [
+        fact('stato', 'Avanzamento', round1(nonNegative(construction.progress)), 'pct'),
+        fact('stato', 'Diventerà', null, 'testo', 'neutral',
+          construction.targetType === 'ship' ? 'Nave' : FACILITY_KIND_LABEL[construction.targetType]),
+        fact('capacita', 'Linee occupate dai lavori', construction.capacityDemand, 'numero'),
+        fact('input', 'Materiali richiesti', null, 'testo', 'neutral',
+          Object.entries(construction.materialRequirements).map(([id, quantity]) => `${id} ${n(quantity)}`).join(' · ') || 'Nessun requisito dichiarato'),
+        fact('costi', 'Costo residuo', construction.costRemaining, 'mld'),
+        ...(construction.expectedDate ? [fact('autonomia', 'Consegna prevista', null, 'data', 'neutral', construction.expectedDate)] : []),
+        fact('output', 'Beneficio', 0, 'numero', 'neutral', 'Nessuno prima del completamento: l\'opera entra nei conti solo a lavori finiti.'),
+      ],
+      problems: input.blocked
+        ? [{ severity: 'critical' as const, label: 'Cantiere fermo: nessuna capacità industriale', detail: 'Senza impianti i lavori non avanzano.' }]
+        : [],
+      actions: [],
+      why: `Cantiere persistente: progresso, requisiti e costo residuo sono **suoi**.${shortTitle(construction.targetName) !== construction.targetName.trim() ? ` Opera: ${construction.targetName}` : ''} A lavori finiti diventa un impianto a sé, con la sua capacità.`,
+    });
+  }
+
+  return objects;
+}
+
+const sum = (values: readonly number[]): number => values.reduce((total, value) => total + nonNegative(value), 0);

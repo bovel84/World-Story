@@ -75,6 +75,8 @@ test.describe('MATERIEL-CLARITY — quanto ho, quanto produco, avanzo o deficit'
     await expect(sintesi).toContainText('160,0 / 200,0');
     await expect(sintesi).toContainText('+0,30/mese');
     await expect(sintesi).toContainText('2 voci · 43 unità in servizio · 1 ordine in corso (40 pezzi)');
+    // OP-OBJECTS PERSISTENT: dove sono i pezzi — deposito o assegnati a un oggetto.
+    await expect(sintesi).toContainText('deposito 42 · assegnato 1 su 43');
     // Solo le scorte che alimentano l'arsenale: il resto vive in Risorse.
     await expect(sintesi.locator('.material-balance-row')).toHaveCount(1);
     await expect(sintesi).not.toContainText('Carburante');

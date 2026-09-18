@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   arsenalBrief, arsenalBriefText, arsenalLineSummary, arsenalProductionFor,
+  arsenalSplit, arsenalSplitText,
   type ProductionOrderLike,
 } from './arsenalSummary';
 
@@ -62,6 +63,24 @@ describe('arsenalLineSummary — riga scansionabile', () => {
   it('senza forza pubblicata la riga resta leggibile', () => {
     const text = arsenalLineSummary(line({ strength: undefined, sharePct: undefined }), null);
     expect(text).toBe('×37 in servizio · nessun ordine in corso');
+  });
+});
+
+describe('arsenalSplit — deposito vs assegnato (OP-OBJECTS PERSISTENT)', () => {
+  it('somma le parti e mostra il totale nazionale', () => {
+    const split = arsenalSplit({ fucili: 10_000 }, { fucili: 1_000 }, { fucili: 9_000 })!;
+    expect(split).toEqual({ total: 10_000, depot: 1_000, assigned: 9_000 });
+    expect(arsenalSplitText(split)).toBe('deposito 1.000 · assegnato 9.000 su 10.000');
+  });
+
+  it('senza i campi del motore non inventa la ripartizione', () => {
+    expect(arsenalSplit({ fucili: 10_000 }, undefined, undefined)).toBeNull();
+    expect(arsenalSplitText(null)).toBe('');
+  });
+
+  it('il totale mancante è la somma delle parti', () => {
+    const split = arsenalSplit(undefined, { fregate: 2 }, { fregate: 1 })!;
+    expect(split.total).toBe(3);
   });
 });
 

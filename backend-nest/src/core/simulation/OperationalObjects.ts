@@ -44,6 +44,9 @@ import {
   advanceStock, financePurchase, materialNeeds, type MaterialNeeds, type ResourceStock,
 } from './MaterialEconomy';
 import {
+  personnelOverlay, transferMenToArmy, type MilitaryPersonnelState,
+} from './PersonnelStock';
+import {
   WorldStateEngine,
   type NationalAccount, type WorldStateOptions, type WorldStateRegion,
 } from './WorldStateEngine';
@@ -147,7 +150,7 @@ export interface OperatingPicture {
   conventions: string[];
 }
 
-const fact = (
+export const fact = (
   section: FactSection, label: string, value: number | null, unit: FactUnit,
   tone?: ReadinessTone, text?: string | null,
 ): OperatingFact => ({ section, label, value, unit, tone, text: text ?? null });
@@ -313,6 +316,8 @@ export interface FormationPlan {
   riflesRequired: number;
   riflesAvailable: number;
   riflesMissing: number;
+  /** Armi individuali **prese dal deposito** (0 se il deposito è vuoto). */
+  riflesConsumed: number;
   /** Costo immediato del materiale preso dal deposito (mln USD). */
   initialCostMln: number;
   blocked: boolean;
@@ -360,10 +365,12 @@ export function formationPlan(input: {
       unitCostMln: equipment.costMln,
     });
   }
-  const rifles = items.find(item => item.equipmentId === 'fucili');
+  const rifleId = CATEGORY_EQUIPMENT.individualWeapons;
+  const rifles = items.find(item => item.equipmentId === rifleId);
   const riflesRequired = rifles?.required ?? 0;
   const riflesAvailable = rifles?.available ?? 0;
   const riflesMissing = rifles?.missing ?? 0;
+  const riflesConsumed = rifles?.consumed ?? 0;
   const initialCostMln = round2(sum(items.map(item => item.consumed * item.unitCostMln)));
   const blocked = riflesRequired > 0 && riflesMissing > 0;
   return {
@@ -372,6 +379,7 @@ export function formationPlan(input: {
     riflesRequired,
     riflesAvailable,
     riflesMissing,
+    riflesConsumed,
     initialCostMln,
     blocked,
     blockedReason: blocked
@@ -438,21 +446,42 @@ export function formationImpact(input: {
   armyName: string;
   armyId?: string | null;
   formations?: number;
+  /**
+   * OP-OBJECTS PERSISTENT: equipaggiamento **del deposito**. La disponibilità
+   * del piano è quella del magazzino (i pezzi già assegnati a un'altra armata
+   * non si possono prendere); la copertura si misura sul totale nazionale, che
+   * l'assegnazione non cambia. Assente ⇒ si usa `units` (partita legacy).
+   */
+  depot?: Record<string, number>;
+  /**
+   * OP-OBJECTS PERSISTENT: stato **reale** del personale militare. Con lo stock
+   * la riserva si consuma (86.400 → 74.400); senza, resta la dottrina (legacy).
+   */
+  personnel?: MilitaryPersonnelState;
+  /** Armi individuali già assegnate all'armata che riceve i reparti. */
+  assignedRifles?: number;
 }): FormationImpact {
   const epoch = input.epoch;
   const formationsToAdd = Math.max(1, Math.round(nonNegative(input.formations) || 1));
-  const plan = formationPlan({ epoch, units: input.units, formations: formationsToAdd });
+  const plan = formationPlan({ epoch, units: input.depot ?? input.units, formations: formationsToAdd });
+  // L'equipaggiamento passa dal deposito all'armata: il **totale nazionale non
+  // cambia**. Il «prima → dopo» della copertura si muove perché crescono i
+  // reparti (la domanda), non perché sia sparito un pezzo.
   const afterUnits: Record<string, number> = { ...input.units };
-  for (const item of plan.items) {
-    if (item.consumed <= 0) continue;
-    afterUnits[item.equipmentId] = Math.max(0, (afterUnits[item.equipmentId] || 0) - item.consumed);
-  }
   const formations = nonNegative(input.account.forces);
   const mobilizedFormations = nonNegative(input.account.mobilized);
   const population = nonNegative(input.account.population);
 
-  const side = (extraFormations: number, units: Record<string, number>, account: NationalAccount): FormationSide => {
-    const manpower = militaryManpower({ population, formations: formations + extraFormations, mobilizedFormations, epoch });
+  const side = (
+    extraFormations: number,
+    units: Record<string, number>,
+    account: NationalAccount,
+    personnelState?: MilitaryPersonnelState | null,
+  ): FormationSide => {
+    const doctrine = militaryManpower({ population, formations: formations + extraFormations, mobilizedFormations, epoch });
+    // Con lo stato persistente gli uomini sono quelli registrati: la riserva è
+    // uno stock che si consuma, non un rapporto ricalcolato sulla dottrina.
+    const manpower = personnelState ? personnelOverlay(personnelState, doctrine) : doctrine;
     const needs = materialNeeds(account);
     const coverage = equipmentCoverage({ units, manpower, epoch, ports: input.account.ports });
     const readiness = militaryReadiness({
@@ -489,12 +518,21 @@ export function formationImpact(input: {
     };
   };
 
-  const before = side(0, input.units, input.account);
+  const before = side(0, input.units, input.account, input.personnel);
   const withArmy: WorldStateRegion[] = input.regions.map(region => region.id === input.targetRegionId
     ? { ...region, objects: [...(region.objects || []), { type: 'army', level: formationsToAdd }] }
     : region);
   const projectedAccount = WorldStateEngine.accounts(withArmy, input.options || {})[input.account.polityId] || input.account;
-  const after = side(formationsToAdd, afterUnits, projectedAccount);
+  // Il «dopo» degli uomini: trasferimento reale dalla riserva (null ⇒ il piano
+  // è bloccato e nulla si muove: nessun numero inventato).
+  const afterPersonnel = input.personnel
+    ? transferMenToArmy(
+      input.personnel,
+      plan.men,
+      militaryManpower({ population, formations, mobilizedFormations, epoch }),
+    ) ?? input.personnel
+    : null;
+  const after = side(formationsToAdd, afterUnits, projectedAccount, afterPersonnel);
 
   const tone = (beforeValue: number, afterValue: number, higherIsBetter: boolean): ReadinessTone => {
     if (afterValue === beforeValue) return 'neutral';
@@ -516,6 +554,27 @@ export function formationImpact(input: {
     // mensile reale si legge nelle spese dello Stato e nel saldo.
     { label: 'Spese dello Stato', unit: 'mld', before: before.monthlyExpenses, after: after.monthlyExpenses, tone: tone(before.monthlyExpenses, after.monthlyExpenses, false) },
     { label: 'Saldo mensile', unit: 'mld', before: before.monthlyBalance, after: after.monthlyBalance, tone: tone(before.monthlyBalance, after.monthlyBalance, true) },
+    // OP-OBJECTS PERSISTENT: dove finiscono i pezzi. Il deposito cala, l'armata
+    // cresce: il totale nazionale resta quello (`deposito + assegnato`). Se
+    // l'azione è bloccata nulla si muove, quindi le righe non si mostrano.
+    ...(input.depot && !plan.blocked
+      ? [
+        {
+          label: 'Deposito armi individuali',
+          unit: 'numero' as FactUnit,
+          before: Math.max(0, Math.floor(nonNegative(input.depot[CATEGORY_EQUIPMENT.individualWeapons]))),
+          after: Math.max(0, Math.floor(nonNegative(input.depot[CATEGORY_EQUIPMENT.individualWeapons]) - plan.riflesConsumed)),
+          tone: 'neutral' as ReadinessTone,
+        },
+        {
+          label: 'Armi individuali assegnate',
+          unit: 'numero' as FactUnit,
+          before: Math.max(0, Math.round(nonNegative(input.assignedRifles))),
+          after: Math.max(0, Math.round(nonNegative(input.assignedRifles) + plan.riflesConsumed)),
+          tone: 'neutral' as ReadinessTone,
+        },
+      ]
+      : []),
   ];
   return {
     plan,
@@ -818,6 +877,12 @@ export interface OperationalInput {
   regions: OperationalRegion[];
   endowment: NaturalEndowment;
   technologies: string[];
+  /**
+   * OP-OBJECTS PERSISTENT: oggetti reali (armate, impianti, navi, flotte,
+   * cantieri) che **sostituiscono** quelli derivati dagli aggregati. Assente ⇒
+   * percorso legacy dichiarato (quote proporzionali dell'aggregato).
+   */
+  persistentObjects?: OperatingObject[];
 }
 
 /** Equipaggiamento navale presente nell'arsenale: le unità sono gli scafi. */
@@ -853,7 +918,7 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
   const plan = formationPlan({ epoch, units });
   const objects: OperatingObject[] = [];
   const conventions: string[] = [
-    'Personale di un impianto: convenzione dichiarata — 900 addetti per linea di fabbrica, 1.200 per linea di cantiere, 600 per linea di ricerca. Il motore non pubblica l\'occupazione industriale: la scheda non la ricava dal PIL.',
+    'Personale di un impianto: convenzione dichiarata del seed — 900 addetti per linea di fabbrica, 1.200 per linea di cantiere, 600 per linea di ricerca. Con gli oggetti persistenti gli addetti sono lo stato dell\'impianto; il motore non pubblica l\'occupazione industriale.',
     'Equipaggiamento per armata: attribuito in proporzione ai reparti (il motore non registra quale reparto possiede quale pezzo); la somma delle armate è il totale nazionale.',
     'Produzione e input di un impianto: contributo marginale calcolato dal motore (`advanceStock`) sullo stesso profilo, non una formula riscritta.',
     'Le navi rappresentate sono derivate dalle unità navali dell\'arsenale: il motore conta gli scafi per tipo, non i singoli esemplari.',
@@ -1183,6 +1248,16 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
   const counts: Record<OperatingKind, number> = {
     force: 0, army: 0, facility: 0, construction: 0, navy: 0, fleet: 0, ship: 0, mine: 0,
   };
+  // OP-OBJECTS PERSISTENT: con lo stato proprio degli oggetti, le schede di
+  // armate, impianti, navi, flotte e cantieri sono quelle reali. Restano del
+  // motore i contenitori (forze armate, marina) e le catene produttive.
+  if (input.persistentObjects && input.persistentObjects.length > 0) {
+    const replaced = new Set<OperatingKind>(['army', 'facility', 'construction', 'fleet', 'ship', 'mine']);
+    const kept = objects.filter(object => !replaced.has(object.kind));
+    objects.length = 0;
+    objects.push(...kept, ...input.persistentObjects);
+    conventions.push('Oggetti persistenti: uomini, equipaggiamento, addetti, scafi e cantieri sono lo stato proprio dell\'oggetto, non una quota dell\'aggregato. Il totale nazionale resta la loro somma (deposito + assegnato).');
+  }
   for (const object of objects) counts[object.kind] += 1;
   return { objects, chains, counts, conventions };
 }
