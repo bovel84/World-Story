@@ -17,7 +17,8 @@ import { operationalObjectRepository, type OperationalObjectKind } from '../repo
 import type { MilitaryEpoch, MilitaryManpower } from '../core/simulation/MilitaryDoctrine';
 import { militaryManpower } from '../core/simulation/MilitaryDoctrine';
 import type { IndustrialProjectInput } from '../core/simulation/IndustrialCapacity';
-import { marginalProduction } from '../core/simulation/OperationalObjects';
+import { FACILITY_RECIPES, type FacilityKind, type FacilityRecipe } from '../core/simulation/OperationalState';
+import { marginalPlant } from '../core/simulation/OperationalObjects';
 import type { ResourceStock } from '../core/simulation/MaterialEconomy';
 import {
   advanceConstructions,
@@ -154,16 +155,21 @@ export class OperationalStateStore {
       const regions = this.inputs.regions();
       const endowment = this.inputs.endowment();
       const technologies = this.inputs.stock().technologies || [];
-      // Output per impianto dal **motore**: la somma degli impianti è la
+      // Ricetta per impianto dal **motore**: la somma degli impianti è la
       // produzione nazionale (nessuna formula riscritta nello store).
-      const profileOf = (kind: string): Record<string, number> | undefined => {
-        if (kind === 'mine') return undefined;
-        const profile = kind === 'shipyard'
-          ? marginalProduction({ ports: 1 }, endowment, technologies)
-          : kind === 'research_center'
-            ? marginalProduction({ universities: 1 }, endowment, technologies)
-            : marginalProduction({ factories: 1 }, endowment, technologies);
-        return { ...profile } as unknown as Record<string, number>;
+      const recipeOf = (kind: FacilityKind): FacilityRecipe | undefined => {
+        const base = FACILITY_RECIPES[kind];
+        const plant = kind === 'shipyard' ? { ports: 1 }
+          : kind === 'research_center' ? { universities: 1 }
+            : kind === 'mine' ? null : { factories: 1 };
+        if (!plant) return base;
+        const { flow, needs } = marginalPlant(plant, endowment, technologies);
+        const only = (source: Record<string, number>) => Object.fromEntries(
+          Object.entries(source).filter(([, value]) => value > 0),
+        );
+        const outputs = only(flow);
+        if (Object.keys(outputs).length === 0) return base;
+        return { inputs: { ...base.inputs, ...only(needs) }, outputs };
       };
       const facilities = seedFacilities({
         polityId,
@@ -173,7 +179,7 @@ export class OperationalStateStore {
         regions,
         date,
         endowment,
-        profileOf,
+        recipeOf,
       });
       const depot = { ...this.inputs.depotUnits() };
       const { ships, fleets } = seedShips({

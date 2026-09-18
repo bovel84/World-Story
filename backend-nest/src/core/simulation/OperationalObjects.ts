@@ -242,6 +242,26 @@ export function marginalProduction(
   endowment: NaturalEndowment = {},
   technologies: string[] = [],
 ): MaterialNeeds & { research: number } {
+  const { flow, needs } = marginalPlant(plant, endowment, technologies);
+  return {
+    food: flow.food + needs.food,
+    clothing: flow.clothing + needs.clothing,
+    weapons: flow.weapons + needs.weapons,
+    fuel: flow.fuel + needs.fuel,
+    research: flow.research,
+  };
+}
+
+/**
+ * Un impianto del motore, separato in **quello che produce** e **quello che
+ * consuma**: la scheda di un impianto ha bisogno di entrambe le voci, mentre
+ * `marginalProduction` è la somma (effetto netto di un impianto in più).
+ */
+export function marginalPlant(
+  plant: { factories?: number; ports?: number; universities?: number },
+  endowment: NaturalEndowment = {},
+  technologies: string[] = [],
+): { flow: Record<string, number>; needs: Record<string, number> } {
   const account = {
     population: 0, forces: 0, mobilized: 0,
     factories: positive(plant.factories), ports: positive(plant.ports), universities: positive(plant.universities),
@@ -249,11 +269,15 @@ export function marginalProduction(
   const tick = advanceStock({ ...EMPTY_STOCK, technologies }, account, 30, endowment);
   const needs = materialNeeds(account);
   return {
-    food: nonNegative(tick.flow.food) + needs.food,
-    clothing: nonNegative(tick.flow.clothing) + needs.clothing,
-    weapons: nonNegative(tick.flow.weapons) + needs.weapons,
-    fuel: nonNegative(tick.flow.fuel) + needs.fuel,
-    research: nonNegative(tick.flow.research),
+    flow: {
+      food: nonNegative(tick.flow.food), clothing: nonNegative(tick.flow.clothing),
+      weapons: nonNegative(tick.flow.weapons), fuel: nonNegative(tick.flow.fuel),
+      research: nonNegative(tick.flow.research),
+    },
+    needs: {
+      food: nonNegative(needs.food), clothing: nonNegative(needs.clothing),
+      weapons: nonNegative(needs.weapons), fuel: nonNegative(needs.fuel),
+    },
   };
 }
 
