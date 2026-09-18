@@ -34,6 +34,8 @@ export interface NationAccount {
   taxRatePct?: number;
   /** Debito pubblico lordo ereditato in % del PIL (dal registro reale). */
   debtBurdenPct?: number;
+  /** Peso degli interessi sulle entrate annuali, calcolato dal motore (%). */
+  debtServicePct?: number;
   /** Rapporto debito/PIL effettivo (titoli emessi + scoperto), calcolato dal motore. */
   debtRatioPct?: number;
   warEffort?: number;

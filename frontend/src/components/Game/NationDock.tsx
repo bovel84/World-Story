@@ -16,6 +16,7 @@ import {
   setSection,
   NATION_SECTIONS,
   NATION_SECTION_LABEL,
+  type NationSection,
 } from '../../stores/nationDock';
 import { StrategicBriefingCard } from './StrategicBriefingCard';
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
@@ -36,6 +37,7 @@ import {
 } from './NationDock/widgets';
 import { useNationDockModel } from './NationDock/useNationDockModel';
 import { MaterialBalanceList } from './MaterialBalanceList';
+import { DomainOperatingBlock, OperatingPictureBoard } from './OperatingPictureBoard';
 
 // Ri-esportati per i consumatori storici (`DeskContent`, `nationDossier`).
 export type { HistoryPoint, NationAccount, NationDockProps, NationResources, Tone } from './NationDock/types';
@@ -56,8 +58,11 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     budget, verdict, factions, modifiersActive, foodMonthly,
     clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue, provincesLabel,
     moneyDelta, pointDelta, countDelta, mkTrend,
-    materialRows, weaponsRows, armsSummary, lineSummary, playerPolityId,
+    materialRows, weaponsRows, armsSummary, lineSummary, playerPolityId, operatingPicture,
   } = useNationDockModel(props);
+
+  // COUNTRY-CLARITY: dal quadro d'insieme si salta alla sezione di dettaglio.
+  const openSection = (section: NationSection) => setState((prev) => setSection(prev, section));
 
   return (
     <div className="nation-dock">
@@ -78,6 +83,8 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
       <div className="nation-dock-body">
         {active === 'situazione' && (
           <>
+            <OperatingPictureBoard picture={operatingPicture} onOpenSection={openSection} />
+
             {briefing && <StrategicBriefingCard briefing={briefing} />}
 
             <DossierBlock
@@ -185,6 +192,13 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
 
         {active === 'governo' && (
           <>
+            <DossierBlock
+              title="Quadro del governo"
+              description="Sostegno, opposizione, promesse e tenuta: gli stessi numeri del quadro d'insieme, letti prima del dettaglio."
+            >
+              <DomainOperatingBlock picture={operatingPicture} id="governo" />
+            </DossierBlock>
+
             <DossierBlock
               title="Consiglio dei ministri"
               description="Le anime del governo: chi ha più influenza, chi è soddisfatto e chi adesso preme per cambiare rotta."
@@ -306,6 +320,13 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
 
         {active === 'bilancio' && (
           <>
+            <DossierBlock
+              title="Quadro economico"
+              description="Avanzo o disavanzo, debito, interessi e cassa: la diagnosi prima delle voci di bilancio."
+            >
+              <DomainOperatingBlock picture={operatingPicture} id="economia" />
+            </DossierBlock>
+
             <DossierBlock
               title="Tesoreria e debito"
               description="La valuta della nazione: ciò che è in cassa, ciò che si è preso a prestito e quanto credito resta."
@@ -476,6 +497,14 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
         {active === 'risorse' && (
           <>
             <DossierBlock
+              title="Quadro di risorse e industria"
+              description="Scorte, flussi e autonomia; stabilimenti, capacità usata e colli di bottiglia."
+            >
+              <DomainOperatingBlock picture={operatingPicture} id="risorse" onOpenSection={openSection} />
+              <DomainOperatingBlock picture={operatingPicture} id="industria" onOpenSection={openSection} />
+            </DossierBlock>
+
+            <DossierBlock
               title="Magazzino materiale"
               description="Scorte reali del paese: cibo, vestiario, armi, carburante e ricerca. Ogni voce ha un tetto di stoccaggio."
             >
@@ -632,6 +661,13 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
 
         {active === 'armamenti' && (
           <>
+            <DossierBlock
+              title="Quadro delle forze armate"
+              description="Reparti in armi, copertura per categoria, prontezza operativa e dipendenze dall'estero."
+            >
+              <DomainOperatingBlock picture={operatingPicture} id="militare" />
+            </DossierBlock>
+
             <DossierBlock
               title="Quanto hai e quanto produci"
               description="La sintesi che serve a decidere: disponibilità, produzione, consumo e saldo delle scorte che alimentano l'arsenale."

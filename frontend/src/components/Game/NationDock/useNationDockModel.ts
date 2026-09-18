@@ -21,6 +21,7 @@ import { nationalVerdict } from '../governmentDossier';
 import { deriveMaterialRows, materialRowsOf } from '../materialBalance';
 import { arsenalBrief, arsenalBriefText, arsenalLineSummary, arsenalProductionFor } from '../arsenalSummary';
 import { resourceMonths } from './format';
+import { nationalOperatingPicture } from '../nationalOperatingPicture';
 import type { HistoryPoint, MetricTrend, NationDockProps } from './types';
 
 export function useNationDockModel(props: NationDockProps) {
@@ -40,6 +41,9 @@ export function useNationDockModel(props: NationDockProps) {
     fiscalPolicy,
     onSetFiscalPolicy,
     fiscalPolicyBusy = false,
+    commitments,
+    crisis,
+    pressures,
   } = props;
 
   const [state, setState] = useState(initialNationDockState);
@@ -78,6 +82,24 @@ export function useNationDockModel(props: NationDockProps) {
   };
   const active = state.activeSection;
   const assets = useMemo(() => summarizeNationalAssets(regions, account), [regions, account]);
+  // COUNTRY-CLARITY: quadro d'insieme. È un read model puro sui numeri già
+  // pubblicati (conto, magazzino, arsenale, governo, storico): nessuna nuova
+  // chiamata al motore, nessun valore stimato nel browser.
+  const operatingPicture = useMemo(() => nationalOperatingPicture({
+    account,
+    resources,
+    arsenal: arms,
+    assets: { capacityBase: { forces: assets.baseForces } },
+    government,
+    budget: government?.budget ?? null,
+    commitments,
+    history: accountHistory,
+    processes: ongoingProcesses,
+    maintenance: props.maintenanceObligations ?? null,
+    crisis,
+    pressures,
+    today: props.today ?? null,
+  }), [account, resources, arms, assets.baseForces, government, commitments, accountHistory, ongoingProcesses, props.maintenanceObligations, crisis, pressures, props.today]);
   // I progetti in corso sono raggruppati per ambito (Difesa, Infrastrutture…).
   const projectGroups = useMemo(() => groupProjectsByCategory(ongoingProcesses), [ongoingProcesses]);
   const financeAvailable = hasNationalFinance(account);
@@ -189,6 +211,6 @@ export function useNationDockModel(props: NationDockProps) {
     overdraft, activeModifiers, budget, verdict, factions, modifiersActive, popM, troops,
     foodMonthly, clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue,
     provincesLabel, moneyDelta, pointDelta, countDelta, mkTrend,
-    materialRows, weaponsRows, armsSummary, lineSummary,
+    materialRows, weaponsRows, armsSummary, lineSummary, operatingPicture,
   };
 }

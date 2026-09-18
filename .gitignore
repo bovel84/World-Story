@@ -44,3 +44,5 @@ logs/
 # Playwright test artifacts
 e2e/test-results/
 e2e/playwright-report/
+test-results/
+playwright-report/
