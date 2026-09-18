@@ -415,6 +415,50 @@ Il cibo «prodotto dagli impianti» è sparito (era agricoltura contata due volt
 l'esercito consuma davvero: i due difetti che la verifica su dati reali ha
 scoperto e che i test non potevano vedere.
 
+### 18-bis. Verifica live sul Worker (deploy `55fcd13`)
+
+Worker Version ID `25d31e2c-034a-4632-9402-a966bbe5f06e`, tunnel
+`https://ind-strikes-meant-adaptive.trycloudflare.com`, `GET /api/health` →
+`{status:'ok', build:{backend:'dev', frontend:'55fcd13'}, schema:{database:{tables:52}}}`.
+
+**`GET /api/games/23fd1fe361ae/resources` (moderno)** — il tick e le schede
+raccontano la stessa storia:
+
+```json
+"needs": { "food": 1.867, "clothing": 0.555, "weapons": 1.6, "fuel": 0.74 },
+"flow": [
+  { "kind": "weapons", "facilities": 6.354, "army": -1.6, "natural": 0.3, "total": 5.054 },
+  { "kind": "fuel",    "facilities": 3.93,  "army": -0.24, "natural": 3.85, "total": 7.04 }
+]
+```
+
+`productionPerMonth − consumptionPerMonth = balancePerMonth` in ogni riga di
+`balance` (armamenti 6,654 − 1,6 = 5,054 ✓).
+
+**`GET /api/games/23fd1fe361ae/arsenal`** — scheda dell'armata di guarnigione:
+
+```
+Reparti 8 · Uomini 96000 · Carburante 0,24 · Armamenti 1,6 · Cibo 0,48
+```
+
+Sono **gli stessi** numeri della colonna `army` del flusso e del campo `needs`:
+la scheda non ricalcola nulla. Impianti a `Ritmo di lavoro 100`,
+`Ferro 0,032`/`Carbone 0,024` in ingresso e `Vestiario 0,7 · Armamenti 0,5 ·
+Carburante 0,4` in uscita: la somma dei 10 impianti di quel tipo è esattamente
+la produzione pubblicata dal tick.
+
+**`GET /api/games/246c9cda8b8f/arsenal` (1815)** — la prova storica:
+
+```
+army-DEU-garrison: Reparti 3 · Carburante 0,09 · Armamenti 0,6 · Cibo 0,18
+factory-DEU-1:     Ritmo di lavoro 33,3 · Vestiario 0,233 · Armamenti 0,167 · Carburante 0,133
+research_center:   Ritmo di lavoro 33,3 · Punti ricerca 0,117
+mine-DEU-coal:     Giacimento 4 · Armamenti (a pieno regime) 0,24
+```
+
+Il fabbisogno dell'armata (armamenti 0,6) **non** è quello dei reparti generici
+(0,2): viene dall'oggetto reale, come il tick.
+
 ---
 
 ## 19. FREEZE — cosa non è stato toccato
