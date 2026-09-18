@@ -123,6 +123,34 @@ afterAll(() => {
   } catch { /* tmp */ }
 });
 
+  it('collasso in un passo per-evento: il game_over esce una volta, a commit avvenuto', async () => {
+    const { gameId, session } = createGame();
+    seedCrisis(gameId, 0, 2);
+    session.queueAction('Direttiva di prova');
+    const events: Array<{ type: string; data: any }> = [];
+    session.setSSEBroadcaster((type: string, data: any) => { events.push({ type, data }); });
+    // Prima svolta oltre la soglia: la nazione cade su un passo per-evento, non
+    // sul tratto finale. Anche qui il game_over deve uscire a transazione
+    // riuscita e una volta sola.
+    jumpScript = eventsScript([
+      { headline: 'Lunga deriva', description: 'Il debito diventa insostenibile.', date: '2026-04-06', mapChanges: [] },
+      { headline: 'Ultimo avviso', description: 'La piazza scende in strada.', date: '2026-04-20', mapChanges: [] },
+    ]);
+    try {
+      const first = await session.processWorldAdvance(120) as any;
+      expect(first.type).toBe('awaiting_next');
+      const leg = daysBetween(PERIOD_START, '2026-04-06');
+      expect(leg).toBeGreaterThanOrEqual(CRISIS_COLLAPSE_DAYS);
+      expect(crisisOf(gameId).criticalDays.insolvency).toBe(leg);
+      expect(crisisOf(gameId).updatedDate).toBe('2026-04-06');
+      expect(crisisOf(gameId).ending).not.toBeNull();
+      expect(session.isFinished()).toBe(true);
+      expect(events.filter(event => event.type === 'game_over')).toHaveLength(1);
+    } finally {
+      jumpScript = eventsScript();
+    }
+  });
+
 describe('PLAYBACK-CRISIS-LEG — invariante: stesso orologio simulato per tutti i sottosistemi', () => {
   it('primo salto, battito del mondo, salto con ordini e salto senza ordini', async () => {
     // Primo salto di una partita nuova: nessuno stato di crisi precedente.
@@ -299,10 +327,18 @@ describe('PLAYBACK-CRISIS-LEG — il tratto finale del playback scaglionato', ()
     }
   });
 
-  it('atomicità: un completion fallito non lascia giorni di crisi nel database', async () => {
+  it('atomicità: un completion fallito dopo il collasso non lascia epilogo né game_over', async () => {
     const { gameId, session } = createGame();
+    // 60 giorni + i tre tratti = 91: il tratto finale fa cadere la nazione
+    // **dentro** la transazione, prima che il CAS dell'ancora fallisca.
     seedCrisis(gameId, 60, 2);
     session.queueAction('Direttiva di prova');
+
+    const events: Array<{ type: string; data: any }> = [];
+    session.setSSEBroadcaster((type: string, data: any) => { events.push({ type, data }); });
+    const gameOverEvents = () => events.filter(event => event.type === 'game_over');
+    const notes = () => (session as any).pendingNationalNotes as string[];
+    const dbStatus = () => (db.prepare('SELECT status FROM games WHERE id = ?').get(gameId) as any).status;
 
     const first = await session.processWorldAdvance(JUMP_DAYS) as any;
     const runId = first.simulationId;
@@ -310,25 +346,70 @@ describe('PLAYBACK-CRISIS-LEG — il tratto finale del playback scaglionato', ()
     const before = crisisOf(gameId);
     expect(before.criticalDays.insolvency).toBe(60 + LEG_1 + LEG_2);
     expect(before.updatedDate).toBe(EVENTS[1].date);
+    expect(session.isFinished()).toBe(false);
+    expect(notes().some(note => note.startsWith('⛔'))).toBe(false);
 
     // Il mondo è cambiato altrove: il CAS dell'ancora fa fallire il completion
-    // DOPO l'avanzamento di economia e crisi, quindi la transazione rolla.
+    // DOPO l'avanzamento di economia e crisi (che nel tratto finale producono il
+    // collasso), quindi la transazione rolla.
     db.prepare('UPDATE games SET current_turn = current_turn + 1 WHERE id = ?').run(gameId);
     await expect(session.continueSimulation(runId)).rejects.toThrow(/world_anchor_conflict/);
 
+    // DB: la crisi è tornata al checkpoint precedente, senza epilogo.
     const after = crisisOf(gameId);
     expect(after.criticalDays.insolvency).toBe(before.criticalDays.insolvency);
     expect(after.episodes.insolvency).toBe(before.episodes.insolvency);
     expect(after.updatedDate).toBe(before.updatedDate);
     expect(after.ending).toBeNull();
+    expect(dbStatus()).toBe('playing');
+    // RAM: la partita non è finita, e il collasso fallito non ha lasciato tracce.
+    expect(session.isFinished()).toBe(false);
+    expect(session.getEnding()).toBeNull();
+    expect(session.getStatus()).toBe('playing');
+    expect(notes().some(note => note.startsWith('⛔'))).toBe(false);
+    // Il client non ha mai visto un game_over che il rollback ha cancellato.
+    expect(gameOverEvents()).toHaveLength(0);
 
     // Ripristinata l'ancora del mondo, il «Continua» riesegue il tratto finale
-    // una sola volta: 79 + 12 = 91, non il doppio.
+    // una sola volta: 79 + 12 = 91, un solo collasso, un solo game_over.
     db.prepare('UPDATE games SET current_turn = ?, current_date = ? WHERE id = ?')
       .run(session.getCurrentTurn(), session.getCurrentDate(), gameId);
     const retried = await session.continueSimulation(runId) as any;
     expect(retried.type).toBe('run_completed');
     expect(crisisOf(gameId).criticalDays.insolvency).toBe(60 + LEG_1 + LEG_2 + LEG_3);
     expect(crisisOf(gameId).updatedDate).toBe(DESTINATION);
+    expect(crisisOf(gameId).ending).not.toBeNull();
+    expect(session.isFinished()).toBe(true);
+    expect(session.getEnding()).not.toBeNull();
+    expect(notes().some(note => note.startsWith('⛔'))).toBe(true);
+    expect(gameOverEvents()).toHaveLength(1);
+  });
+
+  it('completion riuscito con collasso: il game_over esce una sola volta, dopo il commit', async () => {
+    const { gameId, session } = createGame();
+    seedCrisis(gameId, 60, 2);
+    session.queueAction('Direttiva di prova');
+
+    const events: Array<{ type: string; data: any }> = [];
+    let finishedWhenBroadcast = false;
+    session.setSSEBroadcaster((type: string, data: any) => {
+      // A commit avvenuto lo stato è già coerente quando l'evento esce.
+      if (type === 'game_over') finishedWhenBroadcast = session.isFinished();
+      events.push({ type, data });
+    });
+
+    const first = await session.processWorldAdvance(JUMP_DAYS) as any;
+    const runId = first.simulationId;
+    await session.continueSimulation(runId);
+    // Nessun collasso prima del tratto finale: niente game_over nei passi.
+    expect(events.filter(event => event.type === 'game_over')).toHaveLength(0);
+
+    const done = await session.continueSimulation(runId) as any;
+    expect(done.type).toBe('run_completed');
+    const gameOver = events.filter(event => event.type === 'game_over');
+    expect(gameOver).toHaveLength(1);
+    expect(finishedWhenBroadcast).toBe(true);
+    expect((gameOver[0].data as any).ending).toBeTruthy();
+    expect((gameOver[0].data as any).date).toBe(DESTINATION);
   });
 });

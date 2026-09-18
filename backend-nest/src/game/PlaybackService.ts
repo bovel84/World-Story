@@ -48,6 +48,12 @@ export interface PlaybackContext {
   broadcast(type: any, data: any): boolean | void;
   buildResolvers(): any;
   captureCheckpointData(): any;
+  /**
+   * PLAYBACK-ATOMIC-OVER: apre la finestra in cui il `game_over` di un collasso
+   * resta in attesa del commit. `flush()` lo pubblica (una sola volta) a
+   * transazione riuscita, `discard()` lo dimentica se la transazione fallisce.
+   */
+  deferGameOver(): { flush(): void; discard(): void };
   captureMovementIntents(actions: PendingAction[]): MovementIntent[];
   outcomesByActionId(...args: any[]): any;
   advanceWorldState(days: number, asOfDate: string): string[];
@@ -175,11 +181,17 @@ export class PlaybackService {
       checkpointId: state.checkpointId,
       revision: state.revision,
       pausedRun: this.state.pausedRun,
+      // PLAYBACK-ATOMIC-OVER: il collasso può avvenire anche in questo passo e
+      // modifica la RAM (epilogo, stato, note): entra nello staging esistente.
+      ending: this.state.ending,
+      status: this.state.status,
+      pendingNationalNotes: [...this.state.pendingNationalNotes],
     };
     // M06 µ5f (quarta revisione B2): closeReason vive FUORI dal try, così la
     // completion dell'ultimo evento è invocata DOPO il catch: un suo fault
     // non ripassa dal rollback pre-step sopra un run già chiuso 'failed'.
     let closeReason: 'paused_budget' | 'completed' | null = null;
+    const endingGuard = this.ctx.deferGameOver();
     try {
     // Effetti mappa dell’evento: solo ora la proposta diventa applicata.
     const changedRegions = this.ctx.applyFrontierPlacements(
@@ -348,6 +360,9 @@ export class PlaybackService {
     });
 
     // La chat nasce solo dopo il commit del checkpoint che contiene l'evento.
+    // PLAYBACK-ATOMIC-OVER: anche il `game_over` di un collasso avvenuto in
+    // questo passo esce solo ora, a transazione riuscita.
+    endingGuard.flush();
     for (const payload of reactionChatBroadcasts) this.ctx.broadcast('chat_message', payload);
 
     if (!closeReason) {
@@ -409,6 +424,11 @@ export class PlaybackService {
       state.checkpointId = staging.checkpointId;
       state.revision = staging.revision;
       this.state.pausedRun = staging.pausedRun;
+      // PLAYBACK-ATOMIC-OVER: la RAM del collasso non sopravvive al rollback.
+      this.state.ending = staging.ending;
+      this.state.status = staging.status;
+      this.state.pendingNationalNotes = staging.pendingNationalNotes;
+      endingGuard.discard();
       throw e;
     }
     // M06 µ5f: la completion dell'ultimo evento NON passa dal catch dello
@@ -455,6 +475,12 @@ export class PlaybackService {
       date: this.state.currentDate,
       interveneRequested: this.state.interveneRequested,
       pausedRun: this.state.pausedRun,
+      // PLAYBACK-ATOMIC-OVER: il tratto finale può far cadere la nazione
+      // (`evaluateCrisis` → `finishGame`): epilogo, stato e note entrano nello
+      // staging, così un fallimento successivo (es. CAS) li riporta com'erano.
+      ending: this.state.ending,
+      status: this.state.status,
+      pendingNationalNotes: [...this.state.pendingNationalNotes],
     };
 
     // Cronaca canonica del run: gli eventi applicati, con le loro date.
@@ -492,6 +518,8 @@ export class PlaybackService {
     let runEvents!: string[];
     let runEventDetails!: TimelineEventRecord[];
     let batchActions!: PendingAction[];
+    // PLAYBACK-ATOMIC-OVER: il `game_over` del tratto finale aspetta il commit.
+    const endingGuard = this.ctx.deferGameOver();
     // F02 passo 2: commit canonico atomico della chiusura del run — anche
     // qui tutte le scritture in una sola transazione breve; broadcast e
     // consolidamento restano fuori. Un protocol error (es. projectId non
@@ -805,10 +833,21 @@ export class PlaybackService {
         // sul checkpoint confermato, come prima di M06.
         this.state.pausedRun = staging.pausedRun;
       }
+      // PLAYBACK-ATOMIC-OVER: la RAM del collasso non sopravvive al rollback:
+      // epilogo, stato e nota di game over tornano com'erano prima del tratto
+      // finale, coerenti con il DB riportato al checkpoint. Il `game_over`
+      // differito viene scartato: il client non lo riceverà mai.
+      this.state.ending = staging.ending;
+      this.state.status = staging.status;
+      this.state.pendingNationalNotes = staging.pendingNationalNotes;
+      endingGuard.discard();
       throw e;
     }
 
     // F02/M06: SSE solo dopo il commit riuscito; il rollback non può pubblicare chat fantasma.
+    // PLAYBACK-ATOMIC-OVER: a transazione riuscita il `game_over` differito esce
+    // qui, una sola volta, dopo che l'epilogo è davvero persistito.
+    endingGuard.flush();
     for (const payload of chatBroadcasts) this.ctx.broadcast('chat_message', payload);
     this.ctx.broadcast('turn_complete', {
       turn: state.jumpTurn,
