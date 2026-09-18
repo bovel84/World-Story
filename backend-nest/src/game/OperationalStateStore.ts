@@ -83,6 +83,9 @@ const nonNegative = (value: unknown): number => {
 export class OperationalStateStore {
   private state: OperationalStateSnapshot | null = null;
   private seeding = false;
+  /** Esito della verifica del seed, memorizzato: una query sola per sessione. */
+  private seedChecked = false;
+  private seedDone = false;
 
   constructor(private readonly inputs: OperationalStoreInputs) {}
 
@@ -122,8 +125,11 @@ export class OperationalStateStore {
 
   /** Il seed è avvenuto? La riga di personale è la sentinella. */
   seeded(): boolean {
+    if (this.seedChecked) return this.seedDone;
     try {
-      return operationalObjectRepository.idsOfKind(this.inputs.gameId, 'personnel').length > 0;
+      this.seedDone = operationalObjectRepository.idsOfKind(this.inputs.gameId, 'personnel').length > 0;
+      this.seedChecked = true;
+      return this.seedDone;
     } catch (error) {
       this.warn('verifica seed non disponibile', error);
       return false;
@@ -208,6 +214,8 @@ export class OperationalStateStore {
       this.inputs.saveDepotUnits(depot);
       this.inputs.saveArmies(armies);
       this.state = { personnel, armies, facilities, ships, fleets, constructions };
+      this.seedChecked = true;
+      this.seedDone = true;
       return this.state;
     } catch (error) {
       this.warn('seed oggetti non riuscito', error);
