@@ -1,6 +1,6 @@
 # COUNTRY-CLARITY ENGINE FIX — i quattro residui strutturali
 
-**PR:** `feat/cc-engine-fix` · **Base:** `main` (`d9f5452`)
+**PR:** `feat/cc-engine-fix` · **Base:** `main` (`d9f5452`) · **Mergiata:** `85f3183` (#61) · **Deploy:** Worker `2668c5d7-59be-4b54-bc8f-498e1d228eaa` (`build.frontend 85f3183`)
 **Ambito:** chiusura dei **quattro residui** rimasti aperti dopo COUNTRY-CLARITY ENGINE (#59/#60).
 **Principio:** `ENGINE DATA → READ MODEL → UI`. Nessun sottosistema nuovo, nessun secondo calcolo, nessuna regola nuova in UI.
 
@@ -231,11 +231,14 @@ Suite mirate tutte verdi: `military-doctrine`, `industrial-capacity`, `industria
 
 ---
 
-## 13. Verifica live (backend locale = quello servito dal tunnel)
+## 13. Verifica live (post-deploy, attraverso il Worker)
+
+**Deploy:** `bash scripts/deploy-cloudflare.sh` — backend ricostruito e riavviato, KV `backend_url` allineata, **Worker Version ID `2668c5d7-59be-4b54-bc8f-498e1d228eaa`**.
+`GET https://world-story.bovel-cannas.workers.dev/api/health` → `build.frontend 85f3183`, 51 tabelle, `auth: open-single-user`.
 
 ### 13.1 Partita esistente `aa8c25b40bb6` — il caso del DoD
 
-`GET /api/games/aa8c25b40bb6/arsenal` (preset `modern_world_provinces`, era moderna):
+`GET /api/games/aa8c25b40bb6/arsenal` (via Worker, preset `modern_world_provinces`, era moderna):
 
 ```
 epoch: "moderno"  epochLabel: "Era moderna"
@@ -244,30 +247,35 @@ manpower: activePersonnel 72.000 (6 × 12.000), reservePersonnel 64.800,
           mobilizationHeadroom 3.211.880, overMobilized false
 establishment[0]: { category "individualWeapons", perFormation null, perMobilized null,
                     personnelSharePct 75, demand "personnel_share" }
+units: { fucili: 240, apc: 9 }
 coverage[0]: { required 54.000, available 240, coveragePct 0.4, missing 53.760,
                items ["Fucili d’assalto ×240"] }
 readiness: 19 / "critical"
-industrialCapacity: total 38, used 26, free 12, saturated false, blocked false
+  driver: critical «Copertura armi individuali 0,4%
+           → 240 in servizio su 54.000 della dotazione di riferimento»
+industrialCapacity: total 38, used 26, demand 26, overflowFactor 1,
+                    saturated false, blocked false
 ```
 
-**72.000 uomini non possono essere armati da 240 fucili:** il motore lo dice (0,4%, mancano 53.760). L'arsenale di questa partita è un **seed salvato con la vecchia regola** (240 «lotti»): vedi §14.
+**72.000 uomini non possono essere armati da 240 fucili:** il motore lo dice (0,4%, mancano 53.760) e il driver porta anche i decimali. L'arsenale di questa partita è un **seed salvato con la vecchia regola** (240 «lotti»): vedi §14.
 
 ### 13.2 Partita nuova `23fd1fe361ae` — il seed corretto
 
 Creata per la verifica (`POST /api/games`, mondo `e3cb38dbbf42`, regione `e3cb38dbbf42_GBHLD`, polity `GBR`):
 
 ```
-epoch: "moderno"
+epoch: "moderno"  epochLabel: "Era moderna"
 manpower: activePersonnel 96.000 (8 × 12.000), mobilizationCap 4.856.144
-          (= round(9.712.287 × 0,5)), overMobilized false
+          (= round(9.712.287 × 0,5)), mobilizationHeadroom 4.856.144, overMobilized false
 units: { fucili: 72.000, apc: 12 }
 coverage[0]: { required 72.000, available 72.000, coveragePct 100, missing 0 }
 readiness: 47 / "fragile"
-industrialCapacity: total 114 (10 fabbriche × 10 + 7 atenei × 2), blocked false
+industrialCapacity: total 114 (10 fabbriche × 10 + 7 atenei × 2), used 0,
+                    blocked false
 catalog.fucili: canBuy true, buildCostMln 4, buyCostMln 6
 ```
 
-Il seed **è** il fabbisogno: 96.000 uomini in armi → 72.000 armi (75%), copertura 100%. Nessun numero diverso fra seed e copertura.
+Il seed **è** il fabbisogno: 96.000 uomini in armi → 72.000 armi (75%), copertura 100%. Nessun numero diverso fra seed e copertura, nessun trucco.
 
 *(La partita `23fd1fe361ae` è nata per la verifica: può essere cancellata senza conseguenze.)*
 
