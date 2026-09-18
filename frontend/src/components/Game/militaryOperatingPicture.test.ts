@@ -48,6 +48,29 @@ describe('COUNTRY-CLARITY · forze armate', () => {
     expect(coverage.find(row => row.id === 'individualWeapons')?.items[0]).toContain('Fucili');
   });
 
+  it('paese senza sbocco al mare: nessuna flotta richiesta, prontezza non penalizzata', () => {
+    const coastal = equipmentCoverage({ forces: 6, mobilized: 2, ports: 3 }, arsenal());
+    const landlocked = equipmentCoverage({ forces: 6, mobilized: 2, ports: 0 }, arsenal());
+    expect(coastal).toHaveLength(6);
+    expect(landlocked).toHaveLength(5);
+    expect(landlocked.some(row => row.id === 'navalSupport')).toBe(false);
+    // Con il dato assente (non zero) la categoria resta: assenza ≠ zero.
+    expect(equipmentCoverage({ forces: 6 }, arsenal())).toHaveLength(6);
+
+    // Il peso si normalizza sulle categorie presenti: una flotta che non può
+    // esistere non abbassa la prontezza. Con la categoria navale a zero (il
+    // caso di un paese senza mare trattato come se dovesse avere una flotta)
+    // la prontezza scenderebbe di sette punti.
+    const coastalReady = readinessPicture({ account: { forces: 6, mobilized: 2 }, arsenal: arsenal(), coverage: coastal });
+    const landReady = readinessPicture({ account: { forces: 6, mobilized: 2, ports: 0 }, arsenal: arsenal(), coverage: landlocked });
+    expect(landReady.readinessPct).toBe(75);
+    expect(Math.abs(landReady.readinessPct - coastalReady.readinessPct)).toBeLessThanOrEqual(2);
+    expect(landReady.status).toBe(coastalReady.status);
+    const navalAtZero = [...landlocked, { id: 'navalSupport', label: 'Supporto navale', actual: 0, required: 1, pct: 0, tone: 'critical' as const, items: [] }];
+    expect(readinessPicture({ account: { forces: 6, mobilized: 2 }, arsenal: arsenal(), coverage: navalAtZero }).readinessPct)
+      .toBeLessThan(landReady.readinessPct);
+  });
+
   it('copertura zero: senza uomini il fabbisogno è nullo, non finto', () => {
     const coverage = equipmentCoverage({ forces: 0, mobilized: 0 }, arsenal());
     expect(coverage.every(row => row.required === 0)).toBe(true);
@@ -149,6 +172,7 @@ describe('COUNTRY-CLARITY · forze armate', () => {
     expect(individual.pct).toBe(16.7);
     expect(picture.readiness.readinessPct).toBeLessThan(35);
     expect(picture.status).toBe('critical');
+    expect(picture.coverage).toHaveLength(6); // ha un porto: anche la flotta entra nel fabbisogno
     expect(picture.procurement).toEqual([]);
   });
 });

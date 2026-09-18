@@ -130,6 +130,7 @@ readinessPct = clamp( Σ(copertura_categoria × peso_categoria) / Σ pesi
 * fattore carburante/armamenti = `min(1, scorta / (fabbisogno × 3 mesi))`, `1` se il fabbisogno non è pubblicato (un dato mancante non punisce);
 * fattore qualità = `0,75 + min(0,25, qualityIndex/400)`;
 * fattore mobilitazione = `1 − min(0,15, richiamati/totale × 0,3)` — le riserve consumano equipaggiamento per diventare operative;
+* i pesi si **normalizzano sulle categorie presenti**: un paese senza porti (`account.ports === 0`, il motore tratta i porti come geografia) non riceve un fabbisogno navale che non potrebbe soddisfare, e la scala resta 0–100; con il dato assente (non zero) la categoria resta, perché assenza ≠ zero (una categoria navale a zero costerebbe 7 punti di prontezza);
 * soglie di stato: ≥80 solido · ≥65 stabile · ≥50 sotto pressione · ≥35 fragile · <35 critico;
 * driver generati per **ogni** copertura sotto l'85%, per il carburante sotto i 3 mesi, per le scorte di armamenti insufficienti, per la qualità e per le riserve richiamate.
 
@@ -217,4 +218,5 @@ COUNTRY-CLARITY P7   ricerca e infrastrutture nella sala operativa
 6. **Diplomazia (priorità 10)**: resta nelle schede esistenti (potenze del teatro, presenze) e non è entrata nei cinque domini del quadro d'insieme.
 7. **Ricerca e infrastrutture** hanno una risposta dedicata nella sala operativa e cifre nel dominio Risorse/Industria, ma non una sezione nuova: le schede «Conoscenze» e «Risorse» esistenti restano il dettaglio.
 8. **Trend dei domini non economici**: dove lo storico del motore non esiste (industria, governo) il trend non viene mostrato, invece di essere stimato.
-9. **`ESTABLISHMENT`**: quattro delle sei dotazioni di riferimento sono convenzioni del read model (dichiarate e testate), non dati del motore; le altre due sono ancorate al seed dell'arsenale.
+9. **`ESTABLISHMENT`**: quattro delle sei dotazioni di riferimento sono convenzioni del read model (dichiarate e testate), non dati del motore; le altre due sono ancorate al seed dell'arsenale. La categoria navale non entra nel fabbisogno dei paesi senza porti.
+10. **Copertura 0% su una categoria**: è un dato reale (il paese non possiede nulla in quella categoria) e viene mostrato come tale, con la categoria nominata nel dettaglio.
