@@ -245,7 +245,11 @@ export interface Equipment extends EquipmentDetail {
   tier: QualityTier;
   /** Costo unitario di costruzione in milioni di USD (tesoreria in miliardi). */
   costMln: number;
-  /** Consumo di scorte di armamenti per unità costruita. */
+  /**
+   * Consumo di scorte di armamenti per unità costruita. Per le **armi
+   * individuali** l'unità è il singolo pezzo, quindi il consumo è una frazione
+   * di punto di scorta (un fucile non è un carro armato).
+   */
   weaponsCost: number;
   requires: EquipmentRequirement;
 }
@@ -439,7 +443,10 @@ const E = (
 
 export const EQUIPMENT_CATALOG: Equipment[] = [
   // Terra
-  E('fucili', 'Fucili d’assalto', 'terra', 'Fanteria', 35, 800, 4, { techs: ['industria_bellica'], factories: 1 }),
+  // Armi individuali: **una per soldato** — il catalogo non vende più «lotti»
+  // da 40. Il prezzo unitario scende di conseguenza (4 mln per fucile) così il
+  // costo di un reparto armato resta quello di prima.
+  E('fucili', 'Fucili d’assalto', 'terra', 'Fanteria', 35, 4, 0.02, { techs: ['industria_bellica'], factories: 1 }),
   E('apc', 'Veicoli corazzati da trasporto', 'terra', 'Corazzati', 52, 2_500, 10, { techs: ['industria_bellica', 'meccanica_avanzata'], factories: 2, resources: { iron: 2, coal: 2 } }),
   E('carri_3', 'Carri armati di 3ª generazione', 'terra', 'Corazzati', 62, 8_000, 26, { techs: ['meccanica_avanzata', 'corazzati'], factories: 3, universities: 1, resources: { iron: 3, coal: 3 } }),
   E('carri_4', 'Carri armati di 4ª generazione', 'terra', 'Corazzati', 84, 16_000, 45, { techs: ['corazzati_avanzati', 'elettronica'], factories: 4, universities: 2, resources: { iron: 4, rare_earths: 2 } }),

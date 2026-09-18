@@ -8,9 +8,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   CAPACITY_PER_FACTORY, CAPACITY_PER_PORT, CAPACITY_PER_UNIVERSITY, MAX_ALLOCATION_PER_ITEM,
-  industrialCapacityOf, industrialCapacityTotal, maintenanceAllocation, militaryOrderAllocation,
-  projectAllocation,
+  REFERENCE_BATCH_BY_CATEGORY, REFERENCE_BATCH_BY_DOMAIN,
+  allocationCapFor, industrialCapacityOf, industrialCapacityTotal, maintenanceAllocation,
+  militaryOrderAllocation, projectAllocation, quantityFactor, referenceBatchFor,
 } from '../src/core/simulation/IndustrialCapacity';
+import { equipmentById } from '../src/core/simulation/MilitaryIndustry';
 
 describe('totale della capacità', () => {
   it('deriva dagli impianti che il motore già conta', () => {
@@ -49,10 +51,32 @@ describe('domanda delle lavorazioni', () => {
     expect(naval.sector).toContain('mare');
   });
 
-  it('la quantità non moltiplica la capacità occupata: la linea resta occupata', () => {
+  it('la quantità pesa, ma in modo sub-lineare (P13)', () => {
     const one = militaryOrderAllocation({ id: 'a', equipmentId: 'apc', quantity: 1 });
-    const many = militaryOrderAllocation({ id: 'a', equipmentId: 'apc', quantity: 500 });
-    expect(one.capacityDemand).toBe(many.capacityDemand);
+    const hundred = militaryOrderAllocation({ id: 'a', equipmentId: 'apc', quantity: 100 });
+    const fiveHundred = militaryOrderAllocation({ id: 'a', equipmentId: 'apc', quantity: 500 });
+    expect(one.capacityDemand).toBe(8);
+    // Un carro e cento carri non occupano la stessa capacità…
+    expect(hundred.capacityDemand).toBeGreaterThan(one.capacityDemand);
+    expect(fiveHundred.capacityDemand).toBeGreaterThan(hundred.capacityDemand);
+    // …ma cento carri non occupano cento volte una linea: crescita logaritmica.
+    expect(fiveHundred.capacityDemand).toBeLessThan(one.capacityDemand * 500);
+    expect(hundred.basis).toContain('riferimento di 50');
+  });
+
+  it('il lotto di riferimento viene dalla natura del mezzo, non dal prezzo', () => {
+    expect(referenceBatchFor(equipmentById('fucili'))).toBe(REFERENCE_BATCH_BY_CATEGORY.Fanteria);
+    expect(referenceBatchFor(equipmentById('apc'))).toBe(REFERENCE_BATCH_BY_CATEGORY.Corazzati);
+    expect(referenceBatchFor(equipmentById('caccia_5'))).toBe(REFERENCE_BATCH_BY_DOMAIN.aria);
+    expect(quantityFactor(1000, 1000)).toBe(1);
+    expect(quantityFactor(500, 1000)).toBe(1);
+    expect(quantityFactor(10_000, 1000)).toBeCloseTo(2, 5);
+  });
+
+  it('nemmeno un ordine enorme può occupare tutto l’impianto', () => {
+    const huge = militaryOrderAllocation({ id: 'a', equipmentId: 'apc', quantity: 1_000_000 });
+    expect(huge.capacityDemand).toBe(allocationCapFor(8));
+    expect(huge.capacityDemand).toBe(MAX_ALLOCATION_PER_ITEM);
   });
 
   it('nessuna lavorazione può occupare tutto l’impianto', () => {
@@ -149,7 +173,7 @@ describe('quadro completo', () => {
     expect(capacity.overflowFactor).toBe(0.25);
   });
 
-  it('senza impianti nessuno lavora: capacità zero e fattore al minimo', () => {
+  it('senza impianti la produzione è bloccata, non rallentata (P12)', () => {
     const capacity = industrialCapacityOf({
       factories: 0, ports: 0, universities: 0,
       orders: [{ id: 'a', equipmentId: 'apc' }],
@@ -158,7 +182,17 @@ describe('quadro completo', () => {
     expect(capacity.used).toBe(0);
     expect(capacity.utilizationPct).toBe(0);
     expect(capacity.saturated).toBe(true);
-    expect(capacity.overflowFactor).toBe(0.25);
+    expect(capacity.blocked).toBe(true);
+    // Fattore **zero**: nessuna produzione al 25% del ritmo dal nulla.
+    expect(capacity.overflowFactor).toBe(0);
+    expect(capacity.satisfactionPct).toBe(0);
+  });
+
+  it('senza impianti e senza lavori non c’è nulla da rallentare', () => {
+    const capacity = industrialCapacityOf({ factories: 0, ports: 0, universities: 0 });
+    expect(capacity.blocked).toBe(false);
+    expect(capacity.saturated).toBe(false);
+    expect(capacity.overflowFactor).toBe(1);
   });
 
   it('senza lavorazioni la capacità è tutta libera', () => {

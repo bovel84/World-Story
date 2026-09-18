@@ -8,8 +8,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   ESTABLISHMENT_BY_EPOCH, MANPOWER_PROFILES, MOBILITY_EQUIPMENT_ID, OPERATION_MONTHS,
-  RIFLES_PER_FORMATION, RIFLES_PER_MOBILIZED_FORMATION,
-  arsenalSeedUnits, epochForDate, equipmentCoverage, establishmentFor, militaryManpower,
+  arsenalSeedUnits, epochForDate, equipmentCoverage, establishmentFor,
+  individualWeaponDemand, individualWeaponShareFor, militaryManpower,
   militaryReadiness, readinessStatusFor, untrainedPool, type MilitaryEpoch,
 } from '../src/core/simulation/MilitaryDoctrine';
 
@@ -112,12 +112,33 @@ describe('establishment per epoca', () => {
     }
   });
 
-  it('le armi individuali conservano le costanti del seed del motore', () => {
+  it('le armi individuali si misurano sul personale, non sul numero di reparti', () => {
+    // P10: 72.000 uomini non possono essere armati da 240 fucili.
+    const modern = militaryManpower({ population: 50_000_000, formations: 6, mobilizedFormations: 0, epoch: 'moderno' });
+    const demand = individualWeaponDemand('moderno', modern.formations, modern.mobilizedFormations);
+    expect(modern.activePersonnel).toBe(72_000);
+    expect(demand).toBe(54_000);
+    expect(demand).not.toBe(240);
+    expect(demand).toBe(Math.round(72_000 * individualWeaponShareFor('moderno')));
+    expect(individualWeaponShareFor('moderno')).toBeLessThan(1);
+    expect(individualWeaponShareFor('seconda_guerra')).toBeGreaterThan(individualWeaponShareFor('moderno'));
+    // Con 240 fucili la copertura è quasi nulla, non il 100%.
+    const coverage = equipmentCoverage({ units: { fucili: 240 }, manpower: modern, epoch: 'moderno', ports: 0 });
+    const individual = coverage.find(row => row.category === 'individualWeapons')!;
+    expect(individual.required).toBe(54_000);
+    expect(individual.available).toBe(240);
+    expect(individual.coveragePct).toBe(0.4);
+    expect(individual.missing).toBe(53_760);
+    const readiness = militaryReadiness({ coverage, manpower: modern });
+    expect(readiness.readinessPct).toBeLessThan(30);
+    expect(readiness.drivers.some(driver => driver.label.includes('armi individuali'))).toBe(true);
+    // Le voci di catalogo che non sono armi individuali restano per reparto.
     for (const epoch of epochs) {
       const entry = ESTABLISHMENT_BY_EPOCH[epoch].find(item => item.id === 'individualWeapons')!;
-      expect(entry.perFormation).toBe(RIFLES_PER_FORMATION);
-      expect(entry.perMobilized).toBe(RIFLES_PER_MOBILIZED_FORMATION);
-      expect(entry.source).toBe('engine_seed');
+      expect(entry.demand?.kind).toBe('personnel_share');
+      expect(entry.perFormation).toBeUndefined();
+      const others = ESTABLISHMENT_BY_EPOCH[epoch].filter(item => item.id !== 'individualWeapons');
+      for (const other of others) expect(other.demand?.kind ?? 'per_formation').toBe('per_formation');
     }
   });
 
@@ -132,10 +153,11 @@ describe('establishment per epoca', () => {
 describe('copertura', () => {
   const manpower = militaryManpower({ population: 50_000_000, formations: 6, mobilizedFormations: 0, epoch: 'moderno' });
 
-  it('il fabbisogno nasce dagli uomini effettivi, non dal numero di reparti', () => {
+  it('il fabbisogno di armi individuali nasce dagli uomini in armi', () => {
     const coverage = equipmentCoverage({ units: {}, manpower, epoch: 'moderno', ports: 3 });
     const individual = coverage.find(row => row.category === 'individualWeapons')!;
-    expect(individual.required).toBe(6 * RIFLES_PER_FORMATION);
+    expect(individual.required).toBe(individualWeaponDemand('moderno', 6, 0));
+    expect(individual.required).toBe(54_000);
     expect(individual.items).toEqual([]);
   });
 
@@ -143,26 +165,27 @@ describe('copertura', () => {
     const called = militaryManpower({ population: 50_000_000, formations: 6, mobilizedFormations: 2, epoch: 'moderno' });
     const coverage = equipmentCoverage({ units: {}, manpower: called, epoch: 'moderno', ports: 3 });
     const individual = coverage.find(row => row.category === 'individualWeapons')!;
-    expect(individual.required).toBe(6 * RIFLES_PER_FORMATION + 2 * RIFLES_PER_MOBILIZED_FORMATION);
+    expect(individual.required).toBe(individualWeaponDemand('moderno', 6, 2));
+    expect(individual.required).toBeGreaterThan(individualWeaponDemand('moderno', 6, 0));
   });
 
   it('conta il possesso reale e calcola la copertura', () => {
     const coverage = equipmentCoverage({
-      units: { fucili: 120, apc: 9 },
+      units: { fucili: 27_000, apc: 9 },
       manpower, epoch: 'moderno', ports: 3,
     });
     const individual = coverage.find(row => row.category === 'individualWeapons')!;
-    expect(individual.available).toBe(120);
+    expect(individual.available).toBe(27_000);
     expect(individual.coveragePct).toBe(50);
-    expect(individual.missing).toBe(120);
-    expect(individual.items).toEqual(['Fucili d’assalto ×120']);
+    expect(individual.missing).toBe(27_000);
+    expect(individual.items).toEqual(['Fucili d’assalto ×27000']);
     const armor = coverage.find(row => row.category === 'armoredMobility')!;
     expect(armor.available).toBe(9);
     expect(armor.coveragePct).toBe(100);
   });
 
   it('la copertura non supera il 100% nemmeno con arsenali enormi', () => {
-    const coverage = equipmentCoverage({ units: { fucili: 10_000 }, manpower, epoch: 'moderno', ports: 3 });
+    const coverage = equipmentCoverage({ units: { fucili: 200_000 }, manpower, epoch: 'moderno', ports: 3 });
     const individual = coverage.find(row => row.category === 'individualWeapons')!;
     expect(individual.coveragePct).toBe(100);
     expect(individual.missing).toBe(0);
@@ -195,7 +218,7 @@ describe('copertura', () => {
 
 describe('prontezza operativa', () => {
   const manpower = militaryManpower({ population: 50_000_000, formations: 6, mobilizedFormations: 0, epoch: 'moderno' });
-  const full = equipmentCoverage({ units: { fucili: 1000, apc: 30 }, manpower, epoch: 'moderno', ports: 2 });
+  const full = equipmentCoverage({ units: { fucili: 54_000, apc: 30 }, manpower, epoch: 'moderno', ports: 2 });
 
   it('senza dati di carburante e scorte non punisce (fattore neutro)', () => {
     const readiness = militaryReadiness({ coverage: full, manpower });
@@ -225,7 +248,7 @@ describe('prontezza operativa', () => {
 
   it('i richiamati consumano prontezza finché non sono in linea', () => {
     const called = militaryManpower({ population: 50_000_000, formations: 6, mobilizedFormations: 4, epoch: 'moderno' });
-    const coverage = equipmentCoverage({ units: { fucili: 1000, apc: 30 }, manpower: called, epoch: 'moderno', ports: 2 });
+    const coverage = equipmentCoverage({ units: { fucili: 90_000, apc: 30 }, manpower: called, epoch: 'moderno', ports: 2 });
     const readiness = militaryReadiness({ coverage, manpower: called });
     expect(readiness.drivers.some(driver => driver.label.includes('richiamati'))).toBe(true);
   });
@@ -250,18 +273,24 @@ describe('prontezza operativa', () => {
 });
 
 describe('seed dell’arsenale', () => {
-  it('usa le costanti della copertura', () => {
+  it('usa la stessa regola della copertura (P11: seed completo → 100%)', () => {
     expect(arsenalSeedUnits('moderno', 6, 2)).toEqual({
-      fucili: 6 * RIFLES_PER_FORMATION + 2 * RIFLES_PER_MOBILIZED_FORMATION,
+      fucili: individualWeaponDemand('moderno', 6, 2),
       [MOBILITY_EQUIPMENT_ID]: 9,
     });
+    for (const epoch of epochs) {
+      const formations = 6;
+      const mobilized = 2;
+      expect(arsenalSeedUnits(epoch, formations, mobilized).fucili)
+        .toBe(individualWeaponDemand(epoch, formations, mobilized));
+    }
   });
 
   it('non dota di corazzati un mondo che non li ha', () => {
     expect(arsenalSeedUnits('pre_industriale', 6, 2)).toEqual({
-      fucili: 6 * RIFLES_PER_FORMATION + 2 * RIFLES_PER_MOBILIZED_FORMATION,
+      fucili: individualWeaponDemand('pre_industriale', 6, 2),
     });
-    expect(arsenalSeedUnits('grande_guerra', 6, 0)).toEqual({ fucili: 240 });
+    expect(arsenalSeedUnits('grande_guerra', 6, 0)).toEqual({ fucili: 43_200 });
   });
 
   it('senza reparti non semina nulla', () => {
@@ -273,5 +302,76 @@ describe('seed dell’arsenale', () => {
     const seed = arsenalSeedUnits('moderno', 6, 2);
     const coverage = equipmentCoverage({ units: seed, manpower, epoch: 'moderno', ports: 0 });
     expect(coverage.find(row => row.category === 'individualWeapons')!.coveragePct).toBe(100);
+    // Senza trucchi: il seed è il fabbisogno, non un numero «comodo».
+    expect(seed.fucili).toBe(coverage.find(row => row.category === 'individualWeapons')!.required);
+  });
+});
+
+describe('non regressione storica (P16)', () => {
+  it('1815 e 1914 non chiedono nulla che non esista ancora', () => {
+    const napoleon = militaryManpower({ population: 20_000_000, formations: 5, mobilizedFormations: 1, epoch: 'pre_industriale' });
+    const ancient = equipmentCoverage({ units: { carri_4: 10, caccia_5: 2 }, manpower: napoleon, epoch: 'pre_industriale', ports: 2 });
+    expect(ancient.map(row => row.category)).toEqual(['individualWeapons']);
+    const ww1 = establishmentFor('grande_guerra').map(entry => entry.id);
+    expect(ww1).not.toContain('armoredMobility');
+    expect(ww1).not.toContain('airSupport');
+    expect(ww1).not.toContain('missiles');
+    expect(ww1).not.toContain('drones');
+    expect(arsenalSeedUnits('pre_industriale', 5, 1)).toEqual({ fucili: individualWeaponDemand('pre_industriale', 5, 1) });
+  });
+
+  it('un paese senza porti non ha requisiti navali in nessuna epoca', () => {
+    for (const epoch of epochs) {
+      const manpower = militaryManpower({ population: 30_000_000, formations: 3, mobilizedFormations: 1, epoch });
+      const coverage = equipmentCoverage({ units: {}, manpower, epoch, ports: 0 });
+      expect(coverage.map(row => row.category)).not.toContain('navalSupport');
+      const withSea = equipmentCoverage({ units: {}, manpower, epoch, ports: 4 });
+      if (establishmentFor(epoch).some(entry => entry.requiresPorts)) {
+        expect(withSea.map(row => row.category)).toContain('navalSupport');
+      }
+    }
+  });
+});
+
+describe('manpower su tutte le epoche (P15)', () => {
+  it('regge popolazioni piccole e grandi, mobilitazione zero e alta', () => {
+    for (const epoch of epochs) {
+      const profile = MANPOWER_PROFILES[epoch];
+      for (const population of [0, 900_000, 60_000_000]) {
+        for (const [formations, mobilized] of [[0, 0], [2, 0], [8, 4], [30, 40]]) {
+          const manpower = militaryManpower({ population, formations, mobilizedFormations: mobilized, epoch });
+          expect(manpower.activePersonnel).toBe(formations * profile.menPerFormation);
+          expect(manpower.mobilizationCap).toBe(Math.round(manpower.totalMilitaryPool * profile.maxMobilizedShare));
+          expect(manpower.mobilizationHeadroom).toBeGreaterThanOrEqual(0);
+          expect(manpower.availableReserve + manpower.mobilizedPersonnel).toBe(manpower.reservePersonnel);
+          expect(manpower.overMobilized).toBe(Math.round(mobilized * profile.menPerFormation) > manpower.mobilizationCap);
+        }
+      }
+    }
+  });
+
+  it('il tetto di richiamo non è una costante morta: limita la testa disponibile', () => {
+    // 60 milioni, guerra fredda: bacino 10.200.000, tetto 70% → 7.140.000.
+    const manpower = militaryManpower({ population: 60_000_000, formations: 10, mobilizedFormations: 0, epoch: 'guerra_fredda' });
+    expect(manpower.totalMilitaryPool).toBe(Math.round(60_000_000 * 0.17));
+    expect(manpower.mobilizationCap).toBe(Math.round(manpower.totalMilitaryPool * 0.7));
+    expect(manpower.mobilizationHeadroom).toBe(manpower.mobilizationCap);
+    expect(manpower.overMobilized).toBe(false);
+    // Con l’intero bacino sotto le armi il tetto viene superato e si dichiara.
+    const over = militaryManpower({ population: 60_000_000, formations: 10, mobilizedFormations: 2_000, epoch: 'guerra_fredda' });
+    expect(over.overMobilized).toBe(true);
+    expect(over.mobilizedPersonnel).toBeGreaterThan(over.mobilizationCap);
+    // Il fatto canonico non viene cancellato: i richiamati restano quelli.
+    expect(over.mobilizedFormations).toBe(2_000);
+    expect(over.mobilizedPersonnel).toBe(Math.max(0, over.totalMilitaryPool - over.activePersonnel));
+  });
+
+  it('l’over-mobilization è un driver critico della prontezza', () => {
+    const over = militaryManpower({ population: 60_000_000, formations: 10, mobilizedFormations: 2_000, epoch: 'guerra_fredda' });
+    const coverage = equipmentCoverage({ units: { fucili: 8_000_000 }, manpower: over, epoch: 'guerra_fredda', ports: 0 });
+    const readiness = militaryReadiness({ coverage, manpower: over });
+    const driver = readiness.drivers.find(item => item.label.includes('tetto d’epoca'))!;
+    expect(driver).toBeTruthy();
+    expect(driver.tone).toBe('critical');
   });
 });

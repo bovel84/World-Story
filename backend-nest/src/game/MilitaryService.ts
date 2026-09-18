@@ -23,8 +23,8 @@ import {
 } from '../core/simulation/MilitaryIndustry';
 import { addDays } from '../core/simulation/calendar';
 import {
-  arsenalSeedUnits, equipmentCoverage, epochForDate, establishmentFor, militaryManpower,
-  militaryReadiness, MILITARY_EPOCH_LABEL,
+  arsenalSeedUnits, equipmentCoverage, epochForDate, establishmentFor, individualWeaponShareFor,
+  militaryManpower, militaryReadiness, MILITARY_EPOCH_LABEL,
   type MilitaryEpoch,
 } from '../core/simulation/MilitaryDoctrine';
 import {
@@ -33,6 +33,13 @@ import {
 } from '../core/simulation/IndustrialCapacity';
 import { materialNeeds } from '../core/simulation/MaterialEconomy';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
+
+/**
+ * Tetto di sanità su una singola richiesta di costruzione/acquisto. Non è un
+ * limite economico (quello lo fa cassa + credito): con le armi individuali
+ * contate una per una, un riarmo completo supera il vecchio tetto di 1000.
+ */
+export const MAX_PROCUREMENT_QUANTITY = 200_000;
 
 /** Dipendenze fornite da GameSession: stato che NON appartiene al dominio militare. */
 export interface MilitaryContext {
@@ -229,8 +236,14 @@ export class MilitaryService {
       establishment: establishmentFor(epoch).map(entry => ({
         category: entry.id,
         label: entry.label,
-        perFormation: entry.perFormation,
-        perMobilized: entry.perMobilized ?? entry.perFormation,
+        // Le categorie a quota di personale (armi individuali) non hanno una
+        // dotazione «per reparto»: la UI mostra la quota d'epoca del personale.
+        perFormation: entry.perFormation ?? null,
+        perMobilized: entry.perMobilized ?? entry.perFormation ?? null,
+        personnelSharePct: entry.demand?.kind === 'personnel_share'
+          ? Math.round(individualWeaponShareFor(epoch) * 1000) / 10
+          : null,
+        demand: entry.demand?.kind ?? 'per_formation',
         weight: entry.weight,
         source: entry.source,
         basis: entry.basis,
@@ -271,11 +284,19 @@ export class MilitaryService {
     const equipment = equipmentById(equipmentId);
     if (!equipment) throw new Error(`equipment_unknown: ${equipmentId}`);
     const qty = Math.max(1, Math.floor(Number(quantity) || 1));
-    if (qty > 1000) throw new Error('equipment_quantity_invalid');
+    // Il tetto è una guardia di sanità: con la scala **unitaria** delle armi
+    // individuali un riarmo completo può superare di slancio il vecchio tetto
+    // di mille «lotti»; cassa e credito restano il vero limite economico.
+    if (qty > MAX_PROCUREMENT_QUANTITY) throw new Error('equipment_quantity_invalid');
     if (mode !== 'build' && mode !== 'buy') throw new Error('procurement_mode_invalid');
     const account = this.ctx.accounts()[polityId];
     const capacity = this.nationCapacity(polityId);
     const option = procurementOption(equipment, capacity);
+    // Senza **nessun** impianto non si costruisce nulla: meglio rifiutare
+    // l'ordine che aprirlo e lasciarlo fermo per sempre.
+    if (mode === 'build' && this.industrialCapacity(polityId, capacity).total === 0) {
+      throw new Error('build_unavailable: nessuna capacità industriale disponibile (nessuna fabbrica, porto o ateneo)');
+    }
     if (mode === 'build' && !option.canBuild) {
       if (option.reasons.some(reason => reason.includes('credito'))) {
         throw new Error('credit_exhausted: cassa e credito insufficienti (debito al limite)');
@@ -411,6 +432,12 @@ export class MilitaryService {
     // Capacità industriale: se la domanda supera le linee disponibili, il lavoro
     // avanza più lentamente per tutti (stesso fattore per ogni ordine aperto).
     const capacity = this.industrialCapacity(polityId);
+    if (capacity.blocked) {
+      // Nessuna linea e lavoro da fare: non si avanza di un punto e non si
+      // inventa un ritmo del 25%. Gli ordini restano aperti, in attesa.
+      bulletins.push('🏭 Produzione bloccata: nessuna capacità industriale disponibile — nessuna linea di lavorazione. Le consegne restano ferme finché non si costruiscono impianti.');
+      return bulletins;
+    }
     const months = (days / 30) * capacity.overflowFactor;
     if (capacity.saturated && orders.length > 0) {
       bulletins.push(`🏭 Industria satura: ${capacity.demand} linee richieste su ${capacity.total} disponibili — la produzione avanza al ${Math.round(capacity.overflowFactor * 100)}% del ritmo.`);

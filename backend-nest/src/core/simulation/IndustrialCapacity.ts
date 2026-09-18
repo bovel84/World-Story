@@ -18,14 +18,17 @@
  *   3. **Che cosa succede se la domanda supera la capacità?** — la capacità
  *      occupata non può superare il totale e la lavorazione **rallenta** in
  *      proporzione (`overflowFactor`): nessun lavoro si perde, nessun ordine
- *      viene rifiutato a sorpresa, ma il tempo di consegna dice la verità.
+ *      viene rifiutato a sorpresa, ma il tempo di consegna dice la verità. Se
+ *      invece non esiste **nessuna** capacità e c'è lavoro da fare, la
+ *      produzione è **bloccata** (`blocked`, fattore 0): non si avanza di un
+ *      punto, perché non c'è nessuna linea che lavora.
  *
  * Tutto puro e deterministico: stessi ingressi ⇒ stessi numeri. Nessuna
  * lettura di database, nessun LLM, nessun `Math.random`.
  */
 
 import { daysBetween } from './calendar';
-import { equipmentById } from './MilitaryIndustry';
+import { equipmentById, type Equipment } from './MilitaryIndustry';
 
 /** Linee di lavorazione della produzione militare. */
 export const CAPACITY_PER_FACTORY = 10;
@@ -45,6 +48,35 @@ export const DOMAIN_CAPACITY_BONUS: Record<string, number> = {
 
 /** Tetto per singola lavorazione: nessun ordine può occupare tutto l'impianto. */
 export const MAX_ALLOCATION_PER_ITEM = 40;
+
+/**
+ * Oltre il lotto di riferimento, la domanda cresce in modo **sub-lineare**
+ * (logaritmico): cento carri non occupano cento volte una linea, ma nemmeno
+ * quanto un carro solo. Il fattore vale 1 fino al lotto di riferimento.
+ */
+export const MAX_QUANTITY_FACTOR = 5;
+
+/**
+ * Dimensione del **lotto di riferimento** per categoria: quante unità «stanno»
+ * in una linea di lavorazione. Un fucile si produce in massa (lotti grandi), un
+ * caccia quasi uno per volta (lotti piccolissimi). È una convenzione dichiarata,
+ * non un prezzo: viene dalla natura del mezzo, non dal suo costo di gioco.
+ */
+export const REFERENCE_BATCH_BY_CATEGORY: Record<string, number> = {
+  Fanteria: 1000,
+  Corazzati: 50,
+  Artiglieria: 100,
+  'Difesa aerea': 50,
+};
+
+/** Lotto di riferimento per dominio, quando la categoria non ne dichiara uno. */
+export const REFERENCE_BATCH_BY_DOMAIN: Record<string, number> = {
+  terra: 200,
+  aria: 10,
+  mare: 2,
+  missili: 20,
+  droni: 100,
+};
 
 export type IndustrialAllocationKind = 'military_production' | 'project' | 'maintenance';
 
@@ -82,6 +114,12 @@ export interface IndustrialCapacity {
   /** Fattore di rallentamento da applicare al tempo di lavorazione (1 = nessuno). */
   overflowFactor: number;
   saturated: boolean;
+  /**
+   * Non c'è **nessuna** capacità e c'è lavoro da fare: la produzione è
+   * **bloccata** (fattore 0), non «rallentata al 25%». Le consegne restano
+   * ferme finché la nazione non costruisce impianti.
+   */
+  blocked: boolean;
   allocations: IndustrialAllocation[];
   byKind: Record<IndustrialAllocationKind, number>;
   /** Quota della capacità occupata dalla produzione militare. */
@@ -155,16 +193,51 @@ export function industrialCapacityTotal(input: {
 }
 
 /**
+ * Lotto di riferimento di una voce: la categoria vince sul dominio (un fucile
+ * è massa anche se è «terra», un caccia è pochi pezzi anche se è «aria»).
+ */
+export function referenceBatchFor(equipment: Equipment | undefined): number {
+  const category = equipment ? REFERENCE_BATCH_BY_CATEGORY[equipment.category] : undefined;
+  if (category) return category;
+  const domain = equipment ? REFERENCE_BATCH_BY_DOMAIN[equipment.domain] : undefined;
+  return domain ?? REFERENCE_BATCH_BY_DOMAIN.terra;
+}
+
+/**
+ * Fattore di domanda della quantità: vale **1 fino al lotto di riferimento** e
+ * poi cresce in modo logaritmico (sub-lineare). Dieci lotti di riferimento
+ * raddoppiano la domanda, non la decuplicano: nessun doppio conteggio, la
+ * complessità della voce resta nel `base`.
+ */
+export function quantityFactor(quantity: number, referenceBatch: number): number {
+  const qty = positive(quantity);
+  const batch = positive(referenceBatch) || 1;
+  return 1 + Math.max(0, Math.log10(qty / batch));
+}
+
+/** Tetto di una singola lavorazione: mai meno del tetto storico, mai più di
+ *  `MAX_QUANTITY_FACTOR` volte la domanda base della voce. */
+export function allocationCapFor(base: number): number {
+  return Math.max(MAX_ALLOCATION_PER_ITEM, positive(base) * MAX_QUANTITY_FACTOR);
+}
+
+/**
  * Domanda di capacità di un ordine di produzione militare: dalle **requires**
- * della voce di catalogo (fabbriche necessarie) più la complessità del dominio.
- * Non dipende dalla quantità: la linea è occupata finché l'ordine è aperto.
+ * della voce di catalogo (fabbriche necessarie) più la complessità del dominio,
+ * cresciuta dal **lotto ordinato** in modo sub-lineare. Un carro e cento carri
+ * non occupano la stessa capacità: cento pesano di più, ma non cento volte.
  */
 export function militaryOrderAllocation(order: IndustrialOrderInput): IndustrialAllocation {
   const equipment = equipmentById(order.equipmentId);
   const requiredFactories = positive(equipment?.requires.factories);
   const bonus = DOMAIN_CAPACITY_BONUS[equipment?.domain || 'terra'] ?? 0;
-  const base = Math.max(4, requiredFactories * 4);
-  const demand = clamp(base + bonus, 4, MAX_ALLOCATION_PER_ITEM);
+  const base = Math.max(4, requiredFactories * 4) + bonus;
+  const batch = referenceBatchFor(equipment);
+  const factor = quantityFactor(order.quantity ?? 0, batch);
+  const demand = clamp(Math.round(base * factor), 4, allocationCapFor(base));
+  const quantityNote = factor > 1.01 && positive(order.quantity) > 0
+    ? `; lotto di ${positive(order.quantity)} su un riferimento di ${batch} (domanda ×${Math.round(factor * 100) / 100})`
+    : '';
   return {
     id: order.id,
     kind: 'military_production',
@@ -172,7 +245,7 @@ export function militaryOrderAllocation(order: IndustrialOrderInput): Industrial
     capacityDemand: demand,
     sector: equipment ? `${equipment.category} (${equipment.domain})` : 'militare',
     basis: requiredFactories > 0
-      ? `Voce di catalogo: ${requiredFactories} ${requiredFactories === 1 ? 'fabbrica richiesta' : 'fabbriche richieste'}${bonus > 0 ? `, complessità ${equipment?.domain}` : ''}.`
+      ? `Voce di catalogo: ${requiredFactories} ${requiredFactories === 1 ? 'fabbrica richiesta' : 'fabbriche richieste'}${bonus > 0 ? `, complessità ${equipment?.domain}` : ''}${quantityNote}.`
       : 'Voce di catalogo senza requisiti di fabbrica dichiarati.',
   };
 }
@@ -246,6 +319,7 @@ export function industrialCapacityOf(input: IndustrialCapacityInput): Industrial
   }
   const used = Math.min(total, demand);
   const overflow = demand > total ? total / demand : 1;
+  const blocked = total === 0 && demand > 0;
   return {
     total,
     used,
@@ -253,10 +327,13 @@ export function industrialCapacityOf(input: IndustrialCapacityInput): Industrial
     utilizationPct: total > 0 ? round1(used / total * 100) : 0,
     demand,
     satisfactionPct: demand > 0 ? round1(used / demand * 100) : 100,
-    // Se la domanda supera la capacità, il lavoro avanza più lentamente: il
-    // fattore non scende sotto un quarto del ritmo (nessuna paralisi totale).
-    overflowFactor: Math.max(0.25, round1(overflow * 1000) / 1000),
+    // Con impianti presenti la saturazione **rallenta** senza paralizzare (mai
+    // sotto un quarto del ritmo). **Senza impianti e con lavoro da fare la
+    // produzione è bloccata**: fattore 0, nessun avanzamento — non «il 25% del
+    // ritmo», che sarebbe una produzione inventata dal nulla.
+    overflowFactor: total > 0 ? Math.max(0.25, round1(overflow * 1000) / 1000) : (blocked ? 0 : 1),
     saturated: demand > total,
+    blocked,
     allocations,
     byKind,
     defenceSharePct: demand > 0 ? round1(byKind.military_production / demand * 100) : 0,

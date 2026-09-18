@@ -142,7 +142,7 @@ describe('arsenale e procurement', () => {
     expect(started.order.quantity).toBe(3);
     // La consegna NON è immediata: l'arsenale resta quello di partenza.
     expect(session.getArsenal().units.fucili ?? 0).toBe(beforeArms);
-    expect(session.getResources().stock.weapons).toBe(500 - 4 * 3);
+    expect(session.getResources().stock.weapons).toBeCloseTo(500 - 0.02 * 3, 6);
     expect(session.getProduction().inProgress).toBe(1);
     // La consegna ha una data prevista, ricalcolata dal ritmo reale della linea.
     const pending = session.getProduction().orders[0];
@@ -189,7 +189,8 @@ describe('arsenale e procurement', () => {
   it('rifiuta un equipaggiamento inesistente e quantità non valide', () => {
     const { session } = createGame();
     expect(() => session.procureEquipment('buy', 'astronave', 1)).toThrow(/equipment_unknown/);
-    expect(() => session.procureEquipment('buy', 'fucili', 100000)).toThrow(/quantity_invalid/);
+    // Il tetto di sanità è ora in scala unitaria: 200.000 pezzi per richiesta.
+    expect(() => session.procureEquipment('buy', 'fucili', 200_001)).toThrow(/quantity_invalid/);
   });
 
   it('la potenza militare effettiva include il fattore dell’arsenale', () => {
