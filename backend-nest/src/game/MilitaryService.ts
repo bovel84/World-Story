@@ -22,6 +22,7 @@ import {
   procurementOption, type NationCapacity,
 } from '../core/simulation/MilitaryIndustry';
 import { addDays } from '../core/simulation/calendar';
+import type { WorldStateRegion } from '../core/simulation/WorldStateEngine';
 import {
   arsenalSeedUnits, equipmentCoverage, epochForDate, establishmentFor, individualWeaponShareFor,
   militaryManpower, militaryReadiness, MILITARY_EPOCH_LABEL,
@@ -31,6 +32,11 @@ import {
   industrialCapacityOf, type IndustrialCapacity,
   type IndustrialMaintenanceInput, type IndustrialProjectInput,
 } from '../core/simulation/IndustrialCapacity';
+import {
+  applyFormationPlan, formationImpact, operatingPicture,
+  type FormationImpact, type OperationalInput, type OperationalRegion, type OperatingPicture,
+} from '../core/simulation/OperationalObjects';
+import { materialBalance } from './materialBalance';
 import { materialNeeds } from '../core/simulation/MaterialEconomy';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 
@@ -60,6 +66,14 @@ export interface MilitaryContext {
   ongoingProcesses?(): IndustrialProjectInput[];
   /** Termini di manutenzione degli impianti posseduti (per la capacità industriale). */
   maintenanceObligations?(): IndustrialMaintenanceInput[];
+  /** Regioni della polity giocante (province, oggetti, costa): oggetti concreti. */
+  playerRegions?(): OperationalRegion[];
+  /**
+   * Aggiunge un oggetto `army` al mondo e lo persiste. Ritorna dove è finito;
+   * `null` se il mondo non è disponibile (partite non avviate nei test).
+   */
+  addArmyObject?(input: { armyId?: string | null; name: string; formations: number }):
+    { regionId: string; regionName: string; name: string } | null;
 }
 
 export class MilitaryService {
@@ -95,6 +109,180 @@ export class MilitaryService {
   /** Arsenale noto in cache senza seed né scritture (per i read model). */
   peekArsenal(polityId: string): Record<string, number> | undefined {
     return this.arsenals.get(polityId);
+  }
+
+  /**
+   * Quadro operativo: oggetti concreti (armate, impianti, cantieri, navi) e
+   * catene produttive. Tutto derivato dai fatti del motore, nessuno stato nuovo.
+   */
+  getOperatingPicture(): OperatingPicture {
+    const polityId = this.ctx.playerPolityId();
+    const capacity = this.nationCapacity(polityId);
+    const units = this.arsenalUnits(polityId);
+    const account = this.ctx.accounts()[polityId];
+    const stock = this.ctx.resourceStock(polityId);
+    const needs = materialNeeds(account);
+    const epoch = this.epoch();
+    const manpower = militaryManpower({
+      population: Number(account?.population || 0),
+      formations: Number(account?.forces || 0),
+      mobilizedFormations: Number(account?.mobilized || 0),
+      epoch,
+    });
+    const coverage = equipmentCoverage({ units, manpower, epoch, ports: account?.ports });
+    const industrial = this.industrialCapacity(polityId, capacity);
+    const qualityIndex = arsenalQualityIndex(units);
+    const readiness = militaryReadiness({
+      coverage,
+      fuel: { stock: stock.fuel, need: needs.fuel },
+      weapons: { stock: stock.weapons, need: needs.weapons },
+      qualityIndex,
+      manpower,
+    });
+    let balance: OperationalInput['balance'] = [];
+    try {
+      balance = materialBalance(stock, account, capacity.endowment);
+    } catch (error) {
+      console.warn('[MilitaryService] Bilancio materiale non disponibile per gli oggetti:', error);
+    }
+    return operatingPicture({
+      polityId,
+      epoch,
+      date: this.ctx.currentDate(),
+      account: account as never,
+      manpower,
+      coverage,
+      readiness,
+      units,
+      qualityIndex,
+      stock,
+      needs,
+      balance,
+      capacity: industrial,
+      orders: this.playerProductionOrders(),
+      projects: this.ctx.ongoingProcesses?.() || [],
+      maintenance: this.ctx.maintenanceObligations?.() || [],
+      regions: this.ctx.playerRegions?.() || [],
+      endowment: capacity.endowment,
+      technologies: stock.technologies,
+    });
+  }
+
+  /**
+   * Anteprima di creazione di reparti: `PRIMA → DOPO` con i numeri del motore,
+   * nessuna scrittura. È la risposta a «quanto costa e che conseguenza ha?».
+   */
+  formationPreview(input: { formations?: number; armyId?: string | null; name?: string } = {}) {
+    const polityId = this.ctx.playerPolityId();
+    const account = this.ctx.accounts()[polityId];
+    const stock = this.ctx.resourceStock(polityId);
+    const regions = this.worldRegions();
+    const target = this.formationTarget(input.armyId, input.name, regions);
+    const impact = formationImpact({
+      epoch: this.epoch(),
+      account,
+      units: this.arsenalUnits(polityId),
+      stock,
+      qualityIndex: arsenalQualityIndex(this.arsenalUnits(polityId)),
+      regions,
+      options: this.worldStateOptions(),
+      targetRegionId: target.regionId,
+      armyName: target.armyName,
+      armyId: target.armyId,
+      formations: input.formations,
+    });
+    return { ...impact, target };
+  }
+
+  /**
+   * Crea davvero i reparti: paga il materiale (cassa e credito), lo toglie dal
+   * deposito e aggiunge l'oggetto `army` al mondo. Il «dopo» è del motore:
+   * manpower, fabbisogni, copertura e conti si muovono perché è cambiato il
+   * fatto (i reparti), non perché la UI lo dica.
+   */
+  raiseFormation(input: { formations?: number; armyId?: string | null; name?: string; regionId?: string } = {}) {
+    const polityId = this.ctx.playerPolityId();
+    const account = this.ctx.accounts()[polityId];
+    const formations = Math.max(1, Math.round(Number(input.formations) || 1));
+    const preview = this.formationPreview({ ...input, formations });
+    if (preview.plan.blocked) throw new Error(`formation_blocked: ${preview.plan.blockedReason}`);
+    const applied = applyFormationPlan({
+      plan: preview.plan,
+      units: this.arsenalUnits(polityId),
+      stock: this.ctx.resourceStock(polityId),
+      account,
+    });
+    if (!applied.ok) throw new Error(applied.error);
+    this.ctx.saveResourceStock(polityId, applied.stock);
+    this.saveArsenal(polityId, applied.units);
+    const placed = this.ctx.addArmyObject?.({
+      armyId: input.armyId ?? null,
+      name: preview.target.armyName,
+      formations,
+    }) ?? null;
+    return {
+      applied: true,
+      formations,
+      name: placed?.name || preview.target.armyName,
+      regionId: placed?.regionId || preview.target.regionId,
+      regionName: placed?.regionName || '',
+      spentMln: Math.round(preview.plan.initialCostMln * 100) / 100,
+      financedMln: applied.financedMln,
+      impact: preview,
+    };
+  }
+
+  /** Regioni del mondo (per gli oggetti concreti e per il «dopo» del motore). */
+  private worldRegions(): WorldStateRegion[] {
+    const polityId = this.ctx.playerPolityId();
+    // I fatti della provincia (popolazione, PIL, potenza militare) sono quelli
+    // veri: la proiezione del motore deve vedere la stessa nazione, con i
+    // reparti in più, non una nazione impoverita.
+    return (this.ctx.playerRegions?.() || []).map(region => ({
+      id: region.id,
+      owner: polityId,
+      population: region.population || 0,
+      gdp: region.gdp || 0,
+      militaryPower: region.militaryPower || 0,
+      coastal: region.coastal,
+      objects: region.objects,
+    }));
+  }
+
+  /**
+   * Dove finisce il nuovo reparto: l'armata scelta o la prima provincia della
+   * nazione; il nome di un'armata nuova segue la numerazione di quelle in campo.
+   */
+  private formationTarget(
+    armyId: string | null | undefined,
+    name: string | undefined,
+    regions: Array<{ id: string; name?: string; objects?: OperationalRegion['objects'] }>,
+  ): { regionId: string; regionName: string; armyName: string; armyId: string | null } {
+    const objects = regions.flatMap(region => (region.objects || [])
+      .filter(object => object.type === 'army' || object.type === 'battalion')
+      .map(object => ({ region, object })));
+    const existing = armyId ? objects.find(item => String(item.object.id) === String(armyId)) : undefined;
+    if (existing) {
+      return {
+        regionId: existing.region.id,
+        regionName: existing.region.name || '',
+        armyName: String(existing.object.name || 'Armata'),
+        armyId: String(existing.object.id),
+      };
+    }
+    const fallback = regions[0];
+    return {
+      regionId: fallback?.id || '',
+      regionName: fallback?.name || '',
+      armyName: name?.trim() || `${objects.length + 1}ª Armata`,
+      armyId: null,
+    };
+  }
+
+  /** Opzioni del motore per la proiezione dei conti (epoca dello scenario). */
+  private worldStateOptions(): { modernFacts: boolean; startDate: string } {
+    const start = this.ctx.worldStartDate?.() || this.ctx.currentDate();
+    return { modernFacts: start >= '1990-01-01', startDate: start };
   }
 
   /** Arsenale della polity: cache → DB → seed dal suo esercito di partenza. */
@@ -252,6 +440,9 @@ export class MilitaryService {
       coverage,
       readiness,
       industrialCapacity: industrial,
+      // OP-OBJECTS: la sala di governo. Oggetti concreti e catene, derivati dai
+      // fatti del motore. Un solo fetch con l'arsenale: nessuna chiamata extra.
+      objects: this.getOperatingPicture(),
       debt: Math.round(debtOf(this.ctx.resourceStock(polityId)) * 100) / 100,
       creditLimit: creditLimit(account),
       production: this.getProduction(industrial.overflowFactor),

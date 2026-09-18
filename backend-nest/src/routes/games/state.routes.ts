@@ -28,7 +28,7 @@ import { MandateError } from '../../core/mandates/MandateEngine';
 import { MandateDecisionError, acknowledgeMandateDecision, cancelMandateAndResolveDecisions, listOpenMandateDecisions } from '../../services/MandateDecisionService';
 import { parseInteger } from '../../domain/quantities';
 import {
-  TRADE_ERROR_CODES, PROCURE_ERROR_CODES, DEBT_ERROR_CODES,
+  TRADE_ERROR_CODES, PROCURE_ERROR_CODES, DEBT_ERROR_CODES, FORMATION_ERROR_CODES,
   respondDomainError, respondRouteError, normalizeAdvisorHistory,
   bindStrictEconomy, respondEconomyError, respondMandateError,
   respondLegacyFeasibility, respondTimeSkipResult, respondJobFailure,
@@ -238,6 +238,33 @@ router.post('/:id/arsenal/:mode(build|buy)', (req, res) => {
     res.json(session.procureEquipment(req.params.mode as 'build' | 'buy', equipmentId, quantity));
   } catch (e: any) {
     respondDomainError(res, e, PROCURE_ERROR_CODES, 'Failed to procure equipment');
+  }
+});
+
+// OP-OBJECTS — formazione di reparti: anteprima PRIMA→DOPO e creazione reale.
+// L'anteprima non scrive nulla; la creazione paga il materiale, lo toglie dal
+// deposito e aggiunge l'armata al mondo (il motore ricalcola forze e spesa).
+router.get('/:id/military/formation', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const formations = Number(req.query.formations ?? 1);
+    const armyId = req.query.armyId ? String(req.query.armyId) : null;
+    const name = req.query.name ? String(req.query.name) : undefined;
+    res.json(session.formationPreview({ formations, armyId, name }));
+  } catch (e: any) {
+    respondDomainError(res, e, FORMATION_ERROR_CODES, 'Failed to preview formation');
+  }
+});
+
+router.post('/:id/military/formation', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const formations = Number(req.body?.formations ?? 1);
+    const armyId = req.body?.armyId ? String(req.body.armyId) : null;
+    const name = req.body?.name ? String(req.body.name) : undefined;
+    res.json(session.raiseFormation({ formations, armyId, name }));
+  } catch (e: any) {
+    respondDomainError(res, e, FORMATION_ERROR_CODES, 'Failed to raise formation');
   }
 });
 

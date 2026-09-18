@@ -431,8 +431,7 @@ const EQUIPMENT_DETAILS: Record<string, EquipmentDetail> = {
 const E = (
   id: string, name: string, domain: Domain, category: string, quality: number,
   costMln: number, weaponsCost: number, requires: EquipmentRequirement,
-): Equipment => {
-  const detail = EQUIPMENT_DETAILS[id];
+): Equipment => {  const detail = EQUIPMENT_DETAILS[id];
   // Fail-closed: nessun equipaggiamento può esistere senza scheda descrittiva.
   if (!detail) throw new Error(`military_industry_missing_detail: ${id}`);
   return {
@@ -441,8 +440,7 @@ const E = (
   };
 };
 
-export const EQUIPMENT_CATALOG: Equipment[] = [
-  // Terra
+export const EQUIPMENT_CATALOG: Equipment[] = [  // Terra
   // Armi individuali: **una per soldato** — il catalogo non vende più «lotti»
   // da 40. Il prezzo unitario scende di conseguenza (4 mln per fucile) così il
   // costo di un reparto armato resta quello di prima.
@@ -486,6 +484,22 @@ export const EQUIPMENT_CATALOG: Equipment[] = [
   E('droni_navali', 'Droni navali e sottomarini', 'droni', 'Navale senza equipaggio', 82, 15_000, 22, { techs: ['elettronica_avanzata', 'cantieristica'], ports: 2, universities: 3, resources: { rare_earths: 2, iron: 2 } }),
   E('sciame', 'Sciami autonomi di droni', 'droni', 'Autonomia', 93, 40_000, 40, { techs: ['elettronica_avanzata', 'intelligenza_artificiale'], factories: 3, universities: 5, resources: { rare_earths: 4, lithium: 2 } }),
 ];
+
+/**
+ * Organici di catalogo delle unità navali: quanti uomini serve **una** unità.
+ * È dato tecnico statico come le `specs` (dislocamento, velocità): senza di
+ * esso una nave non ha equipaggio e la marina non ha personale. Le voci non
+ * elencate valgono 0 (droni navali: nessun uomo a bordo).
+ */
+export const EQUIPMENT_CREW: Record<string, number> = {
+  pattugliatori: 45,
+  corvette: 80,
+  fregate: 180,
+  cacciatorpediniere: 320,
+  sottomarini: 45,
+  portaerei: 1_500,
+  droni_navali: 0,
+};
 
 export function equipmentById(id: string): Equipment | undefined {
   return EQUIPMENT_CATALOG.find(item => item.id === id);

@@ -1058,6 +1058,82 @@ export class GameSession {
   }
 
   /**
+   * OP-OBJECTS — la sala di governo. Metodi della sessione sulle regioni del
+   * mondo giocatore: le regioni (per gli oggetti concreti) e l'aggiunta di un
+   * oggetto `army` quando il giocatore forma un reparto.
+   *
+   * FREEZE: nessuna regola nuova del motore, nessun secondo stato. Il reparto è
+   * un **oggetto del mondo** (`regions.objects`), cioè esattamente il fatto da
+   * cui `WorldStateEngine.accounts` deriva `forces`: forze, manpower, fabbisogni,
+   * spesa e prontezza si muovono di conseguenza perché la fonte è la stessa.
+   * Le regioni sono persistite da `syncRegionsToDB`, come ogni altro oggetto
+   * creato dagli eventi (capitali, battaglioni, cantieri).
+   */
+  private playerRegionsForObjects(): Array<{
+    id: string; name: string; population?: number; gdp?: number; militaryPower?: number;
+    coastal?: boolean; objects?: Array<{ id?: string; type?: string; name?: string; level?: number }>;
+  }> {
+    return Array.from(this.regions.values())
+      .filter(region => region.owner === this.playerPolityId)
+      .map(region => ({
+        id: region.id,
+        name: region.name,
+        population: region.population,
+        gdp: region.gdp,
+        militaryPower: region.militaryPower,
+        coastal: (region as { coastal?: boolean }).coastal,
+        objects: region.objects,
+      }));
+  }
+
+  /**
+   * Aggiunge un oggetto `army` al mondo: 1 unità di livello = 1 reparto.
+   * Se l'armata esiste già cresce di livello; altrimenti nasce un'armata nuova
+   * nella provincia più popolosa della nazione.
+   */
+  private addArmyObjectForSession(input: { armyId?: string | null; name: string; formations: number }) {
+    const formations = Math.max(1, Math.round(Number(input.formations) || 1));
+    if (input.armyId) {
+      for (const region of this.regions.values()) {
+        if (region.owner !== this.playerPolityId) continue;
+        const object = (region.objects || []).find(item => String(item.id) === String(input.armyId));
+        if (!object) continue;
+        object.level = Math.max(1, Math.round(Number(object.level) || 1)) + formations;
+        this.syncRegionsToDB();
+        return { regionId: region.id, regionName: region.name, name: String(object.name || input.name) };
+      }
+    }
+    const owned = this.playerRegionsForObjects();
+    const target = [...owned].sort((a, b) => (Number(b.population) || 0) - (Number(a.population) || 0))[0];
+    if (!target) return null;
+    const live = this.regions.get(target.id);
+    if (!live) return null;
+    live.objects ||= [];
+    live.objects.push({
+      id: `army-${shortId(8)}`,
+      type: 'army',
+      name: input.name,
+      level: formations,
+      owner: this.playerPolityId,
+      metadata: { createdBy: 'player', createdDate: this.currentDate },
+    } as never);
+    this.syncRegionsToDB();
+    return { regionId: live.id, regionName: live.name, name: input.name };
+  }
+
+  /** Anteprima della creazione di reparti: PRIMA → DOPO, numeri del motore. */
+  formationPreview(input: { formations?: number; armyId?: string | null; name?: string } = {}) {
+    this.assertPlayable();
+    return this.military.formationPreview(input);
+  }
+
+  /** Crea i reparti: paga il materiale, lo toglie dal deposito, crea il fatto. */
+  raiseFormation(input: { formations?: number; armyId?: string | null; name?: string } = {}) {
+    this.assertPlayable();
+    return this.military.raiseFormation(input);
+  }
+
+  /**
    * Arsenale, risorse naturali, capacità industriale e catalogo completo con la
    * fattibilità di costruzione/acquisto per ogni voce.
    */
@@ -1313,6 +1389,11 @@ export class GameSession {
       worldStartDate: () => this.worldStartDate,
       ongoingProcesses: () => this.getOngoingProcesses(),
       maintenanceObligations: () => this.maintenanceCapacityObligations(),
+      // OP-OBJECTS: le regioni del giocatore alimentano gli oggetti concreti;
+      // l'aggiunta di un'armata è una mutazione del mondo persistita come le
+      // altre. Nessun secondo stato delle forze.
+      playerRegions: () => this.playerRegionsForObjects(),
+      addArmyObject: input => this.addArmyObjectForSession(input),
     });
     this.orders = new OrderExecutionService({
       gameId: this.id,
