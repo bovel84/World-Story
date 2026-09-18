@@ -24,12 +24,28 @@ const input: OperatingPictureInput = {
       { kind: 'fuel', stock: 40, capacity: 200, productionPerMonth: 18, consumptionPerMonth: 40, balancePerMonth: -22, spoiledPerMonth: 0 },
     ],
   },
+  // Dottrina e capacità industriale sono del motore: qui sono il contratto.
   arsenal: {
+    epoch: 'moderno', epochLabel: 'Era moderna',
+    establishment: [
+      { category: 'individualWeapons', label: 'Armi individuali', perFormation: 40, perMobilized: 50, weight: 0.3, source: 'engine_seed', basis: 'Il singolo soldato è la base.' },
+      { category: 'armoredMobility', label: 'Mobilità corazzata', perFormation: 1.5, perMobilized: 1.5, weight: 0.2, source: 'doctrine', basis: 'Manovra protetta.' },
+    ],
+    manpower: { population: 40_000_000, eligiblePopulation: 5_600_000, totalMilitaryPool: 5_600_000, activePersonnel: 96_000, reservePersonnel: 86_400, mobilizedPersonnel: 24_000, availableReserve: 62_400, formations: 8, mobilizedFormations: 2, menPerFormation: 12_000 },
+    coverage: [
+      { category: 'individualWeapons', label: 'Armi individuali', required: 420, available: 400, coveragePct: 95.2, missing: 20, items: ['Fucili ×400'], weight: 0.3 },
+      { category: 'armoredMobility', label: 'Mobilità corazzata', required: 15, available: 0, coveragePct: 0, missing: 15, items: [], weight: 0.2 },
+    ],
+    readiness: { readinessPct: 64, status: 'pressure', drivers: [{ tone: 'critical', label: 'Copertura mobilità corazzata 0%', detail: '0 in servizio su 15.' }] },
+    industrialCapacity: {
+      total: 90, used: 12, free: 78, utilizationPct: 13.3, demand: 12, satisfactionPct: 100, overflowFactor: 1, saturated: false,
+      allocations: [{ id: 'p1', kind: 'project', label: 'Metropolitana', capacityDemand: 12, sector: 'Infrastrutture e progetti', basis: 'Progetto di 9 mesi.' }],
+      byKind: { military_production: 0, project: 12, maintenance: 0 }, defenceSharePct: 0, totalBasis: '9 fabbriche × 10 linee',
+    },
     lines: [{ id: 'fucili', name: 'Fucili', category: 'Fanteria', domain: 'terra', quantity: 400, quality: 50, tier: 'moderno', combatFactor: 1 } as any],
     qualityIndex: 48, catalog: [{ id: 'caccia', name: 'Caccia', domain: 'aria', category: 'Aerei', canBuild: false, canBuy: true, buildCostMln: null, buyCostMln: 9000, reasons: ['Tecnologia non disponibile'], quality: 70, tier: 'moderno', costMln: 5000, weaponsCost: 10, role: '', description: '', specs: [] } as any],
     units: {}, production: { orders: [], inProgress: 0 } as any,
   },
-  assets: { capacityBase: { forces: 16 } },
   government: { factions: [{ id: 'a', name: 'Industriali', powerPct: 50, satisfaction: 40, stance: 'neutrale' } as any], dominantId: 'a', angriestId: 'a', cohesion: 40, pressureIndex: 60, trustIndex: 42, headline: 'Consiglio diviso', resentful: [], budget: {} as any, debt: { ratioPct: 75, servicePct: 9 } } as any,
   commitments: { commitments: [{ id: 'c1', status: 'active', deadline: '2026-04-15' } as any], attention: [] },
   today: '2026-04-01',
@@ -73,6 +89,33 @@ describe('COUNTRY-CLARITY · quadro d’insieme (presentazione)', () => {
     expect(section).toContain('Economia e cassa');
     expect(section).toContain(picture.economy.headline);
     expect(renderToStaticMarkup(DomainOperatingBlock({ picture, id: 'governo' }))).toContain('Governo e società');
+  });
+
+  it('le forze armate mostrano personale, copertura e prontezza del motore', () => {
+    const picture = nationalOperatingPicture(input);
+    const html = renderToStaticMarkup(DomainOperatingBlock({ picture, id: 'militare' }));
+    expect(html).toContain('Dottrina d’epoca: Era moderna');
+    expect(html).toContain('Personale');
+    expect(html).toContain('Uomini in armi');
+    expect(html).toContain('120.000'); // 96.000 attivi + 24.000 richiamati
+    expect(html).toContain('Riserva addestrata');
+    expect(html).toContain('Equipaggiamento — copertura per categoria');
+    expect(html).toContain('Armi individuali');
+    expect(html).toContain('mancano 20 pezzi');
+    expect(html).toContain('Copertura mobilità corazzata 0%');
+  });
+
+  it('l’industria mostra stabilimenti, assegnazioni e capacità del motore', () => {
+    const picture = nationalOperatingPicture(input);
+    const html = renderToStaticMarkup(DomainOperatingBlock({ picture, id: 'industria' }));
+    expect(html).toContain('Stabilimenti');
+    expect(html).toContain('Linee di lavorazione');
+    expect(html).toContain('Assegnazioni');
+    expect(html).toContain('Metropolitana');
+    expect(html).toContain('Infrastrutture e progetti');
+    expect(html).toContain('9 fabbriche × 10 linee');
+    // Fuori dalle lavorazioni attive non si parla di consegne.
+    expect(html).not.toContain('Produzioni militari');
   });
 
   it('il Dossier apre con il quadro d’insieme e lo ripete in ogni sezione tematica', () => {

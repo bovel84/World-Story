@@ -1,121 +1,166 @@
 /**
- * COUNTRY-CLARITY — scheda Forze armate: uomini, copertura per categoria,
- * prontezza operativa, produzione interna contro acquisto.
+ * COUNTRY-CLARITY ENGINE — scheda Forze armate (read model).
+ *
+ * Il read model non calcola più nessuna regola militare: epoca, uomini,
+ * dotazioni, copertura e prontezza arrivano dal motore. Questi test verificano
+ * che li **legga e li formatti senza alterarli**, che dichiari ciò che manca e
+ * che non reintroduca di nascosto le regole spostate nel motore (filtro navale
+ * per i paesi senza porti, categorie anacronistiche, consegne stimate).
  */
 import { describe, it, expect } from 'vitest';
-import { equipmentCoverage, manpowerPayload, militaryOperatingPicture, orderRatePerMonth, procurementRows, readinessPicture } from './militaryOperatingPicture';
-import type { ArsenalResponse, ArsenalLine, ProductionOrder } from '../../services/api';
+import {
+  establishmentRows, equipmentCoverage, manpowerPayload, militaryOperatingPicture,
+  orderRatePerMonth, procurementRows, projectedDeliveredUnits, readinessPicture,
+} from './militaryOperatingPicture';
+import type {
+  ArsenalResponse, EquipmentCoveragePayload, EstablishmentCategoryPayload,
+  MilitaryManpowerPayload, MilitaryReadinessPayload, ProductionOrder,
+} from '../../services/api';
 
-function line(name: string, category: string, domain: string, quantity: number): ArsenalLine {
-  return { id: name.toLowerCase().replace(/\W+/g, '_'), name, category, domain, quantity, quality: 60, tier: 'moderno', combatFactor: 1 } as unknown as ArsenalLine;
+/** Uomini come li pubblica il motore per una nazione moderna. */
+function manpowerPayloadFixture(overrides: Partial<MilitaryManpowerPayload> = {}): MilitaryManpowerPayload {
+  return {
+    population: 59_000_000,
+    eligiblePopulation: 8_260_000,
+    totalMilitaryPool: 8_260_000,
+    activePersonnel: 72_000,
+    reservePersonnel: 64_800,
+    mobilizedPersonnel: 0,
+    availableReserve: 64_800,
+    formations: 6,
+    mobilizedFormations: 0,
+    menPerFormation: 12_000,
+    ...overrides,
+  };
 }
 
-const LINES: ArsenalLine[] = [
-  line('Fucili d’ordinanza', 'Fanteria', 'terra', 240),
-  line('Veicoli blindati', 'Corazzati', 'terra', 9),
-  line('Artiglieria da campagna', 'Artiglieria', 'terra', 3),
-  line('SAM a corto raggio', 'Difesa aerea', 'missili', 5),
-  line('Caccia multiruolo', 'Aerei', 'aria', 2),
-  line('Fregata', 'Navale', 'mare', 1),
+function coverageRow(overrides: Partial<EquipmentCoveragePayload> = {}): EquipmentCoveragePayload {
+  return { category: 'individualWeapons', label: 'Armi individuali', required: 240, available: 240, coveragePct: 100, missing: 0, items: ['Fucili d’assalto ×240'], weight: 0.3, ...overrides };
+}
+
+const ESTABLISHMENT: EstablishmentCategoryPayload[] = [
+  { category: 'individualWeapons', label: 'Armi individuali', perFormation: 40, perMobilized: 50, weight: 0.3, source: 'engine_seed', basis: 'Il singolo soldato è la base di ogni reparto appiedato.' },
+  { category: 'armoredMobility', label: 'Mobilità corazzata', perFormation: 1.5, perMobilized: 1.5, weight: 0.2, source: 'doctrine', basis: 'Trasporto protetto e manovra.' },
 ];
 
+const READINESS: MilitaryReadinessPayload = {
+  readinessPct: 76,
+  status: 'stable',
+  drivers: [
+    { tone: 'warning', label: 'Copertura artiglieria 0%', detail: '0 in servizio su 3 della dotazione di riferimento.' },
+    { tone: 'positive', label: 'Carburante: >12 mesi', detail: 'Copertura piena delle operazioni.' },
+  ],
+};
+
 function arsenal(overrides: Partial<ArsenalResponse> = {}): Partial<ArsenalResponse> {
-  return { lines: LINES, qualityIndex: 60, combatFactor: 1.1, effectiveMilitaryPower: 4200, baseMilitaryPower: 3800, catalog: [], units: {}, ...overrides };
+  return {
+    epoch: 'moderno',
+    epochLabel: 'Era moderna',
+    establishment: ESTABLISHMENT,
+    manpower: manpowerPayloadFixture(),
+    coverage: [coverageRow(), coverageRow({ category: 'armoredMobility', label: 'Mobilità corazzata', required: 9, available: 9, coveragePct: 100, missing: 0, items: ['Veicoli corazzati ×9'], weight: 0.2 })],
+    readiness: READINESS,
+    catalog: [],
+    units: {},
+    qualityIndex: 60,
+    combatFactor: 1.1,
+    effectiveMilitaryPower: 4200,
+    baseMilitaryPower: 3800,
+    ...overrides,
+  };
 }
 
 const ORDER: ProductionOrder = {
   id: 'o1', equipmentId: 'carri_3', name: 'Carri di 3ª generazione', domain: 'terra', quantity: 12,
   progress: 0, spentMln: 0, startedTurn: 1, startedDate: '2026-01-01', expectedDate: '2026-02-01',
-  status: 'in_progress', note: '', qualityLoss: 0, updatedDate: '2026-01-15', expectedDate2: undefined,
+  status: 'in_progress', note: '', qualityLoss: 0, updatedDate: '2026-01-15',
 } as unknown as ProductionOrder;
 
 const CATALOG = [
   { id: 'carri_3', name: 'Carri di 3ª generazione', domain: 'terra', category: 'Corazzati', quality: 62, tier: 'moderno', costMln: 8000, weaponsCost: 26, role: '', description: '', specs: [], canBuild: true, canBuy: true, buildCostMln: 8000, buyCostMln: 12800, reasons: [] },
   { id: 'caccia_5', name: 'Caccia di 5ª generazione', domain: 'aria', category: 'Aerei', quality: 80, tier: 'avanzato', costMln: 12000, weaponsCost: 30, role: '', description: '', specs: [], canBuild: false, canBuy: true, buildCostMln: null, buyCostMln: 24000, reasons: ['Tecnologia non disponibile'] },
-];
+] as unknown as ArsenalResponse['catalog'];
 
-describe('COUNTRY-CLARITY · forze armate', () => {
-  it('copertura per categoria: possesso sulla dotazione di riferimento', () => {
-    const coverage = equipmentCoverage({ forces: 6, mobilized: 2 }, arsenal());
-    const individual = coverage.find(row => row.id === 'individualWeapons') as any;
-    expect(individual.required).toBe(340); // 40×6 + 50×2, formula del motore
-    expect(individual.actual).toBe(240);
-    expect(individual.pct).toBe(70.6);
-    expect(individual.tone).toBe('warning');
-    expect(coverage.find(row => row.id === 'armoredMobility')?.pct).toBe(100);
-    expect(coverage.find(row => row.id === 'supportWeapons')?.pct).toBe(100);
-    expect(coverage.find(row => row.id === 'navalSupport')?.required).toBe(1);
-    expect(coverage.find(row => row.id === 'individualWeapons')?.items[0]).toContain('Fucili');
-  });
-
-  it('paese senza sbocco al mare: nessuna flotta richiesta, prontezza non penalizzata', () => {
-    const coastal = equipmentCoverage({ forces: 6, mobilized: 2, ports: 3 }, arsenal());
-    const landlocked = equipmentCoverage({ forces: 6, mobilized: 2, ports: 0 }, arsenal());
-    expect(coastal).toHaveLength(6);
-    expect(landlocked).toHaveLength(5);
-    expect(landlocked.some(row => row.id === 'navalSupport')).toBe(false);
-    // Con il dato assente (non zero) la categoria resta: assenza ≠ zero.
-    expect(equipmentCoverage({ forces: 6 }, arsenal())).toHaveLength(6);
-
-    // Il peso si normalizza sulle categorie presenti: una flotta che non può
-    // esistere non abbassa la prontezza. Con la categoria navale a zero (il
-    // caso di un paese senza mare trattato come se dovesse avere una flotta)
-    // la prontezza scenderebbe di sette punti.
-    const coastalReady = readinessPicture({ account: { forces: 6, mobilized: 2 }, arsenal: arsenal(), coverage: coastal });
-    const landReady = readinessPicture({ account: { forces: 6, mobilized: 2, ports: 0 }, arsenal: arsenal(), coverage: landlocked });
-    expect(landReady.readinessPct).toBe(75);
-    expect(Math.abs(landReady.readinessPct - coastalReady.readinessPct)).toBeLessThanOrEqual(2);
-    expect(landReady.status).toBe(coastalReady.status);
-    const navalAtZero = [...landlocked, { id: 'navalSupport', label: 'Supporto navale', actual: 0, required: 1, pct: 0, tone: 'critical' as const, items: [] }];
-    expect(readinessPicture({ account: { forces: 6, mobilized: 2 }, arsenal: arsenal(), coverage: navalAtZero }).readinessPct)
-      .toBeLessThan(landReady.readinessPct);
-  });
-
-  it('copertura zero: senza uomini il fabbisogno è nullo, non finto', () => {
-    const coverage = equipmentCoverage({ forces: 0, mobilized: 0 }, arsenal());
-    expect(coverage.every(row => row.required === 0)).toBe(true);
-    expect(coverage.every(row => row.pct === 100)).toBe(true); // possiede mezzi senza reparti
-    const empty = equipmentCoverage(null, null);
-    expect(empty.every(row => row.actual === 0 && row.pct === 0)).toBe(true);
-  });
-
-  it('prontezza operativa: media pesata, modulata da carburante, scorte e qualità', () => {
-    const coverage = equipmentCoverage({ forces: 6, mobilized: 2 }, arsenal());
-    const ready = readinessPicture({ account: { forces: 6, mobilized: 2 }, arsenal: arsenal(), coverage });
-    expect(ready.readinessPct).toBe(76);
-    expect(ready.status).toBe('stable');
-    expect(ready.drivers.some(driver => /Copertura armi individuali/.test(driver.label))).toBe(true);
-    expect(ready.drivers.some(driver => /riservisti richiamati/.test(driver.label))).toBe(true);
-
-    const dry = readinessPicture({
-      account: { forces: 6, mobilized: 2 }, arsenal: arsenal(), coverage,
-      resources: { fuel: 10, needs: { fuel: 30 } as any },
+describe('COUNTRY-CLARITY ENGINE · forze armate', () => {
+  it('legge il manpower del motore senza inventare uomini', () => {
+    const payload = manpowerPayload(arsenal());
+    expect(payload).toMatchObject({
+      active: 6, mobilized: 0, standing: 6,
+      activePersonnel: 72_000, reservePersonnel: 64_800, mobilizedPersonnel: 0,
+      availableReserve: 64_800, menPerFormation: 12_000, mobilizedPct: 0,
     });
-    expect(dry.readinessPct).toBeLessThan(30);
-    expect(dry.status).toBe('critical');
-    expect(dry.drivers.some(driver => /^Carburante:/.test(driver.label))).toBe(true);
-    expect(dry.drivers.find(driver => /^Carburante:/.test(driver.label))?.tone).toBe('critical');
+    // Quota della popolazione in età utile: aritmetica fra due numeri del motore.
+    expect(payload?.eligibleSharePct).toBeCloseTo(14, 1);
   });
 
-  it('manpower: reparti del motore, nessuna conversione in uomini', () => {
-    const payload = manpowerPayload({ forces: 12, mobilized: 3, population: 60_000_000 }, { capacityBase: { forces: 20 } });
-    expect(payload).toMatchObject({ active: 12, mobilized: 3, standing: 15, baseline: 20, mobilizedPct: 20, shareOfPopulationPct: null, reservePool: null });
-    expect(manpowerPayload({ population: 10_000_000 }, null)).toBeNull();
-    expect(manpowerPayload({ forces: 5, mobilized: 0 })).toMatchObject({ standing: 5, mobilizedPct: 0, baseline: null });
-    expect(manpowerPayload(null, { capacityBase: { forces: 4 } })).toMatchObject({ active: 0, standing: 0, baseline: 4 });
+  it('i richiamati sono dentro la riserva e contano nella quota', () => {
+    const payload = manpowerPayload(arsenal({
+      manpower: manpowerPayloadFixture({ mobilizedFormations: 2, mobilizedPersonnel: 24_000, reservePersonnel: 96_000, availableReserve: 72_000 }),
+    }));
+    expect(payload?.standing).toBe(8);
+    expect(payload?.mobilizedPct).toBeCloseTo(25, 1);
+    expect(payload?.availableReserve).toBe(72_000);
   });
 
-  it('i fattori mancanti non puniscono: senza scorte pubblicate la prontezza non crolla', () => {
-    const coverage = equipmentCoverage({ forces: 4, mobilized: 0 }, arsenal());
-    const ready = readinessPicture({ account: { forces: 4 }, arsenal: arsenal(), coverage, resources: {} });
-    expect(ready.readinessPct).toBeGreaterThan(50);
-    expect(ready.drivers.every(driver => driver.label !== 'Carburante: dato non disponibile di operazioni')).toBe(true);
+  it('senza manpower pubblicato il dato è assente, non zero', () => {
+    expect(manpowerPayload({})).toBeNull();
+    expect(manpowerPayload(null)).toBeNull();
+    expect(manpowerPayload(arsenal({ manpower: undefined }))).toBeNull();
+  });
+
+  it('la copertura è quella del motore, con la motivazione dell’epoca', () => {
+    const coverage = equipmentCoverage(arsenal());
+    expect(coverage).toHaveLength(2);
+    const armor = coverage.find(row => row.id === 'armoredMobility')!;
+    expect(armor).toMatchObject({ required: 9, actual: 9, missing: 0, pct: 100, tone: 'positive' });
+    expect(armor.basis).toBe('Trasporto protetto e manovra.');
+    const individual = coverage.find(row => row.id === 'individualWeapons')!;
+    expect(individual.items[0]).toContain('Fucili');
+  });
+
+  it('la copertura debole è segnalata senza toccare i numeri', () => {
+    const coverage = equipmentCoverage(arsenal({
+      coverage: [coverageRow({ required: 340, available: 240, coveragePct: 70.6, missing: 100 })],
+    }));
+    expect(coverage[0]).toMatchObject({ required: 340, actual: 240, missing: 100, pct: 70.6, tone: 'warning' });
+  });
+
+  it('nessuna categoria viene aggiunta o tolta dal read model', () => {
+    // Il filtro per i paesi senza porti è del motore: qui si verifica che il
+    // read model non reintroduca la regola (e non tolga righe legittime).
+    const landlocked = equipmentCoverage(arsenal({
+      coverage: [coverageRow(), coverageRow({ category: 'armoredMobility', label: 'Mobilità corazzata' })],
+    }));
+    expect(landlocked.map(row => row.id)).toEqual(['individualWeapons', 'armoredMobility']);
+    // Un'epoca senza corazzati ha una sola categoria: resta una.
+    const ancient = equipmentCoverage(arsenal({
+      epoch: 'pre_industriale',
+      establishment: [ESTABLISHMENT[0]],
+      coverage: [coverageRow()],
+    }));
+    expect(ancient).toHaveLength(1);
+    expect(equipmentCoverage({})).toEqual([]);
+  });
+
+  it('la prontezza è quella del motore, driver compresi', () => {
+    const readiness = readinessPicture(arsenal())!;
+    expect(readiness.readinessPct).toBe(76);
+    expect(readiness.status).toBe('stable');
+    expect(readiness.drivers[0]).toMatchObject({ tone: 'warning', label: 'Copertura artiglieria 0%' });
+    expect(readinessPicture({})).toBeNull();
+  });
+
+  it('le dotazioni di riferimento conservano origine e motivo', () => {
+    const rows = establishmentRows(arsenal());
+    expect(rows[0]).toMatchObject({ id: 'individualWeapons', perFormation: 40, source: 'engine_seed' });
+    expect(rows[1].source).toBe('doctrine');
+    expect(rows[0].basis).toContain('reparto appiedato');
   });
 
   it('produzione in casa contro acquisto: ordini, ritmo e motivi del motore', () => {
-    const rows = procurementRows(arsenal({ catalog: CATALOG as any, units: { caccia_5: 5 }, production: { orders: [ORDER], inProgress: 1 } as any }));
-    const fighter = rows.find(row => row.id === 'caccia_5') as any;
-    const tank = rows.find(row => row.id === 'carri_3') as any;
+    const rows = procurementRows(arsenal({ catalog: CATALOG, units: { caccia_5: 5 }, production: { orders: [ORDER], inProgress: 1 } }));
+    const fighter = rows.find(row => row.id === 'caccia_5')!;
+    const tank = rows.find(row => row.id === 'carri_3')!;
     expect(rows[0].id).toBe('caccia_5'); // in servizio: prima di tutto
     expect(fighter.available).toBe(5);
     expect(fighter.canBuild).toBe(false);
@@ -127,52 +172,82 @@ describe('COUNTRY-CLARITY · forze armate', () => {
     expect(tank.productionPerMonth).toBeCloseTo(11.6, 1);
     expect(tank.reasons).toEqual([]);
     expect(orderRatePerMonth(ORDER)).toBeCloseTo(11.6, 1);
-    expect(orderRatePerMonth({ ...ORDER, expectedDate: null } as any)).toBeNull();
+    expect(orderRatePerMonth({ ...ORDER, expectedDate: null })).toBeNull();
   });
 
-  it('quadro completo: uomini, prontezza, scorte e sistemi in casa in un colpo d’occhio', () => {
+  it('le unità consegnate seguono la formula del motore, non il progresso', () => {
+    // Il motore consegna a lavori finiti: al 50% di avanzamento ha consegnato 0.
+    expect(projectedDeliveredUnits({ ...ORDER, progress: 50 })).toBe(12);
+    expect(projectedDeliveredUnits({ ...ORDER, qualityLoss: 25 })).toBe(9);
+    expect(projectedDeliveredUnits({ ...ORDER, qualityLoss: 100 })).toBe(0);
+  });
+
+  it('quadro completo: uomini, prontezza, scorte e sistemi in casa', () => {
     const picture = militaryOperatingPicture({
-      account: { forces: 6, mobilized: 2 },
-      resources: { weapons: 200, fuel: 4, needs: { weapons: 4, fuel: 2 } as any },
-      arsenal: arsenal({ catalog: CATALOG as any }),
-      assets: { capacityBase: { forces: 18 } },
+      resources: { weapons: 200, fuel: 4, needs: { weapons: 4, fuel: 2 } as never },
+      arsenal: arsenal({ catalog: CATALOG }),
     });
-    expect(picture.manpower?.standing).toBe(8);
-    expect(picture.manpower?.baseline).toBe(18);
-    expect(picture.manpower?.mobilizedPct).toBe(25);
-    expect(picture.headline).toContain('8 reparti sotto le armi');
+    expect(picture.manpower?.standing).toBe(6);
+    expect(picture.epoch).toBe('moderno');
+    expect(picture.epochLabel).toBe('Era moderna');
+    expect(picture.headline).toContain('72.000 uomini in armi');
     expect(picture.headline).toContain('sistemi prodotti in casa');
     expect(picture.qualityIndex).toBe(60);
     expect(picture.combatFactor).toBe(1.1);
     expect(picture.stock.find(row => row.id === 'weapons')?.tone).toBe('positive');
     expect(picture.stock.find(row => row.id === 'fuel')?.tone).toBe('warning');
     expect(picture.stock.find(row => row.id === 'fuel')?.text).toBe('2,0 mesi');
-    expect(picture.drivers.some(driver => driver.label.startsWith('8 reparti sotto le armi'))).toBe(true);
+    expect(picture.drivers.some(driver => driver.label.startsWith('72.000 uomini sotto le armi'))).toBe(true);
     expect(picture.drivers.some(driver => /^Prontezza operativa/.test(driver.label))).toBe(true);
-    expect(picture.status).toBe('pressure'); // scorte carburante sotto soglia
+    expect(picture.status).toBe('stable'); // la prontezza del motore comanda
+    // Una scorta critica abbassa un dominio che il motore dà per sano.
+    const dry = militaryOperatingPicture({
+      resources: { weapons: 0, fuel: 0, needs: { weapons: 4, fuel: 2 } as never },
+      arsenal: arsenal({ readiness: { readinessPct: 88, status: 'healthy', drivers: [] } }),
+    });
+    expect(dry.stock.every(row => row.tone === 'critical')).toBe(true);
+    expect(dry.status).toBe('pressure');
+  });
+
+  it('i richiamati compaiono fra i driver', () => {
+    const picture = militaryOperatingPicture({
+      arsenal: arsenal({ manpower: manpowerPayloadFixture({ mobilizedFormations: 3, mobilizedPersonnel: 36_000, reservePersonnel: 108_000, availableReserve: 72_000 }) }),
+    });
+    expect(picture.drivers.some(driver => driver.label.includes('richiamati alle armi'))).toBe(true);
   });
 
   it('dati mancanti: il quadro lo dichiara invece di inventare numeri', () => {
     const picture = militaryOperatingPicture({});
     expect(picture.manpower).toBeNull();
-    expect(picture.headline).not.toContain('sotto le armi');
+    expect(picture.readiness).toBeNull();
+    expect(picture.epoch).toBeNull();
+    expect(picture.coverage).toEqual([]);
+    expect(picture.headline).not.toContain('uomini in armi');
     expect(picture.drivers.some(driver => driver.label === 'Forze non pubblicate dal motore')).toBe(true);
     expect(picture.stock.every(row => row.stock === null && row.text === 'dato non disponibile')).toBe(true);
     expect(picture.procurement).toEqual([]);
-    expect(picture.status).toBe('critical');
+    expect(picture.status).toBe('stable');
   });
 
-  it('scenario storico: reparti a piedi, nessun catalogo, numeri coerenti', () => {
+  it('scenario storico: reparti a piedi, nessuna categoria moderna inventata', () => {
     const picture = militaryOperatingPicture({
-      account: { forces: 20, mobilized: 80 },
-      arsenal: { lines: [line('Fucili a miccia', 'Fanteria', 'terra', 800), line('Cannoni', 'Artiglieria', 'terra', 10)], qualityIndex: 22, catalog: [] },
+      arsenal: {
+        epoch: 'pre_industriale',
+        epochLabel: 'Eserciti pre-industriali',
+        establishment: [ESTABLISHMENT[0]],
+        manpower: manpowerPayloadFixture({ formations: 20, mobilizedFormations: 80, activePersonnel: 16_000, mobilizedPersonnel: 64_000, reservePersonnel: 64_000, availableReserve: 0, menPerFormation: 800 }),
+        coverage: [coverageRow({ required: 4800, available: 800, coveragePct: 16.7, missing: 4000 })],
+        readiness: { readinessPct: 12, status: 'critical', drivers: [{ tone: 'critical', label: 'Copertura armi individuali 16,7%' }] },
+        qualityIndex: 22,
+        catalog: [],
+      },
     });
-    const individual = picture.coverage.find(row => row.id === 'individualWeapons') as any;
-    expect(individual.required).toBe(4800); // 40×20 + 50×80
+    const individual = picture.coverage.find(row => row.id === 'individualWeapons')!;
+    expect(individual.required).toBe(4800);
     expect(individual.pct).toBe(16.7);
-    expect(picture.readiness.readinessPct).toBeLessThan(35);
+    expect(picture.coverage).toHaveLength(1); // l'epoca ha una sola categoria
+    expect(picture.readiness?.readinessPct).toBe(12);
     expect(picture.status).toBe('critical');
-    expect(picture.coverage).toHaveLength(6); // ha un porto: anche la flotta entra nel fabbisogno
     expect(picture.procurement).toEqual([]);
   });
 });

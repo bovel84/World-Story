@@ -3065,3 +3065,16 @@ html, body { margin: 0; }
   background: rgba(124, 247, 176, 0.12) !important;
 }
 .action-desk .suggestion-action.queued:hover:not(:disabled) .suggestion-action-cta { color: #7cf7b0; }
+
+/* COUNTRY-CLARITY ENGINE — dettaglio strutturato (personale, copertura,
+   capacità industriale): stesse cifre del quadro, un livello più in basso. */
+.op-detail { display: grid; gap: 12px; margin-top: 12px; }
+.op-detail-block { border: 1px solid var(--line, #2b3444); border-radius: 10px; padding: 10px 12px; }
+.op-detail-block h4 { margin: 0 0 8px; font-size: 0.86rem; letter-spacing: 0.02em; text-transform: uppercase; opacity: 0.85; }
+.op-detail-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.op-detail-list li { display: grid; gap: 1px; font-size: 0.86rem; line-height: 1.35; }
+.op-detail-list li > span { opacity: 0.85; }
+.op-detail-list li > small { opacity: 0.6; font-size: 0.78rem; }
+.op-detail-list li > em { font-style: normal; opacity: 0.9; font-size: 0.8rem; }
+.op-detail-note { margin: 8px 0 0; font-size: 0.82rem; opacity: 0.75; line-height: 1.4; }
+.op-detail-note.tone-negative { color: var(--tone-negative, #e06c75); opacity: 0.95; }
