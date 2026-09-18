@@ -1214,6 +1214,8 @@ export class GameSession {
         endowment: () => naturalResourcesFor(this.playerPolityId),
         projects: () => this.getOngoingProcesses(),
         stock: () => this.resourceStock(this.playerPolityId),
+        ledger: () => this.resourceLedger(this.playerPolityId),
+        account: () => this.sessionAccounts()[this.playerPolityId],
         activity: () => {
           const capacity = this.military.industrialCapacity(this.playerPolityId);
           return capacity.blocked ? 0 : capacity.overflowFactor;
@@ -1543,6 +1545,9 @@ export class GameSession {
       resolvePolity: name => this.buildResolvers().polities.resolve(name)?.polityId,
       arsenalUnits: polityId => this.military.arsenalUnits(polityId),
       saveArsenal: (polityId, units) => this.military.saveArsenal(polityId, units),
+      // OP-OBJECTS FLOW: gli oggetti reali forniscono produzione e consumi al
+      // tick materiale. `null` = percorso legacy (nessun doppio conteggio).
+      materialOverlay: () => this.operationalStoreFor().materialFlow(),
     });
     this.gameData = new GameDataService({
       gameId: this.id,

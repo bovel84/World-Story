@@ -21,7 +21,8 @@
  */
 
 import {
-  advanceStock, materialNeeds, storageCapacity, type ResourceStock,
+  advanceStock, civilMaterialNeeds, effectiveMaterialNeeds, materialNeeds, storageCapacity,
+  type MaterialFlowOverlay, type MaterialNeeds, type ResourceStock,
 } from '../core/simulation/MaterialEconomy';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import type { NaturalEndowment } from '../core/simulation/MilitaryIndustry';
@@ -73,11 +74,14 @@ export function materialBalance(
   account: NationalAccount | undefined,
   endowment: NaturalEndowment = {},
   days: number = MATERIAL_BALANCE_DAYS,
+  overlay?: MaterialFlowOverlay | null,
 ): MaterialBalanceRow[] {
   if (!account) return [];
-  const tick = advanceStock(stock, account, days, endowment);
-  const needs = materialNeeds(account);
-  const capacity = storageCapacity(account);
+  const tick = advanceStock(stock, account, days, endowment, undefined, overlay);
+  // Il fabbisogno è quello **efficace**: con gli oggetti persistenti il
+  // militare arriva dalle armate e dalle navi, non dai reparti generici.
+  const needs = effectiveMaterialNeeds(account, overlay);
+  const capacity = storageCapacity(account, needs);
   return MATERIAL_KINDS.map(kind => {
     const consumption = Number(needs[kind]) || 0;
     const balance = Number(tick.flow[kind]) || 0;
@@ -92,6 +96,79 @@ export function materialBalance(
       spoiledPerMonth: round(tick.spoiled?.[kind]),
     };
   });
+}
+
+/**
+ * Da dove arriva e dove finisce ogni materiale, in un mese: la struttura che
+ * rende leggibile il tick (motore + oggetti reali). `total` è il saldo del
+ * motore; `natural` è ciò che resta togliendo oggetti e consumi (agricoltura,
+ * giacimenti, popolazione): aritmetica sui numeri del motore, niente inventato.
+ */
+export interface MaterialFlowRow {
+  kind: MaterialKind;
+  label: string;
+  /** Consumo civile (popolazione, impianti): negativo. */
+  civilian: number;
+  /** Saldo degli impianti reali (produzione − input): segno compreso. */
+  facilities: number;
+  /** Consumo delle armate: negativo. */
+  army: number;
+  /** Consumo della marina: negativo. */
+  navy: number;
+  /** Produzione naturale del motore (agricoltura, giacimenti, popolazione). */
+  natural: number;
+  /** Saldo del mese dal motore. */
+  total: number;
+}
+
+export function materialFlowBreakdown(
+  stock: ResourceStock,
+  account: NationalAccount | undefined,
+  endowment: NaturalEndowment = {},
+  days: number = MATERIAL_BALANCE_DAYS,
+  overlay?: MaterialFlowOverlay | null,
+): MaterialFlowRow[] {
+  if (!account) return [];
+  const tick = advanceStock(stock, account, days, endowment, undefined, overlay);
+  const civil: MaterialNeeds = civilMaterialNeeds(account);
+  const military = overlay?.militaryNeeds ?? materialNeeds(account);
+  const navyFuel = Math.max(0, Number(overlay?.navyFuel) || 0);
+  return MATERIAL_KINDS.map(kind => {
+    const total = round(tick.flow[kind]);
+    const facilities = overlay
+      ? round(Number(overlay.production?.[kind] || 0) - Number(overlay.consumption?.[kind] || 0))
+      : 0;
+    const navy = kind === 'fuel' && overlay ? -round(navyFuel) : 0;
+    const militaryNeed = Number(military[kind]) || 0;
+    const army = overlay ? -round(Math.max(0, militaryNeed - (kind === 'fuel' ? navyFuel : 0))) : 0;
+    const civilian = -round(Number(civil[kind]) || 0);
+    return {
+      kind,
+      label: MATERIAL_LABELS[kind],
+      civilian,
+      facilities,
+      army,
+      navy,
+      natural: round(total - (facilities + civilian + army + navy)),
+      total,
+    };
+  });
+}
+
+/** Riga di sintesi del flusso: «Carburante +5/mese (impianti +12, naturale +5, civile −4, esercito −6, marina −2)». */
+export function describeMaterialFlow(rows: MaterialFlowRow[]): string {
+  if (rows.length === 0) return 'Flusso materiale non pubblicato.';
+  return rows.map(row => {
+    const sign = (value: number) => (value >= 0 ? `+${value}` : `${value}`);
+    const parts = [
+      `impianti ${sign(row.facilities)}`,
+      `naturale ${sign(row.natural)}`,
+      `civile ${sign(row.civilian)}`,
+      `esercito ${sign(row.army)}`,
+      `marina ${sign(row.navy)}`,
+    ].join(', ');
+    return `${row.label} ${sign(row.total)}/mese (${parts})`;
+  }).join('; ');
 }
 
 /** Riga di sintesi leggibile: «Armamenti 4/4 · saldo +0,86/mese». */

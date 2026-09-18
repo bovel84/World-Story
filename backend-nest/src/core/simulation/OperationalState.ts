@@ -33,7 +33,7 @@ import {
 } from './IndustrialCapacity';
 import type { IndustrialOrderLike } from './OperationalObjects';
 import {
-  FULL_TANK_MONTHS, OPERATING_STATUS_LABEL, endowmentContribution, fact, marginalProduction, shortTitle,
+  FULL_TANK_MONTHS, OPERATING_STATUS_LABEL, endowmentContribution, fact, marginalPlant, marginalProduction, shortTitle,
   type OperatingObject, type OperatingStatus,
 } from './OperationalObjects';
 
@@ -82,16 +82,29 @@ export const FACILITY_KIND_LABEL: Record<FacilityKind, string> = {
 export interface FacilityRecipe {
   inputs: Record<string, number>;
   outputs: Record<string, number>;
+  /** Tecnologie con cui il profilo è stato calcolato (riaggiornamento lazy). */
+  technologies?: string[];
 }
 
+/**
+ * Ricette **dichiarate** degli impianti.
+ *
+ * Gli `inputs` di questa tabella sono **coefficienti per unità di produzione
+ * mensile**, non quantità assolute: un impianto che produce 1,4 unità al mese e
+ * ha coefficiente 0,02 consuma 0,028 di quel materiale. Espressi così, i
+ * fabbisogni minerari crescono con l'impianto e restano confrontabili con
+ * l'estrazione del paese (che cresce con le infrastrutture): nessuna nazione
+ * nasce con una filiera impossibile.
+ *
+ * Il centro di ricerca non ha una catena di materiali: il costo del denaro è
+ * una **spesa** (sezione «costi»), non un collo di bottiglia della produzione.
+ */
 export const FACILITY_RECIPES: Record<FacilityKind, FacilityRecipe> = {
-  steel_mill: { inputs: { iron: 2, coal: 1.5 }, outputs: { weapons: 0.6 } },
-  arms_factory: { inputs: { iron: 0.8, coal: 0.6 }, outputs: { weapons: 0.8 } },
-  vehicle_factory: { inputs: { weapons: 0.4, fuel: 0.3 }, outputs: { weapons: 0.7 } },
-  aircraft_factory: { inputs: { weapons: 0.3, fuel: 0.4 }, outputs: { weapons: 0.5 } },
-  shipyard: { inputs: { iron: 1.2, coal: 0.4 }, outputs: { weapons: 0.4 } },
-  // Il centro di ricerca non ha una catena di materiali: il costo del denaro è
-  // una **spesa** (sezione «costi»), non un collo di bottiglia della produzione.
+  steel_mill: { inputs: { iron: 0.02, coal: 0.015 }, outputs: { weapons: 0.6 } },
+  arms_factory: { inputs: { iron: 0.01, coal: 0.01 }, outputs: { weapons: 0.8 } },
+  vehicle_factory: { inputs: { weapons: 0.008, fuel: 0.01 }, outputs: { weapons: 0.7 } },
+  aircraft_factory: { inputs: { weapons: 0.006, fuel: 0.012 }, outputs: { weapons: 0.5 } },
+  shipyard: { inputs: { iron: 0.015, coal: 0.008 }, outputs: { weapons: 0.4 } },
   research_center: { inputs: {}, outputs: { research: 0.35 } },
   mine: { inputs: {}, outputs: {} },
 };
@@ -103,6 +116,83 @@ export function facilityCapacityFor(kind: FacilityKind): number {
     case 'research_center': return CAPACITY_PER_UNIVERSITY;
     default: return CAPACITY_PER_FACTORY;
   }
+}
+
+/**
+ * Fattore di **stato** di un impianto: operativo produce, fermo no, in
+ * manutenzione lavora a metà. Centralizzato: la stessa regola per il tick
+ * aggregato, per la scheda e per gli ordini. Un impianto in manutenzione non
+ * può produrre come se fosse a pieno regime.
+ */
+export function facilityStatusFactor(status: FacilityState['status']): number {
+  switch (status) {
+    case 'operational': return 1;
+    case 'maintenance': return 0.5;
+    default: return 0;
+  }
+}
+
+/**
+ * Fattore di consumo di una nave: una nave in servizio consuma, una in
+ * manutenzione o danneggiata consuma metà, una in costruzione non consuma
+ * carburante operativo.
+ */
+export function shipConsumptionFactor(status: ShipState['status']): number {
+  switch (status) {
+    case 'operational': return 1;
+    case 'maintenance': return 0.5;
+    case 'damaged': return 0.5;
+    default: return 0;
+  }
+}
+
+/**
+ * Ricetta di un impianto **dal motore**: gli input sono la catena dichiarata,
+ * gli output sono il profilo di `marginalPlant` per un impianto di quel tipo,
+ * calcolato **senza giacimenti** (l'estrazione naturale resta una voce a sé del
+ * bilancio: la somma degli impianti non deve contenere due volte il paese).
+ * La firma delle tecnologie resta nella ricetta: quando il paese ne sblocca una
+ * nuova, il profilo si riaggiorna (una sola volta).
+ */
+export function engineFacilityRecipe(kind: FacilityKind, technologies: readonly string[] = []): FacilityRecipe {
+  const base = FACILITY_RECIPES[kind];
+  const plant = kind === 'shipyard' ? { ports: 1 }
+    : kind === 'research_center' ? { universities: 1 }
+      : kind === 'mine' ? null : { factories: 1 };
+  if (!plant) return base;
+  // Produzione **lorda** dell'impianto (`marginalPlant.gross`): il saldo del
+  // motore più i soli consumi industriali dell'impianto. Il motore conta già a
+  // livello nazionale i fabbisogni civili e militari: sommarli di nuovo
+  // significherebbe un doppio consumo.
+  const { gross } = marginalPlant(plant, {}, [...technologies]);
+  const outputs: Record<string, number> = {};
+  for (const [id, value] of Object.entries(gross)) if (value > 0) outputs[id] = round3(value);
+  if (Object.keys(outputs).length === 0) return { ...base, technologies: [...technologies] };
+  // Fabbisogno materiale = coefficiente dichiarato × produzione dell'impianto.
+  const produced = Object.values(outputs).reduce((total, value) => total + value, 0);
+  const inputs: Record<string, number> = {};
+  for (const [id, coefficient] of Object.entries(base.inputs || {})) {
+    const need = round3(nonNegative(coefficient) * produced);
+    if (need > 0) inputs[id] = need;
+  }
+  return { inputs, outputs, technologies: [...technologies].sort() };
+}
+
+/**
+ * La ricetta salvata dichiara materiali diversi da quelli del motore: schema
+ * vecchio (per esempio la cassa fra gli input, che è un costo e non un collo di
+ * bottiglia). Le righe scritte prima di una correzione si riallineano da sole.
+ */
+export function facilityRecipeDrifted(recipe: FacilityRecipe | undefined, current: FacilityRecipe): boolean {
+  const keys = (value?: Record<string, number>) => Object.keys(value || {}).sort().join(',');
+  return keys(recipe?.inputs) !== keys(current.inputs) || keys(recipe?.outputs) !== keys(current.outputs);
+}
+
+/** La ricetta va rifatta? (tecnologie diverse da quelle con cui è nata) */
+export function facilityRecipeStale(recipe: FacilityRecipe | undefined, technologies: readonly string[]): boolean {
+  const stamp = [...technologies].sort();
+  const current = [...(recipe?.technologies || [])].sort();
+  return stamp.length !== current.length || stamp.some((id, index) => id !== current[index]);
 }
 
 export interface FacilityState {
@@ -344,8 +434,8 @@ export function facilityProduction(facility: FacilityState, ctx: {
   activity?: number;
 }): FacilityProductionResult {
   const recipe = facility.recipe ?? FACILITY_RECIPES[facility.kind];
-  const activity = Math.max(0, Math.min(1, ctx.activity === undefined ? 1 : ctx.activity));
-  if (facility.status === 'under_construction' || facility.status === 'idle' || activity <= 0) {
+  const activity = Math.max(0, Math.min(1, ctx.activity === undefined ? 1 : ctx.activity)) * facilityStatusFactor(facility.status);
+  if (activity <= 0) {
     return { factor: 0, outputs: {}, inputs: {}, bottleneck: null };
   }
   const stock = ctx.stock || {};
@@ -373,6 +463,162 @@ export function facilityProduction(facility: FacilityState, ctx: {
     if (value > 0) inputs[id] = value;
   }
   return { factor: round3(factor), outputs, inputs, bottleneck };
+}
+
+// ── 4-bis. Pass di allocazione: più impianti, **una sola** scorta ───────────
+
+export interface FacilityAllocationEntry {
+  facilityId: string;
+  kind: FacilityKind;
+  /** Fattore realmente applicato: stato × attività × disponibilità degli input. */
+  factor: number;
+  /**
+   * Fattore **materiale** dell'impianto (stato × disponibilità), senza il
+   * fattore di capacità industriale del paese: gli ordini lo applicano al
+   * proprio tempo, che la saturazione delle linee scala già a parte.
+   */
+  materialFactor: number;
+  statusFactor: number;
+  /** Quanto l'impianto **prende** davvero (input × fattore). */
+  inputs: Record<string, number>;
+  outputs: Record<string, number>;
+  /** Causa reale del rallentamento: richiesto, assegnato, copertura. */
+  bottleneck: { id: string; required: number; assigned: number; coveragePct: number } | null;
+}
+
+export interface FacilityAllocation {
+  facilities: FacilityAllocationEntry[];
+  totalInputs: Record<string, number>;
+  totalOutputs: Record<string, number>;
+  /** Disponibilità non usata dopo l'allocazione (diagnostica). */
+  remaining: Record<string, number>;
+  /** Materiali presi dai **giacimenti** (estrazione), non dalle scorte. */
+  naturalInputs: Record<string, number>;
+}
+
+const floor3 = (value: number) => Math.floor(value * 1000 + 1e-9) / 1000;
+const round4 = (value: number) => Math.round(value * 10000) / 10000;
+
+/**
+ * Alloca la produzione di **tutti** gli impianti insieme.
+ *
+ * Il problema che risolve: ogni impianto non può verificare i propri input
+ * contro la stessa scorta nazionale (due acciaierie da 20 su una scorta di 20
+ * non possono lavorare entrambe a pieno). La policy è **proporzionale**:
+ * la disponibilità di ciascun materiale viene divisa fra gli impianti in
+ * proporzione al loro fabbisogno — stabile e indipendente dall'ordine.
+ *
+ *   domanda 40, disponibilità 20  →  ogni impianto al 50%
+ *
+ * Gli input usati sono quelli **effettivamente presi**: la somma non supera mai
+ * la disponibilità. Un materiale che non è una scorta (ferro, carbone…) è
+ * **estrazione del mese**, non giacimento infinito: la disponibilità la decide
+ * il chiamante.
+ */
+export function allocateFacilityProduction(input: {
+  facilities: readonly FacilityState[];
+  /** Disponibilità del mese per materiale (scorte + estrazione). */
+  availability?: Record<string, number>;
+  /** Scorte reali (fallback se `availability` non è fornita). */
+  stock?: Record<string, number>;
+  /** Giacimenti dichiarati (solo fallback delle funzioni pure). */
+  endowment?: Record<string, number>;
+  /** Attività nazionale delle linee (0…1), dal motore. */
+  activity?: number;
+}): FacilityAllocation {
+  const activity = Math.max(0, Math.min(1, input.activity === undefined ? 1 : input.activity));
+  /**
+   * Disponibilità di un input.
+   *
+   * Il chiamante dichiara **solo** ciò che può razionare: le scorte del
+   * magazzino e i giacimenti che hanno un silo. Un materiale non dichiarato non
+   * è un collo di bottiglia: il motore non ha una filiera estrattiva da
+   * limitare (l'approvvigionamento passa dal mercato, che vive altrove) e
+   * bloccare la produzione sarebbe inventare un vincolo che non esiste.
+   * `Infinity` = nessun razionamento.
+   */
+  const availability = (id: string): number => {
+    if (input.availability) return id in input.availability ? nonNegative(input.availability[id]) : Number.POSITIVE_INFINITY;
+    return input.availability === undefined && !input.stock
+      ? Number.POSITIVE_INFINITY
+      : inputAvailability(id, input.stock, input.endowment) || Number.POSITIVE_INFINITY;
+  };
+  const plants = input.facilities.filter(facility => facility.kind !== 'mine');
+  const prepared = plants.map(facility => {
+    const recipe = facility.recipe ?? FACILITY_RECIPES[facility.kind];
+    const statusFactor = facilityStatusFactor(facility.status);
+    const base = statusFactor * activity;
+    const required: Record<string, number> = {};
+    for (const [id, quantity] of Object.entries(recipe.inputs || {})) {
+      const need = nonNegative(quantity) * base;
+      if (need > 0) required[id] = need;
+    }
+    return { facility, recipe, statusFactor, base, required };
+  });
+
+  // Fabbisogno complessivo per materiale e quota disponibile per ciascuno.
+  const demand: Record<string, number> = {};
+  for (const item of prepared) {
+    for (const [id, need] of Object.entries(item.required)) demand[id] = (demand[id] || 0) + need;
+  }
+  const share: Record<string, number> = {};
+  for (const [id, need] of Object.entries(demand)) {
+    share[id] = need > 0 ? Math.min(1, availability(id) / need) : 1;
+  }
+
+  const entries: FacilityAllocationEntry[] = [];
+  const totalInputs: Record<string, number> = {};
+  const totalOutputs: Record<string, number> = {};
+  for (const item of prepared) {
+    let ratio = 1;
+    let tightest: string | null = null;
+    for (const id of Object.keys(item.required)) {
+      const value = share[id] ?? 1;
+      if (value < ratio) { ratio = value; tightest = id; }
+    }
+    const factor = item.base * ratio;
+    const outputs: Record<string, number> = {};
+    for (const [id, quantity] of Object.entries(item.recipe.outputs || {})) {
+      const value = round3(nonNegative(quantity) * factor);
+      if (value > 0) outputs[id] = value;
+      if (value > 0) totalOutputs[id] = round3((totalOutputs[id] || 0) + value);
+    }
+    const taken: Record<string, number> = {};
+    for (const [id, need] of Object.entries(item.required)) {
+      const value = floor3(need * ratio);
+      if (value > 0) taken[id] = value;
+      if (value > 0) totalInputs[id] = round3((totalInputs[id] || 0) + value);
+    }
+    const bottleneck = tightest
+      ? {
+        id: tightest,
+        required: round2(item.required[tightest]),
+        assigned: round2(taken[tightest] || 0),
+        coveragePct: round1((share[tightest] ?? 1) * 100),
+      }
+      : null;
+    entries.push({
+      facilityId: item.facility.id,
+      kind: item.facility.kind,
+      factor: round4(factor),
+      materialFactor: round4(item.statusFactor * ratio),
+      statusFactor: item.statusFactor,
+      inputs: taken,
+      outputs,
+      bottleneck,
+    });
+  }
+
+  const remaining: Record<string, number> = {};
+  for (const id of Object.keys(demand)) {
+    const available = availability(id);
+    if (Number.isFinite(available)) remaining[id] = round3(Math.max(0, available - (totalInputs[id] || 0)));
+  }
+  const naturalInputs: Record<string, number> = {};
+  for (const [id, value] of Object.entries(totalInputs)) {
+    if (!STOCK_MATERIALS.has(id)) naturalInputs[id] = value;
+  }
+  return { facilities: entries, totalInputs, totalOutputs, remaining, naturalInputs };
 }
 
 // ── 5. Aggregazione: il paese è la somma degli oggetti ──────────────────────
@@ -421,6 +667,8 @@ export function aggregateObjects(input: {
   endowment?: Record<string, number>;
   /** Attività nazionale delle linee (0…1), dal motore. */
   activity?: number;
+  /** Pass di allocazione già calcolato: gli stessi numeri del tick. */
+  allocation?: FacilityAllocation;
 }): OperationalAggregate {
   const armies = input.armies || [];
   const facilities = input.facilities || [];
@@ -446,7 +694,10 @@ export function aggregateObjects(input: {
     if (facility.kind !== 'mine') capacity += nonNegative(facility.capacity);
     workers += nonNegative(facility.workers);
     activeOrders += (facility.activeOrders || []).length;
-    const production = facilityProduction(facility, { stock: input.stock, endowment: input.endowment, activity: input.activity ?? 1 });
+    const allocated = input.allocation?.facilities.find(entry => entry.facilityId === facility.id);
+    const production = allocated
+      ? { outputs: allocated.outputs, inputs: allocated.inputs }
+      : facilityProduction(facility, { stock: input.stock, endowment: input.endowment, activity: input.activity ?? 1 });
     for (const [id, quantity] of Object.entries(production.outputs)) addTo(output, id, quantity);
     for (const [id, quantity] of Object.entries(production.inputs)) addTo(consumed, id, quantity);
   }
@@ -861,6 +1112,8 @@ export function advanceConstructions(input: {
   date: string;
   /** Capacità industriale disponibile per i lavori (fattore 0…1). */
   activity?: number;
+  /** Tecnologie del paese: la ricetta dell'impianto nasce dal profilo del motore. */
+  technologies?: readonly string[];
 }): ConstructionAdvance {
   const ongoing = new Set(input.ongoingProjectIds.map(String));
   const constructions: ConstructionState[] = [];
@@ -886,7 +1139,7 @@ export function advanceConstructions(input: {
       capacity,
       workers: SEED_WORKERS_PER_LINE.factory * capacity,
       status: 'operational',
-      recipe: FACILITY_RECIPES[kind],
+      recipe: engineFacilityRecipe(kind, input.technologies || []),
       activeOrders: [],
       createdDate: input.date,
       legacyDerived: false,
@@ -992,6 +1245,11 @@ export interface PersistentObjectsInput {
   militaryMonthlyMld?: number;
   /** Mesi di carburante disponibili (scorta nazionale / consumo). */
   fuelMonths?: number | null;
+  /**
+   * Pass di allocazione degli impianti (lo **stesso** usato dal tick): la
+   * scheda non ricalcola nulla, mostra la simulazione che modifica lo stato.
+   */
+  allocation?: FacilityAllocation;
 }
 
 const tone = (value: number, good: number, warn: number): ReadinessTone =>
@@ -1112,7 +1370,22 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
       });
       continue;
     }
-    const production = facilityProduction(facility, { stock: input.stock, endowment: input.endowment, activity });
+    const allocated = input.allocation?.facilities.find(entry => entry.facilityId === facility.id);
+    const production: FacilityProductionResult = allocated
+      ? {
+        factor: allocated.factor,
+        outputs: allocated.outputs,
+        inputs: allocated.inputs,
+        bottleneck: allocated.bottleneck
+          ? {
+            id: allocated.bottleneck.id,
+            coveragePct: allocated.bottleneck.coveragePct,
+            required: allocated.bottleneck.required,
+            available: allocated.bottleneck.assigned,
+          }
+          : null,
+      }
+      : facilityProduction(facility, { stock: input.stock, endowment: input.endowment, activity });
     const lines = nonNegative(facility.capacity);
     const utilization = totalLines > 0 ? round1(Math.min(100, (facility.activeOrders.length * 4) / Math.max(1, lines) * 100)) : 0;
     const status: OperatingStatus = facility.status !== 'operational'
@@ -1147,7 +1420,9 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
         ...(production.bottleneck
           ? [fact('input', `Input limitante: ${materialLabel(production.bottleneck.id)}`, production.bottleneck.coveragePct, 'pct',
             production.bottleneck.coveragePct < 50 ? 'critical' : 'warning',
-            `Disponibile ${n(production.bottleneck.available)} su ${n(production.bottleneck.required)} richiesti questo mese.`)]
+            allocated
+              ? `Assegnato ${n(production.bottleneck.available)} su ${n(production.bottleneck.required)} richiesti questo mese: la scorta è divisa fra gli impianti che chiedono lo stesso materiale.`
+              : `Disponibile ${n(production.bottleneck.available)} su ${n(production.bottleneck.required)} richiesti questo mese.`)]
           : []),
         ...(input.civilMonthlyMld !== undefined && totalLines > 0
           ? [fact('costi', 'Costo operativo', round2(nonNegative(input.civilMonthlyMld) * (lines / totalLines)), 'mld',

@@ -41,7 +41,7 @@ import {
   type IndustrialAllocation, type IndustrialCapacity, type IndustrialMaintenanceInput, type IndustrialProjectInput,
 } from './IndustrialCapacity';
 import {
-  advanceStock, financePurchase, materialNeeds, type MaterialNeeds, type ResourceStock,
+  advanceStock, civilMaterialNeeds, financePurchase, materialNeeds, type MaterialNeeds, type ResourceStock,
 } from './MaterialEconomy';
 import {
   personnelOverlay, transferMenToArmy, type MilitaryPersonnelState,
@@ -261,22 +261,48 @@ export function marginalPlant(
   plant: { factories?: number; ports?: number; universities?: number },
   endowment: NaturalEndowment = {},
   technologies: string[] = [],
-): { flow: Record<string, number>; needs: Record<string, number> } {
+): {
+  /** Saldo netto dell'impianto (produce − consuma), come lo calcola il motore. */
+  flow: Record<string, number>;
+  /** Consumi dell'impianto, militari compresi (il pavimento dei materiali). */
+  needs: Record<string, number>;
+  /**
+   * Produzione **lorda**: saldo + i soli consumi **civili/industriali**
+   * dell'impianto. È la voce che sostituisce la formula nazionale: il
+   * fabbisogno militare del profilo sintetico (il pavimento di 0,2 armamenti)
+   * non è produzione di un impianto e non va sommato al lordo.
+   */
+  gross: Record<string, number>;
+} {
   const account = {
     population: 0, forces: 0, mobilized: 0,
     factories: positive(plant.factories), ports: positive(plant.ports), universities: positive(plant.universities),
   } as NationalAccount;
   const tick = advanceStock({ ...EMPTY_STOCK, technologies }, account, 30, endowment);
   const needs = materialNeeds(account);
+  const civil = civilMaterialNeeds(account);
+  // Produzione **lorda**: lo stesso calcolo senza il fabbisogno militare del
+  // profilo sintetico (il pavimento di 0,2 armamenti è consumo dell'esercito,
+  // non produzione di un impianto). Non tocca `flow`/`needs`, che restano la
+  // semantica di `marginalProduction`.
+  const grossTick = advanceStock({ ...EMPTY_STOCK, technologies }, account, 30, endowment, undefined, undefined, {
+    food: 0, clothing: 0, weapons: 0, fuel: 0,
+  });
+  const flow = {
+    food: nonNegative(tick.flow.food), clothing: nonNegative(tick.flow.clothing),
+    weapons: nonNegative(tick.flow.weapons), fuel: nonNegative(tick.flow.fuel),
+    research: nonNegative(tick.flow.research),
+  };
   return {
-    flow: {
-      food: nonNegative(tick.flow.food), clothing: nonNegative(tick.flow.clothing),
-      weapons: nonNegative(tick.flow.weapons), fuel: nonNegative(tick.flow.fuel),
-      research: nonNegative(tick.flow.research),
-    },
+    flow,
     needs: {
       food: nonNegative(needs.food), clothing: nonNegative(needs.clothing),
       weapons: nonNegative(needs.weapons), fuel: nonNegative(needs.fuel),
+    },
+    gross: {
+      food: nonNegative(grossTick.flow.food), clothing: nonNegative(grossTick.flow.clothing),
+      weapons: nonNegative(grossTick.flow.weapons), fuel: nonNegative(grossTick.flow.fuel),
+      research: nonNegative(grossTick.flow.research),
     },
   };
 }

@@ -17,9 +17,19 @@ import { operationalObjectRepository, type OperationalObjectKind } from '../repo
 import type { MilitaryEpoch, MilitaryManpower } from '../core/simulation/MilitaryDoctrine';
 import { militaryManpower } from '../core/simulation/MilitaryDoctrine';
 import type { IndustrialProjectInput } from '../core/simulation/IndustrialCapacity';
-import { FACILITY_RECIPES, type FacilityKind, type FacilityRecipe } from '../core/simulation/OperationalState';
-import { marginalPlant } from '../core/simulation/OperationalObjects';
-import type { ResourceStock } from '../core/simulation/MaterialEconomy';
+import {
+  allocateFacilityProduction,
+  engineFacilityRecipe,
+  facilityRecipeDrifted,
+  facilityRecipeStale,
+  monthlyNeedsPerFormation,
+  shipConsumptionFactor,
+  type FacilityAllocation,
+  type FacilityKind,
+} from '../core/simulation/OperationalState';
+import type { MaterialFlowOverlay, MaterialNeeds, ResourceStock } from '../core/simulation/MaterialEconomy';
+import { extractionRate, type ResourceLedger } from '../core/simulation/ResourceMarket';
+import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import {
   advanceConstructions,
   aggregateObjects,
@@ -67,6 +77,13 @@ export interface OperationalStoreInputs {
   projects(): IndustrialProjectInput[];
   /** Stock materiale corrente (produzione degli impianti). */
   stock(): ResourceStock;
+  /**
+   * Registro delle risorse naturali: l'input minerario di un impianto viene
+   * dalla **estrazione del mese** (silo), non dal giacimento come scorta infinita.
+   */
+  ledger?(): ResourceLedger;
+  /** Conto nazionale: serve a stimare l'estrazione mensile reale. */
+  account?(): NationalAccount | undefined;
   /** Attività nazionale delle linee (0…1) dal motore. */
   activity?(): number;
   /** Persiste i campi operativi delle armate sugli oggetti della mappa. */
@@ -154,23 +171,11 @@ export class OperationalStateStore {
       const doctrine = this.inputs.manpower();
       const regions = this.inputs.regions();
       const endowment = this.inputs.endowment();
-      const technologies = this.inputs.stock().technologies || [];
-      // Ricetta per impianto dal **motore**: la somma degli impianti è la
-      // produzione nazionale (nessuna formula riscritta nello store).
-      const recipeOf = (kind: FacilityKind): FacilityRecipe | undefined => {
-        const base = FACILITY_RECIPES[kind];
-        const plant = kind === 'shipyard' ? { ports: 1 }
-          : kind === 'research_center' ? { universities: 1 }
-            : kind === 'mine' ? null : { factories: 1 };
-        if (!plant) return base;
-        const { flow, needs } = marginalPlant(plant, endowment, technologies);
-        const only = (source: Record<string, number>) => Object.fromEntries(
-          Object.entries(source).filter(([, value]) => value > 0),
-        );
-        const outputs = only(flow);
-        if (Object.keys(outputs).length === 0) return base;
-        return { inputs: { ...base.inputs, ...only(needs) }, outputs };
-      };
+      const technologies = this.technologies();
+      // Ricetta per impianto dal **motore** (`engineFacilityRecipe`): la somma
+      // degli impianti è la produzione nazionale; giacimenti e agricoltura
+      // restano voci a sé del bilancio, così nessun bonus entra due volte.
+      const recipeOf = (kind: FacilityKind) => engineFacilityRecipe(kind, technologies);
       const facilities = seedFacilities({
         polityId,
         factories: this.inputs.factories(),
@@ -231,6 +236,154 @@ export class OperationalStateStore {
     }
   }
 
+  /** Tecnologie del paese (dallo stock materiale, che le possiede). */
+  technologies(): string[] {
+    try {
+      return [...(this.inputs.stock().technologies || [])];
+    } catch (error) {
+      this.warn('tecnologie non disponibili', error);
+      return [];
+    }
+  }
+
+  /**
+   * Le ricette nascono dal profilo del motore con le tecnologie **di allora**:
+   * quando il paese ne sblocca una nuova il profilo va rifatto, altrimenti il
+   * bonus resterebbe solo sulla carta. Riscrittura lazy, una volta sola.
+   */
+  private refreshRecipes(snapshot: OperationalStateSnapshot): void {
+    const technologies = this.technologies();
+    const updated = snapshot.facilities.map(facility => {
+      const current = engineFacilityRecipe(facility.kind, technologies);
+      const stale = facilityRecipeStale(facility.recipe, technologies)
+        || facilityRecipeDrifted(facility.recipe, current);
+      return stale ? { ...facility, recipe: current } : facility;
+    });
+    if (!updated.some((facility, index) => facility.recipe !== snapshot.facilities[index]?.recipe)) return;
+    snapshot.facilities = updated;
+    this.state = snapshot;
+    try {
+      operationalObjectRepository.upsertMany(
+        this.inputs.gameId,
+        updated.map(facility => ({ kind: 'facility' as const, id: facility.id, data: facility as unknown as Record<string, unknown> })),
+      );
+    } catch (error) {
+      this.warn('aggiornamento ricette non riuscito', error);
+    }
+  }
+
+  /**
+   * Disponibilità del mese per materiale: le **scorte** per i materiali e la
+   * **estrazione** (silo + gettito mensile) per i giacimenti. Un giacimento non
+   * è uno stock infinito: se l'estrazione è zero, la filiera si ferma.
+   */
+  availability(): Record<string, number> {
+    const availability: Record<string, number> = {};
+    let stock: ResourceStock | null = null;
+    try {
+      stock = this.inputs.stock();
+      for (const kind of ['food', 'clothing', 'weapons', 'fuel', 'research', 'money']) {
+        availability[kind] = Math.max(0, Number((stock as unknown as Record<string, number>)[kind]) || 0);
+      }
+    } catch (error) {
+      this.warn('scorte non disponibili per l\'allocazione', error);
+    }
+    if (!this.inputs.ledger) return availability;
+    try {
+      const ledger = this.inputs.ledger();
+      const account = this.inputs.account ? this.inputs.account() : undefined;
+      for (const [kind, node] of Object.entries(ledger)) {
+        if (!node) continue;
+        const silo = Math.max(0, Number(node.stockpile) || 0);
+        const month = Math.max(0, extractionRate(node, account));
+        availability[kind] = Math.round((silo + month) * 1000) / 1000;
+      }
+    } catch (error) {
+      this.warn('estrazione non disponibile per l\'allocazione', error);
+    }
+    return availability;
+  }
+
+  /**
+   * Pass di allocazione degli impianti: **una sola** scorta divisa fra tutti.
+   * Gli stessi numeri vanno al tick, alla scheda e agli ordini.
+   */
+  allocation(): FacilityAllocation {
+    const snapshot = this.snapshot();
+    return allocateFacilityProduction({
+      facilities: snapshot.facilities,
+      availability: this.availability(),
+      activity: this.inputs.activity ? this.inputs.activity() : 1,
+    });
+  }
+
+  /**
+   * Fattore materiale reale di un impianto (0 se fermo o senza input), senza il
+   * fattore di capacità industriale: quello lo applica già il motore al tempo.
+   */
+  facilityFactor(facilityId: string | null | undefined): number {
+    if (!facilityId) return 1;
+    const entry = this.allocation().facilities.find(item => item.facilityId === facilityId);
+    return entry ? entry.materialFactor : 1;
+  }
+
+  /** Fabbisogno **militare** degli oggetti: armate + navi, una sola volta. */
+  militaryNeeds(): MaterialNeeds {
+    const snapshot = this.snapshot();
+    const needs: MaterialNeeds = { food: 0, clothing: 0, weapons: 0, fuel: 0 };
+    for (const army of snapshot.armies) {
+      needs.food += Math.max(0, Number(army.monthlyNeeds?.food) || 0);
+      needs.weapons += Math.max(0, Number(army.monthlyNeeds?.weapons) || 0);
+      needs.fuel += Math.max(0, Number(army.monthlyNeeds?.fuel) || 0);
+    }
+    for (const ship of snapshot.ships) {
+      needs.fuel += Math.max(0, Number(ship.monthlyFuel) || 0) * shipConsumptionFactor(ship.status);
+    }
+    const round = (value: number) => Math.round(value * 1000) / 1000;
+    return { food: round(needs.food), clothing: round(needs.clothing), weapons: round(needs.weapons), fuel: round(needs.fuel) };
+  }
+
+  /** Consumo navale di carburante del mese (per il dettaglio del flusso). */
+  navyFuel(): number {
+    return this.snapshot().ships
+      .reduce((total, ship) => total + Math.max(0, Number(ship.monthlyFuel) || 0) * shipConsumptionFactor(ship.status), 0);
+  }
+
+  /**
+   * Flusso materiale degli oggetti reali, per il tick del motore.
+   * `null` quando lo stato persistente non esiste (partita legacy): in quel caso
+   * il motore usa il percorso di sempre, senza alcun doppio conteggio.
+   */
+  materialFlow(): MaterialFlowOverlay | null {
+    try {
+      const snapshot = this.snapshot();
+      if (snapshot.facilities.length === 0 && snapshot.armies.length === 0 && snapshot.ships.length === 0) return null;
+      const allocation = this.allocation();
+      const production: Partial<Record<'money' | 'food' | 'clothing' | 'weapons' | 'fuel' | 'research', number>> = {};
+      const consumption: Partial<Record<'money' | 'food' | 'clothing' | 'weapons' | 'fuel' | 'research', number>> = {};
+      for (const [id, value] of Object.entries(allocation.totalOutputs)) {
+        if (id === 'money' || id === 'food' || id === 'clothing' || id === 'weapons' || id === 'fuel' || id === 'research') {
+          production[id] = value;
+        }
+      }
+      for (const [id, value] of Object.entries(allocation.totalInputs)) {
+        if (id === 'money' || id === 'food' || id === 'clothing' || id === 'weapons' || id === 'fuel' || id === 'research') {
+          consumption[id] = value;
+        }
+      }
+      return {
+        production,
+        consumption,
+        militaryNeeds: this.militaryNeeds(),
+        naturalInputs: allocation.naturalInputs,
+        navyFuel: Math.round(this.navyFuel() * 1000) / 1000,
+      };
+    } catch (error) {
+      this.warn('flusso oggetti non calcolabile', error);
+      return null;
+    }
+  }
+
   private armyObjectsFormations(): number {
     return this.inputs.armyObjects().reduce((total, army) => total + Math.max(0, Math.round(nonNegative(army.formations))), 0);
   }
@@ -244,6 +397,20 @@ export class OperationalStateStore {
   syncArmies(snapshot: OperationalStateSnapshot): OperationalStateSnapshot {
     const epoch = this.inputs.epoch();
     const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch }).menPerFormation;
+    const needsOf = (formations: number, personnel: number, saved?: ArmyOperationalState['monthlyNeeds']): ArmyOperationalState['monthlyNeeds'] => {
+      // Un fabbisogno dichiarato vale; se manca o è a zero mentre l'armata ha
+      // uomini, si riprende dal motore (`monthlyNeedsPerFormation`) invece di
+      // dichiarare che un reparto non consuma nulla.
+      if (saved && ((saved.fuel || 0) > 0 || (saved.weapons || 0) > 0 || (saved.food || 0) > 0)) return saved;
+      const equivalent = formations > 0 ? formations : personnel / menPerFormation;
+      const per = monthlyNeedsPerFormation(epoch);
+      const round3 = (value: number) => Math.round(value * 1000) / 1000;
+      return {
+        fuel: round3(per.fuel * equivalent),
+        weapons: round3(per.weapons * equivalent),
+        food: round3(per.food * equivalent),
+      };
+    };
     const seeds = this.inputs.armyObjects();
     const total = Math.max(0, Math.round(this.inputs.totalFormations()));
     const accounted = seeds.reduce((sum, army) => sum + Math.max(0, Math.round(nonNegative(army.formations))), 0);
@@ -254,13 +421,15 @@ export class OperationalStateStore {
       const existing = byId.get(id);
       const formations = Math.max(0, Math.round(nonNegative(seed.formations)));
       if (existing) {
+        const personnel = existing.legacyDerived ? Math.round(formations * menPerFormation) : existing.personnel;
         next.push({
           ...existing,
           name: seed.name || existing.name,
           regionId: seed.regionId ?? existing.regionId,
           regionName: seed.regionName ?? existing.regionName,
           formations,
-          personnel: existing.legacyDerived ? Math.round(formations * menPerFormation) : existing.personnel,
+          personnel,
+          monthlyNeeds: needsOf(formations, personnel, existing.monthlyNeeds),
         });
       } else {
         next.push({
@@ -271,7 +440,7 @@ export class OperationalStateStore {
           formations,
           personnel: Math.round(formations * menPerFormation),
           equipment: {},
-          monthlyNeeds: { fuel: 0, weapons: 0, food: 0 },
+          monthlyNeeds: needsOf(formations, Math.round(formations * menPerFormation)),
           status: 'operational',
           objectId: seed.objectId,
           createdDate: this.inputs.currentDate(),
@@ -296,10 +465,12 @@ export class OperationalStateStore {
         createdDate: this.inputs.currentDate(),
         legacyDerived: true,
       };
+      const personnel = previous.legacyDerived ? Math.round(leftover * menPerFormation) : previous.personnel;
       next.push({
         ...previous,
         formations: leftover,
-        personnel: previous.legacyDerived ? Math.round(leftover * menPerFormation) : previous.personnel,
+        personnel,
+        monthlyNeeds: needsOf(leftover, personnel, previous.monthlyNeeds),
       });
     }
     snapshot.armies = next.sort((a, b) => String(a.id).localeCompare(String(b.id)));
@@ -311,6 +482,7 @@ export class OperationalStateStore {
   snapshot(): OperationalStateSnapshot {
     const snapshot = this.ensureSeeded();
     this.syncArmies(snapshot);
+    this.refreshRecipes(snapshot);
     return snapshot;
   }
 
@@ -350,6 +522,8 @@ export class OperationalStateStore {
       stock: this.inputs.stock() as unknown as Record<string, number>,
       endowment: this.inputs.endowment(),
       activity: this.inputs.activity ? this.inputs.activity() : undefined,
+      // Gli stessi numeri del tick: nessun ricalcolo per la lettura.
+      allocation: this.allocation(),
     });
   }
 
@@ -376,26 +550,12 @@ export class OperationalStateStore {
     const snapshot = this.snapshot();
     snapshot.facilities = [...items];
     this.persist('facility', items);
-    try {
-      for (const existing of operationalObjectRepository.idsOfKind(this.inputs.gameId, 'facility')) {
-        if (!items.some(item => item.id === existing)) operationalObjectRepository.remove(this.inputs.gameId, existing);
-      }
-    } catch (error) {
-      this.warn('pulizia impianti non riuscita', error);
-    }
   }
 
   saveShips(items: readonly ShipState[]): void {
     const snapshot = this.snapshot();
     snapshot.ships = [...items];
     this.persist('ship', items);
-    try {
-      for (const existing of operationalObjectRepository.idsOfKind(this.inputs.gameId, 'ship')) {
-        if (!items.some(item => item.id === existing)) operationalObjectRepository.remove(this.inputs.gameId, existing);
-      }
-    } catch (error) {
-      this.warn('pulizia navi non riuscita', error);
-    }
   }
 
   saveFleets(items: readonly FleetState[]): void {
@@ -408,13 +568,6 @@ export class OperationalStateStore {
     const snapshot = this.snapshot();
     snapshot.constructions = [...items];
     this.persist('construction', items);
-    try {
-      for (const existing of operationalObjectRepository.idsOfKind(this.inputs.gameId, 'construction')) {
-        if (!items.some(item => item.id === existing)) operationalObjectRepository.remove(this.inputs.gameId, existing);
-      }
-    } catch (error) {
-      this.warn('pulizia cantieri non riuscita', error);
-    }
   }
 
   saveArmies(items: readonly ArmyOperationalState[]): void {
@@ -423,11 +576,16 @@ export class OperationalStateStore {
     this.inputs.saveArmies([...items]);
   }
 
+  /**
+   * Una sola transazione per famiglia: upsert degli oggetti presenti e
+   * rimozione di quelli scomparsi. Lo stato in memoria cambia solo dopo.
+   */
   private persist(kind: OperationalObjectKind, items: readonly { id: string }[]): void {
     try {
-      operationalObjectRepository.upsertMany(
+      operationalObjectRepository.replaceKind(
         this.inputs.gameId,
-        items.map(item => ({ kind, id: item.id, data: item as unknown as Record<string, unknown> })),
+        kind,
+        items.map(item => ({ id: item.id, data: item as unknown as Record<string, unknown> })),
       );
     } catch (error) {
       this.warn(`salvataggio ${kind} non riuscito`, error);
@@ -456,6 +614,7 @@ export class OperationalStateStore {
       facilities: snapshot.facilities,
       date: this.inputs.currentDate(),
       activity: this.inputs.activity ? this.inputs.activity() : undefined,
+      technologies: this.technologies(),
     });
     if (advance.completed.length === 0) {
       if (aligned.some((item, index) => item.progress !== snapshot.constructions[index]?.progress)) {
