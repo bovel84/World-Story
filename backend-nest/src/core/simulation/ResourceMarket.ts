@@ -116,6 +116,30 @@ export function advanceLedger(
 }
 
 /**
+ * Prelievo dal **silo** dell'estrazione: la filiera industriale prende i
+ * minerali da lì, non dal giacimento. Se il silo non basta si prende quello che
+ * c'è: nessun materiale viene creato dal nulla.
+ */
+export function drawResourceStockpile(
+  ledger: ResourceLedger, drawn: Partial<Record<NaturalResourceKind, number>>,
+): { ledger: ResourceLedger; taken: Partial<Record<NaturalResourceKind, number>> } {
+  const taken: Partial<Record<NaturalResourceKind, number>> = {};
+  let changed = false;
+  const next: ResourceLedger = {};
+  for (const [key, node] of Object.entries(ledger)) {
+    if (!node) continue;
+    const kind = key as NaturalResourceKind;
+    const want = Math.max(0, Number(drawn[kind] || 0));
+    if (want <= 0) { next[kind] = node; continue; }
+    const take = Math.min(node.stockpile, want);
+    taken[kind] = Math.round(take * 1000) / 1000;
+    if (take > 0) changed = true;
+    next[kind] = take > 0 ? { ...node, stockpile: Math.round((node.stockpile - take) * 1000) / 1000 } : node;
+  }
+  return { ledger: changed ? next : ledger, taken };
+}
+
+/**
  * Endowment effettivo dopo l'esaurimento: una risorsa senza riserva non offre
  * più i bonus di produzione basati sul giacimento.
  */

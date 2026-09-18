@@ -82,6 +82,30 @@ export const operationalObjectRepository = {
     run();
   },
 
+  /**
+   * Sostituisce **l'intero insieme** di un tipo in una sola transazione:
+   * scrittura degli oggetti presenti e rimozione di quelli che non ci sono
+   * più. O seed, o transazione d'azione: mai uno stato a metà.
+   */
+  replaceKind: (gameId: string, kind: OperationalObjectKind, rows: Array<{ id: string; data: Record<string, unknown> }>): void => {
+    const now = new Date().toISOString();
+    const upsert = db.prepare(`
+      INSERT INTO game_operational_objects (game_id, object_id, kind, data, recorded_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(game_id, object_id) DO UPDATE SET
+        kind = excluded.kind, data = excluded.data, recorded_at = excluded.recorded_at
+    `);
+    const remove = db.prepare('DELETE FROM game_operational_objects WHERE game_id = ? AND object_id = ?');
+    const ids = new Set(rows.map(row => row.id));
+    const replace = db.transaction(() => {
+      for (const row of rows) upsert.run(gameId, row.id, kind, JSON.stringify(row.data ?? {}), now);
+      for (const existing of (db.prepare('SELECT object_id FROM game_operational_objects WHERE game_id = ? AND kind = ?').all(gameId, kind) as Array<{ object_id: string }>)) {
+        if (!ids.has(existing.object_id)) remove.run(gameId, existing.object_id);
+      }
+    });
+    replace();
+  },
+
   remove: (gameId: string, id: string): void => {
     db.prepare('DELETE FROM game_operational_objects WHERE game_id = ? AND object_id = ?').run(gameId, id);
   },

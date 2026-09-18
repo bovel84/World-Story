@@ -206,9 +206,9 @@ export function dropRegistryInheritedDebt(stock: ResourceStock): ResourceStock {
  * dove le scorte erano un multiplo fisso del consumo e non avevano limite.
  */
 export function capStock(
-  stock: ResourceStock, account?: NationalAccount,
+  stock: ResourceStock, account?: NationalAccount, needs?: MaterialNeeds,
 ): { stock: ResourceStock; spoiled: Partial<Record<ResourceKind, number>> } {
-  const capacity = storageCapacity(account);
+  const capacity = storageCapacity(account, needs);
   const spoiled: Partial<Record<ResourceKind, number>> = {};
   const next: ResourceStock = { ...stock, technologies: [...stock.technologies] };
   for (const kind of ['food', 'clothing', 'weapons', 'fuel'] as const) {
@@ -292,15 +292,71 @@ export function developmentClass(account?: NationalAccount): DevelopmentClass {
 /** Fabbisogno mensile di ciascun materiale: quanto la nazione consuma davvero. */
 export interface MaterialNeeds { food: number; clothing: number; weapons: number; fuel: number }
 
-export function materialNeeds(account?: NationalAccount): MaterialNeeds {
+/**
+ * Fabbisogno **civile**: popolazione e impianti. È la parte che non dipende
+ * dagli oggetti militari e che resta identica in ogni percorso.
+ */
+export function civilMaterialNeeds(account?: NationalAccount): MaterialNeeds {
   const popM = Math.max(0, Number(account?.population) || 0) / 1_000_000;
-  const troops = Math.max(0, Number(account?.forces) || 0) + Math.max(0, Number(account?.mobilized) || 0);
   const factories = Math.max(0, Number(account?.factories) || 0);
+  return { food: popM * 0.02, clothing: popM * 0.008, weapons: 0, fuel: factories * 0.05 };
+}
+
+/**
+ * Fabbisogno **militare** derivato dai reparti dell'account: è il percorso
+ * legacy, usato solo quando gli oggetti persistenti non ci sono. Con le armate
+ * reali il fabbisogno arriva dai loro `monthlyNeeds` (una sola contabilità).
+ */
+export function legacyMilitaryNeeds(account?: NationalAccount): MaterialNeeds {
+  const troops = Math.max(0, Number(account?.forces) || 0) + Math.max(0, Number(account?.mobilized) || 0);
+  return { food: troops * 0.06, clothing: troops * 0.01, weapons: Math.max(0.2, troops * 0.004), fuel: troops * 0.03 };
+}
+
+/** Civile + militare legacy: il fabbisogno di sempre (stessa aritmetica). */
+export function materialNeeds(account?: NationalAccount): MaterialNeeds {
+  const civil = civilMaterialNeeds(account);
+  const military = legacyMilitaryNeeds(account);
   return {
-    food: popM * 0.02 + troops * 0.06,
-    clothing: popM * 0.008 + troops * 0.01,
-    weapons: Math.max(0.2, troops * 0.004),
-    fuel: troops * 0.03 + factories * 0.05,
+    food: civil.food + military.food,
+    clothing: civil.clothing + military.clothing,
+    weapons: civil.weapons + military.weapons,
+    fuel: civil.fuel + military.fuel,
+  };
+}
+
+/**
+ * Contributo degli **oggetti reali** al bilancio materiale del mese.
+ *
+ * È l'unico modo in cui OP-OBJECTS tocca le scorte: fornisce i numeri, il motore
+ * li applica. Nessuno stock viene scritto qui.
+ */
+export interface MaterialFlowOverlay {
+  /** Produzione mensile degli impianti (già allocata sugli input disponibili). */
+  production: Partial<Record<ResourceKind, number>>;
+  /** Consumo mensile degli oggetti dal magazzino (input degli impianti). */
+  consumption: Partial<Record<ResourceKind, number>>;
+  /**
+   * Fabbisogno **militare** degli oggetti: sostituisce quello dei reparti
+   * generici. Se assente si usa `legacyMilitaryNeeds`.
+   */
+  militaryNeeds?: MaterialNeeds;
+  /** Materiali estratti presi dalla filiera (giacimenti, non scorte). */
+  naturalInputs?: Partial<Record<NaturalResourceKind, number>>;
+  /** Quota navale del carburante, per il dettaglio del flusso (esercito/marina). */
+  navyFuel?: number;
+}
+
+/** Fabbisogno efficace: civile + militare degli **oggetti** (o legacy). */
+export function effectiveMaterialNeeds(
+  account?: NationalAccount, overlay?: MaterialFlowOverlay | null,
+): MaterialNeeds {
+  const civil = civilMaterialNeeds(account);
+  const military = overlay?.militaryNeeds ?? legacyMilitaryNeeds(account);
+  return {
+    food: civil.food + military.food,
+    clothing: civil.clothing + military.clothing,
+    weapons: civil.weapons + military.weapons,
+    fuel: civil.fuel + military.fuel,
   };
 }
 
@@ -321,16 +377,16 @@ const RESERVE_MONTHS: Record<DevelopmentClass, MaterialNeeds> = {
  * È il tetto reale delle scorte: oltre quello il surplus si perde (deperimento)
  * e non può più essere accumulato. Una nazione povera ha magazzini piccoli.
  */
-export function storageCapacity(account?: NationalAccount): MaterialNeeds {
-  const needs = materialNeeds(account);
+export function storageCapacity(account?: NationalAccount, needs?: MaterialNeeds): MaterialNeeds {
+  const effective = needs ?? materialNeeds(account);
   const months = RESERVE_MONTHS[developmentClass(account)];
   const cap = (need: number, reserveMonths: number, floor: number) =>
     Math.round(Math.max(floor, need * reserveMonths) * 1000) / 1000;
   return {
-    food: cap(needs.food, months.food, 2),
-    clothing: cap(needs.clothing, months.clothing, 1.5),
-    weapons: cap(needs.weapons, months.weapons, 4),
-    fuel: cap(needs.fuel, months.fuel, 2),
+    food: cap(effective.food, months.food, 2),
+    clothing: cap(effective.clothing, months.clothing, 1.5),
+    weapons: cap(effective.weapons, months.weapons, 4),
+    fuel: cap(effective.fuel, months.fuel, 2),
   };
 }
 
@@ -441,7 +497,13 @@ const has = (stock: ResourceStock, id: string) => stock.technologies.includes(id
  */
 export function advanceStock(
   stock: ResourceStock, account: NationalAccount, days: number, endowment: NaturalEndowment = {},
-  asOfDate?: string,
+  asOfDate?: string, overlay?: MaterialFlowOverlay | null,
+  /**
+   * Fabbisogno imposto dal chiamante: serve alle **scomposizioni per impianto**,
+   * dove l'obiettivo è la produzione lorda di un singolo oggetto e non il
+   * fabbisogno dell'intero paese.
+   */
+  needsOverride?: MaterialNeeds,
 ): MaterialTick {
   const period = Math.max(0, days) / 30; // mesi
   const popM = Math.max(0, account.population) / 1_000_000;
@@ -463,8 +525,10 @@ export function advanceStock(
   const clothingBonus = has(stock, 'industria_tessile') ? 1.3 : 1;
   const weaponsBonus = has(stock, 'industria_bellica') ? 1.4 : 1;
   // Fabbisogno e capacità di stoccaggio reali: il magazzino ha un tetto.
-  const needs = materialNeeds(account);
-  const capacity = storageCapacity(account);
+  // Con gli oggetti persistenti il fabbisogno militare arriva da loro; senza,
+  // resta quello derivato dai reparti (percorso legacy, numeri di sempre).
+  const needs = needsOverride ?? effectiveMaterialNeeds(account, overlay);
+  const capacity = storageCapacity(account, needs);
   // Agricoltura: contano terra fertile, pesca e lavoro rurale, non le fabbriche.
   // Una nazione povera e arida produce meno di quanto consuma e resta in deficit.
   const foodYield = (fertile * 0.55 + fisheries * 0.25 + popM * 0.004 * (1 + fertile * 0.08)) * foodBonus;
@@ -474,18 +538,31 @@ export function advanceStock(
   // costo ricorrente, calcolato titolo per titolo al suo tasso.
   const interest = annualDebtServiceMld(stock) / 12 * period;
 
+  // Produzione degli impianti reali, quando ci sono: **sostituisce** la quota
+  // industriale della vecchia formula (fabbriche, porti, atenei × coefficiente),
+  // che altrimenti verrebbe contata due volte. Agricoltura, giacimenti e
+  // popolazione restano del motore: la Facility sostituisce solo ciò che
+  // rappresenta davvero.
+  const industry = <K extends ResourceKind>(kind: K, legacy: number): number =>
+    overlay ? Number(overlay.production?.[kind] || 0) : legacy;
+  const objectDraw = (kind: ResourceKind) => (overlay ? Number(overlay.consumption?.[kind] || 0) : 0);
+
   const flow: MaterialFlow = {
     money: ((account.monthlyBalance || 0) + resourceRevenue) * period - interest,
     food: (foodYield - needs.food) * period,
-    clothing: ((factories * 0.7 + popM * 0.004) * clothingBonus - needs.clothing) * period,
-    weapons: ((factories * 0.5 + iron * 0.12 + coal * 0.06) * weaponsBonus + universities * 0.2 - needs.weapons) * period,
-    fuel: (ports * 1.1 + factories * 0.4 + oil * 0.7 + gas * 0.35 - needs.fuel) * period,
-    research: (universities * 0.35 + popM * 0.002) * period,
+    clothing: (industry('clothing', factories * 0.7 * clothingBonus) + popM * 0.004 * clothingBonus
+      - objectDraw('clothing') - needs.clothing) * period,
+    weapons: (industry('weapons', factories * 0.5 * weaponsBonus + universities * 0.2)
+      + iron * 0.12 * weaponsBonus + coal * 0.06 * weaponsBonus
+      - objectDraw('weapons') - needs.weapons) * period,
+    fuel: (industry('fuel', ports * 1.1 + factories * 0.4) + oil * 0.7 + gas * 0.35
+      - objectDraw('fuel') - needs.fuel) * period,
+    research: (industry('research', universities * 0.35) + popM * 0.002) * period,
     shortages: [],
   };
 
   // Il magazzino ha un tetto: oltre la capacità il surplus si perde (deperimento).
-  const { stock: next, spoiled } = capStock(applyFlow(stock, flow), account);
+  const { stock: next, spoiled } = capStock(applyFlow(stock, flow), account, needs);
   // Diagnostica: la carenza si registra solo se il fabbisogno non era coperto.
   const check = (kind: ResourceKind, label: string, required: number) => {
     if (required > 0 && flow[kind]! < 0 && stock[kind] + flow[kind]! < 0) {

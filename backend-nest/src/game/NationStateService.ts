@@ -16,10 +16,10 @@
  */
 
 import { resourceRepository, naturalResourceRepository, modifiersRepository, gameRepository, factionMemoryRepository, type PressureRecord } from '../repositories';
-import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, materialNeeds, normalizeStock, overdraftOf, seedStock, storageCapacity, type ResourceStock } from '../core/simulation/MaterialEconomy';
+import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, effectiveMaterialNeeds, materialNeeds, normalizeStock, overdraftOf, seedStock, storageCapacity, type MaterialFlowOverlay, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { averageMaturityYears, describeDebtTranche, marketRatePct } from '../core/simulation/SovereignDebt';
 import {
-  advanceLedger, applyGlobalExtraction, effectiveEndowment, emptyMarket, marketQuote, seedLedger, seedMarket, summarizeLedger,
+  advanceLedger, applyGlobalExtraction, drawResourceStockpile, effectiveEndowment, emptyMarket, marketQuote, seedLedger, seedMarket, summarizeLedger,
   type ResourceLedger, type WorldMarket,
 } from '../core/simulation/ResourceMarket';
 import {
@@ -33,7 +33,7 @@ import { daysBetween } from '../core/simulation/calendar';
 import { NATURAL_RESOURCE_KINDS, naturalResourcesFor, type NaturalEndowment, type NaturalResourceKind } from '../core/simulation/MilitaryIndustry';
 import { EMPTY_MODIFIERS, applyArsenalEffects, applyModifierEffects, applyStockEffects, decayModifiers, describeNationalEffects, hasModifiers, parseNationalEffects, type NationalEffect, type NationalModifiers } from '../core/simulation/NationalEffects';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
-import { materialBalance } from './materialBalance';
+import { materialBalance, describeMaterialFlow, materialFlowBreakdown } from './materialBalance';
 
 /** Regione minima richiesta dalle pressioni esterne. */
 export interface NationStateRegion {
@@ -71,6 +71,12 @@ export interface NationStateContext {
   resolvePolity(name: string): string | undefined;
   arsenalUnits(polityId: string): Record<string, number>;
   saveArsenal(polityId: string, units: Record<string, number>): void;
+  /**
+   * OP-OBJECTS FLOW: contributo degli **oggetti reali** al tick materiale
+   * (produzione degli impianti, consumi di armate e navi). `null` o assente ⇒
+   * percorso legacy: nessun doppio conteggio, nessuna regressione.
+   */
+  materialOverlay?(): MaterialFlowOverlay | null;
 }
 
 /** Sfida di pace come la vede la UI: finestra temporale, priorità e evidenza. */
@@ -106,17 +112,26 @@ export class NationStateService {
       // Risorse naturali dinamiche: estrazione, esaurimento, accumulo in magazzino.
       const ledger = this.resourceLedger(polityId);
       const natural = advanceLedger(ledger, account, days);
-      this.saveResourceLedger(polityId, natural.ledger);
+      // Gli oggetti reali **del paese giocatore** forniscono produzione e
+      // consumi al tick. Gli altri paesi restano sul percorso legacy.
+      const overlay = this.materialOverlay(polityId);
+      // La filiera prende i minerali dal **silo dell'estrazione** (giacimento
+      // no): se il silo è vuoto non si produce nulla in più.
+      const drawn = drawResourceStockpile(natural.ledger, overlay?.naturalInputs || {});
+      this.saveResourceLedger(polityId, drawn.ledger);
       applyGlobalExtraction(this.ensureMarket(), natural.extracted);
       // Una risorsa esaurita smette di dare i bonus di produzione del giacimento.
-      const effective = effectiveEndowment(natural.ledger, naturalResourcesFor(polityId));
-      const tick = advanceStock(this.resourceStock(polityId), account, days, effective, asOfDate);
+      const effective = effectiveEndowment(drawn.ledger, naturalResourcesFor(polityId));
+      const tick = advanceStock(this.resourceStock(polityId), account, days, effective, asOfDate, overlay);
       this.saveResourceStock(polityId, tick.stock);
       if (polityId !== this.ctx.playerPolityId()) continue;
       for (const tech of tick.unlocked) {
         lines.push(`🔬 Nuova tecnologia sbloccata: ${tech.name} — ${tech.effects}.`);
       }
       for (const shortage of tick.flow.shortages) lines.push(`⚠️ Carenza materiale — ${shortage}.`);
+      // Da dove arriva e dove finisce ciò che gli oggetti reali consumano.
+      const objectFlow = overlay ? describeMaterialFlow(materialFlowBreakdown(this.resourceStock(polityId), account, effective, days, overlay)) : '';
+      if (overlay && objectFlow) lines.push(`⚙️ Bilancio materiale degli oggetti — ${objectFlow}.`);
       lines.push(`🏭 ${describeStock(tick.stock, account)}`);
       // Materiale perso perché il magazzino era oltre la capacità reale.
       const lost = Object.entries(tick.spoiled).filter(([, value]) => (value || 0) > 0.01);
@@ -147,6 +162,19 @@ export class NationStateService {
     return lines;
   }
 
+  /**
+   * Contributo degli oggetti reali, solo per il paese giocatore: gli altri
+   * paesi non hanno oggetti persistenti e restano sul percorso legacy.
+   */
+  private materialOverlay(polityId: string): MaterialFlowOverlay | null {
+    if (polityId !== this.ctx.playerPolityId()) return null;
+    try {
+      return this.ctx.materialOverlay ? this.ctx.materialOverlay() : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Magazzino del paese giocatore, per API e dossier. */
   getResources() {
     const account = this.ctx.sessionAccounts()[this.ctx.playerPolityId()];
@@ -154,6 +182,7 @@ export class NationStateService {
     const market = this.ensureMarket();
     const natural = summarizeLedger(ledger, account);
     const stock = this.resourceStock(this.ctx.playerPolityId());
+    const overlay = this.materialOverlay(this.ctx.playerPolityId());
     const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions) || 0);
     const debtRatioPct = gdp > 0 ? debtOf(stock) / gdp * 100 : 0;
     return {
@@ -171,8 +200,8 @@ export class NationStateService {
       averageMaturityYears: averageMaturityYears(stock.debts, this.ctx.currentDate()),
       debtRatioPct: Math.round(debtRatioPct * 10) / 10,
       /** Capacità di stoccaggio e fabbisogno mensile del magazzino materiale. */
-      capacity: storageCapacity(account),
-      needs: materialNeeds(account),
+      capacity: storageCapacity(account, effectiveMaterialNeeds(account, overlay)),
+      needs: effectiveMaterialNeeds(account, overlay),
       /**
        * Bilancio materiale del mese (quanto produco, quanto consumo, saldo e
        * materiale perso al tetto). Derivato dalle stesse funzioni del motore
@@ -180,7 +209,12 @@ export class NationStateService {
        * Nei giochi in modalità stretta il magazzino non avanza (il motore
        * restituisce `null`): il bilancio non viene inventato.
        */
-      balance: this.ctx.isStrictGame() ? null : materialBalance(stock, account, effectiveEndowment(ledger, naturalResourcesFor(this.ctx.playerPolityId()))),
+      balance: this.ctx.isStrictGame() ? null : materialBalance(stock, account, effectiveEndowment(ledger, naturalResourcesFor(this.ctx.playerPolityId())), undefined, overlay),
+      /**
+       * Da dove arriva e dove finisce ogni materiale (impianti, armate, navi,
+       * consumi civili, produzione naturale). Stessa aritmetica del tick.
+       */
+      flow: this.ctx.isStrictGame() ? null : materialFlowBreakdown(stock, account, effectiveEndowment(ledger, naturalResourcesFor(this.ctx.playerPolityId())), undefined, overlay),
       creditLimit: creditLimit(account),
       creditHeadroom: Math.round(creditHeadroom(stock, account) * 100) / 100,
       /** Tasso di mercato che la nazione otterrebbe oggi per una nuova emissione. */
@@ -465,7 +499,7 @@ export class NationStateService {
   /** Mesi di cibo in magazzino del giocatore, `null` se non calcolabile. */
   foodCoverageMonths(account?: NationalAccount): number | null {
     try {
-      const needs = materialNeeds(account ?? this.ctx.sessionAccounts()[this.ctx.playerPolityId()]);
+      const needs = effectiveMaterialNeeds(account ?? this.ctx.sessionAccounts()[this.ctx.playerPolityId()], this.materialOverlay(this.ctx.playerPolityId()));
       if (!needs.food || needs.food <= 0) return null;
       const stock = this.resourceStock(this.ctx.playerPolityId());
       return Math.max(0, Number(stock.food || 0)) / needs.food;
@@ -697,7 +731,7 @@ export class NationStateService {
     try {
       const stock = this.resourceStock(playerPolityId);
       overdraftMld = overdraftOf(stock);
-      const needs = materialNeeds(account);
+      const needs = effectiveMaterialNeeds(account, this.materialOverlay(playerPolityId));
       if (needs.food > 0) foodCoverageMonths = Math.max(0, Number(stock.food || 0)) / needs.food;
     } catch { /* magazzino non disponibile: nessuna misura inventata */ }
     const hostileNeighbours = this.pressureNeighbours()

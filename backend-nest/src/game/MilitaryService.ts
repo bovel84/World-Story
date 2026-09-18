@@ -43,7 +43,7 @@ import {
 } from '../core/simulation/OperationalState';
 import type { OperationalStateStore } from './OperationalStateStore';
 import { materialBalance } from './materialBalance';
-import { materialNeeds } from '../core/simulation/MaterialEconomy';
+import { effectiveMaterialNeeds, materialNeeds } from '../core/simulation/MaterialEconomy';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 
 /**
@@ -146,7 +146,23 @@ export class MilitaryService {
   // ── OP-OBJECTS PERSISTENT: deposito, totale nazionale, uomini reali ────────
 
   /**
-   * Store dello stato proprio degli oggetti, se la sessione lo fornisce. */
+   * Fabbisogno materiale **efficace**: con gli oggetti persistenti il militare
+   * arriva dalle armate e dalle navi reali (una sola contabilità); senza, resta
+   * quello derivato dai reparti. Prontezza e autonomia leggono gli stessi numeri
+   * del tick.
+   */
+  private effectiveNeeds(account?: NationalAccount) {
+    const store = this.operational();
+    if (!store) return materialNeeds(account);
+    try {
+      const overlay = store.materialFlow();
+      return overlay ? effectiveMaterialNeeds(account, overlay) : materialNeeds(account);
+    } catch {
+      return materialNeeds(account);
+    }
+  }
+
+  /** Store dello stato proprio degli oggetti, se la sessione lo fornisce. */
   private operational(): OperationalStateStore | null {
     try {
       return this.ctx.operationalObjects?.() ?? null;
@@ -229,7 +245,7 @@ export class MilitaryService {
     const units = this.nationalUnits(polityId);
     const account = this.ctx.accounts()[polityId];
     const stock = this.ctx.resourceStock(polityId);
-    const needs = materialNeeds(account);
+    const needs = this.effectiveNeeds(account);
     const epoch = this.epoch();
     const { manpower, personnel } = this.manpowerOf(polityId, epoch);
     const coverage = equipmentCoverage({ units, manpower, epoch, ports: account?.ports });
@@ -265,6 +281,9 @@ export class MilitaryService {
         const snapshot = store.snapshot();
         const individual = coverage.find(row => row.category === 'individualWeapons');
         activity = industrial.blocked ? 0 : industrial.overflowFactor;
+        // Lo **stesso** pass di allocazione del tick: la scheda mostra la
+        // simulazione che modifica davvero lo stato del turno.
+        const allocation = store.allocation();
         persistent = persistentObjects({
           polityId,
           date: this.ctx.currentDate(),
@@ -285,6 +304,7 @@ export class MilitaryService {
           civilMonthlyMld,
           militaryMonthlyMld,
           fuelMonths: needs.fuel > 0 ? stock.fuel / needs.fuel : null,
+          allocation,
         });
       } catch (error) {
         console.warn('[MilitaryService] Oggetti persistenti non disponibili:', error);
@@ -641,7 +661,7 @@ export class MilitaryService {
       };
     });
     const stock = this.ctx.resourceStock(polityId);
-    const needs = materialNeeds(account);
+    const needs = this.effectiveNeeds(account);
     const epoch = this.epoch();
     const { manpower } = this.manpowerOf(polityId, epoch);
     const coverage = equipmentCoverage({
@@ -984,15 +1004,34 @@ export class MilitaryService {
 
   /**
    * Data di consegna prevista dal ritmo reale della linea: si ricalcola a ogni
-   * lettura, così un imprevisto sposta la data invece di nasconderla.
+   * lettura, così un imprevisto sposta la data invece di nasconderla. Se
+   * l'impianto che ospita l'ordine è fermo o senza materiali, la consegna è
+   * **sospesa** (`null`): una data inventata sarebbe peggio di nessuna data.
    */
   private withOrderEta(order: ProductionOrder, context: ProductionContext, overflowFactor = 1): ProductionOrder {
     if (order.status !== 'in_progress') return order;
     const equipment = equipmentById(order.equipmentId);
-    const rate = equipment ? productionRate(equipment, context) * overflowFactor : 0;
+    const factor = this.facilityMaterialFactor(order);
+    const rate = equipment ? productionRate(equipment, context) * overflowFactor * factor : 0;
     if (rate <= 0) return { ...order, expectedDate: null };
     const months = Math.max(0, (100 - order.progress) / rate);
     return { ...order, expectedDate: addDays(this.ctx.currentDate(), Math.round(months * 30)) };
+  }
+
+  /**
+   * Fattore **materiale** dell'impianto che ospita l'ordine (0…1): capacità
+   * della linea × disponibilità reale dei materiali. Un ordine senza impianto
+   * (partita legacy) o senza store non ha vincoli oggettuali: fattore 1.
+   */
+  private facilityMaterialFactor(order: ProductionOrder): number {
+    if (!order.facilityId) return 1;
+    const store = this.operational();
+    if (!store) return 1;
+    try {
+      return Math.max(0, Math.min(1, store.facilityFactor(order.facilityId)));
+    } catch {
+      return 1;
+    }
   }
 
   private playerProductionOrders(): ProductionOrder[] {
@@ -1038,8 +1077,15 @@ export class MilitaryService {
       bulletins.push(`🏭 Industria satura: ${capacity.demand} linee richieste su ${capacity.total} disponibili — la produzione avanza al ${Math.round(capacity.overflowFactor * 100)}% del ritmo.`);
     }
     for (const order of orders) {
+      // L'impianto che ospita l'ordine deve essere operativo **e** avere i
+      // materiali: se il fattore è zero la lavorazione non avanza di un punto.
+      const materialFactor = this.facilityMaterialFactor(order);
+      if (materialFactor <= 0) {
+        bulletins.push(`🏭 ${order.name}: lavorazione sospesa — l'impianto assegnato è fermo o senza materiali. La consegna prevista è sospesa.`);
+        continue;
+      }
       const seed = `${this.ctx.gameId}:${order.id}:${this.ctx.currentTurn()}`;
-      const result = advanceOrder(order, context, months, seed);
+      const result = advanceOrder(order, context, months * materialFactor, seed);
       if (result.completed) {
         const units = { ...this.arsenalUnits(polityId) };
         units[order.equipmentId] = (units[order.equipmentId] || 0) + result.delivered;
