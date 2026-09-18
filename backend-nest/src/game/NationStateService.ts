@@ -16,7 +16,7 @@
  */
 
 import { resourceRepository, naturalResourceRepository, modifiersRepository, gameRepository, factionMemoryRepository, type PressureRecord } from '../repositories';
-import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, effectiveMaterialNeeds, materialNeeds, normalizeStock, overdraftOf, seedStock, storageCapacity, type MaterialFlowOverlay, type ResourceStock } from '../core/simulation/MaterialEconomy';
+import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, effectiveMaterialNeeds, materialNeeds, normalizeStock, overdraftOf, seedStock, storageCapacity, type MaterialFlowOverlay, type MaterialTick, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { averageMaturityYears, describeDebtTranche, marketRatePct } from '../core/simulation/SovereignDebt';
 import {
   advanceLedger, applyGlobalExtraction, drawResourceStockpile, effectiveEndowment, emptyMarket, marketQuote, seedLedger, seedMarket, summarizeLedger,
@@ -29,11 +29,12 @@ import {
 import { advanceCrisis, type CrisisEnding, type CrisisInput, type CrisisState } from '../core/simulation/NationCrisis';
 import { factionMemoryFromPressure, type FactionMemoryEvent } from '../core/simulation/FactionMemory';
 import type { GovernmentMemoryInput } from '../core/simulation/GovernmentFactions';
-import { daysBetween } from '../core/simulation/calendar';
+import { addDays, daysBetween } from '../core/simulation/calendar';
 import { NATURAL_RESOURCE_KINDS, naturalResourcesFor, type NaturalEndowment, type NaturalResourceKind } from '../core/simulation/MilitaryIndustry';
 import { EMPTY_MODIFIERS, applyArsenalEffects, applyModifierEffects, applyStockEffects, decayModifiers, describeNationalEffects, hasModifiers, parseNationalEffects, type NationalEffect, type NationalModifiers } from '../core/simulation/NationalEffects';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import { materialBalance, describeMaterialFlow, materialFlowBreakdown } from './materialBalance';
+import { materialLabel } from '../core/simulation/OperationalState';
 
 /** Regione minima richiesta dalle pressioni esterne. */
 export interface NationStateRegion {
@@ -75,8 +76,11 @@ export interface NationStateContext {
    * OP-OBJECTS FLOW: contributo degli **oggetti reali** al tick materiale
    * (produzione degli impianti, consumi di armate e navi). `null` o assente ⇒
    * percorso legacy: nessun doppio conteggio, nessuna regressione.
+   *
+   * `monthlyExtraction: false` dice che l'estrazione del periodo è **già** nel
+   * silo: la disponibilità dei giacimenti non va gonfiata di un altro mese.
    */
-  materialOverlay?(): MaterialFlowOverlay | null;
+  materialOverlay?(options?: { monthlyExtraction?: boolean }): MaterialFlowOverlay | null;
 }
 
 /** Sfida di pace come la vede la UI: finestra temporale, priorità e evidenza. */
@@ -86,6 +90,171 @@ export interface PressureView extends PressureRecord {
   priority: string;
   /** Merita attenzione adesso (max 2 per volta, salvo crisi). */
   highlighted: boolean;
+}
+
+/** Periodo materiale massimo: un mese. Niente tick giornalieri o orari. */
+export const MATERIAL_STEP_DAYS = 30;
+
+/** Un periodo materiale, per chi deve agganciarsi al tick (ordini militari). */
+export interface MaterialSliceInfo {
+  polityId: string;
+  stepDays: number;
+  stepDate: string;
+  /** Fattori materiali degli impianti del passaggio di allocazione. */
+  factors: Record<string, number>;
+}
+
+/**
+ * Gancio eseguito **dentro** il periodo materiale del paese giocatore, subito
+ * dopo il passaggio di allocazione e il prelievo: è così che gli ordini di
+ * produzione vedono gli stessi numeri degli impianti, senza ricalcolarli su
+ * scorte già decurtate.
+ */
+export interface MaterialAdvanceHooks {
+  onPlayerSlice?: (slice: MaterialSliceInfo) => string[];
+}
+
+/**
+ * Suddivide un salto in **periodi materiali** deterministici di al massimo
+ * `maxStepDays` giorni: `0 → [] · 10 → [10] · 30 → [30] · 31 → [30, 1] ·
+ * 90 → [30, 30, 30] · 95 → [30, 30, 30, 5]`.
+ *
+ * È la funzione pura che rende la stessa simulazione indipendentemente dalla
+ * dimensione del salto: `advance 180` e `6 × advance 30` vedono gli stessi
+ * periodi, quindi la stessa disponibilità, allocazione e produzione.
+ */
+export function splitMaterialPeriod(days: number, maxStepDays: number = MATERIAL_STEP_DAYS): number[] {
+  const total = Math.max(0, Math.floor(Number(days) || 0));
+  const max = Math.max(1, Math.floor(Number(maxStepDays) || MATERIAL_STEP_DAYS));
+  if (total <= 0) return [];
+  const steps: number[] = [];
+  let remaining = total;
+  while (remaining > max) {
+    steps.push(max);
+    remaining -= max;
+  }
+  steps.push(remaining);
+  return steps;
+}
+
+/** Un periodo materiale già applicato, per il report del turno. */
+interface MaterialStepResult {
+  tick: MaterialTick;
+  overlay: MaterialFlowOverlay | null;
+  extracted: Partial<Record<NaturalResourceKind, number>>;
+  depleted: NaturalResourceKind[];
+  stepDays: number;
+  stockAfter: ResourceStock;
+  account: NationalAccount;
+  effective: NaturalEndowment;
+  date: string;
+}
+
+/**
+ * Bollettino del **periodo** materiale: aggrega i substep invece di ripetere lo
+ * stesso messaggio dodici volte per un salto annuale. Con un solo periodo
+ * (turno normale di 30 giorni) le righe sono identiche a prima.
+ */
+class MaterialPeriodReport {
+  private readonly unlocked = new Map<string, string>();
+  private readonly shortages = new Map<string, { max: number; count: number; raw: string }>();
+  private readonly debts = new Map<string, string>();
+  private readonly depleted = new Set<string>();
+  private readonly spoiled: Record<string, number> = {};
+  private readonly extracted: Record<string, number> = {};
+  private readonly produced: Record<string, number> = {};
+  private readonly consumed: Record<string, number> = {};
+  private readonly fromNature: Record<string, number> = {};
+  private flowLine = '';
+  private stockLine = '';
+
+  constructor(private readonly steps: number) {}
+
+  add(step: MaterialStepResult): void {
+    for (const tech of step.tick.unlocked) {
+      this.unlocked.set(tech.id, `🔬 Nuova tecnologia sbloccata: ${tech.name} — ${tech.effects}.`);
+    }
+    for (const raw of step.tick.flow.shortages) {
+      // «Carburante: deficit di 1.5» → si aggrega per materiale, tenendo il
+      // deficit peggiore: il warning del mese 2 non si perde.
+      const match = /^(.+?):\s*deficit di\s*(-?[\d.,]+)$/.exec(raw);
+      const label = (match ? match[1] : raw).trim();
+      const value = match ? Math.abs(Number(match[2].replace(',', '.'))) : 0;
+      const current = this.shortages.get(label) || { max: 0, count: 0, raw };
+      current.count += 1;
+      current.max = Math.max(current.max, Number.isFinite(value) ? value : 0);
+      this.shortages.set(label, current);
+    }
+    for (const [kind, value] of Object.entries(step.tick.spoiled)) {
+      if ((value || 0) > 0) this.spoiled[kind] = round3((this.spoiled[kind] || 0) + (value as number));
+    }
+    for (const rolled of step.tick.rolledDebts) {
+      this.debts.set(rolled.id, `📜 Scadenza del debito — ${describeDebtTranche(rolled)}: rifinanziato al nuovo tasso.`);
+    }
+    for (const [kind, value] of Object.entries(step.extracted)) {
+      if ((value || 0) > 0) this.extracted[kind] = round3((this.extracted[kind] || 0) + (value as number));
+    }
+    for (const kind of step.depleted) this.depleted.add(kind);
+    if (step.overlay) {
+      for (const [kind, value] of Object.entries(step.overlay.production || {})) {
+        if ((value || 0) > 0) this.produced[kind] = round3((this.produced[kind] || 0) + (value as number));
+      }
+      for (const [kind, value] of Object.entries(step.overlay.consumption || {})) {
+        if ((value || 0) > 0) this.consumed[kind] = round3((this.consumed[kind] || 0) + (value as number));
+      }
+      for (const [kind, value] of Object.entries(step.overlay.naturalInputs || {})) {
+        if ((value || 0) > 0) this.fromNature[kind] = round3((this.fromNature[kind] || 0) + (value as number));
+      }
+      // Ultimo periodo: è lo stato **corrente**, quello che il Dossier mostra.
+      this.flowLine = describeMaterialFlow(
+        materialFlowBreakdown(step.stockAfter, step.account, step.effective, step.stepDays, step.overlay),
+      );
+    }
+    this.stockLine = `🏭 ${describeStock(step.stockAfter, step.account)}`;
+  }
+
+  lines(): string[] {
+    const out: string[] = [...this.unlocked.values()];
+    for (const [label, info] of this.shortages) {
+      out.push(info.count === 1
+        ? `⚠️ Carenza materiale — ${info.raw}.`
+        : `⚠️ Carenza materiale — ${label}: deficit fino a ${round3(info.max)} in ${info.count} periodi su ${this.steps}.`);
+    }
+    if (this.flowLine) out.push(`⚙️ Bilancio materiale degli oggetti — ${this.flowLine}.`);
+    if (this.steps > 1) {
+      const parts = [
+        describeAmounts(this.produced, 'prodotti dagli impianti'),
+        describeAmounts(this.consumed, 'consumati dagli impianti'),
+        describeAmounts(this.fromNature, 'prelevati dai giacimenti'),
+      ].filter(Boolean);
+      if (parts.length > 0) out.push(`🔁 Nel periodo (${this.steps} periodi): ${parts.join(' · ')}.`);
+    }
+    if (this.stockLine) out.push(this.stockLine);
+    const lost = Object.entries(this.spoiled).filter(([, value]) => value > 0.01);
+    if (lost.length > 0) {
+      const detail = lost.map(([kind, value]) => `${kind} ${round3(value)}`).join(', ');
+      out.push(`📦 Magazzino al tetto: perduto ${detail} (capacità di stoccaggio superata).`);
+    }
+    out.push(...this.debts.values());
+    const extractedKinds = NATURAL_RESOURCE_KINDS.filter(kind => (this.extracted[kind] || 0) > 0);
+    if (extractedKinds.length > 0) {
+      out.push(`⛏️ Estrazione risorse: ${extractedKinds.map(kind => `${round3(this.extracted[kind])} ${kind}`).join(', ')}.`);
+    }
+    for (const kind of this.depleted) {
+      out.push(`🪫 Risorsa esaurita: ${kind} — le produzioni che ne dipendevano perdono il bonus del giacimento.`);
+    }
+    return out;
+  }
+}
+
+const round3 = (value: number) => Math.round(value * 1000) / 1000;
+
+/** «Armamenti 1,2 · Carburante 3,4» — etichette del motore, niente inventato. */
+function describeAmounts(amounts: Record<string, number>, verb: string): string {
+  const entries = Object.entries(amounts).filter(([, value]) => value > 0);
+  if (entries.length === 0) return '';
+  const detail = entries.map(([kind, value]) => `${materialLabel(kind)} ${round3(value)}`).join(' · ');
+  return `${verb}: ${detail}`;
 }
 
 export class NationStateService {
@@ -103,73 +272,109 @@ export class NationStateService {
 
   // ── Avanzamento materiale del turno e read model risorse ────────────────
 
-  advanceResources(days: number, accounts?: Record<string, NationalAccount>, asOfDate: string = this.ctx.currentDate()): string[] {
+  advanceResources(
+    days: number, accounts?: Record<string, NationalAccount>, asOfDate: string = this.ctx.currentDate(),
+    hooks?: MaterialAdvanceHooks,
+  ): string[] {
     if (this.ctx.isStrictGame() || days <= 0) return [];
     const snapshot = accounts ?? this.ctx.sessionAccounts();
     const lines: string[] = [];
+    // OP-OBJECTS TIME-STEP: un salto lungo è **tanti periodi materiali**. La
+    // disponibilità (scorte, estrazione, allocazione degli impianti, fabbisogno
+    // di armate e navi) si ricalcola a ogni substep: se una risorsa finisce al
+    // mese 2, la fabbrica non può lavorare come se fosse disponibile fino al
+    // mese 12. `advanceStock` continua a gestire **un solo** periodo.
+    const steps = splitMaterialPeriod(days);
     for (const [polityId, account] of Object.entries(snapshot)) {
       if (!polityId || polityId === 'neutral' || account.provinces === 0) continue;
-      // Risorse naturali dinamiche: estrazione, esaurimento, accumulo in magazzino.
-      const ledger = this.resourceLedger(polityId);
-      const natural = advanceLedger(ledger, account, days);
-      // Gli oggetti reali **del paese giocatore** forniscono produzione e
-      // consumi al tick. Gli altri paesi restano sul percorso legacy.
-      const overlay = this.materialOverlay(polityId);
-      // La filiera prende i minerali dal **silo dell'estrazione** (giacimento
-      // no): se il silo è vuoto non si produce nulla in più.
-      const drawn = drawResourceStockpile(natural.ledger, overlay?.naturalInputs || {});
-      this.saveResourceLedger(polityId, drawn.ledger);
-      applyGlobalExtraction(this.ensureMarket(), natural.extracted);
-      // Una risorsa esaurita smette di dare i bonus di produzione del giacimento.
-      const effective = effectiveEndowment(drawn.ledger, naturalResourcesFor(polityId));
-      const tick = advanceStock(this.resourceStock(polityId), account, days, effective, asOfDate, overlay);
-      this.saveResourceStock(polityId, tick.stock);
-      if (polityId !== this.ctx.playerPolityId()) continue;
-      for (const tech of tick.unlocked) {
-        lines.push(`🔬 Nuova tecnologia sbloccata: ${tech.name} — ${tech.effects}.`);
+      const player = polityId === this.ctx.playerPolityId();
+      const report = player ? new MaterialPeriodReport(steps.length) : null;
+      let elapsed = 0;
+      for (const step of steps) {
+        elapsed += step;
+        // La data del substep è quella che il periodo raggiunge davvero: le
+        // scadenze maturano quando maturano, non tutte all'ultimo giorno.
+        const stepDate = steps.length === 1 ? asOfDate : addDays(asOfDate, elapsed - days);
+        const overlay = this.advancePolityMaterialStep(polityId, account, step, stepDate, report);
+        // Il periodo materiale e gli ordini militari del **medesimo** periodo
+        // leggono lo stesso passaggio di allocazione: la fabbrica che ha
+        // lavorato a pieno regime non sospende l'ordine che ha rifornito.
+        if (player && hooks?.onPlayerSlice) {
+          lines.push(...hooks.onPlayerSlice({
+            polityId, stepDays: step, stepDate, factors: overlay?.facilityFactors || {},
+          }));
+        }
       }
-      for (const shortage of tick.flow.shortages) lines.push(`⚠️ Carenza materiale — ${shortage}.`);
-      // Da dove arriva e dove finisce ciò che gli oggetti reali consumano.
-      const objectFlow = overlay ? describeMaterialFlow(materialFlowBreakdown(this.resourceStock(polityId), account, effective, days, overlay)) : '';
-      if (overlay && objectFlow) lines.push(`⚙️ Bilancio materiale degli oggetti — ${objectFlow}.`);
-      lines.push(`🏭 ${describeStock(tick.stock, account)}`);
-      // Materiale perso perché il magazzino era oltre la capacità reale.
-      const lost = Object.entries(tick.spoiled).filter(([, value]) => (value || 0) > 0.01);
-      if (lost.length > 0) {
-        const detail = lost.map(([kind, value]) => `${kind} ${Math.round((value as number) * 10) / 10}`).join(', ');
-        lines.push(`📦 Magazzino al tetto: perduto ${detail} (capacità di stoccaggio superata).`);
-      }
-      // Scadenze: il debito che torna va rifinanziato al tasso di mercato.
-      for (const rolled of tick.rolledDebts) {
-        lines.push(`📜 Scadenza del debito — ${describeDebtTranche(rolled)}: rifinanziato al nuovo tasso.`);
-      }
-      const extractedKinds = NATURAL_RESOURCE_KINDS.filter(kind => (natural.extracted[kind] || 0) > 0);
-      if (extractedKinds.length > 0) {
-        lines.push(`⛏️ Estrazione risorse: ${extractedKinds.map(kind => `${natural.extracted[kind]} ${kind}`).join(', ')}.`);
-      }
-      for (const kind of natural.depleted) {
-        lines.push(`🪫 Risorsa esaurita: ${kind} — le produzioni che ne dipendevano perdono il bonus del giacimento.`);
-      }
+      if (report) lines.push(...report.lines());
     }
     // I modificatori nazionali decadono verso la neutralità: nessun effetto dura
-    // per sempre se la causa che lo ha generato non viene rinnovata.
+    // per sempre se la causa che lo ha generato non viene rinnovata. La
+    // granularità resta quella di prima — una volta per avanzamento — perché è
+    // una scelta di **bilancio**, non di flusso materiale (OP-OBJECTS TIME-STEP
+    // §limiti): il tick a periodi non la cambia.
     for (const polityId of Object.keys(snapshot)) {
       if (!polityId || polityId === 'neutral' || snapshot[polityId].provinces === 0) continue;
-      const current = this.modifiersFor(polityId);
-      if (!hasModifiers(current)) continue;
-      this.saveModifiers(polityId, decayModifiers(current));
+      this.decayPolityModifiers(polityId);
     }
     return lines;
+  }
+
+  /**
+   * Un **periodo materiale** di una polity (max 30 giorni). Ordine del tick:
+   *
+   * ```
+   * A. stato iniziale del periodo (scorte e silo)
+   * B. estrazione naturale del periodo → silo
+   * C. disponibilità effettiva (scorte + silo, senza doppio conteggio)
+   * D. allocazione degli impianti + E. consumi di armate e navi → overlay
+   * F. advanceStock() del periodo (flow, tetti, carenze, debito)
+   * G. persistenza di scorte e silo
+   * ```
+   */
+  private advancePolityMaterialStep(
+    polityId: string, account: NationalAccount, stepDays: number, stepDate: string,
+    report: MaterialPeriodReport | null,
+  ): MaterialFlowOverlay | null {
+    // A. Stato iniziale del periodo.
+    const stock = this.resourceStock(polityId);
+    const ledger = this.resourceLedger(polityId);
+    // B. Estrazione naturale del periodo: finisce **subito** nel silo.
+    const natural = advanceLedger(ledger, account, stepDays);
+    this.saveResourceLedger(polityId, natural.ledger);
+    applyGlobalExtraction(this.ensureMarket(), natural.extracted);
+    // C+D+E. Disponibilità effettiva e oggetti reali: l'estrazione del periodo è
+    // già nel silo, quindi la disponibilità dei giacimenti è il silo e basta
+    // (`monthlyExtraction: false`): una sola fonte, nessun doppio conteggio.
+    const overlay = this.materialOverlay(polityId, { monthlyExtraction: false });
+    // La filiera prende i minerali dal silo: se è vuoto non si produce nulla in più.
+    const drawn = drawResourceStockpile(natural.ledger, overlay?.naturalInputs || {});
+    this.saveResourceLedger(polityId, drawn.ledger);
+    // Una risorsa esaurita smette di dare i bonus di produzione del giacimento.
+    const effective = effectiveEndowment(drawn.ledger, naturalResourcesFor(polityId));
+    // F. Un solo periodo: `advanceStock` applica flow, tetti, carenze e debito.
+    const tick = advanceStock(stock, account, stepDays, effective, stepDate, overlay);
+    // G. Persistenza.
+    this.saveResourceStock(polityId, tick.stock);
+    if (!report) return overlay;
+    report.add({ tick, overlay, extracted: natural.extracted, depleted: natural.depleted, stepDays, stockAfter: tick.stock, account, effective, date: stepDate });
+    return overlay;
+  }
+
+  /** Decadimento dei modificatori nazionali verso la neutralità. */
+  private decayPolityModifiers(polityId: string): void {
+    const current = this.modifiersFor(polityId);
+    if (!hasModifiers(current)) return;
+    this.saveModifiers(polityId, decayModifiers(current));
   }
 
   /**
    * Contributo degli oggetti reali, solo per il paese giocatore: gli altri
    * paesi non hanno oggetti persistenti e restano sul percorso legacy.
    */
-  private materialOverlay(polityId: string): MaterialFlowOverlay | null {
+  private materialOverlay(polityId: string, options?: { monthlyExtraction?: boolean }): MaterialFlowOverlay | null {
     if (polityId !== this.ctx.playerPolityId()) return null;
     try {
-      return this.ctx.materialOverlay ? this.ctx.materialOverlay() : null;
+      return this.ctx.materialOverlay ? this.ctx.materialOverlay(options) : null;
     } catch {
       return null;
     }
