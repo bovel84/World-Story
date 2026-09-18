@@ -298,7 +298,7 @@ export function useNationSnapshot({
     try {
       const result = await gameApi.raiseFormation(gameId, options);
       notify(
-        `${result.formations > 1 ? `${result.formations} reparti` : result.name} in linea a ${result.regionName}: ${result.spentMln >= 1000 ? `${(result.spentMln / 1000).toFixed(3)} mld` : `${Math.round(result.spentMln)} mln`} di materiale.`,
+        `${result.formations > 1 ? `${result.formations} reparti` : result.name} in linea${result.regionName ? ` a ${result.regionName}` : ''}: ${result.spentMln >= 1000 ? `${(result.spentMln / 1000).toFixed(3)} mld` : `${Math.round(result.spentMln)} mln`} di materiale.`,
         'success',
       );
       if (result.financedMln > 0) {

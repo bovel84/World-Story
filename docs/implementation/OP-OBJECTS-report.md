@@ -461,8 +461,18 @@ numero, solo la coerenza della struttura:
    riportato sotto «Perché?» (`Opera: …`). Un test nuovo copre il taglio e la
    conservazione del testo integrale.
 
+3. **Riga «Spesa militare» ferma.** L'anteprima mostrava `Spesa militare 5,543 mld →
+   5,543 mld` mentre `Spese dello Stato` saliva di 0,216 mld: la quota di difesa che
+   il motore pubblica è **arrotondata allo 0,1% del PIL**, quindi un singolo reparto
+   non la muove (il costo reale è 0,07 punti di PIL). La riga ferma è stata tolta —
+   una riga che non si muove non è una conseguenza — e il costo mensile si legge in
+   `Spese dello Stato` e `Saldo mensile`, con la spiegazione in «Perché?».
+4. **Nome provincia vuoto.** In alcuni mondi la provincia non ha nome: la notifica
+   dopo la creazione non stampa più «in linea a ». La UI non inventa un toponimo.
+
 Nessuna formula del motore è stata toccata: solo convenzioni di presentazione
-dichiarate e la lunghezza di un'etichetta. Backend **153 file / 1409 test**.
+dichiarate, la scelta delle righe da mostrare e la lunghezza di un'etichetta.
+Backend **153 file / 1409 test**.
 
 ## 35. File toccati e commit
 
