@@ -167,6 +167,13 @@ describe('OP-OBJECTS — esercito: impatto PRIMA → DOPO', () => {
     const rifles = impact.deltas.find(delta => delta.label === 'Copertura armi individuali')!;
     expect(rifles.after).toBe(impact.after.individualCoveragePct);
     expect(rifles.before).toBe(impact.before.individualCoveragePct);
+    const expenses = impact.deltas.find(delta => delta.label === 'Spese dello Stato')!;
+    expect(expenses.after).toBeGreaterThan(expenses.before);
+    expect(impact.deltas.some(delta => delta.label === 'Saldo mensile')).toBe(true);
+    // La quota di difesa pubblicata è arrotondata allo 0,1%: un reparto non la
+    // muove, quindi non si mostra una riga che resterebbe ferma.
+    expect(impact.deltas.some(delta => delta.label === 'Spesa militare')).toBe(false);
+    expect(impact.why).toContain('Spese dello Stato');
   });
 
   it('conta il reparto in più solo nella provincia scelta, senza toccare le altre', () => {

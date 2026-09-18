@@ -511,7 +511,9 @@ export function formationImpact(input: {
     { label: 'Carburante (scorte)', unit: 'mesi', before: before.fuelMonths ?? 0, after: after.fuelMonths ?? 0, tone: tone(before.fuelMonths ?? 0, after.fuelMonths ?? 0, true) },
     { label: 'Consumo carburante', unit: 'per_mese', before: before.fuelNeed, after: after.fuelNeed, tone: tone(before.fuelNeed, after.fuelNeed, false) },
     { label: 'Consumo armamenti', unit: 'per_mese', before: before.weaponsNeed, after: after.weaponsNeed, tone: tone(before.weaponsNeed, after.weaponsNeed, false) },
-    { label: 'Spesa militare', unit: 'mld', before: before.monthlyMilitaryMld, after: after.monthlyMilitaryMld, tone: tone(before.monthlyMilitaryMld, after.monthlyMilitaryMld, false) },
+    // La quota di difesa pubblicata dal motore è arrotondata allo 0,1% del PIL:
+    // per un solo reparto non si muove, quindi la riga non si mostra. Il costo
+    // mensile reale si legge nelle spese dello Stato e nel saldo.
     { label: 'Spese dello Stato', unit: 'mld', before: before.monthlyExpenses, after: after.monthlyExpenses, tone: tone(before.monthlyExpenses, after.monthlyExpenses, false) },
     { label: 'Saldo mensile', unit: 'mld', before: before.monthlyBalance, after: after.monthlyBalance, tone: tone(before.monthlyBalance, after.monthlyBalance, true) },
   ];
@@ -523,7 +525,7 @@ export function formationImpact(input: {
     before,
     after,
     deltas,
-    why: `${plan.basis} L'equipaggiamento preso dal deposito è valorizzato al costo di costruzione del catalogo; spesa militare e saldo del mese sono ricalcolati dal motore sulla nazione com'è, con i reparti in più.`,
+    why: `${plan.basis} L'equipaggiamento preso dal deposito è valorizzato al costo di costruzione del catalogo. Spese dello Stato e saldo del mese sono ricalcolati dal motore sulla nazione com'è, con i reparti in più: è lì che si legge il costo mensile del nuovo reparto. La quota di difesa pubblicata dal motore è arrotondata allo 0,1% del PIL e per un singolo reparto non cambia.`,
   };
 }
 
