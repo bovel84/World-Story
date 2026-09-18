@@ -625,7 +625,12 @@ export class GameSession {
         );
         return finalAccounts;
       },
-      onPlayerSlice: slice => this.advanceProduction(slice.stepDays, finalAccounts[this.playerPolityId], slice.factors, notices),
+      // OP-OBJECTS SEED-DETERMINISM: l'ordine riceve anche la **data canonica**
+      // del periodo. Il tiro di produzione dipende da quella, non dal turno:
+      // un salto di 180 giorni e sei turni da 30 tirano gli stessi dadi.
+      onPlayerSlice: slice => this.advanceProduction(
+        slice.stepDays, finalAccounts[this.playerPolityId], slice.factors, notices, { stepDate: slice.stepDate },
+      ),
     });
     const projectLines = this.advanceProjects(days, asOfDate);
     // Bollettino e conti del salto sono quelli **finali** (dopo l'ultimo
@@ -1296,8 +1301,11 @@ export class GameSession {
   }
 
   /** Avanza gli ordini di produzione del giocatore (stato nel servizio). */
-  private advanceProduction(days: number, account?: NationalAccount, factors?: Record<string, number>, notices?: ProductionNotices): string[] {
-    return this.military.advanceProduction(days, account, factors, notices);
+  private advanceProduction(
+    days: number, account?: NationalAccount, factors?: Record<string, number>, notices?: ProductionNotices,
+    temporal?: { stepDate?: string },
+  ): string[] {
+    return this.military.advanceProduction(days, account, factors, notices, temporal);
   }
 
   /**

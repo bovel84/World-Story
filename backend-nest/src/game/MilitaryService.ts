@@ -9,13 +9,16 @@
  * scorte materiali, data/turno, modalità strict) arriva da un `MilitaryContext`
  * esplicito: nessun import circolare, nessuna logica duplicata.
  *
- * Determininismo invariato: seed di produzione `${gameId}:${orderId}:${turn}`.
+ * Determinismo: seed di produzione `${orderId}:${data del periodo}` (OP-OBJECTS
+ * SEED-DETERMINISM). La data simulata è la coordinata del tiro, non il turno né
+ * il numero di chiamate: un salto lungo e i suoi periodi brevi tirano gli stessi
+ * dadi.
  */
 
 import { shortId } from '../utils/short-id';
 import { arsenalRepository, productionRepository } from '../repositories';
 import { creditHeadroom, creditLimit, debtOf, financePurchase, type ResourceStock } from '../core/simulation/MaterialEconomy';
-import { advanceOrder, productionRate, type ProductionContext, type ProductionOrder } from '../core/simulation/MilitaryProduction';
+import { advanceOrder, productionRate, productionRollSeed, type ProductionContext, type ProductionOrder } from '../core/simulation/MilitaryProduction';
 import {
   arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, describeArsenal, describeEndowment,
   DOMAIN_INFO, equipmentById, equipmentStrength, EQUIPMENT_CATALOG, EQUIPMENT_CREW, naturalResourcesFor,
@@ -612,18 +615,22 @@ export class MilitaryService {
     }
   }
 
-  /** Capacità industriale e tecnologica corrente della polity giocatore. */
-  private nationCapacity(polityId = this.ctx.playerPolityId()): NationCapacity {
-    const account = this.ctx.accounts()[polityId];
+  /**
+   * Capacità industriale e tecnologica di una polity. `account` è il conto del
+   * **periodo** che si sta lavorando: in un salto lungo lo snapshot corrente è
+   * il conto dell'ultimo mese e non quello del mese che si chiude.
+   */
+  private nationCapacity(polityId = this.ctx.playerPolityId(), account?: NationalAccount): NationCapacity {
+    const current = account ?? this.ctx.accounts()[polityId];
     const stock = this.ctx.resourceStock(polityId);
     return {
-      factories: Math.max(0, account?.factories || 0),
-      ports: Math.max(0, account?.ports || 0),
-      universities: Math.max(0, account?.universities || 0),
+      factories: Math.max(0, current?.factories || 0),
+      ports: Math.max(0, current?.ports || 0),
+      universities: Math.max(0, current?.universities || 0),
       technologies: stock.technologies,
       money: stock.money,
       weapons: stock.weapons,
-      credit: creditHeadroom(stock, account),
+      credit: creditHeadroom(stock, current),
       endowment: naturalResourcesFor(polityId),
     };
   }
@@ -939,15 +946,21 @@ export class MilitaryService {
     return bulletins;
   }
 
-  private productionContext(): ProductionContext {
-    const account = this.ctx.accounts()[this.ctx.playerPolityId()];
+  /**
+   * Contesto produttivo di un periodo. `account` è il conto nazionale di **quel**
+   * periodo: senza di esso si ripiegava sullo snapshot corrente, cioè — nei salti
+   * lunghi — sul conto dell'ultimo mese invece che su quello del mese lavorato
+   * (instabilità, tensione e infrastrutture sono quelle del periodo).
+   */
+  private productionContext(account?: NationalAccount): ProductionContext {
+    const current = account ?? this.ctx.accounts()[this.ctx.playerPolityId()];
     const stock = this.ctx.resourceStock(this.ctx.playerPolityId());
     return {
-      factories: Math.max(0, account?.factories || 0),
-      ports: Math.max(0, account?.ports || 0),
-      universities: Math.max(0, account?.universities || 0),
-      stability: Number(account?.stability ?? 50),
-      socialTension: Number(account?.socialTension ?? 0),
+      factories: Math.max(0, current?.factories || 0),
+      ports: Math.max(0, current?.ports || 0),
+      universities: Math.max(0, current?.universities || 0),
+      stability: Number(current?.stability ?? 50),
+      socialTension: Number(current?.socialTension ?? 0),
       technologies: stock.technologies,
     };
   }
@@ -1081,7 +1094,10 @@ export class MilitaryService {
   }
 
   /** Avanza gli ordini di produzione del giocatore e consegna a lavori finiti. */
-  advanceProduction(days: number, account?: NationalAccount, factors?: Record<string, number>, notices?: ProductionNotices): string[] {
+  advanceProduction(
+    days: number, account?: NationalAccount, factors?: Record<string, number>, notices?: ProductionNotices,
+    temporal?: { stepDate?: string },
+  ): string[] {
     if (this.ctx.isStrictGame() || days <= 0) return [];
     const polityId = this.ctx.playerPolityId();
     const bulletins: string[] = [];
@@ -1100,15 +1116,23 @@ export class MilitaryService {
     // magazzino. Il fattore dell'impianto (capacità × materiali) si ricalcola a
     // ogni periodo: non è il fattore del primo giorno moltiplicato per sei mesi.
     const steps = splitMaterialPeriod(days);
+    // Data dell'ultimo giorno del blocco dichiarata dal chiamante (il tick
+    // materiale passa la data del periodo). I periodi interni sono i giorni che
+    // la precedono, quindi `advanceProduction(90)` e tre chiamate da 30 giorni
+    // vedono le **stesse** date — e gli stessi tiri.
+    const endDate = temporal?.stepDate ?? this.ctx.currentDate();
+    let elapsed = 0;
     for (let index = 0; index < steps.length; index++) {
       const step = steps[index];
+      elapsed += step;
+      const stepDate = steps.length === 1 ? endDate : addDays(endDate, elapsed - days);
       const orders = this.playerProductionOrders().filter(order => order.status === 'in_progress');
       if (orders.length === 0) continue;
-      const context = this.productionContext();
+      const context = this.productionContext(account);
       // Capacità industriale del periodo: se la domanda supera le linee
       // disponibili, il lavoro avanza più lentamente per tutti (stesso fattore
       // per ogni ordine aperto in quel periodo).
-      const capacity = this.industrialCapacity(polityId);
+      const capacity = this.industrialCapacity(polityId, this.nationCapacity(polityId, account));
       if (capacity.blocked) {
         // Nessuna linea e lavoro da fare: non si avanza di un punto e non si
         // inventa un ritmo del 25%. Gli ordini restano aperti, in attesa.
@@ -1135,8 +1159,11 @@ export class MilitaryService {
           }
           continue;
         }
-        const base = `${this.ctx.gameId}:${order.id}:${this.ctx.currentTurn()}`;
-        const seed = index === 0 ? base : `${base}:${index}`;
+        // OP-OBJECTS SEED-DETERMINISM: il tiro dipende dalla **data** del
+        // periodo, non dal turno (che dentro un salto non cambia) né dal numero
+        // di chiamate: sei mesi tirano sei dadi diversi, e un salto unico tira
+        // gli stessi dadi di sei turni separati.
+        const seed = productionRollSeed({ orderId: order.id, date: stepDate });
         const result = advanceOrder(order, context, months * materialFactor, seed);
         if (result.completed) {
           const units = { ...this.arsenalUnits(polityId) };
@@ -1160,14 +1187,18 @@ export class MilitaryService {
           this.productionOrders.delete(order.id);
           push(`⚠️ Produzione fallita: ${order.name} — ${result.order.note}.`);
         } else {
-          this.saveProductionOrder(result.order);
+          // `updatedDate` segue il periodo vissuto: la data non si inventa, è
+          // quella del substep appena lavorato.
+          const stamped = result.order.updatedDate === stepDate
+            ? result.order
+            : { ...result.order, updatedDate: stepDate };
+          this.saveProductionOrder(stamped);
           if (result.setbackPct > 0) {
             push(`⚠️ ${order.name}: imprevisto in produzione, avanzamento ${Math.round(result.order.progress)}% (−${result.setbackPct}%).`);
           }
         }
       }
     }
-    void account;
     return bulletins;
   }
 }
