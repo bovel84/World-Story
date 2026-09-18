@@ -161,8 +161,14 @@ describe('OP-OBJECTS — creazione di un reparto (azione reale)', () => {
     // Il fatto è nel mondo: forze +1 (derivate dall'oggetto `army`).
     expect(afterAccount.forces).toBe(beforeAccount.forces + 1);
     expect(afterAccount.monthlyExpenses).toBeGreaterThan(beforeAccount.monthlyExpenses);
-    // Il materiale è uscito dal deposito e la cassa è calata.
-    expect(after.units.fucili).toBeLessThan(before.units.fucili);
+    // OP-OBJECTS PERSISTENT: il materiale esce dal **deposito** e diventa
+    // equipaggiamento **assegnato** all'armata. Il totale nazionale non cambia:
+    // deposito + assegnato = totale (invariante).
+    expect(after.stockpile.fucili).toBeLessThan(before.stockpile.fucili);
+    expect(Number(after.assigned.fucili || 0)).toBeGreaterThan(0);
+    expect(after.units.fucili).toBe(before.units.fucili);
+    expect(Number(after.stockpile.fucili || 0) + Number(after.assigned.fucili || 0))
+      .toBe(Number(after.units.fucili));
     expect(session.getResources().stock.money).toBeLessThan(beforeMoney);
     // La nuova armata è un oggetto del mondo, persistito come gli altri.
     const armies = byKind(after.objects.objects, 'army');

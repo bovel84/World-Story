@@ -34,6 +34,11 @@ export interface ProductionOrder {
   updatedDate: string;
   /** Data di consegna prevista, ricalcolata dal ritmo reale della linea. */
   expectedDate?: string | null;
+  /**
+   * OP-OBJECTS PERSISTENT: impianto **reale** a cui l'ordine è assegnato (non
+   * più una rotazione decisa a ogni lettura). `null`/assente ⇒ partita legacy.
+   */
+  facilityId?: string | null;
 }
 
 export interface ProductionContext {

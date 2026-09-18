@@ -122,6 +122,37 @@ export function arsenalBrief(
   };
 }
 
+/**
+ * OP-OBJECTS PERSISTENT: deposito vs equipaggiamento assegnato. Il **totale
+ * nazionale** è la somma delle parti: il motore pubblica entrambe, la UI non
+ * stima nulla. `null` quando il motore non li pubblica (partita legacy).
+ */
+export interface ArsenalSplit {
+  total: number;
+  depot: number;
+  assigned: number;
+}
+
+export function arsenalSplit(
+  units: Record<string, number> | null | undefined,
+  stockpile: Record<string, number> | null | undefined,
+  assigned: Record<string, number> | null | undefined,
+): ArsenalSplit | null {
+  if (!stockpile && !assigned) return null;
+  const sum = (bag: Record<string, number> | null | undefined) =>
+    Object.values(bag || {}).reduce((total, quantity) => total + Math.max(0, n(quantity)), 0);
+  const depot = sum(stockpile);
+  const inService = sum(assigned);
+  const total = units ? sum(units) : depot + inService;
+  return { total, depot, assigned: inService };
+}
+
+/** Testo della ripartizione: «deposito 1.000 · assegnato 9.000 su 10.000». */
+export function arsenalSplitText(split: ArsenalSplit | null): string {
+  if (!split) return '';
+  return `deposito ${formatNumber(split.depot)} · assegnato ${formatNumber(split.assigned)} su ${formatNumber(split.total)}`;
+}
+
 /** Testo della fotografia: «3 voci · 43 unità in servizio · 2 ordini (52 pezzi)». */
 export function arsenalBriefText(brief: ArsenalBrief): string {
   const parts = [

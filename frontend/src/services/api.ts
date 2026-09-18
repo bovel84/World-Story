@@ -171,7 +171,12 @@ export interface ProductionOrder {
 /** Arsenale, risorse naturali reali e capacità industriale della nazione. */
 export interface ArsenalResponse {
   polityId: string;
+  /** Totale nazionale = `stockpile` + `assigned` (compatibilità). */
   units: Record<string, number>;
+  /** OP-OBJECTS PERSISTENT: pezzi in magazzino, non assegnati a un oggetto. */
+  stockpile?: Record<string, number>;
+  /** Equipaggiamento assegnato alle armate e alle navi. */
+  assigned?: Record<string, number>;
   strength: number;
   qualityIndex: number;
   combatFactor: number;
@@ -292,6 +297,8 @@ export interface FormationPlanItemPayload {
 }
 
 export interface FormationImpactPayload {
+  /** OP-OBJECTS PERSISTENT: riserva disponibile al momento dell'anteprima. */
+  reserves?: { required: number; available: number; missing: number };
   plan: {
     men: number;
     items: FormationPlanItemPayload[];
@@ -317,6 +324,10 @@ export interface FormationImpactPayload {
 export interface RaiseFormationResult extends FormationImpactPayload {
   applied: boolean;
   formations: number;
+  /** Uomini trasferiti dalla riserva ai reparti. */
+  men?: number;
+  /** Equipaggiamento assegnato all'armata (uscito dal deposito). */
+  equipment?: Record<string, number>;
   name: string;
   regionId: string;
   regionName: string;

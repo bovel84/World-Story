@@ -509,7 +509,7 @@ export function mockFormationImpact(armyId, armyName = 'III Corpo') {
         { equipmentId: 'fucili', name: 'Fucili d’assalto', required: 8800, available: 20000, consumed: 8800, missing: 0, unitCostMln: 0.02 },
         { equipmentId: 'carri_3', name: 'Carri armati', required: 2, available: 6, consumed: 2, missing: 0, unitCostMln: 4000 },
       ],
-      riflesRequired: 8800, riflesAvailable: 20000, riflesMissing: 0,
+      riflesRequired: 8800, riflesAvailable: 20000, riflesMissing: 0, riflesConsumed: blocked ? 37 : 8800,
       initialCostMln: 8176, blocked, blockedReason: blocked ? 'Servono 8.763 fucili in più: il deposito non basta.' : null,
       basis: 'La dotazione di riferimento è quella dell’epoca: 1 reparto = 11.000 uomini, 80% con arma individuale.',
     },
@@ -519,9 +519,14 @@ export function mockFormationImpact(armyId, armyName = 'III Corpo') {
     target: { regionId: 'ALPHA', regionName: 'Alpha', armyName, armyId: armyId ?? null },
     before: { formations: 3, activePersonnel: 55000, readinessPct: 15 },
     after: { formations: 4, activePersonnel: 66000, readinessPct: 18 },
+    reserves: { required: 11000, available: 86400, missing: 0 },
     deltas: [
       { label: 'Reparti', unit: 'numero', before: 3, after: 4, tone: 'positive' },
       { label: 'Uomini in armi', unit: 'numero', before: 55000, after: 66000, tone: 'positive' },
+      // OP-OBJECTS PERSISTENT: la riserva è uno stock che si consuma.
+      { label: 'Riserva addestrata', unit: 'numero', before: 86400, after: 75400, tone: 'warning' },
+      { label: 'Deposito armi individuali', unit: 'numero', before: 20000, after: 11200, tone: 'neutral' },
+      { label: 'Armi individuali assegnate', unit: 'numero', before: 0, after: 8800, tone: 'neutral' },
       { label: 'Prontezza', unit: 'pct', before: 15, after: 18, tone: 'positive' },
       { label: 'Consumo carburante', unit: 'per_mese', before: 1.04, after: 1.12, tone: 'warning' },
       { label: 'Spesa militare', unit: 'mld', before: 4.8, after: 4.88, tone: 'neutral' },
@@ -532,7 +537,10 @@ export function mockFormationImpact(armyId, armyName = 'III Corpo') {
 
 export const MOCK_ARSENAL = {
   polityId: 'ALPHA',
+  // OP-OBJECTS PERSISTENT: totale nazionale = deposito + assegnato agli oggetti.
   units: { fucili: 37, carri_3: 6 },
+  stockpile: { fucili: 37, carri_3: 5 },
+  assigned: { fucili: 0, carri_3: 1 },
   strength: 16.7,
   qualityIndex: 42,
   combatFactor: 1.02,

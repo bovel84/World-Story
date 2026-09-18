@@ -18,7 +18,7 @@ import { creditHeadroom, creditLimit, debtOf, financePurchase, type ResourceStoc
 import { advanceOrder, productionRate, type ProductionContext, type ProductionOrder } from '../core/simulation/MilitaryProduction';
 import {
   arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, describeArsenal, describeEndowment,
-  DOMAIN_INFO, equipmentById, equipmentStrength, EQUIPMENT_CATALOG, naturalResourcesFor,
+  DOMAIN_INFO, equipmentById, equipmentStrength, EQUIPMENT_CATALOG, EQUIPMENT_CREW, naturalResourcesFor,
   procurementOption, type NationCapacity,
 } from '../core/simulation/MilitaryIndustry';
 import { addDays } from '../core/simulation/calendar';
@@ -33,9 +33,15 @@ import {
   type IndustrialMaintenanceInput, type IndustrialProjectInput,
 } from '../core/simulation/IndustrialCapacity';
 import {
-  applyFormationPlan, formationImpact, operatingPicture,
-  type FormationImpact, type OperationalInput, type OperationalRegion, type OperatingPicture,
+  formationImpact, operatingPicture,
+  type FormationImpact, type OperationalInput, type OperationalRegion, type OperatingObject, type OperatingPicture,
 } from '../core/simulation/OperationalObjects';
+import {
+  aggregateObjects, equipmentTotals, monthlyNeedsPerFormation, personnelOverlay, persistentObjects,
+  rifleRequirement, transferCrewToShip, transferEquipment, transferMenToArmy,
+  type ArmyOperationalState, type MilitaryPersonnelState,
+} from '../core/simulation/OperationalState';
+import type { OperationalStateStore } from './OperationalStateStore';
 import { materialBalance } from './materialBalance';
 import { materialNeeds } from '../core/simulation/MaterialEconomy';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
@@ -46,6 +52,12 @@ import type { NationalAccount } from '../core/simulation/WorldStateEngine';
  * contate una per una, un riarmo completo supera il vecchio tetto di 1000.
  */
 export const MAX_PROCUREMENT_QUANTITY = 200_000;
+
+const nonNegative = (value: unknown): number => {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+};
+const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
 /** Dipendenze fornite da GameSession: stato che NON appartiene al dominio militare. */
 export interface MilitaryContext {
@@ -73,7 +85,13 @@ export interface MilitaryContext {
    * `null` se il mondo non è disponibile (partite non avviate nei test).
    */
   addArmyObject?(input: { armyId?: string | null; name: string; formations: number }):
-    { regionId: string; regionName: string; name: string } | null;
+    { regionId: string; regionName: string; name: string; armyId?: string | null } | null;
+  /**
+   * OP-OBJECTS PERSISTENT: stato proprio degli oggetti (impianti, navi, flotte,
+   * cantieri, equipaggi; le armate vivono sugli oggetti della mappa). Il seed
+   * lazy è dentro lo store: qui si legge solo lo stato corrente.
+   */
+  operationalObjects?(): OperationalStateStore;
 }
 
 export class MilitaryService {
@@ -96,10 +114,24 @@ export class MilitaryService {
   /** Quadro industriale della nazione: ordini aperti + progetti + manutenzione. */
   industrialCapacity(polityId: string, known?: NationCapacity): IndustrialCapacity {
     const capacity = known ?? this.nationCapacity(polityId);
+    // OP-OBJECTS PERSISTENT: se gli impianti reali esistono, la capacità è la
+    // **loro** somma; `factories/ports/universities` restano fallback legacy.
+    const store = this.operational();
+    let facilities: Array<{ id: string; kind: string; capacity: number }> | undefined;
+    if (store) {
+      try {
+        facilities = store.facilities().map(facility => ({
+          id: facility.id, kind: facility.kind, capacity: facility.capacity,
+        }));
+      } catch (error) {
+        console.warn('[MilitaryService] Impianti persistenti non disponibili:', error);
+      }
+    }
     return industrialCapacityOf({
       factories: capacity.factories,
       ports: capacity.ports,
       universities: capacity.universities,
+      facilities,
       orders: this.playerProductionOrders(),
       projects: this.ctx.ongoingProcesses?.() || [],
       maintenance: this.ctx.maintenanceObligations?.() || [],
@@ -111,6 +143,80 @@ export class MilitaryService {
     return this.arsenals.get(polityId);
   }
 
+  // ── OP-OBJECTS PERSISTENT: deposito, totale nazionale, uomini reali ────────
+
+  /**
+   * Store dello stato proprio degli oggetti, se la sessione lo fornisce. */
+  private operational(): OperationalStateStore | null {
+    try {
+      return this.ctx.operationalObjects?.() ?? null;
+    } catch (error) {
+      console.warn('[MilitaryService] Stato degli oggetti non disponibile:', error);
+      return null;
+    }
+  }
+
+  /** Fabbisogni mensili di un'armata: dal fabbisogno unitario del motore. */
+  private needsForArmy(epoch: MilitaryEpoch, formations: number): { fuel: number; weapons: number; food: number } {
+    const per = monthlyNeedsPerFormation(epoch);
+    const units = Math.max(0, Math.round(nonNegative(formations)));
+    return {
+      fuel: round3(per.fuel * units),
+      weapons: round3(per.weapons * units),
+      food: round3(per.food * units),
+    };
+  }
+
+  /** **Deposito**: pezzi in magazzino e non assegnati a un oggetto. */
+  depotUnits(polityId: string): Record<string, number> {
+    return this.arsenalUnits(polityId);
+  }
+
+  /**
+   * **Totale nazionale** = deposito + equipaggiamento assegnato agli oggetti.
+   * È questo che alimenta copertura, qualità e forza: quando un pezzo passa dal
+   * deposito a un'armata il totale non cambia, cambia solo chi lo possiede.
+   */
+  nationalUnits(polityId: string): Record<string, number> {
+    const depot = this.depotUnits(polityId);
+    const store = this.operational();
+    if (!store) return depot;
+    try {
+      return equipmentTotals(depot, store.assignedEquipment());
+    } catch (error) {
+      console.warn('[MilitaryService] Equipaggiamento assegnato non disponibile:', error);
+      return depot;
+    }
+  }
+
+  /**
+   * Manpower del motore con l'overlay dello **stock** di uomini: la dottrina dà
+   * il bacino e il tetto, lo stato di partita dice chi è sotto le armi davvero.
+   * Senza stato persistente resta la dottrina (partita legacy).
+   */
+  private manpowerOf(polityId: string, epoch: MilitaryEpoch): {
+    doctrine: ReturnType<typeof militaryManpower>;
+    manpower: ReturnType<typeof militaryManpower>;
+    personnel: MilitaryPersonnelState | null;
+  } {
+    const account = this.ctx.accounts()[polityId];
+    const doctrine = militaryManpower({
+      population: Number(account?.population || 0),
+      formations: Number(account?.forces || 0),
+      mobilizedFormations: Number(account?.mobilized || 0),
+      epoch,
+    });
+    const store = this.operational();
+    if (!store) return { doctrine, manpower: doctrine, personnel: null };
+    try {
+      const personnel = store.personnel();
+      return { doctrine, manpower: personnelOverlay(personnel, doctrine), personnel };
+    } catch (error) {
+      console.warn('[MilitaryService] Personale persistente non disponibile:', error);
+      return { doctrine, manpower: doctrine, personnel: null };
+    }
+  }
+
   /**
    * Quadro operativo: oggetti concreti (armate, impianti, cantieri, navi) e
    * catene produttive. Tutto derivato dai fatti del motore, nessuno stato nuovo.
@@ -118,17 +224,14 @@ export class MilitaryService {
   getOperatingPicture(): OperatingPicture {
     const polityId = this.ctx.playerPolityId();
     const capacity = this.nationCapacity(polityId);
-    const units = this.arsenalUnits(polityId);
+    // Copertura, qualità e forza si misurano sul **totale nazionale** (deposito +
+    // assegnato): l'aggregato non cambia quando un pezzo viene assegnato.
+    const units = this.nationalUnits(polityId);
     const account = this.ctx.accounts()[polityId];
     const stock = this.ctx.resourceStock(polityId);
     const needs = materialNeeds(account);
     const epoch = this.epoch();
-    const manpower = militaryManpower({
-      population: Number(account?.population || 0),
-      formations: Number(account?.forces || 0),
-      mobilizedFormations: Number(account?.mobilized || 0),
-      epoch,
-    });
+    const { manpower, personnel } = this.manpowerOf(polityId, epoch);
     const coverage = equipmentCoverage({ units, manpower, epoch, ports: account?.ports });
     const industrial = this.industrialCapacity(polityId, capacity);
     const qualityIndex = arsenalQualityIndex(units);
@@ -145,6 +248,48 @@ export class MilitaryService {
     } catch (error) {
       console.warn('[MilitaryService] Bilancio materiale non disponibile per gli oggetti:', error);
     }
+    // Attribuzioni dichiarate dei costi: la spesa militare mensile del motore e
+    // il resto delle spese civili. Servono solo a ripartire per oggetto una voce
+    // che il motore pubblica a livello nazionale.
+    const militaryMonthlyMld = nonNegative(account?.nominalGdpUsdBillions) * nonNegative(account?.defenceBurdenPct) / 100 / 12;
+    const civilMonthlyMld = Math.max(0, nonNegative(account?.monthlyExpenses) - militaryMonthlyMld);
+    const orders = this.playerProductionOrders();
+    // Oggetti reali dallo stato persistente (seed lazy compreso): le schede di
+    // armate, impianti, navi, flotte e cantieri sono le loro, non quote
+    // dell'aggregato. Senza store resta il percorso derivato del motore.
+    const store = this.operational();
+    let persistent: OperatingObject[] | undefined;
+    let activity: number | undefined;
+    if (store) {
+      try {
+        const snapshot = store.snapshot();
+        const individual = coverage.find(row => row.category === 'individualWeapons');
+        activity = industrial.blocked ? 0 : industrial.overflowFactor;
+        persistent = persistentObjects({
+          polityId,
+          date: this.ctx.currentDate(),
+          epoch,
+          armies: snapshot.armies,
+          facilities: snapshot.facilities,
+          ships: snapshot.ships,
+          fleets: snapshot.fleets,
+          constructions: snapshot.constructions,
+          personnel: personnel ?? snapshot.personnel,
+          ordersById: Object.fromEntries(orders.map(order => [order.id, order])),
+          readinessPct: readiness.readinessPct,
+          individualCoveragePct: individual ? individual.coveragePct : 0,
+          activity,
+          blocked: industrial.blocked,
+          stock: stock as unknown as Record<string, number>,
+          endowment: capacity.endowment as unknown as Record<string, number>,
+          civilMonthlyMld,
+          militaryMonthlyMld,
+          fuelMonths: needs.fuel > 0 ? stock.fuel / needs.fuel : null,
+        });
+      } catch (error) {
+        console.warn('[MilitaryService] Oggetti persistenti non disponibili:', error);
+      }
+    }
     return operatingPicture({
       polityId,
       epoch,
@@ -159,12 +304,13 @@ export class MilitaryService {
       needs,
       balance,
       capacity: industrial,
-      orders: this.playerProductionOrders(),
+      orders,
       projects: this.ctx.ongoingProcesses?.() || [],
       maintenance: this.ctx.maintenanceObligations?.() || [],
       regions: this.ctx.playerRegions?.() || [],
       endowment: capacity.endowment,
       technologies: stock.technologies,
+      persistentObjects: persistent,
     });
   }
 
@@ -178,12 +324,35 @@ export class MilitaryService {
     const stock = this.ctx.resourceStock(polityId);
     const regions = this.worldRegions();
     const target = this.formationTarget(input.armyId, input.name, regions);
+    const epoch = this.epoch();
+    const depot = this.depotUnits(polityId);
+    const national = this.nationalUnits(polityId);
+    const { manpower, personnel } = this.manpowerOf(polityId, epoch);
+    // Armi individuali già in mano all'armata che riceve i reparti: il PRIMA →
+    // DOPO mostra dove finiscono i pezzi (deposito che cala, armata che cresce).
+    const store = this.operational();
+    let assignedRifles = 0;
+    if (store) {
+      try {
+        const armies = store.armies();
+        const armyTarget = target.armyId
+          ? armies.find(army => String(army.objectId || army.id) === String(target.armyId))
+          : armies.find(army => !army.objectId) ?? null;
+        assignedRifles = Number(armyTarget?.equipment?.['fucili'] || 0);
+      } catch (error) {
+        console.warn('[MilitaryService] Equipaggiamento dell\'armata non disponibile:', error);
+      }
+    }
     const impact = formationImpact({
-      epoch: this.epoch(),
+      epoch,
       account,
-      units: this.arsenalUnits(polityId),
+      // Copertura sul totale nazionale; disponibilità del piano sul deposito.
+      units: national,
+      depot,
+      personnel: personnel ?? undefined,
+      assignedRifles,
       stock,
-      qualityIndex: arsenalQualityIndex(this.arsenalUnits(polityId)),
+      qualityIndex: arsenalQualityIndex(national),
       regions,
       options: this.worldStateOptions(),
       targetRegionId: target.regionId,
@@ -191,35 +360,121 @@ export class MilitaryService {
       armyId: target.armyId,
       formations: input.formations,
     });
-    return { ...impact, target };
+    // Anteprima degli **uomini**: la riserva è uno stock, quindi il piano può
+    // essere bloccato anche quando i fucili ci sono ma i richiamabili no.
+    const menToTransfer = impact.plan.men;
+    const reserveAvailable = manpower.availableReserve;
+    const reservesShort = menToTransfer > reserveAvailable;
+    const blockedReason = impact.plan.blocked
+      ? impact.plan.blockedReason
+      : reservesShort
+        ? `Riserva insufficiente: servono ${menToTransfer.toLocaleString('it-IT')} uomini richiamabili, ne restano ${Math.max(0, Math.floor(reserveAvailable)).toLocaleString('it-IT')}.`
+        : null;
+    return {
+      ...impact,
+      target,
+      plan: { ...impact.plan, blocked: Boolean(blockedReason), blockedReason },
+      reserves: {
+        required: menToTransfer,
+        available: Math.max(0, Math.floor(reserveAvailable)),
+        missing: Math.max(0, menToTransfer - reserveAvailable),
+      },
+    };
   }
 
   /**
-   * Crea davvero i reparti: paga il materiale (cassa e credito), lo toglie dal
-   * deposito e aggiunge l'oggetto `army` al mondo. Il «dopo» è del motore:
-   * manpower, fabbisogni, copertura e conti si muovono perché è cambiato il
-   * fatto (i reparti), non perché la UI lo dica.
+   * Crea davvero i reparti, in **transazione atomica**: verifica uomini e
+   * equipaggiamento, paga il materiale, trasferisce uomini dalla riserva e
+   * pezzi dal deposito all'armata, aggiorna lo stato persistente. Il «dopo» è
+   * del motore: manpower, fabbisogni, copertura e conti si muovono perché è
+   * cambiato il fatto (i reparti e chi possiede i pezzi), non perché lo dica la UI.
    */
   raiseFormation(input: { formations?: number; armyId?: string | null; name?: string; regionId?: string } = {}) {
     const polityId = this.ctx.playerPolityId();
     const account = this.ctx.accounts()[polityId];
+    const epoch = this.epoch();
     const formations = Math.max(1, Math.round(Number(input.formations) || 1));
     const preview = this.formationPreview({ ...input, formations });
     if (preview.plan.blocked) throw new Error(`formation_blocked: ${preview.plan.blockedReason}`);
-    const applied = applyFormationPlan({
-      plan: preview.plan,
-      units: this.arsenalUnits(polityId),
-      stock: this.ctx.resourceStock(polityId),
-      account,
+
+    const store = this.operational();
+    const depot = this.depotUnits(polityId);
+    const { doctrine, personnel } = this.manpowerOf(polityId, epoch);
+
+    // 1. Uomini: dalla **riserva disponibile** ai reparti. Mai a debito.
+    const personnelAfter = personnel
+      ? transferMenToArmy(personnel, preview.plan.men, doctrine)
+      : null;
+    if (personnel && !personnelAfter) {
+      throw new Error(`formation_blocked: riserva insufficiente — servono ${preview.plan.men.toLocaleString('it-IT')} uomini richiamabili.`);
+    }
+
+    // 2. Equipaggiamento: dal **deposito** all'armata (stesso totale nazionale).
+    const targetArmyId = input.armyId ?? null;
+    const snapshot = store ? store.snapshot() : null;
+    const before = snapshot?.armies.find(army => targetArmyId && String(army.objectId || army.id) === String(targetArmyId)) ?? null;
+    const transfer = transferEquipment({
+      depot,
+      assigned: before?.equipment ?? {},
+      items: preview.plan.items.map(item => ({ equipmentId: item.equipmentId, quantity: item.consumed })),
     });
-    if (!applied.ok) throw new Error(applied.error);
-    this.ctx.saveResourceStock(polityId, applied.stock);
-    this.saveArsenal(polityId, applied.units);
+    if (!transfer) throw new Error('formation_blocked: equipaggiamento non disponibile nel deposito.');
+
+    // 3. Denaro: cassa e credito, la stessa finanza del commercio di armi.
+    const spentMld = preview.plan.initialCostMln / 1000;
+    const financing = financePurchase(this.ctx.resourceStock(polityId), account, spentMld);
+    if (!financing.ok) throw new Error('credit_exhausted: cassa e credito insufficienti per formare il reparto');
+    const stockAfter: ResourceStock = {
+      ...this.ctx.resourceStock(polityId),
+      money: round3(this.ctx.resourceStock(polityId).money - spentMld),
+    };
+
+    // 4. Scritture: prima lo stato persistente, poi il mondo (l'ordine è quello
+    //    che rende il fallimento parziale impossibile: nessuno stato a metà).
+    this.saveArsenal(polityId, transfer.depot);
+    this.ctx.saveResourceStock(polityId, stockAfter);
+    if (personnelAfter) store?.savePersonnel(personnelAfter);
     const placed = this.ctx.addArmyObject?.({
       armyId: input.armyId ?? null,
       name: preview.target.armyName,
       formations,
     }) ?? null;
+
+    // 5. L'armata possiede uomini ed equipaggiamento: l'oggetto dello stato viene
+    //    allineato al mondo appena cambiato (armata esistente o nuova).
+    if (store) {
+      const after = store.snapshot();
+      const locatedId = placed?.armyId ?? input.armyId ?? null;
+      const target = locatedId
+        ? after.armies.find(army => String(army.objectId || army.id) === String(locatedId)) ?? null
+        : null;
+      const menPerFormation = doctrine.menPerFormation;
+      const formationsBefore = before?.formations ?? 0;
+      const basePersonnel = before
+        ? (before.legacyDerived ? Math.round(formationsBefore * menPerFormation) : before.personnel)
+        : 0;
+      const garrisonId = after.armies.find(item => !item.objectId)?.id ?? null;
+      const nextArmies: ArmyOperationalState[] = after.armies.map(army => {
+        const isTarget = target ? army.id === target.id : garrisonId !== null && army.id === garrisonId;
+        if (isTarget) {
+          // L'armata passa a stato reale: uomini ed equipaggiamento sono i suoi.
+          const base = target
+            ? basePersonnel
+            : (army.legacyDerived ? Math.round(army.formations * menPerFormation) : army.personnel);
+          return {
+            ...army,
+            personnel: base + preview.plan.men,
+            equipment: transfer.assigned,
+            status: 'operational',
+            legacyDerived: false,
+            monthlyNeeds: this.needsForArmy(epoch, army.formations),
+          };
+        }
+        return army;
+      });
+      store.saveArmies(nextArmies);
+    }
+
     return {
       applied: true,
       formations,
@@ -227,7 +482,9 @@ export class MilitaryService {
       regionId: placed?.regionId || preview.target.regionId,
       regionName: placed?.regionName || '',
       spentMln: Math.round(preview.plan.initialCostMln * 100) / 100,
-      financedMln: applied.financedMln,
+      financedMln: Math.round(financing.debtUsed * 1000),
+      men: preview.plan.men,
+      equipment: transfer.assigned,
       impact: preview,
     };
   }
@@ -341,7 +598,12 @@ export class MilitaryService {
   getArsenal() {
     const polityId = this.ctx.playerPolityId();
     const capacity = this.nationCapacity(polityId);
-    const units = this.arsenalUnits(polityId);
+    // `units` resta il **totale nazionale** (compatibilità con la UI e con i
+    // consumatori): deposito + assegnato agli oggetti. Le due parti sono
+    // esposte separatamente (`stockpile`, `assigned`).
+    const stockpile = this.depotUnits(polityId);
+    const units = this.nationalUnits(polityId);
+    const assigned = this.operational()?.assignedEquipment() ?? {};
     const account = this.ctx.accounts()[polityId];
     const combatFactor = arsenalCombatFactor(units, Number(account?.forces || 0) + Number(account?.mobilized || 0));
     const endowment = capacity.endowment;
@@ -381,12 +643,7 @@ export class MilitaryService {
     const stock = this.ctx.resourceStock(polityId);
     const needs = materialNeeds(account);
     const epoch = this.epoch();
-    const manpower = militaryManpower({
-      population: Number(account?.population || 0),
-      formations: Number(account?.forces || 0),
-      mobilizedFormations: Number(account?.mobilized || 0),
-      epoch,
-    });
+    const { manpower } = this.manpowerOf(polityId, epoch);
     const coverage = equipmentCoverage({
       units,
       manpower,
@@ -406,6 +663,10 @@ export class MilitaryService {
     return {
       polityId,
       units,
+      /** Deposito: pezzi in magazzino, non assegnati ad alcun oggetto. */
+      stockpile,
+      /** Equipaggiamento assegnato alle armate e alle navi. */
+      assigned,
       strength: totalStrength,
       qualityIndex: arsenalQualityIndex(units),
       combatFactor,
@@ -516,18 +777,129 @@ export class MilitaryService {
       const units = { ...this.arsenalUnits(polityId) };
       units[equipmentId] = (units[equipmentId] || 0) + qty;
       this.saveArsenal(polityId, units);
+      // OP-OBJECTS PERSISTENT: un acquisto immediato è una consegna in
+      // magazzino... ma uno **scafo** comprato entra in servizio come nave reale,
+      // con il suo equipaggio. Il totale nazionale non cambia: lo scafo esce dal
+      // deposito e vive nella nave.
+      if (equipment.domain === 'mare') {
+        this.putShipsInService({ equipmentId, name: equipment.name, quantity: qty, depot: units });
+      }
+      const national = this.nationalUnits(polityId);
       return {
         mode, equipmentId, name: equipment.name, quantity: qty, spentMln,
-        financedMln, debtMld, complete: true, units, strength: arsenalStrength(units),
+        financedMln, debtMld, complete: true, units: national, strength: arsenalStrength(national),
       };
     }
 
     const order = this.startProductionOrder(equipmentId, qty, spentMln);
-    const units = this.arsenalUnits(polityId);
+    const units = this.nationalUnits(polityId);
     return {
       mode, equipmentId, name: equipment.name, quantity: qty, spentMln,
       financedMln, debtMld, complete: false, units, strength: arsenalStrength(units), order,
     };
+  }
+
+  /** Libera l'impianto che aveva in lavorazione l'ordine (fine corsa). */
+  private releaseFacility(order: ProductionOrder): void {
+    const store = this.operational();
+    if (!store || !order.facilityId) return;
+    try {
+      const facilities = store.facilities().map(facility => facility.id === order.facilityId
+        ? { ...facility, activeOrders: facility.activeOrders.filter(id => id !== order.id) }
+        : facility);
+      store.saveFacilities(facilities);
+    } catch (error) {
+      console.warn('[MilitaryService] Rilascio impianto non riuscito:', error);
+    }
+  }
+
+  /**
+   * Mette in servizio gli scafi appena consegnati: nasce una **nave** con il suo
+   * equipaggio (uomini presi dalla riserva) e lo scafo esce dal deposito. Se la
+   * riserva non basta, la nave resta senza equipaggio e il bollettino lo dice.
+   */
+  private putShipsInService(input: {
+    equipmentId: string;
+    name: string;
+    quantity: number;
+    depot: Record<string, number>;
+  }): string[] {
+    const store = this.operational();
+    const order = { equipmentId: input.equipmentId, name: input.name } as ProductionOrder;
+    const delivered = Math.max(0, Math.round(nonNegative(input.quantity)));
+    const depotAfterDeposit = input.depot;
+    if (!store || delivered <= 0) return [];
+    const bulletins: string[] = [];
+    const polityId = this.ctx.playerPolityId();
+    const epoch = this.epoch();
+    const { doctrine, personnel } = this.manpowerOf(polityId, epoch);
+    const equipment = equipmentById(order.equipmentId);
+    try {
+      const snapshot = store.snapshot();
+      const crewPerShip = Math.max(0, Math.round(nonNegative(EQUIPMENT_CREW[order.equipmentId])));
+      const existing = snapshot.ships.filter(ship => ship.equipmentId === order.equipmentId).length;
+      const ships = [...snapshot.ships];
+      const fleets = [...snapshot.fleets];
+      let fleet = fleets.find(item => item.name.includes(equipment?.category || '')) ?? null;
+      if (!fleet) {
+        fleet = {
+          id: `fleet-${polityId}-${fleets.length + 1}`,
+          name: `${fleets.length + 1}ª Flotta — ${equipment?.category || 'navale'}`,
+          shipIds: [],
+          createdDate: this.ctx.currentDate(),
+          legacyDerived: false,
+        };
+        fleets.push(fleet);
+      }
+      const fleetId = fleet.id;
+      const newShips: typeof ships = [];
+      for (let i = 0; i < delivered; i += 1) {
+        const index = existing + i + 1;
+        const ship = {
+          id: `ship-${polityId}-${order.equipmentId}-${index}`,
+          name: delivered > 1 ? `${equipment?.name || order.name} ${index}ª` : (equipment?.name || order.name),
+          equipmentId: order.equipmentId,
+          fleetId,
+          crew: crewPerShip,
+          monthlyFuel: round3(Math.max(0.02, crewPerShip * 0.004)),
+          ammunition: {} as Record<string, number>,
+          status: 'operational' as const,
+          portId: null,
+          regionId: null,
+          createdDate: this.ctx.currentDate(),
+          legacyDerived: false,
+        };
+        newShips.push(ship);
+        ships.push(ship);
+      }
+      // Gli scafi escono dal **deposito**: deposito + assegnato = totale nazionale.
+      const depot = { ...depotAfterDeposit };
+      const hulls = nonNegative(depot[order.equipmentId]);
+      if (hulls <= delivered) delete depot[order.equipmentId];
+      else depot[order.equipmentId] = hulls - delivered;
+      let personnelAfter = personnel;
+      if (personnel) {
+        const crewTotal = crewPerShip * delivered;
+        const next = crewTotal > 0 ? transferCrewToShip(personnel, crewTotal, doctrine) : { ...personnel };
+        if (next) {
+          personnelAfter = next;
+        } else {
+          for (const ship of newShips) ship.crew = 0;
+          bulletins.push(`⚠️ ${delivered} × ${equipment?.name || order.name} in servizio **senza equipaggio**: la riserva addestrata non ha ${crewTotal.toLocaleString('it-IT')} marinai disponibili.`);
+        }
+      }
+      store.saveShips(ships);
+      store.saveFleets(fleets.map(item => item.id === fleetId
+        ? { ...item, shipIds: [...item.shipIds, ...newShips.map(ship => ship.id)] }
+        : item));
+      if (personnelAfter) store.savePersonnel(personnelAfter);
+      this.saveArsenal(polityId, depot);
+      bulletins.push(`⚓ ${delivered} × ${equipment?.name || order.name} in servizio nella ${fleet.name}.`);
+    } catch (error) {
+      console.warn('[MilitaryService] Messa in servizio delle navi non riuscita:', error);
+      bulletins.push('⚠️ Scafi consegnati al deposito: messa in servizio non riuscita.');
+    }
+    return bulletins;
   }
 
   private productionContext(): ProductionContext {
@@ -546,8 +918,9 @@ export class MilitaryService {
   /** Apre un ordine di produzione: il costo è già stato pagato all'avvio. */
   private startProductionOrder(equipmentId: string, quantity: number, spentMln: number): ProductionOrder {
     const equipment = equipmentById(equipmentId)!;
+    const id = `ord-${shortId(8)}`;
     const order: ProductionOrder = {
-      id: `ord-${shortId(8)}`,
+      id,
       equipmentId,
       name: equipment.name,
       domain: equipment.domain,
@@ -560,9 +933,40 @@ export class MilitaryService {
       note: '',
       qualityLoss: 0,
       updatedDate: this.ctx.currentDate(),
+      // L'ordine è assegnato **a un impianto reale**, in modo deterministico:
+      // non è più una rotazione decisa a ogni lettura della scheda.
+      facilityId: this.assignFacilityFor(equipment.domain, id),
     };
     this.saveProductionOrder(order);
     return order;
+  }
+
+  /**
+   * Impianto a cui assegnare una nuova lavorazione: navale ⇒ cantiere, terra ⇒
+   * fabbrica, ricerca ⇒ ateneo. Deterministico (id più basso con meno lavoro).
+   */
+  private assignFacilityFor(domain: string, orderId: string): string | null {
+    const store = this.operational();
+    if (!store) return null;
+    try {
+      const facilities = store.facilities();
+      const pool = facilities.filter(facility => domain === 'mare'
+        ? facility.kind === 'shipyard'
+        : facility.kind !== 'shipyard' && facility.kind !== 'mine' && facility.kind !== 'research_center');
+      const candidates = pool.length > 0 ? pool : facilities.filter(facility => facility.kind !== 'mine');
+      if (candidates.length === 0) return null;
+      const sorted = [...candidates].sort((a, b) =>
+        (a.activeOrders.length - b.activeOrders.length) || String(a.id).localeCompare(String(b.id)));
+      const chosen = sorted[0];
+      const next = facilities.map(facility => facility.id === chosen.id
+        ? { ...facility, activeOrders: [...facility.activeOrders, orderId] }
+        : facility);
+      store.saveFacilities(next);
+      return chosen.id;
+    } catch (error) {
+      console.warn('[MilitaryService] Assegnazione impianto non riuscita:', error);
+      return null;
+    }
   }
 
   /** Ordini di produzione del giocatore, per API e dossier. */
@@ -640,11 +1044,20 @@ export class MilitaryService {
         const units = { ...this.arsenalUnits(polityId) };
         units[order.equipmentId] = (units[order.equipmentId] || 0) + result.delivered;
         this.saveArsenal(polityId, units);
+        this.releaseFacility(order);
         productionRepository.remove(this.ctx.gameId, order.id);
         this.productionOrders.delete(order.id);
         const defect = result.order.qualityLoss > 0 ? ` (${Math.round(result.order.qualityLoss)}% difettose)` : '';
         bulletins.push(`🏭 Produzione completata: ${result.delivered}/${order.quantity} × ${order.name}${defect}.`);
+        // OP-OBJECTS PERSISTENT: gli scafi consegnati **entrano in servizio** come
+        // navi reali, con il loro equipaggio preso dalla riserva addestrata.
+        if (equipmentById(order.equipmentId)?.domain === 'mare' && result.delivered > 0) {
+          bulletins.push(...this.putShipsInService({
+            equipmentId: order.equipmentId, name: order.name, quantity: result.delivered, depot: units,
+          }));
+        }
       } else if (result.failed) {
+        this.releaseFacility(order);
         productionRepository.remove(this.ctx.gameId, order.id);
         this.productionOrders.delete(order.id);
         bulletins.push(`⚠️ Produzione fallita: ${order.name} — ${result.order.note}.`);
