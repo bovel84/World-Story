@@ -593,34 +593,54 @@ export class GameSession {
         ...mandateDecisions.map(decision => `Le scorte di ${decision.resourceId} sono pari a ${decision.availableStock}, sotto la soglia di ${decision.minStock}. Il governo di ${this.publicPolityName(this.playerPolityId)} deve autorizzare ${decision.kind === 'stock_shortfall_outside_authorization' ? 'un acquisto straordinario' : 'prezzo e quantità dell’intervento'}.`),
       ];
     }
-    const rawTick = WorldStateEngine.advance(this.regions.values(), days, this.worldStateOptions());
-    // L'overlay dei modificatori nazionali (proposti dal modello) entra nei
-    // conti usati dall'economia: stabilità, tensione, entrate e crescita.
-    const tickAccounts = applyModifiersToAccounts(rawTick.accounts, polityId => this.modifiersFor(polityId));
-    const lines: string[] = [];
+    // `days` è intero per contratto (`explicitDays`, `daysBetween`): il tick
+    // materiale suddivide in periodi interi e il `WorldStateEngine` rifiuta i
+    // valori frazionari. Il controllo resta qui per non cambiare il contratto
+    // dei chiamanti (una durata frazionaria è un errore, non un troncamento).
+    if (!Number.isInteger(days) || days < 0) throw new Error('Invalid economic period');
+    // Conti **prima** del salto: proiezione pura delle regioni (nessun tempo
+    // consumato), identica a quella che il tick userebbe a durata zero. È
+    // l'elenco delle polity e il ripiego dei percorsi senza mondo da avanzare.
+    let finalAccounts = applyModifiersToAccounts(
+      WorldStateEngine.accounts(this.regions.values(), this.worldStateOptions()),
+      polityId => this.modifiersFor(polityId),
+    );
     // Leve nazionali applicate al turno precedente, ora visibili in cronaca.
-    if (this.pendingNationalNotes.length > 0) lines.push(...this.pendingNationalNotes.splice(0));
-    const bulletin = WorldStateEngine.playerBulletin(tickAccounts[this.playerPolityId]);
+    const opening = this.pendingNationalNotes.length > 0 ? this.pendingNationalNotes.splice(0) : [];
+    // OP-OBJECTS TIME-STEP + PARTIAL-PERIOD: il salto è **tanti periodi
+    // materiali** e il mondo vive gli stessi periodi. Un solo loop temporale:
+    // niente «mondo una volta, poi risorse, poi ordini». Il conto nazionale del
+    // periodo entra nel magazzino di **quel** periodo, quindi la popolazione che
+    // cresce, il saldo mensile che cambia e le entrate progressive maturano
+    // davvero (P2).
+    const notices = createProductionNotices();
+    const materialLines = this.nationState.advanceResources(days, finalAccounts, asOfDate, {
+      // Il mondo avanza un periodo alla volta, dentro il ciclo dei periodi
+      // materiali: `Σ step` ≡ `days` (popolazione, PIL e readiness crescono in
+      // modo composto, quindi un anno è la stessa storia di dodici mesi).
+      accountsForStep: ({ stepDays }) => {
+        finalAccounts = applyModifiersToAccounts(
+          WorldStateEngine.advance(this.regions.values(), stepDays, this.worldStateOptions()).accounts,
+          polityId => this.modifiersFor(polityId),
+        );
+        return finalAccounts;
+      },
+      onPlayerSlice: slice => this.advanceProduction(slice.stepDays, finalAccounts[this.playerPolityId], slice.factors, notices),
+    });
+    const projectLines = this.advanceProjects(days, asOfDate);
+    // Bollettino e conti del salto sono quelli **finali** (dopo l'ultimo
+    // periodo) e vengono emessi una volta sola, nell'ordine di sempre.
+    const lines: string[] = [...opening];
+    const bulletin = WorldStateEngine.playerBulletin(finalAccounts[this.playerPolityId]);
     if (bulletin) lines.push(`📊 ${bulletin}`);
     // Le anime del governo entrano nella cronaca del turno: chi preme e per
     // che cosa è un fatto della partita, non solo una schermata del dossier.
-    const government = governmentSnapshot(tickAccounts[this.playerPolityId], this.nationState.governmentMemory());
+    const government = governmentSnapshot(finalAccounts[this.playerPolityId], this.nationState.governmentMemory());
     if (government.factions.length > 0) lines.push(`🏛️ Governo — ${government.headline}`);
-    // OP-OBJECTS TIME-STEP: il salto è **tanti periodi materiali**. Le risorse e
-    // la produzione militare avanzano nello stesso ordine di sempre (prima il
-    // magazzino, poi gli ordini) ma con la stessa grana temporale: gli ordini
-    // leggono il fattore materiale del periodo che stanno vivendo, non quello
-    // del primo giorno moltiplicato per l'intero salto. Il bollettino materiale
-    // resta **uno solo** per l'intero salto: il gancio consegna gli ordini al
-    // periodo, non spezza il report.
-    const notices = createProductionNotices();
-    lines.push(...this.nationState.advanceResources(days, tickAccounts, asOfDate, {
-      onPlayerSlice: slice => this.advanceProduction(slice.stepDays, tickAccounts[this.playerPolityId], slice.factors, notices),
-    }));
-    lines.push(...this.advanceProjects(days, asOfDate));
+    lines.push(...materialLines, ...projectLines);
     // Il punto storico è registrato a fine tick, dopo il magazzino, così la
     // tesoreria della data coincide con quella mostrata dal Dossier.
-    this.recordAccountSnapshot(asOfDate, tickAccounts);
+    this.recordAccountSnapshot(asOfDate, finalAccounts);
     return lines;
   }
 
@@ -1558,7 +1578,7 @@ export class GameSession {
       // tick materiale. `null` = percorso legacy (nessun doppio conteggio).
       // TIME-STEP: nel substep l'estrazione è già nel silo (`monthlyExtraction:
       // false`), nella lettura del Dossier no.
-      materialOverlay: (options?: { monthlyExtraction?: boolean }) => this.operationalStoreFor().materialFlow(options),
+      materialOverlay: (options?: { monthlyExtraction?: boolean; stepDays?: number }) => this.operationalStoreFor().materialFlow(options),
     });
     this.gameData = new GameDataService({
       gameId: this.id,

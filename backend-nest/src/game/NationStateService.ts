@@ -79,8 +79,10 @@ export interface NationStateContext {
    *
    * `monthlyExtraction: false` dice che l'estrazione del periodo è **già** nel
    * silo: la disponibilità dei giacimenti non va gonfiata di un altro mese.
+   * `stepDays` è il tempo del periodo: la copertura degli impianti si misura sul
+   * fabbisogno **del periodo** (15 giorni = mezzo mese).
    */
-  materialOverlay?(options?: { monthlyExtraction?: boolean }): MaterialFlowOverlay | null;
+  materialOverlay?(options?: { monthlyExtraction?: boolean; stepDays?: number }): MaterialFlowOverlay | null;
 }
 
 /** Sfida di pace come la vede la UI: finestra temporale, priorità e evidenza. */
@@ -98,10 +100,19 @@ export const MATERIAL_STEP_DAYS = 30;
 /** Un periodo materiale, per chi deve agganciarsi al tick (ordini militari). */
 export interface MaterialSliceInfo {
   polityId: string;
+  /** Indice del periodo nel salto (0 = primo). */
+  index: number;
   stepDays: number;
   stepDate: string;
   /** Fattori materiali degli impianti del passaggio di allocazione. */
   factors: Record<string, number>;
+}
+
+/** Periodo materiale visto dal chiamante che possiede il `WorldStateEngine`. */
+export interface MaterialStepClock {
+  index: number;
+  stepDays: number;
+  stepDate: string;
 }
 
 /**
@@ -112,6 +123,17 @@ export interface MaterialSliceInfo {
  */
 export interface MaterialAdvanceHooks {
   onPlayerSlice?: (slice: MaterialSliceInfo) => string[];
+  /**
+   * Conto nazionale **del periodo**, fornito dal chiamante che possiede il
+   * `WorldStateEngine`: è così che un salto lungo è la stessa storia economica
+   * dei suoi periodi (`advanceWorldState(180) ≈ 6 × advanceWorldState(30)` anche
+   * per popolazione, PIL, entrate e saldo mensile, non solo per il magazzino).
+   *
+   * Se assente si usa la mappa passata al salto: percorsi legacy e test che non
+   * hanno un mondo da far avanzare. Il gancio è chiamato **una volta per
+   * periodo**, mai una volta per polity: il motore del mondo avanza il tempo.
+   */
+  accountsForStep?: (slice: MaterialStepClock) => Record<string, NationalAccount> | undefined;
 }
 
 /**
@@ -284,36 +306,52 @@ export class NationStateService {
     // di armate e navi) si ricalcola a ogni substep: se una risorsa finisce al
     // mese 2, la fabbrica non può lavorare come se fosse disponibile fino al
     // mese 12. `advanceStock` continua a gestire **un solo** periodo.
+    //
+    // OP-OBJECTS PARTIAL-PERIOD: i periodi sono il **tempo comune** del salto —
+    // anche del mondo. Il periodo è il ciclo esterno, le polity quello interno:
+    // `accountsForStep` è chiamato esattamente una volta per periodo (mai una
+    // volta per polity: il motore del mondo non va avanzato più volte).
     const steps = splitMaterialPeriod(days);
-    for (const [polityId, account] of Object.entries(snapshot)) {
-      if (!polityId || polityId === 'neutral' || account.provinces === 0) continue;
-      const player = polityId === this.ctx.playerPolityId();
-      const report = player ? new MaterialPeriodReport(steps.length) : null;
-      let elapsed = 0;
-      for (const step of steps) {
-        elapsed += step;
-        // La data del substep è quella che il periodo raggiunge davvero: le
-        // scadenze maturano quando maturano, non tutte all'ultimo giorno.
-        const stepDate = steps.length === 1 ? asOfDate : addDays(asOfDate, elapsed - days);
-        const overlay = this.advancePolityMaterialStep(polityId, account, step, stepDate, report);
+    const polities = Object.entries(snapshot).filter(([polityId, account]) =>
+      Boolean(polityId) && polityId !== 'neutral' && account.provinces !== 0);
+    const reports = new Map<string, MaterialPeriodReport>();
+    let elapsed = 0;
+    for (let index = 0; index < steps.length; index++) {
+      const step = steps[index];
+      elapsed += step;
+      // La data del substep è quella che il periodo raggiunge davvero: le
+      // scadenze maturano quando maturano, non tutte all'ultimo giorno.
+      const stepDate = steps.length === 1 ? asOfDate : addDays(asOfDate, elapsed - days);
+      // Il conto nazionale **del periodo**: il mondo avanza dentro questo loop,
+      // non in un ciclo separato (P2).
+      const stepAccounts = hooks?.accountsForStep?.({ index, stepDays: step, stepDate }) ?? snapshot;
+      for (const [polityId, fallback] of polities) {
+        const account = stepAccounts[polityId] ?? fallback;
+        const player = polityId === this.ctx.playerPolityId();
+        let report = player ? reports.get(polityId) : null;
+        if (player && !report) {
+          report = new MaterialPeriodReport(steps.length);
+          reports.set(polityId, report);
+        }
+        const overlay = this.advancePolityMaterialStep(polityId, account, step, stepDate, report ?? null);
         // Il periodo materiale e gli ordini militari del **medesimo** periodo
         // leggono lo stesso passaggio di allocazione: la fabbrica che ha
         // lavorato a pieno regime non sospende l'ordine che ha rifornito.
         if (player && hooks?.onPlayerSlice) {
           lines.push(...hooks.onPlayerSlice({
-            polityId, stepDays: step, stepDate, factors: overlay?.facilityFactors || {},
+            polityId, index, stepDays: step, stepDate, factors: overlay?.facilityFactors || {},
           }));
         }
       }
-      if (report) lines.push(...report.lines());
     }
+    // Un bollettino per polity, emesso **una volta sola** per l'intero salto.
+    for (const report of reports.values()) lines.push(...report.lines());
     // I modificatori nazionali decadono verso la neutralità: nessun effetto dura
     // per sempre se la causa che lo ha generato non viene rinnovata. La
     // granularità resta quella di prima — una volta per avanzamento — perché è
     // una scelta di **bilancio**, non di flusso materiale (OP-OBJECTS TIME-STEP
     // §limiti): il tick a periodi non la cambia.
-    for (const polityId of Object.keys(snapshot)) {
-      if (!polityId || polityId === 'neutral' || snapshot[polityId].provinces === 0) continue;
+    for (const [polityId] of polities) {
       this.decayPolityModifiers(polityId);
     }
     return lines;
@@ -345,7 +383,9 @@ export class NationStateService {
     // C+D+E. Disponibilità effettiva e oggetti reali: l'estrazione del periodo è
     // già nel silo, quindi la disponibilità dei giacimenti è il silo e basta
     // (`monthlyExtraction: false`): una sola fonte, nessun doppio conteggio.
-    const overlay = this.materialOverlay(polityId, { monthlyExtraction: false });
+    // `stepDays` dice all'allocazione che il fabbisogno da coprire è quello del
+    // **periodo** (15 giorni = mezzo mese), non del mese intero.
+    const overlay = this.materialOverlay(polityId, { monthlyExtraction: false, stepDays });
     // La filiera prende i minerali dal silo: se è vuoto non si produce nulla in più.
     const drawn = drawResourceStockpile(natural.ledger, overlay?.naturalInputs || {});
     this.saveResourceLedger(polityId, drawn.ledger);
@@ -371,7 +411,7 @@ export class NationStateService {
    * Contributo degli oggetti reali, solo per il paese giocatore: gli altri
    * paesi non hanno oggetti persistenti e restano sul percorso legacy.
    */
-  private materialOverlay(polityId: string, options?: { monthlyExtraction?: boolean }): MaterialFlowOverlay | null {
+  private materialOverlay(polityId: string, options?: { monthlyExtraction?: boolean; stepDays?: number }): MaterialFlowOverlay | null {
     if (polityId !== this.ctx.playerPolityId()) return null;
     try {
       return this.ctx.materialOverlay ? this.ctx.materialOverlay(options) : null;

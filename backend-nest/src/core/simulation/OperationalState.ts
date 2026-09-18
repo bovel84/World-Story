@@ -56,6 +56,13 @@ export const SEED_WORKERS_PER_LINE: Record<'factory' | 'shipyard' | 'university'
 export const SEED_WORKERS_PER_MINE_POINT = 340;
 
 /**
+ * Giorni di un mese economico. È il metro con cui le ricette dichiarano i propri
+ * fabbisogni (mensili) e con cui si misura la copertura di un **periodo
+ * parziale**: 15 giorni sono mezzo mese, 45 giorni un mese e mezzo.
+ */
+export const MATERIAL_MONTH_DAYS = 30;
+
+/**
  * Tipi di impianto con una **funzione concreta**. Non nomi decorativi: ogni tipo
  * ha una ricetta input → output con le risorse già esistenti nel motore.
  */
@@ -470,30 +477,58 @@ export function facilityProduction(facility: FacilityState, ctx: {
 export interface FacilityAllocationEntry {
   facilityId: string;
   kind: FacilityKind;
-  /** Fattore realmente applicato: stato × attività × disponibilità degli input. */
+  /**
+   * Fattore realmente applicato: stato × attività × **copertura del fabbisogno
+   * del periodo**. È una frazione 0…1 del bisogno del periodo, non del mese:
+   * con 15 giorni e il fabbisogno del periodo coperto vale 1 anche se il mese
+   * intero non sarebbe coperto (OP-OBJECTS PARTIAL-PERIOD).
+   */
   factor: number;
   /**
-   * Fattore **materiale** dell'impianto (stato × disponibilità), senza il
-   * fattore di capacità industriale del paese: gli ordini lo applicano al
+   * Fattore **materiale** dell'impianto (stato × copertura del periodo), senza
+   * il fattore di capacità industriale del paese: gli ordini lo applicano al
    * proprio tempo, che la saturazione delle linee scala già a parte.
    */
   materialFactor: number;
   statusFactor: number;
-  /** Quanto l'impianto **prende** davvero (input × fattore). */
+  /** Quanto l'impianto **prende** davvero, **mensile** (input × fattore). */
   inputs: Record<string, number>;
+  /** Quanto l'impianto **produce** davvero, **mensile**. */
   outputs: Record<string, number>;
   /** Causa reale del rallentamento: richiesto, assegnato, copertura. */
   bottleneck: { id: string; required: number; assigned: number; coveragePct: number } | null;
 }
 
+/**
+ * Risultato del passaggio di allocazione: **un contratto, nessun campo ambiguo**.
+ *
+ * | campo | unità | chi lo scala |
+ * |---|---|---|
+ * | `facilities[].factor` / `materialFactor` | frazione 0…1 del **fabbisogno del periodo** coperta | già scala |
+ * | `facilities[].inputs` / `facilities[].outputs` | **mensile** | `advanceStock` × `period` |
+ * | `totalInputs` / `totalOutputs` | **mensile** | `advanceStock` × `period` |
+ * | `naturalInputs` | **quantità del periodo** (già × period × ratio) | nessuno: prelevata dal silo |
+ * | `remaining` | quantità del periodo | diagnostica |
+ *
+ * Il prelievo dai **giacimenti** (`naturalInputs`) è l'unico già scalato dal
+ * tempo: passa da `drawResourceStockpile`, non da `advanceStock`. Scalarlo due
+ * volte sarebbe un doppio conteggio.
+ */
 export interface FacilityAllocation {
   facilities: FacilityAllocationEntry[];
+  /** **Mensile**: `advanceStock` lo scala per il tempo del periodo. */
   totalInputs: Record<string, number>;
+  /** **Mensile**: `advanceStock` lo scala per il tempo del periodo. */
   totalOutputs: Record<string, number>;
   /** Disponibilità non usata dopo l'allocazione (diagnostica). */
   remaining: Record<string, number>;
-  /** Materiali presi dai **giacimenti** (estrazione), non dalle scorte. */
+  /**
+   * Materiali presi dai **giacimenti** (estrazione), non dalle scorte: è la
+   * quantità **del periodo**, già scalata dal tempo. Nessuno la riscala.
+   */
   naturalInputs: Record<string, number>;
+  /** Mesi del periodo allocato (`stepDays / 30`): 1 = mese pieno. */
+  period: number;
 }
 
 const floor3 = (value: number) => Math.floor(value * 1000 + 1e-9) / 1000;
@@ -514,10 +549,14 @@ const round4 = (value: number) => Math.round(value * 10000) / 10000;
  * la disponibilità. Un materiale che non è una scorta (ferro, carbone…) è
  * **estrazione del mese**, non giacimento infinito: la disponibilità la decide
  * il chiamante.
+ *
+ * Il fabbisogno è **mensile**, ma la copertura si misura sul **periodo**
+ * (`stepDays`): quindici giorni sono mezzo mese, non un mese intero. Con
+ * `stepDays` assente/30 tutto è identico alla lettura del mese pieno.
  */
 export function allocateFacilityProduction(input: {
   facilities: readonly FacilityState[];
-  /** Disponibilità del mese per materiale (scorte + estrazione). */
+  /** Disponibilità del periodo per materiale (scorte + estrazione). */
   availability?: Record<string, number>;
   /** Scorte reali (fallback se `availability` non è fornita). */
   stock?: Record<string, number>;
@@ -525,8 +564,16 @@ export function allocateFacilityProduction(input: {
   endowment?: Record<string, number>;
   /** Attività nazionale delle linee (0…1), dal motore. */
   activity?: number;
+  /**
+   * Giorni del periodo materiale (default 30 = un mese: la lettura del Dossier
+   * resta identica). `period = stepDays / 30`.
+   */
+  stepDays?: number;
 }): FacilityAllocation {
   const activity = Math.max(0, Math.min(1, input.activity === undefined ? 1 : input.activity));
+  // Mezzo mese è mezzo fabbisogno: la disponibilità si confronta col bisogno
+  // **del periodo**, non con quello del mese intero.
+  const period = Math.max(0, input.stepDays === undefined ? MATERIAL_MONTH_DAYS : input.stepDays) / MATERIAL_MONTH_DAYS;
   /**
    * Disponibilità di un input.
    *
@@ -549,17 +596,21 @@ export function allocateFacilityProduction(input: {
     const statusFactor = facilityStatusFactor(facility.status);
     const base = statusFactor * activity;
     const required: Record<string, number> = {};
+    const periodNeed: Record<string, number> = {};
     for (const [id, quantity] of Object.entries(recipe.inputs || {})) {
       const need = nonNegative(quantity) * base;
-      if (need > 0) required[id] = need;
+      if (need > 0) {
+        required[id] = need;                 // MENSILE: lo scala advanceStock
+        periodNeed[id] = need * period;      // FABBISOGNO DEL PERIODO
+      }
     }
-    return { facility, recipe, statusFactor, base, required };
+    return { facility, recipe, statusFactor, base, required, periodNeed };
   });
 
-  // Fabbisogno complessivo per materiale e quota disponibile per ciascuno.
+  // Fabbisogno complessivo **del periodo** per materiale e quota disponibile.
   const demand: Record<string, number> = {};
   for (const item of prepared) {
-    for (const [id, need] of Object.entries(item.required)) demand[id] = (demand[id] || 0) + need;
+    for (const [id, need] of Object.entries(item.periodNeed)) demand[id] = (demand[id] || 0) + need;
   }
   const share: Record<string, number> = {};
   for (const [id, need] of Object.entries(demand)) {
@@ -569,6 +620,9 @@ export function allocateFacilityProduction(input: {
   const entries: FacilityAllocationEntry[] = [];
   const totalInputs: Record<string, number> = {};
   const totalOutputs: Record<string, number> = {};
+  /** Input **del periodo** (mensile × period): è la quantità davvero tolta alle
+   * scorte in `advanceStock` e dai giacimenti in `drawResourceStockpile`. */
+  const stepInputs: Record<string, number> = {};
   for (const item of prepared) {
     let ratio = 1;
     let tightest: string | null = null;
@@ -586,14 +640,17 @@ export function allocateFacilityProduction(input: {
     const taken: Record<string, number> = {};
     for (const [id, need] of Object.entries(item.required)) {
       const value = floor3(need * ratio);
-      if (value > 0) taken[id] = value;
-      if (value > 0) totalInputs[id] = round3((totalInputs[id] || 0) + value);
+      if (value > 0) {
+        taken[id] = value;
+        totalInputs[id] = round3((totalInputs[id] || 0) + value);
+        stepInputs[id] = round3((stepInputs[id] || 0) + value * period);
+      }
     }
     const bottleneck = tightest
       ? {
         id: tightest,
-        required: round2(item.required[tightest]),
-        assigned: round2(taken[tightest] || 0),
+        required: round2(item.periodNeed[tightest]),
+        assigned: round2((taken[tightest] || 0) * period),
         coveragePct: round1((share[tightest] ?? 1) * 100),
       }
       : null;
@@ -612,13 +669,15 @@ export function allocateFacilityProduction(input: {
   const remaining: Record<string, number> = {};
   for (const id of Object.keys(demand)) {
     const available = availability(id);
-    if (Number.isFinite(available)) remaining[id] = round3(Math.max(0, available - (totalInputs[id] || 0)));
+    // La disponibilità è quella **del periodo**: si sottrae ciò che il periodo
+    // prende davvero, non il fabbisogno mensile.
+    if (Number.isFinite(available)) remaining[id] = round3(Math.max(0, available - (stepInputs[id] || 0)));
   }
   const naturalInputs: Record<string, number> = {};
-  for (const [id, value] of Object.entries(totalInputs)) {
+  for (const [id, value] of Object.entries(stepInputs)) {
     if (!STOCK_MATERIALS.has(id)) naturalInputs[id] = value;
   }
-  return { facilities: entries, totalInputs, totalOutputs, remaining, naturalInputs };
+  return { facilities: entries, totalInputs, totalOutputs, remaining, naturalInputs, period };
 }
 
 // ── 5. Aggregazione: il paese è la somma degli oggetti ──────────────────────

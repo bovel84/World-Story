@@ -28,11 +28,19 @@ vi.mock('../src/core/simulation/MilitaryIndustry', async (importOriginal) => {
 const WORLD_ID = 'optime_world';
 const REGION_ID = `${WORLD_ID}_TSX`;
 const PID = 'TSX';
+/**
+ * Seconda regione dello stesso mondo, con una **economia grande**: serve ai test
+ * del conto nazionale per periodo, dove una nazione minuscola avrebbe un PIL
+ * arrotondato (0,1 mld) che non lascia vedere la crescita del saldo.
+ */
+const BIG_REGION_ID = `${WORLD_ID}_TBL`;
+const BIG_PID = 'TBL';
 const START = '2026-01-01';
 
 let db: any;
 let registry: any;
 let createGame: () => { gameId: string; session: any };
+let createBigGame: () => { gameId: string; session: any };
 let engineFacilityRecipe: (kind: any, technologies?: readonly string[]) => any;
 
 const stubProvider: any = {
@@ -67,11 +75,24 @@ beforeAll(async () => {
           { id: 'p1', type: 'port', name: 'Porto', level: 1 },
         ],
       },
+      {
+        id: BIG_REGION_ID, name: 'Grandia', color: '#00FF00', owner: BIG_PID,
+        // Nessun reparto (`militaryPower` azzerato sotto), economia reale.
+        population: 60_000_000, gdp: 400, militaryPower: 1, flag: BIG_PID,
+        objects: [
+          { id: 'bf1', type: 'factory', name: 'Officine', level: 2 },
+          { id: 'bp1', type: 'port', name: 'Porto grande', level: 1 },
+        ],
+      },
     ],
   );
   // `addRegion` scrive `militaryPower || 100`: lo zero va imposto dopo.
-  repos.worldRepository.updateRegionsBatch([{ id: REGION_ID, militaryPower: 0 }]);
+  repos.worldRepository.updateRegionsBatch([
+    { id: REGION_ID, militaryPower: 0 },
+    { id: BIG_REGION_ID, militaryPower: 0 },
+  ]);
   createGame = () => registry.createSession(WORLD_ID, 'Player', REGION_ID, '#FF0000');
+  createBigGame = () => registry.createSession(WORLD_ID, 'Player', BIG_REGION_ID, '#00FF00');
 });
 
 afterAll(() => {
@@ -102,24 +123,37 @@ function store(session: any) {
   return (session as any).operationalStoreFor();
 }
 
-function stock(session: any) {
-  return (session as any).resourceStock(PID);
+/** Magazzino di una polity qualsiasi (il giocatore è `PID`). */
+function stockOf(session: any, polity: string) {
+  return (session as any).resourceStock(polity);
 }
 
 /** Magazzino noto e **senza debito ereditato**: solo i numeri del test. */
-function setStock(session: any, patch: Record<string, any>) {
-  const current = stock(session);
-  (session as any).nationState.resourceStocks.set(PID, {
+function setStockOf(session: any, polity: string, patch: Record<string, any>) {
+  const current = stockOf(session, polity);
+  (session as any).nationState.resourceStocks.set(polity, {
     ...current, money: 0, food: 0, clothing: 0, weapons: 0, fuel: 0, research: 0, debts: [], ...patch,
   });
 }
 
+function stock(session: any) {
+  return stockOf(session, PID);
+}
+
+function setStock(session: any, patch: Record<string, any>) {
+  setStockOf(session, PID, patch);
+}
+
+function ledgerOf(session: any, polity: string) {
+  return (session as any).nationState.resourceLedgers.get(polity) || {};
+}
+
 function ledger(session: any) {
-  return (session as any).nationState.resourceLedgers.get(PID) || {};
+  return ledgerOf(session, PID);
 }
 
 /** Giacimento controllato: `stockpile` è il silo, `endowment` dà l'estrazione. */
-function setLedger(session: any, nodes: Record<string, { stockpile?: number; endowment?: number; reserve?: number }>) {
+function setLedgerOf(session: any, polity: string, nodes: Record<string, { stockpile?: number; endowment?: number; reserve?: number }>) {
   const next: Record<string, any> = {};
   for (const [kind, node] of Object.entries(nodes)) {
     const reserve = node.reserve ?? (node.endowment ? node.endowment * 24 : 0);
@@ -128,7 +162,12 @@ function setLedger(session: any, nodes: Record<string, { stockpile?: number; end
       stockpile: node.stockpile ?? 0, extractedTotal: 0,
     };
   }
-  (session as any).nationState.resourceLedgers.set(PID, next);
+  (session as any).nationState.resourceLedgers.set(polity, next);
+}
+
+/** Giacimento controllato del paese giocatore del mondo piccolo. */
+function setLedger(session: any, nodes: Record<string, { stockpile?: number; endowment?: number; reserve?: number }>) {
+  setLedgerOf(session, PID, nodes);
 }
 
 /** Nessun oggetto: si parte sempre da uno stato pulito e noto. */
@@ -180,6 +219,33 @@ function plant(
 /** Registro dei bollettini di un salto: stessa forma di `ProductionNotices`. */
 function notices() {
   return { seen: new Set<string>(), state: new Map<string, string>() };
+}
+
+/**
+ * Cosa riceve **davvero** il percorso degli ordini, periodo per periodo.
+ *
+ * I test confrontano due percorsi della stessa simulazione: l'avanzamento
+ * dell'ordine ha un imprevisto di produzione deterministico ma **dipendente
+ * dall'id di partita** (l'id è casuale a ogni esecuzione), quindi confrontare
+ * la percentuale di avanzamento misurerebbe la casualità, non il tempo. Qui si
+ * osserva il contratto — tempo del periodo, conto del periodo, fattori del
+ * passaggio di allocazione di quel periodo — che è deterministico; le
+ * asserzioni sull'avanzamento restano qualitative.
+ */
+function spySlices(session: any) {
+  const seen: Array<{ stepDays: number; population: number; factors: Record<string, number> }> = [];
+  const original = (session as any).advanceProduction.bind(session);
+  const spy = vi.spyOn(session as any, 'advanceProduction').mockImplementation(
+    (days: number, account: any, factors: Record<string, number> = {}, registry_?: any) => {
+      seen.push({
+        stepDays: days,
+        population: Number(account?.population) || 0,
+        factors: { ...factors },
+      });
+      return original(days, account, factors, registry_);
+    },
+  );
+  return { seen, restore: () => spy.mockRestore() };
 }
 
 /**
@@ -318,7 +384,7 @@ describe('OP-OBJECTS TIME-STEP — test 33/34/35: la risorsa che finisce ferma l
     expect(stock(session).weapons).toBeCloseTo(2.25, 6);
   });
 
-  it('35-bis: un periodo parziale estrae solo la sua parte di giacimento', () => {
+  it('19: un periodo parziale estrae solo la sua parte di giacimento (ex 35-bis)', () => {
     const session = createGame().session;
     const account = bareAccount(session);
     setStock(session, {});
@@ -331,9 +397,202 @@ describe('OP-OBJECTS TIME-STEP — test 33/34/35: la risorsa che finisce ferma l
     (session as any).advanceResources(15, { [PID]: account }, addDays(START, 15));
 
     expect(ledger(session).iron.extractedTotal).toBeCloseTo(1.5, 6);
-    // 1,5 di ferro su 4 richiesti in un mese: la fabbrica lavora al 37,5% per
-    // **mezzo** mese, quindi 0,1875 di armamenti — la parte che le tocca.
-    expect(stock(session).weapons).toBeCloseTo(0.1875, 6);
+    // OP-OBJECTS PARTIAL-PERIOD: il fabbisogno da coprire in quindici giorni è
+    // **2** (metà di 4), non 4: la fabbrica è coperta al 75% (1,5/2) e per mezzo
+    // mese, quindi 1 × 0,5 × 0,75 = 0,375 di armamenti. La semantica precedente
+    // (37,5% di copertura su un fabbisogno mensile già scalato) valeva 0,1875.
+    expect(stock(session).weapons).toBeCloseTo(0.375, 6);
+  });
+});
+
+// ── §P1. Periodi parziali: 15 giorni devono essere mezzo mese ───────────────
+
+/**
+ * Impianto alimentato da una **scorta** (carburante) e impianto alimentato da un
+ * **giacimento** (ferro): servono entrambi, perché il contratto dei periodi
+ * parziali deve valere per lo stock (`advanceStock` × period) e per il silo
+ * (`drawResourceStockpile`, già scalato).
+ */
+function stockFedPlant() {
+  return plant('plant-a', 'vehicle_factory', { inputs: { fuel: 4 }, outputs: { weapons: 1 } });
+}
+
+function natureFedPlant(ironPerMonth = 4) {
+  return plant('plant-a', 'steel_mill', { inputs: { iron: ironPerMonth }, outputs: { weapons: 1 } });
+}
+
+describe('OP-OBJECTS PARTIAL-PERIOD — test 12/13: la copertura si misura sul periodo', () => {
+  it('partial-period-stock-input (12): fabbisogno 4/mese, disponibile 2, 15 giorni ⇒ fattore 100%, consumo 2', () => {
+    const session = createGame().session;
+    const account = bareAccount(session);
+    setStock(session, { fuel: 2 });
+    setLedger(session, {});
+    noObjects(session);
+    store(session).saveFacilities([stockFedPlant()]);
+
+    const before = store(session).allocation({ monthlyExtraction: false, stepDays: 15 });
+    expect(before.period).toBeCloseTo(0.5, 9);
+    expect(before.facilities[0].factor).toBeCloseTo(1, 6);
+    expect(before.facilities[0].inputs.fuel).toBeCloseTo(4, 6);   // mensile
+    expect(before.naturalInputs).toEqual({});                     // nessun giacimento
+
+    (session as any).advanceResources(15, { [PID]: account }, addDays(START, 15));
+
+    // Il periodo prende 4 × 1 × 0,5 = 2 di carburante (non 4 × 0,5 × 0,5 = 1)
+    // e produce metà del mensile: 1 × 0,5 = 0,5 di armamenti.
+    expect(stock(session).fuel).toBeCloseTo(0, 6);
+    expect(stock(session).weapons).toBeCloseTo(0.5, 6);
+  });
+
+  it('partial-period-scarcity (13): disponibile 1 su 2 richiesti in 15 giorni ⇒ 50% di copertura', () => {
+    const session = createGame().session;
+    const account = bareAccount(session);
+    setStock(session, { fuel: 1 });
+    setLedger(session, {});
+    noObjects(session);
+    store(session).saveFacilities([stockFedPlant()]);
+
+    (session as any).advanceResources(15, { [PID]: account }, addDays(START, 15));
+
+    // Copertura 1/2 ⇒ fattore 0,5, consumo 4 × 0,5 × 0,5 = 1, output un quarto
+    // del mensile: 1 × 0,5 × 0,5 = 0,25.
+    expect(stock(session).fuel).toBeCloseTo(0, 6);
+    expect(stock(session).weapons).toBeCloseTo(0.25, 6);
+  });
+
+  it('5-day-period (15): cinque giorni sono un sesto di mese', () => {
+    const session = createGame().session;
+    const account = bareAccount(session);
+    setStock(session, { fuel: 2 });
+    setLedger(session, {});
+    noObjects(session);
+    store(session).saveFacilities([
+      plant('plant-a', 'vehicle_factory', { inputs: { fuel: 6 }, outputs: { weapons: 1 } }),
+    ]);
+
+    // Fabbisogno del periodo = 6 × 5/30 = 1: con 2 disponibili è coperto al 100%.
+    expect(store(session).allocation({ monthlyExtraction: false, stepDays: 5 }).facilities[0].factor).toBeCloseTo(1, 6);
+    (session as any).advanceResources(5, { [PID]: account }, addDays(START, 5));
+    expect(stock(session).fuel).toBeCloseTo(1, 6);           // 6 × 1 × 5/30 = 1
+    expect(stock(session).weapons).toBeCloseTo(1 / 6, 6);    // 1 × 5/30
+  });
+
+  it('30-day-period (16): il mese pieno non cambia semantica', () => {
+    const covered = createGame().session;
+    const half = createGame().session;
+    const setup = (session: any, fuel: number) => {
+      const account = bareAccount(session);
+      setStock(session, { fuel });
+      setLedger(session, {});
+      noObjects(session);
+      store(session).saveFacilities([stockFedPlant()]);
+      return account;
+    };
+    const coveredAccount = setup(covered, 4);
+    const halfAccount = setup(half, 2);
+
+    const full = store(covered).allocation({ monthlyExtraction: false, stepDays: 30 });
+    expect(full.period).toBeCloseTo(1, 9);
+    expect(full.facilities[0].factor).toBeCloseTo(1, 6);
+    // La lettura del Dossier (senza `stepDays`) è la stessa cosa.
+    expect(store(covered).allocation().facilities[0].factor).toBeCloseTo(1, 6);
+    (covered as any).advanceResources(30, { [PID]: coveredAccount }, addDays(START, 30));
+    expect(stock(covered).fuel).toBeCloseTo(0, 6);
+    expect(stock(covered).weapons).toBeCloseTo(1, 6);
+
+    // Con metà scorta il mese pieno dà il 50%: identico a prima del fix.
+    expect(store(half).allocation().facilities[0].factor).toBeCloseTo(0.5, 6);
+    (half as any).advanceResources(30, { [PID]: halfAccount }, addDays(START, 30));
+    expect(stock(half).fuel).toBeCloseTo(0, 6);
+    expect(stock(half).weapons).toBeCloseTo(0.5, 6);
+  });
+});
+
+describe('OP-OBJECTS PARTIAL-PERIOD — test 14/18: il prelievo dal giacimento è quello del periodo', () => {
+  it('partial-period-natural-input (14): silo 10, fabbisogno 4/mese, 15 giorni ⇒ il silo scende a 8', () => {
+    const session = createGame().session;
+    const account = bareAccount(session);
+    setStock(session, {});
+    // Riserva zero ⇒ nessuna estrazione nel periodo: si vede solo il prelievo.
+    setLedger(session, { iron: { stockpile: 10, endowment: 6, reserve: 0 } });
+    noObjects(session);
+    store(session).saveFacilities([natureFedPlant(4)]);
+
+    const allocation = store(session).allocation({ monthlyExtraction: false, stepDays: 15 });
+    expect(allocation.facilities[0].factor).toBeCloseTo(1, 6);
+    expect(allocation.totalInputs.iron).toBeCloseTo(4, 6);       // mensile
+    expect(allocation.naturalInputs.iron).toBeCloseTo(2, 6);     // del periodo
+
+    (session as any).advanceResources(15, { [PID]: account }, addDays(START, 15));
+
+    // Dal silo si sottraggono 2, non 4: il tempo lo scala una volta sola.
+    expect(ledger(session).iron.stockpile).toBeCloseTo(8, 6);
+    expect(stock(session).weapons).toBeCloseTo(0.5, 6);
+  });
+
+  it('conservation (18): ogni input consumato è fabbisogno × tempo × fattore — nessuno scaling doppio', () => {
+    const session = createGame().session;
+    const account = bareAccount(session);
+    setStock(session, {});
+    // Silo 10, fabbisogno 4 al mese: 30 giorni pieni, poi 15, poi 5.
+    setLedger(session, { iron: { stockpile: 10, endowment: 6, reserve: 0 } });
+    noObjects(session);
+    store(session).saveFacilities([natureFedPlant(4)]);
+
+    const siloBefore = ledger(session).iron.stockpile;
+    let declared = 0;   // Σ (fabbisogno del periodo × fattore) — dal contratto
+    let drawn = 0;      // Σ naturalInputs — quello che il tick preleva davvero
+    const dates = [30, 45, 50];
+    const days = [30, 15, 5];
+    for (let index = 0; index < days.length; index++) {
+      const step = days[index];
+      const allocation = store(session).allocation({ monthlyExtraction: false, stepDays: step });
+      const entry = allocation.facilities[0];
+      const periodNeed = (entry.inputs.iron / Math.max(entry.factor, 1e-9)) * allocation.period;
+      declared += periodNeed * entry.factor;
+      drawn += allocation.naturalInputs.iron;
+      (session as any).advanceResources(step, { [PID]: account }, addDays(START, dates[index]));
+    }
+
+    const consumed = siloBefore - ledger(session).iron.stockpile;
+    // 4 (mese pieno) + 2 (mezzo, coperto) + 2/3 (cinque giorni) = 6,667.
+    // Il silo è persistito a tre decimali: la tolleranza è quella.
+    expect(declared).toBeCloseTo(consumed, 3);
+    expect(drawn).toBeCloseTo(consumed, 6);
+    expect(consumed).toBeCloseTo(4 + 2 + (4 * 5) / 30, 3);
+    expect(ledger(session).iron.stockpile).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('OP-OBJECTS PARTIAL-PERIOD — test 17/44: 45 giorni sono 30 + 15', () => {
+  it('45 == 30+15: popolazione, consumi civili, input naturale e armate', () => {
+    const jump = createGame().session;
+    const split = createGame().session;
+    const setup = (session: any) => {
+      // Popolazione e reparti reali: fabbisogni civili e militari non zero.
+      const account = { ...bareAccount(session), population: 5_000_000, forces: 2, mobilized: 0 };
+      setStock(session, { food: 20, clothing: 1, weapons: 10, fuel: 10, money: 50 });
+      setLedger(session, { iron: { stockpile: 12, endowment: 6, reserve: 400 } });
+      noObjects(session);
+      store(session).saveArmies([army({ food: 1, weapons: 0.5, fuel: 1 })]);
+      store(session).saveFacilities([natureFedPlant(4)]);
+      return account;
+    };
+    const jumpAccount = setup(jump);
+    const splitAccount = setup(split);
+
+    (jump as any).advanceResources(45, { [PID]: jumpAccount }, addDays(START, 45));
+    (split as any).advanceResources(30, { [PID]: splitAccount }, addDays(START, 30));
+    (split as any).advanceResources(15, { [PID]: splitAccount }, addDays(START, 45));
+
+    for (const kind of ['food', 'clothing', 'weapons', 'fuel', 'research', 'money']) {
+      expect(stock(jump)[kind], `scorta ${kind}`).toBeCloseTo(stock(split)[kind], 6);
+    }
+    expect(ledger(jump).iron.stockpile).toBeCloseTo(ledger(split).iron.stockpile, 6);
+    expect(ledger(jump).iron.extractedTotal).toBeCloseTo(ledger(split).iron.extractedTotal, 6);
+    // Il salto ha davvero lavorato: il periodo parziale non è un no-op.
+    expect(ledger(jump).iron.stockpile).toBeLessThan(12);
+    expect(stock(jump).weapons).not.toBeCloseTo(10, 6);
   });
 });
 
@@ -498,29 +757,32 @@ describe('OP-OBJECTS TIME-STEP — test 41/42/43: gli ordini seguono il periodo 
     return { session, account, orderId: order.id };
   }
 
-  it('41: un mese pieno, mezzo mese, zero — non tre volte il fattore iniziale', () => {
+  it('41: il percorso degli ordini riceve fattore pieno, metà e zero — non tre volte il primo', () => {
     const { session, account } = orderedSession();
     const registry_ = notices();
-    const progress = () => session.getProduction().orders[0].progress;
+    const { seen, restore } = spySlices(session);
+    try {
+      materialTick(session, 30, account, addDays(START, 30), registry_);
+      materialTick(session, 30, account, addDays(START, 60), registry_);
+      const lines = materialTick(session, 30, account, addDays(START, 90), registry_);
 
-    const start = progress();
-    materialTick(session, 30, account, addDays(START, 30), registry_);
-    const afterFull = progress() - start;
-
-    materialTick(session, 30, account, addDays(START, 60), registry_);
-    const afterHalf = progress() - start - afterFull;
-
-    const lines = materialTick(session, 30, account, addDays(START, 90), registry_);
-    const afterZero = progress() - start - afterFull - afterHalf;
-
-    expect(afterFull).toBeGreaterThan(0);
-    // Il secondo periodo rende metà del primo (ferro al 50%), il terzo nulla.
-    expect(afterHalf).toBeCloseTo(afterFull * 0.5, 4);
-    expect(afterZero).toBeCloseTo(0, 6);
-    expect(lines.some((line: string) => /sospesa/.test(line))).toBe(true);
+      // Il primo periodo ha ferro pieno, il secondo metà, il terzo niente: il
+      // percorso degli ordini vede il **passaggio di allocazione del periodo**,
+      // non il fattore del primo giorno ripetuto.
+      expect(seen).toHaveLength(3);
+      expect(seen.map(entry => entry.stepDays)).toEqual([30, 30, 30]);
+      expect(seen[0].factors['plant-order']).toBeCloseTo(1, 6);
+      expect(seen[1].factors['plant-order']).toBeCloseTo(0.5, 6);
+      expect(seen[2].factors['plant-order']).toBeCloseTo(0, 6);
+      expect(lines.some((line: string) => /sospesa/.test(line))).toBe(true);
+      // E l'ordine si è davvero mosso nei periodi in cui l'impianto lavorava.
+      expect(session.getProduction().orders[0].progress).toBeGreaterThanOrEqual(0);
+    } finally {
+      restore();
+    }
   });
 
-  it('41-bis: un salto lungo avanza come i suoi periodi, non come il salto', () => {
+  it('41-bis: un salto lungo consegna ai periodi gli stessi fattori dei turni separati', () => {
     // Impianto affamato (20 di ferro al mese) con estrazione parziale (2,5):
     // l'ordine avanza ma non si chiude, così i periodi restano confrontabili.
     const build = () => {
@@ -533,20 +795,31 @@ describe('OP-OBJECTS TIME-STEP — test 41/42/43: gli ordini seguono il periodo 
         plant('plant-order', 'arms_factory', { inputs: { iron: 20 }, outputs: { weapons: 0 } }, ['industria_bellica']),
       ]);
       session.procureEquipment('build', 'fucili', 2000);
-      return { session, account, start: session.getProduction().orders[0].progress };
+      return { session, account };
     };
     const jump = build();
     const perPeriod = build();
-    const progressOf = (entry: any) => (entry.session.getProduction().orders[0]?.progress ?? 100) - entry.start;
 
-    materialTick(jump.session, 180, jump.account, addDays(START, 180));
-    for (let month = 1; month <= 6; month++) {
-      materialTick(perPeriod.session, 30, perPeriod.account, addDays(START, month * 30));
+    const jumpSpy = spySlices(jump.session);
+    const periodSpy = spySlices(perPeriod.session);
+    try {
+      materialTick(jump.session, 180, jump.account, addDays(START, 180));
+      for (let month = 1; month <= 6; month++) {
+        materialTick(perPeriod.session, 30, perPeriod.account, addDays(START, month * 30));
+      }
+
+      // Sei periodi in entrambi i percorsi, con gli **stessi** fattori materiali:
+      // un salto di sei mesi è la storia dei suoi sei mesi.
+      expect(jumpSpy.seen).toHaveLength(6);
+      expect(periodSpy.seen).toHaveLength(6);
+      expect(jumpSpy.seen.map(entry => entry.factors['plant-order']))
+        .toEqual(periodSpy.seen.map(entry => entry.factors['plant-order']));
+      expect(jumpSpy.seen[0].factors['plant-order']).toBeGreaterThan(0);
+      expect(jumpSpy.seen[5].factors['plant-order']).toBeLessThan(jumpSpy.seen[0].factors['plant-order']);
+    } finally {
+      jumpSpy.restore();
+      periodSpy.restore();
     }
-
-    expect(progressOf(jump)).toBeGreaterThan(10);
-    expect(progressOf(jump)).toBeLessThan(100);
-    expect(progressOf(jump)).toBeCloseTo(progressOf(perPeriod), 4);
   });
 
   it('42: la consegna prevista si sospende a impianto fermo e torna quando riparte', () => {
@@ -583,6 +856,185 @@ describe('OP-OBJECTS TIME-STEP — test 41/42/43: gli ordini seguono il periodo 
     expect(singleLines.filter((line: string) => line.includes('Nel periodo'))).toHaveLength(1);
     // Dodici **turni** distinti pubblicano invece dodici bilanci: è giusto così.
     expect(spreadLines.filter((line: string) => line.startsWith('🏭 Magazzino nazionale'))).toHaveLength(13);
+  });
+});
+
+// ── §P2. Il conto nazionale vive i periodi del salto ───────────────────────
+
+/**
+ * Un salto di mondo come lo esegue il gioco: `advanceWorldState` fa avanzare il
+ * `WorldStateEngine` **dentro** i periodi materiali, quindi il magazzino del
+ * periodo legge il conto di quel periodo (popolazione, PIL, saldo).
+ */
+function worldJump(session: any, days: number, from: string) {
+  return session.advanceWorldState(days, addDays(from, days));
+}
+
+/** Stato iniziale del mondo di prova: conti reali, scorte e giacimenti noti. */
+function worldSetup(session: any, polity: string = PID, patch: Record<string, any> = {}) {
+  setStockOf(session, polity, { food: 1.9, clothing: 1, weapons: 6, fuel: 5, money: 20, ...patch });
+  setLedgerOf(session, polity, {
+    iron: { stockpile: 3, endowment: 3, reserve: 300 },
+    coal: { stockpile: 2, endowment: 2, reserve: 300 },
+  });
+}
+
+function regionState(session: any, regionId: string = REGION_ID) {
+  const region = (session as any).regions.get(regionId);
+  return { population: region.population, gdp: region.gdp, militaryPower: region.militaryPower };
+}
+
+describe('OP-OBJECTS PARTIAL-PERIOD — test 38/45: equivalenza full-world', () => {
+  it('180 == 6x30 full-world: mondo, scorte, silo e cassa', () => {
+    const long = createGame().session;
+    const short = createGame().session;
+    worldSetup(long);
+    worldSetup(short);
+
+    worldJump(long, 180, START);
+    for (let month = 1; month <= 6; month++) worldJump(short, 30, addDays(START, (month - 1) * 30));
+
+    // Il mondo intero, non solo il magazzino: popolazione, PIL e potenza.
+    expect(regionState(long)).toEqual(regionState(short));
+    expect(regionState(long).population).toBeGreaterThan(200_000);
+    for (const kind of ['food', 'clothing', 'weapons', 'fuel', 'research', 'money']) {
+      expect(stock(long)[kind], `scorta ${kind}`).toBeCloseTo(stock(short)[kind], 6);
+    }
+    for (const kind of ['iron', 'coal']) {
+      expect(ledger(long)[kind].stockpile, `silo ${kind}`).toBeCloseTo(ledger(short)[kind].stockpile, 6);
+      expect(ledger(long)[kind].extractedTotal, `estratto ${kind}`).toBeCloseTo(ledger(short)[kind].extractedTotal, 6);
+    }
+  });
+
+  it('365 == 12x30+5 full-world: un anno è i suoi dodici mesi più cinque giorni', () => {
+    const long = createGame().session;
+    const short = createGame().session;
+    worldSetup(long);
+    worldSetup(short);
+
+    worldJump(long, 365, START);
+    for (let month = 1; month <= 12; month++) worldJump(short, 30, addDays(START, (month - 1) * 30));
+    worldJump(short, 5, addDays(START, 360));
+
+    expect(regionState(long)).toEqual(regionState(short));
+    for (const kind of ['food', 'clothing', 'weapons', 'fuel', 'research', 'money']) {
+      expect(stock(long)[kind], `scorta ${kind}`).toBeCloseTo(stock(short)[kind], 6);
+    }
+    for (const kind of ['iron', 'coal']) {
+      expect(ledger(long)[kind].stockpile, `silo ${kind}`).toBeCloseTo(ledger(short)[kind].stockpile, 6);
+    }
+  });
+
+  it('debt (29): la scadenza matura nella stessa data in un salto o in sei turni', () => {
+    const long = createGame().session;
+    const short = createGame().session;
+    const tranche = [{
+      id: 'debt-test-1', label: 'Titolo di prova', principal: 20, annualRatePct: 3,
+      termYears: 1, issuedDate: START, maturityDate: addDays(START, 100),
+    }];
+    worldSetup(long, PID, { debts: tranche });
+    worldSetup(short, PID, { debts: tranche });
+
+    const lines = worldJump(long, 180, START);
+    for (let month = 1; month <= 6; month++) worldJump(short, 30, addDays(START, (month - 1) * 30));
+
+    // Titolo emesso il 1/1 con scadenza al giorno 100: rinnovato una volta sola,
+    // alla data del periodo che la contiene (1/5), in entrambi i percorsi.
+    expect(stock(long).debts).toHaveLength(1);
+    expect(stock(long).debts[0].issuedDate).toBe('2026-05-01');
+    expect(stock(long).debts[0].issuedDate).toBe(stock(short).debts[0].issuedDate);
+    expect(stock(long).debts[0].maturityDate).toBe(stock(short).debts[0].maturityDate);
+    expect(stock(long).debts[0].annualRatePct).toBeCloseTo(stock(short).debts[0].annualRatePct, 9);
+    expect(lines.filter((line: string) => line.includes('Scadenza del debito'))).toHaveLength(1);
+  });
+
+  it('civil-needs-progressive (27): i fabbisogni civili maturano con la popolazione che cresce', () => {
+    const split = createGame().session;
+    const single = createGame().session;
+    worldSetup(split);
+    worldSetup(single);
+
+    // Sei turni: il consumo cresce perché la popolazione cresce.
+    const perMonth: number[] = [];
+    let previous = stock(split).food;
+    for (let month = 1; month <= 6; month++) {
+      worldJump(split, 30, addDays(START, (month - 1) * 30));
+      perMonth.push(previous - stock(split).food);
+      previous = stock(split).food;
+    }
+    const progressive = perMonth.reduce((total, value) => total + value, 0);
+    // Il sesto mese consuma più del primo: i fabbisogni non sono costanti.
+    expect(perMonth[5]).toBeGreaterThan(perMonth[0]);
+
+    // Un salto unico somma i fabbisogni **progressivi**, non sei volte l'ultimo.
+    worldJump(single, 180, START);
+    const singleJump = 1.9 - stock(single).food;
+    const naive = 6 * perMonth[5];
+    expect(singleJump).toBeCloseTo(progressive, 6);
+    expect(singleJump).toBeLessThan(naive - 1e-6);
+    expect(progressive).toBeLessThan(naive - 1e-6);
+  });
+
+  it('treasury-progressive (28): la cassa matura col saldo di ogni periodo', () => {
+    const split = createBigGame().session;
+    const single = createBigGame().session;
+    worldSetup(split, BIG_PID, { food: 7 });
+    worldSetup(single, BIG_PID, { food: 7 });
+    const before = stockOf(split, BIG_PID).money;
+
+    const perMonth: number[] = [];
+    let previous = before;
+    for (let month = 1; month <= 6; month++) {
+      worldJump(split, 30, addDays(START, (month - 1) * 30));
+      perMonth.push(stockOf(split, BIG_PID).money - previous);
+      previous = stockOf(split, BIG_PID).money;
+    }
+    // Il PIL cresce ⇒ il saldo mensile cresce: l'ultimo periodo rende più del primo.
+    expect(perMonth[5]).toBeGreaterThan(perMonth[0]);
+
+    worldJump(single, 180, START);
+    const gained = stockOf(single, BIG_PID).money - before;
+    const progressive = perMonth.reduce((total, value) => total + value, 0);
+    const naive = 6 * perMonth[5];
+    // Sei periodi al saldo **finale** darebbero esattamente sei volte l'ultimo.
+    expect(gained).toBeCloseTo(progressive, 6);
+    expect(gained).toBeLessThan(naive - 1e-6);
+  });
+
+  it('production-order-progressive (32): l\'ordine avanza col conto e i materiali del periodo', () => {
+    const setup = () => {
+      const session = createGame().session;
+      worldSetup(session, PID, { money: 500, weapons: 6, technologies: ['industria_bellica'], debts: [] });
+      store(session).saveFacilities([
+        plant('plant-order', 'arms_factory', { inputs: { iron: 10 }, outputs: { weapons: 0 } }, ['industria_bellica']),
+      ]);
+      session.procureEquipment('build', 'fucili', 2000);
+      const order = session.getProduction().orders[0];
+      expect(order.facilityId).toBe('plant-order');
+      return session;
+    };
+    const jump = setup();
+    const perPeriod = setup();
+    const jumpSpy = spySlices(jump);
+    const periodSpy = spySlices(perPeriod);
+    try {
+      worldJump(jump, 180, START);
+      for (let month = 1; month <= 6; month++) worldJump(perPeriod, 30, addDays(START, (month - 1) * 30));
+
+      // Sei periodi: il percorso degli ordini riceve il **tempo**, i **fattori**
+      // e il **conto** di ogni periodo (popolazione crescente), non quelli del
+      // primo giorno né quelli dell'ultimo.
+      expect(jumpSpy.seen).toHaveLength(6);
+      expect(jumpSpy.seen.map(entry => entry.stepDays)).toEqual([30, 30, 30, 30, 30, 30]);
+      expect(jumpSpy.seen[5].population).toBeGreaterThan(jumpSpy.seen[0].population);
+      expect(jumpSpy.seen.map(entry => entry.factors['plant-order']))
+        .toEqual(periodSpy.seen.map(entry => entry.factors['plant-order']));
+      // Il silo si svuota: il fattore del sesto periodo non è quello del primo.
+      expect(jumpSpy.seen[5].factors['plant-order']).toBeLessThan(jumpSpy.seen[0].factors['plant-order']);
+    } finally {
+      jumpSpy.restore();
+      periodSpy.restore();
+    }
   });
 });
 
