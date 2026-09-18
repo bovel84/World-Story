@@ -44,6 +44,92 @@ export interface ArsenalLine {
   sharePct: number;
 }
 
+/**
+ * Manpower pubblicato dal motore: **uomini**, non reparti. `formations` e
+ * `mobilizedFormations` sono i reparti del conto nazionale; `activePersonnel`,
+ * `reservePersonnel`, `mobilizedPersonnel` e `availableReserve` sono la
+ * conversione in personale fatta dal motore con la dottrina dell'epoca.
+ */
+export interface MilitaryManpowerPayload {
+  population: number;
+  /** Popolazione in età utile: il bacino teorico. */
+  eligiblePopulation: number;
+  /** Massimo mobilitabile in extremis. */
+  totalMilitaryPool: number;
+  activePersonnel: number;
+  /** Riservisti addestrati, compresi quelli già richiamati. */
+  reservePersonnel: number;
+  mobilizedPersonnel: number;
+  /** Riservisti non ancora richiamati. */
+  availableReserve: number;
+  formations: number;
+  mobilizedFormations: number;
+  menPerFormation: number;
+}
+
+/** Dotazione di riferimento di una categoria, con la sua origine dichiarata. */
+export interface EstablishmentCategoryPayload {
+  category: string;
+  label: string;
+  perFormation: number;
+  perMobilized: number;
+  weight: number;
+  source: 'engine_seed' | 'doctrine';
+  basis: string;
+}
+
+/** Copertura di una categoria: possesso reale sul fabbisogno del personale. */
+export interface EquipmentCoveragePayload {
+  category: string;
+  label: string;
+  required: number;
+  available: number;
+  coveragePct: number;
+  missing: number;
+  items: string[];
+  weight: number;
+}
+
+/** Driver della prontezza operativa, con il tono deciso dal motore. */
+export interface ReadinessDriverPayload {
+  tone: 'positive' | 'warning' | 'critical' | 'neutral';
+  label: string;
+  detail?: string;
+}
+
+export interface MilitaryReadinessPayload {
+  readinessPct: number;
+  status: 'healthy' | 'stable' | 'pressure' | 'fragile' | 'critical';
+  drivers: ReadinessDriverPayload[];
+}
+
+/** Lavorazione che occupa capacità industriale (ordine, progetto o impianto). */
+export interface IndustrialAllocationPayload {
+  id: string;
+  kind: 'military_production' | 'project' | 'maintenance';
+  label: string;
+  capacityDemand: number;
+  sector: string;
+  basis: string;
+}
+
+/** Capacità industriale calcolata dal motore: totale, occupazione, saturazione. */
+export interface IndustrialCapacityPayload {
+  total: number;
+  used: number;
+  free: number;
+  utilizationPct: number;
+  demand: number;
+  satisfactionPct: number;
+  /** Fattore di rallentamento applicato quando la domanda supera la capacità. */
+  overflowFactor: number;
+  saturated: boolean;
+  allocations: IndustrialAllocationPayload[];
+  byKind: Record<string, number>;
+  defenceSharePct: number;
+  totalBasis: string;
+}
+
 /** Legenda di un dominio militare: cosa copre e quanto pesa. */
 export interface DomainInfo { domain: string; label: string; weight: number; description: string; }
 
@@ -87,6 +173,19 @@ export interface ArsenalResponse {
   production: { orders: ProductionOrder[]; inProgress: number };
   capacity: { factories: number; ports: number; universities: number; money: number; weapons: number; credit: number; technologies: string[] };
   catalog: ArsenalCatalogItem[];
+  /** Epoca militare dello scenario (dalla data d'inizio): fissa la dottrina. */
+  epoch: 'pre_industriale' | 'grande_guerra' | 'seconda_guerra' | 'guerra_fredda' | 'moderno';
+  epochLabel: string;
+  /** Dotazioni di riferimento delle sole categorie pertinenti all'epoca. */
+  establishment: EstablishmentCategoryPayload[];
+  /** Uomini: attivi, riserva addestrata, richiamati. */
+  manpower: MilitaryManpowerPayload;
+  /** Copertura per categoria dal personale effettivo e dall'arsenale reale. */
+  coverage: EquipmentCoveragePayload[];
+  /** Prontezza operativa con i suoi driver. */
+  readiness: MilitaryReadinessPayload;
+  /** Capacità industriale: linee, occupazione, saturazione. */
+  industrialCapacity: IndustrialCapacityPayload;
 }
 
 /** Titolo del debito pubblico: capitale, tasso annuo e scadenza. */

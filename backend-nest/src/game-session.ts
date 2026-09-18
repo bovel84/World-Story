@@ -61,6 +61,7 @@ import {
 import { addDays, dateInPeriod, explicitDays } from './core/simulation/calendar';
 import { type StrictEffect } from './core/simulation/EffectValidator';
 import { runStrictTick } from './core/simulation/TurnOrchestrator';
+import type { IndustrialMaintenanceInput } from './core/simulation/IndustrialCapacity';
 import { refreshMandateStockDecisions } from './services/MandateDecisionService';
 import { normalizeName, RegionResolver, PolityResolver } from './utils/name-resolver';
 import { MovementIntent, analyzeMovementOrder, parseMovementOrder } from './utils/movement-orders';
@@ -347,6 +348,12 @@ export class GameSession {
 
   /** Proprietà dello stato vivo di sessione (Fase 1: spostata dall'oggetto). */
   private readonly state = new SessionStateStore();
+  /** Catalogo impianti (termini di manutenzione) letto una volta per partita. */
+  private maintenanceTermsCache?: {
+    terms: Map<string, { name: string; baseUnits: string; periodDays: number }>;
+    facilities: Array<{ id: string; typeId: string; ownerActorId: string; operational: boolean }>;
+    actorsByPolity: Record<string, string[]>;
+  } | null;
 
   // Session-specific agents (not shared!)
   private gameController: GameController;
@@ -1074,6 +1081,69 @@ export class GameSession {
   }
 
   /**
+   * Termini di manutenzione degli impianti posseduti dalla polity giocante.
+   *
+   * **Sola lettura e nessuna decisione**: il catalogo dichiara i termini per
+   * tipo di impianto (`FacilityType.maintenance`), gli attori della polity
+   * dichiarano chi possiede che cosa. Serve alla **capacità industriale**
+   * pubblicata da `/arsenal`: la manutenzione è lavoro che occupa linee, e
+   * senza questo dato il quadro industriale racconterebbe solo metà storia.
+   * Il catalogo è letto una volta per partita (memo), non a ogni richiesta.
+   */
+  private maintenanceCapacityObligations(): IndustrialMaintenanceInput[] {
+    try {
+      const cache = this.maintenanceTermsCache ??= this.loadMaintenanceTerms();
+      if (!cache || cache.terms.size === 0) return [];
+      const owned = new Set(cache.actorsByPolity[this.playerPolityId] || []);
+      return cache.facilities
+        .filter(facility => owned.has(facility.ownerActorId))
+        .flatMap(facility => {
+          const term = cache.terms.get(facility.typeId);
+          if (!term) return [];
+          return [{
+            facilityId: facility.id,
+            typeName: term.name,
+            baseUnits: term.baseUnits,
+            periodDays: term.periodDays,
+            operational: facility.operational,
+          }];
+        });
+    } catch (error) {
+      // Nessun impianto modellato ⇒ nessuna manutenzione da contare: il quadro
+      // industriale resta valido (produzione e progetti).
+      console.warn('[GameSession] Termini di manutenzione non disponibili:', error);
+      return [];
+    }
+  }
+
+  /** Catalogo degli impianti del preset della partita, letto una sola volta. */
+  private loadMaintenanceTerms(): {
+    terms: Map<string, { name: string; baseUnits: string; periodDays: number }>;
+    facilities: Array<{ id: string; typeId: string; ownerActorId: string; operational: boolean }>;
+    actorsByPolity: Record<string, string[]>;
+  } | null {
+    const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
+    const templateId = worldRow?.template_id;
+    if (typeof templateId !== 'string' || !templateId) return null;
+    const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId));
+    if (!loaded.catalog) return null;
+    const terms = new Map<string, { name: string; baseUnits: string; periodDays: number }>();
+    for (const type of loaded.catalog.facilityTypes || []) {
+      if (!type.maintenance) continue;
+      terms.set(type.id, {
+        name: type.name,
+        baseUnits: type.maintenance.baseUnits,
+        periodDays: type.maintenance.periodDays,
+      });
+    }
+    const actorsByPolity: Record<string, string[]> = {};
+    for (const actor of loaded.catalog.actors || []) {
+      (actorsByPolity[actor.polityId] ??= []).push(actor.actorId);
+    }
+    return { terms, facilities: loaded.catalog.initialState.facilities || [], actorsByPolity };
+  }
+
+  /**
    * Percentuale di completamento dei progetti in corso, con rischio di
    * slittamento della scadenza: non sempre le cose vanno come previsto.
    */
@@ -1237,6 +1307,12 @@ export class GameSession {
       initialAccounts: () => this.initialAccounts(),
       resourceStock: polityId => this.resourceStock(polityId),
       saveResourceStock: (polityId, stock) => this.saveResourceStock(polityId, stock),
+      // Dottrina militare (COUNTRY-CLARITY ENGINE): l'epoca viene dalla data
+      // d'inizio dello scenario; progetti e manutenzione alimentano il quadro
+      // della capacità industriale senza che il servizio tocchi il database.
+      worldStartDate: () => this.worldStartDate,
+      ongoingProcesses: () => this.getOngoingProcesses(),
+      maintenanceObligations: () => this.maintenanceCapacityObligations(),
     });
     this.orders = new OrderExecutionService({
       gameId: this.id,

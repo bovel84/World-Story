@@ -88,10 +88,8 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
     maintenance: input.maintenance,
   });
   const military = militaryOperatingPicture({
-    account: input.account,
     resources: input.resources,
     arsenal: input.arsenal,
-    assets: input.assets,
   });
   const government = governmentOperatingPicture({
     government: input.government,
@@ -135,8 +133,8 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
       headline: industry.headline,
       drivers: industry.drivers,
       facts: [
-        { label: 'Stabilimenti', value: formatNumber(industry.capacityTotal), tone: industry.capacityTotal > 0 ? 'neutral' : 'warning' },
-        { label: 'Capacità usata', value: formatPercent(industry.usedPct, 0), tone: industry.usedPct >= 95 ? 'warning' : industry.usedPct >= 60 ? 'positive' : 'neutral' },
+        { label: 'Stabilimenti', value: industry.establishments === null ? '—' : formatNumber(industry.establishments), tone: (industry.establishments ?? 0) > 0 ? 'neutral' : 'warning' },
+        { label: 'Capacità usata', value: formatPercent(industry.usedPct, 0), tone: industry.saturated ? 'critical' : industry.usedPct >= 85 ? 'warning' : industry.usedPct >= 60 ? 'positive' : 'neutral' },
         { label: 'Linee libere', value: formatNumber(industry.capacityFree), tone: industry.capacityFree > 0 ? 'positive' : 'warning' },
         { label: 'Lavorazioni attive', value: formatNumber(industry.assignments.length), tone: 'neutral' },
       ],
@@ -148,8 +146,8 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
       headline: military.headline,
       drivers: military.drivers,
       facts: [
-        { label: 'Reparti in armi', value: military.manpower ? formatNumber(military.manpower.standing) : '—', tone: military.manpower && military.manpower.standing > 0 ? 'neutral' : 'warning' },
-        { label: 'Prontezza', value: `${military.readiness.readinessPct}%`, tone: statusTone(military.readiness.status) },
+        { label: 'Uomini in armi', value: military.manpower ? formatNumber(military.manpower.activePersonnel + military.manpower.mobilizedPersonnel) : '—', tone: military.manpower && military.manpower.activePersonnel + military.manpower.mobilizedPersonnel > 0 ? 'neutral' : 'warning' },
+        { label: 'Prontezza', value: military.readiness ? `${military.readiness.readinessPct}%` : '—', tone: military.readiness ? statusTone(military.readiness.status) : 'neutral' },
         { label: 'Copertura armi individuali', value: `${military.coverage.find(row => row.id === 'individualWeapons')?.pct ?? 0}%`, tone: military.coverage.find(row => row.id === 'individualWeapons')?.tone ?? 'neutral' },
         { label: 'Prodotti in casa', value: `${military.procurement.filter(row => row.domestic).length}`, tone: 'neutral' },
       ],
@@ -228,12 +226,13 @@ function operatingAnswers(args: {
 
   if (military.manpower) {
     const reparti = (value: number) => `${formatNumber(value)} ${value === 1 ? 'reparto' : 'reparti'}`;
+    const uomini = military.manpower.activePersonnel + military.manpower.mobilizedPersonnel;
     answers.push({
       id: 'manpower',
       question: 'Quante forze ho sotto le armi?',
-      answer: `${reparti(military.manpower.standing)} sotto le armi`,
-      tone: military.manpower.standing > 0 ? 'neutral' : 'warning',
-      detail: `${formatNumber(military.manpower.active)} in servizio permanente · ${formatNumber(military.manpower.mobilized)} richiamati${military.manpower.baseline !== null ? ` · base nazionale ${formatNumber(military.manpower.baseline)}` : ''}. Il motore conta reparti, non teste: la conversione in uomini non è modellata.`,
+      answer: `${formatNumber(uomini)} uomini · ${reparti(military.manpower.standing)}`,
+      tone: uomini > 0 ? 'neutral' : 'warning',
+      detail: `${formatNumber(military.manpower.activePersonnel)} in servizio permanente · ${formatNumber(military.manpower.availableReserve)} riservisti richiamabili su ${formatNumber(military.manpower.reservePersonnel)} addestrati. Un reparto vale ${formatNumber(military.manpower.menPerFormation)} uomini secondo la dottrina d’epoca${military.epochLabel ? ` (${military.epochLabel})` : ''}.`,
     });
     answers.push({
       id: 'mobilitati',
@@ -241,7 +240,7 @@ function operatingAnswers(args: {
       answer: reparti(military.manpower.mobilized),
       tone: military.manpower.mobilized > 0 ? 'warning' : 'positive',
       detail: military.manpower.mobilized > 0
-        ? `${formatPercent(military.manpower.mobilizedPct, 1)} delle forze in armi è richiamata e consuma scorte per diventare operativa.`
+        ? `${formatNumber(military.manpower.mobilizedPersonnel)} riservisti alle armi (${formatPercent(military.manpower.mobilizedPct, 1)} della forza): consumano equipaggiamento per diventare operativi.`
         : 'Nessuna riserva richiamata: la forza permanente basta al momento.',
     });
   } else {
@@ -289,9 +288,9 @@ function operatingAnswers(args: {
   answers.push({
     id: 'operazioni',
     question: 'Quanto tempo posso sostenere le operazioni?',
-    answer: `Prontezza ${military.readiness.readinessPct}%`,
-    tone: statusTone(military.readiness.status),
-    detail: military.readiness.drivers.filter(driver => driver.tone !== 'positive')[0]?.label
+    answer: military.readiness ? `Prontezza ${military.readiness.readinessPct}%` : 'Prontezza non pubblicata',
+    tone: military.readiness ? statusTone(military.readiness.status) : 'neutral',
+    detail: military.readiness?.drivers.filter(driver => driver.tone !== 'positive')[0]?.label
       ?? 'Nessun vincolo materiale rilevante: copertura, carburante e scorte sono sopra le soglie.',
   });
 
@@ -299,7 +298,7 @@ function operatingAnswers(args: {
     id: 'fabbriche',
     question: 'Che cosa producono le mie fabbriche?',
     answer: industry.assignments.length > 0
-      ? `${industry.assignments.length} lavorazioni su ${industry.capacityTotal} stabilimenti`
+      ? `${industry.assignments.length} lavorazioni su ${industry.capacityTotal} linee`
       : 'Nessuna lavorazione attiva',
     tone: industry.assignments.length > 0 ? 'neutral' : 'warning',
     detail: industry.assignments.length > 0
@@ -310,9 +309,11 @@ function operatingAnswers(args: {
   answers.push({
     id: 'capacita',
     question: 'Quanto della capacità industriale sto usando?',
-    answer: `${formatPercent(industry.usedPct, 0)}`,
-    tone: industry.usedPct >= 95 ? 'warning' : industry.usedPct >= 60 ? 'positive' : 'neutral',
-    detail: `${industry.capacityUsed} linee occupate, ${industry.capacityFree} libere su ${industry.capacityTotal} stabilimenti.`,
+    answer: industry.capacityPublished ? `${formatPercent(industry.usedPct, 0)}` : 'Dato non pubblicato',
+    tone: !industry.capacityPublished ? 'neutral' : industry.saturated ? 'critical' : industry.usedPct >= 85 ? 'warning' : industry.usedPct >= 60 ? 'positive' : 'neutral',
+    detail: !industry.capacityPublished
+      ? 'Il motore non pubblica il quadro della capacità industriale per questa partita.'
+      : `${industry.capacityUsed} linee occupate, ${industry.capacityFree} libere su ${industry.capacityTotal}${industry.saturated ? ` · industria satura: ${industry.demand} linee richieste, ritmo ridotto al ${formatPercent(industry.overflowFactor * 100, 0)}` : ''}.`,
   });
 
   const domestic = military.procurement.filter(row => row.domestic);
@@ -350,7 +351,7 @@ function operatingAnswers(args: {
   answers.push({
     id: 'infrastrutture',
     question: 'Che infrastrutture ho?',
-    answer: `${formatNumber(industry.capacityTotal)} stabilimenti · ${formatNumber(industry.ports)} porti · ${formatNumber(industry.universities)} atenei`,
+    answer: `${formatNumber(industry.establishments ?? 0)} stabilimenti · ${formatNumber(industry.ports)} porti · ${formatNumber(industry.universities)} atenei`,
     tone: 'neutral',
     detail: input.account?.capacitySources
       ? `Base nazionale calcolata dal motore: ${input.account.capacitySources}.`

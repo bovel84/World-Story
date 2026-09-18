@@ -22,6 +22,16 @@ import {
   procurementOption, type NationCapacity,
 } from '../core/simulation/MilitaryIndustry';
 import { addDays } from '../core/simulation/calendar';
+import {
+  arsenalSeedUnits, equipmentCoverage, epochForDate, establishmentFor, militaryManpower,
+  militaryReadiness, MILITARY_EPOCH_LABEL,
+  type MilitaryEpoch,
+} from '../core/simulation/MilitaryDoctrine';
+import {
+  industrialCapacityOf, type IndustrialCapacity,
+  type IndustrialMaintenanceInput, type IndustrialProjectInput,
+} from '../core/simulation/IndustrialCapacity';
+import { materialNeeds } from '../core/simulation/MaterialEconomy';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 
 /** Dipendenze fornite da GameSession: stato che NON appartiene al dominio militare. */
@@ -37,6 +47,12 @@ export interface MilitaryContext {
   initialAccounts(): Record<string, NationalAccount>;
   resourceStock(polityId: string): ResourceStock;
   saveResourceStock(polityId: string, stock: ResourceStock): void;
+  /** Data d'inizio dello scenario: fissa l'epoca militare della partita. */
+  worldStartDate?(): string;
+  /** Progetti in corso del motore (per la capacità industriale). */
+  ongoingProcesses?(): IndustrialProjectInput[];
+  /** Termini di manutenzione degli impianti posseduti (per la capacità industriale). */
+  maintenanceObligations?(): IndustrialMaintenanceInput[];
 }
 
 export class MilitaryService {
@@ -47,6 +63,27 @@ export class MilitaryService {
   private productionLoaded = false;
 
   constructor(private readonly ctx: MilitaryContext) {}
+
+  /**
+   * Epoca militare della partita: dalla **data d'inizio dello scenario**, non
+   * dalla data corrente — la dottrina di una nazione non si riscrive in un anno.
+   */
+  epoch(): MilitaryEpoch {
+    return epochForDate(this.ctx.worldStartDate?.() ?? this.ctx.currentDate());
+  }
+
+  /** Quadro industriale della nazione: ordini aperti + progetti + manutenzione. */
+  industrialCapacity(polityId: string, known?: NationCapacity): IndustrialCapacity {
+    const capacity = known ?? this.nationCapacity(polityId);
+    return industrialCapacityOf({
+      factories: capacity.factories,
+      ports: capacity.ports,
+      universities: capacity.universities,
+      orders: this.playerProductionOrders(),
+      projects: this.ctx.ongoingProcesses?.() || [],
+      maintenance: this.ctx.maintenanceObligations?.() || [],
+    });
+  }
 
   /** Arsenale noto in cache senza seed né scritture (per i read model). */
   peekArsenal(polityId: string): Record<string, number> | undefined {
@@ -67,12 +104,12 @@ export class MilitaryService {
       console.warn('[GameSession] Lettura arsenale non disponibile:', error);
     }
     const account = this.ctx.initialAccounts()[polityId];
-    const troops = Math.max(0, account?.forces || 0) + Math.max(0, account?.mobilized || 0);
     const forces = Math.max(0, account?.forces || 0);
-    const units: Record<string, number> = {};
-    // Dotazione di partenza: armi individuali e trasporti per le forze esistenti.
-    if (troops > 0) units.fucili = Math.round(troops * 40 + (account?.mobilized || 0) * 10);
-    if (forces > 0) units.apc = Math.round(forces * 1.5);
+    const mobilized = Math.max(0, account?.mobilized || 0);
+    // Dotazione di partenza dalla **dottrina d'epoca**: armi individuali per i
+    // reparti (più il sovrappiù dei richiamati) e mezzi di mobilità solo se
+    // l'epoca li prevede — un mondo del 1815 non nasce con i corazzati.
+    const units = arsenalSeedUnits(this.epoch(), forces, mobilized);
     this.saveArsenal(polityId, units);
     return units;
   }
@@ -146,6 +183,31 @@ export class MilitaryService {
         reasons: option.reasons,
       };
     });
+    const stock = this.ctx.resourceStock(polityId);
+    const needs = materialNeeds(account);
+    const epoch = this.epoch();
+    const manpower = militaryManpower({
+      population: Number(account?.population || 0),
+      formations: Number(account?.forces || 0),
+      mobilizedFormations: Number(account?.mobilized || 0),
+      epoch,
+    });
+    const coverage = equipmentCoverage({
+      units,
+      manpower,
+      epoch,
+      // I porti sono geografia: senza sbocco al mare la categoria navale non
+      // entra nel fabbisogno. Dato assente ≠ zero: il filtro scatta solo su 0.
+      ports: account?.ports,
+    });
+    const readiness = militaryReadiness({
+      coverage,
+      fuel: { stock: stock.fuel, need: needs.fuel },
+      weapons: { stock: stock.weapons, need: needs.weapons },
+      qualityIndex: arsenalQualityIndex(units),
+      manpower,
+    });
+    const industrial = this.industrialCapacity(polityId, capacity);
     return {
       polityId,
       units,
@@ -160,9 +222,26 @@ export class MilitaryService {
         .map(domain => ({ domain, ...DOMAIN_INFO[domain] })),
       naturalResources: endowment,
       naturalResourcesText: describeEndowment(endowment),
+      // Dottrina militare strutturale: epoca, uomini, dotazioni, prontezza,
+      // capacità industriale. **Regole del motore**: la UI le mostra soltanto.
+      epoch,
+      epochLabel: MILITARY_EPOCH_LABEL[epoch],
+      establishment: establishmentFor(epoch).map(entry => ({
+        category: entry.id,
+        label: entry.label,
+        perFormation: entry.perFormation,
+        perMobilized: entry.perMobilized ?? entry.perFormation,
+        weight: entry.weight,
+        source: entry.source,
+        basis: entry.basis,
+      })),
+      manpower,
+      coverage,
+      readiness,
+      industrialCapacity: industrial,
       debt: Math.round(debtOf(this.ctx.resourceStock(polityId)) * 100) / 100,
       creditLimit: creditLimit(account),
-      production: this.getProduction(),
+      production: this.getProduction(industrial.overflowFactor),
       capacity: {
         factories: capacity.factories,
         ports: capacity.ports,
@@ -275,7 +354,7 @@ export class MilitaryService {
   }
 
   /** Ordini di produzione del giocatore, per API e dossier. */
-  getProduction() {
+  getProduction(overflowFactor = 1) {
     const context = this.productionContext();
     const orders = this.playerProductionOrders()
       .slice()
@@ -283,7 +362,7 @@ export class MilitaryService {
         const rank = (order: ProductionOrder) => order.status === 'in_progress' ? 0 : 1;
         return rank(a) - rank(b) || a.startedTurn - b.startedTurn;
       })
-      .map(order => this.withOrderEta(order, context));
+      .map(order => this.withOrderEta(order, context, overflowFactor));
     return { orders, inProgress: orders.filter(order => order.status === 'in_progress').length };
   }
 
@@ -291,10 +370,10 @@ export class MilitaryService {
    * Data di consegna prevista dal ritmo reale della linea: si ricalcola a ogni
    * lettura, così un imprevisto sposta la data invece di nasconderla.
    */
-  private withOrderEta(order: ProductionOrder, context: ProductionContext): ProductionOrder {
+  private withOrderEta(order: ProductionOrder, context: ProductionContext, overflowFactor = 1): ProductionOrder {
     if (order.status !== 'in_progress') return order;
     const equipment = equipmentById(order.equipmentId);
-    const rate = equipment ? productionRate(equipment, context) : 0;
+    const rate = equipment ? productionRate(equipment, context) * overflowFactor : 0;
     if (rate <= 0) return { ...order, expectedDate: null };
     const months = Math.max(0, (100 - order.progress) / rate);
     return { ...order, expectedDate: addDays(this.ctx.currentDate(), Math.round(months * 30)) };
@@ -326,10 +405,16 @@ export class MilitaryService {
     if (this.ctx.isStrictGame() || days <= 0) return [];
     const orders = this.playerProductionOrders().filter(order => order.status === 'in_progress');
     if (orders.length === 0) return [];
-    const months = days / 30;
     const context = this.productionContext();
     const bulletins: string[] = [];
     const polityId = this.ctx.playerPolityId();
+    // Capacità industriale: se la domanda supera le linee disponibili, il lavoro
+    // avanza più lentamente per tutti (stesso fattore per ogni ordine aperto).
+    const capacity = this.industrialCapacity(polityId);
+    const months = (days / 30) * capacity.overflowFactor;
+    if (capacity.saturated && orders.length > 0) {
+      bulletins.push(`🏭 Industria satura: ${capacity.demand} linee richieste su ${capacity.total} disponibili — la produzione avanza al ${Math.round(capacity.overflowFactor * 100)}% del ritmo.`);
+    }
     for (const order of orders) {
       const seed = `${this.ctx.gameId}:${order.id}:${this.ctx.currentTurn()}`;
       const result = advanceOrder(order, context, months, seed);

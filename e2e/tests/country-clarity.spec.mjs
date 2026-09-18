@@ -57,7 +57,7 @@ test.describe('COUNTRY-CLARITY — un solo schermo per capire il paese', () => {
 
     await expect(answer('Come sta il paese?')).not.toBeEmpty();
     await expect(answer('Qual è il problema più urgente?')).not.toBeEmpty();
-    await expect(answer('Quante forze ho sotto le armi?')).toHaveText('5 reparti sotto le armi');
+    await expect(answer('Quante forze ho sotto le armi?')).toHaveText('55.000 uomini · 5 reparti');
     await expect(answer('Quanti reparti sono mobilitati?')).toHaveText('2 reparti');
     await expect(answer('Con quali equipaggiamenti combattono?')).toHaveText('2 categorie in servizio');
     await expect(answer('Sono equipaggiati a sufficienza?')).toContainText('Copertura più debole');
@@ -88,16 +88,31 @@ test.describe('COUNTRY-CLARITY — un solo schermo per capire il paese', () => {
     // Il quadro del dominio apre la sezione: stessi numeri, più dettaglio.
     const quadro = page.locator('.nation-block[aria-label="Quadro delle forze armate"]');
     await expect(quadro).toBeVisible();
-    await expect(quadro).toContainText('Reparti in armi');
+    await expect(quadro).toContainText('Uomini in armi');
     await expect(quadro).toContainText('Prontezza');
     await expect(quadro).toContainText('Copertura armi individuali');
+    // La scheda delle forze armate mostra personale, copertura e prontezza:
+    // le stesse cifre del quadro, con il dettaglio che serve a decidere.
+    await expect(quadro).toContainText('Dottrina d’epoca: Guerra fredda');
+    await expect(quadro).toContainText('Personale');
+    await expect(quadro).toContainText('Riserva addestrata');
+    await expect(quadro).toContainText('Equipaggiamento — copertura per categoria');
+    await expect(quadro).toContainText('mancano 183 pezzi');
+    await expect(quadro).toContainText('Prontezza operativa');
     await expect(page.locator('.nation-block[aria-label="Quanto hai e quanto produci"]')).toBeVisible();
 
     // Anche le altre sezioni tematiche partono dal loro quadro.
     await page.locator('.nation-dock-tab', { hasText: 'Cassa' }).click();
     await expect(page.locator('.nation-block[aria-label="Quadro economico"]')).toContainText('Debito / PIL');
     await page.locator('.nation-dock-tab', { hasText: 'Risorse e industria' }).click();
-    await expect(page.locator('.nation-block[aria-label="Quadro di risorse e industria"]')).toContainText('Capacità usata');
+    const industria = page.locator('.nation-block[aria-label="Quadro di risorse e industria"]');
+    await expect(industria).toContainText('Capacità usata');
+    // La scheda dell'industria mostra stabilimenti, assegnazioni e produzioni.
+    await expect(industria).toContainText('Linee di lavorazione');
+    await expect(industria).toContainText('Assegnazioni');
+    await expect(industria).toContainText('Ferrovia transnazionale');
+    await expect(industria).toContainText('Produzioni militari');
+    await expect(industria).toContainText('consegnate 0');
     await page.locator('.nation-dock-tab', { hasText: 'Governo' }).click();
     await expect(page.locator('.nation-block[aria-label="Quadro del governo"]')).toContainText('Fazioni insoddisfatte');
   });

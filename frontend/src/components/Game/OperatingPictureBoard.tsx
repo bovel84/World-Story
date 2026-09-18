@@ -98,7 +98,162 @@ export function DomainOperatingBlock({ picture, id, onOpenSection }: {
 }) {
   const domain = picture.domains.find(item => item.id === id);
   if (!domain) return null;
-  return <DomainCard domain={domain} onOpenSection={onOpenSection} />;
+  return (
+    <>
+      <DomainCard domain={domain} onOpenSection={onOpenSection} />
+      {id === 'militare' && <MilitaryForceDetail picture={picture} />}
+      {id === 'industria' && <IndustryDetail picture={picture} />}
+    </>
+  );
+}
+
+const n = (value: number) => new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(value);
+const pct = (value: number) => `${new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 }).format(value)}%`;
+
+/**
+ * Scheda delle forze armate: **personale**, **equipaggiamento**, **prontezza**,
+ * **dipendenze**. Tutti i numeri sono del motore (dottrina d'epoca compresa):
+ * la UI li mette in fila, non li calcola.
+ */
+export function MilitaryForceDetail({ picture }: { picture: NationalOperatingPicture }) {
+  const { manpower, coverage, readiness, establishment, epochLabel } = picture.military;
+  if (!manpower && coverage.length === 0 && !readiness) return null;
+  return (
+    <div className="op-detail">
+      {epochLabel && (
+        <p className="op-detail-note">
+          <b>Dottrina d’epoca: {epochLabel}.</b>{' '}
+          {establishment.length > 0
+            ? establishment.map(entry => `${entry.label}: ${entry.perFormation} per reparto`).join(' · ') + '.'
+            : 'Il motore non pubblica dotazioni di riferimento per questo scenario.'}
+        </p>
+      )}
+      {manpower && (
+        <section className="op-detail-block">
+          <h4>Personale</h4>
+          <dl className="op-facts">
+            <div><dt>Uomini in armi</dt><dd>{n(manpower.activePersonnel + manpower.mobilizedPersonnel)}</dd></div>
+            <div><dt>In servizio permanente</dt><dd>{n(manpower.activePersonnel)}</dd></div>
+            <div><dt>Richiamati</dt><dd>{n(manpower.mobilizedPersonnel)}</dd></div>
+            <div><dt>Riserva addestrata</dt><dd>{n(manpower.reservePersonnel)}</dd></div>
+            <div><dt>Riservisti richiamabili</dt><dd>{n(manpower.availableReserve)}</dd></div>
+            <div><dt>Reparti</dt><dd>{n(manpower.standing)}</dd></div>
+            <div><dt>Uomini per reparto</dt><dd>{n(manpower.menPerFormation)}</dd></div>
+            <div><dt>Bacino mobilitabile</dt><dd>{n(manpower.eligiblePopulation)}{manpower.eligibleSharePct !== null ? ` (${pct(manpower.eligibleSharePct)} della popolazione)` : ''}</dd></div>
+          </dl>
+        </section>
+      )}
+      {coverage.length > 0 && (
+        <section className="op-detail-block">
+          <h4>Equipaggiamento — copertura per categoria</h4>
+          <ul className="op-detail-list">
+            {coverage.map(row => (
+              <li key={row.id} className={tone(row.tone)}>
+                <b>{row.label}</b>
+                <span>{pct(row.pct)} · {n(row.actual)} su {n(row.required)}</span>
+                {row.missing > 0 && <em>mancano {n(row.missing)} pezzi</em>}
+                {row.basis && <small>{row.basis}</small>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {readiness && (
+        <section className="op-detail-block">
+          <h4>Prontezza operativa — {pct(readiness.readinessPct)}</h4>
+          <ul className="op-detail-list">
+            {readiness.drivers.map(driver => (
+              <li key={`${driver.label}-${driver.detail ?? ''}`} className={tone(driver.tone)}>
+                <b>{driver.label}</b>
+                {driver.detail && <em>{driver.detail}</em>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Scheda dell'industria: **stabilimenti**, **assegnazioni**, **produzioni**,
+ * **manutenzione** — con la capacità occupata che il motore calcola, la
+ * saturazione dichiarata e le unità consegnate solo a lavori finiti.
+ */
+export function IndustryDetail({ picture }: { picture: NationalOperatingPicture }) {
+  const industry = picture.industry;
+  const military = industry.assignments.filter(item => item.kind === 'produzione');
+  const projects = industry.assignments.filter(item => item.kind === 'progetto');
+  const maintenance = industry.assignments.filter(item => item.kind === 'manutenzione');
+  const productionOrders = industry.productions;
+  return (
+    <div className="op-detail">
+      <section className="op-detail-block">
+        <h4>Stabilimenti</h4>
+        <dl className="op-facts">
+          <div><dt>Stabilimenti censiti</dt><dd>{industry.establishments === null ? '—' : n(industry.establishments)}</dd></div>
+          <div><dt>Linee di lavorazione</dt><dd>{n(industry.capacityTotal)}</dd></div>
+          <div><dt>Occupate</dt><dd>{n(industry.capacityUsed)} ({pct(industry.usedPct)})</dd></div>
+          <div><dt>Libere</dt><dd>{n(industry.capacityFree)}</dd></div>
+        </dl>
+        {industry.capacityPublished && industry.totalBasis && <p className="op-detail-note">{industry.totalBasis}</p>}
+        {industry.saturated && (
+          <p className="op-detail-note tone-negative">
+            Domanda {n(industry.demand)} linee: industria satura, il lavoro avanza al {pct(industry.overflowFactor * 100)} del ritmo.
+          </p>
+        )}
+      </section>
+      <section className="op-detail-block">
+        <h4>Assegnazioni — chi occupa le linee</h4>
+        {industry.assignments.length === 0 ? (
+          <p className="op-detail-note">Nessuna lavorazione attiva: tutte le linee sono libere.</p>
+        ) : (
+          <ul className="op-detail-list">
+            {[...military, ...projects, ...maintenance].map(item => (
+              <li key={item.id} className={item.blocker ? tone('warning') : undefined}>
+                <b>{item.label}</b>
+                <span>{item.sector} · {n(item.capacityDemand)} linee{item.progressPct !== null ? ` · ${pct(item.progressPct)}` : ''}</span>
+                {item.expectedDate && <small>consegna prevista {item.expectedDate}</small>}
+                {item.blocker && <em>{item.blocker}</em>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {productionOrders.length > 0 && (
+        <section className="op-detail-block">
+          <h4>Produzioni militari</h4>
+          <ul className="op-detail-list">
+            {productionOrders.map(item => (
+              <li key={item.id}>
+                <b>{item.label} ×{n(item.quantity)}</b>
+                <span>
+                  {pct(item.progressPct)} avviato · consegnate {n(item.deliveredUnits)} · in lavorazione {n(item.inProgressUnits)}
+                  {item.projectedUnits > 0 ? ` · previste ${n(item.projectedUnits)} a fine lavorazione` : ''}
+                </span>
+                {item.ratePerMonth !== null && <small>ritmo {n(item.ratePerMonth)} unità/mese{item.expectedDate ? ` · consegna ${item.expectedDate}` : ''}</small>}
+                {item.limits.length > 0 && <em>limiti: {item.limits.join(' · ')}</em>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {maintenance.length > 0 && (
+        <section className="op-detail-block">
+          <h4>Manutenzione</h4>
+          <ul className="op-detail-list">
+            {maintenance.map(item => (
+              <li key={item.id} className={item.blocker ? tone('warning') : undefined}>
+                <b>{item.label}</b>
+                <span>{n(item.capacityDemand)} linee</span>
+                <small>{item.detail}</small>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
 }
 
 export function OperatingPictureBoard({ picture, onOpenSection }: {
