@@ -59,26 +59,26 @@ beforeAll(async () => {
     { id: WORLD_ID, name: 'Long World', description: '', startDate: '2026-01-01', basePrompt: 'Test', historicalAccuracy: 0.8 },
     [
       {
-        id: `${WORLD_ID}_ITA`, name: 'Italia', color: '#FF0000', owner: 'ITA',
-        population: 59_000_000, gdp: 2300, militaryPower: 110, flag: 'ITA', coastal: true,
-        borders: [`${WORLD_ID}_FRA`],
+        id: `${WORLD_ID}_ROM`, name: 'Italia', color: '#FF0000', owner: 'ROM',
+        population: 59_000_000, gdp: 2300, militaryPower: 110, flag: 'ROM', coastal: true,
+        borders: [`${WORLD_ID}_GAL`],
         objects: [{ id: 'f1', type: 'factory', name: 'Acciaierie', level: 4 }],
       },
       {
-        id: `${WORLD_ID}_FRA`, name: 'Francia', color: '#0000FF', owner: 'FRA',
-        population: 68_000_000, gdp: 2900, militaryPower: 160, flag: 'FRA', coastal: true,
-        borders: [`${WORLD_ID}_ITA`],
+        id: `${WORLD_ID}_GAL`, name: 'Francia', color: '#0000FF', owner: 'GAL',
+        population: 68_000_000, gdp: 2900, militaryPower: 160, flag: 'GAL', coastal: true,
+        borders: [`${WORLD_ID}_ROM`],
         objects: [],
       },
       {
-        id: `${WORLD_ID}_DEU`, name: 'Germania', color: '#333333', owner: 'DEU',
-        population: 84_000_000, gdp: 4200, militaryPower: 190, flag: 'DEU', coastal: true,
-        borders: [`${WORLD_ID}_FRA`],
+        id: `${WORLD_ID}_GER`, name: 'Germania', color: '#333333', owner: 'GER',
+        population: 84_000_000, gdp: 4200, militaryPower: 190, flag: 'GER', coastal: true,
+        borders: [`${WORLD_ID}_GAL`],
         objects: [],
       },
     ],
   );
-  createGame = () => registry.createSession(WORLD_ID, 'Player', `${WORLD_ID}_ITA`, '#FF0000');
+  createGame = () => registry.createSession(WORLD_ID, 'Player', `${WORLD_ID}_ROM`, '#FF0000');
 });
 
 afterAll(() => {
@@ -206,7 +206,7 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     const { session } = createGame();
     const service = (session as any).commitments;
     service.apply([{
-      type: 'trade-agreement', actor: 'ITA', counterparty: 'FRA',
+      type: 'trade-agreement', actor: 'ROM', counterparty: 'GAL',
       description: 'Accordo commerciale italo-francese', importance: 3, deadline: null,
       sourceEventId: 'test:long#treaty',
     }]);
@@ -230,7 +230,7 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     const commitments = session.getCommitments();
     const treaty = commitments.commitments.find((item: any) => item.type === 'trade-agreement');
     expect(treaty?.status).toBe('active');
-    expect(treaty?.counterparty).toBe('FRA');
+    expect(treaty?.counterparty).toBe('GAL');
     expect(treaty?.description).toContain('italo-francese');
   });
 
@@ -240,7 +240,7 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     const player = session.getPlayer();
     const service = (session as any).commitments;
     service.apply([{
-      type: 'treaty', actor: 'ITA', counterparty: 'FRA',
+      type: 'treaty', actor: 'ROM', counterparty: 'GAL',
       description: 'Patto di non aggressione', importance: 3, deadline: null, sourceEventId: 'test:long#pact',
     }]);
     repos.gameRepository.insertPressures(gameId, player.polityId, [pressure('long#save')], session.getCurrentDate(), session.getCurrentTurn());
@@ -261,7 +261,7 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     // Il rewind riporta lo stato al turno restaurato, non a un turno dopo.
     await session.advanceDate(30);
     service.apply([{
-      type: 'ultimatum', actor: 'ITA', counterparty: 'AUT',
+      type: 'ultimatum', actor: 'ROM', counterparty: 'AUT',
       description: 'Ultimatum sul corridoio alpino', importance: 3, deadline: '2026-03-01', sourceEventId: 'test:long#ultimatum',
     }]);
     expect(session.getCommitments().commitments.some((item: any) => item.type === 'ultimatum')).toBe(true);

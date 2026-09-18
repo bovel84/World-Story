@@ -859,12 +859,22 @@ export function initDatabase() {
   // (una volta erano «turni consecutivi», ora è TEMPO CALENDARIO trascorso),
   // gli avanzamenti in cui la criticità è stata osservata e l'eventuale epilogo
   // (rivoluzione, default, invasione).
-  db.exec(`
+  //
+  // CRISIS-RESIDUAL P0.2: la crisi è **per ramo**, non per partita. Due rami
+  // della stessa partita devono poter divergere (uno risolve, l'altro peggiora)
+  // e il rewind deve ripristinare lo stato del punto precedente invece di
+  // azzerarlo. L'identificatore del ramo è quello canonico di tutti gli altri
+  // sistemi (`games.head_branch_id`), non un secondo modello di branching.
+  const CRISIS_TABLE_SQL = `
     CREATE TABLE IF NOT EXISTS game_crisis_state (
-      game_id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT 'main',
       revolt_streak INTEGER NOT NULL DEFAULT 0,
       insolvency_streak INTEGER NOT NULL DEFAULT 0,
       invasion_streak INTEGER NOT NULL DEFAULT 0,
+      revolt_episodes INTEGER NOT NULL DEFAULT 0,
+      insolvency_episodes INTEGER NOT NULL DEFAULT 0,
+      invasion_episodes INTEGER NOT NULL DEFAULT 0,
       overall TEXT NOT NULL DEFAULT 'calm',
       ending_kind TEXT,
       ending_dimension TEXT,
@@ -874,15 +884,44 @@ export function initDatabase() {
       ending_turn INTEGER,
       updated_turn INTEGER NOT NULL DEFAULT 0,
       updated_date TEXT,
+      PRIMARY KEY (game_id, branch_id),
       FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
     )
-  `);
+  `;
+  db.exec(CRISIS_TABLE_SQL);
   // GAMEPLAY-LONG: le colonne `*_streak` contengono ora i GIORNI di criticità
   // accumulati (retrocompatibili: nei vecchi salvataggi 0-3 giorni). Qui si
-  // aggiungono i contatori degli avvertimenti osservati.
+  // aggiungono i contatori degli avvertimenti osservati. La migrazione avviene
+  // PRIMA della ricostruzione del PK, così la tabella legacy è già completa.
   try { db.exec('ALTER TABLE game_crisis_state ADD COLUMN revolt_episodes INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
   try { db.exec('ALTER TABLE game_crisis_state ADD COLUMN insolvency_episodes INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
   try { db.exec('ALTER TABLE game_crisis_state ADD COLUMN invasion_episodes INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
+  // Migrazione ADDITIVA dei salvataggi con PK sul solo `game_id`: le righe
+  // esistenti passano al ramo corrente della partita senza perdere un giorno di
+  // criticità né l'epilogo. Nessuna riga viene cancellata.
+  const crisisColumns = db.prepare('PRAGMA table_info(game_crisis_state)').all() as Array<{ name?: string }>;
+  if (!crisisColumns.some(column => column.name === 'branch_id')) {
+    db.exec(`
+      ALTER TABLE game_crisis_state RENAME TO game_crisis_state_legacy;
+      ${CRISIS_TABLE_SQL};
+      INSERT INTO game_crisis_state
+        (game_id, branch_id, revolt_streak, insolvency_streak, invasion_streak,
+         revolt_episodes, insolvency_episodes, invasion_episodes, overall,
+         ending_kind, ending_dimension, ending_title, ending_summary, ending_date, ending_turn,
+         updated_turn, updated_date)
+      SELECT legacy.game_id,
+             COALESCE(games.head_branch_id, 'main'),
+             legacy.revolt_streak, legacy.insolvency_streak, legacy.invasion_streak,
+             legacy.revolt_episodes, legacy.insolvency_episodes, legacy.invasion_episodes,
+             legacy.overall,
+             legacy.ending_kind, legacy.ending_dimension, legacy.ending_title,
+             legacy.ending_summary, legacy.ending_date, legacy.ending_turn,
+             legacy.updated_turn, legacy.updated_date
+        FROM game_crisis_state_legacy legacy
+        LEFT JOIN games ON games.id = legacy.game_id;
+      DROP TABLE game_crisis_state_legacy;
+    `);
+  }
 
   // Stato dinamico delle regioni di una singola partita. Geometria e metadati
   // restano nel world, ma proprietario/economia/oggetti non sono condivisi.

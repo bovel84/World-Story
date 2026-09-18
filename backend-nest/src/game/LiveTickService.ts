@@ -29,6 +29,12 @@ export interface LiveTickContext {
   /** WORLD-ALIVE P3: conflitti deterministici del mondo (NPC), senza LLM. */
   applyWorldConflicts(): string[];
   worldStateOptions(): { modernFacts: boolean; startDate: string; taxRateByPolity?: Record<string, number> };
+  /**
+   * CRISIS-RESIDUAL P0.1: anche il battito del mondo fa avanzare la crisi, con
+   * lo stesso concetto di giorni realmente simulati degli altri percorsi: senza
+   * questo, in modalità live il tempo passava senza accumulare criticità.
+   */
+  evaluateCrisis(periodDays: number): void;
   syncRegionsToDB(): Promise<void> | void;
   withLock<T>(fn: () => Promise<T>): Promise<T | null>;
 }
@@ -158,6 +164,10 @@ export class LiveTickService {
         newDate: this.state.currentDate,
         changedRegions,
       });
+      // Il tempo passa anche qui: la crisi avanza dei giorni del battito, con
+      // la stessa semantica dei salti ordinari. Se la nazione cade, l'epilogo
+      // viene diffuso subito dopo (e il tick successivo non parte più).
+      this.ctx.evaluateCrisis(LiveTickService.LIVE_TICK_DAYS);
       console.log('[GameSession] Live tick →', this.state.currentDate, `(${events.length} eventi)`);
     });
   }
