@@ -140,6 +140,9 @@ describe('OP-OBJECTS — formattazione dei fatti', () => {
     expect(formatFactValue(fact('costi', 'Costo nave', 812.5, 'mln'))).toBe('812,5 mln');
     expect(formatFactValue(fact('autonomia', 'Carburante', 2.4, 'mesi'))).toBe('2,4 mesi');
     expect(formatFactValue(fact('stato', 'Composizione', null, 'testo', 'neutral', 'Fregate 2'))).toBe('Fregate 2');
+    // Una data si legge come data di gioco: mai l'ISO grezzo.
+    expect(formatFactValue(fact('autonomia', 'Consegna prevista', null, 'data', 'neutral', '1951-06-20'))).toBe('20 giu 1951');
+    expect(formatFactValue(fact('autonomia', 'Consegna prevista', null, 'data', 'neutral', undefined as never))).toBe('—');
     expect(formatFactValue(fact('stato', 'Mancante', null, 'numero'))).toBe('—');
   });
 
@@ -152,6 +155,16 @@ describe('OP-OBJECTS — formattazione dei fatti', () => {
     expect(sections[1].label).toBe('Personale');
     // `toFixed` tronca: 1,2345 mld → 1,234 (il motore pubblica già i suoi decimali).
     expect(factsByLabel(force)['Spesa militare'].value).toBe('1,234 mld');
+  });
+
+  it('porta la nota del motore accanto al fatto numerico, senza inventarla', () => {
+    const construction = picture.objects.find(object => object.id === 'construction-1')!;
+    const rows = factRows(construction);
+    const benefit = rows.find(row => row.label === 'Beneficio')!;
+    expect(benefit.note).toBeUndefined();
+    const withNote = { ...construction, facts: [{ section: 'output' as const, label: 'Beneficio', value: 0, unit: 'numero' as const, tone: 'neutral' as const, text: 'Nessuno prima del completamento.' }] };
+    expect(factRows(withNote)[0].note).toBe('Nessuno prima del completamento.');
+    expect(factRows(withNote)[0].value).toBe('0');
   });
 
   it('riconosce il problema più grave e il tono dello stato', () => {

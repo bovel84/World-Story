@@ -78,7 +78,7 @@ export const FACT_SECTION_LABEL: Record<FactSection, string> = {
   autonomia: 'Autonomia',
 };
 
-export type FactUnit = 'numero' | 'pct' | 'mld' | 'mln' | 'per_mese' | 'mesi' | 'testo';
+export type FactUnit = 'numero' | 'pct' | 'mld' | 'mln' | 'per_mese' | 'mesi' | 'data' | 'testo';
 
 export interface OperatingFact {
   section: FactSection;
@@ -193,6 +193,16 @@ const PLANT_NAME_POOL: Record<'factory' | 'shipyard' | 'university', string[]> =
 const EMPTY_STOCK: ResourceStock = {
   money: 0, food: 0, clothing: 0, weapons: 0, fuel: 0, research: 0, technologies: [], debts: [],
 };
+
+/**
+ * Distribuzione degli ordini sugli impianti dello stesso tipo: ogni ordine va a
+ * **un solo** impianto (a rotazione), così le schede non si contraddicono e la
+ * somma delle lavorazioni resta quella nazionale. Convenzione dichiarata.
+ */
+export function plantOrders<T>(orders: readonly T[], index: number, plants: number): T[] {
+  const total = Math.max(1, plants);
+  return orders.filter((_, position) => position % total === index);
+}
 
 /**
  * Produzione **marginale** di un profilo di impianto, con la stessa funzione che
@@ -901,6 +911,9 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
     const region = ordered.length > 0 ? ordered[index % ordered.length] : null;
     const lines = slotLines('factory', index);
     const util = round1(lines / CAPACITY_PER_FACTORY * 100);
+    // Lavorazioni davvero assegnate a questo impianto (ordini di terra e progetti).
+    const assignedOrders = plantOrders(landOrders, index, factories);
+    const productionOrder = assignedOrders[0] ?? null;
     // Attività reale dell'impianto: le linee in lavorazione, rallentate dalla
     // saturazione nazionale (`overflowFactor`). Impianto fermo ⇒ output zero;
     // industria satura ⇒ produzione ridotta per tutti.
@@ -927,6 +940,14 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
         fact('input', 'Carbone', round2(coalInput * activity), 'per_mese'),
         fact('personale', 'Addetti', staffOf(CAPACITY_PER_FACTORY), 'numero'),
         fact('costi', 'Costo operativo', civilCostOf(CAPACITY_PER_FACTORY), 'mld'),
+        // §13: che cosa sta producendo l'impianto, con l'avanzamento reale.
+        ...(productionOrder ? [
+          fact('output', 'Ordine in lavorazione', null, 'testo', 'neutral',
+            `${productionOrder.name} ×${n(productionOrder.quantity - (productionOrder.deliveredUnits || 0))} · ${round1(nonNegative(productionOrder.progress))}%`),
+          ...(productionOrder.expectedDate
+            ? [fact('autonomia', 'Consegna prevista', null, 'data', 'neutral', String(productionOrder.expectedDate))]
+            : []),
+        ] : []),
       ],
       problems: [
         ...(lines <= 0 ? [{ severity: 'critical' as const, label: 'Impianto fermo: nessuna lavorazione', detail: 'Le linee sono libere: la produzione dell\'impianto è zero finché non riceve un ordine.' }] : []),
@@ -947,6 +968,7 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
   for (let index = 0; index < ports; index += 1) {
     const region = coastal.length > 0 ? coastal[index % coastal.length] : null;
     const lines = slotLines('shipyard', index);
+    const assignedNaval = plantOrders(navalOrders, index, ports);
     const util = round1(lines / CAPACITY_PER_PORT * 100);
     const shipyardActivity = capacity.blocked ? 0 : (lines / CAPACITY_PER_PORT) * capacity.overflowFactor;
     const status: OperatingStatus = lines <= 0 ? 'idle' : util >= 95 ? 'maintenance' : 'operational';
@@ -963,7 +985,18 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
       facts: [
         fact('stato', 'Linee di lavorazione', CAPACITY_PER_PORT, 'numero'),
         fact('capacita', 'Utilizzo', util, 'pct', util >= 95 ? 'warning' : 'neutral'),
-        fact('output', 'Scafi in costruzione', shipsUnderConstruction, 'numero', shipsUnderConstruction > 0 ? 'warning' : 'neutral'),
+        fact('output', 'Scafi in costruzione', assignedNaval.length > 0
+          ? assignedNaval.reduce((total, order) => total + Math.max(0, order.quantity - (order.deliveredUnits || 0)), 0)
+          : shipsUnderConstruction, 'numero',
+        (assignedNaval.length > 0 || shipsUnderConstruction > 0) ? 'warning' : 'neutral'),
+        ...(assignedNaval.length > 0
+          ? [fact('output', 'In costruzione', null, 'testo', 'warning',
+            assignedNaval.map(order => `${order.name} ×${n(order.quantity)} · ${round1(nonNegative(order.progress))}%`).join(' · '))]
+          : []),
+        ...(assignedNaval.find(order => order.expectedDate)
+          ? [fact('autonomia', 'Consegna prevista', null, 'data', 'neutral',
+            String(assignedNaval.find(order => order.expectedDate)?.expectedDate))]
+          : []),
         fact('input', 'Acciaio e componenti', round2(ironInput * 2 * shipyardActivity), 'per_mese'),
         fact('input', 'Carburante movimentato', round2(shipyardProfile.fuel * shipyardActivity), 'per_mese'),
         fact('personale', 'Addetti', staffOf(CAPACITY_PER_PORT), 'numero'),

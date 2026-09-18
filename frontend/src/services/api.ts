@@ -212,7 +212,7 @@ export interface ArsenalResponse {
 export type OperatingFactSection = 'stato' | 'capacita' | 'personale' | 'input' | 'output' | 'costi' | 'autonomia';
 
 /** Come si legge un fatto: numero, percentuale, miliardi, milioni, flusso, mesi, testo. */
-export type OperatingFactUnit = 'numero' | 'pct' | 'mld' | 'mln' | 'per_mese' | 'mesi' | 'testo';
+export type OperatingFactUnit = 'numero' | 'pct' | 'mld' | 'mln' | 'per_mese' | 'mesi' | 'data' | 'testo';
 
 export interface OperatingFactPayload {
   section: OperatingFactSection;

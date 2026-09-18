@@ -89,6 +89,21 @@ test.describe('OP-OBJECTS — sala di governo', () => {
     await expect(cantiere).toContainText('Nessuno prima del completamento');
   });
 
+  test('la fabbrica mostra la lavorazione assegnata, l’avanzamento e la consegna', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+    const block = await openSalaDiGoverno(page);
+
+    await block.locator('.obj-sector', { hasText: 'Industria' }).locator('.obj-open').click();
+    const impianto = block.locator('.obj-object[aria-label="Acciaierie Alpha"]');
+    await impianto.locator('.obj-object-toggle').click();
+    await expect(impianto).toContainText('Ordine in lavorazione');
+    await expect(impianto).toContainText('Fucili d’assalto ×40 · 42%');
+    // La consegna è una data di gioco, non un numero o un ISO grezzo.
+    await expect(impianto).toContainText('Consegna prevista');
+    await expect(impianto).toContainText('20 giu 1951');
+  });
+
   test('l’azione mostra il PRIMA → DOPO e si conferma', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);

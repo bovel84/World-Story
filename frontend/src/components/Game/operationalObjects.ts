@@ -15,7 +15,7 @@ import type {
   FormationImpactPayload, OperatingActionPayload, OperatingChainPayload, OperatingFactPayload,
   OperatingFactSection, OperatingFactUnit, OperatingObjectPayload, OperatingPicturePayload,
 } from '../../services/api';
-import { formatMoney, formatNumber } from '../../utils/format';
+import { formatDate, formatMoney, formatNumber } from '../../utils/format';
 
 export type ObjectTone = 'positive' | 'warning' | 'critical' | 'neutral';
 
@@ -62,7 +62,7 @@ export function statusTone(status: ObjectStatus): ObjectTone {
 
 /** Cifre decimali per unità: un fatto piccolo non deve diventare «0». */
 const DECIMALS: Record<OperatingFactUnit, number> = {
-  numero: 0, pct: 0, mld: 3, mln: 1, per_mese: 2, mesi: 1, testo: 0,
+  numero: 0, pct: 0, mld: 3, mln: 1, per_mese: 2, mesi: 1, data: 0, testo: 0,
 };
 
 const UNITS: Partial<Record<OperatingFactUnit, string>> = {
@@ -75,6 +75,7 @@ const UNITS: Partial<Record<OperatingFactUnit, string>> = {
  */
 export function formatUnitValue(value: number | null | undefined, unit: OperatingFactUnit, decimals = DECIMALS[unit] ?? 0): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  if (unit === 'data') return '—';
   if (unit === 'pct') return `${formatNumber(value)}%`;
   const body = formatMoney(value, { decimals });
   const suffix = UNITS[unit];
@@ -84,6 +85,8 @@ export function formatUnitValue(value: number | null | undefined, unit: Operatin
 /** Valore di un fatto, formattato con l'unità del motore. */
 export function formatFactValue(fact: OperatingFactPayload): string {
   if (fact.unit === 'testo') return fact.text ?? '—';
+  // La data è un fatto di calendario: si legge come data di gioco, non come numero.
+  if (fact.unit === 'data') return formatDate(fact.text ?? null);
   return formatUnitValue(fact.value, fact.unit);
 }
 
@@ -291,6 +294,8 @@ export interface FormationActionView {
 }
 
 const deltaDecimals = (unit: OperatingFactUnit) => DECIMALS[unit] ?? 0;
+
+/** Una data non entra mai nelle tabelle PRIMA → DOPO numeriche. */
 
 /** Compone la vista dell'azione «crea reparto» dai numeri del motore. */
 export function formationActionView(impact: FormationImpactPayload | null | undefined): FormationActionView | null {

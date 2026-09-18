@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CATEGORY_EQUIPMENT, INDUSTRIAL_LABOUR_SHARE, endowmentContribution, formationImpact, formationPlan,
-  marginalProduction, navalInventory, navalShips, operatingPicture, plantAllocatedLines,
+  marginalProduction, navalInventory, navalShips, operatingPicture, plantAllocatedLines, plantOrders,
   type IndustrialOrderLike, type OperationalInput, type OperationalRegion, type OperatingObject,
 } from '../src/core/simulation/OperationalObjects';
 import {
@@ -425,5 +425,39 @@ describe('OP-OBJECTS — quadro completo e convenzioni', () => {
     expect(Object.keys(CATEGORY_EQUIPMENT).length).toBe(8);
     expect(plan.items.length).toBeGreaterThan(4);
     expect(plan.items.every(item => item.required > 0)).toBe(true);
+  });
+
+  it('ogni impianto porta la lavorazione che gli è assegnata (ordine, avanzamento, consegna)', () => {
+    // Due impianti, due ordini di terra: uno per impianto, somma invariata.
+    const orders: IndustrialOrderLike[] = [
+      { id: 'o1', equipmentId: 'fucili', name: 'Fucili d’assalto', quantity: 40, deliveredUnits: 10, progress: 42, status: 'in_progress', expectedDate: '1951-06-20' },
+      { id: 'o2', equipmentId: 'carri_3', name: 'Carri armati', quantity: 12, deliveredUnits: 0, progress: 18, status: 'in_progress' },
+    ];
+    const account = { ...accounts(), factories: 2 };
+    const result = picture({
+      account,
+      orders,
+      projects: [],
+      capacity: industrialCapacityOf({ factories: 2, ports: 0, universities: 0, orders, projects: [], maintenance: [] }),
+    });
+    const plants = byKind(result.objects, 'facility').filter(object => object.subtitle === 'Impianto industriale');
+    expect(plants.length).toBe(2);
+    const assigned = plants.map(plant => factOf(plant, 'Ordine in lavorazione'));
+    expect(assigned.every(Boolean)).toBe(true);
+    const texts = assigned.map(fact => String(fact?.text));
+    // Il materiale in lavorazione è quello non ancora consegnato.
+    expect(texts.join(' ')).toContain('Fucili d’assalto ×30 · 42%');
+    expect(texts.join(' ')).toContain('Carri armati ×12 · 18%');
+    // La consegna prevista è una data, non un numero.
+    const delivery = plants[0].facts.find(fact => fact.label === 'Consegna prevista');
+    expect(delivery?.unit).toBe('data');
+    expect(delivery?.text).toBe('1951-06-20');
+  });
+
+  it('la rotazione degli ordini non duplica il lavoro fra impianti', () => {
+    expect(plantOrders(['a', 'b', 'c'], 0, 2)).toEqual(['a', 'c']);
+    expect(plantOrders(['a', 'b', 'c'], 1, 2)).toEqual(['b']);
+    // Un impianto che non esiste non riceve lavoro: la rotazione non inventa sedi.
+    expect(plantOrders(['a'], 3, 1)).toEqual([]);
   });
 });

@@ -427,6 +427,8 @@ export const MOCK_OBJECTS = {
         { section: 'input', label: 'Carbone', value: 0.52, unit: 'per_mese', tone: 'neutral' },
         { section: 'personale', label: 'Addetti', value: 110, unit: 'numero', tone: 'neutral' },
         { section: 'costi', label: 'Costo operativo', value: 0.44, unit: 'mld', tone: 'neutral' },
+        { section: 'output', label: 'Ordine in lavorazione', value: null, unit: 'testo', tone: 'neutral', text: 'Fucili d’assalto ×40 · 42%' },
+        { section: 'autonomia', label: 'Consegna prevista', value: null, unit: 'data', tone: 'neutral', text: '1951-06-20' },
       ],
       problems: [{ severity: 'warning', label: 'Capacità satura (96%)', detail: 'Un nuovo ordine su questo impianto slitta.' }],
       actions: [{ id: 'procure', label: 'Avvia una produzione militare', enabled: true, blockedReason: null }],
