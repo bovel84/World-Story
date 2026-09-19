@@ -38,6 +38,10 @@ export const PROCURE_ERROR_CODES = [
 ];
 /** Errori della formazione di reparti (OP-OBJECTS): dal motore, non dalla UI. */
 export const FORMATION_ERROR_CODES = ['formation_blocked', 'credit_exhausted', 'formation_invalid'];
+/** Errori delle azioni sui reparti (MILITARY-UNITS): dal motore, non dalla UI. */
+export const UNIT_ERROR_CODES = [
+  'unit_unknown', 'unit_blocked', 'unit_invalid', 'region_unknown', 'army_unknown', 'equipment_unknown',
+];
 export const DEBT_ERROR_CODES = ['amount_invalid', 'credit_exhausted'];
 export function respondDomainError(res: any, e: any, codes: string[], fallback: string): void {
   const message = typeof e?.message === 'string' ? e.message : '';

@@ -14,6 +14,7 @@
 import type {
   FormationImpactPayload, OperatingActionPayload, OperatingChainPayload, OperatingFactPayload,
   OperatingFactSection, OperatingFactUnit, OperatingObjectPayload, OperatingPicturePayload,
+  UnitActionImpactPayload,
 } from '../../services/api';
 import { formatDate, formatMoney, formatNumber } from '../../utils/format';
 
@@ -38,6 +39,7 @@ export const SECTION_LABEL: Record<OperatingFactSection, string> = {
 export const KIND_LABEL: Record<string, string> = {
   force: 'Forze armate',
   army: 'Armata',
+  unit: 'Reparto',
   facility: 'Impianto',
   construction: 'Costruzione',
   navy: 'Marina',
@@ -210,7 +212,7 @@ export function sectorCards(
         { label: 'Carburante', value: factValue(force, 'Carburante (scorte)') },
       ],
       problems: force.problems.map(problem => ({ severity: problem.severity, label: problem.label })),
-      objectIds: [force.id, ...picture.objects.filter(object => object.kind === 'army').map(object => object.id)],
+      objectIds: [force.id, ...picture.objects.filter(object => object.kind === 'army' || object.kind === 'unit').map(object => object.id)],
     });
   }
 
@@ -286,7 +288,7 @@ export interface FormationActionView {
   blockedReason: string | null;
   title: string;
   /** Costo immediato, risorse necessarie, tempo: come li pubblica il motore. */
-  costLine: string;
+  costLine: string | null;
   equipmentLine: string | null;
   /** Righe PRIMA → DOPO già calcolate dal motore. */
   rows: Array<{ label: string; before: string; after: string; tone: ObjectTone }>;
@@ -326,6 +328,73 @@ export function formationActionView(impact: FormationImpactPayload | null | unde
     rows,
     why: impact.why,
   };
+}
+
+/** Titolo breve di un'azione sul reparto. */
+const UNIT_ACTION_TITLE: Record<string, string> = {
+  reinforce: 'Rinforza',
+  reequip: 'Riequipaggia',
+  transfer: 'Trasferisci',
+  reassign: 'Cambia armata',
+};
+
+/**
+ * Compone la vista dell'azione di un **reparto**: la stessa tabella PRIMA → DOPO
+ * della creazione di reparti, con i numeri che il motore ha già calcolato.
+ */
+export function unitActionView(impact: UnitActionImpactPayload | null | undefined): FormationActionView | null {
+  if (!impact) return null;
+  const rows = impact.rows
+    .filter(row => formatUnitValue(row.before, row.unit, deltaDecimals(row.unit))
+      !== formatUnitValue(row.after, row.unit, deltaDecimals(row.unit)))
+    .map(row => ({
+      label: row.label,
+      before: formatUnitValue(row.before, row.unit, deltaDecimals(row.unit)),
+      after: formatUnitValue(row.after, row.unit, deltaDecimals(row.unit)),
+      tone: (row.tone || 'neutral') as ObjectTone,
+    }));
+  const context = impact.action === 'transfer' && impact.regionName
+    ? `Destinazione: ${impact.regionName}`
+    : impact.action === 'reassign' && impact.armyName
+      ? `Armata di arrivo: ${impact.armyName}`
+      : null;
+  return {
+    blocked: impact.blocked,
+    blockedReason: impact.blockedReason,
+    title: `${UNIT_ACTION_TITLE[impact.action] ?? 'Azione'} · ${impact.unitName}`,
+    costLine: context,
+    equipmentLine: null,
+    rows,
+    why: impact.why,
+  };
+}
+
+/** Armate di destinazione di un reparto: tutte tranne la sua. */
+export function armyTargets(
+  picture: OperatingPicturePayload | null | undefined,
+  unit: OperatingObjectPayload,
+): Array<{ id: string; label: string }> {
+  if (!picture) return [];
+  return picture.objects
+    .filter(object => object.kind === 'army' && String(object.id) !== String(unit.parentId))
+    .map(object => ({ id: object.id, label: object.label }));
+}
+
+/**
+ * Regioni del paese conosciute dal quadro operativo: destinazioni possibili di
+ * un reparto. La regione di partenza è esclusa (il motore la rifiuterebbe).
+ */
+export function regionTargets(
+  picture: OperatingPicturePayload | null | undefined,
+  unit: OperatingObjectPayload,
+): Array<{ id: string; label: string }> {
+  if (!picture) return [];
+  const seen = new Map<string, string>();
+  for (const object of picture.objects) {
+    if (!object.regionId || String(object.regionId) === String(unit.regionId)) continue;
+    if (!seen.has(object.regionId)) seen.set(object.regionId, object.regionName || object.regionId);
+  }
+  return [...seen.entries()].map(([id, label]) => ({ id, label }));
 }
 
 /** Riepilogo a una riga: quanto è cambiato (per la conferma dopo l'azione). */

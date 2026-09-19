@@ -22,7 +22,7 @@ import {
   personnelUnderArms,
   type MilitaryPersonnelState,
 } from './PersonnelStock';
-import { MILITARY_EPOCH_LABEL, individualWeaponShareFor, militaryManpower } from './MilitaryDoctrine';
+import { MILITARY_EPOCH_LABEL, OPERATION_MONTHS, individualWeaponShareFor, militaryManpower } from './MilitaryDoctrine';
 import { EQUIPMENT_CATALOG, EQUIPMENT_CREW, equipmentById, NATURAL_RESOURCE_LABELS, type NaturalResourceKind } from './MilitaryIndustry';
 import type { MaterialNeeds, ResourceStock } from './MaterialEconomy';
 import { materialNeeds } from './MaterialEconomy';
@@ -34,7 +34,7 @@ import {
 import type { IndustrialOrderLike } from './OperationalObjects';
 import {
   FULL_TANK_MONTHS, OPERATING_STATUS_LABEL, endowmentContribution, fact, marginalPlant, marginalProduction, shortTitle,
-  type OperatingObject, type OperatingStatus,
+  type OperatingAction, type OperatingObject, type OperatingStatus,
 } from './OperationalObjects';
 
 const nonNegative = (value: unknown): number => {
@@ -280,10 +280,35 @@ export interface ArmyOperationalState {
   legacyDerived: boolean;
 }
 
+/**
+ * Un **reparto** (unità militare): la granularità sotto l'armata. È un oggetto
+ * persistente con uomini, equipaggiamento e fabbisogni propri; l'armata che lo
+ * contiene è la **somma** dei suoi reparti (una sola fonte di verità).
+ */
+export interface MilitaryUnitState {
+  id: string;
+  /** Armata di appartenenza (id dell'oggetto dello stato). */
+  armyId: string;
+  name: string;
+  personnel: number;
+  /** Equipaggiamento **assegnato al reparto** (sottratto dal deposito). */
+  equipment: Record<string, number>;
+  monthlyNeeds: { fuel: number; weapons: number; food: number };
+  /** Prontezza derivata (`unitReadiness`), 0…1: cache ricalcolabile. */
+  readiness: number;
+  status: 'forming' | 'operational' | 'degraded' | 'retreating' | 'destroyed';
+  regionId: string | null;
+  regionName: string | null;
+  updatedDate: string;
+  /** Materializzato da un aggregato legacy (non deciso dal giocatore). */
+  legacyDerived: boolean;
+}
+
 /** Stato persistente completo di una partita (le armate sono oggetti della mappa). */
 export interface OperationalStateSnapshot {
   personnel: MilitaryPersonnelState;
   armies: ArmyOperationalState[];
+  units: MilitaryUnitState[];
   facilities: FacilityState[];
   ships: ShipState[];
   fleets: FleetState[];
@@ -294,7 +319,7 @@ export interface OperationalStateSnapshot {
 export function emptyOperationalState(date: string): OperationalStateSnapshot {
   return {
     personnel: { activePersonnel: 0, trainedReserve: 0, mobilizedPersonnel: 0, shipCrew: 0, updatedDate: date },
-    armies: [], facilities: [], ships: [], fleets: [], constructions: [],
+    armies: [], units: [], facilities: [], ships: [], fleets: [], constructions: [],
   };
 }
 
@@ -1079,7 +1104,7 @@ export function seedArmies(input: {
   const leftover = Math.max(0, Math.round(input.totalFormations) - Math.round(input.accountedFormations));
   if (leftover > 0) {
     state.push({
-      id: `army-${input.polityId}-garrison`,
+      id: `${input.polityId}-garrison`,
       name: 'Reparti di guarnigione',
       regionId: null,
       regionName: null,
@@ -1219,9 +1244,249 @@ export function armyStatusFromCoverage(input: { assigned: number; required: numb
   return 'degraded';
 }
 
+// ── 8-bis. Reparti: l'unità sotto l'armata ──────────────────────────────────
+
+/**
+ * Fattore di prontezza dello **stato dichiarato** del reparto: tabella
+ * dichiarata (come i fattori di impianto e nave), non una regola nascosta.
+ */
+export const UNIT_STATUS_FACTOR: Record<MilitaryUnitState['status'], number> = {
+  forming: 0.5,
+  operational: 1,
+  degraded: 0.7,
+  retreating: 0.45,
+  destroyed: 0,
+};
+
+/** Come si legge lo stato del reparto (etichetta propria, non quella d'impianto). */
+export const UNIT_STATUS_LABEL: Record<MilitaryUnitState['status'], string> = {
+  forming: 'In formazione',
+  operational: 'Operativa',
+  degraded: 'Affaticata',
+  retreating: 'In ritirata',
+  destroyed: 'Distrutta',
+};
+
+/** Classificazione d'epoca del livello sotto l'armata (il **nome** del reparto). */
+const UNIT_CLASS: Record<MilitaryEpoch, { label: string; ordinal: string }> = {
+  pre_industriale: { label: 'Reggimento', ordinal: '°' },
+  grande_guerra: { label: 'Divisione', ordinal: 'ª' },
+  seconda_guerra: { label: 'Divisione', ordinal: 'ª' },
+  guerra_fredda: { label: 'Reggimento', ordinal: '°' },
+  moderno: { label: 'Brigata', ordinal: 'ª' },
+};
+
+/** Nome deterministico del reparto: «1ª Brigata», «2° Reggimento». */
+export function unitNameFor(epoch: MilitaryEpoch, index: number): string {
+  const order = Math.max(1, Math.round(nonNegative(index) || 1));
+  const style = UNIT_CLASS[epoch];
+  return style ? `${order}${style.ordinal} ${style.label}` : `${order}° Reparto`;
+}
+
+/** Id del reparto: figlio dell'armata, numerazione a tre cifre (stabile). */
+export function unitIdFor(armyId: string, index: number): string {
+  const order = Math.max(1, Math.round(nonNegative(index) || 1));
+  return `${armyId}-unit-${String(order).padStart(3, '0')}`;
+}
+
+/** Numero del reparto letto dall'id (`…-unit-007`): 0 se non numerato. */
+export function unitNumberOf(unit: Pick<MilitaryUnitState, 'id'>): number {
+  const match = /-unit-(\d+)$/.exec(String(unit.id || ''));
+  return match ? Number(match[1]) : 0;
+}
+
+/**
+ * Prontezza di un reparto: media di **organico** e **dotazione d'armi
+ * individuali**, modulata dallo **stato dichiarato**. Riusa le grandezze del
+ * motore (`menPerFormation`, `rifleRequirement`); un dato assente vale 1, come in
+ * `militaryReadiness`.
+ *
+ * Il carburante **non** entra in questo numero: la prontezza è persistita e un
+ * fattore che dipende da ogni litro consumato la farebbe oscillare a ogni
+ * lettura. Il carburante resta un **fatto** del reparto (mesi di scorta) e un
+ * **problema** quando la scorta è sotto un mese.
+ */
+export function unitReadiness(input: {
+  unit: Pick<MilitaryUnitState, 'personnel' | 'equipment' | 'status'>;
+  epoch: MilitaryEpoch;
+}): number {
+  const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
+  const staffing = menPerFormation > 0 ? Math.min(1, nonNegative(input.unit.personnel) / menPerFormation) : 1;
+  const required = rifleRequirement(input.epoch, 1);
+  const assigned = equipmentQuantity(input.unit.equipment, rifleEquipmentId());
+  const equipped = required > 0 ? Math.min(1, assigned / required) : 1;
+  const value = (staffing * 0.5 + equipped * 0.5) * UNIT_STATUS_FACTOR[input.unit.status];
+  return round3(Math.max(0, Math.min(1, value)));
+}
+
+/** Stato del reparto dai **fatti**: senza pezzi è in formazione, sotto il 95% affaticato. */
+export function unitStatusFromCoverage(input: {
+  assigned: number;
+  required: number;
+  /** Stato dichiarato dall'armata (materializzazione): «in formazione» resta tale. */
+  declared?: ArmyOperationalState['status'];
+}): MilitaryUnitState['status'] {
+  if (input.declared === 'forming') return 'forming';
+  if (nonNegative(input.assigned) <= 0) return 'forming';
+  if (input.declared === 'degraded' || input.declared === 'maintenance') return 'degraded';
+  if (input.required <= 0) return 'operational';
+  return input.assigned / input.required >= 0.95 ? 'operational' : 'degraded';
+}
+
+/**
+ * Divide un totale dichiarato in `parts` parti **senza cambiarne la somma**: le
+ * parti sono uguali e l'ultima assorbe il resto (l'aggregato non si muove).
+ */
+export function splitExact(total: number, parts: number, decimals = 0): number[] {
+  const count = Math.max(1, Math.round(nonNegative(parts) || 1));
+  const scale = 10 ** decimals;
+  const target = nonNegative(total);
+  const step = Math.floor((target / count) * scale) / scale;
+  const values = new Array<number>(count).fill(step);
+  values[count - 1] = Math.round((target - step * (count - 1)) * scale) / scale;
+  return values;
+}
+
+/** Stato **vuoto** di un reparto (nessun uomo, nessun pezzo: solo il quadro). */
+export function emptyUnit(input: {
+  id: string;
+  armyId: string;
+  epoch: MilitaryEpoch;
+  date: string;
+  regionId?: string | null;
+  regionName?: string | null;
+  name?: string;
+  index?: number;
+}): MilitaryUnitState {
+  return {
+    id: input.id,
+    armyId: input.armyId,
+    name: input.name || unitNameFor(input.epoch, input.index ?? 1),
+    personnel: 0,
+    equipment: {},
+    monthlyNeeds: { fuel: 0, weapons: 0, food: 0 },
+    readiness: 0,
+    status: 'forming',
+    regionId: input.regionId ?? null,
+    regionName: input.regionName ?? null,
+    updatedDate: input.date,
+    legacyDerived: false,
+  };
+}
+
+export interface MaterializeUnitsInput {
+  army: ArmyOperationalState;
+  epoch: MilitaryEpoch;
+  date: string;
+  /** Reparti dichiarati dal **mondo** (livello dell'oggetto della mappa). */
+  formations?: number;
+  existing: readonly MilitaryUnitState[];
+}
+
+/**
+ * Materializza i reparti di un'armata: **lazy** (alla prima lettura) e
+ * **idempotente** (la seconda volta non cambia nulla). La prima volta divide
+ * l'aggregato dell'armata fra i suoi reparti **senza cambiarne la somma**; se il
+ * mondo dichiara più reparti di quelli esistenti, i nuovi nascono **senza
+ * uomini** (`forming`): nessun uomo viene creato dal nulla (la riserva si muove
+ * solo con `transferMenToArmy`).
+ */
+export function materializeUnitsForArmy(input: MaterializeUnitsInput): MilitaryUnitState[] {
+  const existing = [...input.existing].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const target = Math.max(0, Math.round(nonNegative(input.formations ?? input.army.formations)));
+  if (target === 0 || existing.length >= target) {
+    return existing.map(unit => ({ ...unit, readiness: unitReadiness({ unit, epoch: input.epoch }) }));
+  }
+  const created: MilitaryUnitState[] = [];
+  if (existing.length === 0) {
+    const men = splitExact(input.army.personnel, target, 0);
+    const needs = {
+      fuel: splitExact(input.army.monthlyNeeds.fuel, target, 3),
+      weapons: splitExact(input.army.monthlyNeeds.weapons, target, 3),
+      food: splitExact(input.army.monthlyNeeds.food, target, 3),
+    };
+    const bags = Object.entries(input.army.equipment || {})
+      .map(([id, quantity]) => [id, splitExact(quantity, target, 0)] as const);
+    for (let index = 1; index <= target; index += 1) {
+      const equipment: Record<string, number> = {};
+      for (const [id, values] of bags) if (values[index - 1] > 0) equipment[id] = values[index - 1];
+      const rifles = equipmentQuantity(equipment, rifleEquipmentId());
+      created.push({
+        id: unitIdFor(input.army.id, index),
+        armyId: input.army.id,
+        name: unitNameFor(input.epoch, index),
+        personnel: men[index - 1],
+        equipment,
+        monthlyNeeds: {
+          fuel: needs.fuel[index - 1],
+          weapons: needs.weapons[index - 1],
+          food: needs.food[index - 1],
+        },
+        readiness: 0,
+        // Senza armi individuali il reparto è **in formazione**: la sua quota di
+        // pezzi è nel deposito, non in mano ai soldati.
+        status: unitStatusFromCoverage({
+          assigned: rifles,
+          required: rifleRequirement(input.epoch, 1),
+          declared: input.army.status,
+        }),
+        regionId: input.army.regionId,
+        regionName: input.army.regionName,
+        updatedDate: input.date,
+        legacyDerived: true,
+      });
+    }
+  } else {
+    for (let index = existing.length + 1; index <= target; index += 1) {
+      created.push(emptyUnit({
+        id: unitIdFor(input.army.id, index),
+        armyId: input.army.id,
+        epoch: input.epoch,
+        date: input.date,
+        index,
+        regionId: input.army.regionId,
+        regionName: input.army.regionName,
+      }));
+    }
+  }
+  return [...existing, ...created]
+    .map(unit => ({ ...unit, readiness: unitReadiness({ unit, epoch: input.epoch }) }));
+}
+
+/**
+ * L'armata è la **somma** dei suoi reparti: uomini, equipaggiamento, fabbisogni
+ * e numero di reparti si derivano, non si dichiarano. Senza reparti l'armata
+ * resta com'è (percorso legacy dichiarato). I reparti distrutti non contano.
+ */
+export function aggregateArmyFromUnits(
+  army: ArmyOperationalState,
+  units: readonly MilitaryUnitState[],
+): ArmyOperationalState {
+  if (units.length === 0) return army;
+  const active = units.filter(unit => unit.status !== 'destroyed');
+  const personnel = Math.round(active.reduce((total, unit) => total + nonNegative(unit.personnel), 0));
+  const equipment: Record<string, number> = {};
+  for (const unit of active) {
+    for (const [id, quantity] of Object.entries(unit.equipment || {})) {
+      addTo(equipment, id, Math.round(nonNegative(quantity)));
+    }
+  }
+  const needsOf = (key: keyof ArmyOperationalState['monthlyNeeds']) =>
+    round3(active.reduce((total, unit) => total + nonNegative(unit.monthlyNeeds?.[key]), 0));
+  return {
+    ...army,
+    formations: active.length,
+    personnel,
+    equipment,
+    monthlyNeeds: { fuel: needsOf('fuel'), weapons: needsOf('weapons'), food: needsOf('food') },
+    legacyDerived: false,
+  };
+}
+
 /** Legenda leggibile dei tipi di oggetto persistente (per il report e i test). */
 export const PERSISTENT_KIND_LABEL: Record<string, string> = {
   army: 'Armata',
+  unit: 'Reparto',
   facility: 'Impianto',
   ship: 'Nave',
   fleet: 'Flotta',
@@ -1278,6 +1543,8 @@ export interface PersistentObjectsInput {
   date: string;
   epoch: MilitaryEpoch;
   armies: readonly ArmyOperationalState[];
+  /** Reparti (unità) delle armate: la granularità sotto l'armata. */
+  units?: readonly MilitaryUnitState[];
   facilities: readonly FacilityState[];
   ships: readonly ShipState[];
   fleets: readonly FleetState[];
@@ -1304,6 +1571,10 @@ export interface PersistentObjectsInput {
   militaryMonthlyMld?: number;
   /** Mesi di carburante disponibili (scorta nazionale / consumo). */
   fuelMonths?: number | null;
+  /** Riserva addestrata disponibile: decide se il rinforzo è eseguibile. */
+  availableReserve?: number;
+  /** Pezzi **in deposito** (non assegnati): decide se il riequipaggiamento è eseguibile. */
+  depotUnits?: Record<string, number>;
   /**
    * Pass di allocazione degli impianti (lo **stesso** usato dal tick): la
    * scheda non ricalcola nulla, mostra la simulazione che modifica lo stato.
@@ -1313,6 +1584,67 @@ export interface PersistentObjectsInput {
 
 const tone = (value: number, good: number, warn: number): ReadinessTone =>
   value >= good ? 'positive' : value >= warn ? 'neutral' : value < warn / 2 ? 'critical' : 'warning';
+
+/** Stato dell'oggetto equivalente per il tono visivo (l'etichetta è del reparto). */
+const UNIT_OPERATING_STATUS: Record<MilitaryUnitState['status'], OperatingStatus> = {
+  forming: 'under_construction',
+  operational: 'operational',
+  degraded: 'degraded',
+  retreating: 'critical',
+  destroyed: 'critical',
+};
+
+/**
+ * Azioni **reali** del reparto: abilitate solo se il motore ha ciò che serve
+ * (riserva addestrata, pezzi in deposito, una seconda armata). Il motivo del
+ * blocco è dichiarato, così la UI non inventa nulla.
+ */
+function unitActions(input: {
+  unit: MilitaryUnitState;
+  epoch: MilitaryEpoch;
+  availableReserve?: number;
+  depotUnits?: Record<string, number>;
+  armies: readonly ArmyOperationalState[];
+}): OperatingAction[] {
+  const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
+  const required = rifleRequirement(input.epoch, 1);
+  const assigned = equipmentQuantity(input.unit.equipment, rifleEquipmentId());
+  const reserve = Math.max(0, Math.floor(nonNegative(input.availableReserve)));
+  const depot = equipmentQuantity(input.depotUnits, rifleEquipmentId());
+  const missingMen = Math.max(0, menPerFormation - Math.round(nonNegative(input.unit.personnel)));
+  const missingRifles = Math.max(0, required - assigned);
+  const otherArmies = input.armies.filter(army => String(army.id) !== String(input.unit.armyId)).length;
+  return [
+    {
+      id: 'reinforce_unit',
+      label: missingMen > 0 ? `Rinforza (${n(Math.min(missingMen, reserve))} uomini)` : 'Rinforza',
+      enabled: missingMen > 0 && reserve > 0,
+      blockedReason: missingMen <= 0
+        ? `Organico già completo: ${n(menPerFormation)} uomini per reparto.`
+        : reserve <= 0 ? 'Riserva addestrata esaurita: nessun uomo richiamabile.' : null,
+    },
+    {
+      id: 'reequip_unit',
+      label: missingRifles > 0 ? `Riequipaggia (${n(Math.min(missingRifles, depot))} pezzi)` : 'Riequipaggia',
+      enabled: missingRifles > 0 && depot > 0,
+      blockedReason: missingRifles <= 0
+        ? 'Dotazione già completa per un reparto.'
+        : depot <= 0 ? 'Deposito senza armi individuali: la dotazione va costruita o comprata.' : null,
+    },
+    {
+      id: 'transfer_unit',
+      label: 'Trasferisci',
+      enabled: true,
+      blockedReason: null,
+    },
+    {
+      id: 'reassign_unit',
+      label: 'Cambia armata',
+      enabled: otherArmies > 0,
+      blockedReason: otherArmies > 0 ? null : 'Serve una seconda armata per spostare il reparto.',
+    },
+  ];
+}
 
 const textList = (bag: Record<string, number>): string =>
   Object.entries(bag).filter(([, quantity]) => nonNegative(quantity) > 0)
@@ -1384,6 +1716,82 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
       ],
       actions: [],
       why: 'Armata come oggetto reale: uomini ed equipaggiamento **assegnati** sono suoi, non una quota dell\'aggregato. L\'equipaggiamento è stato tolto dal deposito nazionale (deposito + assegnato = totale).',
+    });
+  }
+
+  // ── Reparti: la granularità sotto l'armata ────────────────────────────────
+  // Ogni reparto ha uomini, pezzi e fabbisogni **propri**: l'armata che li
+  // contiene è la loro somma (una sola fonte di verità).
+  const armyById = new Map(input.armies.map(army => [String(army.id), army]));
+  const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
+  for (const unit of input.units || []) {
+    const army = armyById.get(String(unit.armyId));
+    const required = rifleRequirement(input.epoch, 1);
+    const assigned = equipmentQuantity(unit.equipment, rifleEquipmentId());
+    const coveragePct = required > 0 ? round1(Math.min(100, assigned / required * 100)) : 100;
+    const staffingPct = menPerFormation > 0 ? round1(Math.min(100, nonNegative(unit.personnel) / menPerFormation * 100)) : 100;
+    const readinessPct = round1(unitReadiness({ unit, epoch: input.epoch }) * 100);
+    const status = UNIT_OPERATING_STATUS[unit.status];
+    const unitFuelMonths = unit.monthlyNeeds.fuel > 0 && fuelMonths !== null ? fuelMonths : null;
+    const share = underArms > 0 ? nonNegative(unit.personnel) / underArms : 0;
+    const equipmentTotal = Math.round(sum(Object.values(unit.equipment || {})));
+    objects.push({
+      id: unit.id,
+      kind: 'unit',
+      label: unit.name,
+      subtitle: `${army?.name || 'Armata'}${unit.regionName ? ` · ${unit.regionName}` : ''} · ${n(nonNegative(unit.personnel))} uomini`,
+      status,
+      statusLabel: UNIT_STATUS_LABEL[unit.status],
+      parentId: String(unit.armyId),
+      regionId: unit.regionId,
+      regionName: unit.regionName,
+      facts: [
+        fact('stato', 'Uomini', Math.round(nonNegative(unit.personnel)), 'numero',
+          tone(staffingPct, 95, 60), `Organico d'epoca: ${n(menPerFormation)} uomini per reparto.`),
+        fact('stato', 'Equipaggiamento assegnato', equipmentTotal, 'numero', 'neutral',
+          textList(unit.equipment) || 'Nessun pezzo assegnato: la dotazione è nel deposito nazionale.'),
+        fact('capacita', 'Organico', staffingPct, 'pct', tone(staffingPct, 95, 60)),
+        fact('capacita', 'Copertura armi individuali', coveragePct, 'pct', tone(coveragePct, 95, 80),
+          `${n(assigned)} armi individuali assegnate su ${n(required)} richieste.`),
+        fact('capacita', 'Prontezza', readinessPct, 'pct', tone(readinessPct, 80, 60),
+          'Organico e dotazione, modulati da stato e carburante disponibile.'),
+        fact('input', 'Carburante', unit.monthlyNeeds.fuel, 'per_mese'),
+        fact('input', 'Armamenti', unit.monthlyNeeds.weapons, 'per_mese'),
+        fact('input', 'Cibo', unit.monthlyNeeds.food, 'per_mese'),
+        ...(input.militaryMonthlyMld !== undefined
+          ? [fact('costi', 'Spese del reparto', round3(nonNegative(input.militaryMonthlyMld) * share), 'mld',
+            'neutral', 'Quota delle spese militari mensili, in proporzione agli uomini del reparto.')]
+          : []),
+        ...(unitFuelMonths !== null
+          ? [fact('autonomia', 'Carburante (scorte)', round1(unitFuelMonths), 'mesi',
+            unitFuelMonths < FULL_TANK_MONTHS ? 'warning' : 'neutral', 'Scorta nazionale divisa per il consumo del paese.')]
+          : []),
+      ],
+      problems: [
+        ...(nonNegative(unit.personnel) <= 0
+          ? [{ severity: 'critical' as const, label: 'Reparto senza uomini', detail: 'Nessun uomo assegnato: è un quadro organico, non una forza.' }]
+          : []),
+        ...(required > 0 && assigned <= 0
+          ? [{ severity: 'critical' as const, label: 'Nessuna arma individuale assegnata', detail: `Servono ${n(required)} armi individuali: il deposito non è stato ancora assegnato a questo reparto.` }]
+          : []),
+        ...(coveragePct < 95 && assigned > 0
+          ? [{ severity: coveragePct < 60 ? 'critical' as const : 'warning' as const, label: `Copertura armi individuali ${coveragePct}%`, detail: `Mancano ${n(Math.max(0, required - assigned))} armi individuali alla dotazione d'epoca del reparto.` }]
+          : []),
+        ...(nonNegative(unit.personnel) > 0 && staffingPct < 95
+          ? [{ severity: 'warning' as const, label: `Organico incompleto ${staffingPct}%`, detail: `Mancano ${n(Math.max(0, menPerFormation - Math.round(nonNegative(unit.personnel))))} uomini per completare il reparto.` }]
+          : []),
+        ...(unitFuelMonths !== null && unitFuelMonths < OPERATION_MONTHS
+          ? [{ severity: 'warning' as const, label: `Carburante: ${round1(unitFuelMonths)} mesi di operazioni`, detail: `Sotto i ${OPERATION_MONTHS} mesi la mobilità del reparto è limitata: il movimento paga cibo e carburante dal magazzino nazionale.` }]
+          : []),
+      ],
+      actions: unitActions({
+        unit,
+        epoch: input.epoch,
+        availableReserve: input.availableReserve,
+        depotUnits: input.depotUnits,
+        armies: input.armies,
+      }),
+      why: `Reparto dell'armata «${army?.name || unit.armyId}»: uomini, equipaggiamento e fabbisogni sono suoi, non una quota dell'aggregato. L'armata che lo contiene è la somma dei suoi reparti.`,
     });
   }
 

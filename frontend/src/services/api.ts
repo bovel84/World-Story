@@ -235,14 +235,15 @@ export interface OperatingProblemPayload {
 }
 
 export interface OperatingActionPayload {
-  id: 'raise_formation' | 'procure' | 'trade';
+  id: 'raise_formation' | 'procure' | 'trade'
+    | 'reinforce_unit' | 'reequip_unit' | 'transfer_unit' | 'reassign_unit';
   label: string;
   enabled: boolean;
   blockedReason?: string | null;
 }
 
 export type OperatingKindPayload =
-  | 'force' | 'army' | 'facility' | 'construction' | 'navy' | 'fleet' | 'ship' | 'mine';
+  | 'force' | 'army' | 'unit' | 'facility' | 'construction' | 'navy' | 'fleet' | 'ship' | 'mine';
 
 /** Un oggetto concreto del paese: armata, impianto, cantiere, nave, miniera. */
 export interface OperatingObjectPayload {
@@ -334,6 +335,58 @@ export interface RaiseFormationResult extends FormationImpactPayload {
   spentMln: number;
   financedMln: number;
   impact: FormationImpactPayload;
+  /** MILITARY-UNITS — il reparto creato davvero (id, uomini, pezzi, prontezza). */
+  unit?: MilitaryUnitPayload | null;
+}
+
+/** MILITARY-UNITS — un **reparto**: la granularità sotto l'armata. */
+export interface MilitaryUnitPayload {
+  id: string;
+  armyId: string;
+  name: string;
+  personnel: number;
+  equipment: Record<string, number>;
+  monthlyNeeds: { fuel: number; weapons: number; food: number };
+  /** Prontezza derivata dal motore, 0…1. */
+  readiness: number;
+  status: 'forming' | 'operational' | 'degraded' | 'retreating' | 'destroyed';
+  regionId: string | null;
+  regionName: string | null;
+  updatedDate: string;
+  legacyDerived: boolean;
+}
+
+/** MILITARY-UNITS — le azioni reali del reparto (regole del motore). */
+export type UnitActionId = 'reinforce' | 'reequip' | 'transfer' | 'reassign';
+
+export interface UnitActionRequest {
+  action: UnitActionId;
+  unitId: string;
+  men?: number;
+  equipmentId?: string;
+  quantity?: number;
+  regionId?: string;
+  armyId?: string;
+  /** Anteprima PRIMA → DOPO: nessuna scrittura. */
+  dryRun?: boolean;
+}
+
+/** Esito (o anteprima) di un'azione sul reparto: stessi numeri del motore. */
+export interface UnitActionImpactPayload {
+  applied: boolean;
+  action: UnitActionId;
+  unitId: string;
+  unitName: string;
+  armyId: string;
+  armyName: string | null;
+  blocked: boolean;
+  blockedReason: string | null;
+  rows: Array<{ label: string; before: number; after: number; unit: OperatingFactUnit; tone: string }>;
+  unit: MilitaryUnitPayload;
+  regionName?: string | null;
+  stock?: { food: number; fuel: number; money: number };
+  note: string;
+  why: string;
 }
 
 /** Titolo del debito pubblico: capitale, tasso annuo e scadenza. */
@@ -1023,6 +1076,27 @@ export const gameApi = {
     fetchApi(`/games/${gameId}/military/formation`, {
       method: 'POST',
       body: JSON.stringify(options),
+    }),
+
+  /** MILITARY-UNITS — reparti (unità) persistenti del paese. */
+  militaryUnits: (gameId: string): Promise<{ units: MilitaryUnitPayload[] }> =>
+    fetchApi(`/games/${gameId}/military/units`),
+
+  /**
+   * MILITARY-UNITS — azione su un reparto: `dryRun` è l'anteprima PRIMA → DOPO,
+   * altrimenti l'azione vera (riserva, deposito, costo di movimento del motore).
+   */
+  unitAction: (gameId: string, request: UnitActionRequest): Promise<UnitActionImpactPayload> =>
+    fetchApi(`/games/${gameId}/military/units/${encodeURIComponent(request.unitId)}/${request.action}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        men: request.men,
+        equipmentId: request.equipmentId,
+        quantity: request.quantity,
+        regionId: request.regionId,
+        armyId: request.armyId,
+        dryRun: request.dryRun === true,
+      }),
     }),
 
   /** Costruisce (`build`) o importa (`buy`) equipaggiamento militare. */

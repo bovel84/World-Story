@@ -17,7 +17,7 @@
 
 import { shortId } from '../utils/short-id';
 import { arsenalRepository, productionRepository } from '../repositories';
-import { creditHeadroom, creditLimit, debtOf, financePurchase, type ResourceStock } from '../core/simulation/MaterialEconomy';
+import { creditHeadroom, creditLimit, debtOf, financePurchase, movementCost, payMovement, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { advanceOrder, productionRate, productionRollSeed, type ProductionContext, type ProductionOrder } from '../core/simulation/MilitaryProduction';
 import {
   arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, describeArsenal, describeEndowment,
@@ -29,7 +29,7 @@ import type { WorldStateRegion } from '../core/simulation/WorldStateEngine';
 import {
   arsenalSeedUnits, equipmentCoverage, epochForDate, establishmentFor, individualWeaponShareFor,
   militaryManpower, militaryReadiness, MILITARY_EPOCH_LABEL,
-  type MilitaryEpoch,
+  type MilitaryEpoch, type ReadinessTone,
 } from '../core/simulation/MilitaryDoctrine';
 import {
   industrialCapacityOf, type IndustrialCapacity,
@@ -40,9 +40,13 @@ import {
   type FormationImpact, type OperationalInput, type OperationalRegion, type OperatingObject, type OperatingPicture,
 } from '../core/simulation/OperationalObjects';
 import {
-  aggregateObjects, equipmentTotals, monthlyNeedsPerFormation, personnelOverlay, persistentObjects,
-  rifleRequirement, transferCrewToShip, transferEquipment, transferMenToArmy,
-  type ArmyOperationalState, type MilitaryPersonnelState,
+  aggregateArmyFromUnits,
+  aggregateObjects, equipmentQuantity, equipmentTotals, isKnownEquipment,
+  monthlyNeedsPerFormation, personnelOverlay, persistentObjects,
+  materializeUnitsForArmy,
+  rifleEquipmentId, rifleRequirement, transferCrewToShip, transferEquipment, transferMenToArmy,
+  unitIdFor, unitNameFor, unitNumberOf, unitReadiness, unitStatusFromCoverage,
+  type ArmyOperationalState, type MilitaryPersonnelState, type MilitaryUnitState,
 } from '../core/simulation/OperationalState';
 import type { OperationalStateStore } from './OperationalStateStore';
 import { splitMaterialPeriod } from './NationStateService';
@@ -77,6 +81,28 @@ export interface ProductionNotices {
 /** Registro vuoto: una chiamata isolata non ha memoria dei periodi precedenti. */
 export function createProductionNotices(): ProductionNotices {
   return { seen: new Set<string>(), state: new Map<string, string>() };
+}
+
+/**
+ * Esito (o anteprima) di un'azione su un **reparto**: gli stessi numeri del
+ * motore, in tabella PRIMA → DOPO, come l'anteprima di formazione. `blocked`
+ * arriva dalle regole del motore (riserva, deposito, destinazione), mai dalla UI.
+ */
+export interface UnitActionImpact {
+  applied: boolean;
+  action: 'reinforce' | 'reequip' | 'transfer' | 'reassign';
+  unitId: string;
+  unitName: string;
+  armyId: string;
+  armyName: string | null;
+  blocked: boolean;
+  blockedReason: string | null;
+  rows: Array<{ label: string; before: number; after: number; unit: 'numero' | 'pct' | 'mld' | 'per_mese' | 'mesi'; tone: ReadinessTone }>;
+  unit: MilitaryUnitState;
+  regionName?: string | null;
+  stock?: { food: number; fuel: number; money: number };
+  note: string;
+  why: string;
 }
 
 /** Dipendenze fornite da GameSession: stato che NON appartiene al dominio militare. */
@@ -309,6 +335,7 @@ export class MilitaryService {
           date: this.ctx.currentDate(),
           epoch,
           armies: snapshot.armies,
+          units: snapshot.units,
           facilities: snapshot.facilities,
           ships: snapshot.ships,
           fleets: snapshot.fleets,
@@ -324,6 +351,9 @@ export class MilitaryService {
           civilMonthlyMld,
           militaryMonthlyMld,
           fuelMonths: needs.fuel > 0 ? stock.fuel / needs.fuel : null,
+          // Chi decide se un'azione del reparto è eseguibile: riserva e deposito.
+          availableReserve: manpower.availableReserve,
+          depotUnits: this.depotUnits(polityId),
           allocation,
         });
       } catch (error) {
@@ -480,39 +510,60 @@ export class MilitaryService {
       formations,
     }) ?? null;
 
-    // 5. L'armata possiede uomini ed equipaggiamento: l'oggetto dello stato viene
-    //    allineato al mondo appena cambiato (armata esistente o nuova).
+    // 5. Il reparto **esiste davvero** (MILITARY-UNITS): l'armata non è più un
+    //    aggregato con un livello, è la somma dei suoi reparti. Il mondo ha già
+    //    dichiarato un reparto in più (il livello dell'armata): se la
+    //    materializzazione lazy l'ha creato **vuoto** (`forming`) è quello che
+    //    riceve uomini e pezzi; altrimenti il reparto nasce qui. La somma
+    //    dell'armata (uomini, pezzi, fabbisogni, reparti) si **deriva**, non si
+    //    dichiara: una sola fonte di verità.
+    let createdUnit: MilitaryUnitState | null = null;
     if (store) {
       const after = store.snapshot();
       const locatedId = placed?.armyId ?? input.armyId ?? null;
-      const target = locatedId
-        ? after.armies.find(army => String(army.objectId || army.id) === String(locatedId)) ?? null
-        : null;
-      const menPerFormation = doctrine.menPerFormation;
-      const formationsBefore = before?.formations ?? 0;
-      const basePersonnel = before
-        ? (before.legacyDerived ? Math.round(formationsBefore * menPerFormation) : before.personnel)
-        : 0;
       const garrisonId = after.armies.find(item => !item.objectId)?.id ?? null;
-      const nextArmies: ArmyOperationalState[] = after.armies.map(army => {
-        const isTarget = target ? army.id === target.id : garrisonId !== null && army.id === garrisonId;
-        if (isTarget) {
-          // L'armata passa a stato reale: uomini ed equipaggiamento sono i suoi.
-          const base = target
-            ? basePersonnel
-            : (army.legacyDerived ? Math.round(army.formations * menPerFormation) : army.personnel);
-          return {
-            ...army,
-            personnel: base + preview.plan.men,
-            equipment: transfer.assigned,
-            status: 'operational',
-            legacyDerived: false,
-            monthlyNeeds: this.needsForArmy(epoch, army.formations),
-          };
+      const targetArmy = locatedId
+        ? after.armies.find(army => String(army.objectId || army.id) === String(locatedId)) ?? null
+        : after.armies.find(army => army.id === garrisonId) ?? null;
+      if (targetArmy) {
+        const existing = after.units.filter(unit => String(unit.armyId) === String(targetArmy.id));
+        const pending = existing.find(unit => !unit.legacyDerived
+          && unit.status === 'forming'
+          && Math.round(nonNegative(unit.personnel)) <= 0
+          && Object.keys(unit.equipment || {}).length === 0) ?? null;
+        const index = pending
+          ? unitNumberOf(pending)
+          : existing.reduce((max, unit) => Math.max(max, unitNumberOf(unit)), 0) + 1;
+        const moved: Record<string, number> = {};
+        for (const item of preview.plan.items) {
+          if (item.consumed > 0) moved[item.equipmentId] = Math.round(item.consumed);
         }
-        return army;
-      });
-      store.saveArmies(nextArmies);
+        const rifles = equipmentQuantity(moved, rifleEquipmentId());
+        const status = unitStatusFromCoverage({ assigned: rifles, required: rifleRequirement(epoch, 1) });
+        createdUnit = {
+          id: pending?.id ?? unitIdFor(targetArmy.id, index),
+          armyId: targetArmy.id,
+          name: pending?.name ?? unitNameFor(epoch, index),
+          personnel: preview.plan.men,
+          equipment: moved,
+          monthlyNeeds: this.needsForArmy(epoch, 1),
+          readiness: 0,
+          status,
+          regionId: placed?.regionId ?? targetArmy.regionId,
+          regionName: placed?.regionName ?? targetArmy.regionName,
+          updatedDate: this.ctx.currentDate(),
+          legacyDerived: false,
+        };
+        createdUnit = { ...createdUnit, readiness: unitReadiness({ unit: createdUnit, epoch }) };
+        // Prima lo stato dell'armata (che ora è reale), poi i reparti che ne
+        // sono la somma: `saveUnits` riallinea l'aggregato nella stessa scrittura.
+        store.saveArmies(after.armies.map(army => (army.id === targetArmy.id
+          ? { ...army, status: 'operational' as const, legacyDerived: false }
+          : army)));
+        store.saveUnits(pending
+          ? after.units.map(unit => (unit.id === pending.id ? createdUnit as MilitaryUnitState : unit))
+          : [...after.units, createdUnit]);
+      }
     }
 
     return {
@@ -524,9 +575,232 @@ export class MilitaryService {
       spentMln: Math.round(preview.plan.initialCostMln * 100) / 100,
       financedMln: Math.round(financing.debtUsed * 1000),
       men: preview.plan.men,
+      // Il reparto creato: la UI lo mostra senza inventare nulla.
+      unit: createdUnit,
       equipment: transfer.assigned,
       impact: preview,
     };
+  }
+
+  // ── MILITARY-UNITS: azioni sui reparti (P5) ──────────────────────────────
+
+  /**
+   * Stato e prontezza di un reparto ricalcolati dai fatti del motore: la
+   * copertura d'armi individuali decide fra `forming`, `operational` e
+   * `degraded` (stesse soglie di `armyStatusFromCoverage`). Ritirata e
+   * distruzione sono fatti del mondo e non si toccano qui.
+   */
+  private refreshUnit(unit: MilitaryUnitState, epoch: MilitaryEpoch): MilitaryUnitState {
+    const required = rifleRequirement(epoch, 1);
+    const assigned = equipmentQuantity(unit.equipment, rifleEquipmentId());
+    const status: MilitaryUnitState['status'] = unit.status === 'destroyed' || unit.status === 'retreating'
+      ? unit.status
+      : unitStatusFromCoverage({ assigned, required });
+    const next = { ...unit, status };
+    return { ...next, readiness: unitReadiness({ unit: next, epoch }) };
+  }
+
+  /** Reparti (unità) persistenti del paese: la granularità sotto le armate. */
+  militaryUnits(): MilitaryUnitState[] {
+    const store = this.operational();
+    if (!store) return [];
+    try {
+      return store.units();
+    } catch (error) {
+      console.warn('[MilitaryService] Reparti non disponibili:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Azione su un reparto: **Trasferisci · Rinforza · Riequipaggia · Cambia
+   * armata**. Con `dryRun` è l'anteprima PRIMA → DOPO (nessuna scrittura); senza
+   * è l'azione vera: usa gli stessi passi del motore (riserva addestrata,
+   * deposito, costo di movimento del material flow) e l'aggregato dell'armata,
+   * che è **la somma** dei suoi reparti, viene riallineato in una scrittura sola.
+   */
+  unitAction(input: {
+    action: 'reinforce' | 'reequip' | 'transfer' | 'reassign';
+    unitId: string;
+    men?: number;
+    equipmentId?: string;
+    quantity?: number;
+    regionId?: string;
+    armyId?: string;
+    dryRun?: boolean;
+  }): UnitActionImpact {
+    const polityId = this.ctx.playerPolityId();
+    const epoch = this.epoch();
+    const store = this.operational();
+    if (!store) throw new Error('unit_unknown: stato degli oggetti non disponibile');
+    const snapshot = input.dryRun ? store.previewSnapshot() : store.snapshot();
+    const unit = snapshot.units.find(item => String(item.id) === String(input.unitId));
+    if (!unit) throw new Error(`unit_unknown: reparto «${input.unitId}» inesistente`);
+    const army = snapshot.armies.find(item => String(item.id) === String(unit.armyId)) ?? null;
+    const { doctrine, manpower, personnel } = this.manpowerOf(polityId, epoch);
+    const rows: UnitActionImpact['rows'] = [];
+    const toneFor = (value: number, unitOf: UnitActionImpact['rows'][number]['unit'], good: number, warn: number): ReadinessTone => (
+      unitOf !== 'pct' ? 'neutral' : value >= good ? 'positive' : value >= warn ? 'warning' : 'critical'
+    );
+    const push = (label: string, before: number, after: number, unitOf: UnitActionImpact['rows'][number]['unit'], good = 0, warn = 0) => {
+      rows.push({ label, before: round3(before), after: round3(after), unit: unitOf, tone: toneFor(after, unitOf, good, warn) });
+    };
+    let personnelAfter: MilitaryPersonnelState | null = null;
+    const blocked = (blockedReason: string, note: string, why: string): UnitActionImpact => ({
+      applied: false,
+      action: input.action,
+      unitId: unit.id,
+      unitName: unit.name,
+      armyId: unit.armyId,
+      armyName: army?.name ?? null,
+      blocked: true,
+      blockedReason,
+      rows,
+      unit,
+      regionName: unit.regionName,
+      note,
+      why,
+    });
+    const finish = (next: MilitaryUnitState, nextUnits: MilitaryUnitState[], note: string, why: string, stock?: ResourceStock): UnitActionImpact => {
+      if (!input.dryRun) {
+        if (personnelAfter) store.savePersonnel(personnelAfter);
+        if (stock) this.ctx.saveResourceStock(polityId, stock);
+        store.saveUnits(nextUnits);
+      }
+      return {
+        applied: !input.dryRun,
+        action: input.action,
+        unitId: next.id,
+        unitName: next.name,
+        armyId: next.armyId,
+        armyName: snapshot.armies.find(item => String(item.id) === String(next.armyId))?.name ?? army?.name ?? null,
+        blocked: false,
+        blockedReason: null,
+        rows,
+        unit: next,
+        regionName: next.regionName,
+        stock: stock ? { food: stock.food, fuel: stock.fuel, money: stock.money } : undefined,
+        note,
+        why,
+      };
+    };
+
+    if (input.action === 'reinforce') {
+      const menPerFormation = doctrine.menPerFormation;
+      const missing = Math.max(0, menPerFormation - Math.round(nonNegative(unit.personnel)));
+      const available = Math.max(0, Math.floor(manpower.availableReserve));
+      const wanted = input.men === undefined
+        ? Math.min(missing, available)
+        : Math.max(0, Math.round(Number(input.men) || 0));
+      if (missing <= 0) return blocked(`Organico già completo: ${menPerFormation.toLocaleString('it-IT')} uomini per reparto.`, 'Nessun uomo da aggiungere.', 'Il reparto ha già l\'organico d\'epoca.');
+      if (wanted <= 0) return blocked('Nessun uomo disponibile: la riserva addestrata è esaurita.', 'Nessun uomo da aggiungere.', 'Gli uomini arrivano solo dalla riserva addestrata (`transferMenToArmy`).');
+      if (wanted > available) return blocked(`Riserva insufficiente: servono ${wanted.toLocaleString('it-IT')} uomini richiamabili, ne restano ${available.toLocaleString('it-IT')}.`, 'Nessun uomo trasferito.', 'Gli uomini arrivano solo dalla riserva addestrata (`transferMenToArmy`).');
+      const nextPersonnel = personnel ? transferMenToArmy(personnel, wanted, doctrine) : null;
+      if (personnel && !nextPersonnel) return blocked('Riserva insufficiente: nessun uomo richiamabile.', 'Nessun uomo trasferito.', 'Gli uomini arrivano solo dalla riserva addestrata (`transferMenToArmy`).');
+      personnelAfter = nextPersonnel;
+      const next = this.refreshUnit({ ...unit, personnel: Math.round(nonNegative(unit.personnel)) + wanted, updatedDate: this.ctx.currentDate() }, epoch);
+      push('Uomini del reparto', unit.personnel, next.personnel, 'numero');
+      push('Organico', menPerFormation > 0 ? nonNegative(unit.personnel) / menPerFormation * 100 : 100, menPerFormation > 0 ? next.personnel / menPerFormation * 100 : 100, 'pct', 95, 60);
+      push('Riserva addestrata', manpower.availableReserve, Math.max(0, manpower.availableReserve - wanted), 'numero');
+      push('Prontezza', unit.readiness * 100, next.readiness * 100, 'pct', 80, 60);
+      return finish(next, snapshot.units.map(item => (item.id === unit.id ? next : item)), `Rinforzato «${next.name}»: ${wanted.toLocaleString('it-IT')} uomini dalla riserva.`, 'Gli uomini passano dalla riserva addestrata al reparto: nessuno viene creato dal nulla.');
+    }
+
+    if (input.action === 'reequip') {
+      const equipmentId = (input.equipmentId || rifleEquipmentId()).trim();
+      if (!isKnownEquipment(equipmentId)) throw new Error(`equipment_unknown: «${equipmentId}» non è nel catalogo`);
+      const isIndividual = equipmentId === rifleEquipmentId();
+      const required = isIndividual ? rifleRequirement(epoch, 1) : null;
+      const assigned = equipmentQuantity(unit.equipment, equipmentId);
+      const depot = this.depotUnits(polityId);
+      const inDepot = equipmentQuantity(depot, equipmentId);
+      if (required === null && input.quantity === undefined) throw new Error(`unit_invalid: quantity obbligatoria per «${equipmentId}»`);
+      const missing = required === null
+        ? Math.max(0, Math.round(Number(input.quantity) || 0))
+        : Math.max(0, required - assigned);
+      const wanted = Math.min(missing, inDepot);
+      const label = equipmentById(equipmentId)?.name || equipmentId;
+      if (missing <= 0) return blocked(`Dotazione già completa: ${assigned.toLocaleString('it-IT')} pezzi assegnati.`, 'Nessun pezzo trasferito.', 'La dotazione del reparto è già quella d\'epoca.');
+      if (wanted <= 0) return blocked(`Deposito senza «${label}»: non c\'è nulla da assegnare.`, 'Nessun pezzo trasferito.', 'I pezzi si costruiscono o si comprano: il deposito è ciò che esiste davvero.');
+      const transfer = transferEquipment({ depot, assigned: unit.equipment, items: [{ equipmentId, quantity: wanted }] });
+      if (!transfer) return blocked('Deposito insufficiente per il trasferimento.', 'Nessun pezzo trasferito.', 'Il deposito è ciò che esiste davvero.');
+      const next = this.refreshUnit({ ...unit, equipment: transfer.assigned, updatedDate: this.ctx.currentDate() }, epoch);
+      push(`${label} del reparto`, assigned, equipmentQuantity(transfer.assigned, equipmentId), 'numero');
+      if (required !== null) push('Copertura armi individuali', required > 0 ? assigned / required * 100 : 100, required > 0 ? equipmentQuantity(transfer.assigned, equipmentId) / required * 100 : 100, 'pct', 95, 80);
+      push(`Deposito · ${label}`, inDepot, equipmentQuantity(transfer.depot, equipmentId), 'numero');
+      push('Prontezza', unit.readiness * 100, next.readiness * 100, 'pct', 80, 60);
+      const partial = wanted < missing ? ` (parziale: mancano ancora ${(missing - wanted).toLocaleString('it-IT')} pezzi)` : '';
+      const outcome = finish(next, snapshot.units.map(item => (item.id === unit.id ? next : item)), `Assegnati ${wanted.toLocaleString('it-IT')} × ${label} a «${next.name}»${partial}.`, 'Il pezzo passa dal deposito al reparto: deposito + assegnato resta il totale nazionale.');
+      if (!input.dryRun) this.saveArsenal(polityId, transfer.depot);
+      return outcome;
+    }
+
+    if (input.action === 'transfer') {
+      const regions = this.ctx.playerRegions?.() || [];
+      const target = input.regionId ? regions.find(region => String(region.id) === String(input.regionId)) : undefined;
+      if (!target) throw new Error(`region_unknown: «${input.regionId ?? ''}» non è una regione del paese`);
+      if (String(unit.regionId || '') === String(target.id)) return blocked(`Il reparto è già in ${target.name}.`, 'Nessuno spostamento.', 'Un reparto si sposta in un\'altra regione, non dentro la propria.');
+      const before = this.ctx.resourceStock(polityId);
+      const cost = movementCost(before);
+      const payment = payMovement(before, cost);
+      const next = { ...unit, regionId: target.id, regionName: target.name || null, updatedDate: this.ctx.currentDate() };
+      push('Cibo (scorte)', before.food, payment.stock.food, 'numero');
+      push('Carburante (scorte)', before.fuel, payment.stock.fuel, 'numero');
+      push('Cassa', before.money, payment.stock.money, 'mld');
+      const why = cost.motorized
+        ? 'Movimento meccanizzato: paga cibo, carburante e denaro con lo **stesso** costo del motore (`movementCost`).'
+        : 'Movimento appiedato: paga cibo e denaro con lo **stesso** costo del motore (`movementCost`). La motorizzazione aggiungerebbe il carburante.';
+      const note = payment.covered
+        ? `«${next.name}» trasferito in ${next.regionName}.`
+        : `«${next.name}» trasferito in ${next.regionName} con scorte insufficienti: ${payment.shortages.join('; ')}.`;
+      return finish(next, snapshot.units.map(item => (item.id === unit.id ? next : item)), note, why, payment.stock);
+    }
+
+    const targetArmy = input.armyId
+      ? snapshot.armies.find(item => String(item.id) === String(input.armyId))
+      : undefined;
+    if (!targetArmy) throw new Error(`army_unknown: «${input.armyId ?? ''}» non è un\'armata dello stato`);
+    if (String(targetArmy.id) === String(unit.armyId)) return blocked(`Il reparto è già in ${targetArmy.name}.`, 'Nessuno spostamento.', 'Un reparto appartiene a una sola armata.');
+    // L'id del reparto segue l'armata di appartenenza (gli id sono unici nello
+    // stato): cambiando armata il reparto riceve la numerazione libera
+    // dell'armata di arrivo. Il **nome** resta quello del reparto.
+    const nextNumber = snapshot.units
+      .filter(item => String(item.armyId) === String(targetArmy.id))
+      .reduce((max, item) => Math.max(max, unitNumberOf(item)), 0) + 1;
+    const next = {
+      ...unit,
+      id: unitIdFor(targetArmy.id, nextNumber),
+      armyId: targetArmy.id,
+      regionId: targetArmy.regionId ?? unit.regionId,
+      regionName: targetArmy.regionName ?? unit.regionName,
+      updatedDate: this.ctx.currentDate(),
+    };
+    const nextUnits = snapshot.units.map(item => (item.id === unit.id ? next : item));
+    const sumOf = (armyId: string) => aggregateArmyFromUnits(
+      snapshot.armies.find(item => String(item.id) === String(armyId)) ?? targetArmy,
+      nextUnits.filter(item => String(item.armyId) === String(armyId)),
+    );
+    const from = sumOf(unit.armyId);
+    const to = sumOf(targetArmy.id);
+    push(`Reparti · ${army?.name || 'armata di partenza'}`, army?.formations ?? 0, from.formations, 'numero');
+    push(`Uomini · ${army?.name || 'armata di partenza'}`, army?.personnel ?? 0, from.personnel, 'numero');
+    push(`Reparti · ${targetArmy.name}`, targetArmy.formations, to.formations, 'numero');
+    push(`Uomini · ${targetArmy.name}`, targetArmy.personnel, to.personnel, 'numero');
+    // Il mondo dichiara ancora N reparti per l'armata di partenza (il livello
+    // dell'oggetto della mappa non si tocca da qui): la materializzazione crea un
+    // reparto **in formazione, senza uomini**. Il giocatore deve saperlo.
+    const leaving = materializeUnitsForArmy({
+      army: snapshot.armies.find(item => String(item.id) === String(unit.armyId)) ?? targetArmy,
+      epoch,
+      date: this.ctx.currentDate(),
+      formations: army?.formations ?? 0,
+      existing: nextUnits.filter(item => String(item.armyId) === String(unit.armyId)),
+    });
+    const cadre = Math.max(0, leaving.length - from.formations);
+    const note = cadre > 0
+      ? `«${next.name}» passa a ${targetArmy.name}. Il mondo dichiara ancora ${army?.formations ?? 0} reparti per «${army?.name || unit.armyId}»: ne nasce uno **in formazione, senza uomini** (la mappa non si tocca da qui: nessun uomo viene creato dal nulla).`
+      : `«${next.name}» passa a ${targetArmy.name}.`;
+    return finish(next, nextUnits, note, 'Uomini, pezzi e fabbisogni seguono il reparto: le due armate sono la somma dei loro reparti.');
   }
 
   /** Regioni del mondo (per gli oggetti concreti e per il «dopo» del motore). */

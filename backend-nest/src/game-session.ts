@@ -1282,6 +1282,29 @@ export class GameSession {
     return this.military.raiseFormation(input);
   }
 
+  /** MILITARY-UNITS — reparti (unità) persistenti: la granularità sotto l'armata. */
+  militaryUnits() {
+    return this.military.militaryUnits();
+  }
+
+  /**
+   * MILITARY-UNITS — azione su un reparto: `dryRun` è l'anteprima PRIMA → DOPO,
+   * altrimenti l'azione vera (riserva, deposito, movimento: regole del motore).
+   */
+  unitAction(input: {
+    action: 'reinforce' | 'reequip' | 'transfer' | 'reassign';
+    unitId: string;
+    men?: number;
+    equipmentId?: string;
+    quantity?: number;
+    regionId?: string;
+    armyId?: string;
+    dryRun?: boolean;
+  }) {
+    this.assertPlayable();
+    return this.military.unitAction(input);
+  }
+
   /**
    * Arsenale, risorse naturali, capacità industriale e catalogo completo con la
    * fattibilità di costruzione/acquisto per ogni voce.

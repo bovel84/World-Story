@@ -335,6 +335,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             procureEquipment={nation.procureEquipment}
             onPreviewFormation={nation.previewFormation}
             onRaiseFormation={nation.raiseFormation}
+            onUnitAction={nation.unitAction}
             tradeResource={nation.tradeNaturalResource}
             nationalHistory={nation.nationalHistory}
             nationalGovernment={nation.nationalGovernment}

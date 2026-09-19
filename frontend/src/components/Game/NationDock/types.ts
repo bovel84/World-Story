@@ -107,6 +107,8 @@ export interface NationDockProps {
   onPreviewFormation?: (options: { formations?: number; armyId?: string | null; name?: string }) => Promise<import('../../../services/api').FormationImpactPayload>;
   /** OP-OBJECTS — crea davvero i reparti (il motore paga e aggiorna il mondo). */
   onRaiseFormation?: (options: { formations?: number; armyId?: string | null; name?: string }) => Promise<unknown>;
+  /** MILITARY-UNITS — azione su un reparto: anteprima (`dryRun`) o esecuzione. */
+  onUnitAction?: (request: import('../../../services/api').UnitActionRequest) => Promise<import('../../../services/api').UnitActionImpactPayload>;
   /** Vende o compra una risorsa naturale sul mercato. */
   trade?: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;
   /** Serie storica dei conti del paese (dal più vecchio al più recente). */
