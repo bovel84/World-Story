@@ -641,14 +641,20 @@ export class OperationalStateStore {
     // pezzi, fabbisogni e numero di reparti dell'armata sono la somma dei suoi
     // reparti. Nessun uomo viene creato dal nulla: il mondo può solo dichiarare
     // reparti in più, che nascono vuoti (`forming`).
-    // P4 — l'armata è un oggetto della mappa **del giocatore**: qui si
-    // riconciliano solo i suoi reparti. I reparti di altre polity restano
-    // intatti (una lettura del giocatore non deve cancellare le unità NPC).
+    // P4 — si riconciliano **solo** i reparti la cui armata è ancora un oggetto
+    // della mappa del giocatore; ogni altro reparto resta intatto:
+    // - le unità delle altre polity (mai cancellate da una lettura del player);
+    // - i reparti la cui armata non è più fra gli oggetti del giocatore (es. la
+    //   provincia dell'armata è stata conquistata): cancellarli era una perdita
+    //   di stato silenziosa, ed è la ragione per cui si filtra per `armyId`
+    //   **oltre** che per polity.
     const playerPolityId = String(this.inputs.playerPolityId());
-    const foreignUnits = snapshot.units.filter(unit => String(unit.polityId) !== playerPolityId);
+    const liveArmyIds = new Set(snapshot.armies.map(army => String(army.id)));
+    const foreignUnits = snapshot.units.filter(unit => !liveArmyIds.has(String(unit.armyId)));
     const unitsOf = new Map<string, MilitaryUnitState[]>();
     for (const unit of snapshot.units) {
       if (String(unit.polityId) !== playerPolityId) continue;
+      if (!liveArmyIds.has(String(unit.armyId))) continue;
       const list = unitsOf.get(String(unit.armyId));
       if (list) list.push(unit);
       else unitsOf.set(String(unit.armyId), [unit]);
