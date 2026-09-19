@@ -28,6 +28,8 @@ import {
   type FormationImpactPayload,
   type UnitActionImpactPayload,
   type UnitActionRequest,
+  type UnitOrderImpactPayload,
+  type UnitOrderRequest,
 } from '../services/api';
 import { normalizeResources } from '../components/Game/nationDossier';
 
@@ -123,6 +125,11 @@ export interface NationSnapshot {
    * altrimenti il motore applica e i dati pubblicati vengono ricaricati.
    */
   unitAction: (request: UnitActionRequest) => Promise<UnitActionImpactPayload>;
+  /**
+   * MILITARY-UNITS PR2 — mossa di un reparto sul fronte (Attacca · Difendi ·
+   * Riserva · Ripiega): `dryRun` è l'anteprima, altrimenti il motore applica.
+   */
+  unitOrder: (request: UnitOrderRequest) => Promise<UnitOrderImpactPayload>;
   tradeNaturalResource: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;
   borrowSovereignDebt: (amountMld: number, termYears: number) => Promise<void>;
   setFiscalPolicy: (taxRatePct: number) => Promise<void>;
@@ -335,6 +342,40 @@ export function useNationSnapshot({
    * · Cambia armata). Il motore decide e applica; qui si ricaricano soltanto i
    * dati pubblicati e, quando l'azione è andata a segno, lo si dice al giocatore.
    */
+  /**
+   * MILITARY-UNITS PR2 — mossa del reparto sul fronte. Stesso motore degli NPC:
+   * qui cambia solo chi sceglie l'ordine. L'anteprima non scrive nulla.
+   */
+  const unitOrder = useCallback(async (request: UnitOrderRequest) => {
+    if (!gameId) throw new Error('unit_unknown: nessuna partita attiva');
+    try {
+      const result = await gameApi.unitOrder(gameId, request);
+      if (request.dryRun) return result;
+      notify(result.note, 'success');
+      const [arms, national] = await Promise.all([
+        gameApi.arsenal(gameId),
+        gameApi.nationalState(gameId),
+      ]);
+      setNationalArms(arms);
+      setNationalResources(normalizeResources(national.resources));
+      setNationalAccounts(national.accounts || {});
+      setNationalGovernment(national.government ?? null);
+      return { ...result, applied: true };
+    } catch (error: any) {
+      console.error('[App] Ordine del reparto fallito:', error);
+      const message = String(error?.message || '');
+      const reason = message.includes('front_unknown')
+        ? 'Il reparto non e\' in un fronte: nessun ordine da dare.'
+        : message.includes('order_unknown')
+          ? 'Ordine non riconosciuto dal motore.'
+          : message.includes('unit_unknown')
+            ? message.replace(/^.*unit_unknown:\s*/, '') || 'Reparto inesistente.'
+            : message.replace(/^.*(front_unknown|order_unknown|unit_unknown):\s*/, '') || 'Ordine non applicato.';
+      notify(reason, 'error');
+      throw error;
+    }
+  }, [gameId, notify]);
+
   const unitAction = useCallback(async (request: UnitActionRequest) => {
     if (!gameId) throw new Error('unit_unknown: nessuna partita attiva');
     try {
@@ -486,6 +527,7 @@ export function useNationSnapshot({
     previewFormation,
     raiseFormation,
     unitAction,
+    unitOrder,
     tradeNaturalResource,
     borrowSovereignDebt,
     setFiscalPolicy,

@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
 import type { ArsenalResponse, FormationImpactPayload, OperatingPicturePayload } from '../../services/api';
 import {
   armyTargets, childrenOf, factRows, factsByLabel, formatFactValue, formationActionView, formationOutcomeLine,
-  kindCount, objectsOfKind, primaryProblem, regionTargets, sectorCards, sectionsOf, statusTone, unitActionView,
+  KIND_LABEL, kindCount, objectsOfKind, primaryProblem, regionTargets, sectorCards, sectionsOf, statusTone,
+  unitActionView, unitOrderView,
 } from './operationalObjects';
 
 const fact = (section: any, label: string, value: number | null, unit: any, tone?: any, text?: string) =>
@@ -345,5 +346,42 @@ describe('MILITARY-UNITS — reparti nel read model', () => {
     const wide: OperatingPicturePayload = { ...unitPicture, objects: [...unitPicture.objects, other] };
     expect(armyTargets(wide, unitObject)).toEqual([{ id: 'army-B', label: '2ª Armata' }]);
     expect(regionTargets(wide, unitObject)).toEqual([{ id: 'ita2', label: 'Italia centrale' }]);
+  });
+});
+
+describe('MILITARY-UNITS PR2 — fronti e mosse del reparto', () => {
+  const orderImpact: any = {
+    applied: false, unitId: 'army-A-unit-001', unitName: '1ª Brigata',
+    order: 'attack', previousOrder: 'defend', frontId: 'front-AUT-ITA',
+    frontName: 'Fronte Italia–Austria',
+    rows: [
+      { label: 'Pressione dell\'attacco', before: 100, after: 135, unit: 'pct', tone: 'neutral' },
+      { label: 'Perdite stimate', before: 0, after: 540, unit: 'numero', tone: 'warning' },
+      { label: 'Consumi di guerra', before: 0.3, after: 0.5, unit: 'per_mese', tone: 'neutral' },
+    ],
+    unit: unitObject, note: 'Ordine «Attacca» registrato.', why: 'Stesso motore degli NPC.',
+  };
+
+  it('la vista di un ordine usa i numeri del motore, con il fronte come contesto', () => {
+    const view = unitOrderView(orderImpact);
+    expect(view?.title).toContain('Attacca');
+    expect(view?.title).toContain('1ª Brigata');
+    expect(view?.costLine).toContain('Fronte Italia–Austria');
+    expect(view?.costLine).toContain('Difendi');
+    expect(view?.rows.map(row => row.label))
+      .toEqual(['Pressione dell\'attacco', 'Perdite stimate', 'Consumi di guerra']);
+    expect(unitOrderView(null)).toBeNull();
+  });
+
+  it('il fronte e\' un oggetto del quadro, annidato nelle forze armate', () => {
+    const front: any = {
+      id: 'front-AUT-ITA', kind: 'front', label: 'Fronte Italia–Austria', parentId: 'force',
+      status: 'active', statusLabel: 'In contatto', facts: [], problems: [], actions: [],
+      subtitle: 'Italia contro Austria',
+    };
+    const withFront: OperatingPicturePayload = { ...unitPicture, objects: [...unitPicture.objects, front] };
+    expect(KIND_LABEL.front).toBe('Fronte');
+    expect(childrenOf(withFront, 'force').map(object => object.id)).toContain('front-AUT-ITA');
+    expect(sectorCards(withFront).find(card => card.id === 'forze')?.objectIds).toContain('front-AUT-ITA');
   });
 });

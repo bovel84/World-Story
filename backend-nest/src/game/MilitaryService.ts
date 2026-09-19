@@ -46,7 +46,9 @@ import {
   materializeUnitsForArmy,
   rifleEquipmentId, rifleRequirement, transferCrewToShip, transferEquipment, transferMenToArmy,
   unitIdFor, unitNameFor, unitNumberOf, unitReadiness, unitStatusFromCoverage,
+  UNIT_ORDER_DEFAULT,
   type ArmyOperationalState, type MilitaryPersonnelState, type MilitaryUnitState,
+  type WarFrontState,
 } from '../core/simulation/OperationalState';
 import type { OperationalStateStore } from './OperationalStateStore';
 import { splitMaterialPeriod } from './NationStateService';
@@ -138,6 +140,14 @@ export interface MilitaryContext {
    * lazy è dentro lo store: qui si legge solo lo stato corrente.
    */
   operationalObjects?(): OperationalStateStore;
+  /**
+   * MILITARY-UNITS PR2: fronti di guerra. Il fronte **deriva** le sue unità dal
+   * loro `frontId`: la scheda del reparto mostra fronte e ordine, non un secondo
+   * elenco di appartenenza.
+   */
+  warFronts?(): WarFrontState[];
+  /** Province del mondo (nome leggibile) per il teatro dei fronti. */
+  worldRegions?(): Array<{ id: string; name: string }>;
 }
 
 export class MilitaryService {
@@ -336,6 +346,9 @@ export class MilitaryService {
           epoch,
           armies: snapshot.armies,
           units: snapshot.units,
+          // MILITARY-UNITS PR2: i fronti sono oggetti del quadro; le loro unità
+          // arrivano dal `frontId` dei reparti (una sola fonte).
+          fronts: this.ctx.warFronts?.() ?? snapshot.fronts,
           facilities: snapshot.facilities,
           ships: snapshot.ships,
           fleets: snapshot.fleets,
@@ -354,6 +367,7 @@ export class MilitaryService {
           // Chi decide se un'azione del reparto è eseguibile: riserva e deposito.
           availableReserve: manpower.availableReserve,
           depotUnits: this.depotUnits(polityId),
+          regions: this.ctx.worldRegions?.() ?? (this.ctx.playerRegions?.() || []).map(region => ({ id: region.id, name: region.name })),
           allocation,
         });
       } catch (error) {
@@ -553,6 +567,8 @@ export class MilitaryService {
           regionName: placed?.regionName ?? targetArmy.regionName,
           updatedDate: this.ctx.currentDate(),
           legacyDerived: false,
+          order: UNIT_ORDER_DEFAULT,
+          frontId: null,
         };
         createdUnit = { ...createdUnit, readiness: unitReadiness({ unit: createdUnit, epoch }) };
         // Prima lo stato dell'armata (che ora è reale), poi i reparti che ne

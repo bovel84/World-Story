@@ -425,9 +425,15 @@ describe('MILITARY-UNITS — read model /arsenal (P4)', () => {
     expect(labels).toContain('Copertura armi individuali');
     expect(labels).toContain('Prontezza');
     expect(picture.counts.unit).toBe(list.length);
-    // Nessuna azione inventata: sono le quattro del motore.
+    // Nessuna azione inventata: le quattro del reparto (PR1) **piu'** le quattro
+    // mosse del fronte (MILITARY-UNITS PR2, stessa fonte `unitActions`).
     expect(child.actions.map((action: any) => action.id).sort())
-      .toEqual(['reassign_unit', 'reequip_unit', 'reinforce_unit', 'transfer_unit']);
+      .toEqual(['order_attack', 'order_defend', 'order_reserve', 'order_withdraw',
+        'reassign_unit', 'reequip_unit', 'reinforce_unit', 'transfer_unit']);
+    // Senza fronte le mosse sono dichiarate **bloccate**, non nascoste.
+    const orders = child.actions.filter((action: any) => String(action.id).startsWith('order_'));
+    expect(orders.every((action: any) => action.enabled === false)).toBe(true);
+    expect(orders.every((action: any) => /non e' assegnato a un fronte|non è assegnato a un fronte/.test(String(action.blockedReason)))).toBe(true);
   });
 
   it('24: il reparto senza uomini è un problema dichiarato', () => {

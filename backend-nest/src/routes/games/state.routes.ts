@@ -299,6 +299,32 @@ router.post('/:id/military/units/:unitId/:action(reinforce|reequip|transfer|reas
   }
 });
 
+// MILITARY-UNITS PR2 — fronti di guerra (strategici). Il fronte deriva le sue
+// unità dal `frontId` dei reparti: l'elenco non è una seconda verità.
+router.get('/:id/military/fronts', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json({ fronts: session.publicFronts() });
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to list fronts');
+  }
+});
+
+// Ordine di un reparto sul fronte: `dryRun` è l'anteprima PRIMA → DOPO
+// (pressione, perdite attese, consumi di guerra) senza scrivere nulla.
+router.post('/:id/military/units/:unitId/order', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json(session.unitOrder({
+      unitId: String(req.params.unitId),
+      order: String(req.body?.order || '') as 'attack' | 'defend' | 'reserve' | 'withdraw',
+      dryRun: req.body?.dryRun === true,
+    }));
+  } catch (e: any) {
+    respondDomainError(res, e, UNIT_ERROR_CODES, 'Failed to set unit order');
+  }
+});
+
 // Compravendita di risorse naturali sul mercato mondiale (denaro ↔ magazzino).
 router.post('/:id/resources/trade', (req, res) => {
   try {

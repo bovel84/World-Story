@@ -120,6 +120,52 @@ test.describe('OP-OBJECTS — sala di governo', () => {
     await expect(block).toBeVisible();
   });
 
+  test('MILITARY-UNITS PR2: il fronte è un oggetto e il reparto ha le quattro mosse', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+    const block = await openSalaDiGoverno(page);
+
+    await block.locator('.obj-sector', { hasText: 'Forze armate' }).locator('.obj-open').click();
+    // Il fronte è nel settore delle forze, con pressione e obiettivo dichiarati.
+    const fronte = block.locator('.obj-object[aria-label="Fronte Italia–Austria"]');
+    await expect(fronte).toBeVisible();
+    await expect(fronte).toContainText('Fronte');
+    await expect(fronte).toContainText('In stallo');
+
+    // Le mosse del reparto sono quelle del motore; quella già in corso è bloccata.
+    const reparto = block.locator('.obj-object[aria-label="1ª Brigata"]');
+    const mosse = reparto.locator('.obj-unit-orders');
+    await expect(mosse).toContainText('Mosse sul fronte');
+    await expect(mosse.locator('.obj-action-button', { hasText: 'Attacca' })).toBeEnabled();
+    await expect(mosse.locator('.obj-action-button', { hasText: 'Difendi' })).toBeDisabled();
+    await expect(mosse.locator('.obj-action-button', { hasText: 'Difendi' })).toHaveAttribute('title', /ordine «Difendi»/);
+    // Senza fronte l'ordine è dichiarato bloccato, non nascosto.
+    const senzaFronte = block.locator('.obj-object[aria-label="2ª Brigata"]');
+    await expect(senzaFronte.locator('.obj-unit-orders')).toContainText('Mosse sul fronte');
+    await expect(senzaFronte.locator('.obj-unit-orders .obj-action-button', { hasText: 'Attacca' })).toBeDisabled();
+  });
+
+  test('MILITARY-UNITS PR2: l’ordine mostra il PRIMA → DOPO e si conferma', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+    const block = await openSalaDiGoverno(page);
+
+    await block.locator('.obj-sector', { hasText: 'Forze armate' }).locator('.obj-open').click();
+    const reparto = block.locator('.obj-object[aria-label="1ª Brigata"]');
+    await reparto.locator('.obj-unit-orders .obj-action-button', { hasText: 'Attacca' }).click();
+    await reparto.locator('.obj-unit-actions .obj-confirm', { hasText: 'Anteprima' }).click();
+
+    const azione = reparto.locator('.obj-unit-actions .obj-action');
+    await expect(azione).toBeVisible();
+    await expect(azione.locator('.obj-action-head')).toContainText('Attacca · 1ª Brigata');
+    await expect(azione.locator('.obj-action-head')).toContainText('Fronte Italia–Austria');
+    await expect(azione.locator('.obj-delta')).toContainText('Pressione dell’attacco');
+    await expect(azione.locator('.obj-delta')).toContainText('Perdite stimate');
+    await expect(azione.locator('.obj-delta')).toContainText('Consumi di guerra');
+    await azione.locator('.obj-confirm').click();
+    await expect(block).toBeVisible();
+  });
+
   test('il cantiere mostra un’opera che non produce nulla prima del completamento', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);

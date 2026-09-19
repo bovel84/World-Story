@@ -234,16 +234,19 @@ export interface OperatingProblemPayload {
   detail?: string | null;
 }
 
+export type UnitOrderPayload = 'attack' | 'defend' | 'reserve' | 'withdraw';
+
 export interface OperatingActionPayload {
   id: 'raise_formation' | 'procure' | 'trade'
-    | 'reinforce_unit' | 'reequip_unit' | 'transfer_unit' | 'reassign_unit';
+    | 'reinforce_unit' | 'reequip_unit' | 'transfer_unit' | 'reassign_unit'
+    | 'order_attack' | 'order_defend' | 'order_reserve' | 'order_withdraw';
   label: string;
   enabled: boolean;
   blockedReason?: string | null;
 }
 
 export type OperatingKindPayload =
-  | 'force' | 'army' | 'unit' | 'facility' | 'construction' | 'navy' | 'fleet' | 'ship' | 'mine';
+  | 'force' | 'army' | 'unit' | 'front' | 'facility' | 'construction' | 'navy' | 'fleet' | 'ship' | 'mine';
 
 /** Un oggetto concreto del paese: armata, impianto, cantiere, nave, miniera. */
 export interface OperatingObjectPayload {
@@ -354,10 +357,50 @@ export interface MilitaryUnitPayload {
   regionName: string | null;
   updatedDate: string;
   legacyDerived: boolean;
+  /** MILITARY-UNITS PR2 — mossa corrente e fronte di appartenenza. */
+  order?: UnitOrderPayload;
+  frontId?: string | null;
+}
+
+/** MILITARY-UNITS PR2 — un **fronte** di guerra: due parti in contatto. */
+export interface WarFrontPayload {
+  id: string;
+  name: string;
+  attackerPolityId: string;
+  defenderPolityId: string;
+  regionIds: string[];
+  status: 'forming' | 'active' | 'stalemate' | 'breakthrough' | 'collapsed' | 'closed';
+  objectiveRegionId: string | null;
+  attackerPressure: number;
+  defenderPressure: number;
+  createdDate: string;
+  updatedDate: string;
+}
+
+/** MILITARY-UNITS PR2 — esito (o anteprima) di un ordine sul reparto. */
+export interface UnitOrderImpactPayload {
+  applied: boolean;
+  unitId: string;
+  unitName: string;
+  order: UnitOrderPayload;
+  previousOrder: UnitOrderPayload;
+  frontId: string | null;
+  frontName: string | null;
+  rows: Array<{ label: string; before: number; after: number; unit: OperatingFactUnit; tone: string }>;
+  unit: MilitaryUnitPayload;
+  note: string;
+  why: string;
 }
 
 /** MILITARY-UNITS — le azioni reali del reparto (regole del motore). */
 export type UnitActionId = 'reinforce' | 'reequip' | 'transfer' | 'reassign';
+
+export interface UnitOrderRequest {
+  unitId: string;
+  order: UnitOrderPayload;
+  /** Anteprima PRIMA → DOPO: nessuna scrittura. */
+  dryRun?: boolean;
+}
 
 export interface UnitActionRequest {
   action: UnitActionId;
@@ -1086,6 +1129,21 @@ export const gameApi = {
    * MILITARY-UNITS — azione su un reparto: `dryRun` è l'anteprima PRIMA → DOPO,
    * altrimenti l'azione vera (riserva, deposito, costo di movimento del motore).
    */
+  /** MILITARY-UNITS PR2 — fronti aperti del paese (stessa fonte dello stato). */
+  militaryFronts: (gameId: string): Promise<{ fronts: WarFrontPayload[] }> =>
+    fetchApi(`/games/${gameId}/military/fronts`),
+
+  /**
+   * MILITARY-UNITS PR2 — mossa di un reparto sul suo fronte: `dryRun` e'
+   * l'anteprima PRIMA → DOPO (pressione, perdite attese, consumi), altrimenti
+   * l'ordine vero. Stesso motore per il giocatore e per gli NPC.
+   */
+  unitOrder: (gameId: string, request: UnitOrderRequest): Promise<UnitOrderImpactPayload> =>
+    fetchApi(`/games/${gameId}/military/units/${encodeURIComponent(request.unitId)}/order`, {
+      method: 'POST',
+      body: JSON.stringify({ order: request.order, dryRun: request.dryRun === true }),
+    }),
+
   unitAction: (gameId: string, request: UnitActionRequest): Promise<UnitActionImpactPayload> =>
     fetchApi(`/games/${gameId}/military/units/${encodeURIComponent(request.unitId)}/${request.action}`, {
       method: 'POST',

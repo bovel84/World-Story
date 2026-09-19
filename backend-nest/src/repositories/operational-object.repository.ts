@@ -11,7 +11,7 @@
 
 import db from '../database';
 
-export type OperationalObjectKind = 'facility' | 'ship' | 'fleet' | 'construction' | 'personnel' | 'unit';
+export type OperationalObjectKind = 'facility' | 'ship' | 'fleet' | 'construction' | 'personnel' | 'unit' | 'front';
 
 export interface OperationalObjectRow {
   id: string;
@@ -25,7 +25,7 @@ interface RawRow {
   data: string;
 }
 
-const KINDS: OperationalObjectKind[] = ['facility', 'ship', 'fleet', 'construction', 'personnel', 'unit'];
+const KINDS: OperationalObjectKind[] = ['facility', 'ship', 'fleet', 'construction', 'personnel', 'unit', 'front'];
 
 function parseKind(kind: string): OperationalObjectKind | null {
   return (KINDS as string[]).includes(kind) ? (kind as OperationalObjectKind) : null;

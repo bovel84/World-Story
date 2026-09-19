@@ -280,6 +280,68 @@ export interface ArmyOperationalState {
   legacyDerived: boolean;
 }
 
+/** Ordine di battaglia di un reparto (P7): persistente, decide i fattori del fronte. */
+export type UnitOrder = 'attack' | 'defend' | 'reserve' | 'withdraw';
+
+/** Ordine di un reparto senza fronte: si difende (nessun ordine dato dal giocatore). */
+export const UNIT_ORDER_DEFAULT: UnitOrder = 'defend';
+
+export const UNIT_ORDER_LABEL: Record<UnitOrder, string> = {
+  attack: 'Attacca',
+  defend: 'Difendi',
+  reserve: 'Riserva',
+  withdraw: 'Ritirati',
+};
+
+/**
+ * Fattori **minimi e centralizzati** dell'ordine di battaglia (P8): quanto pesa
+ * sulla pressione, quanto espone alle perdite, quanto consuma in un fronte
+ * attivo. Sono gli stessi numeri per il giocatore e per gli NPC, e li legge sia
+ * il `FrontEngine` sia la scheda del reparto: nessuna copia da tenere allineata.
+ */
+export const UNIT_ORDER_INFO: Record<UnitOrder, { pressure: number; losses: number; consumption: number; note: string }> = {
+  attack: { pressure: 1.35, losses: 1.25, consumption: 1.8, note: 'Assalto: più pressione, più perdite, più consumi.' },
+  defend: { pressure: 1, losses: 0.85, consumption: 1.2, note: 'Difesa: pressione piena, perdite contenute.' },
+  reserve: { pressure: 0.45, losses: 0.5, consumption: 0.8, note: 'Riserva: contributo ridotto, perdite basse.' },
+  withdraw: { pressure: 0, losses: 0.7, consumption: 1, note: 'Ritirata: nessuna pressione, ripiegamento verso una provincia amica.' },
+};
+
+/** Stato di un fronte: le fasi del combattimento strategico (mai tattico). */
+export type WarFrontStatus = 'forming' | 'active' | 'stalemate' | 'breakthrough' | 'collapsed' | 'closed';
+
+export const FRONT_STATUS_LABEL: Record<WarFrontStatus, string> = {
+  forming: 'In formazione',
+  active: 'Attivo',
+  stalemate: 'In stallo',
+  breakthrough: 'Sfondamento',
+  collapsed: 'Collassato',
+  closed: 'Chiuso',
+};
+
+/**
+ * Un **fronte di guerra** (P6): il livello **strategico** del conflitto —
+ * territorio conteso, unità coinvolte, obiettivo, pressione e stato. Non è un
+ * wargame tattico: non ha esagoni, linee o battaglie a sé.
+ *
+ * La fonte autorevole dell'assegnazione è `MilitaryUnit.frontId`: il fronte
+ * **deriva** le sue unità da lì, non tiene un secondo elenco.
+ */
+export interface WarFrontState {
+  id: string;
+  name: string;
+  attackerPolityId: string;
+  defenderPolityId: string;
+  /** Teatro: le province di confine realmente contese (adiacenza della mappa). */
+  regionIds: string[];
+  status: WarFrontStatus;
+  /** Provincia che l'attaccante vuole conquistare (`null` finché non c'è). */
+  objectiveRegionId: string | null;
+  attackerPressure: number;
+  defenderPressure: number;
+  createdDate: string;
+  updatedDate: string;
+}
+
 /**
  * Un **reparto** (unità militare): la granularità sotto l'armata. È un oggetto
  * persistente con uomini, equipaggiamento e fabbisogni propri; l'armata che lo
@@ -302,6 +364,10 @@ export interface MilitaryUnitState {
   updatedDate: string;
   /** Materializzato da un aggregato legacy (non deciso dal giocatore). */
   legacyDerived: boolean;
+  /** Ordine di battaglia (P7), persistente: decide pressione, perdite e consumi. */
+  order: UnitOrder;
+  /** Fronte di appartenenza (P6): `null` se il reparto non è impegnato. */
+  frontId: string | null;
 }
 
 /** Stato persistente completo di una partita (le armate sono oggetti della mappa). */
@@ -309,6 +375,7 @@ export interface OperationalStateSnapshot {
   personnel: MilitaryPersonnelState;
   armies: ArmyOperationalState[];
   units: MilitaryUnitState[];
+  fronts: WarFrontState[];
   facilities: FacilityState[];
   ships: ShipState[];
   fleets: FleetState[];
@@ -319,8 +386,19 @@ export interface OperationalStateSnapshot {
 export function emptyOperationalState(date: string): OperationalStateSnapshot {
   return {
     personnel: { activePersonnel: 0, trainedReserve: 0, mobilizedPersonnel: 0, shipCrew: 0, updatedDate: date },
-    armies: [], units: [], facilities: [], ships: [], fleets: [], constructions: [],
+    armies: [], units: [], fronts: [], facilities: [], ships: [], fleets: [], constructions: [],
   };
+}
+
+/**
+ * Normalizza un reparto letto dalla persistenza: `order` e `frontId` sono nati
+ * con P7 (MILITARY-UNITS PR2) e i salvataggi precedenti non li hanno. Un reparto
+ * senza ordine si difende: nessun ordine d'attacco inventato da una lettura.
+ */
+export function normalizeUnitState(raw: unknown): MilitaryUnitState {
+  const unit = raw as Partial<MilitaryUnitState> & { id: string };
+  const order = unit.order && unit.order in UNIT_ORDER_LABEL ? unit.order : UNIT_ORDER_DEFAULT;
+  return { ...(unit as MilitaryUnitState), order, frontId: unit.frontId ? String(unit.frontId) : null };
 }
 
 // ── 2. Manpower: dottrina (capacità) vs stock (stato) ───────────────────────
@@ -1371,6 +1449,8 @@ export function emptyUnit(input: {
     regionName: input.regionName ?? null,
     updatedDate: input.date,
     legacyDerived: false,
+    order: UNIT_ORDER_DEFAULT,
+    frontId: null,
   };
 }
 
@@ -1434,6 +1514,8 @@ export function materializeUnitsForArmy(input: MaterializeUnitsInput): MilitaryU
         regionName: input.army.regionName,
         updatedDate: input.date,
         legacyDerived: true,
+        order: UNIT_ORDER_DEFAULT,
+        frontId: null,
       });
     }
   } else {
@@ -1487,6 +1569,7 @@ export function aggregateArmyFromUnits(
 export const PERSISTENT_KIND_LABEL: Record<string, string> = {
   army: 'Armata',
   unit: 'Reparto',
+  front: 'Fronte',
   facility: 'Impianto',
   ship: 'Nave',
   fleet: 'Flotta',
@@ -1545,6 +1628,8 @@ export interface PersistentObjectsInput {
   armies: readonly ArmyOperationalState[];
   /** Reparti (unità) delle armate: la granularità sotto l'armata. */
   units?: readonly MilitaryUnitState[];
+  /** Fronti aperti: le unità arrivano dal loro `frontId`, non da un secondo elenco. */
+  fronts?: readonly WarFrontState[];
   facilities: readonly FacilityState[];
   ships: readonly ShipState[];
   fleets: readonly FleetState[];
@@ -1576,6 +1661,11 @@ export interface PersistentObjectsInput {
   /** Pezzi **in deposito** (non assegnati): decide se il riequipaggiamento è eseguibile. */
   depotUnits?: Record<string, number>;
   /**
+   * Province del mondo per nome leggibile (teatro dei fronti). Il fronte usa la
+   * stessa adiacenza della mappa: nessuna geografia riscritta qui.
+   */
+  regions?: readonly { id: string; name: string }[];
+  /**
    * Pass di allocazione degli impianti (lo **stesso** usato dal tick): la
    * scheda non ricalcola nulla, mostra la simulazione che modifica lo stato.
    */
@@ -1605,6 +1695,8 @@ function unitActions(input: {
   availableReserve?: number;
   depotUnits?: Record<string, number>;
   armies: readonly ArmyOperationalState[];
+  /** Fronte del reparto (`null` se non è impegnato): senza fronte non ci sono ordini. */
+  front?: WarFrontState;
 }): OperatingAction[] {
   const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
   const required = rifleRequirement(input.epoch, 1);
@@ -1643,12 +1735,46 @@ function unitActions(input: {
       enabled: otherArmies > 0,
       blockedReason: otherArmies > 0 ? null : 'Serve una seconda armata per spostare il reparto.',
     },
+    // P7 — le quattro mosse del fronte. Sono lo **stesso** motore per il
+    // giocatore e per gli NPC: `unit.order` è persistente e decide pressione,
+    // perdite e consumi. Nessuna tenaglia, nessuno sbarco: il fronte è
+    // strategico.
+    ...UNIT_ORDER_ACTIONS.map(action => ({
+      id: action.id,
+      label: UNIT_ORDER_LABEL[action.order],
+      enabled: input.unit.status !== 'destroyed' && Boolean(input.front) && input.unit.order !== action.order,
+      blockedReason: input.unit.status === 'destroyed'
+        ? 'Reparto distrutto: non ha più ordini da eseguire.'
+        : !input.front
+          ? 'Il reparto non è assegnato a un fronte: non ci sono ordini da dare.'
+          : input.unit.order === action.order
+            ? `Il reparto ha già l'ordine «${UNIT_ORDER_LABEL[action.order]}».`
+            : null,
+    })),
   ];
 }
 
 const textList = (bag: Record<string, number>): string =>
   Object.entries(bag).filter(([, quantity]) => nonNegative(quantity) > 0)
     .map(([id, quantity]) => `${equipmentById(id)?.name || id} ×${n(quantity)}`).join(' · ');
+
+/** Le quattro mosse del fronte, nell'ordine in cui la UI le mostra. */
+const UNIT_ORDER_ACTIONS: Array<{ id: OperatingAction['id']; order: UnitOrder }> = [
+  { id: 'order_attack', order: 'attack' },
+  { id: 'order_defend', order: 'defend' },
+  { id: 'order_reserve', order: 'reserve' },
+  { id: 'order_withdraw', order: 'withdraw' },
+];
+
+/** Stato dell'oggetto equivalente per il tono visivo del fronte. */
+const FRONT_OPERATING_STATUS: Record<WarFrontStatus, OperatingStatus> = {
+  forming: 'under_construction',
+  active: 'operational',
+  stalemate: 'degraded',
+  breakthrough: 'operational',
+  collapsed: 'critical',
+  closed: 'idle',
+};
 
 /**
  * Oggetti del quadro operativo costruiti **dallo stato persistente**: le armate
@@ -1723,6 +1849,7 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
   // Ogni reparto ha uomini, pezzi e fabbisogni **propri**: l'armata che li
   // contiene è la loro somma (una sola fonte di verità).
   const armyById = new Map(input.armies.map(army => [String(army.id), army]));
+  const frontById = new Map((input.fronts || []).map(front => [String(front.id), front]));
   const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
   for (const unit of input.units || []) {
     const army = armyById.get(String(unit.armyId));
@@ -1732,6 +1859,8 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
     const staffingPct = menPerFormation > 0 ? round1(Math.min(100, nonNegative(unit.personnel) / menPerFormation * 100)) : 100;
     const readinessPct = round1(unitReadiness({ unit, epoch: input.epoch }) * 100);
     const status = UNIT_OPERATING_STATUS[unit.status];
+    const front = unit.frontId ? frontById.get(String(unit.frontId)) : undefined;
+    const orderInfo = UNIT_ORDER_INFO[unit.order ?? UNIT_ORDER_DEFAULT];
     const unitFuelMonths = unit.monthlyNeeds.fuel > 0 && fuelMonths !== null ? fuelMonths : null;
     const share = underArms > 0 ? nonNegative(unit.personnel) / underArms : 0;
     const equipmentTotal = Math.round(sum(Object.values(unit.equipment || {})));
@@ -1755,6 +1884,10 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
           `${n(assigned)} armi individuali assegnate su ${n(required)} richieste.`),
         fact('capacita', 'Prontezza', readinessPct, 'pct', tone(readinessPct, 80, 60),
           'Organico e dotazione, modulati da stato e carburante disponibile.'),
+        fact('stato', 'Ordine', null, 'testo', 'neutral',
+          `${UNIT_ORDER_LABEL[unit.order ?? UNIT_ORDER_DEFAULT]} — ${orderInfo.note} Pressione ×${orderInfo.pressure} · perdite ×${orderInfo.losses} · consumi di guerra ×${orderInfo.consumption}.`),
+        fact('stato', 'Fronte', null, 'testo', 'neutral',
+          front ? `${front.name} (${FRONT_STATUS_LABEL[front.status]})` : 'Nessun fronte: il reparto non è impegnato.'),
         fact('input', 'Carburante', unit.monthlyNeeds.fuel, 'per_mese'),
         fact('input', 'Armamenti', unit.monthlyNeeds.weapons, 'per_mese'),
         fact('input', 'Cibo', unit.monthlyNeeds.food, 'per_mese'),
@@ -1783,6 +1916,18 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
         ...(unitFuelMonths !== null && unitFuelMonths < OPERATION_MONTHS
           ? [{ severity: 'warning' as const, label: `Carburante: ${round1(unitFuelMonths)} mesi di operazioni`, detail: `Sotto i ${OPERATION_MONTHS} mesi la mobilità del reparto è limitata: il movimento paga cibo e carburante dal magazzino nazionale.` }]
           : []),
+        ...(unit.status === 'destroyed'
+          ? [{ severity: 'critical' as const, label: 'Reparto distrutto', detail: 'Non conta più nell\'armata (la somma è dei reparti attivi) e non ha ordini da eseguire.' }]
+          : []),
+        ...(unit.status === 'retreating'
+          ? [{ severity: 'warning' as const, label: 'Reparto in ritirata', detail: 'Il ripiegamento lo porta in una provincia amica adiacente: se non ne esiste una, le perdite crescono.' }]
+          : []),
+        ...(front && front.status === 'stalemate'
+          ? [{ severity: 'warning' as const, label: `Fronte ${front.name}: in stallo`, detail: 'Pressioni quasi pari: nessuno sfonda. Cambiare ordine o rinforzare sposta l\'equilibrio.' }]
+          : []),
+        ...(front && front.status === 'collapsed'
+          ? [{ severity: 'critical' as const, label: `Fronte ${front.name}: collassato`, detail: 'La pressione nemica domina: il reparto ripiega o viene distrutto.' }]
+          : []),
       ],
       actions: unitActions({
         unit,
@@ -1790,8 +1935,61 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
         availableReserve: input.availableReserve,
         depotUnits: input.depotUnits,
         armies: input.armies,
+        front,
       }),
       why: `Reparto dell'armata «${army?.name || unit.armyId}»: uomini, equipaggiamento e fabbisogni sono suoi, non una quota dell'aggregato. L'armata che lo contiene è la somma dei suoi reparti.`,
+    });
+  }
+
+  // ── Fronti di guerra (P6–P9) ──────────────────────────────────────────────
+  // Il fronte è il livello **strategico**: territorio conteso, unità coinvolte,
+  // obiettivo, pressione. Le unità arrivano dal loro `frontId` (fonte unica):
+  // qui si leggono, non si tiene un secondo elenco.
+  for (const front of input.fronts || []) {
+    const attacker = (input.units || []).filter(unit => String(unit.frontId) === String(front.id)
+      && unit.status !== 'destroyed' && String(unit.armyId) !== '');
+    const status = FRONT_OPERATING_STATUS[front.status];
+    const attackerPct = round1(nonNegative(front.attackerPressure) * 100);
+    const defenderPct = round1(nonNegative(front.defenderPressure) * 100);
+    const regionNames = front.regionIds
+      .map(id => input.regions?.find?.(region => String(region.id) === String(id))?.name)
+      .filter(Boolean) as string[];
+    const objective = front.objectiveRegionId
+      ? input.regions?.find?.(region => String(region.id) === String(front.objectiveRegionId))
+      : undefined;
+    objects.push({
+      id: front.id,
+      kind: 'front',
+      label: front.name,
+      subtitle: `${FRONT_STATUS_LABEL[front.status]} · ${attacker.length} ${attacker.length === 1 ? 'reparto' : 'reparti'}${objective ? ` · obiettivo ${objective.name}` : ''}`,
+      status,
+      statusLabel: FRONT_STATUS_LABEL[front.status],
+      parentId: 'force',
+      regionId: front.regionIds[0] ?? null,
+      regionName: regionNames[0] ?? null,
+      facts: [
+        fact('stato', 'Attaccante', null, 'testo', 'neutral', front.attackerPolityId),
+        fact('stato', 'Difensore', null, 'testo', 'neutral', front.defenderPolityId),
+        fact('capacita', 'Pressione attaccante', attackerPct, 'pct', 'neutral', 'Somma delle forze effettive dei reparti attaccanti (forza × ordine × rifornimenti).'),
+        fact('capacita', 'Pressione difensore', defenderPct, 'pct', 'neutral', 'Forze effettive della difesa: reparti persistenti più il supporto dichiarato dalla mappa.'),
+        fact('stato', 'Reparti impegnati', attacker.length, 'numero', 'neutral', 'Unità con questo fronte come `frontId`: il fronte le deriva, non le possiede.'),
+        fact('stato', 'Teatro', null, 'testo', 'neutral', regionNames.join(' · ') || 'Nessuna provincia di confine risolta'),
+        fact('stato', 'Obiettivo', null, 'testo', 'neutral', objective ? objective.name : 'Nessun obiettivo raggiungibile dal teatro'),
+        fact('costi', 'Consumi di guerra', null, 'testo', 'neutral', 'Attacco ×1,8 · Difesa ×1,2 · Riserva ×0,8 · Ritirata ×1,0 sui fabbisogni dei reparti.'),
+      ],
+      problems: [
+        ...(attacker.length === 0
+          ? [{ severity: 'critical' as const, label: 'Fronte senza reparti', detail: 'Nessuna unità assegnata: il fronte non produce pressione.' }]
+          : []),
+        ...(front.status === 'stalemate'
+          ? [{ severity: 'warning' as const, label: 'Fronte in stallo', detail: 'Pressioni quasi pari: nessuno sfonda senza rinforzi o un cambio di ordine.' }]
+          : []),
+        ...(front.status === 'collapsed'
+          ? [{ severity: 'critical' as const, label: 'Fronte collassato', detail: 'La difesa ha respinto l\'attacco: le unità ripiegano.' }]
+          : []),
+      ],
+      actions: [],
+      why: 'Fronte di guerra: territorio conteso, unità (dal loro `frontId`) e obiettivo. Le conquiste passano solo da `transferRegion`, con sfondamento, difensore in ritirata e obiettivo raggiunto. Il combattimento è risolto dal `FrontEngine` una volta per periodo materiale: gli ordini si danno ai reparti.',
     });
   }
 

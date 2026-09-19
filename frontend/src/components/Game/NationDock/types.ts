@@ -109,6 +109,8 @@ export interface NationDockProps {
   onRaiseFormation?: (options: { formations?: number; armyId?: string | null; name?: string }) => Promise<unknown>;
   /** MILITARY-UNITS — azione su un reparto: anteprima (`dryRun`) o esecuzione. */
   onUnitAction?: (request: import('../../../services/api').UnitActionRequest) => Promise<import('../../../services/api').UnitActionImpactPayload>;
+  /** MILITARY-UNITS PR2 — mossa del reparto sul fronte (stesso motore degli NPC). */
+  onUnitOrder?: (request: import('../../../services/api').UnitOrderRequest) => Promise<import('../../../services/api').UnitOrderImpactPayload>;
   /** Vende o compra una risorsa naturale sul mercato. */
   trade?: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;
   /** Serie storica dei conti del paese (dal più vecchio al più recente). */

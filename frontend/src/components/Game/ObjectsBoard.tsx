@@ -16,17 +16,28 @@
 import React from 'react';
 import type {
   ArsenalResponse, FormationImpactPayload, OperatingObjectPayload, OperatingPicturePayload,
-  UnitActionImpactPayload, UnitActionRequest,
+  UnitActionImpactPayload, UnitActionRequest, UnitOrderImpactPayload, UnitOrderPayload,
+  UnitOrderRequest,
 } from '../../services/api';
 import {
   KIND_LABEL, actionsOf, armyTargets, chainsView, childrenOf, factRows, formationActionView,
-  primaryProblem, regionTargets, sectorCards, sectionsOf, statusTone, unitActionView, type SectorCard,
+  primaryProblem, regionTargets, sectorCards, sectionsOf, statusTone, unitActionView, unitOrderView,
+  type SectorCard,
 } from './operationalObjects';
 
 const tone = (value: string) => `tone-${value}`;
 
 /** Le azioni che il pannello del reparto esegue davvero (regole del motore). */
 const UNIT_ACTIONS = ['reinforce_unit', 'reequip_unit', 'transfer_unit', 'reassign_unit'];
+
+/**
+ * MILITARY-UNITS PR2 — le quattro mosse del **fronte**. Sono lo stesso motore
+ * degli NPC: cambia solo chi sceglie (qui il giocatore, nei tick la policy).
+ */
+const UNIT_ORDERS = ['order_attack', 'order_defend', 'order_reserve', 'order_withdraw'];
+const isOrderAction = (id: string) => UNIT_ORDERS.includes(id);
+/** `order_attack` → `attack` (l'id dell'API è l'ordine del motore). */
+const orderOf = (id: string) => id.replace('order_', '') as UnitOrderPayload;
 
 interface ObjectsBoardProps {
   arsenal: ArsenalResponse;
@@ -39,6 +50,11 @@ interface ObjectsBoardProps {
    * motore applica (riserva addestrata, deposito, costo di movimento).
    */
   onUnitAction?: (request: UnitActionRequest) => Promise<UnitActionImpactPayload>;
+  /**
+   * MILITARY-UNITS PR2 — mossa di un reparto sul fronte: `dryRun` è l'anteprima
+   * PRIMA → DOPO (pressione, perdite attese, consumi), altrimenti l'ordine vero.
+   */
+  onUnitOrder?: (request: UnitOrderRequest) => Promise<UnitOrderImpactPayload>;
   busy?: boolean;
 }
 
@@ -125,16 +141,18 @@ function ActionImpact({ view, busy, onConfirm, onCancel }: {
  * PRIMA → DOPO calcolata dal motore (`dryRun`), come per la creazione di reparti.
  * Nessun numero viene calcolato qui.
  */
-function UnitActionPanel({ object, picture, busy, onUnitAction }: {
+function UnitActionPanel({ object, picture, busy, onUnitAction, onUnitOrder }: {
   object: OperatingObjectPayload;
   picture: OperatingPicturePayload;
   busy?: boolean;
   onUnitAction?: (request: UnitActionRequest) => Promise<UnitActionImpactPayload>;
+  onUnitOrder?: (request: UnitOrderRequest) => Promise<UnitOrderImpactPayload>;
 }) {
   const actions = actionsOf(object).filter(action => UNIT_ACTIONS.includes(action.id));
+  const orders = actionsOf(object).filter(action => isOrderAction(action.id));
   const [selected, setSelected] = React.useState<string | null>(null);
   const [target, setTarget] = React.useState<string>('');
-  const [impact, setImpact] = React.useState<UnitActionImpactPayload | null>(null);
+  const [impact, setImpact] = React.useState<UnitActionImpactPayload | UnitOrderImpactPayload | null>(null);
   const [pending, setPending] = React.useState(false);
   if (actions.length === 0) return null;
 
@@ -145,16 +163,23 @@ function UnitActionPanel({ object, picture, busy, onUnitAction }: {
     : selected === 'reassign_unit' ? armyTargets(picture, object) : [];
 
   const run = async (dryRun: boolean) => {
-    if (!onUnitAction || !selected) return;
+    if (!selected) return;
     setPending(true);
     try {
-      const result = await onUnitAction({
-        action: actionId(selected),
-        unitId: object.id,
-        dryRun,
-        ...(selected === 'transfer_unit' ? { regionId: target } : {}),
-        ...(selected === 'reassign_unit' ? { armyId: target } : {}),
-      });
+      const result = isOrderAction(selected)
+        ? (onUnitOrder
+          ? await onUnitOrder({ unitId: object.id, order: orderOf(selected), dryRun })
+          : null)
+        : (onUnitAction
+          ? await onUnitAction({
+            action: actionId(selected),
+            unitId: object.id,
+            dryRun,
+            ...(selected === 'transfer_unit' ? { regionId: target } : {}),
+            ...(selected === 'reassign_unit' ? { armyId: target } : {}),
+          })
+          : null);
+      if (!result) return;
       if (dryRun) setImpact(result);
       else {
         setImpact(null);
@@ -182,8 +207,27 @@ function UnitActionPanel({ object, picture, busy, onUnitAction }: {
           </button>
         ))}
       </div>
-      {actions.some(action => !action.enabled && action.blockedReason) && (
-        <span className="obj-blocked-hint">{actions.find(action => !action.enabled)?.blockedReason}</span>
+      {orders.length > 0 && (
+        <div className="obj-unit-orders" role="group" aria-label={`Mosse del fronte per ${object.label}`}>
+          <span className="obj-unit-orders-title">Mosse sul fronte</span>
+          <div className="obj-object-actions">
+            {orders.map(action => (
+              <button
+                key={action.id}
+                type="button"
+                className={`obj-action-button ${selected === action.id ? 'active' : ''}`}
+                disabled={!action.enabled || busy}
+                title={action.blockedReason ?? undefined}
+                onClick={() => { setSelected(action.id); setImpact(null); setTarget(''); }}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {actions.concat(orders).some(action => !action.enabled && action.blockedReason) && (
+        <span className="obj-blocked-hint">{actions.concat(orders).find(action => !action.enabled)?.blockedReason}</span>
       )}
       {selected && needsTarget && (
         <div className="obj-unit-target">
@@ -213,7 +257,7 @@ function UnitActionPanel({ object, picture, busy, onUnitAction }: {
       )}
       {impact && (
         <ActionImpact
-          view={unitActionView(impact)}
+          view={'rows' in impact && 'order' in impact ? unitOrderView(impact) : unitActionView(impact)}
           busy={pending || busy}
           onConfirm={() => { void run(false); }}
           onCancel={() => setImpact(null)}
@@ -224,7 +268,7 @@ function UnitActionPanel({ object, picture, busy, onUnitAction }: {
 }
 
 /** Il singolo oggetto: grammatica universale, problemi, azioni. */
-function ObjectCard({ object, depth = 0, busy, action, picture, onPreview, onRaise, onCancel, onPreviewChild, onUnitAction }: {
+function ObjectCard({ object, depth = 0, busy, action, picture, onPreview, onRaise, onCancel, onPreviewChild, onUnitAction, onUnitOrder }: {
   object: OperatingObjectPayload;
   depth?: number;
   busy?: boolean;
@@ -235,6 +279,7 @@ function ObjectCard({ object, depth = 0, busy, action, picture, onPreview, onRai
   onCancel?: () => void;
   onPreviewChild?: (armyId: string | null) => void;
   onUnitAction?: (request: UnitActionRequest) => Promise<UnitActionImpactPayload>;
+  onUnitOrder?: (request: UnitOrderRequest) => Promise<UnitOrderImpactPayload>;
 }) {
   const [open, setOpen] = React.useState(depth > 0);
   const problem = primaryProblem(object);
@@ -242,7 +287,7 @@ function ObjectCard({ object, depth = 0, busy, action, picture, onPreview, onRai
   const rows = open ? [] : factRows(object).slice(0, 4);
   // Le azioni del reparto le esegue il suo pannello: qui restano le altre.
   const actions = actionsOf(object)
-    .filter(item => !(object.kind === 'unit' && UNIT_ACTIONS.includes(item.id)));
+    .filter(item => !(object.kind === 'unit' && (UNIT_ACTIONS.includes(item.id) || isOrderAction(item.id))));
   const isActionTarget = action && action.armyId === (object.kind === 'army' ? object.id : null);
 
   return (
@@ -317,7 +362,13 @@ function ObjectCard({ object, depth = 0, busy, action, picture, onPreview, onRai
             )}
           </div>
           {object.kind === 'unit' && (
-            <UnitActionPanel object={object} picture={picture} busy={busy} onUnitAction={onUnitAction} />
+            <UnitActionPanel
+              object={object}
+              picture={picture}
+              busy={busy}
+              onUnitAction={onUnitAction}
+              onUnitOrder={onUnitOrder}
+            />
           )}
           {object.why && (
             <details className="obj-why">
@@ -358,7 +409,7 @@ function ChainList({ arsenal }: { arsenal: ArsenalResponse }) {
   );
 }
 
-export function ObjectsBoard({ arsenal, onPreviewFormation, onRaiseFormation, onUnitAction, busy }: ObjectsBoardProps) {
+export function ObjectsBoard({ arsenal, onPreviewFormation, onRaiseFormation, onUnitAction, onUnitOrder, busy }: ObjectsBoardProps) {
   const [sector, setSector] = React.useState<string | null>(null);
   const [action, setAction] = React.useState<{ armyId: string | null; preview: FormationImpactPayload | null } | null>(null);
   const picture = arsenal.objects;
@@ -403,6 +454,7 @@ export function ObjectsBoard({ arsenal, onPreviewFormation, onRaiseFormation, on
         onPreview={preview}
         onPreviewChild={preview}
         onUnitAction={onUnitAction}
+        onUnitOrder={onUnitOrder}
         onRaise={() => { void onRaiseFormation?.({ formations: 1, armyId: action?.armyId }); }}
         onCancel={() => setAction(null)}
       />

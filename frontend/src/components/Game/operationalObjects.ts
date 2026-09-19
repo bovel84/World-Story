@@ -14,7 +14,7 @@
 import type {
   FormationImpactPayload, OperatingActionPayload, OperatingChainPayload, OperatingFactPayload,
   OperatingFactSection, OperatingFactUnit, OperatingObjectPayload, OperatingPicturePayload,
-  UnitActionImpactPayload,
+  UnitActionImpactPayload, UnitOrderImpactPayload,
 } from '../../services/api';
 import { formatDate, formatMoney, formatNumber } from '../../utils/format';
 
@@ -40,6 +40,7 @@ export const KIND_LABEL: Record<string, string> = {
   force: 'Forze armate',
   army: 'Armata',
   unit: 'Reparto',
+  front: 'Fronte',
   facility: 'Impianto',
   construction: 'Costruzione',
   navy: 'Marina',
@@ -212,7 +213,8 @@ export function sectorCards(
         { label: 'Carburante', value: factValue(force, 'Carburante (scorte)') },
       ],
       problems: force.problems.map(problem => ({ severity: problem.severity, label: problem.label })),
-      objectIds: [force.id, ...picture.objects.filter(object => object.kind === 'army' || object.kind === 'unit').map(object => object.id)],
+      objectIds: [force.id, ...picture.objects.filter(object => object.kind === 'army' || object.kind === 'unit'
+        || object.kind === 'front').map(object => object.id)],
     });
   }
 
@@ -363,6 +365,39 @@ export function unitActionView(impact: UnitActionImpactPayload | null | undefine
     blockedReason: impact.blockedReason,
     title: `${UNIT_ACTION_TITLE[impact.action] ?? 'Azione'} · ${impact.unitName}`,
     costLine: context,
+    equipmentLine: null,
+    rows,
+    why: impact.why,
+  };
+}
+
+const ORDER_LABEL: Record<string, string> = {
+  attack: 'Attacca',
+  defend: 'Difendi',
+  reserve: 'Riserva',
+  withdraw: 'Ripiega',
+};
+
+/**
+ * Compone la vista di un **ordine** di fronte: stessa tabella PRIMA → DOPO delle
+ * altre azioni, con il fronte di appartenenza come contesto.
+ */
+export function unitOrderView(impact: UnitOrderImpactPayload | null | undefined): FormationActionView | null {
+  if (!impact) return null;
+  const rows = impact.rows
+    .filter(row => formatUnitValue(row.before, row.unit, deltaDecimals(row.unit))
+      !== formatUnitValue(row.after, row.unit, deltaDecimals(row.unit)))
+    .map(row => ({
+      label: row.label,
+      before: formatUnitValue(row.before, row.unit, deltaDecimals(row.unit)),
+      after: formatUnitValue(row.after, row.unit, deltaDecimals(row.unit)),
+      tone: (row.tone || 'neutral') as ObjectTone,
+    }));
+  return {
+    blocked: false,
+    blockedReason: null,
+    title: `${ORDER_LABEL[impact.order] ?? impact.order} · ${impact.unitName}`,
+    costLine: impact.frontName ? `${impact.frontName} · da «${ORDER_LABEL[impact.previousOrder] ?? impact.previousOrder}»` : null,
     equipmentLine: null,
     rows,
     why: impact.why,

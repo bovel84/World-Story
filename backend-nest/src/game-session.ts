@@ -56,6 +56,7 @@ import { NATURAL_RESOURCE_KINDS, naturalResourcesFor, type NaturalResourceKind }
 import { militaryManpower } from './core/simulation/MilitaryDoctrine';
 import type { ArmyOperationalState, SeedArmyInput } from './core/simulation/OperationalState';
 import { OperationalStateStore } from './game/OperationalStateStore';
+import { WarFrontService, type UnitOrderImpact } from './game/WarFrontService';
 import {
   executeTrade,
   marketQuote, tradePressureDelta,
@@ -370,6 +371,8 @@ export class GameSession {
   private military: MilitaryService;
   /** OP-OBJECTS PERSISTENT: stato proprio degli oggetti, creato pigramente. */
   private operationalStore: OperationalStateStore | null = null;
+  /** MILITARY-UNITS PR2: fronti di guerra (strategici) e i loro ordini. */
+  private warFronts!: WarFrontService;
   /** Economia e fattibilità degli ordini (Fase 1: estratto da GameSession). */
   private orders: OrderExecutionService;
   /** Relazioni internazionali (Fase 1: estratto da GameSession). */
@@ -628,9 +631,15 @@ export class GameSession {
       // OP-OBJECTS SEED-DETERMINISM: l'ordine riceve anche la **data canonica**
       // del periodo. Il tiro di produzione dipende da quella, non dal turno:
       // un salto di 180 giorni e sei turni da 30 tirano gli stessi dadi.
-      onPlayerSlice: slice => this.advanceProduction(
-        slice.stepDays, finalAccounts[this.playerPolityId], slice.factors, notices, { stepDate: slice.stepDate },
-      ),
+      onPlayerSlice: slice => [
+        ...this.advanceProduction(
+          slice.stepDays, finalAccounts[this.playerPolityId], slice.factors, notices, { stepDate: slice.stepDate },
+        ),
+        // MILITARY-UNITS PR2: la guerra vive **dentro** il periodo materiale
+        // (max 30 giorni), una volta per periodo: nessun tick giornaliero
+        // globale e nessun doppio conteggio fra salto lungo e turni brevi.
+        ...this.advanceFronts(slice.stepDays, slice.stepDate),
+      ],
     });
     const projectLines = this.advanceProjects(days, asOfDate);
     // Bollettino e conti del salto sono quelli **finali** (dopo l'ultimo
@@ -1306,6 +1315,53 @@ export class GameSession {
   }
 
   /**
+   * MILITARY-UNITS PR2 — fronti di guerra (livello strategico): nascita dal
+   * contatto reale, unità coinvolte, obiettivo, pressione e stato.
+   */
+  publicFronts() {
+    return this.warFrontsFor();
+  }
+
+  /**
+   * MILITARY-UNITS PR2 — ordine di un reparto sul fronte (`dryRun` = anteprima
+   * PRIMA → DOPO: pressione, perdite attese, consumi di guerra).
+   */
+  unitOrder(input: { unitId: string; order: 'attack' | 'defend' | 'reserve' | 'withdraw'; dryRun?: boolean }) {
+    this.assertPlayable();
+    return this.warFronts.unitOrder(input);
+  }
+
+  /** Vero se la coppia e' gia' un fronte con reparti (conquista al FrontEngine). */
+  private frontBetween(a: string, b: string): boolean {
+    try {
+      return this.warFronts.frontBetween(a, b);
+    } catch (error) {
+      console.warn('[GameSession] Fronte non disponibile:', error);
+      return false;
+    }
+  }
+
+  /** Fronti correnti, sincronizzati con il mondo (lettura pronta per l'API). */
+  private warFrontsFor() {
+    try {
+      return this.warFronts.warFronts();
+    } catch (error) {
+      console.warn('[GameSession] Fronti non disponibili:', error);
+      return [];
+    }
+  }
+
+  /** Stato militare persistente: reparti o fronti già materializzati. */
+  private hasPersistentMilitary(): boolean {
+    try {
+      const store = this.operationalStoreFor();
+      return store.fronts().length > 0 || store.units().length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Arsenale, risorse naturali, capacità industriale e catalogo completo con la
    * fattibilità di costruzione/acquisto per ogni voce.
    */
@@ -1542,6 +1598,10 @@ export class GameSession {
       transferRegion: (region, owner, color) => this.transferRegion(region, owner, color),
       seed: () => this.id,
       degradeRelationship: (from, to) => this.diplomacy.matrix().degrade(from, to),
+      // MILITARY-UNITS PR2: quando la coppia e' gia' un fronte con reparti la
+      // conquista la decide il `FrontEngine`: il tick legacy non tiene un secondo
+      // sistema di conquista in parallelo sulle stesse province.
+      frontBetween: (a: string, b: string) => this.frontBetween(a, b),
       // GAMEPLAY-LONG: gli eventi causali del tick live parlano la lingua del mondo.
       publicPolityName: polityId => this.publicPolityName(polityId),
       nationalMilitaryPower: polityId => this.nationalMilitaryPower(polityId),
@@ -1571,6 +1631,26 @@ export class GameSession {
       addArmyObject: input => this.addArmyObjectForSession(input),
       // OP-OBJECTS PERSISTENT: oggetti con stato proprio (seed lazy compreso).
       operationalObjects: () => this.operationalStoreFor(),
+      // MILITARY-UNITS PR2: i fronti sono oggetti persistenti come i reparti; il
+      // quadro operativo li mostra (con i reparti che arrivano dal loro `frontId`)
+      // e la conquista passa dall'unico `transferRegion` del mondo.
+      warFronts: () => this.warFrontsFor(),
+      worldRegions: () => [...this.regions.values()].map(region => ({ id: region.id, name: region.name })),
+    });
+    this.warFronts = new WarFrontService({
+      gameId: this.id,
+      playerPolityId: () => this.playerPolityId,
+      currentDate: () => this.currentDate,
+      epoch: () => this.military.epoch(),
+      operationalObjects: () => this.operationalStoreFor(),
+      regions: () => this.regions,
+      relationship: (from, to) => this.diplomacy.matrix().get(from, to),
+      transferRegion: (region, owner, color) => this.transferRegion(region, owner, color),
+      regionColorOf: polityId => this.buildResolvers().polities.colorOf(polityId),
+      resourceStock: polityId => this.resourceStock(polityId),
+      saveResourceStock: (polityId, stock) => this.saveResourceStock(polityId, stock),
+      polityLabel: polityId => this.publicPolityName(polityId),
+      note: note => this.pendingNationalNotes.push(note),
     });
     this.orders = new OrderExecutionService({
       gameId: this.id,
@@ -2321,9 +2401,26 @@ export class GameSession {
    * WORLD-ALIVE P3: conflitti deterministici del mondo fra politie NPC.
    * Riusa `NpcTurnService` (politiche e `transferRegion`), senza LLM: il tick
    * live non attende e le conquiste finiscono su mappa, timeline e dispacci.
+   *
+   * MILITARY-UNITS PR2: prima i **fronti** (stesso `FrontEngine` per tutte le
+   * parti, un periodo di 7 giorni nel percorso live). Quando esiste stato
+   * militare persistente la conquista la decide il fronte: il tick legacy non
+   * apre un secondo sistema di conquista (resta il fallback per i mondi senza
+   * reparti persistenti).
    */
   private applyWorldConflicts(): string[] {
-    return this.npcTurns.processWorldConflictTick(GameSession.LIVE_TICK_DAYS);
+    const frontEvents = this.advanceFronts(GameSession.LIVE_TICK_DAYS);
+    return [...frontEvents, ...this.npcTurns.processWorldConflictTick(GameSession.LIVE_TICK_DAYS)];
+  }
+
+  /** Fronti: un periodo di guerra (implementazione nel servizio). */
+  private advanceFronts(days: number, date?: string): string[] {
+    try {
+      return this.warFronts.advanceFronts(days, date).events;
+    } catch (error) {
+      console.warn('[GameSession] Tick dei fronti non applicato:', error);
+      return [];
+    }
   }
 
   /**

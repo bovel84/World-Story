@@ -37,6 +37,8 @@ interface DeskContentProps {
   onRaiseFormation?: (options: { formations?: number; armyId?: string | null; name?: string }) => Promise<unknown>;
   /** MILITARY-UNITS — azione su un reparto (anteprima `dryRun` o esecuzione). */
   onUnitAction?: (request: import('../../services/api').UnitActionRequest) => Promise<import('../../services/api').UnitActionImpactPayload>;
+  /** MILITARY-UNITS PR2 — mossa del reparto sul fronte. */
+  onUnitOrder?: (request: import('../../services/api').UnitOrderRequest) => Promise<import('../../services/api').UnitOrderImpactPayload>;
   tradeResource?: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;
   nationalHistory?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
   /** Anime del governo e dettaglio del bilancio pubblicati dal motore. */
@@ -123,6 +125,7 @@ export function DeskContent({
   onPreviewFormation,
   onRaiseFormation,
   onUnitAction,
+  onUnitOrder,
   tradeResource,
   nationalHistory = [],
   nationalGovernment = null,
@@ -427,6 +430,7 @@ export function DeskContent({
             onPreviewFormation={onPreviewFormation}
             onRaiseFormation={onRaiseFormation}
             onUnitAction={onUnitAction}
+            onUnitOrder={onUnitOrder}
             trade={tradeResource}
             accountHistory={nationalHistory}
             government={nationalGovernment}

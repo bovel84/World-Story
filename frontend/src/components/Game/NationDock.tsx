@@ -67,6 +67,16 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
       setUnitBusy(false);
     }
   }, [props.onUnitAction]);
+  // MILITARY-UNITS PR2: le mosse del fronte sono dello stesso motore degli NPC.
+  const unitOrder = React.useCallback(async (request: import('../../services/api').UnitOrderRequest) => {
+    if (request.dryRun) return props.onUnitOrder?.(request) as Promise<import('../../services/api').UnitOrderImpactPayload>;
+    setUnitBusy(true);
+    try {
+      return await (props.onUnitOrder?.(request) as Promise<import('../../services/api').UnitOrderImpactPayload>);
+    } finally {
+      setUnitBusy(false);
+    }
+  }, [props.onUnitOrder]);
   const {
     governmentType, account, resources, arms, procure, trade,
     onPreviewFormation,
@@ -696,6 +706,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                   onPreviewFormation={onPreviewFormation}
                   onRaiseFormation={raiseFormation}
                   onUnitAction={unitAction}
+                  onUnitOrder={unitOrder}
                   busy={formationBusy || unitBusy}
                 />
                 <Footnote><b>Da dove vengono le cifre</b> ogni riga è un fatto pubblicato dal motore (arsenale, capacità industriale, prontezza, manpower). Le attribuzioni che il motore non conosce — quali reparti in una armata, quali navi in una flotta — sono convenzioni dichiarate sotto «Catene e convenzioni»: la somma delle parti è il totale nazionale.</Footnote>

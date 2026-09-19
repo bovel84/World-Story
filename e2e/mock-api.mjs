@@ -344,7 +344,7 @@ export const MOCK_GOVERNMENT_VOICES = {
 // ---------------------------------------------------------------------------
 
 export const MOCK_OBJECTS = {
-  counts: { force: 1, army: 2, unit: 2, facility: 4, construction: 1, mine: 1 },
+  counts: { force: 1, army: 2, unit: 2, front: 1, facility: 4, construction: 1, mine: 1 },
   conventions: [
     'Le armate derivano dagli oggetti `army` della mappa; i reparti senza nome sono raggruppati nello schieramento nazionale.',
     'Le linee di un impianto sono una quota della capacità industriale del motore; la somma degli impianti è il totale nazionale.',
@@ -383,6 +383,21 @@ export const MOCK_OBJECTS = {
       ],
       actions: [{ id: 'raise_formation', label: 'Crea 1 reparto', enabled: true, blockedReason: null }],
       why: 'La dotazione di riferimento è quella dell\'epoca (guerra fredda): il piano dei reparti è calcolato dal motore sul personale effettivo.',
+    },
+    // MILITARY-UNITS PR2 — un fronte: due parti in contatto, pressione e obiettivo.
+    {
+      id: 'front-AUT-ITA', kind: 'front', label: 'Fronte Italia–Austria', subtitle: 'Italia contro Austria',
+      status: 'stalemate', statusLabel: 'In stallo', parentId: 'force', regionId: 'ALPHA', regionName: 'Alpha',
+      facts: [
+        { section: 'stato', label: 'Stato del fronte', value: null, unit: 'testo', tone: 'warning', text: 'In stallo' },
+        { section: 'stato', label: 'Obiettivo', value: null, unit: 'testo', tone: 'neutral', text: 'Tirolo' },
+        { section: 'capacita', label: 'Pressione attaccante', value: 118, unit: 'pct', tone: 'neutral', text: 'Italia' },
+        { section: 'capacita', label: 'Pressione difensore', value: 106, unit: 'pct', tone: 'neutral', text: 'Austria' },
+        { section: 'costi', label: 'Perdite del periodo', value: 540, unit: 'numero', tone: 'warning' },
+      ],
+      problems: [{ severity: 'warning', label: 'Fronte in stallo da 2 periodi', detail: 'Nessuno sfondamento: la difesa tiene.' }],
+      actions: [],
+      why: 'Il fronte esiste solo con due polity ostili, un confine reale e reparti schierati: la mappa resta la fonte.',
     },
     {
       id: 'army-alpha-1', kind: 'army', label: 'I Corpo', subtitle: 'Dislocata in Alpha',
@@ -424,6 +439,11 @@ export const MOCK_OBJECTS = {
         { id: 'reequip_unit', label: 'Riequipaggia (8.763 pezzi)', enabled: true, blockedReason: null },
         { id: 'transfer_unit', label: 'Trasferisci', enabled: true, blockedReason: null },
         { id: 'reassign_unit', label: 'Cambia armata', enabled: true, blockedReason: null },
+        // PR2: le quattro mosse del fronte (stesso motore degli NPC).
+        { id: 'order_attack', label: 'Attacca', enabled: true, blockedReason: null },
+        { id: 'order_defend', label: 'Difendi', enabled: false, blockedReason: 'Il reparto ha già l\'ordine «Difendi».' },
+        { id: 'order_reserve', label: 'Riserva', enabled: true, blockedReason: null },
+        { id: 'order_withdraw', label: 'Ripiega', enabled: true, blockedReason: null },
       ],
       why: "Reparto dell'armata «I Corpo»: uomini, equipaggiamento e fabbisogni sono suoi. L'armata che lo contiene è la somma dei suoi reparti.",
     },
@@ -444,6 +464,11 @@ export const MOCK_OBJECTS = {
         { id: 'reequip_unit', label: 'Riequipaggia (8.800 pezzi)', enabled: true, blockedReason: null },
         { id: 'transfer_unit', label: 'Trasferisci', enabled: true, blockedReason: null },
         { id: 'reassign_unit', label: 'Cambia armata', enabled: true, blockedReason: null },
+        // Senza fronte le mosse sono dichiarate bloccate, non nascoste.
+        { id: 'order_attack', label: 'Attacca', enabled: false, blockedReason: 'Il reparto non è assegnato a un fronte: non ci sono ordini da dare.' },
+        { id: 'order_defend', label: 'Difendi', enabled: false, blockedReason: 'Il reparto non è assegnato a un fronte: non ci sono ordini da dare.' },
+        { id: 'order_reserve', label: 'Riserva', enabled: false, blockedReason: 'Il reparto non è assegnato a un fronte: non ci sono ordini da dare.' },
+        { id: 'order_withdraw', label: 'Ripiega', enabled: false, blockedReason: 'Il reparto non è assegnato a un fronte: non ci sono ordini da dare.' },
       ],
       why: "Il mondo dichiara un reparto in più: nasce **senza uomini** (in formazione), la riserva si muove solo con «Rinforza».",
     },
@@ -599,6 +624,50 @@ export function mockUnitImpact(action, body = {}) {
     stock: action === 'transfer' ? { food: 128.25, fuel: 43.57, money: 96.35 } : undefined,
     note: action === 'transfer' ? '«1ª Brigata» trasferito in Beta.' : 'Azione applicata dal motore.',
     why: 'Gli uomini passano dalla riserva addestrata al reparto: nessuno viene creato dal nulla.',
+  };
+}
+
+/**
+ * MILITARY-UNITS PR2 — esito (o anteprima) di un ordine del fronte. I numeri sono
+ * quelli del contratto del motore: pressione, perdite stimate, consumi.
+ */
+export function mockOrderImpact(order, unitId = 'army-alpha-1-unit-001') {
+  const subject = MOCK_OBJECTS.objects.find(object => object.id === unitId) || {};
+  const label = subject.label || '1ª Brigata';
+  const orders = { attack: 'Attacca', defend: 'Difendi', reserve: 'Riserva', withdraw: 'Ripiega' };
+  const rows = order === 'attack'
+    ? [
+      { label: 'Pressione dell’attacco', before: 100, after: 135, unit: 'pct', tone: 'neutral' },
+      { label: 'Perdite stimate', before: 0, after: 540, unit: 'numero', tone: 'warning' },
+      { label: 'Consumi di guerra', before: 0.3, after: 0.5, unit: 'per_mese', tone: 'neutral' },
+    ]
+    : order === 'withdraw'
+      ? [
+        { label: 'Pressione dell’attacco', before: 135, after: 0, unit: 'pct', tone: 'critical' },
+        { label: 'Perdite stimate', before: 540, after: 120, unit: 'numero', tone: 'warning' },
+      ]
+      : [
+        { label: 'Pressione dell’attacco', before: 135, after: 100, unit: 'pct', tone: 'neutral' },
+        { label: 'Perdite stimate', before: 540, after: 300, unit: 'numero', tone: 'warning' },
+      ];
+  return {
+    applied: false,
+    unitId,
+    unitName: label,
+    order,
+    previousOrder: 'defend',
+    frontId: 'front-AUT-ITA',
+    frontName: 'Fronte Italia–Austria',
+    rows,
+    unit: {
+      id: unitId, armyId: subject.parentId || 'army-alpha-1', name: label, personnel: 11000,
+      equipment: { fucili: 37 }, monthlyNeeds: { fuel: 0.03, weapons: 0.2, food: 0.06 },
+      readiness: 0.5, status: 'operational', regionId: 'ALPHA', regionName: 'Alpha',
+      updatedDate: '1951-01-01', legacyDerived: false, order,
+      frontId: 'front-AUT-ITA',
+    },
+    note: `Ordine «${orders[order] || order}» registrato per «${label}».`,
+    why: 'L’ordine è dello stesso motore per il giocatore e per gli NPC: cambia pressione, perdite e consumi.',
   };
 }
 
@@ -968,6 +1037,8 @@ export function installMockApi(page, opts = {}) {
     return json(route, mockFormationImpact(armyId));
   });
   // MILITARY-UNITS: i reparti e le loro azioni (anteprima `dryRun` e conferma).
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/fronts`, (route) =>
+    json(route, { fronts: MOCK_OBJECTS.objects.filter(object => object.kind === 'front') }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/units`, (route) =>
     json(route, { units: MOCK_OBJECTS.objects.filter(object => object.kind === 'unit') }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/units/**`, (route) => {
@@ -976,6 +1047,8 @@ export function installMockApi(page, opts = {}) {
     let body = {};
     try { body = route.request().postDataJSON() || {}; } catch { body = {}; }
     const unitId = pathname.split('/').slice(-2)[0];
+    // PR2: `.../order` porta l'ordine nel corpo, non nel percorso.
+    if (action === 'order') return json(route, mockOrderImpact(String(body.order || 'attack'), unitId));
     return json(route, mockUnitImpact(action, { ...body, unitId }));
   });
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/chats*`, (route) => {

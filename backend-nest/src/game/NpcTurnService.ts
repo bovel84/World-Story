@@ -37,6 +37,12 @@ export interface NpcTurnContext {
   nationalMilitaryPower?(polityId: string): number;
   /** Degrada la relazione (matrix.degrade): apre il conflitto fra due politie. */
   degradeRelationship?: (from: string, to: string) => void;
+  /**
+   * MILITARY-UNITS PR2: la coppia di polity ha gia' un fronte con reparti
+   * schierati? Se si' la conquista di quelle province appartiene al
+   * `FrontEngine`: il percorso legacy non tiene un secondo sistema in parallelo.
+   */
+  frontBetween?: (a: string, b: string) => boolean;
 }
 
 export class NpcTurnService {
@@ -216,9 +222,12 @@ export class NpcTurnService {
     }
 
     // 2) Continuazione — una sola conquista per tick, su un fronte reale.
+    // Se la coppia e' gia' un fronte con reparti schierati, la conquista
+    // appartiene al `FrontEngine` (MILITARY-UNITS PR2): nessun doppio sistema.
     if (stableRoll(`${seed}|conquest|${turn}`) < NpcTurnService.CONQUEST_CHANCE) {
       for (const c of candidates) {
         if (this.ctx.relationship(c.attacker, c.defender) !== 'hostile') continue;
+        if (this.ctx.frontBetween?.(c.attacker, c.defender)) continue;
         const liveFrontier = new Set((owned.get(c.attacker) || []).flatMap(region => region.borders || []));
         if (!canNpcCapture(c.attacker, c.target, liveFrontier, 'hostile')) continue;
         const attackingPower = (owned.get(c.attacker) || [])

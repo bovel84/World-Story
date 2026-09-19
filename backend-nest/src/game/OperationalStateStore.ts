@@ -37,6 +37,7 @@ import {
   aggregateObjects,
   emptyOperationalState,
   materializeUnitsForArmy,
+  normalizeUnitState,
   seedArmies,
   seedConstructions,
   seedFacilities,
@@ -53,6 +54,7 @@ import {
   type SeedArmyInput,
   type SeedRegion,
   type ShipState,
+  type WarFrontState,
 } from '../core/simulation/OperationalState';
 
 export interface OperationalStoreInputs {
@@ -127,7 +129,8 @@ export class OperationalStateStore {
         const data = row.data as Record<string, unknown>;
         switch (row.kind) {
           case 'personnel': snapshot.personnel = data as unknown as MilitaryPersonnelState; break;
-          case 'unit': snapshot.units.push(data as unknown as MilitaryUnitState); break;
+          case 'unit': snapshot.units.push(normalizeUnitState(data)); break;
+          case 'front': snapshot.fronts.push(data as unknown as WarFrontState); break;
           case 'facility': snapshot.facilities.push(data as unknown as FacilityState); break;
           case 'ship': snapshot.ships.push(data as unknown as ShipState); break;
           case 'fleet': snapshot.fleets.push(data as unknown as FleetState); break;
@@ -140,6 +143,7 @@ export class OperationalStateStore {
     }
     snapshot.facilities.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     snapshot.units.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    snapshot.fronts.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     snapshot.ships.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     snapshot.fleets.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     snapshot.constructions.sort((a, b) => String(a.id).localeCompare(String(b.id)));
@@ -230,7 +234,7 @@ export class OperationalStateStore {
       operationalObjectRepository.upsertMany(this.inputs.gameId, rows);
       this.inputs.saveDepotUnits(depot);
       this.inputs.saveArmies(armies);
-      this.state = { personnel, armies, units: [], facilities, ships, fleets, constructions };
+      this.state = { personnel, armies, units: [], fronts: [], facilities, ships, fleets, constructions };
       this.seedChecked = true;
       this.seedDone = true;
       return this.state;
@@ -584,9 +588,40 @@ export class OperationalStateStore {
     return this.snapshot().units;
   }
 
+  /**
+   * Reparti **già** persistiti, senza materializzazione né scritture: è la
+   * lettura pura che serve a decidere *se* il mondo ha uno stato militare
+   * proprio. Un mondo che non li ha non deve essere toccato da una lettura.
+   */
+  persistedUnits(): MilitaryUnitState[] {
+    return this.read().units.map(unit => ({ ...unit }));
+  }
+
   /** Reparti di una armata: la somma dell'aggregato dell'armata. */
   unitsOfArmy(armyId: string): MilitaryUnitState[] {
     return this.snapshot().units.filter(unit => String(unit.armyId) === String(armyId));
+  }
+
+  /** Fronti di guerra (P6): territorio conteso e pressione, non un wargame. */
+  fronts(): WarFrontState[] {
+    return this.snapshot().fronts;
+  }
+
+  /** Fronti **già** persistiti: lettura pura, senza sincronizzazione. */
+  persistedFronts(): WarFrontState[] {
+    return this.read().fronts.map(front => ({ ...front }));
+  }
+
+  /**
+   * Scrive i fronti **e** i reparti in una sola chiamata: lo stato di un fronte
+   * (pressione, esito) e quello delle sue unità sono la stessa fotografia, mai
+   * due scritture che possono divergere.
+   */
+  saveFronts(fronts: readonly WarFrontState[], units?: readonly MilitaryUnitState[]): void {
+    const snapshot = this.snapshot();
+    snapshot.fronts = [...fronts].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    this.persist('front', snapshot.fronts);
+    if (units) this.saveUnits(units);
   }
 
   /**
