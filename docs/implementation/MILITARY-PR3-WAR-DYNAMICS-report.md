@@ -527,3 +527,121 @@ strategic movement time · fortifications · air/naval warfare · amphibious · 
 comandanti di fronte · ridisegno della negoziazione di pace. Il refresh
 best-effort vale **solo** per `reconstitute` (l'unico percorso con scrittura
 canonica multi-authority seguita da refresh derivato).
+
+---
+
+# POST-MERGE CACHE RECOVERY — invalidazione delle cache dopo un refresh derivato fallito
+
+Micro-PR dedicata (ramo `fix/pr3-cache-recovery`, base `main = 38a2b80`). Un solo
+residuo chiuso: **dopo un commit canonico riuscito**, se il refresh derivato
+fallisce, la sessione deve riallinearsi **da sola** al database.
+
+## 30. Cosa era già corretto
+
+La transazione canonica (`militaryPersistenceRepository.reconstitute`) non è
+toccata: riserva, reparti e arsenale si scrivono in **una sola** transazione
+strict; un errore del commit fa rollback e rilancia (`applied` mai `true`). Anche
+il percorso non-fatale del refresh era già corretto nella **forma** (un errore
+del derivato non risale più alla route).
+
+## 31. Il residuo: refresh derivato parziale → cache miste
+
+Il `catch` post-commit faceva **solo** `console.warn`. Se il guasto avveniva
+**dopo** che `adoptPersisted` aveva già mutato `snapshot.personnel` e
+`snapshot.units` (tipicamente dentro `saveArmies → saveArmiesForSession →
+syncRegionsToDB`), la sessione restava con cache **miste**:
+
+```
+RAM personale/reparti NUOVA (a metà)
+RAM armate / oggetti regione PARZIALE
+cache arsenale VECCHIA        ← serviva numeri che il DB non ha più
+```
+
+La prima lettura dopo il guasto poteva quindi rispondere con un valore che il
+database non aveva: esattamente ciò che `derived refresh failure → mai cache
+miste` vieta.
+
+## 32. Fix (poche righe, localizzato)
+
+```ts
+} catch (error) {
+  store.invalidate();              // operational: la prossima lettura ricarica dal DB
+  this.arsenals.delete(polityId);  // arsenale: solo la polity coinvolta (non `clear()`)
+  console.warn('[MilitaryService] Refresh derivato della ricostituzione non applicato (commit già persistito):', error);
+}
+```
+
+- `invalidate()` è **pura RAM** (`state = null; seedChecked = false; seedDone =
+  false`): non può lanciare, non serve altra infrastruttura;
+- `delete(polityId)` e non `clear()`: l'invalidazione resta **locale** alla polity;
+- **success path invariato**: se il refresh riesce restano `adoptPersisted(...)` +
+  `arsenals.set(...)`, senza invalidazioni (non si perde il vantaggio del refresh
+  immediato).
+
+Invariante documentata nel codice e nei test:
+
+```
+COMMIT FALLITO                          → rollback · throw · nessun applied
+REFRESH DERIVATO FALLITO (post-commit)  → niente rollback · cache invalidate · applied: true
+COMMIT → REFRESH;  if REFRESH fails: INVALIDATE → NEXT READ FROM DB
+```
+
+## 33. Perché `applied: true` resta corretto
+
+Il commit canonico è l'**azione**: riserva, reparti e arsenale sono nel
+database, la contabilità è conservata e il fatto è irreversibile. Il refresh
+derivato (aggregato armate, oggetti regione, cache) è **derivato e riparabile**:
+la prossima lettura riparte dal DB e la prima scrittura derivata riallinea la
+mappa. Trasformare un guasto del derivato in un errore API significherebbe dire
+all'utente che un'azione avvenuta non è avvenuta — e rendere l'azione
+irritentabile.
+
+## 34. Test magnetico (failure injection reale, dopo la mutazione RAM)
+
+`tests/war-fronts.test.ts`: il guasto è iniettato su
+**`saveArmiesForSession`** (il derived persistence chiamato da `saveArmies`),
+quindi **dopo** che `adoptPersisted` ha mutato la RAM — il caso delle cache miste
+che il vecchio test (mock di `adoptPersisted`) non simulava.
+
+| # | caso | esito sul base `38a2b80` |
+|---|---|---|
+| 47 | refresh derivato fallito → stessa sessione allineata al DB (**senza** `invalidate()` manuale nel test) | **fallisce** (`expected 9000 to be 1000`: cache stantia) |
+| 49 | cache **arsenale** invalidata (deposito letto dal DB, non vecchio) | **fallisce** |
+| 48 | `applied: true`, DB = riserva/reparto nuovi, conservazione, stessa sessione allineata | guardia |
+| 48-bis | l'aggregato **derivato** resta riparabile dal DB (nessuna cache è l'unica fonte) | guardia |
+
+Verifica: `git checkout 38a2b80 -- backend-nest/src`, test, ripristino del `src`.
+Nessun test chiama `store.invalidate()`: l'invalidazione è del **codice di
+produzione**, ed è questo che i test dimostrano.
+
+## 35. Quality gate (eseguito)
+
+| Comando | Esito |
+|---|---|
+| backend `npx tsc --noEmit` | ✅ |
+| backend `npx vitest run` | ✅ **160 file / 1644 test** (erano 1641: +3) |
+| backend `npm run build` | ✅ |
+| frontend `npx tsc --noEmit` | ✅ |
+| frontend `npx vitest run` | ✅ **67 file / 496 test** |
+| frontend `npm run build` | ✅ |
+| `npm run test:e2e:mock` | ✅ **49 passed** |
+| inventario endpoint | 106 route (invariato) |
+
+## 36. Esito GitHub Actions (PR dedicata)
+
+PR **#88** («MILITARY PR3 CACHE RECOVERY — invalidate derived state after
+post-commit refresh failure»), ramo `fix/pr3-cache-recovery`, base
+`main = 38a2b80`.
+
+| Check | Esito |
+|---|---|
+| `test-build` (backend test + build, frontend test + build) | ✅ **success** |
+| `e2e-mock` (Playwright su mock API) | ✅ **success** |
+| `mergeable` | ✅ `true` (`state = clean`) |
+
+Entrambi i check sono passati al **primo** tentativo (nessun flaky in questo
+ciclo). Il merge resta al proprietario del repository.
+
+Con questo il ciclo **MILITARY PR3 integrity** è chiuso: atomicità canonica,
+refresh derivato non-fatale, invalidazione delle cache al guasto, `DB =
+authority`, read model bidirezionale e typing allineato.
