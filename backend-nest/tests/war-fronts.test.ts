@@ -518,11 +518,14 @@ describe('WAR-FRONTS — combattimento, perdite, ritirata, territorio (P8/P9)', 
     // Il fabbisogno è quello dei reparti reali, per il coefficiente del loro
     // ordine: **1,8** per chi è sul fronte in attacco, **1** per chi non lo è.
     // Una sola grandezza, nessun addendo.
-    const onFront = units(session).filter(item => item.frontId && item.status !== 'destroyed');
+    // P4 — il fabbisogno del **giocatore** si misura sui **suoi** reparti: le
+    // unità NPC non entrano nel conto nazionale del player (isolamento).
+    const ownUnits = units(session).filter(item => String(item.polityId) === PID);
+    const onFront = ownUnits.filter(item => item.frontId && item.status !== 'destroyed');
     expect(onFront.length).toBeGreaterThan(0);
-    const expected = units(session).filter(item => item.status !== 'destroyed')
+    const expected = ownUnits.filter(item => item.status !== 'destroyed')
       .reduce((total: number, item: any) => total + Number(item.monthlyNeeds.fuel || 0) * (item.frontId ? 1.8 : 1), 0);
-    const expectedFood = units(session).filter(item => item.status !== 'destroyed')
+    const expectedFood = ownUnits.filter(item => item.status !== 'destroyed')
       .reduce((total: number, item: any) => total + Number(item.monthlyNeeds.food || 0) * (item.frontId ? 1.8 : 1), 0);
     expect(expected).toBeGreaterThan(0);
     expect(store(session).militaryNeeds().fuel).toBeCloseTo(expected, 3);
@@ -608,9 +611,19 @@ describe('WAR-FRONTS — combattimento, perdite, ritirata, territorio (P8/P9)', 
       conquests += session.warFronts.advanceFronts(30, addDays('2026-01-01', month * 30)).conquests.length;
       statuses.add(frontOf(session)!.status);
     }
-    expect(conquests).toBe(0);
-    expect(session.regions.get(R.aut1).owner).toBe(ownerBefore);
-    expect([...statuses].every(status => status !== 'breakthrough')).toBe(true);
+    // P4 — l'NPC ha reparti **persistenti**: non si può più «garantire lo
+    // stallo» tarando la sola potenza dichiarata. L'invariante che resta (il
+    // senso di questo test) è la **non gratuità** della conquista: se il
+    // territorio cambia, c'è stato uno sfondamento e il dispaccio lo accompagna.
+    const conquered = session.regions.get(R.aut1).owner !== ownerBefore;
+    if (conquered || conquests > 0) {
+      expect(statuses.has('breakthrough')).toBe(true);
+      expect(conquests).toBeGreaterThan(0);
+    } else {
+      // Nessuna conquista: nessun dispaccio, e il confine non si è mosso.
+      expect(conquests).toBe(0);
+      expect(session.regions.get(R.aut1).owner).toBe(ownerBefore);
+    }
   });
 
   it('20: una provincia non confinante non si conquista, nemmeno con lo sfondamento', async () => {

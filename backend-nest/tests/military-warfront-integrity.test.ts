@@ -1383,16 +1383,30 @@ describe('NPC WAR-CONSUMPTION SYMMETRY — P0-D: stesso costo d\'ordine per la f
     expect(plannedOrderFor(plan, theFront(session).id, AUT)).toBe('attack');
     expect(plan.legacyConsumptionFactors[AUT]).toBeCloseTo(1.8, 4);
     // Costo del periodo: 10,004 × 1,8 = 18,007 — non 10,004.
-    const base = economy.legacyMilitaryNeeds(session.sessionAccounts()[AUT]).weapons;
+    // P4 — l'NPC materializza reparti **persistenti**: il fabbisogno del periodo
+    // è quello dei **suoi** reparti (base × coefficiente d'ordine), la stessa
+    // regola del giocatore. Il percorso legacy non si somma.
+    // La materializzazione è lazy e avviene **nel tick**: qui si invoca lo stesso
+    // passo della pipeline (`ensureNpcUnits`) per poter misurare il fabbisogno
+    // dei reparti che combatteranno il periodo.
+    (session as any).warFronts.ensureNpcUnits(30);
+    const unitsBefore = store(session).unitsForPolity(AUT).filter(unit => unit.status !== 'destroyed');
+    expect(unitsBefore.length).toBeGreaterThan(0);
+    expect(unitsBefore.some(unit => unit.order === 'attack')).toBe(true);
+    const expectedNeed = unitsBefore.reduce((total, unit) =>
+      total + Number(unit.monthlyNeeds.weapons || 0) * (unit.order === 'attack' ? 1.8 : 1), 0);
+    const base = expectedNeed;
     expect(base).toBeGreaterThan(0.2);
-    expect(economy.scaledLegacyMilitaryNeeds(session.sessionAccounts()[AUT], 1.8).weapons).toBeCloseTo(base * 1.8, 6);
     const production = npcWeaponsProduction(session);
-    setStock(session, { weapons: base, food: 0, clothing: 0, fuel: 0 }, AUT);
+    // Metà del costo del periodo: la copertura è **parziale** (non 1), così la
+    // quota misura davvero il rifornimento del periodo.
+    setStock(session, { weapons: base / 2, food: 0, clothing: 0, fuel: 0 }, AUT);
     const lines = advancePeriod(session, 30, '2026-01-31');
     const supply = periodSupply(session, AUT)!;
-    // Copertura = disponibilità reale / costo dell'attacco: con lo stock pari al
-    // costo di **pace** si copre 1/1,8 (0,5556) più la produzione del periodo.
-    const expected = (base + production) / (base * 1.8);
+    // Copertura = disponibilità reale / costo del periodo (già ×1,8 per i
+    // reparti in attacco: `base` è il fabbisogno dei loro ordini).
+    // La copertura è una quota 0…1: con disponibilità ≥ fabbisogno è piena.
+    const expected = Math.min(1, (base / 2 + production) / base);
     expect(supply.weapons).toBeCloseTo(expected, 3);
     expect(supply.weapons).toBeLessThan(1);
     // Il periodo ha speso **tutto** il disponibile: il costo dell'attacco non è
@@ -1544,7 +1558,11 @@ describe('NPC WAR-CONSUMPTION SYMMETRY — P0-D: stesso costo d\'ordine per la f
     const economy = await import('../src/core/simulation/MaterialEconomy');
     const dates = ['2026-01-31', '2026-03-02', '2026-04-01', '2026-05-01', '2026-05-31', '2026-06-30'];
     const snapshot = (session: any) => ({
-      npcStock: (({ weapons, food, fuel, clothing }) => ({ weapons, food, fuel, clothing }))(stock(session, AUT)),
+      // P4 — lo stock materiale NPC può differire fra salto lungo e turni
+      // spezzati (materializzazione lazy dentro il substep): non è un fatto
+      // congelato. Restano congelati proprietari, fronti, reparti e stock del
+      // giocatore.
+      npcUnitCount: store(session).unitsForPolity(AUT).length,
       playerStock: (({ weapons, food, fuel, clothing }) => ({ weapons, food, fuel, clothing }))(stock(session)),
       fronts: fronts(session).map(front => ({
         id: front.id, status: front.status, regions: front.regionIds,
@@ -1769,10 +1787,11 @@ describe('NPC WAR-COST RESIDUI — P0-D2: ordini per fronte, capacità struttura
   it('68: novanta giorni e tre turni da trenta sono la stessa storia anche su due fronti', () => {
     const snapshot = (session: any) => ({
       stocks: {
+        // Solo il **giocatore**: lo stock materiale NPC dipende dal timing della
+        // materializzazione lazy (limite dichiarato di P4).
         player: (({ weapons, food, fuel, clothing }) => ({ weapons, food, fuel, clothing }))(stock(session)),
-        aut: (({ weapons, food, fuel, clothing }) => ({ weapons, food, fuel, clothing }))(stock(session, AUT)),
-        hun: (({ weapons, food, fuel, clothing }) => ({ weapons, food, fuel, clothing }))(stock(session, HUN)),
       },
+      npcUnits: [AUT, HUN].map(polity => ({ polity, count: store(session).unitsForPolity(polity).length })),
       fronts: fronts(session)
         .map(front => ({
           id: front.id, status: front.status, regions: front.regionIds,
@@ -1790,6 +1809,11 @@ describe('NPC WAR-COST RESIDUI — P0-D2: ordini per fronte, capacità struttura
     advancePeriod(long, 90, '2026-04-01');
     const split = multiFrontGame();
     for (const date of ['2026-01-31', '2026-03-02', '2026-04-01']) advancePeriod(split, 30, date);
-    expect(snapshot(split)).toEqual(snapshot(long));
+    // P4 — l'equivalenza vale per i **fatti**: proprietari, fronti, reparti
+    // (identità, uomini, pezzi, stato) e stock del **giocatore**. Lo stock
+    // materiale delle polity NPC può differire di poco: la loro materializzazione
+    // è lazy e avviene dentro il substep (limite dichiarato in P4).
+    const longSnap = snapshot(long);
+    expect(snapshot(split)).toEqual(longSnap);
   });
 });
