@@ -345,6 +345,10 @@ export class MilitaryService {
           date: this.ctx.currentDate(),
           epoch,
           armies: snapshot.armies,
+          // P4 — il quadro operativo vede **tutte** le unità (il fronte deve
+          // mostrare entrambe le parti). Il filtro per polity è sulle **schede
+          // reparto**: quelle del giocatore sono le sue, le altre vivono nel
+          // read model del fronte.
           units: snapshot.units,
           // MILITARY-UNITS PR2: i fronti sono oggetti del quadro; le loro unità
           // arrivano dal `frontId` dei reparti (una sola fonte).

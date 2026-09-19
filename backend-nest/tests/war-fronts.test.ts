@@ -382,7 +382,9 @@ describe('WAR-FRONTS — nascita, assegnazione e ordini (P6/P7)', () => {
     expect(frontObject).toBeTruthy();
     expect(frontObject.parentId).toBe('force');
     expect(frontObject.facts.map((fact: any) => fact.label)).toEqual(expect.arrayContaining([
-      'Pressione attaccante', 'Pressione difensore', 'Reparti impegnati', 'Teatro', 'Obiettivo dichiarato', 'Consumi di guerra',
+      'Pressione attaccante', 'Pressione difensore', 'Teatro', 'Obiettivo dichiarato', 'Consumi di guerra',
+      // P4 — i reparti persistenti si leggono per lato, con i loro ordini.
+      'Reparti persistenti · ITA', 'Reparti persistenti · AUT',
       // PR3 — l'iniziativa reale è un dato a sé: i ruoli storici non dicono chi avanza.
       'Iniziativa',
     ]));

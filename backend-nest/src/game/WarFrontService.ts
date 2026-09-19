@@ -667,16 +667,20 @@ export class WarFrontService {
     const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch }).menPerFormation;
     const organic = menPerFormation * DEPLETED_ORGANIC_RATIO;
     const requiredRifles = rifleRequirement(epoch, 1);
-    const friendly = (regionId: string | null | undefined): boolean => {
-      const region = regionId ? regions.get(String(regionId)) : undefined;
+    // P4 — «territorio amico» è quello della **polity del reparto**
+    // (`unit.polityId`), non del giocatore: anche un reparto NPC rientra in
+    // linea dopo il ripiegamento, con le stesse regole.
+    const friendlyFor = (unit: MilitaryUnitState): boolean => {
+      const region = unit.regionId ? regions.get(String(unit.regionId)) : undefined;
       const owner = String(region?.owner || '');
       if (!owner || owner === 'neutral') return false;
-      if (owner === String(this.ctx.playerPolityId())) return true;
-      return this.ctx.relationship(owner, this.ctx.playerPolityId()) === 'ally';
+      const polityId = unit.polityId ? String(unit.polityId) : String(this.ctx.playerPolityId());
+      if (owner === polityId) return true;
+      return this.ctx.relationship(owner, polityId) === 'ally';
     };
     const next = units.map(unit => {
       if (unit.status !== 'retreating' || unit.frontId) return unit;
-      if (!friendly(unit.regionId)) return unit;
+      if (!friendlyFor(unit)) return unit;
       if (daysBetween(unit.updatedDate, date) < WarFrontService.RALLY_DAYS) return unit;
       const personnel = Math.max(0, Math.round(Number(unit.personnel) || 0));
       if (personnel <= 0) return unit;
