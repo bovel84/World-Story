@@ -120,7 +120,7 @@ describe('OP-OBJECTS — sala di governo (SSR)', () => {
     expect(source).toContain('childrenOf(picture, object.id)');
     expect(source).toContain('UnitActionPanel');
     expect(source).toContain('unitActionView');
-    expect(source).toContain("UNIT_ACTIONS = ['reinforce_unit', 'reequip_unit', 'transfer_unit', 'reassign_unit']");
+    expect(source).toContain("UNIT_ACTIONS = ['reinforce_unit', 'reequip_unit', 'reconstitute_unit', 'transfer_unit', 'reassign_unit']");
   });
 
   it('riduce il testo: nessun paragrafo lungo nella vista principale', () => {

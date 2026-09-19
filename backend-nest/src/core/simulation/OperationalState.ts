@@ -338,6 +338,12 @@ export interface WarFrontState {
   objectiveRegionId: string | null;
   attackerPressure: number;
   defenderPressure: number;
+  /**
+   * PR3 — **read model**: la polity con l'iniziativa nell'ultimo periodo
+   * (pressione prevalente). Non è un bonus e non entra in nessun calcolo: serve
+   * alla lettura e alla memoria del fronte, niente moltiplicatori nascosti.
+   */
+  momentumPolityId?: string | null;
   createdDate: string;
   updatedDate: string;
 }
@@ -1746,6 +1752,27 @@ function unitActions(input: {
       blockedReason: missingRifles <= 0
         ? 'Dotazione già completa per un reparto.'
         : depot <= 0 ? 'Deposito senza armi individuali: la dotazione va costruita o comprata.' : null,
+    },
+    {
+      // PR3 — **ricostituzione**: uomini dalla riserva + fucili dal deposito in
+      // una sola azione (orchestrazione delle primitive esistenti). Fuori dal
+      // fronte, o in riserva: un reparto schierato non si ricostituisce.
+      id: 'reconstitute_unit',
+      label: missingMen > 0 && missingRifles > 0 && reserve > 0 && depot > 0
+        ? `Ricostituisci (${n(Math.min(missingMen, reserve))} uomini · ${n(Math.min(missingRifles, depot))} pezzi)`
+        : 'Ricostituisci',
+      enabled: input.unit.status !== 'destroyed'
+        && (!input.front || input.unit.order === 'reserve')
+        && ((missingMen > 0 && reserve > 0) || (missingRifles > 0 && depot > 0)),
+      blockedReason: input.unit.status === 'destroyed'
+        ? "Reparto distrutto: l'identità è storia. Per una nuova forza serve una nuova formazione."
+        : input.front && input.unit.order !== 'reserve'
+          ? `Il reparto è schierato sul ${input.front.name}: la ricostituzione completa si fa fuori dal fronte (o in riserva).`
+          : missingMen <= 0 && missingRifles <= 0
+            ? "Reparto già completo: organico e dotazione sono quelli d'epoca."
+            : reserve <= 0 && depot <= 0
+              ? "Né riserva addestrata né deposito: non c'è nulla da assegnare."
+              : null,
     },
     {
       id: 'transfer_unit',

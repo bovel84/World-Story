@@ -280,10 +280,10 @@ router.get('/:id/military/units', (req, res) => {
   }
 });
 
-router.post('/:id/military/units/:unitId/:action(reinforce|reequip|transfer|reassign)', (req, res) => {
+router.post('/:id/military/units/:unitId/:action(reinforce|reequip|transfer|reassign|reconstitute)', (req, res) => {
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    const action = String(req.params.action) as 'reinforce' | 'reequip' | 'transfer' | 'reassign';
+    const action = String(req.params.action) as 'reinforce' | 'reequip' | 'transfer' | 'reassign' | 'reconstitute';
     res.json(session.unitAction({
       action,
       unitId: String(req.params.unitId),

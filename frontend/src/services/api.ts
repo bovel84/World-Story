@@ -393,7 +393,7 @@ export interface UnitOrderImpactPayload {
 }
 
 /** MILITARY-UNITS — le azioni reali del reparto (regole del motore). */
-export type UnitActionId = 'reinforce' | 'reequip' | 'transfer' | 'reassign';
+export type UnitActionId = 'reinforce' | 'reequip' | 'reconstitute' | 'transfer' | 'reassign';
 
 export interface UnitOrderRequest {
   unitId: string;

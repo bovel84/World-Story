@@ -1373,7 +1373,7 @@ export class GameSession {
    * altrimenti l'azione vera (riserva, deposito, movimento: regole del motore).
    */
   unitAction(input: {
-    action: 'reinforce' | 'reequip' | 'transfer' | 'reassign';
+    action: 'reinforce' | 'reequip' | 'transfer' | 'reassign' | 'reconstitute';
     unitId: string;
     men?: number;
     equipmentId?: string;

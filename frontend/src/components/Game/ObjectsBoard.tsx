@@ -28,7 +28,7 @@ import {
 const tone = (value: string) => `tone-${value}`;
 
 /** Le azioni che il pannello del reparto esegue davvero (regole del motore). */
-const UNIT_ACTIONS = ['reinforce_unit', 'reequip_unit', 'transfer_unit', 'reassign_unit'];
+const UNIT_ACTIONS = ['reinforce_unit', 'reequip_unit', 'reconstitute_unit', 'transfer_unit', 'reassign_unit'];
 
 /**
  * MILITARY-UNITS PR2 — le quattro mosse del **fronte**. Sono lo stesso motore

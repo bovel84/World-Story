@@ -336,6 +336,8 @@ export function formationActionView(impact: FormationImpactPayload | null | unde
 const UNIT_ACTION_TITLE: Record<string, string> = {
   reinforce: 'Rinforza',
   reequip: 'Riequipaggia',
+  // PR3 — ricostituzione: riserva addestrata + deposito in una sola azione.
+  reconstitute: 'Ricostituisci',
   transfer: 'Trasferisci',
   reassign: 'Cambia armata',
 };

@@ -92,7 +92,7 @@ export function createProductionNotices(): ProductionNotices {
  */
 export interface UnitActionImpact {
   applied: boolean;
-  action: 'reinforce' | 'reequip' | 'transfer' | 'reassign';
+  action: 'reinforce' | 'reequip' | 'transfer' | 'reassign' | 'reconstitute';
   unitId: string;
   unitName: string;
   armyId: string;
@@ -636,7 +636,7 @@ export class MilitaryService {
    * che è **la somma** dei suoi reparti, viene riallineato in una scrittura sola.
    */
   unitAction(input: {
-    action: 'reinforce' | 'reequip' | 'transfer' | 'reassign';
+    action: 'reinforce' | 'reequip' | 'transfer' | 'reassign' | 'reconstitute';
     unitId: string;
     men?: number;
     equipmentId?: string;
@@ -748,6 +748,110 @@ export class MilitaryService {
       const partial = wanted < missing ? ` (parziale: mancano ancora ${(missing - wanted).toLocaleString('it-IT')} pezzi)` : '';
       const outcome = finish(next, snapshot.units.map(item => (item.id === unit.id ? next : item)), `Assegnati ${wanted.toLocaleString('it-IT')} × ${label} a «${next.name}»${partial}.`, 'Il pezzo passa dal deposito al reparto: deposito + assegnato resta il totale nazionale.');
       if (!input.dryRun) this.saveArsenal(polityId, transfer.depot);
+      return outcome;
+    }
+
+    if (input.action === 'reconstitute') {
+      // PR3 — **ricostituzione** di un reparto: gli uomini dalla riserva
+      // addestrata (`transferMenToArmy`) e i fucili dal deposito
+      // (`transferEquipment`), in **una sola** azione. Nessun motore nuovo e
+      // nessuna seconda economia: è l'orchestrazione delle due primitive che
+      // esistono già, con la contabilità conservata (riserva ↓ = reparto ↑,
+      // deposito ↓ = assegnato ↑).
+      const front = unit.frontId ? snapshot.fronts.find(item => String(item.id) === String(unit.frontId)) : null;
+      const engaged = Boolean(front && String(front.status) !== 'closed');
+      const inReserve = (unit.order ?? UNIT_ORDER_DEFAULT) === 'reserve';
+      if (unit.status === 'destroyed') {
+        return blocked(
+          "Reparto distrutto: l'identità è storia. Per una nuova forza serve una nuova formazione (`raiseFormation`). ",
+          'Nessuna ricostituzione.',
+          'Un reparto distrutto non torna con lo stesso id.',
+        );
+      }
+      // Sul fronte non si ricostituisce un reparto schierato: o è fuori dal
+      // fronte, o è in riserva. I rinforzi già ammessi dal modello restano.
+      if (engaged && !inReserve) {
+        return blocked(
+          `Il reparto è schierato sul ${front?.name ?? 'fronte'}: la ricostituzione completa si fa fuori dal fronte (o in riserva).`,
+          'Nessuna ricostituzione.',
+          'Sul fronte valgono le regole del fronte: `reinforce` e `reequip` restano disponibili con le loro regole.',
+        );
+      }
+      const menPerFormation = doctrine.menPerFormation;
+      const missingMen = Math.max(0, menPerFormation - Math.round(nonNegative(unit.personnel)));
+      const availableMen = Math.max(0, Math.floor(manpower.availableReserve));
+      const men = Math.min(missingMen, availableMen);
+      const equipmentId = (input.equipmentId || rifleEquipmentId()).trim();
+      if (!isKnownEquipment(equipmentId)) throw new Error(`equipment_unknown: «${equipmentId}» non è nel catalogo`);
+      const isIndividual = equipmentId === rifleEquipmentId();
+      const required = isIndividual ? rifleRequirement(epoch, 1) : null;
+      const assigned = equipmentQuantity(unit.equipment, equipmentId);
+      const depot = this.depotUnits(polityId);
+      const inDepot = equipmentQuantity(depot, equipmentId);
+      if (required === null && input.quantity === undefined) throw new Error(`unit_invalid: quantity obbligatoria per «${equipmentId}»`);
+      const missingPieces = required === null
+        ? Math.max(0, Math.round(Number(input.quantity) || 0))
+        : Math.max(0, required - assigned);
+      const pieces = Math.min(missingPieces, inDepot);
+      if (missingMen <= 0 && missingPieces <= 0) {
+        return blocked("Reparto già completo: organico e dotazione sono quelli d'epoca.", 'Nessuna ricostituzione.', "Non c'è nulla da ricostituire.");
+      }
+      if (men <= 0 && pieces <= 0) {
+        return blocked(
+          availableMen <= 0 && inDepot <= 0
+            ? "Né riserva addestrata né deposito: non c'è nulla da assegnare."
+            : "Non c'è nulla da assegnare con le scorte disponibili.",
+          'Nessuna ricostituzione.',
+          'Uomini dalla riserva addestrata, pezzi dal deposito: nessuno dei due viene creato dal nulla.',
+        );
+      }
+      let menApplied = 0;
+      let piecesApplied = 0;
+      if (men > 0 && personnel) {
+        const transferred = transferMenToArmy(personnel, men, doctrine);
+        if (transferred) {
+          menApplied = men;
+          personnelAfter = transferred;
+        }
+      }
+      let nextEquipment = unit.equipment || {};
+      let nextDepot = depot;
+      if (pieces > 0) {
+        const transfer = transferEquipment({ depot, assigned: nextEquipment, items: [{ equipmentId, quantity: pieces }] });
+        if (transfer) {
+          piecesApplied = pieces;
+          nextEquipment = transfer.assigned;
+          nextDepot = transfer.depot;
+        }
+      }
+      if (menApplied <= 0 && piecesApplied <= 0) {
+        return blocked('Ricostituzione non applicabile: riserva e deposito non hanno nulla da trasferire.', 'Nessuna ricostituzione.', 'Le primitive esistenti non hanno trovato nulla da spostare: nessun aggiornamento a metà.');
+      }
+      const label = equipmentById(equipmentId)?.name || equipmentId;
+      if (menApplied > 0) {
+        push('Uomini del reparto', unit.personnel, Math.round(nonNegative(unit.personnel)) + menApplied, 'numero');
+        push('Organico', menPerFormation > 0 ? nonNegative(unit.personnel) / menPerFormation * 100 : 100, menPerFormation > 0 ? (Math.round(nonNegative(unit.personnel)) + menApplied) / menPerFormation * 100 : 100, 'pct', 95, 60);
+        push('Riserva addestrata', manpower.availableReserve, Math.max(0, manpower.availableReserve - menApplied), 'numero');
+      }
+      if (piecesApplied > 0) {
+        push(`${label} del reparto`, assigned, equipmentQuantity(nextEquipment, equipmentId), 'numero');
+        if (required !== null) push('Copertura armi individuali', required > 0 ? assigned / required * 100 : 100, required > 0 ? equipmentQuantity(nextEquipment, equipmentId) / required * 100 : 100, 'pct', 95, 80);
+        push(`Deposito · ${label}`, inDepot, equipmentQuantity(nextDepot, equipmentId), 'numero');
+      }
+      const next = this.refreshUnit({
+        ...unit,
+        personnel: Math.round(nonNegative(unit.personnel)) + menApplied,
+        equipment: nextEquipment,
+        updatedDate: this.ctx.currentDate(),
+      }, epoch);
+      push('Prontezza', unit.readiness * 100, next.readiness * 100, 'pct', 80, 60);
+      const outcome = finish(
+        next,
+        snapshot.units.map(item => (item.id === unit.id ? next : item)),
+        `Ricostituito «${next.name}»: ${menApplied.toLocaleString('it-IT')} uomini dalla riserva e ${piecesApplied.toLocaleString('it-IT')} × ${label} dal deposito.`,
+        'Uomini e pezzi passano dalle scorte nazionali al reparto: nulla viene creato (riserva ↓ = reparto ↑, deposito ↓ = assegnato ↑).',
+      );
+      if (!input.dryRun && piecesApplied > 0) this.saveArsenal(polityId, nextDepot);
       return outcome;
     }
 

@@ -433,11 +433,12 @@ describe('MILITARY-UNITS — read model /arsenal (P4)', () => {
     expect(labels).toContain('Copertura armi individuali');
     expect(labels).toContain('Prontezza');
     expect(picture.counts.unit).toBe(list.length);
-    // Nessuna azione inventata: le quattro del reparto (PR1) **piu'** le quattro
-    // mosse del fronte (MILITARY-UNITS PR2, stessa fonte `unitActions`).
+    // Nessuna azione inventata: le quattro del reparto (PR1), la ricostituzione
+    // (PR3: riserva + deposito in una sola azione) **piu'** le quattro mosse del
+    // fronte (MILITARY-UNITS PR2, stessa fonte `unitActions`).
     expect(child.actions.map((action: any) => action.id).sort())
       .toEqual(['order_attack', 'order_defend', 'order_reserve', 'order_withdraw',
-        'reassign_unit', 'reequip_unit', 'reinforce_unit', 'transfer_unit']);
+        'reassign_unit', 'reconstitute_unit', 'reequip_unit', 'reinforce_unit', 'transfer_unit']);
     // Senza fronte le mosse sono dichiarate **bloccate**, non nascoste.
     const orders = child.actions.filter((action: any) => String(action.id).startsWith('order_'));
     expect(orders.every((action: any) => action.enabled === false)).toBe(true);

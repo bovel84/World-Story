@@ -102,7 +102,7 @@ export interface OperatingProblem {
 export interface OperatingAction {
   /** Azione del motore che la UI può davvero eseguire. */
   id: 'raise_formation' | 'procure' | 'trade'
-    | 'reinforce_unit' | 'reequip_unit' | 'transfer_unit' | 'reassign_unit'
+    | 'reinforce_unit' | 'reequip_unit' | 'reconstitute_unit' | 'transfer_unit' | 'reassign_unit'
     | 'order_attack' | 'order_defend' | 'order_reserve' | 'order_withdraw';
   label: string;
   enabled: boolean;

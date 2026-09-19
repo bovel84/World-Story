@@ -404,7 +404,7 @@
     },
     {
       "method": "post",
-      "path": "/:id/military/units/:unitId/:action(reinforce|reequip|transfer|reassign)",
+      "path": "/:id/military/units/:unitId/:action(reinforce|reequip|transfer|reassign|reconstitute)",
       "mutating": true,
       "file": "games/state.routes.ts"
     },

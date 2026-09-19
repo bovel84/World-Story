@@ -1213,3 +1213,96 @@ describe('MILITARY PR3 — contrattacco, catena di proprietà e recupero reparti
     expect(unitOf(session, unit.id).status).not.toBe('retreating');
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// MILITARY PR3 — ricostituzione (riusa le primitive esistenti)
+// ══════════════════════════════════════════════════════════════════════════
+describe('MILITARY PR3 — ricostituzione di un reparto', () => {
+  const depot = (session: any) => (session as any).military.depotUnits(PID);
+  const reserve = (session: any) => store(session).personnel().trainedReserve;
+  const equipmentSum = (bag: Record<string, number> | undefined, id = 'fucili') => Math.round(Number(bag?.[id] || 0));
+  /** Reparto fuori dal fronte, sotto organico e senza fucili: il caso da ricostituire. */
+  const wornUnit = (session: any) => {
+    const unit = units(session).find(item => String(item.armyId) === 'a1')!;
+    store(session).saveUnits(units(session).map(item => (String(item.id) === String(unit.id)
+      ? { ...item, personnel: 4_000, equipment: {}, readiness: 0.2, frontId: null, regionId: R.ita2, status: 'degraded' as const }
+      : item)));
+    return unitOf(session, unit.id);
+  };
+
+  it('37: la ricostituzione **conserva** gli uomini (riserva ↓ = reparto ↑)', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const unit = wornUnit(session);
+    const reserveBefore = reserve(session);
+    const personnelBefore = unit.personnel;
+    const impact = session.unitAction({ action: 'reconstitute', unitId: unit.id });
+    expect(impact.blocked).toBe(false);
+    expect(impact.applied).toBe(true);
+    const after = unitOf(session, unit.id);
+    const moved = after.personnel - personnelBefore;
+    expect(moved).toBeGreaterThan(0);
+    // Nessun uomo creato: quello che entra nel reparto esce dalla riserva.
+    expect(reserve(session)).toBe(reserveBefore - moved);
+  });
+
+  it('38: la ricostituzione **conserva** il deposito (deposito ↓ = assegnato ↑)', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const unit = wornUnit(session);
+    const depotBefore = equipmentSum(depot(session));
+    // Deposito rifornito per l'occasione (i pezzi esistono o non esistono: qui li mettiamo).
+    (session as any).military.saveArsenal(PID, { ...depot(session), fucili: 5_000 });
+    const depotArmed = equipmentSum(depot(session));
+    const assignedBefore = equipmentSum(unit.equipment);
+    const impact = session.unitAction({ action: 'reconstitute', unitId: unit.id });
+    expect(impact.blocked).toBe(false);
+    const assignedAfter = equipmentSum(unitOf(session, unit.id).equipment);
+    const moved = assignedAfter - assignedBefore;
+    expect(moved).toBeGreaterThan(0);
+    expect(equipmentSum(depot(session))).toBe(depotArmed - moved);
+    expect(depotBefore).toBeGreaterThanOrEqual(0);
+  });
+
+  it('39: senza riserva e senza deposito non nasce nulla (e non resta un aggiornamento a metà)', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const unit = wornUnit(session);
+    // Nessuna riserva, nessun pezzo: la ricostituzione è **bloccata**.
+    store(session).savePersonnel({ ...store(session).personnel(), trainedReserve: 0 });
+    (session as any).military.saveArsenal(PID, { ...depot(session), fucili: 0 });
+    const before = { personnel: unitOf(session, unit.id).personnel, equipment: equipmentSum(unitOf(session, unit.id).equipment) };
+    const impact = session.unitAction({ action: 'reconstitute', unitId: unit.id });
+    expect(impact.blocked).toBe(true);
+    expect(impact.blockedReason).toBeTruthy();
+    // Nessun numero creato dal nulla.
+    expect(unitOf(session, unit.id).personnel).toBe(before.personnel);
+    expect(equipmentSum(unitOf(session, unit.id).equipment)).toBe(before.equipment);
+    expect(reserve(session)).toBe(0);
+    expect(equipmentSum(depot(session))).toBe(0);
+  });
+
+  it('40: un reparto **schierato** non si ricostituisce (ma resta eleggibile in riserva)', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    armAll(session);
+    session.publicFronts();
+    setOrder(session, 'attack');
+    const unit = units(session).find(item => item.frontId)!;
+    const personnelBefore = unitOf(session, unit.id).personnel;
+    const blockedImpact = session.unitAction({ action: 'reconstitute', unitId: unit.id });
+    expect(blockedImpact.blocked).toBe(true);
+    expect(String(blockedImpact.blockedReason)).toMatch(/fronte|riserva/i);
+    expect(unitOf(session, unit.id).personnel).toBe(personnelBefore);
+    // In riserva la regola cambia: la ricostituzione è ammessa (fuori dal fronte).
+    session.unitOrder({ unitId: unit.id, order: 'reserve' });
+    store(session).saveUnits(units(session).map(item => (String(item.id) === String(unit.id)
+      ? { ...item, personnel: 4_000, equipment: {} } : item)));
+    const impact = session.unitAction({ action: 'reconstitute', unitId: unit.id });
+    expect(impact.blocked).toBe(false);
+    expect(unitOf(session, unit.id).personnel).toBeGreaterThan(4_000);
+  });
+});

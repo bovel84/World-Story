@@ -884,6 +884,12 @@ export class WarFrontService {
         status: resolution.status,
         attackerPressure: round4(resolution.attackerPressure),
         defenderPressure: round4(resolution.defenderPressure),
+        // Read model: chi ha l'iniziativa nel periodo (nessun effetto sul gioco).
+        momentumPolityId: resolution.attackerPressure === resolution.defenderPressure
+          ? null
+          : resolution.attackerPressure > resolution.defenderPressure
+            ? front.attackerPolityId
+            : front.defenderPolityId,
         updatedDate: date,
       });
       touched = true;
