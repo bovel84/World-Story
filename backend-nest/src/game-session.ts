@@ -54,7 +54,7 @@ import {
 import { type OrderCostEstimate } from './core/simulation/OrderCost';
 import { NATURAL_RESOURCE_KINDS, naturalResourcesFor, type NaturalResourceKind } from './core/simulation/MilitaryIndustry';
 import { militaryManpower } from './core/simulation/MilitaryDoctrine';
-import type { ArmyOperationalState, SeedArmyInput } from './core/simulation/OperationalState';
+import type { ArmyOperationalState, SeedArmyInput, UnitOrder } from './core/simulation/OperationalState';
 import { OperationalStateStore } from './game/OperationalStateStore';
 import { WarFrontService, type UnitOrderImpact } from './game/WarFrontService';
 import {
@@ -628,6 +628,12 @@ export class GameSession {
     // cresce, il saldo mensile che cambia e le entrate progressive maturano
     // davvero (P2).
     const notices = createProductionNotices();
+    // P0-D: piano del periodo per la forza **dichiarata** (legacy). Vive un
+    // substep: lo decide `beforeMaterialPeriod` e lo consumano sia il
+    // fabbisogno materiale sia il tick del fronte, così il prezzo e la
+    // battaglia parlano dello **stesso** ordine.
+    let periodWarPlan: { legacyOrders: Record<string, UnitOrder>; legacyConsumptionFactors: Record<string, number> } =
+      { legacyOrders: {}, legacyConsumptionFactors: {} };
     const materialLines = this.nationState.advanceResources(days, finalAccounts, asOfDate, {
       // Il mondo avanza un periodo alla volta, dentro il ciclo dei periodi
       // materiali: `Σ step` ≡ `days` (popolazione, PIL e readiness crescono in
@@ -664,9 +670,31 @@ export class GameSession {
       // copertura che il MaterialEngine ha misurato per ciascuna di loro.
       // Player e NPC leggono quindi la stessa semantica di periodo; nessun
       // secondo loop e nessuna rilettura dello stock residuo.
+      //
+      // P0-D: insieme alla copertura passano gli ordini **pianificati** della
+      // forza dichiarata (`beforeMaterialPeriod`), così il combattimento usa lo
+      // stesso ordine che ha pagato il fabbisogno.
       onMaterialPeriod: period => this.advanceFronts(period.stepDays, period.stepDate, {
         supply: period.fulfillmentByPolity,
+        legacyOrders: periodWarPlan.legacyOrders,
       }),
+      // P0-D — prima di ogni tick materiale: qual è l'ordine della forza
+      // dichiarata e quanto costa. Una sola decisione per substep, nessun
+      // ricalcolo e nessun secondo stato.
+      beforeMaterialPeriod: ({ stepDays }) => {
+        // Ordine del substep: prima lo stato dei fronti si assesta (con i suoi
+        // eventi di cronaca), poi si legge il piano del periodo. Il
+        // `beforePlayerSlice` successivo è idempotente e non ripete gli eventi.
+        let syncEvents: string[] = [];
+        try {
+          syncEvents = this.warFronts.syncFronts().events;
+          periodWarPlan = this.warFronts.planPeriod(stepDays);
+        } catch (error) {
+          console.warn('[GameSession] Piano di guerra del periodo non disponibile:', error);
+          periodWarPlan = { legacyOrders: {}, legacyConsumptionFactors: {} };
+        }
+        return { legacyMilitaryFactorByPolity: periodWarPlan.legacyConsumptionFactors, lines: syncEvents };
+      },
     });
     const projectLines = this.advanceProjects(days, asOfDate);
     // Bollettino e conti del salto sono quelli **finali** (dopo l'ultimo
@@ -2455,7 +2483,7 @@ export class GameSession {
   }
 
   /** Fronti: un periodo di guerra (implementazione nel servizio). */
-  private advanceFronts(days: number, date?: string, options?: { supply?: Record<string, MaterialFulfillment> }): string[] {
+  private advanceFronts(days: number, date?: string, options?: { supply?: Record<string, MaterialFulfillment>; legacyOrders?: Record<string, UnitOrder> }): string[] {
     try {
       return this.warFronts.advanceFronts(days, date, options).events;
     } catch (error) {

@@ -134,6 +134,22 @@ export interface MaterialPeriodInfo extends MaterialStepClock {
 }
 
 /**
+ * Piano **transitorio** del periodo, deciso **prima** dei tick materiali: qual è
+ * l'ordine della forza **dichiarata** (legacy, senza reparti persistenti) e
+ * quanto costa. Serve a far pagare all'NPC lo stesso prezzo del player senza
+ * dargli reparti: la decisione è la stessa (`npcFrontOrder`) e i moltiplicatori
+ * sono quelli di `UNIT_ORDER_INFO`.
+ *
+ * Non è stato: vive un substep e non viene serializzato da nessuna parte.
+ */
+export interface MaterialPeriodPlan {
+  /** Coefficiente di consumo della forza dichiarata, per polity (`1` = pace). */
+  legacyMilitaryFactorByPolity: Record<string, number>;
+  /** Righe di cronaca del piano (fronti che si aprono o si chiudono prima del tick). */
+  lines?: string[];
+}
+
+/**
  * Gancio eseguito **dentro** il periodo materiale del paese giocatore, subito
  * dopo il passaggio di allocazione e il prelievo: è così che gli ordini di
  * produzione vedono gli stessi numeri degli impianti, senza ricalcolarli su
@@ -156,6 +172,13 @@ export interface MaterialAdvanceHooks {
    * un secondo loop o una rilettura delle scorte residue.
    */
   onMaterialPeriod?: (period: MaterialPeriodInfo) => string[];
+  /**
+   * Gancio eseguito **una volta per substep**, dopo `accountsForStep` (il mondo
+   * del periodo è già avanzato) e **prima** di ogni tick materiale: è qui che
+   * nasce il piano del periodo. Gli ordini della forza dichiarata entrano così
+   * nel **fabbisogno** dello stesso periodo, non dopo: l'ordine è un costo.
+   */
+  beforeMaterialPeriod?: (clock: MaterialStepClock) => MaterialPeriodPlan | void;
   /**
    * Conto nazionale **del periodo**, fornito dal chiamante che possiede il
    * `WorldStateEngine`: è così che un salto lungo è la stessa storia economica
@@ -358,6 +381,11 @@ export class NationStateService {
       // Il conto nazionale **del periodo**: il mondo avanza dentro questo loop,
       // non in un ciclo separato (P2).
       const stepAccounts = hooks?.accountsForStep?.({ index, stepDays: step, stepDate }) ?? snapshot;
+      // P0-D: il piano del periodo (ordine e costo della forza dichiarata) è
+      // deciso **prima** dei fabbisogni, una volta per substep.
+      const periodPlan = hooks?.beforeMaterialPeriod?.({ index, stepDays: step, stepDate });
+      if (periodPlan?.lines) lines.push(...periodPlan.lines);
+      const legacyFactors = periodPlan?.legacyMilitaryFactorByPolity ?? {};
       // Accumulatore **solo del substep corrente**. Ogni valore nasce dal
       // `MaterialTick.fulfillment` della sua polity e viene consegnato al fronte
       // quando tutte le polity hanno finito: nessun dato persiste fra periodi.
@@ -380,7 +408,9 @@ export class NationStateService {
         if (player && hooks?.beforePlayerSlice) {
           lines.push(...hooks.beforePlayerSlice({ polityId, index, stepDays: step, stepDate }));
         }
-        const stepResult = this.advancePolityMaterialStep(polityId, account, step, stepDate, report ?? null);
+        const stepResult = this.advancePolityMaterialStep(
+          polityId, account, step, stepDate, report ?? null, legacyFactors[polityId] ?? 1,
+        );
         const overlay = stepResult.overlay;
         fulfillmentByPolity[polityId] = stepResult.fulfillment;
         if (player && hooks?.onPlayerSlice) {
@@ -422,6 +452,8 @@ export class NationStateService {
   private advancePolityMaterialStep(
     polityId: string, account: NationalAccount, stepDays: number, stepDate: string,
     report: MaterialPeriodReport | null,
+    /** P0-D: coefficiente dell'ordine del periodo per la forza **dichiarata**. */
+    legacyMilitaryFactor = 1,
   ): { overlay: MaterialFlowOverlay | null; fulfillment: MaterialFulfillment } {
     // A. Stato iniziale del periodo.
     const stock = this.resourceStock(polityId);
@@ -442,7 +474,9 @@ export class NationStateService {
     // Una risorsa esaurita smette di dare i bonus di produzione del giacimento.
     const effective = effectiveEndowment(drawn.ledger, naturalResourcesFor(polityId));
     // F. Un solo periodo: `advanceStock` applica flow, tetti, carenze e debito.
-    const tick = advanceStock(stock, account, stepDays, effective, stepDate, overlay);
+    // P0-D: la forza dichiarata paga il coefficiente dell'ordine del periodo
+    // (solo il militare: civile, impianti e giacimenti restano identici).
+    const tick = advanceStock(stock, account, stepDays, effective, stepDate, overlay, undefined, legacyMilitaryFactor);
     // G. Persistenza.
     this.saveResourceStock(polityId, tick.stock);
     // La copertura del periodo esce dal tick **già calcolata**: chi combatte la

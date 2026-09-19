@@ -33,7 +33,7 @@ import { indexPolities } from '../core/simulation/npc-policy';
 import type { MaterialFulfillment, ResourceStock } from '../core/simulation/MaterialEconomy';
 import {
   SURRENDER_LOSS_MULTIPLIER, frontIdFor, frontNameFor, frontObjectiveFor, frontSideStrength,
-  npcFrontOrder, resolveFront, retreatRegionFor, supplyCoverage, unitIsActiveOnFront,
+  legacyWarConsumptionFactor, npcFrontOrder, resolveFront, retreatRegionFor, supplyCoverage, unitIsActiveOnFront,
   type FrontRegion, type SideSupply,
 } from '../core/simulation/WarFronts';
 import type { MilitaryEpoch } from '../core/simulation/MilitaryDoctrine';
@@ -99,6 +99,12 @@ export interface FrontTickReport {
 export interface FrontTickOptions {
   /** Copertura del fabbisogno del periodo, per polity. */
   supply?: Record<string, MaterialFulfillment>;
+  /**
+   * P0-D — ordine del periodo della forza **dichiarata**, per polity: è lo
+   * **stesso** deciso da `planPeriod()` prima del fabbisogno materiale. Se
+   * assente (battito live, playback senza piano) si usa `npcFrontOrder()`.
+   */
+  legacyOrders?: Record<string, UnitOrder>;
 }
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
@@ -194,6 +200,83 @@ export class WarFrontService {
   private theatreRegions(front: WarFrontState): RegionState[] {
     const regions = this.ctx.regions();
     return front.regionIds.map(id => regions.get(String(id))).filter((region): region is RegionState => Boolean(region));
+  }
+
+  /** Potenza **dichiarata** di una polity dentro il teatro di un fronte. */
+  private legacyPowerIn(front: WarFrontState, polityId: string): number {
+    return this.theatreRegions(front)
+      .filter(region => String(region.owner) === String(polityId))
+      .reduce((total, region) => total + nonNegative(region.militaryPower), 0);
+  }
+
+  /**
+   * P0-D — piano **transitorio** del periodo per la forza **dichiarata**
+   * (legacy, senza reparti persistenti).
+   *
+   * L'ordine di una parte senza reparti è anche un **costo**: se lo si decidesse
+   * dentro il tick del fronte, il fabbisogno del periodo sarebbe già stato pagato
+   * al prezzo sbagliato (tutti a ×1, mentre il player in attacco paga ×1,8).
+   * Qui la decisione viene presa **prima** del tick materiale, con la stessa
+   * `npcFrontOrder()` del combattimento: nessuna seconda policy.
+   *
+   * - l'ordine è per **polity** e vale per tutti i suoi fronti del periodo;
+   * - il costo è la media pesata delle quote impegnate
+   *   (`legacyWarConsumptionFactor`), con la parte fuori teatro a ×1;
+   * - il **player** è escluso: i suoi reparti pagano già il coefficiente per
+   *   unità (`OperationalStateStore.militaryNeeds`), sommarlo sarebbe un doppio
+   *   conteggio;
+   * - puro e deterministico; transitorio (non entra in nessuna tabella).
+   *
+   * Presuppone `syncFronts()` già eseguito nel substep: il piano legge lo stato
+   * assestato, non quello del periodo precedente.
+   */
+  planPeriod(stepDays = 30): {
+    legacyOrders: Record<string, UnitOrder>;
+    legacyConsumptionFactors: Record<string, number>;
+  } {
+    const legacyOrders: Record<string, UnitOrder> = {};
+    const legacyConsumptionFactors: Record<string, number> = {};
+    if (!this.hasPersistentMilitary()) return { legacyOrders, legacyConsumptionFactors };
+    // **Sola lettura**: il chiamante ha già sincronizzato i fronti (`syncFronts()`
+    // è il passo 1 dell'ordine del substep e produce anche gli eventi di cronaca).
+    // Qui non si scrive e non si consumano eventi: il piano è aritmetica.
+    const snapshot = this.store().snapshot();
+    const player = String(this.ctx.playerPolityId());
+    const epoch = this.epoch();
+    // Potenza dichiarata **nazionale** per polity: è il denominatore delle quote
+    // (la forza fuori dal teatro paga ×1). Nessuna seconda lettura del mondo.
+    const national = new Map<string, number>();
+    for (const region of this.ctx.regions().values()) {
+      const owner = String(region.owner || '');
+      if (!owner || owner === 'neutral') continue;
+      national.set(owner, (national.get(owner) || 0) + nonNegative(region.militaryPower));
+    }
+    const engagements = new Map<string, Array<{ order: UnitOrder; weight: number }>>();
+    for (const front of snapshot.fronts) {
+      if (String(front.status) === 'closed') continue;
+      const sides = this.sides(front, snapshot.units, stepDays);
+      const pre = {
+        attacker: frontSideStrength({ units: sides.attacker.units, epoch, supply: sides.attacker.supply, motorized: sides.attacker.motorized, legacyPower: sides.attacker.legacyPower }),
+        defender: frontSideStrength({ units: sides.defender.units, epoch, supply: sides.defender.supply, motorized: sides.defender.motorized, legacyPower: sides.defender.legacyPower }),
+      };
+      const order = {
+        attacker: npcFrontOrder({ ownPressure: pre.attacker.pressure, enemyPressure: pre.defender.pressure }),
+        defender: npcFrontOrder({ ownPressure: pre.defender.pressure, enemyPressure: pre.attacker.pressure }),
+      };
+      for (const side of ['attacker', 'defender'] as const) {
+        const polityId = String(side === 'attacker' ? front.attackerPolityId : front.defenderPolityId);
+        if (polityId === player) continue;
+        const list = engagements.get(polityId) ?? [];
+        list.push({ order: order[side], weight: this.legacyPowerIn(front, polityId) });
+        engagements.set(polityId, list);
+      }
+    }
+    for (const [polityId, list] of engagements) {
+      const result = legacyWarConsumptionFactor({ engagements: list, nationalPower: national.get(polityId) || 0 });
+      legacyConsumptionFactors[polityId] = result.factor;
+      if (result.order) legacyOrders[polityId] = result.order;
+    }
+    return { legacyOrders, legacyConsumptionFactors };
   }
 
   /** Tutte le province note come `FrontRegion` (geografia della mappa, nient'altro). */
@@ -417,9 +500,7 @@ export class WarFrontService {
           units: list,
           stepDays,
         });
-      const legacyPower = theatreRegions
-        .filter(region => region.owner === polityId)
-        .reduce((total, region) => total + nonNegative(region.militaryPower), 0);
+      const legacyPower = this.legacyPowerIn(front, polityId);
       const motorized = Boolean(stock?.technologies?.includes('motorizzazione'));
       return { polityId, units: list, supply, legacyPower, motorized, isPlayer, stock };
     };
@@ -559,9 +640,21 @@ export class WarFrontService {
         attacker: frontSideStrength({ units: sides.attacker.units, epoch, supply: sides.attacker.supply, motorized: sides.attacker.motorized, legacyPower: sides.attacker.legacyPower }),
         defender: frontSideStrength({ units: sides.defender.units, epoch, supply: sides.defender.supply, motorized: sides.defender.motorized, legacyPower: sides.defender.legacyPower }),
       };
+      // P0-D: se il piano del periodo è stato fornito (`planPeriod`, prima del
+      // fabbisogno), vale **quello**: costo, pressione e perdite dello stesso
+      // periodo parlano dello stesso ordine. Senza piano (battito live,
+      // playback legacy) si ricade sulla policy corrente. Il player resta
+      // escluso: il suo ordine lo sceglie dal pannello del reparto.
+      const plannedOrder = (polityId: string, isPlayer: boolean): UnitOrder | undefined => {
+        if (isPlayer) return undefined;
+        const value = (options?.legacyOrders || {})[String(polityId)];
+        return value && String(value) in UNIT_ORDER_INFO ? value : undefined;
+      };
       const npcOrder = {
-        attacker: npcFrontOrder({ ownPressure: pre.attacker.pressure, enemyPressure: pre.defender.pressure }),
-        defender: npcFrontOrder({ ownPressure: pre.defender.pressure, enemyPressure: pre.attacker.pressure }),
+        attacker: plannedOrder(front.attackerPolityId, sides.attacker.isPlayer)
+          ?? npcFrontOrder({ ownPressure: pre.attacker.pressure, enemyPressure: pre.defender.pressure }),
+        defender: plannedOrder(front.defenderPolityId, sides.defender.isPlayer)
+          ?? npcFrontOrder({ ownPressure: pre.defender.pressure, enemyPressure: pre.attacker.pressure }),
       };
       if (!sides.attacker.isPlayer && sides.attacker.units.length > 0) {
         units = units.map(unit => (String(unit.frontId) === String(front.id) && this.unitPolityId(unit) === front.attackerPolityId

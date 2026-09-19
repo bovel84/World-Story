@@ -228,6 +228,56 @@ const npcSupplyAccount = (session: any) => ({
   population: 0, gdp: 0, factories: 0, ports: 0, universities: 0, monthlyBalance: 0,
   forces: 2500, mobilized: 0, provinces: 1,
 });
+/**
+ * Material tick legacy **controllato** (2.500 forze ⇒ 10 armamenti/mese, senza
+ * popolazione né industria): la stessa `advanceResources` canonica, ma con il
+ * **piano del periodo** fornito come lo fornisce `GameSession`. Serve a leggere
+ * i numeri esatti del costo bellico dell'NPC (10/18, 10/12, 10/10).
+ */
+const npcLegacyPeriods = (
+  session: any, days: number, date: string,
+  options?: { weapons?: number; factor?: number },
+) => {
+  if (options?.weapons !== undefined) setStock(session, { weapons: options.weapons }, AUT);
+  const periods: any[] = [];
+  (session as any).nationState.advanceResources(days, { [AUT]: npcSupplyAccount(session) }, date, {
+    beforeMaterialPeriod: () => ({
+      legacyMilitaryFactorByPolity: options?.factor !== undefined ? { [AUT]: options.factor } : {},
+    }),
+    onMaterialPeriod: (period: any) => { periods.push(period); return []; },
+  });
+  return periods;
+};
+/**
+ * Mondo di prova del **costo di guerra NPC**: la forza dichiarata di AUT è
+ * tutta nel teatro (aut2 non conta) e senza industria/popolazione, mentre i
+ * reparti del player escono dal teatro — così la parte ITA resta dichiarata e
+ * la policy NPC decide da sola (attacco, con 800 di potenza contro 312).
+ */
+const npcWarWorld = (session: any, level = 2491) => {
+  for (const regionId of [R.aut1, R.aut2]) {
+    const region = session.regions.get(regionId);
+    if (!region) continue;
+    region.population = 0;
+    region.gdp = 0;
+    if (regionId === R.aut2) region.militaryPower = 0;
+  }
+  const army = session.regions.get(R.aut1)?.objects?.find((object: any) => String(object.id) === 'a2');
+  if (army) army.level = level;
+  for (const unit of units(session)) {
+    if (String(unit.armyId) !== 'a1') continue;
+    session.unitAction({ action: 'transfer', unitId: unit.id, regionId: R.ita3 });
+  }
+};
+/**
+ * Produzione di armamenti dell'NPC sul percorso **legacy** (nessun overlay):
+ * `fabbriche × 0,5 + atenei × 0,2`, più ferro e carbone (AUT non ne ha). È la
+ * stessa espressione che `advanceStock` usa senza oggetti persistenti.
+ */
+const npcWeaponsProduction = (session: any) => {
+  const account = session.sessionAccounts()[AUT];
+  return Math.max(0, Number(account.factories) || 0) * 0.5 + Math.max(0, Number(account.universities) || 0) * 0.2;
+};
 /** Material tick legacy isolato: cattura l'hook neutrale una volta per substep. */
 const npcMaterialPeriods = (session: any, days: number, date: string, weapons: number) => {
   setStock(session, { weapons }, AUT);
@@ -1223,6 +1273,199 @@ describe('NPC SUPPLY SYMMETRY — P0-C: MaterialEngine → fulfillmentByPolity �
     const split = warGame();
     setStock(split, { weapons: 60, food: 3000, fuel: 3000, clothing: 3000 });
     setStock(split, { weapons: 10, food: 3000, fuel: 3000, clothing: 3000 }, AUT);
+    for (const date of dates) advancePeriod(split, 30, date);
+    expect(snapshot(split)).toEqual(snapshot(long));
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// P0-D — NPC war-consumption symmetry
+// ══════════════════════════════════════════════════════════════════════════
+describe('NPC WAR-CONSUMPTION SYMMETRY — P0-D: stesso costo d\'ordine per la forza dichiarata', () => {
+  it('50: NPC in attacco paga ×1,8 — il piano del periodo entra nel fabbisogno, non dopo', async () => {
+    const economy = await import('../src/core/simulation/MaterialEconomy');
+    const session = warGame();
+    npcWarWorld(session);
+    const plan = (session as any).warFronts.planPeriod(30);
+    expect(plan.legacyOrders[AUT]).toBe('attack');
+    expect(plan.legacyConsumptionFactors[AUT]).toBeCloseTo(1.8, 4);
+    // Costo del periodo: 10,004 × 1,8 = 18,007 — non 10,004.
+    const base = economy.legacyMilitaryNeeds(session.sessionAccounts()[AUT]).weapons;
+    expect(base).toBeGreaterThan(0.2);
+    expect(economy.scaledLegacyMilitaryNeeds(session.sessionAccounts()[AUT], 1.8).weapons).toBeCloseTo(base * 1.8, 6);
+    const production = npcWeaponsProduction(session);
+    setStock(session, { weapons: base, food: 0, clothing: 0, fuel: 0 }, AUT);
+    const lines = advancePeriod(session, 30, '2026-01-31');
+    const supply = periodSupply(session, AUT)!;
+    // Copertura = disponibilità reale / costo dell'attacco: con lo stock pari al
+    // costo di **pace** si copre 1/1,8 (0,5556) più la produzione del periodo.
+    const expected = (base + production) / (base * 1.8);
+    expect(supply.weapons).toBeCloseTo(expected, 3);
+    expect(supply.weapons).toBeLessThan(1);
+    // Il periodo ha speso **tutto** il disponibile: il costo dell'attacco non è
+    // coperto (l'NPC non ha un bollettino proprio: il fatto è nella copertura).
+    expect(Number(stock(session, AUT).weapons)).toBeCloseTo(0, 4);
+    expect(lines.length).toBeGreaterThan(0);
+  });
+
+  it('51: NPC in difesa paga ×1,2', () => {
+    const session = warGame();
+    const idle = session.regions.get(R.aut2);
+    if (idle) idle.militaryPower = 0;
+    const plan = (session as any).warFronts.planPeriod(30);
+    expect(plan.legacyOrders[AUT]).toBe('defend');
+    expect(plan.legacyConsumptionFactors[AUT]).toBeCloseTo(1.2, 4);
+    // Numeri esatti del costo: 10 → 12, con 10 disponibili → 10/12.
+    const [period] = npcLegacyPeriods(session, 30, '2026-01-31', { weapons: 10, factor: 1.2 });
+    expect(period.fulfillmentByPolity[AUT].weapons).toBeCloseTo(0.8333, 4);
+    expect(Number(stock(session, AUT).weapons)).toBeCloseTo(0, 6);
+  });
+
+  it('52: NPC in ritirata non paga il costo di guerra (×1)', () => {
+    const session = warGame({ autPower: 10 });
+    const plan = (session as any).warFronts.planPeriod(30);
+    expect(plan.legacyOrders[AUT]).toBe('withdraw');
+    expect(plan.legacyConsumptionFactors[AUT]).toBeCloseTo(1, 4);
+    // Costo di pace: 10 disponibili coprono 10.
+    const [period] = npcLegacyPeriods(session, 30, '2026-01-31', { weapons: 10, factor: 1 });
+    expect(period.fulfillmentByPolity[AUT].weapons).toBe(1);
+    expect(Number(stock(session, AUT).weapons)).toBeCloseTo(0, 6);
+  });
+
+  it('53: in pace il coefficiente è 1 — nessun ultimo mese di guerra', () => {
+    const session = warGame();
+    setRelationship(session, PID, AUT, 'neutral');
+    session.publicFronts();
+    const plan = (session as any).warFronts.planPeriod(30);
+    expect(plan.legacyConsumptionFactors[AUT]).toBeUndefined();
+    // Nessun piano ⇒ nessun override: il fabbisogno resta quello di sempre.
+    const [period] = npcLegacyPeriods(session, 30, '2026-01-31', { weapons: 10 });
+    expect(period.fulfillmentByPolity[AUT].weapons).toBe(1);
+  });
+
+  it('54: simmetria player/NPC in attacco — entrambi 1/1,8', () => {
+    // PLAYER: reparti persistenti, ordine d'attacco persistente. La
+    // disponibilità è **la stessa quota** del costo del periodo (1/1,8).
+    const player = warGame();
+    const playerNeed = weaponsNeedOfPeriod(player);
+    setStock(player, { weapons: playerNeed / 1.8, food: 500, fuel: 500, clothing: 500 }, PID);
+    advancePeriod(player, 30, '2026-01-31');
+    const playerSupply = periodSupply(player, PID)!.weapons;
+    // NPC: nessun reparto, stessa semantica di costo.
+    const npc = warGame();
+    const [period] = npcLegacyPeriods(npc, 30, '2026-01-31', { weapons: 10, factor: 1.8 });
+    const npcSupply = period.fulfillmentByPolity[AUT].weapons;
+    expect(playerSupply).toBeCloseTo(1 / 1.8, 3);
+    expect(npcSupply).toBeCloseTo(1 / 1.8, 4);
+    expect(Math.abs(playerSupply - npcSupply)).toBeLessThan(0.01);
+  });
+
+  it('55: nessun doppio moltiplicatore — 10 diventa 18, non 28 o 32,4', async () => {
+    const economy = await import('../src/core/simulation/MaterialEconomy');
+    // Il consumo dell'attacco è **totale** (base × 1,8), non base + 1,8× base.
+    const { session } = createGame();
+    const account = { ...npcSupplyAccount(session) };
+    const base = economy.legacyMilitaryNeeds(account);
+    expect(base.weapons).toBe(10);
+    const stockBase = { ...stock(session, AUT), food: 0, clothing: 0, fuel: 0, weapons: 0 };
+    for (const factor of [1, 1.2, 1.8]) {
+      const tick = economy.advanceStock({ ...stockBase, weapons: 100 }, account as any, 30, {}, '2026-01-31', null, undefined, factor);
+      const consumed = -(tick.flow.weapons);
+      expect(consumed).toBeCloseTo(base.weapons * factor, 4);
+      expect(consumed).toBeLessThan(base.weapons * factor + 0.01);
+    }
+    // Con la disponibilità esatta del costo d'attacco: copertura piena e zero.
+    const exact = economy.advanceStock({ ...stockBase, weapons: 18 }, account as any, 30, {}, '2026-01-31', null, undefined, 1.8);
+    expect(exact.fulfillment.weapons).toBe(1);
+    expect(exact.stock.weapons).toBeCloseTo(0, 6);
+  });
+
+  it('56: periodo parziale — 15 giorni sono metà costo d\'attacco', async () => {
+    const economy = await import('../src/core/simulation/MaterialEconomy');
+    const { session } = createGame();
+    const account = { ...npcSupplyAccount(session) };
+    const base = { ...stock(session, AUT), food: 0, clothing: 0, fuel: 0, weapons: 0 };
+    // Fabbisogno mensile 10, attacco ×1,8 → 9 nel periodo di 15 giorni.
+    const exact = economy.advanceStock({ ...base, weapons: 9 }, account as any, 15, {}, '2026-01-16', null, undefined, 1.8);
+    expect(exact.fulfillment.weapons).toBe(1);
+    expect(exact.stock.weapons).toBeCloseTo(0, 6);
+    const half = economy.advanceStock({ ...base, weapons: 4.5 }, account as any, 15, {}, '2026-01-16', null, undefined, 1.8);
+    expect(half.fulfillment.weapons).toBeCloseTo(0.5, 4);
+  });
+
+  it('57: multi-fronte — media pesata delle quote impegnate, con la parte non impegnata a ×1', async () => {
+    const { legacyWarConsumptionFactor } = await import('../src/core/simulation/WarFronts');
+    // 40% attacco + 20% difesa + 40% fuori teatro → 0,4×1,8 + 0,2×1,2 + 0,4×1 = 1,36.
+    const weighted = legacyWarConsumptionFactor({
+      engagements: [{ order: 'attack', weight: 40 }, { order: 'defend', weight: 20 }],
+      nationalPower: 100,
+    });
+    expect(weighted.factor).toBeCloseTo(1.36, 4);
+    expect(weighted.order).toBe('attack');
+    // La stessa forza non si conta due volte: Σ quote ≤ 1.
+    const over = legacyWarConsumptionFactor({
+      engagements: [{ order: 'attack', weight: 100 }, { order: 'attack', weight: 100 }],
+      nationalPower: 100,
+    });
+    expect(over.factor).toBeCloseTo(1.8, 4);
+    // Fronte senza potenza dichiarata: non alza il consumo nazionale.
+    expect(legacyWarConsumptionFactor({ engagements: [{ order: 'attack', weight: 0 }], nationalPower: 100 }))
+      .toEqual({ factor: 1, order: null });
+    // Nessun impegno (pace): costo di pace.
+    expect(legacyWarConsumptionFactor({ engagements: [], nationalPower: 100 })).toEqual({ factor: 1, order: null });
+    // Determinismo: stesso stato ⇒ stesso ordine e stesso coefficiente.
+    const again = legacyWarConsumptionFactor({
+      engagements: [{ order: 'attack', weight: 40 }, { order: 'defend', weight: 20 }],
+      nationalPower: 100,
+    });
+    expect(again).toEqual(weighted);
+  });
+
+  it('58: il combattimento usa lo **stesso** ordine che ha pagato il fabbisogno', () => {
+    // Il piano del mondo dice attacco per AUT (`npcFrontOrder`, player fuori
+    // teatro): l'ordine **pianificato** è quello che combatte.
+    const planned = warGame();
+    npcWarWorld(planned);
+    const plan = (planned as any).warFronts.planPeriod(30);
+    expect(plan.legacyOrders[AUT]).toBe('attack');
+    (planned as any).warFronts.advanceFronts(30, '2026-01-31', { legacyOrders: plan.legacyOrders });
+    const attackFront = fronts(planned)[0];
+    expect(attackFront.defenderPressure).toBeGreaterThan(0);
+    // Stesso mondo, ma la **ritirata** pianificata: nessuna pressione. La parte
+    // ITA non cambia: l'ordine pianificato riguarda solo la forza dichiarata NPC.
+    const withdrawing = warGame();
+    npcWarWorld(withdrawing);
+    (withdrawing as any).warFronts.advanceFronts(30, '2026-01-31', { legacyOrders: { [AUT]: 'withdraw' } });
+    const withdrawFront = fronts(withdrawing)[0];
+    expect(withdrawFront.defenderPressure).toBe(0);
+    expect(withdrawFront.attackerPressure).toBeCloseTo(attackFront.attackerPressure, 6);
+  });
+
+  it('59: 180 giorni e sei turni da 30 restano la stessa storia con il costo NPC', async () => {
+    const economy = await import('../src/core/simulation/MaterialEconomy');
+    const dates = ['2026-01-31', '2026-03-02', '2026-04-01', '2026-05-01', '2026-05-31', '2026-06-30'];
+    const snapshot = (session: any) => ({
+      npcStock: (({ weapons, food, fuel, clothing }) => ({ weapons, food, fuel, clothing }))(stock(session, AUT)),
+      playerStock: (({ weapons, food, fuel, clothing }) => ({ weapons, food, fuel, clothing }))(stock(session)),
+      fronts: fronts(session).map(front => ({
+        id: front.id, status: front.status, regions: front.regionIds,
+        attackerPressure: front.attackerPressure, defenderPressure: front.defenderPressure,
+      })),
+      units: activeUnits(session)
+        .map(unit => ({ id: unit.id, personnel: unit.personnel, status: unit.status, order: unit.order, frontId: unit.frontId, regionId: unit.regionId }))
+        .sort((a, b) => String(a.id).localeCompare(String(b.id))),
+    });
+    // Costo di pace della forza dichiarata: lo stesso per i due salti.
+    const probe = warGame();
+    npcWarWorld(probe);
+    const base = economy.legacyMilitaryNeeds(probe.sessionAccounts()[AUT]).weapons;
+    const long = warGame();
+    npcWarWorld(long);
+    setStock(long, { weapons: base, food: 0, clothing: 0, fuel: 0 }, AUT);
+    advancePeriod(long, 180, '2026-06-30');
+    const split = warGame();
+    npcWarWorld(split);
+    setStock(split, { weapons: base, food: 0, clothing: 0, fuel: 0 }, AUT);
     for (const date of dates) advancePeriod(split, 30, date);
     expect(snapshot(split)).toEqual(snapshot(long));
   });

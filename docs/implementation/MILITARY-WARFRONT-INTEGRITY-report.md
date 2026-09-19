@@ -756,3 +756,215 @@ every polity»), ramo `fix/npc-supply-symmetry`, base `main = f1a3d18`.
 
 La PR **non** è stata mergiata da chi ha scritto il codice: il merge resta al
 proprietario del repository.
+
+---
+
+# NPC WAR-CONSUMPTION SYMMETRY — stesso costo d'ordine per la forza dichiarata
+
+> PR dedicata, base `main = 00a7ba6` (dopo NPC SUPPLY SYMMETRY). Ultimo micro-fix
+> di simmetria logistica player/NPC: **nessuna** MilitaryUnit NPC persistente,
+> nessuna nuova simulazione, nessuna costante di guerra modificata.
+
+## 37. Causa dell'asimmetria
+
+Il giocatore paga il costo dell'ordine **dentro** il tick materiale
+(`OperationalStateStore.militaryNeeds()` → `unit.monthlyNeeds × UNIT_ORDER_INFO[ordine].consumption`):
+in attacco, `base 10 → 18`. L'NPC non ha reparti: il suo fabbisogno veniva da
+`legacyMilitaryNeeds(account)`, che **non conosce** `npcFrontOrder()`. Con
+`base 10` e `stock 10`:
+
+| Parte | Ordine | Fabbisogno del periodo | Copertura |
+|---|---|---:|---:|
+| PLAYER (reparti) | attacco | 18 | 0,556 |
+| NPC (forza dichiarata) | attacco | **10** ✗ | **1,0** |
+
+Un NPC che attaccava consumava come se fosse in pace. Il modello militare resta
+diverso (reparti persistenti vs `militaryPower`/`forces`), la **semantica del
+costo** no.
+
+## 38. Momento della decisione: prima del fabbisogno
+
+L'ordine è un **costo**, quindi serve **prima** del tick materiale. Ordine reale
+del substep:
+
+```
+accountsForStep (il mondo del periodo avanza)
+→ syncFronts                        (P0-B, invariato; eventi in cronaca)
+→ planPeriod(stepDays)              ← ORDINE NPC e COEFFICIENTE del periodo
+→ material tick ITA / AUT / …       (il coefficiente entra nelle needs)
+→ fulfillmentByPolity               (P0-C, invariato)
+→ onMaterialPeriod → advanceFronts  (usa lo STESSO ordine pianificato)
+→ perdite, ritirata, conquista
+```
+
+`beforeMaterialPeriod` è un gancio **una volta per substep**: il piano vive un
+periodo e non viene serializzato (nessuna tabella, nessun campo di
+`WarFrontState`/`MilitaryUnitState`/`SaveData`).
+
+Nota di implementazione: `planPeriod()` è di **sola lettura** (non richiama
+`syncFronts()`), così gli eventi di apertura/chiusura dei fronti restano quelli
+della sincronizzazione e non vengono consumati due volte.
+
+## 39. Struttura del piano e coefficiente nazionale legacy
+
+```ts
+interface MaterialPeriodPlan { legacyMilitaryFactorByPolity: Record<string, number>; lines?: string[] }
+planPeriod(stepDays): { legacyOrders: Record<string, UnitOrder>; legacyConsumptionFactors: Record<string, number> }
+```
+
+- l'ordine per polity viene da **`npcFrontOrder()`** — nessuna seconda policy,
+  nessun `reserve` inventato (la policy restituisce solo `attack`/`defend`/`withdraw`);
+- il costo è la **media pesata delle quote impegnate**, con la parte non
+  impegnata a ×1 (`legacyWarConsumptionFactor`, funzione **pura**):
+  `factor = 1 + Σ engagedShare(fronte) × (UNIT_ORDER_INFO[ordine].consumption − 1)`;
+- i moltiplicatori sono quelli di `UNIT_ORDER_INFO` (`attack 1,8 · defend 1,2 ·
+  reserve 0,8 · withdraw 1,0`): **nessuna costante duplicata**;
+- il denominatore delle quote è la potenza **nazionale** dichiarata, o quella
+  impegnata se la supera: `Σ engagedShare ≤ 1`, la stessa forza non si conta due
+  volte; il coefficiente resta nella forchetta dei moltiplicatori esistenti;
+- l'ordine restituito è quello della quota maggiore (deterministico): è l'ordine
+  che il combattimento usa per la stessa parte.
+
+**Multi-fronte (esempio misurato)**: 40% attacco + 20% difesa + 40% fuori teatro
+→ `0,4×1,8 + 0,2×1,2 + 0,4×1,0 = **1,36**` (non `1,8` su tutta la nazione).
+
+## 40. Effetto sul fabbisogno e sulla copertura (misure reali)
+
+Conto legacy controllato (2.500 forze ⇒ fabbisogno mensile `{food 150, clothing 25,
+weapons 10, fuel 75}`), periodo di 30 giorni:
+
+| Ordine NPC | Coefficiente | Fabbisogno armi | Stock iniziale | Copertura | Consumo armi |
+|---|---:|---:|---:|---:|---:|
+| attacco | 1,8 | **18** | 10 | **0,5556** | 18 (con 18 disponibili) |
+| difesa | 1,2 | **12** | 10 | **0,8333** | 12 |
+| ritirata | 1,0 | 10 | 10 | **1,0** | 10 |
+| pace (nessun fronte) | 1,0 | 10 | 10 | **1,0** | 10 |
+
+- **nessun doppio moltiplicatore**: il consumo è `base × 1,8 = 18`, non
+  `base + 1,8×base = 28` né `1,8² = 32,4`;
+- **periodo parziale**: 15 giorni con costo d'attacco → `10 × 1,8 × 15/30 = 9`;
+  con 9 disponibili la copertura è 1, con 4,5 è 0,5;
+- **mondo reale** (`warGame` con AUT a 800 di potenza dichiarata, fabbriche 3 e
+  atenei 2): base `10,004`, produzione armi `1,9/mese`, costo d'attacco `18,0072`
+  → copertura **0,6611** = `(10,004 + 1,9) / 18,0072`, stock finale 0. L'NPC non
+  ha un bollettino proprio (`MaterialPeriodReport` è del player), quindi la
+  carenza si legge dalla copertura e dallo stock, non da una riga di cronaca.
+
+## 41. Stesso ordine per costo e combattimento
+
+`advanceFronts` accetta `legacyOrders` (il piano) e lo usa in `resolveFront`:
+
+| Ordine pianificato per AUT | Pressione difensore registrata | Pressione attaccante (ITA) |
+|---|---:|---:|
+| `attack` (dal piano) | **1,8716** | 0,6735 |
+| `withdraw` (pianificato) | **0** | 0,6735 (invariata) |
+
+Il ripiego (nessun piano: battito live, playback) resta `npcFrontOrder()` dentro
+`advanceFronts` — *planned order if supplied, else current fallback*. La parte
+del **player** non riceve mai un ordine pianificato: resta esclusa come prima.
+
+## 42. Simmetria e salto lungo
+
+- **simmetria**: player in attacco con disponibilità `1/1,8` del costo del
+  periodo → copertura **0,5556**; NPC in attacco con la stessa quota → **0,5556**.
+  Stessa semantica, modelli diversi;
+- **determinismo**: due `planPeriod()` sullo stesso stato danno lo stesso ordine
+  e lo stesso coefficiente (nessun `Math.random`, nessuna data, nessun LLM);
+- **180 giorni = 6 × 30**: stato identico (scorte NPC e player, copertura del
+  periodo — `0,1055` con un mese di scorte —, pressioni e stato del fronte,
+  reparti) in entrambi i salti.
+
+## 43. Fallback e regole non toccate
+
+- `supplyCoverage` (stock residuo) resta il fallback **solo** per i percorsi
+  senza `MaterialTick.fulfillment` (anteprima, battito live, playback legacy);
+- `materialOverlay` resta **player-only**: nessun overlay sintetico per l'NPC;
+- **invariati**: `materialFulfillment`/`MaterialFulfillment`, `unitIsActiveOnFront`,
+  moltiplicatori ordine, `COMBAT_LOSS_PER_MONTH`, `BREAKTHROUGH_RATIO`,
+  `COLLAPSE_RATIO`, `STALEMATE_BAND`, `frontRollSeed`/`stableRoll`/
+  `productionRollSeed`, `npcFrontOrder`, BFS di movimento, `reassign`,
+  rewind/checkpoint/branch, `storageCapacity`/`seedStock`/`civilMaterialNeeds`;
+- il coefficiente **non** tocca la capacità strutturale, la semina, i civili o
+  l'industria: riguarda il solo consumo militare del periodo.
+
+## 44. Modello risultante (dichiarazione esplicita)
+
+```
+PLAYER  Persistent MilitaryUnit YES · Unit-level war consumption YES · Material fulfillment YES
+NPC     Persistent MilitaryUnit NO  · Legacy militaryPower YES · Legacy war consumption YES · Material fulfillment YES
+```
+
+### 44-bis. Congelamento del core (nota di trasparenza)
+
+Due soli file di `core/`, entrambi **additivi e puri**:
+
+- `MaterialEconomy.ts`: `scaledLegacyMilitaryNeeds()` (nuova, pura), un terzo
+  parametro **opzionale** di `effectiveMaterialNeeds()` e un ottavo parametro
+  **opzionale** di `advanceStock()` (`legacyMilitaryFactor = 1`). Con il default
+  `1` il comportamento è identico a prima: nessun test non bellico cambia;
+- `WarFronts.ts`: `legacyWarConsumptionFactor()` e il tipo `LegacyWarEngagement`
+  (nuovi, puri). Nessuna costante modificata.
+
+Nessuna migrazione, nessun nuovo stato persistito, nessuna seconda simulazione.
+
+## 45. Test (10 nuovi: 50–59) e magneticità
+
+`tests/military-warfront-integrity.test.ts`, sezione **«P0-D — NPC
+war-consumption symmetry»**:
+
+| # | Cosa verifica |
+|---|---|
+| 50 | NPC in attacco ×1,8: il piano entra nel fabbisogno, copertura < 1, stock a zero |
+| 51 | NPC in difesa ×1,2 → 10/12 = 0,8333 |
+| 52 | NPC in ritirata ×1 (costo di pace) |
+| 53 | pace: nessun piano, fabbisogno di sempre |
+| 54 | simmetria player/NPC in attacco (entrambi 1/1,8) |
+| 55 | nessun doppio moltiplicatore (18, non 28 né 32,4) |
+| 56 | periodo parziale 15 giorni (costo 9, copertura 1 e 0,5) |
+| 57 | multi-fronte pesato (1,36), Σ quote ≤ 1, fronte senza potenza, determinismo |
+| 58 | il combattimento usa lo stesso ordine pianificato (attacco > 0, ritirata = 0) |
+| 59 | 180 giorni = 6 × 30 con il costo NPC |
+
+**Magneticità verificata** (`git stash push -- backend-nest/src`, test nuovi sul
+codice `00a7ba6`): **9 failed | 50 passed** (50–58 falliscono; 59 è la guardia di
+equivalenza).
+
+## 46. Quality gate (eseguito)
+
+| Comando | Esito |
+|---|---|
+| backend `npx tsc --noEmit` | ✅ |
+| backend `npx vitest run` | ✅ **160 file / 1607 test** (erano 1597: +10) |
+| backend `npm run build` | ✅ |
+| frontend `npx tsc --noEmit` | ✅ |
+| frontend `npx vitest run` | ✅ **67 file / 494 test** |
+| frontend `npm run build` | ✅ |
+| `npm run test:e2e:mock` | ✅ **49 passed** |
+| inventario endpoint | 106 (invariato) |
+
+## 47. Limiti residui (voluti)
+
+NPC casualty detail per unità **NO** · NPC equipment per unità **NO** · NPC
+reinforcement per unità **NO** (gli NPC non hanno unità persistenti). A livello
+**nazionale** però la guerra costa: più consumo ⇒ copertura reale minore ⇒ forza
+reale minore. Restano fuori ambito, come dichiarato: contrattacco, role inversion,
+ricostituzione reparti, accerchiamento, aviazione, marina, tempo di movimento
+strategico.
+
+Con questa PR il blocco `MilitaryUnit + WarFront + Supply + Consumption + Time +
+Rewind + Branch + logistica player/NPC` è **chiuso**: il passo successivo è il
+gameplay militare **PR3**, non un'altra revisione del core.
+
+## 48. Esito GitHub Actions (PR #86 — NPC WAR-CONSUMPTION SYMMETRY)
+
+PR dedicata **#86** («NPC WAR-CONSUMPTION SYMMETRY — same order cost for legacy
+NPC forces»), ramo `fix/npc-war-consumption`, base `main = 00a7ba6`.
+
+| Check | Esito |
+|---|---|
+| `test-build` (backend test + build, frontend test + build) | ✅ **success** |
+| `e2e-mock` (Playwright su mock API) | ✅ **success** |
+| `mergeable` | ✅ `true` (`state = clean`) |
+
+La PR **non** è stata mergiata da chi ha scritto il codice: il merge resta al
+proprietario del repository.

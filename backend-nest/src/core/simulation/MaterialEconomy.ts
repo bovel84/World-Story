@@ -312,6 +312,27 @@ export function legacyMilitaryNeeds(account?: NationalAccount): MaterialNeeds {
   return { food: troops * 0.06, clothing: troops * 0.01, weapons: Math.max(0.2, troops * 0.004), fuel: troops * 0.03 };
 }
 
+/**
+ * P0-D — fabbisogno militare **legacy** scalato dal coefficiente dell'ordine del
+ * periodo (`legacyWarConsumptionFactor`). Un NPC in attacco paga il costo
+ * dell'attacco anche se non ha reparti persistenti: la forza dichiarata dalla
+ * mappa resta la stessa, cambia il **costo** del periodo.
+ *
+ * `factor = 1` (nessuna guerra, o nessun ordine) restituisce il fabbisogno di
+ * sempre: il percorso non bellico non cambia di una virgola.
+ */
+export function scaledLegacyMilitaryNeeds(account: NationalAccount | undefined, factor: number): MaterialNeeds {
+  const base = legacyMilitaryNeeds(account);
+  const scale = Math.max(0, Number(factor) || 0);
+  if (scale === 1) return base;
+  return {
+    food: base.food * scale,
+    clothing: base.clothing * scale,
+    weapons: base.weapons * scale,
+    fuel: base.fuel * scale,
+  };
+}
+
 /** Civile + militare legacy: il fabbisogno di sempre (stessa aritmetica). */
 export function materialNeeds(account?: NationalAccount): MaterialNeeds {
   const civil = civilMaterialNeeds(account);
@@ -377,9 +398,11 @@ export interface MaterialFlowOverlay {
 /** Fabbisogno efficace: civile + militare degli **oggetti** (o legacy). */
 export function effectiveMaterialNeeds(
   account?: NationalAccount, overlay?: MaterialFlowOverlay | null,
+  /** Fabbisogno militare già deciso dal chiamante (es. forza dichiarata × ordine). */
+  militaryNeed?: MaterialNeeds,
 ): MaterialNeeds {
   const civil = civilMaterialNeeds(account);
-  const military = overlay?.militaryNeeds ?? legacyMilitaryNeeds(account);
+  const military = militaryNeed ?? overlay?.militaryNeeds ?? legacyMilitaryNeeds(account);
   return {
     food: civil.food + military.food,
     clothing: civil.clothing + military.clothing,
@@ -586,6 +609,17 @@ export function advanceStock(
    * fabbisogno dell'intero paese.
    */
   needsOverride?: MaterialNeeds,
+  /**
+   * P0-D — coefficiente dell'ordine del periodo per la forza **dichiarata**
+   * (legacy, senza reparti persistenti): `1,8` attacco, `1,2` difesa, `1`
+   * nessuna guerra. Scala **solo** il fabbisogno militare: il civile, gli
+   * impianti e i giacimenti restano identici. Default `1` ⇒ nessun cambiamento.
+   *
+   * Il **player** non lo usa: i suoi reparti pagano già il coefficiente per
+   * unità (`OperationalStateStore.militaryNeeds`), sommarli sarebbe un doppio
+   * conteggio.
+   */
+  legacyMilitaryFactor = 1,
 ): MaterialTick {
   const period = Math.max(0, days) / 30; // mesi
   const popM = Math.max(0, account.population) / 1_000_000;
@@ -609,11 +643,14 @@ export function advanceStock(
   // Fabbisogno e capacità di stoccaggio reali: il magazzino ha un tetto.
   // Con gli oggetti persistenti il fabbisogno militare arriva da loro; senza,
   // resta quello derivato dai reparti (percorso legacy, numeri di sempre).
-  const needs = needsOverride ?? effectiveMaterialNeeds(account, overlay);
+  // P0-D: la forza **dichiarata** paga il coefficiente dell'ordine del periodo.
+  const military = needsOverride ?? overlay?.militaryNeeds
+    ?? scaledLegacyMilitaryNeeds(account, legacyMilitaryFactor);
+  const needs = needsOverride ?? effectiveMaterialNeeds(account, overlay, military);
   // Il fabbisogno su cui si misura la **copertura del periodo**: quello
   // militare (ciò che il fronte consuma), oppure quello imposto dal chiamante
   // quando è una scomposizione per impianto.
-  const fulfillmentNeed = needsOverride ?? overlay?.militaryNeeds ?? legacyMilitaryNeeds(account);
+  const fulfillmentNeed = needsOverride ?? overlay?.militaryNeeds ?? military;
   const capacity = storageCapacity(account, needs);
   // Agricoltura: contano terra fertile, pesca e lavoro rurale, non le fabbriche.
   // Una nazione povera e arida produce meno di quanto consuma e resta in deficit.

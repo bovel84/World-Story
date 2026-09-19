@@ -288,6 +288,65 @@ export function npcFrontOrder(input: { ownPressure: number; enemyPressure: numbe
   return 'defend';
 }
 
+// ── 3-bis. Costo della forza **dichiarata** (legacy) nel periodo ────────────
+
+/** Un impegno della forza dichiarata su un fronte del periodo. */
+export interface LegacyWarEngagement {
+  /** Ordine del periodo su **quel** fronte (da `npcFrontOrder`, nessun'altra policy). */
+  order: UnitOrder;
+  /** Potenza dichiarata **impegnata** nel teatro di quel fronte. */
+  weight: number;
+}
+
+/**
+ * P0-D — coefficiente di consumo della forza **dichiarata** (legacy) di una
+ * polity nel periodo: `1` = nessuna guerra, `1,8` = attacco su tutta la forza.
+ *
+ * La forza dichiarata non ha reparti, quindi non ha un ordine per unità: il
+ * costo del periodo è la **media pesata** degli ordini dei fronti su cui è
+ * impegnata, con la quota non impegnata che resta a ×1.
+ *
+ * ```
+ * factor = 1 + Σ engagedShare(fronte) × (consumption(ordine) − 1)
+ * ```
+ *
+ * - i moltiplicatori sono quelli di `UNIT_ORDER_INFO` (`attack 1,8 · defend 1,2
+ *   · reserve 0,8 · withdraw 1,0`): **nessuna costante duplicata**;
+ * - il denominatore delle quote è la potenza **nazionale** dichiarata, o quella
+ *   impegnata se la supera: la stessa forza non si conta due volte
+ *   (`Σ engagedShare ≤ 1`);
+ * - esempio: 40% attacco + 20% difesa + 40% non impegnato → `0,4×1,8 +
+ *   0,2×1,2 + 0,4×1,0 = 1,36` (non `1,8` su tutta la nazione);
+ * - l'ordine restituito è quello della quota maggiore (a parità: costo maggiore,
+ *   poi ordine alfabetico): è l'ordine che il combattimento deve usare per la
+ *   stessa parte, così costo, pressione e perdite parlano dello stesso piano.
+ *
+ * Pura e deterministica: nessun `Math.random`, nessuna data, nessun LLM.
+ */
+export function legacyWarConsumptionFactor(input: {
+  engagements: ReadonlyArray<LegacyWarEngagement>;
+  /** Potenza dichiarata **totale** della polity (tutte le sue province). */
+  nationalPower: number;
+}): { factor: number; order: UnitOrder | null } {
+  const engagements = input.engagements.filter(engagement =>
+    Number.isFinite(Number(engagement.weight)) && Number(engagement.weight) > 0
+    && String(engagement.order) in UNIT_ORDER_INFO);
+  if (engagements.length === 0) return { factor: 1, order: null };
+  const engaged = engagements.reduce((total, engagement) => total + Number(engagement.weight), 0);
+  // Potenza non impegnata a ×1; se l'impegno supera la potenza dichiarata, il
+  // denominatore è l'impegno stesso: le quote si normalizzano, mai oltre 1.
+  const denominator = Math.max(engaged, Math.max(0, Number(input.nationalPower) || 0));
+  const raw = engagements.reduce((total, engagement) =>
+    total + (Number(engagement.weight) / denominator) * (UNIT_ORDER_INFO[engagement.order].consumption - 1), 1);
+  // Il coefficiente resta nella forchetta dei moltiplicatori esistenti.
+  const consumption = Object.values(UNIT_ORDER_INFO).map(info => info.consumption);
+  const factor = round4(Math.min(Math.max(...consumption), Math.max(Math.min(...consumption), raw)));
+  const dominant = [...engagements].sort((a, b) => Number(b.weight) - Number(a.weight)
+    || UNIT_ORDER_INFO[b.order].consumption - UNIT_ORDER_INFO[a.order].consumption
+    || (a.order < b.order ? -1 : a.order > b.order ? 1 : 0))[0];
+  return { factor, order: dominant.order };
+}
+
 // ── 4. Risoluzione del fronte ───────────────────────────────────────────────
 
 /** Provincia del teatro: la stessa adiacenza della mappa, nient'altro. */
