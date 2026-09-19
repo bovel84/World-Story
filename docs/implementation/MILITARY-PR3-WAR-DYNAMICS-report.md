@@ -437,3 +437,93 @@ strategic movement time · fortifications · air/naval warfare · amphibious · 
 comandanti di fronte · ridisegno della negoziazione di pace. L'atomicità è
 applicata **solo** a `reconstitute` (unico percorso multi-authority): `reinforce`
 e `reequip` restano le primitive separate di sempre, e il rally non è toccato.
+
+---
+
+# PR3 RESIDUI 2 — refresh derivato non-fatale · `reconstitute_unit` nel payload
+
+Due micro-fix sulla stessa PR #87, minimo diff, nessuna riapertura del core
+(FrontEngine, soglie, atomicità della transazione, rally, momentum, movimento,
+identità dei reparti: invariati).
+
+## 24. Commit canonico ≠ refresh derivato
+
+Dopo la transazione strict di `reconstitute` (riserva + reparti + deposito in
+un'unica transazione), il servizio aggiorna il **derivato**: cache dello store,
+aggregato delle armate (`saveArmies` → oggetti regione → `syncRegionsToDB`),
+cache del deposito. Se una di queste operazioni lanciava, l'eccezione risaliva
+alla route: **l'API rispondeva errore su un'azione già committata**. Il
+chiamante vedeva un fallimento dove il database aveva già il nuovo stato —
+azione non ritentabile e contabilità apparentemente rotta.
+
+**Semantica nuova, dichiarata nel codice e nel `why`:**
+
+```
+commit canonico                    ← transazione strict: un errore fa rollback e RILANCIA
+refresh derivato best-effort       ← try/catch con log: un errore NON risale
+```
+
+- la risposta resta **`applied: true`** (il fatto canonico è persistito);
+- il **database è la verità**; cache e aggregato armata sono **derivati e
+  riparabili**: la prossima lettura rilegge dal database (anche forzando con
+  `OperationalStateStore.invalidate()`), perché il refresh non è mai l'unica
+  fonte;
+- un errore del **commit** continua a fare rollback e a rilanciare (comportamento
+  invariato e voluto: quello sì è un fallimento dell'azione);
+- nessun `console.warn` che nasconde un errore **canonico**: l'unico warn è sul
+  derivato, e la risposta dichiara comunque il successo.
+
+## 25. Test di failure injection del refresh (test 47)
+
+Failure injection **dopo** il commit: `vi.spyOn(store, 'adoptPersisted')` che
+lancia (l'aggregato armate e le cache non si aggiornano). Verificato:
+
+| Verifica | Esito |
+|---|---|
+| nessuna eccezione propagata alla route (l'azione non fallisce) | ✅ |
+| `applied: true`, `blocked: false` | ✅ |
+| DB: riserva, reparto e arsenale **aggiornati** nella stessa transazione | ✅ |
+| conservazione `riserva + reparto` intatta | ✅ |
+| nuova sessione dal DB: stato riconciliato | ✅ |
+| stessa sessione dopo `invalidate()`: derivato riallineato dal DB | ✅ |
+
+**Magnetico**: sul head precedente (`d0ea4c9`) il test **fallisce** con
+`expected [Function] to not throw an error but 'Error: refresh derivato non
+disponibile' was thrown` — cioè esattamente il difetto corretto.
+
+## 26. Allineamento del payload frontend
+
+`OperatingActionPayload.id` (`frontend/src/services/api.ts`) non elencava
+`reconstitute_unit`, mentre il motore lo produce già (`OperatingAction.id` in
+`core/simulation/OperationalObjects.ts`, `unitActions` in
+`core/simulation/OperationalState.ts`) e `ObjectsBoard.tsx` lo filtra in
+`UNIT_ACTIONS`. Era l'**unico** elenco rimasto disallineato (`UnitActionId` e il
+titolo dell'azione erano già a posto). Aggiunto, con test che verifica che il
+payload lo accetti e che il componente lo includa. Nessuna nuova schermata,
+nessun pulsante nuovo: solo typing allineato.
+
+## 27. Quality gate (eseguito)
+
+| Comando | Esito |
+|---|---|
+| backend `npx tsc --noEmit` | ✅ |
+| backend `npx vitest run` | ✅ **160 file / 1641 test** (erano 1640: +1) |
+| backend `npm run build` | ✅ |
+| frontend `npx tsc --noEmit` | ✅ |
+| frontend `npx vitest run` | ✅ **67 file / 496 test** (+1) |
+| frontend `npm run build` | ✅ |
+| `npm run test:e2e:mock` | ✅ **49 passed** |
+| inventario endpoint | 106 route (invariato) |
+
+## 28. Esito GitHub Actions (PR #87, head aggiornata)
+
+`test-build` ed `e2e-mock` sulla head finale di questo ciclo: **da registrare**
+(aggiornato con il risultato reale dei check prima della richiesta di merge).
+
+## 29. Limiti residui (invariati)
+
+NPC MilitaryUnit persistenti · encirclement · supply lines geografiche ·
+strategic movement time · fortifications · air/naval warfare · amphibious · HQ e
+comandanti di fronte · ridisegno della negoziazione di pace. Il refresh
+best-effort vale **solo** per `reconstitute` (l'unico percorso con scrittura
+canonica multi-authority seguita da refresh derivato).
