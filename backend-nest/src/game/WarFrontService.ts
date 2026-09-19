@@ -524,13 +524,16 @@ export class WarFrontService {
     const stepDays = Math.max(0, Math.floor(nonNegative(days)));
     const events: string[] = [];
     if (stepDays <= 0) return { events, fronts: 0, conquests: [] };
-    if (!this.hasPersistentMilitary()) return { events, fronts: 0, conquests: [] };
     // Copertura del periodo misurata dal tick materiale **prima** di questo
     // tick: è il fatto del periodo, non una deduzione sulle scorte residue.
     const supplyByPolity = options?.supply;
-    for (const [polityId, coverage] of Object.entries(supplyByPolity || {})) {
-      this.periodCoverage.set(String(polityId), coverage);
-    }
+    // Una chiamata è un nuovo periodo: sostituisce **tutta** la cache, non
+    // aggiunge alla precedente. Anche se non esistono più reparti persistenti
+    // (o AUT non attraversa questo tick), un vecchio «1» non può diventare una
+    // supply corrente: `sides()` ricade allora sul fallback dichiarato.
+    this.periodCoverage = new Map(Object.entries(supplyByPolity || {})
+      .map(([polityId, coverage]) => [String(polityId), coverage] as const));
+    if (!this.hasPersistentMilitary()) return { events, fronts: 0, conquests: [] };
     // Lo stato del fronte è già assestato (`syncFronts()` gira **prima** del
     // periodo materiale: P0-B). Questa chiamata è idempotente e copre i percorsi
     // che non passano dal tick materiale (battito live, playback).

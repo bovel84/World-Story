@@ -655,19 +655,18 @@ export class GameSession {
       // OP-OBJECTS SEED-DETERMINISM: l'ordine riceve anche la **data canonica**
       // del periodo. Il tiro di produzione dipende da quella, non dal turno:
       // un salto di 180 giorni e sei turni da 30 tirano gli stessi dadi.
-      onPlayerSlice: slice => [
-        ...this.advanceProduction(
-          slice.stepDays, finalAccounts[this.playerPolityId], slice.factors, notices, { stepDate: slice.stepDate },
-        ),
-        // MILITARY-UNITS PR2: la guerra vive **dentro** il periodo materiale
-        // (max 30 giorni), una volta per periodo: nessun tick giornaliero
-        // globale e nessun doppio conteggio fra salto lungo e turni brevi.
-        // P0-A: il fronte riceve la copertura **del periodo appena misurata**
-        // dal material engine, non rilegge le scorte residue.
-        ...this.advanceFronts(slice.stepDays, slice.stepDate, {
-          supply: { [slice.polityId]: slice.fulfillment },
-        }),
-      ],
+      // La produzione del giocatore resta nel suo hook: usa i fattori dello
+      // stesso passaggio di allocazione e non deve aspettare le polity legacy.
+      onPlayerSlice: slice => this.advanceProduction(
+        slice.stepDays, finalAccounts[this.playerPolityId], slice.factors, notices, { stepDate: slice.stepDate },
+      ),
+      // P0-C — dopo **tutte** le polity del substep il fronte riceve la
+      // copertura che il MaterialEngine ha misurato per ciascuna di loro.
+      // Player e NPC leggono quindi la stessa semantica di periodo; nessun
+      // secondo loop e nessuna rilettura dello stock residuo.
+      onMaterialPeriod: period => this.advanceFronts(period.stepDays, period.stepDate, {
+        supply: period.fulfillmentByPolity,
+      }),
     });
     const projectLines = this.advanceProjects(days, asOfDate);
     // Bollettino e conti del salto sono quelli **finali** (dopo l'ultimo

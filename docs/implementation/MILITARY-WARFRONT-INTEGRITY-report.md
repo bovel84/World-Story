@@ -587,3 +587,172 @@ sincronizzazione prima del tick»), ramo `fix/warfront-supply-tick`, base
 
 La PR **non** è stata mergiata da chi ha scritto il codice: il merge è del
 proprietario del repository.
+
+---
+
+# NPC SUPPLY SYMMETRY — stessa copertura materiale di periodo per ogni polity
+
+> PR dedicata, base `main = f1a3d18` (dopo WARFRONT SUPPLY/TICK CONSISTENCY).
+> È il micro-fix finale di simmetria logistica: **nessuna** MilitaryUnit NPC
+> persistente, nessuna nuova simulazione, nessuna modifica alle costanti di
+> guerra o al core congelato.
+
+## 28. Causa dell'asimmetria residua
+
+PR #84 aveva corretto il giocatore: `onPlayerSlice` passava al fronte
+`MaterialTick.fulfillment` del periodo. Ma il tick materiale calcolava il
+fulfillment anche per le altre polity e non lo emetteva: il fronte riceveva
+solo `{ [player]: fulfillment }`; lato NPC `sides()` ricadeva quindi su
+`supplyCoverage(stock residuo)`.
+
+L'invariante ora è unica:
+
+```
+per ogni polity che attraversa advanceStock() nel substep corrente:
+WarFront supply = MaterialTick.fulfillment
+```
+
+Chi **non** attraversa un tick (preview, battito live, playback legacy o polity
+senza account) non riceve una supply inventata: conserva il fallback dichiarato
+`supplyCoverage(stock residuo)`.
+
+## 29. Flusso del substep e API minima
+
+`NationStateService` espone il nuovo fatto transitorio:
+
+```ts
+interface MaterialPeriodInfo {
+  index: number;
+  stepDays: number;
+  stepDate: string;
+  fulfillmentByPolity: Record<string, MaterialFulfillment>;
+}
+
+onMaterialPeriod?: (period: MaterialPeriodInfo) => string[]
+```
+
+Ordine effettivo, una sola volta per substep:
+
+```
+accountsForStep
+→ beforePlayerSlice / sync fronti (invariato, P0-B)
+→ material tick ITA
+→ material tick AUT
+→ … tutte le polity del periodo
+→ fulfillmentByPolity completo
+→ onMaterialPeriod → WarFront tick
+```
+
+`onPlayerSlice` resta dov'è: `advanceProduction()` conserva fattori e data del
+proprio passaggio di allocazione. Solo il tick fronte è spostato dopo tutte le
+polity, così riceve la mappa completa. Nessun secondo loop, nessun ricalcolo NPC.
+`stepDate` è quello canonico del substep, invariato.
+
+## 30. Wiring e cache transitoria
+
+- `GameSession.onMaterialPeriod` chiama l'API già esistente
+  `advanceFronts(stepDays, stepDate, { supply: fulfillmentByPolity })`;
+- `WarFrontService.sides()` continua a preferire `measured` e ricade su
+  `supplyCoverage` solo quando la mappa non ha quella polity;
+- `periodCoverage` è **sostituita interamente** a ogni `advanceFronts()`, anche
+  quando non esistono più reparti persistenti: una copertura AUT del periodo 1
+  non può sopravvivere al periodo 2 se AUT non è stata tickata;
+- `MaterialFulfillment` non entra in `WarFrontState`, `MilitaryUnitState`,
+  `SaveData`, checkpoint, `game_operational_objects` o schema DB. Dopo un
+  riavvio/restore il prossimo periodo lo ricalcola.
+
+Il `FrontEngine` resta puro: riceve la supply già decisa e non legge store o DB.
+
+## 31. Modello reale (dichiarazione esplicita)
+
+| Lato | Persistent MilitaryUnit | Legacy militaryPower | Material fulfillment |
+|---|---:|---:|---:|
+| Player | **YES** | supporto | **YES** |
+| NPC | **NO** | **YES** | **YES** |
+
+L'NPC resta una forza dichiarata (`region.militaryPower` + `npcFrontOrder()`),
+non una nuova armata persistente. La correzione gli dà solo la **stessa semantica
+logistica del periodo** del player. L'ordine materiale resta invariato:
+produzione/scorte → input industriali → consumi civili → disponibilità militare.
+
+## 32. Misure e test P0-C (42–49)
+
+`tests/military-warfront-integrity.test.ts`, sezione **«P0-C — NPC material
+supply symmetry»**:
+
+| # | Caso verificato | Risultato |
+|---|---|---|
+| 42 | NPC legacy controllato, need armi 10 / stock 10 | fulfillment **1**, stock finale **0**, supply fronte **1**; wiring GameSession include anche AUT |
+| 43 | NPC need 10 / stock 4 | supply **0,4**, stock finale 0 |
+| 44 | NPC need 10 / stock 0 | supply **0** |
+| 45 | player e NPC con disponibilità relativa 0,4 | entrambi fulfillment armi **0,4**; `FrontEngine` riceve lo stesso supply factor a parità di `SideSupply` |
+| 46 | NPC, 15 gg: need 5 / stock 5 | fulfillment **1**, stock finale **0** |
+| 47 | NPC, 180 gg con un mese di scorte | **1,0,0,0,0,0**, non un valore unico finale |
+| 48 | cache e fallback | periodo successivo senza AUT → coverage AUT `null` (fallback); cache vuota dopo riavvio |
+| 49 | salto lungo | `180 = 6×30` per stock player/NPC, unità, pressione/stato fronte ed esito territoriale |
+
+**Magneticità verificata**: con `git stash push -- backend-nest/src` e i test
+nuovi sul codice di PR #84: **7 failed | 42 passed** (42–48 falliscono; 49 è una
+guardia di equivalenza). Il caso centrale non può più degradare da «stock esatto
+consumato» a supply zero: `MaterialEngine → fulfillmentByPolity → WarFrontEngine`.
+
+## 33. Invarianti controllate e file toccati
+
+Toccati soltanto:
+
+- `src/game/NationStateService.ts` — `MaterialPeriodInfo`, hook neutrale,
+  accumulatore per substep;
+- `src/game-session.ts` — produzione player invariata in `onPlayerSlice`, fronte
+  collegato a `onMaterialPeriod`;
+- `src/game/WarFrontService.ts` — replace-whole-map della cache transitoria;
+- `tests/military-warfront-integrity.test.ts` — 8 test P0-C;
+- questo rapporto.
+
+**Non toccati**: `MaterialFulfillment`/`materialFulfillment`,
+`unitIsActiveOnFront`, consumi 1,8/1,2/0,8/1,0, soglie di combattimento,
+`frontRollSeed`/`stableRoll`/`productionRollSeed`, `npcFrontOrder`, BFS,
+`reassign`, rewind/checkpoint/branch. Nessuna modifica in `core/` per questa PR.
+
+## 34. Limiti residui (voluti)
+
+Persistent NPC MilitaryUnit **NO**; contrattacco **NO**; avanzata del difensore
+**NO**; ricostituzione reparti **NO**; accerchiamento **NO**; tempo di movimento
+strategico **NO**; fronte navale **NO**; guerra aerea **NO**. Il fallback
+`supplyCoverage` resta per i percorsi senza `MaterialTick.fulfillment` e non è
+una seconda semantica del percorso canonico.
+
+## 35. Quality gate e GitHub Actions
+
+Gate locale eseguito sulla head della PR:
+
+| Comando | Esito |
+|---|---|
+| backend `npx tsc --noEmit` | ✅ |
+| backend `npx vitest run` | ✅ **160 file / 1597 test** (erano 1589: +8) |
+| backend `npm run build` | ✅ |
+| frontend `npx tsc --noEmit` | ✅ |
+| frontend `npx vitest run` | ✅ **67 file / 494 test** |
+| frontend `npm run build` | ✅ |
+| `npm run test:e2e:mock` | ✅ **49 passed** |
+| inventario endpoint | 106 (invariato) |
+
+Il primo run completo backend ha incontrato il flaky preesistente
+`op-objects-time-step` test 42 (`expectedDate` indefinita); il rerun isolato e
+il successivo **run completo** sono verdi (160/1597), sopra riportato. Nessun
+file di quel percorso è stato modificato.
+
+GitHub Actions (`test-build`, `e2e-mock`) sarà registrato qui con l'esito reale
+sulla SHA finale prima della richiesta di merge.
+## 36. Esito GitHub Actions (PR #85 — NPC SUPPLY SYMMETRY)
+
+PR dedicata **#85** («NPC SUPPLY SYMMETRY — same material-period fulfillment for
+every polity»), ramo `fix/npc-supply-symmetry`, base `main = f1a3d18`.
+
+| Check | Esito |
+|---|---|
+| `test-build` (backend test + build, frontend test + build) | ✅ **success** |
+| `e2e-mock` (Playwright su mock API) | ✅ **success** |
+| `mergeable` | ✅ `true` (`state = clean`) |
+
+La PR **non** è stata mergiata da chi ha scritto il codice: il merge resta al
+proprietario del repository.

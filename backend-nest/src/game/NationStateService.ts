@@ -122,6 +122,18 @@ export interface MaterialStepClock {
 }
 
 /**
+ * Fatti materiali completi di un substep: una sola emissione, **dopo** che
+ * tutte le polity del periodo hanno attraversato `advanceStock()`.
+ *
+ * È transitorio: serve ai consumatori del periodo (fronti), non è stato della
+ * partita e non viene serializzato. Le polity senza `NationalAccount` non
+ * compaiono: chi non ha attraversato il tick usa il proprio fallback.
+ */
+export interface MaterialPeriodInfo extends MaterialStepClock {
+  fulfillmentByPolity: Record<string, MaterialFulfillment>;
+}
+
+/**
  * Gancio eseguito **dentro** il periodo materiale del paese giocatore, subito
  * dopo il passaggio di allocazione e il prelievo: è così che gli ordini di
  * produzione vedono gli stessi numeri degli impianti, senza ricalcolarli su
@@ -137,6 +149,13 @@ export interface MaterialAdvanceHooks {
    * entrano nella cronaca **prima** di quelle del periodo.
    */
   beforePlayerSlice?: (slice: MaterialStepClock & { polityId: string }) => string[];
+  /**
+   * Tutte le polity del substep hanno già completato il proprio tick materiale.
+   * È chiamato **una volta per substep**, non una volta per polity: il fronte
+   * riceve così la copertura misurata del periodo per entrambe le parti, senza
+   * un secondo loop o una rilettura delle scorte residue.
+   */
+  onMaterialPeriod?: (period: MaterialPeriodInfo) => string[];
   /**
    * Conto nazionale **del periodo**, fornito dal chiamante che possiede il
    * `WorldStateEngine`: è così che un salto lungo è la stessa storia economica
@@ -339,6 +358,10 @@ export class NationStateService {
       // Il conto nazionale **del periodo**: il mondo avanza dentro questo loop,
       // non in un ciclo separato (P2).
       const stepAccounts = hooks?.accountsForStep?.({ index, stepDays: step, stepDate }) ?? snapshot;
+      // Accumulatore **solo del substep corrente**. Ogni valore nasce dal
+      // `MaterialTick.fulfillment` della sua polity e viene consegnato al fronte
+      // quando tutte le polity hanno finito: nessun dato persiste fra periodi.
+      const fulfillmentByPolity: Record<string, MaterialFulfillment> = {};
       for (const [polityId, fallback] of polities) {
         const account = stepAccounts[polityId] ?? fallback;
         const player = polityId === this.ctx.playerPolityId();
@@ -359,12 +382,16 @@ export class NationStateService {
         }
         const stepResult = this.advancePolityMaterialStep(polityId, account, step, stepDate, report ?? null);
         const overlay = stepResult.overlay;
+        fulfillmentByPolity[polityId] = stepResult.fulfillment;
         if (player && hooks?.onPlayerSlice) {
           lines.push(...hooks.onPlayerSlice({
             polityId, index, stepDays: step, stepDate, factors: overlay?.facilityFactors || {},
             fulfillment: stepResult.fulfillment,
           }));
         }
+      }
+      if (hooks?.onMaterialPeriod) {
+        lines.push(...hooks.onMaterialPeriod({ index, stepDays: step, stepDate, fulfillmentByPolity }));
       }
     }
     // Un bollettino per polity, emesso **una volta sola** per l'intero salto.

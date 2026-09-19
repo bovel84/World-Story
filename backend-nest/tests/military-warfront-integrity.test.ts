@@ -23,6 +23,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { addDays } from '../src/core/simulation/calendar';
+import { frontSideStrength } from '../src/core/simulation/WarFronts';
 
 const TEST_DB = path.join(os.tmpdir(), `world-story-integrity-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
@@ -215,6 +216,27 @@ const cleanAccount = (session: any) => ({
   ...session.sessionAccounts()[PID],
   population: 0, factories: 0, ports: 0, universities: 0, monthlyBalance: 0, forces: 0, mobilized: 0,
 });
+
+// ── Helper «NPC supply symmetry» ────────────────────────────────────────────
+/**
+ * Account legacy deterministico: 2.500 forze ⇒ fabbisogno mensile di
+ * armamenti = 10 (`legacyMilitaryNeeds`), senza popolazione/industria che
+ * alterino il caso 10/10, 4/10 o 0/10. Non crea alcuna MilitaryUnit NPC.
+ */
+const npcSupplyAccount = (session: any) => ({
+  ...session.sessionAccounts()[AUT],
+  population: 0, gdp: 0, factories: 0, ports: 0, universities: 0, monthlyBalance: 0,
+  forces: 2500, mobilized: 0, provinces: 1,
+});
+/** Material tick legacy isolato: cattura l'hook neutrale una volta per substep. */
+const npcMaterialPeriods = (session: any, days: number, date: string, weapons: number) => {
+  setStock(session, { weapons }, AUT);
+  const periods: any[] = [];
+  (session as any).nationState.advanceResources(days, { [AUT]: npcSupplyAccount(session) }, date, {
+    onMaterialPeriod: (period: any) => { periods.push(period); return []; },
+  });
+  return periods;
+};
 
 // ══════════════════════════════════════════════════════════════════════════
 // P0-1 — SAVE / REWIND / BRANCH dello stato operativo
@@ -1072,6 +1094,135 @@ describe('WARFRONT SUPPLY/TICK — coerenza del salto lungo', () => {
     advancePeriod(long, 180, '2026-06-30');
     const split = warGame();
     setStock(split, { weapons: 60, food: 3000, fuel: 3000, clothing: 3000 });
+    for (const date of dates) advancePeriod(split, 30, date);
+    expect(snapshot(split)).toEqual(snapshot(long));
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// P0-C — NPC material supply symmetry
+// ══════════════════════════════════════════════════════════════════════════
+describe('NPC SUPPLY SYMMETRY — P0-C: MaterialEngine → fulfillmentByPolity → WarFrontEngine', () => {
+  const full = { food: 1, clothing: 1, weapons: 1, fuel: 1 };
+
+  it('42: NPC stock esatto — need 10 / available 10 → fulfillment e supply 1, stock finale 0', () => {
+    // Account legacy controllato: nessuna popolazione/industria, 2.500 forze
+    // ⇒ need armamenti 10. È il material tick reale, non una formula duplicata.
+    const session = warGame();
+    const [period] = npcMaterialPeriods(session, 30, '2026-01-31', 10);
+    expect(period.fulfillmentByPolity[AUT].weapons).toBe(1);
+    expect(Number(stock(session, AUT).weapons)).toBeCloseTo(0, 6);
+    // WarFrontService consuma il fatto del MaterialEngine anche per l'NPC.
+    (session as any).warFronts.advanceFronts(30, '2026-01-31', { supply: period.fulfillmentByPolity });
+    expect(periodSupply(session, AUT)?.weapons).toBe(1);
+    // Wiring canonico: nel salto GameSession l'NPC è presente nella stessa
+    // mappa di copertura del player (nessuna `playerSupply` dedicata).
+    const wired = warGame();
+    setStock(wired, { weapons: 10 }, AUT);
+    advancePeriod(wired, 30, '2026-01-31');
+    expect(periodSupply(wired, PID)).not.toBeNull();
+    expect(periodSupply(wired, AUT)?.weapons).toBe(1);
+  });
+
+  it('43: NPC stock parziale — need 10 / available 4 → supply 0,4', () => {
+    const session = warGame();
+    const [period] = npcMaterialPeriods(session, 30, '2026-01-31', 4);
+    expect(period.fulfillmentByPolity[AUT].weapons).toBeCloseTo(0.4, 4);
+    expect(Number(stock(session, AUT).weapons)).toBeCloseTo(0, 6);
+    (session as any).warFronts.advanceFronts(30, '2026-01-31', { supply: period.fulfillmentByPolity });
+    expect(periodSupply(session, AUT)?.weapons).toBeCloseTo(0.4, 4);
+  });
+
+  it('44: NPC senza armamenti — need 10 / available 0 → supply 0', () => {
+    const session = warGame();
+    const [period] = npcMaterialPeriods(session, 30, '2026-01-31', 0);
+    expect(period.fulfillmentByPolity[AUT].weapons).toBe(0);
+    expect(periodSupply(session, AUT)).toBeNull();
+    (session as any).warFronts.advanceFronts(30, '2026-01-31', { supply: period.fulfillmentByPolity });
+    expect(periodSupply(session, AUT)?.weapons).toBe(0);
+  });
+
+  it('45: player e NPC con la stessa disponibilità relativa ricevono la stessa fulfillment (0,4)', () => {
+    const session = warGame();
+    const playerNeed = weaponsNeedOfPeriod(session);
+    setStock(session, { weapons: playerNeed * 0.4 }, PID);
+    setStock(session, { weapons: 4 }, AUT);
+    const periods: any[] = [];
+    (session as any).nationState.advanceResources(30, {
+      [PID]: session.sessionAccounts()[PID],
+      [AUT]: npcSupplyAccount(session),
+    }, '2026-01-31', {
+      onMaterialPeriod: (period: any) => { periods.push(period); return []; },
+    });
+    expect(periods).toHaveLength(1);
+    const supply = periods[0].fulfillmentByPolity;
+    expect(Object.keys(supply).sort()).toEqual([AUT, PID].sort());
+    expect(supply[PID].weapons).toBeCloseTo(0.4, 4);
+    expect(supply[AUT].weapons).toBeCloseTo(0.4, 4);
+    // Il core non distingue «supply player» e «supply NPC»: a parità di quota,
+    // `frontSideStrength` riceve lo stesso fattore di rifornimento.
+    const unit = units(session).find(item => String(item.armyId) === 'a1')!;
+    const common = { units: [unit], epoch: (session as any).military.epoch(), motorized: false, legacyPower: 0 };
+    // Il FrontEngine non conosce «player»/«NPC»: a parità della SideSupply
+    // ricevuta dal periodo produce il medesimo fattore, senza ramo per polity.
+    const equalSupply = { food: 0.4, clothing: 0.4, weapons: 0.4, fuel: 0.4 };
+    const player = frontSideStrength({ ...common, supply: equalSupply });
+    const npc = frontSideStrength({ ...common, supply: equalSupply });
+    expect(player.units[0].supplyFactor).toBe(npc.units[0].supplyFactor);
+  });
+
+  it('46: NPC periodo parziale — 15 giorni, need 5 / available 5 → supply 1 e stock 0', () => {
+    const session = warGame();
+    const [period] = npcMaterialPeriods(session, 15, '2026-01-16', 5);
+    expect(period.fulfillmentByPolity[AUT].weapons).toBe(1);
+    expect(Number(stock(session, AUT).weapons)).toBeCloseTo(0, 6);
+  });
+
+  it('47: NPC con un mese di scorte su 180 giorni — 1,0,0,0,0,0, senza valore unico finale', () => {
+    const session = warGame();
+    const periods = npcMaterialPeriods(session, 180, '2026-06-30', 10);
+    expect(periods).toHaveLength(6);
+    expect(periods.map(period => period.fulfillmentByPolity[AUT].weapons)).toEqual([1, 0, 0, 0, 0, 0]);
+  });
+
+  it('48: cache transitoria — un NPC assente dal periodo successivo non riusa la supply vecchia, né sopravvive al riavvio', () => {
+    const { gameId, session } = createGame();
+    const service = (session as any).warFronts;
+    service.advanceFronts(30, '2026-01-31', { supply: { [AUT]: full, [PID]: full } });
+    expect(periodSupply(session, AUT)?.weapons).toBe(1);
+    // Nuovo periodo, AUT non ha attraversato `advanceStock`: la vecchia 1 non
+    // è una supply corrente e `sides()` ricade nel fallback dichiarato.
+    const half = { food: 0.5, clothing: 0.5, weapons: 0.5, fuel: 0.5 };
+    service.advanceFronts(30, '2026-03-02', { supply: { [PID]: half } });
+    expect(periodSupply(session, PID)?.weapons).toBe(0.5);
+    expect(periodSupply(session, AUT)).toBeNull();
+    // Percorso senza MaterialTick: nessuna coverage misurata, quindi la cache
+    // resta vuota e `sides()` mantiene il fallback `supplyCoverage` legacy.
+    service.advanceFronts(30, '2026-04-01');
+    expect(periodSupply(session, PID)).toBeNull();
+    expect(periodSupply(session, AUT)).toBeNull();
+    registry.removeSession(gameId);
+    const reloaded = registry.getSession(gameId);
+    expect(periodSupply(reloaded, AUT)).toBeNull();
+  });
+
+  it('49: 180 giorni = 6×30 anche con le scorte NPC nel fatto del periodo', () => {
+    const dates = ['2026-01-31', '2026-03-02', '2026-04-01', '2026-05-01', '2026-05-31', '2026-06-30'];
+    const snapshot = (session: any) => ({
+      playerStock: (({ food, weapons, fuel, clothing }) => ({ food, weapons, fuel, clothing }))(stock(session)),
+      npcStock: (({ food, weapons, fuel, clothing }) => ({ food, weapons, fuel, clothing }))(stock(session, AUT)),
+      units: activeUnits(session)
+        .map(unit => ({ id: unit.id, personnel: unit.personnel, equipment: unit.equipment, status: unit.status, order: unit.order, frontId: unit.frontId, regionId: unit.regionId }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+      fronts: fronts(session).map(front => ({ id: front.id, status: front.status, regions: front.regionIds, attackerPressure: front.attackerPressure, defenderPressure: front.defenderPressure })),
+    });
+    const long = warGame();
+    setStock(long, { weapons: 60, food: 3000, fuel: 3000, clothing: 3000 });
+    setStock(long, { weapons: 10, food: 3000, fuel: 3000, clothing: 3000 }, AUT);
+    advancePeriod(long, 180, '2026-06-30');
+    const split = warGame();
+    setStock(split, { weapons: 60, food: 3000, fuel: 3000, clothing: 3000 });
+    setStock(split, { weapons: 10, food: 3000, fuel: 3000, clothing: 3000 }, AUT);
     for (const date of dates) advancePeriod(split, 30, date);
     expect(snapshot(split)).toEqual(snapshot(long));
   });
