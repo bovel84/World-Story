@@ -327,7 +327,11 @@ export function scaledLegacyMilitaryNeeds(account: NationalAccount | undefined, 
   if (scale === 1) return base;
   return {
     food: base.food * scale,
-    clothing: base.clothing * scale,
+    // Il **vestiario** resta quello base: `UNIT_ORDER_INFO` descrive l'intensità
+    // operativa immediata (cibo, carburante, armamenti), e il percorso a reparti
+    // persistenti non ha un equivalente di vestiario per unità. Scalarlo qui
+    // darebbe all'NPC un consumo che il player non ha (P1, simmetria).
+    clothing: base.clothing,
     weapons: base.weapons * scale,
     fuel: base.fuel * scale,
   };
@@ -378,6 +382,13 @@ export interface MaterialFlowOverlay {
    * reparti generici. Se assente si usa `legacyMilitaryNeeds`.
    */
   militaryNeeds?: MaterialNeeds;
+  /**
+   * Fabbisogno militare **strutturale**: la base di pace dei reparti persistenti,
+   * **senza** il coefficiente d'ordine. Dimensiona i magazzini (`storageCapacity`
+   * e il tetto di stoccaggio): un attacco consuma di più, non costruisce
+   * depositi nuovi. Se assente si ricade su `militaryNeeds` (compatibilità).
+   */
+  structuralMilitaryNeeds?: MaterialNeeds;
   /**
    * Materiali estratti presi dalla filiera (giacimenti, non scorte),
    * **quantità del periodo**: già scalata dal tempo, non va riscalata.
@@ -640,10 +651,25 @@ export function advanceStock(
   const foodBonus = (has(stock, 'agricoltura_meccanizzata') ? 1.35 : 1) * (1 + fertile * 0.06 + fisheries * 0.03);
   const clothingBonus = has(stock, 'industria_tessile') ? 1.3 : 1;
   const weaponsBonus = has(stock, 'industria_bellica') ? 1.4 : 1;
-  // Fabbisogno e capacità di stoccaggio reali: il magazzino ha un tetto.
-  // Con gli oggetti persistenti il fabbisogno militare arriva da loro; senza,
-  // resta quello derivato dai reparti (percorso legacy, numeri di sempre).
-  // P0-D: la forza **dichiarata** paga il coefficiente dell'ordine del periodo.
+  // Due fabbisogni, due usi (P0-D2):
+  //
+  // | grandezza | da dove | a cosa serve |
+  // |---|---|---|
+  // | **strutturale** | base di pace dei reparti (o forza dichiarata) | tetto del magazzino (`storageCapacity`, `capStock`) |
+  // | **del periodo** | base × coefficiente dell'ordine | consumo, copertura, carenze |
+  //
+  // La guerra non costruisce magazzini: `ATTACK` alza il consumo, non la
+  // capacità. Il player porta la sua base di pace in
+  // `overlay.structuralMilitaryNeeds`; l'NPC usa la forza dichiarata **non**
+  // scalata. Se un chiamante non fornisce il fabbisogno strutturale si ricade
+  // su quello del periodo (comportamento di sempre).
+  const structuralMilitary = needsOverride
+    ?? overlay?.structuralMilitaryNeeds ?? overlay?.militaryNeeds
+    ?? legacyMilitaryNeeds(account);
+  const structuralNeeds = needsOverride
+    ?? effectiveMaterialNeeds(account, overlay, structuralMilitary);
+  // Fabbisogno del **periodo**: la forza dichiarata paga il coefficiente
+  // dell'ordine; con reparti persistenti arriva già scalato dall'overlay.
   const military = needsOverride ?? overlay?.militaryNeeds
     ?? scaledLegacyMilitaryNeeds(account, legacyMilitaryFactor);
   const needs = needsOverride ?? effectiveMaterialNeeds(account, overlay, military);
@@ -651,7 +677,6 @@ export function advanceStock(
   // militare (ciò che il fronte consuma), oppure quello imposto dal chiamante
   // quando è una scomposizione per impianto.
   const fulfillmentNeed = needsOverride ?? overlay?.militaryNeeds ?? military;
-  const capacity = storageCapacity(account, needs);
   // Agricoltura: contano terra fertile, pesca e lavoro rurale, non le fabbriche.
   // Una nazione povera e arida produce meno di quanto consuma e resta in deficit.
   const foodYield = (fertile * 0.55 + fisheries * 0.25 + popM * 0.004 * (1 + fertile * 0.08)) * foodBonus;
@@ -684,8 +709,10 @@ export function advanceStock(
     shortages: [],
   };
 
-  // Il magazzino ha un tetto: oltre la capacità il surplus si perde (deperimento).
-  const { stock: next, spoiled } = capStock(applyFlow(stock, flow), account, needs);
+  // Il magazzino ha un tetto **strutturale**: oltre la capacità il surplus si
+  // perde (deperimento). Il tetto non cresce con l'ordine del periodo, così la
+  // guerra non crea capacità e la pace non produce deperimento artificiale.
+  const { stock: next, spoiled } = capStock(applyFlow(stock, flow), account, structuralNeeds);
   // Diagnostica: la carenza si registra solo se il fabbisogno non era coperto.
   const check = (kind: ResourceKind, label: string, required: number) => {
     if (required > 0 && flow[kind]! < 0 && stock[kind] + flow[kind]! < 0) {

@@ -968,3 +968,188 @@ NPC forces»), ramo `fix/npc-war-consumption`, base `main = 00a7ba6`.
 
 La PR **non** è stata mergiata da chi ha scritto il codice: il merge resta al
 proprietario del repository.
+
+---
+
+# NPC WAR-COST RESIDUI — ordini per fronte, capacità strutturale, vestiario
+
+> Chiusura dei tre residui sulla PR #86 (stesso ramo `fix/npc-war-consumption`),
+> senza toccare costanti di combattimento, semi, movimento, rewind, branch,
+> schema di salvataggio, UI o diplomazia.
+
+## 49. Il bug multi-fronte (P0)
+
+`legacyWarConsumptionFactor()` calcolava correttamente un coefficiente
+**nazionale** aggregato, ma `planPeriod()` ne derivava anche un **unico ordine
+per polity** (quello dominante) e `advanceFronts()` lo applicava a **tutti** i
+fronti di quella polity:
+
+```
+ECONOMIA  40% attack + 20% defend + 40% inattivo → 1,36   ✅
+COMBATTO  Fronte A = attack · Fronte B = attack            ❌ (B pagava defend)
+```
+
+Costo e combattimento descrivevano **due piani diversi**: il fronte B pagava
+×1,2 ma combatteva come se pagasse ×1,8.
+
+## 50. Ordini per fronte, costo nazionale aggregato
+
+`planPeriod()` ora produce:
+
+```ts
+{
+  legacyOrdersByFront: { [frontId]: { [polityId]: UnitOrder } },  // ordine operativo
+  legacyConsumptionFactors: { [polityId]: number },               // costo nazionale
+}
+```
+
+**Una sola fonte**: durante il piano, per ogni fronte l'ordine di ciascuna parte
+entra *sia* in `legacyOrdersByFront` *sia* negli ingaggi usati per il
+coefficiente. Impossibile che divergano.
+
+- `advanceFronts()` legge `legacyOrdersByFront[front.id][polityId]` (fallback:
+  `legacyOrders[polityId]` per compatibilità → `npcFrontOrder()` per i percorsi
+  senza periodo materiale). **Invariante commentata nel codice**: nessun ordine
+  nazionale decide il combattimento.
+- `legacyWarConsumptionFactor()` restituisce `dominantOrder` come **diagnostica**
+  (quota maggiore), non più come ordine operativo: non viene passato a
+  `resolveFront()`.
+
+## 51. Misure reali (mondo a due fronti)
+
+AUT in guerra con ITA e con HUN; potenze dichiarate `aut1 400`, `aut2 200`,
+`aut3 400` (nazionale 1000), reparti del player fuori teatro:
+
+| Fronte | Teatro AUT | Quota | Ordine pianificato |
+|---|---|---:|---|
+| `front-AUT-ITA` | aut1 (400) | 40% | **attack** |
+| `front-AUT-HUN` | aut2 (200) | 20% | **defend** |
+| fuori teatro | aut3 (400) | 40% | ×1 |
+
+`legacyConsumptionFactors[AUT] = 1 + 0,4×(1,8−1) + 0,2×(1,2−1) = **1,36**` ✓
+(la parte non impegnata paga ×1; `Σ quote ≤ 1`).
+
+Combattimento coerente (prova senza jitter: ritirata pianificata sul secondo
+fronte → fattore d'ordine 0):
+
+| Fronte | Ordine pianificato | Pressione AUT |
+|---|---|---:|
+| `front-AUT-ITA` | attack | **> 0** |
+| `front-AUT-HUN` | withdraw (pianificato) | **0** |
+| `front-AUT-HUN` | nessun piano (`npcFrontOrder`) | **> 0** |
+
+## 52. Capacità strutturale ≠ fabbisogno del periodo (P0)
+
+`advanceStock()` distingue ora due grandezze:
+
+| grandezza | da dove | a cosa serve |
+|---|---|---|
+| **strutturale** | base di pace dei reparti (player: `overlay.structuralMilitaryNeeds`; NPC: `legacyMilitaryNeeds` non scalato) | `storageCapacity()` e il tetto applicato a fine tick (`capStock`) |
+| **del periodo** | base × coefficiente dell'ordine | flow, consumo, `fulfillment`, carenze |
+
+Il player porta la sua base di pace nel nuovo campo **additivo**
+`MaterialFlowOverlay.structuralMilitaryNeeds`, letto da
+`OperationalStateStore.baseMilitaryNeeds()` (somma dei `unit.monthlyNeeds`
+**senza** `UNIT_ORDER_INFO[order].consumption`; `MilitaryUnitState` non cambia).
+Se un chiamante non lo fornisce si ricade su `militaryNeeds` (compatibilità).
+`seedStock()`, `RESERVE_MONTHS`, `civilMaterialNeeds` e gli input degli impianti
+restano intatti.
+
+**Misure (NPC legacy, tetto armi 160, stock iniziale 240):**
+
+| Ordine | Coefficiente | Consumo periodo | Stock finale | Deperimento |
+|---|---:|---:|---:|---:|
+| pace | 1,0 | 10 | **160** | 70 |
+| difesa | 1,2 | 12 | **160** | 68 |
+| attacco | 1,8 | 18 | **160** | 62 |
+
+Tetto **identico**, consumo diverso: la guerra non costruisce magazzini.
+
+**Player (overlay reale, reparti sul fronte):** base di pace `weapons 1,8`
+invariata per difesa/attacco/riserva, fabbisogno del periodo `1,96 / 2,44 / 1,64`,
+capacità e stock finale **identici**. Il test `war-fronts.test.ts` #16 è stato
+riallineato: partiva dal tetto calcolato con il fabbisogno del **periodo**, ora
+usa quello strutturale (era l'assunzione che la correzione rende falsa).
+
+Conseguenza voluta: la pace non produce deperimento artificiale, perché il tetto
+non era stato gonfiato dall'ordine (test 67).
+
+## 53. Vestiario (P1)
+
+`scaledLegacyMilitaryNeeds()` scala **solo** `food`, `weapons`, `fuel`:
+`UNIT_ORDER_INFO` descrive l'intensità operativa immediata e il percorso a
+reparti persistenti **non** ha un consumo di vestiario per unità. Scalare anche
+`clothing` dava all'NPC un consumo che il player non ha.
+
+| Materiale | base (2.500 forze) | ×1,8 |
+|---|---:|---:|
+| cibo | 150 | 270 |
+| **vestiario** | **25** | **25** |
+| armamenti | 10 | 18 |
+| carburante | 75 | 135 |
+
+Il vestiario **base** resta consumato (non rimosso): semplicemente non paga
+l'ordine.
+
+## 54. Test (9 nuovi: 60–68) e magneticità
+
+`tests/military-warfront-integrity.test.ts`, sezione «P0-D2», con un **secondo
+mondo** dedicato (`war_cost_world`: ITA debole, AUT su due fronti, HUN):
+
+| # | Cosa verifica |
+|---|---|
+| 60 | il piano tiene gli ordini **per fronte** (attack su ITA-AUT, defend su AUT-HUN); il player non entra nel piano |
+| 61 | il combattimento usa l'ordine del **suo** fronte (attacco qui, ritirata là = 0) |
+| 62 | il coefficiente nazionale nasce dalle stesse quote/ordini del piano (1,36); `dominantOrder` resta diagnostica |
+| 63 | capacità NPC invariata (pace/difesa/attacco) col consumo che cambia (10/12/18) |
+| 64 | capacità player invariata (difesa/attacco/riserva) con base invariata e periodo variabile |
+| 65 | il flusso cambia mentre la capacità resta ferma (NPC e player) |
+| 66 | il vestiario NPC non paga il coefficiente |
+| 67 | la pace non produce deperimento artificiale |
+| 68 | 90 giorni = 3×30 su **due fronti** (scorte, pressioni, stato e proprietario delle province, reparti) |
+
+**Magneticità** (`git stash push -- backend-nest/src`, test nuovi sul codice
+`cac0ab1`): **14 failed | 54 passed** — falliscono tutti i richiesti
+(**60, 61, 63, 64, 66**) e, per l'API per-fronte assente, anche 50–53, 57, 58,
+62, 65, 67.
+
+Restano verdi (invariati) 50–59 come richiesto, aggiornati dove l'API è cambiata
+(53, 57, 58 ora parlano di fronti).
+
+## 55. Quality gate (eseguito)
+
+| Comando | Esito |
+|---|---|
+| backend `npx tsc --noEmit` | ✅ |
+| backend `npx vitest run` | ✅ **160 file / 1616 test** (erano 1607: +9) |
+| backend `npm run build` | ✅ |
+| frontend `npx tsc --noEmit` | ✅ |
+| frontend `npx vitest run` | ✅ **67 file / 494 test** |
+| frontend `npm run build` | ✅ |
+| `npm run test:e2e:mock` | ✅ **49 passed** |
+| inventario endpoint | 106 (invariato) |
+
+## 56. Limiti residui (dichiarati)
+
+- gli ordini pianificati valgono per **tutti** i fronti aperti della polity, ma
+  restano **per fronte**: una polity con due fronti paga la media pesata e
+  combatte con l'ordine del singolo fronte;
+- il **modello materiale** resta quello corrente: nessuna munizione, pezzo di
+  ricambio, uniforme o materiale sanitario separato;
+- l'NPC non ha dettaglio per unità (perdite, equipaggiamento, rimpiazzi): la
+  guerra agisce a livello **nazionale**;
+- restano fuori ambito (come già dichiarato): MilitaryUnit NPC persistenti,
+  contrattacco, role inversion, ricostituzione, accerchiamento, aviazione,
+  marina, tempo di movimento strategico.
+## 57. Esito GitHub Actions (PR #86, aggiornata)
+
+Stessa PR **#86**, ramo `fix/npc-war-consumption`, base `main = 00a7ba6`:
+nessuna nuova PR aperta.
+
+| Check | Esito |
+|---|---|
+| `test-build` | ✅ **success** |
+| `e2e-mock` | ✅ **success** |
+| `mergeable` | ✅ `true` |
+
+Il merge resta al proprietario del repository.

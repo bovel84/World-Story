@@ -632,8 +632,10 @@ export class GameSession {
     // substep: lo decide `beforeMaterialPeriod` e lo consumano sia il
     // fabbisogno materiale sia il tick del fronte, così il prezzo e la
     // battaglia parlano dello **stesso** ordine.
-    let periodWarPlan: { legacyOrders: Record<string, UnitOrder>; legacyConsumptionFactors: Record<string, number> } =
-      { legacyOrders: {}, legacyConsumptionFactors: {} };
+    let periodWarPlan: {
+      legacyOrdersByFront: Record<string, Record<string, UnitOrder>>;
+      legacyConsumptionFactors: Record<string, number>;
+    } = { legacyOrdersByFront: {}, legacyConsumptionFactors: {} };
     const materialLines = this.nationState.advanceResources(days, finalAccounts, asOfDate, {
       // Il mondo avanza un periodo alla volta, dentro il ciclo dei periodi
       // materiali: `Σ step` ≡ `days` (popolazione, PIL e readiness crescono in
@@ -676,7 +678,8 @@ export class GameSession {
       // stesso ordine che ha pagato il fabbisogno.
       onMaterialPeriod: period => this.advanceFronts(period.stepDays, period.stepDate, {
         supply: period.fulfillmentByPolity,
-        legacyOrders: periodWarPlan.legacyOrders,
+        // Ordini **per fronte**: costo e combattimento dello stesso piano.
+        legacyOrdersByFront: periodWarPlan.legacyOrdersByFront,
       }),
       // P0-D — prima di ogni tick materiale: qual è l'ordine della forza
       // dichiarata e quanto costa. Una sola decisione per substep, nessun
@@ -691,7 +694,7 @@ export class GameSession {
           periodWarPlan = this.warFronts.planPeriod(stepDays);
         } catch (error) {
           console.warn('[GameSession] Piano di guerra del periodo non disponibile:', error);
-          periodWarPlan = { legacyOrders: {}, legacyConsumptionFactors: {} };
+          periodWarPlan = { legacyOrdersByFront: {}, legacyConsumptionFactors: {} };
         }
         return { legacyMilitaryFactorByPolity: periodWarPlan.legacyConsumptionFactors, lines: syncEvents };
       },
@@ -2483,7 +2486,10 @@ export class GameSession {
   }
 
   /** Fronti: un periodo di guerra (implementazione nel servizio). */
-  private advanceFronts(days: number, date?: string, options?: { supply?: Record<string, MaterialFulfillment>; legacyOrders?: Record<string, UnitOrder> }): string[] {
+  private advanceFronts(days: number, date?: string, options?: {
+    supply?: Record<string, MaterialFulfillment>;
+    legacyOrdersByFront?: Record<string, Record<string, UnitOrder>>;
+  }): string[] {
     try {
       return this.warFronts.advanceFronts(days, date, options).events;
     } catch (error) {

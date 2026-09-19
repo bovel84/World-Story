@@ -317,9 +317,11 @@ export interface LegacyWarEngagement {
  *   (`Σ engagedShare ≤ 1`);
  * - esempio: 40% attacco + 20% difesa + 40% non impegnato → `0,4×1,8 +
  *   0,2×1,2 + 0,4×1,0 = 1,36` (non `1,8` su tutta la nazione);
- * - l'ordine restituito è quello della quota maggiore (a parità: costo maggiore,
- *   poi ordine alfabetico): è l'ordine che il combattimento deve usare per la
- *   stessa parte, così costo, pressione e perdite parlano dello stesso piano.
+ * - il campo restituito è l'ordine **dominante** (quota maggiore; a parità:
+ *   costo maggiore, poi ordine alfabetico): è una **diagnostica nazionale**, non
+ *   un ordine operativo. Il combattimento usa l'ordine del **singolo fronte**
+ *   (`legacyOrdersByFront[frontId][polityId]`): applicare l'ordine nazionale a
+ *   tutti i fronti descriverebbe un piano diverso da quello pagato.
  *
  * Pura e deterministica: nessun `Math.random`, nessuna data, nessun LLM.
  */
@@ -327,11 +329,11 @@ export function legacyWarConsumptionFactor(input: {
   engagements: ReadonlyArray<LegacyWarEngagement>;
   /** Potenza dichiarata **totale** della polity (tutte le sue province). */
   nationalPower: number;
-}): { factor: number; order: UnitOrder | null } {
+}): { factor: number; dominantOrder: UnitOrder | null } {
   const engagements = input.engagements.filter(engagement =>
     Number.isFinite(Number(engagement.weight)) && Number(engagement.weight) > 0
     && String(engagement.order) in UNIT_ORDER_INFO);
-  if (engagements.length === 0) return { factor: 1, order: null };
+  if (engagements.length === 0) return { factor: 1, dominantOrder: null };
   const engaged = engagements.reduce((total, engagement) => total + Number(engagement.weight), 0);
   // Potenza non impegnata a ×1; se l'impegno supera la potenza dichiarata, il
   // denominatore è l'impegno stesso: le quote si normalizzano, mai oltre 1.
@@ -344,7 +346,7 @@ export function legacyWarConsumptionFactor(input: {
   const dominant = [...engagements].sort((a, b) => Number(b.weight) - Number(a.weight)
     || UNIT_ORDER_INFO[b.order].consumption - UNIT_ORDER_INFO[a.order].consumption
     || (a.order < b.order ? -1 : a.order > b.order ? 1 : 0))[0];
-  return { factor, order: dominant.order };
+  return { factor, dominantOrder: dominant.order };
 }
 
 // ── 4. Risoluzione del fronte ───────────────────────────────────────────────

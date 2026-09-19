@@ -534,8 +534,11 @@ describe('WAR-FRONTS — combattimento, perdite, ritirata, territorio (P8/P9)', 
       population: 0, factories: 0, ports: 0, universities: 0, monthlyBalance: 0, forces: 0, mobilized: 0,
     };
     const overlay = store(session).materialFlow({ monthlyExtraction: false, stepDays: 30 });
-    // Si parte dal tetto del magazzino: così la misura non è un taglio di capacità.
-    const cap = storageCapacity(account, effectiveMaterialNeeds(account, overlay));
+    // Si parte dal tetto del magazzino: così la misura non è un taglio di
+    // capacità. Il tetto è quello **strutturale** (base di pace dei reparti),
+    // perché la guerra alza il consumo del periodo, non la dimensione delle
+    // riserve: è esattamente il tetto che `advanceStock` applica.
+    const cap = storageCapacity(account, effectiveMaterialNeeds(account, overlay, overlay?.structuralMilitaryNeeds));
     const tick = advanceStock({ ...stock(session), fuel: cap.fuel, food: cap.food, weapons: cap.weapons }, account, 30, {}, '2026-01-31', overlay);
     expect(tick.flow.fuel).toBeCloseTo(-expected, 3);
     expect(tick.flow.food).toBeCloseTo(-expectedFood, 3);

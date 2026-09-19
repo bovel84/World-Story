@@ -100,9 +100,16 @@ export interface FrontTickOptions {
   /** Copertura del fabbisogno del periodo, per polity. */
   supply?: Record<string, MaterialFulfillment>;
   /**
-   * P0-D — ordine del periodo della forza **dichiarata**, per polity: è lo
-   * **stesso** deciso da `planPeriod()` prima del fabbisogno materiale. Se
-   * assente (battito live, playback senza piano) si usa `npcFrontOrder()`.
+   * P0-D — ordine del periodo della forza **dichiarata**, **per fronte e per
+   * polity** (`{ [frontId]: { [polityId]: order } }`): è lo **stesso** deciso da
+   * `planPeriod()` prima del fabbisogno materiale. L'ordine è legato al singolo
+   * fronte: un ordine nazionale applicato a tutti i fronti descriverebbe un
+   * piano diverso da quello pagato.
+   */
+  legacyOrdersByFront?: Record<string, Record<string, UnitOrder>>;
+  /**
+   * Compatibilità: ordine per sola polity, usato **solo** se il piano per-fronte
+   * non ha quel fronte. Il percorso canonico passa `legacyOrdersByFront`.
    */
   legacyOrders?: Record<string, UnitOrder>;
 }
@@ -219,8 +226,10 @@ export class WarFrontService {
    * Qui la decisione viene presa **prima** del tick materiale, con la stessa
    * `npcFrontOrder()` del combattimento: nessuna seconda policy.
    *
-   * - l'ordine è per **polity** e vale per tutti i suoi fronti del periodo;
-   * - il costo è la media pesata delle quote impegnate
+   * - l'ordine resta legato al **singolo fronte**
+   *   (`legacyOrdersByFront[frontId][polityId]`): è quello che `resolveFront`
+   *   userà per quel fronte, e nessun ordine nazionale lo sostituisce;
+   * - il costo nazionale è la media pesata delle quote impegnate
    *   (`legacyWarConsumptionFactor`), con la parte fuori teatro a ×1;
    * - il **player** è escluso: i suoi reparti pagano già il coefficiente per
    *   unità (`OperationalStateStore.militaryNeeds`), sommarlo sarebbe un doppio
@@ -231,12 +240,12 @@ export class WarFrontService {
    * assestato, non quello del periodo precedente.
    */
   planPeriod(stepDays = 30): {
-    legacyOrders: Record<string, UnitOrder>;
+    legacyOrdersByFront: Record<string, Record<string, UnitOrder>>;
     legacyConsumptionFactors: Record<string, number>;
   } {
-    const legacyOrders: Record<string, UnitOrder> = {};
+    const legacyOrdersByFront: Record<string, Record<string, UnitOrder>> = {};
     const legacyConsumptionFactors: Record<string, number> = {};
-    if (!this.hasPersistentMilitary()) return { legacyOrders, legacyConsumptionFactors };
+    if (!this.hasPersistentMilitary()) return { legacyOrdersByFront, legacyConsumptionFactors };
     // **Sola lettura**: il chiamante ha già sincronizzato i fronti (`syncFronts()`
     // è il passo 1 dell'ordine del substep e produce anche gli eventi di cronaca).
     // Qui non si scrive e non si consumano eventi: il piano è aritmetica.
@@ -263,20 +272,28 @@ export class WarFrontService {
         attacker: npcFrontOrder({ ownPressure: pre.attacker.pressure, enemyPressure: pre.defender.pressure }),
         defender: npcFrontOrder({ ownPressure: pre.defender.pressure, enemyPressure: pre.attacker.pressure }),
       };
+      // **Una sola fonte**: l'ordine di questo fronte per questa polity entra sia
+      // nel piano operativo (`legacyOrdersByFront`) sia nel costo nazionale
+      // (`engagements`). Costo e combattimento non possono divergere.
+      const ordersOfFront: Record<string, UnitOrder> = {};
       for (const side of ['attacker', 'defender'] as const) {
         const polityId = String(side === 'attacker' ? front.attackerPolityId : front.defenderPolityId);
         if (polityId === player) continue;
+        ordersOfFront[polityId] = order[side];
+      }
+      if (Object.keys(ordersOfFront).length === 0) continue;
+      legacyOrdersByFront[String(front.id)] = ordersOfFront;
+      for (const [polityId, orderOfFront] of Object.entries(ordersOfFront)) {
         const list = engagements.get(polityId) ?? [];
-        list.push({ order: order[side], weight: this.legacyPowerIn(front, polityId) });
+        list.push({ order: orderOfFront, weight: this.legacyPowerIn(front, polityId) });
         engagements.set(polityId, list);
       }
     }
     for (const [polityId, list] of engagements) {
-      const result = legacyWarConsumptionFactor({ engagements: list, nationalPower: national.get(polityId) || 0 });
-      legacyConsumptionFactors[polityId] = result.factor;
-      if (result.order) legacyOrders[polityId] = result.order;
+      legacyConsumptionFactors[polityId] =
+        legacyWarConsumptionFactor({ engagements: list, nationalPower: national.get(polityId) || 0 }).factor;
     }
-    return { legacyOrders, legacyConsumptionFactors };
+    return { legacyOrdersByFront, legacyConsumptionFactors };
   }
 
   /** Tutte le province note come `FrontRegion` (geografia della mappa, nient'altro). */
@@ -645,9 +662,15 @@ export class WarFrontService {
       // periodo parlano dello stesso ordine. Senza piano (battito live,
       // playback legacy) si ricade sulla policy corrente. Il player resta
       // escluso: il suo ordine lo sceglie dal pannello del reparto.
+      // INVARIANTE: nessun ordine **nazionale** decide il combattimento. Si legge
+      // l'ordine di **questo** fronte e di questa polity (poi, solo per
+      // compatibilità, quello per sola polity); l'ultimo ripiego è la policy
+      // corrente, per i percorsi senza periodo materiale (live, preview,
+      // playback). È l'unico punto in cui un ordine pianificato entra nel fronte.
       const plannedOrder = (polityId: string, isPlayer: boolean): UnitOrder | undefined => {
         if (isPlayer) return undefined;
-        const value = (options?.legacyOrders || {})[String(polityId)];
+        const value = options?.legacyOrdersByFront?.[String(front.id)]?.[String(polityId)]
+          ?? (options?.legacyOrders || {})[String(polityId)];
         return value && String(value) in UNIT_ORDER_INFO ? value : undefined;
       };
       const npcOrder = {

@@ -394,6 +394,20 @@ export class OperationalStateStore {
 
   /** Fabbisogno **militare** degli oggetti: armate + navi, una sola volta. */
   militaryNeeds(): MaterialNeeds {
+    return this.militaryNeedsOf(true);
+  }
+
+  /**
+   * Base **strutturale** del fabbisogno militare: gli stessi reparti e le stesse
+   * armate, ma **senza** il coefficiente d'ordine (`UNIT_ORDER_INFO`). È il
+   * fabbisogno di pace che dimensiona i magazzini: la guerra consuma di più, non
+   * costruisce depositi nuovi (P0-D2, `WAR DEMAND ≠ STORAGE CAPACITY`).
+   */
+  baseMilitaryNeeds(): MaterialNeeds {
+    return this.militaryNeedsOf(false);
+  }
+
+  private militaryNeedsOf(applyOrderFactor: boolean): MaterialNeeds {
     const snapshot = this.snapshot();
     const needs: MaterialNeeds = { food: 0, clothing: 0, weapons: 0, fuel: 0 };
     // MILITARY/WARFRONT INTEGRITY P0-2: il fabbisogno militare è **una sola**
@@ -421,7 +435,7 @@ export class OperationalStateStore {
       for (const unit of list) {
         if (unit.status === 'destroyed') continue;
         const front = unit.frontId ? frontsById.get(String(unit.frontId)) ?? null : null;
-        const factor = orderConsumptionFactor(unit, front);
+        const factor = applyOrderFactor ? orderConsumptionFactor(unit, front) : 1;
         needs.food += Math.max(0, Number(unit.monthlyNeeds?.food) || 0) * factor;
         needs.weapons += Math.max(0, Number(unit.monthlyNeeds?.weapons) || 0) * factor;
         needs.fuel += Math.max(0, Number(unit.monthlyNeeds?.fuel) || 0) * factor;
@@ -482,6 +496,9 @@ export class OperationalStateStore {
         production,
         consumption,
         militaryNeeds: this.militaryNeeds(),
+        // Base di pace: è questa a dimensionare il magazzino, non il fabbisogno
+        // del periodo (che cresce con l'ordine senza costruire capacità).
+        structuralMilitaryNeeds: this.baseMilitaryNeeds(),
         naturalInputs: allocation.naturalInputs,
         navyFuel: Math.round(this.navyFuel() * 1000) / 1000,
         facilityFactors,
