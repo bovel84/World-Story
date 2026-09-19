@@ -13,7 +13,8 @@ import { OrderExecutionService, type PendingAction } from './game/OrderExecution
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
-import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, operationalObjectRepository, type PressureRecord, type CrisisStateRecord, type CrisisSnapshot, type OperationalObjectsSnapshot } from './repositories';
+import {
+  arsenalRepository, worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, operationalObjectRepository, type PressureRecord, type CrisisStateRecord, type CrisisSnapshot, type OperationalObjectsSnapshot } from './repositories';
 import { captureEconomicSnapshot } from './repositories/economy-snapshot.repository';
 import type { ChatRecord, ChatSummary, ChatMessageRecord, GameChatSnapshot } from './repositories';
 import { DiplomacyService } from './game/DiplomacyService';
@@ -691,12 +692,28 @@ export class GameSession {
         let syncEvents: string[] = [];
         try {
           syncEvents = this.warFronts.syncFronts().events;
+          // P4 — pipeline del substep: `syncFronts` → materializzazione NPC →
+          // assegnazione/ordini → (poi) fabbisogni materiali e tick dei fronti.
+          // Best-effort: se il seed non riesce la polity resta legacy.
+          syncEvents = [...syncEvents, ...this.warFronts.ensureNpcUnits(stepDays).events];
           periodWarPlan = this.warFronts.planPeriod(stepDays);
         } catch (error) {
           console.warn('[GameSession] Piano di guerra del periodo non disponibile:', error);
           periodWarPlan = { legacyOrdersByFront: {}, legacyConsumptionFactors: {} };
         }
         return { legacyMilitaryFactorByPolity: periodWarPlan.legacyConsumptionFactors, lines: syncEvents };
+      },
+      // P4 — fabbisogno militare **per polity**: il giocatore usa l'overlay degli
+      // oggetti, una NPC materializzata usa i **suoi** reparti (period = base ×
+      // ordine, structural = base di pace). Nessun doppio conteggio col legacy.
+      persistentMilitaryNeedsForPolity: polityId => {
+        try {
+          const store = this.operationalStoreFor();
+          if (store.unitsForPolity(polityId).length === 0) return null;
+          return { period: store.militaryNeedsForPolity(polityId), structural: store.baseMilitaryNeedsForPolity(polityId) };
+        } catch {
+          return null;
+        }
       },
     });
     const projectLines = this.advanceProjects(days, asOfDate);
@@ -1722,6 +1739,21 @@ export class GameSession {
       resourceStock: polityId => this.resourceStock(polityId),
       saveResourceStock: (polityId, stock) => this.saveResourceStock(polityId, stock),
       polityLabel: polityId => this.publicPolityName(polityId),
+      // P4 — sorgenti per la materializzazione **lazy** dei reparti NPC: le
+      // stesse authority del gioco (conto nazionale, regioni, deposito
+      // persistito). Nessuna seconda contabilità e nessun pezzo inventato.
+      formationsForPolity: polityId => Math.max(0, Math.round(Number(this.sessionAccounts()[polityId]?.forces) || 0)),
+      polityRegionsFor: polityId => [...this.regions.values()]
+        .filter(region => String(region.owner) === String(polityId) && region.status !== 'destroyed')
+        .map(region => ({ id: region.id, name: region.name, militaryPower: region.militaryPower })),
+      depotForPolity: polityId => {
+        try {
+          return arsenalRepository.get(this.id, polityId)?.units ?? {};
+        } catch {
+          return {};
+        }
+      },
+      currentTurn: () => this.currentTurn,
       note: note => this.pendingNationalNotes.push(note),
     });
     this.orders = new OrderExecutionService({

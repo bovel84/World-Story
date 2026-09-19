@@ -16,7 +16,7 @@
  */
 
 import { resourceRepository, naturalResourceRepository, modifiersRepository, gameRepository, factionMemoryRepository, type PressureRecord } from '../repositories';
-import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, effectiveMaterialNeeds, materialNeeds, normalizeStock, overdraftOf, seedStock, storageCapacity, type MaterialFlowOverlay, type MaterialFulfillment, type MaterialTick, type ResourceStock } from '../core/simulation/MaterialEconomy';
+import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, effectiveMaterialNeeds, materialNeeds, normalizeStock, overdraftOf, seedStock, storageCapacity, type MaterialFlowOverlay, type MaterialFulfillment, type MaterialNeeds, type MaterialTick, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { averageMaturityYears, describeDebtTranche, marketRatePct } from '../core/simulation/SovereignDebt';
 import {
   advanceLedger, applyGlobalExtraction, drawResourceStockpile, effectiveEndowment, emptyMarket, marketQuote, seedLedger, seedMarket, summarizeLedger,
@@ -179,6 +179,12 @@ export interface MaterialAdvanceHooks {
    * nel **fabbisogno** dello stesso periodo, non dopo: l'ordine è un costo.
    */
   beforeMaterialPeriod?: (clock: MaterialStepClock) => MaterialPeriodPlan | void;
+  /**
+   * P4 — fabbisogno militare **reale** di una polity con reparti persistenti ma
+   * senza overlay (le NPC materializzate): `period` (base × ordine) e
+   * `structural` (base di pace). Se assente la polity resta sul percorso legacy.
+   */
+  persistentMilitaryNeedsForPolity?: (polityId: string) => { period: MaterialNeeds; structural: MaterialNeeds } | null;
   /**
    * Conto nazionale **del periodo**, fornito dal chiamante che possiede il
    * `WorldStateEngine`: è così che un salto lungo è la stessa storia economica
@@ -410,6 +416,7 @@ export class NationStateService {
         }
         const stepResult = this.advancePolityMaterialStep(
           polityId, account, step, stepDate, report ?? null, legacyFactors[polityId] ?? 1,
+          hooks?.persistentMilitaryNeedsForPolity?.(polityId) ?? null,
         );
         const overlay = stepResult.overlay;
         fulfillmentByPolity[polityId] = stepResult.fulfillment;
@@ -454,6 +461,8 @@ export class NationStateService {
     report: MaterialPeriodReport | null,
     /** P0-D: coefficiente dell'ordine del periodo per la forza **dichiarata**. */
     legacyMilitaryFactor = 1,
+    /** P4: fabbisogno militare reale della polity (ha priorità sul legacy). */
+    militaryOverride: { period: MaterialNeeds; structural: MaterialNeeds } | null = null,
   ): { overlay: MaterialFlowOverlay | null; fulfillment: MaterialFulfillment } {
     // A. Stato iniziale del periodo.
     const stock = this.resourceStock(polityId);
@@ -476,7 +485,13 @@ export class NationStateService {
     // F. Un solo periodo: `advanceStock` applica flow, tetti, carenze e debito.
     // P0-D: la forza dichiarata paga il coefficiente dell'ordine del periodo
     // (solo il militare: civile, impianti e giacimenti restano identici).
-    const tick = advanceStock(stock, account, stepDays, effective, stepDate, overlay, undefined, legacyMilitaryFactor);
+    const tick = advanceStock(
+      stock, account, stepDays, effective, stepDate, overlay, undefined, legacyMilitaryFactor,
+      // P4 — una polity con reparti persistiti consuma i **loro** fabbisogni: il
+      // percorso legacy (`legacyMilitaryNeeds × legacyWarConsumptionFactor`) non
+      // si somma e non si applica due volte.
+      militaryOverride ?? undefined,
+    );
     // G. Persistenza.
     this.saveResourceStock(polityId, tick.stock);
     // La copertura del periodo esce dal tick **già calcolata**: chi combatte la

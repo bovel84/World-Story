@@ -30,6 +30,8 @@
  */
 
 import { indexPolities } from '../core/simulation/npc-policy';
+import { materializeNpcMilitary } from '../core/simulation/OperationalState';
+import { militaryPersistenceRepository } from '../repositories';
 import type { MaterialFulfillment, ResourceStock } from '../core/simulation/MaterialEconomy';
 import {
   DEPLETED_ORGANIC_RATIO, SURRENDER_LOSS_MULTIPLIER,
@@ -72,6 +74,20 @@ export interface WarFrontContext {
   resourceStock(polityId: string): ResourceStock;
   saveResourceStock(polityId: string, stock: ResourceStock): void;
   polityLabel(polityId: string): string;
+  /**
+   * P4 — formazioni dichiarate da una polity (`NationalAccount.forces`): è la
+   * **stessa** sorgente del percorso legacy, non una seconda contabilità.
+   */
+  formationsForPolity?(polityId: string): number;
+  /** P4 — regioni **proprie** di una polity, con la potenza dichiarata (peso). */
+  polityRegionsFor?(polityId: string): Array<{ id: string; name?: string | null; militaryPower?: number }>;
+  /**
+   * P4 — deposito **persistito** di una polity (`game_arsenals`), senza seed:
+   * se non c'è equipaggiamento reale i pezzi non si inventano.
+   */
+  depotForPolity?(polityId: string): Record<string, number>;
+  /** Turno corrente, per la riga dell'arsenale (facoltativo). */
+  currentTurn?(): number;
   /** Nota nazionale: il giocatore legge il perché di un fatto, non un silenzio. */
   note(note: string): void;
 }
@@ -178,10 +194,17 @@ export class WarFrontService {
       && unit.status !== 'destroyed'));
   }
 
-  /** Provincia della mappa dove sta il reparto: dice a quale parte appartiene. */
+  /**
+   * P4 — **nazionalità** di un reparto: `unit.polityId`, l'authority. La
+   * provincia dice **dove** sta il reparto, non a chi appartiene: dedurla
+   * dall'owner corrente rendeva «nazionale di chi conquista» un reparto che
+   * combatteva lì (e cancellava l'identità di una forza occupata).
+   *
+   * Fallback **solo** per righe legacy senza il campo (save PR1–PR3, già
+   * normalizzate al caricamento): mai l'owner della provincia.
+   */
   private unitPolityId(unit: MilitaryUnitState): string {
-    const region = unit.regionId ? this.ctx.regions().get(String(unit.regionId)) : undefined;
-    return region?.owner || this.ctx.playerPolityId();
+    return unit.polityId ? String(unit.polityId) : String(this.ctx.playerPolityId());
   }
 
   /**
@@ -276,15 +299,7 @@ export class WarFrontService {
     const engagements = new Map<string, Array<{ order: UnitOrder; weight: number }>>();
     for (const front of snapshot.fronts) {
       if (String(front.status) === 'closed') continue;
-      const sides = this.sides(front, snapshot.units, stepDays);
-      const pre = {
-        attacker: frontSideStrength({ units: sides.attacker.units, epoch, supply: sides.attacker.supply, motorized: sides.attacker.motorized, legacyPower: sides.attacker.legacyPower }),
-        defender: frontSideStrength({ units: sides.defender.units, epoch, supply: sides.defender.supply, motorized: sides.defender.motorized, legacyPower: sides.defender.legacyPower }),
-      };
-      const order = {
-        attacker: npcFrontOrder({ ownPressure: pre.attacker.pressure, enemyPressure: pre.defender.pressure }),
-        defender: npcFrontOrder({ ownPressure: pre.defender.pressure, enemyPressure: pre.attacker.pressure }),
-      };
+      const order = this.npcOrdersFor(front, snapshot.units, stepDays);
       // **Una sola fonte**: l'ordine di questo fronte per questa polity entra sia
       // nel piano operativo (`legacyOrdersByFront`) sia nel costo nazionale
       // (`engagements`). Costo e combattimento non possono divergere.
@@ -676,6 +691,108 @@ export class WarFrontService {
     return { units: next, events };
   }
 
+  /** Ordini NPC di un fronte con la **stessa** policy del combattimento. */
+  private npcOrdersFor(front: WarFrontState, units: readonly MilitaryUnitState[], stepDays: number): { attacker: UnitOrder; defender: UnitOrder } {
+    const epoch = this.epoch();
+    const sides = this.sides(front, units, stepDays);
+    const pre = {
+      attacker: frontSideStrength({ units: sides.attacker.units, epoch, supply: sides.attacker.supply, motorized: sides.attacker.motorized, legacyPower: sides.attacker.legacyPower }),
+      defender: frontSideStrength({ units: sides.defender.units, epoch, supply: sides.defender.supply, motorized: sides.defender.motorized, legacyPower: sides.defender.legacyPower }),
+    };
+    return {
+      attacker: npcFrontOrder({ ownPressure: pre.attacker.pressure, enemyPressure: pre.defender.pressure }),
+      defender: npcFrontOrder({ ownPressure: pre.defender.pressure, enemyPressure: pre.attacker.pressure }),
+    };
+  }
+
+  /**
+   * P4 — materializzazione **lazy** dei reparti delle polity NPC coinvolte in un
+   * fronte aperto, la loro **assegnazione** al fronte e i loro **ordini**.
+   *
+   * - solo polity che compaiono in un fronte aperto: chi è in pace resta legacy;
+   * - idempotente e **no resurrection**: se i reparti esistono già (anche tutti
+   *   distrutti) non se ne creano altri da `account.forces`;
+   * - una sola transazione (reparti + depositi coinvolti) e cache adottata
+   *   **dopo** il commit, come nel percorso della ricostituzione;
+   * - nessun secondo motore: gli ordini vengono da `npcFrontOrder()`, il
+   *   combattimento dai reparti che questa funzione rende persistenti.
+   */
+  ensureNpcUnits(stepDays = 30): { created: string[]; events: string[] } {
+    const created: string[] = [];
+    const events: string[] = [];
+    if (!this.hasPersistentMilitary()) return { created, events };
+    const snapshot = this.store().snapshot();
+    const player = String(this.ctx.playerPolityId());
+    const fronts = snapshot.fronts.filter(front => String(front.status) !== 'closed');
+    if (fronts.length === 0) return { created, events };
+    const polities = new Set<string>();
+    for (const front of fronts) {
+      for (const side of [front.attackerPolityId, front.defenderPolityId]) {
+        const id = String(side);
+        if (id && id !== player) polities.add(id);
+      }
+    }
+    let units = snapshot.units.map(unit => ({ ...unit }));
+    const arsenals: Array<{ polityId: string; units: Record<string, number>; turn: number; date: string | null }> = [];
+    let touched = false;
+    for (const polityId of [...polities].sort()) {
+      const mine = units.filter(unit => String(unit.polityId) === polityId);
+      const frontsOfPolity = fronts.filter(front => [String(front.attackerPolityId), String(front.defenderPolityId)].includes(polityId));
+      const frontRegionIds = new Set<string>();
+      for (const front of frontsOfPolity) for (const regionId of front.regionIds) frontRegionIds.add(String(regionId));
+      const formations = Math.max(0, Math.round(Number(this.ctx.formationsForPolity?.(polityId) ?? 0)));
+      const depotBefore = { ...(this.ctx.depotForPolity?.(polityId) || {}) };
+      const seed = materializeNpcMilitary({
+        polityId,
+        epoch: this.epoch(),
+        date: this.ctx.currentDate(),
+        formations,
+        regions: this.ctx.polityRegionsFor?.(polityId) || [],
+        frontRegionIds: [...frontRegionIds],
+        depot: depotBefore,
+        existing: mine,
+      });
+      // Nessun reparto e nessuna formazione da convertire: la polity resta legacy.
+      if (mine.length === 0 && seed.createdUnitIds.length === 0) continue;
+      // Assegnazione: chi è nel teatro di un fronte della propria polity lo segue.
+      let nextMine = seed.units.map(unit => {
+        const front = frontsOfPolity.find(item => unit.regionId && item.regionIds.map(String).includes(String(unit.regionId)));
+        return front ? { ...unit, frontId: String(front.id) } : { ...unit, frontId: null };
+      });
+      // Ordini **per fronte**, decisi con la stessa policy letta dal combattimento.
+      for (const front of frontsOfPolity) {
+        const orders = this.npcOrdersFor(front, [...units.filter(unit => String(unit.polityId) !== polityId), ...nextMine], stepDays);
+        const own = String(front.attackerPolityId) === polityId ? orders.attacker : orders.defender;
+        nextMine = nextMine.map(unit => (String(unit.frontId) === String(front.id) ? { ...unit, order: own } : unit));
+      }
+      const depotChanged = JSON.stringify(seed.depot) !== JSON.stringify(depotBefore);
+      if (depotChanged) {
+        arsenals.push({ polityId, units: seed.depot, turn: this.ctx.currentTurn?.() ?? 0, date: this.ctx.currentDate() });
+      }
+      units = [...units.filter(unit => String(unit.polityId) !== polityId), ...nextMine]
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      created.push(...seed.createdUnitIds);
+      touched = true;
+    }
+    if (!touched) return { created, events };
+    // **Una sola transazione** (reparti + depositi), poi la cache: il database è
+    // l'authority, la cache dello store si adotta dopo il commit.
+    militaryPersistenceRepository.materializeUnits({
+      gameId: this.ctx.gameId,
+      units: units.map(unit => ({ id: unit.id, data: unit as unknown as Record<string, unknown> })),
+      arsenals,
+    });
+    this.store().adoptPersisted({ units });
+    if (created.length > 0) {
+      const politiesCreated = [...new Set(created.map(id => String(units.find(unit => unit.id === id)?.polityId || '')))].filter(Boolean);
+      for (const polityId of politiesCreated) {
+        const count = units.filter(unit => String(unit.polityId) === polityId).length;
+        events.push(`🎖️ ${this.ctx.polityLabel(polityId)} schiera ${count} reparti persistenti sul fronte.`);
+      }
+    }
+    return { created, events };
+  }
+
   /**
    * Un **periodo** di guerra per ogni fronte aperto: rifornimenti reali, perdite
    * reali sui reparti, ritirata in una provincia amica, conquista solo con
@@ -700,6 +817,14 @@ export class WarFrontService {
     // che non passano dal tick materiale (battito live, playback).
     const sync = this.syncFronts();
     events.push(...sync.events);
+    // P4 — le polity NPC che compaiono su un fronte materializzano qui i loro
+    // reparti (best-effort: se il seed non riesce, la polity resta legacy e il
+    // tick del fronte procede come prima).
+    try {
+      events.push(...this.ensureNpcUnits(stepDays).events);
+    } catch (error) {
+      console.warn('[WarFrontService] Materializzazione NPC non applicata:', error);
+    }
     const store = this.store();
     const snapshot = store.snapshot();
     const date = dateOverride || this.ctx.currentDate();
