@@ -369,6 +369,52 @@ casuale, quindi la sorte dell'ordine cambia di run). Non è introdotta da questo
 
 ---
 
+## 19-bis. Verifica di esecuzione reale (pre-merge)
+
+Eseguita **dopo** l'apertura della PR #79, sul commit `c6b5a05` del branch
+`feat/military-units` (working tree pulito, base `main` = `8113ab7`), con i comandi reali:
+
+```
+backend-nest$ npx vitest run tests/military-units.test.ts --reporter=verbose
+backend-nest$ npx vitest run           # suite completa
+backend-nest$ npx tsc --noEmit
+```
+
+**19/09/2026 08:57 CEST — esito: VERDE.**
+
+| Comando | Esito reale |
+|---|---|
+| `tests/military-units.test.ts` | ✅ **25/25** in 4,90 s (1 file) |
+| suite backend completa | ✅ **158 file / 1519 test** in 123 s |
+| `npx tsc --noEmit` | ✅ pulito |
+
+### I test di **conservazione** (manpower ed equipaggiamento), uno per uno
+
+| # | Test | Controllo di conservazione | Esito |
+|---|---|---|---|
+| 3 | la divisione di un totale in N parti non ne cambia la somma | `Σ splitExact == totale` (uomini, pezzi, fabbisogni) | ✅ |
+| 4 | un reparto distrutto non conta nell'armata | `army.formations == count(reparti attivi)` | ✅ |
+| 6 | un'armata legacy di 4 reparti diventa 4 reparti reali | `Σ unit.personnel/equipment/monthlyNeeds == army.*` prima e dopo la materializzazione | ✅ |
+| 8 | azzerare l'aggregato non cancella i reparti | la fonte di verità è il mondo: nessun uomo creato né perso | ✅ |
+| 11 | il reparto nasce con gli uomini e i pezzi trasferiti | `activePersonnel + men` e `deposito + assegnato` invariati | ✅ |
+| 12 | **gli uomini vengono dalla riserva, non dal nulla** | `Σ activePersonnel` invariato, `trainedReserve − men` | ✅ |
+| 13 | **deposito + assegnato resta il totale nazionale** | per ogni voce dell'arsenale, prima = dopo | ✅ |
+| 14 | Rinforza prende gli uomini dalla riserva | `riserva' = riserva − 500`, `reparto' = reparto + 500` | ✅ |
+| 16 | Riequipaggia assegna le armi mancanti dal deposito | `deposito − q == reparto + q` (parziale compreso) | ✅ |
+| 20 | Cambia armata | entrambe le armate = somma dei **loro** reparti | ✅ |
+| 21 | l'anteprima `dryRun` non scrive nulla | JSON di reparti e riserva identico prima/dopo | ✅ |
+
+Nessun test di conservazione è rosso: la condizione posta per procedere al merge è
+soddisfatta. Nessuna soglia è stata modificata e nessun test è stato saltato.
+
+**Preset non toccato:** la variante non committata di
+`backend-nest/data/presets/modern_world_provinces/preset.json` **non è nel working tree**
+di questo lavoro (`git status` pulito, `git diff main -- <path>` vuoto): è conservata nello
+stash del repository (`stash@{0}` «preset cold_war_1951 - variante pax_modern»), che non è
+stato toccato né applicato.
+
+---
+
 ## 20. Misure su dati controllati (probe temporaneo, poi rimosso)
 
 Mondo di prova 1951, una armata `a1` con `level = 4` e nessun pezzo assegnato:
