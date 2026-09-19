@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { OperatingActionPayload } from '../../services/api';
 import { ObjectsBoard } from './ObjectsBoard';
 import { sectorCards } from './operationalObjects';
 import type { ArsenalResponse, OperatingPicturePayload } from '../../services/api';
@@ -121,6 +122,24 @@ describe('OP-OBJECTS — sala di governo (SSR)', () => {
     expect(source).toContain('UnitActionPanel');
     expect(source).toContain('unitActionView');
     expect(source).toContain("UNIT_ACTIONS = ['reinforce_unit', 'reequip_unit', 'reconstitute_unit', 'transfer_unit', 'reassign_unit']");
+  });
+
+  it('il payload delle action rappresenta `reconstitute_unit` (allineato al motore)', () => {
+    // La union frontend deve elencare ogni azione che il backend produce:
+    // `reconstitute_unit` (PR3) è riserva + deposito in una sola azione.
+    const actions: OperatingActionPayload[] = [
+      { id: 'reinforce_unit', label: 'Rinforza', enabled: true, blockedReason: null },
+      { id: 'reequip_unit', label: 'Riequipaggia', enabled: true, blockedReason: null },
+      { id: 'reconstitute_unit', label: 'Ricostituisci', enabled: true, blockedReason: null },
+      { id: 'transfer_unit', label: 'Trasferisci', enabled: true, blockedReason: null },
+      { id: 'reassign_unit', label: 'Cambia armata', enabled: false, blockedReason: 'Serve una seconda armata.' },
+      { id: 'order_attack', label: 'Attacca', enabled: true, blockedReason: null },
+    ];
+    expect(actions.map(action => action.id)).toContain('reconstitute_unit');
+    // E il componente lo filtra fra le azioni del reparto (nessun pulsante finto).
+    expect(source).toContain("'reconstitute_unit'");
+    // Il titolo dell'azione esiste nel read model.
+    expect(sectorCards(picture).length).toBeGreaterThan(0);
   });
 
   it('riduce il testo: nessun paragrafo lungo nella vista principale', () => {

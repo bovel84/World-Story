@@ -237,8 +237,11 @@ export interface OperatingProblemPayload {
 export type UnitOrderPayload = 'attack' | 'defend' | 'reserve' | 'withdraw';
 
 export interface OperatingActionPayload {
+  // Allineata a `OperatingAction.id` del backend e a `UNIT_ACTIONS` di
+  // `ObjectsBoard.tsx`: ogni azione che il motore produce è rappresentata qui
+  // (PR3 — `reconstitute_unit` = riserva + deposito in una sola azione).
   id: 'raise_formation' | 'procure' | 'trade'
-    | 'reinforce_unit' | 'reequip_unit' | 'transfer_unit' | 'reassign_unit'
+    | 'reinforce_unit' | 'reequip_unit' | 'reconstitute_unit' | 'transfer_unit' | 'reassign_unit'
     | 'order_attack' | 'order_defend' | 'order_reserve' | 'order_withdraw';
   label: string;
   enabled: boolean;

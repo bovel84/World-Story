@@ -848,7 +848,7 @@ export class MilitaryService {
       const nextUnits = snapshot.units.map(item => (item.id === unit.id ? next : item));
       const nextPersonnel = personnelAfter ?? personnel;
       const note = `Ricostituito «${next.name}»: ${menApplied.toLocaleString('it-IT')} uomini dalla riserva e ${piecesApplied.toLocaleString('it-IT')} × ${label} dal deposito.`;
-      const why = 'Uomini e pezzi passano dalle scorte nazionali al reparto: nulla viene creato (riserva ↓ = reparto ↑, deposito ↓ = assegnato ↑).';
+      const why = 'Uomini e pezzi passano dalle scorte nazionali al reparto: nulla viene creato (riserva ↓ = reparto ↑, deposito ↓ = assegnato ↑). Riserva, reparti e deposito si scrivono in una sola transazione; le viste derivate si aggiornano dopo il commit e non possono far fallire un\'azione già persistita.';
       if (input.dryRun) {
         // Anteprima: nessuna scrittura, nessuna cache (né strumenti né arsenale).
         return {
@@ -880,11 +880,19 @@ export class MilitaryService {
         turn: this.ctx.currentTurn(),
         date: this.ctx.currentDate(),
       });
-      // Solo **dopo** il commit riuscito: cache canonica dello store e aggregato
-      // delle armate (derivato: la somma dei reparti appena persistiti).
-      store.adoptPersisted({ ...(nextPersonnel ? { personnel: nextPersonnel } : {}), units: nextUnits });
-      // Il deposito è già nel database dal commit: qui si allinea la cache.
-      this.arsenals.set(polityId, nextDepot);
+      // Solo **dopo** il commit riuscito: cache canonica dello store, aggregato
+      // delle armate (derivato: la somma dei reparti appena persistiti) e cache
+      // del deposito. `commit canonico + refresh derivato best-effort`: queste
+      // operazioni non sono la verità (il database lo è) e **non possono**
+      // trasformare un'azione applicata in un errore API — se falliscono, la
+      // prossima lettura rilegge dal database e riconcilia il derivato.
+      try {
+        store.adoptPersisted({ ...(nextPersonnel ? { personnel: nextPersonnel } : {}), units: nextUnits });
+        // Il deposito è già nel database dal commit: qui si allinea la cache.
+        this.arsenals.set(polityId, nextDepot);
+      } catch (error) {
+        console.warn('[MilitaryService] Refresh derivato della ricostituzione non applicato (commit già persistito):', error);
+      }
       return {
         applied: true,
         action: input.action,
