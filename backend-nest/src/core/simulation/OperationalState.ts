@@ -1142,6 +1142,14 @@ export interface SeedArmyInput {
   regionName: string | null;
   formations: number;
   objectId: string | null;
+  /**
+   * MILITARY/WARFRONT INTEGRITY P1-2: reparti **reali** dell'ultima
+   * materializzazione, scritti sull'oggetto della mappa. `formations` resta il
+   * livello dichiarato dal mondo (è ciò che alimenta `accounted` e quindi la
+   * guarnigione): questo campo dice invece quanti reparti persistiti esistono.
+   * Serve a non ricrearli dal livello della mappa dopo un ricaricamento.
+   */
+  persistedFormations?: number;
 }
 
 /**
@@ -1544,7 +1552,23 @@ export function aggregateArmyFromUnits(
   army: ArmyOperationalState,
   units: readonly MilitaryUnitState[],
 ): ArmyOperationalState {
-  if (units.length === 0) return army;
+  // Un'armata **già materializzata** che perde tutti i reparti è la somma di
+  // zero reparti — zero uomini, zero pezzi. Prima si conservava l'aggregato di
+  // prima, e il numero vecchio risaliva sull'oggetto della mappa facendo
+  // rinascere i reparti al reload. Un'armata ancora legacy (mai materializzata,
+  // o dichiarata con `formations = 0` e un fabbisogno proprio) conserva invece
+  // il valore dichiarato: è la base della materializzazione iniziale.
+  if (units.length === 0) {
+    if (army.legacyDerived || army.formations <= 0) return army;
+    return {
+      ...army,
+      formations: 0,
+      personnel: 0,
+      equipment: {},
+      monthlyNeeds: { fuel: 0, weapons: 0, food: 0 },
+      legacyDerived: false,
+    };
+  }
   const active = units.filter(unit => unit.status !== 'destroyed');
   const personnel = Math.round(active.reduce((total, unit) => total + nonNegative(unit.personnel), 0));
   const equipment: Record<string, number> = {};

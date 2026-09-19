@@ -203,17 +203,23 @@ describe('MILITARY-UNITS — materializzazione lazy e idempotente (P2)', () => {
     expect(units(session).filter(unit => String(unit.armyId) === 'a1')).toHaveLength(4);
   });
 
-  it('8: azzerare l\'aggregato non cancella i reparti: la fonte di verità è il mondo', () => {
+  it('8: il livello della mappa è **seed**, non una seconda fonte: i reparti non si reinventano', () => {
     const { session } = createGame();
+    const before = units(session).filter(unit => String(unit.armyId) === 'a1');
+    expect(before).toHaveLength(4);
+    // MILITARY/WARFRONT INTEGRITY P1-2: dopo la materializzazione iniziale la
+    // fonte autorevole è `MilitaryUnit[]`. Azzerare l'aggregato **non** cancella
+    // i reparti persistiti e il numero dichiarato dall'oggetto della mappa
+    // **non** ne ricrea (era la «phantom unit» del reassign).
     store(session).saveArmies(armies(session).map(army => ({
       ...army, formations: 0, personnel: 0, monthlyNeeds: { fuel: 0, weapons: 0, food: 0 },
     })));
-    store(session).saveUnits([]);
-    // Il mondo dichiara quattro reparti per `a1`: l'aggregato è **derivato**, non
-    // un secondo posto dove scrivere. I reparti tornano, con la stessa somma.
     const list = units(session).filter(unit => String(unit.armyId) === 'a1');
     expect(list).toHaveLength(4);
     expect(sumOf(list, unit => unit.personnel)).toBe(armyOf(session, 'a1').personnel);
+    // E cancellare davvero i reparti non li fa rinascere dal livello della mappa.
+    store(session).saveUnits([]);
+    expect(units(session).filter(unit => String(unit.armyId) === 'a1')).toHaveLength(0);
   });
 
   it('9: i reparti sono persistiti come oggetti propri (kind `unit`)', async () => {
@@ -365,7 +371,7 @@ describe('MILITARY-UNITS — azioni del reparto (P5)', () => {
     expect(String(result.blockedReason)).toContain('già in');
   });
 
-  it('20: Cambia armata sposta il reparto e le due armate restano la somma dei reparti', () => {
+  it('20: Cambia armata sposta il reparto, l\'id resta e nessun reparto viene inventato', () => {
     const { session } = createGame();
     const created = session.raiseFormation({ formations: 1 });
     const targetId = created.unit.armyId;
@@ -374,10 +380,12 @@ describe('MILITARY-UNITS — azioni del reparto (P5)', () => {
     const result = session.unitAction({ action: 'reassign', unitId: unit.id, armyId: targetId });
     expect(result.blocked).toBe(false);
     expect(result.unit.armyId).toBe(targetId);
-    expect(String(result.unit.id).startsWith(targetId)).toBe(true);
-    // Il mondo dichiara ancora i reparti dell'armata di partenza: nasce un
-    // reparto **in formazione, senza uomini** — e l'esito lo dice.
-    expect(result.note).toContain('in formazione, senza uomini');
+    // MILITARY/WARFRONT INTEGRITY P1-1: l'id è **immutabile** anche cambiando
+    // catena di comando; P1-2: l'armata di partenza non riceve un reparto
+    // «in formazione» dal livello della mappa.
+    expect(result.unit.id).toBe(unit.id);
+    expect(String(result.unit.id)).toBe('a1-unit-001');
+    expect(result.note).not.toContain('in formazione');
     const after = armies(session);
     for (const army of after) {
       const list = units(session).filter(item => String(item.armyId) === String(army.id) && item.status !== 'destroyed');

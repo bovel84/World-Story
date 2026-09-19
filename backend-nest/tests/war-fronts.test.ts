@@ -496,18 +496,50 @@ describe('WAR-FRONTS — combattimento, perdite, ritirata, territorio (P8/P9)', 
     expect(destroyed).toBe(assignedBefore - assignedAfter);
   });
 
-  it('16: senza rifornimenti la pressione cala e i consumi escono dalle scorte reali', async () => {
+  it('16: il fronte NON sottrae scorte: i consumi li applica una sola volta il tick materiale', async () => {
     const { session } = createGame();
     setRelationship(session, PID, AUT, 'hostile');
     armAll(session);
+    // Nessun impianto: il tick non ha produzione propria e si misura il consumo.
+    store(session).saveFacilities([]);
     session.publicFronts();
     setOrder(session, 'attack');
     const stockBefore = stock(session);
+    // MILITARY/WARFRONT INTEGRITY P0-2: il combattimento non tocca il magazzino.
+    // Sottrarre qui `warConsumption` era il **doppio consumo** (attacco =
+    // base + 1,8× = 2,8× invece di 1,8×): l'unico punto che sottrae è
+    // `advanceStock`, che riceve i fabbisogni già moltiplicati per l'ordine.
     session.advanceFronts(30, '2026-01-31');
-    const stockAfter = stock(session);
-    // Consumi reali: cibo, carburante e armamenti scendono nel magazzino.
-    expect(stockAfter.food).toBeLessThan(stockBefore.food);
-    expect(stockAfter.weapons).toBeLessThanOrEqual(stockBefore.weapons);
+    expect(stock(session).food).toBe(stockBefore.food);
+    expect(stock(session).weapons).toBe(stockBefore.weapons);
+    expect(stock(session).fuel).toBe(stockBefore.fuel);
+    // Il fabbisogno è quello dei reparti reali, per il coefficiente del loro
+    // ordine: **1,8** per chi è sul fronte in attacco, **1** per chi non lo è.
+    // Una sola grandezza, nessun addendo.
+    const onFront = units(session).filter(item => item.frontId && item.status !== 'destroyed');
+    expect(onFront.length).toBeGreaterThan(0);
+    const expected = units(session).filter(item => item.status !== 'destroyed')
+      .reduce((total: number, item: any) => total + Number(item.monthlyNeeds.fuel || 0) * (item.frontId ? 1.8 : 1), 0);
+    const expectedFood = units(session).filter(item => item.status !== 'destroyed')
+      .reduce((total: number, item: any) => total + Number(item.monthlyNeeds.food || 0) * (item.frontId ? 1.8 : 1), 0);
+    expect(expected).toBeGreaterThan(0);
+    expect(store(session).militaryNeeds().fuel).toBeCloseTo(expected, 3);
+    // Il tick materiale, sul motore puro: un periodo da 30 giorni consuma il
+    // fabbisogno dei reparti **una volta**, con il coefficiente dell'ordine.
+    // (Con l'overlay reale il conto è esatto: nessun impianto, nessun
+    // giacimento, solo il fabbisogno militare del periodo.)
+    const { advanceStock, storageCapacity, effectiveMaterialNeeds } = await import('../src/core/simulation/MaterialEconomy');
+    const account = {
+      ...(session as any).sessionAccounts()[PID],
+      population: 0, factories: 0, ports: 0, universities: 0, monthlyBalance: 0, forces: 0, mobilized: 0,
+    };
+    const overlay = store(session).materialFlow({ monthlyExtraction: false, stepDays: 30 });
+    // Si parte dal tetto del magazzino: così la misura non è un taglio di capacità.
+    const cap = storageCapacity(account, effectiveMaterialNeeds(account, overlay));
+    const tick = advanceStock({ ...stock(session), fuel: cap.fuel, food: cap.food, weapons: cap.weapons }, account, 30, {}, '2026-01-31', overlay);
+    expect(tick.flow.fuel).toBeCloseTo(-expected, 3);
+    expect(tick.flow.food).toBeCloseTo(-expectedFood, 3);
+    expect(cap.food - tick.stock.food).toBeCloseTo(expectedFood, 3);
     // Scorte a zero: la stessa forza vale meno (fattore rifornimenti).
     const { unitStrength } = await import('../src/core/simulation/WarFronts');
     const unit = unitOf(session, units(session).find(item => item.frontId).id);

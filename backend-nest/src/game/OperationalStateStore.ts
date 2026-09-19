@@ -43,6 +43,8 @@ import {
   seedFacilities,
   seedPersonnel,
   seedShips,
+  UNIT_ORDER_DEFAULT,
+  UNIT_ORDER_INFO,
   type ArmyOperationalState,
   type ConstructionState,
   type FacilityState,
@@ -104,6 +106,19 @@ const nonNegative = (value: unknown): number => {
   return Number.isFinite(number) && number > 0 ? number : 0;
 };
 
+/**
+ * MILITARY/WARFRONT INTEGRITY P0-2 — fattore di consumo dell'ordine in corso.
+ * Fuori dal fronte un reparto non ha un ordine operativo e consuma **quanto
+ * dichiara** (×1); sul fronte paga il coefficiente dell'ordine, che è il
+ * consumo **totale** della guerra, non un addendo sopra la base.
+ */
+function orderConsumptionFactor(unit: MilitaryUnitState): number {
+  if (!unit.frontId) return 1;
+  const order = unit.order || UNIT_ORDER_DEFAULT;
+  const info = UNIT_ORDER_INFO[order];
+  return info ? Math.max(0, info.consumption) : 1;
+}
+
 export class OperationalStateStore {
   private state: OperationalStateSnapshot | null = null;
   private seeding = false;
@@ -149,6 +164,19 @@ export class OperationalStateStore {
     snapshot.constructions.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     this.state = snapshot;
     return snapshot;
+  }
+
+  /**
+   * MILITARY/WARFRONT INTEGRITY P0-1: la cache dello stato operativo non deve
+   * mai servire il «futuro» dopo un restore/rewind o l'apertura di un ramo.
+   * Il DB è già stato riscritto (transazione del restore): la prima lettura
+   * successiva ricarica da lì. Anche la sentinella del seed si ricontrolla,
+   * perché il ramo ripristinato può essere precedente o successivo al seed.
+   */
+  invalidate(): void {
+    this.state = null;
+    this.seedChecked = false;
+    this.seedDone = false;
   }
 
   /** Il seed è avvenuto? La riga di personale è la sentinella. */
@@ -360,7 +388,35 @@ export class OperationalStateStore {
   militaryNeeds(): MaterialNeeds {
     const snapshot = this.snapshot();
     const needs: MaterialNeeds = { food: 0, clothing: 0, weapons: 0, fuel: 0 };
+    // MILITARY/WARFRONT INTEGRITY P0-2: il fabbisogno militare è **una sola**
+    // grandezza e nasce dai reparti reali, con il **fattore d'ordine** che
+    // dipende solo dall'essere (o no) su un fronte:
+    //   unità sul fronte    → UNIT_ORDER_INFO[order].consumption (attacco 1,8 …)
+    //   unità fuori fronte  → 1 (nessun ordine operativo)
+    // I coefficienti sono il consumo **totale**, non `base + guerra`: chi
+    // sottrae è solo `advanceStock` (`effectiveMaterialNeeds`).
+    //
+    // Il fabbisogno si legge **una volta sola** per armata: se l'armata ha
+    // reparti persistiti sono i suoi reparti a consumare (con l'ordine di
+    // ciascuno); un'armata senza reparti consuma quanto dichiara — mai due
+    // volte la stessa cosa.
+    const unitsOfArmy = new Map<string, MilitaryUnitState[]>();
+    for (const unit of snapshot.units) {
+      const list = unitsOfArmy.get(String(unit.armyId));
+      if (list) list.push(unit);
+      else unitsOfArmy.set(String(unit.armyId), [unit]);
+    }
+    for (const list of unitsOfArmy.values()) {
+      for (const unit of list) {
+        if (unit.status === 'destroyed') continue;
+        const factor = orderConsumptionFactor(unit);
+        needs.food += Math.max(0, Number(unit.monthlyNeeds?.food) || 0) * factor;
+        needs.weapons += Math.max(0, Number(unit.monthlyNeeds?.weapons) || 0) * factor;
+        needs.fuel += Math.max(0, Number(unit.monthlyNeeds?.fuel) || 0) * factor;
+      }
+    }
     for (const army of snapshot.armies) {
+      if (unitsOfArmy.has(String(army.id))) continue;
       needs.food += Math.max(0, Number(army.monthlyNeeds?.food) || 0);
       needs.weapons += Math.max(0, Number(army.monthlyNeeds?.weapons) || 0);
       needs.fuel += Math.max(0, Number(army.monthlyNeeds?.fuel) || 0);
@@ -452,6 +508,10 @@ export class OperationalStateStore {
       };
     };
     const seeds = this.inputs.armyObjects();
+    const persistedFormationsOf = (list: SeedArmyInput[], armyId: string): number | undefined => {
+      const seed = list.find(item => String(item.objectId || item.id) === String(armyId));
+      return seed?.persistedFormations;
+    };
     const total = Math.max(0, Math.round(this.inputs.totalFormations()));
     const accounted = seeds.reduce((sum, army) => sum + Math.max(0, Math.round(nonNegative(army.formations))), 0);
     const byId = new Map(snapshot.armies.map(army => [String(army.id), army]));
@@ -528,12 +588,21 @@ export class OperationalStateStore {
       else unitsOf.set(String(unit.armyId), [unit]);
     }
     const reconciled = snapshot.armies.map(army => {
+      const existing = unitsOf.get(String(army.id)) || [];
+      // MILITARY/WARFRONT INTEGRITY P1-2: il livello dichiarato dalla mappa
+      // serve **solo** alla materializzazione iniziale. Quando l'armata ha già
+      // reparti persistiti la fonte autorevole è `MilitaryUnit[]`: nessun
+      // reparto viene ricreato dal numero della mappa (era la «phantom unit»
+      // del reassign). Se i reparti non esistono più, il numero **reale**
+      // scritto sull'oggetto della mappa evita di reinventarli al reload.
+      const persisted = persistedFormationsOf(seeds, army.id);
+      const target = existing.length > 0 ? existing.length : (persisted ?? army.formations);
       const units = materializeUnitsForArmy({
         army,
         epoch,
         date: this.inputs.currentDate(),
-        formations: army.formations,
-        existing: unitsOf.get(String(army.id)) || [],
+        formations: target,
+        existing,
       });
       return { army: aggregateArmyFromUnits(army, units), units };
     });

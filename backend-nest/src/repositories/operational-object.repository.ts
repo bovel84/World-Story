@@ -19,6 +19,23 @@ export interface OperationalObjectRow {
   data: Record<string, unknown>;
 }
 
+/**
+ * MILITARY/WARFRONT INTEGRITY P0-1: insieme **completo** degli oggetti
+ * persistenti di una partita, nella forma che entra in un checkpoint.
+ *
+ * `schema`/`version` esistono per la compatibilità: un salvataggio vecchio non
+ * ha `operationalState` (`undefined` ⇒ non si tocca lo stato corrente), mentre
+ * un salvataggio nuovo lo ha sempre — anche con `rows: []`, che significa
+ * «questo ramo non aveva oggetti» e va applicato.
+ */
+export interface OperationalObjectsSnapshot {
+  schema: 'world_story_operational_objects';
+  version: 1;
+  rows: Array<{ objectId: string; kind: OperationalObjectKind; data: Record<string, unknown> }>;
+}
+
+export const OPERATIONAL_OBJECTS_SCHEMA = 'world_story_operational_objects' as const;
+
 interface RawRow {
   object_id: string;
   kind: string;
@@ -105,6 +122,41 @@ export const operationalObjectRepository = {
     });
     replace();
   },
+
+  /**
+   * MILITARY/WARFRONT INTEGRITY P0-1: **REPLACE ALL FOR GAME**. L'insieme del
+   * checkpoint diventa l'insieme della partita: le righe presenti sono
+   * scritte, quelle che non ci sono più (di **qualsiasi** tipo) sono rimosse.
+   * Una sola transazione: se un insert fallisce non resta uno stato a metà.
+   */
+  replaceAll: (gameId: string, rows: Array<{ objectId: string; kind: OperationalObjectKind; data: Record<string, unknown> }>): void => {
+    const now = new Date().toISOString();
+    const insert = db.prepare(`
+      INSERT INTO game_operational_objects (game_id, object_id, kind, data, recorded_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(game_id, object_id) DO UPDATE SET
+        kind = excluded.kind, data = excluded.data, recorded_at = excluded.recorded_at
+    `);
+    const remove = db.prepare('DELETE FROM game_operational_objects WHERE game_id = ? AND object_id = ?');
+    const present = new Set(rows.map(row => row.objectId));
+    const replace = db.transaction(() => {
+      for (const row of rows) insert.run(gameId, row.objectId, row.kind, JSON.stringify(row.data ?? {}), now);
+      for (const existing of (db.prepare('SELECT object_id FROM game_operational_objects WHERE game_id = ?').all(gameId) as Array<{ object_id: string }>)) {
+        if (!present.has(existing.object_id)) remove.run(gameId, existing.object_id);
+      }
+    });
+    replace();
+  },
+
+  /**
+   * Snapshot completo e **deterministico** (ordinato per `kind`, `objectId`):
+   * è ciò che il checkpoint serializza e che `semanticStateHash` confronta.
+   */
+  snapshot: (gameId: string): OperationalObjectsSnapshot => ({
+    schema: OPERATIONAL_OBJECTS_SCHEMA,
+    version: 1,
+    rows: operationalObjectRepository.list(gameId).map(row => ({ objectId: row.id, kind: row.kind, data: row.data })),
+  }),
 
   remove: (gameId: string, id: string): void => {
     db.prepare('DELETE FROM game_operational_objects WHERE game_id = ? AND object_id = ?').run(gameId, id);

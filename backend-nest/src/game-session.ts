@@ -13,7 +13,7 @@ import { OrderExecutionService, type PendingAction } from './game/OrderExecution
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
-import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, type PressureRecord, type CrisisStateRecord, type CrisisSnapshot } from './repositories';
+import { worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, operationalObjectRepository, type PressureRecord, type CrisisStateRecord, type CrisisSnapshot, type OperationalObjectsSnapshot } from './repositories';
 import { captureEconomicSnapshot } from './repositories/economy-snapshot.repository';
 import type { ChatRecord, ChatSummary, ChatMessageRecord, GameChatSnapshot } from './repositories';
 import { DiplomacyService } from './game/DiplomacyService';
@@ -309,6 +309,17 @@ export interface SaveData {
    * ripristinare); `null` = nessuna crisi registrata a quel punto.
    */
   crisis?: CrisisSnapshot | null;
+  /**
+   * MILITARY/WARFRONT INTEGRITY P0-1: **tutto** lo stato degli oggetti
+   * persistenti del ramo (personale, reparti, fronti, impianti, navi, flotte,
+   * cantieri). Senza, un rewind riportava indietro le regioni ma lasciava le
+   * unità e i fronti al futuro.
+   *
+   * Compatibilità: `undefined` = salvataggio **precedente** a questo campo →
+   * non si applica nulla (lo stato corrente resta); `{ version: 1, rows: [...] }`
+   * (anche `rows: []`) → si applica l'insieme, vuoto compreso.
+   */
+  operationalState?: OperationalObjectsSnapshot;
 }
 
 /**
@@ -1118,18 +1129,23 @@ export class GameSession {
    * creato dagli eventi (capitali, battaglioni, cantieri).
    */
   private playerRegionsForObjects(): Array<{
-    id: string; name: string; population?: number; gdp?: number; militaryPower?: number;
-    coastal?: boolean; objects?: Array<{ id?: string; type?: string; name?: string; level?: number }>;
+    id: string; name: string; owner?: string; population?: number; gdp?: number; militaryPower?: number;
+    coastal?: boolean; borders?: string[];
+    objects?: Array<{ id?: string; type?: string; name?: string; level?: number }>;
   }> {
     return Array.from(this.regions.values())
       .filter(region => region.owner === this.playerPolityId)
       .map(region => ({
         id: region.id,
         name: region.name,
+        // P1-3: il movimento dei reparti ha bisogno della geografia **vera**
+        // (confini della mappa e proprietario), non solo del nome della provincia.
+        owner: region.owner,
         population: region.population,
         gdp: region.gdp,
         militaryPower: region.militaryPower,
         coastal: (region as { coastal?: boolean }).coastal,
+        borders: region.borders || [],
         objects: region.objects,
       }));
   }
@@ -1182,6 +1198,10 @@ export class GameSession {
       for (const object of region.objects || []) {
         if (object.type !== 'army' && object.type !== 'battalion') continue;
         const formations = Math.max(1, Math.round(Number(object.level) || 1));
+        // P1-2: quanti reparti **reali** ha oggi questa armata. È un fatto
+        // scritto sull'oggetto (come uomini ed equipaggiamento), non un secondo
+        // stato: serve a non ricrearli dal livello dichiarato dopo un reload.
+        const persisted = Number((object as { formations?: unknown }).formations);
         seeds.push({
           id: String(object.id || `army-${region.id}-${seeds.length + 1}`),
           name: String(object.name || 'Armata'),
@@ -1189,6 +1209,7 @@ export class GameSession {
           regionName: region.name || null,
           formations,
           objectId: object.id ? String(object.id) : null,
+          persistedFormations: Number.isFinite(persisted) ? Math.max(0, Math.round(persisted)) : undefined,
         });
       }
     }
@@ -1214,6 +1235,10 @@ export class GameSession {
         object.monthlyNeeds = { ...state.monthlyNeeds };
         object.status = state.status;
         object.operational = true;
+        // P1-2: il numero **reale** di reparti dell'armata viaggia con l'oggetto
+        // della mappa (persistito in `game_regions.objects` e nel checkpoint).
+        // Il `level` resta la dichiarazione del mondo: qui si registra il fatto.
+        object.formations = Math.max(0, Math.round(Number(state.formations) || 0));
         changed = true;
       }
     }
@@ -2477,6 +2502,12 @@ export class GameSession {
       // dello stato del ramo. `null` significa «nessuna crisi registrata a
       // questo punto», ed è un fatto da ripristinare, non un dato mancante.
       crisis: this.crisisSnapshot(),
+      // MILITARY/WARFRONT INTEGRITY P0-1: gli oggetti persistenti (reparti,
+      // fronti, impianti, navi, flotte, cantieri, equipaggi) sono stato del
+      // ramo esattamente come le regioni. Snapshot completo e ordinato
+      // (`kind`, `objectId`): l'hash semantico resta stabile e un rewind non
+      // lascia in vita unità o fronti del futuro.
+      operationalState: operationalObjectRepository.snapshot(this.id),
     };
   }
 
@@ -2523,6 +2554,11 @@ export class GameSession {
     this.state.applyCore(state);
     this.diplomacy.replaceFromJSON(state.relationships);
     this.orders.replaceQueue(state.pendingActions);
+    // MILITARY/WARFRONT INTEGRITY P0-1: la cache dello stato operativo è del
+    // **futuro** che stiamo abbandonando. Si scarta sia nel forward sia nel
+    // rollback (la transazione canonica ha già ripristinato/annullato il DB):
+    // la prima lettura successiva ricarica dal database.
+    this.operationalStore?.invalidate();
   }
 
   /** Fase di commit del restore: aliquota ed esito (come il restore originale). */
@@ -2539,6 +2575,11 @@ export class GameSession {
   private afterRestoreState(restored?: { crisis?: CrisisSnapshot | null }): void {
     this.restoreCrisisState(restored?.crisis);
     this.ensurePeacetimePressures();
+    // MILITARY/WARFRONT INTEGRITY P0-1: dopo il commit del restore (o del
+    // rollback) la cache operativa si scarta un'ultima volta — nessun percorso
+    // intermedio dentro la transazione può aver lasciato in RAM lo stato del
+    // ramo abbandonato.
+    this.operationalStore?.invalidate();
   }
 
   // Этап 2: Rewind-снапшоты, Intervene, консолидация истории

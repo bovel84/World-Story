@@ -670,12 +670,16 @@ export function applyFormationPlan(input: {
 export interface OperationalRegion {
   id: string;
   name: string;
+  /** Polity che controlla la provincia: serve ai movimenti (P1-3). */
+  owner?: string;
   population?: number;
   /** Indice di PIL della provincia: serve alla proiezione dei conti del motore. */
   gdp?: number;
   /** Potenza militare della provincia: idem. */
   militaryPower?: number;
   coastal?: boolean;
+  /** Province confinanti (geografia della mappa): percorso dei movimenti. */
+  borders?: string[];
   objects?: Array<{ id?: string; type?: string; name?: string; level?: number }>;
 }
 

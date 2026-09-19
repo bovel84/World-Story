@@ -19,7 +19,7 @@
 import db, { withCanonicalTransaction } from '../database';
 import { shortId } from '../utils/short-id';
 import { semanticStateHash } from '../domain/semantic-hash';
-import { gameRepository, chatRepository } from '../repositories';
+import { gameRepository, chatRepository, operationalObjectRepository } from '../repositories';
 import { invalidateStrictEffectStaging, restoreEconomicSnapshot, validateEconomicSnapshot } from '../repositories/economy-snapshot.repository';
 import { normalizeDifficulty, type Difficulty } from '../prompts/difficulty';
 import type { StrictEffect } from '../core/simulation/EffectValidator';
@@ -238,6 +238,18 @@ export class GamePersistenceService {
         };
         this.ctx.applyState(next);
         this.ctx.prepareRestore();
+
+        // MILITARY/WARFRONT INTEGRITY P0-1: gli oggetti persistenti sono stato
+        // del ramo. Semantica **REPLACE ALL FOR GAME**: l'insieme del
+        // checkpoint sostituisce quello della partita (un fronte o un reparto
+        // creati nel futuro **spariscono**, uno cancellato **ritorna**).
+        //
+        // Compatibilità: `operationalState === undefined` = salvataggio
+        // precedente a questo campo → non si tocca nulla. `{ version: 1,
+        // rows: [] }` è invece un fatto e si applica (ramo senza oggetti).
+        if (saveData.operationalState) {
+          operationalObjectRepository.replaceAll(gameId, saveData.operationalState.rows || []);
+        }
 
         // Ogni altro run sospeso del ramo scartato è invalidato.
         if (!next.pausedRun) gameRepository.interruptPausedRuns(gameId);

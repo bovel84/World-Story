@@ -12,8 +12,10 @@
  *    differenza è chi sceglie l'ordine (il giocatore dal pannello, l'NPC dalla
  *    policy deterministica `npcFrontOrder`).
  * 2. **Nessun wargame**: nessuna battaglia tattica, nessun esagono, nessuna
- *    seconda contabilità di scorte: i consumi escono dalle **stesse** scorte
- *    materiali (`applyFlow` sul magazzino della polity).
+ *    seconda contabilità di scorte: i consumi di guerra sono **gli stessi**
+ *    `militaryNeeds` del tick materiale (`advanceStock`), moltiplicati per il
+ *    coefficiente dell'ordine. Il servizio **non** sottrae nulla dalle scorte
+ *    (MILITARY/WARFRONT INTEGRITY P0-2).
  * 3. **Perdite reali**: uomini e pezzi si tolgono ai **reparti**, mai solo a
  *    `region.militaryPower`. Il `militaryPower` resta supporto dichiarato.
  * 4. **Territorio**: la conquista è una **decisione** del motore
@@ -28,7 +30,7 @@
  */
 
 import { indexPolities } from '../core/simulation/npc-policy';
-import { applyFlow, type ResourceStock } from '../core/simulation/MaterialEconomy';
+import type { ResourceStock } from '../core/simulation/MaterialEconomy';
 import {
   SURRENDER_LOSS_MULTIPLIER, frontIdFor, frontNameFor, frontObjectiveFor, frontSideStrength,
   npcFrontOrder, resolveFront, retreatRegionFor, supplyCoverage, type FrontRegion,
@@ -135,6 +137,39 @@ export class WarFrontService {
   private unitPolityId(unit: MilitaryUnitState): string {
     const region = unit.regionId ? this.ctx.regions().get(String(unit.regionId)) : undefined;
     return region?.owner || this.ctx.playerPolityId();
+  }
+
+  /**
+   * MILITARY/WARFRONT INTEGRITY P0-3 — sgancio dei reparti fuori teatro.
+   *
+   * Un reparto partecipa a un fronte **solo** se: il fronte esiste, non è
+   * chiuso, il reparto è ancora in una provincia del teatro e appartiene ancora
+   * a una delle due parti. Altrimenti il `frontId` si azzera: senza questo, un
+   * reparto trasferito a Roma continuava a combattere su un fronte in Austria.
+   *
+   * I reparti **distrutti** non si sganciano: sono inerti (non combattono, non
+   * consumano, non si rianimano) e il fronte su cui sono caduti è la loro storia.
+   *
+   * @returns vero se almeno un reparto è stato sganciato (lo stato va salvato)
+   */
+  private detachOutOfTheatre(fronts: readonly WarFrontState[], units: MilitaryUnitState[], date: string): boolean {
+    const byId = new Map(fronts.map(front => [String(front.id), front]));
+    let detached = false;
+    for (let index = 0; index < units.length; index += 1) {
+      const unit = units[index];
+      if (!unit.frontId || unit.status === 'destroyed') continue;
+      const front = byId.get(String(unit.frontId));
+      const inTheatre = Boolean(front
+        && front.status !== 'closed'
+        && unit.regionId
+        && front.regionIds.map(String).includes(String(unit.regionId)));
+      const polity = this.unitPolityId(unit);
+      const onSide = Boolean(front && (polity === front.attackerPolityId || polity === front.defenderPolityId));
+      if (inTheatre && onSide) continue;
+      units[index] = { ...unit, frontId: null, updatedDate: date };
+      detached = true;
+    }
+    return detached;
   }
 
   private theatreRegions(front: WarFrontState): RegionState[] {
@@ -309,6 +344,10 @@ export class WarFrontService {
       }
     }
 
+    // P0-3: dopo che il teatro e gli stati dei fronti si sono assestati, ogni
+    // reparto che non è più «sul» fronte viene sganciato (`frontId = null`).
+    if (this.detachOutOfTheatre(snapshot.fronts, units, date)) dirty = true;
+
     if (dirty) store.saveFronts(snapshot.fronts, units);
     return { events, fronts: snapshot.fronts, units };
   }
@@ -318,10 +357,23 @@ export class WarFrontService {
     return this.syncFronts().fronts;
   }
 
-  /** Parti di un fronte: reparti per lato, rifornimenti reali e supporto legacy. */
+  /**
+   * Parti di un fronte: reparti per lato, rifornimenti reali e supporto legacy.
+   *
+   * P0-2 — semantica dei rifornimenti: `supplyCoverage` legge lo **stock della
+   * polity in questo istante**, cioè **dopo** che il periodo materiale ha già
+   * consumato il fabbisogno dei reparti (`advanceResources` → `advanceStock` →
+   * `onPlayerSlice` → `advanceFronts`). Il numero che entra nella battaglia è
+   * quindi esattamente lo stock che esiste davvero in quel momento: nessun
+   * secondo fabbisogno inventato e nessuna divergenza fra supply e scorte.
+   */
   private sides(front: WarFrontState, units: readonly MilitaryUnitState[], stepDays: number) {
     const theatreRegions = this.theatreRegions(front);
+    // P0-3, difesa in profondità: anche se un `frontId` sbagliato arrivasse da
+    // una riga persistita vecchia, un reparto combatte solo se è **davvero** nel
+    // teatro del fronte.
     const of = (polityId: string) => units.filter(unit => String(unit.frontId) === String(front.id)
+      && Boolean(unit.regionId) && front.regionIds.map(String).includes(String(unit.regionId))
       && this.unitPolityId(unit) === polityId);
     const stage = (polityId: string, isPlayer: boolean) => {
       const list = of(polityId);
@@ -503,20 +555,16 @@ export class WarFrontService {
         },
       });
 
-      // 1) Consumi reali dalle scorte delle due parti (stesso magazzino del tick).
-      for (const [side, polityId, consumption] of [
-        ['attaccante', front.attackerPolityId, resolution.consumption.attacker],
-        ['difensore', front.defenderPolityId, resolution.consumption.defender],
-      ] as const) {
-        if (consumption.food <= 0 && consumption.fuel <= 0 && consumption.weapons <= 0) continue;
-        try {
-          const stock = this.ctx.resourceStock(polityId);
-          const next = applyFlow(stock, { food: -consumption.food, fuel: -consumption.fuel, weapons: -consumption.weapons });
-          this.ctx.saveResourceStock(polityId, next);
-        } catch (error) {
-          console.warn('[WarFrontService] Consumi di guerra non applicati:', side, error);
-        }
-      }
+      // 1) Consumi di guerra: NON si sottraggono qui.
+      //
+      // MILITARY/WARFRONT INTEGRITY P0-2 — il tick materiale consuma già i
+      // `unit.monthlyNeeds` moltiplicati per il coefficiente dell'ordine
+      // (`OperationalStateStore.militaryNeeds()` → `materialFlow()` →
+      // `advanceStock`): sottrarre di nuovo `resolution.consumption` qui era un
+      // **doppio consumo** (attacco = base + 1,8× = 2,8× invece di 1,8×).
+      // `warConsumption()` resta la lettura del consumo (fatti del fronte,
+      // rifornimenti, `supplyCoverage`), ma l'unico punto che sottrae è
+      // `advanceStock`.
 
       // 2) Perdite reali sui reparti + 3) ritirata in provincia amica.
       const outcomeById = new Map(resolution.outcomes.map(outcome => [outcome.unitId, outcome]));

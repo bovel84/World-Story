@@ -43,7 +43,6 @@ import {
   aggregateArmyFromUnits,
   aggregateObjects, equipmentQuantity, equipmentTotals, isKnownEquipment,
   monthlyNeedsPerFormation, personnelOverlay, persistentObjects,
-  materializeUnitsForArmy,
   rifleEquipmentId, rifleRequirement, transferCrewToShip, transferEquipment, transferMenToArmy,
   unitIdFor, unitNameFor, unitNumberOf, unitReadiness, unitStatusFromCoverage,
   UNIT_ORDER_DEFAULT,
@@ -51,6 +50,7 @@ import {
   type WarFrontState,
 } from '../core/simulation/OperationalState';
 import type { OperationalStateStore } from './OperationalStateStore';
+import { friendlyRegionPath, regionHops } from '../utils/region-path';
 import { splitMaterialPeriod } from './NationStateService';
 import { materialBalance } from './materialBalance';
 import { effectiveMaterialNeeds, materialNeeds } from '../core/simulation/MaterialEconomy';
@@ -756,19 +756,40 @@ export class MilitaryService {
       const target = input.regionId ? regions.find(region => String(region.id) === String(input.regionId)) : undefined;
       if (!target) throw new Error(`region_unknown: «${input.regionId ?? ''}» non è una regione del paese`);
       if (String(unit.regionId || '') === String(target.id)) return blocked(`Il reparto è già in ${target.name}.`, 'Nessuno spostamento.', 'Un reparto si sposta in un\'altra regione, non dentro la propria.');
+      // MILITARY/WARFRONT INTEGRITY P1-3: il movimento ha una **geografia**.
+      // Il percorso passa solo per province controllate dal paese (i `borders`
+      // reali della mappa, nessun secondo grafo): senza percorso non c'è
+      // trasferimento, e la distanza (numero di tratte) entra nel costo.
+      const owner = polityId;
+      const path = friendlyRegionPath({
+        fromRegionId: String(unit.regionId || ''),
+        toRegionId: String(target.id),
+        owner,
+        regions: regions.map(region => ({ id: String(region.id), owner: region.owner ?? owner, borders: region.borders ?? [] })),
+      });
+      if (!path) {
+        return blocked(
+          `Nessun percorso territoriale controllato fra ${unit.regionName || 'la regione di partenza'} e ${target.name}.`,
+          'Nessuno spostamento.',
+          'Il reparto si muove via terra **solo** attraverso province del paese: un percorso che attraversa territorio ostile non esiste.',
+        );
+      }
+      const distanceFactor = regionHops(path);
       const before = this.ctx.resourceStock(polityId);
-      const cost = movementCost(before);
+      const cost = movementCost(before, distanceFactor);
       const payment = payMovement(before, cost);
+      // L'identità del reparto non cambia **mai** (P1-1): cambia la posizione.
       const next = { ...unit, regionId: target.id, regionName: target.name || null, updatedDate: this.ctx.currentDate() };
+      push('Distanza percorsa (tratte)', 0, distanceFactor, 'numero');
       push('Cibo (scorte)', before.food, payment.stock.food, 'numero');
       push('Carburante (scorte)', before.fuel, payment.stock.fuel, 'numero');
       push('Cassa', before.money, payment.stock.money, 'mld');
       const why = cost.motorized
-        ? 'Movimento meccanizzato: paga cibo, carburante e denaro con lo **stesso** costo del motore (`movementCost`).'
-        : 'Movimento appiedato: paga cibo e denaro con lo **stesso** costo del motore (`movementCost`). La motorizzazione aggiungerebbe il carburante.';
+        ? 'Movimento meccanizzato: paga cibo, carburante e denaro con lo **stesso** costo del motore (`movementCost`), proporzionale alla distanza reale.'
+        : 'Movimento appiedato: paga cibo e denaro con lo **stesso** costo del motore (`movementCost`), proporzionale alla distanza reale. La motorizzazione aggiungerebbe il carburante.';
       const note = payment.covered
-        ? `«${next.name}» trasferito in ${next.regionName}.`
-        : `«${next.name}» trasferito in ${next.regionName} con scorte insufficienti: ${payment.shortages.join('; ')}.`;
+        ? `«${next.name}» trasferito in ${next.regionName} (${distanceFactor} ${distanceFactor === 1 ? 'tratta' : 'tratte'}).`
+        : `«${next.name}» trasferito in ${next.regionName} (${distanceFactor} ${distanceFactor === 1 ? 'tratta' : 'tratte'}) con scorte insufficienti: ${payment.shortages.join('; ')}.`;
       return finish(next, snapshot.units.map(item => (item.id === unit.id ? next : item)), note, why, payment.stock);
     }
 
@@ -777,18 +798,13 @@ export class MilitaryService {
       : undefined;
     if (!targetArmy) throw new Error(`army_unknown: «${input.armyId ?? ''}» non è un\'armata dello stato`);
     if (String(targetArmy.id) === String(unit.armyId)) return blocked(`Il reparto è già in ${targetArmy.name}.`, 'Nessuno spostamento.', 'Un reparto appartiene a una sola armata.');
-    // L'id del reparto segue l'armata di appartenenza (gli id sono unici nello
-    // stato): cambiando armata il reparto riceve la numerazione libera
-    // dell'armata di arrivo. Il **nome** resta quello del reparto.
-    const nextNumber = snapshot.units
-      .filter(item => String(item.armyId) === String(targetArmy.id))
-      .reduce((max, item) => Math.max(max, unitNumberOf(item)), 0) + 1;
+    // MILITARY/WARFRONT INTEGRITY P1-1: **l'id del reparto è immutabile**.
+    // `reassign` è un cambio di catena di comando, non un movimento: cambia solo
+    // `armyId`. Posizione, nome, uomini, pezzi, ordine e fronte restano quelli
+    // del reparto; `unitIdFor` si usa solo alla nascita di un reparto nuovo.
     const next = {
       ...unit,
-      id: unitIdFor(targetArmy.id, nextNumber),
       armyId: targetArmy.id,
-      regionId: targetArmy.regionId ?? unit.regionId,
-      regionName: targetArmy.regionName ?? unit.regionName,
       updatedDate: this.ctx.currentDate(),
     };
     const nextUnits = snapshot.units.map(item => (item.id === unit.id ? next : item));
@@ -802,20 +818,10 @@ export class MilitaryService {
     push(`Uomini · ${army?.name || 'armata di partenza'}`, army?.personnel ?? 0, from.personnel, 'numero');
     push(`Reparti · ${targetArmy.name}`, targetArmy.formations, to.formations, 'numero');
     push(`Uomini · ${targetArmy.name}`, targetArmy.personnel, to.personnel, 'numero');
-    // Il mondo dichiara ancora N reparti per l'armata di partenza (il livello
-    // dell'oggetto della mappa non si tocca da qui): la materializzazione crea un
-    // reparto **in formazione, senza uomini**. Il giocatore deve saperlo.
-    const leaving = materializeUnitsForArmy({
-      army: snapshot.armies.find(item => String(item.id) === String(unit.armyId)) ?? targetArmy,
-      epoch,
-      date: this.ctx.currentDate(),
-      formations: army?.formations ?? 0,
-      existing: nextUnits.filter(item => String(item.armyId) === String(unit.armyId)),
-    });
-    const cadre = Math.max(0, leaving.length - from.formations);
-    const note = cadre > 0
-      ? `«${next.name}» passa a ${targetArmy.name}. Il mondo dichiara ancora ${army?.formations ?? 0} reparti per «${army?.name || unit.armyId}»: ne nasce uno **in formazione, senza uomini** (la mappa non si tocca da qui: nessun uomo viene creato dal nulla).`
-      : `«${next.name}» passa a ${targetArmy.name}.`;
+    // P1-2: nessun reparto «in formazione» inventato dal livello della mappa.
+    // L'armata di partenza resta la **somma** dei suoi reparti persistiti, e il
+    // numero dichiarato dall'oggetto della mappa non li rigenera.
+    const note = `«${next.name}» passa a ${targetArmy.name}. Il reparto mantiene il suo id, la sua posizione e i suoi uomini: le due armate restano la somma dei loro reparti.`;
     return finish(next, nextUnits, note, 'Uomini, pezzi e fabbisogni seguono il reparto: le due armate sono la somma dei loro reparti.');
   }
 
