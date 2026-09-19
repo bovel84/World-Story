@@ -32,7 +32,8 @@
 import { indexPolities } from '../core/simulation/npc-policy';
 import type { MaterialFulfillment, ResourceStock } from '../core/simulation/MaterialEconomy';
 import {
-  SURRENDER_LOSS_MULTIPLIER, frontIdFor, frontNameFor, frontObjectiveFor, frontSideStrength,
+  DEPLETED_ORGANIC_RATIO, SURRENDER_LOSS_MULTIPLIER,
+  frontIdFor, frontNameFor, frontObjectiveFor, frontSideStrength,
   legacyWarConsumptionFactor, npcFrontOrder, resolveFront, retreatRegionFor, supplyCoverage, unitIsActiveOnFront,
   type FrontRegion, type SideSupply,
 } from '../core/simulation/WarFronts';
@@ -42,10 +43,17 @@ import {
   UNIT_ORDER_DEFAULT,
   UNIT_ORDER_INFO,
   UNIT_ORDER_LABEL,
+  equipmentQuantity,
+  rifleEquipmentId,
+  rifleRequirement,
+  unitReadiness,
+  unitStatusFromCoverage,
   type MilitaryUnitState,
   type UnitOrder,
   type WarFrontState,
 } from '../core/simulation/OperationalState';
+import { daysBetween } from '../core/simulation/calendar';
+import { militaryManpower } from '../core/simulation/MilitaryDoctrine';
 import type { OperationalStateStore } from './OperationalStateStore';
 import type { RegionState } from '../game-session';
 
@@ -198,7 +206,12 @@ export class WarFrontService {
       if (!unit.frontId || unit.status === 'destroyed') continue;
       const front = byId.get(String(unit.frontId));
       if (unitIsActiveOnFront({ unit, front, unitPolityId: this.unitPolityId(unit) })) continue;
-      units[index] = { ...unit, frontId: null, updatedDate: date };
+      // Lo sgancio è **bookkeeping**: toglie il reparto dal fronte, non cambia il
+      // suo stato operativo. `updatedDate` resta quello dell'ultimo fatto reale
+      // (la ritirata): è il riferimento con cui PR3 conta i giorni fuori dal
+      // fronte, e riscriverlo qui — magari con una data più vecchia del fatto —
+      // farebbe rientrare il reparto in anticipo.
+      units[index] = { ...unit, frontId: null };
       detached = true;
     }
     return detached;
@@ -613,6 +626,56 @@ export class WarFrontService {
     return this.ctx.epoch();
   }
 
+  /** Giorni minimi **fuori dal fronte** prima che un reparto in ritirata rientri. */
+  static readonly RALLY_DAYS = 30;
+
+  /**
+   * PR3 — **recupero** dei reparti in ritirata (rally). Un reparto che ha perso
+   * il fronte e si è ripiegato in territorio amico non resta `retreating` per
+   * sempre: dopo almeno `RALLY_DAYS` giorni **fuori dal fronte** torna
+   * disponibile, con prontezza e stato **ricalcolati dai fatti**.
+   *
+   * Regole (deterministiche, nessun uomo creato dal nulla):
+   * - solo `status = retreating` **senza** `frontId` (chi è ancora nel teatro
+   *   segue le regole del fronte: prima il combattimento, poi il rally);
+   * - solo in **territorio amico** (del paese giocatore o di un suo alleato);
+   * - `personnel` ed `equipment` **invariati**: il rally non è una cura né una
+   *   ricostituzione (per quello servono `reinforce`/`reequip` dal deposito);
+   * - lo stato nuovo non è mai «operational» per decreto: esce da
+   *   `unitStatusFromCoverage` (e resta `degraded` sotto la soglia organica);
+   * - i `destroyed` non si rianimano **mai**.
+   */
+  private rallyRetreatingUnits(units: MilitaryUnitState[], date: string): { units: MilitaryUnitState[]; events: string[] } {
+    const events: string[] = [];
+    const regions = this.ctx.regions();
+    const epoch = this.epoch();
+    const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch }).menPerFormation;
+    const organic = menPerFormation * DEPLETED_ORGANIC_RATIO;
+    const requiredRifles = rifleRequirement(epoch, 1);
+    const friendly = (regionId: string | null | undefined): boolean => {
+      const region = regionId ? regions.get(String(regionId)) : undefined;
+      const owner = String(region?.owner || '');
+      if (!owner || owner === 'neutral') return false;
+      if (owner === String(this.ctx.playerPolityId())) return true;
+      return this.ctx.relationship(owner, this.ctx.playerPolityId()) === 'ally';
+    };
+    const next = units.map(unit => {
+      if (unit.status !== 'retreating' || unit.frontId) return unit;
+      if (!friendly(unit.regionId)) return unit;
+      if (daysBetween(unit.updatedDate, date) < WarFrontService.RALLY_DAYS) return unit;
+      const personnel = Math.max(0, Math.round(Number(unit.personnel) || 0));
+      if (personnel <= 0) return unit;
+      const equipment = unit.equipment || {};
+      const assigned = equipmentQuantity(equipment, rifleEquipmentId());
+      const covered = unitStatusFromCoverage({ assigned, required: requiredRifles });
+      const status: MilitaryUnitState['status'] = personnel < organic ? 'degraded' : covered;
+      const readiness = unitReadiness({ unit: { personnel, equipment, status }, epoch });
+      events.push(`🎖️ «${unit.name}» rientra in linea: reparto di nuovo ${status === 'operational' ? 'operativo' : 'inquadrato'} dopo il ripiegamento (uomini e pezzi invariati).`);
+      return { ...unit, status, readiness, updatedDate: date };
+    });
+    return { units: next, events };
+  }
+
   /**
    * Un **periodo** di guerra per ogni fronte aperto: rifornimenti reali, perdite
    * reali sui reparti, ritirata in una provincia amica, conquista solo con
@@ -743,7 +806,13 @@ export class WarFrontService {
           unit: next,
           side,
           regions: this.worldRegions(),
-          avoid: [...front.regionIds, String(front.objectiveRegionId || '')],
+          // Si ripiega **via** dal fronte: né il teatro conteso, né l'obiettivo
+          // dell'attaccante storico, né la provincia appena persa.
+          avoid: [
+            ...front.regionIds,
+            String(front.objectiveRegionId || ''),
+            String(resolution.advance?.objectiveRegionId || ''),
+          ],
         });
         const liveRegion = target ? regions.get(String(target.id)) : undefined;
         if (!liveRegion) {
@@ -765,16 +834,26 @@ export class WarFrontService {
         return { ...next, regionId: liveRegion.id, regionName: liveRegion.name };
       });
 
-      // 4) Conquista: solo la **decisione** del motore, applicata con `transferRegion`.
+      // 4) Conquista: **una sola** authority (`transferRegion`) e una sola via,
+      // valida nelle due direzioni. Il motore ha deciso **chi** avanza
+      // (`advance.side`): l'attaccante storico o il difensore che contrattacca.
+      // Il ruolo storico non decide l'iniziativa, quindi qui non si guarda
+      // `front.attackerPolityId`: si guarda il fatto del periodo.
       if (resolution.advance) {
-        const region = regions.get(String(resolution.advance.objectiveRegionId));
-        if (region && region.owner === front.defenderPolityId) {
-          const from = this.ctx.polityLabel(front.defenderPolityId);
-          this.ctx.transferRegion(region, front.attackerPolityId, this.ctx.regionColorOf(front.attackerPolityId));
-          const headline = `${this.ctx.polityLabel(front.attackerPolityId)} conquista ${region.name} (era ${from}): il ${front.name} ha sfondato.`;
+        const advance = resolution.advance;
+        const region = regions.get(String(advance.objectiveRegionId));
+        // Difesa in profondità: la provincia deve essere **ancora** di chi si
+        // ritira (se nel frattempo è cambiata, non si trasferisce nulla).
+        if (region && String(region.owner) === String(advance.retreatingPolityId)) {
+          const from = this.ctx.polityLabel(advance.retreatingPolityId);
+          this.ctx.transferRegion(region, advance.advancingPolityId, this.ctx.regionColorOf(advance.advancingPolityId));
+          const verb = advance.side === 'defender' ? 'contrattacca e conquista' : 'conquista';
+          const headline = `${this.ctx.polityLabel(advance.advancingPolityId)} ${verb} ${region.name} (era ${from}): il ${front.name} ha sfondato.`;
           conquests.push(headline);
           events.push(`🚩 ${headline}`);
           this.ctx.note(`🚩 ${headline}`);
+          // Il teatro lo ricostruisce `syncFronts()` al periodo successivo (dal
+          // nuovo confine): qui non si tocca a mano né `regionIds` né l'obiettivo.
         }
       }
 
@@ -811,9 +890,21 @@ export class WarFrontService {
       const losses = resolution.outcomes.reduce((total, outcome) => total + outcome.personnelLost, 0);
       const equipmentLost = resolution.outcomes.reduce((total, outcome) => total + outcome.equipmentLost, 0);
       if (losses > 0 || equipmentLost > 0 || resolution.status !== 'active') {
-        events.push(`⚔️ ${front.name}: ${FRONT_STATUS_LABEL[resolution.status].toLowerCase()} — ${losses.toLocaleString('it-IT')} uomini e ${equipmentLost.toLocaleString('it-IT')} pezzi perduti in ${stepDays} giorni (pressione ${round1(resolution.attackerPressure * 100)} contro ${round1(resolution.defenderPressure * 100)}).`);
+        // Il dispaccio dice **chi** è in difficoltà: "collassato" da solo era
+        // ambiguo appena il difensore ha potuto contrattaccare (PR3).
+        const collapsed = resolution.collapsedSide
+          ? ` (${this.ctx.polityLabel(resolution.collapsedSide === 'attacker' ? front.attackerPolityId : front.defenderPolityId)} non tiene più il fronte)`
+          : '';
+        events.push(`⚔️ ${front.name}: ${FRONT_STATUS_LABEL[resolution.status].toLowerCase()}${collapsed} — ${losses.toLocaleString('it-IT')} uomini e ${equipmentLost.toLocaleString('it-IT')} pezzi perduti in ${stepDays} giorni (pressione ${round1(resolution.attackerPressure * 100)} contro ${round1(resolution.defenderPressure * 100)}).`);
       }
     }
+
+    // PR3 — recupero dei reparti in ritirata: dopo il combattimento (chi è
+    // ancora nel teatro segue le regole del fronte) e nello **stesso** tick in
+    // cui si scrive, così il rally non è una seconda passata.
+    const rallied = this.rallyRetreatingUnits(units, date);
+    units = rallied.units;
+    events.push(...rallied.events);
 
     // Scrittura solo se qualcosa e' cambiato davvero: un tick senza battaglia non
     // deve riscrivere reparti (ne' gli oggetti-armata della mappa).

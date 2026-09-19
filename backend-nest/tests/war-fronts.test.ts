@@ -994,3 +994,222 @@ describe('MILITARY PR3 — avanzata bidirezionale e contrattacco (motore puro)',
     expect(resolution.advance!.objectiveRegionId).toBe(`${WORLD_ID}_AUT1`);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// MILITARY PR3 — integrazione servizio: contrattacco, catena, rally
+// ══════════════════════════════════════════════════════════════════════════
+describe('MILITARY PR3 — contrattacco, catena di proprietà e recupero reparti', () => {
+  /** Avanzamento **canonico**: periodo materiale + fronte + data di sessione. */
+  const advance = (session: any, days: number, date: string) => session.advanceWorldState(days, date);
+  /** Il fronte ITA–AUT con i ruoli **invertiti**: l'NPC è l'attaccante storico. */
+  const reversedFront = (session: any) => {
+    const current = frontOf(session, PID, AUT);
+    if (!current) return null;
+    store(session).saveFronts([
+      ...fronts(session).filter(front => String(front.id) !== String(current.id)),
+      { ...current, attackerPolityId: AUT, defenderPolityId: PID, objectiveRegionId: R.ita1 },
+    ]);
+    return current.id;
+  };
+  /** Avanza finché compare una conquista (o si esauriscono i periodi). */
+  const advanceUntilConquest = (session: any, months = 18, from = 1) => {
+    const conquests: string[] = [];
+    for (let month = from; month <= months; month += 1) {
+      armAll(session);
+      conquests.push(...session.warFronts.advanceFronts(30, addDays('2026-01-01', month * 30)).conquests);
+      if (conquests.length > 0) break;
+    }
+    return conquests;
+  };
+
+  it('29: il contrattacco conquista via `transferRegion` (difensore storico NPC)', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    armAll(session);
+    session.publicFronts();
+    setOrder(session, 'attack');
+    // Il giocatore **non tiene** il campo (ritirata) e la sua provincia non ha
+    // potenza dichiarata: l'NPC difensore ha l'iniziativa e contrattacca.
+    declaredPower(session, R.ita1, 0);
+    declaredPower(session, R.aut1, 600);
+    setOrder(session, 'withdraw');
+    const conquests = advanceUntilConquest(session);
+    expect(conquests.length).toBeGreaterThan(0);
+    // La conquista è del **difensore storico**, e passa dall'unica authority.
+    expect(conquests[0]).toContain('contrattacca');
+    expect(session.regions.get(R.ita1).owner).toBe(AUT);
+  });
+
+  it('30: il **giocatore** può contrattaccare da difensore storico', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    // Ruoli invertiti: l'NPC è l'attaccante storico, il giocatore il difensore.
+    expect(reversedFront(session)).not.toBeNull();
+    armAll(session);
+    session.publicFronts();
+    setOrder(session, 'attack');
+    declaredPower(session, R.aut1, 0);
+    const conquests = advanceUntilConquest(session);
+    expect(conquests.length).toBeGreaterThan(0);
+    expect(conquests[0]).toContain('conquista');
+    expect(session.regions.get(R.aut1).owner).toBe(PID);
+  });
+
+  it('31: catena di proprietà A→B→A con **lo stesso** fronte e obiettivo aggiornato', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    armAll(session);
+    session.publicFronts();
+    setOrder(session, 'attack');
+    const frontId = frontOf(session)!.id;
+    // 1) l'attaccante storico (giocatore) conquista AUT1.
+    declaredPower(session, R.aut1, 40);
+    const first = advanceUntilConquest(session);
+    expect(first.length).toBeGreaterThan(0);
+    expect(session.regions.get(R.aut1).owner).toBe(PID);
+    // 2) il teatro e l'obiettivo si ricostruiscono dal **nuovo** confine: niente
+    // obiettivo ormai proprio.
+    session.publicFronts();
+    expect(frontOf(session)!.id).toBe(frontId);
+    expect(frontOf(session)!.objectiveRegionId).not.toBe(R.aut1);
+    // 3) il difensore storico riconquista la provincia perduta, stesso fronte.
+    // La potenza va alzata dove l'AUT **ha ancora** territorio (AUT2): AUT1 è ora
+    // del giocatore, e il teatro si è ricostruito sul nuovo confine.
+    declaredPower(session, R.aut2, 600);
+    // Nessuna potenza dichiarata ITA **nel teatro**: ITA1 (propria) e AUT1
+    // (conquistata) a zero, così l'attaccante storico non tiene più il campo.
+    declaredPower(session, R.ita1, 0);
+    declaredPower(session, R.aut1, 0);
+    setOrder(session, 'withdraw');
+    const second = advanceUntilConquest(session, 24);
+    expect(second.length).toBeGreaterThan(0);
+    expect(second[0]).toContain('contrattacca');
+    expect(session.regions.get(R.aut1).owner).toBe(AUT);
+    // Un solo fronte per la coppia di polity: chi avanza non cambia l'identità.
+    expect(fronts(session).map(front => String(front.id))).toEqual([frontId]);
+  });
+
+  it('32: contrattacco fallito (difesa che tiene) — nessuna conquista e ordini misti intatti', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    armAll(session);
+    session.publicFronts();
+    // Ordini misti del giocatore: il fronte non li riscrive.
+    const list = units(session).filter(unit => String(unit.armyId) === 'a1');
+    const mixed = list.map((unit, index) => ({ ...unit, order: index === 0 ? 'defend' : index === 1 ? 'reserve' : 'attack' }));
+    store(session).saveUnits(units(session).map(unit => mixed.find(item => item.id === unit.id) ?? unit));
+    const before = units(session).filter(unit => String(unit.armyId) === 'a1').map(unit => unit.order);
+    declaredPower(session, R.aut1, 4000);
+    for (let month = 1; month <= 6; month += 1) {
+      session.warFronts.advanceFronts(30, addDays('2026-01-01', month * 30));
+    }
+    // Gli ordini del giocatore sono **suoi**: nessuno li sovrascrive.
+    expect(units(session).filter(unit => String(unit.armyId) === 'a1').map(unit => unit.order)).toEqual(before);
+    // E la provincia non è passata all'NPC (l'attaccante storico può ritirarsi,
+    // ma il difensore non conquista senza intento offensivo: qui non c'è).
+    expect(session.regions.get(R.ita1).owner).toBe(PID);
+  });
+
+  it('33: novanta giorni e tre turni da trenta sono la stessa guerra (owners, fronti, reparti)', () => {
+    const setup = () => {
+      const { session } = createGame();
+      setRelationship(session, PID, AUT, 'hostile');
+      armAll(session);
+      session.publicFronts();
+      setOrder(session, 'attack');
+      declaredPower(session, R.aut1, 350);
+      return session;
+    };
+    const stockOf = (session: any) => {
+      const { weapons, food, fuel } = stock(session);
+      return { weapons, food, fuel };
+    };
+    const snapshot = (session: any) => ({
+      owners: [...session.regions.values()].map((region: any) => ({ id: region.id, owner: region.owner })).sort((a: any, b: any) => String(a.id).localeCompare(String(b.id))),
+      fronts: fronts(session).map(front => ({ id: front.id, status: front.status, regions: front.regionIds, attackerPressure: front.attackerPressure, defenderPressure: front.defenderPressure })),
+      units: units(session).map(unit => ({
+        id: unit.id, personnel: unit.personnel, equipment: unit.equipment,
+        status: unit.status, order: unit.order, frontId: unit.frontId, regionId: unit.regionId, readiness: unit.readiness,
+      })).sort((a, b) => String(a.id).localeCompare(String(b.id))),
+      stock: stockOf(session),
+    });
+    const long = setup();
+    const split = setup();
+    for (const date of ['2026-01-31', '2026-03-02', '2026-04-01']) {
+      (split as any).advanceWorldState(30, date);
+    }
+    (long as any).advanceWorldState(90, '2026-04-01');
+    expect(snapshot(split)).toEqual(snapshot(long));
+  });
+
+  it('34: un reparto in ritirata **non** rientra prima di 30 giorni, poi rientra (rally)', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    armAll(session);
+    session.publicFronts();
+    setOrder(session, 'withdraw');
+    const unit = units(session).find(item => item.frontId);
+    // `advanceWorldState` avanza anche la **data di sessione**: la
+    // sincronizzazione dei fronti (e quindi il rally) legge quella, non la data
+    // passata al singolo tick.
+    advance(session, 30, '2026-01-31');
+    const retreated = unitOf(session, unit.id);
+    expect(retreated.status).toBe('retreating');
+    expect(retreated.regionId).toBe(R.ita2);
+    // Lo sgancio dal fronte avviene alla sincronizzazione del periodo successivo.
+    const personnelBefore = retreated.personnel;
+    const equipmentBefore = equipmentOf(retreated.equipment);
+    // 15 giorni: ancora fuori linea (il rally non è una cura immediata).
+    advance(session, 15, '2026-02-15');
+    expect(unitOf(session, unit.id).status).toBe('retreating');
+    expect(unitOf(session, unit.id).frontId).toBeNull();
+    // 30 giorni fuori dal fronte: rientra, senza recuperare uomini né pezzi.
+    advance(session, 15, '2026-03-02');
+    const rallied = unitOf(session, unit.id);
+    expect(rallied.status).not.toBe('retreating');
+    expect(['degraded', 'operational']).toContain(rallied.status);
+    expect(rallied.personnel).toBe(personnelBefore);
+    expect(equipmentOf(rallied.equipment)).toBe(equipmentBefore);
+    expect(rallied.readiness).toBeGreaterThan(0);
+  });
+
+  it('35: un reparto **distrutto** non rientra mai, nemmeno dopo un anno', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const unit = units(session).find(item => String(item.armyId) === 'a1')!;
+    store(session).saveUnits(units(session).map(item => (String(item.id) === String(unit.id)
+      ? { ...item, status: 'destroyed', personnel: 0, equipment: {}, readiness: 0, frontId: null, regionId: R.ita2 }
+      : item)));
+    advance(session, 365, '2027-01-31');
+    const after = unitOf(session, unit.id);
+    expect(after.status).toBe('destroyed');
+    expect(after.personnel).toBe(0);
+    expect(equipmentOf(after.equipment)).toBe(0);
+  });
+
+  it('36: rewind e rami riportano i reparti allo stato **pre-rally**', async () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    armAll(session);
+    session.publicFronts();
+    setOrder(session, 'withdraw');
+    const unit = units(session).find(item => item.frontId);
+    // T0: reparto ancora in linea; T1: ripiegato (checkpoint del pre-rally).
+    advance(session, 30, '2026-01-31');
+    const checkpoint = session.save('pre-rally').saveId;
+    expect(unitOf(session, unit.id).status).toBe('retreating');
+    // T2: rally avvenuto.
+    advance(session, 30, '2026-03-02');
+    expect(unitOf(session, unit.id).status).not.toBe('retreating');
+    // Rewind: torna `retreating` come nel checkpoint.
+    const row = db.prepare('SELECT data, content_hash FROM saves WHERE id = ?').get(checkpoint) as any;
+    session.loadFromSave(JSON.parse(row.data), row.content_hash);
+    expect(unitOf(session, unit.id).status).toBe('retreating');
+    // Ramo isolato: da lì in avanti il rally può rifarsi, senza contaminazioni.
+    session.loadFromSave(JSON.parse(row.data), row.content_hash, { newBranch: { originCheckpointId: checkpoint, name: 'rally' } });
+    advance(session, 30, '2026-03-02');
+    expect(unitOf(session, unit.id).status).not.toBe('retreating');
+  });
+});
