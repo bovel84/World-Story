@@ -2070,6 +2070,10 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
   const frontById = new Map((input.fronts || []).map(front => [String(front.id), front]));
   const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
   for (const unit of input.units || []) {
+    // P4 — le schede reparto del quadro operativo sono quelle del **giocatore**:
+    // i reparti delle altre polity compaiono nel read model del fronte, non
+    // sotto «Forze armate del giocatore».
+    if (String(unit.polityId) !== String(input.polityId)) continue;
     const army = armyById.get(String(unit.armyId));
     const required = rifleRequirement(input.epoch, 1);
     const assigned = equipmentQuantity(unit.equipment, rifleEquipmentId());
@@ -2166,8 +2170,23 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
   // obiettivo, pressione. Le unità arrivano dal loro `frontId` (fonte unica):
   // qui si leggono, non si tiene un secondo elenco.
   for (const front of input.fronts || []) {
-    const attacker = (input.units || []).filter(unit => String(unit.frontId) === String(front.id)
-      && unit.status !== 'destroyed' && String(unit.armyId) !== '');
+    // P4 — reparti **persistenti** del fronte, per lato (dal loro `frontId`: una
+    // sola fonte). Prima i reparti del giocatore erano gli unici possibili;
+    // adesso entrambe le parti possono averne, e vanno letti **entrambi**.
+    const onFront = (input.units || []).filter(unit => String(unit.frontId) === String(front.id)
+      && unit.status !== 'destroyed');
+    const attacker = onFront;
+    const attackerUnits = onFront.filter(unit => String(unit.polityId) === String(front.attackerPolityId));
+    const defenderUnits = onFront.filter(unit => String(unit.polityId) === String(front.defenderPolityId));
+    const ordersOf = (list: readonly MilitaryUnitState[]): string => {
+      const counts = new Map<string, number>();
+      for (const unit of list) {
+        const order = UNIT_ORDER_LABEL[(unit.order ?? UNIT_ORDER_DEFAULT) as UnitOrder] || String(unit.order);
+        counts.set(order, (counts.get(order) || 0) + 1);
+      }
+      return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([order, count]) => `${count} ${order.toLowerCase()}`).join(' · ');
+    };
     const status = FRONT_OPERATING_STATUS[front.status];
     const attackerPct = round1(nonNegative(front.attackerPressure) * 100);
     const defenderPct = round1(nonNegative(front.defenderPressure) * 100);
@@ -2199,7 +2218,12 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
           : "Nessuna iniziativa netta: pressioni pari nell'ultimo periodo"),
         fact('capacita', 'Pressione attaccante', attackerPct, 'pct', 'neutral', 'Somma delle forze effettive dei reparti attaccanti (forza × ordine × rifornimenti).'),
         fact('capacita', 'Pressione difensore', defenderPct, 'pct', 'neutral', 'Forze effettive della difesa: reparti persistenti più il supporto dichiarato dalla mappa.'),
-        fact('stato', 'Reparti impegnati', attacker.length, 'numero', 'neutral', "Unità con questo fronte come `frontId`: reparti **persistenti del giocatore** (l'NPC combatte con la forza dichiarata dalla mappa)."),
+        fact('stato', `Reparti persistenti · ${front.attackerPolityId}`, attackerUnits.length, 'numero', 'neutral', attackerUnits.length > 0
+          ? `Reparti con questo fronte come \`frontId\`, del lato attaccante storico (${front.attackerPolityId}). Ordini: ${ordersOf(attackerUnits)}.`
+          : `Nessun reparto **persistente** per ${front.attackerPolityId} su questo fronte: quella parte combatte con la forza dichiarata dalla mappa.`),
+        fact('stato', `Reparti persistenti · ${front.defenderPolityId}`, defenderUnits.length, 'numero', 'neutral', defenderUnits.length > 0
+          ? `Reparti con questo fronte come \`frontId\`, del lato difensore storico (${front.defenderPolityId}). Ordini: ${ordersOf(defenderUnits)}.`
+          : `Nessun reparto **persistente** per ${front.defenderPolityId} su questo fronte: quella parte combatte con la forza dichiarata dalla mappa.`),
         fact('stato', 'Teatro', null, 'testo', 'neutral', regionNames.join(' · ') || 'Nessuna provincia di confine risolta'),
         fact('stato', 'Obiettivo dichiarato', null, 'testo', 'neutral', objective
           ? `${objective.name} · obiettivo dell'attaccante storico; una controffensiva calcola il proprio obiettivo sul confine corrente`
