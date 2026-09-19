@@ -152,7 +152,7 @@ export class OperationalStateStore {
         const data = row.data as Record<string, unknown>;
         switch (row.kind) {
           case 'personnel': snapshot.personnel = data as unknown as MilitaryPersonnelState; break;
-          case 'unit': snapshot.units.push(normalizeUnitState(data)); break;
+          case 'unit': snapshot.units.push(normalizeUnitState(data, this.inputs.playerPolityId())); break;
           case 'front': snapshot.fronts.push(data as unknown as WarFrontState); break;
           case 'facility': snapshot.facilities.push(data as unknown as FacilityState); break;
           case 'ship': snapshot.ships.push(data as unknown as ShipState); break;
@@ -398,6 +398,26 @@ export class OperationalStateStore {
   }
 
   /**
+   * P4 — fabbisogno militare **di una polity**: i suoi reparti persistenti
+   * (`Σ monthlyNeeds × orderFactor`) e, solo per il giocatore, le armate senza
+   * reparti. Serve a dare all'NPC la stessa contabilità del giocatore quando ha
+   * unità persistite.
+   */
+  militaryNeedsForPolity(polityId: string): MaterialNeeds {
+    return this.militaryNeedsOf(true, polityId);
+  }
+
+  /** P4 — base **strutturale** (senza coefficiente d'ordine) di una polity. */
+  baseMilitaryNeedsForPolity(polityId: string): MaterialNeeds {
+    return this.militaryNeedsOf(false, polityId);
+  }
+
+  /** P4 — reparti persistenti di una polity (authority: `unit.polityId`). */
+  unitsForPolity(polityId: string): MilitaryUnitState[] {
+    return this.snapshot().units.filter(unit => String(unit.polityId) === String(polityId));
+  }
+
+  /**
    * Base **strutturale** del fabbisogno militare: gli stessi reparti e le stesse
    * armate, ma **senza** il coefficiente d'ordine (`UNIT_ORDER_INFO`). È il
    * fabbisogno di pace che dimensiona i magazzini: la guerra consuma di più, non
@@ -407,8 +427,12 @@ export class OperationalStateStore {
     return this.militaryNeedsOf(false);
   }
 
-  private militaryNeedsOf(applyOrderFactor: boolean): MaterialNeeds {
+  private militaryNeedsOf(applyOrderFactor: boolean, polityId?: string): MaterialNeeds {
     const snapshot = this.snapshot();
+    // P4 — il fabbisogno è **per polity**: senza filtro resterebbe player-only
+    // (le unità NPC non devono entrare nel conto del giocatore e viceversa).
+    const forPolity = String(polityId ?? this.inputs.playerPolityId());
+    const isPlayer = forPolity === String(this.inputs.playerPolityId());
     const needs: MaterialNeeds = { food: 0, clothing: 0, weapons: 0, fuel: 0 };
     // MILITARY/WARFRONT INTEGRITY P0-2: il fabbisogno militare è **una sola**
     // grandezza e nasce dai reparti reali, con il **fattore d'ordine** che
@@ -424,6 +448,7 @@ export class OperationalStateStore {
     // volte la stessa cosa.
     const unitsOfArmy = new Map<string, MilitaryUnitState[]>();
     for (const unit of snapshot.units) {
+      if (String(unit.polityId) !== forPolity) continue;
       const list = unitsOfArmy.get(String(unit.armyId));
       if (list) list.push(unit);
       else unitsOfArmy.set(String(unit.armyId), [unit]);
@@ -440,6 +465,12 @@ export class OperationalStateStore {
         needs.weapons += Math.max(0, Number(unit.monthlyNeeds?.weapons) || 0) * factor;
         needs.fuel += Math.max(0, Number(unit.monthlyNeeds?.fuel) || 0) * factor;
       }
+    }
+    if (!isPlayer) {
+      // Le armate sono oggetti della mappa del giocatore: per le altre polity
+      // contano **solo** i reparti persistiti.
+      const round = (value: number) => Math.round(value * 1000) / 1000;
+      return { food: round(needs.food), clothing: round(needs.clothing), weapons: round(needs.weapons), fuel: round(needs.fuel) };
     }
     for (const army of snapshot.armies) {
       if (unitsOfArmy.has(String(army.id))) continue;
@@ -610,8 +641,14 @@ export class OperationalStateStore {
     // pezzi, fabbisogni e numero di reparti dell'armata sono la somma dei suoi
     // reparti. Nessun uomo viene creato dal nulla: il mondo può solo dichiarare
     // reparti in più, che nascono vuoti (`forming`).
+    // P4 — l'armata è un oggetto della mappa **del giocatore**: qui si
+    // riconciliano solo i suoi reparti. I reparti di altre polity restano
+    // intatti (una lettura del giocatore non deve cancellare le unità NPC).
+    const playerPolityId = String(this.inputs.playerPolityId());
+    const foreignUnits = snapshot.units.filter(unit => String(unit.polityId) !== playerPolityId);
     const unitsOf = new Map<string, MilitaryUnitState[]>();
     for (const unit of snapshot.units) {
+      if (String(unit.polityId) !== playerPolityId) continue;
       const list = unitsOf.get(String(unit.armyId));
       if (list) list.push(unit);
       else unitsOf.set(String(unit.armyId), [unit]);
@@ -630,14 +667,16 @@ export class OperationalStateStore {
         army,
         epoch,
         date: this.inputs.currentDate(),
+        // Le armate sono oggetti della mappa del **giocatore**: i reparti che ne
+        // derivano appartengono a lui (P4).
+        polityId: this.inputs.playerPolityId(),
         formations: target,
         existing,
       });
       return { army: aggregateArmyFromUnits(army, units), units };
     });
     snapshot.armies = reconciled.map(item => item.army);
-    const nextUnits = reconciled
-      .flatMap(item => item.units)
+    const nextUnits = [...reconciled.flatMap(item => item.units), ...foreignUnits]
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
     // Si scrive **solo** quando i reparti cambiano: una lettura non riscrive lo
     // stato a ogni chiamata.
@@ -726,12 +765,23 @@ export class OperationalStateStore {
    * Scrive i reparti **e** riallinea l'aggregato delle armate alla loro somma:
    * una sola transazione, mai uno stato a metà (armata e reparti insieme).
    */
+  /**
+   * Scrive i reparti **e** riallinea l'aggregato delle armate alla loro somma.
+   *
+   * P4 — **INVARIANTE CROSS-POLITY**: `persist('unit', …)` è un replace completo
+   * del `kind`, quindi `items` deve essere **l'insieme globale** dei reparti
+   * (tutte le polity). Passare solo i reparti del giocatore cancellerebbe le
+   * unità NPC. L'aggregato delle armate, invece, si calcola **solo** sui reparti
+   * del giocatore: le armate sono oggetti della sua mappa.
+   */
   saveUnits(items: readonly MilitaryUnitState[]): void {
     const snapshot = this.snapshot();
     snapshot.units = [...items].sort((a, b) => String(a.id).localeCompare(String(b.id)));
     this.persist('unit', snapshot.units);
+    const playerPolityId = String(this.inputs.playerPolityId());
     const byArmy = new Map<string, MilitaryUnitState[]>();
     for (const unit of snapshot.units) {
+      if (String(unit.polityId) !== playerPolityId) continue;
       const list = byArmy.get(String(unit.armyId));
       if (list) list.push(unit);
       else byArmy.set(String(unit.armyId), [unit]);

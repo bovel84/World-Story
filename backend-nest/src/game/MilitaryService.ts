@@ -556,6 +556,9 @@ export class MilitaryService {
         const status = unitStatusFromCoverage({ assigned: rifles, required: rifleRequirement(epoch, 1) });
         createdUnit = {
           id: pending?.id ?? unitIdFor(targetArmy.id, index),
+          // P4 — la nazionalità è esplicita: i reparti creati dal giocatore sono
+          // suoi anche se la provincia cambia proprietario.
+          polityId: String(polityId),
           armyId: targetArmy.id,
           name: pending?.name ?? unitNameFor(epoch, index),
           personnel: preview.plan.men,
@@ -576,9 +579,9 @@ export class MilitaryService {
         store.saveArmies(after.armies.map(army => (army.id === targetArmy.id
           ? { ...army, status: 'operational' as const, legacyDerived: false }
           : army)));
-        store.saveUnits(pending
+        store.saveUnits((pending
           ? after.units.map(unit => (unit.id === pending.id ? createdUnit as MilitaryUnitState : unit))
-          : [...after.units, createdUnit]);
+          : [...after.units, createdUnit]) as MilitaryUnitState[]);
       }
     }
 

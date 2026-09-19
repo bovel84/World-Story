@@ -355,6 +355,13 @@ export interface WarFrontState {
  */
 export interface MilitaryUnitState {
   id: string;
+  /**
+   * P4 — **authority dell'appartenenza nazionale**. La regione dice **dove** sta
+   * il reparto; `polityId` dice **a chi appartiene**. Non si deduce mai dalla
+   * provincia corrente: una conquista non cambia la nazionalità di chi
+   * combatteva lì.
+   */
+  polityId: string;
   /** Armata di appartenenza (id dell'oggetto dello stato). */
   armyId: string;
   name: string;
@@ -401,10 +408,19 @@ export function emptyOperationalState(date: string): OperationalStateSnapshot {
  * con P7 (MILITARY-UNITS PR2) e i salvataggi precedenti non li hanno. Un reparto
  * senza ordine si difende: nessun ordine d'attacco inventato da una lettura.
  */
-export function normalizeUnitState(raw: unknown): MilitaryUnitState {
+export function normalizeUnitState(raw: unknown, fallbackPolityId?: string): MilitaryUnitState {
   const unit = raw as Partial<MilitaryUnitState> & { id: string };
   const order = unit.order && unit.order in UNIT_ORDER_LABEL ? unit.order : UNIT_ORDER_DEFAULT;
-  return { ...(unit as MilitaryUnitState), order, frontId: unit.frontId ? String(unit.frontId) : null };
+  // P4 — retro-compatibilità: i salvataggi PR1–PR3 non hanno `polityId`. Il
+  // fallback è la polity **giocante**, mai l'owner corrente della provincia
+  // (era la deduzione che rendeva un reparto «nazionale» di chi conquistava).
+  const polityId = unit.polityId ? String(unit.polityId) : String(fallbackPolityId || '');
+  return {
+    ...(unit as MilitaryUnitState),
+    polityId,
+    order,
+    frontId: unit.frontId ? String(unit.frontId) : null,
+  };
 }
 
 // ── 2. Manpower: dottrina (capacità) vs stock (stato) ───────────────────────
@@ -1218,6 +1234,150 @@ export function seedArmies(input: {
 }
 
 /**
+ * P4 — materializzazione **lazy** dei reparti di una polity NPC.
+ *
+ * Stesse regole e stessi numeri del giocatore (`militaryManpower`,
+ * `monthlyNeedsPerFormation`, `transferEquipment`, `unitStatusFromCoverage`):
+ * qui non si inventa nulla. È una **conversione** della forza dichiarata in
+ * reparti persistenti, non una produzione: nessun impianto, nessuna coda, nessun
+ * uomo creato oltre `menPerFormation × formations`.
+ *
+ * Pura e deterministica: la distribuzione geografica dipende solo dalla potenza
+ * dichiarata e dall'ordine degli id (nessun `Math.random`), e ogni reparto ha
+ * una provincia **reale** (mai `regionId = null`: chi combatte deve stare da
+ * qualche parte).
+ */
+export interface NpcMilitarySeedInput {
+  polityId: string;
+  epoch: MilitaryEpoch;
+  date: string;
+  /** Formazioni dichiarate dal conto nazionale (`account.forces`). */
+  formations: number;
+  /** Regioni **proprie**: il peso è la `militaryPower` dichiarata. */
+  regions: ReadonlyArray<{ id: string; name?: string | null; militaryPower?: number }>;
+  /** Province del teatro dei fronti aperti: priorità di schieramento. */
+  frontRegionIds?: readonly string[];
+  /** Pezzi disponibili nel deposito della polity: da qui, mai inventati. */
+  depot?: Record<string, number>;
+  /** Reparti già esistenti della polity (idempotenza e no-resurrection). */
+  existing: readonly MilitaryUnitState[];
+}
+
+export interface NpcMilitarySeedResult {
+  /** Insieme **completo** dei reparti della polity (esistenti + creati). */
+  units: MilitaryUnitState[];
+  /** Deposito dopo l'assegnazione dei pezzi (conservazione). */
+  depot: Record<string, number>;
+  createdUnitIds: string[];
+}
+
+/** Distribuzione deterministica delle formazioni fra le regioni proprie. */
+function npcRegionSlots(input: {
+  count: number;
+  regions: NpcMilitarySeedInput['regions'];
+  frontRegionIds?: readonly string[];
+}): Array<{ id: string; name: string | null }> {
+  const front = new Set((input.frontRegionIds || []).map(String));
+  const regions = [...input.regions]
+    .filter(region => Boolean(region.id))
+    // Teatro prima (priorità dichiarata), poi potenza decrescente, poi id: nessun
+    // pareggio ambiguo e nessuna dipendenza dall'ordine di arrivo.
+    .sort((a, b) => Number(front.has(String(b.id))) - Number(front.has(String(a.id)))
+      || Math.max(0, Number(b.militaryPower || 0)) - Math.max(0, Number(a.militaryPower || 0))
+      || String(a.id).localeCompare(String(b.id)));
+  if (regions.length === 0) return [];
+  // Peso = potenza dichiarata, con pavimento 1: una provincia a potenza zero può
+  // comunque ospitare reparti (mai un reparto senza provincia), e la somma è
+  // **esatta** (riparto a maggior resto).
+  const weights = regions.map(region => Math.max(1, Math.round(Number(region.militaryPower || 0))));
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  const quota = weights.map(weight => (input.count * weight) / total);
+  const slots = quota.map(value => Math.floor(value));
+  let assigned = slots.reduce((sum, value) => sum + value, 0);
+  const order = quota
+    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+  for (const entry of order) {
+    if (assigned >= input.count) break;
+    slots[entry.index] += 1;
+    assigned += 1;
+  }
+  const placed: Array<{ id: string; name: string | null }> = [];
+  for (let index = 0; index < regions.length; index += 1) {
+    for (let unit = 0; unit < slots[index]; unit += 1) {
+      placed.push({ id: String(regions[index].id), name: regions[index].name ? String(regions[index].name) : null });
+    }
+  }
+  // Se il conteggio è più alto della distribuzione (arrotondamenti), l'ultima
+  // regione assorbe il resto: la somma resta quella dichiarata.
+  while (placed.length < input.count) {
+    placed.push({ id: String(regions[0].id), name: regions[0].name ? String(regions[0].name) : null });
+  }
+  return placed.slice(0, Math.max(0, input.count));
+}
+
+export function materializeNpcMilitary(input: NpcMilitarySeedInput): NpcMilitarySeedResult {
+  const existing = [...input.existing]
+    .filter(unit => String(unit.polityId) === String(input.polityId))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const target = Math.max(0, Math.round(nonNegative(input.formations)));
+  // Idempotenza e **no resurrection**: se i reparti esistono già (anche tutti
+  // `destroyed`) non se ne creano altri dal numero dichiarato.
+  if (target === 0 || existing.length >= target) {
+    return { units: existing, depot: { ...(input.depot || {}) }, createdUnitIds: [] };
+  }
+  const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
+  const needs = monthlyNeedsPerFormation(input.epoch);
+  const required = rifleRequirement(input.epoch, 1);
+  const slots = npcRegionSlots({
+    count: target - existing.length,
+    regions: input.regions,
+    frontRegionIds: input.frontRegionIds,
+  });
+  let depot = { ...(input.depot || {}) };
+  const created: MilitaryUnitState[] = [];
+  slots.forEach((slot, offset) => {
+    const index = existing.length + offset + 1;
+    const equipment: Record<string, number> = {};
+    // I pezzi escono dal **deposito** della polity e non vengono inventati:
+    // `depot + assegnato` resta il totale (come per il giocatore).
+    const transfer = transferEquipment({
+      depot,
+      assigned: equipment,
+      items: [{ equipmentId: rifleEquipmentId(), quantity: required }],
+    });
+    if (transfer) {
+      depot = transfer.depot;
+      Object.assign(equipment, transfer.assigned);
+    }
+    const rifles = equipmentQuantity(equipment, rifleEquipmentId());
+    const status = unitStatusFromCoverage({ assigned: rifles, required });
+    created.push({
+      // Namespace non collidente con i reparti del giocatore.
+      id: `npc-${input.polityId}-unit-${String(index).padStart(3, '0')}`,
+      polityId: String(input.polityId),
+      armyId: `npc-${input.polityId}-army-${slot.id}`,
+      name: unitNameFor(input.epoch, index),
+      personnel: menPerFormation,
+      equipment,
+      monthlyNeeds: { fuel: needs.fuel, weapons: needs.weapons, food: needs.food },
+      readiness: 0,
+      status,
+      regionId: slot.id,
+      regionName: slot.name,
+      updatedDate: input.date,
+      legacyDerived: true,
+      order: UNIT_ORDER_DEFAULT,
+      frontId: null,
+    });
+  });
+  const units = [...existing, ...created]
+    .map(unit => ({ ...unit, readiness: unitReadiness({ unit, epoch: input.epoch }) }))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  return { units, depot, createdUnitIds: created.map(unit => unit.id) };
+}
+
+/**
  * Fabbisogni mensili di **un reparto** (carburante, armamenti, cibo). Stessa
  * aritmetica del motore: `materialNeeds` su un conto con un solo reparto.
  */
@@ -1445,6 +1605,8 @@ export function emptyUnit(input: {
   armyId: string;
   epoch: MilitaryEpoch;
   date: string;
+  /** P4 — a chi appartiene il reparto (mai dedotto dalla provincia). */
+  polityId: string;
   regionId?: string | null;
   regionName?: string | null;
   name?: string;
@@ -1452,6 +1614,7 @@ export function emptyUnit(input: {
 }): MilitaryUnitState {
   return {
     id: input.id,
+    polityId: String(input.polityId),
     armyId: input.armyId,
     name: input.name || unitNameFor(input.epoch, input.index ?? 1),
     personnel: 0,
@@ -1472,6 +1635,8 @@ export interface MaterializeUnitsInput {
   army: ArmyOperationalState;
   epoch: MilitaryEpoch;
   date: string;
+  /** P4 — nazionalità dei reparti creati (authority, non dedotta). */
+  polityId: string;
   /** Reparti dichiarati dal **mondo** (livello dell'oggetto della mappa). */
   formations?: number;
   existing: readonly MilitaryUnitState[];
@@ -1507,6 +1672,7 @@ export function materializeUnitsForArmy(input: MaterializeUnitsInput): MilitaryU
       const rifles = equipmentQuantity(equipment, rifleEquipmentId());
       created.push({
         id: unitIdFor(input.army.id, index),
+        polityId: String(input.polityId),
         armyId: input.army.id,
         name: unitNameFor(input.epoch, index),
         personnel: men[index - 1],
@@ -1539,6 +1705,7 @@ export function materializeUnitsForArmy(input: MaterializeUnitsInput): MilitaryU
         armyId: input.army.id,
         epoch: input.epoch,
         date: input.date,
+        polityId: String(input.polityId),
         index,
         regionId: input.army.regionId,
         regionName: input.army.regionName,

@@ -101,6 +101,49 @@ export const militaryPersistenceRepository = {
     // Nessun catch: un errore qui è un errore del chiamante, con rollback già fatto.
     commit();
   },
+  /**
+   * P4 — scrittura **atomica** del seed di reparti (unità NPC) e, se serve, dei
+   * depositi coinvolti. Stessa transazione unica del percorso `reconstitute`:
+   * `units` è l'insieme **globale** (il `kind` è un replace completo).
+   */
+  materializeUnits: (input: {
+    gameId: string;
+    /** Insieme **completo** dei reparti (tutte le polity). */
+    units: Array<{ id: string; data: Record<string, unknown> }>;
+    /** Depositi aggiornati (conservazione: `depot + assegnato` invariato). */
+    arsenals?: Array<{ polityId: string; units: Record<string, number>; turn: number; date: string | null }>;
+  }): void => {
+    const now = new Date().toISOString();
+    const upsertObject = db.prepare(`
+      INSERT INTO game_operational_objects (game_id, object_id, kind, data, recorded_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(game_id, object_id) DO UPDATE SET
+        kind = excluded.kind, data = excluded.data, recorded_at = excluded.recorded_at
+    `);
+    const removeObject = db.prepare('DELETE FROM game_operational_objects WHERE game_id = ? AND object_id = ?');
+    const listUnitIds = db.prepare("SELECT object_id FROM game_operational_objects WHERE game_id = ? AND kind = 'unit'");
+    const upsertArsenal = db.prepare(`
+      INSERT INTO game_arsenals (game_id, polity_id, units, updated_turn, updated_date, recorded_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(game_id, polity_id) DO UPDATE SET
+        units = excluded.units, updated_turn = excluded.updated_turn,
+        updated_date = excluded.updated_date, recorded_at = excluded.recorded_at
+    `);
+    const ids = new Set(input.units.map(row => String(row.id)));
+    const commit = db.transaction(() => {
+      for (const row of input.units) {
+        upsertObject.run(input.gameId, String(row.id), 'unit', JSON.stringify(row.data ?? {}), now);
+      }
+      for (const existing of listUnitIds.all(input.gameId) as Array<{ object_id: string }>) {
+        if (!ids.has(String(existing.object_id))) removeObject.run(input.gameId, String(existing.object_id));
+      }
+      for (const arsenal of input.arsenals || []) {
+        upsertArsenal.run(input.gameId, arsenal.polityId, JSON.stringify(arsenal.units ?? {}), arsenal.turn, arsenal.date, now);
+      }
+    });
+    commit();
+  },
+
 };
 
 export default militaryPersistenceRepository;

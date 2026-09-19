@@ -631,6 +631,14 @@ export function advanceStock(
    * conteggio.
    */
   legacyMilitaryFactor = 1,
+  /**
+   * P4 — fabbisogno militare **già deciso** per una polity che ha reparti
+   * persistenti ma nessun overlay (gli NPC): `period` è il fabbisogno del
+   * periodo (base × coefficiente d'ordine), `structural` è la base di pace.
+   * Ha priorità su overlay e percorso legacy: **una sola** authority per polity,
+   * mai `persistent + legacy` nello stesso periodo.
+   */
+  militaryOverride?: { period: MaterialNeeds; structural: MaterialNeeds },
 ): MaterialTick {
   const period = Math.max(0, days) / 30; // mesi
   const popM = Math.max(0, account.population) / 1_000_000;
@@ -664,19 +672,22 @@ export function advanceStock(
   // scalata. Se un chiamante non fornisce il fabbisogno strutturale si ricade
   // su quello del periodo (comportamento di sempre).
   const structuralMilitary = needsOverride
+    ?? militaryOverride?.structural
     ?? overlay?.structuralMilitaryNeeds ?? overlay?.militaryNeeds
     ?? legacyMilitaryNeeds(account);
   const structuralNeeds = needsOverride
     ?? effectiveMaterialNeeds(account, overlay, structuralMilitary);
   // Fabbisogno del **periodo**: la forza dichiarata paga il coefficiente
   // dell'ordine; con reparti persistenti arriva già scalato dall'overlay.
-  const military = needsOverride ?? overlay?.militaryNeeds
+  const military = needsOverride
+    ?? militaryOverride?.period
+    ?? overlay?.militaryNeeds
     ?? scaledLegacyMilitaryNeeds(account, legacyMilitaryFactor);
   const needs = needsOverride ?? effectiveMaterialNeeds(account, overlay, military);
   // Il fabbisogno su cui si misura la **copertura del periodo**: quello
   // militare (ciò che il fronte consuma), oppure quello imposto dal chiamante
   // quando è una scomposizione per impianto.
-  const fulfillmentNeed = needsOverride ?? overlay?.militaryNeeds ?? military;
+  const fulfillmentNeed = needsOverride ?? militaryOverride?.period ?? overlay?.militaryNeeds ?? military;
   // Agricoltura: contano terra fertile, pesca e lavoro rurale, non le fabbriche.
   // Una nazione povera e arida produce meno di quanto consuma e resta in deficit.
   const foodYield = (fertile * 0.55 + fisheries * 0.25 + popM * 0.004 * (1 + fertile * 0.08)) * foodBonus;
