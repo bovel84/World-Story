@@ -1,8 +1,11 @@
 # MILITARY-UNITS PR2 — I fronti di guerra reali (P6–P9)
 
 **Data:** 2026-09-19 · **Base:** `main` @ `b199398` · **Branch:** `feat/war-fronts`
-**Stato:** implementazione completa, test e build verdi, **PR aperta e NON mergiata**
-(la specifica chiede esplicitamente di non mergiare).
+**Stato:** **MERGED** su `main` il 19/09/2026 (PR #81, metodo `rebase` = storia
+lineare: `b199398 → 5d8324c → a32b877`, ogni commit un solo genitore, nessun
+commit di merge). `main` = `a32b877`. **Nessun deploy.**
+L'implementazione e la verifica non sono cambiate dopo la PR: i due commit della
+branch sono gli stessi che il merge ha portato su `main`.
 
 ---
 
@@ -569,8 +572,26 @@ a parte i file del pacchetto.
 
 ## 25. Esito
 
-- **PR aperta, non mergiata** (come richiesto).
+- **PR #81 mergiata su `main`** il 19/09/2026 alle 08:11 UTC con metodo `rebase`
+  (storia lineare, nessun commit di merge): `main` = `a32b877`, cioè **esattamente**
+  il commit verificato (`git rev-parse origin/feat/war-fronts` = `a32b8779` =
+  `main`). Il merge è stato eseguito dall'account del repository; la branch non
+  differisce da `main` (`git diff origin/main origin/feat/war-fronts` vuoto).
+- **CI (`Quality Gate` + `E2E (mock)`) verde** sul commit `a32b877`: primo run
+  `test-build` **fallito** per due **timeout da runner lento** già noti e non
+  correlati a questo pacchetto — `op-objects-time-step.test.ts` test 32 «un salto
+  di 180 giorni è la stessa simulazione di sei turni da 30» e `stage2.test.ts`
+  «does not build factories just because a rejected order names one» (entrambi
+  `Test timed out in 5000ms`). **Nessuna soglia è stata rilassata**: i due test
+  passano in locale e al `rerun-failed-jobs` (entrambi i workflow `success`). I
+  due test hanno ancora il timeout di default: la stessa classe di problema è
+  stata risolta per altri test in PR #78, e allineare anche questi due è una
+  modifica di soli test, da fare in un pacchetto separato (non mescolata qui).
 - Test, tipi e build verdi su backend, frontend ed e2e mock; inventario endpoint
-  rigenerato; nessun file temporaneo.
+  rigenerato; nessun file temporaneo (le sonde `tests/_probe/*` sono state
+  eliminate prima del commit).
 - Verifica **reale** su dati controllati (§19) con misure riportate: nessuna
   dichiarazione di verde non eseguita.
+- **Nessun deploy**: il worker Cloudflare continua a servire la build `b199398`
+  (verificato su `GET /api/health` dopo il merge); PR2 su `main` è codice non
+  ancora rilasciato, come PR1.
