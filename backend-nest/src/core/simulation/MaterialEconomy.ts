@@ -499,9 +499,63 @@ export interface MaterialFlow extends Partial<Record<ResourceKind, number>> {
   shortages: string[];
 }
 
+/**
+ * Quota del **fabbisogno del periodo** realmente coperta, per materiale (0…1).
+ *
+ * È la risposta a «il periodo appena vissuto ha rifornito ciò che doveva?», e
+ * NON si deduce dallo stock residuo: dopo aver pagato il fabbisogno lo stock è
+ * zero anche quando il fabbisogno è stato coperto al 100%. Un magazzino pieno a
+ * inizio periodo e vuoto a fine periodo significa **rifornimento completo**, non
+ * carenza.
+ *
+ * `1` = fabbisogno interamente coperto (o nulla da coprire: mai `NaN`),
+ * `0` = nessun materiale disponibile per il fabbisogno.
+ *
+ * Il tipo è **generale** (tutti i materiali del tick), non militare: lo stesso
+ * numero serve al fronte, alla diagnosi e a qualunque lettore del periodo.
+ */
+export interface MaterialFulfillment { food: number; clothing: number; weapons: number; fuel: number }
+
+/**
+ * Copertura del fabbisogno del periodo, materiale per materiale.
+ *
+ * `disponibile = scorte iniziali + (produzione − prelievi)`: è la **stessa**
+ * aritmetica di `advanceStock` riordinata, perché `flow` contiene già
+ * `− fabbisogno` e quindi `scorte + flow + fabbisogno` è esattamente il
+ * materiale che il motore ha considerato disponibile per quel fabbisogno —
+ * produzione dello stesso periodo **inclusa**, prelievi degli impianti e
+ * fabbisogno civile **esclusi** (il motore li sottrae prima).
+ *
+ * `required` è il fabbisogno su cui si misura la copertura: il fabbisogno
+ * **militare** nel percorso normale (è quello che il fronte consuma), il
+ * fabbisogno imposto dal chiamante quando è una scomposizione per impianto.
+ */
+export function materialFulfillment(input: {
+  stock: ResourceStock;
+  flow: MaterialFlow;
+  period: number;
+  required: MaterialNeeds;
+}): MaterialFulfillment {
+  const cover = (id: keyof MaterialNeeds): number => {
+    const required = Math.max(0, Number(input.required[id]) || 0) * input.period;
+    if (required <= 0) return 1; // nulla da coprire: nessun NaN
+    const before = Math.max(0, Number(input.stock[id]) || 0);
+    const net = Number(input.flow[id] || 0);
+    const available = Math.max(0, before + net + required);
+    return Math.round(Math.min(required, available) / required * 10000) / 10000;
+  };
+  return { food: cover('food'), clothing: cover('clothing'), weapons: cover('weapons'), fuel: cover('fuel') };
+}
+
 export interface MaterialTick {
   stock: ResourceStock;
   flow: MaterialFlow;
+  /**
+   * Quota del fabbisogno **del periodo** coperta (0…1): il fatto del periodo,
+   * non lo stock residuo. Il fronte legge questo numero invece di dedurre la
+   * copertura dalle scorte già decurtate.
+   */
+  fulfillment: MaterialFulfillment;
   /** Tecnologie sbloccate in questo tick spendendo i punti ricerca. */
   unlocked: Technology[];
   /** Titoli giunti a scadenza e rifinanziati in questo tick. */
@@ -556,6 +610,10 @@ export function advanceStock(
   // Con gli oggetti persistenti il fabbisogno militare arriva da loro; senza,
   // resta quello derivato dai reparti (percorso legacy, numeri di sempre).
   const needs = needsOverride ?? effectiveMaterialNeeds(account, overlay);
+  // Il fabbisogno su cui si misura la **copertura del periodo**: quello
+  // militare (ciò che il fronte consuma), oppure quello imposto dal chiamante
+  // quando è una scomposizione per impianto.
+  const fulfillmentNeed = needsOverride ?? overlay?.militaryNeeds ?? legacyMilitaryNeeds(account);
   const capacity = storageCapacity(account, needs);
   // Agricoltura: contano terra fertile, pesca e lavoro rurale, non le fabbriche.
   // Una nazione povera e arida produce meno di quanto consuma e resta in deficit.
@@ -602,6 +660,11 @@ export function advanceStock(
   check('weapons', 'Armamenti', needs.weapons);
   check('fuel', 'Carburante', needs.fuel);
 
+  // Copertura **del periodo** (0…1): il fatto che il fronte legge al posto
+  // dello stock residuo. Calcolata qui perché è qui che si conoscono scorte
+  // iniziali, produzione, prelievi e fabbisogno dello stesso periodo.
+  const fulfillment = materialFulfillment({ stock, flow, period, required: fulfillmentNeed });
+
   const { stock: spent, unlocked } = unlockTechnologies(next);
 
   // Scadenze: i titoli maturati si rifinanziano al tasso di mercato corrente.
@@ -618,7 +681,7 @@ export function advanceStock(
       withRollover = { ...spent, debts: [...outstanding, ...rolledDebts] };
     }
   }
-  return { stock: withRollover, flow, unlocked, rolledDebts, interestPaid: Math.round(interest * 1000) / 1000, spoiled };
+  return { stock: withRollover, flow, fulfillment, unlocked, rolledDebts, interestPaid: Math.round(interest * 1000) / 1000, spoiled };
 }
 
 /** Sblocca in ordine di costo le tecnologie i cui prerequisiti sono soddisfatti. */

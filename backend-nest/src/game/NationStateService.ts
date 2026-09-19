@@ -16,7 +16,7 @@
  */
 
 import { resourceRepository, naturalResourceRepository, modifiersRepository, gameRepository, factionMemoryRepository, type PressureRecord } from '../repositories';
-import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, effectiveMaterialNeeds, materialNeeds, normalizeStock, overdraftOf, seedStock, storageCapacity, type MaterialFlowOverlay, type MaterialTick, type ResourceStock } from '../core/simulation/MaterialEconomy';
+import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, effectiveMaterialNeeds, materialNeeds, normalizeStock, overdraftOf, seedStock, storageCapacity, type MaterialFlowOverlay, type MaterialFulfillment, type MaterialTick, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { averageMaturityYears, describeDebtTranche, marketRatePct } from '../core/simulation/SovereignDebt';
 import {
   advanceLedger, applyGlobalExtraction, drawResourceStockpile, effectiveEndowment, emptyMarket, marketQuote, seedLedger, seedMarket, summarizeLedger,
@@ -106,6 +106,12 @@ export interface MaterialSliceInfo {
   stepDate: string;
   /** Fattori materiali degli impianti del passaggio di allocazione. */
   factors: Record<string, number>;
+  /**
+   * Copertura del **fabbisogno del periodo** appena chiuso (0…1), materiale per
+   * materiale. È il fatto che gli ordini di guerra leggono per i rifornimenti:
+   * non lo stock residuo, ma quanto del fabbisogno è stato davvero soddisfatto.
+   */
+  fulfillment: MaterialFulfillment;
 }
 
 /** Periodo materiale visto dal chiamante che possiede il `WorldStateEngine`. */
@@ -123,6 +129,14 @@ export interface MaterialStepClock {
  */
 export interface MaterialAdvanceHooks {
   onPlayerSlice?: (slice: MaterialSliceInfo) => string[];
+  /**
+   * Gancio eseguito **prima** del periodo materiale del paese giocatore, quando
+   * i fabbisogni non sono ancora stati calcolati: è qui che lo stato del mondo
+   * si assesta (i fronti si sincronizzano: un reparto appena trasferito fuori
+   * dal teatro non paga più il coefficiente di guerra). Le righe restituite
+   * entrano nella cronaca **prima** di quelle del periodo.
+   */
+  beforePlayerSlice?: (slice: MaterialStepClock & { polityId: string }) => string[];
   /**
    * Conto nazionale **del periodo**, fornito dal chiamante che possiede il
    * `WorldStateEngine`: è così che un salto lungo è la stessa storia economica
@@ -333,13 +347,22 @@ export class NationStateService {
           report = new MaterialPeriodReport(steps.length);
           reports.set(polityId, report);
         }
-        const overlay = this.advancePolityMaterialStep(polityId, account, step, stepDate, report ?? null);
         // Il periodo materiale e gli ordini militari del **medesimo** periodo
         // leggono lo stesso passaggio di allocazione: la fabbrica che ha
         // lavorato a pieno regime non sospende l'ordine che ha rifornito.
+        //
+        // P0-B: **prima** del periodo lo stato del mondo si assesta (fronti),
+        // così il fabbisogno è quello vero: un reparto trasferito fuori teatro
+        // consuma ×1, non il coefficiente di una guerra che non sta più vivendo.
+        if (player && hooks?.beforePlayerSlice) {
+          lines.push(...hooks.beforePlayerSlice({ polityId, index, stepDays: step, stepDate }));
+        }
+        const stepResult = this.advancePolityMaterialStep(polityId, account, step, stepDate, report ?? null);
+        const overlay = stepResult.overlay;
         if (player && hooks?.onPlayerSlice) {
           lines.push(...hooks.onPlayerSlice({
             polityId, index, stepDays: step, stepDate, factors: overlay?.facilityFactors || {},
+            fulfillment: stepResult.fulfillment,
           }));
         }
       }
@@ -372,7 +395,7 @@ export class NationStateService {
   private advancePolityMaterialStep(
     polityId: string, account: NationalAccount, stepDays: number, stepDate: string,
     report: MaterialPeriodReport | null,
-  ): MaterialFlowOverlay | null {
+  ): { overlay: MaterialFlowOverlay | null; fulfillment: MaterialFulfillment } {
     // A. Stato iniziale del periodo.
     const stock = this.resourceStock(polityId);
     const ledger = this.resourceLedger(polityId);
@@ -395,9 +418,12 @@ export class NationStateService {
     const tick = advanceStock(stock, account, stepDays, effective, stepDate, overlay);
     // G. Persistenza.
     this.saveResourceStock(polityId, tick.stock);
-    if (!report) return overlay;
+    // La copertura del periodo esce dal tick **già calcolata**: chi combatte la
+    // legge, non la ricava dalle scorte che il tick ha appena decurtato.
+    const fulfillment = tick.fulfillment;
+    if (!report) return { overlay, fulfillment };
     report.add({ tick, overlay, extracted: natural.extracted, depleted: natural.depleted, stepDays, stockAfter: tick.stock, account, effective, date: stepDate });
-    return overlay;
+    return { overlay, fulfillment };
   }
 
   /** Decadimento dei modificatori nazionali verso la neutralità. */

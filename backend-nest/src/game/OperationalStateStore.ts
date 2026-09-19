@@ -29,6 +29,7 @@ import {
   type FacilityKind,
 } from '../core/simulation/OperationalState';
 import type { MaterialFlowOverlay, MaterialNeeds, ResourceStock } from '../core/simulation/MaterialEconomy';
+import { unitIsActiveOnFront } from '../core/simulation/WarFronts';
 import { extractionRate, type ResourceLedger } from '../core/simulation/ResourceMarket';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import {
@@ -111,9 +112,16 @@ const nonNegative = (value: unknown): number => {
  * Fuori dal fronte un reparto non ha un ordine operativo e consuma **quanto
  * dichiara** (×1); sul fronte paga il coefficiente dell'ordine, che è il
  * consumo **totale** della guerra, non un addendo sopra la base.
+ *
+ * P0-B: «sul fronte» non è «ha un `frontId`». La regola è quella condivisa
+ * `unitIsActiveOnFront`: fronte esistente, non chiuso, reparto nel teatro. Un
+ * `frontId` che punta al nulla (o a un fronte chiuso, o a una provincia che il
+ * reparto ha lasciato) non fa pagare il coefficiente di guerra — ed è la
+ * ragione per cui il fabbisogno del periodo non dipende dall'ordine in cui il
+ * tick legge i reparti.
  */
-function orderConsumptionFactor(unit: MilitaryUnitState): number {
-  if (!unit.frontId) return 1;
+function orderConsumptionFactor(unit: MilitaryUnitState, front: WarFrontState | null): number {
+  if (!unitIsActiveOnFront({ unit, front })) return 1;
   const order = unit.order || UNIT_ORDER_DEFAULT;
   const info = UNIT_ORDER_INFO[order];
   return info ? Math.max(0, info.consumption) : 1;
@@ -406,10 +414,14 @@ export class OperationalStateStore {
       if (list) list.push(unit);
       else unitsOfArmy.set(String(unit.armyId), [unit]);
     }
+    // I fronti **del periodo**: il fattore d'ordine vale solo per chi è davvero
+    // sul fronte (P0-B), la stessa regola della sincronizzazione dei fronti.
+    const frontsById = new Map(snapshot.fronts.map(front => [String(front.id), front]));
     for (const list of unitsOfArmy.values()) {
       for (const unit of list) {
         if (unit.status === 'destroyed') continue;
-        const factor = orderConsumptionFactor(unit);
+        const front = unit.frontId ? frontsById.get(String(unit.frontId)) ?? null : null;
+        const factor = orderConsumptionFactor(unit, front);
         needs.food += Math.max(0, Number(unit.monthlyNeeds?.food) || 0) * factor;
         needs.weapons += Math.max(0, Number(unit.monthlyNeeds?.weapons) || 0) * factor;
         needs.fuel += Math.max(0, Number(unit.monthlyNeeds?.fuel) || 0) * factor;

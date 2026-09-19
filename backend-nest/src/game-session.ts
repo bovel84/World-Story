@@ -43,7 +43,7 @@ import type { CommitmentResult } from './game/CommitmentService';
 import { NpcAgendaService } from './game/NpcAgendaService';
 import { CommitmentService } from './game/CommitmentService';
 import type { GovernmentVoices } from './prompts/government';
-import { annualDebtServiceMld, creditHeadroom, debtOf, issueSovereignDebt, type ResourceStock } from './core/simulation/MaterialEconomy';
+import { annualDebtServiceMld, creditHeadroom, debtOf, issueSovereignDebt, type MaterialFulfillment, type ResourceStock } from './core/simulation/MaterialEconomy';
 import {
   projectProgress, stableRoll,
 } from './core/simulation/MilitaryProduction';
@@ -639,6 +639,19 @@ export class GameSession {
         );
         return finalAccounts;
       },
+      // P0-B — lo stato del fronte si assesta **prima** del fabbisogno del
+      // periodo: un reparto appena trasferito fuori dal teatro viene sganciato
+      // qui, quindi il tick materiale non gli fa pagare il coefficiente di una
+      // guerra che non sta più vivendo. Gli eventi della sincronizzazione
+      // (fronti che si aprono o si chiudono) entrano nella cronaca del turno.
+      beforePlayerSlice: () => {
+        try {
+          return this.warFronts.syncFronts().events;
+        } catch (error) {
+          console.warn('[GameSession] Sincronizzazione dei fronti prima del periodo non applicata:', error);
+          return [];
+        }
+      },
       // OP-OBJECTS SEED-DETERMINISM: l'ordine riceve anche la **data canonica**
       // del periodo. Il tiro di produzione dipende da quella, non dal turno:
       // un salto di 180 giorni e sei turni da 30 tirano gli stessi dadi.
@@ -649,7 +662,11 @@ export class GameSession {
         // MILITARY-UNITS PR2: la guerra vive **dentro** il periodo materiale
         // (max 30 giorni), una volta per periodo: nessun tick giornaliero
         // globale e nessun doppio conteggio fra salto lungo e turni brevi.
-        ...this.advanceFronts(slice.stepDays, slice.stepDate),
+        // P0-A: il fronte riceve la copertura **del periodo appena misurata**
+        // dal material engine, non rilegge le scorte residue.
+        ...this.advanceFronts(slice.stepDays, slice.stepDate, {
+          supply: { [slice.polityId]: slice.fulfillment },
+        }),
       ],
     });
     const projectLines = this.advanceProjects(days, asOfDate);
@@ -2439,9 +2456,9 @@ export class GameSession {
   }
 
   /** Fronti: un periodo di guerra (implementazione nel servizio). */
-  private advanceFronts(days: number, date?: string): string[] {
+  private advanceFronts(days: number, date?: string, options?: { supply?: Record<string, MaterialFulfillment> }): string[] {
     try {
-      return this.warFronts.advanceFronts(days, date).events;
+      return this.warFronts.advanceFronts(days, date, options).events;
     } catch (error) {
       console.warn('[GameSession] Tick dei fronti non applicato:', error);
       return [];

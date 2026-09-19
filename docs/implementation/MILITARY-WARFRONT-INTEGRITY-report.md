@@ -341,3 +341,249 @@ PR dedicata **#83** («MILITARY/WARFRONT INTEGRITY — identità, rewind, logist
 | `mergeable` | ✅ `true` (`state = clean`) |
 
 La PR **non** è stata mergiata da chi ha scritto il codice: il merge è del proprietario del repository.
+
+---
+
+# WARFRONT SUPPLY/TICK CONSISTENCY — copertura del periodo e sincronizzazione prima del tick
+
+> PR dedicata, di **correzione della base** di PR #83. Nessuna funzione nuova di
+> guerra (contrattacco, accerchiamento, ricostituzione reparti, aviazione, marina:
+> fuori ambito). Il congelamento del core vale anche qui: le due modifiche in
+> `core/simulation/` sono **additive e pure** (§12-bis).
+
+## 18. Obiettivo e difetto corretto
+
+Due numeri della guerra erano **letti nel momento sbagliato**:
+
+1. **La copertura del rifornimento** (`supplyCoverage`) era dedotta dallo stock
+   **residuo**, cioè *dopo* che il materiale del periodo era già stato speso. Un
+   reparto con le scorte esattamente pari al fabbisogno finiva a magazzino zero:
+   il fronte leggeva «zero materiale» e combatteva come se non fosse mai stato
+   rifornito. Il periodo **vissuto** era pieno; quello **misurato** era vuoto.
+2. **Lo stato del fronte era assestato dopo il tick materiale.** Un reparto
+   trasferito fuori dal teatro pagava ancora il coefficiente di guerra (×1,8)
+   per un periodo in cui non combatteva, perché il fabbisogno veniva calcolato
+   prima dello sgancio.
+
+Nessuna delle due correzioni aggiunge una seconda fonte di verità: la copertura è
+un **dato transitorio del tick**, il fronte resta puro, il fabbisogno resta
+`militaryNeeds()`.
+
+## 19. P0-A — la copertura è il periodo vissuto
+
+Definizione applicata, in `core/simulation/MaterialEconomy.ts`:
+
+```
+required  = fabbisogno del periodo        (quello che il motore ha già sottratto)
+available = max(0, stock_iniziale + produzione + required)   // stessa aritmetica di advanceStock
+fulfilled = min(required, available)
+coverage  = required <= 0 ? 1 : fulfilled / required         // 0..1, mai NaN
+```
+
+- nuovo tipo `MaterialFulfillment { food; clothing; weapons; fuel }` (quote 0..1);
+- nuova funzione **pura** `materialFulfillment({ stock, flow, period, required })`,
+  chiamata **dentro** `advanceStock` (nessun secondo percorso, nessun secondo
+  calcolo: la stessa aritmetica del tick, riordinata);
+- il rapporto di copertura è calcolato sul **fabbisogno militare** del periodo
+  (`needsOverride ?? overlay.militaryNeeds ?? legacyMilitaryNeeds(account)`) —
+  è il fabbisogno che il fronte consuma;
+- `MaterialTick.fulfillment` lo espone al chiamante; **non** viene persistito
+  (dato del tick, non dello stato).
+
+Il fronte **legge** e non ricalcola: `WarFrontService` tiene una `Map` transitoria
+`periodCoverage` e la espone con `periodSupply(polityId)`; `sides()` preferisce
+questa copertura (clamp 0..1) e ricade sul `supplyCoverage` documentato solo
+quando non è disponibile. `FrontEngine`/`WarFronts` restano **puri** (nessuna
+lettura di DB o di store).
+
+Misure reali (mondo di test, fabbisogno armamenti del periodo 3,44, reparti in
+teatro con ordine d'attacco):
+
+| Caso | disponibilità | copertura | stock finale | carenza |
+|---|---|---|---|---|
+| fabbisogno esatto | 10 / 10 | **1** | **0** | no |
+| metà fabbisogno | 4 / 10 | **0,4** | 0 | sì |
+| nessun materiale | 0 / 10 | **0** | 0 | sì |
+| scorte abbondanti | 1000 / 10 | **1** | 160 (tetto) | no |
+| produzione 4 + stock 6 | 10 / 10 | **1** | **0** | no |
+| produzione 4 + prelievi 6 + stock 6 | 4 / 10 | **0,4** | 0 | sì |
+| periodo parziale 15 gg (fabbisogno 5) | 5 / 5 | **1** | **0** | no |
+| periodo parziale 15 gg | 2,5 / 5 | **0,5** | 0 | sì |
+| fabbisogno zero | — | **1** | 0 | no (nessun NaN) |
+
+Sul fronte (pressione d'attacco del periodo):
+
+| Partita | copertura | pressione | stock finale | carenza |
+|---|---|---|---|---|
+| scorte esatte (3,44) | 1 | **1,3061** | **0** | no |
+| scorte abbondanti (34,4) | 1 | **1,3061** | 30,96 | no |
+| nessun armamento | 0 | **0,8509** | 0 | sì |
+
+La partita con le scorte **esatte** combatte come quella con dieci volte tanto
+(pressione identica) e meglio di chi non ha armamenti: prima della correzione la
+prima sarebbe stata letta a zero e avrebbe combattuto come la terza.
+
+Degradazione **periodo per periodo** (sei turni da 30 giorni, date canoniche):
+
+| Scorte iniziali | coperture | pressioni | carenze |
+|---|---|---|---|
+| 6 mesi | 1,1,1,1,1,1 | 1,3061 → 0,5960 | nessuna |
+| 1 mese | **1,0,0,0,0,0** | 1,3061 → 0,4731 | dal 2º periodo |
+| 0 mesi | 0,0,0,0,0,0 | 0,8509 → 0,4577 | dal 1º periodo |
+
+Il primo periodo della partita «1 mese» ha copertura **1** e la **stessa**
+pressione della partita con sei mesi (1,3061): una copertura unica calcolata sul
+salto intero avrebbe dato zero anche a lui.
+
+## 20. P0-B — lo stato del fronte si assesta **prima** del fabbisogno
+
+Regola unica, esportata da `core/simulation/WarFronts.ts`:
+
+```ts
+unitIsActiveOnFront({ unit, front, unitPolityId? })
+// reparto vivo + fronte assegnato + reparto **davvero** nel teatro del fronte
+```
+
+Usata in **un solo posto per ciascun consumatore**: `orderConsumptionFactor`
+(fabbisogno materiale), `detachOutOfTheatre` (sincronizzazione), `sides()` del
+front service. Non esistono più tre versioni della stessa regola.
+
+La sincronizzazione gira **prima** del tick materiale: `NationStateService` espone
+l'hook `MaterialAdvanceHooks.beforePlayerSlice`, e `GameSession` vi collega
+`warFronts.syncFronts()` (in `try/catch`: un errore di sincronizzazione non
+impedisce il tick). Il materiale del periodo vede quindi lo stato **assestato**,
+non quello del turno precedente.
+
+Misure reali:
+
+| Caso | fabbisogno | effetto del periodo |
+|---|---|---|
+| reparto trasferito fuori teatro | **3,44 → 3,28** (−0,16 = 0,2×0,8) | nessuna carenza, stock 0 con scorte esatte, `frontId = null` |
+| `frontId` su un fronte inesistente | **3,44 → 3,28** | nessun coefficiente di guerra |
+| fronte chiuso (pace) | tutti i reparti ×1 | fronte `closed`, eventi di chiusura, nessuna carenza |
+| reparto distrutto | consumo 0, contributo 0 | resta distrutto, non combatte |
+
+Costo: un `syncFronts()` in più per periodo. È **idempotente** (assegnazioni,
+sganci e aggiornamento dei fronti scrivono solo se cambiano) e il tick fronte
+successivo rilegge lo stesso stato: nessun doppio effetto misurato (`frontId`,
+pressioni e perdite identici con e senza il richiamo aggiuntivo nei test 33–41).
+
+## 21. P1 — i rami dello stato operativo bastano così
+
+Test **A → B → A** sui rami reali (`loadFromSave` con `newBranch`, checkpoint di
+`game_operational_objects`):
+
+| Passo | uomini in memoria | pressione fronte | riga su DB |
+|---|---|---|---|
+| ramo A | 7000 | 0,4 | 7000 |
+| ramo B | 12000 | 0,1 | 12000 |
+| ramo A (di nuovo) | **7000** | **0,4** | **7000** |
+
+L'hash semantico dei due checkpoint è **diverso** (lo stato operativo è parte del
+confronto), i rami nascono dallo stesso checkpoint e l'insieme delle righe di un
+ramo non si mescola con l'altro. **Non è stato aggiunto `branch_id`** a
+`game_operational_objects`: il checkpoint e `replaceAll` (PR #83) bastano, e il
+test lo dimostra.
+
+## 22. Test aggiunti (12: numeri 30–41)
+
+`tests/military-warfront-integrity.test.ts`, sezioni **«P0-4 — supply/tick
+consistency»**, **«P0-B — sincronizzazione prima del tick»**, **«P1-4 — rami dello
+stato operativo»** e **«coerenza del salto lungo»**:
+
+| # | Cosa verifica |
+|---|---|
+| 30 | fabbisogno esatto → 1 con stock 0; metà → 0,4; zero → 0; abbondante → 1; fabbisogno nullo → 1 (niente NaN) |
+| 31 | disponibilità **quella** del motore: produzione del periodo inclusa, prelievi degli impianti esclusi |
+| 32 | periodo parziale (15 gg): fabbisogno e disponibilità dimezzati |
+| 33 | il fronte usa la copertura del periodo: esatto = abbondante > zero, stock esatto ≈ 0 |
+| 34 | sei periodi con un mese di scorte: copertura 1 al primo periodo e 0 dal secondo, pressione coerente, carenze dal 2º |
+| 35 | reparto distrutto: consumo 0 e nessun contributo |
+| 36 | trasferito fuori teatro: il periodo successivo paga ×1, senza sincronizzazione manuale |
+| 37 | pace prima del tick: fronte chiuso, reparti liberi, nessun ultimo mese di guerra |
+| 38 | `frontId` inesistente: nessun coefficiente di guerra, e il fantasma non sopravvive alla sincronizzazione |
+| 39 | il livello della mappa non apre un fronte senza contatto |
+| 40 | rami A ↔ B ↔ A: memoria e DB identici a ogni ripristino, hash diversi |
+| 41 | 180 giorni e sei turni da 30 sono la stessa storia (scorte, uomini, pezzi, fronte) |
+
+**Magneticità verificata** (`git stash push -- backend-nest/src`, test nuovi sul
+codice precedente): **8 failed | 33 passed** — falliscono 30, 31, 32, 33, 34, 36,
+37, 38. I test 35, 39, 40, 41 sono **guardie** (comportamento già corretto o
+equivalenza) e passano su entrambe le versioni: sono dichiarati come tali.
+
+## 23. Quality gate (eseguito, non presunto)
+
+| Comando | Esito |
+|---|---|
+| backend `npx tsc --noEmit` | ✅ |
+| backend `npx vitest run` | ✅ **160 file / 1589 test** (erano 160/1577: +12) |
+| backend `npm run build` | ✅ |
+| frontend `npx tsc --noEmit` | ✅ |
+| frontend `npx vitest run` | ✅ **67 file / 494 test** |
+| frontend `npm run build` | ✅ |
+| `npm run test:e2e:mock` | ✅ **49 passed** |
+| inventario endpoint | 106 (invariato) |
+
+## 24. File toccati
+
+- `src/core/simulation/MaterialEconomy.ts` — `MaterialFulfillment`, `materialFulfillment()` (pura), `MaterialTick.fulfillment`;
+- `src/core/simulation/WarFronts.ts` — `unitIsActiveOnFront()` condivisa (pura);
+- `src/game/OperationalStateStore.ts` — `orderConsumptionFactor(unit, front)` sulla regola condivisa; `militaryNeeds()` con mappa dei fronti;
+- `src/game/WarFrontService.ts` — `FrontTickOptions.supply`, `periodSupply()`, `sides(...)` con copertura del periodo, `advanceFronts(days, date?, options?)`, `detachOutOfTheatre` sulla regola condivisa;
+- `src/game/NationStateService.ts` — `MaterialSliceInfo.fulfillment`, `MaterialAdvanceHooks.beforePlayerSlice`, ritorno di `advancePolityMaterialStep`;
+- `src/game-session.ts` — hook `beforePlayerSlice` → `syncFronts()`, passaggio della copertura a `advanceFronts`;
+- `tests/military-warfront-integrity.test.ts` — 12 test nuovi;
+- `docs/implementation/MILITARY-WARFRONT-INTEGRITY-report.md` — questa sezione.
+
+### 24-bis. Congelamento del core (nota di trasparenza, §12-bis)
+
+Due soli file di `core/`, entrambi **additivi e puri**:
+
+- `MaterialEconomy.ts`: una funzione pura nuova e un campo nuovo di un tipo di
+  ritorno (`MaterialTick.fulfillment`). Nessuna costante di guerra toccata;
+  l'aritmetica del tick è la stessa, solo **riordinata** per misurare *prima*
+  della sottrazione.
+- `WarFronts.ts`: una funzione pura nuova esportata. **Nessuna** costante
+  modificata (ordini 1,8/1,2/0,8/1,0, `COMBAT_LOSS_PER_MONTH`,
+  `BREAKTHROUGH_RATIO`, `COLLAPSE_RATIO`, `STALEMATE_BAND`, `frontRollSeed`,
+  `stableRoll`, `friendlyRegionPath`: intatti). `supplyCoverage` resta come
+  ricaduta documentata.
+
+Nessun nuovo stato persistito, nessuna migrazione, nessuna seconda simulazione.
+
+## 25. Limiti residui (dichiarati)
+
+1. **Copertura di un solo periodo**: la `Map` transitoria vale per l'ultimo
+   periodo avanzato. Un consumatore che volesse la serie storica dovrebbe
+   registrarla (non richiesto, e non persistito di proposito).
+2. **`frontId` fantasma**: lo sgancio dell'assegnazione invalida avviene nella
+   stessa passata in cui si assegnano i reparti liberi, quindi il reparto
+   fantasma torna sul fronte **vero** alla sincronizzazione successiva (due
+   chiamate). Nel frattempo paga ×1 (mai il coefficiente di guerra).
+3. **Copertura NPC**: il lato NPC legacy non ha reparti persistiti, quindi non ha
+   una copertura per reparto: resta la ricaduta dichiarata `supplyCoverage`.
+4. **Nessun tempo di movimento** nel trasferimento (già dichiarato in §11):
+   il reparto è fuori teatro subito, quindi paga ×1 dal periodo successivo.
+5. **Salvataggi vecchi**: nessuna copertura nei save precedenti (dato del tick,
+   non dello stato): dopo un caricamento il primo periodo ricalcola tutto.
+
+## 26. Non implementato (fuori ambito, dichiarato)
+
+Reparti NPC persistiti; contrattacco; avanzata del difensore; ricostituzione dei
+reparti distrutti; accerchiamento; tempo di movimento strategico; fronte navale;
+guerra aerea. Nessuno di questi è stato toccato o simulato in questa PR.
+
+## 27. Esito GitHub Actions (PR #84 — WARFRONT SUPPLY/TICK CONSISTENCY)
+
+PR dedicata **#84** («WARFRONT SUPPLY/TICK CONSISTENCY — copertura del periodo e
+sincronizzazione prima del tick»), ramo `fix/warfront-supply-tick`, base
+`main = 56ea21c`.
+
+| Check | Esito |
+|---|---|
+| `test-build` (backend test + build, frontend test + build) | ✅ **success** |
+| `e2e-mock` (Playwright su mock API) | ✅ **success** |
+| `mergeable` | ✅ `true` (`state = clean`) |
+
+La PR **non** è stata mergiata da chi ha scritto il codice: il merge è del
+proprietario del repository.

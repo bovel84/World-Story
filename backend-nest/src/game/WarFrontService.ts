@@ -30,10 +30,11 @@
  */
 
 import { indexPolities } from '../core/simulation/npc-policy';
-import type { ResourceStock } from '../core/simulation/MaterialEconomy';
+import type { MaterialFulfillment, ResourceStock } from '../core/simulation/MaterialEconomy';
 import {
   SURRENDER_LOSS_MULTIPLIER, frontIdFor, frontNameFor, frontObjectiveFor, frontSideStrength,
-  npcFrontOrder, resolveFront, retreatRegionFor, supplyCoverage, type FrontRegion,
+  npcFrontOrder, resolveFront, retreatRegionFor, supplyCoverage, unitIsActiveOnFront,
+  type FrontRegion, type SideSupply,
 } from '../core/simulation/WarFronts';
 import type { MilitaryEpoch } from '../core/simulation/MilitaryDoctrine';
 import {
@@ -90,8 +91,19 @@ export interface FrontTickReport {
   conquests: string[];
 }
 
+/**
+ * Cosa il tick materiale ha misurato nel periodo appena vissuto. Il fronte
+ * **legge** la copertura già decisa dal material engine, non la ricalcola dalle
+ * scorte residue (che sono zero anche quando il fabbisogno è stato coperto).
+ */
+export interface FrontTickOptions {
+  /** Copertura del fabbisogno del periodo, per polity. */
+  supply?: Record<string, MaterialFulfillment>;
+}
+
 const round1 = (value: number) => Math.round(value * 10) / 10;
 const round4 = (value: number) => Math.round(value * 10000) / 10000;
+const clamp01 = (value: unknown): number => Math.min(1, Math.max(0, Number(value) || 0));
 const nonNegative = (value: unknown): number => {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : 0;
@@ -99,6 +111,18 @@ const nonNegative = (value: unknown): number => {
 
 export class WarFrontService {
   constructor(private readonly ctx: WarFrontContext) {}
+
+  /**
+   * Ultima copertura del periodo calcolata dal tick materiale, per polity.
+   * Dato **transitorio** del tick (non è stato: non entra in nessuna tabella e
+   * non sopravvive a un riavvio). Serve alla diagnosi e alla UI: è lo stesso
+   * numero che ha deciso la battaglia, non una sua reinterpretazione.
+   */
+  private periodCoverage = new Map<string, MaterialFulfillment>();
+
+  periodSupply(polityId: string): MaterialFulfillment | null {
+    return this.periodCoverage.get(String(polityId)) ?? null;
+  }
 
   private store(): OperationalStateStore {
     return this.ctx.operationalObjects();
@@ -157,15 +181,10 @@ export class WarFrontService {
     let detached = false;
     for (let index = 0; index < units.length; index += 1) {
       const unit = units[index];
+      // I reparti distrutti restano dov'erano: inerti, e quel fronte è la loro storia.
       if (!unit.frontId || unit.status === 'destroyed') continue;
       const front = byId.get(String(unit.frontId));
-      const inTheatre = Boolean(front
-        && front.status !== 'closed'
-        && unit.regionId
-        && front.regionIds.map(String).includes(String(unit.regionId)));
-      const polity = this.unitPolityId(unit);
-      const onSide = Boolean(front && (polity === front.attackerPolityId || polity === front.defenderPolityId));
-      if (inTheatre && onSide) continue;
+      if (unitIsActiveOnFront({ unit, front, unitPolityId: this.unitPolityId(unit) })) continue;
       units[index] = { ...unit, frontId: null, updatedDate: date };
       detached = true;
     }
@@ -360,21 +379,28 @@ export class WarFrontService {
   /**
    * Parti di un fronte: reparti per lato, rifornimenti reali e supporto legacy.
    *
-   * P0-2 — semantica dei rifornimenti: `supplyCoverage` legge lo **stock della
-   * polity in questo istante**, cioè **dopo** che il periodo materiale ha già
-   * consumato il fabbisogno dei reparti (`advanceResources` → `advanceStock` →
-   * `onPlayerSlice` → `advanceFronts`). Il numero che entra nella battaglia è
-   * quindi esattamente lo stock che esiste davvero in quel momento: nessun
-   * secondo fabbisogno inventato e nessuna divergenza fra supply e scorte.
+   * P0-A — **quale** rifornimento entra nella battaglia. Se il tick materiale
+   * ha già misurato la copertura del periodo (`MaterialTick.fulfillment`), il
+   * fronte legge **quella**: è la quota del fabbisogno del periodo realmente
+   * soddisfatta dal material engine, con la stessa disponibilità che ha usato
+   * lui (produzione inclusa, prelievi esclusi). Leggere lo stock **dopo** il
+   * tick era sbagliato: un reparto con scorte esattamente pari al fabbisogno
+   * pagava tutto e veniva poi misurato a zero (copertura 0% invece di 100%).
+   *
+   * Il ripiego (`supplyCoverage` sullo stock corrente) resta per i percorsi che
+   * **non** hanno un periodo materiale: l'anteprima di un ordine e il battito
+   * live da 7 giorni. È un ripiego dichiarato, non la semantica del tick.
    */
-  private sides(front: WarFrontState, units: readonly MilitaryUnitState[], stepDays: number) {
+  private sides(
+    front: WarFrontState, units: readonly MilitaryUnitState[], stepDays: number,
+    supplyByPolity?: Record<string, MaterialFulfillment>,
+  ) {
     const theatreRegions = this.theatreRegions(front);
-    // P0-3, difesa in profondità: anche se un `frontId` sbagliato arrivasse da
-    // una riga persistita vecchia, un reparto combatte solo se è **davvero** nel
-    // teatro del fronte.
-    const of = (polityId: string) => units.filter(unit => String(unit.frontId) === String(front.id)
-      && Boolean(unit.regionId) && front.regionIds.map(String).includes(String(unit.regionId))
-      && this.unitPolityId(unit) === polityId);
+    // P0-3/P0-B, difesa in profondità: anche se un `frontId` sbagliato arrivasse
+    // da una riga persistita vecchia, un reparto combatte solo se è **davvero**
+    // nel teatro del fronte — la regola condivisa `unitIsActiveOnFront`.
+    const of = (polityId: string) => units.filter(unit => this.unitPolityId(unit) === polityId
+      && unitIsActiveOnFront({ unit, front, unitPolityId: polityId }));
     const stage = (polityId: string, isPlayer: boolean) => {
       const list = of(polityId);
       let stock: ResourceStock | null = null;
@@ -383,11 +409,14 @@ export class WarFrontService {
       } catch {
         stock = null;
       }
-      const supply = supplyCoverage({
-        stock: { food: stock?.food ?? 0, fuel: stock?.fuel ?? 0, weapons: stock?.weapons ?? 0 },
-        units: list,
-        stepDays,
-      });
+      const measured = supplyByPolity?.[String(polityId)];
+      const supply: SideSupply = measured
+        ? { food: clamp01(measured.food), fuel: clamp01(measured.fuel), weapons: clamp01(measured.weapons) }
+        : supplyCoverage({
+          stock: { food: stock?.food ?? 0, fuel: stock?.fuel ?? 0, weapons: stock?.weapons ?? 0 },
+          units: list,
+          stepDays,
+        });
       const legacyPower = theatreRegions
         .filter(region => region.owner === polityId)
         .reduce((total, region) => total + nonNegative(region.militaryPower), 0);
@@ -491,11 +520,20 @@ export class WarFrontService {
    * reali sui reparti, ritirata in una provincia amica, conquista solo con
    * sfondamento. Restituisce i dispacci deterministici (nessuna LLM).
    */
-  advanceFronts(days: number, dateOverride?: string): FrontTickReport {
+  advanceFronts(days: number, dateOverride?: string, options?: FrontTickOptions): FrontTickReport {
     const stepDays = Math.max(0, Math.floor(nonNegative(days)));
     const events: string[] = [];
     if (stepDays <= 0) return { events, fronts: 0, conquests: [] };
     if (!this.hasPersistentMilitary()) return { events, fronts: 0, conquests: [] };
+    // Copertura del periodo misurata dal tick materiale **prima** di questo
+    // tick: è il fatto del periodo, non una deduzione sulle scorte residue.
+    const supplyByPolity = options?.supply;
+    for (const [polityId, coverage] of Object.entries(supplyByPolity || {})) {
+      this.periodCoverage.set(String(polityId), coverage);
+    }
+    // Lo stato del fronte è già assestato (`syncFronts()` gira **prima** del
+    // periodo materiale: P0-B). Questa chiamata è idempotente e copre i percorsi
+    // che non passano dal tick materiale (battito live, playback).
     const sync = this.syncFronts();
     events.push(...sync.events);
     const store = this.store();
@@ -511,7 +549,7 @@ export class WarFrontService {
 
     for (const front of fronts) {
       if (front.status === 'closed') continue;
-      const sides = this.sides(front, units, stepDays);
+      const sides = this.sides(front, units, stepDays, supplyByPolity);
       // Policy NPC: la parte non giocante sceglie con la **stessa** formula, in
       // modo deterministico. Il giocatore sceglie dal pannello del reparto.
       const pre = {
@@ -532,7 +570,7 @@ export class WarFrontService {
           ? { ...unit, order: npcOrder.defender, updatedDate: date } : unit));
         touched = true;
       }
-      const live = this.sides(front, units, stepDays);
+      const live = this.sides(front, units, stepDays, supplyByPolity);
       const resolution = resolveFront({
         front,
         epoch,

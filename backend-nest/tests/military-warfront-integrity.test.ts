@@ -149,6 +149,68 @@ const checkpoint = (session: any) => {
   return { data: JSON.parse(row.data), hash: row.content_hash as string };
 };
 const restore = (session: any, cp: { data: any; hash: string }) => session.loadFromSave(cp.data, cp.hash);
+/**
+ * Riga di salvataggio **riletta** a ogni ripristino, come fa la rotta: l'oggetto
+ * passato a `loadFromSave` non si riusa (lo stato vive per riferimento nelle
+ * collezioni della sessione).
+ */
+const restoreSave = (session: any, saveId: string) => {
+  const row = db.prepare('SELECT data, content_hash FROM saves WHERE id = ?').get(saveId) as any;
+  return session.loadFromSave(JSON.parse(row.data), row.content_hash);
+};
+const readSaveData = (saveId: string) => JSON.parse((db.prepare('SELECT data FROM saves WHERE id = ?').get(saveId) as any).data);
+const operationalRow = (gameId: string, objectId: string) => {
+  const row = db.prepare('SELECT data FROM game_operational_objects WHERE game_id = ? AND object_id = ?').get(gameId, objectId) as any;
+  return row ? JSON.parse(row.data) : null;
+};
+const frontRow = (gameId: string) => {
+  const row = db.prepare('SELECT data FROM game_operational_objects WHERE game_id = ? AND kind = ?').get(gameId, 'front') as any;
+  return row ? JSON.parse(row.data) : null;
+};
+
+// ── Helper «periodo di guerra» (WARFRONT SUPPLY/TICK) ────────────────────────
+/**
+ * Partita **in guerra** con i reparti armati e l'ordine d'attacco: il periodo
+ * materiale è reale (nessun impianto, così produzione e prelievi non confondono
+ * l'aritmetica delle scorte).
+ */
+const warGame = (options?: { autPower?: number; facilities?: boolean }) => {
+  const { session } = createGame();
+  setRelationship(session, PID, AUT, 'hostile');
+  if (options?.autPower !== undefined) {
+    const region = session.regions.get(R.aut1);
+    if (region) region.militaryPower = options.autPower;
+  }
+  if (options?.facilities !== true) store(session).saveFacilities([]);
+  session.publicFronts();
+  armAll(session);
+  setOrder(session, 'attack');
+  return session;
+};
+const theFront = (session: any) => fronts(session)[0];
+/** L'unico passaggio di tempo di questi test: periodo materiale + fronte. */
+const advancePeriod = (session: any, days: number, date: string): string[] =>
+  (session as any).advanceWorldState(days, date) as string[];
+/** Copertura dell'ultimo periodo misurata dal material engine (dato transitorio). */
+const periodSupply = (session: any, polity = PID) => {
+  const service = (session as any).warFronts;
+  return typeof service?.periodSupply === 'function' ? service.periodSupply(polity) : null;
+};
+/** Vero se il reparto è **davvero** sul fronte aperto (fronte + teatro). */
+const onWarFront = (session: any, unit: any) => {
+  const front = theFront(session);
+  return Boolean(front && String(unit.frontId || '') === String(front.id) && unit.regionId
+    && front.regionIds.map(String).includes(String(unit.regionId)));
+};
+/**
+ * Carenza di **armamenti** nel bollettino: la riga del bilancio materiale cita
+ * sempre «Armamenti», quindi il test cerca la riga di **carenza**.
+ */
+const weaponsShortage = (lines: readonly string[]) =>
+  lines.some(line => /Carenza materiale.*Armamenti/.test(line));
+/** Fabbisogno di armamenti del periodo come lo calcola il motore (ordine ×1,8 sul fronte). */
+const weaponsNeedOfPeriod = (session: any) => sumOf(activeUnits(session),
+  unit => Number(unit.monthlyNeeds.weapons || 0) * (onWarFront(session, unit) ? 1.8 : 1));
 const cleanAccount = (session: any) => ({
   ...session.sessionAccounts()[PID],
   population: 0, factories: 0, ports: 0, universities: 0, monthlyBalance: 0, forces: 0, mobilized: 0,
@@ -701,5 +763,316 @@ describe('MILITARY INTEGRITY — save/reload completo e modello NPC', () => {
     const powerAfter = Number(session.regions.get(R.aut1).militaryPower);
     expect(powerAfter).toBeLessThanOrEqual(powerBefore);
     expect(units(session).some(unit => String(unit.armyId) === 'a2')).toBe(false);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// P0-4 — la copertura è quella del PERIODO, non dello stock residuo
+// ══════════════════════════════════════════════════════════════════════════
+describe('WARFRONT SUPPLY/TICK — P0-4: copertura del periodo nel material engine', () => {
+  /** Un tick puro su un conto vuoto: nessuna produzione civile, nessun giacimento. */
+  const pureBase = (session: any) => ({ ...stock(session), food: 0, clothing: 0, fuel: 0, weapons: 0 });
+  const NEED = { food: 0, clothing: 0, weapons: 10, fuel: 0 };
+
+  it('30: fabbisogno esatto → 100% con magazzino a zero (non 0%): la copertura non si deduce dallo stock residuo', async () => {
+    const { advanceStock } = await import('../src/core/simulation/MaterialEconomy');
+    const { session } = createGame();
+    const account = cleanAccount(session);
+    const base = pureBase(session);
+    const overlay = { production: {}, consumption: {}, militaryNeeds: NEED };
+    // Scorte **esattamente** pari al fabbisogno del periodo: il reparto ha tutto,
+    // paga tutto, resta a zero. Dedurre la copertura dallo stock residuo darebbe
+    // 0% — cioè carenza dove non c'è.
+    const exact = advanceStock({ ...base, weapons: 10 }, account, 30, {}, '2026-01-31', overlay);
+    expect(exact.fulfillment?.weapons).toBe(1);
+    expect(exact.stock.weapons).toBeCloseTo(0, 6);
+    expect(exact.flow.shortages).toHaveLength(0);
+    // Metà disponibilità: 40%, non 0 e non 1.
+    const half = advanceStock({ ...base, weapons: 4 }, account, 30, {}, '2026-01-31', overlay);
+    expect(half.fulfillment?.weapons).toBeCloseTo(0.4, 4);
+    // Nessun materiale: 0%.
+    const none = advanceStock({ ...base, weapons: 0 }, account, 30, {}, '2026-01-31', overlay);
+    expect(none.fulfillment?.weapons).toBe(0);
+    // Scorte abbondanti: 100% (la copertura è una quota, non una quantità).
+    const plenty = advanceStock({ ...base, weapons: 1000 }, account, 30, {}, '2026-01-31', overlay);
+    expect(plenty.fulfillment?.weapons).toBe(1);
+    // Nessun fabbisogno: 100%, mai NaN.
+    const nothing = advanceStock({ ...base, weapons: 0 }, account, 30, {}, '2026-01-31',
+      { production: {}, consumption: {}, militaryNeeds: { food: 0, clothing: 0, weapons: 0, fuel: 0 } });
+    expect(nothing.fulfillment).toEqual({ food: 1, clothing: 1, weapons: 1, fuel: 1 });
+  });
+
+  it('31: la disponibilità è **quella** del motore — produzione del periodo inclusa, prelievi degli impianti esclusi', async () => {
+    const { advanceStock } = await import('../src/core/simulation/MaterialEconomy');
+    const { session } = createGame();
+    const account = cleanAccount(session);
+    const base = pureBase(session);
+    // 6 in magazzino + 4 prodotti **nello stesso periodo** = 10: il motore lo
+    // considera sufficiente, quindi la copertura è 100% (e il magazzino a zero).
+    const withProduction = advanceStock({ ...base, weapons: 6 }, account, 30, {}, '2026-01-31',
+      { production: { weapons: 4 }, consumption: {}, militaryNeeds: NEED });
+    expect(withProduction.fulfillment?.weapons).toBe(1);
+    expect(withProduction.stock.weapons).toBeCloseTo(0, 6);
+    // Lo **stesso** materiale serve anche gli impianti: 6 prelevati prima del
+    // fabbisogno → disponibile 4 su 10. La copertura riflette l'allocazione del
+    // motore: nessuna disponibilità inventata.
+    const withDraws = advanceStock({ ...base, weapons: 6 }, account, 30, {}, '2026-01-31',
+      { production: { weapons: 4 }, consumption: { weapons: 6 }, militaryNeeds: NEED });
+    expect(withDraws.fulfillment?.weapons).toBeCloseTo(0.4, 4);
+  });
+
+  it('32: periodo parziale — 15 giorni sono metà fabbisogno e metà disponibilità', async () => {
+    const { advanceStock } = await import('../src/core/simulation/MaterialEconomy');
+    const { session } = createGame();
+    const account = cleanAccount(session);
+    const base = pureBase(session);
+    const overlay = { production: {}, consumption: {}, militaryNeeds: NEED };
+    // Fabbisogno mensile 10 → 5 nel periodo di 15 giorni: 5 disponibili bastano.
+    const exact = advanceStock({ ...base, weapons: 5 }, account, 15, {}, '2026-01-16', overlay);
+    expect(exact.fulfillment?.weapons).toBe(1);
+    expect(exact.stock.weapons).toBeCloseTo(0, 6);
+    const half = advanceStock({ ...base, weapons: 2.5 }, account, 15, {}, '2026-01-16', overlay);
+    expect(half.fulfillment.weapons).toBeCloseTo(0.5, 4);
+  });
+
+  it('33: il fronte combatte con la copertura del periodo (fabbisogno esatto = 100%, non 0%)', () => {
+    const play = (weapons: number | 'exact') => {
+      const session = warGame();
+      const expected = weaponsNeedOfPeriod(session);
+      expect(expected).toBeGreaterThan(0);
+      setStock(session, { weapons: weapons === 'exact' ? expected : weapons, food: 500, fuel: 500, clothing: 500 });
+      advancePeriod(session, 30, '2026-01-31');
+      return {
+        expected,
+        pressure: Number(theFront(session)?.attackerPressure || 0),
+        supply: periodSupply(session),
+        left: Number(stock(session).weapons),
+      };
+    };
+    const exact = play('exact');
+    const abundant = play(exact.expected * 10);
+    const none = play(0);
+    // La copertura del periodo: 100% con le scorte esatte, 0% senza armamenti.
+    expect(exact.supply?.weapons).toBe(1);
+    expect(none.supply?.weapons).toBe(0);
+    expect(abundant.supply?.weapons).toBe(1);
+    // Il reparto con le scorte **esatte** ha pagato tutto il fabbisogno: zero.
+    expect(exact.left).toBeCloseTo(0, 6);
+    // La pressione del periodo è la stessa di chi ha scorte abbondanti, e più
+    // alta di chi non ha armamenti: misurare lo stock residuo (0) avrebbe dato al
+    // primo la stessa carenza del terzo.
+    expect(exact.pressure).toBeCloseTo(abundant.pressure, 6);
+    expect(exact.pressure).toBeGreaterThan(none.pressure);
+  });
+
+  it('34: sei periodi con un mese di scorte — la copertura degrada nel periodo giusto, non sul salto intero', () => {
+    // Nemico **forte** (il valore del mondo): nessuno sfondamento in un periodo,
+    // quindi la pressione di ogni periodo è osservabile.
+    const AUT_POWER = 800;
+    const dates = ['2026-01-31', '2026-03-02', '2026-04-01', '2026-05-01', '2026-05-31', '2026-06-30'];
+    const run = (months: number) => {
+      const session = warGame({ autPower: AUT_POWER });
+      const need = weaponsNeedOfPeriod(session);
+      setStock(session, { weapons: need * months, food: 500, fuel: 500, clothing: 500 });
+      const supplies: (number | undefined)[] = [];
+      const pressures: number[] = [];
+      const shortages: boolean[] = [];
+      for (const date of dates) {
+        const lines = advancePeriod(session, 30, date);
+        supplies.push(periodSupply(session)?.weapons);
+        pressures.push(Number(theFront(session)?.attackerPressure || 0));
+        shortages.push(weaponsShortage(lines));
+      }
+      return { need, supplies, pressures, shortages };
+    };
+    const covered = run(6);
+    const oneMonth = run(1);
+    const nothing = run(0);
+    // Con sei mesi di scorte la copertura resta piena e nessun periodo è carente.
+    expect(covered.supplies.every(value => value === 1)).toBe(true);
+    expect(covered.shortages.every(value => value === false)).toBe(true);
+    // Con **un mese** di scorte il **primo** periodo è coperto al 100% (pressione
+    // identica a chi ha sei mesi) e il secondo no (pressione in calo). Una
+    // copertura unica calcolata sul salto intero avrebbe dato zero già al primo
+    // periodo — e una carenza registrata subito.
+    expect(oneMonth.supplies[0]).toBe(1);
+    expect(oneMonth.shortages[0]).toBe(false);
+    expect(oneMonth.pressures[0]).toBeCloseTo(covered.pressures[0], 6);
+    expect(oneMonth.pressures[0]).toBeGreaterThan(nothing.pressures[0]);
+    expect(oneMonth.supplies[1]).toBe(0);
+    expect(oneMonth.shortages[1]).toBe(true);
+    expect(oneMonth.pressures[1]).toBeLessThan(oneMonth.pressures[0]);
+    // Senza scorte la carenza c'è dal primo periodo.
+    expect(nothing.supplies[0]).toBe(0);
+    expect(nothing.shortages[0]).toBe(true);
+    // La degradazione è **nel tempo**: la copertura del secondo periodo in poi è
+    // zero in entrambe le partite povere, mai un valore unico sui sei periodi.
+    expect(oneMonth.supplies.slice(1).every(value => value === 0)).toBe(true);
+    expect(nothing.supplies.every(value => value === 0)).toBe(true);
+  });
+
+  it('35: unità distrutta → nessun consumo e nessuna pressione', () => {
+    const session = warGame();
+    const before = store(session).militaryNeeds().weapons;
+    const target = units(session).find(unit => String(unit.armyId) === 'a1')!;
+    store(session).saveUnits(units(session).map(unit =>
+      (String(unit.id) === String(target.id) ? { ...unit, status: 'destroyed', personnel: 0 } : unit)));
+    const after = store(session).militaryNeeds().weapons;
+    expect(before - after).toBeCloseTo(Number(target.monthlyNeeds.weapons) * 1.8, 4);
+    // Il reparto distrutto non combatte: il fronte non lo vede più.
+    expect(theFront(session).regionIds.length).toBeGreaterThan(0);
+    advancePeriod(session, 30, '2026-01-31');
+    expect(store(session).units().filter(unit => String(unit.id) === String(target.id))[0].personnel).toBe(0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// P0-B — lo stato del fronte si assesta PRIMA del fabbisogno del periodo
+// ══════════════════════════════════════════════════════════════════════════
+describe('WARFRONT SUPPLY/TICK — P0-B: sincronizzazione prima del tick', () => {
+  it('36: trasferito fuori teatro — il periodo successivo paga ×1, senza sync manuale', () => {
+    const session = warGame();
+    const unit = units(session).find(item => String(item.id) === 'a1-unit-001')!;
+    const moved = session.unitAction({ action: 'transfer', unitId: unit.id, regionId: R.ita3 });
+    expect(moved.blocked).toBe(false);
+    // Dopo il movimento il `frontId` è ancora quello di prima: lo sgancio è
+    // compito della sincronizzazione, che ora gira **prima** del fabbisogno.
+    expect(String(unitOf(session, unit.id).frontId)).toBe(String(theFront(session).id));
+    // Scorte **esattamente** pari al fabbisogno ×1 (un reparto fuori teatro non
+    // paga il coefficiente di guerra): bastano, e nessun materiale manca.
+    const expected = weaponsNeedOfPeriod(session);
+    expect(expected).toBeLessThan(sumOf(activeUnits(session), item => Number(item.monthlyNeeds.weapons || 0) * 1.8));
+    setStock(session, { weapons: expected, food: 500, fuel: 500, clothing: 500 });
+    const lines = advancePeriod(session, 30, '2026-01-31');
+    expect(unitOf(session, unit.id).frontId).toBeNull();
+    expect(Number(stock(session).weapons)).toBeCloseTo(0, 6);
+    expect(weaponsShortage(lines)).toBe(false);
+    expect(periodSupply(session)?.weapons).toBe(1);
+  });
+
+  it('37: pace prima del tick — fronte chiuso, reparti liberi, nessun ultimo mese di guerra', () => {
+    const session = warGame();
+    const frontId = theFront(session).id;
+    setRelationship(session, PID, AUT, 'neutral');
+    // Il fabbisogno ×1 di **tutti** i reparti: in pace nessuno è sul fronte.
+    const expected = sumOf(activeUnits(session), unit => Number(unit.monthlyNeeds.weapons || 0));
+    setStock(session, { weapons: expected, food: 500, fuel: 500, clothing: 500 });
+    const lines = advancePeriod(session, 30, '2026-01-31');
+    const front = fronts(session).find(item => String(item.id) === String(frontId));
+    expect(front?.status).toBe('closed');
+    expect(units(session).every(unit => unit.frontId === null)).toBe(true);
+    expect(lines.some(line => /Si chiude/.test(line))).toBe(true);
+    expect(Number(stock(session).weapons)).toBeCloseTo(0, 6);
+    expect(weaponsShortage(lines)).toBe(false);
+  });
+
+  it('38: `frontId` che punta a un fronte inesistente — nessun coefficiente di guerra e nessun fantasma', () => {
+    const session = warGame();
+    const unit = units(session).find(item => String(item.id) === 'a1-unit-001')!;
+    const frontId = String(theFront(session).id);
+    store(session).saveUnits(units(session).map(item =>
+      (String(item.id) === String(unit.id) ? { ...item, frontId: 'ghost-front' } : item)));
+    // 1) Il fabbisogno non paga la guerra per un fronte che non esiste: la regola
+    // «sei sul fronte?» vale anche qui, non solo nella sincronizzazione.
+    expect(store(session).militaryNeeds().weapons).toBeCloseTo(weaponsNeedOfPeriod(session), 4);
+    // 2) Il fantasma non sopravvive alla sincronizzazione: lo sgancio azzera il
+    // riferimento, e alla sincronizzazione successiva il reparto — che è nel
+    // teatro — torna sul fronte **vero**.
+    session.publicFronts();
+    expect(unitOf(session, unit.id).frontId).toBeNull();
+    session.publicFronts();
+    expect(String(unitOf(session, unit.id).frontId)).toBe(frontId);
+  });
+
+  it('39: il livello della mappa non decide la guerra — il fronte non si apre senza contatto', () => {
+    const session = warGame();
+    expect(theFront(session)).toBeTruthy();
+    // Nessuna ostilità registrata: nessun fronte, nessun consumo di guerra.
+    setRelationship(session, PID, AUT, 'neutral');
+    session.publicFronts();
+    expect(store(session).militaryNeeds().weapons).toBeCloseTo(
+      sumOf(activeUnits(session), unit => Number(unit.monthlyNeeds.weapons || 0)), 4);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// P1-4 — isolamento fra rami dello stato operativo
+// ══════════════════════════════════════════════════════════════════════════
+describe('WARFRONT SUPPLY/TICK — P1-4: rami dello stato operativo', () => {
+  it('40: ramo A ↔ ramo B ↔ ramo A — nessuna contaminazione degli operational objects', async () => {
+    const { semanticStateHash } = await import('../src/domain/semantic-hash');
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const gameId = session.id;
+    const unitId = 'a1-unit-001';
+    const frontId = theFront(session).id;
+    const unitIdsAtT0 = units(session).map(unit => String(unit.id)).sort();
+    const pressure = () => Number(fronts(session).find(front => String(front.id) === String(frontId))?.attackerPressure ?? -1);
+    const men = () => Number(unitOf(session, unitId)?.personnel);
+    // T0: il punto comune dei due rami.
+    const t0 = session.save('T0').saveId;
+    // Ramo A: il reparto ha combattuto (7.000 uomini) e il fronte preme 0,40.
+    restoreSave(session, t0);
+    store(session).saveUnits(units(session).map(unit => (String(unit.id) === String(unitId) ? { ...unit, personnel: 7000 } : unit)));
+    store(session).saveFronts(fronts(session).map(front => ({ ...front, attackerPressure: 0.4, status: 'active' })));
+    const saveA = session.save('A').saveId;
+    // Ramo B: nessun combattimento (12.000 uomini, pressione 0,10).
+    restoreSave(session, t0);
+    store(session).saveFronts(fronts(session).map(front => ({ ...front, attackerPressure: 0.1, status: 'active' })));
+    const saveB = session.save('B').saveId;
+    // I due rami nascono dal **medesimo** checkpoint, con padre diverso.
+    const branchA = restoreSave(session, saveA);
+    const openA = session.loadFromSave(readSaveData(saveA), null, { newBranch: { originCheckpointId: t0, name: 'A' } });
+    const openB = session.loadFromSave(readSaveData(saveB), null, { newBranch: { originCheckpointId: t0, name: 'B' } });
+    expect(openA.branchId).toBeTruthy();
+    expect(openB.branchId).toBeTruthy();
+    expect(openA.branchId).not.toBe(openB.branchId);
+    const branches = db.prepare('SELECT name, origin_checkpoint_id FROM game_branches WHERE game_id = ?').all(gameId) as any[];
+    expect(branches.map(row => row.name).sort()).toEqual(['A', 'B', 'main']);
+    expect(branches.filter(row => row.name !== 'main').every(row => row.origin_checkpoint_id === t0)).toBe(true);
+    // Gli hash semantici dei due rami differiscono: lo stato operativo è parte
+    // del confronto, non un allegato.
+    expect(semanticStateHash(readSaveData(saveA))).not.toBe(semanticStateHash(readSaveData(saveB)));
+    // A → B → A: ogni ripristino riporta **il suo** ramo, in memoria e sul DB.
+    restoreSave(session, saveA);
+    expect(men()).toBe(7000);
+    expect(pressure()).toBeCloseTo(0.4, 6);
+    expect(operationalRow(gameId, unitId)?.personnel).toBe(7000);
+    expect(frontRow(gameId)?.attackerPressure).toBeCloseTo(0.4, 6);
+    restoreSave(session, saveB);
+    expect(men()).toBe(12000);
+    expect(pressure()).toBeCloseTo(0.1, 6);
+    expect(operationalRow(gameId, unitId)?.personnel).toBe(12000);
+    expect(frontRow(gameId)?.attackerPressure).toBeCloseTo(0.1, 6);
+    restoreSave(session, saveA);
+    expect(men()).toBe(7000);
+    expect(pressure()).toBeCloseTo(0.4, 6);
+    expect(operationalRow(gameId, unitId)?.personnel).toBe(7000);
+    // Nessuna riga in più e nessuna in meno: l'insieme è quello del ramo.
+    expect(units(session).map(unit => String(unit.id)).sort()).toEqual(unitIdsAtT0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Coerenza del salto lungo
+// ══════════════════════════════════════════════════════════════════════════
+describe('WARFRONT SUPPLY/TICK — coerenza del salto lungo', () => {
+  it('41: 180 giorni e sei turni da 30 sono la stessa storia (scorte, uomini, pezzi, fronte)', () => {
+    const dates = ['2026-01-31', '2026-03-02', '2026-04-01', '2026-05-01', '2026-05-31', '2026-06-30'];
+    const snapshot = (session: any) => ({
+      stock: (({ food, weapons, fuel, clothing }) => ({ food, weapons, fuel, clothing }))(stock(session)),
+      units: activeUnits(session)
+        .map(unit => ({ id: unit.id, personnel: unit.personnel, equipment: unit.equipment, status: unit.status, order: unit.order, frontId: unit.frontId, regionId: unit.regionId }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+      fronts: fronts(session).map(front => ({ id: front.id, status: front.status, regions: front.regionIds, attackerPressure: front.attackerPressure, defenderPressure: front.defenderPressure })),
+    });
+    const long = warGame();
+    setStock(long, { weapons: 60, food: 3000, fuel: 3000, clothing: 3000 });
+    advancePeriod(long, 180, '2026-06-30');
+    const split = warGame();
+    setStock(split, { weapons: 60, food: 3000, fuel: 3000, clothing: 3000 });
+    for (const date of dates) advancePeriod(split, 30, date);
+    expect(snapshot(split)).toEqual(snapshot(long));
   });
 });
