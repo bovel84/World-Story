@@ -1,7 +1,9 @@
 # MILITARY-UNITS PR1 — I reparti sotto l'armata
 
 **Data:** 2026-09-18 · **Base:** `main` @ `8113ab7` · **Branch:** `feat/military-units`
-**Stato:** PR aperta verso `main`, **non mergiata** (come richiesto). Nessun deploy.
+**Stato:** **MERGED** su `main` il 19/09/2026 (PR #79, metodo `rebase` = storia lineare,
+fast-forward: `8113ab7 → 3f6fc74 → f82a755`). `main` = `f82a755`.
+Nessun deploy (la specifica chiedeva di non mergiare in PR2 e nessun rilascio).
 
 ---
 
@@ -442,8 +444,9 @@ Mondo di prova 1951, una armata `a1` con `level = 4` e nessun pezzo assegnato:
   `Rinforza` bloccata («Organico già completo: 12.000 uomini per reparto.»),
   `Riequipaggia`/`Trasferisci`/`Cambia armata` abilitate.
 
-Verifica live: **non eseguita e non dichiarata**: la PR non è mergiata e non è stato fatto
-alcun deploy (§ la specifica chiede «non mergiare»).
+Verifica live: **non eseguita e non dichiarata** (nessun deploy, §23). I numeri di questa
+sezione vengono da un probe temporaneo su dati controllati, poi rimosso: il run reale dei
+test è in §19-bis.
 
 ---
 
@@ -497,3 +500,33 @@ fazioni, progetti.
    restituito all'API e mostrato, non salvato come evento.
 8. **`advancedDate` legacy**: il percorso `advanceDate()` (senza hook) resta com'è; i
    reparti seguono il tick materiale (già coperto da TIME-STEP/SEED-DETERMINISM).
+
+---
+
+## 23. Esito del merge (19/09/2026)
+
+* **PR #79** — `test-build: success`, `e2e-mock: success`, `mergeable_state: clean` sul
+  commit di testa `eea14fa` **prima** del merge (le due corse CI sono state attese fino
+  alla conclusione, non dichiarate verdi in anticipo).
+* **Merge** con la merge API di GitHub e `merge_method: rebase`, cioè storia **lineare
+  senza commit di merge** — l'equivalente di un fast-forward (richiesto: «mérgia (ff)»):
+
+```
+main  8113ab7  test: timeout espliciti per i test lunghi del tick materiale (#78)
+      ↓
+      3f6fc74  feat(military): reparti persistenti sotto l'armata (MILITARY-UNITS PR1)
+      ↓
+      f82a755  docs(military): verifica reale dei test di conservazione pre-merge
+```
+
+* **`main` dopo il merge** = `f82a755f15c7c2807bc34289caa41f15c5be316d`; ogni commit ha
+  **un solo genitore** (nessun commit di merge: `git log --pretty='%h %p'`).
+* **Contenuto identico**: `git diff origin/main origin/feat/military-units` è **vuoto** — il
+  merge non ha alterato una riga di quanto verificato in §19-bis.
+* **Deploy: non eseguito** (nessun rilascio richiesto da questa consegna). La verifica live
+  resta quindi non eseguita e non dichiarata; resta valido il blocco noto
+  (`POST /api/games/:id/time-skip` → 401 LLM per `LLM_API_KEY` assente nell'ambiente).
+* **Preset**: nessun tocco a `backend-nest/data/presets/modern_world_provinces/preset.json`
+  (la variante non committata resta nello `stash@{0}` del repository).
+* **WarFront (PR2): non implementato**, come richiesto: questo pacchetto si ferma ai
+  reparti persistenti, alle loro azioni e al read model.
