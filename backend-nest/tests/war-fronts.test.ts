@@ -599,6 +599,10 @@ describe('WAR-FRONTS — combattimento, perdite, ritirata, territorio (P8/P9)', 
     let conquests = 0;
     const statuses = new Set<string>();
     for (let month = 2; month <= 7; month += 1) {
+      // Riarmo mensile: senza, il logoramento dei pezzi fa **collassare** il
+      // giocatore e l'NPC difensore contrattacca (PR3) — non sarebbe più uno
+      // stallo fra pari, che è la condizione che questo test vuole misurare.
+      armAll(session);
       conquests += session.warFronts.advanceFronts(30, addDays('2026-01-01', month * 30)).conquests.length;
       statuses.add(frontOf(session)!.status);
     }
@@ -827,3 +831,166 @@ describe('WAR-FRONTS — combattimento, perdite, ritirata, territorio (P8/P9)', 
   });
 });
 
+
+// ══════════════════════════════════════════════════════════════════════════
+// MILITARY PR3 — motore bidirezionale (puro)
+// ══════════════════════════════════════════════════════════════════════════
+describe('MILITARY PR3 — avanzata bidirezionale e contrattacco (motore puro)', () => {
+  /** Reparto completo e deterministico (stesso modello dei test 7/8). */
+  const unit = (id: string, order: string, regionId: string) => ({
+    id, armyId: 'a1', name: id, personnel: 12_000, equipment: { fucili: 9_000 },
+    monthlyNeeds: { fuel: 0.03, weapons: 0.2, food: 0.06 }, readiness: 0.7,
+    status: 'operational' as const, order: order as any, frontId: 'front-AUT-ITA',
+    regionId, regionName: regionId, updatedDate: '2026-01-01', legacyDerived: true,
+  });
+  /**
+   * Una piccola **armata** (4 reparti): un solo reparto vale ~0,23 di pressione,
+   * sotto la soglia di sfondamento — con quattro il rapporto supera `1,5` e la
+   * dinamica (sfondamento o collasso) è osservabile.
+   */
+  const army = (prefix: string, order: string, regionId: string, count = 4) =>
+    Array.from({ length: count }, (_, index) => unit(`${prefix}-${index + 1}`, order, regionId));
+  const supply = { food: 1, fuel: 1, weapons: 1 };
+  const front = {
+    id: 'front-AUT-ITA', name: 'Fronte Italia–Austria', attackerPolityId: PID, defenderPolityId: AUT,
+    regionIds: [`${WORLD_ID}_ITA1`, `${WORLD_ID}_AUT1`], status: 'active' as const,
+    objectiveRegionId: `${WORLD_ID}_AUT1`, attackerPressure: 0, defenderPressure: 0,
+    createdDate: '2026-01-01', updatedDate: '2026-01-01',
+  };
+  const theatreFor = (attackerRegion: string, defenderRegion: string) => [
+    { id: attackerRegion, name: attackerRegion, owner: PID, borders: [defenderRegion], militaryPower: 0 },
+    { id: defenderRegion, name: defenderRegion, owner: AUT, borders: [attackerRegion], militaryPower: 0 },
+  ];
+  /** Attaccante storico **in rotta** (nessuna pressione) contro difensore che preme. */
+  const counterattackInput = (defenderOrder: string, options?: { theatre?: any[]; date?: string; units?: any[] }) => ({
+    front,
+    epoch: 'moderno' as const,
+    date: options?.date ?? '2026-01-31',
+    stepDays: 30,
+    theatre: options?.theatre ?? theatreFor(`${WORLD_ID}_ITA1`, `${WORLD_ID}_AUT1`),
+    attacker: { units: [], legacyPower: 0, supply, motorized: false, legacyOrder: 'defend' as const },
+    defender: {
+      units: options?.units ?? army('u-def', defenderOrder, `${WORLD_ID}_AUT1`),
+      legacyPower: 0, supply, motorized: false, legacyOrder: 'defend' as const,
+    },
+  });
+  /** Data deterministica in cui il tiro del **contrattacco** passa. */
+  const counterDate = async () => {
+    const { frontRollSeed } = await import('../src/core/simulation/WarFronts');
+    const { stableRoll } = await import('../src/core/simulation/MilitaryProduction');
+    const dates = Array.from({ length: 40 }, (_, index) => addDays('2026-01-01', (index + 1) * 30));
+    const found = dates.find(date => stableRoll(frontRollSeed({ frontId: front.id, date, phase: 'breakthrough-defender' })) < 0.55);
+    expect(found).toBeTruthy();
+    return found!;
+  };
+
+  it('23: `defender` con ordine `attack` **contrattacca** e avanza (TerritorialAdvance neutrale)', async () => {
+    const { resolveFront } = await import('../src/core/simulation/WarFronts');
+    const resolution = resolveFront(counterattackInput('attack', { date: await counterDate() }));
+    expect(resolution.breakthroughs.defender.offensiveIntent).toBe(true);
+    expect(resolution.breakthroughs.defender.pressureRatio).toBeGreaterThanOrEqual(1.5);
+    expect(resolution.breakthrough).toBe(true);
+    expect(resolution.status).toBe('breakthrough');
+    // L'avanzata è quella del **difensore**: il ruolo storico non decide l'iniziativa.
+    expect(resolution.advance).not.toBeNull();
+    expect(resolution.advance!.side).toBe('defender');
+    expect(resolution.advance!.advancingPolityId).toBe(AUT);
+    expect(resolution.advance!.retreatingPolityId).toBe(PID);
+    expect(resolution.advance!.objectiveRegionId).toBe(`${WORLD_ID}_ITA1`);
+  });
+
+  it('24: `defender` con ordine `defend` **non** conquista, nemmeno con pressione enorme', async () => {
+    const { resolveFront } = await import('../src/core/simulation/WarFronts');
+    const resolution = resolveFront(counterattackInput('defend', { date: await counterDate() }));
+    expect(resolution.breakthroughs.defender.offensiveIntent).toBe(false);
+    expect(resolution.breakthroughs.defender.passed).toBe(false);
+    expect(resolution.breakthrough).toBe(false);
+    expect(resolution.advance).toBeNull();
+    // Chi tiene il campo mentre l'avversario non tiene più: collasso dell'attaccante.
+    expect(resolution.collapsedSide).toBe('attacker');
+    expect(resolution.status).toBe('collapsed');
+  });
+
+  it('25: `withdraw` non è mai intento offensivo (nessuna conquista)', async () => {
+    const { resolveFront, sideHasOffensiveIntent } = await import('../src/core/simulation/WarFronts');
+    expect(sideHasOffensiveIntent({ units: [unit('u', 'withdraw', 'X')] })).toBe(false);
+    expect(sideHasOffensiveIntent({ units: [unit('u', 'reserve', 'X')] })).toBe(false);
+    expect(sideHasOffensiveIntent({ units: [unit('u', 'defend', 'X')] })).toBe(false);
+    expect(sideHasOffensiveIntent({ units: [unit('u', 'attack', 'X')] })).toBe(true);
+    // Senza reparti decide la quota dichiarata.
+    expect(sideHasOffensiveIntent({ units: [], legacyOrder: 'attack' })).toBe(true);
+    expect(sideHasOffensiveIntent({ units: [], legacyOrder: 'withdraw' })).toBe(false);
+    // Con reparti schierati l'ordine è quello delle unità, non della quota legacy.
+    expect(sideHasOffensiveIntent({ units: [unit('u', 'defend', 'X')], legacyOrder: 'attack' })).toBe(false);
+    const resolution = resolveFront(counterattackInput('withdraw', { date: await counterDate() }));
+    expect(resolution.advance).toBeNull();
+    // Ritirata da entrambe le parti: nessuno tiene il campo, nessun collasso.
+    expect(resolution.collapsedSide).toBeNull();
+  });
+
+  it('26: l\'obiettivo deve essere territorio **nemico adiacente** (niente teletrasporto)', async () => {
+    const { resolveFront } = await import('../src/core/simulation/WarFronts');
+    const date = await counterDate();
+    // La provincia dell'attaccante non confina con quella del difensore: resta
+    // fuori portata anche con lo sfondamento.
+    const farAway = [
+      { id: `${WORLD_ID}_ITA1`, name: 'Pianura', owner: PID, borders: [], militaryPower: 0 },
+      { id: `${WORLD_ID}_ITA2`, name: 'Costa', owner: PID, borders: [], militaryPower: 0 },
+      { id: `${WORLD_ID}_AUT1`, name: 'Tirolo', owner: AUT, borders: [`${WORLD_ID}_ITA2`], militaryPower: 0 },
+    ];
+    const blocked = resolveFront(counterattackInput('attack', { date, theatre: farAway }));
+    expect(blocked.breakthrough).toBe(true);
+    expect(blocked.advance).toBeNull();
+    // Una provincia di **terza** polity non è mai un obiettivo.
+    const thirdParty = [
+      { id: `${WORLD_ID}_ITA1`, name: 'Pianura', owner: PID, borders: [`${WORLD_ID}_FRA1`], militaryPower: 0 },
+      { id: `${WORLD_ID}_FRA1`, name: 'Provenza', owner: 'FRA', borders: [`${WORLD_ID}_ITA1`], militaryPower: 0 },
+      { id: `${WORLD_ID}_AUT1`, name: 'Tirolo', owner: AUT, borders: [`${WORLD_ID}_FRA1`], militaryPower: 0 },
+    ];
+    const neutral = resolveFront(counterattackInput('attack', { date, theatre: thirdParty }));
+    expect(neutral.advance).toBeNull();
+  });
+
+  it('27: l\'obiettivo dichiarato vale solo se è **ancora** valido (nessuno stale)', async () => {
+    const { resolveFront, frontObjectiveForSide } = await import('../src/core/simulation/WarFronts');
+    const date = await counterDate();
+    const resolution = resolveFront(counterattackInput('attack', {
+      date,
+      theatre: theatreFor(`${WORLD_ID}_ITA1`, `${WORLD_ID}_AUT1`),
+    }));
+    expect(resolution.advance!.objectiveRegionId).toBe(`${WORLD_ID}_ITA1`);
+    // Un obiettivo ormai **proprio** non vale più: se ne calcola uno valido sul
+    // confine attuale (qui non c'è, quindi nessuna avanzata).
+    const stale = frontObjectiveForSide({
+      theatre: [
+        { id: `${WORLD_ID}_ITA1`, name: 'Pianura', owner: AUT, borders: [], militaryPower: 0 },
+        { id: `${WORLD_ID}_AUT1`, name: 'Tirolo', owner: AUT, borders: [], militaryPower: 0 },
+      ],
+      advancingPolityId: AUT,
+      opposingPolityId: PID,
+      preferredRegionId: `${WORLD_ID}_ITA1`,
+    });
+    expect(stale).toBeNull();
+    // Il ruolo storico sopravvive: `frontIdFor` resta non direzionale.
+    const { frontIdFor } = await import('../src/core/simulation/WarFronts');
+    expect(frontIdFor(PID, AUT)).toBe(frontIdFor(AUT, PID));
+  });
+
+  it('28: lo sfondamento dell\'attaccante continua a funzionare (regressione simmetrica)', async () => {
+    const { resolveFront, frontRollSeed } = await import('../src/core/simulation/WarFronts');
+    const { stableRoll } = await import('../src/core/simulation/MilitaryProduction');
+    const dates = Array.from({ length: 40 }, (_, index) => addDays('2026-01-01', (index + 1) * 30));
+    // Il seme dell'attaccante è rimasto `breakthrough`: nessun cambio di flusso.
+    const date = dates.find(item => stableRoll(frontRollSeed({ frontId: front.id, date: item, phase: 'breakthrough' })) < 0.55)!;
+    const resolution = resolveFront({
+      ...counterattackInput('defend', { date }),
+      attacker: { units: army('u-att', 'attack', `${WORLD_ID}_ITA1`), legacyPower: 0, supply, motorized: false, legacyOrder: 'defend' as const },
+      defender: { units: [], legacyPower: 0, supply, motorized: false, legacyOrder: 'defend' as const },
+    });
+    expect(resolution.breakthroughs.attacker.passed).toBe(true);
+    expect(resolution.advance!.side).toBe('attacker');
+    expect(resolution.advance!.advancingPolityId).toBe(PID);
+    expect(resolution.advance!.retreatingPolityId).toBe(AUT);
+    expect(resolution.advance!.objectiveRegionId).toBe(`${WORLD_ID}_AUT1`);
+  });
+});

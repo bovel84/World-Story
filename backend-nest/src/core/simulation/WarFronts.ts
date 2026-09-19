@@ -288,6 +288,44 @@ export function npcFrontOrder(input: { ownPressure: number; enemyPressure: numbe
   return 'defend';
 }
 
+/**
+ * PR3 — **intento offensivo** di una parte nel periodo: chi vuole avanzare.
+ *
+ * - **con reparti persistenti**: almeno un reparto attivo (non distrutto) sul
+ *   fronte con `order === 'attack'`. Gli ordini delle unità comandano: la quota
+ *   dichiarata della stessa parte è supporto, non iniziativa;
+ * - **senza reparti**: `legacyOrder === 'attack'` (decide la forza dichiarata,
+ *   come fa l'NPC con `npcFrontOrder`).
+ *
+ * `withdraw` non è **mai** offensivo (nemmeno se il reparto è in rotta),
+ * `defend` e `reserve` non lo sono. Pura e neutrale: non sa chi sia il
+ * giocatore, quindi vale identica per player e NPC.
+ */
+export function sideHasOffensiveIntent(input: {
+  units: ReadonlyArray<Pick<MilitaryUnitState, 'status' | 'order'>>;
+  /** Ordine della quota **dichiarata**: conta solo se non ci sono reparti. */
+  legacyOrder?: UnitOrder;
+}): boolean {
+  const active = input.units.filter(unit => unit.status !== 'destroyed');
+  if (active.length > 0) {
+    return active.some(unit => ((unit.order ?? UNIT_ORDER_DEFAULT) as UnitOrder) === 'attack');
+  }
+  return input.legacyOrder === 'attack';
+}
+
+/** Sfondamento di **una** parte in un periodo (simmetrico, stessa soglia). */
+export interface SideBreakthrough {
+  side: 'attacker' | 'defender';
+  /** Pressione propria / pressione avversaria (denominatore `MIN_PRESSURE`). */
+  pressureRatio: number;
+  /** L'avversario non tiene più il fronte (in rotta o senza pressione). */
+  opponentRouted: boolean;
+  offensiveIntent: boolean;
+  passedRoll: boolean;
+  /** Tutte le condizioni sono vere: la parte ha sfondato in questo periodo. */
+  passed: boolean;
+}
+
 // ── 3-bis. Costo della forza **dichiarata** (legacy) nel periodo ────────────
 
 /** Un impegno della forza dichiarata su un fronte del periodo. */
@@ -375,6 +413,20 @@ export interface FrontOutcome {
   strength: number;
 }
 
+/**
+ * PR3 — avanzata **territoriale** del periodo, neutrale rispetto al ruolo
+ * storico: la decide chi ha sfondato (attaccante **o** difensore). Il servizio
+ * la applica con l'unico `transferRegion`, verificando che la provincia sia
+ * ancora del `retreatingPolityId`.
+ */
+export interface TerritorialAdvance {
+  side: 'attacker' | 'defender';
+  advancingPolityId: string;
+  retreatingPolityId: string;
+  objectiveRegionId: string;
+  regionName: string | null;
+}
+
 export interface FrontResolution {
   status: WarFrontStatus;
   attackerPressure: number;
@@ -387,12 +439,20 @@ export interface FrontResolution {
   consumption: { attacker: { food: number; fuel: number; weapons: number }; defender: { food: number; fuel: number; weapons: number } };
   routedDefender: boolean;
   routedAttacker: boolean;
+  /** Vero se **una delle due parti** ha sfondato (non solo l'attaccante storico). */
   breakthrough: boolean;
+  /** Dettaglio per parte: rapporto, intento, tiro, esito. */
+  breakthroughs: { attacker: SideBreakthrough; defender: SideBreakthrough };
+  /**
+   * Parte che ha **collassato** nel periodo (l'altra tiene il campo), o `null`.
+   * Diagnostica esplicita: lo status `collapsed` non è più solo dell'attaccante.
+   */
+  collapsedSide: 'attacker' | 'defender' | null;
   /** Attrito della forza dichiarata (militaryPower delle province in teatro). */
   legacyLost: { attacker: number; defender: number };
-  /** Conquista **decisa** (il servizio la applica con `transferRegion`). */
-  advance: { objectiveRegionId: string; regionName: string | null } | null;
-  rolls: { attacker: number; defender: number; breakthrough: number };
+  /** Avanzata **decisa** dal motore (il servizio la applica con `transferRegion`). */
+  advance: TerritorialAdvance | null;
+  rolls: { attacker: number; defender: number; breakthrough: number; counterBreakthrough: number };
   events: string[];
 }
 
@@ -435,6 +495,11 @@ export function resolveFront(input: {
   const rollAttacker = stableRoll(frontRollSeed({ frontId: input.front.id, date: input.date, phase: 'combat-attacker' }));
   const rollDefender = stableRoll(frontRollSeed({ frontId: input.front.id, date: input.date, phase: 'combat-defender' }));
   const rollBreakthrough = stableRoll(frontRollSeed({ frontId: input.front.id, date: input.date, phase: 'breakthrough' }));
+  // PR3 — il contrattacco ha un **seme proprio**: due tiri indipendenti, stessa
+  // soglia (`BREAKTHROUGH_RATIO` / `BREAKTHROUGH_CHANCE`). Il seme
+  // dell'attaccante resta `breakthrough` (storia della simulazione: il flusso
+  // dei tiri già usati non cambia), il difensore usa `breakthrough-defender`.
+  const rollCounterBreakthrough = stableRoll(frontRollSeed({ frontId: input.front.id, date: input.date, phase: 'breakthrough-defender' }));
   // Il tiro è una **variazione** (±25%), non il fattore dominante: la forza
   // effettiva resta quella dei reparti e dei rifornimenti.
   const jitter = (roll: number) => 0.75 + 0.5 * roll;
@@ -542,16 +607,43 @@ export function resolveFront(input: {
   const advantage = attackerPressure / Math.max(MIN_PRESSURE, defenderPressure);
   const defenderAdvantage = defenderPressure / Math.max(MIN_PRESSURE, attackerPressure);
   const bothZero = attackerPressure <= 0 && defenderPressure <= 0;
-  // Sfondamento: vantaggio reale, tiro passato, difensore che non tiene.
-  const breakthrough = !bothZero
-    && advantage >= BREAKTHROUGH_RATIO
-    && !routedAttacker
-    && routedDefender
-    && rollBreakthrough < BREAKTHROUGH_CHANCE;
-  const collapse = !bothZero
-    && defenderAdvantage >= BREAKTHROUGH_RATIO
-    && !routedDefender
-    && routedAttacker;
+
+  // PR3 — **una sola** formula di sfondamento, applicata alle due parti: stessa
+  // soglia, stesso tiro (semi diversi), stesso requisito di intento offensivo.
+  // Il difensore che attacca è un contrattacco, non un ordine nuovo.
+  const attackerIntent = sideHasOffensiveIntent({ units: input.attacker.units, legacyOrder: input.attacker.legacyOrder });
+  const defenderIntent = sideHasOffensiveIntent({ units: input.defender.units, legacyOrder: input.defender.legacyOrder });
+  const breakthroughOf = (side: 'attacker' | 'defender'): SideBreakthrough => {
+    const own = side === 'attacker' ? attackerPressure : defenderPressure;
+    const enemy = side === 'attacker' ? defenderPressure : attackerPressure;
+    const selfRouted = side === 'attacker' ? routedAttacker : routedDefender;
+    const opponentRouted = side === 'attacker' ? routedDefender : routedAttacker;
+    const intent = side === 'attacker' ? attackerIntent : defenderIntent;
+    const roll = side === 'attacker' ? rollBreakthrough : rollCounterBreakthrough;
+    const pressureRatio = own / Math.max(MIN_PRESSURE, enemy);
+    const passedRoll = roll < BREAKTHROUGH_CHANCE;
+    return {
+      side,
+      pressureRatio: round4(pressureRatio),
+      opponentRouted,
+      offensiveIntent: intent,
+      passedRoll,
+      passed: !bothZero && pressureRatio >= BREAKTHROUGH_RATIO && !selfRouted && opponentRouted && intent && passedRoll,
+    };
+  };
+  const breakthroughs = { attacker: breakthroughOf('attacker'), defender: breakthroughOf('defender') };
+  const breakthrough = breakthroughs.attacker.passed || breakthroughs.defender.passed;
+  // Collasso: l'avversario tiene il campo mentre una parte non tiene più il
+  // fronte. Simmetrico (la stessa soglia), mutuamente esclusivo con lo
+  // sfondamento (che richiede l'avversario in rotta).
+  const collapsedSide: 'attacker' | 'defender' | null = !bothZero
+    ? (routedAttacker && !routedDefender && defenderAdvantage >= BREAKTHROUGH_RATIO
+        ? 'attacker'
+        : routedDefender && !routedAttacker && advantage >= BREAKTHROUGH_RATIO
+          ? 'defender'
+          : null)
+    : null;
+  const collapse = collapsedSide !== null;
   const stalemate = !bothZero && !breakthrough && !collapse
     && Math.abs(attackerPressure - defenderPressure) <= STALEMATE_BAND * Math.max(attackerPressure, defenderPressure);
 
@@ -563,16 +655,44 @@ export function resolveFront(input: {
         ? 'stalemate'
         : 'active';
 
-  // Conquista: **solo** con sfondamento, difensore che non tiene più e obiettivo
-  // nel teatro, raggiungibile via adiacenza reale dalla parte attaccante.
-  const objectiveId = input.front.objectiveRegionId;
-  const objective = objectiveId ? input.theatre.find(region => String(region.id) === String(objectiveId)) : undefined;
-  const objectiveReachable = Boolean(objective)
-    && Boolean(objective && String(objective.owner) === String(input.front.defenderPolityId))
-    && Boolean(objective && (objective.borders || []).some(id => input.theatre.some(region => String(region.id) === String(id) && String(region.owner) === String(input.front.attackerPolityId))));
-  const advance = status === 'breakthrough' && routedDefender && objectiveReachable && objective
-    ? { objectiveRegionId: String(objective.id), regionName: objective.name ?? null }
-    : null;
+  /**
+   * Avanzata di una parte: **solo** con sfondamento proprio, avversario che non
+   * tiene più il fronte e obiettivo realmente raggiungibile (provincia
+   * dell'avversario, adiacente a territorio proprio, dentro il teatro). Nessun
+   * teletrasporto e nessuna barriera artificiale: dopo una riconquista la
+   * controffensiva può entrare nel territorio originario avversario, perché
+   * l'obiettivo si ricalcola sul **confine attuale**.
+   */
+  const advanceOf = (side: 'attacker' | 'defender'): TerritorialAdvance | null => {
+    if (!breakthroughs[side].passed) return null;
+    const opponentRouted = side === 'attacker' ? routedDefender : routedAttacker;
+    if (!opponentRouted) return null;
+    const advancingPolityId = String(side === 'attacker' ? input.front.attackerPolityId : input.front.defenderPolityId);
+    const retreatingPolityId = String(side === 'attacker' ? input.front.defenderPolityId : input.front.attackerPolityId);
+    // L'obiettivo dichiarato vale solo se è **ancora** valido; altrimenti se ne
+    // calcola uno nuovo sul confine attuale (niente obiettivi staleness).
+    const objective = frontObjectiveForSide({
+      theatre: input.theatre,
+      advancingPolityId,
+      opposingPolityId: retreatingPolityId,
+      preferredRegionId: side === 'attacker' ? input.front.objectiveRegionId : null,
+    });
+    if (!objective) return null;
+    return {
+      side,
+      advancingPolityId,
+      retreatingPolityId,
+      objectiveRegionId: String(objective.id),
+      regionName: objective.name ?? null,
+    };
+  };
+  // Deterministico: se entrambe le parti avessero titolo (caso limite), avanza
+  // chi ha il vantaggio maggiore; a parità, l'attaccante storico.
+  const attackerAdvance = advanceOf('attacker');
+  const defenderAdvance = advanceOf('defender');
+  const advance = attackerAdvance && defenderAdvance
+    ? (defenderAdvantage > advantage ? defenderAdvance : attackerAdvance)
+    : attackerAdvance ?? defenderAdvance;
 
   return {
     status,
@@ -590,9 +710,16 @@ export function resolveFront(input: {
     routedDefender,
     routedAttacker,
     breakthrough,
+    breakthroughs,
+    collapsedSide,
     advance,
     legacyLost,
-    rolls: { attacker: round4(rollAttacker), defender: round4(rollDefender), breakthrough: round4(rollBreakthrough) },
+    rolls: {
+      attacker: round4(rollAttacker),
+      defender: round4(rollDefender),
+      breakthrough: round4(rollBreakthrough),
+      counterBreakthrough: round4(rollCounterBreakthrough),
+    },
     events: [],
   };
 }
@@ -651,6 +778,37 @@ export function frontObjectiveFor(input: {
     .sort((a, b) => (Math.max(0, Number(a.militaryPower || 0)) - Math.max(0, Number(b.militaryPower || 0)))
       || String(a.id).localeCompare(String(b.id)));
   return candidates[0] ?? null;
+}
+
+/**
+ * PR3 — obiettivo di una **parte che avanza** (attaccante storico o difensore in
+ * contrattacco). Stesse regole di `frontObjectiveFor`: provincia
+ * dell'avversario, **adiacente** a territorio proprio, dentro il teatro, scelta
+ * deterministica (meno difesa, poi id).
+ *
+ * `preferredRegionId` è l'obiettivo già dichiarato dal fronte: vale **solo** se è
+ * ancora valido (proprietà avversaria + adiacenza), così un obiettivo ormai
+ * proprio o non più raggiungibile non resta appeso.
+ */
+export function frontObjectiveForSide(input: {
+  theatre: readonly FrontRegion[];
+  advancingPolityId: string;
+  opposingPolityId: string;
+  preferredRegionId?: string | null;
+}): FrontRegion | null {
+  const isValid = (region: FrontRegion | undefined): boolean => Boolean(region)
+    && String(region!.owner) === String(input.opposingPolityId)
+    && (region!.borders || []).some(id => input.theatre.some(item =>
+      String(item.id) === String(id) && String(item.owner) === String(input.advancingPolityId)));
+  const preferred = input.preferredRegionId
+    ? input.theatre.find(region => String(region.id) === String(input.preferredRegionId))
+    : undefined;
+  if (isValid(preferred)) return preferred!;
+  return frontObjectiveFor({
+    theatre: input.theatre,
+    attackerPolityId: input.advancingPolityId,
+    defenderPolityId: input.opposingPolityId,
+  });
 }
 
 /** Etichetta di un esito del fronte, per i dispacci deterministici. */
