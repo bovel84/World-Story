@@ -257,3 +257,183 @@ stato **rilanciato senza modifiche al codice**: `test-build` ed `e2e-mock` sono
 passati. Nessun test è stato disattivato o reso permissivo.
 
 Il merge resta al proprietario del repository.
+
+---
+
+# PR3 RESIDUI — atomicità della ricostituzione, read model bidirezionale, typing
+
+Tre residui chiusi **sulla stessa PR #87**, con minimo diff e nessuna riapertura
+del core (FrontEngine, soglie, perdite, fulfillment, consumi, capacità
+strutturale, movimento, identità dei reparti, save/rewind, NPC: invariati).
+
+## 15. Audit residuo
+
+| # | Residuo | Verità prima |
+|---|---|---|
+| P0 | `reconstitute` **validava** in modo atomico ma **persisteva** in tre scritture separate | un errore a metà lasciava `riserva ↓ / reparto invariato / deposito ↓` |
+| P1 | il fronte mostrava i ruoli storici ma **non l'iniziativa** del periodo | un fronte con difensore in pressione (1,4 vs 0,7) non lo diceva; i testi di collasso assumevano la direzione |
+| P1 | `WarFrontPayload` non rappresentava il campo dell'iniziativa | il backend poteva esporre un campo che il frontend non conosceva |
+
+**Nota di trasparenza**: durante il ciclo PR3 il campo `momentumPolityId` era
+stato perso nell'albero (presente in `cf07310`, assente in `90c92e0`: un amend
+aveva fotografato uno stato di lavoro non aggiornato) mentre il rapporto lo
+dichiarava. Qui il campo è **reintrodotto nel tipo e assegnato dal servizio**, e
+la cosa è coperta dai test 45 e 46. `attackerPolityId`/`defenderPolityId` restano
+i **ruoli storici**; `momentumPolityId` è l'**iniziativa reale** del periodo.
+
+## 16. Validazione atomica ≠ persistenza atomica
+
+La validazione di `reconstitute` era già atomica: `transferMenToArmy`,
+`transferEquipment` e `refreshUnit` calcolano i numeri e i blocchi **prima** di
+qualsiasi scrittura, e `dryRun` non scrive nulla. Il difetto era dopo: la
+persistenza.
+
+**Vecchia sequenza (tre scritture indipendenti):**
+
+```
+finish(...)                                   → store.savePersonnel(personnelAfter)   (catch + warn)
+                                              → store.saveUnits(nextUnits)           (persist: catch + warn)
+if (!dryRun && piecesApplied > 0)
+  this.saveArsenal(polityId, nextDepot)       → arsenalRepository.upsert(...)         (catch + warn)
+```
+
+Aggravante: i salvataggi opportunisti dello store fanno `catch` + `warn` e
+**non rilanciano**: il chiamante poteva credere riuscita un'azione scritta a
+metà. Inaccettabile per un'azione che tocca tre authority canoniche.
+
+**Nuovo confine transazionale:**
+
+```
+militaryPersistenceRepository.reconstitute({ gameId, polityId, personnel, units, arsenal, turn, date })
+  └─ db.transaction(() => {
+       upsert persona (kind 'personnel', object_id = polityId)
+       upsert reparti + DELETE dei mancanti (semantica di replaceKind)
+       upsert arsenale (game_arsenals)
+     })            ← una sola transazione, statement semplici, nessuna annidata
+  poi (solo se il commit è riuscito):
+    store.adoptPersisted({ personnel, units })   → cache + aggregato armate derivato
+    this.arsenals.set(polityId, nextDepot)       → cache dell'arsenale
+```
+
+Il percorso è **strict**: nessun `try/catch`, un errore rilancia e la
+transazione fa rollback. Il repository **non ricalcola** nessuna regola: scrive
+i numeri già validati dal servizio.
+
+## 17. Stato canonico, stato derivato, cache
+
+```
+canonical : personnel stock · MilitaryUnit[] · arsenal/depot
+derived   : aggregato Army (aggregateArmyFromUnits) · oggetti regione
+cache     : OperationalStateStore · Map arsenali di MilitaryService
+```
+
+`MilitaryUnit[]` resta **l'unica authority** dei reparti: l'aggregato dell'armata
+è per definizione la loro somma (`aggregateArmyFromUnits`), quindi **canonical
+atomicity + deterministic derived refresh**: la transazione copre le tre
+authority canoniche; l'aggregato si ricalcola subito dopo dai reparti appena
+persistiti (`adoptPersisted`) e, se quel refresh non riuscisse, la prossima
+`saveUnits`/`syncArmies` lo ricalcola comunque dai reparti. La mappa non è mai
+l'authority dei numeri.
+
+**Semantica del commit**: le cache si toccano **solo dopo** il commit riuscito
+(altrimenti ci sarebbero RAM nuova e DB vecchio); al fallimento DB, cache, unità,
+riserva e deposito restano **come prima** e l'azione **non** restituisce
+`applied: true` né nasconde l'errore dietro un `console.warn`.
+
+## 18. Failure injection (non una validazione)
+
+Il test 41 provoca un fallimento **reale dentro la transazione**: un trigger
+SQLite temporaneo (`BEFORE INSERT`/`BEFORE UPDATE` su `game_arsenals` con
+`RAISE(ABORT)`) fa fallire la **terza** scrittura, dopo che riserva e reparti
+sono già stati scritti. Non è `reserve = 0` (quella è validazione): è un errore
+di persistenza a metà transazione.
+
+| Verifica | Esito |
+|---|---|
+| l'azione **rilancia** (nessun successo silenzioso) | ✅ |
+| RAM (stessa sessione): riserva, uomini, fucili, deposito invariati | ✅ |
+| DB (`game_operational_objects`, `game_arsenals`): righe identiche a prima | ✅ |
+| conservazione `riserva + reparto` e `deposito + assegnato` intatte | ✅ |
+| **nuova lettura** dalla sessione (cache nuova): stato di prima | ✅ (test 42) |
+| `dryRun`: zero scritture (RAM e DB) | ✅ (test 43) |
+| successo: le tre authority persistite, conservazione verificata anche sulle righe DB | ✅ (test 44) |
+
+## 19. Read model bidirezionale
+
+- fact **`Iniziativa`** (sezione `stato`) dal `momentumPolityId` del fronte: la
+  polity con la pressione prevalente nell'ultimo periodo, `null`/«nessuna
+  iniziativa netta» a pressioni pari. È **sola lettura**: non entra in pressioni,
+  perdite, sfondamenti, rifornimenti o consumi (nessun bonus, nessuno snowball).
+- `Attaccante`/`Difensore` restano i **ruoli storici** e lo dicono nel testo
+  («non è «chi avanza» / «chi arretra»: vedi Iniziativa»).
+- **Testi di collasso neutrali**: «Il fronte è collassato: una delle parti non
+  tiene più il contatto (pressione nettamente sbilanciata)» — sia sul reparto sia
+  sulla scheda del fronte. Prima dicevano «La pressione nemica domina» e «La
+  difesa ha respinto l'attacco»: assumevano una direzione che il dato non ha
+  (`collapsedSide` è transitorio in `FrontResolution` e **non** viene persistito
+  per il testo).
+- **`why` del fronte** generalizzato: intento offensivo + vantaggio sufficiente +
+  avversario che non tiene + obiettivo adiacente valido → `transferRegion`,
+  dall'attaccante storico **o** dal difensore che contrattacca.
+- **`Obiettivo dichiarato`**: è dell'attaccante storico; una controffensiva
+  calcola il proprio obiettivo sul confine corrente.
+- **`Reparti impegnati`**: reparti **persistenti del giocatore** (l'NPC combatte
+  con la forza dichiarata) — nessun reparto NPC finto.
+
+**Frontend**: `WarFrontPayload.momentumPolityId?: string | null` (test di typing
+in `operationalObjects.test.ts`); nessuna nuova struttura, nessuna nuova
+schermata: le facts restano l'authority della UI.
+
+## 20. Test e magneticità
+
+| # | caso | magnetico su `90c92e0` |
+|---|---|---|
+| 41 | fallimento della persistenza → rollback, RAM e DB invariati | ✅ (fallisce) |
+| 42 | dopo il rollback una **nuova lettura** dal DB vede lo stato di prima | ✅ (fallisce) |
+| 43 | `dryRun` non scrive nulla | guardia (era già vero) |
+| 44 | successo: tre authority persistite, conservazione sul DB | guardia |
+| 45 | read model: ruolo storico **e** iniziativa, testi neutri, obiettivo dichiarato | ✅ (campo assente ⇒ nessun fact `Iniziativa`) |
+| 46 | l'iniziativa segue le pressioni e **sopravvive** a save/ricarica | ✅ |
+| — | frontend: il payload rappresenta `momentumPolityId` | ✅ (tipo assente) |
+
+Verifica di magneticità eseguita con `git checkout 90c92e0 -- backend-nest/src`
+(poi ripristino del `src` corrente): **41 e 42 falliscono** sul motore
+precedente, perché lì le scritture erano separate e nessuna rilanciata.
+
+## 21. Quality gate (eseguito)
+
+| Comando | Esito |
+|---|---|
+| backend `npx tsc --noEmit` | ✅ |
+| backend `npx vitest run` | ✅ **160 file / 1640 test** (erano 1634: +6) |
+| backend `npm run build` | ✅ |
+| frontend `npx tsc --noEmit` | ✅ |
+| frontend `npx vitest run` | ✅ **67 file / 495 test** (+1) |
+| frontend `npm run build` | ✅ |
+| `npm run test:e2e:mock` | ✅ **49 passed** |
+| inventario endpoint | 106 route (invariato) |
+
+## 22. Esito GitHub Actions (PR #87, head aggiornata)
+
+PR **#87** («MILITARY PR3 — counterattacks, bidirectional advance and unit
+recovery»), ramo `feat/military-pr3-war-dynamics`, base `main = 9bca9f8`:
+nessuna nuova PR aperta.
+
+| Check | Esito |
+|---|---|
+| `test-build` (backend test + build, frontend test + build) | ✅ **success** |
+| `e2e-mock` (Playwright su mock API) | ✅ **success** |
+| `mergeable` | ✅ `true` (`state = clean`) |
+
+Nessun flaky in questo ciclo: entrambi i check sono passati al primo tentativo
+(il primo `test-build` della PR, sul head precedente, era caduto su
+`industrial-capacity-service` — flaky preesistente, rilanciato senza modifiche).
+Il merge resta al proprietario del repository.
+
+## 23. Limiti residui (invariati)
+
+NPC MilitaryUnit persistenti · encirclement · supply lines geografiche ·
+strategic movement time · fortifications · air/naval warfare · amphibious · HQ e
+comandanti di fronte · ridisegno della negoziazione di pace. L'atomicità è
+applicata **solo** a `reconstitute` (unico percorso multi-authority): `reinforce`
+e `reequip` restano le primitive separate di sempre, e il rally non è toccato.

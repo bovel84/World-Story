@@ -5,7 +5,7 @@
  * PRIMA → DOPO dell'azione. Nessun numero viene ricalcolato qui.
  */
 import { describe, expect, it } from 'vitest';
-import type { ArsenalResponse, FormationImpactPayload, OperatingPicturePayload } from '../../services/api';
+import type { ArsenalResponse, FormationImpactPayload, OperatingPicturePayload, WarFrontPayload } from '../../services/api';
 import {
   armyTargets, childrenOf, factRows, factsByLabel, formatFactValue, formationActionView, formationOutcomeLine,
   KIND_LABEL, kindCount, objectsOfKind, primaryProblem, regionTargets, sectorCards, sectionsOf, statusTone,
@@ -383,5 +383,35 @@ describe('MILITARY-UNITS PR2 — fronti e mosse del reparto', () => {
     expect(KIND_LABEL.front).toBe('Fronte');
     expect(childrenOf(withFront, 'force').map(object => object.id)).toContain('front-AUT-ITA');
     expect(sectorCards(withFront).find(card => card.id === 'forze')?.objectIds).toContain('front-AUT-ITA');
+  });
+});
+
+describe('MILITARY PR3 — payload del fronte: iniziativa reale ≠ ruoli storici', () => {
+  it('il payload del fronte rappresenta `momentumPolityId` (sola lettura, opzionale)', () => {
+    // Il tipo backend ha il campo: il frontend non lo lascia fuori. I ruoli
+    // storici restano separati dall'iniziativa del periodo.
+    const front: WarFrontPayload = {
+      id: 'front-AUT-ITA',
+      name: 'Fronte Italia–Austria',
+      attackerPolityId: 'ITA',
+      defenderPolityId: 'AUT',
+      regionIds: ['ITA1', 'AUT1'],
+      status: 'active',
+      objectiveRegionId: 'AUT1',
+      attackerPressure: 0.7,
+      defenderPressure: 1.4,
+      momentumPolityId: 'AUT',
+      createdDate: '2026-01-01',
+      updatedDate: '2026-01-31',
+    };
+    expect(front.momentumPolityId).toBe('AUT');
+    expect(front.attackerPolityId).toBe('ITA');
+    // Parità di pressioni: iniziativa dichiarata `null`, non inventata.
+    const parity: WarFrontPayload = { ...front, momentumPolityId: null };
+    expect(parity.momentumPolityId).toBeNull();
+    // Campo opzionale: un payload senza iniziativa resta valido.
+    const { momentumPolityId: _omitted, ...withoutMomentum } = front;
+    const legacy: WarFrontPayload = withoutMomentum;
+    expect(legacy.momentumPolityId).toBeUndefined();
   });
 });

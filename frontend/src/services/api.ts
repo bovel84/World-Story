@@ -373,6 +373,13 @@ export interface WarFrontPayload {
   objectiveRegionId: string | null;
   attackerPressure: number;
   defenderPressure: number;
+  /**
+   * PR3 — **iniziativa** dell'ultimo periodo (la parte con la pressione
+   * prevalente), `null` se le pressioni sono pari. È sola lettura: non è un
+   * bonus e non cambia pressioni, perdite, sfondamenti o consumi. I ruoli
+   * `attackerPolityId`/`defenderPolityId` restano quelli **storici** del fronte.
+   */
+  momentumPolityId?: string | null;
   createdDate: string;
   updatedDate: string;
 }
