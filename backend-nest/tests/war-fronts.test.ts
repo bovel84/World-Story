@@ -1556,6 +1556,8 @@ describe('MILITARY PR3 — un commit riuscito non diventa errore API', () => {
     let impact: any = null;
     try {
       expect(() => { impact = session.unitAction({ action: 'reconstitute', unitId: unit.id }); }).not.toThrow();
+      // L'iniezione è **reale**: il refresh derivato è stato invocato e ha fallito.
+      expect(spy).toHaveBeenCalled();
     } finally {
       spy.mockRestore();
     }
@@ -1576,15 +1578,132 @@ describe('MILITARY PR3 — un commit riuscito non diventa errore API', () => {
     expect(equipmentSum(JSON.parse(arsenalRow.units))).toBeLessThan(before.depot);
     // Conservazione: il totale nazionale non cambia (riserva+reparto, deposito+assegnato).
     expect(JSON.parse(personnelRow.data).trainedReserve + persisted.personnel).toBe(before.reserve + before.personnel);
-    // Una **lettura successiva** rilegge dal DB e riconcilia il derivato.
+    // **Nessuna invalidazione manuale** qui: è il codice di produzione ad averla
+    // fatta nel `catch` del refresh derivato, quindi la lettura nella **stessa**
+    // sessione è già allineata al database.
+    expect(reserveOf(session)).toBe(JSON.parse(personnelRow.data).trainedReserve);
+    expect(unitOf(session, unit.id).personnel).toBe(persisted.personnel);
+    // Una **lettura successiva** (sessione nuova) vede lo stesso stato.
     registry.removeSession(gameId);
     const reloaded = registry.getSession(gameId);
     expect(reserveOf(reloaded)).toBe(JSON.parse(personnelRow.data).trainedReserve);
     expect(unitOf(reloaded, unit.id).personnel).toBe(persisted.personnel);
-    // E nella sessione corrente il derivato è **riparabile**: invalidando la
-    // cache si riparte dal database (il refresh non è mai l'unica fonte).
-    store(session).invalidate();
-    expect(unitOf(session, unit.id).personnel).toBe(persisted.personnel);
-    expect(reserveOf(session)).toBe(JSON.parse(personnelRow.data).trainedReserve);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// MILITARY PR3 — POST-MERGE CACHE RECOVERY
+// ══════════════════════════════════════════════════════════════════════════
+describe('MILITARY PR3 — cache recovery dopo un refresh derivato fallito', () => {
+  const depotOf = (session: any) => (session as any).military.depotUnits(PID);
+  const arsenalOf = (session: any) => (session as any).military.arsenalUnits(PID);
+  const reserveOf = (session: any) => store(session).personnel().trainedReserve;
+  const equipmentSum = (bag: Record<string, number> | undefined, id = 'fucili') => Math.round(Number(bag?.[id] || 0));
+  const wornUnit = (session: any) => {
+    const unit = units(session).find(item => String(item.armyId) === 'a1')!;
+    store(session).saveUnits(units(session).map(item => (String(item.id) === String(unit.id)
+      ? { ...item, personnel: 4_000, equipment: {}, readiness: 0.2, frontId: null, regionId: R.ita2, status: 'degraded' as const }
+      : item)));
+    return unitOf(session, unit.id);
+  };
+  const dbRows = (session: any, unitId: string) => ({
+    personnel: JSON.parse((db.prepare("SELECT data FROM game_operational_objects WHERE game_id = ? AND kind = 'personnel'").get(session.id) as any).data),
+    unit: JSON.parse((db.prepare('SELECT data FROM game_operational_objects WHERE game_id = ? AND object_id = ?').get(session.id, unitId) as any).data),
+    arsenal: JSON.parse((db.prepare('SELECT units FROM game_arsenals WHERE game_id = ? AND polity_id = ?').get(session.id, PID) as any).units),
+  });
+  /**
+   * Esegue una `reconstitute` **valida** facendo fallire il **refresh derivato**
+   * chiamato da `saveArmies()` → `saveArmiesForSession()` → `syncRegionsToDB()`.
+   *
+   * L'iniezione avviene **dopo** che `adoptPersisted` ha già mutato
+   * `snapshot.personnel`/`snapshot.units` in RAM: è il caso reale delle cache
+   * miste (RAM nuova, armate parziali, arsenale vecchio). Nessuna invalidazione
+   * manuale: se lo stato torna coerente, è merito del codice di produzione.
+   */
+  const reconstituteWithDerivedFailure = (session: any) => {
+    const unit = wornUnit(session);
+    (session as any).military.saveArsenal(PID, { fucili: 5_000 });
+    store(session).savePersonnel({ ...store(session).personnel(), trainedReserve: 9_000 });
+    const before = {
+      reserve: reserveOf(session),
+      personnel: unitOf(session, unit.id).personnel,
+      assigned: equipmentSum(unitOf(session, unit.id).equipment),
+      depot: equipmentSum(depotOf(session)),
+    };
+    const spy = vi.spyOn(session, 'saveArmiesForSession').mockImplementation(() => {
+      throw new Error('derived persistence non disponibile');
+    });
+    let impact: any = null;
+    try {
+      expect(() => { impact = session.unitAction({ action: 'reconstitute', unitId: unit.id }); }).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    return { unit, before, impact, after: dbRows(session, unit.id) };
+  };
+
+  it('48: il fallimento del refresh derivato invalida la **cache operativa** (la stessa sessione si riallinea)', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const { unit, before, impact, after } = reconstituteWithDerivedFailure(session);
+    // L'azione è applicata: il commit canonico è avvenuto.
+    expect(impact.applied).toBe(true);
+    expect(impact.blocked).toBe(false);
+    // Il DB ha i valori nuovi (riserva e reparto).
+    expect(after.personnel.trainedReserve).toBe(before.reserve - (after.unit.personnel - before.personnel));
+    expect(after.unit.personnel).toBeGreaterThan(before.personnel);
+    // **Senza** invalidazione manuale nel test, la stessa sessione legge dal DB:
+    // nessuna cache mista.
+    expect(reserveOf(session)).toBe(after.personnel.trainedReserve);
+    expect(unitOf(session, unit.id).personnel).toBe(after.unit.personnel);
+    expect(equipmentSum(unitOf(session, unit.id).equipment)).toBe(equipmentSum(after.unit.equipment));
+    // Conservazione degli uomini: riserva ↓ = reparto ↑, totale invariato.
+    expect(reserveOf(session) + unitOf(session, unit.id).personnel).toBe(before.reserve + before.personnel);
+  });
+
+  it("48-bis: l'aggregato **derivato** resta riparabile dal DB (nessuna cache come unica fonte)", () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const { unit, impact } = reconstituteWithDerivedFailure(session);
+    expect(impact.applied).toBe(true);
+    // Il refresh derivato non è avvenuto: l'oggetto-armata della mappa (derivato)
+    // può essere rimasto al valore precedente. È **riparabile** perché i reparti
+    // canonici sono nel DB: alla prima scrittura derivata si riallinea.
+    const dbArmyOf = () => {
+      for (const row of db.prepare('SELECT objects FROM game_regions WHERE game_id = ?').all(session.id) as Array<{ objects: string }>) {
+        const found = (JSON.parse(row.objects || '[]') as Array<{ id: string }>).find(object => String(object.id) === 'a1');
+        if (found) return found as { id: string; personnel?: number; formations?: number };
+      }
+      return null;
+    };
+    const unitsPersonnel = store(session).units()
+      .filter((item: any) => String(item.armyId) === 'a1' && item.status !== 'destroyed')
+      .reduce((total: number, item: any) => total + Number(item.personnel || 0), 0);
+    // Riparazione deterministica: la scrittura derivata riparte dai reparti.
+    store(session).saveUnits(store(session).units());
+    const repaired = dbArmyOf();
+    expect(repaired).toBeTruthy();
+    expect(Number(repaired!.personnel)).toBe(unitsPersonnel);
+    expect(unitOf(session, unit.id).personnel).toBe(store(session).units().find((item: any) => String(item.id) === String(unit.id))!.personnel);
+  });
+
+  it('49: il fallimento del refresh derivato invalida la **cache dell\'arsenale**', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const { unit, before, impact, after } = reconstituteWithDerivedFailure(session);
+    expect(impact.applied).toBe(true);
+    // Il deposito è cambiato: nel DB c'è il valore nuovo, quindi la cache vecchia
+    // (se sopravvivesse) servirebbe un numero sbagliato.
+    expect(equipmentSum(after.arsenal)).toBeLessThan(before.depot);
+    expect(equipmentSum(after.arsenal)).not.toBe(before.depot);
+    // La lettura dell'arsenale passa dalla cache **invalidata** → rilegge dal DB.
+    expect(equipmentSum(arsenalOf(session))).toBe(equipmentSum(after.arsenal));
+    expect(equipmentSum(depotOf(session))).toBe(equipmentSum(after.arsenal));
+    // Conservazione dei pezzi: deposito ↓ = assegnato ↑, totale invariato.
+    expect(equipmentSum(arsenalOf(session)) + equipmentSum(unitOf(session, unit.id).equipment))
+      .toBe(before.depot + before.assigned);
   });
 });

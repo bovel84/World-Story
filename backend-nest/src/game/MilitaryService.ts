@@ -891,6 +891,16 @@ export class MilitaryService {
         // Il deposito è già nel database dal commit: qui si allinea la cache.
         this.arsenals.set(polityId, nextDepot);
       } catch (error) {
+        // Il **commit è avvenuto**: qui si è rotto solo il derivato (armate,
+        // oggetti regione, cache). Per non servire cache **miste** (RAM nuova a
+        // metà, arsenale vecchio) si invalidano le due cache: la prossima lettura
+        // rilegge dal database, che è l'authority.
+        //
+        //   COMMIT FALLITO                     → rollback · throw · nessun `applied`
+        //   REFRESH DERIVATO FALLITO (post-commit) → niente rollback · cache
+        //                                            invalidate · `applied: true`
+        store.invalidate();
+        this.arsenals.delete(polityId);
         console.warn('[MilitaryService] Refresh derivato della ricostituzione non applicato (commit già persistito):', error);
       }
       return {
