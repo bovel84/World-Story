@@ -1977,7 +1977,9 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
           ? [{ severity: 'warning' as const, label: `Fronte ${front.name}: in stallo`, detail: 'Pressioni quasi pari: nessuno sfonda. Cambiare ordine o rinforzare sposta l\'equilibrio.' }]
           : []),
         ...(front && front.status === 'collapsed'
-          ? [{ severity: 'critical' as const, label: `Fronte ${front.name}: collassato`, detail: 'La pressione nemica domina: il reparto ripiega o viene distrutto.' }]
+          // PR3 — il collasso non dice **quale** parte cede: senza il dato, il
+          // testo non la inventa (anche una controffensiva può farlo collassare).
+          ? [{ severity: 'critical' as const, label: `Fronte ${front.name}: collassato`, detail: "Il fronte è collassato: una delle parti non tiene più il contatto (pressione nettamente sbilanciata). Il reparto può ripiegare o essere distrutto." }]
           : []),
       ],
       actions: unitActions({
@@ -2019,13 +2021,22 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
       regionId: front.regionIds[0] ?? null,
       regionName: regionNames[0] ?? null,
       facts: [
-        fact('stato', 'Attaccante', null, 'testo', 'neutral', front.attackerPolityId),
-        fact('stato', 'Difensore', null, 'testo', 'neutral', front.defenderPolityId),
+        // PR3 — due cose diverse, con due campi diversi: i **ruoli storici** del
+        // fronte (chi l'ha aperto) e l'**iniziativa reale** del periodo (chi
+        // preme di più). `Iniziativa` è sola lettura (`momentumPolityId`): non
+        // entra in pressioni, perdite, sfondamenti, rifornimenti o consumi.
+        fact('stato', 'Attaccante', null, 'testo', 'neutral', `${front.attackerPolityId} · ruolo storico del fronte (non è «chi avanza»: vedi Iniziativa)`),
+        fact('stato', 'Difensore', null, 'testo', 'neutral', `${front.defenderPolityId} · ruolo storico del fronte (non è «chi arretra»: vedi Iniziativa)`),
+        fact('stato', 'Iniziativa', null, 'testo', 'neutral', front.momentumPolityId
+          ? `${front.momentumPolityId} · pressione prevalente nell'ultimo periodo (sola lettura)`
+          : "Nessuna iniziativa netta: pressioni pari nell'ultimo periodo"),
         fact('capacita', 'Pressione attaccante', attackerPct, 'pct', 'neutral', 'Somma delle forze effettive dei reparti attaccanti (forza × ordine × rifornimenti).'),
         fact('capacita', 'Pressione difensore', defenderPct, 'pct', 'neutral', 'Forze effettive della difesa: reparti persistenti più il supporto dichiarato dalla mappa.'),
-        fact('stato', 'Reparti impegnati', attacker.length, 'numero', 'neutral', 'Unità con questo fronte come `frontId`: il fronte le deriva, non le possiede.'),
+        fact('stato', 'Reparti impegnati', attacker.length, 'numero', 'neutral', "Unità con questo fronte come `frontId`: reparti **persistenti del giocatore** (l'NPC combatte con la forza dichiarata dalla mappa)."),
         fact('stato', 'Teatro', null, 'testo', 'neutral', regionNames.join(' · ') || 'Nessuna provincia di confine risolta'),
-        fact('stato', 'Obiettivo', null, 'testo', 'neutral', objective ? objective.name : 'Nessun obiettivo raggiungibile dal teatro'),
+        fact('stato', 'Obiettivo dichiarato', null, 'testo', 'neutral', objective
+          ? `${objective.name} · obiettivo dell'attaccante storico; una controffensiva calcola il proprio obiettivo sul confine corrente`
+          : 'Nessun obiettivo raggiungibile dal teatro'),
         fact('costi', 'Consumi di guerra', null, 'testo', 'neutral', 'Attacco ×1,8 · Difesa ×1,2 · Riserva ×0,8 · Ritirata ×1,0 sui fabbisogni dei reparti.'),
       ],
       problems: [
@@ -2036,11 +2047,13 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
           ? [{ severity: 'warning' as const, label: 'Fronte in stallo', detail: 'Pressioni quasi pari: nessuno sfonda senza rinforzi o un cambio di ordine.' }]
           : []),
         ...(front.status === 'collapsed'
-          ? [{ severity: 'critical' as const, label: 'Fronte collassato', detail: 'La difesa ha respinto l\'attacco: le unità ripiegano.' }]
+          // Collasso **simmetrico** (PR3): senza il dato della parte che cede,
+          // il testo resta neutro.
+          ? [{ severity: 'critical' as const, label: 'Fronte collassato', detail: "Il fronte è collassato: una delle parti non tiene più il contatto (pressione nettamente sbilanciata)." }]
           : []),
       ],
       actions: [],
-      why: 'Fronte di guerra: territorio conteso, unità (dal loro `frontId`) e obiettivo. Le conquiste passano solo da `transferRegion`, con sfondamento, difensore in ritirata e obiettivo raggiunto. Il combattimento è risolto dal `FrontEngine` una volta per periodo materiale: gli ordini si danno ai reparti.',
+      why: "Fronte di guerra: territorio conteso, unità (dal loro `frontId`) e obiettivo. Le conquiste passano solo da `transferRegion`, quando una parte ha intento offensivo, vantaggio di pressione sufficiente, avversario che non tiene più e un obiettivo adiacente valido — l'attaccante storico **o** il difensore che contrattacca. Il combattimento è risolto dal `FrontEngine` una volta per periodo materiale: gli ordini si danno ai reparti.", 
     });
   }
 

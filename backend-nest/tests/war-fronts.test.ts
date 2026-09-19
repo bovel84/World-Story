@@ -382,7 +382,9 @@ describe('WAR-FRONTS — nascita, assegnazione e ordini (P6/P7)', () => {
     expect(frontObject).toBeTruthy();
     expect(frontObject.parentId).toBe('force');
     expect(frontObject.facts.map((fact: any) => fact.label)).toEqual(expect.arrayContaining([
-      'Pressione attaccante', 'Pressione difensore', 'Reparti impegnati', 'Teatro', 'Obiettivo', 'Consumi di guerra',
+      'Pressione attaccante', 'Pressione difensore', 'Reparti impegnati', 'Teatro', 'Obiettivo dichiarato', 'Consumi di guerra',
+      // PR3 — l'iniziativa reale è un dato a sé: i ruoli storici non dicono chi avanza.
+      'Iniziativa',
     ]));
     const unitObject = picture.objects.find((object: any) => object.kind === 'unit' && object.facts.some((fact: any) => fact.label === 'Fronte'));
     expect(unitObject).toBeTruthy();
@@ -1448,5 +1450,72 @@ describe('MILITARY PR3 — atomicità della ricostituzione', () => {
     expect(JSON.parse(personnelRow.data).trainedReserve).toBe(reserveOf(session));
     expect(JSON.parse(unitRow.data).personnel).toBe(unitOf(session, unit.id).personnel);
     expect(equipmentSum(JSON.parse(arsenalRow.units))).toBe(equipmentSum(depotOf(session)));
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// MILITARY PR3 — read model: iniziativa reale ≠ ruoli storici
+// ══════════════════════════════════════════════════════════════════════════
+describe('MILITARY PR3 — read model bidirezionale', () => {
+  const frontCard = (session: any, frontId: string) => session.getArsenal().objects.objects
+    .find((object: any) => String(object.id) === String(frontId));
+  const factOf = (card: any, label: string) => (card.facts || []).find((item: any) => item.label === label);
+
+  it('45: il fronte mostra ruolo storico **e** iniziativa reale (testi neutri al collasso)', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const front = frontOf(session)!;
+    // Iniziativa all'attaccante storico: si legge, non si interpreta.
+    store(session).saveFronts([{ ...front, attackerPressure: 9, defenderPressure: 2, momentumPolityId: front.attackerPolityId }]);
+    const card = frontCard(session, front.id);
+    expect(card).toBeTruthy();
+    expect(String(factOf(card, 'Attaccante').text)).toContain(front.attackerPolityId);
+    expect(String(factOf(card, 'Difensore').text)).toContain(front.defenderPolityId);
+    // I ruoli storici **non** si presentano come «chi avanza».
+    expect(String(factOf(card, 'Attaccante').text)).toMatch(/ruolo storico/i);
+    expect(String(factOf(card, 'Attaccante').text)).toMatch(/non è «chi avanza»/i);
+    expect(String(factOf(card, 'Iniziativa').text)).toContain(front.attackerPolityId);
+    expect(String(factOf(card, 'Iniziativa').text)).toMatch(/sola lettura/i);
+    // Obiettivo dichiarato = dell'attaccante storico; la controffensiva calcola il suo.
+    expect(String(factOf(card, 'Obiettivo dichiarato').text)).toMatch(/controffensiva/i);
+    // Iniziativa all'**altro** lato: cambia solo il dato letto.
+    store(session).saveFronts([{ ...front, attackerPressure: 2, defenderPressure: 9, momentumPolityId: front.defenderPolityId }]);
+    expect(String(factOf(frontCard(session, front.id), 'Iniziativa').text)).toContain(front.defenderPolityId);
+    // Pressioni pari: nessuna iniziativa dichiarata (non si inventa una parte).
+    store(session).saveFronts([{ ...front, attackerPressure: 5, defenderPressure: 5, momentumPolityId: null }]);
+    expect(String(factOf(frontCard(session, front.id), 'Iniziativa').text)).toMatch(/Nessuna iniziativa netta/i);
+    // Collasso: testo **neutro**, senza attribuire la sconfitta a una parte.
+    store(session).saveFronts([{ ...front, status: 'collapsed' }]);
+    const collapsed = frontCard(session, front.id);
+    const detail = String(collapsed.problems.find((problem: any) => /collassato/i.test(problem.label))?.detail || '');
+    expect(detail).toMatch(/una delle parti non tiene/i);
+    expect(detail).not.toMatch(/La difesa ha respinto|pressione nemica domina/i);
+    expect(String(collapsed.why)).toMatch(/contrattacca|difensore/i);
+  });
+
+  it('46: l\'iniziativa segue le pressioni del periodo e **sopravvive** a salvataggio e ricarica', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    armAll(session);
+    session.publicFronts();
+    setOrder(session, 'attack');
+    declaredPower(session, R.aut1, 40);
+    session.warFronts.advanceFronts(30, '2026-01-31');
+    const after = frontOf(session)!;
+    const expected = after.attackerPressure === after.defenderPressure
+      ? null
+      : after.attackerPressure > after.defenderPressure
+        ? after.attackerPolityId
+        : after.defenderPolityId;
+    expect(after.momentumPolityId ?? null).toBe(expected);
+    // È dentro `WarFrontState` (⇒ checkpoint), non un campo nuovo di `SaveData`.
+    const saveId = session.save('momentum').saveId;
+    const row = db.prepare('SELECT data, content_hash FROM saves WHERE id = ?').get(saveId) as any;
+    const saved = JSON.parse(row.data);
+    const savedFront = saved.operationalState.rows.find((item: any) => item.kind === 'front');
+    expect(savedFront.data.momentumPolityId ?? null).toBe(expected);
+    session.loadFromSave(JSON.parse(row.data), row.content_hash);
+    expect(frontOf(session)!.momentumPolityId ?? null).toBe(expected);
   });
 });
