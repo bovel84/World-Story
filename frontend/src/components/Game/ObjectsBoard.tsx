@@ -14,13 +14,19 @@
  * `operationalObjects` (che a sua volta legge solo il payload di `/arsenal`).
  */
 import React from 'react';
-import type { ArsenalResponse, FormationImpactPayload, OperatingObjectPayload } from '../../services/api';
+import type {
+  ArsenalResponse, FormationImpactPayload, OperatingObjectPayload, OperatingPicturePayload,
+  UnitActionImpactPayload, UnitActionRequest,
+} from '../../services/api';
 import {
-  KIND_LABEL, actionsOf, chainsView, childrenOf, factRows, formationActionView,
-  primaryProblem, sectorCards, sectionsOf, statusTone, type SectorCard,
+  KIND_LABEL, actionsOf, armyTargets, chainsView, childrenOf, factRows, formationActionView,
+  primaryProblem, regionTargets, sectorCards, sectionsOf, statusTone, unitActionView, type SectorCard,
 } from './operationalObjects';
 
 const tone = (value: string) => `tone-${value}`;
+
+/** Le azioni che il pannello del reparto esegue davvero (regole del motore). */
+const UNIT_ACTIONS = ['reinforce_unit', 'reequip_unit', 'transfer_unit', 'reassign_unit'];
 
 interface ObjectsBoardProps {
   arsenal: ArsenalResponse;
@@ -28,6 +34,11 @@ interface ObjectsBoardProps {
   onPreviewFormation?: (options: { formations?: number; armyId?: string | null; name?: string }) => Promise<FormationImpactPayload>;
   /** Esegue davvero la creazione: il motore paga, scala il deposito e aggiunge l'armata. */
   onRaiseFormation?: (options: { formations?: number; armyId?: string | null; name?: string }) => Promise<unknown>;
+  /**
+   * MILITARY-UNITS — azione su un reparto: `dryRun` è l'anteprima, altrimenti il
+   * motore applica (riserva addestrata, deposito, costo di movimento).
+   */
+  onUnitAction?: (request: UnitActionRequest) => Promise<UnitActionImpactPayload>;
   busy?: boolean;
 }
 
@@ -65,13 +76,12 @@ function SectorTile({ card, onOpen }: { card: SectorCard; onOpen: () => void }) 
 }
 
 /** Blocco PRIMA → DOPO dell'azione: i numeri sono quelli del motore. */
-function ActionImpact({ impact, busy, onConfirm, onCancel }: {
-  impact: FormationImpactPayload;
+function ActionImpact({ view, busy, onConfirm, onCancel }: {
+  view: ReturnType<typeof formationActionView>;
   busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const view = formationActionView(impact);
   if (!view) return null;
   return (
     <div className="obj-action" role="group" aria-label={view.title}>
@@ -109,22 +119,130 @@ function ActionImpact({ impact, busy, onConfirm, onCancel }: {
   );
 }
 
+/**
+ * MILITARY-UNITS — pannello del **reparto**: le quattro azioni reali, con la
+ * destinazione da scegliere quando serve (regione o armata) e la tabella
+ * PRIMA → DOPO calcolata dal motore (`dryRun`), come per la creazione di reparti.
+ * Nessun numero viene calcolato qui.
+ */
+function UnitActionPanel({ object, picture, busy, onUnitAction }: {
+  object: OperatingObjectPayload;
+  picture: OperatingPicturePayload;
+  busy?: boolean;
+  onUnitAction?: (request: UnitActionRequest) => Promise<UnitActionImpactPayload>;
+}) {
+  const actions = actionsOf(object).filter(action => UNIT_ACTIONS.includes(action.id));
+  const [selected, setSelected] = React.useState<string | null>(null);
+  const [target, setTarget] = React.useState<string>('');
+  const [impact, setImpact] = React.useState<UnitActionImpactPayload | null>(null);
+  const [pending, setPending] = React.useState(false);
+  if (actions.length === 0) return null;
+
+  const actionId = (id: string) => id.replace('_unit', '') as UnitActionRequest['action'];
+  const needsTarget = selected === 'transfer_unit' || selected === 'reassign_unit';
+  const options = selected === 'transfer_unit'
+    ? regionTargets(picture, object)
+    : selected === 'reassign_unit' ? armyTargets(picture, object) : [];
+
+  const run = async (dryRun: boolean) => {
+    if (!onUnitAction || !selected) return;
+    setPending(true);
+    try {
+      const result = await onUnitAction({
+        action: actionId(selected),
+        unitId: object.id,
+        dryRun,
+        ...(selected === 'transfer_unit' ? { regionId: target } : {}),
+        ...(selected === 'reassign_unit' ? { armyId: target } : {}),
+      });
+      if (dryRun) setImpact(result);
+      else {
+        setImpact(null);
+        setSelected(null);
+        setTarget('');
+      }
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="obj-unit-actions" role="group" aria-label={`Azioni su ${object.label}`}>
+      <div className="obj-object-actions">
+        {actions.map(action => (
+          <button
+            key={action.id}
+            type="button"
+            className={`obj-action-button ${selected === action.id ? 'active' : ''}`}
+            disabled={!action.enabled || busy}
+            title={action.blockedReason ?? undefined}
+            onClick={() => { setSelected(action.id); setImpact(null); setTarget(''); }}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+      {actions.some(action => !action.enabled && action.blockedReason) && (
+        <span className="obj-blocked-hint">{actions.find(action => !action.enabled)?.blockedReason}</span>
+      )}
+      {selected && needsTarget && (
+        <div className="obj-unit-target">
+          <label>
+            {selected === 'transfer_unit' ? 'Regione di destinazione' : 'Armata di destinazione'}
+            <select value={target} onChange={event => { setTarget(event.target.value); setImpact(null); }}>
+              <option value="">— scegli —</option>
+              {options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
+      {selected && (
+        <div className="obj-action-buttons">
+          <button
+            type="button"
+            className="obj-confirm"
+            disabled={pending || busy || (needsTarget && !target)}
+            onClick={() => { void run(true); }}
+          >
+            {pending ? 'In corso…' : 'Anteprima'}
+          </button>
+          <button type="button" className="obj-cancel" onClick={() => { setSelected(null); setImpact(null); setTarget(''); }}>
+            Chiudi
+          </button>
+        </div>
+      )}
+      {impact && (
+        <ActionImpact
+          view={unitActionView(impact)}
+          busy={pending || busy}
+          onConfirm={() => { void run(false); }}
+          onCancel={() => setImpact(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 /** Il singolo oggetto: grammatica universale, problemi, azioni. */
-function ObjectCard({ object, depth = 0, busy, action, onPreview, onRaise, onCancel, onPreviewChild }: {
+function ObjectCard({ object, depth = 0, busy, action, picture, onPreview, onRaise, onCancel, onPreviewChild, onUnitAction }: {
   object: OperatingObjectPayload;
   depth?: number;
   busy?: boolean;
   action?: { armyId: string | null; preview: FormationImpactPayload | null } | null;
+  picture: OperatingPicturePayload;
   onPreview?: (armyId: string | null) => void;
   onRaise?: () => void;
   onCancel?: () => void;
   onPreviewChild?: (armyId: string | null) => void;
+  onUnitAction?: (request: UnitActionRequest) => Promise<UnitActionImpactPayload>;
 }) {
   const [open, setOpen] = React.useState(depth > 0);
   const problem = primaryProblem(object);
   const sections = open ? sectionsOf(object) : [];
   const rows = open ? [] : factRows(object).slice(0, 4);
-  const actions = actionsOf(object);
+  // Le azioni del reparto le esegue il suo pannello: qui restano le altre.
+  const actions = actionsOf(object)
+    .filter(item => !(object.kind === 'unit' && UNIT_ACTIONS.includes(item.id)));
   const isActionTarget = action && action.armyId === (object.kind === 'army' ? object.id : null);
 
   return (
@@ -198,6 +316,9 @@ function ObjectCard({ object, depth = 0, busy, action, onPreview, onRaise, onCan
               </span>
             )}
           </div>
+          {object.kind === 'unit' && (
+            <UnitActionPanel object={object} picture={picture} busy={busy} onUnitAction={onUnitAction} />
+          )}
           {object.why && (
             <details className="obj-why">
               <summary>Perché?</summary>
@@ -207,7 +328,7 @@ function ObjectCard({ object, depth = 0, busy, action, onPreview, onRaise, onCan
         </>
       )}
       {isActionTarget && action?.preview && onRaise && onCancel && (
-        <ActionImpact impact={action.preview} busy={busy} onConfirm={onRaise} onCancel={onCancel} />
+        <ActionImpact view={formationActionView(action.preview)} busy={busy} onConfirm={onRaise} onCancel={onCancel} />
       )}
     </article>
   );
@@ -237,7 +358,7 @@ function ChainList({ arsenal }: { arsenal: ArsenalResponse }) {
   );
 }
 
-export function ObjectsBoard({ arsenal, onPreviewFormation, onRaiseFormation, busy }: ObjectsBoardProps) {
+export function ObjectsBoard({ arsenal, onPreviewFormation, onRaiseFormation, onUnitAction, busy }: ObjectsBoardProps) {
   const [sector, setSector] = React.useState<string | null>(null);
   const [action, setAction] = React.useState<{ armyId: string | null; preview: FormationImpactPayload | null } | null>(null);
   const picture = arsenal.objects;
@@ -264,14 +385,30 @@ export function ObjectsBoard({ arsenal, onPreviewFormation, onRaiseFormation, bu
     }
   };
 
-  // Livello B: solo i «capi» della gerarchia (le navi stanno dentro la flotta,
-  // le armate dentro lo schieramento nazionale).
+  // Livello B: la gerarchia — schieramento → armate → reparti, flotte → navi.
+  // I «capi» sono gli oggetti senza padre dentro il settore; i figli si seguono
+  // nel quadro completo (un reparto vive sotto la sua armata).
   const members = card ? picture.objects.filter(object => card.objectIds.includes(object.id)) : [];
   const roots = members.filter(object => !object.parentId || !members.some(other => other.id === object.parentId));
-  /** I figli diretti da mostrare sotto un capo (navi sotto la flotta, armate sotto lo schieramento). */
-  const kidsOf = (object: OperatingObjectPayload) => (object.kind === 'fleet' || object.kind === 'force'
-    ? childrenOf(picture, object.id).filter(child => child.kind !== 'ship' || object.kind === 'fleet')
-    : []);
+
+  /** Un ramo della gerarchia: padre, poi figli (fino a tre livelli). */
+  const renderBranch = (object: OperatingObjectPayload, depth: number): React.ReactNode => (
+    <React.Fragment key={object.id}>
+      <ObjectCard
+        object={object}
+        depth={depth}
+        picture={picture}
+        busy={busy}
+        action={action}
+        onPreview={preview}
+        onPreviewChild={preview}
+        onUnitAction={onUnitAction}
+        onRaise={() => { void onRaiseFormation?.({ formations: 1, armyId: action?.armyId }); }}
+        onCancel={() => setAction(null)}
+      />
+      {depth < 2 && childrenOf(picture, object.id).map(child => renderBranch(child, depth + 1))}
+    </React.Fragment>
+  );
 
   return (
     <div className="obj-board">
@@ -302,32 +439,7 @@ export function ObjectsBoard({ arsenal, onPreviewFormation, onRaiseFormation, bu
             ))}
           </dl>
           <div className="obj-list">
-            {roots.map(object => (
-              <React.Fragment key={object.id}>
-                <ObjectCard
-                  object={object}
-                  busy={busy}
-                  action={action}
-                  onPreview={preview}
-                  onPreviewChild={preview}
-                  onRaise={() => { void onRaiseFormation?.({ formations: 1, armyId: action?.armyId }); }}
-                  onCancel={() => setAction(null)}
-                />
-                {kidsOf(object).map(child => (
-                  <ObjectCard
-                    key={child.id}
-                    object={child}
-                    depth={1}
-                    busy={busy}
-                    action={action}
-                    onPreview={preview}
-                    onPreviewChild={preview}
-                    onRaise={() => { void onRaiseFormation?.({ formations: 1, armyId: action?.armyId }); }}
-                    onCancel={() => setAction(null)}
-                  />
-                ))}
-              </React.Fragment>
-            ))}
+            {roots.map(object => renderBranch(object, 0))}
             {roots.length === 0 && <p className="obj-empty">Nessun oggetto in questo settore.</p>}
           </div>
         </div>

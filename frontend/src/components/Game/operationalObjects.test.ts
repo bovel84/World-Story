@@ -7,8 +7,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ArsenalResponse, FormationImpactPayload, OperatingPicturePayload } from '../../services/api';
 import {
-  childrenOf, factRows, factsByLabel, formatFactValue, formationActionView, formationOutcomeLine,
-  kindCount, objectsOfKind, primaryProblem, sectorCards, sectionsOf, statusTone,
+  armyTargets, childrenOf, factRows, factsByLabel, formatFactValue, formationActionView, formationOutcomeLine,
+  kindCount, objectsOfKind, primaryProblem, regionTargets, sectorCards, sectionsOf, statusTone, unitActionView,
 } from './operationalObjects';
 
 const fact = (section: any, label: string, value: number | null, unit: any, tone?: any, text?: string) =>
@@ -280,5 +280,70 @@ describe('OP-OBJECTS — contratto con /arsenal', () => {
   it('il quadro è una proprietà dell\'arsenale pubblicato', () => {
     const arsenal = { objects: picture } as unknown as ArsenalResponse;
     expect(sectorCards(arsenal.objects).length).toBeGreaterThan(0);
+  });
+});
+
+// ── MILITARY-UNITS: i reparti nel read model ─────────────────────────────────
+
+const unitObject: any = {
+  id: 'army-A-unit-001', kind: 'unit', label: '1ª Brigata', subtitle: '1ª Armata · Italia · 12.000 uomini',
+  status: 'operational', statusLabel: 'Operativa', parentId: 'army-A', regionId: 'ita', regionName: 'Italia',
+  facts: [
+    fact('stato', 'Uomini', 12_000, 'numero'),
+    fact('capacita', 'Copertura armi individuali', 40, 'pct', 'warning'),
+    fact('capacita', 'Prontezza', 70, 'pct', 'neutral'),
+  ],
+  problems: [], actions: [], why: 'Reparto reale.',
+};
+
+const armyObject: any = {
+  id: 'army-A', kind: 'army', label: '1ª Armata', parentId: 'force', regionId: 'ita', regionName: 'Italia',
+  status: 'operational', statusLabel: 'Operativa', facts: [], problems: [], actions: [], why: '',
+};
+
+const unitPicture: OperatingPicturePayload = {
+  counts: { force: 1, army: 1, unit: 1 },
+  conventions: [],
+  chains: [],
+  objects: [picture.objects[0], armyObject, unitObject],
+};
+
+describe('MILITARY-UNITS — reparti nel read model', () => {
+  it('il reparto appartiene all\'armata e alla scheda delle forze', () => {
+    expect(childrenOf(unitPicture, 'army-A').map(object => object.id)).toEqual(['army-A-unit-001']);
+    const card = sectorCards(unitPicture).find(item => item.id === 'forze');
+    expect(card?.objectIds).toContain('army-A-unit-001');
+    expect(objectsOfKind(unitPicture, 'unit')).toHaveLength(1);
+  });
+
+  it('la vista PRIMA → DOPO di un\'azione usa i numeri del motore', () => {
+    const impact: any = {
+      applied: false, action: 'reinforce', unitId: 'army-A-unit-001', unitName: '1ª Brigata',
+      armyId: 'army-A', armyName: '1ª Armata', blocked: false, blockedReason: null,
+      rows: [
+        { label: 'Uomini del reparto', before: 3_000, after: 3_500, unit: 'numero', tone: 'neutral' },
+        { label: 'Organico', before: 25, after: 29.2, unit: 'pct', tone: 'warning' },
+        { label: 'Riserva addestrata', before: 86_400, after: 85_900, unit: 'numero', tone: 'neutral' },
+      ],
+      unit: unitObject, note: 'Rinforzato.', why: 'Gli uomini vengono dalla riserva.',
+    };
+    const view = unitActionView(impact);
+    expect(view?.title).toContain('Rinforza');
+    expect(view?.title).toContain('1ª Brigata');
+    expect(view?.rows.map(row => row.label)).toEqual(['Uomini del reparto', 'Organico', 'Riserva addestrata']);
+    // Un blocco dichiarato dal motore resta visibile con il suo motivo.
+    const blocked = unitActionView({ ...impact, blocked: true, blockedReason: 'Riserva insufficiente.' });
+    expect(blocked?.blocked).toBe(true);
+    expect(blocked?.blockedReason).toBe('Riserva insufficiente.');
+    expect(unitActionView(null)).toBeNull();
+  });
+
+  it('le destinazioni (armate e regioni) vengono dal quadro, non da liste inventate', () => {
+    expect(armyTargets(unitPicture, unitObject)).toEqual([]);
+    expect(regionTargets(unitPicture, unitObject)).toEqual([]);
+    const other = { ...armyObject, id: 'army-B', label: '2ª Armata', regionId: 'ita2', regionName: 'Italia centrale' };
+    const wide: OperatingPicturePayload = { ...unitPicture, objects: [...unitPicture.objects, other] };
+    expect(armyTargets(wide, unitObject)).toEqual([{ id: 'army-B', label: '2ª Armata' }]);
+    expect(regionTargets(wide, unitObject)).toEqual([{ id: 'ita2', label: 'Italia centrale' }]);
   });
 });

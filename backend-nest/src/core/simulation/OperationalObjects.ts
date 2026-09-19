@@ -54,7 +54,7 @@ import { daysBetween } from './calendar';
 
 // ── 1. La grammatica universale ─────────────────────────────────────────────
 
-export type OperatingKind = 'force' | 'army' | 'facility' | 'construction' | 'navy' | 'fleet' | 'ship' | 'mine';
+export type OperatingKind = 'force' | 'army' | 'unit' | 'facility' | 'construction' | 'navy' | 'fleet' | 'ship' | 'mine';
 
 export type OperatingStatus =
   | 'operational' | 'degraded' | 'maintenance' | 'idle' | 'under_construction' | 'critical';
@@ -101,7 +101,8 @@ export interface OperatingProblem {
 
 export interface OperatingAction {
   /** Azione del motore che la UI può davvero eseguire. */
-  id: 'raise_formation' | 'procure' | 'trade';
+  id: 'raise_formation' | 'procure' | 'trade'
+    | 'reinforce_unit' | 'reequip_unit' | 'transfer_unit' | 'reassign_unit';
   label: string;
   enabled: boolean;
   blockedReason?: string | null;
@@ -1296,7 +1297,7 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
   });
 
   const counts: Record<OperatingKind, number> = {
-    force: 0, army: 0, facility: 0, construction: 0, navy: 0, fleet: 0, ship: 0, mine: 0,
+    force: 0, army: 0, unit: 0, facility: 0, construction: 0, navy: 0, fleet: 0, ship: 0, mine: 0,
   };
   // OP-OBJECTS PERSISTENT: con lo stato proprio degli oggetti, le schede di
   // armate, impianti, navi, flotte e cantieri sono quelle reali. Restano del

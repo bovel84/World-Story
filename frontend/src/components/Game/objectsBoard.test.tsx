@@ -9,6 +9,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ObjectsBoard } from './ObjectsBoard';
+import { sectorCards } from './operationalObjects';
 import type { ArsenalResponse, OperatingPicturePayload } from '../../services/api';
 
 const source = fs.readFileSync(path.resolve(__dirname, 'ObjectsBoard.tsx'), 'utf8');
@@ -17,7 +18,7 @@ const fact = (section: any, label: string, value: number | null, unit: any, tone
   ({ section, label, value, unit, tone: tone ?? 'neutral', ...(text ? { text } : {}) });
 
 const picture: OperatingPicturePayload = {
-  counts: { force: 1, army: 2, facility: 2, construction: 1 },
+  counts: { force: 1, army: 2, unit: 1, facility: 2, construction: 1 },
   conventions: ['Le armate derivano dagli oggetti `army` della mappa.'],
   chains: [
     {
@@ -41,6 +42,24 @@ const picture: OperatingPicturePayload = {
       facts: [fact('stato', 'Reparti', 5, 'numero')], problems: [],
       actions: [{ id: 'raise_formation', label: 'Aggiungi 1 reparto a questa armata', enabled: false, blockedReason: 'Servono 3.200 fucili in più.' }],
       why: 'Armata reale del mondo.',
+    },
+    {
+      id: 'army-A-unit-001', kind: 'unit', label: '1ª Brigata', subtitle: '1ª Armata · Italia · 12.000 uomini',
+      status: 'operational', statusLabel: 'Operativa', parentId: 'army-A', regionId: 'ita', regionName: 'Italia',
+      facts: [
+        fact('stato', 'Uomini', 12_000, 'numero'),
+        fact('capacita', 'Copertura armi individuali', 40, 'pct', 'warning'),
+        fact('capacita', 'Prontezza', 70, 'pct', 'neutral'),
+        fact('input', 'Carburante', 0.03, 'per_mese'),
+      ],
+      problems: [{ severity: 'warning', label: 'Copertura armi individuali 40%' }],
+      actions: [
+        { id: 'reinforce_unit', label: 'Rinforza', enabled: true, blockedReason: null },
+        { id: 'reequip_unit', label: 'Riequipaggia (2.400 pezzi)', enabled: true, blockedReason: null },
+        { id: 'transfer_unit', label: 'Trasferisci', enabled: true, blockedReason: null },
+        { id: 'reassign_unit', label: 'Cambia armata', enabled: false, blockedReason: 'Serve una seconda armata per spostare il reparto.' },
+      ],
+      why: 'Reparto dell\'armata: uomini e pezzi sono suoi.',
     },
     {
       id: 'factory-1', kind: 'facility', label: 'Acciaierie Italia', subtitle: 'Impianto industriale',
@@ -89,6 +108,19 @@ describe('OP-OBJECTS — sala di governo (SSR)', () => {
   it('mostra i problemi aperti sulle schede di settore', () => {
     expect(html).toContain('Copertura armi individuali 77,8%');
     expect(html).toContain('Apri');
+  });
+
+  it('MILITARY-UNITS: i reparti sono nella scheda delle forze e la vista li annida', () => {
+    // Livello A (SSR): il reparto è un oggetto del settore, non una scheda a sé.
+    const forze = sectorCards(picture).find(card => card.id === 'forze');
+    expect(forze?.objectIds).toContain('army-A-unit-001');
+    expect(forze?.objectIds).toContain('army-A');
+    // Livello B: la gerarchia schieramento → armata → reparto è nel componente.
+    expect(source).toContain("object.kind === 'unit'");
+    expect(source).toContain('childrenOf(picture, object.id)');
+    expect(source).toContain('UnitActionPanel');
+    expect(source).toContain('unitActionView');
+    expect(source).toContain("UNIT_ACTIONS = ['reinforce_unit', 'reequip_unit', 'transfer_unit', 'reassign_unit']");
   });
 
   it('riduce il testo: nessun paragrafo lungo nella vista principale', () => {

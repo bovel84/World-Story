@@ -28,7 +28,7 @@ import { MandateError } from '../../core/mandates/MandateEngine';
 import { MandateDecisionError, acknowledgeMandateDecision, cancelMandateAndResolveDecisions, listOpenMandateDecisions } from '../../services/MandateDecisionService';
 import { parseInteger } from '../../domain/quantities';
 import {
-  TRADE_ERROR_CODES, PROCURE_ERROR_CODES, DEBT_ERROR_CODES, FORMATION_ERROR_CODES,
+  TRADE_ERROR_CODES, PROCURE_ERROR_CODES, DEBT_ERROR_CODES, FORMATION_ERROR_CODES, UNIT_ERROR_CODES,
   respondDomainError, respondRouteError, normalizeAdvisorHistory,
   bindStrictEconomy, respondEconomyError, respondMandateError,
   respondLegacyFeasibility, respondTimeSkipResult, respondJobFailure,
@@ -265,6 +265,37 @@ router.post('/:id/military/formation', (req, res) => {
     res.json(session.raiseFormation({ formations, armyId, name }));
   } catch (e: any) {
     respondDomainError(res, e, FORMATION_ERROR_CODES, 'Failed to raise formation');
+  }
+});
+
+// MILITARY-UNITS — i reparti sotto le armate. L'elenco è lo stato persistente
+// (una sola fonte di verità); le azioni sono del motore: riserva addestrata,
+// deposito, costo di movimento del material flow. `dryRun` è l'anteprima.
+router.get('/:id/military/units', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json({ units: session.militaryUnits() });
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to list units');
+  }
+});
+
+router.post('/:id/military/units/:unitId/:action(reinforce|reequip|transfer|reassign)', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const action = String(req.params.action) as 'reinforce' | 'reequip' | 'transfer' | 'reassign';
+    res.json(session.unitAction({
+      action,
+      unitId: String(req.params.unitId),
+      men: req.body?.men === undefined ? undefined : Number(req.body.men),
+      equipmentId: req.body?.equipmentId ? String(req.body.equipmentId) : undefined,
+      quantity: req.body?.quantity === undefined ? undefined : Number(req.body.quantity),
+      regionId: req.body?.regionId ? String(req.body.regionId) : undefined,
+      armyId: req.body?.armyId ? String(req.body.armyId) : undefined,
+      dryRun: req.body?.dryRun === true,
+    }));
+  } catch (e: any) {
+    respondDomainError(res, e, UNIT_ERROR_CODES, 'Failed to act on unit');
   }
 });
 

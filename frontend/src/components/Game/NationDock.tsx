@@ -55,6 +55,18 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
       setFormationBusy(false);
     }
   }, [props.onRaiseFormation]);
+  // MILITARY-UNITS: anche le azioni del reparto sono del motore. Qui si tiene
+  // solo lo stato «in corso» del pannello, non i numeri.
+  const [unitBusy, setUnitBusy] = React.useState(false);
+  const unitAction = React.useCallback(async (request: import('../../services/api').UnitActionRequest) => {
+    if (request.dryRun) return props.onUnitAction?.(request) as Promise<import('../../services/api').UnitActionImpactPayload>;
+    setUnitBusy(true);
+    try {
+      return await (props.onUnitAction?.(request) as Promise<import('../../services/api').UnitActionImpactPayload>);
+    } finally {
+      setUnitBusy(false);
+    }
+  }, [props.onUnitAction]);
   const {
     governmentType, account, resources, arms, procure, trade,
     onPreviewFormation,
@@ -683,7 +695,8 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                   arsenal={arms}
                   onPreviewFormation={onPreviewFormation}
                   onRaiseFormation={raiseFormation}
-                  busy={formationBusy}
+                  onUnitAction={unitAction}
+                  busy={formationBusy || unitBusy}
                 />
                 <Footnote><b>Da dove vengono le cifre</b> ogni riga è un fatto pubblicato dal motore (arsenale, capacità industriale, prontezza, manpower). Le attribuzioni che il motore non conosce — quali reparti in una armata, quali navi in una flotta — sono convenzioni dichiarate sotto «Catene e convenzioni»: la somma delle parti è il totale nazionale.</Footnote>
               </DossierBlock>

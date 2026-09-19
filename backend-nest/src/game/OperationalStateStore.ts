@@ -33,8 +33,10 @@ import { extractionRate, type ResourceLedger } from '../core/simulation/Resource
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import {
   advanceConstructions,
+  aggregateArmyFromUnits,
   aggregateObjects,
   emptyOperationalState,
+  materializeUnitsForArmy,
   seedArmies,
   seedConstructions,
   seedFacilities,
@@ -45,6 +47,7 @@ import {
   type FacilityState,
   type FleetState,
   type MilitaryPersonnelState,
+  type MilitaryUnitState,
   type OperationalAggregate,
   type OperationalStateSnapshot,
   type SeedArmyInput,
@@ -124,6 +127,7 @@ export class OperationalStateStore {
         const data = row.data as Record<string, unknown>;
         switch (row.kind) {
           case 'personnel': snapshot.personnel = data as unknown as MilitaryPersonnelState; break;
+          case 'unit': snapshot.units.push(data as unknown as MilitaryUnitState); break;
           case 'facility': snapshot.facilities.push(data as unknown as FacilityState); break;
           case 'ship': snapshot.ships.push(data as unknown as ShipState); break;
           case 'fleet': snapshot.fleets.push(data as unknown as FleetState); break;
@@ -135,6 +139,7 @@ export class OperationalStateStore {
       this.warn('lettura stato oggetti non disponibile', error);
     }
     snapshot.facilities.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    snapshot.units.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     snapshot.ships.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     snapshot.fleets.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     snapshot.constructions.sort((a, b) => String(a.id).localeCompare(String(b.id)));
@@ -225,7 +230,7 @@ export class OperationalStateStore {
       operationalObjectRepository.upsertMany(this.inputs.gameId, rows);
       this.inputs.saveDepotUnits(depot);
       this.inputs.saveArmies(armies);
-      this.state = { personnel, armies, facilities, ships, fleets, constructions };
+      this.state = { personnel, armies, units: [], facilities, ships, fleets, constructions };
       this.seedChecked = true;
       this.seedDone = true;
       return this.state;
@@ -505,6 +510,39 @@ export class OperationalStateStore {
       });
     }
     snapshot.armies = next.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+    // ── Reparti: la granularità sotto l'armata (MILITARY-UNITS) ──────────────
+    // Materializzazione **lazy e idempotente** (una volta sola; la prima volta
+    // divide l'aggregato senza cambiarne la somma) e poi **derivazione**: uomini,
+    // pezzi, fabbisogni e numero di reparti dell'armata sono la somma dei suoi
+    // reparti. Nessun uomo viene creato dal nulla: il mondo può solo dichiarare
+    // reparti in più, che nascono vuoti (`forming`).
+    const unitsOf = new Map<string, MilitaryUnitState[]>();
+    for (const unit of snapshot.units) {
+      const list = unitsOf.get(String(unit.armyId));
+      if (list) list.push(unit);
+      else unitsOf.set(String(unit.armyId), [unit]);
+    }
+    const reconciled = snapshot.armies.map(army => {
+      const units = materializeUnitsForArmy({
+        army,
+        epoch,
+        date: this.inputs.currentDate(),
+        formations: army.formations,
+        existing: unitsOf.get(String(army.id)) || [],
+      });
+      return { army: aggregateArmyFromUnits(army, units), units };
+    });
+    snapshot.armies = reconciled.map(item => item.army);
+    const nextUnits = reconciled
+      .flatMap(item => item.units)
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    // Si scrive **solo** quando i reparti cambiano: una lettura non riscrive lo
+    // stato a ogni chiamata.
+    const unitsBefore = JSON.stringify(snapshot.units);
+    snapshot.units = nextUnits;
+    if (unitsBefore !== JSON.stringify(nextUnits)) this.persist('unit', nextUnits);
+
     this.state = snapshot;
     return snapshot;
   }
@@ -539,6 +577,33 @@ export class OperationalStateStore {
 
   armies(): ArmyOperationalState[] {
     return this.snapshot().armies;
+  }
+
+  /** Reparti (unità) persistenti di tutte le armate. */
+  units(): MilitaryUnitState[] {
+    return this.snapshot().units;
+  }
+
+  /** Reparti di una armata: la somma dell'aggregato dell'armata. */
+  unitsOfArmy(armyId: string): MilitaryUnitState[] {
+    return this.snapshot().units.filter(unit => String(unit.armyId) === String(armyId));
+  }
+
+  /**
+   * Scrive i reparti **e** riallinea l'aggregato delle armate alla loro somma:
+   * una sola transazione, mai uno stato a metà (armata e reparti insieme).
+   */
+  saveUnits(items: readonly MilitaryUnitState[]): void {
+    const snapshot = this.snapshot();
+    snapshot.units = [...items].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    this.persist('unit', snapshot.units);
+    const byArmy = new Map<string, MilitaryUnitState[]>();
+    for (const unit of snapshot.units) {
+      const list = byArmy.get(String(unit.armyId));
+      if (list) list.push(unit);
+      else byArmy.set(String(unit.armyId), [unit]);
+    }
+    this.saveArmies(snapshot.armies.map(army => aggregateArmyFromUnits(army, byArmy.get(String(army.id)) || [])));
   }
 
   /** Aggregato nazionale come somma degli oggetti (diagnostica e invarianti). */

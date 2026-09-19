@@ -344,7 +344,7 @@ export const MOCK_GOVERNMENT_VOICES = {
 // ---------------------------------------------------------------------------
 
 export const MOCK_OBJECTS = {
-  counts: { force: 1, army: 2, facility: 4, construction: 1, mine: 1 },
+  counts: { force: 1, army: 2, unit: 2, facility: 4, construction: 1, mine: 1 },
   conventions: [
     'Le armate derivano dagli oggetti `army` della mappa; i reparti senza nome sono raggruppati nello schieramento nazionale.',
     'Le linee di un impianto sono una quota della capacità industriale del motore; la somma degli impianti è il totale nazionale.',
@@ -398,6 +398,54 @@ export const MOCK_OBJECTS = {
       problems: [{ severity: 'critical', label: 'Copertura armi individuali 0,1%', detail: '37 in servizio su 44.000 della dotazione di riferimento.' }],
       actions: [{ id: 'raise_formation', label: 'Aggiungi 1 reparto a questa armata', enabled: true, blockedReason: null }],
       why: 'Armata reale del mondo: i reparti sono quelli dichiarati sulla mappa.',
+    },
+    // MILITARY-UNITS: i reparti vivono **sotto** la loro armata. Le azioni sono
+    // quelle del motore; qui il mock copre lo stato eseguibile e quello bloccato.
+    {
+      id: 'army-alpha-1-unit-001', kind: 'unit', label: '1ª Brigata', subtitle: 'I Corpo · Alpha · 11.000 uomini',
+      status: 'operational', statusLabel: 'Operativa', parentId: 'army-alpha-1', regionId: 'ALPHA', regionName: 'Alpha',
+      facts: [
+        { section: 'stato', label: 'Uomini', value: 11000, unit: 'numero', tone: 'positive', text: "Organico d'epoca: 11.000 uomini per reparto." },
+        { section: 'stato', label: 'Equipaggiamento assegnato', value: 37, unit: 'numero', tone: 'neutral', text: "Fucili d'assalto ×37" },
+        { section: 'capacita', label: 'Organico', value: 100, unit: 'pct', tone: 'positive' },
+        { section: 'capacita', label: 'Copertura armi individuali', value: 0.4, unit: 'pct', tone: 'critical', text: '37 armi individuali assegnate su 8.800 richieste.' },
+        { section: 'capacita', label: 'Prontezza', value: 50, unit: 'pct', tone: 'critical', text: 'Organico e dotazione, modulati dallo stato dichiarato.' },
+        { section: 'input', label: 'Carburante', value: 0.03, unit: 'per_mese', tone: 'neutral' },
+        { section: 'input', label: 'Armamenti', value: 0.2, unit: 'per_mese', tone: 'neutral' },
+        { section: 'input', label: 'Cibo', value: 0.06, unit: 'per_mese', tone: 'neutral' },
+        { section: 'costi', label: 'Spese del reparto', value: 0.96, unit: 'mld', tone: 'neutral', text: 'Quota delle spese militari mensili, in proporzione agli uomini del reparto.' },
+        { section: 'autonomia', label: 'Carburante (scorte)', value: 12.4, unit: 'mesi', tone: 'neutral' },
+      ],
+      problems: [
+        { severity: 'critical', label: 'Copertura armi individuali 0,4%', detail: "Mancano 8.763 armi individuali alla dotazione d'epoca del reparto." },
+      ],
+      actions: [
+        { id: 'reinforce_unit', label: 'Rinforza', enabled: false, blockedReason: 'Organico già completo: 11.000 uomini per reparto.' },
+        { id: 'reequip_unit', label: 'Riequipaggia (8.763 pezzi)', enabled: true, blockedReason: null },
+        { id: 'transfer_unit', label: 'Trasferisci', enabled: true, blockedReason: null },
+        { id: 'reassign_unit', label: 'Cambia armata', enabled: true, blockedReason: null },
+      ],
+      why: "Reparto dell'armata «I Corpo»: uomini, equipaggiamento e fabbisogni sono suoi. L'armata che lo contiene è la somma dei suoi reparti.",
+    },
+    {
+      id: 'army-alpha-1-unit-002', kind: 'unit', label: '2ª Brigata', subtitle: 'I Corpo · Alpha · 0 uomini',
+      status: 'under_construction', statusLabel: 'In formazione', parentId: 'army-alpha-1', regionId: 'ALPHA', regionName: 'Alpha',
+      facts: [
+        { section: 'stato', label: 'Uomini', value: 0, unit: 'numero', tone: 'critical', text: "Organico d'epoca: 11.000 uomini per reparto." },
+        { section: 'capacita', label: 'Organico', value: 0, unit: 'pct', tone: 'critical' },
+        { section: 'capacita', label: 'Prontezza', value: 0, unit: 'pct', tone: 'critical' },
+      ],
+      problems: [
+        { severity: 'critical', label: 'Reparto senza uomini', detail: 'Nessun uomo assegnato: è un quadro organico, non una forza.' },
+        { severity: 'critical', label: 'Nessuna arma individuale assegnata', detail: 'Servono 8.800 armi individuali: il deposito non è stato ancora assegnato a questo reparto.' },
+      ],
+      actions: [
+        { id: 'reinforce_unit', label: 'Rinforza (11.000 uomini)', enabled: true, blockedReason: null },
+        { id: 'reequip_unit', label: 'Riequipaggia (8.800 pezzi)', enabled: true, blockedReason: null },
+        { id: 'transfer_unit', label: 'Trasferisci', enabled: true, blockedReason: null },
+        { id: 'reassign_unit', label: 'Cambia armata', enabled: true, blockedReason: null },
+      ],
+      why: "Il mondo dichiara un reparto in più: nasce **senza uomini** (in formazione), la riserva si muove solo con «Rinforza».",
     },
     {
       id: 'army-alpha-2', kind: 'army', label: 'II Corpo', subtitle: 'Reparti dello schieramento nazionale',
@@ -500,6 +548,60 @@ export const MOCK_OBJECTS = {
 };
 
 /** Anteprima PRIMA → DOPO: l'armata `army-alpha-2` è bloccata, le altre no. */
+export function mockUnitImpact(action, body = {}) {
+  const dryRun = body.dryRun === true;
+  const subject = MOCK_OBJECTS.objects.find(object => object.id === body.unitId) || {};
+  const unitName = subject.label || '1ª Brigata';
+  const armyName = subject.subtitle ? String(subject.subtitle).split(' ·')[0] : 'I Corpo';
+  const rows = action === 'reinforce'
+    ? [
+      { label: 'Uomini del reparto', before: 0, after: 11000, unit: 'numero', tone: 'neutral' },
+      { label: 'Organico', before: 0, after: 100, unit: 'pct', tone: 'positive' },
+      { label: 'Riserva addestrata', before: 86400, after: 75400, unit: 'numero', tone: 'neutral' },
+      { label: 'Prontezza', before: 0, after: 50, unit: 'pct', tone: 'warning' },
+    ]
+    : action === 'reequip'
+      ? [
+        { label: 'Fucili d’assalto del reparto', before: 37, after: 8800, unit: 'numero', tone: 'neutral' },
+        { label: 'Copertura armi individuali', before: 0.4, after: 100, unit: 'pct', tone: 'positive' },
+        { label: 'Deposito · Fucili d’assalto', before: 20000, after: 11237, unit: 'numero', tone: 'neutral' },
+        { label: 'Prontezza', before: 50, after: 100, unit: 'pct', tone: 'positive' },
+      ]
+      : action === 'transfer'
+        ? [
+          { label: 'Cibo (scorte)', before: 128.4, after: 128.25, unit: 'numero', tone: 'neutral' },
+          { label: 'Carburante (scorte)', before: 44.2, after: 43.57, unit: 'numero', tone: 'neutral' },
+          { label: 'Cassa', before: 96.4, after: 96.35, unit: 'mld', tone: 'neutral' },
+        ]
+        : [
+          { label: 'Reparti · I Corpo', before: 2, after: 1, unit: 'numero', tone: 'neutral' },
+          { label: 'Uomini · I Corpo', before: 22000, after: 11000, unit: 'numero', tone: 'neutral' },
+          { label: 'Reparti · II Corpo', before: 1, after: 2, unit: 'numero', tone: 'neutral' },
+          { label: 'Uomini · II Corpo', before: 11000, after: 22000, unit: 'numero', tone: 'neutral' },
+        ];
+  return {
+    applied: !dryRun,
+    action,
+    unitId: body.unitId || 'army-alpha-1-unit-001',
+    unitName,
+    armyId: subject.parentId || 'army-alpha-1',
+    armyName,
+    blocked: false,
+    blockedReason: null,
+    rows,
+    unit: {
+      id: body.unitId || 'army-alpha-1-unit-001', armyId: subject.parentId || 'army-alpha-1', name: unitName, personnel: 11000,
+      equipment: { fucili: 8800 }, monthlyNeeds: { fuel: 0.03, weapons: 0.2, food: 0.06 },
+      readiness: 1, status: 'operational', regionId: 'ALPHA', regionName: 'Alpha',
+      updatedDate: '1951-01-01', legacyDerived: false,
+    },
+    regionName: action === 'transfer' ? 'Beta' : 'Alpha',
+    stock: action === 'transfer' ? { food: 128.25, fuel: 43.57, money: 96.35 } : undefined,
+    note: action === 'transfer' ? '«1ª Brigata» trasferito in Beta.' : 'Azione applicata dal motore.',
+    why: 'Gli uomini passano dalla riserva addestrata al reparto: nessuno viene creato dal nulla.',
+  };
+}
+
 export function mockFormationImpact(armyId, armyName = 'III Corpo') {
   const blocked = armyId === 'army-alpha-2';
   return {
@@ -864,6 +966,17 @@ export function installMockApi(page, opts = {}) {
       });
     }
     return json(route, mockFormationImpact(armyId));
+  });
+  // MILITARY-UNITS: i reparti e le loro azioni (anteprima `dryRun` e conferma).
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/units`, (route) =>
+    json(route, { units: MOCK_OBJECTS.objects.filter(object => object.kind === 'unit') }));
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/units/**`, (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    const action = pathname.slice(pathname.lastIndexOf('/') + 1);
+    let body = {};
+    try { body = route.request().postDataJSON() || {}; } catch { body = {}; }
+    const unitId = pathname.split('/').slice(-2)[0];
+    return json(route, mockUnitImpact(action, { ...body, unitId }));
   });
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/chats*`, (route) => {
     if (route.request().method() === 'POST' && /\/chats$/.test(new URL(route.request().url()).pathname)) {

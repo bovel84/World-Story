@@ -60,8 +60,9 @@ test.describe('OP-OBJECTS — sala di governo', () => {
 
     await block.locator('.obj-sector', { hasText: 'Forze armate' }).locator('.obj-open').click();
 
-    // Livello B: lo schieramento nazionale con le sue armate.
-    await expect(block.locator('.obj-object-name')).toContainText(['Forze armate', 'I Corpo', 'II Corpo']);
+    // Livello B: lo schieramento nazionale, le sue armate e i loro **reparti**.
+    await expect(block.locator('.obj-object-name'))
+      .toContainText(['Forze armate', 'I Corpo', '1ª Brigata', '2ª Brigata', 'II Corpo']);
     const corpo = block.locator('.obj-object[aria-label="I Corpo"]');
     await expect(corpo).toContainText('Dislocata in Alpha');
     // Le armate dipendono dallo schieramento: sono già aperte, con la grammatica.
@@ -72,6 +73,51 @@ test.describe('OP-OBJECTS — sala di governo', () => {
     await expect(corpo.locator('.obj-why summary')).toHaveText('Perché?');
     await corpo.locator('.obj-why summary').click();
     await expect(corpo.locator('.obj-why p')).toContainText('Armata reale del mondo');
+  });
+
+  test('MILITARY-UNITS: i reparti vivono sotto la loro armata, con le azioni del motore', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+    const block = await openSalaDiGoverno(page);
+
+    await block.locator('.obj-sector', { hasText: 'Forze armate' }).locator('.obj-open').click();
+    const reparto = block.locator('.obj-object[aria-label="1ª Brigata"]');
+    await expect(reparto).toBeVisible();
+    await expect(reparto).toContainText('Reparto');
+    await expect(reparto).toContainText('Copertura armi individuali');
+    await expect(reparto).toContainText('Prontezza');
+    await expect(reparto).toContainText('I Corpo · Alpha');
+    // Le azioni sono quelle del motore: quella bloccata dice perché.
+    await expect(reparto.locator('.obj-action-button', { hasText: 'Riequipaggia' })).toBeEnabled();
+    await expect(reparto.locator('.obj-action-button', { hasText: 'Rinforza' })).toBeDisabled();
+    await expect(reparto.locator('.obj-blocked-hint')).toContainText('Organico già completo');
+
+    // Il reparto senza uomini è un problema dichiarato, non un silenzio.
+    const vuoto = block.locator('.obj-object[aria-label="2ª Brigata"]');
+    await expect(vuoto).toContainText('In formazione');
+    await expect(vuoto).toContainText('Reparto senza uomini');
+  });
+
+  test('MILITARY-UNITS: l’azione del reparto mostra il PRIMA → DOPO e si conferma', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+    const block = await openSalaDiGoverno(page);
+
+    await block.locator('.obj-sector', { hasText: 'Forze armate' }).locator('.obj-open').click();
+    const reparto = block.locator('.obj-object[aria-label="2ª Brigata"]');
+    await reparto.locator('.obj-action-button', { hasText: 'Rinforza' }).click();
+    await reparto.locator('.obj-unit-actions .obj-confirm', { hasText: 'Anteprima' }).click();
+
+    const azione = reparto.locator('.obj-unit-actions .obj-action');
+    await expect(azione).toBeVisible();
+    await expect(azione.locator('.obj-action-head')).toContainText('Rinforza · 2ª Brigata');
+    await expect(azione.locator('.obj-delta')).toContainText('Uomini del reparto');
+    await expect(azione.locator('.obj-delta')).toContainText('11.000');
+    await expect(azione.locator('.obj-delta')).toContainText('Riserva addestrata');
+
+    await azione.locator('.obj-confirm').click();
+    // Il motore applica: l'arsenale viene ricaricato e la vista resta coerente.
+    await expect(block).toBeVisible();
   });
 
   test('il cantiere mostra un’opera che non produce nulla prima del completamento', async ({ page }) => {

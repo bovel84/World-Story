@@ -1,8 +1,8 @@
 {
   "summary": {
-    "total": 102,
-    "mutating": 55,
-    "reading": 47,
+    "total": 104,
+    "mutating": 56,
+    "reading": 48,
     "byFile": {
       "chats.routes.ts": 8,
       "countries.routes.ts": 2,
@@ -12,7 +12,7 @@
       "games/playback.routes.ts": 6,
       "games/save.routes.ts": 1,
       "games/simulations.routes.ts": 8,
-      "games/state.routes.ts": 18,
+      "games/state.routes.ts": 20,
       "geo.routes.ts": 3,
       "health.routes.ts": 1,
       "llm.routes.ts": 6,
@@ -387,6 +387,18 @@
     {
       "method": "post",
       "path": "/:id/military/formation",
+      "mutating": true,
+      "file": "games/state.routes.ts"
+    },
+    {
+      "method": "get",
+      "path": "/:id/military/units",
+      "mutating": false,
+      "file": "games/state.routes.ts"
+    },
+    {
+      "method": "post",
+      "path": "/:id/military/units/:unitId/:action(reinforce|reequip|transfer|reassign)",
       "mutating": true,
       "file": "games/state.routes.ts"
     },

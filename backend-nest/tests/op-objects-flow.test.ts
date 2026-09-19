@@ -172,11 +172,20 @@ describe('OP-OBJECTS FLOW — test 38/39: due impianti, una sola scorta', () => 
 // ── 40–41. Armate e navi consumano davvero ─────────────────────────────────
 
 describe('OP-OBJECTS FLOW — test 40/41: i consumi degli oggetti entrano nello stock', () => {
-  it('40: una armata con 2 di carburante al mese lo toglie davvero dal magazzino', () => {
+  it('40: i reparti con 2 di carburante al mese lo tolgono davvero dal magazzino', () => {
     const { session } = createGame();
     const armies = store(session).armies();
-    store(session).saveArmies(armies.map((army: any, index: number) => ({
-      ...army, monthlyNeeds: { fuel: index === 0 ? 2 : 0, weapons: 0, food: 0 },
+    // MILITARY-UNITS: la fonte di verità del fabbisogno è il **reparto**;
+    // l'armata è la sua somma (dichiarare sull'aggregato non ha più senso).
+    const units = store(session).units();
+    const firstArmyUnits = units.filter((unit: any) => String(unit.armyId) === String(armies[0]?.id));
+    store(session).saveUnits(units.map((unit: any) => ({
+      ...unit,
+      monthlyNeeds: {
+        fuel: firstArmyUnits.some((item: any) => String(item.id) === String(unit.id)) ? 2 : 0,
+        weapons: 0,
+        food: 0,
+      },
     })));
     store(session).saveFacilities([]);
     store(session).saveShips([]);

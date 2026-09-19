@@ -26,6 +26,8 @@ import {
   type GovernmentVoicesResponse,
   type PeacetimePressure,
   type FormationImpactPayload,
+  type UnitActionImpactPayload,
+  type UnitActionRequest,
 } from '../services/api';
 import { normalizeResources } from '../components/Game/nationDossier';
 
@@ -116,6 +118,11 @@ export interface NationSnapshot {
   previewFormation: (options?: FormationOptions) => Promise<FormationImpactPayload>;
   /** OP-OBJECTS — crea davvero i reparti: il motore paga e aggiorna il mondo. */
   raiseFormation: (options?: FormationOptions) => Promise<void>;
+  /**
+   * MILITARY-UNITS — azione su un reparto: `dryRun` è l'anteprima PRIMA → DOPO,
+   * altrimenti il motore applica e i dati pubblicati vengono ricaricati.
+   */
+  unitAction: (request: UnitActionRequest) => Promise<UnitActionImpactPayload>;
   tradeNaturalResource: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;
   borrowSovereignDebt: (amountMld: number, termYears: number) => Promise<void>;
   setFiscalPolicy: (taxRatePct: number) => Promise<void>;
@@ -323,6 +330,41 @@ export function useNationSnapshot({
     }
   }, [gameId, notify]);
 
+  /**
+   * MILITARY-UNITS — azione su un reparto (Rinforza · Riequipaggia · Trasferisci
+   * · Cambia armata). Il motore decide e applica; qui si ricaricano soltanto i
+   * dati pubblicati e, quando l'azione è andata a segno, lo si dice al giocatore.
+   */
+  const unitAction = useCallback(async (request: UnitActionRequest) => {
+    if (!gameId) throw new Error('unit_unknown: nessuna partita attiva');
+    try {
+      const result = await gameApi.unitAction(gameId, request);
+      if (request.dryRun) return result;
+      notify(result.blockedReason || result.note, result.blocked ? 'info' : 'success');
+      const [arms, national] = await Promise.all([
+        gameApi.arsenal(gameId),
+        gameApi.nationalState(gameId),
+      ]);
+      setNationalArms(arms);
+      setNationalResources(normalizeResources(national.resources));
+      setNationalAccounts(national.accounts || {});
+      setNationalGovernment(national.government ?? null);
+      return { ...result, applied: true };
+    } catch (error: any) {
+      console.error('[App] Azione sul reparto fallita:', error);
+      const message = String(error?.message || '');
+      const reason = message.includes('unit_unknown')
+        ? message.replace(/^.*unit_unknown:\s*/, '') || 'Reparto inesistente.'
+        : message.includes('region_unknown') || message.includes('army_unknown')
+          ? message.replace(/^.*(region_unknown|army_unknown):\s*/, '') || 'Destinazione non valida.'
+          : message.includes('equipment_unknown') || message.includes('unit_invalid')
+            ? message.replace(/^.*(equipment_unknown|unit_invalid):\s*/, '') || 'Azione non valida.'
+            : 'Azione non eseguita.';
+      notify(reason, 'error');
+      throw error;
+    }
+  }, [gameId, notify]);
+
   // Vendi o compra una risorsa naturale sul mercato: denaro ↔ magazzino.
   const tradeNaturalResource = useCallback(async (mode: 'sell' | 'buy', resourceId: string, quantity: number) => {
     if (!gameId) return;
@@ -443,6 +485,7 @@ export function useNationSnapshot({
     procureEquipment,
     previewFormation,
     raiseFormation,
+    unitAction,
     tradeNaturalResource,
     borrowSovereignDebt,
     setFiscalPolicy,
