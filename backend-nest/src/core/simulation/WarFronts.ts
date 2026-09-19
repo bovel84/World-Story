@@ -238,6 +238,42 @@ export function supplyCoverage(input: {
   };
 }
 
+/**
+ * MILITARY/WARFRONT INTEGRITY P0-B — «questo reparto è davvero sul fronte?»
+ *
+ * La regola vive **una volta sola** e la usano tutti: la sincronizzazione dei
+ * fronti, la lettura delle parti (`sides`), lo sgancio fuori teatro e il
+ * fabbisogno materiale (`OperationalStateStore.militaryNeeds`). Un reparto
+ * partecipa a un fronte **solo se**:
+ *
+ * 1. il fronte esiste (un `frontId` che punta al nulla non è un ordine);
+ * 2. il fronte non è `closed` (la pace non paga l'ultimo mese di guerra);
+ * 3. il `frontId` dichiarato è proprio quello del fronte;
+ * 4. la provincia del reparto è **nel teatro** del fronte;
+ * 5. — quando la polity è nota — il reparto appartiene ancora a una delle due parti.
+ *
+ * Un reparto **distrutto** non partecipa mai (non preme, non consuma, non torna
+ * in vita): è la sua riga di storia, non una forza.
+ */
+export function unitIsActiveOnFront(input: {
+  unit: Pick<MilitaryUnitState, 'frontId' | 'regionId' | 'status'>;
+  front: Pick<WarFrontState, 'id' | 'status' | 'regionIds' | 'attackerPolityId' | 'defenderPolityId'> | null | undefined;
+  /** Polity del reparto (dalla provincia che lo ospita): se nota si verifica la parte. */
+  unitPolityId?: string | null;
+}): boolean {
+  const front = input.front;
+  const unit = input.unit;
+  if (!front) return false;
+  if (unit.status === 'destroyed') return false;
+  if (String(front.status) === 'closed') return false;
+  if (String(unit.frontId || '') !== String(front.id)) return false;
+  if (!unit.regionId) return false;
+  if (!front.regionIds.map(String).includes(String(unit.regionId))) return false;
+  const polity = input.unitPolityId == null ? '' : String(input.unitPolityId);
+  if (polity && polity !== String(front.attackerPolityId) && polity !== String(front.defenderPolityId)) return false;
+  return true;
+}
+
 // ── 3. Policy NPC: stessa formula, nessun LLM ───────────────────────────────
 
 /**
