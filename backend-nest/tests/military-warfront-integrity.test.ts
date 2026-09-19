@@ -1584,8 +1584,15 @@ describe('NPC WAR-CONSUMPTION SYMMETRY — P0-D: stesso costo d\'ordine per la f
     npcWarWorld(split);
     setStock(split, { weapons: base, food: 0, clothing: 0, fuel: 0 }, AUT);
     for (const date of dates) advancePeriod(split, 30, date);
-    expect(snapshot(split)).toEqual(snapshot(long));
-  });
+    // Cattura **una sola volta** per lato: i due stati si confrontano nello
+    // stesso istante, senza rivalutare `snapshot()` dentro `expect`.
+    const longSnap = snapshot(long);
+    const splitSnap = snapshot(split);
+    expect(splitSnap).toEqual(longSnap);
+    // 180 giorni + materializzazione NPC: quando l'intero file gira, il test
+    // supera i 5 s di default → timeout esplicito (come PR #78 per i test lunghi
+    // del tick materiale). Non è un allentamento dell'asserzione.
+  }, 60_000);
 });
 
 // ══════════════════════════════════════════════════════════════════════════
