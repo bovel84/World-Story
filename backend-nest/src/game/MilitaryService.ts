@@ -16,7 +16,7 @@
  */
 
 import { shortId } from '../utils/short-id';
-import { arsenalRepository, productionRepository } from '../repositories';
+import { militaryPersistenceRepository, arsenalRepository, productionRepository } from '../repositories';
 import { creditHeadroom, creditLimit, debtOf, financePurchase, movementCost, payMovement, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { advanceOrder, productionRate, productionRollSeed, type ProductionContext, type ProductionOrder } from '../core/simulation/MilitaryProduction';
 import {
@@ -845,14 +845,61 @@ export class MilitaryService {
         updatedDate: this.ctx.currentDate(),
       }, epoch);
       push('Prontezza', unit.readiness * 100, next.readiness * 100, 'pct', 80, 60);
-      const outcome = finish(
-        next,
-        snapshot.units.map(item => (item.id === unit.id ? next : item)),
-        `Ricostituito «${next.name}»: ${menApplied.toLocaleString('it-IT')} uomini dalla riserva e ${piecesApplied.toLocaleString('it-IT')} × ${label} dal deposito.`,
-        'Uomini e pezzi passano dalle scorte nazionali al reparto: nulla viene creato (riserva ↓ = reparto ↑, deposito ↓ = assegnato ↑).',
-      );
-      if (!input.dryRun && piecesApplied > 0) this.saveArsenal(polityId, nextDepot);
-      return outcome;
+      const nextUnits = snapshot.units.map(item => (item.id === unit.id ? next : item));
+      const nextPersonnel = personnelAfter ?? personnel;
+      const note = `Ricostituito «${next.name}»: ${menApplied.toLocaleString('it-IT')} uomini dalla riserva e ${piecesApplied.toLocaleString('it-IT')} × ${label} dal deposito.`;
+      const why = 'Uomini e pezzi passano dalle scorte nazionali al reparto: nulla viene creato (riserva ↓ = reparto ↑, deposito ↓ = assegnato ↑).';
+      if (input.dryRun) {
+        // Anteprima: nessuna scrittura, nessuna cache (né strumenti né arsenale).
+        return {
+          applied: false,
+          action: input.action,
+          unitId: next.id,
+          unitName: next.name,
+          armyId: next.armyId,
+          armyName: snapshot.armies.find(item => String(item.id) === String(next.armyId))?.name ?? army?.name ?? null,
+          blocked: false,
+          blockedReason: null,
+          rows,
+          unit: next,
+          regionName: next.regionName,
+          note,
+          why,
+        };
+      }
+      // **Validazione atomica e persistenza atomica**: le tre authority canoniche
+      // (riserva, reparti, arsenale) si scrivono in una sola transazione strict.
+      // Un errore qui fa rollback e **rilancia**: nessuna cache viene toccata, il
+      // chiamante non può credere riuscita una scrittura parziale.
+      militaryPersistenceRepository.reconstitute({
+        gameId: this.ctx.gameId,
+        polityId,
+        ...(nextPersonnel ? { personnel: nextPersonnel as unknown as Record<string, unknown> } : {}),
+        units: nextUnits.map(item => ({ id: item.id, data: item as unknown as Record<string, unknown> })),
+        arsenal: nextDepot,
+        turn: this.ctx.currentTurn(),
+        date: this.ctx.currentDate(),
+      });
+      // Solo **dopo** il commit riuscito: cache canonica dello store e aggregato
+      // delle armate (derivato: la somma dei reparti appena persistiti).
+      store.adoptPersisted({ ...(nextPersonnel ? { personnel: nextPersonnel } : {}), units: nextUnits });
+      // Il deposito è già nel database dal commit: qui si allinea la cache.
+      this.arsenals.set(polityId, nextDepot);
+      return {
+        applied: true,
+        action: input.action,
+        unitId: next.id,
+        unitName: next.name,
+        armyId: next.armyId,
+        armyName: snapshot.armies.find(item => String(item.id) === String(next.armyId))?.name ?? army?.name ?? null,
+        blocked: false,
+        blockedReason: null,
+        rows,
+        unit: next,
+        regionName: next.regionName,
+        note,
+        why,
+      };
     }
 
     if (input.action === 'transfer') {

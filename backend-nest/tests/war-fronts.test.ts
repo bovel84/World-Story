@@ -1306,3 +1306,147 @@ describe('MILITARY PR3 — ricostituzione di un reparto', () => {
     expect(unitOf(session, unit.id).personnel).toBeGreaterThan(4_000);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// MILITARY PR3 — atomicità della ricostituzione (persistenza)
+// ══════════════════════════════════════════════════════════════════════════
+describe('MILITARY PR3 — atomicità della ricostituzione', () => {
+  const depotOf = (session: any) => (session as any).military.depotUnits(PID);
+  const reserveOf = (session: any) => store(session).personnel().trainedReserve;
+  const equipmentSum = (bag: Record<string, number> | undefined, id = 'fucili') => Math.round(Number(bag?.[id] || 0));
+  /** Reparto fuori dal fronte, sotto organico e senza fucili. */
+  const wornUnit = (session: any) => {
+    const unit = units(session).find(item => String(item.armyId) === 'a1')!;
+    store(session).saveUnits(units(session).map(item => (String(item.id) === String(unit.id)
+      ? { ...item, personnel: 4_000, equipment: {}, readiness: 0.2, frontId: null, regionId: R.ita2, status: 'degraded' as const }
+      : item)));
+    return unitOf(session, unit.id);
+  };
+  /** Fotografia delle tre authority **canoniche** lette dal DB (non dalla cache). */
+  const dbState = (session: any, unitId: string) => ({
+    personnel: db.prepare("SELECT data FROM game_operational_objects WHERE game_id = ? AND kind = 'personnel'").get(session.id),
+    unit: db.prepare('SELECT data FROM game_operational_objects WHERE game_id = ? AND object_id = ?').get(session.id, unitId),
+    arsenal: db.prepare('SELECT units FROM game_arsenals WHERE game_id = ? AND polity_id = ?').get(session.id, PID),
+  });
+  /** Failure injection **reale**: la terza scrittura della transazione fallisce. */
+  const withFailingArsenalWrite = (run: () => void) => {
+    db.exec("CREATE TRIGGER pr3_fail_arsenal_insert BEFORE INSERT ON game_arsenals BEGIN SELECT RAISE(ABORT, 'injected'); END");
+    db.exec("CREATE TRIGGER pr3_fail_arsenal_update BEFORE UPDATE ON game_arsenals BEGIN SELECT RAISE(ABORT, 'injected'); END");
+    try {
+      run();
+    } finally {
+      db.exec('DROP TRIGGER pr3_fail_arsenal_insert');
+      db.exec('DROP TRIGGER pr3_fail_arsenal_update');
+    }
+  };
+
+  it('41: fallimento della persistenza → **rollback**: RAM e DB esattamente come prima', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const unit = wornUnit(session);
+    (session as any).military.saveArsenal(PID, { fucili: 5_000 });
+    store(session).savePersonnel({ ...store(session).personnel(), trainedReserve: 9_000 });
+    const before = {
+      reserve: reserveOf(session),
+      personnel: unitOf(session, unit.id).personnel,
+      assigned: equipmentSum(unitOf(session, unit.id).equipment),
+      depot: equipmentSum(depotOf(session)),
+    };
+    const dbBefore = dbState(session, unit.id);
+    // L'azione è **valida**: la transazione parte davvero (riserva e reparti
+    // scritti), poi la terza scrittura fallisce. Senza transazione resterebbe
+    // uno stato a metà; con la transazione si torna indietro.
+    withFailingArsenalWrite(() => {
+      expect(() => session.unitAction({ action: 'reconstitute', unitId: unit.id })).toThrow();
+    });
+    // RAM: identica (nessuna cache aggiornata dopo un commit fallito).
+    expect(reserveOf(session)).toBe(before.reserve);
+    expect(unitOf(session, unit.id).personnel).toBe(before.personnel);
+    expect(equipmentSum(unitOf(session, unit.id).equipment)).toBe(before.assigned);
+    expect(equipmentSum(depotOf(session))).toBe(before.depot);
+    // DB: identico (la verità canonica non si è mossa).
+    expect(dbState(session, unit.id)).toEqual(dbBefore);
+    // Conservazione intatta anche dopo il fallimento.
+    expect(reserveOf(session) + unitOf(session, unit.id).personnel).toBe(before.reserve + before.personnel);
+    expect(equipmentSum(depotOf(session)) + equipmentSum(unitOf(session, unit.id).equipment)).toBe(before.depot + before.assigned);
+  });
+
+  it('42: dopo il rollback una **nuova lettura** dal DB vede lo stato di prima', () => {
+    const { session, gameId } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const unit = wornUnit(session);
+    (session as any).military.saveArsenal(PID, { fucili: 5_000 });
+    store(session).savePersonnel({ ...store(session).personnel(), trainedReserve: 9_000 });
+    const before = {
+      reserve: reserveOf(session),
+      personnel: unitOf(session, unit.id).personnel,
+      assigned: equipmentSum(unitOf(session, unit.id).equipment),
+      depot: equipmentSum(depotOf(session)),
+    };
+    withFailingArsenalWrite(() => {
+      expect(() => session.unitAction({ action: 'reconstitute', unitId: unit.id })).toThrow();
+    });
+    // Nuova sessione: la cache è nuova, lo stato viene riletto dal database.
+    registry.removeSession(gameId);
+    const reloaded = registry.getSession(gameId);
+    expect(reserveOf(reloaded)).toBe(before.reserve);
+    expect(unitOf(reloaded, unit.id).personnel).toBe(before.personnel);
+    expect(equipmentSum(unitOf(reloaded, unit.id).equipment)).toBe(before.assigned);
+    expect(equipmentSum(depotOf(reloaded))).toBe(before.depot);
+  });
+
+  it('43: `dryRun` non scrive **nulla** (né RAM né DB)', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const unit = wornUnit(session);
+    (session as any).military.saveArsenal(PID, { fucili: 5_000 });
+    store(session).savePersonnel({ ...store(session).personnel(), trainedReserve: 9_000 });
+    const dbBefore = dbState(session, unit.id);
+    const before = {
+      reserve: reserveOf(session),
+      personnel: unitOf(session, unit.id).personnel,
+      assigned: equipmentSum(unitOf(session, unit.id).equipment),
+      depot: equipmentSum(depotOf(session)),
+    };
+    const preview = session.unitAction({ action: 'reconstitute', unitId: unit.id, dryRun: true });
+    expect(preview.applied).toBe(false);
+    expect(preview.blocked).toBe(false);
+    expect(preview.rows.length).toBeGreaterThan(0);
+    // Anteprima: mostra il DOPO senza applicarlo.
+    expect(unitOf(session, unit.id).personnel).toBe(before.personnel);
+    expect(reserveOf(session)).toBe(before.reserve);
+    expect(equipmentSum(depotOf(session))).toBe(before.depot);
+    expect(dbState(session, unit.id)).toEqual(dbBefore);
+  });
+
+  it('44: l\'azione riuscita persiste le **tre** authority in una volta (conservazione)', () => {
+    const { session } = createGame();
+    setRelationship(session, PID, AUT, 'hostile');
+    session.publicFronts();
+    const unit = wornUnit(session);
+    (session as any).military.saveArsenal(PID, { fucili: 5_000 });
+    store(session).savePersonnel({ ...store(session).personnel(), trainedReserve: 9_000 });
+    const before = {
+      reserve: reserveOf(session),
+      personnel: unitOf(session, unit.id).personnel,
+      assigned: equipmentSum(unitOf(session, unit.id).equipment),
+      depot: equipmentSum(depotOf(session)),
+    };
+    const impact = session.unitAction({ action: 'reconstitute', unitId: unit.id });
+    expect(impact.applied).toBe(true);
+    // Le due invarianti di conservazione, sulle tre authority canoniche.
+    expect(reserveOf(session) + unitOf(session, unit.id).personnel).toBe(before.reserve + before.personnel);
+    expect(equipmentSum(depotOf(session)) + equipmentSum(unitOf(session, unit.id).equipment)).toBe(before.depot + before.assigned);
+    // E la **verità canonica** è nel DB: riserva, reparto e arsenale aggiornati
+    // nella stessa transazione (nessuna riga rimasta indietro).
+    const personnelRow = db.prepare("SELECT data FROM game_operational_objects WHERE game_id = ? AND kind = 'personnel'").get(session.id) as any;
+    const unitRow = db.prepare('SELECT data FROM game_operational_objects WHERE game_id = ? AND object_id = ?').get(session.id, unit.id) as any;
+    const arsenalRow = db.prepare('SELECT units FROM game_arsenals WHERE game_id = ? AND polity_id = ?').get(session.id, PID) as any;
+    expect(JSON.parse(personnelRow.data).trainedReserve).toBe(reserveOf(session));
+    expect(JSON.parse(unitRow.data).personnel).toBe(unitOf(session, unit.id).personnel);
+    expect(equipmentSum(JSON.parse(arsenalRow.units))).toBe(equipmentSum(depotOf(session)));
+  });
+});

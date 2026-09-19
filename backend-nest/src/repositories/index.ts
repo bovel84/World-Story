@@ -24,5 +24,7 @@ export type { NaturalResourceRecord } from './natural-resource.repository';
 export { productionRepository } from './production.repository';
 export { operationalObjectRepository, OPERATIONAL_OBJECTS_SCHEMA } from './operational-object.repository';
 export type { OperationalObjectKind, OperationalObjectRow, OperationalObjectsSnapshot } from './operational-object.repository';
+export { militaryPersistenceRepository } from './military-persistence.repository';
+export type { MilitaryReconstitutionWrite } from './military-persistence.repository';
 export { modifiersRepository } from './modifiers.repository';
 export type { ChatRecord, ChatSummary, ChatMessageRecord, ChatRole, ChatParticipant, GameChatSnapshot } from './chat.repository';

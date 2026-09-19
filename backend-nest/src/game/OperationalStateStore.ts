@@ -739,6 +739,30 @@ export class OperationalStateStore {
     this.saveArmies(snapshot.armies.map(army => aggregateArmyFromUnits(army, byArmy.get(String(army.id)) || [])));
   }
 
+  /**
+   * Adotta in **cache** uno stato canonico già persistito altrove (percorso
+   * atomico della ricostituzione, `militaryPersistenceRepository`).
+   *
+   * Non riscrive le righe canoniche — sono già nel database dentro la
+   * transazione — e riallinea **solo** ciò che è derivato: l'aggregato delle
+   * armate, che è per definizione la somma dei reparti (`aggregateArmyFromUnits`).
+   * Se questo refresh non riuscisse, l'aggregato resterebbe un valore vecchio di
+   * stato **derivato**: la prossima `saveUnits`/`syncArmies` lo ricalcola dai
+   * reparti, che sono l'unica authority.
+   */
+  adoptPersisted(input: { personnel?: MilitaryPersonnelState; units: readonly MilitaryUnitState[] }): void {
+    const snapshot = this.snapshot();
+    if (input.personnel) snapshot.personnel = input.personnel;
+    snapshot.units = [...input.units].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    const byArmy = new Map<string, MilitaryUnitState[]>();
+    for (const unit of snapshot.units) {
+      const list = byArmy.get(String(unit.armyId));
+      if (list) list.push(unit);
+      else byArmy.set(String(unit.armyId), [unit]);
+    }
+    this.saveArmies(snapshot.armies.map(army => aggregateArmyFromUnits(army, byArmy.get(String(army.id)) || [])));
+  }
+
   /** Aggregato nazionale come somma degli oggetti (diagnostica e invarianti). */
   aggregate(): OperationalAggregate {
     const snapshot = this.snapshot();
