@@ -814,7 +814,7 @@ describe('MILITARY INTEGRITY — P1-3: il trasferimento ha geografia e distanza'
     expect(path(R.ita4)).toEqual(path(R.ita4));
   });
 
-  it('24: trasferimento adiacente e a due tratte: id, uomini e pezzi non cambiano', () => {
+  it('24: trasferimenti progressivi: id, uomini e pezzi non cambiano', () => {
     const { session } = createGame();
     const unit = unitOf(session, 'a1-unit-001');
     setStock(session, { food: 100, money: 100, fuel: 100 });
@@ -823,28 +823,35 @@ describe('MILITARY INTEGRITY — P1-3: il trasferimento ha geografia e distanza'
     const one = session.unitAction({ action: 'transfer', unitId: unit.id, regionId: R.ita2 });
     expect(one.blocked).toBe(false);
     expect(one.unit.id).toBe(unit.id);
+    expect(one.unit.regionId).toBe(R.ita1);
     expect(one.unit.personnel).toBe(personnel);
     expect(JSON.stringify(one.unit.equipment)).toBe(equipment);
     expect(stock(session).food).toBeCloseTo(100 - 0.15, 3);
+    (session as any).warFronts.advanceUnitMovements(30, '2026-01-31');
+    expect(unitOf(session, unit.id).regionId).toBe(R.ita2);
     const two = session.unitAction({ action: 'transfer', unitId: unit.id, regionId: R.ita3 });
     expect(two.blocked).toBe(false);
-    expect(two.unit.regionId).toBe(R.ita3);
-    expect(two.unit.personnel).toBe(personnel);
+    expect(two.unit.regionId).toBe(R.ita2);
+    (session as any).warFronts.advanceUnitMovements(30, '2026-03-02');
+    expect(unitOf(session, unit.id).regionId).toBe(R.ita3);
+    expect(unitOf(session, unit.id).personnel).toBe(personnel);
   });
 
   it('25: tre tratte costano più di una (costo proporzionale alla distanza reale)', () => {
-    const { session } = createGame();
-    setStock(session, { food: 100, money: 100, fuel: 100 });
-    const unit = unitOf(session, 'a1-unit-001');
-    const one = session.unitAction({ action: 'transfer', unitId: unit.id, regionId: R.ita2 });
+    const oneGame = createGame().session;
+    setStock(oneGame, { food: 100, money: 100, fuel: 100 });
+    const oneUnit = unitOf(oneGame, 'a1-unit-001');
+    const one = oneGame.unitAction({ action: 'transfer', unitId: oneUnit.id, regionId: R.ita2 });
     const costOne = 100 - (one.stock as any).food;
-    setStock(session, { food: 100, money: 100, fuel: 100 });
-    session.unitAction({ action: 'transfer', unitId: unit.id, regionId: R.ita1 });
-    setStock(session, { food: 100, money: 100, fuel: 100 });
-    const three = session.unitAction({ action: 'transfer', unitId: unit.id, regionId: R.ita4 });
+
+    const threeGame = createGame().session;
+    setStock(threeGame, { food: 100, money: 100, fuel: 100 });
+    const threeUnit = unitOf(threeGame, 'a1-unit-001');
+    const three = threeGame.unitAction({ action: 'transfer', unitId: threeUnit.id, regionId: R.ita4 });
     expect(three.blocked).toBe(false);
     const costThree = 100 - (three.stock as any).food;
-    expect(three.unit.regionId).toBe(R.ita4);
+    expect(three.unit.regionId).toBe(R.ita1);
+    expect(three.unit.movement?.targetRegionId).toBe(R.ita4);
     expect(costThree).toBeGreaterThan(costOne);
     expect(costThree).toBeCloseTo(costOne * 3, 3);
   });
@@ -1100,9 +1107,10 @@ describe('WARFRONT SUPPLY/TICK — P0-B: sincronizzazione prima del tick', () =>
     const unit = units(session).find(item => String(item.id) === 'a1-unit-001')!;
     const moved = session.unitAction({ action: 'transfer', unitId: unit.id, regionId: R.ita3 });
     expect(moved.blocked).toBe(false);
-    // Dopo il movimento il `frontId` è ancora quello di prima: lo sgancio è
-    // compito della sincronizzazione, che ora gira **prima** del fabbisogno.
-    expect(String(unitOf(session, unit.id).frontId)).toBe(String(theFront(session).id));
+    // P6: l'ordine di trasferimento sgancia subito il reparto dal fronte, ma
+    // non lo teletrasporta; il movimento avanzerà prima della sincronizzazione.
+    expect(unitOf(session, unit.id).frontId).toBeNull();
+    expect(unitOf(session, unit.id).regionId).not.toBe(R.ita3);
     // Scorte **esattamente** pari al fabbisogno ×1 (un reparto fuori teatro non
     // paga il coefficiente di guerra): bastano, e nessun materiale manca.
     const expected = weaponsNeedOfPeriod(session);

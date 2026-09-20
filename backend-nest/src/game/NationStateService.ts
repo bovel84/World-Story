@@ -674,6 +674,16 @@ export class NationStateService {
     return seeded;
   }
 
+  /** Adotta in cache uno stock già persistito da una transazione cross-authority. */
+  adoptResourceStock(polityId: string, stock: ResourceStock): void {
+    this.resourceStocks.set(polityId, stock);
+  }
+
+  /** Invalida una sola polity: la prossima lettura torna all'authority DB. */
+  invalidateResourceStock(polityId: string): void {
+    this.resourceStocks.delete(polityId);
+  }
+
   saveResourceStock(polityId: string, stock: ResourceStock): void {
     this.resourceStocks.set(polityId, stock);
     try {

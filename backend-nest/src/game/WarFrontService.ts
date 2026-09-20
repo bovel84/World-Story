@@ -203,7 +203,93 @@ export class WarFrontService {
     if (fronts.length === 0) return false;
     const units = this.store().persistedUnits();
     return fronts.some(front => units.some(unit => String(unit.frontId) === String(front.id)
-      && unit.status !== 'destroyed'));
+      && unit.status !== 'destroyed' && !unit.movement));
+  }
+
+  /**
+   * P6 — avanza ogni trasferimento persistente sul set globale dei reparti.
+   * Stesso percorso per player e NPC; nessuna decisione strategica viene presa
+   * qui. Un richiamo ripetuto con la stessa data canonica è idempotente.
+   */
+  advanceUnitMovements(stepDays: number, stepDate: string): { events: string[]; moved: string[] } {
+    const days = Math.max(0, Math.floor(nonNegative(stepDays)));
+    const events: string[] = [];
+    const moved: string[] = [];
+    if (days <= 0 || !this.hasPersistentMilitary()) return { events, moved };
+    const store = this.store();
+    const snapshot = store.snapshot();
+    const regions = this.ctx.regions();
+    let dirty = false;
+    const units = snapshot.units.map(unit => {
+      if (!unit.movement || unit.movement.lastAdvancedDate === stepDate) return unit;
+      const movement = {
+        ...unit.movement,
+        path: [...unit.movement.path],
+        pathIndex: Math.max(0, Math.floor(nonNegative(unit.movement.pathIndex))),
+        daysPerHop: Math.max(1, Math.ceil(nonNegative(unit.movement.daysPerHop))),
+        remainingDaysToNextHop: Math.max(1, Math.ceil(nonNegative(unit.movement.remainingDaysToNextHop))),
+      };
+      let budget = days;
+      let regionId = unit.regionId;
+      let regionName = unit.regionName;
+      let interrupted = false;
+      let arrived = false;
+      // Il controllo di accesso non aspetta il completamento della tratta: un
+      // live tick vede subito che la prossima provincia non è più controllata.
+      const immediateNext = movement.path[movement.pathIndex + 1];
+      const immediateRegion = immediateNext ? regions.get(String(immediateNext)) : undefined;
+      if (!immediateRegion || String(immediateRegion.owner) !== String(unit.polityId)) {
+        events.push(`🚧 Trasferimento interrotto: il percorso verso ${movement.targetRegionName || movement.targetRegionId} non è più sotto controllo.`);
+        dirty = true;
+        const { movement: _movement, ...withoutMovement } = unit;
+        return { ...withoutMovement, updatedDate: stepDate } as MilitaryUnitState;
+      }
+      while (budget >= movement.remainingDaysToNextHop) {
+        budget -= movement.remainingDaysToNextHop;
+        const nextIndex = movement.pathIndex + 1;
+        const nextId = movement.path[nextIndex];
+        const nextRegion = nextId ? regions.get(String(nextId)) : undefined;
+        if (!nextRegion || String(nextRegion.owner) !== String(unit.polityId)) {
+          events.push(`🚧 Trasferimento interrotto: il percorso verso ${movement.targetRegionName || movement.targetRegionId} non è più sotto controllo.`);
+          interrupted = true;
+          break;
+        }
+        movement.pathIndex = nextIndex;
+        regionId = String(nextRegion.id);
+        regionName = nextRegion.name || null;
+        moved.push(String(unit.id));
+        if (nextIndex >= movement.path.length - 1) {
+          events.push(`🪖 «${unit.name}» arriva a ${regionName || movement.targetRegionName || movement.targetRegionId}.`);
+          arrived = true;
+          break;
+        }
+        movement.remainingDaysToNextHop = movement.daysPerHop;
+      }
+      dirty = true;
+      if (arrived || interrupted) {
+        const { movement: _movement, ...withoutMovement } = unit;
+        return { ...withoutMovement, regionId, regionName, updatedDate: stepDate } as MilitaryUnitState;
+      }
+      movement.remainingDaysToNextHop = Math.max(1, movement.remainingDaysToNextHop - budget);
+      movement.lastAdvancedDate = stepDate;
+      return { ...unit, regionId, regionName, movement, updatedDate: stepDate };
+    });
+    if (dirty) {
+      // Strict: un hop/arrivo viene annunciato solo dopo che il set globale è
+      // durevole. Nessuna risorsa è inclusa: il costo è già stato pagato
+      // atomicamente all'emissione dell'ordine.
+      militaryPersistenceRepository.persistMovement({
+        gameId: this.ctx.gameId,
+        units: units.map(item => ({ id: item.id, data: item as unknown as Record<string, unknown> })),
+      });
+      try {
+        store.adoptPersisted({ units });
+      } catch (error) {
+        store.invalidate();
+        console.warn('[WarFrontService] Refresh derivato del movimento non applicato (commit già persistito):', error);
+      }
+    }
+    return { events, moved };
   }
 
   /**
@@ -403,7 +489,7 @@ export class WarFrontService {
     }
 
     const unitsInTheatre = (polityId: string, theatre: ReadonlySet<string>) => units
-      .filter(unit => unit.status !== 'destroyed'
+      .filter(unit => unit.status !== 'destroyed' && !unit.movement
         && unit.regionId && theatre.has(String(unit.regionId))
         && this.unitPolityId(unit) === polityId);
 
@@ -428,7 +514,7 @@ export class WarFrontService {
       }
       const aUnits = unitsInTheatre(pair.a, pair.theatre);
       const bUnits = unitsInTheatre(pair.b, pair.theatre);
-      const already = units.filter(unit => String(unit.frontId) === id && unit.status !== 'destroyed').length;
+      const already = units.filter(unit => String(unit.frontId) === id && unit.status !== 'destroyed' && !unit.movement).length;
       // «Unità coinvolte» è una condizione di nascita: un fronte non nasce dal
       // nulla. Il teatro resta conteso anche se una parte resta senza reparti.
       if (!existing && aUnits.length + bUnits.length + already === 0) continue;
@@ -501,7 +587,7 @@ export class WarFrontService {
 
       // Assegnazione: i reparti della coppia presenti nel teatro seguono il fronte
       // (`frontId` è la fonte autorevole: il fronte li deriva, non li possiede).
-      const assignable = units.filter(unit => unit.status !== 'destroyed'
+      const assignable = units.filter(unit => unit.status !== 'destroyed' && !unit.movement
         && !unit.frontId
         && unit.regionId && pair.theatre.has(String(unit.regionId))
         && (this.unitPolityId(unit) === attackerPolityId || this.unitPolityId(unit) === defenderPolityId));
@@ -884,7 +970,7 @@ export class WarFrontService {
         .sort((a, b) => String(a.id).localeCompare(String(b.id)))
         .map(unit => {
           // P4 no-resurrection e rally P4: nessuna cura durante la ritirata.
-          if (unit.status === 'destroyed' || unit.status === 'retreating') return unit;
+          if (unit.status === 'destroyed' || unit.status === 'retreating' || unit.movement) return unit;
           let men = 0;
           let rifles = 0;
           const missingMen = Math.max(0, doctrine.menPerFormation - Math.round(nonNegative(unit.personnel)));
@@ -982,6 +1068,11 @@ export class WarFrontService {
     this.periodCoverage = new Map(Object.entries(supplyByPolity || {})
       .map(([polityId, coverage]) => [String(polityId), coverage] as const));
     if (!this.hasPersistentMilitary()) return { events, fronts: 0, conquests: [] };
+    const date = dateOverride || this.ctx.currentDate();
+    // P6 — copre anche live tick/playback. Nel tick materiale la stessa data è
+    // già avanzata prima di `syncFronts`: la guardia persistente rende il
+    // richiamo idempotente.
+    events.push(...this.advanceUnitMovements(stepDays, date).events);
     // Lo stato del fronte è già assestato (`syncFronts()` gira **prima** del
     // periodo materiale: P0-B). Questa chiamata è idempotente e copre i percorsi
     // che non passano dal tick materiale (battito live, playback).
@@ -1001,7 +1092,6 @@ export class WarFrontService {
     }
     const store = this.store();
     const snapshot = store.snapshot();
-    const date = dateOverride || this.ctx.currentDate();
     const epoch = this.epoch();
     const regions = this.ctx.regions();
     const regionStateBefore = new Map([...regions.values()].map(region => [String(region.id), {

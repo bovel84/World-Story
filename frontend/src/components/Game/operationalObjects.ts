@@ -357,17 +357,22 @@ export function unitActionView(impact: UnitActionImpactPayload | null | undefine
       after: formatUnitValue(row.after, row.unit, deltaDecimals(row.unit)),
       tone: (row.tone || 'neutral') as ObjectTone,
     }));
-  const context = impact.action === 'transfer' && impact.regionName
-    ? `Destinazione: ${impact.regionName}`
-    : impact.action === 'reassign' && impact.armyName
-      ? `Armata di arrivo: ${impact.armyName}`
-      : null;
+  const context = impact.action === 'transfer' && impact.movement
+    ? `${impact.movement.pathNames[0]} → ${impact.movement.pathNames[impact.movement.pathNames.length - 1]}`
+    : impact.action === 'transfer' && impact.regionName
+      ? `Destinazione: ${impact.regionName}`
+      : impact.action === 'reassign' && impact.armyName
+        ? `Armata di arrivo: ${impact.armyName}`
+        : null;
+  const movementLine = impact.movement
+    ? `${impact.movement.pathNames.join(' → ')} · ${impact.movement.hops} ${impact.movement.hops === 1 ? 'tratta' : 'tratte'} · ${impact.movement.daysPerHop} giorni/tratta · ${impact.movement.totalDays} giorni stimati · arrivo ${formatDate(impact.movement.estimatedArrivalDate)}`
+    : null;
   return {
     blocked: impact.blocked,
     blockedReason: impact.blockedReason,
     title: `${UNIT_ACTION_TITLE[impact.action] ?? 'Azione'} · ${impact.unitName}`,
     costLine: context,
-    equipmentLine: null,
+    equipmentLine: movementLine,
     rows,
     why: impact.why,
   };

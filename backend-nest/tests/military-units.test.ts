@@ -349,7 +349,8 @@ describe('MILITARY-UNITS — azioni del reparto (P5)', () => {
     const cost = movementCost(before);
     const result = session.unitAction({ action: 'transfer', unitId: unit.id, regionId: `${WORLD_ID}_ITA2` });
     expect(result.blocked).toBe(false);
-    expect(result.unit.regionId).toBe(`${WORLD_ID}_ITA2`);
+    expect(result.unit.regionId).toBe(unit.regionId);
+    expect(result.unit.movement?.targetRegionId).toBe(`${WORLD_ID}_ITA2`);
     expect(stock(session).food).toBeCloseTo(before.food - cost.food, 3);
     expect(stock(session).money).toBeCloseTo(before.money - cost.money, 3);
     expect(stock(session).fuel).toBeCloseTo(before.fuel - cost.fuel, 3);

@@ -25,6 +25,7 @@ import {
   procurementOption, type NationCapacity,
 } from '../core/simulation/MilitaryIndustry';
 import { addDays } from '../core/simulation/calendar';
+import { movementDuration } from '../core/simulation/MilitaryMovement';
 import type { WorldStateRegion } from '../core/simulation/WorldStateEngine';
 import {
   arsenalSeedUnits, equipmentCoverage, epochForDate, establishmentFor, individualWeaponShareFor,
@@ -103,6 +104,15 @@ export interface UnitActionImpact {
   unit: MilitaryUnitState;
   regionName?: string | null;
   stock?: { food: number; fuel: number; money: number };
+  /** P6 — dettaglio leggibile dell'ordine di trasferimento (anche in dry-run). */
+  movement?: {
+    path: string[];
+    pathNames: string[];
+    hops: number;
+    daysPerHop: number;
+    totalDays: number;
+    estimatedArrivalDate: string;
+  };
   note: string;
   why: string;
 }
@@ -120,6 +130,9 @@ export interface MilitaryContext {
   initialAccounts(): Record<string, NationalAccount>;
   resourceStock(polityId: string): ResourceStock;
   saveResourceStock(polityId: string, stock: ResourceStock): void;
+  /** Cache-only: lo stock è già stato scritto dalla transazione militare. */
+  adoptResourceStock(polityId: string, stock: ResourceStock): void;
+  invalidateResourceStock(polityId: string): void;
   /** Data d'inizio dello scenario: fissa l'epoca militare della partita. */
   worldStartDate?(): string;
   /** Progetti in corso del motore (per la capacità industriale). */
@@ -674,6 +687,7 @@ export class MilitaryService {
       rows.push({ label, before: round3(before), after: round3(after), unit: unitOf, tone: toneFor(after, unitOf, good, warn) });
     };
     let personnelAfter: MilitaryPersonnelState | null = null;
+    let movementImpact: UnitActionImpact['movement'];
     const blocked = (blockedReason: string, note: string, why: string): UnitActionImpact => ({
       applied: false,
       action: input.action,
@@ -691,9 +705,32 @@ export class MilitaryService {
     });
     const finish = (next: MilitaryUnitState, nextUnits: MilitaryUnitState[], note: string, why: string, stock?: ResourceStock): UnitActionImpact => {
       if (!input.dryRun) {
-        if (personnelAfter) store.savePersonnel(personnelAfter);
-        if (stock) this.ctx.saveResourceStock(polityId, stock);
-        store.saveUnits(nextUnits);
+        if (movementImpact && stock) {
+          // P6 — pagamento e ordine di marcia sono un solo fatto: nessun costo
+          // senza movimento e nessun movimento gratuito dopo reload/retry.
+          militaryPersistenceRepository.persistMovement({
+            gameId: this.ctx.gameId,
+            units: nextUnits.map(item => ({ id: item.id, data: item as unknown as Record<string, unknown> })),
+            resource: {
+              polityId,
+              stock: stock as unknown as Record<string, unknown>,
+              turn: this.ctx.currentTurn(),
+              date: this.ctx.currentDate(),
+            },
+          });
+          try {
+            store.adoptPersisted({ units: nextUnits });
+            this.ctx.adoptResourceStock(polityId, stock);
+          } catch (error) {
+            store.invalidate();
+            this.ctx.invalidateResourceStock(polityId);
+            console.warn('[MilitaryService] Refresh derivato del trasferimento non applicato (commit già persistito):', error);
+          }
+        } else {
+          if (personnelAfter) store.savePersonnel(personnelAfter);
+          if (stock) this.ctx.saveResourceStock(polityId, stock);
+          store.saveUnits(nextUnits);
+        }
       }
       return {
         applied: !input.dryRun,
@@ -708,10 +745,21 @@ export class MilitaryService {
         unit: next,
         regionName: next.regionName,
         stock: stock ? { food: stock.food, fuel: stock.fuel, money: stock.money } : undefined,
+        ...(movementImpact ? { movement: movementImpact } : {}),
         note,
         why,
       };
     };
+
+    // P6 — una marcia è un ordine persistente unico. Finché non termina, il
+    // reparto non riceve trasferimenti, rinforzi, pezzi o cambi d'armata.
+    if (unit.movement) {
+      return blocked(
+        `Il reparto è in trasferimento verso ${unit.movement.targetRegionName || unit.movement.targetRegionId}: completa prima la marcia.`,
+        'Nessuna azione applicata.',
+        'Il trasferimento strategico usa lo stesso reparto persistente; durante la marcia la sua logistica non viene modificata.',
+      );
+    }
 
     if (input.action === 'reinforce') {
       const menPerFormation = doctrine.menPerFormation;
@@ -933,6 +981,12 @@ export class MilitaryService {
     }
 
     if (input.action === 'transfer') {
+      if (unit.status === 'destroyed') {
+        return blocked('Reparto distrutto: non può ricevere ordini di trasferimento.', 'Nessuno spostamento.', 'Un reparto distrutto resta una riga storica e non viene rimesso in movimento.');
+      }
+      if (unit.status === 'retreating') {
+        return blocked('Reparto in ritirata: deve completare il rally prima di un trasferimento strategico.', 'Nessuno spostamento.', 'Ritirata da combattimento e trasferimento volontario restano due percorsi distinti.');
+      }
       const regions = this.ctx.playerRegions?.() || [];
       const target = input.regionId ? regions.find(region => String(region.id) === String(input.regionId)) : undefined;
       if (!target) throw new Error(`region_unknown: «${input.regionId ?? ''}» non è una regione del paese`);
@@ -955,22 +1009,54 @@ export class MilitaryService {
           'Il reparto si muove via terra **solo** attraverso province del paese: un percorso che attraversa territorio ostile non esiste.',
         );
       }
-      const distanceFactor = regionHops(path);
+      const hops = regionHops(path);
       const before = this.ctx.resourceStock(polityId);
-      const cost = movementCost(before, distanceFactor);
+      const cost = movementCost(before, hops);
       const payment = payMovement(before, cost);
-      // L'identità del reparto non cambia **mai** (P1-1): cambia la posizione.
-      const next = { ...unit, regionId: target.id, regionName: target.name || null, updatedDate: this.ctx.currentDate() };
-      push('Distanza percorsa (tratte)', 0, distanceFactor, 'numero');
+      const duration = movementDuration({
+        hops,
+        motorized: cost.motorized,
+        advancedLogistics: before.technologies.includes('logistica_avanzata'),
+      });
+      const estimatedArrivalDate = addDays(this.ctx.currentDate(), duration.totalDays);
+      const pathNames = path.map(regionId => regions.find(region => String(region.id) === String(regionId))?.name || regionId);
+      movementImpact = {
+        path: [...path],
+        pathNames,
+        hops,
+        daysPerHop: duration.daysPerHop,
+        totalDays: duration.totalDays,
+        estimatedArrivalDate,
+      };
+      // L'identità e la posizione fisica non cambiano all'ordine: cambia solo lo
+      // stato persistente di marcia. Il costo viene pagato qui, una volta sola.
+      const next: MilitaryUnitState = {
+        ...unit,
+        frontId: null,
+        movement: {
+          path: [...path],
+          targetRegionId: String(target.id),
+          targetRegionName: target.name || null,
+          startedDate: this.ctx.currentDate(),
+          pathIndex: 0,
+          daysPerHop: duration.daysPerHop,
+          remainingDaysToNextHop: duration.daysPerHop,
+          totalHops: hops,
+          estimatedArrivalDate,
+          motorized: cost.motorized,
+          lastAdvancedDate: null,
+        },
+        updatedDate: this.ctx.currentDate(),
+      };
+      push('Distanza (tratte)', 0, hops, 'numero');
+      push('Giorni per tratta', 0, duration.daysPerHop, 'numero');
+      push('Durata stimata', 0, duration.totalDays, 'numero');
       push('Cibo (scorte)', before.food, payment.stock.food, 'numero');
       push('Carburante (scorte)', before.fuel, payment.stock.fuel, 'numero');
       push('Cassa', before.money, payment.stock.money, 'mld');
-      const why = cost.motorized
-        ? 'Movimento meccanizzato: paga cibo, carburante e denaro con lo **stesso** costo del motore (`movementCost`), proporzionale alla distanza reale.'
-        : 'Movimento appiedato: paga cibo e denaro con lo **stesso** costo del motore (`movementCost`), proporzionale alla distanza reale. La motorizzazione aggiungerebbe il carburante.';
-      const note = payment.covered
-        ? `«${next.name}» trasferito in ${next.regionName} (${distanceFactor} ${distanceFactor === 1 ? 'tratta' : 'tratte'}).`
-        : `«${next.name}» trasferito in ${next.regionName} (${distanceFactor} ${distanceFactor === 1 ? 'tratta' : 'tratte'}) con scorte insufficienti: ${payment.shortages.join('; ')}.`;
+      const why = `${cost.motorized ? 'Movimento meccanizzato' : 'Movimento appiedato'}: percorso e costo vengono dai motori esistenti (\`friendlyRegionPath\`, \`movementCost\`, \`payMovement\`). Il costo è pagato una sola volta all'ordine; il reparto raggiunge una provincia soltanto quando trascorre il relativo tempo di marcia.`;
+      const shortage = payment.covered ? '' : ` Scorte insufficienti: ${payment.shortages.join('; ')}.`;
+      const note = `«${next.name}» inizia il trasferimento da ${unit.regionName || pathNames[0]} verso ${target.name}: ${hops} ${hops === 1 ? 'tratta' : 'tratte'}, arrivo stimato ${estimatedArrivalDate}.${shortage}`;
       return finish(next, snapshot.units.map(item => (item.id === unit.id ? next : item)), note, why, payment.stock);
     }
 
