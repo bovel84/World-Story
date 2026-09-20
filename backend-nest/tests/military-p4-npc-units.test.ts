@@ -31,6 +31,9 @@ const R = {
 
 let db: any;
 let registry: any;
+let gamesRouter: any;
+let respondDomainError: any;
+let unitErrorCodes: string[];
 let createGame: () => { gameId: string; session: any };
 
 const stubProvider: any = {
@@ -52,6 +55,10 @@ beforeAll(async () => {
   const registryModule = await import('../src/session-registry');
   registryModule.initSessionRegistry(stubProvider);
   registry = registryModule.getSessionRegistry();
+  gamesRouter = (await import('../src/routes/games.routes')).gamesRouter;
+  const routeHelpers = await import('../src/routes/games/helpers');
+  respondDomainError = routeHelpers.respondDomainError;
+  unitErrorCodes = routeHelpers.UNIT_ERROR_CODES;
   repos.worldRepository.createWithRegions(
     { id: WORLD_ID, name: 'P4 World', description: '', startDate: '2026-01-01', basePrompt: 'Test', historicalAccuracy: 0.8 },
     [
@@ -114,6 +121,20 @@ const sumPersonnel = (list: readonly any[]) => list
 /** Fattore d'ordine **come lo applica il motore**: solo per chi è sul fronte. */
 const ORDER_FACTORS: Record<string, number> = { attack: 1.8, defend: 1.2, reserve: 0.8, withdraw: 1 };
 const consumptionFactor = (unit: any): number => (unit.frontId ? ORDER_FACTORS[String(unit.order)] ?? 1 : 1);
+/** Invoca una POST militare sul router Express e cattura status/body REST. */
+const callMilitaryRoute = (routePath: string, params: Record<string, string>, body: Record<string, unknown>) => {
+  const layer = gamesRouter.stack.find((item: any) => item.route?.path === routePath && item.route.methods.post);
+  if (!layer) throw new Error(`route missing: ${routePath}`);
+  let response: { status: number; body: any } | null = null;
+  const res: any = {
+    statusCode: 200,
+    status(code: number) { this.statusCode = code; return this; },
+    json(payload: any) { response = { status: this.statusCode, body: payload }; return this; },
+  };
+  layer.route.stack[0].handle({ method: 'POST', params, body }, res);
+  if (!response) throw new Error(`route did not respond: ${routePath}`);
+  return response;
+};
 
 describe('MILITARY P4 — unità NPC persistenti', () => {
   it('1: `polityId` è l\'authority: una conquista NON cambia la nazionalità dei reparti', () => {
@@ -435,5 +456,55 @@ describe('MILITARY P4 — unità NPC persistenti', () => {
     });
     expect(seeded.units).toHaveLength(1);
     expect(seeded.units[0].regionId).toBe('front-low');
+  });
+
+  it('P4.1.1 API: unitAction su reparto NPC risponde 403 senza modificarlo', () => {
+    const session = warGame();
+    (session as any).warFronts.ensureNpcUnits(30);
+    const npc = npcUnits(session)[0];
+    const before = structuredClone(npc);
+    const response = callMilitaryRoute(
+      '/:id/military/units/:unitId/:action(reinforce|reequip|transfer|reassign|reconstitute)',
+      { id: session.id, unitId: npc.id, action: 'reinforce' },
+      { men: 1 },
+    );
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({
+      error: 'unit_forbidden: il reparto non appartiene alla polity del giocatore',
+      code: 'unit_forbidden',
+    });
+    expect(unitOf(session, npc.id)).toEqual(before);
+  });
+
+  it('P4.1.1 API: unitOrder su reparto NPC risponde 403 senza cambiare ordine', () => {
+    const session = warGame();
+    (session as any).warFronts.ensureNpcUnits(30);
+    const npc = npcUnits(session)[0];
+    const beforeOrder = npc.order;
+    const response = callMilitaryRoute(
+      '/:id/military/units/:unitId/order',
+      { id: session.id, unitId: npc.id },
+      { order: beforeOrder === 'attack' ? 'defend' : 'attack' },
+    );
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('unit_forbidden');
+    expect(response.body.error).toMatch(/^unit_forbidden:/);
+    expect(unitOf(session, npc.id).order).toBe(beforeOrder);
+  });
+
+  it('P4.1.1: gli altri errori unità conservano il precedente mapping HTTP 400', () => {
+    for (const code of [
+      'unit_unknown', 'unit_blocked', 'unit_invalid', 'region_unknown',
+      'army_unknown', 'equipment_unknown', 'order_unknown', 'front_unknown',
+    ]) {
+      let response: any;
+      const res = {
+        status(status: number) {
+          return { json: (body: any) => { response = { status, body }; } };
+        },
+      };
+      respondDomainError(res, new Error(`${code}: test`), unitErrorCodes, 'fallback');
+      expect(response).toEqual({ status: 400, body: { error: `${code}: test`, code } });
+    }
   });
 });
