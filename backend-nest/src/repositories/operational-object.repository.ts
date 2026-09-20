@@ -58,6 +58,16 @@ function parseData(raw: string): Record<string, unknown> {
 }
 
 export const operationalObjectRepository = {
+  /** Lettura esatta di un oggetto, senza materializzare o modificare lo store. */
+  get: (gameId: string, kind: OperationalObjectKind, id: string): OperationalObjectRow | null => {
+    const row = db.prepare(
+      'SELECT object_id, kind, data FROM game_operational_objects WHERE game_id = ? AND kind = ? AND object_id = ?',
+    ).get(gameId, kind, id) as RawRow | undefined;
+    if (!row) return null;
+    const parsedKind = parseKind(row.kind);
+    return parsedKind ? { id: row.object_id, kind: parsedKind, data: parseData(row.data) } : null;
+  },
+
   /** Tutti gli oggetti di una partita, ordinati per tipo e id (deterministico). */
   list: (gameId: string, kind?: OperationalObjectKind): OperationalObjectRow[] => {
     const rows = (kind

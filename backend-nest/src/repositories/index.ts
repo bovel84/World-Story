@@ -18,7 +18,7 @@ export type { AccountHistoryPoint } from './national-account.repository';
 export { resourceRepository } from './resource.repository';
 export type { ResourceStockRecord } from './resource.repository';
 export { arsenalRepository } from './arsenal.repository';
-export type { ArsenalRecord } from './arsenal.repository';
+export type { ArsenalRecord, ArsenalSnapshot } from './arsenal.repository';
 export { naturalResourceRepository } from './natural-resource.repository';
 export type { NaturalResourceRecord } from './natural-resource.repository';
 export { productionRepository } from './production.repository';

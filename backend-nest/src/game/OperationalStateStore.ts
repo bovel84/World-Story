@@ -151,7 +151,13 @@ export class OperationalStateStore {
       for (const row of rows) {
         const data = row.data as Record<string, unknown>;
         switch (row.kind) {
-          case 'personnel': snapshot.personnel = data as unknown as MilitaryPersonnelState; break;
+          // P5 — lo snapshot resta player-facing: le riserve NPC persistono
+          // nella stessa tabella, ma non possono sostituire quella del player.
+          case 'personnel':
+            if (String(row.id) === String(this.inputs.playerPolityId())) {
+              snapshot.personnel = data as unknown as MilitaryPersonnelState;
+            }
+            break;
           case 'unit': snapshot.units.push(normalizeUnitState(data, this.inputs.playerPolityId())); break;
           case 'front': snapshot.fronts.push(data as unknown as WarFrontState); break;
           case 'facility': snapshot.facilities.push(data as unknown as FacilityState); break;
@@ -187,11 +193,13 @@ export class OperationalStateStore {
     this.seedDone = false;
   }
 
-  /** Il seed è avvenuto? La riga di personale è la sentinella. */
+  /** Il seed è avvenuto? La riga di personale **del player** è la sentinella. */
   seeded(): boolean {
     if (this.seedChecked) return this.seedDone;
     try {
-      this.seedDone = operationalObjectRepository.idsOfKind(this.inputs.gameId, 'personnel').length > 0;
+      const player = String(this.inputs.playerPolityId());
+      this.seedDone = operationalObjectRepository.idsOfKind(this.inputs.gameId, 'personnel')
+        .some(id => String(id) === player);
       this.seedChecked = true;
       return this.seedDone;
     } catch (error) {
@@ -706,6 +714,17 @@ export class OperationalStateStore {
     return this.snapshot().personnel;
   }
 
+  /**
+   * P5 — personale persistente per polity senza trasformare lo snapshot in una
+   * mappa. Il player usa la cache canonica; una polity foreign viene letta per
+   * id dal DB e, se assente, resta `null` (il seed lazy appartiene al chiamante).
+   */
+  personnelForPolity(polityId: string): MilitaryPersonnelState | null {
+    if (String(polityId) === String(this.inputs.playerPolityId())) return this.personnel();
+    const row = operationalObjectRepository.get(this.inputs.gameId, 'personnel', String(polityId));
+    return row ? row.data as unknown as MilitaryPersonnelState : null;
+  }
+
   facilities(): FacilityState[] {
     return this.snapshot().facilities;
   }
@@ -810,8 +829,10 @@ export class OperationalStateStore {
     const snapshot = this.snapshot();
     if (input.personnel) snapshot.personnel = input.personnel;
     snapshot.units = [...input.units].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    const playerPolityId = String(this.inputs.playerPolityId());
     const byArmy = new Map<string, MilitaryUnitState[]>();
     for (const unit of snapshot.units) {
+      if (String(unit.polityId) !== playerPolityId) continue;
       const list = byArmy.get(String(unit.armyId));
       if (list) list.push(unit);
       else byArmy.set(String(unit.armyId), [unit]);

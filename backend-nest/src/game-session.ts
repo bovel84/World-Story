@@ -14,7 +14,7 @@ import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptEngine } from './prompt-builder';
 import {
-  arsenalRepository, worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, operationalObjectRepository, type PressureRecord, type CrisisStateRecord, type CrisisSnapshot, type OperationalObjectsSnapshot } from './repositories';
+  arsenalRepository, worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, operationalObjectRepository, type PressureRecord, type CrisisStateRecord, type CrisisSnapshot, type OperationalObjectsSnapshot, type ArsenalSnapshot } from './repositories';
 import { captureEconomicSnapshot } from './repositories/economy-snapshot.repository';
 import type { ChatRecord, ChatSummary, ChatMessageRecord, GameChatSnapshot } from './repositories';
 import { DiplomacyService } from './game/DiplomacyService';
@@ -321,6 +321,11 @@ export interface SaveData {
    * (anche `rows: []`) → si applica l'insieme, vuoto compreso.
    */
   operationalState?: OperationalObjectsSnapshot;
+  /**
+   * P5 — depositi militari completi del ramo. `undefined` mantiene compatibili
+   * i save precedenti; uno snapshot presente (anche vuoto) viene ripristinato.
+   */
+  arsenalState?: ArsenalSnapshot;
 }
 
 /**
@@ -696,6 +701,15 @@ export class GameSession {
           // assegnazione/ordini → (poi) fabbisogni materiali e tick dei fronti.
           // Best-effort: se il seed non riesce la polity resta legacy.
           syncEvents = [...syncEvents, ...this.warFronts.ensureNpcUnits(stepDays).events];
+          // P5 — una sola manutenzione prima di costi, pressione e battaglia.
+          // Le perdite di questo combattimento saranno eleggibili dal substep
+          // successivo. Best-effort come `ensureNpcUnits`: se fallisce, la
+          // polity resta legacy e il piano del periodo usa gli ordini persistiti.
+          try {
+            syncEvents = [...syncEvents, ...this.warFronts.maintainNpcUnits().events];
+          } catch (maintenanceError) {
+            console.warn('[GameSession] Manutenzione dei reparti NPC non applicata:', maintenanceError);
+          }
           periodWarPlan = this.warFronts.planPeriod(stepDays);
         } catch (error) {
           console.warn('[GameSession] Piano di guerra del periodo non disponibile:', error);
@@ -1743,6 +1757,7 @@ export class GameSession {
       // stesse authority del gioco (conto nazionale, regioni, deposito
       // persistito). Nessuna seconda contabilità e nessun pezzo inventato.
       formationsForPolity: polityId => Math.max(0, Math.round(Number(this.sessionAccounts()[polityId]?.forces) || 0)),
+      accountForPolity: polityId => this.sessionAccounts()[polityId],
       polityRegionsFor: polityId => [...this.regions.values()]
         .filter(region => String(region.owner) === String(polityId) && region.status !== 'destroyed')
         .map(region => ({ id: region.id, name: region.name, militaryPower: region.militaryPower })),
@@ -1756,6 +1771,7 @@ export class GameSession {
       // P4.1 — `MilitaryService` resta l'owner della cache: il fronte gli passa
       // il deposito solo dopo il commit atomico reparti + arsenali.
       adoptArsenal: (polityId, units) => this.military.adoptArsenal(polityId, units),
+      invalidateArsenalCache: () => this.military.invalidateArsenalCache(),
       currentTurn: () => this.currentTurn,
       note: note => this.pendingNationalNotes.push(note),
     });
@@ -2593,6 +2609,9 @@ export class GameSession {
       // (`kind`, `objectId`): l'hash semantico resta stabile e un rewind non
       // lascia in vita unità o fronti del futuro.
       operationalState: operationalObjectRepository.snapshot(this.id),
+      // P5: uomini assegnati e deposito sono due lati della stessa
+      // conservazione; checkpoint/rewind devono riportarli indietro insieme.
+      arsenalState: arsenalRepository.snapshot(this.id),
     };
   }
 
@@ -2644,6 +2663,7 @@ export class GameSession {
     // rollback (la transazione canonica ha già ripristinato/annullato il DB):
     // la prima lettura successiva ricarica dal database.
     this.operationalStore?.invalidate();
+    this.military?.invalidateArsenalCache();
   }
 
   /** Fase di commit del restore: aliquota ed esito (come il restore originale). */
@@ -2665,6 +2685,7 @@ export class GameSession {
     // intermedio dentro la transazione può aver lasciato in RAM lo stato del
     // ramo abbandonato.
     this.operationalStore?.invalidate();
+    this.military?.invalidateArsenalCache();
   }
 
   // Этап 2: Rewind-снапшоты, Intervene, консолидация истории

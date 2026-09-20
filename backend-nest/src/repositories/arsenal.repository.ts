@@ -17,6 +17,18 @@ export interface ArsenalRecord {
   updatedDate: string | null;
 }
 
+/** Arsenali completi del ramo: opzionale nei save legacy, deterministico nei nuovi. */
+export interface ArsenalSnapshot {
+  schema: 'world_story_arsenals';
+  version: 1;
+  rows: Array<{
+    polityId: string;
+    units: Record<string, number>;
+    updatedTurn: number;
+    updatedDate: string | null;
+  }>;
+}
+
 interface ArsenalRow {
   game_id: string;
   polity_id: string;
@@ -57,9 +69,43 @@ export const arsenalRepository = {
 
   list: (gameId: string): ArsenalRecord[] => {
     const rows = db.prepare(
-      'SELECT game_id, polity_id, units, updated_turn, updated_date FROM game_arsenals WHERE game_id = ?',
+      'SELECT game_id, polity_id, units, updated_turn, updated_date FROM game_arsenals WHERE game_id = ? ORDER BY polity_id',
     ).all(gameId) as ArsenalRow[];
     return rows.map(toRecord);
+  },
+
+  snapshot: (gameId: string): ArsenalSnapshot => ({
+    schema: 'world_story_arsenals',
+    version: 1,
+    rows: arsenalRepository.list(gameId).map(row => ({
+      polityId: row.polityId,
+      units: row.units,
+      updatedTurn: row.updatedTurn,
+      updatedDate: row.updatedDate,
+    })),
+  }),
+
+  /** Sostituisce atomicamente tutti gli arsenali del game durante restore/rewind. */
+  replaceAll: (gameId: string, rows: ArsenalSnapshot['rows']): void => {
+    const now = new Date().toISOString();
+    const upsert = db.prepare(`
+      INSERT INTO game_arsenals (game_id, polity_id, units, updated_turn, updated_date, recorded_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(game_id, polity_id) DO UPDATE SET
+        units = excluded.units, updated_turn = excluded.updated_turn,
+        updated_date = excluded.updated_date, recorded_at = excluded.recorded_at
+    `);
+    const remove = db.prepare('DELETE FROM game_arsenals WHERE game_id = ? AND polity_id = ?');
+    const present = new Set(rows.map(row => String(row.polityId)));
+    const replace = db.transaction(() => {
+      for (const row of rows) {
+        upsert.run(gameId, String(row.polityId), JSON.stringify(row.units ?? {}), row.updatedTurn, row.updatedDate, now);
+      }
+      for (const existing of db.prepare('SELECT polity_id FROM game_arsenals WHERE game_id = ?').all(gameId) as Array<{ polity_id: string }>) {
+        if (!present.has(String(existing.polity_id))) remove.run(gameId, existing.polity_id);
+      }
+    });
+    replace();
   },
 
   upsert: (gameId: string, polityId: string, units: Record<string, number>, turn: number, date: string | null): void => {

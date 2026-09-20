@@ -1088,6 +1088,11 @@ export class MilitaryService {
     this.arsenals.set(String(polityId), { ...units });
   }
 
+  /** Restore/rewind: il DB è cambiato, nessun arsenale RAM del futuro sopravvive. */
+  invalidateArsenalCache(): void {
+    this.arsenals.clear();
+  }
+
   saveArsenal(polityId: string, units: Record<string, number>): void {
     this.arsenals.set(polityId, units);
     try {
