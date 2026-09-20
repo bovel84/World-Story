@@ -19,7 +19,7 @@
 import db, { withCanonicalTransaction } from '../database';
 import { shortId } from '../utils/short-id';
 import { semanticStateHash } from '../domain/semantic-hash';
-import { gameRepository, chatRepository, operationalObjectRepository } from '../repositories';
+import { gameRepository, chatRepository, operationalObjectRepository, arsenalRepository } from '../repositories';
 import { invalidateStrictEffectStaging, restoreEconomicSnapshot, validateEconomicSnapshot } from '../repositories/economy-snapshot.repository';
 import { normalizeDifficulty, type Difficulty } from '../prompts/difficulty';
 import type { StrictEffect } from '../core/simulation/EffectValidator';
@@ -249,6 +249,11 @@ export class GamePersistenceService {
         // rows: [] }` è invece un fatto e si applica (ramo senza oggetti).
         if (saveData.operationalState) {
           operationalObjectRepository.replaceAll(gameId, saveData.operationalState.rows || []);
+        }
+        // P5 — arsenali e dotazioni assegnate devono tornare allo stesso
+        // checkpoint. `undefined` conserva la compatibilità dei save legacy.
+        if (saveData.arsenalState) {
+          arsenalRepository.replaceAll(gameId, saveData.arsenalState.rows || []);
         }
 
         // Ogni altro run sospeso del ramo scartato è invalidato.

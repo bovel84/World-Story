@@ -46,16 +46,22 @@ import {
   UNIT_ORDER_INFO,
   UNIT_ORDER_LABEL,
   equipmentQuantity,
+  personnelOverlay,
   rifleEquipmentId,
   rifleRequirement,
+  seedPersonnel,
+  transferEquipment,
+  transferMenToArmy,
   unitReadiness,
   unitStatusFromCoverage,
+  type MilitaryPersonnelState,
   type MilitaryUnitState,
   type UnitOrder,
   type WarFrontState,
 } from '../core/simulation/OperationalState';
 import { daysBetween } from '../core/simulation/calendar';
 import { militaryManpower } from '../core/simulation/MilitaryDoctrine';
+import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import type { OperationalStateStore } from './OperationalStateStore';
 import type { RegionState } from '../game-session';
 
@@ -79,6 +85,8 @@ export interface WarFrontContext {
    * **stessa** sorgente del percorso legacy, non una seconda contabilità.
    */
   formationsForPolity?(polityId: string): number;
+  /** P5 — conto canonico da cui nasce, una volta sola, la riserva NPC. */
+  accountForPolity?(polityId: string): Pick<NationalAccount, 'population' | 'forces' | 'mobilized'> | undefined;
   /** P4 — regioni **proprie** di una polity, con la potenza dichiarata (peso). */
   polityRegionsFor?(polityId: string): Array<{ id: string; name?: string | null; militaryPower?: number }>;
   /**
@@ -88,6 +96,8 @@ export interface WarFrontContext {
   depotForPolity?(polityId: string): Record<string, number>;
   /** P4.1 — adotta in RAM un deposito già committato atomicamente nel DB. */
   adoptArsenal?(polityId: string, units: Record<string, number>): void;
+  /** Scarta gli arsenali RAM se un refresh derivato post-commit fallisce. */
+  invalidateArsenalCache?(): void;
   /** Turno corrente, per la riga dell'arsenale (facoltativo). */
   currentTurn?(): number;
   /** Nota nazionale: il giocatore legge il perché di un fatto, non un silenzio. */
@@ -817,6 +827,136 @@ export class WarFrontService {
   }
 
   /**
+   * P5 — manutenzione meccanica dei reparti NPC già persistenti.
+   *
+   * Non decide ordini e non crea reparti: sposta soltanto uomini dalla riserva
+   * addestrata e fucili dal deposito, in ordine stabile di `unit.id`. Ogni
+   * polity prepara l'intero risultato in memoria e lo committa con la stessa
+   * transazione strict della ricostituzione player (personale + set **globale**
+   * delle unità + arsenale). `destroyed` e `retreating` non sono mai eleggibili.
+   */
+  maintainNpcUnits(): { maintained: string[]; events: string[] } {
+    const maintained: string[] = [];
+    const events: string[] = [];
+    if (!this.hasPersistentMilitary()) return { maintained, events };
+    const store = this.store();
+    const snapshot = store.snapshot();
+    const player = String(this.ctx.playerPolityId());
+    const date = this.ctx.currentDate();
+    const epoch = this.epoch();
+    let units = snapshot.units.map(unit => ({ ...unit, equipment: { ...(unit.equipment || {}) } }));
+    const polities = [...new Set(units
+      .map(unit => String(unit.polityId || ''))
+      .filter(polityId => polityId && polityId !== player))].sort();
+
+    for (const polityId of polities) {
+      const account = this.ctx.accountForPolity?.(polityId);
+      if (!account) continue;
+      const doctrine = militaryManpower({
+        population: Number(account.population || 0),
+        formations: Number(account.forces || 0),
+        mobilizedFormations: Number(account.mobilized || 0),
+        epoch,
+      });
+      const persistedPersonnel = store.personnelForPolity(polityId);
+      const recoverable = units.some(unit => String(unit.polityId) === polityId && unit.status !== 'destroyed');
+      // Senza reparti recuperabili (solo `destroyed`) non nasce nemmeno la
+      // riserva: P5 non crea stato che non potrà mai usare.
+      if (!persistedPersonnel && !recoverable) continue;
+      let personnel: MilitaryPersonnelState = persistedPersonnel
+        ? { ...persistedPersonnel }
+        : seedPersonnel(doctrine, date);
+      let depot = { ...(this.ctx.depotForPolity?.(polityId) || {}) };
+      const requiredRifles = rifleRequirement(epoch, 1);
+      let menTransferred = 0;
+      let riflesTransferred = 0;
+      let unitsMaintained = 0;
+
+      const mine = units
+        .filter(unit => String(unit.polityId) === polityId)
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+        .map(unit => {
+          // P4 no-resurrection e rally P4: nessuna cura durante la ritirata.
+          if (unit.status === 'destroyed' || unit.status === 'retreating') return unit;
+          let men = 0;
+          let rifles = 0;
+          const missingMen = Math.max(0, doctrine.menPerFormation - Math.round(nonNegative(unit.personnel)));
+          const availableMen = Math.max(0, Math.floor(personnelOverlay(personnel, doctrine).availableReserve));
+          const wantedMen = Math.min(missingMen, availableMen);
+          if (wantedMen > 0) {
+            const transferred = transferMenToArmy(personnel, wantedMen, doctrine);
+            if (transferred) {
+              personnel = transferred;
+              men = wantedMen;
+            }
+          }
+
+          let equipment = { ...(unit.equipment || {}) };
+          const assigned = equipmentQuantity(equipment, rifleEquipmentId());
+          const missingRifles = Math.max(0, requiredRifles - assigned);
+          const wantedRifles = Math.min(missingRifles, equipmentQuantity(depot, rifleEquipmentId()));
+          if (wantedRifles > 0) {
+            const transferred = transferEquipment({
+              depot,
+              assigned: equipment,
+              items: [{ equipmentId: rifleEquipmentId(), quantity: wantedRifles }],
+            });
+            if (transferred) {
+              depot = transferred.depot;
+              equipment = transferred.assigned;
+              rifles = wantedRifles;
+            }
+          }
+          if (men <= 0 && rifles <= 0) return unit;
+
+          menTransferred += men;
+          riflesTransferred += rifles;
+          unitsMaintained += 1;
+          maintained.push(String(unit.id));
+          const refreshed = {
+            ...unit,
+            personnel: Math.round(nonNegative(unit.personnel)) + men,
+            equipment,
+            status: unitStatusFromCoverage({
+              assigned: equipmentQuantity(equipment, rifleEquipmentId()),
+              required: requiredRifles,
+            }),
+            updatedDate: date,
+          } as MilitaryUnitState;
+          return { ...refreshed, readiness: unitReadiness({ unit: refreshed, epoch }) };
+        });
+
+      // Il primo passaggio persiste il seed anche senza trasferimenti. Dopo il
+      // seed, uno stato senza nuove perdite/scorte non produce più scritture.
+      if (persistedPersonnel && menTransferred <= 0 && riflesTransferred <= 0) continue;
+      units = [...units.filter(unit => String(unit.polityId) !== polityId), ...mine]
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      militaryPersistenceRepository.reconstitute({
+        gameId: this.ctx.gameId,
+        polityId,
+        personnel: personnel as unknown as Record<string, unknown>,
+        units: units.map(unit => ({ id: unit.id, data: unit as unknown as Record<string, unknown> })),
+        arsenal: depot,
+        turn: this.ctx.currentTurn?.() ?? 0,
+        date,
+      });
+      // Solo post-commit: il personale foreign resta fuori dallo snapshot player.
+      try {
+        this.ctx.adoptArsenal?.(polityId, depot);
+        store.adoptPersisted({ units });
+      } catch (error) {
+        store.invalidate();
+        this.ctx.invalidateArsenalCache?.();
+        console.warn('[WarFrontService] Refresh derivato manutenzione NPC non applicato (commit già persistito):', error);
+      }
+      if (unitsMaintained > 0) {
+        events.push(`🪖 ${this.ctx.polityLabel(polityId)}: rinforzati ${unitsMaintained} reparti · ${menTransferred.toLocaleString('it-IT')} uomini dalla riserva · ${riflesTransferred.toLocaleString('it-IT')} fucili dal deposito.`);
+      }
+    }
+    return { maintained, events };
+  }
+
+  /**
    * Un **periodo** di guerra per ogni fronte aperto: rifornimenti reali, perdite
    * reali sui reparti, ritirata in una provincia amica, conquista solo con
    * sfondamento. Restituisce i dispacci deterministici (nessuna LLM).
@@ -847,8 +987,9 @@ export class WarFrontService {
     if (!options?.legacyOrdersByFront) {
       try {
         events.push(...this.ensureNpcUnits(stepDays).events);
+        events.push(...this.maintainNpcUnits().events);
       } catch (error) {
-        console.warn('[WarFrontService] Materializzazione NPC non applicata:', error);
+        console.warn('[WarFrontService] Preparazione NPC non applicata:', error);
       }
     }
     const store = this.store();
