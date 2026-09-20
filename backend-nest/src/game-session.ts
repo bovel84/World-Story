@@ -1753,6 +1753,9 @@ export class GameSession {
           return {};
         }
       },
+      // P4.1 — `MilitaryService` resta l'owner della cache: il fronte gli passa
+      // il deposito solo dopo il commit atomico reparti + arsenali.
+      adoptArsenal: (polityId, units) => this.military.adoptArsenal(polityId, units),
       currentTurn: () => this.currentTurn,
       note: note => this.pendingNationalNotes.push(note),
     });

@@ -14,6 +14,7 @@ import path from 'path';
 import fs from 'fs';
 import { addDays } from '../src/core/simulation/calendar';
 import { militaryManpower } from '../src/core/simulation/MilitaryDoctrine';
+import { materializeNpcMilitary } from '../src/core/simulation/OperationalState';
 
 const TEST_DB = path.join(os.tmpdir(), `world-story-p4-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
@@ -318,5 +319,121 @@ describe('MILITARY P4 — unità NPC persistenti', () => {
     (planned as any).warFronts.ensureNpcUnits(30);
     const second = npcUnits(planned).map(unit => ({ id: unit.id, order: unit.order, regionId: unit.regionId, frontId: unit.frontId }));
     expect(second).toEqual(first);
+  });
+
+  it('P4.1: le mutation player rifiutano i reparti NPC, incluso dryRun, senza toccarli', () => {
+    const session = warGame();
+    (session as any).warFronts.ensureNpcUnits(30);
+    const npc = npcUnits(session)[0];
+    const before = structuredClone(npcUnits(session));
+
+    expect(() => session.unitAction({ action: 'reinforce', unitId: npc.id, men: 1 }))
+      .toThrow(/unit_forbidden: il reparto non appartiene alla polity del giocatore/);
+    expect(() => session.unitAction({ action: 'reinforce', unitId: npc.id, men: 1, dryRun: true }))
+      .toThrow(/unit_forbidden/);
+    expect(() => session.unitOrder({ unitId: npc.id, order: 'attack' }))
+      .toThrow(/unit_forbidden/);
+    expect(() => session.unitOrder({ unitId: npc.id, order: 'attack', dryRun: true }))
+      .toThrow(/unit_forbidden/);
+    expect(npcUnits(session)).toEqual(before);
+
+    // Le stesse API restano operative sui reparti del giocatore e il replace
+    // globale non elimina né modifica quelli NPC.
+    const own = units(session).find(unit => unit.polityId === PID && unit.frontId);
+    expect(session.unitOrder({ unitId: own.id, order: 'attack' }).applied).toBe(true);
+    expect(session.unitAction({ action: 'transfer', unitId: own.id, regionId: R.ita2 }).applied).toBe(true);
+    expect(npcUnits(session)).toEqual(before);
+  });
+
+  it('P4.1: la cache dell’arsenale NPC adotta il deposito committato dalla materializzazione', () => {
+    const session = warGame();
+    // Popola intenzionalmente la cache prima del commit P4.
+    const before = { ...(session as any).military.arsenalUnits(AUT) };
+    (session as any).warFronts.ensureNpcUnits(30);
+
+    const after = (session as any).military.arsenalUnits(AUT);
+    const assigned = npcUnits(session).reduce((total, unit) => total + Number(unit.equipment?.fucili || 0), 0);
+    expect(assigned).toBeGreaterThan(0);
+    expect(Number(after.fucili || 0)).toBe(Number(before.fucili || 0) - assigned);
+    expect(Number(after.fucili || 0) + assigned).toBe(Number(before.fucili || 0));
+  });
+
+  it('P4.1: nel fronte NPC–NPC ordine persistito, consumo e combattimento usano la stessa decisione', () => {
+    const { session } = createGame();
+    setRelationship(session, AUT, HUN, 'hostile');
+    const front = {
+      id: 'front-AUT-HUN-p41', name: 'Fronte Austria–Ungheria P4.1',
+      attackerPolityId: AUT, defenderPolityId: HUN,
+      regionIds: [R.aut2, R.hun1], status: 'active' as const, objectiveRegionId: R.hun1,
+      attackerPressure: 0, defenderPressure: 0, createdDate: '2026-01-01', updatedDate: '2026-01-01',
+    };
+    store(session).saveFronts([...fronts(session), front]);
+    (session as any).warFronts.ensureNpcUnits(30);
+
+    // Rapporto base 0,7: AUT decide `defend`; dopo HUN=`attack`, un secondo
+    // calcolo farebbe invece ritirare AUT (0,7 / 1,35 < 0,6).
+    session.regions.get(R.aut2).militaryPower = 0;
+    session.regions.get(R.hun1).militaryPower = 0;
+    for (const polity of [AUT, HUN]) {
+      session.saveResourceStock(polity, {
+        ...stockOf(session, polity), food: 500, weapons: 500, fuel: 500, clothing: 500, technologies: [],
+      });
+    }
+    let seen: Record<string, number> = {};
+    store(session).saveUnits(units(session).map(unit => {
+      if (unit.polityId !== AUT && unit.polityId !== HUN) return unit;
+      seen[unit.polityId] = (seen[unit.polityId] || 0) + 1;
+      const active = seen[unit.polityId] === 1;
+      return active
+        ? {
+            ...unit, frontId: front.id, regionId: unit.polityId === AUT ? R.aut2 : R.hun1,
+            regionName: unit.polityId === AUT ? 'Vienna' : 'Ungheria', personnel: 10_000,
+            equipment: { fucili: 100_000 }, readiness: unit.polityId === AUT ? 0.7 : 1,
+            status: 'operational' as const, order: 'defend' as const,
+          }
+        : { ...unit, personnel: 0, equipment: {}, readiness: 0, status: 'destroyed' as const };
+    }));
+
+    (session as any).warFronts.ensureNpcUnits(30);
+    const persistedAut = npcUnits(session, AUT).find(unit => unit.status !== 'destroyed');
+    const persistedHun = npcUnits(session, HUN).find(unit => unit.status !== 'destroyed');
+    expect(persistedAut.order).toBe('defend');
+    expect(persistedHun.order).toBe('attack');
+    const wouldRecalculate = (session as any).warFronts.npcOrdersFor(front, units(session), 30);
+    expect(wouldRecalculate.attacker).toBe('withdraw');
+
+    const plan = (session as any).warFronts.planPeriod(30);
+    expect(plan.legacyOrdersByFront[front.id][AUT]).toBe(persistedAut.order);
+    expect(plan.legacyOrdersByFront[front.id][HUN]).toBe(persistedHun.order);
+    expect(store(session).militaryNeedsForPolity(AUT).weapons)
+      .toBeCloseTo(Number(persistedAut.monthlyNeeds.weapons) * ORDER_FACTORS[persistedAut.order], 6);
+
+    (session as any).warFronts.advanceFronts(30, '2026-01-31', {
+      legacyOrdersByFront: plan.legacyOrdersByFront,
+      supply: {
+        [AUT]: { food: 1, clothing: 1, weapons: 1, fuel: 1 },
+        [HUN]: { food: 1, clothing: 1, weapons: 1, fuel: 1 },
+      },
+    });
+    expect(unitOf(session, persistedAut.id).order).toBe('defend');
+    expect(unitOf(session, persistedHun.id).order).toBe('attack');
+  });
+
+  it('P4.1: una sola formazione viene schierata nella provincia di fronte anche se pesa meno', () => {
+    const seeded = materializeNpcMilitary({
+      polityId: AUT,
+      epoch: 'moderno',
+      date: '2026-01-01',
+      formations: 1,
+      regions: [
+        { id: 'front-low', name: 'Frontiera', militaryPower: 1 },
+        { id: 'rear-high', name: 'Interno', militaryPower: 100 },
+      ],
+      frontRegionIds: ['front-low'],
+      depot: {},
+      existing: [],
+    });
+    expect(seeded.units).toHaveLength(1);
+    expect(seeded.units[0].regionId).toBe('front-low');
   });
 });

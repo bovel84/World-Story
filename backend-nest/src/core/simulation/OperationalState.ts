@@ -1286,19 +1286,30 @@ function npcRegionSlots(input: {
       || Math.max(0, Number(b.militaryPower || 0)) - Math.max(0, Number(a.militaryPower || 0))
       || String(a.id).localeCompare(String(b.id)));
   if (regions.length === 0) return [];
-  // Peso = potenza dichiarata, con pavimento 1: una provincia a potenza zero può
-  // comunque ospitare reparti (mai un reparto senza provincia), e la somma è
-  // **esatta** (riparto a maggior resto).
+  const count = Math.max(0, Math.round(input.count));
+  // P4.1 — priorità **reale** del teatro: se esiste una provincia propria di
+  // fronte, la prima formazione va lì. Il solo ordinamento non bastava quando
+  // una provincia interna aveva un peso `militaryPower` molto maggiore.
+  const slots = regions.map(() => 0);
+  const frontlineIndex = regions.findIndex(region => front.has(String(region.id)));
+  let remaining = count;
+  if (remaining > 0 && frontlineIndex >= 0) {
+    slots[frontlineIndex] = 1;
+    remaining -= 1;
+  }
+  // Le formazioni rimanenti conservano il riparto storico a maggior resto:
+  // peso = potenza dichiarata, con pavimento 1 e somma esatta.
   const weights = regions.map(region => Math.max(1, Math.round(Number(region.militaryPower || 0))));
   const total = weights.reduce((sum, value) => sum + value, 0);
-  const quota = weights.map(weight => (input.count * weight) / total);
-  const slots = quota.map(value => Math.floor(value));
-  let assigned = slots.reduce((sum, value) => sum + value, 0);
+  const quota = weights.map(weight => (remaining * weight) / total);
+  const apportioned = quota.map(value => Math.floor(value));
+  for (let index = 0; index < slots.length; index += 1) slots[index] += apportioned[index];
+  let assigned = apportioned.reduce((sum, value) => sum + value, 0);
   const order = quota
     .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
     .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
   for (const entry of order) {
-    if (assigned >= input.count) break;
+    if (assigned >= remaining) break;
     slots[entry.index] += 1;
     assigned += 1;
   }
@@ -1310,10 +1321,10 @@ function npcRegionSlots(input: {
   }
   // Se il conteggio è più alto della distribuzione (arrotondamenti), l'ultima
   // regione assorbe il resto: la somma resta quella dichiarata.
-  while (placed.length < input.count) {
+  while (placed.length < count) {
     placed.push({ id: String(regions[0].id), name: regions[0].name ? String(regions[0].name) : null });
   }
-  return placed.slice(0, Math.max(0, input.count));
+  return placed.slice(0, count);
 }
 
 export function materializeNpcMilitary(input: NpcMilitarySeedInput): NpcMilitarySeedResult {

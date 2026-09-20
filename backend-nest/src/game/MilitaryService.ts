@@ -659,6 +659,11 @@ export class MilitaryService {
     const snapshot = input.dryRun ? store.previewSnapshot() : store.snapshot();
     const unit = snapshot.units.find(item => String(item.id) === String(input.unitId));
     if (!unit) throw new Error(`unit_unknown: reparto «${input.unitId}» inesistente`);
+    // P4.1 — `polityId` è l'authority: le mutation player-facing non possono
+    // operare sui reparti NPC, nemmeno in anteprima (`dryRun`).
+    if (String(unit.polityId) !== String(polityId)) {
+      throw new Error('unit_forbidden: il reparto non appartiene alla polity del giocatore');
+    }
     const army = snapshot.armies.find(item => String(item.id) === String(unit.armyId)) ?? null;
     const { doctrine, manpower, personnel } = this.manpowerOf(polityId, epoch);
     const rows: UnitActionImpact['rows'] = [];
@@ -1076,6 +1081,11 @@ export class MilitaryService {
     const units = arsenalSeedUnits(this.epoch(), forces, mobilized);
     this.saveArsenal(polityId, units);
     return units;
+  }
+
+  /** Allinea la cache a un deposito già persistito con una transazione esterna. */
+  adoptArsenal(polityId: string, units: Record<string, number>): void {
+    this.arsenals.set(String(polityId), { ...units });
   }
 
   saveArsenal(polityId: string, units: Record<string, number>): void {
