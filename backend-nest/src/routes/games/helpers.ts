@@ -40,7 +40,7 @@ export const PROCURE_ERROR_CODES = [
 export const FORMATION_ERROR_CODES = ['formation_blocked', 'credit_exhausted', 'formation_invalid'];
 /** Errori delle azioni sui reparti (MILITARY-UNITS): dal motore, non dalla UI. */
 export const UNIT_ERROR_CODES = [
-  'unit_unknown', 'unit_blocked', 'unit_invalid', 'region_unknown', 'army_unknown', 'equipment_unknown',
+  'unit_unknown', 'unit_forbidden', 'unit_blocked', 'unit_invalid', 'region_unknown', 'army_unknown', 'equipment_unknown',
   // MILITARY-UNITS PR2 — ordini del fronte: stessi codici dichiarati del motore.
   'order_unknown', 'front_unknown',
 ];
@@ -49,7 +49,7 @@ export function respondDomainError(res: any, e: any, codes: string[], fallback: 
   const message = typeof e?.message === 'string' ? e.message : '';
   const code = codes.find(candidate => message.includes(candidate));
   if (code) {
-    res.status(400).json({ error: message || code, code });
+    res.status(code === 'unit_forbidden' ? 403 : 400).json({ error: message || code, code });
     return;
   }
   respondRouteError(res, e, fallback);
