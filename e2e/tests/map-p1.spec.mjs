@@ -25,6 +25,9 @@ const game = {
   world: { ...MOCK_GAME.world, regions: {
     ITA: territory('ITA', 'Italia', '#609f87', polygon(9, 37, 17, 46), [
       { id: 'city', type: 'city', name: 'Città Nuova', lat: 41, lng: 12, pop: 4 },
+      // Snapshot volutamente stale: renderer e ricerca devono entrambi usare
+      // Roma dal registro canonico ([12.5, 41.9]), non questo punto.
+      { id: 'roma-stale', type: 'city', name: 'Roma', lat: 20, lng: 80, pop: 2.8 },
       { id: 'army', type: 'army', name: 'Prima armata', lat: 44, lng: 12, owner: 'ITA' },
     ]),
     FRA: territory('FRA', 'Francia', '#679cc2', polygon(-4, 43, 8, 51)),
@@ -169,6 +172,63 @@ test('MAP P1 / C — la ricerca di una città centra il risultato e seleziona la
     const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
     return cx > canvas.left && cx < canvas.right && cy > canvas.top && cy < canvas.bottom;
   })).toBe(true);
+});
+
+test('MAP P1.1 — renderer e ricerca usano la stessa coordinata canonica', async ({ page }) => {
+  await openMap(page);
+  await page.evaluate(() => window.__testMap.jumpTo({ center: [12.5, 41.9], zoom: 5 }));
+  const marker = page.locator('[data-object-id="roma-stale"]');
+  await expect(marker).toBeVisible();
+
+  // Il marker ignora le coordinate stale [80, 20] ed è ancorato a Roma canonica.
+  const markerOffset = await page.evaluate(() => {
+    const map = window.__testMap;
+    const projected = map.project([12.5, 41.9]);
+    const canvas = map.getCanvas().getBoundingClientRect();
+    const rect = document.querySelector('[data-object-id="roma-stale"]').getBoundingClientRect();
+    return {
+      x: Math.abs(rect.left + rect.width / 2 - (canvas.left + projected.x)),
+      y: Math.abs(rect.top + rect.height / 2 - (canvas.top + projected.y)),
+    };
+  });
+  expect(markerOffset.x).toBeLessThan(2);
+  expect(markerOffset.y).toBeLessThan(2);
+
+  await page.evaluate(() => {
+    const map = window.__testMap;
+    map.jumpTo({ center: [0, 20], zoom: 1 });
+    const flyTo = map.flyTo;
+    map.flyTo = function (options, eventData) {
+      window.__lastSearchCenter = Array.from(options.center);
+      return flyTo.call(this, options, eventData);
+    };
+  });
+  const search = page.getByRole('searchbox', { name: 'Cerca territorio o città' });
+  await search.fill('Roma');
+  await search.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.__lastSearchCenter)).toEqual([12.5, 41.9]);
+  await expect.poll(() => page.evaluate(() => window.__testMap.getZoom())).toBeGreaterThan(4);
+
+  // Anche dopo il resize causato dall'inspector, Roma canonica resta nel
+  // viewport e vicino al centro; il punto stale è fuori dalla vista.
+  const finalView = await page.evaluate(() => {
+    const map = window.__testMap;
+    const canvas = map.getCanvas();
+    const inside = ([lng, lat]) => {
+      const p = map.project([lng, lat]);
+      return p.x >= 0 && p.x <= canvas.clientWidth && p.y >= 0 && p.y <= canvas.clientHeight;
+    };
+    const center = map.getCenter();
+    return {
+      center: center.toArray(),
+      canonicalInside: inside([12.5, 41.9]),
+      staleInside: inside([80, 20]),
+    };
+  });
+  expect(finalView.canonicalInside).toBe(true);
+  expect(finalView.staleInside).toBe(false);
+  expect(Math.abs(finalView.center[0] - 12.5)).toBeLessThan(8);
+  expect(Math.abs(finalView.center[1] - 41.9)).toBeLessThan(2);
 });
 
 test('MAP P1 / D — cambio owner/colore senza remount: canvas stabile, feature aggiornata', async ({ page }) => {

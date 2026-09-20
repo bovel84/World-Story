@@ -59,10 +59,12 @@ tornare senza un test rosso.
   longitudine** in WGS84, forma dei punti, e anelli con ≥ 4 vertici finiti. Una
   geometria non valida viene **scartata per quella provincia**, mai riparata
   inventando coordinate.
-- **Registro geografico unico**: `fixedCityCoordinate()` è ora in `mapModel` ed è
-  usato **sia** dal renderer **sia** da `buildMapSearchIndex`. La ricerca allega
-  il punto canonico a capitali/città del registro anche senza `lat/lng`; gli
-  oggetti fuori registro restano senza punto (nessuna coordinata arbitraria).
+- **Registro geografico unico**: `fixedCityCoordinate()` è ora in `mapModel`.
+  MAP P1.1 aggiunge `resolveMapObjectCoordinate()`, usato **sia** dal renderer
+  **sia** da `buildMapSearchIndex`: il registro canonico vince sempre su
+  `lat/lng` stale; in assenza del registro sono accettate soltanto coordinate
+  persistite finite (`lng ±180`, `lat ±85`). Gli oggetti senza un punto valido
+  restano esclusi dalla ricerca (nessuna coordinata inventata o clampata).
 - **`regionLabelVisible()` pura**: la gerarchia di visibilità delle etichette
   (province solo da selezionate, nazioni per zoom, budget `REGION_LABEL_BUDGET`
   con selezione/hover prioritari) è estratta dal componente e resa testabile.
@@ -75,7 +77,7 @@ tornare senza un test rosso.
 
 | File | Tipo |
 |---|---|
-| `frontend/src/components/Map/mapModel.ts` | validazione geometria, `fixedCityCoordinate`, `regionLabelVisible`, `REGION_LABEL_BUDGET`, ricerca arricchita |
+| `frontend/src/components/Map/mapModel.ts` | validazione geometria, `fixedCityCoordinate`, `resolveMapObjectCoordinate`, `regionLabelVisible`, `REGION_LABEL_BUDGET`, ricerca arricchita |
 | `frontend/src/components/Map/MapboxMapView.tsx` | usa i helper condivisi, rimuove il registro duplicato, `renderWorldCopies` esplicito, etichette via funzione pura |
 | `frontend/src/components/Shell/MapLegend.tsx` | chiavi contestuali ai filtri |
 | `frontend/src/components/Map/mapModel.test.ts` | test unitari MAP P1 |
@@ -94,7 +96,7 @@ sostituita.**
 
 ## 6. Test aggiunti
 
-**Unitari (`mapModel.test.ts`, +6 → 23 totali nel file):**
+**Unitari (`mapModel.test.ts`, +12 → 29 totali nel file):**
 - Polygon valido, MultiPolygon valido, anello aperto ma con ≥ 4 vertici;
 - rifiuto di `lng`/`lat` fuori WGS84 e di anelli con 3 vertici;
 - una geometria invalida **non** impedisce l'indicizzazione delle regioni sane;
@@ -102,10 +104,13 @@ sostituita.**
   `null` per tipi/nomi sconosciuti;
 - ricerca di capitali/città senza `lat/lng`, nessun punto arbitrario per oggetti
   fuori registro, normalizzazione accenti/maiuscole;
+- P1.1: canonical city/capital > coordinate stale, raw valide per oggetti
+  sconosciuti, rifiuto di longitudine/latitudine invalide, ordine puro
+  `canonical → raw → null`;
 - `regionLabelVisible`: provincia solo da selezionata, gerarchia per zoom,
   budget rispettato, hover/selezione fuori budget.
 
-**E2E (`map-p1.spec.mjs`, 7 test):**
+**E2E (`map-p1.spec.mjs`, 8 test):**
 - **A1** drag reale verso sinistra → scopre l'est (regressione «mappa non scorre
   a destra», verificata con sonda `unproject` a zoom 4, quindi senza ambiguità di
   normalizzazione);
@@ -115,6 +120,8 @@ sostituita.**
   nome corretto, chiusura che **non** perde la posizione della mappa;
 - **C** ricerca città con accenti → zoom e selezione della regione, città nel
   viewport;
+- **P1.1** Roma con snapshot deliberatamente stale: marker, destinazione
+  `flyTo()` e viewport finale usano il punto canonico del registro;
 - **D** cambio `owner`/`color` senza remount: canvas identico, centro invariato,
   `updateData` **una sola volta**;
 - **E** mobile 360px: drag, zoom, ricerca, selezione, inspector, nessun overflow
@@ -200,9 +207,9 @@ stato della mappa.
 | Backend `npx vitest run` | ✅ **163 file / 1707 test** |
 | Backend `npm run build` | ✅ |
 | Frontend `npx tsc --noEmit` | ✅ |
-| Frontend `npx vitest run` | ✅ **67 file / 503 test** |
+| Frontend `npx vitest run` | ✅ **67 file / 509 test** |
 | Frontend `npm run build` | ✅ |
-| E2E `npm run test:e2e:mock` | ✅ **56/56** (49 preesistenti + 7 MAP P1) |
+| E2E `npm run test:e2e:mock` | ✅ **57/57** (49 preesistenti + 8 MAP P1/P1.1) |
 | A11y `npm run test:a11y` | ✅ 3/3 |
 | Perf `npm run test:perf` | ✅ entro baseline |
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Region } from '../../types';
-import { RegionFeatureIndex, diffRegionFeatures, parseRegionGeometry, objectIconFor, objectIsVisible, objectMinZoom, objectQualifiesAtZoom, DEFAULT_MAP_FILTERS, buildMapSearchIndex, searchMap, fixedCityCoordinate, regionLabelVisible, REGION_LABEL_BUDGET } from './mapModel';
+import { RegionFeatureIndex, diffRegionFeatures, parseRegionGeometry, objectIconFor, objectIsVisible, objectMinZoom, objectQualifiesAtZoom, DEFAULT_MAP_FILTERS, buildMapSearchIndex, searchMap, fixedCityCoordinate, resolveMapObjectCoordinate, regionLabelVisible, REGION_LABEL_BUDGET } from './mapModel';
 
 const geometry = { type: 'Polygon', coordinates: [[[0, 0], [5, 0], [5, 5], [0, 0]]] };
 const region = (id: string, overrides: Partial<Region> = {}): Region => ({
@@ -190,6 +190,53 @@ describe('MAP P1 — integrità geografica, ricerca e gerarchia visiva', () => {
     expect(searchMap(index, 'roma')[0]).toMatchObject({ regionId: 'ita', point: [12.5, 41.9] });
     // Un oggetto non nel registro non ottiene un punto arbitrario.
     expect(searchMap(index, 'sconosciuta')).toEqual([]);
+  });
+
+  it('P1.1: le coordinate canoniche di una città vincono sullo snapshot stale', () => {
+    const index = buildMapSearchIndex([region('ita', {
+      flag: 'ITA', objects: [{ id: 'roma', type: 'city', name: 'Roma', lng: 13.10, lat: 42.20 }],
+    })]);
+    expect(searchMap(index, 'roma')[0]?.point).toEqual([12.5, 41.9]);
+  });
+
+  it('P1.1: le coordinate canoniche della capitale vincono sullo snapshot stale', () => {
+    const index = buildMapSearchIndex([region('ita', {
+      flag: 'ITA', objects: [{ id: 'rome', type: 'capital', name: 'Rome', lng: 13.10, lat: 42.20 }],
+    })]);
+    expect(searchMap(index, 'rome')[0]?.point).toEqual([12.48, 41.9]);
+  });
+
+  it('P1.1: un oggetto sconosciuto usa coordinate persistite valide', () => {
+    const index = buildMapSearchIndex([region('ita', {
+      flag: 'ITA', objects: [{ id: 'borgo', type: 'city', name: 'Borgo Nuovo', lng: 12, lat: 44 }],
+    })]);
+    expect(searchMap(index, 'borgo')[0]?.point).toEqual([12, 44]);
+  });
+
+  it('P1.1: longitudini persistite invalide non diventano destinazioni di ricerca', () => {
+    const index = buildMapSearchIndex([region('ita', {
+      flag: 'ITA', objects: [{ id: 'lng-bad', type: 'factory', name: 'Fuori Longitudine', lng: 500, lat: 40 }],
+    })]);
+    expect(searchMap(index, 'fuori longitudine')).toEqual([]);
+  });
+
+  it('P1.1: latitudini persistite invalide non diventano destinazioni di ricerca', () => {
+    const index = buildMapSearchIndex([region('ita', {
+      flag: 'ITA', objects: [{ id: 'lat-bad', type: 'factory', name: 'Fuori Latitudine', lng: 10, lat: 100 }],
+    })]);
+    expect(searchMap(index, 'fuori latitudine')).toEqual([]);
+  });
+
+  it('P1.1: il resolver condiviso applica canonical → raw valido → null', () => {
+    expect(resolveMapObjectCoordinate({
+      type: 'city', country: 'ITA', name: 'Roma', lng: 13.10, lat: 42.20,
+    })).toEqual([12.5, 41.9]);
+    expect(resolveMapObjectCoordinate({
+      type: 'factory', country: 'ITA', name: 'Fabbrica', lng: 12, lat: 44,
+    })).toEqual([12, 44]);
+    expect(resolveMapObjectCoordinate({
+      type: 'factory', country: 'ITA', name: 'Fabbrica', lng: 181, lat: 44,
+    })).toBeNull();
   });
 
   it('normalizza accenti e maiuscole nella ricerca', () => {

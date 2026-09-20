@@ -25,7 +25,7 @@ import type { Region } from '../../types';
 import type { MapObject } from '../../types';
 import { MapTools } from './MapTools';
 import { MapLegend } from '../Shell/MapLegend';
-import { RegionFeatureIndex, diffRegionFeatures, objectIconFor, objectIsVisible, objectQualifiesAtZoom, regionLabelVisible, fixedCityCoordinate, DEFAULT_MAP_FILTERS, EMPTY_IDS, type MapLayer, type MapFilters, type MapSearchEntry } from './mapModel';
+import { RegionFeatureIndex, diffRegionFeatures, objectIconFor, objectIsVisible, objectQualifiesAtZoom, regionLabelVisible, fixedCityCoordinate, resolveMapObjectCoordinate, DEFAULT_MAP_FILTERS, EMPTY_IDS, type MapLayer, type MapFilters, type MapSearchEntry } from './mapModel';
 import './map.css';
 import { constructionReport } from '../../utils/construction';
 import type { FeedItem } from '../Game/EventFeed';
@@ -1122,11 +1122,10 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     // i contatori non si coprono e restano tutti cliccabili a ogni zoom.
     const visibleRaw = uniqueRaw.filter(obj => obj.type !== 'capital');
     const stackKey = (obj: typeof visibleRaw[number]): string => {
-      const fixed = fixedCityCoordinate(obj.type, obj.regionCountry, obj.name);
-      if (fixed) return `${fixed[0].toFixed(4)}:${fixed[1].toFixed(4)}`;
-      if (typeof obj.lat === 'number' && typeof obj.lng === 'number') {
-        return `${obj.lng.toFixed(4)}:${obj.lat.toFixed(4)}`;
-      }
+      const point = resolveMapObjectCoordinate({
+        type: obj.type, country: obj.regionCountry, name: obj.name, lng: obj.lng, lat: obj.lat,
+      });
+      if (point) return `${point[0].toFixed(4)}:${point[1].toFixed(4)}`;
       if (typeof obj.x === 'number' && typeof obj.y === 'number') return `svg:${obj.x.toFixed(2)}:${obj.y.toFixed(2)}`;
       return `unplaced:${obj.id}`;
     };
@@ -1161,12 +1160,12 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     let visibleCities = 0;
 
     allObjects.forEach(obj => {
-      // Coordinate: standard nuovo lat/lng reali (capitali, città, costruzioni);
-      // fallback legacy x/y SVG (mappe vecchie con svgPath)
-      let lngLat: [number, number] | null = fixedCityCoordinate(obj.type, obj.regionCountry, obj.name);
-      if (!lngLat && typeof obj.lat === 'number' && typeof obj.lng === 'number') {
-        lngLat = [obj.lng, obj.lat];
-      } else if (!lngLat && obj.x !== undefined && obj.y !== undefined) {
+      // Authority condivisa con la ricerca: registro canonico → lat/lng validi.
+      // Il fallback x/y resta solo qui per i vecchi mondi SVG.
+      let lngLat = resolveMapObjectCoordinate({
+        type: obj.type, country: obj.regionCountry, name: obj.name, lng: obj.lng, lat: obj.lat,
+      });
+      if (!lngLat && obj.x !== undefined && obj.y !== undefined) {
         lngLat = [(obj.x / 2000) * 360 - 180, 90 - (obj.y / 1500) * 180];
       }
       if (!lngLat || !lngLat.every(Number.isFinite)) return;

@@ -112,6 +112,34 @@ export function fixedCityCoordinate(type: string, country: string, name: string)
   return city ? [city.lng, city.lat] : null;
 }
 
+// Limite della proiezione Web Mercator usata da MapLibre. Le coordinate degli
+// oggetti non vengono mai corrette silenziosamente: se non sono proiettabili,
+// non costituiscono una destinazione geografica valida.
+const MAX_MAP_OBJECT_LATITUDE = 85;
+const validMapObjectCoordinate = (point: [unknown, unknown] | null): point is [number, number] => !!point
+  && Number.isFinite(point[0]) && Number.isFinite(point[1])
+  && Math.abs(point[0] as number) <= MAX_LONGITUDE
+  && Math.abs(point[1] as number) <= MAX_MAP_OBJECT_LATITUDE;
+
+/**
+ * Authority frontend unica per la posizione geografica di un oggetto mappa.
+ * Il registro canonico vince sempre su snapshot legacy/stale; in sua assenza
+ * si accettano soltanto coordinate persistite finite e proiettabili. Il
+ * fallback storico SVG x/y resta deliberatamente responsabilità del renderer.
+ */
+export function resolveMapObjectCoordinate(input: {
+  type: string;
+  country: string;
+  name: string;
+  lng?: unknown;
+  lat?: unknown;
+}): [number, number] | null {
+  const canonical = fixedCityCoordinate(input.type, input.country, input.name);
+  if (validMapObjectCoordinate(canonical)) return canonical;
+  const persisted: [unknown, unknown] = [input.lng, input.lat];
+  return validMapObjectCoordinate(persisted) ? persisted : null;
+}
+
 /** Per-map cache: unchanged borders are parsed once; deleted regions are evicted. */
 export class RegionFeatureIndex {
   private cache = new Map<string, { raw?: string; feature: GeoJSON.Feature | null }>();
@@ -260,12 +288,12 @@ export function buildMapSearchIndex(regions: Region[]): MapSearchEntry[] {
     }];
     const regionCountry = String(region.flag || region.owner || '').toUpperCase();
     for (const object of region.objects || []) {
-      // Un oggetto nel registro (capitale/città) è ricercabile al suo punto
-      // canonico anche se il salvataggio non porta lat/lng: stessa geografia
-      // del marker, nessuna coordinata inventata.
-      const point = Number.isFinite(object.lng) && Number.isFinite(object.lat) && Math.abs(object.lat!) <= 85
-        ? [object.lng!, object.lat!] as [number, number]
-        : fixedCityCoordinate(object.type, regionCountry, object.name);
+      // Renderer e ricerca condividono la stessa authority: il registro
+      // canonico precede sempre eventuali coordinate persistite stale.
+      const point = resolveMapObjectCoordinate({
+        type: object.type, country: regionCountry, name: object.name,
+        lng: object.lng, lat: object.lat,
+      });
       if (!point) continue;
       entries.push({
         id: `${region.id}:${object.id}`, regionId: region.id, name: object.name,
