@@ -56,9 +56,10 @@ tornare senza un test rosso.
 ## 3. Soluzione
 
 - **`parseRegionGeometry` irrobustito**: validazione esplicita di **latitudine e
-  longitudine** in WGS84, forma dei punti, e anelli con ≥ 4 vertici finiti. Una
-  geometria non valida viene **scartata per quella provincia**, mai riparata
-  inventando coordinate.
+  longitudine** in WGS84 e LinearRing con ≥ 4 posizioni e primo/ultimo punto
+  equivalenti. MAP P1.2 rifiuta anche outer ring, hole e ring di MultiPolygon
+  aperti. Una geometria non valida viene **scartata per quella provincia**, mai
+  chiusa o riparata automaticamente.
 - **Registro geografico unico**: `fixedCityCoordinate()` è ora in `mapModel`.
   MAP P1.1 aggiunge `resolveMapObjectCoordinate()`, usato **sia** dal renderer
   **sia** da `buildMapSearchIndex`: il registro canonico vince sempre su
@@ -96,9 +97,11 @@ sostituita.**
 
 ## 6. Test aggiunti
 
-**Unitari (`mapModel.test.ts`, +12 → 29 totali nel file):**
-- Polygon valido, MultiPolygon valido, anello aperto ma con ≥ 4 vertici;
-- rifiuto di `lng`/`lat` fuori WGS84 e di anelli con 3 vertici;
+**Unitari (`mapModel.test.ts`, +14 → 31 totali nel file):**
+- Polygon/MultiPolygon chiusi e LinearRing minimo validi;
+- P1.2: rifiuto di outer ring aperto, hole aperto, MultiPolygon con un ring
+  aperto e ring con meno di 4 posizioni;
+- rifiuto di `lng`/`lat` fuori WGS84;
 - una geometria invalida **non** impedisce l'indicizzazione delle regioni sane;
 - `fixedCityCoordinate`: capitale per paese, città per nome (accenti/maiuscole),
   `null` per tipi/nomi sconosciuti;
@@ -207,7 +210,7 @@ stato della mappa.
 | Backend `npx vitest run` | ✅ **163 file / 1707 test** |
 | Backend `npm run build` | ✅ |
 | Frontend `npx tsc --noEmit` | ✅ |
-| Frontend `npx vitest run` | ✅ **67 file / 509 test** |
+| Frontend `npx vitest run` | ✅ **67 file / 511 test** |
 | Frontend `npm run build` | ✅ |
 | E2E `npm run test:e2e:mock` | ✅ **57/57** (49 preesistenti + 8 MAP P1/P1.1) |
 | A11y `npm run test:a11y` | ✅ 3/3 |

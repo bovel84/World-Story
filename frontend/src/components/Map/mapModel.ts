@@ -62,14 +62,20 @@ const isValidPosition = (position: unknown): boolean => Array.isArray(position)
   && Number.isFinite(position[0]) && Number.isFinite(position[1])
   && Math.abs(position[0] as number) <= MAX_LONGITUDE
   && Math.abs(position[1] as number) <= MAX_LATITUDE;
-const isValidRing = (ring: unknown): boolean => Array.isArray(ring)
-  && ring.length >= 4 && ring.every(isValidPosition);
+const isValidRing = (ring: unknown): boolean => {
+  if (!Array.isArray(ring) || ring.length < 4 || !ring.every(isValidPosition)) return false;
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  // GeoJSON LinearRing: la prima e l'ultima posizione devono essere
+  // equivalenti. L'input aperto viene scartato, mai chiuso automaticamente.
+  return first[0] === last[0] && first[1] === last[1];
+};
 
 /**
  * Invalid imported geometry must not prevent the rest of the world from
  * rendering: a geometry is accepted only if it is a Polygon/MultiPolygon whose
- * rings have ≥ 4 vertices, finite coordinates and are inside WGS84. Anything
- * else is skipped for that province alone (never invented or repaired).
+ * rings have ≥ 4 positions, finite WGS84 coordinates and matching first/last
+ * positions. Anything else is skipped for that province alone (never repaired).
  */
 export function parseRegionGeometry(value?: string): GeoJSON.Polygon | GeoJSON.MultiPolygon | null {
   if (!value) return null;

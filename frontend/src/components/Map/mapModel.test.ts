@@ -136,33 +136,45 @@ describe('Incremental game map', () => {
 });
 
 describe('MAP P1 — integrità geografica, ricerca e gerarchia visiva', () => {
-  it('accetta Polygon/MultiPolygon validi e rifiuta coordinate fuori WGS84', () => {
-    const polygon = { type: 'Polygon', coordinates: [[[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]]] };
-    const multi = { type: 'MultiPolygon', coordinates: [polygon.coordinates] };
-    expect(parseRegionGeometry(JSON.stringify({ geometry: polygon }))?.type).toBe('Polygon');
-    expect(parseRegionGeometry(JSON.stringify({ geometry: multi }))?.type).toBe('MultiPolygon');
-    // Un anello con ≥ 4 vertici finiti è accettato anche se non esplicitamente chiuso.
-    expect(parseRegionGeometry(JSON.stringify({ geometry: {
-      type: 'Polygon', coordinates: [[[0, 0], [5, 0], [5, 5], [0, 5]]],
-    } }))).not.toBeNull();
-    // Longitudine/latitudine fuori intervallo: la geometria è scartata, non proiettata.
+  it('P1.2: accetta solo Polygon con LinearRing chiusi e almeno quattro posizioni', () => {
+    const closed = { type: 'Polygon', coordinates: [[[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]]] };
+    const minimum = { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [0, 1], [0, 0]]] };
+    const open = { type: 'Polygon', coordinates: [[[0, 0], [5, 0], [5, 5], [0, 5]]] };
+    const tooShort = { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [0, 0]]] };
+
+    expect(parseRegionGeometry(JSON.stringify({ geometry: closed }))?.type).toBe('Polygon');
+    expect(parseRegionGeometry(JSON.stringify({ geometry: minimum }))?.type).toBe('Polygon');
+    expect(parseRegionGeometry(JSON.stringify({ geometry: open }))).toBeNull();
+    expect(parseRegionGeometry(JSON.stringify({ geometry: tooShort }))).toBeNull();
+  });
+
+  it('P1.2: rifiuta hole aperti e MultiPolygon con anche un solo ring aperto', () => {
+    const closedRing = [[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]];
+    const openRing = [[1, 1], [2, 1], [2, 2], [1, 2]];
+    const polygonWithOpenHole = { type: 'Polygon', coordinates: [closedRing, openRing] };
+    const multiWithOpenRing = {
+      type: 'MultiPolygon',
+      coordinates: [[closedRing], [openRing]],
+    };
+
+    expect(parseRegionGeometry(JSON.stringify({ geometry: polygonWithOpenHole }))).toBeNull();
+    expect(parseRegionGeometry(JSON.stringify({ geometry: multiWithOpenRing }))).toBeNull();
+  });
+
+  it('rifiuta coordinate fuori WGS84 senza ripararle', () => {
     expect(parseRegionGeometry(JSON.stringify({ geometry: {
       type: 'Polygon', coordinates: [[[5000, 0], [0, 0], [1, 0], [5000, 0]]],
     } }))).toBeNull();
     expect(parseRegionGeometry(JSON.stringify({ geometry: {
       type: 'Polygon', coordinates: [[[0, -100], [0, 0], [1, 0], [0, -100]]],
     } }))).toBeNull();
-    // Anello troppo corto (3 vertici) rifiutato; nessuna coordinata inventata.
-    expect(parseRegionGeometry(JSON.stringify({ geometry: {
-      type: 'Polygon', coordinates: [[[0, 0], [1, 0], [0, 0]]],
-    } }))).toBeNull();
   });
 
-  it('una geometria invalida non impedisce l\'indicizzazione delle regioni sane', () => {
+  it('P1.2: una regione con ring aperto non impedisce l\'indicizzazione delle regioni sane', () => {
     const index = new RegionFeatureIndex();
     const features = index.build([
       region('broken', { geojson: JSON.stringify({ geometry: {
-        type: 'Polygon', coordinates: [[[5000, 0], [0, 0], [1, 0], [5000, 0]]],
+        type: 'Polygon', coordinates: [[[0, 0], [5, 0], [5, 5], [0, 5]]],
       } }) }),
       region('ok'),
     ]);
