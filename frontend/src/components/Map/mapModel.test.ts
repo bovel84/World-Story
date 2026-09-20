@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Region } from '../../types';
-import { RegionFeatureIndex, diffRegionFeatures, parseRegionGeometry, objectIconFor, objectIsVisible, objectMinZoom, objectQualifiesAtZoom, DEFAULT_MAP_FILTERS, buildMapSearchIndex, searchMap } from './mapModel';
+import { RegionFeatureIndex, diffRegionFeatures, parseRegionGeometry, objectIconFor, objectIsVisible, objectMinZoom, objectQualifiesAtZoom, DEFAULT_MAP_FILTERS, buildMapSearchIndex, searchMap, fixedCityCoordinate, resolveMapObjectCoordinate, regionLabelVisible, REGION_LABEL_BUDGET } from './mapModel';
 
 const geometry = { type: 'Polygon', coordinates: [[[0, 0], [5, 0], [5, 5], [0, 0]]] };
 const region = (id: string, overrides: Partial<Region> = {}): Region => ({
@@ -132,5 +132,141 @@ describe('Incremental game map', () => {
     expect(objectIconFor({ type: 'airbase' }).label).toBe('✈');
     expect(objectIconFor({ type: 'missile' }).label).toBe('➤');
     expect(objectIconFor({ type: 'kind_inesistente' }).label).toBe('●');
+  });
+});
+
+describe('MAP P1 — integrità geografica, ricerca e gerarchia visiva', () => {
+  it('P1.2: accetta solo Polygon con LinearRing chiusi e almeno quattro posizioni', () => {
+    const closed = { type: 'Polygon', coordinates: [[[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]]] };
+    const minimum = { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [0, 1], [0, 0]]] };
+    const open = { type: 'Polygon', coordinates: [[[0, 0], [5, 0], [5, 5], [0, 5]]] };
+    const tooShort = { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [0, 0]]] };
+
+    expect(parseRegionGeometry(JSON.stringify({ geometry: closed }))?.type).toBe('Polygon');
+    expect(parseRegionGeometry(JSON.stringify({ geometry: minimum }))?.type).toBe('Polygon');
+    expect(parseRegionGeometry(JSON.stringify({ geometry: open }))).toBeNull();
+    expect(parseRegionGeometry(JSON.stringify({ geometry: tooShort }))).toBeNull();
+  });
+
+  it('P1.2: rifiuta hole aperti e MultiPolygon con anche un solo ring aperto', () => {
+    const closedRing = [[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]];
+    const openRing = [[1, 1], [2, 1], [2, 2], [1, 2]];
+    const polygonWithOpenHole = { type: 'Polygon', coordinates: [closedRing, openRing] };
+    const multiWithOpenRing = {
+      type: 'MultiPolygon',
+      coordinates: [[closedRing], [openRing]],
+    };
+
+    expect(parseRegionGeometry(JSON.stringify({ geometry: polygonWithOpenHole }))).toBeNull();
+    expect(parseRegionGeometry(JSON.stringify({ geometry: multiWithOpenRing }))).toBeNull();
+  });
+
+  it('rifiuta coordinate fuori WGS84 senza ripararle', () => {
+    expect(parseRegionGeometry(JSON.stringify({ geometry: {
+      type: 'Polygon', coordinates: [[[5000, 0], [0, 0], [1, 0], [5000, 0]]],
+    } }))).toBeNull();
+    expect(parseRegionGeometry(JSON.stringify({ geometry: {
+      type: 'Polygon', coordinates: [[[0, -100], [0, 0], [1, 0], [0, -100]]],
+    } }))).toBeNull();
+  });
+
+  it('P1.2: una regione con ring aperto non impedisce l\'indicizzazione delle regioni sane', () => {
+    const index = new RegionFeatureIndex();
+    const features = index.build([
+      region('broken', { geojson: JSON.stringify({ geometry: {
+        type: 'Polygon', coordinates: [[[0, 0], [5, 0], [5, 5], [0, 5]]],
+      } }) }),
+      region('ok'),
+    ]);
+    expect([...features.keys()]).toEqual(['ok']);
+  });
+
+  it('il punto canonico di capitali e città viene dal registro, senza coordinate inventate', () => {
+    expect(fixedCityCoordinate('capital', 'ITA', 'Rome')).toEqual([12.48, 41.9]);
+    expect(fixedCityCoordinate('city', 'ITA', 'Roma')).toEqual([12.5, 41.9]);
+    // Accenti e maiuscole non cambiano il match; il resto è null.
+    expect(fixedCityCoordinate('city', 'USA', 'New York')).toEqual([-74.01, 40.71]);
+    expect(fixedCityCoordinate('city', 'ITA', 'Città Inventata')).toBeNull();
+    expect(fixedCityCoordinate('factory', 'ITA', 'Roma')).toBeNull();
+  });
+
+  it('la ricerca include capitali e città anche senza lat/lng nel salvataggio', () => {
+    const index = buildMapSearchIndex([region('ita', {
+      flag: 'ITA', owner: 'ITA', objects: [
+        { id: 'cap', type: 'capital', name: 'Rome' },
+        { id: 'city', type: 'city', name: 'Roma' },
+        { id: 'mystery', type: 'city', name: 'Città Sconosciuta' },
+      ],
+    })]);
+    expect(searchMap(index, 'rome')[0]).toMatchObject({ regionId: 'ita', point: [12.48, 41.9] });
+    expect(searchMap(index, 'roma')[0]).toMatchObject({ regionId: 'ita', point: [12.5, 41.9] });
+    // Un oggetto non nel registro non ottiene un punto arbitrario.
+    expect(searchMap(index, 'sconosciuta')).toEqual([]);
+  });
+
+  it('P1.1: le coordinate canoniche di una città vincono sullo snapshot stale', () => {
+    const index = buildMapSearchIndex([region('ita', {
+      flag: 'ITA', objects: [{ id: 'roma', type: 'city', name: 'Roma', lng: 13.10, lat: 42.20 }],
+    })]);
+    expect(searchMap(index, 'roma')[0]?.point).toEqual([12.5, 41.9]);
+  });
+
+  it('P1.1: le coordinate canoniche della capitale vincono sullo snapshot stale', () => {
+    const index = buildMapSearchIndex([region('ita', {
+      flag: 'ITA', objects: [{ id: 'rome', type: 'capital', name: 'Rome', lng: 13.10, lat: 42.20 }],
+    })]);
+    expect(searchMap(index, 'rome')[0]?.point).toEqual([12.48, 41.9]);
+  });
+
+  it('P1.1: un oggetto sconosciuto usa coordinate persistite valide', () => {
+    const index = buildMapSearchIndex([region('ita', {
+      flag: 'ITA', objects: [{ id: 'borgo', type: 'city', name: 'Borgo Nuovo', lng: 12, lat: 44 }],
+    })]);
+    expect(searchMap(index, 'borgo')[0]?.point).toEqual([12, 44]);
+  });
+
+  it('P1.1: longitudini persistite invalide non diventano destinazioni di ricerca', () => {
+    const index = buildMapSearchIndex([region('ita', {
+      flag: 'ITA', objects: [{ id: 'lng-bad', type: 'factory', name: 'Fuori Longitudine', lng: 500, lat: 40 }],
+    })]);
+    expect(searchMap(index, 'fuori longitudine')).toEqual([]);
+  });
+
+  it('P1.1: latitudini persistite invalide non diventano destinazioni di ricerca', () => {
+    const index = buildMapSearchIndex([region('ita', {
+      flag: 'ITA', objects: [{ id: 'lat-bad', type: 'factory', name: 'Fuori Latitudine', lng: 10, lat: 100 }],
+    })]);
+    expect(searchMap(index, 'fuori latitudine')).toEqual([]);
+  });
+
+  it('P1.1: il resolver condiviso applica canonical → raw valido → null', () => {
+    expect(resolveMapObjectCoordinate({
+      type: 'city', country: 'ITA', name: 'Roma', lng: 13.10, lat: 42.20,
+    })).toEqual([12.5, 41.9]);
+    expect(resolveMapObjectCoordinate({
+      type: 'factory', country: 'ITA', name: 'Fabbrica', lng: 12, lat: 44,
+    })).toEqual([12, 44]);
+    expect(resolveMapObjectCoordinate({
+      type: 'factory', country: 'ITA', name: 'Fabbrica', lng: 181, lat: 44,
+    })).toBeNull();
+  });
+
+  it('normalizza accenti e maiuscole nella ricerca', () => {
+    const index = buildMapSearchIndex([region('n', { name: 'Île du Nord', polityName: 'Repubblica Alfa' })]);
+    expect(searchMap(index, 'ile')[0].regionId).toBe('n');
+    expect(searchMap(index, 'ALFA')[0].regionId).toBe('n');
+  });
+
+  it('le province parlano solo da selezionate; le nazioni seguono zoom e budget', () => {
+    // Provincia: mai visibile se non selezionata, a qualunque zoom.
+    expect(regionLabelVisible({ isProvince: true, selected: false, hovered: false, zoom: 6, area: 50, shown: 0 }).visible).toBe(false);
+    expect(regionLabelVisible({ isProvince: true, selected: true, hovered: false, zoom: 2, area: 0.01, shown: 0 }).visible).toBe(true);
+    // Regione nazionale: piccola a zoom mondo non parla, a zoom locale sì.
+    expect(regionLabelVisible({ isProvince: false, selected: false, hovered: false, zoom: 1.5, area: 20, shown: 0 }).visible).toBe(false);
+    expect(regionLabelVisible({ isProvince: false, selected: false, hovered: false, zoom: 2.5, area: 20, shown: 0 }).visible).toBe(true);
+    // Budget rispettato; hover e selezione non lo consumano.
+    expect(regionLabelVisible({ isProvince: false, selected: false, hovered: false, zoom: 3.5, area: 1, shown: REGION_LABEL_BUDGET }).visible).toBe(false);
+    expect(regionLabelVisible({ isProvince: false, selected: false, hovered: false, zoom: 3.5, area: 1, shown: REGION_LABEL_BUDGET - 1 }).visible).toBe(true);
+    expect(regionLabelVisible({ isProvince: false, selected: false, hovered: true, zoom: 1, area: 0.1, shown: REGION_LABEL_BUDGET }).visible).toBe(true);
   });
 });

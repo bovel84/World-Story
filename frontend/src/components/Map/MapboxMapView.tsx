@@ -23,11 +23,9 @@ import type { StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Region } from '../../types';
 import type { MapObject } from '../../types';
-import citiesRegistry from '../../data/cities.json';
-import capitalsRegistry from '../../data/capitals.json';
 import { MapTools } from './MapTools';
 import { MapLegend } from '../Shell/MapLegend';
-import { RegionFeatureIndex, diffRegionFeatures, objectIconFor, objectIsVisible, objectQualifiesAtZoom, DEFAULT_MAP_FILTERS, EMPTY_IDS, type MapLayer, type MapFilters, type MapSearchEntry } from './mapModel';
+import { RegionFeatureIndex, diffRegionFeatures, objectIconFor, objectIsVisible, objectQualifiesAtZoom, regionLabelVisible, fixedCityCoordinate, resolveMapObjectCoordinate, DEFAULT_MAP_FILTERS, EMPTY_IDS, type MapLayer, type MapFilters, type MapSearchEntry } from './mapModel';
 import './map.css';
 import { constructionReport } from '../../utils/construction';
 import type { FeedItem } from '../Game/EventFeed';
@@ -37,9 +35,6 @@ import { createMilitarySymbol } from './militarySymbol';
 import { MILITARY_TYPES } from './tacticalModel';
 
 const EMPTY_EVENTS: FeedItem[] = [];
-
-type CityLocation = { name: string; country: string; lat: number; lng: number; pop: number };
-type CapitalLocation = { capital: string; lat: number; lng: number };
 
 // I territori aggiornati nell'ultima sessione sopravvivono al rimontaggio
 // della mappa (cambio modulo su mobile, ricarica della scheda): senza questa
@@ -60,28 +55,8 @@ function writeRecentChangedRegions(scope: string, ids: string[]): void {
   catch { /* memoria volatile: la mappa funziona comunque */ }
 }
 
-const normalizePlaceName = (value: string): string => value
-  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  .toLowerCase().replace(/[^a-z0-9]/g, '');
-
-// Registro frontend: ogni città storica usa sempre questo punto geografico,
-// senza dipendere da x/y legacy o da snapshot di partita meno recenti.
-const FIXED_CITY_POINTS = new Map<string, CityLocation>(
-  (citiesRegistry.cities as CityLocation[]).map(city => [
-    `${city.country}:${normalizePlaceName(city.name)}`, city,
-  ]),
-);
-const FIXED_CAPITAL_POINTS = capitalsRegistry as Record<string, CapitalLocation>;
-
-const fixedCityCoordinate = (type: string, country: string, name: string): [number, number] | null => {
-  if (type === 'capital') {
-    const capital = FIXED_CAPITAL_POINTS[country];
-    return capital ? [capital.lng, capital.lat] : null;
-  }
-  if (type !== 'city') return null;
-  const city = FIXED_CITY_POINTS.get(`${country}:${normalizePlaceName(name)}`);
-  return city ? [city.lng, city.lat] : null;
-};
+// Il punto canonico di città e capitali vive in `mapModel` (`fixedCityCoordinate`):
+// renderer e ricerca leggono lo **stesso** registro geografico, senza duplicati.
 
 // Corrispondenza ISO 3166-1 alpha-3 → alpha-2 per flagcdn.com
 const ISO3_TO_ISO2: Record<string, string> = {
@@ -580,6 +555,9 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       dragRotate: false,
       pitchWithRotate: false,
       touchPitch: false,
+      // Il mondo si scorre in ogni direzione, anche oltre l'antimeridiano: la
+      // mappa non è mai chiusa a est/ovest e il pan non si blocca sul bordo.
+      renderWorldCopies: true,
       locale: { 'NavigationControl.ZoomIn': 'Ingrandisci', 'NavigationControl.ZoomOut': 'Riduci', 'Map.Title': 'Mappa del mondo' },
     });
     map.current.getCanvas().tabIndex = -1;
@@ -966,7 +944,6 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
         }
       });
       let shownRegionLabels = 0;
-      const REGION_LABEL_BUDGET = 90;
       labelMarkers.current.forEach((marker) => {
         const el = marker.getElement();
         if (!el) return;
@@ -979,17 +956,13 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
         // Stati/regioni nazionali conservano invece la gerarchia per zoom.
         const isProvince = el.dataset.province === '1';
         const selected = regionId === selectedRegionId;
-        const focused = selected || regionId === hoveredRegionId;
         // A vista mondo lasciamo l'identità ai label delle politie (uno per
-        // nazione). I nomi di regione nazionale rientrano solo avvicinandosi o
-        // quando l'utente li indica.
-        const qualifies = isProvince
-          ? selected
-          : focused || (zoom >= 2.4 && area >= 12) || (zoom >= 3.0 && area >= 0.35) || zoom >= 3.2;
-        const priority = selected || focused;
-        const visible = qualifies && isInViewport(marker.getLngLat())
-          && (priority || shownRegionLabels < REGION_LABEL_BUDGET);
-        if (visible && !priority) shownRegionLabels += 1;
+        // nazione). La decisione (gerarchia + budget) è pura e testabile.
+        const decision = regionLabelVisible({
+          isProvince, selected, hovered: regionId === hoveredRegionId, zoom, area, shown: shownRegionLabels,
+        });
+        const visible = decision.visible && isInViewport(marker.getLngLat());
+        if (visible && decision.countsTowardBudget) shownRegionLabels += 1;
         el.style.display = visible ? '' : 'none';
       });
 
@@ -1149,11 +1122,10 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     // i contatori non si coprono e restano tutti cliccabili a ogni zoom.
     const visibleRaw = uniqueRaw.filter(obj => obj.type !== 'capital');
     const stackKey = (obj: typeof visibleRaw[number]): string => {
-      const fixed = fixedCityCoordinate(obj.type, obj.regionCountry, obj.name);
-      if (fixed) return `${fixed[0].toFixed(4)}:${fixed[1].toFixed(4)}`;
-      if (typeof obj.lat === 'number' && typeof obj.lng === 'number') {
-        return `${obj.lng.toFixed(4)}:${obj.lat.toFixed(4)}`;
-      }
+      const point = resolveMapObjectCoordinate({
+        type: obj.type, country: obj.regionCountry, name: obj.name, lng: obj.lng, lat: obj.lat,
+      });
+      if (point) return `${point[0].toFixed(4)}:${point[1].toFixed(4)}`;
       if (typeof obj.x === 'number' && typeof obj.y === 'number') return `svg:${obj.x.toFixed(2)}:${obj.y.toFixed(2)}`;
       return `unplaced:${obj.id}`;
     };
@@ -1188,12 +1160,12 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     let visibleCities = 0;
 
     allObjects.forEach(obj => {
-      // Coordinate: standard nuovo lat/lng reali (capitali, città, costruzioni);
-      // fallback legacy x/y SVG (mappe vecchie con svgPath)
-      let lngLat: [number, number] | null = fixedCityCoordinate(obj.type, obj.regionCountry, obj.name);
-      if (!lngLat && typeof obj.lat === 'number' && typeof obj.lng === 'number') {
-        lngLat = [obj.lng, obj.lat];
-      } else if (!lngLat && obj.x !== undefined && obj.y !== undefined) {
+      // Authority condivisa con la ricerca: registro canonico → lat/lng validi.
+      // Il fallback x/y resta solo qui per i vecchi mondi SVG.
+      let lngLat = resolveMapObjectCoordinate({
+        type: obj.type, country: obj.regionCountry, name: obj.name, lng: obj.lng, lat: obj.lat,
+      });
+      if (!lngLat && obj.x !== undefined && obj.y !== undefined) {
         lngLat = [(obj.x / 2000) * 360 - 180, 90 - (obj.y / 1500) * 180];
       }
       if (!lngLat || !lngLat.every(Number.isFinite)) return;

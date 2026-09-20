@@ -1,5 +1,7 @@
 import type { GeoJSONSourceDiff } from 'maplibre-gl';
 import type { Region, MapObject } from '../../types';
+import citiesRegistry from '../../data/cities.json';
+import capitalsRegistry from '../../data/capitals.json';
 
 export type MapLayer = 'political' | 'terrain' | 'changes';
 export interface MapFilters {
@@ -51,7 +53,30 @@ export function objectIconFor(obj: Pick<MapObject, 'type'> & { metadata?: Record
   return OBJECT_ICONS[obj.type] ?? OBJECT_ICONS.city;
 }
 
-/** Invalid imported geometry must not prevent the rest of the world from rendering. */
+// Limiti di validità GeoJSON/WGS84: una coordinata fuori intervallo non è
+// proiettabile e romperebbe l'intera sorgente, non solo la sua provincia.
+const MAX_LATITUDE = 90;
+const MAX_LONGITUDE = 180;
+const isValidPosition = (position: unknown): boolean => Array.isArray(position)
+  && position.length >= 2
+  && Number.isFinite(position[0]) && Number.isFinite(position[1])
+  && Math.abs(position[0] as number) <= MAX_LONGITUDE
+  && Math.abs(position[1] as number) <= MAX_LATITUDE;
+const isValidRing = (ring: unknown): boolean => {
+  if (!Array.isArray(ring) || ring.length < 4 || !ring.every(isValidPosition)) return false;
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  // GeoJSON LinearRing: la prima e l'ultima posizione devono essere
+  // equivalenti. L'input aperto viene scartato, mai chiuso automaticamente.
+  return first[0] === last[0] && first[1] === last[1];
+};
+
+/**
+ * Invalid imported geometry must not prevent the rest of the world from
+ * rendering: a geometry is accepted only if it is a Polygon/MultiPolygon whose
+ * rings have ≥ 4 positions, finite WGS84 coordinates and matching first/last
+ * positions. Anything else is skipped for that province alone (never repaired).
+ */
 export function parseRegionGeometry(value?: string): GeoJSON.Polygon | GeoJSON.MultiPolygon | null {
   if (!value) return null;
   try {
@@ -60,11 +85,65 @@ export function parseRegionGeometry(value?: string): GeoJSON.Polygon | GeoJSON.M
     const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
     if (!Array.isArray(polygons) || !polygons.length) return null;
     const valid = polygons.every(polygon => Array.isArray(polygon) && polygon.length > 0
-      && polygon.every(ring => Array.isArray(ring) && ring.length >= 4
-        && ring.every(p => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0])
-          && Number.isFinite(p[1]) && Math.abs(p[1]) <= 90)));
+      && polygon.every(isValidRing));
     return valid ? geometry : null;
   } catch { return null; }
+}
+
+// ── Registri geografici condivisi (città e capitali) ────────────────────────
+export type CityLocation = { name: string; country: string; lat: number; lng: number; pop: number };
+export type CapitalLocation = { capital: string; lat: number; lng: number };
+
+const normalizePlaceName = (value: string): string => value
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const CITY_POINTS = new Map<string, CityLocation>(
+  (citiesRegistry.cities as CityLocation[]).map(city => [`${city.country}:${normalizePlaceName(city.name)}`, city]),
+);
+const CAPITAL_POINTS = capitalsRegistry as Record<string, CapitalLocation>;
+
+/**
+ * Coordinate canoniche di una città/capitale dal registro storico. Il punto è
+ * lo **stesso** usato dal renderer e dalla ricerca: un oggetto senza `lat/lng`
+ * non resta orfano e non riceve coordinate arbitrarie. `null` se sconosciuto.
+ */
+export function fixedCityCoordinate(type: string, country: string, name: string): [number, number] | null {
+  if (type === 'capital') {
+    const capital = CAPITAL_POINTS[country];
+    return capital ? [capital.lng, capital.lat] : null;
+  }
+  if (type !== 'city') return null;
+  const city = CITY_POINTS.get(`${country}:${normalizePlaceName(name)}`);
+  return city ? [city.lng, city.lat] : null;
+}
+
+// Limite della proiezione Web Mercator usata da MapLibre. Le coordinate degli
+// oggetti non vengono mai corrette silenziosamente: se non sono proiettabili,
+// non costituiscono una destinazione geografica valida.
+const MAX_MAP_OBJECT_LATITUDE = 85;
+const validMapObjectCoordinate = (point: [unknown, unknown] | null): point is [number, number] => !!point
+  && Number.isFinite(point[0]) && Number.isFinite(point[1])
+  && Math.abs(point[0] as number) <= MAX_LONGITUDE
+  && Math.abs(point[1] as number) <= MAX_MAP_OBJECT_LATITUDE;
+
+/**
+ * Authority frontend unica per la posizione geografica di un oggetto mappa.
+ * Il registro canonico vince sempre su snapshot legacy/stale; in sua assenza
+ * si accettano soltanto coordinate persistite finite e proiettabili. Il
+ * fallback storico SVG x/y resta deliberatamente responsabilità del renderer.
+ */
+export function resolveMapObjectCoordinate(input: {
+  type: string;
+  country: string;
+  name: string;
+  lng?: unknown;
+  lat?: unknown;
+}): [number, number] | null {
+  const canonical = fixedCityCoordinate(input.type, input.country, input.name);
+  if (validMapObjectCoordinate(canonical)) return canonical;
+  const persisted: [unknown, unknown] = [input.lng, input.lat];
+  return validMapObjectCoordinate(persisted) ? persisted : null;
 }
 
 /** Per-map cache: unchanged borders are parsed once; deleted regions are evicted. */
@@ -161,6 +240,38 @@ export function objectIsVisible(type: MapObject['type'], filters: MapFilters): b
   return filters.showIndustry;
 }
 
+/**
+ * Budget di etichette di provincia visibili contemporaneamente: selezione e
+ * hover non lo consumano. Impedisce che un mondo con migliaia di province
+ * accenda altrettanti testi DOM solo per nasconderli.
+ */
+export const REGION_LABEL_BUDGET = 90;
+
+/**
+ * Decisione **pura** di visibilità di una etichetta di regione. Le province
+ * parlano solo se selezionate; le regioni nazionali seguono la gerarchia per
+ * zoom; il budget limita le etichette non prioritarie. La logica vive qui per
+ * essere testabile senza montare la mappa.
+ */
+export function regionLabelVisible(input: {
+  isProvince: boolean;
+  selected: boolean;
+  hovered: boolean;
+  zoom: number;
+  area: number;
+  shown: number;
+  budget?: number;
+}): { visible: boolean; countsTowardBudget: boolean } {
+  const budget = input.budget ?? REGION_LABEL_BUDGET;
+  const focused = input.selected || input.hovered;
+  const qualifies = input.isProvince
+    ? input.selected
+    : focused || (input.zoom >= 2.4 && input.area >= 12)
+      || (input.zoom >= 3.0 && input.area >= 0.35) || input.zoom >= 3.2;
+  const visible = qualifies && (focused || input.shown < budget);
+  return { visible, countsTowardBudget: visible && !focused };
+}
+
 export const normalizeMapSearch = (text: string): string => text.normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('it').trim();
 
@@ -181,11 +292,18 @@ export function buildMapSearchIndex(regions: Region[]): MapSearchEntry[] {
       id: region.id, regionId: region.id, name: region.name, context,
       search: normalizeMapSearch(`${region.name} ${context} ${region.id}`),
     }];
+    const regionCountry = String(region.flag || region.owner || '').toUpperCase();
     for (const object of region.objects || []) {
-      if (!Number.isFinite(object.lng) || !Number.isFinite(object.lat) || Math.abs(object.lat!) > 85) continue;
+      // Renderer e ricerca condividono la stessa authority: il registro
+      // canonico precede sempre eventuali coordinate persistite stale.
+      const point = resolveMapObjectCoordinate({
+        type: object.type, country: regionCountry, name: object.name,
+        lng: object.lng, lat: object.lat,
+      });
+      if (!point) continue;
       entries.push({
         id: `${region.id}:${object.id}`, regionId: region.id, name: object.name,
-        context: `${region.name} · ${context}${object.type === 'mobilization' ? ' · In formazione' : object.type === 'construction_site' ? ' · Cantiere' : ''}`, point: [object.lng!, object.lat!],
+        context: `${region.name} · ${context}${object.type === 'mobilization' ? ' · In formazione' : object.type === 'construction_site' ? ' · Cantiere' : ''}`, point,
         search: normalizeMapSearch(`${object.name} ${region.name} ${context}`),
       });
     }

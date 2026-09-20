@@ -34,6 +34,9 @@ export function MapLegend({ regions, selectedRegionId, activeLayer, onLayerChang
   const bodyId = useId();
   const layerGroup = useId();
   const selected = regions.find(region => region.id === selectedRegionId);
+  // La legenda mostra solo ciò che è interpretabile adesso: unità e scontri
+  // compaiono solo se il filtro corrispondente è attivo.
+  const unitsVisible = filters?.showUnits ?? DEFAULT_MAP_FILTERS.showUnits;
   return (
     <section className={`map-legend${collapsed ? ' collapsed' : ''} ${className}`} aria-label="Legenda mappa">
       <button type="button" className="map-legend-toggle" aria-expanded={!collapsed} aria-controls={bodyId}
@@ -70,8 +73,8 @@ export function MapLegend({ regions, selectedRegionId, activeLayer, onLayerChang
           <span><i className="map-key-selected" /> Territorio selezionato</span>
           <span><i className="map-key-changed" /> Territorio aggiornato</span>
           <span><i className="map-key-scar" /> Controllo precedente (temporaneo)</span>
-          <span><i className="map-key-route" /> Spostamento eseguito (ultimi 30 giorni)</span>
-          <span><i className="map-key-battle" /> Scontro segnalato nei dispacci</span>
+          {unitsVisible && <span><i className="map-key-route" /> Spostamento eseguito (ultimi 30 giorni)</span>}
+          {unitsVisible && <span><i className="map-key-battle" /> Scontro segnalato nei dispacci</span>}
         </div>
         {selected && <p className="map-legend-selection"><span style={{ background: selected.color }} />
           {selected.name} · {selected.polityName || selected.owner}
