@@ -339,6 +339,24 @@ describe('MILITARY-UNITS — reparti nel read model', () => {
     expect(unitActionView(null)).toBeNull();
   });
 
+  it('P6: l’anteprima transfer mostra percorso, tratte, tempo e arrivo del motore', () => {
+    const view = unitActionView({
+      applied: false, action: 'transfer', unitId: 'army-A-unit-001', unitName: '1ª Brigata',
+      armyId: 'army-A', armyName: '1ª Armata', blocked: false, blockedReason: null,
+      rows: [{ label: 'Cibo (scorte)', before: 10, after: 9.7, unit: 'numero', tone: 'neutral' }],
+      unit: unitObject, regionName: 'Roma', note: 'In marcia.', why: 'Costo pagato una volta.',
+      movement: {
+        path: ['roma', 'firenze', 'bologna'], pathNames: ['Roma', 'Firenze', 'Bologna'],
+        hops: 2, daysPerHop: 30, totalDays: 60, estimatedArrivalDate: '1940-03-01',
+      },
+    } as any);
+    expect(view?.costLine).toBe('Roma → Bologna');
+    expect(view?.equipmentLine).toContain('Roma → Firenze → Bologna');
+    expect(view?.equipmentLine).toContain('2 tratte');
+    expect(view?.equipmentLine).toContain('30 giorni/tratta');
+    expect(view?.equipmentLine).toContain('60 giorni stimati');
+  });
+
   it('le destinazioni (armate e regioni) vengono dal quadro, non da liste inventate', () => {
     expect(armyTargets(unitPicture, unitObject)).toEqual([]);
     expect(regionTargets(unitPicture, unitObject)).toEqual([]);

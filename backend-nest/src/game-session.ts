@@ -690,13 +690,14 @@ export class GameSession {
       // P0-D — prima di ogni tick materiale: qual è l'ordine della forza
       // dichiarata e quanto costa. Una sola decisione per substep, nessun
       // ricalcolo e nessun secondo stato.
-      beforeMaterialPeriod: ({ stepDays }) => {
-        // Ordine del substep: prima lo stato dei fronti si assesta (con i suoi
-        // eventi di cronaca), poi si legge il piano del periodo. Il
-        // `beforePlayerSlice` successivo è idempotente e non ripete gli eventi.
+      beforeMaterialPeriod: ({ stepDays, stepDate }) => {
+        // P6 — il movimento raggiunge prima la sua posizione fisica finale del
+        // substep; solo dopo `syncFronts` può assegnarlo al teatro raggiunto.
+        // Il `beforePlayerSlice` successivo è idempotente e non ripete eventi.
         let syncEvents: string[] = [];
         try {
-          syncEvents = this.warFronts.syncFronts().events;
+          syncEvents = this.warFronts.advanceUnitMovements(stepDays, stepDate).events;
+          syncEvents = [...syncEvents, ...this.warFronts.syncFronts().events];
           // P4 — pipeline del substep: `syncFronts` → materializzazione NPC →
           // assegnazione/ordini → (poi) fabbisogni materiali e tick dei fronti.
           // Best-effort: se il seed non riesce la polity resta legacy.
@@ -1721,6 +1722,8 @@ export class GameSession {
       initialAccounts: () => this.initialAccounts(),
       resourceStock: polityId => this.resourceStock(polityId),
       saveResourceStock: (polityId, stock) => this.saveResourceStock(polityId, stock),
+      adoptResourceStock: (polityId, stock) => this.nationState.adoptResourceStock(polityId, stock),
+      invalidateResourceStock: polityId => this.nationState.invalidateResourceStock(polityId),
       // Dottrina militare (COUNTRY-CLARITY ENGINE): l'epoca viene dalla data
       // d'inizio dello scenario; progetti e manutenzione alimentano il quadro
       // della capacità industriale senza che il servizio tocchi il database.

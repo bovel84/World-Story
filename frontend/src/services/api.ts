@@ -363,6 +363,20 @@ export interface MilitaryUnitPayload {
   /** MILITARY-UNITS PR2 — mossa corrente e fronte di appartenenza. */
   order?: UnitOrderPayload;
   frontId?: string | null;
+  /** P6 — trasferimento strategico persistente, assente quando fermo. */
+  movement?: {
+    path: string[];
+    targetRegionId: string;
+    targetRegionName: string | null;
+    startedDate: string;
+    pathIndex: number;
+    daysPerHop: number;
+    remainingDaysToNextHop: number;
+    totalHops: number;
+    estimatedArrivalDate: string;
+    motorized: boolean;
+    lastAdvancedDate?: string | null;
+  };
 }
 
 /** MILITARY-UNITS PR2 — un **fronte** di guerra: due parti in contatto. */
@@ -438,6 +452,14 @@ export interface UnitActionImpactPayload {
   unit: MilitaryUnitPayload;
   regionName?: string | null;
   stock?: { food: number; fuel: number; money: number };
+  movement?: {
+    path: string[];
+    pathNames: string[];
+    hops: number;
+    daysPerHop: number;
+    totalDays: number;
+    estimatedArrivalDate: string;
+  };
   note: string;
   why: string;
 }

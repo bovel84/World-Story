@@ -102,6 +102,56 @@ export const militaryPersistenceRepository = {
     commit();
   },
   /**
+   * P6 — ordine/progresso di movimento. Il set globale dei reparti viene
+   * persistito in modalità strict; all'emissione dell'ordine anche il pagamento
+   * del costo entra nella stessa transazione. Durante gli hop `resource` è
+   * assente, quindi nessun costo può essere riapplicato.
+   */
+  persistMovement: (input: {
+    gameId: string;
+    units: Array<{ id: string; data: Record<string, unknown> }>;
+    resource?: {
+      polityId: string;
+      stock: Record<string, unknown>;
+      turn: number;
+      date: string | null;
+    };
+  }): void => {
+    const now = new Date().toISOString();
+    const upsertObject = db.prepare(`
+      INSERT INTO game_operational_objects (game_id, object_id, kind, data, recorded_at)
+      VALUES (?, ?, 'unit', ?, ?)
+      ON CONFLICT(game_id, object_id) DO UPDATE SET
+        kind = excluded.kind, data = excluded.data, recorded_at = excluded.recorded_at
+    `);
+    const removeObject = db.prepare('DELETE FROM game_operational_objects WHERE game_id = ? AND object_id = ?');
+    const listUnitIds = db.prepare("SELECT object_id FROM game_operational_objects WHERE game_id = ? AND kind = 'unit'");
+    const upsertResource = db.prepare(`
+      INSERT INTO game_resource_stocks (game_id, polity_id, stock, updated_turn, updated_date, recorded_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(game_id, polity_id) DO UPDATE SET
+        stock = excluded.stock, updated_turn = excluded.updated_turn,
+        updated_date = excluded.updated_date, recorded_at = excluded.recorded_at
+    `);
+    const ids = new Set(input.units.map(row => String(row.id)));
+    const commit = db.transaction(() => {
+      if (input.resource) {
+        upsertResource.run(
+          input.gameId, input.resource.polityId, JSON.stringify(input.resource.stock),
+          input.resource.turn, input.resource.date, now,
+        );
+      }
+      for (const row of input.units) {
+        upsertObject.run(input.gameId, String(row.id), JSON.stringify(row.data ?? {}), now);
+      }
+      for (const existing of listUnitIds.all(input.gameId) as Array<{ object_id: string }>) {
+        if (!ids.has(String(existing.object_id))) removeObject.run(input.gameId, String(existing.object_id));
+      }
+    });
+    commit();
+  },
+
+  /**
    * P5.1 — esito del combattimento: fronti, reparti globali e personale NPC
    * riallineato vengono committati insieme. Nessun arsenale o altra risorsa è
    * coinvolto in questo passaggio.

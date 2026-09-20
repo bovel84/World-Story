@@ -348,6 +348,24 @@ export interface WarFrontState {
   updatedDate: string;
 }
 
+/** P6 — ordine di trasferimento strategico persistito dentro il reparto. */
+export interface MilitaryUnitMovementState {
+  /** Percorso reale (origine e destinazione incluse) fissato all'ordine. */
+  path: string[];
+  targetRegionId: string;
+  targetRegionName: string | null;
+  startedDate: string;
+  /** Indice in `path` dell'ultima provincia fisicamente raggiunta. */
+  pathIndex: number;
+  daysPerHop: number;
+  remainingDaysToNextHop: number;
+  totalHops: number;
+  estimatedArrivalDate: string;
+  motorized: boolean;
+  /** Guardia d'idempotenza per i richiami dello stesso substep canonico. */
+  lastAdvancedDate?: string | null;
+}
+
 /**
  * Un **reparto** (unità militare): la granularità sotto l'armata. È un oggetto
  * persistente con uomini, equipaggiamento e fabbisogni propri; l'armata che lo
@@ -381,6 +399,8 @@ export interface MilitaryUnitState {
   order: UnitOrder;
   /** Fronte di appartenenza (P6): `null` se il reparto non è impegnato. */
   frontId: string | null;
+  /** P6 strategic movement: assente quando il reparto non è in marcia. */
+  movement?: MilitaryUnitMovementState;
 }
 
 /** Stato persistente completo di una partita (le armate sono oggetti della mappa). */
@@ -1914,7 +1934,7 @@ function unitActions(input: {
   const missingMen = Math.max(0, menPerFormation - Math.round(nonNegative(input.unit.personnel)));
   const missingRifles = Math.max(0, required - assigned);
   const otherArmies = input.armies.filter(army => String(army.id) !== String(input.unit.armyId)).length;
-  return [
+  const actions: OperatingAction[] = [
     {
       id: 'reinforce_unit',
       label: missingMen > 0 ? `Rinforza (${n(Math.min(missingMen, reserve))} uomini)` : 'Rinforza',
@@ -1955,8 +1975,12 @@ function unitActions(input: {
     {
       id: 'transfer_unit',
       label: 'Trasferisci',
-      enabled: true,
-      blockedReason: null,
+      enabled: input.unit.status !== 'destroyed' && input.unit.status !== 'retreating',
+      blockedReason: input.unit.status === 'destroyed'
+        ? 'Reparto distrutto: non può ricevere ordini di trasferimento.'
+        : input.unit.status === 'retreating'
+          ? 'Reparto in ritirata: deve completare il rally prima di un trasferimento strategico.'
+          : null,
     },
     {
       id: 'reassign_unit',
@@ -1981,6 +2005,10 @@ function unitActions(input: {
             : null,
     })),
   ];
+  if (!input.unit.movement) return actions;
+  const destination = input.unit.movement.targetRegionName || input.unit.movement.targetRegionId;
+  const blockedReason = `Il reparto è in trasferimento verso ${destination}: completa prima la marcia.`;
+  return actions.map(action => ({ ...action, enabled: false, blockedReason }));
 }
 
 const textList = (bag: Record<string, number>): string =>
@@ -2097,13 +2125,15 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
     const unitFuelMonths = unit.monthlyNeeds.fuel > 0 && fuelMonths !== null ? fuelMonths : null;
     const share = underArms > 0 ? nonNegative(unit.personnel) / underArms : 0;
     const equipmentTotal = Math.round(sum(Object.values(unit.equipment || {})));
+    const movementPathNames = unit.movement?.path.map(regionId =>
+      input.regions?.find?.(region => String(region.id) === String(regionId))?.name || regionId) ?? [];
     objects.push({
       id: unit.id,
       kind: 'unit',
       label: unit.name,
-      subtitle: `${army?.name || 'Armata'}${unit.regionName ? ` · ${unit.regionName}` : ''} · ${n(nonNegative(unit.personnel))} uomini`,
+      subtitle: `${army?.name || 'Armata'}${unit.regionName ? ` · ${unit.regionName}` : ''}${unit.movement ? ` · verso ${unit.movement.targetRegionName || unit.movement.targetRegionId}` : ''} · ${n(nonNegative(unit.personnel))} uomini`,
       status,
-      statusLabel: UNIT_STATUS_LABEL[unit.status],
+      statusLabel: unit.movement ? 'In trasferimento' : UNIT_STATUS_LABEL[unit.status],
       parentId: String(unit.armyId),
       regionId: unit.regionId,
       regionName: unit.regionName,
@@ -2117,6 +2147,13 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
           `${n(assigned)} armi individuali assegnate su ${n(required)} richieste.`),
         fact('capacita', 'Prontezza', readinessPct, 'pct', tone(readinessPct, 80, 60),
           'Organico e dotazione, modulati da stato e carburante disponibile.'),
+        ...(unit.movement ? [
+          fact('stato', 'Stato', null, 'testo', 'neutral', 'In trasferimento strategico: il reparto non combatte finché la marcia non termina.'),
+          fact('stato', 'Destinazione', null, 'testo', 'neutral', unit.movement.targetRegionName || unit.movement.targetRegionId),
+          fact('stato', 'Percorso', null, 'testo', 'neutral', movementPathNames.join(' → ')),
+          fact('stato', 'Avanzamento', null, 'testo', 'neutral', `${unit.movement.pathIndex} / ${unit.movement.totalHops} tratte · ${unit.movement.remainingDaysToNextHop} giorni alla prossima provincia`),
+          fact('stato', 'Arrivo stimato', null, 'testo', 'neutral', unit.movement.estimatedArrivalDate),
+        ] : []),
         fact('stato', 'Ordine', null, 'testo', 'neutral',
           `${UNIT_ORDER_LABEL[unit.order ?? UNIT_ORDER_DEFAULT]} — ${orderInfo.note} Pressione ×${orderInfo.pressure} · perdite ×${orderInfo.losses} · consumi di guerra ×${orderInfo.consumption}.`),
         fact('stato', 'Fronte', null, 'testo', 'neutral',
@@ -2185,7 +2222,7 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
     // sola fonte). Prima i reparti del giocatore erano gli unici possibili;
     // adesso entrambe le parti possono averne, e vanno letti **entrambi**.
     const onFront = (input.units || []).filter(unit => String(unit.frontId) === String(front.id)
-      && unit.status !== 'destroyed');
+      && unit.status !== 'destroyed' && !unit.movement);
     const attacker = onFront;
     const attackerUnits = onFront.filter(unit => String(unit.polityId) === String(front.attackerPolityId));
     const defenderUnits = onFront.filter(unit => String(unit.polityId) === String(front.defenderPolityId));

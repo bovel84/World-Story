@@ -256,7 +256,7 @@ export function supplyCoverage(input: {
  * in vita): è la sua riga di storia, non una forza.
  */
 export function unitIsActiveOnFront(input: {
-  unit: Pick<MilitaryUnitState, 'frontId' | 'regionId' | 'status'>;
+  unit: Pick<MilitaryUnitState, 'frontId' | 'regionId' | 'status' | 'movement'>;
   front: Pick<WarFrontState, 'id' | 'status' | 'regionIds' | 'attackerPolityId' | 'defenderPolityId'> | null | undefined;
   /** Polity del reparto (dalla provincia che lo ospita): se nota si verifica la parte. */
   unitPolityId?: string | null;
@@ -264,7 +264,7 @@ export function unitIsActiveOnFront(input: {
   const front = input.front;
   const unit = input.unit;
   if (!front) return false;
-  if (unit.status === 'destroyed') return false;
+  if (unit.status === 'destroyed' || unit.movement) return false;
   if (String(front.status) === 'closed') return false;
   if (String(unit.frontId || '') !== String(front.id)) return false;
   if (!unit.regionId) return false;
@@ -463,7 +463,7 @@ export interface FrontResolution {
  */
 const sideUnits = (
   units: ReadonlyArray<MilitaryUnitState>,
-): ReadonlyArray<MilitaryUnitState> => units.filter(unit => unit.status !== 'destroyed');
+): ReadonlyArray<MilitaryUnitState> => units.filter(unit => unit.status !== 'destroyed' && !unit.movement);
 
 /**
  * Un **periodo** di fronte: legge i reparti, calcola le pressioni, applica
