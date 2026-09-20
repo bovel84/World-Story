@@ -144,6 +144,20 @@ function prepareOne(session: any, polityId: string, patch: Record<string, unknow
   });
   return unitsOf(session, polityId).find(unit => unit.id === chosen.id);
 }
+const activePersonnelInUnits = (session: any, polityId: string) => unitsOf(session, polityId)
+  .filter(unit => unit.status !== 'destroyed')
+  .reduce((total, unit) => total + Math.round(Number(unit.personnel) || 0), 0);
+const fightOnePeriod = (session: any, date = '1940-01-31') => {
+  const plan = (session as any).warFronts.planPeriod(30);
+  return (session as any).warFronts.advanceFronts(30, date, {
+    legacyOrdersByFront: plan.legacyOrdersByFront,
+    supply: {
+      [PID]: { food: 1, clothing: 1, weapons: 1, fuel: 1 },
+      [AUT]: { food: 1, clothing: 1, weapons: 1, fuel: 1 },
+      [HUN]: { food: 1, clothing: 1, weapons: 1, fuel: 1 },
+    },
+  });
+};
 
 describe('MILITARY P5 — personale NPC persistente', () => {
   it('isola personnel player/AUT/HUN e una riga NPC non soddisfa il seed sentinel player', () => {
@@ -429,6 +443,161 @@ describe('MILITARY P5 — personale NPC persistente', () => {
     for (const date of ['1940-01-31', '1940-03-01', '1940-03-31']) split.advanceWorldState(30, date);
     expect(splitMaintenance).toHaveBeenCalledTimes(3);
     expect(snapshot(split)).toEqual(snapshot(long));
+  });
+
+  it('P5.1: le perdite riallineano activePersonnel; il rinforzo successivo conserva i delta', () => {
+    const session = warGame();
+    const required = rifleRequirement('seconda_guerra', 1);
+    const aut = prepareOne(session, AUT, {
+      personnel: 10_000, equipment: { [rifleEquipmentId()]: required },
+      readiness: 1, status: 'operational', order: 'defend',
+    });
+    prepareOne(session, PID, {
+      personnel: 10_000, equipment: { [rifleEquipmentId()]: required },
+      readiness: 1, status: 'operational', order: 'defend',
+    });
+    const doctrine = doctrineOf(session, AUT);
+    putPersonnel(session, AUT, {
+      ...seedPersonnel(doctrine, session.currentDate),
+      activePersonnel: 10_000, trainedReserve: 3_000, mobilizedPersonnel: 0, shipCrew: 17,
+    });
+    putDepot(session, AUT, {});
+    const reserveBefore = personnelOf(session, AUT).trainedReserve;
+
+    fightOnePeriod(session);
+    const afterBattle = unitsOf(session, AUT).find(unit => unit.id === aut.id);
+    const personnelAfterBattle = personnelOf(session, AUT);
+    expect(afterBattle.personnel).toBeLessThan(10_000);
+    expect(personnelAfterBattle.activePersonnel).toBe(activePersonnelInUnits(session, AUT));
+    expect(personnelAfterBattle.trainedReserve).toBe(reserveBefore);
+    expect(personnelAfterBattle.mobilizedPersonnel).toBe(0);
+    expect(personnelAfterBattle.shipCrew).toBe(17);
+
+    const unitBeforeMaintenance = afterBattle.personnel;
+    const activeBeforeMaintenance = personnelAfterBattle.activePersonnel;
+    (session as any).warFronts.maintainNpcUnits();
+    const unitAfterMaintenance = unitsOf(session, AUT).find(unit => unit.id === aut.id).personnel;
+    const personnelAfterMaintenance = personnelOf(session, AUT);
+    const unitDelta = unitAfterMaintenance - unitBeforeMaintenance;
+    expect(unitDelta).toBeGreaterThan(0);
+    expect(personnelAfterMaintenance.activePersonnel - activeBeforeMaintenance).toBe(unitDelta);
+    expect(reserveBefore - personnelAfterMaintenance.trainedReserve).toBe(unitDelta);
+  });
+
+  it('P5.1: un reparto distrutto dal combattimento non resta in activePersonnel né rinasce', () => {
+    const session = warGame();
+    const required = rifleRequirement('seconda_guerra', 1);
+    const aut = prepareOne(session, AUT, {
+      personnel: 100, equipment: { [rifleEquipmentId()]: required },
+      readiness: 0.1, status: 'degraded', order: 'withdraw',
+    });
+    prepareOne(session, PID, {
+      personnel: 10_000, equipment: { [rifleEquipmentId()]: required },
+      readiness: 1, status: 'operational', order: 'attack',
+    });
+    const doctrine = doctrineOf(session, AUT);
+    putPersonnel(session, AUT, {
+      ...seedPersonnel(doctrine, session.currentDate),
+      activePersonnel: 100, trainedReserve: 3_000, mobilizedPersonnel: 0,
+    });
+    putDepot(session, AUT, {});
+    const idsBefore = unitsOf(session, AUT).map(unit => unit.id).sort();
+
+    fightOnePeriod(session);
+    const destroyed = unitsOf(session, AUT).find(unit => unit.id === aut.id);
+    expect(destroyed.status).toBe('destroyed');
+    expect(personnelOf(session, AUT).activePersonnel).toBe(0);
+    expect(personnelOf(session, AUT).trainedReserve).toBe(3_000);
+    (session as any).warFronts.maintainNpcUnits();
+    expect(unitsOf(session, AUT).map(unit => unit.id).sort()).toEqual(idsBefore);
+    expect(unitsOf(session, AUT).find(unit => unit.id === aut.id)).toEqual(destroyed);
+    expect(personnelOf(session, AUT).trainedReserve).toBe(3_000);
+  });
+
+  it('P5.1: in un fronte NPC–NPC AUT e HUN riconciliano perdite e riserve separatamente', () => {
+    const { session } = createGame();
+    setRelationship(session, AUT, HUN, 'hostile');
+    store(session).saveFronts([{
+      id: 'p51-front-aut-hun', name: 'Fronte P5.1 AUT–HUN', attackerPolityId: AUT, defenderPolityId: HUN,
+      regionIds: [R.aut2, R.hun1], status: 'active', objectiveRegionId: R.hun1,
+      attackerPressure: 0, defenderPressure: 0, createdDate: '1940-01-01', updatedDate: '1940-01-01',
+    }]);
+    (session as any).warFronts.ensureNpcUnits(30);
+    const required = rifleRequirement('seconda_guerra', 1);
+    prepareOne(session, AUT, {
+      personnel: 10_000, equipment: { [rifleEquipmentId()]: required }, readiness: 1, status: 'operational', order: 'defend',
+    });
+    prepareOne(session, HUN, {
+      personnel: 10_000, equipment: { [rifleEquipmentId()]: required }, readiness: 1, status: 'operational', order: 'defend',
+    });
+    putPersonnel(session, AUT, { ...seedPersonnel(doctrineOf(session, AUT), session.currentDate), activePersonnel: 10_000, trainedReserve: 1_111, mobilizedPersonnel: 0 });
+    putPersonnel(session, HUN, { ...seedPersonnel(doctrineOf(session, HUN), session.currentDate), activePersonnel: 10_000, trainedReserve: 2_222, mobilizedPersonnel: 0 });
+
+    fightOnePeriod(session);
+    expect(personnelOf(session, AUT).activePersonnel).toBe(activePersonnelInUnits(session, AUT));
+    expect(personnelOf(session, HUN).activePersonnel).toBe(activePersonnelInUnits(session, HUN));
+    expect(personnelOf(session, AUT).trainedReserve).toBe(1_111);
+    expect(personnelOf(session, HUN).trainedReserve).toBe(2_222);
+    expect(activePersonnelInUnits(session, AUT)).toBeLessThan(10_000);
+    expect(activePersonnelInUnits(session, HUN)).toBeLessThan(10_000);
+  });
+
+  it('P5.1: un errore di commit non separa fronti, reparti e activePersonnel', () => {
+    const session = warGame();
+    const required = rifleRequirement('seconda_guerra', 1);
+    const aut = prepareOne(session, AUT, {
+      personnel: 10_000, equipment: { [rifleEquipmentId()]: required }, readiness: 1, status: 'operational', order: 'defend',
+    });
+    prepareOne(session, PID, {
+      personnel: 10_000, equipment: { [rifleEquipmentId()]: required }, readiness: 1, status: 'operational', order: 'defend',
+    });
+    putPersonnel(session, AUT, { ...seedPersonnel(doctrineOf(session, AUT), session.currentDate), activePersonnel: 10_000, trainedReserve: 3_000, mobilizedPersonnel: 0 });
+    const before = {
+      unit: structuredClone(unitsOf(session, AUT).find(unit => unit.id === aut.id)),
+      personnel: structuredClone(personnelOf(session, AUT)),
+      fronts: structuredClone(store(session).persistedFronts()),
+      regions: [...(session as any).regions.values()].map((region: any) => ({
+        id: region.id, owner: region.owner, color: region.color, militaryPower: region.militaryPower,
+      })),
+    };
+    db.exec(`CREATE TRIGGER p51_fail_units BEFORE UPDATE ON game_operational_objects
+      WHEN NEW.game_id = '${session.id}' AND NEW.kind = 'unit'
+      BEGIN SELECT RAISE(ABORT, 'p5.1 forced failure'); END;`);
+    try {
+      expect(() => fightOnePeriod(session)).toThrow(/p5\.1 forced failure/);
+    } finally {
+      db.exec('DROP TRIGGER IF EXISTS p51_fail_units');
+    }
+    store(session).invalidate();
+    expect(unitsOf(session, AUT).find(unit => unit.id === aut.id)).toEqual(before.unit);
+    expect(personnelOf(session, AUT)).toEqual(before.personnel);
+    expect(store(session).persistedFronts()).toEqual(before.fronts);
+    expect([...(session as any).regions.values()].map((region: any) => ({
+      id: region.id, owner: region.owner, color: region.color, militaryPower: region.militaryPower,
+    }))).toEqual(before.regions);
+  });
+
+  it('P5.1: save/restore ripristina unità e personale NPC post-battaglia', () => {
+    const session = warGame();
+    const required = rifleRequirement('seconda_guerra', 1);
+    const aut = prepareOne(session, AUT, {
+      personnel: 10_000, equipment: { [rifleEquipmentId()]: required }, readiness: 1, status: 'operational', order: 'defend',
+    });
+    prepareOne(session, PID, {
+      personnel: 10_000, equipment: { [rifleEquipmentId()]: required }, readiness: 1, status: 'operational', order: 'defend',
+    });
+    putPersonnel(session, AUT, { ...seedPersonnel(doctrineOf(session, AUT), session.currentDate), activePersonnel: 10_000, trainedReserve: 3_000, mobilizedPersonnel: 0 });
+    fightOnePeriod(session);
+    const expectedUnit = structuredClone(unitsOf(session, AUT).find(unit => unit.id === aut.id));
+    const expectedPersonnel = structuredClone(personnelOf(session, AUT));
+    const saveId = session.save('p5.1-post-battle').saveId;
+    const row = db.prepare('SELECT data, content_hash FROM saves WHERE id = ?').get(saveId) as any;
+
+    saveGlobalUnits(session, unit => unit.id === aut.id ? { ...unit, personnel: 1, status: 'destroyed' } : unit);
+    putPersonnel(session, AUT, { ...expectedPersonnel, activePersonnel: 999_999, trainedReserve: 0 });
+    session.loadFromSave(JSON.parse(row.data), row.content_hash);
+    expect(unitsOf(session, AUT).find(unit => unit.id === aut.id)).toEqual(expectedUnit);
+    expect(personnelOf(session, AUT)).toEqual(expectedPersonnel);
   });
 
   it('gli ownership guard REST P4.1/P4.1.1 restano 403 per action e order NPC', () => {

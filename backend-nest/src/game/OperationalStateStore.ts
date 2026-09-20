@@ -825,10 +825,15 @@ export class OperationalStateStore {
    * stato **derivato**: la prossima `saveUnits`/`syncArmies` lo ricalcola dai
    * reparti, che sono l'unica authority.
    */
-  adoptPersisted(input: { personnel?: MilitaryPersonnelState; units: readonly MilitaryUnitState[] }): void {
+  adoptPersisted(input: {
+    personnel?: MilitaryPersonnelState;
+    units: readonly MilitaryUnitState[];
+    fronts?: readonly WarFrontState[];
+  }): void {
     const snapshot = this.snapshot();
     if (input.personnel) snapshot.personnel = input.personnel;
     snapshot.units = [...input.units].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    if (input.fronts) snapshot.fronts = [...input.fronts].sort((a, b) => String(a.id).localeCompare(String(b.id)));
     const playerPolityId = String(this.inputs.playerPolityId());
     const byArmy = new Map<string, MilitaryUnitState[]>();
     for (const unit of snapshot.units) {

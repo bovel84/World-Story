@@ -865,7 +865,14 @@ export class WarFrontService {
       if (!persistedPersonnel && !recoverable) continue;
       let personnel: MilitaryPersonnelState = persistedPersonnel
         ? { ...persistedPersonnel }
-        : seedPersonnel(doctrine, date);
+        : {
+            ...seedPersonnel(doctrine, date),
+            // Se il primo seed arriva dopo un combattimento (per esempio dopo
+            // un tentativo di manutenzione fallito), non reintroduce i caduti.
+            activePersonnel: units
+              .filter(unit => String(unit.polityId) === polityId && unit.status !== 'destroyed')
+              .reduce((total, unit) => total + Math.round(nonNegative(unit.personnel)), 0),
+          };
       let depot = { ...(this.ctx.depotForPolity?.(polityId) || {}) };
       const requiredRifles = rifleRequirement(epoch, 1);
       let menTransferred = 0;
@@ -997,10 +1004,16 @@ export class WarFrontService {
     const date = dateOverride || this.ctx.currentDate();
     const epoch = this.epoch();
     const regions = this.ctx.regions();
+    const regionStateBefore = new Map([...regions.values()].map(region => [String(region.id), {
+      owner: region.owner,
+      color: region.color,
+      militaryPower: region.militaryPower,
+    }] as const));
     const player = this.ctx.playerPolityId();
     let units = snapshot.units.map(unit => ({ ...unit }));
     const fronts = snapshot.fronts.map(front => ({ ...front }));
     const conquests: string[] = [];
+    const pendingNotes: string[] = [];
     let touched = false;
 
     for (const front of fronts) {
@@ -1119,7 +1132,7 @@ export class WarFrontService {
             next.readiness = 0;
           }
           events.push(`🏳️ Nessuna via di ripiegamento per «${next.name}»: ${extra.toLocaleString('it-IT')} uomini persi nella resa.`);
-          this.ctx.note(`⚠️ «${next.name}» non ha una provincia amica dove ritirarsi: perdite maggiori (${extra.toLocaleString('it-IT')} uomini).`);
+          pendingNotes.push(`⚠️ «${next.name}» non ha una provincia amica dove ritirarsi: perdite maggiori (${extra.toLocaleString('it-IT')} uomini).`);
           return next;
         }
         events.push(`↩️ «${next.name}» ripiega da ${unit.regionName || unit.regionId} a ${liveRegion.name}.`);
@@ -1143,7 +1156,7 @@ export class WarFrontService {
           const headline = `${this.ctx.polityLabel(advance.advancingPolityId)} ${verb} ${region.name} (era ${from}): il ${front.name} ha sfondato.`;
           conquests.push(headline);
           events.push(`🚩 ${headline}`);
-          this.ctx.note(`🚩 ${headline}`);
+          pendingNotes.push(`🚩 ${headline}`);
           // Il teatro lo ricostruisce `syncFronts()` al periodo successivo (dal
           // nuovo confine): qui non si tocca a mano né `regionIds` né l'obiettivo.
         }
@@ -1204,10 +1217,62 @@ export class WarFrontService {
     units = rallied.units;
     events.push(...rallied.events);
 
-    // Scrittura solo se qualcosa e' cambiato davvero: un tick senza battaglia non
-    // deve riscrivere reparti (ne' gli oggetti-armata della mappa).
+    // P5.1 — dopo **tutte** le perdite del substep, il personale terrestre NPC
+    // segue gli uomini realmente rimasti nei reparti vivi. Riserva addestrata,
+    // mobilitati ed equipaggi navali restano invariati: i caduti non tornano in
+    // alcuno stock. Player escluso, perché conserva il proprio percorso.
+    const personnelUpdates: Array<{ polityId: string; state: MilitaryPersonnelState }> = [];
+    const npcPolities = [...new Set(units
+      .map(unit => String(unit.polityId || ''))
+      .filter(polityId => polityId && polityId !== String(player)))].sort();
+    for (const polityId of npcPolities) {
+      const personnel = store.personnelForPolity(polityId);
+      if (!personnel) continue;
+      const activePersonnel = units
+        .filter(unit => String(unit.polityId) === polityId && unit.status !== 'destroyed')
+        .reduce((total, unit) => total + Math.round(nonNegative(unit.personnel)), 0);
+      if (activePersonnel === Math.round(nonNegative(personnel.activePersonnel))) continue;
+      personnelUpdates.push({ polityId, state: { ...personnel, activePersonnel } });
+    }
+
+    // Reparti post-battle e personnel riallineato entrano nello stesso commit:
+    // non esiste una finestra con unità nuove e activePersonnel pre-battaglia.
     const unitsChanged = JSON.stringify(units) !== JSON.stringify(snapshot.units);
-    if (touched || unitsChanged) store.saveFronts(fronts, unitsChanged ? units : undefined);
+    // Ogni esito mutato usa il percorso strict anche quando non esiste una riga
+    // personnel da aggiornare: fronti e reparti non possono divergere.
+    const combatStateCommitted = touched || unitsChanged;
+    if (combatStateCommitted) {
+      try {
+        militaryPersistenceRepository.persistCombatOutcome({
+          gameId: this.ctx.gameId,
+          units: units.map(unit => ({ id: unit.id, data: unit as unknown as Record<string, unknown> })),
+          fronts: fronts.map(front => ({ id: front.id, data: front as unknown as Record<string, unknown> })),
+          personnel: personnelUpdates.map(item => ({
+            polityId: item.polityId,
+            state: item.state as unknown as Record<string, unknown>,
+          })),
+        });
+      } catch (error) {
+        // La transazione ha già ripristinato DB (fronti, reparti, personnel).
+        // Ripristiniamo anche le sole proprietà regionali mutate dal fronte.
+        for (const region of regions.values()) {
+          const before = regionStateBefore.get(String(region.id));
+          if (!before) continue;
+          region.owner = before.owner;
+          region.color = before.color;
+          region.militaryPower = before.militaryPower;
+        }
+        store.invalidate();
+        throw error;
+      }
+      try {
+        store.adoptPersisted({ units, fronts });
+      } catch (error) {
+        store.invalidate();
+        console.warn('[WarFrontService] Refresh derivato post-combattimento non applicato (commit già persistito):', error);
+      }
+    }
+    for (const note of pendingNotes) this.ctx.note(note);
     return { events, fronts: fronts.filter(front => front.status !== 'closed').length, conquests };
   }
 }
