@@ -87,7 +87,14 @@ function App() {
   // Fase 2: lo stato del Dossier Nazione — conti, storico, magazzino, arsenale,
   // governo, fisco, sfide di pace, crisi, voci del consiglio e promemoria dei
   // mandati — e le azioni che lo mutano vivono in `useNationSnapshot`.
-  const nationBundle = useNationSnapshot({ gameId: currentGameId, currentTurn: currentGame?.currentTurn, notify });
+  const nationBundle = useNationSnapshot({
+    gameId: currentGameId,
+    currentTurn: currentGame?.currentTurn,
+    currentDate: currentGame?.currentDate,
+    worldRevision: currentGame?.worldRevision,
+    headBranchId: currentGame?.headBranchId,
+    notify,
+  });
   const {
     setNationalAccounts,
     setNationalHistory,

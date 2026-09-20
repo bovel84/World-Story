@@ -348,6 +348,8 @@ export interface RaiseFormationResult extends FormationImpactPayload {
 /** MILITARY-UNITS — un **reparto**: la granularità sotto l'armata. */
 export interface MilitaryUnitPayload {
   id: string;
+  /** Authority nazionale persistente: non deriva mai dal territorio occupato. */
+  polityId: string;
   armyId: string;
   name: string;
   personnel: number;
@@ -361,8 +363,8 @@ export interface MilitaryUnitPayload {
   updatedDate: string;
   legacyDerived: boolean;
   /** MILITARY-UNITS PR2 — mossa corrente e fronte di appartenenza. */
-  order?: UnitOrderPayload;
-  frontId?: string | null;
+  order: UnitOrderPayload;
+  frontId: string | null;
   /** P6 — trasferimento strategico persistente, assente quando fermo. */
   movement?: {
     path: string[];

@@ -23,8 +23,11 @@ import type { StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Region } from '../../types';
 import type { MapObject } from '../../types';
+import type { MilitaryUnitPayload, WarFrontPayload } from '../../services/api';
 import { MapTools } from './MapTools';
 import { MapLegend } from '../Shell/MapLegend';
+import { MilitaryStateOverlay } from './MilitaryStateOverlay';
+import { buildMilitaryMapModel } from './militaryMapModel';
 import { RegionFeatureIndex, diffRegionFeatures, objectIconFor, objectIsVisible, objectQualifiesAtZoom, regionLabelVisible, fixedCityCoordinate, resolveMapObjectCoordinate, DEFAULT_MAP_FILTERS, EMPTY_IDS, type MapLayer, type MapFilters, type MapSearchEntry } from './mapModel';
 import './map.css';
 import { constructionReport } from '../../utils/construction';
@@ -147,6 +150,11 @@ interface MapboxMapViewProps {
   onFiltersChange?: (filters: Partial<MapFilters>) => void;
   events?: FeedItem[];
   currentDate?: string;
+  /** MAP P2 — stato militare persistente attuale (player + NPC). */
+  militaryUnits?: MilitaryUnitPayload[];
+  militaryFronts?: WarFrontPayload[];
+  militaryStateLoading?: boolean;
+  militaryStateError?: string | null;
 }
 
 
@@ -235,6 +243,8 @@ const GRATICULE_SOURCE_ID = 'graticule';
 const GRATICULE_LAYER_ID = 'graticule-line';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+const EMPTY_UNITS: MilitaryUnitPayload[] = [];
+const EMPTY_FRONTS: WarFrontPayload[] = [];
 
 // Griglia di coordinate (in gradi) come geojson proprio — senza sorgenti esterne
 const buildGraticule = (): GeoJSON.FeatureCollection => {
@@ -363,6 +373,10 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   onFiltersChange,
   events = EMPTY_EVENTS,
   currentDate,
+  militaryUnits = EMPTY_UNITS,
+  militaryFronts = EMPTY_FRONTS,
+  militaryStateLoading = false,
+  militaryStateError = null,
 }) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -412,6 +426,18 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     };
   }, []);
   const regionsById = useMemo(() => new Map(regions.map(region => [region.id, region])), [regions]);
+
+  // MAP P2 — read model derivato dello stato militare persistente. La mappa
+  // resta un read model: nessuno stato militare parallelo vive qui.
+  const militaryModel = useMemo(() => buildMilitaryMapModel({
+    regions, units: militaryUnits, fronts: militaryFronts,
+  }), [regions, militaryUnits, militaryFronts]);
+  // Un reparto persistente sostituisce il vecchio marker aggregato con lo
+  // stesso id; se non esiste un equivalente, il marker legacy resta visibile.
+  const persistentMilitaryIds = useMemo(
+    () => new Set(militaryUnits.flatMap(unit => [unit.id, unit.armyId])),
+    [militaryUnits],
+  );
 
   useEffect(() => {
     if (!changedRegionIds.length) return;
@@ -1080,16 +1106,20 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       .filter(region => region.owner && region.owner !== 'neutral')
       .map(region => [region.owner, region.color] as const));
     regions.forEach(region => {
-      (region.objects || []).forEach((obj: MapObject) => raw.push({
-        ...obj,
-        regionId: region.id,
-        regionName: region.name,
-        regionColor: region.color,
-        regionOwner: region.owner,
-        regionCountry: String(region.flag || region.owner || '').toUpperCase(),
-        objectOwnerColor: ownerColors.get(String(obj.owner || region.owner)) || region.color,
-        objectOwnerCode: String(obj.owner || region.owner || '').toUpperCase(),
-      }));
+      (region.objects || []).forEach((obj: MapObject) => {
+        // MAP P2: il reparto persistente vince come stato operativo.
+        if (MILITARY_TYPES.has(obj.type) && persistentMilitaryIds.has(obj.id)) return;
+        raw.push({
+          ...obj,
+          regionId: region.id,
+          regionName: region.name,
+          regionColor: region.color,
+          regionOwner: region.owner,
+          regionCountry: String(region.flag || region.owner || '').toUpperCase(),
+          objectOwnerColor: ownerColors.get(String(obj.owner || region.owner)) || region.color,
+          objectOwnerCode: String(obj.owner || region.owner || '').toUpperCase(),
+        });
+      });
     });
     // Una stessa località può arrivare da un vecchio salvataggio come capitale
     // inglese e città italiana: il punto fisso la rende identificabile e la
@@ -1144,7 +1174,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       });
     }
     return result;
-  }, [regions]);
+  }, [regions, persistentMilitaryIds]);
 
   // Marker degli oggetti
   useEffect(() => {
@@ -1352,6 +1382,9 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       {mapLoaded && map.current && <TacticalOverlay map={map.current} regions={regions} events={events}
         currentDate={currentDate} visible={filters.showUnits} playerId={playerCountryCode}
         onFocus={id => focusRegions([id])} />}
+      {mapLoaded && map.current && <MilitaryStateOverlay map={map.current} regions={regions} model={militaryModel}
+        visible={filters.showUnits} loading={militaryStateLoading} error={militaryStateError}
+        playerPolityId={playerCountryCode} onFocusRegion={id => focusRegions([id])} />}
       {!mapLoaded && (
         <div style={{
           position: 'absolute',

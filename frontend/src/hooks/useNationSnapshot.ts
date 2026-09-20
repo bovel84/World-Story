@@ -30,6 +30,8 @@ import {
   type UnitActionRequest,
   type UnitOrderImpactPayload,
   type UnitOrderRequest,
+  type MilitaryUnitPayload,
+  type WarFrontPayload,
 } from '../services/api';
 import { normalizeResources } from '../components/Game/nationDossier';
 
@@ -75,6 +77,9 @@ export type NotifyFn = (message: string, kind?: 'info' | 'success' | 'error') =>
 export interface UseNationSnapshotOptions {
   gameId: string | null;
   currentTurn: number | undefined;
+  currentDate?: string;
+  worldRevision?: number;
+  headBranchId?: string | null;
   notify: NotifyFn;
 }
 
@@ -113,6 +118,12 @@ export interface NationSnapshot {
   mandateDecisions: MandateDecision[];
   setMandateDecisions: React.Dispatch<React.SetStateAction<MandateDecision[]>>;
   maintenanceObligations: MaintenanceObligationView[];
+  /** MAP P2 — read model militare persistente globale (player + NPC). */
+  militaryUnits: MilitaryUnitPayload[];
+  militaryFronts: WarFrontPayload[];
+  militaryStateLoading: boolean;
+  militaryStateError: string | null;
+  refreshMilitaryState: () => Promise<void>;
   /** Azzera l'intero snapshot (nessuna partita attiva). */
   resetNational: () => void;
   procureEquipment: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
@@ -141,6 +152,9 @@ export interface NationSnapshot {
 export function useNationSnapshot({
   gameId,
   currentTurn,
+  currentDate,
+  worldRevision,
+  headBranchId,
   notify,
 }: UseNationSnapshotOptions): NationSnapshot {
   const [nationalAccounts, setNationalAccounts] = useState<NationalAccountMap>({});
@@ -162,6 +176,11 @@ export function useNationSnapshot({
   const [governmentVoicesError, setGovernmentVoicesError] = useState<string | null>(null);
   const [mandateDecisions, setMandateDecisions] = useState<MandateDecision[]>([]);
   const [maintenanceObligations, setMaintenanceObligations] = useState<MaintenanceObligationView[]>([]);
+  const [militaryUnits, setMilitaryUnits] = useState<MilitaryUnitPayload[]>([]);
+  const [militaryFronts, setMilitaryFronts] = useState<WarFrontPayload[]>([]);
+  const [militaryStateLoading, setMilitaryStateLoading] = useState(false);
+  const [militaryStateError, setMilitaryStateError] = useState<string | null>(null);
+  const militaryRequest = useRef(0);
 
   const resetNational = useCallback(() => {
     setNationalAccounts({});
@@ -178,7 +197,51 @@ export function useNationSnapshot({
     setGovernmentVoicesError(null);
     setMandateDecisions([]);
     setMaintenanceObligations([]);
+    setMilitaryUnits([]);
+    setMilitaryFronts([]);
+    setMilitaryStateLoading(false);
+    setMilitaryStateError(null);
+    militaryRequest.current += 1;
   }, []);
+
+  /**
+   * MAP P2 — units e fronts condividono un solo lifecycle. Sono una proiezione
+   * delle API persistenti, mai uno stato militare parallelo della mappa.
+   */
+  const refreshMilitaryState = useCallback(async () => {
+    if (!gameId) return;
+    const request = ++militaryRequest.current;
+    setMilitaryStateLoading(true);
+    setMilitaryStateError(null);
+    try {
+      const [unitResponse, frontResponse] = await Promise.all([
+        gameApi.militaryUnits(gameId),
+        gameApi.militaryFronts(gameId),
+      ]);
+      if (request !== militaryRequest.current) return;
+      setMilitaryUnits(unitResponse.units || []);
+      setMilitaryFronts(frontResponse.fronts || []);
+    } catch (error) {
+      if (request !== militaryRequest.current) return;
+      console.warn('[App] Situazione militare non disponibile:', error);
+      setMilitaryStateError('Situazione militare non disponibile');
+    } finally {
+      if (request === militaryRequest.current) setMilitaryStateLoading(false);
+    }
+  }, [gameId]);
+
+  // Non mostrare mai per un istante i reparti della partita precedente.
+  useEffect(() => {
+    setMilitaryUnits([]);
+    setMilitaryFronts([]);
+    setMilitaryStateError(null);
+  }, [gameId]);
+
+  // Turno, data, revisione e ramo coprono advance, checkpoint, rewind e load.
+  useEffect(() => {
+    if (!gameId) return;
+    void refreshMilitaryState();
+  }, [gameId, currentTurn, currentDate, worldRevision, headBranchId, refreshMilitaryState]);
 
   // Il bollettino usa dati aggregati dal motore, non formule del browser.
   useEffect(() => {
@@ -321,6 +384,7 @@ export function useNationSnapshot({
       const [arms, national] = await Promise.all([
         gameApi.arsenal(gameId),
         gameApi.nationalState(gameId),
+        refreshMilitaryState(),
       ]);
       setNationalArms(arms);
       setNationalResources(normalizeResources(national.resources));
@@ -335,7 +399,7 @@ export function useNationSnapshot({
         : 'Reparto non formato.';
       notify(reason, 'error');
     }
-  }, [gameId, notify]);
+  }, [gameId, notify, refreshMilitaryState]);
 
   /**
    * MILITARY-UNITS — azione su un reparto (Rinforza · Riequipaggia · Trasferisci
@@ -355,6 +419,7 @@ export function useNationSnapshot({
       const [arms, national] = await Promise.all([
         gameApi.arsenal(gameId),
         gameApi.nationalState(gameId),
+        refreshMilitaryState(),
       ]);
       setNationalArms(arms);
       setNationalResources(normalizeResources(national.resources));
@@ -374,7 +439,7 @@ export function useNationSnapshot({
       notify(reason, 'error');
       throw error;
     }
-  }, [gameId, notify]);
+  }, [gameId, notify, refreshMilitaryState]);
 
   const unitAction = useCallback(async (request: UnitActionRequest) => {
     if (!gameId) throw new Error('unit_unknown: nessuna partita attiva');
@@ -385,6 +450,7 @@ export function useNationSnapshot({
       const [arms, national] = await Promise.all([
         gameApi.arsenal(gameId),
         gameApi.nationalState(gameId),
+        refreshMilitaryState(),
       ]);
       setNationalArms(arms);
       setNationalResources(normalizeResources(national.resources));
@@ -404,7 +470,7 @@ export function useNationSnapshot({
       notify(reason, 'error');
       throw error;
     }
-  }, [gameId, notify]);
+  }, [gameId, notify, refreshMilitaryState]);
 
   // Vendi o compra una risorsa naturale sul mercato: denaro ↔ magazzino.
   const tradeNaturalResource = useCallback(async (mode: 'sell' | 'buy', resourceId: string, quantity: number) => {
@@ -522,6 +588,11 @@ export function useNationSnapshot({
     governmentVoicesError, setGovernmentVoicesError,
     mandateDecisions, setMandateDecisions,
     maintenanceObligations,
+    militaryUnits,
+    militaryFronts,
+    militaryStateLoading,
+    militaryStateError,
+    refreshMilitaryState,
     resetNational,
     procureEquipment,
     previewFormation,

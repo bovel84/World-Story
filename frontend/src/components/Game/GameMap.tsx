@@ -15,6 +15,7 @@ import type { Region } from '../../types';
 import type { TemporalScar } from '../Map/TemporalScarLayer';
 import type { FeedItem } from './EventFeed';
 import type { MapLayer, MapFilters } from '../Map/mapModel';
+import type { MilitaryUnitPayload, WarFrontPayload } from '../../services/api';
 import { MapView } from '../Map/MapView';
 
 const MapboxMapView = lazy(async () => ({ default: (await import('../Map/MapboxMapView')).MapboxMapView }));
@@ -32,6 +33,10 @@ export interface GameMapProps {
   temporalScars: TemporalScar[];
   events: FeedItem[];
   currentDate?: string;
+  militaryUnits: MilitaryUnitPayload[];
+  militaryFronts: WarFrontPayload[];
+  militaryStateLoading?: boolean;
+  militaryStateError?: string | null;
   showFlags: boolean;
   playerCountryCode: string;
   /** Nessuna geometria disponibile: torna agli scenari. */
@@ -51,6 +56,10 @@ export function GameMap({
   temporalScars,
   events,
   currentDate,
+  militaryUnits,
+  militaryFronts,
+  militaryStateLoading,
+  militaryStateError,
   showFlags,
   playerCountryCode,
   onBackToScenarios,
@@ -71,6 +80,10 @@ export function GameMap({
           temporalScars={temporalScars}
           events={events}
           currentDate={currentDate}
+          militaryUnits={militaryUnits}
+          militaryFronts={militaryFronts}
+          militaryStateLoading={militaryStateLoading}
+          militaryStateError={militaryStateError}
           showFlags={showFlags}
           playerCountryCode={playerCountryCode}
         />

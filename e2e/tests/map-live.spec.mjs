@@ -322,10 +322,10 @@ for (const width of [1440, 390, 320]) {
     await page.keyboard.press('Escape');
     const legend = page.getByRole('button', { name: /Livelli e legenda/ });
     if (await legend.getAttribute('aria-expanded') === 'false') await legend.click();
-    await page.getByRole('checkbox', { name: 'Unità e difese' }).uncheck();
+    await page.getByRole('checkbox', { name: 'Unità e fronti' }).uncheck();
     await expect(route).toHaveCount(0);
     await expect(battle).toHaveCount(0);
-    await page.getByRole('checkbox', { name: 'Unità e difese' }).check();
+    await page.getByRole('checkbox', { name: 'Unità e fronti' }).check();
     await expect(route).toHaveCount(1);
     await page.evaluate(async () => {
       const { useGameStore } = await window.__wsAppModules();
@@ -377,9 +377,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.getByRole('radio', { name: 'Terreno', exact: true }).check();
     await expect(page.locator('.world-map')).toHaveAttribute('data-map-layer', 'terrain');
     expect(await page.evaluate(() => window.__testMap.getPaintProperty('regions-fill', 'fill-opacity').at(-1))).toBe(0.12);
-    await page.getByRole('checkbox', { name: 'Unità e difese' }).uncheck();
+    await page.getByRole('checkbox', { name: 'Unità e fronti' }).uncheck();
     await expect(page.locator('[data-object-id="army"]')).toBeHidden();
-    await page.getByRole('checkbox', { name: 'Unità e difese' }).check();
+    await page.getByRole('checkbox', { name: 'Unità e fronti' }).check();
     await page.getByRole('checkbox', { name: 'Città', exact: true }).uncheck();
     await expect(page.locator('[data-object-id="city"]')).toBeHidden();
     await page.getByRole('checkbox', { name: 'Città', exact: true }).check();

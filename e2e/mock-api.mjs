@@ -1037,10 +1037,13 @@ export function installMockApi(page, opts = {}) {
     return json(route, mockFormationImpact(armyId));
   });
   // MILITARY-UNITS: i reparti e le loro azioni (anteprima `dryRun` e conferma).
+  // MAP P2 — lo stato militare persistente è canonico: di default nessun
+  // reparto né fronte nel mondo mock (mondo solo SVG). Gli E2E che mappano lo
+  // stato militare registrano le proprie fixture AFTER installMockApi.
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/fronts`, (route) =>
-    json(route, { fronts: MOCK_OBJECTS.objects.filter(object => object.kind === 'front') }));
+    json(route, { fronts: [] }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/units`, (route) =>
-    json(route, { units: MOCK_OBJECTS.objects.filter(object => object.kind === 'unit') }));
+    json(route, { units: [] }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/units/**`, (route) => {
     const pathname = new URL(route.request().url()).pathname;
     const action = pathname.slice(pathname.lastIndexOf('/') + 1);

@@ -88,6 +88,9 @@
 .world-map .map-key .map-key-changed { border-color: var(--atlas-change); }
 .world-map .map-key .map-key-scar { border-style: dashed; border-color: var(--atlas-muted); }
 .world-map .map-key .map-key-route { height: 0; border: 0; border-top: 2px dashed #a7e4de; }
+.world-map .map-key .map-key-march { height: 0; border: 0; border-top: 3px solid #ffd08a; }
+.world-map .map-key .map-key-unit { border-left-width: 6px; border-color: #f0f4f5; border-left-color: #788797; }
+.world-map .map-key .map-key-front { border-style: dashed; border-top-width: 4px; border-color: #ffd08a; }
 .world-map .map-key .map-key-battle { border-radius: 50%; border-color: #f2ac79; background: #733925; }
 .world-map .map-legend-selection { display: flex; align-items: baseline; gap: 6px; margin: 12px 0 0; font-size: 12px; overflow-wrap: anywhere; }
 .world-map .map-legend-selection > span { display: inline-block; flex-shrink: 0; width: 10px; height: 10px; border: 1px solid #ffffff80; }

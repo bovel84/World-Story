@@ -21,7 +21,7 @@ const FILTERS = [
   { id: 'showCities' as const, label: 'Città' },
   { id: 'showPorts' as const, label: 'Porti e basi navali' },
   { id: 'showIndustry' as const, label: 'Opere e industria' },
-  { id: 'showUnits' as const, label: 'Unità e difese' },
+  { id: 'showUnits' as const, label: 'Unità e fronti' },
 ];
 const LEGEND_COLLAPSED_KEY = 'ws-map-legend-collapsed';
 function readCollapsedPreference(): boolean {
@@ -73,6 +73,9 @@ export function MapLegend({ regions, selectedRegionId, activeLayer, onLayerChang
           <span><i className="map-key-selected" /> Territorio selezionato</span>
           <span><i className="map-key-changed" /> Territorio aggiornato</span>
           <span><i className="map-key-scar" /> Controllo precedente (temporaneo)</span>
+          {unitsVisible && <span><i className="map-key-unit" /> Reparto persistente (stato attuale)</span>}
+          {unitsVisible && <span><i className="map-key-front" /> Fronte attivo e obiettivo</span>}
+          {unitsVisible && <span><i className="map-key-march" /> Trasferimento in corso (P6)</span>}
           {unitsVisible && <span><i className="map-key-route" /> Spostamento eseguito (ultimi 30 giorni)</span>}
           {unitsVisible && <span><i className="map-key-battle" /> Scontro segnalato nei dispacci</span>}
         </div>

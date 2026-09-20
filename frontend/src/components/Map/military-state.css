@@ -1,0 +1,119 @@
+/* Current military state: solid counters and strong marching routes.
+   TacticalOverlay remains the quieter, historical layer underneath. */
+.military-state-routes,
+.military-state-fronts,
+.military-state-units {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+}
+.military-state-routes { z-index: 2; }
+.military-state-fronts { z-index: 3; }
+.military-state-units { z-index: 4; }
+.military-active-route { --march-ink: #ffd08a; }
+.military-active-route.own { --march-ink: #9de5e0; }
+.military-active-route path { fill: none; stroke-linecap: square; stroke-linejoin: round; }
+.military-active-route-shadow { stroke: #07141d; stroke-width: 8; opacity: .88; }
+.military-active-route-line {
+  stroke: var(--march-ink); stroke-width: 3; stroke-dasharray: 12 6;
+  animation: military-active-march 1.6s linear infinite;
+}
+.military-active-route rect { fill: #142632; stroke: var(--march-ink); stroke-width: 2; }
+@keyframes military-active-march { to { stroke-dashoffset: -36; } }
+
+.military-front-badge,
+.military-unit-counter,
+.military-unit-overflow { position: absolute; pointer-events: auto; transform: translate(-50%, -50%); cursor: pointer; }
+.military-front-badge {
+  width: 54px; min-height: 44px; padding: 4px 5px; display: grid; place-items: center;
+  border: 1px solid #ffd08a; border-top: 4px solid #ffd08a; border-radius: 3px;
+  color: #ffe9c7; background: #2a211af2; box-shadow: 0 0 0 3px #07141db8, 0 5px 14px #0009;
+  font: 800 9px/1 ui-monospace, monospace;
+}
+.military-front-badge > span { letter-spacing: 1.5px; }
+.military-front-badge > small { width: 46px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 8px/1.2 system-ui, sans-serif; }
+.military-front-badge > i { position: absolute; right: -7px; top: -9px; width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; background: #7d321f; color: #fff0d0; font-style: normal; }
+.military-front-badge.status-stalemate { border-color: #bac2c8; border-top-color: #bac2c8; }
+.military-front-badge.status-breakthrough { border-color: #ff9b67; border-top-color: #ff9b67; }
+.military-front-badge.status-collapsed { opacity: .72; border-style: dashed; }
+
+.military-unit-counter {
+  width: 44px; height: 44px; border: 0; padding: 0; display: grid; place-items: center;
+  color: #f2f7f7; background: transparent;
+}
+.military-counter-visual {
+  position: relative; width: 31px; height: 23px; display: grid; place-items: center;
+  border: 2px solid #f0f4f5; border-left: 6px solid var(--unit-color, #788797);
+  border-radius: 2px; background: #172933; box-shadow: 0 0 0 2px #07141dcc, 0 3px 9px #000a;
+}
+.military-counter-symbol { width: 23px; height: 16px; display: grid; place-items: center; }
+.military-counter-symbol .openpax-unit-symbol { width: 22px; height: 15px; }
+.military-counter-visual > b { position: absolute; font: 800 11px/1 ui-monospace, monospace; }
+.military-counter-flag { position: absolute; top: 0; right: -2px; min-width: 18px; padding: 1px 2px; border: 1px solid #07141d; background: var(--unit-color, #788797); color: #fff; font: 800 7px/1 ui-monospace, monospace; text-shadow: 0 1px #000; }
+.military-counter-state { position: absolute; left: 1px; bottom: 1px; width: 15px; height: 15px; display: grid; place-items: center; border-radius: 50%; background: #172933; color: #ffd08a; font: 900 11px/1 system-ui, sans-serif; }
+.military-unit-counter.status-degraded .military-counter-visual { border-style: dashed; border-color: #f2b66f; }
+.military-unit-counter.status-retreating .military-counter-visual { border-color: #df8e73; transform: rotate(-3deg); }
+.military-unit-counter.status-forming .military-counter-visual { opacity: .72; border-style: dotted; }
+.military-unit-counter.moving .military-counter-visual { border-color: #9de5e0; }
+.military-unit-counter.aggregate .military-counter-symbol { opacity: .22; }
+.military-unit-counter:hover .military-counter-visual,
+.military-unit-counter:focus-visible .military-counter-visual { filter: brightness(1.25); transform: translateY(-1px); }
+.military-unit-overflow {
+  min-width: 36px; height: 25px; padding: 0 7px; border: 1px solid #9caeb8; border-radius: 12px;
+  background: #172933ed; color: #edf4f6; box-shadow: 0 2px 7px #0008; font: 800 10px/1 ui-monospace, monospace;
+}
+
+.military-state-unavailable,
+.military-state-loading {
+  position: absolute; right: 14px; bottom: 82px; z-index: 5; max-width: min(280px, calc(100% - 28px));
+  padding: 8px 10px; border: 1px solid #8b684f; border-radius: 4px; background: #231d19eb;
+  color: #efcfad; font: 600 11px/1.4 system-ui, sans-serif; pointer-events: none;
+}
+.military-state-loading { border-color: #496071; background: #152330eb; color: #b1c4d1; }
+
+.military-state-report-backdrop {
+  position: fixed; inset: 0; z-index: 1210; display: grid; place-items: center; padding: 20px;
+  background: #07131cce; backdrop-filter: blur(4px);
+}
+.military-state-report {
+  width: min(620px, 100%); max-height: 86dvh; overflow: auto; padding: 24px;
+  border: 1px solid #637c8d; border-top: 4px solid #ffd08a; border-radius: 5px;
+  background: #142531; color: #edf4f6; box-shadow: 0 24px 80px #0009; font: 14px/1.55 system-ui, sans-serif;
+}
+.military-state-report header { display: flex; align-items: start; justify-content: space-between; gap: 14px; padding-bottom: 17px; border-bottom: 1px solid #496071; }
+.military-state-report header small { color: #ffd08a; letter-spacing: 1.2px; font: 10px/1.4 ui-monospace, monospace; }
+.military-state-report h2 { margin: 7px 0 0; font: 500 29px/1.15 Georgia, serif; }
+.military-state-report h3 { margin: 20px 0 9px; font-size: 14px; color: #d9e6eb; }
+.military-state-report button { min-height: 44px; padding: 8px 12px; border: 1px solid #637c8d; border-radius: 4px; color: #edf4f6; background: #233747; cursor: pointer; }
+.military-state-report button:hover { background: #354b5b; }
+.military-state-report header button { min-width: 44px; padding: 0; font-size: 24px; }
+.military-detail-body > dl,
+.military-detail-body section > dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 18px 0; border-top: 1px solid #496071; }
+.military-detail-body dl > div { padding: 10px 8px; border-bottom: 1px solid #354b5b; }
+.military-detail-body dt { color: #9fb4c0; font: 10px/1.4 ui-monospace, monospace; text-transform: uppercase; letter-spacing: .6px; }
+.military-detail-body dd { margin: 3px 0 0; color: #f1f5f6; overflow-wrap: anywhere; }
+.military-detail-body dd small { color: #9fb4c0; }
+.military-detail-body ul,
+.military-stack-detail ul { margin: 0 0 18px; padding: 0; list-style: none; border-top: 1px solid #354b5b; }
+.military-detail-body li { min-height: 42px; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 8px; border-bottom: 1px solid #354b5b; }
+.military-detail-body li button,
+.military-stack-detail li button { width: 100%; border: 0; border-bottom: 1px solid #354b5b; border-radius: 0; background: transparent; display: flex; justify-content: space-between; align-items: center; text-align: left; }
+.military-detail-body li button small,
+.military-stack-detail li button small { display: block; color: #9fb4c0; margin-top: 3px; }
+.military-detail-body p,
+.military-stack-detail p { color: #b1c4d1; }
+
+@media (max-width: 520px) {
+  .military-state-report-backdrop { align-items: end; padding: 0; }
+  .military-state-report { width: 100%; max-height: 78dvh; padding: 16px; border-radius: 8px 8px 0 0; }
+  .military-state-report h2 { font-size: 24px; }
+  .military-detail-body > dl,
+  .military-detail-body section > dl { grid-template-columns: 1fr; }
+  .military-state-unavailable, .military-state-loading { right: 8px; bottom: 78px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .military-active-route-line { animation: none; }
+}
