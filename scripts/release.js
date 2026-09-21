@@ -172,6 +172,14 @@ function execute(flags, dbPath, backupPath) {
   if (!flags.skipTests) run('tests', 'npm', ['run', 'test:unit']);
   run('build', 'npm', ['run', 'build']);
   run('backup', process.execPath, [path.join(REPO_ROOT, 'scripts', 'db-backup.js'), dbPath, backupPath]);
+  // Rotazione: la cartella backup non deve crescere senza limite (tenuti gli
+  // ultimi N). Vale solo per la cartella standard, mai per un outPath esplicito.
+  const backupDir = path.dirname(backupPath);
+  if (backupDir === path.join(REPO_ROOT, 'backups')) {
+    const { rotate } = require('./lib/backup-rotation');
+    const { removed } = rotate(backupDir);
+    results.push({ id: 'backup-rotation', status: 'ok', removed: removed.length });
+  }
 
   const afterDrain = activeRuns(dbPath);
   if (afterDrain.length > 0) {

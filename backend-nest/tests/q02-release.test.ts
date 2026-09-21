@@ -152,3 +152,56 @@ describe('Q02 µ4 — preflight di rilascio', () => {
     expect(readinessTimeoutMs({ readinessTimeoutSec: -1 })).toBe(300_000);
   });
 });
+
+describe('Q02 µ4 — rotazione dei backup', () => {
+  const { rotate } = require(path.join(REPO_ROOT, 'scripts', 'lib', 'backup-rotation.js'));
+
+  it('tiene solo i più recenti e rimuove i vecchi', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-rot-'));
+    try {
+      for (let day = 1; day <= 5; day += 1) {
+        const f = path.join(dir, `world-story-2026-09-0${day}T00-00-00-000Z.db`);
+        fs.writeFileSync(f, 'x');
+        fs.utimesSync(f, new Date(`2026-09-0${day}T00:00:00Z`), new Date(`2026-09-0${day}T00:00:00Z`));
+      }
+      const { kept, removed } = rotate(dir, 3);
+      expect(kept).toHaveLength(3);
+      expect(removed).toHaveLength(2);
+      expect(fs.readdirSync(dir).filter((n: string) => n.startsWith('world-story-'))).toHaveLength(3);
+      expect(removed.map((p: string) => path.basename(p)).sort()).toEqual([
+        'world-story-2026-09-01T00-00-00-000Z.db',
+        'world-story-2026-09-02T00-00-00-000Z.db',
+      ]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('non tocca file estranei alla convenzione di backup', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-rot2-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'importante.db'), 'x');
+      fs.writeFileSync(path.join(dir, 'world-story-2026-09-01T00-00-00-000Z.db'), 'x');
+      const { removed } = rotate(dir, 0);
+      expect(removed).toEqual([]);
+      expect(fs.existsSync(path.join(dir, 'importante.db'))).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('un backup esplicito fuori dalla cartella standard non viene ruotato', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-rot3-'));
+    try {
+      const out = path.join(dir, 'mio-backup.db');
+      const result = runScript(BACKUP, [dbPath, out]);
+      expect(result.code).toBe(0);
+      const payload = jsonFrom(result.stdout);
+      expect(payload.ok).toBe(true);
+      expect(payload.rotated).toBe(0);
+      expect(fs.existsSync(out)).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

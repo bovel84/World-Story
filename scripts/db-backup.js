@@ -19,6 +19,7 @@ const { createRequire } = require('node:module');
 
 const requireFromBackend = createRequire(path.join(__dirname, '..', 'backend-nest', 'package.json'));
 const Database = requireFromBackend('better-sqlite3');
+const { rotate } = require('./lib/backup-rotation');
 
 function defaultDbPath() {
   return process.env.OPEN_PAX_DB_PATH || path.join(process.cwd(), 'data', 'world-story.db');
@@ -63,12 +64,28 @@ async function main() {
     return;
   }
 
+  // Rotazione: tiene solo i backup più recenti (default 3). Solo la cartella
+  // standard dei backup viene ruotata; un `outPath` esplicito altrove è
+  // intoccabile. Conserva il backup appena creato anche se oltre il limite.
+  let rotated = { kept: [], removed: [] };
+  const defaultDir = path.resolve('backups');
+  if (path.resolve(path.dirname(out)) === defaultDir) {
+    rotated = rotate(defaultDir);
+    const keptSet = new Set(rotated.kept.map(p => path.resolve(p)));
+    if (!keptSet.has(path.resolve(out))) {
+      // Il nuovo backup è sempre il più recente: la rotazione non lo tocca.
+      rotated.kept.push(out);
+    }
+  }
+
   console.log(JSON.stringify({
     ok: true,
     source,
     backup: out,
     bytes: fs.statSync(out).size,
     integrity,
+    rotated: rotated.removed.length,
+    keptBackups: rotated.kept.length,
   }));
 }
 
