@@ -206,7 +206,8 @@ test('MAP P5 / A — Economia: valore e fascia coerenti con il colore del layer'
   const inspector = await clickRegion(page, 'ITA');
   const section = inspector.locator('[data-thematic-layer="economy"]');
   await expect(section).toBeVisible();
-  await expect(section).toContainText('1.000');
+  // La formattazione delle migliaia dipende da CLDR/ICU della build: asseriamo le cifre.
+  await expect(section).toContainText(/1[.\u00a0]?000/);
   // Bucket dal modello P3 puro: nessun numero ricalcolato dal test.
   const expectedBucket = await page.evaluate(async () => {
     const mod = await import('/src/components/Map/thematicMapModel.ts');
