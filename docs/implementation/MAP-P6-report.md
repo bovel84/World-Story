@@ -218,25 +218,24 @@ comportamento **reale** di un mondo legacy, non un'eccezione di test.
 
 ## 12. Limiti residui (dichiarati)
 
-1. **Allineamento degli id di regione.** La geografia è pubblicata solo se
-   `Deposit.regionId`/`FacilityInstance.regionId` **esiste** nel mondo della
-   partita (nessun sito orfano). L'unico catalogo con giacimenti/impianti nel
-   repository è la fixture tecnica `realism_test_world`, i cui `regionId`
-   (`ALPHA-nord`, …) non coincidono con gli id generati dai mondi reali
-   (`<worldId>_<codice>`). Finché un catalogo non viene autorevolezzato contro gli
-   id di regione di un mondo reale, MAP P6 è **strutturalmente attivo ma senza
-   contenuto** in produzione: nessuna euristica di similarità è stata introdotta
-   per "far comparire" i dati (sarebbe geografia inventata). Serve una fase di
-   contenuto (o un alias canonico pubblicato dal motore), non una patch di UI.
+1. **Allineamento degli id di regione** — *chiuso in P6.2 (§23)*. Il catalogo di
+   `modern_world_provinces` dichiara il binding
+   `manifest.regionIdBinding: { space: 'world_scoped' }` e nomina le regioni con
+   `map.geojson:properties.code`; il read model risolve `<worldId>_<codice>` e
+   pubblica solo se la regione esiste. Restano non migrati gli altri preset reali
+   (`mondo_1936`, `mondo_1989`, `europa_1914`, `europa_1815`,
+   `pax_modern_provinces`, `paxh_ww2_provinces`): per loro l'endpoint continua a
+   rispondere `canonical: false`, senza euristiche di similarità.
 2. **Persistente vs catalogo.** L'overlay dello stato persistente è implementato
    con identità esatta e solo su `operational`, ma oggi è un **no-op**: gli
    impianti persistiti sono `{kind}-{polityId}-{n}` (profilo nazionale) e non
    condividono l'id spazio `fac_*` del catalogo. La regola è quindi pronta ma non
    ancora esercitata su dati reali.
-3. **Densità dei marker.** Nessuna aggregazione per zoom è stata aggiunta: i
-   giacimenti usano la presentazione risorse esistente (legenda/tooltip/dossier).
-   Un clustering dedicato, se un catalogo denso lo renderà necessario, appartiene a
-   P6.1 (§22).
+3. **Densità dei marker.** Nessuna aggregazione per zoom: la sovrapposizione
+   locale è risolta con offset in pixel deterministici e una spaziatura
+   (`MARKER_SLOT_SPACING = 27 px`) ≥ al target di tocco, così due asset della
+   stessa provincia restano entrambi cliccabili. Un clustering dedicato, se un
+   catalogo denso lo renderà necessario, resta fuori scope (§18, §23).
 4. **Persistenza storica.** Il read model è una fotografia dello snapshot corrente:
    non esiste (per scelta) uno storico degli asset economici nel frontend.
 
@@ -286,9 +285,10 @@ discriminatoria:
   — lo **stesso** modello che alimenta tooltip e dossier. Il renderer non legge
   l'API grezza e non reimplementa `canonicalFacilitiesFromWorldAssets()`;
 - un asset la cui regione non esiste nel mondo è **escluso**: nessun marker orfano;
-- `markerSlotOffset(slot)` → offset in **pixel** deterministici (anello di raggio
-  crescente, ≤ 30 px). **Mai** lat/lng, mai `Math.random`, mai `hash → coordinate`,
-  mai `nome → coordinate`: l'offset è presentazione, non geografia;
+- `markerSlotOffset(slot)` → offset in **pixel** deterministici (anelli di raggio
+  `MARKER_SLOT_SPACING = 27 px`, ≥ al target di tocco, da P6.2). **Mai** lat/lng,
+  mai `Math.random`, mai `hash → coordinate`, mai `nome → coordinate`: l'offset è
+  presentazione, non geografia;
 - `markerAriaLabel(marker, regionName)` → «Carbone — Germania · richiede estrazione · dato noto».
 
 **Rendering** (`MapboxMapView.tsx`, effetto dedicato keyed sugli id degli asset):
@@ -338,7 +338,7 @@ Verifica eseguita sui preset presenti nel repository (`data/presets/`):
 
 | Preset | `simulation/` | chiavi asset in `preset.json` |
 |---|---|---|
-| `modern_world_provinces` | assente | nessuna |
+| `modern_world_provinces` | **presente da P6.2** (vedi §23) | nessuna (il catalogo è la fonte, non `preset.json`) |
 | `mondo_1936` · `mondo_1989` · `europa_1914` · `europa_1815` | assente | nessuna |
 | `pax_modern_provinces` | assente | nessuna |
 | `paxh_ww2_provinces` | assente | nessuna |
@@ -354,31 +354,30 @@ Verifica eseguita sui preset presenti nel repository (`data/presets/`):
 **Regola applicata (§20–22)**: nessun dataset inventato, nessuna distribuzione di
 riserve nazionali, nessuna stima di giacimenti, **nessun string matching a
 runtime** (`country`/`name` del GeoJSON non sono stati confrontati con gli id di
-regione o con i nomi del catalogo). Non essendo disponibile una fonte
-strutturata, la procedura si ferma al passo (1) e **dichiara il blocco**.
+regione o con i nomi del catalogo).
 
-Nuovo test backend `tests/map-p6-real-preset.test.ts` (4 test) che rende il blocco
-verificabile e non retorico:
+> **Aggiornamento P6.2**: la procedura non si ferma più al passo (1) per il preset
+> moderno. Il blocco è stato risolto **a monte**, con authoring esplicito e un
+> contratto di id dichiarato (`manifest.regionIdBinding`): `modern_world_provinces`
+> è oggi il preset reale di riferimento con un catalogo `simulation/` valido
+> (§23). Gli altri preset reali restano non migrati: per loro il blocco è ancora
+> dichiarato, non aggirato.
 
-1. **evidenza**: per tutti i 7 preset reali asserisce l'assenza di `simulation/`,
-   l'assenza di chiavi asset e la forma stretta di `countries`
-   (`['code','color','name']`). Se un giorno un catalogo verrà aggiunto, questo
-   test **fallisce di proposito** e obbliga ad aggiornare la fase di authoring;
-2. `loadSimulationCatalog(preset reale)` → `catalog === null` (nessun dato
-   sintetizzato dal loader);
-3. **endpoint** su una partita reale (`modern_world_provinces`) →
-   `{ resources: [], facilities: [], canonical: false }`: la UI dirà «nessuna
-   geografia economica canonica», non mostrerà una mappa parziale;
-4. invariante di significatività geografica: gli id di regione del mondo reale
-   (`<worldId>_<codice>`) sono distinti dallo spazio id della fixture tecnica — la
-   pubblicazione resta vincolata all'esistenza della regione, senza similarità.
+Il test backend `tests/map-p6-real-preset.test.ts` rendeva il blocco verificabile
+e non retorico (evidenza sui preset reali: nessun `simulation/`, nessuna chiave
+asset, `countries` nella forma stretta `['code','color','name']`;
+`loadSimulationCatalog` → `null`; endpoint → `canonical: false`; spazio id del
+mondo distinto da quello della fixture).
 
-**Prossima fase (P7, proposta)**: authoring/import **a monte** di una fonte
-strutturata per un preset reale (mappa `regionId` del catalogo ↔ id di regione del
-mondo), con normalizzazione deterministica in fase di authoring (§21). Fino ad
-allora il DoD §39 è soddisfatto nella parte verificabile (il percorso canonico
-pubblica dati reali quando esistono e non ne inventa quando non esistono) e
-**limitato** nella parte di contenuto.
+> **P6.2 ha invertito questa prova** per il preset di riferimento: il file ora
+> verifica che il catalogo moderno è valido, che l'endpoint pubblica asset reali e
+> che ogni `regionId` esiste nel mondo (§23). L'evidenza "preset senza catalogo"
+> resta solo per i preset **non migrati**.
+
+**Prossima fase (P7, proposta)**: estendere l'authoring agli altri preset reali e
+alle quantità verificabili (fonti esterne). Il contratto di id e la pipeline sono
+ora provati su un preset reale (§23): quello che resta è **contenuto**, non
+meccanismo.
 
 ## 18. Densità: offset deterministici, clustering fuori scope
 
@@ -436,13 +435,207 @@ MILITARY P4–P6. `map-p5-context.spec.mjs` resta verde perché il mock E2E risp
 
 ## 22. Limiti residui aggiornati (P6.1)
 
-1. **Contenuto canonico in produzione**: invariato e ora **documentato da test**
-   (§17). Nessun preset reale contiene oggi geografia economica strutturata; serve
-   la fase P7 di authoring/import. Nessuna euristica di similarità è stata
-   introdotta per «far comparire» i dati.
+1. **Contenuto canonico in produzione**: *risolto per il preset di riferimento in
+   P6.2 (§23)* — `modern_world_provinces` ha un catalogo valido e l'endpoint
+   pubblica asset reali. Gli altri preset reali restano non migrati (dichiarato,
+   con test). Nessuna euristica di similarità è stata introdotta per «far
+   comparire» i dati.
 2. **Clustering**: fuori scope, non simulato (§18).
 3. **Overlay persistente**: la regola a identità esatta resta pronta ma non
    esercitata su dati reali (gli impianti persistiti sono `{kind}-{polityId}-{n}`).
 4. **Flicker legacy transitorio**: durante il refresh lo stato è `loading` (nessun
    asset); per un mondo legacy il fallback P5.1 si attiva al termine della
    richiesta. Comportamento voluto (mai asset stale), costo di un frame.
+
+---
+
+# MAP P6.2 — modern preset canonical assets (chiusura di MAP P6)
+
+## 23. `modern_world_provinces` è il preset reale di riferimento
+
+### 23.1 Contratto degli id di regione (verificato, non assunto)
+
+Il problema che P6.1 aveva solo *dichiarato* era l'allineamento fra gli id del
+catalogo e gli id delle regioni del mondo. Il contratto effettivo, letto nel
+codice che genera i mondi, è:
+
+| Passo | Dove | Fatto |
+|---|---|---|
+| 1 | `map.geojson` del preset | ogni feature porta `properties.code` (es. `USTX`, `ZANW`, …): è l'unico codice autorevole **a monte** della generazione |
+| 2 | `partitionMapFeatures()` | le feature con `country ≠ code` sono **province** del paese `country` |
+| 3 | `resolveMapDetail(preset.map_detail, hasProvinceMap)` | senza `map_detail` una mappa provinciale usa il livello `full` |
+| 4 | `deriveGroups()` livello `full` | `group.code = feature.properties.code` |
+| 5 | `worlds.routes` | `region.id = <worldId>_<code>` — `worldId` nasce **a runtime** (`shortId()`) |
+
+Quindi il catalogo **non può** contenere l'id finale: può contenere il codice del
+preset. La soluzione adottata è una dichiarazione esplicita, non una convenzione
+nascosta:
+
+```json
+"regionIdBinding": { "space": "world_scoped", "source": "map.geojson:properties.code" }
+```
+
+- gli asset nominano la regione con `properties.code` (`"regionId": "USTX"`);
+- il read model risolve `${worldId}_${code}` (`regionIdResolver()` in
+  `WorldMapAssets.ts`) e **pubblica solo se l'id esiste** in `world_regions`;
+- il loader valida il binding (`validateCatalog`): una `space` non supportata o una
+  `source` mancante sono **errori bloccanti** — un binding sbagliato non può
+  restare silenzioso;
+- assente il binding, gli id del catalogo valgono come id del mondo (legacy);
+  `world_scoped` senza `worldId` → **nessun asset** (meglio nessun asset che un
+  asset nella regione sbagliata).
+
+Nessuna somiglianza fra stringhe, nessun confronto per nome: la risoluzione è una
+**costruzione di id** più una verifica di appartenenza.
+
+### 23.2 Struttura aggiunta al preset
+
+```
+data/presets/modern_world_provinces/simulation/
+  manifest.json          id/version/schemaVersion/startDate, mode, declaration,
+                         currency, sources, regionIdBinding
+  polities.json          8 politie (USA SAU RUS NLD DEU CHN IND ZAF)
+  resources.json         3 risorse: crude_oil · coal · iron_ore
+  facilities.json        3 tipi: refinery · steel_plant · coal_power_plant
+  actors.json            9 attori economici (pubblici e privati) con polity reale
+  technologies.json []   recipes.json []   authorities.json []
+  initial-state.json     22 giacimenti · 10 impianti (inventario/tesoreria: vuoti)
+```
+
+Formato **esattamente** quello del motore (`SimulationCatalog`): nessun formato
+parallelo, nessun nuovo motore, nessuna nuova tabella. `mode: "authored"`:
+il catalogo è authored, non sourced; `declaration: "historical_estimated"`.
+
+**Perché `authored` e non `strict`.** `economy_mode` di una partita deriva solo da
+`manifest.mode` (`session-registry`): dichiarare `strict` avrebbe convertito
+**ogni nuova partita** sul mondo moderno all'economia strict, che richiede un
+catalogo completo per tutte le politiche (tesorerie, attori, filiere). Un vertical
+slice non può sostenerlo senza inventare un database mondiale — esattamente ciò
+che il task vieta. Con `authored` il mondo mantiene il comportamento economico
+attuale e la **geografia autorevole** viaggia lo stesso, perché la sua validità
+viene dal catalogo validato. Per questo `loadWorldMapAssets()` non usa più
+`economy_mode` come condizione: pubblica quando **il preset ha un catalogo
+valido**. Era una proxy sbagliata (il layer di lettura non è il percorso
+economico della partita); il test lo fissa (`economyMode === 'legacy'` **e**
+`canonical: true`).
+
+### 23.3 Vertical slice: asset, distribuzione, casi discriminanti
+
+**12 paesi · 22 giacimenti · 10 impianti** (authored, rappresentativi):
+
+| Risorsa | Giacimenti (regioni reali) |
+|---|---|
+| `crude_oil` | `USTX` Texas · `USAK` Alaska · `SA04` Ash Sharqiyah · `RUKHM` Khanty-Mansiy · `IR10` Khuzestan · `CAAB` Alberta · `RUSA` Sakha (**hidden**) |
+| `coal` | `USWY` Wyoming · `CNNM` Inner Mongol · `INJH` Jharkhand · `ZANW` North West · `ZAMP` Mpumalanga · `DENW` Nordrhein-Westfalen · `DEBB` Brandenburg · `AUQLD` Queensland · `RUKYA` Krasnoyarsk |
+| `iron_ore` | `AUWA` Western Australia · `BRPA` Pará · `BRMG` Minas Gerais · `ZANC` Northern Cape · `INOR` Odisha · `CLCO` Coquimbo |
+
+| Tipo | Impianti |
+|---|---|
+| `refinery` | `USTX` · `SA04` · `RUKHM` · `NLNH` ×2 (uno **non operativo**) |
+| `steel_plant` | `DENW` · `CNHE` · `INOR` |
+| `coal_power_plant` | `CNNM` · `ZANW` |
+
+Casi discriminanti richiesti dal task, tutti presenti e verificati:
+
+- **territorio ≠ proprietario economico ≠ controllo**:
+  `facility:NLNH:refinery:1` sta in Noord-Holland (Paesi Bassi) ma è posseduto da
+  `usa_gulf_refining` (**USA**) e controllato da `nld_port_energy` (**NLD**);
+  l'endpoint pubblica `polityId: USA` e `controllerPolityId: NLD`, e il marker non
+  riscrive `region.owner`;
+- **impianto non operativo**: `facility:NLNH:refinery:2` è `operational: false` nel
+  catalogo;
+- **giacimento non pubblicabile**: `deposit:RUSA:crude_oil:1` è
+  `accessibility: "hidden"` — il motore non lo rende estraibile, P6 non lo
+  pubblica (21 dei 22 giacimenti escono, e il test lo asserisce per numero).
+
+**Dati deliberatamente NON creati** (mancano le fonti, non l'implementazione):
+quantità note (`known: null` su **ogni** giacimento: 22 `unknown_quantity`, unico
+warning del catalogo), stime `estimated`, tesorerie/saldi, inventari, ricette,
+tecnologie, regole di autorità, manutenzione degli impianti. Nessuna azienda
+reale è nominata: gli attori hanno nomi funzionali (es. «Raffinazione privata
+(USA)») e sono dichiarati authored.
+
+### 23.4 Classificazione degli impianti non operativi (fix)
+
+Riscontro: in `mapThematicContext.ts` i gruppi erano costruiti come
+`!underConstruction && !strategic` → un asset canonico con `operational: false`
+finiva in **«Operative»**. Correzione con precedenza **mutuamente esclusiva** in
+un unico punto:
+
+```ts
+infrastructureGroupOf(item): 'underConstruction' | 'strategic' | 'inactive' | 'operative'
+// cantiere → strategica → canonical && operational === false → operativa
+```
+
+- nuovo gruppo `inactive` → **«Non operative»** nel Province Inspector
+  (`[data-infrastructure-state="inactive"]`), **prima** di «In costruzione»;
+- `operational === undefined` (opere legacy del territorio) **non** è `false`:
+  comportamento invariato;
+- l'impianto fermo **resta visibile** (mappa, marker, dossier) con proprietario,
+  controllore, polity di proprietà e polity di controllo.
+
+**Prova discriminatoria**: con la classificazione precedente lo scenario E2E
+`MAP P6.2 / C` **fallisce** (l'impianto non compare sotto «Non operative»); con la
+correzione passa. Verificato eseguendo la suite contro il codice pre-fix.
+
+### 23.5 Test P6.2
+
+| Livello | File | Test |
+|---|---|---|
+| backend (invertito) | `tests/map-p6-real-preset.test.ts` | **18** — catalogo valido senza errori e con la sola ignoranza dichiarata · 3 risorse/3 tipi/più paesi · proprietà ≠ territorio · attori e polity integri · `known: null` ovunque · **binding**: ogni regione del catalogo esiste nella mappa (derivata con le funzioni pure di `worlds.routes`) · l'endpoint pubblica tutto tranne gli `hidden` (nessuno scarto silenzioso) · ogni `regionId` pubblicato esiste nel mondo · regione rinominata → asset **escluso, non spostato** · senza binding → 0 asset · senza `worldId` → 0 asset · endpoint popolato · proprietà/controllo distinti · `operational:false` pubblicato · `hidden` escluso · due GET identiche senza scritture · `authored` + `canonical:true` · gli altri preset restano non migrati (dichiarato) |
+| frontend unit | `Map/mapThematicContext.test.ts` | **+5** — `operational:false` → «Non operative» (mai «Operative») · `operational:true` → «Operative» · legacy senza campo → invariato · precedenza mutuamente esclusiva (cantiere/strategica/ferma/operativa) · il fermo conserva proprietario, controllore e potenze |
+| frontend unit | `Map/thematicAssetMarkers.test.ts` | **+1** — spaziatura ≥ target di tocco: due asset della stessa provincia non si coprono |
+| E2E (dati reali) | `e2e/tests/map-p6-modern-assets.spec.mjs` (nuovo) | **6** — A marker reale `deposit:ZANW:coal:1` + region context + «quantità non determinata» · B `facility:NLNH:refinery:1` con proprietario/controllore/polity · C `operational:false` visibile sotto «Non operative» e **non** in «Operative» · D isolamento layer sugli asset reali · E fail-closed invariato (errore ≠ legacy) · F mobile 360×740 |
+
+L'E2E moderno non usa una fixture sintetica come prova di produzione: la geometria
+del mondo viene dalla **`map.geojson` reale** (`ZANW`, `NLNH`, `USTX`, `AUWA`) e il
+payload `/map-assets` è **costruito dai file del catalogo** (risorse, tipi,
+attori, nomi compresi). Se il catalogo cambia, il test cambia con lui.
+
+### 23.6 Gate (P6.2)
+
+| Gate | Esito |
+|---|---|
+| `backend: npx tsc --noEmit` / `npm run build` | ✅ |
+| `backend: npx vitest run` | ✅ **166 file / 1744 test** (+14) |
+| `frontend: npx tsc --noEmit` / `npm run build` | ✅ |
+| `frontend: npx vitest run` | ✅ **76 file / 625 test** (+6) |
+| `npm run test:e2e:mock` | ✅ **135/135** (+6) |
+| `npm run test:a11y` | ✅ 3/3 |
+| `npm run test:perf` | ✅ **2.24 MB** entro baseline |
+
+Regressioni verdi: MAP P1 · P2/P2.1/P2.2 · P3/P3.1 · P4/P4.1 · P5/P5.1 · P6 ·
+P6.1 · MILITARY P4–P6.
+
+### 23.7 DoD P6.2
+
+| Requisito | Esito |
+|---|---|
+| catalogo `simulation/` valido per `modern_world_provinces` | ✅ `report.ok`, 0 errori |
+| preset reale di riferimento di P6 | ✅ è quello usato dai test reali |
+| `/map-assets` → `canonical: true` su partita della mappa moderna | ✅ |
+| ≥ 1 risorsa authored reale | ✅ 21 pubblicate (22 dichiarate, 1 `hidden`) |
+| ≥ 1 impianto authored reale | ✅ 10 pubblicati (1 non operativo) |
+| tutti i `regionId` verificati sulle regioni effettive | ✅ test di binding |
+| ≥ 1 marker Risorse visibile sulla mappa moderna | ✅ scenario A |
+| ≥ 1 marker Infrastrutture visibile | ✅ scenari B/C/F |
+| click marker → regione → Province Inspector | ✅ A/B/C |
+| nessuna geografia dedotta a runtime | ✅ nessun match/nome/similarità |
+| `operational:false` non sotto «Operative» | ✅ unit + E2E (discriminante) |
+| l'impianto non operativo resta visibile | ✅ marker + dossier |
+| compatibilità legacy preservata | ✅ preset non migrati + fixture |
+| fail-closed P6.1 preservato | ✅ scenario E |
+| test verdi | ✅ tutti i gate |
+
+### 23.8 Limiti residui (P6.2)
+
+1. **Quantità ignote per scelta.** `known: null` su tutti i giacimenti: nel
+   repository non esiste una fonte autorevole e il catalogo non fabbrica numeri.
+   Con `authored`, inoltre, i giacimenti **non sono estratti dal motore**: il
+   layer li mostra come geografia autorevole, non come stock simulato. Le
+   quantità (e l'attivazione `strict`) richiedono una fase di **dati** con fonti.
+2. **Copertura**: 12 paesi su 112 della mappa. Un vertical slice, non un atlante.
+3. **Altri preset reali** non migrati: `canonical: false`, dichiarato e testato.
+4. **Clustering**: ancora fuori scope; la densità è gestita con offset in pixel.
+5. **Overlay persistente** (P6 §12.2): invariato, gli id persistiti restano
+   `{kind}-{polityId}-{n}` e non intersecano gli id del catalogo.
