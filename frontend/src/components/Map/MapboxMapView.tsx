@@ -37,6 +37,7 @@ import {
   mapLayerPresentation,
   thematicFillExpression,
   thematicUnavailableMessage,
+  type CanonicalFacilitySite,
   type ResourceSiteCandidate,
   type ThematicMapModel,
 } from './thematicMapModel';
@@ -177,6 +178,16 @@ interface MapboxMapViewProps {
    * canonico diventano siti: la mappa e il dossier tematico usano gli stessi.
    */
   resourceCandidates?: readonly ResourceSiteCandidate[];
+  /**
+   * MAP P6 — impianti canonici mondiali dal catalogo di scenario: stessa fonte
+   * per il layer Infrastrutture e per il dossier tematico.
+   */
+  worldFacilities?: readonly CanonicalFacilitySite[];
+  /**
+   * MAP P6 — la sorgente canonica non è disponibile: il layer Risorse deve
+   * dirlo esplicitamente invece di mostrare un mondo vecchio.
+   */
+  resourcesUnavailableReason?: string | null;
 }
 
 
@@ -268,6 +279,7 @@ const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', feature
 const EMPTY_UNITS: MilitaryUnitPayload[] = [];
 const EMPTY_FRONTS: WarFrontPayload[] = [];
 const EMPTY_RESOURCE_CANDIDATES: readonly ResourceSiteCandidate[] = [];
+const EMPTY_WORLD_FACILITIES: readonly CanonicalFacilitySite[] = [];
 
 // Griglia di coordinate (in gradi) come geojson proprio — senza sorgenti esterne
 const buildGraticule = (): GeoJSON.FeatureCollection => {
@@ -405,6 +417,8 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   militaryStateError = null,
   relationships = null,
   resourceCandidates = EMPTY_RESOURCE_CANDIDATES,
+  worldFacilities = EMPTY_WORLD_FACILITIES,
+  resourcesUnavailableReason = null,
 }) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -463,8 +477,9 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   // MAP P3 — read model tematico puro: economia, diplomazia, infrastrutture,
   // risorse. Costruito solo da stato canonico, mai persistito.
   const thematic = useMemo<ThematicMapModel>(() => buildThematicMapModel({
-    regions, relationships, playerPolityId: playerCountryCode, resourceCandidates,
-  }), [regions, relationships, playerCountryCode, resourceCandidates]);
+    regions, relationships, playerPolityId: playerCountryCode, resourceCandidates, worldFacilities,
+    ...(resourcesUnavailableReason ? { resourcesUnavailableReason } : {}),
+  }), [regions, relationships, playerCountryCode, resourceCandidates, worldFacilities, resourcesUnavailableReason]);
   const layerPresentation = mapLayerPresentation(activeLayer);
   const thematicMessage = thematicUnavailableMessage(activeLayer, thematic);
   const infrastructureLayerTypes = useMemo(

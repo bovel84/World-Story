@@ -1040,6 +1040,11 @@ export function installMockApi(page, opts = {}) {
   // MAP P2 — lo stato militare persistente è canonico: di default nessun
   // reparto né fronte nel mondo mock (mondo solo SVG). Gli E2E che mappano lo
   // stato militare registrano le proprie fixture AFTER installMockApi.
+  // MAP P6 — il mondo mock non ha catalogo strict bindato: la fotografia
+  // canonica è vuota e `canonical: false` (comportamento reale di un mondo
+  // legacy). Gli E2E della mappa P6 registrano la propria fixture AFTER.
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/map-assets`, (route) =>
+    json(route, { resources: [], facilities: [], canonical: false }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/fronts`, (route) =>
     json(route, { fronts: [] }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/units`, (route) =>

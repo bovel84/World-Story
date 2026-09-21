@@ -32,6 +32,7 @@ import {
   type UnitOrderRequest,
   type MilitaryUnitPayload,
   type WarFrontPayload,
+  type WorldMapAssetsPayload,
 } from '../services/api';
 import { normalizeResources } from '../components/Game/nationDossier';
 
@@ -131,6 +132,9 @@ export interface NationSnapshot {
   refreshMilitaryState: () => Promise<void>;
   /** MAP P3 — relazioni canoniche per il layer Diplomazia (fail-closed). */
   relationships: RelationshipMap | null;
+  /** MAP P6 — geografia economica canonica mondiale dello snapshot corrente. */
+  worldMapAssets: WorldMapAssetsPayload | null;
+  worldMapAssetsError: string | null;
   relationshipsLoading: boolean;
   relationshipsError: string | null;
   refreshRelationships: () => Promise<void>;
@@ -191,6 +195,14 @@ export function useNationSnapshot({
   const [militaryStateLoading, setMilitaryStateLoading] = useState(false);
   const [militaryStateError, setMilitaryStateError] = useState<string | null>(null);
   const militaryRequest = useRef(0);
+  /**
+   * MAP P6 — asset economici canonici **dello snapshot corrente**: legati a
+   * turno/data/revisione/ramo, invalidati all'avvio di ogni refresh. Una
+   * risposta di un ramo precedente non può sovrascrivere quella nuova.
+   */
+  const [worldMapAssets, setWorldMapAssets] = useState<WorldMapAssetsPayload | null>(null);
+  const [worldMapAssetsError, setWorldMapAssetsError] = useState<string | null>(null);
+  const worldMapAssetsRequest = useRef(0);
   const [relationships, setRelationships] = useState<RelationshipMap | null>(null);
   const [relationshipsLoading, setRelationshipsLoading] = useState(false);
   const [relationshipsError, setRelationshipsError] = useState<string | null>(null);
@@ -224,6 +236,9 @@ export function useNationSnapshot({
     setRelationshipsLoading(false);
     setRelationshipsError(null);
     relationshipsRequest.current += 1;
+    setWorldMapAssets(null);
+    setWorldMapAssetsError(null);
+    worldMapAssetsRequest.current += 1;
     snapshotEpoch.current += 1;
   }, []);
 
@@ -294,12 +309,38 @@ export function useNationSnapshot({
     }
   }, [gameId]);
 
+  /**
+   * MAP P6 — giacimenti e impianti canonici di **tutte** le potenze. Fail closed:
+   * all'avvio del refresh la fotografia precedente viene scartata (mai asset
+   * stale di un turno o di un ramo più vecchio); in errore resta `null`, quindi
+   * il layer torna al fallback player-scoped invece di mostrare un mondo vecchio.
+   * Un mondo legacy (`canonical: false`) non è un errore: significa «nessun dato
+   * canonico», e il fallback P5.1 resta valido.
+   */
+  const refreshWorldMapAssets = useCallback(async () => {
+    if (!gameId) return;
+    const request = ++worldMapAssetsRequest.current;
+    setWorldMapAssetsError(null);
+    setWorldMapAssets(null);
+    try {
+      const data = await gameApi.mapAssets(gameId);
+      if (request !== worldMapAssetsRequest.current) return;
+      setWorldMapAssets(data?.canonical ? data : null);
+    } catch (error) {
+      if (request !== worldMapAssetsRequest.current) return;
+      console.warn('[App] Asset economici canonici non disponibili:', error);
+      setWorldMapAssets(null);
+      setWorldMapAssetsError('Dati territoriali non disponibili');
+    }
+  }, [gameId]);
+
   // Turno, data, revisione e ramo coprono advance, checkpoint, rewind e load.
   useEffect(() => {
     if (!gameId) return;
     void refreshMilitaryState();
     void refreshRelationships();
-  }, [gameId, currentTurn, currentDate, worldRevision, headBranchId, refreshMilitaryState, refreshRelationships]);
+    void refreshWorldMapAssets();
+  }, [gameId, currentTurn, currentDate, worldRevision, headBranchId, refreshMilitaryState, refreshRelationships, refreshWorldMapAssets]);
 
   // Il bollettino usa dati aggregati dal motore, non formule del browser.
   useEffect(() => {
@@ -666,6 +707,8 @@ export function useNationSnapshot({
     relationships,
     relationshipsLoading,
     relationshipsError,
+    worldMapAssets,
+    worldMapAssetsError,
     refreshRelationships,
     resetNational,
     procureEquipment,

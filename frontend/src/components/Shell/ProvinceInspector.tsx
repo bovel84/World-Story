@@ -57,6 +57,11 @@ interface ProvinceInspectorProps {
 
 /** Etichette leggibili per i tipi tecnici del read model (nessun dato inventato). */
 const RESOURCE_KIND_LABELS: Record<string, string> = { mine: 'Sito estrattivo' };
+/** Accessibilità canonica di un giacimento: parola del motore, non del browser. */
+const RESOURCE_ACCESSIBILITY_LABELS: Record<string, string> = {
+  open: 'accessibile',
+  requires_extraction: 'richiede estrazione',
+};
 
 const STATUS_LABEL: Record<string, string> = {
   forming: 'In formazione', operational: 'Operativo', degraded: 'Degradato',
@@ -159,9 +164,18 @@ function LayerThematicBlock({ context }: { context: RegionThematicContext }) {
       </p>;
     }
     return <ul className="context-link-list" data-resource-sites={context.regionId}>
-      {context.resources.sites.map(site => <li key={site.id} data-resource-site={site.id} data-resource-kind={site.kind}>
-        <span><strong>{site.label}</strong><small>{RESOURCE_KIND_LABELS[site.kind] ?? site.kind}{site.status ? ` · ${site.status}` : ''}</small></span>
-      </li>)}
+      {context.resources.sites.map(site => site.accessibility
+        ? <li key={site.id} data-resource-site={site.id} data-resource-kind={site.kind}
+            data-resource-accessibility={site.accessibility} data-resource-known={site.known ? 'true' : 'false'}>
+            <span><strong>{site.label}</strong><small>
+              accessibilità: {RESOURCE_ACCESSIBILITY_LABELS[site.accessibility] ?? site.accessibility}
+              {' · '}{site.known ? 'dato noto' : 'quantità non determinata'}
+              {site.known && site.estimated ? ' · stima pubblicata dal motore' : ''}
+            </small></span>
+          </li>
+        : <li key={site.id} data-resource-site={site.id} data-resource-kind={site.kind}>
+            <span><strong>{site.label}</strong><small>{RESOURCE_KIND_LABELS[site.kind] ?? site.kind}{site.status ? ` · ${site.status}` : ''}</small></span>
+          </li>)}
     </ul>;
   }
   if (context.layer === 'infrastructure') {
@@ -170,8 +184,18 @@ function LayerThematicBlock({ context }: { context: RegionThematicContext }) {
     }
     const group = (title: string, items: RegionThematicContext['infrastructure']['items']) => items.length > 0 && (
       <div className="thematic-group"><h4>{title} <b>{items.length}</b></h4>
-        <ul className="context-link-list">{items.map(item => <li key={item.id} data-infrastructure-item={item.id} data-infrastructure-kind={item.underConstruction ? 'construction' : 'operative'}>
-          <span><strong>{item.name}</strong><small>{item.type}{item.strategic ? ' · installazione strategica' : ''}</small></span>
+        <ul className="context-link-list">{items.map(item => <li key={item.id} data-infrastructure-item={item.id}
+          data-infrastructure-kind={item.underConstruction ? 'construction' : 'operative'}
+          data-infrastructure-source={item.source ?? 'territory'}>
+          <span><strong>{item.name}</strong><small>{item.source === 'canonical'
+            ? `impianto canonico${item.facilityTypeId ? ` · ${item.facilityTypeId}` : ''} · ${item.operational ? 'operativo' : 'non operativo'}`
+            : `${item.type}${item.strategic ? ' · installazione strategica' : ''}`}</small></span>
+          {item.source === 'canonical' && <span className="thematic-ownership">
+            Proprietario: {item.ownerActorName || item.ownerActorId || '—'}
+            {' · '}Controllore: {item.controllerActorName || item.controllerActorId || '—'}
+            {' · '}Potenza: {item.polityId || '—'}
+            {item.controllerPolityId && item.controllerPolityId !== item.polityId ? ` · Controllo: ${item.controllerPolityId}` : ''}
+          </span>}
         </li>)}</ul>
       </div>
     );

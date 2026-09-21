@@ -251,6 +251,44 @@ export interface OperatingActionPayload {
 export type OperatingKindPayload =
   | 'force' | 'army' | 'unit' | 'front' | 'facility' | 'construction' | 'navy' | 'fleet' | 'ship' | 'mine';
 
+/**
+ * MAP P6 — giacimento canonico pubblicato dal motore (`Deposit.regionId`).
+ * `known: false` significa «dato autorevole mancante»: ignoranza, mai assenza.
+ */
+export interface WorldResourceSitePayload {
+  id: string;
+  resourceId: string;
+  resourceName: string;
+  regionId: string;
+  accessibility: 'open' | 'requires_extraction';
+  known: boolean;
+  knownQuantity: { resourceId: string; baseUnits: string } | null;
+  estimated?: { low: string; base: string; high: string; evidence?: Record<string, unknown> };
+}
+
+/** MAP P6 — impianto canonico mondiale (`FacilityInstance.regionId`). */
+export interface WorldFacilitySitePayload {
+  id: string;
+  typeId: string;
+  typeName: string;
+  regionId: string;
+  ownerActorId: string;
+  ownerActorName?: string;
+  controllerActorId: string;
+  controllerActorName?: string;
+  /** Proprietà economica dal registro attori: **mai** da `region.owner`. */
+  polityId: string | null;
+  controllerPolityId: string | null;
+  operational: boolean;
+}
+
+/** MAP P6 — fotografia mondiale degli asset economici canonici. */
+export interface WorldMapAssetsPayload {
+  resources: WorldResourceSitePayload[];
+  facilities: WorldFacilitySitePayload[];
+  canonical: boolean;
+}
+
 /** Un oggetto concreto del paese: armata, impianto, cantiere, nave, miniera. */
 export interface OperatingObjectPayload {
   id: string;
@@ -1154,6 +1192,16 @@ export const gameApi = {
       method: 'POST',
       body: JSON.stringify(options),
     }),
+
+  /**
+   * MAP P6 — geografia economica canonica mondiale: giacimenti e impianti di
+   * **tutte** le potenze che il catalogo di scenario possiede già. Una sola
+   * fotografia per snapshot (nessuna lettura per regione, nessun fetch al click).
+   * `canonical: false` = mondo legacy o catalogo non disponibile: `resources` e
+   * `facilities` vuoti, nessuna geografia inventata.
+   */
+  mapAssets: (gameId: string): Promise<WorldMapAssetsPayload> =>
+    fetchApi(`/games/${gameId}/map-assets`),
 
   /** MILITARY-UNITS — reparti (unità) persistenti del paese. */
   militaryUnits: (gameId: string): Promise<{ units: MilitaryUnitPayload[] }> =>

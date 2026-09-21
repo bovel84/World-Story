@@ -18,6 +18,7 @@
 import type { Region } from '../../types';
 import {
   INFRASTRUCTURE_OBJECT_TYPES,
+  MILITARY_OBJECT_TYPES,
   STRATEGIC_OBJECT_TYPES,
   type MapLayer,
 } from './mapModel';
@@ -228,6 +229,36 @@ export interface InfrastructureMapItem {
   name: string;
   /** Installazione strategica (base/radar/…): infrastruttura ma gated dal filtro unità. */
   strategic: boolean;
+  /** MAP P6 — origine dell'opera: oggetto del territorio o impianto canonico mondiale. */
+  source?: 'territory' | 'canonical';
+  /** Tipo canonico dal catalogo (`FacilityInstance.typeId`), mai dedotto dal nome. */
+  facilityTypeId?: string;
+  operational?: boolean;
+  ownerActorId?: string;
+  ownerActorName?: string;
+  controllerActorId?: string;
+  controllerActorName?: string;
+  /** Proprietà economica dal registro attori: `region.owner` non viene mai usato. */
+  polityId?: string | null;
+  controllerPolityId?: string | null;
+}
+
+/**
+ * MAP P6 — impianto canonico mondiale pubblicato dal catalogo di scenario.
+ * La geografia è `regionId`; l'identità è l'`id` canonico.
+ */
+export interface CanonicalFacilitySite {
+  id: string;
+  regionId: string;
+  typeId: string;
+  typeName: string;
+  operational: boolean;
+  ownerActorId?: string;
+  ownerActorName?: string;
+  controllerActorId?: string;
+  controllerActorName?: string;
+  polityId?: string | null;
+  controllerPolityId?: string | null;
 }
 
 export type InfrastructureKind = 'core' | 'strategic' | null;
@@ -244,17 +275,54 @@ export interface InfrastructureMapModel {
   available: boolean;
 }
 
-export function buildInfrastructureMapModel(regions: readonly Region[]): InfrastructureMapModel {
+/**
+ * MAP P6 — infrastruttura territoriale = oggetti canonici del territorio **più**
+ * impianti canonici mondiali del catalogo. Deduplicazione **solo** a id esatto:
+ * mai per nome. Un reparto non diventa mai un'opera (la classificazione resta
+ * `infrastructureKind`).
+ */
+export function buildInfrastructureMapModel(
+  regions: readonly Region[],
+  canonicalFacilities: readonly CanonicalFacilitySite[] = [],
+): InfrastructureMapModel {
   const byRegion: Record<string, InfrastructureMapItem[]> = Object.create(null);
+  const seen = new Set<string>();
+  const worldRegionIds = new Set(regions.map(region => region.id));
   let total = 0;
   for (const region of regions) {
     const items: InfrastructureMapItem[] = [];
     for (const object of region.objects || []) {
       const kind = infrastructureKind(object.type);
       if (!kind) continue;
-      items.push({ id: object.id, regionId: region.id, type: object.type, name: object.name, strategic: kind === 'strategic' });
+      seen.add(object.id);
+      items.push({ id: object.id, regionId: region.id, type: object.type, name: object.name, strategic: kind === 'strategic', source: 'territory' });
     }
     if (items.length) { byRegion[region.id] = items; total += items.length; }
+  }
+  for (const site of canonicalFacilities) {
+    // Geografia canonica: un impianto la cui regione non esiste nel mondo è
+    // un sito orfano e non entra nel modello.
+    if (!site.regionId || !worldRegionIds.has(site.regionId) || seen.has(site.id)) continue;
+    // Un reparto non è mai un'opera, nemmeno se pubblicato come facility.
+    if ((MILITARY_OBJECT_TYPES as readonly string[]).includes(site.typeId)) continue;
+    seen.add(site.id);
+    (byRegion[site.regionId] ??= []).push({
+      id: site.id,
+      regionId: site.regionId,
+      type: 'facility',
+      name: site.typeName || site.typeId,
+      strategic: false,
+      source: 'canonical',
+      facilityTypeId: site.typeId,
+      operational: site.operational,
+      ...(site.ownerActorId ? { ownerActorId: site.ownerActorId } : {}),
+      ...(site.ownerActorName ? { ownerActorName: site.ownerActorName } : {}),
+      ...(site.controllerActorId ? { controllerActorId: site.controllerActorId } : {}),
+      ...(site.controllerActorName ? { controllerActorName: site.controllerActorName } : {}),
+      polityId: site.polityId ?? null,
+      controllerPolityId: site.controllerPolityId ?? null,
+    });
+    total += 1;
   }
   return { byRegion, total, available: total > 0 };
 }
@@ -263,18 +331,30 @@ export function buildInfrastructureMapModel(regions: readonly Region[]): Infrast
 export interface MapResourceSite {
   id: string;
   regionId: string;
+  /** Id canonico della risorsa dal catalogo (`coal`, `iron_ore`, …) o tipo tecnico. */
   kind: string;
   label: string;
   status?: string;
+  accessibility?: 'open' | 'requires_extraction';
+  known?: boolean;
+  estimated?: { low: string; base: string; high: string };
 }
 
-/** Qualsiasi candidato (riserva nazionale, oggetto estrattivo) con eventuale regionId. */
+/**
+ * Qualsiasi candidato (riserva nazionale, oggetto estrattivo, giacimento
+ * canonico P6) con eventuale `regionId`. I campi `accessibility`/`known`/
+ * `estimated` sono la semantica pubblicata dal motore per i giacimenti canonici.
+ */
 export interface ResourceSiteCandidate {
   id?: string;
   kind: string;
   label?: string;
   status?: string;
   regionId?: string | null;
+  accessibility?: 'open' | 'requires_extraction';
+  /** `false` = dato autorevole mancante: ignoranza, mai assenza. */
+  known?: boolean;
+  estimated?: { low: string; base: string; high: string };
 }
 
 /**
@@ -298,6 +378,9 @@ export function canonicalResourceSites(
       kind: candidate.kind,
       label: candidate.label || candidate.kind,
       ...(candidate.status ? { status: candidate.status } : {}),
+      ...(candidate.accessibility ? { accessibility: candidate.accessibility } : {}),
+      ...(candidate.known === undefined ? {} : { known: candidate.known }),
+      ...(candidate.estimated ? { estimated: candidate.estimated } : {}),
     });
   }
   return sites;
@@ -316,12 +399,14 @@ export const RESOURCES_UNAVAILABLE_REASON =
 export function buildResourceMapModel(input: {
   regions: readonly Region[];
   candidates?: readonly ResourceSiteCandidate[];
+  /** MAP P6 — motivo esplicito (es. sorgente canonica non disponibile). */
+  unavailableReason?: string;
 }): ResourceMapModel {
   const sites = canonicalResourceSites(input.candidates || [], input.regions);
   const byRegion: Record<string, MapResourceSite[]> = Object.create(null);
   for (const site of sites) (byRegion[site.regionId] ??= []).push(site);
   if (sites.length) return { sites, byRegion, available: true };
-  return { sites: [], byRegion, available: false, unavailableReason: RESOURCES_UNAVAILABLE_REASON };
+  return { sites: [], byRegion, available: false, unavailableReason: input.unavailableReason || RESOURCES_UNAVAILABLE_REASON };
 }
 
 // ── Modello combinato ──────────────────────────────────────────────────────
@@ -337,12 +422,20 @@ export function buildThematicMapModel(input: {
   relationships?: Record<string, Record<string, string>> | null;
   playerPolityId?: string | null;
   resourceCandidates?: readonly ResourceSiteCandidate[];
+  /** MAP P6 — impianti canonici mondiali (catalogo di scenario). */
+  worldFacilities?: readonly CanonicalFacilitySite[];
+  /** MAP P6 — messaggio fail-closed: la sorgente canonica non è disponibile. */
+  resourcesUnavailableReason?: string;
 }): ThematicMapModel {
   return {
     economy: buildEconomyMapModel(input.regions),
     diplomacy: buildDiplomacyMapModel(input.regions, input.relationships, input.playerPolityId),
-    infrastructure: buildInfrastructureMapModel(input.regions),
-    resources: buildResourceMapModel({ regions: input.regions, candidates: input.resourceCandidates }),
+    infrastructure: buildInfrastructureMapModel(input.regions, input.worldFacilities),
+    resources: buildResourceMapModel({
+      regions: input.regions,
+      candidates: input.resourceCandidates,
+      ...(input.resourcesUnavailableReason ? { unavailableReason: input.resourcesUnavailableReason } : {}),
+    }),
   };
 }
 

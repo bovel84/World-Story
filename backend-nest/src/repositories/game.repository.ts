@@ -45,6 +45,19 @@ export const gameRepository = {
     return branchId;
   },
 
+  /**
+   * MAP P6 — binding del mondo di una partita **senza** idratare le regioni
+   * (`worldRepository.findById` scrive oggetti geografici alla prima lettura):
+   * una GET della mappa non deve produrre scritture.
+   */
+  getWorldBinding: (gameId: string): { worldId: string; templateId: string | null } | null => {
+    const row = db.prepare(
+      'SELECT g.world_id AS worldId, w.template_id AS templateId FROM games g JOIN worlds w ON w.id = g.world_id WHERE g.id = ?',
+    ).get(gameId) as { worldId?: string; templateId?: string | null } | undefined;
+    if (!row?.worldId) return null;
+    return { worldId: row.worldId, templateId: row.templateId ?? null };
+  },
+
   getEconomyMode: (gameId: string): 'legacy' | 'strict' => {
     const row = db.prepare('SELECT economy_mode FROM games WHERE id = ?').get(gameId) as { economy_mode?: string } | undefined;
     return row?.economy_mode === 'strict' ? 'strict' : 'legacy';

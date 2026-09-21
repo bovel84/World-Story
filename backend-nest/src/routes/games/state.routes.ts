@@ -15,6 +15,7 @@ import { addSSEClient, removeSSEClient, broadcastToGame, hasClients } from '../.
 import { LLMError } from '../../llm';
 import path from 'path';
 import { loadSimulationCatalog } from '../../scenario/loader';
+import { loadWorldMapAssets } from '../../game/WorldMapAssets';
 import type { SimulationCatalog } from '../../scenario/types';
 import { normalizeOrderIntent } from '../../core/feasibility/intent';
 import { FeasibilityService } from '../../core/feasibility/FeasibilityService';
@@ -296,6 +297,30 @@ router.post('/:id/military/units/:unitId/:action(reinforce|reequip|transfer|reas
     }));
   } catch (e: any) {
     respondDomainError(res, e, UNIT_ERROR_CODES, 'Failed to act on unit');
+  }
+});
+
+/**
+ * MAP P6 — geografia economica canonica mondiale (read-only).
+ *
+ * Una sola fotografia per snapshot: giacimenti e impianti di **tutte** le
+ * potenze che il catalogo di scenario possiede già, con la sola `regionId`
+ * pubblicata dal motore. Nessuna lettura per region (nessun N+1, nessun fetch
+ * al click), nessuna scrittura, nessun seed NPC: la GET non materializza stato.
+ *
+ * Mondi legacy (o catalogo non disponibile) → `{ resources: [], facilities: [],
+ * canonical: false }`: meglio nessun dato che geografia inventata.
+ */
+router.get('/:id/map-assets', (req, res) => {
+  try {
+    // Binding puro: nessuna idratazione di regioni o sessioni da una GET.
+    if (!gameRepository.getWorldBinding(req.params.id)) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+    res.json(loadWorldMapAssets(req.params.id));
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to read world map assets');
   }
 });
 

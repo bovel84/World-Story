@@ -46,6 +46,10 @@ export interface GameMapProps {
   relationships?: Record<string, Record<string, string>> | null;
   /** MAP P5 — candidati risorsa canonici: stessi input di mappa e dossier. */
   resourceCandidates?: readonly import('../Map/thematicMapModel').ResourceSiteCandidate[];
+  /** MAP P6 — impianti canonici mondiali: stessa fonte di mappa e dossier. */
+  worldFacilities?: readonly import('../Map/thematicMapModel').CanonicalFacilitySite[];
+  /** MAP P6 — sorgente canonica non disponibile: il layer lo dichiara. */
+  resourcesUnavailableReason?: string | null;
   showFlags: boolean;
   playerCountryCode: string;
   /** Nessuna geometria disponibile: torna agli scenari. */
@@ -74,6 +78,8 @@ export function GameMap({
   militaryStateError,
   relationships,
   resourceCandidates,
+  worldFacilities,
+  resourcesUnavailableReason,
   showFlags,
   playerCountryCode,
   onBackToScenarios,
@@ -103,6 +109,8 @@ export function GameMap({
           militaryStateError={militaryStateError}
           relationships={relationships}
           resourceCandidates={resourceCandidates}
+          worldFacilities={worldFacilities}
+          resourcesUnavailableReason={resourcesUnavailableReason}
           showFlags={showFlags}
           playerCountryCode={playerCountryCode}
         />

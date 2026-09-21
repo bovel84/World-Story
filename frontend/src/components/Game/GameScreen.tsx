@@ -48,7 +48,11 @@ import {
 } from '../Map/mapContext';
 import type { ActiveModule } from '../../stores/moduleState';
 import { buildThematicMapModel } from '../Map/thematicMapModel';
-import { resourceCandidatesFromOperatingPicture } from '../Map/mapThematicContext';
+import {
+  canonicalFacilitiesFromWorldAssets,
+  resourceCandidatesFromOperatingPicture,
+  resourceCandidatesFromWorldAssets,
+} from '../Map/mapThematicContext';
 
 export interface GameScreenProps {
   nation: NationSnapshot;
@@ -200,15 +204,24 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
 
   // MAP P5 — un solo modello tematico P3 per mappa e dossier: stesse soglie,
   // stessi bucket, stessi siti. Nessun fetch al click, nessuna duplicazione.
-  // Le risorse territoriali sono oggetti operativi `mine` con `regionId`
-  // pubblicato dal motore: nessun cast, nessuna geografia dedotta dal testo.
+  // MAP P6 — sorgente primaria: giacimenti e impianti canonici **mondiali** del
+  // catalogo (`/map-assets`, una fotografia per snapshot, nessun fetch al click).
+  // `canonical: false`/assente (mondo legacy) → fallback player-scoped P5.1: gli
+  // oggetti operativi `mine` con `regionId` pubblicato. Mai due sorgenti insieme:
+  // nessuna miniera mostrata due volte, nessuna deduplicazione per nome.
+  const worldFacilities = useMemo(
+    () => (nation.worldMapAssets ? canonicalFacilitiesFromWorldAssets(nation.worldMapAssets) : []),
+    [nation.worldMapAssets],
+  );
   const resourceCandidates = useMemo(
-    () => resourceCandidatesFromOperatingPicture(nation.nationalArms?.objects),
-    [nation.nationalArms?.objects],
+    () => (nation.worldMapAssets
+      ? resourceCandidatesFromWorldAssets(nation.worldMapAssets)
+      : resourceCandidatesFromOperatingPicture(nation.nationalArms?.objects)),
+    [nation.worldMapAssets, nation.nationalArms?.objects],
   );
   const thematicModel = useMemo(() => buildThematicMapModel({
-    regions, relationships: nation.relationships, playerPolityId, resourceCandidates,
-  }), [regions, nation.relationships, playerPolityId, resourceCandidates]);
+    regions, relationships: nation.relationships, playerPolityId, resourceCandidates, worldFacilities,
+  }), [regions, nation.relationships, playerPolityId, resourceCandidates, worldFacilities]);
 
   const railItems = deriveRailItems({
     activeModule,
@@ -300,6 +313,8 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
       militaryStateError={nation.militaryStateError}
       relationships={nation.relationships}
       resourceCandidates={resourceCandidates}
+      worldFacilities={worldFacilities}
+      resourcesUnavailableReason={nation.worldMapAssetsError}
       showFlags={!!useGameStore.getState().selectedCountry}
       playerCountryCode={playerPolityId}
       onBackToScenarios={() => {

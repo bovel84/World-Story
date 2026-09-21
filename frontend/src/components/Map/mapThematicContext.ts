@@ -19,6 +19,7 @@
  *  - nessuna causa viene dedotta per i cambiamenti: solo `changedRegionIds`.
  */
 import type { Commitment, OperatingPicturePayload, PowerAgenda, StrategicObjective } from '../../services/api';
+import type { WorldMapAssetsPayload } from '../../services/api';
 import type { MapObject, Region } from '../../types';
 import { constructionReport } from '../../utils/construction';
 import { mapLayerDefinition, type MapLayer } from './mapModel';
@@ -31,6 +32,7 @@ import {
   isEconomyValue,
   type DiplomaticMapStatus,
   type InfrastructureMapItem,
+  type CanonicalFacilitySite,
   type MapResourceSite,
   type ResourceSiteCandidate,
   type ThematicMapModel,
@@ -331,6 +333,50 @@ export function layerHasThematicSection(layer: MapLayer): boolean {
  */
 export const RESOURCE_SITE_KIND = 'mine';
 
+/**
+ * MAP P6 — candidati risorsa **canonici e mondiali**: giacimenti di tutte le
+ * potenze pubblicati dal catalogo. `kind` è il vero `resourceId` e `label` il
+ * `resourceName` dichiarato dal catalogo: nessun parsing del testo.
+ * La geografia è solo `regionId` (il modello P3 scarta gli id sconosciuti).
+ */
+export function resourceCandidatesFromWorldAssets(
+  assets?: WorldMapAssetsPayload | null,
+): ResourceSiteCandidate[] {
+  return (assets?.resources || []).map(site => ({
+    id: site.id,
+    kind: site.resourceId,
+    label: site.resourceName,
+    regionId: site.regionId,
+    accessibility: site.accessibility,
+    known: site.known,
+    ...(site.estimated ? { estimated: { low: site.estimated.low, base: site.estimated.base, high: site.estimated.high } } : {}),
+  }));
+}
+
+/** MAP P6 — impianti canonici per il layer Infrastrutture (stessa fonte del dossier). */
+export function canonicalFacilitiesFromWorldAssets(
+  assets?: WorldMapAssetsPayload | null,
+): CanonicalFacilitySite[] {
+  return (assets?.facilities || []).map(site => ({
+    id: site.id,
+    regionId: site.regionId,
+    typeId: site.typeId,
+    typeName: site.typeName,
+    operational: site.operational,
+    ownerActorId: site.ownerActorId,
+    ...(site.ownerActorName ? { ownerActorName: site.ownerActorName } : {}),
+    controllerActorId: site.controllerActorId,
+    ...(site.controllerActorName ? { controllerActorName: site.controllerActorName } : {}),
+    polityId: site.polityId,
+    controllerPolityId: site.controllerPolityId,
+  }));
+}
+
+/**
+ * MAP P5.1 — candidati dal quadro operativo del giocatore (`kind: 'mine'` con
+ * `regionId` pubblicato). Da MAP P6 è **fallback/enrichment**: la sorgente
+ * mondiale sono i giacimenti canonici del catalogo.
+ */
 export function resourceCandidatesFromOperatingPicture(
   picture?: OperatingPicturePayload | null,
 ): ResourceSiteCandidate[] {
@@ -347,4 +393,4 @@ export function resourceCandidatesFromOperatingPicture(
 
 // Ri-esportazioni: i consumatori del dossier usano un solo import.
 export { infrastructureKind };
-export type { InfrastructureMapItem, MapResourceSite };
+export type { CanonicalFacilitySite, InfrastructureMapItem, MapResourceSite };

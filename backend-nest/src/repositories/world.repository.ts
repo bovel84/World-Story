@@ -84,6 +84,10 @@ export const worldRepository = {
     };
   },
 
+  /** MAP P6 — solo gli id delle regioni: lettura pura, senza idratazione degli oggetti. */
+  regionIds: (worldId: string): string[] => (db.prepare('SELECT id FROM world_regions WHERE world_id = ? ORDER BY id').all(worldId) as Array<{ id: string }>)
+    .map(row => row.id),
+
   getRegions: (worldId: string): RegionRecord[] => {
     const stmt = db.prepare('SELECT * FROM world_regions WHERE world_id = ?');
     const rows = stmt.all(worldId) as any[];
