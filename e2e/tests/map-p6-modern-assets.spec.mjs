@@ -217,6 +217,20 @@ async function focusRegion(page, code) {
   await page.waitForTimeout(120);
 }
 
+/** Riquadro della regione **reale** proiettato sullo schermo. */
+async function screenBoxOf(page, code) {
+  const bounds = boundsOf(featureOf(code));
+  return page.evaluate(box => {
+    const sw = window.__testMap.project(box[0]);
+    const ne = window.__testMap.project(box[1]);
+    const canvas = document.querySelector('.maplibregl-canvas').getBoundingClientRect();
+    return {
+      minX: canvas.x + Math.min(sw.x, ne.x), maxX: canvas.x + Math.max(sw.x, ne.x),
+      minY: canvas.y + Math.min(sw.y, ne.y), maxY: canvas.y + Math.max(sw.y, ne.y),
+    };
+  }, bounds);
+}
+
 const camera = (page) => page.evaluate(() => {
   const center = window.__testMap.getCenter();
   return { lng: Number(center.lng.toFixed(3)), lat: Number(center.lat.toFixed(3)) };
@@ -354,4 +368,25 @@ test('MAP P6.2 / F — 360×740: marker e impianto reale cliccabili', async ({ p
   expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width);
   // La camera non si è mossa da sola per effetto del click sul marker.
   expect(await camera(page)).toEqual(before);
+});
+
+// G — l'anchor è visivo e regionale: nessuna coordinata inventata.
+test('MAP P6.2 / G — il marker cade dentro la geometria reale della regione', async ({ page }) => {
+  await openModernMap(page);
+  await selectLayer(page, 'Risorse');
+  for (const [code, id] of [['ZANW', 'deposit:ZANW:coal:1'], ['AUWA', 'deposit:AUWA:iron_ore:1'], ['USTX', 'deposit:USTX:crude_oil:1']]) {
+    await focusRegion(page, code);
+    const marker = resourceMarker(page, id);
+    await expect(marker).toBeVisible();
+    const box = await marker.boundingBox();
+    const screen = await screenBoxOf(page, code);
+    // L'anchor è il representative point della provincia: il marker cade
+    // **dentro** il riquadro della sua regione, mai altrove sulla mappa.
+    expect(box.x + box.width / 2, id).toBeGreaterThanOrEqual(screen.minX - 2);
+    expect(box.x + box.width / 2, id).toBeLessThanOrEqual(screen.maxX + 2);
+    expect(box.y + box.height / 2, id).toBeGreaterThanOrEqual(screen.minY - 2);
+    expect(box.y + box.height / 2, id).toBeLessThanOrEqual(screen.maxY + 2);
+    // E la regione dichiarata dal marker è quella della sua geometria.
+    await expect(marker).toHaveAttribute('data-region-id', REGION_ID(code));
+  }
 });

@@ -13,7 +13,14 @@ import {
   MARKER_SLOT_SPACING,
   type BuildThematicAssetMarkersInput,
 } from './thematicAssetMarkers';
-import type { InfrastructureMapItem, MapResourceSite } from './thematicMapModel';
+import {
+  buildThematicMapModel,
+  type CanonicalFacilitySite,
+  type InfrastructureMapItem,
+  type MapResourceSite,
+} from './thematicMapModel';
+import { buildRegionThematicContext, resourceCandidatesFromWorldAssets } from './mapThematicContext';
+import type { Region } from '../../types';
 
 const SITES: MapResourceSite[] = [
   { id: 'dep_coal_deu', regionId: 'DEU', kind: 'coal', label: 'Carbone', accessibility: 'requires_extraction', known: true },
@@ -109,4 +116,107 @@ describe('MAP P6.1 — marker derivati dal modello tematico', () => {
     expect(distance(7)).toBeCloseTo(MARKER_SLOT_SPACING * 2, 0);
     expect(distance(7)).toBeGreaterThan(distance(6));
 });
+});
+
+/**
+ * MAP P6.1 — «marker = tooltip = inspector» è una proprietà, non una speranza:
+ * le tre superfici leggono lo **stesso** `ThematicMapModel`. Qui si prova
+ * l'identità lista per lista (non solo la forma) e si fissa il confine
+ * dell'anchor: il modello dei marker **non contiene coordinate**.
+ */
+describe('MAP P6.1 — marker, tooltip e dossier sono la stessa lista', () => {
+  const region = (id: string, owner: string, objects: Region['objects'] = []): Region => ({
+    id, name: id, color: '#609f87', owner, population: 1_000_000, gdp: 500, militaryPower: 30,
+    objects, borders: [], status: 'active', metadata: {},
+  } as Region);
+  const REGIONS = [
+    region('USTX', 'USA'),
+    // Provincia con un'opera del territorio: cantiere, non asset canonico.
+    region('NLNH', 'NLD', [{ id: 'cantiere-nl', type: 'construction_site', name: 'Diga' } as never]),
+    // Cantiere + impianto canonico nella stessa provincia e nella stessa regione
+    // di un giacimento: le tre superfici devono continuare a coincidere.
+    region('ZANW', 'ZAF'),
+  ];
+  const assets = {
+    canonical: true,
+    resources: [
+      { id: 'deposit:USTX:crude_oil:1', resourceId: 'crude_oil', resourceName: 'Petrolio greggio', regionId: 'USTX', accessibility: 'open', known: false, knownQuantity: null },
+      { id: 'deposit:ZANW:coal:1', resourceId: 'coal', resourceName: 'Carbone', regionId: 'ZANW', accessibility: 'open', known: false, knownQuantity: null },
+      { id: 'deposit:GHOST:coal:1', resourceId: 'coal', resourceName: 'Carbone', regionId: 'GHOST-region', accessibility: 'open', known: false, knownQuantity: null },
+    ],
+    facilities: [
+      { id: 'facility:NLNH:refinery:1', typeId: 'refinery', typeName: 'Raffineria', regionId: 'NLNH', operational: true, ownerActorId: 'a', ownerActorName: 'A', controllerActorId: 'b', controllerActorName: 'B', polityId: 'NLD', controllerPolityId: 'USA' },
+      { id: 'facility:NLNH:refinery:2', typeId: 'refinery', typeName: 'Raffineria', regionId: 'NLNH', operational: false, ownerActorId: 'b', ownerActorName: 'B', controllerActorId: 'b', controllerActorName: 'B', polityId: 'NLD', controllerPolityId: 'NLD' },
+    ],
+  };
+  const model = buildThematicMapModel({
+    regions: REGIONS,
+    relationships: {},
+    playerPolityId: 'USA',
+    resourceCandidates: resourceCandidatesFromWorldAssets(assets),
+    worldFacilities: assets.facilities as unknown as CanonicalFacilitySite[],
+  });
+  const regionIds = new Set(REGIONS.map(item => item.id));
+  const markersOn = (activeLayer: 'resources' | 'infrastructure') => buildThematicAssetMarkers({
+    activeLayer,
+    resourceSites: model.resources.sites,
+    infrastructureByRegion: model.infrastructure.byRegion,
+    regionIds,
+  });
+  const inspectorOn = (id: string, activeLayer: 'resources' | 'infrastructure') => buildRegionThematicContext({
+    region: REGIONS.find(item => item.id === id)!, activeLayer, model, regions: REGIONS,
+    playerPolityId: 'USA', relationships: {}, changedRegionIds: [], strategicAgenda: null, commitments: [],
+  });
+
+  it('ogni marker Risorse corrisponde al tooltip e al dossier della stessa regione', () => {
+    for (const item of REGIONS) {
+      const markers = markersOn('resources').filter(marker => marker.regionId === item.id);
+      // tooltip: `thematic.resources.byRegion`
+      const tooltip = model.resources.byRegion[item.id] || [];
+      expect(markers.map(marker => marker.id), item.id).toEqual(tooltip.map(site => site.id));
+      // dossier: la lista che l'inspector disegna
+      expect(markers.map(marker => marker.id), item.id)
+        .toEqual(inspectorOn(item.id, 'resources').resources.sites.map(site => site.id));
+    }
+  });
+
+  it('ogni marker Infrastrutture corrisponde al tooltip e al dossier, cantiere escluso', () => {
+    for (const item of REGIONS) {
+      const markers = markersOn('infrastructure').filter(marker => marker.regionId === item.id);
+      expect(markers.every(marker => marker.kind === 'facility'), item.id).toBe(true);
+      expect(markers.map(marker => marker.id), item.id).toEqual(['facility:NLNH:refinery:1', 'facility:NLNH:refinery:2']
+        .filter(id => item.id === 'NLNH'));
+      const dossier = inspectorOn(item.id, 'infrastructure').infrastructure;
+      // Stessa lista, ordine diverso: la mappa ordina per id, il dossier raggruppa
+      // per stato (fermo/operativo). L'insieme è lo stesso, e i gruppi sono provati sotto.
+      expect(markers.map(marker => marker.id).sort(), item.id)
+        .toEqual(dossier.inactive.concat(dossier.operative).map(entry => entry.id).sort());
+      if (item.id === 'NLNH') {
+        expect(dossier.inactive.map(entry => entry.id)).toEqual(['facility:NLNH:refinery:2']);
+        expect(dossier.operative.map(entry => entry.id)).toEqual(['facility:NLNH:refinery:1']);
+      }
+      // Il cantiere del territorio resta nel dossier ma non diventa un asset canonico.
+      if (item.id === 'NLNH') {
+        expect(dossier.underConstruction.map(entry => entry.id)).toEqual(['cantiere-nl']);
+        expect(markers.map(marker => marker.id)).not.toContain('cantiere-nl');
+      }
+    }
+  });
+
+  it('l’impianto fermo è un marker come gli altri: cambia il gruppo, non la geografia', () => {
+    const stopped = markersOn('infrastructure').find(marker => marker.id === 'facility:NLNH:refinery:2');
+    expect(stopped).toMatchObject({ kind: 'facility', regionId: 'NLNH', detail: 'non operativo' });
+  });
+
+  it('un asset fuori dal mondo non compare in nessuna delle tre superfici', () => {
+    expect(markersOn('resources').map(marker => marker.id)).not.toContain('deposit:GHOST:coal:1');
+    expect(model.resources.byRegion['GHOST-region']).toBeUndefined();
+  });
+
+  it('il modello dei marker non contiene coordinate: l’anchor è del renderer, non del dato', () => {
+    for (const marker of [...markersOn('resources'), ...markersOn('infrastructure')]) {
+      expect(Object.keys(marker).sort()).toEqual(['detail', 'id', 'kind', 'label', 'regionId', 'slot']);
+      expect(Number.isInteger(marker.slot)).toBe(true);
+    }
+  });
 });

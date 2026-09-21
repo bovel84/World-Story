@@ -639,3 +639,45 @@ P6.1 · MILITARY P4–P6.
 4. **Clustering**: ancora fuori scope; la densità è gestita con offset in pixel.
 5. **Overlay persistente** (P6 §12.2): invariato, gli id persistiti restano
    `{kind}-{polityId}-{n}` e non intersecano gli id del catalogo.
+
+## 24. Verifica del Blocker A (P6.1) e chiusura dei test residui
+
+### 24.1 Stato del Blocker A: chiuso in `1130936`, verificato sul codice
+
+Il Blocker A («i marker nascono solo da `region.objects`: `thematic.resources.sites`
+e `thematic.infrastructure` non diventano marker MapLibre») è stato chiuso in
+MAP P6.1. Verifica puntuale sul branch `feat/map-p6-canonical-world-assets`:
+
+| Perché non è più vero | Evidenza |
+|---|---|
+| esiste un overlay dedicato | `MapboxMapView.tsx`: ref `assetMarkers` (r. 433), effetto di rendering (r. 1067–1102) |
+| i marker derivano dal **modello tematico**, non dall'API | `assetMarkerModel` (r. 492–497) = `buildThematicAssetMarkers({ activeLayer, resourceSites: thematic.resources.sites, infrastructureByRegion: thematic.infrastructure.byRegion, regionIds })` |
+| sono mostrati **solo** sui layer giusti | gating dentro `buildThematicAssetMarkers`: `resources` → giacimenti, `infrastructure` → impianti `source === 'canonical'`, altrimenti `[]` |
+| `canonicalFacilitiesFromWorldAssets()` **non** è duplicato nel renderer | il renderer consuma solo `thematic.*`; la conversione avviene una volta in `GameScreen`/`assetsForStatus()` |
+| anchor = `getLabelPoint(geometry)` riusato | r. 1076–1078: `getLabelPoint(feature.geometry)` — lo stesso representative point delle etichette di regione, poi `clampLngLat()` |
+| nessuna coordinata inventata | nessun `Math.random`/`hash`/nome→coordinate; l'unico scostamento è `markerSlotOffset()` in **pixel** |
+| click → **solo** `onRegionClick(regionId)` | r. 1090–1093: `onRegionClickRef.current?.(asset.regionId)`; `MapContextSelection` resta `region | unit | front | null` |
+| attributi verificabili dai test | `data-map-resource-marker` / `data-map-facility-marker` / `data-region-id` / `data-asset-slot` / `aria-label` |
+
+`allObjects` (marker degli oggetti del territorio: città, capitali, opere locali)
+resta e **deve** restare separato: sono fatti del territorio, non asset canonici.
+
+### 24.2 Test aggiunti in questa verifica
+
+| Test | Che cosa fissa |
+|---|---|
+| `thematicAssetMarkers.test.ts` — «marker, tooltip e dossier sono la stessa lista» (**5**) | identità **per regione** fra marker e `thematic.resources.byRegion` (tooltip) e fra marker e la lista dell'inspector, sia per `resources` sia per `infrastructure` · il cantiere del territorio resta nel dossier e **non** diventa asset · l'impianto fermo è un marker come gli altri · un asset fuori dal mondo non compare in nessuna delle tre superfici · il modello dei marker **non contiene coordinate** (chiavi esatte: `detail, id, kind, label, regionId, slot`) — l'anchor è del renderer, non del dato |
+| `map-p6-modern-assets.spec.mjs` — scenario **G** | su tre regioni reali (`ZANW`, `AUWA`, `USTX`) il centro del marker cade **dentro** il riquadro proiettato della geometria della regione, e `data-region-id` è quello della sua geometria |
+
+### 24.3 Gate (dopo la verifica)
+
+| Gate | Esito |
+|---|---|
+| `frontend: npx tsc --noEmit` | ✅ |
+| `frontend: npx vitest run` | ✅ **76 file / 630 test** (+5) |
+| `e2e: map-p6-world-assets.spec.mjs` | ✅ 10/10 |
+| `e2e: map-p6-modern-assets.spec.mjs` | ✅ 7/7 (+1) |
+| `backend: npx tsc --noEmit` / `npm run build` | ✅ |
+| `backend: npx vitest run` | ✅ **166 file / 1744 test** |
+| `npm run test:e2e:mock` (suite completa) | ✅ **136/136** (135 → 136, +1: scenario G) |
+| `npm run test:a11y` · `npm run test:perf` | ✅ 3/3 · ✅ 2.24 MB |
