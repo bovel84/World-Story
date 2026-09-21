@@ -238,7 +238,7 @@ test('MAP P4 / B — reparto player → dettaglio e controlli pubblicati dal mot
   await page.keyboard.press('Enter');
   const inspector = context(page, 'unit', 'ita-1');
   await expect(inspector).toBeVisible();
-  await expect(inspector).toContainText('8.400');
+  await expect(inspector).toContainText(/8[.\u00a0]?400/);
   await expect(inspector).toContainText('72%');
   await expect(inspector.locator('[data-unit-action-panel="ita-1"]')).toBeVisible();
   await expect(inspector.getByRole('button', { name: 'Rinforza', exact: true })).toBeEnabled();
@@ -257,8 +257,8 @@ test('MAP P4 / D — dry-run Reinforce non muta e mostra PRIMA → DOPO', async 
   const inspector = await openUnit(page);
   await previewAction(inspector, 'Rinforza');
   await expect(inspector.getByRole('group', { name: /Rinforza · ITA 1° Reparto/ })).toBeVisible();
-  await expect(inspector).toContainText('8.400');
-  await expect(inspector).toContainText('9.000');
+  await expect(inspector).toContainText(/8[.\u00a0]?400/);
+  await expect(inspector).toContainText(/9[.\u00a0]?000/);
   expect(runtime.actionCalls.at(-1)).toMatchObject({ action: 'reinforce', unitId: 'ita-1', dryRun: true });
   expect(runtime.units.find(item => item.id === 'ita-1').personnel).toBe(8400);
 });
@@ -269,7 +269,7 @@ test('MAP P4 / E — conferma usa stesso endpoint con dryRun=false e refresh can
   await previewAction(inspector, 'Rinforza');
   await inspector.getByRole('button', { name: 'Conferma', exact: true }).click();
   await expect.poll(() => runtime.actionCalls.map(call => call.dryRun)).toEqual([true, false]);
-  await expect(inspector).toContainText('9.000');
+  await expect(inspector).toContainText(/9[.\u00a0]?000/);
   expect(runtime.units.find(item => item.id === 'ita-1').personnel).toBe(9000);
 });
 
@@ -403,7 +403,7 @@ test('MAP P4 / P — cambio snapshot durante il refresh: preview non confermabil
   await expect(inspector.getByRole('button', { name: 'Conferma', exact: true })).toHaveCount(0);
   runtime.militaryDelay = 0;
   // Alla risposta lo stesso ID è ribindato al reparto canonico aggiornato.
-  await expect(inspector).toContainText('8.400');
+  await expect(inspector).toContainText(/8[.\u00a0]?400/);
   await expect(counter(page, 'ita-1')).toBeVisible({ timeout: 7000 });
   expect(runtime.actionCalls.every(call => call.dryRun)).toBe(true);
 });
