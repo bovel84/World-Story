@@ -33,10 +33,12 @@ import {
   type MilitaryUnitPayload,
   type WarFrontPayload,
   type WorldMapAssetsPayload,
+  type WorldMapAssetsStatus,
 } from '../services/api';
 import { normalizeResources } from '../components/Game/nationDossier';
 
 export type NationalResources = Awaited<ReturnType<typeof normalizeResources>>;
+
 export type NationalArms = Awaited<ReturnType<typeof gameApi.arsenal>>;
 /**
  * Matrice diplomatica canonica `da → verso → tipo`.
@@ -134,6 +136,12 @@ export interface NationSnapshot {
   relationships: RelationshipMap | null;
   /** MAP P6 — geografia economica canonica mondiale dello snapshot corrente. */
   worldMapAssets: WorldMapAssetsPayload | null;
+  /**
+   * MAP P6.1 — tre stati distinti, perché `null` da solo confondeva
+   * «mondo legacy» (fallback P5.1 ammesso) con «errore della sorgente»
+   * (fail-closed: nessun fallback, il layer dichiara l'indisponibilità).
+   */
+  worldMapAssetsStatus: WorldMapAssetsStatus;
   worldMapAssetsError: string | null;
   relationshipsLoading: boolean;
   relationshipsError: string | null;
@@ -201,6 +209,7 @@ export function useNationSnapshot({
    * risposta di un ramo precedente non può sovrascrivere quella nuova.
    */
   const [worldMapAssets, setWorldMapAssets] = useState<WorldMapAssetsPayload | null>(null);
+  const [worldMapAssetsStatus, setWorldMapAssetsStatus] = useState<WorldMapAssetsStatus>('loading');
   const [worldMapAssetsError, setWorldMapAssetsError] = useState<string | null>(null);
   const worldMapAssetsRequest = useRef(0);
   const [relationships, setRelationships] = useState<RelationshipMap | null>(null);
@@ -237,6 +246,7 @@ export function useNationSnapshot({
     setRelationshipsError(null);
     relationshipsRequest.current += 1;
     setWorldMapAssets(null);
+    setWorldMapAssetsStatus('loading');
     setWorldMapAssetsError(null);
     worldMapAssetsRequest.current += 1;
     snapshotEpoch.current += 1;
@@ -322,14 +332,17 @@ export function useNationSnapshot({
     const request = ++worldMapAssetsRequest.current;
     setWorldMapAssetsError(null);
     setWorldMapAssets(null);
+    setWorldMapAssetsStatus('loading');
     try {
       const data = await gameApi.mapAssets(gameId);
       if (request !== worldMapAssetsRequest.current) return;
       setWorldMapAssets(data?.canonical ? data : null);
+      setWorldMapAssetsStatus(data?.canonical ? 'canonical' : 'legacy');
     } catch (error) {
       if (request !== worldMapAssetsRequest.current) return;
       console.warn('[App] Asset economici canonici non disponibili:', error);
       setWorldMapAssets(null);
+      setWorldMapAssetsStatus('error');
       setWorldMapAssetsError('Dati territoriali non disponibili');
     }
   }, [gameId]);
@@ -708,6 +721,7 @@ export function useNationSnapshot({
     relationshipsLoading,
     relationshipsError,
     worldMapAssets,
+    worldMapAssetsStatus,
     worldMapAssetsError,
     refreshRelationships,
     resetNational,

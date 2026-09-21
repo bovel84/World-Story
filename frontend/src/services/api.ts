@@ -289,6 +289,13 @@ export interface WorldMapAssetsPayload {
   canonical: boolean;
 }
 
+/**
+ * MAP P6.1 — stato della sorgente degli asset canonici. Distinguere `legacy` da
+ * `error` è essenziale: il primo ammette il fallback player-scoped di MAP P5.1,
+ * il secondo è fail-closed (nessuna mappa parziale spacciata per corrente).
+ */
+export type WorldMapAssetsStatus = 'loading' | 'canonical' | 'legacy' | 'error';
+
 /** Un oggetto concreto del paese: armata, impianto, cantiere, nave, miniera. */
 export interface OperatingObjectPayload {
   id: string;

@@ -48,11 +48,7 @@ import {
 } from '../Map/mapContext';
 import type { ActiveModule } from '../../stores/moduleState';
 import { buildThematicMapModel } from '../Map/thematicMapModel';
-import {
-  canonicalFacilitiesFromWorldAssets,
-  resourceCandidatesFromOperatingPicture,
-  resourceCandidatesFromWorldAssets,
-} from '../Map/mapThematicContext';
+import { assetsForStatus } from '../Map/mapThematicContext';
 
 export interface GameScreenProps {
   nation: NationSnapshot;
@@ -204,21 +200,21 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
 
   // MAP P5 — un solo modello tematico P3 per mappa e dossier: stesse soglie,
   // stessi bucket, stessi siti. Nessun fetch al click, nessuna duplicazione.
-  // MAP P6 — sorgente primaria: giacimenti e impianti canonici **mondiali** del
-  // catalogo (`/map-assets`, una fotografia per snapshot, nessun fetch al click).
-  // `canonical: false`/assente (mondo legacy) → fallback player-scoped P5.1: gli
-  // oggetti operativi `mine` con `regionId` pubblicato. Mai due sorgenti insieme:
-  // nessuna miniera mostrata due volte, nessuna deduplicazione per nome.
-  const worldFacilities = useMemo(
-    () => (nation.worldMapAssets ? canonicalFacilitiesFromWorldAssets(nation.worldMapAssets) : []),
-    [nation.worldMapAssets],
-  );
-  const resourceCandidates = useMemo(
-    () => (nation.worldMapAssets
-      ? resourceCandidatesFromWorldAssets(nation.worldMapAssets)
-      : resourceCandidatesFromOperatingPicture(nation.nationalArms?.objects)),
-    [nation.worldMapAssets, nation.nationalArms?.objects],
-  );
+  // MAP P6.1 — tre stati distinti, mai confusi:
+  //  · `canonical` → giacimenti e impianti canonici **mondiali** del catalogo;
+  //  · `legacy` (canonical:false) → fallback player-scoped P5.1 (oggetti
+  //    operativi `mine` con `regionId` pubblicato): il mondo non ha catalogo;
+  //  · `error` → **nessun** fallback: mostrare una mappa mondiale parziale solo
+  //    del giocatore la farebbe sembrare corrente. Fail-closed.
+  //  · `loading` → nessun asset corrente (mai quello dello snapshot precedente).
+  // Mai due sorgenti insieme: nessuna miniera doppia, nessuna dedup per nome.
+  const assetSources = useMemo(() => assetsForStatus({
+    status: nation.worldMapAssetsStatus,
+    assets: nation.worldMapAssets,
+    playerPicture: nation.nationalArms?.objects,
+  }), [nation.worldMapAssetsStatus, nation.worldMapAssets, nation.nationalArms?.objects]);
+  const worldFacilities = assetSources.facilities;
+  const resourceCandidates = assetSources.resources;
   const thematicModel = useMemo(() => buildThematicMapModel({
     regions, relationships: nation.relationships, playerPolityId, resourceCandidates, worldFacilities,
   }), [regions, nation.relationships, playerPolityId, resourceCandidates, worldFacilities]);

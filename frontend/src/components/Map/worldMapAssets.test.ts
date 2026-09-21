@@ -16,6 +16,7 @@ import {
   type CanonicalFacilitySite,
 } from './thematicMapModel';
 import {
+  assetsForStatus,
   canonicalFacilitiesFromWorldAssets,
   resourceCandidatesFromWorldAssets,
 } from './mapThematicContext';
@@ -162,5 +163,59 @@ describe('MAP P6 — nessuna riscrittura della geografia politica', () => {
     });
     expect(JSON.stringify(REGIONS)).toBe(before);
     expect(REGIONS[1].owner).toBe('DEU');
+  });
+});
+
+/**
+ * MAP P6.1 — Blocker B: `null` confondeva «mondo legacy» con «sorgente in
+ * errore». I tre stati ora hanno semantiche diverse e non negoziabili.
+ */
+const PLAYER_PICTURE = {
+  counts: { mine: 1 }, conventions: [], chains: [],
+  objects: [{
+    id: 'mine-ita-1', kind: 'mine', label: 'Giacimento del giocatore', status: 'operational',
+    statusLabel: 'Operativo', parentId: null, regionId: 'ITA', regionName: 'Italia',
+    facts: [], problems: [], actions: [],
+  }],
+} as never;
+
+describe('MAP P6.1 — stati della sorgente (canonical / legacy / error / loading)', () => {
+  it('canonical: si usano i soli asset del catalogo, mai il fallback player', () => {
+    const { resources, facilities } = assetsForStatus({
+      status: 'canonical', assets: ASSETS, playerPicture: PLAYER_PICTURE,
+    });
+    expect(resources.map(site => site.id).sort()).toEqual(['dep_coal_deu', 'dep_ghost', 'dep_iron_ita']);
+    expect(JSON.stringify(resources)).not.toContain('Giacimento del giocatore');
+    expect(facilities.map(site => site.id)).toContain('fac_foundry_deu');
+    expect(facilities.map(site => site.id)).not.toContain('mine-ita-1');
+  });
+
+  it('legacy: fallback P5.1 (oggetti operativi `mine`), nessun asset canonico', () => {
+    const { resources, facilities } = assetsForStatus({
+      status: 'legacy', assets: null, playerPicture: PLAYER_PICTURE,
+    });
+    expect(resources.map(site => site.id)).toEqual(['mine-ita-1']);
+    expect(resources[0]).toMatchObject({ kind: 'mine', regionId: 'ITA' });
+    expect(facilities).toEqual([]);
+  });
+
+  it('error: nessun fallback player-scoped — è il vero fail-closed', () => {
+    const { resources, facilities } = assetsForStatus({
+      status: 'error', assets: null, playerPicture: PLAYER_PICTURE,
+    });
+    expect(resources).toEqual([]);
+    expect(facilities).toEqual([]);
+    // Nemmeno se per ipotesi un payload canonico fosse rimasto in memoria.
+    const withStaleAssets = assetsForStatus({ status: 'error', assets: ASSETS, playerPicture: PLAYER_PICTURE });
+    expect(withStaleAssets.resources).toEqual([]);
+    expect(withStaleAssets.facilities).toEqual([]);
+  });
+
+  it('loading: nessun asset corrente, mai quello dello snapshot precedente', () => {
+    const { resources, facilities } = assetsForStatus({
+      status: 'loading', assets: ASSETS, playerPicture: PLAYER_PICTURE,
+    });
+    expect(resources).toEqual([]);
+    expect(facilities).toEqual([]);
   });
 });

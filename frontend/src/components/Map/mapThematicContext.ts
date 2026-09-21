@@ -18,8 +18,10 @@
  *    esposti come contesto della potenza, mai come fatto provinciale;
  *  - nessuna causa viene dedotta per i cambiamenti: solo `changedRegionIds`.
  */
-import type { Commitment, OperatingPicturePayload, PowerAgenda, StrategicObjective } from '../../services/api';
-import type { WorldMapAssetsPayload } from '../../services/api';
+import type {
+  Commitment, OperatingObjectPayload, OperatingPicturePayload, PowerAgenda,
+  StrategicObjective, WorldMapAssetsPayload, WorldMapAssetsStatus,
+} from '../../services/api';
 import type { MapObject, Region } from '../../types';
 import { constructionReport } from '../../utils/construction';
 import { mapLayerDefinition, type MapLayer } from './mapModel';
@@ -373,6 +375,37 @@ export function canonicalFacilitiesFromWorldAssets(
 }
 
 /**
+ * MAP P6.1 — **regola esatta** della sorgente risorse/impianti, in un unico punto:
+ *
+ * | stato      | comportamento |
+ * |------------|---------------|
+ * | `canonical`| fotografia mondiale del catalogo (fonte primaria) |
+ * | `legacy`   | fallback P5.1: oggetti operativi `mine` con `regionId` pubblicato |
+ * | `error`    | **nessun** fallback: una mappa parziale player-only sembrerebbe corrente |
+ * | `loading`  | nessun asset: mai quello dello snapshot precedente |
+ *
+ * Le due sorgenti non si sommano mai: nessuna miniera mostrata due volte e
+ * nessuna deduplicazione per nome.
+ */
+export function assetsForStatus(input: {
+  status: WorldMapAssetsStatus;
+  assets?: WorldMapAssetsPayload | null;
+  /** Quadro operativo player-scoped (fallback legacy): la sua Operating Picture. */
+  playerPicture?: OperatingPicturePayload | null;
+}): { resources: ResourceSiteCandidate[]; facilities: CanonicalFacilitySite[] } {
+  if (input.status === 'canonical') {
+    return {
+      resources: resourceCandidatesFromWorldAssets(input.assets),
+      facilities: canonicalFacilitiesFromWorldAssets(input.assets),
+    };
+  }
+  if (input.status === 'legacy') {
+    return { resources: resourceCandidatesFromOperatingPicture(input.playerPicture), facilities: [] };
+  }
+  return { resources: [], facilities: [] };
+}
+
+/**
  * MAP P5.1 — candidati dal quadro operativo del giocatore (`kind: 'mine'` con
  * `regionId` pubblicato). Da MAP P6 è **fallback/enrichment**: la sorgente
  * mondiale sono i giacimenti canonici del catalogo.
@@ -380,7 +413,14 @@ export function canonicalFacilitiesFromWorldAssets(
 export function resourceCandidatesFromOperatingPicture(
   picture?: OperatingPicturePayload | null,
 ): ResourceSiteCandidate[] {
-  return (picture?.objects || [])
+  return resourceCandidatesFromObjects(picture?.objects);
+}
+
+/** Stessa proiezione a partire dal solo elenco di oggetti operativi. */
+export function resourceCandidatesFromObjects(
+  objects?: readonly OperatingObjectPayload[] | null,
+): ResourceSiteCandidate[] {
+  return (objects || [])
     .filter(object => object.kind === 'mine' && Boolean(object.regionId))
     .map(object => ({
       id: object.id,

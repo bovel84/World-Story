@@ -69,11 +69,16 @@ const NATURAL = [
     maxReserve: 100, stockpile: 20, extractionPerMonth: 2, depletionPct: 20, depleted: false },
 ];
 
-/** Quadro operativo player-scoped: resta il fallback P5.1 quando P6 non c'è. */
+/**
+ * Quadro operativo player-scoped: è il fallback P5.1 per i mondi **legacy**.
+ * Contiene anche una miniera del giocatore: in stato `canonical` non deve
+ * comparire (la sorgente mondiale vince), in stato `error` **nemmeno** (fail
+ * closed: una mappa parziale player-only sembrerebbe corrente).
+ */
 const ARSENAL = {
   ...MOCK_ARSENAL,
   objects: {
-    counts: { unit: 1 },
+    counts: { unit: 1, mine: 1 },
     conventions: ['Le azioni dei reparti arrivano dal motore.'],
     chains: [],
     objects: [{
@@ -81,6 +86,10 @@ const ARSENAL = {
       status: 'operational', statusLabel: 'Operativa', parentId: 'army-ita', regionId: 'ITA', regionName: 'Italia',
       facts: [], problems: [], why: 'Azioni pubblicate dal motore.',
       actions: [{ id: 'reinforce_unit', label: 'Rinforza', enabled: true, blockedReason: null }],
+    }, {
+      id: 'mine-ita-1', kind: 'mine', label: 'Giacimento del giocatore', subtitle: 'Giacimento 3/5',
+      status: 'operational', statusLabel: 'Operativo', parentId: null, regionId: 'ITA', regionName: 'Italia',
+      facts: [], problems: [], why: 'Contributo calcolato dal motore.', actions: [],
     }],
   },
 };
@@ -182,6 +191,9 @@ async function selectLayer(page, label) {
   if (await legend.getAttribute('aria-expanded') === 'true') await legend.click();
 }
 
+const resourceMarker = (page, id) => page.locator(`[data-map-resource-marker="${id}"]`);
+const facilityMarker = (page, id) => page.locator(`[data-map-facility-marker="${id}"]`);
+
 const camera = (page) => page.evaluate(() => {
   const center = window.__testMap.getCenter();
   return { lng: Number(center.lng.toFixed(4)), lat: Number(center.lat.toFixed(4)) };
@@ -196,19 +208,50 @@ async function refreshSnapshot(page, patch) {
   await page.waitForTimeout(350);
 }
 
-// A — LA prova di P6: un giacimento canonico estero è visibile sulla mappa.
-test('MAP P6 / A — un giacimento estero canonico è visibile nel layer Risorse', async ({ page }) => {
+// A — LA prova di P6: un giacimento canonico estero è un marker reale sulla mappa.
+test('MAP P6 / A — il giacimento estero è un marker cliccabile che apre il region context', async ({ page }) => {
   await openP6Map(page);
   await selectLayer(page, 'Risorse');
-  const germania = await clickRegion(page, 'DEU');
+  const marker = resourceMarker(page, 'dep_coal_deu');
+  await expect(marker).toBeVisible();
+  await expect(marker).toHaveAttribute('data-region-id', 'DEU');
+  await expect(marker).toHaveAttribute('aria-label', /Carbone — Germania/);
+  // Marker → region context → dossier: stesso read model per mappa e dossier.
+  await marker.click();
+  const germania = context(page, 'DEU');
+  await expect(germania).toBeVisible();
   await expect(germania.locator('[data-resource-sites="DEU"]')).toContainText('Carbone');
   await expect(germania.locator('[data-resource-site="dep_coal_deu"]'))
     .toHaveAttribute('data-resource-kind', 'coal');
   await expect(germania.locator('[data-resource-site="dep_coal_deu"]'))
     .toHaveAttribute('data-resource-accessibility', 'requires_extraction');
-  // E il giocatore vede anche le proprie risorse, dalla stessa fonte.
-  const italia = await clickRegion(page, 'ITA');
-  await expect(italia.locator('[data-resource-site="dep_iron_ita"]')).toContainText('Minerale di ferro');
+  // Anche il giacimento del giocatore è un marker, dalla stessa fonte mondiale.
+  await expect(resourceMarker(page, 'dep_iron_ita')).toBeVisible();
+  // In stato canonico la miniera player-scoped (fallback P5.1) non appare.
+  await expect(context(page, 'DEU')).not.toContainText('Giacimento del giocatore');
+});
+
+// A2 — Accessibilità: i marker sono <button> reali, attivabili da tastiera.
+test('MAP P6 / A2 — i marker sono button accessibili (Enter/Space, focus, aria-label)', async ({ page }) => {
+  await openP6Map(page);
+  await selectLayer(page, 'Risorse');
+  const marker = resourceMarker(page, 'dep_coal_deu');
+  await expect(marker).toBeVisible();
+  // Elemento nativo: attivabile da tastiera senza handler aggiuntivi.
+  expect(await marker.evaluate(el => el.tagName)).toBe('BUTTON');
+  expect(await marker.evaluate(el => el.type)).toBe('button');
+  await marker.focus();
+  await expect(marker).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(context(page, 'DEU')).toBeVisible();
+  // Anche Space attiva (semantica nativa del bottone).
+  await page.getByRole('button', { name: 'Chiudi contesto mappa' }).click();
+  await marker.focus();
+  await page.keyboard.press('Space');
+  await expect(context(page, 'DEU')).toBeVisible();
+  // Il marker dichiara la semantica: asset localizzato nella regione, non punto esatto.
+  const label = await resourceMarker(page, 'dep_coal_deu').getAttribute('aria-label');
+  expect(label).toContain('Germania');
 });
 
 // B — Nessuna invenzione: uno stock nazionale senza `regionId` non produce geografia.
@@ -227,7 +270,12 @@ test('MAP P6 / B — le riserve nazionali non diventano marker territoriali', as
 test('MAP P6 / C — quantità non determinata, mai zero', async ({ page }) => {
   await openP6Map(page);
   await selectLayer(page, 'Risorse');
-  const italia = await clickRegion(page, 'ITA');
+  const marker = resourceMarker(page, 'dep_unknown_ita');
+  await expect(marker).toBeVisible();
+  // Il marker non mostra quantità ignote.
+  await expect(marker).toHaveAttribute('aria-label', /quantità non determinata/);
+  await marker.click();
+  const italia = context(page, 'ITA');
   const ignoto = italia.locator('[data-resource-site="dep_unknown_ita"]');
   await expect(ignoto).toHaveAttribute('data-resource-known', 'false');
   await expect(ignoto).toContainText('quantità non determinata');
@@ -237,11 +285,17 @@ test('MAP P6 / C — quantità non determinata, mai zero', async ({ page }) => {
   await expect(noto).toContainText('dato noto');
 });
 
-// D — Impianto estero canonico nel layer Infrastrutture.
-test('MAP P6 / D — un impianto estero canonico è visibile in Infrastrutture', async ({ page }) => {
+// D — Impianto estero canonico: marker reale nel layer Infrastrutture.
+test('MAP P6 / D — l’impianto estero è un marker cliccabile in Infrastrutture', async ({ page }) => {
   await openP6Map(page);
   await selectLayer(page, 'Infrastrutture');
-  const francia = await clickRegion(page, 'FRA');
+  const marker = facilityMarker(page, 'fac_foundry_fra');
+  await expect(marker).toBeVisible();
+  await expect(marker).toHaveAttribute('data-region-id', 'FRA');
+  await expect(marker).toHaveAttribute('aria-label', /Altoforno — Francia/);
+  await marker.click();
+  const francia = context(page, 'FRA');
+  await expect(francia).toBeVisible();
   const impianto = francia.locator('[data-infrastructure-item="fac_foundry_fra"]');
   await expect(impianto).toBeVisible();
   await expect(impianto).toHaveAttribute('data-infrastructure-source', 'canonical');
@@ -264,29 +318,32 @@ test('MAP P6 / E — proprietà economica ≠ controllo ≠ territorio', async (
   await expect(context(page, 'FRA')).toContainText('Francia');
 });
 
-// F — Isolamento dei layer: ogni vista vede solo ciò che le compete.
-test('MAP P6 / F — isolamento dei layer', async ({ page }) => {
+// F — Isolamento dei layer, verificato sui **marker** (non solo sul dossier).
+test('MAP P6 / F — ogni layer disegna solo i propri marker', async ({ page }) => {
   await openP6Map(page);
   await selectLayer(page, 'Politica');
-  const francia = await clickRegion(page, 'FRA');
-  await expect(francia.locator('[data-thematic-layer="resources"]')).toHaveCount(0);
-  await expect(francia.locator('[data-resource-site]')).toHaveCount(0);
-  await expect(francia.locator('[data-infrastructure-item="fac_foundry_fra"]')).toHaveCount(0);
+  await expect(page.locator('[data-map-resource-marker]')).toHaveCount(0);
+  await expect(page.locator('[data-map-facility-marker]')).toHaveCount(0);
+  await selectLayer(page, 'Economia');
+  await expect(page.locator('[data-map-resource-marker]')).toHaveCount(0);
+  await expect(page.locator('[data-map-facility-marker]')).toHaveCount(0);
   await selectLayer(page, 'Risorse');
-  // Il layer Risorse non espone le opere.
-  await expect(francia.locator('[data-infrastructure-item="fac_foundry_fra"]')).toHaveCount(0);
+  expect(await page.locator('[data-map-resource-marker]').count()).toBeGreaterThan(0);
+  await expect(page.locator('[data-map-facility-marker]')).toHaveCount(0);
   await selectLayer(page, 'Infrastrutture');
-  // E il layer Infrastrutture non espone i giacimenti.
-  await expect(francia.locator('[data-resource-site="dep_coal_deu"]')).toHaveCount(0);
+  expect(await page.locator('[data-map-facility-marker]').count()).toBeGreaterThan(0);
+  await expect(page.locator('[data-map-resource-marker]')).toHaveCount(0);
+  // E il dossier segue lo stesso layer.
+  const francia = await clickRegion(page, 'FRA');
+  await expect(francia.locator('[data-resource-site]')).toHaveCount(0);
 });
 
-// G — Coerenza di snapshot: nessun asset vecchio dopo un cambio turno/ramo.
-test('MAP P6 / G — il cambio snapshot pubblica la nuova fotografia, mai quella vecchia', async ({ page }) => {
+// G — Coerenza di snapshot: i marker cambiano con lo snapshot, mai stale.
+test('MAP P6 / G — il cambio snapshot sostituisce i marker, il rewind li ripristina', async ({ page }) => {
   const runtime = await openP6Map(page);
   await selectLayer(page, 'Risorse');
-  await clickRegion(page, 'DEU');
-  await expect(context(page, 'DEU').locator('[data-resource-site="dep_coal_deu"]')).toBeVisible();
-  // Nuovo snapshot: il giacimento tedesco non esiste più, ne compare uno francese.
+  await expect(resourceMarker(page, 'dep_coal_deu')).toBeVisible();
+  // Nuovo snapshot: il marker tedesco sparisce, ne compare uno francese.
   runtime.assets = WORLD_ASSETS(true, [
     {
       id: 'dep_oil_fra', resourceId: 'oil', resourceName: 'Petrolio', regionId: 'FRA',
@@ -295,25 +352,26 @@ test('MAP P6 / G — il cambio snapshot pubblica la nuova fotografia, mai quella
   ], []);
   await refreshSnapshot(page, { currentTurn: 2, currentDate: '1951-02-01', worldRevision: 6, headBranchId: 'branch-next' });
   await selectLayer(page, 'Risorse');
-  const francia = await clickRegion(page, 'FRA');
-  await expect(francia.locator('[data-resource-site="dep_oil_fra"]')).toBeVisible();
-  const germania = await clickRegion(page, 'DEU');
-  await expect(germania.locator('[data-resource-site="dep_coal_deu"]')).toHaveCount(0);
-  // Rewind: torna lo snapshot precedente e con esso i suoi asset.
+  await expect(resourceMarker(page, 'dep_oil_fra')).toBeVisible();
+  await expect(resourceMarker(page, 'dep_coal_deu')).toHaveCount(0);
+  await expect(page.locator('[data-map-resource-marker]')).toHaveCount(1);
+  // Rewind: torna lo snapshot precedente e con esso i suoi marker.
   runtime.assets = WORLD_ASSETS();
   await refreshSnapshot(page, { currentTurn: 1, currentDate: '1951-01-15', worldRevision: 7, headBranchId: 'branch-rewind' });
   await selectLayer(page, 'Risorse');
-  const germaniaDopo = await clickRegion(page, 'DEU');
-  await expect(germaniaDopo.locator('[data-resource-site="dep_coal_deu"]')).toBeVisible();
+  await expect(resourceMarker(page, 'dep_coal_deu')).toBeVisible();
+  await expect(resourceMarker(page, 'dep_oil_fra')).toHaveCount(0);
+  // Anche il dossier racconta lo stesso snapshot.
+  const germania = await clickRegion(page, 'DEU');
+  await expect(germania.locator('[data-resource-site="dep_oil_fra"]')).toHaveCount(0);
 });
 
-// G2 — Fail closed: sorgente canonica in errore → messaggio esplicito, mai mondo vecchio.
-test('MAP P6 / G2 — errore della sorgente canonica: il layer lo dichiara', async ({ page }) => {
+// G2 — Fail closed: errore della sorgente canonica ≠ mondo legacy.
+test('MAP P6 / G2 — errore: nessun asset canonico e nessun fallback player-only', async ({ page }) => {
   const runtime = await openP6Map(page);
   await selectLayer(page, 'Risorse');
-  await clickRegion(page, 'ITA');
-  await expect(context(page, 'ITA').locator('[data-resource-site="dep_iron_ita"]')).toBeVisible();
-  // Il refresh successivo fallisce: l'inventario canonico non resta a schermo.
+  await expect(resourceMarker(page, 'dep_coal_deu')).toBeVisible();
+  // Il refresh successivo fallisce: la sorgente canonica non è più disponibile.
   runtime.assets = WORLD_ASSETS();
   await page.unroute('**/api/games/*/map-assets');
   await page.route('**/api/games/*/map-assets', route => {
@@ -322,18 +380,32 @@ test('MAP P6 / G2 — errore della sorgente canonica: il layer lo dichiara', asy
   });
   await refreshSnapshot(page, { currentTurn: 3, currentDate: '1951-03-01', worldRevision: 8 });
   await selectLayer(page, 'Risorse');
-  const italia = await clickRegion(page, 'ITA');
-  await expect(italia.locator('[data-resource-site="dep_iron_ita"]')).toHaveCount(0);
+  // 1. il marker dello snapshot precedente sparisce (mai asset stale);
+  await expect(resourceMarker(page, 'dep_coal_deu')).toHaveCount(0);
+  await expect(page.locator('[data-map-resource-marker]')).toHaveCount(0);
+  // 2. **nessun** fallback player-scoped: la miniera del giocatore resta fuori;
+  await expect(page.locator('.maplibregl-marker', { hasText: 'Giacimento del giocatore' })).toHaveCount(0);
+  // 3. il layer dichiara l'indisponibilità invece di mostrare un mondo parziale.
+  await expect(mapLayer(page)).toHaveAttribute('data-resources-available', 'false');
   await expect(mapLayer(page)).toContainText('Dati territoriali non disponibili');
+  const italia = await clickRegion(page, 'ITA');
+  await expect(italia.locator('[data-resource-site]')).toHaveCount(0);
+  await expect(italia).not.toContainText('Giacimento del giocatore');
   expect(runtime.calls).toBeGreaterThan(1);
 });
 
-// H — Mobile 360×740: dossier leggibile, nessun traboccamento.
-test('MAP P6 / H — 360×740: l’impianto canonico si legge nel dossier', async ({ page }) => {
+// H — Mobile 360×740: marker cliccabile, dossier leggibile, nessun traboccamento.
+test('MAP P6 / H — 360×740: marker e impianto canonico restano leggibili', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   await openP6Map(page);
   await selectLayer(page, 'Infrastrutture');
-  const francia = await clickRegion(page, 'FRA');
+  const marker = facilityMarker(page, 'fac_foundry_fra');
+  await expect(marker).toBeVisible();
+  const box = await marker.boundingBox();
+  expect(box.width).toBeGreaterThanOrEqual(16);
+  expect(box.height).toBeGreaterThanOrEqual(16);
+  await marker.click();
+  const francia = context(page, 'FRA');
   const impianto = francia.locator('[data-infrastructure-item="fac_foundry_fra"]');
   await expect(impianto).toBeVisible();
   await impianto.scrollIntoViewIfNeeded();

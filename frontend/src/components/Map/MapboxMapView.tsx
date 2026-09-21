@@ -48,6 +48,7 @@ import { TacticalOverlay } from './TacticalOverlay';
 import { MarkerMotion } from './MarkerMotion';
 import { createMilitarySymbol } from './militarySymbol';
 import { MILITARY_TYPES } from './tacticalModel';
+import { buildThematicAssetMarkers, markerAriaLabel, markerSlotOffset } from './thematicAssetMarkers';
 
 const EMPTY_EVENTS: FeedItem[] = [];
 
@@ -428,6 +429,8 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   const labelEntries = useRef(new Map<string, { signature: string; geometry: GeoJSON.Geometry; area: number; marker: maplibregl.Marker }>());
   const labelMarkers = useRef<maplibregl.Marker[]>([]);
   const countryLabelMarkers = useRef<maplibregl.Marker[]>([]);
+  /** MAP P6.1 — marker degli asset economici canonici (giacimenti/impianti). */
+  const assetMarkers = useRef<maplibregl.Marker[]>([]);
   // Etichette oggetti (città/costruzioni): mostrate solo da zoom 3.5 —
   // nei mondi provinciali ci sono centinaia di marker e a vista mondo
   // il testo affollerebbe la mappa
@@ -480,6 +483,19 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     regions, relationships, playerPolityId: playerCountryCode, resourceCandidates, worldFacilities,
     ...(resourcesUnavailableReason ? { resourcesUnavailableReason } : {}),
   }), [regions, relationships, playerCountryCode, resourceCandidates, worldFacilities, resourcesUnavailableReason]);
+  /**
+   * MAP P6.1 — i marker degli asset canonici derivano dal **modello tematico**
+   * (stessa fonte di tooltip e dossier) e solo dal layer attivo: su ogni altro
+   * layer la lista è vuota. La geografia è `regionId`; la coordinata è solo
+   * l'anchor di rendering della regione (mai un'affermazione puntuale).
+   */
+  const assetMarkerModel = useMemo(() => buildThematicAssetMarkers({
+    activeLayer,
+    resourceSites: thematic.resources.sites,
+    infrastructureByRegion: thematic.infrastructure.byRegion,
+    regionIds: new Set(regions.map(region => region.id)),
+  }), [activeLayer, thematic, regions]);
+
   const layerPresentation = mapLayerPresentation(activeLayer);
   const thematicMessage = thematicUnavailableMessage(activeLayer, thematic);
   const infrastructureLayerTypes = useMemo(
@@ -1028,6 +1044,62 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       countryLabelMarkers.current = [];
     };
   }, [regions, mapLoaded]);
+
+  /**
+   * MAP P6.1 — overlay cartografico degli asset economici canonici.
+   *
+   * I marker nascono dal **modello tematico** (non dalla risposta API) e solo
+   * per il layer attivo: `resources` → giacimenti, `infrastructure` → impianti
+   * canonici, ogni altro layer → nessun marker.
+   *
+   * Anchor: il representative point della regione già usato dalle etichette
+   * (`getLabelPoint`). È **solo un ancoraggio visivo**: la source of truth della
+   * geografia resta `regionId`, e il marker dichiara «asset localizzato nella
+   * regione X», non «asset in questo punto esatto». Gli asset della stessa
+   * regione ricevono un offset in **pixel** deterministico (mai in gradi).
+   *
+   * Interazione: `<button>` reale (Enter/Space, focus visibile, `aria-label`)
+   * che apre il **region context** esistente — nessuna nuova variante di
+   * `MapContextSelection`.
+   */
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+    const m = map.current;
+    assetMarkers.current.forEach(marker => marker.remove());
+    assetMarkers.current = [];
+    if (assetMarkerModel.length === 0) return;
+
+    for (const asset of assetMarkerModel) {
+      const feature = features.get(asset.regionId);
+      if (!feature?.geometry) continue;
+      const anchorPoint = getLabelPoint(feature.geometry);
+      if (!anchorPoint) continue;
+      const region = regionsById.get(asset.regionId);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `openpax-map-asset openpax-map-asset-${asset.kind}`;
+      button.dataset.mapAssetMarker = asset.id;
+      button.dataset.mapAssetKind = asset.kind;
+      button.dataset.regionId = asset.regionId;
+      button.dataset.assetSlot = String(asset.slot);
+      if (asset.kind === 'resource') button.dataset.mapResourceMarker = asset.id;
+      else button.dataset.mapFacilityMarker = asset.id;
+      button.setAttribute('aria-label', markerAriaLabel(asset, region?.name || asset.regionId));
+      button.textContent = asset.kind === 'resource' ? '◆' : '▣';
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        onRegionClickRef.current?.(asset.regionId);
+      });
+      const [dx, dy] = markerSlotOffset(asset.slot);
+      assetMarkers.current.push(new maplibregl.Marker({ element: button, anchor: 'center', offset: [dx, dy] })
+        .setLngLat(clampLngLat(anchorPoint)).addTo(m));
+    }
+
+    return () => {
+      assetMarkers.current.forEach(marker => marker.remove());
+      assetMarkers.current = [];
+    };
+  }, [assetMarkerModel, features, regionsById, mapLoaded]);
 
   // Visibilità in base allo zoom: le province parlano solo da selezionate,
   // le regioni nazionali seguono la gerarchia per zoom, gli oggetti

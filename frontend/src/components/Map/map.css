@@ -133,3 +133,33 @@
 @media (prefers-reduced-motion: reduce) {
   .world-map *, .world-map *::before, .world-map *::after { transition: none !important; animation: none !important; }
 }
+
+/* MAP P6.1 — marker degli asset economici canonici (giacimenti/impianti).
+   Elementi <button> reali: attivabili da tastiera, focus visibile, target
+   adeguato al tocco. Il colore non riscrive la geografia politica. */
+.world-map .openpax-map-asset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #0d1620;
+  background: #2f6f8f;
+  color: #eaf4ff;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.world-map .openpax-map-asset-facility { background: #8a6a3a; }
+.world-map .openpax-map-asset:hover { background: #3d87ad; }
+.world-map .openpax-map-asset-facility:hover { background: #a8843f; }
+.world-map .openpax-map-asset:focus-visible {
+  outline: 2px solid #ffd479;
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .world-map .openpax-map-asset { width: 24px; height: 24px; font-size: 12px; }
+}
