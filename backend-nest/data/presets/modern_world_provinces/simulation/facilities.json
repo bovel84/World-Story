@@ -1,0 +1,26 @@
+[
+  {
+    "id": "refinery",
+    "name": "Raffineria",
+    "capacity": {
+      "unit": "bbl",
+      "perDay": "400000"
+    }
+  },
+  {
+    "id": "steel_plant",
+    "name": "Acciaieria",
+    "capacity": {
+      "unit": "t",
+      "perDay": "12000"
+    }
+  },
+  {
+    "id": "coal_power_plant",
+    "name": "Centrale a carbone",
+    "capacity": {
+      "unit": "MWh",
+      "perDay": "30000"
+    }
+  }
+]

@@ -1,0 +1,243 @@
+{
+  "treasuries": [],
+  "inventory": [],
+  "deposits": [
+    {
+      "id": "deposit:USTX:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "USTX",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:USAK:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "USAK",
+      "known": null,
+      "accessibility": "requires_extraction"
+    },
+    {
+      "id": "deposit:SA04:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "SA04",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:RUKHM:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "RUKHM",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:IR10:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "IR10",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:CAAB:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "CAAB",
+      "known": null,
+      "accessibility": "requires_extraction"
+    },
+    {
+      "id": "deposit:RUSA:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "RUSA",
+      "known": null,
+      "accessibility": "hidden"
+    },
+    {
+      "id": "deposit:USWY:coal:1",
+      "resourceId": "coal",
+      "regionId": "USWY",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:CNNM:coal:1",
+      "resourceId": "coal",
+      "regionId": "CNNM",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:INJH:coal:1",
+      "resourceId": "coal",
+      "regionId": "INJH",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:ZANW:coal:1",
+      "resourceId": "coal",
+      "regionId": "ZANW",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:ZAMP:coal:1",
+      "resourceId": "coal",
+      "regionId": "ZAMP",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:DENW:coal:1",
+      "resourceId": "coal",
+      "regionId": "DENW",
+      "known": null,
+      "accessibility": "requires_extraction"
+    },
+    {
+      "id": "deposit:DEBB:coal:1",
+      "resourceId": "coal",
+      "regionId": "DEBB",
+      "known": null,
+      "accessibility": "requires_extraction"
+    },
+    {
+      "id": "deposit:AUQLD:coal:1",
+      "resourceId": "coal",
+      "regionId": "AUQLD",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:RUKYA:coal:1",
+      "resourceId": "coal",
+      "regionId": "RUKYA",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:AUWA:iron_ore:1",
+      "resourceId": "iron_ore",
+      "regionId": "AUWA",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:BRPA:iron_ore:1",
+      "resourceId": "iron_ore",
+      "regionId": "BRPA",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:BRMG:iron_ore:1",
+      "resourceId": "iron_ore",
+      "regionId": "BRMG",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:ZANC:iron_ore:1",
+      "resourceId": "iron_ore",
+      "regionId": "ZANC",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:INOR:iron_ore:1",
+      "resourceId": "iron_ore",
+      "regionId": "INOR",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:CLCO:iron_ore:1",
+      "resourceId": "iron_ore",
+      "regionId": "CLCO",
+      "known": null,
+      "accessibility": "requires_extraction"
+    }
+  ],
+  "workforce": [],
+  "facilities": [
+    {
+      "id": "facility:USTX:refinery:1",
+      "typeId": "refinery",
+      "ownerActorId": "usa_gulf_refining",
+      "controllerActorId": "usa_gulf_refining",
+      "regionId": "USTX",
+      "operational": true
+    },
+    {
+      "id": "facility:SA04:refinery:1",
+      "typeId": "refinery",
+      "ownerActorId": "sau_state_oil",
+      "controllerActorId": "sau_state_oil",
+      "regionId": "SA04",
+      "operational": true
+    },
+    {
+      "id": "facility:RUKHM:refinery:1",
+      "typeId": "refinery",
+      "ownerActorId": "rus_state_energy",
+      "controllerActorId": "rus_state_energy",
+      "regionId": "RUKHM",
+      "operational": true
+    },
+    {
+      "id": "facility:NLNH:refinery:1",
+      "typeId": "refinery",
+      "ownerActorId": "usa_gulf_refining",
+      "controllerActorId": "nld_port_energy",
+      "regionId": "NLNH",
+      "operational": true
+    },
+    {
+      "id": "facility:NLNH:refinery:2",
+      "typeId": "refinery",
+      "ownerActorId": "nld_port_energy",
+      "controllerActorId": "nld_port_energy",
+      "regionId": "NLNH",
+      "operational": false
+    },
+    {
+      "id": "facility:DENW:steel_plant:1",
+      "typeId": "steel_plant",
+      "ownerActorId": "deu_steel_works",
+      "controllerActorId": "deu_steel_works",
+      "regionId": "DENW",
+      "operational": true
+    },
+    {
+      "id": "facility:CNHE:steel_plant:1",
+      "typeId": "steel_plant",
+      "ownerActorId": "chn_state_steel",
+      "controllerActorId": "chn_state_steel",
+      "regionId": "CNHE",
+      "operational": true
+    },
+    {
+      "id": "facility:INOR:steel_plant:1",
+      "typeId": "steel_plant",
+      "ownerActorId": "ind_state_steel",
+      "controllerActorId": "ind_state_steel",
+      "regionId": "INOR",
+      "operational": true
+    },
+    {
+      "id": "facility:CNNM:coal_power_plant:1",
+      "typeId": "coal_power_plant",
+      "ownerActorId": "chn_state_power",
+      "controllerActorId": "chn_state_power",
+      "regionId": "CNNM",
+      "operational": true
+    },
+    {
+      "id": "facility:ZANW:coal_power_plant:1",
+      "typeId": "coal_power_plant",
+      "ownerActorId": "zaf_coal_energy",
+      "controllerActorId": "zaf_coal_energy",
+      "regionId": "ZANW",
+      "operational": true
+    }
+  ]
+}

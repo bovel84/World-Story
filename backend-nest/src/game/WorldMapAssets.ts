@@ -67,8 +67,33 @@ export interface BuildWorldMapAssetsInput {
   catalog: SimulationCatalog;
   /** Id delle regioni che esistono davvero nel mondo della partita. */
   worldRegionIds: ReadonlySet<string>;
+  /**
+   * MAP P6.2 — id del mondo. Obbligatorio **solo** se il catalogo dichiara
+   * `manifest.regionIdBinding.space === 'world_scoped'`: senza di esso i codici
+   * di regione del catalogo non sono risolvibili e nessun asset viene
+   * pubblicato (meglio nessun asset che un asset nella regione sbagliata).
+   */
+  worldId?: string;
   /** Stato persistente canonico: usato **solo** con id identico e solo per proprietà dinamiche. */
   persistedFacilities?: ReadonlyArray<{ id: string; data: Record<string, unknown> }>;
+}
+
+/**
+ * Risolutore del binding regioni (MAP P6.2).
+ *
+ *  - catalogo senza binding → gli id del catalogo **sono** id del mondo (legacy);
+ *  - `world_scoped` → `<worldId>_<codice mappa>`: costruzione deterministica di
+ *    un id, mai una somiglianza. La verifica di esistenza resta obbligatoria e
+ *    avviene prima della pubblicazione.
+ */
+export function regionIdResolver(
+  catalog: SimulationCatalog,
+  worldId?: string,
+): (catalogRegionId: string) => string | null {
+  const binding = catalog.manifest?.regionIdBinding;
+  if (binding?.space !== 'world_scoped') return catalogRegionId => catalogRegionId;
+  if (!worldId) return () => null;
+  return catalogRegionId => `${worldId}_${catalogRegionId}`;
 }
 
 /**
@@ -81,16 +106,18 @@ export function buildWorldMapAssets(input: BuildWorldMapAssetsInput): WorldMapAs
   const typeNames = new Map((catalog.facilityTypes || []).map(item => [item.id, item.name]));
   const actors = new Map((catalog.actors || []).map(item => [item.actorId, item]));
   const persisted = persistedOperational(input.persistedFacilities);
+  const resolveRegionId = regionIdResolver(catalog, input.worldId);
 
   const resources: WorldResourceSite[] = [];
   for (const deposit of catalog.initialState?.deposits || []) {
     if (!isPublishableDeposit(deposit)) continue;
-    if (!worldRegionIds.has(deposit.regionId)) continue;
+    const regionId = resolveRegionId(deposit.regionId);
+    if (!regionId || !worldRegionIds.has(regionId)) continue;
     resources.push({
       id: deposit.id,
       resourceId: deposit.resourceId,
       resourceName: resourceNames.get(deposit.resourceId) ?? deposit.resourceId,
-      regionId: deposit.regionId,
+      regionId,
       accessibility: deposit.accessibility,
       known: deposit.known !== null,
       knownQuantity: deposit.known ?? null,
@@ -100,7 +127,8 @@ export function buildWorldMapAssets(input: BuildWorldMapAssetsInput): WorldMapAs
 
   const facilities: WorldFacilitySite[] = [];
   for (const facility of catalog.initialState?.facilities || []) {
-    if (!worldRegionIds.has(facility.regionId)) continue;
+    const regionId = resolveRegionId(facility.regionId);
+    if (!regionId || !worldRegionIds.has(regionId)) continue;
     const owner = actors.get(facility.ownerActorId);
     const controller = actors.get(facility.controllerActorId);
     const persistedOperationalState = persisted.get(facility.id);
@@ -109,7 +137,7 @@ export function buildWorldMapAssets(input: BuildWorldMapAssetsInput): WorldMapAs
       typeId: facility.typeId,
       // Nessuna deduzione dal nome: il tipo viene dal catalogo, altrimenti resta tecnico.
       typeName: typeNames.get(facility.typeId) ?? facility.typeId,
-      regionId: facility.regionId,
+      regionId,
       ownerActorId: facility.ownerActorId,
       ...(owner?.name ? { ownerActorName: owner.name } : {}),
       controllerActorId: facility.controllerActorId,
@@ -160,12 +188,18 @@ function persistedOperational(
 export function loadWorldMapAssets(gameId: string): WorldMapAssets {
   const binding = gameRepository.getWorldBinding(gameId);
   if (!binding) return EMPTY_WORLD_MAP_ASSETS;
-  if (gameRepository.getEconomyMode(gameId) !== 'strict') return EMPTY_WORLD_MAP_ASSETS;
   if (!binding.templateId) return EMPTY_WORLD_MAP_ASSETS;
   const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', binding.templateId));
   if (!loaded.catalog) return EMPTY_WORLD_MAP_ASSETS;
+  // MAP P6.2 — la condizione è **l'esistenza di un catalogo valido**, non la
+  // modalità economica della partita: un catalogo `authored` è pienamente
+  // valido (loader: stesse regole, `mode` dichiara solo la rigidità del
+  // bilanciamento) e la geografia che pubblica è autorevole esattamente come in
+  // `strict`. Legare la mappa a `economy_mode` significava confondere il *layer
+  // di lettura* con il *percorso economico* della partita.
   return buildWorldMapAssets({
     catalog: loaded.catalog,
+    worldId: binding.worldId,
     worldRegionIds: new Set(worldRepository.regionIds(binding.worldId)),
     // Lettura esatta, senza materializzare né seedare lo stato operativo.
     persistedFacilities: operationalObjectRepository.list(gameId, 'facility'),

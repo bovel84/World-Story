@@ -39,6 +39,24 @@ export type CatalogDeclaration = 'synthetic' | 'historical_rigorous' | 'historic
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
+/**
+ * MAP P6.2 — binding delle regioni del catalogo allo spazio id del **mondo**.
+ *
+ * Il catalogo di un preset provinciale nomina le regioni con il codice della
+ * mappa (`map.geojson:properties.code`, es. `USTX`): è l'unica chiave
+ * autorevole e stabile a monte della generazione. Il mondo persistito espone la
+ * stessa regione come `<worldId>_<codice>` (`worlds.routes`: `id: ${worldId}_${code}`),
+ * dove `worldId` nasce a runtime. Dichiarando il binding il catalogo resta
+ * authoring-time **e** verificabile: la risoluzione è una costruzione di id
+ * (prefisso del mondo), non una somiglianza fra stringhe.
+ */
+export interface RegionIdBinding {
+  /** Spazio id delle regioni del mondo: oggi solo `<worldId>_<codice>`. */
+  space: 'world_scoped';
+  /** Fonte autorevole del codice (es. `map.geojson:properties.code`). */
+  source: string;
+}
+
 export interface ScenarioManifest {
   id: string;
   version: number;
@@ -57,6 +75,8 @@ export interface ScenarioManifest {
    */
   currencies?: Array<{ id: string; minorUnitName: string }>;
   sources: string[];
+  /** MAP P6.2 — binding regioni (assente = gli id del catalogo sono già id del mondo). */
+  regionIdBinding?: RegionIdBinding;
   /** Compilato dal loader: hash di contenuto per catalogo (basis cache MAT18). */
   catalogHashes?: Record<string, string>;
 }

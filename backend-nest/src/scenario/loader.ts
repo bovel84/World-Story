@@ -164,6 +164,18 @@ export function validateCatalog(files: CatalogFiles): ScenarioReport {
   if (!['synthetic', 'historical_rigorous', 'historical_estimated', 'ucronia'].includes(manifest.declaration)) {
     errors.push(issue('manifest.declaration', 'bad_declaration', 'dichiarazione del catalogo obbligatoria (fixture sintetica, storico rigoroso/stimato, ucronia)'));
   }
+  // MAP P6.2 — binding regioni: un errore di dichiarazione è BLOCCANTE, perché un
+  // binding sbagliato in silenzio significherebbe asset pubblicati nella regione
+  // sbagliata (o nessun asset, senza spiegazione).
+  if (manifest.regionIdBinding !== undefined) {
+    const binding = asObject(manifest.regionIdBinding, 'manifest.regionIdBinding', errors);
+    if (binding.space !== 'world_scoped') {
+      errors.push(issue('manifest.regionIdBinding.space', 'bad_region_binding', "spazio regioni supportato: 'world_scoped'"));
+    }
+    if (typeof binding.source !== 'string' || binding.source === '') {
+      errors.push(issue('manifest.regionIdBinding.source', 'missing_field', 'fonte del codice regione obbligatoria (es. map.geojson:properties.code)'));
+    }
+  }
 
   // ── Collezioni base ─────────────────────────────────────────────────────
   const resources = asArray(files.resources, 'resources', errors);

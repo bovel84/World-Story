@@ -1,0 +1,56 @@
+[
+  {
+    "actorId": "usa_gulf_refining",
+    "polityId": "USA",
+    "type": "private_sector",
+    "name": "Raffinazione privata (USA)"
+  },
+  {
+    "actorId": "sau_state_oil",
+    "polityId": "SAU",
+    "type": "public_enterprise",
+    "name": "Petrolio di Stato (SAU)"
+  },
+  {
+    "actorId": "rus_state_energy",
+    "polityId": "RUS",
+    "type": "public_enterprise",
+    "name": "Energia di Stato (RUS)"
+  },
+  {
+    "actorId": "nld_port_energy",
+    "polityId": "NLD",
+    "type": "private_sector",
+    "name": "Energia portuale privata (NLD)"
+  },
+  {
+    "actorId": "deu_steel_works",
+    "polityId": "DEU",
+    "type": "private_sector",
+    "name": "Acciaierie private (DEU)"
+  },
+  {
+    "actorId": "chn_state_steel",
+    "polityId": "CHN",
+    "type": "public_enterprise",
+    "name": "Acciaio di Stato (CHN)"
+  },
+  {
+    "actorId": "chn_state_power",
+    "polityId": "CHN",
+    "type": "public_enterprise",
+    "name": "Elettricità di Stato (CHN)"
+  },
+  {
+    "actorId": "ind_state_steel",
+    "polityId": "IND",
+    "type": "public_enterprise",
+    "name": "Acciaio di Stato (IND)"
+  },
+  {
+    "actorId": "zaf_coal_energy",
+    "polityId": "ZAF",
+    "type": "public_enterprise",
+    "name": "Carbone ed elettricità di Stato (ZAF)"
+  }
+]

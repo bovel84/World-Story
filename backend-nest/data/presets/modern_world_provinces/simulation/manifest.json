@@ -1,0 +1,20 @@
+{
+  "id": "modern_world_provinces",
+  "version": 1,
+  "schemaVersion": 1,
+  "startDate": "2026-01-01",
+  "mode": "authored",
+  "declaration": "historical_estimated",
+  "currency": {
+    "id": "USD",
+    "minorUnitName": "cent"
+  },
+  "regionIdBinding": {
+    "space": "world_scoped",
+    "source": "map.geojson:properties.code"
+  },
+  "sources": [
+    "preset:modern_world_provinces#authored-vertical-slice-1",
+    "map.geojson:properties.code (codici di regione autorevoli del preset)"
+  ]
+}

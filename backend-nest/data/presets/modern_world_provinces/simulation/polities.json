@@ -1,0 +1,42 @@
+[
+  {
+    "id": "USA",
+    "name": "Stati Uniti d'America",
+    "governmentFormAtStart": "repubblica presidenziale federale"
+  },
+  {
+    "id": "SAU",
+    "name": "Arabia Saudita",
+    "governmentFormAtStart": "monarchia assoluta"
+  },
+  {
+    "id": "RUS",
+    "name": "Federazione Russa",
+    "governmentFormAtStart": "repubblica federale presidenziale"
+  },
+  {
+    "id": "NLD",
+    "name": "Paesi Bassi",
+    "governmentFormAtStart": "monarchia parlamentare"
+  },
+  {
+    "id": "DEU",
+    "name": "Germania",
+    "governmentFormAtStart": "repubblica federale parlamentare"
+  },
+  {
+    "id": "CHN",
+    "name": "Cina",
+    "governmentFormAtStart": "repubblica socialista a partito unico"
+  },
+  {
+    "id": "IND",
+    "name": "India",
+    "governmentFormAtStart": "repubblica federale parlamentare"
+  },
+  {
+    "id": "ZAF",
+    "name": "Sudafrica",
+    "governmentFormAtStart": "repubblica parlamentare"
+  }
+]
