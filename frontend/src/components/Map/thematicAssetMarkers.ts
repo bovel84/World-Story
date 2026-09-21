@@ -93,15 +93,25 @@ export function buildThematicAssetMarkers(input: BuildThematicAssetMarkersInput)
 }
 
 /**
+ * Distanza fra i marker della stessa provincia, in **pixel**.
+ *
+ * Deve essere ≥ al diametro del marker (24 px con `pointer: coarse`): con
+ * un'area di tocco più grande di così i marker si coprirebbero a vicenda e il
+ * click finirebbe sull'asset sbagliato (o su nessuno). È presentazione, non
+ * geografia: nessuna coordinata cambia.
+ */
+export const MARKER_SLOT_SPACING = 27;
+
+/**
  * Offset in **pixel** per lo slot: un anello deterministico attorno all'anchor
  * della regione. Non è una coordinata: due asset della stessa provincia restano
  * entrambi visibili senza spostare nulla sulla mappa.
  */
-export function markerSlotOffset(slot: number): [number, number] {
+export function markerSlotOffset(slot: number, spacing: number = MARKER_SLOT_SPACING): [number, number] {
   if (slot <= 0) return [0, 0];
   const ring = Math.ceil(slot / 6);
   const index = (slot - 1) % 6;
-  const radius = 14 * ring;
+  const radius = spacing * ring;
   const angle = (Math.PI * 2 * index) / 6 - Math.PI / 2;
   return [Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)];
 }

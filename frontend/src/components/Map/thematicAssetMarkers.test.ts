@@ -10,6 +10,7 @@ import {
   buildThematicAssetMarkers,
   markerAriaLabel,
   markerSlotOffset,
+  MARKER_SLOT_SPACING,
   type BuildThematicAssetMarkersInput,
 } from './thematicAssetMarkers';
 import type { InfrastructureMapItem, MapResourceSite } from './thematicMapModel';
@@ -83,12 +84,29 @@ describe('MAP P6.1 — marker derivati dal modello tematico', () => {
 
   it('gli offset sono pixel deterministici, mai coordinate geografiche', () => {
     expect(markerSlotOffset(0)).toEqual([0, 0]);
-    const offsets = [0, 1, 2, 3, 4, 5, 6].map(markerSlotOffset);
+    const offsets = [0, 1, 2, 3, 4, 5, 6].map(slot => markerSlotOffset(slot));
     expect(new Set(offsets.map(offset => offset.join(','))).size).toBe(offsets.length);
     for (const [dx, dy] of offsets) {
-      expect(Math.abs(dx)).toBeLessThanOrEqual(30);
-      expect(Math.abs(dy)).toBeLessThanOrEqual(30);
-      expect(Number.isFinite(dx) && Number.isFinite(dy)).toBe(true);
+      expect(Number.isInteger(dx) && Number.isInteger(dy)).toBe(true);
     }
   });
+
+  it('la spaziatura non è più piccola del target di tocco: i marker non si coprono', () => {
+    // Target massimo della CSS: 24 px su `pointer: coarse`.
+    expect(MARKER_SLOT_SPACING).toBeGreaterThanOrEqual(24);
+    const distance = (slot: number) => {
+      const [dx, dy] = markerSlotOffset(slot);
+      return Math.hypot(dx, dy);
+    };
+    // Lo slot 1 dista dall'anchor esattamente la spaziatura: mai sopra l'anchor.
+    expect(distance(1)).toBeCloseTo(MARKER_SLOT_SPACING, 0);
+    // Due slot adiacenti dello stesso anello distano almeno il diametro del target.
+    const [x1, y1] = markerSlotOffset(1);
+    const [x2, y2] = markerSlotOffset(2);
+    expect(Math.hypot(x2 - x1, y2 - y1)).toBeGreaterThanOrEqual(24);
+    // Il settimo asset apre un anello più largo: la densità non comprime nulla.
+    expect(markerSlotOffset(6)).toEqual(markerSlotOffset(6));
+    expect(distance(7)).toBeCloseTo(MARKER_SLOT_SPACING * 2, 0);
+    expect(distance(7)).toBeGreaterThan(distance(6));
+});
 });
