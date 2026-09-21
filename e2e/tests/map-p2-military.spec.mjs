@@ -248,6 +248,7 @@ async function applyGameState(page, { phase, currentTurn, currentDate, worldRevi
 
 const counter = (page, id) => page.locator(`[data-unit-id="${id}"]`);
 const route = (page, id) => page.locator(`[data-movement-unit-id="${id}"]`);
+const context = (page, kind, id) => page.locator(`[data-map-context="${kind}"][data-map-context-id="${id}"]`);
 
 test('MAP P2 / A — reparti persistenti: counter distinti per polity, fronti visibili', async ({ page }) => {
   const errors = [];
@@ -277,18 +278,18 @@ test('MAP P2 / C — dettaglio reparto e fronte sono di sola lettura dal motore'
   await openMilitaryMap(page);
   await page.evaluate(() => window.__testMap.jumpTo({ center: [17, 45], zoom: 3.4 }));
   await counter(page, 'ita-alpha').click();
-  const dialog = page.getByRole('dialog', { name: 'Reparto ita-alpha' });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText('Italia');
-  await expect(dialog).toContainText('Attacca');
-  await page.getByRole('button', { name: 'Chiudi dettaglio militare' }).click();
+  const inspector = context(page, 'unit', 'ita-alpha');
+  await expect(inspector).toBeVisible();
+  await expect(inspector).toContainText('Italia');
+  await expect(inspector).toContainText('Attacca');
+  await page.getByRole('button', { name: 'Chiudi contesto mappa' }).click();
 
   await page.locator('[data-front-id="F1"]').click();
-  const frontDialog = page.getByRole('dialog', { name: 'Fronte ITA–AUT' });
-  await expect(frontDialog).toBeVisible();
-  await expect(frontDialog).toContainText('Austria');
-  await expect(frontDialog).toContainText('63%');
-  await expect(frontDialog).toContainText('Iniziativa');
+  const frontInspector = context(page, 'front', 'F1');
+  await expect(frontInspector).toBeVisible();
+  await expect(frontInspector).toContainText('Austria');
+  await expect(frontInspector).toContainText('63%');
+  await expect(frontInspector).toContainText('Iniziativa');
 });
 
 test('MAP P2 / D — conquista: il reparto AUT resta AUT dentro territorio italiano', async ({ page }) => {
@@ -310,11 +311,11 @@ test('MAP P2 / E — trasferimento P6: counter sulla posizione reale e rotta per
   // Rotta = movement.path.slice(pathIndex): ITA2 → AUT1 → HUN1.
   await expect(route(page, 'ita-move')).toHaveAttribute('data-route-path', 'ITA2,AUT1,HUN1');
   await counter(page, 'ita-move').click();
-  const dialog = page.getByRole('dialog', { name: 'Reparto ita-move' });
-  await expect(dialog).toContainText('In trasferimento');
-  await expect(dialog).toContainText('Ungheria');
-  await expect(dialog).toContainText('1951-03-03'.split('-').reverse().join('.'));
-  await expect(dialog).toContainText('Motorizzato');
+  const inspector = context(page, 'unit', 'ita-move');
+  await expect(inspector).toContainText('In trasferimento');
+  await expect(inspector).toContainText('Ungheria');
+  await expect(inspector).toContainText('1951-03-03'.split('-').reverse().join('.'));
+  await expect(inspector).toContainText('Motorizzato');
 });
 
 test('MAP P2 / F — dopo il primo hop il counter e la rotta ripartono dalla nuova provincia', async ({ page }) => {
@@ -360,8 +361,8 @@ test('MAP P2 / J — 360px: fronti e reparti leggibili, nessun overflow', async 
   await expect(counter(page, 'ita-alpha')).toBeVisible();
   await expect(page.locator('[data-front-id="F1"]')).toBeVisible();
   await counter(page, 'ita-alpha').click();
-  await expect(page.getByRole('dialog', { name: 'Reparto ita-alpha' })).toBeVisible();
-  await page.getByRole('button', { name: 'Chiudi dettaglio militare' }).click();
+  await expect(context(page, 'unit', 'ita-alpha')).toBeVisible();
+  await page.getByRole('button', { name: 'Chiudi contesto mappa' }).click();
   const dimensions = await page.evaluate(() => ({ viewport: innerWidth, scroll: document.documentElement.scrollWidth }));
   expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.viewport);
   expect(errors).toEqual([]);
@@ -438,12 +439,12 @@ test('MAP P2.2 / M — rewind ripristina posizione e rotta P6 del checkpoint', a
   await expect(route(page, 'ita-move')).toHaveCount(1);
   await expect(route(page, 'ita-move')).toHaveAttribute('data-route-path', 'A,B,C');
   await counter(page, 'ita-move').click();
-  const dialog = page.getByRole('dialog', { name: 'Reparto ita-move' });
-  await expect(dialog).toContainText('A → B');
-  await expect(dialog).toContainText('0 / 2');
-  await expect(dialog).toContainText('15 giorni');
-  await expect(dialog).toContainText('03.03.1951');
-  await page.getByRole('button', { name: 'Chiudi dettaglio militare' }).click();
+  const inspector = context(page, 'unit', 'ita-move');
+  await expect(inspector.locator('[data-route-path]')).toHaveAttribute('data-route-path', 'A,B,C');
+  await expect(inspector).toContainText('0 / 2');
+  await expect(inspector).toContainText('15 giorni');
+  await expect(inspector).toContainText('03.03.1951');
+  await page.getByRole('button', { name: 'Chiudi contesto mappa' }).click();
 
   // --- Avanzamento: Snapshot B, primo hop percorso. ---
   await applyGameState(page, { phase: 'rewindB', worldRevision: 2, currentTurn: 2, currentDate: '1951-02-16' });
@@ -451,11 +452,11 @@ test('MAP P2.2 / M — rewind ripristina posizione e rotta P6 del checkpoint', a
   await expect(counter(page, 'ita-move')).toHaveAttribute('data-unit-region', 'B');
   await expect(route(page, 'ita-move')).toHaveAttribute('data-route-path', 'B,C');
   await counter(page, 'ita-move').click();
-  await expect(dialog).toContainText('B → C');
-  await expect(dialog).toContainText('1 / 2');
-  await expect(dialog).toContainText('10 giorni');
-  await expect(dialog).toContainText('26.02.1951');
-  await page.getByRole('button', { name: 'Chiudi dettaglio militare' }).click();
+  await expect(inspector.locator('[data-route-path]')).toHaveAttribute('data-route-path', 'B,C');
+  await expect(inspector).toContainText('1 / 2');
+  await expect(inspector).toContainText('10 giorni');
+  await expect(inspector).toContainText('26.02.1951');
+  await page.getByRole('button', { name: 'Chiudi contesto mappa' }).click();
 
   // --- Rewind: turno, data e revisione riavvolti al checkpoint A. ---
   await applyGameState(page, { phase: 'rewindA', worldRevision: 1, currentTurn: 1, currentDate: '1951-02-01' });
@@ -468,12 +469,12 @@ test('MAP P2.2 / M — rewind ripristina posizione e rotta P6 del checkpoint', a
   await expect(page.locator('[data-route-path="B,C"]')).toHaveCount(0);
   // Il dettaglio P6 riflette il checkpoint, non lo stato futuro.
   await counter(page, 'ita-move').click();
-  await expect(dialog).toContainText('A → B');
-  await expect(dialog).toContainText('0 / 2');
-  await expect(dialog).toContainText('15 giorni');
-  await expect(dialog).toContainText('03.03.1951');
-  await expect(dialog).not.toContainText('26.02.1951');
-  await expect(dialog).not.toContainText('1 / 2');
+  await expect(inspector.locator('[data-route-path]')).toHaveAttribute('data-route-path', 'A,B,C');
+  await expect(inspector).toContainText('0 / 2');
+  await expect(inspector).toContainText('15 giorni');
+  await expect(inspector).toContainText('03.03.1951');
+  await expect(inspector).not.toContainText('26.02.1951');
+  await expect(inspector).not.toContainText('1 / 2');
 });
 
 test('MAP P2.2 / N — checkpoint restore rilegge il movimento dal nuovo branch', async ({ page }) => {

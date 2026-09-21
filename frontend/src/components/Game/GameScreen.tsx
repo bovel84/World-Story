@@ -39,6 +39,12 @@ import { ProvinceInspector } from '../Shell/ProvinceInspector';
 import { GameMap } from './GameMap';
 import { deriveRailItems } from './nationalContext';
 import type { MapFilters, MapLayer } from '../Map/mapModel';
+import {
+  buildMapContextIndex,
+  mapContextRegionId,
+  resolveMapContext,
+  type MapContextSelection,
+} from '../Map/mapContext';
 import type { ActiveModule } from '../../stores/moduleState';
 
 export interface GameScreenProps {
@@ -73,24 +79,94 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     showIndustry: true,
     showUnits: true,
   });
-  // Provincia selezionata per ispettore (click su mappa)
-  const [selectedProvinceId, setSelectedProvinceId] = useState<string | null>(null);
+  // MAP P4 — un solo contesto della mappa, composto esclusivamente da ID.
+  const [mapContextSelection, setMapContextSelection] = useState<MapContextSelection>(null);
+  const [mapFocusRequest, setMapFocusRequest] = useState<{ regionId: string; requestId: number } | null>(null);
 
   // Keep map props stable when chat/HUD state changes without a world update.
   const regions: Region[] = useMemo(() => Object.values(currentWorld?.regions || {}), [currentWorld?.regions]);
+  // MAP P2.1: uno snapshot precedente non resta mai presentato come stato
+  // operativo attuale in caso di errore (fail-closed), ma durante il pending il
+  // read model resta quello pubblicato e il banner di caricamento lo dichiara:
+  // P4 non cambia questa semantica. La sicurezza della preview è garantita dal
+  // reset su `snapshotKey` in UnitActionPanel.
+  const mapContextIndex = useMemo(() => buildMapContextIndex({
+    regions, units: nation.militaryUnits, fronts: nation.militaryFronts,
+  }), [regions, nation.militaryUnits, nation.militaryFronts]);
+  const mapContext = useMemo(
+    () => resolveMapContext(mapContextSelection, mapContextIndex),
+    [mapContextSelection, mapContextIndex],
+  );
+  const contextRegionId = mapContextRegionId(mapContext);
+  const actionSnapshotKey = [
+    currentGame?.id || '', currentGame?.currentTurn || 0, currentGame?.currentDate || '',
+    currentGame?.worldRevision || 0, currentGame?.headBranchId || '',
+  ].join(':');
+
   useEffect(() => {
     if (!currentWorld) return;
     if (selectedRegion && !currentWorld.regions[selectedRegion]) setSelectedRegion(null);
-    if (selectedProvinceId && !currentWorld.regions[selectedProvinceId]) setSelectedProvinceId(null);
-  }, [currentWorld?.regions, selectedRegion, selectedProvinceId, setSelectedRegion]);
+  }, [currentWorld?.regions, selectedRegion, setSelectedRegion]);
+  // Nuova partita/mondo: un ID omonimo non eredita il vecchio contesto.
+  useEffect(() => {
+    setMapContextSelection(null);
+    setMapFocusRequest(null);
+  }, [currentGame?.id, currentWorld?.id]);
+  // Rewind/restore/refresh: durante il pending conserviamo soltanto l'ID; alla
+  // risposta, un oggetto davvero assente/chiuso fa chiudere il contesto.
+  useEffect(() => {
+    if (mapContextSelection && !mapContext && !nation.militaryStateLoading) {
+      setMapContextSelection(null);
+      if (mapContextSelection.kind !== 'region') setSelectedRegion(null);
+    }
+  }, [mapContextSelection, mapContext, nation.militaryStateLoading, setSelectedRegion]);
+  // Un modulo sostituisce il dossier contestuale: non deve riapparire alla chiusura.
+  useEffect(() => {
+    if (activeModule !== 'none') setMapContextSelection(null);
+  }, [activeModule]);
 
-  // Scegli il paese (click su mappa: seleziona regione + apre ispettore provincia)
-  const handleCountryChange = (regionId: string) => {
+  const selectRegionContext = useCallback((regionId: string) => {
+    if (!mapContextIndex.regionsById.has(regionId)) return;
+    setMapContextSelection({ kind: 'region', regionId });
     setSelectedRegion(regionId);
-    setSelectedProvinceId(regionId);
-    // Se un modulo è aperto, lo chiudiamo per mostrare l'ispettore
     if (activeModule !== 'none') closeModule();
-  };
+  }, [activeModule, closeModule, mapContextIndex, setSelectedRegion]);
+
+  const selectUnitContext = useCallback((unitId: string) => {
+    const unit = mapContextIndex.unitsById.get(unitId);
+    if (!unit || unit.status === 'destroyed') return;
+    setMapContextSelection({ kind: 'unit', unitId });
+    setSelectedRegion(unit.regionId || null);
+    if (activeModule !== 'none') closeModule();
+  }, [activeModule, closeModule, mapContextIndex, setSelectedRegion]);
+
+  const selectFrontContext = useCallback((frontId: string) => {
+    const front = mapContextIndex.frontsById.get(frontId);
+    if (!front || front.status === 'closed') return;
+    setMapContextSelection({ kind: 'front', frontId });
+    const regionId = front.objectiveRegionId || front.regionIds[0];
+    setSelectedRegion(regionId || null);
+    if (activeModule !== 'none') closeModule();
+  }, [activeModule, closeModule, mapContextIndex, setSelectedRegion]);
+
+  const focusMapRegion = useCallback((regionId: string) => {
+    if (!mapContextIndex.regionsById.has(regionId)) return;
+    setMapFocusRequest(previous => ({ regionId, requestId: (previous?.requestId || 0) + 1 }));
+  }, [mapContextIndex]);
+
+  const closeMapContext = useCallback(() => {
+    const closing = mapContextSelection;
+    setMapContextSelection(null);
+    setSelectedRegion(null);
+    requestAnimationFrame(() => {
+      const id = closing?.kind === 'unit' ? closing.unitId : closing?.kind === 'front' ? closing.frontId : null;
+      const selector = closing?.kind === 'unit' ? 'data-unit-id' : closing?.kind === 'front' ? 'data-front-id' : null;
+      const trigger = id && selector
+        ? document.querySelector<HTMLElement>(`[${selector}="${CSS.escape(id)}"]`)
+        : null;
+      (trigger || document.querySelector<HTMLElement>('.map-keyboard-surface'))?.focus({ preventScroll: true });
+    });
+  }, [mapContextSelection, setSelectedRegion]);
 
   // Una fazione del governo propone: la richiesta diventa una bozza d'ordine
   // reale nel compositore. Nessuna spesa finché l'ordine non è registrato e il
@@ -192,8 +268,11 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
       onLayerChange={setMapLegendLayer}
       filters={mapLegendFilters}
       onFiltersChange={(partial) => setMapLegendFilters(prev => ({ ...prev, ...partial }))}
-      selectedRegion={selectedRegion || undefined}
-      onRegionClick={handleCountryChange}
+      selectedRegion={mapContextSelection ? contextRegionId || undefined : selectedRegion || undefined}
+      onRegionClick={selectRegionContext}
+      onUnitClick={selectUnitContext}
+      onFrontClick={selectFrontContext}
+      focusRegionRequest={mapFocusRequest}
       changedRegionIds={changedRegions}
       temporalScars={playback.temporalScars}
       events={feed.feedItems}
@@ -206,6 +285,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
       showFlags={!!useGameStore.getState().selectedCountry}
       playerCountryCode={playerPolityId}
       onBackToScenarios={() => {
+        setMapContextSelection(null);
         setCurrentView('menu');
         setCurrentWorld(null);
         setCurrentGame(null);
@@ -317,11 +397,22 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
       }
       map={mapContent}
       desk={
-        selectedProvinceId && activeModule === 'none' ? (
+        mapContext && activeModule === 'none' ? (
           <ProvinceInspector
-            region={regions.find(r => r.id === selectedProvinceId) ?? null}
+            context={mapContext}
+            index={mapContextIndex}
             allRegions={regions}
-            onClose={() => setSelectedProvinceId(null)}
+            playerPolityId={playerPolityId}
+            operatingPicture={nation.nationalArms?.objects}
+            snapshotKey={actionSnapshotKey}
+            onClose={closeMapContext}
+            onSelectRegion={selectRegionContext}
+            onSelectUnit={selectUnitContext}
+            onSelectFront={selectFrontContext}
+            onFocusRegion={focusMapRegion}
+            onOpenArmedForces={() => { setMapContextSelection(null); openModule('nation'); }}
+            onUnitAction={nation.unitAction}
+            onUnitOrder={nation.unitOrder}
           />
         ) : (
           <DeskContent
@@ -388,9 +479,9 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             onAcknowledgeMandateDecision={nation.acknowledgeMandateDecision}
             feedItems={feed.feedItems}
             onFocusRegion={(regionId) => {
-              // G4-C: «Mostra sulla mappa» seleziona la regione toccata
-              // dall'evento; la selezione esistente guida già zoom e highlight.
-              setSelectedRegion(regionId);
+              // G4-C / MAP P4: selezione e inspector condividono lo stesso ID.
+              selectRegionContext(regionId);
+              focusMapRegion(regionId);
             }}
             onMarkFeedRead={feed.markFeedRead}
             onMarkAllFeedRead={feed.markAllFeedRead}
@@ -402,7 +493,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
           />
         )
       }
-      deskOpen={activeModule !== 'none' || selectedProvinceId !== null}
+      deskOpen={activeModule !== 'none' || mapContext !== null}
     />
   );
 }

@@ -29,6 +29,11 @@ export interface GameMapProps {
   onFiltersChange: (partial: Partial<MapFilters>) => void;
   selectedRegion?: string;
   onRegionClick: (regionId: string) => void;
+  /** MAP P4 — callback ID-only dei counter/fronti persistenti. */
+  onUnitClick: (unitId: string) => void;
+  onFrontClick: (frontId: string) => void;
+  /** Solo un comando esplicito muove la camera; cambiare contesto non la resetta. */
+  focusRegionRequest?: { regionId: string; requestId: number } | null;
   changedRegionIds: string[];
   temporalScars: TemporalScar[];
   events: FeedItem[];
@@ -54,6 +59,9 @@ export function GameMap({
   onFiltersChange,
   selectedRegion,
   onRegionClick,
+  onUnitClick,
+  onFrontClick,
+  focusRegionRequest,
   changedRegionIds,
   temporalScars,
   events,
@@ -79,6 +87,9 @@ export function GameMap({
           onFiltersChange={onFiltersChange}
           selectedRegionId={selectedRegion || undefined}
           onRegionClick={onRegionClick}
+          onUnitClick={onUnitClick}
+          onFrontClick={onFrontClick}
+          focusRegionRequest={focusRegionRequest}
           changedRegionIds={changedRegionIds}
           temporalScars={temporalScars}
           events={events}

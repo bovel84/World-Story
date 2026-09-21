@@ -3131,6 +3131,7 @@ html, body { margin: 0; }
 .obj-action-button:hover:not(:disabled) { background: rgba(120, 96, 208, 0.24); }
 .obj-action-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .obj-blocked-hint { color: #f0a9a9; font: 500 11px/1.35 system-ui, sans-serif; }
+.obj-blocked-hint li { margin: 2px 0; line-height: 1.45; }
 /* MILITARY-UNITS: le azioni del reparto (Rinforza · Riequipaggia · Trasferisci ·
    Cambia armata) vivono sotto i suoi fatti, con la destinazione da scegliere. */
 .obj-unit-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }

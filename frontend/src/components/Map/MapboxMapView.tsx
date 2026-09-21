@@ -147,6 +147,10 @@ interface MapboxMapViewProps {
   regions: Region[];
   selectedRegionId?: string;
   onRegionClick?: (regionId: string) => void;
+  /** MAP P4 — l'overlay emette ID canonici, il contesto vive in GameScreen. */
+  onUnitClick?: (unitId: string) => void;
+  onFrontClick?: (frontId: string) => void;
+  focusRegionRequest?: { regionId: string; requestId: number } | null;
   onRegionHover?: (regionId: string | null) => void;
   changedRegionIds?: string[];
   /** G4-C: cicatrici temporali — confini precedenti appena mutati. */
@@ -372,6 +376,9 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   regions,
   selectedRegionId,
   onRegionClick,
+  onUnitClick,
+  onFrontClick,
+  focusRegionRequest,
   onRegionHover,
   changedRegionIds = EMPTY_IDS,
   temporalScars = [],
@@ -559,6 +566,13 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     if (entry.point) map.current?.flyTo({ center: entry.point, zoom: 5, duration: 500 });
     else focusRegions([entry.regionId]);
   }, [focusRegions]);
+
+  // MAP P4 — l'apertura dell'inspector non muove la camera. Solo un comando
+  // esplicito «Centra…» produce una nuova request numerata.
+  useEffect(() => {
+    if (!mapLoaded || !focusRegionRequest) return;
+    focusRegions([focusRegionRequest.regionId]);
+  }, [focusRegionRequest, mapLoaded, focusRegions]);
 
   // Navigazione da tastiera: + / - / 0 / frecce
   useEffect(() => {
@@ -1467,7 +1481,8 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
         onFocus={id => focusRegions([id])} />}
       {mapLoaded && map.current && <MilitaryStateOverlay map={map.current} regions={regions} model={militaryModel}
         visible={filters.showUnits} loading={militaryStateLoading} error={militaryStateError}
-        playerPolityId={playerCountryCode} onFocusRegion={id => focusRegions([id])} />}
+        playerPolityId={playerCountryCode} onFocusRegion={id => focusRegions([id])}
+        onSelectUnit={onUnitClick} onSelectFront={onFrontClick} />}
       {/* MAP P3 — un layer supportato senza dati territoriali lo dice, invece di
           mostrare una heatmap vuota o inventare posizioni. */}
       {thematicMessage && <div className="map-thematic-notice" role="status" data-thematic-message>{thematicMessage}</div>}
