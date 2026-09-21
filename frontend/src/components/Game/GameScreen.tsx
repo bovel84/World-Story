@@ -47,6 +47,8 @@ import {
   type MapContextSelection,
 } from '../Map/mapContext';
 import type { ActiveModule } from '../../stores/moduleState';
+import { buildThematicMapModel } from '../Map/thematicMapModel';
+import { resourceCandidatesFromNational } from '../Map/mapThematicContext';
 
 export interface GameScreenProps {
   nation: NationSnapshot;
@@ -196,6 +198,16 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     nationalAccounts: nation.nationalAccounts,
   });
 
+  // MAP P5 — un solo modello tematico P3 per mappa e dossier: stesse soglie,
+  // stessi bucket, stessi siti. Nessun fetch al click, nessuna duplicazione.
+  const resourceCandidates = useMemo(
+    () => resourceCandidatesFromNational(nation.nationalResources?.natural),
+    [nation.nationalResources?.natural],
+  );
+  const thematicModel = useMemo(() => buildThematicMapModel({
+    regions, relationships: nation.relationships, playerPolityId, resourceCandidates,
+  }), [regions, nation.relationships, playerPolityId, resourceCandidates]);
+
   const railItems = deriveRailItems({
     activeModule,
     totalUnread,
@@ -285,6 +297,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
       militaryStateLoading={nation.militaryStateLoading}
       militaryStateError={nation.militaryStateError}
       relationships={nation.relationships}
+      resourceCandidates={resourceCandidates}
       showFlags={!!useGameStore.getState().selectedCountry}
       playerCountryCode={playerPolityId}
       onBackToScenarios={() => {
@@ -408,6 +421,12 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             playerPolityId={playerPolityId}
             operatingPicture={nation.nationalArms?.objects}
             snapshotKey={snapshotKey}
+            activeLayer={mapLegendLayer}
+            thematicModel={thematicModel}
+            relationships={nation.relationships}
+            changedRegionIds={changedRegions}
+            strategicAgenda={nation.strategicAgenda}
+            commitments={nation.commitments?.commitments ?? null}
             onClose={closeMapContext}
             onSelectRegion={selectRegionContext}
             onSelectUnit={selectUnitContext}
