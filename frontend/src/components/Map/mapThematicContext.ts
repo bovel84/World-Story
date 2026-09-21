@@ -78,10 +78,31 @@ export interface RegionInfrastructureItem extends InfrastructureMapItem {
 
 export interface RegionInfrastructureContext {
   items: RegionInfrastructureItem[];
+  /** Impianti in esercizio: **mai** un cantiere, mai un'opera strategica, mai un asset canonico fermo. */
   operative: RegionInfrastructureItem[];
   underConstruction: RegionInfrastructureItem[];
   strategic: RegionInfrastructureItem[];
+  /**
+   * MAP P6.2 — asset canonici dichiarati **non operativi** dal catalogo
+   * (`operational === false`). Non sono «in costruzione» (il catalogo non lo
+   * dice) e non sparivano: prima finivano in «Operative», che era falso.
+   * Un impianto legacy senza il campo resta dov'era: `undefined` non è `false`.
+   */
+  inactive: RegionInfrastructureItem[];
   available: boolean;
+}
+
+/**
+ * MAP P6.2 — precedenza **mutuamente esclusiva** dei gruppi infrastruttura:
+ * cantiere → strategica → asset canonico non operativo → operativa.
+ * Ogni voce compare in un solo gruppo, sempre.
+ */
+export function infrastructureGroupOf(item: RegionInfrastructureItem): 'underConstruction' | 'strategic' | 'inactive' | 'operative' {
+  if (item.underConstruction) return 'underConstruction';
+  if (item.strategic) return 'strategic';
+  // Solo il catalogo *afferma* lo stato operativo: `undefined` (legacy) non è `false`.
+  if (item.source === 'canonical' && item.operational === false) return 'inactive';
+  return 'operative';
 }
 
 export interface RegionDiplomacyContext {
@@ -296,10 +317,13 @@ export function buildRegionThematicContext(input: BuildRegionThematicContextInpu
     },
     infrastructure: {
       items: infrastructureItems,
-      // Gruppi mutuamente esclusivi: un'installazione strategica non è anche «operativa».
-      operative: infrastructureItems.filter(item => !item.underConstruction && !item.strategic),
+      // Gruppi mutuamente esclusivi (precedenza dichiarata in `infrastructureGroupOf`):
+      // un cantiere non è «operativo», un'opera strategica nemmeno, e un impianto
+      // canonico dichiarato fermo non è in esercizio.
+      operative: infrastructureItems.filter(item => infrastructureGroupOf(item) === 'operative'),
       underConstruction: infrastructureItems.filter(item => item.underConstruction),
       strategic: infrastructureItems.filter(item => item.strategic),
+      inactive: infrastructureItems.filter(item => infrastructureGroupOf(item) === 'inactive'),
       available: model.infrastructure.available,
     },
     diplomacy,

@@ -8,6 +8,7 @@ import type { Commitment, MapObject, Region } from '../../types';
 import type { Commitment as ApiCommitment } from '../../services/api';
 import {
   buildRegionThematicContext,
+  infrastructureGroupOf,
   layerHasThematicSection,
   polityLabel,
   resourceCandidatesFromOperatingPicture,
@@ -227,6 +228,83 @@ describe('MAP P5 — INFRASTRUCTURE', () => {
     const context = build({ region: REGIONS[3], activeLayer: 'infrastructure', playerPolityId: 'AUT' });
     expect(context.infrastructure.items.map(item => item.id)).toEqual(['radar-1']);
     expect(context.infrastructure.strategic.map(item => item.id)).toEqual(['radar-1']);
+  });
+});
+
+/**
+ * MAP P6.2 — un impianto canonico **fermo** non è «operativo».
+ * Prima di P6.2 la classificazione metteva in «Operative» tutto ciò che non era
+ * cantiere o installazione strategica: `operational: false` del catalogo veniva
+ * quindi cancellato dalla UI. Il campo è l'unica affermazione sullo stato di
+ * esercizio, e `undefined` (legacy) non è `false`.
+ */
+describe('MAP P6.2 — infrastrutture: «Non operative»', () => {
+  const canonical = (id: string, operational: boolean, patch: Record<string, unknown> = {}) => ({
+    id, regionId: 'ROM', typeId: 'ft-1', typeName: 'Raffineria', operational,
+    ownerActorId: 'act-owner', ownerActorName: 'Raffinazione di Stato',
+    controllerActorId: 'act-ctrl', controllerActorName: 'Gestore portuale',
+    polityId: 'ITA', controllerPolityId: 'NLD', ...patch,
+  });
+  const withFacilities = (facilities: ReturnType<typeof canonical>[]) => build({
+    activeLayer: 'infrastructure',
+    model: buildThematicMapModel({
+      regions: REGIONS, relationships: { ITA: {} }, playerPolityId: 'ITA',
+      resourceCandidates: CANDIDATES, worldFacilities: facilities,
+    }),
+  });
+
+  it('canonical `operational:false` → gruppo «Non operative», mai «Operative»', () => {
+    const context = withFacilities([canonical('fac-fermo', false)]);
+    expect(context.infrastructure.operative.map(item => item.id)).not.toContain('fac-fermo');
+    expect(context.infrastructure.inactive.map(item => item.id)).toEqual(['fac-fermo']);
+    // Resta visibile e conserva la semantica: nessun asset nascosto.
+    expect(context.infrastructure.items.map(item => item.id)).toEqual(['fac-1', 'site-1', 'fac-fermo']);
+  });
+
+  it('canonical `operational:true` → «Operative»', () => {
+    const context = withFacilities([canonical('fac-attivo', true)]);
+    expect(context.infrastructure.operative.map(item => item.id)).toEqual(['fac-1', 'fac-attivo']);
+    expect(context.infrastructure.inactive).toEqual([]);
+  });
+
+  it('legacy senza `operational` → comportamento invariato (Operative)', () => {
+    // Gli oggetti del territorio non pubblicano lo stato di esercizio.
+    const context = build({ activeLayer: 'infrastructure' });
+    const legacy = context.infrastructure.items.find(item => item.id === 'fac-1');
+    expect(legacy?.operational).toBeUndefined();
+    expect(context.infrastructure.inactive).toEqual([]);
+    expect(context.infrastructure.operative.map(item => item.id)).toContain('fac-1');
+    // `undefined` non è `false`: la regola è esplicita.
+    expect(infrastructureGroupOf({ ...legacy!, source: 'canonical' })).toBe('operative');
+  });
+
+  it('la precedenza è mutuamente esclusiva: cantiere → strategica → non operativa → operativa', () => {
+    const context = withFacilities([
+      canonical('fac-fermo', false),
+      canonical('fac-cantiere', false, { source: 'canonical' }),
+      canonical('fac-strategica', false),
+    ]);
+    // Un solo gruppo per voce, sempre.
+    const groups = [context.infrastructure.operative, context.infrastructure.inactive,
+      context.infrastructure.underConstruction, context.infrastructure.strategic];
+    const ids = groups.flat().map(item => item.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(context.infrastructure.inactive.map(item => item.id)).toEqual(['fac-fermo', 'fac-cantiere', 'fac-strategica']);
+    expect(context.infrastructure.operative.map(item => item.id)).toEqual(['fac-1']);
+    expect(context.infrastructure.underConstruction.map(item => item.id)).toEqual(['site-1']);
+  });
+
+  it('un impianto non operativo conserva proprietario, controllore e potenza', () => {
+    const context = withFacilities([canonical('fac-fermo', false)]);
+    const [item] = context.infrastructure.inactive;
+    expect(item).toMatchObject({
+      source: 'canonical', operational: false, facilityTypeId: 'ft-1',
+      ownerActorId: 'act-owner', ownerActorName: 'Raffinazione di Stato',
+      controllerActorId: 'act-ctrl', controllerActorName: 'Gestore portuale',
+      polityId: 'ITA', controllerPolityId: 'NLD',
+    });
+    // Proprietà ≠ controllo: la UI mostra entrambe (polity diverse).
+    expect(item.controllerPolityId).not.toBe(item.polityId);
   });
 });
 

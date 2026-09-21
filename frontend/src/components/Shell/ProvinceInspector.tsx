@@ -16,6 +16,7 @@ import { UnitActionPanel } from '../Game/UnitActionPanel';
 import type { MapLayer } from '../Map/mapModel';
 import {
   buildRegionThematicContext,
+  infrastructureGroupOf,
   layerHasThematicSection,
   showsPolityContext,
   type RegionThematicContext,
@@ -186,6 +187,7 @@ function LayerThematicBlock({ context }: { context: RegionThematicContext }) {
       <div className="thematic-group"><h4>{title} <b>{items.length}</b></h4>
         <ul className="context-link-list">{items.map(item => <li key={item.id} data-infrastructure-item={item.id}
           data-infrastructure-kind={item.underConstruction ? 'construction' : 'operative'}
+          data-infrastructure-state={infrastructureGroupOf(item)}
           data-infrastructure-source={item.source ?? 'territory'}>
           <span><strong>{item.name}</strong><small>{item.source === 'canonical'
             ? `impianto canonico${item.facilityTypeId ? ` · ${item.facilityTypeId}` : ''} · ${item.operational ? 'operativo' : 'non operativo'}`
@@ -201,6 +203,7 @@ function LayerThematicBlock({ context }: { context: RegionThematicContext }) {
     );
     return <>
       {group('Operative', context.infrastructure.operative)}
+      {group('Non operative', context.infrastructure.inactive)}
       {group('In costruzione', context.infrastructure.underConstruction)}
       {group('Installazioni strategiche', context.infrastructure.strategic)}
       <p className="thematic-hint">Le opere sono oggetti del territorio pubblicati dal motore; un reparto non è un'opera.</p>
