@@ -90,8 +90,21 @@ const SNAPSHOTS = {
   },
 };
 
-async function installStoreBridge(page) {
-  await page.addInitScript(() => {
+// Due reparti ITA e uno AUT nella stessa provincia: a zoom mondo l'aggregato
+// deve restare distinto per polity, mai sommato sotto la prima.
+SNAPSHOTS.mixed = {
+  units: [
+    unit('ita-one', 'ITA', 'ITA1', { order: 'defend' }),
+    unit('ita-two', 'ITA', 'ITA1', { order: 'defend' }),
+    unit('aut-mixed', 'AUT', 'ITA1', { order: 'defend' }),
+  ],
+  fronts: [],
+};
+
+// Fallimento parziale: units risponde, fronts no → snapshot UI atomico non pubblicato.
+SNAPSHOTS.failure = { units: SNAPSHOTS.before.units, failFronts: true };
+
+async function installStoreBridge(page) {  await page.addInitScript(() => {
     const moduleUrl = (pattern) => performance.getEntriesByType('resource')
       .map(entry => entry.name).filter(url => pattern.test(url)).at(-1);
     window.__wsAppModules = async () => {
@@ -111,12 +124,20 @@ async function openMilitaryMap(page, phase = 'before') {
   installMockApi(page);
   await installStoreBridge(page);
   // Le fixture militari sono registrate DOPO il mock base: hanno la precedenza.
-  await page.route('**/api/games/*/military/units', route => {
+  // `page.__delay` è pilotato dal test (leak-proof: pagina nuova per ogni test).
+  await page.route('**/api/games/*/military/units', async route => {
     const snapshot = SNAPSHOTS[page.__phase || phase];
+    if (page.__delay) await new Promise(resolve => setTimeout(resolve, page.__delay));
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ units: snapshot.units }) });
   });
-  await page.route('**/api/games/*/military/fronts', route => {
+  await page.route('**/api/games/*/military/fronts', async route => {
     const snapshot = SNAPSHOTS[page.__phase || phase];
+    if (page.__delay) await new Promise(resolve => setTimeout(resolve, page.__delay));
+    // Fallimento parziale: units risponde, fronts no. Nulla deve essere pubblicato.
+    if (snapshot.failFronts) {
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'internal' }) });
+      return;
+    }
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ fronts: snapshot.fronts }) });
   });
   await page.goto('/');
@@ -284,4 +305,64 @@ test('MAP P2 / J — 360px: fronti e reparti leggibili, nessun overflow', async 
   const dimensions = await page.evaluate(() => ({ viewport: innerWidth, scroll: document.documentElement.scrollWidth }));
   expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.viewport);
   expect(errors).toEqual([]);
+});
+
+test('MAP P2.1 / H — refresh fallito: niente snapshot stale come stato attuale, poi recovery', async ({ page }) => {
+  await openMilitaryMap(page);
+  await page.evaluate(() => window.__testMap.jumpTo({ center: [17, 45], zoom: 3.4 }));
+  await expect(counter(page, 'ita-alpha')).toBeVisible();
+  await expect(page.locator('[data-front-id="F1"]')).toBeVisible();
+  await expect(route(page, 'ita-move')).toHaveCount(1);
+
+  // Fallimento parziale: units ok, fronts ko. Lo snapshot UI resta atomico.
+  await switchPhase(page, 'failure');
+  await expect(counter(page, 'ita-alpha')).toHaveCount(0);
+  await expect(counter(page, 'aut-alpha')).toHaveCount(0);
+  await expect(page.locator('[data-front-id="F1"]')).toHaveCount(0);
+  await expect(route(page, 'ita-move')).toHaveCount(0);
+  const error = page.locator('.military-state-unavailable');
+  await expect(error).toBeVisible();
+  await expect(error).toHaveText('Situazione militare non disponibile');
+  await expect(page.locator('.maplibregl-canvas')).toBeVisible();
+
+  // Un refresh valido successivo non è bloccato dall'errore precedente.
+  await switchPhase(page, 'before');
+  await expect(counter(page, 'ita-alpha')).toBeVisible();
+  await expect(page.locator('[data-front-id="F1"]')).toBeVisible();
+  await expect(page.locator('.military-state-unavailable')).toHaveCount(0);
+});
+
+test('MAP P2.1 / K — race: una risposta lenta non sovrascrive quella più recente', async ({ page }) => {
+  page.__delay = 3000; // richiesta A (phase before) lenta
+  await openMilitaryMap(page);
+  page.__delay = 0; // richiesta B (phase after) immediata
+  await switchPhase(page, 'after');
+
+  await expect(counter(page, 'ita-move')).toHaveAttribute('data-unit-region', 'AUT1');
+  // A completa dopo B: il request-id guard deve scartarla.
+  await page.waitForTimeout(3400);
+  await expect(counter(page, 'ita-move')).toHaveAttribute('data-unit-region', 'AUT1');
+  await expect(route(page, 'ita-move')).toHaveAttribute('data-route-path', 'AUT1,HUN1');
+});
+
+test('MAP P2.1 / L — zoom mondo: aggregati separati per polity, nessuna somma sotto la prima', async ({ page }) => {
+  await openMilitaryMap(page, 'mixed');
+  await page.evaluate(() => window.__testMap.jumpTo({ center: [5, 45], zoom: 1.8 }));
+
+  const ita = page.locator('[data-unit-polity="ITA"]');
+  const aut = page.locator('[data-unit-polity="AUT"]');
+  await expect(ita).toHaveCount(1);
+  await expect(aut).toHaveCount(1);
+  await expect(ita).toHaveAttribute('data-unit-aggregate', '2');
+  await expect(aut).toHaveAttribute('data-unit-aggregate', '1');
+  // Nessun counter ITA che rivendica i tre reparti della provincia.
+  await expect(page.locator('[data-unit-polity="ITA"][data-unit-aggregate="3"]')).toHaveCount(0);
+  await expect(ita).toHaveAttribute('aria-label', /2 reparti Italia in Pianura/);
+
+  // Il drill-down parte filtrato per polity e non finge che gli altri siano ITA.
+  await ita.click();
+  const dialog = page.getByRole('dialog', { name: 'Reparti Italia in Pianura' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('2 reparti Italia in Pianura');
+  await expect(dialog).toContainText('Vedi tutti i 3 reparti della regione');
 });

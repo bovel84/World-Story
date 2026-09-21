@@ -224,6 +224,11 @@ export function useNationSnapshot({
     } catch (error) {
       if (request !== militaryRequest.current) return;
       console.warn('[App] Situazione militare non disponibile:', error);
+      // Fail closed: lo stato operativo attuale è una fotografia, non una cache.
+      // Uno snapshot precedente non deve restare visibile come se fosse corrente
+      // (advance, rewind, restore, branch change o load potrebbero averlo reso falso).
+      setMilitaryUnits([]);
+      setMilitaryFronts([]);
       setMilitaryStateError('Situazione militare non disponibile');
     } finally {
       if (request === militaryRequest.current) setMilitaryStateLoading(false);

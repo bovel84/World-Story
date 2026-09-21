@@ -49,12 +49,26 @@ export interface MilitaryUnitDensity<T> {
   total: number;
 }
 
+/**
+ * Reparti persistenti della stessa regione raggruppati per polity. L'identità
+ * `polityId` non viene mai cancellata dall'aggregazione geografica.
+ */
+export interface MilitaryPolityGroup {
+  polityId: string;
+  units: MilitaryMapUnit[];
+  visible: MilitaryMapUnit[];
+  overflow: number;
+  total: number;
+}
+
 export interface MilitaryMapReadModel {
   regionAnchors: Record<string, MilitaryMapCoordinate>;
   polities: Record<string, MilitaryPolityPresentation>;
   units: MilitaryMapUnit[];
   unitsByRegion: Record<string, MilitaryMapUnit[]>;
   stacksByRegion: Record<string, MilitaryUnitDensity<MilitaryMapUnit>>;
+  /** Proiezione regionale per polity: base dell'aggregazione a zoom mondo. */
+  groupsByRegion: Record<string, MilitaryPolityGroup[]>;
   movements: Array<{ unitId: string; polityId: string; route: MilitaryMovementRoute }>;
   fronts: MilitaryMapFront[];
   /** Legacy map objects left only when no persistent unit/army has the exact id. */
@@ -218,9 +232,30 @@ function buildModel(
     (unitsByRegion[unit.regionId] ??= []).push(unit);
   }
   const stacksByRegion = Object.create(null) as Record<string, MilitaryUnitDensity<MilitaryMapUnit>>;
+  const groupsByRegion = Object.create(null) as Record<string, MilitaryPolityGroup[]>;
   for (const regionId of Object.keys(unitsByRegion).sort(compareText)) {
     unitsByRegion[regionId].sort(compareUnits);
     stacksByRegion[regionId] = militaryUnitDensity(unitsByRegion[regionId]);
+
+    // Aggregazione a zoom mondo: raggruppa per polity senza mai mescolare le
+    // nazionalità. Ordine deterministico: polityId ASC, poi compareUnits().
+    const byPolity = new Map<string, MilitaryMapUnit[]>();
+    for (const unit of unitsByRegion[regionId]) {
+      const members = byPolity.get(unit.polityId);
+      if (members) members.push(unit);
+      else byPolity.set(unit.polityId, [unit]);
+    }
+    groupsByRegion[regionId] = [...byPolity.keys()].sort(compareText).map(polityId => {
+      const members = (byPolity.get(polityId) as MilitaryMapUnit[]).sort(compareUnits);
+      const density = militaryUnitDensity(members);
+      return {
+        polityId,
+        units: members,
+        visible: density.visible,
+        overflow: density.overflow,
+        total: density.total,
+      };
+    });
   }
 
   const movements = units
@@ -263,7 +298,7 @@ function buildModel(
   const regionAnchors = Object.create(null) as Record<string, MilitaryMapCoordinate>;
   for (const [regionId, point] of anchors) regionAnchors[regionId] = point;
 
-  return { regionAnchors, polities, units, unitsByRegion, stacksByRegion, movements, fronts, legacyObjects };
+  return { regionAnchors, polities, units, unitsByRegion, stacksByRegion, groupsByRegion, movements, fronts, legacyObjects };
 }
 
 export function buildMilitaryMapModel(input: {

@@ -237,3 +237,153 @@ coperto dai test backend di P6 e dal refresh reattivo. Il rifetch segue
 - **MAP P1 invariata**
 - **MILITARY P4–P6 invariata**
 - **nessun grande refactor**
+
+---
+
+# MAP P2.1 — stale-state safety and multi-polity aggregation
+
+Correzioni mirate su MAP P2. Nessuna riapertura architetturale, nessuna nuova
+feature militare, nessuna modifica al motore.
+
+## 1. Il bug dello snapshot stale
+
+`useNationSnapshot` pubblicava `militaryUnits`/`militaryFronts` in un unico
+lifecycle con request-id guard. In caso di errore, però, il `catch` si limitava
+a impostare `militaryStateError`: il **vecchio** snapshot restava nello state
+React.
+
+`MilitaryStateOverlay` riceveva quindi contemporaneamente:
+
+```text
+model = OLD MILITARY STATE
+error = "Situazione militare non disponibile"
+```
+
+e continuava a disegnare counter, fronti e rotte P6 come **stato operativo
+attuale**.
+
+## 2. Perché era semanticamente pericoloso
+
+L'overlay è dichiarato *CURRENT OPERATIONAL STATE*, non una cache. Dopo un
+`advance`, un `rewind`, un `restore`, un cambio di branch o un `load`, lo
+snapshot precedente può descrivere un mondo che non esiste più: reparti
+distrutti, fronti chiusi, movimenti già conclusi. Mostrarlo come «attuale»
+sarebbe una falsificazione silenziosa.
+
+## 3. Soluzione fail-closed
+
+Nel `catch` della richiesta militare, dopo il request-id guard:
+
+```ts
+setMilitaryUnits([]);
+setMilitaryFronts([]);
+setMilitaryStateError('Situazione militare non disponibile');
+```
+
+Regole rispettate:
+
+```text
+BASE MAP                 → resta disponibile
+CURRENT MILITARY OVERLAY → non disponibile (units/fronts vuoti)
+OLD SNAPSHOT             → mai mostrato come current
+ERROR MESSAGE            → visibile
+```
+
+- **Atomicità**: `Promise.all()` resta l'unico punto di pubblicazione. Se uno
+  dei due endpoint fallisce (`units ok / fronts ko` o viceversa) non viene mai
+  pubblicato metà stato.
+- **Nessuno stale fallback**: non esiste «mostriamo l'ultimo snapshot valido»;
+  un eventuale storico/offline andrebbe etichettato esplicitamente, fuori scope.
+- **Race protection intatta**: `militaryRequest.current` è preservato; una
+  risposta lenta scartata non tocca lo state.
+- **Cronaca recente intatta**: `TacticalOverlay` continua a mostrare gli eventi
+  recenti anche se la fetch current-state fallisce.
+- **Legacy dedupe intatto**: la soppressione per id esatto non è stata toccata.
+
+## 4. Il bug dell'aggregazione multi-polity
+
+A zoom mondo (`< 2.2`) lo stack era costruito solo per `regionId`:
+
+```ts
+const lead = stack.visible[0];
+units.push({ unit: lead, aggregate: stack.total });
+```
+
+Il counter aggregato ereditava colore, bandiera, polity e aria-label dal `lead`.
+Con `AAA 2 / BBB 1 / CCC 1` nella stessa provincia compariva `[AAA] 4`:
+visivamente «4 reparti AAA», falso, e in violazione dell'invariante
+`unit.polityId = nazionalità` di P4/P2.
+
+## 5. Nuovo criterio `region + polity`
+
+Il read model deriva `groupsByRegion: Record<regionId, MilitaryPolityGroup[]>`,
+dove ogni gruppo ha `polityId`, `units`, `visible`, `overflow`, `total`. Ordine
+deterministico: `polityId ASC`, poi `compareUnits()`. `stacksByRegion` resta per
+il drill-down completo e per il teatro.
+
+Proiezione visuale:
+
+- **zoom mondo (`< 2.2`)**: un counter aggregato per polity, con offset
+  deterministici `(index - (n - 1) / 2) * 44`. `[AAA 2] [BBB 1] [CCC 1]`.
+- **teatro (`≥ 2.2`)**: resta la logica a 3 counter individuali + overflow. Il
+  `+N` è un bottone **neutro** (nessun colore/bandiera di polity), con aria
+  «Altri N reparti…»: nessuna attribuzione semantica errata.
+- **aria-label aggregata**: `"2 reparti Italia in Lombardia"`, mai
+  `"4 reparti Italia"` su uno stack misto.
+- **click aggregato**: drill-down filtrato per polity (`Reparti Italia in
+  Pianura`) con accesso esplicito a «Vedi tutti i N reparti della regione».
+  Il counter non finge che gli altri reparti siano della propria polity.
+- **conquista**: `region.owner = BBB` con reparti AAA non li naturalizza; i
+  gruppi restano `AAA` e `BBB`.
+- **fallback polity**: invariato, hash deterministico su `polityId`; mai
+  `region.owner` della provincia corrente.
+- **player/NPC/NPC–NPC**: stessa identica logica, ordine neutro, mai
+  «player first».
+
+## 6. Test
+
+Frontend `militaryMapModel.test.ts` — nuovi casi A–E:
+
+- **A** mixed polity (`AAA` 2 + `BBB` 1) → due gruppi 2/1, nessun gruppo da 3;
+- **B** ordine deterministico con input invertito → `AAA, BBB`;
+- **C** regione conquistata da `BBB` con reparti `AAA` → due gruppi distinti;
+- **D** NPC–NPC (`AUT` 2 + `HUN` 2) → due aggregati;
+- **E** polity singola `AAA` 4 → un gruppo con overflow 1 (nessuna regressione).
+
+E2E `map-p2-military.spec.mjs` — nuovi scenari:
+
+- **H** refresh fallito (units ok, fronts 500): counter/fronti/rotte spariscono,
+  base map e messaggio d'errore restano; un refresh valido successivo ripristina
+  l'overlay;
+- **K** race: richiesta A lenta, richiesta B recente, A completa dopo e non
+  sovrascrive B (request-id guard);
+- **L** zoom mondo con `ITA 2 + AUT 1` nella stessa provincia: due counter
+  aggregati distinti (`data-unit-polity="ITA"`/`"AUT"`), nessun `ITA 3`,
+  drill-down filtrato per polity.
+
+## 7. Gate
+
+| Gate | Esito |
+|---|---|
+| Backend `npx tsc --noEmit` | ✅ (nessuna modifica backend) |
+| Backend `npx vitest run` | ✅ 164 file / 1711 test |
+| Backend `npm run build` | ✅ |
+| Frontend `npx tsc --noEmit` | ✅ |
+| Frontend `npx vitest run` | ✅ 69 file / 530 test |
+| Frontend `npm run build` | ✅ |
+| E2E `npm run test:e2e:mock` | ✅ 69/69 (66 + 3 P2.1) |
+| A11y `npm run test:a11y` | ✅ 3/3 |
+| Perf `npm run test:perf` | ✅ entro baseline |
+
+## Conferme finali P2.1
+
+- **refresh failure = fail closed**
+- **nessuno stale snapshot mostrato come current**
+- **units + fronts restano uno snapshot UI atomico**
+- **world aggregation preserva `polityId`**
+- **conquista non naturalizza i reparti**
+- **player/NPC/NPC–NPC stessa logica**
+- **P6 movement invariato**
+- **TacticalOverlay invariato**
+- **nessun backend military logic modificato**
+- **nessun grande refactor**

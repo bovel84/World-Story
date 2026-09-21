@@ -312,3 +312,83 @@ describe('MAP P2 — persistent military map read model', () => {
     expect(model.legacyObjects.map(item => item.id)).toEqual(['old-army']);
   });
 });
+
+describe('MAP P2.1 — world aggregation preserves polityId', () => {
+  it('A — aggregates a region by regionId + polityId instead of merging nationalities', () => {
+    const model = buildMilitaryMapModel({
+      regions: [region('r', 'BBB')],
+      units: [
+        unit('u1', 'AAA', 'r'),
+        unit('u2', 'AAA', 'r'),
+        unit('u3', 'BBB', 'r'),
+      ],
+      fronts: [],
+    });
+
+    expect(model.groupsByRegion.r.map(group => [group.polityId, group.total]))
+      .toEqual([['AAA', 2], ['BBB', 1]]);
+    // Nessun gruppo AAA che rivendica i tre reparti: la somma per polity resta distinta.
+    expect(model.groupsByRegion.r.find(group => group.polityId === 'AAA')?.units.map(item => item.id))
+      .toEqual(['u1', 'u2']);
+    expect(model.groupsByRegion.r.every(group => group.total !== 3)).toBe(true);
+    // Lo stack regionale completo resta disponibile per il drill-down.
+    expect(model.stacksByRegion.r.total).toBe(3);
+  });
+
+  it('B — orders groups deterministically (polityId ASC) regardless of input order', () => {
+    const regions = [region('r', 'AAA')];
+    const units = [
+      unit('u1', 'AAA', 'r'), unit('u2', 'BBB', 'r'),
+      unit('u3', 'AAA', 'r'), unit('u4', 'BBB', 'r'),
+    ];
+
+    const first = buildMilitaryMapModel(regions, units);
+    const second = buildMilitaryMapModel(regions, [...units].reverse());
+
+    expect(first.groupsByRegion.r.map(group => group.polityId)).toEqual(['AAA', 'BBB']);
+    expect(second.groupsByRegion.r.map(group => group.polityId)).toEqual(['AAA', 'BBB']);
+    expect(first.groupsByRegion.r.map(group => group.units.map(item => item.id)))
+      .toEqual(second.groupsByRegion.r.map(group => group.units.map(item => item.id)));
+  });
+
+  it('C — does not naturalize units inside a conquered region', () => {
+    const model = buildMilitaryMapModel({
+      regions: [region('conquered', 'BBB')],
+      units: [unit('visitor', 'AAA', 'conquered'), unit('garrison', 'BBB', 'conquered')],
+      fronts: [],
+    });
+
+    expect(model.groupsByRegion.conquered.map(group => [group.polityId, group.total]))
+      .toEqual([['AAA', 1], ['BBB', 1]]);
+  });
+
+  it('D — keeps NPC–NPC armies in separate per-polity aggregates', () => {
+    const model = buildMilitaryMapModel({
+      regions: [region('shared', 'AUT')],
+      units: [
+        unit('aut-1', 'AUT', 'shared'), unit('aut-2', 'AUT', 'shared'),
+        unit('hun-1', 'HUN', 'shared'), unit('hun-2', 'HUN', 'shared'),
+      ],
+      fronts: [],
+    });
+
+    expect(model.groupsByRegion.shared.map(group => [group.polityId, group.total]))
+      .toEqual([['AUT', 2], ['HUN', 2]]);
+  });
+
+  it('E — a single polity keeps one aggregate with no regression', () => {
+    const model = buildMilitaryMapModel({
+      regions: [region('r', 'AAA')],
+      units: [
+        unit('u1', 'AAA', 'r'), unit('u2', 'AAA', 'r'),
+        unit('u3', 'AAA', 'r'), unit('u4', 'AAA', 'r'),
+      ],
+      fronts: [],
+    });
+
+    expect(model.groupsByRegion.r.map(group => [group.polityId, group.total])).toEqual([['AAA', 4]]);
+    // Il limite di densità del singolo gruppo (3 + overflow) è preservato.
+    expect(model.groupsByRegion.r[0]).toMatchObject({ total: 4, overflow: 1 });
+    expect(model.groupsByRegion.r[0].visible.map(item => item.id)).toEqual(['u1', 'u2', 'u3']);
+  });
+});

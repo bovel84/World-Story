@@ -87,7 +87,10 @@ export function MilitaryStateOverlay({
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [selectedFrontId, setSelectedFrontId] = useState<string | null>(null);
   const [selectedRegionStack, setSelectedRegionStack] = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<{ regionId: string; polityId: string } | null>(null);
   const arrowId = useId().replace(/:/g, '');
+
+  const regionNames = useMemo(() => new Map(regions.map(region => [region.id, region.name])), [regions]);
 
   useEffect(() => {
     let frame = 0;
@@ -133,6 +136,7 @@ export function MilitaryStateOverlay({
       setSelectedUnitId(null);
       setSelectedFrontId(null);
       setSelectedRegionStack(null);
+      setSelectedGroup(null);
     }
   }, [visible]);
 
@@ -140,7 +144,9 @@ export function MilitaryStateOverlay({
     if (selectedUnitId && !model.units.some(unit => unit.id === selectedUnitId)) setSelectedUnitId(null);
     if (selectedFrontId && !model.fronts.some(front => front.id === selectedFrontId)) setSelectedFrontId(null);
     if (selectedRegionStack && !model.stacksByRegion[selectedRegionStack]) setSelectedRegionStack(null);
-  }, [model, selectedFrontId, selectedRegionStack, selectedUnitId]);
+    if (selectedGroup && !model.groupsByRegion[selectedGroup.regionId]
+      ?.some(group => group.polityId === selectedGroup.polityId)) setSelectedGroup(null);
+  }, [model, selectedFrontId, selectedGroup, selectedRegionStack, selectedUnitId]);
 
   const projection = useMemo(() => {
     const canvas = map.getCanvas();
@@ -148,17 +154,30 @@ export function MilitaryStateOverlay({
     const height = canvas.clientHeight;
     const centerLng = map.getCenter().lng;
     const zoom = map.getZoom();
-    const units: Array<{ unit: MilitaryMapUnit; x: number; y: number; offset: number; aggregate?: number }> = [];
+    const units: Array<{
+      unit: MilitaryMapUnit; x: number; y: number; offset: number;
+      aggregate?: number; groupPolityId?: string;
+    }> = [];
     const overflows: Array<{ regionId: string; count: number; total: number; x: number; y: number }> = [];
 
     for (const [regionId, stack] of Object.entries(model.stacksByRegion)) {
       const anchor = model.regionAnchors[regionId];
       if (!anchor) continue;
       const point = map.project(nearCamera(anchor, centerLng));
-      if (point.x < -70 || point.x > width + 70 || point.y < -70 || point.y > height + 70) continue;
+      if (point.x < -90 || point.x > width + 90 || point.y < -70 || point.y > height + 70) continue;
       if (zoom < 2.2) {
-        const lead = stack.visible[0];
-        if (lead) units.push({ unit: lead, x: point.x, y: point.y, offset: 0, aggregate: stack.total });
+        // Zoom mondo: un counter aggregato per polity. Mai mescolare le
+        // nazionalità: [AAA 2] [BBB 1], con offset deterministici.
+        const groups = model.groupsByRegion[regionId] || [];
+        groups.forEach((group, index) => {
+          const lead = group.visible[0];
+          if (!lead) return;
+          units.push({
+            unit: lead, x: point.x, y: point.y,
+            offset: (index - (groups.length - 1) / 2) * 44,
+            aggregate: group.total, groupPolityId: group.polityId,
+          });
+        });
         continue;
       }
       stack.visible.forEach((unit, index) => units.push({
@@ -200,10 +219,29 @@ export function MilitaryStateOverlay({
   const selectedUnit = model.units.find(unit => unit.id === selectedUnitId) ?? null;
   const selectedFront = model.fronts.find(front => front.id === selectedFrontId) ?? null;
   const selectedStack = selectedRegionStack ? model.unitsByRegion[selectedRegionStack] || [] : [];
-  const dialogOpen = Boolean(selectedUnit || selectedFront || selectedRegionStack);
-  const closeDialog = () => { setSelectedUnitId(null); setSelectedFrontId(null); setSelectedRegionStack(null); };
-  const selectUnit = (id: string) => { setSelectedFrontId(null); setSelectedRegionStack(null); setSelectedUnitId(id); };
-  const selectFront = (id: string) => { setSelectedUnitId(null); setSelectedRegionStack(null); setSelectedFrontId(id); };
+  const selectedGroupUnits = selectedGroup
+    ? model.groupsByRegion[selectedGroup.regionId]?.find(group => group.polityId === selectedGroup.polityId)?.units ?? []
+    : [];
+  const selectedGroupPolity = selectedGroup ? model.polities[selectedGroup.polityId] : null;
+  const selectedGroupRegionName = selectedGroup
+    ? regionNames.get(selectedGroup.regionId) || selectedGroup.regionId : '';
+  const selectedGroupRegionTotal = selectedGroup
+    ? model.unitsByRegion[selectedGroup.regionId]?.length || 0 : 0;
+  const dialogOpen = Boolean(selectedUnit || selectedFront || selectedRegionStack || selectedGroup);
+  const closeDialog = () => {
+    setSelectedUnitId(null); setSelectedFrontId(null);
+    setSelectedRegionStack(null); setSelectedGroup(null);
+  };
+  const selectUnit = (id: string) => {
+    setSelectedFrontId(null); setSelectedRegionStack(null); setSelectedGroup(null); setSelectedUnitId(id);
+  };
+  const selectFront = (id: string) => {
+    setSelectedUnitId(null); setSelectedRegionStack(null); setSelectedGroup(null); setSelectedFrontId(id);
+  };
+  const selectGroup = (regionId: string, polityId: string) => {
+    setSelectedUnitId(null); setSelectedFrontId(null); setSelectedRegionStack(null);
+    setSelectedGroup({ regionId, polityId });
+  };
 
   return <>
     <svg className="military-state-routes" aria-hidden="true">
@@ -234,15 +272,18 @@ export function MilitaryStateOverlay({
     </div>
 
     <div className="military-state-units">
-      {projection.units.map(({ unit, x, y, offset, aggregate }) => <button type="button" key={`${unit.regionId}:${unit.id}`}
+      {projection.units.map(({ unit, x, y, offset, aggregate, groupPolityId }) => <button type="button" key={`${unit.regionId}:${unit.id}`}
         className={`military-unit-counter status-${unit.status}${unit.movement ? ' moving' : ''}${aggregate ? ' aggregate' : ''}`}
         data-unit-id={unit.id} data-unit-polity={unit.polityId} data-unit-region={unit.regionId || ''}
         data-unit-status={unit.status} data-unit-moving={unit.movement ? 'true' : 'false'}
+        data-unit-aggregate={aggregate ? String(aggregate) : ''}
         style={{ left: x + offset, top: y, '--unit-color': unit.polity.color } as CSSProperties}
         aria-label={aggregate
-          ? `${aggregate} reparti in ${unit.regionName || unit.regionId}, apri elenco`
+          ? `${aggregate} reparti ${unit.polity.name} in ${regionNames.get(unit.regionId || '') || unit.regionName || unit.regionId}, apri elenco`
           : `${unit.name}, ${unit.polity.name}, ${unit.personnel.toLocaleString('it-IT')} uomini, ${STATUS_LABEL[unit.status] || unit.status}${unit.movement ? ', in trasferimento' : ''}`}
-        onClick={() => aggregate ? setSelectedRegionStack(unit.regionId) : selectUnit(unit.id)}>
+        onClick={() => aggregate
+          ? (groupPolityId ? selectGroup(unit.regionId as string, groupPolityId) : setSelectedRegionStack(unit.regionId))
+          : selectUnit(unit.id)}>
         <span className="military-counter-visual"><MilitaryCounterSymbol /><b>{aggregate || ''}</b></span>
         <span className="military-counter-flag" aria-hidden="true">{unit.polity.flag || unit.polityId.slice(0, 3)}</span>
         <span className="military-counter-state" aria-hidden="true">{unit.movement ? '→' : unit.status === 'retreating' ? '↙' : unit.status === 'degraded' ? '!' : ''}</span>
@@ -257,9 +298,10 @@ export function MilitaryStateOverlay({
     {!error && loading && <div className="military-state-loading" role="status">Aggiornamento situazione militare…</div>}
 
     <AccessibleDialog open={dialogOpen} onClose={closeDialog} className="military-state-report"
-      overlayClassName="military-state-report-backdrop" ariaLabel={selectedUnit ? `Reparto ${selectedUnit.name}` : selectedFront ? `Fronte ${selectedFront.name}` : 'Reparti nella regione'}>
+      overlayClassName="military-state-report-backdrop" ariaLabel={selectedUnit ? `Reparto ${selectedUnit.name}` : selectedFront ? `Fronte ${selectedFront.name}` : selectedGroup ? `Reparti ${selectedGroupPolity?.name || selectedGroup.polityId} in ${selectedGroupRegionName}` : 'Reparti nella regione'}>
       <header>
-        <div><small>STATO OPERATIVO ATTUALE</small><h2>{selectedUnit?.name || selectedFront?.name || 'Reparti nella regione'}</h2></div>
+        <div><small>STATO OPERATIVO ATTUALE</small><h2>{selectedUnit?.name || selectedFront?.name
+          || (selectedGroup ? `Reparti ${selectedGroupPolity?.name || selectedGroup.polityId} in ${selectedGroupRegionName}` : 'Reparti nella regione')}</h2></div>
         <button type="button" onClick={closeDialog} aria-label="Chiudi dettaglio militare">×</button>
       </header>
 
@@ -270,6 +312,17 @@ export function MilitaryStateOverlay({
           const target = selectedFront.objectiveRegionId || selectedFront.regionIds[0];
           if (target) onFocusRegion(target);
         }} />}
+      {selectedGroup && <section className="military-stack-detail" data-polity-group-region={selectedGroup.regionId}
+        data-polity-group={selectedGroup.polityId}>
+        <p>{selectedGroupUnits.length} reparti {selectedGroupPolity?.name || selectedGroup.polityId} in {selectedGroupRegionName}. L’ordine è deterministico; nessun reparto è scartato.</p>
+        <ul>{selectedGroupUnits.map(unit => <li key={unit.id}><button type="button" onClick={() => selectUnit(unit.id)}>
+          <span><strong>{unit.name}</strong><small>{unit.polity.name} · {STATUS_LABEL[unit.status] || unit.status}{unit.movement ? ' · in trasferimento' : ''}</small></span><span>↗</span>
+        </button></li>)}</ul>
+        {selectedGroupRegionTotal > selectedGroupUnits.length && <button type="button"
+          onClick={() => { setSelectedGroup(null); setSelectedRegionStack(selectedGroup.regionId); }}>
+          Vedi tutti i {selectedGroupRegionTotal} reparti della regione ↗
+        </button>}
+      </section>}
       {selectedRegionStack && <section className="military-stack-detail">
         <p>{selectedStack.length} reparti persistenti. L’ordine è deterministico; nessun reparto è scartato.</p>
         <ul>{selectedStack.map(unit => <li key={unit.id}><button type="button" onClick={() => selectUnit(unit.id)}>
