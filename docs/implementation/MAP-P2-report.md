@@ -206,10 +206,10 @@ isolamento/seriale.
   **visibili** e non autorizzati alle azioni.
 - **Persistenza** save/rewind/branch: intatta, nessuna scrittura nuova.
 
-Limite residuo: l'E2E copre il **lifecycle di refresh** (cambio data/revisione
-che rifetcha units+fronts) e non il flusso del pulsante di rewind, che resta
-coperto dai test backend di P6 e dal refresh reattivo. Il rifetch segue
-`gameId`, `currentTurn`, `currentDate`, `worldRevision`, `headBranchId`.
+Limite residuo: **chiuso da MAP P2.2** (vedi sezione dedicata). L'E2E ora
+verifica direttamente che rewind e checkpoint restore rileggano lo stato
+militare persistente attraverso gli stessi trigger del lifecycle reale
+(`gameId`, `currentTurn`, `currentDate`, `worldRevision`, `headBranchId`).
 
 ## 13. Limiti residui
 
@@ -386,4 +386,100 @@ E2E `map-p2-military.spec.mjs` — nuovi scenari:
 - **P6 movement invariato**
 - **TacticalOverlay invariato**
 - **nessun backend military logic modificato**
+- **nessun grande refactor**
+
+---
+
+# MAP P2.2 — rewind/checkpoint restore verification
+
+Micro-fix di **sola verifica**: nessun bug noto, nessuna modifica architetturale,
+nessun file produttivo toccato. L'unica modifica è di test E2E + report.
+
+## Lacuna chiusa
+
+Il report MAP P2 dichiarava che l'E2E copriva il lifecycle di refresh (cambio
+data/revisione) ma non il flusso esplicito `movement progress → rewind/restore →
+refetch → ritorno allo stato del checkpoint`. Questa sezione la chiude.
+
+## Principio verificato
+
+La mappa non possiede alcuno storico militare. Dopo rewind/restore il percorso è
+sempre lo stesso:
+
+```text
+backend persistent state
+      ↓
+game state refresh (turno / data / revisione / branch)
+      ↓
+useNationSnapshot
+      ↓
+GET military/units + military/fronts
+      ↓
+MilitaryStateOverlay
+```
+
+Nessun rollback frontend del movimento, nessuna cache temporale militare,
+nessuna copia dello stato precedente, nessuna logica speciale dentro
+`MilitaryStateOverlay` o `militaryMapModel`.
+
+## Test E2E
+
+Fixture dedicata (`rewindGame`, regioni `A`/`B`/`C`) e helper `applyGameState`
+che cambia **gli stessi trigger del lifecycle reale** (`currentTurn`,
+`currentDate`, `worldRevision`, `headBranchId`) facendo rispondere alle API
+militari lo snapshot del checkpoint. Nessun percorso privilegiato.
+
+- **MAP P2.2 / M — rewind ripristina posizione e rotta P6 del checkpoint**
+  - Snapshot A (checkpoint): `regionId = A`, `pathIndex = 0`, rotta `A,B,C`,
+    `remainingDaysToNextHop = 15`, ETA `03.03.1951`;
+  - avanzamento → Snapshot B: `regionId = B`, `pathIndex = 1`, rotta `B,C`,
+    `remainingDaysToNextHop = 10`, ETA `26.02.1951`;
+  - **rewind** → di nuovo A: counter in `A`, rotta `A,B,C`, dettaglio P6
+    (`A → B`, `0 / 2`, 15 giorni, 03.03.1951) e **assenza** dei valori futuri.
+
+- **MAP P2.2 / N — checkpoint restore rilegge il movimento dal nuovo branch**
+  - partenza da Snapshot B;
+  - restore con `headBranchId = branch-restored`, `worldRevision`/`currentDate`
+    riavvolti al checkpoint e API che restituiscono A;
+  - atteso: counter in `A`, rotta `A,B,C`, e nessuna traccia del branch futuro.
+
+Verificato esplicitamente nel DOM, oltre al counter:
+
+- `data-unit-region` = posizione ripristinata;
+- `data-route-path` = rotta ripristinata (`path.slice(pathIndex)`);
+- dettaglio P6: destinazione, tratta corrente, `Tratte` (`pathIndex / totalHops`),
+  `remainingDaysToNextHop`, `estimatedArrivalDate`;
+- **nessun ghost counter**: `[data-unit-id="ita-move"]` sempre `toHaveCount(1)`,
+  mai A e B insieme;
+- **nessuna ghost route**: `[data-movement-unit-id="ita-move"]` sempre
+  `toHaveCount(1)` e `[data-route-path="B,C"]` assente dopo il ripristino.
+
+## Race safety
+
+Il test **K** di P2.1 (risposta lenta che non sovrascrive quella recente) resta
+verde e convive con rewind/restore senza workaround: `militaryRequest.current`
+non è stato modificato.
+
+## Gate P2.2
+
+| Gate | Esito |
+|---|---|
+| Frontend `npx tsc --noEmit` | ✅ |
+| Frontend `npx vitest run` | ✅ 69 file / 530 test |
+| Frontend `npm run build` | ✅ |
+| E2E `npm run test:e2e:mock` | ✅ 71/71 (69 + 2 P2.2) |
+| A11y `npm run test:a11y` | ✅ 3/3 |
+| Perf `npm run test:perf` | ✅ entro baseline |
+| Backend | invariato (nessun file toccato) |
+
+## Conferme finali P2.2
+
+- **rewind non usa stato militare frontend**
+- **checkpoint restore non ricostruisce movement nel browser**
+- **`MilitaryUnitState` persistente resta authority**
+- **P6 path viene riletto, non ricalcolato**
+- **nessuna cache temporale militare nuova**
+- **P2.1 fail-closed invariata**
+- **P2.1 multi-polity aggregation invariata**
+- **MILITARY P4–P6 invariata**
 - **nessun grande refactor**

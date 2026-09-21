@@ -104,6 +104,35 @@ SNAPSHOTS.mixed = {
 // Fallimento parziale: units risponde, fronts no → snapshot UI atomico non pubblicato.
 SNAPSHOTS.failure = { units: SNAPSHOTS.before.units, failFronts: true };
 
+// ---------------------------------------------------------------------------
+// MAP P2.2 — rewind / checkpoint restore di un trasferimento P6 a metà.
+// Mondo dedicato A/B/C, così le transizioni sono esplicite e non riusano le
+// fixture `before`/`after` di P2 (che servono anche ai test di conquista).
+// ---------------------------------------------------------------------------
+const rewindTerritory = (id, west) => territory(
+  id, `Regione ${id}`, '#609f87', polygon(west, 40, west + 10, 50), 'ITA', 'Italia',
+);
+const rewindGame = {
+  ...MOCK_GAME,
+  players: [{ id: 'player', regionId: 'A', polityId: 'ITA', name: 'Player' }],
+  world: { ...MOCK_GAME.world, regions: {
+    A: rewindTerritory('A', 0),
+    B: rewindTerritory('B', 10),
+    C: rewindTerritory('C', 20),
+  } },
+};
+
+// Snapshot A — checkpoint iniziale: nessun hop percorso.
+const movementCheckpoint = {
+  path: ['A', 'B', 'C'], targetRegionId: 'C', targetRegionName: 'Regione C',
+  startedDate: '1951-02-01', pathIndex: 0, daysPerHop: 15, remainingDaysToNextHop: 15,
+  totalHops: 2, estimatedArrivalDate: '1951-03-03', motorized: true,
+};
+// Snapshot B — dopo il primo hop: posizione e progresso avanzati.
+const movementAdvanced = { ...movementCheckpoint, pathIndex: 1, remainingDaysToNextHop: 10, estimatedArrivalDate: '1951-02-26' };
+SNAPSHOTS.rewindA = { units: [unit('ita-move', 'ITA', 'A', { movement: movementCheckpoint })], fronts: [] };
+SNAPSHOTS.rewindB = { units: [unit('ita-move', 'ITA', 'B', { movement: movementAdvanced })], fronts: [] };
+
 async function installStoreBridge(page) {  await page.addInitScript(() => {
     const moduleUrl = (pattern) => performance.getEntriesByType('resource')
       .map(entry => entry.name).filter(url => pattern.test(url)).at(-1);
@@ -120,7 +149,7 @@ async function installStoreBridge(page) {  await page.addInitScript(() => {
 }
 
 /** Apre la mappa con le fixture MAP P2 e restituisce il controllo di fase. */
-async function openMilitaryMap(page, phase = 'before') {
+async function openMilitaryMap(page, phase = 'before', worldGame = game) {
   installMockApi(page);
   await installStoreBridge(page);
   // Le fixture militari sono registrate DOPO il mock base: hanno la precedenza.
@@ -157,10 +186,10 @@ async function openMilitaryMap(page, phase = 'before') {
     const { useGameStore, useUIStore } = await window.__wsAppModules();
     const overrides = (window.__phase === 'after') ? { AUT1: 'ITA' } : {};
     const regions = { ...game.world.regions };
-    for (const [id, owner] of Object.entries(overrides)) regions[id] = { ...regions[id], owner };
+    for (const [id, owner] of Object.entries(overrides)) if (regions[id]) regions[id] = { ...regions[id], owner };
     useGameStore.setState({ currentWorld: { ...game.world, regions }, currentGame: game, selectedCountry: 'ITA', selectedRegion: null });
     useUIStore.setState({ currentView: 'game', activeModule: 'none' });
-  }, { game, phase });
+  }, { game: worldGame, phase });
   await expect(page.getByRole('searchbox', { name: 'Cerca territorio o città' })).toBeEnabled();
 }
 
@@ -182,6 +211,37 @@ async function switchPhase(page, phase) {
       currentGame: { ...state.currentGame, worldRevision: revision, currentDate: '1951-02-01' },
     });
   }, phase);
+  await expect.poll(() => page.evaluate(() => window.__phase)).toBe(phase);
+  await page.waitForTimeout(400);
+}
+
+/**
+ * Applica una transizione di stato di gioco (advance / rewind / restore) usando
+ * gli stessi trigger del lifecycle reale: turno, data, revisione e branch devono
+ * cambiare perché `useNationSnapshot` rilegga le API militari persistenti.
+ * Nessun rollback frontend, nessuna cache: solo lo stato autorevole che cambia.
+ */
+async function applyGameState(page, { phase, currentTurn, currentDate, worldRevision, headBranchId, regionOwners = {} }) {
+  page.__phase = phase;
+  await page.evaluate(async next => {
+    window.__phase = next.phase;
+    const { useGameStore } = await window.__wsAppModules();
+    const state = useGameStore.getState();
+    const regions = { ...state.currentWorld.regions };
+    for (const [id, owner] of Object.entries(next.regionOwners)) {
+      if (regions[id]) regions[id] = { ...regions[id], owner };
+    }
+    useGameStore.setState({
+      currentWorld: { ...state.currentWorld, regions },
+      currentGame: {
+        ...state.currentGame,
+        ...(next.currentTurn !== undefined ? { currentTurn: next.currentTurn } : {}),
+        ...(next.currentDate !== undefined ? { currentDate: next.currentDate } : {}),
+        ...(next.worldRevision !== undefined ? { worldRevision: next.worldRevision } : {}),
+        ...(next.headBranchId !== undefined ? { headBranchId: next.headBranchId } : {}),
+      },
+    });
+  }, { phase, currentTurn, currentDate, worldRevision, headBranchId, regionOwners });
   await expect.poll(() => page.evaluate(() => window.__phase)).toBe(phase);
   await page.waitForTimeout(400);
 }
@@ -365,4 +425,80 @@ test('MAP P2.1 / L — zoom mondo: aggregati separati per polity, nessuna somma 
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('2 reparti Italia in Pianura');
   await expect(dialog).toContainText('Vedi tutti i 3 reparti della regione');
+});
+
+test('MAP P2.2 / M — rewind ripristina posizione e rotta P6 del checkpoint', async ({ page }) => {
+  await openMilitaryMap(page, 'rewindA', rewindGame);
+  await page.evaluate(() => window.__testMap.jumpTo({ center: [15, 45], zoom: 3.4 }));
+
+  // --- Snapshot A: checkpoint iniziale (nessun hop percorso). ---
+  await expect(counter(page, 'ita-move')).toHaveCount(1);
+  await expect(counter(page, 'ita-move')).toHaveAttribute('data-unit-region', 'A');
+  await expect(counter(page, 'ita-move')).toHaveAttribute('data-unit-moving', 'true');
+  await expect(route(page, 'ita-move')).toHaveCount(1);
+  await expect(route(page, 'ita-move')).toHaveAttribute('data-route-path', 'A,B,C');
+  await counter(page, 'ita-move').click();
+  const dialog = page.getByRole('dialog', { name: 'Reparto ita-move' });
+  await expect(dialog).toContainText('A → B');
+  await expect(dialog).toContainText('0 / 2');
+  await expect(dialog).toContainText('15 giorni');
+  await expect(dialog).toContainText('03.03.1951');
+  await page.getByRole('button', { name: 'Chiudi dettaglio militare' }).click();
+
+  // --- Avanzamento: Snapshot B, primo hop percorso. ---
+  await applyGameState(page, { phase: 'rewindB', worldRevision: 2, currentTurn: 2, currentDate: '1951-02-16' });
+  await expect(counter(page, 'ita-move')).toHaveCount(1);
+  await expect(counter(page, 'ita-move')).toHaveAttribute('data-unit-region', 'B');
+  await expect(route(page, 'ita-move')).toHaveAttribute('data-route-path', 'B,C');
+  await counter(page, 'ita-move').click();
+  await expect(dialog).toContainText('B → C');
+  await expect(dialog).toContainText('1 / 2');
+  await expect(dialog).toContainText('10 giorni');
+  await expect(dialog).toContainText('26.02.1951');
+  await page.getByRole('button', { name: 'Chiudi dettaglio militare' }).click();
+
+  // --- Rewind: turno, data e revisione riavvolti al checkpoint A. ---
+  await applyGameState(page, { phase: 'rewindA', worldRevision: 1, currentTurn: 1, currentDate: '1951-02-01' });
+  // Nessun ghost counter: una sola rappresentazione, di nuovo in A.
+  await expect(counter(page, 'ita-move')).toHaveCount(1);
+  await expect(counter(page, 'ita-move')).toHaveAttribute('data-unit-region', 'A');
+  // Nessuna ghost route: solo la rotta ripristinata, nessuna copia di B,C.
+  await expect(route(page, 'ita-move')).toHaveCount(1);
+  await expect(route(page, 'ita-move')).toHaveAttribute('data-route-path', 'A,B,C');
+  await expect(page.locator('[data-route-path="B,C"]')).toHaveCount(0);
+  // Il dettaglio P6 riflette il checkpoint, non lo stato futuro.
+  await counter(page, 'ita-move').click();
+  await expect(dialog).toContainText('A → B');
+  await expect(dialog).toContainText('0 / 2');
+  await expect(dialog).toContainText('15 giorni');
+  await expect(dialog).toContainText('03.03.1951');
+  await expect(dialog).not.toContainText('26.02.1951');
+  await expect(dialog).not.toContainText('1 / 2');
+});
+
+test('MAP P2.2 / N — checkpoint restore rilegge il movimento dal nuovo branch', async ({ page }) => {
+  await openMilitaryMap(page, 'rewindB', rewindGame);
+  await page.evaluate(() => window.__testMap.jumpTo({ center: [15, 45], zoom: 3.4 }));
+
+  // Si parte da uno stato avanzato (branch futuro).
+  await expect(counter(page, 'ita-move')).toHaveAttribute('data-unit-region', 'B');
+  await expect(route(page, 'ita-move')).toHaveAttribute('data-route-path', 'B,C');
+
+  // Restore su un nuovo branch: headBranchId cambia insieme a revisione e data.
+  await applyGameState(page, {
+    phase: 'rewindA', headBranchId: 'branch-restored',
+    worldRevision: 1, currentTurn: 1, currentDate: '1951-02-01',
+  });
+
+  await expect.poll(() => page.evaluate(async () => {
+    const { useGameStore } = await window.__wsAppModules();
+    return useGameStore.getState().currentGame.headBranchId;
+  })).toBe('branch-restored');
+  await expect(counter(page, 'ita-move')).toHaveCount(1);
+  await expect(counter(page, 'ita-move')).toHaveAttribute('data-unit-region', 'A');
+  await expect(route(page, 'ita-move')).toHaveCount(1);
+  await expect(route(page, 'ita-move')).toHaveAttribute('data-route-path', 'A,B,C');
+  // La rappresentazione del branch futuro non sopravvive da nessuna parte.
+  await expect(page.locator('[data-route-path="B,C"]')).toHaveCount(0);
+  await expect(page.locator('[data-unit-region="B"]')).toHaveCount(0);
 });
