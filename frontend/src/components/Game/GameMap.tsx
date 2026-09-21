@@ -44,6 +44,8 @@ export interface GameMapProps {
   militaryStateError?: string | null;
   /** MAP P3 — relazioni canoniche per il layer Diplomazia. */
   relationships?: Record<string, Record<string, string>> | null;
+  /** MAP P5 — candidati risorsa canonici: stessi input di mappa e dossier. */
+  resourceCandidates?: readonly import('../Map/thematicMapModel').ResourceSiteCandidate[];
   showFlags: boolean;
   playerCountryCode: string;
   /** Nessuna geometria disponibile: torna agli scenari. */
@@ -71,6 +73,7 @@ export function GameMap({
   militaryStateLoading,
   militaryStateError,
   relationships,
+  resourceCandidates,
   showFlags,
   playerCountryCode,
   onBackToScenarios,
@@ -99,6 +102,7 @@ export function GameMap({
           militaryStateLoading={militaryStateLoading}
           militaryStateError={militaryStateError}
           relationships={relationships}
+          resourceCandidates={resourceCandidates}
           showFlags={showFlags}
           playerCountryCode={playerCountryCode}
         />

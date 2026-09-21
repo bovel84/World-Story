@@ -37,6 +37,7 @@ import {
   mapLayerPresentation,
   thematicFillExpression,
   thematicUnavailableMessage,
+  type ResourceSiteCandidate,
   type ThematicMapModel,
 } from './thematicMapModel';
 import './map.css';
@@ -171,6 +172,11 @@ interface MapboxMapViewProps {
   militaryStateError?: string | null;
   /** MAP P3 — relazioni canoniche `player → altro → tipo` per il layer Diplomazia. */
   relationships?: Record<string, Record<string, string>> | null;
+  /**
+   * MAP P5 — candidati risorsa pubblicati dal motore. Solo quelli con `regionId`
+   * canonico diventano siti: la mappa e il dossier tematico usano gli stessi.
+   */
+  resourceCandidates?: readonly ResourceSiteCandidate[];
 }
 
 
@@ -261,6 +267,7 @@ const GRATICULE_LAYER_ID = 'graticule-line';
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 const EMPTY_UNITS: MilitaryUnitPayload[] = [];
 const EMPTY_FRONTS: WarFrontPayload[] = [];
+const EMPTY_RESOURCE_CANDIDATES: readonly ResourceSiteCandidate[] = [];
 
 // Griglia di coordinate (in gradi) come geojson proprio — senza sorgenti esterne
 const buildGraticule = (): GeoJSON.FeatureCollection => {
@@ -397,6 +404,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   militaryStateLoading = false,
   militaryStateError = null,
   relationships = null,
+  resourceCandidates = EMPTY_RESOURCE_CANDIDATES,
 }) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -455,8 +463,8 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   // MAP P3 — read model tematico puro: economia, diplomazia, infrastrutture,
   // risorse. Costruito solo da stato canonico, mai persistito.
   const thematic = useMemo<ThematicMapModel>(() => buildThematicMapModel({
-    regions, relationships, playerPolityId: playerCountryCode,
-  }), [regions, relationships, playerCountryCode]);
+    regions, relationships, playerPolityId: playerCountryCode, resourceCandidates,
+  }), [regions, relationships, playerCountryCode, resourceCandidates]);
   const layerPresentation = mapLayerPresentation(activeLayer);
   const thematicMessage = thematicUnavailableMessage(activeLayer, thematic);
   const infrastructureLayerTypes = useMemo(

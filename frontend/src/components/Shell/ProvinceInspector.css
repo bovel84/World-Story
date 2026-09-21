@@ -60,10 +60,28 @@
 .context-actions .obj-delta { display: table; table-layout: fixed; }
 .context-actions .obj-delta :is(th, td) { overflow-wrap: anywhere; }
 
+/* MAP P5 — contesto tematico: il layer attivo spiega sé stesso, testualmente. */
+.thematic-context { background: linear-gradient(180deg, #16232c 0%, transparent 100%); }
+.thematic-hint { margin: 0 0 8px; color: #9db2c0; font-size: 11px; line-height: 1.45; }
+.thematic-facts { display: grid; gap: 6px; margin: 0; }
+.thematic-facts > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto); align-items: baseline; gap: 10px; padding: 7px 9px; background: #17252f; }
+.thematic-facts dt { color: #91a7b5; font-size: 10px; }
+.thematic-facts dd { display: flex; align-items: center; gap: 6px; margin: 0; color: #ecf3f7; font: 700 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; overflow-wrap: anywhere; }
+.thematic-swatch { width: 14px; height: 14px; border: 1px solid #4d6373; border-radius: 2px; flex: none; }
+.thematic-group { margin-top: 10px; }
+.thematic-group h4 { display: flex; justify-content: space-between; gap: 10px; margin: 0 0 6px; color: #c7d7df; font-size: 12px; }
+.thematic-change { padding: 10px; border-left: 3px solid var(--ws-attention, #edc36c); background: #16212a; color: #e6d3a8; font-size: 12px; }
+.polity-context { background: linear-gradient(180deg, #161f2c 0%, transparent 100%); }
+.polity-context > header h3 { color: #ccdcec; }
+
 @media (max-width: 767px) {
   .map-context-inspector .province-inspector-body { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
   .context-unit-row > button { grid-template-columns: minmax(0, 1fr) auto; }
   .context-unit-metrics { grid-column: 1 / -1; text-align: left; }
   .context-breadcrumb button { min-height: 44px; }
   .context-actions .obj-action > .obj-action-buttons { position: sticky; bottom: 0; z-index: 2; padding: 8px 0; background: var(--ws-surface-command, #111c24); }
+  /* MAP P5 — nessuna tabella larga: i fatti tematici vanno a colonna singola. */
+  .thematic-facts > div { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .thematic-facts dd { text-align: left; }
+  .thematic-swatch { width: 12px; height: 12px; }
 }

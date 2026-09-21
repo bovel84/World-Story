@@ -1,7 +1,9 @@
 import { useEffect, useId, useMemo, useRef, type RefObject } from 'react';
 import type {
+  Commitment,
   MilitaryUnitPayload,
   OperatingPicturePayload,
+  PowerAgenda,
   UnitActionImpactPayload,
   UnitActionRequest,
   UnitOrderImpactPayload,
@@ -11,6 +13,14 @@ import type {
 import type { Region } from '../../types';
 import { constructionReport } from '../../utils/construction';
 import { UnitActionPanel } from '../Game/UnitActionPanel';
+import type { MapLayer } from '../Map/mapModel';
+import {
+  buildRegionThematicContext,
+  layerHasThematicSection,
+  showsPolityContext,
+  type RegionThematicContext,
+} from '../Map/mapThematicContext';
+import type { ThematicMapModel } from '../Map/thematicMapModel';
 import {
   operatingObjectForUnit,
   playerControlsUnit,
@@ -27,6 +37,14 @@ interface ProvinceInspectorProps {
   operatingPicture?: OperatingPicturePayload | null;
   /** Invalida i dry-run su turno/data/revisione/ramo. */
   snapshotKey: string;
+  /** MAP P5 — layer che il giocatore sta osservando. Non entra nella selection. */
+  activeLayer: MapLayer;
+  /** MAP P5 — modello tematico P3: la **stessa** istanza che disegna la mappa. */
+  thematicModel: ThematicMapModel;
+  relationships?: Record<string, Record<string, string>> | null;
+  changedRegionIds?: readonly string[];
+  strategicAgenda?: { powers: PowerAgenda[] } | null;
+  commitments?: readonly Commitment[] | null;
   onClose: () => void;
   onSelectRegion: (regionId: string) => void;
   onSelectUnit: (unitId: string) => void;
@@ -36,6 +54,9 @@ interface ProvinceInspectorProps {
   onUnitAction?: (request: UnitActionRequest) => Promise<UnitActionImpactPayload>;
   onUnitOrder?: (request: UnitOrderRequest) => Promise<UnitOrderImpactPayload>;
 }
+
+/** Etichette leggibili per i tipi tecnici del read model (nessun dato inventato). */
+const RESOURCE_KIND_LABELS: Record<string, string> = { mine: 'Sito estrattivo' };
 
 const STATUS_LABEL: Record<string, string> = {
   forming: 'In formazione', operational: 'Operativo', degraded: 'Degradato',
@@ -96,10 +117,157 @@ function InspectorHeader({ eyebrow, title, code, color, onClose, headingId, head
   </header>;
 }
 
-function RegionContext({ region, index, allRegions, playerPolityId, onSelectUnit, onSelectFront, onOpenArmedForces }: {
+/**
+ * MAP P5 — sezione del layer attivo. Spiega **perché** il territorio ha quel
+ * colore/ruolo: ogni informazione arriva dal read model, mai da inferenze.
+ */
+function LayerThematicBlock({ context }: { context: RegionThematicContext }) {
+  if (context.layer === 'political') {
+    return <dl className="thematic-facts">
+      <div><dt>Proprietario</dt><dd>{context.political.ownerName}{context.political.isPlayer && ' (Tu)'}</dd></div>
+      <div><dt>Politia</dt><dd>{context.political.ownerId || 'Nessuna'}</dd></div>
+      <div><dt>Stato del territorio</dt><dd>{context.political.regionStatus}</dd></div>
+      <div><dt>Confini canonici</dt><dd>{context.political.borders}</dd></div>
+    </dl>;
+  }
+  if (context.layer === 'economy') {
+    if (context.economy.gdp === null) {
+      return <p className="context-empty" data-economy-no-data={context.regionId}>
+        Il motore non pubblica un PIL territoriale utilizzabile per questa regione.
+      </p>;
+    }
+    const range = context.economy.range;
+    return <>
+      <dl className="thematic-facts">
+        <div><dt>PIL territoriale</dt><dd>{formatNumber(context.economy.gdp)}</dd></div>
+        <div><dt>Fascia di colore</dt><dd data-economy-bucket={(context.economy.bucket ?? 0) + 1}>
+          <span className="thematic-swatch" style={{ backgroundColor: context.economy.color }} aria-hidden="true" />
+          {((context.economy.bucket ?? 0) + 1)} di {context.economy.bucketCount}
+        </dd></div>
+        <div><dt>Intervallo della fascia</dt><dd>
+          {range && range.min !== null ? formatNumber(range.min) : '—'} – {range && range.max !== null ? formatNumber(range.max) : '—'}
+        </dd></div>
+      </dl>
+      <p className="thematic-hint">Il colore sulla mappa è questa fascia: soglie di quantile sui PIL territoriali pubblicati dal motore.</p>
+    </>;
+  }
+  if (context.layer === 'resources') {
+    if (!context.resources.sites.length) {
+      return <p className="context-empty" data-resources-none={context.regionId}>
+        Nessun sito di risorsa geolocalizzato in questo territorio.<br />
+        Le riserve nazionali non vengono distribuite arbitrariamente sulla mappa.
+      </p>;
+    }
+    return <ul className="context-link-list" data-resource-sites={context.regionId}>
+      {context.resources.sites.map(site => <li key={site.id} data-resource-site={site.id} data-resource-kind={site.kind}>
+        <span><strong>{site.label}</strong><small>{RESOURCE_KIND_LABELS[site.kind] ?? site.kind}{site.status ? ` · ${site.status}` : ''}</small></span>
+      </li>)}
+    </ul>;
+  }
+  if (context.layer === 'infrastructure') {
+    if (!context.infrastructure.items.length) {
+      return <p className="context-empty">Nessuna opera territoriale pubblicata per questa regione.</p>;
+    }
+    const group = (title: string, items: RegionThematicContext['infrastructure']['items']) => items.length > 0 && (
+      <div className="thematic-group"><h4>{title} <b>{items.length}</b></h4>
+        <ul className="context-link-list">{items.map(item => <li key={item.id} data-infrastructure-item={item.id} data-infrastructure-kind={item.underConstruction ? 'construction' : 'operative'}>
+          <span><strong>{item.name}</strong><small>{item.type}{item.strategic ? ' · installazione strategica' : ''}</small></span>
+        </li>)}</ul>
+      </div>
+    );
+    return <>
+      {group('Operative', context.infrastructure.operative)}
+      {group('In costruzione', context.infrastructure.underConstruction)}
+      {group('Installazioni strategiche', context.infrastructure.strategic)}
+      <p className="thematic-hint">Le opere sono oggetti del territorio pubblicati dal motore; un reparto non è un'opera.</p>
+    </>;
+  }
+  if (context.layer === 'diplomacy') {
+    return <dl className="thematic-facts">
+      <div><dt>Rapporto con te</dt><dd data-diplomacy-status={context.diplomacy.status}>
+        <span className="thematic-swatch" style={{ backgroundColor: context.diplomacy.color }} aria-hidden="true" />
+        {context.diplomacy.label}
+      </dd></div>
+      <div><dt>Politia</dt><dd>{context.political.ownerName}</dd></div>
+    </dl>;
+  }
+  if (context.layer === 'changes') {
+    return <p className={context.changes.changed ? 'thematic-change' : 'context-empty'} data-changes-state={context.changes.changed ? 'changed' : 'unchanged'}>
+      {context.changes.changed
+        ? 'Questo territorio è cambiato nello snapshot recente.'
+        : 'Nessun cambiamento recente registrato per questo territorio.'}
+    </p>;
+  }
+  return <dl className="thematic-facts">
+    <div><dt>Superficie</dt><dd>{context.terrain.surfaceType || 'Non pubblicata'}</dd></div>
+    {context.terrain.facts.map(fact => <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>)}
+  </dl>;
+}
+
+/** Contesto della **potenza**: mai presentato come fatto della provincia. */
+function PolityContextBlock({ context }: { context: RegionThematicContext }) {
+  const polity = context.polity;
+  if (!polity) return null;
+  const { agenda, commitments, relationship } = polity;
+  const hasContent = Boolean(agenda) || commitments.active.length > 0 || commitments.recent.length > 0;
+  return <section className="map-context-section polity-context" data-polity-context={polity.polityId}>
+    <header><div><small>CONTESTO DELLA POTENZA</small><h3>{polity.name}</h3></div></header>
+    <p className="thematic-hint">Dati nazionali della potenza: non descrivono questa provincia.</p>
+    {relationship && <dl className="thematic-facts">
+      <div><dt>Rapporto con te</dt><dd data-polity-relationship={relationship.status}>{relationship.label}</dd></div>
+    </dl>}
+
+    {agenda && <div className="thematic-group" data-polity-agenda={agenda.polityId}>
+      <h4>Strategia della potenza <b>{agenda.objectives.length}</b></h4>
+      {agenda.objectives.length ? <ul className="context-link-list">{agenda.objectives.map(objective => <li key={objective.id} data-agenda-objective={objective.id}>
+        <span><strong>{objective.description}</strong><small>
+          {objective.type}{Number.isFinite(objective.priority) ? ` · priorità ${objective.priority}` : ''}
+          {Number.isFinite(objective.progress) ? ` · progresso ${Math.round(objective.progress)}%` : ''}
+        </small><small>
+          {objective.since ? `dal ${formatDate(objective.since)}` : ''}{objective.reviewDate ? ` · revisione ${formatDate(objective.reviewDate)}` : ''}
+          {objective.reason ? ` · ${objective.reason}` : ''}
+        </small></span>
+      </li>)}</ul> : <p className="context-empty">Il motore non pubblica obiettivi per questa potenza.</p>}
+    </div>}
+
+    {commitments.active.length > 0 && <div className="thematic-group" data-polity-commitments={polity.polityId}>
+      <h4>Impegni attivi <b>{commitments.active.length}</b></h4>
+      <ul className="context-link-list">{commitments.active.map(commitment => <li key={commitment.id} data-commitment={commitment.id}>
+        <span><strong>{commitment.description || commitment.type}</strong><small>
+          {commitment.type}{commitment.counterparty ? ` · controparte ${commitment.counterparty}` : ''}
+          {commitment.deadline ? ` · scadenza ${formatDate(commitment.deadline)}` : ''}
+          {Number.isFinite(commitment.importance) ? ` · importanza ${commitment.importance}` : ''}
+        </small>{commitment.note && <small>{commitment.note}</small>}</span>
+      </li>)}</ul>
+    </div>}
+
+    {commitments.recent.length > 0 && <div className="thematic-group" data-polity-commitments-history={polity.polityId}>
+      <h4>Storico recente <b>{commitments.recent.length}</b></h4>
+      <ul className="context-link-list">{commitments.recent.map(commitment => <li key={commitment.id} data-commitment-history={commitment.id}>
+        <span><strong>{commitment.description || commitment.type}</strong><small>
+          {commitment.type} · {commitment.status}{commitment.updatedDate ? ` · ${formatDate(commitment.updatedDate)}` : ''}
+        </small></span>
+      </li>)}</ul>
+    </div>}
+
+    {!hasContent && <p className="context-empty">Il motore non pubblica strategia né impegni per questa potenza.</p>}
+  </section>;
+}
+
+function RegionContext({ region, index, allRegions, playerPolityId, activeLayer, thematicModel, relationships, changedRegionIds, strategicAgenda, commitments, onSelectUnit, onSelectFront, onOpenArmedForces }: {
   region: Region; index: MapContextIndex; allRegions: Region[]; playerPolityId: string;
+  activeLayer: MapLayer; thematicModel: ThematicMapModel;
+  relationships?: Record<string, Record<string, string>> | null;
+  changedRegionIds?: readonly string[];
+  strategicAgenda?: { powers: PowerAgenda[] } | null;
+  commitments?: readonly Commitment[] | null;
   onSelectUnit: (id: string) => void; onSelectFront: (id: string) => void; onOpenArmedForces?: () => void;
 }) {
+  // MAP P5 — read model del contesto tematico: puro, dagli snapshot già caricati.
+  const thematic = useMemo(() => buildRegionThematicContext({
+    region, activeLayer, model: thematicModel, regions: allRegions, playerPolityId,
+    relationships, changedRegionIds, strategicAgenda, commitments,
+  }), [region, activeLayer, thematicModel, allRegions, playerPolityId, relationships, changedRegionIds, strategicAgenda, commitments]);
   const assets = useMemo(() => {
     const counts = { factories: 0, ports: 0, cities: 0, capital: 0, infrastructure: 0 };
     for (const object of region.objects || []) {
@@ -135,6 +303,15 @@ function RegionContext({ region, index, allRegions, playerPolityId, onSelectUnit
       <span title="Città">● <b>{assets.cities + assets.capital}</b></span>
       <span title="Reparti persistenti">▲ <b>{units.length}</b></span>
     </div>
+
+    {layerHasThematicSection(activeLayer) && <section className="map-context-section thematic-context"
+      data-thematic-layer={activeLayer} data-thematic-region={region.id} aria-label={`Contesto del layer ${thematic.layerLabel}`}>
+      <header><div><small>CONTESTO DEL LAYER ATTIVO</small><h3>{thematic.layerLabel}</h3></div></header>
+      <p className="thematic-hint">{thematic.layerDescription}</p>
+      <LayerThematicBlock context={thematic} />
+    </section>}
+
+    {showsPolityContext(activeLayer) && <PolityContextBlock context={thematic} />}
 
     {region.objects?.some(object => object.type === 'construction_site') && <section className="province-construction" aria-label="Cantieri nel territorio">
       <h3>Cantieri nel territorio</h3><p>Un’opera entra in servizio solo dopo il completamento confermato.</p>
@@ -288,6 +465,12 @@ export function ProvinceInspector({
   playerPolityId,
   operatingPicture,
   snapshotKey,
+  activeLayer,
+  thematicModel,
+  relationships = null,
+  changedRegionIds,
+  strategicAgenda = null,
+  commitments = null,
   onClose,
   onSelectRegion,
   onSelectUnit,
@@ -321,7 +504,10 @@ export function ProvinceInspector({
       title={title} code={code} color={color} onClose={onClose} headingId={headingId} headingRef={headingRef} />
     <div className="province-inspector-body">
       {context.kind === 'region' && <RegionContext region={context.region} index={index} allRegions={allRegions}
-        playerPolityId={playerPolityId} onSelectUnit={onSelectUnit} onSelectFront={onSelectFront} onOpenArmedForces={onOpenArmedForces} />}
+        playerPolityId={playerPolityId} activeLayer={activeLayer} thematicModel={thematicModel}
+        relationships={relationships} changedRegionIds={changedRegionIds}
+        strategicAgenda={strategicAgenda} commitments={commitments}
+        onSelectUnit={onSelectUnit} onSelectFront={onSelectFront} onOpenArmedForces={onOpenArmedForces} />}
       {context.kind === 'unit' && <UnitContext unit={context.unit} index={index} allRegions={allRegions}
         playerPolityId={playerPolityId} operatingPicture={operatingPicture} snapshotKey={snapshotKey}
         onSelectRegion={onSelectRegion} onSelectFront={onSelectFront} onFocusRegion={onFocusRegion}
