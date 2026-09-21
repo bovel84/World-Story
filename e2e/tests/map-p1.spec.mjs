@@ -144,11 +144,11 @@ test('MAP P1 / B — selezione di una provincia: highlight, inspector e nome cor
     return { x: rect.left + p.x, y: rect.top + p.y };
   });
   await page.mouse.click(point.x, point.y);
-  await expect(page.getByRole('region', { name: 'Dossier Italia', exact: true })).toBeVisible();
+  await expect(page.locator('[data-map-context="region"][data-map-context-id="ITA"]')).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__testMap.getFeatureState({ source: 'regions', id: 'ITA' }).selected)).toBe(true);
   // Chiudere l'inspector non deve perdere la posizione della mappa.
   const before = await center(page);
-  await page.getByRole('button', { name: 'Chiudi dossier provincia' }).click();
+  await page.getByRole('button', { name: 'Chiudi contesto mappa' }).click();
   await expect(page.locator('.province-inspector')).toHaveCount(0);
   expect(await center(page)).toEqual(before);
 });
@@ -281,7 +281,7 @@ test('MAP P1 / E — 360px: pan, zoom, ricerca, selezione e nessun overflow', as
   const search = page.getByRole('searchbox', { name: 'Cerca territorio o città' });
   await search.fill('Italia');
   await search.press('Enter');
-  await expect(page.getByRole('region', { name: 'Dossier Italia', exact: true })).toBeVisible();
+  await expect(page.locator('[data-map-context="region"][data-map-context-id="ITA"]')).toBeVisible();
   const dimensions = await page.evaluate(() => ({
     viewport: innerWidth,
     scroll: document.documentElement.scrollWidth,

@@ -73,6 +73,8 @@ export function MilitaryStateOverlay({
   error = null,
   playerPolityId,
   onFocusRegion,
+  onSelectUnit,
+  onSelectFront,
 }: {
   map: LibreMap;
   regions: Region[];
@@ -82,6 +84,9 @@ export function MilitaryStateOverlay({
   error?: string | null;
   playerPolityId?: string;
   onFocusRegion: (regionId: string) => void;
+  /** MAP P4 — se presenti, elevano il dettaglio al context inspector principale. */
+  onSelectUnit?: (unitId: string) => void;
+  onSelectFront?: (frontId: string) => void;
 }) {
   const [revision, setRevision] = useState(0);
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
@@ -233,10 +238,18 @@ export function MilitaryStateOverlay({
     setSelectedRegionStack(null); setSelectedGroup(null);
   };
   const selectUnit = (id: string) => {
-    setSelectedFrontId(null); setSelectedRegionStack(null); setSelectedGroup(null); setSelectedUnitId(id);
+    setSelectedFrontId(null); setSelectedRegionStack(null); setSelectedGroup(null);
+    if (onSelectUnit) {
+      setSelectedUnitId(null);
+      onSelectUnit(id);
+    } else setSelectedUnitId(id);
   };
   const selectFront = (id: string) => {
-    setSelectedUnitId(null); setSelectedRegionStack(null); setSelectedGroup(null); setSelectedFrontId(id);
+    setSelectedUnitId(null); setSelectedRegionStack(null); setSelectedGroup(null);
+    if (onSelectFront) {
+      setSelectedFrontId(null);
+      onSelectFront(id);
+    } else setSelectedFrontId(id);
   };
   const selectGroup = (regionId: string, polityId: string) => {
     setSelectedUnitId(null); setSelectedFrontId(null); setSelectedRegionStack(null);

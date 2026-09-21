@@ -166,7 +166,7 @@ test('deleting the inspected region closes the dossier; opening a different worl
   const search = page.getByRole('searchbox', { name: 'Cerca territorio o città' });
   await search.fill('Francia');
   await search.press('Enter');
-  await expect(page.getByRole('region', { name: 'Dossier Francia', exact: true })).toBeVisible();
+  await expect(page.locator('[data-map-context="region"][data-map-context-id="FRA"]')).toBeVisible();
   await page.evaluate(async () => {
     const { useGameStore } = await window.__wsAppModules();
     const store = useGameStore.getState();
@@ -371,7 +371,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(page.locator('.map-search-results')).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => window.__testMap.getFeatureState({ source: 'regions', id: 'ITA' }).selected)).toBe(true);
     // Close the dossier opened by location selection to expose map controls on mobile.
-    await page.getByRole('button', { name: 'Chiudi dossier provincia' }).click();
+    await page.getByRole('button', { name: 'Chiudi contesto mappa' }).click();
     const legend = page.getByRole('button', { name: /Livelli e legenda/ });
     if (await legend.getAttribute('aria-expanded') === 'false') await legend.click();
     await page.getByRole('radio', { name: 'Terreno', exact: true }).check();

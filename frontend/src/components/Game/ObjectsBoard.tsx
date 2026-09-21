@@ -16,28 +16,15 @@
 import React from 'react';
 import type {
   ArsenalResponse, FormationImpactPayload, OperatingObjectPayload, OperatingPicturePayload,
-  UnitActionImpactPayload, UnitActionRequest, UnitOrderImpactPayload, UnitOrderPayload,
-  UnitOrderRequest,
+  UnitActionImpactPayload, UnitActionRequest, UnitOrderImpactPayload, UnitOrderRequest,
 } from '../../services/api';
 import {
-  KIND_LABEL, actionsOf, armyTargets, chainsView, childrenOf, factRows, formationActionView,
-  primaryProblem, regionTargets, sectorCards, sectionsOf, statusTone, unitActionView, unitOrderView,
-  type SectorCard,
+  KIND_LABEL, actionsOf, chainsView, childrenOf, factRows, formationActionView,
+  primaryProblem, sectorCards, sectionsOf, statusTone, type SectorCard,
 } from './operationalObjects';
+import { ActionImpact, UnitActionPanel, UNIT_ACTIONS, isOrderAction } from './UnitActionPanel';
 
 const tone = (value: string) => `tone-${value}`;
-
-/** Le azioni che il pannello del reparto esegue davvero (regole del motore). */
-const UNIT_ACTIONS = ['reinforce_unit', 'reequip_unit', 'reconstitute_unit', 'transfer_unit', 'reassign_unit'];
-
-/**
- * MILITARY-UNITS PR2 — le quattro mosse del **fronte**. Sono lo stesso motore
- * degli NPC: cambia solo chi sceglie (qui il giocatore, nei tick la policy).
- */
-const UNIT_ORDERS = ['order_attack', 'order_defend', 'order_reserve', 'order_withdraw'];
-const isOrderAction = (id: string) => UNIT_ORDERS.includes(id);
-/** `order_attack` → `attack` (l'id dell'API è l'ordine del motore). */
-const orderOf = (id: string) => id.replace('order_', '') as UnitOrderPayload;
 
 interface ObjectsBoardProps {
   arsenal: ArsenalResponse;
@@ -91,182 +78,6 @@ function SectorTile({ card, onOpen }: { card: SectorCard; onOpen: () => void }) 
   );
 }
 
-/** Blocco PRIMA → DOPO dell'azione: i numeri sono quelli del motore. */
-function ActionImpact({ view, busy, onConfirm, onCancel }: {
-  view: ReturnType<typeof formationActionView>;
-  busy?: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  if (!view) return null;
-  return (
-    <div className="obj-action" role="group" aria-label={view.title}>
-      <div className="obj-action-head">
-        <b>{view.title}</b>
-        <span>{view.costLine}</span>
-      </div>
-      {view.equipmentLine && <p className="obj-action-line">{view.equipmentLine}</p>}
-      {view.blocked && <p className={`obj-blocked ${tone('negative')}`}>{view.blockedReason ?? 'Azione non disponibile.'}</p>}
-      <table className="obj-delta">
-        <thead>
-          <tr><th>Effetto</th><th>Prima</th><th>Dopo</th></tr>
-        </thead>
-        <tbody>
-          {view.rows.map(row => (
-            <tr key={row.label} className={tone(row.tone)}>
-              <td>{row.label}</td>
-              <td>{row.before}</td>
-              <td>{row.after}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <details className="obj-why">
-        <summary>Perché?</summary>
-        <p>{view.why}</p>
-      </details>
-      <div className="obj-action-buttons">
-        <button type="button" className="obj-confirm" disabled={view.blocked || busy} onClick={onConfirm}>
-          {busy ? 'In corso…' : 'Conferma'}
-        </button>
-        <button type="button" className="obj-cancel" disabled={busy} onClick={onCancel}>Annulla</button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * MILITARY-UNITS — pannello del **reparto**: le quattro azioni reali, con la
- * destinazione da scegliere quando serve (regione o armata) e la tabella
- * PRIMA → DOPO calcolata dal motore (`dryRun`), come per la creazione di reparti.
- * Nessun numero viene calcolato qui.
- */
-function UnitActionPanel({ object, picture, busy, onUnitAction, onUnitOrder }: {
-  object: OperatingObjectPayload;
-  picture: OperatingPicturePayload;
-  busy?: boolean;
-  onUnitAction?: (request: UnitActionRequest) => Promise<UnitActionImpactPayload>;
-  onUnitOrder?: (request: UnitOrderRequest) => Promise<UnitOrderImpactPayload>;
-}) {
-  const actions = actionsOf(object).filter(action => UNIT_ACTIONS.includes(action.id));
-  const orders = actionsOf(object).filter(action => isOrderAction(action.id));
-  const [selected, setSelected] = React.useState<string | null>(null);
-  const [target, setTarget] = React.useState<string>('');
-  const [impact, setImpact] = React.useState<UnitActionImpactPayload | UnitOrderImpactPayload | null>(null);
-  const [pending, setPending] = React.useState(false);
-  if (actions.length === 0) return null;
-
-  const actionId = (id: string) => id.replace('_unit', '') as UnitActionRequest['action'];
-  const needsTarget = selected === 'transfer_unit' || selected === 'reassign_unit';
-  const options = selected === 'transfer_unit'
-    ? regionTargets(picture, object)
-    : selected === 'reassign_unit' ? armyTargets(picture, object) : [];
-
-  const run = async (dryRun: boolean) => {
-    if (!selected) return;
-    setPending(true);
-    try {
-      const result = isOrderAction(selected)
-        ? (onUnitOrder
-          ? await onUnitOrder({ unitId: object.id, order: orderOf(selected), dryRun })
-          : null)
-        : (onUnitAction
-          ? await onUnitAction({
-            action: actionId(selected),
-            unitId: object.id,
-            dryRun,
-            ...(selected === 'transfer_unit' ? { regionId: target } : {}),
-            ...(selected === 'reassign_unit' ? { armyId: target } : {}),
-          })
-          : null);
-      if (!result) return;
-      if (dryRun) setImpact(result);
-      else {
-        setImpact(null);
-        setSelected(null);
-        setTarget('');
-      }
-    } finally {
-      setPending(false);
-    }
-  };
-
-  return (
-    <div className="obj-unit-actions" role="group" aria-label={`Azioni su ${object.label}`}>
-      <div className="obj-object-actions">
-        {actions.map(action => (
-          <button
-            key={action.id}
-            type="button"
-            className={`obj-action-button ${selected === action.id ? 'active' : ''}`}
-            disabled={!action.enabled || busy}
-            title={action.blockedReason ?? undefined}
-            onClick={() => { setSelected(action.id); setImpact(null); setTarget(''); }}
-          >
-            {action.label}
-          </button>
-        ))}
-      </div>
-      {orders.length > 0 && (
-        <div className="obj-unit-orders" role="group" aria-label={`Mosse del fronte per ${object.label}`}>
-          <span className="obj-unit-orders-title">Mosse sul fronte</span>
-          <div className="obj-object-actions">
-            {orders.map(action => (
-              <button
-                key={action.id}
-                type="button"
-                className={`obj-action-button ${selected === action.id ? 'active' : ''}`}
-                disabled={!action.enabled || busy}
-                title={action.blockedReason ?? undefined}
-                onClick={() => { setSelected(action.id); setImpact(null); setTarget(''); }}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {actions.concat(orders).some(action => !action.enabled && action.blockedReason) && (
-        <span className="obj-blocked-hint">{actions.concat(orders).find(action => !action.enabled)?.blockedReason}</span>
-      )}
-      {selected && needsTarget && (
-        <div className="obj-unit-target">
-          <label>
-            {selected === 'transfer_unit' ? 'Regione di destinazione' : 'Armata di destinazione'}
-            <select value={target} onChange={event => { setTarget(event.target.value); setImpact(null); }}>
-              <option value="">— scegli —</option>
-              {options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
-            </select>
-          </label>
-        </div>
-      )}
-      {selected && (
-        <div className="obj-action-buttons">
-          <button
-            type="button"
-            className="obj-confirm"
-            disabled={pending || busy || (needsTarget && !target)}
-            onClick={() => { void run(true); }}
-          >
-            {pending ? 'In corso…' : 'Anteprima'}
-          </button>
-          <button type="button" className="obj-cancel" onClick={() => { setSelected(null); setImpact(null); setTarget(''); }}>
-            Chiudi
-          </button>
-        </div>
-      )}
-      {impact && (
-        <ActionImpact
-          view={'rows' in impact && 'order' in impact ? unitOrderView(impact) : unitActionView(impact)}
-          busy={pending || busy}
-          onConfirm={() => { void run(false); }}
-          onCancel={() => setImpact(null)}
-        />
-      )}
-    </div>
-  );
-}
-
 /** Il singolo oggetto: grammatica universale, problemi, azioni. */
 function ObjectCard({ object, depth = 0, busy, action, picture, onPreview, onRaise, onCancel, onPreviewChild, onUnitAction, onUnitOrder }: {
   object: OperatingObjectPayload;
@@ -287,7 +98,7 @@ function ObjectCard({ object, depth = 0, busy, action, picture, onPreview, onRai
   const rows = open ? [] : factRows(object).slice(0, 4);
   // Le azioni del reparto le esegue il suo pannello: qui restano le altre.
   const actions = actionsOf(object)
-    .filter(item => !(object.kind === 'unit' && (UNIT_ACTIONS.includes(item.id) || isOrderAction(item.id))));
+    .filter(item => !(object.kind === 'unit' && ((UNIT_ACTIONS as readonly string[]).includes(item.id) || isOrderAction(item.id))));
   const isActionTarget = action && action.armyId === (object.kind === 'army' ? object.id : null);
 
   return (

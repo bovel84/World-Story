@@ -195,6 +195,10 @@ export function useNationSnapshot({
   const [relationshipsLoading, setRelationshipsLoading] = useState(false);
   const [relationshipsError, setRelationshipsError] = useState<string | null>(null);
   const relationshipsRequest = useRef(0);
+  // Generazione del canonical snapshot: impedisce a refresh post-mutation
+  // iniziati in turno/ramo A di pubblicare dati dentro B.
+  const snapshotEpoch = useRef(0);
+  useEffect(() => { snapshotEpoch.current += 1; }, [gameId, currentTurn, currentDate, worldRevision, headBranchId]);
 
   const resetNational = useCallback(() => {
     setNationalAccounts({});
@@ -220,6 +224,7 @@ export function useNationSnapshot({
     setRelationshipsLoading(false);
     setRelationshipsError(null);
     relationshipsRequest.current += 1;
+    snapshotEpoch.current += 1;
   }, []);
 
   /**
@@ -344,7 +349,7 @@ export function useNationSnapshot({
         if (error?.status !== 409) console.warn('[App] Impossibile caricare le decisioni mandato:', error);
       });
     return () => { cancelled = true; };
-  }, [gameId, currentTurn, resetNational]);
+  }, [gameId, currentTurn, currentDate, worldRevision, headBranchId, resetNational]);
 
   const acknowledgeMandateDecision = useCallback(async (mandateId: string, kind: string) => {
     if (!gameId) return;
@@ -365,7 +370,7 @@ export function useNationSnapshot({
   const loadGovernmentVoices = useCallback(async () => {
     if (!gameId) return;
     // Un tentativo per turno: un errore non deve innescare un ciclo di retry.
-    const requestKey = `${gameId}:${currentTurn ?? 0}`;
+    const requestKey = `${gameId}:${currentTurn ?? 0}:${currentDate ?? ''}:${worldRevision ?? 0}:${headBranchId ?? ''}`;
     if (governmentVoicesRequestedRef.current === requestKey) return;
     governmentVoicesRequestedRef.current = requestKey;
     setGovernmentVoicesLoading(true);
@@ -379,7 +384,7 @@ export function useNationSnapshot({
     } finally {
       setGovernmentVoicesLoading(false);
     }
-  }, [gameId, currentTurn]);
+  }, [gameId, currentTurn, currentDate, worldRevision, headBranchId]);
 
   // Costruisci o importa equipaggiamento: aggiorna arsenale e scorte.
   const procureEquipment = useCallback(async (mode: 'build' | 'buy', equipmentId: string, quantity = 1) => {
@@ -465,20 +470,26 @@ export function useNationSnapshot({
    */
   const unitOrder = useCallback(async (request: UnitOrderRequest) => {
     if (!gameId) throw new Error('unit_unknown: nessuna partita attiva');
+    const epoch = snapshotEpoch.current;
     try {
       const result = await gameApi.unitOrder(gameId, request);
-      if (request.dryRun) return result;
+      if (request.dryRun || epoch !== snapshotEpoch.current) return result;
+      if (!result.applied) {
+        notify(result.note || 'Ordine non applicato.', 'info');
+        return result;
+      }
       notify(result.note, 'success');
       const [arms, national] = await Promise.all([
         gameApi.arsenal(gameId),
         gameApi.nationalState(gameId),
         refreshMilitaryState(),
       ]);
+      if (epoch !== snapshotEpoch.current) return result;
       setNationalArms(arms);
       setNationalResources(normalizeResources(national.resources));
       setNationalAccounts(national.accounts || {});
       setNationalGovernment(national.government ?? null);
-      return { ...result, applied: true };
+      return result;
     } catch (error: any) {
       console.error('[App] Ordine del reparto fallito:', error);
       const message = String(error?.message || '');
@@ -496,20 +507,26 @@ export function useNationSnapshot({
 
   const unitAction = useCallback(async (request: UnitActionRequest) => {
     if (!gameId) throw new Error('unit_unknown: nessuna partita attiva');
+    const epoch = snapshotEpoch.current;
     try {
       const result = await gameApi.unitAction(gameId, request);
-      if (request.dryRun) return result;
+      if (request.dryRun || epoch !== snapshotEpoch.current) return result;
+      if (!result.applied) {
+        notify(result.blockedReason || result.note || 'Azione non applicata.', 'info');
+        return result;
+      }
       notify(result.blockedReason || result.note, result.blocked ? 'info' : 'success');
       const [arms, national] = await Promise.all([
         gameApi.arsenal(gameId),
         gameApi.nationalState(gameId),
         refreshMilitaryState(),
       ]);
+      if (epoch !== snapshotEpoch.current) return result;
       setNationalArms(arms);
       setNationalResources(normalizeResources(national.resources));
       setNationalAccounts(national.accounts || {});
       setNationalGovernment(national.government ?? null);
-      return { ...result, applied: true };
+      return result;
     } catch (error: any) {
       console.error('[App] Azione sul reparto fallita:', error);
       const message = String(error?.message || '');

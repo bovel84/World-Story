@@ -14,6 +14,7 @@ import { sectorCards } from './operationalObjects';
 import type { ArsenalResponse, OperatingPicturePayload } from '../../services/api';
 
 const source = fs.readFileSync(path.resolve(__dirname, 'ObjectsBoard.tsx'), 'utf8');
+const unitPanelSource = fs.readFileSync(path.resolve(__dirname, 'UnitActionPanel.tsx'), 'utf8');
 
 const fact = (section: any, label: string, value: number | null, unit: any, tone?: any, text?: string) =>
   ({ section, label, value, unit, tone: tone ?? 'neutral', ...(text ? { text } : {}) });
@@ -119,9 +120,9 @@ describe('OP-OBJECTS — sala di governo (SSR)', () => {
     // Livello B: la gerarchia schieramento → armata → reparto è nel componente.
     expect(source).toContain("object.kind === 'unit'");
     expect(source).toContain('childrenOf(picture, object.id)');
-    expect(source).toContain('UnitActionPanel');
-    expect(source).toContain('unitActionView');
-    expect(source).toContain("UNIT_ACTIONS = ['reinforce_unit', 'reequip_unit', 'reconstitute_unit', 'transfer_unit', 'reassign_unit']");
+    expect(source).toContain("from './UnitActionPanel'");
+    expect(unitPanelSource).toContain('unitActionView');
+    expect(unitPanelSource).toContain("'reinforce_unit', 'reequip_unit', 'reconstitute_unit', 'transfer_unit', 'reassign_unit'");
   });
 
   it('il payload delle action rappresenta `reconstitute_unit` (allineato al motore)', () => {
@@ -137,7 +138,7 @@ describe('OP-OBJECTS — sala di governo (SSR)', () => {
     ];
     expect(actions.map(action => action.id)).toContain('reconstitute_unit');
     // E il componente lo filtra fra le azioni del reparto (nessun pulsante finto).
-    expect(source).toContain("'reconstitute_unit'");
+    expect(unitPanelSource).toContain("'reconstitute_unit'");
     // Il titolo dell'azione esiste nel read model.
     expect(sectorCards(picture).length).toBeGreaterThan(0);
   });
