@@ -99,3 +99,119 @@ MAP P1 · MAP P2 / P2.1 / P2.2 · MAP P3 / P3.1 · MAP P4 / P4.1 · MILITARY P4 
 ## 10. Conferme
 
 Nessun secondo motore e nessuno stato parallelo: il dossier legge solo read model derivati (`buildThematicMapModel` di P3 + `buildRegionThematicContext`), non effettua fetch, non scrive, non calcola simulazione. Nessun backend toccato, nessuna nuova azione, nessuna nuova `MapLayer`, nessun N+1, nessun deep clone del mondo, nessuna ricostruzione GeoJSON al cambio inspector. Selezione e camera non cambiano al cambio layer; la selezione resta composta di soli ID.
+
+---
+
+# MAP P5.1 — review fixes
+
+Micro-fase di correzione su tre rilievi della review di MAP P5. Nessuna riapertura
+dell'architettura (`MAP LAYER → REGION ID → thematic read model → ProvinceInspector`),
+nessuna feature nuova, **0 file backend modificati**.
+
+## 1. Perché `NaturalResourceSummary.regionId` era una falsa assunzione
+
+`GameScreen` costruiva i candidati risorsa da `nation.nationalResources?.natural`
+recuperando la geografia con un cast:
+
+```ts
+regionId: (item as { regionId?: string | null }).regionId ?? null
+```
+
+Il contratto reale `NaturalResourceSummary` (`kind`, `label`, `renewable`,
+`endowment`, `reserve`, `maxReserve`, `stockpile`, `extractionPerMonth`,
+`depletionPct`, `depleted`) **non contiene `regionId`**. Il cast non leggeva un
+campo opzionale: *inventava* un tipo che il motore non pubblica. In produzione il
+layer Risorse restava quindi senza alcun sito reale, e la fixture E2E mascherava il
+problema aggiungendo `regionId: 'ITA'` a mano sulla riserva nazionale.
+
+## 2. Fonte geografica usata ora
+
+La geografia deriva **solo** da oggetti operativi canonici
+(`OperatingObjectPayload`) con `kind === 'mine'` **e** `regionId` pubblicato:
+
+```ts
+resourceCandidatesFromOperatingPicture(picture)
+  → picture.objects.filter(o => o.kind === 'mine' && Boolean(o.regionId))
+```
+
+- `GameScreen` legge `nation.nationalArms?.objects` (quadro già caricato, **nessun
+  fetch nuovo**, nessun endpoint nuovo); `thematicModel` continua a essere
+  costruito una volta sola con `useMemo`.
+- Il modello P3 (`canonicalResourceSites`) scarta i candidati la cui `regionId` non
+  esiste nel mondo: la geografia resta canonica a due livelli.
+- Il **tipo** della risorsa non è pubblicato in modo machine-readable (vive nel
+  `label` e nell'`id` dell'oggetto): nessun parsing testuale, si usa il valore
+  tecnico neutro `RESOURCE_SITE_KIND = 'mine'`, mostrato come «Sito estrattivo».
+- `NaturalResourceSummary[]` resta **riserva/stock nazionale**: nessun `regionId`,
+  nessun cast, e il messaggio P5 «Le riserve nazionali non vengono distribuite
+  arbitrariamente sulla mappa.» resta valido.
+
+## 3. Come è stata eliminata la doppia semantica diplomatica
+
+MAP P3 possiede già `diplomaticRegionStatus()` (usata da `buildDiplomacyMapModel`).
+MAP P5 aveva introdotto una seconda classificazione (`diplomacyContext()`) che
+trattava l'entry mancante come `unknown`, mentre la mappa la colorava `neutral`.
+
+La funzione parallela è stata **rimossa**: il contesto legge direttamente
+`model.diplomacy.byRegion[region.id]` dello **stesso** `ThematicMapModel` che
+alimenta la mappa, e ne espone anche il colore (`DIPLOMACY_COLORS[status]`, lo
+stesso valore scritto nel `feature-state`). Quindi:
+
+| Matrice | Entry | Mappa | Dossier |
+|---|---|---|---|
+| assente (`null`) | — | `unknown` (no-data) | `unknown` — fail closed, layer non disponibile |
+| disponibile | `ally` / `hostile` | `ally` / `hostile` | identico |
+| disponibile | owner = player | `player` | identico |
+| disponibile | nessuna entry | `neutral` | `neutral` — mai `unknown` |
+
+## 4. Layer che mostrano il contesto della potenza
+
+`POLITY_CONTEXT_LAYERS = ['diplomacy', 'political']` (`showsPolityContext()`), così
+il blocco nazionale non declassa i dati territoriali:
+
+- **visibile**: `diplomacy`, `political`;
+- **assente**: `military`, `economy`, `resources`, `infrastructure`, `changes`, `terrain`.
+
+Sul layer `military` resta perciò completamente prioritaria l'esperienza MAP P4
+(reparti, fronti, ordini, dryRun, movimento): nessun blocco Strategic Agenda davanti.
+`MapContextSelection` non è stata toccata (resta `region | unit | front | null`).
+
+## 5. Test aggiunti
+
+- **Unitari** (`mapThematicContext.test.ts`, da 20 a **30**): miniera con `regionId`
+  → sito · miniera senza `regionId` → nessun sito · `regionId` inesistente nel mondo
+  → scartata dalla geografia canonica · `facility`/reparti/fronti non sono siti (e
+  nessun tipo dedotto dal nome) · riserve nazionali mai localizzate · quadro
+  operativo assente → nessun candidato · diplomazia: matrice assente → `unknown`,
+  `ally`, `hostile`, owner player → `player`, matrice presente senza entry →
+  `neutral` · identità **campo per campo** con `model.diplomacy.byRegion[id]` e
+  colore uguale a `DIPLOMACY_COLORS[status]` su tutti gli scenari e tutte le regioni ·
+  priorità contesto potenza (layer ammessi/negati).
+- **E2E** (`map-p5-context.spec.mjs`, da 13 a **15**): B riscritto (miniera operativa
+  canonica con `regionId`: sito visibile con tipo e stato; riserve nazionali senza
+  `regionId`: nessun marker, nessun fato; provincia senza miniere → messaggio
+  esplicito); **N** coerenza diplomatica (matrice disponibile, nessuna entry →
+  `neutral` su feature-state **e** dossier, colore identico, mai «Sconosciuto»);
+  **O** priorità contestuale (potenza visibile su Diplomazia/Politica, assente su
+  Militare/Economia/Risorse/Infrastrutture/Modifiche/Terreno, con «Reparti presenti»
+  e «Fronti interessati» ancora visibili in Militare).
+
+## 6. Risultati dei gate (MAP P5.1)
+
+| Gate | Esito |
+|---|---|
+| `frontend: npx tsc --noEmit` | ✅ pulito |
+| `frontend: vitest run` | ✅ **74 file / 598 test** (MAP P5 da 588 → 598) |
+| `frontend: npm run build` | ✅ |
+| `npm run test:e2e:mock` | ✅ **119/119** (117 + N + O) |
+| `npm run test:a11y` | ✅ 3/3 |
+| `npm run test:perf` | ✅ **2.23 MB** entro baseline |
+| Backend — **0 production files changed** | ✅ `tsc` pulito · **1714/1714** (164 file) |
+
+Criteri di accettazione: risorse con `regionId` canonico ✅ · geografia da
+`OperatingObject` `mine` ✅ · `NaturalResourceSummary` non finge geografia ✅ ·
+nessun cast per inventare `regionId` ✅ · mappa e dossier con la stessa
+classificazione diplomatica ✅ · `neutral` resta `neutral` con matrice disponibile ✅ ·
+`unknown` resta `unknown` senza matrice ✅ · contesto potenza solo sui layer
+pertinenti ✅ · militare MAP P4-first ✅ · nessun fetch/API/stato parallelo/secondo
+motore ✅.

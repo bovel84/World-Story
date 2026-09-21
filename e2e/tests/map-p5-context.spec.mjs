@@ -6,8 +6,9 @@
  * «fatto della provincia» da «contesto della potenza».
  *
  * Questo harness monta un mondo con PIL diversi, opere territoriali, un cantiere,
- * una riserva nazionale con `regionId` (sito canonico) e una senza (stock non
- * geolocalizzato), relazioni canoniche, agenda strategica e registro impegni.
+ * una miniera operativa con `regionId` canonico (unico sito estrattivo
+ * geolocalizzabile), riserve nazionali **senza** `regionId`, relazioni canoniche,
+ * agenda strategica e registro impegni.
  */
 import { test, expect } from 'playwright/test';
 import { installMockApi, MOCK_ACCOUNTS, MOCK_ARSENAL, MOCK_GAME } from '../mock-api.mjs';
@@ -61,6 +62,13 @@ const ARSENAL = {
       status: 'operational', statusLabel: 'Operativa', parentId: 'army-ita', regionId: 'ITA', regionName: 'Italia',
       facts: [], problems: [], why: 'Azioni pubblicate dal motore.',
       actions: [{ id: 'reinforce_unit', label: 'Rinforza', enabled: true, blockedReason: null }],
+    }, {
+      // Unico sito estrattivo geolocalizzabile: `regionId` pubblicato dal motore.
+      id: 'mine-oil-1', kind: 'mine', label: 'Giacimento petrolifero', subtitle: 'Giacimento 4/5 dal registro del paese',
+      status: 'operational', statusLabel: 'Operativo', parentId: null, regionId: 'ITA', regionName: 'Italia',
+      facts: [{ section: 'stato', label: 'Giacimento', value: 4, unit: 'numero' }], problems: [],
+      why: 'Il contributo del giacimento è calcolato dal motore.',
+      actions: [{ id: 'trade', label: 'Compra o vendi sul mercato', enabled: true, blockedReason: null }],
     }],
   },
 };
@@ -88,10 +96,14 @@ const COMMITMENTS = { commitments: [
     importance: 2, updatedDate: '1950-12-01', updatedTurn: 1, note: '' },
 ]};
 
-/** Una riserva con `regionId` canonico e una senza: solo la prima è un sito. */
+/**
+ * Riserve nazionali: il contratto `NaturalResourceSummary` **non** contiene
+ * `regionId` e non deve fingere geografia. Solo gli oggetti operativi `mine`
+ * pubblicano una posizione.
+ */
 const NATURAL = [
-  { kind: 'oil', label: 'Giacimento di Milano', renewable: false, endowment: 100, reserve: 80,
-    maxReserve: 100, stockpile: 20, extractionPerMonth: 2, depletionPct: 20, depleted: false, regionId: 'ITA' },
+  { kind: 'oil', label: 'Riserva nazionale di greggio', renewable: false, endowment: 100, reserve: 80,
+    maxReserve: 100, stockpile: 20, extractionPerMonth: 2, depletionPct: 20, depleted: false },
   { kind: 'coal', label: 'Riserva nazionale di carbone', renewable: false, endowment: 50, reserve: 40,
     maxReserve: 50, stockpile: 10, extractionPerMonth: 1, depletionPct: 20, depleted: false },
 ];
@@ -230,18 +242,25 @@ test('MAP P5 / A — Economia: valore e fascia coerenti con il colore del layer'
   await expect(swiss.locator('[data-economy-bucket]')).toHaveCount(0);
 });
 
-// B — Risorse: solo siti canonici; lo stock nazionale resta fuori dalla provincia.
-test('MAP P5 / B — Risorse: sito canonico sì, riserva nazionale no', async ({ page }) => {
+// B — Risorse: la geografia viene solo dagli oggetti operativi `mine`.
+test('MAP P5 / B — Risorse: la miniera è un sito, le riserve nazionali no', async ({ page }) => {
   await openP5Map(page);
   await selectLayer(page, 'Risorse');
   const italia = await clickRegion(page, 'ITA');
-  await expect(italia.locator('[data-resource-sites="ITA"]')).toContainText('Giacimento di Milano');
-  await expect(italia).not.toContainText('Riserva nazionale di carbone');
-  // Nessun marker inventato per la riserva senza `regionId`.
+  const section = italia.locator('[data-thematic-layer="resources"]');
+  await expect(section).toBeVisible();
+  await expect(italia.locator('[data-resource-sites="ITA"]')).toContainText('Giacimento petrolifero');
+  await expect(italia.locator('[data-resource-site="mine-oil-1"]')).toHaveAttribute('data-resource-kind', 'mine');
+  await expect(italia.locator('[data-resource-site="mine-oil-1"]')).toContainText('Operativo');
+  // Le riserve nazionali non diventano marker territoriali, in nessun formato.
+  await expect(italia.locator('[data-resource-sites="ITA"]')).not.toContainText('Riserva nazionale');
   await expect(page.locator('.maplibregl-marker', { hasText: 'Riserva nazionale di carbone' })).toHaveCount(0);
+  await expect(page.locator('.maplibregl-marker', { hasText: 'Riserva nazionale di greggio' })).toHaveCount(0);
+  // Una provincia senza miniere non mostra siti: nessuna geografia inventata.
   const francia = await clickRegion(page, 'FRA');
   await expect(francia.locator('[data-resources-none="FRA"]')).toBeVisible();
   await expect(francia).toContainText('Le riserve nazionali non vengono distribuite arbitrariamente sulla mappa.');
+  await expect(francia).not.toContainText('Giacimento petrolifero');
 });
 
 // C — Infrastrutture: opere e cantieri canonici; un reparto non è un'opera.
@@ -399,4 +418,53 @@ test('MAP P5 / M — 360×740: blocco tematico leggibile e nessun overflow', asy
   // Il blocco tematico è raggiungibile scrollando il dossier.
   await inspector.locator('[data-thematic-layer="infrastructure"]').scrollIntoViewIfNeeded();
   await expect(inspector.locator('[data-thematic-layer="infrastructure"]')).toBeInViewport();
+});
+
+// N — Coerenza diplomatica: mappa e dossier condividono la stessa classificazione.
+test('MAP P5 / N — Diplomazia: matrice disponibile senza entry → neutral su mappa e dossier', async ({ page }) => {
+  await openP5Map(page);
+  await selectLayer(page, 'Diplomazia');
+  const svizzera = await clickRegion(page, 'SUI');
+  // Il modello P3 (lo stesso che colora la mappa) dice `neutral`.
+  const expected = await page.evaluate(async relationships => {
+    const mod = await import('/src/components/Map/thematicMapModel.ts');
+    const { useGameStore } = await window.__wsAppModules();
+    const regions = Object.values(useGameStore.getState().currentWorld.regions);
+    // Stesse relazioni servite all'app dalla fixture: nessuna copia locale.
+    return mod.buildThematicMapModel({ regions, relationships, playerPolityId: 'ITA' }).diplomacy.byRegion.SUI;
+  }, RELATIONSHIPS);
+  expect(expected).toBe('neutral');
+  const state = await featureState(page, 'SUI');
+  expect(state.hasThematic).toBe(true);
+  const badge = svizzera.locator('[data-diplomacy-status]');
+  await expect(badge).toHaveAttribute('data-diplomacy-status', 'neutral');
+  await expect(badge).toContainText('Neutrale');
+  await expect(svizzera).not.toContainText('Sconosciuto');
+  // E il colore del dossier è esattamente quello disegnato sulla mappa.
+  const swatch = await svizzera.locator('.thematic-swatch').evaluate(el => getComputedStyle(el).backgroundColor);
+  const hex = state.thematicColor;
+  expect(swatch).toBe(`rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`);
+});
+
+// O — Priorità contestuale: il contesto della potenza non invade i layer territoriali.
+test('MAP P5 / O — il contesto della potenza compare solo dove è pertinente', async ({ page }) => {
+  await openP5Map(page);
+  await clickRegion(page, 'ITA');
+  for (const label of ['Diplomazia', 'Politica']) {
+    await selectLayer(page, label);
+    await expect(context(page, 'ITA')).toContainText('CONTESTO DELLA POTENZA');
+  }
+  for (const label of ['Militare', 'Economia', 'Risorse', 'Infrastrutture', 'Modifiche', 'Terreno']) {
+    await selectLayer(page, label);
+    const inspector = context(page, 'ITA');
+    await expect(inspector).not.toContainText('CONTESTO DELLA POTENZA');
+    await expect(inspector.locator('[data-polity-context]')).toHaveCount(0);
+    await expect(inspector.locator('[data-polity-agenda]')).toHaveCount(0);
+  }
+  // Sul layer militare l'esperienza MAP P4 resta prioritaria.
+  await selectLayer(page, 'Militare');
+  const military = context(page, 'ITA');
+  await expect(military.getByRole('heading', { name: 'Reparti presenti' })).toBeVisible();
+  await expect(military.getByRole('heading', { name: 'Fronti interessati' })).toBeVisible();
+  await expect(military.locator('[data-polity-agenda="ITA"]')).toHaveCount(0);
 });

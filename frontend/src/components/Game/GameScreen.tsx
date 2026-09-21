@@ -48,7 +48,7 @@ import {
 } from '../Map/mapContext';
 import type { ActiveModule } from '../../stores/moduleState';
 import { buildThematicMapModel } from '../Map/thematicMapModel';
-import { resourceCandidatesFromNational } from '../Map/mapThematicContext';
+import { resourceCandidatesFromOperatingPicture } from '../Map/mapThematicContext';
 
 export interface GameScreenProps {
   nation: NationSnapshot;
@@ -200,9 +200,11 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
 
   // MAP P5 — un solo modello tematico P3 per mappa e dossier: stesse soglie,
   // stessi bucket, stessi siti. Nessun fetch al click, nessuna duplicazione.
+  // Le risorse territoriali sono oggetti operativi `mine` con `regionId`
+  // pubblicato dal motore: nessun cast, nessuna geografia dedotta dal testo.
   const resourceCandidates = useMemo(
-    () => resourceCandidatesFromNational(nation.nationalResources?.natural),
-    [nation.nationalResources?.natural],
+    () => resourceCandidatesFromOperatingPicture(nation.nationalArms?.objects),
+    [nation.nationalArms?.objects],
   );
   const thematicModel = useMemo(() => buildThematicMapModel({
     regions, relationships: nation.relationships, playerPolityId, resourceCandidates,

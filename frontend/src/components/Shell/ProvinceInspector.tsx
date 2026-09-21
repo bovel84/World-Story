@@ -17,6 +17,7 @@ import type { MapLayer } from '../Map/mapModel';
 import {
   buildRegionThematicContext,
   layerHasThematicSection,
+  showsPolityContext,
   type RegionThematicContext,
 } from '../Map/mapThematicContext';
 import type { ThematicMapModel } from '../Map/thematicMapModel';
@@ -53,6 +54,9 @@ interface ProvinceInspectorProps {
   onUnitAction?: (request: UnitActionRequest) => Promise<UnitActionImpactPayload>;
   onUnitOrder?: (request: UnitOrderRequest) => Promise<UnitOrderImpactPayload>;
 }
+
+/** Etichette leggibili per i tipi tecnici del read model (nessun dato inventato). */
+const RESOURCE_KIND_LABELS: Record<string, string> = { mine: 'Sito estrattivo' };
 
 const STATUS_LABEL: Record<string, string> = {
   forming: 'In formazione', operational: 'Operativo', degraded: 'Degradato',
@@ -155,8 +159,8 @@ function LayerThematicBlock({ context }: { context: RegionThematicContext }) {
       </p>;
     }
     return <ul className="context-link-list" data-resource-sites={context.regionId}>
-      {context.resources.sites.map(site => <li key={site.id}>
-        <span><strong>{site.label}</strong><small>{site.kind}{site.status ? ` · ${site.status}` : ''}</small></span>
+      {context.resources.sites.map(site => <li key={site.id} data-resource-site={site.id} data-resource-kind={site.kind}>
+        <span><strong>{site.label}</strong><small>{RESOURCE_KIND_LABELS[site.kind] ?? site.kind}{site.status ? ` · ${site.status}` : ''}</small></span>
       </li>)}
     </ul>;
   }
@@ -180,7 +184,10 @@ function LayerThematicBlock({ context }: { context: RegionThematicContext }) {
   }
   if (context.layer === 'diplomacy') {
     return <dl className="thematic-facts">
-      <div><dt>Rapporto con te</dt><dd data-diplomacy-status={context.diplomacy.status}>{context.diplomacy.label}</dd></div>
+      <div><dt>Rapporto con te</dt><dd data-diplomacy-status={context.diplomacy.status}>
+        <span className="thematic-swatch" style={{ backgroundColor: context.diplomacy.color }} aria-hidden="true" />
+        {context.diplomacy.label}
+      </dd></div>
       <div><dt>Politia</dt><dd>{context.political.ownerName}</dd></div>
     </dl>;
   }
@@ -304,7 +311,7 @@ function RegionContext({ region, index, allRegions, playerPolityId, activeLayer,
       <LayerThematicBlock context={thematic} />
     </section>}
 
-    <PolityContextBlock context={thematic} />
+    {showsPolityContext(activeLayer) && <PolityContextBlock context={thematic} />}
 
     {region.objects?.some(object => object.type === 'construction_site') && <section className="province-construction" aria-label="Cantieri nel territorio">
       <h3>Cantieri nel territorio</h3><p>Un’opera entra in servizio solo dopo il completamento confermato.</p>

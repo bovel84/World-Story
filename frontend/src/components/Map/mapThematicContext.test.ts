@@ -10,11 +10,14 @@ import {
   buildRegionThematicContext,
   layerHasThematicSection,
   polityLabel,
-  resourceCandidatesFromNational,
+  resourceCandidatesFromOperatingPicture,
+  RESOURCE_SITE_KIND,
+  showsPolityContext,
   type BuildRegionThematicContextInput,
 } from './mapThematicContext';
 import {
   buildThematicMapModel,
+  DIPLOMACY_COLORS,
   economyColorForBucket,
   economyLegendRanges,
   THEMATIC_NO_DATA_COLOR,
@@ -40,10 +43,30 @@ const REGIONS: Region[] = [
   region({ id: 'NEU', name: 'Terra di nessuno', owner: 'neutral', gdp: 0, polityName: undefined }),
 ];
 
-const CANDIDATES = [
-  { id: 'oil-rom', kind: 'oil', label: 'Giacimento di Roma', regionId: 'ROM', status: 'active' },
-  { id: 'stock-1', kind: 'coal', label: 'Riserva nazionale di carbone' },
-];
+/**
+ * MAP P5.1 — la geografia delle risorse arriva dagli oggetti operativi `mine`
+ * con `regionId` pubblicato dal motore. `NaturalResourceSummary` (riserve
+ * nazionali) non ha e non deve avere un `regionId`.
+ */
+const operatingObject = (patch: Record<string, unknown>) => ({
+  id: 'x', kind: 'mine', label: 'Miniera', status: 'operational', statusLabel: 'Operativo',
+  parentId: null, regionId: null, regionName: null, facts: [], problems: [], actions: [], ...patch,
+});
+const RESOURCE_PICTURE = ({
+  counts: { mine: 3 }, conventions: [], chains: [],
+  objects: [
+    operatingObject({ id: 'mine-oil-rom', label: 'Miniera di petrolio (Roma)', regionId: 'ROM', regionName: 'Roma' }),
+    operatingObject({ id: 'mine-no-region', label: 'Miniera senza regione', regionId: null }),
+    operatingObject({ id: 'mine-ghost', label: 'Miniera fuori mondo', regionId: 'GHOST' }),
+    operatingObject({ id: 'fac-rom', kind: 'facility', label: 'Acciaierie', regionId: 'ROM' }),
+    operatingObject({ id: 'unit-rom', kind: 'unit', label: '1° Reparto', regionId: 'ROM' }),
+    operatingObject({ id: 'front-rom', kind: 'front', label: 'Fronte', regionId: 'ROM' }),
+  ],
+}) as unknown as Parameters<typeof resourceCandidatesFromOperatingPicture>[0];
+
+const CANDIDATES = resourceCandidatesFromOperatingPicture(RESOURCE_PICTURE);
+/** Riserva nazionale: nessun `regionId` nel contratto, quindi nessun sito. */
+const NATIONAL_RESERVES = [{ kind: 'coal', label: 'Riserva nazionale di carbone' }];
 
 const model: ThematicMapModel = buildThematicMapModel({
   regions: REGIONS,
@@ -58,13 +81,21 @@ const COMMITMENTS: ApiCommitment[] = [
   { id: 'c-3', type: 'treaty', actor: 'HUN', counterparty: 'ITA', description: 'Non riguarda AUT', createdDate: '1950-01-01', createdTurn: 1, status: 'active', deadline: null, sourceEventId: null, importance: 2, updatedDate: '1950-12-01', updatedTurn: 1, note: '' },
 ];
 
-const build = (patch: Partial<BuildRegionThematicContextInput> = {}): ReturnType<typeof buildRegionThematicContext> =>
-  buildRegionThematicContext({
+/**
+ * Il modello tematico è **uno solo**: se il caso sovrascrive le relazioni, il
+ * modello viene ricostruito dalle stesse relazioni, così il dossier non può
+ * divergere dalla mappa per un input disallineato nel test.
+ */
+const build = (patch: Partial<BuildRegionThematicContextInput> = {}): ReturnType<typeof buildRegionThematicContext> => {
+  const relationships = patch.relationships === undefined ? { ITA: { AUT: 'hostile', FIR: 'ally' } } : patch.relationships;
+  const playerPolityId = patch.playerPolityId === undefined ? 'ITA' : patch.playerPolityId;
+  return buildRegionThematicContext({
     region: REGIONS[0], activeLayer: 'political', model, regions: REGIONS,
-    playerPolityId: 'ITA', relationships: { ITA: { AUT: 'hostile', FIR: 'ally' } },
-    changedRegionIds: ['ROM'], strategicAgenda: null, commitments: COMMITMENTS,
+    playerPolityId, relationships, changedRegionIds: ['ROM'], strategicAgenda: null, commitments: COMMITMENTS,
     ...patch,
+    model: patch.model ?? buildThematicMapModel({ regions: REGIONS, relationships, playerPolityId, resourceCandidates: CANDIDATES }),
   });
+};
 
 describe('MAP P5 — layer attivo', () => {
   it('riporta etichetta e descrizione canoniche del layer e non tocca la selezione', () => {
@@ -123,24 +154,55 @@ describe('MAP P5 — ECONOMY', () => {
   });
 });
 
-describe('MAP P5 — RESOURCES', () => {
-  it('mostra solo i siti con localizzazione canonica', () => {
+describe('MAP P5.1 — RESOURCES', () => {
+  it('un oggetto operativo `mine` con regione valida è un sito geografico', () => {
     const context = build({ activeLayer: 'resources' });
-    expect(context.resources.sites.map(site => site.id)).toEqual(['oil-rom']);
-    expect(context.resources.sites[0]).toMatchObject({ regionId: 'ROM', kind: 'oil', label: 'Giacimento di Roma' });
+    expect(context.resources.sites.map(site => site.id)).toEqual(['mine-oil-rom']);
+    expect(context.resources.sites[0]).toMatchObject({
+      regionId: 'ROM', label: 'Miniera di petrolio (Roma)', status: 'Operativo', kind: RESOURCE_SITE_KIND,
+    });
     expect(context.resources.unavailableReason).toBeNull();
   });
 
-  it('le riserve nazionali senza `regionId` restano fuori dalla provincia', () => {
+  it('una miniera senza `regionId` non diventa un sito', () => {
+    expect(CANDIDATES.map(candidate => candidate.id)).not.toContain('mine-no-region');
+    expect(JSON.stringify(build({ activeLayer: 'resources' }).resources)).not.toContain('Miniera senza regione');
+  });
+
+  it('una `regionId` inesistente nel mondo viene scartata dalla geografia canonica', () => {
+    // La proiezione dagli oggetti operativi riporta il `regionId` pubblicato; è
+    // il modello P3 (`canonicalResourceSites`) a scartarlo se non esiste nel mondo.
+    expect(model.resources.sites.map(site => site.id)).not.toContain('mine-ghost');
+    for (const region of REGIONS) {
+      expect(build({ region, activeLayer: 'resources' }).resources.sites.map(site => site.id)).not.toContain('mine-ghost');
+    }
+    expect(JSON.stringify(build({ activeLayer: 'resources' }).resources)).not.toContain('Miniera fuori mondo');
+  });
+
+  it('facility, reparti e fronti non sono siti di risorsa', () => {
+    const ids = JSON.stringify(build({ activeLayer: 'resources' }).resources);
+    expect(ids).not.toContain('fac-rom');
+    expect(ids).not.toContain('unit-rom');
+    expect(ids).not.toContain('front-rom');
+    // La geografia non viene mai dedotta dal nome della risorsa o della miniera.
+    expect(JSON.stringify(CANDIDATES)).not.toContain('"oil"');
+  });
+
+  it('le riserve nazionali senza sito restano fuori dalla provincia', () => {
     const nationalOnly = buildThematicMapModel({
       regions: REGIONS, playerPolityId: 'ITA',
-      resourceCandidates: resourceCandidatesFromNational([{ kind: 'coal', label: 'Riserva nazionale di carbone' }]),
+      resourceCandidates: resourceCandidatesFromOperatingPicture({ objects: [] } as any),
     });
     const context = build({ activeLayer: 'resources', model: nationalOnly });
     expect(context.resources.sites).toEqual([]);
     expect(context.resources.unavailableReason).toBeTruthy();
-    // Nessuna riserva nazionale distribuita su una provincia arbitraria.
     expect(JSON.stringify(context.resources)).not.toContain('carbone');
+    expect(JSON.stringify(NATIONAL_RESERVES)).not.toContain('regionId');
+  });
+
+  it('l’assenza di quadro operativo non produce candidati', () => {
+    expect(resourceCandidatesFromOperatingPicture(null)).toEqual([]);
+    expect(resourceCandidatesFromOperatingPicture(undefined)).toEqual([]);
   });
 });
 
@@ -168,23 +230,84 @@ describe('MAP P5 — INFRASTRUCTURE', () => {
   });
 });
 
-describe('MAP P5 — DIPLOMACY', () => {
-  it('spiega il colore con lo stato canonico relativo al player', () => {
-    expect(build({ region: REGIONS[0], activeLayer: 'diplomacy' }).diplomacy).toMatchObject({ status: 'player', available: true });
-    expect(build({ region: REGIONS[3], activeLayer: 'diplomacy' }).diplomacy).toMatchObject({ status: 'hostile', relationshipValue: 'hostile' });
-    const neutral = build({
-      region: REGIONS[3], activeLayer: 'diplomacy',
-      relationships: { ITA: { FIR: 'ally' } },
-    }).diplomacy;
-    expect(neutral.status).toBe('unknown');
-    expect(neutral.label).not.toBe('Neutrale');
+describe('MAP P5.1 — DIPLOMACY (una sola classificazione)', () => {
+  it('matrice assente → unknown, e il layer non è disponibile', () => {
+    const context = build({ region: REGIONS[3], activeLayer: 'diplomacy', relationships: null });
+    expect(context.diplomacy.status).toBe('unknown');
+    expect(context.diplomacy.available).toBe(false);
+    expect(context.diplomacy.relationshipValue).toBeNull();
   });
 
-  it('fail closed: senza matrice diplomatica lo stato resta sconosciuto', () => {
-    const context = build({ region: REGIONS[3], activeLayer: 'diplomacy', relationships: null });
-    expect(context.diplomacy.available).toBe(false);
-    expect(context.diplomacy.status).toBe('unknown');
-    expect(context.diplomacy.relationshipValue).toBeNull();
+  it('entry `ally` → ally', () => {
+    // Una regione di una potenza alleata: il modello è costruito sullo stesso mondo.
+    const allied = region({ id: 'FIR', name: 'Firenze', polityName: 'Firenze', owner: 'FIR', gdp: 300 });
+    const world = REGIONS.map(item => (item.id === 'FIR' ? allied : item));
+    const relationships = { ITA: { FIR: 'ally', AUT: 'hostile' } };
+    const context = build({
+      region: allied, regions: world, activeLayer: 'diplomacy', relationships,
+      model: buildThematicMapModel({ regions: world, relationships, playerPolityId: 'ITA', resourceCandidates: CANDIDATES }),
+    });
+    expect(context.diplomacy.status).toBe('ally');
+    expect(context.diplomacy.relationshipValue).toBe('ally');
+  });
+
+  it('entry `hostile` → hostile', () => {
+    const context = build({ region: REGIONS[3], activeLayer: 'diplomacy', relationships: { ITA: { AUT: 'hostile' } } });
+    expect(context.diplomacy.status).toBe('hostile');
+  });
+
+  it('il proprietario è il player → player', () => {
+    const context = build({ region: REGIONS[0], activeLayer: 'diplomacy' });
+    expect(context.diplomacy.status).toBe('player');
+    expect(context.diplomacy.label).toBe('Il tuo Stato');
+  });
+
+  it('matrice disponibile ma nessuna entry → neutral (mai unknown)', () => {
+    const context = build({ region: REGIONS[3], activeLayer: 'diplomacy', relationships: { ITA: { FIR: 'ally' } } });
+    expect(context.diplomacy.status).toBe('neutral');
+    expect(context.diplomacy.label).toBe('Neutrale');
+    expect(context.diplomacy.available).toBe(true);
+  });
+
+  it('lo stato è **identico** a quello del modello che colora la mappa', () => {
+    const cases: Array<Record<string, Record<string, string>> | null> = [
+      null,
+      { ITA: { AUT: 'hostile', FIR: 'ally' } },
+      { ITA: { FIR: 'ally' } },
+      {},
+    ];
+    for (const relationships of cases) {
+      const scenario = buildThematicMapModel({
+        regions: REGIONS, relationships, playerPolityId: 'ITA',
+        resourceCandidates: CANDIDATES,
+      });
+      for (const region of REGIONS) {
+        const context = build({ region, activeLayer: 'diplomacy', model: scenario, relationships });
+        const shared = scenario.diplomacy.byRegion[region.id];
+        expect(context.diplomacy.status).toBe(shared);
+        // Anche il colore è lo stesso che la mappa scrive nel feature-state.
+        expect(context.diplomacy.color).toBe(DIPLOMACY_COLORS[shared]);
+      }
+    }
+  });
+});
+
+describe('MAP P5.1 — priorità del contesto della potenza', () => {
+  it('compare solo nei layer dove è semanticamente utile', () => {
+    expect(showsPolityContext('diplomacy')).toBe(true);
+    expect(showsPolityContext('political')).toBe(true);
+    for (const layer of ['military', 'economy', 'resources', 'infrastructure', 'changes', 'terrain'] as const) {
+      expect(showsPolityContext(layer)).toBe(false);
+    }
+  });
+
+  it('il layer militare resta territoriale: nessun blocco nazionale davanti a P4', () => {
+    // Il contesto della potenza è calcolato comunque (read model puro), ma la
+    // UI lo mostra solo su Diplomazia/Politica: qui si fissa la regola.
+    const military = build({ activeLayer: 'military', strategicAgenda: { powers: [{ polityId: 'ITA', name: 'Italia', objectives: [{ id: 'o-1', description: 'Obiettivo', type: 'x', priority: 1, progress: 0, since: '', reviewDate: '', reason: '' }] }] } });
+    expect(military.layer).toBe('military');
+    expect(layerHasThematicSection('military')).toBe(false);
+    expect(showsPolityContext(military.layer)).toBe(false);
   });
 });
 

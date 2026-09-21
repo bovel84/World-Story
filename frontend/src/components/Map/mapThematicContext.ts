@@ -18,11 +18,12 @@
  *    esposti come contesto della potenza, mai come fatto provinciale;
  *  - nessuna causa viene dedotta per i cambiamenti: solo `changedRegionIds`.
  */
-import type { Commitment, PowerAgenda, StrategicObjective } from '../../services/api';
+import type { Commitment, OperatingPicturePayload, PowerAgenda, StrategicObjective } from '../../services/api';
 import type { MapObject, Region } from '../../types';
 import { constructionReport } from '../../utils/construction';
 import { mapLayerDefinition, type MapLayer } from './mapModel';
 import {
+  DIPLOMACY_COLORS,
   DIPLOMACY_LABELS,
   economyColorForBucket,
   economyLegendRanges,
@@ -31,6 +32,7 @@ import {
   type DiplomaticMapStatus,
   type InfrastructureMapItem,
   type MapResourceSite,
+  type ResourceSiteCandidate,
   type ThematicMapModel,
 } from './thematicMapModel';
 
@@ -81,6 +83,8 @@ export interface RegionInfrastructureContext {
 export interface RegionDiplomacyContext {
   status: DiplomaticMapStatus;
   label: string;
+  /** Colore **identico** a quello disegnato sulla mappa per questo stato. */
+  color: string;
   /** False quando `relationships` non è disponibile: lo stato resta «sconosciuto». */
   available: boolean;
   /** Valore canonico pubblicato dal motore (`ally`/`neutral`/`hostile`), se esiste. */
@@ -112,6 +116,19 @@ export interface PolityContext {
   relationship: RegionDiplomacyContext | null;
   agenda: PolityAgendaContext | null;
   commitments: PolityCommitmentsContext;
+}
+
+/**
+ * MAP P5.1 — il contesto della potenza è **nazionale**: non deve occupare la
+ * priorità dei layer che rispondono a domande territoriali. Resta quindi
+ * visibile solo dove è semanticamente utile (Diplomazia, Politica): negli altri
+ * layer — incluso `military`, dove l'esperienza MAP P4 resta prioritaria — le
+ * sezioni territoriali vengono prima e questo blocco non compare.
+ */
+export const POLITY_CONTEXT_LAYERS: readonly MapLayer[] = ['diplomacy', 'political'];
+
+export function showsPolityContext(layer: MapLayer): boolean {
+  return POLITY_CONTEXT_LAYERS.includes(layer);
 }
 
 export interface RegionThematicContext {
@@ -155,21 +172,31 @@ function ownerIdOf(region: Region): string | null {
   return region.owner && region.owner !== 'neutral' ? region.owner : null;
 }
 
-function diplomacyContext(input: {
+/**
+ * MAP P5.1 — **una sola** classificazione diplomatica: quella di MAP P3
+ * (`buildDiplomacyMapModel` / `diplomaticRegionStatus`). Qui il valore viene
+ * soltanto letto dal modello condiviso, così mappa e dossier non possono
+ * divergere (`neutral` resta `neutral` con la matrice disponibile, `unknown`
+ * resta `unknown` senza matrice).
+ */
+function diplomacyFromModel(input: {
+  regionId: string;
   ownerId: string | null;
   playerPolityId?: string | null;
   relationships?: Record<string, Record<string, string>> | null;
+  model: ThematicMapModel;
 }): RegionDiplomacyContext {
-  const available = Boolean(input.relationships) && Boolean(input.playerPolityId);
-  if (!input.ownerId) return { status: 'unknown', label: DIPLOMACY_LABELS.unknown, available, relationshipValue: null };
-  if (input.playerPolityId && input.ownerId === input.playerPolityId) {
-    return { status: 'player', label: DIPLOMACY_LABELS.player, available, relationshipValue: null };
-  }
-  if (!available) return { status: 'unknown', label: DIPLOMACY_LABELS.unknown, available: false, relationshipValue: null };
-  const value = input.relationships?.[input.playerPolityId as string]?.[input.ownerId] ?? null;
-  // `unknown` non è mai `neutral`: se il motore non dichiara il rapporto, resta sconosciuto.
-  const status: DiplomaticMapStatus = value === 'ally' || value === 'hostile' || value === 'neutral' ? value : 'unknown';
-  return { status, label: DIPLOMACY_LABELS[status], available: true, relationshipValue: value };
+  const status: DiplomaticMapStatus = input.model.diplomacy.byRegion[input.regionId] ?? 'unknown';
+  const relationshipValue = input.ownerId && input.playerPolityId
+    ? input.relationships?.[input.playerPolityId]?.[input.ownerId] ?? null
+    : null;
+  return {
+    status,
+    label: DIPLOMACY_LABELS[status],
+    color: DIPLOMACY_COLORS[status],
+    available: input.model.diplomacy.available,
+    relationshipValue,
+  };
 }
 
 function commitmentsFor(polityId: string, registry: readonly Commitment[] | null | undefined): PolityCommitmentsContext {
@@ -227,8 +254,9 @@ export function buildRegionThematicContext(input: BuildRegionThematicContextInpu
     };
   });
 
-  const diplomacy = diplomacyContext({
-    ownerId, playerPolityId: input.playerPolityId, relationships: input.relationships,
+  const diplomacy = diplomacyFromModel({
+    regionId: region.id, ownerId, playerPolityId: input.playerPolityId,
+    relationships: input.relationships, model,
   });
 
   const metadata = region.metadata || {};
@@ -292,18 +320,29 @@ export function layerHasThematicSection(layer: MapLayer): boolean {
   return layer !== 'military';
 }
 
-/** Candidati risorsa derivati dallo stato nazionale: senza `regionId` non sono siti. */
-export function resourceCandidatesFromNational(
-  natural: ReadonlyArray<{ kind: string; label: string }> | null | undefined,
-): Array<{ id?: string; kind: string; label: string; regionId?: string | null }> {
-  return (natural || []).map((item, index) => ({
-    id: `national-${item.kind}-${index}`,
-    kind: item.kind,
-    label: item.label,
-    // Il motore non pubblica oggi un `regionId` per le riserve nazionali: il
-    // campo resta letto se esiste, altrimenti il sito non viene posizionato.
-    regionId: (item as { regionId?: string | null }).regionId ?? null,
-  }));
+/**
+ * MAP P5.1 — candidati risorsa **geografici**: solo oggetti operativi di tipo
+ * `mine` con un `regionId` pubblicato dal motore. La geografia non viene mai
+ * dedotta dal nome della miniera o della risorsa.
+ *
+ * Il tipo della risorsa non è pubblicato in modo machine-readable (vive nel
+ * `label` e nell'`id`): nessun parsing testuale, quindi si usa il valore tecnico
+ * neutro `mine` già previsto dal read model.
+ */
+export const RESOURCE_SITE_KIND = 'mine';
+
+export function resourceCandidatesFromOperatingPicture(
+  picture?: OperatingPicturePayload | null,
+): ResourceSiteCandidate[] {
+  return (picture?.objects || [])
+    .filter(object => object.kind === 'mine' && Boolean(object.regionId))
+    .map(object => ({
+      id: object.id,
+      kind: RESOURCE_SITE_KIND,
+      label: object.label,
+      ...(object.statusLabel ? { status: object.statusLabel } : {}),
+      regionId: object.regionId as string,
+    }));
 }
 
 // Ri-esportazioni: i consumatori del dossier usano un solo import.
