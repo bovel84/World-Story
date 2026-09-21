@@ -242,16 +242,19 @@ test('MAP P6 / A2 — i marker sono button accessibili (Enter/Space, focus, aria
   expect(await marker.evaluate(el => el.type)).toBe('button');
   await marker.focus();
   await expect(marker).toBeFocused();
-  await page.keyboard.press('Enter');
+  await marker.press('Enter');
   await expect(context(page, 'DEU')).toBeVisible();
-  // Anche Space attiva (semantica nativa del bottone).
   await page.getByRole('button', { name: 'Chiudi contesto mappa' }).click();
-  await marker.focus();
-  await page.keyboard.press('Space');
+  await expect(context(page, 'DEU')).toHaveCount(0);
+  // Anche Space attiva: semantica nativa del bottone, nessun handler aggiuntivo.
+  // `locator.press` invia la sequenza al marker (down+up): la finestra tra i due
+  // eventi resta minima e il test non dipende dal focus globale della pagina.
+  await marker.press('Space');
   await expect(context(page, 'DEU')).toBeVisible();
   // Il marker dichiara la semantica: asset localizzato nella regione, non punto esatto.
   const label = await resourceMarker(page, 'dep_coal_deu').getAttribute('aria-label');
   expect(label).toContain('Germania');
+  expect(label).toContain('Carbone');
 });
 
 // B — Nessuna invenzione: uno stock nazionale senza `regionId` non produce geografia.
