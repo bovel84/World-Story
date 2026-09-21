@@ -707,6 +707,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                   onRaiseFormation={raiseFormation}
                   onUnitAction={unitAction}
                   onUnitOrder={unitOrder}
+                  snapshotKey={props.snapshotKey}
                   busy={formationBusy || unitBusy}
                 />
                 <Footnote><b>Da dove vengono le cifre</b> ogni riga è un fatto pubblicato dal motore (arsenale, capacità industriale, prontezza, manpower). Le attribuzioni che il motore non conosce — quali reparti in una armata, quali navi in una flotta — sono convenzioni dichiarate sotto «Catene e convenzioni»: la somma delle parti è il totale nazionale.</Footnote>

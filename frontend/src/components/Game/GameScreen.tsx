@@ -38,6 +38,7 @@ import { DeskContent } from '../Shell/DeskContent';
 import { ProvinceInspector } from '../Shell/ProvinceInspector';
 import { GameMap } from './GameMap';
 import { deriveRailItems } from './nationalContext';
+import { actionSnapshotKey } from './actionSnapshot';
 import type { MapFilters, MapLayer } from '../Map/mapModel';
 import {
   buildMapContextIndex,
@@ -89,7 +90,9 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   // operativo attuale in caso di errore (fail-closed), ma durante il pending il
   // read model resta quello pubblicato e il banner di caricamento lo dichiara:
   // P4 non cambia questa semantica. La sicurezza della preview è garantita dal
-  // reset su `snapshotKey` in UnitActionPanel.
+  // reset su `snapshotKey` in UnitActionPanel; MAP P4.1 passa la stessa identità
+  // sia al context inspector della mappa sia al dossier nazionale (DeskContent
+  // → NationDock → ObjectsBoard), così non esistono due nozioni di snapshot.
   const mapContextIndex = useMemo(() => buildMapContextIndex({
     regions, units: nation.militaryUnits, fronts: nation.militaryFronts,
   }), [regions, nation.militaryUnits, nation.militaryFronts]);
@@ -98,10 +101,10 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     [mapContextSelection, mapContextIndex],
   );
   const contextRegionId = mapContextRegionId(mapContext);
-  const actionSnapshotKey = [
-    currentGame?.id || '', currentGame?.currentTurn || 0, currentGame?.currentDate || '',
-    currentGame?.worldRevision || 0, currentGame?.headBranchId || '',
-  ].join(':');
+  // La stessa identità di snapshot alimenta i **due** punti d'uso di
+  // `UnitActionPanel`: context inspector della mappa e sala di governo del
+  // dossier nazionale (DeskContent → NationDock → ObjectsBoard).
+  const snapshotKey = actionSnapshotKey(currentGame);
 
   useEffect(() => {
     if (!currentWorld) return;
@@ -404,7 +407,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             allRegions={regions}
             playerPolityId={playerPolityId}
             operatingPicture={nation.nationalArms?.objects}
-            snapshotKey={actionSnapshotKey}
+            snapshotKey={snapshotKey}
             onClose={closeMapContext}
             onSelectRegion={selectRegionContext}
             onSelectUnit={selectUnitContext}
@@ -433,6 +436,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             onRaiseFormation={nation.raiseFormation}
             onUnitAction={nation.unitAction}
             onUnitOrder={nation.unitOrder}
+            snapshotKey={snapshotKey}
             tradeResource={nation.tradeNaturalResource}
             nationalHistory={nation.nationalHistory}
             nationalGovernment={nation.nationalGovernment}

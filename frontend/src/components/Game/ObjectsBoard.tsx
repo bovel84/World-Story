@@ -42,6 +42,12 @@ interface ObjectsBoardProps {
    * PRIMA → DOPO (pressione, perdite attese, consumi), altrimenti l'ordine vero.
    */
   onUnitOrder?: (request: UnitOrderRequest) => Promise<UnitOrderImpactPayload>;
+  /**
+   * MAP P4.1 — identità dello snapshot canonico (`gameId:turno:data:revisione:ramo`),
+   * la stessa che la mappa passa al context inspector: al cambio, la preview
+   * PRIMA → DOPO di un reparto non è più confermabile.
+   */
+  snapshotKey?: string;
   busy?: boolean;
 }
 
@@ -79,10 +85,11 @@ function SectorTile({ card, onOpen }: { card: SectorCard; onOpen: () => void }) 
 }
 
 /** Il singolo oggetto: grammatica universale, problemi, azioni. */
-function ObjectCard({ object, depth = 0, busy, action, picture, onPreview, onRaise, onCancel, onPreviewChild, onUnitAction, onUnitOrder }: {
+function ObjectCard({ object, depth = 0, busy, action, picture, snapshotKey, onPreview, onRaise, onCancel, onPreviewChild, onUnitAction, onUnitOrder }: {
   object: OperatingObjectPayload;
   depth?: number;
   busy?: boolean;
+  snapshotKey?: string;
   action?: { armyId: string | null; preview: FormationImpactPayload | null } | null;
   picture: OperatingPicturePayload;
   onPreview?: (armyId: string | null) => void;
@@ -177,6 +184,7 @@ function ObjectCard({ object, depth = 0, busy, action, picture, onPreview, onRai
               object={object}
               picture={picture}
               busy={busy}
+              snapshotKey={snapshotKey}
               onUnitAction={onUnitAction}
               onUnitOrder={onUnitOrder}
             />
@@ -220,7 +228,7 @@ function ChainList({ arsenal }: { arsenal: ArsenalResponse }) {
   );
 }
 
-export function ObjectsBoard({ arsenal, onPreviewFormation, onRaiseFormation, onUnitAction, onUnitOrder, busy }: ObjectsBoardProps) {
+export function ObjectsBoard({ arsenal, onPreviewFormation, onRaiseFormation, onUnitAction, onUnitOrder, snapshotKey, busy }: ObjectsBoardProps) {
   const [sector, setSector] = React.useState<string | null>(null);
   const [action, setAction] = React.useState<{ armyId: string | null; preview: FormationImpactPayload | null } | null>(null);
   const picture = arsenal.objects;
@@ -262,6 +270,7 @@ export function ObjectsBoard({ arsenal, onPreviewFormation, onRaiseFormation, on
         picture={picture}
         busy={busy}
         action={action}
+        snapshotKey={snapshotKey}
         onPreview={preview}
         onPreviewChild={preview}
         onUnitAction={onUnitAction}

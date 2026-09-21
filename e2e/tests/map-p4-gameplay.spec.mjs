@@ -58,15 +58,21 @@ const ACTIONS = [
 ];
 
 const operatingUnit = value => ({
-  id: value.id, kind: 'unit', label: value.name, subtitle: `${value.armyId} · ${value.regionName}`,
+  id: value.id, kind: 'unit', label: value.name,
+  // `runtime.pictureEpoch` distingue due Operating Picture con lo **stesso** ID:
+  // serve a provare che una preview sparisce per lo snapshot, non per il read model.
+  subtitle: `${value.armyId} · ${value.regionName} · quadro ${value.pictureEpoch ?? 1}`,
   status: value.status === 'degraded' ? 'degraded' : 'operational', statusLabel: value.status,
   parentId: value.armyId, regionId: value.regionId, regionName: value.regionName,
   facts: [], problems: [], actions: ACTIONS, why: 'Azioni pubblicate dal motore.',
 });
 const pictureFor = runtime => ({
   objects: [
+    // MAP P4.1: la radice del settore «Forze armate» esiste solo quando serve
+    // (il dossier nazionale raggruppa i settori a partire da un oggetto `force`).
+    ...(runtime.forceRoot ? [{ id: 'force-ita', kind: 'force', label: 'Forze armate', subtitle: 'Reparti della polity ITA', status: 'operational', statusLabel: 'Operativa', parentId: null, facts: [], problems: [], actions: [], why: 'Radice del settore pubblicata dal motore.' }] : []),
     { id: 'army-ita', kind: 'army', label: '1ª Armata', status: 'operational', statusLabel: 'Operativa', parentId: null, regionId: 'ROM', regionName: 'Roma', facts: [], problems: [], actions: [] },
-    ...runtime.units.filter(item => item.polityId === 'ITA').map(operatingUnit),
+    ...runtime.units.filter(item => item.polityId === 'ITA').map(item => operatingUnit({ ...item, pictureEpoch: runtime.pictureEpoch })),
     { id: 'rail-fir', kind: 'facility', label: 'Nodo Firenze', status: 'operational', statusLabel: 'Operativo', parentId: null, regionId: 'FIR', regionName: 'Firenze', facts: [], problems: [], actions: [] },
     { id: 'rail-bol', kind: 'facility', label: 'Nodo Bologna', status: 'operational', statusLabel: 'Operativo', parentId: null, regionId: 'BOL', regionName: 'Bologna', facts: [], problems: [], actions: [] },
   ], chains: [], counts: { army: 1, unit: runtime.units.filter(item => item.polityId === 'ITA').length },
@@ -126,17 +132,23 @@ async function installStoreBridge(page) {
   });
 }
 
-async function openP4Map(page) {
+async function openP4Map(page, { forceRoot = false } = {}) {
   const runtime = {
     units: INITIAL_UNITS.map(item => structuredClone(item)), fronts: [structuredClone(front)],
-    actionCalls: [], orderCalls: [], militaryDelay: 0, actionDelay: 0, forceNotApplied: false,
+    actionCalls: [], orderCalls: [], militaryDelay: 0, actionDelay: 0, arsenalDelay: 0, forceNotApplied: false,
+    forceRoot, pictureEpoch: 1,
   };
   installMockApi(page);
   await installStoreBridge(page);
-  await page.route('**/api/games/*/arsenal', route => route.fulfill({
-    status: 200, contentType: 'application/json',
-    body: JSON.stringify({ ...MOCK_ARSENAL, objects: pictureFor(runtime) }),
-  }));
+  await page.route('**/api/games/*/arsenal', async route => {
+    // MAP P4.1: con l'Operating Picture «congelata» (delay) l'unica cosa che può
+    // invalidare una preview è la chiave snapshot, non il cambio di `picture`.
+    if (runtime.arsenalDelay) await new Promise(resolve => setTimeout(resolve, runtime.arsenalDelay));
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ ...MOCK_ARSENAL, objects: pictureFor(runtime) }),
+    });
+  });
   await page.route('**/api/games/*/military/units', async route => {
     if (runtime.militaryDelay) await new Promise(resolve => setTimeout(resolve, runtime.militaryDelay));
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ units: runtime.units }) });
@@ -220,6 +232,26 @@ async function previewAction(inspector, label, target) {
   await inspector.getByRole('button', { name: label, exact: true }).click();
   if (target) await inspector.getByRole('combobox').selectOption(target);
   await inspector.getByRole('button', { name: 'Anteprima', exact: true }).click();
+}
+
+/**
+ * MAP P4.1 — percorso `Nazione → Armamenti → sala di governo → reparto`:
+ * il secondo punto d'uso di `UnitActionPanel`, quello senza context inspector.
+ */
+async function openNationArsenal(page, unitLabel = 'ITA 1° Reparto') {
+  await page.evaluate(async () => {
+    const { useGameStore, useUIStore } = await window.__wsAppModules();
+    useGameStore.setState({ selectedRegion: 'ROM' });
+    useUIStore.setState({ activeModule: 'nation' });
+  });
+  await page.getByRole('button', { name: 'Armamenti', exact: true }).click();
+  const board = page.locator('.obj-board');
+  await expect(board).toBeVisible();
+  await board.locator('.obj-sector').filter({ hasText: 'Forze armate' })
+    .getByRole('button', { name: /^Apri/ }).click();
+  const card = board.locator(`.obj-object[aria-label="${unitLabel}"]`);
+  await expect(card).toBeVisible();
+  return card;
 }
 
 // A — region click selects the canonical region ID and opens the same inspector.
@@ -428,4 +460,47 @@ test('MAP P4 / R — confirm non applicato invalida la preview, niente retry sta
   await expect(inspector.getByRole('button', { name: 'Conferma', exact: true })).toHaveCount(0);
   await expect(inspector.getByRole('alert')).toContainText('Snapshot cambiato');
   expect(runtime.units.find(item => item.id === 'ita-1').personnel).toBe(8400);
+});
+
+// S — MAP P4.1: la sala di governo (dossier nazionale) usa la stessa identità
+// snapshot del context inspector: una preview stale non resta confermabile
+// nemmeno mentre l'Operating Picture non è ancora tornata dal motore.
+test('MAP P4.1 / S — dossier nazionale: anteprima invalidata dal cambio snapshot', async ({ page }) => {
+  const runtime = await openP4Map(page, { forceRoot: true });
+  const card = await openNationArsenal(page);
+  const panel = card.locator('[data-unit-action-panel="ita-1"]');
+  await expect(panel).toBeVisible();
+
+  // A — preview valida: dry-run del motore e Conferma disponibile.
+  await previewAction(panel, 'Rinforza');
+  await expect(panel.getByRole('group', { name: /Rinforza · ITA 1° Reparto/ })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Conferma', exact: true })).toBeVisible();
+  expect(runtime.actionCalls.at(-1)).toMatchObject({ action: 'reinforce', unitId: 'ita-1', dryRun: true });
+
+  // B — cambia lo snapshot canonico mentre l'Operating Picture è **ferma**
+  // (richiesta in volo, delay lungo): la preview sparisce per la chiave snapshot,
+  // non perché è arrivato un `picture` nuovo.
+  runtime.arsenalDelay = 12000;
+  runtime.pictureEpoch = 2;
+  await refreshSnapshot(page, { currentTurn: 5, currentDate: '1951-02-02', worldRevision: 6, headBranchId: 'branch-next' });
+  await expect(panel.getByRole('group', { name: /Rinforza · ITA 1° Reparto/ })).toHaveCount(0, { timeout: 5000 });
+  await expect(panel.getByRole('button', { name: 'Conferma', exact: true })).toHaveCount(0);
+  // Prova che il read model è ancora quello vecchio: senza `snapshotKey` la
+  // preview sarebbe ancora lì (il pannello si svuota solo col picture nuovo).
+  await expect(card).toContainText('quadro 1');
+  // Il reparto è sempre lo stesso oggetto: non è un unmount a nascondere la preview.
+  await expect(panel).toBeVisible();
+  // Nessuna mutazione stale è partita: serve una nuova anteprima.
+  expect(runtime.actionCalls.every(call => call.dryRun)).toBe(true);
+  await expect(panel.getByRole('button', { name: 'Rinforza', exact: true })).toBeEnabled();
+
+  // C — stesso unit ID, nuovo Operating Picture: una preview richiesta nel
+  // frattempo resta comunque invalidata quando il read model arriva.
+  await previewAction(panel, 'Rinforza');
+  const freshPreview = panel.getByRole('group', { name: /Rinforza · ITA 1° Reparto/ });
+  await expect(freshPreview).toBeVisible();
+  await expect(card).toContainText('quadro 2', { timeout: 20000 });
+  await expect(freshPreview).toHaveCount(0, { timeout: 10000 });
+  expect(runtime.actionCalls.every(call => call.dryRun)).toBe(true);
+  expect(runtime.actionCalls.filter(call => call.action === 'reinforce')).toHaveLength(2);
 });
