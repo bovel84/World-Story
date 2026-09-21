@@ -263,15 +263,18 @@ export function useNationSnapshot({
   }, [gameId]);
 
   /**
-   * MAP P3 — le relazioni diplomatiche seguono lo stesso lifecycle della
-   * partita e sono fail-closed: se il refresh fallisce non resta visibile una
-   * classificazione stale, che potrebbe descrivere un mondo che non esiste più.
+   * MAP P3 / P3.1 — le relazioni diplomatiche seguono lo stesso lifecycle della
+   * partita e sono fail-closed. All'avvio del refresh la matrice precedente
+   * viene invalidata: `CURRENT STATE ≠ LAST KNOWN STATE`. Durante il pending il
+   * layer Diplomazia resta non disponibile invece di mostrare una fotografia
+   * che potrebbe descrivere un mondo che non esiste più.
    */
   const refreshRelationships = useCallback(async () => {
     if (!gameId) return;
     const request = ++relationshipsRequest.current;
     setRelationshipsLoading(true);
     setRelationshipsError(null);
+    setRelationships(null);
     try {
       const data = await gameApi.getRelationships(gameId);
       if (request !== relationshipsRequest.current) return;

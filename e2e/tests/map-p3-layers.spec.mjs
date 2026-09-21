@@ -56,6 +56,11 @@ const FRONTS = [{
   createdDate: '1951-01-01', updatedDate: '1951-02-01',
 }];
 const RELATIONSHIPS = { ITA: { FRA: 'ally', AUT: 'hostile' } };
+// Fasi del refresh diplomatico per gli scenari P3.1.
+const RELATIONSHIP_SNAPSHOTS = {
+  neutral: { ITA: { AUT: 'neutral' } },
+  hostile: RELATIONSHIPS,
+};
 
 async function installStoreBridge(page) {
   await page.addInitScript(() => {
@@ -81,8 +86,15 @@ async function openThematicMap(page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ units: UNITS }) }));
   await page.route('**/api/games/*/military/fronts', route =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ fronts: FRONTS }) }));
-  await page.route('**/api/games/*/relationships', route =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RELATIONSHIPS) }));
+  await page.route('**/api/games/*/relationships', async route => {
+    const phase = page.__relPhase || 'hostile';
+    if (page.__relDelay) await new Promise(resolve => setTimeout(resolve, page.__relDelay));
+    if (phase === 'failure') {
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'internal' }) });
+      return;
+    }
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RELATIONSHIP_SNAPSHOTS[phase]) });
+  });
   await page.goto('/');
   await page.waitForLoadState('networkidle');
   await page.evaluate(async fixtureGame => {
@@ -120,6 +132,31 @@ const LAYER_IDS = {
   Infrastrutture: 'infrastructure', Diplomazia: 'diplomacy', Modifiche: 'changes', Terreno: 'terrain',
 };
 const fillColor = (page) => page.evaluate(() => window.__testMap.getPaintProperty('regions-fill', 'fill-color'));
+const featureState = (page, id) => page.evaluate(regionId =>
+  window.__testMap.getFeatureState({ source: 'regions', id: regionId }), id);
+
+/** Colori canonici dal modulo puro: nessun RGB fragile hardcoded nel test. */
+async function loadColors(page) {
+  return page.evaluate(async () => {
+    const mod = await import('/src/components/Map/thematicMapModel.ts');
+    return { hostile: mod.DIPLOMACY_COLORS.hostile, neutral: mod.DIPLOMACY_COLORS.neutral, noData: mod.THEMATIC_NO_DATA_COLOR };
+  });
+}
+
+/** Trigger canonico del refresh: turno/data/revisione cambiano, come in game. */
+async function bumpRevision(page, date = '1951-02-01') {
+  await page.evaluate(async nextDate => {
+    const { useGameStore } = await window.__wsAppModules();
+    const state = useGameStore.getState();
+    useGameStore.setState({
+      currentGame: {
+        ...state.currentGame,
+        worldRevision: (state.currentGame?.worldRevision || 1) + 1,
+        currentDate: nextDate,
+      },
+    });
+  }, date);
+}
 
 test('MAP P3 / A — sequenza di layer: mappa montata e camera invariata', async ({ page }) => {
   const errors = [];
@@ -251,4 +288,90 @@ test('MAP P3 / J — la selezione sopravvive al cambio di layer', async ({ page 
     const { useGameStore } = await window.__wsAppModules();
     return useGameStore.getState().selectedRegion;
   })).toBe('AUT');
+});
+
+async function selectRegion(page, regionId) {
+  await page.evaluate(async id => {
+    const { useGameStore } = await window.__wsAppModules();
+    useGameStore.setState({ selectedRegion: id });
+  }, regionId);
+}
+
+test('MAP P3.1 / K — la selezione preserva il thematic fill (Economy e Diplomacy)', async ({ page }) => {
+  await openThematicMap(page);
+  const colors = await loadColors(page);
+  await selectLayer(page, 'Economia');
+  await expect.poll(() => featureState(page, 'AUT')).toMatchObject({ hasThematic: true });
+  const economyColor = (await featureState(page, 'AUT')).thematicColor;
+
+  // Selezione: stesso colore tematico, con `selected` come stato separato.
+  await selectRegion(page, 'AUT');
+  await expect.poll(() => featureState(page, 'AUT')).toMatchObject({ selected: true });
+  expect((await featureState(page, 'AUT')).thematicColor).toBe(economyColor);
+  // L'evidenza della selezione vive sull'outline, non sul riempimento.
+  expect(JSON.stringify(await fillColor(page))).not.toContain('selected');
+
+  // Diplomazia: AUT è hostile e resta hostile anche selezionata.
+  await selectLayer(page, 'Diplomazia');
+  await expect.poll(() => featureState(page, 'AUT')).toMatchObject({ thematicColor: colors.hostile });
+  await expect.poll(() => featureState(page, 'AUT')).toMatchObject({ selected: true });
+  expect((await featureState(page, 'AUT')).thematicColor).toBe(colors.hostile);
+  expect((await featureState(page, 'AUT')).thematicColor).not.toBe(colors.noData);
+});
+
+test('MAP P3.1 / L — diplomazia fail-closed mentre il refresh è pending', async ({ page }) => {
+  page.__relPhase = 'neutral';
+  await openThematicMap(page);
+  await selectLayer(page, 'Diplomazia');
+  const colors = await loadColors(page);
+  await expect(mapLayer(page)).toHaveAttribute('data-diplomacy-available', 'true');
+  await expect.poll(() => featureState(page, 'AUT')).toMatchObject({ thematicColor: colors.neutral });
+
+  // Turno successivo: la richiesta resta pendente. La matrice vecchia non deve
+  // restare presentata come corrente.
+  page.__relPhase = 'hostile';
+  page.__relDelay = 4000;
+  await bumpRevision(page, '1951-02-16');
+  await expect(mapLayer(page)).toHaveAttribute('data-diplomacy-available', 'false');
+  await expect(page.locator('[data-thematic-message]')).toBeVisible();
+  await expect.poll(async () => (await featureState(page, 'AUT')).thematicColor).not.toBe(colors.neutral);
+
+  // B completa: AUT hostile, layer di nuovo disponibile.
+  await expect.poll(() => featureState(page, 'AUT'), { timeout: 9000 }).toMatchObject({ thematicColor: colors.hostile });
+  await expect(mapLayer(page)).toHaveAttribute('data-diplomacy-available', 'true');
+});
+
+test('MAP P3.1 / M — refresh fallito: la matrice vecchia sparisce', async ({ page }) => {
+  page.__relPhase = 'neutral';
+  await openThematicMap(page);
+  await selectLayer(page, 'Diplomazia');
+  const colors = await loadColors(page);
+  await expect.poll(() => featureState(page, 'AUT')).toMatchObject({ thematicColor: colors.neutral });
+
+  page.__relPhase = 'failure';
+  await bumpRevision(page, '1951-02-16');
+  await expect(mapLayer(page)).toHaveAttribute('data-diplomacy-available', 'false');
+  await expect(page.locator('[data-thematic-message]')).toBeVisible();
+  await expect.poll(async () => (await featureState(page, 'AUT')).thematicColor).not.toBe(colors.neutral);
+});
+
+test('MAP P3.1 / N — race: la risposta più recente vince, la lenta non rientra', async ({ page }) => {
+  page.__relPhase = 'neutral';
+  await openThematicMap(page);
+  await selectLayer(page, 'Diplomazia');
+  const colors = await loadColors(page);
+
+  // A lenta (neutral), poi B veloce (hostile).
+  page.__relDelay = 4000;
+  await bumpRevision(page, '1951-02-10');
+  await page.waitForTimeout(300);
+  page.__relDelay = 0;
+  page.__relPhase = 'hostile';
+  await bumpRevision(page, '1951-02-20');
+
+  await expect(mapLayer(page)).toHaveAttribute('data-diplomacy-available', 'true');
+  await expect.poll(() => featureState(page, 'AUT')).toMatchObject({ thematicColor: colors.hostile });
+  // A completa dopo B: il request-id guard deve scartarla.
+  await page.waitForTimeout(4200);
+  expect((await featureState(page, 'AUT')).thematicColor).toBe(colors.hostile);
 });

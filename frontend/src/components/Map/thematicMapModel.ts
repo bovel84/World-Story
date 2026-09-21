@@ -125,6 +125,22 @@ export function economyColorForBucket(bucket: number | null): string {
   return ECONOMY_COLORS[Math.min(bucket, ECONOMY_COLORS.length - 1)];
 }
 
+/**
+ * Espressione MapLibre del riempimento tematico (economia/diplomazia).
+ * **La selezione non compare**: il colore resta quello del layer anche quando
+ * la feature è selezionata. L'evidenza della selezione vive sull'outline di
+ * `regions-line`, mai sul riempimento. Così «selezionato» e «significato del
+ * layer» restano due cose distinte.
+ */
+export function thematicFillExpression(): unknown[] {
+  return [
+    'case',
+    ['boolean', ['feature-state', 'hasThematic'], false],
+    ['coalesce', ['feature-state', 'thematicColor'], THEMATIC_NO_DATA_COLOR],
+    THEMATIC_NO_DATA_COLOR,
+  ];
+}
+
 export function buildEconomyMapModel(regions: readonly Region[], bucketCount = ECONOMY_BUCKET_COUNT): EconomyMapModel {
   const values = regions.map(region => region.gdp).filter(isEconomyValue);
   const edges = economyBucketEdges(values, bucketCount);

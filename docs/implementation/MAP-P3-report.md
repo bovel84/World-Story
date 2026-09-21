@@ -212,3 +212,103 @@ I ricerca stabile; J selezione stabile.
 - **MAP P2 invariata**
 - **MILITARY P4–P6 invariata**
 - **nessun grande refactor**
+
+---
+
+## MAP P3.1 — thematic selection integrity and diplomacy refresh safety
+
+Due difetti emersi in review, chiusi senza riaprire l'architettura P3: nessun
+nuovo layer, nessuna modifica backend, nessuna modifica al motore.
+
+### Fix A — la selezione non altera la semantica del layer
+
+**Problema.** Nel layer tematico il `fill-color` dava precedenza a
+`feature-state.selected` → colore politico. Selezionare una regione in Economy
+ne cancellava il bucket; selezionare `AUT` in Diplomacy ne cancellava lo stato
+`hostile`.
+
+**Regola.** `selected ≠ political fill override`. La selezione è comunicata
+dall'**outline** di `regions-line` (bianco, più spesso), mai dal riempimento.
+
+**Fix.**
+
+```text
+prima:  ['case', selected → ['get','color'], hasThematic → thematicColor, NO_DATA]
+dopo:   ['case', hasThematic → thematicColor, NO_DATA]        (selected assente)
+```
+
+Il riempimento tematico è ora costruito da `thematicFillExpression()` in
+`thematicMapModel.ts`: un'unica funzione pura, testabile senza MapLibre, la cui
+espressione **non contiene** `selected`.
+
+Esiti verificati:
+
+- regione Economy selezionata → stesso colore di bucket;
+- regiona Diplomacy `hostile` selezionata → resta `hostile`;
+- regione **no-data** (`gdp` 0/undefined) selezionata → resta `THEMATIC_NO_DATA_COLOR`,
+  non diventa colore politico;
+- relazione `unknown` selezionata → resta presentazione unknown/no-data.
+
+### Fix B — la diplomazia invalida la matrice all'avvio del refresh
+
+**Problema.** `refreshRelationships()` impostava `loading`/`error` ma lasciava la
+matrice precedente nello state fino alla risposta: durante il pending il layer
+mostrava una fotografia `neutral` come se fosse **corrente**, mentre il mondo era
+già cambiato.
+
+**Regola (già stabilita in MAP P2.1).** `CURRENT STATE ≠ LAST KNOWN STATE`.
+
+**Fix.** All'avvio del refresh, subito dopo il request id:
+
+```ts
+const request = ++relationshipsRequest.current;
+setRelationshipsLoading(true);
+setRelationshipsError(null);
+setRelationships(null);   // MAP P3.1: la matrice precedente è invalidata
+```
+
+Durante il pending: `relationships = null`, `relationshipsLoading = true`,
+`data-diplomacy-available = false`, messaggio contestuale visibile, base map
+disponibile. Il layer non mostra mai dati stale.
+
+**Race / failure / recovery.** Il guard `if (request !== relationshipsRequest.current) return`
+resta: una risposta lenta di un refresh superato non rientra nello state. Su
+errore: `relationships = null` + `relationshipsError`. Un refresh successivo
+valido riporta la matrice e rende il layer di nuovo disponibile. Cambio `gameId`:
+`relationships`/`error` azzerati e richieste precedenti invalidate dal bump di
+`relationshipsRequest.current` nel nuovo refresh.
+
+Nessuna nuova prop di lifecycle: il renderer non ha bisogno di distinguere
+`loading` da `error` per restare fail-closed (`relationships === null` basta).
+Il messaggio resta unico («Relazioni diplomatiche non disponibili.»), come
+consentito dalla specifica.
+
+### Verifica
+
+- **Unitari** `thematicMapModel.test.ts` (19 totali, +4 P3.1): l'espressione di
+  riempimento non contiene `selected` né `['get','color']`; colore di bucket
+  stabile; no-data resta no-data; `hostile` resta `hostile`, `unknown` resta
+  no-data.
+- **E2E** `map-p3-layers.spec.mjs` (+4: K/L/M/N):
+  - **K** — Economy e Diplomacy: `feature-state.thematicColor` invariato dopo la
+    selezione; `fill-color` non contiene `selected`;
+  - **L** — refresh pending → `data-diplomacy-available=false`, `AUT` non più
+    `neutral`, poi risposta → `hostile`;
+  - **M** — refresh fallito → `AUT` non più `neutral`, layer non disponibile;
+  - **N** — race A lenta/B veloce → B vince, A non sovrascrive.
+
+### Conferme finali MAP P3.1
+
+- **selected Economy region preserves GDP thematic fill**
+- **selected Diplomacy region preserves relationship thematic fill**
+- **no-data selected remains no-data**
+- **relationships are invalidated at refresh start**
+- **no stale diplomacy during pending requests**
+- **race protection preserved**
+- **failure remains fail-closed**
+- **recovery works**
+- **Resources semantics unchanged** (`OperatingObject kind='mine'` resta non
+  canonico come sito geografico: nessun uso in P3.1)
+- **MAP P2 unchanged**
+- **no backend changes**
+- **no large refactor**

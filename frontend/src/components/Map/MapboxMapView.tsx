@@ -32,10 +32,10 @@ import { RegionFeatureIndex, diffRegionFeatures, objectIconFor, objectIsVisibleF
 import {
   DIPLOMACY_COLORS,
   DIPLOMACY_LABELS,
-  THEMATIC_NO_DATA_COLOR,
   buildThematicMapModel,
   economyColorForBucket,
   mapLayerPresentation,
+  thematicFillExpression,
   thematicUnavailableMessage,
   type ThematicMapModel,
 } from './thematicMapModel';
@@ -829,12 +829,10 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     const presentation = mapLayerPresentation(activeLayer);
     const fillColor = presentation.thematic === 'none'
       ? ['get', 'color']
-      : ['case',
-        ['boolean', ['feature-state', 'selected'], false], ['get', 'color'],
-        ['boolean', ['feature-state', 'hasThematic'], false],
-        ['coalesce', ['feature-state', 'thematicColor'], THEMATIC_NO_DATA_COLOR],
-        THEMATIC_NO_DATA_COLOR,
-      ];
+      // La selezione NON cambia il significato del layer: il riempimento resta
+      // tematico anche quando la feature è selezionata (l'outline di
+      // `regions-line` comunica la selezione).
+      : thematicFillExpression();
     map.current.setPaintProperty(FILL_LAYER_ID, 'fill-color', fillColor as never);
   }, [activeLayer, mapLoaded, sourceRevision]);
 

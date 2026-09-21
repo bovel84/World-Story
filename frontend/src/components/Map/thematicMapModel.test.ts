@@ -3,8 +3,10 @@ import type { Region } from '../../types';
 import { MAP_LAYERS, type MapLayer } from './mapModel';
 import {
   DIPLOMACY_COLORS,
+  ECONOMY_COLORS,
   MAP_LAYER_PRESENTATIONS,
   RESOURCES_UNAVAILABLE_REASON,
+  THEMATIC_NO_DATA_COLOR,
   buildDiplomacyMapModel,
   buildEconomyMapModel,
   buildInfrastructureMapModel,
@@ -14,9 +16,11 @@ import {
   diplomaticRegionStatus,
   economyBucketFor,
   economyBucketEdges,
+  economyColorForBucket,
   economyLegendRanges,
   infrastructureKind,
   mapLayerPresentation,
+  thematicFillExpression,
   thematicUnavailableMessage,
 } from './thematicMapModel';
 
@@ -213,5 +217,42 @@ describe('MAP P3 — resources (no invented geography)', () => {
     expect(model.available).toBe(true);
     expect(model.byRegion.A).toHaveLength(1);
     expect(model.sites[0]).not.toHaveProperty('quantity');
+  });
+});
+
+describe('MAP P3.1 — selection never overrides the thematic fill', () => {
+  it('builds a thematic fill expression that does not reference selection', () => {
+    const expression = JSON.stringify(thematicFillExpression());
+    expect(expression).toContain('hasThematic');
+    expect(expression).toContain('thematicColor');
+    // La selezione resta sull'outline: non deve mai comparire nel riempimento.
+    expect(expression).not.toContain('selected');
+    expect(expression).not.toContain('"get","color"');
+  });
+
+  it('keeps the economy bucket colour identical with or without selection', () => {
+    const bucket = 2;
+    expect(economyColorForBucket(bucket)).toBe(economyColorForBucket(bucket));
+    expect(economyColorForBucket(bucket)).toBe(ECONOMY_COLORS[bucket]);
+    expect(economyColorForBucket(0)).not.toBe(economyColorForBucket(4));
+  });
+
+  it('keeps a no-data economy region no-data even when selected', () => {
+    const model = buildEconomyMapModel([region('empty', { gdp: 0 }), region('real', { gdp: 500 })]);
+    expect(model.byRegion.empty).toBeUndefined();
+    expect(model.noData).toContain('empty');
+    expect(economyColorForBucket(null)).toBe(THEMATIC_NO_DATA_COLOR);
+  });
+
+  it('keeps a hostile diplomacy colour hostile, and unknown unknown, when selected', () => {
+    const relationships = { ITA: { AUT: 'hostile' } };
+    const status = diplomaticRegionStatus({ owner: 'AUT', playerPolityId: 'ITA', relationships });
+    expect(status).toBe('hostile');
+    expect(DIPLOMACY_COLORS[status]).toBe(DIPLOMACY_COLORS.hostile);
+    const unknown = diplomaticRegionStatus({ owner: 'AUT', playerPolityId: 'ITA', relationships: null });
+    expect(DIPLOMACY_COLORS[unknown]).toBe(THEMATIC_NO_DATA_COLOR);
+    // La classificazione non accetta alcun input di selezione: non può cambiarla.
+    expect(diplomaticRegionStatus({ owner: 'AUT', playerPolityId: 'ITA', relationships }))
+      .toBe(diplomaticRegionStatus({ owner: 'AUT', playerPolityId: 'ITA', relationships }));
   });
 });
