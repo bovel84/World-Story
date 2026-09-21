@@ -264,13 +264,32 @@ class SessionRegistry {
   }
 
   /**
-   * Reload active sessions from DB on server restart
+   * Reload active sessions from DB on server restart.
+   *
+   * OPZIONALE e **limitato**: le sessioni si caricano già **lazy** alla prima
+   * richiesta (`getSession()`), quindi il warm-up eager non è necessario per
+   * servire il gioco. Ricostruire centinaia di partite all'avvio saturava
+   * l'event loop per minuti (boot da ~7 min, health intermittente).
+   *
+   *   OPENPAX_WARM_SESSIONS=<n>  → riscalda le n partite più recenti (default 0).
+   *
+   * Con il default (0) il boot è immediato e ogni partita paga il costo di
+   * ricostruzione una sola volta, alla sua prima richiesta.
    */
-  reloadActiveSessions(): void {
-    const stmt = db.prepare("SELECT * FROM games WHERE status = 'playing'");
-    const activeGames = stmt.all() as any[];
+  async reloadActiveSessions(): Promise<void> {
+    const limit = Math.max(0, Math.floor(Number(process.env.OPENPAX_WARM_SESSIONS) || 0));
+    if (limit === 0) {
+      console.log('[SessionRegistry] Warm-up disabilitato: sessioni caricate lazy alla prima richiesta');
+      return;
+    }
+    const stmt = db.prepare(
+      "SELECT * FROM games WHERE status = 'playing' ORDER BY rowid DESC LIMIT ?",
+    );
+    const activeGames = stmt.all(limit) as any[];
+    const total = activeGames.length;
 
-    for (const game of activeGames) {
+    for (let index = 0; index < total; index += 1) {
+      const game = activeGames[index];
       try {
         const session = new GameSession(game.id, game.world_id, this.provider);
 
@@ -300,13 +319,14 @@ class SessionRegistry {
         });
 
         this.sessions.set(game.id, session);
-        console.log('[SessionRegistry] Restored session:', game.id);
       } catch (e) {
         console.error('[SessionRegistry] Failed to restore session:', game.id, e);
       }
+      // Cede l'event loop a ogni sessione: le rotte restano reattive.
+      await new Promise(resolve => setImmediate(resolve));
     }
 
-    console.log(`[SessionRegistry] Reloaded ${this.sessions.size} active sessions`);
+    console.log(`[SessionRegistry] Warmed ${this.sessions.size} session(s)`);
   }
 
   /**

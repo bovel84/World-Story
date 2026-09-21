@@ -74,12 +74,15 @@ if (fs.existsSync(frontendIndex)) {
   console.warn(`[Static] Frontend build not found: ${frontendDist}`);
 }
 
-// Reload active sessions from database (survives server restart)
-sessionRegistry.reloadActiveSessions();
-
 const server = app.listen(PORT, () => {
   console.log(`🚀 World Story API running on http://localhost:${PORT}`);
 });
+
+// Warm-up delle sessioni NON bloccante: la porta è già aperta e l'event loop
+// resta libero (il reload cede periodicamente il controllo). Le sessioni non
+// ancora riscaldate si caricano **lazy** da `getSession()` alla prima richiesta:
+// il boot non attende più la ricostruzione di tutte le partite attive.
+void sessionRegistry.reloadActiveSessions();
 
 // Il backend è dietro un proxy (Worker Cloudflare → quick tunnel): con il default
 // di Node (5 s) un socket keep-alive inattivo viene chiuso mentre il proxy lo
