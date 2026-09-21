@@ -202,6 +202,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
       militaryFronts={nation.militaryFronts}
       militaryStateLoading={nation.militaryStateLoading}
       militaryStateError={nation.militaryStateError}
+      relationships={nation.relationships}
       showFlags={!!useGameStore.getState().selectedCountry}
       playerCountryCode={playerPolityId}
       onBackToScenarios={() => {

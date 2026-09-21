@@ -37,6 +37,11 @@ import { normalizeResources } from '../components/Game/nationDossier';
 
 export type NationalResources = Awaited<ReturnType<typeof normalizeResources>>;
 export type NationalArms = Awaited<ReturnType<typeof gameApi.arsenal>>;
+/**
+ * Matrice diplomatica canonica `da → verso → tipo`.
+ * Valori del motore: `'ally' | 'neutral' | 'hostile'`.
+ */
+export type RelationshipMap = Record<string, Record<string, string>>;
 /** OP-OBJECTS — parametri della creazione di reparti (armata esistente o nuova). */
 export interface FormationOptions { formations?: number; armyId?: string | null; name?: string }
 export type NationalAccountMap = Record<string, any>;
@@ -124,6 +129,11 @@ export interface NationSnapshot {
   militaryStateLoading: boolean;
   militaryStateError: string | null;
   refreshMilitaryState: () => Promise<void>;
+  /** MAP P3 — relazioni canoniche per il layer Diplomazia (fail-closed). */
+  relationships: RelationshipMap | null;
+  relationshipsLoading: boolean;
+  relationshipsError: string | null;
+  refreshRelationships: () => Promise<void>;
   /** Azzera l'intero snapshot (nessuna partita attiva). */
   resetNational: () => void;
   procureEquipment: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
@@ -181,6 +191,10 @@ export function useNationSnapshot({
   const [militaryStateLoading, setMilitaryStateLoading] = useState(false);
   const [militaryStateError, setMilitaryStateError] = useState<string | null>(null);
   const militaryRequest = useRef(0);
+  const [relationships, setRelationships] = useState<RelationshipMap | null>(null);
+  const [relationshipsLoading, setRelationshipsLoading] = useState(false);
+  const [relationshipsError, setRelationshipsError] = useState<string | null>(null);
+  const relationshipsRequest = useRef(0);
 
   const resetNational = useCallback(() => {
     setNationalAccounts({});
@@ -202,6 +216,10 @@ export function useNationSnapshot({
     setMilitaryStateLoading(false);
     setMilitaryStateError(null);
     militaryRequest.current += 1;
+    setRelationships(null);
+    setRelationshipsLoading(false);
+    setRelationshipsError(null);
+    relationshipsRequest.current += 1;
   }, []);
 
   /**
@@ -240,13 +258,40 @@ export function useNationSnapshot({
     setMilitaryUnits([]);
     setMilitaryFronts([]);
     setMilitaryStateError(null);
+    setRelationships(null);
+    setRelationshipsError(null);
+  }, [gameId]);
+
+  /**
+   * MAP P3 — le relazioni diplomatiche seguono lo stesso lifecycle della
+   * partita e sono fail-closed: se il refresh fallisce non resta visibile una
+   * classificazione stale, che potrebbe descrivere un mondo che non esiste più.
+   */
+  const refreshRelationships = useCallback(async () => {
+    if (!gameId) return;
+    const request = ++relationshipsRequest.current;
+    setRelationshipsLoading(true);
+    setRelationshipsError(null);
+    try {
+      const data = await gameApi.getRelationships(gameId);
+      if (request !== relationshipsRequest.current) return;
+      setRelationships(data || {});
+    } catch (error) {
+      if (request !== relationshipsRequest.current) return;
+      console.warn('[App] Relazioni diplomatiche non disponibili:', error);
+      setRelationships(null);
+      setRelationshipsError('Relazioni diplomatiche non disponibili');
+    } finally {
+      if (request === relationshipsRequest.current) setRelationshipsLoading(false);
+    }
   }, [gameId]);
 
   // Turno, data, revisione e ramo coprono advance, checkpoint, rewind e load.
   useEffect(() => {
     if (!gameId) return;
     void refreshMilitaryState();
-  }, [gameId, currentTurn, currentDate, worldRevision, headBranchId, refreshMilitaryState]);
+    void refreshRelationships();
+  }, [gameId, currentTurn, currentDate, worldRevision, headBranchId, refreshMilitaryState, refreshRelationships]);
 
   // Il bollettino usa dati aggregati dal motore, non formule del browser.
   useEffect(() => {
@@ -598,6 +643,10 @@ export function useNationSnapshot({
     militaryStateLoading,
     militaryStateError,
     refreshMilitaryState,
+    relationships,
+    relationshipsLoading,
+    relationshipsError,
+    refreshRelationships,
     resetNational,
     procureEquipment,
     previewFormation,

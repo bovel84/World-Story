@@ -28,7 +28,17 @@ import { MapTools } from './MapTools';
 import { MapLegend } from '../Shell/MapLegend';
 import { MilitaryStateOverlay } from './MilitaryStateOverlay';
 import { buildMilitaryMapModel } from './militaryMapModel';
-import { RegionFeatureIndex, diffRegionFeatures, objectIconFor, objectIsVisible, objectQualifiesAtZoom, regionLabelVisible, fixedCityCoordinate, resolveMapObjectCoordinate, DEFAULT_MAP_FILTERS, EMPTY_IDS, type MapLayer, type MapFilters, type MapSearchEntry } from './mapModel';
+import { RegionFeatureIndex, diffRegionFeatures, objectIconFor, objectIsVisibleForLayer, objectQualifiesAtZoom, regionLabelVisible, fixedCityCoordinate, resolveMapObjectCoordinate, DEFAULT_MAP_FILTERS, EMPTY_IDS, INFRASTRUCTURE_OBJECT_TYPES, STRATEGIC_OBJECT_TYPES, type MapLayer, type MapFilters, type MapSearchEntry } from './mapModel';
+import {
+  DIPLOMACY_COLORS,
+  DIPLOMACY_LABELS,
+  THEMATIC_NO_DATA_COLOR,
+  buildThematicMapModel,
+  economyColorForBucket,
+  mapLayerPresentation,
+  thematicUnavailableMessage,
+  type ThematicMapModel,
+} from './thematicMapModel';
 import './map.css';
 import { constructionReport } from '../../utils/construction';
 import type { FeedItem } from '../Game/EventFeed';
@@ -155,6 +165,8 @@ interface MapboxMapViewProps {
   militaryFronts?: WarFrontPayload[];
   militaryStateLoading?: boolean;
   militaryStateError?: string | null;
+  /** MAP P3 — relazioni canoniche `player → altro → tipo` per il layer Diplomazia. */
+  relationships?: Record<string, Record<string, string>> | null;
 }
 
 
@@ -377,6 +389,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   militaryFronts = EMPTY_FRONTS,
   militaryStateLoading = false,
   militaryStateError = null,
+  relationships = null,
 }) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -432,6 +445,17 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   const militaryModel = useMemo(() => buildMilitaryMapModel({
     regions, units: militaryUnits, fronts: militaryFronts,
   }), [regions, militaryUnits, militaryFronts]);
+  // MAP P3 — read model tematico puro: economia, diplomazia, infrastrutture,
+  // risorse. Costruito solo da stato canonico, mai persistito.
+  const thematic = useMemo<ThematicMapModel>(() => buildThematicMapModel({
+    regions, relationships, playerPolityId: playerCountryCode,
+  }), [regions, relationships, playerCountryCode]);
+  const layerPresentation = mapLayerPresentation(activeLayer);
+  const thematicMessage = thematicUnavailableMessage(activeLayer, thematic);
+  const infrastructureLayerTypes = useMemo(
+    () => new Set<string>([...INFRASTRUCTURE_OBJECT_TYPES, ...STRATEGIC_OBJECT_TYPES]),
+    [],
+  );
   // Un reparto persistente sostituisce il vecchio marker aggregato con lo
   // stesso id; se non esiste un equivalente, il marker legacy resta visibile.
   const persistentMilitaryIds = useMemo(
@@ -453,9 +477,21 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null);
   const hoveredRegion = hoveredRegionId ? regionsById.get(hoveredRegionId) : undefined;
   const tooltipInfo = hoveredRegion && hoverPoint ? {
-    ...hoverPoint, name: hoveredRegion.name,
+    ...hoverPoint, regionId: hoveredRegion.id, name: hoveredRegion.name,
     owner: hoveredRegion.owner === 'neutral' ? null : hoveredRegion.polityName || hoveredRegion.owner,
     population: hoveredRegion.population, gdp: hoveredRegion.gdp, militaryPower: hoveredRegion.militaryPower,
+  } : null;
+  // Contenuto del tooltip per layer: solo valori già derivati dai read model.
+  const tooltipThematic = tooltipInfo ? {
+    economy: thematic.economy.byRegion[tooltipInfo.regionId],
+    diplomacy: thematic.diplomacy.byRegion[tooltipInfo.regionId] ?? 'unknown' as const,
+    infrastructure: thematic.infrastructure.byRegion[tooltipInfo.regionId] ?? [],
+    resources: thematic.resources.byRegion[tooltipInfo.regionId] ?? [],
+    military: {
+      units: militaryModel.unitsByRegion[tooltipInfo.regionId]?.length ?? 0,
+      moving: militaryModel.unitsByRegion[tooltipInfo.regionId]?.filter(unit => unit.movement).length ?? 0,
+      front: militaryModel.fronts.find(front => front.regionIds.includes(tooltipInfo.regionId))?.name ?? null,
+    },
   } : null;
 
   // Valori aggiornati per i gestori della mappa (registrati una volta sola)
@@ -781,9 +817,49 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       ['boolean', ['feature-state', 'selected'], false], 0.7,
       ['boolean', ['feature-state', 'hovered'], false], 0.6,
       ...(activeLayer === 'changes' ? [['boolean', ['feature-state', 'changed'], false], 0.72] : []),
-      activeLayer === 'terrain' ? 0.12 : activeLayer === 'changes' ? 0.18 : 0.52,
+      mapLayerPresentation(activeLayer).politicalFillOpacity,
     ]);
   }, [activeLayer, mapLoaded]);
+
+  // MAP P3 — riempimento coropletico tematico. Riusa la source `regions`:
+  // nessuna geometria duplicata, nessun remount, nessun fitBounds. Il colore
+  // tematico arriva dal feature-state, calcolato dal read model puro.
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+    const presentation = mapLayerPresentation(activeLayer);
+    const fillColor = presentation.thematic === 'none'
+      ? ['get', 'color']
+      : ['case',
+        ['boolean', ['feature-state', 'selected'], false], ['get', 'color'],
+        ['boolean', ['feature-state', 'hasThematic'], false],
+        ['coalesce', ['feature-state', 'thematicColor'], THEMATIC_NO_DATA_COLOR],
+        THEMATIC_NO_DATA_COLOR,
+      ];
+    map.current.setPaintProperty(FILL_LAYER_ID, 'fill-color', fillColor as never);
+  }, [activeLayer, mapLoaded, sourceRevision]);
+
+  // I valori tematici vivono in feature-state: uno switch di layer aggiorna
+  // solo paint e stato, mai la geometria delle regioni.
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+    const m = map.current;
+    const presentation = mapLayerPresentation(activeLayer);
+    if (presentation.thematic === 'none') return;
+    for (const region of regions) {
+      if (!features.has(region.id)) continue;
+      const target = { source: REGIONS_SOURCE_ID, id: region.id };
+      if (presentation.thematic === 'economy') {
+        const value = thematic.economy.byRegion[region.id];
+        m.setFeatureState(target, {
+          hasThematic: Boolean(value),
+          thematicColor: value ? economyColorForBucket(value.bucket) : null,
+        });
+      } else {
+        const status = thematic.diplomacy.byRegion[region.id] ?? 'unknown';
+        m.setFeatureState(target, { hasThematic: true, thematicColor: DIPLOMACY_COLORS[status] });
+      }
+    }
+  }, [activeLayer, mapLoaded, sourceRevision, thematic, regions, features]);
 
   // G4-C — cicatrici temporali: tratteggio e riempimento del vecchio padrone
   // sulle regioni appena cambiate. Layer non interattivi, sotto i controlli.
@@ -961,8 +1037,13 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
         // (unità, cantieri, fortificazioni) restano visibili a ogni zoom: sono
         // il motivo per cui il giocatore apre quella vista.
         const changedHere = !!changedRegionsOnLayer && type !== 'city' && changedRegionsOnLayer.has(el.dataset.regionId || '');
-        const qualifies = changedHere || objectQualifiesAtZoom(type || 'city', zoom, pop, zoomBias);
-        const showMarker = objectIsVisible(type || '', filters) && isInViewport(marker.getLngLat()) && qualifies;
+        // MAP P3 — il layer Infrastrutture tiene le opere visibili anche a
+        // vista mondo; un reparto puro non compare mai come infrastruttura.
+        const infraHere = layerPresentation.emphasizeInfrastructure
+          && infrastructureLayerTypes.has(type || '')
+          && zoom + zoomBias >= layerPresentation.infrastructureMinZoom;
+        const qualifies = changedHere || infraHere || objectQualifiesAtZoom(type || 'city', zoom, pop, zoomBias);
+        const showMarker = objectIsVisibleForLayer(type || '', filters, activeLayer) && isInViewport(marker.getLngLat()) && qualifies;
         el.style.display = showMarker ? 'flex' : 'none';
         if (label) {
           label.style.top = `${height + 2}px`;
@@ -1082,7 +1163,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       m.off('resize', schedule);
       updateVisibilityRef.current = () => {};
     };
-  }, [regions, mapLoaded, selectedRegionId, hoveredRegionId, filters, activeLayer, recentRegionIds]);
+  }, [regions, mapLoaded, selectedRegionId, hoveredRegionId, filters, activeLayer, recentRegionIds, layerPresentation, infrastructureLayerTypes]);
 
   // Tutti gli oggetti di gioco di tutte le regioni (per i marker).
   // `regionOwner` permette di scegliere una città principale per ogni nazione:
@@ -1360,14 +1441,18 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   }, [allObjects, mapLoaded, markerViewportRevision, filters]);
 
   return (
-    <div className="world-map" data-map-layer={activeLayer}>
+    <div className="world-map" data-map-layer={activeLayer}
+      data-economy-available={thematic.economy.available}
+      data-diplomacy-available={thematic.diplomacy.available}
+      data-resources-available={thematic.resources.available}>
       <MapTools regions={regions} recentRegionIds={recentRegionIds} ready={mapLoaded}
         hasPlayer={regions.some(region => region.owner === (playerCountryCode || 'player'))}
         onLocate={locate} onWorld={resetView}
         onPlayer={() => focusRegions(regions.filter(region => region.owner === (playerCountryCode || 'player')).map(region => region.id))} />
       {onLayerChange && <MapLegend regions={regions} selectedRegionId={selectedRegionId}
         activeLayer={activeLayer} onLayerChange={onLayerChange}
-        filters={filters} onFiltersChange={onFiltersChange} className="map-floating-legend" />}
+        filters={filters} onFiltersChange={onFiltersChange} thematic={thematic}
+        className="map-floating-legend" />}
       <div
         ref={mapContainer}
         className="map-keyboard-surface"
@@ -1385,6 +1470,9 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       {mapLoaded && map.current && <MilitaryStateOverlay map={map.current} regions={regions} model={militaryModel}
         visible={filters.showUnits} loading={militaryStateLoading} error={militaryStateError}
         playerPolityId={playerCountryCode} onFocusRegion={id => focusRegions([id])} />}
+      {/* MAP P3 — un layer supportato senza dati territoriali lo dice, invece di
+          mostrare una heatmap vuota o inventare posizioni. */}
+      {thematicMessage && <div className="map-thematic-notice" role="status" data-thematic-message>{thematicMessage}</div>}
       {!mapLoaded && (
         <div style={{
           position: 'absolute',
@@ -1426,9 +1514,32 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
           {tooltipInfo.owner && (
             <div style={{ color: '#ccc', marginBottom: '6px' }}>Controllo: {tooltipInfo.owner}</div>
           )}
-          <div style={{ color: '#c4cfd8' }}>Popolazione: {tooltipInfo.population?.toLocaleString('it-IT')}</div>
-          <div style={{ color: '#c4cfd8' }}>PIL: {tooltipInfo.gdp?.toLocaleString('it-IT')}</div>
-          <div style={{ color: '#c4cfd8' }}>Forza militare: {tooltipInfo.militaryPower?.toLocaleString('it-IT')}</div>
+          {activeLayer === 'military' && tooltipThematic && <>
+            <div style={{ color: '#c4cfd8' }}>Reparti: {tooltipThematic.military.units}</div>
+            {tooltipThematic.military.moving > 0 && <div style={{ color: '#c4cfd8' }}>In trasferimento: {tooltipThematic.military.moving}</div>}
+            {tooltipThematic.military.front && <div style={{ color: '#c4cfd8' }}>Fronte: {tooltipThematic.military.front}</div>}
+          </>}
+          {activeLayer === 'economy' && <>
+            <div style={{ color: '#c4cfd8' }}>PIL: {tooltipThematic?.economy
+              ? tooltipThematic.economy.gdp.toLocaleString('it-IT') : 'dato non disponibile'}</div>
+            <div style={{ color: '#c4cfd8' }}>Popolazione: {tooltipInfo.population?.toLocaleString('it-IT')}</div>
+          </>}
+          {activeLayer === 'diplomacy' && tooltipThematic && (
+            <div style={{ color: '#c4cfd8' }}>Rapporto: {DIPLOMACY_LABELS[tooltipThematic.diplomacy]}</div>
+          )}
+          {activeLayer === 'infrastructure' && tooltipThematic && (
+            <div style={{ color: '#c4cfd8' }}>Opere: {tooltipThematic.infrastructure.length
+              ? tooltipThematic.infrastructure.map(item => item.name).join(', ') : 'nessuna opera'}</div>
+          )}
+          {activeLayer === 'resources' && tooltipThematic && (
+            <div style={{ color: '#c4cfd8' }}>Risorse: {tooltipThematic.resources.length
+              ? tooltipThematic.resources.map(item => item.label).join(', ') : 'nessuna risorsa territorializzata'}</div>
+          )}
+          {(activeLayer === 'political' || activeLayer === 'changes' || activeLayer === 'terrain') && <>
+            <div style={{ color: '#c4cfd8' }}>Popolazione: {tooltipInfo.population?.toLocaleString('it-IT')}</div>
+            <div style={{ color: '#c4cfd8' }}>PIL: {tooltipInfo.gdp?.toLocaleString('it-IT')}</div>
+            <div style={{ color: '#c4cfd8' }}>Forza militare: {tooltipInfo.militaryPower?.toLocaleString('it-IT')}</div>
+          </>}
           <div style={{ color: '#c4cfd8', marginTop: 8 }}>Seleziona per aprire il dossier ↗</div>
         </div>
       )}

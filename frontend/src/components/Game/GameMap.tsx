@@ -37,6 +37,8 @@ export interface GameMapProps {
   militaryFronts: WarFrontPayload[];
   militaryStateLoading?: boolean;
   militaryStateError?: string | null;
+  /** MAP P3 — relazioni canoniche per il layer Diplomazia. */
+  relationships?: Record<string, Record<string, string>> | null;
   showFlags: boolean;
   playerCountryCode: string;
   /** Nessuna geometria disponibile: torna agli scenari. */
@@ -60,6 +62,7 @@ export function GameMap({
   militaryFronts,
   militaryStateLoading,
   militaryStateError,
+  relationships,
   showFlags,
   playerCountryCode,
   onBackToScenarios,
@@ -84,6 +87,7 @@ export function GameMap({
           militaryFronts={militaryFronts}
           militaryStateLoading={militaryStateLoading}
           militaryStateError={militaryStateError}
+          relationships={relationships}
           showFlags={showFlags}
           playerCountryCode={playerCountryCode}
         />
@@ -98,6 +102,7 @@ export function GameMap({
         selectedRegionId={selectedRegion || undefined}
         onRegionClick={onRegionClick}
         changedRegionIds={changedRegionIds}
+        activeLayer={activeLayer}
       />
     );
   }

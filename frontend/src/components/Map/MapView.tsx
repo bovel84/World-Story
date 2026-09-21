@@ -6,6 +6,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { Region, MapObject } from '../../types';
+import type { MapLayer } from './mapModel';
 
 interface MapViewProps {
   regions: Region[];
@@ -14,7 +15,12 @@ interface MapViewProps {
   changedRegionIds?: string[];
   width?: number;
   height?: number;
+  /** MAP P3 — il fallback SVG supporta solo le viste di base. */
+  activeLayer?: MapLayer;
 }
+
+/** Viste che richiedono geometria GeoJSON/MapLibre per la resa tematica piena. */
+const ADVANCED_SVG_LAYERS = new Set<MapLayer>(['military', 'economy', 'resources', 'infrastructure', 'diplomacy']);
 
 // Tipi di oggetti sulla mappa
 const OBJECT_ICONS: Record<string, { color: string; shape: 'circle' | 'rect' | 'triangle' | 'letter'; size: number }> = {
@@ -38,6 +44,7 @@ export const MapView: React.FC<MapViewProps> = ({
   changedRegionIds = [],
   width = 2000,
   height = 1500,
+  activeLayer = 'political',
 }) => {
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -194,7 +201,13 @@ export const MapView: React.FC<MapViewProps> = ({
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
+      data-map-layer={activeLayer}
     >
+      {ADVANCED_SVG_LAYERS.has(activeLayer) && (
+        <div className="map-thematic-notice" role="status" data-thematic-message>
+          La vista tematica completa richiede geometrie GeoJSON/MapLibre: questo mondo usa il rendering SVG di base.
+        </div>
+      )}
       {/* Zoom Controls — z-index volutamente basso: gli elementi interni alla
           mappa non devono salire sopra la barra moduli (z-index 20) né rubarle
           il tocco; l'overlay di battaglia (fixed, z-index 1200) resta sopra. */}

@@ -72,10 +72,10 @@
 .world-map .map-legend-body { padding: 0 12px 12px; border-top: 1px solid var(--atlas-rule); }
 .world-map .map-layer-options, .world-map .map-asset-options { margin: 12px 0; padding: 0; border: 0; }
 .world-map .map-layer-options legend, .world-map .map-asset-options legend { margin-bottom: 6px; font-size: 11px; font-weight: 600; color: var(--atlas-muted); }
-.world-map .map-layer-options { display: flex; gap: 4px; }
-.world-map .map-layer-options label { flex: 1; cursor: pointer; position: relative; }
+.world-map .map-layer-options { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.world-map .map-layer-options label { cursor: pointer; position: relative; }
 .world-map .map-layer-options input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.world-map .map-layer-options span { display: flex; align-items: center; justify-content: center; min-height: 44px; border: 1px solid var(--atlas-rule); border-radius: 5px; font-size: 12px; }
+.world-map .map-layer-options span { display: flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 4px; border: 1px solid var(--atlas-rule); border-radius: 5px; font-size: 11px; text-align: center; }
 .world-map .map-layer-options input:checked + span { background: var(--atlas-raised); border-color: var(--atlas-change); color: var(--atlas-change); }
 .world-map .map-layer-options input:focus-visible + span { outline: 3px solid var(--atlas-change); outline-offset: 1px; }
 .world-map .map-asset-options { display: grid; grid-template-columns: 1fr 1fr; column-gap: 8px; }
@@ -92,6 +92,25 @@
 .world-map .map-key .map-key-unit { border-left-width: 6px; border-color: #f0f4f5; border-left-color: #788797; }
 .world-map .map-key .map-key-front { border-style: dashed; border-top-width: 4px; border-color: #ffd08a; }
 .world-map .map-key .map-key-battle { border-radius: 50%; border-color: #f2ac79; background: #733925; }
+.world-map .map-key .map-key-title { font-weight: 600; color: var(--atlas-muted); }
+.world-map .map-key .map-key-no-data { background: #3a4150; border-color: #5a6170; }
+.world-map .map-key .map-key-industry { border-color: #c68a32; }
+.world-map .map-key .map-key-construction { border-style: dashed; border-color: #b3aa8c; }
+.world-map .map-key .map-key-strategic { border-color: #708aa3; background: #2b3b4a; }
+.world-map .map-key .map-key-diplo-player { border-color: #3f7fbf; background: #3f7fbf; }
+.world-map .map-key .map-key-diplo-ally { border-color: #4f9d6a; background: #4f9d6a; }
+.world-map .map-key .map-key-diplo-neutral { border-color: #8c8f98; background: #8c8f98; }
+.world-map .map-key .map-key-diplo-hostile { border-color: #c0503f; background: #c0503f; }
+/* Il significato non dipende dal solo colore: ogni voce ha la sua etichetta. */
+.world-map .map-thematic-notice {
+  position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%);
+  max-width: min(440px, calc(100% - 24px)); padding: 8px 12px;
+  background: rgba(20, 20, 30, 0.94); border: 1px solid var(--atlas-rule); border-radius: 6px;
+  color: #d3e4ee; font-size: 12px; line-height: 1.5; text-align: center; z-index: 6; pointer-events: none;
+}
+@media (max-width: 520px) {
+  .world-map .map-layer-options { grid-template-columns: repeat(2, 1fr); }
+}
 .world-map .map-legend-selection { display: flex; align-items: baseline; gap: 6px; margin: 12px 0 0; font-size: 12px; overflow-wrap: anywhere; }
 .world-map .map-legend-selection > span { display: inline-block; flex-shrink: 0; width: 10px; height: 10px; border: 1px solid #ffffff80; }
 .world-map .maplibregl-ctrl-top-right { top: 4px !important; right: 4px !important; }

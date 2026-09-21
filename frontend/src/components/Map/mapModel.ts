@@ -3,7 +3,45 @@ import type { Region, MapObject } from '../../types';
 import citiesRegistry from '../../data/cities.json';
 import capitalsRegistry from '../../data/capitals.json';
 
-export type MapLayer = 'political' | 'terrain' | 'changes';
+/**
+ * Viste tematiche della mappa. Ogni layer risponde a una domanda diversa ma
+ * legge sempre lo stesso stato canonico: la mappa non crea nuove verità.
+ */
+export type MapLayer =
+  | 'political'
+  | 'military'
+  | 'economy'
+  | 'resources'
+  | 'infrastructure'
+  | 'diplomacy'
+  | 'changes'
+  | 'terrain';
+
+/** Definizione centralizzata dei layer: unica fonte per label e descrizioni. */
+export interface MapLayerDefinition {
+  id: MapLayer;
+  label: string;
+  /** Domanda a cui il layer risponde, mostrata nella legenda. */
+  description: string;
+}
+
+export const MAP_LAYERS: MapLayerDefinition[] = [
+  { id: 'political', label: 'Politica', description: 'Chi controlla ogni territorio.' },
+  { id: 'military', label: 'Militare', description: 'Dove sono fronti, reparti e trasferimenti in corso.' },
+  { id: 'economy', label: 'Economia', description: 'Dove è concentrato il PIL territoriale.' },
+  { id: 'resources', label: 'Risorse', description: 'Dove sono localizzate le risorse con sito canonico.' },
+  { id: 'infrastructure', label: 'Infrastrutture', description: 'Dove sono le opere e le capacità territoriali.' },
+  { id: 'diplomacy', label: 'Diplomazia', description: 'Quali territori appartengono a polity alleate, neutrali o ostili.' },
+  { id: 'changes', label: 'Modifiche', description: 'Cosa è cambiato di recente in questa sessione.' },
+  { id: 'terrain', label: 'Terreno', description: 'La base geografica, con i colori politici attenuati.' },
+];
+
+export const DEFAULT_MAP_LAYER: MapLayer = 'political';
+
+export function mapLayerDefinition(id: MapLayer): MapLayerDefinition {
+  return MAP_LAYERS.find(layer => layer.id === id) ?? MAP_LAYERS[0];
+}
+
 export interface MapFilters {
   showCities: boolean;
   showPorts: boolean;
@@ -14,6 +52,22 @@ export const DEFAULT_MAP_FILTERS: MapFilters = {
   showCities: true, showPorts: true, showIndustry: true, showUnits: true,
 };
 export const EMPTY_IDS: string[] = [];
+
+/**
+ * Classificazione dei tipi oggetto per i layer tematici. Unità e opere restano
+ * insiemi distinti: nel layer Infrastrutture un reparto non deve mai diventare
+ * un'opera, e viceversa.
+ */
+export const MILITARY_OBJECT_TYPES = ['army', 'battalion', 'fleet', 'missile', 'mobilization'] as const;
+/** Opere civili/industriali che rispondono «dove sono le capacità territoriali». */
+export const INFRASTRUCTURE_OBJECT_TYPES = [
+  'factory', 'port', 'infrastructure', 'power_plant', 'university',
+  'construction_site', 'exchange', 'clearing',
+] as const;
+/** Installazioni strategiche: infrastruttura, ma gated dal filtro unità. */
+export const STRATEGIC_OBJECT_TYPES = [
+  'base', 'airbase', 'naval_base', 'radar', 'fortification', 'missile_site',
+] as const;
 
 /** Icone degli oggetti di gioco sulla mappa: glifo monocromatico + colore opera. */
 export interface MapIcon { color: string; label: string }
@@ -236,8 +290,23 @@ export function objectQualifiesAtZoom(type: MapObject['type'], zoom: number, pop
 export function objectIsVisible(type: MapObject['type'], filters: MapFilters): boolean {
   if (type === 'city' || type === 'capital') return filters.showCities;
   if (type === 'port' || type === 'naval_base') return filters.showPorts;
-  if (['army', 'battalion', 'fleet', 'missile', 'mobilization', 'base', 'airbase', 'radar', 'fortification', 'missile_site'].includes(type)) return filters.showUnits;
+  if ((MILITARY_OBJECT_TYPES as readonly string[]).includes(type)) return filters.showUnits;
+  if ((STRATEGIC_OBJECT_TYPES as readonly string[]).includes(type)) return filters.showUnits;
   return filters.showIndustry;
+}
+
+/**
+ * Visibilità dell'oggetto **per layer attivo**. Il layer Infrastrutture mostra
+ * opere e installazioni ma mai i reparti puri: un'armata non è un'infrastruttura.
+ * Gli altri layer mantengono il comportamento storico basato sui filtri.
+ */
+export function objectIsVisibleForLayer(
+  type: MapObject['type'],
+  filters: MapFilters,
+  layer: MapLayer,
+): boolean {
+  if (layer === 'infrastructure' && (MILITARY_OBJECT_TYPES as readonly string[]).includes(type)) return false;
+  return objectIsVisible(type, filters);
 }
 
 /**
