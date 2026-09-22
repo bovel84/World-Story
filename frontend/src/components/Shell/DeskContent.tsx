@@ -5,6 +5,7 @@ import { ChatsPanel } from '../Game/ChatsPanel';
 import { EventFeed } from '../Game/EventFeed';
 import { DiplomacyPanel } from '../Game/DiplomacyPanel';
 import { NationDock } from '../Game/NationDock';
+import { EmptyState } from '../Game/NationDock/widgets';
 import type { NationResources } from '../Game/NationDock';
 import type { ArsenalResponse, Commitment, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, GovernmentVoicesResponse, PeacetimePressure, PowerAgenda } from '../../services/api';
 import { SaveGameModal } from '../Game/SaveGameModal';
@@ -422,7 +423,7 @@ export function DeskContent({
           >×</button>
         </header>
 
-        {selectedRegion && !externalRegionSelected && (
+        {currentGame ? (
           <NationDock
             playerPolityId={playerPolityId}
             governmentType={governmentType}
@@ -463,6 +464,8 @@ export function DeskContent({
             maintenanceObligations={maintenanceObligations}
             onAcknowledgeMandateDecision={onAcknowledgeMandateDecision}
           />
+        ) : (
+          <EmptyState>Apri una partita per consultare il dossier nazionale.</EmptyState>
         )}
 
         {currentGame && selectedRegion && !externalRegionSelected && (
