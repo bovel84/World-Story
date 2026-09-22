@@ -1811,6 +1811,15 @@ export const savesApi = {
   list: (): Promise<{ saves: any[] }> => {
     return fetchApi('/saves');
   },
+
+  /**
+   * Cancella un salvataggio dell'utente (azione distruttiva: la UI chiede
+   * conferma prima di chiamare). Gli snapshot interni del motore sono rifiutati
+   * dal backend con `403 reserved_save`: la protezione non è nella UI.
+   */
+  remove: (saveId: string): Promise<{ ok: boolean; deleted: string }> => {
+    return fetchApi(`/saves/${encodeURIComponent(saveId)}`, { method: 'DELETE' });
+  },
 };
 
 

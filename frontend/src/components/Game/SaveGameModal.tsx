@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
+import { RESERVED_SAVE_NAME_HINT, saveNameProblem } from './reservedSaves';
 
 export interface SaveGameModalProps {
 /** Visibilità della modale */
@@ -38,8 +39,12 @@ export function SaveGameModal({ open, defaultName, onSave, onClose }: SaveGameMo
   }, [open, defaultName]);
 
   const trimmed = name.trim();
+  // Lo spazio `__…__` è dello snapshot di rewind del motore: un salvataggio
+  // con quel nome sarebbe indistinguibile da un dato interno (e non
+  // cancellabile). Il backend rifiuta comunque (`400 reserved_save_name`).
+  const reserved = saveNameProblem(trimmed) === 'reserved';
   const submit = () => {
-    if (trimmed) onSave(trimmed);
+    if (trimmed && !reserved) onSave(trimmed);
   };
 
   return (
@@ -73,14 +78,18 @@ export function SaveGameModal({ open, defaultName, onSave, onClose }: SaveGameMo
             }}
             placeholder={`Partita ${new Date().toLocaleDateString('it-IT')}`}
             maxLength={80}
+            aria-invalid={reserved || undefined}
           />
+          {reserved && (
+            <p className="save-modal-hint" role="alert">{RESERVED_SAVE_NAME_HINT}</p>
+          )}
         </div>
 
         <div className="save-modal-footer">
           <button className="save-modal-cancel" onClick={onClose}>
             Annulla
           </button>
-          <button className="save-modal-submit" onClick={submit} disabled={!trimmed}>
+          <button className="save-modal-submit" onClick={submit} disabled={!trimmed || reserved}>
             Salva
           </button>
         </div>

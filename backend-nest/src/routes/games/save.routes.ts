@@ -36,12 +36,23 @@ import {
 } from './helpers';
 import { validateBody } from '../validation';
 import { saveSchema } from './schemas';
+import { isReservedSaveName } from '../../game/SaveReservations';
 
 export function registerSaveRoutes(router: Router): void {
 router.post('/:id/save', (req, res) => {
   const gameId = req.params.id;
   if (!validateBody(res, saveSchema, req.body)) return;
   const { name } = req.body;
+  // DELETE SAVES: lo spazio dei nomi `__…__` è del motore (snapshot di rewind).
+  // Un salvataggio creato lì sarebbe indistinguibile da uno snapshot interno e
+  // non cancellabile: meglio rifiutarlo subito, con un codice esplicito.
+  if (isReservedSaveName(name)) {
+    res.status(400).json({
+      error: 'Nome riservato: scegli un nome senza doppi underscore',
+      code: 'reserved_save_name',
+    });
+    return;
+  }
 
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);

@@ -1,7 +1,7 @@
 {
   "summary": {
-    "total": 107,
-    "mutating": 57,
+    "total": 108,
+    "mutating": 58,
     "reading": 50,
     "byFile": {
       "chats.routes.ts": 8,
@@ -18,7 +18,7 @@
       "llm.routes.ts": 6,
       "maps.routes.ts": 4,
       "presets.routes.ts": 9,
-      "saves.routes.ts": 2,
+      "saves.routes.ts": 3,
       "templates.routes.ts": 2,
       "worlds.routes.ts": 7
     }
@@ -604,6 +604,12 @@
       "method": "get",
       "path": "/",
       "mutating": false,
+      "file": "saves.routes.ts"
+    },
+    {
+      "method": "delete",
+      "path": "/:id",
+      "mutating": true,
       "file": "saves.routes.ts"
     },
     {
