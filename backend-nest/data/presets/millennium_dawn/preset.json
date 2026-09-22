@@ -1,0 +1,622 @@
+{
+  "id": "millennium_dawn",
+  "name": "Millennium Dawn — 2000",
+  "description": "Un nuovo millennio si apre. La Guerra Fredda è finita da un decennio, ma il mondo è tutt'altro che pacifico: l'Afghanistan è in guerra civile, la Russia combatte in Cecenia, i Balcani portano ancora le ferite degli anni '90. Internet si diffonde rapidamente, ma con esso crescono polarizzazione e radicalizzazione. L'economia globale entra nella sua fase più interconnessa. Ogni nazione conserva le proprie reali caratteristiche geografiche, economiche e culturali al 1° gennaio 2000; ogni svolgimento storico alternativo è possibile.",
+  "start_date": "2000-01-01",
+  "country_codes": [
+    "USA",
+    "RUS",
+    "CHN",
+    "GBR",
+    "FRA",
+    "DEU",
+    "ITA",
+    "ESP",
+    "PRT",
+    "NLD",
+    "BEL",
+    "IRL",
+    "AUT",
+    "CHE",
+    "SWE",
+    "NOR",
+    "DNK",
+    "FIN",
+    "POL",
+    "CZE",
+    "SVK",
+    "HUN",
+    "ROU",
+    "BGR",
+    "GRC",
+    "TUR",
+    "UKR",
+    "BLR",
+    "MDA",
+    "LTU",
+    "LVA",
+    "EST",
+    "SRB",
+    "HRV",
+    "SVN",
+    "BIH",
+    "MKD",
+    "ALB",
+    "MNE",
+    "JPN",
+    "KOR",
+    "PRK",
+    "IND",
+    "PAK",
+    "BGD",
+    "LKA",
+    "NPL",
+    "IDN",
+    "MYS",
+    "SGP",
+    "THA",
+    "VNM",
+    "PHL",
+    "MMR",
+    "KHM",
+    "AUS",
+    "NZL",
+    "CAN",
+    "MEX",
+    "BRA",
+    "ARG",
+    "CHL",
+    "COL",
+    "PER",
+    "VEN",
+    "ECU",
+    "BOL",
+    "PRY",
+    "URY",
+    "CUB",
+    "GTM",
+    "EGY",
+    "LBY",
+    "DZA",
+    "TUN",
+    "MAR",
+    "SDN",
+    "ETH",
+    "KEN",
+    "TZA",
+    "UGA",
+    "NGA",
+    "ZAF",
+    "MOZ",
+    "AGO",
+    "COD",
+    "GHA",
+    "CIV",
+    "CMR",
+    "SAU",
+    "IRN",
+    "IRQ",
+    "SYR",
+    "JOR",
+    "LBN",
+    "ISR",
+    "ARE",
+    "KWT",
+    "QAT",
+    "OMN",
+    "YEM"
+  ],
+  "countries": [
+    {
+      "code": "USA",
+      "name": "Stati Uniti d'America",
+      "color": "#3C3B6E"
+    },
+    {
+      "code": "RUS",
+      "name": "Federazione Russa",
+      "color": "#D52B1E"
+    },
+    {
+      "code": "CHN",
+      "name": "Repubblica Popolare Cinese",
+      "color": "#DE2910"
+    },
+    {
+      "code": "GBR",
+      "name": "Regno Unito di Gran Bretagna e Irlanda del Nord",
+      "color": "#012169"
+    },
+    {
+      "code": "FRA",
+      "name": "Repubblica Francese",
+      "color": "#002395"
+    },
+    {
+      "code": "DEU",
+      "name": "Repubblica Federale di Germania",
+      "color": "#000000"
+    },
+    {
+      "code": "ITA",
+      "name": "Repubblica Italiana",
+      "color": "#008C45"
+    },
+    {
+      "code": "ESP",
+      "name": "Regno di Spagna",
+      "color": "#AA151B"
+    },
+    {
+      "code": "PRT",
+      "name": "Repubblica Portoghese",
+      "color": "#006600"
+    },
+    {
+      "code": "NLD",
+      "name": "Regno dei Paesi Bassi",
+      "color": "#AE1C28"
+    },
+    {
+      "code": "BEL",
+      "name": "Regno del Belgio",
+      "color": "#C60C30"
+    },
+    {
+      "code": "IRL",
+      "name": "Repubblica d'Irlanda",
+      "color": "#169B62"
+    },
+    {
+      "code": "AUT",
+      "name": "Repubblica d'Austria",
+      "color": "#ED2939"
+    },
+    {
+      "code": "CHE",
+      "name": "Confederazione Svizzera",
+      "color": "#FF0000"
+    },
+    {
+      "code": "SWE",
+      "name": "Regno di Svezia",
+      "color": "#006AA7"
+    },
+    {
+      "code": "NOR",
+      "name": "Regno di Norvegia",
+      "color": "#BA0C2F"
+    },
+    {
+      "code": "DNK",
+      "name": "Regno di Danimarca",
+      "color": "#C60C30"
+    },
+    {
+      "code": "FIN",
+      "name": "Repubblica di Finlandia",
+      "color": "#003580"
+    },
+    {
+      "code": "POL",
+      "name": "Repubblica di Polonia",
+      "color": "#DC143C"
+    },
+    {
+      "code": "CZE",
+      "name": "Repubblica Ceca",
+      "color": "#11457E"
+    },
+    {
+      "code": "SVK",
+      "name": "Repubblica Slovacca",
+      "color": "#0B4EA2"
+    },
+    {
+      "code": "HUN",
+      "name": "Repubblica d'Ungheria",
+      "color": "#436F4D"
+    },
+    {
+      "code": "ROU",
+      "name": "Romania",
+      "color": "#002B7F"
+    },
+    {
+      "code": "BGR",
+      "name": "Repubblica di Bulgaria",
+      "color": "#00966E"
+    },
+    {
+      "code": "GRC",
+      "name": "Repubblica Ellenica",
+      "color": "#0D5EAF"
+    },
+    {
+      "code": "TUR",
+      "name": "Repubblica di Turchia",
+      "color": "#E30A17"
+    },
+    {
+      "code": "UKR",
+      "name": "Ucraina",
+      "color": "#0057B7"
+    },
+    {
+      "code": "BLR",
+      "name": "Repubblica di Bielorussia",
+      "color": "#CF101A"
+    },
+    {
+      "code": "MDA",
+      "name": "Repubblica di Moldova",
+      "color": "#003DA5"
+    },
+    {
+      "code": "LTU",
+      "name": "Repubblica di Lituania",
+      "color": "#FDB913"
+    },
+    {
+      "code": "LVA",
+      "name": "Repubblica di Lettonia",
+      "color": "#9E3039"
+    },
+    {
+      "code": "EST",
+      "name": "Repubblica di Estonia",
+      "color": "#0072CE"
+    },
+    {
+      "code": "SRB",
+      "name": "Repubblica Federale di Jugoslavia",
+      "color": "#C6363C"
+    },
+    {
+      "code": "HRV",
+      "name": "Repubblica di Croazia",
+      "color": "#FF0000"
+    },
+    {
+      "code": "SVN",
+      "name": "Repubblica di Slovenia",
+      "color": "#005DA4"
+    },
+    {
+      "code": "BIH",
+      "name": "Bosnia ed Erzegovina",
+      "color": "#002F6C"
+    },
+    {
+      "code": "MKD",
+      "name": "Repubblica di Macedonia",
+      "color": "#D20000"
+    },
+    {
+      "code": "ALB",
+      "name": "Repubblica d'Albania",
+      "color": "#E41E20"
+    },
+    {
+      "code": "MNE",
+      "name": "Repubblica del Montenegro",
+      "color": "#C6363C"
+    },
+    {
+      "code": "JPN",
+      "name": "Giappone",
+      "color": "#BC002D"
+    },
+    {
+      "code": "KOR",
+      "name": "Repubblica di Corea",
+      "color": "#0047A0"
+    },
+    {
+      "code": "PRK",
+      "name": "Repubblica Popolare Democratica di Corea",
+      "color": "#024FA2"
+    },
+    {
+      "code": "IND",
+      "name": "Repubblica dell'India",
+      "color": "#FF9933"
+    },
+    {
+      "code": "PAK",
+      "name": "Repubblica Islamica del Pakistan",
+      "color": "#01411C"
+    },
+    {
+      "code": "BGD",
+      "name": "Repubblica Popolare del Bangladesh",
+      "color": "#006A4E"
+    },
+    {
+      "code": "LKA",
+      "name": "Repubblica Democratica Socialista dello Sri Lanka",
+      "color": "#8D2029"
+    },
+    {
+      "code": "NPL",
+      "name": "Regno del Nepal",
+      "color": "#DC143C"
+    },
+    {
+      "code": "IDN",
+      "name": "Repubblica d'Indonesia",
+      "color": "#FF0000"
+    },
+    {
+      "code": "MYS",
+      "name": "Malaysia",
+      "color": "#CC0001"
+    },
+    {
+      "code": "SGP",
+      "name": "Repubblica di Singapore",
+      "color": "#EF3340"
+    },
+    {
+      "code": "THA",
+      "name": "Regno di Thailandia",
+      "color": "#A51931"
+    },
+    {
+      "code": "VNM",
+      "name": "Repubblica Socialista del Vietnam",
+      "color": "#DA251D"
+    },
+    {
+      "code": "PHL",
+      "name": "Repubblica delle Filippine",
+      "color": "#0038A8"
+    },
+    {
+      "code": "MMR",
+      "name": "Unione di Myanmar",
+      "color": "#FECB00"
+    },
+    {
+      "code": "KHM",
+      "name": "Regno di Cambogia",
+      "color": "#032EA1"
+    },
+    {
+      "code": "AUS",
+      "name": "Commonwealth d'Australia",
+      "color": "#00008B"
+    },
+    {
+      "code": "NZL",
+      "name": "Nuova Zelanda",
+      "color": "#00247D"
+    },
+    {
+      "code": "CAN",
+      "name": "Canada",
+      "color": "#FF0000"
+    },
+    {
+      "code": "MEX",
+      "name": "Stati Uniti Messicani",
+      "color": "#006847"
+    },
+    {
+      "code": "BRA",
+      "name": "Repubblica Federale del Brasile",
+      "color": "#009C3B"
+    },
+    {
+      "code": "ARG",
+      "name": "Repubblica Argentina",
+      "color": "#74ACDF"
+    },
+    {
+      "code": "CHL",
+      "name": "Repubblica del Cile",
+      "color": "#D52B1E"
+    },
+    {
+      "code": "COL",
+      "name": "Repubblica di Colombia",
+      "color": "#FCD116"
+    },
+    {
+      "code": "PER",
+      "name": "Repubblica del Perù",
+      "color": "#D91023"
+    },
+    {
+      "code": "VEN",
+      "name": "Repubblica Bolivariana del Venezuela",
+      "color": "#FFCC00"
+    },
+    {
+      "code": "ECU",
+      "name": "Repubblica dell'Ecuador",
+      "color": "#FFD100"
+    },
+    {
+      "code": "BOL",
+      "name": "Repubblica di Bolivia",
+      "color": "#007934"
+    },
+    {
+      "code": "PRY",
+      "name": "Repubblica del Paraguay",
+      "color": "#D52B1E"
+    },
+    {
+      "code": "URY",
+      "name": "Repubblica Orientale dell'Uruguay",
+      "color": "#0038A8"
+    },
+    {
+      "code": "CUB",
+      "name": "Repubblica di Cuba",
+      "color": "#002A8F"
+    },
+    {
+      "code": "GTM",
+      "name": "Repubblica del Guatemala",
+      "color": "#4997D0"
+    },
+    {
+      "code": "EGY",
+      "name": "Repubblica Araba d'Egitto",
+      "color": "#CE1126"
+    },
+    {
+      "code": "LBY",
+      "name": "Gran Giamahiria Araba Libica Popolare Socialista",
+      "color": "#009B4D"
+    },
+    {
+      "code": "DZA",
+      "name": "Repubblica Democratica Popolare d'Algeria",
+      "color": "#006233"
+    },
+    {
+      "code": "TUN",
+      "name": "Repubblica Tunisina",
+      "color": "#E70013"
+    },
+    {
+      "code": "MAR",
+      "name": "Regno del Marocco",
+      "color": "#C1272D"
+    },
+    {
+      "code": "SDN",
+      "name": "Repubblica del Sudan",
+      "color": "#D21034"
+    },
+    {
+      "code": "ETH",
+      "name": "Repubblica Federale Democratica d'Etiopia",
+      "color": "#078930"
+    },
+    {
+      "code": "KEN",
+      "name": "Repubblica del Kenya",
+      "color": "#006600"
+    },
+    {
+      "code": "TZA",
+      "name": "Repubblica Unita di Tanzania",
+      "color": "#1EB53A"
+    },
+    {
+      "code": "UGA",
+      "name": "Repubblica dell'Uganda",
+      "color": "#FCDC04"
+    },
+    {
+      "code": "NGA",
+      "name": "Repubblica Federale della Nigeria",
+      "color": "#008751"
+    },
+    {
+      "code": "ZAF",
+      "name": "Repubblica Sudafricana",
+      "color": "#007A4D"
+    },
+    {
+      "code": "MOZ",
+      "name": "Repubblica del Mozambico",
+      "color": "#009739"
+    },
+    {
+      "code": "AGO",
+      "name": "Repubblica dell'Angola",
+      "color": "#CC092F"
+    },
+    {
+      "code": "COD",
+      "name": "Repubblica Democratica del Congo",
+      "color": "#007FFF"
+    },
+    {
+      "code": "GHA",
+      "name": "Repubblica del Ghana",
+      "color": "#006B3F"
+    },
+    {
+      "code": "CIV",
+      "name": "Repubblica della Costa d'Avorio",
+      "color": "#F77F00"
+    },
+    {
+      "code": "CMR",
+      "name": "Repubblica del Camerun",
+      "color": "#007A5E"
+    },
+    {
+      "code": "SAU",
+      "name": "Regno dell'Arabia Saudita",
+      "color": "#006C35"
+    },
+    {
+      "code": "IRN",
+      "name": "Repubblica Islamica dell'Iran",
+      "color": "#239F40"
+    },
+    {
+      "code": "IRQ",
+      "name": "Repubblica dell'Iraq",
+      "color": "#CE1126"
+    },
+    {
+      "code": "SYR",
+      "name": "Repubblica Araba Siriana",
+      "color": "#CE1126"
+    },
+    {
+      "code": "JOR",
+      "name": "Regno Hascemita di Giordania",
+      "color": "#007A3D"
+    },
+    {
+      "code": "LBN",
+      "name": "Repubblica Libanese",
+      "color": "#ED1C24"
+    },
+    {
+      "code": "ISR",
+      "name": "Stato d'Israele",
+      "color": "#0038B8"
+    },
+    {
+      "code": "ARE",
+      "name": "Stati Arabi Uniti",
+      "color": "#00732F"
+    },
+    {
+      "code": "KWT",
+      "name": "Stato del Kuwait",
+      "color": "#007A3D"
+    },
+    {
+      "code": "QAT",
+      "name": "Stato del Qatar",
+      "color": "#8A1538"
+    },
+    {
+      "code": "OMN",
+      "name": "Sultanato dell'Oman",
+      "color": "#DB161B"
+    },
+    {
+      "code": "YEM",
+      "name": "Repubblica dello Yemen",
+      "color": "#CE1126"
+    }
+  ],
+  "base_prompt": "1° gennaio 2000. Il mondo entra nel nuovo millennio con l'eredità di un decennio di transizioni: il blocco sovietico è dissolto, la NATO si è allargata verso est, gli Stati Uniti sono l'unica superpotenza ma non senza sfide. La Federazione Russa, uscita dal caos degli anni '90, sta ricostruendo il suo Stato e la sua influenza nello spazio post-sovietico. La Cina cresce rapidamente e si prepara all'ingresso nell'OMC; il Giappone e la Corea del Sud sono potenze economiche, mentre la Corea del Nord resta isolata. L'Unione Europea si prepara all'allargamento e all'euro. Il Medio Oriente vive instabilità profonda: Saddam Hussein in Iraq, la Repubblica Islamica iraniana, la seconda intifada tra Israele e Palestina, l'Afghanistan sotto i talebani con Al-Qaeda in ascesa. I Balcani portano ancora le ferite delle guerre jugoslave; la Cecenia è in conflitto con Mosca. Internet e la globalizzazione trasformano l'economia e la comunicazione a un ritmo senza precedenti, mentre polarizzazione, nazionalismi e nuove minacce alla sicurezza si affacciano sullo scenario. Ogni nazione conserva le proprie reali caratteristiche geografiche, economiche, demografiche e culturali del gennaio 2000; ogni svolgimento storico alternativo è possibile. Le cifre di partenza (popolazione, PIL, risorse, forze armate) sono stime di riferimento sui dati disponibili intorno al 2000, usate solo come base di partenza: la data corrente del mondo è quella del calendario di gioco.",
+  "historical_accuracy": 0.8,
+  "map_base": "modern_world_provinces",
+  "map_detail": "full",
+  "author": "world-story",
+  "version": "1.0.0"
+}

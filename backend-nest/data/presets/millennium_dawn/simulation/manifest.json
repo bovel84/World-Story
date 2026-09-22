@@ -1,0 +1,21 @@
+{
+  "id": "millennium_dawn",
+  "version": 1,
+  "schemaVersion": 1,
+  "startDate": "2000-01-01",
+  "mode": "authored",
+  "declaration": "historical_estimated",
+  "currency": {
+    "id": "USD",
+    "minorUnitName": "cent"
+  },
+  "regionIdBinding": {
+    "space": "world_scoped",
+    "source": "map.geojson:properties.code"
+  },
+  "sources": [
+    "preset:millennium_dawn#authored-vertical-slice-1",
+    "map.geojson:properties.code (codici di regione autorevoli del preset)",
+    "Dati di riferimento storico al 2000 (produzione, impianti, proprietà): stime dichiarate"
+  ]
+}

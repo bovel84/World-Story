@@ -1,0 +1,261 @@
+{
+  "treasuries": [],
+  "inventory": [],
+  "deposits": [
+    {
+      "id": "deposit:SA04:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "SA04",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:RUKHM:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "RUKHM",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:IR10:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "IR10",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:USTX:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "USTX",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:USAK:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "USAK",
+      "known": null,
+      "accessibility": "requires_extraction"
+    },
+    {
+      "id": "deposit:VEN:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "VEN",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:NGBO:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "NGBO",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:DZ30:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "DZ30",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:AUQLD:coal:1",
+      "resourceId": "coal",
+      "regionId": "AUQLD",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:CNNM:coal:1",
+      "resourceId": "coal",
+      "regionId": "CNNM",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:INJH:coal:1",
+      "resourceId": "coal",
+      "regionId": "INJH",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:ZANW:coal:1",
+      "resourceId": "coal",
+      "regionId": "ZANW",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:DENW:coal:1",
+      "resourceId": "coal",
+      "regionId": "DENW",
+      "known": null,
+      "accessibility": "requires_extraction"
+    },
+    {
+      "id": "deposit:BRPA:iron_ore:1",
+      "resourceId": "iron_ore",
+      "regionId": "BRPA",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:AUWA:iron_ore:1",
+      "resourceId": "iron_ore",
+      "regionId": "AUWA",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:INOR:iron_ore:1",
+      "resourceId": "iron_ore",
+      "regionId": "INOR",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:CNHE:iron_ore:1",
+      "resourceId": "iron_ore",
+      "regionId": "CNHE",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:BRMG:iron_ore:1",
+      "resourceId": "iron_ore",
+      "regionId": "BRMG",
+      "known": null,
+      "accessibility": "open"
+    },
+    {
+      "id": "deposit:RUKYA:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "RUKYA",
+      "known": null,
+      "accessibility": "hidden"
+    },
+    {
+      "id": "deposit:RUSA:crude_oil:1",
+      "resourceId": "crude_oil",
+      "regionId": "RUSA",
+      "known": null,
+      "accessibility": "hidden"
+    }
+  ],
+  "workforce": [],
+  "facilities": [
+    {
+      "id": "facility:SA04:refinery:1",
+      "typeId": "refinery",
+      "ownerActorId": "sau_state_oil",
+      "controllerActorId": "sau_state_oil",
+      "regionId": "SA04",
+      "operational": true
+    },
+    {
+      "id": "facility:RUKHM:refinery:1",
+      "typeId": "refinery",
+      "ownerActorId": "rus_state_energy",
+      "controllerActorId": "rus_state_energy",
+      "regionId": "RUKHM",
+      "operational": true
+    },
+    {
+      "id": "facility:IR10:refinery:1",
+      "typeId": "refinery",
+      "ownerActorId": "irn_state_oil",
+      "controllerActorId": "irn_state_oil",
+      "regionId": "IR10",
+      "operational": true
+    },
+    {
+      "id": "facility:USTX:refinery:1",
+      "typeId": "refinery",
+      "ownerActorId": "usa_gulf_refining",
+      "controllerActorId": "usa_gulf_refining",
+      "regionId": "USTX",
+      "operational": true
+    },
+    {
+      "id": "facility:VEN:refinery:1",
+      "typeId": "refinery",
+      "ownerActorId": "ven_state_oil",
+      "controllerActorId": "ven_state_oil",
+      "regionId": "VEN",
+      "operational": true
+    },
+    {
+      "id": "facility:NLNH:refinery:1",
+      "typeId": "refinery",
+      "ownerActorId": "usa_gulf_refining",
+      "controllerActorId": "nld_port_authority",
+      "regionId": "NLNH",
+      "operational": true
+    },
+    {
+      "id": "facility:NLNH:refinery:2",
+      "typeId": "refinery",
+      "ownerActorId": "nld_port_energy",
+      "controllerActorId": "nld_port_energy",
+      "regionId": "NLNH",
+      "operational": false
+    },
+    {
+      "id": "facility:CNHE:steel_plant:1",
+      "typeId": "steel_plant",
+      "ownerActorId": "chn_state_steel",
+      "controllerActorId": "chn_state_steel",
+      "regionId": "CNHE",
+      "operational": true
+    },
+    {
+      "id": "facility:INOR:steel_plant:1",
+      "typeId": "steel_plant",
+      "ownerActorId": "ind_state_steel",
+      "controllerActorId": "ind_state_steel",
+      "regionId": "INOR",
+      "operational": true
+    },
+    {
+      "id": "facility:DENW:steel_plant:1",
+      "typeId": "steel_plant",
+      "ownerActorId": "deu_steel_works",
+      "controllerActorId": "deu_steel_works",
+      "regionId": "DENW",
+      "operational": true
+    },
+    {
+      "id": "facility:BRMG:steel_plant:1",
+      "typeId": "steel_plant",
+      "ownerActorId": "bra_state_mining",
+      "controllerActorId": "bra_state_mining",
+      "regionId": "BRMG",
+      "operational": true
+    },
+    {
+      "id": "facility:CNNM:coal_power_plant:1",
+      "typeId": "coal_power_plant",
+      "ownerActorId": "chn_state_steel",
+      "controllerActorId": "chn_state_steel",
+      "regionId": "CNNM",
+      "operational": true
+    },
+    {
+      "id": "facility:ZANW:coal_power_plant:1",
+      "typeId": "coal_power_plant",
+      "ownerActorId": "zaf_coal_energy",
+      "controllerActorId": "zaf_coal_energy",
+      "regionId": "ZANW",
+      "operational": true
+    },
+    {
+      "id": "facility:INJH:coal_power_plant:1",
+      "typeId": "coal_power_plant",
+      "ownerActorId": "ind_state_steel",
+      "controllerActorId": "ind_state_steel",
+      "regionId": "INJH",
+      "operational": true
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+[
+  {
+    "actorId": "sau_state_oil",
+    "polityId": "SAU",
+    "type": "public_enterprise",
+    "name": "Petrolio di Stato (SAU)"
+  },
+  {
+    "actorId": "rus_state_energy",
+    "polityId": "RUS",
+    "type": "public_enterprise",
+    "name": "Energia di Stato (RUS)"
+  },
+  {
+    "actorId": "irn_state_oil",
+    "polityId": "IRN",
+    "type": "public_enterprise",
+    "name": "Petrolio di Stato (IRN)"
+  },
+  {
+    "actorId": "usa_gulf_refining",
+    "polityId": "USA",
+    "type": "private_sector",
+    "name": "Raffinazione privata (USA)"
+  },
+  {
+    "actorId": "ven_state_oil",
+    "polityId": "VEN",
+    "type": "public_enterprise",
+    "name": "Petrolio di Stato (VEN)"
+  },
+  {
+    "actorId": "nga_state_oil",
+    "polityId": "NGA",
+    "type": "public_enterprise",
+    "name": "Petrolio di Stato (NGA)"
+  },
+  {
+    "actorId": "chn_state_steel",
+    "polityId": "CHN",
+    "type": "public_enterprise",
+    "name": "Acciaio di Stato (CHN)"
+  },
+  {
+    "actorId": "ind_state_steel",
+    "polityId": "IND",
+    "type": "public_enterprise",
+    "name": "Acciaio di Stato (IND)"
+  },
+  {
+    "actorId": "deu_steel_works",
+    "polityId": "DEU",
+    "type": "private_sector",
+    "name": "Acciaierie private (DEU)"
+  },
+  {
+    "actorId": "bra_state_mining",
+    "polityId": "BRA",
+    "type": "public_enterprise",
+    "name": "Estrazione di Stato (BRA)"
+  },
+  {
+    "actorId": "aus_mining",
+    "polityId": "AUS",
+    "type": "private_sector",
+    "name": "Estrazione privata (AUS)"
+  },
+  {
+    "actorId": "zaf_coal_energy",
+    "polityId": "ZAF",
+    "type": "public_enterprise",
+    "name": "Carbone ed elettricità di Stato (ZAF)"
+  },
+  {
+    "actorId": "nld_port_energy",
+    "polityId": "NLD",
+    "type": "private_sector",
+    "name": "Energia portuale privata (NLD)"
+  },
+  {
+    "actorId": "dza_state_oil",
+    "polityId": "DZA",
+    "type": "public_enterprise",
+    "name": "Petrolio di Stato (DZA)"
+  },
+  {
+    "actorId": "nld_port_authority",
+    "polityId": "NLD",
+    "type": "public_enterprise",
+    "name": "Autorità portuale (NLD)"
+  }
+]

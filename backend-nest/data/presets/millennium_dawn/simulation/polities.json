@@ -1,0 +1,72 @@
+[
+  {
+    "id": "USA",
+    "name": "Stati Uniti d'America",
+    "governmentFormAtStart": "repubblica presidenziale federale"
+  },
+  {
+    "id": "SAU",
+    "name": "Arabia Saudita",
+    "governmentFormAtStart": "monarchia assoluta"
+  },
+  {
+    "id": "RUS",
+    "name": "Federazione Russa",
+    "governmentFormAtStart": "repubblica federale presidenziale"
+  },
+  {
+    "id": "IRN",
+    "name": "Repubblica Islamica dell'Iran",
+    "governmentFormAtStart": "repubblica islamica teocratica"
+  },
+  {
+    "id": "VEN",
+    "name": "Repubblica Bolivariana del Venezuela",
+    "governmentFormAtStart": "repubblica presidenziale federale"
+  },
+  {
+    "id": "NGA",
+    "name": "Repubblica Federale della Nigeria",
+    "governmentFormAtStart": "repubblica presidenziale federale"
+  },
+  {
+    "id": "CHN",
+    "name": "Repubblica Popolare Cinese",
+    "governmentFormAtStart": "repubblica socialista a partito unico"
+  },
+  {
+    "id": "IND",
+    "name": "Repubblica dell'India",
+    "governmentFormAtStart": "repubblica parlamentare federale"
+  },
+  {
+    "id": "DEU",
+    "name": "Repubblica Federale di Germania",
+    "governmentFormAtStart": "repubblica federale parlamentare"
+  },
+  {
+    "id": "BRA",
+    "name": "Repubblica Federale del Brasile",
+    "governmentFormAtStart": "repubblica presidenziale federale"
+  },
+  {
+    "id": "AUS",
+    "name": "Commonwealth d'Australia",
+    "governmentFormAtStart": "monarchia costituzionale federale"
+  },
+  {
+    "id": "ZAF",
+    "name": "Repubblica Sudafricana",
+    "governmentFormAtStart": "repubblica parlamentare"
+  },
+  {
+    "id": "NLD",
+    "name": "Regno dei Paesi Bassi",
+    "governmentFormAtStart": "monarchia parlamentare"
+  },
+  {
+    "id": "DZA",
+    "name": "Repubblica Democratica Popolare d'Algeria",
+    "governmentFormAtStart": "repubblica presidenziale"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "crude_oil",
+    "name": "Petrolio greggio",
+    "unit": {
+      "kind": "volume",
+      "symbol": "bbl"
+    },
+    "transportable": true,
+    "conserved": true
+  },
+  {
+    "id": "coal",
+    "name": "Carbone",
+    "unit": {
+      "kind": "mass",
+      "symbol": "t"
+    },
+    "transportable": true,
+    "conserved": true
+  },
+  {
+    "id": "iron_ore",
+    "name": "Minerale di ferro",
+    "unit": {
+      "kind": "mass",
+      "symbol": "t"
+    },
+    "transportable": true,
+    "conserved": true
+  }
+]
