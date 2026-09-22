@@ -143,3 +143,136 @@ errori del backend (403/404/500) salgono come `ApiError` e la UI li traduce.
    eventualmente rinominato a mano sul DB.
 6. **`DELETE` non notifica la Timeline**: la cancellazione non genera un evento di
    gioco (è un'operazione d'archivio, non di mondo).
+
+---
+
+# DELETE SAVES HOME — eliminazione dalla Landing
+
+Base: `main = 5098f8f` (DELETE SAVES mergiata). Branch: `feat/delete-saves-home`.
+Nessuna nuova API, nessuna migrazione, **nessuna modifica al backend**: `DELETE
+/api/saves/:id` e la protezione dei riservati esistono già e non sono toccati.
+Nessun intervento su motore/rewind/schema/playback/branching/checkpoint, MAP
+P1–P6, MILITARY P4–P6, né sulla parte selezione/caricamento del picker.
+
+## 1. Il problema
+
+I salvataggi si vedono soprattutto dalla **home** (sezione «📂 Continua
+partita»), ma lì la cancellazione non c'era: bisognava avviare una partita →
+⚙ → 📂 Carica. La feature esisteva, la superficie principale no.
+
+## 2. Dove è stato aggiunto
+
+`frontend/src/components/Game/Landing.tsx`:
+
+- ogni card di `LandingSavesGrid` (componente di presentazione, esportato) ha ora
+  **«Elimina»** accanto a **«▶ Gioca»**:
+  `class="save-picker-delete landing-save-delete"` (`data-landing-save-delete`,
+  `aria-label={saveDeleteLabel(save)}`), `disabled` quando la card è occupata con
+  etichetta «Eliminazione…»;
+- l'elenco della home usa lo stesso filtro dell'archivio
+  (`visibleSaves(data?.saves)`): prima escludeva a mano solo `__rewind__`, ora
+  esclude **tutti** gli snapshot interni del motore e ordina dal più recente;
+- l'esito dell'eliminazione (`landing-save-status ok/error`, `role="status"` /
+  `role="alert"`) sta **fuori** dalla sezione: se si cancella l'ultimo
+  salvataggio la sezione sparisce, ma la conferma resta visibile (comportamento
+  trovato mancante dalla E2E a backend reale, non dai test unitari);
+- dopo una cancellazione riuscita la card sparisce **senza refetch**: la lista
+  locale è aggiornata con `removeSaveFromList`, quindi anche il pulsante
+  «Continua» sopra la piega passa da sé al salvataggio precedente.
+
+CSS (`frontend/src/index.css`): la resa visiva del pulsante è **quella già
+esistente** (`.save-picker-delete`, incluso il target 48 px su `pointer: coarse`
+e `:focus-visible`); `.landing-save-delete` aggiunge solo il layout nella card
+(larghezza piena sotto «▶ Gioca») e `.landing-save-status` dà colore ai messaggi.
+
+## 3. Un solo meccanismo (nessuna duplicazione)
+
+Il percorso distruttivo del picker è stato **estratto** in due moduli condivisi,
+e ora entrambe le superfici usano gli stessi:
+
+| Modulo | Contenuto |
+|---|---|
+| `Game/saveDeletion.ts` | helper puri (`visibleSaves`, `removeSaveFromList`, `saveTitle`, `saveDeleteLabel`, `saveDeleteConfirmText`, `saveDeletedNotice`, `DELETE_SAVE_ERROR`, `DELETE_SAVE_RESERVED_ERROR`), `deleteSave(saveId, remove?)` (una sola chiamata, esito tradotto: `403 → DELETE_SAVE_RESERVED_ERROR`, altrimenti errore generico) e l'hook `useSaveDeletion(onDeleted)` |
+| `Game/SaveDeleteConfirmDialog.tsx` | il dialogo di conferma (`Eliminare il salvataggio?`, focus iniziale su **Annulla**, `data-save-delete-target`, entrambi i pulsanti disabilitati durante l'operazione) |
+
+`SavePickerModal.tsx` ora **delega** (`useSaveDeletion` +
+`<SaveDeleteConfirmDialog>`) e **ri-esporta** gli helper dai nomi precedenti, così
+gli import storici (`SaveSummary`) continuano a funzionare. La cancellazione —
+`DELETE` e traduzione degli errori inclusi — esiste in un punto solo: né la home
+né il picker contengono `savesApi.remove`, e nessuna delle due reimplementa il
+dialogo.
+
+Garanzie del meccanismo, invariate e valide per entrambe le superfici:
+
+- `request(save)` **non cancella**: apre solo la conferma (e ignora gli snapshot
+  interni e le voci senza id);
+- `confirm()` chiama `deleteSave` e invoca `onDeleted(save)` **dopo** la risposta
+  del backend: nessuna rimozione ottimistica;
+- in errore `onDeleted` non viene mai invocato: la card/riga resta e si mostra il
+  messaggio.
+
+## 4. Doppia difesa dei riservati
+
+1. **Presentazione**: `visibleSaves` esclude gli `__…__` dalla home, e
+   `LandingSavesGrid` non rende il pulsante se `isReservedSave(save)` è vero
+   (stessa difesa in `SavePickerList`);
+2. **Backend** (già in produzione): `DELETE /api/saves/:id` risponde
+   `403 reserved_save` anche su richiesta costruita a mano. La E2E reale lo
+   verifica sul lato creazione (`POST /games/:id/save` con nome `__rewind__` →
+   `400 reserved_save_name`).
+
+## 5. Accessibilità
+
+`<button type="button">` reali (mai `div` cliccabili) · `aria-label` semantico
+che inizia con la parola visibile («Elimina il salvataggio “…”», WCAG 2.5.3) ·
+`aria-busy` sulla card durante l'operazione, azioni disabilitate · dialog di
+conferma con focus iniziale su **Annulla**, focus ripristinato alla chiusura e
+`Esc`/backdrop che non chiudono durante l'operazione (`AccessibleDialog`) ·
+esiti annunciati (`role="status"`/`role="alert"`) · target 44 px (48 px su touch)
+e `:focus-visible` ereditati da `.save-picker-delete`.
+
+## 6. Test
+
+| Test | Copertura |
+|---|---|
+| `frontend/src/components/Game/landingDeleteSave.test.tsx` (**9**) | elenco della home senza snapshot interni; card con «Elimina» + `aria-label` + stile condiviso; riservato **senza** pulsante; card occupata con azioni disabilitate e l'altra libera; `deleteSave` successo/500/403 (messaggi, una sola chiamata, nessuna rimozione in errore); rimozione locale selettiva e messaggio di esito; la home delega (`useSaveDeletion`, `SaveDeleteConfirmDialog`, `visibleSaves`) e **non** contiene `savesApi.remove` né il testo della conferma |
+| `frontend/src/components/Game/saveDeleteConfirmDialog.test.tsx` (**5**) | dialog chiuso con `save===null`; focus iniziale su Annulla; `disabled`/`closeOnBackdrop`/`closeOnEscape` durante l'operazione; non conosce l'API (`onCancel`/`onConfirm` soltanto); home **e** picker importano e usano lo stesso dialog, e nessuna delle due lo reimplementa |
+| `frontend/src/components/Game/savePickerDelete.test.tsx` (**11**, aggiornato) | le garanzie restano ma puntano al punto unico: il picker delega, il dialogo vive in `SaveDeleteConfirmDialog.tsx`, l'ordine «DELETE → `onDeleted`» è verificato in `saveDeletion.ts` (e il ramo d'errore non tocca la lista) |
+| `e2e/tests/saves-delete.spec.mjs` (**8**, mock: 5 archivio + 3 home) | home: nessuna DELETE al primo clic, Annulla non cancella, conferma → DELETE reale + card rimossa + esito, il pulsante «Continua» passa al salvataggio precedente, nessuna partita avviata; errore 500 → card presente + alert; elenco «sporco» con solo rewind → non compare e non è cancellabile; **cancellando anche l'ultimo salvataggio la sezione sparisce ma l'esito resta annunciato** |
+| `e2e/tests/saves-delete-home.real.spec.mjs` (**1**, backend reale) | percorso utente completo contro il backend vero: scenario provinciale → USA → mondo generato (job+polling) → `POST /games` → ⚙ 💾 Salva (`POST /games/:id/save`) → ritorno alla home → card con «Elimina» → conferma → `DELETE /api/saves/:id` → **`GET /api/saves` non contiene più il salvataggio** → seconda `DELETE` → **404** reale → `GET /api/games/:id` con lo **stesso `currentTurn`** (la partita è intatta); in più `POST /games/:id/save` con `__rewind__` → **400 `reserved_save_name`**. Nessun mock di `/api/saves`; l'unica finzione è il provider LLM (stub) |
+| `frontend/src/components/Game/landingPromise.test.ts` (aggiornato) | la promessa «la home non mostra gli snapshot di rewind» è ora verificata sul filtro unico (`visibleSaves`) invece che sulla stringa `s.name !== '__rewind__'` |
+
+## 7. Gate
+
+| Gate | Esito |
+|---|---|
+| `frontend: npx tsc --noEmit` | ✅ |
+| `frontend: npx vitest run` | ✅ **81 file / 660 test** (+2 file / +14 test) |
+| `frontend: npm run build` | ✅ |
+| `backend: npx tsc --noEmit` | ✅ |
+| `backend: npx vitest run` | ✅ **168 file / 1758 test** (invariati: nessuna modifica backend) |
+| `backend: npm run build` | ✅ |
+| `npm run test:e2e:mock` | ✅ **144/144** (+3) |
+| `npm run test:e2e:real` | ✅ 1/1 (`saves-delete-home.real.spec.mjs`, 2,1 min, DB fresco) |
+| `npm run test:a11y` | ✅ 3/3 |
+| `npm run test:perf` | ✅ **2,25 MB** (baseline rispettata) |
+
+## 8. Limiti residui
+
+1. **Nessuna cancellazione multipla dalla home**: una card per volta, con
+   conferma (come nell'archivio).
+2. **Nessun undo**: la cancellazione è definitiva; l'esito è annunciato ma non
+   reversibile (nessun cestino). Vale anche per la home.
+3. Se il **fetch iniziale** dei salvataggi fallisce, la home non mostra la
+   sezione (comportamento preesistente, invariato): nessun errore esplicito in
+   home, a differenza dell'archivio che lo mostra nella modale.
+4. Restano validi i limiti della feature base (orfani cancellabili dalla UI,
+   nessun «svuota archivio», salvataggi storici con nome `__…__` non
+   cancellabili se non a mano sul DB, `DELETE` senza evento di Timeline).
+5. La card della home mostra «Elimina» anche su un salvataggio di **un'altra
+   partita** (come già faceva l'archivio): è intenzionale — è l'archivio, non la
+   partita corrente.
+6. Il percorso distruttivo **non** è coperto da test di interazione DOM nel
+   frontend (il progetto non ha jsdom/testing-library): il comportamento è
+   provato con funzioni pure + asserzioni di sorgente + E2E (mock e reale). La
+   E2E reale è la prova end-to-end che il DB cambia davvero.

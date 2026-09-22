@@ -5,12 +5,25 @@
 * grande titolo e pulsante CTA sfumato centrale.
  *
 * Componente autosufficiente: carica da solo l'elenco dei salvataggi (savesApi.list),
-* filtra da solo gli snapshot di rewind (`__rewind__`).
+* filtra da solo gli snapshot interni del motore (`visibleSaves`).
 * Stili: fine di frontend/src/index.css, sezione «Fase 6: Landing».
+ *
+* DELETE SAVES HOME: da qui un salvataggio si può anche **eliminare**, con la
+* stessa conferma e gli stessi messaggi dell'archivio in-game
+* (`useSaveDeletion` + `SaveDeleteConfirmDialog`): un solo meccanismo.
  */
 
 import { useEffect, useState } from 'react';
 import { savesApi } from '../../services/api';
+import { isReservedSave } from './reservedSaves';
+import { SaveDeleteConfirmDialog } from './SaveDeleteConfirmDialog';
+import {
+  removeSaveFromList,
+  saveDeleteLabel,
+  useSaveDeletion,
+  visibleSaves,
+  type SaveSummary,
+} from './saveDeletion';
 
 export interface LandingProps {
 /** Passaggio alla creazione di una nuova partita */
@@ -53,12 +66,74 @@ function formatSavedAt(value?: string): string {
   });
 }
 
+export interface LandingSavesGridProps {
+  saves: SaveSummary[];
+  onResume: (save: SaveSummary) => void;
+  /** Chiede la conferma: NON cancella nulla. */
+  onRequestDelete: (save: SaveSummary) => void;
+  /** Id in corso di eliminazione: la card è occupata. */
+  deletingId?: string | null;
+}
+
+/**
+ * Griglia «Continua partita»: presentazione pura. La card offre «▶ Gioca» e —
+ * per i soli salvataggi dell'utente — «Elimina», che apre la conferma condivisa
+ * (doppia difesa: gli snapshot riservati non hanno pulsante e il backend li
+ * rifiuta comunque).
+ */
+export function LandingSavesGrid({ saves, onResume, onRequestDelete, deletingId = null }: LandingSavesGridProps) {
+  return (
+    <div className="landing-saves-grid">
+      {saves.map((save) => {
+        const busy = deletingId === save.id;
+        const reserved = isReservedSave(save);
+        return (
+          <div
+            key={save.id}
+            className="landing-save-card"
+            data-landing-save-card={save.id}
+            aria-busy={busy || undefined}
+          >
+            <div className="landing-save-name">{save.name || 'Salvataggio'}</div>
+            <div className="landing-save-meta">
+              {typeof save.current_turn === 'number' && (
+                <span className="landing-save-turn">Mossa {save.current_turn}</span>
+              )}
+              {save.current_date && <span>{formatGameDate(save.current_date)}</span>}
+            </div>
+            {save.saved_at && (
+              <div className="landing-save-date">Salvato: {formatSavedAt(save.saved_at)}</div>
+            )}
+            <button type="button" className="landing-save-play" onClick={() => onResume(save)} disabled={busy}>
+              ▶ Gioca
+            </button>
+            {!reserved && (
+              <button
+                type="button"
+                className="save-picker-delete landing-save-delete"
+                data-landing-save-delete={save.id}
+                onClick={() => onRequestDelete(save)}
+                disabled={busy}
+                aria-label={saveDeleteLabel(save)}
+              >
+                {busy ? 'Eliminazione…' : 'Elimina'}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Landing(props: LandingProps) {
   // DISATTIVATO: editor mappe (temporaneo) — onOpenEditor, onSelectMap, savedMaps
   const { onNewGame, onOpenModelSettings, onResumeSave } = props;
 
-  const [saves, setSaves] = useState<any[]>([]);
+  const [saves, setSaves] = useState<SaveSummary[]>([]);
   const [savesLoaded, setSavesLoaded] = useState(false);
+  // Stessa eliminazione dell'archivio in-game: conferma, stato occupato, esito.
+  const deletion = useSaveDeletion((save) => setSaves((current) => removeSaveFromList(current, save.id)));
 
   // Carica i salvataggi al mount; stato vuoto/errore — sezione nascosta
   useEffect(() => {
@@ -67,9 +142,8 @@ export function Landing(props: LandingProps) {
       .list()
       .then((data) => {
         if (cancelled) return;
-        const list = Array.isArray(data?.saves) ? data.saves : [];
-        // `__rewind__` è uno snapshot interno di rewind, non lo mostriamo come salvataggio
-        setSaves(list.filter((s: any) => s && s.name !== '__rewind__'));
+        // `visibleSaves` esclude gli snapshot interni (`__rewind__`, `__n__`, …)
+        setSaves(visibleSaves(data?.saves));
         setSavesLoaded(true);
       })
       .catch((e) => {
@@ -135,32 +209,24 @@ export function Landing(props: LandingProps) {
 
       {/* ===== Sezioni sotto l'hero ===== */}
       {/* DISATTIVATO: editor mappe (temporaneo) — condizione originale (saves.length > 0 || maps.length > 0) */}
-      {saves.length > 0 && (
+      {(saves.length > 0 || deletion.notice !== '' || deletion.error !== '') && (
         <div className="landing-sections">
           {saves.length > 0 && (
             <section className="landing-section">
               <h2 className="landing-section-title">📂 Continua partita</h2>
-              <div className="landing-saves-grid">
-                {saves.map((save: any) => (
-                  <div key={save.id} className="landing-save-card">
-                    <div className="landing-save-name">{save.name || 'Salvataggio'}</div>
-                    <div className="landing-save-meta">
-                      {typeof save.current_turn === 'number' && (
-                        <span className="landing-save-turn">Mossa {save.current_turn}</span>
-                      )}
-                      {save.current_date && <span>{formatGameDate(save.current_date)}</span>}
-                    </div>
-                    {save.saved_at && (
-                      <div className="landing-save-date">Salvato: {formatSavedAt(save.saved_at)}</div>
-                    )}
-                    <button className="landing-save-play" onClick={() => onResumeSave(save)}>
-                      ▶ Gioca
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <LandingSavesGrid
+                saves={saves}
+                onResume={onResumeSave}
+                onRequestDelete={deletion.request}
+                deletingId={deletion.deletingId}
+              />
             </section>
           )}
+
+          {/* Esito dell'eliminazione: resta visibile anche quando l'ultimo
+              salvataggio è sparito e la sezione non c'è più. */}
+          {deletion.notice && <p className="landing-save-status ok" role="status">{deletion.notice}</p>}
+          {deletion.error && <p className="landing-save-status error" role="alert">{deletion.error}</p>}
 
           {/* DISATTIVATO: editor mappe (temporaneo) — sezione «Le mie mappe»
           {maps.length > 0 && (
@@ -202,6 +268,14 @@ export function Landing(props: LandingProps) {
           */}
         </div>
       )}
+
+      {/* Conferma esplicita: azione distruttiva, mai al primo clic. */}
+      <SaveDeleteConfirmDialog
+        save={deletion.pending}
+        busy={deletion.deletingId !== null}
+        onCancel={deletion.cancel}
+        onConfirm={deletion.confirm}
+      />
     </div>
   );
 }

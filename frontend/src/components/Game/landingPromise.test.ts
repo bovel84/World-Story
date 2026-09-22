@@ -13,6 +13,9 @@ describe('Landing product promise', () => {
   });
 
   it('keeps the native save picker filtered from rewind snapshots', () => {
-    expect(source).toContain("s.name !== '__rewind__'");
+    // Il filtro è quello unico (`visibleSaves`, in `saveDeletion.ts`): esclude
+    // **tutti** gli snapshot interni del motore, non solo `__rewind__`.
+    expect(source).toContain('visibleSaves(data?.saves)');
+    expect(source).not.toContain("s.name !== '__rewind__'");
   });
 });

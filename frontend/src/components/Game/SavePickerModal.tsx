@@ -1,66 +1,34 @@
 import { useEffect, useRef, useState } from 'react';
 import { savesApi } from '../../services/api';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
+import { SaveDeleteConfirmDialog } from './SaveDeleteConfirmDialog';
 import { isReservedSave } from './reservedSaves';
+import {
+  formatSaveDate,
+  removeSaveFromList,
+  saveDeleteLabel,
+  saveTitle,
+  useSaveDeletion,
+  visibleSaves,
+  type SaveSummary,
+} from './saveDeletion';
 
-export interface SaveSummary {
-  id: string;
-  game_id: string;
-  name: string;
-  current_turn?: number;
-  current_date?: string;
-  saved_at?: string;
-}
-
-interface SavePickerModalProps {
-  open: boolean;
-  currentGameId?: string;
-  onSelect: (save: SaveSummary) => void;
-  onClose: () => void;
-}
-
-export const formatSaveDate = (value?: string) => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '');
-  if (!match) return value || 'Data non disponibile';
-  const months = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
-  return `${Number(match[3])} ${months[Number(match[2]) - 1]} ${match[1]}`;
-};
+// Meccanismo di eliminazione condiviso con la home (`saveDeletion.ts`):
+// gli helper restano esportati da qui per compatibilità degli import esistenti.
+export {
+  DELETE_SAVE_ERROR,
+  DELETE_SAVE_RESERVED_ERROR,
+  formatSaveDate,
+  removeSaveFromList,
+  saveDeleteConfirmText,
+  saveDeleteLabel,
+  saveDeletedNotice,
+  saveTitle,
+  visibleSaves,
+  type SaveSummary,
+} from './saveDeletion';
 
 const formatDate = formatSaveDate;
-
-/** Elenco visibile: solo salvataggi dell'utente, dal più recente. */
-export function visibleSaves(data: unknown): SaveSummary[] {
-  return (Array.isArray(data) ? data : [])
-    .filter((save: any) => save?.id && !isReservedSave(save))
-    .sort((a: any, b: any) => String(b.saved_at || '').localeCompare(String(a.saved_at || '')));
-}
-
-/** Rimozione locale dell'item dopo una cancellazione riuscita (nessun refetch). */
-export function removeSaveFromList(saves: SaveSummary[], saveId: string): SaveSummary[] {
-  return saves.filter((save) => save.id !== saveId);
-}
-
-export function saveTitle(save: SaveSummary): string {
-  return save?.name || 'Salvataggio senza nome';
-}
-
-/** Etichetta accessibile del pulsante: inizia con la parola visibile «Elimina». */
-export function saveDeleteLabel(save: SaveSummary): string {
-  return `Elimina il salvataggio “${saveTitle(save)}”`;
-}
-
-export function saveDeleteConfirmText(save: SaveSummary): string {
-  return `“${saveTitle(save)}” · Mossa ${save.current_turn ?? '—'} · ${formatDate(save.current_date)}. `
-    + 'Il salvataggio viene rimosso dall’archivio. La partita in corso e il suo stato non vengono toccati.';
-}
-
-export const DELETE_SAVE_ERROR = 'Impossibile eliminare il salvataggio. Riprova.';
-export const DELETE_SAVE_RESERVED_ERROR = 'Salvataggio riservato: non cancellabile.';
-
-/** Messaggio di esito mostrato nella modale dopo una cancellazione riuscita. */
-export function saveDeletedNotice(save: SaveSummary): string {
-  return `Salvataggio “${saveTitle(save)}” eliminato.`;
-}
 
 export interface SavePickerListProps {
   saves: SaveSummary[];
@@ -111,30 +79,34 @@ export function SavePickerList({ saves, currentGameId, onSelect, onRequestDelete
   );
 }
 
+interface SavePickerModalProps {
+  open: boolean;
+  currentGameId?: string;
+  onSelect: (save: SaveSummary) => void;
+  onClose: () => void;
+}
+
 /**
  * G5-B — picker dei salvataggi: la selezione non ripristina nulla finché non è
  * confermata. `DELETE-SAVES`: ogni salvataggio non riservato può essere
  * eliminato **dopo conferma esplicita**; l'eliminazione non tocca la partita.
+ * Conferma e cancellazione sono quelle condivise (`useSaveDeletion` +
+ * `SaveDeleteConfirmDialog`), le stesse usate dalla home.
  */
 export function SavePickerModal({ open, currentGameId, onSelect, onClose }: SavePickerModalProps) {
   const [saves, setSaves] = useState<SaveSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [deleteError, setDeleteError] = useState('');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<SaveSummary | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
+  const deletion = useSaveDeletion((save) => setSaves((current) => removeSaveFromList(current, save.id)));
+  const { reset: resetDeletion } = deletion;
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
     setError('');
-    setNotice('');
-    setDeleteError('');
-    setPendingDelete(null);
+    resetDeletion();
     savesApi.list()
       .then(({ saves: data }) => {
         if (cancelled) return;
@@ -143,33 +115,7 @@ export function SavePickerModal({ open, currentGameId, onSelect, onClose }: Save
       .catch(() => { if (!cancelled) setError('Impossibile leggere i salvataggi. Riprova.'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [open]);
-
-  const confirmDelete = async () => {
-    const target = pendingDelete;
-    if (!target || deletingId) return;
-    setDeletingId(target.id);
-    setDeleteError('');
-    setNotice('');
-    try {
-      await savesApi.remove(target.id);
-      // Solo dopo la conferma del backend l'item sparisce: nessuna ottimistica.
-      setSaves((current) => removeSaveFromList(current, target.id));
-      setNotice(saveDeletedNotice(target));
-      setPendingDelete(null);
-    } catch (e) {
-      const status = (e as { status?: number })?.status;
-      setDeleteError(status === 403 ? DELETE_SAVE_RESERVED_ERROR : DELETE_SAVE_ERROR);
-      setPendingDelete(null);
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const closeConfirm = () => {
-    if (deletingId) return;
-    setPendingDelete(null);
-  };
+  }, [open, resetDeletion]);
 
   return (
     <>
@@ -182,8 +128,8 @@ export function SavePickerModal({ open, currentGameId, onSelect, onClose }: Save
         initialFocusRef={closeRef}
         // Con la conferma aperta Esc/backdrop appartengono alla conferma: il
         // picker non deve chiudersi sotto la modale di conferma.
-        closeOnBackdrop={pendingDelete === null}
-        closeOnEscape={pendingDelete === null}
+        closeOnBackdrop={deletion.pending === null}
+        closeOnEscape={deletion.pending === null}
       >
         <header className="save-picker-header">
           <div><span>Archivio campagna</span><h2>Carica un salvataggio</h2></div>
@@ -198,41 +144,23 @@ export function SavePickerModal({ open, currentGameId, onSelect, onClose }: Save
               saves={saves}
               currentGameId={currentGameId}
               onSelect={onSelect}
-              onRequestDelete={(save) => { setDeleteError(''); setNotice(''); setPendingDelete(save); }}
-              deletingId={deletingId}
+              onRequestDelete={deletion.request}
+              deletingId={deletion.deletingId}
             />
           )}
-          {notice && <p className="save-picker-status ok" role="status">{notice}</p>}
-          {deleteError && <p className="save-picker-status error" role="alert">{deleteError}</p>}
+          {deletion.notice && <p className="save-picker-status ok" role="status">{deletion.notice}</p>}
+          {deletion.error && <p className="save-picker-status error" role="alert">{deletion.error}</p>}
         </div>
         <footer className="save-picker-footer">Il caricamento sostituisce lo stato locale con lo snapshot del salvataggio.</footer>
       </AccessibleDialog>
 
       {/* Conferma esplicita: azione distruttiva, mai al primo clic. */}
-      <AccessibleDialog
-        open={pendingDelete !== null}
-        onClose={closeConfirm}
-        overlayClassName="save-delete-overlay"
-        className="save-delete-confirm"
-        ariaLabel="Conferma eliminazione del salvataggio"
-        initialFocusRef={cancelRef}
-        closeOnBackdrop={!deletingId}
-        closeOnEscape={!deletingId}
-      >
-        <h3>Eliminare il salvataggio?</h3>
-        {pendingDelete && <p data-save-delete-target={pendingDelete.id}>{saveDeleteConfirmText(pendingDelete)}</p>}
-        <div className="save-delete-actions">
-          <button ref={cancelRef} type="button" className="save-delete-cancel" onClick={closeConfirm} disabled={deletingId !== null}>Annulla</button>
-          <button
-            type="button"
-            className="save-delete-confirm-button"
-            onClick={confirmDelete}
-            disabled={deletingId !== null}
-          >
-            {deletingId ? 'Eliminazione…' : 'Elimina definitivamente'}
-          </button>
-        </div>
-      </AccessibleDialog>
+      <SaveDeleteConfirmDialog
+        save={deletion.pending}
+        busy={deletion.deletingId !== null}
+        onCancel={deletion.cancel}
+        onConfirm={deletion.confirm}
+      />
     </>
   );
 }

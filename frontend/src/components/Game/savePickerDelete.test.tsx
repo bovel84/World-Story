@@ -8,6 +8,10 @@
  *  - il pulsante «Elimina» chiede la conferma e non cancella al primo clic;
  *  - l'item sparisce **dopo** la risposta del backend, mai prima;
  *  - l'etichetta accessibile è semantica e inizia con la parola visibile.
+ *
+ * Dalla estrazione del meccanismo condiviso (`saveDeletion.ts` +
+ * `SaveDeleteConfirmDialog.tsx`, usati anche dalla home) le garanzie valgono una
+ * volta sola: qui si prova che il picker **delega** e non reimplementa nulla.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,6 +31,9 @@ import {
 import { isReservedSave } from './reservedSaves';
 
 const source = fs.readFileSync(path.resolve(__dirname, 'SavePickerModal.tsx'), 'utf8');
+const shared = fs.readFileSync(path.resolve(__dirname, 'saveDeletion.ts'), 'utf8');
+const dialog = fs.readFileSync(path.resolve(__dirname, 'SaveDeleteConfirmDialog.tsx'), 'utf8');
+const landing = fs.readFileSync(path.resolve(__dirname, 'Landing.tsx'), 'utf8');
 
 const save = (id: string, name: string, savedAt: string, turn = 7): SaveSummary => ({
   id, game_id: 'game-1', name, current_turn: turn, current_date: '2026-03-01', saved_at: savedAt,
@@ -119,39 +126,44 @@ describe('DELETE SAVES — lista di presentazione', () => {
 
 describe('DELETE SAVES — la modale non cancella mai al primo clic', () => {
   it('il clic su «Elimina» chiede la conferma invece di chiamare il backend', () => {
-    const requestHandler = source.slice(
-      source.indexOf('onRequestDelete={(save)'),
-      source.indexOf('deletingId={deletingId}'),
-    );
-    expect(requestHandler).toContain('setPendingDelete(save)');
-    expect(requestHandler).not.toContain('savesApi.remove');
+    // Il picker passa `deletion.request`, che apre la conferma; la chiamata di
+    // rete vive solo nel meccanismo condiviso.
+    expect(source).toContain('onRequestDelete={deletion.request}');
+    expect(source).not.toContain('savesApi.remove');
+    expect(shared).toContain('setPending(save)');
   });
 
   it('la conferma esplicita è una modale dedicata, con annulla come focus iniziale', () => {
-    expect(source).toContain('Eliminare il salvataggio?');
-    expect(source).toContain('Elimina definitivamente');
-    expect(source).toContain('ariaLabel="Conferma eliminazione del salvataggio"');
-    expect(source).toContain('initialFocusRef={cancelRef}');
-    expect(source).toContain('data-save-delete-target');
+    expect(dialog).toContain('Eliminare il salvataggio?');
+    expect(dialog).toContain('Elimina definitivamente');
+    expect(dialog).toContain('ariaLabel="Conferma eliminazione del salvataggio"');
+    expect(dialog).toContain('initialFocusRef={cancelRef}');
+    expect(dialog).toContain('data-save-delete-target');
+    // …e la stessa modale è usata da entrambe le superfici: un solo meccanismo.
+    expect(source).toContain('<SaveDeleteConfirmDialog');
+    expect(landing).toContain('<SaveDeleteConfirmDialog');
   });
 
   it('l’item sparisce solo DOPO la risposta del backend (nessuna rimozione ottimistica)', () => {
-    const confirm = source.slice(source.indexOf('const confirmDelete'), source.indexOf('const closeConfirm'));
-    const callIndex = confirm.indexOf('await savesApi.remove(target.id)');
-    const removeIndex = confirm.indexOf('removeSaveFromList(current, target.id)');
+    const confirm = shared.slice(shared.indexOf('const confirm = useCallback'), shared.indexOf('return { pending,'));
+    const callIndex = confirm.indexOf('await deleteSave(target.id)');
+    const removeIndex = confirm.indexOf('onDeleted(target)');
     expect(callIndex).toBeGreaterThan(-1);
     expect(removeIndex).toBeGreaterThan(callIndex);
-    expect(confirm.slice(0, callIndex)).not.toContain('setSaves');
-    // In errore la lista NON viene toccata: solo un messaggio, l'item resta.
-    const catchBlock = confirm.slice(confirm.indexOf('} catch (e)'));
-    expect(catchBlock).not.toContain('setSaves');
-    expect(catchBlock).toContain('DELETE_SAVE_ERROR');
-    expect(catchBlock).toContain('DELETE_SAVE_RESERVED_ERROR');
+    // Prima della risposta non si tocca la lista, e in errore non si tocca affatto.
+    expect(confirm.slice(0, callIndex)).not.toContain('onDeleted');
+    const elseBlock = confirm.slice(confirm.indexOf('} else {'), confirm.indexOf('setPending(null);'));
+    expect(elseBlock).not.toContain('onDeleted');
+    expect(elseBlock).toContain('setError(outcome.message)');
+    // La traduzione dell'errore (403 → riservato, altrimenti errore generico) è unica.
+    expect(shared).toContain("status === 403 ? DELETE_SAVE_RESERVED_ERROR : DELETE_SAVE_ERROR");
   });
 
   it('messaggi di errore e di esito sono annunciati (role alert/status)', () => {
     expect(source).toContain('role="alert"');
     expect(source).toContain('role="status"');
+    expect(landing).toContain('role="alert"');
+    expect(landing).toContain('role="status"');
     expect(DELETE_SAVE_ERROR).toBe('Impossibile eliminare il salvataggio. Riprova.');
     expect(DELETE_SAVE_RESERVED_ERROR).toBe('Salvataggio riservato: non cancellabile.');
   });
