@@ -681,3 +681,164 @@ resta e **deve** restare separato: sono fatti del territorio, non asset canonici
 | `backend: npx vitest run` | ✅ **166 file / 1744 test** |
 | `npm run test:e2e:mock` (suite completa) | ✅ **136/136** (135 → 136, +1: scenario G) |
 | `npm run test:a11y` · `npm run test:perf` | ✅ 3/3 · ✅ 2.24 MB |
+
+## 25. MAP P6.3 — full modern-world creation verification
+
+P6.2 costruiva le regioni della prova **a mano** (`worldRepository.createWithRegions`
+con 4 province utili) e la spec browser mockava `GET /map-assets`. Entrambe erano
+scorciatoie: nessuna delle due provava la catena reale
+`preset → codice mappa → region id → binding partita → catalogo → endpoint → thematic model → marker`.
+P6.3 chiude quel buco **senza aggiungere logica di gioco, asset o dataset**.
+
+### 25.1 Percorso reale usato (nessun mock della geografia)
+
+| Passo | Percorso vero | File |
+|---|---|---|
+| creazione mondo | `POST /api/worlds/generate` (`sync: true`) → `runWorldGeneration` | `routes/worlds.routes.ts` |
+| geometria | `resolveMapSource` → `loadPresetMap('modern_world_provinces')` → `partitionMapFeatures` → `deriveGroups` (+ `buildProvinceAdjacency`, `deriveGroupBorders`) | `utils/map-detail.ts`, `utils/map-polities.ts` |
+| persistenza | `worldRepository.createWithRegions` → id `${worldId}_${code}` | `repositories/world.repository.ts` |
+| partita | `POST /api/games` → `getSessionRegistry().createSession(worldId, name, regionId, …)` | `routes/games/state.routes.ts` |
+| endpoint | `GET /api/games/:id/map-assets` → `loadWorldMapAssets` → `getWorldBinding` + `regionIds` + `loadSimulationCatalog` | `routes/games/state.routes.ts`, `game/WorldMapAssets.ts` |
+
+Il percorso **reale** passa dalla cache/baseline di `BalanceAgent`
+(`reuseExistingWorld` → `saveCache`, impronta del catalogo inclusa): la parte LLM
+non è oggetto di questa verifica ed è l'unico stub (provider OpenAI-compatibile
+in `e2e/real-backend/llm-stub.mjs`, `vi.mock('../src/llm')` nel test backend).
+**Il binding geografico non è mai mockato**: `map.geojson` è quello del preset,
+le regioni sono quelle inserite dal flusso di produzione.
+
+### 25.2 Numeri del mondo realmente creato (head `cfae72f`)
+
+| Grandezza | Valore | Note |
+|---|---|---|
+| feature in `map.geojson` | **946** | tutte con `properties.code` |
+| regioni create | **942** | `world_regions.count(world_id)` |
+| politie | **112** | `flag`/`owner` distinti |
+| `worldId` | dinamico (es. `417f37d61094`, `fa60d871315e`) | mai hardcodato: risolto dalla risposta del flusso e dagli asset |
+| binding | `feature.properties.code → <worldId>_<code>` | es. `417f37d61094_USTX`, `417f37d61094_NLNH` |
+| regione iniziale USA | `<worldId>_USDC` (District of Columbia) | da `regionIds.USA` della risposta reale |
+| `template_id` del mondo | `modern_world_provinces` | `worlds.template_id`, letto da `getWorldBinding` |
+
+**Perché 946 feature ≠ 946 regioni** (fatto reale, non un difetto): 942 feature
+sono province (`properties.country ≠ properties.code`). Le restanti 4 sono
+feature **nazionali** (`ARG`, `VEN`, `ECU`, `BOL`) di politie che hanno *anche*
+le loro province: nel generatore vince il ramo provinciale e la feature
+nazionale non produce una seconda regione. Il conto è calcolato dal file reale
+nel test (`provinces + countryLevel senza province`), non hardcodato: se la
+mappa cambia, cambia l'atteso.
+
+### 25.3 Endpoint reale `/map-assets`
+
+Risposta reale (nessun `route.fulfill`): `canonical: true`, **21 risorse**,
+**10 impianti** — esattamente ciò che il catalogo authored dichiara
+(22 giacimenti − 1 `hidden`). Verificati per id e `regionId` del mondo creato:
+
+| asset | id | regionId |
+|---|---|---|
+| petrolio Texas | `deposit:USTX:crude_oil:1` | `<worldId>_USTX` |
+| carbone North West | `deposit:ZANW:coal:1` | `<worldId>_ZANW` |
+| ferro Western Australia | `deposit:AUWA:iron_ore:1` | `<worldId>_AUWA` |
+| raffineria Noord-Holland | `facility:NLNH:refinery:1` | `<worldId>_NLNH` |
+| raffineria ferma | `facility:NLNH:refinery:2` (`operational: false`) | `<worldId>_NLNH` |
+
+- **Nessun asset orfano**: per ogni elemento di `resources[]`/`facilities[]`
+  vale `worldRegionIds.has(asset.regionId) === true` (`worldRepository.regionIds`).
+- **`hidden` non pubblicato**: `deposit:RUSA:crude_oil:1` è assente e nessun
+  asset punta a `<worldId>_RUSA`.
+- `known: null` resta «quantità non determinata» (mai `0`).
+- Proprietà ≠ territorio: `facility:NLNH:refinery:1` è in NLNH con
+  `polityId: USA` e `controllerPolityId: NLD`.
+
+### 25.4 Determinismo e nessuna scrittura da GET
+
+- Due `GET /map-assets` consecutive restituiscono **payload identici** (`toEqual`).
+- **Impronta completa del DB** (per ogni tabella di `sqlite_master`: nome,
+  conteggio, `sha256` del contenuto ordinato) **identica** prima e dopo le due
+  GET: nessuna riga, in nessuna tabella, cambia.
+- Controlli espliciti sui dati che una lettura «idratante» toccherebbe:
+  `game_operational_objects` (44 righe, invariate), `games.current_date` /
+  `current_turn`, `world_regions.owner/name` della regione del vertical slice,
+  numero di regioni del mondo (942).
+- Un **secondo** mondo moderno generato dal flusso reale ha un `worldId`
+  diverso, lo stesso numero di regioni e **zero** chiamate LLM aggiuntive
+  (riuso/cache del preset): la partita non paga il modello.
+
+### 25.5 Test browser a backend REALE (nessun mock API)
+
+`e2e/playwright.real.config.mjs` + `e2e/tests/map-p6-modern-full-flow.real.spec.mjs`
+(`npm run test:e2e:real`, ~1,8 min): il backend Express reale serve anche la build
+React, il DB è fresco a ogni run (`OPEN_PAX_DB_PATH`, cancellato nel comando di
+avvio *prima* che il server apra il file) e **nessuna** risposta API è mockata.
+
+Percorso attraversato, tutto con interazioni utente reali:
+
+```
+landing → «Cerca scenario: Provinciale» → card «Mondo Provinciale Moderno»
+→ paese «USA» → «Avvia» → POST /worlds/generate + polling del job (946 province)
+→ POST /games → GET /games/:id (942 regioni nel mondo) → mappa
+→ GET /map-assets reale (7.250 byte, canonical: true, 21 + 10)
+→ layer Risorse → ricerca «Texas» → marker deposit:USTX:crude_oil:1
+→ chiusura dossier → click sul marker → dossier della SUA regione
+→ layer Infrastrutture → «Noord-Holland» → raffineria operativa + impianto fermo in «Non operative»
+```
+
+Asserzioni che legano le superfici (identità, non somiglianza):
+
+- numero di marker Risorse in DOM **==** `resources.length` dell'endpoint (21) e
+  marker Infrastrutture **==** `facilities.length` (10): la mappa non aggiunge
+  né perde asset e non usa gli oggetti del territorio;
+- `data-region-id` del marker **==** `data-map-context-id` del dossier (regione
+  del mondo reale), e il dossier mostra lo stesso id (`data-resource-site`,
+  `data-infrastructure-item`);
+- l'impianto `operational:false` è presente con `data-infrastructure-state="inactive"`
+  nel gruppo **«Non operative»**;
+- `worldId` derivato dalla risposta reale: nessun id di regione è inventato dal test.
+
+### 25.6 Test discriminanti (la prova deve poter fallire)
+
+Due mutazioni temporanee, rimosse subito dopo (build ricostruita e suite
+riverificata verde):
+
+| Mutazione | Effetto osservato | Conclusione |
+|---|---|---|
+| `regionIdResolver()` reso identità (binding ignorato) | `/map-assets` → `resources.length = 0` (tutti orfani) → il test fallisce | il contratto `<worldId>_<code>` è la cerniera della pipeline |
+| `buildThematicAssetMarkers()` senza marker `resources` | `expected 21, received 0` marker → il test fallisce | il test osserva davvero i marker, non solo l'endpoint |
+
+A queste si aggiungono le prove già in P6.1/P6.2 (marker da modello tematico,
+isolamento per layer, fail-closed `canonical/legacy/error/loading`, click →
+`onRegionClick(regionId)`, `MapContextSelection` invariata).
+
+### 25.7 Gate
+
+| Gate | Esito |
+|---|---|
+| `backend: npx tsc --noEmit` / `npm run build` | ✅ |
+| `backend: npx vitest run` | ✅ **167 file / 1750 test** (+6: `map-p6-real-world-e2e.test.ts`) |
+| `frontend: npx tsc --noEmit` / `npm run build` | ✅ |
+| `frontend: npx vitest run` | ✅ **76 file / 630 test** |
+| `npm run test:e2e:mock` | ✅ **136/136** (la spec `.real.spec.mjs` è esclusa con `testIgnore`) |
+| `npm run test:e2e:real` (backend reale) | ✅ **1/1** in ~1,8 min |
+| `npm run test:a11y` | ✅ 3/3 |
+| `npm run test:perf` | ✅ 2.24 MB |
+
+### 25.8 Limiti residui (dichiarati)
+
+1. **La suite a backend reale è separata** (`test:e2e:real`, richiede `npm run build`):
+   non entra in `test:e2e:mock`, che resta offline e senza backend. Non è
+   agganciata alla CI in questa fase.
+2. **Il provider LLM è l'unico stub** della suite reale (come consentito dal task):
+   il contenuto narrativo non è verificato qui. Senza stub il percorso degrada
+   al baseline deterministico (`generateCountryBatch` cattura l'errore), quindi
+   la creazione del mondo regge comunque.
+3. **Cache locale `.cache/balance`** di `BalanceAgent` (in `backend-nest/.cache`):
+   nel repo può esistere un hit che azzera le chiamate LLM; il test non dipende
+   da questo (verifica il *delta* di chiamate fra due mondi).
+4. **946 feature / 942 regioni** per le 4 feature nazionali ombraggiate
+   (`ARG`, `VEN`, `ECU`, `BOL`): comportamento del generatore documentato, non
+   modificato in P6.3 (nessun intervento sul motore di generazione).
+5. **Tile satellitari esterni** (`server.arcgisonline.com`) non raggiungibili in
+   ambiente chiuso: `requestfailed` innocuo, la mappa resta usabile con lo stile
+   vettoriale. Nessuna dipendenza dei test dai tile.
+6. **Copertura del vertical slice invariata** (12/112 paesi): P6.3 è verifica,
+   non authoring.
+

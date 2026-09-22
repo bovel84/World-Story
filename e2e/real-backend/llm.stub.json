@@ -1,0 +1,16 @@
+{
+  "default": {
+    "provider": "openai-compatible",
+    "baseUrl": "http://127.0.0.1:8791/v1",
+    "apiKey": "stub",
+    "model": "world-story-stub",
+    "timeoutMs": 20000,
+    "retries": 1,
+    "stream": false
+  },
+  "consolidation": {
+    "startRound": 25,
+    "chunkSize": 5,
+    "keepRawTail": 10
+  }
+}

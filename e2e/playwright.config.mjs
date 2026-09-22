@@ -28,6 +28,9 @@ const launchOptions = CHROME_PATH ? { executablePath: CHROME_PATH } : {};
 
 export default defineConfig({
   testDir: './tests',
+  // Le spec a backend reale (MAP P6.3) girano solo con `playwright.real.config.mjs`:
+  // qui non c'è alcun backend e non deve esserci alcun mock implicito.
+  testIgnore: '**/*.real.spec.mjs',
   // Un solo worker: i mock sono per-processo e il dev server è condiviso.
   fullyParallel: false,
   workers: 1,

@@ -1,7 +1,7 @@
 {
   "name": "world-story",
   "version": "1.0.0",
-  "description": "World Story — AI-Powered Alternate History Simulator",
+  "description": "World Story \u2014 AI-Powered Alternate History Simulator",
   "scripts": {
     "start": "node scripts/start.js",
     "start:dev": "node scripts/start.js --dev",
@@ -12,7 +12,8 @@
     "test:unit": "npm --prefix backend-nest test && cd frontend && ../node_modules/.bin/vitest run",
     "test:e2e:mock": "cd e2e && node_modules/.bin/playwright test",
     "test:a11y": "cd e2e && node_modules/.bin/playwright test --config=playwright.a11y.config.mjs",
-    "test:perf": "node e2e/perf/baseline.mjs"
+    "test:perf": "node e2e/perf/baseline.mjs",
+    "test:e2e:real": "npm run build && cd e2e && node_modules/.bin/playwright test --config=playwright.real.config.mjs"
   },
   "workspaces": [
     "frontend",

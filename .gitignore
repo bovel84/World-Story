@@ -6,6 +6,9 @@ node_modules/
 dist/
 build/
 
+# E2E a backend reale: DB e log temporanei (MAP P6.3)
+e2e/.tmp/
+
 # Environment
 .env
 .env.local
