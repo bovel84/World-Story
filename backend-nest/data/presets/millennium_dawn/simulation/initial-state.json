@@ -3,142 +3,142 @@
   "inventory": [],
   "deposits": [
     {
-      "id": "deposit:SA04:crude_oil:1",
+      "id": "deposit:pax-3799:crude_oil:1",
       "resourceId": "crude_oil",
-      "regionId": "SA04",
+      "regionId": "pax-3799",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:RUKHM:crude_oil:1",
+      "id": "deposit:pax-2396:crude_oil:1",
       "resourceId": "crude_oil",
-      "regionId": "RUKHM",
+      "regionId": "pax-2396",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:IR10:crude_oil:1",
+      "id": "deposit:pax-373:crude_oil:1",
       "resourceId": "crude_oil",
-      "regionId": "IR10",
+      "regionId": "pax-373",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:USTX:crude_oil:1",
+      "id": "deposit:pax-3387:crude_oil:1",
       "resourceId": "crude_oil",
-      "regionId": "USTX",
+      "regionId": "pax-3387",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:USAK:crude_oil:1",
+      "id": "deposit:pax-8:crude_oil:1",
       "resourceId": "crude_oil",
-      "regionId": "USAK",
+      "regionId": "pax-8",
       "known": null,
       "accessibility": "requires_extraction"
     },
     {
-      "id": "deposit:VEN:crude_oil:1",
+      "id": "deposit:pax-3566:crude_oil:1",
       "resourceId": "crude_oil",
-      "regionId": "VEN",
+      "regionId": "pax-3566",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:NGBO:crude_oil:1",
+      "id": "deposit:pax-4027:crude_oil:1",
       "resourceId": "crude_oil",
-      "regionId": "NGBO",
+      "regionId": "pax-4027",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:DZ30:crude_oil:1",
+      "id": "deposit:pax-3926:crude_oil:1",
       "resourceId": "crude_oil",
-      "regionId": "DZ30",
+      "regionId": "pax-3926",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:AUQLD:coal:1",
+      "id": "deposit:pax-644:coal:1",
       "resourceId": "coal",
-      "regionId": "AUQLD",
+      "regionId": "pax-644",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:CNNM:coal:1",
+      "id": "deposit:pax-3175:coal:1",
       "resourceId": "coal",
-      "regionId": "CNNM",
+      "regionId": "pax-3175",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:INJH:coal:1",
+      "id": "deposit:pax-357:coal:1",
       "resourceId": "coal",
-      "regionId": "INJH",
+      "regionId": "pax-357",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:ZANW:coal:1",
+      "id": "deposit:pax-4234:coal:1",
       "resourceId": "coal",
-      "regionId": "ZANW",
+      "regionId": "pax-4234",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:DENW:coal:1",
+      "id": "deposit:pax-1568:coal:1",
       "resourceId": "coal",
-      "regionId": "DENW",
+      "regionId": "pax-1568",
       "known": null,
       "accessibility": "requires_extraction"
     },
     {
-      "id": "deposit:BRPA:iron_ore:1",
+      "id": "deposit:pax-647:iron_ore:1",
       "resourceId": "iron_ore",
-      "regionId": "BRPA",
+      "regionId": "pax-647",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:AUWA:iron_ore:1",
+      "id": "deposit:pax-646:iron_ore:1",
       "resourceId": "iron_ore",
-      "regionId": "AUWA",
+      "regionId": "pax-646",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:INOR:iron_ore:1",
+      "id": "deposit:pax-2771:iron_ore:1",
       "resourceId": "iron_ore",
-      "regionId": "INOR",
+      "regionId": "pax-2771",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:CNHE:iron_ore:1",
+      "id": "deposit:pax-3187:iron_ore:1",
       "resourceId": "iron_ore",
-      "regionId": "CNHE",
+      "regionId": "pax-3187",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:BRMG:iron_ore:1",
+      "id": "deposit:pax-567:iron_ore:1",
       "resourceId": "iron_ore",
-      "regionId": "BRMG",
+      "regionId": "pax-567",
       "known": null,
       "accessibility": "open"
     },
     {
-      "id": "deposit:RUKYA:crude_oil:1",
+      "id": "deposit:pax-2407:crude_oil:1",
       "resourceId": "crude_oil",
-      "regionId": "RUKYA",
+      "regionId": "pax-2407",
       "known": null,
       "accessibility": "hidden"
     },
     {
-      "id": "deposit:RUSA:crude_oil:1",
+      "id": "deposit:pax-2427:crude_oil:1",
       "resourceId": "crude_oil",
-      "regionId": "RUSA",
+      "regionId": "pax-2427",
       "known": null,
       "accessibility": "hidden"
     }
@@ -146,115 +146,115 @@
   "workforce": [],
   "facilities": [
     {
-      "id": "facility:SA04:refinery:1",
+      "id": "facility:pax-3799:refinery:1",
       "typeId": "refinery",
       "ownerActorId": "sau_state_oil",
       "controllerActorId": "sau_state_oil",
-      "regionId": "SA04",
+      "regionId": "pax-3799",
       "operational": true
     },
     {
-      "id": "facility:RUKHM:refinery:1",
+      "id": "facility:pax-2396:refinery:1",
       "typeId": "refinery",
       "ownerActorId": "rus_state_energy",
       "controllerActorId": "rus_state_energy",
-      "regionId": "RUKHM",
+      "regionId": "pax-2396",
       "operational": true
     },
     {
-      "id": "facility:IR10:refinery:1",
+      "id": "facility:pax-373:refinery:1",
       "typeId": "refinery",
       "ownerActorId": "irn_state_oil",
       "controllerActorId": "irn_state_oil",
-      "regionId": "IR10",
+      "regionId": "pax-373",
       "operational": true
     },
     {
-      "id": "facility:USTX:refinery:1",
+      "id": "facility:pax-3387:refinery:1",
       "typeId": "refinery",
       "ownerActorId": "usa_gulf_refining",
       "controllerActorId": "usa_gulf_refining",
-      "regionId": "USTX",
+      "regionId": "pax-3387",
       "operational": true
     },
     {
-      "id": "facility:VEN:refinery:1",
+      "id": "facility:pax-3566:refinery:1",
       "typeId": "refinery",
       "ownerActorId": "ven_state_oil",
       "controllerActorId": "ven_state_oil",
-      "regionId": "VEN",
+      "regionId": "pax-3566",
       "operational": true
     },
     {
-      "id": "facility:NLNH:refinery:1",
+      "id": "facility:pax-1671:refinery:1",
       "typeId": "refinery",
       "ownerActorId": "usa_gulf_refining",
       "controllerActorId": "nld_port_authority",
-      "regionId": "NLNH",
+      "regionId": "pax-1671",
       "operational": true
     },
     {
-      "id": "facility:NLNH:refinery:2",
+      "id": "facility:pax-1671:refinery:2",
       "typeId": "refinery",
       "ownerActorId": "nld_port_energy",
       "controllerActorId": "nld_port_energy",
-      "regionId": "NLNH",
+      "regionId": "pax-1671",
       "operational": false
     },
     {
-      "id": "facility:CNHE:steel_plant:1",
+      "id": "facility:pax-3187:steel_plant:1",
       "typeId": "steel_plant",
       "ownerActorId": "chn_state_steel",
       "controllerActorId": "chn_state_steel",
-      "regionId": "CNHE",
+      "regionId": "pax-3187",
       "operational": true
     },
     {
-      "id": "facility:INOR:steel_plant:1",
+      "id": "facility:pax-2771:steel_plant:1",
       "typeId": "steel_plant",
       "ownerActorId": "ind_state_steel",
       "controllerActorId": "ind_state_steel",
-      "regionId": "INOR",
+      "regionId": "pax-2771",
       "operational": true
     },
     {
-      "id": "facility:DENW:steel_plant:1",
+      "id": "facility:pax-1568:steel_plant:1",
       "typeId": "steel_plant",
       "ownerActorId": "deu_steel_works",
       "controllerActorId": "deu_steel_works",
-      "regionId": "DENW",
+      "regionId": "pax-1568",
       "operational": true
     },
     {
-      "id": "facility:BRMG:steel_plant:1",
+      "id": "facility:pax-567:steel_plant:1",
       "typeId": "steel_plant",
       "ownerActorId": "bra_state_mining",
       "controllerActorId": "bra_state_mining",
-      "regionId": "BRMG",
+      "regionId": "pax-567",
       "operational": true
     },
     {
-      "id": "facility:CNNM:coal_power_plant:1",
+      "id": "facility:pax-3175:coal_power_plant:1",
       "typeId": "coal_power_plant",
       "ownerActorId": "chn_state_steel",
       "controllerActorId": "chn_state_steel",
-      "regionId": "CNNM",
+      "regionId": "pax-3175",
       "operational": true
     },
     {
-      "id": "facility:ZANW:coal_power_plant:1",
+      "id": "facility:pax-4234:coal_power_plant:1",
       "typeId": "coal_power_plant",
       "ownerActorId": "zaf_coal_energy",
       "controllerActorId": "zaf_coal_energy",
-      "regionId": "ZANW",
+      "regionId": "pax-4234",
       "operational": true
     },
     {
-      "id": "facility:INJH:coal_power_plant:1",
+      "id": "facility:pax-357:coal_power_plant:1",
       "typeId": "coal_power_plant",
       "ownerActorId": "ind_state_steel",
       "controllerActorId": "ind_state_steel",
-      "regionId": "INJH",
+      "regionId": "pax-357",
       "operational": true
     }
   ]

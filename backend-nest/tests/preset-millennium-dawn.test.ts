@@ -3,7 +3,7 @@
  * =================================================
  * Il preset `millennium_dawn` è il vertical slice authored del mondo al
  * **1° gennaio 2000**: catalogo strict (formato `SimulationCatalog`, identico a
- * quello di P6.2) bindato alla mappa nativa `modern_world_provinces`
+ * quello di P6.2) bindato alla mappa nativa dichiarata da `preset.map_base`
  * (`world_scoped`). Qui si prova che è **giocabile e verificato** senza mai
  * inventare geografia:
  *
@@ -11,7 +11,7 @@
  *    `country_codes` sono ISO-A3 reali;
  *  - `loadSimulationCatalog` lo valida (`mode: authored`, nessun errore);
  *  - **ogni** `regionId` di giacimenti e impianti esiste davvero tra i codici
- *    di `modern_world_provinces/map.geojson` (`properties.code`): zero orfani;
+ *    della mappa nativa del preset (`map.geojson`, `properties.code`): zero orfani;
  *  - ogni `ownerActorId`/`controllerActorId` esiste nel registro attori;
  *  - i due giacimenti `hidden` **non** vengono pubblicati;
  *  - l'impianto `operational: false` resta pubblicato e classificato;
@@ -34,12 +34,8 @@ process.env.OPEN_PAX_DB_PATH = TEST_DB;
 
 const PRESET_ID = 'millennium_dawn';
 const PRESET_DIR = path.join(process.cwd(), 'data', 'presets', PRESET_ID);
-const MAP_FILE = path.join(process.cwd(), 'data', 'presets', 'modern_world_provinces', 'map.geojson');
 const WORLD = 'md2000world';
 const START_DATE = '2000-01-01';
-const HIDDEN_DEPOSITS = ['deposit:RUKYA:crude_oil:1', 'deposit:RUSA:crude_oil:1'];
-const MIXED_FACILITY = 'facility:NLNH:refinery:1';
-const STOPPED_FACILITY = 'facility:NLNH:refinery:2';
 
 let db: any;
 let loadPreset: typeof import('../src/utils/preset-loader')['loadPreset'];
@@ -51,6 +47,11 @@ let preset: NonNullable<ReturnType<typeof import('../src/utils/preset-loader')['
 let mapRegionCodes: Set<string>;
 /** Spazio id del mondo reale: `<worldId>_<codice>`. */
 let worldRegionIds: Set<string>;
+/** Casi limite derivati dal catalogo (map-agnostici): niente id cablati. */
+let hiddenDepositIds: string[] = [];
+let mixedFacilityId = '';
+let mixedFacilityRegionId = '';
+let stoppedFacilityId = '';
 
 beforeAll(async () => {
   vi.spyOn(Math, 'random').mockReturnValue(0.99);
@@ -69,16 +70,27 @@ beforeAll(async () => {
   if (!loaded.catalog) throw new Error(`catalogo millennium_dawn non valido: ${JSON.stringify(loaded.report.errors)}`);
   catalog = loaded.catalog;
 
-  // Lo spazio id delle regioni è **derivato dal file della mappa nativa**
-  // (`properties.code`): se un codice viene rinominato, questi test falliscono
-  // invece di pubblicare asset nella regione sbagliata.
-  const map = JSON.parse(fs.readFileSync(MAP_FILE, 'utf8')) as { features?: Array<{ properties?: Record<string, unknown> }> };
+  // Lo spazio id delle regioni è **derivato dal file della mappa nativa del
+  // preset** (`map_base` → `properties.code`): se un codice viene rinominato,
+  // questi test falliscono invece di pubblicare asset nella regione sbagliata.
+  const mapFile = path.join(process.cwd(), 'data', 'presets', preset.map_base, 'map.geojson');
+  expect(fs.existsSync(mapFile), `mappa nativa mancante: ${mapFile}`).toBe(true);
+  const map = JSON.parse(fs.readFileSync(mapFile, 'utf8')) as { features?: Array<{ properties?: Record<string, unknown> }> };
   mapRegionCodes = new Set<string>();
   for (const feature of map.features ?? []) {
     const code = feature?.properties?.code;
     if (typeof code === 'string' && code) mapRegionCodes.add(code);
   }
   worldRegionIds = new Set([...mapRegionCodes].map(code => `${WORLD}_${code}`));
+
+  // Casi limite letti dal catalogo: valgono qualunque sia la mappa del preset.
+  hiddenDepositIds = catalog.initialState.deposits
+    .filter(deposit => deposit.accessibility === 'hidden')
+    .map(deposit => deposit.id);
+  const mixed = catalog.initialState.facilities.find(facility => facility.ownerActorId !== facility.controllerActorId);
+  mixedFacilityId = mixed?.id ?? '';
+  mixedFacilityRegionId = mixed?.regionId ?? '';
+  stoppedFacilityId = catalog.initialState.facilities.find(facility => facility.operational === false)?.id ?? '';
 });
 
 afterAll(() => {
@@ -103,7 +115,10 @@ describe('MILLENNIUM DAWN — preset caricabile', () => {
     expect(preset.id).toBe(PRESET_ID);
     expect(preset.name).toContain('Millennium Dawn');
     expect(preset.start_date).toBe(START_DATE);
-    expect(preset.map_base).toBe('modern_world_provinces');
+    // Mappa nativa dichiarata: deve esistere davvero su disco (map-agnostico).
+    expect(typeof preset.map_base).toBe('string');
+    expect(preset.map_base.length).toBeGreaterThan(0);
+    expect(fs.existsSync(path.join(process.cwd(), 'data', 'presets', preset.map_base, 'map.geojson'))).toBe(true);
     expect(preset.map_detail).toBe('full');
     expect(preset.historical_accuracy).toBe(0.8);
     // Il preset non porta una mappa propria: usa `map_base` (vincolo di task).
@@ -178,7 +193,7 @@ describe('MILLENNIUM DAWN — binding geografico: nessun asset orfano', () => {
     expect(mapRegionCodes.size).toBeGreaterThan(900);
   });
 
-  it('ogni `regionId` del catalogo esiste in `modern_world_provinces` (`properties.code`)', () => {
+  it('ogni `regionId` del catalogo esiste nella mappa nativa del preset (`properties.code`)', () => {
     for (const deposit of catalog.initialState.deposits) {
       expect(mapRegionCodes.has(deposit.regionId), `${deposit.id} → ${deposit.regionId}`).toBe(true);
     }
@@ -206,8 +221,12 @@ describe('MILLENNIUM DAWN — binding geografico: nessun asset orfano', () => {
     expect(assets.resources.map(site => site.id)).not.toContain(ghostDeposit.id);
     expect(assets.facilities.map(site => site.id)).not.toContain(ghostFacility.id);
     // Gli asset reali restano: l'orfano è escluso singolarmente, non in blocco.
-    expect(assets.resources.map(site => site.id)).toContain('deposit:SA04:crude_oil:1');
-    expect(assets.facilities.map(site => site.id)).toContain('facility:SA04:refinery:1');
+    const realDeposit = catalog.initialState.deposits.find(deposit => deposit.accessibility !== 'hidden');
+    const realFacility = catalog.initialState.facilities[0];
+    expect(realDeposit, 'catalogo senza giacimenti visibili').toBeTruthy();
+    expect(realFacility, 'catalogo senza impianti').toBeTruthy();
+    expect(assets.resources.map(site => site.id)).toContain(realDeposit!.id);
+    expect(assets.facilities.map(site => site.id)).toContain(realFacility!.id);
   });
 
   it('l’endpoint pubblica gli asset con id del mondo `<worldId>_<codice>`', () => {
@@ -229,11 +248,12 @@ describe('MILLENNIUM DAWN — actor registry', () => {
   });
 
   it('il caso `owner != controller` preserva entrambi i fatti e le due polity', () => {
+    expect(mixedFacilityId, 'catalogo senza caso owner != controller').not.toBe('');
     const assets = buildWorldMapAssets({ catalog, worldId: WORLD, worldRegionIds });
-    const mixed = assets.facilities.find(site => site.id === MIXED_FACILITY);
+    const mixed = assets.facilities.find(site => site.id === mixedFacilityId);
     expect(mixed).toBeTruthy();
     expect(mixed).toMatchObject({
-      regionId: `${WORLD}_NLNH`,
+      regionId: `${WORLD}_${mixedFacilityRegionId}`,
       ownerActorId: 'usa_gulf_refining',
       ownerActorName: 'Raffinazione privata (USA)',
       controllerActorId: 'nld_port_authority',
@@ -246,10 +266,11 @@ describe('MILLENNIUM DAWN — actor registry', () => {
 });
 
 describe('MILLENNIUM DAWN — giacimenti `hidden` non pubblicati', () => {
-  it('i due giacimenti russi nascosti NON compaiono, tutti gli altri sì', () => {
+  it('i giacimenti `hidden` NON compaiono, tutti gli altri sì', () => {
+    expect(hiddenDepositIds.length, 'catalogo senza giacimenti hidden').toBeGreaterThan(0);
     const assets = buildWorldMapAssets({ catalog, worldId: WORLD, worldRegionIds });
     const publishedIds = assets.resources.map(site => site.id);
-    for (const hiddenId of HIDDEN_DEPOSITS) {
+    for (const hiddenId of hiddenDepositIds) {
       expect(publishedIds, hiddenId).not.toContain(hiddenId);
       // Controprova: il giacimento esiste nel catalogo ed è davvero `hidden`.
       const deposit = catalog.initialState.deposits.find(item => item.id === hiddenId);
@@ -259,17 +280,18 @@ describe('MILLENNIUM DAWN — giacimenti `hidden` non pubblicati', () => {
     // Pubblicati tutti gli altri: nulla è scartato in silenzio.
     const visible = catalog.initialState.deposits.filter(deposit => deposit.accessibility !== 'hidden');
     expect(publishedIds.sort()).toEqual(visible.map(deposit => deposit.id).sort());
-    expect(assets.resources).toHaveLength(catalog.initialState.deposits.length - HIDDEN_DEPOSITS.length);
+    expect(assets.resources).toHaveLength(catalog.initialState.deposits.length - hiddenDepositIds.length);
   });
 });
 
 describe('MILLENNIUM DAWN — impianto non operativo', () => {
   it('è nel catalogo con `operational: false` e viene pubblicato come tale', () => {
-    const stopped = catalog.initialState.facilities.find(facility => facility.id === STOPPED_FACILITY);
+    expect(stoppedFacilityId, 'catalogo senza impianto non operativo').not.toBe('');
+    const stopped = catalog.initialState.facilities.find(facility => facility.id === stoppedFacilityId);
     expect(stopped).toBeTruthy();
     expect(stopped!.operational).toBe(false);
     const assets = buildWorldMapAssets({ catalog, worldId: WORLD, worldRegionIds });
-    const published = assets.facilities.find(site => site.id === STOPPED_FACILITY);
+    const published = assets.facilities.find(site => site.id === stoppedFacilityId);
     expect(published).toBeTruthy();
     expect(published!.operational).toBe(false);
     // Non viene nascosto: è classificato. Tutti gli impianti sono pubblicati.

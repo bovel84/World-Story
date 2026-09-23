@@ -106,6 +106,8 @@
     "OMN",
     "YEM"
   ],
+  "base_prompt": "1° gennaio 2000. Il mondo entra nel nuovo millennio con l'eredità di un decennio di transizioni: il blocco sovietico è dissolto, la NATO si è allargata verso est, gli Stati Uniti sono l'unica superpotenza ma non senza sfide. La Federazione Russa, uscita dal caos degli anni '90, sta ricostruendo il suo Stato e la sua influenza nello spazio post-sovietico. La Cina cresce rapidamente e si prepara all'ingresso nell'OMC; il Giappone e la Corea del Sud sono potenze economiche, mentre la Corea del Nord resta isolata. L'Unione Europea si prepara all'allargamento e all'euro. Il Medio Oriente vive instabilità profonda: Saddam Hussein in Iraq, la Repubblica Islamica iraniana, la seconda intifada tra Israele e Palestina, l'Afghanistan sotto i talebani con Al-Qaeda in ascesa. I Balcani portano ancora le ferite delle guerre jugoslave; la Cecenia è in conflitto con Mosca. Internet e la globalizzazione trasformano l'economia e la comunicazione a un ritmo senza precedenti, mentre polarizzazione, nazionalismi e nuove minacce alla sicurezza si affacciano sullo scenario. Ogni nazione conserva le proprie reali caratteristiche geografiche, economiche, demografiche e culturali del gennaio 2000; ogni svolgimento storico alternativo è possibile. Le cifre di partenza (popolazione, PIL, risorse, forze armate) sono stime di riferimento sui dati disponibili intorno al 2000, usate solo come base di partenza: la data corrente del mondo è quella del calendario di gioco.",
+  "historical_accuracy": 0.8,
   "countries": [
     {
       "code": "USA",
@@ -613,10 +615,9 @@
       "color": "#CE1126"
     }
   ],
-  "base_prompt": "1° gennaio 2000. Il mondo entra nel nuovo millennio con l'eredità di un decennio di transizioni: il blocco sovietico è dissolto, la NATO si è allargata verso est, gli Stati Uniti sono l'unica superpotenza ma non senza sfide. La Federazione Russa, uscita dal caos degli anni '90, sta ricostruendo il suo Stato e la sua influenza nello spazio post-sovietico. La Cina cresce rapidamente e si prepara all'ingresso nell'OMC; il Giappone e la Corea del Sud sono potenze economiche, mentre la Corea del Nord resta isolata. L'Unione Europea si prepara all'allargamento e all'euro. Il Medio Oriente vive instabilità profonda: Saddam Hussein in Iraq, la Repubblica Islamica iraniana, la seconda intifada tra Israele e Palestina, l'Afghanistan sotto i talebani con Al-Qaeda in ascesa. I Balcani portano ancora le ferite delle guerre jugoslave; la Cecenia è in conflitto con Mosca. Internet e la globalizzazione trasformano l'economia e la comunicazione a un ritmo senza precedenti, mentre polarizzazione, nazionalismi e nuove minacce alla sicurezza si affacciano sullo scenario. Ogni nazione conserva le proprie reali caratteristiche geografiche, economiche, demografiche e culturali del gennaio 2000; ogni svolgimento storico alternativo è possibile. Le cifre di partenza (popolazione, PIL, risorse, forze armate) sono stime di riferimento sui dati disponibili intorno al 2000, usate solo come base di partenza: la data corrente del mondo è quella del calendario di gioco.",
-  "historical_accuracy": 0.8,
-  "map_base": "modern_world_provinces",
+  "prompts": {},
   "map_detail": "full",
+  "map_base": "pax_modern_provinces",
   "author": "world-story",
   "version": "1.0.0"
 }
