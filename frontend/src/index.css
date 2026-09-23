@@ -2755,11 +2755,16 @@ html, body { margin: 0; }
     padding: 3px 6px !important;
     gap: 4px !important;
     box-sizing: border-box !important;
-    overflow: hidden !important;
+    /* Il popover del menu (⚙) è figlio di .hud-left: con `overflow: hidden`
+       verrebbe ritagliato all'altezza della barra (54px) e resterebbe
+       invisibile/non cliccabile. La griglia `auto auto minmax(0,1fr)` contiene
+       già le colonne, quindi non serve ritagliare qui. */
+    overflow: visible !important;
   }
   .hud-left { grid-column: 1; display: flex !important; align-items: center; gap: 4px; min-width: 0; }
   .hud-logo { display: none !important; }
   .hud-icon-btn { width: 34px !important; height: 34px !important; min-width: 34px !important; }
+  .hud-icon-btn:disabled { opacity: .45 !important; cursor: not-allowed !important; }
   .hud-dispatch-toggle { width: 32px !important; height: 34px !important; min-width: 32px !important; padding: 0 !important; justify-content: center !important; }
   .hud-dispatch-label { display: none !important; }
   .hud-center { grid-column: 2; position: static !important; transform: none !important; display: block !important; min-width: 0; }

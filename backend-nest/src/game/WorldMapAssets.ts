@@ -20,6 +20,9 @@
 import path from 'path';
 import { gameRepository, operationalObjectRepository, worldRepository } from '../repositories';
 import { loadSimulationCatalog } from '../scenario/loader';
+import { loadPreset, loadPresetMap } from '../utils/preset-loader';
+import { loadNativeMap, resolveMapSource } from '../utils/native-maps';
+import type { MapFeature } from '../utils/map-detail';
 import type { Deposit, EstimatedRange, Quantity, SimulationCatalog } from '../scenario/types';
 
 export interface WorldResourceSite {
@@ -63,6 +66,30 @@ export interface WorldMapAssets {
 /** Risposta esplicita per mondi legacy / catalogo non disponibile: `[]`, mai geografia falsa. */
 export const EMPTY_WORLD_MAP_ASSETS: WorldMapAssets = { resources: [], facilities: [], canonical: false };
 
+/** Fatti geografici minimi di una regione **reale** del mondo (BUG 3). */
+export interface WorldRegionFact {
+  /** Id completo della regione nel mondo (`<worldId>_<codice>`). */
+  id: string;
+  /** Paese (ISO3) di appartenenza: chiave di ancoraggio **indipendente dalla mappa**. */
+  country: string;
+  /** `true` solo per la provincia-capitale del paese. */
+  isCapital: boolean;
+}
+
+/**
+ * Indice di ancoraggio map-agnostico (BUG 3). Il catalogo nomina le regioni con
+ * i codici della **sua** mappa di riferimento; il mondo le espone con i codici
+ * della mappa con cui è stato generato. Quando i due spazi non combaciano,
+ * l'asset viene collocato sulla regione del **suo paese** — mai su una regione
+ * altrui, mai su geografia inventata.
+ */
+export interface RegionAnchorIndex {
+  /** Codice di regione del catalogo → paese (ISO3). Derivato dalla mappa di riferimento. */
+  countryByCatalogCode: ReadonlyMap<string, string>;
+  /** Regioni reali del mondo (stesso set di `worldRegionIds`), ordinate. */
+  worldRegions: ReadonlyArray<WorldRegionFact>;
+}
+
 export interface BuildWorldMapAssetsInput {
   catalog: SimulationCatalog;
   /** Id delle regioni che esistono davvero nel mondo della partita. */
@@ -76,6 +103,14 @@ export interface BuildWorldMapAssetsInput {
   worldId?: string;
   /** Stato persistente canonico: usato **solo** con id identico e solo per proprietà dinamiche. */
   persistedFacilities?: ReadonlyArray<{ id: string; data: Record<string, unknown> }>;
+  /**
+   * BUG 3 — indice di ancoraggio map-agnostico. **Assente** = comportamento
+   * storico (risoluzione esatta, un id mancante esclude l'asset). Presente =
+   * se l'id esatto non esiste, l'asset viene ancorato alla capitale del suo
+   * paese, oppure alla prima regione del paese, oppure escluso se il paese è
+   * assente. Nessuna geografia viene mai dedotta dal nome o dal testo.
+   */
+  anchor?: RegionAnchorIndex;
 }
 
 /**
@@ -97,6 +132,70 @@ export function regionIdResolver(
 }
 
 /**
+ * BUG 3 — indice `codice di regione del catalogo → paese` derivato dalla mappa
+ * di riferimento del preset (`resolveMapSource`, la stessa sorgente usata dalla
+ * generazione dei mondi). Con cache per preset: la mappa non cambia a runtime e
+ * il GeoJSON Pax pesa 7,3 MB. Ritorna una mappa vuota, mai un errore, se il
+ * preset o la mappa non sono leggibili.
+ */
+const catalogCodeCountryCache = new Map<string, ReadonlyMap<string, string>>();
+
+function catalogCodeCountryIndex(templateId: string): ReadonlyMap<string, string> {
+  const cached = catalogCodeCountryCache.get(templateId);
+  if (cached) return cached;
+  const index = new Map<string, string>();
+  const preset = loadPreset(templateId);
+  if (preset) {
+    const source = resolveMapSource({ hasCustomMap: preset.has_custom_map, mapBase: preset.map_base });
+    const map = source.kind === 'preset' ? loadPresetMap(templateId) : loadNativeMap(source.id);
+    const features = (map?.features as MapFeature[] | undefined) || [];
+    for (const feature of features) {
+      const properties = (feature?.properties || {}) as Record<string, unknown>;
+      // Chiave condivisa fra le mappe: `country` per le mappe provinciali,
+      // altrimenti il codice paese stesso è il paese della feature.
+      const code = typeof properties.code === 'string' ? properties.code : null;
+      if (!code || index.has(code)) continue;
+      index.set(code, typeof properties.country === 'string' && properties.country ? properties.country : code);
+    }
+  }
+  catalogCodeCountryCache.set(templateId, index);
+  return index;
+}
+
+/**
+ * Costruisce l'indice di ancoraggio per un mondo. Deterministico: la mappa di
+ * riferimento fornisce `codice → paese`; le regioni reali forniscono
+ * `paese → regioni` (e la capitale). I codici del mondo sono aggiunti come
+ * fallback, così funziona anche quando la mappa corrente del preset e quella
+ * con cui il mondo è stato generato non coincidono. **Non** scrive nulla.
+ */
+export function buildRegionAnchor(
+  templateId: string,
+  worldId: string,
+  worldRegions: ReadonlyArray<WorldRegionFact>,
+): RegionAnchorIndex | undefined {
+  const countryByCatalogCode = new Map(catalogCodeCountryIndex(templateId));
+  for (const region of worldRegions) {
+    const code = region.id.startsWith(`${worldId}_`) ? region.id.slice(worldId.length + 1) : region.id;
+    if (region.country && !countryByCatalogCode.has(code)) countryByCatalogCode.set(code, region.country);
+  }
+  if (countryByCatalogCode.size === 0) return undefined;
+  return { countryByCatalogCode, worldRegions };
+}
+
+/** Regioni del mondo raggruppate per paese, nell'ordine ricevuto (deterministico). */
+function indexRegionsByCountry(regions: ReadonlyArray<WorldRegionFact>): Map<string, WorldRegionFact[]> {
+  const byCountry = new Map<string, WorldRegionFact[]>();
+  for (const region of regions) {
+    if (!region.country) continue;
+    const list = byCountry.get(region.country);
+    if (list) list.push(region);
+    else byCountry.set(region.country, [region]);
+  }
+  return byCountry;
+}
+
+/**
  * Costruisce il read model. Puro e deterministico: stessi input ⇒ stessi output,
  * nessun accesso a rete/DB, nessuna mutazione degli input.
  */
@@ -107,12 +206,34 @@ export function buildWorldMapAssets(input: BuildWorldMapAssetsInput): WorldMapAs
   const actors = new Map((catalog.actors || []).map(item => [item.actorId, item]));
   const persisted = persistedOperational(input.persistedFacilities);
   const resolveRegionId = regionIdResolver(catalog, input.worldId);
+  const regionsByCountry = input.anchor ? indexRegionsByCountry(input.anchor.worldRegions) : null;
+
+  /**
+   * BUG 3 — risoluzione di un `regionId` del catalogo in un id che esiste
+   * **davvero** nel mondo:
+   *   1. esatto (`<worldId>_<codice>`) — retrocompatibile, i mondi sulla stessa
+   *      mappa restano identici;
+   *   2. ancoraggio per paese alla capitale;
+   *   3. prima regione del paese;
+   *   4. `null` → l'asset è escluso. Mai geografia inventata.
+   */
+  const resolveSiteRegionId = (catalogRegionId: string): string | null => {
+    const exact = resolveRegionId(catalogRegionId);
+    if (exact && worldRegionIds.has(exact)) return exact;
+    if (!regionsByCountry || !input.anchor) return null;
+    const country = input.anchor.countryByCatalogCode.get(catalogRegionId);
+    if (!country) return null;
+    const regions = regionsByCountry.get(country);
+    if (!regions || regions.length === 0) return null;
+    const target = regions.find(region => region.isCapital) ?? regions[0];
+    return worldRegionIds.has(target.id) ? target.id : null;
+  };
 
   const resources: WorldResourceSite[] = [];
   for (const deposit of catalog.initialState?.deposits || []) {
     if (!isPublishableDeposit(deposit)) continue;
-    const regionId = resolveRegionId(deposit.regionId);
-    if (!regionId || !worldRegionIds.has(regionId)) continue;
+    const regionId = resolveSiteRegionId(deposit.regionId);
+    if (!regionId) continue;
     resources.push({
       id: deposit.id,
       resourceId: deposit.resourceId,
@@ -127,8 +248,8 @@ export function buildWorldMapAssets(input: BuildWorldMapAssetsInput): WorldMapAs
 
   const facilities: WorldFacilitySite[] = [];
   for (const facility of catalog.initialState?.facilities || []) {
-    const regionId = resolveRegionId(facility.regionId);
-    if (!regionId || !worldRegionIds.has(regionId)) continue;
+    const regionId = resolveSiteRegionId(facility.regionId);
+    if (!regionId) continue;
     const owner = actors.get(facility.ownerActorId);
     const controller = actors.get(facility.controllerActorId);
     const persistedOperationalState = persisted.get(facility.id);
@@ -197,11 +318,17 @@ export function loadWorldMapAssets(gameId: string): WorldMapAssets {
   // bilanciamento) e la geografia che pubblica è autorevole esattamente come in
   // `strict`. Legare la mappa a `economy_mode` significava confondere il *layer
   // di lettura* con il *percorso economico* della partita.
+  // BUG 3 — la mappa reale del mondo è quella persistita con le sue regioni:
+  // paese e capitale sono letti dalle regioni, non dedotti dai codici.
+  const worldRegions = worldRepository.regionFacts(binding.worldId);
   return buildWorldMapAssets({
     catalog: loaded.catalog,
     worldId: binding.worldId,
-    worldRegionIds: new Set(worldRepository.regionIds(binding.worldId)),
+    worldRegionIds: new Set(worldRegions.map(region => region.id)),
     // Lettura esatta, senza materializzare né seedare lo stato operativo.
     persistedFacilities: operationalObjectRepository.list(gameId, 'facility'),
+    // Ancoraggio map-agnostico: senza di esso i mondi su mappe diverse dalla
+    // mappa del catalogo pubblicherebbero `[]` senza alcun segnale.
+    anchor: buildRegionAnchor(binding.templateId, binding.worldId, worldRegions),
   });
 }
