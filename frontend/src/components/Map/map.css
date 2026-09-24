@@ -163,3 +163,71 @@
 @media (pointer: coarse) {
   .world-map .openpax-map-asset { width: 24px; height: 24px; font-size: 12px; }
 }
+
+/* ── Mappa statica: ripiego quando WebGL non è disponibile ──────────────────
+   La mappa interattiva richiede un contesto grafico; senza, il gioco degrada
+   qui invece di interrompersi. Il disegno è la geografia politica reale. */
+.static-geo-map {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #0a0a0f;
+  overflow: hidden;
+}
+.static-geo-map.is-empty {
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: #b8c3d2;
+  text-align: center;
+}
+.static-geo-map-notice {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #d8c48a;
+  background: #241f10;
+  border-bottom: 1px solid #3b3520;
+}
+.static-geo-map-canvas {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  display: block;
+}
+.static-geo-map-canvas path {
+  cursor: pointer;
+  transition: fill-opacity 120ms ease;
+}
+.static-geo-map-canvas path:focus-visible {
+  outline: 2px solid #ffd479;
+  outline-offset: 1px;
+}
+.static-geo-map-skipped {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 11px;
+  color: #8a93a3;
+  background: #12141a;
+  border-top: 1px solid #232734;
+}
+
+/* Il confine d'errore: dichiara il guasto e lascia giocare. */
+.map-error-boundary {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #0a0a0f;
+}
+.map-error-boundary-notice {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #e0b4a0;
+  background: #2a1a16;
+  border-bottom: 1px solid #4a2c24;
+}

@@ -52,3 +52,6 @@ e2e/test-results/
 e2e/playwright-report/
 test-results/
 playwright-report/
+
+# Copia del binario nativo durante lo sviluppo (better-sqlite3): non è codice
+backend-nest/.native-backup/
