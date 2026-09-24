@@ -261,6 +261,48 @@ export function normalizeInheritedDebtRates(
   return { debts: next, changed };
 }
 
+/**
+ * Bonifica le **date** dello stock di debito ereditato: la semina avveniva
+ * prima che la sessione conoscesse la data del mondo, quindi i titoli nascevano
+ * con il default dello stato (`1951-01-01`). In un mondo del 2000 significava
+ * titoli emessi nel 1951 e **scaduti da decenni**, con la scadenza media del
+ * dossier a zero perché ogni titolo era già oltre la maturità.
+ *
+ * La data corretta è quella di partenza del mondo: le tranche ereditate sono per
+ * costruzione il portafoglio con cui la nazione entra in scena. Una tranche la
+ * cui data di emissione **coincide con l'anno di partenza** è già corretta (o è
+ * stata rifinanziata al tasso giusto) e viene lasciata intatta.
+ *
+ * Idempotente; tocca solo le tranche `debt-inherited-*`.
+ */
+export function normalizeInheritedDebtDates(
+  debts: readonly SovereignDebt[] | undefined,
+  worldStartDate: string,
+): { debts: SovereignDebt[]; changed: boolean } {
+  const list = Array.isArray(debts) ? debts : [];
+  const start = String(worldStartDate || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return { debts: [...list], changed: false };
+  const startYear = start.slice(0, 4);
+  let changed = false;
+  const next = list.map(debt => {
+    const isInherited = String(debt?.id || '').startsWith('debt-inherited-')
+      || /debito ereditato/i.test(String(debt?.label || ''));
+    if (!isInherited) return debt;
+    const issued = String(debt.issuedDate || '').slice(0, 10);
+    // Già sulla scala del mondo (emessa o rifinanziata): niente da fare.
+    if (issued.slice(0, 4) === startYear) return debt;
+    const termYears = Math.max(1, Math.round(Number(debt.termYears) || 10));
+    changed = true;
+    return {
+      ...debt,
+      issuedDate: start,
+      maturityDate: addYears(start, termYears),
+      termYears,
+    };
+  });
+  return { debts: next, changed };
+}
+
 /** Riga leggibile di un titolo, per il dossier e la cronaca. */
 export function describeDebtTranche(tranche: SovereignDebt): string {
   return `${tranche.label}: ${round1(tranche.principal)} mld al ${tranche.annualRatePct}% (scadenza ${tranche.maturityDate})`;

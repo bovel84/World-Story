@@ -20,7 +20,7 @@ import type { NationalAccount } from './WorldStateEngine';
 import type { NaturalEndowment, NaturalResourceKind } from './MilitaryIndustry';
 import {
   annualInterestMld, debtPrincipal, inheritedCarryRatePct, issueDebtTranche, maturedDebts,
-  marketRatePct, normalizeInheritedDebtRates, rolloverTranche,
+  marketRatePct, normalizeInheritedDebtDates, normalizeInheritedDebtRates, rolloverTranche,
   type SovereignDebt,
 } from './SovereignDebt';
 
@@ -219,14 +219,31 @@ export function dropRegistryInheritedDebt(stock: ResourceStock): ResourceStock {
  * si può invocare a ogni lettura senza effetti collaterali. Il debito emesso dal
  * giocatore non viene toccato.
  */
-export function normalizeInheritedDebtStock(stock: ResourceStock, debtRatioPct: number): ResourceStock {
-  const { debts, changed } = normalizeInheritedDebtRates(stock.debts, debtRatioPct);
-  return changed ? { ...stock, debts } : stock;
+export function normalizeInheritedDebtStock(
+  stock: ResourceStock,
+  debtRatioPct: number,
+  worldStartDate?: string,
+): ResourceStock {
+  const rates = normalizeInheritedDebtRates(stock.debts, debtRatioPct);
+  const dates = worldStartDate
+    ? normalizeInheritedDebtDates(rates.debts, worldStartDate)
+    : { debts: rates.debts, changed: false };
+  return (rates.changed || dates.changed) ? { ...stock, debts: dates.debts } : stock;
 }
 
-/** Vero se il portafoglio contiene ancora tranche con il tasso di semina vecchio. */
-export function hasUnnormalizedInheritedDebt(stock: ResourceStock, debtRatioPct: number): boolean {
-  return normalizeInheritedDebtRates(stock.debts, debtRatioPct).changed;
+/**
+ * Vero se il portafoglio contiene ancora tranche da bonificare: tasso di semina
+ * vecchio **oppure** date fuori dalla scala del mondo.
+ */
+export function hasUnnormalizedInheritedDebt(
+  stock: ResourceStock,
+  debtRatioPct: number,
+  worldStartDate?: string,
+): boolean {
+  if (normalizeInheritedDebtRates(stock.debts, debtRatioPct).changed) return true;
+  return worldStartDate
+    ? normalizeInheritedDebtDates(stock.debts, worldStartDate).changed
+    : false;
 }
 
 /**

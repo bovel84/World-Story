@@ -716,16 +716,23 @@ export class NationStateService {
       const cleaned = dropRegistryInheritedDebt(stock);
       return { stock: cleaned, changed: true, legacyModernSeed: cleaned.debts.length === 0 };
     }
-    // Mondo moderno: il tasso dello stock ereditato va riportato al carry.
+    // Mondo moderno: tasso dello stock ereditato al carry **e** date sulla scala
+    // del mondo. La semina avveniva prima che la sessione conoscesse la data del
+    // mondo, quindi un mondo del 2000 nasceva con titoli datati 1951 e **scaduti
+    // da decenni** (scadenza media del dossier a zero). Vale anche per i
+    // salvataggi scritti prima della correzione dell'ordine.
     const account = this.ctx.initialAccounts()[polityId]
       ?? this.ctx.sessionAccounts()[polityId];
     const debtRatioPct = Math.max(0, Number(account?.debtBurdenPct || 0));
-    if (debtRatioPct <= 0) return { stock, changed: false, legacyModernSeed: false };
-    if (!hasUnnormalizedInheritedDebt(stock, debtRatioPct)) {
+    // La data di partenza del mondo: `startDate` del motore, con ripiego sulla
+    // data corrente di gioco (che per una partita appena nata è quella).
+    const worldStartDate = this.ctx.worldStateOptions().startDate || this.ctx.currentDate();
+    if (!worldStartDate) return { stock, changed: false, legacyModernSeed: false };
+    if (!hasUnnormalizedInheritedDebt(stock, debtRatioPct, worldStartDate)) {
       return { stock, changed: false, legacyModernSeed: false };
     }
     return {
-      stock: normalizeInheritedDebtStock(stock, debtRatioPct),
+      stock: normalizeInheritedDebtStock(stock, debtRatioPct, worldStartDate),
       changed: true,
       legacyModernSeed: false,
     };
