@@ -9,14 +9,25 @@
  * Contratto invariato: la mappa è un read model — mostra regioni, cambi,
  * cicatrici ed eventi, e l'unica mutazione che può innescare è la selezione di
  * una regione (che apre l'ispettore), mai un cambiamento del mondo.
+ *
+ * **La mappa non può abbattere il gioco.** MapLibre richiede WebGL e non ha
+ * ripiego: senza contesto grafico solleva un errore non gestito che risale fino
+ * alla radice React e uccide la partita (`Failed to initialize WebGL`). Qui la
+ * disponibilità si accerta **prima** di montare la mappa e un confine d'errore
+ * protegge comunque il montaggio; in entrambi i casi si degrada alla mappa
+ * statica, che disegna il GeoJSON reale — il ripiego SVG non basta, perché i
+ * mondi reali portano solo `geojson`.
  */
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useMemo } from 'react';
 import type { Region } from '../../types';
 import type { TemporalScar } from '../Map/TemporalScarLayer';
 import type { FeedItem } from './EventFeed';
 import type { MapLayer, MapFilters } from '../Map/mapModel';
 import type { MilitaryUnitPayload, WarFrontPayload } from '../../services/api';
 import { MapView } from '../Map/MapView';
+import { StaticGeoMap } from '../Map/StaticGeoMap';
+import { MapErrorBoundary } from './MapErrorBoundary';
+import { detectWebGL } from '../Map/webglSupport';
 
 const MapboxMapView = lazy(async () => ({ default: (await import('../Map/MapboxMapView')).MapboxMapView }));
 
@@ -84,37 +95,66 @@ export function GameMap({
   playerCountryCode,
   onBackToScenarios,
 }: GameMapProps) {
+  // La disponibilità di WebGL si verifica **una volta** per montaggio: è una
+  // prova sul documento, non dipende dalle regioni.
+  const webgl = useMemo(() => detectWebGL(), []);
+
   if (regions.some(r => r.geojson)) {
-    return (
-      <Suspense fallback={<div className="map-loading-fallback" role="status">Caricamento mappa…</div>}>
-        <MapboxMapView
-          key={worldId}
+    // Niente WebGL: la mappa interattiva non può partire. Si degrada subito,
+    // senza nemmeno tentare — il tentativo costerebbe un errore non gestito.
+    if (!webgl.available) {
+      return (
+        <StaticGeoMap
           regions={regions}
-          activeLayer={activeLayer}
-          onLayerChange={onLayerChange}
-          filters={filters}
-          onFiltersChange={onFiltersChange}
-          selectedRegionId={selectedRegion || undefined}
+          selectedRegionId={selectedRegion}
           onRegionClick={onRegionClick}
-          onUnitClick={onUnitClick}
-          onFrontClick={onFrontClick}
-          focusRegionRequest={focusRegionRequest}
           changedRegionIds={changedRegionIds}
-          temporalScars={temporalScars}
-          events={events}
-          currentDate={currentDate}
-          militaryUnits={militaryUnits}
-          militaryFronts={militaryFronts}
-          militaryStateLoading={militaryStateLoading}
-          militaryStateError={militaryStateError}
-          relationships={relationships}
-          resourceCandidates={resourceCandidates}
-          worldFacilities={worldFacilities}
-          resourcesUnavailableReason={resourcesUnavailableReason}
-          showFlags={showFlags}
-          playerCountryCode={playerCountryCode}
+          reason={webgl.reason}
         />
-      </Suspense>
+      );
+    }
+    return (
+      // Anche con WebGL dichiarato disponibile il montaggio può fallire (driver,
+      // contesto perso): il confine garantisce che la partita non muoia.
+      <MapErrorBoundary fallback={
+        <StaticGeoMap
+          regions={regions}
+          selectedRegionId={selectedRegion}
+          onRegionClick={onRegionClick}
+          changedRegionIds={changedRegionIds}
+          reason="context_failed"
+        />
+      }>
+        <Suspense fallback={<div className="map-loading-fallback" role="status">Caricamento mappa…</div>}>
+          <MapboxMapView
+            key={worldId}
+            regions={regions}
+            activeLayer={activeLayer}
+            onLayerChange={onLayerChange}
+            filters={filters}
+            onFiltersChange={onFiltersChange}
+            selectedRegionId={selectedRegion || undefined}
+            onRegionClick={onRegionClick}
+            onUnitClick={onUnitClick}
+            onFrontClick={onFrontClick}
+            focusRegionRequest={focusRegionRequest}
+            changedRegionIds={changedRegionIds}
+            temporalScars={temporalScars}
+            events={events}
+            currentDate={currentDate}
+            militaryUnits={militaryUnits}
+            militaryFronts={militaryFronts}
+            militaryStateLoading={militaryStateLoading}
+            militaryStateError={militaryStateError}
+            relationships={relationships}
+            resourceCandidates={resourceCandidates}
+            worldFacilities={worldFacilities}
+            resourcesUnavailableReason={resourcesUnavailableReason}
+            showFlags={showFlags}
+            playerCountryCode={playerCountryCode}
+          />
+        </Suspense>
+      </MapErrorBoundary>
     );
   }
 
