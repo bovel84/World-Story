@@ -5,6 +5,11 @@
  * (`GET /:id/relationships`) in un quadro leggibile: alleati, ostili,
  * neutrali e una riga di sintesi. Nessun nuovo treaty engine, nessuna nuova
  * verità: solo presentazione dei dati esistenti.
+ *
+ * Il **nome** di ogni partner arriva dal motore (`names`, vedi
+ * `GameSession.getRelationshipNames`): registro dei paesi, nomi italiani curati
+ * e nomi dei preset storici. Prima veniva dedotto dal nome della provincia
+ * capitale, e «ITA» si leggeva «Aosta» — un difetto di identità, non di stile.
  */
 
 import type { Region } from '../../types';
@@ -26,10 +31,25 @@ export interface DiplomacyPresence {
   summary: string;
 }
 
-function polityDisplayName(polityId: string, regions: readonly Region[]): string {
+/**
+ * Nome leggibile di una polity: la mappa del motore ha la precedenza. Il codice
+ * è l'ultimo ripiego — meglio `ITA` di un nome di città che non è il paese.
+ */
+function polityDisplayName(
+  polityId: string,
+  regions: readonly Region[],
+  names?: Record<string, string> | null,
+): string {
+  const authoritative = names?.[polityId];
+  if (authoritative && authoritative.trim()) return authoritative;
   const owned = regions.filter(region => region.owner === polityId);
   const capital = owned.find(region => (region.metadata as Record<string, unknown> | undefined)?.isCapitalProvince);
-  return (capital || owned[0])?.name || polityId;
+  // Il nome della provincia resta solo come indizio estremo, e mai al posto di
+  // un codice valido: `ITA` è più onesto di «Aosta».
+  const provinceName = (capital || owned[0])?.name;
+  return provinceName && provinceName.trim().length > 0 && /[a-z]/.test(provinceName)
+    ? provinceName
+    : polityId;
 }
 
 /**
@@ -40,11 +60,13 @@ export function deriveDiplomacyPresence(input: {
   relationships: Record<string, Record<string, string>> | null | undefined;
   regionOwner: string;
   regions: readonly Region[];
+  /** Nomi pubblici delle polity, dal motore. Assente ⇒ ripiego sul codice. */
+  names?: Record<string, string> | null;
 }): DiplomacyPresence {
   const relMap = input.relationships?.[input.regionOwner] ?? {};
   const entries: DiplomacyEntry[] = Object.entries(relMap).map(([id, relationship]) => ({
     id,
-    name: polityDisplayName(id, input.regions),
+    name: polityDisplayName(id, input.regions, input.names),
     relationship,
   }));
 

@@ -2891,6 +2891,29 @@ export class GameSession {
     return this.diplomacy.getRelationships();
   }
 
+  /**
+   * Nomi pubblici delle polity citate dalle relazioni.
+   *
+   * La relazione è per **codice** (`ITA`), e il codice non è un nome: senza
+   * questa mappa il client lo risolveva con il nome della provincia capitale, e
+   * «ITA» diventava «Aosta». La fonte è la stessa di tutto il resto del motore
+   * (`publicPolityName`): registro dei paesi, nomi italiani curati e nomi dei
+   * preset storici. `neutral` non è una polity e resta escluso.
+   */
+  getRelationshipNames(): Record<string, string> {
+    const relationships = this.diplomacy.getRelationships();
+    const codes = new Set<string>();
+    for (const [from, row] of Object.entries(relationships)) {
+      if (from !== 'neutral') codes.add(from);
+      for (const to of Object.keys(row || {})) {
+        if (to !== 'neutral') codes.add(to);
+      }
+    }
+    const names: Record<string, string> = {};
+    for (const code of codes) names[code] = this.publicPolityName(code);
+    return names;
+  }
+
   /** Dossier aggregati aggiornati dalla fonte di verità provinciale. */
   getNationalAccounts() {
     return this.sessionAccounts();

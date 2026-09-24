@@ -66,13 +66,25 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   refreshKey,
 }) => {
   const [relationships, setRelationships] = useState<RelationshipData | null>(null);
+  // Nomi pubblici delle polity, dal motore: la relazione è per codice (`ITA`) e
+  // il codice non è un nome. Prima il client lo risolveva con la provincia
+  // capitale, e «ITA» diventava «Aosta».
+  const [polityNames, setPolityNames] = useState<Record<string, string> | null>(null);
   const [loading, setLoading] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
   const fetchRelationships = React.useCallback(async () => {
     try {
       const data = await gameApi.getRelationships(gameId);
-      setRelationships(data);
+      // Il motore risponde `{ relationships, names }`; un server precedente
+      // rispondeva con la sola matrice — in quel caso i nomi restano assenti e
+      // il read model ripiega sul codice polity, mai sul nome di una città.
+      const wrapped = data as unknown as {
+        relationships?: RelationshipData | null;
+        names?: Record<string, string> | null;
+      };
+      setRelationships(wrapped.relationships ?? null);
+      setPolityNames(wrapped.names ?? null);
     } catch (e) {
       console.error('[DiplomacyPanel] Failed to load relationships:', e);
     }
@@ -118,7 +130,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
     );
   }
 
-  const presence = deriveDiplomacyPresence({ relationships, regionOwner, regions });
+  const presence = deriveDiplomacyPresence({ relationships, regionOwner, regions, names: polityNames });
   const entries: RelationshipEntry[] = [...presence.allies, ...presence.hostiles];
   entries.sort((a, b) => {
     const order = { ally: 0, hostile: 1 };

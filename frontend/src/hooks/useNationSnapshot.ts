@@ -308,7 +308,8 @@ export function useNationSnapshot({
     try {
       const data = await gameApi.getRelationships(gameId);
       if (request !== relationshipsRequest.current) return;
-      setRelationships(data || {});
+      // Il motore risponde `{ relationships, names }`: qui serve la matrice.
+      setRelationships(data?.relationships || {});
     } catch (error) {
       if (request !== relationshipsRequest.current) return;
       console.warn('[App] Relazioni diplomatiche non disponibili:', error);

@@ -54,6 +54,22 @@ export class SessionBootstrapService {
     this.state.taxRatePct = gameRepository.getTaxRatePct(this.ctx.gameId);
     this.ctx.restoreEnding();
 
+    // La data di gioco è un fatto del mondo e va fissata **prima di ogni
+    // semina**. `seedInitialResources()` (sotto) data il debito ereditato con
+    // `currentDate()`; con l'ordine precedente leggeva ancora il default dello
+    // stato (`1951-01-01`), quindi un mondo del 2000 nasceva con titoli emessi
+    // nel 1951 e **scaduti da decenni** — e la scadenza media del dossier
+    // valeva zero, perché ogni titolo era già oltre la maturità.
+    this.state.currentDate = world.start_date || '1951-01-01';
+
+    // La data di gioco è un **fatto del mondo**, non un default: va assegnata
+    // prima di qualunque semina. `seedInitialResources()` (sotto) data il debito
+    // ereditato con `currentDate()`, e con l'ordine precedente leggeva ancora il
+    // default dello stato (`1951-01-01`): un mondo del 2000 nasceva con titoli
+    // emessi nel 1951 e **scaduti da decenni**, e la scadenza media mostrata nel
+    // dossier valeva zero. Vedi il test di accettazione omonimo.
+    this.state.currentDate = world.start_date || '1951-01-01';
+
     // Load all regions into session state
     for (const region of world.regions) {
       this.state.regions.set(region.id, {

@@ -242,7 +242,10 @@ router.get('/:id/relationships', (req, res) => {
 
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
-    res.json(session.getRelationships());
+    // Le relazioni sono per codice polity: il client riceve anche i **nomi**
+    // pubblici, così non deve indovinarli dal nome della provincia capitale
+    // (era il difetto: «ITA» mostrato come «Aosta»).
+    res.json({ relationships: session.getRelationships(), names: session.getRelationshipNames() });
   } catch (e) {
     console.error('[Relationships] Error:', e);
     res.status(404).json({ error: 'Game not found' });

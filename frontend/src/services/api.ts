@@ -1556,9 +1556,14 @@ export const gameApi = {
   },
 
   /**
-   * Get diplomatic relationships for a game
+   * Relazioni diplomatiche della partita. Il motore risponde
+   * `{ relationships, names }`: la matrice è per **codice** polity e `names`
+   * porta i nomi pubblici, così il client non deve dedurli dalla geografia.
    */
-  getRelationships: (gameId: string): Promise<Record<string, Record<string, string>>> => {
+  getRelationships: (gameId: string): Promise<{
+    relationships: Record<string, Record<string, string>>;
+    names: Record<string, string>;
+  }> => {
     return fetchApi(`/games/${gameId}/relationships`);
   },
 
