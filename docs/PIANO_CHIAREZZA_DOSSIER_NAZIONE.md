@@ -1,7 +1,7 @@
 # World Story — piano di chiarezza: un dossier che si capisce
 
 **Versione:** 1.1, 24 settembre 2026.
-**Stato:** **D01–D05 implementate e consegnate**; D06–D07 da implementare.
+**Stato:** **D01–D05 e D07 implementate e consegnate**; D06 in attesa di una decisione di prodotto.
 Le sezioni consegnate riportano, in coda, cosa è stato fatto e come è verificato.
 **Destinatari:** sviluppatori e LLM esecutori; ogni scelta marcata «obbligatoria» è un contratto.
 **Obiettivo concordato:** **sintesi vera + dettaglio a richiesta.**
@@ -385,6 +385,22 @@ attivabile, non in una card permanente che occupa la schermata a ogni apertura.
 
 **Verifica.** Ricerca nel codice: nessuna card con titolo che inizi per «Come si
 legge». Le spiegazioni necessarie sono coperte dai test di D02.
+
+> **Consegnata** — 4 test nuovi. Il caso era più sfumato di come il piano lo
+> descriveva, e i due blocchi sono stati trattati diversamente:
+>
+> 1. **«Come si legge l'arsenale»** era una legenda pura, ma conteneva anche i
+>    **pesi di dominio**, che sono *dati*: entrano nella formula della forza e
+>    servono a leggere le cifre. I pesi restano in una card («Peso dei domini»);
+>    la spiegazione scende in un `<details>`.
+> 2. **«Sala di governo»** *non* era una legenda: contiene `ObjectsBoard`, che è
+>    **interattivo** — da lì si creano reparti e si impartiscono ordini. Solo il
+>    titolo era opaco; ora è «Oggetti del paese: esercito, impianti, cantieri,
+>    marina», che dice cosa c'è dentro. Un test difende la distinzione: nessun
+>    blocco interattivo va chiuso in un richiudibile.
+>
+> Il criterio verificato non è «zero spiegazioni» ma «nessuna card il cui scopo
+> è spiegare un'altra card». La conoscenza non si perde: cambia posto.
 
 ---
 

@@ -736,10 +736,14 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
 
         {active === 'armamenti' && (
           <>
+            {/* Il titolo era «Sala di governo» — un nome che non dice cosa c'è
+                dentro. Il blocco contiene `ObjectsBoard`, che è **interattivo**
+                (da qui si creano reparti e si impartiscono ordini): non è una
+                legenda da togliere, è la sala operativa. */}
             {arms?.objects && (
               <DossierBlock
-                title="Sala di governo"
-                description="Gli oggetti concreti del paese: esercito, impianti, cantieri, marina. Clicca un settore per aprire i singoli oggetti e le loro azioni."
+                title="Oggetti del paese: esercito, impianti, cantieri, marina"
+                description="Un settore per volta: clicca per aprire i singoli oggetti e le loro azioni."
               >
                 <ObjectsBoard
                   arsenal={arms}
@@ -795,17 +799,17 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               <Footnote><b>Fonte</b> MilitaryIndustry · budget e industrie sono in Cassa e Risorse; qui solo ciò che combatte.</Footnote>
             </DossierBlock>
 
-            <DossierBlock
-              title="Come si legge l'arsenale"
-              description="Le cifre dell'arsenale hanno una formula precisa: qui cosa significano."
-            >
-              <div className="arms-legend">
-                <p><b>Quantità</b> — quante unità sono in servizio: «×37» significa 37 mezzi di quel tipo operativi adesso.</p>
-                <p><b>Forza</b> — <i>quantità × qualità × peso del dominio ÷ 100</i>. Un caccia pesa più di un fucile: il peso è nella tabella qui sotto.</p>
-                <p><b>Qualità</b> — valore 0–100 del singolo mezzo: obsoleto sotto 26, datato 26–45, moderno 46–65, avanzato 66–85, nuova generazione da 86.</p>
-                <p><b>Potenza effettiva</b> — potenza nominale della nazione × fattore di arsenale (0,6–1,6). Il fattore sale con la qualità media e con la copertura delle forze schierate: un esercito senza mezzi combatte al 60% della sua potenza.</p>
-              </div>
-              {arms && arms.domains && arms.domains.length > 0 && (
+            {/* D07: era una card di **spiegazioni** che occupava la schermata a
+                ogni apertura («Come si legge l'arsenale»). I pesi di dominio
+                restano visibili — sono **dati**, non spiegazioni, e servono a
+                leggere le cifre qui sopra; il resto è una spiegazione, e sta
+                dove serve: nel rapporto che accompagna la cifra (I2) e in un
+                richiudibile per chi vuole il dettaglio della formula. */}
+            {arms && arms.domains && arms.domains.length > 0 && (
+              <DossierBlock
+                title="Peso dei domini"
+                description="Quanto conta un mezzo secondo il dominio: entra nella forza dell'arsenale."
+              >
                 <ul className="arms-domains">
                   {arms.domains.map(domain => (
                     <li key={domain.domain}>
@@ -815,9 +819,19 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                     </li>
                   ))}
                 </ul>
-              )}
-              <Footnote><b>Perché conta</b> l'arsenale non è un punteggio: decide la potenza effettiva usata nei combattimenti e si consuma quando una nazione conquista una provincia.</Footnote>
-            </DossierBlock>
+              </DossierBlock>
+            )}
+
+            <details className="nation-synthesis-detail">
+              <summary>Come si legge l&apos;arsenale</summary>
+              <div className="arms-legend">
+                <p><b>Quantità</b> — quante unità sono in servizio: «×37» significa 37 mezzi di quel tipo operativi adesso.</p>
+                <p><b>Forza</b> — <i>quantità × qualità × peso del dominio ÷ 100</i>. Un caccia pesa più di un fucile: il peso è nella tabella qui sopra.</p>
+                <p><b>Qualità</b> — valore 0–100 del singolo mezzo: obsoleto sotto 26, datato 26–45, moderno 46–65, avanzato 66–85, nuova generazione da 86.</p>
+                <p><b>Potenza effettiva</b> — potenza nominale della nazione × fattore di arsenale (0,6–1,6). Il fattore sale con la qualità media e con la copertura delle forze schierate: un esercito senza mezzi combatte al 60% della sua potenza.</p>
+                <p><b>Perché conta</b> — l&apos;arsenale non è un punteggio: decide la potenza effettiva usata nei combattimenti e si consuma quando una nazione conquista una provincia.</p>
+              </div>
+            </details>
 
             <DossierBlock
               title="Arsenale"
