@@ -127,9 +127,12 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
 
             {briefing && <StrategicBriefingCard briefing={briefing} />}
 
+            {/* Questa card si chiamava «Sintesi» come la schermata che ora apre il
+                dossier: due cose diverse con lo stesso nome. Il contenuto sono gli
+                indicatori del conto, e il titolo ora lo dice. */}
             <DossierBlock
-              title="Sintesi"
-              description="Tesoreria, bilancio e tenuta interna: lo stato della nazione a colpo d'occhio."
+              title="Indicatori di tenuta"
+              description="Tesoreria, bilancio e tenuta interna: le cifre che sostengono il giudizio qui sopra."
             >
               <MetricGrid>
                 <Metric
@@ -168,32 +171,41 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               <VerdictBanner verdict={verdict} />
             </DossierBlock>
 
-            <DossierBlock
-              title="Crisi della nazione"
-              description="Le tre strade del collasso — rivolta, default, invasione — calcolate dagli indicatori reali. Se una resta critica per troppi turni, la partita finisce."
-            >
-              <CrisisBlock crisis={crisis} />
-            </DossierBlock>
+            {/* D05/I4: queste tre card **duplicavano** la lista unica qui sopra —
+                le stesse crisi, le stesse sfide, gli stessi impegni, in due
+                posti. La lista è una sola; il registro completo resta qui sotto,
+                richiudibile, perché è interattivo (le sfide si risolvono, gli
+                impegni si leggono per intero). */}
+            <details className="nation-synthesis-detail">
+              <summary>Registro completo: crisi, sfide e impegni</summary>
 
-            <DossierBlock
-              title="Sfide del momento"
-              description="Pressioni interne ed esterne generate dal motore: ogni turno porta qualcosa da decidere. Ignorarle ha un costo."
-            >
-              <PressuresBlock
-                pressures={pressures || []}
-                recent={recentPressures || []}
-                onResolve={onResolvePressure}
-                busy={pressureBusy}
-                money={account?.money}
-              />
-            </DossierBlock>
+              <DossierBlock
+                title="Crisi della nazione"
+                description="Le tre strade del collasso — rivolta, default, invasione — calcolate dagli indicatori reali. Se una resta critica per troppi turni, la partita finisce."
+              >
+                <CrisisBlock crisis={crisis} />
+              </DossierBlock>
 
-            <DossierBlock
-              title="Impegni della partita"
-              description="Trattati, promesse, garanzie e ultimatum registrati dal motore: stato, controparte, importanza e scadenza. La cronaca racconta, il registro ricorda."
-            >
-              <CommitmentsList commitments={commitments?.commitments || []} today={worldDate || ''} />
-            </DossierBlock>
+              <DossierBlock
+                title="Sfide del momento"
+                description="Pressioni interne ed esterne generate dal motore: ogni turno porta qualcosa da decidere. Ignorarle ha un costo."
+              >
+                <PressuresBlock
+                  pressures={pressures || []}
+                  recent={recentPressures || []}
+                  onResolve={onResolvePressure}
+                  busy={pressureBusy}
+                  money={account?.money}
+                />
+              </DossierBlock>
+
+              <DossierBlock
+                title="Impegni della partita"
+                description="Trattati, promesse, garanzie e ultimatum registrati dal motore: stato, controparte, importanza e scadenza. La cronaca racconta, il registro ricorda."
+              >
+                <CommitmentsList commitments={commitments?.commitments || []} today={worldDate || ''} />
+              </DossierBlock>
+            </details>
 
             <DossierBlock
               title="Strategie delle potenze"

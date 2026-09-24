@@ -1,7 +1,7 @@
 # World Story — piano di chiarezza: un dossier che si capisce
 
 **Versione:** 1.1, 24 settembre 2026.
-**Stato:** **D01–D04 implementate e consegnate**; D05–D07 da implementare.
+**Stato:** **D01–D05 implementate e consegnate**; D06–D07 da implementare.
 Le sezioni consegnate riportano, in coda, cosa è stato fatto e come è verificato.
 **Destinatari:** sviluppatori e LLM esecutori; ogni scelta marcata «obbligatoria» è un contratto.
 **Obiettivo concordato:** **sintesi vera + dettaglio a richiesta.**
@@ -340,6 +340,25 @@ posto è sbagliato: si corregge la sezione, non si elimina il numero.
 **Verifica.** Test che all'apertura l'elemento attivo sia la sintesi; che ogni
 sezione resti raggiungibile; che l'elenco delle metriche per sezione coincida con
 quello di D01 (nessuna perdita).
+
+> **Consegnata** — la sintesi è la **prima** cosa della sezione Situazione
+> (verificato: precede gli indicatori di tenuta di ~400 caratteri nel sorgente).
+>
+> Consegnando D03/D04 era rimasta una duplicazione che il piano prevedeva di
+> risolvere qui, e una che nessuno aveva previsto:
+>
+> 1. **Crisi, sfide e impegni comparivano due volte** — nella lista unica e come
+>    tre card separate. Ora le tre card scendono in un `<details>` («Registro
+>    completo: crisi, sfide e impegni»), richiudibile, dove restano
+>    **interattive** (le sfide si risolvono, gli impegni si leggono per intero).
+>    La *lista* resta una sola (I4); il registro completo non sparisce (I6).
+> 2. **Due cose si chiamavano «Sintesi»** nella stessa schermata: il pannello
+>    nuovo e la card degli indicatori. La card è ora «Indicatori di tenuta», che
+>    è ciò che contiene davvero — e il suo `description` dichiara il rapporto con
+>    il giudizio: «le cifre che sostengono il giudizio qui sopra».
+>
+> Il quadro a sei aree resta il `<details>` «Quadro d'insieme per dominio» (D03).
+> Tre richiudibili, nessuna metrica perduta.
 
 ### D06 — Una superficie sola per lo stato (I5)
 
