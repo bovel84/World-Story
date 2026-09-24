@@ -55,6 +55,7 @@ export function Metric({
   hint,
   trend,
   hero = false,
+  onClick,
 }: {
   label: string;
   value: string;
@@ -62,9 +63,17 @@ export function Metric({
   hint?: string;
   trend?: MetricTrend;
   hero?: boolean;
+  /**
+   * Rimando alla sezione dove la cifra è spiegata nel dettaglio. Presente solo
+   * quando la metrica è una **sintesi** di un'altra («una cifra, un posto»):
+   * la cifra resta qui, il contesto sta di là. Senza `onClick` la metrica è
+   * statica — la maggioranza dei casi.
+   */
+  onClick?: () => void;
 }) {
-  return (
-    <div className={`nation-metric tone-${tone}${hero ? ' nation-metric-hero' : ''}`}>
+  const interactive = typeof onClick === 'function';
+  const content = (
+    <>
       <small>{label}</small>
       <b>{value}</b>
       {trend?.trend && (
@@ -74,7 +83,14 @@ export function Metric({
         </span>
       )}
       {hint && <em className="nation-metric-hint">{hint}</em>}
-    </div>
+    </>
+  );
+  const className = `nation-metric tone-${tone}${hero ? ' nation-metric-hero' : ''}`;
+  if (!interactive) return <div className={className}>{content}</div>;
+  return (
+    <button type="button" className={`${className} is-link`} onClick={onClick} aria-label={`${label}: apri il dettaglio`}>
+      {content}
+    </button>
   );
 }
 

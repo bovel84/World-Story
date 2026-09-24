@@ -335,8 +335,10 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                         <li key={process.id}>
                           <b>{process.title}</b>
                           <span>{process.summary}</span>
+                          {/* Un processo concluso non è «in realizzazione»: la
+                              percentuale è ferma a 100 e l'etichetta lo dice. */}
                           <ProgressRow
-                            label="Realizzazione"
+                            label="Completato"
                             percent={100}
                             note={process.completed_date
                               ? `Avviato ${formatDate(process.started_date)} · completato il ${formatDate(process.completed_date)}`
@@ -490,7 +492,16 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                   <Metric label="Pressione fiscale effettiva" value={formatPercent(budget.effectiveTaxRatePct, 1)} tone="neutral" hint="Entrate annue sul PIL" />
                   <Metric label="Spesa sociale" value={`${formatPercent(budget.socialBurdenPct, 1)} del PIL`} tone="neutral" hint="Sanità e sostegno sociale" />
                   <Metric label="Istruzione e ricerca" value={`${formatPercent(budget.educationBurdenPct, 1)} del PIL`} tone="neutral" hint="Scuola, atenei e laboratori" />
-                  <Metric label="Spesa militare" value={`${formatPercent(budget.defenceBurdenPct, 1)} del PIL`} tone={defenceTone(budget.defenceBurdenPct)} hint="Quota dichiarata dal conto" />
+                  {/* La quota di difesa è la **stessa** `defenceBurdenPct` letta in
+                      «Pressione militare»: una cifra, un posto. Qui la ripartizione
+                      delle uscite rimanda là, dove l'apparato si vede nel dettaglio. */}
+                  <Metric
+                    label="Difesa"
+                    value={`${formatPercent(budget.defenceBurdenPct, 1)} del PIL`}
+                    tone={defenceTone(budget.defenceBurdenPct)}
+                    hint="Voce di spesa: dettaglio in Armamenti"
+                    onClick={() => openSection('armamenti')}
+                  />
                 </MetricGrid>
                 <Footnote><b>Come si legge</b> ogni voce è una ripartizione deterministica dei totali pubblicati dal motore, calcolata sui driver reali (fabbriche, porti, atenei, riserve, popolazione). La difesa è la quota esatta dichiarata dal conto; la somma delle voci è il totale. Nessun importo è stimato nel browser.</Footnote>
               </DossierBlock>
@@ -594,19 +605,19 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               >
                 <MetricGrid>
                   {Number(resources?.modifiers?.stability ?? 0) !== 0 && (
-                    <Metric label="Stabilità" value={`${Number(resources?.modifiers?.stability) > 0 ? '+' : ''}${formatNumber(Number(resources?.modifiers?.stability))}`} tone={Number(resources?.modifiers?.stability) > 0 ? 'positive' : 'negative'} hint="Effetto attivo sull'indice" />
+                    <Metric label="Effetto sulla stabilità" value={`${Number(resources?.modifiers?.stability) > 0 ? '+' : ''}${formatNumber(Number(resources?.modifiers?.stability))}`} tone={Number(resources?.modifiers?.stability) > 0 ? 'positive' : 'negative'} hint="Effetto attivo sull'indice" />
                   )}
                   {Number(resources?.modifiers?.socialTension ?? 0) !== 0 && (
-                    <Metric label="Tensione sociale" value={`${Number(resources?.modifiers?.socialTension) > 0 ? '+' : ''}${formatNumber(Number(resources?.modifiers?.socialTension))}`} tone={Number(resources?.modifiers?.socialTension) > 0 ? 'negative' : 'positive'} hint="Effetto attivo sull'indice" />
+                    <Metric label="Effetto sulla tensione" value={`${Number(resources?.modifiers?.socialTension) > 0 ? '+' : ''}${formatNumber(Number(resources?.modifiers?.socialTension))}`} tone={Number(resources?.modifiers?.socialTension) > 0 ? 'negative' : 'positive'} hint="Effetto attivo sull'indice" />
                   )}
                   {Number(resources?.modifiers?.warEffort ?? 0) !== 0 && (
-                    <Metric label="Sforzo bellico" value={`${Number(resources?.modifiers?.warEffort) > 0 ? '+' : ''}${formatNumber(Number(resources?.modifiers?.warEffort))}`} tone={Number(resources?.modifiers?.warEffort) > 0 ? 'warning' : 'neutral'} hint="Effetto attivo sull'indice" />
+                    <Metric label="Effetto sullo sforzo bellico" value={`${Number(resources?.modifiers?.warEffort) > 0 ? '+' : ''}${formatNumber(Number(resources?.modifiers?.warEffort))}`} tone={Number(resources?.modifiers?.warEffort) > 0 ? 'warning' : 'neutral'} hint="Effetto attivo sull'indice" />
                   )}
                   {Number(resources?.modifiers?.revenueMultiplier ?? 1) !== 1 && (
-                    <Metric label="Entrate" value={`×${formatMoney(Number(resources?.modifiers?.revenueMultiplier), { decimals: 2 })}`} tone={Number(resources?.modifiers?.revenueMultiplier) >= 1 ? 'positive' : 'negative'} hint="Moltiplicatore sulle entrate" />
+                    <Metric label="Effetto sulle entrate" value={`×${formatMoney(Number(resources?.modifiers?.revenueMultiplier), { decimals: 2 })}`} tone={Number(resources?.modifiers?.revenueMultiplier) >= 1 ? 'positive' : 'negative'} hint="Moltiplicatore sulle entrate" />
                   )}
                   {Number(resources?.modifiers?.growthModifier ?? 0) !== 0 && (
-                    <Metric label="Crescita" value={`${Number(resources?.modifiers?.growthModifier) > 0 ? '+' : ''}${formatPercent(Number(resources?.modifiers?.growthModifier) * 100, 1)}`} tone={Number(resources?.modifiers?.growthModifier) > 0 ? 'positive' : 'negative'} hint="Effetto attivo sulla crescita annua" />
+                    <Metric label="Effetto sulla crescita" value={`${Number(resources?.modifiers?.growthModifier) > 0 ? '+' : ''}${formatPercent(Number(resources?.modifiers?.growthModifier) * 100, 1)}`} tone={Number(resources?.modifiers?.growthModifier) > 0 ? 'positive' : 'negative'} hint="Effetto attivo sulla crescita annua" />
                   )}
                 </MetricGrid>
                 <Footnote><b>Fonte</b> il motore valida e limita ogni effetto proposto dalla simulazione; qui si vede solo ciò che è stato applicato.</Footnote>
@@ -675,10 +686,13 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               description="Che cosa il paese è in grado di fare: la disponibilità dipende dal profilo della nazione, non solo da ciò che è disegnato sulla mappa."
             >
               <MetricGrid>
-                <Metric label="Province" value={formatNumber(assets.provinces)} />
+                {/* Provinciali e città sono **fatti del territorio**: non hanno un
+                    bene/male, ma senza un rapporto la cifra non si interpreta. Il
+                    rapporto è ciò che la rende leggibile. */}
+                <Metric label="Province" value={formatNumber(assets.provinces)} hint={assets.cities > 0 ? `${formatNumber(assets.cities)} città e capitali` : 'territorio amministrato'} />
                 <Metric label="Fabbriche" value={formatNumber(assets.factories)} hint={assets.baseFactories > 0 ? `${formatNumber(assets.baseFactories)} dal profilo del paese, ${formatNumber(Math.max(0, assets.factories - assets.baseFactories))} costruite sulla mappa` : undefined} />
                 <Metric label="Porti e cantieri" value={formatNumber(assets.ports)} hint={assets.basePorts > 0 ? `${formatNumber(assets.basePorts)} dalla costa, ${formatNumber(Math.max(0, assets.ports - assets.basePorts))} costruiti sulla mappa` : 'nessuno sbocco al mare'} />
-                <Metric label="Città e capitali" value={formatNumber(assets.cities)} />
+                <Metric label="Città e capitali" value={formatNumber(assets.cities)} hint={assets.provinces > 0 ? `su ${formatNumber(assets.provinces)} province` : 'centri abitati mappati'} />
               </MetricGrid>
               <p className="nation-capacity-source">
                 <b>Da dove viene la disponibilità</b>{' '}
@@ -744,7 +758,10 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                   <Metric label="Forza militare" value={formatMoney(arms.strength, { decimals: 1 })} tone="neutral" hint="Quantità × qualità × dominio" />
                   <Metric label="Potenza effettiva" value={formatNumber(arms.effectiveMilitaryPower)} tone={arms.combatFactor >= 1 ? 'positive' : 'warning'} hint={`Base ${formatNumber(arms.baseMilitaryPower)} × fattore arsenale ${arms.combatFactor}`} />
                   <Metric label="Qualità media armi" value={`${formatNumber(arms.qualityIndex)}/100`} tone={arms.qualityIndex >= 60 ? 'positive' : arms.qualityIndex >= 30 ? 'warning' : 'negative'} hint="Pesa sui combattimenti" />
-                  <Metric label="Scorte armi" value={formatNumber(arms.capacity.weapons)} hint="Input per la produzione" />
+                  {/* `arms.capacity.weapons` è il **tetto** del magazzino, non le
+                      scorte attuali: si chiamava «Scorte armi» come la metrica di
+                      Risorse, ma è un altro numero. */}
+                  <Metric label="Capacità armamenti" value={formatNumber(arms.capacity.weapons)} hint="Tetto del magazzino: input per la produzione" />
                 </MetricGrid>
               ) : (
                 <EmptyState>Arsenale non ancora pubblicato per questa partita.</EmptyState>
@@ -910,9 +927,9 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               description="Popolazione, formazione e forze disponibili."
             >
               <MetricGrid>
-                <Metric label="Popolazione" value={formatNumber(assets.population)} />
-                <Metric label="Università" value={formatNumber(assets.universities)} hint="Producono punti ricerca" />
-                <Metric label="Unità e forze" value={formatNumber(assets.forces)} />
+                <Metric label="Popolazione" value={formatNumber(assets.population)} hint={`${formatNumber(assets.population / 1_000_000)} milioni di abitanti`} />
+                <Metric label="Università" value={formatNumber(assets.universities)} hint={assets.baseUniversities > 0 ? `${formatNumber(assets.baseUniversities)} dal profilo del paese, ${formatNumber(Math.max(0, assets.universities - assets.baseUniversities))} costruite: producono ricerca` : 'Producono punti ricerca'} />
+                <Metric label="Unità e forze" value={formatNumber(assets.forces)} hint={assets.baseForces > 0 ? `${formatNumber(assets.baseForces)} dal profilo del paese, ${formatNumber(Math.max(0, assets.forces - assets.baseForces))} dal mondo` : 'Reparti in servizio (dettaglio in Armamenti)'} />
               </MetricGrid>
               <Footnote><b>Fonte</b> conto nazionale; in mancanza, oggetti delle regioni possedute. Il PIL pro capite è nelle Politiche.</Footnote>
             </DossierBlock>
@@ -926,9 +943,9 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               description="Chi governa, su quale territorio e con quali processi aperti."
             >
               <MetricGrid>
-                <Metric label="Forma di governo" value={governmentType} />
-                <Metric label="Territorio amministrato" value={provincesLabel(assets.provinces)} />
-                <Metric label="Processi attivi" value={formatNumber(ongoingProcesses.length)} />
+                <Metric label="Forma di governo" value={governmentType} hint="Assetto registrato per questo paese" />
+                <Metric label="Territorio amministrato" value={provincesLabel(assets.provinces)} hint="Unità amministrative sotto il governo" />
+                <Metric label="Processi attivi" value={formatNumber(ongoingProcesses.length)} hint={ongoingProcesses.length > 0 ? 'In corso: dettaglio in Progetti' : 'Nessun processo in corso'} />
               </MetricGrid>
             </DossierBlock>
 
@@ -988,8 +1005,22 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               description="Il consenso e la pressione sociale sul governo."
             >
               <MetricGrid>
-                <Metric label="Stabilità" value={formatPercent(stability)} tone={stabilityTone(stability)} trend={mkTrend((point) => point.account.stability, pointDelta, 'up')} />
-                <Metric label="Tensione sociale" value={formatPercent(socialTension)} tone={tensionTone(socialTension)} trend={mkTrend((point) => point.account.socialTension, pointDelta, 'down')} />
+                {/* Stabilità e tensione sono gli stessi indicatori letti in
+                    «Situazione»: qui restano come rimando, non come copia. */}
+                <Metric
+                  label="Stabilità"
+                  value={formatPercent(stability)}
+                  tone={stabilityTone(stability)}
+                  hint="Dettaglio in Situazione"
+                  onClick={() => openSection('situazione')}
+                />
+                <Metric
+                  label="Tensione sociale"
+                  value={formatPercent(socialTension)}
+                  tone={tensionTone(socialTension)}
+                  hint="Dettaglio in Situazione"
+                  onClick={() => openSection('situazione')}
+                />
                 <Metric label="PIL pro capite" value={account?.gdpPerCapitaUsd != null ? formatMoney(Number(account.gdpPerCapitaUsd), { currency: '$', decimals: 0 }) : '—'} hint="Tenore di vita medio pubblicato dal motore" />
               </MetricGrid>
               <Footnote><b>Fonte</b> conto nazionale e modificatori attivi (sezione Risorse). Nessuna decisione viene presa da questa schermata.</Footnote>

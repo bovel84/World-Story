@@ -2169,6 +2169,18 @@ html, body { margin: 0; }
   background: #4a5f7e;
 }
 .nation-metric.tone-positive::before { background: #5fb98a; }
+
+/* Metrica-rimando: la cifra resta qui, il dettaglio sta in un'altra sezione
+   («una cifra, un posto»). È un bottone perché lo è: si attiva con la tastiera
+   e ha un'etichetta accessibile che dice dove porta. */
+.nation-metric.is-link {
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+}
+.nation-metric.is-link:hover { border-color: #5b7ba6; background: #14243c; }
+.nation-metric.is-link:focus-visible { outline: 2px solid #ffd479; outline-offset: 2px; }
 .nation-metric.tone-negative::before { background: #d97b7b; }
 .nation-metric.tone-warning::before { background: #d9b061; }
 .nation-metric small {

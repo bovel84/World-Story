@@ -1,7 +1,8 @@
 # World Story — piano di chiarezza: un dossier che si capisce
 
-**Versione:** proposta normativa 1.0, 24 settembre 2026.
-**Stato:** piano da implementare, NON funzionalità già disponibili.
+**Versione:** 1.1, 24 settembre 2026.
+**Stato:** **D01 e D02 implementate e consegnate**; D03–D07 da implementare.
+Le sezioni di D01 e D02 riportano, in coda, cosa è stato fatto e come è verificato.
 **Destinatari:** sviluppatori e LLM esecutori; ogni scelta marcata «obbligatoria» è un contratto.
 **Obiettivo concordato:** **sintesi vera + dettaglio a richiesta.**
 
@@ -215,6 +216,28 @@ qualunque duplicato. È il test che oggi manca e che ha permesso la deriva.
 **Perché per prima.** È l'unica fase che *riduce* il lavoro delle successive:
 senza, ogni schermata nuova eredita le ripetizioni.
 
+> **Consegnata** — `nationDockSingleSource.test.ts` (7 test). L'invariante è ora
+> un contratto: una sola copia canonica per cifra, le ripetizioni ammesse sono
+> solo la **sintesi** (Situazione → Cassa) e il **rimando**, che deve dichiarare
+> la destinazione e portare dove la cifra è spiegata.
+>
+> Il test ha trovato **due cose che l'analisi manuale non aveva visto**: che le
+> metriche di «Direttive attive» portavano i nomi degli indici mostrando gli
+> effetti dei modificatori (tre casi, non uno), e che «Stabilità» restava
+> duplicata in Politiche.
+>
+> Correzioni applicate: etichette degli effetti esplicite («Effetto sulla
+> stabilità», «Effetto sulla tensione», «Effetto sullo sforzo bellico», «Effetto
+> sulle entrate», «Effetto sulla crescita»); «Scorte armi» in Armamenti
+> rinominata **«Capacità armamenti»** (era `arms.capacity.weapons`, il *tetto* del
+> magazzino, non le scorte attuali: stesso nome, numero diverso); «Spesa
+> militare» → **«Difesa»** nella ripartizione, allineata al vocabolario di
+> `NationalBudget`, con la ridondanza risolta — la cifra resta una volta sola, in
+> «Pressione militare»; Stabilità e Tensione in Politiche diventano rimandi;
+> «Realizzazione» → **«Completato»** per i processi conclusi. Nuova proprietà
+> `onClick` su `Metric`, che rende una metrica un rimando accessibile da
+> tastiera.
+
 ### D02 — Ogni cifra ha un giudizio (I2)
 
 **Cosa.** Passare in rassegna le 56 metriche delle schede e assicurare a ciascuna
@@ -229,6 +252,17 @@ di presentazione, non nel componente.
 
 **Verifica.** Test sul modulo di toni: ogni metrica delle schede ha un tono o un
 rapporto; nessuna metrica nuda.
+
+> **Consegnata** — 2 test in `nationDockSingleSource.test.ts`, più una guardia
+> contro il falso verde (il test verifica di *vedere* tono e rapporto, non solo
+> di non trovarne l'assenza).
+>
+> Erano **7 le metriche nude**: Province, Città e capitali, Popolazione, Unità e
+> forze, Forma di governo, Territorio amministrato, Processi attivi. Tutte
+> descrittive — non hanno un bene/male — e proprio per questo il rapporto era
+> l'unica cosa che poteva renderle leggibili. Ora dicono a cosa si riferiscono:
+> «1.409 milioni di abitanti», «12 dal profilo del paese, 3 dal mondo», «su 47
+> province», «In corso: dettaglio in Progetti».
 
 ### D03 — La sintesi che risponde a tre domande
 
