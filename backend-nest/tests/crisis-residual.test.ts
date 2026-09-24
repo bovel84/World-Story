@@ -11,9 +11,12 @@
  *       torna esattamente al punto salvato: giorni, avvertimenti, livello,
  *       epilogo, turno e data.
  *
- * Il mondo di prova usa un polity con «fatti di riferimento» moderni: la sua
- * crisi di insolvenza è **critica fin dal primo turno**, così i test misurano
- * il tempo senza dipendere da eventi o dal modello.
+ * Il mondo di prova usa un polity con «fatti di riferimento» moderni (ITA) e gli
+ * semina un debito insostenibile (`seedInsolventStock`): la crisi di insolvenza è
+ * **critica fin dal primo turno**, così i test misurano il tempo senza dipendere
+ * da eventi o dal modello. La precondizione è un dato di prova dichiarato, non un
+ * effetto del motore: dal 2026 le nazioni non ereditano più un debito
+ * insostenibile (vedi `SovereignDebt.inheritedCarryRatePct`).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import os from 'os';
@@ -29,8 +32,30 @@ process.env.OPEN_PAX_DB_PATH = TEST_DB;
 const WORLD_ID = 'crisis_residual_world';
 const CALM_WORLD_ID = 'crisis_calm_world';
 let db: any;
+let repos: any;
 let createGame: () => { gameId: string; session: any };
 let createCalmGame: () => { gameId: string; session: any };
+
+/**
+ * Precondizione esplicita: uno **Stato sull'orlo del default**.
+ *
+ * Serve perché la crisi di insolvenza è *sostenibile* per costruzione (le
+ * tranche di debito ereditate sono valorizzate al tasso di carry,
+ * `SovereignDebt.inheritedCarryRatePct`): l'Italia non parte più in criticità
+ * come faceva quando lo stock ereditato veniva caricato del tasso di mercato
+ * pieno. Qui il debito insostenibile è un **dato di prova dichiarato** invece
+ * che un effetto collaterale del motore, così i test misurano il tempo
+ * simulato — che è ciò che vogliono misurare — senza dipendere dal modello.
+ */
+function seedInsolventStock(gameId: string, session: any, polityId = 'ITA'): void {
+  repos.resourceRepository.upsert(gameId, polityId, {
+    money: 10,
+    debts: [{ id: 'crisis-fixture-1', label: 'Debito di prova (insostenibile)', principal: 3600,
+      annualRatePct: 8, issuedDate: '2026-01-01', maturityDate: '2036-01-01', termYears: 10 }],
+    food: 5, clothing: 5, weapons: 5, fuel: 5, research: 0, technologies: [],
+  }, 0, null);
+  (session as any).nationState.resourceStocks.clear();
+}
 
 const stubProvider: any = {
   consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
@@ -57,7 +82,7 @@ beforeAll(async () => {
   const dbModule = await import('../src/database');
   db = dbModule.default;
   dbModule.initDatabase();
-  const repos = await import('../src/repositories');
+  repos = await import('../src/repositories');
   const registryModule = await import('../src/session-registry');
   registryModule.initSessionRegistry(stubProvider);
   const registry = registryModule.getSessionRegistry();
@@ -71,7 +96,11 @@ beforeAll(async () => {
       },
     ],
   );
-  createGame = () => registry.createSession(WORLD_ID, 'Player', `${WORLD_ID}_ITA`, '#FF0000');
+  createGame = () => {
+    const created = registry.createSession(WORLD_ID, 'Player', `${WORLD_ID}_ITA`, '#FF0000');
+    seedInsolventStock(created.gameId, created.session);
+    return created;
+  };
   // Secondo mondo con un polity **senza** dati di riferimento moderni: la sua
   // crisi è calma, così il test del primo salto lungo misura il tempo e non la
   // struttura del debito ereditato.
@@ -116,10 +145,10 @@ const snapshotOf = (saveId: string) => JSON.parse(saveRow(saveId).data);
 const hashOf = (saveId: string) => saveRow(saveId).content_hash as string;
 
 describe('CRISIS-RESIDUAL P0.1 — il primo salto accumula i giorni realmente simulati', () => {
+
   it('una partita nuova in crisi accumula il salto lungo: 180 giorni ≠ 0', async () => {
     const { gameId, session } = createGame();
     const precondition = session.getCrisis();
-    // Precondizione esplicita: senza una crisi critica il test non misurerebbe nulla.
     const insolvency = precondition.state.risks.find((risk: any) => risk.dimension === 'insolvency');
     expect(insolvency.level).toBe('critical');
 
@@ -165,7 +194,6 @@ describe('CRISIS-RESIDUAL P0.1 — il primo salto accumula i giorni realmente si
 
   it('un primo salto lungo non critico non accelera la crisi e non chiude la partita', async () => {
     const { gameId, session } = createCalmGame();
-    const repos = await import('../src/repositories');
     const before = session.getCrisis().state;
     for (const risk of before.risks) expect(risk.level).not.toBe('critical');
     expect(before.criticalDays).toEqual({ revolt: 0, insolvency: 0, invasion: 0 });
