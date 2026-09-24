@@ -262,3 +262,52 @@ describe('D02 — ogni cifra ha un giudizio', () => {
     expect(withHint).toBeGreaterThan(20);
   });
 });
+
+describe('D07 — nessuna card spiega invece di mostrare', () => {
+  /**
+   * `NationDock` conteneva card il cui scopo era **spiegare** come leggere i
+   * numeri anziché dare i numeri: «Come si legge l'arsenale», «Sala di governo».
+   * È il sintomo di un difetto di gerarchia — quando la conclusione non è
+   * visibile si aggiunge una legenda.
+   *
+   * La spiegazione non sparisce: va dove serve, cioè nel **rapporto** che
+   * accompagna la cifra (I2, difeso dai test di D02) o in un richiudibile.
+   * Ciò che non deve esistere è una card che occupa la schermata a ogni
+   * apertura per dire come si legge un'altra card.
+   */
+  it('nessun titolo di card è un\'istruzione di lettura', () => {
+    const titles = [...SOURCE.matchAll(/title="([^"]+)"/g)].map(match => match[1]);
+    const didactic = titles.filter(title => /^come si legge/i.test(title));
+    expect(
+      didactic,
+      `titoli didattici in card: ${didactic.join(', ')} — la spiegazione va nel `
+      + 'rapporto della cifra o in un richiudibile, non in una card',
+    ).toEqual([]);
+  });
+
+  it('le spiegazioni necessarie esistono ancora, in un richiudibile', () => {
+    // La cura non è cancellare la conoscenza: è spostarla.
+    expect(SOURCE).toMatch(/<summary>Come si legge l&apos;arsenale<\/summary>/);
+    // E sta in un `<details>`: chiusa per default, raggiungibile.
+    const details = [...SOURCE.matchAll(/<details[\s\S]*?<\/details>/g)].map(match => match[0]);
+    expect(details.some(block => /Come si legge l&apos;arsenale/.test(block))).toBe(true);
+  });
+
+  it('i pesi di dominio restano visibili: sono dati, non spiegazioni', () => {
+    // I pesi entrano nella formula della forza: servono a leggere le cifre,
+    // quindi restano in una card, non dietro un richiudibile.
+    expect(SOURCE).toMatch(/title="Peso dei domini"/);
+    expect(SOURCE).toMatch(/arms-domains/);
+  });
+
+  it('nessun blocco interattivo è finito dentro un richiudibile per errore', () => {
+    // `ObjectsBoard` è una sala operativa (crea reparti, impartisce ordini):
+    // richiuderla la renderebbe scomoda, e non è una spiegazione. Il test
+    // protegge la distinzione fatta in D07.
+    const details = [...SOURCE.matchAll(/<details[\s\S]*?<\/details>/g)].map(match => match[0]);
+    for (const block of details) {
+      expect(block, 'un blocco interattivo non va chiuso in un `<details>`')
+        .not.toMatch(/<ObjectsBoard/);
+    }
+  });
+});
