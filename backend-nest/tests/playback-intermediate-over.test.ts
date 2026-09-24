@@ -13,8 +13,9 @@
  * percorso normale non è regredito.
  *
  * Il mondo di prova è quello di CRISIS-RESIDUAL/PLAYBACK-CRISIS-LEG: un polity
- * con fatti di riferimento moderni (ITA, startDate 2026-01-01) la cui crisi di
- * insolvenza è **critica**, quindi la scala avanza di un giorno per giorno e i
+ * con fatti di riferimento moderni (ITA, startDate 2026-01-01) e un debito
+ * insostenibile seminato da `seedInsolventStock`: la crisi di insolvenza è
+ * **critica fin dal primo turno**, quindi la scala avanza di un giorno per giorno e i
  * totali sono esatti.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -75,6 +76,25 @@ const stubProvider: any = {
   clearCache() {},
 };
 
+/**
+ * Precondizione esplicita: uno **Stato sull'orlo del default**.
+ *
+ * La crisi di insolvenza è sostenibile per costruzione — le tranche di debito
+ * ereditate sono valorizzate al tasso di carry e datate all'epoca del mondo —
+ * quindi l'Italia **non** parte più in criticità come faceva quando il difetto
+ * della semina le caricava il tasso di mercato pieno su titoli già scaduti.
+ * Serve un debito che le entrate non coprono, dichiarato nel fixture.
+ */
+function seedInsolventStock(gameId: string, session: any, polityId = 'ITA'): void {
+  repos.resourceRepository.upsert(gameId, polityId, {
+    money: 10,
+    debts: [{ id: 'crisis-fixture-1', label: 'Debito di prova (insostenibile)', principal: 3600,
+      annualRatePct: 8, issuedDate: PERIOD_START, maturityDate: '2036-01-01', termYears: 10 }],
+    food: 5, clothing: 5, weapons: 5, fuel: 5, research: 0, technologies: [],
+  }, 0, null);
+  (session as any).nationState.resourceStocks.clear();
+}
+
 /** Stato di crisi di partenza, come se i giorni fossero già maturati nel passato. */
 function seedCrisis(gameId: string, days: number, episodes = 0): void {
   repos.gameRepository.saveCrisisState({
@@ -119,7 +139,11 @@ beforeAll(async () => {
       },
     ],
   );
-  createGame = () => registry.createSession(WORLD_ID, 'Player', `${WORLD_ID}_ITA`, '#FF0000');
+  createGame = () => {
+    const created = registry.createSession(WORLD_ID, 'Player', `${WORLD_ID}_ITA`, '#FF0000');
+    seedInsolventStock(created.gameId, created.session);
+    return created;
+  };
 });
 
 afterAll(() => {
