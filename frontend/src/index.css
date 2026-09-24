@@ -2170,6 +2170,141 @@ html, body { margin: 0; }
 }
 .nation-metric.tone-positive::before { background: #5fb98a; }
 
+/* ── Sintesi: la prima cosa che si vede aprendo il dossier (D03) ──────────
+   Risponde a tre domande: sto bene o male, cosa mi chiede attenzione, cosa
+   posso fare. Il dettaglio resta raggiungibile, ma non è la prima schermata. */
+.nation-synthesis {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #354966;
+  border-radius: 12px;
+  background: #0d1929;
+}
+.nation-synthesis-verdict {
+  padding: 10px 12px;
+  border-left: 3px solid #4a5f7e;
+  background: #101d31;
+  border-radius: 8px;
+}
+.nation-synthesis-verdict b { color: #eef3fc; font: 600 15px/1.4 Georgia, serif; }
+.nation-synthesis-verdict.tone-positive { border-left-color: #5fb98a; }
+.nation-synthesis-verdict.tone-warning { border-left-color: #d9b061; }
+.nation-synthesis-verdict.tone-negative { border-left-color: #d97b7b; }
+
+.nation-synthesis-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nation-synthesis-evidence li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 96px;
+  padding: 7px 10px;
+  border: 1px solid #2b3d58;
+  border-radius: 8px;
+  background: #0f1c2e;
+}
+.nation-synthesis-evidence small {
+  color: #8a9cb8;
+  font: 700 9.5px/1.2 system-ui, sans-serif;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.nation-synthesis-evidence b { color: #eef3fc; font: 700 14px/1.1 Georgia, serif; font-variant-numeric: tabular-nums; }
+.nation-synthesis-evidence li.tone-warning b { color: #e0c07a; }
+.nation-synthesis-evidence li.tone-negative b { color: #e39a9a; }
+.nation-synthesis-evidence li.tone-positive b { color: #8fd0ac; }
+
+.nation-synthesis-empty { margin: 0; padding: 10px 0; color: #8fd0ac; font-size: 13px; }
+
+.nation-synthesis-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: synthesis;
+}
+.nation-synthesis-items li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 11px 12px 11px 38px;
+  border: 1px solid #2b3d58;
+  border-radius: 10px;
+  background: #101d31;
+  counter-increment: synthesis;
+}
+.nation-synthesis-items li::before {
+  content: counter(synthesis);
+  position: absolute;
+  top: 11px;
+  left: 12px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #23334c;
+  color: #b8c9e2;
+  font: 700 10px/1 system-ui, sans-serif;
+}
+.nation-synthesis-items li.tone-critical { border-color: #6d3a3a; }
+.nation-synthesis-items li.tone-critical::before { background: #6d3a3a; color: #ffd9d9; }
+.nation-synthesis-items li.tone-warning { border-color: #6a5729; }
+.nation-synthesis-items li.tone-warning::before { background: #6a5729; color: #ffe9b8; }
+
+.nation-synthesis-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.nation-synthesis-source {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #23334c;
+  color: #a8bdd8;
+  font: 700 9.5px/1.6 system-ui, sans-serif;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.nation-synthesis-head b { color: #eef3fc; font: 600 14px/1.35 Georgia, serif; }
+.nation-synthesis-domain { color: #7d8ea8; font-size: 11.5px; }
+.nation-synthesis-urgency { margin: 0; color: #b8c3d2; font-size: 12.5px; }
+.nation-synthesis-action { margin: 0; color: #cfe0f5; font-size: 12.5px; }
+.nation-synthesis-open {
+  align-self: flex-start;
+  margin-top: 3px;
+  padding: 4px 9px;
+  border: 1px solid #3a5273;
+  border-radius: 6px;
+  background: #16263d;
+  color: #a8c4e8;
+  font: 600 11.5px/1.3 system-ui, sans-serif;
+  cursor: pointer;
+}
+.nation-synthesis-open:hover { border-color: #5b7ba6; background: #1b2f4b; }
+.nation-synthesis-open:focus-visible { outline: 2px solid #ffd479; outline-offset: 2px; }
+
+/* Il quadro per dominio è un dettaglio: chiuso per default, raggiungibile. */
+.nation-synthesis-detail > summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  border: 1px solid #2b3d58;
+  border-radius: 8px;
+  background: #0f1c2e;
+  color: #a8bdd8;
+  font: 700 11.5px/1.3 system-ui, sans-serif;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.nation-synthesis-detail > summary:focus-visible { outline: 2px solid #ffd479; outline-offset: 2px; }
+
 /* Metrica-rimando: la cifra resta qui, il dettaglio sta in un'altra sezione
    («una cifra, un posto»). È un bottone perché lo è: si attiva con la tastiera
    e ha un'etichetta accessibile che dice dove porta. */

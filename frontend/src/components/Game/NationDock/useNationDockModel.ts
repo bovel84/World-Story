@@ -23,6 +23,7 @@ import { arsenalBrief, arsenalBriefText, arsenalLineSummary, arsenalProductionFo
 import { resourceMonths } from './format';
 import { nationalOperatingPicture } from '../nationalOperatingPicture';
 import type { HistoryPoint, MetricTrend, NationDockProps } from './types';
+import { nationalSynthesis } from '../nationalSynthesis';
 
 export function useNationDockModel(props: NationDockProps) {
   const {
@@ -217,5 +218,16 @@ export function useNationDockModel(props: NationDockProps) {
     foodMonthly, clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue,
     provincesLabel, moneyDelta, pointDelta, countDelta, mkTrend,
     materialRows, weaponsRows, armsSummary, armsSplit, lineSummary, operatingPicture,
+    // D03: la sintesi che apre il dossier. Composta dai read model già qui —
+    // nessuna cifra nuova, nessuna chiamata in più.
+    synthesis: nationalSynthesis({
+      picture: operatingPicture,
+      crisis: props.crisis,
+      pressures: props.pressures,
+      commitments: props.commitments,
+      processes: props.ongoingProcesses,
+      account,
+      today: props.today,
+    }),
   };
 }

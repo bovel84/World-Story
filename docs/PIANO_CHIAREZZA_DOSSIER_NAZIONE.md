@@ -1,8 +1,8 @@
 # World Story — piano di chiarezza: un dossier che si capisce
 
 **Versione:** 1.1, 24 settembre 2026.
-**Stato:** **D01 e D02 implementate e consegnate**; D03–D07 da implementare.
-Le sezioni di D01 e D02 riportano, in coda, cosa è stato fatto e come è verificato.
+**Stato:** **D01–D04 implementate e consegnate**; D05–D07 da implementare.
+Le sezioni consegnate riportano, in coda, cosa è stato fatto e come è verificato.
 **Destinatari:** sviluppatori e LLM esecutori; ogni scelta marcata «obbligatoria» è un contratto.
 **Obiettivo concordato:** **sintesi vera + dettaglio a richiesta.**
 
@@ -284,6 +284,19 @@ model, assorbendolo (I5) invece di affiancarlo.
 non vuota quando c'è qualcosa da fare, e una lista **vuota** quando non c'è nulla
 (nessun riempitivo).
 
+> **Consegnata** — `nationalSynthesis.ts` (read model puro),
+> `NationalSynthesisPanel.tsx` (vista), 15 test.
+>
+> Il giudizio **non è ricalcolato**: è l'`headline` che `nationalOperatingPicture`
+> già produce, con la sua scala di stato tradotta in tono. Le prove del giudizio
+> sono le cifre del quadro (`economy.facts`, `government.facts`) — nessuna
+> metrica nuova.
+>
+> Il pannello apre la sezione «Situazione»; il quadro a sei aree che stava lì
+> scende in fondo alla stessa sezione dentro un `<details>` («Quadro d'insieme
+> per dominio»), chiuso per default. **Nessuna metrica perduta** (I6): il quadro
+> resta raggiungibile, smette di essere la prima schermata.
+
 ### D04 — Una sola lista di cose da fare (I4)
 
 **Cosa.** Fondere in un'unica lista ordinata: pressioni di pace attive, stato di
@@ -297,6 +310,23 @@ reinventarle.
 
 **Verifica.** Test che con crisi attiva la crisi sia prima; che con due pressioni
 la più urgente preceda; che a lista vuota non si mostri nulla.
+
+> **Consegnata insieme a D03**, nello stesso read model: la lista unica è il
+> cuore della sintesi, e separarle avrebbe prodotto due liste parallele — cioè
+> proprio ciò che I4 vieta.
+>
+> Le quattro fonti confluiscono in **una** lista ordinata da una regola
+> dichiarata, non da una «gravità» astratta: `esito` (la crisi, che chiude la
+> partita) → `scadenza` (finestra imminente, impegno scaduto, processo in
+> ritardo) → `impegno` → `attenzione`. Il tempo che resta è quello del motore
+> (`window.daysLeft`, `createdDate`), mai una stima del client.
+>
+> L'**azione minima** di una sfida è la prima opzione che il motore propone, con
+> le alternative visibili: la scelta resta del giocatore. Dove un'azione non
+> esiste, la voce lo dice invece di inventarne una.
+>
+> L'ordinamento è **stabile** a parità di fascia: due letture dello stesso stato
+> danno la stessa lista (verificato).
 
 ### D05 — Il dettaglio a richiesta (I3, I6)
 

@@ -39,6 +39,7 @@ import { useNationDockModel } from './NationDock/useNationDockModel';
 import { MaterialBalanceList } from './MaterialBalanceList';
 import { ObjectsBoard } from './ObjectsBoard';
 import { DomainOperatingBlock, OperatingPictureBoard } from './OperatingPictureBoard';
+import { NationalSynthesisPanel } from './NationalSynthesisPanel';
 
 // Ri-esportati per i consumatori storici (`DeskContent`, `nationDossier`).
 export type { HistoryPoint, NationAccount, NationDockProps, NationResources, Tone } from './NationDock/types';
@@ -93,7 +94,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     budget, verdict, factions, modifiersActive, foodMonthly,
     clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue, provincesLabel,
     moneyDelta, pointDelta, countDelta, mkTrend,
-    materialRows, weaponsRows, armsSummary, armsSplit, lineSummary, playerPolityId, operatingPicture,
+    materialRows, weaponsRows, armsSummary, armsSplit, lineSummary, playerPolityId, operatingPicture, synthesis,
   } = useNationDockModel(props);
 
   // COUNTRY-CLARITY: dal quadro d'insieme si salta alla sezione di dettaglio.
@@ -118,7 +119,11 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
       <div className="nation-dock-body">
         {active === 'situazione' && (
           <>
-            <OperatingPictureBoard picture={operatingPicture} onOpenSection={openSection} />
+            {/* D03/I3: il dossier si apre sulla **sintesi** — giudizio, lista
+                unica delle cose da fare, azione minima. Il quadro a sei aree
+                che stava qui non sparisce: scende in fondo alla sezione come
+                dettaglio (I6), e resta raggiungibile. */}
+            <NationalSynthesisPanel synthesis={synthesis} onOpenSection={openSection} />
 
             {briefing && <StrategicBriefingCard briefing={briefing} />}
 
@@ -222,6 +227,15 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 ) : <EmptyState>Nessuna decisione richiede attenzione immediata.</EmptyState>)}
               </div>
             </DossierBlock>
+
+            {/* Il quadro a sei aree: era l'apertura della sezione, ora è il
+                **dettaglio** che la sintesi riassume (I5: una sola superficie
+                per lo stato). Resta un blocco raggiungibile, non una seconda
+                prima schermata. */}
+            <details className="nation-synthesis-detail">
+              <summary>Quadro d&apos;insieme per dominio</summary>
+              <OperatingPictureBoard picture={operatingPicture} onOpenSection={openSection} />
+            </details>
           </>
         )}
 
