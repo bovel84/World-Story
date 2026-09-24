@@ -10,9 +10,12 @@
  * che il tratto finale possa produrre il collasso.
  *
  * Il mondo di prova è quello di CRISIS-RESIDUAL: un polity con «fatti di
- * riferimento» moderni (ITA, startDate 2026-01-01) la cui crisi di insolvenza è
- * **critica**, quindi la scala avanza di un giorno per giorno: i totali sono
- * esatti e il doppio conteggio sarebbe visibile subito.
+ * riferimento» moderni (ITA, startDate 2026-01-01) e un debito insostenibile
+ * seminato da `seedInsolventStock`. La crisi di insolvenza è quindi **critica
+ * fin dal primo turno** e la scala avanza di un giorno per giorno: i totali sono
+ * esatti e il doppio conteggio sarebbe visibile subito. La precondizione è un
+ * dato di prova dichiarato, non un effetto del motore: dal 2026 le nazioni non
+ * ereditano più un debito insostenibile (`SovereignDebt.inheritedCarryRatePct`).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import os from 'os';
@@ -74,6 +77,23 @@ const stubProvider: any = {
   clearCache() {},
 };
 
+/**
+ * Precondizione esplicita: uno **Stato sull'orlo del default**, come un debito
+ * che le entrate non coprono. La crisi di insolvenza è sostenibile per
+ * costruzione (le tranche ereditate sono valorizzate al tasso di carry,
+ * `SovereignDebt.inheritedCarryRatePct`), quindi l'Italia non parte più in
+ * criticità: il debito insostenibile è un dato di prova dichiarato.
+ */
+function seedInsolventStock(gameId: string, session: any, polityId = 'ITA'): void {
+  repos.resourceRepository.upsert(gameId, polityId, {
+    money: 10,
+    debts: [{ id: 'crisis-fixture-1', label: 'Debito di prova (insostenibile)', principal: 3600,
+      annualRatePct: 8, issuedDate: PERIOD_START, maturityDate: '2036-01-01', termYears: 10 }],
+    food: 5, clothing: 5, weapons: 5, fuel: 5, research: 0, technologies: [],
+  }, 0, null);
+  (session as any).nationState.resourceStocks.clear();
+}
+
 /** Stato di crisi di partenza, come se i giorni fossero già maturati nel passato. */
 function seedCrisis(gameId: string, days: number, episodes = 0): void {
   repos.gameRepository.saveCrisisState({
@@ -110,7 +130,11 @@ beforeAll(async () => {
       },
     ],
   );
-  createGame = () => registry.createSession(WORLD_ID, 'Player', `${WORLD_ID}_ITA`, '#FF0000');
+  createGame = () => {
+    const created = registry.createSession(WORLD_ID, 'Player', `${WORLD_ID}_ITA`, '#FF0000');
+    seedInsolventStock(created.gameId, created.session);
+    return created;
+  };
 });
 
 afterAll(() => {
