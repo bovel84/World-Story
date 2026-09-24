@@ -125,12 +125,28 @@ come verifica di comportamento: il criterio è un fatto osservabile del gioco.
 - il margine di credito supera la soglia di crisi;
 - ogni anno dei preset ha una riga propria, con valori positivi e codici validi.
 
+## Verifica estesa (tutti i test eseguibili)
+
+Ricompilando `better-sqlite3` per Linux (`npm rebuild better-sqlite3`) anche i
+test che aprono il database sono diventati eseguibili, quindi la verifica copre
+l'intero gate della CI:
+
+| Area | Esito |
+|---|---|
+| Test backend di logica pura (88 file) | **809 verdi** |
+| Test backend che aprono il DB (12 file, inclusi i più lenti) | **202 verdi** |
+| `nation-state-service` (esercita `stockForEra`) | **12 verdi** |
+| `natural-resource-integration` (tesoreria, debito, riparazione magazzino) | **11 verdi** |
+| Test frontend (84 file) | **689 verdi** |
+| `tsc` backend | pulito |
+| Build backend + frontend | verdi |
+
+I test DB più lenti (`war-fronts` 57 test, `balance-mode` 32) richiedono
+`--maxWorkers=1` e timeout alti: le migrazioni del database dominano la durata
+(oltre 150 s per `war-fronts`), non il costo dei test.
+
 ## Limiti dichiarati
 
-- I test che richiedono `better-sqlite3` **non sono eseguibili nell'ambiente in
-  cui è stata preparata la patch** (binario macOS, `invalid ELF header`): vanno
-  eseguiti in CI. Sono `nation-state-service.test.ts`, `crisis-migration.test.ts`,
-  `q02-legacy-migration.test.ts` e gli altri che aprono il database.
 - I valori della cedola storica (`1%`) e della quota rifinanziata (`10%`) sono
   ancorati all'ordine di grandezza **reale** (il Giappone paga ~2% su un debito
   del 214% del PIL), non a una serie storica per paese. Una taratura più fine
@@ -138,3 +154,6 @@ come verifica di comportamento: il criterio è un fatto osservabile del gioco.
 - Le cifre del report sono state misurate eseguendo `backend-nest/dist` e
   ricontrollate da una revisione indipendente, che ha corretto sei imprecisioni
   minori (elencate in §7 del report).
+- Non è stata eseguita una **partita reale** con LLM configurato: la verifica è
+  sui numeri del motore e sui test, non sul bilanciamento empirico di una
+  sessione lunga.
