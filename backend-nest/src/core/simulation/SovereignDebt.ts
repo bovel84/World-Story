@@ -96,6 +96,45 @@ export function marketRatePct(debtRatioPct: number, termYears: number): number {
   return round1(Math.min(18, baseRatePct(termYears) + riskPremiumPct(debtRatioPct)));
 }
 
+/**
+ * Quota di rifinanziamento annua dello stock ereditato. Con una vita media di
+ * ~10 anni, ogni anno scade circa un decimo del portafoglio e si rifinanzia al
+ * prezzo di oggi; il resto resta al tasso a cui fu emesso.
+ */
+export const INHERITED_REFINANCE_SHARE = 0.1;
+/**
+ * Cedola media del portafoglio già in essere, in % annuo. È il tasso a cui una
+ * nazione si è davvero indebitata nei decenni precedenti: basso in termini
+ * nominali correnti, che è esattamente il motivo per cui il Giappone paga
+ * pochissimo su un debito del 214% del PIL.
+ */
+export const INHERITED_LEGACY_COUPON_PCT = 1;
+/** Tetto del tasso effettivo: uno stock a tassi storici non è mai a tasso di crisi. */
+export const INHERITED_EFFECTIVE_CAP_PCT = 5;
+
+/**
+ * **Tasso effettivo di carry** di uno stock di debito ereditato.
+ *
+ * Il debito pubblico di un paese non è emesso al tasso di mercato di oggi: è un
+ * portafoglio costruito in decenni, e solo la quota che scade si rifinanzia al
+ * prezzo corrente. Caricare tutto lo stock al tasso di mercato — premio di
+ * rischio compreso — produceva un costo che nessuno Stato paga: il Giappone
+ * arrivava al 275% delle entrate in interessi, l'Italia al 113%, e la crisi di
+ * insolvenza scattava prima che il giocatore potesse fare qualunque cosa.
+ *
+ * Il tasso effettivo è quindi la cedola media storica più il contributo della
+ * sola quota rifinanziata (`INHERITED_REFINANCE_SHARE`) al premio di rischio
+ * corrente. Il debito **nuovo** continua a costare il prezzo di mercato pieno
+ * (`marketRatePct`): è quello che il giocatore sceglie di fare, e lo paga.
+ */
+export function inheritedCarryRatePct(debtRatioPct: number): number {
+  const premium = riskPremiumPct(debtRatioPct) * INHERITED_REFINANCE_SHARE;
+  return round1(Math.min(
+    INHERITED_EFFECTIVE_CAP_PCT,
+    Math.max(0.5, INHERITED_LEGACY_COUPON_PCT + premium),
+  ));
+}
+
 function parseDate(date: string): Date {
   const parsed = new Date(`${String(date).slice(0, 10)}T00:00:00Z`);
   return Number.isNaN(parsed.getTime()) ? new Date('1970-01-01T00:00:00Z') : parsed;
@@ -189,6 +228,37 @@ export function tensionFromDebtRatio(debtRatioPct: number, serviceRatioPct = 0):
   tension += Math.min(16, Math.max(0, service - 8) * 0.6);
   tension = Math.min(38, tension);
   return { socialTension: round1(tension), stability: tension === 0 ? 0 : round1(-tension * 0.5) };
+}
+
+/**
+ * Bonifica lo **stock di debito ereditato** portandolo a un tasso effettivo di
+ * carry invece del tasso di mercato pieno, e riporta le etichette alla ragione
+ * vera. È idempotente: applicandola due volte il risultato non cambia, quindi
+ * vale anche per i salvataggi scritti prima della correzione (il chiamante
+ * riscrive la riga).
+ *
+ * Tocca **solo** le tranche marcate `debt-inherited-` (o etichettate «Debito
+ * ereditato»): il debito emesso dal giocatore resta al suo tasso di mercato,
+ * perché quello è davvero il prezzo a cui si è indebitato.
+ */
+export function normalizeInheritedDebtRates(
+  debts: readonly SovereignDebt[] | undefined,
+  debtRatioPct: number,
+): { debts: SovereignDebt[]; changed: boolean } {
+  const list = Array.isArray(debts) ? debts : [];
+  const carry = inheritedCarryRatePct(debtRatioPct);
+  let changed = false;
+  const next = list.map(debt => {
+    const isInherited = String(debt?.id || '').startsWith('debt-inherited-')
+      || /debito ereditato/i.test(String(debt?.label || ''));
+    if (!isInherited) return debt;
+    const rate = round1(debt.annualRatePct);
+    const label = `Debito ereditato ${debt.termYears} anni`;
+    if (rate === carry && debt.label === label) return debt;
+    changed = true;
+    return { ...debt, annualRatePct: carry, label };
+  });
+  return { debts: next, changed };
 }
 
 /** Riga leggibile di un titolo, per il dossier e la cronaca. */

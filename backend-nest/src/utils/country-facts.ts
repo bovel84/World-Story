@@ -733,6 +733,49 @@ export function hasModernReferenceFacts(startDate: string | undefined | null): b
  * ripiegano sul reddito pro capite dell'epoca (sotto).
  */
 export const HISTORICAL_GDP_BY_YEAR: Record<number, Record<string, number>> = {
+  // 1815 — fine delle guerre napoleoniche. Valori in miliardi di dollari
+  // **correnti dell'epoca**: sono cifre piccole perché il mondo intero produceva
+  // pochi miliardi, non perché le economie fossero minuscole. La sterlina del
+  // 1815 vale circa 60-80 dollari di oggi, quindi il confronto con il 1939 va
+  // fatto sull'ordine di grandezza, non sul numero assoluto.
+  1815: {
+    GBR: 0.4, FRA: 0.35, RUS: 0.3, DEU: 0.25, AUT: 0.12,
+    USA: 0.5, CHN: 0.6, IND: 0.4, JPN: 0.08,
+    ESP: 0.1, ITA: 0.1, TUR: 0.08, PRT: 0.04, SWE: 0.03,
+    NLD: 0.03, DNK: 0.02, NOR: 0.015, POL: 0.05, CHE: 0.012,
+  },
+  // 1914 — vigilia della Grande Guerra, economia già industrializzata.
+  1914: {
+    USA: 36, DEU: 12, GBR: 11, CHN: 8.5, IND: 6.5, RUS: 7.5, FRA: 6.5,
+    ITA: 3.2, JPN: 2, CAN: 2, AUT: 2.5, ESP: 1.2, BRA: 0.9, ARG: 1.2,
+    AUS: 1.3, NLD: 1.1, BEL: 1.4, SWE: 0.9, CHE: 0.9, TUR: 0.5,
+    POL: 1, UKR: 2.5, CZE: 1.2, ROU: 0.8, ZAF: 0.5, MEX: 0.6,
+    EGY: 0.5, IRN: 0.3, NOR: 0.4, DNK: 0.5, FIN: 0.4, HUN: 1,
+    GRC: 0.3, PRT: 0.3, BGR: 0.2, SRB: 0.2, HRV: 0.4, ALB: 0.05,
+    MNE: 0.02, PHL: 0.3, IDN: 0.6, THA: 0.2, IRQ: 0.05,
+  },
+  // 1989 — l'anno della caduta del Muro. Il mondo valeva circa un quarto del 2024.
+  1989: {
+    USA: 5657, JPN: 3050, DEU: 1394, FRA: 1027, ITA: 930, GBR: 926,
+    CAN: 566, ESP: 411, RUS: 507, BRA: 458, CHN: 459, IND: 301,
+    NLD: 320, KOR: 283, AUS: 300, SWE: 217, CHE: 208, BEL: 164,
+    AUT: 133, FIN: 119, DNK: 116, NOR: 103, GRC: 82, PRT: 60,
+    POL: 67, TUR: 107, ZAF: 96, EGY: 46, MEX: 222, ARG: 76,
+    CZE: 60, HUN: 30, ROU: 42, BGR: 22, SRB: 50, HRV: 25,
+    UKR: 80, BLR: 25, LTU: 10, LVA: 8, EST: 6, SVK: 15, SVN: 13,
+  },
+  // 2000 — Millennium Dawn. Valori correnti dell'anno, non del 2024.
+  2000: {
+    USA: 10252, JPN: 4966, DEU: 1946, GBR: 1662, FRA: 1369, CHN: 1211,
+    ITA: 1146, CAN: 744, ESP: 598, MEX: 707, BRA: 655, IND: 468,
+    KOR: 576, NLD: 417, AUS: 415, RUS: 260, TUR: 274, SWE: 262,
+    CHE: 279, BEL: 238, AUT: 197, POL: 172, NOR: 171, DNK: 164,
+    IDN: 165, TWN: 331, GRC: 132, FIN: 126, PRT: 118, IRL: 100,
+    SAU: 189, IRN: 102, EGY: 100, ZAF: 132, ARG: 284, CZE: 62,
+    HUN: 47, ROU: 37, BGR: 13, UKR: 32, SRB: 10, HRV: 22,
+    SVK: 29, SVN: 20, LTU: 12, LVA: 8, EST: 6, ISR: 132,
+    PHL: 81, THA: 126, MYS: 94, SGP: 96, VNM: 31, NGA: 46,
+  },
   1939: {
     USA: 92, DEU: 45, RUS: 55, GBR: 27, CHN: 30, IND: 25, FRA: 15, JPN: 7, ITA: 9,
     CAN: 6, BRA: 6, ARG: 5, AUS: 4, ESP: 4, POL: 5, NLD: 4, BEL: 3, SWE: 4, CHE: 3,
@@ -751,8 +794,14 @@ export const HISTORICAL_GDP_BY_YEAR: Record<number, Record<string, number>> = {
 
 /** Reddito pro capite di ripiego (USD correnti) per le nazioni non in tabella. */
 export const HISTORICAL_GDP_PER_CAPITA_BY_YEAR: Record<number, number> = {
+  // Reddito pro capite di ripiego per le nazioni non elencate nella riga
+  // dell'anno. Valori in dollari correnti dell'epoca.
+  1815: 3,
+  1914: 40,
   1939: 220,
   1951: 350,
+  1989: 2_400,
+  2000: 3_500,
 };
 
 /** Ancora di ultima istanza: un punto dell'indice di mappa vale un miliardo. */

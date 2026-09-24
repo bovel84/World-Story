@@ -16,7 +16,7 @@
  */
 
 import { resourceRepository, naturalResourceRepository, modifiersRepository, gameRepository, factionMemoryRepository, type PressureRecord } from '../repositories';
-import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, effectiveMaterialNeeds, materialNeeds, normalizeStock, overdraftOf, seedStock, storageCapacity, type MaterialFlowOverlay, type MaterialFulfillment, type MaterialNeeds, type MaterialTick, type ResourceStock } from '../core/simulation/MaterialEconomy';
+import { advanceStock, annualDebtServiceMld, capStock, creditHeadroom, creditLimit, debtOf, describeStock, dropRegistryInheritedDebt, effectiveMaterialNeeds, hasUnnormalizedInheritedDebt, materialNeeds, normalizeInheritedDebtStock, normalizeStock, overdraftOf, seedStock, storageCapacity, type MaterialFlowOverlay, type MaterialFulfillment, type MaterialNeeds, type MaterialTick, type ResourceStock } from '../core/simulation/MaterialEconomy';
 import { averageMaturityYears, describeDebtTranche, marketRatePct } from '../core/simulation/SovereignDebt';
 import {
   advanceLedger, applyGlobalExtraction, drawResourceStockpile, effectiveEndowment, emptyMarket, marketQuote, seedLedger, seedMarket, summarizeLedger,
@@ -584,7 +584,7 @@ export class NationStateService {
       if (!stored) return null;
       // I mondi storici non ereditano il debito 2024: la bonifica vale anche
       // per le righe scritte prima di questa correzione.
-      const { stock: eraStock, changed, legacyModernSeed } = this.stockForEra(stored.stock);
+      const { stock: eraStock, changed, legacyModernSeed } = this.stockForEra(polityId, stored.stock);
       // Residuo della semina moderna in un mondo storico: si risemina dai dati
       // dell'epoca (cassa e scorte erano su scala 2024).
       const account = this.ctx.initialAccounts()[polityId];
@@ -626,7 +626,7 @@ export class NationStateService {
       if (stored) {
         // I mondi storici non ereditano il debito 2024: la bonifica vale anche
         // per le righe scritte prima di questa correzione.
-        const { stock: eraStock, changed, legacyModernSeed } = this.stockForEra(stored.stock);
+        const { stock: eraStock, changed, legacyModernSeed } = this.stockForEra(polityId, stored.stock);
         const account = this.ctx.initialAccounts()[polityId] ?? this.ctx.sessionAccounts()[polityId];
         // Residuo della semina moderna in un mondo storico: si risemina dai
         // dati dell'epoca (cassa e scorte erano su scala 2024).
@@ -700,14 +700,35 @@ export class NationStateService {
    * emesso debito proprio, la riga è un residuo della semina moderna e va
    * riseminata dai dati storici (altrimenti cassa e scorte restano su scala
    * 2024, incoerenti col PIL dell'epoca).
+   *
+   * Nei mondi moderni lo stock ereditato resta, ma **al tasso effettivo di
+   * carry**: la semina vecchia applicava il premio di rischio pieno a tutto il
+   * capitale, e i paesi più indebitati (Italia, Giappone, Singapore, Grecia,
+   * USA) partivano in crisi di insolvenza critica prima che il giocatore
+   * potesse agire. La bonifica è idempotente e non tocca il debito emesso dal
+   * giocatore.
    */
-  private stockForEra(stock: ResourceStock): { stock: ResourceStock; changed: boolean; legacyModernSeed: boolean } {
-    if (this.ctx.worldStateOptions().modernFacts) return { stock, changed: false, legacyModernSeed: false };
-    const debts = Array.isArray(stock.debts) ? stock.debts : [];
-    const hadInherited = debts.some(debt => String(debt.id || '').startsWith('debt-inherited-'));
-    if (!hadInherited) return { stock, changed: false, legacyModernSeed: false };
-    const cleaned = dropRegistryInheritedDebt(stock);
-    return { stock: cleaned, changed: true, legacyModernSeed: cleaned.debts.length === 0 };
+  private stockForEra(polityId: string, stock: ResourceStock): { stock: ResourceStock; changed: boolean; legacyModernSeed: boolean } {
+    if (!this.ctx.worldStateOptions().modernFacts) {
+      const debts = Array.isArray(stock.debts) ? stock.debts : [];
+      const hadInherited = debts.some(debt => String(debt.id || '').startsWith('debt-inherited-'));
+      if (!hadInherited) return { stock, changed: false, legacyModernSeed: false };
+      const cleaned = dropRegistryInheritedDebt(stock);
+      return { stock: cleaned, changed: true, legacyModernSeed: cleaned.debts.length === 0 };
+    }
+    // Mondo moderno: il tasso dello stock ereditato va riportato al carry.
+    const account = this.ctx.initialAccounts()[polityId]
+      ?? this.ctx.sessionAccounts()[polityId];
+    const debtRatioPct = Math.max(0, Number(account?.debtBurdenPct || 0));
+    if (debtRatioPct <= 0) return { stock, changed: false, legacyModernSeed: false };
+    if (!hasUnnormalizedInheritedDebt(stock, debtRatioPct)) {
+      return { stock, changed: false, legacyModernSeed: false };
+    }
+    return {
+      stock: normalizeInheritedDebtStock(stock, debtRatioPct),
+      changed: true,
+      legacyModernSeed: false,
+    };
   }
 
   /**

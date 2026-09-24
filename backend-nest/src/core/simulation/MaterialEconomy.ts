@@ -19,7 +19,8 @@
 import type { NationalAccount } from './WorldStateEngine';
 import type { NaturalEndowment, NaturalResourceKind } from './MilitaryIndustry';
 import {
-  annualInterestMld, debtPrincipal, issueDebtTranche, maturedDebts, marketRatePct, rolloverTranche,
+  annualInterestMld, debtPrincipal, inheritedCarryRatePct, issueDebtTranche, maturedDebts,
+  marketRatePct, normalizeInheritedDebtRates, rolloverTranche,
   type SovereignDebt,
 } from './SovereignDebt';
 
@@ -124,8 +125,16 @@ export function annualDebtServiceMld(stock: ResourceStock): number {
   return Math.round((bonds + overdraft) * 1000) / 1000;
 }
 
-/** Quota di PIL di margine garantita oltre il debito di partenza. */
-export const DEBT_HEADROOM_RATIO = 0.15;
+/**
+ * Quota di PIL di margine garantita oltre il debito di partenza.
+ *
+ * Deve restare **sopra** la soglia di crisi di `NationCrisis` (`baseline + 20`
+ * punti di PIL): con 0,15 il debito massimo legalmente raggiungibile restava
+ * sempre 5 punti sotto la soglia che doveva punirlo, e il canale «debito
+ * nuovo» della crisi di insolvenza era irraggiungibile per costruzione. A 0,35
+ * una nazione che esaurisce il credito entra davvero in zona critica.
+ */
+export const DEBT_HEADROOM_RATIO = 0.35;
 
 /**
  * Tetto di credito: il massimo fra il 60% del PIL, il debito ereditato più un
@@ -197,6 +206,27 @@ export function dropRegistryInheritedDebt(stock: ResourceStock): ResourceStock {
   const debts = Array.isArray(stock.debts) ? stock.debts : [];
   const kept = debts.filter(debt => !String(debt.id || '').startsWith('debt-inherited-'));
   return kept.length === debts.length ? stock : { ...stock, debts: kept };
+}
+
+/**
+ * Bonifica il **tasso** dello stock di debito ereditato nei salvataggi scritti
+ * prima della correzione. La semina vecchia caricava il premio di rischio pieno
+ * su tutto il capitale, mandando in crisi di insolvenza i paesi più indebitati
+ * al primo turno; qui le tranche `debt-inherited-*` vengono riportate al tasso
+ * effettivo di carry, esattamente come le emette oggi `seedStock`.
+ *
+ * Idempotente: applicata a un portafoglio già corretto non cambia nulla, quindi
+ * si può invocare a ogni lettura senza effetti collaterali. Il debito emesso dal
+ * giocatore non viene toccato.
+ */
+export function normalizeInheritedDebtStock(stock: ResourceStock, debtRatioPct: number): ResourceStock {
+  const { debts, changed } = normalizeInheritedDebtRates(stock.debts, debtRatioPct);
+  return changed ? { ...stock, debts } : stock;
+}
+
+/** Vero se il portafoglio contiene ancora tranche con il tasso di semina vecchio. */
+export function hasUnnormalizedInheritedDebt(stock: ResourceStock, debtRatioPct: number): boolean {
+  return normalizeInheritedDebtRates(stock.debts, debtRatioPct).changed;
 }
 
 /**
@@ -460,12 +490,19 @@ const INITIAL_FILL: Record<DevelopmentClass, number> = {
 /**
  * Debito ereditato come scaletta di scadenze (3/8/15 anni): così una parte
  * torna a scadere periodicamente e va rifinanziata, invece di un blocco unico.
+ *
+ * Il tasso è quello **effettivo di carry** (`inheritedCarryRatePct`), non il
+ * tasso di mercato di oggi: uno stock costruito in decenni non si rifinanzia
+ * tutto al prezzo corrente, e caricargli il premio di rischio pieno faceva
+ * partire Italia, Giappone, Singapore, Grecia e Stati Uniti già in crisi di
+ * insolvenza al primo giorno di gioco.
  */
 function seedInheritedDebt(inheritedDebt: number, date: string, debtRatioPct: number): SovereignDebt[] {
   if (!(inheritedDebt > 0)) return [];
   const ladder: Array<{ termYears: number; share: number }> = [
     { termYears: 3, share: 0.3 }, { termYears: 8, share: 0.4 }, { termYears: 15, share: 0.3 },
   ];
+  const carry = inheritedCarryRatePct(debtRatioPct);
   const debts: SovereignDebt[] = [];
   let index = 0;
   for (const step of ladder) {
@@ -477,7 +514,8 @@ function seedInheritedDebt(inheritedDebt: number, date: string, debtRatioPct: nu
       amountMld: principal, termYears: step.termYears, date: issued, debtRatioPct,
       id: `debt-inherited-${index}`, label: `Debito ereditato ${step.termYears} anni`,
     });
-    debts.push(withTranche[withTranche.length - 1]);
+    const tranche = withTranche[withTranche.length - 1];
+    debts.push({ ...tranche, annualRatePct: carry });
   }
   return debts;
 }
