@@ -117,6 +117,53 @@ voci diplomatiche — che non fanno parte di questa richiesta. Senza di essa res
 sfondo**. L'ho ripristinata, limitata a loro, e un test difende la distinzione: il modulo
 Ordini ha il suo tema, gli altri tengono il proprio.
 
+## 3-bis. C03-bis — la grafica del modulo, misurata nel browser
+
+**La richiesta.** «Sistema la grafica degli ordini.»
+
+**Il difetto, che i test non vedevano.** C03 aveva ragione sulla causa (due temi che si
+contendevano lo stesso elemento) ma il blocco canonico **non vinceva**: un **terzo strato
+legacy** — il tema «edition» minificato in cima a `index.css` più le regole residue di
+`editorial.css` — continuava a colpire il modulo con `!important`:
+
+```css
+/* com'era, in index.css (blocco edition) */
+.hud-timeline-entry,.hud-timeline-preset,.suggestion-item,.suggestion-action,.btn-generate-suggestions{border-radius:0!important;background:transparent!important;border-color:var(--edition-rule)!important;color:var(--edition-ink)!important}
+.hud-timeline-title,.council-title,.suggestion-topic{color:var(--edition-ink)!important;font-family:Georgia,Times New Roman,serif}
+```
+
+Il risultato, letto dal browser con dati reali (non dall'occhio): il titolo del modulo
+«Pianifica la prossima mossa» era **`rgb(24,32,30)` su fondo `#0d1727`** — inchiostro di carta
+su navy, ~1,5:1; le schede delle proposte erano **trasparenti** con bordo `#aaa08f`; il bottone
+«Elabora proposte» era rosso editoriale e a spigoli vivi. I test di contrasto di C03 provavano i
+colori **voluti**, non quelli **calcolati**, quindi passavano mentre lo schermo era illeggibile.
+
+**La correzione.** Le classi del modulo sono state tolte dai selettori legacy (blocco edition e
+`editorial.css`), e il blocco canonico in `index.css` è stato **completato**: intestazione a
+griglia (titolo a sinistra, «Elabora proposte» in alto a destra, sottotitolo a tutta larghezza),
+compositore dell'ordine libero, anteprima di riformulazione e piede, oltre a un `:hover`
+coerente per la proposta già in coda (prima il passaggio del mouse cancellava il verde «in
+coda»). I margini e le maiuscole che il blocco minificato lasciava sui bottoni sono azzerati.
+
+**La verifica, di nuovo misurabile.**
+
+| Prova | Esito |
+|---|---|
+| Titolo / sottotitolo modulo | `#f2f6ff` / `#93a6c0` su `#0d1727` — leggibili |
+| Scheda proposta | sfondo `#101d31`, bordo `#26364e`, raggio 10px |
+| «Elabora proposte» | navy `#1b2f4b`, raggio 8px, in alto a destra (130×31) |
+| Compositori | i due bottoni allineati (y=852, h=34, margine 0, sentence case) |
+| Proposta in coda | verde `#12291f` anche in `:hover` |
+| Piede | hint a sinistra, «Chiudi piano» a destra (105×36) |
+| Mobile 390px | traboccamento orizzontale = 0 |
+| Test frontend | **809/809** (`ordersModuleTheme` ora copre intestazione, compositore, anteprima e piede) |
+
+Il test `ordersModuleTheme.test.ts` è stato esteso proprio per chiudere il buco: ora include le
+classi di intestazione e compositore e verifica che la regola «edition» non colpisca più il
+modulo.
+
+---
+
 ## 4. Verifica
 
 | Prova | Esito |
