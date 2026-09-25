@@ -49,6 +49,15 @@ export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive, 
           <p>{item.detail
             ? publicNarrativeText(item.detail, playerPolityName)
             : 'Non sono ancora disponibili ulteriori particolari su questo sviluppo.'}</p>
+          {/* §3.2/8: l'ordine da cui nasce il dispaccio, quando esiste. Nel
+              focolaio centrale il giocatore vede subito la causa che ha voluto;
+              un dispaccio del mondo non ne ha e il blocco non compare. */}
+          {item.actionText ? (
+            <p className="news-flash-order" role="note">
+              <span className="article-order-label">L'ordine:</span>{' '}
+              {publicNarrativeText(item.actionText, playerPolityName)}
+            </p>
+          ) : null}
         </div>
         <footer className="news-flash-footer">
           <button type="button" className="news-flash-archive" onClick={onOpenArchive}>Apri archivio</button>

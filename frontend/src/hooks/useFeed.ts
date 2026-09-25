@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { gameApi, type TimelineEntry } from '../services/api';
 import type { FeedItem } from '../components/Game/EventFeed';
 import { countUnread, markItemRead, markAllRead } from '../components/Game/feedUnread';
+import { useGameStore } from '../stores/gameStore';
 
 export interface UseFeedOptions {
   gameId: string | null;
@@ -37,7 +38,11 @@ export interface Feed {
     eventId?: string,
     announce?: boolean,
     regionIds?: string[],
+    /** ID degli ordini da cui nasce il dispaccio (§3.2/8). */
+    sourceActionIds?: string[],
   ) => void;
+  /** Traduce gli ID degli ordini nel loro testo (§3.2/8). */
+  actionTextFor: (sourceActionIds?: string[]) => string | undefined;
   publishEventDetails: (details: any[]) => void;
   markFeedRead: (id: string) => void;
   markAllFeedRead: () => void;
@@ -51,6 +56,23 @@ export function useFeed({ gameId, setTimeline }: UseFeedOptions): Feed {
   const [newsOpen, setNewsOpen] = useState(false);
   const announcedNewsIdsRef = useRef(new Set<string>());
 
+  /**
+   * Risolve gli ID degli ordini nel loro testo, leggendo la **coda autorevole**
+   * (RAM e DB). È l'ultimo miglio del «Perché è accaduto»: il motore collega il
+   * dispaccio all'ordine per ID, e qui l'ID diventa la frase che il giocatore
+   * aveva scritto. Se la coda non contiene più l'ordine (è già stato emesso e
+   * rimosso), il testo non si inventa: la sezione resta nascosta.
+   */
+  const actionTextFor = useCallback((sourceActionIds?: string[]): string | undefined => {
+    if (!sourceActionIds?.length) return undefined;
+    const coda = useGameStore.getState().pendingActions || [];
+    const testi = coda
+      .filter((action: { id?: string; text?: string }) => sourceActionIds.includes(String(action.id)))
+      .map((action: { text?: string }) => String(action.text || '').trim())
+      .filter(Boolean);
+    return testi.length ? testi.join(' · ') : undefined;
+  }, []);
+
   const pushFeed = useCallback((
     text: string,
     kind: FeedItem['kind'],
@@ -59,7 +81,14 @@ export function useFeed({ gameId, setTimeline }: UseFeedOptions): Feed {
     eventId?: string,
     announce = true,
     regionIds?: string[],
+    /**
+     * §3.2/8: gli ID degli ordini da cui nasce il dispaccio. Il testo si
+     * risolve dalla coda, che è la sola fonte del testo originale dell'ordine
+     * (mai ricostruito dal titolo del dispaccio).
+     */
+    sourceActionIds?: string[],
   ) => {
+    const actionText = actionTextFor(sourceActionIds);
     // Gli eventi provenienti dal server hanno un ID stabile: riusarlo rende
     // innocui replay SSE, riconnessioni e refetch della cronaca.
     const item: FeedItem = {
@@ -69,6 +98,7 @@ export function useFeed({ gameId, setTimeline }: UseFeedOptions): Feed {
       date,
       detail,
       regionIds: regionIds?.length ? regionIds : undefined,
+      actionText: actionText?.trim() ? actionText : undefined,
       // Ogni nuovo dispaccio arriva da leggere; l'archivio viene marcato letto
       // al pre-caricamento della timeline.
       read: false,
@@ -86,7 +116,7 @@ export function useFeed({ gameId, setTimeline }: UseFeedOptions): Feed {
       setNewsQueue(prev => [...prev, item]);
       setNewsOpen(true);
     }
-  }, []);
+  }, [actionTextFor]);
 
   useEffect(() => {
     announcedNewsIdsRef.current.clear();
@@ -107,7 +137,17 @@ export function useFeed({ gameId, setTimeline }: UseFeedOptions): Feed {
         const items: FeedItem[] = [];
         for (const entry of data.timeline || []) {
           for (const ev of entry.events || []) {
-            items.push({ id: `tl-${ev.id}`, date: ev.date, text: ev.headline, detail: ev.detail || entry.narration, kind: 'timeline', read: true });
+            items.push({
+              id: `tl-${ev.id}`,
+              date: ev.date,
+              text: ev.headline,
+              detail: ev.detail || entry.narration,
+              kind: 'timeline',
+              read: true,
+              // Il collegamento all'ordine viaggia anche nell'archivio: la
+              // Timeline espone `sourceActionIds` per evento.
+              actionText: actionTextFor(ev.sourceActionIds),
+            });
           }
         }
         setTimeline(data.timeline || []);
@@ -133,7 +173,7 @@ export function useFeed({ gameId, setTimeline }: UseFeedOptions): Feed {
       if (!unique.has(key)) unique.set(key, detail);
     }
     for (const detail of unique.values()) {
-      pushFeed(detail.headline, 'world', detail.date, detail.detail, detail.id, true);
+      pushFeed(detail.headline, 'world', detail.date, detail.detail, detail.id, true, undefined, detail.sourceActionIds);
     }
   }, [pushFeed]);
 
@@ -165,6 +205,8 @@ export function useFeed({ gameId, setTimeline }: UseFeedOptions): Feed {
     newsOpen,
     unreadFeedCount,
     pushFeed,
+    /** Traduce gli ID degli ordini nel loro testo (§3.2/8). */
+    actionTextFor,
     publishEventDetails,
     markFeedRead,
     markAllFeedRead,

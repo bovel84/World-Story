@@ -35,7 +35,13 @@ export interface UseSimulationStreamOptions {
     eventId?: string,
     announce?: boolean,
     regionIds?: string[],
+    sourceActionIds?: string[],
   ) => void;
+  /**
+   * Traduce gli ID degli ordini nel loro testo, per il «Perché è accaduto».
+   * Il testo vive nella coda autorevole, non nel titolo del dispaccio.
+   */
+  actionTextFor: (sourceActionIds?: string[]) => string | undefined;
   setFeedItems: React.Dispatch<React.SetStateAction<any[]>>;
   applyCheckpointRegions: (changedRegions: any[] | undefined) => void;
   setPausedReader: React.Dispatch<React.SetStateAction<any>>;
@@ -55,6 +61,7 @@ export interface SimulationStream {
 export function useSimulationStream({
   gameId,
   pushFeed,
+  actionTextFor,
   setFeedItems,
   applyCheckpointRegions,
   setPausedReader,
@@ -221,6 +228,7 @@ export function useSimulationStream({
           dispatch.eventId,
           true,
           dispatch.regionIds,
+          dispatch.sourceActionIds,
         );
       }
       // Aggiorna data/turno e le regioni cambiate (payload aggregato legacy).
@@ -261,6 +269,7 @@ export function useSimulationStream({
             text: ev,
             detail: data?.eventDetails?.[index]?.detail || data?.narration,
             kind: 'world',
+            actionText: actionTextFor(data?.eventDetails?.[index]?.sourceActionIds),
           });
         }
         return next.length > 120 ? next.slice(next.length - 120) : next;

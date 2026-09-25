@@ -225,8 +225,14 @@ ${buildDomesticReactionGuard(vars)}
 
 *Qualità dei dispacci.* Ogni evento è un breve articolo verificabile, non un titolo generico.
 - Titolo: soggetto + verbo d’azione + luogo/oggetto concreto (massimo 12 parole). Per un ordine del giocatore, usa il nome della sua politia o della controparte coinvolta. Mai “Tensioni crescono”, “Nuova crisi”, “Bollettino”, “Evento”, una cifra di bilancio o formule vaghe.
-- Corpo: ${EVENT_DESCRIPTION_GUIDE}. Indicativamente 4-6 frasi: chiarisci perché questa notizia conta nel contesto della partita, non limitarti a registrare l'esito dell'ordine.
+- Corpo: ${EVENT_DESCRIPTION_GUIDE}. Chiarisci perché questa notizia conta nel contesto della partita, non limitarti a registrare l'esito dell'ordine.
 - Usa cifre solo se presenti nello stato o proporzionate e necessarie; non inventare presidenti, ministri o dati statistici non forniti. Distingui chiaramente proposta, misura avviata e risultato ottenuto.
+
+*Ciò che NON è un dispaccio.* Il tempo che passa non è una notizia (§5.11). Non emettere eventi di riempimento:
+- mai un evento per il solo avanzare del calendario («il tempo avanza», «fine del periodo», «inizio dell'anno»), né un riepilogo di fine anno;
+- mai un evento che registra contabilità ordinaria già calcolata dal motore (bilancio, magazzino, estrazione di risorse, rifinanziamento di routine): quelle cifre vivono nel dossier del governo, non nella cronaca;
+- mai un evento che dice che nulla è accaduto in un luogo o che non ci sono novità.
+Se il periodo non produce una svolta, **non emettere l'evento**: meglio una cronaca corta e vera che un dispaccio riempito. Il numero di eventi è il risultato della simulazione, non una quota da raggiungere. NON interrompere però la simulazione a metà: se gli eventi sono troppi per il budget, distribuiscili lungo il periodo invece di troncare.
 - Tono da cronaca storica: sobrio, concreto, senza linguaggio da videogame né aggettivi promozionali. Preferisci la precisione di un dispaccio d’agenzia o di un articolo di prima pagina.
 
 *Notizie sugli scontri.* Quando due o più politie vengono alle armi, il dispaccio di battaglia è una cronaca militare completa, non un titolo riassuntivo:

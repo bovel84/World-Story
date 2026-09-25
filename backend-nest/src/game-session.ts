@@ -27,6 +27,7 @@ import type { CurrentReactionAction } from './core/simulation/ReactionContext';
 import { WorldIntelService } from './game/WorldIntelService';
 import { NpcTurnService } from './game/NpcTurnService';
 import { SessionStateStore } from './game/SessionStateStore';
+import { composeDispatchLines } from './game/dispatchComposer';
 import { PlaybackService } from './game/PlaybackService';
 import { TurnPipelineService } from './game/TurnPipelineService';
 import { SessionBootstrapService } from './game/SessionBootstrapService';
@@ -3327,27 +3328,26 @@ export class GameSession {
     this.recordAccountSnapshot(newDate, tickAccounts);
 
     const id = shortId();
-    const headline = `Il tempo avanza di ${days} ${days === 1 ? 'giorno' : 'giorni'}`;
+    // §5.11: la contabilità ordinaria non è una svolta della cronaca. Un salto a
+    // tempo puro non produce dispacci contabili — sarebbe «avanzamento tecnico»,
+    // che la SPEC vieta — ma non perde nulla: il bollettino e le righe materiali
+    // restano nel riepilogo del turno, dove il Dossier li legge.
+    const ledgerLines = [...(bulletin ? [`📊 ${bulletin}`] : []), ...resourceLines];
+    const composed = composeDispatchLines([], ledgerLines);
     const result: TurnResultRecord = {
       id,
       turn: elapsedTurn,
       date: this.currentDate,
       narration: `Dal ${periodStart} al ${this.currentDate} non sono state impartite nuove direttive.`,
       countryResponse: '',
-      events: [headline, ...(bulletin ? [`📊 ${bulletin}`] : []), ...resourceLines],
-      timelineEvents: [{
-        id: `${id}-0`,
+      events: composed.events,
+      timelineEvents: composed.dispatches.map((dispatch, index) => ({
+        id: `${id}-d${index}`,
         date: this.currentDate,
-        headline,
-        detail: `${this.publicPolityName(this.playerPolityId)} non ha impartito nuove direttive tra il ${periodStart} e il ${this.currentDate}.`,
-        source: 'world',
-      }, ...(bulletin ? [{
-        id: `${id}-1`,
-        date: this.currentDate,
-        headline: 'Conti nazionali del periodo',
-        detail: bulletin,
+        headline: dispatch.title,
+        detail: dispatch.body,
         source: 'world' as const,
-      }] : [])],
+      })),
     };
     this.results.push(result);
     gameRepository.addTurnResult({ ...result, gameId: this.id });

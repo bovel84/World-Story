@@ -16,6 +16,7 @@ export interface WorldEventPayload {
     headline?: string;
     detail?: string;
     source?: string;
+    sourceActionIds?: string[];
   }>;
   newTurn?: number;
   newDate?: string;
@@ -29,6 +30,11 @@ export interface NormalizedDispatch {
   detail?: string;
   source: string;
   regionIds: string[];
+  /**
+   * Gli ordini da cui nasce il dispaccio. Il motore li collega per ID (§6.2) e
+   * il frontend li traduce nel testo dell'ordine per il «Perché è accaduto».
+   */
+  sourceActionIds?: string[];
 }
 
 export function normalizeWorldEventPayload(data: WorldEventPayload): NormalizedDispatch[] {
@@ -46,6 +52,7 @@ export function normalizeWorldEventPayload(data: WorldEventPayload): NormalizedD
       detail: typeof data.detail === 'string' ? data.detail : undefined,
       source: typeof data.source === 'string' ? data.source : 'world',
       regionIds,
+      sourceActionIds: Array.isArray(data.sourceActionIds) ? data.sourceActionIds.filter((id): id is string => typeof id === 'string') : undefined,
     }];
   }
 
@@ -60,6 +67,7 @@ export function normalizeWorldEventPayload(data: WorldEventPayload): NormalizedD
       detail: detail?.detail,
       source: detail?.source || 'world',
       regionIds: index === 0 ? regionIds : [],
+      sourceActionIds: Array.isArray(detail?.sourceActionIds) ? detail.sourceActionIds : undefined,
     }];
   });
 }

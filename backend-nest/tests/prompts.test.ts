@@ -8,6 +8,7 @@ import { parseSimulationResponse, buildSimulationPrompt, buildConstrainedSimulat
 import { LLMContractError } from '../src/llm';
 import { PromptBuilder } from '../src/prompt-builder';
 import { parseConverterResponse } from '../src/prompts/converter';
+import { EVENT_DESCRIPTION_GUIDE } from '../src/prompts/immersion';
 
 describe('resilienza del convertitore', () => {
   it('conserva l’ordine originale se il modello free restituisce prosa non JSON', () => {
@@ -267,7 +268,7 @@ describe('PromptBuilder.buildVariables (баг №1)', () => {
     expect(compact).toContain('Istruzioni editoriali senza placeholder.');
     expect(historyVars.ALL_EVENTS_WITH_CONSOLIDATION.length).toBeLessThanOrEqual(4500);
     for (const prompt of [compact, buildSimulationPrompt(historyVars), buildSimulationNarrativeContract(historyVars, true)]) {
-      expect(prompt).toContain('antefatto documentato');
+      expect(prompt).toContain(EVENT_DESCRIPTION_GUIDE);
       expect(prompt).not.toContain('3 frasi dense');
       expect(prompt).not.toContain('3 frasi con causa');
     }
