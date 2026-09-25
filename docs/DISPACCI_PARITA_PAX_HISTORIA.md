@@ -304,24 +304,30 @@ proprietari, per non rompere la disciplina di collaborazione del progetto.
 
 ---
 
-## 6. Limiti dichiarati delle verifiche (non nascosti)
+## 6. Verifiche eseguite, e i limiti dichiarati
 
-Eseguite: typecheck backend e frontend, build di entrambi, **379 test backend superati**, 30 test
-frontend mirati sui file toccati, e la verifica del deploy sul sito pubblico.
+**Eseguite e verdi:**
+
+- **Frontend: 97 file di test, 818 test, tutti superati.** La suite intera è stata completata
+  raggruppando i file in tre blocchi, perché un solo comando supera il tetto di tempo della sandbox
+  (~180 s): 304 + 215 + 299. Nessun file è stato saltato (verificato per differenza fra l'elenco dei
+  test presenti e quelli eseguiti).
+- **Backend: 379 test superati** (le suite che non aprono il database).
+- **Typecheck** di backend e frontend, **build** di entrambi.
+- **Deploy pubblico verificato:** bundle servito `index-DRRb06oX.js` identico al locale; le stringhe
+  nuove (`Amministrazione`, `newspaper-article-order`, `news-flash-order`, «L'ordine:») cercate dentro
+  il JS e il CSS **scaricati dal sito**; `/api/health` a 200.
 
 **Non eseguite in questa sede, con la ragione:**
 
-1. **Suite frontend completa.** Non termina entro il limite di tempo della sandbox (~180 s per comando,
-   e i processi in background non sopravvivono fra una chiamata e l'altra). Sono stati eseguiti i file
-   che le modifiche toccano o che leggono gli stessi sorgenti: `dispatches`, `dispatchSurface`,
-   `dispatchCategory`, `ordersModuleTheme`, `cssDiscipline`, `causalEvents`, `hudMobileLayout`,
-   `presetMapDetail`, `gameStore`, `publicNarrative`, `accessibleDialogContract` — tutti verdi.
-2. **50 suite backend che aprono SQLite.** `better-sqlite3` è compilato per macOS (`Mach-O`) e nella VM
+1. **50 suite backend che aprono SQLite.** `better-sqlite3` è compilato per macOS (`Mach-O`) e nella VM
    Linux non carica (`invalid ELF header`). La ricompilazione è stata tentata: `make` non può creare
-   processi figli nella sandbox, e il percorso del progetto contiene uno spazio che rompe `node-gyp`. Le
-   379 verificate sono quelle che non toccano il database.
-3. **E2E Playwright.** Mancano le librerie di sistema (`libXdamage.so.1`) e `playwright install-deps`
+   processi figli nella sandbox, e il percorso del progetto contiene uno spazio che rompe `node-gyp`.
+2. **E2E Playwright.** Mancano le librerie di sistema (`libXdamage.so.1`) e `playwright install-deps`
    richiede root. Vanno lanciati sulla macchina dell'autore (già noto dal runbook).
+3. **Il motore in esecuzione non è stato riavviato**: il Worker serve la UI, ma le modifiche al
+   backend (compositore, collegamento, prompt) vivono nel processo Node sulla macchina dell'autore. Il
+   deploy completo richiede `scripts/deploy-cloudflare.sh` da macOS.
 
 **Il binario `better_sqlite3.node` è stato ripristinato** dopo il tentativo di ricompilazione: la copia
 Mach-O era ancora nella cartella temporanea di npm e il file è tornato identico. La macchina dell'autore
