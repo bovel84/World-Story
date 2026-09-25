@@ -2084,6 +2084,48 @@
 .advisor-entry.user .entry-text { background: #493b87; color: #fff; }
 .advisor-entry.assistant .entry-text { border: 1px solid #2a3a52; border-left: 3px solid #8a72e5; background: #182842; color: #edf4ff; }
 
+/* Resa leggibile del testo del Consulente -------------------------------
+   Il modello scrive con titoli, grassetto ed elenchi: qui si vedono per
+   quello che sono, invece degli asterischi grezzi. Il testo del governo
+   (messaggio del giocatore) resta testo semplice. */
+.rich-text { display: flex; flex-direction: column; gap: 8px; }
+.rich-text > *:first-child { margin-top: 0; }
+.rich-paragraph { margin: 0; white-space: pre-wrap; }
+.rich-heading {
+  margin: 2px 0 0;
+  color: #fff;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: .01em;
+}
+.rich-heading-1 { font-size: 14px; }
+.rich-heading-2 { font-size: 13.5px; }
+.rich-heading-3, .rich-heading-4 { font-size: 13px; color: #cdd9ec; }
+.rich-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.rich-list li { padding-left: 2px; }
+.rich-list li::marker { color: #8a72e5; }
+.rich-list-ordered li::marker { color: #8a72e5; font-variant-numeric: tabular-nums; }
+.rich-quote {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 2px solid #4b6a94;
+  background: rgba(75, 106, 148, .12);
+  border-radius: 0 8px 8px 0;
+  color: #d7e3f5;
+}
+.rich-rule { border: 0; border-top: 1px solid #2a3a52; margin: 4px 0; }
+.rich-code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #0d1727;
+  border: 1px solid #2a3a52;
+  font: 500 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+}
+.rich-text strong { color: #fff; font-weight: 700; }
+.rich-text em { color: #e2ecff; }
+/* Il grassetto dentro il messaggio del governo resta leggibile sul viola. */
+.advisor-entry.user .entry-text strong { color: #fff; }
+
 @media (prefers-reduced-motion: reduce) {
   .typing-dot { animation: none; }
 }

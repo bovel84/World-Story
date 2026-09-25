@@ -1,9 +1,12 @@
 /**
  * World Story — COUNTRY-CLARITY: National Operating Picture
  * ========================================================
- * Il punto d'ingresso della lettura: mette in fila i cinque domini del paese
- * (economia, risorse, industria, forze armate, governo), dice come sta il
- * paese in una riga e che cosa chiede attenzione per primo.
+ * Il punto d'ingresso della lettura: mette in fila i **sei** domini del paese
+ * (economia, risorse, industria, forze armate, popolo, governo), dice come sta
+ * il paese in una riga e che cosa chiede attenzione per primo.
+ *
+ * M01 — «Popolo» è l'area aggiunta perché la dimensione civile non ne aveva una:
+ * chi governa per il benessere del proprio popolo deve poterlo leggere.
  *
  * In più compone la **sala operativa**: le risposte brevi alle domande che il
  * giocatore si fa davvero, tutte derivate dai read model qui sopra. Nessuna
@@ -20,6 +23,7 @@ import { resourceOperatingPicture, type ResourcePicture } from './resourceOperat
 import { industryOperatingPicture, type IndustryPicture } from './industryOperatingPicture';
 import { governmentOperatingPicture, type GovernmentPicture } from './governmentOperatingPicture';
 import { militaryOperatingPicture, type MilitaryPicture } from './militaryOperatingPicture';
+import { peopleOperatingPicture, type PeoplePicture } from './peopleOperatingPicture';
 import {
   DOMAIN_STATUS_LABEL, attentionFrom, finiteOrNull, statusTone, worstStatus,
   type DomainDriver, type DomainStatus, type DomainStatusLevel, type DriverTone,
@@ -30,7 +34,7 @@ import type { Tone } from './NationDock/types';
 const driverTone = (tone: Tone): DriverTone => (tone === 'negative' ? 'critical' : tone);
 
 export interface OperatingDomain extends DomainStatus {
-  id: 'economia' | 'risorse' | 'industria' | 'militare' | 'governo';
+  id: 'economia' | 'risorse' | 'industria' | 'militare' | 'popolo' | 'governo';
   label: string;
   /** Cifre chiave del dominio, già formattate. */
   facts: Array<{ label: string; value: string; tone?: DriverTone }>;
@@ -55,6 +59,8 @@ export interface NationalOperatingPicture {
   resources: ResourcePicture;
   industry: IndustryPicture;
   military: MilitaryPicture;
+  /** M01 — la dimensione civile: istruzione, sanità, ricerca, tenore di vita. */
+  people: PeoplePicture;
   government: GovernmentPicture;
 }
 
@@ -94,6 +100,13 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
   const military = militaryOperatingPicture({
     resources: input.resources,
     arsenal: input.arsenal,
+  });
+  // M01 — l'area del popolo. Legge le voci civili che il motore pubblica nel
+  // bilancio, più Atenei, ricerca e tenuta. Nessuna cifra nuova.
+  const people = peopleOperatingPicture({
+    account: input.account,
+    resources: input.resources,
+    budget: input.budget ?? null,
   });
   const government = governmentOperatingPicture({
     government: input.government,
@@ -157,6 +170,28 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
       ],
     },
     {
+      // M01 — l'area che mancava. Prima di questa, la dimensione civile del
+      // governo era una sola scheda di dettaglio: un giocatore che voleva
+      // investire nel proprio popolo non aveva un'area da guardare.
+      id: 'popolo',
+      label: 'Popolo e benessere',
+      status: people.status,
+      headline: people.headline,
+      drivers: people.drivers,
+      facts: [
+        {
+          label: 'Spesa civile',
+          value: people.socialBurdenPct !== null && people.educationBurdenPct !== null
+            ? `${formatPercent(people.socialBurdenPct + people.educationBurdenPct, 1)} del PIL`
+            : '—',
+          tone: people.civilianShareOfSpendingPct !== null && people.civilianShareOfSpendingPct >= 60 ? 'positive' : 'neutral',
+        },
+        { label: 'Atenei', value: people.universities === null ? '—' : formatNumber(people.universities), tone: (people.universities ?? 0) > 0 ? 'positive' : 'warning' },
+        { label: 'PIL pro capite', value: people.gdpPerCapiteUsd === null ? '—' : formatNumber(people.gdpPerCapiteUsd), tone: 'neutral' },
+        { label: 'Tecnologie sbloccate', value: people.technologiesUnlocked === null ? '—' : formatNumber(people.technologiesUnlocked), tone: 'neutral' },
+      ],
+    },
+    {
       id: 'governo',
       label: 'Governo e società',
       status: government.status,
@@ -192,7 +227,7 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
 
   const answers = operatingAnswers({ economy, resources, industry, military, government, input, status, attention });
 
-  return { status, headline, summary, domains, attention, answers, economy, resources, industry, military, government };
+  return { status, headline, summary, domains, attention, answers, economy, resources, industry, military, people, government };
 }
 
 /**

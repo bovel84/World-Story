@@ -218,6 +218,8 @@ export function useNationDockModel(props: NationDockProps) {
     foodMonthly, clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue,
     provincesLabel, moneyDelta, pointDelta, countDelta, mkTrend,
     materialRows, weaponsRows, armsSummary, armsSplit, lineSummary, operatingPicture,
+    // M03 — l'area «Popolo» letta una volta sola, condivisa da sintesi e dossier.
+    people: operatingPicture.people,
     // D03: la sintesi che apre il dossier. Composta dai read model già qui —
     // nessuna cifra nuova, nessuna chiamata in più.
     synthesis: nationalSynthesis({

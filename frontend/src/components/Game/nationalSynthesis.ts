@@ -27,6 +27,7 @@ import { crisisDaysText, crisisLevelTone } from './crisisPanel';
 import type { NationalOperatingPicture } from './nationalOperatingPicture';
 import type { DriverTone } from './domainStatus';
 import type { NationAccount, Tone } from './NationDock/types';
+import { formatNumber, formatPercent } from '../../utils/format';
 
 /** Una voce della lista unica: cosa, da dove viene, quanto stringe, cosa fare. */
 export interface SynthesisItem {
@@ -34,8 +35,14 @@ export interface SynthesisItem {
   key: string;
   /** Cosa richiede attenzione, in una riga. */
   title: string;
-  /** Da dove viene: crisi, sfida, impegno, progetto, quadro d'insieme. */
-  source: 'crisi' | 'sfida' | 'impegno' | 'progetto' | 'sintesi';
+  /** Da dove viene: crisi, sfida, impegno, progetto, sintesi, occasione. */
+  source: 'crisi' | 'sfida' | 'impegno' | 'progetto' | 'sintesi' | 'occasione';
+  /**
+   * M02 — `true` per le occasioni di sviluppo, `false` per ciò che stringe.
+   * La distinzione serve alla vista: le occasioni si mostrano **dopo** le
+   * urgenze e con un segno diverso, mai mescolate a una crisi.
+   */
+  opportunity?: boolean;
   /** Il dominio o l'ambito a cui appartiene, per il rimando. */
   domain: string;
   /** Quanto stringe, in una riga: giorni che restano, scadenza, stato. */
@@ -70,6 +77,12 @@ const ORDER = {
   impegno: 2,
   /** Richiede una decisione ma non ha fretta. */
   attenzione: 3,
+  /**
+   * M02 — le occasioni di sviluppo. Ultime **per costruzione**: un'occasione non
+   * deve mai scalzare ciò che stringe. Se il paese è in crisi, la crisi resta in
+   * testa e l'occasione scende sotto.
+   */
+  occasione: 4,
 } as const;
 
 const asTone = (tone: Tone | undefined): DriverTone => (tone === 'negative' ? 'critical' : (tone ?? 'neutral'));
@@ -215,6 +228,100 @@ function pictureItems(picture?: NationalOperatingPicture | null): SynthesisItem[
 }
 
 /**
+ * M02 — le **occasioni**: ciò che il paese potrebbe fare, non ciò che lo minaccia.
+ *
+ * Il difetto: la sintesi elencava solo crisi, sfide, impegni e problemi. Un
+ * giocatore che voleva investire nel proprio popolo — istruzione, sanità,
+ * ricerca — leggeva una schermata di sole minacce, e nessuna porta d'ingresso
+ * per la via civile. Non era un difetto di dati: il motore pubblica capacità
+ * industriale libera, avanzo di cassa, ricerca accumulata e le leve che le
+ * fazioni premono. Nessuno le metteva in fila.
+ *
+ * Le occasioni **non** nascondono le urgenze: hanno l'ultima fascia di priorità
+ * (`ORDER.occasione`), quindi restano sotto crisi, scadenze e impegni. E sono
+ * affermazioni **derivate da soglie dichiarate**, non inviti generici.
+ */
+function opportunityItems(picture?: NationalOperatingPicture | null): SynthesisItem[] {
+  const items: SynthesisItem[] = [];
+  const push = (item: Omit<SynthesisItem, 'source' | 'opportunity' | 'rank'>) => {
+    items.push({ ...item, source: 'occasione', opportunity: true, rank: ORDER.occasione });
+  };
+
+  const people = picture?.people;
+  const industry = picture?.industry;
+  const economy = picture?.economy;
+
+  // 1. Capacità industriale libera: si può costruire senza sacrificare altro.
+  if (industry && industry.capacityFree > 0 && !industry.saturated) {
+    push({
+      key: 'occasione:capacita-libera',
+      title: `${formatNumber(industry.capacityFree)} ${industry.capacityFree === 1 ? 'linea produttiva libera' : 'linee produttive libere'}`,
+      domain: 'Industria e produzione',
+      urgency: `Capacità usata ${formatPercent(industry.usedPct, 0)}: resta spazio senza togliere nulla alle lavorazioni in corso.`,
+      action: 'Avvia un progetto: scuole, ospedali, impianti o ricerca. La capacità c\'è.',
+      tone: 'positive',
+      section: 'progetti',
+    });
+  }
+
+  // 2. Avanzo di cassa: si può investire senza nuovo debito.
+  if (economy && economy.balance !== null && economy.balance > 0) {
+    push({
+      key: 'occasione:avanzo',
+      title: 'Bilancio in avanzo: si può investire senza nuovo debito',
+      domain: 'Economia e cassa',
+      urgency: `Il saldo mensile è attivo: ogni mese entra più di quanto esce.`,
+      action: 'Alza la spesa civile o avvia un\'opera: l\'avanzo copre l\'investimento.',
+      tone: 'positive',
+      section: 'bilancio',
+    });
+  }
+
+  // 3. Ricerca accumulata e non spesa: conoscenza che aspetta di essere usata.
+  if (people && people.researchPoints !== null && people.researchPoints > 0) {
+    push({
+      key: 'occasione:ricerca',
+      title: `${formatNumber(people.researchPoints)} punti ricerca da spendere`,
+      domain: 'Popolo e benessere',
+      urgency: 'La ricerca si accumula a ogni turno: se non la si spende, resta ferma.',
+      action: 'Sblocca una tecnologia: la ricerca è già in cassa.',
+      tone: 'positive',
+      section: 'conoscenze',
+    });
+  }
+
+  // 4. Atenei assenti: la via civile che manca. È un'occasione **mancata**, e
+  //    il tono lo dice: senza atenei la ricerca cresce solo con la popolazione.
+  if (people && people.universities === 0) {
+    push({
+      key: 'occasione:atenei',
+      title: 'Nessun ateneo: la ricerca cresce solo con la popolazione',
+      domain: 'Popolo e benessere',
+      urgency: 'Gli atenei sono la fonte principale di punti ricerca.',
+      action: 'Costruisci un ateneo: è la via civile alla conoscenza.',
+      tone: 'warning',
+      section: 'conoscenze',
+    });
+  }
+
+  // 5. Spesa civile sottile: il popolo non è una priorità di bilancio, e si può
+  //    cambiare. La soglia è dichiarata in `peopleOperatingPicture`.
+  if (people && people.civilianShareOfSpendingPct !== null && people.civilianShareOfSpendingPct < 40) {
+    push({
+      key: 'occasione:spesa-civile',
+      title: `Al civile va il ${formatPercent(people.civilianShareOfSpendingPct, 0)} della spesa`,
+      domain: 'Popolo e benessere',
+      urgency: `Spesa civile ${formatPercent((people.socialBurdenPct ?? 0) + (people.educationBurdenPct ?? 0), 1)} del PIL contro ${formatPercent(people.defenceBurdenPct ?? 0, 1)} alla difesa.`,
+      action: 'Sposta spesa verso istruzione, sanità e sostegno: le fazioni civili lo chiedono.',
+      tone: 'warning',
+      section: 'politiche',
+    });
+  }
+
+  return items;
+}
+
+/**
  * La sintesi completa: giudizio, lista unica ordinata, prove del giudizio.
  *
  * L'ordinamento è stabile a parità di fascia — l'ordine di arrivo delle fonti
@@ -236,6 +343,7 @@ export function nationalSynthesis(input: {
     ...commitmentItems(input.commitments, input.today),
     ...projectItems(input.processes, input.today),
     ...pictureItems(input.picture),
+    ...opportunityItems(input.picture),
   ].sort((a, b) => a.rank - b.rank);
 
   const picture = input.picture;

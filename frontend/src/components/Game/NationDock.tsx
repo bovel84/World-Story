@@ -96,7 +96,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     budget, verdict, factions, modifiersActive, foodMonthly,
     clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue, provincesLabel,
     moneyDelta, pointDelta, countDelta, mkTrend,
-    materialRows, weaponsRows, armsSummary, armsSplit, lineSummary, playerPolityId, operatingPicture, synthesis,
+    materialRows, weaponsRows, armsSummary, armsSplit, lineSummary, playerPolityId, operatingPicture, synthesis, people,
   } = useNationDockModel(props);
 
   // COUNTRY-CLARITY: dal quadro d'insieme si salta alla sezione di dettaglio.
@@ -541,17 +541,21 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 <MetricGrid>
                   <Metric label="Pressione fiscale effettiva" value={formatPercent(budget.effectiveTaxRatePct, 1)} tone="neutral" hint="Entrate annue sul PIL" />
                   <Metric label="Spesa sociale" value={`${formatPercent(budget.socialBurdenPct, 1)} del PIL`} tone="neutral" hint="Sanità e sostegno sociale" />
-                  <Metric label="Istruzione e ricerca" value={`${formatPercent(budget.educationBurdenPct, 1)} del PIL`} tone="neutral" hint="Scuola, atenei e laboratori" />
-                  {/* La quota di difesa è la **stessa** `defenceBurdenPct` letta in
-                      «Pressione militare»: una cifra, un posto. Qui la ripartizione
-                      delle uscite rimanda là, dove l'apparato si vede nel dettaglio. */}
+                  {/* La spesa per istruzione e ricerca è la **stessa** cifra letta
+                      in «Investimento nel popolo» (D01: una cifra, un posto): qui
+                      il rimando, là il confronto con la difesa. */}
                   <Metric
-                    label="Difesa"
-                    value={`${formatPercent(budget.defenceBurdenPct, 1)} del PIL`}
-                    tone={defenceTone(budget.defenceBurdenPct)}
-                    hint="Voce di spesa: dettaglio in Armamenti"
-                    onClick={() => openSection('armamenti')}
+                    label="Istruzione e ricerca"
+                    value={`${formatPercent(budget.educationBurdenPct, 1)} del PIL`}
+                    tone="neutral"
+                    hint="Le vie civili: confronto in Conoscenze"
+                    onClick={() => openSection('conoscenze')}
                   />
+                  {/* La quota di difesa è la **stessa** `defenceBurdenPct` di
+                      «Spesa militare» (blocco «Pressione militare», più sopra in
+                      questa sezione) e la **stessa** riga «Difesa» della
+                      ripartizione qui sopra. Una cifra, un posto: qui non si
+                      ricopia — la ripartizione e la voce canonica la mostrano già. */}
                 </MetricGrid>
                 <Footnote><b>Come si legge</b> ogni voce è una ripartizione deterministica dei totali pubblicati dal motore, calcolata sui driver reali (fabbriche, porti, atenei, riserve, popolazione). La difesa è la quota esatta dichiarata dal conto; la somma delle voci è il totale. Nessun importo è stimato nel browser.</Footnote>
               </DossierBlock>
@@ -1012,6 +1016,67 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 <Metric label="Unità e forze" value={formatNumber(assets.forces)} hint={assets.baseForces > 0 ? `${formatNumber(assets.baseForces)} dal profilo del paese, ${formatNumber(Math.max(0, assets.forces - assets.baseForces))} dal mondo` : 'Reparti in servizio (dettaglio in Armamenti)'} />
               </MetricGrid>
               <Footnote><b>Fonte</b> conto nazionale; in mancanza, oggetti delle regioni possedute. Il PIL pro capite è nelle Politiche.</Footnote>
+            </DossierBlock>
+
+            {/* M03 — la dimensione civile aveva una metrica dove l'arsenale ne ha
+                otto blocchi. Qui ha il suo blocco: le voci che il motore pubblica
+                nel bilancio (istruzione e ricerca, sanità e sostegno) lette come
+                quello che sono — l'investimento nel popolo, non un residuo dopo
+                le armi. */}
+            <DossierBlock
+              title="Investimento nel popolo"
+              description={`Quanto lo Stato destina a istruzione, sanità e sostegno, e quanto alla difesa: due scelte dello stesso bilancio. ${MONEY_UNIT_NOTE}`}
+            >
+              {budget ? (
+                <>
+                  <MetricGrid>
+                    <Metric
+                      label="Istruzione e ricerca"
+                      value={`${formatPercent(budget.educationBurdenPct, 1)} del PIL`}
+                      tone={budget.educationBurdenPct >= 3 ? 'positive' : budget.educationBurdenPct > 0 ? 'neutral' : 'warning'}
+                      hint="Scuola, atenei e laboratori: è la via civile alla conoscenza"
+                    />
+                    <Metric
+                      label="Sanità e sostegno"
+                      value={`${formatPercent(budget.socialBurdenPct, 1)} del PIL`}
+                      tone={budget.socialBurdenPct >= 6 ? 'positive' : budget.socialBurdenPct > 0 ? 'neutral' : 'warning'}
+                      hint="Salute e sostegno sociale: è il tenore di vita che si può misurare"
+                    />
+                    {/* La spesa militare è la **stessa** cifra letta in «Spesa
+                        militare» (Cassa, dove è canonica) e nella ripartizione del
+                        bilancio. Una cifra, un posto: qui è il termine di paragone
+                        del confronto, e il rimando porta alla voce canonica. */}
+                    <Metric
+                      label="Quanto alle armi"
+                      value={`${formatPercent(budget.defenceBurdenPct, 1)} del PIL`}
+                      tone={budget.defenceBurdenPct >= 8 ? 'warning' : 'neutral'}
+                      hint="La voce canonica è in Cassa: qui è il termine di paragone"
+                      onClick={() => openSection('bilancio')}
+                    />
+                    <Metric
+                      label="Quota al civile"
+                      value={people.civilianShareOfSpendingPct === null ? '—' : formatPercent(people.civilianShareOfSpendingPct, 0)}
+                      tone={people.civilianShareOfSpendingPct === null ? 'neutral' : people.civilianShareOfSpendingPct >= 60 ? 'positive' : people.civilianShareOfSpendingPct >= 40 ? 'warning' : 'negative'}
+                      hint={people.civilianShareOfSpendingPct === null
+                        ? 'Il motore non pubblica insieme spesa civile e difesa'
+                        : 'Della spesa dichiarata, quanta va al popolo invece che alle armi'}
+                    />
+                  </MetricGrid>
+                  <ul className="nation-civil-lines">
+                    {budget.expense
+                      .filter(line => line.id === 'education' || line.id === 'health' || line.id === 'social' || line.id === 'infrastructure')
+                      .map(line => (
+                        <li key={line.id}>
+                          <span>{line.label}</span>
+                          <b>{formatBillions(line.amount)}</b>
+                        </li>
+                      ))}
+                  </ul>
+                </>
+              ) : (
+                <EmptyState>Questo scenario non pubblica il dettaglio del bilancio: l&apos;investimento nel popolo non è misurabile.</EmptyState>
+              )}
+              <Footnote><b>Come si legge</b> non è una classifica morale: sono le due scelte che lo stesso bilancio deve fare. Una nazione che arma e non istruisce non è più forte — è più fragile, perché la ricerca cresce solo con gli atenei.</Footnote>
             </DossierBlock>
           </>
         )}

@@ -11,6 +11,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { advisorApi, type AdvisorHistoryItem } from '../../services/api';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import { useChatStore } from '../../stores';
+import { RichText } from './RichText';
 
 interface AdvisorChatProps {
   gameId: string;
@@ -116,7 +117,13 @@ export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId }) => {
                     <span className="advisor-typing"><i></i><i></i><i></i></span>
                   ) : (
                     <>
-                      {m.content}
+                      {/* Il prompt chiede al modello titoli, grassetto ed elenchi.
+                          Prima li vedevi grezzi («**così**», «## titolo»): ora la
+                          risposta è resa come documento. Il messaggio del governo
+                          resta testo semplice: lo scrive il giocatore. */}
+                      {m.role === 'assistant'
+                        ? <RichText text={m.content} />
+                        : m.content}
                       {isStreamingThis && <span className="stream-cursor">▌</span>}
                     </>
                   )}

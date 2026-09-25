@@ -23,6 +23,7 @@ const SOURCE_LABEL: Record<SynthesisItem['source'], string> = {
   impegno: 'Impegno',
   progetto: 'Progetto',
   sintesi: 'Quadro',
+  occasione: 'Occasione',
 };
 
 export interface NationalSynthesisPanelProps {
@@ -62,29 +63,66 @@ export const NationalSynthesisPanel: React.FC<NationalSynthesisPanelProps> = ({
           Nulla richiede la tua attenzione adesso: nessuna crisi, nessuna scadenza aperta.
         </p>
       ) : (
-        <ol className="nation-synthesis-items">
-          {items.map(item => (
-            <li key={item.key} className={`tone-${cssTone(item.tone)}`}>
-              <div className="nation-synthesis-head">
-                <span className="nation-synthesis-source">{SOURCE_LABEL[item.source]}</span>
-                <b>{item.title}</b>
-                <span className="nation-synthesis-domain">{item.domain}</span>
-              </div>
-              <p className="nation-synthesis-urgency">{item.urgency}</p>
-              {/* 3. L'azione minima. */}
-              <p className="nation-synthesis-action"><span aria-hidden="true">→</span> {item.action}</p>
-              {onOpenSection && (
-                <button
-                  type="button"
-                  className="nation-synthesis-open"
-                  onClick={() => onOpenSection(item.section)}
-                >
-                  Apri il dettaglio
-                </button>
-              )}
-            </li>
-          ))}
-        </ol>
+        <>
+          <ol className="nation-synthesis-items">
+            {items.filter(item => !item.opportunity).map(item => (
+              <li key={item.key} className={`tone-${cssTone(item.tone)}`}>
+                <div className="nation-synthesis-head">
+                  <span className="nation-synthesis-source">{SOURCE_LABEL[item.source]}</span>
+                  <b>{item.title}</b>
+                  <span className="nation-synthesis-domain">{item.domain}</span>
+                </div>
+                <p className="nation-synthesis-urgency">{item.urgency}</p>
+                {/* 3. L'azione minima. */}
+                <p className="nation-synthesis-action"><span aria-hidden="true">→</span> {item.action}</p>
+                {onOpenSection && (
+                  <button
+                    type="button"
+                    className="nation-synthesis-open"
+                    onClick={() => onOpenSection(item.section)}
+                  >
+                    Apri il dettaglio
+                  </button>
+                )}
+              </li>
+            ))}
+          </ol>
+
+          {/* M02 — le occasioni, in un blocco **separato**: un'occasione non è una
+              cosa da fare, è una cosa che si può fare. Tenerle distinte evita che
+              un invito allo sviluppo sembri una crisi da risolvere. Se non ce ne
+              sono, il blocco non compare. */}
+          {items.some(item => item.opportunity) && (
+            <section className="nation-synthesis-opportunities" aria-label="Occasioni di sviluppo">
+              <h4 className="nation-synthesis-opportunities-title">Occasioni</h4>
+              <p className="nation-synthesis-opportunities-note">
+                Non c'è urgenza: sono le vie aperte, se vuoi investire nel paese.
+              </p>
+              <ul className="nation-synthesis-items">
+                {items.filter(item => item.opportunity).map(item => (
+                  <li key={item.key} className={`tone-${cssTone(item.tone)}`}>
+                    <div className="nation-synthesis-head">
+                      <span className="nation-synthesis-source">{SOURCE_LABEL[item.source]}</span>
+                      <b>{item.title}</b>
+                      <span className="nation-synthesis-domain">{item.domain}</span>
+                    </div>
+                    <p className="nation-synthesis-urgency">{item.urgency}</p>
+                    <p className="nation-synthesis-action"><span aria-hidden="true">→</span> {item.action}</p>
+                    {onOpenSection && (
+                      <button
+                        type="button"
+                        className="nation-synthesis-open"
+                        onClick={() => onOpenSection(item.section)}
+                      >
+                        Apri il dettaglio
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </>
       )}
     </section>
   );
