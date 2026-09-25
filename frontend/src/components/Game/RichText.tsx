@@ -6,6 +6,8 @@
  */
 import React from 'react';
 import { parseBlocks, type InlineNode } from './richTextModel';
+import { chartFor, type ChartDataInput } from './advisorCharts';
+import { AdvisorChart } from './AdvisorChart';
 
 /** Rende i nodi in linea: grassetto, corsivo, codice, testo. */
 function Inline({ nodes }: { nodes: InlineNode[] }) {
@@ -21,8 +23,15 @@ function Inline({ nodes }: { nodes: InlineNode[] }) {
   );
 }
 
-/** Rende il testo del Consulente come documento leggibile. */
-export function RichText({ text }: { text: string }) {
+/**
+ * Rende il testo del Consulente come documento leggibile.
+ *
+ * `chartData` è ciò che rende possibile il blocco grafico: se c'è, un
+ * `[[chart: tipo]]` diventa una figura costruita sui **dati del motore**. Se
+ * manca (o il tipo è ignoto, o non c'è nulla da mostrare), il blocco **non si
+ * rende** — meglio il testo del Consulente che una figura vuota o inventata.
+ */
+export function RichText({ text, chartData }: { text: string; chartData?: ChartDataInput | null }) {
   const blocks = parseBlocks(text);
   return (
     <div className="rich-text">
@@ -43,6 +52,12 @@ export function RichText({ text }: { text: string }) {
           return <blockquote key={i} className="rich-quote"><Inline nodes={block.inlines} /></blockquote>;
         }
         if (block.kind === 'rule') return <hr key={i} className="rich-rule" />;
+        if (block.kind === 'chart') {
+          const figure = chartData ? chartFor(block.chartKind, chartData) : null;
+          // Nessun dato o tipo ignoto: il blocco non si rende. Non si disegna una
+          // figura con numeri che non vengono dal motore.
+          return figure ? <AdvisorChart key={i} figure={figure} /> : null;
+        }
         return <p key={i} className="rich-paragraph"><Inline nodes={block.inlines} /></p>;
       })}
     </div>

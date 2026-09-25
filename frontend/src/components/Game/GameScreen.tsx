@@ -478,6 +478,8 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             snapshotKey={snapshotKey}
             tradeResource={nation.tradeNaturalResource}
             nationalHistory={nation.nationalHistory}
+            // C01: gli asset territoriali canonici servono ai grafici del Consulente.
+            worldMapAssets={nation.worldMapAssets}
             nationalGovernment={nation.nationalGovernment}
             nationalFiscalPolicy={nation.nationalFiscalPolicy}
             onSetFiscalPolicy={nation.setFiscalPolicy}

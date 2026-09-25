@@ -5,6 +5,7 @@ import { ChatsPanel } from '../Game/ChatsPanel';
 import { EventFeed } from '../Game/EventFeed';
 import { DiplomacyPanel } from '../Game/DiplomacyPanel';
 import { NationDock } from '../Game/NationDock';
+import type { ChartDataInput } from '../Game/advisorCharts';
 import { EmptyState } from '../Game/NationDock/widgets';
 import type { NationResources } from '../Game/NationDock';
 import type { ArsenalResponse, Commitment, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, GovernmentVoicesResponse, PeacetimePressure, PowerAgenda } from '../../services/api';
@@ -44,6 +45,8 @@ interface DeskContentProps {
   snapshotKey?: string;
   tradeResource?: (mode: 'sell' | 'buy', resourceId: string, quantity: number) => Promise<void>;
   nationalHistory?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
+  /** C01 — i dati territoriali canonici, per i grafici del Consulente. */
+  worldMapAssets?: import('../../services/api').WorldMapAssetsPayload | null;
   /** Anime del governo e dettaglio del bilancio pubblicati dal motore. */
   nationalGovernment?: GovernmentSnapshot | null;
   /** Trasforma la richiesta di una fazione in una bozza d'ordine. */
@@ -132,6 +135,7 @@ export function DeskContent({
   snapshotKey,
   tradeResource,
   nationalHistory = [],
+  worldMapAssets = null,
   nationalGovernment = null,
   onDraftGovernmentPetition,
   governmentVoices = null,
@@ -366,10 +370,23 @@ export function DeskContent({
 
   // Modulo Consulente
   if (activeModule === 'advisor' && currentGame) {
+    // C01 — i dati su cui il Consulente può costruire una figura. Sono gli stessi
+    // read model che il dossier già usa (conto, bilancio, storico, asset
+    // territoriali): nessuna chiamata in più, nessuna cifra dal modello.
+    const chartData: ChartDataInput = {
+      regions: currentWorld?.regions ? Object.values(currentWorld.regions) as Region[] : [],
+      account: nationalAccount,
+      resources: nationalResources,
+      budget: nationalGovernment?.budget ?? null,
+      history: nationalHistory,
+      facilities: worldMapAssets?.facilities ?? [],
+      resourceSites: worldMapAssets?.resources ?? [],
+      playerPolityId,
+    };
     return (
       <div className="advisor-chat-wrap" style={{ position: 'relative', height: '100%' }}>
         <button type="button" className="desk-close-x" onClick={closeModule} aria-label="Chiudi consulente" title="Chiudi">✕</button>
-        <AdvisorChat gameId={currentGame.id} />
+        <AdvisorChat gameId={currentGame.id} chartData={chartData} />
       </div>
     );
   }

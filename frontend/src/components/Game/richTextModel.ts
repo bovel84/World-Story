@@ -29,7 +29,13 @@ export type BlockNode =
   | { kind: 'paragraph'; inlines: InlineNode[] }
   | { kind: 'list'; ordered: boolean; items: InlineNode[][] }
   | { kind: 'quote'; inlines: InlineNode[] }
-  | { kind: 'rule' };
+  | { kind: 'rule' }
+  /**
+   * C01 — il Consulente chiede una figura. Il blocco porta **solo il tipo**: le
+   * cifre le mette il frontend dai dati del motore (`advisorCharts.ts`). Un
+   * grafico disegnato su numeri del modello sarebbe verosimile e falso.
+   */
+  | { kind: 'chart'; chartKind: string };
 
 /**
  * Interpreta il testo in linea: `**grassetto**`, `*corsivo*` / `_corsivo_`,
@@ -97,6 +103,15 @@ export function parseBlocks(source: string): BlockNode[] {
 
     // Divisore orizzontale: una riga di soli trattini/asterischi.
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) { flushAll(); blocks.push({ kind: 'rule' }); continue; }
+
+    // C01 — il Consulente chiede una figura. Sintassi: una riga sola,
+    // `[[chart: tipo]]`. Il tipo è validato qui; le cifre le mette il frontend.
+    const chart = /^\[\[\s*chart\s*:\s*([a-zA-Z_]+)\s*\]\]$/.exec(trimmed);
+    if (chart) {
+      flushAll();
+      blocks.push({ kind: 'chart', chartKind: chart[1].toLowerCase() });
+      continue;
+    }
 
     const heading = /^(#{1,4})\s+(.*)$/.exec(trimmed);
     if (heading) {
