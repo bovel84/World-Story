@@ -55,3 +55,10 @@ playwright-report/
 
 # Copia del binario nativo durante lo sviluppo (better-sqlite3): non è codice
 backend-nest/.native-backup/
+
+# Preset sintetici dei test: vengono scritti in data/presets/ (è il percorso che
+# l'handler reale legge) e rimossi a fine run. Se un run viene interrotto —
+# timeout, Ctrl-C, crash — la cartella resta: non deve finire nel repository.
+# Il prefisso è quello di `map-complete-route.test.ts`.
+backend-nest/data/presets/mapcomplete*/
+data/presets/mapcomplete*/
