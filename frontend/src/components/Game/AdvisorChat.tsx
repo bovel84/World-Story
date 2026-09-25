@@ -11,15 +11,22 @@ import React, { useEffect, useRef, useState } from 'react';
 import { advisorApi, type AdvisorHistoryItem } from '../../services/api';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import { useChatStore } from '../../stores';
+import { RichText } from './RichText';
+import type { ChartDataInput } from './advisorCharts';
 
 interface AdvisorChatProps {
   gameId: string;
+  /**
+   * C01 — i dati su cui il Consulente può costruire una figura. Vengono dal
+   * motore e dalla mappa: il modello chiede **cosa** mostrare, mai le cifre.
+   */
+  chartData?: ChartDataInput | null;
 }
 
 /** Quanti ultimi messaggi del dialogo inviamo come contesto */
 const HISTORY_LIMIT = 20;
 
-export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId }) => {
+export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId, chartData }) => {
   const {
     advisorMessages, advisorStreaming,
     addAdvisorMessage, appendToLastAdvisorMessage, setAdvisorStreaming,
@@ -116,7 +123,13 @@ export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId }) => {
                     <span className="advisor-typing"><i></i><i></i><i></i></span>
                   ) : (
                     <>
-                      {m.content}
+                      {/* Il prompt chiede al modello titoli, grassetto ed elenchi.
+                          Prima li vedevi grezzi («**così**», «## titolo»): ora la
+                          risposta è resa come documento. Il messaggio del governo
+                          resta testo semplice: lo scrive il giocatore. */}
+                      {m.role === 'assistant'
+                        ? <RichText text={m.content} chartData={chartData} />
+                        : m.content}
                       {isStreamingThis && <span className="stream-cursor">▌</span>}
                     </>
                   )}

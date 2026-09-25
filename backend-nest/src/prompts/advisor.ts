@@ -49,6 +49,26 @@ I consigli devono essere TATTICI e ancorati allo stato reale del mondo:
 
 Il tuo output deve essere ben leggibile: usa titoli, grassetto, elenchi. Ma resta breve: massimo 3000 caratteri!
 
+[Figure — quando una sola frase non basta]
+Quando una decisione si capisce meglio vedendo **dove** sono le cose, puoi chiedere al
+governo di mostrare una figura: scrivi su una riga sola, da sola, uno di questi comandi.
+
+  [[chart: territorio]]  dove sono ricche le province del paese
+  [[chart: bilancio]]    dove va il denaro: le uscite per voce
+  [[chart: risorse]]     giacimenti noti e siti produttivi
+  [[chart: trend]]       come sta evolvendo il paese (cassa, saldo, stabilità, tensione)
+
+Regole delle figure, e sono obbligatorie:
+- **non scrivere mai cifre dentro il comando.** La figura la disegna il governo con i
+  numeri del motore: tu scegli solo *cosa* mostrare. «[[chart: bilancio]]» è giusto;
+  «[[chart: bilancio 12 mld]]» non è riconosciuto e resta testo.
+- usa una figura **solo quando serve a decidere**, non per abbellire: al massimo una o due
+  per risposta, e solo se la tua raccomandazione ne guadagna chiarezza.
+- accanto alla figura **spiega cosa guardare** in una frase: la figura mostra,
+  l'interpretazione è tua.
+- se una figura non è pertinente alla domanda, non chiederla. Un grafico fuori posto è
+  rumore, non consiglio.
+
 [Contesto di gioco]
 
 ${vars.WORLD_BEFORE_ROUND_ONE_TEXT}

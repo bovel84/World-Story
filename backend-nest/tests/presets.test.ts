@@ -94,25 +94,32 @@ afterAll(() => {
 });
 
 describe('Этап 5: каталог пресетов', () => {
-  it('listPresets видит новые штатные пакеты europa_1815 и mondo_1989 как source=preset', () => {
+  it('listPresets vede i pacchetti provinciali come source=preset, senza duplicati', () => {
+    // P01 — i mondi giocabili sono a province complete. `europa_1815` e
+    // `mondo_1989` (mappa «standard»: una regione per nazione) sono stati
+    // eliminati; la verifica ora copre i pacchetti provinciali rimasti.
     const presets = presetLoader.listPresets();
     const byId = new Map(presets.map(p => [p.id, p]));
 
-    const europa = byId.get('europa_1815');
-    const mondo = byId.get('mondo_1989');
+    for (const id of ['europa_1914', 'mondo_1936', 'millennium_dawn', 'pax_modern_provinces']) {
+      const preset = byId.get(id);
+      expect(preset, `${id} mancante`).toBeDefined();
+      expect(preset!.source).toBe('preset');
+      // Un pacchetto è unico nel listino — senza duplicati
+      expect(presets.filter(p => p.id === id)).toHaveLength(1);
+    }
+    // rules.md e lore.md vengono raccolti dal pacchetto
+    const europa = byId.get('europa_1914')!;
+    expect(europa.simulation_rules).toBeTruthy();
+    expect(europa.lore).toBeTruthy();
+    const mondo = byId.get('mondo_1936')!;
+    expect(mondo.simulation_rules).toBeTruthy();
+    expect(mondo.lore).toBeTruthy();
 
-    expect(europa).toBeDefined();
-    expect(mondo).toBeDefined();
-    expect(europa!.source).toBe('preset');
-    expect(mondo!.source).toBe('preset');
-    // Un pachetto è unico nel listino — senza duplicati
-    expect(presets.filter(p => p.id === 'europa_1815')).toHaveLength(1);
-    expect(presets.filter(p => p.id === 'mondo_1989')).toHaveLength(1);
-    // rules.md и lore.md подхвачены пакетом
-    expect(europa!.simulation_rules).toBeTruthy();
-    expect(europa!.lore).toBeTruthy();
-    expect(mondo!.simulation_rules).toBeTruthy();
-    expect(mondo!.lore).toBeTruthy();
+    // P01 — i preset eliminati non compaiono più nel listino.
+    for (const gone of ['europa_1815', 'mondo_1989', 'paxh_ww2_provinces']) {
+      expect(byId.has(gone), `${gone} non deve più essere un preset`).toBe(false);
+    }
   });
 
   it('loadPreset парсит легаси-формат со строковыми country_codes', () => {

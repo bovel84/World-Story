@@ -18,11 +18,20 @@ import fs from 'fs';
 import path from 'path';
 import { hasProvinceFeatures, type MapFeature } from './map-detail';
 
+/**
+ * P01 — i mondi giocabili sono **a province complete**. Le mappe native
+ * selezionabili sono perciò solo quelle provinciali, più la base geografica
+ * (`standard`) usata come ripiego quando un preset non dichiara altro.
+ *
+ * `paxh_ww2_provinces` era una mappa **nazionale** (223 Stati, 0 province) pur
+ * avendo «provinces» nel nome: è stata tolta dall'elenco. Il suo GeoJSON resta
+ * su disco in `data/geojson/ww2_nations.geojson` come archivio, non più
+ * selezionabile: permetterebbe di generare proprio un mondo non provinciale.
+ */
 export type NativeMapId =
   | 'standard'
   | 'modern_world_provinces'
-  | 'pax_modern_provinces'
-  | 'paxh_ww2_provinces';
+  | 'pax_modern_provinces';
 
 export interface NativeMapDefinition {
   id: NativeMapId;
@@ -40,7 +49,6 @@ export const NATIVE_MAPS: readonly NativeMapDefinition[] = [
   { id: 'standard', label: 'Mappa mondiale standard', file: path.join('data', 'geojson', 'countries.geojson') },
   { id: 'modern_world_provinces', label: 'Mondo Provinciale Moderno', file: path.join('data', 'presets', 'modern_world_provinces', 'map.geojson') },
   { id: 'pax_modern_provinces', label: 'Mondo Pax — Province complete', file: path.join('data', 'presets', 'pax_modern_provinces', 'map.geojson') },
-  { id: 'paxh_ww2_provinces', label: 'Mondo WW2 (Pax Historia)', file: path.join('data', 'presets', 'paxh_ww2_provinces', 'map.geojson') },
 ];
 
 const BY_ID = new Map<string, NativeMapDefinition>(NATIVE_MAPS.map(m => [m.id, m]));

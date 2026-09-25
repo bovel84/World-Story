@@ -106,9 +106,12 @@ function modernInput(overrides: Partial<OperatingPictureInput> = {}): OperatingP
 }
 
 describe('COUNTRY-CLARITY · sala operativa nazionale', () => {
-  it('compone i cinque domini nello stesso ordine del modello mentale', () => {
+  it('compone i sei domini nello stesso ordine del modello mentale', () => {
     const picture = nationalOperatingPicture(modernInput());
-    expect(picture.domains.map(domain => domain.id)).toEqual(['economia', 'risorse', 'industria', 'militare', 'governo']);
+    // M01: erano cinque. «Popolo» si inserisce fra le forze armate e il governo:
+    // prima si legge ciò che il paese ha (economia, risorse, industria, armi),
+    // poi per chi lo ha (il popolo), poi chi lo governa.
+    expect(picture.domains.map(domain => domain.id)).toEqual(['economia', 'risorse', 'industria', 'militare', 'popolo', 'governo']);
     expect(picture.status).toBe(worstStatus(picture.domains.map(domain => domain.status)));
     expect(picture.summary).toContain(DOMAIN_STATUS_LABEL[picture.status]);
     expect(picture.domains.every(domain => domain.facts.length === 4)).toBe(true);

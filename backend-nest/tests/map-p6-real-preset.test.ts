@@ -310,7 +310,11 @@ describe('MAP P6.2 — endpoint su partita della mappa moderna', () => {
 
   it('gli altri preset reali restano non migrati: dichiarato, non silenzioso', async () => {
     const { loadSimulationCatalog } = await import('../src/scenario/loader');
-    for (const preset of ['mondo_1936', 'mondo_1989', 'europa_1914', 'europa_1815', 'pax_modern_provinces', 'paxh_ww2_provinces']) {
+    // P01 — `mondo_1989`, `europa_1815` e il preset `paxh_ww2_provinces` sono stati
+    // eliminati (mondi non provinciali): restano i preset reali **senza catalogo**
+    // (`simulation/`). `millennium_dawn` e `modern_world_provinces` hanno il loro
+    // catalogo e sono verificati altrove: metterli qui asserirebbe il falso.
+    for (const preset of ['mondo_1936', 'europa_1914', 'pax_modern_provinces']) {
       const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', preset));
       expect(loaded.catalog, preset).toBeNull();
       expect(loaded.report.warnings.map(item => item.code), preset).toContain('no_catalog');

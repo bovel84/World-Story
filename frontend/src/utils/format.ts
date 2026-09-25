@@ -64,9 +64,25 @@ export function formatPercent(value: number | null | undefined, decimals = 0): s
 
 /** Data ISO (YYYY-MM-DD) letta come calendario di simulazione. */
 export function formatDate(iso?: string | null): string {
-  if (!iso) return '—';
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!m) return iso;
+  return formatDateOr(iso, '—');
+}
+
+/**
+ * N08 — unica implementazione della data breve del dossier.
+ *
+ * Il Dossier (`NationDock/format.ts`) aveva una **seconda** copia di questa
+ * funzione, identica nella regola e diversa solo nel fallback («Data non
+ * pubblicata» invece di «—»). Due copie della stessa regola divergono: qui la
+ * regola è una sola e il fallback è un **parametro**, così ogni chiamante
+ * dichiara il proprio senza riscriverla.
+ *
+ * La lettura è sempre a calendario: la data ISO si interpreta come giorno di
+ * simulazione, mai come timestamp locale (`new Date('1951-01-01')` darebbe UTC e
+ * in un fuso a ovest slitterebbe di un giorno — difetto documentato in HudBar).
+ */
+export function formatDateOr(iso: string | null | undefined, fallback: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+  if (!m) return iso ? String(iso) : fallback;
   const months = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
   return `${Number(m[3])} ${months[Number(m[2]) - 1]} ${m[1]}`;
 }

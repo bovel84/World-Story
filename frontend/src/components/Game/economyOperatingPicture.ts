@@ -8,7 +8,8 @@
  * Diagnosi in una riga, deterministica: avanzo o disavanzo, quanto pesa e che
  * conseguenza ha sul debito. Nessun testo generato da un modello.
  */
-import { formatMoney, formatPercent } from '../../utils/format';
+import { formatPercent } from '../../utils/format';
+import { money } from './NationDock/format';
 import type { NationAccount, NationResources, HistoryPoint } from './NationDock/types';
 import type { NationalBudgetDetail } from '../../services/api';
 import type { Tone } from './NationDock/types';
@@ -55,7 +56,7 @@ export interface EconomyInput {
   debtServicePct?: number | null;
 }
 
-const mld = (value: number | null): string => (value === null ? '—' : formatMoney(value, { currency: 'mld', decimals: 2, sign: true }));
+const mld = (value: number | null): string => (value === null ? '—' : money(value, 2, { sign: true }));
 
 /** Variazione fra l'ultimo punto di storico e il precedente, se ci sono. */
 function historyTrend(history: HistoryPoint[] | undefined, pick: (account: any) => unknown): { delta: number; tone: Tone } | null {
@@ -112,7 +113,7 @@ export function economyOperatingPicture(input: EconomyInput): EconomyPicture {
     drivers.push({
       tone: debtRatioPct >= 120 ? 'critical' : debtRatioPct >= 80 ? 'warning' : 'neutral',
       label: `Debito al ${formatPercent(debtRatioPct, 0)} del PIL`,
-      detail: `${formatMoney(debt, { currency: 'mld', decimals: 0 })} in essere${creditHeadroom !== null ? `, ${formatMoney(creditHeadroom, { currency: 'mld', decimals: 0 })} di credito residuo` : ''}`
+      detail: `${money(debt, 0)} in essere${creditHeadroom !== null ? `, ${money(creditHeadroom, 0)} di credito residuo` : ''}`
         + (debtTrend ? ` · ${debtTrend.delta > 0 ? 'in aumento' : debtTrend.delta < 0 ? 'in calo' : 'stabile'} rispetto al turno precedente.` : '.'),
     });
   } else if (debt === 0) {
@@ -122,20 +123,20 @@ export function economyOperatingPicture(input: EconomyInput): EconomyPicture {
   if (debtServicePct !== null && annualInterest !== null && debtServicePct >= 8) {
     drivers.push({
       tone: debtServicePct >= 20 ? 'critical' : 'warning',
-      label: `Interessi ${formatMoney(annualInterest, { currency: 'mld', decimals: 1 })}/anno`,
+      label: `Interessi ${money(annualInterest, 1)}/anno`,
       detail: `Pari al ${formatPercent(debtServicePct, 1)} delle entrate annue.`,
     });
   }
 
   if (treasury !== null && treasury < 0) {
-    drivers.push({ tone: 'critical', label: 'Cassa negativa', detail: `Scoperto di ${formatMoney(Math.abs(treasury), { currency: 'mld', decimals: 2 })}: è debito, non una riserva.` });
+    drivers.push({ tone: 'critical', label: 'Cassa negativa', detail: `Scoperto di ${money(Math.abs(treasury), 2)}: è debito, non una riserva.` });
   } else if (treasuryMonths !== null && treasuryMonths < 1) {
     drivers.push({ tone: 'warning', label: 'Cassa sotto il mese di spesa', detail: `La tesoreria copre ${treasuryMonths} mesi di uscite.` });
   } else if (treasuryMonths !== null) {
     drivers.push({
       tone: 'positive',
       label: `Cassa: ${treasuryMonths} mesi di spesa`,
-      detail: `Riserva di ${formatMoney(treasury ?? 0, { currency: 'mld', decimals: 2 })}`
+      detail: `Riserva di ${money(treasury ?? 0, 2)}`
         + (treasuryTrend ? `, ${treasuryTrend.delta > 0 ? 'in aumento' : treasuryTrend.delta < 0 ? 'in calo' : 'stabile'}.` : '.'),
     });
   }
@@ -167,7 +168,7 @@ export function economyOperatingPicture(input: EconomyInput): EconomyPicture {
     ? 'Il conto nazionale non è pubblicato per questa partita.'
     : balance >= 0
       ? `Lo Stato incassa ${mld(balance)} più di quanto spende ogni mese.`
-      : `Lo Stato spende ${formatMoney(Math.abs(balance), { currency: 'mld', decimals: 2 })} più di quanto incassa ogni mese.`;
+      : `Lo Stato spende ${money(Math.abs(balance), 2)} più di quanto incassa ogni mese.`;
 
   const diagnosis: EconomyDiagnosis = balance === null
     ? { tone: 'neutral', title: 'BILANCIO NON DISPONIBILE', detail: 'Il motore non pubblica entrate e uscite: nessuna diagnosi possibile.' }
@@ -175,16 +176,16 @@ export function economyOperatingPicture(input: EconomyInput): EconomyPicture {
       ? {
         tone: (deficitPctOfExpense ?? 0) >= 10 ? 'warning' : 'neutral',
         title: 'DISAVANZO PERSISTENTE',
-        detail: `La spesa supera le entrate di ${formatMoney(Math.abs(balance), { currency: 'mld', decimals: 2 })} al mese. `
+        detail: `La spesa supera le entrate di ${money(Math.abs(balance), 2)} al mese. `
           + (debt !== null && debt > 0
-            ? `Il debito cresce quindi di circa ${formatMoney(Math.abs(balance), { currency: 'mld', decimals: 1 })} al mese.`
-            : `La cassa scende di ${formatMoney(Math.abs(balance), { currency: 'mld', decimals: 1 })} al mese.`)
+            ? `Il debito cresce quindi di circa ${money(Math.abs(balance), 1)} al mese.`
+            : `La cassa scende di ${money(Math.abs(balance), 1)} al mese.`)
           + (debtServicePct !== null && debtServicePct >= 8 ? ` Gli interessi assorbono già il ${formatPercent(debtServicePct, 1)} delle entrate.` : ''),
       }
       : {
         tone: 'positive',
         title: 'AVANZO',
-        detail: `Le entrate superano le uscite di ${formatMoney(Math.abs(balance), { currency: 'mld', decimals: 2 })} al mese. `
+        detail: `Le entrate superano le uscite di ${money(Math.abs(balance), 2)} al mese. `
           + (debt !== null && debt > 0 ? 'Il debito può quindi essere ridotto invece di crescere.' : 'Il paese non ha bisogno di nuovo debito per chiudere i conti.'),
       };
 

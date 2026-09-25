@@ -15,12 +15,19 @@
  *    a un'altra polis: il bollettino nazionale si nasconde.
  */
 import type { Game, Region } from '../../types';
+import { resolvePolityName } from './polityName';
 
 export interface NationalContextInput {
   regions: Region[];
   currentGame: Game | null | undefined;
   selectedRegion: string | null | undefined;
   nationalAccounts: Record<string, any>;
+  /**
+   * N01 — nomi pubblici delle polity dal motore (`GET /:id/relationships`).
+   * È l'unica fonte del nome della nazione: dalla geografia si ricaverebbe il
+   * nome di una provincia.
+   */
+  relationshipNames?: Record<string, string> | null;
 }
 
 export interface NationalContext {
@@ -32,7 +39,11 @@ export interface NationalContext {
   nationalRegions: Region[];
   /** Regione di riferimento della nazione (capitale o prima posseduta). */
   nationalReference: Region | undefined;
-  /** Nome leggibile della nazione. */
+  /**
+   * Nome leggibile della nazione: quello pubblicato dal motore, o stringa vuota
+   * quando il motore non lo pubblica. Mai un codice, mai il nome di una
+   * provincia: la UI dichiara l'assenza (N01).
+   */
   nationalName: string;
   /** Conto nazionale aggregato dal motore per la polis del giocatore. */
   nationalAccount: any;
@@ -40,7 +51,7 @@ export interface NationalContext {
   nationalPopulation: number;
   estimatedRevenue: number;
   estimatedExpenses: number;
-  /** Forma di governo: dal motore, da una mappa nota o dal default. */
+  /** Forma di governo pubblicata dal motore; vuota se il motore non la dichiara. */
   governmentType: string;
   /** Regione capitale del giocatore. */
   playerRegionId: string | null;
@@ -48,22 +59,12 @@ export interface NationalContext {
   externalRegionSelected: boolean;
 }
 
-const GOVERNMENT_TYPES: Record<string, string> = {
-  PSE: 'Autorità nazionale palestinese',
-  USA: 'Repubblica federale presidenziale',
-  RUS: 'Repubblica federale presidenziale',
-  CHN: 'Repubblica popolare a partito unico',
-  GBR: 'Monarchia parlamentare',
-  FRA: 'Repubblica semipresidenziale',
-  DEU: 'Repubblica federale parlamentare',
-  ITA: 'Repubblica parlamentare',
-};
-
 export function deriveNationalContext({
   regions,
   currentGame,
   selectedRegion,
   nationalAccounts,
+  relationshipNames,
 }: NationalContextInput): NationalContext {
   const currentRegion = regions.find(r => r.id === selectedRegion);
   const playerRegionIdRaw = currentGame?.players?.[0]?.regionId;
@@ -74,13 +75,24 @@ export function deriveNationalContext({
     ?? 'player';
   const nationalRegions = regions.filter(region => region.owner === playerPolityId);
   const nationalReference = nationalRegions.find(region => region.id === playerRegionIdRaw) || nationalRegions[0];
-  const nationalName = nationalReference?.polityName || nationalReference?.name || playerPolityId;
+  // N01 — il nome è **solo** quello che il motore pubblica. `nationalReference`
+  // resta per la mappa e per il territorio, non per il nome: il suo `name` su un
+  // mondo provinciale è «Alaska».
+  const nationalName = resolvePolityName({
+    polityId: playerPolityId,
+    authoritativeName: relationshipNames?.[playerPolityId] ?? null,
+  });
   const nationalAccount = nationalAccounts[playerPolityId];
   const nationalGdp = Number(nationalAccount?.nominalGdpUsdBillions ?? nationalRegions.reduce((sum, region) => sum + Number(region.gdp || 0), 0));
   const nationalPopulation = Number(nationalAccount?.population ?? nationalRegions.reduce((sum, region) => sum + Number(region.population || 0), 0));
   const estimatedRevenue = Number(nationalAccount?.monthlyRevenue ?? 0);
   const estimatedExpenses = Number(nationalAccount?.monthlyExpenses ?? 0);
-  const governmentType = nationalAccount?.government || GOVERNMENT_TYPES[playerPolityId] || 'Repubblica presidenziale';
+  // N4/N7 — la forma di governo è quella che il motore dichiara per **questa**
+  // polity. Niente mappa di otto paesi nel client e niente default «Repubblica
+  // presidenziale»: se il conto tace, il dossier dichiara l'assenza. Il motore
+  // pubblica «Forma di governo non registrata» quando non conosce il paese, e
+  // anche quella è una dichiarazione, non un'invenzione del client.
+  const governmentType = typeof nationalAccount?.government === 'string' ? nationalAccount.government : '';
   const playerRegionId = playerRegionIdRaw || nationalReference?.id || null;
   // Provincia esterna selezionata: il bollettino nazionale si nasconde, resta solo il dettaglio provincia.
   const externalRegionSelected = Boolean(currentRegion && currentRegion.id !== playerRegionId && currentRegion.owner !== playerPolityId);

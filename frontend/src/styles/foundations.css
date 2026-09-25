@@ -2084,6 +2084,120 @@
 .advisor-entry.user .entry-text { background: #493b87; color: #fff; }
 .advisor-entry.assistant .entry-text { border: 1px solid #2a3a52; border-left: 3px solid #8a72e5; background: #182842; color: #edf4ff; }
 
+/* Resa leggibile del testo del Consulente -------------------------------
+   Il modello scrive con titoli, grassetto ed elenchi: qui si vedono per
+   quello che sono, invece degli asterischi grezzi. Il testo del governo
+   (messaggio del giocatore) resta testo semplice. */
+.rich-text { display: flex; flex-direction: column; gap: 8px; }
+.rich-text > *:first-child { margin-top: 0; }
+.rich-paragraph { margin: 0; white-space: pre-wrap; }
+.rich-heading {
+  margin: 2px 0 0;
+  color: #fff;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: .01em;
+}
+.rich-heading-1 { font-size: 14px; }
+.rich-heading-2 { font-size: 13.5px; }
+.rich-heading-3, .rich-heading-4 { font-size: 13px; color: #cdd9ec; }
+.rich-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.rich-list li { padding-left: 2px; }
+.rich-list li::marker { color: #8a72e5; }
+.rich-list-ordered li::marker { color: #8a72e5; font-variant-numeric: tabular-nums; }
+.rich-quote {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 2px solid #4b6a94;
+  background: rgba(75, 106, 148, .12);
+  border-radius: 0 8px 8px 0;
+  color: #d7e3f5;
+}
+.rich-rule { border: 0; border-top: 1px solid #2a3a52; margin: 4px 0; }
+.rich-code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #0d1727;
+  border: 1px solid #2a3a52;
+  font: 500 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+}
+.rich-text strong { color: #fff; font-weight: 700; }
+.rich-text em { color: #e2ecff; }
+/* Il grassetto dentro il messaggio del governo resta leggibile sul viola. */
+.advisor-entry.user .entry-text strong { color: #fff; }
+
+/* C01 — la figura del Consulente ----------------------------------------
+   Disegnata in SVG/CSS nativo, come il resto del progetto: nessuna libreria
+   di grafici per quattro figure. Le cifre vengono dal motore, mai dal
+   modello, e l'unità è dichiarata una volta per figura (N1). */
+.advisor-chart {
+  margin: 10px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid #2a3a52;
+  border-left: 3px solid #5fb98a;
+  border-radius: 8px;
+  background: #0f1a2c;
+}
+.advisor-chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.advisor-chart-title { color: #eef3fc; font: 700 12px/1.3 system-ui, sans-serif; letter-spacing: .03em; }
+.advisor-chart-unit { color: #7d8ea8; font: 500 10.5px/1.3 ui-monospace, monospace; }
+.advisor-chart-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.advisor-chart-bars li {
+  display: grid;
+  grid-template-columns: minmax(72px, 38%) 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+.advisor-chart-label {
+  color: #c6d3e6;
+  font: 500 11.5px/1.3 system-ui, sans-serif;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.advisor-chart-track {
+  display: block;
+  height: 7px;
+  border-radius: 4px;
+  background: #1c2a40;
+  overflow: hidden;
+}
+.advisor-chart-fill { display: block; height: 100%; border-radius: 4px; background: #5b7ba6; }
+.advisor-chart-bars li.tone-positive .advisor-chart-fill { background: #5fb98a; }
+.advisor-chart-bars li.tone-warning .advisor-chart-fill { background: #d9b061; }
+.advisor-chart-bars li.tone-negative .advisor-chart-fill { background: #d97b7b; }
+.advisor-chart-value {
+  color: #dbe6f5;
+  font: 600 11px/1.2 ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.advisor-chart-series-wrap { display: flex; align-items: center; gap: 10px; }
+.advisor-chart-series { flex: 1 1 auto; height: 30px; color: #5b7ba6; }
+.advisor-chart-series.tone-positive { color: #5fb98a; }
+.advisor-chart-series.tone-warning { color: #d9b061; }
+.advisor-chart-delta {
+  font: 700 12px/1.2 ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: #dbe6f5;
+}
+.advisor-chart-delta.tone-positive { color: #8fe0b4; }
+.advisor-chart-delta.tone-warning { color: #e8c67e; }
+.advisor-chart-note { margin: 8px 0 0; color: #8fa2ba; font: 400 11.5px/1.45 system-ui, sans-serif; }
+
 @media (prefers-reduced-motion: reduce) {
   .typing-dot { animation: none; }
 }

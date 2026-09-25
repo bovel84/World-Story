@@ -1,15 +1,19 @@
 /**
  * World Story — COUNTRY-CLARITY: National Operating Picture
  * ========================================================
- * Il punto d'ingresso della lettura: mette in fila i cinque domini del paese
- * (economia, risorse, industria, forze armate, governo), dice come sta il
- * paese in una riga e che cosa chiede attenzione per primo.
+ * Il punto d'ingresso della lettura: mette in fila i **sei** domini del paese
+ * (economia, risorse, industria, forze armate, popolo, governo), dice come sta
+ * il paese in una riga e che cosa chiede attenzione per primo.
+ *
+ * M01 — «Popolo» è l'area aggiunta perché la dimensione civile non ne aveva una:
+ * chi governa per il benessere del proprio popolo deve poterlo leggere.
  *
  * In più compone la **sala operativa**: le risposte brevi alle domande che il
  * giocatore si fa davvero, tutte derivate dai read model qui sopra. Nessuna
  * chiamata, nessun LLM, nessun numero nuovo: solo ciò che il motore pubblica.
  */
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
+import { MONEY_UNIT } from './NationDock/format';
 import type { NationAccount, NationResources, HistoryPoint } from './NationDock/types';
 import type { ArsenalResponse, Commitment, GovernmentSnapshot, NationalBudgetDetail, PeacetimePressure } from '../../services/api';
 import type { CrisisSnapshot } from '../../services/api';
@@ -19,6 +23,7 @@ import { resourceOperatingPicture, type ResourcePicture } from './resourceOperat
 import { industryOperatingPicture, type IndustryPicture } from './industryOperatingPicture';
 import { governmentOperatingPicture, type GovernmentPicture } from './governmentOperatingPicture';
 import { militaryOperatingPicture, type MilitaryPicture } from './militaryOperatingPicture';
+import { peopleOperatingPicture, type PeoplePicture } from './peopleOperatingPicture';
 import {
   DOMAIN_STATUS_LABEL, attentionFrom, finiteOrNull, statusTone, worstStatus,
   type DomainDriver, type DomainStatus, type DomainStatusLevel, type DriverTone,
@@ -29,7 +34,7 @@ import type { Tone } from './NationDock/types';
 const driverTone = (tone: Tone): DriverTone => (tone === 'negative' ? 'critical' : tone);
 
 export interface OperatingDomain extends DomainStatus {
-  id: 'economia' | 'risorse' | 'industria' | 'militare' | 'governo';
+  id: 'economia' | 'risorse' | 'industria' | 'militare' | 'popolo' | 'governo';
   label: string;
   /** Cifre chiave del dominio, già formattate. */
   facts: Array<{ label: string; value: string; tone?: DriverTone }>;
@@ -54,6 +59,8 @@ export interface NationalOperatingPicture {
   resources: ResourcePicture;
   industry: IndustryPicture;
   military: MilitaryPicture;
+  /** M01 — la dimensione civile: istruzione, sanità, ricerca, tenore di vita. */
+  people: PeoplePicture;
   government: GovernmentPicture;
 }
 
@@ -75,7 +82,10 @@ export interface OperatingPictureInput {
   today?: string | null;
 }
 
-const money = (value: number | null, decimals = 1): string => (value === null ? '—' : formatMoney(value, { currency: 'mld', decimals, sign: true }));
+/** Denaro con segno esplicito: saldi e variazioni, dove il segno è un'informazione. */
+const money = (value: number | null, decimals = 1): string => (value === null ? '—' : formatMoney(value, { currency: MONEY_UNIT, decimals, sign: true }));
+/** Denaro **senza** segno: livelli e grandezze (PIL, debito in essere), dove il segno non dice nulla. */
+const level = (value: number | null, decimals = 0): string => (value === null ? '—' : formatMoney(value, { currency: MONEY_UNIT, decimals }));
 
 export function nationalOperatingPicture(input: OperatingPictureInput): NationalOperatingPicture {
   const economy = economyOperatingPicture({ account: input.account, budget: input.budget, resources: input.resources, history: input.history });
@@ -90,6 +100,13 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
   const military = militaryOperatingPicture({
     resources: input.resources,
     arsenal: input.arsenal,
+  });
+  // M01 — l'area del popolo. Legge le voci civili che il motore pubblica nel
+  // bilancio, più Atenei, ricerca e tenuta. Nessuna cifra nuova.
+  const people = peopleOperatingPicture({
+    account: input.account,
+    resources: input.resources,
+    budget: input.budget ?? null,
   });
   const government = governmentOperatingPicture({
     government: input.government,
@@ -107,9 +124,9 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
       headline: economy.headline,
       drivers: economy.drivers,
       facts: [
-        { label: 'PIL', value: economy.metrics.find(metric => metric.id === 'gdp')?.value === null ? '—' : formatMoney(economy.metrics.find(metric => metric.id === 'gdp')?.value ?? 0, { currency: 'mld', decimals: 0 }), tone: 'neutral' },
+        { label: 'PIL', value: level(economy.metrics.find(metric => metric.id === 'gdp')?.value ?? null, 0), tone: 'neutral' },
         { label: 'Saldo mensile', value: money(economy.balance), tone: economy.balance === null ? 'neutral' : economy.balance >= 0 ? 'positive' : 'critical' },
-        { label: 'Debito', value: money(finiteOrNull(input.resources?.debt), 0), tone: (finiteOrNull(input.resources?.debt) ?? 0) > 0 ? 'warning' : 'positive' },
+        { label: 'Debito', value: level(finiteOrNull(input.resources?.debt), 0), tone: (finiteOrNull(input.resources?.debt) ?? 0) > 0 ? 'warning' : 'positive' },
         { label: 'Debito / PIL', value: economy.debtRatioPct === null ? '—' : formatPercent(economy.debtRatioPct, 0), tone: economy.debtRatioPct === null ? 'neutral' : economy.debtRatioPct >= 100 ? 'critical' : economy.debtRatioPct >= 60 ? 'warning' : 'positive' },
       ],
     },
@@ -153,6 +170,28 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
       ],
     },
     {
+      // M01 — l'area che mancava. Prima di questa, la dimensione civile del
+      // governo era una sola scheda di dettaglio: un giocatore che voleva
+      // investire nel proprio popolo non aveva un'area da guardare.
+      id: 'popolo',
+      label: 'Popolo e benessere',
+      status: people.status,
+      headline: people.headline,
+      drivers: people.drivers,
+      facts: [
+        {
+          label: 'Spesa civile',
+          value: people.socialBurdenPct !== null && people.educationBurdenPct !== null
+            ? `${formatPercent(people.socialBurdenPct + people.educationBurdenPct, 1)} del PIL`
+            : '—',
+          tone: people.civilianShareOfSpendingPct !== null && people.civilianShareOfSpendingPct >= 60 ? 'positive' : 'neutral',
+        },
+        { label: 'Atenei', value: people.universities === null ? '—' : formatNumber(people.universities), tone: (people.universities ?? 0) > 0 ? 'positive' : 'warning' },
+        { label: 'PIL pro capite', value: people.gdpPerCapiteUsd === null ? '—' : formatNumber(people.gdpPerCapiteUsd), tone: 'neutral' },
+        { label: 'Tecnologie sbloccate', value: people.technologiesUnlocked === null ? '—' : formatNumber(people.technologiesUnlocked), tone: 'neutral' },
+      ],
+    },
+    {
       id: 'governo',
       label: 'Governo e società',
       status: government.status,
@@ -188,7 +227,7 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
 
   const answers = operatingAnswers({ economy, resources, industry, military, government, input, status, attention });
 
-  return { status, headline, summary, domains, attention, answers, economy, resources, industry, military, government };
+  return { status, headline, summary, domains, attention, answers, economy, resources, industry, military, people, government };
 }
 
 /**
@@ -370,7 +409,7 @@ function operatingAnswers(args: {
     id: 'debito',
     question: 'Sto accumulando debito?',
     answer: finiteOrNull(input.resources?.debt) !== null && (finiteOrNull(input.resources?.debt) ?? 0) > 0
-      ? `${money(finiteOrNull(input.resources?.debt), 0)} (${economy.debtRatioPct === null ? '—' : formatPercent(economy.debtRatioPct, 0)} del PIL)`
+      ? `${level(finiteOrNull(input.resources?.debt), 0)} (${economy.debtRatioPct === null ? '—' : formatPercent(economy.debtRatioPct, 0)} del PIL)`
       : 'Nessun debito pubblico',
     tone: (economy.debtRatioPct ?? 0) >= 100 ? 'critical' : (economy.balance ?? 0) < 0 ? 'warning' : 'positive',
     detail: economy.balance !== null && economy.balance < 0

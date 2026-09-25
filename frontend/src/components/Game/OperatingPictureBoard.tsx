@@ -27,6 +27,10 @@ const SECTION_FOR_DOMAIN: Record<OperatingDomain['id'], NationSection> = {
   risorse: 'risorse',
   industria: 'risorse',
   militare: 'armamenti',
+  // M01 — il benessere del popolo si approfondisce in Conoscenze (atenei,
+  // ricerca, tecnologie) e in Politiche (coesione interna): la destinazione
+  // naturale è Conoscenze, dove vivono capitale umano e ricerca.
+  popolo: 'conoscenze',
   governo: 'governo',
 };
 

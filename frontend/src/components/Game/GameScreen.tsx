@@ -196,6 +196,10 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     currentGame,
     selectedRegion,
     nationalAccounts: nation.nationalAccounts,
+    // N01 — il nome della nazione viene dalla stessa risposta che porta la
+    // matrice diplomatica: una sola fonte di nomi, e nessuna deduzione dalla
+    // geografia.
+    relationshipNames: nation.relationshipNames,
   });
 
   // MAP P5 — un solo modello tematico P3 per mappa e dossier: stesse soglie,
@@ -329,7 +333,10 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
           <HudBar
             worldName={currentWorld?.name || ''}
             turn={currentGame?.currentTurn || 1}
-            dateISO={currentGame?.currentDate || '1951-01-01'}
+            // N08: la HUD non inventa una data. Il fallback era «1951-01-01», e
+            // in uno scenario del 1815 o del 2026 mostrava per un istante il
+            // 1° gennaio 1951 — un dato falso, non un dato mancante.
+            dateISO={currentGame?.currentDate || ''}
             loading={loading}
             timeline={timeline.timeline}
             timelineLoading={timeline.timelineLoading}
@@ -471,6 +478,8 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             snapshotKey={snapshotKey}
             tradeResource={nation.tradeNaturalResource}
             nationalHistory={nation.nationalHistory}
+            // C01: gli asset territoriali canonici servono ai grafici del Consulente.
+            worldMapAssets={nation.worldMapAssets}
             nationalGovernment={nation.nationalGovernment}
             nationalFiscalPolicy={nation.nationalFiscalPolicy}
             onSetFiscalPolicy={nation.setFiscalPolicy}
