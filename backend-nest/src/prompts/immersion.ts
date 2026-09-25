@@ -1,13 +1,30 @@
-export const EVENT_DESCRIPTION_GUIDE = 'Due brevi paragrafi: antefatto documentato, attori e interessi in gioco; nuovo sviluppo, conseguenze e questione ancora aperta';
+/**
+ * Lunghezza del corpo di un dispaccio, in **un solo posto**.
+ * ==========================================================
+ * Prima questo numero viveva in tre punti e in tre misure diverse — «due brevi
+ * paragrafi» qui, «90-140 parole» nella riga seguente, «4-6 frasi» in
+ * `simulation/prompt.ts:228` — e il modello non poteva obbedire a tutte.
+ *
+ * La misura scelta è **una**: antefatto e sviluppo in **due frasi brevi**.
+ * Non è la sintesi estrema del riferimento (15-25 parole): il nostro dispaccio
+ * deve restare comprensibile **senza aver letto i precedenti** (regola già
+ * scritta sotto), quindi gli serve l'antefatto. Ma non è più il paragrafo da
+ * 140 parole: due frasi, ognuna con un fatto.
+ *
+ * Se questo numero cambia, cambia qui: `simulation/prompt.ts` lo importa.
+ */
+export const EVENT_BODY_WORDS = 'due frasi brevi, 35-60 parole in tutto';
+
+export const EVENT_DESCRIPTION_GUIDE = `Antefatto in una frase e sviluppo in una seconda: chi agisce, dove, e che cosa cambia rispetto a prima. ${EVENT_BODY_WORDS}`;
 
 /** Shared by full, preset and compact simulation paths; no extra model call. */
 export function buildImmersionContract(): string {
   return `
 [CONTINUITÀ E IMMERSIONE]
 - Ogni notizia deve aggiungere un cambiamento rispetto alla cronaca, non ripetere l'ordine o rinominare un evento già raccontato. Riprendi un impegno, una scelta o un problema documentato e mostra che cosa cambia adesso.
-- Titolo concreto (attore + svolta). La description deve essere comprensibile anche senza aver letto i dispacci precedenti: ${EVENT_DESCRIPTION_GUIDE}. Indicativamente 4-6 frasi, 90-140 parole, solo quanto le fonti consentono.
-- Nel primo paragrafo spiega quale situazione del preset o fatto precedente ha portato fin qui, dove accade, chi è coinvolto e quale interesse concreto è in gioco. Nel secondo distingui la novità dall'antefatto e spiega cosa cambia rispetto a prima. Un elenco di reazioni NON sostituisce questo contesto.
-- Usa due paragrafi nello stesso campo description, separati con \\n\\n nel JSON. Non emettere un ulteriore evento per raccontare l'antefatto. Varia il ritmo; evita aperture seriali come «In seguito all'ordine».
+- Titolo concreto: **soggetto + svolta**, al massimo 12 parole, senza cifre di bilancio e senza formule vuote («Tensioni crescono», «Nuova crisi», «Bollettino», «Evento»). La description deve essere comprensibile anche senza aver letto i dispacci precedenti: ${EVENT_DESCRIPTION_GUIDE}.
+- Prima frase: la situazione del preset o il fatto precedente che ha portato fin qui, dove accade, chi è coinvolto e quale interesse concreto è in gioco. Seconda frase: la novità e che cosa cambia rispetto a prima. Un elenco di reazioni NON sostituisce questo contesto.
+- Resta nello stesso campo description; non emettere un ulteriore evento per raccontare l'antefatto. Varia il ritmo; evita aperture seriali come «In seguito all'ordine».
 - Se una fonte non documenta l'antefatto, appoggiati alla situazione attuale verificabile e rendi esplicita la lacuna solo se rilevante. Non inventare un passato per raggiungere la lunghezza indicata.
 - Fai percepire la posta in gioco attraverso un effetto materiale attestato: accesso a un porto, consegna di materiali, occupazione, collegamenti, sicurezza o rapporti diplomatici. Non inventare testimonianze, citazioni, nomi di funzionari, cifre o scene di folla per creare atmosfera. Se mancano nomi, usa il ruolo istituzionale.
 - Un rischio resta un rischio e una previsione resta una previsione: non trasformarli in fatti compiuti. Non imporre un colpo di scena o un dilemma quando il periodo non li giustifica.

@@ -1147,8 +1147,19 @@
 .news-flash-date { color: #b8c7da; font: 650 12px/1 system-ui, sans-serif; }
 .news-flash-body { position: relative; padding: 28px 30px 25px; }
 .news-flash-mark { display: block; margin-bottom: 12px; color: #a98eff; font-size: 28px; line-height: 1; }
-.news-flash-body h2 { max-width: 24ch; margin: 0; color: #f7f9ff; font: 750 clamp(23px, 3vw, 34px)/1.12 system-ui, sans-serif; letter-spacing: -.045em; }
-.news-flash-body p { max-width: 67ch; margin: 16px 0 0; color: #c1cedf; font: 400 15px/1.6 system-ui, sans-serif; }
+/* Il titolo ora è concreto (soggetto + svolta, max 12 parole) e il corpo è
+   breve: il riquadro non deve restare mezzo vuoto. Titolo un po' più contenuto
+   e corpo più largo, così una notizia corta occupa lo spazio che merita. */
+.news-flash-body h2 { max-width: 30ch; margin: 0; color: #f7f9ff; font: 750 clamp(21px, 2.6vw, 29px)/1.15 system-ui, sans-serif; letter-spacing: -.035em; }
+.news-flash-body p { max-width: 62ch; margin: 14px 0 0; color: #c1cedf; font: 400 15px/1.6 system-ui, sans-serif; }
+/* L'ordine da cui nasce il dispaccio: blocco a sé, barra fredda come nella
+   scheda d'archivio. Non compare quando l'ordine non esiste. */
+.news-flash-order {
+  padding: 10px 12px;
+  border-left: 3px solid #7f9dc4;
+  background: rgba(127,157,196,.14);
+  border-radius: 0 8px 8px 0;
+}
 .news-flash-footer {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -1258,9 +1269,40 @@
   padding: 12px 14px;
   border-left: 3px solid #cda65b;
   background: rgba(205,166,91,.08);
-  color: #c1cedf !important;
+  /* MISURATO: era #c1cedf, che sulla carta crema dà un contrasto di **1,31:1**
+     — il testo era praticamente invisibile, molto sotto la soglia AA di 4,5.
+     Il colore giusto è l'inchiostro della carta: 10,92:1. Il difetto è della
+     stessa famiglia di quelli di C03: il contrasto si misura, non si guarda. */
+  color: #342f24 !important;
+  font: 400 15px/1.65 Georgia, 'Times New Roman', serif !important;
+}
+.article-why-label { display: block; margin-bottom: 4px; color: #8a4a12; font: 700 11px/1.4 system-ui, sans-serif; letter-spacing: .4px; text-transform: uppercase; }
+/* §3.2 punto 8 — l'ordine da cui nasce il dispaccio. Stessa forma del «Perché è
+   accaduto» ma con la barra fredda: è la causa voluta dal giocatore, non una
+   conseguenza del mondo. Non compare quando l'ordine non esiste: mai una
+   sezione vuota e mai un ordine attribuito per errore.
+   Contrasto misurato: corpo 11,46:1, etichetta 5,44:1 su soglia 4,5. */
+.newspaper-article-order {
+  margin: 0 !important;
+  padding: 12px 14px;
+  border-left: 3px solid #4a6f9c;
+  background: rgba(127,157,196,.10);
+  color: #2c2a24 !important;
+  font: 400 15px/1.65 Georgia, 'Times New Roman', serif !important;
+}
+.article-order-label { display: block; margin-bottom: 4px; color: #2f5d8f; font: 700 11px/1.4 system-ui, sans-serif; letter-spacing: .4px; text-transform: uppercase; }
+/* §3.2/8: l'ordine da cui nasce il dispaccio. Stessa forma del «Perché è
+   accaduto» ma con la barra fredda, perché è la causa voluta dal giocatore e
+   non una conseguenza del mondo. Non compare quando l'ordine non esiste. */
+.newspaper-article-order {
+  margin: 0 !important;
+  padding: 12px 14px;
+  border-left: 3px solid #7f9dc4;
+  background: rgba(127,157,196,.10);
+  color: #ccdaea !important;
   font: 400 15px/1.65 system-ui, sans-serif !important;
 }
+.article-order-label { display: block; margin-bottom: 4px; color: #8fb4dd; font: 700 11px/1.4 system-ui, sans-serif; letter-spacing: .4px; text-transform: uppercase; }
 .article-overlay .article-why-label { display: block; margin-bottom: 4px; color: #cda65b; font: 700 11px/1.4 system-ui, sans-serif; letter-spacing: .4px; text-transform: uppercase; }
 .article-overlay .newspaper-article-actions { display: flex; gap: 10px; margin-top: 16px; }
 .article-overlay .btn-article-show-map {
@@ -3018,6 +3060,10 @@ html, body { margin: 0; }
 .feed-item-badge.cat-economy { border-color: #9a7a2e; background: #332a10; color: #ffe08a; }
 .feed-item-badge.cat-politics { border-color: #6b5aa0; background: #241f43; color: #d3c6ff; }
 .feed-item-badge.cat-society { border-color: #3f8f74; background: #102e26; color: #a9f0d6; }
+/* Notizie di servizio (§11.3): grigio-azzurro spento, deliberatamente la
+   categoria meno saliente. Una contabilità riscritta come notizia non deve
+   competere visivamente con una svolta politica. */
+.feed-item-badge.cat-administration { border-color: #5b6b7d; background: #1a222c; color: #c3d2e0; }
 
 /* Uno scontro è una notizia di prima pagina: bordo rosso e peso maggiore. */
 .world-news-panel .event-feed-item.cat-war {

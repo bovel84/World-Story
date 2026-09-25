@@ -122,6 +122,7 @@ function App() {
   const {
     setFeedItems,
     pushFeed,
+    actionTextFor,
     publishEventDetails,
   } = feedBundle;
 
@@ -215,6 +216,7 @@ function App() {
   const { activeSimulationIdRef } = useSimulationStream({
     gameId: currentGame?.id || null,
     pushFeed,
+    actionTextFor,
     setFeedItems,
     applyCheckpointRegions,
     setPausedReader,

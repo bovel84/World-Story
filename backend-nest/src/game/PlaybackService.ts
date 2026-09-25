@@ -18,6 +18,8 @@ import { gameRepository, relationshipRepository } from '../repositories';
 import { applyStagedStrictEffects, promotePlaybackEffectAnchors } from '../core/simulation/TurnOrchestrator';
 import { projectProgress } from '../core/simulation/MilitaryProduction';
 import { shortId } from '../utils/short-id';
+import { composeDispatchLines } from './dispatchComposer';
+import { buildActionLinkIndex, lookupActionIds } from './dispatchLink';
 import type { RelationshipType } from '../core/RelationshipMatrix';
 import type { SimulationEvent } from '../prompts/types';
 import type { MovementIntent } from '../utils/movement-orders';
@@ -96,18 +98,22 @@ export class PlaybackService {
     periodStart: string;
     horizonDate: string;
   }): Promise<PendingAction[] | PausedBatchResult | CompletedBatchResult> {
-    const headlineToActionIds: Record<string, string[]> = {};
+    // Il collegamento ordine → dispaccio si costruisce su una chiave
+    // **normalizzata** (§6.2: per ID, mai per confronto di testo). Il modello
+    // scrive il titolo due volte — nell'esito e nell'evento — e le due copie
+    // differiscono spesso di uno spazio o di una maiuscola: con la chiave
+    // esatta il dispaccio restava orfano (0 su 21 nella partita misurata).
     const outcomes = this.ctx.outcomesByActionId(
       opts.actions, opts.promptResult.actionOutcomes, opts.promptResult.convertedActions,
     );
+    const linkEntries: Array<{ headline: string; actionId: string }> = [];
     opts.actions.forEach(action => {
       const outcome = outcomes.get(action.id);
       outcome?.eventHeadlines?.forEach((headline: string) => {
-        const ids = headlineToActionIds[headline] || [];
-        ids.push(action.id);
-        headlineToActionIds[headline] = ids;
+        linkEntries.push({ headline, actionId: action.id });
       });
     });
+    const headlineToActionIds = buildActionLinkIndex(linkEntries);
     const state: PausedRunState = {
       runId: opts.simulationRunId,
       periodStart: opts.periodStart,
@@ -226,7 +232,10 @@ export class PlaybackService {
     this.state.currentDate = eventDate;
 
     const stepId = shortId();
-    const sourceActionIds = state.headlineToActionIds[event.headline] || [];
+    // La ricerca passa dalla stessa chiave normalizzata usata per costruire
+    // l'indice: un titolo scritto due volte in modo leggermente diverso non
+    // perde più il collegamento con l'ordine.
+    const sourceActionIds = lookupActionIds(state.headlineToActionIds, event.headline);
     const timelineEvents: TimelineEventRecord[] = [{
       id: `${stepId}-0`,
       date: eventDate,
@@ -259,13 +268,17 @@ export class PlaybackService {
       // M06: tick e checkpoint condividono la stessa transazione/savepoint.
       // Un fault successivo annulla anche ledger e stato cashflow.
       if (elapsedDays > 0) {
-        bulletins.push(...this.ctx.advanceWorldState(elapsedDays, eventDate));
-        turnResult.events.push(...bulletins);
-        timelineEvents.push(...bulletins.map((bulletin, index) => ({
+        const stepBulletins = this.ctx.advanceWorldState(elapsedDays, eventDate);
+        bulletins.push(...stepBulletins);
+        turnResult.events.push(...stepBulletins);
+        // §5.11: la contabilità non diventa cronaca. Le righe che **sono**
+        // notizie (tecnologia, debito, governo, carenza) entrano come dispacci
+        // con titolo proprio; le altre restano nel riepilogo del passo.
+        timelineEvents.push(...composeDispatchLines([], stepBulletins).dispatches.map((dispatch, index) => ({
           id: `${stepId}-b${index}`,
           date: eventDate,
-          headline: 'Conti nazionali del periodo',
-          detail: bulletin,
+          headline: dispatch.title,
+          detail: dispatch.body,
           source: 'world' as const,
           simulationId: runId,
         })));
@@ -620,11 +633,11 @@ export class PlaybackService {
       ? completion.narration
       : appliedRows.map(row => row.detail).filter(Boolean).join('\n\n') || interruptionHeadline);
     const finalTimelineEvents: TimelineEventRecord[] = [
-      ...bulletins.map((bulletin, index) => ({
+      ...composeDispatchLines([], bulletins).dispatches.map((dispatch, index) => ({
         id: `${shortId()}-b${index}`,
         date: finalDate,
-        headline: 'Conti nazionali del periodo',
-        detail: bulletin,
+        headline: dispatch.title,
+        detail: dispatch.body,
         source: 'world' as const,
         simulationId: runId,
       })),

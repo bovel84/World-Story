@@ -23,6 +23,13 @@ export interface FeedItem {
   regionIds?: string[];
   /** Letto dal giocatore: i dispacci nuovi arrivano senza questo flag. */
   read?: boolean;
+  /**
+   * Il testo dell'ordine da cui il dispaccio nasce, quando esiste.
+   * È il «Perché è accaduto» (§3.2 punto 8 del piano maestro): un dispaccio
+   * del mondo non ne ha, e la sezione non si mostra. Mai attribuire a un
+   * dispaccio un ordine che non gli appartiene.
+   */
+  actionText?: string;
 }
 
 const ARTICLE_SECTION: Record<FeedItem['kind'], string> = {
@@ -190,11 +197,21 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
                   <span className="article-why-label">Perché è accaduto:</span>{' '}
                   {publicNarrativeText(openArticle.detail, playerPolityName)}
                 </p>
-              ) : (
+              ) : null}
+              {/* L'ordine da cui nasce il dispaccio: solo quando esiste davvero.
+                  Un dispaccio del mondo non finge un ordine, e la sezione non
+                  compare vuota. */}
+              {openArticle.actionText ? (
+                <p className="newspaper-article-order" role="note">
+                  <span className="article-order-label">L'ordine:</span>{' '}
+                  {publicNarrativeText(openArticle.actionText, playerPolityName)}
+                </p>
+              ) : null}
+              {!openArticle.detail && !openArticle.actionText ? (
                 <p className="newspaper-article-lead">
                   Non sono ancora disponibili ulteriori particolari su questo sviluppo.
                 </p>
-              )}
+              ) : null}
               {openArticle.regionIds?.length ? (
                 <div className="newspaper-article-actions">
                   <button
