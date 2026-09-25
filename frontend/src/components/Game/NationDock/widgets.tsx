@@ -8,7 +8,8 @@ import type {
   BudgetLine, CrisisRisk, CrisisSnapshot, GovernmentFaction,
   Commitment, NaturalResourceSummary, PeacetimePressure, PowerAgenda, SovereignDebtTranche,
 } from '../../../services/api';
-import { formatMoney, formatNumber, formatPercent } from '../../../utils/format';
+import { formatNumber, formatPercent } from '../../../utils/format';
+import { money as formatMld, index } from './format';
 import { sparkPoints, trendLabel, type Trend, type TrendTone } from '../accountTrend';
 import { CRISIS_LEVEL_LABEL, crisisDaysText } from '../crisisPanel';
 import { PRESSURE_PRIORITY_LABEL, pressureWindowText, pressureWindowTone, splitPressuresByAttention } from '../pressureWindow';
@@ -228,7 +229,7 @@ export function BudgetBreakdown({ title, lines, total, kind }: {
     <div className={`nation-budget-group nation-budget-${kind}`}>
       <div className="nation-budget-head">
         <h4>{title}</h4>
-        <b>{formatMoney(total, { currency: 'mld', decimals: 2, sign: true })}</b>
+        <b>{formatMld(total, 2, { sign: true })}</b>
       </div>
       <ul className="nation-budget-list">
         {lines.map((line) => (
@@ -238,7 +239,7 @@ export function BudgetBreakdown({ title, lines, total, kind }: {
               <em>{formatPercent(line.sharePct, 1)}</em>
             </div>
             <ShareBar value={line.sharePct} tone={kind === 'revenue' ? 'positive' : 'neutral'} />
-            <b className="nation-budget-amount">{formatMoney(line.amount, { currency: 'mld', decimals: 2 })}</b>
+            <b className="nation-budget-amount">{formatMld(line.amount, 2)}</b>
           </li>
         ))}
       </ul>
@@ -260,7 +261,7 @@ export function DebtPortfolio({ tranches, total }: { tranches: SovereignDebtTran
         <li key={tranche.id} className="nation-debt-row">
           <div className="nation-debt-head">
             <span>{tranche.label}</span>
-            <b>{formatMoney(tranche.principal, { currency: 'mld', decimals: 2 })}</b>
+            <b>{formatMld(tranche.principal, 2)}</b>
           </div>
           <ShareBar value={total > 0 ? (tranche.principal / total) * 100 : 0} tone="warning" />
           <div className="nation-debt-meta">
@@ -419,10 +420,10 @@ export function PressuresBlock({ pressures, recent, onResolve, busy, money }: {
                 >{busy ? 'Applico…' : 'Decidi'}</button>
                 {cost < 0 && (
                   <em className={unaffordable ? 'is-negative' : ''}>
-                    Costo {formatMoney(Math.abs(cost), { currency: 'mld', decimals: 2 })}{unaffordable ? ' · cassa insufficiente' : ''}
+                    Costo {formatMld(Math.abs(cost), 2)}{unaffordable ? ' · cassa insufficiente' : ''}
                   </em>
                 )}
-                {cost > 0 && <em>Incasso {formatMoney(cost, { currency: 'mld', decimals: 2 })}</em>}
+                {cost > 0 && <em>Incasso {formatMld(cost, 2)}</em>}
               </div>
             </li>
           );

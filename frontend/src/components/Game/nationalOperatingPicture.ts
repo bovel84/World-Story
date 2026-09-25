@@ -10,6 +10,7 @@
  * chiamata, nessun LLM, nessun numero nuovo: solo ciò che il motore pubblica.
  */
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
+import { MONEY_UNIT } from './NationDock/format';
 import type { NationAccount, NationResources, HistoryPoint } from './NationDock/types';
 import type { ArsenalResponse, Commitment, GovernmentSnapshot, NationalBudgetDetail, PeacetimePressure } from '../../services/api';
 import type { CrisisSnapshot } from '../../services/api';
@@ -75,7 +76,10 @@ export interface OperatingPictureInput {
   today?: string | null;
 }
 
-const money = (value: number | null, decimals = 1): string => (value === null ? '—' : formatMoney(value, { currency: 'mld', decimals, sign: true }));
+/** Denaro con segno esplicito: saldi e variazioni, dove il segno è un'informazione. */
+const money = (value: number | null, decimals = 1): string => (value === null ? '—' : formatMoney(value, { currency: MONEY_UNIT, decimals, sign: true }));
+/** Denaro **senza** segno: livelli e grandezze (PIL, debito in essere), dove il segno non dice nulla. */
+const level = (value: number | null, decimals = 0): string => (value === null ? '—' : formatMoney(value, { currency: MONEY_UNIT, decimals }));
 
 export function nationalOperatingPicture(input: OperatingPictureInput): NationalOperatingPicture {
   const economy = economyOperatingPicture({ account: input.account, budget: input.budget, resources: input.resources, history: input.history });
@@ -107,9 +111,9 @@ export function nationalOperatingPicture(input: OperatingPictureInput): National
       headline: economy.headline,
       drivers: economy.drivers,
       facts: [
-        { label: 'PIL', value: economy.metrics.find(metric => metric.id === 'gdp')?.value === null ? '—' : formatMoney(economy.metrics.find(metric => metric.id === 'gdp')?.value ?? 0, { currency: 'mld', decimals: 0 }), tone: 'neutral' },
+        { label: 'PIL', value: level(economy.metrics.find(metric => metric.id === 'gdp')?.value ?? null, 0), tone: 'neutral' },
         { label: 'Saldo mensile', value: money(economy.balance), tone: economy.balance === null ? 'neutral' : economy.balance >= 0 ? 'positive' : 'critical' },
-        { label: 'Debito', value: money(finiteOrNull(input.resources?.debt), 0), tone: (finiteOrNull(input.resources?.debt) ?? 0) > 0 ? 'warning' : 'positive' },
+        { label: 'Debito', value: level(finiteOrNull(input.resources?.debt), 0), tone: (finiteOrNull(input.resources?.debt) ?? 0) > 0 ? 'warning' : 'positive' },
         { label: 'Debito / PIL', value: economy.debtRatioPct === null ? '—' : formatPercent(economy.debtRatioPct, 0), tone: economy.debtRatioPct === null ? 'neutral' : economy.debtRatioPct >= 100 ? 'critical' : economy.debtRatioPct >= 60 ? 'warning' : 'positive' },
       ],
     },
@@ -370,7 +374,7 @@ function operatingAnswers(args: {
     id: 'debito',
     question: 'Sto accumulando debito?',
     answer: finiteOrNull(input.resources?.debt) !== null && (finiteOrNull(input.resources?.debt) ?? 0) > 0
-      ? `${money(finiteOrNull(input.resources?.debt), 0)} (${economy.debtRatioPct === null ? '—' : formatPercent(economy.debtRatioPct, 0)} del PIL)`
+      ? `${level(finiteOrNull(input.resources?.debt), 0)} (${economy.debtRatioPct === null ? '—' : formatPercent(economy.debtRatioPct, 0)} del PIL)`
       : 'Nessun debito pubblico',
     tone: (economy.debtRatioPct ?? 0) >= 100 ? 'critical' : (economy.balance ?? 0) < 0 ? 'warning' : 'positive',
     detail: economy.balance !== null && economy.balance < 0

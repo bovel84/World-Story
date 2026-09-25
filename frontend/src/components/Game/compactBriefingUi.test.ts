@@ -39,6 +39,13 @@ describe('LW06.1 — briefing compatto', () => {
 
   it('la striscia riusa la card completa del Dossier dallo stesso briefing', () => {
     expect(screen).toContain('briefing={briefing}');
-    expect(dock).toContain('<StrategicBriefingCard briefing={briefing}');
+    // N02: la card nel dossier riceve anche il `context` (epoca e data del mondo),
+    // quindi non è più montata su una riga sola. L'invariante resta lo stesso —
+    // **una** card, dallo **stesso** briefing, senza ri-derivazione — e la verifica
+    // ora lo controlla a prescindere dalla forma del montaggio.
+    const card = dock.match(/<StrategicBriefingCard[\s\S]{0,200}?\/>/)?.[0] ?? '';
+    expect(card).not.toBe('');
+    expect(card).toMatch(/briefing=\{briefing\}/);
+    expect(card).not.toMatch(/deriveStrategicBriefing\(/);
   });
 });

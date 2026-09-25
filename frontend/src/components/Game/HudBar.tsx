@@ -137,17 +137,24 @@ function parseISODate(dateISO: string): Date | null {
   return isNaN(fallback.getTime()) ? null : fallback;
 }
 
-/** «12 gennaio 1951»; con data non leggibile restituisce la stringa originale */
+/**
+ * N08 — data non pubblicata. La HUD non ha una data del mondo, quindi **dichiara
+ * l'assenza** invece di mostrarne una; il carattere è l'ideogramma di pausa, che
+ * rende visibile «qui manca un dato» invece di sembrare una data vera.
+ */
+export const NO_WORLD_DATE = '—';
+
+/** «12 gennaio 1951»; senza data dichiara l'assenza invece di mostrare una data finta */
 export function formatDateIt(dateISO: string): string {
   const d = parseISODate(dateISO);
-  if (!d) return dateISO;
+  if (!d) return NO_WORLD_DATE;
   return `${d.getDate()} ${MONTHS_IT[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 /** Formato numerico compatto: evita che la data sparisca nella HUD mobile. */
 export function formatDateCompact(dateISO: string): string {
   const d = parseISODate(dateISO);
-  if (!d) return dateISO;
+  if (!d) return NO_WORLD_DATE;
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 }
 
@@ -231,7 +238,10 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
       <div className="hud-timeline-header">
         <div className="hud-timeline-heading">
           <div className="hud-timeline-title">Timeline</div>
-          <div className="hud-timeline-subtitle">Adesso: {formatDateIt(dateISO)} · il tempo scorre per tutte le nazioni</div>
+          <div className="hud-timeline-subtitle">
+            {parseISODate(dateISO) ? `Adesso: ${formatDateIt(dateISO)}` : 'Data del mondo non ancora pubblicata'}
+            {' · il tempo scorre per tutte le nazioni'}
+          </div>
         </div>
         <button
           type="button"
@@ -497,7 +507,7 @@ export const HudBar: React.FC<HudBarProps> = ({
           >
             ‹
           </button>
-          <div className="hud-date-display" title={dateISO} aria-label={formatDateIt(dateISO)}>
+          <div className="hud-date-display" title={dateISO || ''} aria-label={formatDateIt(dateISO)}>
             <span className="hud-date-long" aria-hidden="true">{formatDateIt(dateISO)}</span>
             <span className="hud-date-compact" aria-hidden="true">{formatDateCompact(dateISO)}</span>
           </div>

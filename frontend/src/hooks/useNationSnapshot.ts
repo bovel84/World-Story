@@ -134,6 +134,12 @@ export interface NationSnapshot {
   refreshMilitaryState: () => Promise<void>;
   /** MAP P3 — relazioni canoniche per il layer Diplomazia (fail-closed). */
   relationships: RelationshipMap | null;
+  /**
+   * N01 — nomi pubblici delle polity, dalla stessa risposta della matrice.
+   * `null` = il motore non li ha pubblicati (o la fonte è caduta): il nome della
+   * nazione si dichiara assente, non si ricava dalla geografia.
+   */
+  relationshipNames: Record<string, string> | null;
   /** MAP P6 — geografia economica canonica mondiale dello snapshot corrente. */
   worldMapAssets: WorldMapAssetsPayload | null;
   /**
@@ -213,6 +219,11 @@ export function useNationSnapshot({
   const [worldMapAssetsError, setWorldMapAssetsError] = useState<string | null>(null);
   const worldMapAssetsRequest = useRef(0);
   const [relationships, setRelationships] = useState<RelationshipMap | null>(null);
+  // N01: i nomi pubblici delle polity arrivano dalla **stessa** risposta che
+  // porta la matrice (`{ relationships, names }`). Prima venivano scartati, e il
+  // nome della nazione finiva per essere ricavato dalla geografia — col risultato
+  // che il dossier si intitolava col nome di una provincia.
+  const [relationshipNames, setRelationshipNames] = useState<Record<string, string> | null>(null);
   const [relationshipsLoading, setRelationshipsLoading] = useState(false);
   const [relationshipsError, setRelationshipsError] = useState<string | null>(null);
   const relationshipsRequest = useRef(0);
@@ -242,6 +253,7 @@ export function useNationSnapshot({
     setMilitaryStateError(null);
     militaryRequest.current += 1;
     setRelationships(null);
+    setRelationshipNames(null);
     setRelationshipsLoading(false);
     setRelationshipsError(null);
     relationshipsRequest.current += 1;
@@ -308,12 +320,18 @@ export function useNationSnapshot({
     try {
       const data = await gameApi.getRelationships(gameId);
       if (request !== relationshipsRequest.current) return;
-      // Il motore risponde `{ relationships, names }`: qui serve la matrice.
+      // Il motore risponde `{ relationships, names }`: la matrice serve al layer
+      // diplomazia, i nomi servono al nome della nazione (N01). Una sola
+      // risposta, un solo stato: nessuna seconda fonte di nomi nel client.
       setRelationships(data?.relationships || {});
+      setRelationshipNames(data?.names || null);
     } catch (error) {
       if (request !== relationshipsRequest.current) return;
       console.warn('[App] Relazioni diplomatiche non disponibili:', error);
       setRelationships(null);
+      // I nomi non vengono conservati da un tentativo precedente: se la fonte è
+      // caduta, l'assenza va dichiarata, non mascherata con dati vecchi.
+      setRelationshipNames(null);
       setRelationshipsError('Relazioni diplomatiche non disponibili');
     } finally {
       if (request === relationshipsRequest.current) setRelationshipsLoading(false);
@@ -719,6 +737,7 @@ export function useNationSnapshot({
     militaryStateError,
     refreshMilitaryState,
     relationships,
+    relationshipNames,
     relationshipsLoading,
     relationshipsError,
     worldMapAssets,

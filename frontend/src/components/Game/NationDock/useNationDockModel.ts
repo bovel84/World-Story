@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   initialNationDockState,
 } from '../../../stores/nationDock';
-import { formatMoney, formatNumber } from '../../../utils/format';
+import { formatNumber } from '../../../utils/format';
 import { deltaTone, trendFrom } from '../accountTrend';
 import {
   financeBalance,
@@ -20,7 +20,7 @@ import { groupProjectsByCategory } from '../projectCategory';
 import { nationalVerdict } from '../governmentDossier';
 import { deriveMaterialRows, materialRowsOf } from '../materialBalance';
 import { arsenalBrief, arsenalBriefText, arsenalLineSummary, arsenalProductionFor, arsenalSplit, arsenalSplitText } from '../arsenalSummary';
-import { resourceMonths } from './format';
+import { index, money, resourceMonths } from './format';
 import { nationalOperatingPicture } from '../nationalOperatingPicture';
 import type { HistoryPoint, MetricTrend, NationDockProps } from './types';
 import { nationalSynthesis } from '../nationalSynthesis';
@@ -181,7 +181,7 @@ export function useNationDockModel(props: NationDockProps) {
     if (months >= 120) return `oltre 10 anni di copertura${capText}`;
     if (months >= 24) return `${Math.round(months / 12)} anni di copertura${capText}`;
     if (months >= 10) return `${Math.round(months)} mesi di copertura${capText}`;
-    return `${formatMoney(months, { decimals: 1 })} mesi di copertura${capText}`;
+    return `${index(months, 1)} mesi di copertura${capText}`;
   };
   /** Con la capacità nota le scorte si leggono come «quanto / tetto». */
   const matValue = (value: number, cap?: number) => (cap && cap > 0 ? `${formatNumber(value)} / ${formatNumber(cap)}` : formatNumber(value));
@@ -189,9 +189,9 @@ export function useNationDockModel(props: NationDockProps) {
 
   // Le tendenze derivano dallo storico pubblicato dal motore: se la serie ha
   // meno di due punti la variazione non viene mostrata (mai inventata).
-  const moneyDelta = (delta: number) => formatMoney(delta, { currency: 'mld', decimals: 2, sign: true });
-  const pointDelta = (delta: number) => `${formatMoney(delta, { decimals: 1, sign: true })} pt`;
-  const countDelta = (delta: number) => formatMoney(delta, { decimals: 0, sign: true });
+  const moneyDelta = (delta: number) => money(delta, 2, { sign: true });
+  const pointDelta = (delta: number) => `${index(delta, 1, { sign: true })} pt`;
+  const countDelta = (delta: number) => index(delta, 0, { sign: true });
   const mkTrend = useMemo(() => (
     pick: (point: HistoryPoint) => number | undefined | null,
     formatDelta: (delta: number) => string,

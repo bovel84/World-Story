@@ -3,18 +3,54 @@
  * ==================================================
  * Estratti da `NationDock.tsx` (blocco 2, punto 4): comportamento invariato.
  */
-import { formatMoney, formatNumber } from '../../../utils/format';
+import { formatDateOr, formatMoney, formatNumber } from '../../../utils/format';
 import type { Tone } from './types';
+
+/**
+ * N1/N2 — l'unità di conto del gioco, dichiarata **una volta sola**.
+ *
+ * Fino a ieri la stringa `'mld'` era ricopiata in 36 punti: cambiarla significava
+ * cambiarla 36 volte, e dimenticarsene in un punto produceva un numero nudo senza
+ * che nessun test se ne accorgesse. Ora l'unità vive qui e i punti la usano.
+ *
+ * **Che cosa dichiara, e che cosa non dichiara.** Il motore calcola le grandezze
+ * di conto in miliardi di **dollari del 2026**, anche per un mondo del 1815: la
+ * scala storica cambia il valore, non la valuta (`WorldStateEngine`). «mld» dice
+ * perciò la verità che il dato porta — l'ordine di grandezza — e non finge una
+ * moneta d'epoca che il motore non conosce. Una moneta d'epoca (lire, sterline,
+ * franchi) richiederebbe scala dei prezzi e cambi, cioè motore: è una decisione
+ * di prodotto, non un'etichetta (vedi `docs/COERENZA_DOSSIER_ANNO_NAZIONE.md` D-B).
+ */
+export const MONEY_UNIT = 'mld';
+
+/** Riga da mettere nella descrizione di un blocco che mostra denaro (N1). */
+export const MONEY_UNIT_NOTE = `Importi in miliardi (${MONEY_UNIT}).`;
+
+/**
+ * Denaro del dossier: `formatMoney` + l'unità dichiarata.
+ * `sign` antepone +/− esplicito (per saldi e variazioni).
+ */
+export function money(value: number | null | undefined, decimals = 2, opts: { sign?: boolean } = {}): string {
+  return formatMoney(value, { currency: MONEY_UNIT, decimals, sign: opts.sign });
+}
+
+/** Numero senza unità (indici, pesi, quote): «123,4», mai una valuta. */
+export function index(value: number | null | undefined, decimals = 1, opts: { sign?: boolean } = {}): string {
+  return formatMoney(value, { decimals, sign: opts.sign });
+}
 
 export function plural(value: number, singular: string, pluralForm: string): string {
   return `${formatNumber(value)} ${value === 1 ? singular : pluralForm}`;
 }
 
+/**
+ * N08 — il Dossier usa **una sola** implementazione della data breve, quella
+ * condivisa (`utils/format`). Qui resta solo il fallback proprio del dossier:
+ * «Data non pubblicata» dice che il motore non ha pubblicato la data, che è
+ * un'informazione diversa da un trattino.
+ */
 export function formatDate(value?: string | null): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '');
-  if (!match) return value || 'Data non pubblicata';
-  const months = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
-  return `${Number(match[3])} ${months[Number(match[2]) - 1]} ${match[1]}`;
+  return formatDateOr(value, 'Data non pubblicata');
 }
 
 /** Soglie di stato: derivano dalle stesse cifre del motore, non da giudizi. */
@@ -68,5 +104,5 @@ export const TIER_LABEL = (tier: string): string => {
 export function formatBillions(mln: number): string {
   const value = mln / 1000;
   const decimals = value < 1 ? 3 : value < 100 ? 1 : 0;
-  return formatMoney(value, { currency: 'mld', decimals });
+  return money(value, decimals);
 }

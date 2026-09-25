@@ -413,7 +413,11 @@ export function DeskContent({
         <header className="nation-module-header">
           <div>
             <div className="nation-module-kicker">Dossier nazionale</div>
-            <div className="nation-module-title">{nationalName || 'Nazione'}</div>
+            {/* N01/N7: se il motore non pubblica il nome della polity, il dossier
+                lo dichiara. Il ripiego precedente mescolava tre fonti diverse
+                (nome inglese del registro, nome della provincia, codice) e su un
+                mondo provinciale intitolava il dossier «Alaska». */}
+            <div className="nation-module-title">{nationalName || 'Nome del paese non pubblicato'}</div>
           </div>
           <button
             className="nation-module-close"
