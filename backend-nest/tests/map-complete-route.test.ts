@@ -101,7 +101,26 @@ async function postGenerate(body: Record<string, unknown>): Promise<FakeResponse
 
 let db: any;
 
+/**
+ * Pulizia dei residui di run **interrotti**. Il preset di prova vive dentro
+ * `data/presets/` (è il percorso che l'handler reale legge), quindi un run
+ * ucciso a metà — per timeout, Ctrl-C, crash — lascia una cartella che poi
+ * finisce nel repository con un `git add -A`. All'avvio si rimuovono i residui
+ * dei run precedenti, riconoscibili dal prefisso del test.
+ */
+function removeStalePresets(): void {
+  const dir = path.join(process.cwd(), 'data', 'presets');
+  let entries: string[] = [];
+  try { entries = fs.readdirSync(dir); } catch { return; }
+  for (const entry of entries) {
+    // Stesso prefisso, id diverso: è un residuo, non il preset di questo run.
+    if (!entry.startsWith('mapcomplete') || entry === PRESET_ID) continue;
+    try { fs.rmSync(path.join(dir, entry), { force: true, recursive: true }); } catch { /* best effort */ }
+  }
+}
+
 beforeAll(async () => {
+  removeStalePresets();
   writePreset();
   const database = await import('../src/database');
   database.initDatabase();
