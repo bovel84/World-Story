@@ -1,7 +1,7 @@
 # World Story — i dispacci come dispacci
 
-**Versione:** 1.0 — 25 settembre 2026
-**Stato:** diagnosi misurata; **nessun codice scritto.** Le fasi attendono l'approvazione dell'autore.
+**Versione:** 1.1 — 25 settembre 2026
+**Stato:** **A, B, C, D, E consegnate.** Diagnosi misurata e corretta; deploy pubblicato e verificato.
 **Destinatari:** sviluppatori ed LLM esecutori.
 **Rapporto con gli altri piani:** prosegue `SPEC_PARITA_PAX_HISTORIA_AZIONI_EVENTI_TIMELINE.md` (§5.11, §11.3),
 `PIANO_MAESTRO_REALISMO_NAZIONALE_UX.md` (§3.2 punto 8) e `PIANO_CHIAREZZA_DOSSIER_NAZIONE.md`.
@@ -270,7 +270,66 @@ proprietari, per non rompere la disciplina di collaborazione del progetto.
 
 ---
 
-## 6. Cosa non fa questo piano
+## 5-bis. Cosa ha trovato la misura, fase per fase
+
+> **Consegnata — A.** Il compositore unico esiste (`backend-nest/src/game/dispatchComposer.ts`) e i tre
+> punti che ripetevano il titolo a mano ora lo usano. **La misura ha trovato ciò che l'analisi manuale
+> non aveva visto:** quattro righe su otto *non* sono notizie e non dovevano diventarlo — estrazione di
+> risorse, magazzino nazionale, bilancio materiale e spreco. Restano nel riepilogo del turno (dove il
+> Dossier le legge) e **non** entrano in cronaca, come pretende §5.11. Il piano prevedeva di riscrivere
+> tutte le famiglie; la misura ha ridotto il perimetro a cinque davvero raccontabili.
+
+> **Consegnata — B.** Una sola misura in `EVENT_BODY_WORDS` e il divieto di riempimento in entrambi i
+> prompt. **La misura ha corretto il piano:** le tre misure in conflitto non erano tre, erano quattro —
+> anche `prompts/immersion.ts` riga 8 chiedeva «90-140 parole» mentre la riga sopra chiedeva «due
+> paragrafi» e `prompt.ts` chiedeva «4-6 frasi». Il corpo è ora «due frasi, 35-60 parole»: **la sola
+> discrepanza consapevole da Pax**, perché il nostro dispaccio deve restare comprensibile senza i
+> precedenti (regola già scritta in quello stesso file) e 15-25 parole non bastano a un antefatto.
+
+> **Consegnata — C.** Il difetto era più grave di quanto il piano dicesse. Non era «il ramo
+> `advanceDate` non valorizza il campo»: il motore indicizzava gli ordini **con il titolo come chiave e
+> con uguaglianza esatta** (`PlaybackService.ts`), e il modello scrive lo stesso titolo due volte —
+> nell'esito e nell'evento — con differenze di spazio o maiuscola. Per questo 0 dispacci su 21 portavano
+> l'ordine **anche nei percorsi che il campo lo scrivevano**. Ora la chiave si normalizza
+> (`dispatchLink.ts`), con compatibilità per gli indici salvati prima.
+
+> **Consegnata — D.** **La misura ha trovato un difetto che il piano non aveva previsto:** il «Perché è
+> accaduto» era **illeggibile**. Contrasto calcolato 1,31:1 e etichetta 1,87:1 su una soglia AA di 4,5 —
+> testo azzurro su carta crema. Corretto a 10,92:1 e 5,61:1. È la stessa famiglia dei difetti di C03: il
+> contrasto si misura, non si guarda.
+
+> **Consegnata — E.** Categoria «Amministrazione» nel modulo e nello stile. Il pattern è **il primo**
+> della lista: senza questo, «Il Tesoro rifinanzia…» sarebbe scivolato in Politica, perché contiene la
+> parola «governo».
+
+---
+
+## 6. Limiti dichiarati delle verifiche (non nascosti)
+
+Eseguite: typecheck backend e frontend, build di entrambi, **379 test backend superati**, 30 test
+frontend mirati sui file toccati, e la verifica del deploy sul sito pubblico.
+
+**Non eseguite in questa sede, con la ragione:**
+
+1. **Suite frontend completa.** Non termina entro il limite di tempo della sandbox (~180 s per comando,
+   e i processi in background non sopravvivono fra una chiamata e l'altra). Sono stati eseguiti i file
+   che le modifiche toccano o che leggono gli stessi sorgenti: `dispatches`, `dispatchSurface`,
+   `dispatchCategory`, `ordersModuleTheme`, `cssDiscipline`, `causalEvents`, `hudMobileLayout`,
+   `presetMapDetail`, `gameStore`, `publicNarrative`, `accessibleDialogContract` — tutti verdi.
+2. **50 suite backend che aprono SQLite.** `better-sqlite3` è compilato per macOS (`Mach-O`) e nella VM
+   Linux non carica (`invalid ELF header`). La ricompilazione è stata tentata: `make` non può creare
+   processi figli nella sandbox, e il percorso del progetto contiene uno spazio che rompe `node-gyp`. Le
+   379 verificate sono quelle che non toccano il database.
+3. **E2E Playwright.** Mancano le librerie di sistema (`libXdamage.so.1`) e `playwright install-deps`
+   richiede root. Vanno lanciati sulla macchina dell'autore (già noto dal runbook).
+
+**Il binario `better_sqlite3.node` è stato ripristinato** dopo il tentativo di ricompilazione: la copia
+Mach-O era ancora nella cartella temporanea di npm e il file è tornato identico. La macchina dell'autore
+non è stata lasciata rotta.
+
+---
+
+## 7. Cosa non fa questo piano
 
 Non rifà il pannello Ordini, non tocca il Consulente (già a posto dopo C01-C03), non tocca il Dossier
 Nazione (le cui cifre restano dove sono), non introduce librerie grafiche, non tocca il calendario né il
