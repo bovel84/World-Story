@@ -27,6 +27,9 @@ describe('normalizzazione dispacci SSE', () => {
       detail: 'Le delegazioni si incontrano.',
       source: 'world',
       regionIds: [],
+      // §3.2/8: gli ordini da cui nasce il dispaccio attraversano la
+      // normalizzazione, così il frontend può mostrare «Perché è accaduto».
+      sourceActionIds: ['action-1'],
     }]);
   });
 
