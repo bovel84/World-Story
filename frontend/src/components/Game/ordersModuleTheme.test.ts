@@ -24,6 +24,11 @@ const index = read('../../index.css');
 const ORDER_CLASSES = [
   'suggestion-item', 'suggestion-topic', 'suggestion-description', 'suggestion-action',
   'suggestions-content', 'pending-item', 'pending-text', 'pending-header', 'pending-edit-input',
+  'council-head', 'council-title', 'council-sub', 'btn-generate-suggestions',
+  'manual-action-input', 'btn-add-pending', 'btn-enhance-pending', 'enhance-preview',
+  'enhance-preview-text', 'enhance-preview-label', 'btn-enhance-accept', 'btn-enhance-reject',
+  'manual-action-actions', 'suggestions-footer', 'btn-submit-actions', 'order-limits-note',
+  'suggestions-list', 'suggestions-empty', 'suggestions-error', 'pending-list', 'pending-number',
 ];
 
 describe('C03 — un solo tema per il modulo Ordini', () => {
@@ -56,6 +61,28 @@ describe('C03 — un solo tema per il modulo Ordini', () => {
     expect(actionRules).toBe(0);
     expect(index).toMatch(/\.suggestion-action \{/);
   });
+
+  it('la regola «edition» non spegne più il modulo (sfondo trasparente / inchiostro di carta)', () => {
+    // Il terzo strato legacy (blocco «edition», minificato in `index.css`) aveva
+    // `.suggestion-item`, `.suggestion-action`, `.btn-generate-suggestions` con
+    // `background: transparent !important` e `.council-title`/`.suggestion-topic`
+    // con `var(--edition-ink) !important`: era il testo scuro su navy che si
+    // vedeva davvero, nonostante il blocco canonico. Non deve tornare.
+    // Confronto letterale (niente regex sul file intero: il blocco è enorme).
+    expect(index.includes('.suggestion-item,.suggestion-action,.btn-generate-suggestions')).toBe(false);
+    expect(index.includes('.council-title,.suggestion-topic{color:var(--edition-ink)')).toBe(false);
+  });
+
+  it('il blocco canonico copre anche intestazione, compositore e piede', () => {
+    for (const sel of ['.council-head', '.council-sub', '.council-title', '.btn-generate-suggestions', '.manual-action-input', '.suggestions-footer', '.btn-submit-actions']) {
+      expect(index.includes(`${sel} {`), `manca ${sel} nel blocco canonico`).toBe(true);
+    }
+  });
+
+  it('la proposta in coda conserva il verde anche al passaggio del mouse', () => {
+    // Il `:hover` non deve cancellare lo stato «in coda».
+    expect(index).toMatch(/\.suggestion-action\.queued:hover:not\(:disabled\) \{ background: #163a29/);
+  });
 });
 
 describe('C03 — il contrasto del testo regge (la misura di «illeggibile»)', () => {
@@ -83,6 +110,12 @@ describe('C03 — il contrasto del testo regge (la misura di «illeggibile»)', 
       ['proposta in coda', '#eef3fc', '#12291f'],
       ['ordine in attesa', '#dbe6f5', '#14243a'],
       ['errore', '#f0c9c9', '#2a1c20'],
+      ['titolo modulo', '#f2f6ff', '#0d1727'],
+      ['sottotitolo modulo', '#93a6c0', '#0d1727'],
+      ['tema card', '#eef3fc', '#101d31'],
+      ['etichetta compositore', '#a8bdd8', '#0f1a2c'],
+      ['nota limiti', '#93a6c0', '#0f1a2c'],
+      ['hint del piede', '#93a6c0', '#0d1727'],
     ];
     for (const [name, fg, bg] of pairs) {
       const r = ratio(fg, bg);

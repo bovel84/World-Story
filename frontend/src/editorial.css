@@ -227,7 +227,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .hud-timeline-load-older { width: 100%; border-radius: 0 !important; background: #fffaf0 !important; border: 1px solid var(--op-ink) !important; color: var(--op-ink) !important; font-family: var(--op-utility) !important; font-size: 10px !important; letter-spacing: .06em; text-transform: uppercase; margin-top: 8px; }
 .hud-timeline-load-older:hover:not(:disabled) { background: #e4d8c3 !important; }
 
-.council-head, .advisor-banner, .chat-thread-header { border-bottom: 2px solid var(--op-ink) !important; }
+.advisor-banner, .chat-thread-header { border-bottom: 2px solid var(--op-ink) !important; }
 /* C03 — questa regola stilava anche il modulo Ordini; ora quel modulo ha il suo
    blocco canonico in `index.css` (tema scrivania). Qui restano soltanto le
    superfici NON del modulo ordini: banner del Consulente, elenco chat e voci
@@ -235,46 +235,24 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .advisor-banner, .chat-item, .chat-message, .diplomacy-entry {
   border-radius: 0 !important; border-color: var(--op-rule) !important; background: #eee6d7 !important;
 }
-.council-title, .advisor-banner-title, .chat-thread-title { font-family: var(--op-display) !important; color: var(--op-ink) !important; }
-.council-sub, .advisor-banner-sub, .free-order-label, .pending-header, .suggestion-topic, .chat-message-meta { font-family: var(--op-utility) !important; letter-spacing: .05em; }
-.btn-generate-suggestions, .btn-add-pending, .btn-submit-actions, .btn-chat-send, .btn-negotiate, .btn-new-chat, .btn-create-group-chat {
+.advisor-banner-title, .chat-thread-title { font-family: var(--op-display) !important; color: var(--op-ink) !important; }
+.advisor-banner-sub, .chat-message-meta { font-family: var(--op-utility) !important; letter-spacing: .05em; }
+.btn-chat-send, .btn-negotiate, .btn-new-chat, .btn-create-group-chat {
   border-radius: 0 !important; background: var(--op-red) !important; border: 1px solid var(--op-red-dark) !important; color: #fff8ec !important; font-family: var(--op-utility) !important; font-size: 10px !important; letter-spacing: .06em; text-transform: uppercase;
 }
-.btn-generate-suggestions:hover, .btn-add-pending:hover, .btn-submit-actions:hover:not(:disabled), .btn-chat-send:hover, .btn-negotiate:hover, .btn-new-chat:hover, .btn-create-group-chat:hover { background: var(--op-red-dark) !important; color: #fff8ec !important; }
+.btn-chat-send:hover, .btn-negotiate:hover, .btn-new-chat:hover, .btn-create-group-chat:hover { background: var(--op-red-dark) !important; color: #fff8ec !important; }
 /* C03 — qui viveva il tema CARTA delle proposte. Il modulo Ordini ha ora il suo
    blocco canonico in `index.css` (tema scrivania, lo stesso del Dossier e del
    Consulente): quelle regole sono state rimosse perché contendevano lo stesso
    elemento con il tema scuro, ed erano la causa del testo illeggibile che il
-   commento qui sopra lamentava. Resta l'errore, che è del modulo ma non
-   contende nulla. */
-.suggestions-error {
-  border-left-color: var(--op-red) !important;
-  background: #f1dfd2 !important;
-  color: var(--op-red-dark) !important;
-}
-.order-limits-note { color: var(--op-muted) !important; }
-.council-sub { color: var(--op-muted) !important; }
+   commento qui sopra lamentava. */
 /* ARMY-MOVE P3 — pannello Ordini senza proposte: una riga che spiega perché
    non c'è nulla da leggere (le proposte elaborate valgono per il turno in
    corso e si azzerano quando il mondo avanza). */
-/* L'intestazione del modulo Ordini vive sulla scrivania navy: l'inchiostro
-   scuro di carta resta illeggibile lì. Titolo e note tornano chiari. */
-/* La riga dell'ordine in attesa era una scheda scura semitrasparente dentro la
-   carta chiara: torna un foglio chiaro con inchiostro leggibile. */
-.manual-action-input textarea, .chat-input-row textarea, .advisor-chat textarea { border-radius: 0 !important; border: 1px solid var(--op-ink) !important; background: #fffaf0 !important; color: var(--op-ink) !important; font-family: var(--op-copy); }
-.btn-remove-pending { color: var(--op-red) !important; }
-.btn-edit-pending { color: var(--op-ink) !important; }
-.btn-save-pending { color: #1f6f43 !important; }
-.btn-cancel-pending { color: var(--op-red) !important; }
-.manual-action-actions { display: flex; gap: 8px; margin-top: 8px; }
-.btn-enhance-pending { border-radius: 0 !important; background: #fffaf0 !important; border: 1px solid var(--op-ink) !important; color: var(--op-ink) !important; font-family: var(--op-utility) !important; font-size: 10px !important; letter-spacing: .06em; text-transform: uppercase; }
-.btn-enhance-pending:hover:not(:disabled) { background: #e4d8c3 !important; }
-.enhance-preview { margin-top: 10px; border: 1px dashed var(--op-ink) !important; background: #faf5eb !important; padding: 10px; }
-.enhance-preview-label { font-family: var(--op-utility) !important; letter-spacing: .06em; text-transform: uppercase; font-size: 10px; color: var(--op-red) !important; margin-bottom: 6px; }
-.enhance-preview-text { font-family: var(--op-copy); color: var(--op-ink) !important; margin: 0 0 8px; }
-.enhance-preview-actions { display: flex; gap: 8px; }
-.btn-enhance-accept { border-radius: 0 !important; background: var(--op-red) !important; border: 1px solid var(--op-red-dark) !important; color: #fff8ec !important; font-family: var(--op-utility) !important; font-size: 10px !important; letter-spacing: .06em; text-transform: uppercase; }
-.btn-enhance-reject { border-radius: 0 !important; background: #fffaf0 !important; border: 1px solid var(--op-ink) !important; color: var(--op-ink) !important; font-family: var(--op-utility) !important; font-size: 10px !important; letter-spacing: .06em; text-transform: uppercase; }
+/* C03-bis — intestazione, compositore, anteprima e piede del modulo Ordini
+   sono ora stilati dal solo blocco canonico in `index.css`: qui non restano
+   regole-carta che possano contendere loro inchiostro o sfondo. */
+.chat-input-row textarea, .advisor-chat textarea { border-radius: 0 !important; border: 1px solid var(--op-ink) !important; background: #fffaf0 !important; color: var(--op-ink) !important; font-family: var(--op-copy); }
 .diplomacy-status-dot { border-radius: 0 !important; }
 
 /* Every dialog is a sheet from the same editorial office. */
