@@ -111,13 +111,19 @@ describe('MAP-COMPLETE — curatedPolityCodes e hasPolity', () => {
 });
 
 describe('MAP-COMPLETE — politie reali di un preset (mappa completa)', () => {
-  it('europa_1815 (mappa standard): molte più entità delle 15 consigliate', () => {
-    const preset = loadPreset('europa_1815')!;
-    const polities = mapPolitiesForPreset(preset);
+  it('una mappa-nazioni (standard) espone molte più entità delle consigliate', () => {
+    // P01 — questo test usava `europa_1815`, che è stato eliminato (mappa
+    // «standard»: una regione per nazione). La proprietà verificata resta e
+    // riguarda la mappa `standard` in sé: molte più entità delle consigliate.
+    // P01 — i mondi giocabili sono a province complete, quindi questa mappa non è
+    // più usata da alcun preset: resta solo come ripiego. La verifica dice che,
+    // SE usata, non produce un selettore con «buchi».
+    const native = loadNativeMap('standard')!;
+    const polities = mapPolitiesFromFeatures(
+      { id: 'standard', has_custom_map: false, countries: [] },
+      native.features as any,
+    );
     expect(polities.length).toBeGreaterThan(200);
-    expect(curatedPolityCodes(preset).length).toBe(15);
-    // Le nazioni consigliate hanno nome storico; le altre esistono comunque.
-    expect(polities.find(p => p.code === 'RUS')!.name).toBe('Impero Russo');
     expect(hasPolity(polities, 'LUX')).toBe(true);
     expect(hasPolity(polities, 'ATA')).toBe(true);
     // Ogni polity ha nome e colore non vuoti (nessun «buco» nel selettore).
@@ -143,7 +149,7 @@ describe('MAP-COMPLETE — politie reali di un preset (mappa completa)', () => {
   });
 
   it('OGNI polity ha una geometria: la guardia «mappa incompleta» non può scattare', () => {
-    for (const id of ['europa_1815', 'europa_1914', 'mondo_1936', 'mondo_1989', 'realism_test_world']) {
+    for (const id of ['europa_1914', 'mondo_1936', 'realism_test_world']) {
       const preset = loadPreset(id)!;
       const nativeId = normalizeMapBase(preset.map_base) ?? DEFAULT_NATIVE_MAP_ID;
       const features = preset.has_custom_map

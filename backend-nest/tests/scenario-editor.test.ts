@@ -100,7 +100,10 @@ describe('M01 µ4 — GET /templates/:id/scenario (rapporto per l’editor)', ()
   });
 
   it('preset senza catalogo: hasCatalog false, report null (nessun finto rapporto)', async () => {
-    const { payload } = await callRoute('GET', '/templates/europa_1815/scenario');
+    // P01 — `europa_1815` è stato eliminato (mappa a nazioni). La proprietà
+    // verificata — un preset senza catalogo non inventa un rapporto — resta, e si
+    // misura su un preset che esiste e non ha `simulation/`: `europa_1914`.
+    const { payload } = await callRoute('GET', '/templates/europa_1914/scenario');
     expect(payload.hasCatalog).toBe(false);
     expect(payload.report).toBeNull();
   });

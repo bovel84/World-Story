@@ -77,6 +77,18 @@ export interface PresetPackage {
   author?: string;
   version?: string;
   source: 'preset' | 'legacy';
+  /**
+   * P01 — vero per le fixture tecniche: preset che esistono per i test (o per lo
+   * sviluppo) e **non** sono mondi giocabili. Restano caricabili con
+   * `loadPreset` — i test ne hanno bisogno — ma `listPresets` non li offre al
+   * giocatore, perché non rappresentano alcun periodo storico e non sono a
+   * province complete.
+   *
+   * Il marcatore sta nel `preset.json` (`"fixture": true`), non in una lista di
+   * id scritta nel codice: aggiungere una fixture non richiede di toccare il
+   * motore, e toglierla non lascia un id orfano in un elenco.
+   */
+  fixture?: boolean;
 }
 
 export const PRESET_ID_RE = /^[a-z0-9][a-z0-9_-]{1,63}$/;
@@ -159,7 +171,7 @@ export function validatePresetJson(raw: any, context = 'preset.json'): Omit<Pres
   // traversal (il file verrebbe risolto dal nome), quindi va rifiutato.
   const mapBase = typeof raw.map_base === 'string' ? raw.map_base.trim() : raw.map_base;
   if (mapBase !== undefined && mapBase !== '' && !isNativeMapId(mapBase)) {
-    throw new Error(`${context}: map_base non è una mappa nativa valida (standard, modern_world_provinces, pax_modern_provinces, paxh_ww2_provinces)`);
+    throw new Error(`${context}: map_base non è una mappa nativa valida (standard, modern_world_provinces, pax_modern_provinces)`);
   }
   return {
     id: raw.id,
@@ -173,6 +185,7 @@ export function validatePresetJson(raw: any, context = 'preset.json'): Omit<Pres
     country_colors: raw.country_colors,
     prompts: raw.prompts,
     map_detail: normalizeMapDetail(raw.map_detail),
+    fixture: raw.fixture === true,
     map_grouping: normalizeMapGrouping(grouping),
     map_base: normalizeMapBase(mapBase),
     author: typeof raw.author === 'string' ? raw.author : undefined,
@@ -227,7 +240,20 @@ export function loadPreset(id: string): PresetPackage | null {
   return loadLegacy(id);
 }
 
-/** Все пресеты: пакеты + легаси-шаблоны (пакет выигрывает при совпадении id). */
+/**
+ * Elenco dei **mondi giocabili**: pacchetti + template legacy (il pacchetto vince
+ * a parità di id).
+ *
+ * P01 — le **fixture tecniche** sono escluse: esistono per i test, non
+ * rappresentano un periodo storico e non sono a province complete, quindi non
+ * vanno offerte al giocatore. Restano caricabili con `loadPreset`, che è ciò che
+ * serve ai test. Il marcatore vive nel `preset.json` (`"fixture": true`).
+ */
+export function listPlayablePresets(): PresetPackage[] {
+  return listPresets().filter(preset => preset.fixture !== true);
+}
+
+/** Tutti i preset, fixture comprese: uso interno e test. */
 export function listPresets(): PresetPackage[] {
   const byId = new Map<string, PresetPackage>();
 

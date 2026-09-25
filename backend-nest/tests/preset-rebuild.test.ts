@@ -15,7 +15,10 @@ import { loadPreset, PRESETS_DIR } from '../src/utils/preset-loader';
 import { nativeMapInfo, normalizeMapBase, resolveMapSource, isNativeMapId } from '../src/utils/native-maps';
 import { deriveGroups, groupingKeysFor, resolveMapDetail, type MapFeature } from '../src/utils/map-detail';
 
-const NEW_PRESETS = ['europa_1815', 'europa_1914', 'mondo_1936', 'mondo_1989'] as const;
+// P01 — i mondi giocabili sono a province complete. `europa_1815` e `mondo_1989`
+// usavano la mappa «standard» (una regione per nazione) e sono stati eliminati:
+// restano i soli preset provinciali.
+const NEW_PRESETS = ['europa_1914', 'mondo_1936'] as const;
 const REMOVED = [
   'cold_war_1951',
   'cold_war_1951_v2',
@@ -24,12 +27,14 @@ const REMOVED = [
   'world-modern-nato-warsaw-1951',
   'world_war_ii',
 ];
-const PROTECTED = ['realism_test_world', 'modern_world_provinces', 'pax_modern_provinces', 'paxh_ww2_provinces'];
+// P01 — `paxh_ww2_provinces` non è più un preset (era una mappa NAZIONALE: 223
+// Stati, 0 province). La sua mappa resta in `data/geojson/ww2_nations.geojson`
+// come archivio, e la fixture tecnica `realism_test_world` resta perché è
+// l'ambiente dei test di realismo materiale, non un mondo giocabile.
+const PROTECTED = ['realism_test_world', 'modern_world_provinces', 'pax_modern_provinces'];
 const DATE_BY_ID: Record<string, string> = {
-  europa_1815: '1815-06-09',
   europa_1914: '1914-06-28',
   mondo_1936: '1936-01-01',
-  mondo_1989: '1989-06-04',
 };
 
 // WORLD-ALIVE P2 — coerenza storica: i codici dei moderni Stati nati dopo la
@@ -37,16 +42,13 @@ const DATE_BY_ID: Record<string, string> = {
 // stati rimossi, quindi i conteggi scendono sotto i 25 di PRESETS-REBUILD.
 // Il numero esatto è fissato qui per rendere il cambio esplicito e verificabile.
 const COUNT_BY_ID: Record<string, number> = {
-  europa_1815: 15,
   europa_1914: 21,
   mondo_1936: 39,
-  mondo_1989: 31,
 };
 
 // Nomi storici obbligatori (WORLD-ALIVE P2): il campo `countries` deve
 // sovrascrivere il nome moderno del registro data/countries.json.
 const HISTORICAL_NAME_BY_ID: Record<string, Record<string, string>> = {
-  europa_1815: { TUR: 'Impero Ottomano', RUS: 'Impero Russo', AUT: "Impero d'Austria", DEU: 'Confederazione Germanica' },
   europa_1914: {
     TUR: 'Impero Ottomano',
     AUT: 'Austria-Ungheria',
@@ -55,7 +57,6 @@ const HISTORICAL_NAME_BY_ID: Record<string, Record<string, string>> = {
     GBR: 'Impero Britannico',
   },
   mondo_1936: { RUS: 'Unione Sovietica', DEU: 'Germania nazista', ITA: 'Italia fascista', SRB: 'Regno di Jugoslavia' },
-  mondo_1989: { RUS: 'Unione Sovietica', DEU: 'Repubblica Federale di Germania', SRB: 'Jugoslavia (RSFJ)' },
 };
 
 function mapFileFor(id: string): string {
@@ -77,7 +78,7 @@ describe('PRESETS-REBUILD — rimozione dei preset di contenuto', () => {
       expect(loadPreset(id), `${id} mancante`).not.toBeNull();
     }
     // Le cartelle mappa conservano il loro map.geojson.
-    for (const id of ['modern_world_provinces', 'pax_modern_provinces', 'paxh_ww2_provinces']) {
+    for (const id of ['modern_world_provinces', 'pax_modern_provinces']) {
       expect(fs.existsSync(path.join(PRESETS_DIR, id, 'map.geojson'))).toBe(true);
     }
   });
@@ -185,10 +186,8 @@ describe('PRESETS-REBUILD — i quattro preset nuovi', () => {
 
   it('i codici anacronistici sono rimossi e le entità del periodo restano', () => {
     const anachronistic: Record<string, string[]> = {
-      europa_1815: ['BEL', 'GRC', 'CZE', 'HUN', 'ROU', 'BGR', 'SRB', 'HRV', 'SVN', 'SVK', 'UKR', 'BLR', 'LTU', 'LVA', 'EST', 'FIN', 'IRL', 'ALB', 'BIH', 'MNE', 'MDA'],
       europa_1914: ['POL', 'CZE', 'HUN', 'HRV', 'SVN', 'SVK', 'UKR', 'BLR', 'LTU', 'LVA', 'EST', 'FIN', 'IRL', 'BIH', 'MKD', 'MDA'],
       mondo_1936: ['HRV', 'SVN', 'MKD'],
-      mondo_1989: ['SVK', 'HRV', 'SVN', 'UKR', 'BLR', 'LTU', 'LVA', 'EST', 'KAZ', 'GEO', 'ARM', 'AZE', 'UZB'],
     };
     for (const id of NEW_PRESETS) {
       const codes = new Set(loadPreset(id)!.country_codes);

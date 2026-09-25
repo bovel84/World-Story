@@ -25,8 +25,12 @@ import {
 import { deriveGroups, resolveMapDetail, type MapFeature } from '../src/utils/map-detail';
 import { validatePresetJson } from '../src/utils/preset-loader';
 
+// P01 — i mondi giocabili sono a province complete: le mappe native selezionabili
+// sono quelle provinciali, più `standard` come ripiego. `paxh_ww2_provinces` era
+// una mappa NAZIONALE (223 Stati, 0 province) pur avendo «provinces» nel nome, ed
+// è stata tolta perché permetteva di generare proprio un mondo non provinciale.
 const ALL_IDS: NativeMapId[] = [
-  'standard', 'modern_world_provinces', 'pax_modern_provinces', 'paxh_ww2_provinces',
+  'standard', 'modern_world_provinces', 'pax_modern_provinces',
 ];
 
 /**
@@ -59,7 +63,7 @@ const validMinimal = (extra: Record<string, unknown> = {}) => ({
 });
 
 describe('MAP-NATIVE — catalogo e whitelist', () => {
-  it('espone standard + le 3 provinciali e NON la fixture', () => {
+  it('espone standard + le provinciali e NON la fixture né la mappa nazioni', () => {
     expect(NATIVE_MAPS.map(m => m.id)).toEqual(ALL_IDS);
     expect(NATIVE_MAPS.some(m => m.id === 'realism_test_world')).toBe(false);
     expect(isNativeMapId('realism_test_world')).toBe(false);
@@ -89,7 +93,7 @@ describe('MAP-NATIVE — catalogo e whitelist', () => {
     expect(byId['standard'].hasProvinces).toBe(false);
     expect(byId['modern_world_provinces'].hasProvinces).toBe(true);
     expect(byId['pax_modern_provinces'].hasProvinces).toBe(true);
-    expect(byId['paxh_ww2_provinces'].hasProvinces).toBe(false);
+    // Ogni mappa selezionabile ha feature: nessuna voce vuota nell'elenco.
     expect(maps.every(m => m.features > 0)).toBe(true);
   });
 
@@ -101,7 +105,6 @@ describe('MAP-NATIVE — catalogo e whitelist', () => {
     expect(byId['modern_world_provinces'].codes).toContain('USA');
     expect(byId['modern_world_provinces'].codes).not.toContain('KAZ');
     expect(byId['pax_modern_provinces'].codes).toContain('KAZ');
-    expect(byId['paxh_ww2_provinces'].codes).toContain('KAZ');
   });
 });
 
@@ -142,17 +145,17 @@ describe('MAP-NATIVE — validazione di map_base nel preset', () => {
 });
 
 describe('MAP-NATIVE — proiezione reale per livello', () => {
-  it('standard e paxh_ww2 restano mappe-nazioni (nessuna provincia)', () => {
-    for (const id of ['standard', 'paxh_ww2_provinces'] as const) {
-      const features = loadNativeMap(id)!.features!;
-      const nations = projectRegions(features, 'nations');
-      expect(nations.detail).toBe('nations');
-      expect(projectRegions(features, 'grouped').detail).toBe('nations');
-      expect(projectRegions(features, 'full').detail).toBe('nations');
-      expect(projectRegions(features, 'full').regions).toBe(nations.regions);
-    }
-    expect(projectRegions(loadNativeMap('standard')!.features!, 'nations').regions).toBe(243);
-    expect(projectRegions(loadNativeMap('paxh_ww2_provinces')!.features!, 'nations').regions).toBe(223);
+  it('standard resta una mappa-nazioni: qualunque livello, nessuna provincia', () => {
+    // P01: `standard` è l'unica mappa NON provinciale rimasta, e serve solo come
+    // ripiego quando un preset non dichiara né mappa propria né `map_base`.
+    // Qualunque livello si chieda, resta a nazioni: non ha province da raggruppare.
+    const features = loadNativeMap('standard')!.features!;
+    const nations = projectRegions(features, 'nations');
+    expect(nations.detail).toBe('nations');
+    expect(projectRegions(features, 'grouped').detail).toBe('nations');
+    expect(projectRegions(features, 'full').detail).toBe('nations');
+    expect(projectRegions(features, 'full').regions).toBe(nations.regions);
+    expect(nations.regions).toBe(243);
   });
 
   it('modern_world_provinces: nations 116 · grouped 360 · full 946', () => {

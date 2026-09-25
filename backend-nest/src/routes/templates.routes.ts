@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { countryRepository } from '../repositories/country.repository';
-import { listPresets, loadPreset } from '../utils/preset-loader';
+import { listPlayablePresets, loadPreset } from '../utils/preset-loader';
 import { curatedPolityCodes, mapPolitiesForPreset } from '../utils/map-polities';
 
 export const templatesRouter = Router();
@@ -15,7 +15,9 @@ export const templatesRouter = Router();
 templatesRouter.get('/', (_req, res) => {
   let templates: any[] = [];
   try {
-    templates = listPresets().map(p => ({
+    // P01 — `listPlayablePresets` esclude le fixture tecniche: il giocatore
+    // vede solo mondi giocabili, a province complete.
+    templates = listPlayablePresets().map(p => ({
       id: p.id,
       name: p.name,
       description: p.description,
