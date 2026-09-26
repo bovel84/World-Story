@@ -1,37 +1,29 @@
 /**
- * World Story — Stato delle sezioni del Dossier Nazione (U03 µ1)
- * ===========================================================
- * Il dossier è organizzato in sezioni progressive, senza duplicazioni:
- *  1. Situazione — decisioni che richiedono attenzione, tesoreria, stabilità
- *  2. Governo    — le anime del governo che spingono per i loro interessi
- *  3. Progetti   — ciò che è già avviato e la prossima scadenza registrata
- *  4. Cassa      — tesoreria, debito, credito e flussi: la valuta al centro
- *  5. Risorse    — scorte materiali, industria, risorse naturali e mercato
- *  6. Armamenti  — arsenale, qualità, produzione e catalogo
- *  7. Conoscenze — tecnologie sbloccate, capitale umano e formazione
- *  8. Politiche  — assetto istituzionale e coesione interna
+ * World Story — Stato delle sezioni del Dossier Nazione (U03 µ1, V03)
+ * ====================================================================
+ * V03: le otto sezioni a scheda diventano **quattro dense**, stile cancelleria:
  *
- * Ogni cifra compare in una sola sezione: le infrastrutture stanno in Risorse,
- * il denaro in Cassa, il combattente in Armamenti.
+ *  1. Situazione     — il giudizio, gli indicatori, la crisi, le decisioni.
+ *                      È la prima cosa che si vede, e l'unica apertura coerente.
+ *  2. Regno          — governo, politiche, popolo: la dimensione civile.
+ *  3. Tesoro         — cassa, risorse, progetti: tutta la materia economica.
+ *  4. Stato maggiore — forze armate, impegni, strategie: forza ed estero.
  *
- * Invarianti (UI01/UI04):
- *  - all'apertura del dossier la sezione attiva è «Situazione» (decisioni
- *    richieste), mai una sezione di dettaglio;
+ * Ogni cifra compare in una sola sezione. Il principio D01 non cambia: cambia
+ * l'accorpamento, non la regola — la dimensione civile (prima spezzata in tre
+ * schede da 2, 1 e 3 blocchi) sta in Regno, l'economia (prima spezzata in tre)
+ * sta in Tesoro, forza ed estero in Stato maggiore.
+ *
+ * Invarianti (UI01/UI04, immutate):
+ *  - all'apertura del dossier la sezione attiva è «Situazione», mai una sezione
+ *    di dettaglio;
  *  - una sola sezione attiva alla volta;
  *  - cambiare sezione non muta lo stato del mondo (solo navigazione).
  *
  * Funzioni pure, testate prima di collegarle a React (pattern F06/U01).
  */
 
-export type NationSection =
-  | 'situazione'
-  | 'governo'
-  | 'progetti'
-  | 'bilancio'
-  | 'risorse'
-  | 'armamenti'
-  | 'conoscenze'
-  | 'politiche';
+export type NationSection = 'situazione' | 'regno' | 'tesoro' | 'statoMaggiore';
 
 export interface NationDockState {
   activeSection: NationSection;
@@ -47,23 +39,15 @@ export function setSection(state: NationDockState, section: NationSection): Nati
 /** Ordine canonico delle sezioni (per la navigazione a schede). */
 export const NATION_SECTIONS: NationSection[] = [
   'situazione',
-  'governo',
-  'progetti',
-  'bilancio',
-  'risorse',
-  'armamenti',
-  'conoscenze',
-  'politiche',
+  'regno',
+  'tesoro',
+  'statoMaggiore',
 ];
 
 /** Etichetta leggibile di ogni sezione (italiano). */
 export const NATION_SECTION_LABEL: Record<NationSection, string> = {
   situazione: 'Situazione',
-  governo: 'Governo',
-  progetti: 'Progetti',
-  bilancio: 'Cassa',
-  risorse: 'Risorse e industria',
-  armamenti: 'Armamenti',
-  conoscenze: 'Conoscenze',
-  politiche: 'Politiche',
+  regno: 'Regno',
+  tesoro: 'Tesoro',
+  statoMaggiore: 'Stato maggiore',
 };

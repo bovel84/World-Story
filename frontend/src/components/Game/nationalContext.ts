@@ -115,7 +115,7 @@ export function deriveNationalContext({
 }
 
 export interface RailItem {
-  id: 'orders' | 'diplomacy' | 'advisor' | 'news' | 'nation';
+  id: 'orders' | 'diplomacy' | 'advisor' | 'news' | 'nation' | 'questioni' | 'forze';
   icon: string;
   label: string;
   badge: number;
@@ -127,14 +127,28 @@ export interface RailItemsInput {
   activeModule: string;
   totalUnread: number;
   unreadFeedCount: number;
+  /**
+   * V01 — quante sfide di pace sono aperte adesso. È il distintivo della voce
+   * «Questioni»: il pannello delle sfide sta fuori dal dossier, e il numero
+   * dice quante ne attendono una risposta senza dover aprire nulla.
+   */
+  openQuestions?: number;
+  /**
+   * D-1 — quanti reparti hanno un problema (criticità o avviso). È il
+   * distintivo della voce «Forze»: la sala operativa sta fuori dal dossier, e
+   * il numero dice da fuori se c'è qualcosa che non va senza aprirla.
+   */
+  troubledUnits?: number;
   openModule: (module: RailItem['id']) => void;
 }
 
-/** Voci della CommandRail: ordini, diplomazia, consulente, notizie, nazione. */
+/** Voci della CommandRail: ordini, questioni, forze, diplomazia, consulente, notizie, nazione. */
 export function deriveRailItems({
   activeModule,
   totalUnread,
   unreadFeedCount,
+  openQuestions = 0,
+  troubledUnits = 0,
   openModule,
 }: RailItemsInput): RailItem[] {
   return [
@@ -145,6 +159,26 @@ export function deriveRailItems({
       badge: 0,
       active: activeModule === 'orders',
       onClick: () => openModule('orders'),
+    },
+    {
+      // V01 — le sfide di pace, fuori dal dossier. La voce sta accanto a
+      // «Ordini» perché è la stessa natura: ciò che chiede una decisione.
+      id: 'questioni',
+      icon: '❢',
+      label: 'Questioni',
+      badge: openQuestions > 0 ? openQuestions : 0,
+      active: activeModule === 'questioni',
+      onClick: () => openModule('questioni'),
+    },
+    {
+      // D-1 — la sala operativa, fuori dal dossier. Il distintivo sono i
+      // reparti con un problema: il numero che dice «apri, c'è da fare».
+      id: 'forze',
+      icon: '⚔',
+      label: 'Forze',
+      badge: troubledUnits > 0 ? troubledUnits : 0,
+      active: activeModule === 'forze',
+      onClick: () => openModule('forze'),
     },
     {
       id: 'diplomacy',

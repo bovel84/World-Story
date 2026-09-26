@@ -239,12 +239,14 @@ async function previewAction(inspector, label, target) {
  * il secondo punto d'uso di `UnitActionPanel`, quello senza context inspector.
  */
 async function openNationArsenal(page, unitLabel = 'ITA 1° Reparto') {
+  // D-1 — la sala operativa (ObjectsBoard) è ora il modulo «Forze», non una
+  // sezione del dossier: il pulsante è nella barra comandi.
   await page.evaluate(async () => {
     const { useGameStore, useUIStore } = await window.__wsAppModules();
     useGameStore.setState({ selectedRegion: 'ROM' });
-    useUIStore.setState({ activeModule: 'nation' });
+    useUIStore.setState({ activeModule: 'forze' });
   });
-  await page.getByRole('button', { name: 'Armamenti', exact: true }).click();
+  await expect(page.locator('.forces-panel')).toBeVisible();
   const board = page.locator('.obj-board');
   await expect(board).toBeVisible();
   await board.locator('.obj-sector').filter({ hasText: 'Forze armate' })

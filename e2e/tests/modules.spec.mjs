@@ -96,7 +96,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     // Default: sezione «Situazione» (sintesi + decisioni richieste).
     await expect(page.locator('.nation-dock-tab.active')).toHaveText('Situazione');
     await expect(page.locator('.nation-block[aria-label="Decisioni richieste"]')).toBeVisible();
-    await expect(page.locator('.nation-block[aria-label="Sintesi"]')).toBeVisible();
+    await expect(page.locator('.nation-synthesis[aria-label="Sintesi della nazione"]')).toBeVisible();
 
     // Le carte di sintesi mostrano la tendenza reale dalla storia (3 punti):
     // sparkline SVG + variazione rispetto al mese precedente.
@@ -107,7 +107,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     // Conoscenze e Politiche restavano irraggiungibili su desktop.
     const deskBox = await page.locator('.game-shell-desk').boundingBox();
     const tabs = page.locator('.nation-dock-tab');
-    await expect(tabs).toHaveCount(8);
+    await expect(tabs).toHaveCount(4);
     for (const tab of await tabs.all()) {
       const box = await tab.boundingBox();
       expect(box.x + box.width).toBeLessThanOrEqual(deskBox.x + deskBox.width + 1);
@@ -117,8 +117,8 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
 
     // Passa a «Progetti»: la percentuale di realizzazione è leggibile, non
     // solo una barra senza numero.
-    await page.locator('.nation-dock-tab', { hasText: 'Progetti' }).click();
-    await expect(page.locator('.nation-dock-tab.active')).toHaveText('Progetti');
+    await page.locator('.nation-dock-tab', { hasText: 'Tesoro' }).click();
+    await expect(page.locator('.nation-dock-tab.active')).toHaveText('Tesoro');
     const progetti = page.locator('.nation-block[aria-label="Progetti e processi"]');
     await expect(progetti).toContainText('Ferrovia transnazionale');
     await expect(progetti.locator('.nation-progress-pct').first()).toHaveText('38% completato');
@@ -129,8 +129,8 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(progetti.locator('.nation-progress-pct').nth(1)).toHaveText('35% completato');
 
     // Sezione «Governo»: le anime del consiglio premono per i loro interessi.
-    await page.locator('.nation-dock-tab', { hasText: 'Governo' }).click();
-    await expect(page.locator('.nation-dock-tab.active')).toHaveText('Governo');
+    await page.locator('.nation-dock-tab', { hasText: 'Regno' }).click();
+    await expect(page.locator('.nation-dock-tab.active')).toHaveText('Regno');
     const governo = page.locator('.nation-block[aria-label="Consiglio dei ministri"]');
     await expect(governo).toBeVisible();
     await expect(governo).toContainText('Forze armate');
@@ -145,8 +145,8 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
 
     // Sezione «Cassa»: la valuta è la cifra centrale, con variazione reale e
     // mai letta come zero quando il magazzino è annidato in `stock`.
-    await page.locator('.nation-dock-tab', { hasText: 'Cassa' }).click();
-    await expect(page.locator('.nation-dock-tab.active')).toHaveText('Cassa');
+    await page.locator('.nation-dock-tab', { hasText: 'Tesoro' }).click();
+    await expect(page.locator('.nation-dock-tab.active')).toHaveText('Tesoro');
     const cassa = page.locator('.nation-block[aria-label="Tesoreria e debito"]');
     await expect(cassa).toBeVisible();
     await expect(cassa.locator('.nation-metric').first()).toContainText('Tesoreria');
@@ -178,7 +178,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(verdetto.locator('.nation-verdict-head')).toContainText('Come sta andando');
 
     // Nessuna duplicazione: la tesoreria non compare nel magazzino materiale.
-    await page.locator('.nation-dock-tab', { hasText: 'Risorse e industria' }).click();
+    await page.locator('.nation-dock-tab', { hasText: 'Tesoro' }).click();
     const magazzino = page.locator('.nation-block[aria-label="Magazzino materiale"]');
     await expect(magazzino).toBeVisible();
     await expect(magazzino).toContainText('Cibo');
@@ -193,7 +193,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(capacita).toContainText('2 dal profilo del paese');
     await expect(capacita).toContainText('2 fabbriche, 1 porto, 1 università, 2 reparti');
     // La stessa infrastruttura non è ripetuta in Armamenti.
-    await page.locator('.nation-dock-tab', { hasText: 'Armamenti' }).click();
+    await page.locator('.nation-dock-tab', { hasText: 'Stato maggiore' }).click();
     await expect(page.locator('.nation-block[aria-label="Forza dell\'arsenale"]')).not.toContainText('Università');
 
     // L'arsenale spiega *che cos'è* ogni mezzo: ruolo, descrizione,
@@ -205,10 +205,11 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(arsenale).toContainText('5,56 / 7,62 mm');
     await expect(arsenale).toContainText('37 in servizio');
     await expect(arsenale).toContainText('% dell\'arsenale');
-    // ...e spiega come leggere le cifre.
-    const legenda = page.locator('.nation-block[aria-label="Come si legge l\'arsenale"]');
+    // La formula è nel dettaglio richiudibile; i pesi restano dati visibili.
+    const legenda = page.locator('details.nation-synthesis-detail', { hasText: 'Come si legge l\'arsenale' });
+    await legenda.locator('summary').click();
     await expect(legenda).toContainText('quantità × qualità × peso del dominio');
-    await expect(legenda).toContainText('Forze di terra');
+    await expect(page.locator('.nation-block[aria-label="Peso dei domini"]')).toContainText('Forze di terra');
     // Produzione in corso: percentuale e data prevista leggibili.
     const produzione = page.locator('.nation-block[aria-label="Produzione in corso"]');
     await expect(produzione.locator('.nation-progress-pct').first()).toHaveText('42% completato');
@@ -225,7 +226,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
 
     // Governo: una richiesta diventa un ordine reale. «Porta in consiglio»
     // riempie la bozza e apre il compositore, senza spendere nulla.
-    await page.locator('.nation-dock-tab', { hasText: 'Governo' }).click();
+    await page.locator('.nation-dock-tab', { hasText: 'Regno' }).click();
     const governoOrdine = page.locator('.nation-block[aria-label="Consiglio dei ministri"]');
     await governoOrdine.locator('.nation-demand-order').first().click();
     await expect(page.locator('#free-player-order')).toContainText('Difesa');
@@ -241,10 +242,10 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
 
     await page.locator('.rail-btn[aria-label="Nazione"]').click();
     await expect(page.locator('.nation-desk')).toBeVisible();
-    await page.locator('.nation-dock-tab', { hasText: 'Cassa' }).click();
+    await page.locator('.nation-dock-tab', { hasText: 'Tesoro' }).click();
     await expect(page.locator('.nation-block[aria-label="Tesoreria e debito"]')).toContainText('185,85');
     // La diplomazia interna non deve coprire le schede (era un foglio fixed).
-    await page.locator('.nation-dock-tab', { hasText: 'Risorse e industria' }).click();
+    await page.locator('.nation-dock-tab', { hasText: 'Tesoro' }).click();
     await expect(page.locator('.nation-block[aria-label="Magazzino materiale"]')).toBeVisible();
   });
 });

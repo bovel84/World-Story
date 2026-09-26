@@ -1,15 +1,12 @@
 import { useMemo, type ReactNode } from 'react';
+import type { ActiveModule } from '../../stores/moduleState';
+import type { RailItem } from '../Game/nationalContext';
 
-export interface RailItem {
-  id: ActiveModule;
-  icon: string;
-  label: string;
-  badge?: number;
-  active: boolean;
-  onClick: () => void;
-}
-
-export type ActiveModule = 'orders' | 'diplomacy' | 'advisor' | 'news' | 'nation' | 'none';
+// V05 — `ActiveModule` e `RailItem` erano dichiarati **due volte**: qui e,
+// rispettivamente, in `stores/moduleState.ts` e `components/Game/nationalContext.ts`.
+// Due verità parallele sullo stesso elenco di moduli: aggiungerne uno richiedeva
+// di ricordarsi di entrambe (V01 l'ha dovuto fare). Ora la barra importa le
+// definizioni canoniche; qui resta solo il contratto del componente.
 
 interface CommandRailProps {
   items: RailItem[];

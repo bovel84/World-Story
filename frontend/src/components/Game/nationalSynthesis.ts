@@ -51,7 +51,7 @@ export interface SynthesisItem {
   action: string;
   tone: DriverTone;
   /** Sezione del dossier dove la voce si approfondisce. */
-  section: 'situazione' | 'governo' | 'progetti' | 'bilancio' | 'risorse' | 'armamenti' | 'conoscenze' | 'politiche';
+  section: 'situazione' | 'regno' | 'tesoro' | 'statoMaggiore';
   /** Priorità di ordinamento: più basso = prima. Vedi `ORDER`. */
   rank: number;
 }
@@ -166,7 +166,7 @@ function commitmentItems(
         : 'Senza scadenza registrata',
       action: 'Onora l\'impegno o dichiara che non lo farai: ignorarlo ha un costo.',
       tone: overdue ? 'critical' : 'warning',
-      section: 'governo',
+      section: 'statoMaggiore',
       rank: overdue ? ORDER.scadenza : ORDER.impegno,
     });
   }
@@ -200,7 +200,7 @@ function projectItems(
           : `Atteso per il ${process.expected_date}`,
       action: process.progress_note || 'Nessuna azione richiesta: il processo procede.',
       tone: late ? 'warning' : 'neutral',
-      section: 'progetti',
+      section: 'tesoro',
       rank: late ? ORDER.scadenza : ORDER.impegno,
     });
   }
@@ -260,7 +260,7 @@ function opportunityItems(picture?: NationalOperatingPicture | null): SynthesisI
       urgency: `Capacità usata ${formatPercent(industry.usedPct, 0)}: resta spazio senza togliere nulla alle lavorazioni in corso.`,
       action: 'Avvia un progetto: scuole, ospedali, impianti o ricerca. La capacità c\'è.',
       tone: 'positive',
-      section: 'progetti',
+      section: 'tesoro',
     });
   }
 
@@ -273,7 +273,7 @@ function opportunityItems(picture?: NationalOperatingPicture | null): SynthesisI
       urgency: `Il saldo mensile è attivo: ogni mese entra più di quanto esce.`,
       action: 'Alza la spesa civile o avvia un\'opera: l\'avanzo copre l\'investimento.',
       tone: 'positive',
-      section: 'bilancio',
+      section: 'tesoro',
     });
   }
 
@@ -286,7 +286,7 @@ function opportunityItems(picture?: NationalOperatingPicture | null): SynthesisI
       urgency: 'La ricerca si accumula a ogni turno: se non la si spende, resta ferma.',
       action: 'Sblocca una tecnologia: la ricerca è già in cassa.',
       tone: 'positive',
-      section: 'conoscenze',
+      section: 'regno',
     });
   }
 
@@ -300,7 +300,7 @@ function opportunityItems(picture?: NationalOperatingPicture | null): SynthesisI
       urgency: 'Gli atenei sono la fonte principale di punti ricerca.',
       action: 'Costruisci un ateneo: è la via civile alla conoscenza.',
       tone: 'warning',
-      section: 'conoscenze',
+      section: 'regno',
     });
   }
 
@@ -314,7 +314,7 @@ function opportunityItems(picture?: NationalOperatingPicture | null): SynthesisI
       urgency: `Spesa civile ${formatPercent((people.socialBurdenPct ?? 0) + (people.educationBurdenPct ?? 0), 1)} del PIL contro ${formatPercent(people.defenceBurdenPct ?? 0, 1)} alla difesa.`,
       action: 'Sposta spesa verso istruzione, sanità e sostegno: le fazioni civili lo chiedono.',
       tone: 'warning',
-      section: 'politiche',
+      section: 'regno',
     });
   }
 

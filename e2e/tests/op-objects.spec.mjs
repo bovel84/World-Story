@@ -27,9 +27,9 @@ async function reachHud(page) {
 }
 
 async function openSalaDiGoverno(page) {
-  await page.locator('.rail-btn[aria-label="Nazione"]').click();
-  await page.locator('.nation-dock-tab', { hasText: 'Armamenti' }).click();
-  const block = page.locator('.nation-block[aria-label="Sala di governo"]');
+  // D-1 — la sala operativa ha un pannello proprio («Forze»), fuori dal dossier.
+  await page.locator('.rail-btn[aria-label="Forze"]').click();
+  const block = page.locator('.forces-panel');
   await expect(block).toBeVisible();
   return block;
 }

@@ -188,6 +188,7 @@ describe('l\'ordinamento è una regola, non una preferenza', () => {
     const openIndex = synthesis.items.findIndex(item => item.key === 'impegno:open');
     expect(lateIndex).toBeLessThan(openIndex);
     expect(synthesis.items[lateIndex].tone).toBe('critical');
+    expect(synthesis.items[lateIndex].section).toBe('statoMaggiore');
   });
 
   it('è deterministico: stesso stato, stessa lista', () => {

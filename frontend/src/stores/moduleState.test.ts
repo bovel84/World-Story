@@ -16,7 +16,7 @@ import {
   type ActiveModule,
 } from './moduleState';
 
-const MODULES: ActiveModule[] = ['orders', 'diplomacy', 'advisor', 'news', 'nation'];
+const MODULES: ActiveModule[] = ['orders', 'diplomacy', 'advisor', 'news', 'nation', 'questioni', 'forze'];
 
 describe('moduleState (U01 µ1, UI01)', () => {
   it('all’ingresso la mappa è libera: activeModule === none', () => {

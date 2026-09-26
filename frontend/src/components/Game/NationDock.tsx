@@ -34,12 +34,11 @@ import {
 } from './NationDock/format';
 import {
   BudgetBreakdown, CrisisBlock, DebtPortfolio, DossierBlock, EmptyState,
-  EquipmentSpecs, FactionCard, Footnote, Metric, MetricGrid, PressuresBlock,
+  EquipmentSpecs, FactionCard, Footnote, Metric, MetricGrid,
   CommitmentsList, PowersAgendaList, ProgressRow, ResourceTradeRow, VerdictBanner,
 } from './NationDock/widgets';
 import { useNationDockModel } from './NationDock/useNationDockModel';
 import { MaterialBalanceList } from './MaterialBalanceList';
-import { ObjectsBoard } from './ObjectsBoard';
 import { DomainOperatingBlock, OperatingPictureBoard } from './OperatingPictureBoard';
 import { NationalSynthesisPanel } from './NationalSynthesisPanel';
 
@@ -47,46 +46,15 @@ import { NationalSynthesisPanel } from './NationalSynthesisPanel';
 export type { HistoryPoint, NationAccount, NationDockProps, NationResources, Tone } from './NationDock/types';
 
 export const NationDock: React.FC<NationDockProps> = (props) => {
-  // OP-OBJECTS: la creazione di reparti è un'azione del motore. Qui si tiene solo
-  // lo stato «in corso» del pulsante, non i numeri.
-  const [formationBusy, setFormationBusy] = React.useState(false);
-  const raiseFormation = React.useCallback(async (options: { formations?: number; armyId?: string | null; name?: string } = {}) => {
-    setFormationBusy(true);
-    try {
-      await props.onRaiseFormation?.(options);
-    } finally {
-      setFormationBusy(false);
-    }
-  }, [props.onRaiseFormation]);
-  // MILITARY-UNITS: anche le azioni del reparto sono del motore. Qui si tiene
-  // solo lo stato «in corso» del pannello, non i numeri.
-  const [unitBusy, setUnitBusy] = React.useState(false);
-  const unitAction = React.useCallback(async (request: import('../../services/api').UnitActionRequest) => {
-    if (request.dryRun) return props.onUnitAction?.(request) as Promise<import('../../services/api').UnitActionImpactPayload>;
-    setUnitBusy(true);
-    try {
-      return await (props.onUnitAction?.(request) as Promise<import('../../services/api').UnitActionImpactPayload>);
-    } finally {
-      setUnitBusy(false);
-    }
-  }, [props.onUnitAction]);
-  // MILITARY-UNITS PR2: le mosse del fronte sono dello stesso motore degli NPC.
-  const unitOrder = React.useCallback(async (request: import('../../services/api').UnitOrderRequest) => {
-    if (request.dryRun) return props.onUnitOrder?.(request) as Promise<import('../../services/api').UnitOrderImpactPayload>;
-    setUnitBusy(true);
-    try {
-      return await (props.onUnitOrder?.(request) as Promise<import('../../services/api').UnitOrderImpactPayload>);
-    } finally {
-      setUnitBusy(false);
-    }
-  }, [props.onUnitOrder]);
+  // D-1 — la sala operativa è uscita dal dossier: la creazione di reparti e le
+  // azioni di reparto vivono ora in `ForcesPanel`. Qui non serve più nessuno
+  // stato «in corso»: il dossier non esegue azioni.
   const {
     governmentType, account, resources, arms, procure, trade,
-    onPreviewFormation,
     ongoingProcesses, completedProcesses = [], mandateDecisions = [], maintenanceObligations = [], onAcknowledgeMandateDecision,
     government, onDraftOrder, governmentVoices, governmentVoicesLoading, governmentVoicesError,
     onBorrowDebt, fiscalPolicy, onSetFiscalPolicy, fiscalPolicyBusy,
-    pressures, recentPressures, onResolvePressure, pressureBusy, crisis, briefing, strategicAgenda, commitments,
+    crisis, briefing, strategicAgenda, commitments,
     today: worldDate,
     setState, active, trading, borrowing, borrowAmount, setBorrowAmount, borrowTerm, setBorrowTerm,
     taxDraft, setTaxDraft, effectiveTaxPct, runSetTax, runBorrow, runTrade,
@@ -134,11 +102,12 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
       <div className="nation-dock-body">
         {active === 'situazione' && (
           <>
+
             {/* D03/I3: il dossier si apre sulla **sintesi** — giudizio, lista
                 unica delle cose da fare, azione minima. Il quadro a sei aree
                 che stava qui non sparisce: scende in fondo alla sezione come
                 dettaglio (I6), e resta raggiungibile. */}
-            <NationalSynthesisPanel synthesis={synthesis} onOpenSection={openSection} />
+            <NationalSynthesisPanel synthesis={synthesis} onOpenSection={openSection} onOpenQuestions={props.onOpenQuestions} />
 
             {/* N02: la card dichiara il proprio contesto temporale — «Italia — 14
                 marzo 1951» — che è la sua prop `context` già prevista e finora
@@ -195,48 +164,18 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               <VerdictBanner verdict={verdict} />
             </DossierBlock>
 
-            {/* D05/I4: queste tre card **duplicavano** la lista unica qui sopra —
-                le stesse crisi, le stesse sfide, gli stessi impegni, in due
-                posti. La lista è una sola; il registro completo resta qui sotto,
-                richiudibile, perché è interattivo (le sfide si risolvono, gli
-                impegni si leggono per intero). */}
-            <details className="nation-synthesis-detail">
-              <summary>Registro completo: crisi, sfide e impegni</summary>
-
-              <DossierBlock
-                title="Crisi della nazione"
-                description="Le tre strade del collasso — rivolta, default, invasione — calcolate dagli indicatori reali. Se una resta critica per troppi turni, la partita finisce."
-              >
-                <CrisisBlock crisis={crisis} />
-              </DossierBlock>
-
-              <DossierBlock
-                title="Sfide del momento"
-                description="Pressioni interne ed esterne generate dal motore: ogni turno porta qualcosa da decidere. Ignorarle ha un costo."
-              >
-                <PressuresBlock
-                  pressures={pressures || []}
-                  recent={recentPressures || []}
-                  onResolve={onResolvePressure}
-                  busy={pressureBusy}
-                  money={account?.money}
-                />
-              </DossierBlock>
-
-              <DossierBlock
-                title="Impegni della partita"
-                description="Trattati, promesse, garanzie e ultimatum registrati dal motore: stato, controparte, importanza e scadenza. La cronaca racconta, il registro ricorda."
-              >
-                <CommitmentsList commitments={commitments?.commitments || []} today={worldDate || ''} />
-              </DossierBlock>
-            </details>
-
+            {/* V02 — le tre strade del collasso **non sono dettaglio**: sono lo
+                stato. Escono dal richiudibile e stanno sotto gli indicatori che
+                le determinano: chi legge «stabilità 30%» vede subito quanto
+                pesa. Prima erano chiuse dietro un `<summary>`, cioè la cosa
+                più grave della partita era la meno visibile. */}
             <DossierBlock
-              title="Strategie delle potenze"
-              description="Che cosa stanno inseguendo le nazioni del teatro: obiettivi persistenti del motore, con la data di nascita, il motivo e il progresso misurato sugli indicatori del turno."
+              title="Crisi della nazione"
+              description="Le tre strade del collasso — rivolta, default, invasione — calcolate dagli indicatori reali. Se una resta critica per troppi turni, la partita finisce."
             >
-              <PowersAgendaList powers={strategicAgenda?.powers || []} playerPolityId={playerPolityId} />
+              <CrisisBlock crisis={crisis} />
             </DossierBlock>
+
 
             <DossierBlock
               title="Decisioni richieste"
@@ -259,10 +198,16 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                   </div>
                 ))}
                 {mandateDecisions.length === 0 && !maintenanceObligations.some(item => !item.sufficient) && (ongoingProcesses.length > 0 ? (
-                  <div className="nation-decision-live"><b>{ongoingProcesses.length} {ongoingProcesses.length === 1 ? 'processo richiede monitoraggio' : 'processi richiedono monitoraggio'}</b><span>Apri Progetti per vedere le prossime scadenze registrate.</span></div>
+                  <div className="nation-decision-live"><b>{ongoingProcesses.length} {ongoingProcesses.length === 1 ? 'processo richiede monitoraggio' : 'processi richiedono monitoraggio'}</b><span>Apri Tesoro per vedere le prossime scadenze registrate.</span></div>
                 ) : <EmptyState>Nessuna decisione richiede attenzione immediata.</EmptyState>)}
               </div>
             </DossierBlock>
+
+            {/* D05/I4: gli impegni **duplicavano** la lista unica qui sopra. La
+                lista è una sola; il registro resta raggiungibile, richiudibile,
+                e non contiene azioni (è cronaca, non decisione). V01 ha tolto le
+                sfide, V02 la crisi: qui restano solo gli impegni, che V03
+                portano in Stato maggiore. */}
 
             {/* Il quadro a sei aree: era l'apertura della sezione, ora è il
                 **dettaglio** che la sintesi riassume (I5: una sola superficie
@@ -272,11 +217,15 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               <summary>Quadro d&apos;insieme per dominio</summary>
               <OperatingPictureBoard picture={operatingPicture} onOpenSection={openSection} />
             </details>
+
           </>
         )}
 
-        {active === 'governo' && (
+{active === 'regno' && (
           <>
+            <p className="nation-section-voice">La dimensione civile della nazione: chi la governa, con quali istituzioni e quanto investe nel suo popolo. Qui non si contano soldati: si contano consenso, competenze e coesione.</p>
+
+
             <DossierBlock
               title="Quadro del governo"
               description="Sostegno, opposizione, promesse e tenuta: gli stessi numeri del quadro d'insieme, letti prima del dettaglio."
@@ -341,72 +290,220 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 <EmptyState>Le anime del governo non sono ancora pubblicate per questa partita.</EmptyState>
               )}
             </DossierBlock>
+
+
+            <DossierBlock
+              title="Assetto istituzionale"
+              description="Chi governa, su quale territorio e con quali processi aperti."
+            >
+              <MetricGrid>
+                <Metric label="Forma di governo" value={governmentType} hint="Assetto registrato per questo paese" />
+                <Metric label="Territorio amministrato" value={provincesLabel(assets.provinces)} hint="Unità amministrative sotto il governo" />
+                <Metric label="Processi attivi" value={formatNumber(ongoingProcesses.length)} hint={ongoingProcesses.length > 0 ? 'In corso: dettaglio in Tesoro' : 'Nessun processo in corso'} />
+              </MetricGrid>
+            </DossierBlock>
+
+            <DossierBlock
+              title="Politica fiscale"
+              description="Quanto lo Stato preleva dal PIL. Decidi tu: più entrate oggi, meno consenso e crescita domani."
+            >
+              {effectiveTaxPct === null ? (
+                <Footnote>Il conto nazionale non è ancora disponibile: l'aliquota si potrà scegliere appena il motore pubblica le entrate.</Footnote>
+              ) : (
+                <>
+                  <div className="nation-tax-control">
+                    <label htmlFor="nation-tax-rate">
+                      <span>Pressione fiscale</span>
+                      <b>{formatPercent(taxDraft ?? effectiveTaxPct, 1)}</b>
+                    </label>
+                    <input
+                      id="nation-tax-rate"
+                      type="range"
+                      min={fiscalPolicy?.minPct ?? 4}
+                      max={fiscalPolicy?.maxPct ?? 45}
+                      step={0.5}
+                      value={taxDraft ?? effectiveTaxPct}
+                      disabled={!onSetFiscalPolicy || fiscalPolicyBusy}
+                      aria-label="Pressione fiscale in percentuale del PIL"
+                      onChange={(event) => setTaxDraft(Number(event.target.value))}
+                    />
+                    <div className="nation-tax-scale">
+                      <span>{fiscalPolicy?.minPct ?? 4}%</span>
+                      <em>{fiscalPolicy?.label ?? '—'}</em>
+                      <span>{fiscalPolicy?.maxPct ?? 45}%</span>
+                    </div>
+                  </div>
+                  {(fiscalPolicy?.effects?.length ?? 0) > 0 && (
+                    <ul className="nation-tax-effects">
+                      {fiscalPolicy!.effects.map((line) => <li key={line}>{line}</li>)}
+                    </ul>
+                  )}
+                  <div className="nation-tax-actions">
+                    <button
+                      type="button"
+                      onClick={runSetTax}
+                      disabled={taxDraft === null || fiscalPolicyBusy || !onSetFiscalPolicy}
+                    >{fiscalPolicyBusy ? 'Applico…' : 'Applica aliquota'}</button>
+                    <em>
+                      {fiscalPolicy?.configured
+                        ? `Scelta dal governo · profilo ${formatPercent(fiscalPolicy.defaultPct, 1)}`
+                        : `Predefinita dal profilo ${formatPercent(fiscalPolicy?.defaultPct ?? effectiveTaxPct, 1)}`}
+                    </em>
+                  </div>
+                </>
+              )}
+            </DossierBlock>
+
+            <DossierBlock
+              title="Coesione interna"
+              description="Il consenso e la pressione sociale sul governo."
+            >
+              <MetricGrid>
+                {/* Stabilità e tensione sono gli stessi indicatori letti in
+                    «Situazione»: qui restano come rimando, non come copia. */}
+                <Metric
+                  label="Stabilità"
+                  value={formatPercent(stability)}
+                  tone={stabilityTone(stability)}
+                  hint="Dettaglio in Situazione"
+                  onClick={() => openSection('situazione')}
+                />
+                <Metric
+                  label="Tensione sociale"
+                  value={formatPercent(socialTension)}
+                  tone={tensionTone(socialTension)}
+                  hint="Dettaglio in Situazione"
+                  onClick={() => openSection('situazione')}
+                />
+                {/* N2/N4: il motore stima il PIL pro capite in **dollari di oggi**
+                    (`gdpPerCapitaUsd`) anche per un mondo del 1815. Il simbolo `$`
+                    faceva passare quella stima per la moneta del paese: la cifra
+                    resta, la valuta **si dichiara** per quello che è. */}
+                <Metric
+                  label="PIL pro capite"
+                  value={account?.gdpPerCapitaUsd != null ? index(Number(account.gdpPerCapitaUsd), 0) : '—'}
+                  hint="Tenore di vita medio in dollari di oggi (stima del motore)"
+                />
+              </MetricGrid>
+              <Footnote><b>Fonte</b> conto nazionale e modificatori attivi (sezione Tesoro). Nessuna decisione viene presa da questa schermata.</Footnote>
+            </DossierBlock>
+
+
+            <DossierBlock
+              title="Tecnologie sbloccate"
+              description="Progresso materiale finanziato dai punti ricerca nazionali."
+            >
+              {resources?.technologies && resources.technologies.length > 0 ? (
+                <ul className="nation-tech-list">
+                  {resources.technologies.map((tech) => (
+                    <li key={tech}><b>{tech.replace(/_/g, ' ')}</b><span>Disponibile per economia e forze armate.</span></li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState>Nessuna tecnologia sbloccata: accumula punti ricerca con università e popolazione.</EmptyState>
+              )}
+              {/* N06 — la fonte diceva «catalogo tecnologie del motore», ma l'elenco
+                  qui sopra **non è il catalogo**: è ciò che il motore ha già
+                  sbloccato per questa nazione. Il catalogo non è pubblicato al
+                  client, e il motore non dichiara un'epoca delle tecnologie: un
+                  mondo del 1815 può sbloccare nomi del 2026. Il dossier non
+                  inventa una pertinenza che non ha (N3): dichiara la fonte vera.
+                  (Il difetto descritto nel piano come «mostra il catalogo intero»
+                  era in realtà solo il testo della fonte: l'elenco è già quello
+                  degli sblocchi reali. Corretto qui.) */}
+              <Footnote><b>Fonte</b> tecnologie che il motore pubblica come sbloccate · la ricerca si accumula a ogni tick del mondo.</Footnote>
+              {epochView.epoch && (
+                <Footnote>
+                  Il motore non dichiara un&apos;epoca delle tecnologie: in uno scenario del
+                  {' '}{epochView.year} ({epochView.epochLabel}) alcune voci possono appartenere a
+                  secoli successivi, e la ricerca non è ancora filtrata per epoca.
+                </Footnote>
+              )}
+            </DossierBlock>
+
+            <DossierBlock
+              title="Capitale umano"
+              description="Popolazione, formazione e forze disponibili."
+            >
+              <MetricGrid>
+                <Metric label="Popolazione" value={formatNumber(assets.population)} hint={`${formatNumber(assets.population / 1_000_000)} milioni di abitanti`} />
+                <Metric label="Università" value={formatNumber(assets.universities)} hint={assets.baseUniversities > 0 ? `${formatNumber(assets.baseUniversities)} dal profilo del paese, ${formatNumber(Math.max(0, assets.universities - assets.baseUniversities))} costruite: producono ricerca` : 'Producono punti ricerca'} />
+                <Metric label="Unità e forze" value={formatNumber(assets.forces)} hint={assets.baseForces > 0 ? `${formatNumber(assets.baseForces)} dal profilo del paese, ${formatNumber(Math.max(0, assets.forces - assets.baseForces))} dal mondo` : 'Reparti in servizio (dettaglio in Stato maggiore)'} />
+              </MetricGrid>
+              <Footnote><b>Fonte</b> conto nazionale; in mancanza, oggetti delle regioni possedute. Il PIL pro capite è nelle Politiche.</Footnote>
+            </DossierBlock>
+
+            {/* M03 — la dimensione civile aveva una metrica dove l'arsenale ne ha
+                otto blocchi. Qui ha il suo blocco: le voci che il motore pubblica
+                nel bilancio (istruzione e ricerca, sanità e sostegno) lette come
+                quello che sono — l'investimento nel popolo, non un residuo dopo
+                le armi. */}
+            <DossierBlock
+              title="Investimento nel popolo"
+              description={`Quanto lo Stato destina a istruzione, sanità e sostegno, e quanto alla difesa: due scelte dello stesso bilancio. ${MONEY_UNIT_NOTE}`}
+            >
+              {budget ? (
+                <>
+                  <MetricGrid>
+                    <Metric
+                      label="Istruzione e ricerca"
+                      value={`${formatPercent(budget.educationBurdenPct, 1)} del PIL`}
+                      tone={budget.educationBurdenPct >= 3 ? 'positive' : budget.educationBurdenPct > 0 ? 'neutral' : 'warning'}
+                      hint="Scuola, atenei e laboratori: è la via civile alla conoscenza"
+                    />
+                    <Metric
+                      label="Sanità e sostegno"
+                      value={`${formatPercent(budget.socialBurdenPct, 1)} del PIL`}
+                      tone={budget.socialBurdenPct >= 6 ? 'positive' : budget.socialBurdenPct > 0 ? 'neutral' : 'warning'}
+                      hint="Salute e sostegno sociale: è il tenore di vita che si può misurare"
+                    />
+                    {/* La spesa militare è la **stessa** cifra letta in «Spesa
+                        militare» (Cassa, dove è canonica) e nella ripartizione del
+                        bilancio. Una cifra, un posto: qui è il termine di paragone
+                        del confronto, e il rimando porta alla voce canonica. */}
+                    <Metric
+                      label="Quanto alle armi"
+                      value={`${formatPercent(budget.defenceBurdenPct, 1)} del PIL`}
+                      tone={budget.defenceBurdenPct >= 8 ? 'warning' : 'neutral'}
+                      hint="La voce canonica è in Tesoro: qui è il termine di paragone"
+                      onClick={() => openSection('tesoro')}
+                    />
+                    <Metric
+                      label="Quota al civile"
+                      value={people.civilianShareOfSpendingPct === null ? '—' : formatPercent(people.civilianShareOfSpendingPct, 0)}
+                      tone={people.civilianShareOfSpendingPct === null ? 'neutral' : people.civilianShareOfSpendingPct >= 60 ? 'positive' : people.civilianShareOfSpendingPct >= 40 ? 'warning' : 'negative'}
+                      hint={people.civilianShareOfSpendingPct === null
+                        ? 'Il motore non pubblica insieme spesa civile e difesa'
+                        : 'Della spesa dichiarata, quanta va al popolo invece che alle armi'}
+                    />
+                  </MetricGrid>
+                  <ul className="nation-civil-lines">
+                    {budget.expense
+                      .filter(line => line.id === 'education' || line.id === 'health' || line.id === 'social' || line.id === 'infrastructure')
+                      .map(line => (
+                        <li key={line.id}>
+                          <span>{line.label}</span>
+                          <b>{formatBillions(line.amount)}</b>
+                        </li>
+                      ))}
+                  </ul>
+                </>
+              ) : (
+                <EmptyState>Questo scenario non pubblica il dettaglio del bilancio: l&apos;investimento nel popolo non è misurabile.</EmptyState>
+              )}
+              <Footnote><b>Come si legge</b> non è una classifica morale: sono le due scelte che lo stesso bilancio deve fare. Una nazione che arma e non istruisce non è più forte — è più fragile, perché la ricerca cresce solo con gli atenei.</Footnote>
+            </DossierBlock>
+
           </>
         )}
 
-        {active === 'progetti' && (
-          <DossierBlock
-            title="Progetti e processi"
-            description="Che cosa è avviato, in che ambito, a che punto è e quando è previsto l'esito."
-          >
-            {ongoingProcesses.length === 0 && completedProcesses.length === 0 ? (
-              <EmptyState>Nessun progetto registrato alla data corrente.</EmptyState>
-            ) : (
-              <>
-                {projectGroups.map((group) => (
-                  <section key={group.category.key} className="nation-process-group">
-                    <h4 className="nation-process-category">{group.category.label}</h4>
-                    <ul className="nation-process-list">
-                      {group.projects.map((process) => (
-                        <li key={process.id}>
-                          <b>{process.title}</b>
-                          <span>{process.summary}</span>
-                          <ProgressRow
-                            label="Realizzazione"
-                            percent={Number(process.progress ?? 0)}
-                            note={process.expected_date
-                              ? `Avviato ${formatDate(process.started_date)} · esito previsto ${formatDate(process.expected_date)}`
-                              : `Avviato ${formatDate(process.started_date)} · nessuna scadenza dichiarata${process.progress_note ? ` · ${process.progress_note}` : ''}`}
-                          />
-                          {process.expected_date && process.progress_note && (
-                            <small className="nation-process-note">{process.progress_note}</small>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ))}
-
-                {completedProcesses.length > 0 && (
-                  <section className="nation-process-group is-completed">
-                    <h4 className="nation-process-category">Completati</h4>
-                    <ul className="nation-process-list">
-                      {completedProcesses.map((process) => (
-                        <li key={process.id}>
-                          <b>{process.title}</b>
-                          <span>{process.summary}</span>
-                          {/* Un processo concluso non è «in realizzazione»: la
-                              percentuale è ferma a 100 e l'etichetta lo dice. */}
-                          <ProgressRow
-                            label="Completato"
-                            percent={100}
-                            note={process.completed_date
-                              ? `Avviato ${formatDate(process.started_date)} · completato il ${formatDate(process.completed_date)}`
-                              : `Avviato ${formatDate(process.started_date)} · completato entro la scadenza prevista`}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
-              </>
-            )}
-            <Footnote>I progetti sono raggruppati per ambito. L'avanzamento è calcolato dal motore tra la data di avvio e la scadenza dichiarata; alla scadenza il progetto è chiuso e passa in «Completati». Senza scadenza resta «in corso» finché il modello non ne dichiara l'esito.</Footnote>
-          </DossierBlock>
-        )}
-
-        {active === 'bilancio' && (
+{active === 'tesoro' && (
           <>
+            <p className="nation-section-voice">Tutta la materia economica: denaro, debito, scorte, industria e i cantieri. Dove entra il gettito, dove esce, e che cosa il paese sa produrre.</p>
+
+
+            <h3 className="nation-group-head">Denaro</h3>
+
             <DossierBlock
               title="Quadro economico"
               description="Avanzo o disavanzo, debito, interessi e cassa: la diagnosi prima delle voci di bilancio."
@@ -548,8 +645,8 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                     label="Istruzione e ricerca"
                     value={`${formatPercent(budget.educationBurdenPct, 1)} del PIL`}
                     tone="neutral"
-                    hint="Le vie civili: confronto in Conoscenze"
-                    onClick={() => openSection('conoscenze')}
+                    hint="Le vie civili: confronto in Regno"
+                    onClick={() => openSection('regno')}
                   />
                   {/* La quota di difesa è la **stessa** `defenceBurdenPct` di
                       «Spesa militare» (blocco «Pressione militare», più sopra in
@@ -561,41 +658,12 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               </DossierBlock>
             )}
 
-            <DossierBlock
-              title="Pressione militare"
-              description={`Il costo dell'apparato militare e delle riserve richiamate. ${MONEY_UNIT_NOTE}`}
-            >
-              <MetricGrid>
-                <Metric
-                  label="Spesa militare"
-                  value={defenceBurdenPct > 0 ? `${formatPercent(defenceBurdenPct, 1)} del PIL` : '—'}
-                  tone={defenceTone(defenceBurdenPct)}
-                  hint="Quota del PIL destinata alla difesa"
-                  trend={mkTrend((point) => point.account.defenceBurdenPct, pointDelta, 'down')}
-                />
-                <Metric
-                  label="Riserve mobilitate"
-                  value={formatNumber(mobilized)}
-                  tone={mobilized > 0 ? 'warning' : 'positive'}
-                  hint="Formazioni richiamate, non ancora operative"
-                  trend={mkTrend((point) => point.account.mobilized, countDelta, 'down')}
-                />
-                <Metric
-                  label="Sforzo bellico"
-                  value={formatPercent(warEffort)}
-                  tone={warEffortTone(warEffort)}
-                  hint="Forze e riserve sul totale nazionale"
-                  trend={mkTrend((point) => point.account.warEffort, pointDelta, 'down')}
-                />
-              </MetricGrid>
-            </DossierBlock>
 
             <Footnote><b>Fonte</b> MaterialEconomy e WorldStateEngine.accounts · valori letti, non stimati dal client.</Footnote>
-          </>
-        )}
 
-        {active === 'risorse' && (
-          <>
+
+            <h3 className="nation-group-head">Materie, industria e cantieri</h3>
+
             <DossierBlock
               title="Quadro di risorse e industria"
               description="Scorte, flussi e autonomia; stabilimenti, capacità usata e colli di bottiglia."
@@ -649,7 +717,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               ) : (
                 <EmptyState>Il magazzino materiale non è ancora pubblicato per questa partita.</EmptyState>
               )}
-              <Footnote><b>Fonte</b> MaterialEconomy · le scorte nascono da una quota della capacità reale (mesi di riserva secondo il PIL pro capite) e non possono superare il tetto: il surplus si perde. Una nazione fragile ha magazzini piccoli e resta in carenza se la produzione non copre il fabbisogno. La leva materiale del modello (aiuti, requisizioni, perdite) muove queste stesse scorte. Denaro, debito e credito sono nella sezione Cassa.</Footnote>
+              <Footnote><b>Fonte</b> MaterialEconomy · le scorte nascono da una quota della capacità reale (mesi di riserva secondo il PIL pro capite) e non possono superare il tetto: il surplus si perde. Una nazione fragile ha magazzini piccoli e resta in carenza se la produzione non copre il fabbisogno. La leva materiale del modello (aiuti, requisizioni, perdite) muove queste stesse scorte. Denaro, debito e credito sono nella sezione Tesoro.</Footnote>
             </DossierBlock>
 
             {modifiersActive && (
@@ -757,40 +825,116 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 {' '}{plural(assets.basePorts, 'porto', 'porti')}, {plural(assets.baseUniversities, 'università', 'università')},
                 {' '}{plural(assets.baseForces, 'reparto', 'reparti')}. Ciò che si costruisce nel gioco si somma a questa base.
               </p>
-              <Footnote><b>Fonte</b> conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Università e personale sono nella sezione Conoscenze.</Footnote>
+              <Footnote><b>Fonte</b> conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Università e personale sono nella sezione Regno.</Footnote>
             </DossierBlock>
+
+            <DossierBlock
+                        title="Progetti e processi"
+                        description="Che cosa è avviato, in che ambito, a che punto è e quando è previsto l'esito."
+                      >
+                        {ongoingProcesses.length === 0 && completedProcesses.length === 0 ? (
+                          <EmptyState>Nessun progetto registrato alla data corrente.</EmptyState>
+                        ) : (
+                          <>
+                            {projectGroups.map((group) => (
+                              <section key={group.category.key} className="nation-process-group">
+                                <h4 className="nation-process-category">{group.category.label}</h4>
+                                <ul className="nation-process-list">
+                                  {group.projects.map((process) => (
+                                    <li key={process.id}>
+                                      <b>{process.title}</b>
+                                      <span>{process.summary}</span>
+                                      <ProgressRow
+                                        label="Realizzazione"
+                                        percent={Number(process.progress ?? 0)}
+                                        note={process.expected_date
+                                          ? `Avviato ${formatDate(process.started_date)} · esito previsto ${formatDate(process.expected_date)}`
+                                          : `Avviato ${formatDate(process.started_date)} · nessuna scadenza dichiarata${process.progress_note ? ` · ${process.progress_note}` : ''}`}
+                                      />
+                                      {process.expected_date && process.progress_note && (
+                                        <small className="nation-process-note">{process.progress_note}</small>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </section>
+                            ))}
+
+                            {completedProcesses.length > 0 && (
+                              <section className="nation-process-group is-completed">
+                                <h4 className="nation-process-category">Completati</h4>
+                                <ul className="nation-process-list">
+                                  {completedProcesses.map((process) => (
+                                    <li key={process.id}>
+                                      <b>{process.title}</b>
+                                      <span>{process.summary}</span>
+                                      {/* Un processo concluso non è «in realizzazione»: la
+                                          percentuale è ferma a 100 e l'etichetta lo dice. */}
+                                      <ProgressRow
+                                        label="Completato"
+                                        percent={100}
+                                        note={process.completed_date
+                                          ? `Avviato ${formatDate(process.started_date)} · completato il ${formatDate(process.completed_date)}`
+                                          : `Avviato ${formatDate(process.started_date)} · completato entro la scadenza prevista`}
+                                      />
+                                    </li>
+                                  ))}
+                                </ul>
+                              </section>
+                            )}
+                          </>
+                        )}
+                        <Footnote>I progetti sono raggruppati per ambito. L'avanzamento è calcolato dal motore tra la data di avvio e la scadenza dichiarata; alla scadenza il progetto è chiuso e passa in «Completati». Senza scadenza resta «in corso» finché il modello non ne dichiara l'esito.</Footnote>
+                      </DossierBlock>
+
           </>
         )}
 
-        {active === 'armamenti' && (
+{active === 'statoMaggiore' && (
           <>
-            {/* Il titolo era «Sala di governo» — un nome che non dice cosa c'è
-                dentro. Il blocco contiene `ObjectsBoard`, che è **interattivo**
-                (da qui si creano reparti e si impartiscono ordini): non è una
-                legenda da togliere, è la sala operativa. */}
-            {arms?.objects && (
-              <DossierBlock
-                title="Oggetti del paese: esercito, impianti, cantieri, marina"
-                description="Un settore per volta: clicca per aprire i singoli oggetti e le loro azioni."
-              >
-                <ObjectsBoard
-                  arsenal={arms}
-                  onPreviewFormation={onPreviewFormation}
-                  onRaiseFormation={raiseFormation}
-                  onUnitAction={unitAction}
-                  onUnitOrder={unitOrder}
-                  snapshotKey={props.snapshotKey}
-                  busy={formationBusy || unitBusy}
-                />
-                <Footnote><b>Da dove vengono le cifre</b> ogni riga è un fatto pubblicato dal motore (arsenale, capacità industriale, prontezza, manpower). Le attribuzioni che il motore non conosce — quali reparti in una armata, quali navi in una flotta — sono convenzioni dichiarate sotto «Catene e convenzioni»: la somma delle parti è il totale nazionale.</Footnote>
-              </DossierBlock>
-            )}
+            <p className="nation-section-voice">La forza e l’estero: arsenale e produzione militare, gli impegni presi con le altre nazioni e che cosa inseguono le potenze del teatro.</p>
+
+            {/* D-1 — la sala operativa (`ObjectsBoard`) è uscita dal dossier: è
+                un blocco che **agisce** (crea reparti, compra, impartisce
+                ordini), e da V01–V05 il dossier è un documento di stato. Vive
+                nel pannello «Forze» della barra comandi, come le sfide in
+                «Questioni». Lo stesso principio: il dossier si legge, le azioni
+                si fanno in una superficie dedicata. */}
 
             <DossierBlock
               title="Quadro delle forze armate"
               description="Reparti in armi, copertura per categoria, prontezza operativa e dipendenze dall'estero."
             >
               <DomainOperatingBlock picture={operatingPicture} id="militare" />
+            </DossierBlock>
+
+            <DossierBlock
+              title="Pressione militare"
+              description={`Il costo dell'apparato militare e delle riserve richiamate. ${MONEY_UNIT_NOTE}`}
+            >
+              <MetricGrid>
+                <Metric
+                  label="Spesa militare"
+                  value={defenceBurdenPct > 0 ? `${formatPercent(defenceBurdenPct, 1)} del PIL` : '—'}
+                  tone={defenceTone(defenceBurdenPct)}
+                  hint="Quota del PIL destinata alla difesa"
+                  trend={mkTrend((point) => point.account.defenceBurdenPct, pointDelta, 'down')}
+                />
+                <Metric
+                  label="Riserve mobilitate"
+                  value={formatNumber(mobilized)}
+                  tone={mobilized > 0 ? 'warning' : 'positive'}
+                  hint="Formazioni richiamate, non ancora operative"
+                  trend={mkTrend((point) => point.account.mobilized, countDelta, 'down')}
+                />
+                <Metric
+                  label="Sforzo bellico"
+                  value={formatPercent(warEffort)}
+                  tone={warEffortTone(warEffort)}
+                  hint="Forze e riserve sul totale nazionale"
+                  trend={mkTrend((point) => point.account.warEffort, pointDelta, 'down')}
+                />
+              </MetricGrid>
             </DossierBlock>
 
             <DossierBlock
@@ -804,7 +948,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               <p className="material-balance-title">Armamenti in servizio</p>
               <p className="arms-summary-line">{armsSummary}</p>
               {armsSplit ? <p className="arms-summary-line obj-note">{armsSplit}</p> : null}
-              <Footnote><b>Da dove vengono le cifre</b> scorte, fabbisogno e produzione mensile sono del motore (MaterialEconomy), non una stima del Dossier; cibo, vestiario e carburante sono nella sezione Risorse e industria. La produzione di un mezzo è la somma degli ordini aperti qui sotto, con la data prevista dal ritmo reale della linea.</Footnote>
+              <Footnote><b>Da dove vengono le cifre</b> scorte, fabbisogno e produzione mensile sono del motore (MaterialEconomy), non una stima del Dossier; cibo, vestiario e carburante sono nella sezione Tesoro. La produzione di un mezzo è la somma degli ordini aperti qui sotto, con la data prevista dal ritmo reale della linea.</Footnote>
             </DossierBlock>
 
             <DossierBlock
@@ -824,7 +968,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               ) : (
                 <EmptyState>Arsenale non ancora pubblicato per questa partita.</EmptyState>
               )}
-              <Footnote><b>Fonte</b> MilitaryIndustry · budget e industrie sono in Cassa e Risorse; qui solo ciò che combatte.</Footnote>
+              <Footnote><b>Fonte</b> MilitaryIndustry · budget e industrie sono in Tesoro; qui solo ciò che combatte.</Footnote>
             </DossierBlock>
 
             {/* D07: era una card di **spiegazioni** che occupava la schermata a
@@ -969,215 +1113,24 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               )}
               <Footnote><b>Fonte</b> MilitaryIndustry · la costruzione apre un ordine di produzione con percentuale di completamento; l'importazione consegna subito al prezzo maggiorato.</Footnote>
             </DossierBlock>
-          </>
-        )}
-
-        {active === 'conoscenze' && (
-          <>
-            <DossierBlock
-              title="Tecnologie sbloccate"
-              description="Progresso materiale finanziato dai punti ricerca nazionali."
-            >
-              {resources?.technologies && resources.technologies.length > 0 ? (
-                <ul className="nation-tech-list">
-                  {resources.technologies.map((tech) => (
-                    <li key={tech}><b>{tech.replace(/_/g, ' ')}</b><span>Disponibile per economia e forze armate.</span></li>
-                  ))}
-                </ul>
-              ) : (
-                <EmptyState>Nessuna tecnologia sbloccata: accumula punti ricerca con università e popolazione.</EmptyState>
-              )}
-              {/* N06 — la fonte diceva «catalogo tecnologie del motore», ma l'elenco
-                  qui sopra **non è il catalogo**: è ciò che il motore ha già
-                  sbloccato per questa nazione. Il catalogo non è pubblicato al
-                  client, e il motore non dichiara un'epoca delle tecnologie: un
-                  mondo del 1815 può sbloccare nomi del 2026. Il dossier non
-                  inventa una pertinenza che non ha (N3): dichiara la fonte vera.
-                  (Il difetto descritto nel piano come «mostra il catalogo intero»
-                  era in realtà solo il testo della fonte: l'elenco è già quello
-                  degli sblocchi reali. Corretto qui.) */}
-              <Footnote><b>Fonte</b> tecnologie che il motore pubblica come sbloccate · la ricerca si accumula a ogni tick del mondo.</Footnote>
-              {epochView.epoch && (
-                <Footnote>
-                  Il motore non dichiara un&apos;epoca delle tecnologie: in uno scenario del
-                  {' '}{epochView.year} ({epochView.epochLabel}) alcune voci possono appartenere a
-                  secoli successivi, e la ricerca non è ancora filtrata per epoca.
-                </Footnote>
-              )}
-            </DossierBlock>
 
             <DossierBlock
-              title="Capitale umano"
-              description="Popolazione, formazione e forze disponibili."
+              title="Strategie delle potenze"
+              description="Che cosa stanno inseguendo le nazioni del teatro: obiettivi persistenti del motore, con la data di nascita, il motivo e il progresso misurato sugli indicatori del turno."
             >
-              <MetricGrid>
-                <Metric label="Popolazione" value={formatNumber(assets.population)} hint={`${formatNumber(assets.population / 1_000_000)} milioni di abitanti`} />
-                <Metric label="Università" value={formatNumber(assets.universities)} hint={assets.baseUniversities > 0 ? `${formatNumber(assets.baseUniversities)} dal profilo del paese, ${formatNumber(Math.max(0, assets.universities - assets.baseUniversities))} costruite: producono ricerca` : 'Producono punti ricerca'} />
-                <Metric label="Unità e forze" value={formatNumber(assets.forces)} hint={assets.baseForces > 0 ? `${formatNumber(assets.baseForces)} dal profilo del paese, ${formatNumber(Math.max(0, assets.forces - assets.baseForces))} dal mondo` : 'Reparti in servizio (dettaglio in Armamenti)'} />
-              </MetricGrid>
-              <Footnote><b>Fonte</b> conto nazionale; in mancanza, oggetti delle regioni possedute. Il PIL pro capite è nelle Politiche.</Footnote>
+              <PowersAgendaList powers={strategicAgenda?.powers || []} playerPolityId={playerPolityId} />
             </DossierBlock>
 
-            {/* M03 — la dimensione civile aveva una metrica dove l'arsenale ne ha
-                otto blocchi. Qui ha il suo blocco: le voci che il motore pubblica
-                nel bilancio (istruzione e ricerca, sanità e sostegno) lette come
-                quello che sono — l'investimento nel popolo, non un residuo dopo
-                le armi. */}
-            <DossierBlock
-              title="Investimento nel popolo"
-              description={`Quanto lo Stato destina a istruzione, sanità e sostegno, e quanto alla difesa: due scelte dello stesso bilancio. ${MONEY_UNIT_NOTE}`}
-            >
-              {budget ? (
-                <>
-                  <MetricGrid>
-                    <Metric
-                      label="Istruzione e ricerca"
-                      value={`${formatPercent(budget.educationBurdenPct, 1)} del PIL`}
-                      tone={budget.educationBurdenPct >= 3 ? 'positive' : budget.educationBurdenPct > 0 ? 'neutral' : 'warning'}
-                      hint="Scuola, atenei e laboratori: è la via civile alla conoscenza"
-                    />
-                    <Metric
-                      label="Sanità e sostegno"
-                      value={`${formatPercent(budget.socialBurdenPct, 1)} del PIL`}
-                      tone={budget.socialBurdenPct >= 6 ? 'positive' : budget.socialBurdenPct > 0 ? 'neutral' : 'warning'}
-                      hint="Salute e sostegno sociale: è il tenore di vita che si può misurare"
-                    />
-                    {/* La spesa militare è la **stessa** cifra letta in «Spesa
-                        militare» (Cassa, dove è canonica) e nella ripartizione del
-                        bilancio. Una cifra, un posto: qui è il termine di paragone
-                        del confronto, e il rimando porta alla voce canonica. */}
-                    <Metric
-                      label="Quanto alle armi"
-                      value={`${formatPercent(budget.defenceBurdenPct, 1)} del PIL`}
-                      tone={budget.defenceBurdenPct >= 8 ? 'warning' : 'neutral'}
-                      hint="La voce canonica è in Cassa: qui è il termine di paragone"
-                      onClick={() => openSection('bilancio')}
-                    />
-                    <Metric
-                      label="Quota al civile"
-                      value={people.civilianShareOfSpendingPct === null ? '—' : formatPercent(people.civilianShareOfSpendingPct, 0)}
-                      tone={people.civilianShareOfSpendingPct === null ? 'neutral' : people.civilianShareOfSpendingPct >= 60 ? 'positive' : people.civilianShareOfSpendingPct >= 40 ? 'warning' : 'negative'}
-                      hint={people.civilianShareOfSpendingPct === null
-                        ? 'Il motore non pubblica insieme spesa civile e difesa'
-                        : 'Della spesa dichiarata, quanta va al popolo invece che alle armi'}
-                    />
-                  </MetricGrid>
-                  <ul className="nation-civil-lines">
-                    {budget.expense
-                      .filter(line => line.id === 'education' || line.id === 'health' || line.id === 'social' || line.id === 'infrastructure')
-                      .map(line => (
-                        <li key={line.id}>
-                          <span>{line.label}</span>
-                          <b>{formatBillions(line.amount)}</b>
-                        </li>
-                      ))}
-                  </ul>
-                </>
-              ) : (
-                <EmptyState>Questo scenario non pubblica il dettaglio del bilancio: l&apos;investimento nel popolo non è misurabile.</EmptyState>
-              )}
-              <Footnote><b>Come si legge</b> non è una classifica morale: sono le due scelte che lo stesso bilancio deve fare. Una nazione che arma e non istruisce non è più forte — è più fragile, perché la ricerca cresce solo con gli atenei.</Footnote>
-            </DossierBlock>
-          </>
-        )}
+<details className="nation-synthesis-detail">
+              <summary>Registro completo: impegni</summary>
 
-        {active === 'politiche' && (
-          <>
-            <DossierBlock
-              title="Assetto istituzionale"
-              description="Chi governa, su quale territorio e con quali processi aperti."
-            >
-              <MetricGrid>
-                <Metric label="Forma di governo" value={governmentType} hint="Assetto registrato per questo paese" />
-                <Metric label="Territorio amministrato" value={provincesLabel(assets.provinces)} hint="Unità amministrative sotto il governo" />
-                <Metric label="Processi attivi" value={formatNumber(ongoingProcesses.length)} hint={ongoingProcesses.length > 0 ? 'In corso: dettaglio in Progetti' : 'Nessun processo in corso'} />
-              </MetricGrid>
-            </DossierBlock>
-
-            <DossierBlock
-              title="Politica fiscale"
-              description="Quanto lo Stato preleva dal PIL. Decidi tu: più entrate oggi, meno consenso e crescita domani."
-            >
-              {effectiveTaxPct === null ? (
-                <Footnote>Il conto nazionale non è ancora disponibile: l'aliquota si potrà scegliere appena il motore pubblica le entrate.</Footnote>
-              ) : (
-                <>
-                  <div className="nation-tax-control">
-                    <label htmlFor="nation-tax-rate">
-                      <span>Pressione fiscale</span>
-                      <b>{formatPercent(taxDraft ?? effectiveTaxPct, 1)}</b>
-                    </label>
-                    <input
-                      id="nation-tax-rate"
-                      type="range"
-                      min={fiscalPolicy?.minPct ?? 4}
-                      max={fiscalPolicy?.maxPct ?? 45}
-                      step={0.5}
-                      value={taxDraft ?? effectiveTaxPct}
-                      disabled={!onSetFiscalPolicy || fiscalPolicyBusy}
-                      aria-label="Pressione fiscale in percentuale del PIL"
-                      onChange={(event) => setTaxDraft(Number(event.target.value))}
-                    />
-                    <div className="nation-tax-scale">
-                      <span>{fiscalPolicy?.minPct ?? 4}%</span>
-                      <em>{fiscalPolicy?.label ?? '—'}</em>
-                      <span>{fiscalPolicy?.maxPct ?? 45}%</span>
-                    </div>
-                  </div>
-                  {(fiscalPolicy?.effects?.length ?? 0) > 0 && (
-                    <ul className="nation-tax-effects">
-                      {fiscalPolicy!.effects.map((line) => <li key={line}>{line}</li>)}
-                    </ul>
-                  )}
-                  <div className="nation-tax-actions">
-                    <button
-                      type="button"
-                      onClick={runSetTax}
-                      disabled={taxDraft === null || fiscalPolicyBusy || !onSetFiscalPolicy}
-                    >{fiscalPolicyBusy ? 'Applico…' : 'Applica aliquota'}</button>
-                    <em>
-                      {fiscalPolicy?.configured
-                        ? `Scelta dal governo · profilo ${formatPercent(fiscalPolicy.defaultPct, 1)}`
-                        : `Predefinita dal profilo ${formatPercent(fiscalPolicy?.defaultPct ?? effectiveTaxPct, 1)}`}
-                    </em>
-                  </div>
-                </>
-              )}
-            </DossierBlock>
-
-            <DossierBlock
-              title="Coesione interna"
-              description="Il consenso e la pressione sociale sul governo."
-            >
-              <MetricGrid>
-                {/* Stabilità e tensione sono gli stessi indicatori letti in
-                    «Situazione»: qui restano come rimando, non come copia. */}
-                <Metric
-                  label="Stabilità"
-                  value={formatPercent(stability)}
-                  tone={stabilityTone(stability)}
-                  hint="Dettaglio in Situazione"
-                  onClick={() => openSection('situazione')}
-                />
-                <Metric
-                  label="Tensione sociale"
-                  value={formatPercent(socialTension)}
-                  tone={tensionTone(socialTension)}
-                  hint="Dettaglio in Situazione"
-                  onClick={() => openSection('situazione')}
-                />
-                {/* N2/N4: il motore stima il PIL pro capite in **dollari di oggi**
-                    (`gdpPerCapitaUsd`) anche per un mondo del 1815. Il simbolo `$`
-                    faceva passare quella stima per la moneta del paese: la cifra
-                    resta, la valuta **si dichiara** per quello che è. */}
-                <Metric
-                  label="PIL pro capite"
-                  value={account?.gdpPerCapitaUsd != null ? index(Number(account.gdpPerCapitaUsd), 0) : '—'}
-                  hint="Tenore di vita medio in dollari di oggi (stima del motore)"
-                />
-              </MetricGrid>
-              <Footnote><b>Fonte</b> conto nazionale e modificatori attivi (sezione Risorse). Nessuna decisione viene presa da questa schermata.</Footnote>
-            </DossierBlock>
+              <DossierBlock
+                title="Impegni della partita"
+                description="Trattati, promesse, garanzie e ultimatum registrati dal motore: stato, controparte, importanza e scadenza. La cronaca racconta, il registro ricorda."
+              >
+                <CommitmentsList commitments={commitments?.commitments || []} today={worldDate || ''} />
+              </DossierBlock>
+            </details>
           </>
         )}
       </div>

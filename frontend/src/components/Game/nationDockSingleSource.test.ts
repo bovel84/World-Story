@@ -33,9 +33,9 @@ const SOURCE = fs.readFileSync(
   'utf8',
 );
 
-/** Le sezioni del dossier, nell'ordine dello store. */
+/** Le sezioni del dossier, nell'ordine dello store (V03: quattro, non otto). */
 const SECTIONS = [
-  'situazione', 'governo', 'progetti', 'bilancio', 'risorse', 'armamenti', 'conoscenze', 'politiche',
+  'situazione', 'regno', 'tesoro', 'statoMaggiore',
 ] as const;
 
 interface Occurrence {
@@ -127,8 +127,8 @@ describe('D01 — una cifra, un posto', () => {
    * Qualunque altra duplicazione è la violazione che questo test difende.
    */
   const SUMMARY_PAIRS: Array<{ label: string; sections: string[] }> = [
-    { label: 'Tesoreria', sections: ['situazione', 'bilancio'] },
-    { label: 'Saldo mensile', sections: ['situazione', 'bilancio'] },
+    { label: 'Tesoreria', sections: ['situazione', 'tesoro'] },
+    { label: 'Saldo mensile', sections: ['situazione', 'tesoro'] },
   ];
 
   it('nessuna metrica è ricopiata: le ripetizioni sono sintesi o rimandi', () => {
@@ -305,9 +305,16 @@ describe('D07 — nessuna card spiega invece di mostrare', () => {
     // richiuderla la renderebbe scomoda, e non è una spiegazione. Il test
     // protegge la distinzione fatta in D07.
     const details = [...SOURCE.matchAll(/<details[\s\S]*?<\/details>/g)].map(match => match[0]);
+    // Guardia contro il falso verde: se il parser non trovasse i richiudibili,
+    // il ciclo non verificherebbe nulla.
+    expect(details.length, 'nessun `<details>` trovato: il parser è rotto').toBeGreaterThan(0);
     for (const block of details) {
       expect(block, 'un blocco interattivo non va chiuso in un `<details>`')
         .not.toMatch(/<ObjectsBoard/);
+      // V01 — e neppure le sfide: erano l'unico blocco interattivo richiuso, e
+      // sono uscite dal dossier. Ora l'eccezione dichiarata in D05 non serve più.
+      expect(block, 'le sfide si risolvono in Questioni, non in un richiudibile del dossier')
+        .not.toMatch(/<PressuresBlock/);
     }
   });
 });

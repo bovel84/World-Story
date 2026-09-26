@@ -376,6 +376,23 @@ eseguire, e se confermato va aggiornato il report di origine.
 **Verifica.** Test che nessun componente monti un secondo quadro d'insieme;
 screenshot del dossier aperto con una sola intestazione di stato.
 
+> **Risolta da `RIORGANIZZAZIONE_DOSSIER_STILE_VICTORIA3.md` (V01–V05, 26 settembre
+> 2026).** La decisione di prodotto che teneva ferma questa fase è stata presa:
+> l'autore ha scelto di separare le **decisioni** dallo **stato** — le sfide di pace
+> sono uscite dal dossier (pannello Questioni, V01) e il dossier è diventato un
+> documento di stato a quattro sezioni dense (V03).
+>
+> `OperatingPictureBoard` è rimasto **l'unica** superficie del quadro d'insieme
+> (nessun secondo quadro nel dossier: il `<details>` «Quadro d'insieme per dominio»
+> lo monta una volta sola). `TimeDesk` ha mantenuto il suo mestiere (il tempo).
+> `ObjectsBoard` **resta nel dossier** per la lettura del possesso (esercito,
+> impianti, cantieri, marina) dentro «Oggetti del paese»; il suo spostamento
+> completo in un pannello proprio è registrato nel piano V come *decisione aperta
+> D-1*, da prendere ora che Stato maggiore ha una forma definitiva.
+>
+> Il criterio C5 resta verificato: nessun componente monta un secondo quadro
+> d'insieme.
+
 ### D07 — Le card che spiegano, tolte
 
 **Cosa.** Eliminare le card didattiche interne (*«Come si legge l'arsenale»*,

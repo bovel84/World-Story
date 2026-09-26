@@ -10,10 +10,22 @@
  *  - aprire Chat/Ordini/Consulente/Notizie chiude Nazione e viceversa;
  *  - 'none' è l'unico stato senza pannello.
  *
+ * V01 — `questioni` è il pannello delle sfide di pace, **fuori** dal dossier
+ * nazionale: il dossier è un documento di stato, le risposte alle pressioni si
+ * danno qui. Il modulo non aggiunge dati: monta le stesse pressioni che il
+ * dossier riceveva (`nationalPressures`, `onResolvePressure`).
+ *
+ * D-1 — `forze` è la **sala operativa** (`ObjectsBoard`), anch'essa fuori dal
+ * dossier per lo stesso principio: creare reparti, comprare equipaggiamento e
+ * impartire ordini sono azioni, non cifre da leggere. Come Questioni, non
+ * aggiunge dati: monta le stesse props che il dossier riceveva.
+ *
  * Funzioni pure, testate prima di collegarle a React (pattern F06).
  */
 
-export type ActiveModule = 'none' | 'orders' | 'diplomacy' | 'advisor' | 'news' | 'nation';
+export type ActiveModule =
+  | 'none' | 'orders' | 'diplomacy' | 'advisor' | 'news' | 'nation'
+  | 'questioni' | 'forze';
 
 export interface ModuleState {
   activeModule: ActiveModule;

@@ -21,17 +21,16 @@ import type {
 } from './nationalOperatingPicture';
 import { NATION_SECTION_LABEL, type NationSection } from '../../stores/nationDock';
 
-/** Da un dominio alla sezione di dettaglio che lo approfondisce. */
+/** Da un dominio alla sezione di dettaglio che lo approfondisce (V03: 4 sezioni). */
 const SECTION_FOR_DOMAIN: Record<OperatingDomain['id'], NationSection> = {
-  economia: 'bilancio',
-  risorse: 'risorse',
-  industria: 'risorse',
-  militare: 'armamenti',
-  // M01 — il benessere del popolo si approfondisce in Conoscenze (atenei,
-  // ricerca, tecnologie) e in Politiche (coesione interna): la destinazione
-  // naturale è Conoscenze, dove vivono capitale umano e ricerca.
-  popolo: 'conoscenze',
-  governo: 'governo',
+  economia: 'tesoro',
+  risorse: 'tesoro',
+  industria: 'tesoro',
+  militare: 'statoMaggiore',
+  // Il benessere del popolo e il governo stanno in Regno (V03): capitale umano,
+  // istituzioni e coesione sono la stessa dimensione civile.
+  popolo: 'regno',
+  governo: 'regno',
 };
 
 const tone = (value: DriverTone) => `tone-${dossierTone(value)}`;

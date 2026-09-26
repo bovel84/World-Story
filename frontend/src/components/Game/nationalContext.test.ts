@@ -90,10 +90,28 @@ describe('deriveRailItems', () => {
   it('marca il modulo attivo e riporta i badge dei dispacci', () => {
     const openModule = vi.fn();
     const items = deriveRailItems({ activeModule: 'news', totalUnread: 3, unreadFeedCount: 7, openModule });
-    expect(items.map(i => i.id)).toEqual(['orders', 'diplomacy', 'advisor', 'news', 'nation']);
+    // V01: «Questioni» sta fra Ordini e Diplomazia — è la voce delle sfide di
+    // pace, che non vivono più dentro il dossier nazionale.
+    // D-1: «Forze» (la sala operativa) segue lo stesso principio — fuori dal
+    // dossier, accanto alle altre voci che chiedono un'azione.
+    expect(items.map(i => i.id)).toEqual(['orders', 'questioni', 'forze', 'diplomacy', 'advisor', 'news', 'nation']);
     expect(items.find(i => i.id === 'news')).toMatchObject({ badge: 7, active: true });
     expect(items.find(i => i.id === 'diplomacy')).toMatchObject({ badge: 3, active: false });
     items[0].onClick();
     expect(openModule).toHaveBeenCalledWith('orders');
+  });
+
+  it('V01: il distintivo delle Questioni conta le sfide attive, non quelle chiuse', () => {
+    const openModule = vi.fn();
+    const base = { activeModule: 'none', totalUnread: 0, unreadFeedCount: 0, openModule };
+
+    // Nessuna sfida aperta → nessun distintivo (la voce resta, ma muta).
+    expect(deriveRailItems({ ...base, openQuestions: 0 }).find(i => i.id === 'questioni'))
+      .toMatchObject({ badge: 0, label: 'Questioni' });
+    // Sfide aperte → il numero, e la voce punta al pannello.
+    const withOpen = deriveRailItems({ ...base, openQuestions: 3 }).find(i => i.id === 'questioni')!;
+    expect(withOpen.badge).toBe(3);
+    withOpen.onClick();
+    expect(openModule).toHaveBeenCalledWith('questioni');
   });
 });

@@ -26,6 +26,9 @@ async function reachHud(page) {
 async function openDossier(page) {
   await page.locator('.rail-btn[aria-label="Nazione"]').click();
   await expect(page.locator('.nation-dock')).toBeVisible();
+  // La sintesi è la prima lettura; il quadro completo è un dettaglio richiudibile.
+  await page.locator('details.nation-synthesis-detail > summary').click();
+  await expect(page.locator('.op-board')).toBeVisible();
 }
 
 test.describe('COUNTRY-CLARITY — un solo schermo per capire il paese', () => {
@@ -39,8 +42,8 @@ test.describe('COUNTRY-CLARITY — un solo schermo per capire il paese', () => {
     await expect(board.locator('.nation-block-title')).toHaveText('Quadro d’insieme');
     await expect(board.locator('.op-verdict .op-status')).toHaveText(/^(Solido|Stabile|Sotto pressione|Fragile|Critico)$/);
 
-    // Un dominio per area, ognuno con quattro cifre e la sua sintesi.
-    await expect(board.locator('.op-domain')).toHaveCount(5);
+    // Sei domini: economia, risorse, industria, forze, popolo e governo.
+    await expect(board.locator('.op-domain')).toHaveCount(6);
     await expect(board.locator('.op-domain', { hasText: 'Economia e cassa' })).toBeVisible();
     await expect(board.locator('.op-domain', { hasText: 'Forze armate' }).locator('.op-facts dd').first()).not.toBeEmpty();
     await expect(board.locator('.op-attention')).toContainText('Da decidere per primo');
@@ -82,8 +85,8 @@ test.describe('COUNTRY-CLARITY — un solo schermo per capire il paese', () => {
     await openDossier(page);
 
     const military = page.locator('.op-domain', { hasText: 'Forze armate' });
-    await military.locator('.op-goto', { hasText: 'Apri Armamenti' }).click();
-    await expect(page.locator('.nation-dock-tab.active')).toHaveText('Armamenti');
+    await military.locator('.op-goto', { hasText: 'Apri Stato maggiore' }).click();
+    await expect(page.locator('.nation-dock-tab.active')).toHaveText('Stato maggiore');
 
     // Il quadro del dominio apre la sezione: stessi numeri, più dettaglio.
     const quadro = page.locator('.nation-block[aria-label="Quadro delle forze armate"]');
@@ -104,9 +107,9 @@ test.describe('COUNTRY-CLARITY — un solo schermo per capire il paese', () => {
     await expect(page.locator('.nation-block[aria-label="Quanto hai e quanto produci"]')).toBeVisible();
 
     // Anche le altre sezioni tematiche partono dal loro quadro.
-    await page.locator('.nation-dock-tab', { hasText: 'Cassa' }).click();
+    await page.locator('.nation-dock-tab', { hasText: 'Tesoro' }).click();
     await expect(page.locator('.nation-block[aria-label="Quadro economico"]')).toContainText('Debito / PIL');
-    await page.locator('.nation-dock-tab', { hasText: 'Risorse e industria' }).click();
+    await page.locator('.nation-dock-tab', { hasText: 'Tesoro' }).click();
     const industria = page.locator('.nation-block[aria-label="Quadro di risorse e industria"]');
     await expect(industria).toContainText('Capacità usata');
     // La scheda dell'industria mostra stabilimenti, assegnazioni e produzioni.
@@ -115,7 +118,7 @@ test.describe('COUNTRY-CLARITY — un solo schermo per capire il paese', () => {
     await expect(industria).toContainText('Ferrovia transnazionale');
     await expect(industria).toContainText('Produzioni militari');
     await expect(industria).toContainText('consegnate 0');
-    await page.locator('.nation-dock-tab', { hasText: 'Governo' }).click();
+    await page.locator('.nation-dock-tab', { hasText: 'Regno' }).click();
     await expect(page.locator('.nation-block[aria-label="Quadro del governo"]')).toContainText('Fazioni insoddisfatte');
   });
 
@@ -126,7 +129,7 @@ test.describe('COUNTRY-CLARITY — un solo schermo per capire il paese', () => {
     await openDossier(page);
 
     await expect(page.locator('.op-board')).toBeVisible();
-    await expect(page.locator('.op-domain')).toHaveCount(5);
+    await expect(page.locator('.op-domain')).toHaveCount(6);
     // Nessun traboccamento orizzontale: il quadro sta nella larghezza dello schermo.
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(2);
