@@ -1,7 +1,9 @@
 # World Story — i dispacci come dispacci
 
-**Versione:** 1.1 — 25 settembre 2026
-**Stato:** **A, B, C, D, E consegnate.** Diagnosi misurata e corretta; deploy pubblicato e verificato.
+**Versione:** 1.2 — 26 settembre 2026
+**Stato:** **A, B, C, D, E, F, G, H consegnate.** Diagnosi misurata e corretta; deploy della UI
+pubblicato e verificato. Il secondo giro (F, G, H) risponde alla richiesta «ogni azione deve produrre
+una notizia» e «ottimizza il gioco per un llm master stile glm 5.3 flash o deepseek 4.1 flash».
 **Destinatari:** sviluppatori ed LLM esecutori.
 **Rapporto con gli altri piani:** prosegue `SPEC_PARITA_PAX_HISTORIA_AZIONI_EVENTI_TIMELINE.md` (§5.11, §11.3),
 `PIANO_MAESTRO_REALISMO_NAZIONALE_UX.md` (§3.2 punto 8) e `PIANO_CHIAREZZA_DOSSIER_NAZIONE.md`.
@@ -302,6 +304,75 @@ proprietari, per non rompere la disciplina di collaborazione del progetto.
 > della lista: senza questo, «Il Tesoro rifinanzia…» sarebbe scivolato in Politica, perché contiene la
 > parola «governo».
 
+**Secondo giro — richiesta dell'autore:** «ogni azione deve produrre una notizia, invece adesso ne fa
+solo una; poi ottimizza il gioco per un llm master stile glm 5.3 flash o deepseek 4.1 flash».
+
+> **Consegnata — F.** *Una notizia per ordine.* La misura del budget eventi, prima e dopo:
+
+| Ordini nel turno | Eventi concessi **prima** | **dopo** | Ordini rimasti senza notizia, prima |
+|---|---|---|---|
+| 3 | 5 | 5 | — |
+| 4 | 6 | 6 | — |
+| 5 | 6 | 7 | — |
+| 6 | 6 | 8 | — |
+| 7 | 6 | 9 | **1 su 7** |
+| 8 | 6 | 10 | **2 su 8** |
+| 10 | 6 | 12 | **4 su 10** |
+| 12 | 6 | 12 | **6 su 12** |
+
+La perdita cominciava a **sette** ordini e cresceva in proporzione: metà degli ordini, in un turno di
+dodici. Il tetto nuovo copre per intero fino a dieci ordini.
+
+> Il turno produceva **un solo** dispaccio anche con più
+> ordini in coda, e la causa era scritta nel nostro stesso prompt: «NON trasformare automaticamente
+> ciascun ordine in un dispaccio separato: raggruppa gli ordini collegati». La formula era copiata in
+> **tre punti** (`guards.ts`, `prompt.ts` ×2) — la stessa malattia della fase A. Ora è una sola regola
+> esportata (`buildOrderCoverageRule`), condivisa dai due protocolli, che dice: ogni ordine ha il suo
+> dispaccio in ordine cronologico; **un ordine respinto o impedito produce comunque la sua notizia**
+> («reso» non è «riuscito», §5.3); il collegamento si fa per `actionId` esatto e per headline identica,
+> mai per testo paragonato (§6.2). Il **tetto eventi sale da 6 a 12**: la misura dice che con il tetto
+> precedente la cronaca cominciava a perdersi a **sette** ordini (1 su 7) fino a metà degli ordini in
+> un turno di dodici. Il tetto ora taglia il contorno, non gli ordini.
+>
+> **La misura ha corretto due volte il lavoro mentre lo facevo.** (1) La regola era finita dentro il
+> blocco auto-jump: nel salto a data fissa non sarebbe esistita. È stata spostata accanto all'elenco
+> degli ordini, dove c'è sempre, e il test lo difende in **entrambe** le modalità. (2) `tests/stage2.test.ts`
+> difendeva la vecchia regola con un `toContain` letterale: il test è stato aggiornato al comportamento
+> richiesto, non il comportamento al test.
+
+> **Consegnata — G.** *Il rilevatore riconosce i modelli deboli.* Il protocollo compatto **esisteva ed
+> era morto**. Il rilevatore riconosceva soltanto `:free`, e la seconda alternativa pretendeva un
+> separatore *prima* della cifra:
+>
+> ```
+> /(?:^|[-_/])(?:[0-4](?:\.\d+)?)b(?:$|[-_/:])/
+> ```
+>
+> Così `llama3.2:3b` non corrisponde (prima del `3` c'è `2`, non un separatore) e nemmeno
+> `glm-5.3-flash`, che è **il modello predefinito del progetto** (`llm/models.ts`). Il percorso lungo era
+> l'unico mai usato. La decisione ora vive in `src/llm/modelTier.ts`, **pura e testabile senza avviare
+> il router**: riconosce `flash`, la variante gratuita, la dimensione in miliardi anche attaccata a una
+> lettera (`llama3.2:3b`, `qwen3:1.7b`, `gemma2:2b`) e le etichette mini/small/nano/tiny/lite. La soglia
+> è **dichiarata, non implicita**: 7B. `gpt-oss:20b` e `deepseek-v4` (versione 4, *non* 4 miliardi)
+> restano sul percorso lungo.
+
+> **Consegnata — H, ridotta dalla misura.** Il piano chiedeva di «portare le guardie essenziali nel
+> protocollo compatto». **La misura ha detto che erano già lì:** confrontando i due prompt generati
+> (33.249 e 12.096 caratteri) identità del giocatore, coerenza dei soggetti, stile dei dispacci,
+> contratto delle reazioni, unità e opere ammesse risultano presenti **in entrambi**. Non ho aggiunto
+> guardie: ne avrei duplicate di esistenti. **La sola divergenza reale** era il vincolo sulle cifre —
+> «non inventare numeri nuovi», che il percorso pieno aveva per la via economica e il compatto non aveva
+> affatto. Ora sta nel contratto delle reazioni, **condiviso** dai due percorsi: scritto una volta sola,
+> come per il compositore dei dispacci. Una seconda guardia che avevo scritto (`buildNoFillerGuard`) è
+> stata **rimossa dopo la misura**, perché l'anti-riempimento nel percorso pieno esisteva già
+> (`buildSimulationNarrativeContract`, §5.11) e ne stavo introducendo una terza copia.
+
+> **Onestà sui limiti di F.** Il tetto a 12 resta un tetto: un turno con più di dieci ordini vede
+> comunque una cronaca parziale, perché dieci ordini più il contorno di contorno superano il tetto. Il
+> numero è stato scelto misurando, non dedotto: dodici eventi sono il massimo che il provider regge
+> senza troncare il JSON, e il troncamento è peggio di un ordine senza notizia. Se in partita si osserva
+> ancora perdita di cronaca, il parametro da alzare è `AUTO_JUMP_MAX_EVENTS`, in un punto solo.
+
 ---
 
 ## 6. Verifiche eseguite, e i limiti dichiarati
@@ -317,6 +388,20 @@ proprietari, per non rompere la disciplina di collaborazione del progetto.
 - **Deploy pubblico verificato:** bundle servito `index-DRRb06oX.js` identico al locale; le stringhe
   nuove (`Amministrazione`, `newspaper-article-order`, `news-flash-order`, «L'ordine:») cercate dentro
   il JS e il CSS **scaricati dal sito**; `/api/health` a 200.
+
+**Secondo giro (F, G, H) — verifiche eseguite:**
+
+- **Typecheck backend pulito** dopo ogni fase.
+- **Suite pure backend: 5 file in `src/` (35 test) più i blocchi in `tests/`** eseguiti a blocchi sotto
+  il tetto di ~180 s: 228 + 299 + 164 + 49 test verdi. **Nessun test rosso:** tutte le suite fallite
+  cadono su `invalid ELF header` (SQLite), non su un'aspettativa violata.
+- **Test nuovi:** `llm/modelTier.test.ts` (6), `prompts/orderCoverage.test.ts` (8). Entrambi con
+  **guardia contro il falso verde** (lunghezza minima della tabella e del prompt).
+- **Misura prima/dopo della regola per-ordine**, fatta sul prompt generato: la vecchia formula
+  «NON trasformare automaticamente ciascun ordine…» non compare più in **nessuno** dei due percorsi;
+  la nuova compare in entrambi, con e senza auto-jump.
+- **Misura dei due protocolli** (una sonda temporanea, poi cancellata): 13 regole confrontate,
+  **11 presenti in entrambi**, 1 divergenza reale (chiuse), 2 falsi allarmi delle mie stesse sonde.
 
 **Non eseguite in questa sede, con la ragione:**
 
