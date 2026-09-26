@@ -37,6 +37,7 @@ import { autoJumpEventBudget } from './core/simulation/EventBudget';
 import { equipmentById } from './core/simulation/MilitaryIndustry';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
 import { LLMError, LLMContractError, LLMRouter } from './llm';
+import { isSmallModel } from './llm/modelTier';
 
 interface GameData {
   id: string;
@@ -784,14 +785,22 @@ export class PromptEngine {
     this.llm = llm;
   }
 
-  /** I modelli OpenRouter gratuiti e quelli <=4B ricevono un protocollo più
-   * corto: meno istruzioni duplicate e più budget utile per il JSON. */
+  /**
+   * I modelli veloci, gratuiti e piccoli ricevono un protocollo più corto: meno
+   * istruzioni duplicate e più budget utile per il JSON.
+   *
+   * La decisione vive in `llm/modelTier.ts`, dove è **pura e testabile**. Qui
+   * resta solo la lettura del nome dal router. La regex precedente riconosceva
+   * soltanto `:free` e pretendeva un separatore prima della cifra: così il
+   * modello predefinito del progetto (`glm-5.3-flash`) e i modelli locali da 2-3
+   * miliardi finivano nel percorso lungo, e il protocollo compatto non si
+   * attivava quasi mai.
+   */
   private isConstrainedModel(mechanic: 'jump' | 'converter' | 'suggestions' = 'jump'): boolean {
     const describe = (this.llm as any)?.describe;
     if (typeof describe !== 'function') return false;
-    const model = String(describe.call(this.llm)?.[mechanic]?.model || '').toLowerCase();
-    return /:free(?:$|[/?#])/.test(model)
-      || /(?:^|[-_/])(?:[0-4](?:\.\d+)?)b(?:$|[-_/:])/.test(model);
+    const model = String(describe.call(this.llm)?.[mechanic]?.model || '');
+    return isSmallModel(model);
   }
 
   /**
