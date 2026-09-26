@@ -83,7 +83,8 @@ describe('COUNTRY-CLARITY · quadro d’insieme (presentazione)', () => {
     const clicked: string[] = [];
     const html = renderToStaticMarkup(DomainCard({ domain: picture.domains[3], onOpenSection: (section) => clicked.push(section) }));
     expect(html).toContain(picture.domains[3].label);
-    expect(html).toContain('Apri Armamenti');
+    // V03 — il dominio militare porta in «Stato maggiore», non più in «Armamenti».
+    expect(html).toContain('Apri Stato maggiore');
     // Il blocco di sezione riusa la stessa card: un solo posto per i numeri.
     const section = renderToStaticMarkup(DomainOperatingBlock({ picture, id: 'economia' }));
     expect(section).toContain('Economia e cassa');
@@ -146,12 +147,29 @@ describe('COUNTRY-CLARITY · quadro d’insieme (presentazione)', () => {
 
   it('il Dossier apre con il quadro d’insieme e lo ripete in ogni sezione tematica', () => {
     expect(dock).toContain("active === 'situazione' && (");
-    const situazione = dock.slice(dock.indexOf("active === 'situazione'"), dock.indexOf("active === 'governo'"));
+    const situazione = dock.slice(dock.indexOf("active === 'situazione'"), dock.indexOf("active === 'regno'"));
     expect(situazione).toContain('<OperatingPictureBoard picture={operatingPicture} onOpenSection={openSection} />');
-    for (const [id, section] of [['governo', 'governo'], ['economia', 'bilancio'], ['risorse', 'risorse'], ['industria', 'risorse'], ['militare', 'armamenti']] as const) {
-      const start = dock.indexOf(`active === '${section}'`);
-      const block = dock.slice(start, dock.indexOf("active === '", start + 10));
-      expect(block).toContain(`picture={operatingPicture} id="${id}"`);
+    // V03 — le otto sezioni sono diventate quattro. Un dominio sta nella
+    // sezione che lo accoglie; due domini possono dividere la stessa sezione
+    // («economia» e «risorse»+«industria» stanno entrambi in Tesoro), quindi
+    // li si cerca dentro la sezione, non per posizione unica.
+    const domainInSection: Array<[string, string]> = [
+      ['governo', 'regno'],
+      ['economia', 'tesoro'],
+      ['risorse', 'tesoro'],
+      ['industria', 'tesoro'],
+      ['militare', 'statoMaggiore'],
+    ];
+    const sectionStart = (name: string) => dock.indexOf(`active === '${name}'`);
+    const sectionEnd = (start: number) => {
+      const next = dock.indexOf("active === '", start + 10);
+      return next > start ? next : dock.length;
+    };
+    for (const [id, section] of domainInSection) {
+      const start = sectionStart(section);
+      const block = dock.slice(start, sectionEnd(start));
+      expect(block, `il dominio «${id}» deve stare nella sezione «${section}»`)
+        .toContain(`picture={operatingPicture} id="${id}"`);
     }
     expect(dock).toContain('const openSection = (section: NationSection) => setState((prev) => setSection(prev, section));');
   });

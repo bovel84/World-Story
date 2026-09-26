@@ -160,6 +160,18 @@ export function chainsView(picture: OperatingPicturePayload | null | undefined):
   return picture?.chains ?? [];
 }
 
+/**
+ * D-1 — quanti **reparti** hanno un problema (una criticità o un avviso).
+ * È il distintivo della voce «Forze»: dice da fuori, senza aprire la sala,
+ * che c'è qualcosa da fare. Conta i soli oggetti di tipo unità: un impianto
+ * degradato non è un reparto, e gonfierebbe il numero con la cosa sbagliata.
+ */
+export function countTroubledUnits(picture: OperatingPicturePayload | null | undefined): number {
+  const objects = picture?.objects;
+  if (!Array.isArray(objects)) return 0;
+  return objects.filter(object => object.kind === 'unit' && object.problems.length > 0).length;
+}
+
 // ── Livello A: le schede di settore (aggregato) ─────────────────────────────
 
 export interface SectorCard {

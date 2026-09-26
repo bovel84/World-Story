@@ -37,6 +37,11 @@ export function moduleToPanelTab(m: ActiveModule): FloatingPanelTab {
     case 'advisor': return 'advisor';
     case 'news': return 'news';
     case 'nation': return 'nation';
+    // V01 — il pannello Questioni è un desk a sé, non una tab del pannello
+    // flottante: la mappa non lo accompagna (nessun «suggestions»).
+    case 'questioni': return 'news';
+    // D-1 — anche la sala operativa è un desk a sé, non una tab flottante.
+    case 'forze': return 'news';
     case 'none': return 'suggestions';
   }
 }

@@ -69,11 +69,15 @@ describe('MAP P4.1 — propagazione della stessa chiave ai due percorsi', () => 
     expect(dockMount).toContain('snapshotKey={snapshotKey}');
   });
 
-  it('NationDock dichiara il contratto e lo inoltra a ObjectsBoard', () => {
-    expect(read('NationDock', 'types.ts')).toMatch(/snapshotKey\?: string;/);
-    const dock = read('NationDock.tsx');
-    const boardMount = dock.slice(dock.indexOf('<ObjectsBoard'), dock.indexOf('/>', dock.indexOf('<ObjectsBoard')));
-    expect(boardMount).toContain('snapshotKey={props.snapshotKey}');
+  it('D-1 — il contratto dello snapshot vive in ForcesPanel, non nel dossier', () => {
+    // D-1 ha spostato la sala operativa fuori dal dossier: il `snapshotKey`
+    // arriva ora al pannello «Forze», che lo inoltra a ObjectsBoard.
+    expect(read('ForcesPanel.tsx')).toMatch(/snapshotKey\?: string;/);
+    const forces = read('ForcesPanel.tsx');
+    const boardMount = forces.slice(forces.indexOf('<ObjectsBoard'), forces.indexOf('/>', forces.indexOf('<ObjectsBoard')));
+    expect(boardMount).toContain('snapshotKey={snapshotKey}');
+    // E il dossier non monta più ObjectsBoard.
+    expect(read('NationDock.tsx')).not.toContain('<ObjectsBoard');
   });
 
   it('ObjectsBoard dichiara il contratto e lo passa al pannello condiviso', () => {

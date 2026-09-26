@@ -2,7 +2,7 @@
  * World Story — U03 µ1: test dello stato delle sezioni del Dossier Nazione
  * =====================================================================
  * Verifica le invarianti del `nationDock`:
- *  - all'apertura la sezione attiva è «Situazione» (decisioni richieste);
+ *  - all'apertura la sezione attiva è «Situazione» (V03: una sola apertura coerente);
  *  - una sola sezione attiva alla volta;
  *  - cambiare sezione è solo navigazione (nessuna mutazione del mondo).
  */
@@ -20,16 +20,13 @@ describe('nationDock (U03 µ1, UI01/UI04)', () => {
     expect(initialNationDockState.activeSection).toBe('situazione');
   });
 
-  it('le otto sezioni del dossier sono presenti nell’ordine canonico', () => {
+  it('le quattro sezioni del dossier sono presenti nell’ordine canonico (V03)', () => {
+    // V03: le otto schede diventano quattro sezioni dense, stile cancelleria.
     expect(NATION_SECTIONS).toEqual([
       'situazione',
-      'governo',
-      'progetti',
-      'bilancio',
-      'risorse',
-      'armamenti',
-      'conoscenze',
-      'politiche',
+      'regno',
+      'tesoro',
+      'statoMaggiore',
     ]);
   });
 
@@ -48,21 +45,21 @@ describe('nationDock (U03 µ1, UI01/UI04)', () => {
   });
 
   it('cambiare sezione non muta lo stato del mondo (solo navigazione)', () => {
-    const state = setSection(initialNationDockState, 'bilancio');
-    expect(state).toEqual({ activeSection: 'bilancio' });
+    const state = setSection(initialNationDockState, 'tesoro');
+    expect(state).toEqual({ activeSection: 'tesoro' });
     // Nessun campo aggiuntivo: il reducer restituisce solo la sezione attiva.
     expect(Object.keys(state)).toEqual(['activeSection']);
   });
 
   it('setSection è puro: non modifica lo stato in ingresso', () => {
     const before = initialNationDockState;
-    const after = setSection(before, 'progetti');
+    const after = setSection(before, 'regno');
     expect(before.activeSection).toBe('situazione');
-    expect(after.activeSection).toBe('progetti');
+    expect(after.activeSection).toBe('regno');
   });
 
   it('tutte le sezioni sono valori validi del tipo NationSection', () => {
-    const valid: NationSection[] = ['situazione', 'governo', 'progetti', 'bilancio', 'risorse', 'armamenti', 'conoscenze', 'politiche'];
+    const valid: NationSection[] = ['situazione', 'regno', 'tesoro', 'statoMaggiore'];
     for (const section of NATION_SECTIONS) {
       expect(valid).toContain(section);
     }

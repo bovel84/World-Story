@@ -48,6 +48,22 @@ export const PRESSURE_PRIORITY_LABEL: Record<string, string> = {
 };
 
 /**
+ * V01 — quante sfide di pace **attendono una risposta**: le sole `active`.
+ * È il distintivo della voce «Questioni» nella barra comandi.
+ *
+ * Regola dichiarata, non euristica: una sfida risolta o scaduta non è più una
+ * questione aperta, e non deve gonfiare il numero che invita il giocatore ad
+ * aprirla. Le pressioni chiuse hanno il loro posto nello storico, non sul
+ * contatore.
+ */
+export function countOpenQuestions(
+  pressures: readonly { status?: string }[] | null | undefined,
+): number {
+  if (!Array.isArray(pressures)) return 0;
+  return pressures.filter(pressure => pressure?.status === 'active').length;
+}
+
+/**
  * Divide le sfide fra quelle che meritano attenzione e quelle che possono
  * restare nel dossier. La decisione è del **motore** (`highlighted`); qui, se
  * il campo manca (payload vecchi), si ricade sulla priorità — mai su una

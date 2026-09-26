@@ -38,6 +38,8 @@ import { DeskContent } from '../Shell/DeskContent';
 import { ProvinceInspector } from '../Shell/ProvinceInspector';
 import { GameMap } from './GameMap';
 import { deriveRailItems } from './nationalContext';
+import { countOpenQuestions } from './pressureWindow';
+import { countTroubledUnits } from './operationalObjects';
 import { actionSnapshotKey } from './actionSnapshot';
 import type { MapFilters, MapLayer } from '../Map/mapModel';
 import {
@@ -227,6 +229,11 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     activeModule,
     totalUnread,
     unreadFeedCount: feed.unreadFeedCount,
+    // V01 — il distintivo dice quante sfide attendono una risposta: è la
+    // stessa lista che monta il pannello, contata dalla funzione pura.
+    openQuestions: countOpenQuestions(nation.nationalPressures),
+    // D-1 — il distintivo di «Forze» sono i reparti con un problema.
+    troubledUnits: countTroubledUnits(nation.nationalArms?.objects ?? null),
     openModule: (module) => openModule(module as ActiveModule),
   });
 
@@ -460,6 +467,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
           <DeskContent
             activeModule={activeModule}
             closeModule={closeModule}
+            openModule={(module) => openModule(module as ActiveModule)}
             currentGame={currentGame}
             currentWorld={currentWorld}
             currentRegion={currentRegion ?? null}

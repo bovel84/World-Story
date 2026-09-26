@@ -23,6 +23,9 @@ test.describe('GAMEPLAY-LONG — impegni della partita', () => {
     installMockApi(page);
     await reachHud(page);
     await page.locator('.rail-btn[aria-label="Nazione"]').click();
+    await page.getByRole('navigation', { name: 'Sezioni del dossier' })
+      .getByRole('button', { name: 'Stato maggiore' }).click();
+    await page.getByText('Registro completo: impegni', { exact: true }).click();
 
     const block = page.locator('.nation-block[aria-label="Impegni della partita"]');
     await expect(block).toBeVisible();

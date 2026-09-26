@@ -41,7 +41,7 @@ test.describe('MATERIEL-CLARITY — quanto ho, quanto produco, avanzo o deficit'
   test('Risorse e industria: riga di sintesi per materiale, con segno e stato', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
-    await openDossierSection(page, 'Risorse e industria');
+    await openDossierSection(page, 'Tesoro');
 
     const magazzino = page.locator('.nation-block[aria-label="Magazzino materiale"]');
     await expect(magazzino).toContainText('Ritmo del mese');
@@ -66,7 +66,7 @@ test.describe('MATERIEL-CLARITY — quanto ho, quanto produco, avanzo o deficit'
   test('Armamenti: la sintesi viene prima, il dettaglio tecnico resta espandibile', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
-    await openDossierSection(page, 'Armamenti');
+    await openDossierSection(page, 'Stato maggiore');
 
     // 1) Sintesi in testa alla scheda: scorte di armamenti + fotografia.
     const sintesi = page.locator('.nation-block[aria-label="Quanto hai e quanto produci"]');
@@ -106,7 +106,7 @@ test.describe('MATERIEL-CLARITY — quanto ho, quanto produco, avanzo o deficit'
   test('senza bilancio pubblicato dal motore non compare alcun numero inventato', async ({ page }) => {
     installMockApi(page, { resources: { balance: null } });
     await reachHud(page);
-    await openDossierSection(page, 'Armamenti');
+    await openDossierSection(page, 'Stato maggiore');
     const sintesi = page.locator('.nation-block[aria-label="Quanto hai e quanto produci"]');
     await expect(sintesi).toContainText('Il motore non pubblica il bilancio');
     await expect(sintesi.locator('.material-balance-row')).toHaveCount(0);

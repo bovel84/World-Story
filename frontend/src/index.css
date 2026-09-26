@@ -3770,3 +3770,54 @@ html, body { margin: 0; }
 }
 .btn-submit-actions:hover:not(:disabled) { background: #7d5bd8; border-color: #9a83e8; }
 .btn-submit-actions:disabled { opacity: .5; cursor: default; }
+
+/* ============================================================================
+   V01 — Pannello «Questioni»: le sfide di pace fuori dal dossier nazionale.
+   Il pannello riusa `PressuresBlock` (stile `.nation-pressure-*`); qui solo il
+   telaio del modulo, allineato a `.desk-content`/`.news-feed-wrap`.
+   ========================================================================== */
+.questions-desk { display: flex; flex-direction: column; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; }
+.questions-panel { display: flex; flex-direction: column; gap: 14px; }
+.questions-panel-header { display: flex; flex-direction: column; gap: 6px; padding-right: 48px; }
+.questions-panel-kicker { color: #a99af0; font: 700 10px/1 system-ui, sans-serif; letter-spacing: .1em; text-transform: uppercase; }
+.questions-panel-title { color: #f2f6ff; font: 700 19px/1.2 Georgia, serif; letter-spacing: -.01em; }
+.questions-panel-note { margin: 2px 0 0; color: #9fb0c9; font: 500 12px/1.45 system-ui, sans-serif; }
+@media (max-width: 767px) {
+  .questions-desk { padding: 12px 12px calc(var(--ws-rail-h, 56px) + env(safe-area-inset-bottom, 0px) + 12px); }
+}
+
+/* ============================================================================
+   V04 — voce di sezione: una riga che dice che cosa contiene una delle quattro
+   sezioni del dossier. Vive in cima alla sezione, sotto le schede.
+   ========================================================================== */
+.nation-section-voice {
+  margin: 0;
+  padding: 0 0 14px;
+  border-bottom: 1px solid #2b3b55;
+  color: #9fb0c9;
+  font: italic 400 12.5px/1.5 Georgia, serif;
+}
+
+/* V04 — gruppi tipografici dentro Tesoro (Denaro / Materie, industria e
+   cantieri): due intestazioni nella stessa sezione, non due schede nuove. */
+.nation-group-head {
+  margin: 6px 0 0;
+  color: #c9b6f2;
+  font: 700 11px/1 system-ui, sans-serif;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+/* ============================================================================
+   D-1 — Pannello «Forze»: la sala operativa (`ObjectsBoard`) fuori dal dossier.
+   Stesso telaio di `.questions-desk`: il modulo riempie la colonna e scorre.
+   ========================================================================== */
+.forces-desk { display: flex; flex-direction: column; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; }
+.forces-panel { display: flex; flex-direction: column; gap: 14px; }
+.forces-panel-header { display: flex; flex-direction: column; gap: 6px; padding-right: 48px; }
+.forces-panel-kicker { color: #a99af0; font: 700 10px/1 system-ui, sans-serif; letter-spacing: .1em; text-transform: uppercase; }
+.forces-panel-title { color: #f2f6ff; font: 700 19px/1.2 Georgia, serif; letter-spacing: -.01em; }
+.forces-panel-note { margin: 2px 0 0; color: #9fb0c9; font: 500 12px/1.45 system-ui, sans-serif; }
+@media (max-width: 767px) {
+  .forces-desk { padding: 12px 12px calc(var(--ws-rail-h, 56px) + env(safe-area-inset-bottom, 0px) + 12px); }
+}

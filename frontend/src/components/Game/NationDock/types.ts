@@ -103,14 +103,9 @@ export interface NationDockProps {
   arms?: ArsenalResponse | null;
   /** Costruisce o importa equipaggiamento. */
   procure?: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
-  /** OP-OBJECTS — anteprima PRIMA → DOPO della creazione di reparti (sola lettura). */
-  onPreviewFormation?: (options: { formations?: number; armyId?: string | null; name?: string }) => Promise<import('../../../services/api').FormationImpactPayload>;
-  /** OP-OBJECTS — crea davvero i reparti (il motore paga e aggiorna il mondo). */
-  onRaiseFormation?: (options: { formations?: number; armyId?: string | null; name?: string }) => Promise<unknown>;
-  /** MILITARY-UNITS — azione su un reparto: anteprima (`dryRun`) o esecuzione. */
-  onUnitAction?: (request: import('../../../services/api').UnitActionRequest) => Promise<import('../../../services/api').UnitActionImpactPayload>;
-  /** MILITARY-UNITS PR2 — mossa del reparto sul fronte (stesso motore degli NPC). */
-  onUnitOrder?: (request: import('../../../services/api').UnitOrderRequest) => Promise<import('../../../services/api').UnitOrderImpactPayload>;
+  // D-1 — le props operative (creazione reparti, azioni di reparto, ordini)
+  // sono uscite dal dossier insieme alla sala operativa: vivono in
+  // `ForcesPanel`. Il dossier non esegue più azioni.
   /**
    * MAP P4.1 — identità dello snapshot canonico, la stessa usata dal context
    * inspector della mappa: turno/data/revisione/ramo diversi invalidano la
@@ -146,13 +141,15 @@ export interface NationDockProps {
   /** Cambia la pressione fiscale: il motore ricalcola tutto di conseguenza. */
   onSetFiscalPolicy?: (taxRatePct: number) => Promise<void>;
   fiscalPolicyBusy?: boolean;
-  /** Sfide del momento: pressioni interne ed esterne generate dal motore. */
+  /**
+   * V01 — le sfide di pace entrano ancora nel read model (la lista unica le
+   * elenca) ma **non si risolvono più qui**: il dossier è un documento di
+   * stato. Le risposte si danno nel pannello `questioni`, a cui questo
+   * pulsante rimanda.
+   */
   pressures?: PeacetimePressure[] | null;
-  /** Ultime sfide chiuse (risolte o ignorate), per memoria storica. */
-  recentPressures?: PeacetimePressure[] | null;
-  /** Risponde a una sfida: il motore applica gli effetti. */
-  onResolvePressure?: (pressureId: string, optionId: string) => Promise<void>;
-  pressureBusy?: boolean;
+  /** V01 — apre il pannello Questioni, dove le sfide si risolvono. */
+  onOpenQuestions?: () => void;
   /** Crisi nazionale: rischi di rivolta, default, invasione ed epilogo. */
   crisis?: CrisisSnapshot | null;
   /** LW06.1 — briefing già derivato una sola volta in `GameScreen`. */

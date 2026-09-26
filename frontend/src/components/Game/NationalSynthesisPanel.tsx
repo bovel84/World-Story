@@ -30,11 +30,18 @@ export interface NationalSynthesisPanelProps {
   synthesis: NationalSynthesis;
   /** Apre la sezione di dettaglio dove la voce si approfondisce. */
   onOpenSection?: (section: NationSection) => void;
+  /**
+   * V01 — apre il pannello **Questioni**, dove le sfide si risolvono. Le voci
+   * di tipo «sfida» non portano più a una sezione del dossier (le sfide non ci
+   * sono più): portano alla loro casa nuova.
+   */
+  onOpenQuestions?: () => void;
 }
 
 export const NationalSynthesisPanel: React.FC<NationalSynthesisPanelProps> = ({
   synthesis,
   onOpenSection,
+  onOpenQuestions,
 }) => {
   const { verdict, tone, items, evidence } = synthesis;
 
@@ -75,7 +82,18 @@ export const NationalSynthesisPanel: React.FC<NationalSynthesisPanelProps> = ({
                 <p className="nation-synthesis-urgency">{item.urgency}</p>
                 {/* 3. L'azione minima. */}
                 <p className="nation-synthesis-action"><span aria-hidden="true">→</span> {item.action}</p>
-                {onOpenSection && (
+                {/* V01 — una sfida si risolve in Questioni, non nel dossier:
+                    il pulsante lo dice e porta là. Le altre voci restano
+                    rimandi alla sezione che le spiega. */}
+                {item.source === 'sfida' && onOpenQuestions ? (
+                  <button
+                    type="button"
+                    className="nation-synthesis-open"
+                    onClick={onOpenQuestions}
+                  >
+                    Rispondi in Questioni
+                  </button>
+                ) : onOpenSection && (
                   <button
                     type="button"
                     className="nation-synthesis-open"

@@ -93,7 +93,7 @@ async function openThematicMap(page) {
       route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'internal' }) });
       return;
     }
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RELATIONSHIP_SNAPSHOTS[phase]) });
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ relationships: RELATIONSHIP_SNAPSHOTS[phase] }) });
   });
   await page.goto('/');
   await page.waitForLoadState('networkidle');

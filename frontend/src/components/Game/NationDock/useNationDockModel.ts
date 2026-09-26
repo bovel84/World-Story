@@ -133,10 +133,11 @@ export function useNationDockModel(props: NationDockProps) {
   const verdict = useMemo(() => nationalVerdict(account, budget, government?.debt), [account, budget, government?.debt]);
   const factions = government?.factions ?? [];
 
-  // Le voci del consiglio si chiedono al motore solo quando la scheda Governo
-  // è aperta: una chiamata on-demand, non un costo a ogni apertura del dossier.
+  // Le voci del consiglio si chiedono al motore solo quando la sezione che le
+  // mostra è aperta: V03 ha fuso Governo in «Regno», quindi la voce si apre
+  // qui. Una chiamata on-demand, non un costo a ogni apertura del dossier.
   useEffect(() => {
-    if (active !== 'governo') return;
+    if (active !== 'regno') return;
     if (!onLoadGovernmentVoices) return;
     if (governmentVoices || governmentVoicesLoading) return;
     onLoadGovernmentVoices();

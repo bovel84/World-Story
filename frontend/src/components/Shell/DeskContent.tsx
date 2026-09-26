@@ -5,6 +5,8 @@ import { ChatsPanel } from '../Game/ChatsPanel';
 import { EventFeed } from '../Game/EventFeed';
 import { DiplomacyPanel } from '../Game/DiplomacyPanel';
 import { NationDock } from '../Game/NationDock';
+import { QuestionsPanel } from '../Game/QuestionsPanel';
+import { ForcesPanel } from '../Game/ForcesPanel';
 import type { ChartDataInput } from '../Game/advisorCharts';
 import { EmptyState } from '../Game/NationDock/widgets';
 import type { NationResources } from '../Game/NationDock';
@@ -22,6 +24,8 @@ import type { ActiveModule } from '../../stores/moduleState';
 interface DeskContentProps {
   activeModule: ActiveModule;
   closeModule: () => void;
+  /** V01 — apre un altro modulo da dentro il desk (es. dalla sintesi alle Questioni). */
+  openModule: (module: ActiveModule) => void;
   currentGame: Game | null;
   currentWorld: World | null;
   currentRegion: Region | null;
@@ -117,6 +121,7 @@ interface DeskContentProps {
 export function DeskContent({
   activeModule,
   closeModule,
+  openModule,
   currentGame,
   currentWorld,
   currentRegion,
@@ -423,6 +428,43 @@ export function DeskContent({
     );
   }
 
+  // V01 — Modulo Questioni: le sfide di pace, fuori dal dossier nazionale.
+  // Il dossier è un documento di stato; una sfida è una decisione da prendere.
+  // Qui si montano le stesse pressioni che il dossier riceveva, con le stesse
+  // props: nessun dato nuovo, nessuna seconda verità.
+  if (activeModule === 'questioni') {
+    return (
+      <div className="questions-desk" style={{ position: 'relative', height: '100%' }}>
+        <button type="button" className="desk-close-x" onClick={closeModule} aria-label="Chiudi questioni" title="Chiudi">✕</button>
+        <QuestionsPanel
+          pressures={nationalPressures}
+          recentPressures={recentPressures}
+          onResolvePressure={onResolvePressure}
+          pressureBusy={pressureBusy}
+          money={nationalAccount?.money}
+        />
+      </div>
+    );
+  }
+
+  // D-1 — Modulo Forze: la sala operativa, fuori dal dossier nazionale.
+  // Stesso principio di Questioni: il dossier si legge, la sala si comanda.
+  if (activeModule === 'forze') {
+    return (
+      <div className="forces-desk" style={{ position: 'relative', height: '100%' }}>
+        <button type="button" className="desk-close-x" onClick={closeModule} aria-label="Chiudi forze" title="Chiudi">✕</button>
+        <ForcesPanel
+          arsenal={nationalArms}
+          snapshotKey={snapshotKey}
+          onPreviewFormation={onPreviewFormation}
+          onRaiseFormation={onRaiseFormation}
+          onUnitAction={onUnitAction}
+          onUnitOrder={onUnitOrder}
+        />
+      </div>
+    );
+  }
+
   // Modulo Nazione
   if (activeModule === 'nation') {
     return (
@@ -452,10 +494,9 @@ export function DeskContent({
             resources={nationalResources}
             arms={nationalArms}
             procure={procureEquipment}
-            onPreviewFormation={onPreviewFormation}
-            onRaiseFormation={onRaiseFormation}
-            onUnitAction={onUnitAction}
-            onUnitOrder={onUnitOrder}
+            // D-1 — le props operative (creazione reparti, azioni di reparto,
+            // ordini) non entrano più nel dossier: la sala operativa è il
+            // modulo `forze`, che le riceve più sopra.
             snapshotKey={snapshotKey}
             trade={tradeResource}
             accountHistory={nationalHistory}
@@ -470,10 +511,12 @@ export function DeskContent({
             onSetFiscalPolicy={onSetFiscalPolicy}
             fiscalPolicyBusy={fiscalPolicyBusy}
             pressures={nationalPressures}
-            recentPressures={recentPressures}
-            onResolvePressure={onResolvePressure}
-            pressureBusy={pressureBusy}
+            // V05 — `recentPressures`/`onResolvePressure`/`pressureBusy` non
+            // entrano più nel dossier: da V01 servono solo a Questioni.
             crisis={nationalCrisis}
+            // V01 — dalla sintesi del dossier si salta al pannello Questioni
+            // per rispondere a una sfida: le sfide non si risolvono più qui.
+            onOpenQuestions={() => openModule('questioni')}
             strategicAgenda={strategicAgenda}
             commitments={commitments}
             today={currentGame?.currentDate || ''}

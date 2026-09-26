@@ -139,7 +139,7 @@ async function openP5Map(page, { relationships = RELATIONSHIPS, failRelationship
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ fronts: FRONTS }) }));
   await page.route('**/api/games/*/relationships', route => failRelationships
     ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'internal' }) })
-    : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(relationships) }));
+    : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ relationships }) }));
   await page.route('**/api/games/*/arsenal', route => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(ARSENAL),
   }));
