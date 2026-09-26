@@ -1060,9 +1060,12 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     const result = (batch as any[])[0].result;
     expect(result.events).toContain('Prima svolta dell’ordine');
     expect(result.events).toContain('Seconda svolta dell’ordine');
-    // Il prompt vieta la traduzione meccanica ordine → dispaccio e consente
-    // di raggruppare gli ordini appartenenti alla stessa catena causale.
-    expect(capturedPrompt).toContain('NON trasformare automaticamente ciascun ordine');
+    // Il prompt vieta la traduzione meccanica ordine → dispaccio (la notizia
+    // dice cosa è cambiato, non ripete la richiesta) e insieme pretende che
+    // **ogni** ordine abbia il proprio dispaccio: erano due regole in conflitto.
+    expect(capturedPrompt).toContain('OGNI ORDINE PRODUCE UNA NOTIZIA');
+    expect(capturedPrompt).toContain('ogni ordine riceve il proprio dispaccio');
+    expect(capturedPrompt).not.toContain('NON trasformare automaticamente');
     expect(capturedPrompt).toContain('Fermati sull\'evento che contiene quella decisione');
     jumpMode = 'normal';
   });

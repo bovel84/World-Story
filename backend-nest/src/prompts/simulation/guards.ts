@@ -25,7 +25,24 @@ Gli attori ammessi sono ESCLUSIVAMENTE quelli elencati nel CONTESTO DI REAZIONE 
 - Non introdurre altri attori, non aggiungere osservatori, non sostituire l'ID con il nome della nazione.
 - Non superare il numero massimo di reactions indicato dal contesto. Se nessun attore del contesto ha una causa concreta per decidere, usa "reactions": []: un fatto esclusivamente interno non richiede reazioni.
 - Dentro la categoria scelta decidi tu il resto: quali condizioni, quale motivazione politica ("priority"), quale tono e formulazione ("response", "note") e quale eventuale misura autonoma ("counterAction"). "optionId" è la categoria della decisione, non un testo da copiare.
-- "counterAction" resta narrativo: non può produrre effetti materiali fuori dalla categoria dell'opzione scelta (un negoziato non mobilita unità).`;
+- "counterAction" resta narrativo: non può produrre effetti materiali fuori dalla categoria dell'opzione scelta (un negoziato non mobilita unità).
+- Le cifre che compaiono nei testi (saldi, riserve, sforzo bellico, tensione sociale) vengono dal Dossier nazionale calcolato dal motore: non inventare numeri nuovi.`;
+}
+
+/**
+ * La regola che lega ogni ordine a una notizia. Vive qui perché vale in
+ * **entrambe** le modalità (auto-jump e salto a data): un ordine senza il suo
+ * dispaccio è, dal punto di vista del giocatore, un ordine sparito.
+ */
+export function buildOrderCoverageRule(vars: PromptVariables): string {
+  return `
+[OGNI ORDINE PRODUCE UNA NOTIZIA]
+- Il turno contiene gli ordini del giocatore: **ogni ordine riceve il proprio dispaccio**, in ordine cronologico. Non raggruppare più ordini in un unico evento e non ometterne nessuno.
+- Un ordine che fallisce, è respinto o resta impedito produce comunque la sua notizia: il fatto è che non riesce, e il dispaccio dice chi lo ha bloccato e perché. «Reso» non significa «riuscito» (un lotto non è il successo di tutti gli ordini).
+- L'ordine senza esito materiale immediato (uno studio, una proposta, un preparativo) produce la notizia dell'**avvio**, non un silenzio: si distingue sempre proposta, misura avviata e risultato ottenuto.
+- Il collegamento fra ordine e dispaccio si costruisce con "actionOutcomes[].eventHeadlines": l'headline elencata deve essere **scritta nello stesso modo** della riga evento corrispondente.
+- Ogni ordine riceve il proprio "actionOutcome" con "actionId" esatto, anche quando due ordini riguardano lo stesso oggetto.
+- La notizia di un ordine può stare nella stessa giornata di un'altra: date uguali non si fondono, si dispongono in sequenza.`;
 }
 
 export function buildAutoJumpInstruction(vars: PromptVariables, eventBudget = 1): string {
@@ -33,9 +50,10 @@ export function buildAutoJumpInstruction(vars: PromptVariables, eventBudget = 1)
   // nazione non decide concretamente in risposta agli ordini del giocatore.
   // Il budget concede lo spazio per attraversare i fatti di contorno.
   const budgetRule = eventBudget > 1
-    ? `- Il turno contiene ordini del giocatore: puoi emettere da 1 a ${eventBudget} eventi significativi in ordine cronologico. NON trasformare automaticamente ciascun ordine in un dispaccio separato: raggruppa gli ordini collegati e narra soprattutto decisioni, opposizioni e controproposte degli altri attori.
-- Ogni ordine deve comunque ricevere il proprio actionOutcome, anche quando più ordini confluiscono nello stesso evento.`
+    ? `- Il turno contiene ordini del giocatore: disponi di ${eventBudget} eventi in ordine cronologico — il posto del giocatore (un evento per ordine) più il fatto che chiude il salto.`
     : `- Puoi emettere più eventi in ordine cronologico: prima i fatti di contorno, poi la decisione che chiude il salto.`;
+  // La copertura degli ordini NON è ripetuta qui: vive accanto all'elenco degli
+  // ordini, in entrambi i protocolli, perché vale anche senza auto-jump.
   return `\nRegole auto-jump:
 - Il giocatore ha chiesto di avanzare nel tempo FINO AL PROSSIMO EVENTO IMPORTANTE (entro l'orizzonte del ${vars.TARGET_ROUND_DATE}).
 ${budgetRule}

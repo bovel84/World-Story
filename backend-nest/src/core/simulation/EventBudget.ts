@@ -30,16 +30,25 @@ export const AUTO_JUMP_MIN_EVENTS = 2;
 /**
  * Tetto prudente: la ricerca di una decisione NPC non deve trasformare il
  * salto in un anno di cronaca né gonfiare i token del provider.
+ *
+ * Alzato da 6 a 12 quando ogni ordine ha preteso la **propria** notizia: con il
+ * tetto precedente un turno di otto ordini vedeva sparire metà cronaca, e il
+ * giocatore non poteva più seguire le proprie azioni. Il tetto resta, perché
+ * senza di esso un ordine solo potrebbe generare una cronaca sterminata, ma ora
+ * non taglia più *gli ordini*: taglia soltanto il contorno.
  */
-export const AUTO_JUMP_MAX_EVENTS = 6;
+export const AUTO_JUMP_MAX_EVENTS = 12;
 /** Eventi di contesto concessi oltre agli ordini in coda. */
 export const AUTO_JUMP_LOOKAHEAD = 2;
 
 /**
- * Budget eventi dell'auto-jump. Cresce con gli ordini in coda (più catene
- * causali possibili) e mantiene almeno `AUTO_JUMP_MIN_EVENTS` eventi per
- * poter attraversare i fatti di contorno e raggiungere la decisione che
- * ferma il salto.
+ * Budget eventi dell'auto-jump.
+ *
+ * Cresce con il numero di ordini in coda — **un evento per ordine** — più
+ * `AUTO_JUMP_LOOKAHEAD` eventi di contorno, che servono ad attraversare i fatti
+ * intermedi e a raggiungere la decisione che ferma il salto. La crescita è
+ * lineare e non satura prima del tetto finché gli ordini restano sotto
+ * `AUTO_JUMP_MAX_EVENTS - AUTO_JUMP_LOOKAHEAD`.
  */
 export function autoJumpEventBudget(actionCount: number): number {
   const orders = Number.isFinite(actionCount) && actionCount > 0 ? Math.floor(actionCount) : 0;

@@ -11,6 +11,7 @@ import { buildImmersionContract, EVENT_DESCRIPTION_GUIDE } from '../immersion';
 import { buildGovernmentNarrativeGuard } from '../government';
 import {
   buildAutoJumpInstruction,
+  buildOrderCoverageRule,
   buildDispatchStyleGuard,
   buildPlayerIdentityGuard,
   buildSubjectCoherenceGuard,
@@ -35,9 +36,9 @@ Ignora SOLO il formato JSON finale descritto sopra e serializza invece la rispos
 - Emetti UN evento completo appena lo hai deciso, prima di elaborare il successivo.
 - Gli eventi devono essere cronologici e ciascuno deve tenere conto degli eventi già emessi.
 - Emetti un evento SOLO se deriva da una causa verificabile: un ordine del giocatore, un fatto della cronaca, una trattativa diplomatica o lo stato strategico/mappa fornito. Non riempire il limite con fatti indipendenti.
-- Ogni evento è una REAZIONE: a un ordine del giocatore, a un altro evento già emesso o a un fatto documentato della cronaca. NON limitarti a riscrivere l'ordine al passato. Ordini collegati confluiscono nella stessa catena; ordini scollegati possono produrre eventi distinti.
+- Ogni evento è una REAZIONE: a un ordine del giocatore, a un altro evento già emesso o a un fatto documentato della cronaca. NON limitarti a riscrivere l'ordine al passato: la notizia dice cosa è cambiato. Vale [OGNI ORDINE PRODUCE UNA NOTIZIA] qui sotto: ogni ordine ha il proprio evento.
 - Non superare ${maxEvents} eventi significativi.${autoJump ? (maxEvents > 1
-  ? `\n- Modalità auto-jump: emetti da 1 a ${maxEvents} eventi in ordine cronologico, sintetizzando gli ordini collegati. NON fermarti al primo fatto importante in sé: prosegui finché una nazione non decide concretamente in risposta agli ordini del giocatore. Fermati sull'evento che contiene quella decisione (controparte diretta o misura autonoma con "counterAction"): la sua data è il campo targetDate.`
+  ? `\n- Modalità auto-jump: emetti da 1 a ${maxEvents} eventi in ordine cronologico — un evento per ordine del giocatore, più lo spazio per i fatti di contorno. NON fermarti al primo fatto importante in sé: prosegui finché una nazione non decide concretamente in risposta agli ordini del giocatore. Fermati sull'evento che contiene quella decisione (controparte diretta o misura autonoma con "counterAction"): la sua data è il campo targetDate.`
   : '\n- Modalità auto-jump: emetti i fatti di contorno in ordine cronologico e fermati sull\'evento in cui una nazione decide concretamente in risposta agli ordini del giocatore.') : ''}
 
 Per ogni evento emetti immediatamente:
@@ -110,7 +111,7 @@ Lingua: italiano. Periodo: ${vars.ORIGIN_ROUND_DATE} → ${vars.TARGET_ROUND_DAT
 
 ORDINI (copia ogni actionId ESATTAMENTE):
 ${vars.PLAYER_ACTIONS_THIS_ROUND || '(nessun ordine)'}
-
+${buildOrderCoverageRule(vars)}
 FATTI MATERIALI E DIPLOMATICI:
 ${clipForConstrainedModel(vars.STRATEGIC_STATE, 5_000)}
 
@@ -141,7 +142,7 @@ ${clipForConstrainedModel(vars.HISTORICAL_PRESET_SIMULATION_RULES, 1_000)}
 ${opts.presetOverride ? `\nISTRUZIONI AGGIUNTIVE DEL PRESET (non sostituiscono premessa e cronaca):\n${clipForConstrainedModel(opts.presetOverride, 1_000)}\n` : ''}
 
 REGOLE:
-1. Ogni evento: causa già visibile → decisione autonoma → conseguenza proporzionata. Non copiare l’ordine come notizia.
+1. Ogni evento: causa già visibile → decisione autonoma → conseguenza proporzionata. La notizia racconta cosa è cambiato, non ripete la richiesta del giocatore: mai una headline che sia la parafrasi dell’ordine.
 2. Il giocatore controlla solo ${vars.PLAYER_POLITY}. Altre politie decidono per sé secondo priorità, risorse, rapporti e memoria. Nessun accordo è concluso senza reaction favorevole/condizionata della controparte. Coerenza dei soggetti: nomina solo chi agisce, subisce o ha un interesse documentato; ${vars.PLAYER_POLITY} compare solo se il fatto la tocca direttamente, mai come comparsa o spettatrice.
 3. Ordine composto: se solo una fase è fattibile usa partial e mostra soltanto quella fase; se nulla è fattibile usa rejected/voided e nessun mapChanges.
 4. Reazione NPC: indica actorId e optionId presi dal CONTESTO DI REAZIONE, poi priority, response e solo se reale counterAction. Una controazione materiale (mobilitazione, unità terrestre o navale, cantiere, opera completata) deve avere anche le mapChanges corrispondenti nello stesso evento, nel territorio della politia che agisce e nella categoria ammessa dall'opzione scelta. Se una controazione colpisce un altro attore del contesto, questi decide per sé nel medesimo evento. "note" è il messaggio diretto al giocatore nel canale diplomatico: prima persona, una o due frasi d'uomo politico, senza cifre né etichette.
@@ -153,6 +154,7 @@ REGOLE:
 8. Nei salti lunghi produci più dispacci concreti e datati (mobilitazioni, scontri, occupazioni, trattative, economia), non un unico riassunto.
 9. Dispacci in italiano narrativo: headline e description sono frasi complete per il giocatore. VIETATE etichette tecniche o di stato ("neutral", "supportive", "opposed", "conditional", "hostile", "ally", "counterparty", nomi di campi JSON, "partial", "voided", ID). La posizione diplomatica va raccontata («La Turchia annuncia la propria neutralità»), mai scritta come parola chiave («Turchia neutral»).
 10. Il giocatore incarna ${vars.PLAYER_POLITY}: ogni suo ordine è un atto ufficiale della nazione. Nei dispacci l'attore è sempre ${vars.PLAYER_POLITY} (governo, capo di Stato, ministri), MAI «il giocatore» o «l'utente»; le altre nazioni la nominano e trattano con lei come soggetto politico reale.
+11. Ogni evento ha una causa verificabile: un ordine del giocatore, un fatto della cronaca o una decisione autonoma di un altro attore. Contabilità ordinaria, «nessuna novità», fine mese e avanzamento tecnico NON sono notizie: non riempire il budget di eventi con fatti indipendenti. Le cifre vengono dal Dossier nazionale calcolato dal motore, mai inventate.
 
 ${buildImmersionContract()}
 OUTPUT NDJSON, una riga JSON per oggetto, niente markdown.
@@ -300,6 +302,7 @@ Turno: ${vars.CURRENT_ROUND_NUMBER}
 Azioni del giocatore in questo turno:
 
 ${vars.PLAYER_ACTIONS_THIS_ROUND || '(Nessuna azione)'}
+${buildOrderCoverageRule(vars)}
 ${vars.ORDER_FUNDING ? `\n[Ordini senza copertura — deciso dal motore]\n\nCassa e credito di questa nazione non coprono questi ordini. Non sono un'opinione narrativa: sono un vincolo di realtà. Nel periodo simulato NON possono riuscire — se il giocatore li ha ordinati, essi falliscono, si arenano o restano sulla carta. L'esito di questi ordini deve essere "voided" (nessuna copertura) oppure "partial" (copertura parziale), mai "accepted".\n\n${vars.ORDER_FUNDING}` : ''}
 
 [Tutte le azioni passate]
