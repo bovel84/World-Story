@@ -307,15 +307,32 @@ proprietari, per non rompere la disciplina di collaborazione del progetto.
 **Secondo giro — richiesta dell'autore:** «ogni azione deve produrre una notizia, invece adesso ne fa
 solo una; poi ottimizza il gioco per un llm master stile glm 5.3 flash o deepseek 4.1 flash».
 
-> **Consegnata — F.** *Una notizia per ordine.* Il turno produceva **un solo** dispaccio anche con più
+> **Consegnata — F.** *Una notizia per ordine.* La misura del budget eventi, prima e dopo:
+
+| Ordini nel turno | Eventi concessi **prima** | **dopo** | Ordini rimasti senza notizia, prima |
+|---|---|---|---|
+| 3 | 5 | 5 | — |
+| 4 | 6 | 6 | — |
+| 5 | 6 | 7 | — |
+| 6 | 6 | 8 | — |
+| 7 | 6 | 9 | **1 su 7** |
+| 8 | 6 | 10 | **2 su 8** |
+| 10 | 6 | 12 | **4 su 10** |
+| 12 | 6 | 12 | **6 su 12** |
+
+La perdita cominciava a **sette** ordini e cresceva in proporzione: metà degli ordini, in un turno di
+dodici. Il tetto nuovo copre per intero fino a dieci ordini.
+
+> Il turno produceva **un solo** dispaccio anche con più
 > ordini in coda, e la causa era scritta nel nostro stesso prompt: «NON trasformare automaticamente
 > ciascun ordine in un dispaccio separato: raggruppa gli ordini collegati». La formula era copiata in
 > **tre punti** (`guards.ts`, `prompt.ts` ×2) — la stessa malattia della fase A. Ora è una sola regola
 > esportata (`buildOrderCoverageRule`), condivisa dai due protocolli, che dice: ogni ordine ha il suo
 > dispaccio in ordine cronologico; **un ordine respinto o impedito produce comunque la sua notizia**
 > («reso» non è «riuscito», §5.3); il collegamento si fa per `actionId` esatto e per headline identica,
-> mai per testo paragonato (§6.2). Il **tetto eventi sale da 6 a 12**: con il tetto precedente un turno
-> di otto ordini vedeva sparire metà cronaca. Il tetto ora taglia il contorno, non gli ordini.
+> mai per testo paragonato (§6.2). Il **tetto eventi sale da 6 a 12**: la misura dice che con il tetto
+> precedente la cronaca cominciava a perdersi a **sette** ordini (1 su 7) fino a metà degli ordini in
+> un turno di dodici. Il tetto ora taglia il contorno, non gli ordini.
 >
 > **La misura ha corretto due volte il lavoro mentre lo facevo.** (1) La regola era finita dentro il
 > blocco auto-jump: nel salto a data fissa non sarebbe esistita. È stata spostata accanto all'elenco
