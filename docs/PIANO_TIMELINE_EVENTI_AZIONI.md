@@ -1,8 +1,8 @@
 # World Story — piano: timeline, eventi e azioni
 
-**Versione:** 1.2, 27 settembre 2026.
-**Stato:** diagnosi completata, **verificata da una revisione indipendente e corretta**. **E01
-consegnata per la parte non controversa**; il resto resta in attesa di approvazione.
+**Versione:** 1.3, 27 settembre 2026.
+**Stato:** diagnosi completata e corretta da una revisione indipendente. **E01 e S1 consegnate**
+(chat con la controparte giusta). **S2, S3, S4 misurate** e in attesa di decisione.
 **Destinatari:** l'autore e gli LLM esecutori. Ogni scelta marcata «obbligatoria» è un contratto.
 **Obiettivo dichiarato dall'autore:** «la timeline e gli eventi e le azioni devono essere migliorati;
 continuo a vedere Pax Historia con eventi migliori dei miei».
@@ -30,16 +30,20 @@ continuo a vedere Pax Historia con eventi migliori dei miei».
 6. Criteri di completamento e verifica
 7. Cosa NON fare
 8. Le correzioni rispetto alla v1.0
-9. Ciò che il piano non può risolvere da solo
+9. Le quattro segnalazioni dell'autore (27 settembre 2026)
+10. Ciò che il piano non può risolvere da solo
 
-> **Consegnato finora.** `backend-nest/src/game/diplomacyNarration.test.ts` (5 test, nuovi),
+> **Consegnato finora.** `backend-nest/src/game/diplomacyNarration.test.ts` (8 test, nuovi),
 > `backend-nest/src/prompts/types.ts`, `backend-nest/src/game-session.ts`,
 > `backend-nest/src/game/DiplomacyService.ts` e `backend-nest/tests/diplomacy-service.test.ts`
-> (3 test aggiunti) — la prima metà di E01, descritta al §5. Nessun altro file toccato.
+> (3 test aggiunti) — la prima metà di E01 (§5) e la segnalazione **S1** (§9: chat con la
+> controparte giusta). Nessun altro file toccato. **S2, S3 e S4 sono misurati ma non corretti.**
 >
 > **Nota di ambiente.** Per eseguire le suite che aprono SQLite ho ricompilato `better-sqlite3` per
-> Linux; il **binario macOS dell'autore è stato ripristinato** al suo posto e `package-lock.json`
-> riportato al commit originale. La sua cartella resta utilizzabile sulla sua macchina.
+> Linux; il **binario macOS dell'autore è stato ripristinato** al suo posto. Un `npm install` aveva
+> anche fatto retrocedere `vite` da 8.2.2 a 5.4.21, rompendo `vitest`: ripristinato dal lockfile.
+> Verificare sempre `node -e "require('./node_modules/vite/package.json').version"` dopo un
+> `npm install` in questo repo — e riportare `package-lock.json` con `git checkout --`.
 
 ---
 
@@ -556,7 +560,121 @@ piano che li aveva fatti non era utilizzabile senza.
 
 ---
 
-## 9. Ciò che il piano non può risolvere da solo
+## 9. Le quattro segnalazioni dell'autore (27 settembre 2026)
+
+L'autore ha segnalato quattro cose, tutte verificabili. Tre sono difetti precisi, uno è una
+decisione di prodotto. La misura le ha separate.
+
+### S1 — «Gli eventi aprono chat con governi non pertinenti» — **corretto**
+
+**Il filtro esisteva e il percorso principale lo lasciava spento.**
+`reactionChatStarts(events, pruneIrrelevant)` aveva default `false`; il percorso **in pausa** lo
+accendeva esplicitamente (`PlaybackService.ts:291` → `true`), quello **ordinario** no
+(`TurnPipelineService.ts:528`). Due percorsi, due comportamenti: nel turno normale il modello — che
+non conosce la geografia — poteva far reagire chiunque.
+
+**Correzione.** Il default diventa `true` (`game-session.ts:2199`). Il filtro scarta davvero (`return
+[]`), non riordina.
+
+**Un secondo bug trovato mentre correggevo.** Il contratto delle reazioni valida già `actorId` contro
+il `ReactionContext` — la scelta degli attori è **del motore**, non del testo dell'evento. Ma
+`canonicalizeEventReactions` filtrava per pertinenza **geografica** usando solo il testo: una
+controparte ammessa dal contratto ma non nominata nella frase veniva scartata, **e la sua chat
+spariva**. Ora gli attori ammessi dal contratto entrano come seme di pertinenza
+(`game-session.ts:2145-2150`).
+
+**Verifica.** 3 test nuovi (`diplomacyNarration.test.ts`), provati al contrario: spegnendo il filtro
+fallisce il primo, togliendo il seme fallisce il terzo. `chats.test.ts` (24 test) verde — è la suite
+che esercita davvero le aperture chat.
+
+### S2 — «Ho costruito una strada ma le variazioni non si vedono» — **misurato, non corretto**
+
+**Misura.** Su `game_regions`, gli oggetti non-città in tutta la base:
+
+| Tipo | Quantità |
+|---|---|
+| `construction_site` | **51** |
+| `battalion` / `army` / `fleet` / `mobilization` | 30 / 5 / 2 / 17 |
+| **opere finite** (`factory`+`port`+`university`) | **19** |
+| **`infrastructure`** | **0** |
+
+Dei 51 cantieri: **18 infrastrutture, 15 fabbriche, 11 fortificazioni**, ma **45 su 51 non hanno una
+data prevista**. In tutte le partite recenti il giocatore ha **solo** `construction_site`: nessuna
+opera è mai diventata operativa.
+
+**La causa, nel codice.** Il meccanismo esiste ed è completo: `start_construction` crea il cantiere,
+`complete_construction` promuove l'oggetto al tipo finale (`WorldMutationService.ts:341-380`). Ma
+**niente chiude un cantiere alla scadenza**: `metadata.expectedDate` viene scritto
+(`construction-progress.ts:13`) e **letto solo dal frontend**, che lo mostra come «Previsione (non
+garantita)». Il motore invece, per i **progetti nazionali**, chiude alla data prevista
+(`game-session.ts:1582`). Quindi: un cantiere aperto resta aperto per sempre, e il giocatore vede un
+cantiere, mai una strada.
+
+**Il rimedio è già scritto per i progetti**: `game-session.ts:1573-1590` chiude un `ongoing_process`
+alla scadenza con «Opera completata». La stessa regola va applicata agli **oggetti mappa**, e l'oggetto
+promosso va poi pubblicato al client (già possibile: `game_regions.objects` è serializzato).
+
+**Attenzione.** Non si promuove un cantiere con la sola data se il tipo finale non è noto
+(`plannedType`): è il campo che dice *cosa* diventa. Un cantiere senza `plannedType` resta aperto e lo
+dichiara.
+
+### S3 — «Il mondo non reagisce» — **misurato, non corretto**
+
+**La catena.** `canonicalizeEventReactions` filtra per pertinenza; se **nessuna** reazione sopravvive,
+resta solo il blocco narrativo. Il numero delle reazioni è deciso dal **`ReactionContext`**, che il
+prompt descrive come «attori e opzioni ammesse dal motore» — cioè il motore *chiude* le reazioni
+possibili, non le genera.
+
+**Conseguenza misurata.** L'esito del filtro dipende da quanto è documentato il teatro: in un mondo
+povero di relazioni registrate, `crisisRelevantPolityIds` produce un insieme piccolo, il filtro
+scarta, e la scena resta muta.
+
+**Attenzione — questa è una decisione, non una correzione.** Allargare il filtro per far parlare più
+nazioni riporta il difetto **S1** («chat con governi non pertinenti»): i due sono in tensione diretta.
+La scelta non va presa dentro una PR. Le direzioni possibili, da decidere con l'autore:
+
+1. rendere più ricco il **`ReactionContext`** (più attori ammessi dal motore, con causa documentata) —
+   è il posto giusto, e non tocca il filtro;
+2. dichiarare nel teatro della crisi **anche i vicini di secondo grado** con un rapporto non neutro;
+3. lasciare il filtro com'è e accettare che in un mondo senza relazioni registrate il mondo taccia —
+   è il comportamento più conservativo.
+
+**Verifica.** Prima di scegliere: misurare, su un turno reale, quante `reactions` arrivano dal modello
+e quante sopravvivono al filtro. Oggi quel numero **non è mai stato misurato**.
+
+### S4 — «Le sfide sono non coerenti con il gioco» — **misurato, non corretto**
+
+**Misura.** `generatePressures` promette «sfide a partire dagli indicatori reali della nazione — mai
+inventate». Il codice: `bestOf` sceglie la candidata con punteggio più alto **separatamente** per
+`internal` ed `external`, e se una categoria non ha candidate usa
+`BASELINE_INTERNAL` / `BASELINE_EXTERNAL` (`PeacetimePressures.ts:795-796`).
+
+**I due ripieghi spiegano i conteggi.** Su 444 pressioni in archivio:
+
+| Template | Conteggio |
+|---|---|
+| `trade-dispute` | **148** |
+| `corruption-scandal` | **127** |
+| tutti gli altri (11 template) | 169 |
+
+Due template su tredici fanno il **62 %** delle sfide. Non perché siano i più pertinenti: perché sono
+i più **permissivi** da attivare, e perché il ripiego li ripropone quando il generatore specifico non
+scatta. E il conteggio esclude una spiegazione di qualità: una sfida ricorrente non è una sfida
+coerente.
+
+**Stato: 368 attive, 69 scadute, 7 risolte.**
+
+**Direzione.** Il ripiego non deve esistere quando gli indicatori *non* giustificano una sfida: una
+nazione con i conti in ordine e nessun vicino ostile può avere **una** sfida, non due per
+costruzione. Va verificato, per ogni template, **quale indicatore** lo attiva e con quale soglia, e
+il ripiego va reso dichiaratamente un'ultima spiaggia — o rimosso.
+
+**Verifica.** Distribuzione dei template **prima e dopo**, per partita; e quante sfide nascono da un
+ripiego invece che da un indicatore.
+
+---
+
+## 10. Ciò che il piano non può risolvere da solo
 
 Due questioni restano **decisioni dell'autore**, non fasi tecniche, e non vanno aggirate:
 

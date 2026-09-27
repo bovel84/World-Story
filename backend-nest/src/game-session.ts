@@ -733,6 +733,10 @@ export class GameSession {
       },
     });
     const projectLines = this.advanceProjects(days, asOfDate);
+    // Un cantiere dichiarato non resta un cantiere per sempre: alla data
+    // prevista l'opera è consegnata. Senza questo, il giocatore che costruisce
+    // una strada vede per sempre un cantiere e mai la strada.
+    const constructionLines = this.completeDueConstructions(asOfDate);
     // Bollettino e conti del salto sono quelli **finali** (dopo l'ultimo
     // periodo) e vengono emessi una volta sola, nell'ordine di sempre.
     const lines: string[] = [...opening];
@@ -742,10 +746,58 @@ export class GameSession {
     // che cosa è un fatto della partita, non solo una schermata del dossier.
     const government = governmentSnapshot(finalAccounts[this.playerPolityId], this.nationState.governmentMemory());
     if (government.factions.length > 0) lines.push(`🏛️ Governo — ${government.headline}`);
-    lines.push(...materialLines, ...projectLines);
+    lines.push(...materialLines, ...projectLines, ...constructionLines);
     // Il punto storico è registrato a fine tick, dopo il magazzino, così la
     // tesoreria della data coincide con quella mostrata dal Dossier.
     this.recordAccountSnapshot(asOfDate, finalAccounts);
+    return lines;
+  }
+
+  /**
+   * Consegna i cantieri giunti alla loro data prevista.
+   *
+   * Un `construction_site` porta in `metadata` il tipo finale (`plannedType`) e
+   * la data prevista (`expectedDate`). Fino a ieri quella data la leggeva **solo
+   * il frontend**, che la mostrava come «Previsione (non garantita)»: il cantiere
+   * non si chiudeva mai, e un'opera ordinata dal giocatore restava un cantiere a
+   * vita — misurato: 51 cantieri aperti, 19 opere finite, **0 infrastrutture**.
+   *
+   * Qui si applica la stessa regola che il motore usa già per i progetti
+   * nazionali (`advanceProjects`): alla scadenza **dichiarata** l'opera è
+   * consegnata. Un cantiere senza tipo finale resta aperto e lo dichiara: non si
+   * inventa *cosa* sarebbe diventato.
+   *
+   * Restituisce le righe da mettere in cronaca; `false` quando non c'è nulla da
+   * fare (nessun cantiere, o partita strict in cui il tempo non avanza così).
+   */
+  private completeDueConstructions(asOfDate: string): string[] {
+    const lines: string[] = [];
+    for (const region of this.regions.values()) {
+      const objects = (region as { objects?: any[] }).objects;
+      if (!objects?.length) continue;
+      for (const object of objects) {
+        if (object?.type !== 'construction_site') continue;
+        const metadata = object.metadata || {};
+        const plannedType = typeof metadata.plannedType === 'string' ? metadata.plannedType : '';
+        const expectedDate = typeof metadata.expectedDate === 'string' ? metadata.expectedDate : '';
+        // Senza tipo finale non si sa cosa diventa; senza data non c'è scadenza
+        // da rispettare. In entrambi i casi il cantiere resta aperto: meglio un
+        // cantiere onesto che un'opera inventata.
+        if (!plannedType || !expectedDate) continue;
+        if (asOfDate < expectedDate) continue;
+        object.type = plannedType;
+        delete object.metadata?.plannedType;
+        object.metadata = {
+          ...(object.metadata || {}),
+          status: 'operational',
+          phase: 'completed',
+          blocker: '',
+          nextStep: '',
+          completedDate: asOfDate,
+        };
+        lines.push(`🏗️ Opera consegnata: ${object.name} (${region.name}).`);
+      }
+    }
     return lines;
   }
 
@@ -2137,7 +2189,17 @@ export class GameSession {
     // Una reazione è valida solo se la politia è pertinente al teatro della
     // crisi (nominata, vicina o con un rapporto). Le potenze lontane senza
     // interesse documentato restano fuori dal dispaccio e dalle chat.
-    const relevantPolities = this.crisisRelevantPolityIds([event.headline, event.description, ...actionTexts]);
+    //
+    // `seed` = gli attori che il **contratto** ha già ammesso per questo evento
+    // (actorId validati dal ReactionContext). La loro scelta è del motore, non
+    // del testo: senza questo seme una controparte ammessa dal contratto ma non
+    // nominata nella frase veniva scartata — e la sua chat spariva.
+    const contractActors = Array.from(new Set(
+      (event.reactions || [])
+        .map(reaction => (typeof reaction.actorId === 'string' ? reaction.actorId.trim() : ''))
+        .filter(actorId => actorId && actorId !== 'neutral'),
+    ));
+    const relevantPolities = this.crisisRelevantPolityIds([event.headline, event.description, ...actionTexts], contractActors);
     const knownOwners = new Set(Array.from(this.regions.values()).map(region => region.owner));
     const reactions = (event.reactions || []).flatMap(reaction => {
       // Il contratto ha già validato `actorId` contro il ReactionContext: se
@@ -2186,7 +2248,7 @@ export class GameSession {
   }
 
   /** Ogni reazione strutturata diventa anche un messaggio diplomatico reale. */
-  private reactionChatStarts(events: SimulationEvent[], pruneIrrelevant = false): SimulationChatStart[] {
+  private reactionChatStarts(events: SimulationEvent[], pruneIrrelevant = true): SimulationChatStart[] {
     const resolver = pruneIrrelevant ? this.buildResolvers().polities : null;
     const actionTexts = pruneIrrelevant ? this.actions.slice(-10).map(action => action.text) : [];
     return events.flatMap(event => {
