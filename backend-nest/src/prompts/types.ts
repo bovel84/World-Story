@@ -168,6 +168,19 @@ export interface SimulationChatStart {
   topic: string;
   kind?: DiplomaticChatKind;
   eventHeadline?: string;
+  /**
+   * Il canale nasce come **conseguenza** di una reazione già raccontata nel
+   * dispaccio dell'evento (blocco «Reazioni internazionali»): il motore apre la
+   * chat — il giocatore deve poter rispondere — ma **non** le intesta una voce
+   * di cronaca propria. Senza questo, la stessa posizione comparirebbe due
+   * volte nello stesso giorno su due superfici (invariante I5), e la cronaca si
+   * riempirebbe di titoli che il motore scrive da sé invece dei fatti.
+   *
+   * Campo **interno**: il parser dei `startChat` del modello non lo legge, e un
+   * `startChat` richiesto dal modello resta una notizia a tutti gli effetti
+   * (SPEC §G21).
+   */
+  alreadyNarrated?: boolean;
 }
 
 export interface SimulationResult {

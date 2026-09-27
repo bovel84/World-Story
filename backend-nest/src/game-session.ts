@@ -2208,6 +2208,11 @@ export class GameSession {
             || [reaction.response, reaction.counterAction].filter(Boolean).join(' '),
           kind: 'statement' as const,
           eventHeadline: event.headline,
+          // La decisione è già nel dispaccio dell'evento, nel blocco
+          // «Reazioni internazionali»: la chat si apre perché il giocatore
+          // possa rispondere, ma non genera una seconda voce di cronaca che
+          // ripeta la stessa posizione nello stesso giorno.
+          alreadyNarrated: true,
         }];
       });
     });
