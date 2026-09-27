@@ -163,6 +163,57 @@ describe('DiplomacyService — canali', () => {
     expect(result.timelineEvents).toHaveLength(0);
     expect(result.broadcasts).toHaveLength(0);
   });
+
+  // INVARIANTE I5 — la stessa posizione non compare due volte nello stesso
+  // giorno su due superfici: il dispaccio dell'evento la racconta già nel
+  // blocco «Reazioni internazionali», quindi il canale che nasce da quella
+  // reazione **non** produce una seconda voce di cronaca. Il canale, però,
+  // esiste lo stesso: il giocatore deve poter rispondere.
+  it('un canale già raccontato dal dispaccio non genera una voce di cronaca', () => {
+    const d = makeService();
+    const result = d.openSimulationChats(
+      [{ polityName: 'Francia', topic: 'Reazione già nel dispaccio', kind: 'statement',
+        participants: ['Francia'], eventHeadline: 'Vertice', alreadyNarrated: true }],
+      { turn: 4, fallbackDate: '1951-04-01', simulationId: 'run-1',
+        events: [{ headline: 'Vertice', date: '1951-04-01' }], requireEventLink: true },
+    );
+    // La cronaca non lo ripete…
+    expect(result.timelineEvents).toHaveLength(0);
+    // …ma la voce esiste, dichiarata, e il canale è aperto e annunciato.
+    expect(result.suppressedTimelineEvents).toHaveLength(1);
+    expect(result.suppressedTimelineEvents[0].source).toBe('diplomacy');
+    expect(result.broadcasts).toHaveLength(1);
+    expect(result.participantPolityIds.has('FRA')).toBe(true);
+  });
+
+  // Il contrario: un canale che il **modello** ha chiesto è un fatto nuovo e
+  // resta una notizia a tutti gli effetti (SPEC §G21). La soppressione non
+  // deve diventare una scusa per togliere dalla cronaca ciò che vi appartiene.
+  it('un canale chiesto dal modello resta una voce di cronaca', () => {
+    const d = makeService();
+    const result = d.openSimulationChats(
+      [{ polityName: 'Francia', topic: 'Proposta di intesa', kind: 'negotiation',
+        participants: ['Francia'], eventHeadline: 'Vertice' }],
+      { turn: 5, fallbackDate: '1951-05-01', simulationId: 'run-2',
+        events: [{ headline: 'Vertice', date: '1951-05-01' }], requireEventLink: true },
+    );
+    expect(result.timelineEvents).toHaveLength(1);
+    expect(result.suppressedTimelineEvents).toHaveLength(0);
+    expect(result.timelineEvents[0].headline).toContain('avvia un negoziato');
+  });
+
+  // Il parser dei `startChat` del modello non legge `alreadyNarrated`: il campo
+  // è interno e non può essere usato dal modello per nascondere una notizia.
+  it('il parser non lascia al modello il campo alreadyNarrated', async () => {
+    const { parseSimulationResponse } = await import('../src/prompts/simulation/parse');
+    const parsed: any = parseSimulationResponse(JSON.stringify({
+      type: 'complete', narration: 'x', events: [], startChat: [
+        { participants: ['Francia'], topic: 't', kind: 'negotiation', alreadyNarrated: true },
+      ],
+    }));
+    expect(parsed.startChat).toHaveLength(1);
+    expect(parsed.startChat[0].alreadyNarrated).toBeUndefined();
+  });
 });
 
 describe('DiplomacyService — conversazione LLM', () => {

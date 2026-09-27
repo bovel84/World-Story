@@ -264,10 +264,19 @@ export class DiplomacyService {
       requireEventLink?: boolean;
     },
   ): {
+    /** Canali che portano un fatto nuovo: diventano voci di cronaca. */
     timelineEvents: TimelineEventRecord[];
+    /**
+     * Canali aperti come conseguenza di una reazione **già raccontata** nel
+     * dispaccio dell'evento: esistono, ma non generano una seconda voce nello
+     * stesso giorno. Il chiamante li ignora nella cronaca; il broadcast parte
+     * comunque, così il giocatore riceve la notifica e trova il canale.
+     */
+    suppressedTimelineEvents: TimelineEventRecord[];
     broadcasts: Array<Record<string, unknown>>;
     participantPolityIds: Set<string>;
   } {
+    const suppressedTimelineEvents: TimelineEventRecord[] = [];
     const timelineEvents: TimelineEventRecord[] = [];
     const broadcasts: Array<Record<string, unknown>> = [];
     const participantPolityIds = new Set<string>();
@@ -370,16 +379,20 @@ export class DiplomacyService {
         const participantsText = group && npcParticipantNames.length > 0
           ? `Alla riunione prendono parte ${npcParticipantNames.join(', ')}. `
           : '';
-        timelineEvents.push({
+        const voce = {
           id: `chat-${firstMessage.id}`,
           date: gameDate,
           headline: `${sender.name} ${openingByKind[kind] || openingByKind.negotiation}`,
           detail: `${eventHeadline ? `In seguito a «${this.ctx.publicText(eventHeadline)}». ` : ''}${participantsText}${sender.name} dichiara: ${firstMessage.content}`,
-          source: 'diplomacy',
+          source: 'diplomacy' as const,
           simulationId: options.simulationId,
           chatId: chat.id,
           speakerName: sender.name,
-        });
+        };
+        // La reazione è già nel blocco «Reazioni internazionali» del dispaccio:
+        // la voce esiste ma non entra in cronaca (invariante I5). Un canale
+        // chiesto dal modello, invece, è un fatto nuovo e resta una notizia.
+        (start.alreadyNarrated ? suppressedTimelineEvents : timelineEvents).push(voce);
         broadcasts.push({
           chatId: chat.id,
           polityId: chat.polityId,
@@ -396,7 +409,7 @@ export class DiplomacyService {
       }
     }
 
-    return { timelineEvents, broadcasts, participantPolityIds };
+    return { timelineEvents, suppressedTimelineEvents, broadcasts, participantPolityIds };
   }
 
   // ── Conversazione LLM (repliche, «lascia che parlino», reazioni NPC) ──────

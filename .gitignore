@@ -62,3 +62,6 @@ backend-nest/.native-backup/
 # Il prefisso è quello di `map-complete-route.test.ts`.
 backend-nest/data/presets/mapcomplete*/
 data/presets/mapcomplete*/
+
+# Vite: file temporanei rigenerati a ogni caricamento del config
+*.timestamp-*.mjs
