@@ -99,3 +99,42 @@ describe('E01 — la posizione diplomatica non duplica il dispaccio', () => {
     }
   });
 });
+
+/**
+ * Pertinenza delle chat (segnalazione dell'autore, 27/09/2026):
+ * «gli eventi aprono chat con governi non pertinenti».
+ *
+ * Il filtro **esisteva** (`pruneIrrelevant`) e scarta le reazioni di potenze
+ * lontane senza interesse documentato — ma il percorso principale lo lasciava
+ * spento, perché il default era `false`. Il modello, che non conosce la
+ * geografia, poteva far reagire chiunque. Il percorso in pausa lo accendeva già:
+ * due percorsi, due comportamenti.
+ */
+describe('E01b — le chat si aprono solo con chi è pertinente', () => {
+  it('il percorso principale attiva il filtro, non lo lascia spento', () => {
+    const session = read('src/game-session.ts');
+    expect(session).toContain('private reactionChatStarts(events: SimulationEvent[], pruneIrrelevant = true)');
+    // Il percorso in pausa lo chiede esplicitamente da sempre: resta esplicito.
+    const playback = read('src/game/PlaybackService.ts');
+    expect(playback).toContain('reactionChatStarts([event], true)');
+  });
+
+  it('il filtro scarta, non si limita a preferire', () => {
+    const source = read('src/game-session.ts');
+    const start = source.indexOf('private reactionChatStarts');
+    const end = source.indexOf('reactionChatStarts(', start + 30) === -1 ? source.length : source.indexOf('\n  /**', start);
+    const body = source.slice(start, end);
+    // Una reazione fuori teatro esce dal lotto: `return []`, non un riordino.
+    expect(body).toMatch(/relevant[\s\S]{0,160}?return \[\];/);
+  });
+
+  it('gli attori ammessi dal contratto restano pertinenti per costruzione', () => {
+    // Il contratto delle reazioni valida già `actorId` contro il
+    // ReactionContext: se quell'attore venisse poi scartato dal filtro
+    // geografico, la chat della controparte sparirebbe. La sua scelta è del
+    // motore, non del testo dell'evento: entra come seme.
+    const source = read('src/game-session.ts');
+    expect(source).toContain('contractActors');
+    expect(source).toMatch(/crisisRelevantPolityIds\([^)]*,\s*contractActors\)/);
+  });
+});
