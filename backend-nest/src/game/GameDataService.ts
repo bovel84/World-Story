@@ -137,6 +137,22 @@ export class GameDataService {
         creditHeadroom: creditHeadroom(playerStock, playerAccountForContext),
         stock: playerStock as unknown as Record<string, number>,
       },
+      // MG06 — Le risorse PROPRIE di ogni polity, non solo del giocatore.
+      // `resources` è la proiezione del giocatore: usarla per le opzioni di una
+      // controparte attribuiva a quella nazione il margine di chi subisce la
+      // reazione. Qui il motore dichiara ciò che sa di ciascuna: chi non ha i
+      // numeri resta senza voce, e il contesto lo dice invece di dedurli.
+      polityResources: Object.fromEntries(
+        Object.keys(effectiveAccounts)
+          .filter(polityId => polityId !== this.ctx.playerPolityId())
+          .map(polityId => {
+            const account = effectiveAccounts[polityId];
+            const stock = this.ctx.resourceStock(polityId);
+            return [polityId, stock && account
+              ? { creditHeadroom: creditHeadroom(stock, account) }
+              : {}];
+          }),
+      ),
       government: {
         factions: governmentSnapshot(playerAccountForContext).factions.map(faction => ({
           id: faction.id, name: faction.name, pressure: faction.pressure, stance: faction.stance,

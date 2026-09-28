@@ -311,9 +311,111 @@ La prima tranche è **una sola filiera verticale**, non una simulazione economic
 
  *Cosa:* proiettare bisogni verificabili (deficit, costo, fazioni, cassa, progetti, relazioni) in una scheda del Governo; offrire almeno due strade con prerequisiti e conseguenze attese, collegando ogni cifra a snapshot/data/provenienza. La scelta apre una bozza modificabile con preflight, poi la stessa coda e lo stesso controllo del tempo; il Consulente può spiegare, ma non impegnare risorse. Rinominare o sostituire la navigazione «Ordini» solo dopo aver testato l'intero percorso libero e quello assistito. *Attenzione:* una proposta LLM non ottiene autorità per il tono convincente; una raccomandazione che usa dati ignoti è etichettata come ipotesi. Non nascondere gli ordini non infrastrutturali. *Verifica:* stato diverso → opzioni o blocchi diversi; proposta, annullamento e modifica non alterano il mondo; due percorsi conducono allo stesso contratto di ordine. Gate: nessuna capacità attuale di Ordini persa e nessuna spesa prima del salto.
 
-**MG06 — Mondo reattivo, ma causalmente limitato.** *Cosa:* misurare prima il numero di reazioni candidate, ammesse, narrate e persistite per tipo d'evento e modalità di avanzamento; poi aggiungere al `ReactionContext` gli attori motivati da opera, commercio o territorio, ciascuno con `because`. Prima di offrire opzioni economiche NPC, costruire la proiezione dei **loro** conti, stock, diritti e limiti: oggi `creditHeadroom` passato a `polityOptions` è derivato dalle risorse del giocatore, non del singolo paese. La risposta NPC verificata può cambiare relazione, proporre/rifiutare un contratto o avviare un proprio processo con gli stessi vincoli, anche senza aprire chat. *Attenzione:* non chiamare automaticamente il turno NPC per ogni salto senza una politica su calendario/costi e test di regressione; non riaprire chat irrilevanti risolvendo «il mondo non reagisce». La narrazione non esegue un trasferimento. *Verifica:* attore pertinente reagisce in una fixture, attore estraneo no; reazione senza risorse non produce opera o merce; conti bilanciati, limiti al numero, ordinario/playback e salvataggio coerenti. Gate: almeno una conseguenza NPC reale e attribuibile, senza regressione della guardia sulle chat.
+> **Consegnata (µ1–µ2) — MG05, 28 settembre 2026.** Il Governo esisteva come
+> **fotografia**: `GovernmentFactions.ts` legge conti, fazioni e memoria politica e ne
+> trae uno snapshot che entra anche in cronaca. Ma una fotografia non è una scelta, e
+> il piano chiedeva una scheda che proiettasse i bisogni verificabili in **almeno due
+> strade**, ognuna con prerequisiti e conseguenze attese, con **ogni cifra collegata
+> alla sua provenienza**.
+>
+> `core/government/GovernmentAgenda.ts` fa quel passaggio, con tre regole:
+>
+> - **Ogni voce nasce da un fatto misurato** — un deficit che blocca un cantiere, un
+>   servizio del debito che mangia le entrate, una fazione che pesa **ed è** scontenta.
+>   Niente voci «di atmosfera»: una fazione marginale e serena non entra, e il test lo
+>   difende.
+> - **Ogni cifra porta la sua origine** (`measured` con la fonte, `estimated` con il
+>   metodo, `unknown` con ciò che manca). Un numero senza provenienza non si mostra: è
+>   la differenza fra un dato che il giocatore può contestare e una cifra che deve
+>   credere.
+> - **Almeno due strade, sempre** — la via diretta e almeno un'alternativa con costo
+>   diverso (produrre, comprare, ridimensionare; tagliare o crescere; avviare o
+>   aspettare). Una via sola non è una scelta, è un ordine travestito.
+>
+> Il Governo **propone e non impegna**: `canonicalMutation: false` è un campo del
+> tipo, non una promessa a parole. La bozza che nasce da una voce passa per il
+> preflight e per la coda come qualunque ordine — è l'invariante MG-I1.
+>
+> Prova al contrario su tre guasti: una via sola per voce, una cifra senza fonte, e la
+> fazione marginale ammessa. **11 test verdi.** Una nota di metodo: la prima versione
+> del test delle due strade **non** rilevava il guasto — copriva solo le voci presenti
+> per caso. È stato rafforzato pretendendo che tutte e tre i tipi di voce siano in
+> agenda, ed è la prova al contrario che l'ha rivelato.
+>
+> **Consegnata anche µ3 — l'agenda legge lo stato vero.** `game/GovernmentReadings.ts`
+> raccoglie i fatti — deficit dei cantieri, fazioni, bilancio, debito, opere — e la
+> rotta `GET /:id/government/agenda` li espone. Tre vincoli: i deficit dei cantieri
+> sono **misurati sul ledger** con la stessa aritmetica del consumo; le cifre che il
+> motore non ha **non si inventano**; e leggere l'agenda **non muta nulla** — un test
+> conta le righe di ledger e riserve prima e dopo, perché «proposta» e «decisione»
+> non devono essere la stessa cosa.
+>
+> Due difetti trovati scrivendo i test, entrambi del lettore: il primo è che la fase
+> attiva ha già consumato la sua distinta, quindi il suo fabbisogno sembrava coperto
+> — e una fase già consumata **non** ha un deficit; il secondo è che guardare solo la
+> fase attiva fa vedere il problema troppo tardi. Il lettore guarda ora la fase in
+> corso **e** quella che sta per partire.
+>
+> **Un limite dichiarato nel test, non nascosto:** la scelta di guardare anche la
+> fase pianificata **non è difesa da un test**. La prova al contrario lo ha mostrato
+> — il test passa anche col lettore che guarda solo l'attiva, perché in quello
+> scenario l'attiva è scoperta e basta. Per difenderla servirebbe una fixture con la
+> fase attiva coperta e quella successiva scoperta. È lavoro dichiarato.
+>
+> **Consegnata anche µ3 — l'agenda legge lo stato vero.** `game/GovernmentReadings.ts`
+> raccoglie i fatti — deficit dei cantieri, fazioni, bilancio, debito, opere — e la
+> rotta `GET /:id/government/agenda` li espone. Tre vincoli: i deficit dei cantieri
+> sono **misurati sul ledger** con la stessa aritmetica del consumo; le cifre che il
+> motore non ha **non si inventano**; e leggere l'agenda **non muta nulla** — un test
+> conta le righe di ledger e riserve prima e dopo, perché «proposta» e «decisione»
+> non devono essere la stessa cosa.
+>
+> Due difetti trovati scrivendo i test, entrambi del lettore: il primo è che la fase
+> attiva ha già consumato la sua distinta, quindi il suo fabbisogno sembrava coperto
+> — e una fase già consumata **non** ha un deficit; il secondo è che guardare solo la
+> fase attiva fa vedere il problema troppo tardi. Il lettore guarda ora la fase in
+> corso **e** quella che sta per partire.
+>
+> **Un limite dichiarato nel test, non nascosto:** la scelta di guardare anche la
+> fase pianificata **non è difesa da un test**. La prova al contrario lo ha mostrato
+> — il test passa anche col lettore che guarda solo l'attiva, perché in quello
+> scenario l'attiva è scoperta e basta. Per difenderla servirebbe una fixture con la
+> fase attiva coperta e quella successiva scoperta. È lavoro dichiarato.
+>
+> **Cosa resta aperto in MG05:** il collegamento alla rotta (leggere lo stato vero e
+> restituire l'agenda), la bozza che porta la voce scelta nel flusso esistente, e la
+> decisione sulla voce di navigazione «Ordini» → «Governo», che va presa **dopo** aver
+> verificato che le capacità attuali restino raggiungibili.
 
-**MG07 — Cronaca causale e percorsi equivalenti.** *Cosa:* pubblicare eventi canonici per autorizzazione/blocco, contratto, partenza/consegna, fase e collaudo, con ID causali e valori **effettivi**; collegare la UI alla notizia e all'ordine/progetto. Definire la fonte canonica e riconciliare le **due rappresentazioni persistite**: `turn_results.timeline_events` alimenta la Timeline del giocatore, mentre `simulation_events` conserva eventi associati ai checkpoint del run; nel turno ordinario questi ultimi sono scritti dagli stessi `turnResult.timelineEvents`, quindi non vanno descritti come semplice telemetria estranea alla cronaca. Integrare, non duplicare, le fasi E02–E06 del piano timeline. *Attenzione:* una previsione non è una notizia; un ordine `voided` non può essere narrato come compiuto, né un salto incompleto pubblicare eventi futuri. Il titolo o l'indice non sostituisce gli ID. *Verifica:* un caso completo riprodotto via HTTP, SSE, polling, reload e playback mostra gli stessi fatti in ordine e senza duplicati; ordini bloccati hanno esito intelligibile senza asset fantasma. Gate: il giocatore risale dalla notizia all'ordine e al costo/consegna che l'ha prodotta.
+ *Cosa:* misurare prima il numero di reazioni candidate, ammesse, narrate e persistite per tipo d'evento e modalità di avanzamento; poi aggiungere al `ReactionContext` gli attori motivati da opera, commercio o territorio, ciascuno con `because`. Prima di offrire opzioni economiche NPC, costruire la proiezione dei **loro** conti, stock, diritti e limiti: oggi `creditHeadroom` passato a `polityOptions` è derivato dalle risorse del giocatore, non del singolo paese. La risposta NPC verificata può cambiare relazione, proporre/rifiutare un contratto o avviare un proprio processo con gli stessi vincoli, anche senza aprire chat. *Attenzione:* non chiamare automaticamente il turno NPC per ogni salto senza una politica su calendario/costi e test di regressione; non riaprire chat irrilevanti risolvendo «il mondo non reagisce». La narrazione non esegue un trasferimento. *Verifica:* attore pertinente reagisce in una fixture, attore estraneo no; reazione senza risorse non produce opera o merce; conti bilanciati, limiti al numero, ordinario/playback e salvataggio coerenti. Gate: almeno una conseguenza NPC reale e attribuibile, senza regressione della guardia sulle chat.
+
+> **Consegnata (µ1–µ2) — MG06, 28 settembre 2026.** Il difetto era noto dalla prima
+> revisione indipendente e ancora aperto: `buildReactionContext` costruiva le opzioni
+> di **ogni** polity passando il `creditHeadroom` del **giocatore**. La conseguenza
+> non era astratta: quando il giocatore era a corto di credito, ogni controparte
+> riceveva l'opzione «embargo o ritorsione commerciale» motivata con «nessun margine
+> di credito proprio» — un margine che non era il suo. È l'invariante MG-I5 applicata
+> alle opzioni: prima di offrire una leva economica a una nazione, servono i **suoi**
+> numeri.
+>
+> La correzione ha tre parti, e la terza è quella che rende vera la prima:
+> `ReactionContext` usa il margine **proprio** della polity quando il motore lo
+> conosce; un margine **ignoto** non si deduce da un altro soggetto — l'opzione
+> dichiara «margine non verificato» invece di prendere in prestito i numeri di chi
+> subisce la reazione; e `GameDataService` costruisce `polityResources` per **ogni**
+> polity dal percorso vivo, con lo stock che il motore già sa leggere. Senza questa
+> terza parte, il contratto nuovo sarebbe rimasto vuoto.
+>
+> Prova al contrario su due guasti: tornando al margine del giocatore per tutti cade
+> il test della polity senza credito; deducendo l'ignoto dal giocatore ne cadono tre.
+> **7 test verdi**, e nessuna regressione sui test delle reazioni esistenti (45 verdi
+> fra `reaction-context`, `reaction-decisions`, `game-data-service`).
+>
+> **Cosa resta aperto in MG06:** il conteggio delle reazioni candidate/ammesse/narrate
+> per tipo d'evento in un turno reale — che richiede un turno vero — e la parità
+> ordinario/playback sul loro numero.
+
+ *Cosa:* pubblicare eventi canonici per autorizzazione/blocco, contratto, partenza/consegna, fase e collaudo, con ID causali e valori **effettivi**; collegare la UI alla notizia e all'ordine/progetto. Definire la fonte canonica e riconciliare le **due rappresentazioni persistite**: `turn_results.timeline_events` alimenta la Timeline del giocatore, mentre `simulation_events` conserva eventi associati ai checkpoint del run; nel turno ordinario questi ultimi sono scritti dagli stessi `turnResult.timelineEvents`, quindi non vanno descritti come semplice telemetria estranea alla cronaca. Integrare, non duplicare, le fasi E02–E06 del piano timeline. *Attenzione:* una previsione non è una notizia; un ordine `voided` non può essere narrato come compiuto, né un salto incompleto pubblicare eventi futuri. Il titolo o l'indice non sostituisce gli ID. *Verifica:* un caso completo riprodotto via HTTP, SSE, polling, reload e playback mostra gli stessi fatti in ordine e senza duplicati; ordini bloccati hanno esito intelligibile senza asset fantasma. Gate: il giocatore risale dalla notizia all'ordine e al costo/consegna che l'ha prodotta.
 
 ## 6. Sequenza di consegna e limiti
 
