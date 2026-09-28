@@ -196,4 +196,40 @@ describe('MG05 µ3 — l’agenda legge lo stato della partita', () => {
       expect(government.factions.some(f => f.id === voice.factionId)).toBe(true);
     }
   });
+
+  it('P04 — col conto passato, il Tesoro e la Guerra portano la loro condizione', async () => {
+    // Il difetto che questo test difende è il cablaggio, non la logica: P04 vive
+    // in `buildAgenda` (testato a parte), ma se `readGovernmentAgenda` non
+    // ricevesse il conto nazionale le due sedie tacerebbero comunque — e la sala
+    // resterebbe vuota esattamente come prima della correzione. Qui si passa la
+    // sessione vera, cioè lo stesso conto che le rotte consegnano.
+    const { readGovernmentAgenda } = await import('../src/game/GovernmentReadings');
+    const account = session.getNationalAccounts()[session.getPlayerPolityId()];
+    const agenda = readGovernmentAgenda({
+      gameId, branchId, playerPolityId: 'ALPHA',
+      government: session.getGovernment(),
+      account,
+    });
+    const ids = agenda.voices.map(v => v.id);
+    expect(ids).toContain('treasury_condition');
+    expect(ids).toContain('defence_condition');
+    // E le cifre vengono dal conto, non da una stima: la provenienza è misurata.
+    const treasury = agenda.voices.find(v => v.id === 'treasury_condition')!;
+    expect(treasury.figures.every(f => f.basis.kind === 'measured')).toBe(true);
+    const defence = agenda.voices.find(v => v.id === 'defence_condition')!;
+    expect(Number(defence.figures.find(f => f.label === 'Spesa di difesa')!.value))
+      .toBe(Number(account.defenceBurdenPct) || 0);
+  });
+
+  it('P04 — senza il conto, il Tesoro e la Guerra TACCIONO: la regola non si piega', async () => {
+    // La guardia contro il falso verde: la nuova fonte non ha abolito la regola
+    // «un ministro senza dati tace». Senza conto, nessuna cifra inventata.
+    const { readGovernmentAgenda } = await import('../src/game/GovernmentReadings');
+    const agenda = readGovernmentAgenda({
+      gameId, branchId, playerPolityId: 'ALPHA', government: session.getGovernment(),
+    });
+    const ids = agenda.voices.map(v => v.id);
+    expect(ids).not.toContain('treasury_condition');
+    expect(ids).not.toContain('defence_condition');
+  });
 });

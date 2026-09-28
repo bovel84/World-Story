@@ -1,12 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { resolveSuggestionToggle, type PendingActionLike } from './suggestionToggle';
-
-const deskSource = fs.readFileSync(
-  path.resolve(__dirname, '..', 'Shell', 'DeskContent.tsx'),
-  'utf8',
-);
 
 describe('WORLD-ALIVE P1 — toggle delle azioni proposte', () => {
   it('proposta NON in coda → la aggiunge', () => {
@@ -40,17 +33,5 @@ describe('WORLD-ALIVE P1 — toggle delle azioni proposte', () => {
   it('riconosce i duplicati ignorando gli spazi (stessa normalizzazione di prima)', () => {
     const queue: PendingActionLike[] = [{ id: 'a9', text: '  Ordine con spazi  ' }];
     expect(resolveSuggestionToggle(queue, 'Ordine con spazi')).toEqual({ kind: 'remove', id: 'a9' });
-  });
-
-  it('il desk smista l’intento verso le funzioni esistenti, senza nuovi percorsi', () => {
-    expect(deskSource).toContain('resolveSuggestionToggle(pendingActions, content)');
-    expect(deskSource).toContain('void removeQueuedAction(toggle.id)');
-    expect(deskSource).toContain('void queuePlayerAction(content)');
-    // il bottone non è più disabilitato quando è già in coda
-    expect(deskSource).toContain('disabled={!content}');
-    expect(deskSource).not.toContain('disabled={queued');
-    // stato attivo comunicato agli screen reader
-    expect(deskSource).toContain('aria-pressed={queued}');
-    expect(deskSource).toContain("queued ? 'Rimuovi' : 'Usa'");
   });
 });

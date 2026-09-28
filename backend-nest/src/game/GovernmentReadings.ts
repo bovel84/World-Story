@@ -189,6 +189,18 @@ export function readGovernmentAgenda(input: {
   branchId: string | null;
   playerPolityId: string;
   government: ReturnType<typeof governmentSnapshot>;
+  /**
+   * P04 — Il conto nazionale, per le sedie che riferiscono una condizione e non
+   * una crisi. Senza, il Tesoro e la Guerra tornano a tacere: è il difetto che
+   * P04 corregge, quindi il parametro è opzionale ma la sua assenza è visibile.
+   */
+  account?: {
+    monthlyBalance?: unknown;
+    nominalGdpUsdBillions?: unknown;
+    defenceBurdenPct?: unknown;
+    forces?: unknown;
+    mobilized?: unknown;
+  } | null;
 }): GovernmentAgenda {
   const catalog = (() => {
     const row = db.prepare('SELECT template_id FROM worlds WHERE id = (SELECT world_id FROM games WHERE id = ?)')
@@ -217,6 +229,20 @@ export function readGovernmentAgenda(input: {
     catalog,
   };
 
+  // P04 — La condizione, misurata sul conto nazionale. Se il conto non c'è, la
+  // sedia tace: meglio una sala vuota di una cifra inventata.
+  const account = input.account;
+  const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions) || 0);
+  const balance = Number(account?.monthlyBalance) || 0;
+  const balancePct = gdp > 0 ? Math.round((balance / gdp) * 1000) / 10 : 0;
+  const defenceBurdenPct = Math.max(0, Number(account?.defenceBurdenPct) || 0);
+  const forces = Math.max(0, Number(account?.forces) || 0);
+  const mobilized = Math.max(0, Number(account?.mobilized) || 0);
+
+  // La fazione che incarna i militari, per la nota della Guerra. Si cerca per
+  // nome: la fotografia non pubblica un ruolo, solo l'identità della fazione.
+  const military = input.government.factions.find(faction => /militar|forze armate|esercito|comandi/i.test(faction.name));
+
   return buildAgenda({
     deficits: blockedDeficits(reading),
     factions,
@@ -229,6 +255,22 @@ export function readGovernmentAgenda(input: {
     reserves: [],
     buildable: buildableWorks(reading),
     currencyId: catalog?.manifest.currency.id ?? '',
+    ...(account
+      ? {
+          cashFlow: {
+            balancePct,
+            balance: String(balance),
+            unit: 'mld',
+            revenuePct: 0,
+          },
+          defence: {
+            burdenPct: defenceBurdenPct,
+            forces,
+            mobilized,
+            factionSatisfaction: military?.satisfaction ?? null,
+          },
+        }
+      : {}),
   });
 }
 
@@ -246,6 +288,8 @@ export function readCabinetSession(input: {
   branchId: string | null;
   playerPolityId: string;
   government: ReturnType<typeof governmentSnapshot>;
+  /** P04 — il conto nazionale, per le sedie che riferiscono la condizione. */
+  account?: Parameters<typeof readGovernmentAgenda>[0]['account'];
 }): CabinetSession {
   const agenda = readGovernmentAgenda(input);
   const session = composeCabinet(agenda);

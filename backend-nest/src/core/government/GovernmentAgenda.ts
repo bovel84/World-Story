@@ -137,6 +137,43 @@ export interface GovernmentAgendaInput {
   readonly buildable: readonly { readonly workId: string; readonly name: string; readonly missing: readonly string[] }[];
   /** La valuta di conto, per le cifre monetarie. */
   readonly currencyId: string;
+  /**
+   * P04 — Lo stato dei militari, che il Ministro della Guerra riferisce.
+   *
+   * Prima di P04 la Guerra non esisteva nel codice: la spesa di difesa compariva
+   * solo come *politica* dentro la fazione «Forze armate», cioè come opinione di
+   * qualcuno che chiede più soldi. Ma la difesa del paese è un fatto della sedia,
+   * non una corrente di opinione: un ministro della Guerra che non riferisce mai
+   * la propria condizione non è prudente, è assente.
+   *
+   * `undefined` quando il motore non pubblica questi numeri: la sedia tace, come
+   * deve, invece di inventare una condizione.
+   */
+  readonly defence?: {
+    /** Spesa di difesa in percentuale del PIL, dal conto nazionale. */
+    readonly burdenPct: number;
+    readonly forces: number;
+    readonly mobilized: number;
+    /** La fazione che incarna i militari, se la fotografia ne ha una. */
+    readonly factionSatisfaction: number | null;
+  };
+  /**
+   * P04 — La condizione dei conti, perché il Tesoro possa riferirla sempre.
+   *
+   * Il Tesoro è l'unica sedia che ha **sempre** numeri: un paese senza bilancio
+   * non è un paese. Tacerla finché il servizio del debito non supera il 15%
+   * significa che in una partita normale il ministro più importante non parla
+   * mai — misurato: servizio 14,1%, soglia 15%, sala vuota.
+   */
+  readonly cashFlow?: {
+    /** Il saldo di bilancio in percentuale del PIL. */
+    readonly balancePct: number;
+    /** Il saldo in cifre, nell'unità del bilancio. */
+    readonly balance: IntString;
+    readonly unit: string;
+    /** Le entrate, per mostrare su cosa poggia il gettito. */
+    readonly revenuePct: number;
+  };
 }
 
 const measured = (source: string): FigureBasis => ({ kind: 'measured', source });
@@ -200,7 +237,73 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
     });
   }
 
-  // ── 2. Il debito: quando gli interessi mangiano le entrate ──────────────
+  // ── 2-bis. P04 — Il Tesoro riferisce la condizione, non solo la crisi ───
+  //
+  // Il difetto misurato: con il servizio del debito al 14,1% e la soglia al 15%
+  // il Tesoro taceva del tutto, e con lui l'intera seduta — perché è l'unica
+  // sedia che ha sempre numeri. Un ministro che parla solo quando il paese è
+  // già rotto non è prudente: è assente. La condizione dei conti è un fatto che
+  // il paese ha in ogni caso, e riferirla non riempie il silenzio — lo occupa
+  // con ciò che il motore misura davvero.
+  if (input.cashFlow) {
+    const flow = input.cashFlow;
+    const deficit = flow.balancePct < 0;
+    voices.push({
+      id: 'treasury_condition',
+      need: deficit
+        ? 'Il bilancio chiude in disavanzo e va finanziato'
+        : 'Il bilancio chiude in avanzo: decidere che farne',
+      because: `Il saldo di bilancio è ${flow.balance} ${flow.unit} (${flow.balancePct}% del PIL), con un carico fiscale effettivo del ${input.budget.effectiveTaxRatePct}%. Il debito è al ${input.debt.ratioPct}% del PIL e gli interessi assorbono il ${input.debt.servicePct}% delle entrate.`,
+      urgency: input.debt.servicePct >= 15 || Math.abs(flow.balancePct) >= 5 ? 'urgente' : 'ordinaria',
+      factionId: null,
+      figures: [
+        { label: 'Saldo di bilancio', value: flow.balance, unit: `${flow.unit}`, basis: measured('conti nazionali') },
+        { label: 'Saldo su PIL', value: String(flow.balancePct), unit: '%', basis: measured('conti nazionali') },
+        { label: 'Debito su PIL', value: String(input.debt.ratioPct), unit: '%', basis: measured('conti nazionali') },
+        { label: 'Interessi su entrate', value: String(input.debt.servicePct), unit: '%', basis: measured('conti nazionali') },
+        { label: 'Prelievo effettivo', value: String(input.budget.effectiveTaxRatePct), unit: '%', basis: measured('conti nazionali') },
+      ],
+      paths: deficit
+        ? [
+            {
+              id: 'consolidate',
+              title: 'Consolidare i conti',
+              detail: 'Ridurre una voce di spesa o alzare il prelievo per chiudere il disavanzo.',
+              prerequisites: [],
+              expected: 'Il saldo si avvicina al pareggio; meno risorse per la spesa civile.',
+              recommended: input.debt.servicePct >= 15,
+            },
+            {
+              id: 'invest',
+              title: 'Finanziare la crescita',
+              detail: 'Accettare il disavanzo e spenderlo in ciò che aumenta il PIL.',
+              prerequisites: ['capacità produttiva', 'tempo'],
+              expected: 'Il rapporto debito/PIL migliora lentamente, se l’investimento rende.',
+              recommended: input.debt.servicePct < 15,
+            },
+          ]
+        : [
+            {
+              id: 'repay',
+              title: 'Ridurre il debito',
+              detail: 'Usare l’avanzo per rimborsare titoli e alleggerire gli interessi.',
+              prerequisites: [],
+              expected: 'Meno interessi in futuro; meno cassa per altro adesso.',
+              recommended: input.debt.servicePct >= 10,
+            },
+            {
+              id: 'invest',
+              title: 'Investire l’avanzo',
+              detail: 'Impiegare l’avanzo in opere e capacità produttiva.',
+              prerequisites: [],
+              expected: 'Più PIL e più gettito in futuro; il debito resta dov’è.',
+              recommended: input.debt.servicePct < 10,
+            },
+          ],
+    });
+  }
+
+  // ── 2-ter. Il debito: quando gli interessi mangiano le entrate ──────────
   if (input.debt.servicePct >= 15) {
     voices.push({
       id: 'debt_service',
@@ -237,8 +340,14 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
   // Si portano in consiglio le fazioni che pesano E sono scontente: una fazione
   // marginale e serena non merita una scheda, e dirlo è parte dell'onestà della
   // proposta.
+  //
+  // P04 — La soglia di potere era 10 e i comandi dell'esercito ne avevano 9,2:
+  // la fazione più scontenta del paese (34,9/100) restava fuori per meno di un
+  // punto, e con lei l'intera seduta. Una fazione con quasi un decimo
+  // dell'influenza non è marginale: è la seconda o terza del consiglio. La soglia
+  // scende a 5, dove «marginale» comincia davvero.
   for (const faction of [...input.factions]
-    .filter(f => f.satisfaction < 45 && f.powerPct >= 10)
+    .filter(f => f.satisfaction < 45 && f.powerPct >= 5)
     .sort((a, b) => (a.satisfaction * a.powerPct) - (b.satisfaction * b.powerPct))) {
     voices.push({
       id: `faction_${faction.id}`,
@@ -304,6 +413,98 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
           recommended: work.missing.length > 0,
         },
       ],
+    });
+  }
+
+  // ── 5. P04 — La Guerra: la condizione delle forze, non l'opinione dei generali
+  //
+  // Prima di P04 il Ministro della Guerra non esisteva nel codice: la difesa
+  // compariva solo come *politica* dentro la fazione «Forze armate» — cioè come
+  // qualcuno che chiede più soldi. Ma quanto il paese spende per difendersi è un
+  // fatto della sedia, non una corrente di opinione: il ministro lo riferisce in
+  // ogni caso, e la tensione dei comandi è una nota dentro la sua relazione.
+  if (input.defence) {
+    const defence = input.defence;
+    const light = defence.burdenPct < 2.6;
+    const heavy = defence.burdenPct > 8;
+    voices.push({
+      id: 'defence_condition',
+      need: light
+        ? 'La spesa militare è sotto la soglia che i comandi ritengono minima'
+        : heavy
+          ? 'La spesa militare pesa sul bilancio più di quanto il paese regga'
+          : 'Lo strumento militare è finanziato: decidere se basta',
+      because: `La difesa vale il ${defence.burdenPct}% del PIL, con ${defence.forces} reparti in forza e ${defence.mobilized} mobilitati.${
+        defence.factionSatisfaction !== null
+          ? ` I comandi esprimono una soddisfazione di ${defence.factionSatisfaction}/100.`
+          : ''
+      }`,
+      urgency: light && defence.burdenPct < 1.5 ? 'urgente' : 'ordinaria',
+      factionId: null,
+      figures: [
+        { label: 'Spesa di difesa', value: String(defence.burdenPct), unit: '% del PIL', basis: measured('conto nazionale') },
+        { label: 'Reparti in forza', value: String(defence.forces), unit: 'reparti', basis: measured('conto nazionale') },
+        { label: 'Mobilitati', value: String(defence.mobilized), unit: 'uomini', basis: measured('conto nazionale') },
+        ...(defence.factionSatisfaction !== null
+          ? [{ label: 'Soddisfazione dei comandi', value: String(defence.factionSatisfaction), unit: '/100', basis: measured('fotografia del governo') }]
+          : []),
+      ],
+      paths: light
+        ? [
+            {
+              id: 'rearm',
+              title: 'Rinforzare lo strumento militare',
+              detail: 'Aumentare la quota di bilancio della difesa e le riserve addestrate.',
+              prerequisites: ['copertura di bilancio'],
+              expected: 'Più capacità di difesa; meno risorse per la spesa civile.',
+              recommended: true,
+            },
+            {
+              id: 'hold',
+              title: 'Mantenere la postura attuale',
+              detail: 'Accettare il livello di spesa e l’insoddisfazione dei comandi.',
+              prerequisites: [],
+              expected: 'Nessun costo aggiuntivo; i comandi restano critici.',
+              recommended: false,
+            },
+          ]
+        : heavy
+          ? [
+              {
+                id: 'trim',
+                title: 'Ridimensionare la spesa',
+                detail: 'Rientrare su una quota di difesa che il bilancio sostiene.',
+                prerequisites: [],
+                expected: 'Più margine civile; meno capacità militare.',
+                recommended: input.debt.servicePct >= 15,
+              },
+              {
+                id: 'hold',
+                title: 'Difendere il bilancio militare',
+                detail: 'Tenere la quota: i comandi chiedono continuità.',
+                prerequisites: [],
+                expected: 'Capacità invariata; il costo resta sul bilancio.',
+                recommended: input.debt.servicePct < 15,
+              },
+            ]
+          : [
+              {
+                id: 'hold',
+                title: 'Mantenere la postura',
+                detail: 'Nessun cambio di spesa: la difesa resta dov’è.',
+                prerequisites: [],
+                expected: 'Continuità dello strumento militare.',
+                recommended: true,
+              },
+              {
+                id: 'rearm',
+                title: 'Rafforzare ulteriormente',
+                detail: 'Alzare la quota per superare i competitor regionali.',
+                prerequisites: ['copertura di bilancio'],
+                expected: 'Più potenza; più spesa.',
+                recommended: false,
+              },
+            ],
     });
   }
 
