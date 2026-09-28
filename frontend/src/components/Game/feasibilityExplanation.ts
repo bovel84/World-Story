@@ -26,6 +26,8 @@ export interface FeasibilityBlockerView {
   readonly detail: string;
   readonly missing: readonly string[];
   readonly targetId?: string;
+  /** WS-PREFLIGHT-01: campo canonico che ha originato il deficit, se il motore lo dichiara. */
+  readonly field?: string;
 }
 
 export interface FeasibilityAlternativeView {
@@ -96,12 +98,14 @@ function readBlockers(raw: Record<string, unknown>): FeasibilityBlockerView[] {
     if (!code) continue;
     const detail = asString(blocker.detail) ?? REASON_LABEL[code] ?? code;
     const targetId = asString(blocker.targetId) ?? asString(blocker.target_id) ?? undefined;
+    const field = asString(blocker.field) ?? undefined;
     out.push({
       code,
       label: REASON_LABEL[code] ?? code,
       detail,
       missing: asStringArray(blocker.missing),
       ...(targetId ? { targetId } : {}),
+      ...(field ? { field } : {}),
     });
   }
   return out;

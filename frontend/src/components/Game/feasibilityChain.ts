@@ -47,6 +47,8 @@ export interface ChainNode {
   readonly detail: string;
   /** Da dove viene il dato: bozza, catalogo, richiesta, preflight. */
   readonly source: string;
+  /** WS-PREFLIGHT-01: campo canonico che ha originato un deficit, se dichiarato. */
+  readonly field?: string;
 }
 
 export interface FeasibilityChainView {
@@ -131,6 +133,7 @@ export function buildFeasibilityChain(input: FeasibilityChainInput): Feasibility
       label: blocker.label,
       detail,
       source: 'Preflight (motore)',
+      ...(blocker.field ? { field: blocker.field } : {}),
     });
   }
   for (const prerequisite of input.prerequisites ?? []) {

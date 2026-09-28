@@ -18,6 +18,13 @@ export interface FeasibilityChainProps {
   view: FeasibilityChainView;
 }
 
+/** WS-PREFLIGHT-01: se il motore ha indicato il campo canonico del deficit, lo si
+ *  mostra accanto al dettaglio — un deficit senza causa è quello che ha confuso
+ *  il giocatore. Nulla viene inventato: si espone solo ciò che è già nel dato. */
+function detailWithField(node: ChainNode): string {
+  return node.field ? `${node.detail} (campo: ${node.field})` : node.detail;
+}
+
 export function FeasibilityChain({ view }: FeasibilityChainProps) {
   if (!view || view.nodes.length === 0) return null;
 
@@ -30,7 +37,7 @@ export function FeasibilityChain({ view }: FeasibilityChainProps) {
           <li key={`${node.kind}-${index}`} className={`feasibility-chain-step is-${node.kind}`}>
             <span className="feasibility-chain-kind">{CHAIN_KIND_LABEL[node.kind]}</span>{' '}
             <span className="feasibility-chain-label">{node.label}</span>
-            <span className="feasibility-chain-detail"> — {node.detail}</span>
+            <span className="feasibility-chain-detail"> — {detailWithField(node)}</span>
           </li>
         ))}
       </ol>
@@ -52,7 +59,7 @@ export function FeasibilityChain({ view }: FeasibilityChainProps) {
             <tr key={`t-${node.kind}-${index}`} className={`is-${node.kind}`}>
               <th scope="row">{CHAIN_KIND_LABEL[node.kind]}</th>
               <td>{node.label}</td>
-              <td>{node.detail}</td>
+              <td>{detailWithField(node)}</td>
               <td>{node.source}</td>
             </tr>
           ))}

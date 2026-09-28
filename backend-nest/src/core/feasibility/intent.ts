@@ -17,6 +17,22 @@ const INTENT_ID=/^[A-Za-z][A-Za-z0-9_:-]{0,127}$/;
 function intentId(value:unknown):value is string{return typeof value==='string'&&INTENT_ID.test(value);}
 function object(v:unknown):Record<string,unknown>|null{return v&&typeof v==='object'&&!Array.isArray(v)?v as Record<string,unknown>:null;}
 function add(out:Clarification[],code:string,field:string,message:string):void{out.push({code,field,message});}
+/**
+ * WS-PREFLIGHT-01 — involucro canonico di un ordine in bozza da testo libero.
+ *
+ * Il convertitore LLM di un ordine restituisce prosa (`ConvertedAction`: solo
+ * `type`/`text`), non un `OrderIntent`: tipo d'azione, target, catalogo e
+ * quantità non esistono. Il server conosce invece i campi che gli appartengono
+ * — id, polity, testo, priorità, autorizzazione — e per la parte semantica non
+ * interpretata dichiara `qualitative`: un testo libero non è una distinta, e
+ * inventare un effetto materiale sarebbe peggio di dichiararlo assente.
+ * L'involucro così prodotto passa da `normalizeOrderIntent`, che resta il punto
+ * unico di validazione: prima di WS-PREFLIGHT-01 ogni campo canonico mancante
+ * diventava un deficit di schema mostrato al giocatore.
+ */
+export function draftIntentCandidate(owned:{readonly id:string;readonly actorPolityId:string;readonly originalText:string}):Record<string,unknown>{
+ return {id:owned.id,actorPolityId:owned.actorPolityId,originalText:owned.originalText,actionKind:'qualitative',targetIds:[],priority:0,dependencyIds:[],authorization:{allowPartialStart:false,allowedPhaseIds:[]}};
+}
 function ids(v:unknown,field:string,out:Clarification[]):string[]{if(!Array.isArray(v)){add(out,'MISSING_FIELD',field,'campo obbligatorio');return [];}const result:string[]=[];for(const [i,x] of v.entries()){if(!intentId(x)){add(out,'INVALID_ID',`${field}[${i}]`,'atteso ID canonico');continue;}if(result.includes(x)){add(out,'DUPLICATE_ID',`${field}[${i}]`,'ID duplicato');continue;}result.push(x);}return result;}
 export function normalizeOrderIntent(value:unknown):NormalizeIntentResult {const raw=object(value);const issues:Clarification[]=[];if(!raw){return{ok:false,status:'needs_clarification',clarifications:[{code:'INVALID_SCHEMA',field:'order',message:'atteso oggetto'}]};}
  const id=raw.id;if(!intentId(id))add(issues,'INVALID_ID','id','ID ordine obbligatorio');const actor=raw.actorPolityId;if(!intentId(actor))add(issues,'INVALID_ID','actorPolityId','polity obbligatoria (verifica server successiva)');const text=raw.originalText;if(typeof text!=='string'||!text.trim()||text.length>10000)add(issues,'MISSING_FIELD','originalText','testo originale obbligatorio');const kind=raw.actionKind;if(typeof kind!=='string'||!(ACTION_KINDS as readonly string[]).includes(kind)){add(issues,'UNKNOWN_ACTION_KIND','actionKind','azione non supportata: chiedere chiarimento, non inferire');}

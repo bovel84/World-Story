@@ -5,7 +5,7 @@ export type AssessmentStatus='needs_data'|'blocked'|'feasible'|'feasible_with_co
 export type ReasonCode='UNKNOWN_ENTITY'|'AMBIGUOUS_TARGET'|'UNAUTHORIZED_ACTOR'|'UNSUPPORTED_CAPABILITY'|'KNOWLEDGE_MISSING'|'INDUSTRIAL_CAPABILITY_MISSING'|'DATA_UNAVAILABLE'|'DEPENDENCY_BLOCKED'
  // MG01 µ3 — deficit materiali, monetari e di manodopera, con i tre numeri.
  |'INSUFFICIENT_CASH'|'MATERIAL_SHORTAGE'|'WORKFORCE_SHORTAGE';
-export interface Blocker{readonly code:ReasonCode;readonly targetId?:string;readonly detail:string;readonly missing?:readonly string[];}
+export interface Blocker{readonly code:ReasonCode;readonly targetId?:string;/** WS-PREFLIGHT-01: campo canonico che ha originato il deficit (se noto). */readonly field?:string;readonly detail:string;readonly missing?:readonly string[];}
 export interface Requirement{readonly allOf?:readonly string[];readonly anyOf?:readonly (readonly string[])[];}
 export interface FeasibilityFacts{readonly actorId:string;readonly verifiedPolityId:string;readonly approvals:readonly ('user'|'institutional'|'counterparty')[];readonly rights:readonly {readonly targetId:string;readonly activity:string}[];readonly knowledgeIds:readonly string[];readonly capabilityIds:readonly string[];readonly requirements?:Readonly<Record<string,Requirement>>;readonly modelDataMissingIds?:readonly string[];readonly hiddenFromPlayerIds?:readonly string[];
  /** MG01 µ3 — deficit della distinta misurato sulle letture del ledger.
