@@ -64,7 +64,11 @@ export function voicesForSeat(seat: CabinetSeat, agenda: GovernmentAgenda): read
 export function seatOfVoice(voice: GovernmentVoice): CabinetSeat {
   // Un deficit materiale o monetario è dei Lavori: è il cantiere che si ferma.
   if (voice.id.startsWith('deficit_')) return voice.id.includes('INSUFFICIENT_CASH') ? 'tesoro' : 'lavori';
+  // P04 — Il Tesoro riferisce la condizione dei conti in ogni caso.
+  if (voice.id === 'treasury_condition') return 'tesoro';
   if (voice.id === 'debt_service') return 'tesoro';
+  // P04 — La difesa è una competenza della Guerra, non una politica dell'Interno.
+  if (voice.id === 'defence_condition') return 'guerra';
   // Una fazione interna è dell'Interno; un'opera è dei Lavori.
   if (voice.id.startsWith('faction_')) return 'interno';
   if (voice.id.startsWith('build_')) return 'lavori';

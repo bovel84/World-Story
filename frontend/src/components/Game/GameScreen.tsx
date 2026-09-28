@@ -12,6 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Region } from '../../types';
+import type { CabinetAddressView } from '../../services/api';
 import { selectTotalUnread, useActionsStore, useChatStore, useGameStore, useUIStore } from '../../stores';
 import { useOrderDraftStore } from '../../stores/orderDraftStore';
 import { useToast } from '../ui/ToastProvider';
@@ -66,6 +67,9 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   // P02 — La seduta del gabinetto arriva dall'hook degli ordini, non dallo
   // store della bozza: è una lettura del Governo, non una proprietà del testo.
   const { cabinet, cabinetLoading, cabinetError, loadCabinet, chooseCabinetPath } = orders;
+  // P02-bis — la sedia con cui si sta parlando: vive nell'URL del modulo aperto,
+  // non nel server. Il server non sa chi ha il microfono; il client sì.
+  const [speakingSeat, setSpeakingSeat] = useState<CabinetAddressView['seat'] | null>(null);
   const {
     currentGame, currentWorld, selectedRegion, setSelectedRegion, setCurrentGame, setCurrentWorld,
     setHistory, pendingActions, changedRegions, history: actionHistory,
@@ -516,13 +520,17 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             onLoadGovernmentVoices={nation.loadGovernmentVoices}
             onBorrowDebt={nation.borrowSovereignDebt}
             pendingActions={pendingActions}
-            suggestions={suggestions}
             orderDraftText={orderDraftText}
             updateOrderDraft={updateOrderDraft}
             cabinet={cabinet}
             cabinetLoading={cabinetLoading}
             cabinetError={cabinetError}
             onCabinetChoose={chooseCabinetPath}
+            // P02-bis — il parlare: la sedia diventa un pulsante e la chat si
+            // apre col contesto di QUELLA sedia. Senza questo, il gabinetto
+            // sarebbe muto e i ministri resterebbero un elenco.
+            onMinisterSpeak={address => setSpeakingSeat(address.seat)}
+            speakingSeat={speakingSeat}
             enhancedPreview={enhancedPreview}
             enhanceLoading={enhanceLoading}
             enhanceError={enhanceError}
@@ -530,7 +538,6 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             acceptOrderEnhanced={acceptOrderEnhanced}
             rejectOrderEnhanced={rejectOrderEnhanced}
             registerOrder={orders.registerOrder}
-            queuePlayerAction={orders.queuePlayerAction}
             removeQueuedAction={orders.removeQueuedAction}
             updateQueuedAction={orders.updateQueuedAction}
             editingActionId={orders.editingActionId}
@@ -552,9 +559,6 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             onMarkFeedRead={feed.markFeedRead}
             onMarkAllFeedRead={feed.markAllFeedRead}
             playerPolityId={playerPolityId}
-            onGenerateSuggestions={orders.generateSuggestions}
-            suggestionsLoading={orders.suggestionsLoading}
-            suggestionsError={orders.suggestionsError}
             currentGameId={currentGame?.id}
           />
         )

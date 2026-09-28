@@ -19,9 +19,6 @@ import { useToast } from '../ui/ToastProvider';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { chatsApi, gameApi } from '../../services/api';
 import type { Region, World, Game } from '../../types';
-import type { Suggestion } from '../../stores';
-import { resolveSuggestionToggle } from '../Game/suggestionToggle';
-import { suggestionsEmptyHint } from '../Game/suggestionsLifecycle';
 import type { ActiveModule } from '../../stores/moduleState';
 
 interface DeskContentProps {
@@ -83,7 +80,6 @@ interface DeskContentProps {
   /** LW06.1 — briefing già derivato in `GameScreen` (stessa read model). */
   briefing?: import('../Game/strategicBriefing').StrategicBriefing;
   pendingActions: Array<{ id: string; text: string }>;
-  suggestions: Suggestion[];
   orderDraftText: string;
   updateOrderDraft: (text: string) => void;
   /** P02 — la seduta del gabinetto: i ministri che hanno qualcosa da dire. */
@@ -97,7 +93,6 @@ interface DeskContentProps {
   acceptOrderEnhanced: () => void;
   rejectOrderEnhanced: () => void;
   registerOrder: (text: string) => Promise<void>;
-  queuePlayerAction: (text: string) => Promise<boolean>;
   removeQueuedAction: (id: string) => void;
   updateQueuedAction: (id: string, text: string) => void;
   editingActionId: string | null;
@@ -120,7 +115,6 @@ interface DeskContentProps {
   onMarkAllFeedRead?: () => void;
   playerPolityId: string;
   currentGameId: string | undefined;
-  onGenerateSuggestions?: () => void;
   /**
    * P02 — Scelta una strada del Governo, il chiamante ne fa una **bozza**.
    * Nessuna registrazione qui: la conferma è un atto separato (invariante MG-I1).
@@ -129,8 +123,6 @@ interface DeskContentProps {
   /** P02-bis — la sedia con cui si sta parlando, se ce n'è una. */
   onMinisterSpeak?: (address: CabinetAddressView) => void;
   speakingSeat?: CabinetAddressView['seat'] | null;
-  suggestionsLoading?: boolean;
-  suggestionsError?: string;
 }
 
 export function DeskContent({
@@ -175,7 +167,6 @@ export function DeskContent({
   commitments = null,
   briefing,
   pendingActions,
-  suggestions,
   orderDraftText,
   updateOrderDraft,
   cabinet = null,
@@ -188,7 +179,6 @@ export function DeskContent({
   acceptOrderEnhanced,
   rejectOrderEnhanced,
   registerOrder,
-  queuePlayerAction,
   removeQueuedAction,
   updateQueuedAction,
   editingActionId,
@@ -207,12 +197,9 @@ export function DeskContent({
   onMarkAllFeedRead,
   playerPolityId,
   currentGameId,
-  onGenerateSuggestions,
   onCabinetChoose,
   onMinisterSpeak,
   speakingSeat = null,
-  suggestionsLoading,
-  suggestionsError,
 }: DeskContentProps) {
   const { notify } = useToast();
 
@@ -221,23 +208,30 @@ export function DeskContent({
     return null;
   }
 
-  // Modulo Ordini
+  // Modulo Governo — P03b
+  //
+  // L'autore: «nel pulsante governo ho visto tutta la struttura vecchia da
+  // togliere». La struttura vecchia era questa pagina quando era il modulo
+  // *Ordini*: un generatore di temi («Elabora proposte») e un elenco di
+  // suggerimenti del modello, che ora **duplicano il gabinetto** — i ministri
+  // dicono gli stessi bisogni, ma fondati su cifre del motore invece che su
+  // prosa. Il generatore e l'elenco sono rimossi: la pagina ha una sola
+  // superficie, la seduta.
+  //
+  // Restano due cose, perché il dialogo ci *finisce* dentro e non sono
+  // struttura vecchia:
+  //  - la **bozza** (`ActionsPanel`): la strada scelta in chat arriva qui, il
+  //    giocatore la corregge e la conferma. È la scelta (d) dell'autore —
+  //    «prepara una bozza, tu la confermi» — e l'invariante MG-I1: leggere un
+  //    consiglio non impegna nulla;
+  //  - la **coda** (`pendingActions`): gli ordini confermati aspettano il turno.
+  //    Senza vederla, il giocatore non saprebbe cosa sta per accadere.
   if (activeModule === 'orders') {
     return (
       <div className="suggestions-content">
         <div className="council-head">
           <div className="council-title">Il Governo</div>
           <div className="council-sub">I ministri portano i bisogni del paese; da ogni proposta nasce una bozza d’ordine</div>
-          <button
-            className="btn-generate-suggestions"
-            disabled={!!suggestionsLoading}
-            onClick={() => onGenerateSuggestions?.()}
-          >
-            {suggestionsLoading ? 'Elaborazione…' : 'Elabora proposte'}
-          </button>
-          {suggestionsError && (
-            <div className="suggestions-error" role="alert">{suggestionsError}</div>
-          )}
         </div>
         <button
           type="button"
@@ -249,9 +243,7 @@ export function DeskContent({
           ✕
         </button>
 
-        {/* P02 — La seduta del gabinetto: prima i bisogni documentati del
-            paese, poi le proposte del modello. L'ordine non è casuale: i
-            ministri parlano di fatti misurati, il modello di opportunità. */}
+        {/* P02 — La seduta del gabinetto: i bisogni documentati del paese. */}
         <CabinetSession
           session={cabinet}
           loading={cabinetLoading}
@@ -269,59 +261,8 @@ export function DeskContent({
           />
         </CabinetSession>
 
-        {suggestions.length === 0 && !suggestionsLoading && !suggestionsError && (
-          <p className="suggestions-empty" role="status">{suggestionsEmptyHint()}</p>
-        )}
-
-        {suggestions.length > 0 && (
-          <div
-            className="suggestions-list"
-            aria-live="polite"
-            aria-label={`${suggestions.length} temi strategici generati`}
-          >
-            {suggestions.map((suggestion, topicIndex) => (
-              <section
-                key={`${suggestion.topic}-${topicIndex}`}
-                className="suggestion-item"
-                aria-labelledby={`suggestion-topic-${topicIndex}`}
-              >
-                <div id={`suggestion-topic-${topicIndex}`} className="suggestion-topic">
-                  {suggestion.topic}
-                </div>
-                <div className="suggestion-description">{suggestion.description}</div>
-                {suggestion.actions.map((action, actionIndex) => {
-                  const content = action.content.trim();
-                  const toggle = resolveSuggestionToggle(pendingActions, content);
-                  const queued = toggle.kind === 'remove';
-                  return (
-                    <button
-                      type="button"
-                      key={`${action.title}-${actionIndex}`}
-                      className={`suggestion-action${queued ? ' queued' : ''}`}
-                      disabled={!content}
-                      aria-pressed={queued}
-                      onClick={() => {
-                        if (toggle.kind === 'remove') void removeQueuedAction(toggle.id);
-                        else void queuePlayerAction(content);
-                      }}
-                      title={queued ? 'Rimuovi questa proposta dal piano' : 'Aggiungi questa proposta al piano'}
-                    >
-                      <span className="suggestion-action-plus" aria-hidden="true">{queued ? '✓' : '+'}</span>
-                      <span className="suggestion-action-body">
-                        <b>{action.title}</b>
-                        <span>{content}</span>
-                      </span>
-                      <span className="suggestion-action-cta">{queued ? 'Rimuovi' : 'Usa'}</span>
-                    </button>
-                  );
-                })}
-              </section>
-            ))}
-          </div>
-        )}
-
         <div className="pending-actions-section">
-          <div className="pending-header">In attesa di elaborazione:</div>
+          <div className="pending-header">Ordini in attesa del turno:</div>
           {pendingActions.length === 0 ? (
             <div className="pending-empty">Nessuna azione</div>
           ) : (

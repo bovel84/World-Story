@@ -607,6 +607,50 @@ raggiungibili.
 > La ricetta è nella memoria di progetto. **La build di produzione resta da fare da chi
 > ha l'ambiente giusto.**
 >
+> > **P03b + P04 — CONSEGNATE, 28 settembre 2026.** Il secondo rilievo dell'autore —
+> «non funziona, vedo tutto come era prima» — aveva **due** cause, e nessuna era la
+> cache del browser (verificata: il bundle servito conteneva già il codice nuovo).
+>
+> **La prima: la struttura vecchia era ancora lì.** Sotto il gabinetto restavano il
+> generatore «Elabora proposte», l'elenco dei temi del modello e la coda — cioè la
+> pagina quando era il modulo *Ordini*. Il generatore e l'elenco **duplicavano** i
+> ministri, che dicono gli stessi bisogni ma fondati su cifre del motore. Rimossi, con
+> i props e le importazioni che servivano solo a loro. Restano la **bozza** e la
+> **coda**, perché il dialogo ci finisce dentro — e senza vederle il giocatore non
+> saprebbe cosa sta per accadere.
+>
+> **La seconda, e più grave: il gabinetto era vuoto in ogni partita normale.** Misurato
+> sulla partita viva dell'autore: `agenda` → `voices: []`, `cabinet` → `addresses: []`,
+> «Non c'è nulla sul tavolo che il motore sappia documentare». Quattro cause distinte,
+> tutte misurate:
+>
+> | Sedia | Perché taceva | Misura |
+> |---|---|---|
+> | Tesoro | soglia sul **servizio** del debito, non sulla condizione | servizio 14,1%, soglia 15 |
+> | Interno | soglia di potere troppo alta per la fazione più scontenta | potere 9,2%, soglia 10 |
+> | Lavori | il catalogo di `millennium_dawn` **non ha opere** | nessuna voce possibile |
+> | Esteri, Guerra | **mai implementate**: nessuna riga generava le loro voci | — |
+>
+> La causa di fondo non erano le soglie: era che l'unica fonte di voci era la **crisi**.
+> Ma «un ministro senza dati tace» non significa «parla solo se il paese è rotto» — uno
+> Stato che funziona ha un bilancio e un esercito, e quelle cifre sono dati veri, non
+> riempitivo. La correzione allinea il codice al piano: il **Tesoro** riferisce la
+> condizione dei conti (e il debito alto resta una voce a parte), la **Guerra** riferisce
+> lo strumento militare — prima esisteva solo come *politica* dentro la fazione dei
+> militari, cioè come opinione di chi chiede soldi — e la soglia di potere scende da 10
+> a 5, dove «marginale» comincia davvero. **Senza i dati le due sedie tacciono come
+> prima**: la correzione non ha trasformato il silenzio in invenzione, e due test lo
+> difendono.
+>
+> **17 test** per l'agenda (6 nuovi per P04, incluso il caso reale dei militari al 9,2%),
+> **8** per la lettura — di cui due che passano il **conto della sessione vera**, così il
+> cablaggio è difeso end-to-end e non solo la funzione pura. Prova al contrario: togliendo
+> il conto dal cablaggio, le due sedie tacciono e i test cadono.
+>
+> **Limite dichiarato:** il backend gira dal compilato (`node dist/index.js`), quindi P04
+> è visibile solo dopo un **riavvio del backend**. Il compilato è aggiornato in questa
+> consegna; il riavvio è dell'autore.
+>
 > **P03 — dalla proposta alla bozza.** «Scegli questa strada» scrive l'ordine e apre il
 preflight con i suoi numeri; la registrazione è un atto separato ed esplicito. *Gate:*
 nessuna spesa prima della conferma.

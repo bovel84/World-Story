@@ -3340,6 +3340,9 @@ export class GameSession {
       branchId: fence.branchId,
       playerPolityId: this.playerPolityId,
       government: this.getGovernment(),
+      // P04 — il conto nazionale: le sedie che riferiscono la condizione (Tesoro,
+      // Guerra) ne hanno bisogno, e senza la seduta sarebbe vuota.
+      account: this.getNationalAccounts()[this.playerPolityId],
     });
     const address = cabinet.addresses.find((candidate: { seat: string }) => candidate.seat === seat);
     if (!address) {

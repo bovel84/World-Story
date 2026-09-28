@@ -113,12 +113,17 @@ describe('MG05 — l’agenda del Governo', () => {
 
   it('una fazione marginale e serena NON entra in agenda', () => {
     // Il filtro non è arbitrario: peso e scontentezza insieme. Una fazione al
-    // 5% di influenza con soddisfazione 60 non merita una scheda — e dirlo è
+    // 3% di influenza con soddisfazione 60 non merita una scheda — e dirlo è
     // parte dell'onestà della proposta.
+    //
+    // P04 — La soglia di potere è scesa da 10 a 5 (una fazione al 9,2% non è
+    // marginale: è la terza del consiglio, ed escluderla lasciava muto l'Interno
+    // per meno di un punto). Il caso di prova scende con lei: resta il caso
+    // «marginale», che è ciò che questo test difende.
     const agenda = buildAgenda({
       ...base,
       factions: [
-        { id: 'marginale', name: 'Marginale', powerPct: 5, satisfaction: 20, stance: 'critico', demandTitle: 'x', demandDetail: 'y', urgency: 10 },
+        { id: 'marginale', name: 'Marginale', powerPct: 3, satisfaction: 20, stance: 'critico', demandTitle: 'x', demandDetail: 'y', urgency: 10 },
         { id: 'serena', name: 'Serena', powerPct: 40, satisfaction: 80, stance: 'alleato', demandTitle: 'x', demandDetail: 'y', urgency: 5 },
       ],
     });
@@ -198,5 +203,105 @@ describe('MG05 — l’agenda del Governo', () => {
 
   it('la ripartizione rifiuta pesi nulli invece di inventare una quota', () => {
     expect(() => fiscalShares('100', [0, 0])).toThrow();
+  });
+});
+
+/**
+ * P04 — Il gabinetto legge la CONDIZIONE, non solo la crisi
+ * ========================================================
+ * Il difetto misurato sulla partita dell'autore: con il servizio del debito al
+ * 14,1% (soglia 15) e i comandi militari al 9,2% di influenza (soglia 10) il
+ * consiglio era **vuoto**. L'autore apriva il Governo e non trovava nessuno.
+ *
+ * La causa non erano le soglie: era che l'unica fonte di voci era la crisi. Ma
+ * «un ministro senza dati tace» non significa «un ministro parla solo se il
+ * paese è rotto» — uno Stato che funziona ha un bilancio e un esercito, e quelle
+ * cifre sono dati veri, non riempitivo.
+ *
+ * Questi test difendono la regola nuova:
+ *  - con un conto pubblicato, il **Tesoro riferisce sempre** la condizione dei
+ *    conti, anche in salute, e il debito alto resta una voce **a parte**;
+ *  - con lo stato militare pubblicato, la **Guerra** ha la sua voce — prima non
+ *    esisteva alcuna riga di codice che la producesse;
+ *  - **senza** quei dati le due sedie tacciono come prima: la correzione non ha
+ *    trasformato il silenzio in invenzione.
+ */
+describe('P04 — il Tesoro e la Guerra riferiscono la condizione', () => {
+  it('il Tesoro parla anche quando i conti sono in salute', () => {
+    const agenda = buildAgenda({
+      ...base,
+      cashFlow: { balancePct: 1.2, balance: '12', unit: 'mld', revenuePct: 30 },
+    });
+    expect(agenda.voices).toHaveLength(1);
+    const voice = agenda.voices[0];
+    expect(voice.id).toBe('treasury_condition');
+    expect(voice.need).toContain('avanzo');
+    // Ogni cifra ha la sua provenienza: è la regola che non si piega.
+    expect(voice.figures.every(f => f.basis.kind === 'measured')).toBe(true);
+    expect(voice.figures.map(f => f.label)).toContain('Saldo di bilancio');
+    // Almeno due strade: una via sola è un ordine travestito.
+    expect(voice.paths.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('un bilancio in disavanzo cambia il bisogno, non solo il numero', () => {
+    const agenda = buildAgenda({
+      ...base,
+      cashFlow: { balancePct: -4.5, balance: '-45', unit: 'mld', revenuePct: 28 },
+    });
+    expect(agenda.voices[0].need).toContain('disavanzo');
+    expect(agenda.voices[0].figures.some(f => f.value === '-45')).toBe(true);
+  });
+
+  it('il debito alto resta una voce A PARTE dalla condizione del Tesoro', () => {
+    // Il servizio al 22% produce due voci distinte: la condizione ordinaria e
+    // l'allarme sul debito. Fonderle nasconderebbe che c'è un problema in più.
+    const agenda = buildAgenda({
+      ...base,
+      debt: { ratioPct: 120, servicePct: 22 },
+      cashFlow: { balancePct: -3, balance: '-30', unit: 'mld', revenuePct: 25 },
+    });
+    const ids = agenda.voices.map(v => v.id);
+    expect(ids).toContain('treasury_condition');
+    expect(ids).toContain('debt_service');
+    // La condizione viene prima dell'allarme: il fatto generale precede il caso.
+    expect(ids.indexOf('treasury_condition')).toBeLessThan(ids.indexOf('debt_service'));
+  });
+
+  it('la Guerra ha la sua voce, con i numeri dello strumento militare', () => {
+    const agenda = buildAgenda({
+      ...base,
+      defence: { burdenPct: 1.2, forces: 200, mobilized: 0, factionSatisfaction: 34.9 },
+    });
+    expect(agenda.voices).toHaveLength(1);
+    const voice = agenda.voices[0];
+    expect(voice.id).toBe('defence_condition');
+    // Sotto la soglia dei comandi: il bisogno lo DICE, non lo tace.
+    expect(voice.need).toContain('soglia');
+    const labels = voice.figures.map(f => f.label);
+    expect(labels).toContain('Spesa di difesa');
+    expect(labels).toContain('Soddisfazione dei comandi');
+    expect(voice.figures.find(f => f.label === 'Spesa di difesa')?.value).toBe('1.2');
+  });
+
+  it('senza i dati, Tesoro e Guerra TACCIONO: la correzione non inventa', () => {
+    // È la guardia contro il falso verde: la nuova fonte non ha sostituito la
+    // vecchia regola. Un motore che non pubblica il conto non produce una cifra.
+    const agenda = buildAgenda({ ...base });
+    expect(agenda.voices).toEqual([]);
+    expect(agenda.headline).toContain('Nessuna questione');
+  });
+
+  it('una fazione al 9% di influenza NON è marginale: entra in consiglio', () => {
+    // Il caso reale: «Forze armate», soddisfazione 34,9, potere 9,2. Con la
+    // vecchia soglia (10) restava fuori per meno di un punto.
+    const agenda = buildAgenda({
+      ...base,
+      factions: [{
+        id: 'militari', name: 'Forze armate', powerPct: 9.2, satisfaction: 34.9,
+        stance: 'critico', demandTitle: 'Più mezzi', demandDetail: 'Chiedono riserve.', urgency: 60,
+      }],
+    });
+    expect(agenda.voices).toHaveLength(1);
+    expect(agenda.voices[0].id).toBe('faction_militari');
   });
 });
