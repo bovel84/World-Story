@@ -75,6 +75,10 @@ import { buildMovementNotices } from './game/movementNotices';
 import { colorForPolity, normalizeHexColor } from './utils/color';
 import path from 'path';
 import { loadSimulationCatalog } from './scenario/loader';
+import { advanceProject, commissionProject } from './game/ProjectWorks';
+import type { WorkDefinition } from './scenario/types';
+import { deliveredWorkFor, alreadyDelivered } from './game/WorkDelivery';
+import { listStrictProjects } from './repositories/project-runtime.repository';
 import { OrderAssessment } from "./core/feasibility/FeasibilityService";
 import { type CostEstimate } from "./core/feasibility/costs";
 import { Difficulty } from './prompts/difficulty';
@@ -608,10 +612,16 @@ export class GameSession {
         .filter(actor => actor.polityId === this.playerPolityId)
         .map(actor => actor.actorId);
       const mandateDecisions = refreshMandateStockDecisions(this.id, branchId, asOfDate, ownerActorRefs);
+      // MG03 µ3 — i cantieri della filiera avanzano e consegnano QUI. Il ramo
+      // strict ritorna prima di `advanceProjects`, che legge i progetti
+      // nazionali legacy: senza questa chiamata un cantiere strict si creava e
+      // non avanzava mai, con le riserve impegnate e nessun giorno che passava.
+      const strictWorkLines = this.advanceStrictWorks(days, asOfDate);
       this.recordAccountSnapshot(asOfDate);
       return [
         ...tick.settledCashflows.map(flow => `Una scadenza finanziaria è stata regolata con stato ${this.publicText(flow.status)} e un pagamento di ${flow.paid}.`),
         ...mandateDecisions.map(decision => `Le scorte di ${decision.resourceId} sono pari a ${decision.availableStock}, sotto la soglia di ${decision.minStock}. Il governo di ${this.publicPolityName(this.playerPolityId)} deve autorizzare ${decision.kind === 'stock_shortfall_outside_authorization' ? 'un acquisto straordinario' : 'prezzo e quantità dell’intervento'}.`),
+        ...strictWorkLines,
       ];
     }
     // `days` è intero per contratto (`explicitDays`, `daysBetween`): il tick
@@ -737,6 +747,10 @@ export class GameSession {
     // prevista l'opera è consegnata. Senza questo, il giocatore che costruisce
     // una strada vede per sempre un cantiere e mai la strada.
     const constructionLines = this.completeDueConstructions(asOfDate);
+    // MG03 µ3: i cantieri della filiera strict hanno il loro avanzamento —
+    // `completeDueConstructions` chiude i cantieri LEGACY per data, e in strict
+    // le opere nascono dal collaudo, non da una scadenza.
+    const strictWorkLines = this.advanceStrictWorks(days, asOfDate);
     // Bollettino e conti del salto sono quelli **finali** (dopo l'ultimo
     // periodo) e vengono emessi una volta sola, nell'ordine di sempre.
     const lines: string[] = [...opening];
@@ -746,7 +760,7 @@ export class GameSession {
     // che cosa è un fatto della partita, non solo una schermata del dossier.
     const government = governmentSnapshot(finalAccounts[this.playerPolityId], this.nationState.governmentMemory());
     if (government.factions.length > 0) lines.push(`🏛️ Governo — ${government.headline}`);
-    lines.push(...materialLines, ...projectLines, ...constructionLines);
+    lines.push(...materialLines, ...projectLines, ...constructionLines, ...strictWorkLines);
     // Il punto storico è registrato a fine tick, dopo il magazzino, così la
     // tesoreria della data coincide con quella mostrata dal Dossier.
     this.recordAccountSnapshot(asOfDate, finalAccounts);
@@ -1611,6 +1625,98 @@ export class GameSession {
    * Percentuale di completamento dei progetti in corso, con rischio di
    * slittamento della scadenza: non sempre le cose vanno come previsto.
    */
+  /**
+   * MG03 µ3 — I cantieri della filiera strict avanzano, e alla fine consegnano.
+   *
+   * `advanceProjects` (sotto) legge `ongoing_processes`, che è il modello dei
+   * progetti NAZIONALI legacy: in strict esce subito, e i cantieri nati da
+   * `commitWork` non avanzerebbero mai. Il difetto era esattamente questo: un
+   * cantiere creato, le riserve impegnate, e nessun giorno che passa.
+   *
+   * Qui si legge `project_runtime_states` — il modello dei progetti della
+   * filiera — si avanza di `days` giorni e, quando il collaudo è raggiunto, si
+   * consegna l'opera sulla mappa. Il collaudo è ESPLICITO: i giorni non
+   * attivano l'asset da soli (invariante MG-I3), e la consegna avviene solo se
+   * il progetto ha davvero superato il collaudo.
+   */
+  private advanceStrictWorks(days: number, asOfDate: string): string[] {
+    if (!this.isStrictGame() || days < 0) return [];
+    const branchId = this.fenceContext().branchId;
+    if (!branchId) return [];
+    const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
+    const templateId = worldRow?.template_id;
+    if (typeof templateId !== 'string' || !templateId) return [];
+    const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId));
+    if (!loaded.catalog) return [];
+
+    const lines: string[] = [];
+    for (const project of listStrictProjects(this.id, branchId)) {
+      const work = loaded.catalog.works?.find(item => item.id === project.workId);
+      if (!work) continue;
+
+      const outcomes = advanceProject({
+        gameId: this.id,
+        branchId,
+        projectId: project.projectId,
+        elapsedDays: days,
+        asOfDate,
+        materialHolder: project.context.materialActorId,
+        moneyHolder: project.context.payerActorId,
+        expectedVersion: project.version,
+      });
+
+      const blocked = outcomes.find(outcome => outcome.kind === 'blocked');
+      if (blocked?.kind === 'blocked') {
+        // Il cantiere resta fermo e lo dice: un blocco che si spiega, non un
+        // silenzio. La cronaca del turno porta il numero mancante.
+        lines.push(`⛔ Cantiere «${work.name}»: ${blocked.missing.join(', ')}`);
+        continue;
+      }
+
+      // Collaudo raggiunto: si consegna l'opera. È l'unico punto in cui l'asset
+      // diventa operativo, e la data è quella del collaudo.
+      const commissioning = outcomes.find(outcome => outcome.kind === 'commissioning');
+      if (commissioning?.kind === 'commissioning') {
+        const commissioned = commissionProject({
+          gameId: this.id, branchId, projectId: project.projectId, phaseId: commissioning.phaseId,
+        });
+        if (commissioned?.assetId) {
+          const delivered = this.deliverWorkOnMap(work, project.projectId, project.context.regionId, asOfDate);
+          if (delivered) lines.push(`✅ Opera consegnata: ${work.name}`);
+        }
+      }
+    }
+    return lines;
+  }
+
+  /**
+   * Scrive l'opera consegnata nella regione. La geometria viene dal centro
+   * della regione: dove non c'è un centro, l'opera non si colloca e si dice —
+   * mai una posizione inventata (§ «mai geografia inventata»).
+   */
+  private deliverWorkOnMap(
+    work: WorkDefinition,
+    projectId: string,
+    regionId: string,
+    completedDate: string,
+  ): boolean {
+    const region = [...this.regions.values()].find(candidate => candidate.id === regionId);
+    if (!region) return false;
+    const objects = (region as { objects?: any[] }).objects ||= [];
+    if (alreadyDelivered(objects, projectId)) return true;
+    const center = this.geometry.regionCenter(region);
+    if (!center) return false;
+    objects.push(deliveredWorkFor({
+      work,
+      regionId,
+      regionOwner: region.owner,
+      center,
+      completedDate,
+      projectId,
+    }));
+    return true;
+  }
+
   private advanceProjects(days: number, asOfDate: string): string[] {
     // `days === 0` è ammesso: serve a rinfrescare l'avanzamento alla data
     // corrente (chiusura di un run) senza inventare tempo trascorso.
@@ -1838,6 +1944,10 @@ export class GameSession {
       isStrictGame: () => this.isStrictGame(),
       playerPolityId: () => this.playerPolityId,
       playerPolity: () => this.getPlayer()?.polityId,
+      // MG02 µ1 — la rotta da testo libero legge lo stesso ledger della rotta
+      // `evaluate`: ramo head della partita e modalità economica.
+      branchId: () => this.fenceContext().branchId,
+      economyMode: () => (this.isStrictGame() ? 'strict' : 'legacy'),
       accounts: () => this.sessionAccounts(),
       resourceStock: polityId => this.resourceStock(polityId),
       saveResourceStock: (polityId, stock) => this.saveResourceStock(polityId, stock),
@@ -3261,8 +3371,8 @@ export class GameSession {
   }
 
   /** Add action to pending queue (implementazione in OrderExecutionService). */
-  queueAction(text: string): PendingAction {
-    return this.orders.enqueue(text);
+  queueAction(text: string, workOrder?: import('./game/OrderExecutionService').PendingWorkOrder): PendingAction {
+    return this.orders.enqueue(text, workOrder);
   }
 
   /** G24 — anteprima riformulata di un ordine (implementazione nel servizio). */
@@ -3276,7 +3386,10 @@ export class GameSession {
   }
 
   /** G4-B/G4-D — assessment + stima costi in un solo percorso LLM. */
-  async checkFeasibilityWithCosts(text: string): Promise<{ assessment: OrderAssessment; costs: CostEstimate }> {
+  async checkFeasibilityWithCosts(text: string): Promise<{
+    assessment: OrderAssessment; costs: CostEstimate;
+    workDeclaration?: import('./game/OrderExecutionService').WorkDeclaration;
+  }> {
     return this.orders.checkFeasibilityWithCosts(text);
   }
 

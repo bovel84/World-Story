@@ -21,10 +21,12 @@ import { projectProgress } from '../core/simulation/MilitaryProduction';
 import { EFFECT_LIMITS } from '../core/simulation/NationalEffects';
 import { rejectDirectMaterialCommand, validateStrictResultSafe } from '../core/simulation/EffectValidator';
 import { bootstrapCatalogEconomy } from '../services/StrictEffectProducerService';
+import { applyWorkCommits } from './WorkCommitTurn';
 import { loadSimulationCatalog } from '../scenario/loader';
 import { shortId } from '../utils/short-id';
 import type { RelationshipType } from '../core/RelationshipMatrix';
 import type { SimulationEvent } from '../prompts/types';
+import type { SimulationCatalog } from '../scenario/types';
 import type { PendingAction, OrderSettlementEntry } from './OrderExecutionService';
 import type { OrderExecutionService } from './OrderExecutionService';
 import type { SimulationCoordinator } from './SimulationCoordinator';
@@ -178,6 +180,11 @@ export class TurnPipelineService {
       // M06 µ6a (B1): in strict lo stato iniziale del catalogo entra nel ledger
       // del ramo (idempotente) PRIMA di ogni proposta: disponibilità reali per
       // prenotazioni/cashflow; fallisce chiuso se il catalogo è incoerente.
+      // MG02 µ4: il catalogo caricato qui serve anche al commit delle opere, più
+      // sotto. Caricarlo due volte sarebbe due volte lo stesso file, con il
+      // rischio che le due letture divergano.
+      let strictCatalog: SimulationCatalog | null = null;
+      let branchForCommit: string | null = null;
       if (this.ctx.isStrictGame()) {
         const worldRow = worldRepository.findById(this.ctx.worldId) as { template_id?: unknown } | undefined;
         const templateId = worldRow?.template_id;
@@ -187,6 +194,8 @@ export class TurnPipelineService {
           const branchId = gameRepository.getHeadBranch(this.ctx.gameId);
           if (!branchId) throw new Error('strict_branch_missing');
           bootstrapCatalogEconomy(this.ctx.gameId, branchId, loaded.catalog);
+          strictCatalog = loaded.catalog;
+          branchForCommit = branchId;
         }
       }
 
@@ -680,6 +689,93 @@ export class TurnPipelineService {
         };
       });
 
+      // MG02 µ4 — L'ordine accettato diventa un cantiere. Si guardano SOLO gli
+      // ordini che dichiarano un'opera del catalogo: per gli altri il percorso
+      // resta quello di prima, senza inventare una distinta dal testo libero.
+      //
+      // L'impegno avviene DOPO il calcolo degli esiti (un ordine respinto non
+      // costruisce) ma PRIMA della creazione del `turnResult`, più sotto: un
+      // annullamento deve entrare in cronaca, timeline e outbox come qualunque
+      // altro, altrimenti il turno consuma risorse e non lo racconta.
+      // Senza un ramo non si impegna nulla: `commitWork` scriverebbe su un
+      // `branch_id` vuoto righe che nessun ramo rivendicherà (misurato).
+      const workCommitOutcomes = strictCatalog && branchForCommit ? applyWorkCommits({
+        gameId: this.ctx.gameId,
+        branchId: branchForCommit,
+        catalog: strictCatalog,
+        actions,
+        // I modi di essere respinti sono DUE, e vanno guardati entrambi: un
+        // esito `rejected` negli outcome, oppure l'ordine nell'elenco `voided`
+        // del modello — che non produce alcun esito. Guardarne uno solo
+        // lasciava costruire un ordine che la narrazione dichiarava respinto.
+        wasAccepted: orderId => {
+          const item = actions.find(action => action.id === orderId);
+          const outcomeStatus = outcomes.get(orderId)?.status;
+          if (outcomeStatus === 'rejected') return false;
+          if (item && voided.some((entry: any) => entry.action === item.text)) return false;
+          return true;
+        },
+        playerPolityId: this.state.playerPolityId,
+      }) : [];
+      for (const outcome of workCommitOutcomes) {
+        if (outcome.kind !== 'unfunded') continue;
+        const item = actions.find(action => action.id === outcome.orderId);
+        const label = item ? this.ctx.publicText(item.text) : outcome.orderId;
+        if (!voided.some((entry: any) => entry.action === label)) {
+          voided.push({ action: label, reason: outcome.reason });
+        }
+        // L'esito dell'ordine non può dire «compiuto» se il cantiere non è nato.
+        // Il motivo del MODELLO si conserva: il turno ha già raccontato quello,
+        // e sovrascriverlo farebbe divergere narrazione ed esito durevole.
+        if (item?.result?.outcome) {
+          item.result.outcome = {
+            ...item.result.outcome,
+            status: 'rejected',
+            summary: outcome.reason,
+            // `completesProjectId` cade con l'accettazione: il ciclo che chiude
+            // i processi aperti lancia su un `rejected` che ne porta uno, e un
+            // salto intero fallirebbe per un'opera non finanziata — l'opposto
+            // di ciò che questo blocco esiste per fare.
+            completesProjectId: undefined,
+          };
+        }
+      }
+      for (const outcome of workCommitOutcomes) {
+        if (outcome.kind !== 'committed' && outcome.kind !== 'already_committed') continue;
+        const item = actions.find(action => action.id === outcome.orderId);
+        if (item?.result) {
+          // Il progetto è un fatto: viaggia con l'ordine, così la cronaca può
+          // collegare la decisione al cantiere che ne è nato.
+          item.result.projectId = outcome.projectId;
+        }
+      }
+
+      // MG02 µ4 — Una costruzione dichiarata in una partita NON strict non può
+      // essere onorata: il ledger del catalogo non è la fonte di quella
+      // modalità. Ignorarla in silenzio sarebbe la cosa peggiore — il giocatore
+      // crede di aver ordinato un'opera e non nasce nulla, senza una riga che
+      // lo dica. Si dichiara invece l'esito, con lo stesso canale di un ordine
+      // non finanziato.
+      if (!strictCatalog) {
+        const declared = actions.filter(action => action.workOrder);
+        for (const item of declared) {
+          const label = this.ctx.publicText(item.text);
+          const reason = 'opera dichiarata in una partita non strict: il cantiere non può essere avviato';
+          if (!voided.some((entry: any) => entry.action === label)) {
+            voided.push({ action: label, reason });
+          }
+          if (item.result?.outcome) {
+            item.result.outcome = { ...item.result.outcome, status: 'rejected', summary: reason, completesProjectId: undefined };
+          }
+          this.ctx.broadcast('action_voided', {
+            turn: this.state.currentTurn,
+            action: label,
+            reason,
+            polityName: this.ctx.publicPolityName(this.state.playerPolityId),
+          });
+        }
+      }
+
       // Un esito partial è un processo ancora aperto, non un successo finale.
       // Il record resta nel checkpoint e potrà essere aggiornato da un futuro
       // outcome invece di inventare la conclusione nel turno corrente.
@@ -745,6 +841,10 @@ export class TurnPipelineService {
         status: action.result?.outcome?.status || 'unresolved',
         summary: action.result?.outcome?.summary || action.result?.narration || turnResult.narration,
         eventHeadlines: action.result?.events || [],
+        // MG02 µ5: il cantiere nato da questo ordine. Senza questa colonna il
+        // legame viveva solo in memoria e spariva al primo reload: la cronaca
+        // non poteva più risalire dall'ordine all'opera.
+        ...(action.result?.projectId ? { projectId: action.result.projectId } : {}),
       })));
 
       // Completed orders no longer belong to the future queue. Persist the

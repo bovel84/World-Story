@@ -24,6 +24,8 @@ import { creditHeadroom, type ResourceStock } from '../core/simulation/MaterialE
 import { worldRepository, gameRepository } from '../repositories';
 import { loadSimulationCatalog } from '../scenario/loader';
 import { FeasibilityService, type OrderAssessment, type ReasonCode } from '../core/feasibility/FeasibilityService';
+import { strictReadingsFor } from './PreflightReadings';
+import { resolveWorkHolders } from './WorkHolders';
 import { normalizeOrderIntent } from '../core/feasibility/intent';
 import { estimateIntentCosts, type CostEstimate } from '../core/feasibility/costs';
 import type { ActionOutcome, ConvertedAction } from '../prompts/types';
@@ -48,10 +50,53 @@ export interface OrderSettlementEntry {
 }
 
 /** Ordine in coda: stato posseduto da questo servizio. */
+/**
+ * MG02 µ4 — Un ordine che è una COSTRUZIONE dichiarata.
+ *
+ * L'ordine in coda è normalmente testo libero, e il testo non basta a decidere
+ * cosa costruire: la distinta sta nel catalogo. Quando il client ha già una
+ * valutazione e sa quale opera sta ordinando, lo dichiara QUI — catalogo e
+ * detentori, non quantità: il prezzo e i materiali restano quelli del catalogo
+ * e nessun numero viene dal testo o dal modello.
+ *
+ * Chi non lo dichiara ottiene il comportamento di prima: l'ordine viaggia come
+ * prosa e nessun cantiere nasce. Inventare la distinta dal testo libero
+ * significherebbe far decidere al modello quanto costa un'opera.
+ */
+/**
+ * MG02 µ6 — La dichiarazione d'opera risolta dal server e rimandata al client.
+ * Il client non la inventa: la riceve con la valutazione e la rimanda nella
+ * coda. `materialActorId: null` significa che nessun attore della nazione copre
+ * tutti i materiali, e `missingMaterials` dice quanto manca.
+ */
+export interface WorkDeclaration {
+  readonly workId: string;
+  readonly payerActorId: string;
+  readonly materialActorId: string | null;
+  readonly funded: boolean;
+  readonly missingMaterials: readonly { readonly resourceId: string; readonly missing: string }[];
+  readonly note?: string;
+}
+
+export interface PendingWorkOrder {
+  /** Opera del catalogo (`works.json`): la distinta entra da qui. */
+  readonly workId: string;
+  /** Chi paga: il conto monetario dell'impegno. */
+  readonly payerActorId: string;
+  /** Presso chi stanno i materiali: può differire da chi paga. */
+  readonly materialActorId: string;
+  /** Se il preflight ha dichiarato l'opera coperta. Un ordine non coperto non
+   *  si impegna: il commit fallirebbe, e l'esito deve dirlo invece di fallire
+   *  il turno. */
+  readonly funded: boolean;
+}
+
 export interface PendingAction {
   id: string;
   text: string;
   createdAt: string;
+  /** MG02 µ4: presente solo se l'ordine è una costruzione dichiarata. */
+  workOrder?: PendingWorkOrder;
   /** Adapter UI legacy; le due dimensioni sotto sono autorevoli per F01. */
   status: 'pending' | 'processing' | 'completed';
   deliveryStatus?: 'queued' | 'issued' | 'cancelled';
@@ -63,6 +108,10 @@ export interface PendingAction {
     /** Eventi canonici, con ID persistito e data propria. */
     eventDetails?: TimelineEventRecord[];
     simulationId?: string;
+    /** MG02 µ4 — il cantiere nato da questo ordine: è il legame causale fra la
+     *  decisione e l'opera, e la Timeline può risalirvi. Presente solo quando
+     *  un progetto è stato davvero impegnato. */
+    projectId?: string;
     outcome?: {
       status: 'accepted' | 'partial' | 'rejected';
       summary: string;
@@ -98,6 +147,10 @@ export interface OrderExecutionContext {
   playerPolityId(): string;
   /** Polity del giocatore dal profilo, `undefined` se assente (fattibilità). */
   playerPolity(): string | undefined;
+  /** MG02 µ1 — ramo head della partita: dove sta il ledger da leggere. */
+  branchId(): string | null;
+  /** MG02 µ1 — la partita persiste il ledger? (`isStrictGame` guarda la modalità). */
+  economyMode(): 'legacy' | 'strict';
   accounts(): Record<string, NationalAccount>;
   resourceStock(polityId: string): ResourceStock;
   saveResourceStock(polityId: string, stock: ResourceStock): void;
@@ -132,12 +185,13 @@ export class OrderExecutionService {
   /**
    * Add action to pending queue (without processing)
    */
-  enqueue(text: string): PendingAction {
+  enqueue(text: string, workOrder?: PendingWorkOrder): PendingAction {
     this.ctx.assertPlayable();
     const action: PendingAction = {
       id: shortId(),
       text,
       createdAt: new Date().toISOString(),
+      ...(workOrder ? { workOrder } : {}),
       status: 'pending',
       deliveryStatus: 'queued',
       executionStatus: 'not_started',
@@ -149,6 +203,8 @@ export class OrderExecutionService {
       text: action.text,
       createdAt: action.createdAt,
       status: action.status,
+      // MG02 µ5: la dichiarazione d'opera va nel database, non solo in RAM.
+      ...(workOrder ? { workOrder } : {}),
     });
     console.log('[GameSession] Queued action:', action.id, 'text:', text.substring(0, 50));
     return action;
@@ -379,7 +435,7 @@ export class OrderExecutionService {
    * G4-B/G4-D — verifica completa: assessment + stima costi da catalogo in un
    * solo percorso LLM. La stima è sola lettura e usa solo dati autorevoli.
    */
-  async checkFeasibilityWithCosts(text: string): Promise<{ assessment: OrderAssessment; costs: CostEstimate }> {
+  async checkFeasibilityWithCosts(text: string): Promise<{ assessment: OrderAssessment; costs: CostEstimate; workDeclaration?: WorkDeclaration }> {
     const trimmed = text.trim();
     if (!trimmed) {
       throw new Error('Il testo dell’ordine è obbligatorio');
@@ -453,15 +509,48 @@ export class OrderExecutionService {
       throw new Error('Attore economico (tesoreria) non trovato per la polity');
     }
 
+    // MG02 µ1 — parità con la rotta `evaluate`: anche qui si legge il ledger e
+    // si passano i deficit, dagli stessi due moduli. Prima di MG02 questa rotta
+    // valutava senza leggere il possesso, quindi i tre codici di deficit non
+    // erano raggiungibili da qui: due preflight dello stesso ordine davano
+    // risposte strutturalmente diverse.
+    const measured = strictReadingsFor({
+      economyMode: this.ctx.economyMode(),
+      branchId: this.ctx.branchId(),
+      actorId: actor.actorId,
+      catalog: loaded.catalog,
+      intent: normalized.intent,
+    });
+
     const assessment = new FeasibilityService(loaded.catalog).evaluate(normalized.intent, {
       actorId: actor.actorId,
       verifiedPolityId: polity,
-      approvals: [],
+      // Il consenso dell'autore dell'ordine: la richiesta di valutazione È la
+      // decisione del giocatore. Gli altri due consensi non si presumono.
+      approvals: ['user'],
       rights: [],
       knowledgeIds: [],
       capabilityIds: [],
+      ...(measured ? { deficits: measured.deficits, unknownRequirements: measured.unknown } : {}),
     });
 
-    return { assessment, costs };
+    // MG02 µ6 — Per una costruzione si risolvono i detentori: sono un fatto
+    // dello stato economico, e il client deve solo rimandarli indietro.
+    const workDeclaration = (() => {
+      if (normalized.intent.actionKind !== 'construct') return undefined;
+      const work = loaded.catalog!.works?.find(item => item.id === normalized.intent.catalogRef);
+      if (!work) return undefined;
+      const holders = resolveWorkHolders(loaded.catalog!, this.ctx.branchId(), polity, work);
+      return {
+        workId: work.id,
+        payerActorId: holders.payerActorId,
+        materialActorId: holders.materialActorId,
+        funded: holders.materialActorId !== null && !(measured?.deficits.length),
+        missingMaterials: holders.missingMaterials,
+        ...(holders.note ? { note: holders.note } : {}),
+      };
+    })();
+
+    return { assessment, costs, ...(workDeclaration ? { workDeclaration } : {}) };
   }
 }

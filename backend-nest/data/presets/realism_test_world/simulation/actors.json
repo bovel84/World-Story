@@ -28,5 +28,11 @@
     "polityId": "BETA",
     "type": "treasury",
     "name": "Tesoro di Betaland"
+  },
+  {
+    "actorId": "alpha_steel_co_treasury",
+    "polityId": "ALPHA",
+    "type": "treasury",
+    "name": "Tesoro delle acciaierie ALPHA"
   }
 ]

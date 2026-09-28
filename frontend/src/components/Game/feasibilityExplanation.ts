@@ -54,6 +54,12 @@ const REASON_LABEL: Record<string, string> = {
   INDUSTRIAL_CAPABILITY_MISSING: 'Capacità industriale mancante',
   DATA_UNAVAILABLE: 'Dati autorevoli non disponibili',
   DEPENDENCY_BLOCKED: 'Dipende da un passo precedente',
+  // MG01 µ3: i deficit misurati sul ledger del ramo. Non sono «dati mancanti»:
+  // il motore SA quanto manca, e la differenza fra richiesto e disponibile è
+  // nel dettaglio del blocco.
+  INSUFFICIENT_CASH: 'Fondi insufficienti',
+  MATERIAL_SHORTAGE: 'Materiali insufficienti',
+  WORKFORCE_SHORTAGE: 'Manodopera insufficiente',
 };
 
 const ALTERNATIVE_LABEL: Record<FeasibilityAlternativeView['kind'], string> = {

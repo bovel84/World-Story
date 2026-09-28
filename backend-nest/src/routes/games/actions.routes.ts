@@ -18,6 +18,9 @@ import { loadSimulationCatalog } from '../../scenario/loader';
 import type { SimulationCatalog } from '../../scenario/types';
 import { normalizeOrderIntent } from '../../core/feasibility/intent';
 import { FeasibilityService } from '../../core/feasibility/FeasibilityService';
+import { measureDeficits } from '../../core/feasibility/Availability';
+import { resolveWorkHolders } from '../../game/WorkHolders';
+import { strictReadingsFor } from '../../game/PreflightReadings';
 import { AssessmentStore } from '../../core/feasibility/AssessmentStore';
 import { createCashflow, FinanceError } from '../../services/FinanceService';
 import { createReservation, InsufficientAvailabilityError, ReservationError } from '../../services/ReservationService';
@@ -56,10 +59,50 @@ router.post('/:id/actions/evaluate', (req, res) => {
     if (!polity || !actor) { res.status(409).json({ error: 'Identità economica server non disponibile', code: 'actor_binding_missing' }); return; }
     const fence = session.fenceContext();
     const anchor = { gameId: req.params.id, branchId: fence.branchId, revision: fence.revision, queueVersion: session.getQueueVersion() };
-    const assessment = new FeasibilityService(loaded.catalog).evaluate(normalized.intent, { actorId: actor.actorId, verifiedPolityId: polity, approvals: [], rights: [], knowledgeIds: [], capabilityIds: [] });
+    // MG01 µ3 / MG02 µ1: le letture e i deficit si calcolano in un punto solo
+    // (`strictReadingsFor`), così le due rotte di preflight giudicano allo
+    // stesso modo invece di doverlo mantenere a mano in due posti. Là dentro
+    // c'è anche la ragione per cui un ramo non inizializzato non si legge.
+    const measured = strictReadingsFor({
+      economyMode: gameRepository.getEconomyMode(req.params.id),
+      branchId: fence.branchId,
+      actorId: actor.actorId,
+      catalog: loaded.catalog,
+      intent: normalized.intent,
+    });
+    const assessment = new FeasibilityService(loaded.catalog).evaluate(normalized.intent, {
+      // MG02 µ1: il consenso dell'AUTORE dell'ordine è dichiarato dal server,
+      // non presunto. `'user'` significa «questo ordine è una decisione del
+      // giocatore», non «l'utente ha cliccato un pulsante»: la richiesta di
+      // valutazione È quella decisione. Gli altri due consensi restano vuoti:
+      // appartengono a un'autorità istituzionale e a una controparte che il
+      // server non ha ancora interpellato, e nessuno dei due si presume.
+      actorId: actor.actorId, verifiedPolityId: polity, approvals: ['user'], rights: [], knowledgeIds: [], capabilityIds: [],
+      ...(measured ? { deficits: measured.deficits, unknownRequirements: measured.unknown } : {}),
+    });
     const assessmentId = shortId();
     assessmentStore.put(assessmentId, anchor, assessment);
-    res.json({ assessmentId, anchor, orders: [assessment], canonicalMutation: false });
+    // MG02 µ6 — Per una costruzione il client deve poter dichiarare l'opera, e
+    // i detentori sono un fatto dello stato economico: li risolve il SERVER e
+    // li restituisce insieme alla valutazione. Il client li rimanda indietro
+    // tali e quali; se li alterasse, il commit li rifiuterebbe.
+    const workDeclaration = (() => {
+      if (normalized.intent.actionKind !== 'construct') return undefined;
+      const work = loaded.catalog!.works?.find(item => item.id === normalized.intent.catalogRef);
+      if (!work) return undefined;
+      const holders = resolveWorkHolders(loaded.catalog!, fence.branchId, polity, work);
+      return {
+        workId: work.id,
+        payerActorId: holders.payerActorId,
+        materialActorId: holders.materialActorId,
+        // L'opera è finanziabile quando c'è un detentore per i materiali e la
+        // valutazione non ha prodotto deficit: due condizioni, entrambe vere.
+        funded: holders.materialActorId !== null && !(measured?.deficits.length),
+        missingMaterials: holders.missingMaterials,
+        ...(holders.note ? { note: holders.note } : {}),
+      };
+    })();
+    res.json({ assessmentId, anchor, orders: [assessment], workDeclaration, canonicalMutation: false });
   } catch (e) { respondRouteError(res, e, 'Failed to evaluate actions'); }
 });
 
@@ -94,16 +137,23 @@ router.post('/:id/actions/check-feasibility', async (req, res) => {
       return;
     }
     // G4-B/G4-D: un solo percorso LLM → assessment + stima costi da catalogo.
-    const { assessment, costs } = await session.checkFeasibilityWithCosts(text);
+    const { assessment, costs, workDeclaration } = await session.checkFeasibilityWithCosts(text);
 
     // Proiezione per la UI: blocker → prerequisiti/rischi, warning invariati.
+    // MG01 µ3: i deficit (cassa, materiali, manodopera) sono RISCHI, non
+    // warning: sono la ragione per cui l'ordine non parte, e la UI deve
+    // mostrarli con lo stesso peso dei vincoli di capacità. I prerequisiti
+    // restano le conoscenze mancanti, che si procurano con la ricerca.
     const feasible = assessment.status === 'feasible' || assessment.status === 'feasible_with_conditions';
     const prerequisites: string[] = [];
     const risks: string[] = [];
     const warnings: string[] = [...assessment.warnings];
     for (const b of assessment.blockers) {
       if (b.code === 'KNOWLEDGE_MISSING') prerequisites.push(...(b.missing ?? [b.detail]));
-      else if (b.code === 'INDUSTRIAL_CAPABILITY_MISSING' || b.code === 'UNAUTHORIZED_ACTOR') risks.push(b.detail);
+      else if (
+        b.code === 'INDUSTRIAL_CAPABILITY_MISSING' || b.code === 'UNAUTHORIZED_ACTOR'
+        || b.code === 'INSUFFICIENT_CASH' || b.code === 'MATERIAL_SHORTAGE' || b.code === 'WORKFORCE_SHORTAGE'
+      ) risks.push(b.detail);
       else warnings.push(b.detail);
     }
     for (const a of assessment.alternatives) {
@@ -120,6 +170,10 @@ router.post('/:id/actions/check-feasibility', async (req, res) => {
         ? 'Ordine fattibile'
         : (assessment.status === 'needs_data' ? 'Servono dati mancanti' : 'Ordine bloccato'),
       rawAssessment: assessment,
+      // MG02 µ6 — La dichiarazione d'opera con i detentori risolti dal server:
+      // il client la rimanda nella coda. È questo che rende ordinabile una
+      // costruzione dal gioco, invece che solo dalle rotte.
+      ...(workDeclaration ? { workDeclaration } : {}),
     });
   } catch (e) { respondRouteError(res, e, 'Failed to check feasibility'); }
 });
@@ -136,7 +190,9 @@ router.post('/:id/actions/queue', (req, res) => {
 
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
-    const action = session.queueAction(text);
+    // L'opera dichiarata viaggia con l'ordine: il testo resta la descrizione
+    // per il giocatore, la distinta arriva dal catalogo al momento del commit.
+    const action = session.queueAction(text, req.body?.work);
 
     console.log('[QUEUE] Action added:', action.id);
     res.json({

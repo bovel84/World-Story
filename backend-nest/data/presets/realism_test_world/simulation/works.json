@@ -1,0 +1,43 @@
+[
+  {
+    "id": "w_road",
+    "name": "Strada ordinaria",
+    "assetTypeId": "ft_road",
+    "effect": { "kind": "transport", "unit": "km", "perDay": "40" },
+    "maintenance": { "resourceId": "tools", "baseUnits": "1", "periodDays": 60 },
+    "phases": [
+      {
+        "id": "subgrade",
+        "name": "Massicciata",
+        "dependencyIds": [],
+        "workload": "120",
+        "minDays": 4,
+        "inputs": [
+          { "resourceId": "steel", "baseUnits": "8" },
+          { "resourceId": "tools", "baseUnits": "2" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "12000" },
+        "workforce": [{ "qualification": "operaio", "persons": "30" }]
+      },
+      {
+        "id": "paving",
+        "name": "Pavimentazione",
+        "dependencyIds": ["subgrade"],
+        "workload": "80",
+        "minDays": 3,
+        "inputs": [
+          { "resourceId": "steel", "baseUnits": "4" },
+          { "resourceId": "tools", "baseUnits": "1" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "8000" },
+        "workforce": [{ "qualification": "operaio", "persons": "18" }]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
+  }
+]
