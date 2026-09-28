@@ -522,7 +522,57 @@ fondo. *Gate:* nessuna capacità attuale di Ordini persa — scrittura libera, v
 revisione della bozza, coda, rimozione e avanzamento separato del tempo restano tutte
 raggiungibili.
 
-**P03 — dalla proposta alla bozza.** «Scegli questa strada» scrive l'ordine e apre il
+> **P02 — CONSEGNATA, 28 settembre 2026.** La seduta del gabinetto è nella pagina, e
+> dove c'era «Azioni» ora c'è **Governo** (`nationalContext.ts`: etichetta e icona
+> cambiate, il modulo resta `orders` — cambia la porta, non l'impianto).
+>
+> Tre pezzi: la rotta `GET /:id/government/cabinet` che compone la seduta dal vero
+> stato; il componente `CabinetSession.tsx`, **solo tipografia** come chiesto
+> dall'autore, con ogni cifra che dichiara la sua provenienza e una cifra ignota che
+> si vede che è ignota; il collegamento nel modulo, con la seduta **in cima** e le
+> proposte del modello sotto — l'ordine non è casuale: i ministri parlano di fatti
+> misurati, il modello di opportunità.
+>
+> **Il compositore libero resta**, in fondo alla stessa pagina, e la scelta di una
+> strada **prepara una bozza** nel compositore invece di registrare un ordine: la
+> conferma è un atto separato, come l'autore ha chiesto e come l'invariante MG-I1
+> impone. Verificato: `ActionsPanel`, `registerOrder`, `queuePlayerAction` e la bozza
+> sono tutti ancora raggiungibili dalla pagina.
+>
+> Prova al contrario su tre guasti: tolta la provenienza dalle cifre cade un test,
+> fatto scegliere il componente da sé ne cade un altro, aggiunta un'immagine ne cade
+> un terzo — la scelta «solo tipografia» è difesa, non solo dichiarata.
+> **866 test verdi** su 103 file del frontend (9 nuovi), `tsc` pulito.
+>
+> > **P02 — CONSEGNATA, 28 settembre 2026.** La seduta del gabinetto è nella pagina, e
+> la porta si chiama **Governo**: la voce di navigazione è cambiata (`nationalContext.ts`),
+> il modulo resta `orders` nel codice — cambia la porta, non l'impianto.
+>
+> Quattro pezzi: la rotta `GET /:id/government/cabinet` che compone la seduta dal vero
+> stato; il componente `CabinetSession.tsx`, **solo tipografia** come chiesto
+> dall'autore, con ogni cifra che dichiara la sua provenienza e una cifra ignota che si
+> vede che è ignota; lo stile nel sistema editoriale esistente (`editorial.css`), senza
+> `!important` — la guardia di disciplina CSS lo vieta e il blocco è nuovo; la seduta
+> **in cima** alla pagina, con le proposte del modello sotto.
+>
+> **Il compositore libero resta**, in fondo alla stessa pagina: `ActionsPanel`,
+> `registerOrder`, `queuePlayerAction` e la bozza sono tutti ancora lì. Scegliere una
+> strada **prepara una bozza** nel compositore usando lo stesso store del testo libero —
+> la proposta del ministro e l'ordine scritto a mano sono la stessa cosa, non due
+> percorsi paralleli — e la conferma resta un atto separato (invariante MG-I1).
+>
+> Prova al contrario su tre guasti: togliendo la provenienza dalle cifre cade il test
+> che la difende; facendo scegliere il componente da sé cade quello sulla conferma;
+> aggiungendo un'immagine cade quello sulla scelta «solo tipografia». La scelta
+> dell'autore è **difesa**, non solo dichiarata. **866 test verdi** su 103 file,
+> `tsc` pulito.
+>
+> **Limite d'ambiente, non del codice:** la build di produzione del frontend non gira
+> qui — manca il binding nativo `@rollup/rollup-linux-x64-gnu`, le dipendenze del
+> repository sono per macOS. La compilazione TypeScript passa; la build va rifatta da
+> chi ha l'ambiente giusto.
+>
+> **P03 — dalla proposta alla bozza.** «Scegli questa strada» scrive l'ordine e apre il
 preflight con i suoi numeri; la registrazione è un atto separato ed esplicito. *Gate:*
 nessuna spesa prima della conferma.
 

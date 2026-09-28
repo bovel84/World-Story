@@ -8,7 +8,7 @@ import { shortId } from '../../utils/short-id';
 import { gameRepository } from '../../repositories';
 import { countryRepository } from '../../repositories/country.repository';
 import { getSessionRegistry } from '../../session-registry';
-import { readGovernmentAgenda } from '../../game/GovernmentReadings';
+import { readGovernmentAgenda, readCabinetSession } from '../../game/GovernmentReadings';
 import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult } from '../../game-session';
 import { IdempotencyConflictError, simulationJobService } from '../../jobs/SimulationJobService';
 import { addDays, jumpHorizon } from '../../core/simulation/calendar';
@@ -218,6 +218,28 @@ router.get('/:id/government/agenda', (req, res) => {
     res.json(agenda);
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to read government agenda');
+  }
+});
+
+/**
+ * P02 — La seduta del gabinetto: chi ha qualcosa da dire, e perché.
+ *
+ * I ministri non aggiungono dati: distribuiscono per competenza le voci
+ * dell'agenda, e una sedia senza dati **tace**. Sola lettura.
+ */
+router.get('/:id/government/cabinet', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const fence = session.fenceContext();
+    const cabinet = readCabinetSession({
+      gameId: req.params.id,
+      branchId: fence.branchId,
+      playerPolityId: session.getPlayer()?.polityId ?? '',
+      government: session.getGovernment(),
+    });
+    res.json(cabinet);
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to read cabinet session');
   }
 });
 

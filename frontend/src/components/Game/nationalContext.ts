@@ -153,9 +153,13 @@ export function deriveRailItems({
 }: RailItemsInput): RailItem[] {
   return [
     {
+      // P02 — L'autore ha chiesto che dove c'erano le Azioni ci sia il Governo:
+      // «le persone che chattano con me e propongono i loro piani e bisogni».
+      // Il modulo si chiama ancora `orders` nel codice — cambia la porta, non
+      // l'impianto — e la scrittura libera di un ordine resta dentro la pagina.
       id: 'orders',
-      icon: '⚡',
-      label: 'Ordini',
+      icon: '🏛',
+      label: 'Governo',
       badge: 0,
       active: activeModule === 'orders',
       onClick: () => openModule('orders'),
