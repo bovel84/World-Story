@@ -93,6 +93,25 @@ export interface CabinetItem {
   readonly urgency: GovernmentVoice['urgency'];
   readonly figures: readonly Figure[];
   readonly paths: readonly GovernmentPath[];
+  /**
+   * P03 — Se la voce riguarda un'opera, l'opera del catalogo. Un ordine nato da
+   * questa voce deve portare la dichiarazione strutturata che il motore esige
+   * per un cantiere; senza, la bozza resta prosa e non passa i requisiti.
+   */
+  readonly work?: { readonly workId: string; readonly name: string };
+  /**
+   * P03 — La dichiarazione d'opera risolta dal server: `workId` e detentori.
+   * Il client la rimanda alla coda senza inventarla; `materialActorId: null`
+   * significa che nessun attore della nazione copre la distinta, e l'ordine
+   * non è registrabile come costruzione.
+   */
+  readonly declaration?: {
+    readonly workId: string;
+    readonly payerActorId: string;
+    readonly materialActorId: string | null;
+    readonly funded: boolean;
+    readonly missingMaterials?: readonly { readonly resourceId: string; readonly missing: string }[];
+  };
 }
 
 /** La seduta: chi parla, in che ordine, e la sintesi di chi presiede. */
@@ -137,6 +156,7 @@ export function composeCabinet(agenda: GovernmentAgenda): CabinetSession {
         urgency: voice.urgency,
         figures: voice.figures,
         paths: voice.paths,
+        ...(voice.work ? { work: voice.work } : {}),
       })),
       opening: openingFor(seat, voices),
     });

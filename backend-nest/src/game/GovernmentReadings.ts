@@ -26,6 +26,7 @@ import { listStrictProjects } from '../repositories/project-runtime.repository';
 import { getReservationAvailability } from '../services/ReservationService';
 import { buildAgenda, type AgendaDeficit, type AgendaFaction, type GovernmentAgenda } from '../core/government/GovernmentAgenda';
 import { composeCabinet, type CabinetSession } from '../core/government/Cabinet';
+import { resolveWorkHolders } from './WorkHolders';
 import { governmentSnapshot } from '../core/simulation/GovernmentFactions';
 import { loadSimulationCatalog } from '../scenario/loader';
 import path from 'path';
@@ -246,7 +247,48 @@ export function readCabinetSession(input: {
   playerPolityId: string;
   government: ReturnType<typeof governmentSnapshot>;
 }): CabinetSession {
-  return composeCabinet(readGovernmentAgenda(input));
+  const agenda = readGovernmentAgenda(input);
+  const session = composeCabinet(agenda);
+
+  // P03 — La dichiarazione d'opera, risolta dal SERVER per ogni voce che
+  // riguarda una costruzione. Serve perché l'ordine nato da quella voce porti
+  // ciò che il motore pretende (`workId` e detentori): senza, la bozza è prosa
+  // e il motore non ne ricava un cantiere — misurato: l'ordine del Governo non
+  // passava i requisiti. I detentori li risolve il motore, non il client.
+  if (!input.branchId) return session;
+  const catalog = (() => {
+    const row = db.prepare('SELECT template_id FROM worlds WHERE id = (SELECT world_id FROM games WHERE id = ?)')
+      .get(input.gameId) as { template_id?: string } | undefined;
+    return row?.template_id
+      ? loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', row.template_id)).catalog
+      : null;
+  })();
+  if (!catalog) return session;
+
+  const addresses = session.addresses.map(address => ({
+    ...address,
+    items: address.items.map(item => {
+      if (!item.work) return item;
+      const work = catalog.works?.find(candidate => candidate.id === item.work!.workId);
+      if (!work) return item;
+      const holders = resolveWorkHolders(catalog, input.branchId, input.playerPolityId, work);
+      return {
+        ...item,
+        declaration: {
+          workId: work.id,
+          payerActorId: holders.payerActorId,
+          // `null` quando nessun attore della nazione copre la distinta: una
+          // dichiarazione senza detentore non è registrabile, e il client lo
+          // riceve come assenza, non come stringa vuota.
+          materialActorId: holders.materialActorId,
+          funded: holders.materialActorId !== null,
+          ...(holders.missingMaterials.length > 0 ? { missingMaterials: holders.missingMaterials } : {}),
+        },
+      };
+    }),
+  }));
+
+  return { ...session, addresses };
 }
 
 export type { CabinetSession };

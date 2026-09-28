@@ -991,3 +991,135 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   padding-top: 10px;
   margin-top: 14px;
 }
+
+/* ── P02-bis — La chat del ministro, e la grafica delle sue cifre ───────────
+   Il concetto centrale: il parlare. La grafica sono le cifre del MOTORE, non
+   del modello; l'aspetto resta tipografico, con barre per il divario. Nessun
+   `!important`: la guardia di disciplina CSS lo vieta. */
+.cabinet-speak {
+  margin-left: auto;
+  font-family: var(--op-utility);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--op-rule);
+  color: var(--op-ink);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.cabinet-speak:hover { border-color: var(--op-ink); }
+.cabinet-speak.active { border-color: var(--op-gold); color: #8a6a22; }
+
+.minister-chat {
+  border: 1px solid var(--op-rule);
+  background: var(--op-sheet);
+  padding: 10px 12px;
+  margin: 6px 0 12px;
+}
+.minister-head { border-bottom: 1px solid var(--op-rule); padding-bottom: 5px; margin-bottom: 9px; }
+.minister-name { font-family: var(--op-display); font-size: 14px; color: var(--op-ink); }
+.minister-competence {
+  font-family: var(--op-utility);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--op-muted);
+}
+
+/* La grafica: una barra per cifra, e sotto da dove viene il numero. */
+.minister-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px 14px;
+  margin-bottom: 10px;
+}
+.minister-figure-label {
+  font-family: var(--op-utility);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--op-muted);
+}
+.minister-figure-track {
+  height: 5px;
+  background: var(--op-paper-deep);
+  margin: 3px 0;
+}
+.minister-figure-fill { height: 5px; background: var(--op-ink); }
+.minister-figure.unknown .minister-figure-fill { background: var(--op-muted); }
+.minister-figure-value { font-family: var(--op-display); font-size: 14px; color: var(--op-ink); }
+.minister-figure-basis { font-family: var(--op-utility); font-size: 9px; color: var(--op-muted); }
+
+.minister-thread { max-height: 260px; overflow-y: auto; margin-bottom: 9px; }
+.minister-hint { font-family: var(--op-copy); font-size: 12.5px; font-style: italic; color: var(--op-muted); }
+.minister-message {
+  font-family: var(--op-copy);
+  font-size: 13px;
+  line-height: 1.45;
+  margin-bottom: 7px;
+  white-space: pre-wrap;
+}
+.minister-message.user { color: var(--op-ink); border-left: 2px solid var(--op-rule); padding-left: 8px; }
+.minister-message.assistant { color: #33403c; }
+.minister-typing { color: var(--op-muted); }
+.minister-error { font-family: var(--op-copy); font-size: 12px; color: var(--op-red); }
+.minister-status { font-family: var(--op-copy); font-size: 12.5px; color: var(--op-muted); }
+
+.minister-compose { display: flex; gap: 6px; }
+.minister-compose input {
+  flex: 1;
+  font-family: var(--op-copy);
+  font-size: 12.5px;
+  border: 1px solid var(--op-rule);
+  background: var(--op-paper);
+  color: var(--op-ink);
+  padding: 5px 7px;
+}
+.minister-compose button {
+  font-family: var(--op-utility);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--op-ink);
+  background: var(--op-ink);
+  color: var(--op-sheet);
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.minister-compose button:disabled { opacity: 0.5; cursor: default; }
+
+/* La chat FINISCE con un ordine: le strade sotto il dialogo. */
+.minister-outcome { border-top: 1px solid var(--op-rule); margin-top: 10px; padding-top: 9px; }
+.minister-outcome-title {
+  font-family: var(--op-utility);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--op-muted);
+  margin-bottom: 6px;
+}
+.minister-outcome-need { font-family: var(--op-copy); font-size: 12.5px; color: var(--op-ink); margin-bottom: 5px; }
+.minister-paths { display: flex; flex-direction: column; gap: 5px; }
+.minister-path {
+  text-align: left;
+  background: var(--op-paper);
+  border: 1px solid var(--op-rule);
+  padding: 6px 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.minister-path:hover { border-color: var(--op-ink); }
+.minister-path.recommended { border-left: 3px solid var(--op-gold); }
+.minister-path-title { font-family: var(--op-copy); font-size: 12.5px; color: var(--op-ink); }
+.minister-path-badge {
+  font-family: var(--op-utility);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #8a6a22;
+  margin-left: 6px;
+}
+.minister-path-expected { font-family: var(--op-copy); font-size: 11.5px; font-style: italic; color: var(--op-muted); }
