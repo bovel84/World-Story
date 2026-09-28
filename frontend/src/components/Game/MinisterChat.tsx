@@ -1,30 +1,33 @@
 /**
- * P02-bis — La chat di un ministro: interrogarlo, e finire con un ordine
- * ====================================================================
- * L'autore ha chiesto il concetto centrale: **il parlare**. «Io fare una parte
- * intermedia dove vedo tutti i ministri e magari la posso interrogarli o
- * parlarci… i ministri portano problemi, una chat come il consulente con idee e
- * soluzioni, con della grafica dentro e numeri reali. Poi alla fine la chat
- * termina con un ordine.»
+ * P02-bis — La chat di un ministro, come quella del Consulente
+ * ===========================================================
+ * L'autore: «la chat deve essere migliorata, io la vorrei come quella del
+ * consulente; adesso è tutto mischiato». Aveva due difetti, entrambi reali:
  *
- * Questo componente fa esattamente quello, con tre proprietà che lo tengono
- * onesto:
+ *  1. **Non c'era streaming.** Il Consulente scrive mentre pensa; il ministro
+ *     compariva di colpo dopo l'attesa. La rotta di streaming esisteva già per il
+ *     Consulente e non era stata replicata;
+ *  2. **La cronaca era mescolata.** Il dialogo viveva in uno stato locale del
+ *     componente, quindi cambiare ministro lo cancellava e — peggio — il dialogo
+ *     con una sedia non si distingueva da quello di un'altra.
  *
- *  - **il contesto è la sedia**, e lo prepara il server (`briefingFor`): i
- *    ministri non sono personalità inventate, sono proiezioni dello stato;
- *  - **la grafica mostra le cifre del motore**, non numeri del modello: le
- *    figure vengono dalla voce del gabinetto, con la loro provenienza, e una
- *    cifra ignota si vede che è ignota. Il modello può parlare; le cifre sono
- *    quelle che il motore ha già dato;
- *  - **la chat FINISCE con un ordine**: sotto la conversazione ci sono le
- *    strade della voce, e sceglierne una prepara la bozza — la registrazione
- *    resta un atto separato del giocatore (invariante MG-I1).
+ * Ora la cronaca sta nello store **per sedia** (`ministerChats`), come il
+ * Consulente tiene la sua: cambiare ministro non perde nulla, e ogni sedia ha il
+ * suo filo.
+ *
+ * Tre cose restano come prima, perché sono la ragione d'essere della pagina:
+ *  - **il contesto lo prepara il server** (`briefingFor`): il modello parla della
+ *    sua sedia, con le cifre del motore;
+ *  - **la grafica mostra le cifre del motore**, non numeri del modello;
+ *  - **la chat FINISCE con un ordine**: sceglierne uno prepara la bozza, e la
+ *    registrazione resta un atto separato (invariante MG-I1).
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import { ministerApi, type AdvisorHistoryItem } from '../../services/api';
 import type { CabinetAddressView, CabinetItemView, CabinetPathView } from '../../services/api';
 import { basisLabel, isUnknown } from './CabinetSession';
+import { RichText } from './RichText';
 
 /** Quanti ultimi messaggi inviamo come contesto. */
 const HISTORY_LIMIT = 20;
@@ -38,12 +41,22 @@ export interface MinisterChatProps {
    * accoda nulla. La conferma è del giocatore.
    */
   onChoose?: (item: CabinetItemView, path: CabinetPathView) => void;
+  /**
+   * La cronaca di questa sedia, e i suoi aggiornamenti. Li possiede il chiamante
+   * — come per il Consulente — perché la conversazione deve sopravvivere alla
+   * chiusura del pannello e non mescolarsi con quella di un'altra sedia.
+   */
+  messages: AdvisorHistoryItem[];
+  streaming: boolean;
+  onAddMessage: (message: AdvisorHistoryItem) => void;
+  onAppendToken: (token: string) => void;
+  onStreamingChange: (streaming: boolean) => void;
 }
 
 /** La barra di una cifra: la grafica dentro la chat, dai numeri del motore. */
 function FigureBar({ figure }: { figure: CabinetItemView['figures'][number] }) {
-  // La barra confronta il disponibile col fabbisogno quando entrambi esistono:
-  // è il modo di rendere visibile il divario senza inventare una percentuale.
+  // La barra rende visibile il divario senza inventare una percentuale: mostra
+  // il valore come quota, e una cifra ignota non ha barra.
   const numeric = Number(figure.value);
   const hasNumber = Number.isFinite(numeric) && numeric > 0;
   const width = hasNumber ? Math.min(100, Math.max(3, numeric)) : 0;
@@ -61,24 +74,24 @@ function FigureBar({ figure }: { figure: CabinetItemView['figures'][number] }) {
   );
 }
 
-export function MinisterChat({ gameId, address, onChoose }: MinisterChatProps) {
-  const [messages, setMessages] = useState<AdvisorHistoryItem[]>([]);
+export function MinisterChat({
+  gameId, address, onChoose,
+  messages, streaming, onAddMessage, onAppendToken, onStreamingChange,
+}: MinisterChatProps) {
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Cambiando ministro il dialogo riparte: la sedia è il contesto, e mescolare
-  // due sedie nella stessa cronaca darebbe risposte fuori competenza.
   useEffect(() => {
-    setMessages([]);
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, streaming]);
+
+  // Cambiando ministro si azzera solo la BOZZA della domanda: la cronaca è per
+  // sedia e resta dov'è — è la differenza dal comportamento precedente.
+  useEffect(() => {
     setInput('');
     setError('');
   }, [address?.seat]);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
 
   if (!address) {
     return (
@@ -90,29 +103,32 @@ export function MinisterChat({ gameId, address, onChoose }: MinisterChatProps) {
 
   const send = async (): Promise<void> => {
     const text = input.trim();
-    if (!text || sending) return;
-    setSending(true);
+    if (!text || streaming) return;
+    onStreamingChange(true);
     setError('');
     setInput('');
     const history = messages.filter(message => message.content.trim()).slice(-HISTORY_LIMIT);
-    setMessages(previous => [...previous, { role: 'user', content: text }]);
+    onAddMessage({ role: 'user', content: text });
+    // Il posto della risposta: cresce token per token, come per il Consulente.
+    onAddMessage({ role: 'assistant', content: '' });
     try {
-      const answer = await ministerApi.ask(gameId, address.seat, text, history);
-      setMessages(previous => [...previous, { role: 'assistant', content: answer.reply }]);
+      await ministerApi.askStream(gameId, address.seat, text, history, onAppendToken);
     } catch (e) {
       console.error('[Government] Minister reply failed:', e);
       setError('Il ministro non risponde ora.');
+      onAppendToken('Il ministro non è raggiungibile ora. Riprova.');
     } finally {
-      setSending(false);
+      onStreamingChange(false);
     }
   };
 
-  // Le cifre della sedia: le stesse che il briefing dà al modello, mostrate qui
-  // perché il giocatore veda su cosa si sta parlando.
   const items = address.items;
+  const lastIndex = messages.length - 1;
 
   return (
     <div className="minister-chat" aria-label={`Dialogo con ${address.label}`}>
+      {/* Intestazione «documento», come il banner del Consulente: si capisce in
+          un colpo d'occhio con chi si sta parlando e di cosa si occupa. */}
       <header className="minister-head">
         <div className="minister-name">{address.label}</div>
         <div className="minister-competence">{address.reads}</div>
@@ -128,33 +144,57 @@ export function MinisterChat({ gameId, address, onChoose }: MinisterChatProps) {
       )}
 
       <div className="minister-thread" aria-live="polite">
-        {messages.length === 0 && !sending && (
+        {messages.length === 0 && !streaming && (
           <p className="minister-hint">
             {address.opening} Chiedi quello che vuoi: i numeri che vedi sono quelli del motore.
           </p>
         )}
-        {messages.map((message, index) => (
-          <div key={index} className={`minister-message ${message.role}`}>
-            {message.content}
-          </div>
-        ))}
-        {sending && <div className="minister-message assistant minister-typing">…</div>}
+        {messages.map((message, index) => {
+          const isStreamingThis = index === lastIndex && streaming && message.role === 'assistant';
+          return (
+            <div key={index} className={`minister-entry ${message.role}`}>
+              <div className="entry-meta">
+                {message.role === 'user' ? <span>Governo</span> : <span>{address.label}</span>}
+              </div>
+              <div className="entry-text">
+                {isStreamingThis && !message.content ? (
+                  <span className="advisor-typing"><i /><i /><i /></span>
+                ) : (
+                  <>
+                    {/* Il modello risponde in markdown, come il Consulente: la
+                        risposta si rende come documento invece di mostrare gli
+                        asterischi. Il messaggio del giocatore resta testo. */}
+                    {message.role === 'assistant'
+                      ? <RichText text={message.content} />
+                      : message.content}
+                    {isStreamingThis && <span className="stream-cursor">▌</span>}
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
         {error && <p className="minister-error" role="alert">{error}</p>}
         <div ref={endRef} />
       </div>
 
       <div className="minister-compose">
-        <input
-          type="text"
+        <textarea
           value={input}
           onChange={event => setInput(event.target.value)}
-          onKeyDown={event => { if (event.key === 'Enter') void send(); }}
+          onKeyDown={event => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              void send();
+            }
+          }}
           placeholder={`Scrivi al ${address.label}…`}
           aria-label={`Messaggio per ${address.label}`}
-          disabled={sending}
+          rows={2}
+          disabled={streaming}
         />
-        <button type="button" onClick={() => void send()} disabled={sending || !input.trim()}>
-          {sending ? '…' : 'Chiedi'}
+        <button type="button" onClick={() => void send()} disabled={streaming || !input.trim()}>
+          {streaming ? '…' : 'Invia'}
         </button>
       </div>
 

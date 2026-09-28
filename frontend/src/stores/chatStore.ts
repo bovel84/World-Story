@@ -37,6 +37,16 @@ interface ChatState {
   advisorMessages: AdvisorMessage[];
   advisorStreaming: boolean;
 
+  // P02-bis — la cronaca dei ministri, PER SEDIA.
+  //
+  // L'autore: «adesso è tutto mischiato». Prima il dialogo viveva nello stato
+  // locale del componente, quindi cambiare ministro lo cancellava e due sedie
+  // non si distinguevano. Qui ogni sedia ha il suo filo, e le conversazioni
+  // sopravvivono alla chiusura del pannello — come per il Consulente.
+  ministerChats: Record<string, AdvisorMessage[]>;
+  /** La sedia che sta scrivendo adesso, se ce n'è una. */
+  ministerStreamingSeat: string | null;
+
   // Scheda attiva e visibilità effettiva del pannello flottante
   panelTab: FloatingPanelTab;
   chatPanelVisible: boolean;
@@ -65,6 +75,10 @@ interface ChatState {
   addAdvisorMessage: (msg: AdvisorMessage) => void;
   appendToLastAdvisorMessage: (token: string) => void;
   setAdvisorStreaming: (streaming: boolean) => void;
+  addMinisterMessage: (seat: string, msg: AdvisorMessage) => void;
+  appendToLastMinisterMessage: (seat: string, token: string) => void;
+  setMinisterStreaming: (seat: string | null) => void;
+  clearMinisterChat: (seat: string) => void;
   reset: () => void;
 }
 
@@ -75,6 +89,8 @@ const initialState = {
   messagesByChat: {} as Record<string, ChatMessage[]>,
   advisorMessages: [] as AdvisorMessage[],
   advisorStreaming: false,
+  ministerChats: {} as Record<string, AdvisorMessage[]>,
+  ministerStreamingSeat: null as string | null,
   panelTab: 'suggestions' as FloatingPanelTab,
   chatPanelVisible: false,
 };
@@ -236,6 +252,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
   }),
 
   setAdvisorStreaming: (streaming) => set({ advisorStreaming: streaming }),
+
+  addMinisterMessage: (seat, msg) => set((state) => ({
+    ministerChats: { ...state.ministerChats, [seat]: [...(state.ministerChats[seat] ?? []), msg] },
+  })),
+
+  appendToLastMinisterMessage: (seat, token) => set((state) => {
+    const messages = state.ministerChats[seat] ?? [];
+    if (!messages.length) return {};
+    const updated = messages.slice();
+    const last = updated[updated.length - 1];
+    updated[updated.length - 1] = { ...last, content: last.content + token };
+    return { ministerChats: { ...state.ministerChats, [seat]: updated } };
+  }),
+
+  setMinisterStreaming: (seat) => set({ ministerStreamingSeat: seat }),
+
+  clearMinisterChat: (seat) => set((state) => {
+    const next = { ...state.ministerChats };
+    delete next[seat];
+    return { ministerChats: next };
+  }),
 
   reset: () => set(initialState),
 }));

@@ -451,6 +451,44 @@ ministro non è una fonte di dati, è una proiezione dello stato per competenza.
   `GovernmentFactions`, che non inventa numeri. Il modello può riscrivere la **voce**,
   come già fa `government/voices`; **mai** i numeri che contiene.
 
+> **P02-ter — la chat come quella del Consulente, e gli ordini che tornano a
+> passare (28 settembre 2026).** Due segnalazioni dell'autore, due cause distinte.
+>
+> **«La chat deve essere migliorata, io la vorrei come quella del consulente; adesso è
+> tutto mischiato.»** Il confronto con `AdvisorChat.tsx` ha mostrato cosa mancava: lo
+> **streaming** (il ministro compariva di colpo dopo l'attesa, il Consulente scrive
+> mentre pensa), la **cronaca persistente** e il **testo reso come documento**
+> (`RichText`, perché il modello risponde in markdown e si vedevano gli asterischi).
+> E la causa del «mischiato»: la cronaca viveva nello **stato locale del componente**,
+> quindi cambiare ministro la cancellava. Ora sta nello store **per sedia**
+> (`ministerChats`), con `ministerStreamingSeat` per sapere chi sta scrivendo. Nuove:
+> la rotta `POST /:id/government/minister/:seat/stream` (gemella di quella del
+> Consulente, stesso `getAdvisorStreamWithPrompts`), `ministerApi.askStream`, e i
+> sottotitoli `Governo` / nome del ministro su ogni messaggio. **9 test** sul solo
+> store, e la prova al contrario: con una cronaca condivisa ne cadono 5, facendo
+> scrivere lo stream nella prima sedia ne cade 1.
+>
+> **«Gli ordini non passano.»** Ed era una **mia regressione**, non un difetto
+> preesistente. In MG01 avevo reso **bloccante** ogni `construct` senza distinta —
+> `DATA_UNAVAILABLE` — su una fixture che le opere le dichiara. Applicato agli altri
+> cataloghi, che `works` **non lo hanno** (`millennium_dawn`, `modern_world_provinces`),
+> significava che **nessun ordine di costruzione poteva passare**: il gioco rotto per
+> una regola nata su un mondo di prova. La distinzione corretta, che ora è nel codice:
+> un costo **non dichiarato** è un avviso — non si sa, e lo si dice — mentre un costo
+> dichiarato e **incoerente** (una fase senza materiali) resta un blocco, perché lì il
+> silenzio significherebbe «costa zero». Due test la difendono, uno per lato.
+>
+> Lezione per il futuro, scritta perché non si ripeta: **una guardia nata su una
+> fixture va provata anche su un catalogo che quella sezione non ce l'ha.** È la stessa
+> disciplina del §9 — il difetto era invisibile in tutti i test, perché i test
+> parlavano della fixture.
+>
+> **Nota operativa.** Il backend gira dal compilato (`npm start` = `node dist/index.js`):
+> dopo ogni modifica serve `npx tsc` e un **riavvio** del processo, altrimenti il sito
+> serve il codice vecchio anche col sorgente corretto. Entrambi i compilati (backend e
+> frontend) sono aggiornati in questa consegna; il riavvio è dell'autore. Il bundle
+> pubblicato è `index-DhY4Ldmz.js`.
+
 ### Le cinque sedie
 
 Nessuna è un'aggiunta arbitraria: ognuna legge qualcosa che esiste già.
