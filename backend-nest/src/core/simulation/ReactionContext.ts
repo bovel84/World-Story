@@ -127,6 +127,15 @@ export interface ReactionContextInput {
     stock?: Record<string, number>;
   };
   government?: { factions?: Array<{ id?: string; name?: string; pressure?: number; stance?: string }> };
+  /**
+   * MG06 — Le risorse PROPRIE di ogni polity, quando il motore le conosce.
+   *
+   * `resources` è la proiezione del giocatore: va bene per chi subisce la
+   * reazione, non per chi la compie. Una polity senza voce qui resta senza
+   * margine dichiarato — e l'opzione lo dice — invece di ricevere in prestito
+   * i numeri di un altro soggetto.
+   */
+  polityResources?: Record<string, { creditHeadroom?: number; stock?: Record<string, number> }>;
   pressures?: Array<{ id: string; kind: string; title: string; detail: string }>;
   ongoingProcesses?: Array<{ id: string; title: string; sourceActionId: string }>;
   crisis?: { level?: string; headline?: string };
@@ -245,6 +254,19 @@ function polityOptions(
 ): ActorOption[] {
   const account = input.accounts?.[polityId] || {};
   const hasArmy = Number(account.militaryPower || account.effectiveMilitaryPower || 0) > 0;
+  // MG06 — Il margine di credito che conta per QUESTA polity è il suo, non
+  // quello del giocatore. `input.resources.creditHeadroom` è proiettato sulle
+  // risorse del giocatore: usarlo qui attribuiva a ogni nazione il margine di
+  // chi subisce la reazione — misurato, con il giocatore a corto di credito
+  // ogni controparte riceveva l'opzione «embargo» motivata da un margine che
+  // non era il suo. Se la scheda della polity porta i suoi numeri, si usano
+  // quelli; altrimenti il margine resta IGNOTO e si dice, invece di dedurlo da
+  // un altro soggetto.
+  const ownHeadroom = Number(
+    (account as { creditHeadroom?: unknown }).creditHeadroom ?? input.polityResources?.[polityId]?.creditHeadroom,
+  );
+  const headroomIsOwn = Number.isFinite(ownHeadroom);
+  const effectiveHeadroom = headroomIsOwn ? ownHeadroom : creditHeadroom;
   const options: ActorOption[] = [
     { id: `${polityId}:negotiate`, label: 'Aprire o proseguire un negoziato' },
     { id: `${polityId}:reject`, label: 'Respingere la richiesta' },
@@ -265,7 +287,16 @@ function polityOptions(
   if (role === 'neighbour' || role === 'mediator') {
     options.push({ id: `${polityId}:mediate`, label: 'Offrire mediazione regionale' });
   }
-  if (creditHeadroom <= 0) {
+  if (!headroomIsOwn) {
+    // Il margine della polity non è noto: la leva commerciale è ammessa, ma il
+    // motivo NON è un numero preso in prestito dal giocatore. Dirlo è meglio che
+    // dedurlo: chi legge sa che il vincolo non è stato verificato.
+    options.push({
+      id: `${polityId}:embargo`,
+      label: 'Embargo o ritorsione commerciale',
+      constraint: 'margine di credito della controparte non verificato',
+    });
+  } else if (effectiveHeadroom <= 0) {
     options.push({
       id: `${polityId}:embargo`,
       label: 'Embargo o ritorsione commerciale',
