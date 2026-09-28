@@ -54,13 +54,26 @@ export interface CabinetSessionProps {
   loading?: boolean;
   error?: string | null;
   /**
+   * P02-bis — Aprire il dialogo con un ministro. L'autore ha chiesto il
+   * concetto centrale: il parlare. La sedia diventa un pulsante, e la chat si
+   * apre col contesto di QUELLA sedia.
+   */
+  onSpeak?: (address: CabinetAddressView) => void;
+  /** La sedia con cui si sta parlando adesso, se ce n'è una. */
+  speakingSeat?: CabinetAddressView['seat'] | null;
+  /**
    * Scelta una strada: il componente consegna la proposta al chiamante, che ne
    * farà una **bozza**. Nessuna registrazione qui: è il punto dell'invariante.
    */
   onChoose?: (item: CabinetAddressView['items'][number], path: CabinetPathView) => void;
+  /**
+   * P02-bis — Il dialogo con il ministro, montato sotto la sua sedia. Passato
+   * come `children` perché è il chiamante a sapere quale sedia sta parlando.
+   */
+  children?: React.ReactNode;
 }
 
-export function CabinetSession({ session, loading = false, error = null, onChoose }: CabinetSessionProps) {
+export function CabinetSession({ session, loading = false, error = null, onChoose, onSpeak, speakingSeat = null, children }: CabinetSessionProps) {
   if (loading) {
     return <p className="cabinet-status" role="status">Il consiglio si sta riunendo…</p>;
   }
@@ -103,8 +116,21 @@ export function CabinetSession({ session, loading = false, error = null, onChoos
                 <span className="cabinet-seat-competence" title="Che cosa legge questa sedia">
                   {address.reads}
                 </span>
+                {onSpeak && (
+                  <button
+                    type="button"
+                    className={`cabinet-speak${speakingSeat === address.seat ? ' active' : ''}`}
+                    onClick={() => onSpeak(address)}
+                    aria-pressed={speakingSeat === address.seat}
+                    title={`Parla con il ${address.label}`}
+                  >
+                    {speakingSeat === address.seat ? 'Stai parlando' : 'Parla'}
+                  </button>
+                )}
               </div>
               <p className="cabinet-seat-opening">{address.opening}</p>
+
+              {speakingSeat === address.seat && children}
 
               {address.items.map(item => (
                 <article key={item.voiceId} className="cabinet-item">

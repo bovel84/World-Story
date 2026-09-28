@@ -61,6 +61,15 @@ export interface GovernmentVoice {
   readonly figures: readonly Figure[];
   /** Le strade percorribili: almeno due, con prerequisiti e conseguenze. */
   readonly paths: readonly GovernmentPath[];
+  /**
+   * P03 — Per una voce di costruzione, l'opera del catalogo a cui si riferisce.
+   *
+   * Serve a un fatto preciso: un ordine nato da questa voce deve portare la
+   * **dichiarazione strutturata** che il motore pretende per un cantiere
+   * (`workId` e detentori). Senza, la bozza è prosa e il motore non ne ricava
+   * una costruzione — misurato: l'ordine del Governo non passava i requisiti.
+   */
+  readonly work?: { readonly workId: string; readonly name: string };
 }
 
 /** Una strada percorribile, con i suoi prerequisiti e le sue conseguenze. */
@@ -267,6 +276,7 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
   for (const work of input.buildable) {
     voices.push({
       id: `build_${work.workId}`,
+      work: { workId: work.workId, name: work.name },
       need: `Costruire: ${work.name}`,
       because: work.missing.length === 0
         ? 'La distinta è coperta: l’opera può partire.'

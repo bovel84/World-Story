@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react';
 import { ActionsPanel } from '../Game/ActionsPanel';
 import { CabinetSession } from '../Game/CabinetSession';
+import { MinisterChat } from '../Game/MinisterChat';
 import type { CabinetAddressView, CabinetPathView, CabinetSessionView } from '../../services/api';
 import { AdvisorChat } from '../Game/AdvisorChat';
 import { ChatsPanel } from '../Game/ChatsPanel';
@@ -125,6 +126,9 @@ interface DeskContentProps {
    * Nessuna registrazione qui: la conferma è un atto separato (invariante MG-I1).
    */
   onCabinetChoose?: (item: CabinetAddressView['items'][number], path: CabinetPathView) => void;
+  /** P02-bis — la sedia con cui si sta parlando, se ce n'è una. */
+  onMinisterSpeak?: (address: CabinetAddressView) => void;
+  speakingSeat?: CabinetAddressView['seat'] | null;
   suggestionsLoading?: boolean;
   suggestionsError?: string;
 }
@@ -205,6 +209,8 @@ export function DeskContent({
   currentGameId,
   onGenerateSuggestions,
   onCabinetChoose,
+  onMinisterSpeak,
+  speakingSeat = null,
   suggestionsLoading,
   suggestionsError,
 }: DeskContentProps) {
@@ -251,7 +257,17 @@ export function DeskContent({
           loading={cabinetLoading}
           error={cabinetError}
           onChoose={onCabinetChoose}
-        />
+          onSpeak={onMinisterSpeak}
+          speakingSeat={speakingSeat}
+        >
+          {/* P02-bis — La chat del ministro, sotto la sua sedia: si interroga, e
+              la conversazione finisce con le strade da cui nasce la bozza. */}
+          <MinisterChat
+            gameId={currentGame?.id ?? ''}
+            address={cabinet?.addresses.find(candidate => candidate.seat === speakingSeat) ?? null}
+            onChoose={onCabinetChoose}
+          />
+        </CabinetSession>
 
         {suggestions.length === 0 && !suggestionsLoading && !suggestionsError && (
           <p className="suggestions-empty" role="status">{suggestionsEmptyHint()}</p>

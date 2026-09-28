@@ -1001,6 +1001,21 @@ export interface CabinetItemView {
   urgency: 'ordinaria' | 'urgente' | 'critica';
   figures: CabinetFigureView[];
   paths: CabinetPathView[];
+  /** P03 — se la voce riguarda un'opera, l'opera del catalogo. */
+  work?: { workId: string; name: string };
+  /**
+   * P03 — la dichiarazione d'opera risolta dal SERVER: `workId` e detentori.
+   * Il client la rimanda alla coda senza inventarla. `materialActorId: null`
+   * significa che nessuno copre la distinta, e l'ordine non è registrabile
+   * come costruzione.
+   */
+  declaration?: {
+    workId: string;
+    payerActorId: string;
+    materialActorId: string | null;
+    funded: boolean;
+    missingMaterials?: Array<{ resourceId: string; missing: string }>;
+  };
 }
 
 export interface CabinetAddressView {
@@ -1801,6 +1816,21 @@ export interface AdvisorHistoryItem {
   role: 'user' | 'assistant';
   content: string;
 }
+
+/**
+ * P02-bis — Parlare con un ministro.
+ *
+ * Stesso meccanismo del Consulente (messaggio + history), ma il contesto è la
+ * **sedia** del ministro: i bisogni della sua competenza, con le cifre del
+ * motore e la loro provenienza. La risposta è una proposta: non impegna nulla.
+ */
+export const ministerApi = {
+  ask: (gameId: string, seat: string, message: string, history: AdvisorHistoryItem[]): Promise<{ reply: string; seat: string }> =>
+    fetchApi(`/games/${gameId}/government/minister/${seat}`, {
+      method: 'POST',
+      body: JSON.stringify({ message, history }),
+    }),
+};
 
 export const advisorApi = {
   /**

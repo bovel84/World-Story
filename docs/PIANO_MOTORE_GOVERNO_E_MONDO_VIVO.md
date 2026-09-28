@@ -572,6 +572,41 @@ raggiungibili.
 > repository sono per macOS. La compilazione TypeScript passa; la build va rifatta da
 > chi ha l'ambiente giusto.
 >
+> > **P03a + P02-bis — CONSEGNATE, 28 settembre 2026.** Il difetto segnalato
+> dall'autore — «l'ordine deve avere i requisiti accettati dal motore perché adesso non
+> passano» — era reale e aveva una causa precisa: la voce di un ministro era **prosa**,
+> e dal testo libero il motore non ricava una costruzione. Per aprire un cantiere
+> servono due cose che nessuna frase contiene: **quale opera** del catalogo e **chi**
+> paga e custodisce i materiali.
+>
+> La correzione, in quattro passi: la voce di costruzione porta il `workId`; la seduta
+> vi aggiunge la **dichiarazione risolta dal server** (i detentori li trova il motore,
+> non il client); la bozza la conserva mentre il giocatore la corregge; la coda la
+> invia. **Un test fa il giro completo e apre davvero il cantiere.** Senza detentore la
+> dichiarazione è `null` e la voce dice quanto manca: meglio un rifiuto spiegato che un
+> ordine che non parte. Prova al contrario: tolta la dichiarazione o tolta l'opera
+> cadono tre test ciascuna.
+>
+> E il **parlare** — il concetto che l'autore ha messo al centro. `MinisterChat.tsx`:
+> la sedia diventa un pulsante «Parla», si apre un dialogo col ministro, e la chat
+> **finisce con le strade** da cui nasce la bozza. Il contesto della chat lo prepara
+> `core/government/MinisterChat.ts`: il briefing della **sua sedia**, con le cifre del
+> motore e la loro provenienza, e quattro regole scritte nel testo — usa solo le cifre
+> date, dichiara i dati mancanti, non impegnare nulla, resta nella tua competenza. La
+> **grafica** sono barre delle cifre del motore, non numeri del modello. La rotta
+> `POST /:id/government/minister/:seat` riusa il percorso del Consulente: un solo
+> motore narrativo, non due.
+>
+> Difetti trovati e dichiarati: due aspettative sbagliate nei test (il formato delle
+> strade e la forma della cifra ignota), corrette leggendo il comportamento reale.
+> **11 test** per la chat, **5** per i requisiti dell'ordine, più i 9 del componente.
+>
+> **Nota d'ambiente, che vale per il futuro:** i test del backend e del frontend sono
+> stati eseguiti **nel repository**, non solo in copia — è servito ricompilare
+> `better-sqlite3` per Linux e installare il binding `rolldown` mancante con `npm pack`.
+> La ricetta è nella memoria di progetto. **La build di produzione resta da fare da chi
+> ha l'ambiente giusto.**
+>
 > **P03 — dalla proposta alla bozza.** «Scegli questa strada» scrive l'ordine e apre il
 preflight con i suoi numeri; la registrazione è un atto separato ed esplicito. *Gate:*
 nessuna spesa prima della conferma.
