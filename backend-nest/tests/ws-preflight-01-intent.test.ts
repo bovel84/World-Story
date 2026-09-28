@@ -51,12 +51,13 @@ beforeAll(async () => {
     [{ id: BAD_REGION_ID, name: 'Alfa', color: '#000', owner: 'ALPHA', population: 1, gdp: 1, militaryPower: 1, flag: 'A' }],
   );
   const registry = await import('../src/session-registry');
-  // Il convertitore risponde `{}`: `parseConverterResponse` ricade sul testo
-  // originale, esattamente come il convertitore vero — è il caso del difetto.
+  // Provider volutamente rotto (401): il preflight è in sola lettura e NON
+  // deve chiamare l'LLM. Se lo facesse, questo throw produrrebbe un `424`
+  // invece del verdetto — la regressione segnalata in produzione.
   registry.initSessionRegistry({
     consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
-    async generate() { return { content: '{}' }; },
-    async stream(_m: string, _s: string, _u: string, onToken: (chars: number) => void) { onToken(1); return { content: '{}' }; },
+    async generate() { throw new Error('openai-compatible: HTTP 401 — Unauthorized'); },
+    async stream() { throw new Error('openai-compatible: HTTP 401 — Unauthorized'); },
     clearCache() {},
   } as never);
   const sessions = registry.getSessionRegistry();

@@ -54,6 +54,13 @@ grezzo senza causa. Il percorso legacy (`respondLegacyFeasibility`) non ha il
 difetto (restituisce `feasible: true` senza deficit): il bug è del solo percorso
 **strict**.
 
+**Terzo problema (emerso in esercizio, dopo il primo fix):** la prima correzione
+lasciava in piedi la chiamata al convertitore LLM come «controllo di
+convertibilità». In esercizio il provider `openai-compatible` ha risposto
+`HTTP 401 — Unauthorized`, e il preflight — che è in **sola lettura** e non ha
+alcun bisogno dell'LLM — falliva con `424` prima ancora di valutare. Un errore
+tecnico del provider non deve sostituire il verdetto di fattibilità.
+
 ---
 
 ## 2. Correzioni applicate
@@ -67,9 +74,10 @@ difetto (restituisce `feasible: true` senza deficit): il bug è del solo percors
   con target/catalogo/quantità vuoti. Un testo libero non è una distinta:
   fingersi `construct`/`produce` con target inventati sarebbe stato peggio.
 - In `checkFeasibilityWithCosts`:
-  - il convertitore resta un **controllo di convertibilità** (se non produce
-    nemmeno un'azione, l'errore specifico «Impossibile convertire il testo in
-    intenzione» resta);
+  - il preflight è **in sola lettura e non chiama più l'LLM**: l'involucro
+    canonico lo deriva il server, quindi il convertitore non aggiungeva nulla e
+    una sua risposta non autorizzata (`401`) faceva fallire la verifica con
+    `424`. Rimosso il `` `convertActionsBatch` `` dal percorso di preflight;
   - l'identità politica si risolve **prima** e si passa all'involucro;
   - si normalizza `draftIntentCandidate(...)`, non l'uscita del convertitore:
     `normalizeOrderIntent` **resta il punto unico di validazione**;
@@ -146,7 +154,10 @@ frontend. Nessuna migrazione, nessuna nuova tabella/colonna, nessuna route nuova
 
 Il nuovo `backend-nest/tests/ws-preflight-01-intent.test.ts` era **rosso** prima
 della correzione (asserzione «nessun deficit di schema» fallita su
-`INVALID_ID`); è verde dopo. Nessuna soglia alzata, nessun test disattivato.
+`INVALID_ID`); è verde dopo. Dopo la rimozione dell'LLM dal preflight, il suo
+provider di test è **volutamente rotto** (ogni `generate`/`stream` lancia
+`HTTP 401`): i test restano verdi, prova che il preflight non dipende più dal
+provider. Nessuna soglia alzata, nessun test disattivato.
 
 ---
 
@@ -178,6 +189,11 @@ della correzione (asserzione «nessun deficit di schema» fallita su
 - La visibilità di `field` è coperta da test unitari frontend; nel percorso
   corretto i chiarimenti di schema non si producono più, quindi non è esercitata
   end-to-end dalla route. Resta come garanzia difensiva.
+- Il preflight non richiede più l'LLM, ma **accodare/elaborare** un ordine e
+  avanzare il tempo restano meccaniche LLM: richiedono un provider configurato.
+  In esercizio il provider `openai-compatible` puntava a `https://ollama.com/v1`
+  senza chiave (`llm.config.json` senza `apiKey` e `LLM_API_KEY` assente
+  dall'ambiente): il 401 va risolto a livello di configurazione, non di codice.
 - La suite frontend completa non è eseguibile al 100% in questo checkout locale
   per il problema di risoluzione di `react` (preesistente); la copertura è
   garantita da CI.
