@@ -61,6 +61,15 @@ convertibilità». In esercizio il provider `openai-compatible` ha risposto
 alcun bisogno dell'LLM — falliva con `424` prima ancora di valutare. Un errore
 tecnico del provider non deve sostituire il verdetto di fattibilità.
 
+**Quarto problema (la causa vera del caso segnalato):** la partita reale
+(`economy_mode=legacy`, preset `millennium_dawn`) veniva instradata nel percorso
+strict perché il preset espone una cartella `simulation/`, anche se il suo
+`manifest.mode` è `authored` (legacy). Nello strict la polity del giocatore
+(`BIH`) non ha un attore tesoreria nel catalogo parziale, quindi — una volta
+rimosso l'LLM — la verifica falliva con `500`. Prima, con l'LLM, sugli stessi
+preset legacy si vedevano i deficit di schema del primo problema: la rotta
+legacy/strict era decisa dalla **presenza del catalogo**, non dall'`economy_mode`.
+
 ---
 
 ## 2. Correzioni applicate
@@ -83,6 +92,12 @@ tecnico del provider non deve sostituire il verdetto di fattibilità.
     `normalizeOrderIntent` **resta il punto unico di validazione**;
   - la stima costi usa lo stesso candidato (`qualitative` → `basis:'none'`,
     identico alla proiezione di fallback precedente: nessuna cifra tolta).
+- **Instradamento legacy/strict corretto** (`actions.routes.ts`): la rotta
+  `check-feasibility` decide dal `gameRepository.getEconomyMode(...)`, **non**
+  dalla presenza di `simulation/`. Una partita legacy usa
+  `respondLegacyFeasibility` (stima dal conto nazionale, `feasible: true`,
+  nessun deficit) anche se il preset ha un catalogo parziale; solo le partite
+  strict caricano il catalogo e chiamano `checkFeasibilityWithCosts`.
 - **Campo del deficit reso visibile** (secondo problema):
   `Clarification.field` → `Blocker.field` → `rawAssessment` → vista frontend →
   nodo della catena:
@@ -109,7 +124,8 @@ nuovo, nessuna migrazione.
 | file | intervento |
 | --- | --- |
 | `backend-nest/src/core/feasibility/intent.ts` | **+** `draftIntentCandidate` (derivazione pura) |
-| `backend-nest/src/game/OrderExecutionService.ts` | normalizza l'involucro canonico, non l'uscita del convertitore; propaga `field` |
+| `backend-nest/src/game/OrderExecutionService.ts` | normalizza l'involucro canonico, non l'uscita del convertitore; preflight senza LLM; propaga `field` |
+| `backend-nest/src/routes/games/actions.routes.ts` | `check-feasibility` instrada legacy/strict da `economy_mode`, non dalla presenza del catalogo |
 | `backend-nest/src/core/feasibility/FeasibilityService.ts` | `Blocker.field?` |
 | `backend-nest/tests/ws-preflight-01-intent.test.ts` | **nuovo** — integrazione route + regressioni (prima rosso) |
 | `backend-nest/tests/feasibility-intent.test.ts` | test involucro + prova della causa |
@@ -141,8 +157,8 @@ frontend. Nessuna migrazione, nessuna nuova tabella/colonna, nessuna route nuova
 
 | gate | comando | esito |
 | --- | --- | --- |
-| Backend (suite completa) | `backend-nest`: `vitest run --exclude '**/dist/**' --exclude '**/node_modules/**'` | **200 file / 2082 test verdi** |
-| Backend mirato | `ws-preflight-01-intent` + `feasibility-intent` + `order-execution-service` + `evaluate-route` + `mg01` + `mg02` | 6 file / 60 test verdi |
+| Backend (suite completa) | `backend-nest`: `vitest run --exclude '**/dist/**' --exclude '**/node_modules/**'` | **200 file / 2083 test verdi** |
+| Backend mirato | `ws-preflight-01-intent` + `feasibility-intent` + `order-execution-service` + `evaluate-route` + `mg01` + `mg02` | 6 file / 61 test verdi |
 | Typecheck backend | `backend-nest`: `tsc --noEmit` | pulito (exit 0) |
 | Build backend | `backend-nest`: `npm run build` (`tsc`) | pulito (exit 0) |
 | Typecheck frontend | `frontend`: `tsc --noEmit` | pulito (exit 0) |
@@ -171,6 +187,9 @@ provider. Nessuna soglia alzata, nessun test disattivato.
   contratto, non otto deficit.
 - Un deficit dichiarato dal motore porta ora la sua causa (`field`) fino al nodo
   della catena.
+- Una partita **legacy** con catalogo parziale (`millennium_dawn`, polity `BIH`)
+  resta legacy: `200`, `feasible: true`, stima dal conto nazionale, nessun
+  deficit e nessun `500` (era il caso reale segnalato).
 - Criteri di successo del task: bozza senza deficit di schema ✅; causa
   identificata con prova dal codice ✅; errori legittimi specifici ✅; nessun
   nuovo motore, freeze intatto, test verdi ✅.

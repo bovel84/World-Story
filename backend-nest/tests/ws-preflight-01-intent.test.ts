@@ -26,11 +26,14 @@ const WORLD_ID = 'ws-preflight-world';
 const REGION_ID = 'ws-preflight-region';
 const BAD_WORLD_ID = 'ws-preflight-bad-world';
 const BAD_REGION_ID = 'ws-preflight-bad-region';
+const LEGACY_WORLD_ID = 'ws-preflight-legacy-world';
+const LEGACY_REGION_ID = 'ws-preflight-legacy-region';
 
 let router: { stack: unknown[] };
 let db: { prepare: (sql: string) => { run: (...args: unknown[]) => unknown } };
 let gameId = '';
 let badGameId = '';
+let legacyGameId = '';
 
 /** I codici che il giocatore ha visto come «deficit» e che non devono comparire. */
 const SCHEMA_DEFICIT_CODES = [
@@ -50,6 +53,12 @@ beforeAll(async () => {
     { id: BAD_WORLD_ID, name: 'Preflight senza catalogo', templateId: 'preset_inesistente' },
     [{ id: BAD_REGION_ID, name: 'Alfa', color: '#000', owner: 'ALPHA', population: 1, gdp: 1, militaryPower: 1, flag: 'A' }],
   );
+  // Partita LEGACY con catalogo parziale (millennium_dawn, mode=authored) e
+  // polity fuori catalogo (BIH): il caso reale segnalato in esercizio.
+  worlds.createWithRegions(
+    { id: LEGACY_WORLD_ID, name: 'Preflight legacy', templateId: 'millennium_dawn' },
+    [{ id: LEGACY_REGION_ID, name: 'Sarajevo', color: '#000', owner: 'BIH', population: 1, gdp: 1, militaryPower: 1, flag: 'B' }],
+  );
   const registry = await import('../src/session-registry');
   // Provider volutamente rotto (401): il preflight è in sola lettura e NON
   // deve chiamare l'LLM. Se lo facesse, questo throw produrrebbe un `424`
@@ -63,6 +72,7 @@ beforeAll(async () => {
   const sessions = registry.getSessionRegistry();
   gameId = sessions.createSession(WORLD_ID, 'P', REGION_ID).gameId;
   badGameId = sessions.createSession(BAD_WORLD_ID, 'P', BAD_REGION_ID).gameId;
+  legacyGameId = sessions.createSession(LEGACY_WORLD_ID, 'P', LEGACY_REGION_ID).gameId;
   // Il percorso strict è quello che pretende il catalogo: senza, la partita
   // senza catalogo ricadrebbe nel legacy (che non ha questo errore da dare).
   db.prepare("UPDATE games SET economy_mode = 'strict' WHERE id = ?").run(badGameId);
@@ -118,5 +128,15 @@ describe('WS-PREFLIGHT-01 — preflight da testo libero', () => {
     expect(r.status).toBeGreaterThanOrEqual(400);
     expect(JSON.stringify(r.payload)).toMatch(/catalogo|legacy/i);
     expect(JSON.stringify(r.payload)).not.toContain('INVALID_PRIORITY');
+  });
+
+  it('una partita legacy con catalogo resta legacy: nessun deficit, nessun 500', async () => {
+    const r = await checkFeasibility(legacyGameId, { text: 'Rinforzare lo strumento militare' });
+    // Prima del fix la rotta la instradava nello strict (catalogo presente) e
+    // la polity fuori catalogo faceva fallire la verifica con 500.
+    expect(r.status).toBe(200);
+    expect(r.payload.feasible).toBe(true);
+    expect(JSON.stringify(r.payload)).toMatch(/legacy/i);
+    expect(JSON.stringify(r.payload)).not.toContain('INVALID_ID');
   });
 });
