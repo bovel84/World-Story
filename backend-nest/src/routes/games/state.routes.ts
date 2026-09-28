@@ -8,6 +8,7 @@ import { shortId } from '../../utils/short-id';
 import { gameRepository } from '../../repositories';
 import { countryRepository } from '../../repositories/country.repository';
 import { getSessionRegistry } from '../../session-registry';
+import { readGovernmentAgenda } from '../../game/GovernmentReadings';
 import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult } from '../../game-session';
 import { IdempotencyConflictError, simulationJobService } from '../../jobs/SimulationJobService';
 import { addDays, jumpHorizon } from '../../core/simulation/calendar';
@@ -192,6 +193,31 @@ router.get('/:id/government/voices', async (req, res) => {
     res.json(voices);
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get government voices');
+  }
+});
+
+/**
+ * MG05 — L'agenda del Governo: dai fatti dello stato alle scelte.
+ *
+ * Sola lettura, e ogni cifra porta la sua provenienza. Le voci nascono dai
+ * deficit misurati sui cantieri, dal debito, dalle fazioni che pesano, e dalle
+ * opere del catalogo con ciò che manca per costruirle. Il Governo **propone**:
+ * nessuna di queste voci impegna nulla, e la bozza che nasce da una voce passa
+ * per il preflight e per la coda come qualunque ordine.
+ */
+router.get('/:id/government/agenda', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const fence = session.fenceContext();
+    const agenda = readGovernmentAgenda({
+      gameId: req.params.id,
+      branchId: fence.branchId,
+      playerPolityId: session.getPlayer()?.polityId ?? '',
+      government: session.getGovernment(),
+    });
+    res.json(agenda);
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to read government agenda');
   }
 });
 
