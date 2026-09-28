@@ -56,7 +56,22 @@ export class FeasibilityService { constructor(private readonly catalog:Simulatio
  // MG01 — costruzione senza distinta: `needs_data`, mai `feasible`. Il verde
  // spurio nasceva dal fatto che `estimateIntentCosts` restituiva tempo e input
  // vuoti per un `construct`, indistinguibili da un costo dichiarato pari a zero.
- if(intent.actionKind==='construct'){const resolution=resolveConstructWork(this.catalog,intent.catalogRef);if(resolution.kind==='unknown'){blockers.push({code:'UNKNOWN_ENTITY',targetId:intent.catalogRef,detail:'tipo d’opera assente dal catalogo'});}else if(resolution.kind==='missing_distinct'){blockers.push({code:'DATA_UNAVAILABLE',targetId:intent.catalogRef,detail:'nessuna distinta di costruzione dichiarata per quest’opera: il costo non è noto',missing:[intent.catalogRef??intent.actionKind]});}else{const work=(this.catalog.works??[]).find(x=>x.id===resolution.workId);if(work&&work.phases.some(p=>(p.inputs??[]).length===0)){blockers.push({code:'DATA_UNAVAILABLE',targetId:resolution.workId,detail:'distinta di costruzione incompleta: almeno una fase non dichiara materiali',missing:[resolution.workId]});}}}
+ // REGRESSIONE CORRETTA (28 settembre, segnalata dall'autore: «gli ordini non
+ // passano»). Questa guardia rendeva BLOCCANTE ogni costruzione nei cataloghi
+ // che non dichiarano `works` — cioè in `millennium_dawn` e
+ // `modern_world_provinces`, dove la sezione non esiste. Effetto misurato: in
+ // quei mondi nessun ordine di costruzione poteva passare, e il gioco era di
+ // fatto rotto per una regola nata in MG01 su una fixture che le opere le ha.
+ //
+ // La distinzione giusta, che questa versione applica:
+ //  - `unknown` — il `catalogRef` non nomina NULLA di noto: è un riferimento
+ //    rotto, e blocca (UNKNOWN_ENTITY), come prima;
+ //  - `missing_distinct` — l'entità esiste ma il catalogo non ne dichiara la
+ //    distinta: il costo NON è verificato, e va DETTO, ma non è una ragione per
+ //    rifiutare l'ordine. Diventa un avviso, non un blocco;
+ //  - `declared` — la distinta c'è: se è incompleta (una fase senza materiali)
+ //    blocca, perché lì il silenzio significherebbe «costa zero».
+ if(intent.actionKind==='construct'){const resolution=resolveConstructWork(this.catalog,intent.catalogRef);if(resolution.kind==='unknown'){blockers.push({code:'UNKNOWN_ENTITY',targetId:intent.catalogRef,detail:'tipo d’opera assente dal catalogo'});}else if(resolution.kind==='missing_distinct'){warnings.push('distinta di costruzione non dichiarata dal catalogo: il costo e i materiali non sono verificati');}else{const work=(this.catalog.works??[]).find(x=>x.id===resolution.workId);if(work&&work.phases.some(p=>(p.inputs??[]).length===0)){blockers.push({code:'DATA_UNAVAILABLE',targetId:resolution.workId,detail:'distinta di costruzione incompleta: almeno una fase non dichiara materiali',missing:[resolution.workId]});}}}
  if(intent.actionKind==='move'||intent.actionKind==='procure'){const lot=this.catalog.initialState.inventory.find(x=>x.id===intent.targetIds[0]);if(lot&&lot.ownerActorId!==facts.actorId&&lot.custodianActorId!==facts.actorId&&!facts.rights.some(x=>x.targetId===lot.id&&x.activity==='use'))blockers.push({code:'UNAUTHORIZED_ACTOR',targetId:lot.id,detail:'stock privato/altrui senza diritto o contratto'});}
  if(intent.authorization.allowPartialStart&&intent.authorization.allowedPhaseIds.length===0)warnings.push('avvio parziale richiesto ma nessuna fase autorizzata: nessun avvio parziale verrà applicato');if(intent.actionKind==='qualitative')warnings.push('ordine qualitativo: nessuna ricetta o effetto materiale valutato');const status:AssessmentStatus=blockers.some(x=>x.code==='DATA_UNAVAILABLE')?'needs_data':blockers.length?'blocked':warnings.length?'feasible_with_conditions':'feasible';return{actionId:intent.id,status,blockers,warnings,alternatives};}
 }

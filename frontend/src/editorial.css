@@ -1123,3 +1123,57 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   margin-left: 6px;
 }
 .minister-path-expected { font-family: var(--op-copy); font-size: 11.5px; font-style: italic; color: var(--op-muted); }
+
+/* ── P02-bis — La chat del ministro: cronaca per sedia, come il Consulente ──
+   L'autore: «io la vorrei come quella del consulente; adesso è tutto mischiato».
+   Le classi `minister-entry` ed `entry-*` riusano la stessa forma della cronaca
+   del Consulente (autore a sinistra, risposta come documento), perché la chat
+   del Governo sia la stessa esperienza e non un surrogato. Nessun `!important`:
+   la guardia di disciplina CSS lo vieta. */
+.minister-thread .minister-entry { margin-bottom: 9px; }
+.minister-thread .minister-entry .entry-meta {
+  font-family: var(--op-utility);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--op-red);
+}
+.minister-thread .minister-entry .entry-text {
+  font-family: var(--op-copy);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--op-ink);
+  white-space: pre-wrap;
+}
+.minister-thread .minister-entry.user .entry-text {
+  border-left: 2px solid var(--op-rule);
+  padding-left: 8px;
+  white-space: pre-wrap;
+}
+/* Il testo del ministro è markdown reso: il pre-wrap resta per il messaggio del
+   giocatore, non per il documento. */
+.minister-thread .minister-entry.assistant .entry-text { white-space: normal; }
+.minister-thread .minister-entry.assistant .entry-text .rich-text p { margin: 0 0 7px; }
+.minister-thread .minister-entry.assistant .entry-text .rich-text h3,
+.minister-thread .minister-entry.assistant .entry-text .rich-text h4 { margin: 9px 0 5px; font-family: var(--op-display); }
+.minister-thread .minister-entry.assistant .entry-text .rich-text ul { margin: 5px 0 8px 16px; }
+
+/* Il cursore dello stream e i tre puntini: gli stessi del Consulente, così si
+   capisce che il ministro sta scrivendo e non che si è bloccato. */
+.minister-thread .stream-cursor { animation: minister-blink 1s step-end infinite; color: var(--op-ink); }
+@keyframes minister-blink { 50% { opacity: 0; } }
+
+/* La composizione: area di testo multi-riga come il Consulente (Invio invia,
+   Maiusc+Invio va a capo). */
+.minister-compose textarea {
+  flex: 1;
+  font-family: var(--op-copy);
+  font-size: 12.5px;
+  line-height: 1.4;
+  resize: vertical;
+  border: 1px solid var(--op-rule);
+  background: var(--op-paper);
+  color: var(--op-ink);
+  padding: 5px 7px;
+}
+.minister-compose textarea::placeholder { color: var(--op-muted); }

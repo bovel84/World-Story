@@ -20,6 +20,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { chatsApi, gameApi } from '../../services/api';
 import type { Region, World, Game } from '../../types';
 import type { ActiveModule } from '../../stores/moduleState';
+import { useChatStore } from '../../stores';
 
 interface DeskContentProps {
   activeModule: ActiveModule;
@@ -202,6 +203,12 @@ export function DeskContent({
   speakingSeat = null,
 }: DeskContentProps) {
   const { notify } = useToast();
+  // P02-bis — la cronaca dei ministri vive nello store, una per sedia.
+  const ministerChats = useChatStore(state => state.ministerChats);
+  const ministerStreamingSeat = useChatStore(state => state.ministerStreamingSeat);
+  const addMinisterMessage = useChatStore(state => state.addMinisterMessage);
+  const appendToLastMinisterMessage = useChatStore(state => state.appendToLastMinisterMessage);
+  const setMinisterStreaming = useChatStore(state => state.setMinisterStreaming);
 
   // Contenuto vuoto quando nessun modulo attivo
   if (activeModule === 'none') {
@@ -252,12 +259,20 @@ export function DeskContent({
           onSpeak={onMinisterSpeak}
           speakingSeat={speakingSeat}
         >
-          {/* P02-bis — La chat del ministro, sotto la sua sedia: si interroga, e
-              la conversazione finisce con le strade da cui nasce la bozza. */}
+          {/* P02-bis — La chat del ministro, sotto la sua sedia: parla in
+              streaming come il Consulente, e la conversazione finisce con le
+              strade da cui nasce la bozza. La cronaca è PER SEDIA e vive nello
+              store: cambiare ministro non cancella il dialogo, e due sedie non
+              si mescolano (era il difetto segnalato dall'autore). */}
           <MinisterChat
             gameId={currentGame?.id ?? ''}
             address={cabinet?.addresses.find(candidate => candidate.seat === speakingSeat) ?? null}
             onChoose={onCabinetChoose}
+            messages={speakingSeat ? (ministerChats[speakingSeat] ?? []) : []}
+            streaming={ministerStreamingSeat === speakingSeat}
+            onAddMessage={message => { if (speakingSeat) addMinisterMessage(speakingSeat, message); }}
+            onAppendToken={token => { if (speakingSeat) appendToLastMinisterMessage(speakingSeat, token); }}
+            onStreamingChange={streaming => setMinisterStreaming(streaming ? speakingSeat : null)}
           />
         </CabinetSession>
 
