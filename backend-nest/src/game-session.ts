@@ -39,6 +39,7 @@ import { clampTaxRatePct, DEFAULT_FISCAL_POLICY, describeFiscalEffects, fiscalSh
 import { type PressureEffect } from './core/simulation/PeacetimePressures';
 import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
+import { readCabinetSession } from './game/GovernmentReadings';
 import type { FactionMemoryEvent } from './core/simulation/FactionMemory';
 import { commitmentsWorthAttention, type Commitment } from './core/simulation/Commitments';
 import type { CommitmentResult } from './game/CommitmentService';
@@ -3311,6 +3312,47 @@ export class GameSession {
   private async getAdvisorUnchecked(message: string, history: any[]): Promise<string> {
     const gameData = this.buildGameData();
     return this.gameController.getAdvisorWithPrompts(gameData, message, history);
+  }
+
+  /**
+   * P02-bis — Parlare con un ministro.
+   *
+   * L'autore ha chiesto il concetto centrale: «il parlare». Un ministro è una
+   * chat come il Consulente, ma il suo contesto è la **sua sedia**: porta i
+   * bisogni della sua competenza, con le cifre del motore e la loro provenienza.
+   *
+   * Ri usa lo stesso percorso del Consulente — un solo motore narrativo, non due —
+   * e gli antepone il **briefing** della sedia, che contiene i fatti e le regole
+   * che il modello non può violare. Il modello può spiegare e proporre; i numeri
+   * sono quelli che il briefing gli dà, e una cifra ignota resta ignota.
+   *
+   * Non impegna nulla: la risposta è una bozza, e l'ordine nasce dal giocatore.
+   */
+  async getMinisterReply(
+    seat: string,
+    message: string,
+    history: any[] = [],
+  ): Promise<{ reply: string; seat: string }> {
+    if (this.hasActiveRun()) throw new SimulationInProgressError();
+    const fence = this.fenceContext();
+    const cabinet = readCabinetSession({
+      gameId: this.id,
+      branchId: fence.branchId,
+      playerPolityId: this.playerPolityId,
+      government: this.getGovernment(),
+    });
+    const address = cabinet.addresses.find((candidate: { seat: string }) => candidate.seat === seat);
+    if (!address) {
+      throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
+    }
+    const { briefingFor, openingMessage } = await import('./core/government/MinisterChat');
+    const briefing = briefingFor(address, { voices: [], headline: '', canonicalMutation: false });
+    // Il briefing precede la domanda: il modello parla DELLA sua sedia, non in
+    // generale. E la domanda vuota diventa l'apertura del ministro, così la chat
+    // si apre su un fatto.
+    const question = message.trim() || openingMessage(briefing, address.items);
+    const reply = await this.getAdvisorUnchecked(`${briefing.context}\n\n---\n\n${question}`, history);
+    return { reply, seat };
   }
 
   /**

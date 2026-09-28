@@ -168,6 +168,30 @@ router.post('/:id/advisor', async (req, res) => {
 });
 
 // Этап 3: стриминг ответа Советника (text/plain; токены пишем по мере поступления)
+/**
+ * P02-bis — Parlare con un ministro.
+ *
+ * Stesso meccanismo del Consulente (messaggio + history), ma il contesto è la
+ * **sedia** del ministro: porta i bisogni della sua competenza, con le cifre del
+ * motore e la loro provenienza. `seat` è una delle cinque sedie del gabinetto.
+ *
+ * Non impegna nulla: la risposta è una proposta, e l'ordine nasce dal giocatore.
+ */
+router.post('/:id/government/minister/:seat', async (req, res) => {
+  const gameId = req.params.id;
+  const seat = req.params.seat;
+  if (!validateBody(res, advisorSchema, req.body)) return;
+  const message = typeof req.body?.message === 'string' ? req.body.message : '';
+  const history = normalizeAdvisorHistory(req.body?.history);
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(gameId);
+    const reply = await session.getMinisterReply(seat, message, history);
+    res.json(reply);
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to get minister reply');
+  }
+});
+
 router.post('/:id/advisor/stream', async (req, res) => {
   const gameId = req.params.id;
   if (!validateBody(res, advisorSchema, req.body)) return;
