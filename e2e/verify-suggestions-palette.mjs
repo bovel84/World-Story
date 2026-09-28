@@ -40,7 +40,7 @@ try {
   await page.locator('.btn-play').click();
   await page.waitForSelector('.game-shell', { timeout: 60_000 });
 
-  await page.locator('.rail-btn[aria-label="Ordini"]').click();
+  await page.locator('.rail-btn[aria-label="Governo"]').click();
   await page.waitForSelector('.suggestions-content', { timeout: 15_000 });
   await page.locator('.btn-generate-suggestions').click();
   await page.waitForSelector('.suggestion-action', { timeout: 15_000 });
