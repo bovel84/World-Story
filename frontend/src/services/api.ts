@@ -1830,6 +1830,71 @@ export const ministerApi = {
       method: 'POST',
       body: JSON.stringify({ message, history }),
     }),
+
+  /**
+   * P02-bis — La risposta del ministro in streaming, come quella del Consulente.
+   *
+   * L'autore: «io la vorrei come quella del consulente». Il ministro scrive
+   * mentre pensa invece di comparire di colpo. Stessa disciplina dello stream
+   * del Consulente, e come lui ripiega sulla richiesta normale se lo stream non
+   * è disponibile — così un proxy che non lo supporta non rompe la chat.
+   */
+  askStream: async (
+    gameId: string,
+    seat: string,
+    message: string,
+    history: AdvisorHistoryItem[],
+    onToken: (token: string) => void,
+  ): Promise<string> => {
+    const url = `${API_BASE}/games/${gameId}/government/minister/${seat}/stream`;
+    const body = JSON.stringify({ message, history });
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { ...ownerHeaders(), 'Content-Type': 'application/json' },
+        body,
+      });
+    } catch (e) {
+      console.warn('[Minister] Stream non disponibile, fallback su POST:', e);
+      const data = await ministerApi.ask(gameId, seat, message, history);
+      onToken(data.reply);
+      return data.reply;
+    }
+
+    if (!response.ok || !response.body) {
+      console.warn('[Minister] Stream ha restituito', response.status, '— fallback su POST');
+      const data = await ministerApi.ask(gameId, seat, message, history);
+      onToken(data.reply);
+      return data.reply;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let full = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        if (chunk) {
+          full += chunk;
+          onToken(chunk);
+        }
+      }
+    } catch (e) {
+      // Interruzione a metà: se non è arrivato nulla si ripiega, altrimenti si
+      // tiene ciò che c'è — una risposta parziale è meglio di una persa.
+      if (!full) {
+        const data = await ministerApi.ask(gameId, seat, message, history);
+        onToken(data.reply);
+        return data.reply;
+      }
+      console.warn('[Minister] Stream interrotto a metà, uso la risposta parziale:', e);
+    }
+    return full;
+  },
 };
 
 export const advisorApi = {

@@ -302,14 +302,23 @@ describe('MG01 µ2 — costo non dichiarato: needs_data, mai feasible', () => {
   const catalog = loadSimulationCatalog(FIXTURE_DIR).catalog!;
   const service = new FeasibilityService(catalog);
 
-  it('senza distinta la valutazione è needs_data, non «fattibile»', () => {
-    // Il caso che produceva il verde spurio: attore e consensi corretti.
+  it('senza distinta il costo NON è verificato, e la valutazione lo DICE', () => {
+    // REGRESSIONE CORRETTA (28 settembre, segnalata dall'autore: «gli ordini non
+    // passano»). Questo test sosteneva che una costruzione senza distinta dovesse
+    // essere `needs_data` — un BLOCCO. Applicato ai cataloghi che non dichiarano
+    // `works` (`millennium_dawn`, `modern_world_provinces`) significava che NESSUN
+    // ordine di costruzione poteva passare: il gioco rotto per una regola nata su
+    // una fixture.
+    //
+    // La regola giusta distingue due cose diverse:
+    //  - il costo non è NOTO → si dichiara con un avviso, e l'ordine resta possibile;
+    //  - il costo è noto ma incoerente (una fase senza materiali) → blocca, perché
+    //    lì il silenzio significherebbe «costa zero».
     const assessment = service.evaluate(constructIntent('ft_mine'), facts('alpha_steel_co', ['institutional']));
-    expect(assessment.status).not.toBe('feasible');
-    expect(assessment.status).toBe('needs_data');
-    const blocker = assessment.blockers.find(b => b.code === 'DATA_UNAVAILABLE');
-    expect(blocker, 'il blocco deve dire che il DATO manca').toBeTruthy();
-    expect(blocker!.detail).toContain('distinta');
+    expect(assessment.status, 'una distinta assente non deve bloccare un ordine').not.toBe('needs_data');
+    expect(assessment.blockers.map(b => b.code)).not.toContain('DATA_UNAVAILABLE');
+    // Ma non si finge di sapere: l'avviso lo dichiara.
+    expect(assessment.warnings.join(' ')).toContain('distinta di costruzione non dichiarata');
   });
 
   it('un tipo d’opera inventato resta entità ignota, non dato mancante', () => {
@@ -325,6 +334,26 @@ describe('MG01 µ2 — costo non dichiarato: needs_data, mai feasible', () => {
     expect(resolveConstructWork(catalog, 'niente')).toEqual({ kind: 'unknown' });
     // `works` assente dal catalogo: la costruzione non è valutabile, non gratis.
     expect(resolveConstructWork({ ...catalog, works: [] }, 'w_road')).toEqual({ kind: 'unknown' });
+  });
+
+  it('una distinta INCOMPLETA blocca: lì il silenzio sarebbe «costa zero»', () => {
+    // La controprova della correzione: se il catalogo DICHIARA l'opera ma una
+    // fase non ha materiali, non si sa cosa serve — e questo resta un blocco.
+    // Senza questo test, togliere ogni blocco passerebbe per una correzione.
+    const incomplete = {
+      ...catalog,
+      works: [{
+        ...catalog.works.find(w => w.id === 'w_road')!,
+        phases: [
+          ...catalog.works.find(w => w.id === 'w_road')!.phases,
+          { id: 'fase_muta', name: 'Fase senza distinta', minDays: 1, workload: '10', inputs: [] },
+        ],
+      }],
+    };
+    const assessment = new FeasibilityService(incomplete as typeof catalog)
+      .evaluate(constructIntent('w_road'), facts('alpha_steel_co', ['institutional']));
+    expect(assessment.blockers.map(b => b.code)).toContain('DATA_UNAVAILABLE');
+    expect(assessment.blockers.find(b => b.code === 'DATA_UNAVAILABLE')!.detail).toContain('incompleta');
   });
 
   it('una distinta completa non deve introdurre blocchi propri', () => {
@@ -404,9 +433,13 @@ describe('MG01 — la rotta evaluate e il percorso vivo', () => {
     expect(session.getQueueVersion()).toBe(antes);
   });
 
-  it('dalla rotta, un tipo d’impianto senza distinta resta dato mancante', async () => {
-    // Il caso che sulla rotta NON esisteva prima di MG01: nessun test del
-    // repository costruiva un `construct` con `catalogRef` di tipo d'impianto.
+  it('dalla rotta, un tipo d’impianto senza distinta NON blocca l’ordine', async () => {
+    // REGRESSIONE CORRETTA (28 settembre, «gli ordini non passano»). Questo test
+    // pretendeva `needs_data` per un `construct` con `catalogRef` di tipo
+    // d'impianto — e su un catalogo senza `works` (tutti tranne la fixture)
+    // significava che nessuna costruzione poteva essere ordinata. Il caso che
+    // resta davvero da bloccare è la distinta DICHIARATA e incompleta, che ha il
+    // suo test proprio.
     const result = await evaluate({
       intent: {
         id: 'ord_rotta_ft', actorPolityId: 'ALPHA', originalText: 'Costruisci una miniera',
@@ -416,9 +449,9 @@ describe('MG01 — la rotta evaluate e il percorso vivo', () => {
     });
     expect(result.status).toBe(200);
     const codes = result.payload.orders[0].blockers.map((b: any) => b.code);
-    expect(codes).toContain('DATA_UNAVAILABLE');
-    expect(result.payload.orders[0].status).toBe('needs_data');
-    expect(result.payload.orders[0].status).not.toBe('feasible');
+    expect(codes, 'un costo non dichiarato non è una ragione per rifiutare').not.toContain('DATA_UNAVAILABLE');
+    // L'ordine resta possibile, ma il costo non verificato è DETTO.
+    expect(result.payload.orders[0].warnings.join(' ')).toContain('distinta di costruzione non dichiarata');
   });
 
   it('la rotta resta bloccata sul percorso vivo: la guardia non è ancora sufficiente', () => {

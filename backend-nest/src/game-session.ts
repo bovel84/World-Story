@@ -3348,20 +3348,66 @@ export class GameSession {
     if (!address) {
       throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
     }
-    const { briefingFor, openingMessage } = await import('./core/government/MinisterChat');
+    const question = this.ministerPromptFor(address, message);
+    const reply = await this.getAdvisorUnchecked(question, history);
+    return { reply, seat };
+  }
+
+  /**
+   * Il testo che il modello vede quando si parla con un ministro: il briefing
+   * della sua sedia, poi la domanda. In un punto solo, perché lo usano la
+   * richiesta normale e quella in streaming — due copie divergerebbero.
+   */
+  private ministerPromptFor(address: any, message: string): string {
+    const { briefingFor, openingMessage } = require('./core/government/MinisterChat');
     const briefing = briefingFor(address, { voices: [], headline: '', canonicalMutation: false });
     // Il briefing precede la domanda: il modello parla DELLA sua sedia, non in
     // generale. E la domanda vuota diventa l'apertura del ministro, così la chat
     // si apre su un fatto.
     const question = message.trim() || openingMessage(briefing, address.items);
-    const reply = await this.getAdvisorUnchecked(`${briefing.context}\n\n---\n\n${question}`, history);
-    return { reply, seat };
+    return `${briefing.context}\n\n---\n\n${question}`;
+  }
+
+  /** Il briefing di una sedia, a partire dal suo nome. Per lo streaming. */
+  private ministerPrompt(seat: string, message: string): string {
+    const fence = this.fenceContext();
+    const cabinet = readCabinetSession({
+      gameId: this.id,
+      branchId: fence.branchId,
+      playerPolityId: this.playerPolityId,
+      government: this.getGovernment(),
+      account: this.getNationalAccounts()[this.playerPolityId],
+    });
+    const address = cabinet.addresses.find((candidate: { seat: string }) => candidate.seat === seat);
+    if (!address) throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
+    return this.ministerPromptFor(address, message);
   }
 
   /**
    * Streaming-вариант советника (Этап 3): токены приходят в onToken
    * (число символов накопленного ответа), возвращается полный текст.
    */
+  /**
+   * P02-bis — Parlare con un ministro, in streaming.
+   *
+   * Stesso percorso del Consulente (`getAdvisorStreamWithPrompts`), ma il
+   * contesto è la sedia: il testo che il modello vede è il briefing della
+   * competenza, come nella versione non in streaming. La chat del Governo deve
+   * avere la stessa esperienza di quella del Consulente — la richiesta
+   * dell'autore: «io la vorrei come quella del consulente».
+   */
+  async getMinisterStream(
+    seat: string,
+    message: string,
+    history: any[] = [],
+    onToken: (chars: number) => void,
+  ): Promise<string> {
+    if (this.hasActiveRun()) throw new SimulationInProgressError();
+    const gameData = this.buildGameData();
+    const prompt = this.ministerPrompt(seat, message);
+    return this.gameController.getAdvisorStreamWithPrompts(gameData, prompt, history, onToken);
+  }
+
   async getAdvisorStream(message: string, history: any[] = [], onToken: (chars: number) => void): Promise<string> {
     // F04 passo 3: stessa politica del non-streaming (409 durante un run).
     if (this.hasActiveRun()) throw new SimulationInProgressError();

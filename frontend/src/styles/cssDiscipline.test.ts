@@ -22,7 +22,13 @@ const sources: Array<{ file: string; css: string }> = [
 ];
 const foundations = sources[0].css;
 
-const MIGRATED_PREFIXES = ['nation-dock', 'feasibility', 'module-', 'command-'];
+const MIGRATED_PREFIXES = [
+  'nation-dock', 'feasibility', 'module-', 'command-',
+  // P02-bis — il Governo è un modulo migrato come gli altri: la stessa
+  // disciplina vale per la sua sala di consiglio, la chat dei ministri e le
+  // cifre con la loro provenienza.
+  'cabinet', 'minister-',
+];
 
 describe('U01 passo 4/5 — disciplina CSS dei moduli migrati', () => {
   it('nessun !important nei selettori dei moduli migrati', () => {

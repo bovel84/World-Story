@@ -192,6 +192,44 @@ router.post('/:id/government/minister/:seat', async (req, res) => {
   }
 });
 
+/**
+ * P02-bis — La stessa cosa, in streaming: la chat del Governo deve avere
+ * l'esperienza di quella del Consulente. L'autore: «io la vorrei come quella del
+ * consulente». Il contesto resta la sedia, preparato dal server.
+ */
+router.post('/:id/government/minister/:seat/stream', async (req, res) => {
+  const gameId = req.params.id;
+  const seat = req.params.seat;
+  if (!validateBody(res, advisorSchema, req.body)) return;
+  const message = typeof req.body?.message === 'string' ? req.body.message : '';
+  const history = normalizeAdvisorHistory(req.body?.history);
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(gameId);
+    let gotTextChunks = false;
+    const onToken = (chunk: unknown) => {
+      if (typeof chunk === 'string' && chunk.length > 0) {
+        gotTextChunks = true;
+        res.write(chunk);
+      }
+    };
+    const streamFn = (session as any).getMinisterStream;
+    const reply: string = typeof streamFn === 'function'
+      ? await streamFn.call(session, seat, message, history, onToken)
+      : (await session.getMinisterReply(seat, message, history)).reply;
+    if (!gotTextChunks && reply) res.write(reply);
+    res.end();
+  } catch (e: any) {
+    console.error('[Minister STREAM] Error:', e);
+    if (res.headersSent) res.end();
+    else respondRouteError(res, e, 'Failed to stream minister reply');
+  }
+});
+
 router.post('/:id/advisor/stream', async (req, res) => {
   const gameId = req.params.id;
   if (!validateBody(res, advisorSchema, req.body)) return;
