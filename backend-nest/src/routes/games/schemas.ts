@@ -43,7 +43,18 @@ export const evaluateActionSchema = z
   });
 
 /** `POST /:id/actions/queue` — testo dell'ordine da accodare. */
-export const queueActionSchema = z.object({ text: nonEmpty }).passthrough();
+export const queueActionSchema = z.object({
+  text: nonEmpty,
+  // MG02 µ4 — costruzione dichiarata: catalogo e detentori. Le quantità non si
+  // accettano dal client: il costo è quello della distinta, e l'autorità di
+  // commit resta del motore.
+  work: z.object({
+    workId: z.string().min(1),
+    payerActorId: z.string().min(1),
+    materialActorId: z.string().min(1),
+    funded: z.boolean(),
+  }).optional(),
+}).passthrough();
 
 /** `POST /:id/actions/check-feasibility` e `POST /:id/action` / `enhance`. */
 export const actionTextSchema = z.object({ text: z.string().optional() }).passthrough();

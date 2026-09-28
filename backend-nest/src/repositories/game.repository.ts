@@ -13,6 +13,29 @@ import {
 } from '../core/simulation/PeacetimePressures';
 import type { CrisisDimension, CrisisLevel, EndingKind } from '../core/simulation/NationCrisis';
 
+/**
+ * MG02 µ5 — La dichiarazione d'opera letta dal database.
+ *
+ * Difensivo di proposito: una dichiarazione malformata non deve far fallire la
+ * ricostruzione della coda. Si scarta e l'ordine torna in prosa — la stessa
+ * cosa di un ordine che non l'ha mai dichiarata. Il campo è `unknown` perché
+ * questo repository non conosce il tipo del gioco: lo valida chi lo usa.
+ */
+function safeParseWorkOrder(raw: string): unknown | undefined {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    const value = parsed as Record<string, unknown>;
+    if (typeof value.workId !== 'string' || typeof value.payerActorId !== 'string'
+      || typeof value.materialActorId !== 'string' || typeof value.funded !== 'boolean') {
+      return undefined;
+    }
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
 function bumpQueueVersion(gameId: string): void {
   db.prepare('UPDATE games SET queue_version = queue_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(gameId);
 }
@@ -334,21 +357,24 @@ export const gameRepository = {
   addSimulationActionOutcomes: (outcomes: Array<{
     id: string; runId: string; gameId: string; actionId: string;
     status: 'accepted' | 'partial' | 'rejected' | 'unresolved'; summary: string; eventHeadlines: string[];
+    /** MG02 µ5 — il cantiere nato da questo ordine, se ne è nato uno. */
+    projectId?: string;
   }>) => {
     if (!outcomes.length) return;
     const insert = db.prepare(`
-      INSERT INTO simulation_action_outcomes (id, run_id, game_id, action_id, status, summary, event_headlines)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO simulation_action_outcomes (id, run_id, game_id, action_id, status, summary, event_headlines, project_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     db.transaction((records: typeof outcomes) => records.forEach(outcome => insert.run(
       outcome.id, outcome.runId, outcome.gameId, outcome.actionId,
       outcome.status, outcome.summary, JSON.stringify(outcome.eventHeadlines),
+      outcome.projectId ?? null,
     )))(outcomes);
   },
 
   getSimulationActionOutcomes: (gameId: string, runId: string) => {
     const rows = db.prepare(`
-      SELECT id, action_id, status, summary, event_headlines
+      SELECT id, action_id, status, summary, event_headlines, project_id
       FROM simulation_action_outcomes WHERE game_id = ? AND run_id = ? ORDER BY rowid
     `).all(gameId, runId) as any[];
     return rows.map(row => ({
@@ -357,6 +383,9 @@ export const gameRepository = {
       status: row.status,
       summary: row.summary,
       eventHeadlines: (() => { try { return JSON.parse(row.event_headlines || '[]'); } catch { return []; } })(),
+      // MG02 µ5: il cantiere nato dall'ordine, durevole. `null` per gli ordini
+      // che non ne hanno creato uno, e per le righe scritte prima di µ5.
+      ...(row.project_id ? { projectId: row.project_id } : {}),
     }));
   },
 
@@ -601,12 +630,17 @@ export const gameRepository = {
       .get(gameId, idempotencyKey) as any || null;
   },
 
-  queuePendingAction: (action: { id: string; gameId: string; text: string; createdAt: string; status?: string }) => {
+  queuePendingAction: (action: { id: string; gameId: string; text: string; createdAt: string; status?: string; workOrder?: unknown }) => {
     db.transaction(() => {
       db.prepare(`
-        INSERT INTO pending_actions (id, game_id, text, created_at, status, delivery_status, execution_status)
-        VALUES (?, ?, ?, ?, 'pending', 'queued', 'not_started')
-      `).run(action.id, action.gameId, action.text, action.createdAt);
+        INSERT INTO pending_actions (id, game_id, text, created_at, status, delivery_status, execution_status, work_order_json)
+        VALUES (?, ?, ?, ?, 'pending', 'queued', 'not_started', ?)
+      `).run(
+        action.id, action.gameId, action.text, action.createdAt,
+        // MG02 µ5 — la dichiarazione d'opera sopravvive al riavvio. Senza,
+        // un ordine che nominava una strada ridiventa prosa in silenzio.
+        action.workOrder === undefined ? null : JSON.stringify(action.workOrder),
+      );
       bumpQueueVersion(action.gameId);
     })();
     return action;
@@ -614,7 +648,7 @@ export const gameRepository = {
 
   getPendingActions: (gameId: string) => {
     const rows = db.prepare(`
-      SELECT id, text, created_at, status, delivery_status, execution_status
+      SELECT id, text, created_at, status, delivery_status, execution_status, work_order_json
       FROM pending_actions
       WHERE game_id = ?
       ORDER BY created_at ASC, rowid ASC
@@ -626,6 +660,9 @@ export const gameRepository = {
       status: row.status,
       deliveryStatus: row.delivery_status,
       executionStatus: row.execution_status,
+      // Una riga scritta da una versione precedente ha la colonna NULL: l'ordine
+      // resta in prosa, che è esattamente il comportamento di prima.
+      ...(row.work_order_json ? { workOrder: safeParseWorkOrder(row.work_order_json) } : {}),
     }));
   },
 

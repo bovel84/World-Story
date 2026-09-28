@@ -19,6 +19,7 @@ import {
   type SimulationCatalog,
   type ScenarioManifest,
 } from './types';
+import { isIdString } from '../domain/quantities';
 
 export type ScenarioSeverity = 'blocking' | 'warning';
 
@@ -50,7 +51,7 @@ export interface ScenarioCoverage {
 }
 
 export type CatalogFiles = Partial<Record<
-  'manifest' | 'polities' | 'resources' | 'technologies' | 'recipes' | 'facilities' | 'actors' | 'authorities' | 'initial-state',
+  'manifest' | 'polities' | 'resources' | 'technologies' | 'recipes' | 'works' | 'facilities' | 'actors' | 'authorities' | 'initial-state',
   unknown
 >>;
 
@@ -58,6 +59,11 @@ const SCENARIO_FILES = [
   'manifest.json', 'polities.json', 'resources.json', 'technologies.json',
   'recipes.json', 'facilities.json', 'actors.json', 'authorities.json', 'initial-state.json',
 ] as const;
+
+/** MG01: le opere sono una sezione propria e OPZIONALE. Un preset che non le
+ *  dichiara resta valido (le sue costruzioni non sono valutabili: `needs_data`),
+ *  ma se `works.json` c'è deve passare la validazione bloccante. */
+const OPTIONAL_SCENARIO_FILES = ['works.json'] as const;
 
 function issue(path: string, code: string, message: string, severity: ScenarioSeverity = 'blocking'): ScenarioIssue {
   return { path, code, message, severity };
@@ -408,6 +414,142 @@ export function validateCatalog(files: CatalogFiles): ScenarioReport {
       }
     }
   }
+  // ── Opere costruibili (MG01) ────────────────────────────────────────────
+  // Disciplina opposta a quella delle ricette: qui ogni campo è dichiarato e
+  // il controllo scende in TUTTI i sotto-oggetti (opera, effetto, manutenzione,
+  // fase, materiale, fondi, manodopera, provenienza). Una distinta di
+  // costruzione che non viene capita renderebbe `feasible` un'opera di costo
+  // ignoto — il verde spurio che questa sezione esiste per chiudere.
+  const works = asArray(files.works, 'works', errors);
+  const workIds = new Set<string>();
+  const WORK_FIELDS = new Set(['id', 'name', 'assetTypeId', 'effect', 'maintenance', 'phases', 'evidence']);
+  const PHASE_FIELDS = new Set(['id', 'name', 'dependencyIds', 'workload', 'minDays', 'inputs', 'funds', 'workforce']);
+  const EFFECT_FIELDS = new Set(['kind', 'unit', 'perDay']);
+  const MAINTENANCE_FIELDS = new Set(['resourceId', 'baseUnits', 'periodDays']);
+  const QUANTITY_FIELDS = new Set(['resourceId', 'baseUnits']);
+  const FUNDS_FIELDS = new Set(['currencyId', 'minorUnits']);
+  const WORKFORCE_FIELDS = new Set(['qualification', 'persons']);
+  const EVIDENCE_FIELDS = new Set(['quality', 'sourceRefs', 'validAt', 'methodVersion']);
+  const unknownFields = (obj: Record<string, unknown>, allowed: Set<string>, p: string, label: string) => {
+    for (const key of Object.keys(obj)) {
+      if (!allowed.has(key)) errors.push(issue(`${p}.${key}`, 'unknown_field', `campo non ammesso in ${label}: ${key}`));
+    }
+  };
+  works.forEach((w, i) => {
+    const wp = `works[${i}]`;
+    const work = asObject(w, wp, errors);
+    if (!isIdString(work.id)) errors.push(issue(`${wp}.id`, 'bad_id', 'id opera minuscolo [a-z0-9_] obbligatorio'));
+    else if (workIds.has(work.id)) errors.push(issue(`${wp}.id`, 'duplicate_id', `opera duplicata ${work.id}`));
+    else workIds.add(work.id);
+    if (!work.name || typeof work.name !== 'string') errors.push(issue(`${wp}.name`, 'missing_field', 'nome opera obbligatorio'));
+    unknownFields(work, WORK_FIELDS, wp, 'opera');
+
+    // L'asset finale deve essere un tipo noto: un tipo inventato non ha capacità.
+    if (!facilityTypeIds.has(work.assetTypeId)) errors.push(issue(`${wp}.assetTypeId`, 'unknown_ref', `tipo asset ${work.assetTypeId} non definito fra i facilityTypes`));
+
+    // Effetto dichiarato: senza, l'opera finita non cambierebbe nulla di misurabile.
+    const effect = asObject(work.effect, `${wp}.effect`, errors);
+    if (!effect.kind || typeof effect.kind !== 'string') errors.push(issue(`${wp}.effect.kind`, 'missing_field', 'effetto dichiarato obbligatorio (l’opera finita deve cambiare qualcosa)'));
+    if (!effect.unit || typeof effect.unit !== 'string') errors.push(issue(`${wp}.effect.unit`, 'missing_field', 'unità dell’effetto obbligatoria'));
+    if (!isIntString(effect.perDay) || BigInt(String(effect.perDay)) <= 0n) errors.push(issue(`${wp}.effect.perDay`, 'bad_int', 'effetto per giorno intero canonico > 0'));
+    unknownFields(effect, EFFECT_FIELDS, `${wp}.effect`, 'effetto');
+
+
+    if (work.maintenance !== undefined) {
+      const m = asObject(work.maintenance, `${wp}.maintenance`, errors);
+      if (!resourceIds.has(m.resourceId)) errors.push(issue(`${wp}.maintenance.resourceId`, 'unknown_ref', `risorsa ${m.resourceId} non definita`));
+      if (!isIntString(m.baseUnits) || BigInt(String(m.baseUnits)) <= 0n) errors.push(issue(`${wp}.maintenance.baseUnits`, 'bad_int', 'quantità di manutenzione intera canonica > 0'));
+      if (!Number.isInteger(m.periodDays) || m.periodDays < 1) errors.push(issue(`${wp}.maintenance.periodDays`, 'bad_duration', 'periodo di manutenzione in giorni interi ≥ 1'));
+      unknownFields(m, MAINTENANCE_FIELDS, `${wp}.maintenance`, 'manutenzione');
+    }
+
+    const ev = asObject(work.evidence, `${wp}.evidence`, errors);
+    if (!['sourced', 'estimated', 'authored', 'unknown'].includes(ev.quality)) {
+      errors.push(issue(`${wp}.evidence.quality`, 'bad_evidence', 'provenienza della distinta obbligatoria (sourced/estimated/authored/unknown)'));
+    }
+    if (!Array.isArray(ev.sourceRefs) || ev.sourceRefs.length === 0) errors.push(issue(`${wp}.evidence.sourceRefs`, 'missing_field', 'fonti della distinta obbligatorie'));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ev.validAt))) errors.push(issue(`${wp}.evidence.validAt`, 'bad_date', 'data ISO-8601 della validità obbligatoria'));
+    unknownFields(ev, EVIDENCE_FIELDS, `${wp}.evidence`, 'provenienza della distinta');
+
+    // Fasi: DAG, durata ≥ 1, lavoro > 0, distinta non vuota.
+    const phases = asArray(work.phases, `${wp}.phases`, errors);
+    if (phases.length === 0) errors.push(issue(`${wp}.phases`, 'missing_field', 'un’opera ha almeno una fase'));
+    const seen = new Set<string>();
+    phases.forEach((raw: unknown, j: number) => {
+      const pp = `${wp}.phases[${j}]`;
+      const phase = asObject(raw, pp, errors);
+      if (!isIdString(phase.id)) errors.push(issue(`${pp}.id`, 'bad_id', 'id fase minuscolo [a-z0-9_] obbligatorio'));
+      else if (seen.has(phase.id)) errors.push(issue(`${pp}.id`, 'duplicate_id', `fase duplicata ${phase.id}`));
+      else seen.add(phase.id);
+      if (!phase.name || typeof phase.name !== 'string') errors.push(issue(`${pp}.name`, 'missing_field', 'nome della fase obbligatorio'));
+      unknownFields(phase, PHASE_FIELDS, pp, 'fase di costruzione');
+      const deps = asArray(phase.dependencyIds, `${pp}.dependencyIds`, errors);
+      deps.forEach((dep: unknown, k: number) => {
+        if (!isIdString(dep)) errors.push(issue(`${pp}.dependencyIds[${k}]`, 'bad_id', 'dipendenza non canonica'));
+      });
+      if (!isIntString(phase.workload) || BigInt(String(phase.workload)) <= 0n) {
+        errors.push(issue(`${pp}.workload`, 'bad_int', 'lavoro di fase intero canonico > 0 (una fase a lavoro nullo non avanza mai)'));
+      }
+      if (!Number.isInteger(phase.minDays) || phase.minDays < 1) errors.push(issue(`${pp}.minDays`, 'bad_duration', 'durata minima della fase in giorni interi ≥ 1'));
+      const inputs = asArray(phase.inputs, `${pp}.inputs`, errors);
+      if (inputs.length === 0) errors.push(issue(`${pp}.inputs`, 'missing_field', 'distinta materiali della fase obbligatoria: senza, il costo dell’opera non è dichiarato'));
+      inputs.forEach((q: unknown, k: number) => {
+        const qp = `${pp}.inputs[${k}]`;
+        const qty = asObject(q, qp, errors);
+        if (!resourceIds.has(qty.resourceId)) errors.push(issue(`${qp}.resourceId`, 'unknown_ref', `risorsa ${qty.resourceId} non definita`));
+        if (!isIntString(qty.baseUnits) || BigInt(String(qty.baseUnits)) <= 0n) errors.push(issue(`${qp}.baseUnits`, 'bad_int', 'quantità intera canonica > 0 richiesta'));
+        unknownFields(qty, QUANTITY_FIELDS, qp, 'materiale della distinta');
+      });
+      if (phase.funds !== undefined) {
+        const f = asObject(phase.funds, `${pp}.funds`, errors);
+        if (!declaredCurrencies.has(String(f.currencyId))) errors.push(issue(`${pp}.funds.currencyId`, 'currency_mismatch', `valuta ${f.currencyId} non dichiarata dal catalogo`));
+        if (!isIntString(f.minorUnits) || BigInt(String(f.minorUnits)) <= 0n) errors.push(issue(`${pp}.funds.minorUnits`, 'bad_int', 'fondi di fase interi canonici > 0'));
+        unknownFields(f, FUNDS_FIELDS, `${pp}.funds`, 'fondi di fase');
+      }
+      if (phase.workforce !== undefined) {
+        const wf = asArray(phase.workforce, `${pp}.workforce`, errors);
+        wf.forEach((raw: unknown, k: number) => {
+          const qp = `${pp}.workforce[${k}]`;
+          const pool = asObject(raw, qp, errors);
+          if (!pool.qualification || typeof pool.qualification !== 'string') errors.push(issue(`${qp}.qualification`, 'missing_field', 'qualifica richiesta obbligatoria'));
+          if (!isIntString(pool.persons) || BigInt(String(pool.persons)) <= 0n) errors.push(issue(`${qp}.persons`, 'bad_int', 'persone intere canoniche > 0'));
+          unknownFields(pool, WORKFORCE_FIELDS, qp, 'manodopera di fase');
+        });
+      }
+    });
+    // Dipendenze di fase: esistenza e assenza di cicli (stessa regola del DAG conoscenze).
+    for (const raw of phases) {
+      const phase = asObject(raw, `${wp}.phases`, errors);
+      for (const dep of (Array.isArray(phase.dependencyIds) ? phase.dependencyIds : []) as string[]) {
+        if (isIdString(dep) && !seen.has(dep)) errors.push(issue(`${wp}.phases[${phase.id}].dependencyIds`, 'unknown_ref', `fase ${dep} non definita nell’opera`));
+      }
+    }
+    const workCycle = findCycle(phases.map((raw: any) => {
+      const phase = asObject(raw, `${wp}.phases`, errors);
+      return { id: String(phase.id ?? ''), requires: Array.isArray(phase.dependencyIds) ? phase.dependencyIds.map(String) : [] };
+    }).filter(n => n.id));
+    if (workCycle) errors.push(issue(`${wp}.phases`, 'dag_cycle', `ciclo nelle fasi dell’opera: ${workCycle.join(' → ')}`));
+  });
+
+  // Chiusura delle filiere estesa alle opere: i materiali di una distinta
+  // devono avere una fonte giustificata, esattamente come gli input di ricetta.
+  // `Array.isArray` obbligatorio: un `works.json` con `phases` o `inputs` non
+  // array è già stato segnalato come errore sopra, e qui non deve far crashare
+  // il loader — un catalogo malformato è un rifiuto, non un'eccezione.
+  for (const work of Array.isArray(files.works) ? files.works as any[] : []) {
+    const phases = Array.isArray(work?.phases) ? work.phases : [];
+    for (const phase of phases) {
+      const inputs = Array.isArray(phase?.inputs) ? phase.inputs : [];
+      for (const inp of inputs) {
+        if (inp && resourceIds.has(inp.resourceId) && !justified.has(inp.resourceId)) {
+          missingInputs.add(String(inp.resourceId));
+          errors.push(issue(`works[${work.id}].phases[${phase.id}].inputs`, 'unjustified_input', `la fase richiede ${inp.resourceId} senza stock iniziale, giacimento estraibile o filiera definita (chiusura transitiva §4.4)`));
+        }
+      }
+    }
+  }
+
+
   const unknownDeposits = warnings.filter(w => w.code === 'unknown_quantity').length;
 
   const catalogHashes = catalogHash(files);
@@ -457,6 +599,18 @@ export function loadSimulationCatalog(presetDir: string): { catalog: SimulationC
       errors.push(issue(key, 'bad_json', `JSON non valido: ${e.message}`));
     }
   }
+  // MG01: `works.json` è opzionale — la sua assenza non è un errore, la sua
+  // presenza malformata sì (validazione bloccante in `validateCatalog`).
+  for (const fileName of OPTIONAL_SCENARIO_FILES) {
+    const full = path.join(simDir, fileName);
+    if (!fs.existsSync(full)) continue;
+    const key = fileName.replace(/\.json$/, '') as keyof CatalogFiles;
+    try {
+      (files as any)[key] = JSON.parse(fs.readFileSync(full, 'utf-8'));
+    } catch (e: any) {
+      errors.push(issue(key, 'bad_json', `JSON non valido: ${e.message}`));
+    }
+  }
   const report = validateCatalog(files);
   report.errors.unshift(...errors);
   report.ok = report.ok && errors.length === 0;
@@ -470,6 +624,7 @@ export function loadSimulationCatalog(presetDir: string): { catalog: SimulationC
       resources: files.resources as any[] ?? [],
       technologies: files.technologies as any[] ?? [],
       recipes: files.recipes as any[] ?? [],
+      works: files.works as any[] ?? [],
       facilityTypes: files.facilities as any[] ?? [],
       actors: files.actors as any[] ?? [],
       authorities: files.authorities as any[] ?? [],

@@ -131,6 +131,50 @@ export interface FacilityType {
   maintenance?: { resourceId: string; baseUnits: IntString; periodDays: number };
 }
 
+// ─── Opere costruibili (MG01) ───────────────────────────────────────────────
+
+/** Fase di costruzione di un'opera: distinta dichiarata, non dedotta.
+ *  `minDays` è la durata autorevole della fase (una sola per fase: nessun
+ *  `durationDays` parallelo che possa divergere da ciò che il tick consuma). */
+export interface WorkPhaseDefinition {
+  /** Codice fase: minuscolo, come `ProjectPhase.id` (`isIdString`). */
+  id: string;
+  name: string;
+  /** Fasi che devono essere completate prima di attivare questa. */
+  dependencyIds: string[];
+  /** Lavoro totale della fase, in unità di lavoro astratte > 0 (`ProjectPhase.workload`). */
+  workload: IntString;
+  /** Giorni minimi prima che la fase possa dirsi conclusa. */
+  minDays: number;
+  /** Materiali consumati dalla fase, con unità del catalogo risorse. */
+  inputs: Quantity[];
+  /** Fondi impegnati dalla fase, in unità monetarie minime del catalogo valuta. */
+  funds?: { currencyId: string; minorUnits: IntString };
+  /** Manodopera richiesta: persone, non ore (§4.1.7). */
+  workforce?: Array<{ qualification: string; persons: IntString }>;
+}
+
+/**
+ * Un'opera del catalogo: strada, porto, linea ferroviaria. Vive in
+ * `works.json`, NON in `recipes.json`: una ricetta produce una risorsa, mentre
+ * un'opera produce un asset e la chiusura transitiva delle filiere si calcola
+ * sugli output delle ricette — un'opera con `outputs: []` non giustificherebbe
+ * nulla e una risorsa «strada» comparirebbe come prodotta e mai consumata.
+ */
+export interface WorkDefinition {
+  id: string;
+  name: string;
+  /** Tipo dell'asset finale (voce di `facilityTypes`, o tipo mappa noto). */
+  assetTypeId: string;
+  /** Effetto dichiarato dell'opera finita: ciò che l'asset cambia quando è operativo. */
+  effect: { kind: string; unit: string; perDay: IntString };
+  /** Manutenzione ricorrente dell'asset operativo. */
+  maintenance?: { resourceId: string; baseUnits: IntString; periodDays: number };
+  /** Fasi in ordine di dipendenza: la prima è quella che parte per prima. */
+  phases: WorkPhaseDefinition[];
+  evidence: Evidence;
+}
+
 // ─── Attori, autorità R1, polities ──────────────────────────────────────────
 
 export type ActorType = 'treasury' | 'public_enterprise' | 'private_sector' | 'bank' | 'carrier' | 'household';
@@ -230,6 +274,8 @@ export interface SimulationCatalog {
   technologies: KnowledgeNode[];
   recipes: Recipe[];
   facilityTypes: FacilityType[];
+  /** MG01: opere costruibili. Vuoto se il preset non ne dichiara. */
+  works: WorkDefinition[];
   actors: EconomicActor[];
   authorities: AuthorityRule[];
   initialState: InitialState;

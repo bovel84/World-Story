@@ -12,17 +12,29 @@ export interface CostLine {
   readonly unit: string;
 }
 
-export type EstimateBasis = 'recipe' | 'upkeep' | 'request' | 'none';
+export type EstimateBasis = 'recipe' | 'work' | 'upkeep' | 'request' | 'none';
 
 export interface CostEstimate {
-  /** Durata autorevole del ciclo (ricetta), se dichiarata. */
+  /** Durata autorevole del ciclo (ricetta) o della costruzione (opera), se dichiarata. */
   readonly timeDays: number;
   /** Consumi materiali stimati per un ciclo (scalati alla quantità richiesta). */
   readonly inputs: readonly CostLine[];
   /** Costo di mantenimento dichiarato per l'impianto (construct/maintain). */
   readonly upkeep: readonly { readonly line: CostLine; readonly periodDays: number }[];
-  /** Su cosa si fonda la stima: ricetta, mantenimento, richiesta esplicita. */
+  /** Su cosa si fonda la stima: ricetta, opera, mantenimento, richiesta esplicita. */
   readonly basis: EstimateBasis;
+  /** Fondi dichiarati dalla distinta, se la stima è di costruzione. */
+  readonly funds?: readonly { readonly currencyId: string; readonly minorUnits: string }[];
+  /** Manodopera dichiarata dalla distinta, se la stima è di costruzione. */
+  readonly workforce?: readonly { readonly qualification: string; readonly persons: string }[];
+  /** Fasi della distinta di costruzione, con la loro durata minima. */
+  readonly phases?: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly minDays: number;
+    readonly workload: string;
+    readonly inputs: readonly CostLine[];
+  }[];
 }
 
 const EMPTY: CostEstimate = { timeDays: 0, inputs: [], upkeep: [], basis: 'none' };
@@ -75,8 +87,46 @@ export function estimateIntentCosts(catalog: SimulationCatalog, intent: OrderInt
     };
   }
 
-  // Costruzione: catalogRef = facilityType; costo noto = mantenimento dichiarato.
+  // Costruzione: la fonte autorevole è la DISTINTA DELL'OPERA (`works.json`).
+  // Senza di essa non si stima la costruzione: si ricade sul solo mantenimento
+  // del tipo d'impianto (`basis: 'upkeep'`, `timeDays: 0`) o su `basis: 'none'`
+  // quando nemmeno il tipo è noto. In entrambi i casi tempo e materiali sono
+  // ignoti, e la valutazione deve trattarli come dato mancante — mai come zero.
   if (kind === 'construct') {
+    const work = catalog.works?.find(item => item.id === intent.catalogRef);
+    if (work) {
+      const inputs = work.phases.flatMap(phase => phase.inputs.map(q => lineFor(catalog, q.resourceId, q.baseUnits)));
+      const funds = work.phases
+        .filter(phase => phase.funds)
+        .map(phase => ({ currencyId: phase.funds!.currencyId, minorUnits: phase.funds!.minorUnits }));
+      const workforce = work.phases.flatMap(phase => (phase.workforce ?? []).map(w => ({
+        qualification: w.qualification,
+        persons: w.persons,
+      })));
+      return {
+        // La durata dell'opera è la somma delle fasi: è la sola durata
+        // autorevole, quella che il piano di progetto usa come `minDays`.
+        timeDays: work.phases.reduce((total, phase) => total + phase.minDays, 0),
+        inputs,
+        upkeep: work.maintenance
+          ? [{ line: lineFor(catalog, work.maintenance.resourceId, work.maintenance.baseUnits), periodDays: work.maintenance.periodDays }]
+          : [],
+        basis: 'work',
+        funds,
+        workforce,
+        phases: work.phases.map(phase => ({
+          id: phase.id,
+          name: phase.name,
+          minDays: phase.minDays,
+          workload: phase.workload,
+          inputs: phase.inputs.map(q => lineFor(catalog, q.resourceId, q.baseUnits)),
+        })),
+      };
+    }
+
+    // Ripiego legacy: il `catalogRef` nomina un tipo d'impianto e il catalogo
+    // non dichiara alcuna distinta. Si espone il solo mantenimento, con
+    // `basis: 'upkeep'` e `timeDays: 0`: è un dato PARZIALE, non un costo.
     const facilityType = catalog.facilityTypes.find(item => item.id === intent.catalogRef);
     if (!facilityType) return EMPTY;
     if (!facilityType.maintenance) {
