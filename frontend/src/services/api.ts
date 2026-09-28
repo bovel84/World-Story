@@ -971,6 +971,53 @@ export const worldApi = {
 // Game API
 // ============================================================================
 
+/**
+ * P02 — I tipi della seduta del gabinetto, come li serve il server.
+ * Rispecchiano `core/government/Cabinet.ts`: nessun campo inventato qui.
+ */
+export interface CabinetFigureView {
+  label: string;
+  value: string;
+  unit: string;
+  basis:
+    | { kind: 'measured'; source: string }
+    | { kind: 'estimated'; source: string; method: string }
+    | { kind: 'unknown'; missing: string };
+}
+
+export interface CabinetPathView {
+  id: string;
+  title: string;
+  detail: string;
+  prerequisites: string[];
+  expected: string;
+  recommended: boolean;
+}
+
+export interface CabinetItemView {
+  voiceId: string;
+  need: string;
+  because: string;
+  urgency: 'ordinaria' | 'urgente' | 'critica';
+  figures: CabinetFigureView[];
+  paths: CabinetPathView[];
+}
+
+export interface CabinetAddressView {
+  seat: 'tesoro' | 'lavori' | 'esteri' | 'interno' | 'guerra';
+  label: string;
+  reads: string;
+  items: CabinetItemView[];
+  opening: string;
+}
+
+export interface CabinetSessionView {
+  addresses: CabinetAddressView[];
+  president: { opening: string; closing: string };
+  summary: { total: number; critical: number };
+  canonicalMutation: false;
+}
+
 export const gameApi = {
   /**
 * Inizia una nuova partita
@@ -1077,6 +1124,16 @@ export const gameApi = {
   /** Anime del governo: voci generate dall'LLM (on-demand, per il turno corrente). */
   governmentVoices: (gameId: string): Promise<GovernmentVoicesResponse> =>
     fetchApi(`/games/${gameId}/government/voices`),
+
+  /**
+   * P02 — La seduta del gabinetto: i ministri che hanno qualcosa da dire.
+   *
+   * Sola lettura: ricevere una seduta non impegna nulla. Le cifre che ogni
+   * ministro porta hanno la loro provenienza (`measured`, `estimated`,
+   * `unknown`), e una sedia senza dati non compare affatto.
+   */
+  governmentCabinet: (gameId: string): Promise<CabinetSessionView> =>
+    fetchApi(`/games/${gameId}/government/cabinet`),
 
   /** Magazzino materiale e risorse naturali dinamiche del giocatore. */
   resources: (gameId: string): Promise<{

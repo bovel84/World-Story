@@ -17,6 +17,7 @@
 import { useCallback, useState } from 'react';
 import { gameApi } from '../services/api';
 import type { FeasibilityResult } from '../components/Game/FeasibilityCheck';
+import type { CabinetAddressView, CabinetPathView, CabinetSessionView } from '../services/api';
 import { useActionsStore, useGameStore } from '../stores';
 import { useOrderDraftStore } from '../stores/orderDraftStore';
 import { simulationErrorMessage } from '../utils/errors';
@@ -48,16 +49,35 @@ export interface OrderQueue {
   handleFeasibilityBack: () => void;
   handleFeasibilityReverify: () => void;
   registerOrder: (text: string) => Promise<void>;
+  /** P02 — la seduta del gabinetto, e le due azioni che la usano. */
+  cabinet: CabinetSessionView | null;
+  cabinetLoading: boolean;
+  cabinetError: string;
+  loadCabinet: () => Promise<void>;
+  chooseCabinetPath: (item: CabinetAddressView['items'][number], path: CabinetPathView) => void;
 }
 
 export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
   const { suggestions, setSuggestions } = useActionsStore();
   const { pendingActions, setPendingActions, addPendingAction, removePendingAction } = useGameStore();
-  const { startEnhance: startOrderEnhance, enhanceSuccess: orderEnhanceSuccess, enhanceFailure: orderEnhanceFailure, clear: clearOrderDraft } = useOrderDraftStore();
+  // P03 — Scrivere la bozza dal Governo: si usa lo stesso store del compositore,
+  // così la proposta del ministro e l'ordine scritto a mano sono la STESSA cosa,
+  // non due percorsi paralleli.
+  const {
+    startEnhance: startOrderEnhance, enhanceSuccess: orderEnhanceSuccess,
+    enhanceFailure: orderEnhanceFailure, clear: clearOrderDraft,
+    update: setOrderDraftText,
+  } = useOrderDraftStore();
 
   // Brainstorm di azioni: stato e messaggio sono visibili anche al primo caricamento.
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsError, setSuggestionsError] = useState('');
+
+  // P02 — La seduta del gabinetto: i ministri che hanno qualcosa da dire.
+  // Sola lettura: caricarla non impegna nulla.
+  const [cabinet, setCabinet] = useState<CabinetSessionView | null>(null);
+  const [cabinetLoading, setCabinetLoading] = useState(false);
+  const [cabinetError, setCabinetError] = useState('');
 
   // Modifica di un ordine in coda prima della presa in carico (G04 / §6.1).
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
@@ -86,6 +106,57 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
       setSuggestionsLoading(false);
     }
   }, [gameId, suggestionsLoading, setSuggestions]);
+
+  /**
+   * P02 — Carica la seduta del gabinetto. Sola lettura: nessuna spesa, nessuna
+   * registrazione. Se il server non risponde, la pagina lo dice e il resto del
+   * modulo resta usabile.
+   */
+  const loadCabinet = useCallback(async (): Promise<void> => {
+    if (!gameId) return;
+    setCabinetLoading(true);
+    setCabinetError('');
+    try {
+      const session = await gameApi.governmentCabinet(gameId);
+      setCabinet(session);
+    } catch (e) {
+      console.error('[Government] Failed to load cabinet session:', e);
+      setCabinetError('La seduta del Governo non è disponibile ora.');
+    } finally {
+      setCabinetLoading(false);
+    }
+  }, [gameId]);
+
+  /**
+   * P02/P03 — Scelta una strada, si compone la **bozza**: l'ordine scritto con
+   * i termini della strada, pronto per il preflight.
+   *
+   * Non registra e non accoda: apre la bozza nel compositore, dove il giocatore
+   * la corregge e la conferma. È l'invariante MG-I1 — un ministro propone, il
+   * giocatore decide — e la ragione per cui questa funzione non chiama
+   * `queuePlayerAction`.
+   */
+  const chooseCabinetPath = useCallback((
+    item: CabinetAddressView['items'][number],
+    path: CabinetPathView,
+  ): void => {
+    // La bozza nasce dal bisogno e dalla strada scelta, non da un testo libero:
+    // è la stessa prosa che il giocatore avrebbe scritto, ma ancorata a ciò che
+    // il Governo ha documentato.
+    const missing = item.figures
+      .filter(figure => figure.basis.kind !== 'measured' || figure.label.toLowerCase().includes('mancante'))
+      .map(figure => figure.label);
+    const draft = [
+      path.title,
+      `— ${item.need}`,
+      `Strada scelta: ${path.detail}`,
+      `Prerequisiti: ${path.prerequisites.length > 0 ? path.prerequisites.join(', ') : 'nessuno'}`,
+      `Esito atteso: ${path.expected}`,
+      missing.length > 0 ? `Vincoli da sciogliere: ${missing.join(', ')}` : '',
+      'Verifica la fattibilità prima di registrare.',
+    ].filter(Boolean).join('\n');
+    setOrderDraftText(draft);
+  }, [setOrderDraftText]);
 
   const queuePlayerAction = useCallback(async (
     text: string,
@@ -238,5 +309,10 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
     handleFeasibilityBack,
     handleFeasibilityReverify,
     registerOrder,
+    cabinet,
+    cabinetLoading,
+    cabinetError,
+    loadCabinet,
+    chooseCabinetPath,
   };
 }

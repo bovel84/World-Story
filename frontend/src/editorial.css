@@ -822,3 +822,172 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 
 /* Il pulsante «+ Nuova chat» non deve finire sotto la ✕ di chiusura */
 .game-shell-desk .btn-new-chat { margin-right: 52px; }
+
+/* ── P02 — La seduta del gabinetto ──────────────────────────────────────────
+   «Le persone che chattano con me e propongono i loro piani e bisogni», con
+   solo tipografia: nessuna immagine, nessun ritratto. Lo stile segue il sistema
+   editoriale (carta, inchiostro, filetti) perché questa è una sala di consiglio,
+   non una dashboard. Nessun `!important`: la guardia di disciplina CSS lo vieta
+   nei moduli migrati, e questo blocco è nuovo. */
+.cabinet {
+  border-top: 2px solid var(--op-rule);
+  padding-top: 14px;
+  margin-bottom: 18px;
+}
+.cabinet-president {
+  border-left: 3px solid var(--op-gold);
+  padding-left: 10px;
+  margin-bottom: 14px;
+}
+.cabinet-president-opening {
+  font-family: var(--op-display);
+  font-size: 17px;
+  color: var(--op-ink);
+}
+.cabinet-president-quiet {
+  font-family: var(--op-copy);
+  font-size: 13px;
+  color: var(--op-muted);
+  margin-top: 4px;
+}
+.cabinet-empty,
+.cabinet-status {
+  font-family: var(--op-copy);
+  font-size: 13px;
+  color: var(--op-muted);
+}
+
+.cabinet-seats { display: flex; flex-direction: column; gap: 14px; }
+.cabinet-seat {
+  border: 1px solid var(--op-rule);
+  background: var(--op-sheet);
+  padding: 12px 14px;
+}
+.cabinet-seat-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px solid var(--op-rule);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+.cabinet-seat-name {
+  font-family: var(--op-display);
+  font-size: 15px;
+  color: var(--op-ink);
+}
+.cabinet-seat-competence {
+  font-family: var(--op-utility);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--op-muted);
+}
+.cabinet-seat-opening {
+  font-family: var(--op-copy);
+  font-size: 13px;
+  font-style: italic;
+  color: var(--op-muted);
+  margin: 0 0 10px;
+}
+
+.cabinet-item { margin-bottom: 12px; }
+.cabinet-item-need {
+  font-family: var(--op-copy);
+  font-size: 14px;
+  color: var(--op-ink);
+  line-height: 1.4;
+}
+.cabinet-urgency {
+  display: inline-block;
+  font-family: var(--op-utility);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid var(--op-rule);
+  padding: 1px 5px;
+  margin-right: 6px;
+  color: var(--op-muted);
+}
+.cabinet-urgency-urgente { border-color: var(--op-gold); color: #8a6a22; }
+.cabinet-urgency-critica { border-color: var(--op-red); color: var(--op-red); }
+
+.cabinet-item-because {
+  font-family: var(--op-copy);
+  font-size: 12.5px;
+  color: var(--op-muted);
+  line-height: 1.45;
+  margin: 5px 0 8px;
+}
+
+/* Le cifre: ognuna con la sua provenienza sotto. Una cifra ignota si vede che
+   è ignota — non si nasconde dietro un numero. */
+.cabinet-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 14px;
+  margin: 0 0 10px;
+}
+.cabinet-figure dt {
+  font-family: var(--op-utility);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--op-muted);
+}
+.cabinet-figure dd {
+  font-family: var(--op-display);
+  font-size: 15px;
+  color: var(--op-ink);
+  margin: 1px 0 0;
+}
+.cabinet-figure-unknown dd { color: var(--op-muted); }
+.cabinet-basis {
+  display: block;
+  font-family: var(--op-utility);
+  font-size: 9.5px;
+  color: var(--op-muted);
+  margin-top: 2px;
+}
+
+/* Le strade: pulsanti leggibili, non icone. La consigliata è marcata come
+   consiglio, mai come ordine. */
+.cabinet-paths { display: flex; flex-direction: column; gap: 7px; }
+.cabinet-path {
+  text-align: left;
+  background: var(--op-paper);
+  border: 1px solid var(--op-rule);
+  padding: 8px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cabinet-path:hover { border-color: var(--op-ink); }
+.cabinet-path.recommended { border-left: 3px solid var(--op-gold); }
+.cabinet-path-title {
+  font-family: var(--op-copy);
+  font-size: 13.5px;
+  color: var(--op-ink);
+}
+.cabinet-path-badge {
+  font-family: var(--op-utility);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #8a6a22;
+  margin-left: 7px;
+}
+.cabinet-path-detail { font-family: var(--op-copy); font-size: 12.5px; color: var(--op-muted); }
+.cabinet-path-prereq { font-family: var(--op-utility); font-size: 10.5px; color: var(--op-red); }
+.cabinet-path-expected { font-family: var(--op-copy); font-size: 12px; font-style: italic; color: var(--op-muted); }
+
+.cabinet-closing {
+  font-family: var(--op-copy);
+  font-size: 12.5px;
+  color: var(--op-muted);
+  border-top: 1px solid var(--op-rule);
+  padding-top: 10px;
+  margin-top: 14px;
+}

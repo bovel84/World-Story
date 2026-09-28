@@ -25,6 +25,7 @@ import { ledgerUnitId } from '../services/StrictEffectProducerService';
 import { listStrictProjects } from '../repositories/project-runtime.repository';
 import { getReservationAvailability } from '../services/ReservationService';
 import { buildAgenda, type AgendaDeficit, type AgendaFaction, type GovernmentAgenda } from '../core/government/GovernmentAgenda';
+import { composeCabinet, type CabinetSession } from '../core/government/Cabinet';
 import { governmentSnapshot } from '../core/simulation/GovernmentFactions';
 import { loadSimulationCatalog } from '../scenario/loader';
 import path from 'path';
@@ -231,3 +232,21 @@ export function readGovernmentAgenda(input: {
 }
 
 export { getReservationAvailability };
+
+/**
+ * P02 — La seduta del gabinetto, dal vero stato della partita.
+ *
+ * L'agenda è i fatti; la seduta è chi li porta in consiglio. Il gabinetto non
+ * aggiunge numeri: distribuisce per competenza le voci dell'agenda, e le sedie
+ * senza voci **tacciono**. Leggere la seduta non muta nulla.
+ */
+export function readCabinetSession(input: {
+  gameId: string;
+  branchId: string | null;
+  playerPolityId: string;
+  government: ReturnType<typeof governmentSnapshot>;
+}): CabinetSession {
+  return composeCabinet(readGovernmentAgenda(input));
+}
+
+export type { CabinetSession };
