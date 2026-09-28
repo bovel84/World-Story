@@ -389,7 +389,33 @@ La prima tranche è **una sola filiera verticale**, non una simulazione economic
 
  *Cosa:* misurare prima il numero di reazioni candidate, ammesse, narrate e persistite per tipo d'evento e modalità di avanzamento; poi aggiungere al `ReactionContext` gli attori motivati da opera, commercio o territorio, ciascuno con `because`. Prima di offrire opzioni economiche NPC, costruire la proiezione dei **loro** conti, stock, diritti e limiti: oggi `creditHeadroom` passato a `polityOptions` è derivato dalle risorse del giocatore, non del singolo paese. La risposta NPC verificata può cambiare relazione, proporre/rifiutare un contratto o avviare un proprio processo con gli stessi vincoli, anche senza aprire chat. *Attenzione:* non chiamare automaticamente il turno NPC per ogni salto senza una politica su calendario/costi e test di regressione; non riaprire chat irrilevanti risolvendo «il mondo non reagisce». La narrazione non esegue un trasferimento. *Verifica:* attore pertinente reagisce in una fixture, attore estraneo no; reazione senza risorse non produce opera o merce; conti bilanciati, limiti al numero, ordinario/playback e salvataggio coerenti. Gate: almeno una conseguenza NPC reale e attribuibile, senza regressione della guardia sulle chat.
 
-**MG07 — Cronaca causale e percorsi equivalenti.** *Cosa:* pubblicare eventi canonici per autorizzazione/blocco, contratto, partenza/consegna, fase e collaudo, con ID causali e valori **effettivi**; collegare la UI alla notizia e all'ordine/progetto. Definire la fonte canonica e riconciliare le **due rappresentazioni persistite**: `turn_results.timeline_events` alimenta la Timeline del giocatore, mentre `simulation_events` conserva eventi associati ai checkpoint del run; nel turno ordinario questi ultimi sono scritti dagli stessi `turnResult.timelineEvents`, quindi non vanno descritti come semplice telemetria estranea alla cronaca. Integrare, non duplicare, le fasi E02–E06 del piano timeline. *Attenzione:* una previsione non è una notizia; un ordine `voided` non può essere narrato come compiuto, né un salto incompleto pubblicare eventi futuri. Il titolo o l'indice non sostituisce gli ID. *Verifica:* un caso completo riprodotto via HTTP, SSE, polling, reload e playback mostra gli stessi fatti in ordine e senza duplicati; ordini bloccati hanno esito intelligibile senza asset fantasma. Gate: il giocatore risale dalla notizia all'ordine e al costo/consegna che l'ha prodotta.
+> **Consegnata (µ1–µ2) — MG06, 28 settembre 2026.** Il difetto era noto dalla prima
+> revisione indipendente e ancora aperto: `buildReactionContext` costruiva le opzioni
+> di **ogni** polity passando il `creditHeadroom` del **giocatore**. La conseguenza
+> non era astratta: quando il giocatore era a corto di credito, ogni controparte
+> riceveva l'opzione «embargo o ritorsione commerciale» motivata con «nessun margine
+> di credito proprio» — un margine che non era il suo. È l'invariante MG-I5 applicata
+> alle opzioni: prima di offrire una leva economica a una nazione, servono i **suoi**
+> numeri.
+>
+> La correzione ha tre parti, e la terza è quella che rende vera la prima:
+> `ReactionContext` usa il margine **proprio** della polity quando il motore lo
+> conosce; un margine **ignoto** non si deduce da un altro soggetto — l'opzione
+> dichiara «margine non verificato» invece di prendere in prestito i numeri di chi
+> subisce la reazione; e `GameDataService` costruisce `polityResources` per **ogni**
+> polity dal percorso vivo, con lo stock che il motore già sa leggere. Senza questa
+> terza parte, il contratto nuovo sarebbe rimasto vuoto.
+>
+> Prova al contrario su due guasti: tornando al margine del giocatore per tutti cade
+> il test della polity senza credito; deducendo l'ignoto dal giocatore ne cadono tre.
+> **7 test verdi**, e nessuna regressione sui test delle reazioni esistenti (45 verdi
+> fra `reaction-context`, `reaction-decisions`, `game-data-service`).
+>
+> **Cosa resta aperto in MG06:** il conteggio delle reazioni candidate/ammesse/narrate
+> per tipo d'evento in un turno reale — che richiede un turno vero — e la parità
+> ordinario/playback sul loro numero.
+
+ *Cosa:* pubblicare eventi canonici per autorizzazione/blocco, contratto, partenza/consegna, fase e collaudo, con ID causali e valori **effettivi**; collegare la UI alla notizia e all'ordine/progetto. Definire la fonte canonica e riconciliare le **due rappresentazioni persistite**: `turn_results.timeline_events` alimenta la Timeline del giocatore, mentre `simulation_events` conserva eventi associati ai checkpoint del run; nel turno ordinario questi ultimi sono scritti dagli stessi `turnResult.timelineEvents`, quindi non vanno descritti come semplice telemetria estranea alla cronaca. Integrare, non duplicare, le fasi E02–E06 del piano timeline. *Attenzione:* una previsione non è una notizia; un ordine `voided` non può essere narrato come compiuto, né un salto incompleto pubblicare eventi futuri. Il titolo o l'indice non sostituisce gli ID. *Verifica:* un caso completo riprodotto via HTTP, SSE, polling, reload e playback mostra gli stessi fatti in ordine e senza duplicati; ordini bloccati hanno esito intelligibile senza asset fantasma. Gate: il giocatore risale dalla notizia all'ordine e al costo/consegna che l'ha prodotta.
 
 ## 6. Sequenza di consegna e limiti
 
