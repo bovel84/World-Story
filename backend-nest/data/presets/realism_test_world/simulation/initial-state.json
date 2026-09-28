@@ -1,14 +1,16 @@
 {
   "treasuries": [
     { "id": "acc_alpha_treasury", "actorId": "alpha_treasury", "currencyId": "TEST", "balanceMinorUnits": "1000000" },
-    { "id": "acc_beta_treasury", "actorId": "beta_treasury", "currencyId": "TEST", "balanceMinorUnits": "800000" }
+    { "id": "acc_beta_treasury", "actorId": "beta_treasury", "currencyId": "TEST", "balanceMinorUnits": "800000" },
+    { "id": "acc_alpha_steel", "actorId": "alpha_steel_co_treasury", "currencyId": "TEST", "balanceMinorUnits": "400000" }
   ],
   "inventory": [
     { "id": "lot_ore_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "iron_ore", "baseUnits": "500" } },
     { "id": "lot_coal_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "coal", "baseUnits": "400" } },
     { "id": "lot_grain_alpha", "ownerActorId": "alpha_farms", "regionId": "ALPHA-sud", "quantity": { "resourceId": "grain", "baseUnits": "200" } },
-    { "id": "lot_tools_alpha", "ownerActorId": "alpha_steel_co", "custodianActorId": "alpha_farms", "regionId": "ALPHA-sud", "quantity": { "resourceId": "tools", "baseUnits": "20" } },
-    { "id": "lot_steel_beta", "ownerActorId": "beta_treasury", "regionId": "BETA-est", "quantity": { "resourceId": "steel", "baseUnits": "150" } }
+    { "id": "lot_tools_alpha", "ownerActorId": "alpha_steel_co", "custodianActorId": "alpha_farms", "regionId": "ALPHA-sud", "quantity": { "resourceId": "tools", "baseUnits": "80" } },
+    { "id": "lot_steel_beta", "ownerActorId": "beta_treasury", "regionId": "BETA-est", "quantity": { "resourceId": "steel", "baseUnits": "150" } },
+    { "id": "lot_steel_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "steel", "baseUnits": "240" } }
   ],
   "deposits": [
     { "id": "dep_ore_alpha", "resourceId": "iron_ore", "regionId": "ALPHA-nord", "known": { "resourceId": "iron_ore", "baseUnits": "100000" }, "accessibility": "requires_extraction" },

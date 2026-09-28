@@ -1270,7 +1270,9 @@ export const gameApi = {
   /**
    * Add action to queue (without processing)
    */
-  queueAction: (gameId: string, text: string): Promise<{
+  queueAction: (gameId: string, text: string, work?: {
+    workId: string; payerActorId: string; materialActorId: string; funded: boolean;
+  }): Promise<{
     id: string;
     text: string;
     status: string;
@@ -1278,7 +1280,10 @@ export const gameApi = {
   }> => {
     return fetchApi(`/games/${gameId}/actions/queue`, {
       method: 'POST',
-      body: JSON.stringify({ text }),
+      // MG02 µ6 — La dichiarazione d'opera viaggia con l'ordine. Il client non
+      // la inventa: la riceve dalla verifica di fattibilità e la rimanda. Senza,
+      // la costruzione non nasce (il testo da solo non è una distinta).
+      body: JSON.stringify(work ? { text, work } : { text }),
     });
   },
 
@@ -1328,6 +1333,15 @@ export const gameApi = {
     warnings: string[];
     summary: string;
     rawAssessment?: unknown;
+    /** MG02 µ6 — detentori risolti dal server; il client li rimanda nella coda. */
+    workDeclaration?: {
+      workId: string;
+      payerActorId: string;
+      materialActorId: string | null;
+      funded: boolean;
+      missingMaterials: Array<{ resourceId: string; missing: string }>;
+      note?: string;
+    };
   }> => {
     return fetchApi(`/games/${gameId}/actions/check-feasibility`, {
       method: 'POST',

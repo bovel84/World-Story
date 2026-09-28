@@ -2,5 +2,6 @@
   { "id": "ft_mine", "name": "Miniera", "capacity": { "unit": "kg/giorno", "perDay": "100" } },
   { "id": "ft_foundry", "name": "Altoforno", "capacity": { "unit": "kg/giorno", "perDay": "80" } },
   { "id": "ft_farm", "name": "Fattoria", "capacity": { "unit": "kg/giorno", "perDay": "60" } },
-  { "id": "ft_works", "name": "Officina meccanica", "capacity": { "unit": "pz/giorno", "perDay": "5" } }
+  { "id": "ft_works", "name": "Officina meccanica", "capacity": { "unit": "pz/giorno", "perDay": "5" } },
+  { "id": "ft_road", "name": "Strada ordinaria", "capacity": { "unit": "km", "perDay": "40" }, "maintenance": { "resourceId": "tools", "baseUnits": "1", "periodDays": 60 } }
 ]

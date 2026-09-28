@@ -87,12 +87,17 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
     }
   }, [gameId, suggestionsLoading, setSuggestions]);
 
-  const queuePlayerAction = useCallback(async (text: string): Promise<boolean> => {
+  const queuePlayerAction = useCallback(async (
+    text: string,
+    // MG02 µ6 — la dichiarazione d'opera, quando l'ordine è una costruzione.
+    // Arriva dalla verifica di fattibilità, non dal giocatore.
+    work?: { workId: string; payerActorId: string; materialActorId: string; funded: boolean },
+  ): Promise<boolean> => {
     if (!gameId || !text.trim()) return false;
     if (pendingActions.some(action => action.text.trim() === text.trim())) return true;
     setSuggestionsError('');
     try {
-      const queued = await gameApi.queueAction(gameId, text.trim());
+      const queued = await gameApi.queueAction(gameId, text.trim(), work);
       addPendingAction({ id: queued.id, text: queued.text });
       return true;
     } catch (e) {
@@ -168,7 +173,20 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
 
   const handleFeasibilityRegister = useCallback(async () => {
     if (feasibilityResult?.feasible && verifyingText.trim()) {
-      if (await queuePlayerAction(verifyingText.trim())) {
+      // La dichiarazione si rimanda solo se il server ha trovato un detentore
+      // per i materiali: `materialActorId: null` significa che nessuno copre
+      // la distinta, e in quel caso l'ordine resta prosa invece di promettere
+      // un cantiere che non nascerebbe.
+      const declaration = feasibilityResult.workDeclaration;
+      const work = declaration && declaration.materialActorId
+        ? {
+          workId: declaration.workId,
+          payerActorId: declaration.payerActorId,
+          materialActorId: declaration.materialActorId,
+          funded: declaration.funded,
+        }
+        : undefined;
+      if (await queuePlayerAction(verifyingText.trim(), work)) {
         clearOrderDraft();
         setShowFeasibility(false);
         setVerifyingText('');

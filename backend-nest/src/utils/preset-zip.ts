@@ -203,7 +203,10 @@ export function importPresetZip(
       'manifest.json': 'manifest', 'polities.json': 'polities', 'resources.json': 'resources',
       'technologies.json': 'technologies', 'recipes.json': 'recipes', 'facilities.json': 'facilities',
       'actors.json': 'actors', 'authorities.json': 'authorities', 'initial-state.json': 'initial-state',
+      // MG01: sezione opzionale delle opere costruibili.
+      'works.json': 'works',
     };
+    const optionalCatalogFiles = new Set(['works.json']);
     for (const entry of simEntries) {
       const fileName = entry.rel.slice('simulation/'.length);
       if (fileName === 'sources.md') continue; // testo, non validato dal loader
@@ -219,6 +222,7 @@ export function importPresetZip(
       }
     }
     for (const key of Object.keys(keys)) {
+      if (optionalCatalogFiles.has(key)) continue; // works.json è opzionale
       if ((catalogFiles as any)[keys[key]] === undefined) parseIssues.push(`simulation/${keys[key]}.json: file di catalogo mancante`);
     }
     const report = validateCatalog(catalogFiles);

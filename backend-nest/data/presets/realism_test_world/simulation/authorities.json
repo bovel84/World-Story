@@ -19,5 +19,12 @@
     "activity": "allocate",
     "limits": [],
     "requiresApprovals": [ "institutional" ]
+  },
+  {
+    "id": "auth_treasury_allocate",
+    "actorType": "treasury",
+    "activity": "allocate",
+    "limits": [],
+    "requiresApprovals": [ "user" ]
   }
 ]

@@ -203,6 +203,7 @@ export function initDatabase() {
     if (!e.message.includes('duplicate column name')) throw e;
   }
 
+
   // M06 µ1: feature flag economico IMMUTABILE per partita. Il client non lo
   // invia: viene derivato dal catalogo server-side al create della partita.
   try {
@@ -970,6 +971,18 @@ export function initDatabase() {
   for (const sql of [
     "ALTER TABLE pending_actions ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'queued'",
     "ALTER TABLE pending_actions ADD COLUMN execution_status TEXT NOT NULL DEFAULT 'not_started'",
+    // MG02 µ5 — la dichiarazione d'opera sopravvive al riavvio. Senza, un
+    // ordine che nominava una strada ridiventa prosa: nessun cantiere e nessun
+    // avviso. NULL per gli ordini in prosa, che restano la maggioranza; le code
+    // scritte prima di µ5 hanno NULL e si comportano come prima.
+    "ALTER TABLE pending_actions ADD COLUMN work_order_json TEXT DEFAULT NULL",
+    // MG03 — il contesto operativo di un progetto: chi paga, chi ha i materiali,
+    // in quale regione sorge. Al commit lo conosce chi crea il progetto; dopo un
+    // riavvio nessuno lo ricorderebbe, e l'avanzamento non saprebbe dove
+    // attingere né dove collocare l'opera.
+    "ALTER TABLE project_runtime_states ADD COLUMN context_json TEXT DEFAULT NULL",
+    // MG02 µ5 — il cantiere nato da un ordine, per la cronaca e per il reload.
+    "ALTER TABLE simulation_action_outcomes ADD COLUMN project_id TEXT DEFAULT NULL",
   ]) {
     try { db.exec(sql); } catch (e: any) {
       if (!e.message.includes('duplicate column name')) throw e;

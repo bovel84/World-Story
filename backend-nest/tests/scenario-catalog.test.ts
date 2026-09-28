@@ -30,6 +30,9 @@ function baseFiles(): CatalogFiles {
     actors: read('actors.json'),
     authorities: read('authorities.json'),
     'initial-state': read('initial-state.json'),
+    // MG01: le opere sono una sezione opzionale; qui la si include perché i
+    // casi di prova della strada la attraversano.
+    works: read('works.json'),
   };
 }
 
@@ -41,6 +44,7 @@ function writeTmpCatalog(files: CatalogFiles): string {
     ['manifest', 'manifest.json'], ['polities', 'polities.json'], ['resources', 'resources.json'],
     ['technologies', 'technologies.json'], ['recipes', 'recipes.json'], ['facilities', 'facilities.json'],
     ['actors', 'actors.json'], ['authorities', 'authorities.json'], ['initial-state', 'initial-state.json'],
+    ['works', 'works.json'],
   ];
   for (const [key, fileName] of names) {
     if (files[key] !== undefined) fs.writeFileSync(path.join(simDir, fileName), JSON.stringify(files[key], null, 2));
@@ -80,7 +84,7 @@ describe('M01 µ1 — fixture realism_test_world valida', () => {
   it('ogni file di catalogo ha un hash di contenuto (basis cache MAT18)', () => {
     const files = baseFiles();
     const hashes = catalogHash(files);
-    expect(Object.keys(hashes).sort()).toEqual(['actors', 'authorities', 'facilities', 'initial-state', 'manifest', 'polities', 'recipes', 'resources', 'technologies'].sort());
+    expect(Object.keys(hashes).sort()).toEqual(['actors', 'authorities', 'facilities', 'initial-state', 'manifest', 'polities', 'recipes', 'resources', 'technologies', 'works'].sort());
     // contenuto diverso → hash diverso
     const patched = { ...files, manifest: { ...(files.manifest as any), version: 2 } };
     expect(catalogHash(patched).manifest).not.toBe(hashes.manifest);

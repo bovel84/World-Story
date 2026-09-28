@@ -1,0 +1,66 @@
+{
+  "state": {
+    "decisione": "D-1 — dove vive ObjectsBoard (la sala operativa) nel gioco World Story",
+    "contesto": "Dopo la fase V01-V05 il Dossier nazionale è diventato un documento di stato a quattro sezioni (Situazione, Regno, Tesoro, Stato maggiore). Le 'sfide di pace' (pressioni con opzioni di risposta) sono state TOLTE dal dossier e messe in un pannello proprio, 'Questioni', nella barra comandi, perché il principio adottato è: il dossier si legge, le decisioni si prendono in un pannello dedicato.",
+    "oggetto": "ObjectsBoard",
+    "oggetto_cosa_fa": "Sala operativa: crea reparti (raise_formation), compra equipaggiamento (procure), commercia risorse (trade), e su ogni reparto: rinforza (reinforce_unit), riequipaggia (reequip_unit), ricostituisci (reconstitute_unit), trasferisci (transfer_unit), cambia armata (reassign_unit), più quattro ordini tattici (attack/defend/reserve/withdraw).",
+    "dimensione": { "objectsboard_righe": 331, "unitactionpanel_righe": 278, "azioni_totali": 12 },
+    "dove_e_montato_oggi": {
+      "primario": "Dentro il Dossier nazionale, sezione 'Stato maggiore' (NationDock.tsx)",
+      "secondario": "ProvinceInspector — il pannello che si apre cliccando un reparto o un fronte sulla mappa — ma solo per le azioni di reparto e gli ordini"
+    },
+    "fatto_decisivo_misurato": {
+      "raise_formation_procure_trade_altrove": false,
+      "dettaglio": "Creare reparti, comprare equipaggiamento e commerciare risorse NON sono raggiungibili altrove: ObjectsBoard è l'unica porta nel gioco. Le azioni di reparto e gli ordini sono invece raggiungibili anche dal ProvinceInspector (pannello di contesto sulla mappa).",
+      "il_modulo_Ordini_non_le_ha": "Il modulo 'Ordini' (ActionsPanel) scrive ordini in linguaggio naturale e non contiene nessuna di queste 12 azioni."
+    },
+    "tensione": "ObjectsBoard è un blocco INTERATTIVO dentro un documento di STATO. È la stessa tensione che ha fatto uscire le sfide in V01.",
+    "precedente_opposto": "UnitActionPanel è interattivo dentro ProvinceInspector, un pannello di contesto: quindi un blocco interattivo in un pannello non è di per sé sbagliato.",
+    "opzioni": {
+      "A": "ObjectsBoard resta nel dossier, sezione 'Stato maggiore'. Il dossier torna a contenere un blocco interattivo, ma è operativo (agisce su oggetti del paese), non una sfida.",
+      "B": "ObjectsBoard diventa un pannello proprio (nuovo modulo nella barra comandi, come 'Questioni'), montato in DeskContent con le stesse props. Il dossier resta puro documento di stato.",
+      "C": "ObjectsBoard esce del tutto: raise_formation/procure/trade in un pannello 'Forze', le azioni di reparto e gli ordini restano al ProvinceInspector. Il dossier non le mostra più."
+    },
+    "dubbio_d_uso_non_misurato": "Non sappiamo se il giocatore apre ObjectsBoard dal dossier o dalla mappa: è una domanda di telemetria/osservazione su una partita vera, non deducibile dal codice."
+  },
+  "questions": {
+    "natura": {
+      "type": "choice",
+      "instructions": "Guarda cosa fa l'oggetto: crea reparti, compra equipaggiamento, impartisce ordini tattici. In quale categoria di superficie appartiene, considerando che il dossier è un documento di stato che si legge e non si aziona?",
+      "criteria": {
+        "stato": "appartiene a un documento di stato: va letto insieme alle cifre del paese",
+        "operativa": "appartiene a una superficie operativa: è uno strumento di comando, non una lettura",
+        "entrambe": "ha bisogno di stare in tutti e due i contesti, lettura e comando"
+      }
+    },
+    "irraggiungibile": {
+      "type": "choice",
+      "instructions": "Creare reparti, comprare equipaggiamento e commerciare risorse sono raggiungibili SOLO da questo blocco, che oggi sta nel dossier. Questo fatto è un argomento per lasciarlo dov'è, o per dargli un pannello proprio (che resterebbe comunque l'unica porta, ma in un posto coerente)?",
+      "criteria": {
+        "lasciare": "tenerlo nel dossier: l'unica porta è già lì, spostarla è rischio senza guadagno",
+        "pannello": "dargli un pannello proprio: essere l'unica porta non giustifica stare nel posto sbagliato",
+        "indifferente": "il fatto non cambia la decisione: conta dove il giocatore lo cerca"
+      }
+    },
+    "coerenza_precedente": {
+      "type": "score",
+      "instructions": "Quanto è coerente dare a questa sala operativa un pannello proprio, esattamente come è stato appena fatto con le sfide (pannello 'Questioni', fuori dal dossier)? Valuta da 0 (nessuna coerenza, la sfida e la sala operativa sono cose diverse) a 3 (piena coerenza, stesso principio applicato).",
+      "criteria": {
+        "0": "nessuna coerenza: le sfide sono decisioni da prendere, la sala operativa è uno strumento di comando — categorie diverse",
+        "1": "coerenza debole: si somigliano solo per il fatto di essere entrambe interattive",
+        "2": "coerenza buona: entrambe non sono 'stato da leggere', e quindi non appartengono al dossier",
+        "3": "piena coerenza: è lo stesso principio — il dossier si legge, le azioni si fanno in una superficie dedicata"
+      }
+    },
+    "rischio_spezzare": {
+      "type": "score",
+      "instructions": "L'opzione C spezza la sala in due: le azioni di reparto e gli ordini resterebbero sulla mappa (dove ci sono già), mentre creazione/acquisto/commercio andrebbero in un pannello. Quanto rischia di rompere un flusso d'uso che oggi è unificato — cioè 'da un solo posto vedo e comando tutte le mie forze'? Valuta da 0 (nessun rischio) a 3 (rischio alto).",
+      "criteria": {
+        "0": "nessun rischio: le due parti sono già usate in momenti diversi",
+        "1": "rischio basso: si perde poco, il contesto mappa è già la casa naturale",
+        "2": "rischio medio: il giocatore che pianifica dal dossier perderebbe metà delle azioni",
+        "3": "rischio alto: rompe il 'posto unico delle forze', che è il valore della sala"
+      }
+    }
+  }
+}

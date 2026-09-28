@@ -21,6 +21,25 @@ export interface FeasibilityResult {
   warnings: string[];
   summary: string;
   rawAssessment?: unknown;
+  /**
+   * MG02 µ6 — La dichiarazione d'opera, con i detentori già risolti dal
+   * server. Presente solo quando l'ordine è una costruzione di un'opera del
+   * catalogo. Il client la rimanda nella coda: senza, l'ordine resta prosa e
+   * nessun cantiere nasce — perché il testo non è una distinta.
+   *
+   * `materialActorId: null` significa che nessun attore della nazione copre
+   * tutti i materiali, e `missingMaterials` dice quanto manca: in quel caso
+   * l'ordine si registra comunque, ma come prosa, e il gioco lo dichiarerà
+   * non finanziato invece di promettere un cantiere.
+   */
+  workDeclaration?: {
+    workId: string;
+    payerActorId: string;
+    materialActorId: string | null;
+    funded: boolean;
+    missingMaterials: Array<{ resourceId: string; missing: string }>;
+    note?: string;
+  };
 }
 
 interface FeasibilityCheckProps {
