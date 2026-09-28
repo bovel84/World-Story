@@ -44,6 +44,20 @@ describe('U02 passo 2 — buildFeasibilityChain', () => {
     expect(view.hasDeficit).toBe(true);
   });
 
+  it('WS-PREFLIGHT-01: il nodo deficit porta il campo canonico dichiarato dal motore', () => {
+    const explanation = explainFeasibility({
+      status: 'blocked',
+      blockers: [{ code: 'INVALID_PRIORITY', field: 'priority', detail: 'intero server-order 0..1000000 obbligatorio' }],
+    });
+    const view = buildFeasibilityChain({ orderText: 'Ordine', costs: baseCosts, prerequisites: [], explanation });
+    const deficit = view.nodes.find(n => n.kind === 'deficit')!;
+    expect(deficit.field).toBe('priority');
+    // Il deficit senza campo resta senza: nessuna causa inventata.
+    const plain = explainFeasibility({ status: 'blocked', blockers: [{ code: 'KNOWLEDGE_MISSING', detail: 'x' }] });
+    const plainView = buildFeasibilityChain({ orderText: 'Ordine', costs: baseCosts, prerequisites: [], explanation: plain });
+    expect(plainView.nodes.find(n => n.kind === 'deficit')!.field).toBeUndefined();
+  });
+
   it('aggiunge i prerequisiti non già coperti dai blocker, senza duplicati', () => {
     const explanation = explainFeasibility({ status: 'blocked', blockers: [] });
     const view = buildFeasibilityChain({

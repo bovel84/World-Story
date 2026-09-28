@@ -67,4 +67,18 @@ describe('U02 µ2 — explainFeasibility', () => {
     expect(view.blockers[0].label).toBe('MADE_UP');
     expect(view.blockers[0].missing).toEqual(['ok']);
   });
+
+  it('WS-PREFLIGHT-01: espone il campo canonico del deficit quando il motore lo dichiara', () => {
+    const view = explainFeasibility({
+      status: 'blocked',
+      blockers: [
+        { code: 'MISSING_FIELD', field: 'originalText', detail: 'testo originale obbligatorio' },
+        { code: 'MISSING_AUTHORIZATION', detail: 'autorizzazione esplicita obbligatoria' },
+      ],
+    });
+    expect(view.blockers[0].field).toBe('originalText');
+    // Nessun campo inventato: se il motore non lo dichiara, resta assente.
+    expect(view.blockers[1].field).toBeUndefined();
+    expect('field' in view.blockers[1]).toBe(false);
+  });
 });

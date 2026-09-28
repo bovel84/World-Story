@@ -26,7 +26,7 @@ import { loadSimulationCatalog } from '../scenario/loader';
 import { FeasibilityService, type OrderAssessment, type ReasonCode } from '../core/feasibility/FeasibilityService';
 import { strictReadingsFor } from './PreflightReadings';
 import { resolveWorkHolders } from './WorkHolders';
-import { normalizeOrderIntent } from '../core/feasibility/intent';
+import { normalizeOrderIntent, draftIntentCandidate } from '../core/feasibility/intent';
 import { estimateIntentCosts, type CostEstimate } from '../core/feasibility/costs';
 import type { ActionOutcome, ConvertedAction } from '../prompts/types';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
@@ -442,6 +442,8 @@ export class OrderExecutionService {
     }
 
     // Testo libero → intent: stesso batch LLM del salto, con un solo ordine.
+    // Il convertitore resta un controllo di convertibilità: la sua uscita è
+    // prosa, non un `OrderIntent` (WS-PREFLIGHT-01).
     const gameData = this.ctx.buildGameData();
     const tempId = shortId();
     const convertedActions = await this.ctx.convertActionsBatch(gameData, [{ actionId: tempId, text: trimmed }]);
@@ -450,11 +452,20 @@ export class OrderExecutionService {
       throw new Error('Impossibile convertire il testo in intenzione');
     }
 
-    const convertedAction = convertedActions[0];
+    const actorPolityId = this.ctx.playerPolity();
+    if (!actorPolityId) {
+      throw new Error('Identità politica del giocatore non disponibile');
+    }
 
-    // Normalizzazione canonica: fallisce con needs_clarification se il testo
-    // non individua un intent completo (tipo, target, catalogo, autorizzazione).
-    const normalized = normalizeOrderIntent(convertedAction);
+    // Normalizzazione canonica: il convertitore restituisce prosa, non un
+    // OrderIntent. L'involucro canonico lo completa il server con ciò che
+    // possiede (id, polity, testo, priorità, autorizzazione) e dichiara la
+    // parte non interpretata `qualitative`; `normalizeOrderIntent` resta il
+    // punto unico di validazione. Prima di WS-PREFLIGHT-01 si normalizzava
+    // direttamente l'uscita del convertitore, e ogni campo canonico assente
+    // diventava un deficit di schema mostrato al giocatore.
+    const candidate = draftIntentCandidate({ id: `ord_${tempId}`, actorPolityId, originalText: trimmed });
+    const normalized = normalizeOrderIntent(candidate);
 
     // Identità: mondo con catalog binding e attore tesoreria della polity.
     const worldRow = worldRepository.findById(this.ctx.worldId) as { template_id?: unknown } | undefined;
@@ -470,16 +481,7 @@ export class OrderExecutionService {
 
     // La stima costa esiste anche per un intent non normalizzabile: l'eventuale
     // catalogRef già presente orienta la proiezione; altrimenti è 'none'.
-    const costs = estimateIntentCosts(loaded.catalog, normalized.ok ? normalized.intent : {
-      id: tempId,
-      actorPolityId: '',
-      originalText: trimmed,
-      actionKind: 'qualitative',
-      targetIds: [],
-      priority: 0,
-      dependencyIds: [],
-      authorization: { allowPartialStart: false, allowedPhaseIds: [] },
-    } as never);
+    const costs = estimateIntentCosts(loaded.catalog, normalized.ok ? normalized.intent : (candidate as never));
 
     if (!normalized.ok) {
       return {
@@ -488,6 +490,7 @@ export class OrderExecutionService {
           status: 'blocked',
           blockers: normalized.clarifications.map(c => ({
             code: c.code as ReasonCode,
+            field: c.field,
             detail: c.message,
           })),
           warnings: [],
@@ -497,10 +500,7 @@ export class OrderExecutionService {
       };
     }
 
-    const polity = this.ctx.playerPolity();
-    if (!polity) {
-      throw new Error('Identità politica del giocatore non disponibile');
-    }
+    const polity = actorPolityId;
 
     const actor = loaded.catalog.actors.find(
       item => item.polityId === polity && item.type === 'treasury',
