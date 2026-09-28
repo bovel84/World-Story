@@ -27,7 +27,7 @@ async function reachHud(page) {
 }
 
 test.describe('Q01 µ2 — moduli della scrivania', () => {
-  test('un solo modulo attivo alla volta (Ordini → Nazione)', async ({ page }) => {
+  test('un solo modulo attivo alla volta (Governo → Nazione)', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
@@ -35,8 +35,8 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(page.locator('.suggestions-content')).toHaveCount(0);
     await expect(page.locator('.nation-desk')).toBeHidden();
 
-    // Apri «Ordini»: il pannello azioni è visibile.
-    await page.locator('.rail-btn[aria-label="Ordini"]').click();
+    // Apri «Governo»: il pannello azioni è visibile.
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
     await expect(page.locator('.suggestions-content')).toBeVisible();
     await expect(page.locator('.nation-desk')).toBeHidden();
 
@@ -52,7 +52,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     installMockApi(page);
     await reachHud(page);
 
-    await page.locator('.rail-btn[aria-label="Ordini"]').click();
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
     await expect(page.locator('.suggestions-content')).toBeVisible();
 
     // Il compositore libero è presente con l'etichetta corretta.

@@ -32,8 +32,8 @@ test.describe('ARMY-MOVE P3 — le proposte elaborate valgono per un turno', () 
     installMockApi(page);
     await reachHud(page);
 
-    // Pannello Ordini: nessuna proposta finché il giocatore non le chiede.
-    await page.locator('.rail-btn[aria-label="Ordini"]').click();
+    // Pannello Governo: nessuna proposta finché il giocatore non le chiede.
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
     await expect(page.locator('.suggestions-content')).toBeVisible();
     await expect(page.locator('.suggestions-empty')).toBeVisible();
     await expect(page.locator('.suggestion-item')).toHaveCount(0);
@@ -72,7 +72,7 @@ test.describe('ARMY-MOVE P3 — le proposte elaborate valgono per un turno', () 
     });
     await reachHud(page);
 
-    await page.locator('.rail-btn[aria-label="Ordini"]').click();
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
     await page.locator('.btn-generate-suggestions').click();
     await expect(page.locator('.suggestion-item')).toHaveCount(2);
 
