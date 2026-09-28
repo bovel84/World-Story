@@ -432,8 +432,8 @@ export class OrderExecutionService {
   }
 
   /**
-   * G4-B/G4-D — verifica completa: assessment + stima costi da catalogo in un
-   * solo percorso LLM. La stima è sola lettura e usa solo dati autorevoli.
+   * G4-B/G4-D — verifica completa: assessment + stima costi da catalogo.
+   * Sola lettura, **deterministica**: non chiama l'LLM (vedi sotto).
    */
   async checkFeasibilityWithCosts(text: string): Promise<{ assessment: OrderAssessment; costs: CostEstimate; workDeclaration?: WorkDeclaration }> {
     const trimmed = text.trim();
@@ -441,26 +441,21 @@ export class OrderExecutionService {
       throw new Error('Il testo dell’ordine è obbligatorio');
     }
 
-    // Testo libero → intent: stesso batch LLM del salto, con un solo ordine.
-    // Il convertitore resta un controllo di convertibilità: la sua uscita è
-    // prosa, non un `OrderIntent` (WS-PREFLIGHT-01).
-    const gameData = this.ctx.buildGameData();
+    // WS-PREFLIGHT-01 — Il preflight è una lettura e non deve dipendere da un
+    // provider esterno. Il vecchio convertitore LLM restituiva prosa (non un
+    // `OrderIntent`) e non serviva alla derivazione: con un provider non
+    // autorizzato faceva fallire l'intera verifica con 424, pur non
+    // contribuendo in nulla all'assessment. L'involucro canonico lo deriva il
+    // server (draftIntentCandidate).
     const tempId = shortId();
-    const convertedActions = await this.ctx.convertActionsBatch(gameData, [{ actionId: tempId, text: trimmed }]);
-
-    if (!convertedActions || convertedActions.length === 0) {
-      throw new Error('Impossibile convertire il testo in intenzione');
-    }
-
     const actorPolityId = this.ctx.playerPolity();
     if (!actorPolityId) {
       throw new Error('Identità politica del giocatore non disponibile');
     }
 
-    // Normalizzazione canonica: il convertitore restituisce prosa, non un
-    // OrderIntent. L'involucro canonico lo completa il server con ciò che
-    // possiede (id, polity, testo, priorità, autorizzazione) e dichiara la
-    // parte non interpretata `qualitative`; `normalizeOrderIntent` resta il
+    // Normalizzazione canonica: l'involucro canonico lo completa il server con
+    // ciò che possiede (id, polity, testo, priorità, autorizzazione) e dichiara
+    // la parte non interpretata `qualitative`; `normalizeOrderIntent` resta il
     // punto unico di validazione. Prima di WS-PREFLIGHT-01 si normalizzava
     // direttamente l'uscita del convertitore, e ogni campo canonico assente
     // diventava un deficit di schema mostrato al giocatore.
