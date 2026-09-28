@@ -116,27 +116,30 @@ router.post('/:id/actions/check-feasibility', async (req, res) => {
     const text = req.body?.text?.trim();
     if (!text) { res.status(400).json({ error: 'Testo ordine obbligatorio' }); return; }
 
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+
+    // G4-B — L'economy_mode è la fonte della distinzione, non la presenza di
+    // `simulation/`: preset legacy come millennium_dawn espongono comunque un
+    // catalogo parziale, e instradarli nello strict faceva fallire la verifica
+    // (polity fuori catalogo) invece di usarne la stima dal conto nazionale.
+    if (gameRepository.getEconomyMode(req.params.id) === 'legacy') {
+      respondLegacyFeasibility(res, session, text);
+      return;
+    }
+
     const templateId = (game.world as { template_id?: unknown }).template_id;
     if (typeof templateId !== 'string' || !templateId) {
-      if (gameRepository.getEconomyMode(req.params.id) === 'legacy') {
-        respondLegacyFeasibility(res, getSessionRegistry().getSessionOrThrow(req.params.id), text);
-        return;
-      }
       res.status(409).json({ error: 'Verifica non disponibile: catalog binding mancante', code: 'catalog_binding_missing' });
       return;
     }
 
-    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
     const loaded = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', templateId));
     if (!loaded.catalog) {
-      if (gameRepository.getEconomyMode(req.params.id) === 'legacy') {
-        respondLegacyFeasibility(res, getSessionRegistry().getSessionOrThrow(req.params.id), text);
-        return;
-      }
       res.status(422).json({ error: 'Catalogo server non valido', report: loaded.report });
       return;
     }
-    // G4-B/G4-D: un solo percorso LLM → assessment + stima costi da catalogo.
+    // G4-B/G4-D: assessment + stima costi da catalogo, in sola lettura
+    // (WS-PREFLIGHT-01: nessun LLM nel preflight).
     const { assessment, costs, workDeclaration } = await session.checkFeasibilityWithCosts(text);
 
     // Proiezione per la UI: blocker → prerequisiti/rischi, warning invariati.
