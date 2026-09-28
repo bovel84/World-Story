@@ -63,6 +63,9 @@ export interface GameScreenProps {
 }
 
 export function GameScreen({ nation, timeline, feed, orders, playback, advance, shell }: GameScreenProps) {
+  // P02 — La seduta del gabinetto arriva dall'hook degli ordini, non dallo
+  // store della bozza: è una lettura del Governo, non una proprietà del testo.
+  const { cabinet, cabinetLoading, cabinetError, loadCabinet, chooseCabinetPath } = orders;
   const {
     currentGame, currentWorld, selectedRegion, setSelectedRegion, setCurrentGame, setCurrentWorld,
     setHistory, pendingActions, changedRegions, history: actionHistory,
@@ -185,6 +188,12 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     openModule('orders');
     notify('Richiesta portata in consiglio: completa l’ordine e registralo.', 'info');
   }, [updateOrderDraft, openModule, notify]);
+
+  // P02 — La seduta del gabinetto si carica all'apertura del Governo: è una
+  // lettura, e il momento in cui serve è quello in cui il giocatore entra.
+  useEffect(() => {
+    if (activeModule === 'orders') void loadCabinet();
+  }, [activeModule, loadCabinet]);
 
   const {
     currentRegion,
@@ -510,6 +519,10 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             suggestions={suggestions}
             orderDraftText={orderDraftText}
             updateOrderDraft={updateOrderDraft}
+            cabinet={cabinet}
+            cabinetLoading={cabinetLoading}
+            cabinetError={cabinetError}
+            onCabinetChoose={chooseCabinetPath}
             enhancedPreview={enhancedPreview}
             enhanceLoading={enhanceLoading}
             enhanceError={enhanceError}

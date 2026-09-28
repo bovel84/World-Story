@@ -1,5 +1,7 @@
 import { type ReactNode } from 'react';
 import { ActionsPanel } from '../Game/ActionsPanel';
+import { CabinetSession } from '../Game/CabinetSession';
+import type { CabinetAddressView, CabinetPathView, CabinetSessionView } from '../../services/api';
 import { AdvisorChat } from '../Game/AdvisorChat';
 import { ChatsPanel } from '../Game/ChatsPanel';
 import { EventFeed } from '../Game/EventFeed';
@@ -83,6 +85,10 @@ interface DeskContentProps {
   suggestions: Suggestion[];
   orderDraftText: string;
   updateOrderDraft: (text: string) => void;
+  /** P02 — la seduta del gabinetto: i ministri che hanno qualcosa da dire. */
+  cabinet?: CabinetSessionView | null;
+  cabinetLoading?: boolean;
+  cabinetError?: string | null;
   enhancedPreview: string | null;
   enhanceLoading: boolean;
   enhanceError: string | null;
@@ -114,6 +120,11 @@ interface DeskContentProps {
   playerPolityId: string;
   currentGameId: string | undefined;
   onGenerateSuggestions?: () => void;
+  /**
+   * P02 — Scelta una strada del Governo, il chiamante ne fa una **bozza**.
+   * Nessuna registrazione qui: la conferma è un atto separato (invariante MG-I1).
+   */
+  onCabinetChoose?: (item: CabinetAddressView['items'][number], path: CabinetPathView) => void;
   suggestionsLoading?: boolean;
   suggestionsError?: string;
 }
@@ -163,6 +174,9 @@ export function DeskContent({
   suggestions,
   orderDraftText,
   updateOrderDraft,
+  cabinet = null,
+  cabinetLoading = false,
+  cabinetError = null,
   enhancedPreview,
   enhanceLoading,
   enhanceError,
@@ -190,6 +204,7 @@ export function DeskContent({
   playerPolityId,
   currentGameId,
   onGenerateSuggestions,
+  onCabinetChoose,
   suggestionsLoading,
   suggestionsError,
 }: DeskContentProps) {
@@ -205,8 +220,8 @@ export function DeskContent({
     return (
       <div className="suggestions-content">
         <div className="council-head">
-          <div className="council-title">Pianifica la prossima mossa</div>
-          <div className="council-sub">Ordini concreti costruiti sulla mappa, la cronaca e la tua strategia</div>
+          <div className="council-title">Il Governo</div>
+          <div className="council-sub">I ministri portano i bisogni del paese; da ogni proposta nasce una bozza d’ordine</div>
           <button
             className="btn-generate-suggestions"
             disabled={!!suggestionsLoading}
@@ -227,6 +242,16 @@ export function DeskContent({
         >
           ✕
         </button>
+
+        {/* P02 — La seduta del gabinetto: prima i bisogni documentati del
+            paese, poi le proposte del modello. L'ordine non è casuale: i
+            ministri parlano di fatti misurati, il modello di opportunità. */}
+        <CabinetSession
+          session={cabinet}
+          loading={cabinetLoading}
+          error={cabinetError}
+          onChoose={onCabinetChoose}
+        />
 
         {suggestions.length === 0 && !suggestionsLoading && !suggestionsError && (
           <p className="suggestions-empty" role="status">{suggestionsEmptyHint()}</p>

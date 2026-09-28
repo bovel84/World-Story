@@ -417,6 +417,172 @@ La prima tranche è **una sola filiera verticale**, non una simulazione economic
 
  *Cosa:* pubblicare eventi canonici per autorizzazione/blocco, contratto, partenza/consegna, fase e collaudo, con ID causali e valori **effettivi**; collegare la UI alla notizia e all'ordine/progetto. Definire la fonte canonica e riconciliare le **due rappresentazioni persistite**: `turn_results.timeline_events` alimenta la Timeline del giocatore, mentre `simulation_events` conserva eventi associati ai checkpoint del run; nel turno ordinario questi ultimi sono scritti dagli stessi `turnResult.timelineEvents`, quindi non vanno descritti come semplice telemetria estranea alla cronaca. Integrare, non duplicare, le fasi E02–E06 del piano timeline. *Attenzione:* una previsione non è una notizia; un ordine `voided` non può essere narrato come compiuto, né un salto incompleto pubblicare eventi futuri. Il titolo o l'indice non sostituisce gli ID. *Verifica:* un caso completo riprodotto via HTTP, SSE, polling, reload e playback mostra gli stessi fatti in ordine e senza duplicati; ordini bloccati hanno esito intelligibile senza asset fantasma. Gate: il giocatore risale dalla notizia all'ordine e al costo/consegna che l'ha prodotta.
 
+## 5-bis. Il Governo come sala di consiglio (richiesta dell'autore, 28 settembre 2026)
+
+L'autore ha chiesto una cosa che cambia la **forma** della fase MG05: dove oggi ci sono
+le Azioni, vuole la pagina del Governo — «le persone che chattano con me e propongono i
+loro piani e bisogni», dalle quali «poi si trovano le azioni che poi si mettono nella
+timeline». Le risposte alle domande di progetto:
+
+| Domanda | Scelta dell'autore |
+|---|---|
+| Chi parla | **Un gabinetto di ministri** |
+| Immagini | **Nessuna: solo tipografia** |
+| L'ordine libero | **Resta, dentro la pagina del Governo** |
+| Dalla proposta all'azione | **Prepara una bozza, la confermi tu** |
+
+### La regola che rende i ministri onesti
+
+Un gabinetto è un rischio preciso: inventare personalità che dicono cose che il motore
+non sa. La regola che lo evita va scritta nel codice, non solo nel documento: **un
+ministro non è una fonte di dati, è una proiezione dello stato per competenza.**
+
+- **Il ministro esiste solo se il motore ha qualcosa da dirgli.** Il ministro del
+  Tesoro compare se ci sono bilancio, debito o cassa; quello dei Lavori se ci sono
+  opere o cantieri. Un ministro senza dati **tace**: non riempie il silenzio.
+- **Ogni frase porta la sua provenienza.** Vale la regola già scritta per l'agenda
+  (`FigureBasis`): le cifre che un ministro porta sono `measured`, `estimated` o
+  `unknown`, e quando sono ignote lo dice invece di arrotondare.
+- **Il ministro non decide e non spende.** Proporre non è impegnare: la proposta apre
+  una **bozza** che passa per il preflight e per la coda come qualunque ordine
+  (invariante MG-I1). Un ministro che «fa» qualcosa sarebbe un secondo motore.
+- **Il dialogo non è un secondo motore narrativo.** I ministri compongono le proprie
+  frasi dai fatti che il motore pubblica — la stessa disciplina di
+  `GovernmentFactions`, che non inventa numeri. Il modello può riscrivere la **voce**,
+  come già fa `government/voices`; **mai** i numeri che contiene.
+
+### Le cinque sedie
+
+Nessuna è un'aggiunta arbitraria: ognuna legge qualcosa che esiste già.
+
+| Ministro | Legge | Parla quando |
+|---|---|---|
+| **Tesoro** | bilancio, debito, cassa e crediti del paese | Il saldo o il servizio del debito sono in tensione |
+| **Lavori** | cantieri, deficit misurati, opere del catalogo | Un cantiere è scoperto, o un'opera è pronta |
+| **Esteri** | relazioni, contratti, deficit che una controparte può coprire | C'è una via diplomatica aperta, o una promessa da onorare |
+| **Interno** | fazioni, pressione politica, coesione | Una fazione che pesa è scontenta |
+| **Guerra** | potenza e arsenale del paese, minacce al confine | Il militare è in tensione o sotto finanziato |
+
+Il **Presidente** non è una sesta competenza: apre la seduta con la sintesi — quante
+questioni, quante bloccanti — e chiude con ciò che è stato deciso. È l'intestazione
+della pagina, non un parere in più.
+
+### La pagina, e perché in quest'ordine
+
+Dove oggi si apre **Ordini** si apre il **Governo**: una sala di consiglio, in tre
+parti. L'ordine è la gerarchia delle cose: prima cosa serve, poi come procurarselo,
+poi l'atto.
+
+1. **La seduta** — i ministri che hanno qualcosa da dire, ognuno con il bisogno, il
+   *perché adesso* e le cifre con la provenienza. Tipografia: nome, sedia, testo
+   leggibile. Chi non ha nulla tace.
+2. **Le strade** — sotto ogni voce, le alternative già calcolate dall'agenda: i
+   prerequisiti, le conseguenze attese, quale il Governo consiglia.
+3. **La bozza** — scelta una strada, si apre l'ordine **già scritto e verificato**, con
+   i numeri del preflight. Il giocatore lo corregge se vuole, e lo **registra**: fino a
+   lì non si è speso nulla.
+
+Il compositore libero **resta**, in fondo alla stessa pagina: scrivere un ordine che
+nessuno ha proposto è una libertà che il gioco non deve togliere. Sparisce solo la voce
+di navigazione «Azioni» come porta separata.
+
+### Cosa si riusa e cosa si costruisce
+
+Si **riusa**: `GovernmentFactions` (fazioni e loro numeri), l'agenda di MG05 (voci,
+strade, cifre con provenienza), il preflight e la coda esistenti, il modulo `orders`
+come contenitore. Si **costruisce**: il gabinetto (`core/government/Cabinet.ts`, puro:
+dai fatti alle sedie), la composizione delle frasi con la loro provenienza, la pagina,
+e il passaggio proposta → bozza.
+
+### Ordine dei lavori, con i gate
+
+**P01 — il gabinetto, puro.** Dai fatti alle sedie, con la regola «un ministro senza
+dati non parla». *Gate:* ogni ministro che compare ha almeno una cifra con la sua
+provenienza; un paese senza problemi ha una seduta **vuota**, non riempita.
+
+> **P01 — CONSEGNATA, 28 settembre 2026.** `core/government/Cabinet.ts` è il gabinetto:
+> cinque sedie chiuse (`tesoro`, `lavori`, `esteri`, `interno`, `guerra`), ognuna con la
+> sua competenza **dichiarata** (`SEAT_READS`), e la regola che lo rende onesto — **un
+> ministro senza dati tace**: la sedia senza voci non compare nella seduta, e un paese
+> senza problemi ha una seduta vuota che il presidente dichiara.
+>
+> La competenza di una voce la decide il suo **tipo**, non il suo testo: un ordine
+> scritto male non cambia chi lo porta in consiglio. L'ordine delle sedie mette i fatti
+> materiali prima delle opinioni politiche. Il gabinetto **non aggiunge numeri**: le
+> cifre sono quelle dell'agenda, con la loro provenienza, e una cifra ignota resta
+> ignota. `canonicalMutation: false` è un campo del tipo.
+>
+> Prova al contrario su due guasti: togliendo la regola del silenzio cadono 5 test,
+> facendo seguire la competenza al testo ne cadono 6. **11 test verdi**, nessuna
+> regressione sui 17 dell'agenda.
+>
+> **P02 — la seduta nella pagina.** Il modulo `orders` diventa il Governo: i ministri
+leggono, e sotto ogni voce stanno le strade dell'agenda. Il compositore libero resta in
+fondo. *Gate:* nessuna capacità attuale di Ordini persa — scrittura libera, verifica,
+revisione della bozza, coda, rimozione e avanzamento separato del tempo restano tutte
+raggiungibili.
+
+> **P02 — CONSEGNATA, 28 settembre 2026.** La seduta del gabinetto è nella pagina, e
+> dove c'era «Azioni» ora c'è **Governo** (`nationalContext.ts`: etichetta e icona
+> cambiate, il modulo resta `orders` — cambia la porta, non l'impianto).
+>
+> Tre pezzi: la rotta `GET /:id/government/cabinet` che compone la seduta dal vero
+> stato; il componente `CabinetSession.tsx`, **solo tipografia** come chiesto
+> dall'autore, con ogni cifra che dichiara la sua provenienza e una cifra ignota che
+> si vede che è ignota; il collegamento nel modulo, con la seduta **in cima** e le
+> proposte del modello sotto — l'ordine non è casuale: i ministri parlano di fatti
+> misurati, il modello di opportunità.
+>
+> **Il compositore libero resta**, in fondo alla stessa pagina, e la scelta di una
+> strada **prepara una bozza** nel compositore invece di registrare un ordine: la
+> conferma è un atto separato, come l'autore ha chiesto e come l'invariante MG-I1
+> impone. Verificato: `ActionsPanel`, `registerOrder`, `queuePlayerAction` e la bozza
+> sono tutti ancora raggiungibili dalla pagina.
+>
+> Prova al contrario su tre guasti: tolta la provenienza dalle cifre cade un test,
+> fatto scegliere il componente da sé ne cade un altro, aggiunta un'immagine ne cade
+> un terzo — la scelta «solo tipografia» è difesa, non solo dichiarata.
+> **866 test verdi** su 103 file del frontend (9 nuovi), `tsc` pulito.
+>
+> > **P02 — CONSEGNATA, 28 settembre 2026.** La seduta del gabinetto è nella pagina, e
+> la porta si chiama **Governo**: la voce di navigazione è cambiata (`nationalContext.ts`),
+> il modulo resta `orders` nel codice — cambia la porta, non l'impianto.
+>
+> Quattro pezzi: la rotta `GET /:id/government/cabinet` che compone la seduta dal vero
+> stato; il componente `CabinetSession.tsx`, **solo tipografia** come chiesto
+> dall'autore, con ogni cifra che dichiara la sua provenienza e una cifra ignota che si
+> vede che è ignota; lo stile nel sistema editoriale esistente (`editorial.css`), senza
+> `!important` — la guardia di disciplina CSS lo vieta e il blocco è nuovo; la seduta
+> **in cima** alla pagina, con le proposte del modello sotto.
+>
+> **Il compositore libero resta**, in fondo alla stessa pagina: `ActionsPanel`,
+> `registerOrder`, `queuePlayerAction` e la bozza sono tutti ancora lì. Scegliere una
+> strada **prepara una bozza** nel compositore usando lo stesso store del testo libero —
+> la proposta del ministro e l'ordine scritto a mano sono la stessa cosa, non due
+> percorsi paralleli — e la conferma resta un atto separato (invariante MG-I1).
+>
+> Prova al contrario su tre guasti: togliendo la provenienza dalle cifre cade il test
+> che la difende; facendo scegliere il componente da sé cade quello sulla conferma;
+> aggiungendo un'immagine cade quello sulla scelta «solo tipografia». La scelta
+> dell'autore è **difesa**, non solo dichiarata. **866 test verdi** su 103 file,
+> `tsc` pulito.
+>
+> **Limite d'ambiente, non del codice:** la build di produzione del frontend non gira
+> qui — manca il binding nativo `@rollup/rollup-linux-x64-gnu`, le dipendenze del
+> repository sono per macOS. La compilazione TypeScript passa; la build va rifatta da
+> chi ha l'ambiente giusto.
+>
+> **P03 — dalla proposta alla bozza.** «Scegli questa strada» scrive l'ordine e apre il
+preflight con i suoi numeri; la registrazione è un atto separato ed esplicito. *Gate:*
+nessuna spesa prima della conferma.
+
+**P04 — la bozza diventa fatto.** L'ordine registrato percorre la filiera già costruita
+(MG02–MG03) e la sua conseguenza è datata in cronaca con il legame all'ordine. *Gate:*
+la pagina non introduce un secondo percorso di esecuzione.
+
+**Cosa non entra:** ritratti e immagini (scelta dell'autore: solo tipografia); un
+secondo motore narrativo; un ministro che impegna risorse.
+
 ## 6. Sequenza di consegna e limiti
 
 MG00 precede tutte le modifiche. MG01 → MG02 → MG03 costituiscono la fetta **costruzione interna**; è già giocabile se i materiali esistono nel paese. MG04 aggiunge la via diplomatica ai deficit. MG05 rende il Governo la porta principale senza togliere la strada libera; può iniziare con mock di scheda dopo MG01, ma non essere consegnato come flusso efficace prima di MG02–MG04. MG06 usa gli effetti reali precedenti come cause; MG07 integra la loro storia, mentre gli ID/eventi necessari si definiscono già in MG02. Ogni PR include test delle invarianti toccate e aggiornamento di questo documento con risultato misurato, non soltanto screenshot.

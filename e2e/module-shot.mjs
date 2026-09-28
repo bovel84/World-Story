@@ -28,7 +28,7 @@ try {
 await page.waitForTimeout(2500);
 
 const MODULES = [
-  { aria: 'Ordini', file: 'orders' },
+  { aria: 'Governo', file: 'orders' },
   { aria: 'Diplomazia', file: 'diplomacy' },
   { aria: 'Consulente', file: 'advisor' },
   { aria: 'Notizie', file: 'news' },

@@ -87,7 +87,7 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     installMockApi(page);
     await reachHud(page);
 
-    const orders = page.getByRole('button', { name: 'Ordini' });
+    const orders = page.getByRole('button', { name: 'Governo' });
     // Tab reale: :focus-visible deve comparire soltanto per navigazione tastiera.
     for (let index = 0; index < 20 && !(await orders.evaluate((element) => document.activeElement === element)); index += 1) {
       await page.keyboard.press('Tab');
@@ -126,7 +126,7 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     await reachHud(page);
 
     // Apri i moduli per coprire anche i loro controlli.
-    await page.locator('.rail-btn').filter({ hasText: 'Ordini' }).click();
+    await page.locator('.rail-btn').filter({ hasText: 'Governo' }).click();
     await expect(page.locator('.suggestions-content')).toBeVisible();
     await page.locator('.rail-btn').filter({ hasText: 'Nazione' }).click();
     await expect(page.locator('.nation-desk')).toBeVisible();
