@@ -1,13 +1,13 @@
 {
   "summary": {
-    "total": 110,
-    "mutating": 58,
+    "total": 111,
+    "mutating": 59,
     "reading": 52,
     "byFile": {
       "chats.routes.ts": 8,
       "countries.routes.ts": 2,
       "games/actions.routes.ts": 8,
-      "games/advisor.routes.ts": 10,
+      "games/advisor.routes.ts": 11,
       "games/economy.routes.ts": 7,
       "games/playback.routes.ts": 6,
       "games/save.routes.ts": 1,
@@ -166,6 +166,12 @@
       "method": "get",
       "path": "/:id/events",
       "mutating": false,
+      "file": "games/advisor.routes.ts"
+    },
+    {
+      "method": "post",
+      "path": "/:id/government/minister/:seat",
+      "mutating": true,
       "file": "games/advisor.routes.ts"
     },
     {
