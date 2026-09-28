@@ -54,6 +54,11 @@ function writePreset(): void {
     base_prompt: 'Preset sintetico per la mappa completa.',
     start_date: '1951-01-01',
     historical_accuracy: 0.8,
+    // Fixture tecnica: `listPlayablePresets` la esclude, così non compare
+    // nell'elenco del giocatore di `playable-presets.test.ts` mentre questo file
+    // gira in parallelo (race sulla cartella `data/presets/`). Il generatore la
+    // carica per id con `loadPreset`, quindi resta pienamente utilizzabile qui.
+    fixture: true,
   }, null, 2));
   fs.writeFileSync(path.join(PRESET_DIR, 'map.geojson'), JSON.stringify({
     type: 'FeatureCollection',
