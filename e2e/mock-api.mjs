@@ -331,6 +331,67 @@ export const MOCK_GOVERNMENT_VOICES = {
   generated: true,
 };
 
+/**
+ * P04 — La seduta del gabinetto: due sedie con bisogni, cifre (ognuna con la sua
+ * provenienza) e strade. Serve all'E2E dell'Ufficio del Governo: la stanza
+ * modale, il «Parla» che apre la chat della sedia e la strada che prepara la
+ * bozza d'ordine. I numeri sono del contratto, non una simulazione alternativa.
+ */
+export const MOCK_CABINET = {
+  president: {
+    opening: 'Il Presidente apre la seduta: due sedie hanno portato qualcosa.',
+    closing: 'Il consiglio si chiude: le decisioni restano al governo.',
+  },
+  summary: { total: 2, critical: 1 },
+  canonicalMutation: false,
+  addresses: [
+    {
+      seat: 'tesoro',
+      label: 'Ministro del Tesoro',
+      reads: 'Cassa, debito e bilancio',
+      opening: 'La cassa regge, ma il margine si assottiglia.',
+      items: [
+        {
+          voiceId: 'v-tesoro-1',
+          need: 'Coprire il disavanzo del trimestre.',
+          because: 'Le uscite superano le entrate del 6%.',
+          urgency: 'urgente',
+          figures: [
+            { label: 'Saldo di cassa', value: '12,40', unit: 'mld', basis: { kind: 'measured', source: 'Tesoro' } },
+            { label: 'Fabbisogno', value: '8,00', unit: 'mld', basis: { kind: 'estimated', source: 'Tesoro', method: 'media mobile a 3 mesi' } },
+          ],
+          paths: [
+            { id: 'p-tesoro-1', title: 'Emettere titoli a 10 anni', detail: 'Copre il fabbisogno al tasso di mercato.', prerequisites: [], expected: 'Cassa +8 mld, interessi +0,27 mld/anno.', recommended: true },
+            { id: 'p-tesoro-2', title: 'Tagliare le spese correnti', detail: 'Riduce il fabbisogno senza nuovo debito.', prerequisites: ['accordo delle anime del consiglio'], expected: 'Cassa invariata, tensione sociale in salita.', recommended: false },
+          ],
+        },
+      ],
+    },
+    {
+      seat: 'lavori',
+      label: 'Ministro dei Lavori',
+      reads: 'Infrastrutture, cantieri e materiali',
+      opening: 'I cantieri si fermano se manca il cemento.',
+      items: [
+        {
+          voiceId: 'v-lavori-1',
+          need: 'Aprire il cantiere della ferrovia transnazionale.',
+          because: 'La distinta è coperta, ma serve la firma del governo.',
+          urgency: 'ordinaria',
+          figures: [
+            { label: 'Cemento disponibile', value: '4,20', unit: 'kt', basis: { kind: 'measured', source: 'Magazzino materiale' } },
+          ],
+          paths: [
+            { id: 'p-lavori-1', title: 'Aprire il cantiere', detail: 'Impugna la dichiarazione d’opera e i detentori.', prerequisites: [], expected: 'Cantiere avviato: 38% al prossimo turno.', recommended: true },
+          ],
+          work: { workId: 'rail-transnational', name: 'Ferrovia transnazionale' },
+          declaration: { workId: 'rail-transnational', payerActorId: 'actor-tesoro', materialActorId: 'actor-lavori', funded: true },
+        },
+      ],
+    },
+  ],
+};
+
 // ---------------------------------------------------------------------------
 // Arsenale: forma esatta dell'API reale (schede descrittive + contributo).
 // ---------------------------------------------------------------------------
@@ -1019,6 +1080,20 @@ export function installMockApi(page, opts = {}) {
   });
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/voices`, (route) =>
     json(route, MOCK_GOVERNMENT_VOICES));
+  // P04 — L'Ufficio del Governo: la seduta del gabinetto e la risposta del
+  // ministro. Lo stream risponde 404 di proposito: `askStream` ripiega sul POST
+  // normale, e il mock verifica il percorso di fallback (proxy senza stream).
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/cabinet`, (route) => json(route, MOCK_CABINET));
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/minister/*`, (route) => {
+    if (route.request().method() !== 'POST') return notFound(route);
+    let seat = 'tesoro';
+    try {
+      const match = new URL(route.request().url()).pathname.match(/minister\/([^/]+)/);
+      if (match) seat = match[1];
+    } catch { /* path inatteso → sedia di default */ }
+    return json(route, { reply: `Il ministro (${seat}) ha preso nota del problema.`, seat });
+  });
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/minister/*/stream`, (route) => notFound(route));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/arsenal`, (route) => json(route, MOCK_ARSENAL));
   // OP-OBJECTS: anteprima (sola lettura) e creazione reale di reparti.
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/military/formation*`, (route) => {
