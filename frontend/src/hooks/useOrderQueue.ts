@@ -17,33 +17,8 @@
 import { useCallback, useState } from 'react';
 import { gameApi } from '../services/api';
 import type { FeasibilityResult } from '../components/Game/FeasibilityCheck';
-import type { CabinetAddressView, CabinetItemView, CabinetPathView, CabinetSessionView } from '../services/api';
-
-/** P03 — la dichiarazione d'opera: quella che il motore accetta per un cantiere. */
-export interface WorkDeclarationInput {
-  workId: string;
-  payerActorId: string;
-  materialActorId: string;
-  funded: boolean;
-}
-
-/**
- * P03 — La dichiarazione di una voce, se è registrabile come costruzione.
- *
- * `null` in tre casi, tutti dichiarati al giocatore: la voce non riguarda
- * un'opera; il server non ha risolto i detentori; nessun attore della nazione
- * copre la distinta (`materialActorId: null`).
- */
-export function cabinetDeclarationFor(item: CabinetItemView): WorkDeclarationInput | null {
-  const declaration = item.declaration;
-  if (!declaration || !declaration.materialActorId) return null;
-  return {
-    workId: declaration.workId,
-    payerActorId: declaration.payerActorId,
-    materialActorId: declaration.materialActorId,
-    funded: declaration.funded,
-  };
-}
+import { cabinetDeclarationFor, composeCabinetOrderText, type WorkDeclarationInput } from '../components/Game/cabinetOrder';
+import type { CabinetAddressView, CabinetPathView, CabinetSessionView } from '../services/api';
 import { useActionsStore, useGameStore } from '../stores';
 import { useOrderDraftStore } from '../stores/orderDraftStore';
 import { simulationErrorMessage } from '../utils/errors';
@@ -66,7 +41,7 @@ export interface OrderQueue {
   feasibilityLoading: boolean;
   feasibilityError: string | null;
   generateSuggestions: () => Promise<void>;
-  queuePlayerAction: (text: string) => Promise<boolean>;
+  queuePlayerAction: (text: string, work?: WorkDeclarationInput) => Promise<boolean>;
   removeQueuedAction: (actionId: string) => Promise<void>;
   updateQueuedAction: (actionId: string, newText: string) => Promise<void>;
   enhanceOrder: (text: string) => Promise<void>;
@@ -75,16 +50,18 @@ export interface OrderQueue {
   handleFeasibilityBack: () => void;
   handleFeasibilityReverify: () => void;
   registerOrder: (text: string) => Promise<void>;
-  /** P03 — la dichiarazione d'opera della bozza corrente, se ne ha una. */
-  pendingDeclaration: WorkDeclarationInput | null;
-  /** La scarta quando la bozza cambia natura (ordine scritto a mano). */
-  clearPendingDeclaration: () => void;
-  /** P02 — la seduta del gabinetto, e le due azioni che la usano. */
+  /** P02 — la seduta del gabinetto, e le azioni che la usano. */
   cabinet: CabinetSessionView | null;
   cabinetLoading: boolean;
   cabinetError: string;
   loadCabinet: () => Promise<void>;
-  chooseCabinetPath: (item: CabinetAddressView['items'][number], path: CabinetPathView) => void;
+  /**
+   * WS-GOVOFFICE-02 — La strada scelta nella seduta entra in coda
+   * **automaticamente**: l'ordine matura dalla discussione, non da un atto di
+   * conferma separato. Il testo lo compone `composeCabinetOrderText` dai dati
+   * del motore.
+   */
+  queueCabinetPath: (item: CabinetAddressView['items'][number], path: CabinetPathView) => Promise<boolean>;
 }
 
 export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
@@ -96,7 +73,6 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
   const {
     startEnhance: startOrderEnhance, enhanceSuccess: orderEnhanceSuccess,
     enhanceFailure: orderEnhanceFailure, clear: clearOrderDraft,
-    update: setOrderDraftText,
   } = useOrderDraftStore();
 
   // Brainstorm di azioni: stato e messaggio sono visibili anche al primo caricamento.
@@ -108,12 +84,6 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
   const [cabinet, setCabinet] = useState<CabinetSessionView | null>(null);
   const [cabinetLoading, setCabinetLoading] = useState(false);
   const [cabinetError, setCabinetError] = useState('');
-  /**
-   * P03 — La dichiarazione d'opera della bozza corrente: quella che il ministro
-   * ha portato e che il giocatore conferma registrando. `null` per un ordine in
-   * prosa — un testo libero non ha un'opera da dichiarare.
-   */
-  const [pendingDeclaration, setPendingDeclaration] = useState<WorkDeclarationInput | null>(null);
 
   // Modifica di un ordine in coda prima della presa in carico (G04 / §6.1).
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
@@ -148,8 +118,6 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
    * registrazione. Se il server non risponde, la pagina lo dice e il resto del
    * modulo resta usabile.
    */
-  const clearPendingDeclaration = useCallback((): void => setPendingDeclaration(null), []);
-
   const loadCabinet = useCallback(async (): Promise<void> => {
     if (!gameId) return;
     setCabinetLoading(true);
@@ -165,65 +133,18 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
     }
   }, [gameId]);
 
-  /**
-   * P02/P03 — Scelta una strada, si compone la **bozza**: l'ordine scritto con
-   * i termini della strada, pronto per il preflight.
-   *
-   * Non registra e non accoda: apre la bozza nel compositore, dove il giocatore
-   * la corregge e la conferma. È l'invariante MG-I1 — un ministro propone, il
-   * giocatore decide — e la ragione per cui questa funzione non chiama
-   * `queuePlayerAction`.
-   */
-  const chooseCabinetPath = useCallback((
-    item: CabinetAddressView['items'][number],
-    path: CabinetPathView,
-  ): void => {
-    // P03 — La bozza nasce dal bisogno e dalla strada scelta. Il testo è per la
-    // PERSONA: leggibile e correggibile. Se la voce riguarda un'opera, la
-    // dichiarazione che il motore pretende viaggia ACCANTO, non dentro la
-    // prosa: un numero scritto in una frase non è un numero che il motore legge.
-    const missing = item.figures
-      .filter(figure => figure.basis.kind !== 'measured' || figure.label.toLowerCase().includes('mancante'))
-      .map(figure => figure.label);
-    const declaration = cabinetDeclarationFor(item);
-    const lines = [
-      path.title,
-      `— ${item.need}`,
-      `Strada scelta: ${path.detail}`,
-      `Prerequisiti: ${path.prerequisites.length > 0 ? path.prerequisites.join(', ') : 'nessuno'}`,
-      `Esito atteso: ${path.expected}`,
-      missing.length > 0 ? `Vincoli da sciogliere: ${missing.join(', ')}` : '',
-    ];
-    if (item.work && !declaration) {
-      // L'opera c'è ma la distinta non è coperta: si dice, invece di scrivere un
-      // ordine che non aprirebbe alcun cantiere.
-      const mancanti = item.declaration?.missingMaterials
-        ?.map(material => `${material.resourceId} (${material.missing})`) ?? [];
-      lines.push(
-        mancanti.length > 0
-          ? `Attenzione: mancano ${mancanti.join(', ')}. Registrare non aprirebbe il cantiere.`
-          : 'Attenzione: la distinta non è coperta. Registrare non aprirebbe il cantiere.',
-      );
-    }
-    setOrderDraftText(lines.filter(Boolean).join('\n'));
-    // La dichiarazione vive accanto alla bozza, nello stato del modulo: è ciò
-    // che la coda invierà al motore.
-    setPendingDeclaration(declaration);
-  }, [setOrderDraftText, setPendingDeclaration]);
-
   const queuePlayerAction = useCallback(async (
     text: string,
     // MG02 µ6 / P03 — la dichiarazione d'opera, quando l'ordine è una
     // costruzione. Arriva dal server (verifica di fattibilità o Governo), non
-    // dal giocatore: se il chiamante non la passa, si usa quella della bozza.
+    // dal giocatore.
     work?: WorkDeclarationInput,
   ): Promise<boolean> => {
     if (!gameId || !text.trim()) return false;
     if (pendingActions.some(action => action.text.trim() === text.trim())) return true;
     setSuggestionsError('');
     try {
-      const declared = work ?? pendingDeclaration ?? undefined;
-      const queued = await gameApi.queueAction(gameId, text.trim(), declared ?? undefined);
+      const queued = await gameApi.queueAction(gameId, text.trim(), work);
       addPendingAction({ id: queued.id, text: queued.text });
       return true;
     } catch (e) {
@@ -231,7 +152,25 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
       setSuggestionsError('Impossibile aggiungere l’azione alla coda. Riprova.');
       return false;
     }
-  }, [gameId, pendingActions, addPendingAction, pendingDeclaration]);
+  }, [gameId, pendingActions, addPendingAction]);
+
+  /**
+   * WS-GOVOFFICE-02 — La strada scelta nella seduta entra in coda
+   * **automaticamente** (nessuna conferma separata): è l'esito esplicito della
+   * discussione. Il testo lo compone `composeCabinetOrderText` dai dati del
+   * motore; la dichiarazione d'opera, se c'è, viaggia accanto.
+   *
+   * L'invariante MG-I1 cambia qui la sua forma: leggere una seduta non impegna,
+   * ma **concludere** una strada sì. Il compositore libero resta separato e
+   * continua a passare dalla verifica di fattibilità.
+   */
+  const queueCabinetPath = useCallback(async (
+    item: CabinetAddressView['items'][number],
+    path: CabinetPathView,
+  ): Promise<boolean> => {
+    const declaration = cabinetDeclarationFor(item);
+    return queuePlayerAction(composeCabinetOrderText(item, path), declaration ?? undefined);
+  }, [queuePlayerAction]);
 
   const removeQueuedAction = useCallback(async (actionId: string) => {
     if (!gameId) return;
@@ -368,8 +307,6 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
     cabinetLoading,
     cabinetError,
     loadCabinet,
-    chooseCabinetPath,
-    pendingDeclaration,
-    clearPendingDeclaration,
+    queueCabinetPath,
   };
 }
