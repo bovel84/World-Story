@@ -12,7 +12,6 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Region } from '../../types';
-import type { CabinetAddressView } from '../../services/api';
 import { selectTotalUnread, useActionsStore, useChatStore, useGameStore, useUIStore } from '../../stores';
 import { useOrderDraftStore } from '../../stores/orderDraftStore';
 import { useToast } from '../ui/ToastProvider';
@@ -67,10 +66,7 @@ export interface GameScreenProps {
 export function GameScreen({ nation, timeline, feed, orders, playback, advance, shell }: GameScreenProps) {
   // P02 — La seduta del gabinetto arriva dall'hook degli ordini, non dallo
   // store della bozza: è una lettura del Governo, non una proprietà del testo.
-  const { cabinet, cabinetLoading, cabinetError, loadCabinet, chooseCabinetPath } = orders;
-  // P02-bis — la sedia con cui si sta parlando: vive nell'URL del modulo aperto,
-  // non nel server. Il server non sa chi ha il microfono; il client sì.
-  const [speakingSeat, setSpeakingSeat] = useState<CabinetAddressView['seat'] | null>(null);
+  const { cabinet, cabinetLoading, cabinetError, loadCabinet, queueCabinetPath, queuePlayerAction } = orders;
   const {
     currentGame, currentWorld, selectedRegion, setSelectedRegion, setCurrentGame, setCurrentWorld,
     setHistory, pendingActions, changedRegions, history: actionHistory,
@@ -356,12 +352,8 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
         session={cabinet}
         sessionLoading={cabinetLoading}
         sessionError={cabinetError}
-        onChoose={chooseCabinetPath}
-        // P02-bis — il parlare: la sedia diventa un pulsante e la chat si apre
-        // col contesto di QUELLA sedia. Il modale dell'ufficio monta la stessa
-        // seduta che prima stava nel desk; l'unica differenza è lo spazio.
-        onSpeak={address => setSpeakingSeat(address.seat)}
-        speakingSeat={speakingSeat}
+        onQueueCabinetPath={queueCabinetPath}
+        onQueueOrder={queuePlayerAction}
         pendingActions={pendingActions}
         orderDraftText={orderDraftText}
         updateOrderDraft={updateOrderDraft}

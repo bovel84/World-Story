@@ -19,8 +19,8 @@
  *  - **il contesto lo prepara il server** (`briefingFor`): il modello parla della
  *    sua sedia, con le cifre del motore;
  *  - **la grafica mostra le cifre del motore**, non numeri del modello;
- *  - **la chat FINISCE con un ordine**: sceglierne uno prepara la bozza, e la
- *    registrazione resta un atto separato (invariante MG-I1).
+ *  - **la chat FINISCE con un ordine**: sceglierne uno lo consegna al chiamante,
+ *    che nell'Ufficio del Governo lo mette in coda automaticamente (WS-GOVOFFICE-02).
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -37,8 +37,9 @@ export interface MinisterChatProps {
   /** La sedia con cui si parla: è il contesto che il server prepara. */
   address: CabinetAddressView | null;
   /**
-   * Scegliere una strada prepara una **bozza**: il componente non registra e non
-   * accoda nulla. La conferma è del giocatore.
+   * Concludere con una strada: il componente non registra nulla da sé, ma
+   * consegna la scelta al chiamante, che nell'Ufficio del Governo la mette in
+   * coda automaticamente (WS-GOVOFFICE-02).
    */
   onChoose?: (item: CabinetItemView, path: CabinetPathView) => void;
   /**
@@ -52,11 +53,12 @@ export interface MinisterChatProps {
   onAppendToken: (token: string) => void;
   onStreamingChange: (streaming: boolean) => void;
   /**
-   * P04 — Il problema che il giocatore presenta al ministro può diventare
-   * subito la bozza d'ordine: è l'altra direzione del dialogo («sono io che
-   * presento problemi a loro»). Se manca, la chat resta conversazione pura.
+   * P04 / WS-GOVOFFICE-02 — Il problema che il giocatore presenta al ministro
+   * può concludersi subito con un ordine: è l'altra direzione del dialogo
+   * («sono io che presento problemi a loro»). Il chiamante lo mette in coda
+   * automaticamente. Se manca, la chat resta conversazione pura.
    */
-  onDraftFromUserMessage?: (text: string) => void;
+  onOrderFromUserMessage?: (text: string) => void;
 }
 
 /** La barra di una cifra: la grafica dentro la chat, dai numeri del motore. */
@@ -83,7 +85,7 @@ function FigureBar({ figure }: { figure: CabinetItemView['figures'][number] }) {
 export function MinisterChat({
   gameId, address, onChoose,
   messages, streaming, onAddMessage, onAppendToken, onStreamingChange,
-  onDraftFromUserMessage,
+  onOrderFromUserMessage,
 }: MinisterChatProps) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
@@ -181,14 +183,14 @@ export function MinisterChat({
               {/* P04 — «sono io che presento problemi a loro»: il problema
                   scritto dal giocatore diventa la bozza d'ordine con un click,
                   senza ricopiarlo a mano nel compositore. */}
-              {message.role === 'user' && onDraftFromUserMessage && message.content.trim() && (
+              {message.role === 'user' && onOrderFromUserMessage && message.content.trim() && (
                 <button
                   type="button"
                   className="minister-draft-order"
-                  onClick={() => onDraftFromUserMessage(message.content)}
-                  title="Porta questo problema nel compositore come bozza d'ordine"
+                  onClick={() => onOrderFromUserMessage(message.content)}
+                  title="Concludi con un ordine: entra subito nella coda"
                 >
-                  ↳ Prepara ordine da questo problema
+                  ↳ Concludi con un ordine da questo problema
                 </button>
               )}
             </div>
@@ -219,7 +221,7 @@ export function MinisterChat({
       </div>
 
       {/* La chat TERMINA con un ordine: le strade della voce, sotto il dialogo.
-          Sceglierne una prepara la bozza — non registra (MG-I1). */}
+          Sceglierne una lo mette in coda (WS-GOVOFFICE-02). */}
       {items.length > 0 && (
         <footer className="minister-outcome">
           <div className="minister-outcome-title">Concludere con un ordine</div>
@@ -233,7 +235,7 @@ export function MinisterChat({
                     type="button"
                     className={`minister-path${path.recommended ? ' recommended' : ''}`}
                     onClick={() => onChoose?.(item, path)}
-                    title="Prepara una bozza d’ordine: nulla viene registrato finché non la confermi"
+                    title="Concludi con un ordine: entra subito nella coda"
                   >
                     <span className="minister-path-title">
                       {path.title}
