@@ -237,8 +237,8 @@ Ambiente: macOS, Node v26.10.0, npm 11.19.1.
 | E2E mirato | `playwright test tests/modules.spec.mjs` | **6/6 verdi**, inclusi **P04** e **P05** |
 | A11y (Playwright) | `cd e2e && playwright test --config=playwright.a11y.config.mjs` | **3/3 verdi** (scelta **e** seduta superano l'audit) |
 | Perf baseline | `node e2e/perf/baseline.mjs` | OK (JS 1.70 MB / CSS 0.62 MB, entro soglia) |
-| CI `test-build` (richiesto) | PR #137 | **pass** (2m31s) |
-| CI `e2e-mock` (informativo) | PR #137 | **pass** (8m42s, inclusi audit a11y e perf baseline) |
+| CI `test-build` (richiesto) | PR #137 | **pass** |
+| CI `e2e-mock` (informativo) | PR #137 | **pass** (inclusi audit a11y e perf baseline) |
 
 Nota onesta: la prima esecuzione della suite backend ha avuto **1 rosso flaky**
 (`op-objects-time-step.test.ts` test 42), ri-eseguito verde in isolamento e
