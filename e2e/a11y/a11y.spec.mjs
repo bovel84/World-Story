@@ -133,15 +133,29 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     // Apri i moduli per coprire anche i loro controlli. L'ufficio del Governo
     // è un modale: si audita aperto (è la nuova superficie), poi si chiude
     // prima di passare alla Nazione — mentre è aperto la rail sottostante è
-    // inerte, quindi non la si può cliccare senza prima chiudere.
+    // inerte, quindi non la si può cliccare senza prima chiudere. La seduta è
+    // anche il posto dove nasce l'atto che il registro deve mostrare.
     await page.locator('.rail-btn').filter({ hasText: 'Governo' }).click();
     await expect(page.locator('.suggestions-content')).toBeVisible();
+    // WS-GOVOFFICE-03 — La prima schermata porta il registro degli atti (con
+    // «Ritira» per ogni atto) oltre ai riquadri: si audita con un atto dentro,
+    // così il pulsante nuovo è coperto. L'atto nasce dal dialogo.
+    await page.locator('.cabinet-pick').first().click();
+    const chat = page.locator('.government-office-pane-chat');
+    await chat.locator('textarea').fill('Un atto per l’audit');
+    await chat.locator('.minister-compose button').click();
+    await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
+    await chat.locator('.minister-draft-order').click();
+    await page.locator('.government-office-back').click();
+    await expect(page.locator('.order-register-act')).toHaveCount(1);
     const officeViolations = await page.evaluate(auditDom);
     expect(officeViolations).toEqual([]);
-    // La seduta (seconda schermata) è una superficie nuova — chat del ministro
-    // e compositore: si audita aperta, poi Esc chiude l'ufficio.
+
+    // La seduta (seconda schermata) è una superficie nuova — dialogo a sinistra,
+    // pannello dei dati a destra: si audita aperta, poi Esc chiude l'ufficio.
     await page.locator('.cabinet-pick').first().click();
     await expect(page.locator('.minister-chat')).toBeVisible();
+    await expect(page.locator('.minister-dossier')).toBeVisible();
     const sedutaViolations = await page.evaluate(auditDom);
     expect(sedutaViolations).toEqual([]);
     await page.keyboard.press('Escape');

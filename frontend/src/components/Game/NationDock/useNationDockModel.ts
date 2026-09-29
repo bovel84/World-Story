@@ -22,6 +22,7 @@ import { deriveMaterialRows, materialRowsOf } from '../materialBalance';
 import { arsenalBrief, arsenalBriefText, arsenalLineSummary, arsenalProductionFor, arsenalSplit, arsenalSplitText } from '../arsenalSummary';
 import { index, money, resourceMonths } from './format';
 import { nationalOperatingPicture } from '../nationalOperatingPicture';
+import { nationOperatingPictureInput } from '../nationOperatingPictureInput';
 import type { HistoryPoint, MetricTrend, NationDockProps } from './types';
 import { nationalSynthesis } from '../nationalSynthesis';
 
@@ -86,21 +87,20 @@ export function useNationDockModel(props: NationDockProps) {
   // COUNTRY-CLARITY: quadro d'insieme. È un read model puro sui numeri già
   // pubblicati (conto, magazzino, arsenale, governo, storico): nessuna nuova
   // chiamata al motore, nessun valore stimato nel browser.
-  const operatingPicture = useMemo(() => nationalOperatingPicture({
+  const operatingPicture = useMemo(() => nationalOperatingPicture(nationOperatingPictureInput({
+    regions,
     account,
     resources,
-    arsenal: arms,
-    assets: { capacityBase: { forces: assets.baseForces } },
+    arms,
     government,
-    budget: government?.budget ?? null,
     commitments,
-    history: accountHistory,
-    processes: ongoingProcesses,
-    maintenance: props.maintenanceObligations ?? null,
+    accountHistory,
+    ongoingProcesses,
+    maintenanceObligations: props.maintenanceObligations,
     crisis,
     pressures,
-    today: props.today ?? null,
-  }), [account, resources, arms, assets.baseForces, government, commitments, accountHistory, ongoingProcesses, props.maintenanceObligations, crisis, pressures, props.today]);
+    today: props.today,
+  })), [regions, account, resources, arms, government, commitments, accountHistory, ongoingProcesses, props.maintenanceObligations, crisis, pressures, props.today]);
   // I progetti in corso sono raggruppati per ambito (Difesa, Infrastrutture…).
   const projectGroups = useMemo(() => groupProjectsByCategory(ongoingProcesses), [ongoingProcesses]);
   const financeAvailable = hasNationalFinance(account);

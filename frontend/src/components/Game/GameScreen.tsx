@@ -179,16 +179,10 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     });
   }, [mapContextSelection, setSelectedRegion]);
 
-  // Una fazione del governo propone: la richiesta diventa una bozza d'ordine
-  // reale nel compositore. Nessuna spesa finché l'ordine non è registrato e il
-  // tempo non avanza; il giocatore resta l'unico a decidere.
-  const draftGovernmentPetition = useCallback((text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    updateOrderDraft(trimmed);
-    openModule('orders');
-    notify('Richiesta portata in consiglio: completa l’ordine e registralo.', 'info');
-  }, [updateOrderDraft, openModule, notify]);
+  // WS-GOVOFFICE-03 — Il percorso «la fazione propone → una bozza d'ordine nel
+  // compositore» è uscito insieme al compositore libero: la bozza non aveva più
+  // un posto dove essere vista. La richiesta di una fazione resta nel pannello
+  // del consiglio, in lettura, e il giocatore la porta al ministro a parole.
 
   // P02 — La seduta del gabinetto si carica all'apertura del Governo: è una
   // lettura, e il momento in cui serve è quello in cui il giocatore entra.
@@ -355,21 +349,23 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
         onQueueCabinetPath={queueCabinetPath}
         onQueueOrder={queuePlayerAction}
         pendingActions={pendingActions}
-        orderDraftText={orderDraftText}
-        updateOrderDraft={updateOrderDraft}
-        enhancedPreview={enhancedPreview}
-        enhanceLoading={enhanceLoading}
-        enhanceError={enhanceError}
-        enhanceOrder={orders.enhanceOrder}
-        acceptOrderEnhanced={acceptOrderEnhanced}
-        rejectOrderEnhanced={rejectOrderEnhanced}
-        registerOrder={orders.registerOrder}
-        removeQueuedAction={orders.removeQueuedAction}
-        updateQueuedAction={orders.updateQueuedAction}
-        editingActionId={orders.editingActionId}
-        editingActionText={orders.editingActionText}
-        setEditingActionId={orders.setEditingActionId}
-        setEditingActionText={orders.setEditingActionText}
+        nationalName={nationalName}
+        onWithdrawOrder={id => void orders.removeQueuedAction(id)}
+        currentDate={currentGame?.currentDate ?? null}
+        pictureSources={{
+          regions,
+          account: nationalAccount,
+          resources: nation.nationalResources,
+          arms: nation.nationalArms,
+          government: nation.nationalGovernment,
+          commitments: nation.commitments,
+          accountHistory: nation.nationalHistory,
+          ongoingProcesses: timeline.ongoingProcesses,
+          maintenanceObligations: nation.maintenanceObligations,
+          crisis: nation.nationalCrisis,
+          pressures: nation.nationalPressures,
+          today: currentGame?.currentDate ?? undefined,
+        }}
       />
       <GameShell
       hud={
@@ -537,7 +533,6 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             strategicAgenda={nation.strategicAgenda}
             commitments={nation.commitments}
             briefing={briefing}
-            onDraftGovernmentPetition={draftGovernmentPetition}
             governmentVoices={nation.governmentVoices}
             governmentVoicesLoading={nation.governmentVoicesLoading}
             governmentVoicesError={nation.governmentVoicesError}

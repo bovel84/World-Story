@@ -48,60 +48,60 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(page.locator('.suggestions-content')).toHaveCount(0);
   });
 
-  test('U02: compositore d\'ordine — «Registra ordine» accoda senza avanzare tempo', async ({ page }) => {
+  test('U02: Registro degli atti — un ordine in coda si legge e si ritira', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
+    // WS-GOVOFFICE-03 — Il compositore libero è uscito dall'Ufficio. L'ordine
+    // nasce dal dialogo con un ministro; qui si verifica che il **registro**
+    // (prima schermata) lo legga e che **«Ritira»** lo tolga dalla coda.
     await page.locator('.rail-btn[aria-label="Governo"]').click();
     await expect(page.locator('.suggestions-content')).toBeVisible();
-    // WS-GOVOFFICE-02: il compositore d'ordine vive dentro la seduta di un
-    // ministro. Si entra dal riquadro del ministro (schermata di scelta).
+
+    // Registro vuoto all'apertura: nessun atto firmato.
+    const registro = page.locator('.order-register');
+    await expect(registro).toBeVisible();
+    await expect(registro.locator('.order-register-act')).toHaveCount(0);
+    await expect(registro).toContainText('Nessun atto firmato');
+
+    // Concludi una seduta con un ordine dal dialogo.
     await page.locator('.cabinet-pick').first().click();
+    const chat = page.locator('.minister-chat');
+    await chat.locator('textarea').fill('Costruire una ferrovia verso il confine');
+    await chat.locator('.minister-compose button').click();
+    await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
+    await chat.locator('.minister-draft-order').click();
 
-    // Il compositore libero è presente con l'etichetta corretta.
-    await expect(page.locator('#free-player-order')).toBeVisible();
-    await expect(page.locator('.btn-add-pending')).toHaveText('Registra ordine');
+    // L'atto è nel REGISTRO (prima schermata), non nella seduta.
+    await page.locator('.government-office-back').click();
+    await expect(registro.locator('.order-register-act').first())
+      .toContainText('Costruire una ferrovia verso il confine');
+    // La firma è in calce, una volta sola.
+    await expect(registro.locator('.order-register-signature-office')).toHaveText('Il Presidente del Consiglio');
+    // Nella seduta l'ordine NON si vede.
+    await page.locator('.cabinet-pick').first().click();
+    await expect(page.locator('.pending-item')).toHaveCount(0);
+    await page.locator('.government-office-back').click();
 
-    // «Registra ordine» è disabilitato finché la bozza è vuota.
-    await expect(page.locator('.btn-add-pending')).toBeDisabled();
-
-    // Scrivi un ordine e registralo: la bozza viene accodata.
-    await page.locator('#free-player-order').fill('Costruire una ferrovia verso il confine');
-    await expect(page.locator('.btn-add-pending')).toBeEnabled();
-    await page.locator('.btn-add-pending').click();
-
-    // «Registra ordine» apre la verifica di fattibilità: solo un esito
-    // fattibile accoda l'ordine (G4-B).
-    await expect(page.locator('.feasibility-check')).toBeVisible();
-    // La stima dichiara *quanto* costa l'ordine e da dove esce il denaro:
-    // la cassa deve risentire delle scelte del giocatore.
-    const verifica = page.locator('.feasibility-check');
-    await expect(verifica).toContainText('Spesa stimata · Infrastrutture');
-    await expect(verifica).toContainText('Tesoreria');
-    await expect(verifica).toContainText('12,40 mld');
-    await expect(verifica).toContainText('25% del gettito annuo');
-    await expect(verifica).toContainText('il paese va in debito');
-    await expect(page.locator('.btn-feasibility-register')).toContainText('Registra ordine');
-    await page.locator('.btn-feasibility-register').click();
-
-    // L'ordine appare nella coda (pendingActions) e la bozza si svuota.
-    await expect(page.locator('.pending-item').first()).toContainText('Costruire una ferrovia verso il confine');
-    await expect(page.locator('#free-player-order')).toHaveValue('');
+    // Ritirare l'atto: l'unico modo per non eseguirlo prima del salto.
+    await registro.locator('.order-register-withdraw').first().click();
+    await expect(registro.locator('.order-register-act')).toHaveCount(0);
+    await expect(registro).toContainText('Nessun atto firmato');
   });
 
-  test('P04: Ufficio del Governo — si sceglie il ministro, e la strada diventa subito un ordine', async ({ page }) => {
+  test('P04: Ufficio del Governo — registro, scelta, e la seduta a due pannelli', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
-    // [1] SCELTA — Apri «Governo»: una stanza modale in primo piano, e in
-    // primo piano SOLO i riquadri dei ministri. Niente desk, item, chat, coda
-    // o compositore: quelli vivono nella seduta.
+    // [1] SCELTA — Apri «Governo»: il registro degli atti e i riquadri dei
+    // ministri. Niente item, chat, coda o compositore.
     await page.locator('.rail-btn[aria-label="Governo"]').click();
     const ufficio = page.locator('.government-office');
     await expect(ufficio).toBeVisible();
     await expect(ufficio).toHaveAttribute('aria-modal', 'true');
     await expect(ufficio.locator('#government-office-title')).toContainText('Ufficio del Governo');
     await expect(page.locator('.game-shell-desk')).toHaveCount(0);
+    await expect(ufficio.locator('.order-register')).toBeVisible();
     await expect(ufficio.locator('.cabinet-pick')).toHaveCount(2);
     await expect(ufficio).toContainText('Ministro del Tesoro');
     await expect(ufficio.locator('.cabinet-item')).toHaveCount(0);
@@ -109,32 +109,37 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(ufficio.locator('.pending-item')).toHaveCount(0);
     await expect(ufficio.locator('#free-player-order')).toHaveCount(0);
 
-    // [2] SEDUTA — il ministro parla in prima persona ed elenca i suoi
-    // bisogni con le cifre del motore.
+    // [2] SEDUTA — due pannelli: dialogo a sinistra, dati a destra.
     await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    const chat = page.locator('.minister-chat');
-    await expect(chat).toBeVisible();
+    const chat = page.locator('.government-office-pane-chat');
+    await expect(chat.locator('.minister-chat')).toBeVisible();
+    const dati = page.locator('.government-office-pane-dossier .minister-dossier');
+    await expect(dati).toBeVisible();
+    await expect(dati).toContainText('Ministro del Tesoro');
+    // Il ministro parla in prima persona, con le cifre del motore.
     await expect(ufficio).toContainText('Coprire il disavanzo del trimestre.');
-    await expect(ufficio).toContainText('misurato · Tesoro');
+    await expect(dati).toContainText('misurato · Tesoro');
+    // Il pannello mostra il dominio nazionale di quella sedia.
+    await expect(dati.locator('.op-domain')).toHaveCount(2);
 
-    // Il problema presentato dal giocatore riceve risposta dal ministro (lo
-    // stream ripiega sul POST), poi si conclude con un ordine in un clic.
+    // WS-GOVOFFICE-03 — Le «strade proposte» non stanno più nella seduta.
+    await expect(ufficio.locator('.minister-path')).toHaveCount(0);
+
+    // Il problema presentato dal giocatore riceve risposta, poi si conclude
+    // con un ordine in un clic.
     await chat.locator('textarea').fill('Il porto di Alfa resta chiuso: servono fondi.');
     await chat.locator('.minister-compose button').click();
     await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
     await chat.locator('.minister-draft-order').click();
 
-    // L'esito ORDINE entra in coda **automaticamente**: nessuna verifica di
-    // fattibilità separata, nessuna conferma.
-    await expect(ufficio.locator('.pending-item').first()).toContainText('Il porto di Alfa resta chiuso');
-
-    // Anche scegliere una strada del ministro accoda direttamente l'ordine:
-    // nella seduta le strade stanno in fondo alla chat (`.minister-path`).
-    await page.locator('.minister-path', { hasText: 'Emettere titoli a 10 anni' }).click();
-    await expect(ufficio.locator('.pending-item').nth(1)).toContainText('Emettere titoli a 10 anni');
+    // L'atto è nel REGISTRO della prima schermata, non nella seduta.
+    await page.locator('.government-office-back').click();
+    await expect(ufficio.locator('.order-register-act').first())
+      .toContainText('Il porto di Alfa resta chiuso');
+    await expect(ufficio.locator('.order-register-signature-office')).toHaveText('Il Presidente del Consiglio');
   });
 
-  test('P05: Ufficio del Governo — «Nulla di fatto» chiude la seduta senza ordine', async ({ page }) => {
+  test('P05: Ufficio del Governo — «Nulla di fatto» chiude la seduta senza atti', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
@@ -143,13 +148,13 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
     await expect(page.locator('.minister-chat')).toBeVisible();
 
-    // Nessun ordine in coda mentre si discute.
-    await expect(ufficio.locator('.pending-item')).toHaveCount(0);
+    // Nessun atto nel registro mentre si discute.
+    await expect(page.locator('.order-register-act')).toHaveCount(0);
 
     // L'esito NULLA DI FATTO: dichiarato, nessun ordine, ritorno alla scelta.
     await page.locator('.cabinet-nothing').click();
     await expect(ufficio.locator('.cabinet-pick')).toHaveCount(2);
-    await expect(ufficio.locator('.pending-item')).toHaveCount(0);
+    await expect(ufficio.locator('.order-register-act')).toHaveCount(0);
     await expect(page.locator('.government-office-outcome-note')).toContainText('nulla di fatto');
   });
 
@@ -291,17 +296,16 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(aria).toContainText('manca la tecnologia Aeronautica avanzata');
     await expect(aria).toContainText('servono 5 fabbriche (ne hai 2)');
 
-    // Governo: una richiesta diventa un ordine reale. «Porta in consiglio»
-    // riempie la bozza e apre l'Ufficio del Governo, senza spendere nulla.
+    // Governo: la richiesta di una fazione resta in LETTURA nel pannello del
+    // consiglio. WS-GOVOFFICE-03 — il pulsante «Porta in consiglio» è uscito
+    // insieme al compositore libero: non c'è più una bozza dove la richiesta
+    // sarebbe diventata visibile, quindi non si promette un'azione che non c'è.
     await page.locator('.nation-dock-tab', { hasText: 'Regno' }).click();
     const governoOrdine = page.locator('.nation-block[aria-label="Consiglio dei ministri"]');
-    await governoOrdine.locator('.nation-demand-order').first().click();
-    // WS-GOVOFFICE-02: l'Ufficio è a due schermate; la bozza già pronta si
-    // ritrova entrando nella seduta di un ministro.
-    await expect(page.locator('.government-office')).toBeVisible();
-    await page.locator('.cabinet-pick').first().click();
-    await expect(page.locator('#free-player-order')).toContainText('Difesa');
-    await expect(page.locator('#free-player-order')).toContainText('copertura di bilancio');
+    await expect(governoOrdine).toContainText('Più fondi ai comandi');
+    await expect(governoOrdine).toContainText('sollecita · urgenza');
+    await expect(governoOrdine.locator('.nation-demand-order')).toHaveCount(0);
+    await expect(governoOrdine).not.toContainText('Porta in consiglio');
   });
 
   test('U03 mobile: la barra moduli resta toccabile e apre il Dossier', async ({ page }) => {

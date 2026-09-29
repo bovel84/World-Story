@@ -52,7 +52,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
   const {
     governmentType, account, resources, arms, procure, trade,
     ongoingProcesses, completedProcesses = [], mandateDecisions = [], maintenanceObligations = [], onAcknowledgeMandateDecision,
-    government, onDraftOrder, governmentVoices, governmentVoicesLoading, governmentVoicesError,
+    government, governmentVoices, governmentVoicesLoading, governmentVoicesError,
     onBorrowDebt, fiscalPolicy, onSetFiscalPolicy, fiscalPolicyBusy,
     crisis, briefing, strategicAgenda, commitments,
     today: worldDate,
@@ -270,11 +270,14 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                     <ul className="nation-faction-list">
                       {factions.map((faction) => (
                         <li key={faction.id}>
+                          {/* WS-GOVOFFICE-03: la fazione non «porta in consiglio»
+                              da sola — è uscito il compositore dove la richiesta
+                              diventava una bozza visibile. La richiesta resta in
+                              lettura; a portarla al ministro va il giocatore. */}
                           <FactionCard
                             faction={faction}
                             dominant={faction.id === government.dominantId}
                             angriest={faction.id === government.angriestId}
-                            onDraftOrder={onDraftOrder}
                             voice={governmentVoices?.voices?.[faction.id]}
                             speaking={governmentVoicesLoading}
                           />
@@ -284,7 +287,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                   ) : (
                     <EmptyState>Nessuna fazione registrata per questo governo.</EmptyState>
                   )}
-                  <Footnote><b>Come funziona</b> il motore calcola chi esiste, quanta influenza ha e che cosa chiede; il modello dà voce a ciascuna anima in una petizione breve, coerente con umore e pressione. Le cifre restano la fonte, mai il copione. Ogni richiesta può diventare un ordine reale: «Porta in consiglio» riempie la bozza e apre il compositore, senza spendere nulla finché l'ordine non è registrato e il tempo non avanza.</Footnote>
+                  <Footnote><b>Come funziona</b> il motore calcola chi esiste, quanta influenza ha e che cosa chiede; il modello dà voce a ciascuna anima in una petizione breve, coerente con umore e pressione. Le cifre restano la fonte, mai il copione. Qui le richieste si leggono: a portarle al ministro di competenza è il giocatore, nella seduta dell'Ufficio del Governo.</Footnote>
                 </>
               ) : (
                 <EmptyState>Le anime del governo non sono ancora pubblicate per questa partita.</EmptyState>

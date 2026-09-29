@@ -26,11 +26,14 @@
  * cancella il dialogo.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { CabinetSession } from './CabinetSession';
 import { MinisterChat } from './MinisterChat';
-import { ActionsPanel } from './ActionsPanel';
+import { MinisterDossier } from './MinisterDossier';
+import { OrderRegister } from './OrderRegister';
+import { nationalOperatingPicture } from './nationalOperatingPicture';
+import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { useChatStore } from '../../stores';
 import type { CabinetAddressView, CabinetPathView, CabinetSessionView } from '../../services/api';
 
@@ -46,7 +49,7 @@ interface OfficeOutcome {
 export interface GovernmentOfficeProps {
   /** L'ufficio è aperto (modulo `orders` attivo). */
   open: boolean;
-  /** Chiudere la stanza: non registra nulla, la bozza e la coda restano. */
+  /** Chiudere la stanza: non registra nulla, la coda resta. */
   onClose: () => void;
   gameId: string;
   /** La seduta del gabinetto: le sedie che portano i bisogni del paese. */
@@ -62,23 +65,26 @@ export interface GovernmentOfficeProps {
   /** WS-GOVOFFICE-02 — L'esito ORDINE dal problema scritto dal giocatore. */
   onQueueOrder?: (text: string) => Promise<boolean>;
 
-  // ── La bozza e la coda: la via dell'ordine libero, con la sua verifica ──
+  // ── Il registro: gli atti deliberati, in lettura ────────────────────────
+  /** Gli atti in attesa del turno. Il registro li legge e li firma. */
   pendingActions: Array<{ id: string; text: string }>;
-  orderDraftText: string;
-  updateOrderDraft: (text: string) => void;
-  enhancedPreview: string | null;
-  enhanceLoading: boolean;
-  enhanceError: string | null;
-  enhanceOrder: (text: string) => Promise<void>;
-  acceptOrderEnhanced: () => void;
-  rejectOrderEnhanced: () => void;
-  registerOrder: (text: string) => Promise<void>;
-  removeQueuedAction: (id: string) => void;
-  updateQueuedAction: (id: string, text: string) => Promise<void>;
-  editingActionId: string | null;
-  editingActionText: string;
-  setEditingActionId: (id: string | null) => void;
-  setEditingActionText: (text: string) => void;
+  /** Il nome dello Stato che firma gli atti (da `nationalName`). */
+  nationalName: string;
+  /** La data corrente di gioco (ISO): è la data della firma. */
+  currentDate?: string | null;
+  /**
+   * Ritirare un atto dal registro prima che il tempo avanzi. È l'unico modo di
+   * togliere un ordine dalla coda (la coda non si mostra più nella seduta):
+   * passa da `removeQueuedAction`, cioè dalla rotta del motore.
+   */
+  onWithdrawOrder: (id: string) => void;
+
+  /**
+   * WS-GOVOFFICE-03 — Le fonti del quadro operativo nazionale, per il pannello
+   * del ministro. Sono le stesse del dossier Nazione: la composizione passa da
+   * `nationOperatingPictureInput`, così un dominio ha **un solo** numero.
+   */
+  pictureSources: NationOperatingPictureSources;
 }
 
 export function GovernmentOffice({
@@ -91,21 +97,10 @@ export function GovernmentOffice({
   onQueueCabinetPath,
   onQueueOrder,
   pendingActions,
-  orderDraftText,
-  updateOrderDraft,
-  enhancedPreview,
-  enhanceLoading,
-  enhanceError,
-  enhanceOrder,
-  acceptOrderEnhanced,
-  rejectOrderEnhanced,
-  registerOrder,
-  removeQueuedAction,
-  updateQueuedAction,
-  editingActionId,
-  editingActionText,
-  setEditingActionId,
-  setEditingActionText,
+  nationalName,
+  currentDate = null,
+  onWithdrawOrder,
+  pictureSources,
 }: GovernmentOfficeProps) {
   // La cronaca dei ministri vive nello store, una per sedia: la stanza può
   // aprirsi e chiudersi senza perdere il filo del discorso.
@@ -120,6 +115,13 @@ export function GovernmentOffice({
   // motore e non crea ordini.
   const [openSeat, setOpenSeat] = useState<CabinetAddressView['seat'] | null>(null);
   const [lastOutcome, setLastOutcome] = useState<OfficeOutcome | null>(null);
+
+  // WS-GOVOFFICE-03 — Il quadro operativo per il pannello del ministro. Lo
+  // compone lo **stesso** helper del dossier Nazione: un dominio, un numero.
+  const picture = useMemo(
+    () => nationalOperatingPicture(nationOperatingPictureInput(pictureSources)),
+    [pictureSources],
+  );
 
   // Chiudere l'ufficio riporta alla scelta: quando lo si riapre, si riparte dai
   // ministri, non da una seduta rimasta a metà.
@@ -187,11 +189,21 @@ export function GovernmentOffice({
           <div className="council-head">
             <h2 className="council-title" id="government-office-title">L’Ufficio del Governo</h2>
             <p className="council-sub">
-              Scegli un ministro: nella sua scheda parla in prima persona, elenca
+              Gli atti già deliberati sono nel registro. Scegli un ministro per
+              aprirne uno nuovo: nella sua scheda parla in prima persona, elenca
               dubbi e problemi, e alla fine la discussione si chiude con un ordine
               o con un nulla di fatto.
             </p>
           </div>
+
+          {/* WS-GOVOFFICE-03 — Il registro degli atti: prima schermata, in
+              lettura. Gli ordini NON si vedono più nella pagina del ministro. */}
+          <OrderRegister
+            orders={pendingActions}
+            nationalName={nationalName}
+            date={currentDate}
+            onWithdraw={onWithdrawOrder}
+          />
 
           {lastOutcome && (
             <p className="government-office-outcome-note" role="status">
@@ -212,154 +224,96 @@ export function GovernmentOffice({
       ) : (
         // ── [2] SEDUTA — il ministro parla; alla fine, l'esito ─────────────
         <>
-          <button
-            type="button"
-            className="government-office-back"
-            onClick={() => setOpenSeat(null)}
-            title="Torna all'elenco dei ministri"
-          >
-            ← Torna ai ministri
-          </button>
-          <div className="council-head">
-            <h2 className="council-title" id="government-office-title">
-              {address ? address.label : 'Seduta'}
-            </h2>
-            <p className="council-sub">
-              Il ministro porta i suoi dubbi e i suoi problemi. Alla fine: un
-              ordine in coda, oppure un nulla di fatto dichiarato.
-            </p>
-          </div>
-
-          <p className="government-office-hint" role="note">
-            Le cifre sono quelle del motore, non del modello. «Concludi con un
-            ordine» mette subito l’ordine nella coda del turno.
-          </p>
-
-          <CabinetSession
-            variant="full"
-            onlySeat={openSeat}
-            session={session}
-            loading={sessionLoading}
-            error={sessionError}
-            speakingSeat={openSeat}
-            onChoose={(item, path) => void queuePath(item, path)}
-          >
-            <MinisterChat
-              gameId={gameId}
-              address={address}
-              onChoose={(item, path) => void queuePath(item, path)}
-              messages={chatMessages}
-              streaming={streaming}
-              onAddMessage={message => { if (openSeat) addMinisterMessage(openSeat, message); }}
-              onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
-              onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}
-              onOrderFromUserMessage={text => void queueProblem(text)}
-            />
-          </CabinetSession>
-
-          {lastOutcome?.kind === 'order' && (
-            <p className="government-office-outcome-note" role="status">
-              Ordine in coda — «{lastOutcome.text}»
-            </p>
-          )}
-
-          <div className="government-office-outcome">
-            <button
-              type="button"
-              className="cabinet-nothing"
-              onClick={concludeNothing}
-              title="Chiudi la seduta senza ordine: torna ai ministri"
-            >
-              Nulla di fatto — chiudi senza ordine
-            </button>
-          </div>
-
-          <div className="pending-actions-section">
-            <div className="pending-header">Ordini in attesa del turno:</div>
-            {pendingActions.length === 0 ? (
-              <div className="pending-empty">Nessuna azione</div>
-            ) : (
-              <div className="pending-list">
-                {pendingActions.map((action, index) => (
-                  <div key={action.id} className="pending-item">
-                    <span className="pending-number">{index + 1}.</span>
-                    {editingActionId === action.id ? (
-                      <>
-                        <textarea
-                          className="pending-edit-input"
-                          value={editingActionText}
-                          onChange={(e) => setEditingActionText(e.target.value)}
-                          rows={2}
-                          aria-label={`Modifica azione ${index + 1}`}
-                        />
-                        <button
-                          className="btn-save-pending"
-                          disabled={!editingActionText.trim()}
-                          onClick={() => void updateQueuedAction(action.id, editingActionText)}
-                          title="Salva la modifica"
-                          aria-label={`Salva modifica azione ${index + 1}`}
-                        >
-                          ✓
-                        </button>
-                        <button
-                          className="btn-cancel-pending"
-                          onClick={() => { setEditingActionId(null); setEditingActionText(''); }}
-                          title="Annulla la modifica"
-                          aria-label={`Annulla modifica azione ${index + 1}`}
-                        >
-                          ✕
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <span className="pending-text">{action.text}</span>
-                        <button
-                          className="btn-edit-pending"
-                          onClick={() => { setEditingActionId(action.id); setEditingActionText(action.text); }}
-                          title="Modifica l'ordine prima della presa in carico"
-                          aria-label={`Modifica azione ${index + 1}`}
-                        >
-                          ✎
-                        </button>
-                        <button
-                          className="btn-remove-pending"
-                          onClick={() => void removeQueuedAction(action.id)}
-                          title="Rimuovi dalla coda"
-                          aria-label={`Rimuovi azione ${index + 1}`}
-                        >
-                          ×
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ))}
+          {/* WS-GOVOFFICE-03 — La seduta a DUE PANNELLI: a sinistra il dialogo
+              con il ministro, a destra i dati della nazione e della sua materia.
+              Le strade proposte e la coda degli ordini NON stanno qui: le prime
+              non sono piu' una scelta da premere, la seconda vive nel registro
+              della prima schermata. */}
+          <div className="government-office-split">
+            <div className="government-office-pane government-office-pane-chat">
+              <button
+                type="button"
+                className="government-office-back"
+                onClick={() => setOpenSeat(null)}
+                title="Torna all'elenco dei ministri"
+              >
+                ← Torna ai ministri
+              </button>
+              <div className="council-head">
+                <h2 className="council-title" id="government-office-title">
+                  {address ? address.label : 'Seduta'}
+                </h2>
+                <p className="council-sub">
+                  Il ministro porta i suoi dubbi e i suoi problemi. La discussione
+                  si chiude con un ordine, che finisce nel registro, oppure con un
+                  nulla di fatto dichiarato.
+                </p>
               </div>
-            )}
-          </div>
 
-          <ActionsPanel
-            text={orderDraftText}
-            onTextChange={updateOrderDraft}
-            enhancedPreview={enhancedPreview}
-            enhanceLoading={enhanceLoading}
-            enhanceError={enhanceError}
-            onEnhance={(t) => void enhanceOrder(t)}
-            onAcceptEnhanced={acceptOrderEnhanced}
-            onRejectEnhanced={rejectOrderEnhanced}
-            onRegister={(t) => void registerOrder(t)}
-          />
+              <p className="government-office-hint" role="note">
+                Le cifre sono quelle del motore, non del modello. Concludere la
+                seduta con un ordine lo mette subito nel registro degli atti.
+              </p>
+
+              <CabinetSession
+                variant="full"
+                onlySeat={openSeat}
+                session={session}
+                loading={sessionLoading}
+                error={sessionError}
+                speakingSeat={openSeat}
+              >
+                <MinisterChat
+                  gameId={gameId}
+                  address={address}
+                  messages={chatMessages}
+                  streaming={streaming}
+                  onAddMessage={message => { if (openSeat) addMinisterMessage(openSeat, message); }}
+                  onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
+                  onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}
+                  onOrderFromUserMessage={text => void queueProblem(text)}
+                />
+              </CabinetSession>
+
+              {lastOutcome?.kind === 'order' && (
+                <p className="government-office-outcome-note" role="status">
+                  Atto firmato nel registro — «{lastOutcome.text}»
+                </p>
+              )}
+
+              <div className="government-office-outcome">
+                <button
+                  type="button"
+                  className="cabinet-nothing"
+                  onClick={concludeNothing}
+                  title="Chiudi la seduta senza ordine: torna ai ministri"
+                >
+                  Nulla di fatto — chiudi senza ordine
+                </button>
+              </div>
+            </div>
+
+            {/* Il pannello dei dati: competenza della sedia, le sue cifre e la
+                scheda del dominio nazionale di quella materia. */}
+            <div className="government-office-pane government-office-pane-dossier">
+              <MinisterDossier
+                address={address}
+                picture={picture}
+              />
+            </div>
+          </div>
 
           <div className="suggestions-footer">
             <span className="pending-advance-hint">
               {pendingActions.length > 0
-                ? `${pendingActions.length} ${pendingActions.length === 1 ? 'ordine pronto' : 'ordini pronti'} · gli eventi inizieranno solo quando avanzi il tempo dalla data in alto.`
-                : 'Concludi la seduta con un ordine, oppure scrivine uno tu: non passerà tempo finché non scegli una data.'}
+                ? `${pendingActions.length} ${pendingActions.length === 1 ? 'atto nel registro' : 'atti nel registro'} · saranno eseguiti solo quando avanzi il tempo dalla data in alto.`
+                : 'Nessun atto nel registro: concludi la seduta con un ordine, oppure chiudila con un nulla di fatto.'}
             </span>
             <button
               type="button"
               className="btn-submit-actions"
               onClick={onClose}
-              title="Chiudi l'ufficio: gli ordini restano in attesa"
+              title="Chiudi l'ufficio: gli atti restano nel registro"
             >
               Chiudi ufficio
             </button>
