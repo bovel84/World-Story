@@ -96,6 +96,11 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     expect(await orders.evaluate((element) => getComputedStyle(element).outlineStyle)).not.toBe('none');
     await page.keyboard.press('Enter');
     await expect(page.locator('.suggestions-content')).toBeVisible();
+    // L'ufficio del Governo è un modale: la rail sottostante è resa inerte
+    // finché è aperto. Esc lo chiude e restituisce il focus (comportamento del
+    // dialogo): la tastiera resta padrona dell'interazione.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.suggestions-content')).toHaveCount(0);
 
     const advance = page.getByRole('button', { name: 'Avanza' });
     await advance.focus();
@@ -125,9 +130,17 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     installMockApi(page);
     await reachHud(page);
 
-    // Apri i moduli per coprire anche i loro controlli.
+    // Apri i moduli per coprire anche i loro controlli. L'ufficio del Governo
+    // è un modale: si audita aperto (è la nuova superficie), poi si chiude
+    // prima di passare alla Nazione — mentre è aperto la rail sottostante è
+    // inerte, quindi non la si può cliccare senza prima chiudere.
     await page.locator('.rail-btn').filter({ hasText: 'Governo' }).click();
     await expect(page.locator('.suggestions-content')).toBeVisible();
+    const officeViolations = await page.evaluate(auditDom);
+    expect(officeViolations).toEqual([]);
+    await page.locator('.suggestions-content .desk-close-x').click();
+    await expect(page.locator('.suggestions-content')).toHaveCount(0);
+
     await page.locator('.rail-btn').filter({ hasText: 'Nazione' }).click();
     await expect(page.locator('.nation-desk')).toBeVisible();
 
