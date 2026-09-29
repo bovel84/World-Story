@@ -51,6 +51,12 @@ export interface MinisterChatProps {
   onAddMessage: (message: AdvisorHistoryItem) => void;
   onAppendToken: (token: string) => void;
   onStreamingChange: (streaming: boolean) => void;
+  /**
+   * P04 — Il problema che il giocatore presenta al ministro può diventare
+   * subito la bozza d'ordine: è l'altra direzione del dialogo («sono io che
+   * presento problemi a loro»). Se manca, la chat resta conversazione pura.
+   */
+  onDraftFromUserMessage?: (text: string) => void;
 }
 
 /** La barra di una cifra: la grafica dentro la chat, dai numeri del motore. */
@@ -77,6 +83,7 @@ function FigureBar({ figure }: { figure: CabinetItemView['figures'][number] }) {
 export function MinisterChat({
   gameId, address, onChoose,
   messages, streaming, onAddMessage, onAppendToken, onStreamingChange,
+  onDraftFromUserMessage,
 }: MinisterChatProps) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
@@ -171,6 +178,19 @@ export function MinisterChat({
                   </>
                 )}
               </div>
+              {/* P04 — «sono io che presento problemi a loro»: il problema
+                  scritto dal giocatore diventa la bozza d'ordine con un click,
+                  senza ricopiarlo a mano nel compositore. */}
+              {message.role === 'user' && onDraftFromUserMessage && message.content.trim() && (
+                <button
+                  type="button"
+                  className="minister-draft-order"
+                  onClick={() => onDraftFromUserMessage(message.content)}
+                  title="Porta questo problema nel compositore come bozza d'ordine"
+                >
+                  ↳ Prepara ordine da questo problema
+                </button>
+              )}
             </div>
           );
         })}

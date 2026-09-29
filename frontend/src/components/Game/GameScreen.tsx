@@ -36,6 +36,7 @@ import { SimulationEventReader } from './SimulationEventReader';
 import { GameMenu } from '../Shell/GameMenu';
 import { CommandRail } from '../Shell/CommandRail';
 import { DeskContent } from '../Shell/DeskContent';
+import { GovernmentOffice } from './GovernmentOffice';
 import { ProvinceInspector } from '../Shell/ProvinceInspector';
 import { GameMap } from './GameMap';
 import { deriveRailItems } from './nationalContext';
@@ -347,7 +348,38 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   );
 
   return (
-    <GameShell
+    <>
+      <GovernmentOffice
+        open={activeModule === 'orders'}
+        onClose={closeModule}
+        gameId={currentGame?.id ?? ''}
+        session={cabinet}
+        sessionLoading={cabinetLoading}
+        sessionError={cabinetError}
+        onChoose={chooseCabinetPath}
+        // P02-bis — il parlare: la sedia diventa un pulsante e la chat si apre
+        // col contesto di QUELLA sedia. Il modale dell'ufficio monta la stessa
+        // seduta che prima stava nel desk; l'unica differenza è lo spazio.
+        onSpeak={address => setSpeakingSeat(address.seat)}
+        speakingSeat={speakingSeat}
+        pendingActions={pendingActions}
+        orderDraftText={orderDraftText}
+        updateOrderDraft={updateOrderDraft}
+        enhancedPreview={enhancedPreview}
+        enhanceLoading={enhanceLoading}
+        enhanceError={enhanceError}
+        enhanceOrder={orders.enhanceOrder}
+        acceptOrderEnhanced={acceptOrderEnhanced}
+        rejectOrderEnhanced={rejectOrderEnhanced}
+        registerOrder={orders.registerOrder}
+        removeQueuedAction={orders.removeQueuedAction}
+        updateQueuedAction={orders.updateQueuedAction}
+        editingActionId={orders.editingActionId}
+        editingActionText={orders.editingActionText}
+        setEditingActionId={orders.setEditingActionId}
+        setEditingActionText={orders.setEditingActionText}
+      />
+      <GameShell
       hud={
         <>
           <HudBar
@@ -519,31 +551,6 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             governmentVoicesError={nation.governmentVoicesError}
             onLoadGovernmentVoices={nation.loadGovernmentVoices}
             onBorrowDebt={nation.borrowSovereignDebt}
-            pendingActions={pendingActions}
-            orderDraftText={orderDraftText}
-            updateOrderDraft={updateOrderDraft}
-            cabinet={cabinet}
-            cabinetLoading={cabinetLoading}
-            cabinetError={cabinetError}
-            onCabinetChoose={chooseCabinetPath}
-            // P02-bis — il parlare: la sedia diventa un pulsante e la chat si
-            // apre col contesto di QUELLA sedia. Senza questo, il gabinetto
-            // sarebbe muto e i ministri resterebbero un elenco.
-            onMinisterSpeak={address => setSpeakingSeat(address.seat)}
-            speakingSeat={speakingSeat}
-            enhancedPreview={enhancedPreview}
-            enhanceLoading={enhanceLoading}
-            enhanceError={enhanceError}
-            enhanceOrder={orders.enhanceOrder}
-            acceptOrderEnhanced={acceptOrderEnhanced}
-            rejectOrderEnhanced={rejectOrderEnhanced}
-            registerOrder={orders.registerOrder}
-            removeQueuedAction={orders.removeQueuedAction}
-            updateQueuedAction={orders.updateQueuedAction}
-            editingActionId={orders.editingActionId}
-            editingActionText={orders.editingActionText}
-            setEditingActionId={orders.setEditingActionId}
-            setEditingActionText={orders.setEditingActionText}
             isProcessingTurn={shell.isProcessingTurn}
             ongoingProcesses={timeline.ongoingProcesses}
             completedProcesses={timeline.completedProcesses}
@@ -563,7 +570,8 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
           />
         )
       }
-      deskOpen={activeModule !== 'none' || mapContext !== null}
+      deskOpen={(activeModule !== 'none' && activeModule !== 'orders') || mapContext !== null}
     />
+    </>
   );
 }

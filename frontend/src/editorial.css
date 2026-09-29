@@ -995,7 +995,14 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 /* ── P02-bis — La chat del ministro, e la grafica delle sue cifre ───────────
    Il concetto centrale: il parlare. La grafica sono le cifre del MOTORE, non
    del modello; l'aspetto resta tipografico, con barre per il divario. Nessun
-   `!important`: la guardia di disciplina CSS lo vieta. */
+   `!important`: la guardia di disciplina CSS lo vieta.
+
+   Il colore segue il pallet del CONSULENTE, non la carta editoriale: la seduta
+   è su carta, ma `.game-shell-desk .entry-text` impone l'inchiostro chiaro del
+   Consulente con `!important` e i titoli del markdown sono bianchi — testo
+   chiaro su carta chiara, illeggibile. Qui la chat adotta la superficie
+   notturna `#0d1727`, la risposta su `#182842` e il messaggio del governo sul
+   viola `#493b87`: gli stessi colori del dialogo con il Consulente. */
 .cabinet-speak {
   margin-left: auto;
   font-family: var(--op-utility);
@@ -1012,19 +1019,20 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .cabinet-speak.active { border-color: var(--op-gold); color: #8a6a22; }
 
 .minister-chat {
-  border: 1px solid var(--op-rule);
-  background: var(--op-sheet);
+  border: 1px solid #3a4f6c;
+  background: #0d1727;
+  color: #e7edf8;
   padding: 10px 12px;
   margin: 6px 0 12px;
 }
-.minister-head { border-bottom: 1px solid var(--op-rule); padding-bottom: 5px; margin-bottom: 9px; }
-.minister-name { font-family: var(--op-display); font-size: 14px; color: var(--op-ink); }
+.minister-head { border-bottom: 1px solid #2a3a52; padding-bottom: 5px; margin-bottom: 9px; }
+.minister-name { font-family: var(--op-display); font-size: 14px; color: #f8f1e5; }
 .minister-competence {
   font-family: var(--op-utility);
   font-size: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--op-muted);
+  color: #9fb0c8;
 }
 
 /* La grafica: una barra per cifra, e sotto da dove viene il numero. */
@@ -1039,20 +1047,20 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   font-size: 9.5px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--op-muted);
+  color: #9fb0c8;
 }
 .minister-figure-track {
   height: 5px;
-  background: var(--op-paper-deep);
+  background: #1c2a40;
   margin: 3px 0;
 }
-.minister-figure-fill { height: 5px; background: var(--op-ink); }
-.minister-figure.unknown .minister-figure-fill { background: var(--op-muted); }
-.minister-figure-value { font-family: var(--op-display); font-size: 14px; color: var(--op-ink); }
-.minister-figure-basis { font-family: var(--op-utility); font-size: 9px; color: var(--op-muted); }
+.minister-figure-fill { height: 5px; background: #5b7ba6; }
+.minister-figure.unknown .minister-figure-fill { background: #4b5b73; }
+.minister-figure-value { font-family: var(--op-display); font-size: 14px; color: #edf4ff; }
+.minister-figure-basis { font-family: var(--op-utility); font-size: 9px; color: #8fa2ba; }
 
 .minister-thread { max-height: 260px; overflow-y: auto; margin-bottom: 9px; }
-.minister-hint { font-family: var(--op-copy); font-size: 12.5px; font-style: italic; color: var(--op-muted); }
+.minister-hint { font-family: var(--op-copy); font-size: 12.5px; font-style: italic; color: #c3cec2; }
 .minister-message {
   font-family: var(--op-copy);
   font-size: 13px;
@@ -1060,20 +1068,20 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   margin-bottom: 7px;
   white-space: pre-wrap;
 }
-.minister-message.user { color: var(--op-ink); border-left: 2px solid var(--op-rule); padding-left: 8px; }
-.minister-message.assistant { color: #33403c; }
-.minister-typing { color: var(--op-muted); }
-.minister-error { font-family: var(--op-copy); font-size: 12px; color: var(--op-red); }
-.minister-status { font-family: var(--op-copy); font-size: 12.5px; color: var(--op-muted); }
+.minister-message.user { color: #fff; border-left: 2px solid #9580e2; padding-left: 8px; }
+.minister-message.assistant { color: #edf4ff; }
+.minister-typing { color: #9fb0c8; }
+.minister-error { font-family: var(--op-copy); font-size: 12px; color: #ffb4ab; }
+.minister-status { font-family: var(--op-copy); font-size: 12.5px; color: #adbed3; }
 
 .minister-compose { display: flex; gap: 6px; }
 .minister-compose input {
   flex: 1;
   font-family: var(--op-copy);
   font-size: 12.5px;
-  border: 1px solid var(--op-rule);
-  background: var(--op-paper);
-  color: var(--op-ink);
+  border: 1px solid #526783;
+  background: #091321;
+  color: #f0f5ff;
   padding: 5px 7px;
 }
 .minister-compose button {
@@ -1081,48 +1089,48 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   font-size: 10.5px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  border: 1px solid var(--op-ink);
-  background: var(--op-ink);
-  color: var(--op-sheet);
+  border: 1px solid #927be4;
+  background: #684bc5;
+  color: #fff;
   padding: 5px 10px;
   cursor: pointer;
 }
 .minister-compose button:disabled { opacity: 0.5; cursor: default; }
 
 /* La chat FINISCE con un ordine: le strade sotto il dialogo. */
-.minister-outcome { border-top: 1px solid var(--op-rule); margin-top: 10px; padding-top: 9px; }
+.minister-outcome { border-top: 1px solid #2a3a52; margin-top: 10px; padding-top: 9px; }
 .minister-outcome-title {
   font-family: var(--op-utility);
   font-size: 10px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--op-muted);
+  color: #9fb0c8;
   margin-bottom: 6px;
 }
-.minister-outcome-need { font-family: var(--op-copy); font-size: 12.5px; color: var(--op-ink); margin-bottom: 5px; }
+.minister-outcome-need { font-family: var(--op-copy); font-size: 12.5px; color: #edf4ff; margin-bottom: 5px; }
 .minister-paths { display: flex; flex-direction: column; gap: 5px; }
 .minister-path {
   text-align: left;
-  background: var(--op-paper);
-  border: 1px solid var(--op-rule);
+  background: #142238;
+  border: 1px solid #3a4f6c;
   padding: 6px 8px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.minister-path:hover { border-color: var(--op-ink); }
-.minister-path.recommended { border-left: 3px solid var(--op-gold); }
-.minister-path-title { font-family: var(--op-copy); font-size: 12.5px; color: var(--op-ink); }
+.minister-path:hover { border-color: #927be4; }
+.minister-path.recommended { border-left: 3px solid #8a72e5; }
+.minister-path-title { font-family: var(--op-copy); font-size: 12.5px; color: #f0f5ff; }
 .minister-path-badge {
   font-family: var(--op-utility);
   font-size: 9px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #8a6a22;
+  color: #c9b3ff;
   margin-left: 6px;
 }
-.minister-path-expected { font-family: var(--op-copy); font-size: 11.5px; font-style: italic; color: var(--op-muted); }
+.minister-path-expected { font-family: var(--op-copy); font-size: 11.5px; font-style: italic; color: #adbed3; }
 
 /* ── P02-bis — La chat del ministro: cronaca per sedia, come il Consulente ──
    L'autore: «io la vorrei come quella del consulente; adesso è tutto mischiato».
@@ -1136,23 +1144,31 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   font-size: 9px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--op-red);
+  color: #f0b7bd;
 }
 .minister-thread .minister-entry .entry-text {
   font-family: var(--op-copy);
   font-size: 13px;
   line-height: 1.5;
-  color: var(--op-ink);
+  color: #edf4ff;
   white-space: pre-wrap;
 }
+/* Il messaggio del governo e la risposta del ministro sono gli STESSI bubble
+   del Consulente: viola per chi parla, notte per chi risponde. */
 .minister-thread .minister-entry.user .entry-text {
-  border-left: 2px solid var(--op-rule);
-  padding-left: 8px;
+  background: #493b87;
+  color: #fff;
   white-space: pre-wrap;
 }
 /* Il testo del ministro è markdown reso: il pre-wrap resta per il messaggio del
    giocatore, non per il documento. */
-.minister-thread .minister-entry.assistant .entry-text { white-space: normal; }
+.minister-thread .minister-entry.assistant .entry-text {
+  border: 1px solid #2a3a52;
+  border-left: 3px solid #8a72e5;
+  background: #182842;
+  color: #edf4ff;
+  white-space: normal;
+}
 .minister-thread .minister-entry.assistant .entry-text .rich-text p { margin: 0 0 7px; }
 .minister-thread .minister-entry.assistant .entry-text .rich-text h3,
 .minister-thread .minister-entry.assistant .entry-text .rich-text h4 { margin: 9px 0 5px; font-family: var(--op-display); }
@@ -1160,7 +1176,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 
 /* Il cursore dello stream e i tre puntini: gli stessi del Consulente, così si
    capisce che il ministro sta scrivendo e non che si è bloccato. */
-.minister-thread .stream-cursor { animation: minister-blink 1s step-end infinite; color: var(--op-ink); }
+.minister-thread .stream-cursor { animation: minister-blink 1s step-end infinite; color: #edf4ff; }
 @keyframes minister-blink { 50% { opacity: 0; } }
 
 /* La composizione: area di testo multi-riga come il Consulente (Invio invia,
@@ -1171,9 +1187,78 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   font-size: 12.5px;
   line-height: 1.4;
   resize: vertical;
-  border: 1px solid var(--op-rule);
-  background: var(--op-paper);
-  color: var(--op-ink);
+  border: 1px solid #526783;
+  background: #091321;
+  color: #f0f5ff;
   padding: 5px 7px;
 }
-.minister-compose textarea::placeholder { color: var(--op-muted); }
+.minister-compose textarea::placeholder { color: #91a2ba; }
+
+/* ── P04 — L'Ufficio del Governo: la seduta diventa una stanza modale ───────
+   L'autore: «quando clicco il governo vorrei che aprisse il modale e vedessi
+   l'ufficio con i ministri che parlano e presentano i problemi, oppure sono io
+   che presento problemi a loro». La seduta lascia la colonna del desk e prende
+   il centro dello schermo: stessa superficie notturna del Consulente, stessa
+   disciplina (nessun `!important` nei selettori del modulo). */
+.government-office-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(6, 10, 18, .74);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.government-office {
+  position: relative;
+  width: min(1080px, 96vw);
+  height: min(88dvh, 900px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  border: 1px solid #3a4f6c;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+}
+/* Il titolo non finisce sotto la × di chiusura, che il desk condivide col modale. */
+.government-office .desk-close-x { top: 12px; right: 12px; }
+.government-office .council-head { padding-right: 56px; }
+
+/* La riga che spiega le due direzioni del dialogo: i ministri parlano, e il
+   giocatore può parlare a loro. Sta sul bordo viola del Consulente. */
+.government-office-hint {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid #8a72e5;
+  background: #131f33;
+  color: #adbed3;
+  font: 400 12.5px/1.5 var(--op-copy);
+}
+
+/* P04 — «sono io che presento problemi a loro»: dal problema scritto in chat
+   alla bozza d'ordine, un click. Il pulsante tace finché non c'è un problema. */
+.minister-draft-order {
+  display: block;
+  margin: 4px 0 0;
+  padding: 3px 8px;
+  border: 1px solid #526783;
+  background: #142238;
+  color: #cfe0f5;
+  font: 500 10.5px/1.3 var(--op-utility);
+  letter-spacing: .03em;
+  cursor: pointer;
+}
+.minister-draft-order:hover { border-color: #927be4; color: #fff; }
+
+/* Su schermo stretto la stanza sale dal basso, come il desk, ma resta modale. */
+@media (max-width: 767px) {
+  .government-office-overlay { place-items: end center; padding: 0; }
+  .government-office {
+    width: 100%;
+    height: 94dvh;
+    max-height: 94dvh;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+  }
+}
