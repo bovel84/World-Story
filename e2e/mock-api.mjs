@@ -1142,6 +1142,9 @@ export function installMockApi(page, opts = {}) {
   });
   // Coda ordini: GET restituisce la coda, POST accoda un ordine deterministico.
   // (U02 µ1: «Registra ordine» accoda senza avanzare tempo né spendere risorse.)
+  // WS-GOVOFFICE-02: l'Ufficio può accodare più ordini (dal problema e dalla
+  // strada), quindi l'id è progressivo invece che fisso.
+  let queuedSeq = 0;
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/actions/queue`, (route) => {
     if (route.request().method() === 'POST') {
       let text = 'Ordine di prova';
@@ -1149,11 +1152,12 @@ export function installMockApi(page, opts = {}) {
         const body = JSON.parse(route.request().postData() || '{}');
         if (body && typeof body.text === 'string') text = body.text;
       } catch { /* body non JSON → testo di default */ }
-      return json(route, { id: 'mock-action-1', text, status: 'queued', createdAt: '2026-01-01T00:00:00Z' });
+      queuedSeq += 1;
+      return json(route, { id: `mock-action-${queuedSeq}`, text, status: 'queued', createdAt: '2026-01-01T00:00:00Z' });
     }
     return json(route, { pendingActions: [] });
   });
-  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/actions/queue/mock-action-1`, (route) =>
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/actions/queue/mock-action-*`, (route) =>
     json(route, { removed: true }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/actions/enhance`, (route) => {
     let text = 'Ordine di prova';
