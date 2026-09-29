@@ -138,7 +138,13 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     await expect(page.locator('.suggestions-content')).toBeVisible();
     const officeViolations = await page.evaluate(auditDom);
     expect(officeViolations).toEqual([]);
-    await page.locator('.suggestions-content .desk-close-x').click();
+    // La seduta (seconda schermata) è una superficie nuova — chat del ministro
+    // e compositore: si audita aperta, poi Esc chiude l'ufficio.
+    await page.locator('.cabinet-pick').first().click();
+    await expect(page.locator('.minister-chat')).toBeVisible();
+    const sedutaViolations = await page.evaluate(auditDom);
+    expect(sedutaViolations).toEqual([]);
+    await page.keyboard.press('Escape');
     await expect(page.locator('.suggestions-content')).toHaveCount(0);
 
     await page.locator('.rail-btn').filter({ hasText: 'Nazione' }).click();

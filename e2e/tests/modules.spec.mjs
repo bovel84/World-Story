@@ -54,6 +54,9 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
 
     await page.locator('.rail-btn[aria-label="Governo"]').click();
     await expect(page.locator('.suggestions-content')).toBeVisible();
+    // WS-GOVOFFICE-02: il compositore d'ordine vive dentro la seduta di un
+    // ministro. Si entra dal riquadro del ministro (schermata di scelta).
+    await page.locator('.cabinet-pick').first().click();
 
     // Il compositore libero è presente con l'etichetta corretta.
     await expect(page.locator('#free-player-order')).toBeVisible();
@@ -86,50 +89,68 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(page.locator('#free-player-order')).toHaveValue('');
   });
 
-  test('P04: Ufficio del Governo — i ministri parlano, e la strada diventa un ordine', async ({ page }) => {
+  test('P04: Ufficio del Governo — si sceglie il ministro, e la strada diventa subito un ordine', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
-    // Apri «Governo»: non più una colonna del desk, ma una stanza modale in
-    // primo piano. Il desk laterale non deve comparire.
+    // [1] SCELTA — Apri «Governo»: una stanza modale in primo piano, e in
+    // primo piano SOLO i riquadri dei ministri. Niente desk, item, chat, coda
+    // o compositore: quelli vivono nella seduta.
     await page.locator('.rail-btn[aria-label="Governo"]').click();
     const ufficio = page.locator('.government-office');
     await expect(ufficio).toBeVisible();
     await expect(ufficio).toHaveAttribute('aria-modal', 'true');
     await expect(ufficio.locator('#government-office-title')).toContainText('Ufficio del Governo');
     await expect(page.locator('.game-shell-desk')).toHaveCount(0);
+    await expect(ufficio.locator('.cabinet-pick')).toHaveCount(2);
+    await expect(ufficio).toContainText('Ministro del Tesoro');
+    await expect(ufficio.locator('.cabinet-item')).toHaveCount(0);
+    await expect(ufficio.locator('.minister-chat')).toHaveCount(0);
+    await expect(ufficio.locator('.pending-item')).toHaveCount(0);
+    await expect(ufficio.locator('#free-player-order')).toHaveCount(0);
 
-    // La seduta è dentro: due sedie con i bisogni e le cifre del motore.
-    await expect(page.locator('.cabinet-seat')).toHaveCount(2);
+    // [2] SEDUTA — il ministro parla in prima persona ed elenca i suoi
+    // bisogni con le cifre del motore.
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    const chat = page.locator('.minister-chat');
+    await expect(chat).toBeVisible();
     await expect(ufficio).toContainText('Coprire il disavanzo del trimestre.');
     await expect(ufficio).toContainText('misurato · Tesoro');
 
-    // «Parla» apre il dialogo di QUELLA sedia; il problema presentato dal
-    // giocatore riceve risposta dal ministro (lo stream ripiega sul POST).
-    const sediaTesoro = page.locator('.cabinet-seat', { hasText: 'Ministro del Tesoro' });
-    await sediaTesoro.locator('.cabinet-speak').click();
-    const chat = sediaTesoro.locator('.minister-chat');
-    await expect(chat).toBeVisible();
+    // Il problema presentato dal giocatore riceve risposta dal ministro (lo
+    // stream ripiega sul POST), poi si conclude con un ordine in un clic.
     await chat.locator('textarea').fill('Il porto di Alfa resta chiuso: servono fondi.');
     await chat.locator('.minister-compose button').click();
-    await expect(chat).toContainText('Il porto di Alfa resta chiuso');
     await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
-
-    // Il problema del giocatore diventa bozza d'ordine con un click…
     await chat.locator('.minister-draft-order').click();
-    await expect(page.locator('#free-player-order')).toHaveValue('Il porto di Alfa resta chiuso: servono fondi.');
 
-    // …e una strada del ministro pure (invariante MG-I1: prepara, non registra).
-    await sediaTesoro.locator('.cabinet-path', { hasText: 'Emettere titoli a 10 anni' }).click();
-    await expect(page.locator('#free-player-order')).toHaveValue(/Emettere titoli a 10 anni/);
+    // L'esito ORDINE entra in coda **automaticamente**: nessuna verifica di
+    // fattibilità separata, nessuna conferma.
+    await expect(ufficio.locator('.pending-item').first()).toContainText('Il porto di Alfa resta chiuso');
+
+    // Anche scegliere una strada del ministro accoda direttamente l'ordine:
+    // nella seduta le strade stanno in fondo alla chat (`.minister-path`).
+    await page.locator('.minister-path', { hasText: 'Emettere titoli a 10 anni' }).click();
+    await expect(ufficio.locator('.pending-item').nth(1)).toContainText('Emettere titoli a 10 anni');
+  });
+
+  test('P05: Ufficio del Governo — «Nulla di fatto» chiude la seduta senza ordine', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
+    const ufficio = page.locator('.government-office');
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    await expect(page.locator('.minister-chat')).toBeVisible();
+
+    // Nessun ordine in coda mentre si discute.
     await expect(ufficio.locator('.pending-item')).toHaveCount(0);
 
-    // Solo la conferma del giocatore trasforma la bozza in un ordine che il
-    // motore accetta: verifica di fattibilità, poi coda.
-    await page.locator('.btn-add-pending').click();
-    await expect(page.locator('.feasibility-check')).toBeVisible();
-    await page.locator('.btn-feasibility-register').click();
-    await expect(ufficio.locator('.pending-item').first()).toContainText('Emettere titoli a 10 anni');
+    // L'esito NULLA DI FATTO: dichiarato, nessun ordine, ritorno alla scelta.
+    await page.locator('.cabinet-nothing').click();
+    await expect(ufficio.locator('.cabinet-pick')).toHaveCount(2);
+    await expect(ufficio.locator('.pending-item')).toHaveCount(0);
+    await expect(page.locator('.government-office-outcome-note')).toContainText('nulla di fatto');
   });
 
   test('U03: Dossier Nazione — sezioni con default «Situazione»', async ({ page }) => {
@@ -271,10 +292,14 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(aria).toContainText('servono 5 fabbriche (ne hai 2)');
 
     // Governo: una richiesta diventa un ordine reale. «Porta in consiglio»
-    // riempie la bozza e apre il compositore, senza spendere nulla.
+    // riempie la bozza e apre l'Ufficio del Governo, senza spendere nulla.
     await page.locator('.nation-dock-tab', { hasText: 'Regno' }).click();
     const governoOrdine = page.locator('.nation-block[aria-label="Consiglio dei ministri"]');
     await governoOrdine.locator('.nation-demand-order').first().click();
+    // WS-GOVOFFICE-02: l'Ufficio è a due schermate; la bozza già pronta si
+    // ritrova entrando nella seduta di un ministro.
+    await expect(page.locator('.government-office')).toBeVisible();
+    await page.locator('.cabinet-pick').first().click();
     await expect(page.locator('#free-player-order')).toContainText('Difesa');
     await expect(page.locator('#free-player-order')).toContainText('copertura di bilancio');
   });
