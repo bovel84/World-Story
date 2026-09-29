@@ -147,6 +147,13 @@ introduce scorciatoie.
   strada prepara la bozza (e la coda resta vuota: MG-I1); infine
   `.btn-add-pending` → `.feasibility-check` → `.btn-feasibility-register` accoda
   l'ordine.
+- `e2e/a11y/a11y.spec.mjs`: l'audit di base (e il test di tastiera) riflette la
+  nuova semantica modale. Prima apriva il Governo e poi usava rail e desk Tempo
+  **senza chiudere**: con la stanza modale la rail sottostante è resa inerte da
+  `AccessibleDialog`, quindi il test è stato adattato a **chiudere** (Esc / `×`)
+  prima di interagire col resto — e **rafforzato** auditando anche la stanza
+  aperta. Non è un allentamento: è la semantica corretta di un dialogo, ed è la
+  ragione per cui il job informativo `e2e-mock` era rosso prima di questo fix.
 
 ---
 
@@ -161,6 +168,7 @@ introduce scorciatoie.
 | `frontend/src/editorial.css` | pallet Consulente per `.minister-*`; layout `.government-office*` e `.minister-draft-order`; nessun `!important` nuovo |
 | `e2e/mock-api.mjs` | `MOCK_CABINET` + route `government/cabinet` e `government/minister/*` (stream 404 → fallback) |
 | `e2e/tests/modules.spec.mjs` | test **P04** (Ufficio del Governo) |
+| `e2e/a11y/a11y.spec.mjs` | audit adattato alla stanza modale: chiude prima di usare la rail; audita anche l'ufficio aperto |
 | `docs/implementation/WS-GOVOFFICE-01-report.md` | questo report |
 
 Nessuna nuova route backend → `docs/implementation/q02-endpoint-inventory.json`
@@ -198,13 +206,25 @@ ripristina quello linux nella job omonima).
 | Build backend + frontend | `WORLD_STORY_BUILD_ID=local-gate npm run build` | pulito (exit 0; frontend `index-DVrL1IGV.css` + `index-Cz1nA3pn.js`; backend `tsc` ×2) |
 | E2E mock (Playwright, Chrome di sistema) | `cd e2e && node_modules/.bin/playwright test` | **148 test verdi** (17.8 min) |
 | E2E mirato | `playwright test tests/modules.spec.mjs` | **5/5 verdi**, incluso **P04** |
-| CI `test-build` (richiesto) | PR verso `main` | **pass** (vedi §6) |
+| A11y (Playwright) | `cd e2e && playwright test --config=playwright.a11y.config.mjs` | **3/3 verdi** (l'ufficio modale supera l'audit) |
+| Perf baseline | `node e2e/perf/baseline.mjs` | OK (JS 1.70 MB / CSS 0.61 MB, entro soglia) |
+| CI `test-build` (richiesto) | PR #136 | **pass** (2m28s) |
+| CI `e2e-mock` (informativo) | PR #136, run `36593111727` | **prima rosso → fix a11y → ri-eseguito verde** (vedi sotto) |
 
 Nota onesta: la prima esecuzione della suite backend ha avuto **1 rosso flaky**
 (`op-objects-time-step.test.ts` test 42) e la prima della suite frontend era
 **rossa per l'install drift locale** (16 file non caricati). Entrambi ri-eseguiti
 dopo aver ripristinato l'ambiente fedele: verdi. **Nessuna soglia alzata, nessun
 test disattivato, nessun test rilassato.**
+
+**Il job informativo `e2e-mock` è stato rosso alla prima esecuzione CI** (run
+`36593111727`): i due test di `e2e/a11y/a11y.spec.mjs` aprivano il Governo e poi
+usavano rail e desk Tempo senza chiudere. Con la nuova stanza modale `#root` è
+inerte, quindi il click su «Nazione» era intercettato dall'overlay e
+`expect(advance).toBeFocused()` falliva. **Causa reale: semantica modale nuova,
+non codice rotto.** L'audit è stato adattato (chiude prima di interagire) e
+rafforzato (audita l'ufficio aperto); ri-eseguito in locale 3/3 verde e
+ri-push del commit. Nessun test disattivato, nessuna soglia toccata.
 
 ---
 
@@ -221,6 +241,9 @@ test disattivato, nessun test rilassato.**
   verifica di fattibilità → coda; la stanza non registra nulla da sola (MG-I1).
 - La chat del ministro è ora **leggibile** con il pallet del Consulente; il gate
   `cssDiscipline` resta verde (nessun `!important` nuovo).
+- Il job informativo `e2e-mock` (non bloccante, `continue-on-error`) è passato
+  dopo l'adattamento dell'audit a11y; il gate richiesto `test-build` era già
+  verde alla prima esecuzione.
 - Criteri di successo del task: `GovernmentOffice.tsx` integrato e funzionante ✅;
   `tsc --noEmit` pulito ✅; suite backend/frontend verdi ✅; report committato ✅;
   PR verso `main` con `test-build` verde ✅; nessun nuovo motore, freeze intatto ✅.
