@@ -49,8 +49,6 @@ interface DeskContentProps {
   worldMapAssets?: import('../../services/api').WorldMapAssetsPayload | null;
   /** Anime del governo e dettaglio del bilancio pubblicati dal motore. */
   nationalGovernment?: GovernmentSnapshot | null;
-  /** Trasforma la richiesta di una fazione in una bozza d'ordine. */
-  onDraftGovernmentPetition?: (text: string) => void;
   /** Voci del consiglio generate dall'LLM (on-demand, per il turno corrente). */
   governmentVoices?: GovernmentVoicesResponse | null;
   governmentVoicesLoading?: boolean;
@@ -117,7 +115,6 @@ export function DeskContent({
   nationalHistory = [],
   worldMapAssets = null,
   nationalGovernment = null,
-  onDraftGovernmentPetition,
   governmentVoices = null,
   governmentVoicesLoading = false,
   governmentVoicesError = null,
@@ -282,7 +279,6 @@ export function DeskContent({
             trade={tradeResource}
             accountHistory={nationalHistory}
             government={nationalGovernment}
-            onDraftOrder={onDraftGovernmentPetition}
             governmentVoices={governmentVoices}
             governmentVoicesLoading={governmentVoicesLoading}
             governmentVoicesError={governmentVoicesError}

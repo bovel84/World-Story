@@ -126,8 +126,6 @@ export interface NationDockProps {
   onAcknowledgeMandateDecision?: (mandateId: string, kind: string) => Promise<void>;
   /** Anime del governo e dettaglio del bilancio calcolati dal motore. */
   government?: GovernmentSnapshot | null;
-  /** Trasforma la richiesta di una fazione in una bozza d'ordine reale. */
-  onDraftOrder?: (text: string) => void;
   /** Voci delle anime del governo generate dall'LLM (per il turno corrente). */
   governmentVoices?: GovernmentVoicesResponse | null;
   governmentVoicesLoading?: boolean;

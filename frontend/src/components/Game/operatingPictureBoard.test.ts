@@ -13,6 +13,8 @@ import { nationalOperatingPicture, type OperatingPictureInput } from './national
 const dock = fs.readFileSync(path.resolve(__dirname, 'NationDock.tsx'), 'utf8');
 const board = fs.readFileSync(path.resolve(__dirname, 'OperatingPictureBoard.tsx'), 'utf8');
 const model = fs.readFileSync(path.resolve(__dirname, 'NationDock/useNationDockModel.ts'), 'utf8');
+// WS-GOVOFFICE-03 — la composizione degli ingressi, condivisa col Governo.
+const pictureInput = fs.readFileSync(path.resolve(__dirname, 'nationOperatingPictureInput.ts'), 'utf8');
 
 const input: OperatingPictureInput = {
   account: { forces: 8, mobilized: 2, stability: 52, socialTension: 44, factories: 9, ports: 3, universities: 2, monthlyRevenue: 30, monthlyExpenses: 33, monthlyBalance: -3, nominalGdpUsdBillions: 400 },
@@ -175,9 +177,16 @@ describe('COUNTRY-CLARITY · quadro d’insieme (presentazione)', () => {
   });
 
   it('il quadro d’insieme non chiama il motore e non inventa serie', () => {
-    // La derivazione vive nel modello del Dossier, sui dati già caricati.
-    expect(model).toContain('nationalOperatingPicture({');
-    expect(model).toContain('arsenal: arms');
+    // WS-GOVOFFICE-03 — La derivazione vive nel modello del Dossier, sui dati
+    // già caricati, e **passa dall'helper condiviso** con l'Ufficio del Governo:
+    // gli stessi ingressi per entrambi, così un dominio ha un solo numero. Il
+    // test difende la derivazione, non il punto in cui è scritta: la composizione
+    // è una sola e il suo posto è `nationOperatingPictureInput`.
+    expect(model).toContain('nationOperatingPictureInput({');
+    expect(pictureInput).toContain('export function nationOperatingPictureInput(');
+    expect(pictureInput).toContain('arsenal: src.arms');
+    // E l'unico posto che chiama il quadro operativo è la composizione condivisa.
+    expect(model).not.toMatch(/nationalOperatingPicture\(\{/);
     expect(board).not.toMatch(/fetch\(|api\.|http/);
     expect(board).not.toMatch(/useEffect|useState/);
     // Nessun numero casuale o stimato nella presentazione.

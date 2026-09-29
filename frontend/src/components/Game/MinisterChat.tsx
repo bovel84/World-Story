@@ -143,14 +143,9 @@ export function MinisterChat({
         <div className="minister-competence">{address.reads}</div>
       </header>
 
-      {/* Le cifre della sedia: numeri del motore, con la loro provenienza. */}
-      {items.length > 0 && (
-        <section className="minister-figures" aria-label="Numeri su cui si parla">
-          {items.flatMap(item => item.figures.map((figure, index) => (
-            <FigureBar key={`${item.voiceId}-${figure.label}-${index}`} figure={figure} />
-          )))}
-        </section>
-      )}
+      {/* WS-GOVOFFICE-03 — Le cifre della sedia NON stanno piu' qui: sono
+          passate al pannello dei dati (MinisterDossier), dove si leggono
+          accanto alla materia invece che in cima al dialogo. */}
 
       <div className="minister-thread" aria-live="polite">
         {messages.length === 0 && !streaming && (
@@ -220,35 +215,11 @@ export function MinisterChat({
         </button>
       </div>
 
-      {/* La chat TERMINA con un ordine: le strade della voce, sotto il dialogo.
-          Sceglierne una lo mette in coda (WS-GOVOFFICE-02). */}
-      {items.length > 0 && (
-        <footer className="minister-outcome">
-          <div className="minister-outcome-title">Concludere con un ordine</div>
-          {items.map(item => (
-            <div key={item.voiceId} className="minister-outcome-item">
-              <div className="minister-outcome-need">{item.need}</div>
-              <div className="minister-paths" role="group" aria-label="Strade proposte">
-                {item.paths.map(path => (
-                  <button
-                    key={path.id}
-                    type="button"
-                    className={`minister-path${path.recommended ? ' recommended' : ''}`}
-                    onClick={() => onChoose?.(item, path)}
-                    title="Concludi con un ordine: entra subito nella coda"
-                  >
-                    <span className="minister-path-title">
-                      {path.title}
-                      {path.recommended && <span className="minister-path-badge">consigliata</span>}
-                    </span>
-                    <span className="minister-path-expected">{path.expected}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </footer>
-      )}
+      {/* WS-GOVOFFICE-03 — Le «strade proposte» non stanno piu' qui: erano
+          ordini presettati con un badge «consigliata», un click e l'ordine era
+          in coda senza scrivere nulla. L'ordine nasce dal dialogo (il pulsante
+          sotto ogni messaggio del giocatore) e le vie d'uscita le propone il
+          ministro a parole. */}
     </div>
   );
 }

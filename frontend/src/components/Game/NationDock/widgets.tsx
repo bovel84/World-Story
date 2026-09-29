@@ -14,7 +14,7 @@ import { sparkPoints, trendLabel, type Trend, type TrendTone } from '../accountT
 import { CRISIS_LEVEL_LABEL, crisisDaysText } from '../crisisPanel';
 import { PRESSURE_PRIORITY_LABEL, pressureWindowText, pressureWindowTone, splitPressuresByAttention } from '../pressureWindow';
 import {
-  LEVER_LABEL, STANCE_LABEL, factionOrderText, pressureLabel, pressureTone,
+  LEVER_LABEL, STANCE_LABEL, pressureLabel, pressureTone,
   factionMemoryView, satisfactionTone, stanceTone, type NationalVerdict,
 } from '../governmentDossier';
 import { agendasWithObjectives, objectivePriorityTone, objectiveProgressTone, objectiveSummary } from '../powersAgenda';
@@ -459,11 +459,10 @@ export function PressuresBlock({ pressures, recent, onResolve, busy, money }: {
 }
 
 /** Una delle anime del governo: interesse, influenza, umore e richiesta. */
-export function FactionCard({ faction, dominant, angriest, onDraftOrder, voice, speaking }: {
+export function FactionCard({ faction, dominant, angriest, voice, speaking }: {
   faction: GovernmentFaction;
   dominant: boolean;
   angriest: boolean;
-  onDraftOrder?: (text: string) => void;
   /** Petizione generata dal motore LLM (facoltativa). */
   voice?: string;
   /** Il consiglio sta parlando: mostra un segnaposto invece del nulla. */
@@ -521,13 +520,9 @@ export function FactionCard({ faction, dominant, angriest, onDraftOrder, voice, 
         </div>
         <p>{faction.demand.detail}</p>
         <div className="nation-demand-actions">
-          {onDraftOrder && (
-            <button
-              type="button"
-              className="nation-demand-order"
-              onClick={() => onDraftOrder(factionOrderText(faction))}
-            >Porta in consiglio</button>
-          )}
+          {/* WS-GOVOFFICE-03 — Il pulsante «Porta in consiglio» è uscito insieme
+              al compositore libero: riempiva la bozza d'ordine dell'Ufficio, che
+              non esiste più. La richiesta resta in lettura. */}
           <em className={`tone-${pressureTone(faction.pressure)}`}>{pressureLabel(faction.pressure)} · urgenza {formatPercent(faction.demand.urgency, 0)}</em>
         </div>
       </div>

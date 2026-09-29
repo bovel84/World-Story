@@ -1256,10 +1256,142 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   width: min(1080px, 96vw);
   height: min(88dvh, 900px);
   max-height: calc(100dvh - 48px);
+  /* WS-GOVOFFICE-03 — Lo scorrimento non è più del modale: la seduta a due
+     pannelli fa scorrere **ogni colonna per conto suo**, così il dialogo resta
+     allineato ai dati mentre si parla. La prima schermata (registro + ministri)
+     scorre qui, sul contenitore. Vedi `.government-office-split`. */
   overflow-y: auto;
   border: 1px solid #3a4f6c;
   box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
 }
+
+/* ── WS-GOVOFFICE-03 — La seduta a due pannelli ──────────────────────────────
+   A sinistra il dialogo con il ministro, a destra i dati della nazione e della
+   sua materia. Il rapporto di colonne segue il precedente della scelta paese
+   (`.country-selector-layout`): il dialogo è il protagonista, i dati lo servono.
+   Sotto i 767px collassa a una colonna (la media query in fondo al file). */
+.government-office-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, .9fr);
+  gap: 14px;
+  align-items: start;
+  min-height: 0;
+}
+.government-office-pane {
+  min-width: 0;
+  min-height: 0;
+  /* Ogni colonna scorre per sé: la chat non trascina i dati e viceversa. */
+  max-height: min(66dvh, 720px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.government-office-pane-dossier {
+  position: sticky;
+  top: 0;
+}
+
+/* Il pannello dei dati: nome e competenza della sedia, le sue cifre, la scheda
+   del dominio nazionale. Sta nella scrivania navy del modulo. */
+.minister-dossier {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid #26364e;
+  border-radius: 10px;
+  background: #0f1a2c;
+}
+.minister-dossier-head { display: flex; flex-direction: column; gap: 3px; }
+.minister-dossier-name { font: 700 14px/1.25 Georgia, serif; color: #f2f6ff; }
+.minister-dossier-competence { font: 400 11.5px/1.4 system-ui, sans-serif; color: #93a6c0; }
+.minister-dossier-section {
+  font: 700 10.5px/1.4 system-ui, sans-serif;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: #93a6c0;
+}
+.minister-dossier-need-list {
+  margin: 0;
+  padding-left: 18px;
+  font: 400 12.5px/1.5 system-ui, sans-serif;
+  color: #dbe6f5;
+}
+.minister-dossier-domains { display: flex; flex-direction: column; gap: 10px; }
+.minister-dossier-quiet { margin: 0; font: 400 12px/1.45 system-ui, sans-serif; color: #7d8ea8; }
+
+/* ── WS-GOVOFFICE-03 — Il Registro degli atti ────────────────────────────────
+   Un registro ufficiale, non una lista di lavoro: niente icone di modifica, un
+   blocco documento e la firma in calce. Tavolozza scrivania navy del modulo. */
+.order-register {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid #26364e;
+  border-radius: 10px;
+  background: #0f1a2c;
+}
+.order-register-title { margin: 0; font: 700 14px/1.25 Georgia, serif; color: #f2f6ff; }
+.order-register-sub { margin: 3px 0 0; font: 400 11.5px/1.45 system-ui, sans-serif; color: #93a6c0; }
+.order-register-empty { margin: 0; font: 400 12px/1.5 system-ui, sans-serif; color: #7d8ea8; }
+.order-register-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.order-register-act {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #2f4562;
+  border-radius: 8px;
+  background: #14243a;
+}
+.order-register-number { font: 700 12px/1.5 ui-monospace, monospace; color: #8fb4e0; }
+.order-register-text {
+  /* `min-width: 0` — un atto con una parola lunghissima non deve spingere
+     «Ritira» fuori dal riquadro: è il testo a cedere, non il pulsante. */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font: 400 12.5px/1.5 system-ui, sans-serif;
+  color: #dbe6f5;
+}
+.order-register-withdraw {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid #2f4562;
+  border-radius: 6px;
+  background: transparent;
+  font: 400 11px/1.4 system-ui, sans-serif;
+  color: #a8bdd8;
+  cursor: pointer;
+  /* La parola non si spezza: la colonna dell'atto è stretta e «Ritira» finiva
+     su due righe («Riti / ra»). `nowrap` da solo non basta se il contenitore
+     stringe: qui si difende anche dal wrap d'emergenza. */
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+.order-register-withdraw:hover { background: #1b2c46; color: #eef3fc; }
+/* La firma: in calce, una volta sola, come su un registro rilegato. */
+.order-register-signature {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 9px;
+  border-top: 1px solid #26364e;
+  text-align: right;
+}
+.order-register-signature-state { font: 400 12px/1.45 system-ui, sans-serif; color: #a8bdd8; }
+.order-register-signature-office { font: 700 13px/1.4 Georgia, serif; color: #f2f6ff; }
+.order-register-signature-date { font: 400 11px/1.4 ui-monospace, monospace; color: #7d8ea8; }
+
 /* Il titolo non finisce sotto la × di chiusura, che il desk condivide col modale. */
 .government-office .desk-close-x { top: 12px; right: 12px; }
 .government-office .council-head { padding-right: 56px; }
@@ -1336,4 +1468,15 @@ button:disabled { cursor: not-allowed; opacity: .5; }
     border-right: 0;
     border-bottom: 0;
   }
+  /* WS-GOVOFFICE-03 — La seduta torna a una colonna: prima il dialogo, poi i
+     dati. Le due colonne non stanno in un telefono, e un pannello largo 320px
+     su 375 non lascia nulla al ministro. */
+  .government-office-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .government-office-pane {
+    max-height: none;
+    overflow-y: visible;
+  }
+  .government-office-pane-dossier { position: static; }
 }

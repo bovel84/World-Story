@@ -116,6 +116,20 @@ describe('C03 — il contrasto del testo regge (la misura di «illeggibile»)', 
       ['etichetta compositore', '#a8bdd8', '#0f1a2c'],
       ['nota limiti', '#93a6c0', '#0f1a2c'],
       ['hint del piede', '#93a6c0', '#0d1727'],
+      // WS-GOVOFFICE-03 — il Registro degli atti e il pannello del ministro.
+      ['registro: titolo', '#f2f6ff', '#0f1a2c'],
+      ['registro: sottotitolo', '#93a6c0', '#0f1a2c'],
+      ['registro: vuoto', '#7d8ea8', '#0f1a2c'],
+      ['registro: numero atto', '#8fb4e0', '#14243a'],
+      ['registro: testo atto', '#dbe6f5', '#14243a'],
+      ['registro: ritira', '#a8bdd8', '#14243a'],
+      ['registro: firma Stato', '#a8bdd8', '#0f1a2c'],
+      ['registro: firma ufficio', '#f2f6ff', '#0f1a2c'],
+      ['registro: firma data', '#7d8ea8', '#0f1a2c'],
+      ['pannello: nome ministro', '#f2f6ff', '#0f1a2c'],
+      ['pannello: competenza', '#93a6c0', '#0f1a2c'],
+      ['pannello: elenco problemi', '#dbe6f5', '#0f1a2c'],
+      ['pannello: sezione muta', '#7d8ea8', '#0f1a2c'],
     ];
     for (const [name, fg, bg] of pairs) {
       const r = ratio(fg, bg);
