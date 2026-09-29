@@ -1117,6 +1117,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .minister-compose { display: flex; gap: 6px; }
 .minister-compose input {
   flex: 1;
+  /* `min-width: 0` — il campo cede spazio prima del pulsante: «Invia» resta
+     dentro la riga anche su viewport stretta (stesso criterio del registro). */
+  min-width: 0;
   font-family: var(--op-copy);
   font-size: 12.5px;
   border: 1px solid #526783;
@@ -1125,6 +1128,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   padding: 5px 7px;
 }
 .minister-compose button {
+  flex: 0 0 auto;
+  white-space: nowrap;
   font-family: var(--op-utility);
   font-size: 10.5px;
   letter-spacing: 0.04em;
@@ -1223,6 +1228,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
    Maiusc+Invio va a capo). */
 .minister-compose textarea {
   flex: 1;
+  min-width: 0;
   font-family: var(--op-copy);
   font-size: 12.5px;
   line-height: 1.4;
@@ -1467,16 +1473,42 @@ button:disabled { cursor: not-allowed; opacity: .5; }
     border-left: 0;
     border-right: 0;
     border-bottom: 0;
+    /* Il modale scorre col contenuto: il piede non deve galleggiare sui pannelli. */
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
-  /* WS-GOVOFFICE-03 — La seduta torna a una colonna: prima il dialogo, poi i
-     dati. Le due colonne non stanno in un telefono, e un pannello largo 320px
-     su 375 non lascia nulla al ministro. */
+  /* WS-GOVOFFICE-03/04 — La seduta torna a una colonna, e il blocco NON viene
+     più compresso dal flex. `.government-office` è una colonna flex (eredita
+     `display:flex` da `.suggestions-content`): con `flex: 0 1 auto` lo split
+     veniva schiacciato per lasciare posto anche al piede, le due righe della
+     griglia (pannelli con `min-height: 0`) si dividevano l'altezza residua e i
+     pannelli sbordavano l'uno sull'altro. Con `flex: 0 0 auto` lo split prende
+     l'altezza del contenuto e a scorrere è il modale. */
   .government-office-split {
     grid-template-columns: minmax(0, 1fr);
+    flex: 0 0 auto;
+    min-height: auto;
   }
   .government-office-pane {
     max-height: none;
     overflow-y: visible;
+    min-height: auto;
   }
   .government-office-pane-dossier { position: static; }
+
+  /* Il titolo della sedia è già quello della schermata (`.council-title`, che è
+     anche l'etichetta del dialogo). Su mobile le copie che lo ripetevano —
+     l'intestazione del pannello dati, quella della chat e la testata della
+     scheda-seduta — si spengono, così la sedia ha **una sola** intestazione
+     visibile. Restano le competenze, che descrivono, non titolano. */
+  .minister-dossier-name { display: none; }
+  .minister-name { display: none; }
+  .cabinet-seat-name { display: none; }
+
+  /* Il piede si impila e «Chiudi ufficio» resta dentro il proprio blocco, a
+     tutta larghezza (stesso schema già usato dal desk in `.action-desk`). */
+  .government-office .suggestions-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .government-office .btn-submit-actions { width: 100%; }
 }

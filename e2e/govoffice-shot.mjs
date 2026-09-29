@@ -1,6 +1,9 @@
 /**
- * WS-GOVOFFICE-03 — Screenshot dell'Ufficio del Governo, mock offline.
- * Uso: node govoffice-shot.mjs <prefisso-out>
+ * WS-GOVOFFICE-03/04 — Screenshot dell'Ufficio del Governo, mock offline.
+ * Uso: node govoffice-shot.mjs <prefisso-out> [larghezza] [altezza]
+ *
+ * Il viewport è parametrico (default 1440x960) così lo stesso percorso gira
+ * anche sul telefono, dove il layout dell'ufficio cambia a una colonna.
  *
  * Fotografa le due schermate nuove: il Registro degli atti (prima schermata) e
  * la seduta a due pannelli; poi registra un atto dal dialogo e rifotografa il
@@ -10,11 +13,13 @@ import { chromium } from 'playwright';
 import { installMockApi } from './mock-api.mjs';
 
 const prefix = process.argv[2] || '/tmp/govoffice';
+const width = Number(process.argv[3]) || 1440;
+const height = Number(process.argv[4]) || 960;
 const browser = await chromium.launch({
   headless: true,
   executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 });
-const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+const page = await browser.newPage({ viewport: { width, height } });
 page.on('dialog', (d) => d.accept());
 page.on('pageerror', (e) => console.log(`[pageerror] ${String(e).slice(0, 200)}`));
 
@@ -38,11 +43,15 @@ await page.screenshot({ path: `${prefix}-1-registro-vuoto.png` });
 // Seduta a due pannelli.
 await page.locator('.cabinet-pick').first().click();
 await page.waitForTimeout(1200);
+const chat = page.locator('.government-office-pane-chat');
+const chatTextarea = chat.locator('textarea');
+// Sul telefono il campo di scrittura può finire sotto la piega: lo porto in vista.
+await chatTextarea.scrollIntoViewIfNeeded();
+await page.waitForTimeout(300);
 await page.screenshot({ path: `${prefix}-2-seduta-due-pannelli.png` });
 
 // L'ordine nasce dal dialogo.
-const chat = page.locator('.government-office-pane-chat');
-await chat.locator('textarea').fill('Aprire un cantiere navale nel porto di Alfa.');
+await chatTextarea.fill('Aprire un cantiere navale nel porto di Alfa.');
 await chat.locator('.minister-compose button').click();
 await page.waitForTimeout(2500);
 await page.screenshot({ path: `${prefix}-3-dialogo.png` });
