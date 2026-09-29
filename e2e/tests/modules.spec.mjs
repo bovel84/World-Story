@@ -86,6 +86,52 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(page.locator('#free-player-order')).toHaveValue('');
   });
 
+  test('P04: Ufficio del Governo — i ministri parlano, e la strada diventa un ordine', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+
+    // Apri «Governo»: non più una colonna del desk, ma una stanza modale in
+    // primo piano. Il desk laterale non deve comparire.
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
+    const ufficio = page.locator('.government-office');
+    await expect(ufficio).toBeVisible();
+    await expect(ufficio).toHaveAttribute('aria-modal', 'true');
+    await expect(ufficio.locator('#government-office-title')).toContainText('Ufficio del Governo');
+    await expect(page.locator('.game-shell-desk')).toHaveCount(0);
+
+    // La seduta è dentro: due sedie con i bisogni e le cifre del motore.
+    await expect(page.locator('.cabinet-seat')).toHaveCount(2);
+    await expect(ufficio).toContainText('Coprire il disavanzo del trimestre.');
+    await expect(ufficio).toContainText('misurato · Tesoro');
+
+    // «Parla» apre il dialogo di QUELLA sedia; il problema presentato dal
+    // giocatore riceve risposta dal ministro (lo stream ripiega sul POST).
+    const sediaTesoro = page.locator('.cabinet-seat', { hasText: 'Ministro del Tesoro' });
+    await sediaTesoro.locator('.cabinet-speak').click();
+    const chat = sediaTesoro.locator('.minister-chat');
+    await expect(chat).toBeVisible();
+    await chat.locator('textarea').fill('Il porto di Alfa resta chiuso: servono fondi.');
+    await chat.locator('.minister-compose button').click();
+    await expect(chat).toContainText('Il porto di Alfa resta chiuso');
+    await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
+
+    // Il problema del giocatore diventa bozza d'ordine con un click…
+    await chat.locator('.minister-draft-order').click();
+    await expect(page.locator('#free-player-order')).toHaveValue('Il porto di Alfa resta chiuso: servono fondi.');
+
+    // …e una strada del ministro pure (invariante MG-I1: prepara, non registra).
+    await sediaTesoro.locator('.cabinet-path', { hasText: 'Emettere titoli a 10 anni' }).click();
+    await expect(page.locator('#free-player-order')).toHaveValue(/Emettere titoli a 10 anni/);
+    await expect(ufficio.locator('.pending-item')).toHaveCount(0);
+
+    // Solo la conferma del giocatore trasforma la bozza in un ordine che il
+    // motore accetta: verifica di fattibilità, poi coda.
+    await page.locator('.btn-add-pending').click();
+    await expect(page.locator('.feasibility-check')).toBeVisible();
+    await page.locator('.btn-feasibility-register').click();
+    await expect(ufficio.locator('.pending-item').first()).toContainText('Emettere titoli a 10 anni');
+  });
+
   test('U03: Dossier Nazione — sezioni con default «Situazione»', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);

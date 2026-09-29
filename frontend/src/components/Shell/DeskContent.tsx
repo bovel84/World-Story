@@ -1,8 +1,4 @@
 import { type ReactNode } from 'react';
-import { ActionsPanel } from '../Game/ActionsPanel';
-import { CabinetSession } from '../Game/CabinetSession';
-import { MinisterChat } from '../Game/MinisterChat';
-import type { CabinetAddressView, CabinetPathView, CabinetSessionView } from '../../services/api';
 import { AdvisorChat } from '../Game/AdvisorChat';
 import { ChatsPanel } from '../Game/ChatsPanel';
 import { EventFeed } from '../Game/EventFeed';
@@ -20,7 +16,6 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { chatsApi, gameApi } from '../../services/api';
 import type { Region, World, Game } from '../../types';
 import type { ActiveModule } from '../../stores/moduleState';
-import { useChatStore } from '../../stores';
 
 interface DeskContentProps {
   activeModule: ActiveModule;
@@ -80,26 +75,6 @@ interface DeskContentProps {
   commitments?: { commitments: Commitment[]; attention: Commitment[] } | null;
   /** LW06.1 — briefing già derivato in `GameScreen` (stessa read model). */
   briefing?: import('../Game/strategicBriefing').StrategicBriefing;
-  pendingActions: Array<{ id: string; text: string }>;
-  orderDraftText: string;
-  updateOrderDraft: (text: string) => void;
-  /** P02 — la seduta del gabinetto: i ministri che hanno qualcosa da dire. */
-  cabinet?: CabinetSessionView | null;
-  cabinetLoading?: boolean;
-  cabinetError?: string | null;
-  enhancedPreview: string | null;
-  enhanceLoading: boolean;
-  enhanceError: string | null;
-  enhanceOrder: (text: string) => Promise<void>;
-  acceptOrderEnhanced: () => void;
-  rejectOrderEnhanced: () => void;
-  registerOrder: (text: string) => Promise<void>;
-  removeQueuedAction: (id: string) => void;
-  updateQueuedAction: (id: string, text: string) => void;
-  editingActionId: string | null;
-  editingActionText: string;
-  setEditingActionId: (id: string | null) => void;
-  setEditingActionText: (text: string) => void;
   isProcessingTurn: boolean;
   /** Processi letti dal registro simulazione, per il dossier nazionale G5-A. */
   ongoingProcesses: Array<{ id: string; title: string; summary: string; started_date: string; expected_date?: string | null; progress?: number | null; progress_note?: string | null }>;
@@ -116,14 +91,6 @@ interface DeskContentProps {
   onMarkAllFeedRead?: () => void;
   playerPolityId: string;
   currentGameId: string | undefined;
-  /**
-   * P02 — Scelta una strada del Governo, il chiamante ne fa una **bozza**.
-   * Nessuna registrazione qui: la conferma è un atto separato (invariante MG-I1).
-   */
-  onCabinetChoose?: (item: CabinetAddressView['items'][number], path: CabinetPathView) => void;
-  /** P02-bis — la sedia con cui si sta parlando, se ce n'è una. */
-  onMinisterSpeak?: (address: CabinetAddressView) => void;
-  speakingSeat?: CabinetAddressView['seat'] | null;
 }
 
 export function DeskContent({
@@ -167,25 +134,6 @@ export function DeskContent({
   strategicAgenda = null,
   commitments = null,
   briefing,
-  pendingActions,
-  orderDraftText,
-  updateOrderDraft,
-  cabinet = null,
-  cabinetLoading = false,
-  cabinetError = null,
-  enhancedPreview,
-  enhanceLoading,
-  enhanceError,
-  enhanceOrder,
-  acceptOrderEnhanced,
-  rejectOrderEnhanced,
-  registerOrder,
-  removeQueuedAction,
-  updateQueuedAction,
-  editingActionId,
-  editingActionText,
-  setEditingActionId,
-  setEditingActionText,
   isProcessingTurn,
   ongoingProcesses,
   completedProcesses = [],
@@ -198,176 +146,12 @@ export function DeskContent({
   onMarkAllFeedRead,
   playerPolityId,
   currentGameId,
-  onCabinetChoose,
-  onMinisterSpeak,
-  speakingSeat = null,
 }: DeskContentProps) {
   const { notify } = useToast();
-  // P02-bis — la cronaca dei ministri vive nello store, una per sedia.
-  const ministerChats = useChatStore(state => state.ministerChats);
-  const ministerStreamingSeat = useChatStore(state => state.ministerStreamingSeat);
-  const addMinisterMessage = useChatStore(state => state.addMinisterMessage);
-  const appendToLastMinisterMessage = useChatStore(state => state.appendToLastMinisterMessage);
-  const setMinisterStreaming = useChatStore(state => state.setMinisterStreaming);
 
   // Contenuto vuoto quando nessun modulo attivo
   if (activeModule === 'none') {
     return null;
-  }
-
-  // Modulo Governo — P03b
-  //
-  // L'autore: «nel pulsante governo ho visto tutta la struttura vecchia da
-  // togliere». La struttura vecchia era questa pagina quando era il modulo
-  // *Ordini*: un generatore di temi («Elabora proposte») e un elenco di
-  // suggerimenti del modello, che ora **duplicano il gabinetto** — i ministri
-  // dicono gli stessi bisogni, ma fondati su cifre del motore invece che su
-  // prosa. Il generatore e l'elenco sono rimossi: la pagina ha una sola
-  // superficie, la seduta.
-  //
-  // Restano due cose, perché il dialogo ci *finisce* dentro e non sono
-  // struttura vecchia:
-  //  - la **bozza** (`ActionsPanel`): la strada scelta in chat arriva qui, il
-  //    giocatore la corregge e la conferma. È la scelta (d) dell'autore —
-  //    «prepara una bozza, tu la confermi» — e l'invariante MG-I1: leggere un
-  //    consiglio non impegna nulla;
-  //  - la **coda** (`pendingActions`): gli ordini confermati aspettano il turno.
-  //    Senza vederla, il giocatore non saprebbe cosa sta per accadere.
-  if (activeModule === 'orders') {
-    return (
-      <div className="suggestions-content">
-        <div className="council-head">
-          <div className="council-title">Il Governo</div>
-          <div className="council-sub">I ministri portano i bisogni del paese; da ogni proposta nasce una bozza d’ordine</div>
-        </div>
-        <button
-          type="button"
-          className="desk-close-x"
-          onClick={closeModule}
-          aria-label="Chiudi pannello"
-          title="Chiudi"
-        >
-          ✕
-        </button>
-
-        {/* P02 — La seduta del gabinetto: i bisogni documentati del paese. */}
-        <CabinetSession
-          session={cabinet}
-          loading={cabinetLoading}
-          error={cabinetError}
-          onChoose={onCabinetChoose}
-          onSpeak={onMinisterSpeak}
-          speakingSeat={speakingSeat}
-        >
-          {/* P02-bis — La chat del ministro, sotto la sua sedia: parla in
-              streaming come il Consulente, e la conversazione finisce con le
-              strade da cui nasce la bozza. La cronaca è PER SEDIA e vive nello
-              store: cambiare ministro non cancella il dialogo, e due sedie non
-              si mescolano (era il difetto segnalato dall'autore). */}
-          <MinisterChat
-            gameId={currentGame?.id ?? ''}
-            address={cabinet?.addresses.find(candidate => candidate.seat === speakingSeat) ?? null}
-            onChoose={onCabinetChoose}
-            messages={speakingSeat ? (ministerChats[speakingSeat] ?? []) : []}
-            streaming={ministerStreamingSeat === speakingSeat}
-            onAddMessage={message => { if (speakingSeat) addMinisterMessage(speakingSeat, message); }}
-            onAppendToken={token => { if (speakingSeat) appendToLastMinisterMessage(speakingSeat, token); }}
-            onStreamingChange={streaming => setMinisterStreaming(streaming ? speakingSeat : null)}
-          />
-        </CabinetSession>
-
-        <div className="pending-actions-section">
-          <div className="pending-header">Ordini in attesa del turno:</div>
-          {pendingActions.length === 0 ? (
-            <div className="pending-empty">Nessuna azione</div>
-          ) : (
-            <div className="pending-list">
-              {pendingActions.map((action, index) => (
-                <div key={action.id} className="pending-item">
-                  <span className="pending-number">{index + 1}.</span>
-                  {editingActionId === action.id ? (
-                    <>
-                      <textarea
-                        className="pending-edit-input"
-                        value={editingActionText}
-                        onChange={(e) => setEditingActionText(e.target.value)}
-                        rows={2}
-                        aria-label={`Modifica azione ${index + 1}`}
-                      />
-                      <button
-                        className="btn-save-pending"
-                        disabled={!editingActionText.trim()}
-                        onClick={() => void updateQueuedAction(action.id, editingActionText)}
-                        title="Salva la modifica"
-                        aria-label={`Salva modifica azione ${index + 1}`}
-                      >
-                        ✓
-                      </button>
-                      <button
-                        className="btn-cancel-pending"
-                        onClick={() => { setEditingActionId(null); setEditingActionText(''); }}
-                        title="Annulla la modifica"
-                        aria-label={`Annulla modifica azione ${index + 1}`}
-                      >
-                        ✕
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="pending-text">{action.text}</span>
-                      <button
-                        className="btn-edit-pending"
-                        onClick={() => { setEditingActionId(action.id); setEditingActionText(action.text); }}
-                        title="Modifica l'ordine prima della presa in carico"
-                        aria-label={`Modifica azione ${index + 1}`}
-                      >
-                        ✎
-                      </button>
-                      <button
-                        className="btn-remove-pending"
-                        onClick={() => void removeQueuedAction(action.id)}
-                        title="Rimuovi dalla coda"
-                        aria-label={`Rimuovi azione ${index + 1}`}
-                      >
-                        ×
-                      </button>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <ActionsPanel
-          text={orderDraftText}
-          onTextChange={updateOrderDraft}
-          enhancedPreview={enhancedPreview}
-          enhanceLoading={enhanceLoading}
-          enhanceError={enhanceError}
-          onEnhance={(t) => void enhanceOrder(t)}
-          onAcceptEnhanced={acceptOrderEnhanced}
-          onRejectEnhanced={rejectOrderEnhanced}
-          onRegister={(t) => void registerOrder(t)}
-        />
-
-        <div className="suggestions-footer">
-          <span className="pending-advance-hint">
-            {pendingActions.length > 0
-              ? `${pendingActions.length} ${pendingActions.length === 1 ? 'ordine pronto' : 'ordini pronti'} · gli eventi inizieranno solo quando avanzi il tempo dalla data in alto.`
-              : 'Aggiungi un ordine al piano: non passerà tempo finché non scegli una data.'}
-          </span>
-          <button
-            className="btn-submit-actions"
-            disabled={pendingActions.length === 0}
-            onClick={closeModule}
-            title="Chiudi il piano: gli ordini restano in attesa"
-          >
-            Chiudi piano
-          </button>
-        </div>
-      </div>
-    );
   }
 
   // Modulo Consulente
