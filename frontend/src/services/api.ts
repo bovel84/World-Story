@@ -1818,6 +1818,20 @@ export interface AdvisorHistoryItem {
 }
 
 /**
+ * WS-MINISTER-UX-05 — Un ricordo inviato al server con la richiesta del ministro.
+ * Il server lo valida, ne deriva il mandato e lo persiste: qui è solo il formato
+ * sul filo, senza cifre di gioco.
+ */
+export interface MinisterMemoryItem {
+  id: string;
+  kind: string;
+  summary: string;
+  reason?: string;
+  state: string;
+  refs: { messageId?: string; actId?: string; orderId?: string; gameDate: string; turn?: number };
+}
+
+/**
  * P02-bis — Parlare con un ministro.
  *
  * Stesso meccanismo del Consulente (messaggio + history), ma il contesto è la
@@ -1825,10 +1839,16 @@ export interface AdvisorHistoryItem {
  * motore e la loro provenienza. La risposta è una proposta: non impegna nulla.
  */
 export const ministerApi = {
-  ask: (gameId: string, seat: string, message: string, history: AdvisorHistoryItem[]): Promise<{ reply: string; seat: string }> =>
+  ask: (
+    gameId: string,
+    seat: string,
+    message: string,
+    history: AdvisorHistoryItem[],
+    memory: MinisterMemoryItem[] = [],
+  ): Promise<{ reply: string; seat: string }> =>
     fetchApi(`/games/${gameId}/government/minister/${seat}`, {
       method: 'POST',
-      body: JSON.stringify({ message, history }),
+      body: JSON.stringify({ message, history, memory }),
     }),
 
   /**
@@ -1845,9 +1865,10 @@ export const ministerApi = {
     message: string,
     history: AdvisorHistoryItem[],
     onToken: (token: string) => void,
+    memory: MinisterMemoryItem[] = [],
   ): Promise<string> => {
     const url = `${API_BASE}/games/${gameId}/government/minister/${seat}/stream`;
-    const body = JSON.stringify({ message, history });
+    const body = JSON.stringify({ message, history, memory });
 
     let response: Response;
     try {
@@ -1858,14 +1879,14 @@ export const ministerApi = {
       });
     } catch (e) {
       console.warn('[Minister] Stream non disponibile, fallback su POST:', e);
-      const data = await ministerApi.ask(gameId, seat, message, history);
+      const data = await ministerApi.ask(gameId, seat, message, history, memory);
       onToken(data.reply);
       return data.reply;
     }
 
     if (!response.ok || !response.body) {
       console.warn('[Minister] Stream ha restituito', response.status, '— fallback su POST');
-      const data = await ministerApi.ask(gameId, seat, message, history);
+      const data = await ministerApi.ask(gameId, seat, message, history, memory);
       onToken(data.reply);
       return data.reply;
     }
@@ -1887,7 +1908,7 @@ export const ministerApi = {
       // Interruzione a metà: se non è arrivato nulla si ripiega, altrimenti si
       // tiene ciò che c'è — una risposta parziale è meglio di una persa.
       if (!full) {
-        const data = await ministerApi.ask(gameId, seat, message, history);
+        const data = await ministerApi.ask(gameId, seat, message, history, memory);
         onToken(data.reply);
         return data.reply;
       }

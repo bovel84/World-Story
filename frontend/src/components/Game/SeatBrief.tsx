@@ -20,6 +20,7 @@ import type { CabinetAddressView } from '../../services/api';
 import { basisLabel, isUnknown } from './CabinetSession';
 import { EngineText } from './EngineText';
 import { formatFigureValue } from '../../utils/format';
+import { KIND_LABEL, STATE_LABEL, type MinisterMemoryRecord } from './ministerMemory';
 
 const URGENCY_LABEL: Record<string, string> = {
   ordinaria: 'ordinaria',
@@ -29,9 +30,15 @@ const URGENCY_LABEL: Record<string, string> = {
 
 export interface SeatBriefProps {
   address: CabinetAddressView | null;
+  /**
+   * WS-MINISTER-UX-05 — La memoria della sedia (tappa intermedia, nel browser).
+   * È il registro di ciò che è stato discusso, accodato o lasciato aperto:
+   * distingue la proposta dall'atto, che è la differenza che conta.
+   */
+  memory?: readonly MinisterMemoryRecord[];
 }
 
-export function SeatBrief({ address }: SeatBriefProps) {
+export function SeatBrief({ address, memory = [] }: SeatBriefProps) {
   if (!address || address.items.length === 0) return null;
   const count = address.items.length;
 
@@ -72,6 +79,29 @@ export function SeatBrief({ address }: SeatBriefProps) {
             )}
           </article>
         ))}
+        {memory.length > 0 && (
+          <section className="seat-brief-memory" aria-label="Memoria della sedia">
+            <h3 className="seat-brief-memory-title">Cosa ricorda il ministro</h3>
+            <ul className="seat-brief-memory-list">
+              {memory.map(record => (
+                <li key={record.id} className={`seat-brief-memory-item kind-${record.kind}`}>
+                  <span className="seat-brief-memory-state">{KIND_LABEL[record.kind]} · {STATE_LABEL[record.state]}</span>
+                  <span className="seat-brief-memory-summary">{record.summary}</span>
+                  {record.reason && <span className="seat-brief-memory-reason">motivo: {record.reason}</span>}
+                  <span className="seat-brief-memory-ref">
+                    {record.refs.orderId ? `ordine ${record.refs.orderId} · ` : ''}
+                    {record.refs.messageId ? `messaggio ${record.refs.messageId} · ` : ''}
+                    {record.refs.gameDate || 'senza data'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="seat-brief-memory-note">
+              Questi ricordi accompagnano la richiesta al ministro e sono persistiti dal server
+              per partita, ramo e mandato. Il browser qui ne mostra la copia più recente.
+            </p>
+          </section>
+        )}
       </div>
     </details>
   );

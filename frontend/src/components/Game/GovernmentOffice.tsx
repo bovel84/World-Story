@@ -38,6 +38,10 @@ import { deriveSeatCanvasBlocks } from './seatCanvasModel';
 import { seatCanvasAuthoring } from './seatCanvasConfig';
 import { treasuryAct, type TreasuryRoad } from './treasuryAct';
 import { resolvePresentation, type ActivePresentation, type PresentationDirective } from './presentation';
+import {
+  discussedProposal, loadMemory, openQuestion, queuedDecision, recordMemory,
+  saveMemory, seatRecords, withSeatRecords, type MinisterMemoryRecord, type MinisterMemoryStore,
+} from './ministerMemory';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { useChatStore } from '../../stores';
@@ -116,6 +120,20 @@ export function GovernmentOffice({
   const appendToLastMinisterMessage = useChatStore(state => state.appendToLastMinisterMessage);
   const setMinisterStreaming = useChatStore(state => state.setMinisterStreaming);
 
+  // WS-MINISTER-UX-05 — La memoria della sedia: ricordi derivati dagli eventi
+  // espliciti della seduta, tenuti nel browser per partita. Questo store è la
+  // rete immediata/offline e la sorgente dei ricordi inviati; la persistenza
+  // vera è server-side (innesto: `minister_memory`, per partita, ramo e mandato).
+  const [memoryStore, setMemoryStore] = useState<MinisterMemoryStore>(() => loadMemory(gameId));
+  useEffect(() => { setMemoryStore(loadMemory(gameId)); }, [gameId]);
+  useEffect(() => { saveMemory(gameId, memoryStore); }, [gameId, memoryStore]);
+  const rememberFor = useCallback(
+    (seat: CabinetAddressView['seat'], input: MinisterMemoryRecord): void => {
+      setMemoryStore(prev => withSeatRecords(prev, seat, recordMemory(prev[seat] ?? [], input)));
+    },
+    [],
+  );
+
   // WS-GOVOFFICE-02 — `openSeat` è la sedia aperta (la schermata 2). Finché è
   // null si vede solo la scelta. È stato di UI, non di gioco: non tocca il
   // motore e non crea ordini.
@@ -190,6 +208,9 @@ export function GovernmentOffice({
     : null;
   const chatMessages = openSeat ? (ministerChats[openSeat] ?? []) : [];
   const streaming = openSeat !== null && ministerStreamingSeat === openSeat;
+  // WS-MINISTER-UX-05 — I ricordi della sedia, potati alla data corrente, e la
+  // loro sintesi per il prompt.
+  const memoryRecords = openSeat ? seatRecords(memoryStore, openSeat, currentDate) : [];
 
   // WS-GOVOFFICE-07 — La tela della sedia: blocchi derivati dal read model
   // (pattern Operating Picture) + il contenuto curato che la sedia dichiara nel
@@ -219,8 +240,15 @@ export function GovernmentOffice({
   const applyPresentation = useCallback(
     (seat: CabinetAddressView['seat'], messageId: string, quote: string, directive: PresentationDirective): void => {
       setPresentations(prev => ({ ...prev, [seat]: { directive, seat, messageId, quote } }));
+      // WS-MINISTER-UX-05 — Una proposta confrontata è una proposta discussa:
+      // entra in memoria, senza confonderla con un atto accodato.
+      if (directive.op === 'compare') {
+        for (const road of act.roads) {
+          rememberFor(seat, discussedProposal(seat, road, { messageId, gameDate: currentDate ?? '' }));
+        }
+      }
     },
-    [],
+    [act.roads, currentDate, rememberFor],
   );
   const chatPresentation = useCallback(
     (messageId: string, quote: string, directive: PresentationDirective): void => {
@@ -249,12 +277,18 @@ export function GovernmentOffice({
     if (road.order.kind === 'work') {
       if (!onQueueCabinetPath) return false;
       const queued = await onQueueCabinetPath(road.order.item, road.order.path);
-      if (queued) setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: road.order.path.title });
+      if (queued) {
+        setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: road.order.path.title });
+        rememberFor(address.seat, queuedDecision(address.seat, road.order.path.title, { gameDate: currentDate ?? '' }));
+      }
       return queued;
     }
     if (!onQueueOrder) return false;
     const queued = await onQueueOrder(road.order.text);
-    if (queued) setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: road.title });
+    if (queued) {
+      setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: road.title });
+      rememberFor(address.seat, queuedDecision(address.seat, road.title, { gameDate: currentDate ?? '' }));
+    }
     return queued;
   };
 
@@ -264,12 +298,20 @@ export function GovernmentOffice({
     const queued = await onQueueOrder(text);
     if (queued) {
       setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text });
+      rememberFor(address.seat, queuedDecision(address.seat, text, { gameDate: currentDate ?? '' }));
     }
   };
 
   const concludeNothing = (): void => {
     if (address) {
       setLastOutcome({ seat: address.seat, label: address.label, kind: 'nothing' });
+      // Una seduta senza ordine lascia una questione aperta: si ricorda come
+      // aperta, non come respinta e non come approvata.
+      rememberFor(address.seat, openQuestion(
+        address.seat,
+        'Seduta chiusa senza ordine: nessuna decisione presa.',
+        { gameDate: currentDate ?? '' },
+      ));
     }
     setOpenSeat(null);
   };
@@ -395,12 +437,13 @@ export function GovernmentOffice({
                 data-pane="dialogo"
                 aria-label="Dialogo con il ministro"
               >
-                <SeatBrief address={address} />
+                <SeatBrief address={address} memory={memoryRecords} />
                 <MinisterChat
                   gameId={gameId}
                   address={address}
                   messages={chatMessages}
                   streaming={streaming}
+                  memory={memoryRecords}
                   onAddMessage={message => { if (openSeat) addMinisterMessage(openSeat, message); }}
                   onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
                   onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}

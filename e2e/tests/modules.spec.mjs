@@ -277,6 +277,52 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(confronto).toContainText('non simulato');
   });
 
+  test('P04e: Ufficio del Governo — la memoria della sedia sopravvive a ministro e ricarica (UX-05)', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
+    const ufficio = page.locator('.government-office');
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    const chat = page.locator('.government-office-pane-chat');
+    const tavola = page.locator('.government-office-pane-table');
+
+    // Un atto accodato e una proposta discussa: due ricordi di specie diversa.
+    await tavola.locator('.treasury-act-road[data-road="invest"] .treasury-act-sign').click();
+    await chat.locator('textarea').fill('Confronta le due strade');
+    await chat.locator('.minister-compose button').click();
+    await expect(tavola.locator('.proposal-comparison')).toBeVisible({ timeout: 15_000 });
+
+    // Il fascicolo dice cosa ricorda il ministro, distinguendo l'atto dalla proposta.
+    await page.locator('.seat-brief-summary').click();
+    const memoria = page.locator('.seat-brief-memory');
+    await expect(memoria).toBeVisible();
+    await expect(memoria).toContainText('Cosa ricorda il ministro');
+    await expect(memoria).toContainText('Atto accodato: Aprire il cantiere');
+    await expect(memoria).toContainText('accodata');
+    await expect(memoria).toContainText('discussa');
+
+    // Cambiare ministro e tornare non la perde.
+    await page.locator('.government-office-back').click();
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro dei Lavori' }).click();
+    await page.locator('.government-office-back').click();
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    await page.locator('.seat-brief-summary').click();
+    await expect(page.locator('.seat-brief-memory')).toContainText('Atto accodato: Aprire il cantiere');
+
+    // Ricaricare il browser non la perde: la memoria vive per partita nel browser.
+    await page.reload();
+    try {
+      await page.waitForSelector('.game-shell', { timeout: 12_000 });
+    } catch {
+      await reachHud(page);
+    }
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    await page.locator('.seat-brief-summary').click();
+    await expect(page.locator('.seat-brief-memory')).toContainText('Atto accodato: Aprire il cantiere');
+  });
+
   test('P05: Ufficio del Governo — «Nulla di fatto» chiude la seduta senza atti', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);

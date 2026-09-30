@@ -40,6 +40,8 @@ import { type PressureEffect } from './core/simulation/PeacetimePressures';
 import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import { readCabinetSession } from './game/GovernmentReadings';
+import { mandateFor } from './core/government/MinisterMemory';
+import { ministerMemoryRepository } from './repositories/minister-memory.repository';
 import type { FactionMemoryEvent } from './core/simulation/FactionMemory';
 import { commitmentsWorthAttention, type Commitment } from './core/simulation/Commitments';
 import type { CommitmentResult } from './game/CommitmentService';
@@ -3354,13 +3356,25 @@ export class GameSession {
   }
 
   /**
+   * WS-MINISTER-UX-05 — La memoria della sedia, con il mandato derivato
+   * SERVER-SIDE dal governo in carica (mai dal label del client). Con memoria
+   * vuota l'elenco è vuoto e il briefing resta identico a prima.
+   */
+  private ministerMemoryFor(seat: string): any[] {
+    const fence = this.fenceContext();
+    const mandate = mandateFor(seat as any, this.getGovernment(), this.getPlayer()?.polityId ?? null);
+    return ministerMemoryRepository.listMemory({ gameId: this.id, branchId: fence.branchId, seat: seat as any, mandate });
+  }
+
+  /**
    * Il testo che il modello vede quando si parla con un ministro: il briefing
    * della sua sedia, poi la domanda. In un punto solo, perché lo usano la
    * richiesta normale e quella in streaming — due copie divergerebbero.
    */
   private ministerPromptFor(address: any, message: string): string {
     const { briefingFor, openingMessage } = require('./core/government/MinisterChat');
-    const briefing = briefingFor(address, { voices: [], headline: '', canonicalMutation: false });
+    const memory = this.ministerMemoryFor(address.seat);
+    const briefing = briefingFor(address, { voices: [], headline: '', canonicalMutation: false }, memory);
     // Il briefing precede la domanda: il modello parla DELLA sua sedia, non in
     // generale. E la domanda vuota diventa l'apertura del ministro, così la chat
     // si apre su un fatto.

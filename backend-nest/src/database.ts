@@ -856,6 +856,31 @@ export function initDatabase() {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_game_faction_memory_lookup ON game_faction_memory(game_id, branch_id, polity_id, turn)');
 
+  // WS-MINISTER-UX-05 — Memoria conversazionale del ministro, SEPARATA dai numeri
+  // del mondo. ADDITIVA: nessuna migrazione dei dati esistenti, nessun
+  // riferimento a entità di gioco (solo l'identità di scope partita/ramo/sedia/
+  // mandato). Le righe si aggiornano per chiave e si potano al rewind; con
+  // memoria vuota le partite esistenti si comportano esattamente come prima.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS minister_memory (
+      game_id     TEXT NOT NULL,
+      branch_id   TEXT NOT NULL DEFAULT '',
+      seat        TEXT NOT NULL,
+      mandate     TEXT NOT NULL,
+      record_id   TEXT NOT NULL,
+      kind        TEXT NOT NULL,
+      state       TEXT NOT NULL,
+      summary     TEXT NOT NULL,
+      reason      TEXT,
+      refs_json   TEXT NOT NULL,
+      record_date TEXT NOT NULL,
+      record_turn INTEGER,
+      updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (game_id, branch_id, seat, mandate, record_id)
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_minister_memory_scope ON minister_memory(game_id, branch_id, seat, mandate)');
+
   // Stato di crisi della partita: giorni di criticità accumulati per dimensione
   // (una volta erano «turni consecutivi», ora è TEMPO CALENDARIO trascorso),
   // gli avanzamenti in cui la criticità è stata osservata e l'eventuale epilogo
