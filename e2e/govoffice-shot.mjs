@@ -67,14 +67,14 @@ await page.waitForTimeout(300);
 // WS-GOVOFFICE-05 — il pannello dati è CHIUSO di default: questa è la schermata.
 await page.screenshot({ path: `${prefix}-2-seduta-due-pannelli.png` });
 
-// WS-GOVOFFICE-05/05B — il pannello aperto: la griglia delle cifre, formattate.
-const toggle = page.locator('.minister-dossier-toggle');
-if (await toggle.count()) {
-  await toggle.first().click();
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: `${prefix}-2b-pannello-aperto.png` });
-  await toggle.first().click();
+// WS-GOVOFFICE-07 — lo spazio destro è la TELA della sedia (non più un pannello
+// a scomparsa): l'atto del Tesoro, le metriche con la provenienza, il grafico
+// del motore, il piano a cascata, la mappa delle zone e le idee del ministro.
+const tela = page.locator('.seat-canvas');
+if (await tela.count()) {
+  await tela.scrollIntoViewIfNeeded();
   await page.waitForTimeout(300);
+  await page.screenshot({ path: `${prefix}-2b-tela.png` });
 }
 
 if (multi) {
@@ -86,11 +86,11 @@ if (multi) {
     await page.locator(`.cabinet-pick[data-seat="${seatName}"]`).click();
     await page.waitForTimeout(900);
     await page.screenshot({ path: `${prefix}-2c-${seatName}.png` });
-    const seatToggle = page.locator('.minister-dossier-toggle');
-    if (await seatToggle.count()) {
-      await seatToggle.first().click();
-      await page.waitForTimeout(400);
-      await page.screenshot({ path: `${prefix}-2d-${seatName}-dati.png` });
+    const seatTela = page.locator('.seat-canvas');
+    if (await seatTela.count()) {
+      await seatTela.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: `${prefix}-2d-${seatName}-tela.png` });
     }
   }
   // Torna alla prima sedia per il resto del percorso.

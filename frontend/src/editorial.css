@@ -1540,3 +1540,162 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   }
   .government-office .btn-submit-actions { width: 100%; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WS-GOVOFFICE-07 — La scena del Tesoro e la tela della sedia (Parti B/C/D)
+   ---------------------------------------------------------------------------
+   Lo spazio destro della seduta smette di essere un'etichetta e diventa una
+   tela: l'atto concreto del ministro, le sue strade firmabili, le cifre del
+   quadro operativo, i grafici del motore, il piano a cascata e le zone del
+   paese. Stessa scrivania navy del modulo: nessun colore nuovo.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.seat-canvas { display: flex; flex-direction: column; gap: 12px; }
+.seat-canvas-empty { margin: 0; font: 400 12px/1.5 system-ui, sans-serif; color: #7d8ea8; }
+.seat-canvas-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid #26364e;
+  border-radius: 10px;
+  background: #0f1a2c;
+}
+.seat-canvas-title { margin: 0; font: 700 13px/1.3 Georgia, serif; color: #f2f6ff; }
+.seat-canvas-note { margin: 0; font: 400 11.5px/1.45 system-ui, sans-serif; color: #93a6c0; }
+.seat-canvas-metric-list,
+.treasury-act-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 7px;
+  margin: 0;
+}
+.seat-canvas-metric,
+.treasury-act-figure {
+  padding: 7px 9px;
+  border: 1px solid #2a3a52;
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: #142238;
+}
+.seat-canvas-metric dt,
+.treasury-act-figure dt { margin: 0; font: 600 10.5px/1.3 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #93a6c0; }
+.seat-canvas-metric dd,
+.treasury-act-figure dd { margin: 2px 0 0; font: 700 13px/1.35 Georgia, serif; color: #eef3fc; }
+.seat-canvas-metric.tone-positive, .treasury-act-figure.tone-positive { border-left-color: #5fb98a; }
+.seat-canvas-metric.tone-warning, .treasury-act-figure.tone-warning { border-left-color: #d9b061; }
+.seat-canvas-metric.tone-negative, .treasury-act-figure.tone-negative { border-left-color: #d97b7b; }
+.seat-canvas-metric.tone-positive dd, .treasury-act-figure.tone-positive dd { color: #9fe0ba; }
+.seat-canvas-metric.tone-warning dd, .treasury-act-figure.tone-warning dd { color: #f0ce8f; }
+.seat-canvas-metric.tone-negative dd, .treasury-act-figure.tone-negative dd { color: #f0a9a9; }
+.seat-canvas-ideas { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.seat-canvas-idea { display: flex; flex-direction: column; gap: 2px; padding: 7px 9px; border-left: 3px solid #3a4f6c; background: #131f33; }
+.seat-canvas-idea.tone-positive { border-left-color: #5fb98a; }
+.seat-canvas-idea.tone-warning { border-left-color: #d9b061; }
+.seat-canvas-idea.tone-negative { border-left-color: #d97b7b; }
+.seat-canvas-idea-title { font: 700 12px/1.35 Georgia, serif; color: #f2f6ff; }
+.seat-canvas-idea-detail { font: 400 11.5px/1.45 system-ui, sans-serif; color: #a8bdd8; }
+
+/* ── L'atto del Tesoro ──────────────────────────────────────────────────── */
+.treasury-act {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #3a4f6c;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #12213a 0%, #0f1a2c 100%);
+}
+.treasury-act-head { display: flex; flex-direction: column; gap: 2px; }
+.treasury-act-kicker { font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #8fb4e0; }
+.treasury-act-title { margin: 0; font: 700 15px/1.25 Georgia, serif; color: #f2f6ff; }
+.treasury-act-voice { margin: 0; padding: 9px 11px; border-left: 3px solid #8a72e5; background: #131f33; color: #d7e2f5; font: 400 12.5px/1.55 var(--op-copy, system-ui, sans-serif); }
+.treasury-act-basis { display: block; margin-top: 2px; font: 400 10px/1.3 system-ui, sans-serif; color: #7d8ea8; letter-spacing: .02em; }
+.treasury-act-request { padding: 9px 10px; border: 1px dashed #3a5273; border-radius: 8px; background: #101c30; }
+.treasury-act-request[data-state="accepted"] { border-style: solid; border-color: #5fb98a; background: #0f2620; }
+.treasury-act-request-label { font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #93a6c0; }
+.treasury-act-request[data-state="accepted"] .treasury-act-request-label { color: #9fe0ba; }
+.treasury-act-request-need { margin: 4px 0 0; font: 600 12.5px/1.45 system-ui, sans-serif; color: #eef3fc; }
+.treasury-act-request-figures { margin: 5px 0 0; padding-left: 18px; font: 400 11.5px/1.5 system-ui, sans-serif; color: #a8bdd8; }
+.treasury-act-roads { display: flex; flex-direction: column; gap: 9px; }
+.treasury-act-road { display: flex; flex-direction: column; gap: 6px; padding: 10px 11px; border: 1px solid #2f4562; border-radius: 9px; background: #14243a; }
+.treasury-act-road.recommended { border-color: #8a72e5; box-shadow: 0 0 0 1px rgba(138, 114, 229, .35) inset; }
+.treasury-act-road-head { display: flex; align-items: center; gap: 8px; }
+.treasury-act-road-title { font: 700 13.5px/1.3 Georgia, serif; color: #f2f6ff; }
+.treasury-act-road-badge { padding: 1px 7px; border: 1px solid #8a72e5; border-radius: 999px; font: 700 9.5px/1.5 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #c3b4ff; }
+.treasury-act-road-voice { margin: 0; font: 400 12.5px/1.5 var(--op-copy, system-ui, sans-serif); color: #d7e2f5; }
+.treasury-act-road-terms { margin: 0; display: flex; flex-direction: column; gap: 2px; font: 400 11.5px/1.45 system-ui, sans-serif; color: #a8bdd8; }
+.treasury-act-road-terms b { color: #cfe0f5; }
+.treasury-act-sign {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 6px 12px;
+  border: 1px solid #526783;
+  border-radius: 8px;
+  background: #1b2f4b;
+  color: #eef3fc;
+  font: 700 11.5px/1.3 system-ui, sans-serif;
+  cursor: pointer;
+}
+.treasury-act-sign:hover:not(:disabled) { background: #24405f; border-color: #927be4; }
+.treasury-act-sign:disabled { opacity: .7; cursor: default; }
+.treasury-act-quiet { margin: 0; font: 400 12px/1.5 system-ui, sans-serif; color: #7d8ea8; }
+
+/* ── Il piano strategico a cascata ─────────────────────────────────────── */
+.plan-diagram { display: flex; flex-direction: column; gap: 9px; }
+.plan-diagram-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: auto;
+  padding: 24px;
+  border-radius: 0;
+  background: #0c1524;
+}
+.plan-diagram-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.plan-diagram-kicker { font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .07em; text-transform: uppercase; color: #8fb4e0; }
+.plan-diagram-title { margin: 2px 0 0; font: 700 14px/1.25 Georgia, serif; color: #f2f6ff; }
+.plan-diagram-expand {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #3a5273;
+  border-radius: 8px;
+  background: #142238;
+  color: #cfe0f5;
+  font-size: 14px;
+  cursor: pointer;
+}
+.plan-diagram-expand:hover { border-color: #927be4; color: #fff; }
+.plan-lanes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.plan-lane { position: relative; padding-left: 14px; }
+.plan-lane::before { content: ''; position: absolute; left: 4px; top: 0; bottom: -8px; width: 2px; background: #2f4562; }
+.plan-lane:last-child::before { bottom: 0; }
+.plan-lane-nodes { display: flex; flex-wrap: wrap; gap: 8px; }
+.plan-node { flex: 1 1 150px; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid #2f4562; border-left: 3px solid #8a72e5; border-radius: 8px; background: #14243a; }
+.plan-node-date { font: 700 10px/1.3 ui-monospace, monospace; letter-spacing: .04em; color: #8fb4e0; }
+.plan-node-title { font: 700 12.5px/1.35 Georgia, serif; color: #f2f6ff; }
+.plan-node-desc { font: 400 11.5px/1.45 system-ui, sans-serif; color: #a8bdd8; }
+.plan-node-tag { margin-top: 2px; font: 700 9px/1.4 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
+.plan-node-tag-branch { color: #f0ce8f; }
+.plan-node-tag-merge { color: #9fe0ba; }
+.plan-outcome { display: flex; flex-direction: column; gap: 2px; padding: 9px 11px; border: 1px solid #5fb98a; border-radius: 8px; background: #0f2620; }
+.plan-outcome-label { font: 700 9.5px/1.3 system-ui, sans-serif; letter-spacing: .07em; text-transform: uppercase; color: #9fe0ba; }
+.plan-outcome-text { font: 600 12.5px/1.4 Georgia, serif; color: #eef3fc; }
+
+/* ── La mappa delle zone ───────────────────────────────────────────────── */
+.zone-map { display: flex; flex-direction: column; gap: 7px; }
+.zone-map-svg { width: 100%; height: auto; max-height: 190px; background: #0c1524; border: 1px solid #26364e; border-radius: 8px; }
+.zone-map-shape { fill: #2b3d59; stroke: #6d87a8; stroke-width: .6; }
+.zone-map-shape.tone-positive { fill: #24513f; }
+.zone-map-shape.tone-warning { fill: #4a3d22; }
+.zone-map-shape.tone-negative { fill: #4a2529; }
+.zone-map-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.zone-map-item { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 6px 9px; border-left: 3px solid #3a4f6c; background: #131f33; font: 400 12px/1.4 system-ui, sans-serif; color: #dbe6f5; }
+.zone-map-item.tone-positive { border-left-color: #5fb98a; }
+.zone-map-item.tone-warning { border-left-color: #d9b061; }
+.zone-map-item.tone-negative { border-left-color: #d97b7b; }
+.zone-map-name { font-weight: 700; color: #f2f6ff; }
+.zone-map-detail { color: #93a6c0; font-size: 11.5px; }
+.zone-map-target { margin: 0; padding: 7px 9px; border: 1px dashed #8a72e5; border-radius: 8px; font: 400 12px/1.45 system-ui, sans-serif; color: #d7e2f5; }
+.zone-map-target-label { font: 700 9.5px/1.3 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #c3b4ff; margin-right: 6px; }
+.seat-canvas-metric-basis { display: block; margin-top: 2px; font: 400 10px/1.3 system-ui, sans-serif; color: #7d8ea8; letter-spacing: .02em; }

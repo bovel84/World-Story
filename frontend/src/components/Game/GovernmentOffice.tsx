@@ -30,8 +30,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { CabinetSession } from './CabinetSession';
 import { MinisterChat } from './MinisterChat';
-import { MinisterDossier } from './MinisterDossier';
 import { OrderRegister } from './OrderRegister';
+import { SeatCanvas } from './SeatCanvas';
+import { TreasuryActPanel } from './TreasuryActPanel';
+import { deriveSeatCanvasBlocks } from './seatCanvasModel';
+import { seatCanvasAuthoring } from './seatCanvasConfig';
+import { treasuryAct, type TreasuryRoad } from './treasuryAct';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { useChatStore } from '../../stores';
@@ -123,6 +127,13 @@ export function GovernmentOffice({
     [pictureSources],
   );
 
+  // WS-GOVOFFICE-07 — L'atto del Tesoro: cifre dai conti nazionali, nessuna
+  // inventata. È lo stesso read model che alimenta la tela.
+  const act = useMemo(
+    () => treasuryAct({ session, picture, sources: pictureSources }),
+    [session, picture, pictureSources],
+  );
+
   // Chiudere l'ufficio riporta alla scelta: quando lo si riapre, si riparte dai
   // ministri, non da una seduta rimasta a metà.
   useEffect(() => {
@@ -137,6 +148,41 @@ export function GovernmentOffice({
     : null;
   const chatMessages = openSeat ? (ministerChats[openSeat] ?? []) : [];
   const streaming = openSeat !== null && ministerStreamingSeat === openSeat;
+
+  // WS-GOVOFFICE-07 — La tela della sedia: blocchi derivati dal read model
+  // (pattern Operating Picture) + il contenuto curato che la sedia dichiara nel
+  // registro `SEAT_CANVAS_AUTHORING` (Tesoro e Stato maggiore). La tela è
+  // generica: nessuna sedia è cablata qui.
+  const canvasBlocks = address
+    ? deriveSeatCanvasBlocks({
+        seat: address.seat,
+        picture,
+        sources: pictureSources,
+        address,
+        authored: seatCanvasAuthoring(address.seat, {
+          seat: address.seat,
+          picture,
+          sources: pictureSources,
+          act,
+        }),
+      })
+    : [];
+
+  // L'atto firmato tramite la coda del motore: l'opera (cantiere reale) o un
+  // ordine in testo. Entra nel registro, non resta una promessa.
+  const signTreasuryRoad = async (road: TreasuryRoad): Promise<boolean> => {
+    if (!address) return false;
+    if (road.order.kind === 'work') {
+      if (!onQueueCabinetPath) return false;
+      const queued = await onQueueCabinetPath(road.order.item, road.order.path);
+      if (queued) setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: road.order.path.title });
+      return queued;
+    }
+    if (!onQueueOrder) return false;
+    const queued = await onQueueOrder(road.order.text);
+    if (queued) setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: road.title });
+    return queued;
+  };
 
   // ── Gli esiti: un ordine in coda, o un nulla di fatto ───────────────────
   const queuePath = async (
@@ -296,10 +342,16 @@ export function GovernmentOffice({
             {/* Il pannello dei dati: competenza della sedia, le sue cifre e la
                 scheda del dominio nazionale di quella materia. */}
             <div className="government-office-pane government-office-pane-dossier">
-              <MinisterDossier
-                key={address?.seat ?? 'nessuna-sedia'}
-                address={address}
-                picture={picture}
+              {/* WS-GOVOFFICE-07 — Lo spazio destro è una TELA, non un'etichetta:
+                  il Tesoro porta l'atto concreto e le strade firmabili, ogni
+                  sedia riceve i blocchi del proprio dominio. */}
+              {address?.seat === 'tesoro' && (
+                <TreasuryActPanel key={address.seat} act={act} onSign={signTreasuryRoad} />
+              )}
+              <SeatCanvas
+                key={`tela-${address?.seat ?? 'nessuna-sedia'}`}
+                blocks={canvasBlocks}
+                emptyLabel="Nessuna cifra pubblicata per questa sedia: la tela resta vuota, non inventa."
               />
             </div>
           </div>

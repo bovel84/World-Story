@@ -152,10 +152,11 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     expect(officeViolations).toEqual([]);
 
     // La seduta (seconda schermata) è una superficie nuova — dialogo a sinistra,
-    // pannello dei dati a destra: si audita aperta, poi Esc chiude l'ufficio.
+    // tela della sedia a destra (WS-GOVOFFICE-07): si audita aperta, poi Esc
+    // chiude l'ufficio.
     await page.locator('.cabinet-pick').first().click();
     await expect(page.locator('.minister-chat')).toBeVisible();
-    await expect(page.locator('.minister-dossier')).toBeVisible();
+    await expect(page.locator('.seat-canvas')).toBeVisible();
     const sedutaViolations = await page.evaluate(auditDom);
     expect(sedutaViolations).toEqual([]);
     await page.keyboard.press('Escape');
