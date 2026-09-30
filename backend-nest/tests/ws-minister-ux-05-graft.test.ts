@@ -168,7 +168,8 @@ describe('memoria del ministro: il fork la copia sul ramo nuovo', () => {
 describe('memoria del ministro: il percorso di lettura del prompt', () => {
   it('con memoria vuota la lettura per la sedia è vuota', () => {
     const emptySeat = (session as any).ministerMemoryFor('esteri');
-    expect(emptySeat).toEqual([]);
+    expect(emptySeat.records).toEqual([]);
+    expect(emptySeat.scope.seat).toBe('esteri');
   });
 
   it('una volta scritta, la memoria risale al prompt della sedia', () => {
@@ -181,6 +182,28 @@ describe('memoria del ministro: il percorso di lettura del prompt', () => {
       [record({ id: 'esteri-1', kind: 'open-question', state: 'open', summary: 'Porto da decidere' })],
     );
     const read = (session as any).ministerMemoryFor('esteri');
-    expect(read.some((r: MinisterMemoryRecord) => r.id === 'esteri-1')).toBe(true);
+    expect(read.records.some((r: MinisterMemoryRecord) => r.id === 'esteri-1')).toBe(true);
+  });
+
+  it('il prompt della sedia si compone con la memoria, senza TypeError', () => {
+    // Regressione WS-MINISTER-UX-07: `ministerMemoryFor` deve rendere una
+    // `MinisterMemory` (con `.records`), non un array di righe; altrimenti
+    // `memorySection()` fa `memory.records.map` su `undefined`. Questo test
+    // riproduce il percorso reale — la scrittura di ricordi, poi il testo che
+    // il modello vede — e pretende che il ricordo arrivi nel briefing.
+    const government = (session as any).getGovernment();
+    const polityId = (session as any).getPlayer()?.polityId ?? null;
+    const mandate = mandateFor('esteri', government, polityId);
+    ministerMemoryRepository.upsertRecords(
+      { gameId, branchId: 'br-fork', seat: 'esteri', mandate },
+      [record({ id: 'prompt-1', kind: 'open-question', state: 'open', summary: 'Vertice da fissare' })],
+    );
+    const address = {
+      seat: 'esteri', label: 'Ministro degli Esteri', reads: 'diplomazia', items: [], opening: 'Ho da dire.',
+    };
+    const prompt = (session as any).ministerPromptFor(address, 'Come procede?');
+    expect(typeof prompt).toBe('string');
+    expect(prompt).toContain('Vertice da fissare');
+    expect(prompt).toContain('MEMORIA DELLA SEDUTA');
   });
 });

@@ -40,7 +40,8 @@ import { type PressureEffect } from './core/simulation/PeacetimePressures';
 import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import { readCabinetSession } from './game/GovernmentReadings';
-import { mandateFor } from './core/government/MinisterMemory';
+import { briefingFor, openingMessage } from './core/government/MinisterChat';
+import { mandateFor, type MinisterMemory, type MinisterMemoryScope } from './core/government/MinisterMemory';
 import { ministerMemoryRepository } from './repositories/minister-memory.repository';
 import type { FactionMemoryEvent } from './core/simulation/FactionMemory';
 import { commitmentsWorthAttention, type Commitment } from './core/simulation/Commitments';
@@ -3360,10 +3361,19 @@ export class GameSession {
    * SERVER-SIDE dal governo in carica (mai dal label del client). Con memoria
    * vuota l'elenco è vuoto e il briefing resta identico a prima.
    */
-  private ministerMemoryFor(seat: string): any[] {
+  private ministerMemoryFor(seat: string): MinisterMemory {
     const fence = this.fenceContext();
     const mandate = mandateFor(seat as any, this.getGovernment(), this.getPlayer()?.polityId ?? null);
-    return ministerMemoryRepository.listMemory({ gameId: this.id, branchId: fence.branchId, seat: seat as any, mandate });
+    const scope: MinisterMemoryScope = {
+      gameId: this.id,
+      branchId: fence.branchId,
+      seat: seat as MinisterMemoryScope['seat'],
+      mandate,
+    };
+    // `listMemory` torna le righe; `briefingFor`/`memorySection` vogliono la
+    // memoria **con** il suo scope. Senza questo incarto `memory.records` è
+    // `undefined` e la composizione del prompt del ministro va in TypeError.
+    return { scope, records: ministerMemoryRepository.listMemory(scope) };
   }
 
   /**
@@ -3372,7 +3382,6 @@ export class GameSession {
    * richiesta normale e quella in streaming — due copie divergerebbero.
    */
   private ministerPromptFor(address: any, message: string): string {
-    const { briefingFor, openingMessage } = require('./core/government/MinisterChat');
     const memory = this.ministerMemoryFor(address.seat);
     const briefing = briefingFor(address, { voices: [], headline: '', canonicalMutation: false }, memory);
     // Il briefing precede la domanda: il modello parla DELLA sua sedia, non in
