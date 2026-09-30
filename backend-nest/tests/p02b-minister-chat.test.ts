@@ -199,9 +199,12 @@ describe('WS-GOVOFFICE-05 — il dialogo raccontato e il collega giusto', () => 
     const briefing = briefingFor(address('tesoro', [item('debt_service')]), emptyAgenda);
     expect(briefing.context).toContain('NOMINI il collega giusto');
     expect(briefing.context).toContain('la fabbrica è dei Lavori');
-    // E la regola del racconto: niente aneddoti né decisioni al posto del giocatore.
+    // E la regola del racconto. WS-MINISTER-UX-02: niente aneddoti né dati
+    // inventati, ma l'opinione è ammessa — dichiarata come tale, su tre livelli.
     expect(briefing.context).toContain('COME PARLI');
-    expect(briefing.context).toContain('Non aggiungere aneddoti, nomi, date, promesse o opinioni');
+    expect(briefing.context).toContain('Non aggiungere aneddoti, nomi propri, date o promesse');
+    expect(briefing.context).toContain('COME RAGIONI — TRE LIVELLI, MAI CONFUSI');
+    expect(briefing.context).toContain('un’opinione non è un dato');
   });
 
   it('una domanda fuori competenza nomina il collega con nome e competenza', () => {

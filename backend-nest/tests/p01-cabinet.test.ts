@@ -185,20 +185,26 @@ describe('P01 — il gabinetto dei ministri', () => {
  * comportamento non possa cambiare e nessuna «l» (maiuscola o minuscola) prenda
  * il posto di una cifra.
  */
-describe('WS-GOVOFFICE-05B — la frase d’apertura', () => {
-  it('singolare esatto con una cosa sola', () => {
+describe('WS-GOVOFFICE-05B / WS-MINISTER-UX-02 — la frase d’apertura', () => {
+  it('singolare con una cosa sola, col numero e non una lettera', () => {
     const session = composeCabinet(agenda([voice('debt_service', 'critica')]));
     const tesoro = session.addresses.find(address => address.seat === 'tesoro')!;
-    expect(tesoro.opening).toBe('Ho 1 cosa da portare al consiglio, 1 urgente.');
+    expect(tesoro.opening).toMatch(/Ho 1 cosa da portare al consiglio\./);
+    expect(tesoro.opening).toContain('urgente');
+    // WS-MINISTER-UX-02 — Il primo messaggio non è più solo il conteggio:
+    // presenta l’incarico e invita il Presidente a indicare la priorità.
+    expect(tesoro.opening).toContain('Ho la responsabilità');
+    expect(tesoro.opening).toContain('Dimmi tu qual è la priorità');
   });
 
-  it('plurale esatto con più cose', () => {
+  it('plurale con più cose, col numero e non una lettera', () => {
     const session = composeCabinet(agenda([
       voice('debt_service', 'critica'),
       voice('treasury_condition', 'ordinaria'),
     ]));
     const tesoro = session.addresses.find(address => address.seat === 'tesoro')!;
-    expect(tesoro.opening).toBe('Ho 2 cose da portare al consiglio, 1 urgente.');
+    expect(tesoro.opening).toMatch(/Ho 2 cose da portare al consiglio\./);
+    expect(tesoro.opening).toContain('urgente');
   });
 
   it('nessuna «l» al posto di una cifra, mai', () => {
@@ -206,11 +212,12 @@ describe('WS-GOVOFFICE-05B — la frase d’apertura', () => {
       voice('debt_service', 'critica'),
       voice('treasury_condition', 'ordinaria'),
     ]));
-    // La frase comincia sempre con un numero, non con una lettera.
-    expect(session.addresses[0].opening).toMatch(/^Ho \d+ cos/);
+    // Il conteggio nel primo messaggio è sempre un numero, non una lettera.
+    expect(session.addresses[0].opening).toMatch(/\bHo \d+ cos/);
     for (const address of session.addresses) {
-      // Nessuna «l» isolata (le «l» di «consiglio»/«al» non sono isolate).
-      expect(address.opening).not.toMatch(/\bl\b/i);
+      // Il difetto specifico che questo test difende: «Ho l cosa» invece di
+      // «Ho 1 cosa». (L'elisione italiana «l’ha» non è un conteggio.)
+      expect(address.opening).not.toMatch(/\bHo l\b/i);
     }
   });
 
