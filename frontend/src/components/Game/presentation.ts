@@ -63,6 +63,11 @@ export interface PresentationDirective {
   readonly evidence?: EvidenceKey;
   /** Annotazione testuale breve, per `annotate`. Non è un numero né geometria. */
   readonly note?: string;
+  /**
+   * WS-MINISTER-UX-04 — Per la mappa: gli `id` delle zone in evidenza. Sono
+   * riferimenti, non geometrie: il path resta quello del read model.
+   */
+  readonly regionIds?: readonly string[];
 }
 
 /** Una direttiva applicata, legata alla partita e al messaggio che l'ha prodotta. */
@@ -84,6 +89,8 @@ export interface ResolvedPresentation {
   readonly roads: TreasuryRoad[];
   readonly label: string;
   readonly note?: string;
+  /** Zone in evidenza sulla mappa, se la direttiva ne indicava. */
+  readonly regionIds?: readonly string[];
   readonly messageId: string;
   readonly quote: string;
 }
@@ -170,10 +177,19 @@ function validateDirective(raw: string): PresentationDirective | null {
     ? candidate.note.slice(0, 160)
     : undefined;
 
+  // WS-MINISTER-UX-04 — Gli `id` delle zone: solo riferimenti brevi. Tutto ciò
+  // che non è un id sicuro viene scartato; se non ne resta nessuno, si omette.
+  const regionIds = Array.isArray(candidate.regionIds)
+    ? candidate.regionIds
+      .filter((id): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(id))
+      .slice(0, 20)
+    : undefined;
+
   return {
     op: op as PresentationOperation,
     ...(evidence ? { evidence } : {}),
     ...(note ? { note } : {}),
+    ...(regionIds && regionIds.length > 0 ? { regionIds } : {}),
   };
 }
 
@@ -232,6 +248,8 @@ export function resolvePresentation(
     roads: [],
     label: evidenceLabel(directive.evidence),
     ...(directive.note ? { note: directive.note } : {}),
+    // Le zone in evidenza hanno senso solo su una mappa: altrove si ignorano.
+    ...(block.kind === 'map' && directive.regionIds?.length ? { regionIds: directive.regionIds } : {}),
     messageId,
     quote,
   };

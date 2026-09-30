@@ -53,12 +53,19 @@ describe('parsePresentation', () => {
     expect(parsePresentation('```tavola\n{"op":"focus"}\n```').directive).toBeNull();
   });
 
-  it('rifiuta HTML, JavaScript e gestori inline; ignora chiavi extra', () => {
+  it('rifiuta HTML, JavaScript e gestori inline; le chiavi extra note sono riferimenti', () => {
     expect(parsePresentation('```tavola\n{"op":"focus","evidence":"spesa","x":"<b>hi</b>"}\n```').directive).toBeNull();
     expect(parsePresentation('```tavola\n{"op":"focus","evidence":"spesa","x":"javascript:alert(1)"}\n```').directive).toBeNull();
-    // Chiavi extra innocue non allargano il contratto: si leggono solo op/evidence/note.
-    const extra = parsePresentation('```tavola\n{"op":"focus","evidence":"spesa","regionIds":["A"]}\n```');
-    expect(extra.directive).toEqual({ op: 'focus', evidence: 'spesa' });
+    // `regionIds` è un riferimento ammesso (UX-04): sono id, non geometrie.
+    const extra = parsePresentation('```tavola\n{"op":"focus","evidence":"mappa","regionIds":["ALPHA"]}\n```');
+    expect(extra.directive).toEqual({ op: 'focus', evidence: 'mappa', regionIds: ['ALPHA'] });
+  });
+
+  it('sanifica i regionIds: solo id brevi e sicuri', () => {
+    const longId = 'x'.repeat(40);
+    const raw = '{"op":"focus","evidence":"mappa","regionIds":["ALPHA","a b","BETA","' + longId + '"]}';
+    const parsed = parsePresentation('```tavola\n' + raw + '\n```');
+    expect(parsed.directive).toEqual({ op: 'focus', evidence: 'mappa', regionIds: ['ALPHA', 'BETA'] });
   });
 
   it('non rende un blocco incompleto: lo rimuove dal testo durante lo streaming', () => {
@@ -92,6 +99,15 @@ describe('catalogo e resolver', () => {
     expect(resolved?.block?.id).toBe('bilancio');
     expect(resolved?.label).toContain('spesa');
     expect(resolved?.messageId).toBe('tesoro#2');
+  });
+
+  it('porta le zone in evidenza solo quando l’evidenza è la mappa', () => {
+    const mappa = resolvePresentation(active({ op: 'focus', evidence: 'mappa', regionIds: ['ALPHA'] }), blocks, roads);
+    expect(mappa?.block?.id).toBe('zone');
+    expect(mappa?.regionIds).toEqual(['ALPHA']);
+    // Su un'altra evidenza le zone non hanno senso e si ignorano.
+    const spesa = resolvePresentation(active({ op: 'focus', evidence: 'spesa', regionIds: ['ALPHA'] }), blocks, roads);
+    expect(spesa?.regionIds).toBeUndefined();
   });
 
   it('risolve il confronto dalle strade del motore', () => {
