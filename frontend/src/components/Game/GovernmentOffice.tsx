@@ -26,13 +26,14 @@
  * cancella il dialogo.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { CabinetSession } from './CabinetSession';
 import { MinisterChat } from './MinisterChat';
 import { OrderRegister } from './OrderRegister';
-import { SeatCanvas } from './SeatCanvas';
-import { TreasuryActPanel } from './TreasuryActPanel';
+import { SeatBrief } from './SeatBrief';
+import { SeatTable } from './SeatTable';
 import { deriveSeatCanvasBlocks } from './seatCanvasModel';
 import { seatCanvasAuthoring } from './seatCanvasConfig';
 import { treasuryAct, type TreasuryRoad } from './treasuryAct';
@@ -120,6 +121,14 @@ export function GovernmentOffice({
   const [openSeat, setOpenSeat] = useState<CabinetAddressView['seat'] | null>(null);
   const [lastOutcome, setLastOutcome] = useState<OfficeOutcome | null>(null);
 
+  // WS-MINISTER-UX-01 — La composizione della seduta: il dialogo è la
+  // superficie principale (42% di base), la tavola lo affianca. Il divisore è
+  // ridimensionabile (32–60%); su mobile si vede una superficie alla volta.
+  const [splitPct, setSplitPct] = useState(42);
+  const [mobilePane, setMobilePane] = useState<'dialogo' | 'tavola'>('dialogo');
+  const splitRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+
   // WS-GOVOFFICE-03 — Il quadro operativo per il pannello del ministro. Lo
   // compone lo **stesso** helper del dossier Nazione: un dominio, un numero.
   const picture = useMemo(
@@ -142,6 +151,38 @@ export function GovernmentOffice({
       setLastOutcome(null);
     }
   }, [open]);
+
+  // Cambiando sedia si riparte dal dialogo su mobile: la tavola non resta
+  // appesa a una sedia che non è più aperta.
+  useEffect(() => {
+    setMobilePane('dialogo');
+  }, [openSeat]);
+
+  // WS-MINISTER-UX-01 — Il divisore ridimensionabile: trascinamento col
+  // puntatore e frecce da tastiera, con limiti dichiarati (32–60%).
+  const startSplit = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    draggingRef.current = true;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const moveSplit = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!draggingRef.current || !splitRef.current) return;
+    const rect = splitRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const pct = ((event.clientX - rect.left) / rect.width) * 100;
+    setSplitPct(Math.min(60, Math.max(32, pct)));
+  };
+  const endSplit = (): void => {
+    draggingRef.current = false;
+  };
+  const keySplit = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'ArrowLeft') {
+      setSplitPct(pct => Math.min(60, Math.max(32, pct - 2)));
+      event.preventDefault();
+    } else if (event.key === 'ArrowRight') {
+      setSplitPct(pct => Math.min(60, Math.max(32, pct + 2)));
+      event.preventDefault();
+    }
+  };
 
   const address = openSeat
     ? session?.addresses.find(candidate => candidate.seat === openSeat) ?? null
@@ -185,17 +226,6 @@ export function GovernmentOffice({
   };
 
   // ── Gli esiti: un ordine in coda, o un nulla di fatto ───────────────────
-  const queuePath = async (
-    item: CabinetAddressView['items'][number],
-    path: CabinetPathView,
-  ): Promise<void> => {
-    if (!onQueueCabinetPath) return;
-    const queued = await onQueueCabinetPath(item, path);
-    if (queued && address) {
-      setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: path.title });
-    }
-  };
-
   const queueProblem = async (text: string): Promise<void> => {
     if (!onQueueOrder || !address) return;
     const queued = await onQueueOrder(text);
@@ -268,47 +298,68 @@ export function GovernmentOffice({
           />
         </>
       ) : (
-        // ── [2] SEDUTA — il ministro parla; alla fine, l'esito ─────────────
-        <>
-          {/* WS-GOVOFFICE-03 — La seduta a DUE PANNELLI: a sinistra il dialogo
-              con il ministro, a destra i dati della nazione e della sua materia.
-              Le strade proposte e la coda degli ordini NON stanno qui: le prime
-              non sono piu' una scelta da premere, la seconda vive nel registro
-              della prima schermata. */}
-          <div className="government-office-split">
-            <div className="government-office-pane government-office-pane-chat">
+        // ── [2] SEDUTA — il dialogo è la superficie principale (UX-01); la
+        //     tavola di lavoro lo affianca a destra. ───────────────────────
+        <div className="government-office-session" data-mobile-pane={mobilePane}>
+          <header className="minister-session-head">
+            <button
+              type="button"
+              className="government-office-back"
+              onClick={() => setOpenSeat(null)}
+              title="Torna all'elenco dei ministri"
+            >
+              ← Ministri
+            </button>
+            <div className="minister-session-id">
+              <h2 className="minister-session-name" id="government-office-title">
+                {address ? address.label : 'Seduta'}
+              </h2>
+              {address && <span className="minister-session-reads">{address.reads}</span>}
+            </div>
+            <div className="minister-session-context">
+              <span className="minister-session-state">{nationalName}</span>
+              {currentDate && <span className="minister-session-date">{currentDate}</span>}
+            </div>
+            <div className="minister-session-views" role="tablist" aria-label="Viste della seduta">
               <button
                 type="button"
-                className="government-office-back"
-                onClick={() => setOpenSeat(null)}
-                title="Torna all'elenco dei ministri"
+                role="tab"
+                aria-selected={mobilePane === 'dialogo'}
+                className={`minister-session-view${mobilePane === 'dialogo' ? ' active' : ''}`}
+                onClick={() => setMobilePane('dialogo')}
               >
-                ← Torna ai ministri
+                Dialogo
               </button>
-              <div className="council-head">
-                <h2 className="council-title" id="government-office-title">
-                  {address ? address.label : 'Seduta'}
-                </h2>
-                <p className="council-sub">
-                  Il ministro porta i suoi dubbi e i suoi problemi. La discussione
-                  si chiude con un ordine, che finisce nel registro, oppure con un
-                  nulla di fatto dichiarato.
-                </p>
-              </div>
-
-              <p className="government-office-hint" role="note">
-                Le cifre sono quelle del motore, non del modello. Concludere la
-                seduta con un ordine lo mette subito nel registro degli atti.
-              </p>
-
-              <CabinetSession
-                variant="full"
-                onlySeat={openSeat}
-                session={session}
-                loading={sessionLoading}
-                error={sessionError}
-                speakingSeat={openSeat}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mobilePane === 'tavola'}
+                className={`minister-session-view${mobilePane === 'tavola' ? ' active' : ''}`}
+                onClick={() => setMobilePane('tavola')}
               >
+                Tavola
+              </button>
+            </div>
+          </header>
+
+          {sessionLoading ? (
+            <p className="cabinet-status" role="status">Il consiglio si sta riunendo…</p>
+          ) : sessionError ? (
+            <p className="cabinet-status cabinet-error" role="alert">{sessionError}</p>
+          ) : (
+            <div
+              ref={splitRef}
+              className="government-office-split"
+              style={{ '--dialogue-pct': `${splitPct}%` } as CSSProperties}
+              onPointerMove={moveSplit}
+              onPointerUp={endSplit}
+            >
+              <section
+                className="government-office-pane government-office-pane-chat"
+                data-pane="dialogo"
+                aria-label="Dialogo con il ministro"
+              >
+                <SeatBrief address={address} />
                 <MinisterChat
                   gameId={gameId}
                   address={address}
@@ -319,47 +370,56 @@ export function GovernmentOffice({
                   onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}
                   onOrderFromUserMessage={text => void queueProblem(text)}
                 />
-              </CabinetSession>
 
-              {lastOutcome?.kind === 'order' && (
-                <p className="government-office-outcome-note" role="status">
-                  Atto firmato nel registro — «{lastOutcome.text}»
-                </p>
-              )}
+                {lastOutcome?.kind === 'order' && (
+                  <p className="government-office-outcome-note" role="status">
+                    Atto firmato nel registro — «{lastOutcome.text}»
+                  </p>
+                )}
+                <div className="government-office-outcome">
+                  <button
+                    type="button"
+                    className="cabinet-nothing"
+                    onClick={concludeNothing}
+                    title="Chiudi la seduta senza ordine: torna ai ministri"
+                  >
+                    Nulla di fatto — chiudi senza ordine
+                  </button>
+                </div>
+              </section>
 
-              <div className="government-office-outcome">
-                <button
-                  type="button"
-                  className="cabinet-nothing"
-                  onClick={concludeNothing}
-                  title="Chiudi la seduta senza ordine: torna ai ministri"
-                >
-                  Nulla di fatto — chiudi senza ordine
-                </button>
-              </div>
-            </div>
-
-            {/* Il pannello dei dati: competenza della sedia, le sue cifre e la
-                scheda del dominio nazionale di quella materia. */}
-            <div className="government-office-pane government-office-pane-dossier">
-              {/* WS-GOVOFFICE-07 — Lo spazio destro è una TELA, non un'etichetta:
-                  il Tesoro porta l'atto concreto e le strade firmabili, ogni
-                  sedia riceve i blocchi del proprio dominio. */}
-              {address?.seat === 'tesoro' && (
-                <TreasuryActPanel key={address.seat} act={act} onSign={signTreasuryRoad} />
-              )}
-              <SeatCanvas
-                key={`tela-${address?.seat ?? 'nessuna-sedia'}`}
-                blocks={canvasBlocks}
-                emptyLabel="Nessuna cifra pubblicata per questa sedia: la tela resta vuota, non inventa."
+              <div
+                className="government-office-divider"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Ridimensiona dialogo e tavola"
+                aria-valuemin={32}
+                aria-valuemax={60}
+                aria-valuenow={Math.round(splitPct)}
+                tabIndex={0}
+                onPointerDown={startSplit}
+                onKeyDown={keySplit}
               />
+
+              <section
+                className="government-office-pane government-office-pane-table"
+                data-pane="tavola"
+                aria-label="Tavola di lavoro"
+              >
+                <SeatTable
+                  seat={address?.seat ?? 'lavori'}
+                  blocks={canvasBlocks}
+                  act={act}
+                  onSign={signTreasuryRoad}
+                />
+              </section>
             </div>
-          </div>
+          )}
 
           <div className="suggestions-footer">
             <span className="pending-advance-hint">
               {pendingActions.length > 0
-                ? `${pendingActions.length} ${pendingActions.length === 1 ? 'atto nel registro' : 'atti nel registro'} · saranno eseguiti solo quando avanzi il tempo dalla data in alto.`
+                ? `${pendingActions.length} ${pendingActions.length === 1 ? 'atto nel registro' : 'atti nel registro'} · eseguiti quando avanzi il tempo dalla data in alto.`
                 : 'Nessun atto nel registro: concludi la seduta con un ordine, oppure chiudila con un nulla di fatto.'}
             </span>
             <button
@@ -371,7 +431,7 @@ export function GovernmentOffice({
               Chiudi ufficio
             </button>
           </div>
-        </>
+        </div>
       )}
     </AccessibleDialog>
   );

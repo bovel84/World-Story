@@ -1062,11 +1062,15 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .cabinet-speak.active { border-color: var(--op-gold); color: #8a6a22; }
 
 .minister-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   border: 1px solid #3a4f6c;
+  border-radius: 10px;
   background: #0d1727;
   color: #e7edf8;
-  padding: 10px 12px;
-  margin: 6px 0 12px;
+  padding: 12px;
 }
 .minister-head { border-bottom: 1px solid #2a3a52; padding-bottom: 5px; margin-bottom: 9px; }
 .minister-name { font-family: var(--op-display); font-size: 14px; color: #f8f1e5; }
@@ -1102,7 +1106,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .minister-figure-value { font-family: var(--op-display); font-size: 14px; color: #edf4ff; }
 .minister-figure-basis { font-family: var(--op-utility); font-size: 9px; color: #8fa2ba; }
 
-.minister-thread { max-height: 260px; overflow-y: auto; margin-bottom: 9px; }
+.minister-thread { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin-bottom: 9px; padding-right: 4px; }
 .minister-hint { font-family: var(--op-copy); font-size: 12.5px; font-style: italic; color: #c3cec2; }
 .minister-message {
   font-family: var(--op-copy);
@@ -1196,11 +1200,14 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 }
 .minister-thread .minister-entry .entry-text {
   font-family: var(--op-copy);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 16px;
+  line-height: 1.6;
   color: #edf4ff;
   white-space: pre-wrap;
+  padding: 9px 12px;
+  border-radius: 10px;
 }
+.minister-salutation { margin: 0 0 4px; font: 700 12px/1.3 var(--op-utility); letter-spacing: .06em; text-transform: uppercase; color: #c9b3ff; }
 /* Il messaggio del governo e la risposta del ministro sono gli STESSI bubble
    del Consulente: viola per chi parla, notte per chi risponde. */
 .minister-thread .minister-entry.user .entry-text {
@@ -1233,9 +1240,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   flex: 1;
   min-width: 0;
   font-family: var(--op-copy);
-  font-size: 12.5px;
-  line-height: 1.4;
-  resize: vertical;
+  font-size: 15px;
+  line-height: 1.45;
+  resize: none;
   border: 1px solid #526783;
   background: #091321;
   color: #f0f5ff;
@@ -1262,42 +1269,105 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 }
 .government-office {
   position: relative;
-  width: min(1080px, 96vw);
-  height: min(88dvh, 900px);
-  max-height: calc(100dvh - 48px);
-  /* WS-GOVOFFICE-03 — Lo scorrimento non è più del modale: la seduta a due
-     pannelli fa scorrere **ogni colonna per conto suo**, così il dialogo resta
-     allineato ai dati mentre si parla. La prima schermata (registro + ministri)
-     scorre qui, sul contenitore. Vedi `.government-office-split`. */
+  display: flex;
+  flex-direction: column;
+  width: min(1280px, 96vw);
+  height: min(90dvh, 940px);
+  max-height: calc(100dvh - 32px);
+  /* La prima schermata (registro + ministri) scorre qui; la seduta no: le sue
+     superfici scorrono per conto loro (vedi `.government-office-session`). */
   overflow-y: auto;
   border: 1px solid #3a4f6c;
   box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
 }
 
-/* ── WS-GOVOFFICE-03 — La seduta a due pannelli ──────────────────────────────
-   A sinistra il dialogo con il ministro, a destra i dati della nazione e della
-   sua materia. Il rapporto di colonne segue il precedente della scelta paese
-   (`.country-selector-layout`): il dialogo è il protagonista, i dati lo servono.
-   Sotto i 767px collassa a una colonna (la media query in fondo al file). */
+/* ── WS-MINISTER-UX-01 — La seduta: dialogo a sinistra, tavola a destra ──────
+   Il dialogo è la superficie principale (42% di base, 32–60% col divisore); la
+   tavola è un foglio chiaro. La stanza resta notturna e uniforme: niente
+   alternanza casuale di schede. */
+.government-office-session {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+/* Il piede è una riga di servizio, non un blocco: non ruba altezza al dialogo.
+   `flex: 1 1 220px` della `.pending-advance-hint` diventa un'altezza di 220px
+   in colonna: qui il piede resta `auto` e l'altezza va alla chat. */
+.government-office-session .suggestions-footer { flex: 0 0 auto; }
+.government-office-session .pending-advance-hint { flex: 0 1 auto; }
+.minister-session-head {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #26364e;
+  background: #0d1727;
+}
+.minister-session-id { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.minister-session-name { margin: 0; font: 700 17px/1.2 Georgia, serif; color: #f2f6ff; }
+.minister-session-reads { font: 500 11.5px/1.35 system-ui, sans-serif; color: #93a6c0; }
+.minister-session-context { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.minister-session-state { font: 700 11px/1.3 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #cfe0f5; }
+.minister-session-date { font: 500 11px/1.3 ui-monospace, monospace; color: #7d8ea8; }
+.minister-session-views { display: none; gap: 6px; }
+
 .government-office-split {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(320px, .9fr);
-  gap: 14px;
-  align-items: start;
+  grid-template-columns: minmax(300px, var(--dialogue-pct, 42%)) 8px minmax(320px, 1fr);
+  gap: 0;
+  flex: 1 1 auto;
   min-height: 0;
+  padding: 0 10px 4px;
 }
+.government-office-divider {
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  border: 0;
+  touch-action: none;
+}
+.government-office-divider::before {
+  content: '';
+  position: absolute;
+  inset: 4px 3px;
+  border-radius: 2px;
+  background: #24344d;
+}
+.government-office-divider:hover::before,
+.government-office-divider:focus-visible::before { background: #8a72e5; }
+.government-office-divider:focus-visible { outline: 2px solid var(--op-gold); outline-offset: 1px; }
+
 .government-office-pane {
   min-width: 0;
   min-height: 0;
-  /* Ogni colonna scorre per sé: la chat non trascina i dati e viceversa. */
-  max-height: min(66dvh, 720px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.government-office-pane-chat { overflow: hidden; }
+
+/* La tavola: un foglio chiaro da lavoro, non una pila di schede scure. */
+.government-office-pane-table {
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #f2ece0;
+  color: #1c2320;
 }
-.government-office-pane-dossier {
-  position: sticky;
-  top: 0;
-}
+.seat-table { display: flex; flex-direction: column; gap: 10px; }
+.seat-table-head { display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid #cfc4ad; }
+.seat-table-kicker { font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .09em; text-transform: uppercase; color: #8a5a2b; }
+.seat-table-note { font: 400 11.5px/1.4 system-ui, sans-serif; color: #6b6252; }
+.seat-table-main { display: flex; flex-direction: column; gap: 10px; }
+.seat-table-support { display: flex; flex-direction: column; gap: 10px; }
+.seat-table-more { border-top: 1px dotted #cfc4ad; padding-top: 8px; }
+.seat-table-more-summary { cursor: pointer; font: 700 11px/1.4 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #8a5a2b; }
+.seat-table-more[open] .seat-table-more-summary { margin-bottom: 8px; }
 
 /* Il pannello dei dati: nome e competenza della sedia, le sue cifre, la scheda
    del dominio nazionale. Sta nella scrivania navy del modulo. */
@@ -1504,30 +1574,38 @@ button:disabled { cursor: not-allowed; opacity: .5; }
     /* Il modale scorre col contenuto: il piede non deve galleggiare sui pannelli. */
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
-  /* WS-GOVOFFICE-03/04 — La seduta torna a una colonna, e il blocco NON viene
-     più compresso dal flex. `.government-office` è una colonna flex (eredita
-     `display:flex` da `.suggestions-content`): con `flex: 0 1 auto` lo split
-     veniva schiacciato per lasciare posto anche al piede, le due righe della
-     griglia (pannelli con `min-height: 0`) si dividevano l'altezza residua e i
-     pannelli sbordavano l'uno sull'altro. Con `flex: 0 0 auto` lo split prende
-     l'altezza del contenuto e a scorrere è il modale. */
+
+  /* WS-MINISTER-UX-01 — La seduta su mobile: UNA superficie alla volta, con le
+     linguette «Dialogo / Tavola». Niente due colonne compresse. */
+  .government-office-session { overflow: hidden; }
+  .minister-session-head { grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; }
+  .minister-session-context { grid-column: 1 / -1; flex-direction: row; align-items: baseline; gap: 8px; }
+  .minister-session-views { display: flex; grid-column: 1 / -1; }
+  .minister-session-view {
+    flex: 1 1 0;
+    padding: 8px 10px;
+    border: 1px solid #3a5273;
+    border-radius: 8px;
+    background: #142238;
+    color: #cfe0f5;
+    font: 600 12px/1.3 system-ui, sans-serif;
+  }
+  .minister-session-view.active { border-color: #8a72e5; background: #241d47; color: #fff; }
+
   .government-office-split {
     grid-template-columns: minmax(0, 1fr);
-    flex: 0 0 auto;
-    min-height: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0 6px 4px;
   }
-  .government-office-pane {
-    max-height: none;
-    overflow-y: visible;
-    min-height: auto;
-  }
-  .government-office-pane-dossier { position: static; }
+  .government-office-divider { display: none; }
+  .government-office-pane { min-height: 0; }
+  .government-office-pane-table { min-height: 0; }
+  .government-office-session[data-mobile-pane="dialogo"] .government-office-pane-table { display: none; }
+  .government-office-session[data-mobile-pane="tavola"] .government-office-pane-chat { display: none; }
 
-  /* Il titolo della sedia è già quello della schermata (`.council-title`, che è
-     anche l'etichetta del dialogo). Su mobile le copie che lo ripetevano —
-     l'intestazione del pannello dati, quella della chat e la testata della
-     scheda-seduta — si spengono, così la sedia ha **una sola** intestazione
-     visibile. Restano le competenze, che descrivono, non titolano. */
+  /* Il titolo della sedia vive nella testata della seduta: su mobile le copie
+     che lo ripetevano si spengono, così la sedia ha **una sola** intestazione. */
   .minister-dossier-name { display: none; }
   .minister-name { display: none; }
   .cabinet-seat-name { display: none; }
@@ -1699,3 +1777,146 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .zone-map-target { margin: 0; padding: 7px 9px; border: 1px dashed #8a72e5; border-radius: 8px; font: 400 12px/1.45 system-ui, sans-serif; color: #d7e2f5; }
 .zone-map-target-label { font: 700 9.5px/1.3 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #c3b4ff; margin-right: 6px; }
 .seat-canvas-metric-basis { display: block; margin-top: 2px; font: 400 10px/1.3 system-ui, sans-serif; color: #7d8ea8; letter-spacing: .02em; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WS-MINISTER-UX-01 — Il fascicolo della sedia e la tavola chiara
+   ---------------------------------------------------------------------------
+   Il fascicolo (questioni + cifre) sta a sinistra, sulla stanza notturna,
+   chiuso di default: la chat non ha più un dossier davanti. La tavola a destra
+   è un foglio chiaro: le schede di `SeatCanvas`, l'atto del Tesoro, i grafici,
+   il piano a cascata e la mappa, pensati su navy, qui prendono inchiostro
+   scuro su carta. Tutte le regole sono delimitate alla seduta/tavola.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Il fascicolo della sedia (a sinistra, spento di default) ─────────────── */
+.seat-brief {
+  flex: 0 0 auto;
+  border: 1px solid #2a3a52;
+  border-radius: 9px;
+  background: #101c30;
+}
+.seat-brief-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 11px;
+  cursor: pointer;
+  list-style: none;
+  font: 700 11px/1.3 var(--op-utility);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: #cfe0f5;
+}
+.seat-brief-summary::-webkit-details-marker { display: none; }
+.seat-brief-chevron { color: #8fb4e0; }
+.seat-brief[open] .seat-brief-chevron { transform: rotate(180deg); }
+.seat-brief-body { display: flex; flex-direction: column; gap: 10px; padding: 0 11px 11px; }
+.seat-brief-opening { margin: 0; font: 400 13px/1.55 var(--op-copy); color: #dbe6f5; }
+.seat-brief-item { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px solid #24344d; }
+.seat-brief-need { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; font: 600 13.5px/1.45 var(--op-copy); color: #f2f6ff; }
+.seat-brief-because { margin: 0; font: 400 12px/1.5 var(--op-copy); color: #a8bdd8; }
+
+/* ── La tavola: la carta e il suo inchiostro ─────────────────────────────── */
+.government-office-pane-table {
+  --table-card: #fbf7ee;
+  --table-ink: #1c2320;
+  --table-muted: #6b6252;
+  --table-rule: #cfc4ad;
+}
+.government-office-pane-table .seat-canvas-block,
+.government-office-pane-table .treasury-act,
+.government-office-pane-table .advisor-chart {
+  border-color: var(--table-rule);
+  background: var(--table-card);
+}
+.government-office-pane-table .seat-canvas-title,
+.government-office-pane-table .treasury-act-title,
+.government-office-pane-table .plan-diagram-title,
+.government-office-pane-table .plan-node-title,
+.government-office-pane-table .plan-outcome-text,
+.government-office-pane-table .seat-canvas-idea-title,
+.government-office-pane-table .zone-map-name,
+.government-office-pane-table .advisor-chart-title { color: var(--table-ink); }
+.government-office-pane-table .seat-canvas-note,
+.government-office-pane-table .seat-canvas-idea-detail,
+.government-office-pane-table .zone-map-detail,
+.government-office-pane-table .advisor-chart-note { color: var(--table-muted); }
+.government-office-pane-table .advisor-chart-unit { color: #8a7f6a; }
+.government-office-pane-table .advisor-chart-label { color: #3a352b; }
+.government-office-pane-table .advisor-chart-track { background: #e4dccb; }
+.government-office-pane-table .advisor-chart-fill { background: #4a6b96; }
+.government-office-pane-table .advisor-chart-value { color: var(--table-ink); }
+.government-office-pane-table .advisor-chart-series { color: #3f6291; }
+.government-office-pane-table .advisor-chart-series.tone-positive { color: #1f6b45; }
+.government-office-pane-table .advisor-chart-series.tone-warning { color: #8a5a17; }
+.government-office-pane-table .advisor-chart-delta { color: var(--table-ink); }
+.government-office-pane-table .advisor-chart-delta.tone-positive { color: #1f6b45; }
+.government-office-pane-table .advisor-chart-delta.tone-warning { color: #8a5a17; }
+
+.government-office-pane-table .seat-canvas-metric,
+.government-office-pane-table .treasury-act-figure {
+  border-color: #ded4c0;
+  background: #fffaf1;
+}
+.government-office-pane-table .seat-canvas-metric dt,
+.government-office-pane-table .treasury-act-figure dt,
+.government-office-pane-table .seat-canvas-metric-basis,
+.government-office-pane-table .treasury-act-basis { color: #8a7f6a; }
+.government-office-pane-table .seat-canvas-metric dd,
+.government-office-pane-table .treasury-act-figure dd { color: var(--table-ink); }
+.government-office-pane-table .seat-canvas-metric.tone-positive dd,
+.government-office-pane-table .treasury-act-figure.tone-positive dd { color: #1f6b45; }
+.government-office-pane-table .seat-canvas-metric.tone-warning dd,
+.government-office-pane-table .treasury-act-figure.tone-warning dd { color: #8a5a17; }
+.government-office-pane-table .seat-canvas-metric.tone-negative dd,
+.government-office-pane-table .treasury-act-figure.tone-negative dd { color: #9f3028; }
+.government-office-pane-table .seat-canvas-idea { border-left-color: #b9a888; background: #fffaf1; }
+.government-office-pane-table .seat-canvas-idea.tone-positive { border-left-color: #2f8a58; }
+.government-office-pane-table .seat-canvas-idea.tone-warning { border-left-color: #c08a2e; }
+.government-office-pane-table .seat-canvas-idea.tone-negative { border-left-color: #b0503f; }
+
+/* L'atto del Tesoro su carta. */
+.government-office-pane-table .treasury-act-kicker { color: #8a5a2b; }
+.government-office-pane-table .treasury-act-voice { border-left-color: #8a5a2b; background: #f4ead6; color: #40382a; }
+.government-office-pane-table .treasury-act-request { border-color: #c3b598; background: #fffaf1; }
+.government-office-pane-table .treasury-act-request[data-state="accepted"] { border-color: #2f8a58; background: #eef6ee; }
+.government-office-pane-table .treasury-act-request-label { color: #8a7f6a; }
+.government-office-pane-table .treasury-act-request[data-state="accepted"] .treasury-act-request-label { color: #1f6b45; }
+.government-office-pane-table .treasury-act-request-need { color: var(--table-ink); }
+.government-office-pane-table .treasury-act-request-figures { color: var(--table-muted); }
+.government-office-pane-table .treasury-act-road { border-color: #ded4c0; background: #fffaf1; }
+.government-office-pane-table .treasury-act-road.recommended { border-color: #8a5a2b; box-shadow: 0 0 0 1px rgba(138, 90, 43, .28) inset; }
+.government-office-pane-table .treasury-act-road-title { color: var(--table-ink); }
+.government-office-pane-table .treasury-act-road-badge { border-color: #8a5a2b; color: #7a4d1e; }
+.government-office-pane-table .treasury-act-road-voice { color: #40382a; }
+.government-office-pane-table .treasury-act-road-terms { color: var(--table-muted); }
+.government-office-pane-table .treasury-act-quiet { color: var(--table-muted); }
+.government-office-pane-table .treasury-act-sign { border-color: #2f6b4a; background: #2f6b4a; color: #fff; }
+.government-office-pane-table .treasury-act-sign:disabled { opacity: .5; }
+
+/* Il piano a cascata su carta. */
+.government-office-pane-table .plan-diagram-expanded { background: #f2ece0; }
+.government-office-pane-table .plan-diagram-kicker,
+.government-office-pane-table .plan-node-date { color: #8a5a2b; }
+.government-office-pane-table .plan-diagram-expand { border-color: #c3b598; background: #fffaf1; color: #40382a; }
+.government-office-pane-table .plan-lane::before { background: #c3b598; }
+.government-office-pane-table .plan-node { border-color: #ded4c0; border-left-color: #8a5a2b; background: #fffaf1; }
+.government-office-pane-table .plan-node-desc { color: var(--table-muted); }
+.government-office-pane-table .plan-node-tag-branch { color: #8a5a17; }
+.government-office-pane-table .plan-node-tag-merge { color: #1f6b45; }
+.government-office-pane-table .plan-outcome { border-color: #2f8a58; background: #eef6ee; }
+.government-office-pane-table .plan-outcome-label { color: #1f6b45; }
+
+/* La mappa delle zone su carta. */
+.government-office-pane-table .zone-map-svg { background: #efe7d7; border-color: #ded4c0; }
+.government-office-pane-table .zone-map-shape { fill: #cdbf9f; stroke: #8a7f6a; }
+.government-office-pane-table .zone-map-shape.tone-positive { fill: #a8cfb4; }
+.government-office-pane-table .zone-map-shape.tone-warning { fill: #e3cfa0; }
+.government-office-pane-table .zone-map-shape.tone-negative { fill: #e0b3ac; }
+.government-office-pane-table .zone-map-item { border-left-color: #c3b598; background: #fffaf1; color: var(--table-ink); }
+.government-office-pane-table .zone-map-item.tone-positive { border-left-color: #2f8a58; }
+.government-office-pane-table .zone-map-item.tone-warning { border-left-color: #c08a2e; }
+.government-office-pane-table .zone-map-item.tone-negative { border-left-color: #b0503f; }
+.government-office-pane-table .zone-map-target { border-color: #8a5a2b; color: #40382a; }
+.government-office-pane-table .zone-map-target-label { color: #8a5a2b; }

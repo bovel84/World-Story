@@ -54,19 +54,24 @@ function rule(source: string, selector: string): string {
 const SEAT_TITLE_COPIES = ['.minister-dossier-name', '.minister-name', '.cabinet-seat-name'];
 
 describe('WS-GOVOFFICE-04 — layout mobile dell’Ufficio', () => {
-  it('la seduta collassa su una colonna e non viene compressa dal flex', () => {
+  it('la seduta mostra una superficie alla volta: il divisore sparisce e lo split è a una colonna', () => {
     const split = rule(mobileBlock(), '.government-office-split');
     expect(split).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-    expect(split).toMatch(/flex:\s*0 0 auto/);
-    expect(split).toMatch(/min-height:\s*auto/);
+    expect(split).toMatch(/flex:\s*1 1 auto/);
+    expect(split).toMatch(/min-height:\s*0/);
+    expect(rule(mobileBlock(), '.government-office-divider')).toMatch(/display:\s*none/);
   });
 
-  it('i pannelli rilasciano limiti e scroll interno: a scorrere è il modale', () => {
-    const pane = rule(mobileBlock(), '.government-office-pane');
-    expect(pane).toMatch(/max-height:\s*none/);
-    expect(pane).toMatch(/overflow-y:\s*visible/);
-    expect(pane).toMatch(/min-height:\s*auto/);
-    expect(rule(mobileBlock(), '.government-office-pane-dossier')).toMatch(/position:\s*static/);
+  it('la linguetta attiva decide quale pannello resta visibile (Dialogo / Tavola)', () => {
+    const block = mobileBlock();
+    expect(rule(block, '.government-office-session[data-mobile-pane="dialogo"] .government-office-pane-table')).toMatch(/display:\s*none/);
+    expect(rule(block, '.government-office-session[data-mobile-pane="tavola"] .government-office-pane-chat')).toMatch(/display:\s*none/);
+    expect(rule(block, '.minister-session-views')).toMatch(/display:\s*flex/);
+  });
+
+  it('i pannelli non hanno scroll annidato: l’altezza la dà la sessione', () => {
+    expect(rule(mobileBlock(), '.government-office-pane')).toMatch(/min-height:\s*0/);
+    expect(rule(mobileBlock(), '.government-office-pane-table')).toMatch(/min-height:\s*0/);
   });
 
   it('a ≤767px le copie del titolo della sedia si spengono (una sola intestazione)', () => {
