@@ -427,6 +427,43 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(page.locator('.government-office-pane-table .treasury-act-request')).toHaveAttribute('data-state', 'accepted');
   });
 
+  test('P07: Ufficio del Governo — la voce di spesa in evidenza e l’evidenza fissata (UX-07)', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
+    const ufficio = page.locator('.government-office');
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    const chat = page.locator('.government-office-pane-chat');
+    const tavola = page.locator('.government-office-pane-table');
+    const banner = tavola.locator('.seat-presentation-banner');
+
+    // [1] A2 — la spesa discute la sanità: la voce pertinente è in evidenza,
+    //     non il saldo. La focus label è quella del read model del bilancio.
+    await chat.locator('textarea').fill('Mi mostri dove va la spesa per la sanità?');
+    await chat.locator('.minister-compose button').click();
+    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
+    await expect(banner).toContainText('Dove va la spesa — Sanità e assistenza');
+    await expect(tavola.locator('.advisor-chart-bars li.focused')).toContainText('Sanità e assistenza');
+
+    // [2] C — l'evidenza si fissa: una nuova richiesta non la sostituisce.
+    await tavola.locator('.seat-presentation-pin').click();
+    await expect(banner).toHaveAttribute('data-pinned', 'true');
+    await expect(tavola.locator('.seat-presentation-pin')).toHaveText('Evidenza fissata');
+    await chat.locator('textarea').fill('Confronta le due strade');
+    await chat.locator('.minister-compose button').click();
+    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)').last()).toContainText('ha preso nota del problema', { timeout: 15_000 });
+    await expect(banner).toContainText('Dove va la spesa');
+    await expect(tavola.locator('.proposal-comparison')).toHaveCount(0);
+
+    // [3] Sbloccando, la conversazione torna a guidare la tavola.
+    await tavola.locator('.seat-presentation-pin').click();
+    await expect(banner).not.toHaveAttribute('data-pinned', 'true');
+    await chat.locator('textarea').fill('Confronta le due strade');
+    await chat.locator('.minister-compose button').click();
+    await expect(tavola.locator('.proposal-comparison')).toBeVisible();
+  });
+
   test('P05: Ufficio del Governo — «Nulla di fatto» chiude la seduta senza atti', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);

@@ -126,6 +126,41 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     await expect(page.locator('#root')).not.toHaveAttribute('aria-hidden');
   });
 
+  test('seduta del ministro: tastiera, streaming annunciato una volta e audit', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+
+    await page.locator('.rail-btn').filter({ hasText: 'Governo' }).click();
+    await page.locator('.cabinet-pick').first().click();
+    await expect(page.locator('.minister-chat')).toBeVisible();
+
+    // Tastiera: il campo ha un nome accessibile e si invia con Enter.
+    const composer = page.locator('.minister-compose textarea');
+    await composer.focus();
+    await expect(composer).toBeFocused();
+    await composer.fill('Mi mostri dove va la spesa per la sanità?');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.minister-entry.assistant:not(.minister-greeting)').first()).toBeVisible({ timeout: 15_000 });
+
+    // Il flusso NON è una live region: lo screen reader non vocalizza token per
+    // token. L'annuncio vive in una regione separata, una sola volta a risposta
+    // conclusa.
+    await expect(page.locator('.minister-thread')).not.toHaveAttribute('aria-live', 'polite');
+    const live = page.locator('.minister-live');
+    await expect(live).toHaveAttribute('role', 'status');
+    await expect(live).toHaveAttribute('aria-live', 'polite');
+
+    // L'evidenza si fissa con un vero pulsante, con nome e stato.
+    const pin = page.locator('.seat-presentation-pin');
+    await expect(pin).toBeVisible();
+    await expect(pin).toHaveAttribute('aria-pressed', 'false');
+    await pin.click();
+    await expect(pin).toHaveAttribute('aria-pressed', 'true');
+
+    const violations = await page.evaluate(auditDom);
+    expect(violations).toEqual([]);
+  });
+
   test('HUD di gioco: nessuna violazione di base', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);

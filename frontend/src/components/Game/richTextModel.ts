@@ -45,7 +45,7 @@ export type BlockNode =
 export function parseInline(source: string): InlineNode[] {
   const nodes: InlineNode[] = [];
   // Ordine deliberato: ** prima di *, ` prima di *.
-  const pattern = /\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\n]+)\*|_([^_\n]+)_|`([^`]+)`/g;
+  const pattern = /\*\*([^*]+)\*\*|__([^_]+)__|(?<!\d)\*([^*\n]+)\*(?!\d)|_([^_\n]+)_|`([^`]+)`/g;
   let last = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(source)) !== null) {

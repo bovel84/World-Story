@@ -24,6 +24,7 @@
 import type { CabinetAddressView } from '../../services/api';
 import type { SeatCanvasBlock } from './seatCanvasModel';
 import type { TreasuryRoad } from './treasuryAct';
+import { matchSpendingVoice } from './spendingFocus';
 
 /** Le chiavi di evidenza che il ministro può richiamare. */
 export const EVIDENCE_KEYS = ['spesa', 'trend', 'cifre', 'piano', 'mappa', 'idee'] as const;
@@ -78,6 +79,17 @@ export interface ActivePresentation {
   readonly messageId: string;
   /** La citazione del messaggio, per il ritorno dal messaggio alla tavola. */
   readonly quote: string;
+  /**
+   * WS-MINISTER-UX-07 — L'ultimo testo del Presidente che ha innescato la
+   * presentazione. Serve ad A2: la voce di spesa discussa si sceglie dal
+   * **discorso**, non dalla risposta (la risposta può non nominarla).
+   */
+  readonly discussion?: string;
+  /**
+   * WS-MINISTER-UX-07 (C) — L'evidenza è **fissata**: resta sulla tavola anche
+   * se la conversazione propone altro, così il Presidente finisce di leggerla.
+   */
+  readonly pinned?: boolean;
 }
 
 /** Ciò che la tavola deve mostrare, già risolto dal catalogo. */
@@ -89,6 +101,13 @@ export interface ResolvedPresentation {
   readonly roads: TreasuryRoad[];
   readonly label: string;
   readonly note?: string;
+  /**
+   * WS-MINISTER-UX-07 — La voce di spesa da evidenziare (A2), scelta in locale
+   * dal discorso. `undefined` = nessuna voce pertinente, si mostra l'insieme.
+   */
+  readonly focusLabel?: string;
+  /** WS-MINISTER-UX-07 (C) — L'evidenza è fissata dal Presidente. */
+  readonly pinned?: boolean;
   /** Zone in evidenza sulla mappa, se la direttiva ne indicava. */
   readonly regionIds?: readonly string[];
   readonly messageId: string;
@@ -215,6 +234,18 @@ export function parsePresentation(text: string): { text: string; directive: Pres
 }
 
 /**
+ * WS-MINISTER-UX-07 (C) — Una nuova direttiva rimpiazza l'evidenza corrente?
+ * No, se l'evidenza è **fissata**: solo il Presidente la toglie (o un `dismiss`).
+ * Funzione pura, così il lucchetto si prova senza DOM.
+ */
+export function shouldApplyPresentation(
+  current: ActivePresentation | null | undefined,
+  directive: PresentationDirective,
+): boolean {
+  return !(current?.pinned && directive.op !== 'dismiss');
+}
+
+/**
  * Risolve una direttiva contro il catalogo reale della sedia. `null` quando non
  * c'è nulla da mostrare: la tavola resta quella predefinita e la risposta
  * testuale del ministro non viene toccata.
@@ -236,17 +267,30 @@ export function resolvePresentation(
       label: 'Confronto tra le proposte',
       messageId,
       quote,
+      ...(active.pinned ? { pinned: true } : {}),
     };
   }
 
   if (!directive.evidence) return null;
   const block = blockForEvidence(directive.evidence, blocks);
   if (!block) return null;
+
+  // WS-MINISTER-UX-07 (A2) — La spesa discute **una voce**, non il saldo. La
+  // voce si sceglie in locale dal discorso del Presidente (o, in mancanza, dalla
+  // citazione della risposta): deterministica, nessuna chiamata in più.
+  const focusLabel = directive.evidence === 'spesa' && block.kind === 'chart'
+    ? matchSpendingVoice(active.discussion || quote, block.figure.bars.map(bar => bar.label)) ?? undefined
+    : undefined;
+
   return {
     kind: 'evidence',
     block,
     roads: [],
-    label: evidenceLabel(directive.evidence),
+    label: focusLabel && directive.evidence === 'spesa'
+      ? `${evidenceLabel(directive.evidence)} — ${focusLabel}`
+      : evidenceLabel(directive.evidence),
+    ...(focusLabel ? { focusLabel } : {}),
+    ...(active.pinned ? { pinned: true } : {}),
     ...(directive.note ? { note: directive.note } : {}),
     // Le zone in evidenza hanno senso solo su una mappa: altrove si ignorano.
     ...(block.kind === 'map' && directive.regionIds?.length ? { regionIds: directive.regionIds } : {}),

@@ -30,6 +30,7 @@ import { basisLabel, isUnknown } from './CabinetSession';
 import { EngineText } from './EngineText';
 import { RichText } from './RichText';
 import { parsePresentation, type PresentationDirective } from './presentation';
+import { isNearBottom } from './chatScroll';
 import { formatFigureValue } from '../../utils/format';
 
 /** Quanti ultimi messaggi inviamo come contesto. */
@@ -67,7 +68,7 @@ export interface MinisterChatProps {
    * risposta più recente con un blocco `tavola` valido lo annuncia qui. Il
    * chiamante la applica solo a una risposta conclusa (mai durante lo streaming).
    */
-  onPresentation?: (messageId: string, quote: string, directive: PresentationDirective) => void;
+  onPresentation?: (messageId: string, quote: string, directive: PresentationDirective, discussion?: string) => void;
   /**
    * WS-MINISTER-UX-05 — La memoria della sedia. Viene inviata **con** la
    * richiesta (non mostrata nella chat): il server la valida, ne deriva il
@@ -106,13 +107,28 @@ export function MinisterChat({
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
+  // WS-MINISTER-UX-07 (C) — Se il giocatore era in fondo si segue lo stream; se
+  // ha risalito la cronologia non lo si riporta giù.
+  const stickToBottomRef = useRef(true);
   // Le direzioni di presentazione già annunciate: una per messaggio, per non
   // ripetere l'evento se il componente si ridisegna.
   const emittedPresentationRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streaming]);
+
+  const onThreadScroll = (): void => {
+    const el = threadRef.current;
+    if (!el) return;
+    stickToBottomRef.current = isNearBottom({
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    });
+  };
 
   // WS-MINISTER-UX-03 — Solo a risposta conclusa si annuncia la presentazione:
   // durante lo streaming il blocco può essere incompleto e non si applica nulla.
@@ -128,7 +144,11 @@ export function MinisterChat({
     const signature = `${messageId}:${JSON.stringify(directive)}`;
     if (emittedPresentationRef.current[messageId] === signature) return;
     emittedPresentationRef.current[messageId] = signature;
-    onPresentation(messageId, text.slice(0, 140), directive);
+    // WS-MINISTER-UX-07 (A2) — Insieme alla risposta viaggia l'ultimo messaggio
+    // del Presidente: è dal **discorso** che si sceglie la voce di spesa da
+    // evidenziare, non dalla risposta (che può non nominarla).
+    const lastUser = [...messages.slice(0, lastIndex)].reverse().find(m => m.role === 'user')?.content ?? '';
+    onPresentation(messageId, text.slice(0, 140), directive, lastUser);
   }, [messages, streaming, onPresentation, address?.seat]);
 
   // Cambiando ministro si azzera solo la BOZZA della domanda: la cronaca è per
@@ -152,6 +172,8 @@ export function MinisterChat({
     onStreamingChange(true);
     setError('');
     setInput('');
+    // Chi invia vuole vedere la risposta: si torna ad agganciare il fondo.
+    stickToBottomRef.current = true;
     const history = messages.filter(message => message.content.trim()).slice(-HISTORY_LIMIT);
     onAddMessage({ role: 'user', content: text });
     // Il posto della risposta: cresce token per token, come per il Consulente.
@@ -172,10 +194,16 @@ export function MinisterChat({
 
   const items = address.items;
   const lastIndex = messages.length - 1;
+  // WS-MINISTER-UX-07 (C) — Lo screen reader legge la risposta **conclusa**, non
+  // ogni token: la regione viva annuncia solo l'ultimo messaggio del ministro
+  // quando lo streaming è finito. Il testo è quello reso (senza blocco tavola).
+  const lastCompletedReply = !streaming
+    ? [...messages].reverse().find(message => message.role === 'assistant' && message.content.trim())?.content ?? ''
+    : '';
 
   return (
     <div className="minister-chat" aria-label={`Dialogo con ${address.label}`}>
-      <div className="minister-thread" aria-live="polite">
+      <div className="minister-thread" ref={threadRef} onScroll={onThreadScroll}>
         {messages.length === 0 && !streaming && (
           <div className="minister-entry assistant minister-greeting">
             <div className="entry-meta"><span>{address.label}</span></div>
@@ -226,6 +254,12 @@ export function MinisterChat({
         {error && <p className="minister-error" role="alert">{error}</p>}
         <div ref={endRef} />
       </div>
+
+      {/* WS-MINISTER-UX-07 (C) — Annuncio accessibile della sola risposta
+          conclusa: evita la vocalizzazione token per token durante lo stream. */}
+      <p className="minister-live sr-only" role="status" aria-live="polite">
+        {lastCompletedReply ? parsePresentation(lastCompletedReply).text.slice(0, 600) : ''}
+      </p>
 
       <div className="minister-compose">
         <textarea

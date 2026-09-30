@@ -18,12 +18,18 @@ const cssTone = (tone: ChartFigure['bars'][number]['tone']): string =>
   `tone-${tone === 'critical' ? 'negative' : tone}`;
 
 /** Grafico a barre orizzontali: leggibile anche con etichette lunghe. */
-function Bars({ figure }: { figure: ChartFigure }) {
+function Bars({ figure, focusLabel }: { figure: ChartFigure; focusLabel?: string }) {
   const scale = chartScale(figure);
+  // WS-MINISTER-UX-07 (A2) — La voce discussa sale in cima ed è marcata: è
+  // l'evidenza, il resto resta leggibile sotto. Il dato non cambia, cambia
+  // l'ordine di lettura.
+  const bars = focusLabel
+    ? [...figure.bars].sort((a, b) => Number(b.label === focusLabel) - Number(a.label === focusLabel))
+    : figure.bars;
   return (
     <ul className="advisor-chart-bars">
-      {figure.bars.map((bar, i) => (
-        <li key={`${bar.label}-${i}`} className={cssTone(bar.tone)}>
+      {bars.map((bar, i) => (
+        <li key={`${bar.label}-${i}`} className={`${cssTone(bar.tone)}${focusLabel && bar.label === focusLabel ? ' focused' : ''}`}>
           <span className="advisor-chart-label" title={bar.label}>{bar.label}</span>
           <span className="advisor-chart-track">
             <span
@@ -60,7 +66,7 @@ function Series({ figure }: { figure: ChartFigure }) {
   );
 }
 
-export function AdvisorChart({ figure }: { figure: ChartFigure }) {
+export function AdvisorChart({ figure, focusLabel }: { figure: ChartFigure; focusLabel?: string }) {
   return (
     <figure className="advisor-chart" aria-label={figure.title}>
       <figcaption className="advisor-chart-head">
@@ -73,7 +79,7 @@ export function AdvisorChart({ figure }: { figure: ChartFigure }) {
           <span className={`advisor-chart-delta ${cssTone(figure.series.tone)}`}>{figure.series.deltaText}</span>
         </div>
       ) : (
-        <Bars figure={figure} />
+        <Bars figure={figure} focusLabel={focusLabel} />
       )}
       <p className="advisor-chart-note">{figure.note}</p>
     </figure>

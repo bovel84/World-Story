@@ -70,13 +70,15 @@ export interface SeatTableProps {
   presentation?: ResolvedPresentation | null;
   /** Tornare alla tavola predefinita, chiudendo l'evidenza presentata. */
   onClearPresentation?: () => void;
+  /** WS-MINISTER-UX-07 (C) — Fissare/sbloccare l'evidenza per leggerla con calma. */
+  onTogglePin?: () => void;
   /** Tornare al messaggio che ha chiesto l'evidenza (su mobile, al dialogo). */
   onReturnToMessage?: () => void;
 }
 
 export function SeatTable({
   seat, blocks, act, onPrepareRoad, preparedRoadId, roadStates, actDraft, actStatus, actBusy,
-  onEditDraft, onSignDraft, onCancelDraft, onCompare, presentation, onClearPresentation, onReturnToMessage,
+  onEditDraft, onSignDraft, onCancelDraft, onCompare, presentation, onClearPresentation, onTogglePin, onReturnToMessage,
 }: SeatTableProps) {
   const ordered = [...blocks].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
   const showsAct = seat === 'tesoro';
@@ -106,14 +108,27 @@ export function SeatTable({
       </header>
 
       {presentation && (
-        <div className="seat-presentation-banner" role="status">
+        <div className="seat-presentation-banner" role="status" data-pinned={presentation.pinned ? 'true' : undefined}>
           <div className="seat-presentation-text">
-            <span className="seat-presentation-label">Mostrato su richiesta — {presentation.label}</span>
+            <span className="seat-presentation-label">
+              Mostrato su richiesta — {presentation.label}{presentation.pinned ? ' · fissato' : ''}
+            </span>
             {presentation.note && <span className="seat-presentation-note">{presentation.note}</span>}
             {presentation.quote && (
               <span className="seat-presentation-quote">«{presentation.quote}»</span>
             )}
           </div>
+          {onTogglePin && (
+            <button
+              type="button"
+              className={`seat-presentation-pin${presentation.pinned ? ' active' : ''}`}
+              onClick={onTogglePin}
+              aria-pressed={Boolean(presentation.pinned)}
+              title={presentation.pinned ? 'Sblocca l’evidenza: torna a seguire la conversazione' : 'Fissa l’evidenza: resta sulla tavola mentre la leggi'}
+            >
+              {presentation.pinned ? 'Evidenza fissata' : 'Fissa evidenza'}
+            </button>
+          )}
           {onClearPresentation && (
             <button
               type="button"
@@ -179,6 +194,7 @@ export function SeatTable({
             <SeatCanvas
               blocks={[main]}
               focusRegionIds={presentation?.kind === 'evidence' ? presentation.regionIds : undefined}
+              focusLabel={presentation?.kind === 'evidence' ? presentation.focusLabel : undefined}
             />
           </div>
           {supports.length > 0 && (

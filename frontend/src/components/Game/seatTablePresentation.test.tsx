@@ -85,6 +85,60 @@ describe('SeatTable — presentazione dalla conversazione', () => {
     expect(html).toContain('non simulato');
   });
 
+  it('WS-MINISTER-UX-07 (A2) — la spesa discute una voce, non il saldo', () => {
+    const expenseBlocks: SeatCanvasBlock[] = [
+      {
+        kind: 'chart', id: 'bilancio', title: 'Dove va il denaro',
+        figure: {
+          kind: 'bilancio', title: 'Dove va il denaro', note: '', unit: 'uscita mensile (mld)',
+          bars: [
+            { label: 'Difesa', value: 34, display: '34', tone: 'warning' },
+            { label: 'Amministrazione pubblica', value: 60, display: '60', tone: 'neutral' },
+            { label: 'Sanità e assistenza', value: 45, display: '45', tone: 'positive' },
+          ],
+        },
+      },
+    ];
+    const presentation = resolvePresentation(
+      {
+        directive: { op: 'focus', evidence: 'spesa' },
+        seat: 'tesoro', messageId: 'tesoro#6', quote: 'Ecco la tavola.',
+        discussion: 'Mi mostri la spesa per la sanità?',
+      },
+      expenseBlocks,
+      roads,
+    );
+    expect(presentation?.focusLabel).toBe('Sanità e assistenza');
+    expect(presentation?.label).toContain('Dove va la spesa');
+    expect(presentation?.label).toContain('Sanità e assistenza');
+    const html = render(presentation);
+    // La voce discussa è marcata e sale in cima: l'evidenza è quella voce.
+    const main = html.indexOf('seat-table-main');
+    const support = html.indexOf('seat-table-support');
+    const mainHtml = html.slice(main, support);
+    const sanita = mainHtml.indexOf('Sanità e assistenza');
+    const difesa = mainHtml.indexOf('Difesa');
+    expect(sanita).toBeGreaterThanOrEqual(0);
+    expect(sanita).toBeLessThan(difesa);
+    expect(mainHtml).toContain('focused');
+    // Il saldo non compare come evidenza principale.
+    expect(mainHtml).not.toContain('Saldo di bilancio');
+  });
+
+  it('WS-MINISTER-UX-07 (A2) — senza voce pertinente non si evidenzia nulla', () => {
+    const presentation = resolvePresentation(
+      {
+        directive: { op: 'focus', evidence: 'spesa' },
+        seat: 'tesoro', messageId: 'tesoro#7', quote: 'Ecco la tavola.',
+        discussion: 'Mostrami il saldo del bilancio',
+      },
+      blocks,
+      roads,
+    );
+    expect(presentation?.focusLabel).toBeUndefined();
+    expect(render(presentation)).not.toContain('focused');
+  });
+
   it('la mappa si inquadra sulla geometria e mette in evidenza le zone richieste', () => {
     const presentation = resolvePresentation(
       { directive: { op: 'focus', evidence: 'mappa', regionIds: ['r1'] }, seat: 'tesoro', messageId: 'tesoro#5', quote: 'Ecco le province.' },
@@ -99,5 +153,31 @@ describe('SeatTable — presentazione dalla conversazione', () => {
     expect(html).toContain('focused');
     expect(html).toContain('zone-map-legend');
     expect(html).toContain('Alfa');
+  });
+
+  it('WS-MINISTER-UX-07 (C) — l’evidenza fissata resta e si può sbloccare', () => {
+    const presentation = resolvePresentation(
+      {
+        directive: { op: 'focus', evidence: 'spesa' },
+        seat: 'tesoro', messageId: 'tesoro#8', quote: 'Ecco la tavola.', pinned: true,
+      },
+      blocks,
+      roads,
+    );
+    const html = renderToStaticMarkup(
+      <SeatTable
+        seat="tesoro"
+        blocks={blocks}
+        act={act}
+        presentation={presentation}
+        onClearPresentation={() => {}}
+        onTogglePin={() => {}}
+      />,
+    );
+    expect(html).toContain('data-pinned="true"');
+    expect(html).toContain('Evidenza fissata');
+    expect(html).toContain('aria-pressed="true"');
+    // Il controllo del fissaggio è un vero pulsante.
+    expect(html).toContain('seat-presentation-pin');
   });
 });

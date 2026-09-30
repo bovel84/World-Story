@@ -41,6 +41,22 @@ describe('richText — interpretazione del testo del Consulente', () => {
     expect(parseInline('2 * 3 = 6')).toEqual([{ kind: 'text', text: '2 * 3 = 6' }]);
   });
 
+  it('WS-MINISTER-UX-07 (A1) — una moltiplicazione non diventa corsivo', () => {
+    // Il caso reale: due asterischi legittimi fra numeri (`2*3*4`) venivano
+    // letti come `*3*` in corsivo. Il marcatore di enfasi non si apre né si
+    // chiude a contatto di una cifra.
+    expect(parseInline('2*3*4')).toEqual([{ kind: 'text', text: '2*3*4' }]);
+    expect(parseInline('il rapporto è 2*3 e vale 6')).toEqual([
+      { kind: 'text', text: 'il rapporto è 2*3 e vale 6' },
+    ]);
+    // Il corsivo vero, invece, resta: non si allenta il contratto.
+    expect(parseInline('un *punto* fermo')).toEqual([
+      { kind: 'text', text: 'un ' },
+      { kind: 'em', text: 'punto' },
+      { kind: 'text', text: ' fermo' },
+    ]);
+  });
+
   it('interpreta titoli, elenchi, citazioni e divisori', () => {
     const blocks = parseBlocks(`## Situazione\n\nIl **Nord** è scoperto.\n\n- prima voce\n- seconda voce\n\n> una citazione\n\n---`);
     expect(blocks.map(b => b.kind)).toEqual(['heading', 'paragraph', 'list', 'quote', 'rule']);
