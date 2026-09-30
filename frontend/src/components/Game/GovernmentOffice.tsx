@@ -42,7 +42,7 @@ import {
   type ActState, type ProposalActDraft,
 } from './actDraft';
 import type { WorkDeclarationInput } from './cabinetOrder';
-import { resolvePresentation, type ActivePresentation, type PresentationDirective } from './presentation';
+import { resolvePresentation, shouldApplyPresentation, type ActivePresentation, type PresentationDirective } from './presentation';
 import {
   discussedProposal, loadMemory, openQuestion, queuedDecision, recordMemory,
   saveMemory, seatRecords, withSeatRecords, type MinisterMemoryRecord, type MinisterMemoryStore,
@@ -254,8 +254,20 @@ export function GovernmentOffice({
     Partial<Record<CabinetAddressView['seat'], ActivePresentation>>
   >({});
   const applyPresentation = useCallback(
-    (seat: CabinetAddressView['seat'], messageId: string, quote: string, directive: PresentationDirective): void => {
-      setPresentations(prev => ({ ...prev, [seat]: { directive, seat, messageId, quote } }));
+    (seat: CabinetAddressView['seat'], messageId: string, quote: string, directive: PresentationDirective, discussion?: string): void => {
+      setPresentations(prev => {
+        // WS-MINISTER-UX-07 (C) — Un'evidenza fissata non si sostituisce da sola:
+        // solo un comando esplicito la toglie. Il `dismiss` arriva dal modello e
+        // non deve scavalcare il lucchetto del Presidente.
+        if (!shouldApplyPresentation(prev[seat], directive)) return prev;
+        return {
+          ...prev,
+          [seat]: {
+            directive, seat, messageId, quote, pinned: prev[seat]?.pinned ?? false,
+            ...(discussion ? { discussion } : {}),
+          },
+        };
+      });
       // WS-MINISTER-UX-05 — Una proposta confrontata è una proposta discussa:
       // entra in memoria, senza confonderla con un atto accodato.
       if (directive.op === 'compare') {
@@ -267,8 +279,8 @@ export function GovernmentOffice({
     [act.roads, currentDate, rememberFor],
   );
   const chatPresentation = useCallback(
-    (messageId: string, quote: string, directive: PresentationDirective): void => {
-      if (openSeat) applyPresentation(openSeat, messageId, quote, directive);
+    (messageId: string, quote: string, directive: PresentationDirective, discussion?: string): void => {
+      if (openSeat) applyPresentation(openSeat, messageId, quote, directive, discussion);
     },
     [openSeat, applyPresentation],
   );
@@ -278,6 +290,16 @@ export function GovernmentOffice({
       const next = { ...prev };
       delete next[openSeat];
       return next;
+    });
+  }, [openSeat]);
+  // WS-MINISTER-UX-07 (C) — Fissare l'evidenza: resta sulla tavola mentre si
+  // legge; sbloccarla riporta il comportamento normale.
+  const togglePin = useCallback((): void => {
+    if (!openSeat) return;
+    setPresentations(prev => {
+      const current = prev[openSeat];
+      if (!current) return prev;
+      return { ...prev, [openSeat]: { ...current, pinned: !current.pinned } };
     });
   }, [openSeat]);
   const activePresentation = openSeat ? presentations[openSeat] ?? null : null;
@@ -555,6 +577,7 @@ export function GovernmentOffice({
                   onCompare={compareFromTable}
                   presentation={resolvedPresentation}
                   onClearPresentation={clearPresentation}
+                  onTogglePin={togglePin}
                   onReturnToMessage={() => setMobilePane('dialogo')}
                 />
               </section>

@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  availableEvidence, blockForEvidence, parsePresentation, resolvePresentation, EVIDENCE_KEYS,
+  availableEvidence, blockForEvidence, parsePresentation, resolvePresentation, shouldApplyPresentation, EVIDENCE_KEYS,
   type ActivePresentation, type PresentationDirective,
 } from './presentation';
 import type { SeatCanvasBlock } from './seatCanvasModel';
@@ -120,5 +120,48 @@ describe('catalogo e resolver', () => {
     expect(resolvePresentation(active({ op: 'focus', evidence: 'trend' }), blocks, roads)).toBeNull();
     expect(resolvePresentation(active({ op: 'dismiss' }), blocks, roads)).toBeNull();
     expect(resolvePresentation(null, blocks, roads)).toBeNull();
+  });
+});
+
+describe('WS-MINISTER-UX-07 — A2 voce di spesa e C evidenza fissata', () => {
+  const expense: SeatCanvasBlock = {
+    kind: 'chart', id: 'bilancio', title: 'Dove va il denaro',
+    figure: {
+      kind: 'bilancio', title: 'Dove va il denaro', note: '',
+      bars: [
+        { label: 'Difesa', value: 34, display: '34', tone: 'warning' },
+        { label: 'Sanità e assistenza', value: 45, display: '45', tone: 'positive' },
+      ],
+    },
+  };
+
+  it('A2 — la voce discussa diventa la focus e il saldo non è l’evidenza', () => {
+    const resolved = resolvePresentation(
+      {
+        directive: { op: 'focus', evidence: 'spesa' },
+        seat: 'tesoro', messageId: 'tesoro#9', quote: 'Ecco la tavola.',
+        discussion: 'La spesa per la sanità',
+      },
+      [expense],
+      roads,
+    );
+    expect(resolved?.focusLabel).toBe('Sanità e assistenza');
+    expect(resolved?.label).toContain('Sanità e assistenza');
+  });
+
+  it('A2 — senza aggancio non si evidenzia una voce a caso', () => {
+    const resolved = resolvePresentation(
+      { directive: { op: 'focus', evidence: 'spesa' }, seat: 'tesoro', messageId: 'tesoro#10', quote: 'Ecco la tavola.' },
+      [expense],
+      roads,
+    );
+    expect(resolved?.focusLabel).toBeUndefined();
+  });
+
+  it('C — un’evidenza fissata non si sostituisce, il dismiss la chiude', () => {
+    expect(shouldApplyPresentation({ ...active({ op: 'focus', evidence: 'spesa' }), pinned: true }, { op: 'focus', evidence: 'trend' })).toBe(false);
+    expect(shouldApplyPresentation({ ...active({ op: 'focus', evidence: 'spesa' }), pinned: true }, { op: 'dismiss' })).toBe(true);
+    expect(shouldApplyPresentation({ ...active({ op: 'focus', evidence: 'spesa' }) }, { op: 'focus', evidence: 'trend' })).toBe(true);
+    expect(shouldApplyPresentation(null, { op: 'focus', evidence: 'spesa' })).toBe(true);
   });
 });

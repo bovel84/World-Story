@@ -123,9 +123,14 @@ export interface SeatCanvasProps {
    * model.
    */
   focusRegionIds?: readonly string[];
+  /**
+   * WS-MINISTER-UX-07 (A2) — La voce di spesa da evidenziare nel grafico di
+   * bilancio, scelta dal discorso. `undefined` = si mostra l'insieme.
+   */
+  focusLabel?: string;
 }
 
-export function SeatCanvas({ blocks, emptyLabel = 'Nessun dato pubblicato per questa sedia.', className, focusRegionIds }: SeatCanvasProps) {
+export function SeatCanvas({ blocks, emptyLabel = 'Nessun dato pubblicato per questa sedia.', className, focusRegionIds, focusLabel }: SeatCanvasProps) {
   if (blocks.length === 0) {
     return <p className="seat-canvas-empty">{emptyLabel}</p>;
   }
@@ -154,7 +159,7 @@ export function SeatCanvas({ blocks, emptyLabel = 'Nessun dato pubblicato per qu
         if (block.kind === 'chart') {
           return (
             <section key={block.id} className="seat-canvas-block" data-kind="chart">
-              <AdvisorChart figure={block.figure} />
+              <AdvisorChart figure={block.figure} focusLabel={focusLabel} />
             </section>
           );
         }
