@@ -5,9 +5,8 @@
 > ministro una capacità di presentazione **strutturata** — scegliere cosa
 > mostrare, su quale evidenza — senza consegnargli mai dati, HTML o geometrie.
 
-- **Ramo**: `feat/ws-minister-ux-03-conversazione-guida-tavola`, impilato su
-  `feat/ws-minister-ux-02-identita-ministro` (tip `8debb2b`). Base dichiarata:
-  `origin/main` @ `5ec7cdc` (UX-02 non ancora mergiata: la PR la apre la regia).
+- **Ramo**: `feat/ws-minister-ux-03-conversazione-guida-tavola`, basato su
+  `main` @ `909d0f8` (merge di UX-02, PR #145).
 - **Roadmap**: `docs/roadmaps/raw-roadmap-pi-20260930.md`, fase UX-03.
 - **Contratti collegati**: `WS-MINISTER-UX-00-report.md` §3 (conversazione /
   evidenze / ordini sono oggetti distinti), `WS-MINISTER-UX-01-report.md` (la
