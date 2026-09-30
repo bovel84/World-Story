@@ -113,25 +113,35 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
     const chat = page.locator('.government-office-pane-chat');
     await expect(chat.locator('.minister-chat')).toBeVisible();
-    const dati = page.locator('.government-office-pane-dossier .minister-dossier');
-    await expect(dati).toBeVisible();
-    // WS-GOVOFFICE-05 — Il pannello dati è a scomparsa, chiuso di default.
-    // Il contenuto si verifica aprendo il controllo: stessa sostanza di prima.
-    const datiToggle = dati.locator('.minister-dossier-toggle');
-    await expect(datiToggle).toHaveAttribute('aria-expanded', 'false');
-    await datiToggle.click();
-    await expect(datiToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(dati).toContainText('Ministro del Tesoro');
-    // WS-GOVOFFICE-05B — le cifre si formattano alla resa (virgola it-IT,
-    // 2 decimali sugli assoluti) a partire dai valori pieni del motore: la
-    // griglia mostra «12,40 mld», il testo narrato «6,50 mld», mai il punto.
-    await expect(dati).toContainText('12,40 mld');
+    // WS-GOVOFFICE-07 — Lo spazio destro è una TELA, non un'etichetta: l'atto
+    // del Tesoro con le cifre del motore, i blocchi (metriche, grafico, piano a
+    // cascata, mappa delle zone, idee) e le strade firmabili. Sostituisce il
+    // vecchio pannello «Dati della sedia» a scomparsa.
+    const tela = page.locator('.government-office-pane-dossier .seat-canvas');
+    await expect(tela).toBeVisible();
+    const atto = page.locator('.government-office-pane-dossier .treasury-act');
+    await expect(atto).toBeVisible();
+    await expect(atto).toContainText('Sul tavolo');
+
+    // Le cifre che la sedia porta restano visibili, con la loro provenienza
+    // (WS-GOVOFFICE-05B: virgola it-IT, 2 decimali sugli assoluti).
+    await expect(tela).toContainText('12,40 mld');
+    await expect(tela).toContainText('misurato · Tesoro');
     // Il ministro parla in prima persona, con le cifre del motore.
     await expect(ufficio).toContainText('Coprire il disavanzo del trimestre: 6,50 mld entro giugno.');
     await expect(ufficio).not.toContainText('6.5 mld');
-    await expect(dati).toContainText('misurato · Tesoro');
-    // Il pannello mostra il dominio nazionale di quella sedia.
-    await expect(dati.locator('.op-domain')).toHaveCount(2);
+
+    // I blocchi della tela: metriche, un grafico del motore, il piano a
+    // cascata, la mappa delle zone e le idee del ministro.
+    await expect(tela.locator('[data-kind="metrics"]').first()).toBeVisible();
+    await expect(tela.locator('[data-kind="chart"] .advisor-chart').first()).toBeVisible();
+    await expect(tela.locator('[data-kind="strategy"] .plan-diagram')).toBeVisible();
+    await expect(tela.locator('[data-kind="map"] .zone-map')).toBeVisible();
+    await expect(tela.locator('[data-kind="ideas"]')).toBeVisible();
+
+    // L'atto porta sul tavolo la richiesta dei Lavori e le due strade firmabili.
+    await expect(atto.locator('.treasury-act-request')).toContainText('Aprire il cantiere');
+    await expect(atto.locator('.treasury-act-road')).toHaveCount(2);
 
     // WS-GOVOFFICE-03 — Le «strade proposte» non stanno più nella seduta.
     await expect(ufficio.locator('.minister-path')).toHaveCount(0);
@@ -148,6 +158,30 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(ufficio.locator('.order-register-act').first())
       .toContainText('Il porto di Alfa resta chiuso');
     await expect(ufficio.locator('.order-register-signature-office')).toHaveText('Il Presidente del Consiglio');
+  });
+
+  test('P04b: Ufficio del Governo — l’atto del Tesoro si firma e finisce nel registro', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
+    const ufficio = page.locator('.government-office');
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+
+    // WS-GOVOFFICE-07 — La richiesta dei Lavori è in attesa sul tavolo; firmare
+    // la strada d'investimento la accoglie (Parte D: reazione dei ministri).
+    const atto = page.locator('.government-office-pane-dossier .treasury-act');
+    await expect(atto).toBeVisible();
+    await expect(atto.locator('.treasury-act-request')).toHaveAttribute('data-state', 'pending');
+    await atto.locator('.treasury-act-road[data-road="invest"] .treasury-act-sign').click();
+    await expect(atto.locator('.treasury-act-request')).toHaveAttribute('data-state', 'accepted');
+    await expect(atto.locator('.treasury-act-request-label')).toContainText('accolta');
+    await expect(atto.locator('.treasury-act-road[data-road="invest"] .treasury-act-sign'))
+      .toContainText('Atto firmato nel registro');
+
+    // L'atto firmato è nel REGISTRO della prima schermata, non resta una promessa.
+    await page.locator('.government-office-back').click();
+    await expect(ufficio.locator('.order-register-act').first()).toContainText('Aprire il cantiere');
   });
 
   test('P05: Ufficio del Governo — «Nulla di fatto» chiude la seduta senza atti', async ({ page }) => {
