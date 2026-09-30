@@ -70,7 +70,7 @@ await page.screenshot({ path: `${prefix}-2-seduta-due-pannelli.png` });
 // WS-GOVOFFICE-07 — lo spazio destro è la TELA della sedia (non più un pannello
 // a scomparsa): l'atto del Tesoro, le metriche con la provenienza, il grafico
 // del motore, il piano a cascata, la mappa delle zone e le idee del ministro.
-const tela = page.locator('.seat-canvas');
+const tela = page.locator('.seat-canvas').first();
 if (await tela.count()) {
   await tela.scrollIntoViewIfNeeded();
   await page.waitForTimeout(300);
@@ -86,7 +86,7 @@ if (multi) {
     await page.locator(`.cabinet-pick[data-seat="${seatName}"]`).click();
     await page.waitForTimeout(900);
     await page.screenshot({ path: `${prefix}-2c-${seatName}.png` });
-    const seatTela = page.locator('.seat-canvas');
+    const seatTela = page.locator('.seat-canvas').first();
     if (await seatTela.count()) {
       await seatTela.scrollIntoViewIfNeeded();
       await page.waitForTimeout(300);
