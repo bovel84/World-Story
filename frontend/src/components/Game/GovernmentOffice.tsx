@@ -26,7 +26,7 @@
  * cancella il dialogo.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { CabinetSession } from './CabinetSession';
@@ -37,6 +37,7 @@ import { SeatTable } from './SeatTable';
 import { deriveSeatCanvasBlocks } from './seatCanvasModel';
 import { seatCanvasAuthoring } from './seatCanvasConfig';
 import { treasuryAct, type TreasuryRoad } from './treasuryAct';
+import { resolvePresentation, type ActivePresentation, type PresentationDirective } from './presentation';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { useChatStore } from '../../stores';
@@ -209,6 +210,38 @@ export function GovernmentOffice({
       })
     : [];
 
+  // WS-MINISTER-UX-03 — La presentazione richiesta nella conversazione: stato di
+  // UI legato alla sedia e al messaggio. Parlare non impegna nulla, e la tavola
+  // di una sedia non cambia per un evento di un'altra.
+  const [presentations, setPresentations] = useState<
+    Partial<Record<CabinetAddressView['seat'], ActivePresentation>>
+  >({});
+  const applyPresentation = useCallback(
+    (seat: CabinetAddressView['seat'], messageId: string, quote: string, directive: PresentationDirective): void => {
+      setPresentations(prev => ({ ...prev, [seat]: { directive, seat, messageId, quote } }));
+    },
+    [],
+  );
+  const chatPresentation = useCallback(
+    (messageId: string, quote: string, directive: PresentationDirective): void => {
+      if (openSeat) applyPresentation(openSeat, messageId, quote, directive);
+    },
+    [openSeat, applyPresentation],
+  );
+  const clearPresentation = useCallback((): void => {
+    if (!openSeat) return;
+    setPresentations(prev => {
+      const next = { ...prev };
+      delete next[openSeat];
+      return next;
+    });
+  }, [openSeat]);
+  const activePresentation = openSeat ? presentations[openSeat] ?? null : null;
+  const resolvedPresentation = useMemo(
+    () => resolvePresentation(activePresentation, canvasBlocks, act.roads),
+    [activePresentation, canvasBlocks, act.roads],
+  );
+
   // L'atto firmato tramite la coda del motore: l'opera (cantiere reale) o un
   // ordine in testo. Entra nel registro, non resta una promessa.
   const signTreasuryRoad = async (road: TreasuryRoad): Promise<boolean> => {
@@ -338,6 +371,9 @@ export function GovernmentOffice({
                 onClick={() => setMobilePane('tavola')}
               >
                 Tavola
+                {activePresentation && mobilePane !== 'tavola' && (
+                  <span className="minister-session-view-dot" title="Nuova evidenza sulla tavola" aria-hidden="true" />
+                )}
               </button>
             </div>
           </header>
@@ -369,6 +405,7 @@ export function GovernmentOffice({
                   onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
                   onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}
                   onOrderFromUserMessage={text => void queueProblem(text)}
+                  onPresentation={chatPresentation}
                 />
 
                 {lastOutcome?.kind === 'order' && (
@@ -411,6 +448,9 @@ export function GovernmentOffice({
                   blocks={canvasBlocks}
                   act={act}
                   onSign={signTreasuryRoad}
+                  presentation={resolvedPresentation}
+                  onClearPresentation={clearPresentation}
+                  onReturnToMessage={() => setMobilePane('dialogo')}
                 />
               </section>
             </div>

@@ -29,6 +29,7 @@ import type { CabinetAddressView, CabinetItemView, CabinetPathView } from '../..
 import { basisLabel, isUnknown } from './CabinetSession';
 import { EngineText } from './EngineText';
 import { RichText } from './RichText';
+import { parsePresentation, type PresentationDirective } from './presentation';
 import { formatFigureValue } from '../../utils/format';
 
 /** Quanti ultimi messaggi inviamo come contesto. */
@@ -61,6 +62,12 @@ export interface MinisterChatProps {
    * automaticamente. Se manca, la chat resta conversazione pura.
    */
   onOrderFromUserMessage?: (text: string) => void;
+  /**
+   * WS-MINISTER-UX-03 — Il ministro può disporre un'evidenza sulla tavola: la
+   * risposta più recente con un blocco `tavola` valido lo annuncia qui. Il
+   * chiamante la applica solo a una risposta conclusa (mai durante lo streaming).
+   */
+  onPresentation?: (messageId: string, quote: string, directive: PresentationDirective) => void;
 }
 
 /** La barra di una cifra: la grafica dentro la chat, dai numeri del motore. */
@@ -87,15 +94,35 @@ function FigureBar({ figure }: { figure: CabinetItemView['figures'][number] }) {
 export function MinisterChat({
   gameId, address, onChoose,
   messages, streaming, onAddMessage, onAppendToken, onStreamingChange,
-  onOrderFromUserMessage,
+  onOrderFromUserMessage, onPresentation,
 }: MinisterChatProps) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
+  // Le direzioni di presentazione già annunciate: una per messaggio, per non
+  // ripetere l'evento se il componente si ridisegna.
+  const emittedPresentationRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streaming]);
+
+  // WS-MINISTER-UX-03 — Solo a risposta conclusa si annuncia la presentazione:
+  // durante lo streaming il blocco può essere incompleto e non si applica nulla.
+  useEffect(() => {
+    if (!onPresentation || streaming || !address) return;
+    const lastIndex = messages.length - 1;
+    if (lastIndex < 0) return;
+    const last = messages[lastIndex];
+    if (!last || last.role !== 'assistant' || !last.content.trim()) return;
+    const { text, directive } = parsePresentation(last.content);
+    if (!directive) return;
+    const messageId = `${address.seat}#${lastIndex}`;
+    const signature = `${messageId}:${JSON.stringify(directive)}`;
+    if (emittedPresentationRef.current[messageId] === signature) return;
+    emittedPresentationRef.current[messageId] = signature;
+    onPresentation(messageId, text.slice(0, 140), directive);
+  }, [messages, streaming, onPresentation, address?.seat]);
 
   // Cambiando ministro si azzera solo la BOZZA della domanda: la cronaca è per
   // sedia e resta dov'è — è la differenza dal comportamento precedente.
@@ -164,7 +191,7 @@ export function MinisterChat({
                         risposta si rende come documento invece di mostrare gli
                         asterischi. Il messaggio del giocatore resta testo. */}
                     {message.role === 'assistant'
-                      ? <RichText text={message.content} />
+                      ? <RichText text={parsePresentation(message.content).text} />
                       : message.content}
                     {isStreamingThis && <span className="stream-cursor">▌</span>}
                   </>

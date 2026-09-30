@@ -1150,11 +1150,21 @@ export function installMockApi(page, opts = {}) {
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/minister/*`, (route) => {
     if (route.request().method() !== 'POST') return notFound(route);
     let seat = 'tesoro';
+    let message = '';
     try {
       const match = new URL(route.request().url()).pathname.match(/minister\/([^/]+)/);
       if (match) seat = match[1];
-    } catch { /* path inatteso → sedia di default */ }
-    return json(route, { reply: `Il ministro (${seat}) ha preso nota del problema.`, seat });
+      const body = route.request().postDataJSON() || {};
+      message = String(body.message || '').toLowerCase();
+    } catch { /* path o body inatteso → sedia di default */ }
+    // WS-MINISTER-UX-03 — La risposta può chiedere alla tavola di mostrare
+    // un'evidenza (blocco `tavola`), così l'E2E verifica la conversazione che
+    // guida la tavola. Il testo senza blocco resta la risposta del ministro.
+    let directive = '';
+    if (message.includes('confronta')) directive = '\n\n```tavola\n{"op":"compare"}\n```';
+    else if (message.includes('province') || message.includes('mappa')) directive = '\n\n```tavola\n{"op":"focus","evidence":"mappa"}\n```';
+    else if (message.includes('spesa')) directive = '\n\n```tavola\n{"op":"focus","evidence":"spesa"}\n```';
+    return json(route, { reply: `Il ministro (${seat}) ha preso nota del problema.${directive}`, seat });
   });
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/minister/*/stream`, (route) => notFound(route));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/arsenal`, (route) => json(route, MOCK_ARSENAL));

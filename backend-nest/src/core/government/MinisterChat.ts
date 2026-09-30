@@ -156,6 +156,16 @@ export function briefingFor(address: CabinetAddress, agenda: GovernmentAgenda): 
     '- Se l’obiettivo è chiaro ma manca un dettaglio per decidere, chiedilo: una domanda mirata, non un questionario.',
     '- Se la cronologia mostra che avete già parlato, NON ripresentarti: riprendi il filo della conversazione.',
     '',
+    'PRESENTAZIONE (la tavola, solo se serve):',
+    '- Puoi disporre sulla tavola l’evidenza che aiuta il Presidente: una sola scelta per risposta, come ULTIMA riga del testo.',
+    '- Formato: un blocco delimitato con una sola riga JSON, per esempio:',
+    '```tavola',
+    '{"op":"focus","evidence":"spesa"}',
+    '```',
+    '- `op` è uno di: show, focus, compare, annotate, dismiss. `evidence` è una di: spesa, trend, cifre, piano, mappa, idee.',
+    '- Nel blocco scrivi SOLO questa scelta: niente HTML, niente JavaScript, niente numeri, niente geometrie, niente altre chiavi.',
+    '- Usa solo le evidenze che esistono per la tua sedia; se non serve mostrare nulla, NON aggiungere il blocco.',
+    '',
     'I TUOI COLLEGHI (per nome e competenza):',
   ];
 
