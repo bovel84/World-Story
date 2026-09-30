@@ -1,0 +1,152 @@
+{
+  "before_390_cfc0a08": {
+  "viewport": "390x844",
+  "baseUrl": "http://localhost:5174",
+  "opening": "Ho 1 cosa da portare al consiglio. Chiedi quello che vuoi: i numeri che vedi sono quelli del motore.",
+  "openingNumerals": [],
+  "dossier": "DATI DELLA SEDIA\n▾\nbilancio, debito, cassa e crediti del paese\nSALDO DI BILANCIO\n0.06241708333333345 mld\nmisurato · conti nazionali\nSALDO SU PIL\n0.2 %\nmisurato · conti nazionali\nDEBITO SU PIL\n29.4 %\nmisurato · conti nazionali\nINTERESSI SU ENTRATE\n3.2 %\nmisurato · conti nazionali\nPRELIEVO EFFETTIVO\n9.1 %\nmisurato · conti nazionali\nSUL TAVOLO\nIl bilancio chiude in avanzo: decidere che farne\nLA MATERIA, DAL QUADRO NAZIONALE\nEconomia e cassa\nSOLIDO\n\nLo Stato incassa +0,80 mld più di quanto spende ogni mese.\n\nPIL\n100 mld\nSALDO MENSILE\n+0,8 mld\nDEBITO\n12 mld\nDEBITO / PIL\n19%\nDebito al 19% del PIL\n12 mld in essere, 38 mld di credito residuo · in calo rispetto al turno precedente.\nCrescita 0,0% all'anno\nSaldo in miglioramento rispetto al turno precedente.\n12 voci di bilancio pubblicate\nPressione fiscale effettiva 10,2%.\nRisorse e magazzino\nFRAGILE\n\n1 materiali sotto la soglia: carburante.\n\nCARBURANTE\n1,0 mesi\nMATERIALI SOTTO SOGLIA\n1\nGIACIMENTI\n1\nRICERCA\n40\nCarburante: critico\nmeno di un mese di copertura: il fabbisogno non è coperto · autonomia 1,0 mesi.\nCarburante: 1,0 mesi\nConsumo 1/mese, produzione 1/mese.",
+  "hasRaw": true,
+  "hasFormatted": false,
+  "overflow": {
+    ".government-office": {
+      "scrollW": 390,
+      "clientW": 390,
+      "over": 0
+    },
+    ".government-office-pane-chat": {
+      "scrollW": 362,
+      "clientW": 362,
+      "over": 0
+    },
+    ".government-office-pane-dossier": {
+      "scrollW": 362,
+      "clientW": 362,
+      "over": 0
+    },
+    ".minister-dossier": {
+      "scrollW": 356,
+      "clientW": 356,
+      "over": 0
+    }
+  },
+  "chatDatiOverlap": {
+    "overlapX": 362,
+    "overlapY": -14,
+    "overlapping": false
+  }
+},
+  "after_390_ws05b": {
+  "viewport": "390x844",
+  "baseUrl": "http://localhost:5173",
+  "opening": "Ho 1 cosa da portare al consiglio. Chiedi quello che vuoi: i numeri che vedi sono quelli del motore.",
+  "openingNumerals": [
+    "1",
+    "1"
+  ],
+  "dossier": "DATI DELLA SEDIA\n▾\nbilancio, debito, cassa e crediti del paese\nSALDO DI BILANCIO\n0,06 mld\nmisurato · conti nazionali\nSALDO SU PIL\n0,2 %\nmisurato · conti nazionali\nDEBITO SU PIL\n29,4 %\nmisurato · conti nazionali\nINTERESSI SU ENTRATE\n3,2 %\nmisurato · conti nazionali\nPRELIEVO EFFETTIVO\n9,1 %\nmisurato · conti nazionali\nSUL TAVOLO\nIl bilancio chiude in avanzo: decidere che farne\nLA MATERIA, DAL QUADRO NAZIONALE\nEconomia e cassa\nSOLIDO\n\nLo Stato incassa +0,80 mld più di quanto spende ogni mese.\n\nPIL\n100 mld\nSALDO MENSILE\n+0,8 mld\nDEBITO\n12 mld\nDEBITO / PIL\n19%\nDebito al 19% del PIL\n12 mld in essere, 38 mld di credito residuo · in calo rispetto al turno precedente.\nCrescita 0,0% all'anno\nSaldo in miglioramento rispetto al turno precedente.\n12 voci di bilancio pubblicate\nPressione fiscale effettiva 10,2%.\nRisorse e magazzino\nFRAGILE\n\n1 materiali sotto la soglia: carburante.\n\nCARBURANTE\n1,0 mesi\nMATERIALI SOTTO SOGLIA\n1\nGIACIMENTI\n1\nRICERCA\n40\nCarburante: critico\nmeno di un mese di copertura: il fabbisogno non è coperto · autonomia 1,0 mesi.\nCarburante: 1,0 mesi\nConsumo 1/mese, produzione 1/mese.",
+  "hasRaw": false,
+  "hasFormatted": true,
+  "overflow": {
+    ".government-office": {
+      "scrollW": 390,
+      "clientW": 390,
+      "over": 0
+    },
+    ".government-office-pane-chat": {
+      "scrollW": 362,
+      "clientW": 362,
+      "over": 0
+    },
+    ".government-office-pane-dossier": {
+      "scrollW": 362,
+      "clientW": 362,
+      "over": 0
+    },
+    ".minister-dossier": {
+      "scrollW": 356,
+      "clientW": 356,
+      "over": 0
+    }
+  },
+  "chatDatiOverlap": {
+    "overlapX": 362,
+    "overlapY": -14,
+    "overlapping": false
+  }
+},
+  "before_1440_cfc0a08": {
+  "viewport": "1440x900",
+  "baseUrl": "http://localhost:5174",
+  "opening": "Ho 1 cosa da portare al consiglio. Chiedi quello che vuoi: i numeri che vedi sono quelli del motore.",
+  "openingNumerals": [],
+  "dossier": "DATI DELLA SEDIA\n▾\nMinistro del Tesoro\nbilancio, debito, cassa e crediti del paese\nSALDO DI BILANCIO\n0.06241708333333345 mld\nmisurato · conti nazionali\nSALDO SU PIL\n0.2 %\nmisurato · conti nazionali\nDEBITO SU PIL\n29.4 %\nmisurato · conti nazionali\nINTERESSI SU ENTRATE\n3.2 %\nmisurato · conti nazionali\nPRELIEVO EFFETTIVO\n9.1 %\nmisurato · conti nazionali\nSUL TAVOLO\nIl bilancio chiude in avanzo: decidere che farne\nLA MATERIA, DAL QUADRO NAZIONALE\nEconomia e cassa\nSOLIDO\n\nLo Stato incassa +0,80 mld più di quanto spende ogni mese.\n\nPIL\n100 mld\nSALDO MENSILE\n+0,8 mld\nDEBITO\n12 mld\nDEBITO / PIL\n19%\nDebito al 19% del PIL\n12 mld in essere, 38 mld di credito residuo · in calo rispetto al turno precedente.\nCrescita 0,0% all'anno\nSaldo in miglioramento rispetto al turno precedente.\n12 voci di bilancio pubblicate\nPressione fiscale effettiva 10,2%.\nRisorse e magazzino\nFRAGILE\n\n1 materiali sotto la soglia: carburante.\n\nCARBURANTE\n1,0 mesi\nMATERIALI SOTTO SOGLIA\n1\nGIACIMENTI\n1\nRICERCA\n40\nCarburante: critico\nmeno di un mese di copertura: il fabbisogno non è coperto · autonomia 1,0 mesi.\nCarburante: 1,0 mesi\nConsumo 1/mese, produzione 1/mese.",
+  "hasRaw": true,
+  "hasFormatted": false,
+  "overflow": {
+    ".government-office": {
+      "scrollW": 1078,
+      "clientW": 1078,
+      "over": 0
+    },
+    ".government-office-pane-chat": {
+      "scrollW": 631,
+      "clientW": 631,
+      "over": 0
+    },
+    ".government-office-pane-dossier": {
+      "scrollW": 405,
+      "clientW": 405,
+      "over": 0
+    },
+    ".minister-dossier": {
+      "scrollW": 399,
+      "clientW": 399,
+      "over": 0
+    }
+  },
+  "chatDatiOverlap": {
+    "overlapX": -14,
+    "overlapY": 594,
+    "overlapping": false
+  }
+},
+  "after_1440_ws05b": {
+  "viewport": "1440x900",
+  "baseUrl": "http://localhost:5173",
+  "opening": "Ho 1 cosa da portare al consiglio. Chiedi quello che vuoi: i numeri che vedi sono quelli del motore.",
+  "openingNumerals": [
+    "1",
+    "1"
+  ],
+  "dossier": "DATI DELLA SEDIA\n▾\nMinistro del Tesoro\nbilancio, debito, cassa e crediti del paese\nSALDO DI BILANCIO\n0,06 mld\nmisurato · conti nazionali\nSALDO SU PIL\n0,2 %\nmisurato · conti nazionali\nDEBITO SU PIL\n29,4 %\nmisurato · conti nazionali\nINTERESSI SU ENTRATE\n3,2 %\nmisurato · conti nazionali\nPRELIEVO EFFETTIVO\n9,1 %\nmisurato · conti nazionali\nSUL TAVOLO\nIl bilancio chiude in avanzo: decidere che farne\nLA MATERIA, DAL QUADRO NAZIONALE\nEconomia e cassa\nSOLIDO\n\nLo Stato incassa +0,80 mld più di quanto spende ogni mese.\n\nPIL\n100 mld\nSALDO MENSILE\n+0,8 mld\nDEBITO\n12 mld\nDEBITO / PIL\n19%\nDebito al 19% del PIL\n12 mld in essere, 38 mld di credito residuo · in calo rispetto al turno precedente.\nCrescita 0,0% all'anno\nSaldo in miglioramento rispetto al turno precedente.\n12 voci di bilancio pubblicate\nPressione fiscale effettiva 10,2%.\nRisorse e magazzino\nFRAGILE\n\n1 materiali sotto la soglia: carburante.\n\nCARBURANTE\n1,0 mesi\nMATERIALI SOTTO SOGLIA\n1\nGIACIMENTI\n1\nRICERCA\n40\nCarburante: critico\nmeno di un mese di copertura: il fabbisogno non è coperto · autonomia 1,0 mesi.\nCarburante: 1,0 mesi\nConsumo 1/mese, produzione 1/mese.",
+  "hasRaw": false,
+  "hasFormatted": true,
+  "overflow": {
+    ".government-office": {
+      "scrollW": 1078,
+      "clientW": 1078,
+      "over": 0
+    },
+    ".government-office-pane-chat": {
+      "scrollW": 631,
+      "clientW": 631,
+      "over": 0
+    },
+    ".government-office-pane-dossier": {
+      "scrollW": 405,
+      "clientW": 405,
+      "over": 0
+    },
+    ".minister-dossier": {
+      "scrollW": 399,
+      "clientW": 399,
+      "over": 0
+    }
+  },
+  "chatDatiOverlap": {
+    "overlapX": -14,
+    "overlapY": 594,
+    "overlapping": false
+  }
+}
+}

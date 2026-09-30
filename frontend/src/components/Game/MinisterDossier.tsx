@@ -22,7 +22,9 @@
 import { useState } from 'react';
 import { DomainCard } from './OperatingPictureBoard';
 import { basisLabel, isUnknown } from './CabinetSession';
+import { EngineText } from './EngineText';
 import { SEAT_DOMAINS } from './seatDomains';
+import { formatFigureValue } from '../../utils/format';
 import type { CabinetAddressView } from '../../services/api';
 import type { NationalOperatingPicture } from './nationalOperatingPicture';
 
@@ -54,7 +56,7 @@ function FigureBar({ figure }: { figure: CabinetAddressView['items'][number]['fi
         {hasNumber && <div className="minister-figure-fill" style={{ width: `${width}%` }} />}
       </div>
       <div className="minister-figure-value">
-        {isUnknown(figure) ? '—' : `${figure.value} ${figure.unit}`.trim()}
+        {isUnknown(figure) ? '—' : formatFigureValue(figure.value, figure.unit)}
       </div>
       <div className="minister-figure-basis">{basisLabel(figure.basis)}</div>
     </div>
@@ -128,7 +130,7 @@ export function MinisterDossier({ address, picture, defaultOpen = false }: Minis
               <section className="minister-dossier-needs" aria-label="Quello che la sedia porta">
                 <div className="minister-dossier-section">Sul tavolo</div>
                 <ul className="minister-dossier-need-list">
-                  {needs.map(need => <li key={need}>{need}</li>)}
+                  {needs.map(need => <li key={need}><EngineText text={need} /></li>)}
                 </ul>
               </section>
             )}

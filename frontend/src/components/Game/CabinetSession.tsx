@@ -30,6 +30,8 @@
 
 import React from 'react';
 import type { CabinetAddressView, CabinetFigureView, CabinetPathView, CabinetSessionView } from '../../services/api';
+import { formatFigureValue } from '../../utils/format';
+import { EngineText } from './EngineText';
 
 /** L'etichetta breve di una sedia, per il titolo. */
 export const SEAT_SHORT: Record<CabinetAddressView['seat'], string> = {
@@ -153,7 +155,7 @@ export function CabinetSession({
       {/* Il Presidente apre: non è una sesta competenza, è l'intestazione. */}
       {!single && (
         <header className="cabinet-president">
-          <div className="cabinet-president-opening">{president.opening}</div>
+          <div className="cabinet-president-opening"><EngineText text={president.opening} /></div>
           {summary.total === 0 && (
             <div className="cabinet-president-quiet">
               Nessun ministro ha portato qualcosa: una seduta vuota è un buon segno, non un pannello rotto.
@@ -197,7 +199,7 @@ export function CabinetSession({
                   salutazione è una cornice della UI; il testo che segue è il suo
                   `opening`, parola del motore. */}
               {single && <p className="cabinet-seat-salutation">Signor Presidente,</p>}
-              <p className="cabinet-seat-opening">{address.opening}</p>
+              <p className="cabinet-seat-opening"><EngineText text={address.opening} /></p>
 
               {address.items.map(item => (
                 <article key={item.voiceId} className="cabinet-item">
@@ -205,9 +207,9 @@ export function CabinetSession({
                     <span className={`cabinet-urgency cabinet-urgency-${item.urgency}`}>
                       {URGENCY_LABEL[item.urgency] ?? item.urgency}
                     </span>
-                    {item.need}
+                    <EngineText text={item.need} />
                   </div>
-                  <p className="cabinet-item-because">{item.because}</p>
+                  <p className="cabinet-item-because"><EngineText text={item.because} /></p>
 
                   {/* Le cifre, ognuna con la sua provenienza. Una cifra ignota
                       non si nasconde: si mostra come tale. */}
@@ -220,7 +222,7 @@ export function CabinetSession({
                         >
                           <dt>{figure.label}</dt>
                           <dd>
-                            {isUnknown(figure) ? '—' : `${figure.value} ${figure.unit}`.trim()}
+                            {isUnknown(figure) ? '—' : formatFigureValue(figure.value, figure.unit)}
                             <span className="cabinet-basis">{basisLabel(figure.basis)}</span>
                           </dd>
                         </div>
@@ -245,13 +247,13 @@ export function CabinetSession({
                             {path.title}
                             {path.recommended && <span className="cabinet-path-badge">consigliata</span>}
                           </span>
-                          <span className="cabinet-path-detail">{path.detail}</span>
+                          <span className="cabinet-path-detail"><EngineText text={path.detail} /></span>
                           {path.prerequisites.length > 0 && (
                             <span className="cabinet-path-prereq">
                               serve: {path.prerequisites.join(' · ')}
                             </span>
                           )}
-                          <span className="cabinet-path-expected">{path.expected}</span>
+                          <span className="cabinet-path-expected"><EngineText text={path.expected} /></span>
                         </button>
                       ))}
                     </div>

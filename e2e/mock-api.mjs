@@ -353,12 +353,12 @@ export const MOCK_CABINET = {
       items: [
         {
           voiceId: 'v-tesoro-1',
-          need: 'Coprire il disavanzo del trimestre.',
-          because: 'Le uscite superano le entrate del 6%.',
+          need: 'Coprire il disavanzo del trimestre: 6.5 mld entro giugno.',
+          because: 'Le uscite superano le entrate del 6.5%.',
           urgency: 'urgente',
           figures: [
-            { label: 'Saldo di cassa', value: '12,40', unit: 'mld', basis: { kind: 'measured', source: 'Tesoro' } },
-            { label: 'Fabbisogno', value: '8,00', unit: 'mld', basis: { kind: 'estimated', source: 'Tesoro', method: 'media mobile a 3 mesi' } },
+            { label: 'Saldo di cassa', value: '12.4', unit: 'mld', basis: { kind: 'measured', source: 'Tesoro' } },
+            { label: 'Fabbisogno', value: '8', unit: 'mld', basis: { kind: 'estimated', source: 'Tesoro', method: 'media mobile a 3 mesi' } },
           ],
           paths: [
             { id: 'p-tesoro-1', title: 'Emettere titoli a 10 anni', detail: 'Copre il fabbisogno al tasso di mercato.', prerequisites: [], expected: 'Cassa +8 mld, interessi +0,27 mld/anno.', recommended: true },
@@ -379,7 +379,7 @@ export const MOCK_CABINET = {
           because: 'La distinta è coperta, ma serve la firma del governo.',
           urgency: 'ordinaria',
           figures: [
-            { label: 'Cemento disponibile', value: '4,20', unit: 'kt', basis: { kind: 'measured', source: 'Magazzino materiale' } },
+            { label: 'Cemento disponibile', value: '4.2', unit: 'kt', basis: { kind: 'measured', source: 'Magazzino materiale' } },
           ],
           paths: [
             { id: 'p-lavori-1', title: 'Aprire il cantiere', detail: 'Impugna la dichiarazione d’opera e i detentori.', prerequisites: [], expected: 'Cantiere avviato: 38% al prossimo turno.', recommended: true },
@@ -414,10 +414,10 @@ export const MOCK_CABINET_MULTI = {
         {
           voiceId: 'v-istruzione-1',
           need: 'L’istruzione e la ricerca valgono il 3,8% del PIL: decidere se basta',
-          because: 'La spesa per istruzione e ricerca è il 3,8% del PIL, con 42 atenei e una tensione sociale di 58/100.',
+          because: 'La spesa per istruzione e ricerca è il 3.8% del PIL, con 42 atenei e una tensione sociale di 58/100.',
           urgency: 'ordinaria',
           figures: [
-            { label: 'Spesa per istruzione e ricerca', value: '3,8', unit: '% del PIL', basis: { kind: 'estimated', source: 'conti nazionali', method: 'ripartizione delle uscite civili su atenei e ricerca' } },
+            { label: 'Spesa per istruzione e ricerca', value: '3.8', unit: '% del PIL', basis: { kind: 'estimated', source: 'conti nazionali', method: 'ripartizione delle uscite civili su atenei e ricerca' } },
             { label: 'Atenei', value: '42', unit: 'atenei', basis: { kind: 'measured', source: 'conto nazionale' } },
             { label: 'Tensione sociale', value: '58', unit: '/100', basis: { kind: 'measured', source: 'conto nazionale' } },
           ],
@@ -438,11 +438,11 @@ export const MOCK_CABINET_MULTI = {
         {
           voiceId: 'v-sanita-1',
           need: 'La spesa sociale (sanità e sostegno) vale il 9,1% del PIL: decidere come sostenerla',
-          because: 'La spesa sociale è il 9,1% del PIL — sanità e sostegno insieme, non la sola sanità — con una popolazione di 61.000.000 e una stabilità di 64/100.',
+          because: 'La spesa sociale è il 9.1% del PIL — sanità e sostegno insieme, non la sola sanità — con una popolazione di 61000000 e una stabilità di 64/100.',
           urgency: 'ordinaria',
           figures: [
-            { label: 'Spesa sociale (sanità e sostegno)', value: '9,1', unit: '% del PIL', basis: { kind: 'estimated', source: 'conti nazionali', method: 'ripartizione delle uscite civili su sanità, popolazione e sostegno' } },
-            { label: 'Popolazione', value: '61.000.000', unit: 'abitanti', basis: { kind: 'measured', source: 'conto nazionale' } },
+            { label: 'Spesa sociale (sanità e sostegno)', value: '9.1', unit: '% del PIL', basis: { kind: 'estimated', source: 'conti nazionali', method: 'ripartizione delle uscite civili su sanità, popolazione e sostegno' } },
+            { label: 'Popolazione', value: '61000000', unit: 'abitanti', basis: { kind: 'measured', source: 'conto nazionale' } },
             { label: 'Stabilità', value: '64', unit: '/100', basis: { kind: 'measured', source: 'conto nazionale' } },
           ],
           paths: [
