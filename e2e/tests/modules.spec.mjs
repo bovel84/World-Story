@@ -195,6 +195,54 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(ufficio.locator('.order-register-act').first()).toContainText('Aprire il cantiere');
   });
 
+  test('P04c: Ufficio del Governo — la conversazione guida la tavola (UX-03)', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
+    const ufficio = page.locator('.government-office');
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    const chat = page.locator('.government-office-pane-chat');
+    const tavola = page.locator('.government-office-pane-table');
+
+    // Senza richiesta la tavola è quella predefinita: niente banner, piano in cima.
+    await expect(tavola.locator('.seat-presentation-banner')).toHaveCount(0);
+    await expect(tavola.locator('.seat-table-main [data-kind="strategy"]')).toBeVisible();
+
+    // [1] «Mi mostri dove va la spesa?» → il grafico pertinente sale in cima.
+    await chat.locator('textarea').fill('Mi mostri dove va la spesa?');
+    await chat.locator('.minister-compose button').click();
+    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
+    // Il blocco di presentazione non è mai prosa visibile.
+    await expect(chat).not.toContainText('```');
+    await expect(chat).not.toContainText('"op"');
+    const banner = tavola.locator('.seat-presentation-banner');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('Dove va la spesa');
+    await expect(tavola.locator('.seat-table-main [data-kind="chart"] .advisor-chart')).toBeVisible();
+
+    // [2] «Confronta le due strade» → il confronto, dalle strade del motore.
+    await chat.locator('textarea').fill('Confronta le due strade');
+    await chat.locator('.minister-compose button').click();
+    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)').last()).toContainText('ha preso nota del problema', { timeout: 15_000 });
+    await expect(tavola.locator('.proposal-comparison')).toBeVisible();
+    await expect(tavola.locator('.proposal-comparison')).toContainText('Ammortamento del debito');
+    await expect(tavola.locator('.proposal-comparison')).toContainText('Investimento');
+
+    // [3] Isolamento: la tavola di un'altra sedia non eredita la presentazione.
+    await page.locator('.government-office-back').click();
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro dei Lavori' }).click();
+    await expect(page.locator('.government-office-pane-table .seat-presentation-banner')).toHaveCount(0);
+
+    // [4] Tornare alla tavola predefinita chiude l'evidenza presentata.
+    await page.locator('.government-office-back').click();
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    const bannerBack = page.locator('.government-office-pane-table .seat-presentation-banner');
+    await expect(bannerBack).toBeVisible();
+    await page.locator('.government-office-pane-table .seat-presentation-clear').click();
+    await expect(bannerBack).toHaveCount(0);
+  });
+
   test('P05: Ufficio del Governo — «Nulla di fatto» chiude la seduta senza atti', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
