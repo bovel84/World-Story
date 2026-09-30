@@ -1162,7 +1162,7 @@ export function installMockApi(page, opts = {}) {
     // guida la tavola. Il testo senza blocco resta la risposta del ministro.
     let directive = '';
     if (message.includes('confronta')) directive = '\n\n```tavola\n{"op":"compare"}\n```';
-    else if (message.includes('province') || message.includes('mappa')) directive = '\n\n```tavola\n{"op":"focus","evidence":"mappa"}\n```';
+    else if (message.includes('province') || message.includes('mappa')) directive = '\n\n```tavola\n{"op":"focus","evidence":"mappa","regionIds":["ALPHA"]}\n```';
     else if (message.includes('spesa')) directive = '\n\n```tavola\n{"op":"focus","evidence":"spesa"}\n```';
     return json(route, { reply: `Il ministro (${seat}) ha preso nota del problema.${directive}`, seat });
   });

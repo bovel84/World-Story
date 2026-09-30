@@ -13,32 +13,96 @@
  *  - `map`      → le zone del paese e l'opera-obiettivo (geometria del motore);
  *  - `ideas`    → le idee del ministro (contenuto curato).
  */
+import { useState } from 'react';
 import { AdvisorChart } from './AdvisorChart';
 import { StrategicPlanDiagram } from './StrategicPlanDiagram';
+import { focusViewBox, partitionZones } from './regionFocus';
 import { toneClass, type SeatCanvasBlock, type CanvasZone } from './seatCanvasModel';
 
-function ZoneMap({ zones, target }: { zones: CanvasZone[]; target?: { label: string; detail: string } | null }) {
+function ZoneMap({
+  zones,
+  target,
+  focusIds = [],
+}: {
+  zones: CanvasZone[];
+  target?: { label: string; detail: string } | null;
+  focusIds?: readonly string[];
+}) {
+  // WS-MINISTER-UX-04 — Il viewBox si misura dai path (non più fisso a 100×100),
+  // e la selezione richiesta mette in evidenza le zone pertinenti.
+  const viewBox = focusViewBox(zones, focusIds);
+  const { focused, hasFocus } = partitionZones(zones, focusIds);
+  const [selected, setSelected] = useState<string | null>(null);
+  const activeId = selected ?? (hasFocus ? [...focused][0] ?? null : null);
   const withGeometry = zones.filter(zone => Boolean(zone.svgPath));
+  const legendZones = hasFocus ? zones.filter(zone => focused.has(zone.id)) : zones.slice(0, 6);
+  const activeZone = activeId ? zones.find(zone => zone.id === activeId) ?? null : null;
+
   return (
     <div className="zone-map">
       {withGeometry.length > 0 ? (
-        <svg className="zone-map-svg" viewBox="0 0 100 100" role="img" aria-label="Zone del paese su cui investire">
-          {withGeometry.map(zone => (
-            <path key={zone.id} className={`zone-map-shape ${toneClass(zone.tone)}`} d={zone.svgPath} vectorEffect="non-scaling-stroke">
-              <title>{`${zone.name}: ${zone.detail}`}</title>
-            </path>
-          ))}
+        <svg className="zone-map-svg" viewBox={viewBox} role="img" aria-label="Zone del paese su cui investire">
+          {withGeometry.map(zone => {
+            const isFocused = focused.has(zone.id);
+            const dimmed = hasFocus && !isFocused;
+            return (
+              <path
+                key={zone.id}
+                className={`zone-map-shape ${toneClass(zone.tone)}${isFocused ? ' focused' : ''}${dimmed ? ' dimmed' : ''}${activeId === zone.id ? ' active' : ''}`}
+                d={zone.svgPath}
+                vectorEffect="non-scaling-stroke"
+                tabIndex={0}
+                role="button"
+                aria-label={`${zone.name}: ${zone.detail}`}
+                onClick={() => setSelected(zone.id)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setSelected(zone.id);
+                  }
+                }}
+              >
+                <title>{`${zone.name}: ${zone.detail}`}</title>
+              </path>
+            );
+          })}
         </svg>
       ) : (
         <ul className="zone-map-list">
           {zones.map(zone => (
-            <li key={zone.id} className={`zone-map-item ${toneClass(zone.tone)}`}>
+            <li key={zone.id} className={`zone-map-item ${toneClass(zone.tone)}${focused.has(zone.id) ? ' focused' : ''}`}>
               <span className="zone-map-name">{zone.name}</span>
               <span className="zone-map-detail">{zone.detail}</span>
             </li>
           ))}
         </ul>
       )}
+
+      {/* La legenda è anche il controllo accessibile della selezione: l'SVG è
+          decorativo per chi non lo vede, l'elenco no. */}
+      {legendZones.length > 0 && (
+        <ul className="zone-map-legend" aria-label={hasFocus ? 'Zone in evidenza' : 'Zone del paese'}>
+          {legendZones.map(zone => (
+            <li key={zone.id}>
+              <button
+                type="button"
+                className={`zone-map-legend-btn ${toneClass(zone.tone)}${activeId === zone.id ? ' active' : ''}`}
+                onClick={() => setSelected(zone.id)}
+              >
+                <span className="zone-map-swatch" aria-hidden="true" />
+                {zone.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {activeZone && (
+        <p className="zone-map-selected">
+          <span className="zone-map-selected-label">Zona</span> {activeZone.name} — {activeZone.detail}
+        </p>
+      )}
+
       {target && (
         <p className="zone-map-target">
           <span className="zone-map-target-label">Obiettivo</span> {target.label} — {target.detail}
@@ -53,9 +117,15 @@ export interface SeatCanvasProps {
   /** Nessun blocco: la tela lo dice, non finge contenuto. */
   emptyLabel?: string;
   className?: string;
+  /**
+   * WS-MINISTER-UX-04 — Le zone da mettere in evidenza su una mappa (dalla
+   * direttiva di presentazione). Solo riferimenti: la geometria la porta il read
+   * model.
+   */
+  focusRegionIds?: readonly string[];
 }
 
-export function SeatCanvas({ blocks, emptyLabel = 'Nessun dato pubblicato per questa sedia.', className }: SeatCanvasProps) {
+export function SeatCanvas({ blocks, emptyLabel = 'Nessun dato pubblicato per questa sedia.', className, focusRegionIds }: SeatCanvasProps) {
   if (blocks.length === 0) {
     return <p className="seat-canvas-empty">{emptyLabel}</p>;
   }
@@ -100,7 +170,12 @@ export function SeatCanvas({ blocks, emptyLabel = 'Nessun dato pubblicato per qu
             <section key={block.id} className="seat-canvas-block" data-kind="map">
               <h4 className="seat-canvas-title">{block.title}</h4>
               <p className="seat-canvas-note">{block.note}</p>
-              <ZoneMap zones={block.zones} target={block.target} />
+              <ZoneMap
+                key={`${block.id}:${(focusRegionIds ?? []).join(',')}`}
+                zones={block.zones}
+                target={block.target}
+                focusIds={focusRegionIds}
+              />
             </section>
           );
         }

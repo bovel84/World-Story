@@ -120,7 +120,10 @@ export function SeatTable({ seat, blocks, act, onSign, presentation, onClearPres
       {main ? (
         <>
           <div className="seat-table-main">
-            <SeatCanvas blocks={[main]} />
+            <SeatCanvas
+              blocks={[main]}
+              focusRegionIds={presentation?.kind === 'evidence' ? presentation.regionIds : undefined}
+            />
           </div>
           {supports.length > 0 && (
             <div className="seat-table-support">
