@@ -136,8 +136,55 @@ describe('WS-GOVOFFICE-04 — il markup non raddoppia l’intestazione', () => {
     expect(html).toContain('Ministro del Tesoro');
   });
 
-  it('il pannello dati rende una sola intestazione: la copia che il CSS spegne', () => {
-    const html = renderToStaticMarkup(<MinisterDossier address={seat()} picture={null} />);
+  it('il pannello dati, APERTO, rende una sola intestazione: la copia che il CSS spegne', () => {
+    // WS-GOVOFFICE-05 — il contenuto del pannello è reso solo da aperto, perciò
+    // il render statico parte da `defaultOpen` per difendere l'invariante.
+    const html = renderToStaticMarkup(<MinisterDossier address={seat()} picture={null} defaultOpen />);
     expect(count(html, 'class="minister-dossier-name"')).toBe(1);
+  });
+});
+
+/**
+ * WS-GOVOFFICE-05 — Il pannello dati è a scomparsa
+ * =================================================
+ * Prima era sempre aperto; ora parte **chiuso** (il dialogo è l'atto centrale) e
+ * si apre con un controllo vero: un `<button>` con `aria-expanded` e
+ * `aria-controls`. Da aperto mostra esattamente ciò che mostrava prima.
+ *
+ * Il progetto non ha un DOM nei test (environment `node`, nessuna testing-library):
+ * lo stato "aperto" si verifica con `defaultOpen`, che ne è l'innesco dichiarato.
+ * Il clic reale è coperto dall'harness E2E `e2e/govoffice-shot.mjs`.
+ */
+describe('WS-GOVOFFICE-05 — il pannello dati a scomparsa', () => {
+  it('parte CHIUSO: il controllo è un pulsante con aria-expanded=false', () => {
+    const html = renderToStaticMarkup(<MinisterDossier address={seat()} picture={null} />);
+    // Un controllo vero, non un div cliccabile.
+    expect(html).toContain('<button');
+    expect(html).toContain('class="minister-dossier-toggle"');
+    expect(html).toContain('aria-expanded="false"');
+    // E indica il corpo che controlla.
+    expect(html).toContain('aria-controls="minister-dossier-body"');
+    expect(html).toContain('id="minister-dossier-body"');
+    // Il corpo è nel DOM ma `hidden` quando chiuso.
+    expect(html).toMatch(/id="minister-dossier-body"[^>]*hidden/);
+  });
+
+  it('da CHIUSO il contenuto non è reso: nessun dato pesa sul dialogo', () => {
+    const html = renderToStaticMarkup(<MinisterDossier address={seat()} picture={null} />);
+    expect(html).not.toContain('minister-dossier-name');
+    expect(html).not.toContain('minister-figure');
+    expect(html).not.toContain('Sul tavolo');
+  });
+
+  it('da APERTO mostra tutto ciò che il pannello mostrava prima', () => {
+    const html = renderToStaticMarkup(<MinisterDossier address={seat()} picture={null} defaultOpen />);
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).not.toMatch(/id="minister-dossier-body"[^>]*hidden/);
+    // Nome, cifre e bisogni: nessuna informazione persa.
+    expect(html).toContain('class="minister-dossier-name"');
+    expect(html).toContain('Ministro del Tesoro');
+    expect(html).toContain('minister-figure');
+    expect(html).toContain('Sul tavolo');
+    expect(html).toContain('Coprire il disavanzo del trimestre.');
   });
 });

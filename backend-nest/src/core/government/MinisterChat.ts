@@ -32,7 +32,7 @@
  * Nessuna chiamata al modello qui.
  */
 
-import { SEAT_LABEL, SEAT_READS, type CabinetAddress, type CabinetItem, type CabinetSeat } from './Cabinet';
+import { CABINET_SEATS, SEAT_LABEL, SEAT_READS, type CabinetAddress, type CabinetItem, type CabinetSeat } from './Cabinet';
 import type { GovernmentAgenda } from './GovernmentAgenda';
 
 /** Il contesto di una sedia, pronto per essere dato a un modello. */
@@ -61,6 +61,53 @@ export function figureLine(figure: { label: string; value: string; unit: string;
 }
 
 /**
+ * WS-GOVOFFICE-05 — La mappa «argomento → sedia», per nominare il collega giusto.
+ *
+ * Il difetto che corregge è preciso: quando la domanda era fuori competenza, il
+ * ministro rimandava al collega in modo **secco** («non è la mia materia»), senza
+ * dire di chi fosse. Qui la sedia non risponde al posto di un'altra: la nomina,
+ * con la sua competenza dichiarata. Le parole chiave sono le stesse presenti in
+ * `SEAT_READS`: non aggiungono fatti, solo il modo di trovare il collega.
+ */
+export const SEAT_TOPICS: Record<CabinetSeat, readonly string[]> = {
+  tesoro: ['bilancio', 'debito', 'cassa', 'tasse', 'imposte', 'credito', 'spesa', 'finanz'],
+  lavori: ['fabbrica', 'fabbriche', 'cantiere', 'cantieri', 'opera', 'opere', 'strada', 'porto', 'acciaio', 'material', 'costru', 'industri', 'infrastruttur'],
+  istruzione: ['scuola', 'scuole', 'ateneo', 'atenei', 'universit', 'istruz', 'ricerca', 'studenti', 'formazione'],
+  sanita: ['sanit', 'ospedal', 'salute', 'malatt', 'welfare', 'sussidi', 'assistenza', 'sostegno sociale'],
+  esteri: ['estero', 'esteri', 'diplomaz', 'trattat', 'contratto', 'relazion', 'confine', 'alleat'],
+  interno: ['fazione', 'fazioni', 'polizia', 'protesta', 'coesione', 'consenso', 'ordine pubblico'],
+  guerra: ['esercito', 'militar', 'armi', 'arsenal', 'difesa', 'repart', 'truppe', 'fronte'],
+};
+
+/** La sedia competente su una domanda, dal solo testo. `null` se nessuna emerge. */
+export function seatForQuestion(question: string): CabinetSeat | null {
+  const text = question.toLowerCase();
+  let best: CabinetSeat | null = null;
+  let bestScore = 0;
+  for (const seat of CABINET_SEATS) {
+    const score = SEAT_TOPICS[seat].reduce((n, topic) => (text.includes(topic) ? n + 1 : n), 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = seat;
+    }
+  }
+  return best;
+}
+
+/**
+ * Il rimando al collega competente, con il suo nome e la sua competenza.
+ *
+ * `null` quando la domanda non è di un'altra sedia: in quel caso il ministro
+ * risponde normalmente. Non inventa nulla: nome e competenza vengono dal
+ * gabinetto (`SEAT_LABEL` / `SEAT_READS`).
+ */
+export function colleagueRedirect(from: CabinetSeat, question: string): string | null {
+  const topic = seatForQuestion(question);
+  if (!topic || topic === from) return null;
+  return `Non è la mia materia: ${SEAT_LABEL[topic]} se ne occupa, e legge ${SEAT_READS[topic]}.`;
+}
+
+/**
  * Il contesto di un ministro, composto dai fatti della sua sedia.
  *
  * Il testo è deliberatamente esplicito sulle regole: un modello che non le
@@ -75,9 +122,24 @@ export function briefingFor(address: CabinetAddress, agenda: GovernmentAgenda): 
     '1. Usi SOLO le cifre elencate qui sotto. Non ne deduci, non ne arrotondi, non ne inventi.',
     '2. Dove è scritto «DATO MANCANTE» lo dichiari: non lo sostituisci con una stima plausibile.',
     '3. Non impegni nulla: non spendi, non prenoti, non avvii opere. Proponi, e la decisione è del giocatore.',
-    '4. Se la domanda è fuori dalla tua competenza, lo dici e rimandi al collega competente.',
+    '4. Se la domanda è fuori dalla tua competenza, NON rispondi al posto del collega: lo dici e NOMINI il collega giusto con la sua competenza, senza rimbalzare in modo secco (es. «Non è la mia materia: la fabbrica è dei Lavori, che legge cantieri, deficit misurati, opere del catalogo»).',
     '',
+    'COME PARLI (racconta, non elencare):',
+    '- Prima persona: parti dai fatti della tua sedia (la tua apertura, i tuoi bisogni).',
+    '- Collega i fatti con un nesso dichiarato: il «Perché adesso» è la causa, l’esito atteso della strada è la conseguenza.',
+    '- Chiudi ponendo la scelta, non decidendo: la decisione è del giocatore.',
+    '- Non aggiungere aneddoti, nomi, date, promesse o opinioni: ogni frase deve poggiare su un campo che vedi qui.',
+    '',
+    'I TUOI COLLEGHI (per nome e competenza):',
   ];
+
+  // WS-GOVOFFICE-05 — la directory dei colleghi: serve a nominare quello giusto
+  // con la sua competenza, senza inventare un ruolo. Solo `SEAT_LABEL`/`SEAT_READS`.
+  for (const seat of CABINET_SEATS) {
+    if (seat === address.seat) continue;
+    lines.push(`- ${SEAT_LABEL[seat]}: ${SEAT_READS[seat]}`);
+  }
+  lines.push('');
 
   if (address.items.length === 0) {
     lines.push('Non hai nulla da portare al consiglio in questo momento.');
@@ -121,7 +183,13 @@ export function openingMessage(briefing: MinisterBriefing, items: readonly Cabin
   }
   const first = items[0];
   const urgent = first.urgency === 'critica' ? 'È la cosa più urgente che ho.' : '';
-  return `${first.need}. ${first.because} ${urgent}`.trim();
+  // WS-GOVOFFICE-05 — chiusura che PONE la scelta, con i titoli delle strade
+  // già dichiarate: nessun consiglio nuovo, nessuna decisione presa al posto
+  // del giocatore. Se c'è una sola strada, non si finge un'alternativa.
+  const choice = first.paths.length >= 2
+    ? `La strada è una scelta: ${first.paths.map(path => path.title).join(', oppure ')}. Tocca a te decidere.`
+    : '';
+  return `${first.need}. ${first.because} ${urgent} ${choice}`.trim();
 }
 
 /** Le sedie che hanno qualcosa da dire: quelle con cui vale la pena parlare. */

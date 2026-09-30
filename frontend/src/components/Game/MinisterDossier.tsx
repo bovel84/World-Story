@@ -19,6 +19,7 @@
  * competenza e il suo dominio, mai un numero riempito a mano.
  */
 
+import { useState } from 'react';
 import { DomainCard } from './OperatingPictureBoard';
 import { basisLabel, isUnknown } from './CabinetSession';
 import { SEAT_DOMAINS } from './seatDomains';
@@ -30,6 +31,13 @@ export interface MinisterDossierProps {
   address: CabinetAddressView | null;
   /** Il quadro operativo della nazione, dall'helper condiviso col dossier. */
   picture: NationalOperatingPicture | null;
+  /**
+   * WS-GOVOFFICE-05 — Stato iniziale del pannello. **Chiuso di default**: il
+   * dialogo è l'atto centrale e i dati si aprono su richiesta. Il parametro
+   * esiste perché il componente resti verificabile con un render statico, senza
+   * un DOM: `defaultOpen` rende lo stato "aperto" senza simularne il clic.
+   */
+  defaultOpen?: boolean;
 }
 
 /** La barra di una cifra: la grafica, dai numeri del motore. */
@@ -53,7 +61,11 @@ function FigureBar({ figure }: { figure: CabinetAddressView['items'][number]['fi
   );
 }
 
-export function MinisterDossier({ address, picture }: MinisterDossierProps) {
+export function MinisterDossier({ address, picture, defaultOpen = false }: MinisterDossierProps) {
+  // WS-GOVOFFICE-05 — Il pannello è a scomparsa: il gancio sta PRIMA della
+  // uscita su `address`, così l'ordine dei hook non cambia fra i render.
+  const [open, setOpen] = useState(defaultOpen);
+
   if (!address) {
     return (
       <aside className="minister-dossier" aria-label="Dati del ministro">
@@ -74,50 +86,73 @@ export function MinisterDossier({ address, picture }: MinisterDossierProps) {
 
   return (
     <aside className="minister-dossier" aria-label={`Dati di ${address.label}`}>
-      <header className="minister-dossier-head">
-        <div className="minister-dossier-name">{address.label}</div>
-        <div className="minister-dossier-competence" title="Che cosa legge questa sedia">
-          {address.reads}
-        </div>
-      </header>
+      {/* Il controllo del pannello: un pulsante vero, non un div cliccabile.
+          `aria-expanded` dice se è aperto, `aria-controls` indica il corpo. */}
+      <button
+        type="button"
+        className="minister-dossier-toggle"
+        aria-expanded={open}
+        aria-controls="minister-dossier-body"
+        aria-label={open ? `Nascondi i dati di ${address.label}` : `Mostra i dati di ${address.label}`}
+        onClick={() => setOpen(value => !value)}
+      >
+        <span className="minister-dossier-toggle-label">Dati della sedia</span>
+        <span className="minister-dossier-toggle-icon" aria-hidden="true">{open ? '▾' : '▸'}</span>
+      </button>
 
-      {/* Le cifre della sedia, ognuna con la sua provenienza. Sono le stesse che
-          il ministro ha davanti: prima stavano in cima alla chat, ora qui, dove
-          si leggono mentre si parla. */}
-      {figures.length > 0 && (
-        <section className="minister-figures" aria-label="Numeri su cui si parla">
-          {figures.map((figure, index) => (
-            <FigureBar key={`${figure.label}-${index}`} figure={figure} />
-          ))}
-        </section>
-      )}
+      {/* Il corpo è presente nel DOM ma nascosto quando chiuso, e il suo
+          contenuto è reso **solo** da aperto: nessuna informazione persa
+          quando è aperto, nessun dato nascosto che pesi sul dialogo da chiuso. */}
+      <div id="minister-dossier-body" className="minister-dossier-body" hidden={!open}>
+        {open && (
+          <>
+            <header className="minister-dossier-head">
+              <div className="minister-dossier-name">{address.label}</div>
+              <div className="minister-dossier-competence" title="Che cosa legge questa sedia">
+                {address.reads}
+              </div>
+            </header>
 
-      {needs.length > 0 && (
-        <section className="minister-dossier-needs" aria-label="Quello che la sedia porta">
-          <div className="minister-dossier-section">Sul tavolo</div>
-          <ul className="minister-dossier-need-list">
-            {needs.map(need => <li key={need}>{need}</li>)}
-          </ul>
-        </section>
-      )}
+            {/* Le cifre della sedia, ognuna con la sua provenienza. Sono le stesse che
+                il ministro ha davanti: prima stavano in cima alla chat, ora qui, dove
+                si leggono mentre si parla. */}
+            {figures.length > 0 && (
+              <section className="minister-figures" aria-label="Numeri su cui si parla">
+                {figures.map((figure, index) => (
+                  <FigureBar key={`${figure.label}-${index}`} figure={figure} />
+                ))}
+              </section>
+            )}
 
-      {/* Il dominio nazionale di questa sedia: la stessa scheda del quadro
-          d'insieme, con lo stesso numero. */}
-      {shown.length > 0 && (
-        <section className="minister-dossier-domains" aria-label="Quadro della materia">
-          <div className="minister-dossier-section">La materia, dal quadro nazionale</div>
-          {shown.map(domain => (
-            <DomainCard key={domain.id} domain={domain} />
-          ))}
-        </section>
-      )}
+            {needs.length > 0 && (
+              <section className="minister-dossier-needs" aria-label="Quello che la sedia porta">
+                <div className="minister-dossier-section">Sul tavolo</div>
+                <ul className="minister-dossier-need-list">
+                  {needs.map(need => <li key={need}>{need}</li>)}
+                </ul>
+              </section>
+            )}
 
-      {/* Una sedia i cui domini non sono pubblicati lo dice: non si riempie. */}
-      {shown.length === 0 && domains.length > 0 && (
-        <p className="minister-dossier-quiet" role="status">
-          Il quadro nazionale non pubblica ancora la materia di questa sedia.
-        </p>
-      )}
+            {/* Il dominio nazionale di questa sedia: la stessa scheda del quadro
+                d'insieme, con lo stesso numero. */}
+            {shown.length > 0 && (
+              <section className="minister-dossier-domains" aria-label="Quadro della materia">
+                <div className="minister-dossier-section">La materia, dal quadro nazionale</div>
+                {shown.map(domain => (
+                  <DomainCard key={domain.id} domain={domain} />
+                ))}
+              </section>
+            )}
+
+            {/* Una sedia i cui domini non sono pubblicati lo dice: non si riempie. */}
+            {shown.length === 0 && domains.length > 0 && (
+              <p className="minister-dossier-quiet" role="status">
+                Il quadro nazionale non pubblica ancora la materia di questa sedia.
+              </p>
+            )}
+          </>
+        )}
+      </div>
     </aside>
   );
 }

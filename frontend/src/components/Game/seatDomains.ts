@@ -13,6 +13,8 @@
  *
  *  · tesoro  — «bilancio, debito, cassa e crediti»        → economia, risorse
  *  · lavori  — «cantieri, deficit misurati, opere»        → industria
+ *  · istruzione — «scuole e atenei, spesa, tensione»      → popolo
+ *  · sanita  — «spesa sociale (sanità e sostegno), pop.»  → popolo
  *  · esteri  — «relazioni, contratti, deficit copribile»  → governo
  *  · interno — «fazioni, pressione politica, coesione»    → governo
  *  · guerra  — «potenza e arsenale, minacce al confine»   → militare
@@ -25,6 +27,12 @@ import type { OperatingDomain } from './nationalOperatingPicture';
 export const SEAT_DOMAINS: Record<CabinetAddressView['seat'], OperatingDomain['id'][]> = {
   tesoro: ['economia', 'risorse'],
   lavori: ['industria'],
+  // WS-GOVOFFICE-05 — Istruzione e Sanità leggono il capitale umano e il
+  // benessere della popolazione: è il dominio «popolo» del quadro nazionale.
+  // Non si inventa un dominio nuovo: il quadro non ne pubblica uno per la
+  // scuola o per la salute, e fingere una tassonomia sarebbe disonesto.
+  istruzione: ['popolo'],
+  sanita: ['popolo'],
   // Esteri legge le relazioni con le controparti: è materia politica, non
   // militare — la forza militare è la competenza della guerra.
   esteri: ['governo'],

@@ -297,6 +297,7 @@ export function GovernmentOffice({
                 scheda del dominio nazionale di quella materia. */}
             <div className="government-office-pane government-office-pane-dossier">
               <MinisterDossier
+                key={address?.seat ?? 'nessuna-sedia'}
                 address={address}
                 picture={picture}
               />

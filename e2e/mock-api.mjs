@@ -392,6 +392,69 @@ export const MOCK_CABINET = {
   ],
 };
 
+/**
+ * WS-GOVOFFICE-05 — La stessa seduta con le due sedie nuove (Istruzione e
+ * Sanità) accanto alle due storiche. Serve alla prova visiva: mostra il
+ * gabinetto passare da due a quattro sedie qui ritratte, e le cifre delle due
+ * nuove dichiarano la loro provenienza (la quota di spesa è `estimated`, il
+ * resto `measured`). **Non sostituisce `MOCK_CABINET`**: le suite E2E esistenti
+ * continuano a contare due sedie e non vanno toccate.
+ */
+export const MOCK_CABINET_MULTI = {
+  ...MOCK_CABINET,
+  summary: { total: 4, critical: 1 },
+  addresses: [
+    ...MOCK_CABINET.addresses,
+    {
+      seat: 'istruzione',
+      label: 'Ministro dell’Istruzione',
+      reads: 'scuole e atenei, spesa per istruzione e ricerca, tensione sociale',
+      opening: 'Le scuole tengono, ma la quota di spesa è ferma da anni.',
+      items: [
+        {
+          voiceId: 'v-istruzione-1',
+          need: 'L’istruzione e la ricerca valgono il 3,8% del PIL: decidere se basta',
+          because: 'La spesa per istruzione e ricerca è il 3,8% del PIL, con 42 atenei e una tensione sociale di 58/100.',
+          urgency: 'ordinaria',
+          figures: [
+            { label: 'Spesa per istruzione e ricerca', value: '3,8', unit: '% del PIL', basis: { kind: 'estimated', source: 'conti nazionali', method: 'ripartizione delle uscite civili su atenei e ricerca' } },
+            { label: 'Atenei', value: '42', unit: 'atenei', basis: { kind: 'measured', source: 'conto nazionale' } },
+            { label: 'Tensione sociale', value: '58', unit: '/100', basis: { kind: 'measured', source: 'conto nazionale' } },
+          ],
+          paths: [
+            { id: 'invest', title: 'Investire in istruzione e ricerca', detail: 'Aumentare la quota per scuole e atenei.', prerequisites: ['copertura di bilancio'], expected: 'Più capitale umano nel tempo; meno risorse altrove adesso.', recommended: false },
+            { id: 'hold', title: 'Mantenere la spesa attuale', detail: 'Tenere la quota dichiarata e convivere con la tensione.', prerequisites: [], expected: 'Nessun costo aggiuntivo; la tensione sociale resta.', recommended: true },
+          ],
+        },
+      ],
+    },
+    {
+      seat: 'sanita',
+      label: 'Ministro della Sanità',
+      // Il dato è sanità + sostegno: la competenza lo dichiara, non lo tace.
+      reads: 'spesa sociale (sanità e sostegno), popolazione, stabilità',
+      opening: 'La spesa sociale copre sanità e sostegno: non è la sola sanità.',
+      items: [
+        {
+          voiceId: 'v-sanita-1',
+          need: 'La spesa sociale (sanità e sostegno) vale il 9,1% del PIL: decidere come sostenerla',
+          because: 'La spesa sociale è il 9,1% del PIL — sanità e sostegno insieme, non la sola sanità — con una popolazione di 61.000.000 e una stabilità di 64/100.',
+          urgency: 'ordinaria',
+          figures: [
+            { label: 'Spesa sociale (sanità e sostegno)', value: '9,1', unit: '% del PIL', basis: { kind: 'estimated', source: 'conti nazionali', method: 'ripartizione delle uscite civili su sanità, popolazione e sostegno' } },
+            { label: 'Popolazione', value: '61.000.000', unit: 'abitanti', basis: { kind: 'measured', source: 'conto nazionale' } },
+            { label: 'Stabilità', value: '64', unit: '/100', basis: { kind: 'measured', source: 'conto nazionale' } },
+          ],
+          paths: [
+            { id: 'expand', title: 'Allargare la spesa sociale', detail: 'Aumentare la quota per sanità e sostegno.', prerequisites: ['copertura di bilancio'], expected: 'Più sostegno alla popolazione; più spesa.', recommended: false },
+            { id: 'hold', title: 'Mantenere la spesa attuale', detail: 'Tenere la quota: la stabilità resta dov’è.', prerequisites: [], expected: 'Nessun costo aggiuntivo, nessun miglioramento.', recommended: true },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
 // ---------------------------------------------------------------------------
 // Arsenale: forma esatta dell'API reale (schede descrittive + contributo).
 // ---------------------------------------------------------------------------
@@ -939,7 +1002,7 @@ function notFound(route) {
  *    `world_advanced`); usato per verificare i casi in cui il mondo NON cambia.
  */
 export function installMockApi(page, opts = {}) {
-  const { failWorldGen = false, advanceResult = null, accountHistory = null, resources = null } = opts;
+  const { failWorldGen = false, advanceResult = null, accountHistory = null, resources = null, cabinet = MOCK_CABINET } = opts;
 
   // Blocca TUTTA la rete esterna: nessun tile, nessun font, nessun provider.
   // Solo le richieste verso l'app (localhost) e le API mock passano.
@@ -1083,7 +1146,7 @@ export function installMockApi(page, opts = {}) {
   // P04 — L'Ufficio del Governo: la seduta del gabinetto e la risposta del
   // ministro. Lo stream risponde 404 di proposito: `askStream` ripiega sul POST
   // normale, e il mock verifica il percorso di fallback (proxy senza stream).
-  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/cabinet`, (route) => json(route, MOCK_CABINET));
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/cabinet`, (route) => json(route, cabinet));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/minister/*`, (route) => {
     if (route.request().method() !== 'POST') return notFound(route);
     let seat = 'tesoro';

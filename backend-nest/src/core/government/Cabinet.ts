@@ -29,13 +29,15 @@
 
 import type { Figure, GovernmentAgenda, GovernmentVoice, GovernmentPath } from './GovernmentAgenda';
 
-/** Le cinque sedie del gabinetto, e la competenza di ciascuna. */
-export const CABINET_SEATS = ['tesoro', 'lavori', 'esteri', 'interno', 'guerra'] as const;
+/** Le sette sedie del gabinetto, e la competenza di ciascuna. */
+export const CABINET_SEATS = ['tesoro', 'lavori', 'istruzione', 'sanita', 'esteri', 'interno', 'guerra'] as const;
 export type CabinetSeat = typeof CABINET_SEATS[number];
 
 export const SEAT_LABEL: Record<CabinetSeat, string> = {
   tesoro: 'Ministro del Tesoro',
   lavori: 'Ministro dei Lavori',
+  istruzione: 'Ministro dell’Istruzione',
+  sanita: 'Ministro della Sanità',
   esteri: 'Ministro degli Esteri',
   interno: 'Ministro dell’Interno',
   guerra: 'Ministro della Guerra',
@@ -45,6 +47,10 @@ export const SEAT_LABEL: Record<CabinetSeat, string> = {
 export const SEAT_READS: Record<CabinetSeat, string> = {
   tesoro: 'bilancio, debito, cassa e crediti del paese',
   lavori: 'cantieri, deficit misurati, opere del catalogo',
+  istruzione: 'scuole e atenei, spesa per istruzione e ricerca, tensione sociale',
+  // WS-GOVOFFICE-05 — Onestà del dato: la sedia legge `socialBurdenPct`, che è
+  // **sanità + sostegno**, non la sola sanità. La competenza lo dichiara.
+  sanita: 'spesa sociale (sanità e sostegno), popolazione, stabilità',
   esteri: 'relazioni, contratti, deficit che una controparte può coprire',
   interno: 'fazioni, pressione politica, coesione',
   guerra: 'potenza e arsenale del paese, minacce al confine',
@@ -69,6 +75,12 @@ export function seatOfVoice(voice: GovernmentVoice): CabinetSeat {
   if (voice.id === 'debt_service') return 'tesoro';
   // P04 — La difesa è una competenza della Guerra, non una politica dell'Interno.
   if (voice.id === 'defence_condition') return 'guerra';
+  // WS-GOVOFFICE-05 — Le due sedie nuove: la competenza la decide il tipo della
+  // voce, come per tutte le altre. Aggiungere questi due rami NON riassegna
+  // alcuna voce esistente: `deficit_*`, `build_*`, `faction_*`, `treasury_*
+  // condition`, `debt_service` e `defence_condition` restano dove sono.
+  if (voice.id === 'education_condition') return 'istruzione';
+  if (voice.id === 'health_condition') return 'sanita';
   // Una fazione interna è dell'Interno; un'opera è dei Lavori.
   if (voice.id.startsWith('faction_')) return 'interno';
   if (voice.id.startsWith('build_')) return 'lavori';
@@ -133,7 +145,7 @@ export interface CabinetSession {
 }
 
 /** L'ordine delle sedie in seduta: prima i fatti, poi le opinioni. */
-const SEAT_ORDER: readonly CabinetSeat[] = ['tesoro', 'lavori', 'esteri', 'interno', 'guerra'];
+const SEAT_ORDER: readonly CabinetSeat[] = ['tesoro', 'lavori', 'istruzione', 'sanita', 'esteri', 'interno', 'guerra'];
 
 /**
  * Compone la seduta del gabinetto dall'agenda del Governo.

@@ -1019,7 +1019,7 @@ export interface CabinetItemView {
 }
 
 export interface CabinetAddressView {
-  seat: 'tesoro' | 'lavori' | 'esteri' | 'interno' | 'guerra';
+  seat: 'tesoro' | 'lavori' | 'istruzione' | 'sanita' | 'esteri' | 'interno' | 'guerra';
   label: string;
   reads: string;
   items: CabinetItemView[];

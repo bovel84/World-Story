@@ -35,6 +35,8 @@ import type { CabinetAddressView, CabinetFigureView, CabinetPathView, CabinetSes
 export const SEAT_SHORT: Record<CabinetAddressView['seat'], string> = {
   tesoro: 'Tesoro',
   lavori: 'Lavori',
+  istruzione: 'Istruzione',
+  sanita: 'Sanità',
   esteri: 'Esteri',
   interno: 'Interno',
   guerra: 'Guerra',

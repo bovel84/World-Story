@@ -90,7 +90,10 @@ describe('P01 — il gabinetto dei ministri', () => {
       expect(address.label).toBe(SEAT_LABEL[address.seat]);
     }
     // E le sedie sono un elenco chiuso: nessuna competenza inventata.
-    expect(CABINET_SEATS).toHaveLength(5);
+    // WS-GOVOFFICE-05 — sette sedie: le cinque storiche più Istruzione e
+    // Sanità, con la loro competenza dichiarata. L'elenco resta chiuso.
+    expect(CABINET_SEATS).toHaveLength(7);
+    expect([...CABINET_SEATS]).toEqual(['tesoro', 'lavori', 'istruzione', 'sanita', 'esteri', 'interno', 'guerra']);
   });
 
   it('le cifre arrivano dall’agenda con la loro provenienza: nessun numero nuovo', () => {
@@ -170,5 +173,75 @@ describe('P01 — il gabinetto dei ministri', () => {
     // Il plurale è corretto quando le cose sono più d'una.
     const lavori = session.addresses.find(address => address.seat === 'lavori')!;
     expect(lavori.opening).toContain('1 cosa');
+  });
+});
+
+/**
+ * WS-GOVOFFICE-05 — Le due sedie nuove: Istruzione e Sanità
+ * ==========================================================
+ * L'autore ha chiesto «più ministri». Le due sedie nuove obbediscono alla stessa
+ * regola delle cinque storiche: compaiono **quando e solo quando** l'agenda ha la
+ * loro voce. Qui si difendono tre cose, e la terza è la più importante:
+ *
+ *  - Istruzione e Sanità compaiono con la loro voce, con l'etichetta giusta;
+ *  - senza la voce **tacciono** — non occupano una sedia a vuoto;
+ *  - `seatOfVoice` assegna le due voci nuove **senza riassegnare** le esistenti:
+ *    deficit, opere, fazioni, Tesoro, Guerra restano dove sono.
+ */
+describe('WS-GOVOFFICE-05 — Istruzione e Sanità nel gabinetto', () => {
+  it('Istruzione COMPARE quando la sua voce è in agenda', () => {
+    const session = composeCabinet(agenda([voice('education_condition')]));
+    expect(session.addresses.map(address => address.seat)).toEqual(['istruzione']);
+    expect(session.addresses[0].label).toBe('Ministro dell’Istruzione');
+    // La competenza è quella dichiarata, con la spesa e la tensione sociale.
+    expect(session.addresses[0].reads).toBe(SEAT_READS.istruzione);
+    expect(session.addresses[0].reads).toContain('istruzione e ricerca');
+  });
+
+  it('Sanità COMPARE quando la sua voce è in agenda', () => {
+    const session = composeCabinet(agenda([voice('health_condition')]));
+    expect(session.addresses.map(address => address.seat)).toEqual(['sanita']);
+    expect(session.addresses[0].label).toBe('Ministro della Sanità');
+    // Onestà del dato: la competenza dichiara che la spesa è sanità + sostegno.
+    expect(session.addresses[0].reads).toBe(SEAT_READS.sanita);
+    expect(session.addresses[0].reads).toContain('sanità e sostegno');
+  });
+
+  it('senza la voce, la sedia TACE: non compare a vuoto', () => {
+    // Con Istruzione in agenda, la Sanità — che non ha voce — non occupa una sedia.
+    const session = composeCabinet(agenda([voice('education_condition')]));
+    expect(session.addresses.map(address => address.seat)).not.toContain('sanita');
+    // E viceversa.
+    const onlyHealth = composeCabinet(agenda([voice('health_condition')]));
+    expect(onlyHealth.addresses.map(address => address.seat)).not.toContain('istruzione');
+  });
+
+  it('seatOfVoice assegna le voci nuove SENZA riassegnare le esistenti', () => {
+    // Le due voci nuove hanno la loro sedia.
+    expect(seatOfVoice(voice('education_condition'))).toBe('istruzione');
+    expect(seatOfVoice(voice('health_condition'))).toBe('sanita');
+    // Regressione: le voci esistenti restano esattamente dove erano.
+    expect(seatOfVoice(voice('deficit_MATERIAL_SHORTAGE_steel'))).toBe('lavori');
+    expect(seatOfVoice(voice('deficit_WORKFORCE_SHORTAGE_x'))).toBe('lavori');
+    expect(seatOfVoice(voice('deficit_INSUFFICIENT_CASH_x'))).toBe('tesoro');
+    expect(seatOfVoice(voice('build_w_road'))).toBe('lavori');
+    expect(seatOfVoice(voice('faction_operai'))).toBe('interno');
+    expect(seatOfVoice(voice('treasury_condition'))).toBe('tesoro');
+    expect(seatOfVoice(voice('debt_service'))).toBe('tesoro');
+    expect(seatOfVoice(voice('defence_condition'))).toBe('guerra');
+  });
+
+  it('l’ordine delle sedie mette Istruzione e Sanità fra i fatti materiali', () => {
+    // Sono fatti della nazione, non opinioni politiche: vengono dopo i Lavori e
+    // prima di Esteri e Interno.
+    const session = composeCabinet(agenda([
+      voice('health_condition'),
+      voice('education_condition'),
+      voice('faction_operai'),
+      voice('defence_condition'),
+    ]));
+    expect(session.addresses.map(address => address.seat)).toEqual([
+      'istruzione', 'sanita', 'interno', 'guerra',
+    ]);
   });
 });

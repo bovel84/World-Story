@@ -25,8 +25,8 @@
  * ministro deve dire di non avere nulla, e non inventare una preoccupazione.
  */
 import { describe, expect, it } from 'vitest';
-import { briefingFor, figureLine, openingMessage, seatsWithNeeds } from '../src/core/government/MinisterChat';
-import type { CabinetAddress, CabinetItem, CabinetSession } from '../src/core/government/Cabinet';
+import { briefingFor, colleagueRedirect, figureLine, openingMessage, seatForQuestion, seatsWithNeeds } from '../src/core/government/MinisterChat';
+import { SEAT_LABEL, SEAT_READS, type CabinetAddress, type CabinetItem, type CabinetSession } from '../src/core/government/Cabinet';
 import type { GovernmentAgenda, GovernmentVoice } from '../src/core/government/GovernmentAgenda';
 
 function voice(id: string, urgency: GovernmentVoice['urgency'] = 'critica'): GovernmentVoice {
@@ -164,5 +164,82 @@ describe('P02-bis — parlare con un ministro', () => {
     const b = briefingFor(address('lavori', [item('build_w_road')]), emptyAgenda);
     expect(b.context).toBe(a.context);
     void voice('x');
+  });
+});
+
+/**
+ * WS-GOVOFFICE-05 — Il dialogo raccontato e il collega giusto
+ * ============================================================
+ * Il ministro deve **raccontare**, non elencare — ma ogni frase deve poggiare su
+ * un campo del motore. Le due regole nuove:
+ *
+ *  - quando la domanda è fuori competenza, il ministro **nomina** il collega
+ *    giusto con la sua competenza (non rimbalza in modo secco);
+ *  - la chiusura **pone** la scelta, usando i titoli delle strade già dichiarate
+ *    — non decide al posto del giocatore.
+ *
+ * La prosa è composta dai soli campi esistenti: `need`, `because`, `urgency`,
+ * `paths[].title`, `SEAT_LABEL`, `SEAT_READS`. Nessun aneddoto, nessuna cifra
+ * nuova.
+ */
+describe('WS-GOVOFFICE-05 — il dialogo raccontato e il collega giusto', () => {
+  it('il briefing elenca i colleghi con la loro competenza, senza includere sé stesso', () => {
+    const briefing = briefingFor(address('tesoro', [item('debt_service')]), emptyAgenda);
+    expect(briefing.context).toContain('I TUOI COLLEGHI');
+    expect(briefing.context).toContain(SEAT_LABEL.lavori);
+    expect(briefing.context).toContain(SEAT_READS.lavori);
+    // Istruzione e Sanità sono colleghe come le altre.
+    expect(briefing.context).toContain(SEAT_LABEL.istruzione);
+    expect(briefing.context).toContain(SEAT_LABEL.sanita);
+    // La sedia corrente non compare fra i propri colleghi.
+    expect(briefing.context).not.toContain(`- ${SEAT_LABEL.tesoro}:`);
+  });
+
+  it('la regola impone di NOMINARE il collega giusto, non di rimbalzare', () => {
+    const briefing = briefingFor(address('tesoro', [item('debt_service')]), emptyAgenda);
+    expect(briefing.context).toContain('NOMINI il collega giusto');
+    expect(briefing.context).toContain('la fabbrica è dei Lavori');
+    // E la regola del racconto: niente aneddoti né decisioni al posto del giocatore.
+    expect(briefing.context).toContain('COME PARLI');
+    expect(briefing.context).toContain('Non aggiungere aneddoti, nomi, date, promesse o opinioni');
+  });
+
+  it('una domanda fuori competenza nomina il collega con nome e competenza', () => {
+    const redirect = colleagueRedirect('tesoro', 'E le fabbriche? Servono più cantieri.');
+    expect(redirect).toContain('Non è la mia materia');
+    expect(redirect).toContain(SEAT_LABEL.lavori);
+    expect(redirect).toContain(SEAT_READS.lavori);
+  });
+
+  it('una domanda in competenza non produce alcun rimando (e non si inventa un collega)', () => {
+    // La sedia giusta è la corrente: nessun rimando.
+    expect(colleagueRedirect('tesoro', 'Come stanno il debito e il bilancio di cassa?')).toBeNull();
+    // Nessun argomento riconoscibile: non si inventa un collega.
+    expect(colleagueRedirect('tesoro', 'Buongiorno, come va?')).toBeNull();
+  });
+
+  it('la mappa argomento → sedia riconosce le due sedie nuove', () => {
+    expect(seatForQuestion('Servono più scuole e atenei.')).toBe('istruzione');
+    expect(seatForQuestion('La sanità e gli ospedali reggono?')).toBe('sanita');
+  });
+
+  it('la domanda d’apertura chiude PONENDO la scelta, con i titoli delle strade', () => {
+    const itemWithNeed = item('debt_service');
+    const opening = openingMessage(briefingFor(address('tesoro', [itemWithNeed]), emptyAgenda), [itemWithNeed]);
+    // I titoli vengono dalle strade dell'item, non da una frase inventata.
+    expect(opening).toContain('Via A');
+    expect(opening).toContain('Via B');
+    expect(opening).toContain('Tocca a te decidere');
+    // E il bisogno e il perché restano la prima parte: il fatto, non un saluto.
+    expect(opening).toContain('Bisogno debt_service');
+    expect(opening).toContain('Perché debt_service');
+  });
+
+  it('senza almeno due strade non si finge una scelta', () => {
+    const single = item('x', {
+      paths: [{ id: 'only', title: 'Solo', detail: 'd', prerequisites: [], expected: 'e', recommended: true }],
+    });
+    const opening = openingMessage(briefingFor(address('tesoro', [single]), emptyAgenda), [single]);
+    expect(opening).not.toContain('Tocca a te decidere');
   });
 });

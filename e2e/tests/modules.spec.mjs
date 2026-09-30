@@ -115,6 +115,12 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(chat.locator('.minister-chat')).toBeVisible();
     const dati = page.locator('.government-office-pane-dossier .minister-dossier');
     await expect(dati).toBeVisible();
+    // WS-GOVOFFICE-05 — Il pannello dati è a scomparsa, chiuso di default.
+    // Il contenuto si verifica aprendo il controllo: stessa sostanza di prima.
+    const datiToggle = dati.locator('.minister-dossier-toggle');
+    await expect(datiToggle).toHaveAttribute('aria-expanded', 'false');
+    await datiToggle.click();
+    await expect(datiToggle).toHaveAttribute('aria-expanded', 'true');
     await expect(dati).toContainText('Ministro del Tesoro');
     // Il ministro parla in prima persona, con le cifre del motore.
     await expect(ufficio).toContainText('Coprire il disavanzo del trimestre.');
