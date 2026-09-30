@@ -177,6 +177,64 @@ describe('P01 — il gabinetto dei ministri', () => {
 });
 
 /**
+ * WS-GOVOFFICE-05B — «Ho 1 cosa», non «Ho l cosa»
+ * ================================================
+ * Il conteggio è un **numero**: con una cosa il singolare, con più d'una il
+ * plurale. La frase nasce in `openingFor` da un'interpolazione numerica
+ * (`${count}`), quindi nel codice la cifra c'è sempre; qui si fissa perché il
+ * comportamento non possa cambiare e nessuna «l» (maiuscola o minuscola) prenda
+ * il posto di una cifra.
+ */
+describe('WS-GOVOFFICE-05B — la frase d’apertura', () => {
+  it('singolare esatto con una cosa sola', () => {
+    const session = composeCabinet(agenda([voice('debt_service', 'critica')]));
+    const tesoro = session.addresses.find(address => address.seat === 'tesoro')!;
+    expect(tesoro.opening).toBe('Ho 1 cosa da portare al consiglio, 1 urgente.');
+  });
+
+  it('plurale esatto con più cose', () => {
+    const session = composeCabinet(agenda([
+      voice('debt_service', 'critica'),
+      voice('treasury_condition', 'ordinaria'),
+    ]));
+    const tesoro = session.addresses.find(address => address.seat === 'tesoro')!;
+    expect(tesoro.opening).toBe('Ho 2 cose da portare al consiglio, 1 urgente.');
+  });
+
+  it('nessuna «l» al posto di una cifra, mai', () => {
+    const session = composeCabinet(agenda([
+      voice('debt_service', 'critica'),
+      voice('treasury_condition', 'ordinaria'),
+    ]));
+    // La frase comincia sempre con un numero, non con una lettera.
+    expect(session.addresses[0].opening).toMatch(/^Ho \d+ cos/);
+    for (const address of session.addresses) {
+      // Nessuna «l» isolata (le «l» di «consiglio»/«al» non sono isolate).
+      expect(address.opening).not.toMatch(/\bl\b/i);
+    }
+  });
+
+  it('i valori pieni del motore restano INTATTI: la resa non li tocca', () => {
+    // La formattazione (virgola, 2 decimali) vive solo nella VISTA: il
+    // gabinetto distribuisce la cifra così com'è, senza arrotondarla.
+    const raw = '0.06575272084693667';
+    const session = composeCabinet(agenda([{
+      ...voice('treasury_condition'),
+      figures: [{
+        label: 'Saldo di bilancio',
+        value: raw,
+        unit: 'mld',
+        basis: { kind: 'measured', source: 'conti nazionali' },
+      }],
+    }]));
+    const tesoro = session.addresses.find(address => address.seat === 'tesoro')!;
+    expect(tesoro.items[0].figures[0].value).toBe(raw);
+    // Il valore attraversa il gabinetto senza diventare una stringa «italiana».
+    expect(tesoro.items[0].figures[0].value).not.toContain(',');
+  });
+});
+
+/**
  * WS-GOVOFFICE-05 — Le due sedie nuove: Istruzione e Sanità
  * ==========================================================
  * L'autore ha chiesto «più ministri». Le due sedie nuove obbediscono alla stessa

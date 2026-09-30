@@ -27,7 +27,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ministerApi, type AdvisorHistoryItem } from '../../services/api';
 import type { CabinetAddressView, CabinetItemView, CabinetPathView } from '../../services/api';
 import { basisLabel, isUnknown } from './CabinetSession';
+import { EngineText } from './EngineText';
 import { RichText } from './RichText';
+import { formatFigureValue } from '../../utils/format';
 
 /** Quanti ultimi messaggi inviamo come contesto. */
 const HISTORY_LIMIT = 20;
@@ -75,7 +77,7 @@ function FigureBar({ figure }: { figure: CabinetItemView['figures'][number] }) {
         {hasNumber && <div className="minister-figure-fill" style={{ width: `${width}%` }} />}
       </div>
       <div className="minister-figure-value">
-        {isUnknown(figure) ? '—' : `${figure.value} ${figure.unit}`.trim()}
+        {isUnknown(figure) ? '—' : formatFigureValue(figure.value, figure.unit)}
       </div>
       <div className="minister-figure-basis">{basisLabel(figure.basis)}</div>
     </div>
@@ -150,7 +152,7 @@ export function MinisterChat({
       <div className="minister-thread" aria-live="polite">
         {messages.length === 0 && !streaming && (
           <p className="minister-hint">
-            {address.opening} Chiedi quello che vuoi: i numeri che vedi sono quelli del motore.
+            <EngineText text={address.opening} />{' '}Chiedi quello che vuoi: i numeri che vedi sono quelli del motore.
           </p>
         )}
         {messages.map((message, index) => {

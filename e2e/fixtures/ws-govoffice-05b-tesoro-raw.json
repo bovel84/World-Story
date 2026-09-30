@@ -1,0 +1,353 @@
+{
+  "addresses": [
+    {
+      "seat": "tesoro",
+      "label": "Ministro del Tesoro",
+      "reads": "bilancio, debito, cassa e crediti del paese",
+      "items": [
+        {
+          "voiceId": "treasury_condition",
+          "need": "Il bilancio chiude in avanzo: decidere che farne",
+          "because": "Il saldo di bilancio è 0.06241708333333345 mld (0.2% del PIL), con un carico fiscale effettivo del 9.1%. Il debito è al 29.4% del PIL e gli interessi assorbono il 3.2% delle entrate.",
+          "urgency": "ordinaria",
+          "figures": [
+            {
+              "label": "Saldo di bilancio",
+              "value": "0.06241708333333345",
+              "unit": "mld",
+              "basis": {
+                "kind": "measured",
+                "source": "conti nazionali"
+              }
+            },
+            {
+              "label": "Saldo su PIL",
+              "value": "0.2",
+              "unit": "%",
+              "basis": {
+                "kind": "measured",
+                "source": "conti nazionali"
+              }
+            },
+            {
+              "label": "Debito su PIL",
+              "value": "29.4",
+              "unit": "%",
+              "basis": {
+                "kind": "measured",
+                "source": "conti nazionali"
+              }
+            },
+            {
+              "label": "Interessi su entrate",
+              "value": "3.2",
+              "unit": "%",
+              "basis": {
+                "kind": "measured",
+                "source": "conti nazionali"
+              }
+            },
+            {
+              "label": "Prelievo effettivo",
+              "value": "9.1",
+              "unit": "%",
+              "basis": {
+                "kind": "measured",
+                "source": "conti nazionali"
+              }
+            }
+          ],
+          "paths": [
+            {
+              "id": "repay",
+              "title": "Ridurre il debito",
+              "detail": "Usare l’avanzo per rimborsare titoli e alleggerire gli interessi.",
+              "prerequisites": [],
+              "expected": "Meno interessi in futuro; meno cassa per altro adesso.",
+              "recommended": false
+            },
+            {
+              "id": "invest",
+              "title": "Investire l’avanzo",
+              "detail": "Impiegare l’avanzo in opere e capacità produttiva.",
+              "prerequisites": [],
+              "expected": "Più PIL e più gettito in futuro; il debito resta dov’è.",
+              "recommended": true
+            }
+          ]
+        }
+      ],
+      "opening": "Ho 1 cosa da portare al consiglio."
+    },
+    {
+      "seat": "istruzione",
+      "label": "Ministro dell’Istruzione",
+      "reads": "scuole e atenei, spesa per istruzione e ricerca, tensione sociale",
+      "items": [
+        {
+          "voiceId": "education_condition",
+          "need": "L’istruzione e la ricerca valgono il 0.4% del PIL: decidere se basta",
+          "because": "La spesa per istruzione e ricerca è il 0.4% del PIL, con 1 atenei e una tensione sociale di 25/100.",
+          "urgency": "ordinaria",
+          "figures": [
+            {
+              "label": "Spesa per istruzione e ricerca",
+              "value": "0.4",
+              "unit": "% del PIL",
+              "basis": {
+                "kind": "estimated",
+                "source": "conti nazionali",
+                "method": "ripartizione delle uscite civili su atenei e ricerca"
+              }
+            },
+            {
+              "label": "Atenei",
+              "value": "1",
+              "unit": "atenei",
+              "basis": {
+                "kind": "measured",
+                "source": "conto nazionale"
+              }
+            },
+            {
+              "label": "Tensione sociale",
+              "value": "25",
+              "unit": "/100",
+              "basis": {
+                "kind": "measured",
+                "source": "conto nazionale"
+              }
+            }
+          ],
+          "paths": [
+            {
+              "id": "invest",
+              "title": "Investire in istruzione e ricerca",
+              "detail": "Aumentare la quota per scuole e atenei.",
+              "prerequisites": [
+                "copertura di bilancio"
+              ],
+              "expected": "Più capitale umano nel tempo; meno risorse altrove adesso.",
+              "recommended": false
+            },
+            {
+              "id": "hold",
+              "title": "Mantenere la spesa attuale",
+              "detail": "Tenere la quota dichiarata e convivere con la tensione.",
+              "prerequisites": [],
+              "expected": "Nessun costo aggiuntivo; la tensione sociale resta.",
+              "recommended": true
+            }
+          ]
+        }
+      ],
+      "opening": "Ho 1 cosa da portare al consiglio."
+    },
+    {
+      "seat": "sanita",
+      "label": "Ministro della Sanità",
+      "reads": "spesa sociale (sanità e sostegno), popolazione, stabilità",
+      "items": [
+        {
+          "voiceId": "health_condition",
+          "need": "La spesa sociale (sanità e sostegno) vale il 1.2% del PIL: decidere come sostenerla",
+          "because": "La spesa sociale è il 1.2% del PIL — sanità e sostegno insieme, non la sola sanità — con una popolazione di 5152788.296775236 e una stabilità di 48/100.",
+          "urgency": "ordinaria",
+          "figures": [
+            {
+              "label": "Spesa sociale (sanità e sostegno)",
+              "value": "1.2",
+              "unit": "% del PIL",
+              "basis": {
+                "kind": "estimated",
+                "source": "conti nazionali",
+                "method": "ripartizione delle uscite civili su sanità, popolazione e sostegno"
+              }
+            },
+            {
+              "label": "Popolazione",
+              "value": "5152788.296775236",
+              "unit": "abitanti",
+              "basis": {
+                "kind": "measured",
+                "source": "conto nazionale"
+              }
+            },
+            {
+              "label": "Stabilità",
+              "value": "48",
+              "unit": "/100",
+              "basis": {
+                "kind": "measured",
+                "source": "conto nazionale"
+              }
+            }
+          ],
+          "paths": [
+            {
+              "id": "expand",
+              "title": "Allargare la spesa sociale",
+              "detail": "Aumentare la quota per sanità e sostegno.",
+              "prerequisites": [
+                "copertura di bilancio"
+              ],
+              "expected": "Più sostegno alla popolazione; più spesa.",
+              "recommended": false
+            },
+            {
+              "id": "hold",
+              "title": "Mantenere la spesa attuale",
+              "detail": "Tenere la quota: la stabilità resta dov’è.",
+              "prerequisites": [],
+              "expected": "Nessun costo aggiuntivo, nessun miglioramento.",
+              "recommended": true
+            }
+          ]
+        }
+      ],
+      "opening": "Ho 1 cosa da portare al consiglio."
+    },
+    {
+      "seat": "interno",
+      "label": "Ministro dell’Interno",
+      "reads": "fazioni, pressione politica, coesione",
+      "items": [
+        {
+          "voiceId": "faction_opinione",
+          "need": "Opinione pubblica: Ricucire il consenso: stabilità e servizi",
+          "because": "Opinione pubblica ha il 11.6% dell'influenza e una soddisfazione di 35.5/100 (critico). Il consenso è fragile (36/100): l'opinione pubblica chiede risposte concrete su prezzi, lavoro e servizi prima che la piazza si accenda.",
+          "urgency": "urgente",
+          "figures": [
+            {
+              "label": "Influenza",
+              "value": "11.6",
+              "unit": "%",
+              "basis": {
+                "kind": "measured",
+                "source": "fotografia del governo"
+              }
+            },
+            {
+              "label": "Soddisfazione",
+              "value": "35.5",
+              "unit": "/100",
+              "basis": {
+                "kind": "measured",
+                "source": "fotografia del governo"
+              }
+            },
+            {
+              "label": "Urgenza della richiesta",
+              "value": "65",
+              "unit": "/100",
+              "basis": {
+                "kind": "measured",
+                "source": "fotografia del governo"
+              }
+            }
+          ],
+          "paths": [
+            {
+              "id": "concede",
+              "title": "Accogliere la richiesta",
+              "detail": "Il consenso è fragile (36/100): l'opinione pubblica chiede risposte concrete su prezzi, lavoro e servizi prima che la piazza si accenda.",
+              "prerequisites": [],
+              "expected": "La fazione si ricompone; un’altra potrebbe risentirne.",
+              "recommended": false
+            },
+            {
+              "id": "explain",
+              "title": "Spiegare e rimandare",
+              "detail": "Portare in consiglio i numeri che rendono la richiesta insostenibile adesso.",
+              "prerequisites": [],
+              "expected": "La fazione resta critica, ma il motivo è documentato e non arbitrario.",
+              "recommended": true
+            }
+          ]
+        }
+      ],
+      "opening": "Ho 1 cosa da portare al consiglio."
+    },
+    {
+      "seat": "guerra",
+      "label": "Ministro della Guerra",
+      "reads": "potenza e arsenale del paese, minacce al confine",
+      "items": [
+        {
+          "voiceId": "defence_condition",
+          "need": "Lo strumento militare è finanziato: decidere se basta",
+          "because": "La difesa vale il 3.2% del PIL, con 7 reparti in forza e 0 mobilitati. I comandi esprimono una soddisfazione di 53.4/100.",
+          "urgency": "ordinaria",
+          "figures": [
+            {
+              "label": "Spesa di difesa",
+              "value": "3.2",
+              "unit": "% del PIL",
+              "basis": {
+                "kind": "measured",
+                "source": "conto nazionale"
+              }
+            },
+            {
+              "label": "Reparti in forza",
+              "value": "7",
+              "unit": "reparti",
+              "basis": {
+                "kind": "measured",
+                "source": "conto nazionale"
+              }
+            },
+            {
+              "label": "Mobilitati",
+              "value": "0",
+              "unit": "uomini",
+              "basis": {
+                "kind": "measured",
+                "source": "conto nazionale"
+              }
+            },
+            {
+              "label": "Soddisfazione dei comandi",
+              "value": "53.4",
+              "unit": "/100",
+              "basis": {
+                "kind": "measured",
+                "source": "fotografia del governo"
+              }
+            }
+          ],
+          "paths": [
+            {
+              "id": "hold",
+              "title": "Mantenere la postura",
+              "detail": "Nessun cambio di spesa: la difesa resta dov’è.",
+              "prerequisites": [],
+              "expected": "Continuità dello strumento militare.",
+              "recommended": true
+            },
+            {
+              "id": "rearm",
+              "title": "Rafforzare ulteriormente",
+              "detail": "Alzare la quota per superare i competitor regionali.",
+              "prerequisites": [
+                "copertura di bilancio"
+              ],
+              "expected": "Più potenza; più spesa.",
+              "recommended": false
+            }
+          ]
+        }
+      ],
+      "opening": "Ho 1 cosa da portare al consiglio."
+    }
+  ],
+  "president": {
+    "opening": "Il consiglio è riunito. 5 questioni sul tavolo.",
+    "closing": "Nessuna di queste proposte impegna il paese. Scegliete una strada, e l’ordine che ne nasce passerà per la verifica prima di essere registrato."
+  },
+  "summary": {
+    "total": 5,
+    "critical": 0
+  },
+  "canonicalMutation": false
+}

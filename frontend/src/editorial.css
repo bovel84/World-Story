@@ -37,6 +37,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .nation-bulletin h2, .province-detail-title, .newspaper-article h1, .hud-timeline-title {
   font-family: var(--op-display); letter-spacing: -.025em;
 }
+/* WS-GOVOFFICE-05B — Le cifre dentro il testo del motore: lineari e non corsive,
+   così un «1» non si legge come una «l» nel testo in corsivo a corpo piccolo. */
+.op-numeral { font-style: normal; font-variant-numeric: lining-nums tabular-nums; }
 .template-selector, .country-selector, .create-world, .map-editor {
   min-height: 100vh; background: var(--op-paper);
   background-image: radial-gradient(rgba(78,61,35,.09) .55px, transparent .8px);

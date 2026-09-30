@@ -1,28 +1,36 @@
 /**
- * WS-GOVOFFICE-03/04/05 — Screenshot dell'Ufficio del Governo, mock offline.
+ * WS-GOVOFFICE-03/04/05/05B — Screenshot dell'Ufficio del Governo, mock offline.
  * Uso: node govoffice-shot.mjs <prefisso-out> [larghezza] [altezza]
  *
  * Il viewport è parametrico (default 1440x960) così lo stesso percorso gira
  * anche sul telefono, dove il layout dell'ufficio cambia a una colonna.
  *
- * WS-GOVOFFICE-05 — due variabili d'ambiente:
+ * Variabili d'ambiente:
  *  · `GOVOFFICE_BASE_URL` (default http://localhost:5173): per fotografare il
  *    «prima» da un albero alla revisione base senza toccare la porta abituale;
- *  · `GOVOFFICE_MULTI=1`: monta il gabinetto a quattro sedie (le due nuove di
- *    Istruzione e Sanità) e apre il pannello dati per mostrarne il contenuto.
+ *  · `GOVOFFICE_MULTI=1` (o `GOVOFFICE_CABINET=multi`): gabinetto a quattro
+ *    sedie (le due nuove di Istruzione e Sanità);
+ *  · `GOVOFFICE_CABINET=raw` (WS-GOVOFFICE-05B): monta lo **snapshot reale del
+ *    motore** (`fixtures/ws-govoffice-05b-tesoro-raw.json`, valori pieni a 17
+ *    decimali) per la prova «prima/dopo» delle cifre del Tesoro.
  *
- * Fotografa le due schermate nuove: il Registro degli atti (prima schermata) e
- * la seduta a due pannelli; poi registra un atto dal dialogo e rifotografa il
- * registro firmato.
+ * Fotografa il Registro degli atti, la seduta a due pannelli (pannello dati
+ * chiuso e aperto) e, con `multi`, le due sedie nuove; poi registra un atto dal
+ * dialogo e rifotografa il registro firmato.
  */
 import { chromium } from 'playwright';
+import { readFileSync } from 'node:fs';
 import { installMockApi, MOCK_CABINET_MULTI } from './mock-api.mjs';
 
 const prefix = process.argv[2] || '/tmp/govoffice';
 const width = Number(process.argv[3]) || 1440;
 const height = Number(process.argv[4]) || 960;
 const baseUrl = process.env.GOVOFFICE_BASE_URL || 'http://localhost:5173';
-const multi = process.env.GOVOFFICE_MULTI === '1';
+const cabinetMode = process.env.GOVOFFICE_CABINET || (process.env.GOVOFFICE_MULTI === '1' ? 'multi' : 'default');
+const multi = cabinetMode === 'multi';
+const cabinet = cabinetMode === 'raw'
+  ? JSON.parse(readFileSync(new URL('./fixtures/ws-govoffice-05b-tesoro-raw.json', import.meta.url), 'utf8'))
+  : cabinetMode === 'multi' ? MOCK_CABINET_MULTI : null;
 const browser = await chromium.launch({
   headless: true,
   executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -31,7 +39,7 @@ const page = await browser.newPage({ viewport: { width, height } });
 page.on('dialog', (d) => d.accept());
 page.on('pageerror', (e) => console.log(`[pageerror] ${String(e).slice(0, 200)}`));
 
-installMockApi(page, multi ? { cabinet: MOCK_CABINET_MULTI } : {});
+installMockApi(page, cabinet ? { cabinet } : {});
 await page.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
 await page.locator('.landing-cta').click();
 await page.locator('.template-card').first().click();
@@ -59,17 +67,17 @@ await page.waitForTimeout(300);
 // WS-GOVOFFICE-05 — il pannello dati è CHIUSO di default: questa è la schermata.
 await page.screenshot({ path: `${prefix}-2-seduta-due-pannelli.png` });
 
-// WS-GOVOFFICE-05 — il pannello aperto: stesso contenuto di prima, su richiesta.
-if (multi) {
-  const toggle = page.locator('.minister-dossier-toggle');
-  if (await toggle.count()) {
-    await toggle.first().click();
-    await page.waitForTimeout(400);
-    await page.screenshot({ path: `${prefix}-2b-pannello-aperto.png` });
-    await toggle.first().click();
-    await page.waitForTimeout(300);
-  }
+// WS-GOVOFFICE-05/05B — il pannello aperto: la griglia delle cifre, formattate.
+const toggle = page.locator('.minister-dossier-toggle');
+if (await toggle.count()) {
+  await toggle.first().click();
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${prefix}-2b-pannello-aperto.png` });
+  await toggle.first().click();
+  await page.waitForTimeout(300);
+}
 
+if (multi) {
   // Le due sedie nuove: la chat che le nomina e il pannello che le dettaglia.
   for (const seatName of ['istruzione', 'sanita']) {
     // La scelta delle sedie vive nel registro: ci si torna col tasto indietro.

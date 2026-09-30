@@ -75,8 +75,9 @@ describe('P02 — la seduta del gabinetto', () => {
     const html = render({ session: seatWithFigures() });
     expect(html).toContain('Ministro dei Lavori');
     expect(html).toContain('Manca acciaio');
-    expect(html).toContain('12 kg');
-    expect(html).toContain('4 kg');
+    // WS-GOVOFFICE-05B — le cifre si formattano alla resa: 12 kg → 12,00 kg.
+    expect(html).toContain('12,00 kg');
+    expect(html).toContain('4,00 kg');
     // E la competenza della sedia è dichiarata: chi legge sa cosa guarda.
     expect(html).toContain('cantieri, deficit misurati, opere del catalogo');
   });
@@ -152,5 +153,70 @@ describe('P02 — la seduta del gabinetto', () => {
     expect(html).toContain('Seduta chiusa.');
     // E il presidente non compare come sedia tra i ministri.
     expect(html).not.toContain('data-seat="presidente"');
+  });
+});
+
+/**
+ * WS-GOVOFFICE-05B — Le cifre leggibili, e il refuso che non c'è
+ * ==============================================================
+ * Il motore manda i valori pieni («0.06575272084693667»): sono la sorgente di
+ * verità e non si toccano. Qui si difende la **resa**: 2 decimali (1 se
+ * percentuali), virgola italiana — e gli interi del testo («Ho 1 cosa») restano
+ * interi. Una cifra ignota resta «—», mai «0,00».
+ */
+describe('WS-GOVOFFICE-05B — le cifre del ministro', () => {
+  it('formatta i valori assoluti: 2 decimali, virgola, migliaia', () => {
+    const html = render({ session: seatWithFigures() });
+    expect(html).toContain('12,00 kg');
+    expect(html).toContain('4,00 kg');
+    expect(html).toContain('300,00 unità');
+  });
+
+  it('la cifra IGNOTA resta «—»: non diventa 0,00', () => {
+    const html = render({ session: seatWithFigures() });
+    expect(html).toContain('dato mancante · il catalogo non dichiara un prezzo');
+    expect(html).toContain('cabinet-figure-unknown');
+    // La cella ignota mostra il trattino, non un numero (e mai «0,00»).
+    expect(html).toMatch(/<dd>—<span class="cabinet-basis">dato mancante/);
+  });
+
+  it('gli interi del testo non si toccano: «Ho 1 cosa» resta «Ho 1 cosa»', () => {
+    const html = render({ session: seatWithFigures() });
+    // Il numero è reso lineare (non corsivo) ma è ancora «1», non «1,00».
+    expect(html).toContain('<span class="op-numeral">1</span> cosa da portare al consiglio');
+    expect(html).not.toContain('1,00 cosa');
+  });
+
+  it('i decimali e le percentuali del testo si formattano alla resa', () => {
+    // Il caso reale: il «perché» del Tesoro con il saldo a 17 decimali.
+    const conDecimali = session({
+      addresses: [{
+        seat: 'tesoro',
+        label: 'Ministro del Tesoro',
+        reads: 'bilancio',
+        opening: 'Ho 1 cosa da portare al consiglio.',
+        items: [{
+          voiceId: 'treasury_condition',
+          need: 'Il bilancio chiude in avanzo',
+          because: 'Il saldo è 0.06575272084693667 mld (0.2% del PIL), al 30.4%.',
+          urgency: 'ordinaria',
+          figures: [
+            { label: 'Saldo', value: '0.06575272084693667', unit: 'mld', basis: { kind: 'measured', source: 'conti nazionali' } },
+            { label: 'Saldo su PIL', value: '0.2', unit: '%', basis: { kind: 'measured', source: 'conti nazionali' } },
+          ],
+          paths: [],
+        }],
+      }],
+    });
+    const html = render({ session: conDecimali, onlySeat: 'tesoro' });
+    // Griglia: 2 decimali per l'assoluto, 1 per la percentuale.
+    expect(html).toContain('0,07 mld');
+    expect(html).toContain('0,2 %');
+    // Testo narrato: gli stessi valori, con la virgola. I numeri sono resi in
+    // <span> (leggibilità), quindi si confronta il testo, non l'HTML.
+    const testo = html.replace(/<[^>]*>/g, '');
+    expect(testo).toContain('0,07 mld (0,2% del PIL), al 30,4%');
+    // Il valore pieno del motore non compare più a schermo.
+    expect(html).not.toContain('0.06575272084693667');
   });
 });

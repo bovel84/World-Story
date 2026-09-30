@@ -62,6 +62,78 @@ export function formatPercent(value: number | null | undefined, decimals = 0): s
   return `${groupThousands(value, decimals)}%`;
 }
 
+/* ===========================================================================
+ * WS-GOVOFFICE-05B — Il formato delle cifre del ministro (unico punto di verità)
+ * ===========================================================================
+ * Il motore produce i valori PIENI («0.06575272084693667»): sono la sorgente di
+ * verità e **non si toccano** (decisione A dell'autore). Qui si formattano solo
+ * alla resa, con una regola sola e riusabile:
+ *
+ *  - valori assoluti → 2 decimali, virgola it-IT, punto per le migliaia;
+ *  - percentuali (unità che contiene «%») → 1 decimale;
+ *  - una cifra non numerica/ignota NON diventa 0: torna com'era, e il chiamante
+ *    la rende «—» se la provenienza è `unknown`.
+ *
+ * Nessun `toFixed` sparso: `groupThousands` resta l'unica implementazione del
+ * raggruppamento, così l'arrotondamento non diverge fra i punti dell'app.
+ */
+
+/** Cifre decimali per unità: 1 per le percentuali, 2 per tutto il resto. */
+export function decimalsForUnit(unit: string): number {
+  return unit.includes('%') ? 1 : 2;
+}
+
+/** Numero con decimali fissi, virgola it-IT, punto per le migliaia, segno conservato. */
+export function formatDecimal(value: number | null | undefined, decimals = 2): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const sign = value < 0 ? '-' : '';
+  return `${sign}${groupThousands(value, decimals)}`;
+}
+
+/**
+ * Il valore di una cifra del motore, leggibile: 2 decimali (1 se percentuale),
+ * con l'unità accanto come oggi (`0,06 mld`, `29,4 %`).
+ *
+ * `value` è la stringa piena del motore; se non è numerica torna com'era (non si
+ * inventa uno zero). Una cifra con provenienza `unknown` non arriva qui: il
+ * chiamante la rende «—» prima (vedi `isUnknown`).
+ */
+export function formatFigureValue(value: string | number, unit: string): string {
+  const raw = typeof value === 'number' ? String(value) : String(value).trim();
+  const n = raw === '' ? NaN : Number(raw);
+  if (!Number.isFinite(n)) return `${raw} ${unit}`.trim();
+  return `${formatDecimal(n, decimalsForUnit(unit))} ${unit}`.trim();
+}
+
+/**
+ * Le cifre DENTRO il testo del motore (il «perché», l'apertura, i bisogni).
+ *
+ * Il motore scrive i valori pieni anche nella prosa («Il saldo è 0.06575272084693667
+ * mld (0.2% del PIL)»). Qui si formattano **solo i decimali** — 2 cifre, 1 se
+ * seguiti da «%». Gli interi NON si toccano: «Ho 1 cosa» resta «Ho 1 cosa», un
+ * anno non diventa «2.000», e un numero già raggruppato («61.000.000») non si
+ * spezza.
+ */
+export function formatNarratedDecimals(text: string): string {
+  if (!text) return text;
+  return text.replace(
+    /(-?\d+\.\d+)(\s*%?)/g,
+    (match: string, raw: string, suffix: string, offset: number, whole: string) => {
+      // Non toccare un numero incastrato in un altro:
+      // - preceduto da cifra o punto (parte di «61.000.000»);
+      // - seguito da «.cifra» (ancora una parte di «61.000.000»);
+      // il punto di fine frase NON blocca invece la formattazione.
+      const before = whole[offset - 1];
+      const after = whole.slice(offset + match.length);
+      if (before && /[\d.]/.test(before)) return match;
+      if (after.startsWith('.') && /\d/.test(after[1] ?? '')) return match;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return match;
+      return `${formatDecimal(n, suffix.includes('%') ? 1 : 2)}${suffix}`;
+    },
+  );
+}
+
 /** Data ISO (YYYY-MM-DD) letta come calendario di simulazione. */
 export function formatDate(iso?: string | null): string {
   return formatDateOr(iso, '—');

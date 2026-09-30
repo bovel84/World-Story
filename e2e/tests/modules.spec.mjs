@@ -122,8 +122,13 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await datiToggle.click();
     await expect(datiToggle).toHaveAttribute('aria-expanded', 'true');
     await expect(dati).toContainText('Ministro del Tesoro');
+    // WS-GOVOFFICE-05B — le cifre si formattano alla resa (virgola it-IT,
+    // 2 decimali sugli assoluti) a partire dai valori pieni del motore: la
+    // griglia mostra «12,40 mld», il testo narrato «6,50 mld», mai il punto.
+    await expect(dati).toContainText('12,40 mld');
     // Il ministro parla in prima persona, con le cifre del motore.
-    await expect(ufficio).toContainText('Coprire il disavanzo del trimestre.');
+    await expect(ufficio).toContainText('Coprire il disavanzo del trimestre: 6,50 mld entro giugno.');
+    await expect(ufficio).not.toContainText('6.5 mld');
     await expect(dati).toContainText('misurato · Tesoro');
     // Il pannello mostra il dominio nazionale di quella sedia.
     await expect(dati.locator('.op-domain')).toHaveCount(2);
