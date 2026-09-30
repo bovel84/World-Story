@@ -37,6 +37,11 @@ import { SeatTable } from './SeatTable';
 import { deriveSeatCanvasBlocks } from './seatCanvasModel';
 import { seatCanvasAuthoring } from './seatCanvasConfig';
 import { treasuryAct, type TreasuryRoad } from './treasuryAct';
+import {
+  actDraftFor, actHeadline, actStatus, deriveActState, editActDraft,
+  type ActState, type ProposalActDraft,
+} from './actDraft';
+import type { WorkDeclarationInput } from './cabinetOrder';
 import { resolvePresentation, type ActivePresentation, type PresentationDirective } from './presentation';
 import {
   discussedProposal, loadMemory, openQuestion, queuedDecision, recordMemory,
@@ -44,8 +49,8 @@ import {
 } from './ministerMemory';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
-import { useChatStore } from '../../stores';
-import type { CabinetAddressView, CabinetPathView, CabinetSessionView } from '../../services/api';
+import { useChatStore, useGameStore } from '../../stores';
+import type { CabinetAddressView, CabinetSessionView } from '../../services/api';
 
 /** L'esito dichiarato di una seduta: un ordine messo in coda, o nulla. */
 interface OfficeOutcome {
@@ -67,13 +72,11 @@ export interface GovernmentOfficeProps {
   sessionLoading?: boolean;
   sessionError?: string | null;
   /**
-   * WS-GOVOFFICE-02 — L'esito ORDINE: la strada scelta entra in coda
-   * **automaticamente** (nessuna conferma separata). Il testo lo compone il
-   * chiamante dai dati del motore. Ritorna `true` se l'ordine è stato accodato.
+   * WS-MINISTER-UX-06 — L'esito ORDINE dalla **bozza d'atto**: il Presidente
+   * prepara e corregge una strada, poi la firma. La dichiarazione d'opera viaggia
+   * accanto al testo quando la distinta è coperta. Ritorna `true` se accodato.
    */
-  onQueueCabinetPath?: (item: CabinetAddressView['items'][number], path: CabinetPathView) => Promise<boolean>;
-  /** WS-GOVOFFICE-02 — L'esito ORDINE dal problema scritto dal giocatore. */
-  onQueueOrder?: (text: string) => Promise<boolean>;
+  onQueueOrder?: (text: string, work?: WorkDeclarationInput) => Promise<boolean>;
 
   // ── Il registro: gli atti deliberati, in lettura ────────────────────────
   /** Gli atti in attesa del turno. Il registro li legge e li firma. */
@@ -104,7 +107,6 @@ export function GovernmentOffice({
   session,
   sessionLoading = false,
   sessionError = null,
-  onQueueCabinetPath,
   onQueueOrder,
   pendingActions,
   nationalName,
@@ -119,6 +121,9 @@ export function GovernmentOffice({
   const addMinisterMessage = useChatStore(state => state.addMinisterMessage);
   const appendToLastMinisterMessage = useChatStore(state => state.appendToLastMinisterMessage);
   const setMinisterStreaming = useChatStore(state => state.setMinisterStreaming);
+  // WS-MINISTER-UX-06 — La cronologia dei turni: è lì che vive l'esito **reale**
+  // di un atto (accettato, parziale o respinto), non in un flag della UI.
+  const turnHistory = useGameStore(state => state.history);
 
   // WS-MINISTER-UX-05 — La memoria della sedia: ricordi derivati dagli eventi
   // espliciti della seduta, tenuti nel browser per partita. Questo store è la
@@ -139,6 +144,11 @@ export function GovernmentOffice({
   // motore e non crea ordini.
   const [openSeat, setOpenSeat] = useState<CabinetAddressView['seat'] | null>(null);
   const [lastOutcome, setLastOutcome] = useState<OfficeOutcome | null>(null);
+  // WS-MINISTER-UX-06 — La bozza d'atto sul tavolo: la strada preparata dal
+  // Presidente, correggibile e firmabile. È stato di UI: non accoda e non spende
+  // finché non si firma. `actBusy` evita il doppio atto mentre la firma è in volo.
+  const [actDraft, setActDraft] = useState<ProposalActDraft | null>(null);
+  const [actBusy, setActBusy] = useState(false);
 
   // WS-MINISTER-UX-01 — La composizione della seduta: il dialogo è la
   // superficie principale (42% di base), la tavola lo affianca. Il divisore è
@@ -168,8 +178,14 @@ export function GovernmentOffice({
     if (!open) {
       setOpenSeat(null);
       setLastOutcome(null);
+      setActDraft(null);
     }
   }, [open]);
+
+  // Cambiare sedia non trascina la bozza d'atto di un altro ministro.
+  useEffect(() => {
+    setActDraft(null);
+  }, [openSeat]);
 
   // Cambiando sedia si riparte dal dialogo su mobile: la tavola non resta
   // appesa a una sedia che non è più aperta.
@@ -272,24 +288,56 @@ export function GovernmentOffice({
 
   // L'atto firmato tramite la coda del motore: l'opera (cantiere reale) o un
   // ordine in testo. Entra nel registro, non resta una promessa.
-  const signTreasuryRoad = async (road: TreasuryRoad): Promise<boolean> => {
-    if (!address) return false;
-    if (road.order.kind === 'work') {
-      if (!onQueueCabinetPath) return false;
-      const queued = await onQueueCabinetPath(road.order.item, road.order.path);
+  //
+  // WS-MINISTER-UX-06 — Dal tavolo: lo stato **reale** di ogni strada è derivato
+  // da coda e cronologia (mai un flag locale «accolta»), la strada si **prepara**
+  // in una bozza, la bozza si corregge e si **firma** — una volta sola.
+  const roadStates = useMemo(() => {
+    const seat = address?.seat;
+    if (!seat) return {} as Record<string, ActState>;
+    return Object.fromEntries(
+      act.roads.map(road => [road.id, deriveActState(actDraftFor(road, seat), pendingActions, turnHistory)]),
+    ) as Record<string, ActState>;
+  }, [address?.seat, act.roads, pendingActions, turnHistory]);
+
+  const draftStatus = actDraft ? actStatus(actDraft, pendingActions, turnHistory) : null;
+
+  const prepareRoad = useCallback((road: TreasuryRoad): void => {
+    if (!address) return;
+    setActDraft(actDraftFor(road, address.seat));
+  }, [address]);
+
+  const editDraft = useCallback((text: string): void => {
+    setActDraft(current => (current ? editActDraft(current, text) : current));
+  }, []);
+
+  const cancelDraft = useCallback((): void => {
+    setActDraft(null);
+  }, []);
+
+  // «Confronta le strade» dal tavolo: mostra, non accoda. Come il confronto
+  // chiesto a voce, le strade entrano in memoria come proposte discusse.
+  const compareFromTable = useCallback((): void => {
+    if (openSeat) applyPresentation(openSeat, 'tavola', '', { op: 'compare' });
+  }, [openSeat, applyPresentation]);
+
+  // La firma esplicita del Presidente: l'atto entra nel registro. Un solo atto in
+  // volo per volta (doppio clic), e la coda deduplica per testo (tentativi
+  // ripetuti): nessun atto duplicato.
+  const signDraft = async (draft: ProposalActDraft): Promise<boolean> => {
+    if (!address || !onQueueOrder) return false;
+    setActBusy(true);
+    try {
+      const queued = await onQueueOrder(draft.text, draft.work);
       if (queued) {
-        setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: road.order.path.title });
-        rememberFor(address.seat, queuedDecision(address.seat, road.order.path.title, { gameDate: currentDate ?? '' }));
+        const headline = actHeadline(draft);
+        setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: headline });
+        rememberFor(address.seat, queuedDecision(address.seat, headline, { gameDate: currentDate ?? '' }));
       }
       return queued;
+    } finally {
+      setActBusy(false);
     }
-    if (!onQueueOrder) return false;
-    const queued = await onQueueOrder(road.order.text);
-    if (queued) {
-      setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: road.title });
-      rememberFor(address.seat, queuedDecision(address.seat, road.title, { gameDate: currentDate ?? '' }));
-    }
-    return queued;
   };
 
   // ── Gli esiti: un ordine in coda, o un nulla di fatto ───────────────────
@@ -456,6 +504,11 @@ export function GovernmentOffice({
                     Atto firmato nel registro — «{lastOutcome.text}»
                   </p>
                 )}
+                {actDraft && draftStatus && (
+                  <p className="government-office-act-status" data-state={draftStatus.state} role="status" aria-live="polite">
+                    Atto «{actDraft.title}»: {draftStatus.label} — {draftStatus.note}
+                  </p>
+                )}
                 <div className="government-office-outcome">
                   <button
                     type="button"
@@ -490,7 +543,16 @@ export function GovernmentOffice({
                   seat={address?.seat ?? 'lavori'}
                   blocks={canvasBlocks}
                   act={act}
-                  onSign={signTreasuryRoad}
+                  onPrepareRoad={prepareRoad}
+                  preparedRoadId={actDraft?.roadId ?? null}
+                  roadStates={roadStates}
+                  actDraft={actDraft}
+                  actStatus={draftStatus}
+                  actBusy={actBusy}
+                  onEditDraft={editDraft}
+                  onSignDraft={signDraft}
+                  onCancelDraft={cancelDraft}
+                  onCompare={compareFromTable}
                   presentation={resolvedPresentation}
                   onClearPresentation={clearPresentation}
                   onReturnToMessage={() => setMobilePane('dialogo')}

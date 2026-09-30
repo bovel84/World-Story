@@ -16,15 +16,18 @@
  * WS-MINISTER-UX-03 — La selezione può ora arrivare dalla **conversazione**: una
  * `ResolvedPresentation` (risolta da `presentation.ts`) porta in cima l'evidenza
  * che il ministro ha richiesto, oppure mostra il **confronto** tra le proposte.
- * Senza presentazione resta la selezione predefinita di UX-01. In entrambi i
- * casi il componente non calcola nulla: `SeatCanvas` rende i blocchi del read
- * model.
+ *
+ * WS-MINISTER-UX-06 — Dal tavolo si **prepara** l'atto: la strada scelta diventa
+ * una bozza correggibile (`ActDraftPanel`) che il Presidente firma. Preparare e
+ * confrontare non accodano e non spendono.
  */
 import { SeatCanvas } from './SeatCanvas';
 import { TreasuryActPanel } from './TreasuryActPanel';
+import { ActDraftPanel } from './ActDraftPanel';
 import { ProposalComparison } from './ProposalComparison';
 import type { SeatCanvasBlock } from './seatCanvasModel';
 import type { ResolvedPresentation } from './presentation';
+import type { ActState, ActStatus, ProposalActDraft } from './actDraft';
 import type { TreasuryAct, TreasuryRoad } from './treasuryAct';
 import type { CabinetAddressView } from '../../services/api';
 
@@ -41,7 +44,25 @@ export interface SeatTableProps {
   seat: CabinetAddressView['seat'];
   blocks: SeatCanvasBlock[];
   act: TreasuryAct;
-  onSign?: (road: TreasuryRoad) => Promise<boolean>;
+  /**
+   * WS-MINISTER-UX-06 — «Prepara l'atto»: la strada diventa una bozza. Non
+   * accoda e non spende.
+   */
+  onPrepareRoad?: (road: TreasuryRoad) => void;
+  /** La strada in bozza sul tavolo, se c'è. */
+  preparedRoadId?: string | null;
+  /** Lo stato reale di ogni strada, derivato da coda e cronologia. */
+  roadStates?: Record<string, ActState>;
+  /** La bozza d'atto corrente e il suo stato reale. */
+  actDraft?: ProposalActDraft | null;
+  actStatus?: ActStatus | null;
+  /** La firma è in corso: evita il doppio atto. */
+  actBusy?: boolean;
+  onEditDraft?: (text: string) => void;
+  onSignDraft?: (draft: ProposalActDraft) => Promise<boolean> | void;
+  onCancelDraft?: () => void;
+  /** «Confronta le strade» dal tavolo: non accoda nulla. */
+  onCompare?: () => void;
   /**
    * WS-MINISTER-UX-03 — La presentazione richiesta dal ministro nella
    * conversazione. `null` = tavola predefinita (l'ordine di UX-01).
@@ -53,7 +74,10 @@ export interface SeatTableProps {
   onReturnToMessage?: () => void;
 }
 
-export function SeatTable({ seat, blocks, act, onSign, presentation, onClearPresentation, onReturnToMessage }: SeatTableProps) {
+export function SeatTable({
+  seat, blocks, act, onPrepareRoad, preparedRoadId, roadStates, actDraft, actStatus, actBusy,
+  onEditDraft, onSignDraft, onCancelDraft, onCompare, presentation, onClearPresentation, onReturnToMessage,
+}: SeatTableProps) {
   const ordered = [...blocks].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
   const showsAct = seat === 'tesoro';
 
@@ -100,7 +124,7 @@ export function SeatTable({ seat, blocks, act, onSign, presentation, onClearPres
               Tavola predefinita
             </button>
           )}
-          {onReturnToMessage && (
+          {onReturnToMessage && presentation.quote && (
             <button
               type="button"
               className="seat-presentation-return"
@@ -115,7 +139,39 @@ export function SeatTable({ seat, blocks, act, onSign, presentation, onClearPres
 
       {presentation?.kind === 'compare' && <ProposalComparison roads={presentation.roads} />}
 
-      {showsAct && <TreasuryActPanel key={seat} act={act} onSign={onSign} />}
+      {showsAct && (
+        <TreasuryActPanel
+          key={seat}
+          act={act}
+          onPrepare={onPrepareRoad}
+          preparedRoadId={preparedRoadId}
+          roadStates={roadStates}
+        />
+      )}
+
+      {showsAct && onCompare && act.roads.length > 1 && (
+        <div className="seat-table-actions">
+          <button
+            type="button"
+            className="seat-table-compare"
+            onClick={onCompare}
+            title="Metti le strade fianco a fianco: non accoda e non spende"
+          >
+            Confronta le strade
+          </button>
+        </div>
+      )}
+
+      {showsAct && actDraft && actStatus && (
+        <ActDraftPanel
+          draft={actDraft}
+          status={actStatus}
+          busy={actBusy}
+          onEdit={onEditDraft}
+          onSign={onSignDraft}
+          onCancel={onCancelDraft}
+        />
+      )}
 
       {main ? (
         <>

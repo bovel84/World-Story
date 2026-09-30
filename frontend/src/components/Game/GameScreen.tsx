@@ -66,7 +66,7 @@ export interface GameScreenProps {
 export function GameScreen({ nation, timeline, feed, orders, playback, advance, shell }: GameScreenProps) {
   // P02 — La seduta del gabinetto arriva dall'hook degli ordini, non dallo
   // store della bozza: è una lettura del Governo, non una proprietà del testo.
-  const { cabinet, cabinetLoading, cabinetError, loadCabinet, queueCabinetPath, queuePlayerAction } = orders;
+  const { cabinet, cabinetLoading, cabinetError, loadCabinet, queuePlayerAction } = orders;
   const {
     currentGame, currentWorld, selectedRegion, setSelectedRegion, setCurrentGame, setCurrentWorld,
     setHistory, pendingActions, changedRegions, history: actionHistory,
@@ -346,7 +346,6 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
         session={cabinet}
         sessionLoading={cabinetLoading}
         sessionError={cabinetError}
-        onQueueCabinetPath={queueCabinetPath}
         onQueueOrder={queuePlayerAction}
         pendingActions={pendingActions}
         nationalName={nationalName}
