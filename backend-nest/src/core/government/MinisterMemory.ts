@@ -9,8 +9,8 @@
  * Questo modulo è la parte **pura** di quella fase: definisce che cos'è un
  * ricordo, come si registra, come si seleziona per il prompt, come si copia su
  * un ramo e come si pota al rewind. Non tocca il database, non fa I/O, non
- * chiama il modello: l'innesto di persistenza è documentato nel report
- * `WS-MINISTER-UX-05-report.md`.
+ * chiama il modello: la persistenza reale è l'innesto (autorizzato) descritto nel
+ * report `WS-MINISTER-UX-05-report.md` §6.
  *
  * Tre regole, le stesse del progetto:
  *  - **la memoria non è una seconda contabilità**: non porta cifre nuove e non

@@ -120,9 +120,10 @@ export function GovernmentOffice({
   const appendToLastMinisterMessage = useChatStore(state => state.appendToLastMinisterMessage);
   const setMinisterStreaming = useChatStore(state => state.setMinisterStreaming);
 
-  // WS-MINISTER-UX-05 — La memoria della sedia (tappa intermedia): ricordi
-  // derivati dagli eventi espliciti della seduta, tenuti nel browser per partita.
-  // La persistenza server-side è l'innesto documentato nel report della fase.
+  // WS-MINISTER-UX-05 — La memoria della sedia: ricordi derivati dagli eventi
+  // espliciti della seduta, tenuti nel browser per partita. Questo store è la
+  // rete immediata/offline e la sorgente dei ricordi inviati; la persistenza
+  // vera è server-side (innesto: `minister_memory`, per partita, ramo e mandato).
   const [memoryStore, setMemoryStore] = useState<MinisterMemoryStore>(() => loadMemory(gameId));
   useEffect(() => { setMemoryStore(loadMemory(gameId)); }, [gameId]);
   useEffect(() => { saveMemory(gameId, memoryStore); }, [gameId, memoryStore]);

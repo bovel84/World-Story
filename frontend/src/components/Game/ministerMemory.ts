@@ -1,17 +1,18 @@
 /**
- * WS-MINISTER-UX-05 — La memoria del ministro sul client (tappa intermedia)
- * ========================================================================
+ * WS-MINISTER-UX-05 — La memoria del ministro sul client
+ * =====================================================
  * La fase chiede una memoria **persistente**, separata dai numeri del mondo. La
- * persistenza server-side (tabella + repository + passaggio da `GameSession`) è
- * bloccata dal freeze: l'innesto preciso è nel report `WS-MINISTER-UX-05-report.md`.
+ * persistenza server-side (tabella + repository + agganci in `GameSession` e
+ * `game.repository`) è **eseguita** (innesto autorizzato; vedi
+ * `WS-MINISTER-UX-05-report.md` §6).
  *
- * Qui vive la **tappa intermedia dichiarata**: gli stessi ricordi del contratto
- * puro del backend, derivati dagli **eventi espliciti** della seduta (una
- * proposta confrontata, un atto accodato, una seduta chiusa senza ordine),
- * persistiti nel browser per partita e per sedia, e composti in un blocco di
- * prompt che la chat invia al ministro. Sopravvive a chiusura della seduta,
- * cambio ministro, ricarica del browser e riavvio del server; **non** è la
- * memoria definitiva, che resta l'innesto backend.
+ * Qui vive la **rete del client**: gli stessi ricordi del contratto puro del
+ * backend, derivati dagli **eventi espliciti** della seduta (una proposta
+ * confrontata, un atto accodato, una seduta chiusa senza ordine), tenuti nel
+ * browser per partita e per sedia e **inviati con la richiesta** al ministro
+ * (campo `memory`), dove il server li valida, ne deriva il mandato e li persiste.
+ * Sopravvivono a chiusura della seduta, cambio ministro e ricarica del browser;
+ * la copia autorevole è quella server-side, per partita, ramo e mandato.
  *
  * Regole, le stesse del backend: nessuna cifra nuova; ogni ricordo ha una
  * provenienza; al rewind si potano i ricordi oltre la data corrente.

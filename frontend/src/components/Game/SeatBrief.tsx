@@ -97,8 +97,8 @@ export function SeatBrief({ address, memory = [] }: SeatBriefProps) {
               ))}
             </ul>
             <p className="seat-brief-memory-note">
-              Ricordi tenuti in questo browser: la memoria definitiva (per partita, ramo e mandato)
-              richiede l’innesto backend documentato nel report della fase.
+              Questi ricordi accompagnano la richiesta al ministro e sono persistiti dal server
+              per partita, ramo e mandato. Il browser qui ne mostra la copia più recente.
             </p>
           </section>
         )}
