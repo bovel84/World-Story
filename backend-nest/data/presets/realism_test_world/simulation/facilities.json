@@ -3,5 +3,16 @@
   { "id": "ft_foundry", "name": "Altoforno", "capacity": { "unit": "kg/giorno", "perDay": "80" } },
   { "id": "ft_farm", "name": "Fattoria", "capacity": { "unit": "kg/giorno", "perDay": "60" } },
   { "id": "ft_works", "name": "Officina meccanica", "capacity": { "unit": "pz/giorno", "perDay": "5" } },
-  { "id": "ft_road", "name": "Strada ordinaria", "capacity": { "unit": "km", "perDay": "40" }, "maintenance": { "resourceId": "tools", "baseUnits": "1", "periodDays": 60 } }
+  { "id": "ft_road", "name": "Strada ordinaria", "capacity": { "unit": "km", "perDay": "40" }, "maintenance": { "resourceId": "tools", "baseUnits": "1", "periodDays": 60 } },
+  { "id": "ft_school", "name": "Scuola elementare", "capacity": { "unit": "studenti", "perDay": "400" }, "maintenance": { "resourceId": "books", "baseUnits": "5", "periodDays": 180 } },
+  { "id": "ft_university", "name": "Ateneo", "capacity": { "unit": "iscritti", "perDay": "120" }, "maintenance": { "resourceId": "books", "baseUnits": "10", "periodDays": 180 } },
+  { "id": "ft_hospital", "name": "Ospedale", "capacity": { "unit": "pazienti", "perDay": "200" }, "maintenance": { "resourceId": "medicine", "baseUnits": "5", "periodDays": 30 } },
+  { "id": "ft_bridge", "name": "Ponte", "capacity": { "unit": "km", "perDay": "20" }, "maintenance": { "resourceId": "tools", "baseUnits": "2", "periodDays": 90 } },
+  { "id": "ft_water", "name": "Acquedotto", "capacity": { "unit": "m³", "perDay": "5000" }, "maintenance": { "resourceId": "tools", "baseUnits": "1", "periodDays": 90 } },
+  { "id": "ft_railway", "name": "Ferrovia", "capacity": { "unit": "km", "perDay": "60" }, "maintenance": { "resourceId": "tools", "baseUnits": "3", "periodDays": 60 } },
+  { "id": "ft_factory", "name": "Fabbrica", "capacity": { "unit": "pz", "perDay": "20" }, "maintenance": { "resourceId": "machinery", "baseUnits": "1", "periodDays": 120 } },
+  { "id": "ft_power", "name": "Centrale elettrica", "capacity": { "unit": "MW", "perDay": "150" }, "maintenance": { "resourceId": "fuel", "baseUnits": "200", "periodDays": 30 } },
+  { "id": "ft_housing", "name": "Quartiere residenziale", "capacity": { "unit": "abitanti", "perDay": "2000" }, "maintenance": { "resourceId": "tools", "baseUnits": "1", "periodDays": 180 } },
+  { "id": "ft_barracks", "name": "Caserma", "capacity": { "unit": "posti", "perDay": "600" }, "maintenance": { "resourceId": "tools", "baseUnits": "1", "periodDays": 90 } },
+  { "id": "ft_fortification", "name": "Fortificazione", "capacity": { "unit": "posti", "perDay": "300" }, "maintenance": { "resourceId": "cement", "baseUnits": "50", "periodDays": 180 } }
 ]

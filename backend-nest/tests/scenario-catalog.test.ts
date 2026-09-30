@@ -191,3 +191,67 @@ describe('M01 µ1 — preset legacy senza simulation/', () => {
     expect(report.warnings.some(w => w.code === 'no_catalog')).toBe(true);
   });
 });
+
+describe('WS-GOVOFFICE-06 — il catalogo nazionale delle opere', () => {
+  // Il mondo di prova nasce con una sola opera (`w_road`) e non poteva costruire
+  // nulla d'altro: il Ministro dei Lavori non aveva proposte. Qui il catalogo è
+  // esteso a dodici opere dichiarate — e queste prove fissano tre cose: la
+  // strada resta la PRIMA (invariante dei test MG01..MG03), ogni distinta ha una
+  // fonte §4.4 (niente buco di filiera), e il vocabolario esteso è davvero
+  // dichiarato, non promesso.
+  const { catalog, report } = loadSimulationCatalog(FIXTURE_DIR);
+
+  it('la fixture dichiara almeno dieci opere, con fasi e materiali', () => {
+    expect(report.errors).toEqual([]);
+    const works = catalog!.works;
+    expect(works.length).toBeGreaterThanOrEqual(10);
+    expect(works[0].id).toBe('w_road');
+    for (const work of works) {
+      expect(work.phases.length, work.id).toBeGreaterThan(0);
+      for (const phase of work.phases) {
+        expect(phase.inputs.length, `${work.id}.${phase.id}`).toBeGreaterThan(0);
+      }
+      expect(work.effect.perDay, work.id).toMatch(/^[1-9][0-9]*$/);
+    }
+  });
+
+  it('ogni asset dichiarato esiste e ogni materiale ha una fonte: nessun buco §4.4', () => {
+    const facilityIds = new Set(catalog!.facilityTypes.map(f => f.id));
+    const resourceIds = new Set(catalog!.resources.map(r => r.id));
+    for (const work of catalog!.works) {
+      expect(facilityIds.has(work.assetTypeId), `${work.id} → ${work.assetTypeId}`).toBe(true);
+      expect(work.maintenance, work.id).toBeTruthy();
+      expect(resourceIds.has(work.maintenance!.resourceId), `${work.id} manutenzione`).toBe(true);
+    }
+    // La chiusura §4.4 della fixture è vuota: nessun input senza stock, giacimento
+    // o filiera. Un buco qui è un blocco di caricamento, non un avviso.
+    expect(report.coverage.missing).toEqual([]);
+  });
+
+  it('il vocabolario esteso è dichiarato: risorse, qualifiche e tipi d’impianto', () => {
+    const resourceIds = new Set(catalog!.resources.map(r => r.id));
+    for (const id of ['cement', 'bricks', 'timber', 'machinery', 'fuel', 'books', 'medicine']) {
+      expect(resourceIds.has(id), id).toBe(true);
+    }
+    const qualifications = new Set(catalog!.initialState.workforce.map(w => w.qualification));
+    for (const q of ['insegnante', 'medico', 'ingegnere', 'tecnico', 'soldato']) {
+      expect(qualifications.has(q), q).toBe(true);
+    }
+    const facilityIds = new Set(catalog!.facilityTypes.map(f => f.id));
+    for (const id of ['ft_school', 'ft_university', 'ft_hospital', 'ft_power', 'ft_barracks', 'ft_water']) {
+      expect(facilityIds.has(id), id).toBe(true);
+    }
+  });
+
+  it('l’effetto di un’opera resta un’etichetta dichiarativa, non una leva materiale', () => {
+    // Il motore non ha un elenco chiuso di `effect.kind` per le opere:
+    // `WorkDefinition.effect.kind` è `string`, il loader ne pretende solo una non
+    // vuota e la consegna la ricopia nei metadati dell’asset. Qui si fissa il set
+    // DICHIARATO dal catalogo, così un refuso non passa in silenzio — e non si
+    // finge che quel set sia un’enumerazione del codice.
+    const declared = new Set(['transport', 'education', 'health', 'water', 'energy', 'industry', 'housing', 'defence']);
+    for (const work of catalog!.works) {
+      expect(declared.has(work.effect.kind), `${work.id} → ${work.effect.kind}`).toBe(true);
+    }
+  });
+});

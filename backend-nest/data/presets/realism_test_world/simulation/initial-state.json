@@ -10,7 +10,14 @@
     { "id": "lot_grain_alpha", "ownerActorId": "alpha_farms", "regionId": "ALPHA-sud", "quantity": { "resourceId": "grain", "baseUnits": "200" } },
     { "id": "lot_tools_alpha", "ownerActorId": "alpha_steel_co", "custodianActorId": "alpha_farms", "regionId": "ALPHA-sud", "quantity": { "resourceId": "tools", "baseUnits": "80" } },
     { "id": "lot_steel_beta", "ownerActorId": "beta_treasury", "regionId": "BETA-est", "quantity": { "resourceId": "steel", "baseUnits": "150" } },
-    { "id": "lot_steel_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "steel", "baseUnits": "240" } }
+    { "id": "lot_steel_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "steel", "baseUnits": "240" } },
+    { "id": "lot_cement_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "cement", "baseUnits": "600" } },
+    { "id": "lot_bricks_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "bricks", "baseUnits": "4000" } },
+    { "id": "lot_timber_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "timber", "baseUnits": "400" } },
+    { "id": "lot_machinery_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "machinery", "baseUnits": "40" } },
+    { "id": "lot_fuel_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "fuel", "baseUnits": "5000" } },
+    { "id": "lot_books_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "books", "baseUnits": "3000" } },
+    { "id": "lot_medicine_alpha", "ownerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "quantity": { "resourceId": "medicine", "baseUnits": "500" } }
   ],
   "deposits": [
     { "id": "dep_ore_alpha", "resourceId": "iron_ore", "regionId": "ALPHA-nord", "known": { "resourceId": "iron_ore", "baseUnits": "100000" }, "accessibility": "requires_extraction" },
@@ -21,7 +28,12 @@
     { "id": "wf_miners_alpha", "regionId": "ALPHA-nord", "qualification": "minatore", "persons": "500" },
     { "id": "wf_workers_alpha", "regionId": "ALPHA-nord", "qualification": "operaio", "persons": "1200" },
     { "id": "wf_farmers_alpha", "regionId": "ALPHA-sud", "qualification": "agricoltore", "persons": "800" },
-    { "id": "wf_workers_beta", "regionId": "BETA-est", "qualification": "operaio", "persons": "600" }
+    { "id": "wf_workers_beta", "regionId": "BETA-est", "qualification": "operaio", "persons": "600" },
+    { "id": "wf_teachers_alpha", "regionId": "ALPHA-sud", "qualification": "insegnante", "persons": "400" },
+    { "id": "wf_doctors_alpha", "regionId": "ALPHA-nord", "qualification": "medico", "persons": "150" },
+    { "id": "wf_engineers_alpha", "regionId": "ALPHA-nord", "qualification": "ingegnere", "persons": "120" },
+    { "id": "wf_technicians_alpha", "regionId": "ALPHA-nord", "qualification": "tecnico", "persons": "300" },
+    { "id": "wf_soldiers_alpha", "regionId": "ALPHA-nord", "qualification": "soldato", "persons": "900" }
   ],
   "facilities": [
     { "id": "fac_mine_alpha_1", "typeId": "ft_mine", "ownerActorId": "alpha_steel_co", "controllerActorId": "alpha_steel_co", "regionId": "ALPHA-nord", "operational": true },

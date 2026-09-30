@@ -485,10 +485,14 @@ describe('MG01 µ3 — le letture vengono dal ledger del ramo, in sola lettura',
     // letture non si mescolano, perché un lotto non è cassa.
     const enterprise = readAvailability(branchId, 'alpha_steel_co', catalog());
     expect(enterprise.money).toEqual([]);
-    // Nota misurata: l'impresa ALPHA ha acciaio, utensili, carbone e minerale.
-    // L'acciaio di BETA (150 kg) resta di BETA e non compare qui: se questa
-    // riga cambiasse, cambierebbe la premessa del deficit di ALPHA.
-    expect(enterprise.stock.map(s => s.unitId).sort()).toEqual(['coal', 'iron_ore', 'steel', 'tools']);
+    // Nota misurata: l'impresa ALPHA ha acciaio, utensili, carbone, minerale e
+    // le scorte delle opere (WS-GOVOFFICE-06: cemento, mattoni, legname,
+    // macchinari, carburante, libri, medicinali). L'acciaio di BETA (150 kg)
+    // resta di BETA e non compare qui: se questa riga cambiasse, cambierebbe la
+    // premessa del deficit di ALPHA.
+    expect(enterprise.stock.map(s => s.unitId).sort()).toEqual([
+      'books', 'bricks', 'cement', 'coal', 'fuel', 'iron_ore', 'machinery', 'medicine', 'steel', 'timber', 'tools',
+    ]);
   });
 
   it('una riserva attiva riduce il disponibile senza toccare il totale', async () => {

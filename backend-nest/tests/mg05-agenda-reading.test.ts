@@ -99,6 +99,22 @@ describe('MG05 µ3 — l’agenda legge lo stato della partita', () => {
     expect(road.paths.find(p => p.id === 'build_now')!.prerequisites).toEqual([]);
   });
 
+  it('WS-GOVOFFICE-06 — il catalogo propone le opere nuove, coperte dalle scorte iniziali', async () => {
+    // Il difetto dichiarato dal task: con la sola `w_road` il Ministro dei Lavori
+    // non aveva nulla da proporre oltre la strada. Qui si difende che TUTTE le
+    // opere del catalogo esteso compaiano e siano costruibili con lo stock
+    // iniziale: è la prova che il mondo di prova ha scuole, ospedali e ponti.
+    const agenda = await readAgenda();
+    const build = agenda.voices.filter(v => v.id.startsWith('build_'));
+    expect(build.length, 'il catalogo esteso deve comparire per intero').toBeGreaterThanOrEqual(10);
+    const covered = build.filter(v => v.paths.find(p => p.id === 'build_now')!.recommended);
+    expect(covered.length, 'con le scorte iniziali ogni opera è costruibile').toBeGreaterThanOrEqual(10);
+    const school = build.find(v => v.id === 'build_w_school')!;
+    expect(school, 'la scuola deve essere una proposta').toBeTruthy();
+    expect(school.paths.find(p => p.id === 'build_now')!.recommended).toBe(true);
+    expect(school.paths.find(p => p.id === 'build_now')!.prerequisites).toEqual([]);
+  });
+
   it('un cantiere senza deficit NON produce una voce di deficit', async () => {
     const { commitWork } = await import('../src/services/WorkCommitService');
     const catalog = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', 'realism_test_world')).catalog!;

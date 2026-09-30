@@ -39,5 +39,579 @@
       "validAt": "1951-01-01",
       "methodVersion": "mg01-work-1"
     }
+  },
+  {
+    "id": "w_school",
+    "name": "Scuola elementare",
+    "assetTypeId": "ft_school",
+    "effect": { "kind": "education", "unit": "studenti", "perDay": "400" },
+    "maintenance": { "resourceId": "books", "baseUnits": "5", "periodDays": 180 },
+    "phases": [
+      {
+        "id": "scavi",
+        "name": "Scavi e sottofondi",
+        "dependencyIds": [],
+        "workload": "40",
+        "minDays": 2,
+        "inputs": [{ "resourceId": "cement", "baseUnits": "60" }],
+        "funds": { "currencyId": "TEST", "minorUnits": "4000" },
+        "workforce": [{ "qualification": "operaio", "persons": "12" }]
+      },
+      {
+        "id": "strutture",
+        "name": "Strutture e murature",
+        "dependencyIds": ["scavi"],
+        "workload": "60",
+        "minDays": 4,
+        "inputs": [
+          { "resourceId": "cement", "baseUnits": "120" },
+          { "resourceId": "bricks", "baseUnits": "800" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "9000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "20" },
+          { "qualification": "tecnico", "persons": "4" }
+        ]
+      },
+      {
+        "id": "arredi",
+        "name": "Arredi e biblioteca",
+        "dependencyIds": ["strutture"],
+        "workload": "30",
+        "minDays": 2,
+        "inputs": [
+          { "resourceId": "books", "baseUnits": "400" },
+          { "resourceId": "timber", "baseUnits": "60" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "3000" },
+        "workforce": [
+          { "qualification": "insegnante", "persons": "8" },
+          { "qualification": "operaio", "persons": "6" }
+        ]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
+  },
+  {
+    "id": "w_university",
+    "name": "Ateneo",
+    "assetTypeId": "ft_university",
+    "effect": { "kind": "education", "unit": "iscritti", "perDay": "120" },
+    "maintenance": { "resourceId": "books", "baseUnits": "10", "periodDays": 180 },
+    "phases": [
+      {
+        "id": "fondazioni",
+        "name": "Fondazioni",
+        "dependencyIds": [],
+        "workload": "80",
+        "minDays": 3,
+        "inputs": [{ "resourceId": "cement", "baseUnits": "150" }],
+        "funds": { "currencyId": "TEST", "minorUnits": "8000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "25" },
+          { "qualification": "ingegnere", "persons": "3" }
+        ]
+      },
+      {
+        "id": "corpi",
+        "name": "Corpi di fabbrica",
+        "dependencyIds": ["fondazioni"],
+        "workload": "120",
+        "minDays": 6,
+        "inputs": [
+          { "resourceId": "cement", "baseUnits": "200" },
+          { "resourceId": "bricks", "baseUnits": "1500" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "18000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "35" },
+          { "qualification": "tecnico", "persons": "6" }
+        ]
+      },
+      {
+        "id": "biblioteca",
+        "name": "Biblioteca e aule",
+        "dependencyIds": ["corpi"],
+        "workload": "50",
+        "minDays": 3,
+        "inputs": [
+          { "resourceId": "books", "baseUnits": "2000" },
+          { "resourceId": "timber", "baseUnits": "120" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "6000" },
+        "workforce": [
+          { "qualification": "insegnante", "persons": "10" },
+          { "qualification": "operaio", "persons": "8" }
+        ]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
+  },
+  {
+    "id": "w_hospital",
+    "name": "Ospedale",
+    "assetTypeId": "ft_hospital",
+    "effect": { "kind": "health", "unit": "pazienti", "perDay": "200" },
+    "maintenance": { "resourceId": "medicine", "baseUnits": "5", "periodDays": 30 },
+    "phases": [
+      {
+        "id": "fondazioni",
+        "name": "Fondazioni",
+        "dependencyIds": [],
+        "workload": "90",
+        "minDays": 3,
+        "inputs": [{ "resourceId": "cement", "baseUnits": "200" }],
+        "funds": { "currencyId": "TEST", "minorUnits": "9000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "28" },
+          { "qualification": "ingegnere", "persons": "3" }
+        ]
+      },
+      {
+        "id": "padiglioni",
+        "name": "Padiglioni",
+        "dependencyIds": ["fondazioni"],
+        "workload": "140",
+        "minDays": 7,
+        "inputs": [
+          { "resourceId": "cement", "baseUnits": "250" },
+          { "resourceId": "bricks", "baseUnits": "1800" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "22000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "40" },
+          { "qualification": "tecnico", "persons": "10" }
+        ]
+      },
+      {
+        "id": "impianti",
+        "name": "Impianti e sale",
+        "dependencyIds": ["padiglioni"],
+        "workload": "60",
+        "minDays": 4,
+        "inputs": [
+          { "resourceId": "machinery", "baseUnits": "8" },
+          { "resourceId": "medicine", "baseUnits": "150" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "10000" },
+        "workforce": [
+          { "qualification": "medico", "persons": "12" },
+          { "qualification": "tecnico", "persons": "8" }
+        ]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
+  },
+  {
+    "id": "w_bridge",
+    "name": "Ponte",
+    "assetTypeId": "ft_bridge",
+    "effect": { "kind": "transport", "unit": "km", "perDay": "20" },
+    "maintenance": { "resourceId": "tools", "baseUnits": "2", "periodDays": 90 },
+    "phases": [
+      {
+        "id": "pile",
+        "name": "Pile e spalle",
+        "dependencyIds": [],
+        "workload": "70",
+        "minDays": 4,
+        "inputs": [
+          { "resourceId": "cement", "baseUnits": "300" },
+          { "resourceId": "steel", "baseUnits": "20" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "12000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "24" },
+          { "qualification": "ingegnere", "persons": "2" }
+        ]
+      },
+      {
+        "id": "impalcato",
+        "name": "Impalcato",
+        "dependencyIds": ["pile"],
+        "workload": "80",
+        "minDays": 5,
+        "inputs": [
+          { "resourceId": "steel", "baseUnits": "40" },
+          { "resourceId": "cement", "baseUnits": "150" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "14000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "30" },
+          { "qualification": "ingegnere", "persons": "2" }
+        ]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
+  },
+  {
+    "id": "w_water",
+    "name": "Acquedotto",
+    "assetTypeId": "ft_water",
+    "effect": { "kind": "water", "unit": "m³", "perDay": "5000" },
+    "maintenance": { "resourceId": "tools", "baseUnits": "1", "periodDays": 90 },
+    "phases": [
+      {
+        "id": "condotte",
+        "name": "Condotte",
+        "dependencyIds": [],
+        "workload": "60",
+        "minDays": 4,
+        "inputs": [
+          { "resourceId": "cement", "baseUnits": "100" },
+          { "resourceId": "steel", "baseUnits": "8" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "9000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "20" },
+          { "qualification": "tecnico", "persons": "3" }
+        ]
+      },
+      {
+        "id": "serbatoi",
+        "name": "Serbatoi",
+        "dependencyIds": ["condotte"],
+        "workload": "50",
+        "minDays": 3,
+        "inputs": [
+          { "resourceId": "cement", "baseUnits": "200" },
+          { "resourceId": "bricks", "baseUnits": "600" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "7000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "18" },
+          { "qualification": "tecnico", "persons": "3" }
+        ]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
+  },
+  {
+    "id": "w_railway",
+    "name": "Ferrovia",
+    "assetTypeId": "ft_railway",
+    "effect": { "kind": "transport", "unit": "km", "perDay": "60" },
+    "maintenance": { "resourceId": "tools", "baseUnits": "3", "periodDays": 60 },
+    "phases": [
+      {
+        "id": "massicciata",
+        "name": "Massicciata",
+        "dependencyIds": [],
+        "workload": "120",
+        "minDays": 6,
+        "inputs": [
+          { "resourceId": "cement", "baseUnits": "200" },
+          { "resourceId": "steel", "baseUnits": "30" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "20000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "40" },
+          { "qualification": "ingegnere", "persons": "4" }
+        ]
+      },
+      {
+        "id": "binari",
+        "name": "Binari e traverse",
+        "dependencyIds": ["massicciata"],
+        "workload": "100",
+        "minDays": 6,
+        "inputs": [
+          { "resourceId": "steel", "baseUnits": "60" },
+          { "resourceId": "timber", "baseUnits": "80" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "18000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "35" },
+          { "qualification": "tecnico", "persons": "5" }
+        ]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
+  },
+  {
+    "id": "w_factory",
+    "name": "Fabbrica",
+    "assetTypeId": "ft_factory",
+    "effect": { "kind": "industry", "unit": "pz", "perDay": "20" },
+    "maintenance": { "resourceId": "machinery", "baseUnits": "1", "periodDays": 120 },
+    "phases": [
+      {
+        "id": "capannone",
+        "name": "Capannone",
+        "dependencyIds": [],
+        "workload": "70",
+        "minDays": 4,
+        "inputs": [
+          { "resourceId": "steel", "baseUnits": "40" },
+          { "resourceId": "cement", "baseUnits": "150" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "14000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "26" },
+          { "qualification": "ingegnere", "persons": "2" }
+        ]
+      },
+      {
+        "id": "macchinari",
+        "name": "Montaggio macchinari",
+        "dependencyIds": ["capannone"],
+        "workload": "60",
+        "minDays": 4,
+        "inputs": [
+          { "resourceId": "machinery", "baseUnits": "12" },
+          { "resourceId": "steel", "baseUnits": "20" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "16000" },
+        "workforce": [
+          { "qualification": "tecnico", "persons": "10" },
+          { "qualification": "operaio", "persons": "15" }
+        ]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
+  },
+  {
+    "id": "w_power",
+    "name": "Centrale elettrica",
+    "assetTypeId": "ft_power",
+    "effect": { "kind": "energy", "unit": "MW", "perDay": "150" },
+    "maintenance": { "resourceId": "fuel", "baseUnits": "200", "periodDays": 30 },
+    "phases": [
+      {
+        "id": "opere_civili",
+        "name": "Opere civili",
+        "dependencyIds": [],
+        "workload": "90",
+        "minDays": 5,
+        "inputs": [
+          { "resourceId": "cement", "baseUnits": "300" },
+          { "resourceId": "steel", "baseUnits": "25" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "18000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "32" },
+          { "qualification": "ingegnere", "persons": "4" }
+        ]
+      },
+      {
+        "id": "caldaie",
+        "name": "Caldaie e turbine",
+        "dependencyIds": ["opere_civili"],
+        "workload": "80",
+        "minDays": 5,
+        "inputs": [
+          { "resourceId": "machinery", "baseUnits": "10" },
+          { "resourceId": "steel", "baseUnits": "30" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "20000" },
+        "workforce": [
+          { "qualification": "tecnico", "persons": "12" },
+          { "qualification": "operaio", "persons": "20" }
+        ]
+      },
+      {
+        "id": "allaccio",
+        "name": "Allaccio alla rete",
+        "dependencyIds": ["caldaie"],
+        "workload": "40",
+        "minDays": 3,
+        "inputs": [
+          { "resourceId": "machinery", "baseUnits": "4" },
+          { "resourceId": "fuel", "baseUnits": "1000" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "8000" },
+        "workforce": [
+          { "qualification": "tecnico", "persons": "6" },
+          { "qualification": "ingegnere", "persons": "2" }
+        ]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
+  },
+  {
+    "id": "w_housing",
+    "name": "Quartiere residenziale",
+    "assetTypeId": "ft_housing",
+    "effect": { "kind": "housing", "unit": "abitanti", "perDay": "2000" },
+    "maintenance": { "resourceId": "tools", "baseUnits": "1", "periodDays": 180 },
+    "phases": [
+      {
+        "id": "scavi",
+        "name": "Scavi",
+        "dependencyIds": [],
+        "workload": "50",
+        "minDays": 2,
+        "inputs": [{ "resourceId": "cement", "baseUnits": "100" }],
+        "funds": { "currencyId": "TEST", "minorUnits": "5000" },
+        "workforce": [{ "qualification": "operaio", "persons": "15" }]
+      },
+      {
+        "id": "edifici",
+        "name": "Edifici",
+        "dependencyIds": ["scavi"],
+        "workload": "110",
+        "minDays": 6,
+        "inputs": [
+          { "resourceId": "cement", "baseUnits": "250" },
+          { "resourceId": "bricks", "baseUnits": "2500" },
+          { "resourceId": "timber", "baseUnits": "150" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "17000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "38" },
+          { "qualification": "tecnico", "persons": "4" }
+        ]
+      },
+      {
+        "id": "finiture",
+        "name": "Finiture",
+        "dependencyIds": ["edifici"],
+        "workload": "40",
+        "minDays": 3,
+        "inputs": [
+          { "resourceId": "timber", "baseUnits": "100" },
+          { "resourceId": "bricks", "baseUnits": "500" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "5000" },
+        "workforce": [{ "qualification": "operaio", "persons": "14" }]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
+  },
+  {
+    "id": "w_barracks",
+    "name": "Caserma",
+    "assetTypeId": "ft_barracks",
+    "effect": { "kind": "defence", "unit": "posti", "perDay": "600" },
+    "maintenance": { "resourceId": "tools", "baseUnits": "1", "periodDays": 90 },
+    "phases": [
+      {
+        "id": "recinzione",
+        "name": "Recinzione e piazzale",
+        "dependencyIds": [],
+        "workload": "40",
+        "minDays": 2,
+        "inputs": [
+          { "resourceId": "cement", "baseUnits": "80" },
+          { "resourceId": "steel", "baseUnits": "6" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "5000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "14" },
+          { "qualification": "soldato", "persons": "6" }
+        ]
+      },
+      {
+        "id": "alloggi",
+        "name": "Alloggi",
+        "dependencyIds": ["recinzione"],
+        "workload": "70",
+        "minDays": 4,
+        "inputs": [
+          { "resourceId": "bricks", "baseUnits": "1200" },
+          { "resourceId": "timber", "baseUnits": "100" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "11000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "22" },
+          { "qualification": "soldato", "persons": "10" }
+        ]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
+  },
+  {
+    "id": "w_fortification",
+    "name": "Fortificazione",
+    "assetTypeId": "ft_fortification",
+    "effect": { "kind": "defence", "unit": "posti", "perDay": "300" },
+    "maintenance": { "resourceId": "cement", "baseUnits": "50", "periodDays": 180 },
+    "phases": [
+      {
+        "id": "terrapieno",
+        "name": "Terrapieno",
+        "dependencyIds": [],
+        "workload": "80",
+        "minDays": 5,
+        "inputs": [{ "resourceId": "cement", "baseUnits": "250" }],
+        "funds": { "currencyId": "TEST", "minorUnits": "10000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "24" },
+          { "qualification": "soldato", "persons": "8" }
+        ]
+      },
+      {
+        "id": "bunker",
+        "name": "Bunker",
+        "dependencyIds": ["terrapieno"],
+        "workload": "90",
+        "minDays": 6,
+        "inputs": [
+          { "resourceId": "cement", "baseUnits": "300" },
+          { "resourceId": "steel", "baseUnits": "30" }
+        ],
+        "funds": { "currencyId": "TEST", "minorUnits": "14000" },
+        "workforce": [
+          { "qualification": "operaio", "persons": "28" },
+          { "qualification": "ingegnere", "persons": "2" }
+        ]
+      }
+    ],
+    "evidence": {
+      "quality": "authored",
+      "sourceRefs": ["sources.md#fixture-tecnica"],
+      "validAt": "1951-01-01",
+      "methodVersion": "mg01-work-1"
+    }
   }
 ]

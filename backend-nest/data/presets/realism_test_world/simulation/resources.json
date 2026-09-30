@@ -3,5 +3,12 @@
   { "id": "iron_ore", "name": "Minerale di ferro", "unit": { "kind": "mass", "symbol": "kg" }, "transportable": true, "conserved": true },
   { "id": "steel", "name": "Acciaio", "unit": { "kind": "mass", "symbol": "kg" }, "transportable": true, "conserved": true },
   { "id": "grain", "name": "Grano", "unit": { "kind": "mass", "symbol": "kg" }, "transportable": true, "conserved": true, "deteriorates": true },
-  { "id": "tools", "name": "Utensili", "unit": { "kind": "count", "symbol": "pz" }, "transportable": true, "conserved": true, "discrete": true }
+  { "id": "tools", "name": "Utensili", "unit": { "kind": "count", "symbol": "pz" }, "transportable": true, "conserved": true, "discrete": true },
+  { "id": "cement", "name": "Cemento", "unit": { "kind": "mass", "symbol": "kg" }, "transportable": true, "conserved": true },
+  { "id": "bricks", "name": "Mattoni", "unit": { "kind": "count", "symbol": "pz" }, "transportable": true, "conserved": true, "discrete": true },
+  { "id": "timber", "name": "Legname", "unit": { "kind": "volume", "symbol": "m³" }, "transportable": true, "conserved": true },
+  { "id": "machinery", "name": "Macchinari", "unit": { "kind": "count", "symbol": "pz" }, "transportable": true, "conserved": true, "discrete": true },
+  { "id": "fuel", "name": "Carburante", "unit": { "kind": "volume", "symbol": "L" }, "transportable": true, "conserved": true },
+  { "id": "books", "name": "Libri", "unit": { "kind": "count", "symbol": "pz" }, "transportable": true, "conserved": true, "discrete": true },
+  { "id": "medicine", "name": "Medicinali", "unit": { "kind": "mass", "symbol": "kg" }, "transportable": true, "conserved": true, "deteriorates": true }
 ]
