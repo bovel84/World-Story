@@ -169,7 +169,7 @@ describe('MG01 µ1 — la distinta di costruzione nel catalogo', () => {
       ['manodopera a zero', w => { w[0].phases[0].workforce[0].persons = '0'; }, 'works[0].phases[0].workforce[0].persons:bad_int'],
       ['qualifica mancante', w => { delete w[0].phases[0].workforce[0].qualification; }, 'works[0].phases[0].workforce[0].qualification:missing_field'],
       ['fondi a zero', w => { w[0].phases[0].funds.minorUnits = '0'; }, 'works[0].phases[0].funds.minorUnits:bad_int'],
-      ['due opere con lo stesso id', w => { w.push(JSON.parse(JSON.stringify(w[0]))); }, 'works[1].id:duplicate_id'],
+      ['due opere con lo stesso id', w => { w.splice(1, 0, JSON.parse(JSON.stringify(w[0]))); }, 'works[1].id:duplicate_id'],
       ['due fasi con lo stesso id', w => { w[0].phases[1].id = w[0].phases[0].id; }, 'works[0].phases[1].id:duplicate_id'],
       ['dipendenza verso una fase inesistente', w => { w[0].phases[1].dependencyIds = ['fantasma']; }, 'works[0].phases[paving].dependencyIds:unknown_ref'],
       ['id d’opera non canonico', w => { w[0].id = 'W_ROAD'; }, 'works[0].id:bad_id'],
@@ -283,6 +283,36 @@ describe('MG01 µ2 — la stima legge la distinta dell’opera', () => {
     expect(estimate.workforce).toEqual([{ qualification: 'operaio', persons: '30' }, { qualification: 'operaio', persons: '18' }]);
     // Le fasi portano la loro durata: è quella che il piano di progetto userà.
     expect(estimate.phases!.map(p => `${p.id}:${p.minDays}`)).toEqual(['subgrade:4', 'paving:3']);
+  });
+
+  it('la distinta vale per ogni opera, non solo per la strada: la scuola porta i suoi materiali', () => {
+    // WS-GOVOFFICE-06: il catalogo è passato da una a dodici opere. La stima non
+    // deve conoscere solo `w_road`: ogni distinta dichiarata è leggibile allo
+    // stesso modo, altrimenti le opere nuove sarebbero costi non dichiarati.
+    const catalog = loadSimulationCatalog(FIXTURE_DIR).catalog!;
+    const estimate = estimateIntentCosts(catalog, constructIntent('w_school'));
+
+    expect(estimate.basis).toBe('work');
+    expect(estimate.timeDays).toBe(8);
+    expect(estimate.inputs.map(l => `${l.resourceId}=${l.quantity}${l.unit}`))
+      .toEqual(['cement=60kg', 'cement=120kg', 'bricks=800pz', 'books=400pz', 'timber=60m³']);
+    const totals = estimate.inputs.reduce<Record<string, bigint>>((acc, line) => {
+      acc[line.resourceId] = (acc[line.resourceId] ?? 0n) + BigInt(line.quantity);
+      return acc;
+    }, {});
+    expect(totals).toEqual({ cement: 180n, bricks: 800n, books: 400n, timber: 60n });
+    expect(estimate.funds).toEqual([
+      { currencyId: 'TEST', minorUnits: '4000' },
+      { currencyId: 'TEST', minorUnits: '9000' },
+      { currencyId: 'TEST', minorUnits: '3000' },
+    ]);
+    expect(estimate.workforce).toEqual([
+      { qualification: 'operaio', persons: '12' },
+      { qualification: 'operaio', persons: '20' },
+      { qualification: 'tecnico', persons: '4' },
+      { qualification: 'insegnante', persons: '8' },
+      { qualification: 'operaio', persons: '6' },
+    ]);
   });
 
   it('un tipo d’impianto senza distinta resta una stima parziale, non un costo', () => {
