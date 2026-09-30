@@ -243,6 +243,40 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(bannerBack).toHaveCount(0);
   });
 
+  test('P04d: Ufficio del Governo — mappa focalizzata e limiti delle conseguenze (UX-04)', async ({ page }) => {
+    installMockApi(page);
+    await reachHud(page);
+
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
+    const ufficio = page.locator('.government-office');
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    const chat = page.locator('.government-office-pane-chat');
+    const tavola = page.locator('.government-office-pane-table');
+
+    // [1] «Quali province coinvolge?» → la mappa sale in cima, inquadrata sulla
+    //     geometria reale e con la zona in evidenza.
+    await chat.locator('textarea').fill('Quali province coinvolge?');
+    await chat.locator('.minister-compose button').click();
+    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
+    const mappa = tavola.locator('.seat-table-main [data-kind="map"]');
+    await expect(mappa).toBeVisible();
+    await expect(mappa.locator('.zone-map-svg')).toHaveAttribute('viewBox', '-4 -4 108 108');
+    await expect(mappa.locator('.zone-map-shape.focused')).toBeVisible();
+    await expect(mappa.locator('.zone-map-legend')).toContainText('Alfa');
+
+    // [2] «Confronta le due strade» → le stesse dimensioni per ogni strada, con i
+    //     limiti dichiarati e la catena delle conseguenze.
+    await chat.locator('textarea').fill('Confronta le due strade');
+    await chat.locator('.minister-compose button').click();
+    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)').last()).toContainText('ha preso nota del problema', { timeout: 15_000 });
+    const confronto = tavola.locator('.proposal-comparison');
+    await expect(confronto).toContainText('Spesa ricorrente');
+    await expect(confronto).toContainText('Incertezza');
+    await expect(confronto).toContainText('non dichiarato dal motore');
+    await expect(confronto.locator('.proposal-flow-step.kind-not-simulated').first()).toBeVisible();
+    await expect(confronto).toContainText('non simulato');
+  });
+
   test('P05: Ufficio del Governo — «Nulla di fatto» chiude la seduta senza atti', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);

@@ -18,7 +18,7 @@ const blocks: SeatCanvasBlock[] = [
   { kind: 'metrics', id: 'cifre-sedia', title: 'Le cifre della sedia', metrics: [{ id: 'a', label: 'Cassa', display: '12,40 mld', tone: 'neutral' }] },
   { kind: 'chart', id: 'bilancio', title: 'Dove va il denaro', figure: { kind: 'bilancio', title: 'Dove va il denaro', note: '', bars: [{ label: 'Istruzione', value: 10, display: '10', tone: 'positive' }] } },
   { kind: 'strategy', id: 'piano', title: 'Piano', plan: stabilizationPlan() },
-  { kind: 'map', id: 'zone', title: 'Zone', note: '', zones: [{ id: 'r1', name: 'Alfa', detail: '100', tone: 'positive' }], target: null },
+  { kind: 'map', id: 'zone', title: 'Zone', note: '', zones: [{ id: 'r1', name: 'Alfa', detail: '100', tone: 'positive', svgPath: 'M0,0 L100,0 L100,100 L0,100 Z' }], target: null },
   { kind: 'ideas', id: 'idee', title: 'Idee', ideas: [{ title: 'x', detail: 'y' }] },
 ];
 
@@ -61,7 +61,7 @@ describe('SeatTable — presentazione dalla conversazione', () => {
     expect(html).toContain('Tavola predefinita');
   });
 
-  it('il confronto mostra le due strade dichiarate dal motore', () => {
+  it('il confronto mostra le stesse dimensioni per ogni strada, con la provenienza', () => {
     const presentation = resolvePresentation(
       { directive: { op: 'compare' }, seat: 'tesoro', messageId: 'tesoro#4', quote: 'Confronti le due strade.' },
       blocks,
@@ -72,7 +72,32 @@ describe('SeatTable — presentazione dalla conversazione', () => {
     expect(html).toContain('Ammortamento del debito');
     expect(html).toContain('Investimento');
     expect(html).toContain('raccomandata');
+    // Le dimensioni dichiarate, non solo costo e guadagno.
     expect(html).toContain('Costo immediato');
-    expect(html).toContain('Guadagno atteso');
+    expect(html).toContain('Spesa ricorrente');
+    expect(html).toContain('Copertura');
+    expect(html).toContain('Incertezza');
+    expect(html).toContain('Benefici attesi');
+    // Ciò che il motore non dichiara è detto, non inventato.
+    expect(html).toContain('non dichiarato dal motore');
+    // E la catena distingue simulato, dichiarato e non simulato.
+    expect(html).toContain('proposal-flow-step');
+    expect(html).toContain('non simulato');
+  });
+
+  it('la mappa si inquadra sulla geometria e mette in evidenza le zone richieste', () => {
+    const presentation = resolvePresentation(
+      { directive: { op: 'focus', evidence: 'mappa', regionIds: ['r1'] }, seat: 'tesoro', messageId: 'tesoro#5', quote: 'Ecco le province.' },
+      blocks,
+      roads,
+    );
+    const html = render(presentation);
+    expect(html).toContain('data-kind="map"');
+    // Il viewBox non è più fisso: è misurato dai path (padding 4).
+    expect(html).toContain('viewBox="-4 -4 108 108"');
+    expect(html).toContain('zone-map-shape');
+    expect(html).toContain('focused');
+    expect(html).toContain('zone-map-legend');
+    expect(html).toContain('Alfa');
   });
 });
