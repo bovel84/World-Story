@@ -174,9 +174,50 @@ export interface GovernmentAgendaInput {
     /** Le entrate, per mostrare su cosa poggia il gettito. */
     readonly revenuePct: number;
   };
+  /**
+   * WS-GOVOFFICE-05 — La condizione dell'istruzione e della ricerca.
+   *
+   * `undefined` quando il conto nazionale non è pubblicato: la sedia **tace**,
+   * esattamente come il Tesoro e la Guerra senza il loro conto. Il peso della
+   * spesa è una quota ripartita, perciò le cifre lo dichiarano come stima.
+   */
+  readonly education?: {
+    /** Spesa per istruzione e ricerca, in percentuale del PIL. */
+    readonly burdenPct: number;
+    /** Gli atenei del paese, dal conto nazionale. */
+    readonly universities: number;
+    /** Tensione sociale (0-100), per collegare la scuola al disagio. */
+    readonly socialTension: number;
+  };
+  /**
+   * WS-GOVOFFICE-05 — La condizione della spesa sociale.
+   *
+   * Il dato è `socialBurdenPct`, che è **sanità + sostegno**: la voce lo dichiara
+   * e non lo spaccia per la sola sanità. `undefined` quando il conto manca: la
+   * sedia tace.
+   */
+  readonly health?: {
+    /** Spesa sociale (sanità + sostegno), in percentuale del PIL. */
+    readonly socialBurdenPct: number;
+    /** La popolazione del paese, dal conto nazionale. */
+    readonly population: number;
+    /** Stabilità (0-100), per collegare il sostegno alla tenuta del paese. */
+    readonly stability: number;
+  };
 }
 
 const measured = (source: string): FigureBasis => ({ kind: 'measured', source });
+
+/**
+ * Una cifra che il motore **ripartisce**, non misura direttamente.
+ *
+ * WS-GOVOFFICE-05 — La difesa è l'unica voce esatta del bilancio (il conto
+ * dichiara `defenceBurdenPct`); istruzione e spesa sociale sono una quota delle
+ * uscite civili ripartita sui pesi reali (atenei, popolazione, sostegno).
+ * Etichettarle `estimated` con il metodo è parte dell'onestà: il giocatore deve
+ * poterle contestare come stime, non scambiarle per misure.
+ */
+const estimated = (source: string, method: string): FigureBasis => ({ kind: 'estimated', source, method });
 
 /**
  * L'agenda del Governo: dai fatti dello stato alle scelte.
@@ -505,6 +546,80 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
                 recommended: false,
               },
             ],
+    });
+  }
+
+  // ── 6. WS-GOVOFFICE-05 — Istruzione e sanità: la condizione, non la crisi ─
+  //
+  // Le due sedie nuove riferiscono una voce di spesa che il conto nazionale
+  // pubblica in quota di PIL. `education` / `health` sono `undefined` quando il
+  // conto non c'è: la sedia **tace**, come il Tesoro e la Guerra — il silenzio
+  // non si riempie con una voce inventata.
+  if (input.education) {
+    const education = input.education;
+    voices.push({
+      id: 'education_condition',
+      need: `L’istruzione e la ricerca valgono il ${education.burdenPct}% del PIL: decidere se basta`,
+      because: `La spesa per istruzione e ricerca è il ${education.burdenPct}% del PIL, con ${education.universities} atenei e una tensione sociale di ${education.socialTension}/100.`,
+      urgency: 'ordinaria',
+      factionId: null,
+      figures: [
+        { label: 'Spesa per istruzione e ricerca', value: String(education.burdenPct), unit: '% del PIL', basis: estimated('conti nazionali', 'ripartizione delle uscite civili su atenei e ricerca') },
+        { label: 'Atenei', value: String(education.universities), unit: 'atenei', basis: measured('conto nazionale') },
+        { label: 'Tensione sociale', value: String(education.socialTension), unit: '/100', basis: measured('conto nazionale') },
+      ],
+      paths: [
+        {
+          id: 'invest',
+          title: 'Investire in istruzione e ricerca',
+          detail: 'Aumentare la quota per scuole e atenei.',
+          prerequisites: ['copertura di bilancio'],
+          expected: 'Più capitale umano nel tempo; meno risorse altrove adesso.',
+          recommended: false,
+        },
+        {
+          id: 'hold',
+          title: 'Mantenere la spesa attuale',
+          detail: 'Tenere la quota dichiarata e convivere con la tensione.',
+          prerequisites: [],
+          expected: 'Nessun costo aggiuntivo; la tensione sociale resta.',
+          recommended: true,
+        },
+      ],
+    });
+  }
+
+  if (input.health) {
+    const health = input.health;
+    voices.push({
+      id: 'health_condition',
+      need: `La spesa sociale (sanità e sostegno) vale il ${health.socialBurdenPct}% del PIL: decidere come sostenerla`,
+      because: `La spesa sociale è il ${health.socialBurdenPct}% del PIL — sanità e sostegno insieme, non la sola sanità — con una popolazione di ${health.population} e una stabilità di ${health.stability}/100.`,
+      urgency: 'ordinaria',
+      factionId: null,
+      figures: [
+        { label: 'Spesa sociale (sanità e sostegno)', value: String(health.socialBurdenPct), unit: '% del PIL', basis: estimated('conti nazionali', 'ripartizione delle uscite civili su sanità, popolazione e sostegno') },
+        { label: 'Popolazione', value: String(health.population), unit: 'abitanti', basis: measured('conto nazionale') },
+        { label: 'Stabilità', value: String(health.stability), unit: '/100', basis: measured('conto nazionale') },
+      ],
+      paths: [
+        {
+          id: 'expand',
+          title: 'Allargare la spesa sociale',
+          detail: 'Aumentare la quota per sanità e sostegno.',
+          prerequisites: ['copertura di bilancio'],
+          expected: 'Più sostegno alla popolazione; più spesa.',
+          recommended: false,
+        },
+        {
+          id: 'hold',
+          title: 'Mantenere la spesa attuale',
+          detail: 'Tenere la quota: la stabilità resta dov’è.',
+          prerequisites: [],
+          expected: 'Nessun costo aggiuntivo, nessun miglioramento.',
+          recommended: true,
+        },
+      ],
     });
   }
 

@@ -231,5 +231,48 @@ describe('MG05 µ3 — l’agenda legge lo stato della partita', () => {
     const ids = agenda.voices.map(v => v.id);
     expect(ids).not.toContain('treasury_condition');
     expect(ids).not.toContain('defence_condition');
+    // WS-GOVOFFICE-05 — e senza conto tacciono anche Istruzione e Sanità.
+    expect(ids).not.toContain('education_condition');
+    expect(ids).not.toContain('health_condition');
+  });
+
+  it('WS-GOVOFFICE-05 — col conto, Istruzione e Sanità portano le cifre del conto', async () => {
+    // Difende il CABLAGGIO delle due sedie nuove: la logica vive in `buildAgenda`
+    // (testata a parte), ma se `readGovernmentAgenda` non leggesse il conto per
+    // loro le due sedie tacerebbero comunque. La fixture economica di questo
+    // mondo di prova è minima e non produce uscite (perciò le quote di spesa
+    // sono a 0): qui si isola il cablaggio sui dati d'ingresso — conto con
+    // atenei, popolazione e tensione, fotografia con le due quote — non la
+    // contabilità del motore, che è coperta da `NationalBudget` a parte.
+    const { readGovernmentAgenda } = await import('../src/game/GovernmentReadings');
+    const baseAccount = session.getNationalAccounts()[session.getPlayerPolityId()];
+    const baseGovernment = session.getGovernment();
+    const account = {
+      ...baseAccount,
+      universities: 12,
+      population: 50_000_000,
+      stability: 62,
+      socialTension: 41,
+    };
+    const government = {
+      ...baseGovernment,
+      budget: { ...baseGovernment.budget, educationBurdenPct: 3.4, socialBurdenPct: 8.1 },
+    };
+    const agenda = readGovernmentAgenda({
+      gameId, branchId, playerPolityId: 'ALPHA', government, account,
+    });
+    const education = agenda.voices.find(v => v.id === 'education_condition')!;
+    const health = agenda.voices.find(v => v.id === 'health_condition')!;
+    expect(education, 'Istruzione deve comparire col conto').toBeTruthy();
+    expect(health, 'Sanità deve comparire col conto').toBeTruthy();
+    // Istruzione: la spesa è la quota della fotografia, gli atenei del conto.
+    expect(Number(education.figures.find(f => f.label === 'Spesa per istruzione e ricerca')!.value)).toBe(3.4);
+    expect(Number(education.figures.find(f => f.label === 'Atenei')!.value)).toBe(12);
+    // Sanità: la popolazione è quella del conto, e la voce dichiara che il dato
+    // è sanità + sostegno, non la sola sanità.
+    expect(Number(health.figures.find(f => f.label === 'Popolazione')!.value)).toBe(50_000_000);
+    expect(health.because).toContain('sanità e sostegno');
+    // Ogni cifra porta la sua provenienza, e la quota di spesa è una stima.
+    expect(health.figures.find(f => f.label.startsWith('Spesa sociale'))!.basis.kind).toBe('estimated');
   });
 });

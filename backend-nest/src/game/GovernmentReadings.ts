@@ -200,6 +200,12 @@ export function readGovernmentAgenda(input: {
     defenceBurdenPct?: unknown;
     forces?: unknown;
     mobilized?: unknown;
+    // WS-GOVOFFICE-05 — le grandezze che alimentano il peso delle due sedie
+    // nuove. Sono già nel `NationalAccount`; qui si limitano a essere dichiarate.
+    universities?: unknown;
+    population?: unknown;
+    stability?: unknown;
+    socialTension?: unknown;
   } | null;
 }): GovernmentAgenda {
   const catalog = (() => {
@@ -239,6 +245,17 @@ export function readGovernmentAgenda(input: {
   const forces = Math.max(0, Number(account?.forces) || 0);
   const mobilized = Math.max(0, Number(account?.mobilized) || 0);
 
+  // WS-GOVOFFICE-05 — Istruzione e Sanità. Il peso della spesa è la quota che il
+  // conto **ripartisce** (`educationBurdenPct`, `socialBurdenPct`), non un numero
+  // nuovo; gli atenei, la popolazione, la stabilità e la tensione sono misure
+  // dirette del conto nazionale. Se il conto non c'è, le due sedie tacciono.
+  const educationBurdenPct = Math.max(0, Number(input.government.budget?.educationBurdenPct) || 0);
+  const socialBurdenPct = Math.max(0, Number(input.government.budget?.socialBurdenPct) || 0);
+  const universities = Math.max(0, Number(account?.universities) || 0);
+  const population = Math.max(0, Number(account?.population) || 0);
+  const stability = Math.max(0, Number(account?.stability) || 0);
+  const socialTension = Math.max(0, Number(account?.socialTension) || 0);
+
   // La fazione che incarna i militari, per la nota della Guerra. Si cerca per
   // nome: la fotografia non pubblica un ruolo, solo l'identità della fazione.
   const military = input.government.factions.find(faction => /militar|forze armate|esercito|comandi/i.test(faction.name));
@@ -269,6 +286,12 @@ export function readGovernmentAgenda(input: {
             mobilized,
             factionSatisfaction: military?.satisfaction ?? null,
           },
+          ...(account && educationBurdenPct > 0
+            ? { education: { burdenPct: educationBurdenPct, universities, socialTension } }
+            : {}),
+          ...(account && socialBurdenPct > 0
+            ? { health: { socialBurdenPct, population, stability } }
+            : {}),
         }
       : {}),
   });

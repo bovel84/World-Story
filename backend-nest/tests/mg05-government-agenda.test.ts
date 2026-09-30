@@ -305,3 +305,84 @@ describe('P04 — il Tesoro e la Guerra riferiscono la condizione', () => {
     expect(agenda.voices[0].id).toBe('faction_militari');
   });
 });
+
+/**
+ * WS-GOVOFFICE-05 — Istruzione e Sanità: la condizione, non la crisi
+ * ==================================================================
+ * Due sedie nuove, sulla stessa regola delle altre: la voce nasce **solo** se il
+ * conto nazionale pubblica il dato (`education` / `health` in input). Senza, la
+ * sedia tace — non si riempie il silenzio con una voce di circostanza.
+ *
+ * Il vincolo di onestà è esplicito: `education` legge una **spesa**
+ * (`educationBurdenPct`), e `health` legge `socialBurdenPct`, che è **sanità e
+ * sostegno insieme** — non la sola sanità. Le cifre lo dichiarano; il peso della
+ * spesa è una quota **ripartita**, quindi etichettata `estimated`, non
+ * spacciata per una misura diretta.
+ */
+describe('WS-GOVOFFICE-05 — Istruzione e Sanità nell’agenda', () => {
+  it('con il conto, Istruzione produce la sua voce e la spesa è dichiarata una stima', () => {
+    const agenda = buildAgenda({
+      ...base,
+      education: { burdenPct: 3.4, universities: 12, socialTension: 41 },
+    });
+    expect(agenda.voices.map(v => v.id)).toEqual(['education_condition']);
+    const voice = agenda.voices[0];
+    expect(voice.need).toContain('istruzione e la ricerca');
+
+    const burden = voice.figures.find(f => f.label === 'Spesa per istruzione e ricerca')!;
+    expect(burden.value).toBe('3.4');
+    // Onestà: una quota ripartita non si presenta come misurata.
+    expect(burden.basis.kind).toBe('estimated');
+    if (burden.basis.kind === 'estimated') expect(burden.basis.method.length).toBeGreaterThan(0);
+    // Le grandezze di contorno sono misure dirette, e lo dicono.
+    expect(voice.figures.find(f => f.label === 'Atenei')!.value).toBe('12');
+    expect(voice.figures.find(f => f.label === 'Tensione sociale')!.value).toBe('41');
+    expect(voice.figures.filter(f => f.basis.kind === 'measured').length).toBe(2);
+
+    // Almeno due strade, con prerequisiti e conseguenze.
+    expect(voice.paths.length).toBeGreaterThanOrEqual(2);
+    expect(voice.paths.some(p => p.recommended)).toBe(true);
+  });
+
+  it('Sanità DICHIARA che la spesa è sanità + sostegno, non la sola sanità', () => {
+    const agenda = buildAgenda({
+      ...base,
+      health: { socialBurdenPct: 8.1, population: 50_000_000, stability: 62 },
+    });
+    expect(agenda.voices.map(v => v.id)).toEqual(['health_condition']);
+    const voice = agenda.voices[0];
+    // Il vincolo di onestà: la voce e la sua motivazione dicono entrambe che il
+    // dato copre sanità E sostegno.
+    expect(voice.need).toContain('sanità e sostegno');
+    expect(voice.because).toContain('sanità e sostegno');
+    const burden = voice.figures.find(f => f.label === 'Spesa sociale (sanità e sostegno)')!;
+    expect(burden.value).toBe('8.1');
+    expect(burden.basis.kind).toBe('estimated');
+    expect(voice.figures.find(f => f.label === 'Popolazione')!.value).toBe('50000000');
+    expect(voice.figures.find(f => f.label === 'Stabilità')!.value).toBe('62');
+    expect(voice.paths.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('SENZA il dato, le due sedie TACCIONO: nessuna voce inventata', () => {
+    // La guardia contro il falso verde: senza `education`/`health` in input, la
+    // nuova fonte non ha abolito la regola «un ministro senza dati tace».
+    const agenda = buildAgenda({ ...base });
+    expect(agenda.voices).toEqual([]);
+    expect(agenda.headline).toContain('Nessuna questione');
+  });
+
+  it('le sedie preesistenti NON cambiano le loro voci', () => {
+    // Regressione: con gli stessi input di prima (senza education/health), gli
+    // stessi id, nello stesso ordine. Aggiungere le sedie nuove non riassegna
+    // alcuna voce esistente.
+    const agenda = buildAgenda({
+      ...base,
+      debt: { ratioPct: 120, servicePct: 22 },
+      cashFlow: { balancePct: -3, balance: '-30', unit: 'mld', revenuePct: 25 },
+      defence: { burdenPct: 1.2, forces: 200, mobilized: 0, factionSatisfaction: null },
+    });
+    expect(agenda.voices.map(v => v.id)).toEqual([
+      'treasury_condition', 'debt_service', 'defence_condition',
+    ]);
+  });
+});

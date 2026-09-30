@@ -1307,6 +1307,31 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   border-radius: 10px;
   background: #0f1a2c;
 }
+/* WS-GOVOFFICE-05 — Il pannello dati è a scomparsa, chiuso di default. Il
+   controllo è un pulsante vero (lo dice `aria-expanded`), non un div cliccabile.
+   Il corpo si apre sotto il toggle; da chiuso è nel DOM ma `hidden`. */
+.minister-dossier-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #2a3a52;
+  border-radius: 8px;
+  background: #142238;
+  color: #dbe6f5;
+  font: 700 10.5px/1.3 system-ui, sans-serif;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.minister-dossier-toggle:hover { border-color: #5b7ba6; }
+.minister-dossier-toggle:focus-visible { outline: 2px solid #927be4; outline-offset: 2px; }
+.minister-dossier-toggle-label { text-align: left; }
+.minister-dossier-toggle-icon { color: #93a6c0; font-size: 11px; }
+.minister-dossier-body { display: flex; flex-direction: column; gap: 10px; }
+.minister-dossier-body[hidden] { display: none; }
 .minister-dossier-head { display: flex; flex-direction: column; gap: 3px; }
 .minister-dossier-name { font: 700 14px/1.25 Georgia, serif; color: #f2f6ff; }
 .minister-dossier-competence { font: 400 11.5px/1.4 system-ui, sans-serif; color: #93a6c0; }
