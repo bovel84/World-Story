@@ -1,17 +1,17 @@
 /**
- * WS-MINISTER-UX-05 — Screenshot della memoria della sedia.
- * Uso: node ux05-shot.mjs <prefisso-out> [larghezza] [altezza]
+ * WS-MINISTER-UX-06 — Screenshot della bozza d'atto e della firma.
+ * Uso: node ux06-shot.mjs <prefisso-out> [larghezza] [altezza]
  *
- * Cattura il fascicolo della sedia aperto sui ricordi: un atto accodato e le
- * proposte discusse, con la nota che dichiara la natura di tappa intermedia.
- * Mock offline, nessun LLM reale.
+ * Cattura la decisione del Presidente sul tavolo: la strada preparata in bozza
+ * (capacità dichiarata + testo correggibile) e la stessa bozza dopo la firma
+ * (`accodato`). Mock offline, nessun LLM reale.
  *
  * Variabile d'ambiente: `GOVOFFICE_BASE_URL` (default http://localhost:5173).
  */
 import { chromium } from 'playwright';
 import { installMockApi } from './mock-api.mjs';
 
-const prefix = process.argv[2] || '/tmp/ux05';
+const prefix = process.argv[2] || '/tmp/ux06';
 const width = Number(process.argv[3]) || 1440;
 const height = Number(process.argv[4]) || 900;
 const baseUrl = process.env.GOVOFFICE_BASE_URL || 'http://localhost:5173';
@@ -43,28 +43,19 @@ await page.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
 await page.locator('.minister-chat').waitFor({ state: 'visible', timeout: 15_000 });
 await page.waitForTimeout(600);
 
-const chat = page.locator('.government-office-pane-chat');
 const table = page.locator('.government-office-pane-table');
 const mobile = width <= 767;
 
-// Un atto accodato... (su mobile la tavola è un'altra linguetta: ci si passa).
 if (mobile) await page.locator('.minister-session-view', { hasText: 'Tavola' }).click();
 await table.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
-await page.waitForTimeout(300);
-await table.locator('.act-draft-sign').click();
 await page.waitForTimeout(500);
-if (mobile) await page.locator('.minister-session-view', { hasText: 'Dialogo' }).click();
-// ...e una proposta discussa: due ricordi di specie diversa.
-const textarea = chat.locator('textarea');
-await textarea.scrollIntoViewIfNeeded();
-await textarea.fill('Confronta le due strade');
-await chat.locator('.minister-compose button').click();
-await page.waitForTimeout(2400);
+await page.locator('.act-draft').scrollIntoViewIfNeeded().catch(() => {});
+await page.screenshot({ path: `${prefix}-bozza.png` });
 
-await page.locator('.seat-brief-summary').click();
-await page.locator('.seat-brief-memory').waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
-await page.waitForTimeout(400);
-await page.screenshot({ path: `${prefix}-memoria.png` });
+// La firma: la bozza dichiara lo stato reale `accodato`.
+await table.locator('.act-draft-sign').click();
+await page.waitForTimeout(600);
+await page.screenshot({ path: `${prefix}-firmato.png` });
 
 await browser.close();
-console.log(`[ok] screenshot in ${prefix}-memoria.png`);
+console.log(`[ok] screenshot in ${prefix}-bozza.png e ${prefix}-firmato.png`);

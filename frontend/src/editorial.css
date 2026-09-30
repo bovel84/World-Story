@@ -1785,7 +1785,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .treasury-act-road-voice { margin: 0; font: 400 12.5px/1.5 var(--op-copy, system-ui, sans-serif); color: #d7e2f5; }
 .treasury-act-road-terms { margin: 0; display: flex; flex-direction: column; gap: 2px; font: 400 11.5px/1.45 system-ui, sans-serif; color: #a8bdd8; }
 .treasury-act-road-terms b { color: #cfe0f5; }
-.treasury-act-sign {
+.treasury-act-prepare {
   align-self: flex-start;
   margin-top: 2px;
   padding: 6px 12px;
@@ -1796,9 +1796,59 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   font: 700 11.5px/1.3 system-ui, sans-serif;
   cursor: pointer;
 }
-.treasury-act-sign:hover:not(:disabled) { background: #24405f; border-color: #927be4; }
-.treasury-act-sign:disabled { opacity: .7; cursor: default; }
+.treasury-act-prepare:hover:not(:disabled) { background: #24405f; border-color: #927be4; }
+.treasury-act-prepare:disabled { opacity: .7; cursor: default; }
 .treasury-act-quiet { margin: 0; font: 400 12px/1.5 system-ui, sans-serif; color: #7d8ea8; }
+
+/* WS-MINISTER-UX-06 — Dal tavolo al registro: confronto e bozza d'atto. */
+.seat-table-actions { display: flex; gap: 8px; }
+.seat-table-compare {
+  padding: 6px 12px;
+  border: 1px solid #526783;
+  border-radius: 8px;
+  background: transparent;
+  color: #cfe0f5;
+  font: 700 11.5px/1.3 system-ui, sans-serif;
+  cursor: pointer;
+}
+.seat-table-compare:hover { background: #1b2f4b; border-color: #927be4; }
+.act-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid #4b3f78;
+  border-radius: 10px;
+  background: #171f36;
+}
+.act-draft[data-state="queued"] { border-color: #5fb98a; background: #12281f; }
+.act-draft[data-state="failed"] { border-color: #b96a6a; background: #2a1717; }
+.act-draft-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.act-draft-kicker { font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .07em; text-transform: uppercase; color: #b3a6ea; }
+.act-draft-title { margin: 0; font: 700 14px/1.25 Georgia, serif; color: #f2f6ff; }
+.act-draft-capability { margin-left: auto; padding: 1px 8px; border: 1px solid #526783; border-radius: 999px; font: 700 9.5px/1.5 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #cfe0f5; }
+.act-draft-capability.capability-engine-order { border-color: #2f8a58; color: #9fe0ba; }
+.act-draft-capability.capability-text-order { border-color: #8a7a2b; color: #e6d98a; }
+.act-draft-capability.capability-unsupported { border-color: #b96a6a; color: #f0b0b0; }
+.act-draft-note { margin: 0; font: 400 11.5px/1.5 system-ui, sans-serif; color: #a8bdd8; }
+.act-draft-label { font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #93a6c0; }
+.act-draft-text { width: 100%; resize: vertical; padding: 8px 9px; border: 1px solid #3a5273; border-radius: 8px; background: #0f1b2e; color: #eef3fc; font: 400 12px/1.5 var(--op-copy, system-ui, sans-serif); }
+.act-draft-text:disabled { opacity: .75; }
+.act-draft-status { display: flex; align-items: baseline; gap: 8px; font: 400 11.5px/1.5 system-ui, sans-serif; color: #a8bdd8; }
+.act-draft-state { padding: 1px 8px; border-radius: 999px; background: #24344f; font: 700 10px/1.6 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #cfe0f5; }
+.act-draft-state.state-queued { background: #1f5236; color: #b8ecc9; }
+.act-draft-state.state-executed { background: #1f4a5e; color: #bfe6f2; }
+.act-draft-state.state-failed { background: #5a2525; color: #f2c0c0; }
+.act-draft-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.act-draft-sign { padding: 7px 14px; border: 1px solid #2f8a58; border-radius: 8px; background: #2f8a58; color: #fff; font: 700 11.5px/1.3 system-ui, sans-serif; cursor: pointer; }
+.act-draft-sign:hover:not(:disabled) { background: #37996a; }
+.act-draft-sign:disabled { opacity: .6; cursor: default; }
+.act-draft-cancel { padding: 7px 12px; border: 1px solid #526783; border-radius: 8px; background: transparent; color: #cfe0f5; font: 700 11.5px/1.3 system-ui, sans-serif; cursor: pointer; }
+.act-draft-cancel:hover:not(:disabled) { background: #1b2f4b; }
+.government-office-act-status { margin: 6px 0 0; padding: 6px 9px; border-left: 3px solid #526783; border-radius: 4px; background: #101c30; font: 400 11.5px/1.5 system-ui, sans-serif; color: #cfe0f5; }
+.government-office-act-status[data-state="queued"] { border-left-color: #5fb98a; }
+.government-office-act-status[data-state="executed"] { border-left-color: #4aa3c0; }
+.government-office-act-status[data-state="failed"] { border-left-color: #b96a6a; }
 
 /* ── Il piano strategico a cascata ─────────────────────────────────────── */
 .plan-diagram { display: flex; flex-direction: column; gap: 9px; }
@@ -2003,8 +2053,25 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .government-office-pane-table .treasury-act-road-voice { color: #40382a; }
 .government-office-pane-table .treasury-act-road-terms { color: var(--table-muted); }
 .government-office-pane-table .treasury-act-quiet { color: var(--table-muted); }
-.government-office-pane-table .treasury-act-sign { border-color: #2f6b4a; background: #2f6b4a; color: #fff; }
-.government-office-pane-table .treasury-act-sign:disabled { opacity: .5; }
+.government-office-pane-table .treasury-act-prepare { border-color: #2f6b4a; background: #2f6b4a; color: #fff; }
+.government-office-pane-table .treasury-act-prepare:disabled { opacity: .5; }
+.government-office-pane-table .seat-table-compare { border-color: #c3b598; color: #40382a; }
+.government-office-pane-table .seat-table-compare:hover { background: #fffaf1; border-color: #8a5a2b; }
+.government-office-pane-table .act-draft { border-color: #c3b598; background: #fffaf1; }
+.government-office-pane-table .act-draft[data-state="queued"] { border-color: #2f8a58; background: #eef6ee; }
+.government-office-pane-table .act-draft[data-state="failed"] { border-color: #b96a6a; background: #fbeeee; }
+.government-office-pane-table .act-draft-kicker { color: #8a5a2b; }
+.government-office-pane-table .act-draft-title { color: var(--table-ink); }
+.government-office-pane-table .act-draft-capability { border-color: #c3b598; color: #40382a; }
+.government-office-pane-table .act-draft-note { color: var(--table-muted); }
+.government-office-pane-table .act-draft-label { color: #8a7f6a; }
+.government-office-pane-table .act-draft-text { border-color: #ded4c0; background: #fff; color: #2b2419; }
+.government-office-pane-table .act-draft-status { color: var(--table-muted); }
+.government-office-pane-table .act-draft-state { background: #e6dcc8; color: #40382a; }
+.government-office-pane-table .act-draft-state.state-queued { background: #d7ecdd; color: #1f6b45; }
+.government-office-pane-table .act-draft-cancel { border-color: #c3b598; color: #40382a; }
+.government-office-pane-table .act-draft-cancel:hover:not(:disabled) { background: #fffaf1; }
+.government-office-pane-table .government-office-act-status { background: #fffaf1; color: #40382a; }
 
 /* Il piano a cascata su carta. */
 .government-office-pane-table .plan-diagram-expanded { background: #f2ece0; }

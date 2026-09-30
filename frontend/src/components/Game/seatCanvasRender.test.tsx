@@ -42,13 +42,13 @@ describe('TreasuryActPanel', () => {
     expect(html).toContain('Scuola elementare');
   });
 
-  it('le due strade hanno costo immediato, guadagno atteso e pulsante di firma', () => {
+  it('le due strade hanno costo immediato, guadagno atteso e pulsante di preparazione', () => {
     const html = renderToStaticMarkup(<TreasuryActPanel act={act} />);
     expect(html).toContain('Ammortamento del debito');
     expect(html).toContain('Investimento');
     expect(html).toContain('Costo immediato:');
     expect(html).toContain('Guadagno atteso:');
-    expect(html.split('Firma l’atto').length - 1).toBe(2);
+    expect(html.split('Prepara l’atto').length - 1).toBe(2);
   });
 });
 

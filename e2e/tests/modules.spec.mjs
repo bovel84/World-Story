@@ -26,6 +26,49 @@ async function reachHud(page) {
   await expect(page.locator('.game-shell')).toBeVisible({ timeout: 20_000 });
 }
 
+/**
+ * WS-MINISTER-UX-06 — L'ordine d'opera che la strada «Investimento» compone dai
+ * dati del mock. È la stessa stringa che `composeCabinetOrderText` produce: serve
+ * al finto avanzamento per restituire l'esito **esatto** di quell'atto, con cui
+ * la UI ricostruisce lo stato «eseguito».
+ */
+function composedInvestOrder() {
+  return [
+    'Aprire il cantiere',
+    '— Aprire il cantiere della ferrovia transnazionale.',
+    'Strada scelta: Impugna la dichiarazione d’opera e i detentori.',
+    'Prerequisiti: nessuno',
+    'Esito atteso: Cantiere avviato: 38% al prossimo turno.',
+  ].join('\n');
+}
+
+/** Avanzamento con l'atto eseguito: l'`action.text` è quello firmato. */
+function actionsProcessed(text) {
+  return {
+    type: 'actions_processed',
+    simulationId: 'mock-simulation-2',
+    revision: 2,
+    processedCount: 1,
+    actions: [
+      {
+        id: 'mock-action-1',
+        text,
+        status: 'completed',
+        result: {
+          narration: 'L’atto è stato eseguito dal motore.',
+          events: ['Atti eseguiti'],
+          eventDetails: [],
+          outcome: { status: 'accepted', summary: 'Atto eseguito.' },
+          objects: [],
+          turn: 1,
+          periodStart: '1951-01-01',
+          periodEnd: '1951-02-01',
+        },
+      },
+    ],
+  };
+}
+
 test.describe('Q01 µ2 — moduli della scrivania', () => {
   test('un solo modulo attivo alla volta (Governo → Nazione)', async ({ page }) => {
     installMockApi(page);
@@ -171,7 +214,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(ufficio.locator('.order-register-signature-office')).toHaveText('Il Presidente del Consiglio');
   });
 
-  test('P04b: Ufficio del Governo — l’atto del Tesoro si firma e finisce nel registro', async ({ page }) => {
+  test('P04b: Ufficio del Governo — l’atto del Tesoro si prepara, si firma e finisce nel registro', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
@@ -179,16 +222,25 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     const ufficio = page.locator('.government-office');
     await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
 
-    // WS-GOVOFFICE-07 — La richiesta dei Lavori è in attesa sul tavolo; firmare
-    // la strada d'investimento la accoglie (Parte D: reazione dei ministri).
+    // WS-GOVOFFICE-07 / UX-06 — La richiesta dei Lavori è in attesa sul tavolo;
+    // preparare la strada d'investimento ne fa una bozza, senza accodare.
     const atto = page.locator('.government-office-pane-table .treasury-act');
     await expect(atto).toBeVisible();
     await expect(atto.locator('.treasury-act-request')).toHaveAttribute('data-state', 'pending');
-    await atto.locator('.treasury-act-road[data-road="invest"] .treasury-act-sign').click();
+    await atto.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
+
+    const bozza = page.locator('.government-office-pane-table .act-draft');
+    await expect(bozza).toBeVisible();
+    await expect(bozza).toContainText('ordine d’opera supportato');
+    await expect(bozza.locator('.act-draft-state')).toHaveText('preparato');
+    // Preparare non accoda: il registro resta vuoto finché non si firma.
+    await expect(ufficio.locator('.order-register-act')).toHaveCount(0);
+
+    // La firma esplicita del Presidente: solo ora l'atto entra nel registro.
+    await bozza.locator('.act-draft-sign').click();
+    await expect(bozza.locator('.act-draft-state')).toHaveText('accodato');
     await expect(atto.locator('.treasury-act-request')).toHaveAttribute('data-state', 'accepted');
     await expect(atto.locator('.treasury-act-request-label')).toContainText('accolta');
-    await expect(atto.locator('.treasury-act-road[data-road="invest"] .treasury-act-sign'))
-      .toContainText('Atto firmato nel registro');
 
     // L'atto firmato è nel REGISTRO della prima schermata, non resta una promessa.
     await page.locator('.government-office-back').click();
@@ -287,8 +339,9 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     const chat = page.locator('.government-office-pane-chat');
     const tavola = page.locator('.government-office-pane-table');
 
-    // Un atto accodato e una proposta discussa: due ricordi di specie diversa.
-    await tavola.locator('.treasury-act-road[data-road="invest"] .treasury-act-sign').click();
+    // Un atto firmato e una proposta discussa: due ricordi di specie diversa.
+    await tavola.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
+    await tavola.locator('.act-draft-sign').click();
     await chat.locator('textarea').fill('Confronta le due strade');
     await chat.locator('.minister-compose button').click();
     await expect(tavola.locator('.proposal-comparison')).toBeVisible({ timeout: 15_000 });
@@ -321,6 +374,57 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
     await page.locator('.seat-brief-summary').click();
     await expect(page.locator('.seat-brief-memory')).toContainText('Atto accodato: Aprire il cantiere');
+  });
+
+  test('P06: Ufficio del Governo — dalla proposta alla decisione, con esito reale (UX-06)', async ({ page }) => {
+    const ordine = composedInvestOrder();
+    installMockApi(page, { advanceResult: actionsProcessed(ordine) });
+    await reachHud(page);
+
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
+    const ufficio = page.locator('.government-office');
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    const tavola = page.locator('.government-office-pane-table');
+
+    // [1] «Confronta le strade» dal tavolo: mostra, non accoda e non spende.
+    await tavola.locator('.seat-table-compare').click();
+    await expect(tavola.locator('.proposal-comparison')).toBeVisible();
+    await expect(ufficio.locator('.order-register-act')).toHaveCount(0);
+
+    // [2] «Prepara l'atto»: bozza correggibile, ancora nessun atto nel registro.
+    await tavola.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
+    const bozza = tavola.locator('.act-draft');
+    await expect(bozza).toBeVisible();
+    await expect(bozza.locator('.act-draft-state')).toHaveText('preparato');
+    await expect(bozza).toContainText('ordine d’opera supportato');
+    await expect(ufficio.locator('.order-register-act')).toHaveCount(0);
+
+    // [3] «Modifica proposta»: il testo è del Presidente. Lo si corregge e si
+    //     riporta all'atto voluto; la dichiarazione d'opera non cambia.
+    await bozza.locator('.act-draft-text').fill('Testo corretto dal Presidente');
+    await expect(bozza.locator('.act-draft-text')).toHaveValue('Testo corretto dal Presidente');
+    await bozza.locator('.act-draft-text').fill(ordine);
+
+    // [4] La firma esplicita: l'atto entra nel registro, una volta sola.
+    await bozza.locator('.act-draft-sign').click();
+    await expect(bozza.locator('.act-draft-state')).toHaveText('accodato');
+    await page.locator('.government-office-back').click();
+    await expect(ufficio.locator('.order-register-act')).toHaveCount(1);
+    await expect(ufficio.locator('.order-register-act').first()).toContainText('Aprire il cantiere');
+
+    // [5] Tempo: il motore esegue l'atto. Riaprendo il tavolo la bozza ritrovata
+    //     dichiara lo stato **reale** — dalla cronologia, non da un flag locale.
+    await page.locator('.government-office .desk-close-x').click();
+    await page.locator('.hud-advance-btn').click();
+    await expect(page.locator('.time-desk-content')).toBeVisible();
+    await page.locator('.time-desk-next').click();
+
+    await page.locator('.rail-btn[aria-label="Governo"]').click();
+    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    await page.locator('.government-office-pane-table .treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
+    const bozzaDopo = page.locator('.government-office-pane-table .act-draft');
+    await expect(bozzaDopo.locator('.act-draft-state')).toHaveText('eseguito');
+    await expect(page.locator('.government-office-pane-table .treasury-act-request')).toHaveAttribute('data-state', 'accepted');
   });
 
   test('P05: Ufficio del Governo — «Nulla di fatto» chiude la seduta senza atti', async ({ page }) => {
