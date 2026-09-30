@@ -5,8 +5,10 @@
  */
 import { Router } from 'express';
 import { shortId } from '../../utils/short-id';
-import { gameRepository } from '../../repositories';
+import { gameRepository, ministerMemoryRepository } from '../../repositories';
 import { countryRepository } from '../../repositories/country.repository';
+import { CABINET_SEATS, type CabinetSeat } from '../../core/government/Cabinet';
+import { mandateFor, normalizeMinisterMemory } from '../../core/government/MinisterMemory';
 import { getSessionRegistry } from '../../session-registry';
 import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult } from '../../game-session';
 import { IdempotencyConflictError, simulationJobService } from '../../jobs/SimulationJobService';
@@ -36,6 +38,28 @@ import {
 } from './helpers';
 import { validateBody } from '../validation';
 import { actionTextSchema, advisorSchema } from './schemas';
+
+/**
+ * WS-MINISTER-UX-05 — Persiste la memoria che il client invia con la richiesta,
+ * PRIMA che il server componga il prompt: così la risposta vede i ricordi.
+ *
+ * Il **mandato** è derivato server-side dal governo in carica: il client non
+ * decide l'identità. Una sedia sconosciuta o un payload invalido non scrivono
+ * nulla (la rotta risponderà comunque con l'errore della sedia).
+ */
+function persistMinisterMemory(session: any, gameId: string, seat: string, raw: unknown): void {
+  if (!CABINET_SEATS.includes(seat as CabinetSeat)) return;
+  const records = normalizeMinisterMemory(raw);
+  if (records.length === 0) return;
+  try {
+    const branchId = session.fenceContext().branchId;
+    const mandate = mandateFor(seat as CabinetSeat, session.getGovernment(), session.getPlayer()?.polityId ?? null);
+    ministerMemoryRepository.upsertRecords({ gameId, branchId, seat: seat as CabinetSeat, mandate }, records);
+  } catch (error) {
+    // La memoria non deve mai far fallire una risposta: si registra e si prosegue.
+    console.warn('[MinisterMemory] scrittura non riuscita:', error);
+  }
+}
 
 export function registerAdvisorRoutes(router: Router): void {
 router.post('/:id/action', async (req, res) => {
@@ -185,6 +209,7 @@ router.post('/:id/government/minister/:seat', async (req, res) => {
   const history = normalizeAdvisorHistory(req.body?.history);
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
+    persistMinisterMemory(session, gameId, seat, req.body?.memory);
     const reply = await session.getMinisterReply(seat, message, history);
     res.json(reply);
   } catch (e: any) {
@@ -210,6 +235,7 @@ router.post('/:id/government/minister/:seat/stream', async (req, res) => {
 
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
+    persistMinisterMemory(session, gameId, seat, req.body?.memory);
     let gotTextChunks = false;
     const onToken = (chunk: unknown) => {
       if (typeof chunk === 'string' && chunk.length > 0) {

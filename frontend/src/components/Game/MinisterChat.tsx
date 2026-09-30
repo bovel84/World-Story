@@ -24,7 +24,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ministerApi, type AdvisorHistoryItem } from '../../services/api';
+import { ministerApi, type AdvisorHistoryItem, type MinisterMemoryItem } from '../../services/api';
 import type { CabinetAddressView, CabinetItemView, CabinetPathView } from '../../services/api';
 import { basisLabel, isUnknown } from './CabinetSession';
 import { EngineText } from './EngineText';
@@ -69,11 +69,12 @@ export interface MinisterChatProps {
    */
   onPresentation?: (messageId: string, quote: string, directive: PresentationDirective) => void;
   /**
-   * WS-MINISTER-UX-05 — La sintesi della memoria della sedia (tappa intermedia):
-   * viene inviata **prima** della domanda, così il ministro ricorda gli impegni
-   * anche quando la cronologia visibile è breve. Non è mostrata nella chat.
+   * WS-MINISTER-UX-05 — La memoria della sedia. Viene inviata **con** la
+   * richiesta (non mostrata nella chat): il server la valida, ne deriva il
+   * mandato e la persiste, così il ministro ricorda gli impegni anche quando la
+   * cronologia visibile è breve.
    */
-  memoryPrompt?: string;
+  memory?: MinisterMemoryItem[];
 }
 
 /** La barra di una cifra: la grafica dentro la chat, dai numeri del motore. */
@@ -100,7 +101,7 @@ function FigureBar({ figure }: { figure: CabinetItemView['figures'][number] }) {
 export function MinisterChat({
   gameId, address, onChoose,
   messages, streaming, onAddMessage, onAppendToken, onStreamingChange,
-  onOrderFromUserMessage, onPresentation, memoryPrompt,
+  onOrderFromUserMessage, onPresentation, memory,
 }: MinisterChatProps) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
@@ -157,9 +158,9 @@ export function MinisterChat({
     onAddMessage({ role: 'assistant', content: '' });
     // WS-MINISTER-UX-05 — La memoria precede la domanda: il testo mostrato resta
     // quello del Presidente, ma al modello arrivano prima i ricordi pertinenti.
-    const outbound = memoryPrompt ? `${memoryPrompt}\n\n---\n\n${text}` : text;
+    const outbound = text;
     try {
-      await ministerApi.askStream(gameId, address.seat, outbound, history, onAppendToken);
+      await ministerApi.askStream(gameId, address.seat, outbound, history, onAppendToken, memory ?? []);
     } catch (e) {
       console.error('[Government] Minister reply failed:', e);
       setError('Il ministro non risponde ora.');

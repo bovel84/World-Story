@@ -4,6 +4,8 @@
  */
 
 export { mapRepository } from './map.repository';
+export { ministerMemoryRepository } from './minister-memory.repository';
+export type { MinisterMemoryBranchScope, MinisterMemoryScope } from './minister-memory.repository';
 export { worldRepository } from './world.repository';
 export { gameRepository } from './game.repository';
 export type { PressureRecord } from './game.repository';

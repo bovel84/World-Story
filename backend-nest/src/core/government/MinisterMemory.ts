@@ -112,6 +112,70 @@ const STATE_LABEL: Record<MinisterMemoryState, string> = {
   verified: 'verificato',
 };
 
+/** I generi e gli stati ammessi, per la validazione dei dati in arrivo dal client. */
+export const MINISTER_MEMORY_KINDS: readonly MinisterMemoryKind[] = [
+  'objective', 'proposal-discussed', 'proposal-rejected', 'open-question', 'queued-decision', 'verified-outcome',
+];
+export const MINISTER_MEMORY_STATES: readonly MinisterMemoryState[] = [
+  'open', 'discussed', 'rejected', 'queued', 'executed', 'verified',
+];
+
+/**
+ * L'identità del mandato, derivata **server-side** dal governo in carica.
+ *
+ * Il motore non modella un identificativo di legislatura: l'identità è composta
+ * da sedia, polity e **fazione dominante** del consiglio. Quando la dominante
+ * cambia, il mandato cambia e la memoria non si mescola fra governi diversi.
+ * È l'unico punto in cui si decide questa identità.
+ */
+export function mandateFor(
+  seat: CabinetSeat,
+  government: { dominantId?: string | null } | null | undefined,
+  polityId: string | null | undefined,
+): string {
+  const dominant = government?.dominantId ?? 'council';
+  return `${seat}@${polityId ?? 'unknown'}:${dominant}`;
+}
+
+/**
+ * Normalizza i ricordi inviati dal client: forma stretta, niente fiducia.
+ * Un genere o uno stato fuori vocabolario fa scartare il ricordo, non lo
+ * «aggiusta» con un default. Il testo è tagliato a misure sicure.
+ */
+export function normalizeMinisterMemory(raw: unknown): MinisterMemoryRecord[] {
+  if (!Array.isArray(raw)) return [];
+  const kinds = new Set<string>(MINISTER_MEMORY_KINDS);
+  const states = new Set<string>(MINISTER_MEMORY_STATES);
+  const records: MinisterMemoryRecord[] = [];
+  for (const item of raw.slice(0, 200)) {
+    if (!item || typeof item !== 'object') continue;
+    const candidate = item as Record<string, any>;
+    const kind = typeof candidate.kind === 'string' ? candidate.kind : '';
+    const state = typeof candidate.state === 'string' ? candidate.state : '';
+    if (!kinds.has(kind) || !states.has(state)) continue;
+    const refs = candidate.refs && typeof candidate.refs === 'object' ? candidate.refs : {};
+    const turn = Number(refs.turn);
+    const record: MinisterMemoryRecord = {
+      id: typeof candidate.id === 'string' ? candidate.id.slice(0, 120) : '',
+      kind: kind as MinisterMemoryKind,
+      state: state as MinisterMemoryState,
+      summary: typeof candidate.summary === 'string' ? candidate.summary.slice(0, 400) : '',
+      ...(typeof candidate.reason === 'string' && candidate.reason.trim()
+        ? { reason: candidate.reason.slice(0, 400) }
+        : {}),
+      refs: {
+        ...(typeof refs.messageId === 'string' ? { messageId: refs.messageId.slice(0, 80) } : {}),
+        ...(typeof refs.actId === 'string' ? { actId: refs.actId.slice(0, 80) } : {}),
+        ...(typeof refs.orderId === 'string' ? { orderId: refs.orderId.slice(0, 80) } : {}),
+        gameDate: typeof refs.gameDate === 'string' ? refs.gameDate.slice(0, 10) : '',
+        ...(Number.isFinite(turn) ? { turn } : {}),
+      },
+    };
+    if (isValid(record)) records.push(record);
+  }
+  return records;
+}
+
 /** Una memoria vuota, con la sua identità: il punto di partenza. */
 export function emptyMinisterMemory(scope: MinisterMemoryScope): MinisterMemory {
   return { scope, records: [] };

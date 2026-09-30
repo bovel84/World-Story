@@ -67,6 +67,9 @@ export const advisorSchema = z
   .object({
     message: z.string().optional(),
     history: z.array(z.unknown()).optional(),
+    // WS-MINISTER-UX-05 — memoria del ministro inviata dal client: la rotta la
+    // valida e la persiste (il contenuto è controllato in `normalizeMinisterMemory`).
+    memory: z.array(z.unknown()).optional(),
   })
   .passthrough();
 

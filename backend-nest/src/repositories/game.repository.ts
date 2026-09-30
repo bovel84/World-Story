@@ -5,6 +5,7 @@
 
 import db from '../database';
 import { worldRepository } from './world.repository';
+import { ministerMemoryRepository } from './minister-memory.repository';
 import { semanticStateHash } from '../domain/semantic-hash';
 import { randomUUID } from 'node:crypto';
 import {
@@ -106,11 +107,24 @@ export const gameRepository = {
   },
 
   createBranch: (branch: { id: string; gameId: string; name: string; parentBranchId?: string | null; originCheckpointId?: string | null }) => {
+    // WS-MINISTER-UX-05 — il ramo di partenza, prima che l'head venga spostato.
+    const previousHead = gameRepository.getHeadBranch(branch.gameId);
     db.prepare(`
       INSERT INTO game_branches (id, game_id, name, parent_branch_id, origin_checkpoint_id, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(branch.id, branch.gameId, branch.name, branch.parentBranchId ?? null, branch.originCheckpointId ?? null, new Date().toISOString());
     db.prepare('UPDATE games SET head_branch_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(branch.id, branch.gameId);
+    // WS-MINISTER-UX-05 — SIDECAR: la memoria del ministro si copia sul ramo
+    // nuovo, con la nuova identità di ramo. Con memoria vuota è un no-op: la
+    // creazione del ramo si comporta esattamente come prima.
+    try {
+      const from = previousHead ?? branch.parentBranchId ?? null;
+      if (from && from !== branch.id) {
+        ministerMemoryRepository.forkMemory({ gameId: branch.gameId, branchId: from }, branch.id);
+      }
+    } catch (error) {
+      console.warn('[MinisterMemory] fork sul ramo nuovo non eseguito:', error);
+    }
     return branch;
   },
 
@@ -868,6 +882,20 @@ export const gameRepository = {
   deleteAfterTurn: (gameId: string, turn: number) => {
     db.prepare('DELETE FROM actions WHERE game_id = ? AND turn > ?').run(gameId, turn);
     db.prepare('DELETE FROM turn_results WHERE game_id = ? AND turn > ?').run(gameId, turn);
+    // WS-MINISTER-UX-05 — SIDECAR: la memoria pota i ricordi oltre il punto di
+    // ripristino (il turno a cui si torna è `turn + 1`, coerente con la memoria
+    // politica delle fazioni; la data del mondo viene dalla partita). Con
+    // memoria vuota è un no-op: il rewind si comporta esattamente come prima.
+    try {
+      const branchId = gameRepository.getHeadBranch(gameId);
+      const row = db.prepare('SELECT current_date FROM games WHERE id = ?').get(gameId) as { current_date?: string } | undefined;
+      ministerMemoryRepository.pruneAfter(
+        { gameId, branchId },
+        { turn: turn + 1, gameDate: row?.current_date },
+      );
+    } catch (error) {
+      console.warn('[MinisterMemory] potatura al rewind non eseguita:', error);
+    }
   },
 
   // ── Pressioni di pace: le sfide del turno ─────────────────────────────────

@@ -39,7 +39,7 @@ import { seatCanvasAuthoring } from './seatCanvasConfig';
 import { treasuryAct, type TreasuryRoad } from './treasuryAct';
 import { resolvePresentation, type ActivePresentation, type PresentationDirective } from './presentation';
 import {
-  discussedProposal, loadMemory, memorySection, openQuestion, queuedDecision, recordMemory,
+  discussedProposal, loadMemory, openQuestion, queuedDecision, recordMemory,
   saveMemory, seatRecords, withSeatRecords, type MinisterMemoryRecord, type MinisterMemoryStore,
 } from './ministerMemory';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
@@ -210,7 +210,6 @@ export function GovernmentOffice({
   // WS-MINISTER-UX-05 — I ricordi della sedia, potati alla data corrente, e la
   // loro sintesi per il prompt.
   const memoryRecords = openSeat ? seatRecords(memoryStore, openSeat, currentDate) : [];
-  const memoryPrompt = memorySection(memoryRecords);
 
   // WS-GOVOFFICE-07 — La tela della sedia: blocchi derivati dal read model
   // (pattern Operating Picture) + il contenuto curato che la sedia dichiara nel
@@ -443,7 +442,7 @@ export function GovernmentOffice({
                   address={address}
                   messages={chatMessages}
                   streaming={streaming}
-                  memoryPrompt={memoryPrompt}
+                  memory={memoryRecords}
                   onAddMessage={message => { if (openSeat) addMinisterMessage(openSeat, message); }}
                   onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
                   onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}
