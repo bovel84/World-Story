@@ -156,7 +156,7 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     // chiude l'ufficio.
     await page.locator('.cabinet-pick').first().click();
     await expect(page.locator('.minister-chat')).toBeVisible();
-    await expect(page.locator('.seat-canvas')).toBeVisible();
+    await expect(page.locator('.seat-canvas').first()).toBeVisible();
     const sedutaViolations = await page.evaluate(auditDom);
     expect(sedutaViolations).toEqual([]);
     await page.keyboard.press('Escape');

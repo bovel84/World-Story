@@ -138,22 +138,15 @@ export function MinisterChat({
 
   return (
     <div className="minister-chat" aria-label={`Dialogo con ${address.label}`}>
-      {/* Intestazione «documento», come il banner del Consulente: si capisce in
-          un colpo d'occhio con chi si sta parlando e di cosa si occupa. */}
-      <header className="minister-head">
-        <div className="minister-name">{address.label}</div>
-        <div className="minister-competence">{address.reads}</div>
-      </header>
-
-      {/* WS-GOVOFFICE-03 — Le cifre della sedia NON stanno piu' qui: sono
-          passate al pannello dei dati (MinisterDossier), dove si leggono
-          accanto alla materia invece che in cima al dialogo. */}
-
       <div className="minister-thread" aria-live="polite">
         {messages.length === 0 && !streaming && (
-          <p className="minister-hint">
-            <EngineText text={address.opening} />{' '}Chiedi quello che vuoi: i numeri che vedi sono quelli del motore.
-          </p>
+          <div className="minister-entry assistant minister-greeting">
+            <div className="entry-meta"><span>{address.label}</span></div>
+            <div className="entry-text">
+              <p className="minister-salutation">Signor Presidente,</p>
+              <p><EngineText text={address.opening} /></p>
+            </div>
+          </div>
         )}
         {messages.map((message, index) => {
           const isStreamingThis = index === lastIndex && streaming && message.role === 'assistant';

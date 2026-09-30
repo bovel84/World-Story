@@ -109,35 +109,46 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(ufficio.locator('.pending-item')).toHaveCount(0);
     await expect(ufficio.locator('#free-player-order')).toHaveCount(0);
 
-    // [2] SEDUTA — due pannelli: dialogo a sinistra, dati a destra.
+    // [2] SEDUTA — UX-01: il dialogo a sinistra è la superficie principale, la
+    //     tavola di lavoro a destra. Il saluto e il compositore sono visibili
+    //     subito: non c'è un dossier da scorrere per arrivare alla chat.
     await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
     const chat = page.locator('.government-office-pane-chat');
     await expect(chat.locator('.minister-chat')).toBeVisible();
-    // WS-GOVOFFICE-07 — Lo spazio destro è una TELA, non un'etichetta: l'atto
-    // del Tesoro con le cifre del motore, i blocchi (metriche, grafico, piano a
-    // cascata, mappa delle zone, idee) e le strade firmabili. Sostituisce il
-    // vecchio pannello «Dati della sedia» a scomparsa.
-    const tela = page.locator('.government-office-pane-dossier .seat-canvas');
-    await expect(tela).toBeVisible();
-    const atto = page.locator('.government-office-pane-dossier .treasury-act');
+    await expect(chat.locator('.minister-greeting')).toContainText('La cassa regge');
+    await expect(chat.locator('.minister-compose textarea')).toBeVisible();
+
+    // Il fascicolo della sedia (questioni e cifre) è a scomparsa: la chat non ha
+    // più un dossier davanti.
+    const brief = ufficio.locator('.seat-brief');
+    await expect(brief.locator('.seat-brief-body')).toBeHidden();
+    await brief.locator('.seat-brief-summary').click();
+    await expect(brief).toContainText('Coprire il disavanzo del trimestre: 6,50 mld entro giugno.');
+    await expect(ufficio).not.toContainText('6.5 mld');
+
+    // WS-GOVOFFICE-07 / UX-01 — Lo spazio destro è la TAVOLA: l'atto del
+    // Tesoro con le cifre del motore, la visualizzazione principale (piano a
+    // cascata) e i supporti (mappa, grafico).
+    const tavola = page.locator('.government-office-pane-table');
+    const atto = tavola.locator('.treasury-act');
     await expect(atto).toBeVisible();
     await expect(atto).toContainText('Sul tavolo');
 
-    // Le cifre che la sedia porta restano visibili, con la loro provenienza
-    // (WS-GOVOFFICE-05B: virgola it-IT, 2 decimali sugli assoluti).
-    await expect(tela).toContainText('12,40 mld');
-    await expect(tela).toContainText('misurato · Tesoro');
-    // Il ministro parla in prima persona, con le cifre del motore.
-    await expect(ufficio).toContainText('Coprire il disavanzo del trimestre: 6,50 mld entro giugno.');
-    await expect(ufficio).not.toContainText('6.5 mld');
+    const principale = tavola.locator('.seat-table-main .seat-canvas');
+    const supporto = tavola.locator('.seat-table-support .seat-canvas');
+    await expect(principale).toBeVisible();
+    await expect(principale.locator('[data-kind="strategy"] .plan-diagram')).toBeVisible();
+    await expect(supporto.locator('[data-kind="map"] .zone-map')).toBeVisible();
+    await expect(supporto.locator('[data-kind="chart"] .advisor-chart').first()).toBeVisible();
 
-    // I blocchi della tela: metriche, un grafico del motore, il piano a
-    // cascata, la mappa delle zone e le idee del ministro.
-    await expect(tela.locator('[data-kind="metrics"]').first()).toBeVisible();
-    await expect(tela.locator('[data-kind="chart"] .advisor-chart').first()).toBeVisible();
-    await expect(tela.locator('[data-kind="strategy"] .plan-diagram')).toBeVisible();
-    await expect(tela.locator('[data-kind="map"] .zone-map')).toBeVisible();
-    await expect(tela.locator('[data-kind="ideas"]')).toBeVisible();
+    // Gli approfondimenti (chiusi di default) portano le cifre della sedia con
+    // la loro provenienza e le idee del ministro.
+    await tavola.locator('.seat-table-more-summary').click();
+    const approfondimenti = tavola.locator('.seat-table-more .seat-canvas');
+    await expect(approfondimenti).toContainText('12,40 mld');
+    await expect(approfondimenti).toContainText('misurato · Tesoro');
+    await expect(approfondimenti.locator('[data-kind="metrics"]').first()).toBeVisible();
+    await expect(approfondimenti.locator('[data-kind="ideas"]')).toBeVisible();
 
     // L'atto porta sul tavolo la richiesta dei Lavori e le due strade firmabili.
     await expect(atto.locator('.treasury-act-request')).toContainText('Aprire il cantiere');
@@ -170,7 +181,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
 
     // WS-GOVOFFICE-07 — La richiesta dei Lavori è in attesa sul tavolo; firmare
     // la strada d'investimento la accoglie (Parte D: reazione dei ministri).
-    const atto = page.locator('.government-office-pane-dossier .treasury-act');
+    const atto = page.locator('.government-office-pane-table .treasury-act');
     await expect(atto).toBeVisible();
     await expect(atto.locator('.treasury-act-request')).toHaveAttribute('data-state', 'pending');
     await atto.locator('.treasury-act-road[data-road="invest"] .treasury-act-sign').click();
