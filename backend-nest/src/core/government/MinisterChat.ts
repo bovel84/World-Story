@@ -42,6 +42,7 @@
 
 import { CABINET_SEATS, SEAT_LABEL, SEAT_READS, type CabinetAddress, type CabinetItem, type CabinetSeat } from './Cabinet';
 import { firstMessage, personaFor, personaSection } from './MinisterPersona';
+import { memorySection, type MinisterMemory } from './MinisterMemory';
 import type { GovernmentAgenda } from './GovernmentAgenda';
 
 /** Il contesto di una sedia, pronto per essere dato a un modello. */
@@ -127,7 +128,7 @@ export function colleagueRedirect(from: CabinetSeat, question: string): string |
  * Il testo è deliberatamente esplicito sulle regole: un modello che non le
  * conosce inventa, e un ministro che inventa è peggio di uno che tace.
  */
-export function briefingFor(address: CabinetAddress, agenda: GovernmentAgenda): MinisterBriefing {
+export function briefingFor(address: CabinetAddress, agenda: GovernmentAgenda, memory?: MinisterMemory | null): MinisterBriefing {
   const persona = personaFor(address.seat);
   const lines: string[] = [
     `Sei il ${SEAT_LABEL[address.seat]} del governo.`,
@@ -198,6 +199,17 @@ export function briefingFor(address: CabinetAddress, agenda: GovernmentAgenda): 
   }
 
   lines.push('');
+  // WS-MINISTER-UX-05 — La memoria della seduta, quando c'è: sintesi breve dei
+  // ricordi pertinenti, con la loro provenienza. L'innesto che la fornisce
+  // (persistenza + passaggio dal percorso della chat) è documentato nel report
+  // della fase; il modulo `MinisterMemory` resta puro e testabile da solo.
+  if (memory) {
+    const section = memorySection(memory);
+    if (section) {
+      lines.push(section);
+      lines.push('');
+    }
+  }
   lines.push(`Ci sono ${agenda.voices.length} questioni sul tavolo del consiglio in tutto.`);
 
   return {

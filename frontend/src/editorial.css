@@ -1913,6 +1913,20 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .seat-brief-item { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px solid #24344d; }
 .seat-brief-need { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; font: 600 13.5px/1.45 var(--op-copy); color: #f2f6ff; }
 .seat-brief-because { margin: 0; font: 400 12px/1.5 var(--op-copy); color: #a8bdd8; }
+/* WS-MINISTER-UX-05 — La memoria della sedia (tappa intermedia nel browser). */
+.seat-brief-memory { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid #24344d; }
+.seat-brief-memory-title { margin: 0; font: 700 11px/1.3 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #c3b4ff; }
+.seat-brief-memory-list { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.seat-brief-memory-item { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; border-left: 3px solid #3a4f6c; background: #131f33; }
+.seat-brief-memory-item.kind-proposal-rejected { border-left-color: #d97b7b; }
+.seat-brief-memory-item.kind-queued-decision { border-left-color: #5fb98a; }
+.seat-brief-memory-item.kind-verified-outcome { border-left-color: #6fb0d9; }
+.seat-brief-memory-item.kind-open-question { border-left-color: #d9b061; }
+.seat-brief-memory-state { font: 700 9.5px/1.3 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #93a6c0; }
+.seat-brief-memory-summary { font: 500 12.5px/1.4 var(--op-copy); color: #f2f6ff; }
+.seat-brief-memory-reason { font: 400 11.5px/1.4 var(--op-copy); color: #e0b3ac; }
+.seat-brief-memory-ref { font: 400 10.5px/1.35 system-ui, sans-serif; color: #7d8ea8; }
+.seat-brief-memory-note { margin: 0; font: 400 10.5px/1.45 var(--op-copy); color: #8a9bb4; }
 
 /* ── La tavola: la carta e il suo inchiostro ─────────────────────────────── */
 .government-office-pane-table {
