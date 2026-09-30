@@ -28,11 +28,20 @@
  *    non costruisce. L'ordine nasce alla fine, dalla bozza, e passa per il
  *    preflight (invariante MG-I1).
  *
+ * WS-MINISTER-UX-02 — Il ministro non è più un funzionario intercambiabile. Il
+ * profilo stabile della sedia (`MinisterPersona.ts`) dà **voce, priorità, rischio
+ * e rapporto col Presidente**; il contesto gli chiede di ragionare su **tre
+ * livelli — FATTI, LETTURA, PROPOSTA** — con una regola inviolabile: *un'opinione
+ * non è un dato*. Il ministro può raccomandare e argomentare; non può stimare, e
+ * un `DATO MANCANTE` resta mancante. Il rimando al collega non è più secco:
+ * nomina il collega **e** dice cosa guarderebbe lui, senza invadere la materia.
+ *
  * Modulo **puro**: compone il testo del contesto e la richiesta d'apertura.
  * Nessuna chiamata al modello qui.
  */
 
 import { CABINET_SEATS, SEAT_LABEL, SEAT_READS, type CabinetAddress, type CabinetItem, type CabinetSeat } from './Cabinet';
+import { firstMessage, personaFor, personaSection } from './MinisterPersona';
 import type { GovernmentAgenda } from './GovernmentAgenda';
 
 /** Il contesto di una sedia, pronto per essere dato a un modello. */
@@ -104,7 +113,12 @@ export function seatForQuestion(question: string): CabinetSeat | null {
 export function colleagueRedirect(from: CabinetSeat, question: string): string | null {
   const topic = seatForQuestion(question);
   if (!topic || topic === from) return null;
-  return `Non è la mia materia: ${SEAT_LABEL[topic]} se ne occupa, e legge ${SEAT_READS[topic]}.`;
+  // WS-MINISTER-UX-02 — Il rimando non è più secco: il ministro nomina il
+  // collega con la sua competenza, poi dice **cosa guarderebbe lui**, restando
+  // nella propria. Non invade la materia altrui e non decide al posto di chi
+  // ha la competenza.
+  return `Non è la mia materia: ${SEAT_LABEL[topic]} se ne occupa, e legge ${SEAT_READS[topic]}. `
+    + `Ma posso dirti cosa guarderei io: ${SEAT_READS[from]} — è da lì che partirei, senza decidere al posto di chi ha la competenza.`;
 }
 
 /**
@@ -114,21 +128,33 @@ export function colleagueRedirect(from: CabinetSeat, question: string): string |
  * conosce inventa, e un ministro che inventa è peggio di uno che tace.
  */
 export function briefingFor(address: CabinetAddress, agenda: GovernmentAgenda): MinisterBriefing {
+  const persona = personaFor(address.seat);
   const lines: string[] = [
     `Sei il ${SEAT_LABEL[address.seat]} del governo.`,
     `La tua competenza: ${SEAT_READS[address.seat]}.`,
+    '',
+    personaSection(persona),
     '',
     'REGOLE CHE NON PUOI VIOLARE:',
     '1. Usi SOLO le cifre elencate qui sotto. Non ne deduci, non ne arrotondi, non ne inventi.',
     '2. Dove è scritto «DATO MANCANTE» lo dichiari: non lo sostituisci con una stima plausibile.',
     '3. Non impegni nulla: non spendi, non prenoti, non avvii opere. Proponi, e la decisione è del giocatore.',
-    '4. Se la domanda è fuori dalla tua competenza, NON rispondi al posto del collega: lo dici e NOMINI il collega giusto con la sua competenza, senza rimbalzare in modo secco (es. «Non è la mia materia: la fabbrica è dei Lavori, che legge cantieri, deficit misurati, opere del catalogo»).',
+    '4. Se la domanda è fuori dalla tua competenza, NON rispondi al posto del collega: lo dici e NOMINI il collega giusto con la sua competenza, senza rimbalzare in modo secco (es. «Non è la mia materia: la fabbrica è dei Lavori, che legge cantieri, deficit misurati, opere del catalogo. Ma posso dirti cosa guarderei io: bilancio, debito, cassa e crediti del paese.»).',
+    '',
+    'COME RAGIONI — TRE LIVELLI, MAI CONFUSI:',
+    '- FATTI: le cifre qui sotto, con la loro provenienza. Non ne aggiungi, non ne deduci, non ne arrotondi.',
+    '- LETTURA: cosa ne deduci **tu**. È tua, non è un dato: dilla come tua («a mio avviso», «mi pare»).',
+    '- PROPOSTA: cosa raccomandi, con il compromesso dichiarato («costa X, ma rende Y»). Non decidi: proponi.',
+    'REGOLA INVIOLABILE: un’opinione non è un dato. Il tuo profilo ti dà una voce e delle priorità, NON delle cifre: dove il dato è «DATO MANCANTE» resta mancante, e il tuo profilo non ti autorizza a stimare.',
     '',
     'COME PARLI (racconta, non elencare):',
     '- Prima persona: parti dai fatti della tua sedia (la tua apertura, i tuoi bisogni).',
     '- Collega i fatti con un nesso dichiarato: il «Perché adesso» è la causa, l’esito atteso della strada è la conseguenza.',
     '- Chiudi ponendo la scelta, non decidendo: la decisione è del giocatore.',
-    '- Non aggiungere aneddoti, nomi, date, promesse o opinioni: ogni frase deve poggiare su un campo che vedi qui.',
+    '- Non sei neutrale: hai una LETTURA e una PROPOSTA, e le argomenti con la tua voce. Ma dichiarale come tue.',
+    '- Non aggiungere aneddoti, nomi propri, date o promesse: quei campi non esistono nel briefing.',
+    '- Se l’obiettivo è chiaro ma manca un dettaglio per decidere, chiedilo: una domanda mirata, non un questionario.',
+    '- Se la cronologia mostra che avete già parlato, NON ripresentarti: riprendi il filo della conversazione.',
     '',
     'I TUOI COLLEGHI (per nome e competenza):',
   ];
@@ -178,18 +204,11 @@ export function briefingFor(address: CabinetAddress, agenda: GovernmentAgenda): 
  * composto dai fatti — così la chat si apre su un fatto, non sul vuoto.
  */
 export function openingMessage(briefing: MinisterBriefing, items: readonly CabinetItem[]): string {
-  if (!briefing.hasNeeds) {
-    return `Non ho nulla da portare al consiglio adesso: ${briefing.reads.split(',')[0]} non presenta problemi. Chiedimi quello che vuoi.`;
-  }
-  const first = items[0];
-  const urgent = first.urgency === 'critica' ? 'È la cosa più urgente che ho.' : '';
-  // WS-GOVOFFICE-05 — chiusura che PONE la scelta, con i titoli delle strade
-  // già dichiarate: nessun consiglio nuovo, nessuna decisione presa al posto
-  // del giocatore. Se c'è una sola strada, non si finge un'alternativa.
-  const choice = first.paths.length >= 2
-    ? `La strada è una scelta: ${first.paths.map(path => path.title).join(', oppure ')}. Tocca a te decidere.`
-    : '';
-  return `${first.need}. ${first.because} ${urgent} ${choice}`.trim();
+  // WS-MINISTER-UX-02 — Il primo messaggio non è più la sola frase sul
+  // conteggio: presenta l'incarico, riassume una o due questioni e invita il
+  // Presidente a indicare la priorità. Lo compone `firstMessage` dai soli campi
+  // del motore, con il profilo della sedia.
+  return firstMessage(briefing.seat, items);
 }
 
 /** Le sedie che hanno qualcosa da dire: quelle con cui vale la pena parlare. */

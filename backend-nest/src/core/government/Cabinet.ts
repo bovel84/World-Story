@@ -28,6 +28,7 @@
  */
 
 import type { Figure, GovernmentAgenda, GovernmentVoice, GovernmentPath } from './GovernmentAgenda';
+import { firstMessage } from './MinisterPersona';
 
 /** Le sette sedie del gabinetto, e la competenza di ciascuna. */
 export const CABINET_SEATS = ['tesoro', 'lavori', 'istruzione', 'sanita', 'esteri', 'interno', 'guerra'] as const;
@@ -196,11 +197,7 @@ export function composeCabinet(agenda: GovernmentAgenda): CabinetSession {
   };
 }
 
-/** La frase di apertura di una sedia, composta dai fatti che porta. */
+/** La frase di apertura di una sedia: il vero primo messaggio (WS-MINISTER-UX-02). */
 function openingFor(seat: CabinetSeat, voices: readonly GovernmentVoice[]): string {
-  const critical = voices.filter(voice => voice.urgency === 'critica').length;
-  const count = voices.length;
-  const things = `${count} ${count === 1 ? 'cosa da portare' : 'cose da portare'} al consiglio`;
-  const urgent = critical > 0 ? `, ${critical} ${critical === 1 ? 'urgente' : 'urgenti'}` : '';
-  return `Ho ${things}${urgent}.`;
+  return firstMessage(seat, voices);
 }
