@@ -43,7 +43,7 @@ import { isSmallModel } from './llm/modelTier';
 
 interface GameData {
   /** Request-local, server-derived identity; never serialized into deterministic world state. */
-  ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string };
+  ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string; verifiedState?: string };
   id: string;
   currentDate: string;
   currentTurn: number;
@@ -301,17 +301,27 @@ export class PromptBuilder {
     this.game = game;
   }
 
-  /** Additional long-term source in this existing builder, replacing the unfiltered minister briefing memory. */
-  async buildMinisterMemorySection(): Promise<string> {
+  /**
+   * WS-JEV-W4 — Il blocco di contesto a sezioni del ministro, composto dal
+   * context builder JEV e **innestato** nel builder esistente. Sostituisce il
+   * dump della cronologia: gli scambi recenti entrano qui, entro il budget, e
+   * non vengono più ripetuti come `[Cronaca della conversazione]`.
+   */
+  async buildMinisterContextSection(history: { role: 'user' | 'assistant'; content: string }[] = []): Promise<string> {
     const request = this.game.ministerMemoryRequest;
     const config = getJevConfig();
     if (!config.enabled || !request) return '';
     // Keep pure/legacy prompt construction independent of DB initialization.
-    const { getMinisterMemory } = await import('./core/government/jev/jev-memory.service');
+    const { buildMinisterContext } = await import('./core/government/jev/jev-memory.service');
     if (request.scope.gameId !== this.game.id) throw new Error('Minister memory game mismatch');
-    const { gameId, branchId, seat, mandate } = request.scope;
-    return getMinisterMemory(gameId, branchId, seat, mandate, request.query, config.contextBudget.retrievedMemory,
-      { gameDate: this.game.currentDate, turn: this.game.currentTurn }).text;
+    return buildMinisterContext({
+      scope: request.scope,
+      query: request.query,
+      verifiedState: request.verifiedState,
+      recentConversation: history,
+      asOf: { gameDate: this.game.currentDate, turn: this.game.currentTurn },
+      budget: config.contextBudget,
+    }).text;
   }
 
   // Построить полный набор переменных
@@ -1429,9 +1439,13 @@ export class PromptEngine {
     const vars = builder.buildVariables();
 
     if (getJevConfig().enabled && game.ministerMemoryRequest) {
-      const memory = await builder.buildMinisterMemorySection();
-      message = memory ? `${memory}\n${message}` : message;
-      history = history.slice(-10);
+      const context = await builder.buildMinisterContextSection(history);
+      if (context) {
+        // Il contesto contiene già RECENT CONVERSATION: la cronologia non si
+        // ripete nel suffisso, altrimenti il dump tornerebbe dalla finestra.
+        message = `${context}\n\n---\n\n${message}`;
+        history = [];
+      }
     }
 
     // Пресетный шаблон советника: роль/стиль из пресета, но историю диалога
@@ -1464,9 +1478,11 @@ export class PromptEngine {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
     if (getJevConfig().enabled && game.ministerMemoryRequest) {
-      const memory = await builder.buildMinisterMemorySection();
-      message = memory ? `${memory}\n${message}` : message;
-      history = history.slice(-10);
+      const context = await builder.buildMinisterContextSection(history);
+      if (context) {
+        message = `${context}\n\n---\n\n${message}`;
+        history = [];
+      }
     }
 
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'advisor');

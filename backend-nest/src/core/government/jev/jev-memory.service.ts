@@ -1,12 +1,13 @@
 import { performance } from 'node:perf_hooks';
 import { createHash } from 'node:crypto';
-import { memorySection, relevantMinisterMemory, recallMinisterMemory, type MinisterMemoryPoint, type MinisterMemoryRecall } from '../MinisterMemory';
-import type { CabinetSeat } from '../Cabinet';
+import { memorySection, relevantMinisterMemory, recallMinisterMemory, rankMinisterMemory, ministerMemoryLine, type MinisterMemoryPoint, type MinisterMemoryRecall, type MinisterMemoryScope } from '../MinisterMemory';
+import { personaFor, personaSection } from '../MinisterPersona';
+import { SEAT_LABEL, SEAT_READS, type CabinetSeat } from '../Cabinet';
 import { ministerMemoryRepository } from '../../../repositories/minister-memory.repository';
 import { jevMemoryRepository } from '../../../repositories/jev-memory.repository';
 import { factionMemoryId } from '../../../repositories/faction-memory.repository';
 import type { FactionMemoryEvent } from '../../simulation/FactionMemory';
-import { getJevConfig } from './jev.config';
+import { getJevConfig, type JevContextBudget } from './jev.config';
 import { classifyJevIngest, type JevIngestDecision } from './jev-classify';
 import { jevScopeKey, type JevIngestInput, type JevMemoryRecord, type JevMemoryType, type JevScope } from './jev.types';
 
@@ -304,5 +305,194 @@ export function playerDecisionInput(p: {
     eventType: 'player_decision',
     scope: { kind: 'government', gameId: p.gameId, branchId: p.branchId },
     metadata: { eventId: p.actionId },
+  };
+}
+
+// ── WS-JEV-W4 — Context builder a sezioni (innesto, non sostituto) ────────────
+
+/**
+ * Le sezioni che il prompt del ministro riceve, ciascuna entro il proprio
+ * budget. `CURRENT VERIFIED STATE` viene **solo** dal motore (`verifiedState`),
+ * mai da JEV: JEV aggiunge narrazione, non corregge i numeri.
+ */
+export interface MinisterContextInput {
+  scope: MinisterMemoryScope;
+  query: string;
+  /** Profilo, regole e fatti della sedia, composti dal motore. Mai da JEV. */
+  verifiedState?: string;
+  /** Scambi recenti, dal più vecchio al più nuovo. */
+  recentConversation?: readonly { role: string; content: string }[];
+  asOf?: MinisterMemoryPoint;
+  budget?: JevContextBudget;
+}
+
+export interface MinisterContextSections {
+  identity: string;
+  worldState: string;
+  strategicMemory: string;
+  relevantPast: string;
+  unresolved: string;
+  recentConversation: string;
+}
+
+export interface MinisterContextResult {
+  text: string;
+  sections: MinisterContextSections;
+  telemetry: {
+    section_bytes: Record<string, number>;
+    total_bytes: number;
+    /** Somma dei soli budget dichiarati; `worldState` è il blocco del motore. */
+    budget_bytes: number;
+    /** Vero se il blocco supera i budget dichiarati (briefing del motore esente dal taglio). */
+    over_budget: boolean;
+    legacy_ids: string[];
+    jev_ids: string[];
+    considered: number;
+    model_calls: 0;
+    latency_ms: number;
+  };
+}
+
+const UNRESOLVED_LEGACY = new Set(['open-question', 'queued-decision']);
+const UNRESOLVED_JEV = new Set(['promise', 'conflict']);
+
+/** Compone una sezione entro il budget UTF-8, saltando le righe che non entrano. */
+function jevClaimLine(record: JevMemoryRecord): string {
+  return JSON.stringify({ source: 'JEV-claim', id: record.id, type: record.type, status: record.status,
+    date: record.gameDate, refs: record.sourceEventIds ?? [], excerpt: record.text });
+}
+
+function fitSection(header: string, lines: readonly string[], budget: number): string {
+  if (!lines.length || budget <= 0) return '';
+  if (Buffer.byteLength(`${header}\n`, 'utf8') > budget) return '';
+  let text = `${header}\n`;
+  for (const line of lines) {
+    const next = `${text}${line}\n`;
+    if (Buffer.byteLength(next, 'utf8') > budget) continue;
+    text = next;
+  }
+  return text.trimEnd();
+}
+
+/** Gli scambi recenti che entrano nel budget, dal più nuovo a ritroso. */
+function recentConversationLines(
+  history: readonly { role: string; content: string }[], budget: number,
+): string[] {
+  if (!history.length || budget <= 0) return [];
+  const kept: string[] = [];
+  let used = 0;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (!message || typeof message.content !== 'string' || !message.content.trim()) continue;
+    const speaker = message.role === 'user' ? 'Presidente' : 'Ministro';
+    const line = `${speaker}: ${message.content.trim().replace(/\s+/gu, ' ')}`;
+    const size = Buffer.byteLength(line, 'utf8');
+    if (used + size > budget) break;
+    kept.push(line);
+    used += size;
+  }
+  return kept.reverse();
+}
+
+/**
+ * Il context builder della sedia, a sezioni e a budget, innestato nel
+ * `PromptBuilder` esistente (non un builder parallelo).
+ *
+ * Budget (default da `jev.config`): identità 400, stato verificato 1200,
+ * memoria strategica 800, eventi passati 1200, conversazione recente 800.
+ * `UNRESOLVED ISSUES` condivide il budget residuo dei due blocchi di memoria,
+ * così il totale resta entro il target senza una voce di budget aggiuntiva.
+ *
+ * Flag off o nessun cursore: nessun testo, zero accessi a JEV.
+ */
+export function buildMinisterContext(input: MinisterContextInput): MinisterContextResult {
+  const started = performance.now();
+  const config = getJevConfig();
+  const empty: MinisterContextSections = {
+    identity: '', worldState: '', strategicMemory: '', relevantPast: '', unresolved: '', recentConversation: '',
+  };
+  const emptyResult = (): MinisterContextResult => ({
+    text: '', sections: { ...empty },
+    telemetry: { section_bytes: {}, total_bytes: 0, budget_bytes: 0, over_budget: false, legacy_ids: [], jev_ids: [], considered: 0, model_calls: 0, latency_ms: performance.now() - started },
+  });
+  if (!config.enabled) return emptyResult();
+  const budget = input.budget ?? config.contextBudget;
+  const point = input.asOf ?? jevMemoryRepository.currentPoint(input.scope);
+  if (!point) return emptyResult();
+
+  const scope = input.scope;
+  const legacy = ministerMemoryRepository.listMemory(scope);
+  const jevScope: JevScope = { ...scope, kind: 'minister' };
+  const jev = jevMemoryRepository.listMemory(jevScope, { gameDate: point.gameDate, turn: point.turn, eligibleOnly: true });
+  const ranking = rankMinisterMemory({ scope, records: legacy }, jev, input.query, point);
+
+  // Il briefing della sedia è un blocco curato dal motore (profilo, regole
+  // inviolabili, fatti con la provenienza): si inserisce INTEGRO. Tagliarlo al
+  // budget `worldState` perderebbe proprio le regole e i fatti, che è peggio di
+  // un budget di riferimento superato. `worldState` resta la soglia di
+  // riferimento per uno stato compatto; la dimensione reale è in telemetria e
+  // il `maxMinisterContextTokens` complessivo è applicato con un taglio morbido
+  // che non tocca mai il briefing.
+  const worldState = input.verifiedState?.trim()
+    ? `[CURRENT VERIFIED STATE — fatti del motore, mai da JEV]\n${input.verifiedState.trim()}`
+    : '';
+  // Con il briefing inserito integro, la persona è già in `worldState`: ripeterla
+  // in `identity` sprecherebbe budget. La si include solo senza briefing.
+  const identityLines = [`${SEAT_LABEL[scope.seat]} — legge ${SEAT_READS[scope.seat]}.`];
+  if (!worldState) identityLines.push(...personaSection(personaFor(scope.seat)).split('\n'));
+  const identity = fitSection('[MINISTER IDENTITY]', identityLines, budget.identity);
+
+  const legacyCandidates = ranking.candidates.filter(candidate => candidate.legacy);
+  const jevCandidates = ranking.candidates.filter(candidate => candidate.jev);
+  const strategicMemory = fitSection('[STRATEGIC MEMORY]',
+    legacyCandidates.filter(c => !UNRESOLVED_LEGACY.has(c.legacy!.kind)).map(c => c.line), budget.strategicMemory);
+  const relevantPast = fitSection('[RELEVANT PAST EVENTS — narrativa citata, non fatti del motore]',
+    jevCandidates.filter(c => !(c.jev!.status === 'active' && UNRESOLVED_JEV.has(c.jev!.type))).map(c => c.line), budget.retrievedMemory);
+  // Le questioni aperte contano anche se non rispondono alla domanda del turno:
+  // non passano per il ranking di pertinenza, ma restano nel passato verificato.
+  const isPastRef = (date: string, turn: number | null | undefined) => date <= point.gameDate && (turn == null || turn <= point.turn);
+  const unresolvedBudget = Math.max(0, budget.strategicMemory - Buffer.byteLength(strategicMemory, 'utf8'))
+    + Math.max(0, budget.retrievedMemory - Buffer.byteLength(relevantPast, 'utf8'));
+  const unresolved = fitSection('[UNRESOLVED ISSUES — aperti o in sospeso]', [
+    ...legacy.filter(r => UNRESOLVED_LEGACY.has(r.kind) && isPastRef(r.refs.gameDate, r.refs.turn))
+      .map(r => JSON.stringify({ source: 'MinisterMemory', id: r.id, kind: r.kind, state: r.state, refs: r.refs,
+        excerpt: ministerMemoryLine(r), ...(r.reason ? { reason: r.reason } : {}) })),
+    ...jev.filter(r => r.status === 'active' && UNRESOLVED_JEV.has(r.type)).map(jevClaimLine),
+  ], unresolvedBudget);
+  const recentBudget = Math.max(0, budget.recentConversation - Buffer.byteLength('[RECENT CONVERSATION]\n', 'utf8'));
+  const recentConversation = fitSection('[RECENT CONVERSATION]',
+    recentConversationLines(input.recentConversation ?? [], recentBudget), budget.recentConversation);
+
+  const sections: MinisterContextSections = { identity, worldState, strategicMemory, relevantPast, unresolved, recentConversation };
+  const text = [sections.identity, sections.worldState, sections.strategicMemory, sections.relevantPast, sections.unresolved, sections.recentConversation]
+    .filter(Boolean).join('\n\n');
+
+  // Access metadata sulle sole evidenze JEV realmente finite nel testo scelto:
+  // è la stessa semantica `touch` di W3, non uno stato deterministico.
+  const selectedJevIds = [
+    ...jevCandidates.map(c => ({ id: c.jev!.id, line: c.line, section: sections.relevantPast })),
+    ...jev.filter(r => r.status === 'active' && UNRESOLVED_JEV.has(r.type))
+      .map(r => ({ id: r.id, line: jevClaimLine(r), section: sections.unresolved })),
+  ].filter(entry => entry.section.includes(entry.line)).map(entry => entry.id);
+  if (selectedJevIds.length) jevMemoryRepository.touch(jevScope, selectedJevIds, new Date().toISOString());
+
+  // `worldState` è il briefing del motore, inserito integro (vedi sopra): il
+  // confronto con i budget dichiarati è diagnostico, non un taglio. Le sezioni
+  // di memoria restano invece vincolate ai rispettivi budget.
+  const budgetBytes = budget.identity + budget.worldState + budget.strategicMemory + budget.retrievedMemory + budget.recentConversation;
+  const totalBytes = Buffer.byteLength(text, 'utf8');
+  return {
+    text, sections,
+    telemetry: {
+      section_bytes: Object.fromEntries(Object.entries(sections).map(([key, value]) => [key, Buffer.byteLength(value, 'utf8')])),
+      total_bytes: totalBytes,
+      budget_bytes: budgetBytes,
+      over_budget: totalBytes > budgetBytes,
+      legacy_ids: legacyCandidates.map(c => c.legacy!.id),
+      jev_ids: jevCandidates.map(c => c.jev!.id),
+      considered: ranking.considered,
+      model_calls: 0,
+      latency_ms: performance.now() - started,
+    },
   };
 }
