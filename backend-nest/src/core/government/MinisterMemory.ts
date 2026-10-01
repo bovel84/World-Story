@@ -310,7 +310,7 @@ export function ministerMemoryRelevance(text: string, query: string): number {
   return [...wanted].filter(term => found.has(term)).length / wanted.size;
 }
 
-function memoryExcerpt(text: string, query: string, bytes = 240): string {
+export function memoryExcerpt(text: string, query: string, bytes = 240): string {
   if (Buffer.byteLength(text, 'utf8') <= bytes) return text;
   let best = 0, start = 0;
   for (const match of text.matchAll(/[\p{L}\p{N}]+/gu)) {
@@ -329,6 +329,18 @@ function memoryExcerpt(text: string, query: string, bytes = 240): string {
 }
 
 function compareMemoryIds(a: string, b: string): number { return a === b ? 0 : a < b ? -1 : 1; }
+
+/**
+ * Peso di un'evidenza JEV: pertinenza lessicale, importanza, confidenza,
+ * recency non dominante e lieve preferenza per lo stato attivo. Una sola
+ * formula, condivisa da memoria ministro (W3/W4) e diplomazia (W5).
+ */
+export function jevMemoryScore(record: JevMemoryRecord, query: string, point: MinisterMemoryPoint): number {
+  const days = Math.max(0, (Date.parse(point.gameDate) - Date.parse(record.gameDate)) / 86400000);
+  const recency = Number.isFinite(days) ? 1 / (1 + days / 3650) : 0;
+  return ministerMemoryRelevance(`${record.title ?? ''} ${record.text} ${record.topics.join(' ')}`, query)
+    * record.importance * record.confidence * recency * (record.status === 'active' ? 1.25 : 1);
+}
 
 /** Un candidato già pesato: una riga del prompt e la sua provenienza. */
 export interface RankedMinisterMemory {
@@ -372,8 +384,7 @@ export function rankMinisterMemory(
         ...(r.reason ? { reason: memoryExcerpt(r.reason, query, 160) } : {}) }),
     })),
     ...additional.map(r => ({ legacy: null, jev: r,
-      score: ministerMemoryRelevance(`${r.title ?? ''} ${r.text} ${r.topics.join(' ')}`, query)
-        * r.importance * r.confidence * recency(r.gameDate) * (r.status === 'active' ? 1.25 : 1),
+      score: jevMemoryScore(r, query, point),
       line: JSON.stringify({ source: 'JEV-claim', id: r.id, type: r.type, status: r.status, date: r.gameDate,
         refs: r.sourceEventIds ?? [], excerpt: memoryExcerpt(r.text, query) }),
     })),
