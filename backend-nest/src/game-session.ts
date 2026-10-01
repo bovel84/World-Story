@@ -43,6 +43,7 @@ import { readCabinetSession } from './game/GovernmentReadings';
 import { briefingFor, openingMessage } from './core/government/MinisterChat';
 import { mandateFor, type MinisterMemory, type MinisterMemoryScope } from './core/government/MinisterMemory';
 import { ministerMemoryRepository } from './repositories/minister-memory.repository';
+import { getJevConfig } from './core/government/jev/jev.config';
 import type { FactionMemoryEvent } from './core/simulation/FactionMemory';
 import { commitmentsWorthAttention, type Commitment } from './core/simulation/Commitments';
 import type { CommitmentResult } from './game/CommitmentService';
@@ -3312,8 +3313,10 @@ export class GameSession {
    * appena chiuso (stesso ramo, stessa revisione commessa — nessun write-back,
    * solo broadcast).
    */
-  private async getAdvisorUnchecked(message: string, history: any[], signal?: AbortSignal): Promise<string> {
+  private async getAdvisorUnchecked(message: string, history: any[], signal?: AbortSignal,
+    ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string }): Promise<string> {
     const gameData = this.buildGameData();
+    if (ministerMemoryRequest) gameData.ministerMemoryRequest = ministerMemoryRequest;
     return this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
   }
 
@@ -3352,8 +3355,10 @@ export class GameSession {
     if (!address) {
       throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
     }
-    const question = this.ministerPromptFor(address, message);
-    const reply = await this.getAdvisorUnchecked(question, history, signal);
+    const selective = getJevConfig().enabled;
+    const question = this.ministerPromptFor(address, message, !selective);
+    const request = selective ? { scope: this.ministerMemoryScopeFor(address.seat), query: message } : undefined;
+    const reply = await this.getAdvisorUnchecked(question, history, signal, request);
     return { reply, seat };
   }
 
@@ -3362,7 +3367,7 @@ export class GameSession {
    * SERVER-SIDE dal governo in carica (mai dal label del client). Con memoria
    * vuota l'elenco è vuoto e il briefing resta identico a prima.
    */
-  private ministerMemoryFor(seat: string): MinisterMemory {
+  private ministerMemoryScopeFor(seat: string): MinisterMemoryScope {
     const fence = this.fenceContext();
     const mandate = mandateFor(seat as any, this.getGovernment(), this.getPlayer()?.polityId ?? null);
     const scope: MinisterMemoryScope = {
@@ -3371,6 +3376,11 @@ export class GameSession {
       seat: seat as MinisterMemoryScope['seat'],
       mandate,
     };
+    return scope;
+  }
+
+  private ministerMemoryFor(seat: string): MinisterMemory {
+    const scope = this.ministerMemoryScopeFor(seat);
     // `listMemory` torna le righe; `briefingFor`/`memorySection` vogliono la
     // memoria **con** il suo scope. Senza questo incarto `memory.records` è
     // `undefined` e la composizione del prompt del ministro va in TypeError.
@@ -3382,8 +3392,8 @@ export class GameSession {
    * della sua sedia, poi la domanda. In un punto solo, perché lo usano la
    * richiesta normale e quella in streaming — due copie divergerebbero.
    */
-  private ministerPromptFor(address: any, message: string): string {
-    const memory = this.ministerMemoryFor(address.seat);
+  private ministerPromptFor(address: any, message: string, includeLegacyMemory = true): string {
+    const memory = includeLegacyMemory ? this.ministerMemoryFor(address.seat) : undefined;
     const briefing = briefingFor(address, { voices: [], headline: '', canonicalMutation: false }, memory);
     // Il briefing precede la domanda: il modello parla DELLA sua sedia, non in
     // generale. E la domanda vuota diventa l'apertura del ministro, così la chat
@@ -3393,7 +3403,7 @@ export class GameSession {
   }
 
   /** Il briefing di una sedia, a partire dal suo nome. Per lo streaming. */
-  private ministerPrompt(seat: string, message: string): string {
+  private ministerPrompt(seat: string, message: string, includeLegacyMemory = true): string {
     const fence = this.fenceContext();
     const cabinet = readCabinetSession({
       gameId: this.id,
@@ -3404,7 +3414,7 @@ export class GameSession {
     });
     const address = cabinet.addresses.find((candidate: { seat: string }) => candidate.seat === seat);
     if (!address) throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
-    return this.ministerPromptFor(address, message);
+    return this.ministerPromptFor(address, message, includeLegacyMemory);
   }
 
   /**
@@ -3429,7 +3439,9 @@ export class GameSession {
   ): Promise<string> {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const gameData = this.buildGameData();
-    const prompt = this.ministerPrompt(seat, message);
+    const selective = getJevConfig().enabled;
+    const prompt = this.ministerPrompt(seat, message, !selective);
+    if (selective) gameData.ministerMemoryRequest = { scope: this.ministerMemoryScopeFor(seat), query: message };
     return this.gameController.getAdvisorStreamWithPrompts(gameData, prompt, history, onToken, signal);
   }
 
