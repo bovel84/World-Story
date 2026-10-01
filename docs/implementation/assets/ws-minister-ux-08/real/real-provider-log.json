@@ -1,0 +1,82 @@
+[
+  {
+    "step": "obiettivo",
+    "mainKind": "strategy",
+    "banner": null,
+    "comparison": false,
+    "actBeforeMain": true,
+    "draftFirstLine": null,
+    "memory": null,
+    "lastReply": "Ministro del Tesoro"
+  },
+  {
+    "step": "chiarimento",
+    "mainKind": "metrics",
+    "banner": "Mostrato su richiesta — Le cifre della sedia«Eccellenza, i conti prima delle promesse. Ecco la situazione della mia sedia.\n\n**Fatti.** Il bilancio chiude in avanzo: 0,06 mld, lo 0,2% de»Fissa evidenzaTavola predefinitaVai al messaggio",
+    "comparison": false,
+    "actBeforeMain": false,
+    "draftFirstLine": null,
+    "memory": null,
+    "lastReply": "Ministro del Tesoro"
+  },
+  {
+    "step": "03-grafico-richiesto",
+    "mainKind": "chart",
+    "banner": "Mostrato su richiesta — Dove va la spesa«Eccellenza, la chiede a me: la spesa è la mia scrivania.\n\n**Fatti.** Le voci che conosco dai conti nazionali: gli interessi assorbono il 5,9»Fissa evidenzaTavola predefinitaVai al messaggio",
+    "comparison": false,
+    "actBeforeMain": false,
+    "draftFirstLine": null,
+    "memory": null,
+    "lastReply": "Ministro del Tesoro"
+  },
+  {
+    "step": "04-mappa-richiesta",
+    "mainKind": "map",
+    "banner": "Mostrato su richiesta — Le zone del paese«Eccellenza, la domanda tocca la materia del collega dei Lavori — il catalogo delle opere è sua — ma la cassa e il territorio si toccano: le »Fissa evidenzaTavola predefinitaVai al messaggio",
+    "comparison": false,
+    "actBeforeMain": false,
+    "draftFirstLine": null,
+    "memory": null,
+    "lastReply": "Ministro del Tesoro"
+  },
+  {
+    "step": "05-alternative",
+    "mainKind": null,
+    "banner": "Mostrato su richiesta — Confronto tra le proposte«Eccellenza, la chiede di nuovo, e la risposta è la stessa da tre sedute: le confronto con i conti in mano.\n\n**Fatti.** Avanzo 0,06 mld, lo 0»Fissa evidenzaTavola predefinitaVai al messaggio",
+    "comparison": true,
+    "actBeforeMain": false,
+    "draftFirstLine": null,
+    "memory": "Cosa ricorda il ministrodiscussa · discussaProposta discussa: Ammortamento del debitomessaggio tesoro#13 · 2000-01-15Questi ricordi accompagnano la richiesta al ministro e sono persistiti dal server p",
+    "lastReply": "Ministro del Tesoro"
+  },
+  {
+    "step": "proposta-modificata",
+    "mainKind": null,
+    "banner": "Mostrato su richiesta — Confronto tra le proposte«Eccellenza, la chiede di nuovo, e la risposta è la stessa da tre sedute: le confronto con i conti in mano.\n\n**Fatti.** Avanzo 0,06 mld, lo 0»Fissa evidenzaTavola predefinitaVai al messaggio",
+    "comparison": true,
+    "actBeforeMain": false,
+    "draftFirstLine": "Rimborso titoli: 3 mld in scadenza il 2003-01-01",
+    "memory": "Cosa ricorda il ministrodiscussa · discussaProposta discussa: Ammortamento del debitomessaggio tesoro#13 · 2000-01-15Questi ricordi accompagnano la richiesta al ministro e sono persistiti dal server p",
+    "lastReply": "Ministro del Tesoro"
+  },
+  {
+    "step": "decisione",
+    "mainKind": null,
+    "banner": "Mostrato su richiesta — Confronto tra le proposte«Eccellenza, la chiede di nuovo, e la risposta è la stessa da tre sedute: le confronto con i conti in mano.\n\n**Fatti.** Avanzo 0,06 mld, lo 0»Fissa evidenzaTavola predefinitaVai al messaggio",
+    "comparison": true,
+    "actBeforeMain": false,
+    "draftFirstLine": "Rimborso titoli: 3 mld in scadenza il 2003-01-01",
+    "memory": "Cosa ricorda il ministrodiscussa · discussaProposta discussa: Ammortamento del debitomessaggio tesoro#13 · 2000-01-15accodata · accodataAtto accodato: Rimborso titoli: 3 mld in scadenza il 2003-01-012",
+    "lastReply": "Ministro del Tesoro"
+  },
+  {
+    "step": "riapertura-memoria",
+    "mainKind": "strategy",
+    "banner": null,
+    "comparison": false,
+    "actBeforeMain": true,
+    "draftFirstLine": null,
+    "memory": "Cosa ricorda il ministrodiscussa · discussaProposta discussa: Ammortamento del debitomessaggio tesoro#13 · 2000-01-15accodata · accodataAtto accodato: Rimborso titoli: 3 mld in scadenza il 2003-01-012",
+    "lastReply": null
+  }
+]
