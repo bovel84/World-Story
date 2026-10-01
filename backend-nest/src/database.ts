@@ -881,6 +881,40 @@ export function initDatabase() {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_minister_memory_scope ON minister_memory(game_id, branch_id, seat, mandate)');
 
+  // JEV-W1: narrative memory only. Existing minister_memory remains authoritative
+  // for its records; no migration or copying between the two stores.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS jev_memory (
+      id TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      branch_id TEXT NOT NULL DEFAULT '',
+      scope TEXT NOT NULL,
+      scope_key TEXT NOT NULL,
+      type TEXT NOT NULL,
+      game_date TEXT NOT NULL,
+      turn INTEGER,
+      created_at TEXT NOT NULL,
+      title TEXT,
+      text TEXT NOT NULL,
+      actors_json TEXT NOT NULL,
+      topics_json TEXT NOT NULL,
+      importance REAL NOT NULL,
+      confidence REAL NOT NULL,
+      status TEXT NOT NULL,
+      lifecycle TEXT NOT NULL,
+      source_event_ids_json TEXT,
+      parent_memory_ids_json TEXT,
+      access_count INTEGER NOT NULL DEFAULT 0,
+      last_accessed_at TEXT,
+      metadata_json TEXT,
+      PRIMARY KEY (id, game_id, branch_id)
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_jev_game ON jev_memory(game_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_jev_scope ON jev_memory(game_id, branch_id, scope, scope_key)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_jev_date ON jev_memory(game_id, branch_id, game_date)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_jev_status ON jev_memory(game_id, branch_id, status)');
+
   // Stato di crisi della partita: giorni di criticità accumulati per dimensione
   // (una volta erano «turni consecutivi», ora è TEMPO CALENDARIO trascorso),
   // gli avanzamenti in cui la criticità è stata osservata e l'eventuale epilogo
