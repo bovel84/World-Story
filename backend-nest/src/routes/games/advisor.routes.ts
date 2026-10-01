@@ -9,6 +9,7 @@ import { gameRepository, ministerMemoryRepository } from '../../repositories';
 import { countryRepository } from '../../repositories/country.repository';
 import { CABINET_SEATS, type CabinetSeat } from '../../core/government/Cabinet';
 import { mandateFor, normalizeMinisterMemory } from '../../core/government/MinisterMemory';
+import { ingestJevMemory, ministerExchangeInput, playerDecisionInput } from '../../core/government/jev/jev-memory.service';
 import { getSessionRegistry } from '../../session-registry';
 import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult } from '../../game-session';
 import { IdempotencyConflictError, simulationJobService } from '../../jobs/SimulationJobService';
@@ -61,6 +62,25 @@ function persistMinisterMemory(session: any, gameId: string, seat: string, raw: 
   }
 }
 
+/**
+ * WS-JEV-W2 — Registra lo scambio presidente↔ministro come memoria narrativa
+ * della sedia/mandato. Best-effort: non lancia mai e non cambia la risposta.
+ */
+function persistJevConversation(session: any, gameId: string, seat: string, message: string, reply: string): void {
+  if (typeof reply !== 'string' || !reply.trim() || !CABINET_SEATS.includes(seat as CabinetSeat)) return;
+  try {
+    const branchId = session.fenceContext().branchId;
+    const mandate = mandateFor(seat as CabinetSeat, session.getGovernment(), session.getPlayer()?.polityId ?? null);
+    ingestJevMemory(ministerExchangeInput({
+      gameId, branchId, seat: seat as CabinetSeat, mandate,
+      gameDate: session.getCurrentDate(), turn: session.getCurrentTurn(),
+      question: message, reply,
+    }));
+  } catch (error) {
+    console.warn('[JEV] conversazione ministro non registrata:', error);
+  }
+}
+
 export function registerAdvisorRoutes(router: Router): void {
 router.post('/:id/action', async (req, res) => {
   if (!validateBody(res, actionTextSchema, req.body)) return;
@@ -78,6 +98,20 @@ router.post('/:id/action', async (req, res) => {
     // comandi, inclusi quelli arrivati in rapida successione, restano nella
     // coda finché il giocatore non sceglie esplicitamente un time-skip.
     const action = session.queueAction(text.trim());
+    // WS-JEV-W2 — SIDECAR: la decisione del giocatore entra nella memoria
+    // narrativa. Best-effort: non lancia mai e non cambia il contratto.
+    try {
+      ingestJevMemory(playerDecisionInput({
+        gameId,
+        branchId: session.fenceContext().branchId,
+        gameDate: session.getCurrentDate(),
+        turn: session.getCurrentTurn(),
+        actionId: action.id,
+        text: action.text,
+      }));
+    } catch (error) {
+      console.warn('[JEV] decisione del giocatore non registrata:', error);
+    }
     res.status(201).json({ action });
   } catch (e: any) {
     console.error('[POST /api/games/:id/action] Error:', e);
@@ -218,6 +252,7 @@ router.post('/:id/government/minister/:seat', async (req, res) => {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
     persistMinisterMemory(session, gameId, seat, req.body?.memory);
     const reply = await session.getMinisterReply(seat, message, history, controller.signal);
+    persistJevConversation(session, gameId, seat, message, reply.reply);
     if (!controller.signal.aborted && !res.destroyed) res.json(reply);
   } catch (e: any) {
     if (!controller.signal.aborted && !res.destroyed) respondRouteError(res, e, 'Failed to get minister reply');
@@ -267,6 +302,7 @@ router.post('/:id/government/minister/:seat/stream', async (req, res) => {
       : (await session.getMinisterReply(seat, message, history, controller.signal)).reply;
     if (controller.signal.aborted || res.destroyed) return;
     if (!gotTextChunks && reply) res.write(reply);
+    persistJevConversation(session, gameId, seat, message, reply);
     res.end();
   } catch (e: any) {
     if (controller.signal.aborted || res.destroyed) return;
