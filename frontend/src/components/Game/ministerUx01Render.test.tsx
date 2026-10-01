@@ -13,10 +13,13 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { SeatBrief } from './SeatBrief';
 import { SeatTable } from './SeatTable';
-import { stabilizationPlan } from './strategicPlan';
+import { parseStrategicPlan } from './strategicPlan';
 import type { CabinetAddressView } from '../../services/api';
 import type { SeatCanvasBlock } from './seatCanvasModel';
 import type { TreasuryAct } from './treasuryAct';
+
+/** Un piano di prova, senza date fisse. */
+const SAMPLE_PLAN = parseStrategicPlan('PIANO: Prova\nESITO: Esito.\nT0 | Radice | Punto | -\nT0 | Ramo A | d | radice\nT0 | Ramo B | d | radice\nT1 | Fusione | d | ramo-a, ramo-b');
 
 const address: CabinetAddressView = {
   seat: 'tesoro',
@@ -49,7 +52,7 @@ const act = {
 const blocks: SeatCanvasBlock[] = [
   { kind: 'metrics', id: 'm', title: 'Cifre', metrics: [{ id: 'a', label: 'Debito', display: '90%', tone: 'warning' }] },
   { kind: 'chart', id: 'c', title: 'Dove va il denaro', figure: { kind: 'bilancio', title: 'Dove va il denaro', note: '', bars: [{ label: 'Istruzione', value: 10, display: '10', tone: 'positive' }] } },
-  { kind: 'strategy', id: 's', title: 'Piano', plan: stabilizationPlan() },
+  { kind: 'strategy', id: 's', title: 'Piano', plan: SAMPLE_PLAN },
   { kind: 'map', id: 'g', title: 'Zone', note: '', zones: [{ id: 'r1', name: 'Alfa', detail: '100', tone: 'positive' }], target: null },
   { kind: 'ideas', id: 'i', title: 'Idee', ideas: [{ title: 'Rimborsare', detail: '…' }] },
 ];

@@ -1,97 +1,133 @@
 /**
- * World Story — WS-GOVOFFICE-07: la tela è di TUTTE le sedie (aggancio per sedia)
+ * World Story — WS-GOVOFFICE-07 / WS-MINISTER-UX-08: il contenuto di TUTTE le sedie
  * ==============================================================================
  * `SeatCanvas` è generico: riceve una lista di blocchi già derivati e non
- * conosce il Tesoro. Questo modulo è il **punto di aggancio per sedia**: una
- * mappa `sedia → configurazione della tela` che decide quale **contenuto
- * curato** (piano strategico, idee, obiettivo della mappa) una sedia porta in
- * più rispetto ai blocchi derivati dal motore (`metrics`/`chart`/`map`).
+ * conosce il Tesoro. Questo modulo è il **punto di aggancio per sedia**: decide
+ * quale **contenuto** una sedia porta in più rispetto ai blocchi derivati dal
+ * motore (`metrics`/`chart`/`map`).
  *
- * Il principio è quello del task:
- *  - i blocchi `metrics`, `chart` e `map` li deriva **sempre** il read model
- *    (`deriveSeatCanvasBlocks`), per ogni sedia, dalla mappa `SEAT_DOMAINS`;
- *  - i blocchi `strategy` e `ideas` sono **contenuto autore**, e qui si dichiara
- *    chi ne ha: il **Tesoro** (primo inquilino, il caso di riferimento) e lo
- *    **Stato maggiore** (sedia `guerra`, secondo esempio minimo). Le altre sedie
- *    ricevono la sola tela derivata, senza cablature: aggiungere una sedia vuol
- *    dire aggiungere una voce a questa mappa, non rifattorizzare.
+ * WS-MINISTER-UX-08 — Correzione dei difetti osservati sul codice reale:
+ *  - **niente piani dimostrativi con date fisse**: il piano (`strategy`) deriva
+ *    dalla **proposta concreta della sedia** e dall'**ancora di gioco corrente**
+ *    (`planFromProposal`). Senza data di gioco o senza strade, il piano non si
+ *    mostra: «dato mancante», non una data inventata;
+ *  - **niente `act.roads` globale**: il piano e le idee di una sedia derivano dai
+ *    **suoi** `items`/`paths` (per il Tesoro, dalle strade del suo atto);
+ *  - **niente contenuto curato per sedia**: la sedia che non porta una proposta
+ *    concreta non inventa un piano. Il Tesoro aggiunge solo l'obiettivo della
+ *    mappa (l'opera in attesa), che è dato del motore, non autore.
  *
- * Aggiungere una sedia = aggiungere una chiave a `SEAT_CANVAS_AUTHORING`.
- * Nessun numero di gioco vive qui: date, titoli e idee sono contenuto curato.
+ * Il modulo resta **puro**: nessun I/O, nessuna chiamata al modello.
  */
-import type { CabinetAddressView } from '../../services/api';
+import type { CabinetAddressView, CabinetItemView, CabinetPathView } from '../../services/api';
 import type { NationalOperatingPicture } from './nationalOperatingPicture';
 import type { NationOperatingPictureSources } from './nationOperatingPictureInput';
 import type { CanvasIdea, SeatCanvasAuthored } from './seatCanvasModel';
-import type { TreasuryAct } from './treasuryAct';
-import { parseStrategicPlan, stabilizationPlan, type StrategicPlan } from './strategicPlan';
+import type { TreasuryAct, TreasuryRoad } from './treasuryAct';
+import { planFromProposal, type StrategicPlan } from './strategicPlan';
 
-/** Tutto ciò che una sedia può guardare per comporre il suo contenuto curato. */
+/** Tutto ciò che una sedia può guardare per comporre il suo contenuto. */
 export interface SeatCanvasContext {
   seat: CabinetAddressView['seat'];
   picture: NationalOperatingPicture;
   sources: NationOperatingPictureSources;
   /** L'atto del Tesoro, quando la sedia è il Tesoro; altrimenti `null`. */
   act: TreasuryAct | null;
+  /** La sedia aperta: la sua proposta concreta (`items[].paths`). */
+  address: CabinetAddressView | null;
 }
 
-/** Compone il contenuto curato di una sedia dal suo contesto. */
+/** Compone il contenuto di una sedia dal suo contesto. */
 export type SeatCanvasAuthoring = (context: SeatCanvasContext) => SeatCanvasAuthored | undefined;
 
-/**
- * Secondo esempio minimo (sedia `guerra`, lo Stato maggiore): un piano
- * militare a cascata. È **autore**, come il piano del Tesoro: la tela lo
- * ospita, il motore non lo genera. Serve a dimostrare che il `kind: strategy`
- * non è cablato al Tesoro.
- */
-export const MILITARY_PLAN_TEXT = [
-  'PIANO: Difesa e Deterrenza Regionale',
-  'ESITO: I confini sono tenuti e la regione rispetta la nazione.',
-  'GEN 2026 | Riarmo ordinato | Ricostituire riserve e mezzi senza sproporzione | -',
-  'FEB 2026 | Fortificazioni di confine | Mettere in sicurezza i valichi | riarmo-ordinato',
-  'FEB 2026 | Esercitazioni congiunte | Addestrare i comandi a muoversi insieme | riarmo-ordinato',
-  'APR 2026 | Deterrenza credibile | Mostrare la forza senza doverla impiegare | fortificazioni-di-confine, esercitazioni-congiunte',
-].join('\n');
-
-/** Il piano d'esempio dello Stato maggiore, già analizzato. */
-export function militaryPlan(): StrategicPlan {
-  return parseStrategicPlan(MILITARY_PLAN_TEXT, 'difesa-e-deterrenza-regionale');
+/** La data di gioco corrente, dalla stessa sorgente del resto del quadro. */
+function today(sources: NationOperatingPictureSources): string | null {
+  return sources.today ? String(sources.today) : null;
 }
 
-/** Le idee dello Stato maggiore: contenuto curato, nessun numero. */
-export const MILITARY_IDEAS: CanvasIdea[] = [
-  {
-    title: 'Riserve addestrate',
-    detail: 'Tenere in armi un nucleo addestrato, richiamabile senza smobilitare l’economia.',
-    tone: 'neutral',
-  },
-  {
-    title: 'Confini presidiati',
-    detail: 'Presidiare i valichi con le opere del catalogo, non con guarnigioni improvvisate.',
-    tone: 'neutral',
-  },
-];
+/** Il piano delle strade del Tesoro: dalle strade reali dell'atto. */
+function treasuryPlan(act: TreasuryAct, gameDate: string | null): StrategicPlan | null {
+  const recommended = act.roads.find(road => road.recommended) ?? act.roads[0];
+  return planFromProposal({
+    id: `tesoro-${act.seatLabel}`,
+    title: `Le strade del ${act.seatLabel}`,
+    need: act.voice,
+    ...(recommended ? { outcome: recommended.expectedGain } : {}),
+    today: gameDate,
+    steps: act.roads.map(road => ({
+      id: `strada-${road.id}`,
+      title: road.title,
+      detail: road.voice,
+    })),
+  });
+}
+
+/** Il piano di una proposta di sedia: prerequisiti → strade → esito. */
+function itemPlan(item: CabinetItemView, gameDate: string | null): StrategicPlan | null {
+  if (item.paths.length === 0) return null;
+  const recommended = item.paths.find(path => path.recommended) ?? item.paths[0];
+
+  // I prerequisiti comuni alle strade diventano i nodi che le aprono: il piano
+  // non inventa tappe che la proposta non dichiara.
+  const prerequisites = [...new Set(item.paths.flatMap(path => path.prerequisites))];
+  const prerequisiteSteps = prerequisites.map((text, index) => ({
+    id: `prereq-${index}-${item.voiceId}`,
+    title: text,
+    detail: 'Prerequisito dichiarato dalla proposta.',
+  }));
+
+  return planFromProposal({
+    id: item.voiceId,
+    title: item.need,
+    need: item.because || item.need,
+    outcome: recommended.expected,
+    today: gameDate,
+    steps: [
+      ...prerequisiteSteps,
+      ...item.paths.map(path => ({
+        id: `strada-${item.voiceId}-${path.id}`,
+        title: path.title,
+        detail: path.detail,
+        ...(prerequisites.length > 0 ? { requires: prerequisiteSteps.map(step => step.id) } : {}),
+      })),
+    ],
+  });
+}
+
+/** Le idee di una sedia: le sue strade concrete, non contenuto curato. */
+function roadsAsIdeas(roads: readonly TreasuryRoad[]): CanvasIdea[] {
+  return roads.map(road => ({
+    title: road.title,
+    detail: road.voice,
+    tone: road.recommended ? 'positive' as const : 'neutral' as const,
+  }));
+}
+
+/** Le idee di una proposta di sedia: i suoi percorsi concreti. */
+function pathsAsIdeas(item: CabinetItemView): CanvasIdea[] {
+  return item.paths.map((path: CabinetPathView) => ({
+    title: path.title,
+    detail: path.expected || path.detail,
+    tone: path.recommended ? 'positive' as const : 'neutral' as const,
+  }));
+}
 
 /**
- * La mappa sedia → contenuto curato. Il Tesoro (primo inquilino) e lo Stato
- * maggiore (secondo esempio) hanno voce; le altre sedie no — e non serve
- * toccarle: la tela derivata dal motore le copre comunque.
+ * Il contenuto di una sedia, se ne ha uno:
+ *  - il **Tesoro** parte dalle strade del suo atto (con l'opera in attesa come
+ *    obiettivo della mappa);
+ *  - le **altre sedie** partono dalla loro prima proposta concreta con percorsi.
  */
-export const SEAT_CANVAS_AUTHORING: Partial<Record<CabinetAddressView['seat'], SeatCanvasAuthoring>> = {
-  /**
-   * Il Tesoro: il piano di stabilizzazione e, come idee, le due strade firmabili
-   * (le stesse che il ministro mette sul tavolo), con l'opera in attesa come
-   * obiettivo della mappa. Il contenuto vive nell'atto: qui non si duplica.
-   */
-  tesoro: ({ act }) => {
-    if (!act) return undefined;
+export function seatCanvasAuthoring(context: SeatCanvasContext): SeatCanvasAuthored | undefined {
+  const { seat, act, address, sources } = context;
+  const gameDate = today(sources);
+
+  if (seat === 'tesoro' && act) {
+    const plan = treasuryPlan(act, gameDate);
+    const ideas = roadsAsIdeas(act.roads);
     return {
-      plan: stabilizationPlan(),
-      ideas: act.roads.map(road => ({
-        title: road.title,
-        detail: road.voice,
-        tone: road.recommended ? 'positive' as const : 'neutral' as const,
-      })),
+      ...(plan ? { plan } : {}),
+      ideas,
       target: act.worksRequest
         ? {
             label: act.worksRequest.workName,
@@ -101,18 +137,13 @@ export const SEAT_CANVAS_AUTHORING: Partial<Record<CabinetAddressView['seat'], S
           }
         : null,
     };
-  },
-  /**
-   * Lo Stato maggiore: un piano militare a cascata e due idee di deterrenza.
-   * Non ha un «atto»: le cifre le porta la tela derivata (`militare`).
-   */
-  guerra: () => ({ plan: militaryPlan(), ideas: MILITARY_IDEAS }),
-};
+  }
 
-/** Il contenuto curato di una sedia, se ne ha uno. */
-export function seatCanvasAuthoring(
-  seat: CabinetAddressView['seat'],
-  context: SeatCanvasContext,
-): SeatCanvasAuthored | undefined {
-  return SEAT_CANVAS_AUTHORING[seat]?.(context);
+  const item = address?.items.find(candidate => candidate.paths.length > 0);
+  if (!item) return undefined;
+  const plan = itemPlan(item, gameDate);
+  return {
+    ...(plan ? { plan } : {}),
+    ideas: pathsAsIdeas(item),
+  };
 }
