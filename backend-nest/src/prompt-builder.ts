@@ -22,6 +22,8 @@ import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSugges
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
 import { buildNarrativeMemory } from './prompts/narrative-memory';
+import type { MinisterMemoryScope } from './core/government/MinisterMemory';
+import { getJevConfig } from './core/government/jev/jev.config';
 import { repairReactionDecisions, validateReactionDecisions, describeReactionShape, completeEventReactions, completeEventReactionsList, type ReactionDecisionIssue, type ReactionEventLike } from './core/simulation/ReactionDecisions';
 import type { ReactionContext } from './core/simulation/ReactionContext';
 import { buildNationalDecisionContext, buildActionElaborationGuard } from './prompts/national-context';
@@ -40,6 +42,8 @@ import { LLMError, LLMContractError, LLMRouter } from './llm';
 import { isSmallModel } from './llm/modelTier';
 
 interface GameData {
+  /** Request-local, server-derived identity; never serialized into deterministic world state. */
+  ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string };
   id: string;
   currentDate: string;
   currentTurn: number;
@@ -295,6 +299,19 @@ export class PromptBuilder {
 
   constructor(game: GameData) {
     this.game = game;
+  }
+
+  /** Additional long-term source in this existing builder, replacing the unfiltered minister briefing memory. */
+  async buildMinisterMemorySection(): Promise<string> {
+    const request = this.game.ministerMemoryRequest;
+    const config = getJevConfig();
+    if (!config.enabled || !request) return '';
+    // Keep pure/legacy prompt construction independent of DB initialization.
+    const { getMinisterMemory } = await import('./core/government/jev/jev-memory.service');
+    if (request.scope.gameId !== this.game.id) throw new Error('Minister memory game mismatch');
+    const { gameId, branchId, seat, mandate } = request.scope;
+    return getMinisterMemory(gameId, branchId, seat, mandate, request.query, config.contextBudget.retrievedMemory,
+      { gameDate: this.game.currentDate, turn: this.game.currentTurn }).text;
   }
 
   // Построить полный набор переменных
@@ -1411,6 +1428,12 @@ export class PromptEngine {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
 
+    if (getJevConfig().enabled && game.ministerMemoryRequest) {
+      const memory = await builder.buildMinisterMemorySection();
+      message = memory ? `${memory}\n${message}` : message;
+      history = history.slice(-10);
+    }
+
     // Пресетный шаблон советника: роль/стиль из пресета, но историю диалога
     // и текущий вопрос игрока всегда дописываем — иначе советник «оглохнет».
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'advisor');
@@ -1440,6 +1463,11 @@ export class PromptEngine {
   ): Promise<string> {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
+    if (getJevConfig().enabled && game.ministerMemoryRequest) {
+      const memory = await builder.buildMinisterMemorySection();
+      message = memory ? `${memory}\n${message}` : message;
+      history = history.slice(-10);
+    }
 
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'advisor');
     const prompt = promptOverride
