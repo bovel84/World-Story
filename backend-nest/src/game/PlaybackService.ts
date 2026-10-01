@@ -14,6 +14,7 @@
  */
 
 import { withCanonicalTransaction } from '../database';
+import { ingestJevBatch, relationshipMemoryInputs } from '../core/government/jev/jev-memory.service';
 import { gameRepository, relationshipRepository } from '../repositories';
 import { applyStagedStrictEffects, promotePlaybackEffectAnchors } from '../core/simulation/TurnOrchestrator';
 import { projectProgress } from '../core/simulation/MilitaryProduction';
@@ -869,6 +870,26 @@ export class PlaybackService {
       this.state.pendingNationalNotes = staging.pendingNationalNotes;
       endingGuard.discard();
       throw e;
+    }
+
+    // WS-JEV-W5 — SIDECAR: anche il percorso scaglionato/in pausa registra i
+    // cambi di relazione nella memoria diplomatica, così la memoria non dipende
+    // dal percorso. Best-effort: non lancia mai dopo il commit.
+    try {
+      if (persistedRelationshipChanges.length) {
+        const matrix = this.ctx.diplomacy.matrix();
+        ingestJevBatch(relationshipMemoryInputs({
+          gameId: this.ctx.gameId,
+          branchId: gameRepository.getHeadBranch(this.ctx.gameId),
+          gameDate: finalDate,
+          turn: state.jumpTurn,
+          changes: persistedRelationshipChanges,
+          publicName: polityId => this.ctx.publicPolityName(polityId),
+          currentRelationship: (from, to) => matrix.get(from, to),
+        }));
+      }
+    } catch (error) {
+      console.warn('[JEV] memoria diplomatica del playback non registrata:', error);
     }
 
     // F02/M06: SSE solo dopo il commit riuscito; il rollback non può pubblicare chat fantasma.

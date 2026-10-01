@@ -29,6 +29,7 @@ import type { SSEEventType } from '../sse';
 import type { ChatRecord, ChatSummary, ChatMessageRecord, ChatParticipant } from '../repositories';
 import type { SimulationChatStart } from '../prompts/types';
 import type { TimelineEventRecord, TurnResultRecord } from './TimelineService';
+import { ingestJevBatch, diplomaticMemoryInputs, getDiplomaticMemory } from '../core/government/jev/jev-memory.service';
 
 /** Fence di contesto (ramo + revisione) per la protezione late-writeback. */
 export interface DiplomacyFence {
@@ -94,6 +95,17 @@ export interface DiplomacyContext {
   strategicAgenda?(polityId: string): string;
   /** Impegni in vigore che legano la polity (GAMEPLAY-LONG). */
   commitmentsForPolity?(polityId: string): string;
+}
+
+/**
+ * In una chat di gruppo la replica può venire da una nazione terza (non dal
+ * titolare del canale): la memoria va attribuita al parlante effettivo.
+ */
+export function diplomaticSpeaker(
+  participants: ReadonlyArray<{ id: string; name: string; role: string }>,
+  senderName: string | undefined,
+): { id: string; name: string } | undefined {
+  return participants.find(participant => participant.role !== 'player' && participant.name === senderName);
 }
 
 export class DiplomacyService {
@@ -443,7 +455,46 @@ export class DiplomacyService {
     );
 
     const reply = await this.generateChatReply(chat, history, content, 'reply', fence);
+    // WS-JEV-W5 — SIDECAR: lo scambio entra nella memoria diplomatica (fatto
+    // condiviso + viste). Best-effort: non lancia mai e non cambia la risposta.
+    this.recordDiplomaticExchange(chat, content.trim(), reply);
     return { message, reply };
+  }
+
+  /**
+   * WS-JEV-W5 — La trattativa tra il giocatore e una nazione diventa memoria
+   * condivisa (chiave ordinata) e due viste di percezione separate. Best-effort:
+   * non lancia mai e non modifica lo stato deterministico.
+   */
+  private recordDiplomaticExchange(chat: ChatRecord, playerText: string, reply: ChatMessageRecord): void {
+    try {
+      const player = this.ctx.playerPolityId();
+      const speaker = diplomaticSpeaker(chat.participants, reply.senderName);
+      const counterparty = speaker?.id ?? chat.polityId;
+      if (!player || !counterparty || player === counterparty) return;
+      const branchId = this.ctx.fenceContext().branchId;
+      const playerName = this.ctx.publicPolityName(player);
+      const counterpartyName = speaker?.name ?? this.ctx.publicPolityName(counterparty);
+      const matrix = this.matrix();
+      const replyText = typeof reply.content === 'string' ? reply.content.trim() : '';
+      ingestJevBatch(diplomaticMemoryInputs({
+        gameId: this.ctx.gameId,
+        branchId,
+        gameDate: this.ctx.currentDate(),
+        turn: this.ctx.currentTurn(),
+        a: player,
+        b: counterparty,
+        eventType: 'diplomatic_exchange',
+        text: `Trattativa tra ${playerName} e ${counterpartyName}. ${playerName}: ${playerText || '(nessun messaggio)'}. ${counterpartyName}: ${replyText}.`,
+        sourceEventId: `chat:${chat.id}:${reply.id}`,
+        views: [
+          { observer: player, subject: counterparty, text: `${playerName} verso ${counterpartyName}: ${matrix.get(player, counterparty)}.` },
+          { observer: counterparty, subject: player, text: `${counterpartyName} verso ${playerName}: ${matrix.get(counterparty, player)}.` },
+        ],
+      }));
+    } catch (error) {
+      console.warn('[JEV] scambio diplomatico non registrato:', error);
+    }
   }
 
   /**
@@ -617,6 +668,22 @@ export class DiplomacyService {
         stability: ownedAccounts[p.id]?.stability,
       });
       const memory = this.ctx.recentStrategicMemory(p.id, 2);
+      // WS-JEV-W5 — La memoria diplomatica entra nel briefing del colloquio:
+      // fatto condiviso e percezione di questa nazione, tenuti separati.
+      // Best-effort: un problema di memoria non deve far fallire la risposta.
+      try {
+        const diplomatic = getDiplomaticMemory({
+          gameId: this.ctx.gameId,
+          branchId: this.ctx.fenceContext().branchId,
+          observer: p.id,
+          subject: this.ctx.playerPolityId(),
+          query: '',
+        });
+        const jev = [diplomatic.shared.text, diplomatic.view.text].filter(Boolean).join('\n');
+        if (jev) memory.push(jev);
+      } catch (error) {
+        console.warn('[JEV] memoria diplomatica non disponibile per il colloquio:', error);
+      }
       // GAMEPLAY-LONG: la chat resta coerente con la strategia in corso: la
       // controparte non cambia obiettivi a ogni messaggio.
       const agenda = this.ctx.strategicAgenda?.(p.id) ?? '';

@@ -22,6 +22,7 @@ import { EFFECT_LIMITS } from '../core/simulation/NationalEffects';
 import { rejectDirectMaterialCommand, validateStrictResultSafe } from '../core/simulation/EffectValidator';
 import { bootstrapCatalogEconomy } from '../services/StrictEffectProducerService';
 import { applyWorkCommits } from './WorkCommitTurn';
+import { ingestJevBatch, relationshipMemoryInputs } from '../core/government/jev/jev-memory.service';
 import { loadSimulationCatalog } from '../scenario/loader';
 import { shortId } from '../utils/short-id';
 import type { RelationshipType } from '../core/RelationshipMatrix';
@@ -965,6 +966,24 @@ export class TurnPipelineService {
         turn: turnResult.turn,
       });
       }); // fine transazione canonica (F02 passo 2)
+      // WS-JEV-W5 — SIDECAR: i cambi di relazione diventano memoria diplomatica
+      // (fatto condiviso con chiave ordinata + viste di percezione separate).
+      // Best-effort: non lancia mai e non cambia l'esito del turno.
+      try {
+        if (persistedRelationshipChanges.length) {
+          const branchId = gameRepository.getHeadBranch(this.ctx.gameId);
+          const matrix = this.ctx.diplomacy.matrix();
+          ingestJevBatch(relationshipMemoryInputs({
+            gameId: this.ctx.gameId, branchId,
+            gameDate: this.state.currentDate, turn: this.state.currentTurn,
+            changes: persistedRelationshipChanges,
+            publicName: polityId => this.ctx.publicPolityName(polityId),
+            currentRelationship: (from, to) => matrix.get(from, to),
+          }));
+        }
+      } catch (error) {
+        console.warn('[JEV] memoria diplomatica dei rapporti non registrata:', error);
+      }
       this.ctx.publishPendingOutbox();
       // F02/M06: la chat è visibile soltanto dopo il commit canonico.
       for (const payload of chatBroadcasts) this.ctx.broadcast('chat_message', payload);

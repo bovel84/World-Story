@@ -1,6 +1,6 @@
 import { performance } from 'node:perf_hooks';
 import { createHash } from 'node:crypto';
-import { memorySection, relevantMinisterMemory, recallMinisterMemory, rankMinisterMemory, ministerMemoryLine, type MinisterMemoryPoint, type MinisterMemoryRecall, type MinisterMemoryScope } from '../MinisterMemory';
+import { memorySection, relevantMinisterMemory, recallMinisterMemory, rankMinisterMemory, ministerMemoryLine, memoryExcerpt, jevMemoryScore, type MinisterMemoryPoint, type MinisterMemoryRecall, type MinisterMemoryScope } from '../MinisterMemory';
 import { personaFor, personaSection } from '../MinisterPersona';
 import { SEAT_LABEL, SEAT_READS, type CabinetSeat } from '../Cabinet';
 import { ministerMemoryRepository } from '../../../repositories/minister-memory.repository';
@@ -98,6 +98,12 @@ const JEV_INGEST_MAPPING: Record<string, JevIngestMapping> = {
   minister_statement: { type: 'opinion', importance: 0.6, confidence: 0.7 },
   player_decision: { type: 'decision', importance: 0.7, confidence: 0.8 },
   player_order: { type: 'decision', importance: 0.7, confidence: 0.8 },
+  // WS-JEV-W5 — diplomazia: la memoria condivisa è un fatto tra le due nazioni,
+  // la vista è la percezione di una sola (peso più basso: è un'opinione).
+  diplomacy_relationship: { type: 'relationship', importance: 0.7, confidence: 0.9 },
+  diplomacy_alliance: { type: 'agreement', importance: 0.9, confidence: 0.9 },
+  diplomatic_exchange: { type: 'opinion', importance: 0.6, confidence: 0.7 },
+  diplomatic_view: { type: 'opinion', importance: 0.5, confidence: 0.8 },
 };
 
 function ingestMapping(input: JevIngestInput): JevIngestMapping {
@@ -305,6 +311,209 @@ export function playerDecisionInput(p: {
     eventType: 'player_decision',
     scope: { kind: 'government', gameId: p.gameId, branchId: p.branchId },
     metadata: { eventId: p.actionId },
+  };
+}
+
+// ── WS-JEV-W5 — Diplomazia: memoria condivisa + viste separate ───────────────
+
+/**
+ * Un fatto diplomatico. La coppia `a`/`b` produce **una** memoria condivisa con
+ * chiave ordinata alfabeticamente (`diplomacy:<a>:<b>`); le `views` producono
+ * memorie di **percezione** distinte e direzionali (`nation:<obs>:view:<sub>`).
+ * Le due famiglie non si mescolano mai: chiavi diverse, scope diversi.
+ */
+export interface DiplomaticMemoryEvent {
+  gameId: string;
+  branchId: string | null;
+  gameDate: string;
+  turn: number;
+  /** Partecipanti: l'ordine non conta, la chiave condivisa ordina da sé. */
+  a: string;
+  b: string;
+  /** Tipo noto al classificatore (`diplomacy_relationship`, `diplomatic_exchange`, …). */
+  eventType: string;
+  /** Fatto condiviso, già reso in testo dal chiamante. */
+  text: string;
+  /** Id stabile dell'evento di gioco, senza namespace di scope. */
+  sourceEventId: string;
+  actorIds?: string[];
+  /** Percezioni direzionali: l'osservatore verso il soggetto. Mai mescolate. */
+  views?: ReadonlyArray<{ observer: string; subject: string; text: string }>;
+  metadata?: Record<string, unknown>;
+}
+
+function diplomacyOrder(a: string, b: string): [string, string] {
+  return a <= b ? [a, b] : [b, a];
+}
+
+/** Le parti sono identità: nei nomi degli id non devono poter aliasing. */
+function diplomacyIdPart(value: string): string {
+  return encodeURIComponent(value);
+}
+
+/**
+ * Adapter: un fatto diplomatico diventa una memoria condivisa e, se dichiarate,
+ * una memoria di percezione per ciascun osservatore. Gli id sono namespaciati
+ * per scope, così condivisa e viste non collidono mai tra loro nello stesso
+ * game/branch.
+ */
+export function diplomaticMemoryInputs(event: DiplomaticMemoryEvent): JevIngestInput[] {
+  const [a, b] = diplomacyOrder(event.a, event.b);
+  const shared: JevIngestInput = {
+    gameId: event.gameId,
+    branchId: event.branchId,
+    gameDate: event.gameDate,
+    turn: event.turn,
+    source: 'diplomacy',
+    actorIds: event.actorIds ?? [a, b],
+    text: event.text,
+    eventType: event.eventType,
+    scope: { kind: 'diplomacy', gameId: event.gameId, branchId: event.branchId, a, b },
+    metadata: { ...event.metadata, eventId: `diplomacy:${diplomacyIdPart(a)}:${diplomacyIdPart(b)}:${diplomacyIdPart(event.sourceEventId)}` },
+  };
+  const views = (event.views ?? []).map((view): JevIngestInput => ({
+    gameId: event.gameId,
+    branchId: event.branchId,
+    gameDate: event.gameDate,
+    turn: event.turn,
+    source: 'diplomacy',
+    actorIds: [view.observer],
+    text: view.text,
+    eventType: 'diplomatic_view',
+    scope: { kind: 'perception', gameId: event.gameId, branchId: event.branchId, observer: view.observer, subject: view.subject },
+    metadata: { ...event.metadata, eventId: `nation:${diplomacyIdPart(view.observer)}:view:${diplomacyIdPart(view.subject)}:${diplomacyIdPart(event.sourceEventId)}` },
+  }));
+  return [shared, ...views];
+}
+
+/** Etichetta narrativa deterministica del rapporto, mai il valore interno. */
+const RELATIONSHIP_LABEL: Record<string, string> = { ally: 'alleanza', hostile: 'ostilità', neutral: 'neutralità' };
+
+/** Un cambio di relazione applicato dal motore, come lo vede la memoria. */
+export interface RelationshipMemoryChange {
+  from: string;
+  to: string;
+  newRelationship: string;
+  reason: string;
+}
+
+/**
+ * Adapter condiviso dei cambi di relazione (percorso ordinario e playback):
+ * produce il fatto condiviso e le due viste di percezione. Determininistico:
+ * usa solo i valori passati dal chiamante, nessun LLM, nessuna mutazione.
+ */
+export function relationshipMemoryInputs(p: {
+  gameId: string;
+  branchId: string | null;
+  gameDate: string;
+  turn: number;
+  changes: readonly RelationshipMemoryChange[];
+  publicName: (polityId: string) => string;
+  currentRelationship: (from: string, to: string) => string;
+}): JevIngestInput[] {
+  return p.changes.flatMap(change => {
+    const fromName = p.publicName(change.from);
+    const toName = p.publicName(change.to);
+    const label = RELATIONSHIP_LABEL[change.newRelationship] ?? change.newRelationship;
+    const eventType = change.newRelationship === 'ally' ? 'diplomacy_alliance' : 'diplomacy_relationship';
+    return diplomaticMemoryInputs({
+      gameId: p.gameId, branchId: p.branchId, gameDate: p.gameDate, turn: p.turn,
+      a: change.from, b: change.to, eventType,
+      text: `Rapporti tra ${fromName} e ${toName}: ${label} (${change.reason}).`,
+      sourceEventId: `${change.from}|${change.to}|${change.newRelationship}|${p.gameDate}|${p.turn}`,
+      views: [
+        { observer: change.from, subject: change.to, text: `${fromName} verso ${toName}: ${RELATIONSHIP_LABEL[p.currentRelationship(change.from, change.to)] ?? p.currentRelationship(change.from, change.to)} (${change.reason}).` },
+        { observer: change.to, subject: change.from, text: `${toName} verso ${fromName}: ${RELATIONSHIP_LABEL[p.currentRelationship(change.to, change.from)] ?? p.currentRelationship(change.to, change.from)} (${change.reason}).` },
+      ],
+    });
+  });
+}
+
+/** Sezione di memoria diplomatica: condivisa o percezione, mai entrambe insieme. */
+export interface DiplomaticMemorySection {
+  scopeKey: string;
+  text: string;
+  ids: string[];
+  bytes: number;
+}
+
+export interface DiplomaticMemoryResult {
+  shared: DiplomaticMemorySection;
+  view: DiplomaticMemorySection;
+  telemetry: {
+    scopes_consulted: string[];
+    memories_retrieved: number;
+    token_upper_bound: number;
+    retrieval_latency_ms: number;
+    model_calls: 0;
+  };
+}
+
+function diplomacyLine(record: JevMemoryRecord, query: string, source: string): string {
+  return JSON.stringify({ source, id: record.id, type: record.type, status: record.status, date: record.gameDate,
+    refs: record.sourceEventIds ?? [], excerpt: memoryExcerpt(record.text, query) });
+}
+
+/** Ricorda i fatti condivisi e la percezione dell'osservatore, **separati**. */
+export function getDiplomaticMemory(p: {
+  gameId: string;
+  branchId: string | null;
+  observer: string;
+  subject: string;
+  query: string;
+  maxTokens?: number;
+  asOf?: MinisterMemoryPoint;
+}): DiplomaticMemoryResult {
+  const started = performance.now();
+  const config = getJevConfig();
+  const [a, b] = diplomacyOrder(p.observer, p.subject);
+  const sharedKey = jevScopeKey({ kind: 'diplomacy', gameId: p.gameId, branchId: p.branchId, a, b });
+  const viewKey = jevScopeKey({ kind: 'perception', gameId: p.gameId, branchId: p.branchId, observer: p.observer, subject: p.subject });
+  const emptySection = (scopeKey: string): DiplomaticMemorySection => ({ scopeKey, text: '', ids: [], bytes: 0 });
+  const empty: DiplomaticMemoryResult = {
+    shared: emptySection(sharedKey), view: emptySection(viewKey),
+    telemetry: { scopes_consulted: [sharedKey, viewKey], memories_retrieved: 0, token_upper_bound: 0,
+      retrieval_latency_ms: performance.now() - started, model_calls: 0 },
+  };
+  if (!config.enabled) return empty;
+  const point = p.asOf ?? jevMemoryRepository.currentPoint({ gameId: p.gameId, branchId: p.branchId });
+  if (!point) return empty;
+  const budget = p.maxTokens ?? config.maxDiplomaticContextTokens;
+  const isPast = (record: JevMemoryRecord) => record.gameDate <= point.gameDate && (record.turn == null || record.turn <= point.turn);
+  const rank = (records: JevMemoryRecord[]) => records.filter(isPast)
+    .map(record => ({ record, score: jevMemoryScore(record, p.query, point) }))
+    .sort((x, y) => y.score - x.score || (x.record.id < y.record.id ? -1 : x.record.id > y.record.id ? 1 : 0));
+  const build = (header: string, scope: JevScope, source: string, limit: number): DiplomaticMemorySection => {
+    const ranked = rank(jevMemoryRepository.listMemory(scope, { gameDate: point.gameDate, turn: point.turn, eligibleOnly: true }));
+    // Query-aware: se il testo ha termini in comune, restano solo quelli; se la
+    // domanda non tocca nulla nel testo, non si azzera il briefing: si mostrano
+    // i fatti più saliente. La pertinenza ordina, non censura l'intera sezione.
+    const relevant = ranked.filter(entry => entry.score > 0);
+    const chosen = relevant.length ? relevant : ranked;
+    let text = `${header}\n`;
+    const ids: string[] = [];
+    for (const { record } of chosen) {
+      const next = `${text}${diplomacyLine(record, p.query, source)}\n`;
+      if (Buffer.byteLength(next, 'utf8') > limit) continue;
+      text = next;
+      ids.push(record.id);
+    }
+    if (!ids.length) text = '';
+    return { scopeKey: jevScopeKey(scope), text, ids, bytes: Buffer.byteLength(text, 'utf8') };
+  };
+  const shared = build('[RAPPORTI CONDIVISI — fatto tra le due nazioni]', { kind: 'diplomacy', gameId: p.gameId, branchId: p.branchId, a, b }, 'JEV-diplomacy', budget);
+  // La percezione usa ciò che resta del budget: il totale resta entro il tetto.
+  const view = build(`[PERCEZIONE DI ${p.observer} VERSO ${p.subject}]`, { kind: 'perception', gameId: p.gameId, branchId: p.branchId, observer: p.observer, subject: p.subject }, 'JEV-perception', Math.max(0, budget - shared.bytes));
+  const jevScopeShared: JevScope = { kind: 'diplomacy', gameId: p.gameId, branchId: p.branchId, a, b };
+  const jevScopeView: JevScope = { kind: 'perception', gameId: p.gameId, branchId: p.branchId, observer: p.observer, subject: p.subject };
+  if (shared.ids.length) jevMemoryRepository.touch(jevScopeShared, shared.ids, new Date().toISOString());
+  if (view.ids.length) jevMemoryRepository.touch(jevScopeView, view.ids, new Date().toISOString());
+  return {
+    shared, view,
+    telemetry: { scopes_consulted: [sharedKey, viewKey],
+      memories_retrieved: shared.ids.length + view.ids.length,
+      token_upper_bound: shared.bytes + view.bytes,
+      retrieval_latency_ms: performance.now() - started, model_calls: 0 },
   };
 }
 
