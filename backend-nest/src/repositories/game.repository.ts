@@ -41,6 +41,10 @@ function bumpQueueVersion(gameId: string): void {
   db.prepare('UPDATE games SET queue_version = queue_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(gameId);
 }
 
+export class ActionSignatureConflictError extends Error {
+  constructor() { super('Stessa chiave di firma con payload diverso'); }
+}
+
 export interface PlayerRecord {
   id: string;
   name: string;
@@ -642,6 +646,26 @@ export const gameRepository = {
   getSimulationRunByIdempotencyKey: (gameId: string, idempotencyKey: string) => {
     return db.prepare('SELECT * FROM simulation_runs WHERE game_id = ? AND idempotency_key = ?')
       .get(gameId, idempotencyKey) as any || null;
+  },
+
+  /** P5: lookup, accodamento esistente e ricevuta nella stessa transazione.
+   * BEGIN IMMEDIATE serializza anche connessioni concorrenti prima del lookup.
+   * La callback è sincrona, senza LLM/network, e viene chiamata solo una volta.
+   */
+  acceptActionSignature: <T extends { id: string }>(gameId: string, requestKey: string, payload: unknown, accept: () => T): T & { replayed: boolean } => {
+    const hash = semanticStateHash(payload);
+    return db.transaction(() => {
+      const existing = db.prepare('SELECT payload_hash, response_json FROM action_signature_receipts WHERE game_id = ? AND request_key = ?')
+        .get(gameId, requestKey) as { payload_hash: string; response_json: string } | undefined;
+      if (existing) {
+        if (existing.payload_hash !== hash) throw new ActionSignatureConflictError();
+        return { ...JSON.parse(existing.response_json) as T, replayed: true };
+      }
+      const response = accept();
+      db.prepare('INSERT INTO action_signature_receipts (game_id, request_key, payload_hash, action_id, response_json) VALUES (?, ?, ?, ?, ?)')
+        .run(gameId, requestKey, hash, response.id, JSON.stringify(response));
+      return { ...response, replayed: false };
+    }).immediate();
   },
 
   queuePendingAction: (action: { id: string; gameId: string; text: string; createdAt: string; status?: string; workOrder?: unknown }) => {
