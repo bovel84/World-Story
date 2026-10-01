@@ -30,6 +30,9 @@ const KNOWN_EVENT_TYPES = new Set([
   'government_promise', 'government_kept', 'government_broken',
   'minister_statement', 'minister_promise', 'minister_decision',
   'player_decision', 'player_order',
+  // WS-JEV-W5 — diplomazia: fatto condiviso e percezione dichiarata.
+  'diplomacy_relationship', 'diplomacy_alliance',
+  'diplomatic_exchange', 'diplomatic_view',
 ]);
 
 /** Oltre questa soglia il testo non è una memoria, è una cronologia. */

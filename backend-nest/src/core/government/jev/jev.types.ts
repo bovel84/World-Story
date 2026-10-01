@@ -18,6 +18,7 @@ export type JevScope =
   | ({ kind: 'minister' } & MinisterMemoryScope)
   | ({ kind: 'nation'; polityId: string } & JevBranchScope)
   | ({ kind: 'diplomacy'; a: string; b: string } & JevBranchScope)
+  | ({ kind: 'perception'; observer: string; subject: string } & JevBranchScope)
   | ({ kind: 'faction'; factionId: string } & JevBranchScope);
 
 export type JevStatus = 'active' | 'resolved' | 'superseded' | 'archived';
@@ -101,9 +102,16 @@ export function jevScopeKey(scope: JevScope): string {
     case 'faction': return `faction:${component(scope.factionId)}`;
     case 'diplomacy': {
       // Sort raw IDs, then encode: both participants share the same memory.
+      if (scope.a === scope.b) throw new TypeError('JEV diplomacy requires two distinct polities');
       const a = component(scope.a);
       const b = component(scope.b);
       return scope.a <= scope.b ? `diplomacy:${a}:${b}` : `diplomacy:${b}:${a}`;
+    }
+    case 'perception': {
+      // Directional: the observer's view of the subject. Never sorted, never
+      // merged with the shared `diplomacy:<a>:<b>` pair.
+      if (scope.observer === scope.subject) throw new TypeError('JEV perception requires two distinct polities');
+      return `nation:${component(scope.observer)}:view:${component(scope.subject)}`;
     }
     default: throw new TypeError('Invalid JEV scope kind');
   }
