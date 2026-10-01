@@ -52,15 +52,16 @@ export async function postJson(
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
-    const abortExternal = () => controller.abort();
-    signal?.addEventListener('abort', abortExternal, { once: true });
+    // Keep external cancellation attached to the fetch body after headers.
+    // The timeout is still cleared in finally, as before.
+    const fetchSignal = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
 
     try {
       const res = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
-        signal: controller.signal,
+        signal: fetchSignal,
       });
 
       if (res.ok) {
@@ -98,7 +99,6 @@ export async function postJson(
       }
     } finally {
       clearTimeout(timer);
-      signal?.removeEventListener('abort', abortExternal);
     }
   }
 

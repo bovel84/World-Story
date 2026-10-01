@@ -993,6 +993,19 @@ export function initDatabase() {
       FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
     )
   `);
+  // WS-GOVUX P5 — ricevuta di accettazione, indipendente dalla coda e dai save.
+  // Nessuna FK verso pending_actions: revoca/esecuzione/restore non la cancellano.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS action_signature_receipts (
+      game_id TEXT NOT NULL,
+      request_key TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      action_id TEXT NOT NULL,
+      response_json TEXT NOT NULL,
+      PRIMARY KEY (game_id, request_key),
+      FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+    )
+  `);
   for (const sql of [
     "ALTER TABLE pending_actions ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'queued'",
     "ALTER TABLE pending_actions ADD COLUMN execution_status TEXT NOT NULL DEFAULT 'not_started'",

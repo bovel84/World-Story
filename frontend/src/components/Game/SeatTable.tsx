@@ -73,6 +73,8 @@ export interface SeatTableProps {
   actStatus?: ActStatus | null;
   /** La firma è in corso: evita il doppio atto. */
   actBusy?: boolean;
+  actEditable?: boolean;
+  actSignatureNotice?: string;
   onEditDraft?: (text: string) => void;
   onSignDraft?: (draft: ProposalActDraft) => Promise<boolean> | void;
   onCancelDraft?: () => void;
@@ -97,7 +99,7 @@ export interface SeatTableProps {
 }
 
 export function SeatTable({
-  seat, blocks, act, onPrepareRoad, preparedRoadId, roadStates, actDraft, actStatus, actBusy,
+  seat, blocks, act, onPrepareRoad, preparedRoadId, roadStates, actDraft, actStatus, actBusy, actEditable, actSignatureNotice,
   onEditDraft, onSignDraft, onCancelDraft, onCompare, presentation, onClearPresentation, onTogglePin, onReturnToMessage,
   proposals = [],
 }: SeatTableProps) {
@@ -167,6 +169,8 @@ export function SeatTable({
       draft={actDraft}
       status={actStatus}
       busy={actBusy}
+      editable={actEditable}
+      signatureNotice={actSignatureNotice}
       onEdit={onEditDraft}
       onSign={onSignDraft}
       onCancel={onCancelDraft}

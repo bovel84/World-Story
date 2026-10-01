@@ -1407,7 +1407,7 @@ export class PromptEngine {
     });
   }
 
-  async getAdvisor(game: GameData, message: string, history: AdvisorMessage[] = []): Promise<string> {
+  async getAdvisor(game: GameData, message: string, history: AdvisorMessage[] = [], signal?: AbortSignal): Promise<string> {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
 
@@ -1421,7 +1421,7 @@ export class PromptEngine {
       'advisor',
       'Sei il saggio consigliere del capo di Stato in una storia alternativa.',
       prompt,
-      { temperature: 0.7 }
+      { temperature: 0.7, signal }
     );
 
     return parseAdvisorResponse(response.content);
@@ -1435,7 +1435,8 @@ export class PromptEngine {
     game: GameData,
     message: string,
     history: AdvisorMessage[] = [],
-    onToken: (charsSoFar: number) => void
+    onToken: (charsSoFar: number) => void,
+    signal?: AbortSignal,
   ): Promise<string> {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
@@ -1449,7 +1450,7 @@ export class PromptEngine {
       'Sei il saggio consigliere del capo di Stato in una storia alternativa.',
       prompt,
       onToken,
-      { temperature: 0.7 }
+      { temperature: 0.7, signal }
     );
 
     return response.content;

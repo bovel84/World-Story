@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import { shortId } from '../../utils/short-id';
 import { gameRepository } from '../../repositories';
+import { ActionSignatureConflictError } from '../../repositories/game.repository';
 import { countryRepository } from '../../repositories/country.repository';
 import { getSessionRegistry } from '../../session-registry';
 import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult } from '../../game-session';
@@ -183,31 +184,47 @@ router.post('/:id/actions/check-feasibility', async (req, res) => {
 
 router.post('/:id/actions/queue', (req, res) => {
   const gameId = req.params.id;
-  if (!validateBody(res, queueActionSchema, req.body)) return;
-  const { text } = req.body;
-
-  if (!text) {
-    res.status(400).json({ error: 'Action text is required' });
+  const parsed = validateBody(res, queueActionSchema, req.body);
+  if (!parsed) return;
+  const rawKey = req.headers?.['idempotency-key'];
+  const requestKey = typeof rawKey === 'string' ? rawKey.trim() : undefined;
+  if (rawKey !== undefined && (!requestKey || requestKey.length > 128)) {
+    res.status(400).json({ error: 'Chiave di firma non valida', code: 'invalid_idempotency_key' });
     return;
   }
+  // Solo le firme normalizzate: i client legacy mantengono il contratto.
+  const { text, work } = requestKey ? parsed : req.body;
 
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
     // L'opera dichiarata viaggia con l'ordine: il testo resta la descrizione
     // per il giocatore, la distinta arriva dal catalogo al momento del commit.
-    const action = session.queueAction(text, req.body?.work);
-
-    console.log('[QUEUE] Action added:', action.id);
-    res.json({
-      id: action.id,
-      text: action.text,
-      status: action.status,
-      deliveryStatus: action.deliveryStatus,
-      executionStatus: action.executionStatus,
-      createdAt: action.createdAt,
-      queueVersion: session.getQueueVersion(),
-    });
+    const accept = () => {
+      const action = session.queueAction(text, work);
+      return {
+        id: action.id, text: action.text, status: action.status,
+        deliveryStatus: action.deliveryStatus, executionStatus: action.executionStatus,
+        createdAt: action.createdAt, queueVersion: session.getQueueVersion(),
+      };
+    };
+    if (!requestKey) { res.json(accept()); return; }
+    // enqueue modifica la coda RAM prima del DB: snapshot/ripristino anche se
+    // fallisce il COMMIT esterno. Nessuna modifica al GameSession congelato P5.
+    const queue = session.getPendingActions();
+    const previous = queue.slice();
+    let receipt;
+    try {
+      receipt = gameRepository.acceptActionSignature(gameId, requestKey, { text, ...(work ? { work } : {}) }, accept);
+    } catch (error) {
+      queue.splice(0, queue.length, ...previous);
+      throw error;
+    }
+    res.json(receipt);
   } catch (e: any) {
+    if (e instanceof ActionSignatureConflictError) {
+      res.status(409).json({ error: e.message, code: 'idempotency_conflict' });
+      return;
+    }
     console.error('[QUEUE] Error:', e);
     if (e.message.includes('not found')) {
       res.status(404).json({ error: e.message });

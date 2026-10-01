@@ -21,6 +21,9 @@ export interface ActDraftPanelProps {
   status: ActStatus;
   /** Il chiamante sta già accodando: la firma resta disabilitata. */
   busy?: boolean;
+  /** P5: dopo il primo invio il candidato resta immutabile per i retry. */
+  editable?: boolean;
+  signatureNotice?: string;
   /** «Modifica proposta» — il testo corretto dal Presidente. */
   onEdit?: (text: string) => void;
   /** «Firma e inserisci nel registro» — accoda secondo la semantica vigente. */
@@ -29,7 +32,7 @@ export interface ActDraftPanelProps {
   onCancel?: () => void;
 }
 
-export function ActDraftPanel({ draft, status, busy = false, onEdit, onSign, onCancel }: ActDraftPanelProps) {
+export function ActDraftPanel({ draft, status, busy = false, editable = true, signatureNotice, onEdit, onSign, onCancel }: ActDraftPanelProps) {
   const [signing, setSigning] = useState(false);
   const locked = busy || signing;
 
@@ -64,8 +67,9 @@ export function ActDraftPanel({ draft, status, busy = false, onEdit, onSign, onC
         value={draft.text}
         rows={6}
         onChange={event => onEdit?.(event.target.value)}
-        disabled={locked || status.state === 'queued'}
+        disabled={locked || !editable || status.state === 'queued'}
       />
+      {signatureNotice && <p className="act-draft-status-note" role="status">{signatureNotice}</p>}
 
       <div className="act-draft-status" role="status" aria-live="polite">
         <span className={`act-draft-state state-${status.state}`}>{status.label}</span>

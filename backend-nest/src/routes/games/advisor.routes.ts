@@ -207,13 +207,23 @@ router.post('/:id/government/minister/:seat', async (req, res) => {
   if (!validateBody(res, advisorSchema, req.body)) return;
   const message = typeof req.body?.message === 'string' ? req.body.message : '';
   const history = normalizeAdvisorHistory(req.body?.history);
+  const controller = new AbortController();
+  const onAborted = () => controller.abort();
+  const onClose = () => { if (!res.writableFinished) controller.abort(); };
+  req.once('aborted', onAborted);
+  res.once('close', onClose);
+  if (req.aborted || res.destroyed) controller.abort();
   try {
+    if (controller.signal.aborted) return;
     const session = getSessionRegistry().getSessionOrThrow(gameId);
     persistMinisterMemory(session, gameId, seat, req.body?.memory);
-    const reply = await session.getMinisterReply(seat, message, history);
-    res.json(reply);
+    const reply = await session.getMinisterReply(seat, message, history, controller.signal);
+    if (!controller.signal.aborted && !res.destroyed) res.json(reply);
   } catch (e: any) {
-    respondRouteError(res, e, 'Failed to get minister reply');
+    if (!controller.signal.aborted && !res.destroyed) respondRouteError(res, e, 'Failed to get minister reply');
+  } finally {
+    req.removeListener('aborted', onAborted);
+    res.removeListener('close', onClose);
   }
 });
 
@@ -233,11 +243,19 @@ router.post('/:id/government/minister/:seat/stream', async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
 
+  const controller = new AbortController();
+  const onAborted = () => controller.abort();
+  const onClose = () => { if (!res.writableFinished) controller.abort(); };
+  req.once('aborted', onAborted);
+  res.once('close', onClose);
+  if (req.aborted || res.destroyed) controller.abort();
   try {
+    if (controller.signal.aborted) return;
     const session = getSessionRegistry().getSessionOrThrow(gameId);
     persistMinisterMemory(session, gameId, seat, req.body?.memory);
     let gotTextChunks = false;
     const onToken = (chunk: unknown) => {
+      if (controller.signal.aborted || res.destroyed) return;
       if (typeof chunk === 'string' && chunk.length > 0) {
         gotTextChunks = true;
         res.write(chunk);
@@ -245,14 +263,19 @@ router.post('/:id/government/minister/:seat/stream', async (req, res) => {
     };
     const streamFn = (session as any).getMinisterStream;
     const reply: string = typeof streamFn === 'function'
-      ? await streamFn.call(session, seat, message, history, onToken)
-      : (await session.getMinisterReply(seat, message, history)).reply;
+      ? await streamFn.call(session, seat, message, history, onToken, controller.signal)
+      : (await session.getMinisterReply(seat, message, history, controller.signal)).reply;
+    if (controller.signal.aborted || res.destroyed) return;
     if (!gotTextChunks && reply) res.write(reply);
     res.end();
   } catch (e: any) {
+    if (controller.signal.aborted || res.destroyed) return;
     console.error('[Minister STREAM] Error:', e);
     if (res.headersSent) res.end();
     else respondRouteError(res, e, 'Failed to stream minister reply');
+  } finally {
+    req.removeListener('aborted', onAborted);
+    res.removeListener('close', onClose);
   }
 });
 

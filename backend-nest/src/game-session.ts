@@ -3312,9 +3312,9 @@ export class GameSession {
    * appena chiuso (stesso ramo, stessa revisione commessa — nessun write-back,
    * solo broadcast).
    */
-  private async getAdvisorUnchecked(message: string, history: any[]): Promise<string> {
+  private async getAdvisorUnchecked(message: string, history: any[], signal?: AbortSignal): Promise<string> {
     const gameData = this.buildGameData();
-    return this.gameController.getAdvisorWithPrompts(gameData, message, history);
+    return this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
   }
 
   /**
@@ -3335,6 +3335,7 @@ export class GameSession {
     seat: string,
     message: string,
     history: any[] = [],
+    signal?: AbortSignal,
   ): Promise<{ reply: string; seat: string }> {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const fence = this.fenceContext();
@@ -3352,7 +3353,7 @@ export class GameSession {
       throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
     }
     const question = this.ministerPromptFor(address, message);
-    const reply = await this.getAdvisorUnchecked(question, history);
+    const reply = await this.getAdvisorUnchecked(question, history, signal);
     return { reply, seat };
   }
 
@@ -3424,11 +3425,12 @@ export class GameSession {
     message: string,
     history: any[] = [],
     onToken: (chars: number) => void,
+    signal?: AbortSignal,
   ): Promise<string> {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const gameData = this.buildGameData();
     const prompt = this.ministerPrompt(seat, message);
-    return this.gameController.getAdvisorStreamWithPrompts(gameData, prompt, history, onToken);
+    return this.gameController.getAdvisorStreamWithPrompts(gameData, prompt, history, onToken, signal);
   }
 
   async getAdvisorStream(message: string, history: any[] = [], onToken: (chars: number) => void): Promise<string> {

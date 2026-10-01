@@ -1218,6 +1218,8 @@ export function installMockApi(page, opts = {}) {
   // WS-GOVOFFICE-02: l'Ufficio può accodare più ordini (dal problema e dalla
   // strada), quindi l'id è progressivo invece che fisso.
   let queuedSeq = 0;
+  const queuedActions = [];
+  const signatureReceipts = new Map();
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/actions/queue`, (route) => {
     if (route.request().method() === 'POST') {
       let text = 'Ordine di prova';
@@ -1225,13 +1227,27 @@ export function installMockApi(page, opts = {}) {
         const body = JSON.parse(route.request().postData() || '{}');
         if (body && typeof body.text === 'string') text = body.text;
       } catch { /* body non JSON → testo di default */ }
+      const key = route.request().headers()['idempotency-key'];
+      const payload = route.request().postData();
+      if (key && signatureReceipts.has(key)) {
+        const previous = signatureReceipts.get(key);
+        if (previous.payload !== payload) return json(route, { error: 'Payload diverso', code: 'idempotency_conflict' }, 409);
+        return json(route, { ...previous.action, replayed: true });
+      }
       queuedSeq += 1;
-      return json(route, { id: `mock-action-${queuedSeq}`, text, status: 'queued', createdAt: '2026-01-01T00:00:00Z' });
+      const action = { id: `mock-action-${queuedSeq}`, text, status: 'queued', createdAt: '2026-01-01T00:00:00Z' };
+      queuedActions.push(action);
+      if (key) signatureReceipts.set(key, { payload, action });
+      return json(route, { ...action, ...(key ? { replayed: false } : {}) });
     }
-    return json(route, { pendingActions: [] });
+    return json(route, { pendingActions: queuedActions });
   });
-  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/actions/queue/mock-action-*`, (route) =>
-    json(route, { removed: true }));
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/actions/queue/mock-action-*`, (route) => {
+    const id = route.request().url().split('/').pop();
+    const index = queuedActions.findIndex(action => action.id === id);
+    if (index !== -1) queuedActions.splice(index, 1);
+    return json(route, { removed: true });
+  });
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/actions/enhance`, (route) => {
     let text = 'Ordine di prova';
     try {
@@ -1279,7 +1295,10 @@ export function installMockApi(page, opts = {}) {
     json(route, { jobId: 'mock-advance-job', status: 'completed' }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/simulation-jobs/mock-advance-job/result`, (route) => {
     // Solo un esito che committa un turno cambia lo stato del mondo.
-    if (!advanceResult || advanceResult.type !== 'no_event_found') worldAdvanced = true;
+    if (!advanceResult || advanceResult.type !== 'no_event_found') {
+      worldAdvanced = true;
+      queuedActions.length = 0;
+    }
     return json(route, advanceResult || {
       type: 'world_advanced',
       simulationId: 'mock-simulation-2',

@@ -101,6 +101,17 @@ export function MinisterChat({
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+  const requestRef = useRef<AbortController | null>(null);
+
+  // The effect captures this seat's callback; parent callbacks change on every
+  // render, so only a change of request context (or unmount) cancels the stream.
+  useEffect(() => () => {
+    const request = requestRef.current;
+    if (!request) return;
+    requestRef.current = null;
+    request.abort();
+    onStreamingChange(false);
+  }, [gameId, address?.seat]);
   // WS-MINISTER-UX-07 (C) — Se il giocatore era in fondo si segue lo stream; se
   // ha risalito la cronologia non lo si riporta giù.
   const stickToBottomRef = useRef(true);
@@ -159,9 +170,21 @@ export function MinisterChat({
     );
   }
 
+  const interrupt = (): void => {
+    const request = requestRef.current;
+    if (!request) return;
+    requestRef.current = null;
+    request.abort();
+    onStreamingChange(false);
+  };
+
   const send = async (): Promise<void> => {
     const text = input.trim();
-    if (!text || streaming) return;
+    if (!text || streaming || requestRef.current) return;
+    // Lock synchronously, before awaiting or asking the parent to rerender.
+    const request = new AbortController();
+    requestRef.current = request;
+    const ownsRequest = (): boolean => requestRef.current === request && !request.signal.aborted;
     onStreamingChange(true);
     setError('');
     setInput('');
@@ -175,13 +198,20 @@ export function MinisterChat({
     // quello del Presidente, ma al modello arrivano prima i ricordi pertinenti.
     const outbound = text;
     try {
-      await ministerApi.askStream(gameId, address.seat, outbound, history, onAppendToken, memory ?? []);
+      await ministerApi.askStream(gameId, address.seat, outbound, history, token => {
+        if (ownsRequest()) onAppendToken(token);
+      }, memory ?? [], request.signal);
     } catch (e) {
+      if (!ownsRequest()) return;
       console.error('[Government] Minister reply failed:', e);
       setError('Il ministro non risponde ora.');
       onAppendToken('Il ministro non è raggiungibile ora. Riprova.');
     } finally {
-      onStreamingChange(false);
+      // A canceled request can settle after a replacement has already started.
+      if (requestRef.current === request) {
+        requestRef.current = null;
+        onStreamingChange(false);
+      }
     }
   };
 
@@ -260,8 +290,8 @@ export function MinisterChat({
           rows={2}
           disabled={streaming}
         />
-        <button type="button" onClick={() => void send()} disabled={streaming || !input.trim()}>
-          {streaming ? '…' : 'Invia'}
+        <button type="button" onClick={() => streaming ? interrupt() : void send()} disabled={!streaming && !input.trim()}>
+          {streaming ? 'Interrompi' : 'Invia'}
         </button>
       </div>
 
