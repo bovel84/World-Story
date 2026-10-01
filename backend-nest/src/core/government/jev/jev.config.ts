@@ -12,6 +12,7 @@ export interface JevConfig {
   consolidationIntervalTurns: number;
   maxMinisterContextTokens: number;
   maxDiplomaticContextTokens: number;
+  maxFactionContextTokens: number;
   semanticRetrievalEnabled: boolean;
   llmFallbackEnabled: boolean;
   debug: boolean;
@@ -30,6 +31,7 @@ export function getJevConfig(env: Record<string, string | undefined> = process.e
     consolidationIntervalTurns: 10,
     maxMinisterContextTokens: 4500,
     maxDiplomaticContextTokens: 3500,
+    maxFactionContextTokens: 1200,
     semanticRetrievalEnabled: false,
     llmFallbackEnabled: false,
     debug: false,
