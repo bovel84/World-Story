@@ -1,94 +1,35 @@
-# WS-GOVUX-P5 — OPZIONE 1: idempotenza firma, STOP prima della migrazione
+# WS-GOVUX-P5 — idempotenza durevole della firma, OPZIONE 1
 
-Base verificata: `main` / `origin/main` **`157a408`**.
-Branch: `feat/ws-govux-opt1-freeze-circoscritto`.
-Task: `/tmp/pi-tasks/pi-task-govux-opt1-freeze.md`.
+## 1. Stato e autorizzazione
 
-**Stato: BLOCCATO, NON IMPLEMENTATO.** Serve una ricevuta durevole indipendente
-dalla coda. La migrazione minima è proposta sotto ma **NON eseguita**.
-Il task autorizza l'analisi della sola migrazione indispensabile e impone:
-«in tal caso fermarsi e documentare prima». È questo lo STOP applicato.
-Nessun altro archivio del motore è stato riutilizzato per aggirare il vincolo.
+Base: `main@157a408`, [audit P0](WS-GOVUX-P0-report.md). Implementata **l'idempotenza della firma autorizzata**, non tutta P5 della roadmap.
 
-## 1. Cosa era rotto — nomi reali e prova del blocco
+Il precedente STOP della PR #153 (`bfe092e`) documentava la necessità della ricevuta e della migrazione prima di applicarla. Dopo «procedi sei autorizzato» è stata implementata **solo** quella migrazione, con atomicità e ripristino RAM. È stata eseguita esclusivamente nei DB temporanei dei test: **nessuna migrazione sul DB operativo, nessun restart dei servizi pubblicati, merge o deploy**. Verifica aggiuntiva read-only del DB operativo tramite Python `sqlite3`, URI `mode=ro` e `PRAGMA query_only=ON`, exit 0: `action_signature_receipts` **assente** (`operational-schema-readonly.log`).
 
-Percorso della firma attuale:
+## 2. Cosa era rotto e perché serviva una migrazione
 
-`ActDraftPanel → GovernmentOffice.signDraft → useOrderQueue.queuePlayerAction`
-`→ POST actions/queue → GameSession.queueAction → OrderExecutionService.enqueue`
-`→ gameRepository.queuePendingAction`.
+`OrderExecutionService.enqueue` genera `shortId()` a ogni chiamata e aggiunge l'ordine in RAM prima di `gameRepository.queuePendingAction`. Il repository inserisce ordine e incrementa `queueVersion`, senza identità della richiesta. Dopo una risposta persa, un retry crea un secondo ordine.
 
-| File letto, NON modificato | Righe / simbolo | Evidenza |
-|---|---|---|
-| `frontend/src/components/Game/GovernmentOffice.tsx` | 365–381, `signDraft` | Invia testo/dichiarazione d'opera; nessuna chiave durevole della firma |
-| `frontend/src/hooks/useOrderQueue.ts` | 137–156, `queuePlayerAction` | Deduplica solo i testi già nella coda client |
-| `frontend/src/services/api.ts` | 1345–1359, `gameApi.queueAction` | Payload testo/opera, senza identità della richiesta |
-| `backend-nest/src/routes/games/actions.routes.ts` | 184–217, POST queue | Chiama `session.queueAction(text, work)` e restituisce il nuovo actionId |
-| `backend-nest/src/game-session.ts` | 3488–3489, `queueAction` | Delega a `orders.enqueue`; nessun key parameter. Questo contratto resta congelato fuori da P2 |
-| `backend-nest/src/game/OrderExecutionService.ts` | 188–212, `enqueue` | `shortId()` nuovo ad ogni chiamata; push RAM prima del repository |
-| `backend-nest/src/repositories/game.repository.ts` | 647–661, `queuePendingAction` | INSERT incondizionato + bump queueVersion nella transazione esistente |
-| `backend-nest/src/database.ts` | 985–1011, `pending_actions` | PK sull'actionId; nessun request key/hash/ricevuta di firma |
+Busy UI e deduplica del testo non danno una garanzia durevole. Usare come ricevuta soltanto la riga di `pending_actions` fallisce quando revoca, esecuzione o restore la eliminano. Gli archivi esistenti di simulazioni, memorie e azioni eseguite non coprono un ordine revocato prima dell'esecuzione e non sono stati riutilizzati impropriamente.
 
-### Perdita della risposta
+## 3. Identità e contratto HTTP
 
-1. Il primo POST accoda e persiste l'ordine A.
-2. La risposta HTTP si perde: il client non vede A.
-3. Il retry dello stesso payload passa la deduplica UI.
-4. `enqueue` genera B con un nuovo ID; il repository inserisce B.
-5. Ora ci sono due ordini per una sola firma logica.
+- La preparazione di una bozza nel Governo assegna una UUID casuale. La medesima bozza conserva la chiave per doppio invio e retry.
+- `Idempotency-Key` viaggia fino a `POST /games/:id/actions/queue`; chiave non vuota, massimo 128 caratteri. Una chiave fornita ma invalida è rifiutata prima delle mutazioni.
+- Il payload firmato è **testo normalizzato + distinta `work`, quando presente**. Si riusa `semanticStateHash`, che ordina le proprietà; non si crea un nuovo sistema di hashing.
+- Stessa partita/key/hash: stessa conferma originale con `replayed: true`, senza chiamare enqueue.
+- Stessa partita/key, hash diverso: `409 idempotency_conflict`, nessuna scrittura.
+- Nuova key con stesso contenuto: nuova firma intenzionalmente distinta.
+- Client senza key: contratto legacy invariato; **nessuna promessa di idempotenza durevole** per tali invii.
 
-È una conseguenza diretta del percorso sorgente; **non è stato eseguito un
-POST di firma sulla partita reale per dimostrarla**, né presentato un test
-inesistente come prova di implementazione.
+Dopo il primo invio il candidato non è più modificabile: il testo resta fisso per i retry anche se la risposta è incerta. Per una firma diversa il giocatore annulla la preparazione e prepara una nuova bozza, con nuova UUID. Non si ruota silenziosamente la chiave dopo un errore.
 
-### Perché un ID deterministico nella sola coda non basta
+## 4. Unica migrazione e atomicità
 
-Anche ipotizzando `A = hash(gameId, requestKey)`, la coda non conserva la ricevuta:
-
-| Evento | Evidenza sorgente | Dove sparisce l'identità |
-|---|---|---|
-| Revoca prima dell'esecuzione | `OrderExecutionService.ts:222-227`, repository `703-709` | DELETE della riga pending; nessuna azione/esito storico viene creato per l'ordine revocato |
-| Esecuzione | `game/TurnPipelineService.ts:607-622,834-859` | Pending cancellata. Azione/esito mantengono actionId ma non richiesta/hash originali |
-| Ripristino della coda | repository `733-754`, `game/GamePersistenceService.ts:261` | DELETE dell'intera coda e reinserimento degli ordini del salvataggio |
-| Ripristino della cronaca | repository `845-878`, `replaceHistory` | Anche le azioni storiche sono cancellate e ricostruite |
-| Rewind | repository `881-899`, `deleteAfterTurn` | Le azioni successive al turno sono eliminate |
-
-**Controesempio decisivo:** prima firma accettata, risposta persa, revoca da un
-altro client prima del retry. La riga di coda è stata eliminata e non esiste un
-esito di turno. Un retry con la stessa key può inserire nuovamente l'ordine,
-resuscitando una firma già revocata. La deduplica durava solo finché la riga era
-presente, non era una garanzia durevole.
-
-Identificare per testo/opera non è una soluzione: il testo pending è modificabile
-(repository `713-720`) e due firme intenzionalmente diverse possono avere lo
-stesso testo. Il requisito parla della **stessa richiesta**, non di ogni richiesta
-con contenuto uguale.
-
-Le tabelle di job/run hanno già idempotency key, ma sono archivi di simulazione:
-riutilizzarli per firme cambierebbe semantica e sistemi congelati. Non si inseriscono
-azioni storiche fittizie alla firma, non si usano memorie ministeriali o marker di
-migrazione come ricevute, non si mantengono righe cancellate artificialmente nella
-coda (il reader le elenca senza filtrare questi nuovi significati).
-
-## 2. Cosa è stato toccato (file e righe)
-
-**Nessun codice né schema modificato.** Sono aggiunti soltanto i due report:
-
-- `docs/implementation/WS-GOVUX-P2-report.md` — stato P2 e percorso di cancellazione;
-- `docs/implementation/WS-GOVUX-P5-report.md` — questo arresto preventivo.
-
-I riferimenti di riga nelle tabelle sono ai sorgenti della base, **non** un elenco
-di modifiche applicate. L'analisi dello schema è avvenuta leggendo `database.ts`,
-non migrando il database attivo. Nessun ordine reale firmato/revocato, nessun
-rewind o checkpoint alterato durante questa diagnosi.
-
-## 3. Sola migrazione minima proposta — NON applicata
-
-Occorre un registro tecnico di accettazione della richiesta, separato dalla
-coda mutevole e dalla cronaca del mondo. Proposta da approvare, non SQL eseguito:
+`backend-nest/src/database.ts:996–1009` aggiunge soltanto:
 
 ```sql
-CREATE TABLE action_signature_receipts (
+CREATE TABLE IF NOT EXISTS action_signature_receipts (
   game_id TEXT NOT NULL,
   request_key TEXT NOT NULL,
   payload_hash TEXT NOT NULL,
@@ -99,112 +40,99 @@ CREATE TABLE action_signature_receipts (
 );
 ```
 
-**Perché questi dati:**
+Nessuna FK verso la coda, backfill, modifica dei suoi stati o nuova semantica di restore. La ricevuta resta dopo revoca/esecuzione/restore e viene cancellata con la partita. È la **conferma originale di accettazione**, non una certificazione dello stato corrente dell'ordine.
 
-- `(game_id, request_key)`: unicità durevole della richiesta, isolata per partita;
-- `payload_hash`: stessa key con payload diverso deve produrre conflitto, non
-  riscrivere l'atto né firmarne un altro;
-- `action_id`: identità dell'unico ordine generato alla prima accettazione;
-- `response_json`: conferma originale recuperabile dopo perdita della risposta
-  anche quando l'ordine non è più pending; è una ricevuta dell'accettazione,
-  **non** la dichiarazione che l'ordine sia ancora in coda o sia stato eseguito;
-- nessuna FK verso `pending_actions`: la revoca non deve cancellare la ricevuta;
-- cancellazione solo insieme alla partita, non al restore/rewind della coda.
+`gameRepository.acceptActionSignature` apre `BEGIN IMMEDIATE` prima del lookup:
 
-Non occorrono modifiche alle tabelle dei run, delle risorse o dei checkpoint.
-Una colonna key nella sola `pending_actions` **non risolve** l'eliminazione della
-riga; non si propone una migrazione incompleta pur di evitare il blocco.
+1. Cerca la ricevuta; replica oppure segnala conflitto senza enqueue.
+2. Solo se assente, chiama sincronicamente l'accodamento **esistente**.
+3. `queuePendingAction` annidato diventa savepoint: inserisce l'ordine e incrementa una sola volta la versione.
+4. Inserisce hash, actionId e conferma nella ricevuta.
+5. Commit di tutte le scritture oppure rollback di tutte.
 
-### Contratto minimo associato alla migrazione
+Niente LLM, network, broadcast o avanzamento temporale nella transazione. La rotta prende uno snapshot del riferimento RAM già esposto da `getPendingActions` e ne ripristina il contenuto se fallisce enqueue, insert della ricevuta **o COMMIT esterno**. Non è stato aggiunto alcun parametro P5 a `GameSession` né modificato `OrderExecutionService`.
 
-1. Il client genera una key una volta per la firma logica e la mantiene per
-   doppio tap, retry e perdita della risposta; una nuova firma intenzionale
-   riceve una nuova key. Riusa la convenzione `Idempotency-Key` già presente
-   per altri comandi, senza introdurre un secondo sistema di job.
-2. Il confine HTTP valida key/payload, calcola l'hash della versione originale
-   mostrata (testo + dichiarazione d'opera normalizzata) e non confronta testo
-   successivamente modificato nel registro.
-3. **Un'unica transazione atomica**, con serializzazione SQLite adeguata:
-   lookup ricevuta → inserimento ordine se assente → incremento queueVersion
-   una sola volta → inserimento ricevuta → commit.
-4. Stessa key/hash: restituisce la conferma già registrata **senza enqueue,
-   senza incremento di versione e senza nuova firma**, anche dopo revoca o
-   esecuzione. Stessa key/hash diverso: conflitto, zero scritture.
-5. Il client distingue replay da stato corrente dell'ordine e rilegge il registro
-   autorevole: non aggiunge un ordine revocato alla lista UI solo perché la
-   ricevuta originale dichiarava l'accettazione.
-6. Su eccezione/rollback: né ricevuta né ordine persistito né ordine fantasma
-   in RAM. L'attuale `enqueue` muta RAM prima della persistenza; una transazione
-   annidata è un savepoint, non una conferma indipendente (`database.ts:1364-1375`).
-   La coerenza della coda RAM deve quindi essere provata, non assunta.
+La UI rilegge la coda autorevole dopo la conferma, con guardia sulla partita corrente. Una ricevuta storica il cui actionId non è più presente **non** diventa un ordine fantasma, un esito «firmato nel registro» o una memoria `queued-decision`.
 
-Il contratto di GameSession per P5 **non è autorizzato a cambiare**: l'eccezione
-in questo task riguarda GameSession solo per P2. La futura integrazione deve
-preservare quel confine usando il percorso di coda esistente; se non fosse
-possibile con l'intervento minimo, occorrerebbe un ulteriore STOP motivato,
-non un parametro P5 infilato silenziosamente in GameSession.
+## 5. File toccati
 
-Il disegno atomico e la riconciliazione RAM vanno approvati/testati insieme alla
-migrazione: il solo `CREATE TABLE` non costituirebbe una correzione end-to-end.
-Non è stata implementata alcuna delle operazioni proposte.
+| File e righe | Estensione |
+|---|---|
+| `backend-nest/src/database.ts:996–1009` | Sola tabella ricevute. |
+| `backend-nest/src/repositories/game.repository.ts:44–46,650–670` | Conflitto esplicito e singola transazione; riusa hash e queuePendingAction. |
+| `backend-nest/src/routes/games/actions.routes.ts:185–234` | Header, payload normalizzato delle firme, ricezione atomica, rollback RAM e risposta 409. |
+| `frontend/src/services/api.ts:1345–1367` | Header opzionale e flag replayed, payload di lavoro invariato. |
+| `frontend/src/hooks/useOrderQueue.ts:136–168` | Niente deduplica testuale sostitutiva per firme con key; riconciliazione GET e niente accodamento/memoria fittizi. |
+| `frontend/src/components/Game/GovernmentOffice.tsx:160,343–391,587–588` | Identità nella bozza esistente, lock del candidato dopo invio, istruzioni per retry/nuova firma. |
+| `frontend/src/components/Game/ActDraftPanel.tsx:19–37,65–70` | Editing opzionale e avviso; default compatibili con gli altri chiamanti. |
+| `frontend/src/components/Game/SeatTable.tsx:74–79,166–180` | Solo inoltro dei due attributi della bozza. |
+| `backend-nest/tests/ws-govux-p5-signatures.test.ts` | 15 nuovi test HTTP/SQLite temporanei. |
+| `frontend/src/services/govuxTransport.test.ts` | Contratto header e compatibilità legacy, insieme ai test P2. |
+| `e2e/tests/govux-signatures.spec.mjs` | 3 regressioni browser: risposta persa, ricevuta revocata, nuova preparazione. |
+| `e2e/mock-api.mjs:1220–1254,1300–1310` | Fixture conserva coda e ricevute, GET autorevole, revoca ed esito mock; nessuna logica di simulazione reale. |
 
-## 4. Cosa resta congelato
+## 6. Prove dedicate e review
 
-Tutto il codice rimane quello di `157a408`: `core/simulation/**`, GameSession,
-TurnOrchestrator, TurnPipelineService, SessionStateStore, schema e repository,
-checkpoint/run/playback/pipeline temporale e stato frontend.
+Test prima dell'implementazione: **RED validato, 12 falliti**, con riga ricevuta assente e actionId duplicati. Un tentativo precedente aveva una fixture LLM senza `consolidation`: corretta la fixture prima di considerare valido il RED, senza allentare asserzioni. La suite è stata poi ampliata a **15/15 passati**.
 
-Nessuna migrazione, nessun riuso improprio di tabelle esistenti, nessun refactor
-dello storage. Nessun merge, deploy o restart. Le build locali non sono deploy.
+I test attraversano HTTP reale, sessione e repository reale, con DB sotto la directory temporanea; non usano il DB operativo:
 
-## 5. Prove: comandi, exit code e output chiave
+- Due POST concorrenti, stessa key: un actionId, un ordine DB/RAM, una ricevuta e un solo bump.
+- Risposta persa: arresto del server **di fixture**, chiusura SQLite, moduli/registry nuovi, riapertura DB e retry con stessa conferma. Una seconda connessione legge la ricevuta dal file.
+- Payload diverso: 409 e versione immutata; distinta inclusa nell'hash, ordine delle proprietà irrilevante.
+- Nuova key/stesso testo, isolamento tra partite e compatibilità client legacy.
+- Revoca HTTP: replay senza resurrezione né bump.
+- Eliminazione/replace della coda con gli stessi metodi usati da esecuzione e restore: ricevuta conservata.
+- Modifica dell'ordine già in coda: non cambia l'hash originale della firma.
+- Failure SQL nell'ordine, tra ordine e ricevuta e al COMMIT con FK differita: DB/versione/RAM ripristinati; retry possibile.
+- Migrazione da tabella ricevute assente, ripetibilità e cancellazione con la partita.
 
-Nuove esecuzioni, log `/tmp/govux-opt1-gate/`. Stessi esiti riportati in P2:
+```sh
+cd backend-nest
+../node_modules/.bin/vitest run tests/ws-govux-p2-cancellation.test.ts tests/ws-govux-p5-signatures.test.ts
+# exit 0 — 23 test (15 P5 + 8 P2)
 
-| Comando | Exit code | Output chiave |
+cd ../frontend
+../node_modules/.bin/vitest run src/services/govuxTransport.test.ts
+# exit 0 — 6 test, dopo RED con 5 falliti/1 passato
+
+cd ../e2e
+CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  node_modules/.bin/playwright test tests/govux-cancellation.spec.mjs tests/govux-signatures.spec.mjs
+# exit 0 — 5 test (3 P5 + 2 P2), 1.1m
+```
+
+Review indipendente: corretti il registro non montato nelle asserzioni browser e la falsa memoria di accodamento per ricevuta revocata; bloccato il candidato già inviato. I test tornano ora a «Ministri», verificano **registro visibile** e count esatti 1/0; nel caso revocato verificano anche assenza di esito e memoria. Follow-up senza critical/warning sul codice. Corretto inoltre il solo testo atteso del nuovo test da «in coda» al label reale «accodato», senza cambiare le asserzioni sorgente preesistenti.
+
+## 7. Gate completi e limiti
+
+Log: `/tmp/govux-opt1-approved-gate/`, compresi `p5-red-valid.log`, `backend-focused.log`, `browser-fixed.log`, `first-run/` ed `exits.txt`.
+
+| Comando realmente eseguito | Exit | Output |
 |---|---:|---|
-| `cd backend-nest && npm test` | **0** | **206 file / 2158 test passati** |
-| `cd frontend && npm test` | **1**, ripetizione **1** | `Missing script: "test"` |
-| `cd frontend && ../node_modules/.bin/vitest run` | **0** | **122 file / 1028 test passati**, runner effettivo della CI; warning opzioni Vite deprecate |
-| `cd backend-nest && ../node_modules/.bin/tsc --noEmit` | **0** | Nessun errore |
-| `cd frontend && ../node_modules/.bin/tsc --noEmit` | **0** | Nessun errore |
-| `npm run build:backend` | **0** | Build riuscita |
-| `VITE_API_URL='' npm run build:frontend` | **0** | Build riuscita; warning chunk >500 kB già presente |
-| `cd e2e && node_modules/.bin/playwright test` | **0** | **155 passati**, 18,6 minuti |
-| `cd e2e && node_modules/.bin/playwright test --config=playwright.a11y.config.mjs` | **0** | **4 passati**, 26,3 secondi |
-| Nuovo test P5 «stessa chiave → un solo ordine» | **NON ESEGUITO** | Implementazione bloccata prima della migrazione; non esiste una prova positiva del nuovo contratto |
-| Nuovo test P2 «annullamento interrompe provider» | **NON ESEGUITO** | Nessuna implementazione dopo lo STOP del pacchetto |
+| `cd backend-nest && npm test` | 0 | 208 file, 2181 test passati |
+| `cd frontend && npm test` | **1** | `Missing script: "test"`, due tentativi |
+| `cd frontend && ../node_modules/.bin/vitest run` | 0 | 123 file, 1034 test passati |
+| `cd backend-nest && ../node_modules/.bin/tsc --noEmit` | 0 | Nessun errore |
+| `cd frontend && ../node_modules/.bin/tsc --noEmit` | 0 | Nessun errore |
+| `npm run build:backend` | 0 | Build completata |
+| `VITE_API_URL='' npm run build:frontend` | 0 | Build completata, warning chunk grandi |
+| `cd e2e && CHROME_PATH=… node_modules/.bin/playwright test` | 0 | 160 passati, 18.7m |
+| `cd e2e && CHROME_PATH=… node_modules/.bin/playwright test --config=playwright.a11y.config.mjs` | 0 | 4 passati, 24.3s |
 
-Backend test preceduto dalla rimozione dei soli sei `.test.js` generati in `dist`,
-verificati ignorati e non tracciati da Git. **Nessun test sorgente escluso,
-eliminato o allentato**; nessuna soglia modificata.
-Per Playwright: `CHROME_PATH='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'`.
+**Non si dichiara verde il comando frontend `npm test` mancante.** Il runner Vitest effettivo è stato eseguito separatamente. Nessun test sorgente escluso, rimosso, allentato o soglia aumentata. Rimossi soltanto sei file compilati ignorati/non tracciati, con verifica Git registrata. Il primo gate backend aveva 5 falliti/2176 passati (`req.header` assente nelle request dei test legacy): corretta la lettura raw header e rilanciata l'intera suite. Primo E2E completo interrotto per le correzioni della review, non dichiarato passato.
 
-Questi sono gate della **base invariata**, non test di accettazione P2/P5.
-Il pacchetto NON viene dichiarato verde/completo: frontend `npm test` manca,
-i test dedicati richiesti non sono implementati e lo STOP resta aperto.
+Limiti espliciti:
 
-### Test da aggiungere soltanto dopo lo scioglimento dello STOP
+- Concorrenza HTTP su un singolo handler/connessione; non è uno stress test multi-processo SQLite. `BEGIN IMMEDIATE` serializza il lookup, ma tale stress non viene dichiarato eseguito.
+- Restart di HTTP/registry/SQLite di fixture, non riavvio del sistema operativo o del servizio pubblico.
+- Test di persistenza usano i metodi di rimozione/replace reali; non eseguono una simulazione completa, salto temporale o restore end-to-end.
+- Chiave nella bozza client esistente, in RAM: nessun nuovo store persistente di bozze. Reload completo scarta la bozza; per retry tra processi/client bisogna conservare e riusare la stessa key. La ricevuta server sopravvive al riavvio del DB.
+- Nessuna idempotenza retroattiva per ordini legacy senza key. Nessun TTL delle ricevute: cancellarle prematuramente annullerebbe la garanzia; si eliminano con la partita.
+- Non completati gli altri requisiti P5 su competenza, versionamento/freschezza, preflight, memoria o semantica temporale.
 
-- Due POST con stessa key/payload → stessa actionId, una riga ordine/una ricevuta,
-  queueVersion incrementata una volta; client differenti, non solo doppio clic UI.
-- Retry dopo perdita della risposta e riapertura DB/riavvio → nessun secondo ordine.
-- Stessa key/payload diverso → conflitto e nessuna modifica a coda/ricevuta.
-- Key nuova/contenuto uguale → firma distinta legittima, senza deduplica per testo.
-- Replay dopo revoca/esecuzione/restore → non ricrea l'ordine.
-- Fault tra INSERT ordine e INSERT ricevuta / commit → rollback DB e RAM coerente.
-- Identica key in due partite → isolamento per gameId.
+## 8. Freeze e consegna
 
-Sono criteri futuri, non test aggiunti o risultati già ottenuti.
+Invariati `core/simulation/**`, `TurnOrchestrator`, `TurnPipelineService`, `SessionStateStore`, `OrderExecutionService`, run/checkpoint/playback e semantiche di salvataggio/tempo. Nessun contratto P5 aggiunto a `GameSession`: il suo diff appartiene soltanto a P2. Repository fuori dal metodo ricevuta invariati; schema fuori dalla sola tabella invariato.
 
-## 6. Limiti residui e consegna alla regia
-
-La firma è ancora soggetta al doppio ordine dopo risposta persa. Busy e dedup
-UI non sono promossi a soluzione. Il provider ministeriale non è ancora
-cancellabile end-to-end: vedere report P2.
-
-La regia deve approvare esplicitamente **la sola migrazione delle ricevute e
-la relativa scrittura atomica/coerenza RAM**, oppure autorizzare P2 separata
-mentre P5 resta bloccata. Non si procede oltre con un workaround sotto-traccia.
-
-**Una PR draft verso main, con entrambi i report. Nessun merge/deploy.**
+PR unica **#153**, titolo richiesto invariato. Implementazione in commit piccoli: `588e6b7` (P2 backend), `ba9f4ef` (P5 backend), `4f4869a` (P2 browser), `0131d0f` (integrazione firma/UI). **Nessun merge/deploy/migrazione operativa.** Attesa della regia.
