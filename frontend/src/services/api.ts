@@ -1344,14 +1344,16 @@ export const gameApi = {
    */
   queueAction: (gameId: string, text: string, work?: {
     workId: string; payerActorId: string; materialActorId: string; funded: boolean;
-  }): Promise<{
+  }, idempotencyKey?: string): Promise<{
     id: string;
     text: string;
     status: string;
     createdAt: string;
+    replayed?: boolean;
   }> => {
     return fetchApi(`/games/${gameId}/actions/queue`, {
       method: 'POST',
+      ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
       // MG02 µ6 — La dichiarazione d'opera viaggia con l'ordine. Il client non
       // la inventa: la riceve dalla verifica di fattibilità e la rimanda. Senza,
       // la costruzione non nasce (il testo da solo non è una distinta).

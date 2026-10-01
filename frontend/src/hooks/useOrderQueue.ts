@@ -41,7 +41,7 @@ export interface OrderQueue {
   feasibilityLoading: boolean;
   feasibilityError: string | null;
   generateSuggestions: () => Promise<void>;
-  queuePlayerAction: (text: string, work?: WorkDeclarationInput) => Promise<boolean>;
+  queuePlayerAction: (text: string, work?: WorkDeclarationInput, signatureKey?: string) => Promise<boolean>;
   removeQueuedAction: (actionId: string) => Promise<void>;
   updateQueuedAction: (actionId: string, newText: string) => Promise<void>;
   enhanceOrder: (text: string) => Promise<void>;
@@ -139,20 +139,33 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
     // costruzione. Arriva dal server (verifica di fattibilità o Governo), non
     // dal giocatore.
     work?: WorkDeclarationInput,
+    signatureKey?: string,
   ): Promise<boolean> => {
     if (!gameId || !text.trim()) return false;
-    if (pendingActions.some(action => action.text.trim() === text.trim())) return true;
+    if (!signatureKey && pendingActions.some(action => action.text.trim() === text.trim())) return true;
     setSuggestionsError('');
     try {
-      const queued = await gameApi.queueAction(gameId, text.trim(), work);
-      addPendingAction({ id: queued.id, text: queued.text });
+      const queued = await gameApi.queueAction(gameId, text.trim(), work, signatureKey);
+      if (signatureKey) {
+        // La ricevuta è l'accettazione originale, non lo stato corrente: un
+        // replay dopo revoca/esecuzione non deve ricreare fantasmi nella UI.
+        const current = await gameApi.getPendingActions(gameId);
+        if (useGameStore.getState().currentGame?.id !== gameId) return false;
+        setPendingActions(current.pendingActions);
+        if (!current.pendingActions.some(action => action.id === queued.id)) {
+          setSuggestionsError('Firma già accettata, ma ordine non più in coda. Per una nuova firma prepara una nuova bozza.');
+          return false;
+        }
+      } else {
+        addPendingAction({ id: queued.id, text: queued.text });
+      }
       return true;
     } catch (e) {
       console.error('[Actions] Failed to queue action:', e);
       setSuggestionsError('Impossibile aggiungere l’azione alla coda. Riprova.');
       return false;
     }
-  }, [gameId, pendingActions, addPendingAction]);
+  }, [gameId, pendingActions, addPendingAction, setPendingActions]);
 
   /**
    * WS-GOVOFFICE-02 — La strada scelta nella seduta entra in coda

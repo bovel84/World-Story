@@ -78,7 +78,7 @@ export interface GovernmentOfficeProps {
    * prepara e corregge una strada, poi la firma. La dichiarazione d'opera viaggia
    * accanto al testo quando la distinta è coperta. Ritorna `true` se accodato.
    */
-  onQueueOrder?: (text: string, work?: WorkDeclarationInput) => Promise<boolean>;
+  onQueueOrder?: (text: string, work?: WorkDeclarationInput, signatureKey?: string) => Promise<boolean>;
 
   // ── Il registro: gli atti deliberati, in lettura ────────────────────────
   /** Gli atti in attesa del turno. Il registro li legge e li firma. */
@@ -157,7 +157,7 @@ export function GovernmentOffice({
   // WS-MINISTER-UX-06 — La bozza d'atto sul tavolo: la strada preparata dal
   // Presidente, correggibile e firmabile. È stato di UI: non accoda e non spende
   // finché non si firma. `actBusy` evita il doppio atto mentre la firma è in volo.
-  const [actDraft, setActDraft] = useState<ProposalActDraft | null>(null);
+  const [actDraft, setActDraft] = useState<(ProposalActDraft & { signatureKey: string; signatureAttempted?: boolean; signatureNotice?: string }) | null>(null);
   const [actBusy, setActBusy] = useState(false);
 
   // WS-MINISTER-UX-01 — La composizione della seduta: il dialogo è la
@@ -342,11 +342,11 @@ export function GovernmentOffice({
 
   const prepareRoad = useCallback((road: TreasuryRoad): void => {
     if (!address) return;
-    setActDraft(actDraftFor(road, address.seat));
+    setActDraft({ ...actDraftFor(road, address.seat), signatureKey: crypto.randomUUID() });
   }, [address]);
 
   const editDraft = useCallback((text: string): void => {
-    setActDraft(current => (current ? editActDraft(current, text) : current));
+    setActDraft(current => (current && !current.signatureAttempted ? { ...editActDraft(current, text), signatureKey: current.signatureKey } : current));
   }, []);
 
   const cancelDraft = useCallback((): void => {
@@ -359,14 +359,21 @@ export function GovernmentOffice({
     if (openSeat) applyPresentation(openSeat, 'tavola', '', { op: 'compare' });
   }, [openSeat, applyPresentation]);
 
-  // La firma esplicita del Presidente: l'atto entra nel registro. Un solo atto in
-  // volo per volta (doppio clic), e la coda deduplica per testo (tentativi
-  // ripetuti): nessun atto duplicato.
+  // La chiave appartiene alla bozza preparata, non al singolo POST: retry e
+  // doppio clic sono deduplicati atomicamente dal server, non dal busy UI.
   const signDraft = async (draft: ProposalActDraft): Promise<boolean> => {
-    if (!address || !onQueueOrder) return false;
+    if (!address || !onQueueOrder || !actDraft || actDraft.id !== draft.id || actDraft.text !== draft.text) return false;
+    const signatureKey = actDraft.signatureKey;
+    setActDraft(current => current?.signatureKey === signatureKey ? { ...current, signatureAttempted: true, signatureNotice: undefined } : current);
     setActBusy(true);
     try {
-      const queued = await onQueueOrder(draft.text, draft.work);
+      const queued = await onQueueOrder(draft.text, draft.work, signatureKey);
+      if (!queued) {
+        setActDraft(current => current?.signatureKey === signatureKey ? {
+          ...current,
+          signatureNotice: 'Firma non confermata nel registro corrente. Riprova questa bozza senza modificarla; per una firma diversa annulla la preparazione e prepara una nuova bozza.',
+        } : current);
+      }
       if (queued) {
         const headline = actHeadline(draft);
         setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: headline });
@@ -577,6 +584,8 @@ export function GovernmentOffice({
                   actDraft={actDraft}
                   actStatus={draftStatus}
                   actBusy={actBusy}
+                  actEditable={!actDraft?.signatureAttempted}
+                  actSignatureNotice={actDraft?.signatureNotice}
                   onEditDraft={editDraft}
                   onSignDraft={signDraft}
                   onCancelDraft={cancelDraft}
