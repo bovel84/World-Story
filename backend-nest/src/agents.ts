@@ -137,12 +137,12 @@ export class GameController {
   /**
    * Получить советы через advisor.md
    */
-  async getAdvisorWithPrompts(gameData: any, message: string, history: any[] = []): Promise<string> {
+  async getAdvisorWithPrompts(gameData: any, message: string, history: any[] = [], signal?: AbortSignal): Promise<string> {
     if (!this.promptEngine) {
       this.initPromptEngine(gameData);
     }
 
-    return this.promptEngine!.getAdvisor(gameData, message, history);
+    return this.promptEngine!.getAdvisor(gameData, message, history, signal);
   }
 
   /**
@@ -154,13 +154,14 @@ export class GameController {
     gameData: any,
     message: string,
     history: any[] = [],
-    onToken: (charsSoFar: number) => void
+    onToken: (charsSoFar: number) => void,
+    signal?: AbortSignal,
   ): Promise<string> {
     if (!this.promptEngine) {
       this.initPromptEngine(gameData);
     }
 
-    return this.promptEngine!.getAdvisorStream(gameData, message, history, onToken);
+    return this.promptEngine!.getAdvisorStream(gameData, message, history, onToken, signal);
   }
 
   /**
