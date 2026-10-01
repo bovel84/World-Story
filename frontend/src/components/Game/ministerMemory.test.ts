@@ -7,10 +7,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  MINISTER_MEMORY_LIMIT, discussedProposal, loadMemory, memorySection,
+  MINISTER_MEMORY_LIMIT, clientMandate, discussedProposal, loadMemory, memorySection, memoryScopeKey,
   openQuestion, pruneMemoryByDate, queuedDecision, recordMemory, relevantMemory, saveMemory,
-  seatRecords, withSeatRecords, type MinisterMemoryRecord,
+  seatRecords, withSeatRecords, type MinisterMemoryRecord, type MinisterMemoryScope,
 } from './ministerMemory';
+
+const SCOPE: MinisterMemoryScope = { gameId: 'game-1', branchId: 'main', mandate: 'p1:ind' };
 
 const ref = { messageId: 'tesoro#2', gameDate: '1951-03-01' };
 
@@ -110,20 +112,42 @@ describe('WS-MINISTER-UX-05 (client) — rewind e persistenza', () => {
   it('la memoria sopravvive a una nuova lettura dello storage', () => {
     const storage = fakeStorage();
     const store = withSeatRecords({}, 'tesoro', [discussed('a')]);
-    saveMemory('game-1', store, storage);
-    expect(loadMemory('game-1', storage)).toEqual(store);
+    saveMemory(SCOPE, store, storage);
+    expect(loadMemory(SCOPE, storage)).toEqual(store);
   });
 
   it('due partite non si scambiano ricordi', () => {
     const storage = fakeStorage();
-    saveMemory('game-1', withSeatRecords({}, 'tesoro', [discussed('a')]), storage);
-    expect(loadMemory('game-2', storage)).toEqual({});
+    saveMemory(SCOPE, withSeatRecords({}, 'tesoro', [discussed('a')]), storage);
+    expect(loadMemory({ ...SCOPE, gameId: 'game-2' }, storage)).toEqual({});
+  });
+
+  it('WS-MINISTER-UX-08 (4) — un ricordo di un altro ramo non riappare', () => {
+    const storage = fakeStorage();
+    saveMemory({ ...SCOPE, branchId: 'fork-b' }, withSeatRecords({}, 'tesoro', [discussed('ramo-b')]), storage);
+    expect(loadMemory({ ...SCOPE, branchId: 'main' }, storage)).toEqual({});
+    expect(loadMemory({ ...SCOPE, branchId: 'fork-b' }, storage).tesoro[0].id).toBe('ramo-b');
+  });
+
+  it('WS-MINISTER-UX-08 (4) — cambiando mandato cambia lo scope', () => {
+    const storage = fakeStorage();
+    saveMemory({ ...SCOPE, mandate: 'p1:ind' }, withSeatRecords({}, 'tesoro', [discussed('governo-1')]), storage);
+    expect(loadMemory({ ...SCOPE, mandate: 'p1:naz' }, storage)).toEqual({});
+    expect(memoryScopeKey({ ...SCOPE, mandate: 'p1:ind' })).not.toBe(memoryScopeKey({ ...SCOPE, mandate: 'p1:naz' }));
+    expect(memoryScopeKey(SCOPE)).toContain('game-1');
+    expect(memoryScopeKey(SCOPE)).toContain('main');
+  });
+
+  it('WS-MINISTER-UX-08 (4) — il mandato è polity + fazione dominante, come il server', () => {
+    expect(clientMandate({ dominantId: 'industriali' }, 'p1')).toBe('p1:industriali');
+    expect(clientMandate(null, 'p1')).toBe('p1:council');
+    expect(clientMandate({ dominantId: 'x' }, null)).toBe('unknown:x');
   });
 
   it('uno storage rotto non rompe la seduta', () => {
     const broken = { ...fakeStorage(), getItem: () => '{not json' } as Storage;
-    expect(loadMemory('game-1', broken)).toEqual({});
+    expect(loadMemory(SCOPE, broken)).toEqual({});
     const failing = { ...fakeStorage(), setItem: () => { throw new Error('quota'); } } as Storage;
-    expect(() => saveMemory('game-1', {}, failing)).not.toThrow();
+    expect(() => saveMemory(SCOPE, {}, failing)).not.toThrow();
   });
 });
