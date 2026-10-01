@@ -1,0 +1,3753 @@
+{
+  "base": "http://localhost:8000",
+  "saveId": "56193ead2b2e",
+  "mock": false,
+  "reducedMotion": "reduce",
+  "viewports": [
+    {
+      "stage": "consiglio",
+      "filename": "390x844-consiglio.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "12px"
+      },
+      "noveltyBadge": false,
+      "contrast": [
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro del Tesoro",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "bilancio, debito, cassa e crediti del paese",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro dell’Istruzione",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "scuole e atenei, spesa per istruzione e ricerca, tensione so",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro della Sanità",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "spesa sociale (sanità e sostegno), popolazione, stabilità",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro dell’Interno",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "fazioni, pressione politica, coesione",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro della Guerra",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "potenza e arsenale del paese, minacce al confine",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 0,
+        "y": 50.640625,
+        "width": 390,
+        "height": 793.359375,
+        "scrollWidth": 390,
+        "clientWidth": 390,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": null,
+      "table": null,
+      "main": null,
+      "draft": null,
+      "mainKind": null,
+      "focus": "☰World Story▤Dispacci⚙Millennium Dawn — 2000 - 10/1/2026TURNO 2Avanza‹15 gennaio",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 44
+        },
+        {
+          "name": "Ministro del Tesorobilancio, debito, cassa e crediti del paese",
+          "width": 362,
+          "height": 72
+        },
+        {
+          "name": "Ministro dell’Istruzionescuole e atenei, spesa per istruzione e ricerca, tensione sociale",
+          "width": 362,
+          "height": 86
+        },
+        {
+          "name": "Ministro della Sanitàspesa sociale (sanità e sostegno), popolazione, stabilità",
+          "width": 362,
+          "height": 86
+        },
+        {
+          "name": "Ministro dell’Internofazioni, pressione politica, coesione",
+          "width": 362,
+          "height": 72
+        },
+        {
+          "name": "Ministro della Guerrapotenza e arsenale del paese, minacce al confine",
+          "width": 362,
+          "height": 72
+        }
+      ],
+      "tabs": []
+    },
+    {
+      "stage": "dialogo",
+      "filename": "390x844-dialogo.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "12px"
+      },
+      "noveltyBadge": true,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view active",
+          "text": "Dialogo",
+          "ratio": 15.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view",
+          "text": "Tavola",
+          "ratio": 11.88,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Governo",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Ministro del Tesoro",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 0,
+        "y": 50.640625,
+        "width": 390,
+        "height": 793.359375,
+        "scrollWidth": 390,
+        "clientWidth": 390,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 20,
+        "y": 211.9375,
+        "width": 350,
+        "height": 489.0625,
+        "scrollWidth": 350,
+        "clientWidth": 350,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "table": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "hasLayout": false,
+        "intersectsViewport": false
+      },
+      "main": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "hasLayout": false,
+        "intersectsViewport": false
+      },
+      "draft": null,
+      "mainKind": "chart",
+      "focus": "☰World Story▤Dispacci⚙Millennium Dawn — 2000 - 10/1/2026TURNO 2Avanza‹15 gennaio",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 44
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 44
+        },
+        {
+          "name": "Dialogo",
+          "width": 166,
+          "height": 44
+        },
+        {
+          "name": "Tavola",
+          "width": 166,
+          "height": 44
+        },
+        {
+          "name": "Messaggio per Ministro del Tesoro",
+          "width": 262.390625,
+          "height": 55.5
+        },
+        {
+          "name": "Invia",
+          "width": 55.609375,
+          "height": 55.5
+        },
+        {
+          "name": "Nulla di fatto — chiudi senza ordine",
+          "width": 225.96875,
+          "height": 44
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 338,
+          "height": 44
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "tavola",
+      "filename": "390x844-tavola.png",
+      "mainVisibleHeight": 210.1875,
+      "mainVisibleFraction": 0.5797526181959229,
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "12px"
+      },
+      "noveltyBadge": false,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view",
+          "text": "Dialogo",
+          "ratio": 15.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view active",
+          "text": "Tavola",
+          "ratio": 11.88,
+          "threshold": 4.5,
+          "passes": true
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 0,
+        "y": 50.640625,
+        "width": 390,
+        "height": 793.359375,
+        "scrollWidth": 390,
+        "clientWidth": 390,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "hasLayout": false,
+        "intersectsViewport": false
+      },
+      "table": {
+        "x": 20,
+        "y": 211.9375,
+        "width": 350,
+        "height": 489.0625,
+        "scrollWidth": 350,
+        "clientWidth": 350,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 30,
+        "y": 490.8125,
+        "width": 330,
+        "height": 362.546875,
+        "scrollWidth": 330,
+        "clientWidth": 330,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "draft": null,
+      "mainKind": "chart",
+      "focus": "Tavola",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 44
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 44
+        },
+        {
+          "name": "Dialogo",
+          "width": 166,
+          "height": 44
+        },
+        {
+          "name": "Tavola",
+          "width": 166,
+          "height": 44
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 139.15625,
+          "height": 44
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 156.84375,
+          "height": 44
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 306,
+          "height": 44
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 44
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 44
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 44
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 44
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 44
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 44
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 44
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 105.21875,
+          "height": 44
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 44
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 338,
+          "height": 44
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "bozza",
+      "filename": "390x844-bozza.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "12px"
+      },
+      "noveltyBadge": false,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view",
+          "text": "Dialogo",
+          "ratio": 11.88,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view active",
+          "text": "Tavola",
+          "ratio": 15.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "act-draft-note",
+          "text": "Il motore interpreterà la prosa all’avanzamento del tempo: p",
+          "ratio": 5.78,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "act-draft-label",
+          "text": "Testo dell’atto (modificabile dal Presidente)",
+          "ratio": 3.79,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 0,
+        "y": 50.640625,
+        "width": 390,
+        "height": 793.359375,
+        "scrollWidth": 390,
+        "clientWidth": 390,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "hasLayout": false,
+        "intersectsViewport": false
+      },
+      "table": {
+        "x": 20,
+        "y": 211.9375,
+        "width": 350,
+        "height": 489.0625,
+        "scrollWidth": 350,
+        "clientWidth": 350,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 30,
+        "y": -1555.1875,
+        "width": 330,
+        "height": 362.546875,
+        "scrollWidth": 330,
+        "clientWidth": 330,
+        "hasLayout": true,
+        "intersectsViewport": false
+      },
+      "draft": {
+        "x": 30,
+        "y": 434.734375,
+        "width": 330,
+        "height": 424,
+        "scrollWidth": 328,
+        "clientWidth": 328,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "mainKind": "chart",
+      "focus": "Rimborso titoli: 3 mld in scadenza il 2003-01-01\n— Il Tesoro impegna 3 mld per e",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 44
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 44
+        },
+        {
+          "name": "Dialogo",
+          "width": 166,
+          "height": 44
+        },
+        {
+          "name": "Tavola",
+          "width": 166,
+          "height": 44
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 139.15625,
+          "height": 44
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 156.84375,
+          "height": 44
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 306,
+          "height": 44
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 44
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 44
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 44
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 44
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 44
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 44
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 44
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 119.828125,
+          "height": 44
+        },
+        {
+          "name": "Rimborso titoli: 3 mld in scadenza il 2003-01-01\n— Il Tesoro impegna 3 mld per estinguere anziché rifinanziare il titolo «Debito ereditato 3 anni» (1% annuo).\nCosto immediato: 3 mld di cassa.\nEffetto futuro misurato: 0,03 mld di interessi in meno all'anno.\nNota d'audit: esplorazione senza firma.",
+          "width": 304,
+          "height": 126
+        },
+        {
+          "name": "Firma e inserisci nel registro",
+          "width": 194.578125,
+          "height": 44
+        },
+        {
+          "name": "Annulla preparazione",
+          "width": 149.46875,
+          "height": 44
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 44
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 338,
+          "height": 44
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "ritorno-dialogo",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "composerPreserved": true,
+      "noveltyBadgeAfterSeeing": true
+    },
+    {
+      "stage": "consiglio",
+      "filename": "768x1024-consiglio.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 768,
+        "height": 1024,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": false,
+      "contrast": [
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro del Tesoro",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "bilancio, debito, cassa e crediti del paese",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro dell’Istruzione",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "scuole e atenei, spesa per istruzione e ricerca, tensione so",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro della Sanità",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "spesa sociale (sanità e sostegno), popolazione, stabilità",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro dell’Interno",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "fazioni, pressione politica, coesione",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro della Guerra",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "potenza e arsenale del paese, minacce al confine",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 24,
+        "y": 51.203125,
+        "width": 737.265625,
+        "height": 921.59375,
+        "scrollWidth": 735,
+        "clientWidth": 735,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": null,
+      "table": null,
+      "main": null,
+      "draft": null,
+      "mainKind": null,
+      "focus": "☰World Story▤Dispacci⚙Millennium Dawn — 2000 - 10/1/2026TURNO 2Avanza‹15 gennaio",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "Ministro del Tesorobilancio, debito, cassa e crediti del paese",
+          "width": 227.75,
+          "height": 100
+        },
+        {
+          "name": "Ministro dell’Istruzionescuole e atenei, spesa per istruzione e ricerca, tensione sociale",
+          "width": 227.75,
+          "height": 100
+        },
+        {
+          "name": "Ministro della Sanitàspesa sociale (sanità e sostegno), popolazione, stabilità",
+          "width": 227.75,
+          "height": 100
+        },
+        {
+          "name": "Ministro dell’Internofazioni, pressione politica, coesione",
+          "width": 227.75,
+          "height": 86
+        },
+        {
+          "name": "Ministro della Guerrapotenza e arsenale del paese, minacce al confine",
+          "width": 227.75,
+          "height": 86
+        }
+      ],
+      "tabs": []
+    },
+    {
+      "stage": "dialogo",
+      "filename": "768x1024-dialogo.png",
+      "mainVisibleHeight": 106.609375,
+      "mainVisibleFraction": 0.4425921120913337,
+      "viewport": {
+        "width": 768,
+        "height": 1024,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": true,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Governo",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Ministro del Tesoro",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 24,
+        "y": 51.203125,
+        "width": 737.265625,
+        "height": 921.59375,
+        "scrollWidth": 735,
+        "clientWidth": 735,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 49,
+        "y": 134.109375,
+        "width": 300,
+        "height": 747.09375,
+        "scrollWidth": 300,
+        "clientWidth": 300,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "table": {
+        "x": 357,
+        "y": 134.109375,
+        "width": 379.265625,
+        "height": 747.09375,
+        "scrollWidth": 379,
+        "clientWidth": 379,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 367,
+        "y": 774.59375,
+        "width": 359.265625,
+        "height": 240.875,
+        "scrollWidth": 359,
+        "clientWidth": 359,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "draft": null,
+      "mainKind": "chart",
+      "focus": "☰World Story▤Dispacci⚙Millennium Dawn — 2000 - 10/1/2026TURNO 2Avanza‹15 gennaio",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 26.296875
+        },
+        {
+          "name": "Messaggio per Ministro del Tesoro",
+          "width": 212.390625,
+          "height": 55.5
+        },
+        {
+          "name": "Invia",
+          "width": 55.609375,
+          "height": 55.5
+        },
+        {
+          "name": "Nulla di fatto — chiudi senza ordine",
+          "width": 225.96875,
+          "height": 30.9375
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 98.09375,
+          "height": 24.296875
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 115.78125,
+          "height": 24.296875
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 109.390625,
+          "height": 24.296875
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 23.390625
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 23.390625
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 23.390625
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 23.390625
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 105.21875,
+          "height": 28.9375
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 28.9375
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 110.71875,
+          "height": 35.59375
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "tavola",
+      "filename": "768x1024-tavola.png",
+      "mainVisibleHeight": 106.609375,
+      "mainVisibleFraction": 0.4425921120913337,
+      "viewport": {
+        "width": 768,
+        "height": 1024,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": true,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Governo",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Ministro del Tesoro",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 24,
+        "y": 51.203125,
+        "width": 737.265625,
+        "height": 921.59375,
+        "scrollWidth": 735,
+        "clientWidth": 735,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 49,
+        "y": 134.109375,
+        "width": 300,
+        "height": 747.09375,
+        "scrollWidth": 300,
+        "clientWidth": 300,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "table": {
+        "x": 357,
+        "y": 134.109375,
+        "width": 379.265625,
+        "height": 747.09375,
+        "scrollWidth": 379,
+        "clientWidth": 379,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 367,
+        "y": 774.59375,
+        "width": 359.265625,
+        "height": 240.875,
+        "scrollWidth": 359,
+        "clientWidth": 359,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "draft": null,
+      "mainKind": "chart",
+      "focus": "Messaggio per Ministro del Tesoro",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 26.296875
+        },
+        {
+          "name": "Messaggio per Ministro del Tesoro",
+          "width": 212.390625,
+          "height": 55.5
+        },
+        {
+          "name": "Invia",
+          "width": 55.609375,
+          "height": 55.5
+        },
+        {
+          "name": "Nulla di fatto — chiudi senza ordine",
+          "width": 225.96875,
+          "height": 30.9375
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 98.09375,
+          "height": 24.296875
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 115.78125,
+          "height": 24.296875
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 109.390625,
+          "height": 24.296875
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 23.390625
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 23.390625
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 23.390625
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 23.390625
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 105.21875,
+          "height": 28.9375
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 28.9375
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 110.71875,
+          "height": 35.59375
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "bozza",
+      "filename": "768x1024-bozza.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 768,
+        "height": 1024,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": true,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Governo",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Ministro del Tesoro",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "act-draft-note",
+          "text": "Il motore interpreterà la prosa all’avanzamento del tempo: p",
+          "ratio": 5.78,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "act-draft-label",
+          "text": "Testo dell’atto (modificabile dal Presidente)",
+          "ratio": 3.79,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 24,
+        "y": 51.203125,
+        "width": 737.265625,
+        "height": 921.59375,
+        "scrollWidth": 735,
+        "clientWidth": 735,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 49,
+        "y": 134.109375,
+        "width": 300,
+        "height": 747.09375,
+        "scrollWidth": 300,
+        "clientWidth": 300,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "table": {
+        "x": 357,
+        "y": 134.109375,
+        "width": 379.265625,
+        "height": 747.09375,
+        "scrollWidth": 379,
+        "clientWidth": 379,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 367,
+        "y": -1115.40625,
+        "width": 359.265625,
+        "height": 240.875,
+        "scrollWidth": 359,
+        "clientWidth": 359,
+        "hasLayout": true,
+        "intersectsViewport": false
+      },
+      "draft": {
+        "x": 367,
+        "y": 632.34375,
+        "width": 359.265625,
+        "height": 380.625,
+        "scrollWidth": 357,
+        "clientWidth": 357,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "mainKind": "chart",
+      "focus": "Rimborso titoli: 3 mld in scadenza il 2003-01-01\n— Il Tesoro impegna 3 mld per e",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 26.296875
+        },
+        {
+          "name": "Messaggio per Ministro del Tesoro",
+          "width": 212.390625,
+          "height": 55.5
+        },
+        {
+          "name": "Invia",
+          "width": 55.609375,
+          "height": 55.5
+        },
+        {
+          "name": "Nulla di fatto — chiudi senza ordine",
+          "width": 225.96875,
+          "height": 30.9375
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 98.09375,
+          "height": 24.296875
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 115.78125,
+          "height": 24.296875
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 109.390625,
+          "height": 24.296875
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 23.390625
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 23.390625
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 23.390625
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 23.390625
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 119.828125,
+          "height": 28.9375
+        },
+        {
+          "name": "Rimborso titoli: 3 mld in scadenza il 2003-01-01\n— Il Tesoro impegna 3 mld per estinguere anziché rifinanziare il titolo «Debito ereditato 3 anni» (1% annuo).\nCosto immediato: 3 mld di cassa.\nEffetto futuro misurato: 0,03 mld di interessi in meno all'anno.\nNota d'audit: esplorazione senza firma.",
+          "width": 333.265625,
+          "height": 126
+        },
+        {
+          "name": "Firma e inserisci nel registro",
+          "width": 194.578125,
+          "height": 30.9375
+        },
+        {
+          "name": "Annulla preparazione",
+          "width": 149.46875,
+          "height": 30.9375
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 28.9375
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 110.71875,
+          "height": 35.59375
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "consiglio",
+      "filename": "1366x768-consiglio.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 1366,
+        "height": 768,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": false,
+      "contrast": [
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro del Tesoro",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "bilancio, debito, cassa e crediti del paese",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro dell’Istruzione",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "scuole e atenei, spesa per istruzione e ricerca, tensione so",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro della Sanità",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "spesa sociale (sanità e sostegno), popolazione, stabilità",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro dell’Interno",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "fazioni, pressione politica, coesione",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro della Guerra",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "potenza e arsenale del paese, minacce al confine",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 43,
+        "y": 38.40625,
+        "width": 1280,
+        "height": 691.1875,
+        "scrollWidth": 1278,
+        "clientWidth": 1278,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": null,
+      "table": null,
+      "main": null,
+      "draft": null,
+      "mainKind": null,
+      "focus": "☰World Story▤Dispacci⚙Millennium Dawn — 2000 - 10/1/2026TURNO 2Avanza‹15 gennaio",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "Ministro del Tesorobilancio, debito, cassa e crediti del paese",
+          "width": 240.390625,
+          "height": 100
+        },
+        {
+          "name": "Ministro dell’Istruzionescuole e atenei, spesa per istruzione e ricerca, tensione sociale",
+          "width": 240.40625,
+          "height": 100
+        },
+        {
+          "name": "Ministro della Sanitàspesa sociale (sanità e sostegno), popolazione, stabilità",
+          "width": 240.390625,
+          "height": 100
+        },
+        {
+          "name": "Ministro dell’Internofazioni, pressione politica, coesione",
+          "width": 240.40625,
+          "height": 100
+        },
+        {
+          "name": "Ministro della Guerrapotenza e arsenale del paese, minacce al confine",
+          "width": 240.390625,
+          "height": 100
+        }
+      ],
+      "tabs": []
+    },
+    {
+      "stage": "dialogo",
+      "filename": "1366x768-dialogo.png",
+      "mainVisibleHeight": 240.875,
+      "mainVisibleFraction": 1,
+      "viewport": {
+        "width": 1366,
+        "height": 768,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": true,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Governo",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Ministro del Tesoro",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 43,
+        "y": 38.40625,
+        "width": 1280,
+        "height": 691.1875,
+        "scrollWidth": 1278,
+        "clientWidth": 1278,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 68,
+        "y": 121.3125,
+        "width": 516.59375,
+        "height": 516.6875,
+        "scrollWidth": 517,
+        "clientWidth": 517,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "table": {
+        "x": 592.59375,
+        "y": 121.3125,
+        "width": 705.40625,
+        "height": 516.6875,
+        "scrollWidth": 705,
+        "clientWidth": 705,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 602.59375,
+        "y": 276.09375,
+        "width": 685.40625,
+        "height": 240.875,
+        "scrollWidth": 685,
+        "clientWidth": 685,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "draft": null,
+      "mainKind": "chart",
+      "focus": "☰World Story▤Dispacci⚙Millennium Dawn — 2000 - 10/1/2026TURNO 2Avanza‹15 gennaio",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 26.296875
+        },
+        {
+          "name": "Messaggio per Ministro del Tesoro",
+          "width": 428.984375,
+          "height": 55.5
+        },
+        {
+          "name": "Invia",
+          "width": 55.609375,
+          "height": 55.5
+        },
+        {
+          "name": "Nulla di fatto — chiudi senza ordine",
+          "width": 225.96875,
+          "height": 30.9375
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 98.09375,
+          "height": 24.296875
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 115.78125,
+          "height": 24.296875
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 109.390625,
+          "height": 24.296875
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 23.390625
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 23.390625
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 23.390625
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 23.390625
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 105.21875,
+          "height": 28.9375
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 28.9375
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 110.71875,
+          "height": 35.59375
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "tavola",
+      "filename": "1366x768-tavola.png",
+      "mainVisibleHeight": 240.875,
+      "mainVisibleFraction": 1,
+      "viewport": {
+        "width": 1366,
+        "height": 768,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": true,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Governo",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Ministro del Tesoro",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 43,
+        "y": 38.40625,
+        "width": 1280,
+        "height": 691.1875,
+        "scrollWidth": 1278,
+        "clientWidth": 1278,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 68,
+        "y": 121.3125,
+        "width": 516.59375,
+        "height": 516.6875,
+        "scrollWidth": 517,
+        "clientWidth": 517,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "table": {
+        "x": 592.59375,
+        "y": 121.3125,
+        "width": 705.40625,
+        "height": 516.6875,
+        "scrollWidth": 705,
+        "clientWidth": 705,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 602.59375,
+        "y": 276.09375,
+        "width": 685.40625,
+        "height": 240.875,
+        "scrollWidth": 685,
+        "clientWidth": 685,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "draft": null,
+      "mainKind": "chart",
+      "focus": "Messaggio per Ministro del Tesoro",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 26.296875
+        },
+        {
+          "name": "Messaggio per Ministro del Tesoro",
+          "width": 428.984375,
+          "height": 55.5
+        },
+        {
+          "name": "Invia",
+          "width": 55.609375,
+          "height": 55.5
+        },
+        {
+          "name": "Nulla di fatto — chiudi senza ordine",
+          "width": 225.96875,
+          "height": 30.9375
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 98.09375,
+          "height": 24.296875
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 115.78125,
+          "height": 24.296875
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 109.390625,
+          "height": 24.296875
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 23.390625
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 23.390625
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 23.390625
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 23.390625
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 105.21875,
+          "height": 28.9375
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 28.9375
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 110.71875,
+          "height": 35.59375
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "bozza",
+      "filename": "1366x768-bozza.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 1366,
+        "height": 768,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": true,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Governo",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Ministro del Tesoro",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "act-draft-note",
+          "text": "Il motore interpreterà la prosa all’avanzamento del tempo: p",
+          "ratio": 5.78,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "act-draft-label",
+          "text": "Testo dell’atto (modificabile dal Presidente)",
+          "ratio": 3.79,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 43,
+        "y": 38.40625,
+        "width": 1280,
+        "height": 691.1875,
+        "scrollWidth": 1278,
+        "clientWidth": 1278,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 68,
+        "y": 121.3125,
+        "width": 516.59375,
+        "height": 516.6875,
+        "scrollWidth": 517,
+        "clientWidth": 517,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "table": {
+        "x": 592.59375,
+        "y": 121.3125,
+        "width": 705.40625,
+        "height": 516.6875,
+        "scrollWidth": 705,
+        "clientWidth": 705,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 602.59375,
+        "y": -1098.90625,
+        "width": 685.40625,
+        "height": 240.875,
+        "scrollWidth": 685,
+        "clientWidth": 685,
+        "hasLayout": true,
+        "intersectsViewport": false
+      },
+      "draft": {
+        "x": 602.59375,
+        "y": 456.75,
+        "width": 685.40625,
+        "height": 282.4375,
+        "scrollWidth": 683,
+        "clientWidth": 683,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "mainKind": "chart",
+      "focus": "Rimborso titoli: 3 mld in scadenza il 2003-01-01\n— Il Tesoro impegna 3 mld per e",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 26.296875
+        },
+        {
+          "name": "Messaggio per Ministro del Tesoro",
+          "width": 428.984375,
+          "height": 55.5
+        },
+        {
+          "name": "Invia",
+          "width": 55.609375,
+          "height": 55.5
+        },
+        {
+          "name": "Nulla di fatto — chiudi senza ordine",
+          "width": 225.96875,
+          "height": 30.9375
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 98.09375,
+          "height": 24.296875
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 115.78125,
+          "height": 24.296875
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 109.390625,
+          "height": 24.296875
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 23.390625
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 23.390625
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 23.390625
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 23.390625
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 119.828125,
+          "height": 28.9375
+        },
+        {
+          "name": "Rimborso titoli: 3 mld in scadenza il 2003-01-01\n— Il Tesoro impegna 3 mld per estinguere anziché rifinanziare il titolo «Debito ereditato 3 anni» (1% annuo).\nCosto immediato: 3 mld di cassa.\nEffetto futuro misurato: 0,03 mld di interessi in meno all'anno.\nNota d'audit: esplorazione senza firma.",
+          "width": 659.40625,
+          "height": 126
+        },
+        {
+          "name": "Firma e inserisci nel registro",
+          "width": 194.578125,
+          "height": 30.9375
+        },
+        {
+          "name": "Annulla preparazione",
+          "width": 149.46875,
+          "height": 30.9375
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 28.9375
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 110.71875,
+          "height": 35.59375
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "consiglio",
+      "filename": "1920x1080-consiglio.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": false,
+      "contrast": [
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro del Tesoro",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "bilancio, debito, cassa e crediti del paese",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro dell’Istruzione",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "scuole e atenei, spesa per istruzione e ricerca, tensione so",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro della Sanità",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "spesa sociale (sanità e sostegno), popolazione, stabilità",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro dell’Interno",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "fazioni, pressione politica, coesione",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro della Guerra",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "potenza e arsenale del paese, minacce al confine",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 320,
+        "y": 70,
+        "width": 1280,
+        "height": 940,
+        "scrollWidth": 1278,
+        "clientWidth": 1278,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": null,
+      "table": null,
+      "main": null,
+      "draft": null,
+      "mainKind": null,
+      "focus": "☰World Story▤Dispacci⚙Millennium Dawn — 2000 - 10/1/2026TURNO 2Avanza‹15 gennaio",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "Ministro del Tesorobilancio, debito, cassa e crediti del paese",
+          "width": 240.390625,
+          "height": 100
+        },
+        {
+          "name": "Ministro dell’Istruzionescuole e atenei, spesa per istruzione e ricerca, tensione sociale",
+          "width": 240.40625,
+          "height": 100
+        },
+        {
+          "name": "Ministro della Sanitàspesa sociale (sanità e sostegno), popolazione, stabilità",
+          "width": 240.390625,
+          "height": 100
+        },
+        {
+          "name": "Ministro dell’Internofazioni, pressione politica, coesione",
+          "width": 240.40625,
+          "height": 100
+        },
+        {
+          "name": "Ministro della Guerrapotenza e arsenale del paese, minacce al confine",
+          "width": 240.390625,
+          "height": 100
+        }
+      ],
+      "tabs": []
+    },
+    {
+      "stage": "dialogo",
+      "filename": "1920x1080-dialogo.png",
+      "mainVisibleHeight": 240.875,
+      "mainVisibleFraction": 1,
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": true,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Governo",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Ministro del Tesoro",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 320,
+        "y": 70,
+        "width": 1280,
+        "height": 940,
+        "scrollWidth": 1278,
+        "clientWidth": 1278,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 345,
+        "y": 152.90625,
+        "width": 516.59375,
+        "height": 765.5,
+        "scrollWidth": 517,
+        "clientWidth": 517,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "table": {
+        "x": 869.59375,
+        "y": 152.90625,
+        "width": 705.40625,
+        "height": 765.5,
+        "scrollWidth": 705,
+        "clientWidth": 705,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 879.59375,
+        "y": 307.6875,
+        "width": 685.40625,
+        "height": 240.875,
+        "scrollWidth": 685,
+        "clientWidth": 685,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "draft": null,
+      "mainKind": "chart",
+      "focus": "☰World Story▤Dispacci⚙Millennium Dawn — 2000 - 10/1/2026TURNO 2Avanza‹15 gennaio",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 26.296875
+        },
+        {
+          "name": "Messaggio per Ministro del Tesoro",
+          "width": 428.984375,
+          "height": 55.5
+        },
+        {
+          "name": "Invia",
+          "width": 55.609375,
+          "height": 55.5
+        },
+        {
+          "name": "Nulla di fatto — chiudi senza ordine",
+          "width": 225.96875,
+          "height": 30.9375
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 98.09375,
+          "height": 24.296875
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 115.78125,
+          "height": 24.296875
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 109.390625,
+          "height": 24.296875
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 23.390625
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 23.390625
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 23.390625
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 23.390625
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 105.21875,
+          "height": 28.9375
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 28.9375
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 110.71875,
+          "height": 35.59375
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "tavola",
+      "filename": "1920x1080-tavola.png",
+      "mainVisibleHeight": 240.875,
+      "mainVisibleFraction": 1,
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": true,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Governo",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Ministro del Tesoro",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 320,
+        "y": 70,
+        "width": 1280,
+        "height": 940,
+        "scrollWidth": 1278,
+        "clientWidth": 1278,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 345,
+        "y": 152.90625,
+        "width": 516.59375,
+        "height": 765.5,
+        "scrollWidth": 517,
+        "clientWidth": 517,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "table": {
+        "x": 869.59375,
+        "y": 152.90625,
+        "width": 705.40625,
+        "height": 765.5,
+        "scrollWidth": 705,
+        "clientWidth": 705,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 879.59375,
+        "y": 307.6875,
+        "width": 685.40625,
+        "height": 240.875,
+        "scrollWidth": 685,
+        "clientWidth": 685,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "draft": null,
+      "mainKind": "chart",
+      "focus": "Messaggio per Ministro del Tesoro",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 26.296875
+        },
+        {
+          "name": "Messaggio per Ministro del Tesoro",
+          "width": 428.984375,
+          "height": 55.5
+        },
+        {
+          "name": "Invia",
+          "width": 55.609375,
+          "height": 55.5
+        },
+        {
+          "name": "Nulla di fatto — chiudi senza ordine",
+          "width": 225.96875,
+          "height": 30.9375
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 98.09375,
+          "height": 24.296875
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 115.78125,
+          "height": 24.296875
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 109.390625,
+          "height": 24.296875
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 23.390625
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 23.390625
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 23.390625
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 23.390625
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 105.21875,
+          "height": 28.9375
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 28.9375
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 110.71875,
+          "height": 35.59375
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "bozza",
+      "filename": "1920x1080-bozza.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 1920,
+        "height": 1080,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "14px"
+      },
+      "noveltyBadge": true,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Governo",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Ministro del Tesoro",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "act-draft-note",
+          "text": "Il motore interpreterà la prosa all’avanzamento del tempo: p",
+          "ratio": 5.78,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "act-draft-label",
+          "text": "Testo dell’atto (modificabile dal Presidente)",
+          "ratio": 3.79,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 320,
+        "y": 70,
+        "width": 1280,
+        "height": 940,
+        "scrollWidth": 1278,
+        "clientWidth": 1278,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 345,
+        "y": 152.90625,
+        "width": 516.59375,
+        "height": 765.5,
+        "scrollWidth": 517,
+        "clientWidth": 517,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "table": {
+        "x": 869.59375,
+        "y": 152.90625,
+        "width": 705.40625,
+        "height": 765.5,
+        "scrollWidth": 705,
+        "clientWidth": 705,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 879.59375,
+        "y": -818.3125,
+        "width": 685.40625,
+        "height": 240.875,
+        "scrollWidth": 685,
+        "clientWidth": 685,
+        "hasLayout": true,
+        "intersectsViewport": false
+      },
+      "draft": {
+        "x": 879.59375,
+        "y": 737.34375,
+        "width": 685.40625,
+        "height": 282.4375,
+        "scrollWidth": 683,
+        "clientWidth": 683,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "mainKind": "chart",
+      "focus": "Rimborso titoli: 3 mld in scadenza il 2003-01-01\n— Il Tesoro impegna 3 mld per e",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 40
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 26.296875
+        },
+        {
+          "name": "Messaggio per Ministro del Tesoro",
+          "width": 428.984375,
+          "height": 55.5
+        },
+        {
+          "name": "Invia",
+          "width": 55.609375,
+          "height": 55.5
+        },
+        {
+          "name": "Nulla di fatto — chiudi senza ordine",
+          "width": 225.96875,
+          "height": 30.9375
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 98.09375,
+          "height": 24.296875
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 115.78125,
+          "height": 24.296875
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 109.390625,
+          "height": 24.296875
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 23.390625
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 23.390625
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 23.390625
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 23.390625
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 23.390625
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 119.828125,
+          "height": 28.9375
+        },
+        {
+          "name": "Rimborso titoli: 3 mld in scadenza il 2003-01-01\n— Il Tesoro impegna 3 mld per estinguere anziché rifinanziare il titolo «Debito ereditato 3 anni» (1% annuo).\nCosto immediato: 3 mld di cassa.\nEffetto futuro misurato: 0,03 mld di interessi in meno all'anno.\nNota d'audit: esplorazione senza firma.",
+          "width": 659.40625,
+          "height": 126
+        },
+        {
+          "name": "Firma e inserisci nel registro",
+          "width": 194.578125,
+          "height": 30.9375
+        },
+        {
+          "name": "Annulla preparazione",
+          "width": 149.46875,
+          "height": 30.9375
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 28.9375
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 110.71875,
+          "height": 35.59375
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "consiglio",
+      "filename": "360x800-consiglio.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 360,
+        "height": 800,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "12px"
+      },
+      "noveltyBadge": false,
+      "contrast": [
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro del Tesoro",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "bilancio, debito, cassa e crediti del paese",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro dell’Istruzione",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "scuole e atenei, spesa per istruzione e ricerca, tensione so",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro della Sanità",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "spesa sociale (sanità e sostegno), popolazione, stabilità",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro dell’Interno",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "fazioni, pressione politica, coesione",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-name",
+          "text": "Ministro della Guerra",
+          "ratio": 15.02,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "cabinet-pick-reads",
+          "text": "potenza e arsenale del paese, minacce al confine",
+          "ratio": 4.65,
+          "threshold": 4.5,
+          "passes": true
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 0,
+        "y": 48,
+        "width": 360,
+        "height": 752,
+        "scrollWidth": 360,
+        "clientWidth": 360,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": null,
+      "table": null,
+      "main": null,
+      "draft": null,
+      "mainKind": null,
+      "focus": "☰World Story▤Dispacci⚙Millennium Dawn — 2000 - 10/1/2026TURNO 2Avanza‹15 gennaio",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 44
+        },
+        {
+          "name": "Ministro del Tesorobilancio, debito, cassa e crediti del paese",
+          "width": 332,
+          "height": 72
+        },
+        {
+          "name": "Ministro dell’Istruzionescuole e atenei, spesa per istruzione e ricerca, tensione sociale",
+          "width": 332,
+          "height": 86
+        },
+        {
+          "name": "Ministro della Sanitàspesa sociale (sanità e sostegno), popolazione, stabilità",
+          "width": 332,
+          "height": 86
+        },
+        {
+          "name": "Ministro dell’Internofazioni, pressione politica, coesione",
+          "width": 332,
+          "height": 72
+        },
+        {
+          "name": "Ministro della Guerrapotenza e arsenale del paese, minacce al confine",
+          "width": 332,
+          "height": 86
+        }
+      ],
+      "tabs": []
+    },
+    {
+      "stage": "dialogo",
+      "filename": "360x800-dialogo.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 360,
+        "height": 800,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "12px"
+      },
+      "noveltyBadge": true,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view active",
+          "text": "Dialogo",
+          "ratio": 15.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view",
+          "text": "Tavola",
+          "ratio": 11.88,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Governo",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        },
+        {
+          "selector": "entry-meta",
+          "text": "Ministro del Tesoro",
+          "ratio": 2.5,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 0,
+        "y": 48,
+        "width": 360,
+        "height": 752,
+        "scrollWidth": 360,
+        "clientWidth": 360,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 20,
+        "y": 217.71875,
+        "width": 320,
+        "height": 439.28125,
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "table": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "hasLayout": false,
+        "intersectsViewport": false
+      },
+      "main": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "hasLayout": false,
+        "intersectsViewport": false
+      },
+      "draft": null,
+      "mainKind": "chart",
+      "focus": "☰World Story▤Dispacci⚙Millennium Dawn — 2000 - 10/1/2026TURNO 2Avanza‹15 gennaio",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 44
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 44
+        },
+        {
+          "name": "Dialogo",
+          "width": 151,
+          "height": 44
+        },
+        {
+          "name": "Tavola",
+          "width": 151,
+          "height": 44
+        },
+        {
+          "name": "Messaggio per Ministro del Tesoro",
+          "width": 232.390625,
+          "height": 55.5
+        },
+        {
+          "name": "Invia",
+          "width": 55.609375,
+          "height": 55.5
+        },
+        {
+          "name": "Nulla di fatto — chiudi senza ordine",
+          "width": 225.96875,
+          "height": 44
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 308,
+          "height": 44
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "tavola",
+      "filename": "360x800-tavola.png",
+      "mainVisibleHeight": 146.109375,
+      "mainVisibleFraction": 0.4030082316941775,
+      "viewport": {
+        "width": 360,
+        "height": 800,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "12px"
+      },
+      "noveltyBadge": false,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view",
+          "text": "Dialogo",
+          "ratio": 15.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view active",
+          "text": "Tavola",
+          "ratio": 11.88,
+          "threshold": 4.5,
+          "passes": true
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 0,
+        "y": 48,
+        "width": 360,
+        "height": 752,
+        "scrollWidth": 360,
+        "clientWidth": 360,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "hasLayout": false,
+        "intersectsViewport": false
+      },
+      "table": {
+        "x": 20,
+        "y": 217.71875,
+        "width": 320,
+        "height": 439.28125,
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 30,
+        "y": 510.890625,
+        "width": 300,
+        "height": 362.546875,
+        "scrollWidth": 300,
+        "clientWidth": 300,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "draft": null,
+      "mainKind": "chart",
+      "focus": "Tavola",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 44
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 44
+        },
+        {
+          "name": "Dialogo",
+          "width": 151,
+          "height": 44
+        },
+        {
+          "name": "Tavola",
+          "width": 151,
+          "height": 44
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 124.15625,
+          "height": 44
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 141.84375,
+          "height": 44
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 276,
+          "height": 44
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 44
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 44
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 44
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 44
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 44
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 44
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 44
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 105.21875,
+          "height": 44
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 44
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 308,
+          "height": 44
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "bozza",
+      "filename": "360x800-bozza.png",
+      "mainVisibleHeight": 0,
+      "mainVisibleFraction": 0,
+      "viewport": {
+        "width": 360,
+        "height": 800,
+        "dpr": 1
+      },
+      "safeAreaPadding": {
+        "top": "14px",
+        "bottom": "12px"
+      },
+      "noveltyBadge": false,
+      "contrast": [
+        {
+          "selector": "minister-session-date",
+          "text": "2000-01-15",
+          "ratio": 5.4,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view",
+          "text": "Dialogo",
+          "ratio": 11.88,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "minister-session-view active",
+          "text": "Tavola",
+          "ratio": 15.65,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "act-draft-note",
+          "text": "Il motore interpreterà la prosa all’avanzamento del tempo: p",
+          "ratio": 5.78,
+          "threshold": 4.5,
+          "passes": true
+        },
+        {
+          "selector": "act-draft-label",
+          "text": "Testo dell’atto (modificabile dal Presidente)",
+          "ratio": 3.79,
+          "threshold": 4.5,
+          "passes": false
+        }
+      ],
+      "documentOverflowX": false,
+      "office": {
+        "x": 0,
+        "y": 48,
+        "width": 360,
+        "height": 752,
+        "scrollWidth": 360,
+        "clientWidth": 360,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "dialog": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "hasLayout": false,
+        "intersectsViewport": false
+      },
+      "table": {
+        "x": 20,
+        "y": 217.71875,
+        "width": 320,
+        "height": 439.28125,
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "main": {
+        "x": 30,
+        "y": -1751.109375,
+        "width": 300,
+        "height": 362.546875,
+        "scrollWidth": 300,
+        "clientWidth": 300,
+        "hasLayout": true,
+        "intersectsViewport": false
+      },
+      "draft": {
+        "x": 30,
+        "y": 356.515625,
+        "width": 300,
+        "height": 458,
+        "scrollWidth": 298,
+        "clientWidth": 298,
+        "hasLayout": true,
+        "intersectsViewport": true
+      },
+      "mainKind": "chart",
+      "focus": "Rimborso titoli: 3 mld in scadenza il 2003-01-01\n— Il Tesoro impegna 3 mld per e",
+      "reducedMotion": true,
+      "controls": [
+        {
+          "name": "Chiudi l'ufficio del Governo",
+          "width": 40,
+          "height": 44
+        },
+        {
+          "name": "← Ministri",
+          "width": 76.421875,
+          "height": 44
+        },
+        {
+          "name": "Dialogo",
+          "width": 151,
+          "height": 44
+        },
+        {
+          "name": "Tavola",
+          "width": 151,
+          "height": 44
+        },
+        {
+          "name": "Fissa evidenza",
+          "width": 124.15625,
+          "height": 44
+        },
+        {
+          "name": "Tavola predefinita",
+          "width": 141.84375,
+          "height": 44
+        },
+        {
+          "name": "Vai al messaggio",
+          "width": 276,
+          "height": 44
+        },
+        {
+          "name": "Espandi il piano strategico a schermo pieno",
+          "width": 30,
+          "height": 44
+        },
+        {
+          "name": "Knezevo",
+          "width": 76.5,
+          "height": 44
+        },
+        {
+          "name": "Novi Travnik",
+          "width": 96.84375,
+          "height": 44
+        },
+        {
+          "name": "Cazin",
+          "width": 60.984375,
+          "height": 44
+        },
+        {
+          "name": "Tomislavgrad",
+          "width": 102.09375,
+          "height": 44
+        },
+        {
+          "name": "Sanski Most",
+          "width": 95.984375,
+          "height": 44
+        },
+        {
+          "name": "Mostar",
+          "width": 68.375,
+          "height": 44
+        },
+        {
+          "name": "Prepara l'atto: Ammortamento del debito",
+          "width": 119.828125,
+          "height": 44
+        },
+        {
+          "name": "Rimborso titoli: 3 mld in scadenza il 2003-01-01\n— Il Tesoro impegna 3 mld per estinguere anziché rifinanziare il titolo «Debito ereditato 3 anni» (1% annuo).\nCosto immediato: 3 mld di cassa.\nEffetto futuro misurato: 0,03 mld di interessi in meno all'anno.\nNota d'audit: esplorazione senza firma.",
+          "width": 274,
+          "height": 126
+        },
+        {
+          "name": "Firma e inserisci nel registro",
+          "width": 194.578125,
+          "height": 44
+        },
+        {
+          "name": "Annulla preparazione",
+          "width": 149.46875,
+          "height": 44
+        },
+        {
+          "name": "Confronta le strade",
+          "width": 138.484375,
+          "height": 44
+        },
+        {
+          "name": "Chiudi ufficio",
+          "width": 308,
+          "height": 44
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Dialogo",
+          "selected": "false",
+          "controls": null,
+          "tabIndex": 0
+        },
+        {
+          "text": "Tavola",
+          "selected": "true",
+          "controls": null,
+          "tabIndex": 0
+        }
+      ]
+    },
+    {
+      "stage": "ritorno-dialogo",
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "composerPreserved": true,
+      "noveltyBadgeAfterSeeing": true
+    }
+  ],
+  "errors": [],
+  "writes": [
+    {
+      "method": "POST",
+      "path": "/api/saves/56193ead2b2e/load"
+    },
+    {
+      "method": "POST",
+      "path": "/api/games/c849a98a3abb/government/minister/tesoro/stream"
+    }
+  ],
+  "blockedWrites": [],
+  "streams": [
+    {
+      "started": 644131.765956,
+      "chunks": [
+        {
+          "afterMs": 16747,
+          "bytes": 1253
+        }
+      ],
+      "finishedAfterMs": 16746
+    }
+  ],
+  "health": {
+    "status": "ok",
+    "timestamp": "2026-10-01T08:36:52.762Z",
+    "build": {
+      "backend": "dev",
+      "frontend": "05575db"
+    },
+    "schema": {
+      "economySnapshot": 1,
+      "database": {
+        "userVersion": 0,
+        "tables": 53
+      }
+    },
+    "modelVersions": [
+      {
+        "id": "millennium_dawn",
+        "version": 1,
+        "mode": "authored",
+        "declaration": "historical_estimated"
+      },
+      {
+        "id": "modern_world_provinces",
+        "version": 1,
+        "mode": "authored",
+        "declaration": "historical_estimated"
+      },
+      {
+        "id": "realism_test_world",
+        "version": 1,
+        "mode": "strict",
+        "declaration": "synthetic"
+      }
+    ],
+    "auth": "open-single-user",
+    "api": {
+      "base": "/api",
+      "sameOrigin": true
+    }
+  },
+  "queueBefore": {
+    "pendingActions": [],
+    "queueVersion": 20
+  },
+  "splitKeyboard": {
+    "before": 42,
+    "after": 44,
+    "restored": true
+  },
+  "focusRestored": true,
+  "keyboardFocus": {
+    "name": "Chiudi l'ufficio del Governo",
+    "outline": "rgb(242, 246, 252) solid 3px",
+    "focusVisible": true
+  },
+  "queueAfter": {
+    "pendingActions": [],
+    "queueVersion": 20
+  },
+  "completed": true
+}
