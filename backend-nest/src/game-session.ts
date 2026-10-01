@@ -3314,7 +3314,7 @@ export class GameSession {
    * solo broadcast).
    */
   private async getAdvisorUnchecked(message: string, history: any[], signal?: AbortSignal,
-    ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string }): Promise<string> {
+    ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string; verifiedState?: string }): Promise<string> {
     const gameData = this.buildGameData();
     if (ministerMemoryRequest) gameData.ministerMemoryRequest = ministerMemoryRequest;
     return this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
@@ -3356,9 +3356,16 @@ export class GameSession {
       throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
     }
     const selective = getJevConfig().enabled;
-    const question = this.ministerPromptFor(address, message, !selective);
-    const request = selective ? { scope: this.ministerMemoryScopeFor(address.seat), query: message } : undefined;
-    const reply = await this.getAdvisorUnchecked(question, history, signal, request);
+    if (selective) {
+      // WS-JEV-W4 — Lo stato verificato va al context builder come sezione a sé:
+      // la domanda resta l'unico messaggio del giocatore, e la cronologia non
+      // viene più duplicata nel suffisso.
+      const { question, request } = this.ministerSelectiveFrom(address, message);
+      const reply = await this.getAdvisorUnchecked(question, history, signal, request);
+      return { reply, seat };
+    }
+    const question = this.ministerPromptFor(address, message, true);
+    const reply = await this.getAdvisorUnchecked(question, history, signal);
     return { reply, seat };
   }
 
@@ -3402,6 +3409,32 @@ export class GameSession {
     return `${briefing.context}\n\n---\n\n${question}`;
   }
 
+  /** W4 — la parte selettiva: solo la domanda, con lo stato verificato a parte. */
+  private ministerSelectiveFrom(address: any, message: string)
+    : { question: string; request: { scope: MinisterMemoryScope; query: string; verifiedState: string } } {
+    const briefing = briefingFor(address, { voices: [], headline: '', canonicalMutation: false }, undefined);
+    const question = message.trim() || openingMessage(briefing, address.items);
+    return {
+      question,
+      request: { scope: this.ministerMemoryScopeFor(address.seat), query: message, verifiedState: briefing.context },
+    };
+  }
+
+  private ministerSelectiveFor(seat: string, message: string): { question: string; scope: MinisterMemoryScope; verifiedState: string } {
+    const fence = this.fenceContext();
+    const cabinet = readCabinetSession({
+      gameId: this.id,
+      branchId: fence.branchId,
+      playerPolityId: this.playerPolityId,
+      government: this.getGovernment(),
+      account: this.getNationalAccounts()[this.playerPolityId],
+    });
+    const address = cabinet.addresses.find((candidate: { seat: string }) => candidate.seat === seat);
+    if (!address) throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
+    const { question, request } = this.ministerSelectiveFrom(address, message);
+    return { question, scope: request.scope, verifiedState: request.verifiedState };
+  }
+
   /** Il briefing di una sedia, a partire dal suo nome. Per lo streaming. */
   private ministerPrompt(seat: string, message: string, includeLegacyMemory = true): string {
     const fence = this.fenceContext();
@@ -3439,9 +3472,12 @@ export class GameSession {
   ): Promise<string> {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const gameData = this.buildGameData();
-    const selective = getJevConfig().enabled;
-    const prompt = this.ministerPrompt(seat, message, !selective);
-    if (selective) gameData.ministerMemoryRequest = { scope: this.ministerMemoryScopeFor(seat), query: message };
+    if (getJevConfig().enabled) {
+      const { question, scope, verifiedState } = this.ministerSelectiveFor(seat, message);
+      gameData.ministerMemoryRequest = { scope, query: message, verifiedState };
+      return this.gameController.getAdvisorStreamWithPrompts(gameData, question, history, onToken, signal);
+    }
+    const prompt = this.ministerPrompt(seat, message, true);
     return this.gameController.getAdvisorStreamWithPrompts(gameData, prompt, history, onToken, signal);
   }
 
