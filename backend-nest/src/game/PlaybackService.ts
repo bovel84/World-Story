@@ -14,7 +14,7 @@
  */
 
 import { withCanonicalTransaction } from '../database';
-import { ingestJevBatch, relationshipMemoryInputs } from '../core/government/jev/jev-memory.service';
+import { ingestJevBatch, relationshipMemoryInputs, consolidateJevMemory } from '../core/government/jev/jev-memory.service';
 import { gameRepository, relationshipRepository } from '../repositories';
 import { applyStagedStrictEffects, promotePlaybackEffectAnchors } from '../core/simulation/TurnOrchestrator';
 import { projectProgress } from '../core/simulation/MilitaryProduction';
@@ -890,6 +890,18 @@ export class PlaybackService {
       }
     } catch (error) {
       console.warn('[JEV] memoria diplomatica del playback non registrata:', error);
+    }
+
+    // WS-JEV-W7 — SIDECAR: consolidamento deterministico anche sul percorso
+    // scaglionato/in pausa, così la memoria non dipende dal percorso.
+    try {
+      consolidateJevMemory({
+        gameId: this.ctx.gameId,
+        branchId: gameRepository.getHeadBranch(this.ctx.gameId),
+        turn: this.state.currentTurn,
+      });
+    } catch (error) {
+      console.warn('[JEV] consolidamento narrativo del playback non riuscito:', error);
     }
 
     // F02/M06: SSE solo dopo il commit riuscito; il rollback non può pubblicare chat fantasma.
