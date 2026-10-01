@@ -9,7 +9,7 @@ import { factionMemoryId } from '../../../repositories/faction-memory.repository
 import type { FactionMemoryEvent } from '../../simulation/FactionMemory';
 import { getJevConfig, type JevContextBudget } from './jev.config';
 import { classifyJevIngest, type JevIngestDecision } from './jev-classify';
-import { jevScopeKey, type JevIngestInput, type JevMemoryRecord, type JevMemoryType, type JevScope } from './jev.types';
+import { jevScopeKey, jevScopeFromKey, type JevIngestInput, type JevMemoryRecord, type JevMemoryType, type JevScope } from './jev.types';
 
 export interface JevMinisterRecall extends MinisterMemoryRecall {
   telemetry: {
@@ -634,6 +634,168 @@ export function getFactionMemory(p: {
     telemetry: { scopes_consulted: [scopeKey], memories_retrieved: ids.length, token_upper_bound: bytes,
       retrieval_latency_ms: performance.now() - started, model_calls: 0 },
   };
+}
+
+// ── WS-JEV-W7 — Consolidamento deterministico in episodi storici ────────────
+
+/** Oltre questa soglia l'episodio non è più un riassunto: è una cronologia. */
+export const EPISODE_TEXT_BYTES = 2000;
+
+/** Telemetria del consolidamento: `model_calls` è sempre 0 per costruzione. */
+export interface JevConsolidationResult {
+  scopes_considered: number;
+  windows_processed: number;
+  episodes_created: number;
+  episodes_updated: number;
+  memories_archived: number;
+  model_calls: 0;
+  latency_ms: number;
+}
+
+/** Identità deterministica di un episodio: scope + finestra + intervallo. */
+export function jevEpisodeId(scope: JevScope, windowEnd: number, interval: number): string {
+  return `jev:episode:${createHash('sha256')
+    .update(['episode', jevScopeKey(scope), scope.gameId, scope.branchId ?? '', String(windowEnd), String(interval)].join('\u0000'))
+    .digest('hex').slice(0, 32)}`;
+}
+
+/**
+ * Riassunto **deterministico** di una finestra: nessun modello, nessun numero
+ * inventato. Le righe vengono dalle memorie stesse (testo già narrativo); la
+ * lunghezza è limitata a `EPISODE_TEXT_BYTES`, così l'episodio resta un
+ * riassunto e non una cronologia. I metadati di accesso di un episodio già
+ * esistente vengono conservati: una riesecuzione non azzera il lifecycle.
+ */
+function buildEpisode(
+  scope: JevScope,
+  interval: number,
+  windowEnd: number,
+  sources: readonly JevMemoryRecord[],
+  now: string,
+): JevMemoryRecord {
+  const ordered = [...sources].sort((a, b) =>
+    (a.gameDate < b.gameDate ? -1 : a.gameDate > b.gameDate ? 1 : 0)
+    || ((a.turn ?? 0) - (b.turn ?? 0))
+    || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const first = ordered[0];
+  const last = ordered[ordered.length - 1];
+  const header = `[EPISODIO STORICO ${first.gameDate} → ${last.gameDate}] ${ordered.length} memorie consolidate.`;
+  const lines = [header];
+  let used = Buffer.byteLength(header, 'utf8') + 1;
+  for (const record of ordered) {
+    const line = `- ${record.gameDate} [${record.type}] ${memoryExcerpt(record.text, '')}`;
+    const size = Buffer.byteLength(line, 'utf8') + 1;
+    if (used + size > EPISODE_TEXT_BYTES) break;
+    lines.push(line);
+    used += size;
+  }
+  const id = jevEpisodeId(scope, windowEnd, interval);
+  const existing = jevMemoryRepository.find(scope, id);
+  const actors = [...new Set(ordered.flatMap(record => record.actors))].sort();
+  const topics = [...new Set(ordered.flatMap(record => record.topics))].sort();
+  const sourceEventIds = [...new Set(ordered.flatMap(record => record.sourceEventIds ?? []))].sort();
+  return {
+    id,
+    gameId: scope.gameId,
+    branchId: scope.branchId,
+    scope: scope.kind,
+    scopeKey: jevScopeKey(scope),
+    type: 'historical_episode',
+    gameDate: last.gameDate,
+    turn: last.turn,
+    createdAt: existing?.createdAt ?? now,
+    text: lines.join('\n'),
+    actors,
+    topics,
+    importance: Math.max(...ordered.map(record => record.importance)),
+    confidence: Math.round((ordered.reduce((sum, record) => sum + record.confidence, 0) / ordered.length) * 1000) / 1000,
+    status: existing?.status ?? 'active',
+    lifecycle: existing?.lifecycle ?? 'warm',
+    accessCount: existing?.accessCount ?? 0,
+    ...(sourceEventIds.length ? { sourceEventIds } : {}),
+    parentMemoryIds: ordered.map(record => record.id),
+    ...(existing?.lastAccessedAt ? { lastAccessedAt: existing.lastAccessedAt } : {}),
+    metadata: { consolidated: true, interval, windowStart: windowEnd - interval, windowEnd, sources: ordered.length },
+  };
+}
+
+/**
+ * WS-JEV-W7 — Consolida le memorie grezze più vecchie della finestra in un
+ * episodio per scope e finestra. Deterministico (scope + finestra temporale,
+ * nessuna similarità semantica, nessun LLM). Gli eventi originali **non**
+ * vengono cancellati: passano a `lifecycle='archived'` con il riferimento
+ * all'episodio. Idempotente: la chiave è `scope + finestra`, quindi rieseguire
+ * non duplica. Flag off o nessuna finestra pronta → nessun accesso a JEV.
+ */
+export function consolidateJevMemory(p: {
+  gameId: string;
+  branchId: string | null;
+  turn: number;
+  interval?: number;
+  now?: string;
+}): JevConsolidationResult {
+  const started = performance.now();
+  const result = (over: Partial<JevConsolidationResult> = {}): JevConsolidationResult => ({
+    scopes_considered: 0, windows_processed: 0, episodes_created: 0, episodes_updated: 0,
+    memories_archived: 0, model_calls: 0, latency_ms: performance.now() - started, ...over,
+  });
+  // Best-effort: un flag malformato o un errore DB non devono mai propagarsi
+  // nel sidecar del turno. Il gioco resta identico se il consolidamento salta.
+  try {
+    const config = getJevConfig();
+    if (!config.enabled) return result();
+    const interval = p.interval ?? config.consolidationIntervalTurns;
+    if (!Number.isFinite(interval) || interval <= 0) return result();
+    // Cadenza: il sidecar gira a ogni turno, ma il consolidamento pesante solo
+    // al confine di finestra. Ai confini saltati (turni avanzati a blocchi) il
+    // run successivo recupera tutte le finestre arretrate, perché è idempotente.
+    if (p.turn % interval !== 0) return result();
+    // La finestra pronta è l'ultima completata: le ultime `interval` memorie
+    // restano grezze per non consolidare il passato più recente.
+    const readyTurn = Math.floor(p.turn / interval) * interval - interval;
+    if (readyTurn < interval) return result();
+    const now = p.now ?? new Date().toISOString();
+    const scopes = jevMemoryRepository.listScopes(p.gameId, p.branchId);
+    let windows = 0;
+    let created = 0;
+    let updated = 0;
+    let archived = 0;
+    for (const { scope, scopeKey } of scopes) {
+      try {
+        const scopeObject = jevScopeFromKey(scope, scopeKey, p.gameId, p.branchId);
+        const raw = jevMemoryRepository.listMemory(scopeObject).filter(record =>
+          record.type !== 'historical_episode'
+          // Le questioni aperte restano grezze: consolidarle le toglierebbe da
+          // `UNRESOLVED ISSUES` e il governo dimenticherebbe una promessa o un
+          // conflitto ancora in corso. Si consolideranno da risolte.
+          && !(record.status === 'active' && UNRESOLVED_JEV.has(record.type))
+          && record.turn != null && record.turn <= readyTurn);
+        const byWindow = new Map<number, JevMemoryRecord[]>();
+        for (const record of raw) {
+          const windowEnd = Math.ceil(record.turn! / interval) * interval;
+          const list = byWindow.get(windowEnd);
+          if (list) list.push(record); else byWindow.set(windowEnd, [record]);
+        }
+        for (const windowEnd of [...byWindow.keys()].sort((a, b) => a - b)) {
+          const sources = byWindow.get(windowEnd)!;
+          const pending = sources.filter(record => record.lifecycle !== 'archived');
+          if (!pending.length) continue;
+          windows += 1;
+          const episode = buildEpisode(scopeObject, interval, windowEnd, sources, now);
+          const existed = jevMemoryRepository.find(scopeObject, episode.id) !== null;
+          jevMemoryRepository.upsert(scopeObject, episode);
+          archived += jevMemoryRepository.archive(scopeObject, pending.map(record => record.id), episode.id, now);
+          if (existed) updated += 1; else created += 1;
+        }
+      } catch (error) {
+        console.warn('[JEV] consolidamento dello scope non riuscito:', scopeKey, error);
+      }
+    }
+    return result({ scopes_considered: scopes.length, windows_processed: windows, episodes_created: created, episodes_updated: updated, memories_archived: archived });
+  } catch (error) {
+    console.warn('[JEV] consolidamento narrativo non riuscito:', error);
+    return result();
+  }
 }
 
 // ── WS-JEV-W4 — Context builder a sezioni (innesto, non sostituto) ────────────

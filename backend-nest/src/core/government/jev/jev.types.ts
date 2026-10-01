@@ -116,3 +116,52 @@ export function jevScopeKey(scope: JevScope): string {
     default: throw new TypeError('Invalid JEV scope kind');
   }
 }
+
+function decodeComponent(value: string | undefined): string {
+  if (typeof value !== 'string') throw new TypeError('Invalid JEV scope key');
+  try { return decodeURIComponent(value); } catch { throw new TypeError('Invalid JEV scope component'); }
+}
+
+/**
+ * WS-JEV-W7 — Inverso di `jevScopeKey`, per il consolidamento: ricostruisce lo
+ * scope da `(kind, scopeKey, gameId, branchId)`. `kind` disambigua i prefissi
+ * condivisi (es. `nation:` vs la percezione `nation:<obs>:view:<sub>`).
+ *
+ * La ricostruzione è verificata con un round-trip su `jevScopeKey`: se non
+ * combacia, solleva `TypeError` invece di scrivere su uno scope sbagliato.
+ */
+export function jevScopeFromKey(
+  kind: JevMemoryRecord['scope'],
+  scopeKey: string,
+  gameId: string,
+  branchId: string | null,
+): JevScope {
+  if (typeof scopeKey !== 'string' || !scopeKey) throw new TypeError('Invalid JEV scope key');
+  const base = { gameId, branchId };
+  let scope: JevScope;
+  switch (kind) {
+    case 'world': scope = { kind, ...base }; break;
+    case 'government': scope = { kind, ...base }; break;
+    case 'minister': {
+      const parts = scopeKey.split(':');
+      scope = { kind, ...base, seat: decodeComponent(parts[1]) as CabinetSeat, mandate: decodeComponent(parts[2]) };
+      break;
+    }
+    case 'nation': scope = { kind, ...base, polityId: decodeComponent(scopeKey.slice('nation:'.length)) }; break;
+    case 'faction': scope = { kind, ...base, factionId: decodeComponent(scopeKey.slice('faction:'.length)) }; break;
+    case 'diplomacy': {
+      const [a, b] = scopeKey.slice('diplomacy:'.length).split(':');
+      scope = { kind, ...base, a: decodeComponent(a), b: decodeComponent(b) };
+      break;
+    }
+    case 'perception': {
+      const rest = scopeKey.slice('nation:'.length);
+      const separator = rest.indexOf(':view:');
+      scope = { kind, ...base, observer: decodeComponent(rest.slice(0, separator)), subject: decodeComponent(rest.slice(separator + ':view:'.length)) };
+      break;
+    }
+    default: throw new TypeError('Invalid JEV scope kind');
+  }
+  if (jevScopeKey(scope) !== scopeKey) throw new TypeError('JEV scope key does not round-trip');
+  return scope;
+}
