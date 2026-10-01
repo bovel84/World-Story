@@ -17,6 +17,17 @@ import fs from 'fs';
 import { addDays } from '../src/core/simulation/calendar';
 
 const TEST_DB = path.join(os.tmpdir(), `world-story-optime-${process.pid}-${Date.now()}.db`);
+
+// OP-OBJECTS SEED-DETERMINISM: gli id di `shortId` (incluso l'id dell'ordine di produzione)
+// sono casuali, e l'imprevisto di produzione dipende dall'id: senza un id
+// riproducibile il test 41 poteva diventare rosso quando il dado cadeva sulla
+// falla catastrofica dell'ordine. Un contatore deterministico rende lo scenario
+// ripetibile senza indebolire alcuna asserzione.
+vi.mock('../src/utils/short-id', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/utils/short-id')>();
+  let next = 0;
+  return { ...actual, shortId: (length = 12) => String(next++).padStart(length, '0').slice(-length) };
+});
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
 
 // Il paese di prova non ha giacimenti propri: l'estrazione la decide il test.
