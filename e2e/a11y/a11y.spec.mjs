@@ -180,7 +180,12 @@ test.describe('Q01 µ3 — audit accessibilità di base', () => {
     await chat.locator('textarea').fill('Un atto per l’audit');
     await chat.locator('.minister-compose button').click();
     await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
-    await chat.locator('.minister-draft-order').click();
+    // WS-MINISTER-UX-08 (5) — L'atto nasce dalla proposta concreta, non dalla
+    // singola domanda: si prepara e si firma dal tavolo.
+    const tavola = page.locator('.government-office-pane-table');
+    await tavola.locator('.treasury-act-prepare').first().click();
+    await tavola.locator('.act-draft-sign').click();
+    await expect(tavola.locator('.act-draft-state')).toHaveText('accodato');
     await page.locator('.government-office-back').click();
     await expect(page.locator('.order-register-act')).toHaveCount(1);
     const officeViolations = await page.evaluate(auditDom);
