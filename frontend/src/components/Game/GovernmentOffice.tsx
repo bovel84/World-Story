@@ -45,11 +45,13 @@ import type { WorkDeclarationInput } from './cabinetOrder';
 import { resolvePresentation, shouldApplyPresentation, type ActivePresentation, type PresentationDirective } from './presentation';
 import {
   discussedProposal, loadMemory, openQuestion, queuedDecision, recordMemory,
-  saveMemory, seatRecords, withSeatRecords, type MinisterMemoryRecord, type MinisterMemoryStore,
+  saveMemory, seatRecords, withSeatRecords, clientMandate, type MinisterMemoryRecord, type MinisterMemoryStore,
 } from './ministerMemory';
+import { seatRoads } from './seatProposals';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { useChatStore, useGameStore } from '../../stores';
+import { useSimulationStore } from '../../stores/simulationRuntime';
 import type { CabinetAddressView, CabinetSessionView } from '../../services/api';
 
 /** L'esito dichiarato di una seduta: un ordine messo in coda, o nulla. */
@@ -129,9 +131,17 @@ export function GovernmentOffice({
   // espliciti della seduta, tenuti nel browser per partita. Questo store è la
   // rete immediata/offline e la sorgente dei ricordi inviati; la persistenza
   // vera è server-side (innesto: `minister_memory`, per partita, ramo e mandato).
-  const [memoryStore, setMemoryStore] = useState<MinisterMemoryStore>(() => loadMemory(gameId));
-  useEffect(() => { setMemoryStore(loadMemory(gameId)); }, [gameId]);
-  useEffect(() => { saveMemory(gameId, memoryStore); }, [gameId, memoryStore]);
+  //
+  // WS-MINISTER-UX-08 (4) — Lo scope del client è **partita + ramo + mandato**,
+  // come il server: chiavi diverse non si scambiano ricordi. Il ramo è quello
+  // della simulazione (cambia al fork); il mandato è l'identità del governo
+  // (polity + fazione dominante), la stessa che il server ricava da sé.
+  const branchId = useSimulationStore(state => state.state?.branchId ?? null);
+  const mandate = clientMandate(pictureSources.government, pictureSources.account?.polityId ?? null);
+  const memoryScope = useMemo(() => ({ gameId, branchId, mandate }), [gameId, branchId, mandate]);
+  const [memoryStore, setMemoryStore] = useState<MinisterMemoryStore>(() => loadMemory(memoryScope));
+  useEffect(() => { setMemoryStore(loadMemory(memoryScope)); }, [memoryScope]);
+  useEffect(() => { saveMemory(memoryScope, memoryStore); }, [memoryScope, memoryStore]);
   const rememberFor = useCallback(
     (seat: CabinetAddressView['seat'], input: MinisterMemoryRecord): void => {
       setMemoryStore(prev => withSeatRecords(prev, seat, recordMemory(prev[seat] ?? [], input)));
@@ -238,14 +248,20 @@ export function GovernmentOffice({
         picture,
         sources: pictureSources,
         address,
-        authored: seatCanvasAuthoring(address.seat, {
+        authored: seatCanvasAuthoring({
           seat: address.seat,
           picture,
           sources: pictureSources,
           act,
+          address,
         }),
       })
     : [];
+
+  // WS-MINISTER-UX-08 (2) — Le proposte della **sedia aperta**: per il Tesoro le
+  // strade del suo atto, per le altre i percorsi delle sue voci. Niente
+  // `act.roads` globale: un confronto alla Sanità non mostra strade del Tesoro.
+  const proposals = useMemo(() => seatRoads(address, act), [address, act]);
 
   // WS-MINISTER-UX-03 — La presentazione richiesta nella conversazione: stato di
   // UI legato alla sedia e al messaggio. Parlare non impegna nulla, e la tavola
@@ -271,12 +287,12 @@ export function GovernmentOffice({
       // WS-MINISTER-UX-05 — Una proposta confrontata è una proposta discussa:
       // entra in memoria, senza confonderla con un atto accodato.
       if (directive.op === 'compare') {
-        for (const road of act.roads) {
+        for (const road of proposals) {
           rememberFor(seat, discussedProposal(seat, road, { messageId, gameDate: currentDate ?? '' }));
         }
       }
     },
-    [act.roads, currentDate, rememberFor],
+    [proposals, currentDate, rememberFor],
   );
   const chatPresentation = useCallback(
     (messageId: string, quote: string, directive: PresentationDirective, discussion?: string): void => {
@@ -304,8 +320,8 @@ export function GovernmentOffice({
   }, [openSeat]);
   const activePresentation = openSeat ? presentations[openSeat] ?? null : null;
   const resolvedPresentation = useMemo(
-    () => resolvePresentation(activePresentation, canvasBlocks, act.roads),
-    [activePresentation, canvasBlocks, act.roads],
+    () => resolvePresentation(activePresentation, canvasBlocks, proposals),
+    [activePresentation, canvasBlocks, proposals],
   );
 
   // L'atto firmato tramite la coda del motore: l'opera (cantiere reale) o un
@@ -318,9 +334,9 @@ export function GovernmentOffice({
     const seat = address?.seat;
     if (!seat) return {} as Record<string, ActState>;
     return Object.fromEntries(
-      act.roads.map(road => [road.id, deriveActState(actDraftFor(road, seat), pendingActions, turnHistory)]),
+      proposals.map(road => [road.id, deriveActState(actDraftFor(road, seat), pendingActions, turnHistory)]),
     ) as Record<string, ActState>;
-  }, [address?.seat, act.roads, pendingActions, turnHistory]);
+  }, [address?.seat, proposals, pendingActions, turnHistory]);
 
   const draftStatus = actDraft ? actStatus(actDraft, pendingActions, turnHistory) : null;
 
@@ -363,15 +379,6 @@ export function GovernmentOffice({
   };
 
   // ── Gli esiti: un ordine in coda, o un nulla di fatto ───────────────────
-  const queueProblem = async (text: string): Promise<void> => {
-    if (!onQueueOrder || !address) return;
-    const queued = await onQueueOrder(text);
-    if (queued) {
-      setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text });
-      rememberFor(address.seat, queuedDecision(address.seat, text, { gameDate: currentDate ?? '' }));
-    }
-  };
-
   const concludeNothing = (): void => {
     if (address) {
       setLastOutcome({ seat: address.seat, label: address.label, kind: 'nothing' });
@@ -517,7 +524,6 @@ export function GovernmentOffice({
                   onAddMessage={message => { if (openSeat) addMinisterMessage(openSeat, message); }}
                   onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
                   onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}
-                  onOrderFromUserMessage={text => void queueProblem(text)}
                   onPresentation={chatPresentation}
                 />
 
@@ -579,6 +585,7 @@ export function GovernmentOffice({
                   onClearPresentation={clearPresentation}
                   onTogglePin={togglePin}
                   onReturnToMessage={() => setMobilePane('dialogo')}
+                  proposals={proposals}
                 />
               </section>
             </div>

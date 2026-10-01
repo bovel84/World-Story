@@ -20,13 +20,24 @@
  * WS-MINISTER-UX-06 — Dal tavolo si **prepara** l'atto: la strada scelta diventa
  * una bozza correggibile (`ActDraftPanel`) che il Presidente firma. Preparare e
  * confrontare non accodano e non spendono.
+ *
+ * WS-MINISTER-UX-08 — Correzioni dei difetti osservati:
+ *  - **1**: quando la conversazione chiede un'evidenza, quella **occupa subito
+ *    la parte principale** e l'atto del Tesoro non la precede; l'atto compare
+ *    quando è **pertinente** alla decisione (spesa, cifre, piano, confronto),
+ *    non per default;
+ *  - **2**: confronto e proposte derivano dalla **sedia aperta** (`proposals`),
+ *    non da `act.roads` globale;
+ *  - **5**: l'ordine nasce dalla **proposta concreta** (`SeatProposalPanel`), non
+ *    da un pulsante sotto la singola domanda; le fonti stanno nei dettagli.
  */
 import { SeatCanvas } from './SeatCanvas';
 import { TreasuryActPanel } from './TreasuryActPanel';
+import { SeatProposalPanel } from './SeatProposalPanel';
 import { ActDraftPanel } from './ActDraftPanel';
 import { ProposalComparison } from './ProposalComparison';
 import type { SeatCanvasBlock } from './seatCanvasModel';
-import type { ResolvedPresentation } from './presentation';
+import type { EvidenceKey, ResolvedPresentation } from './presentation';
 import type { ActState, ActStatus, ProposalActDraft } from './actDraft';
 import type { TreasuryAct, TreasuryRoad } from './treasuryAct';
 import type { CabinetAddressView } from '../../services/api';
@@ -39,6 +50,10 @@ const KIND_PRIORITY: Record<SeatCanvasBlock['kind'], number> = {
   metrics: 3,
   ideas: 4,
 };
+
+/** Le evidenze a cui l'atto del Tesoro è pertinente: non lo si nasconde, ma
+ *  non deve nemmeno scavalcare una mappa o un grafico richiesti. */
+const ACT_EVIDENCE: readonly EvidenceKey[] = ['spesa', 'cifre', 'piano'];
 
 export interface SeatTableProps {
   seat: CabinetAddressView['seat'];
@@ -74,11 +89,17 @@ export interface SeatTableProps {
   onTogglePin?: () => void;
   /** Tornare al messaggio che ha chiesto l'evidenza (su mobile, al dialogo). */
   onReturnToMessage?: () => void;
+  /**
+   * WS-MINISTER-UX-08 (2) — Le proposte concrete della **sedia aperta**. Il
+   * confronto e la preparazione dell'atto partono da qui, non da `act.roads`.
+   */
+  proposals?: readonly TreasuryRoad[];
 }
 
 export function SeatTable({
   seat, blocks, act, onPrepareRoad, preparedRoadId, roadStates, actDraft, actStatus, actBusy,
   onEditDraft, onSignDraft, onCancelDraft, onCompare, presentation, onClearPresentation, onTogglePin, onReturnToMessage,
+  proposals = [],
 }: SeatTableProps) {
   const ordered = [...blocks].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
   const showsAct = seat === 'tesoro';
@@ -97,6 +118,97 @@ export function SeatTable({
   const extras = presentation?.kind === 'compare'
     ? rest.slice(2)
     : rest.slice(supportStart + 2);
+
+  // WS-MINISTER-UX-08 (1) — L'atto è pertinente alla decisione quando la
+  // conversazione chiede spesa, cifre, piano o il confronto; altrimenti non
+  // scavalca l'evidenza richiesta e finisce dopo di essa.
+  const actPertinent = !presentation
+    || presentation.kind === 'compare'
+    || (presentation.evidence ? ACT_EVIDENCE.includes(presentation.evidence) : false);
+  const presentationActive = Boolean(presentation);
+
+  const proposalsForSeat = proposals.length > 0
+    ? proposals
+    : (showsAct ? act.roads : []);
+
+  const proposalPanel = showsAct ? (
+    <TreasuryActPanel
+      key={seat}
+      act={act}
+      onPrepare={onPrepareRoad}
+      preparedRoadId={preparedRoadId}
+      roadStates={roadStates}
+    />
+  ) : proposalsForSeat.length > 0 ? (
+    <SeatProposalPanel
+      seatLabel={seat}
+      roads={proposalsForSeat}
+      onPrepare={onPrepareRoad}
+      preparedRoadId={preparedRoadId}
+      roadStates={roadStates}
+    />
+  ) : null;
+
+  const compareAction = onCompare && proposalsForSeat.length > 1 ? (
+    <div className="seat-table-actions">
+      <button
+        type="button"
+        className="seat-table-compare"
+        onClick={onCompare}
+        title="Metti le strade fianco a fianco: non accoda e non spende"
+      >
+        Confronta le strade
+      </button>
+    </div>
+  ) : null;
+
+  const draftPanel = actDraft && actStatus ? (
+    <ActDraftPanel
+      draft={actDraft}
+      status={actStatus}
+      busy={actBusy}
+      onEdit={onEditDraft}
+      onSign={onSignDraft}
+      onCancel={onCancelDraft}
+    />
+  ) : null;
+
+  const mainArea = main ? (
+    <>
+      <div className="seat-table-main">
+        <SeatCanvas
+          blocks={[main]}
+          focusRegionIds={presentation?.kind === 'evidence' ? presentation.regionIds : undefined}
+          focusLabel={presentation?.kind === 'evidence' ? presentation.focusLabel : undefined}
+        />
+      </div>
+      {supports.length > 0 && (
+        <div className="seat-table-support">
+          <SeatCanvas blocks={supports} />
+        </div>
+      )}
+      {extras.length > 0 && (
+        <details className="seat-table-more">
+          <summary className="seat-table-more-summary">
+            Approfondimenti ({extras.length})
+          </summary>
+          <SeatCanvas blocks={extras} />
+        </details>
+      )}
+    </>
+  ) : presentation?.kind === 'compare' ? (
+    supports.length + extras.length > 0 ? (
+      <details className="seat-table-more" open>
+        <summary className="seat-table-more-summary">Altre evidenze ({supports.length + extras.length})</summary>
+        <SeatCanvas blocks={[...supports, ...extras]} />
+      </details>
+    ) : null
+  ) : (
+    <SeatCanvas
+      blocks={[]}
+      emptyLabel="Nessuna evidenza pubblicata per questa sedia: la tavola resta vuota, non inventa."
+    />
+  );
 
   return (
     <section className="seat-table" aria-label="Tavola di lavoro della sedia">
@@ -154,75 +266,21 @@ export function SeatTable({
 
       {presentation?.kind === 'compare' && <ProposalComparison roads={presentation.roads} />}
 
-      {showsAct && (
-        <TreasuryActPanel
-          key={seat}
-          act={act}
-          onPrepare={onPrepareRoad}
-          preparedRoadId={preparedRoadId}
-          roadStates={roadStates}
-        />
-      )}
-
-      {showsAct && onCompare && act.roads.length > 1 && (
-        <div className="seat-table-actions">
-          <button
-            type="button"
-            className="seat-table-compare"
-            onClick={onCompare}
-            title="Metti le strade fianco a fianco: non accoda e non spende"
-          >
-            Confronta le strade
-          </button>
-        </div>
-      )}
-
-      {showsAct && actDraft && actStatus && (
-        <ActDraftPanel
-          draft={actDraft}
-          status={actStatus}
-          busy={actBusy}
-          onEdit={onEditDraft}
-          onSign={onSignDraft}
-          onCancel={onCancelDraft}
-        />
-      )}
-
-      {main ? (
+      {presentationActive ? (
         <>
-          <div className="seat-table-main">
-            <SeatCanvas
-              blocks={[main]}
-              focusRegionIds={presentation?.kind === 'evidence' ? presentation.regionIds : undefined}
-              focusLabel={presentation?.kind === 'evidence' ? presentation.focusLabel : undefined}
-            />
-          </div>
-          {supports.length > 0 && (
-            <div className="seat-table-support">
-              <SeatCanvas blocks={supports} />
-            </div>
-          )}
-          {extras.length > 0 && (
-            <details className="seat-table-more">
-              <summary className="seat-table-more-summary">
-                Approfondimenti ({extras.length})
-              </summary>
-              <SeatCanvas blocks={extras} />
-            </details>
-          )}
+          {mainArea}
+          {actPertinent ? proposalPanel : null}
+          {draftPanel}
+          {compareAction}
+          {!actPertinent ? proposalPanel : null}
         </>
-      ) : presentation?.kind === 'compare' ? (
-        supports.length + extras.length > 0 && (
-          <details className="seat-table-more" open>
-            <summary className="seat-table-more-summary">Altre evidenze ({supports.length + extras.length})</summary>
-            <SeatCanvas blocks={[...supports, ...extras]} />
-          </details>
-        )
       ) : (
-        <SeatCanvas
-          blocks={[]}
-          emptyLabel="Nessuna evidenza pubblicata per questa sedia: la tavola resta vuota, non inventa."
-        />
+        <>
+          {proposalPanel}
+          {compareAction}
+          {draftPanel}
+          {mainArea}
+        </>
       )}
     </section>
   );

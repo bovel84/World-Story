@@ -14,10 +14,25 @@
  *  - `ideas`    → le idee del ministro (contenuto curato).
  */
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { AdvisorChart } from './AdvisorChart';
 import { StrategicPlanDiagram } from './StrategicPlanDiagram';
 import { focusViewBox, partitionZones } from './regionFocus';
 import { toneClass, type SeatCanvasBlock, type CanvasZone } from './seatCanvasModel';
+
+/**
+ * WS-MINISTER-UX-08 (5) — La provenienza non sta in primo piano: le cifre
+ * restano leggibili, le fonti si aprono a richiesta. Un unico posto per ogni
+ * blocco, così la tavola non si riempie di note.
+ */
+function Provenance({ label = 'Fonti', children }: { label?: string; children: ReactNode }) {
+  return (
+    <details className="seat-sources">
+      <summary className="seat-sources-summary">{label}</summary>
+      <div className="seat-sources-body">{children}</div>
+    </details>
+  );
+}
 
 function ZoneMap({
   zones,
@@ -138,21 +153,26 @@ export function SeatCanvas({ blocks, emptyLabel = 'Nessun dato pubblicato per qu
     <div className={`seat-canvas${className ? ` ${className}` : ''}`} data-blocks={blocks.length}>
       {blocks.map(block => {
         if (block.kind === 'metrics') {
+          const withHint = block.metrics.filter(metric => metric.hint);
           return (
             <section key={block.id} className="seat-canvas-block seat-canvas-metrics" data-kind="metrics">
               <h4 className="seat-canvas-title">{block.title}</h4>
-              {block.note && <p className="seat-canvas-note">{block.note}</p>}
               <dl className="seat-canvas-metric-list">
                 {block.metrics.map(metric => (
                   <div key={metric.id} className={`seat-canvas-metric ${toneClass(metric.tone)}`}>
                     <dt>{metric.label}</dt>
-                    <dd>
-                      {metric.display}
-                      {metric.hint && <span className="seat-canvas-metric-basis">{metric.hint}</span>}
-                    </dd>
+                    <dd>{metric.display}</dd>
                   </div>
                 ))}
               </dl>
+              {(block.note || withHint.length > 0) && (
+                <Provenance label="Provenienza delle cifre">
+                  {block.note && <p className="seat-canvas-note">{block.note}</p>}
+                  {withHint.map(metric => (
+                    <p key={metric.id} className="seat-sources-line">{metric.label}: {metric.hint}</p>
+                  ))}
+                </Provenance>
+              )}
             </section>
           );
         }
@@ -174,13 +194,17 @@ export function SeatCanvas({ blocks, emptyLabel = 'Nessun dato pubblicato per qu
           return (
             <section key={block.id} className="seat-canvas-block" data-kind="map">
               <h4 className="seat-canvas-title">{block.title}</h4>
-              <p className="seat-canvas-note">{block.note}</p>
               <ZoneMap
                 key={`${block.id}:${(focusRegionIds ?? []).join(',')}`}
                 zones={block.zones}
                 target={block.target}
                 focusIds={focusRegionIds}
               />
+              {block.note && (
+                <Provenance label="Fonti della mappa">
+                  <p className="seat-canvas-note">{block.note}</p>
+                </Provenance>
+              )}
             </section>
           );
         }

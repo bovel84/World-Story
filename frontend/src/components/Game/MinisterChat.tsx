@@ -57,13 +57,6 @@ export interface MinisterChatProps {
   onAppendToken: (token: string) => void;
   onStreamingChange: (streaming: boolean) => void;
   /**
-   * P04 / WS-GOVOFFICE-02 — Il problema che il giocatore presenta al ministro
-   * può concludersi subito con un ordine: è l'altra direzione del dialogo
-   * («sono io che presento problemi a loro»). Il chiamante lo mette in coda
-   * automaticamente. Se manca, la chat resta conversazione pura.
-   */
-  onOrderFromUserMessage?: (text: string) => void;
-  /**
    * WS-MINISTER-UX-03 — Il ministro può disporre un'evidenza sulla tavola: la
    * risposta più recente con un blocco `tavola` valido lo annuncia qui. Il
    * chiamante la applica solo a una risposta conclusa (mai durante lo streaming).
@@ -102,7 +95,7 @@ function FigureBar({ figure }: { figure: CabinetItemView['figures'][number] }) {
 export function MinisterChat({
   gameId, address, onChoose,
   messages, streaming, onAddMessage, onAppendToken, onStreamingChange,
-  onOrderFromUserMessage, onPresentation, memory,
+  onPresentation, memory,
 }: MinisterChatProps) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
@@ -235,19 +228,10 @@ export function MinisterChat({
                   </>
                 )}
               </div>
-              {/* P04 — «sono io che presento problemi a loro»: il problema
-                  scritto dal giocatore diventa la bozza d'ordine con un click,
-                  senza ricopiarlo a mano nel compositore. */}
-              {message.role === 'user' && onOrderFromUserMessage && message.content.trim() && (
-                <button
-                  type="button"
-                  className="minister-draft-order"
-                  onClick={() => onOrderFromUserMessage(message.content)}
-                  title="Concludi con un ordine: entra subito nella coda"
-                >
-                  ↳ Concludi con un ordine da questo problema
-                </button>
-              )}
+              {/* P04 / WS-MINISTER-UX-08 — L'ordine non nasce più dalla
+                  singola domanda: si prepara e si firma una **proposta
+                  concreta** della sedia (la strada del Tesoro o un percorso),
+                  sul tavolo. Il dialogo resta dialogo. */}
             </div>
           );
         })}
@@ -281,11 +265,11 @@ export function MinisterChat({
         </button>
       </div>
 
-      {/* WS-GOVOFFICE-03 — Le «strade proposte» non stanno piu' qui: erano
-          ordini presettati con un badge «consigliata», un click e l'ordine era
-          in coda senza scrivere nulla. L'ordine nasce dal dialogo (il pulsante
-          sotto ogni messaggio del giocatore) e le vie d'uscita le propone il
-          ministro a parole. */}
+      {/* WS-GOVOFFICE-03 / WS-MINISTER-UX-08 — Le «strade proposte» non stanno
+          più qui: erano ordini presettati con un badge «consigliata», un click e
+          l'ordine era in coda senza scrivere nulla. L'ordine nasce dalla
+          **proposta concreta** della sedia, sul tavolo: si prepara e si firma.
+          Le vie d'uscita le propone il ministro a parole. */}
     </div>
   );
 }
