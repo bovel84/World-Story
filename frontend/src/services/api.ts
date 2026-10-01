@@ -1845,11 +1845,14 @@ export const ministerApi = {
     message: string,
     history: AdvisorHistoryItem[],
     memory: MinisterMemoryItem[] = [],
-  ): Promise<{ reply: string; seat: string }> =>
-    fetchApi(`/games/${gameId}/government/minister/${seat}`, {
-      method: 'POST',
+    signal?: AbortSignal,
+  ): Promise<{ reply: string; seat: string }> => {
+    signal?.throwIfAborted();
+    return fetchApi(`/games/${gameId}/government/minister/${seat}`, {
+      method: 'POST', signal,
       body: JSON.stringify({ message, history, memory }),
-    }),
+    });
+  },
 
   /**
    * P02-bis — La risposta del ministro in streaming, come quella del Consulente.
@@ -1866,7 +1869,9 @@ export const ministerApi = {
     history: AdvisorHistoryItem[],
     onToken: (token: string) => void,
     memory: MinisterMemoryItem[] = [],
+    signal?: AbortSignal,
   ): Promise<string> => {
+    signal?.throwIfAborted();
     const url = `${API_BASE}/games/${gameId}/government/minister/${seat}/stream`;
     const body = JSON.stringify({ message, history, memory });
 
@@ -1875,18 +1880,24 @@ export const ministerApi = {
       response = await fetch(url, {
         method: 'POST',
         headers: { ...ownerHeaders(), 'Content-Type': 'application/json' },
-        body,
+        body, signal,
       });
+      signal?.throwIfAborted();
     } catch (e) {
+      signal?.throwIfAborted();
+      if (e instanceof Error && e.name === 'AbortError') throw e;
       console.warn('[Minister] Stream non disponibile, fallback su POST:', e);
-      const data = await ministerApi.ask(gameId, seat, message, history, memory);
+      const data = await ministerApi.ask(gameId, seat, message, history, memory, signal);
+      signal?.throwIfAborted();
       onToken(data.reply);
       return data.reply;
     }
 
     if (!response.ok || !response.body) {
+      signal?.throwIfAborted();
       console.warn('[Minister] Stream ha restituito', response.status, '— fallback su POST');
-      const data = await ministerApi.ask(gameId, seat, message, history, memory);
+      const data = await ministerApi.ask(gameId, seat, message, history, memory, signal);
+      signal?.throwIfAborted();
       onToken(data.reply);
       return data.reply;
     }
@@ -1896,7 +1907,9 @@ export const ministerApi = {
     let full = '';
     try {
       while (true) {
+        signal?.throwIfAborted();
         const { done, value } = await reader.read();
+        signal?.throwIfAborted();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         if (chunk) {
@@ -1905,14 +1918,18 @@ export const ministerApi = {
         }
       }
     } catch (e) {
-      // Interruzione a metà: se non è arrivato nulla si ripiega, altrimenti si
-      // tiene ciò che c'è — una risposta parziale è meglio di una persa.
+      signal?.throwIfAborted();
+      if (e instanceof Error && e.name === 'AbortError') throw e;
+      // Solo gli errori non di annullamento mantengono il fallback precedente.
       if (!full) {
-        const data = await ministerApi.ask(gameId, seat, message, history, memory);
+        const data = await ministerApi.ask(gameId, seat, message, history, memory, signal);
+        signal?.throwIfAborted();
         onToken(data.reply);
         return data.reply;
       }
       console.warn('[Minister] Stream interrotto a metà, uso la risposta parziale:', e);
+    } finally {
+      reader.releaseLock();
     }
     return full;
   },
