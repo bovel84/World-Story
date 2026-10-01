@@ -135,4 +135,10 @@ Limiti espliciti:
 
 Invariati `core/simulation/**`, `TurnOrchestrator`, `TurnPipelineService`, `SessionStateStore`, `OrderExecutionService`, run/checkpoint/playback e semantiche di salvataggio/tempo. Nessun contratto P5 aggiunto a `GameSession`: il suo diff appartiene soltanto a P2. Repository fuori dal metodo ricevuta invariati; schema fuori dalla sola tabella invariato.
 
-PR unica **#153**, titolo richiesto invariato. Implementazione in commit piccoli: `588e6b7` (P2 backend), `ba9f4ef` (P5 backend), `4f4869a` (P2 browser), `0131d0f` (integrazione firma/UI). **Nessun merge/deploy/migrazione operativa.** Attesa della regia.
+PR unica **#153**, titolo richiesto invariato. Implementazione in commit piccoli: `588e6b7` (P2 backend), `ba9f4ef` (P5 backend), `4f4869a` (P2 browser), `0131d0f` (integrazione firma/UI). **Alla prima consegna: nessun merge/deploy/migrazione operativa.** Attesa della regia.
+
+## 9. Autorizzazione successiva al merge/deploy
+
+La regia ha poi richiesto «fai marge deploy su github e cloudflare», autorizzando la pubblicazione e il boot con la sola migrazione P5 già approvata. Prima del deploy sono previsti backup SQLite consistente del DB operativo e, dopo il boot, verifica read-only di schema, integrità e coda. Il merge avviene soltanto dopo i controlli GitHub richiesti; gli esiti operativi e i riferimenti del backup vengono registrati nella PR #153.
+
+Nel pre-merge è stato corretto il solo test P2 che su Node 22 contava un listener nativo di fetch invece di quelli applicativi: [dettaglio e prove](WS-GOVUX-P2-report.md#9-autorizzazione-successiva-e-verifica-ci-node-22). Nessuna modifica a implementazione P5, test di firma, soglie, freeze o schema ulteriore. Backend completo Node 22 **208/2181**, frontend dopo build **123/1034**, build completa e tipi backend: exit 0. Il comando frontend `npm test` resta assente e non viene dichiarato superato.

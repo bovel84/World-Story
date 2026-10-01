@@ -33,6 +33,7 @@ let finishImmediately = false;
 let silentSSE = false;
 let providerHeaders = 0;
 const providerSignals: AbortSignal[] = [];
+const callerSignals: AbortSignal[] = [];
 
 async function listen(server: Server): Promise<string> {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -114,7 +115,18 @@ beforeAll(async () => {
     provider: 'openai-compatible', baseUrl: `${providerUrl}/v1`, apiKey: '', model: 'local-fixture',
     timeoutMs: 10_000, retries: 2, stream: true, cache: false,
   }])) as LLMConfig;
-  registryModule.initSessionRegistry(new LLMRouter({ mechanics, consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 } }));
+  const llm = new LLMRouter({ mechanics, consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 } });
+  const generate = llm.generate.bind(llm);
+  vi.spyOn(llm, 'generate').mockImplementation((...args) => {
+    if (args[3]?.signal) callerSignals.push(args[3].signal);
+    return generate(...args);
+  });
+  const stream = llm.stream.bind(llm);
+  vi.spyOn(llm, 'stream').mockImplementation((...args) => {
+    if (args[4]?.signal) callerSignals.push(args[4].signal);
+    return stream(...args);
+  });
+  registryModule.initSessionRegistry(llm);
   repos.worldRepository.createWithRegions(
     { id: 'govux_p2_world', name: 'P2 World', description: '', startDate: '1951-01-01', basePrompt: 'Test', historicalAccuracy: 0.8 },
     [{ id: 'govux_p2_world_ITA', name: 'Italia', color: '#FF0000', owner: 'ITA', population: 47_000_000, gdp: 2400, militaryPower: 110, flag: 'ITA', coastal: true, borders: [], objects: [] }],
@@ -247,6 +259,7 @@ describe('WS-GOVUX P2: real HTTP disconnect cancels the minister provider', () =
     finishImmediately = true;
     const index = routeRequests.length;
     const signalIndex = providerSignals.length;
+    const callerIndex = callerSignals.length;
     for (const stream of [true, false, true]) {
       const client = startRequest(stream);
       const response = await client.completed;
@@ -257,6 +270,13 @@ describe('WS-GOVUX P2: real HTTP disconnect cancels the minister provider', () =
     for (let i = index; i < routeRequests.length; i++) expectRouteClean(i);
     expect(providerSignals.length).toBe(signalIndex + 3);
     for (const signal of providerSignals.slice(signalIndex)) {
+      expect(signal.aborted).toBe(false);
+    }
+    // Count application-owned listeners on the caller signal. Node 22's
+    // native fetch keeps its own listener on the composed transport signal
+    // until GC, unlike Node 26; that is not a listener installed by our code.
+    expect(callerSignals.length).toBe(callerIndex + 3);
+    for (const signal of callerSignals.slice(callerIndex)) {
       expect(signal.aborted).toBe(false);
       expect(getEventListeners(signal, 'abort')).toHaveLength(0);
     }

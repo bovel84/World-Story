@@ -102,4 +102,24 @@ Review indipendente read-only: nessun blocker sul backend; corretti due rilievi 
 
 ## 8. Consegna
 
-PR unica **#153**, titolo invariato: `WS-GOVUX — P2 annullamento provider + P5 idempotenza firma (freeze circoscritto)`. Nessun merge, deploy, restart di produzione o migrazione sul DB operativo. Attesa della regia.
+PR unica **#153**, titolo invariato: `WS-GOVUX — P2 annullamento provider + P5 idempotenza firma (freeze circoscritto)`. Alla prima consegna: nessun merge, deploy, restart di produzione o migrazione sul DB operativo; attesa della regia.
+
+## 9. Autorizzazione successiva e verifica CI Node 22
+
+La regia ha successivamente richiesto «fai marge deploy su github e cloudflare»: autorizzati merge e deploy, inclusa la migrazione P5 al boot, **solo dopo controlli GitHub richiesti superati**. Gli esiti operativi vengono registrati nella PR #153.
+
+Il primo `test-build` GitHub su Node 22 aveva 2180 passaggi e 1 fallimento: l'assert del test P2 contava un listener **interno di fetch/Undici** sul signal di trasporto composto, non un listener applicativo. Riproduzione in worktree isolato: 7/8 passati, exit 1. Un probe con solo HTTP e fetch nativi, senza codice applicativo, conferma:
+
+- Node 22.23.3: caller 0, timeout 0, trasporto 1 listener dopo consumo del body;
+- Node 26.10.0: caller 0, timeout 0, trasporto 0.
+
+Corretto soltanto il confine della misurazione in `backend-nest/tests/ws-govux-p2-cancellation.test.ts`: si osservano i signal applicativi entranti nel router reale e si richiedono **esattamente 3 signal, non annullati e zero listener**. Restano tutti gli assert su socket reali, scritture tardive, cleanup HTTP e provider non annullato. Nessuna soglia aumentata, test saltato/rimosso o modifica al runtime applicativo. Review indipendente: approvata come correzione della strumentazione, non allentamento dei test.
+
+Nuove prove, log `/tmp/govux-opt1-deploy/`:
+
+- P2 su Node 22 e Node 26: **8/8**, exit 0;
+- backend completo su Node 22: **208 file/2181 test**, exit 0;
+- frontend su Node 22 dopo build: **123 file/1034 test**, exit 0;
+- `tsc --noEmit` backend e build completa Node 22: exit 0.
+
+Il worktree fresco inizialmente non aveva il binario Rollup macOS opzionale: frontend/build exit 1 prima dell'avvio. Ripristinato soltanto lì `@rollup/rollup-darwin-x64@4.59.0`, come nell'analogo step Linux già presente in CI; nessuna modifica ai manifest/lock del repository. Prima della build, il test preesistente `ownerToken.test.ts` è condizionalmente saltato se `dist` manca (1033 passati/1 skipped); dopo generazione del bundle, rerun con **1034 passati e nessuno skip**.
