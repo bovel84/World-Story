@@ -56,13 +56,33 @@ Gate della fase (regia: backend completo + frontend + tipi + E2E mirato Governo)
 - E2E **mirato** Governo (`e2e/tests/modules.spec.mjs`, mock): **12 passed** (1.8m). E2E completo una sola volta a fine blocco, come da direttiva.
 - Log: `/tmp/jev-w4-gate/`, `/tmp/jev-w4-focused*.log`.
 
-## 5. Limiti espliciti
+## 5. CI rossa: test fragile, non codice W4
+
+Il primo run CI della PR (`Quality Gate` #36898394748, job `test-build`, step `Backend unit tests`) è risultato **rosso** su `tests/op-objects-time-step.test.ts:779`, test `41: il percorso degli ordini riceve fattore pieno, metà e zero`:
+
+```
+AssertionError: expected false to be true
+  expect(lines.some((line: string) => /sospesa/.test(line))).toBe(true);
+```
+
+**Causa reale.** Il test costruisce un ordine da 2000 fucili e si aspetta che, al terzo periodo a fattore 0, compaia il bollettino di sospensione. Ma `advanceOrder` può **fallire catastroficamente** l'ordine in un periodo precedente: `failed` scatta quando `stableRoll(seed) < chance*0.25` **e** `stableRoll(`${seed}:fail`) < 0.5`, con `seed = productionRollSeed({ orderId, date })`. L'`orderId` è `ord-${shortId(8)}` e `shortId` usa `crypto.randomUUID`, quindi è **casuale a ogni esecuzione**: l'ordine può sparire prima del terzo periodo e nessuna riga «sospesa» viene emessa.
+
+**Riproduzione locale (senza il file W4).** Eseguendo il solo test 41 con `vitest run tests/op-objects-time-step.test.ts -t '41:'` per 30 volte: **2 fallimenti** (~7%). Diagnostica temporanea sul fallimento: al terzo periodo `orders: []` — l'ordine era stato rimosso, non sospeso. Quindi il rosso **non è introdotto dal codice W4**: è un test preesistente fragile, reso visibile dal dado casuale; il verde di `main@2dfe0b1` era un passaggio fortunato. La PR W4 non altera il percorso di produzione.
+
+**Correzione (nessuna asserzione tolta o indebolita).** In `op-objects-time-step.test.ts` è stato reso deterministico il generatore `shortId` con un contatore riproducibile (`vi.mock('../src/utils/short-id', ...)`), così l'id dell'ordine — e quindi il tiro dell'imprevisto — è fisso e lo scenario è ripetibile. Tutte le 37 asserzioni del file restano identiche.
+
+**Verifica dopo la correzione:**
+- file `op-objects-time-step.test.ts`: **37 passed**; test 41 eseguito 20 volte isolate: **20/20 passed**.
+- comando CI esatto dalla radice, `npm --prefix backend-nest test` (Node 26 locale): **212 file / 2242 test passed**, exit 0. Sulla stessa macchina, lo stesso comando sul solo `main` (senza W4) riporta 211 file / 2232 test — il file W4 aggiunge 1 file / 10 test, ed entrambi sono verdi.
+- La riproduzione locale su **Node 22** non è eseguibile su questa macchina: i moduli nativi (`better-sqlite3`) sono compilati per Node 26 e l'import fallisce con `ERR_DLOPEN_FAILED`, preesistente e non legato alla modifica. La verifica Node 22 autorevole resta quindi il run CI dopo il push.
+
+## 6. Limiti espliciti
 
 - La W4 non completa W5–W8: niente retrieval di scope `government`/`world`/`nation`/`diplomacy`/`faction` nel contesto del ministro, niente consolidamento/`maxActiveMemories` (W7), niente budget dedicato a diplomazia/fazioni, niente debug API, nessuna metrica W8 sul traffico reale.
 - `worldState` è un budget di **riferimento**: con briefing ricchi il blocco può superarlo e `over_budget` lo dichiara. Non è un taglio nascosto, ma non è nemmeno un tetto duro sul prompt completo.
 - Nessuna prova con provider reale né stress multi-processo per questo innesto: i test usano provider stub. La tokenizzazione effettiva del provider non è misurata (i byte UTF-8 sono un upper bound conservativo).
 - Il percorso advisor standard e l'E2E mock non esercitano il contesto del ministro reale; l'E2E mirato è una regressione dei flussi Ufficio del Governo, non una verifica del testo LLM.
 
-## 6. Consegna
+## 7. Consegna
 
-Branch `feat/ws-jev-w4-context`, PR verso `main`. Commit coerenti in italiano; report unico W4. Nessun merge/deploy, nessun restart o sostituzione del `dist` operativo, nessun deploy Cloudflare, nessuna migrazione o modifica del DB di produzione.
+Branch `feat/ws-jev-w4-context`, PR #156 verso `main`. Commit coerenti in italiano; report unico W4. La correzione del test fragile è il commit `7ed5a9a` (`test(optime): id ordine deterministico nel test 41`), su questa stessa PR. Nessun merge/deploy, nessun restart o sostituzione del `dist` operativo, nessun deploy Cloudflare, nessuna migrazione o modifica del DB di produzione.
