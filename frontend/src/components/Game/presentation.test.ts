@@ -13,12 +13,15 @@ import {
 } from './presentation';
 import type { SeatCanvasBlock } from './seatCanvasModel';
 import type { TreasuryRoad } from './treasuryAct';
-import { stabilizationPlan } from './strategicPlan';
+import { parseStrategicPlan } from './strategicPlan';
+
+/** Un piano di prova, senza date fisse: la tela lo usa come blocco `strategy`. */
+const samplePlan = () => parseStrategicPlan('PIANO: Prova\nESITO: Esito.\nT0 | Radice | Il punto di partenza | -');
 
 const blocks: SeatCanvasBlock[] = [
   { kind: 'metrics', id: 'cifre-sedia', title: 'Le cifre della sedia', metrics: [{ id: 'a', label: 'Cassa', display: '12,40 mld', tone: 'neutral' }] },
   { kind: 'chart', id: 'bilancio', title: 'Dove va il denaro', figure: { kind: 'bilancio', title: 'Dove va il denaro', note: '', bars: [{ label: 'Istruzione', value: 10, display: '10', tone: 'positive' }] } },
-  { kind: 'strategy', id: 'piano', title: 'Piano', plan: stabilizationPlan() },
+  { kind: 'strategy', id: 'piano', title: 'Piano', plan: samplePlan() },
   { kind: 'map', id: 'zone', title: 'Zone', note: '', zones: [], target: null },
   { kind: 'ideas', id: 'idee', title: 'Idee', ideas: [{ title: 'x', detail: 'y' }] },
 ];

@@ -16,6 +16,7 @@
  * reali delle strade (`actDraft.deriveActState`), e si limita a preparare.
  */
 import { toneClass } from './seatCanvasModel';
+import { ProposalRoadList } from './SeatProposalPanel';
 import type { ActState } from './actDraft';
 import type { TreasuryAct, TreasuryRoad } from './treasuryAct';
 
@@ -50,13 +51,24 @@ export function TreasuryActPanel({ act, onPrepare, preparedRoadId = null, roadSt
         {act.figures.map(figure => (
           <div key={figure.label} className={`treasury-act-figure ${toneClass(figure.tone)}`}>
             <dt>{figure.label}</dt>
-            <dd>
-              {figure.display}
-              <span className="treasury-act-basis">{figure.basis}</span>
-            </dd>
+            <dd>{figure.display}</dd>
           </div>
         ))}
       </dl>
+
+      {(act.figures.length > 0 || act.worksRequest) && (
+        <details className="seat-sources">
+          <summary className="seat-sources-summary">Provenienza delle cifre</summary>
+          <div className="seat-sources-body">
+            {act.figures.map(figure => (
+              <p key={figure.label} className="seat-sources-line">{figure.label}: {figure.basis}</p>
+            ))}
+            {act.worksRequest?.figures.map(figure => (
+              <p key={`richiesta-${figure.label}`} className="seat-sources-line">{figure.label}: {figure.basis}</p>
+            ))}
+          </div>
+        </details>
+      )}
 
       {act.worksRequest && (
         <div className="treasury-act-request" data-state={worksAccepted ? 'accepted' : 'pending'}>
@@ -65,45 +77,20 @@ export function TreasuryActPanel({ act, onPrepare, preparedRoadId = null, roadSt
           {act.worksRequest.figures.length > 0 && (
             <ul className="treasury-act-request-figures">
               {act.worksRequest.figures.map(figure => (
-                <li key={figure.label}>{figure.label}: {figure.display} <span className="treasury-act-basis">{figure.basis}</span></li>
+                <li key={figure.label}>{figure.label}: {figure.display}</li>
               ))}
             </ul>
           )}
         </div>
       )}
 
-      <div className="treasury-act-roads">
-        {act.roads.map(road => {
-          const state = roadStates[road.id];
-          const prepared = preparedRoadId === road.id;
-          return (
-            <article key={road.id} className={`treasury-act-road${road.recommended ? ' recommended' : ''}`} data-road={road.id} data-state={state ?? 'proposed'}>
-              <div className="treasury-act-road-head">
-                <span className="treasury-act-road-title">{road.title}</span>
-                {road.recommended && <span className="treasury-act-road-badge">consigliata</span>}
-              </div>
-              <p className="treasury-act-road-voice">{road.voice}</p>
-              <p className="treasury-act-road-terms">
-                <span><b>Costo immediato:</b> {road.declaredCost}</span>
-                <span><b>Guadagno atteso:</b> {road.expectedGain}</span>
-              </p>
-              <button
-                type="button"
-                className="treasury-act-prepare"
-                onClick={() => onPrepare?.(road)}
-                aria-label={`Prepara l'atto: ${road.title}`}
-              >
-                {prepared ? 'Bozza sul tavolo' : 'Prepara l’atto'}
-              </button>
-            </article>
-          );
-        })}
-        {act.roads.length === 0 && (
-          <p className="treasury-act-quiet" role="status">
-            Il motore non pubblica né una scadenza né un’opera in attesa: nessuna strada da firmare.
-          </p>
-        )}
-      </div>
+      <ProposalRoadList
+        roads={act.roads}
+        onPrepare={onPrepare}
+        preparedRoadId={preparedRoadId}
+        roadStates={roadStates}
+        emptyLabel="Il motore non pubblica né una scadenza né un’opera in attesa: nessuna strada da firmare."
+      />
     </section>
   );
 }

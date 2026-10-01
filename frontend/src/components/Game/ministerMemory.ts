@@ -52,6 +52,31 @@ export interface MinisterMemoryRecord {
 /** I ricordi per sedia di una partita. */
 export type MinisterMemoryStore = Record<string, MinisterMemoryRecord[]>;
 
+/**
+ * WS-MINISTER-UX-08 (4) — Lo scope del client, come quello del server:
+ * **partita + ramo + mandato**. Il solo `gameId` faceva riemergere ricordi di
+ * altri rami e di governi diversi. Il mandato è l'identità del governo (polity
+ * + fazione dominante), la stessa che il server ricava da sé (`mandateFor`).
+ */
+export interface MinisterMemoryScope {
+  readonly gameId: string;
+  readonly branchId: string | null;
+  readonly mandate: string;
+}
+
+/**
+ * L'identità del mandato sul client, gemella di quella server-side
+ * (`MinisterMemory.mandateFor`): polity + fazione dominante. Il motore non
+ * modella una legislatura; quando la dominante cambia, il mandato cambia e la
+ * memoria non si mescola fra governi diversi.
+ */
+export function clientMandate(
+  government: { dominantId?: string | null } | null | undefined,
+  polityId: string | null | undefined,
+): string {
+  return `${polityId ?? 'unknown'}:${government?.dominantId ?? 'council'}`;
+}
+
 export const MINISTER_MEMORY_LIMIT = 40;
 
 const KIND_PRIORITY: Record<MinisterMemoryKind, number> = {
@@ -197,6 +222,11 @@ export function openQuestion(seat: string, summary: string, ref: MinisterMemoryR
 
 const STORAGE_PREFIX = 'ws:minister-memory:';
 
+/** La chiave dello scope: partita + ramo + mandato (parti vuote dichiarate). */
+export function memoryScopeKey(scope: MinisterMemoryScope): string {
+  return [scope.gameId || 'no-game', scope.branchId || 'no-branch', scope.mandate || 'no-mandate'].join('::');
+}
+
 function storageOrNull(): Storage | null {
   try {
     return typeof localStorage === 'undefined' ? null : localStorage;
@@ -205,11 +235,11 @@ function storageOrNull(): Storage | null {
   }
 }
 
-/** Carica la memoria della partita; uno storage rotto non rompe la seduta. */
-export function loadMemory(gameId: string, storage: Storage | null = storageOrNull()): MinisterMemoryStore {
+/** Carica la memoria dello scope; uno storage rotto non rompe la seduta. */
+export function loadMemory(scope: MinisterMemoryScope, storage: Storage | null = storageOrNull()): MinisterMemoryStore {
   if (!storage) return {};
   try {
-    const raw = storage.getItem(`${STORAGE_PREFIX}${gameId}`);
+    const raw = storage.getItem(`${STORAGE_PREFIX}${memoryScopeKey(scope)}`);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? parsed as MinisterMemoryStore : {};
@@ -218,15 +248,15 @@ export function loadMemory(gameId: string, storage: Storage | null = storageOrNu
   }
 }
 
-/** Salva la memoria della partita; un errore di quota non è fatale. */
+/** Salva la memoria dello scope; un errore di quota non è fatale. */
 export function saveMemory(
-  gameId: string,
+  scope: MinisterMemoryScope,
   store: MinisterMemoryStore,
   storage: Storage | null = storageOrNull(),
 ): void {
   if (!storage) return;
   try {
-    storage.setItem(`${STORAGE_PREFIX}${gameId}`, JSON.stringify(store));
+    storage.setItem(`${STORAGE_PREFIX}${memoryScopeKey(scope)}`, JSON.stringify(store));
   } catch {
     /* memoria solo in RAM: la seduta continua */
   }

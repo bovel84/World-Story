@@ -6,7 +6,7 @@
  * **ricongiungimenti** di una cascata. Nessuno snapshot: si legge la struttura.
  */
 import { describe, expect, it } from 'vitest';
-import { cascadeLayout, parseStrategicPlan, STABILIZATION_PLAN_TEXT, stabilizationPlan } from './strategicPlan';
+import { cascadeLayout, parseStrategicPlan, planDateLabel, planFromProposal } from './strategicPlan';
 
 const TEXT = [
   'PIANO: Prova',
@@ -56,19 +56,40 @@ describe('cascadeLayout', () => {
   });
 });
 
-describe('stabilizationPlan (contenuto d’esempio, autore)', () => {
-  it('ha nodi datati, almeno un ramo e un ricongiungimento', () => {
-    const plan = stabilizationPlan();
-    const layout = cascadeLayout(plan);
-    expect(plan.title).toContain('Stabilizzazione');
-    expect(plan.nodes.length).toBeGreaterThanOrEqual(4);
-    expect(plan.nodes.every(node => node.date.trim().length > 0)).toBe(true);
-    expect(layout.branches.length).toBeGreaterThanOrEqual(1);
-    expect(layout.merges.length).toBeGreaterThanOrEqual(1);
-    expect(plan.outcome.length).toBeGreaterThan(0);
+describe('WS-MINISTER-UX-08 — planFromProposal (niente date fisse)', () => {
+  it('deriva il piano dalla proposta e ancora i nodi alla data di gioco', () => {
+    const plan = planFromProposal({
+      id: 'lavori-w1', title: 'Scuola elementare', need: 'Manca una scuola.', outcome: 'La scuola apre.',
+      today: '2026-01-05',
+      steps: [
+        { id: 's1', title: 'Appalto', detail: 'Bandire la gara.' },
+        { id: 's2', title: 'Cantiere', detail: 'Aprire il cantiere.', requires: ['s1'] },
+      ],
+    });
+    expect(plan?.title).toBe('Scuola elementare');
+    expect(plan?.outcome).toBe('La scuola apre.');
+    expect(plan?.nodes.map(node => node.date)).toEqual(['5 GEN 2026', '5 GEN 2026', '5 GEN 2026']);
+    expect(plan?.nodes[0].from).toEqual([]);
+    expect(plan?.nodes[1].from).toEqual(['questione']);
+    expect(plan?.nodes[2].from).toEqual(['s1']);
+    // Nessuna data fissa di un altro calendario: il piano non contiene «GEN 2026»
+    // se non come etichetta derivata dalla data di gioco.
+    expect(JSON.stringify(plan)).not.toContain('1951');
   });
 
-  it('il testo d’esempio è la fonte del piano (parsing, non un duplicato)', () => {
-    expect(parseStrategicPlan(STABILIZATION_PLAN_TEXT)).toEqual(stabilizationPlan());
+  it('con date di gioco diverse il piano cambia di conseguenza', () => {
+    const base = { id: 'x', title: 'Piano', need: 'Bisogno', today: '2026-01-05', steps: [{ id: 's1', title: 'A', detail: 'd' }] } as const;
+    expect(planDateLabel('2026-01-05')).toBe('5 GEN 2026');
+    expect(planDateLabel('2030-07-21')).toBe('21 LUG 2030');
+    expect(planFromProposal(base)?.nodes[0].date).toBe('5 GEN 2026');
+    expect(planFromProposal({ ...base, today: '2030-07-21' })?.nodes[0].date).toBe('21 LUG 2030');
+  });
+
+  it('senza data di gioco o senza strade il piano resta mancante', () => {
+    const base = { id: 'x', title: 'Piano', need: 'Bisogno', today: '2026-01-05', steps: [{ id: 's1', title: 'A', detail: 'd' }] } as const;
+    expect(planDateLabel(null)).toBeNull();
+    expect(planFromProposal({ ...base, today: null })).toBeNull();
+    expect(planFromProposal({ ...base, today: '' })).toBeNull();
+    expect(planFromProposal({ ...base, steps: [] })).toBeNull();
   });
 });

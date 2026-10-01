@@ -10,14 +10,19 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { SeatTable } from './SeatTable';
 import { resolvePresentation } from './presentation';
-import { stabilizationPlan } from './strategicPlan';
+import { parseStrategicPlan } from './strategicPlan';
+import { seatRoads } from './seatProposals';
 import type { SeatCanvasBlock } from './seatCanvasModel';
 import type { TreasuryAct, TreasuryRoad } from './treasuryAct';
+import type { CabinetAddressView } from '../../services/api';
+
+/** Un piano di prova, senza date fisse. */
+const samplePlan = () => parseStrategicPlan('PIANO: Prova\nESITO: Esito.\nT0 | Radice | Punto | -\nT0 | Ramo A | d | radice\nT0 | Ramo B | d | radice\nT1 | Fusione | d | ramo-a, ramo-b');
 
 const blocks: SeatCanvasBlock[] = [
   { kind: 'metrics', id: 'cifre-sedia', title: 'Le cifre della sedia', metrics: [{ id: 'a', label: 'Cassa', display: '12,40 mld', tone: 'neutral' }] },
   { kind: 'chart', id: 'bilancio', title: 'Dove va il denaro', figure: { kind: 'bilancio', title: 'Dove va il denaro', note: '', bars: [{ label: 'Istruzione', value: 10, display: '10', tone: 'positive' }] } },
-  { kind: 'strategy', id: 'piano', title: 'Piano', plan: stabilizationPlan() },
+  { kind: 'strategy', id: 'piano', title: 'Piano', plan: samplePlan() },
   { kind: 'map', id: 'zone', title: 'Zone', note: '', zones: [{ id: 'r1', name: 'Alfa', detail: '100', tone: 'positive', svgPath: 'M0,0 L100,0 L100,100 L0,100 Z' }], target: null },
   { kind: 'ideas', id: 'idee', title: 'Idee', ideas: [{ title: 'x', detail: 'y' }] },
 ];
@@ -179,5 +184,71 @@ describe('SeatTable — presentazione dalla conversazione', () => {
     expect(html).toContain('aria-pressed="true"');
     // Il controllo del fissaggio è un vero pulsante.
     expect(html).toContain('seat-presentation-pin');
+  });
+
+  it('WS-MINISTER-UX-08 (1) — l’atto non precede l’evidenza richiesta; senza direttiva resta prima (UX-01)', () => {
+    const defaultHtml = renderToStaticMarkup(<SeatTable seat="tesoro" blocks={blocks} act={act} proposals={roads} />);
+    const defaultAct = defaultHtml.indexOf('treasury-act');
+    const defaultMain = defaultHtml.indexOf('seat-table-main');
+    expect(defaultAct).toBeGreaterThanOrEqual(0);
+    // Comportamento di sicurezza UX-01: senza direttiva l'atto è in cima.
+    expect(defaultAct).toBeLessThan(defaultMain);
+
+    const presentation = resolvePresentation(
+      { directive: { op: 'focus', evidence: 'mappa' }, seat: 'tesoro', messageId: 'tesoro#11', quote: 'Ecco le province.' },
+      blocks,
+      roads,
+    );
+    const html = renderToStaticMarkup(
+      <SeatTable seat="tesoro" blocks={blocks} act={act} presentation={presentation} proposals={roads} onClearPresentation={() => {}} />,
+    );
+    const main = html.indexOf('seat-table-main');
+    const support = html.indexOf('seat-table-support');
+    const actPanel = html.indexOf('treasury-act');
+    expect(html.slice(main, support)).toContain('data-kind="map"');
+    // L'atto del Tesoro non sta davanti alla mappa richiesta: viene dopo.
+    expect(actPanel).toBeGreaterThan(main);
+    expect(html.slice(main, support)).not.toContain('treasury-act');
+  });
+
+  it('WS-MINISTER-UX-08 (2) — un confronto alla Sanità non mostra strade del Tesoro', () => {
+    const sanita: CabinetAddressView = {
+      seat: 'sanita', label: 'Ministro della Sanità', reads: '', opening: '',
+      items: [{
+        voiceId: 'ospedali', need: 'Aprire un reparto.', because: '', urgency: 'urgente', figures: [],
+        paths: [
+          { id: 'subito', title: 'Riparare il reparto', detail: 'Intervenire ora.', prerequisites: [], expected: 'Riapre.', recommended: true },
+          { id: 'rinvio', title: 'Rinviare al prossimo anno', detail: 'Aspettare.', prerequisites: [], expected: 'Nessun costo ora.', recommended: false },
+        ],
+      }],
+    };
+    const sanitaRoads = seatRoads(sanita, act);
+    const presentation = resolvePresentation(
+      { directive: { op: 'compare' }, seat: 'sanita', messageId: 'sanita#1', quote: 'Confronta le due strade.' },
+      [],
+      sanitaRoads,
+    );
+    const html = renderToStaticMarkup(
+      <SeatTable seat="sanita" blocks={[]} act={act} presentation={presentation} proposals={sanitaRoads} />,
+    );
+    expect(html).toContain('Riparare il reparto');
+    expect(html).toContain('Rinviare al prossimo anno');
+    expect(html).not.toContain('Ammortamento del debito');
+    expect(html).not.toContain('Investimento');
+  });
+
+  it('WS-MINISTER-UX-08 (5) — le fonti stanno nei dettagli e l’ordine nasce dalla proposta concreta', () => {
+    const hinted: SeatCanvasBlock[] = [{
+      kind: 'metrics', id: 'm', title: 'Cifre',
+      metrics: [{ id: 'a', label: 'Cassa', display: '12,40 mld', hint: 'misurato · conti nazionali', tone: 'neutral' }],
+    }];
+    const html = renderToStaticMarkup(
+      <SeatTable seat="sanita" blocks={hinted} act={act} proposals={roads} onPrepareRoad={() => {}} />,
+    );
+    expect(html).toContain('seat-sources');
+    expect(html).toContain('Provenienza delle cifre');
+    expect(html).toContain('misurato · conti nazionali');
+    expect(html).toContain('seat-proposal');
+    expect(html).toContain('treasury-act-prepare');
   });
 });

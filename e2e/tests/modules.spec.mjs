@@ -113,12 +113,18 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await chat.locator('textarea').fill('Costruire una ferrovia verso il confine');
     await chat.locator('.minister-compose button').click();
     await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
-    await chat.locator('.minister-draft-order').click();
+
+    // WS-MINISTER-UX-08 (5) — L'ordine nasce dalla **proposta concreta**, non
+    // dalla singola domanda: si prepara e si firma la strada d'investimento.
+    const tavola = page.locator('.government-office-pane-table');
+    await tavola.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
+    await tavola.locator('.act-draft-sign').click();
+    await expect(tavola.locator('.act-draft-state')).toHaveText('accodato');
 
     // L'atto è nel REGISTRO (prima schermata), non nella seduta.
     await page.locator('.government-office-back').click();
     await expect(registro.locator('.order-register-act').first())
-      .toContainText('Costruire una ferrovia verso il confine');
+      .toContainText('Aprire il cantiere');
     // La firma è in calce, una volta sola.
     await expect(registro.locator('.order-register-signature-office')).toHaveText('Il Presidente del Consiglio');
     // Nella seduta l'ordine NON si vede.
@@ -201,16 +207,18 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(ufficio.locator('.minister-path')).toHaveCount(0);
 
     // Il problema presentato dal giocatore riceve risposta, poi si conclude
-    // con un ordine in un clic.
+    // con un ordine dalla **proposta concreta** (WS-MINISTER-UX-08/5).
     await chat.locator('textarea').fill('Il porto di Alfa resta chiuso: servono fondi.');
     await chat.locator('.minister-compose button').click();
     await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
-    await chat.locator('.minister-draft-order').click();
+    await tavola.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
+    await tavola.locator('.act-draft-sign').click();
+    await expect(tavola.locator('.act-draft-state')).toHaveText('accodato');
 
     // L'atto è nel REGISTRO della prima schermata, non nella seduta.
     await page.locator('.government-office-back').click();
     await expect(ufficio.locator('.order-register-act').first())
-      .toContainText('Il porto di Alfa resta chiuso');
+      .toContainText('Aprire il cantiere');
     await expect(ufficio.locator('.order-register-signature-office')).toHaveText('Il Presidente del Consiglio');
   });
 

@@ -13,12 +13,16 @@
  *  2. **la struttura** del grafo (nodi + dipendenze) e la sua **geometria**:
  *     la profondità di ogni nodo, i **rami** (nodi con più di un successore) e i
  *     **ricongiungimenti** (nodi con più di un predecessore) — `cascadeLayout`;
- *  3. un **contenuto d'esempio** sanzionato dal task (`stabilizationPlan`), che
- *     la tela mostra finché la generazione dinamica dei piani resta fuori scope.
+ *  3. la **derivazione** di un piano dalla proposta concreta in discussione
+ *     (`planFromProposal`): i nodi sono le strade/prerequisiti della proposta e
+ *     l'ancora temporale è la **data di gioco corrente**, mai una data fissa.
  *
- * Nessun numero di gioco entra qui: date e titoli sono **contenuto curato**,
- * l'unica cosa che il task dichiara autorevole per i piani (opzione C).
+ * WS-MINISTER-UX-08 — I piani dimostrativi con date fisse («GEN 2026») sono
+ * stati rimossi dalla presentazione ordinaria: un piano o deriva dalla proposta
+ * discussa, o non si mostra. Se manca la data di gioco, il piano resta
+ * dichiarato mancante (`planFromProposal` restituisce `null`).
  */
+import { formatDateOr } from '../../utils/format';
 
 /** Un nodo del piano: quando, che cosa, perché, e da quali nodi dipende. */
 export interface StrategicNode {
@@ -179,23 +183,74 @@ export function cascadeLayout(plan: StrategicPlan): CascadeLayout {
 }
 
 /**
- * Il contenuto d'esempio: «Stabilizzazione e Influenza Regionale».
- *
- * È **contenuto curato** (autore), non un numero: la tela lo mostra come
- * fixture. Il task dichiara esplicitamente che la generazione dinamica di piani
- * multipli è fuori scope in 07 — questo è il caso di riferimento.
+ * Un passo del piano derivato dalla proposta: una strada o un prerequisito.
+ * `requires` elenca gli id dei passi che devono precederlo (i prerequisiti
+ * dichiarati dalla proposta, quando ci sono).
  */
-export const STABILIZATION_PLAN_TEXT = [
-  'PIANO: Stabilizzazione e Influenza Regionale',
-  'ESITO: La nazione è stabile in casa e ascoltata nella regione.',
-  'GEN 2026 | Riforma fiscale | Chiudere il disavanzo senza fermare i cantieri | -',
-  'GEN-FEB 2026 | Fondo infrastrutture | Aprire le opere del catalogo che il paese può coprire | riforma-fiscale',
-  'GEN-FEB 2026 | Scuola e sanità | Ricucire il patto civile mentre i conti si sistemano | riforma-fiscale',
-  'MAR 2026 | Vertice regionale | Portare la stabilità interna al tavolo con i vicini | fondo-infrastrutture, scuola-e-sanita',
-  'APR 2026 | Influenza regionale | Raccogliere i frutti: credito, alleanze, commesse | vertice-regionale',
-].join('\n');
+export interface PlanProposalStep {
+  readonly id: string;
+  readonly title: string;
+  readonly detail: string;
+  readonly requires?: readonly string[];
+}
 
-/** Il piano d'esempio, già analizzato. */
-export function stabilizationPlan(): StrategicPlan {
-  return parseStrategicPlan(STABILIZATION_PLAN_TEXT, 'stabilizzazione-e-influenza-regionale');
+/**
+ * La proposta concreta da cui nasce il piano. `today` è la **data di gioco**:
+ * senza, il piano non si costruisce (resta dichiarato mancante, non si inventa
+ * una data).
+ */
+export interface PlanProposal {
+  readonly id: string;
+  readonly title: string;
+  /** La questione che apre il piano (il bisogno della sedia). */
+  readonly need: string;
+  /** L'esito dichiarato dalla proposta, se c'è. */
+  readonly outcome?: string;
+  readonly today: string | null | undefined;
+  readonly steps: readonly PlanProposalStep[];
+}
+
+/** L'etichetta datata breve del nodo, dalla data di gioco corrente. */
+export function planDateLabel(today: string | null | undefined): string | null {
+  if (!today) return null;
+  const label = formatDateOr(today, '');
+  return label.length > 0 ? label.toUpperCase() : null;
+}
+
+/**
+ * Il piano della proposta discussa: dalla questione alle strade, ancorate alla
+ * **data di gioco corrente**. `null` quando manca la data o non c'è nessuna
+ * strada: la tela non mostra un piano dimostrativo con date fisse.
+ */
+export function planFromProposal(proposal: PlanProposal): StrategicPlan | null {
+  const anchor = planDateLabel(proposal.today);
+  if (!anchor || proposal.steps.length === 0) return null;
+
+  const rootId = 'questione';
+  const nodes: StrategicNode[] = [{
+    id: rootId,
+    date: anchor,
+    title: proposal.title || 'La questione',
+    description: proposal.need,
+    from: [],
+  }];
+
+  const known = new Set(proposal.steps.map(step => step.id));
+  for (const step of proposal.steps) {
+    const requires = (step.requires ?? []).filter(id => known.has(id) && id !== step.id);
+    nodes.push({
+      id: step.id,
+      date: anchor,
+      title: step.title,
+      description: step.detail,
+      from: requires.length > 0 ? requires : [rootId],
+    });
+  }
+
+  return {
+    id: `proposta-${slug(proposal.id) || 'piano'}`,
+    title: proposal.title || 'Piano della proposta',
+    outcome: proposal.outcome ?? '',
+    nodes,
+  };
 }

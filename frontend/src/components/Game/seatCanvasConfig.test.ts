@@ -1,26 +1,18 @@
 /**
- * WS-GOVOFFICE-07 — test dell'aggancio per sedia (la tela è di TUTTI i ministri)
- * =============================================================================
- * `SeatCanvas` è generico; `seatCanvasAuthoring` è la mappa `sedia → contenuto
- * curato`. Questi test difendono la **generalizzabilità**:
- *  - il Tesoro (primo inquilino) porta il piano di stabilizzazione, le idee
- *    (le strade) e l'obiettivo della mappa;
- *  - lo Stato maggiore (sedia `guerra`) porta un **secondo esempio**: un piano
- *    militare a cascata — prova che `strategy` non è cablato al Tesoro;
- *  - una sedia senza voce nel registro non inventa contenuto;
+ * WS-GOVOFFICE-07 / WS-MINISTER-UX-08 — test dell'aggancio per sedia
+ * =================================================================
+ * `SeatCanvas` è generico; `seatCanvasAuthoring` deriva il contenuto dalla
+ * **proposta concreta** della sedia e dalla **data di gioco**. Questi test
+ * difendono i difetti corretti in UX-08:
+ *  - niente piani dimostrativi con date fisse: il piano deriva dalle strade e
+ *    dall'ancora di gioco, o resta mancante;
+ *  - niente contenuto curato: la sedia che non porta una proposta non inventa;
  *  - la derivazione dei blocchi resta indipendente dalla sedia.
  */
 import { describe, expect, it } from 'vitest';
 import type { NationalOperatingPicture } from './nationalOperatingPicture';
 import { deriveSeatCanvasBlocks } from './seatCanvasModel';
-import { cascadeLayout } from './strategicPlan';
-import {
-  MILITARY_IDEAS,
-  militaryPlan,
-  SEAT_CANVAS_AUTHORING,
-  seatCanvasAuthoring,
-  type SeatCanvasContext,
-} from './seatCanvasConfig';
+import { seatCanvasAuthoring, type SeatCanvasContext } from './seatCanvasConfig';
 import type { CabinetAddressView } from '../../services/api';
 import type { TreasuryAct } from './treasuryAct';
 
@@ -47,57 +39,90 @@ const sources = {
 
 const tesoroAct = {
   seatLabel: 'Ministro del Tesoro',
-  voice: '',
+  voice: 'Signor Presidente, in cassa ci sono 40,00 mld.',
   figures: [],
   worksRequest: { workId: 'w_school', workName: 'Scuola elementare', need: '', missing: [], figures: [], item: {}, path: {} },
   nextMaturity: null,
   roads: [
-    { id: 'repay', title: 'Ammortamento del debito', voice: 'Rimborsare.', recommended: false, declaredCost: '', expectedGain: '', order: { kind: 'text', text: '' } },
-    { id: 'invest', title: 'Investimento', voice: 'Aprire il cantiere.', recommended: true, declaredCost: '', expectedGain: '', order: { kind: 'work', item: {}, path: {} } },
+    { id: 'repay', title: 'Ammortamento del debito', voice: 'Rimborsare.', recommended: false, declaredCost: '', expectedGain: '0,60 mld in meno', order: { kind: 'text', text: '' } },
+    { id: 'invest', title: 'Investimento', voice: 'Aprire il cantiere.', recommended: true, declaredCost: '', expectedGain: 'l’opera consegna il suo effetto', order: { kind: 'work', item: {}, path: {} } },
   ],
 } as unknown as TreasuryAct;
 
-const context = (seat: CabinetAddressView['seat'], act: TreasuryAct | null = null): SeatCanvasContext => ({
-  seat, picture, sources, act,
+/** Una sedia con una proposta concreta: due percorsi su una voce. */
+function seatWithProposal(seat: CabinetAddressView['seat']): CabinetAddressView {
+  return {
+    seat,
+    label: seat === 'guerra' ? 'Ministro della Guerra' : 'Ministro dei Lavori',
+    reads: 'competenze',
+    opening: 'Signor Presidente.',
+    items: [{
+      voiceId: 'v-1',
+      need: 'Mettere in sicurezza i valichi.',
+      because: 'I presidi sono scoperti.',
+      urgency: 'urgente',
+      figures: [{ label: 'Presidi', value: '3', unit: 'su 10', basis: { kind: 'measured', source: 'Stato maggiore' } }],
+      paths: [
+        { id: 'now', title: 'Fortificare subito', detail: 'Impegnare mezzi ora.', prerequisites: ['riserva di mezzi'], expected: 'I valichi sono tenuti.', recommended: true },
+        { id: 'later', title: 'Rinviare', detail: 'Aspettare il prossimo bilancio.', prerequisites: [], expected: 'Nessun costo immediato.', recommended: false },
+      ],
+    }],
+  };
+}
+
+const context = (seat: CabinetAddressView['seat'], address: CabinetAddressView | null, act: TreasuryAct | null = null): SeatCanvasContext => ({
+  seat, picture, sources, act, address,
 });
 
-describe('seatCanvasAuthoring', () => {
-  it('il Tesoro (primo inquilino) porta piano, idee dalle strade e obiettivo', () => {
-    const authored = seatCanvasAuthoring('tesoro', context('tesoro', tesoroAct));
-    expect(authored?.plan?.title).toContain('Stabilizzazione');
+describe('seatCanvasAuthoring — dalla proposta concreta, non da fixture', () => {
+  it('il Tesoro deriva il piano dalle strade del suo atto, ancorato alla data di gioco', () => {
+    const authored = seatCanvasAuthoring(context('tesoro', null, tesoroAct));
+    expect(authored?.plan?.title).toContain('Tesoro');
+    expect(authored?.plan?.nodes.map(node => node.title)).toContain('Ammortamento del debito');
+    expect(authored?.plan?.nodes[0].date).toBe('1 FEB 2026');
     expect(authored?.ideas?.map(idea => idea.title)).toEqual(['Ammortamento del debito', 'Investimento']);
     expect(authored?.target?.label).toBe('Scuola elementare');
   });
 
-  it('lo Stato maggiore (sedia guerra) porta un piano a cascata: strategy non è cablato al Tesoro', () => {
-    const authored = seatCanvasAuthoring('guerra', context('guerra'));
-    expect(authored?.plan?.title).toContain('Difesa');
-    const layout = cascadeLayout(authored!.plan!);
-    expect(layout.lanes.length).toBeGreaterThanOrEqual(3);
-    expect(layout.branches).toContain('riarmo-ordinato');
-    expect(layout.merges).toContain('deterrenza-credibile');
-    expect(authored?.ideas).toEqual(MILITARY_IDEAS);
+  it('una sedia non-Tesoro deriva piano e idee dai percorsi delle sue voci', () => {
+    const authored = seatCanvasAuthoring(context('guerra', seatWithProposal('guerra')));
+    expect(authored?.plan?.nodes.map(node => node.title)).toContain('Fortificare subito');
+    // Un prerequisito dichiarato diventa un nodo del piano.
+    expect(authored?.plan?.nodes.map(node => node.title)).toContain('riserva di mezzi');
+    expect(authored?.ideas?.map(idea => idea.title)).toEqual(['Fortificare subito', 'Rinviare']);
+    expect(authored?.target).toBeUndefined();
   });
 
-  it('una sedia senza voce nel registro non inventa contenuto', () => {
-    expect(SEAT_CANVAS_AUTHORING.lavori).toBeUndefined();
-    expect(seatCanvasAuthoring('lavori', context('lavori'))).toBeUndefined();
+  it('niente date fisse e niente date quando la data di gioco manca', () => {
+    const noDate = { ...sources, today: undefined };
+    const authored = seatCanvasAuthoring({ seat: 'guerra', picture, sources: noDate as any, act: null, address: seatWithProposal('guerra') });
+    expect(authored?.plan).toBeUndefined();
+    expect(authored?.ideas?.length).toBe(2);
   });
 
-  it('il piano militare d’esempio ha nodi datati e un esito', () => {
-    const plan = militaryPlan();
-    expect(plan.outcome.length).toBeGreaterThan(0);
-    expect(plan.nodes.every(node => node.date.length > 0)).toBe(true);
+  it('una sedia senza proposta concreta non inventa contenuto', () => {
+    const bare: CabinetAddressView = { seat: 'lavori', label: 'Ministro dei Lavori', reads: '', opening: '', items: [] };
+    expect(seatCanvasAuthoring(context('lavori', bare))).toBeUndefined();
+  });
+
+  it('il piano derivato non contiene mai date fisse di un altro calendario', () => {
+    const authored = seatCanvasAuthoring(context('guerra', seatWithProposal('guerra')));
+    const dump = JSON.stringify(authored?.plan);
+    expect(dump).not.toContain('1951');
+    expect(dump).not.toContain('GEN 2026');
+    expect(dump).toContain('1 FEB 2026');
   });
 });
 
 describe('deriveSeatCanvasBlocks con la configurazione per sedia', () => {
-  it('la sedia guerra compone i blocchi derivati più il piano del registro', () => {
+  it('la sedia guerra compone i blocchi derivati più il piano della proposta', () => {
+    const address = seatWithProposal('guerra');
     const blocks = deriveSeatCanvasBlocks({
       seat: 'guerra',
       picture,
       sources,
-      authored: seatCanvasAuthoring('guerra', context('guerra')),
+      address,
+      authored: seatCanvasAuthoring({ seat: 'guerra', picture, sources, act: null, address }),
     });
     const kinds = blocks.map(block => block.kind);
     expect(kinds).toContain('strategy');

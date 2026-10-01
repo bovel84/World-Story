@@ -110,7 +110,10 @@ await chatTextarea.fill('Aprire un cantiere navale nel porto di Alfa.');
 await chat.locator('.minister-compose button').click();
 await page.waitForTimeout(2500);
 await page.screenshot({ path: `${prefix}-4-dialogo-risposta.png` });
-await chat.locator('.minister-draft-order').click();
+// WS-MINISTER-UX-08 (5) — L'ordine nasce dalla proposta concreta sul tavolo.
+const tavola = page.locator('.government-office-pane-table');
+await tavola.locator('.treasury-act-prepare').first().click();
+await tavola.locator('.act-draft-sign').click();
 await page.waitForTimeout(1000);
 
 await page.locator('.government-office-back').click();

@@ -12,9 +12,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { SeatCanvas } from './SeatCanvas';
 import { TreasuryActPanel } from './TreasuryActPanel';
 import { StrategicPlanDiagram } from './StrategicPlanDiagram';
-import { stabilizationPlan } from './strategicPlan';
+import { parseStrategicPlan } from './strategicPlan';
 import type { TreasuryAct } from './treasuryAct';
 import type { SeatCanvasBlock } from './seatCanvasModel';
+
+/** Un piano di prova, senza date fisse. */
+const SAMPLE_PLAN = parseStrategicPlan('PIANO: Prova\nESITO: Esito.\nT0 | Radice | Punto | -\nT0 | Ramo A | d | radice\nT0 | Ramo B | d | radice\nT1 | Fusione | d | ramo-a, ramo-b');
 
 const act: TreasuryAct = {
   seatLabel: 'Ministro del Tesoro',
@@ -56,7 +59,7 @@ describe('SeatCanvas', () => {
   const blocks: SeatCanvasBlock[] = [
     { kind: 'metrics', id: 'm', title: 'Quadro', metrics: [{ id: 'a', label: 'Debito', display: '90%', tone: 'warning' }] },
     { kind: 'chart', id: 'c', title: 'Dove va il denaro', figure: { kind: 'bilancio', title: 'Dove va il denaro', note: '', bars: [{ label: 'Istruzione', value: 10, display: '10', tone: 'positive' }] } },
-    { kind: 'strategy', id: 's', title: 'Piano', plan: stabilizationPlan() },
+    { kind: 'strategy', id: 's', title: 'Piano', plan: SAMPLE_PLAN },
     { kind: 'map', id: 'g', title: 'Zone', note: '', zones: [{ id: 'r1', name: 'Alfa', detail: '100 · 50 ab.', tone: 'positive' }], target: { label: 'Scuola', detail: 'distinta coperta' } },
     { kind: 'ideas', id: 'i', title: 'Idee', ideas: [{ title: 'Rimborsare', detail: '…' }] },
   ];
@@ -79,8 +82,8 @@ describe('SeatCanvas', () => {
 
 describe('StrategicPlanDiagram', () => {
   it('rende i nodi datati, i rami, il ricongiungimento e l’esito', () => {
-    const html = renderToStaticMarkup(<StrategicPlanDiagram plan={stabilizationPlan()} defaultExpanded />);
-    expect(html).toContain('GEN 2026');
+    const html = renderToStaticMarkup(<StrategicPlanDiagram plan={SAMPLE_PLAN} defaultExpanded />);
+    expect(html).toContain('T0');
     expect(html).toContain('si apre in rami');
     expect(html).toContain('i rami si ricongiungono');
     expect(html).toContain('Esito');

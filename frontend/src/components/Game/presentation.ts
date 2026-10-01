@@ -25,6 +25,7 @@ import type { CabinetAddressView } from '../../services/api';
 import type { SeatCanvasBlock } from './seatCanvasModel';
 import type { TreasuryRoad } from './treasuryAct';
 import { matchSpendingVoice } from './spendingFocus';
+import { focusedProposals } from './seatProposals';
 
 /** Le chiavi di evidenza che il ministro può richiamare. */
 export const EVIDENCE_KEYS = ['spesa', 'trend', 'cifre', 'piano', 'mappa', 'idee'] as const;
@@ -101,6 +102,12 @@ export interface ResolvedPresentation {
   readonly roads: TreasuryRoad[];
   readonly label: string;
   readonly note?: string;
+  /**
+   * WS-MINISTER-UX-08 — La chiave richiesta, quando è un'evidenza. Serve a
+   * decidere se l'atto del Tesoro è pertinente alla decisione (difetto 1):
+   * l'atto non precede la mappa o il grafico richiesti.
+   */
+  readonly evidence?: EvidenceKey;
   /**
    * WS-MINISTER-UX-07 — La voce di spesa da evidenziare (A2), scelta in locale
    * dal discorso. `undefined` = nessuna voce pertinente, si mostra l'insieme.
@@ -263,7 +270,10 @@ export function resolvePresentation(
     return {
       kind: 'compare',
       block: null,
-      roads: [...roads],
+      // WS-MINISTER-UX-08 (2) — Il confronto appartiene alla proposta discussa:
+      // quella nominata nella conversazione sale in testa, le altre restano
+      // nell'ordine del motore. Le proposte arrivano dalla sedia aperta.
+      roads: focusedProposals(roads, active.discussion || quote),
       label: 'Confronto tra le proposte',
       messageId,
       quote,
@@ -289,6 +299,7 @@ export function resolvePresentation(
     label: focusLabel && directive.evidence === 'spesa'
       ? `${evidenceLabel(directive.evidence)} — ${focusLabel}`
       : evidenceLabel(directive.evidence),
+    evidence: directive.evidence,
     ...(focusLabel ? { focusLabel } : {}),
     ...(active.pinned ? { pinned: true } : {}),
     ...(directive.note ? { note: directive.note } : {}),

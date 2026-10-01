@@ -13,7 +13,10 @@ import { describe, expect, it } from 'vitest';
 import type { CabinetAddressView } from '../../services/api';
 import type { NationalOperatingPicture } from './nationalOperatingPicture';
 import { deriveSeatCanvasBlocks, metricDisplay, seatFigureMetrics, zoneBoard } from './seatCanvasModel';
-import { stabilizationPlan } from './strategicPlan';
+import { parseStrategicPlan } from './strategicPlan';
+
+/** Un piano di prova, senza date fisse. */
+const SAMPLE_PLAN = parseStrategicPlan('PIANO: Prova\nESITO: Esito.\nT0 | Radice | Punto | -');
 
 const picture = {
   economy: {
@@ -94,7 +97,7 @@ describe('deriveSeatCanvasBlocks', () => {
   it('il Tesoro riceve metriche, grafici, piano, mappa e idee', () => {
     const blocks = deriveSeatCanvasBlocks({
       seat: 'tesoro', picture, sources: sources(), address,
-      authored: { plan: stabilizationPlan(), ideas: [{ title: 'Rimborsare', detail: '…' }], target: { label: 'Scuola', detail: 'distinta coperta' } },
+      authored: { plan: SAMPLE_PLAN, ideas: [{ title: 'Rimborsare', detail: '…' }], target: { label: 'Scuola', detail: 'distinta coperta' } },
     });
     const kinds = blocks.map(block => block.kind);
     expect(kinds).toContain('metrics');
