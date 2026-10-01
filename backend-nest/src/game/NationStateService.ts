@@ -28,6 +28,7 @@ import {
 } from '../core/simulation/PeacetimePressures';
 import { advanceCrisis, type CrisisEnding, type CrisisInput, type CrisisState } from '../core/simulation/NationCrisis';
 import { factionMemoryFromPressure, type FactionMemoryEvent } from '../core/simulation/FactionMemory';
+import { ingestJevBatch, governmentEventInput } from '../core/government/jev/jev-memory.service';
 import type { GovernmentMemoryInput } from '../core/simulation/GovernmentFactions';
 import { addDays, daysBetween } from '../core/simulation/calendar';
 import { NATURAL_RESOURCE_KINDS, naturalResourcesFor, type NaturalEndowment, type NaturalResourceKind } from '../core/simulation/MilitaryIndustry';
@@ -1042,6 +1043,18 @@ export class NationStateService {
         effect: effect ?? null,
       });
       factionMemoryRepository.insertMany(this.ctx.gameId, this.ctx.playerPolityId(), events);
+      // WS-JEV-W2 — SIDECAR: gli stessi eventi entrano nella memoria narrativa.
+      // Best-effort: un errore JEV non deve mai bloccare una decisione di gioco.
+      try {
+        ingestJevBatch(events.map(event => governmentEventInput(event, {
+          gameId: this.ctx.gameId,
+          branchId: gameRepository.getHeadBranch(this.ctx.gameId),
+          gameDate: this.ctx.currentDate(),
+          turn: this.ctx.currentTurn(),
+        })));
+      } catch (error) {
+        console.warn('[JEV] ingestion eventi governo non riuscita:', error);
+      }
       return events;
     } catch (error) {
       // La memoria non deve mai bloccare una decisione di gioco.

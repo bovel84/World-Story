@@ -6,6 +6,7 @@
 import db from '../database';
 import { worldRepository } from './world.repository';
 import { ministerMemoryRepository } from './minister-memory.repository';
+import { jevMemoryRepository } from './jev-memory.repository';
 import { semanticStateHash } from '../domain/semantic-hash';
 import { randomUUID } from 'node:crypto';
 import {
@@ -128,6 +129,16 @@ export const gameRepository = {
       }
     } catch (error) {
       console.warn('[MinisterMemory] fork sul ramo nuovo non eseguito:', error);
+    }
+    // WS-JEV-W2 — SIDECAR indipendente: anche la memoria narrativa si copia sul
+    // ramo, senza dipendere dall'esito del fork precedente.
+    try {
+      const from = previousHead ?? branch.parentBranchId ?? null;
+      if (from && from !== branch.id) {
+        jevMemoryRepository.forkMemory({ gameId: branch.gameId, branchId: from }, branch.id);
+      }
+    } catch (error) {
+      console.warn('[JEV] fork sul ramo nuovo non eseguito:', error);
     }
     return branch;
   },
@@ -919,6 +930,18 @@ export const gameRepository = {
       );
     } catch (error) {
       console.warn('[MinisterMemory] potatura al rewind non eseguita:', error);
+    }
+    // WS-JEV-W2 — SIDECAR indipendente: la memoria narrativa segue la stessa
+    // potatura, anche se quella precedente non è riuscita.
+    try {
+      const branchId = gameRepository.getHeadBranch(gameId);
+      const row = db.prepare('SELECT current_date FROM games WHERE id = ?').get(gameId) as { current_date?: string } | undefined;
+      jevMemoryRepository.pruneAfterTurn(
+        { gameId, branchId },
+        { turn: turn + 1, gameDate: row?.current_date },
+      );
+    } catch (error) {
+      console.warn('[JEV] potatura al rewind non eseguita:', error);
     }
   },
 

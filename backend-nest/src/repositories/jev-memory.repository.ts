@@ -207,6 +207,41 @@ export const jevMemoryRepository = {
     })();
   },
 
+  /** Potatura al rewind: cancellazione limitata a game + branch, mai globale. */
+  pruneAfterTurn(scope: JevBranchScope, cutoff: { turn?: number; gameDate?: string }): number {
+    assertJevBranchScope(scope);
+    const clauses: string[] = [];
+    const params: Array<string | number> = [scope.gameId, scope.branchId === null ? '' : scope.branchId];
+    if (cutoff.turn != null) {
+      clauses.push('(turn IS NOT NULL AND turn > ?)');
+      params.push(cutoff.turn);
+    }
+    if (cutoff.gameDate) {
+      clauses.push('(game_date > ?)');
+      params.push(cutoff.gameDate);
+    }
+    if (clauses.length === 0) return 0;
+    const result = db.prepare(
+      `DELETE FROM jev_memory WHERE game_id = ? AND branch_id = ? AND (${clauses.join(' OR ')})`,
+    ).run(...params);
+    return Number(result.changes) || 0;
+  },
+
+  /** Fork branch-aware: copia TUTTE le colonne sul nuovo ramo, idempotente. */
+  forkMemory(from: JevBranchScope, toBranchId: string): number {
+    assertJevBranchScope(from);
+    requiredString(toBranchId);
+    const result = db.prepare(`
+      INSERT OR IGNORE INTO jev_memory (${COLUMNS})
+      SELECT id, game_id, ?, scope, scope_key, type, game_date, turn, created_at, title, text,
+        actors_json, topics_json, importance, confidence, status, lifecycle,
+        source_event_ids_json, parent_memory_ids_json, access_count, last_accessed_at, metadata_json
+        FROM jev_memory
+       WHERE game_id = ? AND branch_id = ?
+    `).run(toBranchId, from.gameId, from.branchId === null ? '' : from.branchId);
+    return Number(result.changes) || 0;
+  },
+
   /** Explicit game + branch cleanup, never a game-wide delete. */
   deleteBranch(scope: JevBranchScope): number {
     assertJevBranchScope(scope);
