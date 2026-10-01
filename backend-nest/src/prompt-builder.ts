@@ -147,6 +147,8 @@ interface GameData {
     government?: GovernmentSnapshot;
     /** Voci del consiglio generate dall'LLM (facoltative, per-turno). */
     governmentVoices?: GovernmentVoices;
+    /** WS-JEV-W6 — memoria narrativa delle fazioni, già composta per il briefing. */
+    factionMemory?: Record<string, string>;
     /** Sfide di pace attive: interne ed esterne, generate dal motore. */
     pressures?: Array<{
       id: string;
@@ -547,6 +549,7 @@ export class PromptBuilder {
     return buildGovernmentStateBlock(
       this.game.worldState?.government,
       this.game.worldState?.governmentVoices,
+      this.game.worldState?.factionMemory,
     );
   }
 
@@ -1555,7 +1558,7 @@ export class PromptEngine {
     if (!snapshot || snapshot.factions.length === 0) return null;
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
-    const prompt = buildGovernmentVoicePrompt(vars, snapshot);
+    const prompt = buildGovernmentVoicePrompt(vars, snapshot, game.worldState?.factionMemory);
     const system = 'Sei la voce collettiva del governo in una storia alternativa. Rispondi solo con JSON valido, in italiano.';
     try {
       const response = await this.llm.generate('advisor', system, prompt, { temperature: 0.7, maxTokens: 1_400 });

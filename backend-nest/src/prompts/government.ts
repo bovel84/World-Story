@@ -35,6 +35,7 @@ export interface GovernmentVoices {
 export function buildGovernmentStateBlock(
   snapshot?: GovernmentSnapshot | null,
   voices?: GovernmentVoices | null,
+  factionMemory?: Record<string, string> | null,
 ): string {
   if (!snapshot || snapshot.factions.length === 0) {
     return '(Nessuna anima del governo registrata per questa nazione.)';
@@ -49,12 +50,16 @@ export function buildGovernmentStateBlock(
   ].filter(Boolean);
   for (const faction of snapshot.factions) {
     const voice = voices?.voices?.[faction.id];
+    const memory = factionMemory?.[faction.id];
     const demand = `${faction.demand.title} (${faction.demand.detail})`;
     lines.push(
       `- ${faction.name} [${faction.id}] — interesse: ${faction.interest}; `
       + `influenza ${Math.round(faction.powerPct)}%; soddisfazione ${Math.round(faction.satisfaction)}/100; `
       + `pressione ${faction.pressure}/100; posizione: ${faction.stance}. Richiesta: ${demand}`
-      + (voice ? ` Voce in consiglio: «${voice}»` : ''),
+      + (voice ? ` Voce in consiglio: «${voice}»` : '')
+      // WS-JEV-W6 — la memoria narrativa è il *perché* politico, non un numero:
+      // affianca la richiesta senza sostituirla.
+      + (memory ? ` Come il governo l'ha trattata: ${memory}` : ''),
     );
   }
   if (voices?.council) lines.push(`Come si presenta il consiglio: ${voices.council}`);
@@ -79,16 +84,21 @@ export function buildGovernmentNarrativeGuard(vars: PromptVariables): string {
  * Prompt che chiede al modello di dare voce alle fazioni. Il roster è chiuso:
  * il modello può solo scrivere la petizione, non aggiungere o togliere anime.
  */
-export function buildGovernmentVoicePrompt(vars: PromptVariables, snapshot: GovernmentSnapshot): string {
+export function buildGovernmentVoicePrompt(
+  vars: PromptVariables,
+  snapshot: GovernmentSnapshot,
+  factionMemory?: Record<string, string> | null,
+): string {
   const roster = snapshot.factions.map((faction) => (
     `- id "${faction.id}": ${faction.name}; interesse ${faction.interest}; `
     + `richiesta «${faction.demand.title}» (${faction.demand.detail}); `
     + `soddisfazione ${Math.round(faction.satisfaction)}/100, pressione ${faction.pressure}/100, posizione ${faction.stance}.`
+    + (factionMemory?.[faction.id] ? ` Memoria di come è stata trattata: ${factionMemory[faction.id]}` : '')
   )).join('\n');
 
   return `Sei la voce collettiva del governo di ${vars.PLAYER_POLITY} alla data ${vars.ORIGIN_ROUND_DATE}, in un gioco di storia alternativa.
 
-Il governo non è un blocco unico: dentro ci sono anime con interessi propri. Per ognuna scrivi una breve petizione in prima persona plurale, come se parlasse al capo del governo: al massimo due frasi, in italiano, tono da consiglio dei ministri, coerente con la richiesta e con l'umore indicati. Se una fazione è soddisfatta o alleata, la sua voce sostiene e ringrazia; se è critica o ostile, la sua voce è dura, diffida o minaccia conseguenze. Non inventare richieste, cifre, nomi o fatti nuovi; non usare elenchi, etichette o statistiche; non nominare «giocatore», «turno» o meccaniche di gioco.
+Il governo non è un blocco unico: dentro ci sono anime con interessi propri. Per ognuna scrivi una breve petizione in prima persona plurale, come se parlasse al capo del governo: al massimo due frasi, in italiano, tono da consiglio dei ministri, coerente con la richiesta, con l'umore indicati e con la memoria di come è stata trattata dal governo. Se una fazione è soddisfatta o alleata, la sua voce sostiene e ringrazia; se è critica o ostile, la sua voce è dura, diffida o minaccia conseguenze. Non inventare richieste, cifre, nomi o fatti nuovi; non usare elenchi, etichette o statistiche; non nominare «giocatore», «turno» o meccaniche di gioco.
 
 Anime del governo:
 ${roster}

@@ -8,6 +8,9 @@
 
 import { gameRepository } from '../repositories';
 import { governmentSnapshot } from '../core/simulation/GovernmentFactions';
+import type { GovernmentSnapshot } from '../core/simulation/GovernmentFactions';
+import { getJevConfig } from '../core/government/jev/jev.config';
+import { getFactionMemory } from '../core/government/jev/jev-memory.service';
 import { projectProgress } from '../core/simulation/MilitaryProduction';
 import { arsenalCombatFactor, arsenalQualityIndex, arsenalStrength, naturalResourcesFor } from '../core/simulation/MilitaryIndustry';
 import { effectiveEndowment, summarizeLedger } from '../core/simulation/ResourceMarket';
@@ -57,6 +60,44 @@ export interface GameDataContext {
   chatTranscripts(): unknown;
   actions(): any[];
   results(): any[];
+}
+
+/**
+ * WS-JEV-W6 — Memoria narrativa delle fazioni, pronta per il briefing.
+ * Best-effort: con il flag spento non tocca il repository e il briefing resta
+ * identico. L'unica scrittura è il `touch` di accesso su `jev_memory`; nessun
+ * valore deterministico entra o esce da qui.
+ */
+function buildFactionNarrativeMemory(ctx: GameDataContext, government: GovernmentSnapshot): Record<string, string> {
+  // Best-effort: anche un flag malformato o un errore DB non devono far
+  // fallire il read model. Il tetto vale sull'**intero** blocco, non per
+  // fazione, così il briefing non cresce di N volte `maxFactionContextTokens`.
+  try {
+    const config = getJevConfig();
+    if (!config.enabled) return {};
+    const branchId = gameRepository.getHeadBranch(ctx.gameId);
+    const map: Record<string, string> = {};
+    let remaining = config.maxFactionContextTokens;
+    for (const faction of government.factions) {
+      if (remaining <= 0) break;
+      try {
+        // `touch: false`: il read model è ampio e non deve scrivere sulla sola
+        // costruzione del briefing; il `touch` resta per i retrieval mirati.
+        const memory = getFactionMemory({ gameId: ctx.gameId, branchId, factionId: faction.id, maxTokens: remaining, touch: false });
+        if (memory.lines.length) {
+          const value = memory.lines.join(' · ');
+          map[faction.id] = value;
+          remaining -= Buffer.byteLength(value, 'utf8');
+        }
+      } catch (error) {
+        console.warn('[JEV] memoria narrativa della fazione non disponibile:', error);
+      }
+    }
+    return map;
+  } catch (error) {
+    console.warn('[JEV] memoria narrativa delle fazioni non disponibile:', error);
+    return {};
+  }
 }
 
 export class GameDataService {
@@ -163,6 +204,11 @@ export class GameDataService {
       crisis: { level: this.ctx.peekCrisis().level, headline: this.ctx.peekCrisis().headline },
     });
 
+    // WS-JEV-W6 — La fotografia del governo e la sua memoria narrativa,
+    // calcolate una volta per il briefing. I numeri restano del motore.
+    const government = governmentSnapshot(accounts[this.ctx.playerPolityId()]);
+    const factionMemory = buildFactionNarrativeMemory(this.ctx, government);
+
     return {
       id: this.ctx.gameId,
       currentDate: this.ctx.currentDate(),
@@ -214,7 +260,8 @@ export class GameDataService {
         // Anime del governo: chi preme dentro la nazione. Il motore le calcola
         // dalle stesse cifre del dossier; le voci LLM, se generate, restano
         // valide solo per il turno corrente e non attraversano il salto.
-        government: governmentSnapshot(accounts[this.ctx.playerPolityId()]),
+        government,
+        factionMemory,
         governmentVoices: this.ctx.governmentVoices()?.key === this.ctx.governmentVoiceKey()
           ? this.ctx.governmentVoices()?.data
           : undefined,

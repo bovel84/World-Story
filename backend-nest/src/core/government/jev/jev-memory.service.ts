@@ -272,6 +272,41 @@ export function governmentEventInput(event: FactionMemoryEvent, ctx: JevIngestCo
   };
 }
 
+/**
+ * WS-JEV-W6 — Adapter: gli stessi eventi politici entrano anche nella memoria
+ * **della fazione** (`faction:<id>`), separata dalla memoria di governo
+ * (`government`, W2). Lo scope `faction` è quello canonico di `jev.types.ts`;
+ * gli id sono namespaciati per scope, così le due famiglie non collidono e non
+ * si fondono mai. Deterministico: nessun modello, nessun testo inventato.
+ */
+export function factionMemoryInputs(
+  events: readonly FactionMemoryEvent[],
+  ctx: JevIngestContext,
+): JevIngestInput[] {
+  return events.map(event => {
+    const topics = typeof event.lever === 'string' && event.lever ? [event.lever] : undefined;
+    return {
+      gameId: ctx.gameId,
+      branchId: ctx.branchId,
+      gameDate: event.gameDate || ctx.gameDate,
+      turn: Number.isFinite(event.turn) ? event.turn : ctx.turn,
+      source: 'government',
+      actorIds: [event.factionId],
+      text: event.text,
+      eventType: GOVERNMENT_EVENT_TYPES[event.kind],
+      scope: { kind: 'faction', gameId: ctx.gameId, branchId: ctx.branchId, factionId: event.factionId },
+      metadata: {
+        // Id secondo la forma documentata `faction:<id>:<source>`: la parte
+        // sorgente è l'id esplicito dell'evento, o l'identità deterministica
+        // completa quando manca. Codificato: nessun aliasing tra le parti.
+        eventId: `faction:${encodeURIComponent(event.factionId)}:${encodeURIComponent(event.sourceEventId ?? factionMemoryId(event))}`,
+        ...(event.sourceEventId ? { sourceEventId: event.sourceEventId } : {}),
+        ...(topics ? { topics } : {}),
+      },
+    };
+  });
+}
+
 /** Adapter: lo scambio presidente↔ministro come memoria della sedia/mandato. */
 export function ministerExchangeInput(p: {
   gameId: string; branchId: string | null; seat: CabinetSeat; mandate: string;
@@ -513,6 +548,90 @@ export function getDiplomaticMemory(p: {
     telemetry: { scopes_consulted: [sharedKey, viewKey],
       memories_retrieved: shared.ids.length + view.ids.length,
       token_upper_bound: shared.bytes + view.bytes,
+      retrieval_latency_ms: performance.now() - started, model_calls: 0 },
+  };
+}
+
+// ── WS-JEV-W6 — Memoria narrativa delle fazioni ─────────────────────────────
+
+/** Sezione della memoria di una fazione: una sola, nessuna vista condivisa. */
+export interface FactionMemoryResult {
+  scopeKey: string;
+  text: string;
+  /** Le stesse righe della sezione, per l'innesto nei briefing esistenti. */
+  lines: string[];
+  ids: string[];
+  bytes: number;
+  telemetry: {
+    scopes_consulted: string[];
+    memories_retrieved: number;
+    token_upper_bound: number;
+    retrieval_latency_ms: number;
+    model_calls: 0;
+  };
+}
+
+function factionLine(record: JevMemoryRecord, query: string): string {
+  return JSON.stringify({ source: 'JEV-faction', id: record.id, type: record.type, status: record.status,
+    date: record.gameDate, refs: record.sourceEventIds ?? [], excerpt: memoryExcerpt(record.text, query) });
+}
+
+/**
+ * Memoria narrativa di UNA fazione: **come il governo l'ha trattata**, non un
+ * numero di gioco. Filtra per `game_id` E `branch_id` e resta entro
+ * `maxFactionContextTokens`. Flag off o nessun cursore → sezione vuota e zero
+ * accessi a JEV. Sola lettura: nessun valore deterministico deriva da qui.
+ */
+export function getFactionMemory(p: {
+  gameId: string;
+  branchId: string | null;
+  factionId: string;
+  query?: string;
+  maxTokens?: number;
+  asOf?: MinisterMemoryPoint;
+  /** Default true (semantica di accesso W3/W4/W5); il read model ampio lo spegne. */
+  touch?: boolean;
+}): FactionMemoryResult {
+  const started = performance.now();
+  const config = getJevConfig();
+  const scope: JevScope = { kind: 'faction', gameId: p.gameId, branchId: p.branchId, factionId: p.factionId };
+  const scopeKey = jevScopeKey(scope);
+  const empty: FactionMemoryResult = {
+    scopeKey, text: '', lines: [], ids: [], bytes: 0,
+    telemetry: { scopes_consulted: [scopeKey], memories_retrieved: 0, token_upper_bound: 0,
+      retrieval_latency_ms: performance.now() - started, model_calls: 0 },
+  };
+  if (!config.enabled) return empty;
+  const point = p.asOf ?? jevMemoryRepository.currentPoint(p);
+  if (!point) return empty;
+  const query = p.query ?? '';
+  const budget = p.maxTokens ?? config.maxFactionContextTokens;
+  const ranked = jevMemoryRepository.listMemory(scope, { gameDate: point.gameDate, turn: point.turn, eligibleOnly: true })
+    .filter(record => record.gameDate <= point.gameDate && (record.turn == null || record.turn <= point.turn))
+    .map(record => ({ record, score: jevMemoryScore(record, query, point) }))
+    .sort((x, y) => y.score - x.score || (x.record.id < y.record.id ? -1 : x.record.id > y.record.id ? 1 : 0));
+  // Query-aware: se la domanda tocca il testo restano solo i fatti pertinenti;
+  // se non tocca nulla, la sezione non si azzera: mostra i fatti salienti.
+  const relevant = ranked.filter(entry => entry.score > 0);
+  const chosen = relevant.length ? relevant : ranked;
+  const header = '[MEMORIA POLITICA — come il governo ha trattato questa fazione]';
+  let text = `${header}\n`;
+  const lines: string[] = [];
+  const ids: string[] = [];
+  for (const { record } of chosen) {
+    const line = factionLine(record, query);
+    const next = `${text}${line}\n`;
+    if (Buffer.byteLength(next, 'utf8') > budget) continue;
+    text = next;
+    lines.push(line);
+    ids.push(record.id);
+  }
+  const body = ids.length ? text.trimEnd() : '';
+  if (ids.length && p.touch !== false) jevMemoryRepository.touch(scope, ids, new Date().toISOString());
+  const bytes = Buffer.byteLength(body, 'utf8');
+  return {
+    scopeKey, text: body, lines, ids, bytes,
+    telemetry: { scopes_consulted: [scopeKey], memories_retrieved: ids.length, token_upper_bound: bytes,
       retrieval_latency_ms: performance.now() - started, model_calls: 0 },
   };
 }
