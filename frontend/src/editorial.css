@@ -2083,6 +2083,48 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .decision-prepare:hover { background: #37996a; }
 .decision-act-current { margin: 0; font: 400 11.5px/1.5 system-ui, sans-serif; color: #9fe0ba; }
 .decision-continue { margin: 0; font: 400 11.5px/1.5 system-ui, sans-serif; color: #93a6c0; }
+/* WS-GOV-SEAT-BOARDS — la Tavola è seat-aware: titolo, sezioni e promozione. */
+.decision-competence { margin: 0; font: 400 10.5px/1.4 system-ui, sans-serif; color: #8fa4c0; }
+.decision-sections { display: flex; flex-direction: column; gap: 8px; }
+.decision-section { display: flex; flex-direction: column; gap: 4px; }
+.decision-section.is-collapsed { opacity: .92; }
+.decision-subsection-label { font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #a9bcd8; }
+.decision-promote { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 7px 9px; border: 1px dashed #526783; border-radius: 8px; background: #0f1c30; }
+.decision-to-council, .decision-convene { padding: 6px 12px; border: 1px solid #526783; border-radius: 8px; background: #17263d; color: #dbe6f5; font: 700 11px/1.4 system-ui, sans-serif; cursor: pointer; }
+.decision-to-council { border-color: #8fb4e0; color: #eaf2ff; }
+.decision-convene { margin-left: auto; border-color: #e0b06a; color: #f0d9a8; }
+.decision-to-council:hover, .decision-convene:hover { background: #1e3050; }
+
+/* WS-GOV-SEAT-BOARDS — la Tavola comune del Consiglio (B25). */
+.council-board { display: flex; flex-direction: column; gap: 9px; padding: 11px; border: 1px solid #6a5a2b; border-radius: 11px; background: #16130a; }
+.council-board-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.council-board-kicker { font: 700 10.5px/1.3 system-ui, sans-serif; letter-spacing: .07em; text-transform: uppercase; color: #f0d9a8; }
+.council-board-status { padding: 1px 8px; border: 1px solid #8a7a2b; border-radius: 999px; font: 700 9.5px/1.5 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #e6d98a; }
+.council-board[data-status="ready-for-act"] .council-board-status { border-color: #2f8a58; color: #9fe0ba; }
+.council-board-revision { margin-left: auto; font: 700 10px/1.4 system-ui, sans-serif; color: #c9b98a; }
+.council-board-label { display: block; font: 700 9.5px/1.3 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #c9b98a; }
+.council-board-participants, .council-board-objective { margin: 0; font: 400 12px/1.5 var(--op-copy, system-ui, sans-serif); color: #f2ecd8; }
+.council-board-objective { font-weight: 600; }
+.council-board-contributions { display: flex; flex-direction: column; gap: 8px; }
+.council-contribution { display: flex; flex-direction: column; gap: 5px; padding: 8px 9px; border: 1px solid #4a3f1e; border-radius: 9px; background: #1d1809; }
+.council-contribution-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.council-contribution-name { font: 700 12px/1.3 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #f0d9a8; }
+.council-contribution-competence { font: 400 10px/1.4 system-ui, sans-serif; color: #c9b98a; }
+.council-contribution-open { margin-left: auto; padding: 3px 9px; border: 1px solid #8a7a2b; border-radius: 7px; background: #2e2813; color: #f2e9b8; font: 700 10px/1.4 system-ui, sans-serif; cursor: pointer; }
+.council-contribution-measures, .council-contribution-unresolved { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.council-contribution-measures li, .council-contribution-unresolved li { display: flex; align-items: center; gap: 6px; font: 400 12px/1.5 system-ui, sans-serif; color: #f2ecd8; }
+.council-contribution-unresolved li { color: #e6d98a; }
+.council-contribution-empty { margin: 0; font: 400 11px/1.5 system-ui, sans-serif; color: #c9b98a; }
+.council-mark { flex: none; width: 15px; text-align: center; font: 700 12px/1.4 system-ui, sans-serif; }
+.council-mark-accepted { color: #9fe0ba; }
+.council-mark-rejected { color: #f2c0c0; }
+.council-mark-proposed { color: #e6d98a; }
+.council-mark-unresolved { color: #e6d98a; }
+.council-board-convene { display: flex; flex-direction: column; gap: 5px; }
+.council-board-convene-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.council-convene-seat { padding: 5px 11px; border: 1px solid #8a7a2b; border-radius: 999px; background: #2e2813; color: #f2e9b8; font: 700 11px/1.4 system-ui, sans-serif; cursor: pointer; }
+.council-convene-seat:hover { background: #3b3418; }
+.council-board-leave { align-self: flex-start; padding: 5px 11px; border: 1px solid #526783; border-radius: 8px; background: #17263d; color: #dbe6f5; font: 700 11px/1.4 system-ui, sans-serif; cursor: pointer; }
 .government-office-act-status { margin: 6px 0 0; padding: 6px 9px; border-left: 3px solid #526783; border-radius: 4px; background: #101c30; font: 400 11.5px/1.5 system-ui, sans-serif; color: #cfe0f5; }
 .government-office-act-status[data-state="queued"] { border-left-color: #5fb98a; }
 .government-office-act-status[data-state="executed"] { border-left-color: #4aa3c0; }

@@ -20,10 +20,19 @@ import {
   MEASURE_SOURCE_LABEL, MEASURE_STATUS_LABEL, WORKSPACE_STATUS_LABEL, workspaceStatus,
   type DecisionMeasure, type DecisionWorkspace,
 } from './decisionWorkspace';
+import {
+  groupProposalMeasures, isCollapsedSection, seatAllowsEvidence, seatBoardConfig,
+  type CabinetSeat,
+} from './seatDecisionBoards';
 import { EVIDENCE_KEYS, evidenceLabel, type EvidenceKey } from './presentation';
 
 export interface DecisionBoardProps {
   workspace: DecisionWorkspace;
+  /**
+   * WS-GOV-SEAT-BOARDS — La sedia della Tavola: decide titolo, sezioni e
+   * catalogo di evidenze. Senza, si usa la sedia del workspace (retro-compatibile).
+   */
+  seat?: CabinetSeat;
   /** La questione della sedia (es. il bisogno portato in consiglio). */
   question?: string | null;
   /** La revisione su cui poggia l'atto preparato, se c'è. */
@@ -32,6 +41,10 @@ export interface DecisionBoardProps {
   onPrepareAct?: () => void;
   /** «Rigenera atto» quando la proposta è avanzata. */
   onRegenerateAct?: () => void;
+  /** WS-GOV-SEAT-BOARDS (B26) — Portare la proposta al Consiglio, senza copiarla. */
+  onPromoteToCouncil?: () => void;
+  /** WS-GOV-SEAT-BOARDS (B26) — Convocare un'altra sedia nel Consiglio. */
+  onConveneSeat?: (seat: CabinetSeat) => void;
 }
 
 function MeasureRow({ measure }: { measure: DecisionMeasure }) {
@@ -56,27 +69,35 @@ function MeasureRow({ measure }: { measure: DecisionMeasure }) {
 }
 
 export function DecisionBoard({
-  workspace, question = null, actRevision = null, onPrepareAct, onRegenerateAct,
+  workspace, seat, question = null, actRevision = null, onPrepareAct, onRegenerateAct,
+  onPromoteToCouncil, onConveneSeat,
 }: DecisionBoardProps) {
   const proposal = activeProposal(workspace);
   if (!workspace.objective && !proposal) return null;
 
+  const boardSeat = seat ?? (workspace.seat as CabinetSeat);
+  const config = seatBoardConfig(boardSeat);
   const ready = isReadyForAct(workspace);
   const stale = actStaleness(workspace, actRevision);
   const status = workspaceStatus(workspace, actRevision);
-  const evidenceRefs = workspace.evidenceIds.filter((id): id is EvidenceKey => (EVIDENCE_KEYS as readonly string[]).includes(id));
+  // Il catalogo della sedia: si mostrano solo le evidenze che può presentare.
+  const evidenceRefs = workspace.evidenceIds.filter(
+    (id): id is EvidenceKey => (EVIDENCE_KEYS as readonly string[]).includes(id) && seatAllowsEvidence(boardSeat, id as EvidenceKey),
+  );
+  const sections = groupProposalMeasures(proposal, config);
   const toDecide = [
     ...(proposal?.unresolvedQuestions ?? []),
     ...(proposal?.measures.filter(measure => measure.status === 'unresolved').map(measure => measure.label) ?? []),
   ];
 
   return (
-    <section className="decision-board" data-status={status} aria-label="Proposta corrente della seduta">
+    <section className="decision-board" data-seat={boardSeat} data-status={status} aria-label={config.title}>
       <header className="decision-head">
-        <span className="decision-kicker">La decisione in corso</span>
+        <span className="decision-kicker">{config.title}</span>
         <span className="decision-status">{WORKSPACE_STATUS_LABEL[status]}</span>
         <span className="decision-revision">revisione {workspace.revision}</span>
       </header>
+      <p className="decision-competence">{config.competence}</p>
 
       {question && (
         <p className="decision-question">
@@ -87,17 +108,24 @@ export function DecisionBoard({
 
       {workspace.objective && (
         <p className="decision-objective">
-          <span className="decision-section-label">Obiettivo</span>
+          <span className="decision-section-label">{config.objectiveLabel}</span>
           {workspace.objective}
         </p>
       )}
 
       <div className="decision-current">
         <span className="decision-section-label">Proposta corrente</span>
-        {proposal && proposal.measures.length > 0 ? (
-          <ul className="decision-measures">
-            {proposal.measures.map(measure => <MeasureRow key={measure.id} measure={measure} />)}
-          </ul>
+        {sections.length > 0 ? (
+          <div className="decision-sections">
+            {sections.map(group => (
+              <div key={group.section.key} className={`decision-section${group.collapsed ? ' is-collapsed' : ''}`} data-section={group.section.key}>
+                <span className="decision-subsection-label" title={group.section.hint}>{group.section.label}</span>
+                <ul className="decision-measures">
+                  {group.measures.map(measure => <MeasureRow key={measure.id} measure={measure} />)}
+                </ul>
+              </div>
+            ))}
+          </div>
         ) : (
           <p className="decision-empty">
             Nessuna misura ancora fissata: chiedi al ministro una proposta concreta, oppure indica tu i valori.
@@ -146,6 +174,22 @@ export function DecisionBoard({
             ))}
           </ol>
         </details>
+      )}
+
+      {(onPromoteToCouncil || onConveneSeat) && (
+        <div className="decision-promote">
+          <span className="decision-section-label">Questa proposta riguarda più competenze</span>
+          {onPromoteToCouncil && (
+            <button type="button" className="decision-to-council" onClick={onPromoteToCouncil}>
+              Porta la proposta in Consiglio
+            </button>
+          )}
+          {onConveneSeat && boardSeat !== 'tesoro' && (
+            <button type="button" className="decision-convene" onClick={() => onConveneSeat('tesoro')}>
+              Convoca il Tesoro
+            </button>
+          )}
+        </div>
       )}
 
       {stale ? (
