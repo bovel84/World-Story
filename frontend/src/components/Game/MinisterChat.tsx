@@ -30,6 +30,7 @@ import { basisLabel, isUnknown } from './CabinetSession';
 import { EngineText } from './EngineText';
 import { RichText } from './RichText';
 import { parsePresentation, type PresentationDirective } from './presentation';
+import { inlineEvidenceCards, type EvidenceCardIndex, type InlineEvidenceCard } from './inlineEvidence';
 import { isNearBottom } from './chatScroll';
 import { formatFigureValue } from '../../utils/format';
 
@@ -68,6 +69,18 @@ export interface MinisterChatProps {
    */
   onPresentation?: (messageId: string, quote: string, directives: readonly PresentationDirective[], discussion?: string) => void;
   /**
+   * WS-GOVUX-P4 — Il catalogo delle evidenze **disponibili per la sedia**: la
+   * card in linea è un **riferimento** al blocco reale (stesso id, stesso
+   * titolo), non un secondo grafico. Costruito dal chiamante dai blocchi della
+   * tavola (`availableEvidence`/`blockForEvidence`).
+   */
+  evidenceIndex?: EvidenceCardIndex;
+  /**
+   * WS-GOVUX-P4 — Aprire l'evidenza indicata dalla card: il chiamante decide
+   * come (desktop: mette a fuoco; mobile: apre la tab Tavola e seleziona).
+   */
+  onFocusEvidence?: (card: InlineEvidenceCard) => void;
+  /**
    * WS-MINISTER-UX-05 — La memoria della sedia. Viene inviata **con** la
    * richiesta (non mostrata nella chat): il server la valida, ne deriva il
    * mandato e la persiste, così il ministro ricorda gli impegni anche quando la
@@ -100,7 +113,7 @@ function FigureBar({ figure }: { figure: CabinetItemView['figures'][number] }) {
 export function MinisterChat({
   gameId, address, onChoose,
   messages, streaming, onAddMessage, onAppendToken, onStreamingChange,
-  onPresentation, memory,
+  onPresentation, evidenceIndex, onFocusEvidence, memory,
 }: MinisterChatProps) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
@@ -243,6 +256,16 @@ export function MinisterChat({
         )}
         {messages.map((message, index) => {
           const isStreamingThis = index === lastIndex && streaming && message.role === 'assistant';
+          // WS-GOVUX-P4 — Il testo reso e le card dell'evidenza nascono dalla
+          // stessa lettura del messaggio: nessuna seconda interpretazione.
+          const parsed = message.role === 'assistant' ? parsePresentation(message.content) : null;
+          const cards = parsed && !isStreamingThis && onFocusEvidence
+            ? inlineEvidenceCards({
+                directives: parsed.directives,
+                messageId: `${address.seat}#${index}`,
+                index: evidenceIndex ?? {},
+              })
+            : [];
           return (
             <div key={index} className={`minister-entry ${message.role}`}>
               <div className="entry-meta">
@@ -257,7 +280,7 @@ export function MinisterChat({
                         risposta si rende come documento invece di mostrare gli
                         asterischi. Il messaggio del giocatore resta testo. */}
                     {message.role === 'assistant'
-                      ? <RichText text={parsePresentation(message.content).text} />
+                      ? <RichText text={parsed?.text ?? message.content} />
                       : message.content}
                     {isStreamingThis && <span className="stream-cursor">▌</span>}
                   </>
@@ -267,6 +290,33 @@ export function MinisterChat({
                   singola domanda: si prepara e si firma una **proposta
                   concreta** della sedia (la strada del Tesoro o un percorso),
                   sul tavolo. Il dialogo resta dialogo. */}
+              {/* WS-GOVUX-P4 — La card in linea: un riferimento all'evidenza
+                  reale (stesso id e titolo del blocco), non un secondo grafico.
+                  Il clic chiede al chiamante di metterla a fuoco. */}
+              {cards.length > 0 && (
+                <div className="minister-evidence-cards" aria-label="Evidenze sulla tavola">
+                  {cards.map(card => (
+                    <button
+                      key={card.key}
+                      type="button"
+                      className="minister-evidence-card"
+                      data-kind={card.kind}
+                      data-evidence={card.evidence ?? 'compare'}
+                      data-block-id={card.blockId ?? undefined}
+                      onClick={() => onFocusEvidence?.(card)}
+                      title={card.kind === 'comparison'
+                        ? 'Apri il confronto sulla tavola'
+                        : 'Apri l’evidenza sulla tavola'}
+                    >
+                      <span className="minister-evidence-card-kicker">
+                        {card.kind === 'comparison' ? 'Confronto' : 'Evidenza'}
+                      </span>
+                      <span className="minister-evidence-card-title">{card.title}</span>
+                      <span className="minister-evidence-card-hint">Apri sulla tavola</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

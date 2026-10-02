@@ -155,7 +155,7 @@ export function SeatCanvas({ blocks, emptyLabel = 'Nessun dato pubblicato per qu
         if (block.kind === 'metrics') {
           const withHint = block.metrics.filter(metric => metric.hint);
           return (
-            <section key={block.id} className="seat-canvas-block seat-canvas-metrics" data-kind="metrics">
+            <section key={block.id} className="seat-canvas-block seat-canvas-metrics" data-kind="metrics" data-block-id={block.id}>
               <h4 className="seat-canvas-title">{block.title}</h4>
               <dl className="seat-canvas-metric-list">
                 {block.metrics.map(metric => (
@@ -178,24 +178,25 @@ export function SeatCanvas({ blocks, emptyLabel = 'Nessun dato pubblicato per qu
         }
         if (block.kind === 'chart') {
           return (
-            <section key={block.id} className="seat-canvas-block" data-kind="chart">
+            <section key={block.id} className="seat-canvas-block" data-kind="chart" data-block-id={block.id}>
               <AdvisorChart figure={block.figure} focusLabel={focusLabel} />
             </section>
           );
         }
         if (block.kind === 'strategy') {
           return (
-            <section key={block.id} className="seat-canvas-block" data-kind="strategy">
+            <section key={block.id} className="seat-canvas-block" data-kind="strategy" data-block-id={block.id}>
               <StrategicPlanDiagram plan={block.plan} />
             </section>
           );
         }
         if (block.kind === 'map') {
           return (
-            <section key={block.id} className="seat-canvas-block" data-kind="map">
+            <section key={block.id} className="seat-canvas-block" data-kind="map" data-block-id={block.id}>
               <h4 className="seat-canvas-title">{block.title}</h4>
+              {/* WS-GOVUX-P4 — niente `key` sulla mappa: cambiare le zone in
+                  evidenza non la rimonta, quindi la selezione locale resta. */}
               <ZoneMap
-                key={`${block.id}:${(focusRegionIds ?? []).join(',')}`}
                 zones={block.zones}
                 target={block.target}
                 focusIds={focusRegionIds}
@@ -209,7 +210,7 @@ export function SeatCanvas({ blocks, emptyLabel = 'Nessun dato pubblicato per qu
           );
         }
         return (
-          <section key={block.id} className="seat-canvas-block" data-kind="ideas">
+          <section key={block.id} className="seat-canvas-block" data-kind="ideas" data-block-id={block.id}>
             <h4 className="seat-canvas-title">{block.title}</h4>
             <ul className="seat-canvas-ideas">
               {block.ideas.map((idea, index) => (
