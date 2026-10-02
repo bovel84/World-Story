@@ -7,12 +7,15 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  applyEngineRead, openMeeting, councilMeetingIdentity, type CouncilMeeting, type MeetingEngineRead,
+  applyEngineRead, continueMeeting, openMeeting, councilMeetingIdentity,
+  type CouncilMeeting, type MeetingEngineRead,
 } from './councilMeeting';
 import { hasCurrentRegionAnaphora, resolveCurrentRegionRef, resolveMeetingLocation } from './meetingLocalization';
 import {
-  blockerKey, mobileDecisionSummary, mobileHistory, participantChips, readableMeetingStatus, shouldShowBoardDot,
+  blockerKey, ministerSectionsFromMeeting, mobileDecisionSummary, mobileHistory, participantChips,
+  readableMeetingStatus, shouldShowBoardDot, uniqueSourceLabels,
 } from './mobileFocus';
+import { isGovernmentCompactSize } from '../../hooks/useIsMobile';
 
 function meeting(subject = 'Voglio costruire una fabbrica siderurgica'): CouncilMeeting {
   const opened = openMeeting({ gameId: 'g1', branchId: 'main', turn: 13, subject });
@@ -186,5 +189,55 @@ describe('H8/H11 — il view model mobile', () => {
     expect(chips.shown).toHaveLength(3);
     expect(chips.hidden).toBe(2);
     expect(chips.shown[0].lead).toBe(true);
+  });
+});
+
+describe('WS-GOV-MOBILE-CLEANUP — identità, risultato, layout compatto', () => {
+  it('M1/M3 — due convocazioni con lo stesso testo nello stesso turno hanno identità diverse', () => {
+    const a = openMeeting({ gameId: 'g1', branchId: 'main', turn: 20, subject: 'Costruiamo una fabbrica a Sarajevo.', sourceMessageId: 'g1|main|20|lavori:user-4' })!;
+    const b = openMeeting({ gameId: 'g1', branchId: 'main', turn: 20, subject: 'Costruiamo una fabbrica a Sarajevo.', sourceMessageId: 'g1|main|20|lavori:user-18' })!;
+    expect(a.sessionId).toBe(b.sessionId);
+    expect(a.meetingId).not.toBe(b.meetingId);
+    expect(a.id).not.toBe(b.id);
+    expect(a.subject).toBe(b.subject);
+    expect(a.participants).toEqual(b.participants);
+  });
+
+  it('M1/M3 — lo stesso sourceMessageId è la stessa convocazione (idempotenza)', () => {
+    const a = openMeeting({ gameId: 'g1', branchId: 'main', turn: 20, subject: 'Costruiamo una fabbrica a Sarajevo.', sourceMessageId: 'g1|main|20|lavori:user-4' })!;
+    const b = openMeeting({ gameId: 'g1', branchId: 'main', turn: 20, subject: 'Costruiamo una fabbrica a Sarajevo.', sourceMessageId: 'g1|main|20|lavori:user-4' })!;
+    expect(a.id).toBe(b.id);
+    expect(a.meetingId).toBe(b.meetingId);
+  });
+
+  it('M2 — continuare la riunione attiva non cambia identità, ma porta una nuova lettura', () => {
+    const base = meeting();
+    const next = continueMeeting(base, read({ regionLabel: 'Sarajevo', location: { status: 'resolved', candidates: [{ regionId: 'SARAJEVO', regionLabel: 'Sarajevo' }], region: { regionId: 'SARAJEVO', regionLabel: 'Sarajevo' } } }));
+    expect(next.id).toBe(base.id);
+    expect(next.meetingId).toBe(base.meetingId);
+    expect(next.workspace.lines.some(line => line.label === 'Luogo' && line.value === 'Sarajevo')).toBe(true);
+  });
+
+  it('M15 — la Tavola mobile raggruppa il piano per ministero, non il transcript', () => {
+    const next = applyEngineRead(meeting(), read({ money: { required: '2,4', available: '2,7', missing: null, margin: '0,3', coverage: 'covered', unit: 'mld' } }));
+    const sections = ministerSectionsFromMeeting(next);
+    expect(sections.map(section => section.seat)).toEqual(['lavori', 'tesoro']);
+    const lavori = sections.find(section => section.seat === 'lavori')!;
+    expect(lavori.lines.map(line => line.label)).toContain('Opera');
+    const tesoro = sections.find(section => section.seat === 'tesoro')!;
+    expect(tesoro.lines.some(line => line.label === 'Copertura')).toBe(true);
+  });
+
+  it('M8 — le fonti si deduplicano e l’id tecnico diventa leggibile', () => {
+    expect(uniqueSourceLabels(['check-feasibility', 'check-feasibility', 'ledger', 'work-catalog']))
+      .toEqual(['Motore di fattibilità', 'Ledger', 'Catalogo opere']);
+  });
+
+  it('M4 — il telefono in orizzontale è compatto, il desktop no', () => {
+    expect(isGovernmentCompactSize(390, 844)).toBe(true);
+    expect(isGovernmentCompactSize(412, 915)).toBe(true);
+    expect(isGovernmentCompactSize(844, 390)).toBe(true);
+    expect(isGovernmentCompactSize(1024, 768)).toBe(false);
+    expect(isGovernmentCompactSize(1366, 768)).toBe(false);
   });
 });

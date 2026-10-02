@@ -13,6 +13,7 @@
  */
 import type { CouncilMeeting, MeetingRequirement } from './councilMeeting';
 import { seatSpeaker } from './councilMeeting';
+import { CABINET_SEATS, type CabinetSeat } from './seatDecisionBoards';
 import type { DecisionWorkspace } from './decisionWorkspace';
 import { activeProposal } from './decisionWorkspace';
 
@@ -40,6 +41,68 @@ export interface MobileDecisionSummary {
   readonly primaryAction: MobilePrimaryAction;
   /** La CTA associata, in chiaro. */
   readonly primaryLabel: string | null;
+}
+
+/**
+ * WS-GOV-MOBILE-CLEANUP (M15) — la Tavola mobile raggruppa il **risultato della
+ * riunione** per ministero, letto dal piano condiviso (`meeting.workspace.lines`),
+ * non dal transcript narrativo dei contributi. Il Dialogo contiene le parole; la
+ * Tavola contiene soltanto la decisione che ne risulta.
+ */
+export interface MobileMinisterSection {
+  readonly seat: CabinetSeat;
+  readonly label: string;
+  readonly lines: readonly {
+    readonly label: string;
+    readonly value: string;
+    readonly status: 'ok' | 'missing' | 'unknown';
+  }[];
+}
+
+/** M15 — il piano condiviso, raggruppato per sedia e nell'ordine del gabinetto. */
+export function ministerSectionsFromMeeting(meeting: CouncilMeeting | null): MobileMinisterSection[] {
+  if (!meeting) return [];
+  const grouped = new Map<CabinetSeat, { label: string; value: string; status: 'ok' | 'missing' | 'unknown' }[]>();
+  for (const line of meeting.workspace.lines) {
+    const bucket = grouped.get(line.owner) ?? [];
+    bucket.push({ label: line.label, value: line.value, status: line.status });
+    grouped.set(line.owner, bucket);
+  }
+  // L'ordine: il capofila per primo, poi gli altri nell'ordine del gabinetto.
+  const order = [meeting.leadSeat, ...CABINET_SEATS.filter(seat => seat !== meeting.leadSeat)];
+  return order
+    .filter(seat => grouped.has(seat))
+    .map(seat => ({ seat, label: seatSpeaker(seat), lines: grouped.get(seat) ?? [] }));
+}
+
+/**
+ * M8 — le fonti si mostrano **una sola volta**: l'id tecnico del motore diventa
+ * un'etichetta leggibile e i duplicati spariscono. L'id resta nel DOM solo dove
+ * serve al debug, mai come testo principale.
+ */
+export function sourceLabel(source: string): string {
+  const labels: Record<string, string> = {
+    'check-feasibility': 'Motore di fattibilità',
+    ledger: 'Ledger',
+    'work-catalog': 'Catalogo opere',
+    catalog: 'Catalogo opere',
+    availability: 'Disponibilità',
+    preflight: 'Preflight',
+  };
+  return labels[source] ?? source;
+}
+
+/** M8 — le etichette uniche delle fonti, nell'ordine in cui compaiono. */
+export function uniqueSourceLabels(sources: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const source of sources) {
+    const label = sourceLabel(source);
+    if (seen.has(label)) continue;
+    seen.add(label);
+    out.push(label);
+  }
+  return out;
 }
 
 /** H10 — i blocchi prioritari: la ragione del blocco, subito. */
@@ -107,8 +170,10 @@ export interface MobileDecisionInput {
  */
 export function mobileDecisionSummary(input: MobileDecisionInput): MobileDecisionSummary {
   const { meeting, workspace, actPrepared, actStale, signed, pendingMeetingPrompt } = input;
-  const title = meeting?.workspace.work ?? meeting?.objective
-    ?? (workspace ? activeProposal(workspace)?.objective : null) ?? workspace?.objective ?? 'Decisione in corso';
+  // M17 — il titolo è la **descrizione della decisione** (objective), non la
+  // frase con cui il Presidente ha convocato. La localizzazione resta a parte.
+  const title = meeting?.objective || meeting?.workspace.work
+    || (workspace ? activeProposal(workspace)?.objective : null) || workspace?.objective || 'Decisione in corso';
 
   if (signed) {
     return { title, status: 'Firmata', confirmed: [], unresolved: [], primaryAction: null, primaryLabel: null };
@@ -124,6 +189,18 @@ export function mobileDecisionSummary(input: MobileDecisionInput): MobileDecisio
     };
   }
   if (meeting) {
+    // M27 — una **nuova convocazione** esplicita (messaggio diverso dalla
+    // riunione attiva) prevale: apre una nuova identità, non la aggiorna.
+    if (pendingMeetingPrompt) {
+      return {
+        title: pendingMeetingPrompt,
+        status: 'Nuova riunione',
+        confirmed: confirmedLines(meeting),
+        unresolved: [],
+        primaryAction: 'convene',
+        primaryLabel: 'Convoca la riunione',
+      };
+    }
     const blockers = mobileBlockers(meeting);
     const ready = meeting.status === 'ready-for-act' && blockers.length === 0;
     return {

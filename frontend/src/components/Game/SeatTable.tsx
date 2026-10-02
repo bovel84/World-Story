@@ -48,7 +48,7 @@ import type { ConsequenceBoard as ConsequenceBoardModel } from './consequenceBoa
 import type { DecisionWorkspace } from './decisionWorkspace';
 import type { CabinetSeat } from './seatDecisionBoards';
 import type { CouncilLookup, CouncilWorkspace } from './councilWorkspace';
-import type { CouncilMeeting } from './councilMeeting';
+import type { CouncilMeeting, MeetingPrompt } from './councilMeeting';
 
 /** L'ordine di priorità sulla tavola: il piano prima, le idee per ultime. */
 const KIND_PRIORITY: Record<SeatCanvasBlock['kind'], number> = {
@@ -143,8 +143,8 @@ export interface SeatTableProps {
   onPrepareMeetingAct?: () => void;
   onConveneMeetingSeat?: (seat: CabinetSeat) => void;
   /** WS-GOV-COUNCIL-MEETINGS (B7) — La richiesta multi-competenza da convocare. */
-  meetingPrompt?: string | null;
-  onConveneMeeting?: (text: string) => void;
+  meetingPrompt?: MeetingPrompt | null;
+  onConveneMeeting?: (prompt: MeetingPrompt) => void;
 }
 
 export function SeatTable({

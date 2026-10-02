@@ -140,6 +140,19 @@ export interface CouncilMeetingIdentity {
   readonly sourceMessageId?: string;
 }
 
+/**
+ * WS-GOV-MOBILE-CLEANUP (M1) — la richiesta che convoca una riunione. Non è una
+ * `string`: porta con sé l'**identità del messaggio** del Presidente che l'ha
+ * originata, così due richieste identiche nel testo restano due convocazioni
+ * diverse. `objective` è la descrizione migliore già nota dal Decision
+ * Workspace: diventa il titolo della Tavola mobile, senza inventare un nome.
+ */
+export interface MeetingPrompt {
+  readonly text: string;
+  readonly sourceMessageId: string;
+  readonly objective?: string;
+}
+
 /** Il dato letto dai motori: la riunione lo **spiega**, non lo ricalcola. */
 export interface MeetingEngineRead {
   readonly workLabel: string | null;

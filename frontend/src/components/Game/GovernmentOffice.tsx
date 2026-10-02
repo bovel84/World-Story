@@ -64,8 +64,8 @@ import {
   type CouncilWorkspace,
 } from './councilWorkspace';
 import {
-  applyEngineRead, meetingActDraft, openMeeting, seatSpeaker, shouldConveneMeeting,
-  type CouncilMeeting,
+  continueMeeting, meetingActDraft, openMeeting, seatSpeaker, shouldConveneMeeting,
+  type CouncilMeeting, type MeetingPrompt,
 } from './councilMeeting';
 import { meetingReadFromFeasibility } from './meetingEngineRead';
 import { resolveCurrentRegionRef } from './meetingLocalization';
@@ -74,11 +74,11 @@ import {
   type MeetingNarrator,
 } from './meetingNarrative';
 import {
-  blockerKey, convenableMinisters, mobileDecisionSummary, mobileHistory, participantChips,
-  shouldShowBoardDot, type GovernmentMobileView,
+  blockerKey, convenableMinisters, ministerSectionsFromMeeting, mobileDecisionSummary, mobileHistory,
+  participantChips, shouldShowBoardDot, uniqueSourceLabels, type GovernmentMobileView,
 } from './mobileFocus';
 import { GovernmentBottomSheet } from '../ui/GovernmentBottomSheet';
-import { useIsMobile } from '../../hooks/useIsMobile';
+import { useGovernmentCompactLayout } from '../../hooks/useIsMobile';
 import {
   actIdentity, governmentSessionId, previousSessionMemory, seatFromSessionSeatKey, sessionSeatKey,
   type PreviousGovernmentSessionRef,
@@ -245,7 +245,7 @@ export function GovernmentOffice({
   // WS-GOV-MOBILE-FOCUS (H1/H2/H3) — La vista mobile è una **macchina a stati**:
   // dialogo, tavola, atto, evidenza. È presentazione, non dominio: le stesse
   // `DecisionWorkspace`/`CouncilMeeting`/atto alimentano desktop e mobile.
-  const isMobile = useIsMobile();
+  const isMobile = useGovernmentCompactLayout();
   const [mobileView, setMobileView] = useState<GovernmentMobileView>('dialogue');
   const [mobileSheet, setMobileSheet] = useState<'convene' | null>(null);
   const sheetReturnRef = useRef<HTMLElement | null>(null);
@@ -421,10 +421,11 @@ export function GovernmentOffice({
   // WS-GOV-COUNCIL-MEETINGS (B7) — Una decisione multi-competenza apre una
   // **riunione**, non una chat libera fra agenti. La convocazione è esplicita:
   // il Presidente la chiede, e l'orchestrazione è deterministica.
-  const lastPresidentMessage = [...chatMessages].reverse().find(message => message.role === 'user')?.content ?? null;
-  const meetingPrompt = !meeting && lastPresidentMessage && shouldConveneMeeting(lastPresidentMessage)
-    ? lastPresidentMessage
-    : null;
+  //
+  // WS-GOV-MOBILE-CLEANUP (M1) — l'identità della convocazione non è il testo:
+  // il richiamo porta con sé l'indice del messaggio del Presidente che l'ha
+  // originata. Due richieste identiche nel testo restano due convocazioni.
+  // (La definizione vive più sotto, dopo `workspace`: serve l'objective.)
   const streaming = openSeat !== null && ministerStreamingSeat === openSeat;
   // WS-MINISTER-UX-05 — I ricordi della sedia, potati alla data corrente, e la
   // loro sintesi per il prompt.
@@ -671,7 +672,7 @@ export function GovernmentOffice({
       const read = meetingReadFromFeasibility(opened, feasibility, pictureSources.regions ?? [], currentRegion);
       const prev = meetingRef.current;
       if (!prev || prev.id !== opened.id) return;
-      const next = applyEngineRead(prev, read);
+      const next = continueMeeting(prev, read);
       meetingRef.current = next;
       setMeeting(next);
       // La conversazione è **una**: gli interventi dei ministri entrano nello
@@ -697,14 +698,24 @@ export function GovernmentOffice({
       // Il motore non risponde: la riunione resta in apertura, senza inventare.
     }
   }, [gameId, pictureSources.regions, currentRegion, openSeat, currentTurn, addMinisterMessage, narrateMeeting]);
-  const conveneMeeting = useCallback((text: string): boolean => {
+  const conveneMeeting = useCallback((prompt: MeetingPrompt): boolean => {
+    const text = prompt.text;
     if (!openSeat || !gameId || !shouldConveneMeeting(text)) return false;
-    const opened = openMeeting({ gameId, branchId, turn: currentTurn ?? 0, subject: text });
+    const opened = openMeeting({
+      gameId,
+      branchId,
+      turn: currentTurn ?? 0,
+      subject: text,
+      sourceMessageId: prompt.sourceMessageId,
+      ...(prompt.objective ? { objective: prompt.objective } : {}),
+    });
     if (!opened) return false;
-    // Se la riunione esiste già per questo turno, la nuova richiesta la aggiorna
-    // con una nuova lettura: i contributi identici non si duplicano (B13).
+    // M2 — l'identità dipende dalla **convocazione**, non dalla materia: la
+    // stessa richiesta (stesso `sourceMessageId`) aggiorna la riunione attiva con
+    // una nuova revisione; una richiesta diversa apre sempre una convocazione
+    // nuova, anche con soggetto e partecipanti identici.
     const existing = meetingRef.current;
-    if (existing && existing.id === opened.id) {
+    if (existing && existing.meetingId === opened.meetingId) {
       void runMeeting(existing, text);
       return true;
     }
@@ -859,6 +870,32 @@ export function GovernmentOffice({
   const actStale = workspace ? actStaleness(workspace, actRevision) : null;
   const decisionQuestion = address?.items[0]?.need ?? null;
 
+  // WS-GOV-MOBILE-CLEANUP (M1/M17) — La convocazione nasce dall'**ultimo
+  // messaggio del Presidente**, con un `sourceMessageId` stabile derivato dalla
+  // seduta e dalla posizione del messaggio (mai dal solo contenuto). Il titolo
+  // della decisione viene dall'objective già noto dal workspace, non inventato.
+  const meetingPrompt = useMemo<MeetingPrompt | null>(() => {
+    if (!openSeat) return null;
+    let index = -1;
+    for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
+      if (chatMessages[i].role === 'user') { index = i; break; }
+    }
+    if (index < 0) return null;
+    const text = chatMessages[index].content;
+    if (!shouldConveneMeeting(text)) return null;
+    const sourceMessageId = `${sessionId}:${openSeat}:user-${index}`;
+    // M2 — la convocazione attiva nata da QUESTO messaggio non è una nuova
+    // convocazione: è la stessa (una nuova lettura la farà avanzare).
+    if (meeting?.sourceMessageId === sourceMessageId) return null;
+    if (meeting && !meeting.sourceMessageId && meeting.subject === text) return null;
+    const objective = workspace ? activeProposal(workspace)?.objective ?? workspace.objective ?? null : null;
+    return {
+      text,
+      sourceMessageId,
+      ...(objective ? { objective } : {}),
+    };
+  }, [meeting, openSeat, chatMessages, sessionId, workspace]);
+
   // ── WS-GOV-MOBILE-FOCUS (H8–H24) — Il view model della vista mobile ──────
   // Derivato dalla stessa fonte del desktop: nessuna cifra nuova, nessuno stato
   // persistito. Se un dato non c'è, la vista dichiara l'assenza.
@@ -869,12 +906,19 @@ export function GovernmentOffice({
       actPrepared: Boolean(actDraft),
       actStale: Boolean(actStale),
       signed: lastOutcome?.kind === 'order',
-      pendingMeetingPrompt: !meeting && meetingPrompt && shouldConveneMeeting(meetingPrompt) ? meetingPrompt : null,
+      pendingMeetingPrompt: meetingPrompt?.text ?? null,
     }),
     [meeting, workspace, actDraft, actStale, lastOutcome, meetingPrompt],
   );
   const mobileParticipants = useMemo(() => participantChips(meeting), [meeting]);
   const mobileRevisions = useMemo(() => mobileHistory(workspace), [workspace]);
+  // M15 — la Tavola mobile è il **risultato** della riunione, per ministero.
+  const mobileMinisterSections = useMemo(() => ministerSectionsFromMeeting(meeting), [meeting]);
+  // M8 — le fonti, una sola volta, con l'id tecnico tradotto in etichetta.
+  const mobileSources = useMemo(() => {
+    const sources = meeting ? meeting.workspace.lines.map(line => line.source) : [];
+    return uniqueSourceLabels(sources);
+  }, [meeting]);
   const currentBlockersKey = useMemo(() => blockerKey(meeting), [meeting]);
   const boardDot = shouldShowBoardDot({
     view: mobileView,
@@ -1169,9 +1213,11 @@ export function GovernmentOffice({
         hidden={mobileView !== 'board'}
         ref={boardScrollRef}
       >
-          <section className="gov-mobile-board">
+          <section className="gov-mobile-board" data-meeting-id={meeting?.id} data-meeting-key={meeting?.meetingId} data-meeting-revision={meeting?.revision}>
             <header className="gov-mobile-board-head">
               <h3 className="gov-mobile-board-title">{mobileSummary.title}</h3>
+              {/* M17/M19 — la localizzazione è separata dal titolo, non incollata. */}
+              {meeting?.workspace.region && <p className="gov-mobile-board-place">{meeting.workspace.region}</p>}
               <span className="gov-mobile-board-status" data-state={mobileSummary.status.toLowerCase().replace(/\s+/g, '-')}>{mobileSummary.status}</span>
             </header>
 
@@ -1187,79 +1233,80 @@ export function GovernmentOffice({
               </div>
             )}
 
-            <section className="gov-mobile-decision" aria-label="Che cosa stiamo decidendo">
-              <h4 className="gov-mobile-section-title">Che cosa stiamo decidendo</h4>
-              {meeting ? (
-                <ul className="gov-mobile-checklist">
-                  {meeting.workspace.lines.map(line => (
-                    <li key={`${line.owner}-${line.label}`} data-status={line.status}>
-                      <span className="gov-mobile-check" aria-hidden="true">{line.status === 'ok' ? '✓' : line.status === 'missing' ? '✗' : '?'}</span>
-                      <span className="gov-mobile-check-label">{line.label}</span>
-                      <span className="gov-mobile-check-value">{line.value}</span>
-                    </li>
+            {/* M15/M19 — il RISULTATO della riunione, per ministero: le righe del
+                piano condiviso. Il transcript dei discorsi resta nel Dialogo (M14). */}
+            {meeting ? (
+              mobileMinisterSections.length > 0 ? (
+                <div className="gov-mobile-ministers">
+                  {mobileMinisterSections.map(section => (
+                    <section key={section.seat} className="gov-mobile-minister" data-seat={section.seat} aria-label={section.label}>
+                      <h4 className="gov-mobile-minister-title">{section.label}</h4>
+                      <ul className="gov-mobile-checklist">
+                        {section.lines.map(line => (
+                          <li key={`${section.seat}-${line.label}`} data-status={line.status}>
+                            <span className="gov-mobile-check" aria-hidden="true">{line.status === 'ok' ? '✓' : line.status === 'missing' ? '✗' : '?'}</span>
+                            <span className="gov-mobile-check-label">{line.label}</span>
+                            <span className="gov-mobile-check-value">{line.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
                   ))}
-                  {meeting.workspace.lines.length === 0 && <li className="gov-mobile-empty">Nessun dato dal motore: la Tavola non inventa.</li>}
-                </ul>
-              ) : proposalForBoard ? (
-                <p className="gov-mobile-proposal">{proposalSummary(proposalForBoard)}</p>
+                </div>
               ) : (
-                <p className="gov-mobile-empty">Ancora nessuna misura concordata: continua il dialogo.</p>
-              )}
-            </section>
-
-            {meeting && meeting.contributions.length > 0 && (
-              <section className="gov-mobile-talks" aria-label="Interventi dei ministri">
-                <h4 className="gov-mobile-section-title">La riunione</h4>
-                {meeting.contributions.map(contribution => (
-                  <article key={contribution.id} className="gov-mobile-talk" data-seat={contribution.seat}>
-                    <span className="gov-mobile-talk-speaker">{seatSpeaker(contribution.seat)}</span>
-                    <p className="gov-mobile-talk-text">{contribution.text}</p>
-                  </article>
-                ))}
+                <section className="gov-mobile-decision" aria-label="Che cosa stiamo decidendo">
+                  <p className="gov-mobile-empty">Nessun dato dal motore: la Tavola non inventa.</p>
+                </section>
+              )
+            ) : (
+              <section className="gov-mobile-decision" aria-label="Che cosa stiamo decidendo">
+                <h4 className="gov-mobile-section-title">Che cosa stiamo decidendo</h4>
+                {proposalForBoard ? (
+                  <p className="gov-mobile-proposal">{proposalSummary(proposalForBoard)}</p>
+                ) : (
+                  <p className="gov-mobile-empty">Ancora nessuna misura concordata: continua il dialogo.</p>
+                )}
               </section>
             )}
 
-            {/* H15/B13 — il dettaglio desktop resta disponibile, ma chiuso. */}
+            {/* M6/M7 — approfondimenti nativi: costruiti dallo stesso stato ma
+                leggeri. La Tavola desktop (`SeatTable`) NON si reinnesta qui. */}
             <details className="gov-mobile-more">
-              <summary className="gov-mobile-more-summary">Approfondimenti, fonti e cronologia</summary>
+              <summary className="gov-mobile-more-summary">Approfondimenti</summary>
               <div className="gov-mobile-more-body">
-                <SeatTable
-                  seat={address?.seat ?? 'lavori'}
-                  blocks={canvasBlocks}
-                  act={act}
-                  onPrepareRoad={prepareRoad}
-                  preparedRoadId={actDraft?.roadId ?? null}
-                  roadStates={roadStates}
-                  actDraft={null}
-                  actStatus={null}
-                  actBusy={false}
-                  actEditable={false}
-                  onCompare={compareFromTable}
-                  canvas={resolvedCanvas}
-                  onClearPresentation={clearPresentation}
-                  onTogglePin={togglePin}
-                  proposals={proposals}
-                  workspace={workspace}
-                  decisionQuestion={decisionQuestion}
-                  actRevision={actRevision}
-                  onPrepareFromProposal={prepareFromProposal}
-                  onRegenerateAct={prepareFromProposal}
-                  council={council}
-                  councilLookup={councilLookup}
-                  onConveneSeat={conveneSeatInCouncil}
-                  onOpenCouncilSeat={openCouncilSeat}
-                  onLeaveCouncil={leaveCouncil}
-                  onPromoteToCouncil={promoteOpenToCouncil}
-                  onOpenEvidence={openBoardEvidence}
-                  onCloseEvidence={closeBoardEvidence}
-                  meeting={meeting}
-                  onPrepareMeetingAct={prepareMeetingAct}
-                  onConveneMeetingSeat={conveneMeetingSeat}
-                  meetingPrompt={meetingPrompt}
-                  onConveneMeeting={conveneMeeting}
-                />
+                {canvasBlocks.length > 0 && (
+                  <div className="gov-mobile-more-group">
+                    <h4 className="gov-mobile-section-title">Evidenze</h4>
+                    <ul className="gov-mobile-source-list">
+                      {canvasBlocks.map(block => (
+                        <li key={block.id}>
+                          <button
+                            type="button"
+                            className="gov-mobile-source"
+                            onClick={() => {
+                              setEvidenceFocus({ blockId: block.id, label: block.title, note: '' });
+                              goMobileView('evidence');
+                            }}
+                          >
+                            {block.title}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {mobileSources.length > 0 && (
+                  <div className="gov-mobile-more-group">
+                    <h4 className="gov-mobile-section-title">Fonti</h4>
+                    <ul className="gov-mobile-source-list" data-sources={mobileSources.join(',')}>
+                      {mobileSources.map(source => (
+                        <li key={source} className="gov-mobile-source-text">{source}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {mobileRevisions.length > 0 && (
-                  <div className="gov-mobile-history">
+                  <div className="gov-mobile-more-group">
                     <h4 className="gov-mobile-section-title">Cronologia</h4>
                     <ul className="gov-mobile-history-list">
                       {mobileRevisions.map(entry => (

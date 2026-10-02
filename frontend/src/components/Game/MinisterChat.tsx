@@ -129,9 +129,16 @@ export function MinisterChat({
 }: MinisterChatProps) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
+  // WS-GOV-MOBILE-CLEANUP (M12) — Se il giocatore risale la cronologia e arriva
+  // una risposta, non lo si riporta giù: si annuncia con «↓ Nuovo messaggio» e
+  // lo si lascia decidere. Una sola indicazione per la risposta corrente.
+  const [hasUnreadReply, setHasUnreadReply] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<AbortController | null>(null);
+  // Quanto testo assistant è già stato visto: il badge compare quando cresce.
+  const seenAssistantLengthRef = useRef(0);
+  const seenAssistantCountRef = useRef(0);
 
   // The effect captures this seat's callback; parent callbacks change on every
   // render, so only a change of request context (or unmount) cancels the stream.
@@ -156,12 +163,27 @@ export function MinisterChat({
   useEffect(() => {
     emittedPresentationRef.current = {};
     emittedDecisionRef.current = {};
+    seenAssistantLengthRef.current = 0;
+    seenAssistantCountRef.current = 0;
+    setHasUnreadReply(false);
   }, [sessionId]);
 
   useEffect(() => {
     if (!stickToBottomRef.current) return;
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streaming]);
+
+  // M12 — il badge nasce solo quando una **risposta** cresce mentre il giocatore
+  // non è in fondo: mai a ogni token se sta già guardando la risposta.
+  useEffect(() => {
+    const assistantMessages = messages.filter(message => message.role === 'assistant');
+    const lastAssistant = assistantMessages[assistantMessages.length - 1];
+    const length = lastAssistant?.content.length ?? 0;
+    const grew = assistantMessages.length > seenAssistantCountRef.current || length > seenAssistantLengthRef.current;
+    seenAssistantCountRef.current = assistantMessages.length;
+    seenAssistantLengthRef.current = length;
+    if (grew && !stickToBottomRef.current) setHasUnreadReply(true);
+  }, [messages]);
 
   const onThreadScroll = (): void => {
     const el = threadRef.current;
@@ -171,6 +193,7 @@ export function MinisterChat({
       scrollHeight: el.scrollHeight,
       clientHeight: el.clientHeight,
     });
+    if (stickToBottomRef.current) setHasUnreadReply(false);
   };
 
   // WS-MINISTER-UX-03 — Solo a risposta conclusa si annuncia la presentazione:
@@ -210,6 +233,11 @@ export function MinisterChat({
   useEffect(() => {
     setInput('');
     setError('');
+    // Cambiare ministro è una conversazione nuova: si riparte dal fondo.
+    stickToBottomRef.current = true;
+    seenAssistantLengthRef.current = 0;
+    seenAssistantCountRef.current = 0;
+    setHasUnreadReply(false);
   }, [address?.seat]);
 
   if (!address) {
@@ -240,6 +268,7 @@ export function MinisterChat({
     setInput('');
     // Chi invia vuole vedere la risposta: si torna ad agganciare il fondo.
     stickToBottomRef.current = true;
+    setHasUnreadReply(false);
     const history = messages
       .filter(message => message.content.trim())
       .map(message => ({ role: message.role, content: message.content }))
@@ -364,6 +393,21 @@ export function MinisterChat({
       <p className="minister-live sr-only" role="status" aria-live="polite">
         {lastCompletedReply ? parsePresentation(lastCompletedReply).text.slice(0, 600) : ''}
       </p>
+
+      {hasUnreadReply && (
+        <button
+          type="button"
+          className="minister-unread"
+          onClick={() => {
+            const el = threadRef.current;
+            if (el) el.scrollTop = el.scrollHeight;
+            stickToBottomRef.current = true;
+            setHasUnreadReply(false);
+          }}
+        >
+          ↓ Nuovo messaggio
+        </button>
+      )}
 
       <div className="minister-compose">
         <textarea

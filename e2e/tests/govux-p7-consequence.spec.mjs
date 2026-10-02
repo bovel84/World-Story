@@ -43,19 +43,21 @@ test('P7: la plancia mostra le conseguenze prima della firma, senza accodare', a
   const ufficio = page.locator('.government-office');
   await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
 
-  const tavola = page.locator('.gov-mobile');
-  const atto = page.locator('.gov-mobile-board .treasury-act, .gov-mobile-more .treasury-act');
-  // A 390×844 si apre sul Dialogo: la Tavola è la seconda vista.
-  await page.locator('.gov-mobile-tab', { hasText: 'Tavola' }).click();
-  // Il pannello d'atto del Tesoro vive negli Approfondimenti (chiusi): si apre.
-  const more = page.locator('.gov-mobile-more-summary');
-  if (await more.count()) await more.click();
-  await expect(atto.first()).toBeVisible();
+  // A 390×844 la Tavola non reinnesta più la Tavola desktop: la bozza d'atto si
+  // prepara dalla **CTA primaria** della vista mobile (M6/M21).
+  // Prima si stabilisce una misura accettata e senza domande aperte.
+  const chat = page.locator('.gov-mobile-chat');
+  await chat.locator('textarea').fill('Portiamo gli investimenti al 90 per cento.');
+  await chat.locator('.minister-compose button').click();
+  await expect(chat.locator('.minister-entry.assistant').last()).not.toHaveText('', { timeout: 15_000 });
+  await expect(chat.locator('.minister-compose button')).toHaveText(/Invia/, { timeout: 15_000 });
 
-  // [1] Preparare la strada in prosa (ammortamento) apre la bozza e la plancia,
-  //     senza accodare nulla.
-  await atto.first().locator('.treasury-act-road[data-road="repay"] .treasury-act-prepare').click();
-  // Preparare la strada apre la vista Atto (H19): la bozza e la plancia vivono lì.
+  await page.locator('.gov-mobile-tab', { hasText: 'Tavola' }).click();
+  const prepareCta = page.locator('.gov-mobile-cta .gov-mobile-primary', { hasText: /Prepara l’atto/ });
+  await expect(prepareCta).toBeVisible({ timeout: 15_000 });
+  await prepareCta.click();
+
+  // [1] La CTA apre la vista Atto (H19): la bozza e la plancia vivono lì.
   const bozza = page.locator('.gov-mobile .act-draft');
   await expect(bozza).toBeVisible();
 
