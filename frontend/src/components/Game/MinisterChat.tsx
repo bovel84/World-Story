@@ -240,7 +240,10 @@ export function MinisterChat({
     setInput('');
     // Chi invia vuole vedere la risposta: si torna ad agganciare il fondo.
     stickToBottomRef.current = true;
-    const history = messages.filter(message => message.content.trim()).slice(-HISTORY_LIMIT);
+    const history = messages
+      .filter(message => message.content.trim())
+      .map(message => ({ role: message.role, content: message.content }))
+      .slice(-HISTORY_LIMIT);
     onAddMessage({ role: 'user', content: text });
     // Il posto della risposta: cresce token per token, come per il Consulente.
     onAddMessage({ role: 'assistant', content: '' });
@@ -301,7 +304,7 @@ export function MinisterChat({
           return (
             <div key={index} className={`minister-entry ${message.role}`}>
               <div className="entry-meta">
-                {message.role === 'user' ? <span>Governo</span> : <span>{address.label}</span>}
+                {message.role === 'user' ? <span>Governo</span> : <span>{message.speaker ?? address.label}</span>}
               </div>
               <div className="entry-text">
                 {isStreamingThis && !message.content ? (

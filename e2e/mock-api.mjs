@@ -1310,20 +1310,32 @@ export function installMockApi(page, opts = {}) {
       const body = JSON.parse(route.request().postData() || '{}');
       if (body && typeof body.text === 'string') text = body.text;
     } catch { /* body non JSON → testo di default */ }
+    // WS-GOV-COUNCIL-MEETINGS — Caso cassa insufficiente: il motore dice che
+    // manca la copertura (nessun valore inventato dal client).
+    const short = /manc|insufficient|scopert/i.test(text);
+    // Una costruzione: il motore risolve la dichiarazione d'opera (detentori).
+    const opera = /fabbrica|siderurg|acciaieria|costru|infrastruttur/i.test(text);
     return json(route, {
-      feasible: true,
+      feasible: !short,
       costs: {
         timeDays: 45,
-        inputs: [{ resourceId: 'money', name: 'Tesoreria', quantity: '12,40', unit: 'mld' }],
+        inputs: [{ resourceId: 'money', name: 'Tesoreria', quantity: short ? '16,60' : '12,40', unit: 'mld' }],
         upkeep: [],
         basis: 'request',
         note: '25% del gettito annuo (Infrastrutture)',
         category: 'Infrastrutture',
       },
       prerequisites: [],
-      risks: [],
+      risks: short ? ['Cassa insufficiente: servono 4,20 mld'] : [],
       warnings: [],
-      summary: `Fattibile: ${text}`,
+      summary: short ? 'Ordine bloccato: cassa insufficiente' : `Fattibile: ${text}`,
+      ...(opera
+        ? {
+            workDeclaration: short
+              ? { workId: 'work-fabbrica', payerActorId: 'POL', materialActorId: null, funded: false, missingMaterials: [{ resourceId: 'acciaio', missing: '12 t' }] }
+              : { workId: 'work-fabbrica', payerActorId: 'POL', materialActorId: 'POL', funded: true, missingMaterials: [] },
+          }
+        : {}),
     });
   });
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/relationships`, (route) => json(route, {}));
