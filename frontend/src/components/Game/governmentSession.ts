@@ -92,6 +92,51 @@ export function consolidateSessionMemory(
 }
 
 /**
+ * WS-GOV-COUNCIL-HARDENING — La provenienza temporale della seduta precedente.
+ *
+ * Il difetto osservato: al cambio `turno 5 → turno 6`, l'effetto di reset leggeva
+ * `currentTurn`/`currentDate` **già aggiornati a 6**, e salvava la decisione del
+ * turno 5 con il tempo del turno 6. La memoria perdeva la sua origine.
+ *
+ * Qui l'origine è esplicita: chi consolida porta con sé la seduta di partenza,
+ * così i ricordi conservano il turno e la data in cui la decisione è nata.
+ */
+export interface PreviousGovernmentSessionRef {
+  readonly sessionId: string;
+  readonly turn: number;
+  readonly date: string | null;
+}
+
+/** La provenienza (`gameDate`, `turn`) di una seduta: l'origine, non il tempo attuale. */
+export function originMemoryRef(previous: PreviousGovernmentSessionRef): MinisterMemoryRef {
+  return {
+    gameDate: previous.date ?? '',
+    ...(previous.turn != null ? { turn: previous.turn } : {}),
+  };
+}
+
+/**
+ * Consolida la seduta **precedente** in memoria, usando la sua origine reale.
+ * È il pezzo puro che il cambio di turno invoca: i workspace vecchi diventano
+ * ricordi con il turno e la data di origine, mai con quelli del turno nuovo.
+ */
+export function previousSessionMemory(input: {
+  readonly previous: PreviousGovernmentSessionRef;
+  readonly workspaces: Readonly<Record<string, DecisionWorkspace | null | undefined>>;
+  readonly seatOf: (key: string) => CabinetSeat | null;
+}): { readonly seat: CabinetSeat; readonly records: MinisterMemoryRecord[] }[] {
+  const ref = originMemoryRef(input.previous);
+  const consolidated: { seat: CabinetSeat; records: MinisterMemoryRecord[] }[] = [];
+  for (const [key, workspace] of Object.entries(input.workspaces)) {
+    if (!workspace) continue;
+    const seat = input.seatOf(key);
+    if (!seat) continue;
+    consolidated.push({ seat, records: consolidateSessionMemory(workspace, seat, ref) });
+  }
+  return consolidated;
+}
+
+/**
  * Una seduta vuota è ripartita da zero? La verifica usata dall'E2E e dai test:
  * revisione 0 e nessuna proposta attiva.
  */
