@@ -37,6 +37,7 @@ import { SeatProposalPanel } from './SeatProposalPanel';
 import { ActDraftPanel } from './ActDraftPanel';
 import { ProposalComparison } from './ProposalComparison';
 import { DecisionBoard } from './DecisionBoard';
+import { CouncilBoard } from './CouncilBoard';
 import type { SeatCanvasBlock } from './seatCanvasModel';
 import type { EvidenceKey, ResolvedCanvas, ResolvedPresentation } from './presentation';
 import type { ActState, ActStatus, ProposalActDraft } from './actDraft';
@@ -44,6 +45,8 @@ import type { TreasuryAct, TreasuryRoad } from './treasuryAct';
 import type { CabinetAddressView } from '../../services/api';
 import type { ConsequenceBoard as ConsequenceBoardModel } from './consequenceBoard';
 import type { DecisionWorkspace } from './decisionWorkspace';
+import type { CabinetSeat } from './seatDecisionBoards';
+import type { CouncilLookup, CouncilWorkspace } from './councilWorkspace';
 
 /** L'ordine di priorità sulla tavola: il piano prima, le idee per ultime. */
 const KIND_PRIORITY: Record<SeatCanvasBlock['kind'], number> = {
@@ -120,6 +123,16 @@ export interface SeatTableProps {
   actRevision?: number | null;
   onPrepareFromProposal?: () => void;
   onRegenerateAct?: () => void;
+  /**
+   * WS-GOV-SEAT-BOARDS (B25/B26) — La riunione di Consiglio: la Tavola comune
+   * delle sedie convocate. `councilLookup` legge il workspace vivo di ciascuna.
+   */
+  council?: CouncilWorkspace | null;
+  councilLookup?: CouncilLookup;
+  onConveneSeat?: (seat: CabinetSeat) => void;
+  onOpenCouncilSeat?: (seat: CabinetSeat) => void;
+  onLeaveCouncil?: () => void;
+  onPromoteToCouncil?: () => void;
 }
 
 export function SeatTable({
@@ -127,6 +140,7 @@ export function SeatTable({
   onEditDraft, onSignDraft, onCancelDraft, onCompare, presentation, canvas = null, onClearPresentation, onTogglePin, onReturnToMessage,
   proposals = [], actBoard = null, actBoardLoading = false, actBoardError = null, onRefreshActBoard,
   workspace = null, decisionQuestion = null, actRevision = null, onPrepareFromProposal, onRegenerateAct,
+  council = null, councilLookup, onConveneSeat, onOpenCouncilSeat, onLeaveCouncil, onPromoteToCouncil,
 }: SeatTableProps) {
   const ordered = [...blocks].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
   const showsAct = seat === 'tesoro';
@@ -225,10 +239,22 @@ export function SeatTable({
   const decisionBoard = decisionActive && workspace ? (
     <DecisionBoard
       workspace={workspace}
+      seat={seat}
       question={decisionQuestion}
       actRevision={actRevision}
       onPrepareAct={onPrepareFromProposal}
       onRegenerateAct={onRegenerateAct}
+      onPromoteToCouncil={onPromoteToCouncil}
+      onConveneSeat={onConveneSeat}
+    />
+  ) : null;
+  const councilBoard = council && councilLookup ? (
+    <CouncilBoard
+      council={council}
+      lookup={councilLookup}
+      onConveneSeat={onConveneSeat}
+      onOpenSeat={onOpenCouncilSeat}
+      onLeaveCouncil={onLeaveCouncil}
     />
   ) : null;
 
@@ -282,6 +308,8 @@ export function SeatTable({
           Le evidenze della seduta, dai dati del motore. Ogni cifra dichiara la sua provenienza.
         </span>
       </header>
+
+      {councilBoard}
 
       {decisionBoard}
 
