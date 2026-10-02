@@ -10,6 +10,7 @@ import type { FactionMemoryEvent } from '../../simulation/FactionMemory';
 import { getJevConfig, type JevContextBudget } from './jev.config';
 import { classifyJevIngest, type JevIngestDecision } from './jev-classify';
 import { jevScopeKey, jevScopeFromKey, type JevIngestInput, type JevMemoryRecord, type JevMemoryType, type JevScope } from './jev.types';
+import { buildJevTelemetry, bytesToTokens, estimateTokens, type JevTelemetry } from './jev-telemetry';
 
 export interface JevMinisterRecall extends MinisterMemoryRecall {
   telemetry: {
@@ -20,6 +21,8 @@ export interface JevMinisterRecall extends MinisterMemoryRecall {
     retrieval_latency_ms: number;
     model_calls: 0;
   };
+  /** WS-JEV-W8 — telemetria unificata (sola lettura, mai input alle decisioni). */
+  metrics: JevTelemetry;
 }
 
 /** Facade over the existing MinisterMemory plus branch-scoped narrative evidence.
@@ -35,8 +38,9 @@ export function getMinisterMemory(
   const jevScope: JevScope = { ...scope, kind: 'minister' };
   const key = jevScopeKey(jevScope);
   const legacy = ministerMemoryRepository.listMemory(scope);
+  const enabled = getJevConfig().enabled;
   let recalled: MinisterMemoryRecall;
-  if (!getJevConfig().enabled) {
+  if (!enabled) {
     // Exact existing grammar/priority/budget; never reads or touches JEV storage.
     const text = memorySection({ scope, records: legacy });
     recalled = { text, legacyIds: relevantMinisterMemory({ scope, records: legacy }).map(r => r.id), jevIds: [], tokenUpperBound: Buffer.byteLength(text, 'utf8'), considered: legacy.length, rawBytes: Buffer.byteLength(text, 'utf8') };
@@ -50,9 +54,19 @@ export function getMinisterMemory(
       if (recalled.jevIds.length) jevMemoryRepository.touch(jevScope, recalled.jevIds, new Date().toISOString());
     }
   }
-  return { ...recalled, telemetry: { scopes_consulted: [key], memories_retrieved: recalled.legacyIds.length + recalled.jevIds.length,
+  const selected = recalled.legacyIds.length + recalled.jevIds.length;
+  const elapsed = performance.now() - started;
+  // Flag off ⇒ telemetria JEV vuota: la memoria legacy resta, ma JEV non ha
+  // letto né selezionato nulla, quindi non inventa contatori.
+  const metrics = enabled && recalled.text
+    ? buildJevTelemetry({ considered: recalled.considered, selected,
+        deferred: Math.max(0, recalled.considered - selected), contextTokensBefore: bytesToTokens(recalled.rawBytes),
+        contextTokensAfter: estimateTokens(recalled.text), retrievalMs: elapsed })
+    : buildJevTelemetry({ retrievalMs: elapsed });
+  return { ...recalled, telemetry: { scopes_consulted: [key], memories_retrieved: selected,
     token_upper_bound: recalled.tokenUpperBound, raw_bytes_considered: recalled.rawBytes,
-    retrieval_latency_ms: performance.now() - started, model_calls: 0 } };
+    retrieval_latency_ms: elapsed, model_calls: 0 },
+    metrics };
 }
 
 // ── WS-JEV-W2 — Ingestion narrativa (deterministica, zero LLM) ──────────────
@@ -207,7 +221,7 @@ export function ingestJevMemory(input: JevIngestInput, now?: string): JevIngestO
 /** Batch con telemetria; nessun modello viene mai interrogato. */
 export function ingestJevBatch(
   inputs: readonly JevIngestInput[], now?: string,
-): { outcomes: JevIngestOutcome[]; telemetry: JevIngestTelemetry } {
+): { outcomes: JevIngestOutcome[]; telemetry: JevIngestTelemetry; metrics: JevTelemetry } {
   const started = performance.now();
   // Isolamento per-item: un input invalido non deve far cadere l'intero batch,
   // altrimenti un solo evento rotto perderebbe tutti gli altri.
@@ -232,6 +246,12 @@ export function ingestJevBatch(
       model_calls: 0,
       latency_ms: performance.now() - started,
     },
+    metrics: buildJevTelemetry({
+      considered: outcomes.length,
+      selected: outcomes.filter(outcome => outcome.decision === 'KEEP').length,
+      deferred: outcomes.filter(outcome => outcome.decision === 'DEFER').length,
+      dropped: outcomes.filter(outcome => outcome.decision === 'DROP').length,
+    }),
   };
 }
 
@@ -470,6 +490,10 @@ export interface DiplomaticMemorySection {
   text: string;
   ids: string[];
   bytes: number;
+  /** WS-JEV-W8 — byte grezzi letti per questa sezione (telemetria). */
+  rawBytes?: number;
+  /** WS-JEV-W8 — record eleggibili considerati per questa sezione (telemetria). */
+  rawCount?: number;
 }
 
 export interface DiplomaticMemoryResult {
@@ -482,6 +506,8 @@ export interface DiplomaticMemoryResult {
     retrieval_latency_ms: number;
     model_calls: 0;
   };
+  /** WS-JEV-W8 — telemetria unificata. */
+  metrics: JevTelemetry;
 }
 
 function diplomacyLine(record: JevMemoryRecord, query: string, source: string): string {
@@ -504,11 +530,12 @@ export function getDiplomaticMemory(p: {
   const [a, b] = diplomacyOrder(p.observer, p.subject);
   const sharedKey = jevScopeKey({ kind: 'diplomacy', gameId: p.gameId, branchId: p.branchId, a, b });
   const viewKey = jevScopeKey({ kind: 'perception', gameId: p.gameId, branchId: p.branchId, observer: p.observer, subject: p.subject });
-  const emptySection = (scopeKey: string): DiplomaticMemorySection => ({ scopeKey, text: '', ids: [], bytes: 0 });
+  const emptySection = (scopeKey: string): DiplomaticMemorySection => ({ scopeKey, text: '', ids: [], bytes: 0, rawBytes: 0, rawCount: 0 });
   const empty: DiplomaticMemoryResult = {
     shared: emptySection(sharedKey), view: emptySection(viewKey),
     telemetry: { scopes_consulted: [sharedKey, viewKey], memories_retrieved: 0, token_upper_bound: 0,
       retrieval_latency_ms: performance.now() - started, model_calls: 0 },
+    metrics: buildJevTelemetry({ retrievalMs: performance.now() - started }),
   };
   if (!config.enabled) return empty;
   const point = p.asOf ?? jevMemoryRepository.currentPoint({ gameId: p.gameId, branchId: p.branchId });
@@ -519,7 +546,9 @@ export function getDiplomaticMemory(p: {
     .map(record => ({ record, score: jevMemoryScore(record, p.query, point) }))
     .sort((x, y) => y.score - x.score || (x.record.id < y.record.id ? -1 : x.record.id > y.record.id ? 1 : 0));
   const build = (header: string, scope: JevScope, source: string, limit: number): DiplomaticMemorySection => {
-    const ranked = rank(jevMemoryRepository.listMemory(scope, { gameDate: point.gameDate, turn: point.turn, eligibleOnly: true }));
+    const records = jevMemoryRepository.listMemory(scope, { gameDate: point.gameDate, turn: point.turn, eligibleOnly: true });
+    const rawBytes = records.reduce((sum, record) => sum + Buffer.byteLength(record.text, 'utf8'), 0);
+    const ranked = rank(records);
     // Query-aware: se il testo ha termini in comune, restano solo quelli; se la
     // domanda non tocca nulla nel testo, non si azzera il briefing: si mostrano
     // i fatti più saliente. La pertinenza ordina, non censura l'intera sezione.
@@ -534,7 +563,7 @@ export function getDiplomaticMemory(p: {
       ids.push(record.id);
     }
     if (!ids.length) text = '';
-    return { scopeKey: jevScopeKey(scope), text, ids, bytes: Buffer.byteLength(text, 'utf8') };
+    return { scopeKey: jevScopeKey(scope), text, ids, bytes: Buffer.byteLength(text, 'utf8'), rawBytes, rawCount: records.length };
   };
   const shared = build('[RAPPORTI CONDIVISI — fatto tra le due nazioni]', { kind: 'diplomacy', gameId: p.gameId, branchId: p.branchId, a, b }, 'JEV-diplomacy', budget);
   // La percezione usa ciò che resta del budget: il totale resta entro il tetto.
@@ -543,12 +572,19 @@ export function getDiplomaticMemory(p: {
   const jevScopeView: JevScope = { kind: 'perception', gameId: p.gameId, branchId: p.branchId, observer: p.observer, subject: p.subject };
   if (shared.ids.length) jevMemoryRepository.touch(jevScopeShared, shared.ids, new Date().toISOString());
   if (view.ids.length) jevMemoryRepository.touch(jevScopeView, view.ids, new Date().toISOString());
+  const selected = shared.ids.length + view.ids.length;
+  const considered = (shared.rawCount ?? 0) + (view.rawCount ?? 0);
+  const elapsed = performance.now() - started;
   return {
     shared, view,
     telemetry: { scopes_consulted: [sharedKey, viewKey],
-      memories_retrieved: shared.ids.length + view.ids.length,
+      memories_retrieved: selected,
       token_upper_bound: shared.bytes + view.bytes,
-      retrieval_latency_ms: performance.now() - started, model_calls: 0 },
+      retrieval_latency_ms: elapsed, model_calls: 0 },
+    metrics: buildJevTelemetry({ considered, selected,
+      deferred: Math.max(0, considered - selected),
+      contextTokensBefore: bytesToTokens((shared.rawBytes ?? 0) + (view.rawBytes ?? 0)),
+      contextTokensAfter: bytesToTokens(shared.bytes + view.bytes), retrievalMs: elapsed }),
   };
 }
 
@@ -569,6 +605,8 @@ export interface FactionMemoryResult {
     retrieval_latency_ms: number;
     model_calls: 0;
   };
+  /** WS-JEV-W8 — telemetria unificata. */
+  metrics: JevTelemetry;
 }
 
 function factionLine(record: JevMemoryRecord, query: string): string {
@@ -600,6 +638,7 @@ export function getFactionMemory(p: {
     scopeKey, text: '', lines: [], ids: [], bytes: 0,
     telemetry: { scopes_consulted: [scopeKey], memories_retrieved: 0, token_upper_bound: 0,
       retrieval_latency_ms: performance.now() - started, model_calls: 0 },
+    metrics: buildJevTelemetry({}),
   };
   if (!config.enabled) return empty;
   const point = p.asOf ?? jevMemoryRepository.currentPoint(p);
@@ -629,10 +668,15 @@ export function getFactionMemory(p: {
   const body = ids.length ? text.trimEnd() : '';
   if (ids.length && p.touch !== false) jevMemoryRepository.touch(scope, ids, new Date().toISOString());
   const bytes = Buffer.byteLength(body, 'utf8');
+  const elapsed = performance.now() - started;
   return {
     scopeKey, text: body, lines, ids, bytes,
     telemetry: { scopes_consulted: [scopeKey], memories_retrieved: ids.length, token_upper_bound: bytes,
-      retrieval_latency_ms: performance.now() - started, model_calls: 0 },
+      retrieval_latency_ms: elapsed, model_calls: 0 },
+    metrics: buildJevTelemetry({ considered: ranked.length, selected: ids.length,
+      deferred: Math.max(0, ranked.length - ids.length),
+      contextTokensBefore: bytesToTokens(ranked.reduce((sum, entry) => sum + Buffer.byteLength(entry.record.text, 'utf8'), 0)),
+      contextTokensAfter: bytesToTokens(bytes), retrievalMs: elapsed }),
   };
 }
 
@@ -650,6 +694,8 @@ export interface JevConsolidationResult {
   memories_archived: number;
   model_calls: 0;
   latency_ms: number;
+  /** WS-JEV-W8 — telemetria unificata del consolidamento. */
+  metrics: JevTelemetry;
 }
 
 /** Identità deterministica di un episodio: scope + finestra + intervallo. */
@@ -737,7 +783,8 @@ export function consolidateJevMemory(p: {
   const started = performance.now();
   const result = (over: Partial<JevConsolidationResult> = {}): JevConsolidationResult => ({
     scopes_considered: 0, windows_processed: 0, episodes_created: 0, episodes_updated: 0,
-    memories_archived: 0, model_calls: 0, latency_ms: performance.now() - started, ...over,
+    memories_archived: 0, model_calls: 0, latency_ms: performance.now() - started,
+    metrics: buildJevTelemetry({ consolidationMs: performance.now() - started }), ...over,
   });
   // Best-effort: un flag malformato o un errore DB non devono mai propagarsi
   // nel sidecar del turno. Il gioco resta identico se il consolidamento salta.
@@ -760,16 +807,27 @@ export function consolidateJevMemory(p: {
     let created = 0;
     let updated = 0;
     let archived = 0;
+    let considered = 0;
+    let deferredCount = 0;
+    let droppedCount = 0;
+    let rawBytes = 0;
+    let episodeBytes = 0;
     for (const { scope, scopeKey } of scopes) {
       try {
         const scopeObject = jevScopeFromKey(scope, scopeKey, p.gameId, p.branchId);
-        const raw = jevMemoryRepository.listMemory(scopeObject).filter(record =>
-          record.type !== 'historical_episode'
+        const all = jevMemoryRepository.listMemory(scopeObject).filter(record => record.type !== 'historical_episode');
+        const isOpenQuestion = (record: JevMemoryRecord) => record.status === 'active' && UNRESOLVED_JEV.has(record.type);
+        const raw = all.filter(record =>
           // Le questioni aperte restano grezze: consolidarle le toglierebbe da
           // `UNRESOLVED ISSUES` e il governo dimenticherebbe una promessa o un
           // conflitto ancora in corso. Si consolideranno da risolte.
-          && !(record.status === 'active' && UNRESOLVED_JEV.has(record.type))
-          && record.turn != null && record.turn <= readyTurn);
+          !isOpenQuestion(record) && record.turn != null && record.turn <= readyTurn);
+        considered += raw.length;
+        // Deferred = eleggibile ma fuori dalla finestra pronta; dropped = non
+        // eleggibile (questione aperta o senza turno).
+        deferredCount += all.filter(record => !isOpenQuestion(record) && (record.turn == null || record.turn > readyTurn)).length;
+        droppedCount += all.filter(record => isOpenQuestion(record)).length;
+        rawBytes += raw.reduce((sum, record) => sum + Buffer.byteLength(record.text, 'utf8'), 0);
         const byWindow = new Map<number, JevMemoryRecord[]>();
         for (const record of raw) {
           const windowEnd = Math.ceil(record.turn! / interval) * interval;
@@ -785,13 +843,19 @@ export function consolidateJevMemory(p: {
           const existed = jevMemoryRepository.find(scopeObject, episode.id) !== null;
           jevMemoryRepository.upsert(scopeObject, episode);
           archived += jevMemoryRepository.archive(scopeObject, pending.map(record => record.id), episode.id, now);
+          episodeBytes += Buffer.byteLength(episode.text, 'utf8');
           if (existed) updated += 1; else created += 1;
         }
       } catch (error) {
         console.warn('[JEV] consolidamento dello scope non riuscito:', scopeKey, error);
       }
     }
-    return result({ scopes_considered: scopes.length, windows_processed: windows, episodes_created: created, episodes_updated: updated, memories_archived: archived });
+    const elapsed = performance.now() - started;
+    return result({ scopes_considered: scopes.length, windows_processed: windows, episodes_created: created, episodes_updated: updated, memories_archived: archived,
+      latency_ms: elapsed,
+      metrics: buildJevTelemetry({ considered, selected: archived, deferred: Math.max(0, deferredCount), dropped: Math.max(0, droppedCount),
+        contextTokensBefore: bytesToTokens(rawBytes), contextTokensAfter: bytesToTokens(episodeBytes),
+        consolidationMs: elapsed }) });
   } catch (error) {
     console.warn('[JEV] consolidamento narrativo non riuscito:', error);
     return result();
@@ -841,6 +905,8 @@ export interface MinisterContextResult {
     model_calls: 0;
     latency_ms: number;
   };
+  /** WS-JEV-W8 — telemetria unificata (sola lettura). */
+  metrics: JevTelemetry;
 }
 
 const UNRESOLVED_LEGACY = new Set(['open-question', 'queued-decision']);
@@ -904,6 +970,7 @@ export function buildMinisterContext(input: MinisterContextInput): MinisterConte
   const emptyResult = (): MinisterContextResult => ({
     text: '', sections: { ...empty },
     telemetry: { section_bytes: {}, total_bytes: 0, budget_bytes: 0, over_budget: false, legacy_ids: [], jev_ids: [], considered: 0, model_calls: 0, latency_ms: performance.now() - started },
+    metrics: buildJevTelemetry({}),
   });
   if (!config.enabled) return emptyResult();
   const budget = input.budget ?? config.contextBudget;
@@ -971,6 +1038,9 @@ export function buildMinisterContext(input: MinisterContextInput): MinisterConte
   // di memoria restano invece vincolate ai rispettivi budget.
   const budgetBytes = budget.identity + budget.worldState + budget.strategicMemory + budget.retrievedMemory + budget.recentConversation;
   const totalBytes = Buffer.byteLength(text, 'utf8');
+  const selectedLegacy = legacyCandidates.filter(c => strategicMemory.includes(c.line) || unresolved.includes(c.line)).length;
+  const selectedCount = selectedLegacy + selectedJevIds.length;
+  const elapsed = performance.now() - started;
   return {
     text, sections,
     telemetry: {
@@ -982,7 +1052,10 @@ export function buildMinisterContext(input: MinisterContextInput): MinisterConte
       jev_ids: jevCandidates.map(c => c.jev!.id),
       considered: ranking.considered,
       model_calls: 0,
-      latency_ms: performance.now() - started,
+      latency_ms: elapsed,
     },
+    metrics: buildJevTelemetry({ considered: ranking.considered, selected: selectedCount,
+      deferred: Math.max(0, ranking.considered - selectedCount), contextTokensBefore: bytesToTokens(ranking.rawBytes),
+      contextTokensAfter: estimateTokens(text), retrievalMs: elapsed }),
   };
 }
