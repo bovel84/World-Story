@@ -2485,3 +2485,356 @@ button:disabled { cursor: not-allowed; opacity: .5; }
    competenza non sequestra la seduta singola. */
 .council-convene-prompt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px dashed #526783; border-radius: 8px; background: #101c30; font: 400 11.5px/1.5 system-ui, sans-serif; color: #cfe0f5; }
 .council-convene-prompt-btn { padding: 6px 12px; border: 1px solid #2f8a58; border-radius: 8px; background: #1c3a2b; color: #b8ecc9; font: 700 11.5px/1.3 system-ui, sans-serif; cursor: pointer; }
+
+/* ============================================================================
+   WS-GOV-MOBILE-FOCUS (PARTE B/H) — La sessione mobile come macchina a stati
+   ============================================================================
+   Il desktop resta una stanza di lavoro (dialogo | tavola). Qui il mobile è una
+   sequenza di decisioni: una cosa principale, una prossima azione, un solo
+   scroll. Non è CSS compresso: è una composizione diversa dello stesso stato. */
+@media (max-width: 767px) {
+  /* B5 — schermo intero: niente modale al 94dvh con lo sfondo che sbircia. */
+  .government-office-overlay { padding: 0; place-items: stretch; }
+  .government-office {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    overflow: hidden;
+  }
+  .government-office .desk-close-x { display: none; }
+
+  .gov-mobile {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* B7 — l'intestazione resta bassa: chi sono, dove sono, come si chiude. */
+  .gov-mobile-head {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 52px;
+    max-height: 60px;
+    padding: max(6px, env(safe-area-inset-top)) 10px 6px;
+    border-bottom: 1px solid #24344d;
+    background: #0e1a2c;
+  }
+  .gov-mobile-nav,
+  .gov-mobile-close {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 10px;
+    border: 1px solid #35506f;
+    border-radius: 10px;
+    background: #16273d;
+    color: #d5e3f5;
+    font: 600 13px/1 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .gov-mobile-nav { justify-self: start; }
+  .gov-mobile-close { justify-self: end; justify-content: center; font-size: 16px; }
+  .gov-mobile-title {
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    font: 700 16px/1.2 Georgia, serif;
+    color: #f2f6ff;
+  }
+
+  /* B29 — la seduta nuova è dichiarata, il resto è contesto minuto. */
+  .gov-mobile-sessionline {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin: 0;
+    padding: 4px 12px 6px;
+    font: 500 11px/1.3 system-ui, sans-serif;
+    color: #8fa3bf;
+  }
+  .gov-mobile-new { color: #f0c56a; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+
+  /* B8/B32 — linguette sticky, bersaglio ≥44px, pallino solo per cambi reali. */
+  .gov-mobile-tabs {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid #24344d;
+    background: #0e1a2c;
+  }
+  .gov-mobile-tab {
+    flex: 1 1 0;
+    min-height: 44px;
+    border: 1px solid #35506f;
+    border-radius: 10px;
+    background: #16273d;
+    color: #cfe0f5;
+    font: 600 13px/1.3 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .gov-mobile-tab.active { border-color: #8a72e5; background: #241d47; color: #fff; }
+  .gov-mobile-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: #f0c56a;
+    vertical-align: middle;
+  }
+
+  /* B6/B33 — UN solo scroll owner, senza traboccamento orizzontale. */
+  .gov-mobile-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 10px 12px 16px;
+  }
+  /* Le viste restano montate (i loro stati — bozza, scroll — sopravvivono al
+     cambio), ma solo quella attiva è visibile: un solo scroll owner per volta. */
+  .gov-mobile [hidden] { display: none !important; }
+  .gov-mobile-scroll > * { max-width: 100%; }
+
+  /* H16 — partecipanti come chip, mai come blocco. */
+  .gov-mobile-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .gov-mobile-chip {
+    padding: 4px 9px;
+    border: 1px solid #35506f;
+    border-radius: 999px;
+    background: #16273d;
+    color: #cfe0f5;
+    font: 600 11.5px/1.4 system-ui, sans-serif;
+  }
+  .gov-mobile-chip[data-lead="true"] { border-color: #8a72e5; color: #fff; }
+
+  /* H13/H14 — il dialogo di riunione: intestazioni leggere, non card enormi. */
+  .gov-mobile-chat .minister-thread { padding: 0; }
+  .gov-mobile-chat[data-meeting="true"] .minister-message { border-left: 3px solid #35506f; border-radius: 0 8px 8px 0; }
+  .gov-mobile-chat[data-meeting="true"] .minister-message[data-seat="tesoro"] { border-left-color: #c9a34a; }
+  .gov-mobile-chat[data-meeting="true"] .minister-message[data-seat="lavori"] { border-left-color: #4a8ac9; }
+  .gov-mobile-chat .minister-speaker { font: 700 11px/1.3 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #9fb3cf; }
+  .gov-mobile-chat .minister-text { font-size: 14.5px; line-height: 1.5; }
+
+  /* H15/H24 — La Tavola mobile: gerarchia, non muro di sezioni. */
+  .gov-mobile-board-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .gov-mobile-board-title { margin: 0; font: 700 18px/1.25 Georgia, serif; color: #f4f7fc; }
+  .gov-mobile-board-status {
+    padding: 3px 9px;
+    border: 1px solid #3a5273;
+    border-radius: 999px;
+    background: #16273d;
+    color: #d7e5f7;
+    font: 600 11.5px/1.4 system-ui, sans-serif;
+  }
+  /* H10/B21 — «DA RISOLVERE» subito sotto il titolo, con il motivo in chiaro. */
+  .gov-mobile-alerts { display: grid; gap: 6px; margin: 10px 0; }
+  .gov-mobile-alert {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0;
+    padding: 9px 11px;
+    border: 1px solid #a8603a;
+    border-left-width: 4px;
+    border-radius: 8px;
+    background: #2a1c14;
+    color: #f3d9c6;
+    font: 600 13.5px/1.4 system-ui, sans-serif;
+  }
+  .gov-mobile-alert-owner { margin-left: auto; font-weight: 500; font-size: 11.5px; color: #d8b79a; }
+  .gov-mobile-section-title {
+    margin: 14px 0 6px;
+    font: 700 11px/1.3 system-ui, sans-serif;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: #93a6c0;
+  }
+  .gov-mobile-checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .gov-mobile-checklist li {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    gap: 6px;
+    align-items: baseline;
+    padding: 5px 0;
+    border-bottom: 1px solid #1c2b41;
+    font: 500 13.5px/1.4 system-ui, sans-serif;
+    color: #dbe6f5;
+  }
+  .gov-mobile-checklist li[data-status="missing"] { color: #f3d9c6; }
+  .gov-mobile-check { color: #6fce9a; }
+  .gov-mobile-checklist li[data-status="missing"] .gov-mobile-check { color: #e08b5f; }
+  .gov-mobile-check-value { font-variant-numeric: tabular-nums; color: #b9c9de; text-align: right; }
+  .gov-mobile-proposal { margin: 0; font: 500 14px/1.5 system-ui, sans-serif; color: #dbe6f5; }
+  .gov-mobile-empty { margin: 0; font: 400 13px/1.45 system-ui, sans-serif; color: #8fa3bf; }
+
+  /* H13 — interventi compatti, attribuiti, con identità sottile. */
+  .gov-mobile-talks { display: grid; gap: 8px; }
+  .gov-mobile-talk {
+    padding: 8px 10px 8px 12px;
+    border-left: 3px solid #35506f;
+    background: #101d30;
+    border-radius: 0 8px 8px 0;
+  }
+  .gov-mobile-talk[data-seat="tesoro"] { border-left-color: #c9a34a; }
+  .gov-mobile-talk[data-seat="lavori"] { border-left-color: #4a8ac9; }
+  .gov-mobile-talk-speaker { font: 700 10.5px/1.3 system-ui, sans-serif; letter-spacing: .07em; text-transform: uppercase; color: #9fb3cf; }
+  .gov-mobile-talk-text { margin: 3px 0 0; font: 400 14px/1.5 system-ui, sans-serif; color: #e3ecf8; }
+
+  /* H12/B15 — il dettaglio resta, ma chiuso e dichiarato. */
+  .gov-mobile-more {
+    margin-top: 16px;
+    border: 1px solid #24344d;
+    border-radius: 10px;
+    background: #0d1a2b;
+  }
+  .gov-mobile-more-summary {
+    padding: 12px;
+    min-height: 44px;
+    cursor: pointer;
+    font: 600 13px/1.4 system-ui, sans-serif;
+    color: #cfe0f5;
+  }
+  .gov-mobile-more-body { padding: 0 10px 12px; }
+  .gov-mobile-history-list { margin: 0; padding: 0 0 0 16px; display: grid; gap: 3px; font: 400 12.5px/1.5 system-ui, sans-serif; color: #b9c9de; }
+
+  /* B24 — una sola CTA primaria, ancorata sopra la safe-area. */
+  .gov-mobile-cta {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 8px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid #24344d;
+    background: #0e1a2c;
+  }
+  .gov-mobile-primary {
+    flex: 1 1 auto;
+    min-height: 48px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 12px;
+    background: #6a53d6;
+    color: #fff;
+    font: 700 15px/1.2 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .gov-mobile-secondary {
+    flex: 0 0 auto;
+    min-height: 48px;
+    padding: 0 14px;
+    border: 1px solid #35506f;
+    border-radius: 12px;
+    background: #16273d;
+    color: #d5e3f5;
+    font: 600 14px/1.2 system-ui, sans-serif;
+    cursor: pointer;
+  }
+
+  /* H19/H20/H21 — la vista Atto, distinta e focalizzata. */
+  .gov-mobile-signed { display: grid; gap: 8px; }
+  .gov-mobile-signed h3 { margin: 0; font: 700 18px/1.3 Georgia, serif; color: #9fe0b6; }
+  .gov-mobile-signed-text { margin: 0; font: 500 13.5px/1.5 system-ui, sans-serif; color: #cfe0f5; }
+  .act-draft-edit { margin-top: 8px; }
+  .act-draft-edit-toggle { min-height: 40px; padding: 0 14px; border: 1px solid #35506f; border-radius: 10px; background: #16273d; color: #d5e3f5; font: 600 13px/1.3 system-ui, sans-serif; cursor: pointer; }
+  .act-draft-text-view { margin: 4px 0 0; padding: 10px 12px; border: 1px solid #24344d; border-radius: 10px; background: #0d1a2b; font: 400 14px/1.55 system-ui, sans-serif; color: #e3ecf8; white-space: pre-wrap; }
+
+  /* H23/B36 — l'evidenza in primo piano. */
+  .gov-mobile-evidence { display: grid; gap: 10px; }
+  .gov-mobile-kicker { font: 700 11px/1.3 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #93a6c0; }
+  .gov-mobile-evidence .seat-canvas,
+  .gov-mobile-evidence [data-kind] { max-height: 52dvh; }
+  .gov-mobile-evidence-note { margin: 0; font: 400 13.5px/1.5 system-ui, sans-serif; color: #cfe0f5; }
+
+  /* H18 — il foglio di fondo. */
+  .gov-sheet-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: flex-end;
+    background: rgba(4, 9, 18, .6);
+  }
+  .gov-sheet {
+    width: 100%;
+    max-height: 70dvh;
+    display: flex;
+    flex-direction: column;
+    border-radius: 16px 16px 0 0;
+    border: 1px solid #2a3a52;
+    border-bottom: 0;
+    background: #0e1a2c;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: gov-sheet-up .18s ease-out;
+  }
+  @media (prefers-reduced-motion: reduce) { .gov-sheet { animation: none; } }
+  @keyframes gov-sheet-up { from { transform: translateY(16px); opacity: .6; } to { transform: none; opacity: 1; } }
+  .gov-sheet-grip { width: 44px; height: 4px; margin: 8px auto 4px; border-radius: 999px; background: #35506f; }
+  .gov-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 14px 8px; }
+  .gov-sheet-title { margin: 0; font: 700 16px/1.3 Georgia, serif; color: #f2f6ff; }
+  .gov-sheet-close { min-height: 44px; min-width: 44px; border: 1px solid #35506f; border-radius: 10px; background: #16273d; color: #d5e3f5; font-size: 16px; cursor: pointer; }
+  .gov-sheet-body { overflow-y: auto; overscroll-behavior: contain; padding: 0 10px 12px; }
+  .gov-sheet-list { list-style: none; margin: 0; padding: 0; }
+  .gov-sheet-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 52px;
+    padding: 0 12px;
+    border: 0;
+    border-bottom: 1px solid #1c2b41;
+    background: transparent;
+    color: #e3ecf8;
+    font: 600 15px/1.3 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .gov-sheet-item-go { color: #8fa3bf; font-size: 20px; }
+  .gov-sheet-empty { padding: 12px; font: 400 13px/1.4 system-ui, sans-serif; color: #8fa3bf; }
+
+  /* H15 — il dettaglio desktop dentro «Approfondimenti»: nessun doppio scroll
+     annidato, la pagina mobile resta l'unico scroll. */
+  .gov-mobile-more-body .seat-table,
+  .gov-mobile-more-body .council-meeting,
+  .gov-mobile-more-body .decision-board,
+  .gov-mobile-more-body .act-draft { max-height: none; overflow: visible; }
+  .gov-mobile-board { display: block; }
+  /* B23 — niente card dentro card: lo sfondo del dettaglio resta piatto. */
+  .gov-mobile .seat-table,
+  .gov-mobile .council-meeting,
+  .gov-mobile .decision-board { background: transparent; border-color: #24344d; }
+  /* B27 — i ministri su mobile: lista compatta, non schede piene di cifre. */
+  .government-office .cabinet-picks { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .government-office .cabinet-pick { padding: 12px; }
+}

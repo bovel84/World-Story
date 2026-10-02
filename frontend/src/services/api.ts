@@ -1878,6 +1878,26 @@ export const ministerApi = {
   },
 
   /**
+   * WS-GOV-MOBILE-FOCUS (A6/A7) — La voce **read-only** della riunione.
+   *
+   * Stessa persona e stesso provider del percorso normale, ma nessuna scrittura
+   * di memoria/JEV e nessuna direttiva: il server interpreta il brief verificato
+   * e restituisce solo prosa. La Tavola la aggiorna il motore, non il modello.
+   */
+  render: (
+    gameId: string,
+    seat: string,
+    brief: unknown,
+    signal?: AbortSignal,
+  ): Promise<{ reply: string; seat: string; narrativeOnly: boolean }> => {
+    signal?.throwIfAborted();
+    return fetchApi(`/games/${gameId}/government/minister/${seat}/render`, {
+      method: 'POST', signal,
+      body: JSON.stringify({ brief }),
+    });
+  },
+
+  /**
    * P02-bis — La risposta del ministro in streaming, come quella del Consulente.
    *
    * L'autore: «io la vorrei come quella del consulente». Il ministro scrive

@@ -34,7 +34,9 @@ import { MinisterChat } from './MinisterChat';
 import { OrderRegister } from './OrderRegister';
 import { SeatBrief } from './SeatBrief';
 import { SeatTable } from './SeatTable';
+import { ActDraftPanel } from './ActDraftPanel';
 import { deriveSeatCanvasBlocks } from './seatCanvasModel';
+import { SeatCanvas } from './SeatCanvas';
 import { seatCanvasAuthoring } from './seatCanvasConfig';
 import { treasuryAct, type TreasuryRoad } from './treasuryAct';
 import {
@@ -54,7 +56,7 @@ import {
 } from './ministerMemory';
 import { seatRoads } from './seatProposals';
 import {
-  activeProposal, actStaleness, applyDecisionBatch, emptyWorkspace, withEvidenceRefs,
+  activeProposal, actStaleness, applyDecisionBatch, emptyWorkspace, withEvidenceRefs, proposalSummary,
   type DecisionAction, type DecisionWorkspace,
 } from './decisionWorkspace';
 import {
@@ -66,10 +68,17 @@ import {
   type CouncilMeeting,
 } from './councilMeeting';
 import { meetingReadFromFeasibility } from './meetingEngineRead';
+import { resolveCurrentRegionRef } from './meetingLocalization';
 import {
-  narrativeContribution, narrativePrompt, meetingBriefFor,
+  narrativeContribution, meetingBriefFor,
   type MeetingNarrator,
 } from './meetingNarrative';
+import {
+  blockerKey, convenableMinisters, mobileDecisionSummary, mobileHistory, participantChips,
+  shouldShowBoardDot, type GovernmentMobileView,
+} from './mobileFocus';
+import { GovernmentBottomSheet } from '../ui/GovernmentBottomSheet';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import {
   actIdentity, governmentSessionId, previousSessionMemory, seatFromSessionSeatKey, sessionSeatKey,
   type PreviousGovernmentSessionRef,
@@ -233,6 +242,25 @@ export function GovernmentOffice({
   const [mobilePane, setMobilePane] = useState<'dialogo' | 'tavola'>('dialogo');
   const splitRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  // WS-GOV-MOBILE-FOCUS (H1/H2/H3) — La vista mobile è una **macchina a stati**:
+  // dialogo, tavola, atto, evidenza. È presentazione, non dominio: le stesse
+  // `DecisionWorkspace`/`CouncilMeeting`/atto alimentano desktop e mobile.
+  const isMobile = useIsMobile();
+  const [mobileView, setMobileView] = useState<GovernmentMobileView>('dialogue');
+  const [mobileSheet, setMobileSheet] = useState<'convene' | null>(null);
+  const sheetReturnRef = useRef<HTMLElement | null>(null);
+  // H4 — lo scroll di Dialogo e Tavola si conserva separato per vista.
+  const dialogueScrollRef = useRef<HTMLDivElement>(null);
+  const boardScrollRef = useRef<HTMLDivElement>(null);
+  const scrollMemory = useRef<{ dialogue: number; board: number }>({ dialogue: 0, board: 0 });
+  // H6 — il pallino della Tavola è un fatto di **visione**: si spegne quando la
+  // Tavola è aperta, non a ogni token.
+  const [boardSeen, setBoardSeen] = useState<{ revision: number; meetingRevision: number; blockers: string }>({
+    revision: -1, meetingRevision: -1, blockers: '',
+  });
+  // H23/B36 — l'evidenza in primo piano: il blocco mostrato a tutta pagina.
+  const [evidenceFocus, setEvidenceFocus] = useState<{ blockId: string | null; label: string; note: string } | null>(null);
+  const evidenceRef = useRef<HTMLElement>(null);
   // WS-GOVUX-P4 — La card in linea è un riferimento alla tavola: qui si mette a
   // fuoco il blocco reale (nessun secondo grafico).
   const tableRef = useRef<HTMLElement>(null);
@@ -275,6 +303,20 @@ export function GovernmentOffice({
     () => governmentSessionId({ gameId, branchId, turn: currentTurn ?? 0, kind: 'minister' }),
     [gameId, branchId, currentTurn],
   );
+  // WS-GOV-MOBILE-FOCUS (H2) — Le due azioni non si confondono: `←` torna alle
+  // viste della sessione, `×` chiude il modulo. La vista mobile non toglie il
+  // dialogo al desktop: è una diversa composizione dello stesso stato.
+  const goMobileView = useCallback((next: GovernmentMobileView): void => {
+    const current = mobileView;
+    const from = current === 'dialogue' ? dialogueScrollRef.current : current === 'board' ? boardScrollRef.current : null;
+    if (current === 'dialogue') scrollMemory.current.dialogue = from?.scrollTop ?? scrollMemory.current.dialogue;
+    if (current === 'board') scrollMemory.current.board = from?.scrollTop ?? scrollMemory.current.board;
+    if (next === 'board') {
+      // Il «visto» lo registra l'effetto sotto, quando la Tavola è davvero
+      // aperta e le revisioni correnti sono in scope.
+    }
+    setMobileView(next);
+  }, [mobileView]);
   const stateKey = useCallback(
     (seat: CabinetAddressView['seat']): string => sessionSeatKey(sessionId, seat),
     [sessionId],
@@ -527,8 +569,9 @@ export function GovernmentOffice({
   const canvasVersion = activeCanvas?.stateVersion ?? -1;
   // Vista la tavola, il pallino si spegne: la versione vista è quella corrente.
   useEffect(() => {
-    if (mobilePane === 'tavola' && hasCanvasEvidence) setSeenVersion(canvasVersion);
-  }, [mobilePane, hasCanvasEvidence, canvasVersion]);
+    const viewingTable = mobilePane === 'tavola' || (isMobile && mobileView === 'board');
+    if (viewingTable && hasCanvasEvidence) setSeenVersion(canvasVersion);
+  }, [mobilePane, isMobile, mobileView, hasCanvasEvidence, canvasVersion]);
 
   // WS-GOVUX-P4 — Aprire un'evidenza dalla card: si riporta la sua direttiva in
   // cima (read model di UI, nessun effetto di gioco), si apre la tavola su
@@ -550,9 +593,16 @@ export function GovernmentOffice({
         applyPresentation(openSeat, card.messageId, parsed.text.slice(0, 140), parsed.directives, lastUser);
       }
     }
-    setMobilePane('tavola');
+    if (isMobile) {
+      if (card.blockId) {
+        setEvidenceFocus({ blockId: card.blockId, label: card.title, note: card.label });
+        setMobileView('evidence');
+      }
+    } else {
+      setMobilePane('tavola');
+    }
     if (card.blockId) setPendingFocus({ id: card.blockId, nonce: Date.now() });
-  }, [openSeat, chatMessages, applyPresentation]);
+  }, [openSeat, chatMessages, applyPresentation, isMobile]);
 
   // WS-GOV-TURN-SESSIONS (A8) — Aprire un approfondimento dalla Tavola: si
   // conserva **solo il riferimento** (`evidenceIds`) e si mette a fuoco il blocco
@@ -565,10 +615,15 @@ export function GovernmentOffice({
       const next = withEvidenceRefs(current, [...current.evidenceIds, id]);
       return next === current ? prev : { ...prev, [key]: next };
     });
-    setMobilePane('tavola');
     const block = blockForEvidence(id, canvasBlocks);
+    if (isMobile) {
+      setEvidenceFocus({ blockId: block?.id ?? null, label: block?.title ?? 'Evidenza', note: '' });
+      setMobileView('evidence');
+    } else {
+      setMobilePane('tavola');
+    }
     if (block) setPendingFocus({ id: block.id, nonce: Date.now() });
-  }, [openSeat, stateKey, canvasBlocks]);
+  }, [openSeat, stateKey, canvasBlocks, isMobile]);
   const closeBoardEvidence = useCallback((id: EvidenceKey): void => {
     if (!openSeat) return;
     setWorkspaces(prev => {
@@ -587,28 +642,33 @@ export function GovernmentOffice({
   const meetingRef = useRef<CouncilMeeting | null>(meeting);
   meetingRef.current = meeting;
   const spokenContributionsRef = useRef<Set<string>>(new Set());
-  // WS-GOV-COUNCIL-HARDENING — La voce del ministro è dell'LLM, ma non è una
-  // fonte: il renderer passa dal percorso esistente (`government/minister`),
-  // che inietta la persona della sedia, e la prosa viene poi validata contro i
-  // fatti. Se il provider manca o tarda, si ricade sul deterministico.
+  // WS-GOV-MOBILE-FOCUS (A6/A7) — La voce della riunione è **read-only**: passa
+  // dal percorso dedicato `government/minister/:seat/render`, che inietta la
+  // persona della sedia e il briefing ma **non** scrive memoria/JEV e **non**
+  // applica direttive. La prosa resta solo prosa; la Tavola la aggiorna il motore.
   const narrateMeeting = useCallback<MeetingNarrator>(async (seat, brief) => {
     const timeout = new AbortController();
     const timer = window.setTimeout(() => timeout.abort(), 12000);
     try {
-      const reply = await ministerApi.ask(gameId, seat, narrativePrompt(brief), [], [], timeout.signal);
-      // La prosa visibile: i blocchi `decision`/`tavola` non entrano nel filo
-      // della riunione (la Tavola resta quella del motore).
-      return parsePresentation(reply.reply).text;
+      const reply = await ministerApi.render(gameId, seat, brief, timeout.signal);
+      return reply.reply;
     } finally {
       window.clearTimeout(timer);
     }
   }, [gameId]);
+  // WS-GOV-MOBILE-FOCUS (A5) — La regione attuale, solo se canonicalmente
+  // risolvibile (capitale marcata, oppure una sola regione posseduta). Serve a
+  // sciogliere «qui» / «nella regione attuale», non a indovinare un luogo.
+  const currentRegion = useMemo(
+    () => resolveCurrentRegionRef(pictureSources.regions ?? [], pictureSources.account?.polityId ?? null),
+    [pictureSources.regions, pictureSources.account?.polityId],
+  );
   const runMeeting = useCallback(async (opened: CouncilMeeting, text: string): Promise<void> => {
     try {
       const feasibility = await gameApi.checkFeasibility(gameId, text);
       // La geografia canonica della partita: la localizzazione nasce da lì, mai
       // dal testo. `pictureSources.regions` è la stessa fonte della mappa.
-      const read = meetingReadFromFeasibility(opened, feasibility, pictureSources.regions ?? []);
+      const read = meetingReadFromFeasibility(opened, feasibility, pictureSources.regions ?? [], currentRegion);
       const prev = meetingRef.current;
       if (!prev || prev.id !== opened.id) return;
       const next = applyEngineRead(prev, read);
@@ -636,7 +696,7 @@ export function GovernmentOffice({
     } catch {
       // Il motore non risponde: la riunione resta in apertura, senza inventare.
     }
-  }, [gameId, pictureSources.regions, openSeat, currentTurn, addMinisterMessage, narrateMeeting]);
+  }, [gameId, pictureSources.regions, currentRegion, openSeat, currentTurn, addMinisterMessage, narrateMeeting]);
   const conveneMeeting = useCallback((text: string): boolean => {
     if (!openSeat || !gameId || !shouldConveneMeeting(text)) return false;
     const opened = openMeeting({ gameId, branchId, turn: currentTurn ?? 0, subject: text });
@@ -652,9 +712,12 @@ export function GovernmentOffice({
     spokenContributionsRef.current = new Set();
     setMeeting(opened);
     setMobilePane('tavola');
+    // B9 — la convocazione è un atto esplicito del Presidente: la sola
+    // eccezione all'auto-cambio di vista. Si apre la Tavola della riunione.
+    if (isMobile) setMobileView('board');
     void runMeeting(opened, text);
     return true;
-  }, [openSeat, gameId, branchId, currentTurn, runMeeting]);
+  }, [openSeat, gameId, branchId, currentTurn, runMeeting, isMobile]);
   const conveneMeetingSeat = useCallback((seat: CabinetSeat): void => {
     setMeeting(prev => {
       if (!prev || prev.participants.includes(seat)) return prev;
@@ -676,13 +739,15 @@ export function GovernmentOffice({
     rememberFor(current.leadSeat, declaredPreference(current.leadSeat, draft.title, {
       gameDate: currentDate ?? '', turn: currentTurn ?? undefined,
     }));
-  }, [sessionId, currentTurn, currentDate, rememberFor]);
+    // H19 — l'atto è una vista distinta del mobile, non una sezione in fondo.
+    if (isMobile) setMobileView('act');
+  }, [sessionId, currentTurn, currentDate, rememberFor, isMobile]);
 
   // La messa a fuoco accade dopo il render: la tavola è già visibile (anche su
   // mobile, dove `mobilePane` è appena passato a «tavola»).
   useEffect(() => {
     if (!pendingFocus) return;
-    const root = tableRef.current;
+    const root = tableRef.current ?? evidenceRef.current;
     const selector = pendingFocus.id === 'comparison'
       ? '.proposal-comparison'
       : `[data-block-id="${pendingFocus.id}"]`;
@@ -794,6 +859,61 @@ export function GovernmentOffice({
   const actStale = workspace ? actStaleness(workspace, actRevision) : null;
   const decisionQuestion = address?.items[0]?.need ?? null;
 
+  // ── WS-GOV-MOBILE-FOCUS (H8–H24) — Il view model della vista mobile ──────
+  // Derivato dalla stessa fonte del desktop: nessuna cifra nuova, nessuno stato
+  // persistito. Se un dato non c'è, la vista dichiara l'assenza.
+  const mobileSummary = useMemo(
+    () => mobileDecisionSummary({
+      meeting,
+      workspace,
+      actPrepared: Boolean(actDraft),
+      actStale: Boolean(actStale),
+      signed: lastOutcome?.kind === 'order',
+      pendingMeetingPrompt: !meeting && meetingPrompt && shouldConveneMeeting(meetingPrompt) ? meetingPrompt : null,
+    }),
+    [meeting, workspace, actDraft, actStale, lastOutcome, meetingPrompt],
+  );
+  const mobileParticipants = useMemo(() => participantChips(meeting), [meeting]);
+  const mobileRevisions = useMemo(() => mobileHistory(workspace), [workspace]);
+  const currentBlockersKey = useMemo(() => blockerKey(meeting), [meeting]);
+  const boardDot = shouldShowBoardDot({
+    view: mobileView,
+    seenRevision: boardSeen.revision,
+    currentRevision: workspace?.revision ?? -1,
+    seenMeetingRevision: boardSeen.meetingRevision,
+    currentMeetingRevision: meeting?.revision ?? -1,
+    seenBlockerKey: boardSeen.blockers,
+    currentBlockerKey: currentBlockersKey,
+  }) || shouldShowEvidenceBadge({
+    hasEvidence: hasCanvasEvidence,
+    canvasVersion,
+    seenVersion,
+    pane: mobileView === 'board' ? 'tavola' : 'dialogo',
+  });
+  const convenable = useMemo(
+    () => convenableMinisters(CABINET_SEATS.map(seat => ({ seat })), meeting),
+    [meeting],
+  );
+  // H4 — al cambio di vista lo scroll riparte dal punto memorizzato della vista.
+  useEffect(() => {
+    if (!isMobile) return;
+    const target = mobileView === 'dialogue' ? dialogueScrollRef.current : mobileView === 'board' ? boardScrollRef.current : null;
+    if (!target) return;
+    const saved = mobileView === 'dialogue' ? scrollMemory.current.dialogue : scrollMemory.current.board;
+    if (saved > 0) target.scrollTop = saved;
+  }, [isMobile, mobileView]);
+  // H6 — aprire la Tavola spegne il pallino: la revisione vista è quella corrente.
+  useEffect(() => {
+    if (!isMobile || mobileView !== 'board') return;
+    setBoardSeen({ revision: workspace?.revision ?? -1, meetingRevision: meeting?.revision ?? -1, blockers: currentBlockersKey });
+  }, [isMobile, mobileView, workspace?.revision, meeting?.revision, currentBlockersKey]);
+  // H2 — aprire l'atto o l'evidenza è una vista distinta, non un terzo tab fisso.
+  useEffect(() => {
+    if (actDraft && mobileView === 'act') return;
+    if (!actDraft && mobileView === 'act') setMobileView('board');
+  }, [actDraft, mobileView]);
+  // H8/H24 — L'unica prossima azione, in chiaro. Ogni azione porta a **una**
+  // cosa: continuare, convocare, preparare, firmare. Mai due CTA primarie.
   // WS-GOV-SEAT-BOARDS (B25/B26) — La Tavola comune legge il workspace **vivo**
   // di ogni sedia convocata: la promozione è un riferimento, non una copia.
   const councilLookup = useCallback(
@@ -835,7 +955,8 @@ export function GovernmentOffice({
     rememberFor(address.seat, declaredPreference(address.seat, road.title, {
       gameDate: currentDate ?? '', turn: currentTurn ?? undefined,
     }));
-  }, [address, currentDate, currentTurn, rememberFor, sessionId]);
+    if (isMobile) setMobileView('act');
+  }, [address, currentDate, currentTurn, rememberFor, sessionId, isMobile]);
 
   const editDraft = useCallback((text: string): void => {
     setActDraft(current => (current && !current.signatureAttempted ? { ...editActDraft(current, text), signatureKey: current.signatureKey } : current));
@@ -860,7 +981,29 @@ export function GovernmentOffice({
     rememberFor(openSeat, declaredPreference(openSeat, draft.title, {
       gameDate: currentDate ?? '', turn: currentTurn ?? undefined,
     }));
-  }, [openSeat, workspaces, stateKey, currentTurn, sessionId, currentDate, rememberFor]);
+    if (isMobile) setMobileView('act');
+  }, [openSeat, workspaces, stateKey, currentTurn, sessionId, currentDate, rememberFor, isMobile]);
+
+  // H8/H24 — L'unica prossima azione, in chiaro. Ogni azione porta a **una**
+  // cosa: continuare, convocare, preparare, firmare. Mai due CTA primarie.
+  const runMobilePrimary = useCallback((): void => {
+    switch (mobileSummary.primaryAction) {
+      case 'convene':
+        if (meetingPrompt) conveneMeeting(meetingPrompt);
+        break;
+      case 'prepare-act':
+        if (meetingRef.current) prepareMeetingAct(); else prepareFromProposal();
+        break;
+      case 'regenerate-act':
+        prepareFromProposal();
+        break;
+      case 'sign':
+      case 'continue':
+      default:
+        setMobileView(mobileSummary.primaryAction === 'sign' ? 'act' : 'dialogue');
+        break;
+    }
+  }, [mobileSummary.primaryAction, meetingPrompt, conveneMeeting, prepareMeetingAct, prepareFromProposal]);
 
   const cancelDraft = useCallback((): void => {
     setActDraft(null);
@@ -912,6 +1055,305 @@ export function GovernmentOffice({
     }
     setOpenSeat(null);
   };
+
+  // ── WS-GOV-MOBILE-FOCUS (PARTE H) — La sessione mobile come macchina a stati ─
+  // Stesso stato del desktop, composizione diversa: in ogni momento una cosa
+  // principale e una prossima azione. La vista atto e la vista evidenza sono
+  // distinte, non un terzo tab fisso.
+  const sessionLabel = currentTurn != null ? `NUOVA SEDUTA · Turno ${currentTurn}` : null;
+  const proposalForBoard = workspace ? activeProposal(workspace) : null;
+  const mobileEvidenceBlock = evidenceFocus?.blockId
+    ? canvasBlocks.find(block => block.id === evidenceFocus.blockId) ?? null
+    : null;
+  const mobileSession = (
+    <div className="gov-mobile" data-view={mobileView}>
+      <header className="gov-mobile-head">
+        <button
+          type="button"
+          className="gov-mobile-nav"
+          onClick={() => {
+            if (mobileView === 'dialogue') setOpenSeat(null);
+            else if (mobileView === 'board') goMobileView('dialogue');
+            else goMobileView('board');
+          }}
+          aria-label={mobileView === 'dialogue' ? 'Torna ai ministri' : mobileView === 'board' ? 'Torna al dialogo' : 'Torna alla Tavola'}
+        >
+          <span aria-hidden="true">←</span>
+          <span>{mobileView === 'dialogue' ? 'Ministri' : mobileView === 'board' ? 'Dialogo' : 'Tavola'}</span>
+        </button>
+        <h2 className="gov-mobile-title" id="government-office-title">
+          {mobileView === 'act' ? 'Atto' : mobileView === 'evidence' ? 'Evidenza' : (address?.label ?? 'Seduta')}
+        </h2>
+        <button type="button" className="gov-mobile-close" onClick={onClose} aria-label="Chiudi il Governo" title="Chiudi il Governo">✕</button>
+      </header>
+
+      <p className="gov-mobile-sessionline">
+        {sessionLabel && <span className="gov-mobile-new">{sessionLabel}</span>}
+        {nationalName && <span>{nationalName}</span>}
+        {currentDate && <span>{currentDate}</span>}
+      </p>
+
+      {(mobileView === 'dialogue' || mobileView === 'board') && (
+        <nav className="gov-mobile-tabs" role="tablist" aria-label="Viste della seduta">
+          <button
+            type="button"
+            role="tab"
+            id="gov-tab-dialogue"
+            aria-selected={mobileView === 'dialogue'}
+            aria-controls="gov-panel-dialogue"
+            className={`gov-mobile-tab${mobileView === 'dialogue' ? ' active' : ''}`}
+            onClick={() => goMobileView('dialogue')}
+          >
+            Dialogo
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="gov-tab-board"
+            aria-selected={mobileView === 'board'}
+            aria-controls="gov-panel-board"
+            className={`gov-mobile-tab${mobileView === 'board' ? ' active' : ''}`}
+            onClick={() => goMobileView('board')}
+          >
+            Tavola
+            {boardDot && <span className="gov-mobile-dot" title="La Tavola è cambiata" aria-hidden="true" />}
+          </button>
+        </nav>
+      )}
+
+      <div
+        className="gov-mobile-scroll"
+        id="gov-panel-dialogue"
+        role="tabpanel"
+        aria-labelledby="gov-tab-dialogue"
+        hidden={mobileView !== 'dialogue'}
+        ref={dialogueScrollRef}
+      >
+          {meeting && (
+            <div className="gov-mobile-chips" aria-label="Partecipanti alla riunione">
+              {mobileParticipants.shown.map(chip => (
+                <span key={chip.seat} className="gov-mobile-chip" data-lead={chip.lead ? 'true' : undefined} data-seat={chip.seat}>
+                  {chip.label}{chip.lead ? ' · capofila' : ''}
+                </span>
+              ))}
+              {mobileParticipants.hidden > 0 && (
+                <span className="gov-mobile-chip more">+{mobileParticipants.hidden}</span>
+              )}
+            </div>
+          )}
+          <SeatBrief address={address} memory={memoryRecords} onRevoke={id => { if (openSeat) revokeFor(openSeat, id); }} />
+          <div className="gov-mobile-chat" data-meeting={meeting ? 'true' : undefined}>
+            <MinisterChat
+              gameId={gameId}
+              address={address}
+              messages={chatMessages}
+              streaming={streaming}
+              memory={memoryRecords}
+              sessionId={sessionId}
+              onAddMessage={message => { if (openSeat) addMinisterMessage(openSeat, { ...message, turn: currentTurn ?? undefined }); }}
+              onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
+              onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}
+              onPresentation={chatPresentation}
+              onDecision={chatDecision}
+              evidenceIndex={evidenceIndex}
+              onFocusEvidence={focusEvidence}
+            />
+          </div>
+        </div>
+
+      <div
+        className="gov-mobile-scroll"
+        id="gov-panel-board"
+        role="tabpanel"
+        aria-labelledby="gov-tab-board"
+        hidden={mobileView !== 'board'}
+        ref={boardScrollRef}
+      >
+          <section className="gov-mobile-board">
+            <header className="gov-mobile-board-head">
+              <h3 className="gov-mobile-board-title">{mobileSummary.title}</h3>
+              <span className="gov-mobile-board-status" data-state={mobileSummary.status.toLowerCase().replace(/\s+/g, '-')}>{mobileSummary.status}</span>
+            </header>
+
+            {/* H10/H24 — prima di tutto la ragione del blocco, in chiaro. */}
+            {mobileSummary.unresolved.length > 0 && (
+              <div className="gov-mobile-alerts" role="status">
+                {mobileSummary.unresolved.map((blocker, index) => (
+                  <p key={`${blocker.kind}-${index}`} className="gov-mobile-alert">
+                    <span className="gov-mobile-alert-q">⚠ {blocker.label}</span>
+                    {blocker.owner && <span className="gov-mobile-alert-owner">{blocker.owner}</span>}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            <section className="gov-mobile-decision" aria-label="Che cosa stiamo decidendo">
+              <h4 className="gov-mobile-section-title">Che cosa stiamo decidendo</h4>
+              {meeting ? (
+                <ul className="gov-mobile-checklist">
+                  {meeting.workspace.lines.map(line => (
+                    <li key={`${line.owner}-${line.label}`} data-status={line.status}>
+                      <span className="gov-mobile-check" aria-hidden="true">{line.status === 'ok' ? '✓' : line.status === 'missing' ? '✗' : '?'}</span>
+                      <span className="gov-mobile-check-label">{line.label}</span>
+                      <span className="gov-mobile-check-value">{line.value}</span>
+                    </li>
+                  ))}
+                  {meeting.workspace.lines.length === 0 && <li className="gov-mobile-empty">Nessun dato dal motore: la Tavola non inventa.</li>}
+                </ul>
+              ) : proposalForBoard ? (
+                <p className="gov-mobile-proposal">{proposalSummary(proposalForBoard)}</p>
+              ) : (
+                <p className="gov-mobile-empty">Ancora nessuna misura concordata: continua il dialogo.</p>
+              )}
+            </section>
+
+            {meeting && meeting.contributions.length > 0 && (
+              <section className="gov-mobile-talks" aria-label="Interventi dei ministri">
+                <h4 className="gov-mobile-section-title">La riunione</h4>
+                {meeting.contributions.map(contribution => (
+                  <article key={contribution.id} className="gov-mobile-talk" data-seat={contribution.seat}>
+                    <span className="gov-mobile-talk-speaker">{seatSpeaker(contribution.seat)}</span>
+                    <p className="gov-mobile-talk-text">{contribution.text}</p>
+                  </article>
+                ))}
+              </section>
+            )}
+
+            {/* H15/B13 — il dettaglio desktop resta disponibile, ma chiuso. */}
+            <details className="gov-mobile-more">
+              <summary className="gov-mobile-more-summary">Approfondimenti, fonti e cronologia</summary>
+              <div className="gov-mobile-more-body">
+                <SeatTable
+                  seat={address?.seat ?? 'lavori'}
+                  blocks={canvasBlocks}
+                  act={act}
+                  onPrepareRoad={prepareRoad}
+                  preparedRoadId={actDraft?.roadId ?? null}
+                  roadStates={roadStates}
+                  actDraft={null}
+                  actStatus={null}
+                  actBusy={false}
+                  actEditable={false}
+                  onCompare={compareFromTable}
+                  canvas={resolvedCanvas}
+                  onClearPresentation={clearPresentation}
+                  onTogglePin={togglePin}
+                  proposals={proposals}
+                  workspace={workspace}
+                  decisionQuestion={decisionQuestion}
+                  actRevision={actRevision}
+                  onPrepareFromProposal={prepareFromProposal}
+                  onRegenerateAct={prepareFromProposal}
+                  council={council}
+                  councilLookup={councilLookup}
+                  onConveneSeat={conveneSeatInCouncil}
+                  onOpenCouncilSeat={openCouncilSeat}
+                  onLeaveCouncil={leaveCouncil}
+                  onPromoteToCouncil={promoteOpenToCouncil}
+                  onOpenEvidence={openBoardEvidence}
+                  onCloseEvidence={closeBoardEvidence}
+                  meeting={meeting}
+                  onPrepareMeetingAct={prepareMeetingAct}
+                  onConveneMeetingSeat={conveneMeetingSeat}
+                  meetingPrompt={meetingPrompt}
+                  onConveneMeeting={conveneMeeting}
+                />
+                {mobileRevisions.length > 0 && (
+                  <div className="gov-mobile-history">
+                    <h4 className="gov-mobile-section-title">Cronologia</h4>
+                    <ul className="gov-mobile-history-list">
+                      {mobileRevisions.map(entry => (
+                        <li key={entry.revision}>v{entry.revision} — {entry.summary}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </details>
+          </section>
+
+          {/* H8/B24 — una sola CTA primaria, fissa in fondo. */}
+          {mobileSummary.primaryLabel && (
+            <div className="gov-mobile-cta">
+              <button type="button" className="gov-mobile-primary" onClick={runMobilePrimary}>
+                {mobileSummary.primaryLabel}
+              </button>
+              {meeting && convenable.length > 0 && (
+                <button
+                  type="button"
+                  className="gov-mobile-secondary"
+                  onClick={event => { sheetReturnRef.current = event.currentTarget; setMobileSheet('convene'); }}
+                >
+                  + Ministro
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+      {actDraft && draftStatus && (
+        <div className="gov-mobile-scroll" id="gov-panel-act" hidden={mobileView !== 'act'}>
+          {lastOutcome?.kind === 'order' ? (
+            <section className="gov-mobile-signed" role="status">
+              <h3>✓ Atto firmato</h3>
+              <p>Inserito nel registro e in attesa di esecuzione.</p>
+              {lastOutcome.text && <p className="gov-mobile-signed-text">«{lastOutcome.text}»</p>}
+              <button type="button" className="gov-mobile-primary" onClick={() => { setActDraft(null); goMobileView('board'); }}>Torna alla Tavola</button>
+            </section>
+          ) : (
+            <ActDraftPanel
+              draft={actDraft}
+              status={draftStatus}
+              busy={actBusy}
+              editable={!actDraft.signatureAttempted && !actStale}
+              signatureNotice={actDraft.signatureNotice}
+              mobile
+              board={consequenceBoard}
+              boardLoading={actPreviewLoading}
+              boardError={actPreviewError}
+              onRefreshBoard={refreshActBoard}
+              onEdit={editDraft}
+              onSign={signDraft}
+              onCancel={() => { cancelDraft(); goMobileView('board'); }}
+            />
+          )}
+        </div>
+      )}
+
+      <div className="gov-mobile-scroll" id="gov-panel-evidence" hidden={mobileView !== 'evidence'}>
+          <section className="gov-mobile-evidence" aria-label="Evidenza in primo piano" ref={evidenceRef}>
+            <span className="gov-mobile-kicker">{evidenceFocus?.label ?? 'Evidenza'}</span>
+            {mobileEvidenceBlock ? (
+              <SeatCanvas blocks={[mobileEvidenceBlock]} />
+            ) : (
+              <p className="gov-mobile-empty">L’evidenza richiesta non è più disponibile sulla tavola.</p>
+            )}
+            {evidenceFocus?.note && <p className="gov-mobile-evidence-note">{evidenceFocus.note}</p>}
+            <button type="button" className="gov-mobile-primary" onClick={() => goMobileView('board')}>Torna alla decisione</button>
+          </section>
+      </div>
+
+      {mobileSheet === 'convene' && (
+        <GovernmentBottomSheet
+          open
+          title="Convoca un ministro"
+          onClose={() => setMobileSheet(null)}
+        >
+          <ul className="gov-sheet-list">
+            {convenable.map(({ seat }) => (
+              <li key={seat}>
+                <button type="button" className="gov-sheet-item" onClick={() => { conveneMeetingSeat(seat); setMobileSheet(null); }}>
+                  <span className="gov-sheet-item-name">{seatSpeaker(seat)}</span>
+                  <span className="gov-sheet-item-go" aria-hidden="true">›</span>
+                </button>
+              </li>
+            ))}
+            {convenable.length === 0 && <li className="gov-sheet-empty">Tutte le competenze sono già a tavola.</li>}
+          </ul>
+        </GovernmentBottomSheet>
+      )}
+    </div>
+  );
 
   return (
     <AccessibleDialog
@@ -970,6 +1412,8 @@ export function GovernmentOffice({
             onOpenSeat={next => { setLastOutcome(null); setOpenSeat(next.seat); }}
           />
         </>
+      ) : isMobile ? (
+        mobileSession
       ) : (
         // ── [2] SEDUTA — il dialogo è la superficie principale (UX-01); la
         //     tavola di lavoro lo affianca a destra. ───────────────────────
