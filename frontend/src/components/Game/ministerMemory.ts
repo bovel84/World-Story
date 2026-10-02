@@ -19,6 +19,16 @@
  *
  * Modulo **puro** per la parte di logica (derivazione, selezione, potatura,
  * prompt); la persistenza `localStorage` è confinata in `loadMemory`/`saveMemory`.
+ *
+ * WS-GOVUX-P6 — La memoria del Consiglio, quattro regole in più:
+ *  - le quattro **famiglie** (decisione confermata / preferenza dichiarata /
+ *    questione aperta / ipotesi esplorata) sono **derivate** dal genere, non un
+ *    nuovo campo (compatibile coi vecchi salvataggi);
+ *  - la **revoca conserva la storia**: il ricordo resta, marcato `revoked`, e
+ *    non riemerge nel retrieval;
+ *  - il tempo del ricordo è il **turno di gioco**, non l'istante in cui è
+ *    scritto (il timestamp tecnico è solo del database);
+ *  - lo scope resta la **partita** (game + ramo + mandato).
  */
 
 export type MinisterMemoryKind =
@@ -30,8 +40,7 @@ export type MinisterMemoryKind =
   | 'verified-outcome';
 
 export type MinisterMemoryState =
-  | 'open' | 'discussed' | 'rejected' | 'queued' | 'executed' | 'verified';
-
+  | 'open' | 'discussed' | 'rejected' | 'queued' | 'executed' | 'verified' | 'revoked';
 export interface MinisterMemoryRef {
   readonly messageId?: string;
   readonly orderId?: string;
@@ -104,7 +113,46 @@ export const STATE_LABEL: Record<MinisterMemoryState, string> = {
   queued: 'accodata',
   executed: 'eseguita',
   verified: 'verificato',
+  revoked: 'revocata',
 };
+
+/**
+ * WS-GOVUX-P6 — Le **quattro famiglie** della memoria del Consiglio, come le
+ * nomina la roadmap: decisione confermata, preferenza dichiarata, questione
+ * aperta, ipotesi esplorata. È una classificazione **derivata** dal genere del
+ * ricordo (nessun nuovo campo, nessuna migrazione): le sei voci esistenti
+ * restano la granularità, le quattro famiglie sono la lettura che il giocatore e
+ * il prompt usano per non confondere ciò che è deciso da ciò che è solo pensato.
+ */
+export type MinisterMemoryFamily =
+  | 'confirmed-decision'   // un atto accodato o un esito verificato
+  | 'declared-preference'  // un obiettivo/preferenza esplicitato dal Presidente
+  | 'open-question'        // una questione rimasta senza decisione
+  | 'explored-hypothesis'; // una proposta discussa o respinta
+
+export const FAMILY_LABEL: Record<MinisterMemoryFamily, string> = {
+  'confirmed-decision': 'decisione confermata',
+  'declared-preference': 'preferenza dichiarata',
+  'open-question': 'questione aperta',
+  'explored-hypothesis': 'ipotesi esplorata',
+};
+
+/** La famiglia di un ricordo: una sola funzione, così la lettura non diverge. */
+export function memoryFamily(record: Pick<MinisterMemoryRecord, 'kind'>): MinisterMemoryFamily {
+  switch (record.kind) {
+    case 'queued-decision':
+    case 'verified-outcome':
+      return 'confirmed-decision';
+    case 'objective':
+      return 'declared-preference';
+    case 'open-question':
+      return 'open-question';
+    case 'proposal-discussed':
+    case 'proposal-rejected':
+    default:
+      return 'explored-hypothesis';
+  }
+}
 
 function isValid(record: MinisterMemoryRecord): boolean {
   return Boolean(record.id && record.summary.trim() && record.refs && typeof record.refs.gameDate === 'string');
@@ -133,14 +181,42 @@ export function recordMemory(
   return pruneToLimit(next);
 }
 
-/** I ricordi pertinenti: prima i più vincolanti, a parità i più recenti. */
+/** I ricordi pertinenti: prima i più vincolanti, a parità i più recenti. I
+ * ricordi **revocati** restano nello storico ma non riemergono (P6). */
 export function relevantMemory(records: readonly MinisterMemoryRecord[], limit = 8): MinisterMemoryRecord[] {
-  const indexed = records.map((record, index) => ({ record, index }));
+  const active = records.filter(record => record.state !== 'revoked');
+  const indexed = active.map((record, index) => ({ record, index }));
   indexed.sort((a, b) => {
     const byKind = KIND_PRIORITY[a.record.kind] - KIND_PRIORITY[b.record.kind];
     return byKind !== 0 ? byKind : b.index - a.index;
   });
   return indexed.slice(0, limit).map(entry => entry.record);
+}
+
+/** I ricordi revocati: la storia resta, non sparisce (P6). */
+export function revokedMemory(records: readonly MinisterMemoryRecord[]): MinisterMemoryRecord[] {
+  return records.filter(record => record.state === 'revoked');
+}
+
+/**
+ * WS-GOVUX-P6 — Revocare una memoria: **non** la cancella, la marca revocata e
+ * conserva il motivo precedente accanto a quello della revoca. Il ricordo esce
+ * dal retrieval (`relevantMemory` lo salta) ma resta nello storico della sedia.
+ */
+export function revokeMemory(
+  records: readonly MinisterMemoryRecord[],
+  id: string,
+  note?: string,
+): MinisterMemoryRecord[] {
+  const marker = note && note.trim() ? `revocata: ${note.trim()}` : 'revocata dal Presidente';
+  return records.map(record => {
+    if (record.id !== id || record.state === 'revoked') return record;
+    return {
+      ...record,
+      state: 'revoked' as const,
+      reason: record.reason ? `${record.reason} · ${marker}` : marker,
+    };
+  });
 }
 
 /** Al riwind si potano i ricordi oltre la data corrente: nessun futuro nel passato. */
@@ -170,6 +246,9 @@ export function memorySection(records: readonly MinisterMemoryRecord[], limit = 
 
 function refLabel(refs: MinisterMemoryRef): string {
   const parts: string[] = [];
+  // WS-GOVUX-P6 — Il tempo del ricordo è il turno del mondo (e la data), non
+  // l'istante tecnico in cui è stato scritto.
+  if (refs.turn != null) parts.push(`turno ${refs.turn}`);
   if (refs.messageId) parts.push(`messaggio ${refs.messageId}`);
   if (refs.orderId) parts.push(`ordine ${refs.orderId}`);
   if (refs.gameDate) parts.push(refs.gameDate);
@@ -192,6 +271,21 @@ export function discussedProposal(
     kind: 'proposal-discussed',
     summary: `Proposta discussa: ${road.title}`,
     state: 'discussed',
+    refs: ref,
+  };
+}
+
+/**
+ * WS-GOVUX-P6 — Una **preferenza dichiarata**: il Presidente indica la strada
+ * che preferisce, senza averla ancora decisa. È una famiglia distinta dalla
+ * decisione (l'atto accodato) e dall'ipotesi (la proposta solo discussa).
+ */
+export function declaredPreference(seat: string, text: string, ref: MinisterMemoryRef): MinisterMemoryRecord {
+  return {
+    id: `${seat}:preferenza:${slug(text) || 'preferenza'}`,
+    kind: 'objective',
+    summary: `Preferenza dichiarata: ${text}`,
+    state: 'open',
     refs: ref,
   };
 }

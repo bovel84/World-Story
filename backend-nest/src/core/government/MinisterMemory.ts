@@ -23,6 +23,16 @@
  * Il ricordo distingue ciò che è **discusso** da ciò che è **accodato** da ciò
  * che è **verificato**: «il Presidente valuta una scuola» non è «ha firmato
  * l'ordine» e non è «la scuola è operativa».
+ *
+ * WS-GOVUX-P6 — La memoria del Consiglio, senza riscrivere il motore:
+ *  - le quattro **famiglie** (decisione confermata / preferenza dichiarata /
+ *    questione aperta / ipotesi esplorata) sono **derivate** dal genere, non un
+ *    nuovo campo né una migrazione: i vecchi salvataggi restano validi;
+ *  - la **revoca conserva la storia**: il ricordo resta, marcato `revoked`, e
+ *    smette di riemergere nel retrieval e nel prompt;
+ *  - il tempo del ricordo è il **turno di gioco** (o la data), mai il timestamp
+ *    tecnico del database;
+ *  - lo scope resta la **partita** (game + ramo + sedia + mandato).
  */
 
 import type { CabinetSeat } from './Cabinet';
@@ -44,7 +54,9 @@ export type MinisterMemoryState =
   | 'rejected'
   | 'queued'
   | 'executed'
-  | 'verified';
+  | 'verified'
+  /** WS-GOVUX-P6 — revocata: resta nello storico, esce dal retrieval. */
+  | 'revoked';
 
 /**
  * L'identità della memoria: partita, ramo, sedia e mandato. Il solo nome della
@@ -111,14 +123,61 @@ const STATE_LABEL: Record<MinisterMemoryState, string> = {
   queued: 'accodata',
   executed: 'eseguita',
   verified: 'verificato',
+  revoked: 'revocata',
 };
+
+/**
+ * WS-GOVUX-P6 — Le **quattro famiglie** della memoria del Consiglio, come le
+ * nomina la roadmap: decisione confermata, preferenza dichiarata, questione
+ * aperta, ipotesi esplorata. È una classificazione **derivata** dal genere del
+ * ricordo (nessun nuovo campo, nessuna migrazione): le voci esistenti restano la
+ * granularità, le quattro famiglie sono la lettura che distingue ciò che è
+ * deciso da ciò che è solo pensato.
+ */
+export type MinisterMemoryFamily =
+  | 'confirmed-decision'
+  | 'declared-preference'
+  | 'open-question'
+  | 'explored-hypothesis';
+
+export const MINISTER_MEMORY_FAMILIES: readonly MinisterMemoryFamily[] = [
+  'confirmed-decision', 'declared-preference', 'open-question', 'explored-hypothesis',
+];
+
+const FAMILY_LABEL: Record<MinisterMemoryFamily, string> = {
+  'confirmed-decision': 'decisione confermata',
+  'declared-preference': 'preferenza dichiarata',
+  'open-question': 'questione aperta',
+  'explored-hypothesis': 'ipotesi esplorata',
+};
+
+/** La famiglia di un ricordo: una sola funzione, così la lettura non diverge. */
+export function memoryFamily(record: Pick<MinisterMemoryRecord, 'kind'>): MinisterMemoryFamily {
+  switch (record.kind) {
+    case 'queued-decision':
+    case 'verified-outcome':
+      return 'confirmed-decision';
+    case 'objective':
+      return 'declared-preference';
+    case 'open-question':
+      return 'open-question';
+    case 'proposal-discussed':
+    case 'proposal-rejected':
+    default:
+      return 'explored-hypothesis';
+  }
+}
+
+export function memoryFamilyLabel(family: MinisterMemoryFamily): string {
+  return FAMILY_LABEL[family];
+}
 
 /** I generi e gli stati ammessi, per la validazione dei dati in arrivo dal client. */
 export const MINISTER_MEMORY_KINDS: readonly MinisterMemoryKind[] = [
   'objective', 'proposal-discussed', 'proposal-rejected', 'open-question', 'queued-decision', 'verified-outcome',
 ];
 export const MINISTER_MEMORY_STATES: readonly MinisterMemoryState[] = [
-  'open', 'discussed', 'rejected', 'queued', 'executed', 'verified',
+  'open', 'discussed', 'rejected', 'queued', 'executed', 'verified', 'revoked',
 ];
 
 /**
@@ -230,18 +289,47 @@ function pruneToLimit(records: readonly MinisterMemoryRecord[]): readonly Minist
  * I ricordi pertinenti per il prompt: prima i più vincolanti (respinte,
  * accodate, verificate, aperte), poi obiettivi e discussioni; a parità, i più
  * recenti. Non è tutta la cronologia, è la sintesi breve che la roadmap chiede.
+ *
+ * WS-GOVUX-P6 — I ricordi **revocati** restano nello storico (`records`) ma non
+ * riemergono qui: la revoca non cancella la storia, le toglie voce nel dialogo.
  */
 export function relevantMinisterMemory(
   memory: MinisterMemory,
   limit = 8,
 ): readonly MinisterMemoryRecord[] {
-  const indexed = memory.records.map((record, index) => ({ record, index }));
+  const active = memory.records.filter(record => record.state !== 'revoked');
+  const indexed = active.map((record, index) => ({ record, index }));
   indexed.sort((a, b) => {
     const byKind = KIND_PRIORITY[a.record.kind] - KIND_PRIORITY[b.record.kind];
     if (byKind !== 0) return byKind;
     return b.index - a.index;
   });
   return indexed.slice(0, limit).map(entry => entry.record);
+}
+
+/** WS-GOVUX-P6 — I ricordi revocati: la storia resta consultabile. */
+export function revokedMinisterMemory(memory: MinisterMemory): readonly MinisterMemoryRecord[] {
+  return memory.records.filter(record => record.state === 'revoked');
+}
+
+/**
+ * WS-GOVUX-P6 — Revocare una memoria: **non** la cancella. Il ricordo resta con
+ * lo stato `revoked` e il motivo precedente conservato accanto a quello della
+ * revoca (se c'era). Esce dal retrieval, resta nella storia della sedia.
+ */
+export function revokeMinisterMemory(memory: MinisterMemory, id: string, note?: string): MinisterMemory {
+  const marker = note && note.trim() ? `revocata: ${note.trim()}` : 'revocata dal Presidente';
+  let changed = false;
+  const records = memory.records.map(record => {
+    if (record.id !== id || record.state === 'revoked') return record;
+    changed = true;
+    return {
+      ...record,
+      state: 'revoked' as MinisterMemoryState,
+      reason: record.reason ? `${record.reason} · ${marker}` : marker,
+    };
+  });
+  return changed ? { ...memory, records } : memory;
 }
 
 /**

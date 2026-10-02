@@ -82,22 +82,28 @@ function rowToRecord(row: MemoryRow): MinisterMemoryRecord {
 }
 
 export const ministerMemoryRepository = {
-  /** I ricordi di una sedia, dal più vecchio al più recente. */
+  /** I ricordi di una sedia, dal più vecchio al più recente.
+   *
+   * WS-GOVUX-P6 — L'ordine è il **tempo del mondo** (data, poi turno), mai il
+   * `updated_at` tecnico: una decisione resta al suo turno anche quando viene
+   * aggiornata (eseguita, revocata). `record_id` chiude i pareggi in modo
+   * deterministico; il timestamp non entra nell'ordine. */
   listMemory: (scope: MinisterMemoryScope): MinisterMemoryRecord[] => {
     const rows = db.prepare(`
       SELECT * FROM minister_memory
        WHERE game_id = ? AND branch_id = ? AND seat = ? AND mandate = ?
-       ORDER BY record_date ASC, record_turn ASC, updated_at ASC, record_id ASC
+       ORDER BY record_date ASC, record_turn ASC, record_id ASC
     `).all(scope.gameId, branchOf(scope.branchId), scope.seat, scope.mandate) as MemoryRow[];
     return rows.map(rowToRecord);
   },
 
-  /** Tutti i ricordi di un ramo, di ogni sedia e mandato (per fork/potatura/test). */
+  /** Tutti i ricordi di un ramo, di ogni sedia e mandato (per fork/potatura/test).
+   * Stesso ordine di `listMemory`: tempo del mondo, non timestamp tecnico. */
   listBranch: (scope: MinisterMemoryBranchScope): MinisterMemoryRecord[] => {
     const rows = db.prepare(`
       SELECT * FROM minister_memory
        WHERE game_id = ? AND branch_id = ?
-       ORDER BY seat ASC, record_date ASC, record_turn ASC, updated_at ASC, record_id ASC
+       ORDER BY seat ASC, record_date ASC, record_turn ASC, record_id ASC
     `).all(scope.gameId, branchOf(scope.branchId)) as MemoryRow[];
     return rows.map(rowToRecord);
   },

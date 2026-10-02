@@ -20,7 +20,7 @@ import type { CabinetAddressView } from '../../services/api';
 import { basisLabel, isUnknown } from './CabinetSession';
 import { EngineText } from './EngineText';
 import { formatFigureValue } from '../../utils/format';
-import { KIND_LABEL, STATE_LABEL, type MinisterMemoryRecord } from './ministerMemory';
+import { FAMILY_LABEL, KIND_LABEL, STATE_LABEL, memoryFamily, type MinisterMemoryRecord } from './ministerMemory';
 
 const URGENCY_LABEL: Record<string, string> = {
   ordinaria: 'ordinaria',
@@ -36,9 +36,15 @@ export interface SeatBriefProps {
    * distingue la proposta dall'atto, che è la differenza che conta.
    */
   memory?: readonly MinisterMemoryRecord[];
+  /**
+   * WS-GOVUX-P6 — Revocare un ricordo: il chiamante lo marca revocato (non lo
+   * cancella) e lo persiste. Il ricordo resta visibile nello storico, non
+   * riemerge nel retrieval e non torna nel prompt del ministro.
+   */
+  onRevoke?: (recordId: string) => void;
 }
 
-export function SeatBrief({ address, memory = [] }: SeatBriefProps) {
+export function SeatBrief({ address, memory = [], onRevoke }: SeatBriefProps) {
   if (!address || address.items.length === 0) return null;
   const count = address.items.length;
 
@@ -84,21 +90,39 @@ export function SeatBrief({ address, memory = [] }: SeatBriefProps) {
             <h3 className="seat-brief-memory-title">Cosa ricorda il ministro</h3>
             <ul className="seat-brief-memory-list">
               {memory.map(record => (
-                <li key={record.id} className={`seat-brief-memory-item kind-${record.kind}`}>
+                <li
+                  key={record.id}
+                  className={`seat-brief-memory-item kind-${record.kind} state-${record.state}`}
+                  data-family={memoryFamily(record)}
+                >
                   <span className="seat-brief-memory-state">{KIND_LABEL[record.kind]} · {STATE_LABEL[record.state]}</span>
+                  <span className="seat-brief-memory-family">{FAMILY_LABEL[memoryFamily(record)]}</span>
                   <span className="seat-brief-memory-summary">{record.summary}</span>
                   {record.reason && <span className="seat-brief-memory-reason">motivo: {record.reason}</span>}
                   <span className="seat-brief-memory-ref">
                     {record.refs.orderId ? `ordine ${record.refs.orderId} · ` : ''}
                     {record.refs.messageId ? `messaggio ${record.refs.messageId} · ` : ''}
+                    {record.refs.turn != null ? `turno ${record.refs.turn} · ` : ''}
                     {record.refs.gameDate || 'senza data'}
                   </span>
+                  {onRevoke && record.state !== 'revoked' && (
+                    <button
+                      type="button"
+                      className="seat-brief-memory-revoke"
+                      onClick={() => onRevoke(record.id)}
+                      aria-label={`Revoca il ricordo: ${record.summary}`}
+                    >
+                      Revoca
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
             <p className="seat-brief-memory-note">
               Questi ricordi accompagnano la richiesta al ministro e sono persistiti dal server
-              per partita, ramo e mandato. Il browser qui ne mostra la copia più recente.
+              per partita, ramo e mandato. Ogni ricordo ha una famiglia (decisione, preferenza,
+              questione, ipotesi); revocarlo non lo cancella: resta nello storico e smette di
+              riemergere nel dialogo. Il browser qui ne mostra la copia più recente.
             </p>
           </section>
         )}
