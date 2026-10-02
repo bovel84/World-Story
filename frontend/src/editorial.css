@@ -2954,6 +2954,12 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .opening-reading dt { font-family: var(--op-utility); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--op-muted); }
 .opening-reading dd { margin: 3px 0 0; font-family: var(--op-copy); font-size: 15px; line-height: 1.4; }
 
+/* §11–§12 — la mappa dentro la pagina Paese: sola presentazione della geografia
+   già letta dal motore, nessuna interazione e nessuna mutazione. */
+.opening-map { border: 1px solid var(--op-rule); background: #e7e0d1; padding: 8px 10px 6px; }
+.opening-map svg { display: block; width: 100%; height: clamp(120px, 22vh, 200px); }
+.opening-map .opening-sub { margin-bottom: 6px; }
+
 .opening-situation { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
 .opening-item { display: flex; gap: 12px; align-items: flex-start; }
 .opening-symbol { flex: 0 0 auto; font-size: 17px; line-height: 1.2; }

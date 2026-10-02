@@ -198,6 +198,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     currentRegion,
     playerPolityId,
     nationalName,
+    nationalRegions,
     nationalAccount,
     governmentType,
     externalRegionSelected,
@@ -605,7 +606,13 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
       deskOpen={(activeModule !== 'none' && activeModule !== 'orders') || mapContext !== null}
     />
       {openingVisible && (
-        <GameOpeningBriefing briefing={opening} onFinish={finishOpening} onSkip={skipOpening} />
+        <GameOpeningBriefing
+          briefing={opening}
+          onFinish={finishOpening}
+          onSkip={skipOpening}
+          mapRegions={regions}
+          highlightRegionIds={nationalRegions.map(region => region.id)}
+        />
       )}
     </>
   );

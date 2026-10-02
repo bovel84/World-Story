@@ -78,7 +78,12 @@ Evidenze: `docs/implementation/screenshots/ws-game-opening/{desktop,mobile}-1..5
 
 ## 5. La mappa "racconta" senza mutare stato
 
-L'apertura è un overlay sopra `GameScreen`: la mappa già montata resta visibile attraverso il velo (`rgba(16,24,23,.74)` + blur). Non si monta una seconda mappa, non si cambia `mapContextSelection`, non si toccano regioni o unità: è **solo presentazione**. Il pannello è una "sala situazione" (desktop) / pagine verticali (mobile).
+La mappa racconta in **due** modi, entrambi di sola lettura:
+
+1. **La mappa interattiva già montata** da `GameScreen` resta visibile attraverso il velo dell'overlay (`rgba(16,24,23,.74)` + blur): non si monta una seconda `GameMap`, non si cambia `mapContextSelection`, non si toccano regioni o unità.
+2. **La mini-mappa dentro la pagina Paese** (`OpeningMap` in `GameOpeningBriefing.tsx`) usa il read model puro `buildStaticMap(regions)` di `frontend/src/components/Map/staticMapModel.ts`: disegna la geografia politica reale (`Region.geojson`, colori già calcolati dal motore) ed evidenzia le regioni del paese del giocatore. **Nessun `onRegionClick`**: è sola presentazione. Se il mondo non ha geometria disegnabile, lo dichiara invece di inventarla.
+
+Nessuno dei due modifica lo stato: nessuna selezione, nessun fetch, nessuna mutazione.
 
 ---
 
@@ -98,11 +103,11 @@ Test E2E: `e2e/tests/ws-gov-office-scroll.spec.mjs`.
 **Apertura**
 - `frontend/src/components/Game/openingBriefing.ts` (nuovo, read model)
 - `frontend/src/components/Game/openingBriefing.test.ts` (nuovo)
-- `frontend/src/components/Game/GameOpeningBriefing.tsx` (nuovo)
+- `frontend/src/components/Game/GameOpeningBriefing.tsx` (nuovo) — 5 pagine + `OpeningMap` (mini-mappa read-only via `buildStaticMap`)
 - `frontend/src/components/Game/GameOpeningBriefing.test.tsx` (nuovo)
 - `frontend/src/components/Game/openingFlag.ts` (nuovo)
 - `frontend/src/hooks/useOpeningNarrative.ts` (nuovo)
-- `frontend/src/stores/uiStore.ts`, `frontend/src/App.tsx`, `frontend/src/components/Game/GameScreen.tsx`, `frontend/src/components/Shell/GameMenu.tsx`, `frontend/src/services/api.ts`
+- `frontend/src/stores/uiStore.ts`, `frontend/src/App.tsx`, `frontend/src/components/Game/GameScreen.tsx` (apertura + passa `regions`/`nationalRegions` alla mini-mappa), `frontend/src/components/Shell/GameMenu.tsx`, `frontend/src/services/api.ts`
 - `frontend/src/editorial.css` (blocco `.opening-*`)
 - `backend-nest/src/core/government/OpeningNarrative.ts` (nuovo), `backend-nest/src/routes/games/state.routes.ts`, `backend-nest/tests/ws-game-opening.test.ts` (nuovo), `docs/implementation/q02-endpoint-inventory.json`
 - `e2e/mock-api.mjs` (route `opening-narrative` + flag `showOpening`), `e2e/tests/ws-game-opening.spec.mjs` (nuovo), `e2e/tests/hud-mobile.spec.mjs` (5ª voce menu), `e2e/wsgameopening-shot.mjs` (nuovo)
@@ -124,10 +129,10 @@ $ (backend-nest) npx tsc --noEmit -p tsconfig.json  # 0 errori
 
 # Suite frontend
 $ npm run build                                      # build OK (8.65s)
-$ npx vitest run                                     # 146 file, 1258 test passati
+$ npx vitest run                                     # 146 file, 1261 test passati
 
 # Suite backend
-$ npx vitest run tests/                              # 217 file, 2320 test passati
+$ npx vitest run tests/                              # 217 file, 2321 test passati
 
 # E2E (mock, Chrome di sistema)
 $ npx playwright test tests/ws-game-opening.spec.mjs tests/ws-gov-office-scroll.spec.mjs tests/hud-mobile.spec.mjs
