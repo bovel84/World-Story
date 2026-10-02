@@ -30,6 +30,7 @@ import { basisLabel, isUnknown } from './CabinetSession';
 import { EngineText } from './EngineText';
 import { RichText } from './RichText';
 import { parsePresentation, type PresentationDirective } from './presentation';
+import type { DecisionAction } from './decisionWorkspace';
 import { inlineEvidenceCards, type EvidenceCardIndex, type InlineEvidenceCard } from './inlineEvidence';
 import { isNearBottom } from './chatScroll';
 import { formatFigureValue } from '../../utils/format';
@@ -68,6 +69,11 @@ export interface MinisterChatProps {
    * la principale, aggiungere un confronto e aggiornare un'evidenza insieme.
    */
   onPresentation?: (messageId: string, quote: string, directives: readonly PresentationDirective[], discussion?: string) => void;
+  /**
+   * WS-GOV-DIALOGUE-TO-ACT — Le azioni strutturate sul Decision Workspace di
+   * una risposta conclusa. Mai durante lo streaming, mai mostrate all'utente.
+   */
+  onDecision?: (messageId: string, decisions: readonly DecisionAction[]) => void;
   /**
    * WS-GOVUX-P4 — Il catalogo delle evidenze **disponibili per la sedia**: la
    * card in linea è un **riferimento** al blocco reale (stesso id, stesso
@@ -113,7 +119,7 @@ function FigureBar({ figure }: { figure: CabinetItemView['figures'][number] }) {
 export function MinisterChat({
   gameId, address, onChoose,
   messages, streaming, onAddMessage, onAppendToken, onStreamingChange,
-  onPresentation, evidenceIndex, onFocusEvidence, memory,
+  onPresentation, onDecision, evidenceIndex, onFocusEvidence, memory,
 }: MinisterChatProps) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
@@ -136,6 +142,8 @@ export function MinisterChat({
   // Le direzioni di presentazione già annunciate: una per messaggio, per non
   // ripetere l'evento se il componente si ridisegna.
   const emittedPresentationRef = useRef<Record<string, string>>({});
+  // WS-GOV-DIALOGUE-TO-ACT — Stessa cosa per le azioni `decision`.
+  const emittedDecisionRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     if (!stickToBottomRef.current) return;
@@ -154,24 +162,35 @@ export function MinisterChat({
 
   // WS-MINISTER-UX-03 — Solo a risposta conclusa si annuncia la presentazione:
   // durante lo streaming il blocco può essere incompleto e non si applica nulla.
+  // WS-GOV-DIALOGUE-TO-ACT — Dalla stessa lettura nascono le azioni `decision`
+  // che aggiornano la proposta corrente sulla tavola.
   useEffect(() => {
-    if (!onPresentation || streaming || !address) return;
+    if ((!onPresentation && !onDecision) || streaming || !address) return;
     const lastIndex = messages.length - 1;
     if (lastIndex < 0) return;
     const last = messages[lastIndex];
     if (!last || last.role !== 'assistant' || !last.content.trim()) return;
-    const { text, directives } = parsePresentation(last.content);
-    if (directives.length === 0) return;
+    const parsed = parsePresentation(last.content);
     const messageId = `${address.seat}#${lastIndex}`;
-    const signature = `${messageId}:${JSON.stringify(directives)}`;
-    if (emittedPresentationRef.current[messageId] === signature) return;
-    emittedPresentationRef.current[messageId] = signature;
     // WS-MINISTER-UX-07 (A2) — Insieme alla risposta viaggia l'ultimo messaggio
     // del Presidente: è dal **discorso** che si sceglie la voce di spesa da
     // evidenziare, non dalla risposta (che può non nominarla).
     const lastUser = [...messages.slice(0, lastIndex)].reverse().find(m => m.role === 'user')?.content ?? '';
-    onPresentation(messageId, text.slice(0, 140), directives, lastUser);
-  }, [messages, streaming, onPresentation, address?.seat]);
+    if (onPresentation && parsed.directives.length > 0) {
+      const signature = `${messageId}:${JSON.stringify(parsed.directives)}`;
+      if (emittedPresentationRef.current[messageId] !== signature) {
+        emittedPresentationRef.current[messageId] = signature;
+        onPresentation(messageId, parsed.text.slice(0, 140), parsed.directives, lastUser);
+      }
+    }
+    if (onDecision && parsed.decisions.length > 0) {
+      const signature = `${messageId}:${JSON.stringify(parsed.decisions)}`;
+      if (emittedDecisionRef.current[messageId] !== signature) {
+        emittedDecisionRef.current[messageId] = signature;
+        onDecision(messageId, parsed.decisions);
+      }
+    }
+  }, [messages, streaming, onPresentation, onDecision, address?.seat]);
 
   // Cambiando ministro si azzera solo la BOZZA della domanda: la cronaca è per
   // sedia e resta dov'è — è la differenza dal comportamento precedente.

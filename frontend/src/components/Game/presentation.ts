@@ -26,6 +26,7 @@ import type { SeatCanvasBlock } from './seatCanvasModel';
 import type { TreasuryRoad } from './treasuryAct';
 import { matchSpendingVoice } from './spendingFocus';
 import { focusedProposals } from './seatProposals';
+import { parseDecisionActions, stripDecisionFences, type DecisionAction } from './decisionWorkspace';
 
 /** Le chiavi di evidenza che il ministro può richiamare. */
 export const EVIDENCE_KEYS = ['spesa', 'trend', 'cifre', 'piano', 'mappa', 'idee'] as const;
@@ -295,8 +296,13 @@ export function parsePresentation(text: string): {
   text: string;
   directive: PresentationDirective | null;
   directives: PresentationDirective[];
+  /**
+   * WS-GOV-DIALOGUE-TO-ACT — Le azioni strutturate sul Decision Workspace,
+   * estratte dallo stesso testo e **mai** mostrate al Presidente (come la tela).
+   */
+  decisions: DecisionAction[];
 } {
-  if (!text) return { text: '', directive: null, directives: [] };
+  if (!text) return { text: '', directive: null, directives: [], decisions: [] };
   const found: PresentationDirective[] = [];
   FENCE_BLOCK.lastIndex = 0;
   for (const match of text.matchAll(FENCE_BLOCK)) {
@@ -317,10 +323,15 @@ export function parsePresentation(text: string): {
   let visible = text.replace(FENCE_BLOCK, '');
   const open = visible.search(FENCE_OPEN);
   if (open >= 0) visible = visible.slice(0, open);
+  // WS-GOV-DIALOGUE-TO-ACT — I blocchi `decision` non sono mai prosa visibile:
+  // si estraggono e si tolgono dal testo (anche un fence aperto in streaming).
+  const decisions = parseDecisionActions(text);
+  visible = stripDecisionFences(visible);
   return {
     text: visible.trim(),
     directive: directives[directives.length - 1] ?? null,
     directives,
+    decisions,
   };
 }
 

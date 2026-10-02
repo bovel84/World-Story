@@ -2028,6 +2028,61 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .consequence-not-estimable ul { margin: 0; padding-left: 16px; }
 .consequence-not-estimable li { font: 400 10.5px/1.45 system-ui, sans-serif; color: #e0b3ac; }
 .consequence-board-footnote { margin: 0; font: 400 10px/1.45 system-ui, sans-serif; color: #7d8ea8; }
+
+/* WS-GOV-DIALOGUE-TO-ACT — la decisione in corso: la proposta corrente domina
+   la tavola, l'atto è il risultato finale. Nessun `!important`. */
+.decision-board { display: flex; flex-direction: column; gap: 9px; padding: 11px; border: 1px solid #3a4a66; border-radius: 11px; background: #0d1a2d; }
+.decision-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.decision-kicker { font: 700 10.5px/1.3 system-ui, sans-serif; letter-spacing: .07em; text-transform: uppercase; color: #e0b06a; }
+.decision-status { padding: 1px 8px; border: 1px solid #526783; border-radius: 999px; font: 700 9.5px/1.5 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #cfe0f5; }
+.decision-board[data-status="ready-for-act"] .decision-status, .decision-board[data-status="act-prepared"] .decision-status { border-color: #2f8a58; color: #9fe0ba; }
+.decision-board[data-status="negotiating"] .decision-status { border-color: #8a7a2b; color: #e6d98a; }
+.decision-revision { margin-left: auto; font: 700 10px/1.4 system-ui, sans-serif; color: #93a6c0; }
+.decision-section-label { display: block; font: 700 9.5px/1.3 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #93a6c0; }
+.decision-question, .decision-objective { margin: 0; font: 400 12.5px/1.5 var(--op-copy, system-ui, sans-serif); color: #dbe6f5; }
+.decision-question { color: #a8bdd8; }
+.decision-objective { font-weight: 600; color: #f2f6ff; }
+.decision-current { display: flex; flex-direction: column; gap: 6px; padding: 9px; border: 1px solid #2b3d5b; border-radius: 9px; background: #101f36; }
+.decision-measures { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.decision-measure { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-left: 3px solid #526783; border-radius: 6px; background: #0b1526; }
+.decision-measure-label { font: 600 13px/1.35 var(--op-copy, system-ui, sans-serif); color: #eef3fc; }
+.decision-measure-value { margin-left: auto; font: 700 14px/1.3 system-ui, sans-serif; color: #f0c56a; }
+.decision-measure-tags { display: flex; gap: 6px; align-items: center; }
+.decision-measure-status { padding: 0 6px; border-radius: 999px; background: #24344f; font: 700 8.5px/1.7 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #cfe0f5; }
+.decision-measure-source { font: 400 9.5px/1.4 system-ui, sans-serif; color: #8fa4c0; }
+.decision-measure.status-proposed { border-left-color: #c08a2e; }
+.decision-measure.status-proposed .decision-measure-status { background: #3a2f14; color: #e6d98a; }
+.decision-measure.status-accepted { border-left-color: #2f8a58; }
+.decision-measure.status-accepted .decision-measure-status { background: #1f5236; color: #b8ecc9; }
+.decision-measure.status-rejected { border-left-color: #b96a6a; opacity: .75; }
+.decision-measure.status-rejected .decision-measure-label { text-decoration: line-through; }
+.decision-measure.status-rejected .decision-measure-status { background: #5a2525; color: #f2c0c0; }
+.decision-measure.status-unresolved { border-left-color: #b96a6a; border-left-style: dashed; }
+.decision-measure.status-unresolved .decision-measure-status { background: #5a2525; color: #f2c0c0; }
+.decision-empty { margin: 0; font: 400 11.5px/1.5 system-ui, sans-serif; color: #a8bdd8; }
+.decision-todo { display: flex; flex-direction: column; gap: 4px; padding: 8px 9px; border: 1px dashed #8a7a2b; border-radius: 9px; background: #1d1a0e; }
+.decision-todo ul { margin: 0; padding-left: 16px; }
+.decision-todo li { font: 400 11.5px/1.5 system-ui, sans-serif; color: #e6d98a; }
+.decision-consequences { display: flex; flex-direction: column; gap: 4px; }
+.decision-consequences ul { margin: 0; padding-left: 16px; }
+.decision-consequences li { font: 400 11.5px/1.5 system-ui, sans-serif; color: #a8bdd8; }
+.decision-consequences .decision-risk { color: #e0b3ac; }
+.decision-consequences .decision-effect { color: #b8ecc9; }
+.decision-evidence { display: flex; flex-direction: column; gap: 4px; }
+.decision-evidence ul { margin: 0; padding-left: 16px; }
+.decision-evidence li { font: 400 11.5px/1.5 system-ui, sans-serif; color: #a8bdd8; }
+.decision-history { font: 400 11.5px/1.5 system-ui, sans-serif; color: #a8bdd8; }
+.decision-history-summary { cursor: pointer; font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #93a6c0; }
+.decision-history ol { margin: 6px 0 0; padding-left: 16px; }
+.decision-history li { display: flex; gap: 6px; }
+.decision-history-rev { flex: none; font: 700 10.5px/1.5 system-ui, sans-serif; color: #b3a6ea; }
+.decision-act-stale { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid #8a7a2b; border-radius: 8px; background: #241f10; font: 400 11.5px/1.5 system-ui, sans-serif; color: #e6d98a; }
+.decision-regenerate { margin-left: auto; padding: 4px 11px; border: 1px solid #8a7a2b; border-radius: 7px; background: #2e2813; color: #f2e9b8; font: 700 11px/1.4 system-ui, sans-serif; cursor: pointer; }
+.decision-act-ready { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid #2f8a58; border-radius: 8px; background: #12281f; font: 400 11.5px/1.5 system-ui, sans-serif; color: #b8ecc9; }
+.decision-prepare { padding: 7px 14px; border: 1px solid #2f8a58; border-radius: 8px; background: #2f8a58; color: #fff; font: 700 12px/1.3 system-ui, sans-serif; cursor: pointer; }
+.decision-prepare:hover { background: #37996a; }
+.decision-act-current { margin: 0; font: 400 11.5px/1.5 system-ui, sans-serif; color: #9fe0ba; }
+.decision-continue { margin: 0; font: 400 11.5px/1.5 system-ui, sans-serif; color: #93a6c0; }
 .government-office-act-status { margin: 6px 0 0; padding: 6px 9px; border-left: 3px solid #526783; border-radius: 4px; background: #101c30; font: 400 11.5px/1.5 system-ui, sans-serif; color: #cfe0f5; }
 .government-office-act-status[data-state="queued"] { border-left-color: #5fb98a; }
 .government-office-act-status[data-state="executed"] { border-left-color: #4aa3c0; }

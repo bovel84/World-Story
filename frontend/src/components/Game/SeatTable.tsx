@@ -36,12 +36,14 @@ import { TreasuryActPanel } from './TreasuryActPanel';
 import { SeatProposalPanel } from './SeatProposalPanel';
 import { ActDraftPanel } from './ActDraftPanel';
 import { ProposalComparison } from './ProposalComparison';
+import { DecisionBoard } from './DecisionBoard';
 import type { SeatCanvasBlock } from './seatCanvasModel';
 import type { EvidenceKey, ResolvedCanvas, ResolvedPresentation } from './presentation';
 import type { ActState, ActStatus, ProposalActDraft } from './actDraft';
 import type { TreasuryAct, TreasuryRoad } from './treasuryAct';
 import type { CabinetAddressView } from '../../services/api';
 import type { ConsequenceBoard as ConsequenceBoardModel } from './consequenceBoard';
+import type { DecisionWorkspace } from './decisionWorkspace';
 
 /** L'ordine di priorità sulla tavola: il piano prima, le idee per ultime. */
 const KIND_PRIORITY: Record<SeatCanvasBlock['kind'], number> = {
@@ -108,12 +110,23 @@ export interface SeatTableProps {
   actBoardLoading?: boolean;
   actBoardError?: string | null;
   onRefreshActBoard?: () => void;
+  /**
+   * WS-GOV-DIALOGUE-TO-ACT — La decisione in corso della sedia: la proposta
+   * corrente domina la tavola, l'atto è il risultato finale.
+   */
+  workspace?: DecisionWorkspace | null;
+  decisionQuestion?: string | null;
+  /** La revisione su cui poggia l'atto preparato (per marcare lo stantio). */
+  actRevision?: number | null;
+  onPrepareFromProposal?: () => void;
+  onRegenerateAct?: () => void;
 }
 
 export function SeatTable({
   seat, blocks, act, onPrepareRoad, preparedRoadId, roadStates, actDraft, actStatus, actBusy, actEditable, actSignatureNotice,
   onEditDraft, onSignDraft, onCancelDraft, onCompare, presentation, canvas = null, onClearPresentation, onTogglePin, onReturnToMessage,
   proposals = [], actBoard = null, actBoardLoading = false, actBoardError = null, onRefreshActBoard,
+  workspace = null, decisionQuestion = null, actRevision = null, onPrepareFromProposal, onRegenerateAct,
 }: SeatTableProps) {
   const ordered = [...blocks].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
   const showsAct = seat === 'tesoro';
@@ -206,6 +219,19 @@ export function SeatTable({
     />
   ) : null;
 
+  // WS-GOV-DIALOGUE-TO-ACT — La decisione in corso: la proposta corrente è il
+  // centro della tavola; l'atto è il risultato finale, in fondo.
+  const decisionActive = Boolean(workspace && (workspace.objective || workspace.proposals.length > 0));
+  const decisionBoard = decisionActive && workspace ? (
+    <DecisionBoard
+      workspace={workspace}
+      question={decisionQuestion}
+      actRevision={actRevision}
+      onPrepareAct={onPrepareFromProposal}
+      onRegenerateAct={onRegenerateAct}
+    />
+  ) : null;
+
   const mainArea = main ? (
     <>
       <div className="seat-table-main">
@@ -256,6 +282,8 @@ export function SeatTable({
           Le evidenze della seduta, dai dati del motore. Ogni cifra dichiara la sua provenienza.
         </span>
       </header>
+
+      {decisionBoard}
 
       {banner && (
         <div className="seat-presentation-banner" role="status" data-pinned={banner.pinned ? 'true' : undefined}>
@@ -311,6 +339,13 @@ export function SeatTable({
           {draftPanel}
           {compareAction}
           {!actPertinent ? proposalPanel : null}
+        </>
+      ) : decisionActive ? (
+        <>
+          {main ? mainArea : null}
+          {proposalPanel}
+          {compareAction}
+          {draftPanel}
         </>
       ) : (
         <>
