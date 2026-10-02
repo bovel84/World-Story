@@ -70,6 +70,24 @@ function mockRegions() {
       metadata: {},
       polityName: 'Beta',
     },
+    // WS-GOV-COUNCIL-HARDENING — una regione canonica per l'E2E della
+    // localizzazione: il Presidente nomina «Sarajevo» e il cantiere deve
+    // nascere qui, non nella frase.
+    SARAJEVO: {
+      id: 'SARAJEVO',
+      name: 'Sarajevo',
+      svgPath: 'M200,0 L300,0 L300,100 L200,100 Z',
+      color: '#ff0000',
+      owner: 'ALPHA',
+      population: 400000,
+      gdp: 40,
+      militaryPower: 40,
+      objects: [],
+      borders: ['ALPHA'],
+      status: 'active',
+      metadata: {},
+      polityName: 'Alfa',
+    },
   };
 }
 
@@ -1084,7 +1102,7 @@ export function installMockApi(page, opts = {}) {
         date: '1951-01-01',
         countries: MOCK_TEMPLATE.countries,
         regions: mockRegions(),
-        regionIds: { ALPHA: 'ALPHA', BETA: 'BETA' },
+        regionIds: { ALPHA: 'ALPHA', BETA: 'BETA', SARAJEVO: 'SARAJEVO' },
         playerCountryCode: 'ALPHA',
       },
     });
@@ -1157,6 +1175,19 @@ export function installMockApi(page, opts = {}) {
       const body = route.request().postDataJSON() || {};
       message = String(body.message || '').toLowerCase();
     } catch { /* path o body inatteso → sedia di default */ }
+    // WS-GOV-COUNCIL-HARDENING — La voce della riunione: il backend riceve il
+    // brief verificato e restituisce prosa. Il mock imita le due risposte del
+    // Tesoro (coperta / insufficiente) senza aggiungere cifre, così la
+    // validazione dei fatti resta esercitata.
+    if (message.includes('riunione di governo')) {
+      const short = message.includes('mancano') || message.includes('insufficient') || message.includes('scoperta');
+      return json(route, {
+        reply: short
+          ? 'Non c’è la copertura necessaria: il margine non basta per questa opera.'
+          : 'La copertura c’è, ma il margine è ridotto: decidete voi se questa opera ha priorità.',
+        seat,
+      });
+    }
     // WS-MINISTER-UX-03 — La risposta può chiedere alla tavola di mostrare
     // un'evidenza (blocco `tavola`), così l'E2E verifica la conversazione che
     // guida la tavola. Il testo senza blocco resta la risposta del ministro.
@@ -1329,6 +1360,13 @@ export function installMockApi(page, opts = {}) {
       risks: short ? ['Cassa insufficiente: servono 4,20 mld'] : [],
       warnings: [],
       summary: short ? 'Ordine bloccato: cassa insufficiente' : `Fattibile: ${text}`,
+      // WS-GOV-COUNCIL-HARDENING — i deficit e la disponibilità autorevoli:
+      // la Tavola del Tesoro mostra questi numeri, non un conto nazionale
+      // generico. `funded` e `deficits` vengono dallo stesso giudizio.
+      deficits: short
+        ? [{ code: 'INSUFFICIENT_CASH', id: 'mld', required: '12,40', available: '8,20', missing: '4,20', holder: 'POL' }]
+        : [],
+      availability: { money: [{ holder: 'POL', unitId: 'mld', available: short ? '8,20' : '18,00' }] },
       ...(opera
         ? {
             workDeclaration: short
