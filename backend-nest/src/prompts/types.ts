@@ -17,6 +17,8 @@ export interface PromptVariables {
 
   // Мир
   WORLD_BEFORE_ROUND_ONE_TEXT: string;
+  /** WS-GOV-MINISTER-WORLD-CONTEXT — il nome del mondo/preset (distinto dal paese). */
+  WORLD_NAME?: string;
   HISTORICAL_PRESET_SIMULATION_RULES: string;
   DIFFICULTY_DESCRIPTION_JUMP_FORWARD: string;
 

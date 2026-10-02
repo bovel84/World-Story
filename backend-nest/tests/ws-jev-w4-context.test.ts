@@ -177,8 +177,10 @@ describe('JEV-W4 buildMinisterContext', () => {
     // briefing del motore, che è l'unica parte intenzionalmente esente dal taglio.
     expect(result.telemetry.total_bytes).toBeLessThanOrEqual(
       400 + 800 + 1200 + 800 + Buffer.byteLength(result.sections.worldState, 'utf8'));
-    const order = ['MINISTER IDENTITY', 'CURRENT VERIFIED STATE', 'STRATEGIC MEMORY',
-      'RELEVANT PAST EVENTS', 'UNRESOLVED ISSUES', 'RECENT CONVERSATION'];
+    // Ordine §3 di WS-GOV-MINISTER-WORLD-CONTEXT: mondo/paese prima della
+    // memoria e i dati verificati del motore per ultimi (la verità più forte).
+    const order = ['MINISTER IDENTITY', 'STRATEGIC MEMORY',
+      'RELEVANT PAST EVENTS', 'UNRESOLVED ISSUES', 'RECENT CONVERSATION', 'CURRENT VERIFIED STATE'];
     const positions = order.map(header => result.text.indexOf(header));
     expect(positions.every(index => index >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));

@@ -26,7 +26,8 @@ import type { MinisterMemoryScope } from './core/government/MinisterMemory';
 import { getJevConfig } from './core/government/jev/jev.config';
 import { repairReactionDecisions, validateReactionDecisions, describeReactionShape, completeEventReactions, completeEventReactionsList, type ReactionDecisionIssue, type ReactionEventLike } from './core/simulation/ReactionDecisions';
 import type { ReactionContext } from './core/simulation/ReactionContext';
-import { buildNationalDecisionContext, buildActionElaborationGuard } from './prompts/national-context';
+import { buildNationalDecisionContext, buildActionElaborationGuard, buildMinisterWorldContext, renderWorldIdentity, renderNationalContext } from './prompts/national-context';
+import { SEAT_LABEL, CABINET_SEATS } from './core/government/Cabinet';
 import {
   buildGovernmentStateBlock,
   buildGovernmentVoicePrompt,
@@ -295,6 +296,21 @@ interface TurnResultData {
   }[];
 }
 
+/**
+ * WS-GOV-MINISTER-WORLD-CONTEXT — la sedia del ministro per il blocco mondo.
+ *
+ * Con JEV attivo arriva dal cursore (`ministerMemoryRequest`); con JEV spento il
+ * percorso normale non lo espone, ma il messaggio è il briefing della sedia e
+ * comincia sempre con `Sei il <titolo> del governo.`: da lì si risale alla sedia
+ * senza toccare `game-session.ts` (congelato) e senza un secondo parametro.
+ */
+function ministerSeatFor(game: GameData, message: string, jevActive: boolean): string | undefined {
+  if (jevActive) return game.ministerMemoryRequest?.scope.seat;
+  const match = /^Sei il (.+?) del governo\./.exec(message.trim());
+  if (!match) return undefined;
+  return CABINET_SEATS.find(seat => SEAT_LABEL[seat] === match[1]);
+}
+
 export class PromptBuilder {
   private game: GameData;
   private language: string = 'italian';
@@ -309,17 +325,23 @@ export class PromptBuilder {
    * dump della cronologia: gli scambi recenti entrano qui, entro il budget, e
    * non vengono più ripetuti come `[Cronaca della conversazione]`.
    */
-  async buildMinisterContextSection(history: { role: 'user' | 'assistant'; content: string }[] = []): Promise<string> {
+  async buildMinisterContextSection(history: { role: 'user' | 'assistant'; content: string }[] = [], vars: PromptVariables = this.buildVariables()): Promise<string> {
     const request = this.game.ministerMemoryRequest;
     const config = getJevConfig();
     if (!config.enabled || !request) return '';
     // Keep pure/legacy prompt construction independent of DB initialization.
     const { buildMinisterContext } = await import('./core/government/jev/jev-memory.service');
     if (request.scope.gameId !== this.game.id) throw new Error('Minister memory game mismatch');
+    // WS-GOV-MINISTER-WORLD-CONTEXT: lo stesso mondo per ogni ministro, in
+    // sezioni immutabili. Il `verifiedState` resta separato (e ultimo).
+    const seat = request.scope.seat;
+    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat });
     return buildMinisterContext({
       scope: request.scope,
       query: request.query,
       verifiedState: request.verifiedState,
+      worldContext: renderWorldIdentity(world),
+      nationalContext: renderNationalContext(world, seat),
       recentConversation: history,
       asOf: { gameDate: this.game.currentDate, turn: this.game.currentTurn },
       budget: config.contextBudget,
@@ -348,6 +370,7 @@ export class PromptBuilder {
       CURRENT_ROUND_NUMBER: this.game.currentTurn,
 
       WORLD_BEFORE_ROUND_ONE_TEXT: this.game.world.basePrompt || 'Storia alternativa',
+      WORLD_NAME: this.game.world.name || 'Storia alternativa',
       // Этап 5: правила симуляции пресета переопределяют дефолт
       HISTORICAL_PRESET_SIMULATION_RULES: this.game.simulationRules ?? 'Gli eventi si sviluppano in modo logico. Considera l\'economia e la potenza militare.',
       DIFFICULTY_DESCRIPTION_JUMP_FORWARD: difficultyPromptBlock(normalizeDifficulty(this.game.difficulty)),
@@ -1441,13 +1464,15 @@ export class PromptEngine {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
 
+    let jevWorldContext = false;
     if (getJevConfig().enabled && game.ministerMemoryRequest) {
-      const context = await builder.buildMinisterContextSection(history);
+      const context = await builder.buildMinisterContextSection(history, vars);
       if (context) {
         // Il contesto contiene già RECENT CONVERSATION: la cronologia non si
         // ripete nel suffisso, altrimenti il dump tornerebbe dalla finestra.
         message = `${context}\n\n---\n\n${message}`;
         history = [];
+        jevWorldContext = true;
       }
     }
 
@@ -1456,7 +1481,7 @@ export class PromptEngine {
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'advisor');
     const prompt = promptOverride
       ? renderPromptTemplate(promptOverride, vars) + buildAdvisorDialogSuffix(message, history)
-      : buildAdvisorPrompt(vars, message, history);
+      : buildAdvisorPrompt(vars, message, history, { worldContext: jevWorldContext ? null : undefined, seat: ministerSeatFor(game, message, jevWorldContext) });
     const response = await this.llm.generate(
       'advisor',
       'Sei il saggio consigliere del capo di Stato in una storia alternativa.',
@@ -1480,18 +1505,20 @@ export class PromptEngine {
   ): Promise<string> {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
+    let jevWorldContext = false;
     if (getJevConfig().enabled && game.ministerMemoryRequest) {
-      const context = await builder.buildMinisterContextSection(history);
+      const context = await builder.buildMinisterContextSection(history, vars);
       if (context) {
         message = `${context}\n\n---\n\n${message}`;
         history = [];
+        jevWorldContext = true;
       }
     }
 
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'advisor');
     const prompt = promptOverride
       ? renderPromptTemplate(promptOverride, vars) + buildAdvisorDialogSuffix(message, history)
-      : buildAdvisorPrompt(vars, message, history);
+      : buildAdvisorPrompt(vars, message, history, { worldContext: jevWorldContext ? null : undefined, seat: ministerSeatFor(game, message, jevWorldContext) });
     const response = await this.llm.stream(
       'advisor',
       'Sei il saggio consigliere del capo di Stato in una storia alternativa.',

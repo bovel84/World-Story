@@ -874,6 +874,14 @@ export interface MinisterContextInput {
   query: string;
   /** Profilo, regole e fatti della sedia, composti dal motore. Mai da JEV. */
   verifiedState?: string;
+  /**
+   * WS-GOV-MINISTER-WORLD-CONTEXT — il mondo di partenza (identità del mondo,
+   * scenario, regole): **lo stesso** per tutte le sedie, mai da JEV, mai tagliato
+   * dal budget di memoria (§9). Costruito da `prompts/national-context.ts`.
+   */
+  worldContext?: string;
+  /** Il paese e il momento storico in cui i numeri esistono, con la gerarchia delle verità. Mai da JEV. */
+  nationalContext?: string;
   /** Scambi recenti, dal più vecchio al più nuovo. */
   recentConversation?: readonly { role: string; content: string }[];
   asOf?: MinisterMemoryPoint;
@@ -882,6 +890,10 @@ export interface MinisterContextInput {
 
 export interface MinisterContextSections {
   identity: string;
+  /** Il mondo di partenza: immutabile, prima della memoria. */
+  worldContext: string;
+  /** Il paese e il momento storico: immutabile, prima della memoria. */
+  nationalContext: string;
   worldState: string;
   strategicMemory: string;
   relevantPast: string;
@@ -965,7 +977,7 @@ export function buildMinisterContext(input: MinisterContextInput): MinisterConte
   const started = performance.now();
   const config = getJevConfig();
   const empty: MinisterContextSections = {
-    identity: '', worldState: '', strategicMemory: '', relevantPast: '', unresolved: '', recentConversation: '',
+    identity: '', worldContext: '', nationalContext: '', worldState: '', strategicMemory: '', relevantPast: '', unresolved: '', recentConversation: '',
   };
   const emptyResult = (): MinisterContextResult => ({
     text: '', sections: { ...empty },
@@ -993,11 +1005,15 @@ export function buildMinisterContext(input: MinisterContextInput): MinisterConte
   const worldState = input.verifiedState?.trim()
     ? `[CURRENT VERIFIED STATE — fatti del motore, mai da JEV]\n${input.verifiedState.trim()}`
     : '';
+  // WS-GOV-MINISTER-WORLD-CONTEXT: mondo e paese sono immutabili e precedono la
+  // memoria; non passano dal budget delle sezioni di memoria (come `worldState`).
+  const worldContext = input.worldContext?.trim() ?? '';
+  const nationalContext = input.nationalContext?.trim() ?? '';
   // Con il briefing inserito integro, la persona è già in `worldState`: ripeterla
   // in `identity` sprecherebbe budget. La si include solo senza briefing.
   const identityLines = [`${SEAT_LABEL[scope.seat]} — legge ${SEAT_READS[scope.seat]}.`];
   if (!worldState) identityLines.push(...personaSection(personaFor(scope.seat)).split('\n'));
-  const identity = fitSection('[MINISTER IDENTITY]', identityLines, budget.identity);
+  const identity = fitSection('[IL TUO MINISTERO — MINISTER IDENTITY]', identityLines, budget.identity);
 
   const legacyCandidates = ranking.candidates.filter(candidate => candidate.legacy);
   const jevCandidates = ranking.candidates.filter(candidate => candidate.jev);
@@ -1020,8 +1036,10 @@ export function buildMinisterContext(input: MinisterContextInput): MinisterConte
   const recentConversation = fitSection('[RECENT CONVERSATION]',
     recentConversationLines(input.recentConversation ?? [], recentBudget), budget.recentConversation);
 
-  const sections: MinisterContextSections = { identity, worldState, strategicMemory, relevantPast, unresolved, recentConversation };
-  const text = [sections.identity, sections.worldState, sections.strategicMemory, sections.relevantPast, sections.unresolved, sections.recentConversation]
+  const sections: MinisterContextSections = { identity, worldContext, nationalContext, worldState, strategicMemory, relevantPast, unresolved, recentConversation };
+  // L'ordine che il ministro deve ricevere (§3): prima il mondo e il paese, poi
+  // il ministero e la memoria, per ultimi i dati verificati (la verità più forte).
+  const text = [sections.worldContext, sections.nationalContext, sections.identity, sections.strategicMemory, sections.relevantPast, sections.unresolved, sections.recentConversation, sections.worldState]
     .filter(Boolean).join('\n\n');
 
   // Access metadata sulle sole evidenze JEV realmente finite nel testo scelto:
