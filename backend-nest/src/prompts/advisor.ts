@@ -5,7 +5,6 @@
  */
 
 import { PromptVariables, AdvisorMessage } from './types';
-import { buildMinisterWorldContext, renderMinisterWorldContext } from './national-context';
 
 /**
  * Sezioni del dialogo del consigliere: cronaca della conversazione + messaggio
@@ -31,27 +30,25 @@ export function buildAdvisorDialogSuffix(message?: string, chatHistory?: Advisor
  */
 export interface AdvisorPromptOptions {
   /**
-   * Il blocco mondo/paese già presente altrove (es. contesto JEV del ministro).
-   * `null` → non aggiungerlo qui (evita la duplicazione); `undefined` → costruiscilo.
+   * Il blocco mondo/paese **già costruito** dal chiamante per il percorso
+   * ministro/riunione. Non viene mai costruito qui: il Consigliere normale non
+   * deve riceverlo (§2 delle pre-merge fixes). `null`/`undefined` → nessun blocco.
    */
   worldContext?: string | null;
-  /** Sedia del ministro: abilita `[ENFASI DELLA TUA COMPETENZA]` (§6). */
-  seat?: string;
 }
 
 /**
  * Costruisce il prompt per il consigliere.
  *
- * WS-GOV-MINISTER-WORLD-CONTEXT — Il blocco `[IDENTITÀ DEL MONDO]`/`[CONTESTO
- * DEL PAESE]` compare prima di `[MEMORIA]`/`[DATI VERIFICATI]` (che vivono nel
- * messaggio del ministro): il modello sa in quale mondo, paese e momento
- * storico esistono i numeri che sta per commentare.
+ * WS-GOV-MINISTER-WORLD-CONTEXT — Quando il chiamante passa `worldContext`
+ * (solo per il percorso ministro/riunione, vedi `PromptBuilder`), il blocco
+ * `[IDENTITÀ DEL MONDO]`/`[CONTESTO DEL PAESE]` compare prima di
+ * `[MEMORIA]`/`[DATI VERIFICATI]` (che vivono nel messaggio del ministro).
+ * Per il Primo Consigliere `worldContext` è assente e il prompt resta quello
+ * di prima.
  */
 export function buildAdvisorPrompt(vars: PromptVariables, message?: string, chatHistory?: AdvisorMessage[], options?: AdvisorPromptOptions): string {
-  const worldBlock = options?.worldContext === null
-    ? ''
-    : options?.worldContext
-      ?? renderMinisterWorldContext(buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat: options?.seat }), options?.seat);
+  const worldBlock = options?.worldContext ?? '';
 
   return `Sei il Primo Consigliere del leader della politia ${vars.PLAYER_POLITY}, in un gioco strategico di storia alternativa.
 

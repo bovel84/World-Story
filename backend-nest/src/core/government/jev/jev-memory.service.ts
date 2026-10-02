@@ -907,9 +907,15 @@ export interface MinisterContextResult {
   telemetry: {
     section_bytes: Record<string, number>;
     total_bytes: number;
-    /** Somma dei soli budget dichiarati; `worldState` è il blocco del motore. */
+    /** Byte del contesto mondo/paese: immutabile, fuori dalla compaction JEV (§9). */
+    immutable_context_bytes: number;
+    /** Byte delle sezioni dinamiche (identità + memoria + dati verificati). */
+    dynamic_context_bytes: number;
+    /** Somma dei soli budget dinamici dichiarati; alias retro-compatibile: `budget_bytes`. */
+    dynamic_budget_bytes: number;
+    /** @deprecated alias di `dynamic_budget_bytes`, mantenuto per i lettori esistenti. */
     budget_bytes: number;
-    /** Vero se il blocco supera i budget dichiarati (briefing del motore esente dal taglio). */
+    /** Vero se le sezioni **dinamiche** superano i budget dinamici (il contesto immutabile non falsa il confronto). */
     over_budget: boolean;
     legacy_ids: string[];
     jev_ids: string[];
@@ -981,7 +987,7 @@ export function buildMinisterContext(input: MinisterContextInput): MinisterConte
   };
   const emptyResult = (): MinisterContextResult => ({
     text: '', sections: { ...empty },
-    telemetry: { section_bytes: {}, total_bytes: 0, budget_bytes: 0, over_budget: false, legacy_ids: [], jev_ids: [], considered: 0, model_calls: 0, latency_ms: performance.now() - started },
+    telemetry: { section_bytes: {}, total_bytes: 0, immutable_context_bytes: 0, dynamic_context_bytes: 0, dynamic_budget_bytes: 0, budget_bytes: 0, over_budget: false, legacy_ids: [], jev_ids: [], considered: 0, model_calls: 0, latency_ms: performance.now() - started },
     metrics: buildJevTelemetry({}),
   });
   if (!config.enabled) return emptyResult();
@@ -1054,8 +1060,12 @@ export function buildMinisterContext(input: MinisterContextInput): MinisterConte
   // `worldState` è il briefing del motore, inserito integro (vedi sopra): il
   // confronto con i budget dichiarati è diagnostico, non un taglio. Le sezioni
   // di memoria restano invece vincolate ai rispettivi budget.
-  const budgetBytes = budget.identity + budget.worldState + budget.strategicMemory + budget.retrievedMemory + budget.recentConversation;
+  // `worldContext`/`nationalContext` sono immutable e fuori dalla compaction JEV:
+  // si contabilizzano separatamente e NON devono produrre un falso `over_budget`.
   const totalBytes = Buffer.byteLength(text, 'utf8');
+  const immutableBytes = Buffer.byteLength(sections.worldContext, 'utf8') + Buffer.byteLength(sections.nationalContext, 'utf8');
+  const dynamicBytes = totalBytes - immutableBytes;
+  const budgetBytes = budget.identity + budget.worldState + budget.strategicMemory + budget.retrievedMemory + budget.recentConversation;
   const selectedLegacy = legacyCandidates.filter(c => strategicMemory.includes(c.line) || unresolved.includes(c.line)).length;
   const selectedCount = selectedLegacy + selectedJevIds.length;
   const elapsed = performance.now() - started;
@@ -1064,8 +1074,11 @@ export function buildMinisterContext(input: MinisterContextInput): MinisterConte
     telemetry: {
       section_bytes: Object.fromEntries(Object.entries(sections).map(([key, value]) => [key, Buffer.byteLength(value, 'utf8')])),
       total_bytes: totalBytes,
+      immutable_context_bytes: immutableBytes,
+      dynamic_context_bytes: dynamicBytes,
+      dynamic_budget_bytes: budgetBytes,
       budget_bytes: budgetBytes,
-      over_budget: totalBytes > budgetBytes,
+      over_budget: dynamicBytes > budgetBytes,
       legacy_ids: legacyCandidates.map(c => c.legacy!.id),
       jev_ids: jevCandidates.map(c => c.jev!.id),
       considered: ranking.considered,

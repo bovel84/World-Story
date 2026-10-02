@@ -26,7 +26,7 @@ import type { MinisterMemoryScope } from './core/government/MinisterMemory';
 import { getJevConfig } from './core/government/jev/jev.config';
 import { repairReactionDecisions, validateReactionDecisions, describeReactionShape, completeEventReactions, completeEventReactionsList, type ReactionDecisionIssue, type ReactionEventLike } from './core/simulation/ReactionDecisions';
 import type { ReactionContext } from './core/simulation/ReactionContext';
-import { buildNationalDecisionContext, buildActionElaborationGuard, buildMinisterWorldContext, renderWorldIdentity, renderNationalContext } from './prompts/national-context';
+import { buildNationalDecisionContext, buildActionElaborationGuard, buildMinisterWorldContext, renderWorldIdentity, renderNationalContext, renderMinisterWorldContext } from './prompts/national-context';
 import { SEAT_LABEL, CABINET_SEATS } from './core/government/Cabinet';
 import {
   buildGovernmentStateBlock,
@@ -309,6 +309,39 @@ function ministerSeatFor(game: GameData, message: string, jevActive: boolean): s
   const match = /^Sei il (.+?) del governo\./.exec(message.trim());
   if (!match) return undefined;
   return CABINET_SEATS.find(seat => SEAT_LABEL[seat] === match[1]);
+}
+
+/**
+ * WS-GOV-MINISTER-WORLD-CONTEXT — la richiesta è ministeriale/di riunione?
+ *
+ * Con JEV attivo lo dice il cursore (`ministerMemoryRequest`); con JEV spento lo
+ * dice il briefing della sedia, che precede sempre la domanda e comincia con
+ * `Sei il <titolo> del governo.`. Il Primo Consigliere normale **non** è
+ * ministeriale: il suo prompt resta invariato.
+ */
+function isMinisterRequest(game: GameData, message: string): boolean {
+  if (game.ministerMemoryRequest) return true;
+  const text = message.trimStart();
+  // Sedia (chat ministro, JEV off) oppure voce della riunione read-only.
+  return /^Sei il .+? del governo\./.test(text) || text.startsWith('RIUNIONE DI GOVERNO');
+}
+
+/**
+ * Il blocco mondo/paese da anteporre al dialogo. `null` quando:
+ *  - la richiesta è del Consigliere normale (nessun blocco ministeriale);
+ *  - il contesto JEV lo porta già (evita la duplicazione, §9).
+ *
+ * `seat` può essere indefinita (riunione read-only con brief sintetico): in tal
+ * caso il blocco arriva senza `[ENFASI DELLA TUA COMPETENZA]`, ma il mondo c'è.
+ */
+function ministerWorldBlockFor(vars: PromptVariables, game: GameData, message: string, jevActive: boolean): string | null {
+  if (jevActive) return null;
+  if (!isMinisterRequest(game, message)) return null;
+  const seat = ministerSeatFor(game, message, false);
+  return renderMinisterWorldContext(
+    buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat }),
+    seat,
+  );
 }
 
 export class PromptBuilder {
@@ -1479,9 +1512,10 @@ export class PromptEngine {
     // Пресетный шаблон советника: роль/стиль из пресета, но историю диалога
     // и текущий вопрос игрока всегда дописываем — иначе советник «оглохнет».
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'advisor');
+    const worldBlock = ministerWorldBlockFor(vars, game, message, jevWorldContext);
     const prompt = promptOverride
-      ? renderPromptTemplate(promptOverride, vars) + buildAdvisorDialogSuffix(message, history)
-      : buildAdvisorPrompt(vars, message, history, { worldContext: jevWorldContext ? null : undefined, seat: ministerSeatFor(game, message, jevWorldContext) });
+      ? renderPromptTemplate(promptOverride, vars) + (worldBlock ? `\n\n${worldBlock}` : '') + buildAdvisorDialogSuffix(message, history)
+      : buildAdvisorPrompt(vars, message, history, { worldContext: worldBlock });
     const response = await this.llm.generate(
       'advisor',
       'Sei il saggio consigliere del capo di Stato in una storia alternativa.',
@@ -1516,9 +1550,10 @@ export class PromptEngine {
     }
 
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'advisor');
+    const worldBlock = ministerWorldBlockFor(vars, game, message, jevWorldContext);
     const prompt = promptOverride
-      ? renderPromptTemplate(promptOverride, vars) + buildAdvisorDialogSuffix(message, history)
-      : buildAdvisorPrompt(vars, message, history, { worldContext: jevWorldContext ? null : undefined, seat: ministerSeatFor(game, message, jevWorldContext) });
+      ? renderPromptTemplate(promptOverride, vars) + (worldBlock ? `\n\n${worldBlock}` : '') + buildAdvisorDialogSuffix(message, history)
+      : buildAdvisorPrompt(vars, message, history, { worldContext: worldBlock });
     const response = await this.llm.stream(
       'advisor',
       'Sei il saggio consigliere del capo di Stato in una storia alternativa.',
