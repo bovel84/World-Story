@@ -42,7 +42,11 @@ import {
   type ActState, type ProposalActDraft,
 } from './actDraft';
 import type { WorkDeclarationInput } from './cabinetOrder';
-import { applyCanvasBatch, emptyCanvas, resolveCanvas, type PresentationCanvas, type PresentationDirective } from './presentation';
+import {
+  applyCanvasBatch, availableEvidence, blockForEvidence, emptyCanvas, parsePresentation,
+  resolveCanvas, type PresentationCanvas, type PresentationDirective,
+} from './presentation';
+import { shouldShowEvidenceBadge, type EvidenceCardIndex, type InlineEvidenceCard } from './inlineEvidence';
 import {
   discussedProposal, loadMemory, openQuestion, queuedDecision, recordMemory,
   saveMemory, seatRecords, withSeatRecords, clientMandate, type MinisterMemoryRecord, type MinisterMemoryStore,
@@ -168,6 +172,13 @@ export function GovernmentOffice({
   const [mobilePane, setMobilePane] = useState<'dialogo' | 'tavola'>('dialogo');
   const splitRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  // WS-GOVUX-P4 — La card in linea è un riferimento alla tavola: qui si mette a
+  // fuoco il blocco reale (nessun secondo grafico).
+  const tableRef = useRef<HTMLElement>(null);
+  const [pendingFocus, setPendingFocus] = useState<{ id: string; nonce: number } | null>(null);
+  // Il pallino «nuova evidenza» è un fatto di **visione**: si spegne quando
+  // l'evidenza è vista, non quando arriva. Si ricorda la versione già vista.
+  const [seenVersion, setSeenVersion] = useState(-1);
 
   // WS-GOVOFFICE-03 — Il quadro operativo per il pannello del ministro. Lo
   // compone lo **stesso** helper del dossier Nazione: un dominio, un numero.
@@ -199,9 +210,12 @@ export function GovernmentOffice({
   }, [openSeat]);
 
   // Cambiando sedia si riparte dal dialogo su mobile: la tavola non resta
-  // appesa a una sedia che non è più aperta.
+  // appesa a una sedia che non è più aperta. Anche il pallino e la messa a
+  // fuoco sono per sedia: una nuova sedia non eredita la visione della vecchia.
   useEffect(() => {
     setMobilePane('dialogo');
+    setSeenVersion(-1);
+    setPendingFocus(null);
   }, [openSeat]);
 
   // WS-MINISTER-UX-01 — Il divisore ridimensionabile: trascinamento col
@@ -333,6 +347,66 @@ export function GovernmentOffice({
     () => resolveCanvas(activeCanvas ?? emptyCanvas(), canvasBlocks, proposals),
     [activeCanvas, canvasBlocks, proposals],
   );
+
+  // WS-GOVUX-P4 — Il catalogo delle evidenze della sedia per le card in linea:
+  // stesso id e stesso titolo dei blocchi reali (nessuna card fantasma).
+  const evidenceIndex = useMemo<EvidenceCardIndex>(() => {
+    const index: EvidenceCardIndex = {};
+    for (const key of availableEvidence(canvasBlocks)) {
+      const block = blockForEvidence(key, canvasBlocks);
+      if (block) index[key] = { id: block.id, title: block.title, kind: block.kind };
+    }
+    return index;
+  }, [canvasBlocks]);
+
+  const canvasVersion = activeCanvas?.stateVersion ?? -1;
+  // Vista la tavola, il pallino si spegne: la versione vista è quella corrente.
+  useEffect(() => {
+    if (mobilePane === 'tavola' && hasCanvasEvidence) setSeenVersion(canvasVersion);
+  }, [mobilePane, hasCanvasEvidence, canvasVersion]);
+
+  // WS-GOVUX-P4 — Aprire un'evidenza dalla card: si riporta la sua direttiva in
+  // cima (read model di UI, nessun effetto di gioco), si apre la tavola su
+  // mobile e si mette a fuoco il blocco reale. Scroll, testo in composizione e
+  // selezione restano: le pane non si smontano.
+  const focusEvidence = useCallback((card: InlineEvidenceCard): void => {
+    if (!openSeat) return;
+    const hash = card.messageId.lastIndexOf('#');
+    const index = hash >= 0 ? Number(card.messageId.slice(hash + 1)) : -1;
+    const thread = ministerChats[openSeat] ?? [];
+    const message = index >= 0 ? thread[index] : undefined;
+    if (message) {
+      const parsed = parsePresentation(message.content);
+      if (parsed.directives.length > 0) {
+        // Si riporta la direttiva del messaggio con lo **stesso** contesto con
+        // cui era stata emessa (citazione e ultimo discorso del Presidente): la
+        // voce di spesa in evidenza, se c'era, non si perde.
+        const lastUser = [...thread.slice(0, index)].reverse().find(item => item.role === 'user')?.content ?? '';
+        applyPresentation(openSeat, card.messageId, parsed.text.slice(0, 140), parsed.directives, lastUser);
+      }
+    }
+    setMobilePane('tavola');
+    if (card.blockId) setPendingFocus({ id: card.blockId, nonce: Date.now() });
+  }, [openSeat, ministerChats, applyPresentation]);
+
+  // La messa a fuoco accade dopo il render: la tavola è già visibile (anche su
+  // mobile, dove `mobilePane` è appena passato a «tavola»).
+  useEffect(() => {
+    if (!pendingFocus) return;
+    const root = tableRef.current;
+    const selector = pendingFocus.id === 'comparison'
+      ? '.proposal-comparison'
+      : `[data-block-id="${pendingFocus.id}"]`;
+    const block = root ? root.querySelector(selector) : null;
+    if (!block) return;
+    block.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    block.classList.add('seat-evidence-focus');
+    const timer = window.setTimeout(() => block.classList.remove('seat-evidence-focus'), 1800);
+    return () => {
+      window.clearTimeout(timer);
+      block.classList.remove('seat-evidence-focus');
+    };
+  }, [pendingFocus]);
 
   // L'atto firmato tramite la coda del motore: l'opera (cantiere reale) o un
   // ordine in testo. Entra nel registro, non resta una promessa.
@@ -517,7 +591,7 @@ export function GovernmentOffice({
                 onClick={() => setMobilePane('tavola')}
               >
                 Tavola
-                {hasCanvasEvidence && mobilePane !== 'tavola' && (
+                {shouldShowEvidenceBadge({ hasEvidence: hasCanvasEvidence, canvasVersion, seenVersion, pane: mobilePane }) && (
                   <span className="minister-session-view-dot" title="Nuova evidenza sulla tavola" aria-hidden="true" />
                 )}
               </button>
@@ -552,6 +626,8 @@ export function GovernmentOffice({
                   onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
                   onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}
                   onPresentation={chatPresentation}
+                  evidenceIndex={evidenceIndex}
+                  onFocusEvidence={focusEvidence}
                 />
 
                 {lastOutcome?.kind === 'order' && (
@@ -590,6 +666,7 @@ export function GovernmentOffice({
               />
 
               <section
+                ref={tableRef}
                 className="government-office-pane government-office-pane-table"
                 data-pane="tavola"
                 aria-label="Tavola di lavoro"
