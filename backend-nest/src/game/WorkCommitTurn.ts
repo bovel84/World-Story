@@ -153,8 +153,10 @@ export function applyWorkCommits(input: ApplyWorkCommitInput): readonly WorkComm
         orderId: action.id,
         holders: { money: declaration.payerActorId, materials: declaration.materialActorId },
         work,
-        // La regione dichiarata al commit: è dove sorgerà l'opera.
-        regionId: input.regionId,
+        // La regione dichiarata dal client (dalla riunione/atto) ha la
+        // precedenza sulla regione dell'ordine: è la localizzazione canonica
+        // scelta dal Presidente. Senza, resta il comportamento precedente.
+        regionId: declaration.regionId ?? input.regionId,
       });
       outcomes.push(result.status === 'committed'
         ? { kind: 'committed', orderId: action.id, projectId: result.projectId, reservationIds: result.reservationIds }

@@ -59,6 +59,15 @@ export interface DeficitResult {
   readonly deficits: readonly Deficit[];
   /** Requisiti non verificabili con le letture fornite (forza lavoro ignota). */
   readonly unknown: readonly { readonly reason: string; readonly id: string }[];
+  /**
+   * WS-GOV-COUNCIL-HARDENING — la disponibilità monetaria misurata, **sempre**
+   * (anche quando copre il fabbisogno, caso in cui `deficits` è vuoto). Sommata
+   * per unità e per detentore, al netto delle riserve attive: è la stessa
+   * disponibilità con cui `measureDeficits` giudica il deficit, quindi non può
+   * contraddire `funded`. Il client la mostra nella Tavola del Tesoro invece di
+   * dedurre il denaro dal conto nazionale.
+   */
+  readonly availableMoney?: readonly { readonly holder: string; readonly unitId: string; readonly available: string }[];
 }
 
 /** Un requisito della distinta: quanto, di cosa, e in quale fase. */
@@ -199,6 +208,15 @@ export function measureDeficits(
   measure(byUnit(requirements.money, 'unitId'), availableMoney, 'INSUFFICIENT_CASH');
   measure(byUnit(requirements.stock, 'unitId'), availableStock, 'MATERIAL_SHORTAGE');
 
+  // WS-GOV-COUNCIL-HARDENING — la disponibilità monetaria netta, per unità del
+  // ledger, così la Tavola del Tesoro ha il "disponibile" anche quando l'opera
+  // è coperta (nessun deficit da cui ricavarlo). È la stessa mappa usata sopra.
+  const availableMoneyList = [...availableMoney.entries()].map(([unitId, available]) => ({
+    holder,
+    unitId,
+    available: intToString(available),
+  }));
+
   // La manodopera è CAPACITÀ, non consumo: le fasi sono sequenziali nel tempo e
   // gli stessi operai tornano il giorno dopo. Per questo ogni fase è confrontata
   // con il bacino, non con un residuo (vedi il commento su `measure`).
@@ -234,5 +252,5 @@ export function measureDeficits(
     }
   }
 
-  return { deficits, unknown };
+  return { deficits, unknown, ...(availableMoneyList.length > 0 ? { availableMoney: availableMoneyList } : {}) };
 }
