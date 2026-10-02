@@ -940,6 +940,9 @@ export const gameRepository = {
         { gameId, branchId },
         { turn: turn + 1, gameDate: row?.current_date },
       );
+      // WS-JEV-W7 — SIDECAR: se il rewind ha cancellato un episodio, le grezze
+      // che aveva archiviato tornano leggibili invece di restare orfane.
+      jevMemoryRepository.unarchiveOrphans(gameId, branchId);
     } catch (error) {
       console.warn('[JEV] potatura al rewind non eseguita:', error);
     }

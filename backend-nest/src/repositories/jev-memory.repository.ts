@@ -193,6 +193,18 @@ export const jevMemoryRepository = {
     return rows.map(rowToRecord);
   },
 
+  /**
+   * WS-JEV-W7 — Scope distinti con almeno una memoria, per il consolidamento.
+   * Filtra per `game_id` E `branch_id`: nessuna contaminazione tra rami.
+   */
+  listScopes(gameId: string, branchId: string | null): Array<{ scope: JevMemoryRecord['scope']; scopeKey: string }> {
+    assertJevBranchScope({ gameId, branchId });
+    const rows = db.prepare(`SELECT DISTINCT scope, scope_key FROM jev_memory
+      WHERE game_id = ? AND branch_id = ? ORDER BY scope, scope_key`)
+      .all(gameId, branchId === null ? '' : branchId) as Array<{ scope: JevMemoryRecord['scope']; scope_key: string }>;
+    return rows.map(row => ({ scope: row.scope, scopeKey: row.scope_key }));
+  },
+
   touch(scope: JevScope, ids: readonly string[], time: string): number {
     const params = scopeParams(scope);
     requiredString(time);
@@ -203,6 +215,57 @@ export const jevMemoryRepository = {
     return db.transaction(() => {
       let changes = 0;
       for (const id of new Set(ids)) changes += statement.run(time, ...params, id).changes;
+      return changes;
+    })();
+  },
+
+  /**
+   * WS-JEV-W7 — Archiviazione, **non cancellazione**: le memorie sostituite da
+   * un episodio restano leggibili, con `lifecycle='archived'` e il riferimento
+   * all'episodio in `parent_memory_ids_json`. Solo righe non gi\u00e0 archiviate:
+   * il conteggio \u00e8 idempotente. Filtra per `game_id` E `branch_id`.
+   */
+  archive(scope: JevScope, ids: readonly string[], episodeId: string, time: string): number {
+    const params = scopeParams(scope);
+    requiredString(episodeId);
+    requiredString(time);
+    if (!Array.isArray(ids)) throw new TypeError('JEV archive requires IDs');
+    ids.forEach(requiredString);
+    const parents = JSON.stringify([episodeId]);
+    const statement = db.prepare(`UPDATE jev_memory
+      SET lifecycle = 'archived', parent_memory_ids_json = ?
+      WHERE game_id = ? AND branch_id = ? AND scope = ? AND scope_key = ? AND id = ?
+        AND lifecycle <> 'archived'`);
+    return db.transaction(() => {
+      let changes = 0;
+      for (const id of new Set(ids)) changes += statement.run(parents, ...params, id).changes;
+      return changes;
+    })();
+  },
+
+  /**
+   * WS-JEV-W7 — Dopo un rewind: una grezza archiviata il cui episodio non
+   * esiste più torna "pending" (non archiviata, senza riferimento pendente),
+   * così non resta invisibile al retrieval né con un puntatore morto.
+   * Filtra per `game_id` E `branch_id`.
+   */
+  unarchiveOrphans(gameId: string, branchId: string | null): number {
+    assertJevBranchScope({ gameId, branchId });
+    const branch = branchId === null ? '' : branchId;
+    const rows = db.prepare(`SELECT id, parent_memory_ids_json FROM jev_memory
+      WHERE game_id = ? AND branch_id = ? AND lifecycle = 'archived' AND parent_memory_ids_json IS NOT NULL`)
+      .all(gameId, branch) as Array<{ id: string; parent_memory_ids_json: string }>;
+    const exists = db.prepare('SELECT 1 FROM jev_memory WHERE game_id = ? AND branch_id = ? AND id = ?');
+    const restore = db.prepare(`UPDATE jev_memory SET lifecycle = 'warm', parent_memory_ids_json = NULL
+      WHERE game_id = ? AND branch_id = ? AND id = ?`);
+    return db.transaction(() => {
+      let changes = 0;
+      for (const row of rows) {
+        let parents: string[] = [];
+        try { const parsed = JSON.parse(row.parent_memory_ids_json); if (Array.isArray(parsed)) parents = parsed; } catch { parents = []; }
+        if (parents.some(parent => exists.get(gameId, branch, parent))) continue;
+        changes += restore.run(gameId, branch, row.id).changes;
+      }
       return changes;
     })();
   },

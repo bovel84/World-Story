@@ -22,7 +22,7 @@ import { EFFECT_LIMITS } from '../core/simulation/NationalEffects';
 import { rejectDirectMaterialCommand, validateStrictResultSafe } from '../core/simulation/EffectValidator';
 import { bootstrapCatalogEconomy } from '../services/StrictEffectProducerService';
 import { applyWorkCommits } from './WorkCommitTurn';
-import { ingestJevBatch, relationshipMemoryInputs } from '../core/government/jev/jev-memory.service';
+import { ingestJevBatch, relationshipMemoryInputs, consolidateJevMemory } from '../core/government/jev/jev-memory.service';
 import { loadSimulationCatalog } from '../scenario/loader';
 import { shortId } from '../utils/short-id';
 import type { RelationshipType } from '../core/RelationshipMatrix';
@@ -983,6 +983,17 @@ export class TurnPipelineService {
         }
       } catch (error) {
         console.warn('[JEV] memoria diplomatica dei rapporti non registrata:', error);
+      }
+      // WS-JEV-W7 — SIDECAR: consolidamento deterministico delle memorie grezze
+      // in episodi storici. Best-effort: non lancia mai e non cambia l'esito.
+      try {
+        consolidateJevMemory({
+          gameId: this.ctx.gameId,
+          branchId: gameRepository.getHeadBranch(this.ctx.gameId),
+          turn: this.state.currentTurn,
+        });
+      } catch (error) {
+        console.warn('[JEV] consolidamento narrativo non riuscito:', error);
       }
       this.ctx.publishPendingOutbox();
       // F02/M06: la chat è visibile soltanto dopo il commit canonico.
