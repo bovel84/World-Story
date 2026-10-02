@@ -205,6 +205,14 @@ describe('WS-GOV-MINISTER-WORLD-CONTEXT', () => {
     // I dati verificati non contengono il numero del preset: il preset è
     // significato, non fonte di cifre (§4).
     expect(result.sections.worldState).not.toContain('PRESET_NUMBER_777');
+    // Telemetria JEV coerente: il contesto immutabile è contabilizzato a parte
+    // e, con le sezioni dinamiche entro budget, `over_budget` è falso (§3).
+    expect(result.telemetry.immutable_context_bytes).toBeGreaterThan(0);
+    expect(result.telemetry.dynamic_budget_bytes).toBe(4400);
+    expect(result.telemetry.over_budget).toBe(false);
+    expect(result.telemetry.dynamic_context_bytes).toBe(
+      result.telemetry.total_bytes - result.telemetry.immutable_context_bytes,
+    );
   });
 
   it('storia alternativa: il preset iniziale e la rottura della partita convivono, con la precedenza dichiarata', () => {
@@ -223,5 +231,37 @@ describe('WS-GOV-MINISTER-WORLD-CONTEXT', () => {
     expect(rendered).toContain('rompe l’alleanza');
     expect(rendered).toContain('STORIA DELLA PARTITA: prevale sul passato storico');
     expect(rendered).toContain('non reintrodurre alleanze');
+  });
+
+  it('JEV spento + prompts.advisor override: il ministro riceve comunque il mondo', async () => {
+    process.env.JEV_MEMORY_ENABLED = 'false';
+    session.currentTurn = 5;
+    session.currentDate = '1938-06-01';
+    const engine = new PromptEngine(provider);
+    const data = session.buildGameData();
+    data.world.prompts = JSON.stringify({ advisor: 'PROMPT_OVERRIDE_ADVISOR per ${PLAYER_POLITY}.' });
+    captured.length = 0;
+    await engine.getAdvisor(data, `Sei il ${SEAT_LABEL.tesoro} del governo.\n\nREGOLE CHE NON PUOI VIOLARE: nessuna.`, []);
+    const prompt = captured[0];
+    // Il template custom NON può bypassare il contesto di mondo.
+    expect(prompt).toContain('PROMPT_OVERRIDE_ADVISOR');
+    expect(prompt).toContain('[IDENTITÀ DEL MONDO]');
+    expect(prompt).toContain('TEST_WORLD_CONTEXT_MARKER');
+    expect(prompt).toContain('[CONTESTO DEL PAESE]');
+    expect(prompt).toContain('[ENFASI DELLA TUA COMPETENZA]');
+  });
+
+  it('Consigliere normale: nessun blocco ministeriale aggiunto dal nuovo contesto', async () => {
+    process.env.JEV_MEMORY_ENABLED = 'false';
+    const engine = new PromptEngine(provider);
+    captured.length = 0;
+    await engine.getAdvisor(session.buildGameData(), 'Consigliami una linea.', []);
+    const prompt = captured[0];
+    expect(prompt).not.toContain('[IDENTITÀ DEL MONDO]');
+    expect(prompt).not.toContain('[CONTESTO DEL PAESE]');
+    expect(prompt).not.toContain('[ENFASI DELLA TUA COMPETENZA]');
+    // Il Consigliere conserva le sue sezioni storiche.
+    expect(prompt).toContain('[Contesto di gioco]');
+    expect(prompt).toContain('[Regole di simulazione]');
   });
 });
