@@ -78,7 +78,7 @@ test('WS-GOV-DIALOGUE-TO-ACT: la conversazione diventa proposta, e l’atto nasc
   // [3b] L'evidenza mostrata sulla tavola entra nella decisione come
   //      riferimento (non come copia, non come revisione).
   await ask(page, chat, 'Mi mostri dove va la spesa?');
-  await expect(board).toContainText('Evidenze a supporto');
+  await board.getByText('Approfondimenti', { exact: false }).first().click();
   await expect(board).toContainText('Dove va la spesa');
 
   // [4] L'ATTO NASCE DALLA PROPOSTA CORRENTE: «Trasforma questa proposta in atto».
