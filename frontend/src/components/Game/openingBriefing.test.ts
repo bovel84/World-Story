@@ -29,7 +29,7 @@ const input = {
     powers: [{ polityId: 'USA', name: 'Stati Uniti', objectives: [{ id: 'o1', description: 'Stabilità nei Balcani', type: 'x', priority: 1, progress: 0, since: '', reviewDate: '', reason: '' }] }],
   },
   playerPolityId: 'BIH',
-  council: [{ seat: 'lavori', label: 'Ministro dei Lavori', line: '«Ditemi dove e io vi dico cosa serve per partire.»' }],
+  council: [{ seat: 'lavori', label: 'Ministro dei Lavori', line: 'Ditemi dove e io vi dico cosa serve per partire.' }],
   items,
 };
 
@@ -80,10 +80,10 @@ describe('WS-GAME-OPENING — deriveGameOpening', () => {
     const many = deriveGameOpening({
       ...input,
       council: [
-        { seat: 'lavori', label: 'Lavori', line: '«Ditemi dove e io vi dico cosa serve per partire.»' },
-        { seat: 'tesoro', label: 'Tesoro', line: '«Facciamo i conti prima di promettere.»' },
-        { seat: 'esteri', label: 'Esteri', line: '«Ogni porta aperta è un’opzione in più.»' },
-        { seat: 'guerra', label: 'Guerra', line: '«La forza che rassicura è quella che non deve sparare.»' },
+        { seat: 'lavori', label: 'Lavori', line: 'Ditemi dove e io vi dico cosa serve per partire.' },
+        { seat: 'tesoro', label: 'Tesoro', line: 'Facciamo i conti prima di promettere.' },
+        { seat: 'esteri', label: 'Esteri', line: 'Ogni porta aperta è un’opzione in più.' },
+        { seat: 'guerra', label: 'Guerra', line: 'La forza che rassicura è quella che non deve sparare.' },
       ],
     });
     expect(many.council).toHaveLength(3);

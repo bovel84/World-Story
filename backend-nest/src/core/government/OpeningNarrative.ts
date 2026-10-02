@@ -102,6 +102,28 @@ export function extractOpeningParagraphs(
 }
 
 /**
+ * La voce di una sedia per l'apertura: **persona + verified state**, in una riga
+ * breve e senza cifre inventate. Usa la firma di stile di `MinisterPersona`
+ * (persona) e la prima questione che il motore attribuisce alla sedia
+ * (`CabinetItem.need`). La questione entra solo se è breve e priva di cifre:
+ * così il testo non introduce mai numeri, ma riflette ciò che il motore vede.
+ * Se la questione non è "pulita", resta la sola firma della persona.
+ *
+ * Non restituisce virgolette: le aggiunge il renderer, che mostra `«…»`.
+ */
+export function openingCouncilLine(address: CabinetAddress): string {
+  const signature = personaFor(address.seat).signature
+    .replace(/^[«"]\s*/, '')
+    .replace(/\s*[»"]$/, '')
+    .replace(/[.]$/, '');
+  const issue = String(address.items[0]?.need ?? '').trim();
+  const safeIssue = issue.length > 0 && issue.length <= 80 && !/\d/.test(issue);
+  if (!safeIssue) return `${signature}.`;
+  const lower = issue[0].toLowerCase() + issue.slice(1);
+  return `${signature} — ${lower.replace(/[.]$/, '')}.`;
+}
+
+/**
  * Costruisce la narrativa dell'apertura. Le sedie sono scelte dal motore
  * (presenza e urgenza delle voci) e parlano con la persona, mai con cifre.
  */
@@ -123,7 +145,7 @@ export function buildOpeningNarrative(input: {
     .map(({ address }) => ({
       seat: address.seat,
       label: address.label,
-      line: personaFor(address.seat).signature,
+      line: openingCouncilLine(address),
     }));
 
   return {
