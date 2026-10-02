@@ -27,6 +27,7 @@ import type { Tone } from './NationDock/types';
 import { budgetChart, trendChart, type ChartDataInput, type ChartFigure } from './advisorCharts';
 import { formatFigureValue, formatMoney, formatPercent } from '../../utils/format';
 import { SEAT_DOMAINS } from './seatDomains';
+import { seatBoardConfig } from './seatDecisionBoards';
 import type { StrategicPlan } from './strategicPlan';
 
 export type CanvasTone = 'positive' | 'warning' | 'critical' | 'neutral';
@@ -199,6 +200,12 @@ export function deriveSeatCanvasBlocks(input: SeatCanvasInput): SeatCanvasBlock[
   const { seat, picture, sources, authored } = input;
   const blocks: SeatCanvasBlock[] = [];
 
+  // WS-GOV-SEAT-BOARDS — La configurazione della sedia decide **quali evidenze**
+  // la tavola può mostrare. Non è un dato nuovo: è il catalogo di `presentation.ts`
+  // (`BLOCK_ID_BY_KEY`), e impedisce che una sedia mostri il blocco di un'altra
+  // (p.es. il bilancio del Tesoro sulla tavola dei Lavori).
+  const allowed = new Set(seatBoardConfig(seat).availableEvidence);
+
   const domainIds = SEAT_DOMAINS[seat] ?? [];
   const domains = domainIds
     .map(id => picture.domains.find(domain => domain.id === id))
@@ -206,7 +213,7 @@ export function deriveSeatCanvasBlocks(input: SeatCanvasInput): SeatCanvasBlock[
 
   // Le cifre che la sedia ha portato: è ciò che il ministro dice in seduta.
   const brought = seatFigureMetrics(input.address);
-  if (brought.length > 0) {
+  if (brought.length > 0 && allowed.has('cifre')) {
     blocks.push({
       kind: 'metrics',
       id: 'cifre-sedia',
@@ -233,7 +240,7 @@ export function deriveSeatCanvasBlocks(input: SeatCanvasInput): SeatCanvasBlock[
     }
   }
 
-  if (metrics.length > 0) {
+  if (metrics.length > 0 && allowed.has('cifre')) {
     blocks.push({
       kind: 'metrics',
       id: 'quadro',
@@ -251,20 +258,26 @@ export function deriveSeatCanvasBlocks(input: SeatCanvasInput): SeatCanvasBlock[
     history: sources.accountHistory ?? [],
   };
 
-  const budget = budgetChart(chartInput);
-  if (budget.bars.length > 0) {
-    blocks.push({ kind: 'chart', id: 'bilancio', title: budget.title, figure: budget });
+  // «Dove va la spesa» è materia del Tesoro: le altre sedie non mostrano
+  // automaticamente la ripartizione del bilancio (difetto B28).
+  if (allowed.has('spesa')) {
+    const budget = budgetChart(chartInput);
+    if (budget.bars.length > 0) {
+      blocks.push({ kind: 'chart', id: 'bilancio', title: budget.title, figure: budget });
+    }
   }
-  const trend = trendChart(chartInput);
-  if (trend.series) {
-    blocks.push({ kind: 'chart', id: 'trend', title: trend.title, figure: trend });
+  if (allowed.has('trend')) {
+    const trend = trendChart(chartInput);
+    if (trend.series) {
+      blocks.push({ kind: 'chart', id: 'trend', title: trend.title, figure: trend });
+    }
   }
 
-  if (authored?.plan) {
+  if (authored?.plan && allowed.has('piano')) {
     blocks.push({ kind: 'strategy', id: 'piano', title: authored.plan.title, plan: authored.plan });
   }
 
-  const zones = zoneBoard(sources);
+  const zones = allowed.has('mappa') ? zoneBoard(sources) : [];
   if (zones.length > 0) {
     blocks.push({
       kind: 'map',
@@ -276,7 +289,7 @@ export function deriveSeatCanvasBlocks(input: SeatCanvasInput): SeatCanvasBlock[
     });
   }
 
-  if (authored?.ideas && authored.ideas.length > 0) {
+  if (authored?.ideas && authored.ideas.length > 0 && allowed.has('idee')) {
     blocks.push({ kind: 'ideas', id: 'idee', title: 'Le idee del ministro', ideas: authored.ideas });
   }
 

@@ -57,6 +57,11 @@ import {
   activeProposal, actStaleness, applyDecisionBatch, emptyWorkspace, withEvidenceRefs,
   type DecisionAction, type DecisionWorkspace,
 } from './decisionWorkspace';
+import {
+  canPromoteToCouncil, conveneSeat, promoteToCouncil,
+  type CouncilWorkspace,
+} from './councilWorkspace';
+import type { CabinetSeat } from './seatDecisionBoards';
 import { deriveCouncilAgenda } from './councilAgenda';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
@@ -182,6 +187,9 @@ export function GovernmentOffice({
   // la costruisce, la tavola la mostra, l'atto nasce da lei. Stato di UI: non
   // tocca il motore.
   const [workspaces, setWorkspaces] = useState<Partial<Record<CabinetAddressView['seat'], DecisionWorkspace>>>({});
+  // WS-GOV-SEAT-BOARDS (B25/B26) — La riunione di Consiglio: un read model di
+  // UI che **referenzia** i workspace delle sedie convocate (nessuna copia).
+  const [council, setCouncil] = useState<CouncilWorkspace | null>(null);
   // WS-GOVUX-P7 — La verifica del motore per la plancia delle conseguenze: si
   // conserva la firma con cui è stata prodotta, così una bozza modificata la
   // rende `stale` invece di mostrare la stima di un'altra versione.
@@ -225,8 +233,24 @@ export function GovernmentOffice({
       setOpenSeat(null);
       setLastOutcome(null);
       setActDraft(null);
+      setCouncil(null);
     }
   }, [open]);
+
+  // WS-GOV-SEAT-BOARDS (B24) — L'isolamento dello stato: la decisione di una
+  // sedia appartiene a `game + branch + turn + seat`. Al cambio di partita,
+  // ramo o turno i workspace e la riunione non sopravvivono: non si firma con
+  // numeri di un altro mondo. Le sedie restano indipendenti nello stesso turno
+  // (`workspaces[tesoro] != workspaces[lavori]`: la chiave è la sedia).
+  const decisionScope = `${gameId}|${branchId ?? ''}|${currentTurn ?? ''}`;
+  const decisionScopeRef = useRef(decisionScope);
+  useEffect(() => {
+    if (decisionScopeRef.current === decisionScope) return;
+    decisionScopeRef.current = decisionScope;
+    setWorkspaces({});
+    setCouncil(null);
+    setActDraft(null);
+  }, [decisionScope]);
 
   // Cambiare sedia non trascina la bozza d'atto di un altro ministro.
   useEffect(() => {
@@ -557,6 +581,34 @@ export function GovernmentOffice({
   const actStale = workspace ? actStaleness(workspace, actRevision) : null;
   const decisionQuestion = address?.items[0]?.need ?? null;
 
+  // WS-GOV-SEAT-BOARDS (B25/B26) — La Tavola comune legge il workspace **vivo**
+  // di ogni sedia convocata: la promozione è un riferimento, non una copia.
+  const councilLookup = useCallback(
+    (seat: CabinetSeat): DecisionWorkspace | null => workspaces[seat] ?? null,
+    [workspaces],
+  );
+  const promoteOpenToCouncil = useCallback((): void => {
+    if (!openSeat) return;
+    const current = workspaces[openSeat];
+    if (!canPromoteToCouncil(current ?? null) || !current) return;
+    setCouncil(prev => conveneSeat(prev ?? promoteToCouncil(current, openSeat), openSeat));
+  }, [openSeat, workspaces]);
+  const conveneSeatInCouncil = useCallback((target: CabinetSeat): void => {
+    setCouncil(prev => {
+      let base = prev;
+      if (!base && openSeat) {
+        const current = workspaces[openSeat];
+        if (current && canPromoteToCouncil(current)) base = promoteToCouncil(current, openSeat);
+      }
+      return base ? conveneSeat(base, target) : null;
+    });
+    setOpenSeat(target);
+  }, [openSeat, workspaces]);
+  const openCouncilSeat = useCallback((seat: CabinetSeat): void => {
+    setOpenSeat(seat);
+  }, []);
+  const leaveCouncil = useCallback((): void => { setCouncil(null); }, []);
+
   const prepareRoad = useCallback((road: TreasuryRoad): void => {
     if (!address) return;
     setActDraft({ ...actDraftFor(road, address.seat), signatureKey: crypto.randomUUID() });
@@ -847,6 +899,12 @@ export function GovernmentOffice({
                   actRevision={actRevision}
                   onPrepareFromProposal={prepareFromProposal}
                   onRegenerateAct={prepareFromProposal}
+                  council={council}
+                  councilLookup={councilLookup}
+                  onConveneSeat={conveneSeatInCouncil}
+                  onOpenCouncilSeat={openCouncilSeat}
+                  onLeaveCouncil={leaveCouncil}
+                  onPromoteToCouncil={promoteOpenToCouncil}
                 />
               </section>
             </div>

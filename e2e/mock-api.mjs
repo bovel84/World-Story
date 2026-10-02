@@ -1186,6 +1186,24 @@ export function installMockApi(page, opts = {}) {
         + '"unresolvedQuestions":["ripartizione"]}\n```';
     } else if (message.includes('infrastruttur')) {
       decision = '\n\n```decision\n{"op":"set-objective","objective":"Investire l’avanzo nelle infrastrutture","source":"president"}\n```';
+    } else if (message.includes('fabbrica') || message.includes('siderurgic')) {
+      // WS-GOV-SEAT-BOARDS — Il flusso dei Lavori: l’obiettivo e l’opera.
+      decision = '\n\n```decision\n{"op":"set-objective","objective":"Costruire una fabbrica siderurgica","source":"president"}\n```'
+        + '\n\n```decision\n{"op":"update-proposal","changes":['
+        + '{"kind":"work","label":"Fabbrica siderurgica","source":"president"}],'
+        + '"unresolvedQuestions":["localizzazione"]}\n```';
+    } else if (message.includes('sarajevo')) {
+      decision = '\n\n```decision\n{"op":"update-proposal","changes":['
+        + '{"kind":"region","label":"Sarajevo","source":"president"}],'
+        + '"constraints":["acciaio mancante"]}\n```'
+        + '\n\n```decision\n{"op":"resolve-question","question":"localizzazione"}\n```';
+    } else if (message.includes('copertura') || message.includes('finanziar')) {
+      // La contribuzione del Tesoro alla Tavola comune.
+      decision = '\n\n```decision\n{"op":"update-proposal","changes":['
+        + '{"kind":"target","label":"Copertura finanziaria","value":"2,00","unit":"mld","source":"president"}]}\n```';
+    } else if (message.includes('materiali')) {
+      decision = '\n\n```decision\n{"op":"update-proposal","changes":['
+        + '{"kind":"work","label":"Materiali del cantiere","source":"minister"}]}\n```';
     }
     return json(route, { reply: `Il ministro (${seat}) ha preso nota del problema.${directive}${decision}`, seat });
   });
