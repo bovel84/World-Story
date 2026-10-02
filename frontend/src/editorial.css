@@ -1986,6 +1986,48 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .act-draft-sign:disabled { opacity: .6; cursor: default; }
 .act-draft-cancel { padding: 7px 12px; border: 1px solid #526783; border-radius: 8px; background: transparent; color: #cfe0f5; font: 700 11.5px/1.3 system-ui, sans-serif; cursor: pointer; }
 .act-draft-cancel:hover:not(:disabled) { background: #1b2f4b; }
+
+/* WS-GOVUX-P7 — La plancia delle conseguenze: quattro gruppi distinti sotto la
+   bozza, prima della firma. Nessun `!important` (disciplina del modulo). */
+.consequence-board { display: flex; flex-direction: column; gap: 9px; padding: 10px; border: 1px solid #24344d; border-radius: 10px; background: #0e1a2c; }
+.consequence-board-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.consequence-board-kicker { font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .07em; text-transform: uppercase; color: #b3a6ea; }
+.consequence-board-status { margin-left: auto; padding: 1px 8px; border: 1px solid #526783; border-radius: 999px; font: 700 9.5px/1.5 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #cfe0f5; }
+.consequence-board[data-status="engine-preview"] .consequence-board-status { border-color: #2f8a58; color: #9fe0ba; }
+.consequence-board[data-status="not-estimable"] .consequence-board-status { border-color: #b96a6a; color: #f0b0b0; }
+.consequence-board-note { margin: 0; font: 400 11px/1.5 system-ui, sans-serif; color: #a8bdd8; }
+.consequence-board-stale { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #8a7a2b; border-radius: 8px; background: #241f10; font: 400 11px/1.45 system-ui, sans-serif; color: #e6d98a; }
+.consequence-refresh { margin-left: auto; padding: 3px 10px; border: 1px solid #8a7a2b; border-radius: 7px; background: #2e2813; color: #f2e9b8; font: 700 10.5px/1.4 system-ui, sans-serif; cursor: pointer; }
+.consequence-refresh:disabled { opacity: .6; cursor: default; }
+.consequence-board-loading, .consequence-board-error { margin: 0; font: 400 11px/1.45 system-ui, sans-serif; }
+.consequence-board-loading { color: #a8bdd8; }
+.consequence-board-error { color: #f0b0b0; }
+.consequence-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.consequence-group { display: flex; flex-direction: column; gap: 5px; padding: 7px 8px; border: 1px solid #1e2c42; border-radius: 8px; background: #0b1526; }
+.consequence-group-title { margin: 0; font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #93a6c0; }
+.consequence-group-list { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.consequence-entry { display: flex; align-items: flex-start; gap: 6px; padding: 5px 0; border-top: 1px solid #16233a; }
+.consequence-entry:first-child { border-top: 0; }
+.consequence-entry-icon { flex: none; width: 12px; font: 700 11px/1.35 system-ui, sans-serif; color: #7d8ea8; }
+.consequence-entry.tone-positive .consequence-entry-icon { color: #5fb98a; }
+.consequence-entry.tone-warning .consequence-entry-icon { color: #d9b061; }
+.consequence-entry.tone-critical .consequence-entry-icon { color: #d97b7b; }
+.consequence-entry-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.consequence-entry-label { font: 600 11.5px/1.35 var(--op-copy); color: #eef3fc; }
+.consequence-entry-detail { font: 400 11px/1.4 system-ui, sans-serif; color: #a8bdd8; }
+.consequence-entry-tags { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; margin-left: auto; flex: none; }
+.consequence-tag { padding: 0 6px; border-radius: 999px; font: 700 8.5px/1.7 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+.consequence-tag-applied { background: #1f5236; color: #b8ecc9; }
+.consequence-basis { font: 700 8.5px/1.4 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+.consequence-basis-measured { color: #6fb0d9; }
+.consequence-basis-estimated { color: #d9b061; }
+.consequence-basis-declared { color: #b3a6ea; }
+.consequence-basis-unavailable { color: #d97b7b; }
+.consequence-not-estimable { display: flex; flex-direction: column; gap: 3px; padding: 7px 8px; border: 1px dashed #5a3a3a; border-radius: 8px; background: #1c1014; }
+.consequence-not-estimable-title { font: 700 9.5px/1.3 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #f0b0b0; }
+.consequence-not-estimable ul { margin: 0; padding-left: 16px; }
+.consequence-not-estimable li { font: 400 10.5px/1.45 system-ui, sans-serif; color: #e0b3ac; }
+.consequence-board-footnote { margin: 0; font: 400 10px/1.45 system-ui, sans-serif; color: #7d8ea8; }
 .government-office-act-status { margin: 6px 0 0; padding: 6px 9px; border-left: 3px solid #526783; border-radius: 4px; background: #101c30; font: 400 11.5px/1.5 system-ui, sans-serif; color: #cfe0f5; }
 .government-office-act-status[data-state="queued"] { border-left-color: #5fb98a; }
 .government-office-act-status[data-state="executed"] { border-left-color: #4aa3c0; }

@@ -15,6 +15,8 @@
  */
 import { useState } from 'react';
 import { capabilityLabel, type ActStatus, type ProposalActDraft } from './actDraft';
+import { ConsequenceBoardPanel } from './ConsequenceBoardPanel';
+import type { ConsequenceBoard as ConsequenceBoardModel } from './consequenceBoard';
 
 export interface ActDraftPanelProps {
   draft: ProposalActDraft;
@@ -24,6 +26,17 @@ export interface ActDraftPanelProps {
   /** P5: dopo il primo invio il candidato resta immutabile per i retry. */
   editable?: boolean;
   signatureNotice?: string;
+  /**
+   * WS-GOVUX-P7 — La plancia delle conseguenze, calcolata PRIMA della firma:
+   * effetti diretti, previsioni, rischi e incertezze, distinti ed etichettati.
+   */
+  board?: ConsequenceBoardModel | null;
+  /** La verifica del motore è in corso (per la plancia). */
+  boardLoading?: boolean;
+  /** La verifica del motore non è disponibile: la plancia lo dichiara. */
+  boardError?: string | null;
+  /** Ricalcola la stima dopo che la bozza è stata modificata. */
+  onRefreshBoard?: () => void;
   /** «Modifica proposta» — il testo corretto dal Presidente. */
   onEdit?: (text: string) => void;
   /** «Firma e inserisci nel registro» — accoda secondo la semantica vigente. */
@@ -32,7 +45,7 @@ export interface ActDraftPanelProps {
   onCancel?: () => void;
 }
 
-export function ActDraftPanel({ draft, status, busy = false, editable = true, signatureNotice, onEdit, onSign, onCancel }: ActDraftPanelProps) {
+export function ActDraftPanel({ draft, status, busy = false, editable = true, signatureNotice, board = null, boardLoading = false, boardError = null, onRefreshBoard, onEdit, onSign, onCancel }: ActDraftPanelProps) {
   const [signing, setSigning] = useState(false);
   const locked = busy || signing;
 
@@ -75,6 +88,11 @@ export function ActDraftPanel({ draft, status, busy = false, editable = true, si
         <span className={`act-draft-state state-${status.state}`}>{status.label}</span>
         <span className="act-draft-status-note">{status.note}</span>
       </div>
+
+      {/* WS-GOVUX-P7 — La plancia precede la firma: si vede cosa succede prima di decidere. */}
+      {board && (
+        <ConsequenceBoardPanel board={board} loading={boardLoading} error={boardError} onRefresh={onRefreshBoard} />
+      )}
 
       <div className="act-draft-actions">
         <button

@@ -41,6 +41,7 @@ import type { EvidenceKey, ResolvedCanvas, ResolvedPresentation } from './presen
 import type { ActState, ActStatus, ProposalActDraft } from './actDraft';
 import type { TreasuryAct, TreasuryRoad } from './treasuryAct';
 import type { CabinetAddressView } from '../../services/api';
+import type { ConsequenceBoard as ConsequenceBoardModel } from './consequenceBoard';
 
 /** L'ordine di priorità sulla tavola: il piano prima, le idee per ultime. */
 const KIND_PRIORITY: Record<SeatCanvasBlock['kind'], number> = {
@@ -97,17 +98,22 @@ export interface SeatTableProps {
   onTogglePin?: () => void;
   /** Tornare al messaggio che ha chiesto l'evidenza (su mobile, al dialogo). */
   onReturnToMessage?: () => void;
-  /**
-   * WS-MINISTER-UX-08 (2) — Le proposte concrete della **sedia aperta**. Il
-   * confronto e la preparazione dell'atto partono da qui, non da `act.roads`.
-   */
+  /** Lo stato di una strada che non è ancora diventata bozza. */
   proposals?: readonly TreasuryRoad[];
+  /**
+   * WS-GOVUX-P7 — La plancia delle conseguenze della bozza, calcolata PRIMA
+   * della firma: effetti diretti, previsioni, rischi e incertezze.
+   */
+  actBoard?: ConsequenceBoardModel | null;
+  actBoardLoading?: boolean;
+  actBoardError?: string | null;
+  onRefreshActBoard?: () => void;
 }
 
 export function SeatTable({
   seat, blocks, act, onPrepareRoad, preparedRoadId, roadStates, actDraft, actStatus, actBusy, actEditable, actSignatureNotice,
   onEditDraft, onSignDraft, onCancelDraft, onCompare, presentation, canvas = null, onClearPresentation, onTogglePin, onReturnToMessage,
-  proposals = [],
+  proposals = [], actBoard = null, actBoardLoading = false, actBoardError = null, onRefreshActBoard,
 }: SeatTableProps) {
   const ordered = [...blocks].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
   const showsAct = seat === 'tesoro';
@@ -190,6 +196,10 @@ export function SeatTable({
       busy={actBusy}
       editable={actEditable}
       signatureNotice={actSignatureNotice}
+      board={actBoard}
+      boardLoading={actBoardLoading}
+      boardError={actBoardError}
+      onRefreshBoard={onRefreshActBoard}
       onEdit={onEditDraft}
       onSign={onSignDraft}
       onCancel={onCancelDraft}
