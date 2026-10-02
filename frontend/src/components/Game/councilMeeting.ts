@@ -105,6 +105,14 @@ export interface MeetingMoneyCoverage {
 /** La riunione: stato della **seduta corrente** (B1). */
 export interface CouncilMeeting {
   readonly id: string;
+  /**
+   * WS-GOV-MOBILE-FOCUS (M1/A1) — l'identità separa la **seduta** (game+branch+
+   * turn) dalla **convocazione** (questa riunione specifica). Due riunioni nello
+   * stesso turno con le stesse competenze NON sono la stessa riunione.
+   */
+  readonly sessionId: string;
+  readonly meetingId: string;
+  readonly sourceMessageId?: string;
   readonly gameId: string;
   readonly branchId: string | null;
   readonly turn: number;
@@ -118,6 +126,18 @@ export interface CouncilMeeting {
   readonly unresolved: readonly MeetingRequirement[];
   readonly execution: MeetingExecutionPlan;
   readonly revision: number;
+}
+
+/**
+ * WS-GOV-MOBILE-FOCUS (A1) — l'identità di una convocazione: la seduta
+ * (`sessionId`) e la convocazione (`meetingId`) sono due cose diverse. Il
+ * `meetingId` identifica **quella specifica** riunione; derivarlo dai soli
+ * partecipanti renderebbe uguali due decisioni diverse dello stesso turno.
+ */
+export interface CouncilMeetingIdentity {
+  readonly sessionId: string;
+  readonly meetingId: string;
+  readonly sourceMessageId?: string;
 }
 
 /** Il dato letto dai motori: la riunione lo **spiega**, non lo ricalcola. */
@@ -153,6 +173,13 @@ export interface MeetingEngineRead {
   } | null;
   /** La provenienza complessiva (es. «check-feasibility»). */
   readonly source: string;
+  /**
+   * WS-GOV-MOBILE-FOCUS (A3) — il soggetto a cui questa lettura appartiene.
+   * `applyEngineRead` rifiuta una lettura che non nomina la stessa riunione:
+   * mai una fattibilità per la ferrovia su una riunione che parla della
+   * fabbrica. Opzionale per retro-compatibilità.
+   */
+  readonly subject?: string;
 }
 
 // ── Selettore deterministico dei partecipanti (B4) e capofila (B5) ──────────
@@ -225,6 +252,48 @@ export function meetingSubject(text: string): string {
   return clean.length > 140 ? `${clean.slice(0, 137)}…` : clean;
 }
 
+/**
+ * WS-GOV-MOBILE-FOCUS (A1) — un identificatore stabile dal testo, per la
+ * convocazione senza un `sourceMessageId`. Non usa `participants`: due
+ * riunioni diverse con le stesse competenze restano distinte. djb2, niente
+ * dipendenze e niente casualità: lo stesso testo dà sempre lo stesso id.
+ */
+function stableMeetingKey(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) + hash ^ value.charCodeAt(i)) >>> 0;
+  return hash.toString(36);
+}
+
+/** L'identità della seduta (game+branch+turn): due turni sono due sedute. */
+export function councilSessionId(gameId: string, branchId: string | null, turn: number): string {
+  return `${gameId}|${branchId ?? 'main'}|${turn}`;
+}
+
+/**
+ * WS-GOV-MOBILE-FOCUS (A1) — l'identità di una convocazione. La seduta è
+ * `sessionId`; la **convocazione** è `meetingId` e nasce dal messaggio del
+ * Presidente (o, in mancanza, dal testo). Mai dai partecipanti.
+ */
+export function councilMeetingIdentity(input: {
+  readonly gameId: string;
+  readonly branchId: string | null;
+  readonly turn: number;
+  readonly subject: string;
+  readonly sourceMessageId?: string;
+  readonly meetingSeq?: number;
+}): CouncilMeetingIdentity {
+  const sessionId = councilSessionId(input.gameId, input.branchId, input.turn);
+  const meetingId = input.sourceMessageId
+    ? `msg-${input.sourceMessageId}`
+    : (input.meetingSeq != null ? `seq-${input.meetingSeq}` : `subj-${stableMeetingKey(meetingSubject(input.subject))}`);
+  return { sessionId, meetingId, ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}) };
+}
+
+/** Il soggetto della riunione è quello della richiesta? Guardia A3. */
+export function meetsSubject(meeting: CouncilMeeting, subject: string): boolean {
+  return meeting.subject === meetingSubject(subject);
+}
+
 /** Apre una riunione nel turno corrente: il passato non si trascina (Fase A). */
 export function openMeeting(input: {
   readonly gameId: string;
@@ -232,26 +301,44 @@ export function openMeeting(input: {
   readonly turn: number;
   readonly subject: string;
   readonly objective?: string;
+  /** WS-GOV-MOBILE-FOCUS (A1) — il messaggio del Presidente che convoca. */
+  readonly sourceMessageId?: string;
+  /** WS-GOV-MOBILE-FOCUS (A1) — sequenza stabile quando manca il messaggio. */
+  readonly meetingSeq?: number;
 }): CouncilMeeting | null {
   const participants = selectParticipants(input.subject);
   if (participants.length < 2) return null;
   const leadSeat = selectLeadSeat(input.subject, participants);
+  const identity = councilMeetingIdentity(input);
+  const subject = meetingSubject(input.subject);
   return {
-    id: `${input.gameId}|${input.branchId ?? 'main'}|${input.turn}|${participants.join('+')}`,
+    id: `${identity.sessionId}#${identity.meetingId}`,
+    sessionId: identity.sessionId,
+    meetingId: identity.meetingId,
+    ...(identity.sourceMessageId ? { sourceMessageId: identity.sourceMessageId } : {}),
     gameId: input.gameId,
     branchId: input.branchId,
     turn: input.turn,
-    subject: meetingSubject(input.subject),
-    objective: input.objective?.trim() || meetingSubject(input.subject),
+    subject,
+    objective: input.objective?.trim() || subject,
     participants,
     leadSeat,
     status: 'opening',
-    workspace: { objective: input.objective?.trim() || meetingSubject(input.subject), work: null, region: null, lines: [], risks: [] },
+    workspace: { objective: input.objective?.trim() || subject, work: null, region: null, lines: [], risks: [] },
     contributions: [],
     unresolved: [],
     execution: {},
     revision: 0,
   };
+}
+
+/**
+ * WS-GOV-MOBILE-FOCUS (A2) — aggiornare una riunione è un'azione dichiarata,
+ * distinta dall'aprirne una nuova. `continueMeeting` applica una lettura alla
+ * riunione **attiva** solo se la lettura appartiene alla stessa convocazione.
+ */
+export function continueMeeting(meeting: CouncilMeeting, read: MeetingEngineRead): CouncilMeeting {
+  return applyEngineRead(meeting, read);
 }
 
 /** Aggiunge un contributo: la riunione avanza di una revisione. */
@@ -372,6 +459,13 @@ export function meetingRequirementsFromRead(meeting: CouncilMeeting, read: Meeti
   if (read.location?.status === 'ambiguous') {
     push('location', ambiguousLocationQuestion(read.location.candidates), meeting.leadSeat, true);
   }
+  // WS-GOV-MOBILE-FOCUS (A4) — un’opera **fisica** senza localizzazione non è
+  // pronta: il cantiere non può sorgere «ovunque». Il blocco nasce solo quando
+  // il motore ha risolto un’opera (distinta/materiali/tempi), non per una
+  // richiesta generica senza opera.
+  if (read.location?.status === 'missing' && (read.workDeclaration || (read.materials.length > 0 && read.durationDays !== null))) {
+    push('location', 'Dove deve sorgere l’opera?', meeting.leadSeat, true);
+  }
   if ((read.money?.coverage ?? read.coverage) === 'short' && !requirements.some(item => item.kind === 'cash')) {
     push('cash', read.summary || 'Copertura finanziaria insufficiente', 'tesoro', true);
   }
@@ -429,6 +523,10 @@ export function tesoroContribution(meeting: CouncilMeeting, read: MeetingEngineR
  * un'autonomia casuale (B6/B13).
  */
 export function applyEngineRead(meeting: CouncilMeeting, read: MeetingEngineRead): CouncilMeeting {
+  // WS-GOV-MOBILE-FOCUS (A3) — la lettura appartiene alla stessa riunione? Una
+  // fattibilità per la ferrovia non tocca la riunione che parla della fabbrica.
+  // Le letture legacy (senza `subject`) restano accettate.
+  if (read.subject != null && read.subject !== meeting.subject) return meeting;
   let next = meeting;
   const workspace = meetingWorkspaceFromRead(next, read);
   const unresolved = meetingRequirementsFromRead(next, read);

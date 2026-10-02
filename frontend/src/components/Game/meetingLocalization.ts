@@ -77,9 +77,20 @@ export function regionMatchKeys(name: string): string[] {
 export function resolveMeetingLocation(
   text: string,
   regions: readonly CanonicalRegionRef[],
+  /** WS-GOV-MOBILE-FOCUS (A5) — la regione attuale, se canonicalmente risolvibile. */
+  currentRegion: CanonicalRegionRef | null = null,
 ): MeetingLocation {
+  const toCandidate = (region: CanonicalRegionRef): MeetingLocationCandidate => ({ regionId: region.id, regionLabel: region.name });
   const haystack = normalize(text);
-  if (!haystack || regions.length === 0) return { status: 'missing', candidates: [], region: null };
+  if (!haystack || regions.length === 0) {
+    // Senza geografia non si risolve; ma «qui» resta una rinvia esplicita:
+    // se la regione attuale è nota, il luogo è quello (A5).
+    if (currentRegion && hasCurrentRegionAnaphora(haystack)) {
+      const candidate = toCandidate(currentRegion);
+      return { status: 'resolved', candidates: [candidate], region: candidate };
+    }
+    return { status: 'missing', candidates: [], region: null };
+  }
   const words = new Set(haystack.split(' '));
   const found = new Map<string, { candidate: MeetingLocationCandidate; weight: number }>();
 
@@ -104,9 +115,54 @@ export function resolveMeetingLocation(
     .sort((a, b) => (b.weight - a.weight) || a.candidate.regionId.localeCompare(b.candidate.regionId))
     .map(entry => entry.candidate);
 
-  if (candidates.length === 0) return { status: 'missing', candidates: [], region: null };
+  if (candidates.length === 0) {
+    // «Qui» / «nella regione attuale»: la rinvia esplicita si risolve **solo**
+    // con una regione canonica nota. Altrimenti resta mancante.
+    if (currentRegion && hasCurrentRegionAnaphora(haystack)) {
+      const candidate = toCandidate(currentRegion);
+      return { status: 'resolved', candidates: [candidate], region: candidate };
+    }
+    return { status: 'missing', candidates: [], region: null };
+  }
   if (candidates.length > 1) return { status: 'ambiguous', candidates, region: null };
   return { status: 'resolved', candidates, region: candidates[0] };
+}
+
+/**
+ * WS-GOV-MOBILE-FOCUS (A5) — Il riferimento alla regione **attuale**: solo se
+ * esiste una regione capitale marcata, oppure una sola regione posseduta. Con
+ * più regioni e nessuna capitale non si sceglie: la risoluzione resta assente.
+ * Stessa semantica di `nationalContext.nationalReference`, così la mappa e il
+ * Governo non indicano due luoghi diversi.
+ */
+export function resolveCurrentRegionRef(
+  regions: readonly (CanonicalRegionRef & { readonly owner?: string; readonly metadata?: Record<string, unknown> })[] ,
+  polityId: string | null | undefined,
+): CanonicalRegionRef | null {
+  if (!polityId) return null;
+  const owned = regions.filter(region => region.owner === polityId);
+  const isCapital = (region: typeof owned[number]): boolean => {
+    const metadata = (region.metadata ?? {}) as Record<string, unknown>;
+    if (metadata.isCapitalProvince === true) return true;
+    const tags = metadata.tags;
+    return Array.isArray(tags) && tags.includes('capitale');
+  };
+  const capital = owned.find(isCapital);
+  if (capital) return { id: capital.id, name: capital.name };
+  if (owned.length === 1) return { id: owned[0].id, name: owned[0].name };
+  return null;
+}
+
+/** I modi in cui il Presidente può riferirsi alla regione in cui si trova. */
+const CURRENT_REGION_ANAPHORA: readonly string[] = [
+  ' qui', ' qua', 'da queste parti', 'in questa regione', 'nella regione attuale',
+  'nella nostra regione', 'nella provincia attuale', 'in questa provincia', 'sul posto',
+];
+
+/** Il testo rinvia esplicitamente alla regione attuale (non a una nominata)? */
+export function hasCurrentRegionAnaphora(text: string): boolean {
+  const padded = ` ${normalize(text)} `;
+  return CURRENT_REGION_ANAPHORA.some(phrase => padded.includes(`${phrase} `));
 }
 
 /**
