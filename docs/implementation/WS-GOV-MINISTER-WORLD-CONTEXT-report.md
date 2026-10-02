@@ -203,6 +203,8 @@ Definiti in `MINISTER_WORLD_BUDGET` (byte UTF-8 per sezione, tagliati da `clip()
 
 Totale ~7,4 KB ≈ **1 850 token**, entro i budget indicativi della §8 (scenario 800–1200 + national 800–1500 + seat 500–1000). Il contesto di mondo è **esente dal taglio JEV** (`worldContext`/`nationalContext` sono sezioni immutabili), resta compatto ma **sempre presente**.
 
+Il taglio `clip()` misura i **byte UTF-8** (`Buffer.byteLength`), non i caratteri JS: i budget dichiarati sono in byte e il taglio li rispetta davvero (pre-merge fix #4).
+
 ---
 
 ## 8. JEV: identità del mondo non compattata, `verifiedState` separato (§9–§10)
@@ -227,6 +229,25 @@ interface MinisterContextInput {
 ```
 
 Il comportamento del percorso JEV preesistente non cambia quando `worldContext`/`nationalContext` non sono passati (tutti i test JEV esistenti restano verdi).
+
+### Telemetria coerente (pre-merge fix #3)
+
+`worldContext` e `nationalContext` sono **immutabili** e fuori dalla compaction JEV: non devono falsare `over_budget`. La telemetria ora li contabilizza a parte:
+
+```ts
+telemetry: {
+  section_bytes;            // per sezione (include world/national)
+  total_bytes;              // tutto il testo
+  immutable_context_bytes;  // world + national
+  dynamic_context_bytes;    // total - immutable
+  dynamic_budget_bytes;     // somma dei budget dinamici dichiarati
+  budget_bytes;             // alias retro-compatibile di dynamic_budget_bytes
+  over_budget;              // dynamic_context_bytes > dynamic_budget_bytes
+  ...
+}
+```
+
+Test: *«guardrail…»* verifica `immutable_context_bytes > 0`, `dynamic_budget_bytes === 4400` e `over_budget === false` con le sezioni dinamiche entro budget.
 
 ---
 
@@ -264,10 +285,10 @@ Test: *«storia alternativa: il preset iniziale e la rottura della partita convi
 |---|---|
 | `backend-nest/src/prompts/national-context.ts` | Esteso: `MinisterWorldContext`, builder, renderer, enfasi, gerarchia, budget |
 | `backend-nest/src/prompts/types.ts` | `WORLD_NAME?: string` in `PromptVariables` |
-| `backend-nest/src/prompts/advisor.ts` | `buildAdvisorPrompt` accetta `options.worldContext` e `options.seat`; inserisce il blocco mondo prima del dialogo |
-| `backend-nest/src/prompt-builder.ts` | `WORLD_NAME` in `buildVariables()`; `buildMinisterContextSection` passa `worldContext`/`nationalContext`; `ministerSeatFor()` per l'enfasi; `getAdvisor`/`getAdvisorStream` passano le opzioni |
+| `backend-nest/src/prompts/advisor.ts` | `buildAdvisorPrompt` riceve `options.worldContext` **già costruito** e lo inserisce prima del dialogo; non costruisce più nulla da sé |
+| `backend-nest/src/prompt-builder.ts` | `WORLD_NAME` in `buildVariables()`; `buildMinisterContextSection` passa `worldContext`/`nationalContext`; `ministerWorldBlockFor()`/`isMinisterRequest()` per il percorso ministro/riunione (anche con `promptOverride`); `getAdvisor`/`getAdvisorStream` passano le opzioni |
 | `backend-nest/src/core/government/jev/jev-memory.service.ts` | `MinisterContextInput`/`MinisterContextSections` estesi; ordine §3; `verifiedState` ultimo |
-| `backend-nest/tests/ws-gov-minister-world-context.test.ts` | **Nuovo** — 5 test (mondo diverso, JEV off, JEV on, guardrail, storia alternativa) |
+| `backend-nest/tests/ws-gov-minister-world-context.test.ts` | **Nuovo** — 7 test (mondo diverso, JEV off, JEV on, guardrail+telemetria, storia alternativa, override advisor, Consigliere normale) |
 | `backend-nest/tests/ws-jev-w4-context.test.ts` | Aggiornata l'assert sull'ordine delle sezioni (i dati verificati sono ora ultimi) |
 
 **File congelati:** nessuno toccato. Verifica: `git diff --name-only` non contiene `core/simulation/**`, `game-session.ts`, `TurnOrchestrator`, `TurnPipelineService`, `SessionStateStore`, schema/database, checkpoint, pipeline tempo.
@@ -284,13 +305,25 @@ $ npx tsc --noEmit -p tsconfig.json
 # Suite backend completa
 $ npx vitest run tests/
 # Test Files  216 passed (216)
-#      Tests  2313 passed (2313)
+#      Tests  2315 passed (2315)
 
 # Test mirati
 $ npx vitest run tests/ws-gov-minister-world-context.test.ts tests/ws-jev-w4-context.test.ts
 # Test Files  2 passed (2)
-#      Tests  15 passed (15)
+#      Tests  17 passed (17)
 ```
+
+---
+
+## 12-bis. Pre-merge fixes (branch `feat/ws-gov-minister-world-context-fixes`)
+
+Cinque correzioni chieste in revisione:
+
+1. **`prompts.advisor` override + JEV off** → il `MinisterWorldContext` ora arriva comunque. `PromptBuilder` costruisce il blocco con `ministerWorldBlockFor()` e lo antepone **in entrambi i rami** (override e default). Il template custom non può più bypassare il contesto di mondo. Test: *«JEV spento + prompts.advisor override…»*.
+2. **Consigliere normale** → `buildAdvisorPrompt` non costruisce più nulla da sé: il blocco arriva **solo** se il chiamante lo passa, e `isMinisterRequest()` lo attiva solo per sedia (`Sei il … del governo.`) o riunione (`RIUNIONE DI GOVERNO`). Test: *«Consigliere normale…»*.
+3. **Telemetria JEV** → `immutable_context_bytes`, `dynamic_context_bytes`, `dynamic_budget_bytes` (alias `budget_bytes`); `over_budget` confronta le sole sezioni dinamiche. Niente più falsi `over_budget`. Test: *«guardrail…»*.
+4. **Budget byte-accurate** → `clip()` usa `Buffer.byteLength(..., 'utf8')` (con iterazione per code point), coerente con i budget dichiarati in byte.
+5. **Test aggiunti** → override JEV off, Consigliere normale, telemetria `over_budget=false`.
 
 ---
 
@@ -298,8 +331,8 @@ $ npx vitest run tests/ws-gov-minister-world-context.test.ts tests/ws-jev-w4-con
 
 1. **Il modello LLM non è testato**. I test provano che il contesto *arriva* al prompt e che il guardrail testuale c'è; non provano che il modello poi rispetti il guardrail. La verifica comportamentale richiede un giudizio umano sul testo prodotto, che non è stato fatto qui.
 2. **`clip()` tronca la premessa a 1 200 byte**. Se un preset ha una premessa molto più lunga, la parte tagliata non arriva al ministro nel blocco `[IDENTITÀ DEL MONDO]` (resta però nella sezione generica `[Contesto di gioco]` del builder del Consigliere, che non è stata rimossa). Questo è il compromesso del budget §8.
-3. **Sovrapposizione parziale con la sezione generica preesistente** `[Contesto di gioco]`/`[Regole di simulazione]` del builder del Consigliere: la premessa e le regole compaiono sia lì sia nel nuovo blocco strutturato. È stato scelto di **non** rimuovere la sezione generica per non alterare il comportamento del Consigliere (fuori dal perimetro del task). L'overlap è di poche centinaia di byte; il contenuto nazionale/eventi/impegni/processi è **solo** nel nuovo blocco.
+3. **Sovrapposizione parziale con la sezione generica preesistente** `[Contesto di gioco]`/`[Regole di simulazione]`: nel **percorso ministro** la premessa e le regole compaiono sia lì sia nel nuovo blocco strutturato. È stato scelto di **non** rimuovere la sezione generica per non alterare il resto del builder. Il **Consigliere normale non riceve il blocco nuovo**: nessuna sovrapposizione fuori dal Governo. L'overlap nel percorso ministro è di poche centinaia di byte; il contenuto nazionale/eventi/impegni/processi è **solo** nel nuovo blocco.
 4. **`WORLD_NAME` per ora è derivato da `game.world.name`**, che nei test/fixture può coincidere con un nome sintetico. Non è stato aggiunto un campo "preset id" separato perché non esisteva e non era richiesto.
 5. **Il test su "due paesi diversi"** usa due set di `PromptVariables` (stesso motore, preset/data diversi) e verifica che i prompt di paese differiscano; non avvia due sessioni complete con due preset su disco, per non appesantire la suite ("senza mille test").
 6. **La CI `test-build` non è stata ancora eseguita** su questo branch: va fatta al push. Il presente report attesta solo i comandi locali sopra.
-7. Il percorso `promptOverride` del Consigliere (`renderPromptTemplate(promptOverride, vars)`) **non** riceve il nuovo blocco strutturato: il template preset viene reso con le variabili, che includono comunque `WORLD_BEFORE_ROUND_ONE_TEXT`. Se un mondo usa un override del prompt advisor, il blocco strutturato non compare. Questo percorso non è stato modificato.
+7. ~~Il percorso `promptOverride` non riceve il nuovo blocco strutturato.~~ **RISOLTO** (pre-merge fix #1): il blocco viene anteposto anche nel ramo override, per il percorso ministro/riunione.

@@ -2,8 +2,25 @@ import type { PromptVariables } from './types';
 
 const clip = (value: string | undefined, max: number): string => {
   const text = String(value || '').trim();
-  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+  if (utf8Bytes(text) <= max) return text;
+  const ellipsis = '…';
+  const room = Math.max(0, max - utf8Bytes(ellipsis));
+  let bytes = 0;
+  let end = 0;
+  for (const char of text) {
+    const size = utf8Bytes(char);
+    if (bytes + size > room) break;
+    bytes += size;
+    end += char.length;
+  }
+  return `${text.slice(0, end).trimEnd()}${ellipsis}`;
 };
+
+/**
+ * Lunghezza in **byte UTF-8** (non caratteri JS): i budget dichiarati sono in
+ * byte, quindi il taglio deve misurarli allo stesso modo.
+ */
+const utf8Bytes = (value: string): number => Buffer.byteLength(value, 'utf8');
 
 /** Same national memory for suggestions and single/batch order elaboration.
  * Budgeted locally; no additional LLM request or retrieval against other games. */
