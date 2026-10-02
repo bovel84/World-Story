@@ -19,6 +19,12 @@ export interface AdvisorMessage {
   content: string;
 /** Commento proattivo del consulente dopo il turno (SSE advisor_proactive) */
   proactive?: boolean;
+  /**
+   * WS-GOV-TURN-SESSIONS (A5) — Il turno della seduta a cui appartiene il
+   * messaggio. La chat visibile e la cronologia inviata al ministro sono quelle
+   * del turno corrente; i turni precedenti restano storia nello store.
+   */
+  turn?: number;
 }
 
 /** Schede del pannello flottante */

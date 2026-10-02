@@ -2071,6 +2071,17 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .decision-evidence { display: flex; flex-direction: column; gap: 4px; }
 .decision-evidence ul { margin: 0; padding-left: 16px; }
 .decision-evidence li { font: 400 11.5px/1.5 system-ui, sans-serif; color: #a8bdd8; }
+/* WS-GOV-TURN-SESSIONS (A7/A8) — Approfondimenti: strumenti di supporto, chiusi di
+   default. Un'evidenza aperta è un riferimento temporaneo, non una copia. */
+.decision-approfondimenti { font: 400 11.5px/1.5 system-ui, sans-serif; color: #a8bdd8; }
+.decision-approfondimenti-summary { cursor: pointer; font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #93a6c0; }
+.decision-approfondimenti ul { margin: 6px 0 0; padding-left: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.decision-evidence-open li, .decision-evidence-catalog li { display: flex; align-items: center; gap: 6px; }
+.decision-evidence-catalog { margin-top: 8px; }
+.decision-evidence-open-btn, .decision-evidence-close { padding: 4px 10px; border: 1px solid #3d5a80; border-radius: 7px; background: #16233a; color: #cfe0f5; font: 700 11px/1.4 system-ui, sans-serif; cursor: pointer; }
+.decision-evidence-open-btn:disabled { opacity: .5; cursor: default; }
+.decision-evidence-close { border-color: #526783; background: #101c30; color: #a8bdd8; }
+.decision-evidence-label { font: 400 11.5px/1.5 system-ui, sans-serif; color: #dfe9f7; }
 .decision-history { font: 400 11.5px/1.5 system-ui, sans-serif; color: #a8bdd8; }
 .decision-history-summary { cursor: pointer; font: 700 10px/1.3 system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #93a6c0; }
 .decision-history ol { margin: 6px 0 0; padding-left: 16px; }

@@ -93,6 +93,12 @@ export interface MinisterChatProps {
    * cronologia visibile è breve.
    */
   memory?: MinisterMemoryItem[];
+  /**
+   * WS-GOV-TURN-SESSIONS (A1) — L'identità della seduta corrente. Al cambio di
+   * seduta le direttive/azioni già annunciate non si ripetono e la bozza della
+   * domanda si azzera: il turno nuovo è una conversazione nuova.
+   */
+  sessionId?: string;
 }
 
 /** La barra di una cifra: la grafica dentro la chat, dai numeri del motore. */
@@ -119,7 +125,7 @@ function FigureBar({ figure }: { figure: CabinetItemView['figures'][number] }) {
 export function MinisterChat({
   gameId, address, onChoose,
   messages, streaming, onAddMessage, onAppendToken, onStreamingChange,
-  onPresentation, onDecision, evidenceIndex, onFocusEvidence, memory,
+  onPresentation, onDecision, evidenceIndex, onFocusEvidence, memory, sessionId,
 }: MinisterChatProps) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
@@ -144,6 +150,13 @@ export function MinisterChat({
   const emittedPresentationRef = useRef<Record<string, string>>({});
   // WS-GOV-DIALOGUE-TO-ACT — Stessa cosa per le azioni `decision`.
   const emittedDecisionRef = useRef<Record<string, string>>({});
+  // WS-GOV-TURN-SESSIONS (A1) — Al cambio di seduta le direttive già annunciate
+  // non valgono più: gli indici dei messaggi ripartono e i riferimenti vanno
+  // svuotati, altrimenti una risposta del turno nuovo non verrebbe annunciata.
+  useEffect(() => {
+    emittedPresentationRef.current = {};
+    emittedDecisionRef.current = {};
+  }, [sessionId]);
 
   useEffect(() => {
     if (!stickToBottomRef.current) return;

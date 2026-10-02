@@ -62,7 +62,7 @@ export function ActDraftPanel({ draft, status, busy = false, editable = true, si
   const textId = `act-draft-text-${draft.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 
   return (
-    <section className="act-draft" aria-label="Bozza d'atto" data-state={status.state}>
+    <section className="act-draft" aria-label="Bozza d'atto" data-state={status.state} data-source-turn={draft.sourceTurn} data-source-revision={draft.sourceRevision}>
       <header className="act-draft-head">
         <span className="act-draft-kicker">Bozza d’atto</span>
         <h3 className="act-draft-title">{draft.title}</h3>

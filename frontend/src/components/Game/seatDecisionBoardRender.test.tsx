@@ -98,3 +98,25 @@ describe('DecisionBoard — promozione al Consiglio (B26)', () => {
     expect(html).not.toContain('Convoca il Tesoro');
   });
 });
+
+// WS-GOV-TURN-SESSIONS (A7/A8)
+describe('DecisionBoard — approfondimenti chiusi, evidenza temporanea', () => {
+  it('gli approfondimenti nascono chiusi e non dominano la Tavola', () => {
+    const html = renderToStaticMarkup(
+      <DecisionBoard workspace={build('lavori', [{ kind: 'work', label: 'Fabbrica', source: 'president' }])} seat="lavori" />,
+    );
+    expect(html).toContain('<details class="decision-approfondimenti">');
+    expect(html).not.toContain('<details class="decision-approfondimenti" open');
+    expect(html).toContain('Strumenti a supporto');
+  });
+
+  it('l’evidenza aperta è un riferimento elencato e richiudibile', () => {
+    const workspace = { ...build('lavori', [{ kind: 'work', label: 'Fabbrica', source: 'president' }]), evidenceIds: ['mappa'] };
+    const html = renderToStaticMarkup(
+      <DecisionBoard workspace={workspace} seat="lavori" onOpenEvidence={() => {}} onCloseEvidence={() => {}} />,
+    );
+    expect(html).toContain('Aperti ora');
+    expect(html).toContain('data-evidence="mappa"');
+    expect(html).toContain('Chiudi');
+  });
+});

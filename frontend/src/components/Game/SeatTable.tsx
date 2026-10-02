@@ -133,6 +133,9 @@ export interface SeatTableProps {
   onOpenCouncilSeat?: (seat: CabinetSeat) => void;
   onLeaveCouncil?: () => void;
   onPromoteToCouncil?: () => void;
+  /** WS-GOV-TURN-SESSIONS (A8) — Aprire/chiudere un approfondimento della Tavola. */
+  onOpenEvidence?: (id: EvidenceKey) => void;
+  onCloseEvidence?: (id: EvidenceKey) => void;
 }
 
 export function SeatTable({
@@ -141,6 +144,7 @@ export function SeatTable({
   proposals = [], actBoard = null, actBoardLoading = false, actBoardError = null, onRefreshActBoard,
   workspace = null, decisionQuestion = null, actRevision = null, onPrepareFromProposal, onRegenerateAct,
   council = null, councilLookup, onConveneSeat, onOpenCouncilSeat, onLeaveCouncil, onPromoteToCouncil,
+  onOpenEvidence, onCloseEvidence,
 }: SeatTableProps) {
   const ordered = [...blocks].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
   const showsAct = seat === 'tesoro';
@@ -246,6 +250,8 @@ export function SeatTable({
       onRegenerateAct={onRegenerateAct}
       onPromoteToCouncil={onPromoteToCouncil}
       onConveneSeat={onConveneSeat}
+      onOpenEvidence={onOpenEvidence}
+      onCloseEvidence={onCloseEvidence}
     />
   ) : null;
   const councilBoard = council && councilLookup ? (

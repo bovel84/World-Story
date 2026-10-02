@@ -47,6 +47,15 @@ export interface ProposalActDraft {
   readonly note: string;
   /** La dichiarazione d'opera, solo quando il motore la accetta. */
   readonly work?: WorkDeclarationInput;
+  /**
+   * WS-GOV-TURN-SESSIONS (A6) — L'identità storica dell'atto: da quale seduta e
+   * revisione nasce. Sono metadati di UI (non vanno al motore): distinguono
+   * l'Atto A del turno T dall'Atto B del turno T+1.
+   */
+  readonly sourceTurn?: number;
+  readonly sourceRevision?: number;
+  readonly sourceSeat?: string;
+  readonly sourceSessionId?: string;
 }
 
 /** Lo stato dell'atto e la sua spiegazione, già pronti per la UI. */
