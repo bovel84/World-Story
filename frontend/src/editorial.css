@@ -2503,7 +2503,12 @@ button:disabled { cursor: not-allowed; opacity: .5; }
     border-radius: 0;
     padding: 0;
     padding-bottom: env(safe-area-inset-bottom);
-    overflow: hidden;
+    /* B27/WS-GAME-OPENING — UN SOLO scroll owner per volta. La schermata di
+       scelta (registro + ministri) non ha `.gov-mobile`: è il modale a scorrere
+       fino in fondo. La seduta ha già `.gov-mobile-scroll` e `.gov-mobile` è
+       `height:100%`, quindi qui non c'è nulla da scorrere: nessun doppio scroll. */
+    overflow-y: auto;
+    overflow-x: hidden;
   }
   .government-office .desk-close-x { display: none; }
 
