@@ -63,10 +63,16 @@ import {
 } from './councilWorkspace';
 import {
   applyEngineRead, meetingActDraft, openMeeting, seatSpeaker, shouldConveneMeeting,
-  type CouncilMeeting, type MeetingEngineRead,
+  type CouncilMeeting,
 } from './councilMeeting';
+import { meetingReadFromFeasibility } from './meetingEngineRead';
 import {
-  actIdentity, consolidateSessionMemory, governmentSessionId, seatFromSessionSeatKey, sessionSeatKey,
+  narrativeContribution, narrativePrompt, meetingBriefFor,
+  type MeetingNarrator,
+} from './meetingNarrative';
+import {
+  actIdentity, governmentSessionId, previousSessionMemory, seatFromSessionSeatKey, sessionSeatKey,
+  type PreviousGovernmentSessionRef,
 } from './governmentSession';
 import type { CabinetSeat } from './seatDecisionBoards';
 import { CABINET_SEATS } from './seatDecisionBoards';
@@ -75,8 +81,7 @@ import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { useChatStore, useGameStore } from '../../stores';
 import { useSimulationStore } from '../../stores/simulationRuntime';
-import { gameApi, type CabinetAddressView, type CabinetSessionView } from '../../services/api';
-import { formatMoney } from '../../utils/format';
+import { gameApi, ministerApi, type CabinetAddressView, type CabinetSessionView } from '../../services/api';
 import { actionSnapshotKey } from './actionSnapshot';
 import { buildConsequenceBoard, consequenceBoardSignature, type EnginePreview } from './consequenceBoard';
 
@@ -135,38 +140,10 @@ export interface GovernmentOfficeProps {
 }
 
 /**
- * WS-GOV-COUNCIL-MEETINGS (B7–B10) — La lettura del motore per la riunione.
- * Mappa `check-feasibility` + conto nazionale in `MeetingEngineRead`: nessun
- * valore è inventato, ogni riga dichiara la sua provenienza.
+ * WS-GOV-COUNCIL-MEETINGS (B7–B10) / WS-GOV-COUNCIL-HARDENING — La lettura
+ * del motore per la riunione è ora un modulo puro (`meetingEngineRead.ts`),
+ * così localizzazione e copertura monetaria si provano senza montare la stanza.
  */
-function meetingReadFromFeasibility(
-  meeting: CouncilMeeting,
-  feasibility: Awaited<ReturnType<typeof gameApi.checkFeasibility>>,
-  moneyLabel: string | null,
-): MeetingEngineRead {
-  const money = feasibility.costs.inputs.find(input => input.resourceId === 'money');
-  const declaration = feasibility.workDeclaration ?? null;
-  const coverage = declaration
-    ? (declaration.funded && declaration.materialActorId ? 'covered' : 'short')
-    : (feasibility.feasible ? 'covered' : 'short');
-  return {
-    workLabel: meeting.subject,
-    regionLabel: null,
-    durationDays: Number.isFinite(feasibility.costs.timeDays) ? feasibility.costs.timeDays : null,
-    materials: (declaration?.missingMaterials ?? []).map(material => ({ name: material.resourceId, ok: false, missing: material.missing })),
-    costLabel: money ? `${money.quantity} ${money.unit}`.trim() : null,
-    costNote: feasibility.costs.note ?? null,
-    coverage,
-    availableLabel: moneyLabel,
-    risks: feasibility.risks,
-    prerequisites: feasibility.prerequisites,
-    summary: feasibility.summary,
-    workId: declaration?.workId ?? null,
-    regionId: null,
-    workDeclaration: declaration,
-    source: 'check-feasibility',
-  };
-}
 
 export function GovernmentOffice({
   open,
@@ -305,21 +282,28 @@ export function GovernmentOffice({
   const workspacesRef = useRef(workspaces);
   workspacesRef.current = workspaces;
   const sessionIdRef = useRef(sessionId);
+  // WS-GOV-COUNCIL-HARDENING — La provenienza della seduta precedente: turno e
+  // data **di origine**, non quelli del turno nuovo. Il ref viene aggiornato
+  // dall'effetto dichiarato sotto, quindi al cambio di `sessionId` contiene
+  // ancora i valori vecchi.
+  const previousSessionRef = useRef<PreviousGovernmentSessionRef>({
+    sessionId, turn: currentTurn ?? 0, date: currentDate ?? null,
+  });
   // A2/A3 — Al cambio di turno (o di partita/ramo): **prima** si consolida la
   // seduta precedente in memoria (i fatti narrativamente utili), **poi** lo
   // stato operativo riparte da zero. Il passato diventa memoria, non workspace.
   useEffect(() => {
     if (sessionIdRef.current === sessionId) return;
     sessionIdRef.current = sessionId;
+    const consolidated = previousSessionMemory({
+      previous: previousSessionRef.current,
+      workspaces: workspacesRef.current,
+      seatOf: key => seatFromSessionSeatKey(key) as CabinetAddressView['seat'] | null,
+    });
     setMemoryStore(prev => {
       let next = prev;
-      for (const [key, ws] of Object.entries(workspacesRef.current)) {
-        if (!ws) continue;
-        const seat = seatFromSessionSeatKey(key) as CabinetAddressView['seat'] | null;
-        if (!seat) continue;
-        for (const record of consolidateSessionMemory(ws, seat, { gameDate: currentDate ?? '', turn: currentTurn ?? undefined })) {
-          next = withSeatRecords(next, seat, recordMemory(next[seat] ?? [], record));
-        }
+      for (const { seat, records } of consolidated) {
+        for (const record of records) next = withSeatRecords(next, seat, recordMemory(next[seat] ?? [], record));
       }
       return next;
     });
@@ -334,6 +318,12 @@ export function GovernmentOffice({
     setSeenVersion(-1);
     setPendingFocus(null);
     setMobilePane('dialogo');
+  }, [sessionId, currentDate, currentTurn]);
+
+  // Dopo la consolidazione, il riferimento alla seduta precedente diventa la
+  // seduta corrente: il prossimo cambio userà il tempo **di questa** seduta.
+  useEffect(() => {
+    previousSessionRef.current = { sessionId, turn: currentTurn ?? 0, date: currentDate ?? null };
   }, [sessionId, currentDate, currentTurn]);
 
   // Cambiare sedia non trascina la bozza d'atto di un altro ministro.
@@ -597,29 +587,47 @@ export function GovernmentOffice({
   const meetingRef = useRef<CouncilMeeting | null>(meeting);
   meetingRef.current = meeting;
   const spokenContributionsRef = useRef<Set<string>>(new Set());
+  // WS-GOV-COUNCIL-HARDENING — La voce del ministro è dell'LLM, ma non è una
+  // fonte: il renderer passa dal percorso esistente (`government/minister`),
+  // che inietta la persona della sedia, e la prosa viene poi validata contro i
+  // fatti. Se il provider manca o tarda, si ricade sul deterministico.
+  const narrateMeeting = useCallback<MeetingNarrator>(async (seat, brief) => {
+    const timeout = new AbortController();
+    const timer = window.setTimeout(() => timeout.abort(), 12000);
+    try {
+      const reply = await ministerApi.ask(gameId, seat, narrativePrompt(brief), [], [], timeout.signal);
+      // La prosa visibile: i blocchi `decision`/`tavola` non entrano nel filo
+      // della riunione (la Tavola resta quella del motore).
+      return parsePresentation(reply.reply).text;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }, [gameId]);
   const runMeeting = useCallback(async (opened: CouncilMeeting, text: string): Promise<void> => {
     try {
       const feasibility = await gameApi.checkFeasibility(gameId, text);
-      const spent = pictureSources.account?.money;
-      const read = meetingReadFromFeasibility(
-        opened,
-        feasibility,
-        spent == null ? null : formatMoney(spent, { currency: 'n', decimals: 2 }),
-      );
+      // La geografia canonica della partita: la localizzazione nasce da lì, mai
+      // dal testo. `pictureSources.regions` è la stessa fonte della mappa.
+      const read = meetingReadFromFeasibility(opened, feasibility, pictureSources.regions ?? []);
       const prev = meetingRef.current;
       if (!prev || prev.id !== opened.id) return;
       const next = applyEngineRead(prev, read);
       meetingRef.current = next;
       setMeeting(next);
       // La conversazione è **una**: gli interventi dei ministri entrano nello
-      // stesso filo, ciascuno con la sua voce (B12/B19).
+      // stesso filo, ciascuno con la sua voce (B12/B19). Il contributo
+      // deterministico resta la base; la voce narrativa lo sostituisce solo se
+      // il provider risponde e non contraddice i fatti.
       for (const contribution of next.contributions) {
         if (spokenContributionsRef.current.has(contribution.id)) continue;
         spokenContributionsRef.current.add(contribution.id);
+        const brief = meetingBriefFor(next, read, contribution.seat);
+        const narrated = await narrativeContribution(brief, contribution.text, narrateMeeting);
+        if (!prev || meetingRef.current?.id !== opened.id) return;
         if (openSeat) {
           addMinisterMessage(openSeat, {
             role: 'assistant',
-            content: contribution.text,
+            content: narrated.text,
             speaker: seatSpeaker(contribution.seat),
             turn: currentTurn ?? undefined,
           });
@@ -628,7 +636,7 @@ export function GovernmentOffice({
     } catch {
       // Il motore non risponde: la riunione resta in apertura, senza inventare.
     }
-  }, [gameId, pictureSources.account, openSeat, currentTurn, addMinisterMessage]);
+  }, [gameId, pictureSources.regions, openSeat, currentTurn, addMinisterMessage, narrateMeeting]);
   const conveneMeeting = useCallback((text: string): boolean => {
     if (!openSeat || !gameId || !shouldConveneMeeting(text)) return false;
     const opened = openMeeting({ gameId, branchId, turn: currentTurn ?? 0, subject: text });

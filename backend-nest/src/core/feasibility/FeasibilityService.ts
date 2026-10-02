@@ -12,11 +12,23 @@ export interface FeasibilityFacts{readonly actorId:string;readonly verifiedPolit
   *  Assente = la costruzione è valutata senza guardare le disponibilità, come
   *  prima di MG01: il chiamante che non legge il ledger non ottiene un falso
   *  «fattibile», perché senza letture i requisiti restano non verificati. */
- readonly deficits?:readonly {readonly code:string;readonly id:string;readonly phaseId:string;readonly required:string;readonly available:string;readonly missing:string;readonly holder:string}[];
+ readonly deficits?:readonly DeficitFact[];
  /** Requisiti che le letture non coprono (manodopera non materializzata). */
- readonly unknownRequirements?:readonly {readonly reason:string;readonly id:string}[];}
+ readonly unknownRequirements?:readonly {readonly reason:string;readonly id:string}[];
+ /** WS-GOV-COUNCIL-HARDENING — disponibilità monetaria netta misurata, anche
+  *  quando copre il fabbisogno. Serve alla Tavola del Tesoro per mostrare il
+  *  "disponibile" senza dedurlo dal conto nazionale. */
+ readonly availableMoney?:readonly {readonly holder:string;readonly unitId:string;readonly available:string}[];}
 export interface AlternativeProposal { readonly kind:'research'|'alternative_path'; readonly requiresConfirmation:true; readonly missing:readonly string[]; }
-export interface OrderAssessment{readonly actionId:string;readonly status:AssessmentStatus;readonly blockers:readonly Blocker[];readonly warnings:readonly string[];readonly alternatives:readonly AlternativeProposal[];}
+/** WS-GOV-COUNCIL-HARDENING — un deficit della distinta come lo misura
+ *  `Availability.measureDeficits`: i tre numeri che spiegano il blocco
+ *  (richiesto/disponibile/mancante) e il detentore su cui si è guardato.
+ *  È un dato del motore, non una stima: la rotta di preflight lo espone
+ *  al client perché la Tavola del Tesoro mostri la stessa verità di
+ *  `feasibility` e di `funded`, senza ricalcolarla.
+ *  Additivo: `deficits` resta opzionale, i chiamanti esistenti non cambiano. */
+export interface DeficitFact{readonly code:string;readonly id:string;readonly phaseId:string;readonly required:string;readonly available:string;readonly missing:string;readonly holder:string;}
+export interface OrderAssessment{readonly actionId:string;readonly status:AssessmentStatus;readonly blockers:readonly Blocker[];readonly warnings:readonly string[];readonly alternatives:readonly AlternativeProposal[];/** Deficit misurati sul ledger, se le letture erano disponibili. */readonly deficits?:readonly DeficitFact[];/** Requisiti non verificabili con le letture (es. manodopera non materializzata). */readonly unknownRequirements?:readonly {readonly reason:string;readonly id:string}[];/** Disponibilità monetaria netta misurata, anche se non c'è deficit. */readonly availableMoney?:readonly {readonly holder:string;readonly unitId:string;readonly available:string}[];}
 /** MG01 — esito della ricerca della distinta di costruzione per un `construct`. */
 export type WorkResolution =
   /** `catalogRef` nomina un'opera e la sua distinta è dichiarata: valutabile. */
@@ -73,5 +85,5 @@ export class FeasibilityService { constructor(private readonly catalog:Simulatio
  //    blocca, perché lì il silenzio significherebbe «costa zero».
  if(intent.actionKind==='construct'){const resolution=resolveConstructWork(this.catalog,intent.catalogRef);if(resolution.kind==='unknown'){blockers.push({code:'UNKNOWN_ENTITY',targetId:intent.catalogRef,detail:'tipo d’opera assente dal catalogo'});}else if(resolution.kind==='missing_distinct'){warnings.push('distinta di costruzione non dichiarata dal catalogo: il costo e i materiali non sono verificati');}else{const work=(this.catalog.works??[]).find(x=>x.id===resolution.workId);if(work&&work.phases.some(p=>(p.inputs??[]).length===0)){blockers.push({code:'DATA_UNAVAILABLE',targetId:resolution.workId,detail:'distinta di costruzione incompleta: almeno una fase non dichiara materiali',missing:[resolution.workId]});}}}
  if(intent.actionKind==='move'||intent.actionKind==='procure'){const lot=this.catalog.initialState.inventory.find(x=>x.id===intent.targetIds[0]);if(lot&&lot.ownerActorId!==facts.actorId&&lot.custodianActorId!==facts.actorId&&!facts.rights.some(x=>x.targetId===lot.id&&x.activity==='use'))blockers.push({code:'UNAUTHORIZED_ACTOR',targetId:lot.id,detail:'stock privato/altrui senza diritto o contratto'});}
- if(intent.authorization.allowPartialStart&&intent.authorization.allowedPhaseIds.length===0)warnings.push('avvio parziale richiesto ma nessuna fase autorizzata: nessun avvio parziale verrà applicato');if(intent.actionKind==='qualitative')warnings.push('ordine qualitativo: nessuna ricetta o effetto materiale valutato');const status:AssessmentStatus=blockers.some(x=>x.code==='DATA_UNAVAILABLE')?'needs_data':blockers.length?'blocked':warnings.length?'feasible_with_conditions':'feasible';return{actionId:intent.id,status,blockers,warnings,alternatives};}
+ if(intent.authorization.allowPartialStart&&intent.authorization.allowedPhaseIds.length===0)warnings.push('avvio parziale richiesto ma nessuna fase autorizzata: nessun avvio parziale verrà applicato');if(intent.actionKind==='qualitative')warnings.push('ordine qualitativo: nessuna ricetta o effetto materiale valutato');const status:AssessmentStatus=blockers.some(x=>x.code==='DATA_UNAVAILABLE')?'needs_data':blockers.length?'blocked':warnings.length?'feasible_with_conditions':'feasible';return{actionId:intent.id,status,blockers,warnings,alternatives,...(facts.deficits?{deficits:facts.deficits}:{}),...(facts.unknownRequirements?{unknownRequirements:facts.unknownRequirements}:{}),...(facts.availableMoney?{availableMoney:facts.availableMoney}:{})};}
 }

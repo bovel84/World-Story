@@ -79,7 +79,7 @@ router.post('/:id/actions/evaluate', (req, res) => {
       // appartengono a un'autorità istituzionale e a una controparte che il
       // server non ha ancora interpellato, e nessuno dei due si presume.
       actorId: actor.actorId, verifiedPolityId: polity, approvals: ['user'], rights: [], knowledgeIds: [], capabilityIds: [],
-      ...(measured ? { deficits: measured.deficits, unknownRequirements: measured.unknown } : {}),
+      ...(measured ? { deficits: measured.deficits, unknownRequirements: measured.unknown, ...(measured.availableMoney ? { availableMoney: measured.availableMoney } : {}) } : {}),
     });
     const assessmentId = shortId();
     assessmentStore.put(assessmentId, anchor, assessment);
@@ -174,6 +174,16 @@ router.post('/:id/actions/check-feasibility', async (req, res) => {
         ? 'Ordine fattibile'
         : (assessment.status === 'needs_data' ? 'Servono dati mancanti' : 'Ordine bloccato'),
       rawAssessment: assessment,
+      // WS-GOV-COUNCIL-HARDENING — I deficit misurati (cassa/materiali/
+      // manodopera) con i tre numeri autorevoli: required/available/missing,
+      // il detentore e la fase. Il client li mostra nella Tavola del Tesoro
+      // senza ricalcolare nulla; `funded` e questa lista vengono dallo stesso
+      // `measureDeficits`, quindi non possono contraddirsi.
+      deficits: assessment.deficits ?? [],
+      // WS-GOV-COUNCIL-HARDENING — la disponibilità monetaria netta misurata
+      // (anche quando copre): la Tavola del Tesoro mostra questa, non il conto
+      // nazionale. Stessa fonte di `deficits` e `funded`.
+      availability: { money: assessment.availableMoney ?? [] },
       // MG02 µ6 — La dichiarazione d'opera con i detentori risolti dal server:
       // il client la rimanda nella coda. È questo che rende ordinabile una
       // costruzione dal gioco, invece che solo dalle rotte.

@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   actIdentity, consolidateSessionMemory, governmentSessionId, isFreshSession,
-  seatFromSessionSeatKey, sessionSeatKey,
+  previousSessionMemory, seatFromSessionSeatKey, sessionSeatKey,
 } from './governmentSession';
 import { activeProposal, applyDecisionAction, emptyWorkspace } from './decisionWorkspace';
 
@@ -74,6 +74,43 @@ describe('Consolidamento della seduta in memoria (A3)', () => {
       expect(record).not.toHaveProperty('proposals');
       expect(record).not.toHaveProperty('revision');
     }
+  });
+});
+
+describe('provenienza temporale della seduta precedente (punto 17)', () => {
+  it('turno 5 data D5, consolidato al turno 6: il ricordo porta turno 5 e data D5, non 6', () => {
+    const session5 = governmentSessionId({ gameId: 'g1', branchId: null, turn: 5, kind: 'minister' });
+    const session6 = governmentSessionId({ gameId: 'g1', branchId: null, turn: 6, kind: 'minister' });
+    const workspaces = {
+      [sessionSeatKey(session5, 'lavori')]: confirmedWorkspace(),
+    };
+    const consolidated = previousSessionMemory({
+      previous: { sessionId: session5, turn: 5, date: 'D5' },
+      workspaces,
+      seatOf: key => seatFromSessionSeatKey(key) as 'lavori' | null,
+    });
+    const records = consolidated.flatMap(entry => entry.records);
+    const decision = records.find(record => record.kind === 'queued-decision');
+    expect(decision).toBeDefined();
+    // La provenienza è quella della decisione, non del turno nuovo.
+    expect(decision?.refs.turn).toBe(5);
+    expect(decision?.refs.gameDate).toBe('D5');
+    expect(decision?.refs.turn).not.toBe(6);
+    // E il nuovo workspace parte davvero da turno 6 / revisione 0: la chiave 6
+    // non esiste ancora, quindi non si legge lo stato del turno 5.
+    expect(workspaces[sessionSeatKey(session6, 'lavori')]).toBeUndefined();
+  });
+
+  it('senza data di origine il ricordo resta datato con la sua provenienza (mai il turno nuovo)', () => {
+    const session5 = governmentSessionId({ gameId: 'g1', branchId: null, turn: 5, kind: 'minister' });
+    const consolidated = previousSessionMemory({
+      previous: { sessionId: session5, turn: 5, date: null },
+      workspaces: { [sessionSeatKey(session5, 'lavori')]: confirmedWorkspace() },
+      seatOf: key => seatFromSessionSeatKey(key) as 'lavori' | null,
+    });
+    const decision = consolidated.flatMap(entry => entry.records).find(record => record.kind === 'queued-decision');
+    expect(decision?.refs.turn).toBe(5);
+    expect(decision?.refs.gameDate).toBe('');
   });
 });
 

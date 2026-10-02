@@ -29,10 +29,18 @@ async function ask(page, chat, text) {
   await chat.locator('.minister-compose button').click();
 }
 
-test('WS-GOV-COUNCIL-MEETINGS: la fabbrica è una riunione Lavori+Tesoro, l’atto conserva l’opera', async ({ page }) => {
+test('WS-GOV-COUNCIL-MEETINGS: la fabbrica è una riunione Lavori+Tesoro, l’atto conserva l’opera e il luogo', async ({ page }) => {
   installMockApi(page);
   await reachHud(page);
   await openSeat(page, 'Ministro dei Lavori');
+
+  // WS-GOV-COUNCIL-HARDENING — cattura il payload accodato: la localizzazione
+  // canonica deve viaggiare con l'ordine, non restare nella frase.
+  let queuedPayload = null;
+  page.on('request', request => {
+    if (request.method() !== 'POST' || !request.url().includes('/actions/queue')) return;
+    try { queuedPayload = request.postDataJSON(); } catch { /* body non JSON */ }
+  });
 
   const chat = page.locator('.government-office-pane-chat');
   const tavola = page.locator('.government-office-pane-table');
@@ -54,6 +62,10 @@ test('WS-GOV-COUNCIL-MEETINGS: la fabbrica è una riunione Lavori+Tesoro, l’at
   await expect(meeting.locator('[data-owner="tesoro"]')).toBeVisible();
   await expect(meeting).toContainText('fabbrica siderurgica');
   await expect(meeting).toContainText('12,40 mld');
+  // WS-GOV-COUNCIL-HARDENING — Sarajevo è un Luogo canonico del piano, non
+  // soltanto una parola della richiesta.
+  await expect(meeting).toContainText('Luogo');
+  await expect(meeting).toContainText('Sarajevo');
   await expect(meeting).toContainText('check-feasibility');
 
   // [3] La conversazione è **una**, con le voci attribuite (B19).
@@ -77,10 +89,11 @@ test('WS-GOV-COUNCIL-MEETINGS: la fabbrica è una riunione Lavori+Tesoro, l’at
   // La bozza d'opera è un ordine supportato: capace di aprire il cantiere.
   await expect(draft.locator('.act-draft-capability')).toContainText('ordine d’opera supportato');
 
-  // [6] Solo la firma accoda l'ordine.
+  // [6] Solo la firma accoda l'ordine — con l'opera E la sua regione canonica.
   await expect(draft.locator('.act-draft-sign')).toBeEnabled();
   await draft.locator('.act-draft-sign').click();
   await expect(draft.locator('.act-draft-state')).toHaveText('accodato', { timeout: 10_000 });
+  await expect.poll(() => queuedPayload?.work?.regionId ?? null).toBe('SARAJEVO');
 
   // Reperto: la riunione della fabbrica (mobile).
   await page.setViewportSize({ width: 390, height: 844 });
@@ -110,4 +123,44 @@ test('WS-GOV-COUNCIL-MEETINGS: cassa insufficiente = blocco del motore, nessuna 
   await expect(meeting).toContainText('4,20 mld');
   // La riunione non è pronta: nessun pulsante d'atto.
   await expect(meeting.locator('.council-meeting-prepare')).toHaveCount(0);
+});
+
+test('WS-GOV-COUNCIL-HARDENING: provider narrativo in errore → voce deterministica, atto e firma continuano', async ({ page }) => {
+  installMockApi(page);
+  // Il provider narrativo risponde 500: la riunione non si blocca e ricade
+  // sulla formulazione deterministica del motore.
+  await page.route(`**/government/minister/*`, async (route) => {
+    const body = route.request().postData() || '';
+    if (route.request().method() === 'POST' && body.includes('RIUNIONE DI GOVERNO')) {
+      return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"provider offline"}' });
+    }
+    return route.fallback();
+  });
+  await reachHud(page);
+  await openSeat(page, 'Ministro dei Lavori');
+
+  const chat = page.locator('.government-office-pane-chat');
+  const tavola = page.locator('.government-office-pane-table');
+  const meeting = tavola.locator('.council-meeting');
+
+  await ask(page, chat, 'Voglio costruire una fabbrica siderurgica a Sarajevo.');
+  const prompt = tavola.locator('.council-convene-prompt');
+  await expect(prompt).toBeVisible({ timeout: 15_000 });
+  await prompt.locator('.council-convene-prompt-btn').click();
+  await expect(meeting).toBeVisible({ timeout: 15_000 });
+
+  // La voce è quella deterministica del motore: i fatti esatti, senza una
+  // seconda personalità nel client (la persona autorevole è lato server).
+  await expect(chat).toContainText('La copertura c’è');
+  await expect(chat).toContainText('12,40 mld');
+  await expect(meeting).toContainText('check-feasibility');
+
+  // La riunione resta pronta: l'atto si prepara e la firma accoda.
+  const prepare = meeting.locator('.council-meeting-prepare');
+  await expect(prepare).toBeVisible();
+  await prepare.click();
+  const draft = tavola.locator('.act-draft');
+  await expect(draft.locator('.act-draft-sign')).toBeEnabled();
+  await draft.locator('.act-draft-sign').click();
+  await expect(draft.locator('.act-draft-state')).toHaveText('accodato', { timeout: 10_000 });
 });

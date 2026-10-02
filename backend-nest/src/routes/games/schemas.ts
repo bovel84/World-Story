@@ -53,6 +53,9 @@ export const queueActionSchema = z.object({
     payerActorId: z.string().min(1),
     materialActorId: z.string().min(1),
     funded: z.boolean(),
+    // WS-GOV-COUNCIL-HARDENING — la regione canonica dell'opera, decisa dal
+    // Presidente nella riunione e rimandata insieme alla dichiarazione.
+    regionId: z.string().min(1).optional(),
   }).optional(),
 }).passthrough();
 

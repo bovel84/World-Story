@@ -1343,7 +1343,7 @@ export const gameApi = {
    * Add action to queue (without processing)
    */
   queueAction: (gameId: string, text: string, work?: {
-    workId: string; payerActorId: string; materialActorId: string; funded: boolean;
+    workId: string; payerActorId: string; materialActorId: string; funded: boolean; regionId?: string;
   }, idempotencyKey?: string): Promise<{
     id: string;
     text: string;
@@ -1410,6 +1410,19 @@ export const gameApi = {
     warnings: string[];
     summary: string;
     rawAssessment?: unknown;
+    /**
+     * WS-GOV-COUNCIL-HARDENING — i deficit misurati dal motore sul ledger:
+     * i tre numeri autorevoli (`required`/`available`/`missing`), il detentore
+     * (`holder`) e la fase. La Tavola del Tesoro mostra QUESTI, non un
+     * ricalcolo del client: `funded` e `deficits` vengono dalla stessa
+     * `measureDeficits`, quindi non possono contraddirsi.
+     */
+    deficits?: Array<{ code: string; id: string; phaseId: string; required: string; available: string; missing: string; holder: string }>;
+    /**
+     * WS-GOV-COUNCIL-HARDENING — disponibilità monetaria netta misurata dal
+     * motore (anche quando copre). Stessa fonte di `deficits`/`funded`.
+     */
+    availability?: { money: Array<{ holder: string; unitId: string; available: string }> };
     /** MG02 µ6 — detentori risolti dal server; il client li rimanda nella coda. */
     workDeclaration?: {
       workId: string;

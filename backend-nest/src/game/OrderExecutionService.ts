@@ -89,6 +89,13 @@ export interface PendingWorkOrder {
    *  si impegna: il commit fallirebbe, e l'esito deve dirlo invece di fallire
    *  il turno. */
   readonly funded: boolean;
+  /**
+   * WS-GOV-COUNCIL-HARDENING — la regione canonica dell'opera, risolta dal
+   * client sui dati geografici della partita e rimandata tale e quale. È
+   * l'unica fonte della localizzazione del cantiere: se manca, il commit usa
+   * la regione dell'ordine (comportamento precedente).
+   */
+  readonly regionId?: string;
 }
 
 export interface PendingAction {
@@ -526,7 +533,7 @@ export class OrderExecutionService {
       rights: [],
       knowledgeIds: [],
       capabilityIds: [],
-      ...(measured ? { deficits: measured.deficits, unknownRequirements: measured.unknown } : {}),
+      ...(measured ? { deficits: measured.deficits, unknownRequirements: measured.unknown, ...(measured.availableMoney ? { availableMoney: measured.availableMoney } : {}) } : {}),
     });
 
     // MG02 µ6 — Per una costruzione si risolvono i detentori: sono un fatto
