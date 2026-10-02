@@ -58,7 +58,9 @@ import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { useChatStore, useGameStore } from '../../stores';
 import { useSimulationStore } from '../../stores/simulationRuntime';
-import type { CabinetAddressView, CabinetSessionView } from '../../services/api';
+import { gameApi, type CabinetAddressView, type CabinetSessionView } from '../../services/api';
+import { actionSnapshotKey } from './actionSnapshot';
+import { buildConsequenceBoard, consequenceBoardSignature, type EnginePreview } from './consequenceBoard';
 
 /** L'esito dichiarato di una seduta: un ordine messo in coda, o nulla. */
 interface OfficeOutcome {
@@ -172,6 +174,12 @@ export function GovernmentOffice({
   // finché non si firma. `actBusy` evita il doppio atto mentre la firma è in volo.
   const [actDraft, setActDraft] = useState<(ProposalActDraft & { signatureKey: string; signatureAttempted?: boolean; signatureNotice?: string }) | null>(null);
   const [actBusy, setActBusy] = useState(false);
+  // WS-GOVUX-P7 — La verifica del motore per la plancia delle conseguenze: si
+  // conserva la firma con cui è stata prodotta, così una bozza modificata la
+  // rende `stale` invece di mostrare la stima di un'altra versione.
+  const [actPreview, setActPreview] = useState<{ signature: string; result: EnginePreview } | null>(null);
+  const [actPreviewLoading, setActPreviewLoading] = useState(false);
+  const [actPreviewError, setActPreviewError] = useState<string | null>(null);
 
   // WS-MINISTER-UX-01 — La composizione della seduta: il dialogo è la
   // superficie principale (42% di base), la tavola lo affianca. Il divisore è
@@ -448,6 +456,64 @@ export function GovernmentOffice({
 
   const draftStatus = actDraft ? actStatus(actDraft, pendingActions, turnHistory) : null;
 
+  // ── WS-GOVUX-P7 — La plancia delle conseguenze, prima della firma ────────
+  // Lo snapshot canonico del mondo: la firma del preventivo cambia con il testo
+  // della bozza e con questo contesto, non con l'istante tecnico.
+  const boardSnapshotKey = useMemo(
+    () => actionSnapshotKey({ id: gameId, currentTurn, currentDate, headBranchId: branchId ?? undefined }),
+    [gameId, currentTurn, currentDate, branchId],
+  );
+  const boardRoad = useMemo(
+    () => (actDraft ? proposals.find(road => road.id === actDraft.roadId) ?? null : null),
+    [actDraft, proposals],
+  );
+  const boardItem = boardRoad && boardRoad.order.kind === 'work' ? boardRoad.order.item : null;
+
+  // La verifica del motore per gli ordini in prosa: è la **stessa** funzione di
+  // costo che il motore usa all'esecuzione, quindi i costi della preview sono
+  // quelli applicati nelle stesse condizioni. Per le opere il payload è la
+  // distinta già risolta dal server: la plancia legge quella, non la ricalcola.
+  const refreshActBoard = useCallback((): void => {
+    if (!actDraft || actDraft.capability !== 'text-order' || !gameId) return;
+    const draft = actDraft;
+    const signature = consequenceBoardSignature({ snapshotKey: boardSnapshotKey, draft });
+    setActPreviewLoading(true);
+    setActPreviewError(null);
+    gameApi.checkFeasibility(gameId, draft.text)
+      .then(result => setActPreview({ signature, result }))
+      .catch(() => {
+        setActPreview(null);
+        setActPreviewError('La verifica del motore non è disponibile ora: la stima resta dichiarata.');
+      })
+      .finally(() => setActPreviewLoading(false));
+  }, [actDraft, boardSnapshotKey, gameId]);
+
+  // Si verifica alla PREPARAZIONE della bozza; le modifiche al testo marcano la
+  // stima come stantia e si ricalcolano dal pulsante (nessun ricalcolo silenzioso).
+  useEffect(() => {
+    if (!actDraft || actDraft.capability !== 'text-order') {
+      setActPreview(null);
+      setActPreviewError(null);
+      return;
+    }
+    refreshActBoard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actDraft?.id]);
+
+  const consequenceBoard = useMemo(
+    () => (actDraft
+      ? buildConsequenceBoard({
+          draft: actDraft,
+          road: boardRoad,
+          item: boardItem,
+          snapshotKey: boardSnapshotKey,
+          preview: actPreview?.result ?? null,
+          previewSignature: actPreview?.signature ?? null,
+        })
+      : null),
+    [actDraft, boardRoad, boardItem, boardSnapshotKey, actPreview],
+  );
+
   const prepareRoad = useCallback((road: TreasuryRoad): void => {
     if (!address) return;
     setActDraft({ ...actDraftFor(road, address.seat), signatureKey: crypto.randomUUID() });
@@ -706,6 +772,10 @@ export function GovernmentOffice({
                   onEditDraft={editDraft}
                   onSignDraft={signDraft}
                   onCancelDraft={cancelDraft}
+                  actBoard={consequenceBoard}
+                  actBoardLoading={actPreviewLoading}
+                  actBoardError={actPreviewError}
+                  onRefreshActBoard={refreshActBoard}
                   onCompare={compareFromTable}
                   canvas={resolvedCanvas}
                   onClearPresentation={clearPresentation}
