@@ -21,6 +21,7 @@
 import type { HistoryItem, PendingAction } from '../../stores/gameStore';
 import { cabinetDeclarationFor, composeCabinetOrderText, type WorkDeclarationInput } from './cabinetOrder';
 import type { TreasuryRoad } from './treasuryAct';
+import type { DecisionMeasure, NegotiatedProposal } from './decisionWorkspace';
 
 /** Che cosa il motore sa fare della strada. */
 export type ActCapability =
@@ -134,6 +135,67 @@ export function actDraftFor(road: TreasuryRoad, seat: string): ProposalActDraft 
     text,
     capability,
     note: capabilityNote(road, capability),
+    ...(capability === 'engine-order' && declaration ? { work: declaration } : {}),
+  };
+}
+
+/**
+ * Il testo di una misura negoziata, dentro l'atto: «Infrastrutture: 80%».
+ * Nessun numero nuovo: si formatta solo ciò che la proposta dichiara.
+ */
+function measureLine(measure: DecisionMeasure): string {
+  if (measure.sharePct !== undefined) return `${measure.label}: ${measure.sharePct}%`;
+  if (measure.value !== undefined) return `${measure.label}: ${measure.value}${measure.unit ? ` ${measure.unit}` : ''}`;
+  if (measure.amount !== undefined) return `${measure.label}: ${measure.amount}${measure.unit ? ` ${measure.unit}` : ''}`;
+  return measure.label;
+}
+
+/** Il contesto dell'atto che nasce da una proposta negoziata. */
+export interface ProposalActContext {
+  readonly seat: string;
+  /** La strada d'origine, quando la proposta nasce da una strada del motore. */
+  readonly road?: TreasuryRoad | null;
+  /** Il titolo leggibile dell'atto (di norma l'obiettivo). */
+  readonly title?: string;
+}
+
+/**
+ * WS-GOV-DIALOGUE-TO-ACT — La proposta negoziata diventa atto.
+ *
+ * È il requisito centrale: quando il dialogo ha prodotto una `NegotiatedProposal`,
+ * **quella** è la sorgente dell'atto, non la strada iniziale. Il testo porta i
+ * valori della revisione corrente (misure accettate, vincoli), e la capacità
+ * d'opera viene dalla strada d'origine quando c'è — così una proposta che poggia
+ * su una distinta coperta resta un ordine d'opera, e la prosa resta prosa.
+ *
+ * `actDraftFor(road)` **non sparisce**: resta il fallback per le proposte semplici
+ * non negoziate, ed è il comportamento di chi non ha ancora discusso.
+ */
+export function actDraftFromProposal(proposal: NegotiatedProposal, context: ProposalActContext): ProposalActDraft {
+  const title = context.title ?? proposal.objective ?? 'Proposta negoziata';
+  const lines: string[] = [title];
+  for (const measure of proposal.measures) {
+    if (measure.status === 'rejected') continue;
+    lines.push(`— ${measureLine(measure)}`);
+  }
+  if (proposal.constraints.length > 0) lines.push(`Vincoli: ${proposal.constraints.join('; ')}`);
+  const text = lines.join('\n');
+
+  const road = context.road ?? null;
+  const capability = road ? capabilityFor(road) : 'text-order';
+  const declaration = road && road.order.kind === 'work' ? cabinetDeclarationFor(road.order.item) : null;
+  const note = road
+    ? capabilityNote(road, capability)
+    : 'Bozza dalla proposta negoziata: il motore interpreterà la prosa all’avanzamento del tempo.';
+
+  return {
+    id: `${context.seat}:${proposal.id}`,
+    seat: context.seat,
+    roadId: road?.id ?? proposal.id,
+    title,
+    text,
+    capability,
+    note,
     ...(capability === 'engine-order' && declaration ? { work: declaration } : {}),
   };
 }

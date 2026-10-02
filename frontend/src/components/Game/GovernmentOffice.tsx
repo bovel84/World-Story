@@ -38,13 +38,13 @@ import { deriveSeatCanvasBlocks } from './seatCanvasModel';
 import { seatCanvasAuthoring } from './seatCanvasConfig';
 import { treasuryAct, type TreasuryRoad } from './treasuryAct';
 import {
-  actDraftFor, actHeadline, actStatus, deriveActState, editActDraft,
+  actDraftFor, actDraftFromProposal, actHeadline, actStatus, deriveActState, editActDraft,
   type ActState, type ProposalActDraft,
 } from './actDraft';
 import type { WorkDeclarationInput } from './cabinetOrder';
 import {
   applyCanvasBatch, availableEvidence, blockForEvidence, emptyCanvas, parsePresentation,
-  resolveCanvas, type PresentationCanvas, type PresentationDirective,
+  resolveCanvas, type EvidenceKey, type PresentationCanvas, type PresentationDirective,
 } from './presentation';
 import { shouldShowEvidenceBadge, type EvidenceCardIndex, type InlineEvidenceCard } from './inlineEvidence';
 import {
@@ -53,6 +53,10 @@ import {
   type MinisterMemoryRecord, type MinisterMemoryStore,
 } from './ministerMemory';
 import { seatRoads } from './seatProposals';
+import {
+  activeProposal, actStaleness, applyDecisionBatch, emptyWorkspace, withEvidenceRefs,
+  type DecisionAction, type DecisionWorkspace,
+} from './decisionWorkspace';
 import { deriveCouncilAgenda } from './councilAgenda';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
@@ -172,8 +176,12 @@ export function GovernmentOffice({
   // WS-MINISTER-UX-06 — La bozza d'atto sul tavolo: la strada preparata dal
   // Presidente, correggibile e firmabile. È stato di UI: non accoda e non spende
   // finché non si firma. `actBusy` evita il doppio atto mentre la firma è in volo.
-  const [actDraft, setActDraft] = useState<(ProposalActDraft & { signatureKey: string; signatureAttempted?: boolean; signatureNotice?: string }) | null>(null);
+  const [actDraft, setActDraft] = useState<(ProposalActDraft & { signatureKey: string; signatureAttempted?: boolean; signatureNotice?: string; revision?: number }) | null>(null);
   const [actBusy, setActBusy] = useState(false);
+  // WS-GOV-DIALOGUE-TO-ACT — La decisione in corso per sedia: la conversazione
+  // la costruisce, la tavola la mostra, l'atto nasce da lei. Stato di UI: non
+  // tocca il motore.
+  const [workspaces, setWorkspaces] = useState<Partial<Record<CabinetAddressView['seat'], DecisionWorkspace>>>({});
   // WS-GOVUX-P7 — La verifica del motore per la plancia delle conseguenze: si
   // conserva la firma con cui è stata prodotta, così una bozza modificata la
   // rende `stale` invece di mostrare la stima di un'altra versione.
@@ -323,6 +331,18 @@ export function GovernmentOffice({
           rememberFor(seat, discussedProposal(seat, road, { messageId, gameDate: currentDate ?? '', turn: currentTurn ?? undefined }));
         }
       }
+      // WS-GOV-DIALOGUE-TO-ACT — La decisione in corso **referenzia** l'evidenza
+      // mostrata sulla tela (nessuna copia del dato, nessuna revisione).
+      const evidenceRefs = directives
+        .map(directive => directive.evidence)
+        .filter((evidence): evidence is EvidenceKey => typeof evidence === 'string');
+      if (evidenceRefs.length > 0) {
+        setWorkspaces(prev => {
+          const current = prev[seat] ?? emptyWorkspace(seat);
+          const next = withEvidenceRefs(current, [...current.evidenceIds, ...evidenceRefs]);
+          return next === current ? prev : { ...prev, [seat]: next };
+        });
+      }
     },
     [proposals, currentDate, currentTurn, rememberFor],
   );
@@ -331,6 +351,22 @@ export function GovernmentOffice({
       if (openSeat) applyPresentation(openSeat, messageId, quote, directives, discussion);
     },
     [openSeat, applyPresentation],
+  );
+  // WS-GOV-DIALOGUE-TO-ACT — Le azioni `decision` di una risposta aggiornano la
+  // proposta corrente della sedia: una risposta = una revisione, se qualcosa
+  // cambia davvero. La conversazione diventa stato strutturato.
+  const chatDecision = useCallback(
+    (messageId: string, actions: readonly DecisionAction[]): void => {
+      if (!openSeat) return;
+      const seat = openSeat;
+      setWorkspaces(prev => {
+        const current = prev[seat] ?? emptyWorkspace(seat);
+        const next = applyDecisionBatch(current, actions, { messageId });
+        if (next === current) return prev;
+        return { ...prev, [seat]: next };
+      });
+    },
+    [openSeat],
   );
   const clearPresentation = useCallback((): void => {
     if (!openSeat) return;
@@ -514,6 +550,13 @@ export function GovernmentOffice({
     [actDraft, boardRoad, boardItem, boardSnapshotKey, actPreview],
   );
 
+  // WS-GOV-DIALOGUE-TO-ACT — La decisione in corso della sedia aperta e la
+  // revisione su cui poggia l'atto preparato (per marcare l'atto stantio).
+  const workspace = openSeat ? workspaces[openSeat] ?? null : null;
+  const actRevision = actDraft?.revision ?? null;
+  const actStale = workspace ? actStaleness(workspace, actRevision) : null;
+  const decisionQuestion = address?.items[0]?.need ?? null;
+
   const prepareRoad = useCallback((road: TreasuryRoad): void => {
     if (!address) return;
     setActDraft({ ...actDraftFor(road, address.seat), signatureKey: crypto.randomUUID() });
@@ -527,6 +570,22 @@ export function GovernmentOffice({
   const editDraft = useCallback((text: string): void => {
     setActDraft(current => (current && !current.signatureAttempted ? { ...editActDraft(current, text), signatureKey: current.signatureKey } : current));
   }, []);
+
+  // WS-GOV-DIALOGUE-TO-ACT — «Trasforma questa proposta in atto» / «Rigenera
+  // atto»: l'atto nasce dalla **proposta corrente**, non dalla strada iniziale.
+  // Mai automatico: lo comanda il Presidente. La revisione viaggia con l'atto,
+  // così una proposta che avanza lo rende `stale`.
+  const prepareFromProposal = useCallback((): void => {
+    if (!openSeat) return;
+    const current = workspaces[openSeat];
+    const proposal = current ? activeProposal(current) : null;
+    if (!current || !proposal) return;
+    const draft = actDraftFromProposal(proposal, { seat: openSeat });
+    setActDraft({ ...draft, signatureKey: crypto.randomUUID(), revision: current.revision });
+    rememberFor(openSeat, declaredPreference(openSeat, draft.title, {
+      gameDate: currentDate ?? '', turn: currentTurn ?? undefined,
+    }));
+  }, [openSeat, workspaces, currentDate, currentTurn, rememberFor]);
 
   const cancelDraft = useCallback((): void => {
     setActDraft(null);
@@ -712,6 +771,7 @@ export function GovernmentOffice({
                   onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
                   onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}
                   onPresentation={chatPresentation}
+                  onDecision={chatDecision}
                   evidenceIndex={evidenceIndex}
                   onFocusEvidence={focusEvidence}
                 />
@@ -767,7 +827,7 @@ export function GovernmentOffice({
                   actDraft={actDraft}
                   actStatus={draftStatus}
                   actBusy={actBusy}
-                  actEditable={!actDraft?.signatureAttempted}
+                  actEditable={!actDraft?.signatureAttempted && !actStale}
                   actSignatureNotice={actDraft?.signatureNotice}
                   onEditDraft={editDraft}
                   onSignDraft={signDraft}
@@ -782,6 +842,11 @@ export function GovernmentOffice({
                   onTogglePin={togglePin}
                   onReturnToMessage={() => setMobilePane('dialogo')}
                   proposals={proposals}
+                  workspace={workspace}
+                  decisionQuestion={decisionQuestion}
+                  actRevision={actRevision}
+                  onPrepareFromProposal={prepareFromProposal}
+                  onRegenerateAct={prepareFromProposal}
                 />
               </section>
             </div>

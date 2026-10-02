@@ -168,3 +168,28 @@ describe('WS-MINISTER-UX-07 — A2 voce di spesa e C evidenza fissata', () => {
     expect(shouldApplyPresentation(null, { op: 'focus', evidence: 'spesa' })).toBe(true);
   });
 });
+
+describe('WS-GOV-DIALOGUE-TO-ACT — il blocco `decision` convive con la tela', () => {
+  it('estrae le azioni e le toglie dal testo visibile', () => {
+    const text = [
+      'Il ministro risponde.',
+      '```decision',
+      '{"op":"update-proposal","changes":[{"kind":"allocation","label":"Infrastrutture","sharePct":80,"source":"president"}]}',
+      '```',
+      '```tavola',
+      '{"op":"focus","evidence":"spesa"}',
+      '```',
+    ].join('\n');
+    const parsed = parsePresentation(text);
+    expect(parsed.decisions).toHaveLength(1);
+    expect(parsed.decisions[0]).toMatchObject({ op: 'update-proposal' });
+    expect(parsed.directives).toHaveLength(1);
+    expect(parsed.text).toBe('Il ministro risponde.');
+  });
+
+  it('un blocco `decision` invalido non entra e non rompe la tela', () => {
+    const parsed = parsePresentation('Testo.\n```decision\n{"op":"fly"}\n```');
+    expect(parsed.decisions).toEqual([]);
+    expect(parsed.text).toBe('Testo.');
+  });
+});

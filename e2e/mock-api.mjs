@@ -1164,7 +1164,30 @@ export function installMockApi(page, opts = {}) {
     if (message.includes('confronta')) directive = '\n\n```tavola\n{"op":"compare"}\n```';
     else if (message.includes('province') || message.includes('mappa')) directive = '\n\n```tavola\n{"op":"focus","evidence":"mappa","regionIds":["ALPHA"]}\n```';
     else if (message.includes('spesa')) directive = '\n\n```tavola\n{"op":"focus","evidence":"spesa"}\n```';
-    return json(route, { reply: `Il ministro (${seat}) ha preso nota del problema.${directive}`, seat });
+    // WS-GOV-DIALOGUE-TO-ACT — La conversazione aggiorna la proposta corrente
+    // (blocco `decision`), così l'E2E verifica che la decisione diventi stato
+    // strutturato e che l'atto nasca da quello. Nessun numero inventato: le
+    // quote portano la loro provenienza (president / minister).
+    let decision = '';
+    if (message.includes('90')) {
+      decision = '\n\n```decision\n{"op":"update-proposal","changes":['
+        + '{"kind":"allocation","label":"Infrastrutture","sharePct":90,"source":"president"},'
+        + '{"kind":"allocation","label":"Ammortamento del debito","sharePct":10,"source":"president"}]}\n```'
+        + '\n\n```decision\n{"op":"resolve-question","question":"ripartizione"}\n```';
+    } else if (message.includes('80')) {
+      decision = '\n\n```decision\n{"op":"update-proposal","changes":['
+        + '{"kind":"allocation","label":"Infrastrutture","sharePct":80,"source":"president"},'
+        + '{"kind":"allocation","label":"Ammortamento del debito","sharePct":20,"source":"president"}]}\n```'
+        + '\n\n```decision\n{"op":"resolve-question","question":"ripartizione"}\n```';
+    } else if (message.includes('avanzo') || message.includes('useresti')) {
+      decision = '\n\n```decision\n{"op":"update-proposal","changes":['
+        + '{"kind":"allocation","label":"Infrastrutture","sharePct":70,"source":"minister"},'
+        + '{"kind":"allocation","label":"Ammortamento del debito","sharePct":30,"source":"minister"}],'
+        + '"unresolvedQuestions":["ripartizione"]}\n```';
+    } else if (message.includes('infrastruttur')) {
+      decision = '\n\n```decision\n{"op":"set-objective","objective":"Investire l’avanzo nelle infrastrutture","source":"president"}\n```';
+    }
+    return json(route, { reply: `Il ministro (${seat}) ha preso nota del problema.${directive}${decision}`, seat });
   });
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/minister/*/stream`, (route) => notFound(route));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/arsenal`, (route) => json(route, MOCK_ARSENAL));
