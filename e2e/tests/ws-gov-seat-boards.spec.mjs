@@ -85,7 +85,7 @@ test('WS-GOV-SEAT-BOARDS: i Lavori costruiscono la loro proposta, convocano il T
 
   // [5] Reperto mobile: la Tavola comune a 390×844.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('.minister-session-view', { hasText: 'Tavola' }).click();
-  await expect(council).toBeVisible();
+  await page.locator('.gov-mobile-tab', { hasText: 'Tavola' }).click();
+  await expect(page.locator('.gov-mobile-board-title')).toBeVisible();
   await page.screenshot({ path: SHOT, fullPage: true });
 });

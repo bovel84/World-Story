@@ -79,12 +79,12 @@ test('P1: l’agenda viva — sintesi, stati, colloquio ripreso', async ({ page 
 
   // [3] Apriamo un colloquio con il Tesoro: la risposta arriva, poi torniamo.
   await tesoro.click();
-  const chat = page.locator('.government-office-pane-chat');
+  const chat = page.locator('.gov-mobile-chat');
   await expect(chat.locator('.minister-chat')).toBeVisible();
   await chat.locator('textarea').fill('Il porto di Alfa resta chiuso: servono fondi.');
   await chat.locator('.minister-compose button').click();
   await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
-  await page.locator('.government-office-back').click();
+  await page.locator('.gov-mobile-nav').click();
 
   // [4] Ora il Tesoro è «discussione aperta» e la sintesi è ricalcolata:
   //     lo stato è cambiato per un fatto (il colloquio), non per una stima.

@@ -105,7 +105,7 @@ test('WS-GOV-DIALOGUE-TO-ACT: la conversazione diventa proposta, e l’atto nasc
 
   // Reperto: la proposta corrente sulla tavola (mobile).
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('.minister-session-view', { hasText: 'Tavola' }).click();
-  await expect(board).toBeVisible();
+  await page.locator('.gov-mobile-tab', { hasText: 'Tavola' }).click();
+  await expect(page.locator('.gov-mobile-board-title')).toBeVisible();
   await page.screenshot({ path: SHOT, fullPage: true });
 });
