@@ -42,7 +42,7 @@ import {
   type ActState, type ProposalActDraft,
 } from './actDraft';
 import type { WorkDeclarationInput } from './cabinetOrder';
-import { resolvePresentation, shouldApplyPresentation, type ActivePresentation, type PresentationDirective } from './presentation';
+import { applyCanvasBatch, emptyCanvas, resolveCanvas, type PresentationCanvas, type PresentationDirective } from './presentation';
 import {
   discussedProposal, loadMemory, openQuestion, queuedDecision, recordMemory,
   saveMemory, seatRecords, withSeatRecords, clientMandate, type MinisterMemoryRecord, type MinisterMemoryStore,
@@ -264,30 +264,31 @@ export function GovernmentOffice({
   // `act.roads` globale: un confronto alla Sanità non mostra strade del Tesoro.
   const proposals = useMemo(() => seatRoads(address, act), [address, act]);
 
-  // WS-MINISTER-UX-03 — La presentazione richiesta nella conversazione: stato di
-  // UI legato alla sedia e al messaggio. Parlare non impegna nulla, e la tavola
-  // di una sedia non cambia per un evento di un'altra.
-  const [presentations, setPresentations] = useState<
-    Partial<Record<CabinetAddressView['seat'], ActivePresentation>>
+  // WS-MINISTER-UX-03 / WS-GOVUX-P3 — La tela richiesta nella conversazione:
+  // stato di UI legato alla sedia e ai messaggi che l'hanno prodotta. Parlare
+  // non impegna nulla, e la tavola di una sedia non cambia per un evento di
+  // un'altra. P3 la estende a una **tela**: fino a due principali, un confronto
+  // che non le sostituisce, e aggiornamento/rimozione mirati dal lotto di una
+  // risposta. Il modello resta un read model puro (`applyCanvasBatch`).
+  const [canvases, setCanvases] = useState<
+    Partial<Record<CabinetAddressView['seat'], PresentationCanvas>>
   >({});
   const applyPresentation = useCallback(
-    (seat: CabinetAddressView['seat'], messageId: string, quote: string, directive: PresentationDirective, discussion?: string): void => {
-      setPresentations(prev => {
-        // WS-MINISTER-UX-07 (C) — Un'evidenza fissata non si sostituisce da sola:
-        // solo un comando esplicito la toglie. Il `dismiss` arriva dal modello e
-        // non deve scavalcare il lucchetto del Presidente.
-        if (!shouldApplyPresentation(prev[seat], directive)) return prev;
-        return {
-          ...prev,
-          [seat]: {
-            directive, seat, messageId, quote, pinned: prev[seat]?.pinned ?? false,
-            ...(discussion ? { discussion } : {}),
-          },
-        };
+    (seat: CabinetAddressView['seat'], messageId: string, quote: string, directives: readonly PresentationDirective[], discussion?: string): void => {
+      setCanvases(prev => {
+        const current = prev[seat] ?? emptyCanvas();
+        const next = applyCanvasBatch(current, directives, {
+          messageId, quote,
+          ...(discussion ? { discussion } : {}),
+        });
+        // Il lucchetto del Presidente e i bersagli assenti non cambiano la tela:
+        // si evita un re-render quando la stessa istanza torna indietro.
+        if (next === current) return prev;
+        return { ...prev, [seat]: next };
       });
       // WS-MINISTER-UX-05 — Una proposta confrontata è una proposta discussa:
       // entra in memoria, senza confonderla con un atto accodato.
-      if (directive.op === 'compare') {
+      if (directives.some(directive => directive.op === 'compare')) {
         for (const road of proposals) {
           rememberFor(seat, discussedProposal(seat, road, { messageId, gameDate: currentDate ?? '' }));
         }
@@ -296,33 +297,41 @@ export function GovernmentOffice({
     [proposals, currentDate, rememberFor],
   );
   const chatPresentation = useCallback(
-    (messageId: string, quote: string, directive: PresentationDirective, discussion?: string): void => {
-      if (openSeat) applyPresentation(openSeat, messageId, quote, directive, discussion);
+    (messageId: string, quote: string, directives: readonly PresentationDirective[], discussion?: string): void => {
+      if (openSeat) applyPresentation(openSeat, messageId, quote, directives, discussion);
     },
     [openSeat, applyPresentation],
   );
   const clearPresentation = useCallback((): void => {
     if (!openSeat) return;
-    setPresentations(prev => {
+    setCanvases(prev => {
       const next = { ...prev };
       delete next[openSeat];
       return next;
     });
   }, [openSeat]);
-  // WS-MINISTER-UX-07 (C) — Fissare l'evidenza: resta sulla tavola mentre si
-  // legge; sbloccarla riporta il comportamento normale.
+  // WS-MINISTER-UX-07 (C) — Fissare l'evidenza principale: resta sulla tavola
+  // mentre si legge; sbloccarla riporta il comportamento normale.
   const togglePin = useCallback((): void => {
     if (!openSeat) return;
-    setPresentations(prev => {
+    setCanvases(prev => {
       const current = prev[openSeat];
       if (!current) return prev;
-      return { ...prev, [openSeat]: { ...current, pinned: !current.pinned } };
+      if (current.mains.length > 0) {
+        const mains = current.mains.map((item, index) => index === 0 ? { ...item, pinned: !item.pinned } : item);
+        return { ...prev, [openSeat]: { ...current, mains } };
+      }
+      if (current.comparison) {
+        return { ...prev, [openSeat]: { ...current, comparison: { ...current.comparison, pinned: !current.comparison.pinned } } };
+      }
+      return prev;
     });
   }, [openSeat]);
-  const activePresentation = openSeat ? presentations[openSeat] ?? null : null;
-  const resolvedPresentation = useMemo(
-    () => resolvePresentation(activePresentation, canvasBlocks, proposals),
-    [activePresentation, canvasBlocks, proposals],
+  const activeCanvas = openSeat ? canvases[openSeat] ?? null : null;
+  const hasCanvasEvidence = Boolean(activeCanvas && (activeCanvas.mains.length > 0 || activeCanvas.comparison));
+  const resolvedCanvas = useMemo(
+    () => resolveCanvas(activeCanvas ?? emptyCanvas(), canvasBlocks, proposals),
+    [activeCanvas, canvasBlocks, proposals],
   );
 
   // L'atto firmato tramite la coda del motore: l'opera (cantiere reale) o un
@@ -366,7 +375,7 @@ export function GovernmentOffice({
   // «Confronta le strade» dal tavolo: mostra, non accoda. Come il confronto
   // chiesto a voce, le strade entrano in memoria come proposte discusse.
   const compareFromTable = useCallback((): void => {
-    if (openSeat) applyPresentation(openSeat, 'tavola', '', { op: 'compare' });
+    if (openSeat) applyPresentation(openSeat, 'tavola', '', [{ op: 'compare' }]);
   }, [openSeat, applyPresentation]);
 
   // La chiave appartiene alla bozza preparata, non al singolo POST: retry e
@@ -508,7 +517,7 @@ export function GovernmentOffice({
                 onClick={() => setMobilePane('tavola')}
               >
                 Tavola
-                {activePresentation && mobilePane !== 'tavola' && (
+                {hasCanvasEvidence && mobilePane !== 'tavola' && (
                   <span className="minister-session-view-dot" title="Nuova evidenza sulla tavola" aria-hidden="true" />
                 )}
               </button>
@@ -601,7 +610,7 @@ export function GovernmentOffice({
                   onSignDraft={signDraft}
                   onCancelDraft={cancelDraft}
                   onCompare={compareFromTable}
-                  presentation={resolvedPresentation}
+                  canvas={resolvedCanvas}
                   onClearPresentation={clearPresentation}
                   onTogglePin={togglePin}
                   onReturnToMessage={() => setMobilePane('dialogo')}

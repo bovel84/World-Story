@@ -61,7 +61,12 @@ export interface MinisterChatProps {
    * risposta più recente con un blocco `tavola` valido lo annuncia qui. Il
    * chiamante la applica solo a una risposta conclusa (mai durante lo streaming).
    */
-  onPresentation?: (messageId: string, quote: string, directive: PresentationDirective, discussion?: string) => void;
+  /**
+   * WS-GOVUX-P3 — Le direttive di una risposta: un **lotto** (fino a
+   * `MAX_NEW_EVIDENCES_PER_REPLY`), non una sola. Una risposta può sostituire
+   * la principale, aggiungere un confronto e aggiornare un'evidenza insieme.
+   */
+  onPresentation?: (messageId: string, quote: string, directives: readonly PresentationDirective[], discussion?: string) => void;
   /**
    * WS-MINISTER-UX-05 — La memoria della sedia. Viene inviata **con** la
    * richiesta (non mostrata nella chat): il server la valida, ne deriva il
@@ -142,17 +147,17 @@ export function MinisterChat({
     if (lastIndex < 0) return;
     const last = messages[lastIndex];
     if (!last || last.role !== 'assistant' || !last.content.trim()) return;
-    const { text, directive } = parsePresentation(last.content);
-    if (!directive) return;
+    const { text, directives } = parsePresentation(last.content);
+    if (directives.length === 0) return;
     const messageId = `${address.seat}#${lastIndex}`;
-    const signature = `${messageId}:${JSON.stringify(directive)}`;
+    const signature = `${messageId}:${JSON.stringify(directives)}`;
     if (emittedPresentationRef.current[messageId] === signature) return;
     emittedPresentationRef.current[messageId] = signature;
     // WS-MINISTER-UX-07 (A2) — Insieme alla risposta viaggia l'ultimo messaggio
     // del Presidente: è dal **discorso** che si sceglie la voce di spesa da
     // evidenziare, non dalla risposta (che può non nominarla).
     const lastUser = [...messages.slice(0, lastIndex)].reverse().find(m => m.role === 'user')?.content ?? '';
-    onPresentation(messageId, text.slice(0, 140), directive, lastUser);
+    onPresentation(messageId, text.slice(0, 140), directives, lastUser);
   }, [messages, streaming, onPresentation, address?.seat]);
 
   // Cambiando ministro si azzera solo la BOZZA della domanda: la cronaca è per

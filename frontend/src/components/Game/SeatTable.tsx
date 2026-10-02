@@ -37,7 +37,7 @@ import { SeatProposalPanel } from './SeatProposalPanel';
 import { ActDraftPanel } from './ActDraftPanel';
 import { ProposalComparison } from './ProposalComparison';
 import type { SeatCanvasBlock } from './seatCanvasModel';
-import type { EvidenceKey, ResolvedPresentation } from './presentation';
+import type { EvidenceKey, ResolvedCanvas, ResolvedPresentation } from './presentation';
 import type { ActState, ActStatus, ProposalActDraft } from './actDraft';
 import type { TreasuryAct, TreasuryRoad } from './treasuryAct';
 import type { CabinetAddressView } from '../../services/api';
@@ -85,6 +85,12 @@ export interface SeatTableProps {
    * conversazione. `null` = tavola predefinita (l'ordine di UX-01).
    */
   presentation?: ResolvedPresentation | null;
+  /**
+   * WS-GOVUX-P3 — La **tela** conversazionale risolta: fino a due evidenze
+   * principali e un confronto che non le sostituisce. Quando c'è, è lei a
+   * guidare la gerarchia; `presentation` resta per i chiamanti storici.
+   */
+  canvas?: ResolvedCanvas | null;
   /** Tornare alla tavola predefinita, chiudendo l'evidenza presentata. */
   onClearPresentation?: () => void;
   /** WS-MINISTER-UX-07 (C) — Fissare/sbloccare l'evidenza per leggerla con calma. */
@@ -100,34 +106,47 @@ export interface SeatTableProps {
 
 export function SeatTable({
   seat, blocks, act, onPrepareRoad, preparedRoadId, roadStates, actDraft, actStatus, actBusy, actEditable, actSignatureNotice,
-  onEditDraft, onSignDraft, onCancelDraft, onCompare, presentation, onClearPresentation, onTogglePin, onReturnToMessage,
+  onEditDraft, onSignDraft, onCancelDraft, onCompare, presentation, canvas = null, onClearPresentation, onTogglePin, onReturnToMessage,
   proposals = [],
 }: SeatTableProps) {
   const ordered = [...blocks].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
   const showsAct = seat === 'tesoro';
 
-  // WS-MINISTER-UX-03 — La presentazione cambia la gerarchia, non il dato:
-  // l'evidenza richiesta sale in cima; il confronto sostituisce la principale.
-  const presentedBlock = presentation?.kind === 'evidence' ? presentation.block : null;
-  const rest = presentedBlock
-    ? ordered.filter(block => block.id !== presentedBlock.id)
+  // WS-MINISTER-UX-03 / WS-GOVUX-P3 — La presentazione cambia la gerarchia, non
+  // il dato: le evidenze richieste salgono in cima (fino a due), il confronto si
+  // **aggiunge** senza toglierle. Senza tela, resta il comportamento storico a
+  // una sola `presentation` (retro-compatibile con i test e i chiamanti).
+  const presentedMains = canvas
+    ? canvas.mains.filter((item): item is ResolvedPresentation => Boolean(item.block))
+    : (presentation && presentation.kind === 'evidence' ? [presentation] : []);
+  const comparison = canvas
+    ? canvas.comparison
+    : (presentation?.kind === 'compare' ? presentation : null);
+  const primary = presentedMains[0] ?? null;
+  const secondary = presentedMains[1] ?? null;
+  const presentedIds = new Set(
+    presentedMains.map(item => item.block?.id).filter((id): id is string => Boolean(id)),
+  );
+  const presentedBlock = primary?.block ?? null;
+  const rest = presentedMains.length > 0
+    ? ordered.filter(block => !presentedIds.has(block.id))
     : ordered;
-  const main = presentedBlock ?? (presentation?.kind === 'compare' ? null : rest[0] ?? null);
-  const supportStart = presentedBlock ? 0 : 1;
-  const supports = presentation?.kind === 'compare'
-    ? rest.slice(0, 2)
-    : rest.slice(supportStart, supportStart + 2);
-  const extras = presentation?.kind === 'compare'
-    ? rest.slice(2)
-    : rest.slice(supportStart + 2);
+  const main = presentedBlock ?? (comparison ? null : rest[0] ?? null);
+  const presentationActive = presentedMains.length > 0 || Boolean(comparison);
+  const compareOnly = Boolean(comparison) && presentedMains.length === 0;
+  const supportStart = presentedMains.length > 0 ? 0 : 1;
+  const supports = compareOnly ? rest.slice(0, 2) : rest.slice(supportStart, supportStart + 2);
+  const extras = compareOnly ? rest.slice(2) : rest.slice(supportStart + 2);
 
   // WS-MINISTER-UX-08 (1) — L'atto è pertinente alla decisione quando la
   // conversazione chiede spesa, cifre, piano o il confronto; altrimenti non
   // scavalca l'evidenza richiesta e finisce dopo di essa.
-  const actPertinent = !presentation
-    || presentation.kind === 'compare'
-    || (presentation.evidence ? ACT_EVIDENCE.includes(presentation.evidence) : false);
-  const presentationActive = Boolean(presentation);
+  const actPertinent = !presentationActive
+    || Boolean(comparison)
+    || Boolean(primary?.evidence && ACT_EVIDENCE.includes(primary.evidence));
+  // Il banner lega la tavola al messaggio: la principale, o il confronto se non
+  // ci sono principali.
+  const banner = primary ?? comparison;
 
   const proposalsForSeat = proposals.length > 0
     ? proposals
@@ -182,9 +201,14 @@ export function SeatTable({
       <div className="seat-table-main">
         <SeatCanvas
           blocks={[main]}
-          focusRegionIds={presentation?.kind === 'evidence' ? presentation.regionIds : undefined}
-          focusLabel={presentation?.kind === 'evidence' ? presentation.focusLabel : undefined}
+          focusRegionIds={primary?.regionIds}
+          focusLabel={primary?.focusLabel}
         />
+        {secondary?.block && (
+          <div className="seat-table-main-second">
+            <SeatCanvas blocks={[secondary.block]} />
+          </div>
+        )}
       </div>
       {supports.length > 0 && (
         <div className="seat-table-support">
@@ -200,7 +224,7 @@ export function SeatTable({
         </details>
       )}
     </>
-  ) : presentation?.kind === 'compare' ? (
+  ) : comparison ? (
     supports.length + extras.length > 0 ? (
       <details className="seat-table-more" open>
         <summary className="seat-table-more-summary">Altre evidenze ({supports.length + extras.length})</summary>
@@ -223,26 +247,26 @@ export function SeatTable({
         </span>
       </header>
 
-      {presentation && (
-        <div className="seat-presentation-banner" role="status" data-pinned={presentation.pinned ? 'true' : undefined}>
+      {banner && (
+        <div className="seat-presentation-banner" role="status" data-pinned={banner.pinned ? 'true' : undefined}>
           <div className="seat-presentation-text">
             <span className="seat-presentation-label">
-              Mostrato su richiesta — {presentation.label}{presentation.pinned ? ' · fissato' : ''}
+              Mostrato su richiesta — {banner.label}{banner.pinned ? ' · fissato' : ''}
             </span>
-            {presentation.note && <span className="seat-presentation-note">{presentation.note}</span>}
-            {presentation.quote && (
-              <span className="seat-presentation-quote">«{presentation.quote}»</span>
+            {banner.note && <span className="seat-presentation-note">{banner.note}</span>}
+            {banner.quote && (
+              <span className="seat-presentation-quote">«{banner.quote}»</span>
             )}
           </div>
           {onTogglePin && (
             <button
               type="button"
-              className={`seat-presentation-pin${presentation.pinned ? ' active' : ''}`}
+              className={`seat-presentation-pin${banner.pinned ? ' active' : ''}`}
               onClick={onTogglePin}
-              aria-pressed={Boolean(presentation.pinned)}
-              title={presentation.pinned ? 'Sblocca l’evidenza: torna a seguire la conversazione' : 'Fissa l’evidenza: resta sulla tavola mentre la leggi'}
+              aria-pressed={Boolean(banner.pinned)}
+              title={banner.pinned ? 'Sblocca l’evidenza: torna a seguire la conversazione' : 'Fissa l’evidenza: resta sulla tavola mentre la leggi'}
             >
-              {presentation.pinned ? 'Evidenza fissata' : 'Fissa evidenza'}
+              {banner.pinned ? 'Evidenza fissata' : 'Fissa evidenza'}
             </button>
           )}
           {onClearPresentation && (
@@ -255,7 +279,7 @@ export function SeatTable({
               Tavola predefinita
             </button>
           )}
-          {onReturnToMessage && presentation.quote && (
+          {onReturnToMessage && banner.quote && (
             <button
               type="button"
               className="seat-presentation-return"
@@ -268,7 +292,7 @@ export function SeatTable({
         </div>
       )}
 
-      {presentation?.kind === 'compare' && <ProposalComparison roads={presentation.roads} />}
+      {comparison && <ProposalComparison roads={comparison.roads} />}
 
       {presentationActive ? (
         <>
