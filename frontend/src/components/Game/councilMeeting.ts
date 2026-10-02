@@ -19,6 +19,7 @@
 import type { ProposalActDraft } from './actDraft';
 import type { WorkDeclarationInput } from './cabinetOrder';
 import { CABINET_SEATS, type CabinetSeat } from './seatDecisionBoards';
+import { ambiguousLocationQuestion, type MeetingLocation } from './meetingLocalization';
 
 /** Lo stato della riunione (B1). */
 export type MeetingStatus = 'opening' | 'gathering-inputs' | 'negotiating' | 'ready-for-act' | 'closed';
@@ -41,7 +42,7 @@ export interface MinisterContribution {
  */
 export interface MeetingRequirement {
   readonly id: string;
-  readonly kind: 'coverage' | 'material' | 'prerequisite' | 'workforce' | 'cash' | 'policy';
+  readonly kind: 'coverage' | 'material' | 'prerequisite' | 'workforce' | 'cash' | 'policy' | 'location';
   readonly label: string;
   readonly blocker: boolean;
   readonly owner: CabinetSeat;
@@ -85,6 +86,22 @@ export interface MeetingExecutionPlan {
   readonly workDeclaration?: MeetingWorkDeclaration;
 }
 
+/**
+ * WS-GOV-COUNCIL-HARDENING — la copertura monetaria **autorevole**: gli stessi
+ * numeri che il motore usa per `funded`, non un ricalcolo del client. `required`
+ * e `available` sono le cifre del motore; `margin` è la loro differenza, usata
+ * solo per la visualizzazione della Tavola.
+ */
+export interface MeetingMoneyCoverage {
+  readonly required: string | null;
+  readonly available: string | null;
+  readonly missing: string | null;
+  readonly margin: string | null;
+  readonly holder: string | null;
+  readonly unit: string | null;
+  readonly coverage: 'covered' | 'short' | 'unknown';
+}
+
 /** La riunione: stato della **seduta corrente** (B1). */
 export interface CouncilMeeting {
   readonly id: string;
@@ -113,6 +130,14 @@ export interface MeetingEngineRead {
   readonly costNote: string | null;
   readonly coverage: 'covered' | 'short' | 'unknown';
   readonly availableLabel: string | null;
+  /**
+   * WS-GOV-COUNCIL-HARDENING — la copertura monetaria strutturata dal motore
+   * (`deficits` + `availability`). Presente quando il preflight legge il
+   * ledger; assente in legacy. La Tavola del Tesoro la mostra così com'è.
+   */
+  readonly money?: MeetingMoneyCoverage | null;
+  /** La localizzazione canonica risolta dalla geografia della partita. */
+  readonly location?: MeetingLocation | null;
   readonly risks: readonly string[];
   readonly prerequisites: readonly string[];
   readonly summary: string;
@@ -290,14 +315,21 @@ export function meetingWorkspaceFromRead(meeting: CouncilMeeting, read: MeetingE
       });
     }
   }
-  if (meeting.participants.includes('tesoro') && (read.costLabel || read.availableLabel)) {
-    if (read.costLabel) lines.push({ owner: 'tesoro', label: 'Costo opera', value: read.costLabel, status: 'ok', source: read.source });
-    if (read.availableLabel) lines.push({ owner: 'tesoro', label: 'Disponibile', value: read.availableLabel, status: 'ok', source: read.source });
+  if (meeting.participants.includes('tesoro') && (read.money || read.costLabel || read.availableLabel)) {
+    const money = read.money ?? null;
+    const withUnit = (value: string | null): string | null => (value ? `${value}${money?.unit ? ` ${money.unit}` : ''}` : null);
+    const required = money ? withUnit(money.required) : read.costLabel;
+    const available = money ? withUnit(money.available) : read.availableLabel;
+    const coverage = money?.coverage ?? read.coverage;
+    if (required) lines.push({ owner: 'tesoro', label: 'Costo opera', value: required, status: 'ok', source: read.source });
+    if (available) lines.push({ owner: 'tesoro', label: 'Disponibile', value: available, status: 'ok', source: read.source });
+    if (money?.missing) lines.push({ owner: 'tesoro', label: 'Mancano', value: withUnit(money.missing)!, status: 'missing', source: read.source });
+    if (money?.margin) lines.push({ owner: 'tesoro', label: 'Margine', value: withUnit(money.margin)!, status: 'ok', source: read.source });
     lines.push({
       owner: 'tesoro',
       label: 'Copertura',
-      value: read.coverage === 'covered' ? 'coperta' : read.coverage === 'short' ? 'scoperta' : 'da verificare',
-      status: read.coverage === 'covered' ? 'ok' : read.coverage === 'short' ? 'missing' : 'unknown',
+      value: coverage === 'covered' ? 'coperta' : coverage === 'short' ? 'scoperta' : 'da verificare',
+      status: coverage === 'covered' ? 'ok' : coverage === 'short' ? 'missing' : 'unknown',
       source: read.source,
     });
   }
@@ -326,8 +358,27 @@ export function meetingRequirementsFromRead(meeting: CouncilMeeting, read: Meeti
     else push('coverage', risk, meeting.leadSeat, true);
   }
   for (const prerequisite of read.prerequisites) push('prerequisite', prerequisite, meeting.leadSeat, true);
-  if (read.coverage === 'short' && !requirements.some(item => item.kind === 'cash')) {
+  // Quando il motore dichiara l'opera NON coperta, ogni materiale scoperto è un
+  // blocco: è la ragione per cui `funded` può essere false anche a cassa piena.
+  // A opera coperta non si aggiunge un blocco da una riga incoerente.
+  if (read.coverage === 'short') {
+    for (const material of read.materials) {
+      if (!material.ok) push('material', `${material.name}${material.missing ? `: manca ${material.missing}` : ': mancante'}`, 'lavori', true);
+    }
+  }
+  // WS-GOV-COUNCIL-HARDENING — la localizzazione ambigua è un blocco dichiarato:
+  // la riunione non è pronta finché il Presidente non chiarisce quale regione.
+  // Non si sceglie arbitrariamente fra più candidati canonici.
+  if (read.location?.status === 'ambiguous') {
+    push('location', ambiguousLocationQuestion(read.location.candidates), meeting.leadSeat, true);
+  }
+  if ((read.money?.coverage ?? read.coverage) === 'short' && !requirements.some(item => item.kind === 'cash')) {
     push('cash', read.summary || 'Copertura finanziaria insufficiente', 'tesoro', true);
+  }
+  // Invariante: se il motore non dichiara l'opera coperta, ci deve essere un
+  // blocco visibile. Mai «coperta» con `funded=false` senza spiegazione.
+  if (read.coverage === 'short' && !requirements.some(item => item.blocker)) {
+    push('coverage', read.summary || 'Copertura dell’opera non verificata', 'tesoro', true);
   }
   return requirements;
 }
@@ -353,14 +404,21 @@ export function lavoriContribution(meeting: CouncilMeeting, read: MeetingEngineR
 /** L'intervento del Tesoro: costo, copertura e margine **dal motore**. */
 export function tesoroContribution(meeting: CouncilMeeting, read: MeetingEngineRead): MinisterContribution | null {
   if (!meeting.participants.includes('tesoro')) return null;
+  const money = read.money ?? null;
+  const unit = money?.unit ? ` ${money.unit}` : '';
+  const coverage = money?.coverage ?? read.coverage;
   const parts: string[] = [];
-  if (read.costLabel) parts.push(`Il progetto costa ${read.costLabel}${read.costNote ? ` (${read.costNote})` : ''}.`);
-  if (read.availableLabel) parts.push(`Abbiamo ${read.availableLabel} realmente impegnabili.`);
-  if (read.coverage === 'covered') parts.push('La copertura c’è.');
-  else if (read.coverage === 'short') parts.push('Non c’è la copertura necessaria.');
+  const cost = money?.required ? `${money.required}${unit}` : read.costLabel;
+  const available = money?.available ? `${money.available}${unit}` : read.availableLabel;
+  if (cost) parts.push(`Il progetto costa ${cost}${read.costNote ? ` (${read.costNote})` : ''}.`);
+  if (available) parts.push(`Abbiamo ${available} realmente impegnabili.`);
+  if (money?.missing) parts.push(`Mancano ${money.missing}${unit}.`);
+  if (money?.margin) parts.push(`Il margine dopo l’opera è ${money.margin}${unit}.`);
+  if (coverage === 'covered') parts.push('La copertura c’è.');
+  else if (coverage === 'short') parts.push('Non c’è la copertura necessaria.');
   else parts.push('La copertura va ancora verificata.');
   if (parts.length === 0) parts.push('Nessun dato finanziario disponibile per questa richiesta.');
-  const kind: MinisterContribution['kind'] = read.coverage === 'short' ? 'objection' : 'fact';
+  const kind: MinisterContribution['kind'] = coverage === 'short' ? 'objection' : 'fact';
   return makeContribution(meeting, 'tesoro', kind, parts.join(' '), ['check-feasibility', 'national-accounts']);
 }
 
@@ -382,7 +440,9 @@ export function applyEngineRead(meeting: CouncilMeeting, read: MeetingEngineRead
   for (const contribution of contributions) next = addContribution(next, contribution);
   const execution: MeetingExecutionPlan = {
     ...(read.workId ? { workId: read.workId } : {}),
-    ...(read.regionId ? { regionId: read.regionId } : {}),
+    // Un `regionId` entra nell'esecuzione solo se la localizzazione è risolta:
+    // con più candidati canonici la scelta resta al Presidente, non al client.
+    ...(read.location?.status !== 'ambiguous' && read.regionId ? { regionId: read.regionId } : {}),
     ...(read.workDeclaration ? { workDeclaration: read.workDeclaration } : {}),
     feasibilityRef: read.source,
   };
@@ -441,7 +501,16 @@ export function meetingActDraft(meeting: CouncilMeeting, context: { readonly sea
       ? 'Distinta non coperta: mancano i materiali. Registrare non aprirebbe il cantiere.'
       : 'Nessuna dichiarazione d’opera risolta dal motore: l’atto resterebbe prosa.';
   const work: WorkDeclarationInput | null = hasWork && declaration && declaration.materialActorId
-    ? { workId: declaration.workId, payerActorId: declaration.payerActorId, materialActorId: declaration.materialActorId, funded: declaration.funded }
+    ? {
+        workId: declaration.workId,
+        payerActorId: declaration.payerActorId,
+        materialActorId: declaration.materialActorId,
+        funded: declaration.funded,
+        // WS-GOV-COUNCIL-HARDENING — la localizzazione canonica verificata
+        // viaggia con l'atto fino all'ordine e al cantiere. Assente se la
+        // riunione non ha risolto una regione (nessun ID inventato).
+        ...(meeting.execution.regionId ? { regionId: meeting.execution.regionId } : {}),
+      }
     : null;
 
   return {

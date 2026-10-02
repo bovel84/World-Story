@@ -104,7 +104,7 @@ describe('l’atto della riunione conserva la dichiarazione d’opera (B15/B16)'
     const next = applyEngineRead(meeting, fabbricaRead());
     const draft = meetingActDraft(next);
     expect(draft.capability).toBe('engine-order');
-    expect(draft.work).toEqual({ workId: 'work-fabbrica', payerActorId: 'POL', materialActorId: 'POL', funded: true });
+    expect(draft.work).toEqual({ workId: 'work-fabbrica', payerActorId: 'POL', materialActorId: 'POL', funded: true, regionId: 'sarajevo' });
     expect(draft.text).toContain('Fabbrica siderurgica');
   });
 

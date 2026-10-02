@@ -22,6 +22,13 @@ export interface WorkDeclarationInput {
   payerActorId: string;
   materialActorId: string;
   funded: boolean;
+  /**
+   * WS-GOV-COUNCIL-HARDENING — la regione canonica dell'opera, quando la
+   * dichiarazione nasce da una riunione con localizzazione verificata. Il
+   * motore la usa per collocare il cantiere; se manca, resta il comportamento
+   * precedente.
+   */
+  regionId?: string;
 }
 
 /**
