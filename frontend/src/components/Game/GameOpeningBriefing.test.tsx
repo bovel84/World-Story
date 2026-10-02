@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { RegionStatus, type Region } from '../../types';
 import { OpeningPanelContent } from './GameOpeningBriefing';
 import type { GameOpeningBriefing as OpeningData } from './openingBriefing';
 
@@ -20,9 +21,15 @@ const opening: OpeningData = {
   ],
 };
 
-const render = (page: number) => renderToStaticMarkup(
-  <OpeningPanelContent briefing={opening} onFinish={() => {}} onSkip={() => {}} initialPage={page} />,
+const render = (page: number, extra: Record<string, unknown> = {}) => renderToStaticMarkup(
+  <OpeningPanelContent briefing={opening} onFinish={() => {}} onSkip={() => {}} initialPage={page} {...extra} />,
 );
+
+const GEOJSON = JSON.stringify({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] } });
+const mapRegions: Region[] = [{
+  id: 'R1', name: 'Alfa', color: '#ff0000', owner: 'ALPHA', population: 1, gdp: 1, militaryPower: 1,
+  objects: [], borders: [], status: RegionStatus.ACTIVE, geojson: GEOJSON,
+}];
 
 describe('WS-GAME-OPENING — GameOpeningBriefing', () => {
   it('rende le cinque pagine discrete, senza step-wizard', () => {
@@ -56,5 +63,21 @@ describe('WS-GAME-OPENING — GameOpeningBriefing', () => {
     expect(html).toContain('«Ditemi dove e io vi dico cosa serve per partire.»');
     expect(html).not.toContain('««');
     expect(html).not.toContain('»»');
+  });
+
+  it('la pagina Paese monta la mini-mappa della geografia del motore (§11–§12), senza interazione', () => {
+    const html = render(1, { mapRegions, highlightRegionIds: ['R1'] });
+    expect(html).toContain('opening-map');
+    expect(html).toContain('IL TUO PAESE SULLA MAPPA');
+    expect(html).toContain('<svg');
+    expect(html).toContain('<path');
+    // Sola presentazione: nessuna affordance di click sulla mappa.
+    expect(html).not.toContain('role="button"');
+  });
+
+  it('senza geometria disegnabile la mappa dichiara l’assenza, non la inventa', () => {
+    const noGeo = [{ ...mapRegions[0], geojson: undefined }];
+    const html = render(1, { mapRegions: noGeo });
+    expect(html).toContain('non è disegnabile');
   });
 });

@@ -15,6 +15,8 @@
  */
 import { useCallback, useMemo, useEffect, useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
+import { buildStaticMap } from '../Map/staticMapModel';
+import type { Region } from '../../types';
 import type { GameOpeningBriefing } from './openingBriefing';
 
 export type OpeningDoor = 'orders' | 'map' | 'advisor';
@@ -27,6 +29,10 @@ export interface GameOpeningBriefingProps {
   onSkip: () => void;
   /** Pagina iniziale (default 0). Serve anche ai test statici delle 5 pagine. */
   initialPage?: number;
+  /** Geografia già letta dal motore: la mini-mappa della pagina Paese (§11–§12). */
+  mapRegions?: readonly Region[];
+  /** Regioni del paese del giocatore da evidenziare (mai una mutazione). */
+  highlightRegionIds?: readonly string[];
 }
 
 export const OPENING_PAGES = ['IL MONDO', 'IL PAESE', 'IL QUADRO', 'IL CONSIGLIO', 'ORA TOCCA A TE'] as const;
@@ -38,10 +44,49 @@ function SymbolGlyph({ symbol }: { symbol: string }) {
 }
 
 /**
+ * La mini-mappa della pagina Paese: sola **presentazione** della geografia già
+ * letta dal motore (`buildStaticMap`, read model puro). Nessun `onRegionClick`,
+ * nessuna mutazione: evidenzia il paese del giocatore e lascia il resto in
+ * secondo piano. Se il mondo non ha geometria disegnabile, lo dichiara.
+ */
+function OpeningMap({ regions, highlightRegionIds }: {
+  regions: readonly Region[];
+  highlightRegionIds: readonly string[];
+}) {
+  const model = useMemo(() => buildStaticMap(regions), [regions]);
+  const highlighted = useMemo(() => new Set(highlightRegionIds), [highlightRegionIds]);
+  if (model.paths.length === 0) {
+    return <p className="opening-prose opening-empty">La geografia di questo mondo non è disegnabile: la mappa resta nel dossier.</p>;
+  }
+  return (
+    <div className="opening-map" role="group" aria-label="Il tuo paese sulla mappa">
+      <p className="opening-sub">IL TUO PAESE SULLA MAPPA</p>
+      <svg viewBox={`0 0 ${model.width} ${model.height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Mappa politica di ${model.paths.length} province`}>
+        {model.paths.map(entry => {
+          const on = highlighted.has(entry.id);
+          return (
+            <path
+              key={entry.id}
+              d={entry.path}
+              fill={entry.color}
+              fillOpacity={on ? 1 : 0.45}
+              stroke={on ? '#cda65b' : '#0a0a0f'}
+              strokeWidth={on ? 2 : 0.4}
+            >
+              <title>{`${entry.name} — ${entry.owner}`}</title>
+            </path>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/**
  * Il contenuto del dossier, senza semantica di dialogo: lo monta l'overlay
  * accessibile e lo monta il test statico. Stato locale alla pagina corrente.
  */
-export function OpeningPanelContent({ briefing, onFinish, onSkip, initialPage = 0 }: GameOpeningBriefingProps) {
+export function OpeningPanelContent({ briefing, onFinish, onSkip, initialPage = 0, mapRegions, highlightRegionIds }: GameOpeningBriefingProps) {
   const [page, setPage] = useState(() => Math.max(0, Math.min(OPENING_PAGES.length - 1, initialPage)));
 
   const last = OPENING_PAGES.length - 1;
@@ -88,6 +133,10 @@ export function OpeningPanelContent({ briefing, onFinish, onSkip, initialPage = 
             <p className="opening-kicker">TU GOVERNI QUESTO PAESE</p>
             <p className="opening-nation-name">{briefing.nation.name || 'Il tuo paese'}</p>
             <p className="opening-prose">{briefing.nation.identity}</p>
+
+            {mapRegions && mapRegions.length > 0 && (
+              <OpeningMap regions={mapRegions} highlightRegionIds={highlightRegionIds ?? []} />
+            )}
 
             {briefing.nation.neighbors.length > 0 && (
               <div className="opening-neighbors" aria-label="Il mondo intorno a te">
