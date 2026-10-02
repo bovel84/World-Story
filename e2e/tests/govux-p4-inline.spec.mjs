@@ -40,10 +40,10 @@ test('P4: la card in linea mette a fuoco l’evidenza; il badge si spegne quando
   await page.locator('.rail-btn[aria-label="Governo"]').click();
   const ufficio = page.locator('.government-office');
   await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-  const chat = page.locator('.government-office-pane-chat');
-  const tavola = page.locator('.government-office-pane-table');
-  const tavolaTab = page.locator('.minister-session-view', { hasText: 'Tavola' });
-  const dialogoTab = page.locator('.minister-session-view', { hasText: 'Dialogo' });
+  const chat = page.locator('.gov-mobile-chat');
+  const tavola = page.locator('.gov-mobile-evidence');
+  const tavolaTab = page.locator('.gov-mobile-tab', { hasText: 'Tavola' });
+  const dialogoTab = page.locator('.gov-mobile-tab', { hasText: 'Dialogo' });
 
   // [1] «Mi mostri dove va la spesa?» → la card compare SOTTO il messaggio, con
   //     lo stesso `id` e lo stesso titolo del blocco sulla tavola.
@@ -58,7 +58,7 @@ test('P4: la card in linea mette a fuoco l’evidenza; il badge si spegne quando
   await expect(chat).not.toContainText('"op"');
 
   // [2] Il pallino «novità» è acceso mentre si legge il dialogo.
-  await expect(tavolaTab.locator('.minister-session-view-dot')).toBeVisible();
+  await expect(tavolaTab.locator('.gov-mobile-dot')).toBeVisible();
 
   // [3] Lasciamo una bozza nel compositore: non deve perdersi al cambio tab.
   await chat.locator('textarea').fill('bozza non inviata');
@@ -73,12 +73,14 @@ test('P4: la card in linea mette a fuoco l’evidenza; il badge si spegne quando
   // L'evidenza reale è il grafico del bilancio: la card non ne ha disegnato uno.
   await expect(block.locator('.advisor-chart')).toBeVisible();
   // Il pallino è spento: l'evidenza è stata vista.
-  await expect(tavolaTab.locator('.minister-session-view-dot')).toHaveCount(0);
+  await expect(tavolaTab.locator('.gov-mobile-dot')).toHaveCount(0);
 
   // [5] Tornando al dialogo il pallino NON si riaccende, e la bozza è conservata.
+  //     Dalla vista evidenza si torna alla Tavola (←), poi al Dialogo.
+  await page.locator('.gov-mobile-nav').click();
   await dialogoTab.click();
   await expect(chat).toBeVisible();
-  await expect(tavolaTab.locator('.minister-session-view-dot')).toHaveCount(0);
+  await expect(tavolaTab.locator('.gov-mobile-dot')).toHaveCount(0);
   await expect(chat.locator('textarea')).toHaveValue('bozza non inviata');
 
   await page.screenshot({ path: SHOT, fullPage: true });
@@ -88,7 +90,7 @@ test('P4: la card in linea mette a fuoco l’evidenza; il badge si spegne quando
   await chat.locator('textarea').fill('Quali province coinvolge?');
   await chat.locator('.minister-compose button').click();
   await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)').last()).toContainText('ha preso nota del problema', { timeout: 15_000 });
-  await expect(tavolaTab.locator('.minister-session-view-dot')).toBeVisible();
+  await expect(tavolaTab.locator('.gov-mobile-dot')).toBeVisible();
 
   await page.setViewportSize({ width: 1366, height: 768 });
   await page.screenshot({ path: SHOT_DESKTOP, fullPage: true });

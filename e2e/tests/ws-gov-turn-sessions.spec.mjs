@@ -104,6 +104,6 @@ test('WS-GOV-TURN-SESSIONS: il turno nuovo riparte da zero, il passato è memori
   expect(textB).not.toBe(textA);
   // Reperto: la Tavola del nuovo turno con gli Approfondimenti chiusi (A7).
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('.minister-session-view', { hasText: 'Tavola' }).click();
+  await page.locator('.gov-mobile-tab', { hasText: 'Tavola' }).click();
   await page.locator('.government-office').screenshot({ path: '../docs/implementation/assets/ws-gov-turn-sessions/390x844-atto-b.png' });
 });

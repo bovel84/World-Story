@@ -95,10 +95,10 @@ test('WS-GOV-COUNCIL-MEETINGS: la fabbrica è una riunione Lavori+Tesoro, l’at
   await expect(draft.locator('.act-draft-state')).toHaveText('accodato', { timeout: 10_000 });
   await expect.poll(() => queuedPayload?.work?.regionId ?? null).toBe('SARAJEVO');
 
-  // Reperto: la riunione della fabbrica (mobile).
+  // Reperto: la riunione della fabbrica (mobile: vista a stati, non due colonne).
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('.minister-session-view', { hasText: 'Tavola' }).click();
-  await expect(meeting).toBeVisible();
+  await page.locator('.gov-mobile-tab', { hasText: 'Tavola' }).click();
+  await expect(page.locator('.gov-mobile-board-title')).toBeVisible();
   await page.locator('.government-office').screenshot({ path: '../docs/implementation/assets/ws-gov-council-meetings/390x844-riunione-fabbrica.png' });
 });
 

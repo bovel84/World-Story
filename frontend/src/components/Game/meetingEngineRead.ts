@@ -98,6 +98,8 @@ export function meetingReadFromFeasibility(
   meeting: { readonly subject: string },
   feasibility: MeetingFeasibilityInput,
   regions: readonly CanonicalRegionRef[],
+  /** WS-GOV-MOBILE-FOCUS (A5) — la regione attuale, se risolvibile. */
+  currentRegion: CanonicalRegionRef | null = null,
 ): MeetingEngineRead {
   const moneyInput = feasibility.costs.inputs.find(input => input.resourceId === 'money') ?? null;
   const declaration = feasibility.workDeclaration ?? null;
@@ -120,11 +122,12 @@ export function meetingReadFromFeasibility(
   const coverage = declaration
     ? (declaration.funded && declaration.materialActorId ? 'covered' : 'short')
     : (feasibility.feasible ? 'covered' : 'short');
-  const location = resolveMeetingLocation(meeting.subject, regions);
+  const location = resolveMeetingLocation(meeting.subject, regions, currentRegion);
   const resolvedRegion = location.status === 'resolved' ? location.region : null;
 
   return {
     workLabel: meeting.subject,
+    subject: meeting.subject,
     regionLabel: resolvedRegion?.regionLabel ?? null,
     durationDays: Number.isFinite(feasibility.costs.timeDays) ? (feasibility.costs.timeDays as number) : null,
     materials,

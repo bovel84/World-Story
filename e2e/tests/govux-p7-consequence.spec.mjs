@@ -43,16 +43,20 @@ test('P7: la plancia mostra le conseguenze prima della firma, senza accodare', a
   const ufficio = page.locator('.government-office');
   await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
 
-  const tavola = page.locator('.government-office-pane-table');
-  const atto = tavola.locator('.treasury-act');
+  const tavola = page.locator('.gov-mobile');
+  const atto = page.locator('.gov-mobile-board .treasury-act, .gov-mobile-more .treasury-act');
   // A 390×844 si apre sul Dialogo: la Tavola è la seconda vista.
-  await page.locator('.minister-session-view', { hasText: 'Tavola' }).click();
-  await expect(atto).toBeVisible();
+  await page.locator('.gov-mobile-tab', { hasText: 'Tavola' }).click();
+  // Il pannello d'atto del Tesoro vive negli Approfondimenti (chiusi): si apre.
+  const more = page.locator('.gov-mobile-more-summary');
+  if (await more.count()) await more.click();
+  await expect(atto.first()).toBeVisible();
 
   // [1] Preparare la strada in prosa (ammortamento) apre la bozza e la plancia,
   //     senza accodare nulla.
-  await atto.locator('.treasury-act-road[data-road="repay"] .treasury-act-prepare').click();
-  const bozza = tavola.locator('.act-draft');
+  await atto.first().locator('.treasury-act-road[data-road="repay"] .treasury-act-prepare').click();
+  // Preparare la strada apre la vista Atto (H19): la bozza e la plancia vivono lì.
+  const bozza = page.locator('.gov-mobile .act-draft');
   await expect(bozza).toBeVisible();
 
   const plancia = bozza.locator('.consequence-board');
@@ -85,6 +89,7 @@ test('P7: la plancia mostra le conseguenze prima della firma, senza accodare', a
 
   // [3] Modificare la bozza invalida la stima: niente costi del motore sotto
   //     un testo diverso, e il ricalcolo è esplicito.
+  await bozza.locator('.act-draft-edit-toggle', { hasText: 'Modifica' }).click();
   await bozza.locator('.act-draft-text').fill('Rimborso titoli: testo corretto dal Presidente');
   await expect(plancia).toContainText('La bozza è cambiata');
   await expect(plancia.locator('.consequence-refresh')).toBeVisible();
@@ -97,6 +102,9 @@ test('P7: la plancia mostra le conseguenze prima della firma, senza accodare', a
 
   // [5] Ancora nessun accodamento, e il registro è vuoto sulla schermata reale.
   expect(queueCalls).toHaveLength(0);
-  await page.locator('.government-office-back').click();
+  // Atto → Tavola → Dialogo → Ministri (← = dentro la sessione).
+  await page.locator('.gov-mobile-nav').click();
+  await page.locator('.gov-mobile-nav').click();
+  await page.locator('.gov-mobile-nav').click();
   await expect(ufficio.locator('.order-register-act')).toHaveCount(0);
 });

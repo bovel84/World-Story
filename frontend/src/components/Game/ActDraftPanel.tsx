@@ -27,6 +27,12 @@ export interface ActDraftPanelProps {
   editable?: boolean;
   signatureNotice?: string;
   /**
+   * WS-GOV-MOBILE-FOCUS (H20) — Vista mobile: il testo dell'atto si legge, e
+   * `[Modifica]` apre l'editor. Mai una textarea sempre aperta. Il desktop resta
+   * invariato (textarea visibile).
+   */
+  mobile?: boolean;
+  /**
    * WS-GOVUX-P7 — La plancia delle conseguenze, calcolata PRIMA della firma:
    * effetti diretti, previsioni, rischi e incertezze, distinti ed etichettati.
    */
@@ -45,9 +51,11 @@ export interface ActDraftPanelProps {
   onCancel?: () => void;
 }
 
-export function ActDraftPanel({ draft, status, busy = false, editable = true, signatureNotice, board = null, boardLoading = false, boardError = null, onRefreshBoard, onEdit, onSign, onCancel }: ActDraftPanelProps) {
+export function ActDraftPanel({ draft, status, busy = false, editable = true, signatureNotice, mobile = false, board = null, boardLoading = false, boardError = null, onRefreshBoard, onEdit, onSign, onCancel }: ActDraftPanelProps) {
   const [signing, setSigning] = useState(false);
+  const [editing, setEditing] = useState(!mobile);
   const locked = busy || signing;
+  const queued = status.state === 'queued';
 
   const sign = async (): Promise<void> => {
     if (locked || status.state === 'queued' || !onSign) return;
@@ -74,14 +82,27 @@ export function ActDraftPanel({ draft, status, busy = false, editable = true, si
       <p className="act-draft-note">{draft.note}</p>
 
       <label className="act-draft-label" htmlFor={textId}>Testo dell’atto (modificabile dal Presidente)</label>
-      <textarea
-        id={textId}
-        className="act-draft-text"
-        value={draft.text}
-        rows={6}
-        onChange={event => onEdit?.(event.target.value)}
-        disabled={locked || !editable || status.state === 'queued'}
-      />
+      {mobile && !editing ? (
+        <p className="act-draft-text-view" data-testid="act-draft-text-view">{draft.text}</p>
+      ) : (
+        <textarea
+          id={textId}
+          className="act-draft-text"
+          value={draft.text}
+          rows={mobile ? 8 : 6}
+          onChange={event => onEdit?.(event.target.value)}
+          disabled={locked || !editable || queued}
+        />
+      )}
+      {mobile && (
+        <div className="act-draft-edit">
+          {editing ? (
+            <button type="button" className="act-draft-edit-toggle" onClick={() => setEditing(false)} disabled={locked || !editable || queued}>Salva modifica</button>
+          ) : (
+            <button type="button" className="act-draft-edit-toggle" onClick={() => setEditing(true)} disabled={locked || !editable || queued}>Modifica</button>
+          )}
+        </div>
+      )}
       {signatureNotice && <p className="act-draft-status-note" role="status">{signatureNotice}</p>}
 
       <div className="act-draft-status" role="status" aria-live="polite">
@@ -99,10 +120,10 @@ export function ActDraftPanel({ draft, status, busy = false, editable = true, si
           type="button"
           className="act-draft-sign"
           onClick={() => void sign()}
-          disabled={locked || status.state === 'queued'}
+          disabled={locked || queued}
           title="Firma l’atto e inseriscilo nel registro: da lì lo esegue il motore all’avanzamento del tempo"
         >
-          {status.state === 'queued' ? 'Già nel registro' : 'Firma e inserisci nel registro'}
+          {queued ? 'Già nel registro' : mobile ? 'Firma l’atto' : 'Firma e inserisci nel registro'}
         </button>
         {onCancel && (
           <button type="button" className="act-draft-cancel" onClick={onCancel} disabled={locked}>
