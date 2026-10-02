@@ -48,6 +48,7 @@ import {
   saveMemory, seatRecords, withSeatRecords, clientMandate, type MinisterMemoryRecord, type MinisterMemoryStore,
 } from './ministerMemory';
 import { seatRoads } from './seatProposals';
+import { deriveCouncilAgenda } from './councilAgenda';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { useChatStore, useGameStore } from '../../stores';
@@ -338,6 +339,15 @@ export function GovernmentOffice({
     ) as Record<string, ActState>;
   }, [address?.seat, proposals, pendingActions, turnHistory]);
 
+  // WS-GOVUX-P1 — L'agenda viva del Consiglio: frase, argomento, questioni e
+  // stato di ogni ministro, dai suoi indirizzi, dal filo del colloquio e dalla
+  // memoria. La sintesi è contata sugli **stessi** record della lista. È un
+  // selettore puro: nessuna urgenza inventata, nessuna chiamata al modello.
+  const agenda = useMemo(
+    () => deriveCouncilAgenda({ session, threads: ministerChats, memory: memoryStore }),
+    [session, ministerChats, memoryStore],
+  );
+
   const draftStatus = actDraft ? actStatus(actDraft, pendingActions, turnHistory) : null;
 
   const prepareRoad = useCallback((road: TreasuryRoad): void => {
@@ -451,6 +461,7 @@ export function GovernmentOffice({
           <CabinetSession
             variant="pick"
             session={session}
+            agenda={agenda}
             loading={sessionLoading}
             error={sessionError}
             onOpenSeat={next => { setLastOutcome(null); setOpenSeat(next.seat); }}

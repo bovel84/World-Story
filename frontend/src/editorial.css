@@ -906,6 +906,77 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   color: var(--op-muted);
 }
 
+/* WS-GOVUX-P1 — L'agenda viva del Consiglio: sintesi, stato, frase, argomento,
+   questioni e ripresa del colloquio. Nessun !important (disciplina moduli). */
+.council-agenda-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--op-rule);
+  font-family: var(--op-utility);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--op-muted);
+}
+.council-agenda-total { color: var(--op-ink); }
+.council-agenda-count::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--op-muted);
+}
+.council-agenda-count[data-state='richiede-attenzione']::before { background: var(--op-red); }
+.council-agenda-count[data-state='in-attesa-di-decisione']::before { background: var(--op-gold); }
+.council-agenda-count[data-state='discussione-aperta']::before { background: var(--op-ink); }
+.council-pick-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.council-state {
+  font-family: var(--op-utility);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--op-muted);
+  border-left: 2px solid var(--op-muted);
+  padding-left: 6px;
+  white-space: nowrap;
+}
+.council-state-richiede-attenzione { color: var(--op-red); border-left-color: var(--op-red); }
+.council-state-in-attesa-di-decisione { color: var(--op-red-dark); border-left-color: var(--op-gold); }
+.council-state-discussione-aperta { color: var(--op-ink); border-left-color: var(--op-ink); }
+.council-brief {
+  font-family: var(--op-copy);
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--op-ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.council-topic { font-family: var(--op-copy); font-size: 13px; color: var(--op-ink); }
+.council-pick-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 2px;
+  font-family: var(--op-utility);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--op-muted);
+}
+.council-resume { color: var(--op-red-dark); }
+
 .cabinet-seat {
   border: 1px solid var(--op-rule);
   background: var(--op-sheet);

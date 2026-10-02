@@ -32,6 +32,7 @@ import React from 'react';
 import type { CabinetAddressView, CabinetFigureView, CabinetPathView, CabinetSessionView } from '../../services/api';
 import { formatFigureValue } from '../../utils/format';
 import { EngineText } from './EngineText';
+import { COUNCIL_STATE_LABEL, type CouncilAgenda } from './councilAgenda';
 
 /** L'etichetta breve di una sedia, per il titolo. */
 export const SEAT_SHORT: Record<CabinetAddressView['seat'], string> = {
@@ -94,6 +95,13 @@ export interface CabinetSessionProps {
    */
   onChoose?: (item: CabinetAddressView['items'][number], path: CabinetPathView) => void;
   /**
+   * WS-GOVUX-P1 — L'agenda viva del Consiglio, dal selettore puro
+   * `deriveCouncilAgenda`. Quando è presente, la schermata di scelta mostra
+   * frase, argomento, questioni e **stato** di ogni ministro, e la sintesi
+   * contata sugli stessi record. Senza, resta la scelta storica (retro-compatibile).
+   */
+  agenda?: CouncilAgenda | null;
+  /**
    * P02-bis — Il dialogo con il ministro, montato sotto la sua sedia. Passato
    * come `children` perché è il chiamante a sapere quale sedia sta parlando.
    */
@@ -103,7 +111,7 @@ export interface CabinetSessionProps {
 export function CabinetSession({
   session, loading = false, error = null,
   variant = 'full', onOpenSeat, onlySeat = null,
-  onChoose, onSpeak, speakingSeat = null, children,
+  onChoose, onSpeak, speakingSeat = null, children, agenda = null,
 }: CabinetSessionProps) {
   if (loading) {
     return <p className="cabinet-status" role="status">Il consiglio si sta riunendo…</p>;
@@ -117,29 +125,94 @@ export function CabinetSession({
 
   const { addresses, president, summary } = session;
 
-  // ── Schermata di scelta: solo i riquadri dei ministri ────────────────────
+  // ── Schermata di scelta: l'agenda viva del Consiglio ─────────────────────
+  // WS-GOVUX-P1 — Con `agenda` (selettore puro) ogni riquadro porta frase,
+  // argomento, questioni e stato, e la sintesi è contata sugli stessi record.
+  // Senza `agenda` resta la scelta storica, per retro-compatibilità.
   if (variant === 'pick') {
+    const entries = agenda?.entries ?? null;
+    const counts = agenda?.summary ?? null;
+    const hasEntries = entries ? entries.length > 0 : addresses.length > 0;
     return (
       <div className="cabinet cabinet-pick-scene" aria-label="I ministri del consiglio">
-        {addresses.length === 0 ? (
+        {counts && entries && entries.length > 0 && (
+          <p className="council-agenda-summary" role="status" aria-label="Stato del consiglio">
+            <span className="council-agenda-total">
+              {counts.total === 1 ? '1 ministro' : `${counts.total} ministri`}
+            </span>
+            {([
+              ['richiede-attenzione', counts.attention],
+              ['in-attesa-di-decisione', counts.inDecision],
+              ['discussione-aperta', counts.discussing],
+              ['disponibile', counts.available],
+            ] as const).map(([state, count]) => count > 0 && (
+              <span key={state} className="council-agenda-count" data-state={state}>
+                {count} {COUNCIL_STATE_LABEL[state]}
+              </span>
+            ))}
+            {counts.questions > 0 && (
+              <span className="council-agenda-questions">
+                {counts.questions === 1 ? '1 questione sul tavolo' : `${counts.questions} questioni sul tavolo`}
+              </span>
+            )}
+          </p>
+        )}
+        {!hasEntries ? (
           <p className="cabinet-empty" role="status">
             Nessun ministro ha dati da portare al consiglio.
           </p>
         ) : (
           <div className="cabinet-picks">
-            {addresses.map(address => (
-              <button
-                key={address.seat}
-                type="button"
-                className="cabinet-pick"
-                data-seat={address.seat}
-                onClick={() => onOpenSeat?.(address)}
-                title={`Apri la seduta con il ${address.label}`}
-              >
-                <span className="cabinet-pick-name">{address.label}</span>
-                <span className="cabinet-pick-reads">{address.reads}</span>
-              </button>
-            ))}
+            {entries
+              ? entries.map(entry => {
+                  const address = addresses.find(candidate => candidate.seat === entry.seat) ?? null;
+                  return (
+                    <button
+                      key={entry.seat}
+                      type="button"
+                      className="cabinet-pick cabinet-pick-alive"
+                      data-seat={entry.seat}
+                      data-state={entry.state}
+                      onClick={() => { if (address) onOpenSeat?.(address); }}
+                      title={`Apri la seduta con il ${entry.label}`}
+                    >
+                      <span className="cabinet-pick-head">
+                        <span className="cabinet-pick-name">{entry.label}</span>
+                        <span className={`council-state council-state-${entry.state}`}>
+                          {COUNCIL_STATE_LABEL[entry.state]}
+                        </span>
+                      </span>
+                      <span className="cabinet-pick-reads">{entry.role}</span>
+                      {entry.brief && <span className="council-brief"><EngineText text={entry.brief} /></span>}
+                      {entry.topic && <span className="council-topic">Sul tavolo: <EngineText text={entry.topic} /></span>}
+                      <span className="council-pick-meta">
+                        {entry.questions.length > 0 && (
+                          <span className="council-questions">
+                            {entry.questions.length === 1 ? '1 questione' : `${entry.questions.length} questioni`}
+                          </span>
+                        )}
+                        {entry.messageCount > 0 && (
+                          <span className="council-resume">
+                            Riprendi il colloquio · {entry.messageCount === 1 ? '1 scambio' : `${entry.messageCount} scambi`}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })
+              : addresses.map(address => (
+                  <button
+                    key={address.seat}
+                    type="button"
+                    className="cabinet-pick"
+                    data-seat={address.seat}
+                    onClick={() => onOpenSeat?.(address)}
+                    title={`Apri la seduta con il ${address.label}`}
+                  >
+                    <span className="cabinet-pick-name">{address.label}</span>
+                    <span className="cabinet-pick-reads">{address.reads}</span>
+                  </button>
+                ))}
           </div>
         )}
       </div>
