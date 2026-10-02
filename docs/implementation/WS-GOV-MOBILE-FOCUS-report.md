@@ -59,7 +59,7 @@
 - `backend-nest/src/routes/games/advisor.routes.ts`, `.../schemas.ts`, `docs/implementation/q02-endpoint-inventory.json`
 - `frontend/src/components/Game/{GovernmentOffice,councilMeeting,meetingEngineRead,meetingLocalization,ActDraftPanel}.tsx/ts`
 - `frontend/src/services/api.ts`, `frontend/src/editorial.css`
-- `e2e/tests/{govux-p4-inline,govux-p7-consequence,ws-gov-council-meetings}.spec.mjs` (adattati ai nuovi selettori mobile)
+- `e2e/tests/{govux-p4-inline,govux-p7-consequence,ws-gov-council-meetings,govux-p1-council,ws-gov-dialogue-to-act,ws-gov-seat-boards,ws-gov-turn-sessions}.spec.mjs` (adattati ai nuovi selettori mobile)
 
 ---
 
@@ -73,6 +73,8 @@
 | Backend `vitest run` | **221 file / 2351 test passati** (inventario rotte rigenerato con `-u`) |
 | E2E nuovo `ws-gov-mobile-focus.spec.mjs` | **7/7** (360×844, 390×844, 412×844, 844×390) |
 | E2E regressione `govux-p4/p7`, `ws-gov-council-meetings`, `modules`, `hud-mobile`, `smoke` | **26/26** |
+| **CI `test-build` (required)** | **pass** |
+| **CI `e2e-mock` (informative)** | **pass** — E2E mock **177/177**, a11y **4/4**, perf entro baseline |
 
 Gate E2E coperti: nessun overflow orizzontale (`scrollWidth ≤ clientWidth+1`) a 360/390/412 e in landscape 844×390; un solo scroll owner; una sola CTA primaria; header ≤ 64px; blocco «Dove deve sorgere l'opera?» sopra la piega; foglio «+ Ministro» che si chiude con Escape.
 
@@ -149,6 +151,9 @@ già provata).
 ---
 
 ## 7. Limitazioni residue reali
+
+> **Stato PR:** aperta — https://github.com/bovel84/World-Story/pull/171
+> (`test-build` e `e2e-mock` verdi). Non è stata mergiata: `main` è protetto.
 
 1. **Revisione visiva umana**: prodotta e referenziata, ma il modello di questa
    sessione non elabora immagini; la review A–H è documentata con misure DOM,
