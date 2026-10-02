@@ -85,7 +85,7 @@ test.describe('BUG 2 — il menu ⚙ è visibile e cliccabile su mobile', () => 
   const MENU_WIDTHS = [360, 393, 412];
 
   for (const width of MENU_WIDTHS) {
-    test(`a ${width}px l'ingranaggio apre il menu con le 4 voci cliccabili`, async ({ page }) => {
+    test(`a ${width}px l'ingranaggio apre il menu con le 5 voci cliccabili`, async ({ page }) => {
       await page.setViewportSize({ width, height: 740 });
       await enterGame(page);
 
@@ -97,7 +97,7 @@ test.describe('BUG 2 — il menu ⚙ è visibile e cliccabile su mobile', () => 
       await expect(gear).toHaveAttribute('aria-expanded', 'true');
       const dropdown = page.locator('.game-menu-dropdown');
       await expect(dropdown).toBeVisible();
-      await expect(page.locator('.game-menu-item')).toHaveCount(4);
+      await expect(page.locator('.game-menu-item')).toHaveCount(5);
 
       // Il popover non è ritagliato da `.hud-bar`: ogni voce supera l'hit-test.
       const allClickable = await page.evaluate(() => {

@@ -9,6 +9,7 @@ import { gameRepository } from '../../repositories';
 import { countryRepository } from '../../repositories/country.repository';
 import { getSessionRegistry } from '../../session-registry';
 import { readGovernmentAgenda, readCabinetSession } from '../../game/GovernmentReadings';
+import { buildOpeningNarrative } from '../../core/government/OpeningNarrative';
 import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult } from '../../game-session';
 import { IdempotencyConflictError, simulationJobService } from '../../jobs/SimulationJobService';
 import { addDays, jumpHorizon } from '../../core/simulation/calendar';
@@ -244,6 +245,37 @@ router.get('/:id/government/cabinet', (req, res) => {
     res.json(cabinet);
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to read cabinet session');
+  }
+});
+
+/**
+ * WS-GAME-OPENING — La narrativa dell'apertura: sola lettura, deterministica.
+ *
+ * Prologo dal preset (`world.basePrompt`) + le voci delle sedie che il motore
+ * dichiara occupate (`readCabinetSession`). Nessuna scrittura JEV/memoria,
+ * nessuna azione, nessun evento, nessun cambio al motore. Il fallback
+ * deterministico è il percorso stesso: `generated: false`.
+ */
+router.get('/:id/opening-narrative', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const fence = session.fenceContext();
+    const cabinet = readCabinetSession({
+      gameId: req.params.id,
+      branchId: fence.branchId,
+      playerPolityId: session.getPlayer()?.polityId ?? '',
+      government: session.getGovernment(),
+      account: session.getNationalAccounts()[session.getPlayerPolityId()],
+    });
+    const game = gameRepository.findById(req.params.id) as any;
+    res.json(buildOpeningNarrative({
+      worldName: game?.world?.name,
+      date: game?.current_date,
+      premise: game?.world?.base_prompt ?? game?.world?.basePrompt,
+      addresses: cabinet.addresses,
+    }));
+  } catch (e: any) {
+    respondRouteError(res, e, 'Failed to read opening narrative');
   }
 });
 

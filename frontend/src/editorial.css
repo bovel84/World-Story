@@ -2503,7 +2503,12 @@ button:disabled { cursor: not-allowed; opacity: .5; }
     border-radius: 0;
     padding: 0;
     padding-bottom: env(safe-area-inset-bottom);
-    overflow: hidden;
+    /* B27/WS-GAME-OPENING — UN SOLO scroll owner per volta. La schermata di
+       scelta (registro + ministri) non ha `.gov-mobile`: è il modale a scorrere
+       fino in fondo. La seduta ha già `.gov-mobile-scroll` e `.gov-mobile` è
+       `height:100%`, quindi qui non c'è nulla da scorrere: nessun doppio scroll. */
+    overflow-y: auto;
+    overflow-x: hidden;
   }
   .government-office .desk-close-x { display: none; }
 
@@ -2882,4 +2887,137 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   /* B27 — i ministri su mobile: lista compatta, non schede piene di cifre. */
   .government-office .cabinet-picks { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .government-office .cabinet-pick { padding: 12px; }
+}
+
+/* =========================================================================
+   WS-GAME-OPENING — Il dossier di insediamento
+   =========================================================================
+   Cinque pagine discrete sopra la mappa: sala situazione, non wizard. Il velo
+   lascia intravedere la mappa già montata; il pannello è il dossier. Tutto
+   scoped sotto `.opening-*`. */
+
+.opening-overlay {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; justify-content: center; align-items: center;
+  padding: clamp(16px, 4vh, 48px) clamp(16px, 4vw, 64px);
+  background: rgba(16, 24, 23, .74);
+  backdrop-filter: blur(3px);
+}
+
+.opening-panel {
+  width: min(760px, 100%); max-height: min(88vh, 900px);
+  display: flex; flex-direction: column;
+  background: var(--op-paper); color: var(--op-ink);
+  border: 1px solid var(--op-rule); border-top: 5px solid var(--op-red);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, .55);
+  outline: none;
+}
+.opening-panel:focus-visible { outline: 3px solid var(--op-gold); outline-offset: 2px; }
+
+.opening-head {
+  padding: 22px clamp(20px, 4vw, 40px) 12px;
+  border-bottom: 1px solid var(--op-rule);
+}
+.opening-date {
+  margin: 0 0 6px; font-family: var(--op-utility); font-size: 11px;
+  letter-spacing: .18em; text-transform: uppercase; color: var(--op-red-dark);
+}
+.opening-section {
+  margin: 0; font-family: var(--op-display); font-weight: 700;
+  font-size: clamp(26px, 4vw, 40px); line-height: 1.02; letter-spacing: -.02em;
+}
+
+.opening-body { padding: clamp(20px, 4vw, 36px) clamp(20px, 4vw, 40px); overflow-y: auto; flex: 1 1 auto; }
+.opening-page { display: flex; flex-direction: column; gap: 18px; }
+.opening-kicker {
+  margin: 0; font-family: var(--op-utility); font-size: 11px;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--op-muted);
+}
+.opening-world-name, .opening-nation-name {
+  margin: 0; font-family: var(--op-display); font-weight: 700;
+  font-size: clamp(22px, 3.4vw, 32px); line-height: 1.05;
+}
+.opening-prose { margin: 0; font-family: var(--op-copy); font-size: clamp(15px, 1.6vw, 17px); line-height: 1.65; }
+.opening-empty { color: var(--op-muted); font-style: italic; }
+
+.opening-sub {
+  margin: 0 0 8px; font-family: var(--op-utility); font-size: 10px;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--op-muted);
+}
+.opening-neighbors ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.opening-neighbor { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px dotted var(--op-rule); }
+.opening-neighbor-name { font-family: var(--op-copy); font-size: 15px; }
+.opening-neighbor-relation { font-family: var(--op-utility); font-size: 11px; letter-spacing: .04em; color: var(--op-muted); }
+
+.opening-readings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px; margin: 4px 0 0; }
+.opening-reading { border-left: 3px solid var(--op-rule); padding: 2px 0 2px 12px; }
+.opening-reading dt { font-family: var(--op-utility); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--op-muted); }
+.opening-reading dd { margin: 3px 0 0; font-family: var(--op-copy); font-size: 15px; line-height: 1.4; }
+
+.opening-situation { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.opening-item { display: flex; gap: 12px; align-items: flex-start; }
+.opening-symbol { flex: 0 0 auto; font-size: 17px; line-height: 1.2; }
+.opening-symbol-problem { color: var(--op-red-dark); }
+.opening-symbol-opportunity { color: #2f6b46; }
+.opening-symbol-neutral { color: var(--op-muted); }
+.opening-item-label { display: block; font-family: var(--op-copy); font-size: 16px; line-height: 1.35; }
+.opening-item-detail { display: block; margin-top: 3px; font-family: var(--op-copy); font-size: 13px; color: var(--op-muted); }
+.opening-legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 6px 0 0; font-family: var(--op-utility); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--op-muted); }
+.opening-legend .opening-symbol { font-size: 12px; }
+
+.opening-council { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+.opening-minister { display: grid; gap: 4px; border-left: 3px solid var(--op-gold); padding-left: 14px; }
+.opening-minister-seat { font-family: var(--op-utility); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--op-red-dark); }
+.opening-minister-line { font-family: var(--op-copy); font-style: italic; font-size: 17px; line-height: 1.5; }
+
+.opening-final-title { margin: 0; font-family: var(--op-display); font-weight: 700; font-size: clamp(24px, 3.6vw, 34px); }
+.opening-doors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.opening-door {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 18px 12px; background: var(--op-sheet); color: var(--op-ink);
+  border: 1px solid var(--op-rule); cursor: pointer;
+  font-family: var(--op-utility); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  transition: transform .12s ease, border-color .12s ease;
+}
+.opening-door:hover { transform: translateY(-2px); border-color: var(--op-gold); }
+.opening-door span[aria-hidden] { font-size: 22px; }
+.opening-direct {
+  align-self: flex-start; background: none; border: none; cursor: pointer;
+  padding: 4px 0; color: var(--op-muted);
+  font-family: var(--op-copy); font-style: italic; font-size: 15px; text-decoration: underline;
+}
+.opening-direct:hover { color: var(--op-ink); }
+
+.opening-foot {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  padding: 14px clamp(20px, 4vw, 40px); border-top: 1px solid var(--op-rule);
+  background: var(--op-paper-deep); flex: 0 0 auto;
+}
+.opening-skip { background: none; border: none; cursor: pointer; color: var(--op-muted); font-family: var(--op-copy); font-style: italic; font-size: 13px; }
+.opening-skip:hover { color: var(--op-ink); }
+.opening-nav { display: flex; align-items: center; gap: 12px; }
+.opening-back {
+  width: 38px; height: 38px; background: transparent; border: 1px solid var(--op-rule);
+  cursor: pointer; color: var(--op-ink); font-size: 17px;
+}
+.opening-next {
+  padding: 11px 22px; background: var(--op-night); color: #f5efe3; border: 1px solid var(--op-night);
+  cursor: pointer; font-family: var(--op-utility); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+}
+.opening-next:hover { background: var(--op-red-dark); border-color: var(--op-red-dark); }
+
+/* Query leggermente diversa da quella governativa (767.98 invece di 767) per
+   non confondere i lettori testuali che isolano l'ultimo blocco mobile. */
+@media (max-width: 767.98px) {
+  .opening-overlay { padding: 0; align-items: stretch; }
+  .opening-panel { width: 100%; max-height: none; height: 100%; border-left: none; border-right: none; border-bottom: none; }
+  .opening-head { padding-top: max(18px, env(safe-area-inset-top)); }
+  .opening-readings { grid-template-columns: minmax(0, 1fr); }
+  .opening-doors { grid-template-columns: minmax(0, 1fr); }
+  .opening-door { flex-direction: row; justify-content: center; padding: 15px 12px; }
+  .opening-foot { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .opening-door { transition: none; }
+  .opening-door:hover { transform: none; }
 }

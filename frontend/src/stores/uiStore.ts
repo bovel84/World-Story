@@ -45,6 +45,9 @@ interface UIState {
   // Modulo operativo attivo (U01): un solo modulo alla volta.
   activeModule: ActiveModule;
 
+  // WS-GAME-OPENING — l'apertura è un overlay UI, non uno stato di gioco.
+  showOpening: boolean;
+
   // Actions panel
   actionsMaximized: boolean;
   actionsSize: { width: number; height: number };
@@ -68,6 +71,7 @@ interface UIState {
   openModule: (module: ActiveModule) => void;
   closeModule: () => void;
   toggleModule: (module: ActiveModule) => void;
+  setShowOpening: (show: boolean) => void;
   setActionsMaximized: (maximized: boolean) => void;
   setActionsSize: (size: { width: number; height: number }) => void;
   setIsResizing: (resizing: boolean) => void;
@@ -89,6 +93,7 @@ const initialState = {
   showPromptEditor: false,
   editingPrompt: '',
   activeModule: initialModuleState.activeModule,
+  showOpening: false,
   actionsMaximized: false,
   actionsSize: { width: 400, height: 500 },
   isResizing: false,
@@ -116,6 +121,7 @@ export const useUIStore = create<UIState>((set) => ({
   toggleModule: (module) => set((state) => ({
     activeModule: toggleModuleReducer({ activeModule: state.activeModule }, module).activeModule,
   })),
+  setShowOpening: (show) => set({ showOpening: show }),
   setActionsMaximized: (maximized) => set({ actionsMaximized: maximized }),
   setActionsSize: (size) => set({ actionsSize: size }),
   setIsResizing: (resizing) => set({ isResizing: resizing }),

@@ -1033,6 +1033,14 @@ export interface CabinetSessionView {
   canonicalMutation: false;
 }
 
+/** WS-GAME-OPENING — la narrativa dell'apertura, deterministica e read-only. */
+export interface OpeningNarrativeResponse {
+  generated: false;
+  deterministic: true;
+  world: { name: string; date: string; paragraphs: string[] };
+  council: { seat: string; label: string; line: string }[];
+}
+
 export const gameApi = {
   /**
 * Inizia una nuova partita
@@ -1149,6 +1157,13 @@ export const gameApi = {
    */
   governmentCabinet: (gameId: string): Promise<CabinetSessionView> =>
     fetchApi(`/games/${gameId}/government/cabinet`),
+
+  /**
+   * WS-GAME-OPENING — La narrativa dell'apertura: prologo dal preset + le voci
+   * delle sedie che il motore dichiara occupate. Sola lettura, deterministica.
+   */
+  openingNarrative: (gameId: string): Promise<OpeningNarrativeResponse> =>
+    fetchApi(`/games/${gameId}/opening-narrative`),
 
   /** Magazzino materiale e risorse naturali dinamiche del giocatore. */
   resources: (gameId: string): Promise<{
