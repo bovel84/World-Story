@@ -1020,7 +1020,16 @@ function notFound(route) {
  *    `world_advanced`); usato per verificare i casi in cui il mondo NON cambia.
  */
 export function installMockApi(page, opts = {}) {
-  const { failWorldGen = false, advanceResult = null, accountHistory = null, resources = null, cabinet = MOCK_CABINET } = opts;
+  const { failWorldGen = false, advanceResult = null, accountHistory = null, resources = null, cabinet = MOCK_CABINET, showOpening = false } = opts;
+
+  // WS-GAME-OPENING — il dossier d'insediamento è un overlay: gli E2E che non lo
+  // provano non devono restare bloccati. Di default si marca come già visto per
+  // la partita mock; il test dell'apertura passa `showOpening: true`.
+  if (!showOpening) {
+    page.addInitScript((gameId) => {
+      try { localStorage.setItem(`world-story:opening-seen:${gameId}`, '1'); } catch { /* no-op */ }
+    }, MOCK_GAME_ID);
+  }
 
   // Blocca TUTTA la rete esterna: nessun tile, nessun font, nessun provider.
   // Solo le richieste verso l'app (localhost) e le API mock passano.
@@ -1165,6 +1174,20 @@ export function installMockApi(page, opts = {}) {
   // ministro. Lo stream risponde 404 di proposito: `askStream` ripiega sul POST
   // normale, e il mock verifica il percorso di fallback (proxy senza stream).
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/cabinet`, (route) => json(route, cabinet));
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/opening-narrative`, (route) => json(route, {
+    generated: false,
+    deterministic: true,
+    world: {
+      name: MOCK_TEMPLATE.name,
+      date: '1951-01-01',
+      paragraphs: ['Fixture di test.', 'Il mondo è sull’orlo di una nuova era e nessuno sa cosa accadrà.'] ,
+    },
+    council: [
+      { seat: 'lavori', label: 'Ministro dei Lavori', line: '«Ditemi dove e io vi dico cosa serve per partire.»' },
+      { seat: 'tesoro', label: 'Ministro del Tesoro', line: '«Facciamo i conti prima di promettere.»' },
+      { seat: 'esteri', label: 'Ministro degli Esteri', line: '«Ogni porta aperta è un’opzione in più, ogni porta chiusa un costo.»' },
+    ],
+  }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/minister/*`, (route) => {
     if (route.request().method() !== 'POST') return notFound(route);
     let seat = 'tesoro';

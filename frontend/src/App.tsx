@@ -10,6 +10,7 @@ import { Suspense, lazy } from 'react';
 import { TemplateSelector } from './components/Game/TemplateSelector';
 import { Landing } from './components/Game/Landing';
 const LLMSettingsModal = lazy(() => import('./components/Game/LLMSettingsModal'));
+import { hasSeenOpening } from './components/Game/openingFlag';
 import { GameLoader, WORLD_GEN_PHASES } from './components/Game/GameLoader';
 // DISATTIVATO: editor mappe (temporaneo) — mapApi era usato solo dall’editor/«Le mie mappe»
 import { useGameStore, useUIStore } from './stores';
@@ -46,6 +47,7 @@ function App() {
     // DISATTIVATO: editor mappe (temporaneo) — selectedMapForWorld, savedMaps,
     selectedTemplate,
     setCurrentView, setLoading,
+    setShowOpening,
     // DISATTIVATO: editor mappe (temporaneo) — setSelectedMapForWorld, setSavedMaps, addSavedMap,
     setSelectedTemplate,
   } = useUIStore();
@@ -298,6 +300,9 @@ function App() {
             setCurrentGame(game);
             setCurrentWorld(game.world);
             setSelectedRegion(actualRegionId);
+            // WS-GAME-OPENING — una nuova partita apre il dossier di insediamento,
+            // a meno che non sia già stato visto per questa partita (flag UI).
+            setShowOpening(!hasSeenOpening(game.id));
             setCurrentView('game');
           }}
           onFailure={() => {

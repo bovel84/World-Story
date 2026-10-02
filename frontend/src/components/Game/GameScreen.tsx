@@ -19,6 +19,10 @@ import { deriveNationalContext } from './nationalContext';
 import { councilPresence } from './governmentDossier';
 import { deriveWorldPresence } from './worldPresence';
 import { deriveStrategicBriefing } from './strategicBriefing';
+import { deriveGameOpening, type GameOpeningBriefing as GameOpeningData } from './openingBriefing';
+import { GameOpeningBriefing, type OpeningDoor } from './GameOpeningBriefing';
+import { markOpeningSeen } from './openingFlag';
+import { useOpeningNarrative } from '../../hooks/useOpeningNarrative';
 import { deriveImpactAtDate } from './checkpointImpact';
 import { CompactBriefing } from './CompactBriefing';
 import type { NationSnapshot } from '../../hooks/useNationSnapshot';
@@ -72,7 +76,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     setHistory, pendingActions, changedRegions, history: actionHistory,
   } = useGameStore();
   const { suggestions } = useActionsStore();
-  const { loading, activeModule, openModule, closeModule, setShowPromptEditor, setCurrentView } = useUIStore();
+  const { loading, activeModule, openModule, closeModule, setShowPromptEditor, setCurrentView, showOpening, setShowOpening } = useUIStore();
   const {
     text: orderDraftText, enhancedPreview, enhanceLoading, enhanceError,
     update: updateOrderDraft, acceptEnhanced: acceptOrderEnhanced, rejectEnhanced: rejectOrderEnhanced,
@@ -278,6 +282,46 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     nation.strategicAgenda, playerPolityId, nation.commitments, currentGame?.currentDate,
   ]);
 
+  // WS-GAME-OPENING — la narrativa del server (prologo + voci del consiglio),
+  // con fallback locale. Una sola richiesta, solo mentre l'apertura è in vista.
+  const openingVisible = showOpening;
+  const openingNarrative = useOpeningNarrative(currentGame?.id ?? null, openingVisible);
+  const opening: GameOpeningData = useMemo(() => deriveGameOpening({
+    world: currentWorld ? { name: currentWorld.name, basePrompt: currentWorld.basePrompt } : null,
+    currentDate: currentGame?.currentDate ?? null,
+    nationalName,
+    nationalAccount,
+    crisis: nation.nationalCrisis,
+    government: nation.nationalGovernment,
+    relationships: nation.relationships,
+    relationshipNames: nation.relationshipNames,
+    strategicAgenda: nation.strategicAgenda,
+    worldFacts,
+    resources: nation.nationalResources,
+    playerPolityId,
+    council: openingNarrative?.council ?? null,
+    cabinetAddresses: cabinet?.addresses ?? null,
+    items: briefing.items,
+  }), [
+    currentWorld?.name, currentWorld?.basePrompt, currentGame?.currentDate, nationalName, nationalAccount,
+    nation.nationalCrisis, nation.nationalGovernment, nation.relationships, nation.relationshipNames,
+    nation.strategicAgenda, worldFacts, nation.nationalResources, playerPolityId,
+    openingNarrative?.council, cabinet?.addresses, briefing.items,
+  ]);
+
+  const finishOpening = useCallback((door?: OpeningDoor) => {
+    markOpeningSeen(currentGame?.id ?? null);
+    setShowOpening(false);
+    if (door === 'orders') openModule('orders');
+    else if (door === 'advisor') openModule('advisor');
+    else if (door === 'map') { closeModule(); setSelectedRegion(null); }
+  }, [currentGame?.id, setShowOpening, openModule, closeModule, setSelectedRegion]);
+
+  const skipOpening = useCallback(() => {
+    markOpeningSeen(currentGame?.id ?? null);
+    setShowOpening(false);
+  }, [currentGame?.id, setShowOpening]);
+
   // LW06.1 / MIGLIORIA 2 — variazioni reali del periodo del checkpoint in
   // lettura, derivate dallo storico conti del motore (stessa data del punto).
   const checkpointImpact = useMemo(() => (
@@ -418,6 +462,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
                 onLoad={() => shell.setShowSavePicker(true)}
                 onEditWorld={() => setShowPromptEditor(true)}
                 onEditModel={() => shell.setShowLLMSettings(true)}
+                onReviewOpening={() => setShowOpening(true)}
                 disabled={shell.isProcessingTurn}
               />
             )}
@@ -559,6 +604,9 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
       }
       deskOpen={(activeModule !== 'none' && activeModule !== 'orders') || mapContext !== null}
     />
+      {openingVisible && (
+        <GameOpeningBriefing briefing={opening} onFinish={finishOpening} onSkip={skipOpening} />
+      )}
     </>
   );
 }

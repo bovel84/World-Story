@@ -20,6 +20,8 @@ export interface GameMenuProps {
   onEditWorld: () => void;
   /** Apre le impostazioni del modello IA. */
   onEditModel: () => void;
+  /** WS-GAME-OPENING — riapre il dossier di apertura della partita. */
+  onReviewOpening?: () => void;
   /** Blocca il menù durante l'elaborazione del turno. */
   disabled?: boolean;
 }
@@ -29,6 +31,7 @@ export const GameMenu: React.FC<GameMenuProps> = ({
   onLoad,
   onEditWorld,
   onEditModel,
+  onReviewOpening,
   disabled = false,
 }) => {
   const [open, setOpen] = useState(false);
@@ -82,6 +85,11 @@ export const GameMenu: React.FC<GameMenuProps> = ({
           <button type="button" role="menuitem" className="game-menu-item" onClick={choose(onEditWorld)}>
             <span aria-hidden="true">🌍</span> Mondo
           </button>
+          {onReviewOpening && (
+            <button type="button" role="menuitem" className="game-menu-item" onClick={choose(onReviewOpening)}>
+              <span aria-hidden="true">📖</span> Rivedi introduzione
+            </button>
+          )}
           <button type="button" role="menuitem" className="game-menu-item" onClick={choose(onEditModel)}>
             <span aria-hidden="true">🧠</span> Modello
           </button>
