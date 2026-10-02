@@ -38,7 +38,10 @@ import {
   assessmentStore,
 } from './helpers';
 import { validateBody } from '../validation';
-import { actionTextSchema, advisorSchema } from './schemas';
+import { actionTextSchema, advisorSchema, meetingRenderSchema } from './schemas';
+import {
+  composeMeetingNarrativeMessage, normalizeMinisterMeetingBrief, stripNarrativeDirectives,
+} from '../../core/government/MeetingNarrative';
 
 /**
  * WS-MINISTER-UX-05 — Persiste la memoria che il client invia con la richiesta,
@@ -256,6 +259,51 @@ router.post('/:id/government/minister/:seat', async (req, res) => {
     if (!controller.signal.aborted && !res.destroyed) res.json(reply);
   } catch (e: any) {
     if (!controller.signal.aborted && !res.destroyed) respondRouteError(res, e, 'Failed to get minister reply');
+  } finally {
+    req.removeListener('aborted', onAborted);
+    res.removeListener('close', onClose);
+  }
+});
+
+/**
+ * WS-GOV-MOBILE-FOCUS (A6/A7) — La voce della riunione, **read-only**.
+ *
+ * Stesso provider e stessa persona del percorso normale (`getMinisterReply`
+ * riusa `briefingFor` → `personaSection`), ma senza scrivere memoria/JEV e
+ * senza direttive: la rotta compone il messaggio dal **brief verificato**, non
+ * persiste nulla e ripulisce la risposta dai blocchi `decision`/`tavola`.
+ */
+router.post('/:id/government/minister/:seat/render', async (req, res) => {
+  const gameId = req.params.id;
+  const seat = req.params.seat;
+  if (!validateBody(res, meetingRenderSchema, req.body)) return;
+  if (!CABINET_SEATS.includes(seat as CabinetSeat)) {
+    res.status(400).json({ error: `sedia non valida: ${seat}` });
+    return;
+  }
+  const brief = normalizeMinisterMeetingBrief(req.body?.brief);
+  if (!brief || brief.seat !== seat) {
+    res.status(400).json({ error: 'brief non valido o non coerente con la sedia' });
+    return;
+  }
+  const controller = new AbortController();
+  const onAborted = () => controller.abort();
+  const onClose = () => { if (!res.writableFinished) controller.abort(); };
+  req.once('aborted', onAborted);
+  res.once('close', onClose);
+  if (req.aborted || res.destroyed) controller.abort();
+  try {
+    if (controller.signal.aborted) return;
+    const session = getSessionRegistry().getSessionOrThrow(gameId);
+    // Nessuna persistenza: `persistMinisterMemory`/`persistJevConversation` NON
+    // vengono chiamate. La voce della riunione non lascia traccia nella memoria.
+    const message = composeMeetingNarrativeMessage(brief);
+    const reply = await session.getMinisterReply(seat, message, [], controller.signal);
+    if (!controller.signal.aborted && !res.destroyed) {
+      res.json({ reply: stripNarrativeDirectives(reply.reply), seat, narrativeOnly: true });
+    }
+  } catch (e: any) {
+    if (!controller.signal.aborted && !res.destroyed) respondRouteError(res, e, 'Failed to render meeting narrative');
   } finally {
     req.removeListener('aborted', onAborted);
     res.removeListener('close', onClose);

@@ -76,6 +76,15 @@ export const advisorSchema = z
   })
   .passthrough();
 
+/**
+ * WS-GOV-MOBILE-FOCUS (A7) — `POST /:id/government/minister/:seat/render`:
+ * la voce **read-only** della riunione. Il brief è verificato dal server
+ * (`normalizeMinisterMeetingBrief`); la rotta non persiste alcuna memoria.
+ */
+export const meetingRenderSchema = z
+  .object({ brief: z.unknown() })
+  .passthrough();
+
 /** `POST /:id/save` — nome opzionale del salvataggio. */
 export const saveSchema = z.object({ name: z.string().optional() }).passthrough();
 
