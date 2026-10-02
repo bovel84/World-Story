@@ -130,6 +130,10 @@ export function personaFor(seat: CabinetSeat): MinisterPersona {
 /**
  * La sezione del briefing che dice al modello **chi è**: la consuma
  * `briefingFor()`. Non contiene cifre: è testo di ruolo, non di stato.
+ *
+ * WS-GOV-DIALOGUE-TO-ACT — Il difetto 1 era che il ministro «parlava come un
+ * report, non come un ministro». Questa sezione dichiara ora l'**anima
+ * narrativa**: la voce della sedia prevale sullo stile generico del consigliere.
  */
 export function personaSection(persona: MinisterPersona): string {
   return [
@@ -140,6 +144,11 @@ export function personaSection(persona: MinisterPersona): string {
     `- Propensione al rischio: ${persona.risk}`,
     `- Col Presidente: ${persona.president}`,
     `- La tua cifra di stile: ${persona.signature}`,
+    '',
+    'LA TUA VOCE PREVALE SULLO STILE GENERICO:',
+    '- Tu sei il titolare di questa sedia del governo, non un consigliere generico: parli in prima persona, con la tua voce, e non come un rapporto o un bollettino.',
+    '- Ignora le istruzioni di stile pensate per il consigliere generale (titoli, grassetto, elenchi, riassunti per punti): la tua risposta è una conversazione naturale fra chi governa e chi consiglia.',
+    '- Resti una fonte di interpretazione, mai di dati: il tuo carattere ti dà una voce e delle priorità, non delle cifre.',
   ].join('\n');
 }
 
