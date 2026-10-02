@@ -50,6 +50,22 @@ function rule(source: string, selector: string): string {
   return source.slice(open + 1, close);
 }
 
+/** Il corpo del blocco compatto che contiene le regole `.gov-mobile` (il secondo). */
+function governmentMobileBlock(): string {
+  const start = css.lastIndexOf('@media (max-width: 767px)');
+  expect(start).toBeGreaterThanOrEqual(0);
+  let depth = 0;
+  const from = css.indexOf('{', start);
+  for (let i = from; i < css.length; i++) {
+    if (css[i] === '{') depth += 1;
+    else if (css[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return css.slice(from, i + 1);
+    }
+  }
+  return css.slice(from);
+}
+
 /** I selettori che ripetevano il titolo della sedia. */
 const SEAT_TITLE_COPIES = ['.minister-dossier-name', '.minister-name', '.cabinet-seat-name'];
 
@@ -160,6 +176,29 @@ describe('WS-GOVOFFICE-04 — il markup non raddoppia l’intestazione', () => {
  * lo stato "aperto" si verifica con `defaultOpen`, che ne è l'innesco dichiarato.
  * Il clic reale è coperto dall'harness E2E `e2e/govoffice-shot.mjs`.
  */
+describe('WS-GOV-MOBILE-CLEANUP — un solo scroll nel Dialogo e layout compatto', () => {
+  it('la query compatta include il telefono in orizzontale (844×390)', () => {
+    expect(css).toContain('(max-width: 950px) and (max-height: 500px)');
+  });
+
+  it('il pannello Dialogo non scorre: l’unico scroll è il thread, il composer è fisso', () => {
+    const block = governmentMobileBlock();
+    expect(rule(block, '.gov-mobile #gov-panel-dialogue')).toMatch(/overflow:\s*hidden/);
+    expect(rule(block, '.gov-mobile #gov-panel-dialogue .minister-thread')).toMatch(/overflow-y:\s*auto/);
+    expect(rule(block, '.gov-mobile #gov-panel-dialogue .minister-compose')).toMatch(/flex:\s*0 0 auto/);
+  });
+
+  it('il badge «↓ Nuovo messaggio» è un comando reale sopra il composer', () => {
+    expect(rule(governmentMobileBlock(), '.minister-unread')).toMatch(/cursor:\s*pointer/);
+  });
+
+  it('la Tavola mobile raggruppa il risultato per ministero', () => {
+    const block = governmentMobileBlock();
+    expect(rule(block, '.gov-mobile-minister')).toMatch(/border-left/);
+    expect(rule(block, '.gov-mobile-ministers')).toMatch(/display:\s*grid/);
+  });
+});
+
 describe('WS-GOVOFFICE-05 — il pannello dati a scomparsa', () => {
   it('parte CHIUSO: il controllo è un pulsante con aria-expanded=false', () => {
     const html = renderToStaticMarkup(<MinisterDossier address={seat()} picture={null} />);

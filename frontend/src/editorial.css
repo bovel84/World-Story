@@ -1735,7 +1735,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 }
 
 /* Su schermo stretto la stanza sale dal basso, come il desk, ma resta modale. */
-@media (max-width: 767px) {
+@media (max-width: 767px), (max-width: 950px) and (max-height: 500px) {
   .government-office-overlay { place-items: end center; padding: 0; }
   .government-office {
     width: 100%;
@@ -2492,7 +2492,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
    Il desktop resta una stanza di lavoro (dialogo | tavola). Qui il mobile è una
    sequenza di decisioni: una cosa principale, una prossima azione, un solo
    scroll. Non è CSS compresso: è una composizione diversa dello stesso stato. */
-@media (max-width: 767px) {
+@media (max-width: 767px), (max-width: 950px) and (max-height: 500px) {
   /* B5 — schermo intero: niente modale al 94dvh con lo sfondo che sbircia. */
   .government-office-overlay { padding: 0; place-items: stretch; }
   .government-office {
@@ -2614,6 +2614,72 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   .gov-mobile [hidden] { display: none !important; }
   .gov-mobile-scroll > * { max-width: 100%; }
 
+  /* M9/M10 — il Dialogo ha UN SOLO scroll owner: il thread. Il pannello non
+     scorre; SeatBrief sta in alto (collassato) e il composer resta fisso in
+     fondo, mai dentro il contenuto che scorre. */
+  .gov-mobile #gov-panel-dialogue {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 8px 12px 0;
+  }
+  .gov-mobile #gov-panel-dialogue .seat-brief { flex: 0 0 auto; max-height: 42dvh; overflow-y: auto; }
+  .gov-mobile-chat {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .gov-mobile-chat .minister-chat { flex: 1 1 auto; min-height: 0; }
+  .gov-mobile #gov-panel-dialogue .minister-thread { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+  .gov-mobile #gov-panel-dialogue .minister-compose { flex: 0 0 auto; }
+
+  /* M12 — «↓ Nuovo messaggio»: una sola indicazione, sopra il composer. */
+  .minister-unread {
+    display: block;
+    width: 100%;
+    margin: 0 0 6px;
+    padding: 8px 10px;
+    border: 1px solid #6f5ac6;
+    border-radius: 10px;
+    background: #241d47;
+    color: #e6defc;
+    font: 600 13px/1.3 system-ui, sans-serif;
+    cursor: pointer;
+  }
+
+  /* M15/M19 — la Tavola mobile raggruppa il risultato per ministero. */
+  .gov-mobile-board-place { flex: 1 1 100%; margin: 0; font: 600 12.5px/1.4 system-ui, sans-serif; color: #9fb3cf; }
+  .gov-mobile-ministers { display: grid; gap: 10px; margin: 10px 0; }
+  .gov-mobile-minister {
+    padding: 8px 10px;
+    border-left: 3px solid #35506f;
+    border-radius: 0 8px 8px 0;
+    background: #101d31;
+  }
+  .gov-mobile-minister[data-seat="lavori"] { border-left-color: #4a8ac9; }
+  .gov-mobile-minister[data-seat="tesoro"] { border-left-color: #c9a34a; }
+  .gov-mobile-minister-title { margin: 0 0 5px; font: 700 12px/1.3 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #cfe0f5; }
+
+  /* M7/M8 — approfondimenti nativi, fonti uniche. */
+  .gov-mobile-more-group { margin-bottom: 12px; }
+  .gov-mobile-more-group:last-child { margin-bottom: 0; }
+  .gov-mobile-source-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .gov-mobile-source {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    text-align: left;
+    padding: 8px 10px;
+    border: 1px solid #35506f;
+    border-radius: 8px;
+    background: #16273d;
+    color: #dbe6f5;
+    font: 600 13px/1.35 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .gov-mobile-source-text { font: 400 13px/1.45 system-ui, sans-serif; color: #b9c9de; }
+
   /* H16 — partecipanti come chip, mai come blocco. */
   .gov-mobile-chips {
     display: flex;
@@ -2698,19 +2764,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   .gov-mobile-check-value { font-variant-numeric: tabular-nums; color: #b9c9de; text-align: right; }
   .gov-mobile-proposal { margin: 0; font: 500 14px/1.5 system-ui, sans-serif; color: #dbe6f5; }
   .gov-mobile-empty { margin: 0; font: 400 13px/1.45 system-ui, sans-serif; color: #8fa3bf; }
-
-  /* H13 — interventi compatti, attribuiti, con identità sottile. */
-  .gov-mobile-talks { display: grid; gap: 8px; }
-  .gov-mobile-talk {
-    padding: 8px 10px 8px 12px;
-    border-left: 3px solid #35506f;
-    background: #101d30;
-    border-radius: 0 8px 8px 0;
-  }
-  .gov-mobile-talk[data-seat="tesoro"] { border-left-color: #c9a34a; }
-  .gov-mobile-talk[data-seat="lavori"] { border-left-color: #4a8ac9; }
-  .gov-mobile-talk-speaker { font: 700 10.5px/1.3 system-ui, sans-serif; letter-spacing: .07em; text-transform: uppercase; color: #9fb3cf; }
-  .gov-mobile-talk-text { margin: 3px 0 0; font: 400 14px/1.5 system-ui, sans-serif; color: #e3ecf8; }
 
   /* H12/B15 — il dettaglio resta, ma chiuso e dichiarato. */
   .gov-mobile-more {
@@ -2823,17 +2876,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   .gov-sheet-item-go { color: #8fa3bf; font-size: 20px; }
   .gov-sheet-empty { padding: 12px; font: 400 13px/1.4 system-ui, sans-serif; color: #8fa3bf; }
 
-  /* H15 — il dettaglio desktop dentro «Approfondimenti»: nessun doppio scroll
-     annidato, la pagina mobile resta l'unico scroll. */
-  .gov-mobile-more-body .seat-table,
-  .gov-mobile-more-body .council-meeting,
-  .gov-mobile-more-body .decision-board,
-  .gov-mobile-more-body .act-draft { max-height: none; overflow: visible; }
+  /* M6 — la Tavola desktop (`SeatTable`) NON viene più reinnestata negli
+     approfondimenti mobile: qui non ci sono tabelle da neutralizzare. */
   .gov-mobile-board { display: block; }
-  /* B23 — niente card dentro card: lo sfondo del dettaglio resta piatto. */
-  .gov-mobile .seat-table,
-  .gov-mobile .council-meeting,
-  .gov-mobile .decision-board { background: transparent; border-color: #24344d; }
   /* B27 — i ministri su mobile: lista compatta, non schede piene di cifre. */
   .government-office .cabinet-picks { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .government-office .cabinet-pick { padding: 12px; }
