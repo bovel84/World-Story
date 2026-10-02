@@ -1186,6 +1186,12 @@ export function installMockApi(page, opts = {}) {
         + '"unresolvedQuestions":["ripartizione"]}\n```';
     } else if (message.includes('infrastruttur')) {
       decision = '\n\n```decision\n{"op":"set-objective","objective":"Investire l’avanzo nelle infrastrutture","source":"president"}\n```';
+    } else if (message.includes('orientali')) {
+      // WS-GOV-TURN-SESSIONS — Il secondo turno: obiettivo e misure nuovi.
+      decision = '\n\n```decision\n{"op":"set-objective","objective":"Programma per le province orientali","source":"president"}\n```'
+        + '\n\n```decision\n{"op":"update-proposal","changes":['
+        + '{"kind":"allocation","label":"Province orientali","sharePct":60,"source":"president"},'
+        + '{"kind":"allocation","label":"Ammortamento del debito","sharePct":40,"source":"president"}]}\n```';
     } else if (message.includes('fabbrica') || message.includes('siderurgic')) {
       // WS-GOV-SEAT-BOARDS — Il flusso dei Lavori: l’obiettivo e l’opera.
       decision = '\n\n```decision\n{"op":"set-objective","objective":"Costruire una fabbrica siderurgica","source":"president"}\n```'

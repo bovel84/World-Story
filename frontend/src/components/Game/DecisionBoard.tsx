@@ -8,7 +8,8 @@
  *   PROPOSTA CORRENTE   ← grande e centrale
  *   DA DECIDERE
  *   CONSEGUENZE / RISCHI
- *   REVISIONI
+ *   APPROFONDIMENTI ▶   ← chiusi di default (A7): strumenti, non la decisione
+ *   REVISIONI ▶
  *   ATTO                ← solo quando preparato / pronto
  *
  * Nessun numero è ricalcolato qui: le misure arrivano dal workspace, con la loro
@@ -45,6 +46,13 @@ export interface DecisionBoardProps {
   onPromoteToCouncil?: () => void;
   /** WS-GOV-SEAT-BOARDS (B26) — Convocare un'altra sedia nel Consiglio. */
   onConveneSeat?: (seat: CabinetSeat) => void;
+  /**
+   * WS-GOV-TURN-SESSIONS (A8) — L'evidenza è **temporanea**: il ministro apre
+   * uno strumento di supporto e la Tavola ne conserva solo il riferimento
+   * (`evidenceIds`), non una copia del dato. Aperta, può essere richiusa.
+   */
+  onOpenEvidence?: (id: EvidenceKey) => void;
+  onCloseEvidence?: (id: EvidenceKey) => void;
 }
 
 function MeasureRow({ measure }: { measure: DecisionMeasure }) {
@@ -70,7 +78,7 @@ function MeasureRow({ measure }: { measure: DecisionMeasure }) {
 
 export function DecisionBoard({
   workspace, seat, question = null, actRevision = null, onPrepareAct, onRegenerateAct,
-  onPromoteToCouncil, onConveneSeat,
+  onPromoteToCouncil, onConveneSeat, onOpenEvidence, onCloseEvidence,
 }: DecisionBoardProps) {
   const proposal = activeProposal(workspace);
   if (!workspace.objective && !proposal) return null;
@@ -153,13 +161,50 @@ export function DecisionBoard({
         </div>
       )}
 
-      {evidenceRefs.length > 0 && (
-        <div className="decision-evidence">
-          <span className="decision-section-label">Evidenze a supporto</span>
-          <ul>
-            {evidenceRefs.map(id => <li key={id}>{evidenceLabel(id)}</li>)}
-          </ul>
-        </div>
+      {/* WS-GOV-TURN-SESSIONS (A7/A8) — Gli approfondimenti sono **strumenti di
+          supporto**, non la decisione: nascono chiusi. L'evidenza aperta è un
+          riferimento temporaneo (`evidenceIds`), mai una copia del dato. */}
+      {(evidenceRefs.length > 0 || config.availableEvidence.length > 0) && (
+        <details className="decision-approfondimenti">
+          <summary className="decision-approfondimenti-summary">
+            Approfondimenti{evidenceRefs.length > 0 ? ` · ${evidenceRefs.length} aperti` : ''}
+          </summary>
+          {evidenceRefs.length > 0 && (
+            <div className="decision-evidence-open">
+              <span className="decision-subsection-label">Aperti ora</span>
+              <ul>
+                {evidenceRefs.map(id => (
+                  <li key={id}>
+                    <span className="decision-evidence-label">{evidenceLabel(id)}</span>
+                    {onCloseEvidence && (
+                      <button type="button" className="decision-evidence-close" data-evidence={id} onClick={() => onCloseEvidence(id)}>
+                        Chiudi
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="decision-evidence-catalog">
+            <span className="decision-subsection-label">Strumenti a supporto</span>
+            <ul>
+              {config.availableEvidence.map(id => (
+                <li key={id}>
+                  <button
+                    type="button"
+                    className="decision-evidence-open-btn"
+                    data-evidence={id}
+                    disabled={evidenceRefs.includes(id) || !onOpenEvidence}
+                    onClick={() => onOpenEvidence?.(id)}
+                  >
+                    {evidenceLabel(id)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </details>
       )}
 
       {workspace.history.length > 0 && (

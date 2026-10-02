@@ -61,6 +61,9 @@ import {
   canPromoteToCouncil, conveneSeat, promoteToCouncil,
   type CouncilWorkspace,
 } from './councilWorkspace';
+import {
+  actIdentity, consolidateSessionMemory, governmentSessionId, seatFromSessionSeatKey, sessionSeatKey,
+} from './governmentSession';
 import type { CabinetSeat } from './seatDecisionBoards';
 import { deriveCouncilAgenda } from './councilAgenda';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
@@ -181,12 +184,17 @@ export function GovernmentOffice({
   // WS-MINISTER-UX-06 — La bozza d'atto sul tavolo: la strada preparata dal
   // Presidente, correggibile e firmabile. È stato di UI: non accoda e non spende
   // finché non si firma. `actBusy` evita il doppio atto mentre la firma è in volo.
-  const [actDraft, setActDraft] = useState<(ProposalActDraft & { signatureKey: string; signatureAttempted?: boolean; signatureNotice?: string; revision?: number }) | null>(null);
+  const [actDraft, setActDraft] = useState<(ProposalActDraft & {
+    signatureKey: string; signatureAttempted?: boolean; signatureNotice?: string; revision?: number;
+  }) | null>(null);
   const [actBusy, setActBusy] = useState(false);
   // WS-GOV-DIALOGUE-TO-ACT — La decisione in corso per sedia: la conversazione
   // la costruisce, la tavola la mostra, l'atto nasce da lei. Stato di UI: non
   // tocca il motore.
-  const [workspaces, setWorkspaces] = useState<Partial<Record<CabinetAddressView['seat'], DecisionWorkspace>>>({});
+  // WS-GOV-TURN-SESSIONS (A1) — Le mappe sono indicizzate per **chiave di
+  // seduta** (`sessionId::seat`), non per sola sedia: una proposta di un altro
+  // turno non è leggibile come se fosse di questo.
+  const [workspaces, setWorkspaces] = useState<Record<string, DecisionWorkspace>>({});
   // WS-GOV-SEAT-BOARDS (B25/B26) — La riunione di Consiglio: un read model di
   // UI che **referenzia** i workspace delle sedie convocate (nessuna copia).
   const [council, setCouncil] = useState<CouncilWorkspace | null>(null);
@@ -237,20 +245,50 @@ export function GovernmentOffice({
     }
   }, [open]);
 
-  // WS-GOV-SEAT-BOARDS (B24) — L'isolamento dello stato: la decisione di una
-  // sedia appartiene a `game + branch + turn + seat`. Al cambio di partita,
-  // ramo o turno i workspace e la riunione non sopravvivono: non si firma con
-  // numeri di un altro mondo. Le sedie restano indipendenti nello stesso turno
-  // (`workspaces[tesoro] != workspaces[lavori]`: la chiave è la sedia).
-  const decisionScope = `${gameId}|${branchId ?? ''}|${currentTurn ?? ''}`;
-  const decisionScopeRef = useRef(decisionScope);
+  // WS-GOV-SEAT-BOARDS (B24) / WS-GOV-TURN-SESSIONS (A1) — L'identità della
+  // seduta: `game + branch + turn + kind (+ seat)`. Il solo `seat` non basta:
+  // due turni diversi sono due sedute diverse, e lo stato della precedente non
+  // resta operativo.
+  const sessionId = useMemo(
+    () => governmentSessionId({ gameId, branchId, turn: currentTurn ?? 0, kind: 'minister' }),
+    [gameId, branchId, currentTurn],
+  );
+  const stateKey = useCallback(
+    (seat: CabinetAddressView['seat']): string => sessionSeatKey(sessionId, seat),
+    [sessionId],
+  );
+  const workspacesRef = useRef(workspaces);
+  workspacesRef.current = workspaces;
+  const sessionIdRef = useRef(sessionId);
+  // A2/A3 — Al cambio di turno (o di partita/ramo): **prima** si consolida la
+  // seduta precedente in memoria (i fatti narrativamente utili), **poi** lo
+  // stato operativo riparte da zero. Il passato diventa memoria, non workspace.
   useEffect(() => {
-    if (decisionScopeRef.current === decisionScope) return;
-    decisionScopeRef.current = decisionScope;
+    if (sessionIdRef.current === sessionId) return;
+    sessionIdRef.current = sessionId;
+    setMemoryStore(prev => {
+      let next = prev;
+      for (const [key, ws] of Object.entries(workspacesRef.current)) {
+        if (!ws) continue;
+        const seat = seatFromSessionSeatKey(key) as CabinetAddressView['seat'] | null;
+        if (!seat) continue;
+        for (const record of consolidateSessionMemory(ws, seat, { gameDate: currentDate ?? '', turn: currentTurn ?? undefined })) {
+          next = withSeatRecords(next, seat, recordMemory(next[seat] ?? [], record));
+        }
+      }
+      return next;
+    });
     setWorkspaces({});
+    setCanvases({});
     setCouncil(null);
     setActDraft(null);
-  }, [decisionScope]);
+    setActPreview(null);
+    setActPreviewError(null);
+    setActBusy(false);
+    setSeenVersion(-1);
+    setPendingFocus(null);
+    setMobilePane('dialogo');
+  }, [sessionId, currentDate, currentTurn]);
 
   // Cambiare sedia non trascina la bozza d'atto di un altro ministro.
   useEffect(() => {
@@ -295,7 +333,13 @@ export function GovernmentOffice({
   const address = openSeat
     ? session?.addresses.find(candidate => candidate.seat === openSeat) ?? null
     : null;
-  const chatMessages = openSeat ? (ministerChats[openSeat] ?? []) : [];
+  // WS-GOV-TURN-SESSIONS (A5) — La chat visibile (e la cronologia inviata al
+  // ministro) è quella della **seduta corrente**: i messaggi dei turni
+  // precedenti restano nello store come storia, ma non si ripropongono al
+  // modello. La memoria selettiva del passato viaggia a parte (`memory`).
+  const chatMessages = openSeat
+    ? (ministerChats[openSeat] ?? []).filter(message => message.turn === undefined || message.turn === currentTurn)
+    : [];
   const streaming = openSeat !== null && ministerStreamingSeat === openSeat;
   // WS-MINISTER-UX-05 — I ricordi della sedia, potati alla data corrente, e la
   // loro sintesi per il prompt.
@@ -332,13 +376,12 @@ export function GovernmentOffice({
   // un'altra. P3 la estende a una **tela**: fino a due principali, un confronto
   // che non le sostituisce, e aggiornamento/rimozione mirati dal lotto di una
   // risposta. Il modello resta un read model puro (`applyCanvasBatch`).
-  const [canvases, setCanvases] = useState<
-    Partial<Record<CabinetAddressView['seat'], PresentationCanvas>>
-  >({});
+  const [canvases, setCanvases] = useState<Record<string, PresentationCanvas>>({});
   const applyPresentation = useCallback(
     (seat: CabinetAddressView['seat'], messageId: string, quote: string, directives: readonly PresentationDirective[], discussion?: string): void => {
       setCanvases(prev => {
-        const current = prev[seat] ?? emptyCanvas();
+        const key = stateKey(seat);
+        const current = prev[key] ?? emptyCanvas();
         const next = applyCanvasBatch(current, directives, {
           messageId, quote,
           ...(discussion ? { discussion } : {}),
@@ -346,7 +389,7 @@ export function GovernmentOffice({
         // Il lucchetto del Presidente e i bersagli assenti non cambiano la tela:
         // si evita un re-render quando la stessa istanza torna indietro.
         if (next === current) return prev;
-        return { ...prev, [seat]: next };
+        return { ...prev, [key]: next };
       });
       // WS-MINISTER-UX-05 — Una proposta confrontata è una proposta discussa:
       // entra in memoria, senza confonderla con un atto accodato.
@@ -362,13 +405,14 @@ export function GovernmentOffice({
         .filter((evidence): evidence is EvidenceKey => typeof evidence === 'string');
       if (evidenceRefs.length > 0) {
         setWorkspaces(prev => {
-          const current = prev[seat] ?? emptyWorkspace(seat);
+          const key = stateKey(seat);
+          const current = prev[key] ?? emptyWorkspace(seat);
           const next = withEvidenceRefs(current, [...current.evidenceIds, ...evidenceRefs]);
-          return next === current ? prev : { ...prev, [seat]: next };
+          return next === current ? prev : { ...prev, [key]: next };
         });
       }
     },
-    [proposals, currentDate, currentTurn, rememberFor],
+    [proposals, currentDate, currentTurn, rememberFor, stateKey],
   );
   const chatPresentation = useCallback(
     (messageId: string, quote: string, directives: readonly PresentationDirective[], discussion?: string): void => {
@@ -384,40 +428,42 @@ export function GovernmentOffice({
       if (!openSeat) return;
       const seat = openSeat;
       setWorkspaces(prev => {
-        const current = prev[seat] ?? emptyWorkspace(seat);
+        const key = stateKey(seat);
+        const current = prev[key] ?? emptyWorkspace(seat);
         const next = applyDecisionBatch(current, actions, { messageId });
         if (next === current) return prev;
-        return { ...prev, [seat]: next };
+        return { ...prev, [key]: next };
       });
     },
-    [openSeat],
+    [openSeat, stateKey],
   );
   const clearPresentation = useCallback((): void => {
     if (!openSeat) return;
     setCanvases(prev => {
       const next = { ...prev };
-      delete next[openSeat];
+      delete next[stateKey(openSeat)];
       return next;
     });
-  }, [openSeat]);
+  }, [openSeat, stateKey]);
   // WS-MINISTER-UX-07 (C) — Fissare l'evidenza principale: resta sulla tavola
   // mentre si legge; sbloccarla riporta il comportamento normale.
   const togglePin = useCallback((): void => {
     if (!openSeat) return;
     setCanvases(prev => {
-      const current = prev[openSeat];
+      const key = stateKey(openSeat);
+      const current = prev[key];
       if (!current) return prev;
       if (current.mains.length > 0) {
         const mains = current.mains.map((item, index) => index === 0 ? { ...item, pinned: !item.pinned } : item);
-        return { ...prev, [openSeat]: { ...current, mains } };
+        return { ...prev, [key]: { ...current, mains } };
       }
       if (current.comparison) {
-        return { ...prev, [openSeat]: { ...current, comparison: { ...current.comparison, pinned: !current.comparison.pinned } } };
+        return { ...prev, [key]: { ...current, comparison: { ...current.comparison, pinned: !current.comparison.pinned } } };
       }
       return prev;
     });
-  }, [openSeat]);
-  const activeCanvas = openSeat ? canvases[openSeat] ?? null : null;
+  }, [openSeat, stateKey]);
+  const activeCanvas = openSeat ? canvases[stateKey(openSeat)] ?? null : null;
   const hasCanvasEvidence = Boolean(activeCanvas && (activeCanvas.mains.length > 0 || activeCanvas.comparison));
   const resolvedCanvas = useMemo(
     () => resolveCanvas(activeCanvas ?? emptyCanvas(), canvasBlocks, proposals),
@@ -449,7 +495,7 @@ export function GovernmentOffice({
     if (!openSeat) return;
     const hash = card.messageId.lastIndexOf('#');
     const index = hash >= 0 ? Number(card.messageId.slice(hash + 1)) : -1;
-    const thread = ministerChats[openSeat] ?? [];
+    const thread = chatMessages;
     const message = index >= 0 ? thread[index] : undefined;
     if (message) {
       const parsed = parsePresentation(message.content);
@@ -463,7 +509,34 @@ export function GovernmentOffice({
     }
     setMobilePane('tavola');
     if (card.blockId) setPendingFocus({ id: card.blockId, nonce: Date.now() });
-  }, [openSeat, ministerChats, applyPresentation]);
+  }, [openSeat, chatMessages, applyPresentation]);
+
+  // WS-GOV-TURN-SESSIONS (A8) — Aprire un approfondimento dalla Tavola: si
+  // conserva **solo il riferimento** (`evidenceIds`) e si mette a fuoco il blocco
+  // reale, se esiste. Richiudere toglie il riferimento. Nessun effetto di gioco.
+  const openBoardEvidence = useCallback((id: EvidenceKey): void => {
+    if (!openSeat) return;
+    setWorkspaces(prev => {
+      const key = stateKey(openSeat);
+      const current = prev[key] ?? emptyWorkspace(openSeat);
+      const next = withEvidenceRefs(current, [...current.evidenceIds, id]);
+      return next === current ? prev : { ...prev, [key]: next };
+    });
+    setMobilePane('tavola');
+    const block = blockForEvidence(id, canvasBlocks);
+    if (block) setPendingFocus({ id: block.id, nonce: Date.now() });
+  }, [openSeat, stateKey, canvasBlocks]);
+  const closeBoardEvidence = useCallback((id: EvidenceKey): void => {
+    if (!openSeat) return;
+    setWorkspaces(prev => {
+      const key = stateKey(openSeat);
+      const current = prev[key];
+      if (!current) return prev;
+      const evidenceIds = current.evidenceIds.filter(item => item !== id);
+      if (evidenceIds.length === current.evidenceIds.length) return prev;
+      return { ...prev, [key]: { ...current, evidenceIds } };
+    });
+  }, [openSeat, stateKey]);
 
   // La messa a fuoco accade dopo il render: la tavola è già visibile (anche su
   // mobile, dove `mobilePane` è appena passato a «tavola»).
@@ -576,7 +649,7 @@ export function GovernmentOffice({
 
   // WS-GOV-DIALOGUE-TO-ACT — La decisione in corso della sedia aperta e la
   // revisione su cui poggia l'atto preparato (per marcare l'atto stantio).
-  const workspace = openSeat ? workspaces[openSeat] ?? null : null;
+  const workspace = openSeat ? workspaces[stateKey(openSeat)] ?? null : null;
   const actRevision = actDraft?.revision ?? null;
   const actStale = workspace ? actStaleness(workspace, actRevision) : null;
   const decisionQuestion = address?.items[0]?.need ?? null;
@@ -584,26 +657,26 @@ export function GovernmentOffice({
   // WS-GOV-SEAT-BOARDS (B25/B26) — La Tavola comune legge il workspace **vivo**
   // di ogni sedia convocata: la promozione è un riferimento, non una copia.
   const councilLookup = useCallback(
-    (seat: CabinetSeat): DecisionWorkspace | null => workspaces[seat] ?? null,
-    [workspaces],
+    (seat: CabinetSeat): DecisionWorkspace | null => workspaces[stateKey(seat)] ?? null,
+    [workspaces, stateKey],
   );
   const promoteOpenToCouncil = useCallback((): void => {
     if (!openSeat) return;
-    const current = workspaces[openSeat];
+    const current = workspaces[stateKey(openSeat)];
     if (!canPromoteToCouncil(current ?? null) || !current) return;
     setCouncil(prev => conveneSeat(prev ?? promoteToCouncil(current, openSeat), openSeat));
-  }, [openSeat, workspaces]);
+  }, [openSeat, workspaces, stateKey]);
   const conveneSeatInCouncil = useCallback((target: CabinetSeat): void => {
     setCouncil(prev => {
       let base = prev;
       if (!base && openSeat) {
-        const current = workspaces[openSeat];
+        const current = workspaces[stateKey(openSeat)];
         if (current && canPromoteToCouncil(current)) base = promoteToCouncil(current, openSeat);
       }
       return base ? conveneSeat(base, target) : null;
     });
     setOpenSeat(target);
-  }, [openSeat, workspaces]);
+  }, [openSeat, workspaces, stateKey]);
   const openCouncilSeat = useCallback((seat: CabinetSeat): void => {
     setOpenSeat(seat);
   }, []);
@@ -611,13 +684,18 @@ export function GovernmentOffice({
 
   const prepareRoad = useCallback((road: TreasuryRoad): void => {
     if (!address) return;
-    setActDraft({ ...actDraftFor(road, address.seat), signatureKey: crypto.randomUUID() });
+    // A6 — L'atto porta la sua identità storica: turno, revisione e seduta.
+    setActDraft({
+      ...actDraftFor(road, address.seat),
+      signatureKey: crypto.randomUUID(),
+      ...actIdentity(sessionId, currentTurn ?? 0, address.seat, 0),
+    });
     // WS-GOVUX-P6 — Preparare una strada è una **preferenza dichiarata**, non una
     // decisione: la decisione è la firma. Il turno àncora il ricordo al mondo.
     rememberFor(address.seat, declaredPreference(address.seat, road.title, {
       gameDate: currentDate ?? '', turn: currentTurn ?? undefined,
     }));
-  }, [address, currentDate, currentTurn, rememberFor]);
+  }, [address, currentDate, currentTurn, rememberFor, sessionId]);
 
   const editDraft = useCallback((text: string): void => {
     setActDraft(current => (current && !current.signatureAttempted ? { ...editActDraft(current, text), signatureKey: current.signatureKey } : current));
@@ -629,15 +707,20 @@ export function GovernmentOffice({
   // così una proposta che avanza lo rende `stale`.
   const prepareFromProposal = useCallback((): void => {
     if (!openSeat) return;
-    const current = workspaces[openSeat];
+    const current = workspaces[stateKey(openSeat)];
     const proposal = current ? activeProposal(current) : null;
     if (!current || !proposal) return;
     const draft = actDraftFromProposal(proposal, { seat: openSeat });
-    setActDraft({ ...draft, signatureKey: crypto.randomUUID(), revision: current.revision });
+    setActDraft({
+      ...draft,
+      signatureKey: crypto.randomUUID(),
+      revision: current.revision,
+      ...actIdentity(sessionId, currentTurn ?? 0, openSeat, current.revision),
+    });
     rememberFor(openSeat, declaredPreference(openSeat, draft.title, {
       gameDate: currentDate ?? '', turn: currentTurn ?? undefined,
     }));
-  }, [openSeat, workspaces, currentDate, currentTurn, rememberFor]);
+  }, [openSeat, workspaces, stateKey, currentTurn, sessionId, currentDate, rememberFor]);
 
   const cancelDraft = useCallback((): void => {
     setActDraft(null);
@@ -819,7 +902,8 @@ export function GovernmentOffice({
                   messages={chatMessages}
                   streaming={streaming}
                   memory={memoryRecords}
-                  onAddMessage={message => { if (openSeat) addMinisterMessage(openSeat, message); }}
+                  sessionId={sessionId}
+                  onAddMessage={message => { if (openSeat) addMinisterMessage(openSeat, { ...message, turn: currentTurn ?? undefined }); }}
                   onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
                   onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}
                   onPresentation={chatPresentation}
@@ -905,6 +989,8 @@ export function GovernmentOffice({
                   onOpenCouncilSeat={openCouncilSeat}
                   onLeaveCouncil={leaveCouncil}
                   onPromoteToCouncil={promoteOpenToCouncil}
+                  onOpenEvidence={openBoardEvidence}
+                  onCloseEvidence={closeBoardEvidence}
                 />
               </section>
             </div>
