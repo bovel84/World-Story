@@ -38,6 +38,7 @@ import { ActDraftPanel } from './ActDraftPanel';
 import { ProposalComparison } from './ProposalComparison';
 import { DecisionBoard } from './DecisionBoard';
 import { CouncilBoard } from './CouncilBoard';
+import { CouncilMeetingBoard } from './CouncilMeetingBoard';
 import type { SeatCanvasBlock } from './seatCanvasModel';
 import type { EvidenceKey, ResolvedCanvas, ResolvedPresentation } from './presentation';
 import type { ActState, ActStatus, ProposalActDraft } from './actDraft';
@@ -47,6 +48,7 @@ import type { ConsequenceBoard as ConsequenceBoardModel } from './consequenceBoa
 import type { DecisionWorkspace } from './decisionWorkspace';
 import type { CabinetSeat } from './seatDecisionBoards';
 import type { CouncilLookup, CouncilWorkspace } from './councilWorkspace';
+import type { CouncilMeeting } from './councilMeeting';
 
 /** L'ordine di priorità sulla tavola: il piano prima, le idee per ultime. */
 const KIND_PRIORITY: Record<SeatCanvasBlock['kind'], number> = {
@@ -136,6 +138,13 @@ export interface SeatTableProps {
   /** WS-GOV-TURN-SESSIONS (A8) — Aprire/chiudere un approfondimento della Tavola. */
   onOpenEvidence?: (id: EvidenceKey) => void;
   onCloseEvidence?: (id: EvidenceKey) => void;
+  /** WS-GOV-COUNCIL-MEETINGS — La riunione di Governo attiva (B1/B12). */
+  meeting?: CouncilMeeting | null;
+  onPrepareMeetingAct?: () => void;
+  onConveneMeetingSeat?: (seat: CabinetSeat) => void;
+  /** WS-GOV-COUNCIL-MEETINGS (B7) — La richiesta multi-competenza da convocare. */
+  meetingPrompt?: string | null;
+  onConveneMeeting?: (text: string) => void;
 }
 
 export function SeatTable({
@@ -144,7 +153,8 @@ export function SeatTable({
   proposals = [], actBoard = null, actBoardLoading = false, actBoardError = null, onRefreshActBoard,
   workspace = null, decisionQuestion = null, actRevision = null, onPrepareFromProposal, onRegenerateAct,
   council = null, councilLookup, onConveneSeat, onOpenCouncilSeat, onLeaveCouncil, onPromoteToCouncil,
-  onOpenEvidence, onCloseEvidence,
+  onOpenEvidence, onCloseEvidence, meeting = null, onPrepareMeetingAct, onConveneMeetingSeat,
+  meetingPrompt = null, onConveneMeeting,
 }: SeatTableProps) {
   const ordered = [...blocks].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
   const showsAct = seat === 'tesoro';
@@ -264,6 +274,24 @@ export function SeatTable({
     />
   ) : null;
 
+  // WS-GOV-COUNCIL-MEETINGS — La riunione è **una** tavola condivisa: quando è
+  // attiva, prende il posto della Tavola di una singola sedia.
+  const meetingBoard = meeting ? (
+    <CouncilMeetingBoard meeting={meeting} onPrepareAct={onPrepareMeetingAct} onConveneSeat={onConveneMeetingSeat} />
+  ) : null;
+
+  // WS-GOV-COUNCIL-MEETINGS (B7) — La richiesta attraversa più competenze: il
+  // Presidente può convocare la riunione. Non è automatica: la singola seduta
+  // resta possibile, e la riunione è una scelta.
+  const meetingPromptBanner = meetingPrompt && onConveneMeeting ? (
+    <div className="council-convene-prompt" role="status">
+      <span>Questa richiesta attraversa più competenze: serve una riunione.</span>
+      <button type="button" className="council-convene-prompt-btn" onClick={() => onConveneMeeting(meetingPrompt)}>
+        Convoca la riunione
+      </button>
+    </div>
+  ) : null;
+
   const mainArea = main ? (
     <>
       <div className="seat-table-main">
@@ -314,6 +342,10 @@ export function SeatTable({
           Le evidenze della seduta, dai dati del motore. Ogni cifra dichiara la sua provenienza.
         </span>
       </header>
+
+      {meetingPromptBanner}
+
+      {meetingBoard}
 
       {councilBoard}
 

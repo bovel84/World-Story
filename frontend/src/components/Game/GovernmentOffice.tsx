@@ -62,15 +62,21 @@ import {
   type CouncilWorkspace,
 } from './councilWorkspace';
 import {
+  applyEngineRead, meetingActDraft, openMeeting, seatSpeaker, shouldConveneMeeting,
+  type CouncilMeeting, type MeetingEngineRead,
+} from './councilMeeting';
+import {
   actIdentity, consolidateSessionMemory, governmentSessionId, seatFromSessionSeatKey, sessionSeatKey,
 } from './governmentSession';
 import type { CabinetSeat } from './seatDecisionBoards';
+import { CABINET_SEATS } from './seatDecisionBoards';
 import { deriveCouncilAgenda } from './councilAgenda';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { useChatStore, useGameStore } from '../../stores';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import { gameApi, type CabinetAddressView, type CabinetSessionView } from '../../services/api';
+import { formatMoney } from '../../utils/format';
 import { actionSnapshotKey } from './actionSnapshot';
 import { buildConsequenceBoard, consequenceBoardSignature, type EnginePreview } from './consequenceBoard';
 
@@ -126,6 +132,40 @@ export interface GovernmentOfficeProps {
    * `nationOperatingPictureInput`, così un dominio ha **un solo** numero.
    */
   pictureSources: NationOperatingPictureSources;
+}
+
+/**
+ * WS-GOV-COUNCIL-MEETINGS (B7–B10) — La lettura del motore per la riunione.
+ * Mappa `check-feasibility` + conto nazionale in `MeetingEngineRead`: nessun
+ * valore è inventato, ogni riga dichiara la sua provenienza.
+ */
+function meetingReadFromFeasibility(
+  meeting: CouncilMeeting,
+  feasibility: Awaited<ReturnType<typeof gameApi.checkFeasibility>>,
+  moneyLabel: string | null,
+): MeetingEngineRead {
+  const money = feasibility.costs.inputs.find(input => input.resourceId === 'money');
+  const declaration = feasibility.workDeclaration ?? null;
+  const coverage = declaration
+    ? (declaration.funded && declaration.materialActorId ? 'covered' : 'short')
+    : (feasibility.feasible ? 'covered' : 'short');
+  return {
+    workLabel: meeting.subject,
+    regionLabel: null,
+    durationDays: Number.isFinite(feasibility.costs.timeDays) ? feasibility.costs.timeDays : null,
+    materials: (declaration?.missingMaterials ?? []).map(material => ({ name: material.resourceId, ok: false, missing: material.missing })),
+    costLabel: money ? `${money.quantity} ${money.unit}`.trim() : null,
+    costNote: feasibility.costs.note ?? null,
+    coverage,
+    availableLabel: moneyLabel,
+    risks: feasibility.risks,
+    prerequisites: feasibility.prerequisites,
+    summary: feasibility.summary,
+    workId: declaration?.workId ?? null,
+    regionId: null,
+    workDeclaration: declaration,
+    source: 'check-feasibility',
+  };
 }
 
 export function GovernmentOffice({
@@ -198,6 +238,10 @@ export function GovernmentOffice({
   // WS-GOV-SEAT-BOARDS (B25/B26) — La riunione di Consiglio: un read model di
   // UI che **referenzia** i workspace delle sedie convocate (nessuna copia).
   const [council, setCouncil] = useState<CouncilWorkspace | null>(null);
+  // WS-GOV-COUNCIL-MEETINGS — La riunione di Governo attiva: stato della seduta
+  // corrente (Fase A). Una decisione multi-competenza vive qui, in una sola
+  // conversazione e in una sola Tavola condivisa.
+  const [meeting, setMeeting] = useState<CouncilMeeting | null>(null);
   // WS-GOVUX-P7 — La verifica del motore per la plancia delle conseguenze: si
   // conserva la firma con cui è stata prodotta, così una bozza modificata la
   // rende `stale` invece di mostrare la stima di un'altra versione.
@@ -242,6 +286,7 @@ export function GovernmentOffice({
       setLastOutcome(null);
       setActDraft(null);
       setCouncil(null);
+      setMeeting(null);
     }
   }, [open]);
 
@@ -281,6 +326,7 @@ export function GovernmentOffice({
     setWorkspaces({});
     setCanvases({});
     setCouncil(null);
+    setMeeting(null);
     setActDraft(null);
     setActPreview(null);
     setActPreviewError(null);
@@ -340,6 +386,13 @@ export function GovernmentOffice({
   const chatMessages = openSeat
     ? (ministerChats[openSeat] ?? []).filter(message => message.turn === undefined || message.turn === currentTurn)
     : [];
+  // WS-GOV-COUNCIL-MEETINGS (B7) — Una decisione multi-competenza apre una
+  // **riunione**, non una chat libera fra agenti. La convocazione è esplicita:
+  // il Presidente la chiede, e l'orchestrazione è deterministica.
+  const lastPresidentMessage = [...chatMessages].reverse().find(message => message.role === 'user')?.content ?? null;
+  const meetingPrompt = !meeting && lastPresidentMessage && shouldConveneMeeting(lastPresidentMessage)
+    ? lastPresidentMessage
+    : null;
   const streaming = openSeat !== null && ministerStreamingSeat === openSeat;
   // WS-MINISTER-UX-05 — I ricordi della sedia, potati alla data corrente, e la
   // loro sintesi per il prompt.
@@ -537,6 +590,85 @@ export function GovernmentOffice({
       return { ...prev, [key]: { ...current, evidenceIds } };
     });
   }, [openSeat, stateKey]);
+
+  // WS-GOV-COUNCIL-MEETINGS (B6/B13) — L'orchestrazione è deterministica: il
+  // selettore decide chi partecipa, il motore fornisce i dati, i contributi sono
+  // attribuiti. Nessuna chat libera fra agenti, nessun LLM come database.
+  const meetingRef = useRef<CouncilMeeting | null>(meeting);
+  meetingRef.current = meeting;
+  const spokenContributionsRef = useRef<Set<string>>(new Set());
+  const runMeeting = useCallback(async (opened: CouncilMeeting, text: string): Promise<void> => {
+    try {
+      const feasibility = await gameApi.checkFeasibility(gameId, text);
+      const spent = pictureSources.account?.money;
+      const read = meetingReadFromFeasibility(
+        opened,
+        feasibility,
+        spent == null ? null : formatMoney(spent, { currency: 'n', decimals: 2 }),
+      );
+      const prev = meetingRef.current;
+      if (!prev || prev.id !== opened.id) return;
+      const next = applyEngineRead(prev, read);
+      meetingRef.current = next;
+      setMeeting(next);
+      // La conversazione è **una**: gli interventi dei ministri entrano nello
+      // stesso filo, ciascuno con la sua voce (B12/B19).
+      for (const contribution of next.contributions) {
+        if (spokenContributionsRef.current.has(contribution.id)) continue;
+        spokenContributionsRef.current.add(contribution.id);
+        if (openSeat) {
+          addMinisterMessage(openSeat, {
+            role: 'assistant',
+            content: contribution.text,
+            speaker: seatSpeaker(contribution.seat),
+            turn: currentTurn ?? undefined,
+          });
+        }
+      }
+    } catch {
+      // Il motore non risponde: la riunione resta in apertura, senza inventare.
+    }
+  }, [gameId, pictureSources.account, openSeat, currentTurn, addMinisterMessage]);
+  const conveneMeeting = useCallback((text: string): boolean => {
+    if (!openSeat || !gameId || !shouldConveneMeeting(text)) return false;
+    const opened = openMeeting({ gameId, branchId, turn: currentTurn ?? 0, subject: text });
+    if (!opened) return false;
+    // Se la riunione esiste già per questo turno, la nuova richiesta la aggiorna
+    // con una nuova lettura: i contributi identici non si duplicano (B13).
+    const existing = meetingRef.current;
+    if (existing && existing.id === opened.id) {
+      void runMeeting(existing, text);
+      return true;
+    }
+    meetingRef.current = opened;
+    spokenContributionsRef.current = new Set();
+    setMeeting(opened);
+    setMobilePane('tavola');
+    void runMeeting(opened, text);
+    return true;
+  }, [openSeat, gameId, branchId, currentTurn, runMeeting]);
+  const conveneMeetingSeat = useCallback((seat: CabinetSeat): void => {
+    setMeeting(prev => {
+      if (!prev || prev.participants.includes(seat)) return prev;
+      const next = { ...prev, participants: CABINET_SEATS.filter(item => prev.participants.includes(item) || item === seat) };
+      meetingRef.current = next;
+      return next;
+    });
+  }, []);
+  const prepareMeetingAct = useCallback((): void => {
+    const current = meetingRef.current;
+    if (!current) return;
+    const draft = meetingActDraft(current, { seat: current.leadSeat });
+    setActDraft({
+      ...draft,
+      signatureKey: crypto.randomUUID(),
+      revision: current.revision,
+      ...actIdentity(sessionId, currentTurn ?? 0, current.leadSeat, current.revision),
+    });
+    rememberFor(current.leadSeat, declaredPreference(current.leadSeat, draft.title, {
+      gameDate: currentDate ?? '', turn: currentTurn ?? undefined,
+    }));
+  }, [sessionId, currentTurn, currentDate, rememberFor]);
 
   // La messa a fuoco accade dopo il render: la tavola è già visibile (anche su
   // mobile, dove `mobilePane` è appena passato a «tavola»).
@@ -991,6 +1123,11 @@ export function GovernmentOffice({
                   onPromoteToCouncil={promoteOpenToCouncil}
                   onOpenEvidence={openBoardEvidence}
                   onCloseEvidence={closeBoardEvidence}
+                  meeting={meeting}
+                  onPrepareMeetingAct={prepareMeetingAct}
+                  onConveneMeetingSeat={conveneMeetingSeat}
+                  meetingPrompt={meetingPrompt}
+                  onConveneMeeting={conveneMeeting}
                 />
               </section>
             </div>

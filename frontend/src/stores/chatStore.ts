@@ -25,6 +25,11 @@ export interface AdvisorMessage {
    * del turno corrente; i turni precedenti restano storia nello store.
    */
   turn?: number;
+  /**
+   * WS-GOV-COUNCIL-MEETINGS (B12/B19) — Chi parla, quando non è la sedia aperta:
+   * nella riunione ogni intervento è attribuito («Ministro dei Lavori», …).
+   */
+  speaker?: string;
 }
 
 /** Schede del pannello flottante */

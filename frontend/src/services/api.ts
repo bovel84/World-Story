@@ -1401,6 +1401,9 @@ export const gameApi = {
       inputs: Array<{ resourceId: string; name: string; quantity: string; unit: string }>;
       upkeep: Array<{ line: { resourceId: string; name: string; quantity: string; unit: string }; periodDays: number }>;
       basis: 'recipe' | 'upkeep' | 'request' | 'none';
+      /** La nota del motore sulla stima (es. «25% del gettito annuo»). */
+      note?: string;
+      category?: string;
     };
     prerequisites: string[];
     risks: string[];
@@ -1817,6 +1820,11 @@ export const chatsApi = {
 export interface AdvisorHistoryItem {
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * WS-GOV-COUNCIL-MEETINGS (B12/B19) — Chi parla, nella riunione: solo per la
+   * resa. Non viaggia al provider (la cronologia si invia senza questo campo).
+   */
+  speaker?: string;
 }
 
 /**
