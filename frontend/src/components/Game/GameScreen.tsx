@@ -351,6 +351,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
         nationalName={nationalName}
         onWithdrawOrder={id => void orders.removeQueuedAction(id)}
         currentDate={currentGame?.currentDate ?? null}
+        currentTurn={currentGame?.currentTurn ?? null}
         pictureSources={{
           regions,
           account: nationalAccount,

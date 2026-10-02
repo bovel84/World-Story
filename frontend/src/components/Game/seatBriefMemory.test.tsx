@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { SeatBrief } from './SeatBrief';
-import { recordMemory, discussedProposal, queuedDecision } from './ministerMemory';
+import { recordMemory, discussedProposal, queuedDecision, revokeMemory } from './ministerMemory';
 import type { CabinetAddressView } from '../../services/api';
 
 const address: CabinetAddressView = {
@@ -49,5 +49,32 @@ describe('WS-MINISTER-UX-05 — memoria nel fascicolo', () => {
     const html = renderToStaticMarkup(<SeatBrief address={address} memory={memory} />);
     expect(html).toContain('accodata · accodata');
     expect(html).toContain('Atto accodato: Rimborsa i titoli');
+  });
+
+  // ── WS-GOVUX-P6 — le quattro famiglie e la revoca ────────────────────────
+  it('P6 — ogni ricordo dichiara la sua famiglia e il suo turno', () => {
+    const memory = recordMemory([], queuedDecision('tesoro', 'Rimborsa i titoli', { gameDate: '1951-04-01', turn: 3 }));
+    const html = renderToStaticMarkup(<SeatBrief address={address} memory={memory} />);
+    expect(html).toContain('decisione confermata');
+    expect(html).toContain('data-family="confirmed-decision"');
+    expect(html).toContain('turno 3');
+  });
+
+  it('P6 — un ricordo revocato resta nello storico, senza pulsante di revoca', () => {
+    const base = queuedDecision('tesoro', 'Rimborsa i titoli', { gameDate: '1951-04-01', turn: 3 });
+    const memory = revokeMemory([base], base.id, 'il vincolo è caduto');
+    const html = renderToStaticMarkup(<SeatBrief address={address} memory={memory} onRevoke={() => {}} />);
+    expect(html).toContain('Cosa ricorda il ministro');
+    expect(html).toContain('revocata');
+    expect(html).toContain('state-revoked');
+    expect(html).toContain('Atto accodato: Rimborsa i titoli');
+    expect(html).toContain('revocata: il vincolo è caduto');
+    expect(html).not.toContain('seat-brief-memory-revoke');
+  });
+
+  it('P6 — un ricordo attivo offre il pulsante di revoca', () => {
+    const memory = recordMemory([], queuedDecision('tesoro', 'Rimborsa i titoli', { gameDate: '1951-04-01', turn: 3 }));
+    const html = renderToStaticMarkup(<SeatBrief address={address} memory={memory} onRevoke={() => {}} />);
+    expect(html).toContain('seat-brief-memory-revoke');
   });
 });

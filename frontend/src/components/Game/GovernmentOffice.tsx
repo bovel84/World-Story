@@ -48,8 +48,9 @@ import {
 } from './presentation';
 import { shouldShowEvidenceBadge, type EvidenceCardIndex, type InlineEvidenceCard } from './inlineEvidence';
 import {
-  discussedProposal, loadMemory, openQuestion, queuedDecision, recordMemory,
-  saveMemory, seatRecords, withSeatRecords, clientMandate, type MinisterMemoryRecord, type MinisterMemoryStore,
+  discussedProposal, declaredPreference, loadMemory, openQuestion, queuedDecision, recordMemory,
+  revokeMemory, saveMemory, seatRecords, withSeatRecords, clientMandate,
+  type MinisterMemoryRecord, type MinisterMemoryStore,
 } from './ministerMemory';
 import { seatRoads } from './seatProposals';
 import { deriveCouncilAgenda } from './councilAgenda';
@@ -93,6 +94,12 @@ export interface GovernmentOfficeProps {
   /** La data corrente di gioco (ISO): è la data della firma. */
   currentDate?: string | null;
   /**
+   * WS-GOVUX-P6 — Il turno corrente del mondo: è il **tempo del ricordo**. Senza
+   * turno un ricordo si àncora solo alla data; il timestamp tecnico del database
+   * non lo sostituisce mai. Passato dal chiamante (il motore lo possiede).
+   */
+  currentTurn?: number | null;
+  /**
    * Ritirare un atto dal registro prima che il tempo avanzi. È l'unico modo di
    * togliere un ordine dalla coda (la coda non si mostra più nella seduta):
    * passa da `removeQueuedAction`, cioè dalla rotta del motore.
@@ -118,6 +125,7 @@ export function GovernmentOffice({
   pendingActions,
   nationalName,
   currentDate = null,
+  currentTurn = null,
   onWithdrawOrder,
   pictureSources,
 }: GovernmentOfficeProps) {
@@ -304,11 +312,11 @@ export function GovernmentOffice({
       // entra in memoria, senza confonderla con un atto accodato.
       if (directives.some(directive => directive.op === 'compare')) {
         for (const road of proposals) {
-          rememberFor(seat, discussedProposal(seat, road, { messageId, gameDate: currentDate ?? '' }));
+          rememberFor(seat, discussedProposal(seat, road, { messageId, gameDate: currentDate ?? '', turn: currentTurn ?? undefined }));
         }
       }
     },
-    [proposals, currentDate, rememberFor],
+    [proposals, currentDate, currentTurn, rememberFor],
   );
   const chatPresentation = useCallback(
     (messageId: string, quote: string, directives: readonly PresentationDirective[], discussion?: string): void => {
@@ -431,12 +439,24 @@ export function GovernmentOffice({
     [session, ministerChats, memoryStore],
   );
 
+  // WS-GOVUX-P6 — Revocare un ricordo: resta nello storico (marcato `revoked`),
+  // esce dal retrieval. La copia autorevole è server-side: viaggia col prossimo
+  // messaggio al ministro, come gli altri ricordi.
+  const revokeFor = useCallback((seat: CabinetAddressView['seat'], id: string): void => {
+    setMemoryStore(prev => withSeatRecords(prev, seat, revokeMemory(prev[seat] ?? [], id)));
+  }, []);
+
   const draftStatus = actDraft ? actStatus(actDraft, pendingActions, turnHistory) : null;
 
   const prepareRoad = useCallback((road: TreasuryRoad): void => {
     if (!address) return;
     setActDraft({ ...actDraftFor(road, address.seat), signatureKey: crypto.randomUUID() });
-  }, [address]);
+    // WS-GOVUX-P6 — Preparare una strada è una **preferenza dichiarata**, non una
+    // decisione: la decisione è la firma. Il turno àncora il ricordo al mondo.
+    rememberFor(address.seat, declaredPreference(address.seat, road.title, {
+      gameDate: currentDate ?? '', turn: currentTurn ?? undefined,
+    }));
+  }, [address, currentDate, currentTurn, rememberFor]);
 
   const editDraft = useCallback((text: string): void => {
     setActDraft(current => (current && !current.signatureAttempted ? { ...editActDraft(current, text), signatureKey: current.signatureKey } : current));
@@ -470,7 +490,7 @@ export function GovernmentOffice({
       if (queued) {
         const headline = actHeadline(draft);
         setLastOutcome({ seat: address.seat, label: address.label, kind: 'order', text: headline });
-        rememberFor(address.seat, queuedDecision(address.seat, headline, { gameDate: currentDate ?? '' }));
+        rememberFor(address.seat, queuedDecision(address.seat, headline, { gameDate: currentDate ?? '', turn: currentTurn ?? undefined }));
       }
       return queued;
     } finally {
@@ -487,7 +507,7 @@ export function GovernmentOffice({
       rememberFor(address.seat, openQuestion(
         address.seat,
         'Seduta chiusa senza ordine: nessuna decisione presa.',
-        { gameDate: currentDate ?? '' },
+        { gameDate: currentDate ?? '', turn: currentTurn ?? undefined },
       ));
     }
     setOpenSeat(null);
@@ -615,7 +635,7 @@ export function GovernmentOffice({
                 data-pane="dialogo"
                 aria-label="Dialogo con il ministro"
               >
-                <SeatBrief address={address} memory={memoryRecords} />
+                <SeatBrief address={address} memory={memoryRecords} onRevoke={id => { if (openSeat) revokeFor(openSeat, id); }} />
                 <MinisterChat
                   gameId={gameId}
                   address={address}
