@@ -32,7 +32,7 @@ describe('WS-GAME-OPENING — OpeningNarrative (backend)', () => {
     expect(narrative.world.paragraphs.length).toBeLessThanOrEqual(4);
   });
 
-  it('il consiglio usa la persona, al massimo tre sedie, senza cifre', () => {
+  it('il consiglio usa la persona + la questione del motore, al massimo tre sedie, senza cifre', () => {
     const narrative = buildOpeningNarrative({
       worldName: 'W', date: '2000-01-01', premise: 'Testo.',
       addresses: [
@@ -46,9 +46,24 @@ describe('WS-GAME-OPENING — OpeningNarrative (backend)', () => {
     // Urgenza critica in testa.
     expect(narrative.council[0].seat).toBe('tesoro');
     for (const voice of narrative.council) {
-      expect(voice.line).toBe(personaFor(voice.seat).signature);
+      // Persona (firma di stile, senza virgolette) + questione del motore.
+      const signature = personaFor(voice.seat).signature.replace(/^[«"]\s*/, '').replace(/\s*[»"]$/, '').replace(/[.]$/, '');
+      expect(voice.line).toContain(signature);
       expect(/\d/.test(voice.line)).toBe(false);
+      expect(voice.line).not.toContain('«');
+      expect(voice.line).not.toContain('»');
     }
+    expect(narrative.council[0].line).toContain('coprire la cassa');
+  });
+
+  it('una questione con cifre non entra nella voce: resta la sola persona', () => {
+    const narrative = buildOpeningNarrative({
+      worldName: 'W', date: '', premise: '',
+      addresses: [address('guerra', 'ordinaria', 'Portare la spesa al 4% del PIL')],
+    });
+    const line = narrative.council[0].line;
+    expect(/\d/.test(line)).toBe(false);
+    expect(line).toContain('La forza che rassicura');
   });
 
   it('una sedia senza voci tace', () => {

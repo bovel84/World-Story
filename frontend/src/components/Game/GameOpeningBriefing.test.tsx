@@ -12,7 +12,7 @@ const opening: OpeningData = {
   inheritedSituation: [{ id: 'infra', symbol: 'problem', label: 'Ricostruzione incompleta' }],
   worldAroundYou: [{ id: 'srb', name: 'Serbia', relation: 'Rapporto teso', tone: 'warning' }],
   firstQuestions: [{ id: 'infra', label: 'Ricostruzione incompleta' }],
-  council: [{ seat: 'lavori', label: 'Ministro dei Lavori', line: '«Ditemi dove e io vi dico cosa serve per partire.»' }],
+  council: [{ seat: 'lavori', label: 'Ministro dei Lavori', line: 'Ditemi dove e io vi dico cosa serve per partire.' }],
   entryPoints: [
     { id: 'orders', label: 'Governo', icon: '🏛' },
     { id: 'map', label: 'Mappa', icon: '🗺' },
@@ -49,5 +49,12 @@ describe('WS-GAME-OPENING — GameOpeningBriefing', () => {
     const html = render(2);
     expect(html).toContain('opening-symbol-problem');
     expect(html).toContain('Ricostruzione incompleta');
+  });
+
+  it('il consiglio mette una sola coppia di virgolette (niente ««»»)', () => {
+    const html = render(3);
+    expect(html).toContain('«Ditemi dove e io vi dico cosa serve per partire.»');
+    expect(html).not.toContain('««');
+    expect(html).not.toContain('»»');
   });
 });

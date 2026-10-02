@@ -1183,9 +1183,9 @@ export function installMockApi(page, opts = {}) {
       paragraphs: ['Fixture di test.', 'Il mondo è sull’orlo di una nuova era e nessuno sa cosa accadrà.'] ,
     },
     council: [
-      { seat: 'lavori', label: 'Ministro dei Lavori', line: '«Ditemi dove e io vi dico cosa serve per partire.»' },
-      { seat: 'tesoro', label: 'Ministro del Tesoro', line: '«Facciamo i conti prima di promettere.»' },
-      { seat: 'esteri', label: 'Ministro degli Esteri', line: '«Ogni porta aperta è un’opzione in più, ogni porta chiusa un costo.»' },
+      { seat: 'lavori', label: 'Ministro dei Lavori', line: 'Ditemi dove e io vi dico cosa serve per partire — ricostruire le infrastrutture.' },
+      { seat: 'tesoro', label: 'Ministro del Tesoro', line: 'Facciamo i conti prima di promettere — coprire la cassa.' },
+      { seat: 'esteri', label: 'Ministro degli Esteri', line: 'Ogni porta aperta è un’opzione in più, ogni porta chiusa un costo.' },
     ],
   }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/minister/*`, (route) => {

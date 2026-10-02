@@ -26,9 +26,11 @@
 `frontend/src/components/Shell/GameMenu.tsx` — voce `Rivedi introduzione`.
 
 ### Endpoint narrativa (read-only, deterministico)
-`backend-nest/src/core/government/OpeningNarrative.ts` — `buildOpeningNarrative`, `extractOpeningParagraphs`.
+`backend-nest/src/core/government/OpeningNarrative.ts` — `buildOpeningNarrative`, `extractOpeningParagraphs`, `openingCouncilLine`.
 `backend-nest/src/routes/games/state.routes.ts` — `GET /:id/opening-narrative`.
 Restituisce `{ generated: false, deterministic: true, world: { name, date, paragraphs }, council: [...] }`. Nessuna scrittura JEV/memoria, nessuna azione, nessun evento, nessun cambio al motore. Il **fallback deterministico è il percorso stesso**: la rotta non chiama alcun LLM.
+
+La voce del consiglio rispetta **§13**: `openingCouncilLine(address)` unisce la firma di stile di `personaFor(seat)` (persona) alla **prima questione del motore** (`CabinetItem.need`, verified state). La questione entra solo se breve e priva di cifre; altrimenti resta la sola persona. Le virgolette `«…»` le aggiunge il renderer (una sola coppia).
 
 ---
 
@@ -37,7 +39,7 @@ Restituisce `{ generated: false, deterministic: true, world: { name, date, parag
 | Cosa mostra | Fonte reale |
 |---|---|
 | Prologo del mondo | `world.basePrompt` (= `preset.base_prompt` + `lore.md`), `world.name`, `currentDate` |
-| Paragrafi consiglio | `readCabinetSession(...).addresses` + `personaFor(seat).signature` (`MinisterPersona.ts`) |
+| Paragrafi consiglio | `readCabinetSession(...).addresses` + `openingCouncilLine(...)` = `personaFor(seat).signature` (persona) + prima `CabinetItem.need` del motore (verified state), senza cifre (§13) |
 | "Tu governi" + letture | `deriveNationalContext` (frontend) → `nationalName`, `nationalAccount`, `nationalRegions`; `NationResources`; `nationalCrisis` |
 | Prime questioni / problemi-opportunità | **lo stesso** `deriveStrategicBriefing(...)` della HUD (`StrategicBriefing.items`) |
 | Mondo intorno a te | `relationships`, `relationshipNames`, `strategicAgenda.powers`, `deriveWorldPresence(...).facts` |
@@ -138,7 +140,7 @@ $ npx playwright test tests/ws-game-opening.spec.mjs tests/ws-gov-office-scroll.
 
 1. **Il modello non legge le immagini.** Gli screenshot sono artefatti reali prodotti da Playwright, ma la loro valutazione estetica non è stata fatta da una persona: le verifiche sono misure DOM (scrollHeight/clientHeight/overflow, hit-test) e i test.
 2. **Nessuna chiamata LLM** per l'apertura: il prologo è deterministico dal preset. La prosa "migliore" (renderer narrativo) è dichiarata come step successivo (§24 del task) e **non** è implementata.
-3. **Il consiglio usa `personaFor(seat).signature`** (persona, senza cifre). La selezione delle sedie è guidata dal motore (presenza e urgenza delle voci in `readCabinetSession`), ma la frase non riprende la singola questione: è una scelta di sicurezza contro l'invenzione di numeri. Il miglioramento è il renderer aggregato.
+3. **Il consiglio usa `personaFor(seat).signature` + la prima questione del motore** (persona + verified state, §13), senza cifre. La questione entra solo quando è breve e priva di cifre; la selezione delle sedie è guidata dal motore (presenza e urgenza). Il world context arriva al ministro nella sua chat; nella riga d'apertura non è riportato letteralmente. Il miglioramento ulteriore è il renderer aggregato.
 4. **"Il mondo intorno a te"** è derivato da `relationships`/`strategicAgenda`; se il motore non pubblica relazioni, la sezione non compare (nessun vicino inventato).
 5. **Screenshot "before" dello scroll**: riproducono il difetto forzando il vecchio `overflow: hidden` via CSS iniettato, perché il fix è già nel codice. È una riproduzione fedele della causa misurata (950/844), non un checkout del codice precedente.
 6. **`hud-mobile.spec.mjs`** è stato aggiornato da 4 a 5 voci di menu (la nuova `Rivedi introduzione`): è una modifica voluta, non una regressione mascherata.
