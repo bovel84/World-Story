@@ -23,6 +23,7 @@ import { deriveGameOpening, type GameOpeningBriefing as GameOpeningData } from '
 import { GameOpeningBriefing, type OpeningDoor } from './GameOpeningBriefing';
 import { markOpeningSeen } from './openingFlag';
 import { useOpeningNarrative } from '../../hooks/useOpeningNarrative';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { deriveImpactAtDate } from './checkpointImpact';
 import { CompactBriefing } from './CompactBriefing';
 import type { NationSnapshot } from '../../hooks/useNationSnapshot';
@@ -287,6 +288,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   // con fallback locale. Una sola richiesta, solo mentre l'apertura è in vista.
   const openingVisible = showOpening;
   const openingNarrative = useOpeningNarrative(currentGame?.id ?? null, openingVisible);
+  const openingCompact = useIsMobile();
   const opening: GameOpeningData = useMemo(() => deriveGameOpening({
     world: currentWorld ? { name: currentWorld.name, basePrompt: currentWorld.basePrompt } : null,
     currentDate: currentGame?.currentDate ?? null,
@@ -303,11 +305,11 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     council: openingNarrative?.council ?? null,
     cabinetAddresses: cabinet?.addresses ?? null,
     items: briefing.items,
-  }), [
+  }, { compact: openingCompact }), [
     currentWorld?.name, currentWorld?.basePrompt, currentGame?.currentDate, nationalName, nationalAccount,
     nation.nationalCrisis, nation.nationalGovernment, nation.relationships, nation.relationshipNames,
     nation.strategicAgenda, worldFacts, nation.nationalResources, playerPolityId,
-    openingNarrative?.council, cabinet?.addresses, briefing.items,
+    openingNarrative?.council, cabinet?.addresses, briefing.items, openingCompact,
   ]);
 
   const finishOpening = useCallback((door?: OpeningDoor) => {
