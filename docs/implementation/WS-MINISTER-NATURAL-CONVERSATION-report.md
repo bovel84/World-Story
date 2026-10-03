@@ -61,6 +61,12 @@ Il client ritenta POST soltanto su HTTP 404/405/501, che indicano route stream a
 
 ## Verifiche eseguite
 
+Prima di ogni conteggio, i test girano con `backend-nest/dist` rimosso: la suite completa non deve raccogliere artefatti compilati.
+
+Dopo il primo run CI, due regressioni sono state corrette e verificate:
+- il protocollo `PRESENTAZIONE` conserva il formato `regionIds`/`gli id`, i divieti (`niente HTML`, `niente geometrie`) e l’assenza di cifre proprie, come richiesto da `ws-minister-ux-03`/`ux-04`;
+- il percorso stream ministeriale torna a invocare il callback di avanzamento, così il consumo SSE resta osservabile e il test HTTP di annullamento `ws-govux-p2-cancellation` passa senza reintrodurre una seconda generazione (`govuxTransport.test.ts` aggiornato: l’errore di rete non fa più fallback POST).
+
 ```sh
 npm --prefix backend-nest run build
 npm --prefix backend-nest test -- tests/ws-minister-natural-conversation.test.ts tests/ws-minister-natural-dialogue.test.ts tests/p02b-minister-chat.test.ts tests/ws-minister-ux-02.test.ts tests/ws-minister-ux-03.test.ts tests/ws-gov-dialogue-to-act.test.ts tests/ws-gov-minister-world-context.test.ts tests/ws-jev-w3-minister.test.ts tests/ws-jev-w4-context.test.ts
@@ -82,6 +88,14 @@ node_modules/.bin/playwright test tests/ws-minister-natural-dialogue.spec.mjs
 
 git diff --check
 # verde.
+
+# Suite complete, come nel gate CI test-build:
+cd backend-nest && npm test
+# 225 file, 2384 test verdi (dist rimosso prima).
+cd ../frontend && ../node_modules/.bin/vitest run
+# 149 file, 1287 test verdi.
+cd .. && npm run build
+# backend + frontend verdi.
 ```
 
 I test real-route con provider stub coprono dieci turni per ciascun modo JEV, normal/stream alternati: ragionamento, follow-up, obiezione, ipotesi 50/50, conferma, cambio direzione, tavola, redirect. I messaggi passano nel parser/reducer DecisionWorkspace reale con riferimenti messageId verificati. Ulteriori casi mirati: guasto provider, stile rifiutato senza rigenerazione, cancellazione, isolamento concorrente ALS e dossier contraffatti sul Consigliere.

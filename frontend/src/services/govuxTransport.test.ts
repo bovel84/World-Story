@@ -43,13 +43,13 @@ describe('GOVUX trasporto firma/cancellazione', () => {
     expect(tokens).toHaveBeenCalledTimes(1); expect(tokens).toHaveBeenCalledWith('primo');
     expect(fetchMock).toHaveBeenCalledTimes(1); expect(stream.locked).toBe(false);
   });
-  it('fallback per errore non di annullamento conserva lo stesso signal', async () => {
+  it('un errore di rete non avvia una seconda generazione ambigua', async () => {
     const controller = new AbortController();
-    const fetchMock = vi.fn().mockRejectedValueOnce(new Error('rete')).mockResolvedValueOnce(new Response(JSON.stringify({ reply: 'Risposta' })));
+    const fetchMock = vi.fn().mockRejectedValue(new Error('rete'));
     vi.stubGlobal('fetch', fetchMock);
     const token = vi.fn();
-    expect(await ministerApi.askStream('game', 'tesoro', 'Domanda', [], token, [], controller.signal)).toBe('Risposta');
-    expect(fetchMock.mock.calls[1][0]).toBe('/api/games/game/government/minister/tesoro');
-    expect(fetchMock.mock.calls[1][1].signal).toBe(controller.signal); expect(token).toHaveBeenCalledWith('Risposta');
+    await expect(ministerApi.askStream('game', 'tesoro', 'Domanda', [], token, [], controller.signal)).rejects.toThrow('rete');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(token).not.toHaveBeenCalled();
   });
 });

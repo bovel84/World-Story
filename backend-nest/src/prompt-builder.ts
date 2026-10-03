@@ -1600,7 +1600,9 @@ export class PromptEngine {
       // La prosa e le direttive vengono pubblicate insieme dopo il controllo stilistico.
       // L'endpoint resta cancellabile e text/plain; nessuna seconda generazione.
       return ministerDialogueResponse(dialogue.brief, async () => {
-        const response = await this.llm.stream('advisor', 'Sei il ministro indicato e parli personalmente con il Presidente, non un report.', dialogue.prompt, () => {}, { temperature: 0.7, signal });
+        // L'avanzamento resta osservabile (annullamento/consumo SSE): il route
+        // ignora i numeri, quindi il testo validato parte comunque una volta sola.
+        const response = await this.llm.stream('advisor', 'Sei il ministro indicato e parli personalmente con il Presidente, non un report.', dialogue.prompt, chars => onToken(chars), { temperature: 0.7, signal });
         return response.content;
       }, signal);
     }
