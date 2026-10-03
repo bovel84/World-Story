@@ -39,7 +39,7 @@ import { HistoryService } from './game/HistoryService';
 import { OutboxService } from './game/OutboxService';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { clampTaxRatePct, DEFAULT_FISCAL_POLICY, describeFiscalEffects, fiscalShockModifier, FISCAL_MAX_PCT, FISCAL_MIN_PCT, fiscalLabel, type FiscalPolicy } from './core/simulation/FiscalPolicy';
-import { type PressureEffect } from './core/simulation/PeacetimePressures';
+import { composePressureEffects, type PressureEffect, type PressureOption } from './core/simulation/PeacetimePressures';
 import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import { readCabinetSession } from './game/GovernmentReadings';
@@ -1035,6 +1035,8 @@ export class GameSession {
     pressures: PressureRecord[];
     recent: PressureRecord[];
     foodCoverageMonths: number | null;
+    /** P1.8 — i seguiti dovuti delle decisioni passate. */
+    followUps: ReturnType<NationStateService['getPeacetimePressures']>['followUps'];
   } {
     return this.nationState.getPeacetimePressures(Boolean(this.ending));
   }
@@ -1043,7 +1045,14 @@ export class GameSession {
    * Il giocatore risponde a una sfida. La scelta è idempotente: risolvere due
    * volte la stessa pressione non applica l'effetto una seconda volta.
    */
-  resolvePeacetimePressure(pressureId: string, optionId: string): {
+  /**
+   * Chiude una sfida con la scelta del Presidente: una sola opzione, oppure una
+   * decisione COMPOSTA (P1.6) — «il battaglione per novanta giorni E il canale
+   * diplomatico» è una decisione legittima, e i suoi effetti sono la somma di
+   * quelli del motore, con gli stessi tetti. La risoluzione resta idempotente: su
+   * una sfida già chiusa non produce un secondo effetto.
+   */
+  resolvePeacetimePressure(pressureId: string, optionIdOrIds: string | readonly string[]): {
     pressure: PressureRecord;
     effect: PressureEffect;
     account?: NationalAccount;
@@ -1053,24 +1062,31 @@ export class GameSession {
     this.assertPlayable();
     const record = gameRepository.listPressures(this.id, 'active').find(item => item.id === pressureId);
     if (!record) throw new Error('pressure_not_active: la sfida non è più aperta');
-    const option = record.options.find(item => item.id === optionId);
-    if (!option) throw new Error('pressure_option_unknown: opzione non valida');
-    if (option.effect.moneyDeltaMld && option.effect.moneyDeltaMld < 0) {
+    const ids = (Array.isArray(optionIdOrIds) ? optionIdOrIds : [optionIdOrIds])
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    const options = ids
+      .map(id => record.options.find(item => item.id === id))
+      .filter((option): option is PressureOption => Boolean(option));
+    if (options.length === 0) throw new Error('pressure_option_unknown: opzione non valida');
+    const effect = options.length === 1 ? options[0].effect : composePressureEffects(options.map(item => item.effect));
+    if (effect.moneyDeltaMld && effect.moneyDeltaMld < 0) {
       const stock = this.resourceStock(this.playerPolityId);
-      if (Number(stock.money || 0) + option.effect.moneyDeltaMld < 0) {
+      if (Number(stock.money || 0) + effect.moneyDeltaMld < 0) {
         throw new Error('insufficient_funds: cassa insufficiente per questa scelta');
       }
     }
-    this.applyPressureEffect(option.effect, `${record.title}: ${option.label}`);
-    if (!gameRepository.resolvePressure(this.id, pressureId, optionId, option.effect.note, this.currentDate)) {
+    const label = options.map(item => item.label).join(' + ');
+    this.applyPressureEffect(effect, `${record.title}: ${label}`);
+    const resolvedOption = options.map(item => item.id).join(',');
+    if (!gameRepository.resolvePressure(this.id, pressureId, resolvedOption, effect.note, this.currentDate)) {
       throw new Error('pressure_not_active: la sfida è stata già chiusa');
     }
     // GAMEPLAY-LONG P1: la fazione che premeva ricorda com'è stata trattata.
-    const memory = this.nationState.recordPressureMemory(record, optionId, option.effect, option.label);
+    const memory = this.nationState.recordPressureMemory(record, resolvedOption, effect, label);
     this.governmentVoices = null;
     return {
-      pressure: { ...record, status: 'resolved', resolvedOption: optionId, resolution: option.effect.note, resolvedDate: this.currentDate },
-      effect: option.effect,
+      pressure: { ...record, status: 'resolved', resolvedOption, resolution: effect.note, resolvedDate: this.currentDate },
+      effect,
       account: this.sessionAccounts()[this.playerPolityId],
       memory,
     };

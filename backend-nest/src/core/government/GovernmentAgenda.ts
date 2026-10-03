@@ -27,6 +27,7 @@
  */
 
 import { IntString, parseInteger, intToString } from '../../domain/quantities';
+import { formatGovernmentNumber, governmentFigureValue } from './GovernmentNumberFormat';
 
 /** Da dove viene un numero mostrato al giocatore. */
 export type FigureBasis =
@@ -294,15 +295,15 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
       need: deficit
         ? 'Il bilancio chiude in disavanzo e va finanziato'
         : 'Il bilancio chiude in avanzo: decidere che farne',
-      because: `Il saldo di bilancio è ${flow.balance} ${flow.unit} (${flow.balancePct}% del PIL), con un carico fiscale effettivo del ${input.budget.effectiveTaxRatePct}%. Il debito è al ${input.debt.ratioPct}% del PIL e gli interessi assorbono il ${input.debt.servicePct}% delle entrate.`,
+      because: `Il saldo di bilancio è ${formatGovernmentNumber(flow.balance, 'money')} ${flow.unit} (${formatGovernmentNumber(flow.balancePct, 'percent')}% del PIL), con un carico fiscale effettivo del ${formatGovernmentNumber(input.budget.effectiveTaxRatePct, 'percent')}%. Il debito è al ${formatGovernmentNumber(input.debt.ratioPct, 'percent')}% del PIL e gli interessi assorbono il ${formatGovernmentNumber(input.debt.servicePct, 'percent')}% delle entrate.`,
       urgency: input.debt.servicePct >= 15 || Math.abs(flow.balancePct) >= 5 ? 'urgente' : 'ordinaria',
       factionId: null,
       figures: [
-        { label: 'Saldo di bilancio', value: flow.balance, unit: `${flow.unit}`, basis: measured('conti nazionali') },
-        { label: 'Saldo su PIL', value: String(flow.balancePct), unit: '%', basis: measured('conti nazionali') },
-        { label: 'Debito su PIL', value: String(input.debt.ratioPct), unit: '%', basis: measured('conti nazionali') },
-        { label: 'Interessi su entrate', value: String(input.debt.servicePct), unit: '%', basis: measured('conti nazionali') },
-        { label: 'Prelievo effettivo', value: String(input.budget.effectiveTaxRatePct), unit: '%', basis: measured('conti nazionali') },
+        { label: 'Saldo di bilancio', value: governmentFigureValue(flow.balance, 'money'), unit: `${flow.unit}`, basis: measured('conti nazionali') },
+        { label: 'Saldo su PIL', value: governmentFigureValue(flow.balancePct, 'percent'), unit: '%', basis: measured('conti nazionali') },
+        { label: 'Debito su PIL', value: governmentFigureValue(input.debt.ratioPct, 'percent'), unit: '%', basis: measured('conti nazionali') },
+        { label: 'Interessi su entrate', value: governmentFigureValue(input.debt.servicePct, 'percent'), unit: '%', basis: measured('conti nazionali') },
+        { label: 'Prelievo effettivo', value: governmentFigureValue(input.budget.effectiveTaxRatePct, 'percent'), unit: '%', basis: measured('conti nazionali') },
       ],
       paths: deficit
         ? [
@@ -349,12 +350,12 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
     voices.push({
       id: 'debt_service',
       need: 'Gli interessi sul debito assorbono una quota rilevante delle entrate',
-      because: `Il rapporto debito/PIL è al ${input.debt.ratioPct}% e il servizio del debito pesa il ${input.debt.servicePct}% delle entrate.`,
+      because: `Il rapporto debito/PIL è al ${formatGovernmentNumber(input.debt.ratioPct, 'percent')}% e il servizio del debito pesa il ${formatGovernmentNumber(input.debt.servicePct, 'percent')}% delle entrate.`,
       urgency: input.debt.servicePct >= 25 ? 'critica' : 'urgente',
       factionId: null,
       figures: [
-        { label: 'Debito su PIL', value: String(input.debt.ratioPct), unit: '%', basis: measured('conti nazionali') },
-        { label: 'Interessi su entrate', value: String(input.debt.servicePct), unit: '%', basis: measured('conti nazionali') },
+        { label: 'Debito su PIL', value: governmentFigureValue(input.debt.ratioPct, 'percent'), unit: '%', basis: measured('conti nazionali') },
+        { label: 'Interessi su entrate', value: governmentFigureValue(input.debt.servicePct, 'percent'), unit: '%', basis: measured('conti nazionali') },
       ],
       paths: [
         {
@@ -393,13 +394,13 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
     voices.push({
       id: `faction_${faction.id}`,
       need: `${faction.name}: ${faction.demandTitle}`,
-      because: `${faction.name} ha il ${faction.powerPct}% dell'influenza e una soddisfazione di ${faction.satisfaction}/100 (${faction.stance}). ${faction.demandDetail}`,
+      because: `${faction.name} ha il ${formatGovernmentNumber(faction.powerPct, 'ratio')}% dell'influenza e una soddisfazione di ${formatGovernmentNumber(faction.satisfaction, 'ratio')}/100 (${faction.stance}). ${faction.demandDetail}`,
       urgency: faction.satisfaction < 28 ? 'critica' : 'urgente',
       factionId: faction.id,
       figures: [
-        { label: 'Influenza', value: String(faction.powerPct), unit: '%', basis: measured('fotografia del governo') },
-        { label: 'Soddisfazione', value: String(faction.satisfaction), unit: '/100', basis: measured('fotografia del governo') },
-        { label: 'Urgenza della richiesta', value: String(faction.urgency), unit: '/100', basis: measured('fotografia del governo') },
+        { label: 'Influenza', value: governmentFigureValue(faction.powerPct, 'ratio'), unit: '%', basis: measured('fotografia del governo') },
+        { label: 'Soddisfazione', value: governmentFigureValue(faction.satisfaction, 'ratio'), unit: '/100', basis: measured('fotografia del governo') },
+        { label: 'Urgenza della richiesta', value: governmentFigureValue(faction.urgency, 'ratio'), unit: '/100', basis: measured('fotografia del governo') },
       ],
       paths: [
         {
@@ -475,19 +476,19 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
         : heavy
           ? 'La spesa militare pesa sul bilancio più di quanto il paese regga'
           : 'Lo strumento militare è finanziato: decidere se basta',
-      because: `La difesa vale il ${defence.burdenPct}% del PIL, con ${defence.forces} reparti in forza e ${defence.mobilized} mobilitati.${
+      because: `La difesa vale il ${formatGovernmentNumber(defence.burdenPct, 'percent')}% del PIL, con ${formatGovernmentNumber(defence.forces, 'integer')} reparti in forza e ${formatGovernmentNumber(defence.mobilized, 'integer')} mobilitati.${
         defence.factionSatisfaction !== null
-          ? ` I comandi esprimono una soddisfazione di ${defence.factionSatisfaction}/100.`
+          ? ` I comandi esprimono una soddisfazione di ${formatGovernmentNumber(defence.factionSatisfaction, 'ratio')}/100.`
           : ''
       }`,
       urgency: light && defence.burdenPct < 1.5 ? 'urgente' : 'ordinaria',
       factionId: null,
       figures: [
-        { label: 'Spesa di difesa', value: String(defence.burdenPct), unit: '% del PIL', basis: measured('conto nazionale') },
-        { label: 'Reparti in forza', value: String(defence.forces), unit: 'reparti', basis: measured('conto nazionale') },
-        { label: 'Mobilitati', value: String(defence.mobilized), unit: 'uomini', basis: measured('conto nazionale') },
+        { label: 'Spesa di difesa', value: governmentFigureValue(defence.burdenPct, 'percent'), unit: '% del PIL', basis: measured('conto nazionale') },
+        { label: 'Reparti in forza', value: governmentFigureValue(defence.forces, 'integer'), unit: 'reparti', basis: measured('conto nazionale') },
+        { label: 'Mobilitati', value: governmentFigureValue(defence.mobilized, 'integer'), unit: 'uomini', basis: measured('conto nazionale') },
         ...(defence.factionSatisfaction !== null
-          ? [{ label: 'Soddisfazione dei comandi', value: String(defence.factionSatisfaction), unit: '/100', basis: measured('fotografia del governo') }]
+          ? [{ label: 'Soddisfazione dei comandi', value: governmentFigureValue(defence.factionSatisfaction, 'ratio'), unit: '/100', basis: measured('fotografia del governo') }]
           : []),
       ],
       paths: light
@@ -559,14 +560,14 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
     const education = input.education;
     voices.push({
       id: 'education_condition',
-      need: `L’istruzione e la ricerca valgono il ${education.burdenPct}% del PIL: decidere se basta`,
-      because: `La spesa per istruzione e ricerca è il ${education.burdenPct}% del PIL, con ${education.universities} atenei e una tensione sociale di ${education.socialTension}/100.`,
+      need: `L’istruzione e la ricerca valgono il ${formatGovernmentNumber(education.burdenPct, 'percent')}% del PIL: decidere se basta`,
+      because: `La spesa per istruzione e ricerca è il ${formatGovernmentNumber(education.burdenPct, 'percent')}% del PIL, con ${formatGovernmentNumber(education.universities, 'integer')} atenei e una tensione sociale di ${formatGovernmentNumber(education.socialTension, 'ratio')}/100.`,
       urgency: 'ordinaria',
       factionId: null,
       figures: [
-        { label: 'Spesa per istruzione e ricerca', value: String(education.burdenPct), unit: '% del PIL', basis: estimated('conti nazionali', 'ripartizione delle uscite civili su atenei e ricerca') },
-        { label: 'Atenei', value: String(education.universities), unit: 'atenei', basis: measured('conto nazionale') },
-        { label: 'Tensione sociale', value: String(education.socialTension), unit: '/100', basis: measured('conto nazionale') },
+        { label: 'Spesa per istruzione e ricerca', value: governmentFigureValue(education.burdenPct, 'percent'), unit: '% del PIL', basis: estimated('conti nazionali', 'ripartizione delle uscite civili su atenei e ricerca') },
+        { label: 'Atenei', value: governmentFigureValue(education.universities, 'integer'), unit: 'atenei', basis: measured('conto nazionale') },
+        { label: 'Tensione sociale', value: governmentFigureValue(education.socialTension, 'ratio'), unit: '/100', basis: measured('conto nazionale') },
       ],
       paths: [
         {
@@ -593,14 +594,14 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
     const health = input.health;
     voices.push({
       id: 'health_condition',
-      need: `La spesa sociale (sanità e sostegno) vale il ${health.socialBurdenPct}% del PIL: decidere come sostenerla`,
-      because: `La spesa sociale è il ${health.socialBurdenPct}% del PIL — sanità e sostegno insieme, non la sola sanità — con una popolazione di ${health.population} e una stabilità di ${health.stability}/100.`,
+      need: `La spesa sociale (sanità e sostegno) vale il ${formatGovernmentNumber(health.socialBurdenPct, 'percent')}% del PIL: decidere come sostenerla`,
+      because: `La spesa sociale è il ${formatGovernmentNumber(health.socialBurdenPct, 'percent')}% del PIL — sanità e sostegno insieme, non la sola sanità — con una popolazione di ${formatGovernmentNumber(health.population, 'integer')} e una stabilità di ${formatGovernmentNumber(health.stability, 'ratio')}/100.`,
       urgency: 'ordinaria',
       factionId: null,
       figures: [
-        { label: 'Spesa sociale (sanità e sostegno)', value: String(health.socialBurdenPct), unit: '% del PIL', basis: estimated('conti nazionali', 'ripartizione delle uscite civili su sanità, popolazione e sostegno') },
-        { label: 'Popolazione', value: String(health.population), unit: 'abitanti', basis: measured('conto nazionale') },
-        { label: 'Stabilità', value: String(health.stability), unit: '/100', basis: measured('conto nazionale') },
+        { label: 'Spesa sociale (sanità e sostegno)', value: governmentFigureValue(health.socialBurdenPct, 'percent'), unit: '% del PIL', basis: estimated('conti nazionali', 'ripartizione delle uscite civili su sanità, popolazione e sostegno') },
+        { label: 'Popolazione', value: governmentFigureValue(health.population, 'integer'), unit: 'abitanti', basis: measured('conto nazionale') },
+        { label: 'Stabilità', value: governmentFigureValue(health.stability, 'ratio'), unit: '/100', basis: measured('conto nazionale') },
       ],
       paths: [
         {

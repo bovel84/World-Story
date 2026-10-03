@@ -6,6 +6,7 @@ import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { CabinetSession } from './CabinetSession';
 import { OrderRegister } from './OrderRegister';
 import { CouncilRoomView } from './CouncilRoomView';
+import { GovernmentSituations } from './GovernmentSituations';
 import { CouncilRoomBoard } from './CouncilRoomBoard';
 import { ActDraftPanel } from './ActDraftPanel';
 import { SeatCanvas } from './SeatCanvas';
@@ -195,9 +196,9 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
     if (currentRef.current.memoryKey === memoryKey) setMemoryCache({ key: memoryKey, records });
   }, [currentDate, currentTurn, memoryScope, memoryKey]);
 
-  const startRoom = (seat: CabinetSeat): void => {
+  const startRoom = (seat: CabinetSeat, topic = ''): void => {
     interrupt();
-    const next = createCouncilRoom({ id: crypto.randomUUID(), scopeKey, initiatorMinister: seat });
+    const next = { ...createCouncilRoom({ id: crypto.randomUUID(), scopeKey, initiatorMinister: seat }), topic };
     updateRoom(next);
     setActiveId(next.id);
     setTarget('council');
@@ -386,6 +387,14 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
       {evidenceCanvas.mains.map(main => main.block && <SeatCanvas key={main.block.id} blocks={[main.block]} focusLabel={main.focusLabel} focusRegionIds={main.regionIds} />)}
       {evidenceCanvas.comparison && <ProposalComparison roads={evidenceCanvas.comparison.roads} />}
     </section>}
+    <details className="council-board-evidence"><summary>Dati e fascicoli dei partecipanti</summary>
+      {activeRoom.participants.map(seat => {
+        const address = session?.addresses.find(candidate => candidate.seat === seat);
+        if (!address) return null;
+        const blocks = catalogs[seat] ?? [];
+        return <section key={seat} className="council-board-dossier"><h3>{seatSpeaker(seat)}</h3><p>{address.reads}</p><SeatCanvas blocks={blocks} /></section>;
+      })}
+    </details>
     {draft && <>
       {stale && <p className="council-board-warning" role="status">La discussione ha modificato la proposta. {draft.signatureAttempted ? 'La firma già tentata conserva il testo originale per la verifica e i retry.' : 'Prepara una nuova bozza comune prima di firmare.'}</p>}
       {draft.signatureAttempted && <p className="council-board-warning">Firma già tentata: la bozza e la chiave restano immutabili. Per una nuova preparazione annulla esplicitamente questa bozza; un atto già registrato va ritirato dal registro.</p>}
@@ -397,14 +406,6 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
         onEdit={text => { if (!draft.signatureAttempted && !busy) setDrafts(previous => ({ ...previous, [activeRoom.id]: { ...draft, text } })); }}
         onSign={signDraft} onCancel={() => setDrafts(previous => { const next = { ...previous }; delete next[activeRoom.id]; return next; })} />
     </>}
-    <details className="council-board-evidence"><summary>Dati e fascicoli dei partecipanti</summary>
-      {activeRoom.participants.map(seat => {
-        const address = session?.addresses.find(candidate => candidate.seat === seat);
-        if (!address) return null;
-        const blocks = catalogs[seat] ?? [];
-        return <section key={seat} className="council-board-dossier"><h3>{seatSpeaker(seat)}</h3><p>{address.reads}</p><SeatCanvas blocks={blocks} /></section>;
-      })}
-    </details>
   </CouncilRoomBoard>;
 
   return <AccessibleDialog open={open} onClose={onClose} closeOnEscape={!sheetOpen} closeOnBackdrop={!sheetOpen}
@@ -432,6 +433,7 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
       {Object.values(rooms).filter(candidate => candidate.scopeKey === scopeKey).map(candidate => <button type="button" key={candidate.id} className="council-room-resume" onClick={() => { setTarget('council'); setActiveId(candidate.id); }}>
         Riprendi seduta · {candidate.topic || seatSpeaker(candidate.initiatorMinister)} · {candidate.participants.length} ministri
       </button>)}
+      <GovernmentSituations pressures={pictureSources.pressures} onOpen={situation => startRoom(situation.leadMinister as CabinetSeat, situation.decisionQuestion)} />
       <CabinetSession variant="pick" session={session} agenda={agenda} loading={sessionLoading} error={sessionError} onOpenSeat={address => startRoom(address.seat)} />
     </>}
   </AccessibleDialog>;

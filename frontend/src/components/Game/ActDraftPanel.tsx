@@ -133,6 +133,9 @@ export function ActDraftPanel({ draft, status, busy = false, signDisabled = fals
           </button>
         )}
       </div>
+      {/* P0.5 — Un atto registrato lo DICE: è l'ultimo elemento della Tavola, quindi
+          resta visibile quando il corpo scorre fino in fondo. */}
+      {queued && <p className="act-draft-registered" role="status">ATTO INSERITO NEL REGISTRO</p>}
     </section>
   );
 }

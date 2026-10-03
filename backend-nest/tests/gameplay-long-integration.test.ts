@@ -12,6 +12,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
+import { SITUATION_FOLLOW_UP_DAYS } from '../src/core/government/GovernmentSituations';
 
 const TEST_DB = path.join(os.tmpdir(), `world-story-gplong-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
@@ -281,5 +282,97 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     expect(branchMemory).toEqual([]);
     // Il ramo principale conserva invece ciò che ha firmato.
     expect(repos2.commitmentRepository.list(gameId).length).toBeGreaterThan(0);
+  });
+
+  it('P2-A — una decisione composta (forza + diplomazia) applica la somma degli effetti del motore', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    const player = session.getPlayer();
+    const incident = pressure('gov#border', {
+      kind: 'external', template: 'border-incident', title: 'Incidente di frontiera con la Francia',
+      detail: 'Due militari uccisi al valico.', severity: 3, source: 'Comando di frontiera', durationDays: 60,
+      options: [
+        { id: 'retaliate', label: 'Rispondere con la forza', detail: 'Colpo di mano.', effect: { relationship: { target: 'GAL', direction: 'degrade' }, stability: 4, socialTension: 6, note: 'Rappresaglia: escalation possibile.' } },
+        { id: 'internationalize', label: 'Portare il caso all’ONU', detail: 'Tribuna internazionale.', effect: { socialTension: -3, stability: 2, note: 'Caso portato alla tribuna internazionale.' } },
+      ],
+      inaction: { socialTension: 7, stability: -4, note: 'Incidente senza risposta.' },
+    });
+    repos.gameRepository.insertPressures(gameId, player.polityId, [incident], session.getCurrentDate(), session.getCurrentTurn());
+
+    const result = session.resolvePeacetimePressure('gov#border', ['retaliate', 'internationalize']);
+    expect(result.pressure.status).toBe('resolved');
+    expect(result.pressure.resolvedOption).toBe('retaliate,internationalize');
+    expect(result.effect.stability).toBe(6);
+    expect(result.effect.socialTension).toBe(3);
+    expect(result.effect.note).toContain('Rappresaglia');
+    expect(result.effect.note).toContain('tribuna');
+    // Idempotente: una sfida chiusa non produce un secondo effetto.
+    expect(() => session.resolvePeacetimePressure('gov#border', 'retaliate')).toThrow(/pressure_not_active/);
+  });
+
+  it('P2-C — una soluzione mista è composta dagli effetti reali delle opzioni scelte', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    const player = session.getPlayer();
+    const refugees = pressure('gov#ref', {
+      kind: 'external', template: 'refugee-flow', title: 'Profughi dalla Francia',
+      detail: 'Migliaia di civili al confine meridionale.', severity: 2, source: 'Prefetture di frontiera', durationDays: 60,
+      options: [
+        { id: 'camps', label: 'Campi controllati', detail: 'Accoglienza limitata.', effect: { socialTension: 2, note: 'Campi allestiti ai valichi.' } },
+        { id: 'close-border', label: 'Chiudere il confine', detail: 'Frontiera blindata.', effect: { relationship: { target: 'GAL', direction: 'degrade' }, socialTension: -3, stability: -2, note: 'Confine chiuso.' } },
+      ],
+      inaction: { socialTension: 6, stability: -3, note: 'Caos ai valichi.' },
+    });
+    repos.gameRepository.insertPressures(gameId, player.polityId, [refugees], session.getCurrentDate(), session.getCurrentTurn());
+
+    const result = session.resolvePeacetimePressure('gov#ref', ['camps', 'close-border']);
+    expect(result.effect.socialTension).toBe(-1);
+    expect(result.effect.stability).toBe(-2);
+    expect(result.effect.relationship).toEqual({ target: 'GAL', direction: 'degrade' });
+    expect(result.pressure.resolvedOption).toBe('camps,close-border');
+  });
+
+  it('P2-B — alla scadenza l’inerzia presenta il conto, senza una decisione inventata', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    const player = session.getPlayer();
+    repos.gameRepository.insertPressures(gameId, player.polityId, [pressure('gov#infl', {
+      kind: 'internal', template: 'inflation-spiral', title: 'Spirale inflazionistica',
+      detail: 'Il disavanzo è al 6% del PIL: i prezzi corrono.', severity: 2, source: 'Banca centrale', durationDays: 30,
+    })], session.getCurrentDate(), session.getCurrentTurn());
+
+    await session.advanceDate(31);
+    const expired = session.getPeacetimePressures().recent.find((item: any) => item.id === 'gov#infl');
+    expect(expired?.status).toBe('expired');
+    expect(expired?.resolution || '').toMatch(/inerzia|Scaduta/i);
+  });
+
+  it('P2-D — una nuova situazione nata da una decisione passata dichiara la provenienza', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    const player = session.getPlayer();
+    repos.gameRepository.insertPressures(gameId, player.polityId, [pressure('gov#old')], session.getCurrentDate(), session.getCurrentTurn());
+    session.resolvePeacetimePressure('gov#old', 'concede');
+    repos.gameRepository.insertPressures(gameId, player.polityId, [pressure('gov#new')], session.getCurrentDate(), session.getCurrentTurn());
+
+    const situation = session.getPeacetimePressures().pressures.find((item: any) => item.id === 'gov#new')?.situation;
+    expect(situation?.origin).toEqual({ type: 'previous-decision', sourceId: 'gov#old' });
+  });
+
+  it('P1.8 — alla data del seguito il ministro competente torna con i fatti di oggi', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    const player = session.getPlayer();
+    repos.gameRepository.insertPressures(gameId, player.polityId, [pressure('gov#follow')], session.getCurrentDate(), session.getCurrentTurn());
+    session.resolvePeacetimePressure('gov#follow', 'concede');
+    // Prima della data non c'è ancora un seguito da riferire.
+    expect((session.getPeacetimePressures() as any).followUps ?? []).toHaveLength(0);
+
+    await session.advanceDate(SITUATION_FOLLOW_UP_DAYS);
+    const followUp = ((session.getPeacetimePressures() as any).followUps ?? []).find((item: any) => item.pressureId === 'gov#follow');
+    expect(followUp).toBeTruthy();
+    expect(followUp.origin).toEqual({ type: 'previous-decision', sourceId: 'gov#follow' });
+    expect(followUp.owner).toBe('interno');
+    expect(followUp.outcome.length).toBeGreaterThan(0);
   });
 });

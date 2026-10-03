@@ -46,6 +46,44 @@ export interface PressureOption {
   effect: PressureEffect;
 }
 
+/**
+ * WS-GOV-SITUATIONS P1.6 — La decisione COMPOSTA.
+ *
+ * Il Presidente non è costretto a una sola opzione: «mandiamo il battaglione per
+ * tre mesi ma apriamo anche il canale diplomatico» è una decisione legittima.
+ * Qui gli effetti delle opzioni scelte si sommano con gli stessi tetti del
+ * motore: i punteggi 0-100, le frazioni a 4 decimali, la cassa a 2. Le
+ * relazioni NON si sommano (non ha senso «migliorare e peggiorare»): vale
+ * l'ultima dichiarata. La nota le tiene tutte, perché il registro deve dire cosa
+ * si è deciso. Nessun effetto nuovo viene inventato: è la somma di quelli del
+ * motore.
+ */
+export function composePressureEffects(effects: readonly PressureEffect[]): PressureEffect {
+  const composed: PressureEffect = { note: '' };
+  let stability = 0;
+  let socialTension = 0;
+  let growth = 0;
+  let revenue = 0;
+  let money = 0;
+  const notes: string[] = [];
+  for (const effect of effects) {
+    stability += Number(effect.stability) || 0;
+    socialTension += Number(effect.socialTension) || 0;
+    growth += Number(effect.growthModifier) || 0;
+    revenue += Number(effect.revenueMultiplierDelta) || 0;
+    money += Number(effect.moneyDeltaMld) || 0;
+    if (effect.relationship) composed.relationship = { ...effect.relationship };
+    if (effect.note) notes.push(effect.note);
+  }
+  if (stability !== 0) composed.stability = Math.round(stability);
+  if (socialTension !== 0) composed.socialTension = Math.round(socialTension);
+  if (growth !== 0) composed.growthModifier = round4(growth);
+  if (revenue !== 0) composed.revenueMultiplierDelta = round4(revenue);
+  if (money !== 0) composed.moneyDeltaMld = round2(money);
+  composed.note = notes.join(' ');
+  return composed;
+}
+
 export interface Pressure {
   /** Stabile: stesse condizioni → stesso id (chiave di risoluzione). */
   id: string;
