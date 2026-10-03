@@ -144,6 +144,7 @@ export function personaSection(persona: MinisterPersona): string {
     `- Propensione al rischio: ${persona.risk}`,
     `- Col Presidente: ${persona.president}`,
     `- La tua cifra di stile: ${persona.signature}`,
+    '- La signature descrive il registro: usala letteralmente raramente, mai come prefisso obbligatorio. Il mandato guida il tuo lavoro, non va recitato al Presidente.',
     '',
     'LA TUA VOCE PREVALE SULLO STILE GENERICO:',
     '- Tu sei il titolare di questa sedia del governo, non un consigliere generico: parli in prima persona, con la tua voce, e non come un rapporto o un bollettino.',
@@ -154,40 +155,55 @@ export function personaSection(persona: MinisterPersona): string {
 
 /** Il minimo che serve per comporre il primo messaggio: già composto dal motore. */
 export interface FirstMessageItem {
+  readonly voiceId?: string;
+  readonly id?: string;
+  readonly figures?: readonly { readonly label: string; readonly value: string; readonly unit: string; readonly basis?: { readonly kind: string } }[];
   readonly need: string;
   readonly because?: string;
   readonly urgency?: string;
   readonly paths?: readonly { readonly title: string }[];
 }
 
-/**
- * Il **vero primo messaggio** di una sedia: presenta l'incarico, riassume una o
- * due questioni, invita il Presidente a indicare la priorità. Sostituisce la
- * frase secca «Ho N cose da portare al consiglio».
- *
- * Composto dai soli campi del motore (`mandate`, `need`, `because`, `urgency`,
- * `paths[].title`): nessuna cifra, nessun aneddoto. Se non c'è nulla da
- * portare, non finge una preoccupazione e lo dice.
- */
-export function firstMessage(seat: CabinetSeat, items: readonly FirstMessageItem[]): string {
-  const persona = personaFor(seat);
+/** Solo fallback offline: nessun mandato recitato, nessuna lettura need + because. */
+export function fallbackFirstMessage(seat: CabinetSeat, items: readonly FirstMessageItem[]): string {
   if (items.length === 0) {
-    return `${persona.mandate} Non ho nulla da portare al consiglio in questo momento: Chiedimi quello che vuoi.`;
+    return 'Presidente, non ho nulla da portare al consiglio in questo momento. Chiedimi quello che vuoi.';
   }
   const first = items[0];
-  const count = items.length;
-  const parts: string[] = [persona.mandate];
-  parts.push(`Ho ${count} ${count === 1 ? 'cosa' : 'cose'} da portare al consiglio.`);
-  if (first.urgency === 'critica') parts.push('È la cosa più urgente che ho.');
-  // Una o due questioni: mai un elenco. La prima è quella che urge di più.
-  for (const item of items.slice(0, 2)) {
-    parts.push(`${item.need}${item.because ? ` — ${item.because}` : ''}`);
+  const frames: Record<CabinetSeat, { lead: string; advice: string; question: string }> = {
+    tesoro: { lead: 'Presidente, partirei dai conti.', advice: 'Io verificherei le coperture prima di impegnare risorse: non vorrei toglierci margine per domani.', question: 'Vuoi che confrontiamo le coperture necessarie?' },
+    lavori: { lead: 'Presidente, guardiamo cosa possiamo mettere in cantiere.', advice: 'Io partirei dal passo concretamente avviabile, verificando materiali e tempi prima di promettere una partenza.', question: 'Vuoi che guardiamo cosa serve per partire?' },
+    istruzione: { lead: 'Presidente, qui guarderei anche al paese che stiamo preparando.', advice: 'Io valuterei prima ciò che dà continuità alla formazione, senza sacrificare il lungo periodo alla fretta.', question: 'Vuoi che confrontiamo gli effetti sulla formazione?' },
+    sanita: { lead: 'Presidente, prima dei conti guarderei alle persone.', advice: 'Io darei precedenza a ciò che protegge chi aspetta cure e sostegno, verificando quanto possiamo coprire.', question: 'Vuoi che guardiamo quale intervento protegge meglio chi aspetta?' },
+    esteri: { lead: 'Presidente, mi muoverei senza chiuderci porte inutilmente.', advice: 'Io confronterei le alternative anche per il loro costo nelle relazioni, prima di assumere un impegno.', question: 'Vuoi che valutiamo i rischi delle alternative?' },
+    interno: { lead: 'Presidente, guarderei a chi resta fuori dalla scelta.', advice: 'Io cercherei una strada che tenga insieme il paese, senza ignorare chi dovrà sostenerne il costo.', question: 'Vuoi che confrontiamo le conseguenze sulla coesione?' },
+    guerra: { lead: 'Presidente, distinguerei il necessario dal desiderabile.', advice: 'Io verificherei prima ciò che possiamo sostenere con le forze e le scorte disponibili, senza improvvisare.', question: 'Vuoi che guardiamo le condizioni necessarie per procedere?' },
+  };
+  const frame = frames[seat];
+  const figures = items.flatMap(item => item.figures ?? []).filter(figure => figure.basis?.kind !== 'unknown');
+  const get = (label: string) => figures.find(figure => figure.label === label);
+  const value = (figure: typeof figures[number]) => `${figure.value.replace('.', ',')} ${figure.unit}`.trim();
+  let facts = `Il punto da affrontare è questo: ${first.need.replace(/[.!?]+$/, '')}.`;
+  let advice = frame.advice;
+  let question = frame.question;
+  if (seat === 'tesoro' && items.some(item => ['treasury_condition', 'debt_service'].includes(item.voiceId ?? item.id ?? ''))) {
+    const balance = get('Saldo di bilancio');
+    const debt = get('Debito su PIL');
+    const interest = get('Interessi su entrate');
+    const sentences: string[] = [];
+    if (balance) sentences.push(`Il saldo di bilancio è ${value(balance)}.`);
+    if (debt) sentences.push(`Il debito è al ${value(debt)} del PIL${interest ? ` e gli interessi assorbono il ${value(interest)} delle entrate` : ''}.`);
+    else if (interest) sentences.push(`Gli interessi assorbono il ${value(interest)} delle entrate.`);
+    if (sentences.length) facts = sentences.join(' ');
+    const treasury = items.find(item => (item.voiceId ?? item.id) === 'treasury_condition');
+    if (treasury?.paths?.some(path => path.title === 'Ridurre il debito')) {
+      advice = 'Possiamo alleggerire il debito oppure investire il margine. Io partirei dai conti prima di impegnare tutto l’avanzo, lasciando spazio solo a investimenti ben coperti.';
+      question = 'Vuoi che confrontiamo il rimborso del debito con gli investimenti?';
+    }
   }
-  const paths = first.paths ?? [];
-  if (paths.length >= 2) {
-    parts.push(`La strada è una scelta: ${paths.map(path => path.title).join(', oppure ')}. Tocca a te decidere.`);
-  }
-  // L'invito a indicare la priorità: la decisione resta del Presidente.
-  parts.push('Dimmi tu qual è la priorità da cui partire.');
-  return parts.join(' ');
+  const urgent = items.some(item => item.urgency === 'critica') ? ' Non rinvierei il confronto: è urgente.' : '';
+  return `${frame.lead} ${facts}${urgent}\n\n${advice}\n\n${question}`;
 }
+
+/** Compatibilità per Cabinet e vecchi chiamanti: non è il renderer principale. */
+export const firstMessage = fallbackFirstMessage;

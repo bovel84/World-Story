@@ -99,7 +99,7 @@ export interface CabinetAddress {
   readonly reads: string;
   /** I bisogni che porta, ciascuno con le sue cifre e le sue strade. */
   readonly items: readonly CabinetItem[];
-  /** La frase di apertura, composta dai fatti — non una personalità inventata. */
+  /** Fallback d'apertura offline; il dialogo normale usa MinisterOpening. */
   readonly opening: string;
 }
 
@@ -197,7 +197,7 @@ export function composeCabinet(agenda: GovernmentAgenda): CabinetSession {
   };
 }
 
-/** La frase di apertura di una sedia: il vero primo messaggio (WS-MINISTER-UX-02). */
+/** Fallback d'apertura della sedia, senza chiamate LLM nella lettura del Cabinet. */
 function openingFor(seat: CabinetSeat, voices: readonly GovernmentVoice[]): string {
   return firstMessage(seat, voices);
 }

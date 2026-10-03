@@ -12,7 +12,10 @@ import { MilitaryService, createProductionNotices, type ProductionNotices } from
 import { OrderExecutionService, type PendingAction } from './game/OrderExecutionService';
 import { LLMRouter } from './llm';
 import { GameController } from './agents';
-import { PromptEngine } from './prompt-builder';
+import { PromptBuilder, PromptEngine } from './prompt-builder';
+import { buildMinisterWorldContext } from './prompts/national-context';
+import { buildMinisterOpeningBrief, renderMinisterOpening } from './core/government/MinisterOpening';
+import { memorySection } from './core/government/MinisterMemory';
 import {
   arsenalRepository, worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, operationalObjectRepository, type PressureRecord, type CrisisStateRecord, type CrisisSnapshot, type OperationalObjectsSnapshot, type ArsenalSnapshot } from './repositories';
 import { captureEconomicSnapshot } from './repositories/economy-snapshot.repository';
@@ -3320,20 +3323,41 @@ export class GameSession {
     return this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
   }
 
-  /**
-   * P02-bis — Parlare con un ministro.
-   *
-   * L'autore ha chiesto il concetto centrale: «il parlare». Un ministro è una
-   * chat come il Consulente, ma il suo contesto è la **sua sedia**: porta i
-   * bisogni della sua competenza, con le cifre del motore e la loro provenienza.
-   *
-   * Ri usa lo stesso percorso del Consulente — un solo motore narrativo, non due —
-   * e gli antepone il **briefing** della sedia, che contiene i fatti e le regole
-   * che il modello non può violare. Il modello può spiegare e proporre; i numeri
-   * sono quelli che il briefing gli dà, e una cifra ignota resta ignota.
-   *
-   * Non impegna nulla: la risposta è una bozza, e l'ordine nasce dal giocatore.
-   */
+  /** Apertura automatica: solo letture, stesso provider, nessun percorso di decisione/memoria. */
+  async getMinisterOpening(seat: string, signal?: AbortSignal) {
+    if (this.hasActiveRun()) throw new SimulationInProgressError();
+    const fence = this.fenceContext();
+    const cabinet = readCabinetSession({
+      gameId: this.id, branchId: fence.branchId, playerPolityId: this.playerPolityId,
+      government: this.getGovernment(), account: this.getNationalAccounts()[this.playerPolityId],
+    });
+    const address = cabinet.addresses.find(candidate => candidate.seat === seat);
+    if (!address) throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
+    const vars = new PromptBuilder(this.buildGameData()).buildVariables();
+    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat });
+    let memory = '';
+    if (getJevConfig().enabled) {
+      const { buildMinisterContext } = await import('./core/government/jev/jev-memory.service');
+      const { sections } = buildMinisterContext({
+        scope: this.ministerMemoryScopeFor(seat), query: address.items.map(item => item.need).join(' '),
+        asOf: { gameDate: this.getCurrentDate(), turn: this.getCurrentTurn() },
+      });
+      memory = [sections.strategicMemory, sections.relevantPast, sections.unresolved].filter(Boolean).join('\n\n');
+    } else {
+      memory = memorySection(this.ministerMemoryFor(seat));
+    }
+    const brief = buildMinisterOpeningBrief(address.seat, world, address.items, memory);
+    const result = await renderMinisterOpening(brief, async (prompt, openingSignal) => {
+      const response = await this.llm.generate('advisor', 'Parli personalmente come il ministro indicato. Solo narrativa, nessuna direttiva.', prompt,
+        { temperature: 0.5, signal: openingSignal });
+      return String(response.content ?? '');
+    }, signal);
+    // Una risposta arrivata dopo cambio di ramo/turno non deve aprire la nuova seduta.
+    this.assertFenceValid(fence);
+    return { ...result, seat, narrativeOnly: true as const, persistMemory: false as const, allowDirectives: false as const };
+  }
+
+  /** Dialogo col Presidente: briefing della sedia e provider del Consulente. */
   async getMinisterReply(
     seat: string,
     message: string,

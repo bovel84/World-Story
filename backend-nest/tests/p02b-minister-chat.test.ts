@@ -115,7 +115,7 @@ describe('P02-bis — parlare con un ministro', () => {
     const opening = openingMessage(briefing, [itemWithNeed]);
     // La prima frase è il bisogno misurato, non un saluto.
     expect(opening).toContain('Bisogno deficit_MATERIAL_SHORTAGE_steel');
-    expect(opening).toContain('È la cosa più urgente che ho.');
+    expect(opening).toContain('è urgente');
   });
 
   it('un ministro senza bisogni lo DICE, e non inventa una preoccupazione', () => {
@@ -125,7 +125,7 @@ describe('P02-bis — parlare con un ministro', () => {
     expect(briefing.hasNeeds).toBe(false);
     expect(briefing.context).toContain('Non hai nulla da portare');
     const opening = openingMessage(briefing, []);
-    expect(opening).toContain('Non ho nulla da portare');
+    expect(opening).toContain('non ho nulla da portare');
     expect(opening).toContain('Chiedimi quello che vuoi');
   });
 
@@ -226,16 +226,15 @@ describe('WS-GOVOFFICE-05 — il dialogo raccontato e il collega giusto', () => 
     expect(seatForQuestion('La sanità e gli ospedali reggono?')).toBe('sanita');
   });
 
-  it('la domanda d’apertura chiude PONENDO la scelta, con i titoli delle strade', () => {
+  it('il fallback consiglia senza recitare le strade o decidere', () => {
     const itemWithNeed = item('debt_service');
     const opening = openingMessage(briefingFor(address('tesoro', [itemWithNeed]), emptyAgenda), [itemWithNeed]);
-    // I titoli vengono dalle strade dell'item, non da una frase inventata.
-    expect(opening).toContain('Via A');
-    expect(opening).toContain('Via B');
-    expect(opening).toContain('Tocca a te decidere');
-    // E il bisogno e il perché restano la prima parte: il fatto, non un saluto.
+    expect(opening).not.toContain('La strada è una scelta:');
+    expect(opening).not.toContain('Tocca a te decidere');
     expect(opening).toContain('Bisogno debt_service');
-    expect(opening).toContain('Perché debt_service');
+    expect(opening).not.toContain('Perché debt_service');
+    expect(opening).toContain('Io verificherei');
+    expect(opening).toContain('Vuoi che confrontiamo le coperture');
   });
 
   it('senza almeno due strade non si finge una scelta', () => {

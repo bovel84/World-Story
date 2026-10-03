@@ -238,16 +238,8 @@ export function briefingFor(address: CabinetAddress, agenda: GovernmentAgenda, m
   };
 }
 
-/**
- * La domanda d'apertura, quando il giocatore entra nella chat di un ministro.
- * Non è una risposta del modello: è ciò che il ministro direbbe per primo,
- * composto dai fatti — così la chat si apre su un fatto, non sul vuoto.
- */
+/** Compatibilità per chiamanti legacy: fallback. L'apertura normale usa MinisterOpening. */
 export function openingMessage(briefing: MinisterBriefing, items: readonly CabinetItem[]): string {
-  // WS-MINISTER-UX-02 — Il primo messaggio non è più la sola frase sul
-  // conteggio: presenta l'incarico, riassume una o due questioni e invita il
-  // Presidente a indicare la priorità. Lo compone `firstMessage` dai soli campi
-  // del motore, con il profilo della sedia.
   return firstMessage(briefing.seat, items);
 }
 

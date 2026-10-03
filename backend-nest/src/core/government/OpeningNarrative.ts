@@ -287,6 +287,12 @@ function normalizeNumber(value: string): string {
   return value.replace(',', '.').replace(/^0+(?=\d)/, '');
 }
 
+/** Guardiano numerico condiviso dai renderer read-only: virgola/punto equivalenti, niente arrotondamenti. */
+export function narrativeNumbersAreVerified(text: string, verified: string): boolean {
+  const allowed = new Set(numbersIn(verified).map(normalizeNumber));
+  return numbersIn(text).every(number => allowed.has(normalizeNumber(number)));
+}
+
 /** Tutto il materiale verificato contro cui validare il testo del renderer. */
 function verifiedBlob(context: OpeningContext): string {
   return [
@@ -316,10 +322,7 @@ export function validateTextAgainstContext(text: string, context: OpeningContext
   }
   const blob = verifiedBlob(context);
   const blobLower = blob.toLowerCase();
-  const allowed = new Set(numbersIn(blob).map(normalizeNumber));
-  for (const number of numbersIn(body)) {
-    if (!allowed.has(normalizeNumber(number))) return { ok: false, reason: `cifra non verificata: ${number}` };
-  }
+  if (!narrativeNumbersAreVerified(body, blob)) return { ok: false, reason: 'cifra non verificata' };
   // Proper noun nuovi: un token maiuscolo "interno" (non a inizio frase) che
   // non compare come **parola** nel materiale verificato e non è una parola
   // istituzionale comune.
