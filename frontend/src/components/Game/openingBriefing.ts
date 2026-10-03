@@ -87,6 +87,8 @@ export interface GameOpeningBriefing {
     dateLabel: string;
     /** La premessa grezza del preset (`world.basePrompt`) — solo per il fallback locale. */
     premise: string;
+    /** Le regole di simulazione dello stesso record canonico, se presenti. */
+    simulationRules?: string | null;
     /** Il prologo semantico: dal backend, o fallback locale se l'endpoint fallisce. */
     narrative: OpeningWorldNarrative;
   };
@@ -424,6 +426,7 @@ export function deriveGameOpening(input: OpeningBriefingInput, options: { compac
       date: String(input.currentDate ?? '').trim(),
       dateLabel: formatOpeningDate(input.currentDate),
       premise,
+      simulationRules: input.world?.simulationRules ?? null,
       narrative,
     },
     nation: {

@@ -190,6 +190,33 @@ describe('WS-GAME-OPENING — deriveGameOpening', () => {
   });
 });
 
+describe('WS-OPENING-PRESET-REGRESSION — Test B: fallback locale dal contratto GET /games/:id', () => {
+  // La forma restituita da `gameApi.get()` dopo il fix: camelCase e record canonico.
+  const worldFromGameResponse = {
+    id: 'ws_preset_world',
+    name: 'Preset fixture',
+    description: 'Mondo di prova',
+    startDate: '1946-01-01',
+    basePrompt: 'BASE_PROMPT_MARKER: il paese si rialza dalle macerie e cerca un posto nel nuovo ordine.',
+    simulationRules: 'SIMULATION_RULES_MARKER: le crisi impiegano mesi.',
+  };
+
+  it('con openingNarrative = null la premessa è già quella del preset, non un vuoto', () => {
+    const opening = deriveGameOpening({ ...input, world: worldFromGameResponse, narrative: null });
+    expect(opening.world.premise).not.toBe('');
+    expect(opening.world.premise).toContain('BASE_PROMPT_MARKER');
+    expect(opening.world.narrative.worldOrder).toContain('BASE_PROMPT_MARKER');
+    // Il fallback locale non inventa uno stato vuoto quando il dato canonico c'è.
+    expect(opening.world.narrative.worldOrder).not.toContain('Il mondo non ha ancora una descrizione');
+  });
+
+  it('simulationRules non va perso nel passaggio dal contratto al read model', () => {
+    const opening = deriveGameOpening({ ...input, world: worldFromGameResponse, narrative: null });
+    expect(opening.world.simulationRules).toContain('SIMULATION_RULES_MARKER');
+    expect(opening.world.premise).toContain('BASE_PROMPT_MARKER');
+  });
+});
+
 describe('WS-GAME-OPENING — extractOpeningParagraphs', () => {
   it('estrae pochi paragrafi, senza lore completo né markdown', () => {
     const paragraphs = extractOpeningParagraphs('# Titolo\n\nPrimo paragrafo abbastanza lungo da restare nel prologo.\n\n- Secondo blocco, **con enfasi** e una lista.', 4, 100);

@@ -290,7 +290,13 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   const openingNarrative = useOpeningNarrative(currentGame?.id ?? null, openingVisible);
   const openingCompact = useIsMobile();
   const opening: GameOpeningData = useMemo(() => deriveGameOpening({
-    world: currentWorld ? { name: currentWorld.name, basePrompt: currentWorld.basePrompt } : null,
+    world: currentWorld
+      ? {
+          name: currentWorld.name,
+          basePrompt: currentWorld.basePrompt ?? null,
+          simulationRules: currentWorld.simulationRules ?? null,
+        }
+      : null,
     currentDate: currentGame?.currentDate ?? null,
     nationalName,
     nationalAccount,
@@ -308,7 +314,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     cabinetAddresses: cabinet?.addresses ?? null,
     items: briefing.items,
   }, { compact: openingCompact }), [
-    currentWorld?.name, currentWorld?.basePrompt, currentGame?.currentDate, nationalName, nationalAccount,
+    currentWorld?.name, currentWorld?.basePrompt, currentWorld?.simulationRules, currentGame?.currentDate, nationalName, nationalAccount,
     nation.nationalCrisis, nation.nationalGovernment, nation.relationships, nation.relationshipNames,
     nation.strategicAgenda, worldFacts, nation.nationalResources, playerPolityId,
     openingNarrative?.council, openingNarrative?.world?.narrative, openingNarrative?.nation?.framing,
