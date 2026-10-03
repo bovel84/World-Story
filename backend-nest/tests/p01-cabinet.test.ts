@@ -162,48 +162,39 @@ describe('P01 — il gabinetto dei ministri', () => {
     expect(voicesForSeat('guerra', all)).toEqual([]);
   });
 
-  it('la frase di apertura di un ministro dice quante cose porta', () => {
+  it('il fallback distingue la sedia e segnala l’urgenza senza conteggi', () => {
     const session = composeCabinet(agenda([
       voice('debt_service', 'critica'),
       voice('deficit_MATERIAL_SHORTAGE_steel', 'critica'),
     ]));
     const tesoro = session.addresses.find(address => address.seat === 'tesoro')!;
-    expect(tesoro.opening).toContain('1 cosa');
+    expect(tesoro.opening).not.toMatch(/Ho \d+ cos/);
     expect(tesoro.opening).toContain('urgente');
-    // Il plurale è corretto quando le cose sono più d'una.
     const lavori = session.addresses.find(address => address.seat === 'lavori')!;
-    expect(lavori.opening).toContain('1 cosa');
+    expect(lavori.opening).not.toBe(tesoro.opening);
   });
 });
 
-/**
- * WS-GOVOFFICE-05B — «Ho 1 cosa», non «Ho l cosa»
- * ================================================
- * Il conteggio è un **numero**: con una cosa il singolare, con più d'una il
- * plurale. La frase nasce in `openingFor` da un'interpolazione numerica
- * (`${count}`), quindi nel codice la cifra c'è sempre; qui si fissa perché il
- * comportamento non possa cambiare e nessuna «l» (maiuscola o minuscola) prenda
- * il posto di una cifra.
- */
+/** WS-MINISTER-NATURAL-DIALOGUE: il conteggio resta nella sintesi, non nel saluto. */
 describe('WS-GOVOFFICE-05B / WS-MINISTER-UX-02 — la frase d’apertura', () => {
-  it('singolare con una cosa sola, col numero e non una lettera', () => {
+  it('una sola voce non impone conteggio o presentazione del ruolo', () => {
     const session = composeCabinet(agenda([voice('debt_service', 'critica')]));
     const tesoro = session.addresses.find(address => address.seat === 'tesoro')!;
-    expect(tesoro.opening).toMatch(/Ho 1 cosa da portare al consiglio\./);
+    expect(tesoro.opening).not.toMatch(/Ho 1 cosa da portare al consiglio\./);
     expect(tesoro.opening).toContain('urgente');
-    // WS-MINISTER-UX-02 — Il primo messaggio non è più solo il conteggio:
-    // presenta l’incarico e invita il Presidente a indicare la priorità.
-    expect(tesoro.opening).toContain('Ho la responsabilità');
-    expect(tesoro.opening).toContain('Dimmi tu qual è la priorità');
+    expect(tesoro.opening).not.toContain('Ho la responsabilità');
+    expect(tesoro.opening).not.toContain('Dimmi tu qual è la priorità');
+    expect(tesoro.opening).toContain('Vuoi che confrontiamo le coperture');
   });
 
-  it('plurale con più cose, col numero e non una lettera', () => {
+  it('più voci non impongono un conteggio parlato', () => {
     const session = composeCabinet(agenda([
       voice('debt_service', 'critica'),
       voice('treasury_condition', 'ordinaria'),
     ]));
     const tesoro = session.addresses.find(address => address.seat === 'tesoro')!;
-    expect(tesoro.opening).toMatch(/Ho 2 cose da portare al consiglio\./);
+    expect(tesoro.opening).not.toMatch(/Ho 2 cose da portare al consiglio\./);
+    expect(session.summary.total).toBe(2);
     expect(tesoro.opening).toContain('urgente');
   });
 
@@ -212,8 +203,7 @@ describe('WS-GOVOFFICE-05B / WS-MINISTER-UX-02 — la frase d’apertura', () =>
       voice('debt_service', 'critica'),
       voice('treasury_condition', 'ordinaria'),
     ]));
-    // Il conteggio nel primo messaggio è sempre un numero, non una lettera.
-    expect(session.addresses[0].opening).toMatch(/\bHo \d+ cos/);
+    expect(session.addresses[0].opening).not.toMatch(/\bHo \d+ cos/);
     for (const address of session.addresses) {
       // Il difetto specifico che questo test difende: «Ho l cosa» invece di
       // «Ho 1 cosa». (L'elisione italiana «l’ha» non è un conteggio.)

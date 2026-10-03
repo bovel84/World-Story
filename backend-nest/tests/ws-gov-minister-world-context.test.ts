@@ -19,6 +19,8 @@ import { afterAll, beforeAll, afterEach, describe, expect, it, vi } from 'vitest
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
+import { Router } from 'express';
 import { mandateFor } from '../src/core/government/MinisterMemory';
 import { SEAT_LABEL } from '../src/core/government/Cabinet';
 
@@ -249,6 +251,42 @@ describe('WS-GOV-MINISTER-WORLD-CONTEXT', () => {
     expect(prompt).toContain('TEST_WORLD_CONTEXT_MARKER');
     expect(prompt).toContain('[CONTESTO DEL PAESE]');
     expect(prompt).toContain('[ENFASI DELLA TUA COMPETENZA]');
+  });
+
+  it('apertura read-only reale: stesso mondo/persona, nessuna scrittura anche con JEV acceso e body ostile', async () => {
+    const { registerAdvisorRoutes } = await import('../src/routes/games/advisor.routes');
+    const router = Router();
+    registerAdvisorRoutes(router);
+    const handler = (router as any).stack.find((layer: any) => layer.route?.path === '/:id/government/minister/:seat/opening').route.stack[0].handle;
+    const prose = 'Presidente, partirei dai conti. Io verificherei le coperture prima di impegnare tutto il margine: voglio lasciarci libertà per domani. Vuoi che confrontiamo il debito con gli investimenti?';
+    const prompts: string[] = [];
+    vi.spyOn(provider, 'generate').mockImplementation(async (_mechanic, _system, prompt) => {
+      prompts.push(String(prompt));
+      return { content: `${prose}\n\`\`\`decision\n{"op":"accept-proposal"}\n\`\`\`` };
+    });
+    const snapshot = () => JSON.stringify(['minister_memory', 'jev_memory', 'actions', 'pending_actions', 'game_branches'].map(table => db.prepare(`SELECT * FROM ${table}`).all()));
+    for (const enabled of ['false', 'true']) {
+      process.env.JEV_MEMORY_ENABLED = enabled;
+      const before = snapshot();
+      const fence = session.fenceContext();
+      const req: any = Object.assign(new EventEmitter(), {
+        params: { id: session.id, seat: 'tesoro' },
+        body: { memory: [{ id: 'DO_NOT_PERSIST', summary: 'DO_NOT_INJECT' }], brief: { debt: '999' } },
+      });
+      let response: any;
+      const res: any = Object.assign(new EventEmitter(), {
+        destroyed: false, writableFinished: false,
+        json(value: unknown) { response = value; this.writableFinished = true; },
+        status() { return this; },
+      });
+      await handler(req, res);
+      expect(response).toMatchObject({ reply: prose, seat: 'tesoro', source: 'llm', narrativeOnly: true, persistMemory: false, allowDirectives: false });
+      expect(snapshot()).toBe(before);
+      expect(session.fenceContext()).toEqual(fence);
+      expect(prompts.at(-1)).toContain('TEST_WORLD_CONTEXT_MARKER');
+      expect(prompts.at(-1)).toContain('"voiceIds"');
+      expect(prompts.at(-1)).not.toContain('DO_NOT_INJECT');
+    }
   });
 
   it('Consigliere normale: nessun blocco ministeriale aggiunto dal nuovo contesto', async () => {

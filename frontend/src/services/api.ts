@@ -1882,6 +1882,16 @@ export interface MinisterMemoryItem {
  * motore e la loro provenienza. La risposta è una proposta: non impegna nulla.
  */
 export const ministerApi = {
+  /** Fatti e memoria letti sul server; nessuna persistenza e nessuna direttiva. */
+  opening: (
+    gameId: string, seat: string, signal?: AbortSignal,
+  ): Promise<{ reply: string; seat: string; narrativeOnly: true; persistMemory: false; allowDirectives: false }> => {
+    signal?.throwIfAborted();
+    return fetchApi(`/games/${gameId}/government/minister/${seat}/opening`, {
+      method: 'POST', signal, body: JSON.stringify({}),
+    });
+  },
+
   ask: (
     gameId: string,
     seat: string,

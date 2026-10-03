@@ -168,20 +168,18 @@ describe('WS-MINISTER-UX-02 — lettura, proposta e limiti del dato', () => {
 });
 
 describe('WS-MINISTER-UX-02 — apertura e riapertura', () => {
-  it('prima seduta: vero primo messaggio con incarico, questioni e invito alla priorità', () => {
+  it('fallback: punto centrale, consiglio e domanda, senza recitare il dossier', () => {
     const items = [
       item('debt_service', { need: 'Coprire il disavanzo', because: 'Le uscite superano le entrate', urgency: 'critica' }),
       item('treasury_condition', { need: 'Rifinanziare una scadenza', because: 'Una tranche arriva a maturazione' }),
     ];
     const opening = openingMessage(briefingFor(address('tesoro', items), emptyAgenda), items);
-    // L'incarico (dal profilo).
-    expect(opening).toContain(personaFor('tesoro').mandate);
-    // Una o due questioni, con il fatto che le ha fatte emergere.
+    expect(opening).not.toContain(personaFor('tesoro').mandate);
     expect(opening).toContain('Coprire il disavanzo');
-    expect(opening).toContain('Le uscite superano le entrate');
-    expect(opening).toContain('Rifinanziare una scadenza');
-    // L'invito a indicare la priorità: la decisione resta al Presidente.
-    expect(opening).toContain('Dimmi tu qual è la priorità');
+    expect(opening).not.toContain('Le uscite superano le entrate');
+    expect(opening).toContain('Io verificherei');
+    expect(opening).toContain('Vuoi che confrontiamo le coperture');
+    expect(opening).not.toContain('Dimmi tu qual è la priorità');
   });
 
   it('il primo messaggio non è un elenco: al massimo due questioni', () => {
@@ -191,7 +189,7 @@ describe('WS-MINISTER-UX-02 — apertura e riapertura', () => {
       item('c', { need: 'Terza questione' }),
     ]);
     expect(opening).toContain('Prima questione');
-    expect(opening).toContain('Seconda questione');
+    expect(opening).not.toContain('Seconda questione');
     expect(opening).not.toContain('Terza questione');
   });
 
@@ -199,8 +197,8 @@ describe('WS-MINISTER-UX-02 — apertura e riapertura', () => {
     const briefing = briefingFor(address('guerra', []), emptyAgenda);
     const opening = openingMessage(briefing, []);
     expect(briefing.hasNeeds).toBe(false);
-    expect(opening).toContain(personaFor('guerra').mandate);
-    expect(opening).toContain('Non ho nulla da portare');
+    expect(opening).not.toContain(personaFor('guerra').mandate);
+    expect(opening).toContain('non ho nulla da portare');
     expect(opening).toContain('Chiedimi quello che vuoi');
   });
 

@@ -27,7 +27,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ministerApi, type AdvisorHistoryItem, type MinisterMemoryItem } from '../../services/api';
 import type { CabinetAddressView, CabinetItemView, CabinetPathView } from '../../services/api';
 import { basisLabel, isUnknown } from './CabinetSession';
-import { EngineText } from './EngineText';
 import { RichText } from './RichText';
 import { parsePresentation, type PresentationDirective } from './presentation';
 import type { DecisionAction } from './decisionWorkspace';
@@ -129,6 +128,27 @@ export function MinisterChat({
 }: MinisterChatProps) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
+  // Il saluto è solo narrativa: non entra nelle direttive né nella memoria.
+  const openingKey = `${gameId}:${sessionId ?? ''}:${address?.seat ?? ''}`;
+  const [opening, setOpening] = useState<{ key: string; text: string } | null>(null);
+  const openingRequestRef = useRef<AbortController | null>(null);
+  const openingText = opening?.key === openingKey ? opening.text : '';
+  useEffect(() => {
+    if (!address || messages.length > 0) return;
+    const controller = new AbortController();
+    openingRequestRef.current = controller;
+    setOpening(null);
+    // StrictMode fa setup/cleanup/setup nello stesso giro: non inviare il saluto già annullato.
+    Promise.resolve().then(() => ministerApi.opening(gameId, address.seat, controller.signal)).then(result => {
+      if (!controller.signal.aborted) setOpening({ key: openingKey, text: result.reply });
+    }).catch(() => {
+      if (!controller.signal.aborted) setOpening({ key: openingKey, text: address.opening });
+    });
+    return () => {
+      controller.abort();
+      if (openingRequestRef.current === controller) openingRequestRef.current = null;
+    };
+  }, [openingKey, messages.length]);
   // WS-GOV-MOBILE-CLEANUP (M12) — Se il giocatore risale la cronologia e arriva
   // una risposta, non lo si riporta giù: si annuncia con «↓ Nuovo messaggio» e
   // lo si lascia decidere. Una sola indicazione per la risposta corrente.
@@ -148,7 +168,7 @@ export function MinisterChat({
     requestRef.current = null;
     request.abort();
     onStreamingChange(false);
-  }, [gameId, address?.seat]);
+  }, [gameId, address?.seat, sessionId]);
   // WS-MINISTER-UX-07 (C) — Se il giocatore era in fondo si segue lo stream; se
   // ha risalito la cronologia non lo si riporta giù.
   const stickToBottomRef = useRef(true);
@@ -259,6 +279,7 @@ export function MinisterChat({
   const send = async (): Promise<void> => {
     const text = input.trim();
     if (!text || streaming || requestRef.current) return;
+    openingRequestRef.current?.abort();
     // Lock synchronously, before awaiting or asking the parent to rerender.
     const request = new AbortController();
     requestRef.current = request;
@@ -269,7 +290,7 @@ export function MinisterChat({
     // Chi invia vuole vedere la risposta: si torna ad agganciare il fondo.
     stickToBottomRef.current = true;
     setHasUnreadReply(false);
-    const history = messages
+    const history = [...(openingText ? [{ role: 'assistant' as const, content: openingText }] : []), ...messages]
       .filter(message => message.content.trim())
       .map(message => ({ role: message.role, content: message.content }))
       .slice(-HISTORY_LIMIT);
@@ -313,8 +334,9 @@ export function MinisterChat({
           <div className="minister-entry assistant minister-greeting">
             <div className="entry-meta"><span>{address.label}</span></div>
             <div className="entry-text">
-              <p className="minister-salutation">Signor Presidente,</p>
-              <p><EngineText text={address.opening} /></p>
+              {openingText
+                ? <RichText text={openingText} />
+                : <span className="advisor-typing" role="status" aria-label="Il ministro sta preparando il suo intervento"><i /><i /><i /></span>}
             </div>
           </div>
         )}

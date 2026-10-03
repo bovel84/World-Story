@@ -265,14 +265,33 @@ router.post('/:id/government/minister/:seat', async (req, res) => {
   }
 });
 
-/**
- * WS-GOV-MOBILE-FOCUS (A6/A7) — La voce della riunione, **read-only**.
- *
- * Stesso provider e stessa persona del percorso normale (`getMinisterReply`
- * riusa `briefingFor` → `personaSection`), ma senza scrivere memoria/JEV e
- * senza direttive: la rotta compone il messaggio dal **brief verificato**, non
- * persiste nulla e ripulisce la risposta dai blocchi `decision`/`tavola`.
- */
+/** Saluto automatico read-only: brief server-side, il body non fornisce fatti o memoria. */
+router.post('/:id/government/minister/:seat/opening', async (req, res) => {
+  const seat = req.params.seat;
+  if (!CABINET_SEATS.includes(seat as CabinetSeat)) {
+    res.status(400).json({ error: `sedia non valida: ${seat}` });
+    return;
+  }
+  const controller = new AbortController();
+  const onAborted = () => controller.abort();
+  const onClose = () => { if (!res.writableFinished) controller.abort(); };
+  req.once('aborted', onAborted);
+  res.once('close', onClose);
+  if (req.aborted || res.destroyed) controller.abort();
+  try {
+    if (controller.signal.aborted) return;
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    const reply = await session.getMinisterOpening(seat, controller.signal);
+    if (!controller.signal.aborted && !res.destroyed) res.json(reply);
+  } catch (error) {
+    if (!controller.signal.aborted && !res.destroyed) respondRouteError(res, error, 'Failed to render minister opening');
+  } finally {
+    req.removeListener('aborted', onAborted);
+    res.removeListener('close', onClose);
+  }
+});
+
+/** Voce read-only della riunione: stessa persona, nessuna memoria/JEV o direttiva. */
 router.post('/:id/government/minister/:seat/render', async (req, res) => {
   const gameId = req.params.id;
   const seat = req.params.seat;
