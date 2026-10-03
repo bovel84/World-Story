@@ -118,6 +118,12 @@ router.get('/:id', (req, res) => {
     world: {
       id: game.world.id,
       name: game.world.name,
+      // Contratto canonico: i campi del preset persistito attraversano la GET
+      // con il camelCase del frontend, così il fallback locale non nasce vuoto.
+      basePrompt: game.world.base_prompt ?? null,
+      simulationRules: game.world.simulation_rules ?? null,
+      description: game.world.description ?? null,
+      startDate: game.world.start_date ?? null,
       regions: gameRegions.map((r: any) => ({
         id: r.id,
         name: r.name,

@@ -117,12 +117,15 @@ export interface Bloc {
 export interface World {
   id: string;
   name: string;
-  description: string;
-  startDate: string;
-  basePrompt: string;
-  historicalAccuracy: number;
+  description?: string | null;
+  startDate?: string | null;
+  /** Premessa canonica del preset persistito (`worlds.base_prompt`). */
+  basePrompt?: string | null;
+  /** Regole di simulazione dello stesso record canonico (`worlds.simulation_rules`). */
+  simulationRules?: string | null;
+  historicalAccuracy?: number;
   regions: Record<string, Region>;
-  blocs: Record<string, Bloc>;
+  blocs?: Record<string, Bloc>;
 }
 
 export interface Player {
