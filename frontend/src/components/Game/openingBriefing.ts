@@ -65,6 +65,8 @@ export interface GameOpeningBriefing {
     date: string;
     /** «1 GENNAIO 2000», per l'intestazione. */
     dateLabel: string;
+    /** La premessa grezza del preset (`world.basePrompt`), fonte del prologo (§3). */
+    premise: string;
     paragraphs: string[];
   };
   nation: {
@@ -319,17 +321,21 @@ function deriveCouncil(input: OpeningBriefingInput): OpeningCouncilVoice[] {
 }
 
 /** Il read model completo. Puro, deterministico, read-only. */
-export function deriveGameOpening(input: OpeningBriefingInput): GameOpeningBriefing {
+export function deriveGameOpening(input: OpeningBriefingInput, options: { compact?: boolean } = {}): GameOpeningBriefing {
   const readings = deriveNationReadings(input);
   const neighbors = deriveNeighbors(input);
   const firstQuestions = deriveFirstQuestions(input.items);
+  // §4 — budget parole diverso: 150–220 desktop, 100–160 mobile.
+  const maxWords = options.compact ? 160 : 220;
+  const premise = String(input.world?.basePrompt ?? '').trim();
 
   return {
     world: {
       name: String(input.world?.name ?? '').trim(),
       date: String(input.currentDate ?? '').trim(),
       dateLabel: formatOpeningDate(input.currentDate),
-      paragraphs: extractOpeningParagraphs(String(input.world?.basePrompt ?? '')),
+      premise,
+      paragraphs: extractOpeningParagraphs(premise, 4, maxWords),
     },
     nation: {
       name: input.nationalName,

@@ -62,6 +62,17 @@ describe('WS-GAME-OPENING — deriveGameOpening', () => {
     expect(fromPreset).not.toContain('MILLENNIUM_GENERIC_KNOWLEDGE');
   });
 
+  it('espone la premessa grezza (§3) e applica il budget parole desktop/mobile (§4)', () => {
+    expect(deriveGameOpening(input).world.premise).toContain('PRESET_MARKER_WORLD');
+    const long = Array.from({ length: 500 }, (_, i) => `Parola${i}`).join(' ');
+    const wide = deriveGameOpening({ ...input, world: { name: 'X', basePrompt: long } });
+    const compact = deriveGameOpening({ ...input, world: { name: 'X', basePrompt: long } }, { compact: true });
+    const words = (o: typeof wide) => o.world.paragraphs.join(' ').split(/\s+/).filter(Boolean).length;
+    expect(words(wide)).toBeLessThanOrEqual(220);
+    expect(words(compact)).toBeLessThanOrEqual(160);
+    expect(words(compact)).toBeLessThan(words(wide));
+  });
+
   it('distingue i tre livelli: Mondo (preset) / Paese (motore) / Agenda (briefing)', () => {
     const opening = deriveGameOpening(input);
     expect(opening.world.paragraphs.join(' ')).toContain('PRESET_MARKER_WORLD'); // preset

@@ -8,7 +8,7 @@ import { OpeningPanelContent } from './GameOpeningBriefing';
 import type { GameOpeningBriefing as OpeningData } from './openingBriefing';
 
 const opening: OpeningData = {
-  world: { name: 'Millennium Dawn', date: '2000-01-01', dateLabel: '1 GENNAIO 2000', paragraphs: ['La Guerra Fredda è finita.'] },
+  world: { name: 'Millennium Dawn', date: '2000-01-01', dateLabel: '1 GENNAIO 2000', premise: 'La Guerra Fredda è finita.', paragraphs: ['La Guerra Fredda è finita.'] },
   nation: { name: 'Bosnia ed Erzegovina', identity: 'Il paese eredita problemi aperti.', readings: [{ key: 'economy', label: 'Economia', value: 'Fragile', tone: 'warning' }], neighbors: [{ id: 'srb', name: 'Serbia', relation: 'Rapporto teso', tone: 'warning' }] },
   inheritedSituation: [{ id: 'infra', symbol: 'problem', label: 'Ricostruzione incompleta' }],
   worldAroundYou: [{ id: 'srb', name: 'Serbia', relation: 'Rapporto teso', tone: 'warning' }],

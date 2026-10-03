@@ -11,7 +11,7 @@
 `frontend/src/components/Game/openingBriefing.ts`
 `deriveGameOpening({ world, currentDate, nationalName, nationalAccount, crisis, government, relationships, relationshipNames, strategicAgenda, worldFacts, resources, playerPolityId, council, cabinetAddresses, items })`
 
-È **puro, deterministico, read-only**: proietta fonti già esistenti in un `GameOpeningBriefing` con i tre livelli e le cinque pagine. Non è una nuova fonte di stato. Espone anche `extractOpeningParagraphs`, `formatOpeningDate`, `deriveNationReadings`, `deriveNeighbors`, `deriveFirstQuestions` (testabili singolarmente).
+È **puro, deterministico, read-only**: proietta fonti già esistenti in un `GameOpeningBriefing` con i tre livelli e le cinque pagine. Non è una nuova fonte di stato. Espone anche `extractOpeningParagraphs`, `formatOpeningDate`, `deriveNationReadings`, `deriveNeighbors`, `deriveFirstQuestions` (testabili singolarmente). L'interfaccia `world` espone `premise` (la premessa grezza del preset, §3) e applica il budget parole §4 (220 desktop / 160 con `{ compact: true }`, mobile).
 
 ### Componente
 `frontend/src/components/Game/GameOpeningBriefing.tsx`
@@ -129,7 +129,7 @@ $ (backend-nest) npx tsc --noEmit -p tsconfig.json  # 0 errori
 
 # Suite frontend
 $ npm run build                                      # build OK (8.65s)
-$ npx vitest run                                     # 146 file, 1263 test passati
+$ npx vitest run                                     # 146 file, 1264 test passati
 
 # Suite backend
 $ npx vitest run tests/                              # 217 file, 2321 test passati
