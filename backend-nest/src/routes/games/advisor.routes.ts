@@ -38,7 +38,7 @@ import {
   assessmentStore,
 } from './helpers';
 import { validateBody } from '../validation';
-import { withMinisterDialogueRequest } from '../../core/government/MinisterDialogue';
+import { InvalidMinisterCouncilError, withMinisterDialogueRequest } from '../../core/government/MinisterDialogue';
 import { actionTextSchema, advisorSchema, meetingRenderSchema } from './schemas';
 import {
   composeMeetingNarrativeMessage, normalizeMinisterMeetingBrief, stripNarrativeDirectives,
@@ -254,13 +254,17 @@ router.post('/:id/government/minister/:seat', async (req, res) => {
   try {
     if (controller.signal.aborted) return;
     const session = getSessionRegistry().getSessionOrThrow(gameId);
-    persistMinisterMemory(session, gameId, seat, req.body?.memory);
-    const reply = await withMinisterDialogueRequest(gameId, seat, req.body?.currentDecision,
-      () => session.getMinisterReply(seat, message, history, controller.signal));
+    const reply = await withMinisterDialogueRequest(gameId, seat, req.body?.currentDecision, () => {
+      persistMinisterMemory(session, gameId, seat, req.body?.memory);
+      return session.getMinisterReply(seat, message, history, controller.signal);
+    }, req.body?.council);
     persistJevConversation(session, gameId, seat, message, reply.reply);
     if (!controller.signal.aborted && !res.destroyed) res.json(reply);
   } catch (e: any) {
-    if (!controller.signal.aborted && !res.destroyed) respondRouteError(res, e, 'Failed to get minister reply');
+    if (!controller.signal.aborted && !res.destroyed) {
+      if (e instanceof InvalidMinisterCouncilError) res.status(400).json({ error: e.message, code: 'invalid_council' });
+      else respondRouteError(res, e, 'Failed to get minister reply');
+    }
   } finally {
     req.removeListener('aborted', onAborted);
     res.removeListener('close', onClose);
@@ -356,7 +360,6 @@ router.post('/:id/government/minister/:seat/stream', async (req, res) => {
   try {
     if (controller.signal.aborted) return;
     const session = getSessionRegistry().getSessionOrThrow(gameId);
-    persistMinisterMemory(session, gameId, seat, req.body?.memory);
     let gotTextChunks = false;
     const onToken = (chunk: unknown) => {
       if (controller.signal.aborted || res.destroyed) return;
@@ -366,19 +369,25 @@ router.post('/:id/government/minister/:seat/stream', async (req, res) => {
       }
     };
     const streamFn = (session as any).getMinisterStream;
-    const reply: string = await withMinisterDialogueRequest(gameId, seat, req.body?.currentDecision, async () =>
-      typeof streamFn === 'function'
+    const reply: string = await withMinisterDialogueRequest(gameId, seat, req.body?.currentDecision, async () => {
+      persistMinisterMemory(session, gameId, seat, req.body?.memory);
+      return typeof streamFn === 'function'
         ? await streamFn.call(session, seat, message, history, onToken, controller.signal)
-        : (await session.getMinisterReply(seat, message, history, controller.signal)).reply);
+        : (await session.getMinisterReply(seat, message, history, controller.signal)).reply;
+    }, req.body?.council);
     if (controller.signal.aborted || res.destroyed) return;
     if (!gotTextChunks && reply) res.write(reply);
     persistJevConversation(session, gameId, seat, message, reply);
     res.end();
   } catch (e: any) {
     if (controller.signal.aborted || res.destroyed) return;
-    console.error('[Minister STREAM] Error:', e);
-    if (res.headersSent) res.end();
-    else respondRouteError(res, e, 'Failed to stream minister reply');
+    if (e instanceof InvalidMinisterCouncilError && !res.headersSent) {
+      res.status(400).json({ error: e.message, code: 'invalid_council' });
+    } else {
+      console.error('[Minister STREAM] Error:', e);
+      if (res.headersSent) res.end();
+      else respondRouteError(res, e, 'Failed to stream minister reply');
+    }
   } finally {
     req.removeListener('aborted', onAborted);
     res.removeListener('close', onClose);
