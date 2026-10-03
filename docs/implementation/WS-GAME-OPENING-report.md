@@ -16,7 +16,7 @@
 ### Componente
 `frontend/src/components/Game/GameOpeningBriefing.tsx`
 - `GameOpeningBriefing` = overlay accessibile (`AccessibleDialog`: portal, focus trap, Esc, sfondo inerte).
-- `OpeningPanelContent` = le cinque pagine discrete `IL MONDO / IL PAESE / IL QUADRO / IL CONSIGLIO / ORA TOCCA A TE`, montabile nei test statici.
+- `OpeningPanelContent` = le cinque pagine discrete `IL MONDO / IL PAESE / IL QUADRO / IL CONSIGLIO / ORA TOCCA A TE`, montabile nei test statici. La schermata 1 porta l'intestazione `WORLD STORY` / data / nome mondo (§4).
 
 ### Flag UI
 `frontend/src/components/Game/openingFlag.ts` — `hasSeenOpening/markOpeningSeen/clearOpeningSeen` su `localStorage['world-story:opening-seen:<gameId>']`. **UX, non simulazione**: non entra nel salvataggio.
@@ -129,7 +129,7 @@ $ (backend-nest) npx tsc --noEmit -p tsconfig.json  # 0 errori
 
 # Suite frontend
 $ npm run build                                      # build OK (8.65s)
-$ npx vitest run                                     # 146 file, 1261 test passati
+$ npx vitest run                                     # 146 file, 1262 test passati
 
 # Suite backend
 $ npx vitest run tests/                              # 217 file, 2321 test passati

@@ -110,6 +110,7 @@ export function OpeningPanelContent({ briefing, onFinish, onSkip, initialPage = 
   return (
     <>
       <header className="opening-head">
+        {page === 0 && <p className="opening-brand">WORLD STORY</p>}
         <p className="opening-date">{dateLabel}</p>
         <h1 className="opening-section" id="opening-section-title">{OPENING_PAGES[page]}</h1>
       </header>
