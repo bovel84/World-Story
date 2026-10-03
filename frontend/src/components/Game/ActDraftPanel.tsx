@@ -23,6 +23,8 @@ export interface ActDraftPanelProps {
   status: ActStatus;
   /** Il chiamante sta già accodando: la firma resta disabilitata. */
   busy?: boolean;
+  /** Verification can block signing while leaving edits/cancellation available. */
+  signDisabled?: boolean;
   /** P5: dopo il primo invio il candidato resta immutabile per i retry. */
   editable?: boolean;
   signatureNotice?: string;
@@ -51,14 +53,14 @@ export interface ActDraftPanelProps {
   onCancel?: () => void;
 }
 
-export function ActDraftPanel({ draft, status, busy = false, editable = true, signatureNotice, mobile = false, board = null, boardLoading = false, boardError = null, onRefreshBoard, onEdit, onSign, onCancel }: ActDraftPanelProps) {
+export function ActDraftPanel({ draft, status, busy = false, signDisabled = false, editable = true, signatureNotice, mobile = false, board = null, boardLoading = false, boardError = null, onRefreshBoard, onEdit, onSign, onCancel }: ActDraftPanelProps) {
   const [signing, setSigning] = useState(false);
   const [editing, setEditing] = useState(!mobile);
   const locked = busy || signing;
   const queued = status.state === 'queued';
 
   const sign = async (): Promise<void> => {
-    if (locked || status.state === 'queued' || !onSign) return;
+    if (locked || signDisabled || status.state === 'queued' || !onSign) return;
     setSigning(true);
     try {
       await onSign(draft);
@@ -120,7 +122,7 @@ export function ActDraftPanel({ draft, status, busy = false, editable = true, si
           type="button"
           className="act-draft-sign"
           onClick={() => void sign()}
-          disabled={locked || queued}
+          disabled={locked || signDisabled || queued}
           title="Firma l’atto e inseriscilo nel registro: da lì lo esegue il motore all’avanzamento del tempo"
         >
           {queued ? 'Già nel registro' : mobile ? 'Firma l’atto' : 'Firma e inserisci nel registro'}

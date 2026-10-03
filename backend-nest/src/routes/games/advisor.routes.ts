@@ -385,7 +385,9 @@ router.post('/:id/government/minister/:seat/stream', async (req, res) => {
       res.status(400).json({ error: e.message, code: 'invalid_council' });
     } else {
       console.error('[Minister STREAM] Error:', e);
-      if (res.headersSent) res.end();
+      // Clean EOF would certify partial decisions as a completed reply.
+      // Make the reader reject; the council must not advance on partial text.
+      if (res.headersSent) res.destroy();
       else respondRouteError(res, e, 'Failed to stream minister reply');
     }
   } finally {

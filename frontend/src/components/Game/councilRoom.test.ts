@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createCouncilRoom, enterCouncil, receiveCouncilReply, councilHistory, councilRound,
-  appendCouncilMessage, confirmCouncilProposal, councilDraft, councilText, councilOpenQuestions,
+  appendCouncilMessage, confirmCouncilProposal, councilDraft, councilText, councilOpenQuestions, excludeCouncilMeasure, councilRoomMemory,
 } from './councilRoom';
 
 const create = () => createCouncilRoom({ id: 'room-1', scopeKey: 'game|branch|4', initiatorMinister: 'tesoro' });
@@ -67,6 +67,33 @@ describe('Sala del Consiglio — una questione, un filo, una tavola', () => {
     expect(draft.text).toContain('Art. 1');
     expect(draft.text).toContain('Proponenti: Ministro del Tesoro, Ministro della Guerra');
     expect(draft.sourceSessionId).toBe(room.id);
+  });
+
+  it('retains validated evidence references on the completed shared message, not as extra facts', () => {
+    const room = receiveCouncilReply(create(), 'tesoro', 'Guarda la spesa.\n```tavola\n{"op":"show","evidence":"spesa"}\n```', 'm1');
+    expect(room.messages[0].evidence).toEqual([{ op: 'show', evidence: 'spesa' }]);
+    expect(room.messages[0].content).toBe('Guarda la spesa.');
+    expect(room.sharedBoard.proposals).toEqual([]);
+  });
+
+  it('serializes every board value without putting monetary units on percentages', () => {
+    const room = receiveCouncilReply(create(), 'tesoro', '```decision\n{"op":"update-proposal","changes":[{"label":"Investimenti","sharePct":65,"amount":120,"unit":"milioni","source":"minister"}]}\n```', 'm1');
+    expect(councilDraft(room).text).toContain('65% · 120 milioni');
+    expect(councilDraft(room).text).not.toContain('65% milioni');
+  });
+
+  it('lets the president exclude an obsolete measure without treating an LLM withdrawal as presidential authority', () => {
+    const room = receiveCouncilReply(create(), 'tesoro', proposal, 'm1');
+    expect(excludeCouncilMeasure(room, 'Prima tranche', 'president-exclude').sharedBoard.proposals[0].measures[0].status).toBe('rejected');
+    expect(councilDraft(excludeCouncilMeasure(room, 'Prima tranche', 'president-exclude')).text).not.toContain('700 milioni');
+  });
+
+  it('archives unsigned discussion and invitations with their origin, never as queued decisions', () => {
+    const room = receiveCouncilReply(create(), 'tesoro', proposal, 'm1');
+    const records = councilRoomMemory(room, { gameDate: '1951-01-01', turn: 4 });
+    expect(records.every(entry => entry.record.kind !== 'queued-decision')).toBe(true);
+    expect(records.some(entry => entry.record.summary.includes('Quali costi e tempi?'))).toBe(true);
+    expect(records.every(entry => entry.record.refs.turn === 4)).toBe(true);
   });
 
   it('ignores malformed council data and nonparticipants without leaking control blocks to the chat', () => {

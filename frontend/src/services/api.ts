@@ -2027,9 +2027,9 @@ export const ministerApi = {
     } catch (e) {
       signal?.throwIfAborted();
       if (e instanceof Error && e.name === 'AbortError') throw e;
-      // Anche senza byte ricevuti la generazione potrebbe essere già avvenuta.
-      if (!full) throw e;
-      console.warn('[Minister] Stream interrotto a metà, uso la risposta parziale:', e);
+      // Partial text is presentation-only: never apply its decisions or pass it
+      // to another council member as a completed intervention. No ambiguous retry.
+      throw e;
     } finally {
       reader.releaseLock();
     }

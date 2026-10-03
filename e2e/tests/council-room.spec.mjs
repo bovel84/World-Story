@@ -51,6 +51,7 @@ test('chat dominates, the board is closed by default and minister admission pres
   expect(requests[1].seat).toBe('guerra');
   expect(requests[1].history.map(m => m.content).join('\n')).toContain('chiederei alla Guerra');
   expect(requests[2].seat).toBe('tesoro');
+  expect(requests[2].message).not.toContain('ti convoca');
   expect(requests[2].history.map(m => m.content).join('\n')).toContain('Tesoro, accetto il limite');
   expect(new Set(requests.map(r => r.council.sessionId)).size).toBe(1);
   await expect(page.locator('.council-room-participants')).toContainText('Guerra');
@@ -83,6 +84,91 @@ test('common drafting hears both ministers and only signing adds an act to the r
   await expect(page.locator('.act-draft')).toHaveAttribute('data-state', 'queued');
 });
 
+test('engine-verified construction retains its declaration and canonical region when signed', async ({ page }) => {
+  setup(page);
+  const queued = [];
+  page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/actions/queue')) queued.push(request.postDataJSON()); });
+  await page.route(`${path}*/stream`, route => route.fulfill({ status: 200, contentType: 'text/plain', body: 'Costruiamo la fabbrica a Sarajevo.\n```decision\n{"op":"update-proposal","objective":"Fabbrica siderurgica a Sarajevo","changes":[{"label":"Costruire una fabbrica siderurgica a Sarajevo","kind":"work","source":"minister"}]}\n```' }));
+  await openRoom(page);
+  await page.getByRole('textbox', { name: 'Messaggio del Presidente' }).fill('Costruire una fabbrica siderurgica a Sarajevo');
+  await page.getByRole('button', { name: 'Invia', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Messaggio del Presidente' })).toBeEnabled();
+  await page.getByRole('button', { name: /Tavola/ }).click();
+  await page.getByRole('button', { name: 'Prepara bozza comune', exact: true }).click();
+  await expect(page.locator('.act-draft-capability')).toContainText('ordine d’opera supportato');
+  await page.getByRole('button', { name: 'Firma e inserisci nel registro', exact: true }).click();
+  await expect.poll(() => queued.length).toBe(1);
+  expect(queued[0].work).toEqual({ workId: 'work-fabbrica', payerActorId: 'POL', materialActorId: 'POL', funded: true, regionId: 'SARAJEVO' });
+});
+
+test('inline evidence opens the real engine block in the common board', async ({ page }) => {
+  setup(page);
+  await page.route(`${path}*/stream`, route => route.fulfill({ status: 200, contentType: 'text/plain', body: 'Guardiamo la spesa.\n```tavola\n{"op":"show","evidence":"spesa"}\n```' }));
+  await openRoom(page);
+  await page.getByRole('textbox', { name: 'Messaggio del Presidente' }).fill('Mostrami la spesa');
+  await page.getByRole('button', { name: 'Invia', exact: true }).click();
+  await page.locator('.council-room-evidence-link').click();
+  await expect(page.locator('.council-room-drawer')).toBeVisible();
+  await expect(page.locator('.council-board-focus-evidence [data-block-id="bilancio"]')).toBeVisible();
+});
+
+test('interrupt and resume preserve completed discussion but reject late contributions', async ({ page }) => {
+  setup(page);
+  let release;
+  let requestSeen = false;
+  await page.route(`${path}*/stream`, async route => {
+    requestSeen = true;
+    const text = await new Promise(resolve => { release = resolve; });
+    await route.fulfill({ status: 200, contentType: 'text/plain', body: text }).catch(() => {});
+  });
+  await openRoom(page);
+  await page.getByRole('textbox', { name: 'Messaggio del Presidente' }).fill('Domanda in corso');
+  await page.getByRole('button', { name: 'Invia', exact: true }).click();
+  await expect.poll(() => requestSeen).toBe(true);
+  await page.getByRole('button', { name: 'Interrompi', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Messaggio del Presidente' })).toBeEnabled();
+  release('LATE risposta con una proposta fittizia');
+  await page.getByRole('textbox', { name: 'Messaggio del Presidente' }).fill('Domanda conservata');
+  await page.getByRole('button', { name: '← Governo', exact: true }).click();
+  await page.getByRole('button', { name: /Riprendi seduta/ }).click();
+  await expect(page.getByRole('textbox', { name: 'Messaggio del Presidente' })).toHaveValue('Domanda conservata');
+  await expect(page.locator('.council-room-thread')).toContainText('Domanda in corso');
+  await expect(page.locator('.council-room-thread')).not.toContainText('LATE');
+});
+
+test('manual admission is accessible on desktop without a model invitation', async ({ page }) => {
+  setup(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await openRoom(page);
+  await page.getByRole('button', { name: '+ Convoca', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Convoca un ministro', exact: true });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Ministro della Guerra', exact: false }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.council-room-participants')).toContainText('Guerra');
+});
+
+test('an ambiguous signature cannot be replaced by another preparation and retries keep its key', async ({ page }) => {
+  setup(page);
+  const signatures = [];
+  await page.route(`**/api/games/${MOCK_GAME_ID}/actions/queue`, route => {
+    signatures.push({ key: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() });
+    return route.fulfill({ status: 503, json: { error: 'Acknowledgement unavailable' } });
+  });
+  await openRoom(page);
+  await discuss(page);
+  await page.getByRole('button', { name: /Tavola/ }).click();
+  await page.getByRole('button', { name: 'Prepara bozza comune', exact: true }).click();
+  const sign = page.getByRole('button', { name: 'Firma e inserisci nel registro', exact: true });
+  await expect(sign).toBeEnabled();
+  await sign.click();
+  await expect(page.locator('.act-draft')).toContainText('Firma non confermata');
+  await expect(page.getByRole('button', { name: 'Prepara bozza comune', exact: true })).toBeDisabled();
+  await sign.click();
+  await expect.poll(() => signatures.length).toBe(2);
+  expect(signatures[1]).toEqual(signatures[0]);
+});
+
 test('mobile board is a full-screen bottom sheet, Escape returns to the preserved chat', async ({ page }) => {
   setup(page);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -98,6 +184,7 @@ test('mobile board is a full-screen bottom sheet, Escape returns to the preserve
   await page.screenshot({ path: '/tmp/world-story-council-mobile-board.png' });
   await page.keyboard.press('Escape');
   await expect(sheet).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Tavola/ })).toBeFocused();
   await expect(page.locator('.government-office')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Messaggio del Presidente' })).toHaveValue('Domanda conservata');
   await page.screenshot({ path: '/tmp/world-story-council-mobile-chat.png' });

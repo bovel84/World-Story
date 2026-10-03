@@ -1,16 +1,18 @@
 /** A council room belongs to a question, never to one minister. UI discussion only;
  * verified figures and execution remain the engine's responsibility. */
 import type { AdvisorHistoryItem, MinisterCouncilContext } from '../../services/api';
-import { activeProposal, applyDecisionBatch, emptyWorkspace, type DecisionAction, type DecisionWorkspace } from './decisionWorkspace';
+import { activeProposal, applyDecisionBatch, emptyWorkspace, type DecisionAction, type DecisionMeasure, type DecisionWorkspace } from './decisionWorkspace';
 import type { ProposalActDraft } from './actDraft';
-import { parsePresentation } from './presentation';
+import { parsePresentation, type PresentationDirective } from './presentation';
 import { CABINET_SEATS, type CabinetSeat } from './seatDecisionBoards';
 import { seatSpeaker } from './councilMeeting';
+import { discussedProposal, openQuestion, type MinisterMemoryRef, type MinisterMemoryRecord } from './ministerMemory';
 
 export interface CouncilMessage extends AdvisorHistoryItem {
   id: string;
   seat?: CabinetSeat;
   kind: 'speech' | 'event' | 'error';
+  evidence?: readonly PresentationDirective[];
 }
 export interface CouncilInvitation { id: string; from: CabinetSeat; minister: CabinetSeat; question: string }
 export interface CouncilPosition {
@@ -103,7 +105,7 @@ export function receiveCouncilReply(room: CouncilRoomState, seat: CabinetSeat, r
   }
   const assessments = protocol ? { ...room.assessments, [seat]: { agreements: textList(protocol.agreements), disagreements: textList(protocol.disagreements) } } : room.assessments;
   return appendCouncilMessage({ ...room, sharedBoard, invitations, positions, assessments,
-    topic: sharedBoard.objective ?? room.topic }, { id: messageId, role: 'assistant', kind: 'speech', seat, speaker: seatSpeaker(seat), content: councilText(raw) });
+    topic: sharedBoard.objective ?? room.topic }, { id: messageId, role: 'assistant', kind: 'speech', seat, speaker: seatSpeaker(seat), content: councilText(raw), ...(parsed.directives.length ? { evidence: parsed.directives } : {}) });
 }
 export function confirmCouncilProposal(room: CouncilRoomState, messageId: string): CouncilRoomState {
   const proposal = activeProposal(room.sharedBoard);
@@ -111,6 +113,25 @@ export function confirmCouncilProposal(room: CouncilRoomState, messageId: string
   const changes = proposal.measures.filter(measure => measure.status === 'proposed').map(measure => ({ ...measure, source: 'president' as const, status: 'accepted' as const }));
   if (!changes.length) return room;
   return { ...room, sharedBoard: applyDecisionBatch(room.sharedBoard, [{ op: 'update-proposal', changes }], { messageId }) };
+}
+export function excludeCouncilMeasure(room: CouncilRoomState, label: string, messageId: string): CouncilRoomState {
+  return { ...room, sharedBoard: applyDecisionBatch(room.sharedBoard, [{ op: 'reject-measure', label }], { messageId }) };
+}
+export function councilMeasureValue(measure: DecisionMeasure): string {
+  const withUnit = (value: string | number) => `${value}${measure.unit ? ` ${measure.unit}` : ''}`;
+  return [measure.sharePct !== undefined ? `${measure.sharePct}%` : null,
+    measure.value !== undefined ? withUnit(measure.value) : null,
+    measure.amount !== undefined ? withUnit(measure.amount) : null].filter(value => value !== null).join(' · ');
+}
+/** Unsigned discussion is memory, never an execution or queued decision. */
+export function councilRoomMemory(room: CouncilRoomState, ref: MinisterMemoryRef, signed = false): { seat: CabinetSeat; record: MinisterMemoryRecord }[] {
+  const proposal = activeProposal(room.sharedBoard);
+  const summary = proposal?.measures.filter(measure => measure.status !== 'rejected').map(measure => `${measure.label}: ${councilMeasureValue(measure)}`).join('; ');
+  const questions = [...councilOpenQuestions(room), ...room.invitations.map(invitation => `${seatSpeaker(invitation.minister)}: ${invitation.question}`)];
+  return room.participants.flatMap(seat => [
+    ...(!signed && summary ? [{ seat, record: discussedProposal(seat, { id: room.id, title: summary }, ref) }] : []),
+    ...questions.map(question => ({ seat, record: openQuestion(seat, question, ref) })),
+  ]);
 }
 /** Other ministers are user-role contributions, not synthetic turns in this minister's voice. */
 export function councilHistory(room: CouncilRoomState, respondingSeat: CabinetSeat): AdvisorHistoryItem[] {
@@ -131,10 +152,10 @@ export function councilOpenQuestions(room: CouncilRoomState): string[] {
 export function councilDraft(room: CouncilRoomState, turn?: number): ProposalActDraft {
   const proposal = activeProposal(room.sharedBoard);
   const measures = proposal?.measures.filter(measure => measure.status !== 'rejected' && measure.status !== 'unresolved') ?? [];
-  const title = proposal?.objective ?? room.topic ?? 'Delibera del Consiglio';
+  const title = proposal?.objective || room.topic || 'Delibera del Consiglio';
   const lines = measures.map((measure, index) => {
-    const value = measure.sharePct !== undefined ? `${measure.sharePct}%` : measure.value ?? (measure.amount !== undefined ? String(measure.amount) : '');
-    return `Art. ${index + 1}\n${measure.label}${value ? `: ${value}${measure.unit ? ` ${measure.unit}` : ''}` : ''}.`;
+    const value = councilMeasureValue(measure);
+    return `Art. ${index + 1}\n${measure.label}${value ? `: ${value}` : ''}.`;
   });
   if (proposal?.constraints.length) lines.push(`Vincoli\n${proposal.constraints.join('; ')}.`);
   return { id: `${room.id}:draft:${room.sharedBoard.revision}`, seat: 'council', roadId: proposal?.id ?? room.id, title,

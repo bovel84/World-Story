@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from 'react';
-import { councilOpenQuestions, type CouncilPosition, type CouncilRoomState } from './councilRoom';
+import { councilOpenQuestions, councilMeasureValue, type CouncilPosition, type CouncilRoomState } from './councilRoom';
 import { seatSpeaker } from './councilMeeting';
 import {
   activeProposal, MEASURE_SOURCE_LABEL, MEASURE_STATUS_LABEL, type DecisionMeasure,
@@ -11,6 +11,7 @@ export interface CouncilRoomBoardProps {
   busy?: boolean;
   canPrepare?: boolean;
   onConfirm?: () => void;
+  onExclude?: (label: string) => void;
   onPrepare?: () => void;
   onConvene?: (seat: CabinetSeat) => void;
   children?: ReactNode;
@@ -23,29 +24,24 @@ const POSITION_LABEL: Record<CouncilPosition['status'], string> = {
   pending: 'In attesa',
 };
 
-function MeasureRow({ measure }: { measure: DecisionMeasure }) {
-  const withUnit = (value: string | number) => `${value}${measure.unit ? ` ${measure.unit}` : ''}`;
-  const values = [
-    measure.sharePct !== undefined ? `${measure.sharePct}%` : null,
-    measure.value !== undefined ? withUnit(measure.value) : null,
-    measure.amount !== undefined ? withUnit(measure.amount) : null,
-  ].filter(value => value !== null);
+function MeasureRow({ measure, onExclude, busy }: { measure: DecisionMeasure; onExclude?: (label: string) => void; busy: boolean }) {
 
   return (
     <li className="council-board-measure" data-status={measure.status} data-source={measure.source}>
       <span className="council-board-measure-label">{measure.label}</span>
-      <span className="council-board-measure-value">{values.join(' · ')}</span>
+      <span className="council-board-measure-value">{councilMeasureValue(measure)}</span>
       <span className="council-board-measure-status">
         {measure.status === 'accepted' ? 'confermata' : MEASURE_STATUS_LABEL[measure.status]}
       </span>
       <span className="council-board-provenance">{MEASURE_SOURCE_LABEL[measure.source]}</span>
+      {onExclude && measure.status !== 'rejected' && <button type="button" className="council-board-exclude" disabled={busy} onClick={() => onExclude(measure.label)} aria-label={`Escludi ${measure.label}`}>Escludi</button>}
     </li>
   );
 }
 
 /** One question and one live proposal; declarations remain attributed to their speakers. */
 export function CouncilRoomBoard({
-  room, busy = false, canPrepare = false, onConfirm, onPrepare, onConvene, children,
+  room, busy = false, canPrepare = false, onConfirm, onExclude, onPrepare, onConvene, children,
 }: CouncilRoomBoardProps) {
   const prepareReasonId = useId();
   const proposal = activeProposal(room.sharedBoard);
@@ -84,7 +80,7 @@ export function CouncilRoomBoard({
         <h3>PROPOSTA ATTUALE</h3>
         {measures.length > 0 ? (
           <ul className="council-board-list">
-            {measures.map(measure => <MeasureRow key={measure.id} measure={measure} />)}
+            {measures.map(measure => <MeasureRow key={measure.id} measure={measure} onExclude={onExclude} busy={busy} />)}
           </ul>
         ) : (
           <p className="council-board-empty">Nessuna misura ancora proposta: porta una proposta concreta nella discussione.</p>

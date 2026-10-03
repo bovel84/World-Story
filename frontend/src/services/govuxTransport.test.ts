@@ -43,6 +43,18 @@ describe('GOVUX trasporto firma/cancellazione', () => {
     expect(tokens).toHaveBeenCalledTimes(1); expect(tokens).toHaveBeenCalledWith('primo');
     expect(fetchMock).toHaveBeenCalledTimes(1); expect(stream.locked).toBe(false);
   });
+  it('un errore del lettore dopo alcuni token non completa la risposta né avvia fallback', async () => {
+    let reads = 0;
+    const reader = { read: vi.fn(async () => {
+      if (reads++ === 0) return { done: false, value: new TextEncoder().encode('```decision\n{"op":"set-objective","objective":"Parziale","source":"minister"}\n```') };
+      throw new Error('stream troncato');
+    }), releaseLock: vi.fn() };
+    const fetchMock = vi.fn(async () => ({ ok: true, body: { getReader: () => reader } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(ministerApi.askStream('game', 'tesoro', 'Domanda', [], vi.fn())).rejects.toThrow('stream troncato');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(reader.releaseLock).toHaveBeenCalledOnce();
+  });
   it('un errore di rete non avvia una seconda generazione ambigua', async () => {
     const controller = new AbortController();
     const fetchMock = vi.fn().mockRejectedValue(new Error('rete'));

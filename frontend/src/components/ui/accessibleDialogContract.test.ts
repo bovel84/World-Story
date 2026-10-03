@@ -19,7 +19,9 @@ describe('AccessibleDialog contract', () => {
     expect(source).toContain("event.key === 'Escape'");
     expect(source).toContain("event.key !== 'Tab'");
     expect(source).toContain('target?.focus({ preventScroll: true })');
-    expect(source).toContain('previousFocus?.focus({ preventScroll: true })');
+    expect(source).toContain('if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true })');
+    expect(source).toContain("event.key === 'Escape' && closeOnEscapeRef.current");
+    expect(source).toContain('}, [open, initialFocusRef]);');
     expect(source).toContain('last.focus()');
     expect(source).toContain('first.focus()');
   });

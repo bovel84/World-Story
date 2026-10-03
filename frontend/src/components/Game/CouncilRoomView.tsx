@@ -4,13 +4,14 @@ import { RichText } from './RichText';
 import { seatSpeaker } from './councilMeeting';
 import { councilOpenQuestions, councilText, type CouncilRoomState } from './councilRoom';
 import { activeProposal } from './decisionWorkspace';
+import { inlineEvidenceCards, type EvidenceCardIndex, type InlineEvidenceCard } from './inlineEvidence';
 import { isNearBottom } from './chatScroll';
-import type { CabinetAddressView } from '../../services/api';
-import type { CabinetSeat } from './seatDecisionBoards';
+import { CABINET_SEATS, type CabinetSeat } from './seatDecisionBoards';
 
 export interface CouncilRoomViewProps {
   room: CouncilRoomState;
-  addresses: CabinetAddressView[];
+  evidenceIndex: Partial<Record<CabinetSeat, EvidenceCardIndex>>;
+  onFocusEvidence: (seat: CabinetSeat, card: InlineEvidenceCard) => void;
   nationalName: string;
   currentDate?: string | null;
   isMobile: boolean;
@@ -34,7 +35,7 @@ export interface CouncilRoomViewProps {
   error?: string;
 }
 
-export function CouncilRoomView({ room, addresses, nationalName, currentDate, isMobile, busy, speaking, streamText, input, target,
+export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, nationalName, currentDate, isMobile, busy, speaking, streamText, input, target,
   onInput, onTarget, onSend, onInterrupt, onConvene, onBack, onClose, onConclude, onSheetChange, board, draftPrepared, notice, error }: CouncilRoomViewProps) {
   const [boardOpen, setBoardOpen] = useState(false);
   const [conveneOpen, setConveneOpen] = useState(false);
@@ -51,7 +52,7 @@ export function CouncilRoomView({ room, addresses, nationalName, currentDate, is
   }, [room.messages.length, streamText]);
   const proposalCount = activeProposal(room.sharedBoard)?.measures.filter(measure => measure.status !== 'rejected').length ?? 0;
   const openCount = councilOpenQuestions(room).length + room.invitations.length;
-  const convenable = addresses.filter(address => !room.participants.includes(address.seat));
+  const convenable = CABINET_SEATS.filter(seat => !room.participants.includes(seat));
   const replies = room.messages.filter(message => message.kind === 'speech' && message.role === 'assistant');
   const lastReply = replies[replies.length - 1];
   const closeBoard = (): void => { setBoardOpen(false); boardButtonRef.current?.focus(); };
@@ -88,6 +89,7 @@ export function CouncilRoomView({ room, addresses, nationalName, currentDate, is
               <article key={message.id} className={`council-room-message ${message.role}${message.kind === 'error' ? ' error' : ''}`} data-seat={message.seat}>
                 <p className="council-room-speaker">{message.role === 'user' ? 'Presidente' : message.seat ? seatSpeaker(message.seat) : 'Consiglio'}</p>
                 <div className="council-room-prose"><RichText text={message.content} /></div>
+                {message.seat && inlineEvidenceCards({ directives: message.evidence ?? [], messageId: message.id, index: evidenceIndex[message.seat] ?? {} }).map(card => <button type="button" key={card.key} className="council-room-evidence-link" onClick={() => { setBoardOpen(true); onFocusEvidence(message.seat!, card); }}>Apri {card.title} sulla Tavola ↗</button>)}
                 {room.invitations.filter(invitation => invitation.id.startsWith(`${message.id}:`)).map(invitation => (
                   <div key={invitation.id} className="council-room-invitation">
                     <span>{seatSpeaker(invitation.from)} suggerisce di convocare {seatSpeaker(invitation.minister)}</span>
@@ -139,7 +141,7 @@ export function CouncilRoomView({ room, addresses, nationalName, currentDate, is
       {isMobile && boardOpen && <GovernmentBottomSheet open title="Tavola del Consiglio" labelledBy="council-board-sheet-title" onClose={closeBoard}>{board}</GovernmentBottomSheet>}
       {conveneOpen && <GovernmentBottomSheet open title="Convoca un ministro" labelledBy="council-convene-title" onClose={() => setConveneOpen(false)}>
         <p className="council-room-convene-note">Il ministro entra in questa seduta e riceve tutta la discussione recente.</p>
-        <ul className="gov-sheet-list">{convenable.map(address => <li key={address.seat}><button type="button" className="gov-sheet-item" disabled={busy} onClick={() => { setConveneOpen(false); onConvene(address.seat); }}><span>{address.label}</span><span aria-hidden="true">+</span></button></li>)}</ul>
+        <ul className="gov-sheet-list">{convenable.map(seat => <li key={seat}><button type="button" className="gov-sheet-item" disabled={busy} onClick={() => { setConveneOpen(false); onConvene(seat); }}><span>{seatSpeaker(seat)}</span><span aria-hidden="true">+</span></button></li>)}</ul>
       </GovernmentBottomSheet>}
     </div>
   );

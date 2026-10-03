@@ -122,6 +122,18 @@ describe('minister council: actual ask/stream request propagation', () => {
     }
   });
 
+  it('does not terminate successfully when generation fails after writing a partial reply', async () => {
+    const original = session.getMinisterStream;
+    session.getMinisterStream = async (_seat: string, _message: string, _history: unknown, token: (text: string) => void) => {
+      token('Partial council intervention');
+      await new Promise(resolve => setTimeout(resolve, 10));
+      throw new Error('Provider failed mid-stream');
+    };
+    try {
+      await expect(post(true, { message: 'Rispondi.', history, council })).rejects.toThrow();
+    } finally { session.getMinisterStream = original; }
+  });
+
   it('does not leak council into the next legacy request', async () => {
     process.env.JEV_MEMORY_ENABLED = 'false';
     await post(false, { message: 'Rispondi.', history, council });
