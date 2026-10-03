@@ -144,10 +144,73 @@ export function composeMinisterDialoguePrompt(brief: MinisterDialogueBrief, cont
   ].filter(Boolean).join('\n\n');
 }
 
+/**
+ * P0.1 — Validazione del Consiglio, distinta da quella della chat 1:1.
+ *
+ * La vecchia soglia (140 parole) bocciava risposte Council corrette di
+ * 150–220 parole, sostituendole con un fallback che sembrava una posizione
+ * politica. Qui la causa è **esplicita** e il limite è adeguato alla sala.
+ */
+export const COUNCIL_MAX_WORDS = 280;
+export type CouncilValidationReason = 'empty' | 'too_long' | 'style';
+export type CouncilFailureReason = CouncilValidationReason | 'provider_error';
+export type MinisterDialogueValidation =
+  | { readonly ok: true; readonly words: number }
+  | { readonly ok: false; readonly reason: CouncilValidationReason; readonly words: number };
+
+/**
+ * P0.3 — Un guasto del Consiglio è un errore **tipizzato**, non una frase. Il
+ * route lo traduce in `502 minister_unavailable`; il client mostra un errore
+ * operativo con retry, e nessun testo entra nella seduta come intervento.
+ */
+export class CouncilMinisterUnavailableError extends Error {
+  readonly reason: CouncilFailureReason;
+  readonly seat: string;
+  constructor(reason: CouncilFailureReason, seat: string, options?: { cause?: unknown }) {
+    super(`minister_unavailable:${reason}`);
+    this.name = 'CouncilMinisterUnavailableError';
+    this.reason = reason;
+    this.seat = seat;
+    if (options?.cause !== undefined) (this as { cause?: unknown }).cause = options.cause;
+  }
+}
+
+/** Riga di log concisa: nessun prompt, nessuna history, nessun dato sensibile. */
+export function councilDialogueLogLine(
+  brief: MinisterDialogueBrief,
+  status: 'accepted' | 'rejected' | 'provider_error',
+  reason: string | undefined,
+  words: number,
+  chars: number,
+): string | null {
+  if (!brief.council) return null;
+  const reasonPart = reason ? ` reason=${reason}` : '';
+  return `[CouncilDialogue] seat=${brief.seat} session=${brief.council.sessionId} phase=${brief.council.phase} status=${status}${reasonPart} words=${words} chars=${chars}`;
+}
+
+/**
+ * Il validator del Consiglio. Il blocco ```consiglio è facoltativo: una prosa
+ * valida senza blocco è accettata. Si bocciano solo output vuoto, troppo lungo
+ * o con le formule vietate dal protocollo.
+ */
+export function validateCouncilResponse(response: string, brief: MinisterDialogueBrief): MinisterDialogueValidation {
+  const narrative = stripNarrativeDirectives(response);
+  const prose = narrative.replace(/```consiglio\b[\s\S]*?```/gi, '').trim();
+  const words = prose ? prose.split(/\s+/).length : 0;
+  if (!prose) return { ok: false, reason: 'empty', words: 0 };
+  if (words > COUNCIL_MAX_WORDS) return { ok: false, reason: 'too_long', words };
+  const explicitlyStructured = /(?:sezion|elenc|riepilog|schem|report|fatti:|lettura:|proposta:|alternative:|conclusione:)/i.test(brief.presidentMessage);
+  if (!explicitlyStructured && /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?(?:Fatti|Lettura|Proposta|Alternative|Conclusione)\s*(?:\*\*)?(?::|(?=\n|$))/i.test(prose)) return { ok: false, reason: 'style', words };
+  if (/Ho \d+ (?:cos[ae]|questioni)|Non è la mia materia|Tocca a te decidere|Dimmi tu qual è la priorità|Perché adesso:/i.test(prose)) return { ok: false, reason: 'style', words };
+  return { ok: true, words };
+}
+
 /** Guardrail stilistico ristretto; non è un nuovo fact checker e non cambia direttive/provenance. */
 export function dialogueResponseIsNatural(response: string, brief: MinisterDialogueBrief): boolean {
+  // Il Consiglio ha il suo validator: la soglia 1:1 non deve bocciarlo.
+  if (brief.council) return validateCouncilResponse(response, brief).ok;
   const narrative = stripNarrativeDirectives(response);
-  const prose = brief.council ? narrative.replace(/```consiglio\b[\s\S]*?```/gi, '').trim() : narrative;
+  const prose = narrative;
   if (!prose.trim()) return false;
   const explicitlyStructured = /(?:sezion|elenc|riepilog|schem|report|fatti:|lettura:|proposta:|alternative:|conclusione:)/i.test(brief.presidentMessage);
   if (!explicitlyStructured && /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?(?:Fatti|Lettura|Proposta|Alternative|Conclusione)\s*(?:\*\*)?(?::|(?=\n|$))/i.test(prose)) return false;
@@ -164,11 +227,9 @@ export function dialogueResponseIsNatural(response: string, brief: MinisterDialo
 
 /** Un errore del provider non genera una decisione fittizia né cancella ciò che è già concordato. */
 export function fallbackMinisterDialogue(brief: MinisterDialogueBrief): string {
-  if (brief.council) {
-    return brief.council.phase === 'drafting'
-      ? 'Non riesco ora a rivedere le clausole della bozza alla luce degli interventi dei colleghi. Lascio aperti i punti da verificare: non posso attribuire loro un accordo o firmare per il consiglio.'
-      : 'Non riesco ora a valutare gli interventi dei colleghi. La mia posizione resta in sospeso: non attribuisco assenso al consiglio e non modifico la proposta. Quale punto vuoi chiarire prima di riprendere il confronto?';
-  }
+  // P0.2 — Nel Consiglio un guasto tecnico non è una posizione politica: il
+  // fallback come speech è vietato. Il chiamante deve propagare l'errore.
+  if (brief.council) throw new CouncilMinisterUnavailableError('style', brief.seat);
   const redirect = colleagueRedirect(brief.seat, brief.presidentMessage);
   if (redirect) return redirect;
   const message = brief.presidentMessage.toLowerCase().trim();

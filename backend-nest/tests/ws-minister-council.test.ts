@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildMinisterDialogueBrief, composeMinisterDialoguePrompt, currentMinisterDialogueRequest,
-  dialogueHistory, dialogueResponseIsNatural, fallbackMinisterDialogue,
+  dialogueHistory, dialogueResponseIsNatural, fallbackMinisterDialogue, CouncilMinisterUnavailableError,
   normalizeMinisterCouncil, withMinisterDialogueRequest,
 } from '../src/core/government/MinisterDialogue';
 import { CABINET_SEATS } from '../src/core/government/Cabinet';
@@ -123,10 +123,8 @@ describe('minister council: request isolation and collaborative prompt', () => {
       const dialogue = brief('Va bene.');
       expect(composeMinisterDialoguePrompt(dialogue)).toMatch(/clausole.*colleghi/i);
       expect(composeMinisterDialoguePrompt(dialogue)).toMatch(/non firmare.*non.*adottat/i);
-      const fallback = fallbackMinisterDialogue(dialogue);
-      expect(fallback).not.toContain('```decision');
-      expect(fallback).toMatch(/bozza|clausol/i);
-      expect(fallback).not.toMatch(/segno la scelta|accordo raggiunto|adottato/);
+      // Nel Consiglio non esiste un fallback-speech: un guasto è un errore.
+      expect(() => fallbackMinisterDialogue(dialogue)).toThrow(CouncilMinisterUnavailableError);
     }, { ...council, phase: 'drafting' });
   });
 
@@ -134,7 +132,7 @@ describe('minister council: request isolation and collaborative prompt', () => {
     withMinisterDialogueRequest('game', 'tesoro', undefined, () => {
       const response = `Esteri, condivido la prudenza, ma prima voglio la verifica delle scorte della Guerra.\n\`\`\`consiglio\n${JSON.stringify({ needs_input_from: [{ minister: 'guerra', question: 'Quali scorte sono verificate?' }], position: { status: 'conditional', reason: 'Manca la verifica.' }, agreements: Array(30).fill('Una valutazione di discussione, non un fatto verificato.'), disagreements: [] })}\n\`\`\``;
       expect(dialogueResponseIsNatural(response, brief())).toBe(true);
-      expect(fallbackMinisterDialogue(brief('Va bene.'))).not.toContain('```decision');
+      expect(() => fallbackMinisterDialogue(brief('Va bene.'))).toThrow(CouncilMinisterUnavailableError);
     }, council);
   });
 
