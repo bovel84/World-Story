@@ -2922,6 +2922,10 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   margin: 0 0 6px; font-family: var(--op-utility); font-size: 11px;
   letter-spacing: .18em; text-transform: uppercase; color: var(--op-red-dark);
 }
+.opening-brand {
+  margin: 0 0 4px; font-family: var(--op-utility); font-size: 10px;
+  letter-spacing: .28em; text-transform: uppercase; color: var(--op-muted);
+}
 .opening-section {
   margin: 0; font-family: var(--op-display); font-weight: 700;
   font-size: clamp(26px, 4vw, 40px); line-height: 1.02; letter-spacing: -.02em;

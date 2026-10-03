@@ -43,6 +43,14 @@ describe('WS-GAME-OPENING — GameOpeningBriefing', () => {
     expect(html).not.toContain('Skip tutorial');
   });
 
+  it('la schermata 1 porta l’intestazione WORLD STORY / data / nome mondo (§4)', () => {
+    expect(render(0)).toContain('WORLD STORY');
+    expect(render(0)).toContain('1 GENNAIO 2000');
+    expect(render(0)).toContain('Millennium Dawn');
+    // Il brand non compare sulle altre pagine.
+    expect(render(1)).not.toContain('WORLD STORY');
+  });
+
   it('l’ultima pagina offre le tre porte e l’ingresso diretto', () => {
     const html = render(4);
     expect(html).toContain('Governo');
