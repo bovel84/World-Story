@@ -584,6 +584,28 @@ export interface FiscalPolicyInfo {
 
 export type FactionStance = 'alleato' | 'favorevole' | 'neutrale' | 'critico' | 'ostile';
 
+/** WS-GOV-SITUATIONS — la Pressure canonica letta come situazione del Consiglio. */
+export interface GovernmentSituationView {
+  id: string;
+  pressureId: string;
+  title: string;
+  briefing: string;
+  source: string;
+  severity: number;
+  priority: string;
+  openedDate: string;
+  deadline: string | null;
+  daysLeft: number;
+  leadMinister: string;
+  suggestedMinisters: string[];
+  verifiedFacts: string[];
+  decisionQuestion: string;
+  options: Array<{ id: string; label: string; detail: string; effectNote: string }>;
+  inaction: { note: string };
+  affectedDomains: string[];
+  origin: { type: string; sourceId?: string };
+}
+
 /** Sfida di pace: interna o esterna, con le opzioni di risposta. */
 export interface PeacetimePressure {
   id: string;
@@ -622,6 +644,8 @@ export interface PeacetimePressure {
   highlighted?: boolean;
   resolvedOption?: string | null;
   resolution?: string | null;
+  /** WS-GOV-SITUATIONS — la vista per la Sala del Consiglio (read model della stessa sfida). */
+  situation?: GovernmentSituationView;
 }
 
 /** Dimensione della crisi nazionale: rivolta, default o invasione. */

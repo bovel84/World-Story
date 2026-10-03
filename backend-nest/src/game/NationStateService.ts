@@ -26,6 +26,7 @@ import {
   PRESSURE_MAX_ACTIVE, generatePressures, highlightPressures, pressurePriority, pressureWindow, scalePressureEffect,
   type PressureEffect, type PressureNeighbour, type PressureSnapshot, type PressureWindow, type RelationStance,
 } from '../core/simulation/PeacetimePressures';
+import { buildGovernmentSituation, buildGovernmentFollowUp, leadMinisterFor, SITUATION_FOLLOW_UP_DAYS, type GovernmentSituation, type GovernmentFollowUp, type SituationFactSource } from '../core/government/GovernmentSituations';
 import { advanceCrisis, type CrisisEnding, type CrisisInput, type CrisisState } from '../core/simulation/NationCrisis';
 import { factionMemoryFromPressure, type FactionMemoryEvent } from '../core/simulation/FactionMemory';
 import { ingestJevBatch, governmentEventInput, factionMemoryInputs } from '../core/government/jev/jev-memory.service';
@@ -93,6 +94,8 @@ export interface PressureView extends PressureRecord {
   priority: string;
   /** Merita attenzione adesso (max 2 per volta, salvo crisi). */
   highlighted: boolean;
+  /** WS-GOV-SITUATIONS — la vista per la Sala del Consiglio, read model della stessa Pressure. */
+  situation: GovernmentSituation;
 }
 
 /** Periodo materiale massimo: un mese. Niente tick giornalieri o orari. */
@@ -1102,6 +1105,8 @@ export class NationStateService {
     pressures: PressureView[];
     recent: PressureRecord[];
     foodCoverageMonths: number | null;
+    /** P1.8 — i seguiti dovuti: il ministro torna a riferire con i fatti di oggi. */
+    followUps: GovernmentFollowUp[];
   } {
     const all = gameRepository.listPressures(this.ctx.gameId);
     // Dopo il collasso non c'è più niente da decidere.
@@ -1117,10 +1122,51 @@ export class NationStateService {
       };
     });
     const highlighted = highlightPressures(withWindow, windows);
+    // WS-GOV-SITUATIONS — la stessa Pressure, letta come situazione del Consiglio:
+    // i fatti vengono dalle misure reali della nazione, la provenienza dalla
+    // storia già chiusa. Nessun effetto viene anticipato qui.
+    const snapshot = this.pressureSnapshot();
+    const facts: SituationFactSource = {
+      socialTension: snapshot.socialTension,
+      stability: snapshot.stability,
+      deficitRatioPct: snapshot.deficitRatioPct,
+      debtRatioPct: snapshot.debtRatioPct,
+      taxRatePct: snapshot.taxRatePct,
+      militaryPower: snapshot.militaryPower,
+      mobilized: snapshot.mobilized,
+      foodCoverageMonths: snapshot.foodCoverageMonths,
+    };
+    const history = all.map(record => ({ id: record.id, template: record.template, status: record.status, createdTurn: record.createdTurn }));
+    // P1.8 — Il seguito di un atto chiuso: quando la data arriva, il ministro
+    // competente torna con le misure di OGGI. Nessun effetto nuovo: il motore ha
+    // già applicato la decisione (o l'inerzia) al momento della chiusura.
+    const today = this.ctx.currentDate();
+    const followUps = all
+      .filter(record => record.status !== 'active' && record.resolvedDate)
+      .map(record => {
+        const dueDate = addDays(record.resolvedDate as string, SITUATION_FOLLOW_UP_DAYS);
+        return { record, dueDate, daysLeft: daysBetween(today, dueDate) };
+      })
+      .filter(item => item.daysLeft <= 0)
+      .sort((left, right) => left.daysLeft - right.daysLeft)
+      .slice(0, 4)
+      .map(item => buildGovernmentFollowUp({
+        pressure: item.record,
+        owner: leadMinisterFor(item.record),
+        dueDate: item.dueDate,
+        daysLeft: item.daysLeft,
+        facts,
+        priority: 'rilevante',
+      }));
     return {
-      pressures: withWindow.map(record => ({ ...record, highlighted: highlighted.has(record.id) })),
+      pressures: withWindow.map(record => ({
+        ...record,
+        highlighted: highlighted.has(record.id),
+        situation: buildGovernmentSituation({ pressure: record, window: record.window, priority: record.priority, facts, history }),
+      })),
       recent: all.filter(record => record.status !== 'active').slice(0, 6),
       foodCoverageMonths: this.foodCoverageMonths(),
+      followUps,
     };
   }
 

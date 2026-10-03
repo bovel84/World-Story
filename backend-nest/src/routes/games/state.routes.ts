@@ -544,12 +544,13 @@ router.get('/:id/pressures', (req, res) => {
 router.post('/:id/pressures/:pressureId/resolve', (req, res) => {
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    const optionId = String(req.body?.optionId || '');
-    if (!optionId) {
+    const raw = req.body?.optionIds ?? req.body?.optionId;
+    const optionIds = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((id: unknown) => String(id)).filter(Boolean);
+    if (optionIds.length === 0) {
       res.status(400).json({ error: 'optionId è obbligatorio' });
       return;
     }
-    res.json(session.resolvePeacetimePressure(req.params.pressureId, optionId));
+    res.json(session.resolvePeacetimePressure(req.params.pressureId, optionIds));
   } catch (e: any) {
     const message = String(e?.message || '');
     if (message.includes('insufficient_funds')) {

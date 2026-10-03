@@ -21,6 +21,15 @@ export interface GovernmentBottomSheetProps {
   /** Il pulsante che ha aperto il foglio: il focus torna lì alla chiusura. */
   readonly initialFocusRef?: RefObject<HTMLElement | null>;
   readonly labelledBy?: string;
+  /**
+   * P0.5 — Azione a sinistra dell'intestazione (es. «Torna al Consiglio»).
+   *
+   * Con `trailingAction` permette DUE uscite sempre visibili e distinte:
+   * chiudere il foglio e chiudere l'intero ufficio. Sul default resta la sola ✕,
+   * quindi i fogli esistenti non cambiano.
+   */
+  readonly leadingAction?: ReactNode;
+  readonly trailingAction?: ReactNode;
 }
 
 export function GovernmentBottomSheet({
@@ -30,6 +39,8 @@ export function GovernmentBottomSheet({
   children,
   initialFocusRef,
   labelledBy = 'government-bottom-sheet-title',
+  leadingAction,
+  trailingAction,
 }: GovernmentBottomSheetProps) {
   return (
     <AccessibleDialog
@@ -42,8 +53,11 @@ export function GovernmentBottomSheet({
     >
       <div className="gov-sheet-grip" aria-hidden="true" />
       <header className="gov-sheet-head">
+        <div className="gov-sheet-head-leading">{leadingAction}</div>
         <h2 className="gov-sheet-title" id={labelledBy}>{title}</h2>
-        <button type="button" className="gov-sheet-close" onClick={onClose} aria-label="Chiudi il foglio">✕</button>
+        <div className="gov-sheet-head-trailing">
+          {trailingAction ?? <button type="button" className="gov-sheet-close" onClick={onClose} aria-label="Chiudi il foglio">✕</button>}
+        </div>
       </header>
       <div className="gov-sheet-body">{children}</div>
     </AccessibleDialog>

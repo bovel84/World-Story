@@ -34,6 +34,9 @@ export async function openCouncilRoom(page, seat = 'tesoro') {
   await openGovernment(page);
   await page.locator(`.cabinet-pick[data-seat="${seat}"]`).click();
   await expect(page.locator('.council-room')).toBeVisible({ timeout: 10_000 });
+  // L'apertura del ministro è il primo messaggio della seduta: attenderla evita
+  // che un conteggio immediato degli interventi la scambi per una risposta.
+  await expect(replies(page).first()).toBeVisible({ timeout: 15_000 });
   return page.locator('.council-room');
 }
 
@@ -42,6 +45,7 @@ export async function openCouncilRoomByLabel(page, label) {
   await openGovernment(page);
   await page.locator('.cabinet-pick', { hasText: label }).first().click();
   await expect(page.locator('.council-room')).toBeVisible({ timeout: 10_000 });
+  await expect(replies(page).first()).toBeVisible({ timeout: 15_000 });
   return page.locator('.council-room');
 }
 

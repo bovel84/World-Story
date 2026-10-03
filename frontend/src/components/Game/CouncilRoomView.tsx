@@ -185,7 +185,9 @@ export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, national
         <button type="button" className="council-room-board-toggle" ref={boardButtonRef} aria-expanded={boardOpen} aria-controls={boardOpen ? (isMobile ? 'council-board-sheet-title' : 'council-board') : undefined} onClick={() => setBoardOpen(value => !value)}>Tavola {boardOpen ? '↓' : '↑'}</button>
         <button type="button" className="council-room-conclude" disabled={busy} onClick={onConclude}>Chiudi seduta</button>
       </footer>
-      {isMobile && boardOpen && <GovernmentBottomSheet open title="Tavola del Consiglio" labelledBy="council-board-sheet-title" onClose={closeBoard}>{board}</GovernmentBottomSheet>}
+      {isMobile && boardOpen && <GovernmentBottomSheet open title="Tavola del Consiglio" labelledBy="council-board-sheet-title" onClose={closeBoard}
+        leadingAction={<button type="button" className="council-room-sheet-exit council-room-sheet-back" aria-label="Torna al Consiglio" onClick={closeBoard}>← Consiglio</button>}
+        trailingAction={<button type="button" className="council-room-sheet-exit council-room-sheet-close" aria-label="Chiudi Governo" onClick={onClose}>✕ Governo</button>}>{board}</GovernmentBottomSheet>}
       {conveneOpen && <GovernmentBottomSheet open title="Convoca un ministro" labelledBy="council-convene-title" onClose={() => setConveneOpen(false)}>
         <p className="council-room-convene-note">Il ministro entra in questa seduta e riceve tutta la discussione recente.</p>
         <ul className="gov-sheet-list">{convenable.map(seat => <li key={seat}><button type="button" className="gov-sheet-item" disabled={busy} onClick={() => { setConveneOpen(false); onConvene(seat); }}><span>{seatSpeaker(seat)}</span><span aria-hidden="true">+</span></button></li>)}</ul>
