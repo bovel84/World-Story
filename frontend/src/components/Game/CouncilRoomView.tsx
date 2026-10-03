@@ -33,23 +33,63 @@ export interface CouncilRoomViewProps {
   draftPrepared: boolean;
   notice?: string;
   error?: string;
+  /** Un ministro non ha risposto: errore operativo con retry del solo ministro. */
+  failure?: { seat: CabinetSeat } | null;
+  onRetry?: () => void;
+}
+
+/** «Ministro della Guerra» → «Guerra»: etichetta compatta per il retry. */
+function shortSeat(label: string): string {
+  return label.replace(/^Ministro (?:del |della |degli |dell’|dell'|dei )/, '');
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 }
 
 export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, nationalName, currentDate, isMobile, busy, speaking, streamText, input, target,
-  onInput, onTarget, onSend, onInterrupt, onConvene, onBack, onClose, onConclude, onSheetChange, board, draftPrepared, notice, error }: CouncilRoomViewProps) {
+  onInput, onTarget, onSend, onInterrupt, onConvene, onBack, onClose, onConclude, onSheetChange, board, draftPrepared, notice, error, failure, onRetry }: CouncilRoomViewProps) {
   const [boardOpen, setBoardOpen] = useState(false);
   const [conveneOpen, setConveneOpen] = useState(false);
   const [unread, setUnread] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const boardButtonRef = useRef<HTMLButtonElement>(null);
   const followRef = useRef(true);
+  const previousCountRef = useRef(room.messages.length);
   useEffect(() => { onSheetChange(conveneOpen || (isMobile && boardOpen)); }, [conveneOpen, isMobile, boardOpen, onSheetChange]);
+  // Composer: una riga, cresce fino a ~4 righe, poi scroll interno.
   useEffect(() => {
-    const thread = threadRef.current;
-    if (!thread) return;
-    if (followRef.current) thread.scrollTop = thread.scrollHeight;
-    else setUnread(true);
-  }, [room.messages.length, streamText]);
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const maxHeight = 4 * 24 + 26;
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [input]);
+  // P1.5 — Un nuovo intervento si allinea all'INIZIO, non al fondo: lo speaker e
+  // il primo paragrafo restano visibili. Nessuno scroll ad ogni token.
+  useEffect(() => {
+    const previous = previousCountRef.current;
+    previousCountRef.current = room.messages.length;
+    if (room.messages.length <= previous) return;
+    const newest = room.messages[room.messages.length - 1];
+    if (!newest) return;
+    if (!followRef.current) { setUnread(true); return; }
+    const target = threadRef.current?.querySelector(`[data-message-id="${newest.id}"]`);
+    target?.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  }, [room.messages]);
+  // Lo streaming allinea UNA volta l'inizio dell'intervento, non ad ogni token.
+  useEffect(() => {
+    if (!speaking || !followRef.current) return;
+    const target = threadRef.current?.querySelector('.council-room-stream');
+    target?.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  }, [speaking]);
+  useEffect(() => {
+    if (!failure) return;
+    const target = threadRef.current?.querySelector('.council-room-failure');
+    target?.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  }, [failure]);
   const proposalCount = activeProposal(room.sharedBoard)?.measures.filter(measure => measure.status !== 'rejected').length ?? 0;
   const openCount = councilOpenQuestions(room).length + room.invitations.length;
   const convenable = CABINET_SEATS.filter(seat => !room.participants.includes(seat));
@@ -86,7 +126,7 @@ export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, national
             {room.messages.map(message => message.kind === 'event' ? (
               <p key={message.id} className="council-room-event">{message.content}</p>
             ) : (
-              <article key={message.id} className={`council-room-message ${message.role}${message.kind === 'error' ? ' error' : ''}`} data-seat={message.seat}>
+              <article key={message.id} data-message-id={message.id} className={`council-room-message ${message.role}${message.kind === 'error' ? ' error' : ''}`} data-seat={message.seat}>
                 <p className="council-room-speaker">{message.role === 'user' ? 'Presidente' : message.seat ? seatSpeaker(message.seat) : 'Consiglio'}</p>
                 <div className="council-room-prose"><RichText text={message.content} /></div>
                 {message.seat && inlineEvidenceCards({ directives: message.evidence ?? [], messageId: message.id, index: evidenceIndex[message.seat] ?? {} }).map(card => <button type="button" key={card.key} className="council-room-evidence-link" onClick={() => { setBoardOpen(true); onFocusEvidence(message.seat!, card); }}>Apri {card.title} sulla Tavola ↗</button>)}
@@ -99,6 +139,13 @@ export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, national
                 ))}
               </article>
             ))}
+            {failure && (
+              <article className="council-room-message council-room-failure" role="alert" data-seat={failure.seat}>
+                <p className="council-room-speaker">Consiglio</p>
+                <p className="council-room-failure-text">Il {seatSpeaker(failure.seat)} non riesce a intervenire in questo momento.</p>
+                <button type="button" className="council-room-retry" disabled={busy} onClick={onRetry}>Riprova {shortSeat(seatSpeaker(failure.seat))}</button>
+              </article>
+            )}
             {busy && speaking && <article className="council-room-message assistant council-room-stream" data-seat={speaking}>
               <p className="council-room-speaker">{seatSpeaker(speaking)}</p>
               <div className="council-room-prose">{streamText ? <RichText text={councilText(streamText)} /> : <span className="advisor-typing" role="status" aria-label="Il ministro sta preparando il suo intervento"><i /><i /><i /></span>}</div>
@@ -122,7 +169,7 @@ export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, national
               {room.phase === 'drafting' && <span>Redazione comune</span>}
             </div>
             <div className="council-room-compose-row">
-              <textarea rows={2} aria-label="Messaggio del Presidente" placeholder="Scrivi al Consiglio…" value={input} disabled={busy} onChange={event => onInput(event.target.value)} onKeyDown={event => {
+              <textarea ref={textareaRef} rows={1} aria-label="Messaggio del Presidente" placeholder="Scrivi al Consiglio…" value={input} disabled={busy} onChange={event => onInput(event.target.value)} onKeyDown={event => {
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); onSend(); }
               }} />
               {busy ? <button type="button" onClick={onInterrupt}>Interrompi</button> : <button type="submit" disabled={!input.trim()}>Invia</button>}

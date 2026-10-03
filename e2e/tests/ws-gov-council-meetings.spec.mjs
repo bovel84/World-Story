@@ -161,15 +161,17 @@ test('WS-GOV-COUNCIL-MEETINGS: cassa insufficiente = blocco del motore, nessuna 
   await expect(consequence).toContainText('Funzione assente');
 });
 
-test('WS-GOV-COUNCIL-HARDENING: provider in errore → errore dichiarato, nessuna voce inventata, contributi conservati', async ({ page }) => {
+test('WS-GOV-COUNCIL-HARDENING: guasto del provider → errore operativo con retry, nessuna voce inventata', async ({ page }) => {
   installMockApi(page);
-  // Il provider narrativo risponde 500 sulla sola domanda che deve fallire; le
-  // altre passano al mock (che ripiega sul POST normale).
+  // Il primo tentativo sulla domanda che deve fallire risponde 502; il retry
+  // passa al mock. Le altre domande passano sempre.
+  let failures = 0;
   await page.route(STREAM, route => {
     let message = '';
     try { message = String(route.request().postDataJSON()?.message || '').toLowerCase(); } catch { /* body inatteso */ }
-    if (message.includes('domanda che fallisce')) {
-      return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"provider offline"}' });
+    if (message.includes('domanda che fallisce') && failures === 0) {
+      failures += 1;
+      return route.fulfill({ status: 502, contentType: 'application/json', body: '{"error":"minister_unavailable","reason":"provider_error"}' });
     }
     return route.fallback();
   });
@@ -182,18 +184,22 @@ test('WS-GOV-COUNCIL-HARDENING: provider in errore → errore dichiarato, nessun
   const completed = await replies(page).count();
   await expect(replies(page).last()).toContainText('preso nota del problema');
 
-  // [2] La domanda che fa fallire il provider: nessun intervento inventato.
+  // [2] Il guasto: nessuna posizione politica inventata, ma un errore operativo.
   await send(page, 'Questa è una domanda che fallisce.');
-  const error = page.locator('.council-room-error');
-  await expect(error).toBeVisible({ timeout: 15_000 });
-  await expect(error).toContainText('non risponde ora');
+  const failure = page.locator('.council-room-failure');
+  await expect(failure).toBeVisible({ timeout: 15_000 });
+  await expect(failure).toContainText('non riesce a intervenire in questo momento');
+  await expect(failure).not.toContainText('Non riesco ora a valutare gli interventi dei colleghi');
+  await expect(failure).not.toContainText('preferisce non pronunciarsi');
   await expect(composer(page).locator('textarea')).toBeEnabled();
   await waitIdle(page);
   // Gli interventi conclusi sono intatti: nessun nuovo discorso aggiunto.
   await expect(replies(page)).toHaveCount(completed);
   await expect(replies(page).last()).toContainText('preso nota del problema');
 
-  // [3] Un messaggio successivo riparte normalmente.
-  await ask(page, 'Riprendiamo: qual è la copertura finanziaria?');
+  // [3] Il retry riprova SOLO il ministro fallito e aggiunge un intervento una volta.
+  await failure.getByRole('button', { name: /Riprova/ }).click();
+  await waitIdle(page);
   await expect(replies(page)).toHaveCount(completed + 1);
+  await expect(page.locator('.council-room-failure')).toHaveCount(0);
 });

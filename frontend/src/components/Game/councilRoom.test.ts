@@ -29,6 +29,19 @@ describe('Sala del Consiglio — una questione, un filo, una tavola', () => {
     expect(enterCouncil(entered, 'guerra', 'again')).toBe(entered);
   });
 
+  it('attributes colleagues by name in the history each minister receives (Tesoro↔Guerra)', () => {
+    let room = receiveCouncilReply(create(), 'tesoro', 'Presidente, copro, ma la Guerra mi indichi uomini e durata.', 'm1');
+    room = enterCouncil(room, 'guerra', 'join');
+    room = receiveCouncilReply(room, 'guerra', 'Tesoro, propongo un battaglione per novanta giorni.', 'm2');
+    const forGuerra = councilHistory(room, 'guerra');
+    expect(forGuerra.map(m => m.content).join('\n')).toContain('Ministro del Tesoro: Presidente, copro, ma la Guerra mi indichi uomini e durata.');
+    expect(forGuerra.find(m => m.content.includes('uomini e durata'))?.role).toBe('user');
+    expect(forGuerra.find(m => m.content.includes('novanta giorni'))?.role).toBe('assistant');
+    const forTesoro = councilHistory(room, 'tesoro');
+    expect(forTesoro.map(m => m.content).join('\n')).toContain('Ministro della Guerra: Tesoro, propongo un battaglione per novanta giorni.');
+    expect(forTesoro.find(m => m.content.includes('novanta giorni'))?.role).toBe('user');
+  });
+
   it('sends named contributions to each colleague, but no protocol or failed messages', () => {
     let room = receiveCouncilReply(create(), 'tesoro', proposal, 'm1');
     room = enterCouncil(room, 'guerra', 'join');
@@ -118,6 +131,16 @@ describe('Council orchestration — bounded, sequential, shared context', () => 
     expect(contexts).toHaveLength(2);
     expect(contexts[1]).toContain('Posso scaglionare il fabbisogno.');
     expect(result.messages.filter(m => m.kind === 'speech')).toHaveLength(2);
+  });
+
+  it('stops the round on the first provider failure and never calls the following minister', async () => {
+    const room = enterCouncil(create(), 'guerra', 'join');
+    const calls: string[] = [];
+    await expect(councilRound(room, ['tesoro', 'guerra'], async seat => {
+      calls.push(seat);
+      throw new Error('provider error');
+    })).rejects.toThrow('provider error');
+    expect(calls).toEqual(['tesoro']);
   });
 
   it('stops on interruption and does not treat a partial reply as a board update', async () => {

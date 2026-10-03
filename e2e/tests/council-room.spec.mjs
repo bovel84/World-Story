@@ -186,3 +186,95 @@ test('mobile board is a full-screen bottom sheet, Escape returns to the preserve
   await expect(page.locator('.government-office')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Messaggio del Presidente' })).toHaveValue('Domanda conservata');
 });
+
+test('E2E realistico: Tesoro risponde, Guerra fallisce 502 → errore operativo con retry del solo Guerra', async ({ page }) => {
+  installMockApi(page);
+  let guerraFailures = 0;
+  await page.route(`${path}*/opening`, route => route.fulfill({ json: { reply: 'La cassa regge, ma il margine si assottiglia.', seat: 'tesoro' } }));
+  await page.route(`${path}*/stream`, route => {
+    const seat = /minister\/([^/]+)\/stream/.exec(route.request().url())[1];
+    // Tesoro → 200; Guerra → 502 solo al primo tentativo.
+    if (seat === 'guerra' && guerraFailures === 0) {
+      guerraFailures += 1;
+      return route.fulfill({ status: 502, contentType: 'application/json', body: '{"error":"minister_unavailable","reason":"provider_error","seat":"guerra"}' });
+    }
+    const reply = seat === 'guerra'
+      ? 'Ministro del Tesoro, per la prima fase propongo un battaglione per novanta giorni.'
+      : 'Presidente, posso coprirlo, ma la Guerra mi indichi uomini e durata.';
+    return route.fulfill({ status: 200, contentType: 'text/plain', body: reply });
+  });
+  await page.setViewportSize({ width: 1774, height: 840 });
+  await openRoom(page);
+
+  await page.getByRole('textbox', { name: 'Messaggio del Presidente' }).fill('preparate un atto che sostenga un battaglione al confine');
+  await page.getByRole('button', { name: 'Invia', exact: true }).click();
+  await expect(page.locator('.council-room-message.assistant[data-seat="tesoro"]')).toHaveCount(2, { timeout: 15_000 });
+
+  // Convocazione esplicita di Guerra: il provider fallisce.
+  await page.locator('.council-room-convene').click();
+  const sheet = page.locator('.gov-sheet:has(#council-convene-title)');
+  await sheet.locator('.gov-sheet-item', { hasText: 'Ministro della Guerra' }).click();
+
+  const failure = page.locator('.council-room-failure');
+  await expect(failure).toBeVisible({ timeout: 15_000 });
+  await expect(failure).toContainText('Il Ministro della Guerra non riesce a intervenire in questo momento.');
+  // Nessuna falsa posizione politica.
+  await expect(page.locator('.council-room-thread')).not.toContainText('Non riesco ora a valutare gli interventi dei colleghi');
+  await expect(page.locator('.council-room-thread')).not.toContainText('preferisce non pronunciarsi');
+  // Nessuno speech di Guerra; l'intervento del Tesoro resta.
+  await expect(page.locator('.council-room-message.assistant[data-seat="guerra"]')).toHaveCount(0);
+  await expect(page.locator('.council-room-message.assistant[data-seat="tesoro"]')).toHaveCount(2);
+
+  // Retry del SOLO Guerra: un intervento, una volta.
+  await failure.getByRole('button', { name: 'Riprova Guerra', exact: true }).click();
+  await expect(page.locator('.council-room-message.assistant[data-seat="guerra"]')).toHaveCount(1, { timeout: 15_000 });
+  await expect(page.locator('.council-room-failure')).toHaveCount(0);
+  await expect(page.locator('.council-room-message.assistant[data-seat="tesoro"]')).toHaveCount(2);
+});
+
+for (const viewport of [{ width: 1774, height: 840 }, { width: 1440, height: 900 }]) {
+  test(`desktop ${viewport.width}×${viewport.height}: transcript dominante, header e composer compatti`, async ({ page }) => {
+    setup(page);
+    await page.setViewportSize(viewport);
+    await openRoom(page);
+    await page.getByRole('textbox', { name: 'Messaggio del Presidente' }).fill('Come finanziare il programma di riarmo?');
+    await page.getByRole('button', { name: 'Invia', exact: true }).click();
+    await expect(page.locator('.council-room-message.assistant:not(.council-room-stream)').last()).toContainText('chiederei alla Guerra', { timeout: 15_000 });
+
+    // Header + partecipanti compatti (~110-135px).
+    const head = await page.locator('.council-room-head').boundingBox();
+    const participants = await page.locator('.council-room-participants').boundingBox();
+    expect(head.height + participants.height).toBeLessThanOrEqual(140);
+
+    // Il transcript domina la finestra.
+    const thread = await page.locator('.council-room-thread').boundingBox();
+    expect(thread.height).toBeGreaterThan(viewport.height * 0.5);
+
+    // Composer a una riga, «Invia» ~44-48px, footer su una barra.
+    const textarea = await page.locator('.council-room-compose textarea').boundingBox();
+    expect(textarea.height).toBeLessThanOrEqual(60);
+    const send = await page.getByRole('button', { name: 'Invia', exact: true }).boundingBox();
+    expect(send.height).toBeGreaterThanOrEqual(40);
+    expect(send.height).toBeLessThanOrEqual(60);
+    const footer = await page.locator('.council-room-toolbar').boundingBox();
+    expect(footer.height).toBeLessThanOrEqual(60);
+
+    // Messaggi larghi e testo leggibile (>= 19px).
+    const message = await page.locator('.council-room-message').first().boundingBox();
+    expect(message.width).toBeGreaterThan(700);
+    const fontSize = await page.locator('.council-room-prose').first().evaluate(el => parseFloat(getComputedStyle(el).fontSize));
+    expect(fontSize).toBeGreaterThanOrEqual(19);
+
+    // Il nuovo intervento non nasce scrollato alla fine: lo speaker resta visibile.
+    const speaker = await page.locator('.council-room-message.assistant').last().locator('.council-room-speaker').boundingBox();
+    expect(speaker.y).toBeGreaterThanOrEqual(0);
+    expect(speaker.y).toBeLessThan(viewport.height);
+
+    // Aprire/chiudere la Tavola non perde l'input.
+    await page.getByRole('textbox', { name: 'Messaggio del Presidente' }).fill('bozza in corso');
+    await page.getByRole('button', { name: /Tavola/ }).click();
+    await expect(page.locator('.council-room-drawer')).toBeVisible();
+    await page.getByRole('button', { name: 'Chiudi la Tavola' }).click();
+    await expect(page.getByRole('textbox', { name: 'Messaggio del Presidente' })).toHaveValue('bozza in corso');
+  });
+}

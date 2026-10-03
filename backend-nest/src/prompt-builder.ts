@@ -29,7 +29,7 @@ import type { ReactionContext } from './core/simulation/ReactionContext';
 import { buildNationalDecisionContext, buildActionElaborationGuard, buildMinisterWorldContext, renderWorldIdentity, renderNationalContext, renderMinisterWorldContext } from './prompts/national-context';
 import { SEAT_LABEL, CABINET_SEATS, type CabinetSeat } from './core/government/Cabinet';
 import { ministerDossierFrom } from './core/government/MinisterChat';
-import { buildMinisterDialogueBrief, composeMinisterDialoguePrompt, currentMinisterDialogueRequest, dialogueHistory, dialogueResponseIsNatural, fallbackMinisterDialogue, type MinisterDialogueBrief } from './core/government/MinisterDialogue';
+import { buildMinisterDialogueBrief, composeMinisterDialoguePrompt, currentMinisterDialogueRequest, dialogueHistory, dialogueResponseIsNatural, fallbackMinisterDialogue, validateCouncilResponse, councilDialogueLogLine, CouncilMinisterUnavailableError, type MinisterDialogueBrief } from './core/government/MinisterDialogue';
 import {
   buildGovernmentStateBlock,
   buildGovernmentVoicePrompt,
@@ -379,17 +379,38 @@ async function prepareMinisterDialogue(builder: PromptBuilder, game: GameData, m
   return { brief, prompt };
 }
 
-/** Una sola generazione; fallback per stile/guasto provider, mai una seconda riscrittura LLM. */
+/**
+ * Una sola generazione; mai una seconda riscrittura LLM.
+ *
+ * P0 — Per il **Consiglio** un guasto o un rifiuto di stile produce un errore
+ * tipizzato (`CouncilMinisterUnavailableError`), non una frase narrativa: un
+ * errore tecnico non deve diventare una posizione politica del ministro.
+ * Per la vecchia chat 1:1 resta il fallback deterministico esistente.
+ */
 async function ministerDialogueResponse(brief: MinisterDialogueBrief, generate: () => Promise<string>, signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted();
+  let response: string;
   try {
-    const response = await generate();
+    response = await generate();
     signal?.throwIfAborted();
-    if (dialogueResponseIsNatural(response, brief)) return response.trim();
   } catch (error) {
     signal?.throwIfAborted();
     if (error instanceof Error && error.name === 'AbortError') throw error;
+    if (brief.council) {
+      const line = councilDialogueLogLine(brief, 'provider_error', undefined, 0, 0);
+      if (line) console.log(line);
+      throw new CouncilMinisterUnavailableError('provider_error', brief.seat, { cause: error });
+    }
+    return fallbackMinisterDialogue(brief);
   }
+  if (brief.council) {
+    const validation = validateCouncilResponse(response, brief);
+    const line = councilDialogueLogLine(brief, validation.ok ? 'accepted' : 'rejected', validation.ok ? undefined : validation.reason, validation.words, response.length);
+    if (line) console.log(line);
+    if (validation.ok) return response.trim();
+    throw new CouncilMinisterUnavailableError(validation.reason, brief.seat);
+  }
+  if (dialogueResponseIsNatural(response, brief)) return response.trim();
   return fallbackMinisterDialogue(brief);
 }
 

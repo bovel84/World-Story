@@ -89,6 +89,9 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
   const [streamText, setStreamText] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // P0.4 — Il ministro che non ha risposto: si può riprovare SOLO lui, con lo
+  // stato ATTUALE della stanza, senza rimandare il messaggio del Presidente.
+  const [failedTurn, setFailedTurn] = useState<{ roomId: string; seat: CabinetSeat; message: string } | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [focusedEvidence, setFocusedEvidence] = useState<{ seat: CabinetSeat; card: InlineEvidenceCard } | null>(null);
   const focusedEvidenceRef = useRef<HTMLElement>(null);
@@ -117,7 +120,7 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
     setStreamText('');
   }, []);
   // Close/back/turn changes cancel pending work, not the retained transcript.
-  useEffect(() => { interrupt(); setSheetOpen(false); setError(''); setNotice(''); }, [open, activeId, scopeKey, interrupt]);
+  useEffect(() => { interrupt(); setSheetOpen(false); setError(''); setNotice(''); setFailedTurn(null); }, [open, activeId, scopeKey, interrupt]);
   useEffect(() => () => { operationRef.current?.controller.abort(); openingRef.current?.abort(); }, []);
   useEffect(() => {
     const origin = originRef.current;
@@ -225,14 +228,16 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
     operationRef.current = operation;
     const owns = () => operationRef.current === operation && !operation.controller.signal.aborted && currentRef.current.open
       && currentRef.current.activeId === start.id && currentRef.current.scopeKey === start.scopeKey;
-    setBusy(true); setError(''); setNotice('');
+    setBusy(true); setError(''); setNotice(''); setFailedTurn(null);
     let currentSpeaker: CabinetSeat | null = null;
+    let lastOutbound: string | null = null;
     try {
       return await councilRound(start, seats, async (seat, current) => {
         if (!owns()) throw new DOMException('Session changed', 'AbortError');
         currentSpeaker = seat;
         setSpeaking(seat); setStreamText('');
         const outbound = typeof message === 'function' ? message(seat) : message;
+        lastOutbound = outbound;
         const reply = await ministerApi.askStream(gameId, seat, outbound, councilHistory(current, seat), token => {
           if (owns()) setStreamText(text => text + token);
         }, seatRecords(memory, seat, currentDate), operation.controller.signal, projectCurrentDecision(current.sharedBoard),
@@ -245,8 +250,14 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
       });
     } catch (failure) {
       if (owns()) {
-        const who = currentSpeaker ? seatSpeaker(currentSpeaker) : 'Il Consiglio';
-        setError(`${who} non risponde ora. Gli interventi già conclusi sono conservati; riprendi il confronto con un nuovo messaggio.`);
+        if (currentSpeaker && lastOutbound) {
+          // P0.2 — Un guasto tecnico NON è una posizione politica: nessun
+          // intervento viene aggiunto; si offre il retry del solo ministro.
+          setFailedTurn({ roomId: start.id, seat: currentSpeaker, message: lastOutbound });
+          setError('');
+        } else {
+          setError('Il Consiglio non riesce a rispondere ora. Gli interventi già conclusi sono conservati.');
+        }
       }
       return null;
     } finally {
@@ -354,6 +365,16 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
     } finally { signatureRef.current = null; setBusy(false); }
   };
 
+  // P0.4 — Riprova SOLO la sedia fallita, sullo stato ATTUALE della stanza: nessun
+  // nuovo messaggio del Presidente, nessun evento di ingresso duplicato.
+  const retryFailed = useCallback((): void => {
+    if (!activeRoom || !failedTurn || failedTurn.roomId !== activeRoom.id || busy || operationRef.current) return;
+    const seat = failedTurn.seat;
+    const message = failedTurn.message;
+    setFailedTurn(null);
+    void runRound(activeRoom, [seat], message);
+  }, [activeRoom, failedTurn, busy, runRound]);
+
   const locked = busy || Boolean(signatureRef.current);
   const board = activeRoom && <CouncilRoomBoard room={activeRoom} busy={locked} canPrepare={!draft?.signatureAttempted && Boolean(activeProposal(activeRoom.sharedBoard)?.measures.some(measure => measure.status === 'accepted' || measure.status === 'proposed'))}
     onConfirm={confirm} onExclude={label => {
@@ -402,7 +423,8 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
         setMemoryCache({ key: memoryKey, records });
         setRooms(previous => { const next = { ...previous }; delete next[activeRoom.id]; roomsRef.current = next; return next; });
         setActiveId(null);
-      }} onSheetChange={setSheetOpen} board={board} draftPrepared={Boolean(draft)} notice={notice} error={error} /> : <>
+      }} onSheetChange={setSheetOpen} board={board} draftPrepared={Boolean(draft)} notice={notice} error={error}
+      failure={failedTurn && failedTurn.roomId === activeRoom.id ? { seat: failedTurn.seat } : null} onRetry={retryFailed} /> : <>
       <button type="button" className="desk-close-x" onClick={onClose} aria-label="Chiudi il Governo">✕</button>
       <div className="council-head"><h2 className="council-title" id="government-office-title">Sala del Consiglio</h2>
         <p className="council-sub">Scegli il relatore iniziale per aprire una seduta. Convoca i colleghi, confronta le proposte e costruisci un atto comune.</p></div>

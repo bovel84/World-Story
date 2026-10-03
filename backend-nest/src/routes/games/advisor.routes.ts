@@ -38,7 +38,7 @@ import {
   assessmentStore,
 } from './helpers';
 import { validateBody } from '../validation';
-import { InvalidMinisterCouncilError, withMinisterDialogueRequest } from '../../core/government/MinisterDialogue';
+import { CouncilMinisterUnavailableError, InvalidMinisterCouncilError, withMinisterDialogueRequest } from '../../core/government/MinisterDialogue';
 import { actionTextSchema, advisorSchema, meetingRenderSchema } from './schemas';
 import {
   composeMeetingNarrativeMessage, normalizeMinisterMeetingBrief, stripNarrativeDirectives,
@@ -263,6 +263,7 @@ router.post('/:id/government/minister/:seat', async (req, res) => {
   } catch (e: any) {
     if (!controller.signal.aborted && !res.destroyed) {
       if (e instanceof InvalidMinisterCouncilError) res.status(400).json({ error: e.message, code: 'invalid_council' });
+      else if (e instanceof CouncilMinisterUnavailableError) res.status(502).json({ error: 'minister_unavailable', reason: e.reason, seat: e.seat });
       else respondRouteError(res, e, 'Failed to get minister reply');
     }
   } finally {
@@ -383,6 +384,11 @@ router.post('/:id/government/minister/:seat/stream', async (req, res) => {
     if (controller.signal.aborted || res.destroyed) return;
     if (e instanceof InvalidMinisterCouncilError && !res.headersSent) {
       res.status(400).json({ error: e.message, code: 'invalid_council' });
+    } else if (e instanceof CouncilMinisterUnavailableError) {
+      // Errore operativo esplicito: mai un EOF pulito che certifichi una
+      // risposta parziale come intervento concluso.
+      if (!res.headersSent) res.status(502).json({ error: 'minister_unavailable', reason: e.reason, seat: e.seat });
+      else res.destroy();
     } else {
       console.error('[Minister STREAM] Error:', e);
       // Clean EOF would certify partial decisions as a completed reply.
