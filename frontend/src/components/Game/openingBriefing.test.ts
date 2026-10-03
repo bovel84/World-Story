@@ -117,6 +117,21 @@ describe('WS-GAME-OPENING — deriveGameOpening', () => {
     expect(readings.find(r => r.key === 'finances')?.value).toContain('margine');
   });
 
+  it('mostra il governo ereditato dal motore (§7), senza numeri', () => {
+    const readings = deriveNationReadings({
+      ...input,
+      government: { cohesion: 40, pressureIndex: 70, factions: [], dominantId: null, angriestId: null, headline: '', budget: {} } as never,
+    });
+    const gov = readings.find(r => r.key === 'government');
+    expect(gov).toBeTruthy();
+    expect(gov?.tone).toBe('warning');
+    expect(readings.length).toBeLessThanOrEqual(6);
+    // Le letture qualitative non portano cifre (la popolazione è l'eccezione, §7).
+    for (const reading of readings.filter(r => r.key !== 'population')) {
+      expect(/\d/.test(reading.value)).toBe(false);
+    }
+  });
+
   it('formatta la data in italiano e non inventa una data mancante', () => {
     expect(formatOpeningDate('2000-01-01')).toBe('1 GENNAIO 2000');
     expect(formatOpeningDate('')).toBe('');

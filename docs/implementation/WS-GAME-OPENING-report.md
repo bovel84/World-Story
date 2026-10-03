@@ -40,7 +40,7 @@ La voce del consiglio rispetta **§13**: `openingCouncilLine(address)` unisce la
 |---|---|
 | Prologo del mondo | `world.basePrompt` (= `preset.base_prompt` + `lore.md`), `world.name`, `currentDate` |
 | Paragrafi consiglio | `readCabinetSession(...).addresses` + `openingCouncilLine(...)` = `personaFor(seat).signature` (persona) + prima `CabinetItem.need` del motore (verified state), senza cifre (§13) |
-| "Tu governi" + letture | `deriveNationalContext` (frontend) → `nationalName`, `nationalAccount`, `nationalRegions`; `NationResources`; `nationalCrisis` |
+| "Tu governi" + letture | `deriveNationalContext` (frontend) → `nationalName`, `nationalAccount`, `nationalRegions`; `NationResources`; `nationalCrisis`; `nationalGovernment` (letture Popolazione/Economia/Società/Governo/Finanze/Diplomazia, §7) |
 | Prime questioni / problemi-opportunità | **lo stesso** `deriveStrategicBriefing(...)` della HUD (`StrategicBriefing.items`) |
 | Mondo intorno a te | `relationships`, `relationshipNames`, `strategicAgenda.powers`, `deriveWorldPresence(...).facts` |
 | CompactBriefing dopo l'apertura | invariato (`GameScreen` → `CompactBriefing`) |
@@ -129,7 +129,7 @@ $ (backend-nest) npx tsc --noEmit -p tsconfig.json  # 0 errori
 
 # Suite frontend
 $ npm run build                                      # build OK (8.65s)
-$ npx vitest run                                     # 146 file, 1262 test passati
+$ npx vitest run                                     # 146 file, 1263 test passati
 
 # Suite backend
 $ npx vitest run tests/                              # 217 file, 2321 test passati

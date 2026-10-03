@@ -191,6 +191,20 @@ export function deriveNationReadings(input: OpeningBriefingInput): OpeningReadin
     });
   }
 
+  // §7 — il governo che si eredita: coesione e pressione del consiglio.
+  const government = input.government;
+  if (government) {
+    const cohesion = num(government.cohesion);
+    const pressure = num(government.pressureIndex);
+    const unstable = (cohesion !== null && cohesion > 0 && cohesion <= 45) || (pressure !== null && pressure >= 60);
+    readings.push({
+      key: 'government', label: 'Governo', tone: unstable ? 'warning' : 'neutral',
+      value: unstable
+        ? (pressure !== null && pressure >= 60 ? 'Il consiglio preme: priorità da ricomporre' : 'Coalizione instabile')
+        : 'Assetto di governo coeso',
+    });
+  }
+
   const money = num(input.resources?.money) ?? num(account?.money);
   const debtRatio = num(account?.debtRatioPct) ?? num(account?.debtBurdenPct);
   if (money !== null || debtRatio !== null || balance !== null) {
@@ -198,14 +212,6 @@ export function deriveNationReadings(input: OpeningBriefingInput): OpeningReadin
     readings.push({
       key: 'finances', label: 'Finanze', tone: tight ? 'warning' : 'neutral',
       value: tight ? 'Il margine fiscale è ristretto' : 'Margine di manovra disponibile',
-    });
-  }
-
-  const forces = num(account?.militaryPower) ?? num(account?.defenceBurdenPct);
-  if (forces !== null) {
-    readings.push({
-      key: 'forces', label: 'Difesa', tone: forces > 0 && forces < 20 ? 'warning' : 'neutral',
-      value: forces > 0 && forces < 20 ? 'Una difesa da costruire' : 'Capacità di difesa presente',
     });
   }
 
@@ -217,6 +223,16 @@ export function deriveNationReadings(input: OpeningBriefingInput): OpeningReadin
     readings.push({
       key: 'diplomacy', label: 'Diplomazia', tone: hostiles > allies ? 'warning' : (allies > 0 ? 'positive' : 'neutral'),
       value: hostiles > allies ? 'Relazioni regionali da consolidare' : (allies > 0 ? 'Rete di rapporti da coltivare' : 'Posizione da definire'),
+    });
+  }
+
+  // La difesa resta in coda: il §7 chiede 4–6 letture e la diplomazia è più
+  // pertinente all'apertura di una stima di capacità militare.
+  const forces = num(account?.militaryPower) ?? num(account?.defenceBurdenPct);
+  if (forces !== null) {
+    readings.push({
+      key: 'forces', label: 'Difesa', tone: forces > 0 && forces < 20 ? 'warning' : 'neutral',
+      value: forces > 0 && forces < 20 ? 'Una difesa da costruire' : 'Capacità di difesa presente',
     });
   }
 
