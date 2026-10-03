@@ -9,15 +9,11 @@
  * Offline: mock API, nessun backend né provider LLM.
  */
 import { test, expect } from 'playwright/test';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { installMockApi, MOCK_GAME, MOCK_GAME_ID } from '../mock-api.mjs';
 
 const PREMISE = 'BASE_PROMPT_MARKER: il paese si rialza dalle macerie e cerca un posto nel nuovo ordine mondiale.';
 const RULES = 'SIMULATION_RULES_MARKER: le crisi impiegano mesi.';
 const ENRICHED = 'NARRATIVE_ENRICHED_MARKER: il nuovo ordine è instabile e nessuno sa cosa accadrà.';
-const shotDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../docs/implementation/screenshots/ws-opening-preset-regression');
 
 async function reachHud(page) {
   await page.goto('/');
@@ -30,7 +26,6 @@ async function reachHud(page) {
 
 test('la premessa del preset è visibile durante il ritardo e l’arricchita la sostituisce senza vuoto', async ({ page }) => {
   page.setDefaultTimeout(15_000);
-  fs.mkdirSync(shotDir, { recursive: true });
   await installMockApi(page, { showOpening: true });
 
   // Il contratto corretto: GET /games/:id porta il record canonico in camelCase.
@@ -73,12 +68,10 @@ test('la premessa del preset è visibile durante il ritardo e l’arricchita la 
   await expect(page.locator('.opening-page').first()).toContainText('BASE_PROMPT_MARKER');
   await expect(page.locator('.opening-page').first()).not.toContainText('Il mondo non ha ancora una descrizione');
   expect(narrativeCalls).toBeGreaterThanOrEqual(1);
-  await page.screenshot({ path: path.join(shotDir, 'during-delay.png') });
 
   // Rilascia la narrativa arricchita: sostituisce il fallback, senza vuoto.
   release();
   await expect(page.locator('.opening-page').first()).toContainText('NARRATIVE_ENRICHED_MARKER');
   await expect(page.locator('.opening-page').first()).not.toContainText('Il mondo non ha ancora una descrizione');
   await expect(page.locator('.opening-world-name')).toHaveText(MOCK_GAME.world.name);
-  await page.screenshot({ path: path.join(shotDir, 'after-release.png') });
 });

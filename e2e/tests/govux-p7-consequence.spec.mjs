@@ -10,56 +10,36 @@
  *    esplicito;
  *  - la plancia **non accodi nulla**: il registro resta vuoto finché non si firma.
  *
- * Gira a 390×844. Lo screenshot è il reperto della fase.
+ * Migrata alla Sala del Consiglio: la seduta è `.council-room`, la Tavola è un
+ * bottom sheet su mobile e la bozza nasce da «Prepara bozza comune». Gira a
+ * 390×844. Lo screenshot è il reperto della fase.
  */
 
 import { test, expect } from 'playwright/test';
 import { installMockApi } from '../mock-api.mjs';
+import {
+  reachHud, openCouncilRoom, ask, openBoard, prepareCommonDraft, backToPicker,
+} from './helpers/government.mjs';
 
 test.use({ viewport: { width: 390, height: 844 } });
-
-const SHOT = '../docs/implementation/assets/ws-govux-p7/390x844-consequence-board.png';
-
-/** Raggiunge l'HUD di gioco dal landing (stesso percorso dello smoke test). */
-async function reachHud(page) {
-  await page.goto('/');
-  await page.locator('.landing-cta').click();
-  await page.locator('.template-card').first().click();
-  await page.locator('.country-list-item').first().click();
-  await page.locator('.btn-play').click();
-  await expect(page.locator('.game-shell')).toBeVisible({ timeout: 20_000 });
-}
 
 test('P7: la plancia mostra le conseguenze prima della firma, senza accodare', async ({ page }) => {
   installMockApi(page);
   // La plancia è una lettura: nessuna richiesta di accodamento deve partire.
   const queueCalls = [];
   page.on('request', request => {
-    if (request.url().includes('/actions/queue')) queueCalls.push(request.url());
+    if (request.method() === 'POST' && request.url().includes('/actions/queue')) queueCalls.push(request.url());
   });
   await reachHud(page);
 
-  await page.locator('.rail-btn[aria-label="Governo"]').click();
-  const ufficio = page.locator('.government-office');
-  await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+  await openCouncilRoom(page, 'tesoro');
 
-  // A 390×844 la Tavola non reinnesta più la Tavola desktop: la bozza d'atto si
-  // prepara dalla **CTA primaria** della vista mobile (M6/M21).
-  // Prima si stabilisce una misura accettata e senza domande aperte.
-  const chat = page.locator('.gov-mobile-chat');
-  await chat.locator('textarea').fill('Portiamo gli investimenti al 90 per cento.');
-  await chat.locator('.minister-compose button').click();
-  await expect(chat.locator('.minister-entry.assistant').last()).not.toHaveText('', { timeout: 15_000 });
-  await expect(chat.locator('.minister-compose button')).toHaveText(/Invia/, { timeout: 15_000 });
+  // Si stabilisce una misura proposta senza domande aperte.
+  await ask(page, 'Portiamo gli investimenti al 90 per cento.');
 
-  await page.locator('.gov-mobile-tab', { hasText: 'Tavola' }).click();
-  const prepareCta = page.locator('.gov-mobile-cta .gov-mobile-primary', { hasText: /Prepara l’atto/ });
-  await expect(prepareCta).toBeVisible({ timeout: 15_000 });
-  await prepareCta.click();
-
-  // [1] La CTA apre la vista Atto (H19): la bozza e la plancia vivono lì.
-  const bozza = page.locator('.gov-mobile .act-draft');
-  await expect(bozza).toBeVisible();
+  // La Tavola (bottom sheet su mobile) prepara la bozza d'atto.
+  await openBoard(page);
+  const bozza = await prepareCommonDraft(page);
 
   const plancia = bozza.locator('.consequence-board');
   await expect(plancia).toBeVisible();
@@ -75,7 +55,6 @@ test('P7: la plancia mostra le conseguenze prima della firma, senza accodare', a
   await expect(plancia).toContainText('Incertezze');
   // Ciò che il motore non simula è dichiarato non stimabile, senza percentuali.
   await expect(plancia.locator('.consequence-not-estimable')).toContainText('Effetti sociali');
-  // L'unica percentuale può venire dalla nota del motore, mai dalla plancia.
   await expect(plancia.locator('.consequence-not-estimable')).not.toContainText('%');
   // La nota del motore è citata come tale, non spacciata per calcolo locale.
   await expect(plancia).toContainText('Avviso del motore');
@@ -86,8 +65,6 @@ test('P7: la plancia mostra le conseguenze prima della firma, senza accodare', a
 
   // [2] La plancia non accoda: nessuna richiesta di coda è partita.
   expect(queueCalls).toHaveLength(0);
-
-  await page.screenshot({ path: SHOT, fullPage: true });
 
   // [3] Modificare la bozza invalida la stima: niente costi del motore sotto
   //     un testo diverso, e il ricalcolo è esplicito.
@@ -103,10 +80,12 @@ test('P7: la plancia mostra le conseguenze prima della firma, senza accodare', a
   await expect(plancia).toContainText('Tesoreria');
 
   // [5] Ancora nessun accodamento, e il registro è vuoto sulla schermata reale.
+  //     Su mobile la Tavola è un bottom sheet: prima di tornare al registro
+  //     la si chiude con Escape (il toggle resta sotto l'overlay del foglio).
   expect(queueCalls).toHaveLength(0);
-  // Atto → Tavola → Dialogo → Ministri (← = dentro la sessione).
-  await page.locator('.gov-mobile-nav').click();
-  await page.locator('.gov-mobile-nav').click();
-  await page.locator('.gov-mobile-nav').click();
-  await expect(ufficio.locator('.order-register-act')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.council-room-board')).toHaveCount(0);
+  await backToPicker(page);
+  await expect(page.locator('.government-office')).toBeVisible();
+  await expect(page.locator('.order-register-act')).toHaveCount(0);
 });

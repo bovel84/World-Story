@@ -1,91 +1,80 @@
 /**
- * WS-GOV-SEAT-BOARDS — La Tavola è del Governo, non del Tesoro (E2E)
- * ==================================================================
- * Il criterio di successo del task, end-to-end e con API mockate:
- *  1. ogni ministro ha la **sua** Tavola, contestuale alla sua competenza (i
- *     Lavori non mostrano la tavola del Tesoro);
- *  2. una proposta del singolo ministro si **promuove** al Consiglio senza
- *     duplicazione;
- *  3. la **Tavola comune** aggrega le contribuzioni delle sedie convocate, e si
- *     aggiorna leggendo il workspace vivo (nessuna copia).
+ * WS-GOV-SEAT-BOARDS — La Tavola è della questione, non di una sedia (E2E)
+ * =======================================================================
+ * Intento preservato dalla vecchia UI a due pannelli, riproiettato sulla Sala
+ * del Consiglio condivisa:
+ *  1. la Tavola appartiene alla **QUESTIONE/Consiglio**, non a un singolo
+ *     ministro (nessun titolo intestato alla sedia);
+ *  2. convocare un'altra sedia la fa entrare nella **stessa** Tavola condivisa
+ *     (nessuna copia per sedia);
+ *  3. le contribuzioni restano attribuite per sedia (`POSIZIONI`) e la Tavola
+ *     comune si aggiorna leggendo lo stato vivo.
  *
- * Flusso: Lavori → fabbrica → Sarajevo → «Convoca il Tesoro» → Tavola comune.
+ * Flusso: Lavori → fabbrica → Sarajevo → convoca il Tesoro → copertura.
  */
 
 import { test, expect } from 'playwright/test';
 import { installMockApi } from '../mock-api.mjs';
+import {
+  reachHud, openCouncilRoom, ask, askRound, openBoard, convene,
+} from './helpers/government.mjs';
 
-const SHOT = '../docs/implementation/assets/ws-gov-seat-boards/390x844-council-tavola.png';
-
-async function reachHud(page) {
-  await page.goto('/');
-  await page.locator('.landing-cta').click();
-  await page.locator('.template-card').first().click();
-  await page.locator('.country-list-item').first().click();
-  await page.locator('.btn-play').click();
-  await expect(page.locator('.game-shell')).toBeVisible({ timeout: 20_000 });
-}
-
-/** Invia un messaggio al ministro e aspetta la risposta conclusa. */
-async function ask(page, chat, text) {
-  await chat.locator('textarea').fill(text);
-  await chat.locator('.minister-compose button').click();
-  await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)').last()).toContainText('ha preso nota del problema', { timeout: 15_000 });
-}
-
-test('WS-GOV-SEAT-BOARDS: i Lavori costruiscono la loro proposta, convocano il Tesoro, e la Tavola comune aggrega', async ({ page }) => {
+test('WS-GOV-SEAT-BOARDS: i Lavori costruiscono la proposta, convocano il Tesoro e la Tavola comune aggrega', async ({ page }) => {
   installMockApi(page);
   await reachHud(page);
+  await openCouncilRoom(page, 'lavori');
 
-  await page.locator('.rail-btn[aria-label="Governo"]').click();
-  const ufficio = page.locator('.government-office');
-  await ufficio.locator('.cabinet-pick', { hasText: 'Ministro dei Lavori' }).click();
-
-  const chat = page.locator('.government-office-pane-chat');
-  const tavola = page.locator('.government-office-pane-table');
-  const board = tavola.locator('.decision-board');
-
-  // [1] La Tavola è quella dei Lavori, non del Tesoro: titolo, obiettivo e
-  //     sezioni di competenza; nessun blocco finanziario del Tesoro.
-  await ask(page, chat, 'Voglio costruire una fabbrica siderurgica.');
-  await expect(board).toBeVisible();
-  await expect(board).toContainText('La tavola dei Lavori');
-  await expect(board).toContainText('Obiettivo dell’opera');
-  await expect(board).toContainText('Costruire una fabbrica siderurgica');
-  await expect(board).toContainText('Opera');
-  await expect(board).toContainText('Fabbrica siderurgica');
+  // [1] La Tavola è della questione, non di una sedia: QUESTIONE porta
+  //     l'obiettivo dell'opera e la misura dell'opera è nella proposta comune.
+  await ask(page, 'Voglio costruire una fabbrica siderurgica.');
+  const board = await openBoard(page);
+  await expect(board.locator('.council-board-question')).toContainText('Costruire una fabbrica siderurgica');
+  const steelworks = board.locator('.council-board-measure', { hasText: 'Fabbrica siderurgica' });
+  await expect(steelworks).toHaveCount(1);
+  // Il motore etichetta la misura `work`; la Tavola rende la misura con la sua
+  // provenienza e il suo stato (il `kind` non è esposto come attributo DOM:
+  // l'equivalente più vicino è la riga-misura dell'opera, senza un valore
+  // numerico quotato, attribuita al ministro e ancora `proposed`).
+  await expect(steelworks).toHaveAttribute('data-source', 'minister');
+  await expect(steelworks).toHaveAttribute('data-status', 'proposed');
+  await expect(steelworks.locator('.council-board-measure-value')).toHaveText('');
+  // Nessun titolo intestato a una sedia: la Tavola non è «dei Lavori» né «del Tesoro».
+  await expect(board).not.toContainText('La tavola dei Lavori');
   await expect(board).not.toContainText('La tavola del Tesoro');
 
-  // [2] La localizzazione: la decisione dei Lavori si specializza.
-  await ask(page, chat, 'A Sarajevo.');
-  await expect(board).toContainText('Regione');
-  await expect(board).toContainText('Sarajevo');
+  // [2] La localizzazione: la misura della regione si aggiunge alla **stessa**
+  //     proposta condivisa, non apre una Tavola separata per sedia.
+  await ask(page, 'A Sarajevo.');
+  const sarajevo = board.locator('.council-board-measure', { hasText: 'Sarajevo' });
+  await expect(sarajevo).toHaveCount(1);
 
-  // [3] B26 — «Convoca il Tesoro»: la proposta si promuove al Consiglio e si
-  //     apre la seduta del Tesoro, senza duplicare nulla.
-  await board.locator('.decision-convene').click();
-  await expect(page.locator('.minister-session-name')).toContainText('Ministro del Tesoro');
-  const council = tavola.locator('.council-board');
-  await expect(council).toBeVisible();
-  await expect(council).toContainText('Il Consiglio');
-  const lavori = council.locator('.council-contribution[data-seat="lavori"]');
-  const tesoro = council.locator('.council-contribution[data-seat="tesoro"]');
-  await expect(lavori).toContainText('Fabbrica siderurgica');
-  await expect(lavori).toContainText('Sarajevo');
-  await expect(tesoro).toContainText('Nessuna misura ancora portata');
+  // [3] Convocazione esplicita del Tesoro (non più il pulsante di promozione
+  //     `.decision-convene`): la sedia entra nella seduta e nella Tavola.
+  await convene(page, 'tesoro');
+  await expect(page.locator('.council-room-chip[data-seat="tesoro"]')).toBeVisible();
+  await expect(board.locator('.council-board-position[data-seat="lavori"]')).toBeVisible();
+  await expect(board.locator('.council-board-position[data-seat="tesoro"]')).toBeVisible();
 
   // [4] Il Tesoro aggiunge la sua parte: la Tavola comune si aggiorna leggendo
-  //     il workspace vivo (la promozione non era una copia congelata).
-  await ask(page, chat, 'Qual è la copertura finanziaria?');
-  await expect(tesoro).toContainText('Copertura finanziaria');
-  await expect(tesoro).toContainText('2,00 mld');
-  await expect(council).toContainText('pronta per l’atto');
-  // Il piano comune resta quello promosso dai Lavori.
-  await expect(council).toContainText('Costruire una fabbrica siderurgica');
+  //     lo stato vivo, senza duplicare la proposta per sedia. Con più di una
+  //     sedia convocata il messaggio apre un giro completo (Tesoro + Lavori):
+  //     il contratto prescrive `askRound`.
+  await askRound(page, 'Qual è la copertura finanziaria?', { seat: 'tesoro', replies: 2 });
+  const coverage = board.locator('.council-board-measure', { hasText: 'Copertura finanziaria' });
+  await expect(coverage).toHaveCount(1);
+  await expect(coverage).toContainText('2,00 mld');
+  // Una sola proposta attiva: le misure dei Lavori e del Tesoro convivono nella
+  // stessa PROPOSTA ATTUALE, ciascuna una sola volta (niente copia per sedia).
+  await expect(board.locator('.council-board-proposal')).toHaveCount(1);
+  await expect(board.locator('.council-board-measure')).toHaveCount(3);
+  await expect(board.locator('.council-board-measure', { hasText: 'Fabbrica siderurgica' })).toHaveCount(1);
+  // Le posizioni restano attribuite per sedia.
+  await expect(board.locator('.council-board-position[data-seat="lavori"]')).toBeVisible();
+  await expect(board.locator('.council-board-position[data-seat="tesoro"]')).toBeVisible();
 
-  // [5] Reperto mobile: la Tavola comune a 390×844.
+  // [5] A mobile (390×844) la Tavola aperta diventa un bottom sheet.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('.gov-mobile-tab', { hasText: 'Tavola' }).click();
-  await expect(page.locator('.gov-mobile-board-title')).toBeVisible();
-  await page.screenshot({ path: SHOT, fullPage: true });
+  const sheet = page.getByRole('dialog', { name: 'Tavola del Consiglio', exact: true });
+  await expect(sheet).toBeVisible({ timeout: 10_000 });
+  await expect(sheet.locator('.council-board-measure', { hasText: 'Copertura finanziaria' })).toBeVisible();
 });

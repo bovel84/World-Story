@@ -1,21 +1,35 @@
-/** GOVUX P2 — cancellation at the real browser/API boundary; no backend or LLM. */
+/**
+ * GOVUX P2 — Cancellazione al confine browser/API reale, senza backend né LLM.
+ * ===========================================================================
+ * Nella Sala del Consiglio la generazione avviene quando un ministro sta
+ * intervenendo. Interrompere deve:
+ *  - abortire la richiesta HTTP in volo;
+ *  - riabilitare il composer;
+ *  - non lasciare che una risposta tardiva si sovrascriva sul filo condiviso;
+ *  - non avviare mai un secondo percorso ambiguo (il POST di fallback).
+ *
+ * Lasciare la seduta o chiudere l'Ufficio interrompe la generazione in corso,
+ * senza contaminare un'altra sedia.
+ */
 import { test, expect } from 'playwright/test';
 import { installMockApi, MOCK_GAME_ID } from '../mock-api.mjs';
+import {
+  reachHud, openCouncilRoom, composer, replies, presidentMessages, waitIdle,
+} from './helpers/government.mjs';
 
 const ministerPath = `/api/games/${MOCK_GAME_ID}/government/minister/`;
 
+/** Apre la seduta del Tesoro e attende il saluto (fallback su `address.opening`). */
 async function openTreasury(page) {
-  await page.goto('/');
-  await page.locator('.landing-cta').click();
-  await page.locator('.template-card').first().click();
-  await page.locator('.country-list-item').first().click();
-  await page.locator('.btn-play').click();
-  await expect(page.locator('.game-shell')).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('button', { name: 'Governo', exact: true }).click();
-  await page.locator('.cabinet-pick[data-seat="tesoro"]').click();
-  await expect(page.locator('.minister-chat')).toBeVisible();
+  await reachHud(page);
+  await openCouncilRoom(page, 'tesoro');
+  await expect(page.locator('.council-room-message.assistant').first()).toContainText('La cassa regge');
 }
 
+/**
+ * Tiene in sospeso ogni stream ministeriale e intercetta il POST di fallback:
+ * se il client lo chiama, la risposta «FORBIDDEN» finirebbe nel filo.
+ */
 async function holdStreams(page) {
   installMockApi(page);
   const streams = [];
@@ -24,10 +38,13 @@ async function holdStreams(page) {
   page.on('requestfailed', request => {
     if (request.url().includes(ministerPath) && request.url().endsWith('/stream')) failed.add(request);
   });
-  // These later routes override the standard mock's stream-404 / POST fallback.
   await page.route(`**${ministerPath}*`, route => {
     fallbackPosts++;
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ reply: 'FORBIDDEN fallback answer', seat: 'tesoro' }) });
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ reply: 'FORBIDDEN fallback answer', seat: 'tesoro' }),
+    });
   });
   await page.route(`**${ministerPath}*/stream`, async route => {
     let release;
@@ -35,8 +52,6 @@ async function holdStreams(page) {
     const stream = { request: route.request(), release, settled: null };
     streams.push(stream);
     stream.settled = ready.then(async text => {
-      // Keep the request pending until the test releases it, including after abort.
-      // A canceled request may no longer accept a fulfilled response.
       await route.fulfill({ status: 200, contentType: 'text/plain', body: text }).catch(() => {});
     });
     await stream.settled;
@@ -44,70 +59,77 @@ async function holdStreams(page) {
   return { streams, failed, fallbackPosts: () => fallbackPosts };
 }
 
+/** Invia un messaggio che resta in volo e restituisce lo stream trattenuto. */
 async function sendPending(page, network, text) {
   const count = network.streams.length;
-  await page.locator('.minister-compose textarea').fill(text);
-  await page.locator('.minister-compose button').click();
+  await composer(page).locator('textarea').fill(text);
+  await composer(page).getByRole('button', { name: 'Invia', exact: true }).click();
   await expect.poll(() => network.streams.length).toBe(count + 1);
-  await expect(page.locator('.minister-compose textarea')).toBeDisabled();
+  await expect(composer(page).locator('textarea')).toBeDisabled();
   return network.streams[count];
 }
 
 async function assertNoCanceledAnswer(page, network) {
-  await expect.poll(async () => (await page.locator('.minister-entry.assistant:not(.minister-greeting) .entry-text').allTextContents()).join('\n')).not.toMatch(/FORBIDDEN|STALE|interrott|annullat|non è raggiungibile/i);
-  await expect(page.locator('.minister-error')).toHaveCount(0);
+  const text = await page.locator('.council-room-thread').innerText();
+  expect(text).not.toMatch(/FORBIDDEN|STALE|non è raggiungibile/i);
+  await expect(page.locator('.council-room-error')).toHaveCount(0);
   expect(network.fallbackPosts()).toBe(0);
 }
 
-test('Interrompi aborts the client request, unlocks the composer and cannot overwrite a new reply', async ({ page }) => {
+test('Interrompi abortisce la richiesta, sblocca il composer e non sovrascrive con una risposta tardiva', async ({ page }) => {
   const network = await holdStreams(page);
   await openTreasury(page);
+
   const first = await sendPending(page, network, 'Prima domanda');
-  const interrupt = page.getByRole('button', { name: 'Interrompi', exact: true });
-  await expect(interrupt).toBeEnabled(); // Input has already been cleared.
+  const interrupt = composer(page).getByRole('button', { name: 'Interrompi', exact: true });
+  await expect(interrupt).toBeEnabled();
   await interrupt.click();
   await expect.poll(() => network.failed.has(first.request)).toBe(true);
-  await expect(page.locator('.minister-compose textarea')).toBeEnabled();
-  await expect(page.locator('.minister-compose button')).toHaveText('Invia');
-  await expect(page.locator('.minister-compose button')).toBeDisabled();
+  await expect(composer(page).locator('textarea')).toBeEnabled();
+  await expect(composer(page).getByRole('button', { name: 'Invia', exact: true })).toBeDisabled();
 
   const second = await sendPending(page, network, 'Seconda domanda');
   first.release('STALE risposta dopo cancellazione');
   await first.settled;
-  // Old finally/token/error handlers must not affect the new owned request.
+  // Gli handler vecchi non devono toccare la richiesta nuova.
   await expect(interrupt).toBeEnabled();
-  await expect(page.locator('.minister-compose textarea')).toBeDisabled();
+  await expect(composer(page).locator('textarea')).toBeDisabled();
   second.release('Risposta valida alla seconda domanda.');
   await second.settled;
-  await expect(page.locator('.minister-compose textarea')).toBeEnabled();
-  await expect(page.locator('.minister-entry.assistant').last()).toContainText('Risposta valida alla seconda domanda.');
+  await waitIdle(page);
+  await expect(replies(page).last()).toContainText('Risposta valida alla seconda domanda.');
   await assertNoCanceledAnswer(page, network);
 });
 
-test('leaving a seat and closing the office abort pending requests without contaminating another seat', async ({ page }) => {
+test('lasciare la seduta e chiudere l’Ufficio abortiscono le richieste in volo senza contaminare un’altra sedia', async ({ page }) => {
   const network = await holdStreams(page);
   await openTreasury(page);
+
   const treasury = await sendPending(page, network, 'Domanda al Tesoro');
-  await page.locator('.government-office-back').click();
+  await page.locator('.council-room-back').click();
   await expect.poll(() => network.failed.has(treasury.request)).toBe(true);
   await page.locator('.cabinet-pick[data-seat="lavori"]').click();
-  await expect(page.locator('.minister-compose textarea')).toBeEnabled();
+  await expect(composer(page).locator('textarea')).toBeEnabled();
   const works = await sendPending(page, network, 'Domanda ai Lavori');
   treasury.release('STALE risposta del Tesoro');
   await treasury.settled;
-  await expect(page.getByRole('button', { name: 'Interrompi', exact: true })).toBeEnabled();
+  await expect(composer(page).getByRole('button', { name: 'Interrompi', exact: true })).toBeEnabled();
+
   await page.keyboard.press('Escape');
   await expect(page.locator('.government-office')).toBeHidden();
   await expect.poll(() => network.failed.has(works.request)).toBe(true);
   works.release('STALE risposta dei Lavori');
   await works.settled;
 
-  await page.getByRole('button', { name: 'Governo', exact: true }).click();
+  // Riaprire l'Ufficio riprende la seduta attiva (i Lavori) senza risposte annullate.
+  await page.locator('.rail-btn[aria-label="Governo"]').click();
+  await expect(composer(page).locator('textarea')).toBeEnabled();
+  await assertNoCanceledAnswer(page, network);
+
+  // E la seduta del Tesoro, aperta da capo, non eredita nulla di quella abortita.
+  await page.locator('.council-room-back').click();
   await page.locator('.cabinet-pick[data-seat="tesoro"]').click();
-  await expect(page.locator('.minister-compose textarea')).toBeEnabled();
+  await expect(composer(page).locator('textarea')).toBeEnabled();
   await assertNoCanceledAnswer(page, network);
-  await page.locator('.government-office-back').click();
-  await page.locator('.cabinet-pick[data-seat="lavori"]').click();
-  await expect(page.locator('.minister-compose textarea')).toBeEnabled();
-  await assertNoCanceledAnswer(page, network);
+  await expect(presidentMessages(page)).toHaveCount(0);
 });

@@ -63,7 +63,6 @@ test('chat dominates, the board is closed by default and minister admission pres
   expect(chat.width / (chat.width + board.width)).toBeGreaterThan(0.60);
   await page.getByRole('button', { name: 'Chiudi la Tavola' }).click();
   await expect(page.getByRole('textbox', { name: 'Messaggio del Presidente' })).toHaveValue('Bozza della prossima domanda');
-  await page.screenshot({ path: '/tmp/world-story-council-desktop.png' });
 });
 
 test('common drafting hears both ministers and only signing adds an act to the register', async ({ page }) => {
@@ -181,11 +180,9 @@ test('mobile board is a full-screen bottom sheet, Escape returns to the preserve
   const bounds = await sheet.boundingBox();
   expect(bounds.width).toBe(390);
   expect(bounds.height).toBeGreaterThan(800);
-  await page.screenshot({ path: '/tmp/world-story-council-mobile-board.png' });
   await page.keyboard.press('Escape');
   await expect(sheet).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Tavola/ })).toBeFocused();
   await expect(page.locator('.government-office')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Messaggio del Presidente' })).toHaveValue('Domanda conservata');
-  await page.screenshot({ path: '/tmp/world-story-council-mobile-chat.png' });
 });

@@ -1,268 +1,246 @@
 /**
- * WS-GOV-MOBILE-CLEANUP (M5, M13, M24–M27) — Il Governo su telefono, contro il mock.
- * ===================================================================================
- * La vista mobile è una macchina a stati (Dialogo/Tavola/Atto/Evidenza). Qui si
- * verificano i gate che non devono mai rompersi:
- *  - il **telefono in orizzontale** (844×390) resta compatto, non desktop;
- *  - a desktop il divisore dialogo|tavola resta invece presente;
- *  - nessun traboccamento orizzontale a 360/390/412/844×390;
- *  - la Tavola NON ripete il transcript né reinnesta la Tavola desktop;
- *  - il Dialogo ha un solo scroll owner e il composer resta visibile;
- *  - «↓ Nuovo messaggio» compare quando arriva una risposta mentre si legge indietro;
- *  - due convocazioni con lo stesso testo nello stesso turno hanno identità diverse.
+ * WS-GOV-MOBILE-FOCUS — La Sala del Consiglio su telefono e scrivania.
+ * ====================================================================
+ * La vecchia vista mobile a due stati (`.gov-mobile-*`) è stata rimossa: la
+ * seduta è una **stanza condivisa** (`.council-room`) e la Tavola è un pannello
+ * a scomparsa (bottom sheet a tutto viewport su mobile, drawer laterale su
+ * desktop). Questa spec migra le garanzie che non devono mai rompersi:
+ *  - nessun traboccamento orizzontale a 360/390/412×844 e 844×390;
+ *  - un solo scroll owner verticale reale nella stanza (il filo), con il
+ *    composer fuori da esso e sempre visibile;
+ *  - la Tavola mobile è un bottom sheet `role=dialog` «Tavola del Consiglio»
+ *    a tutto viewport, e Escape lo chiude riportando il focus al toggle;
+ *  - a desktop (1024/1366×768) la Tavola resta un drawer laterale;
+ *  - «↓ Nuovo messaggio» compare quando arriva una risposta mentre si legge
+ *    indietro, e il tocco riporta in fondo nascondendo il badge;
+ *  - il foglio «+ Convoca» si apre e si chiude con Escape (e convoca davvero);
+ *  - l'identità: due sedute aperte per la stessa sedia hanno `data-room-id`
+ *    distinto (gli id degli inviti non sono esposti nel DOM).
+ *
+ * Contratto: docs/implementation/WS-COUNCIL-ROOM-e2e-contract.md
+ * Riferimento verde: tests/council-room.spec.mjs («mobile board is a full-screen
+ * bottom sheet, Escape returns to the preserved chat»).
  */
 
 import { test, expect } from 'playwright/test';
 import { installMockApi } from '../mock-api.mjs';
+import {
+  reachHud, openCouncilRoom, composer, send, waitIdle,
+  openBoard, closeBoard, convene, seatLabel,
+} from './helpers/government.mjs';
 
-/** Telefono in verticale e in orizzontale: tutto compatto. */
+/** Telefono in verticale e in orizzontale: presentazione compatta. */
 const COMPACT_VIEWPORTS = [
   { width: 360, height: 800 },
   { width: 390, height: 844 },
   { width: 412, height: 915 },
   { width: 844, height: 390 },
 ];
-/** Schermi da scrivania: la stanza resta dialogo|tavola. */
+/** Scrivania: la stanza resta dialogo|tavola, la Tavola è un drawer. */
 const DESKTOP_VIEWPORTS = [
   { width: 1024, height: 768 },
   { width: 1366, height: 768 },
 ];
 
-async function reachHud(page) {
-  await page.goto('/');
-  await page.locator('.landing-cta').click();
-  await page.locator('.template-card').first().click();
-  await page.locator('.country-list-item').first().click();
-  await page.locator('.btn-play').click();
-  await expect(page.locator('.game-shell')).toBeVisible({ timeout: 20_000 });
-}
-
-async function openSeat(page, label = 'Ministro dei Lavori') {
-  await page.locator('.rail-btn[aria-label="Governo"]').click();
-  await page.locator('.government-office').locator('.cabinet-pick', { hasText: label }).click();
-  await expect(page.locator('.gov-mobile')).toBeVisible({ timeout: 10_000 });
-}
-
-async function noHorizontalOverflow(page) {
-  const overflow = await page.evaluate(() => {
+/** Overflow orizzontale reale del documento e della stanza. */
+async function measureHorizontalOverflow(page) {
+  return page.evaluate(() => {
     const doc = document.documentElement;
-    return { scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth };
+    const room = document.querySelector('.council-room');
+    return {
+      document: { scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth },
+      room: room ? { scrollWidth: room.scrollWidth, clientWidth: room.clientWidth } : null,
+    };
   });
-  expect(overflow.scrollWidth, `scrollWidth ${overflow.scrollWidth} > clientWidth ${overflow.clientWidth}`).toBeLessThanOrEqual(overflow.clientWidth + 1);
 }
 
-async function sendChat(page, text) {
-  const chat = page.locator('.gov-mobile-chat');
-  const replies = chat.locator('.minister-entry.assistant:not(.minister-greeting)');
-  const before = await replies.count();
-  await chat.locator('textarea').fill(text);
-  await chat.locator('.minister-compose button').click();
-  await expect(chat.locator('.minister-entry.user').last()).toContainText(text, { timeout: 15_000 });
-  await expect(replies).toHaveCount(before + 1, { timeout: 15_000 });
-  await expect(replies.last()).not.toHaveText('', { timeout: 15_000 });
+/** Asserisce che né il documento né la stanza trabocchino a destra. */
+async function expectNoHorizontalOverflow(page) {
+  const measured = await measureHorizontalOverflow(page);
+  expect(measured.document.scrollWidth, `documento ${measured.document.scrollWidth} > ${measured.document.clientWidth}`)
+    .toBeLessThanOrEqual(measured.document.clientWidth + 1);
+  if (measured.room) {
+    expect(measured.room.scrollWidth, `stanza ${measured.room.scrollWidth} > ${measured.room.clientWidth}`)
+      .toBeLessThanOrEqual(measured.room.clientWidth + 1);
+  }
 }
 
-async function openBoard(page) {
-  await page.locator('.gov-mobile-tab', { hasText: 'Tavola' }).click();
-  await expect(page.locator('.gov-mobile-board')).toBeVisible();
+/** Raggiunge l'HUD e apre una seduta (la sedia è il relatore). */
+async function openRoom(page, seat = 'lavori') {
+  await reachHud(page);
+  return openCouncilRoom(page, seat);
+}
+
+/** Riempe il filo finché non scorre davvero. */
+async function fillThread(page, count = 10) {
+  for (let index = 0; index < count; index += 1) {
+    await send(page, `Aggiornamento ${index}: come procediamo sulla questione?`);
+    await waitIdle(page);
+  }
 }
 
 for (const viewport of COMPACT_VIEWPORTS) {
-  test(`compatto ${viewport.width}×${viewport.height}: macchina a stati, senza traboccamento`, async ({ page }) => {
+  test(`compatto ${viewport.width}×${viewport.height}: niente traboccamento orizzontale e composer visibile`, async ({ page }) => {
     await page.setViewportSize(viewport);
     installMockApi(page);
-    await reachHud(page);
-    await openSeat(page);
+    await openRoom(page);
 
-    // Il layout compatto usa la vista a stati, non il desktop.
-    await expect(page.locator('.gov-mobile')).toBeVisible();
+    // Presentazione compatta: la stanza c'è, il divisore desktop no.
+    await expect(page.locator('.council-room')).toBeVisible();
     await expect(page.locator('.government-office-divider')).toHaveCount(0);
-    await expect(page.locator('.gov-mobile-tabs [role="tab"]')).toHaveCount(2);
-    await noHorizontalOverflow(page);
+    await expectNoHorizontalOverflow(page);
 
-    // L'intestazione resta bassa; la CTA primaria è una sola.
-    const headBox = await page.locator('.gov-mobile-head').boundingBox();
-    expect(headBox.height).toBeLessThanOrEqual(64);
-    await openBoard(page);
-    await expect(page.locator('.gov-mobile-cta .gov-mobile-primary')).toHaveCount(1);
-    // La Tavola non reinnesta il desktop né ripete il transcript.
-    await expect(page.locator('.gov-mobile .seat-table')).toHaveCount(0);
-    await expect(page.locator('.gov-mobile-talk')).toHaveCount(0);
-    await noHorizontalOverflow(page);
-
-    // Dialogo → Tavola → Dialogo conserva la posizione (viste montate).
-    await page.locator('.gov-mobile-tab', { hasText: 'Dialogo' }).click();
-    await expect(page.locator('.gov-mobile-chat')).toBeVisible();
-    await openBoard(page);
-    await noHorizontalOverflow(page);
+    // Il composer resta visibile e dentro il viewport.
+    const compose = composer(page);
+    await expect(compose).toBeVisible();
+    const box = await compose.boundingBox();
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 1);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width + 1);
   });
 }
 
-for (const viewport of DESKTOP_VIEWPORTS) {
-  test(`desktop ${viewport.width}×${viewport.height}: la stanza resta dialogo|tavola`, async ({ page }) => {
-    await page.setViewportSize(viewport);
-    installMockApi(page);
-    await reachHud(page);
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
-    await page.locator('.government-office').locator('.cabinet-pick').first().click();
-    await expect(page.locator('.government-office-split')).toBeVisible({ timeout: 10_000 });
-    // Il divisore desktop resta presente: il compatto non ha invaso la scrivania.
-    await expect(page.locator('.government-office-divider')).toBeVisible();
-    await noHorizontalOverflow(page);
-  });
-}
-
-test('390px: il Dialogo ha un solo scroll owner e il composer resta visibile', async ({ page }) => {
+test('390px: un solo scroll owner verticale (il filo) e il composer ne è fuori', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   installMockApi(page);
-  await reachHud(page);
-  await openSeat(page);
+  await openRoom(page);
+  await fillThread(page, 10);
 
-  // Riempi il thread finché non scorre davvero.
-  for (let i = 0; i < 10; i += 1) await sendChat(page, `Aggiornamento ${i}: come procediamo?`);
-
-  const metrics = await page.evaluate(() => {
-    const thread = document.querySelector('.gov-mobile #gov-panel-dialogue .minister-thread');
-    return { scrollHeight: thread.scrollHeight, clientHeight: thread.clientHeight };
-  });
+  // Il filo scorre davvero.
+  const thread = page.locator('.council-room-thread');
+  const metrics = await thread.evaluate(el => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }));
   expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight + 1);
 
   // Il composer è visibile e fuori dal contenuto che scorre.
-  const compose = page.locator('.gov-mobile-chat .minister-compose');
+  const compose = composer(page);
   await expect(compose).toBeVisible();
   const composeBox = await compose.boundingBox();
-  expect(composeBox.y + composeBox.height).toBeLessThanOrEqual(844);
+  expect(composeBox.y + composeBox.height).toBeLessThanOrEqual(845);
+  const composerOutsideThread = await page.evaluate(() => {
+    const threadEl = document.querySelector('.council-room-thread');
+    const composeEl = document.querySelector('.council-room-compose');
+    return Boolean(threadEl && composeEl) && !threadEl.contains(composeEl);
+  });
+  expect(composerOutsideThread).toBe(true);
 
-  // Un solo scroll verticale reale nel pannello Dialogo (thread), non annidato.
+  // Un solo scroll verticale reale nella stanza: proprio il filo.
   const scrollers = await page.evaluate(() => {
-    const panel = document.querySelector('#gov-panel-dialogue');
-    const all = [panel, ...panel.querySelectorAll('*')];
-    return all.filter(el => {
+    const room = document.querySelector('.council-room');
+    return [room, ...room.querySelectorAll('*')].filter(el => {
       const style = getComputedStyle(el);
       return /(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1;
-    }).length;
+    }).map(el => `${el.tagName.toLowerCase()}.${el.className || ''}`);
   });
-  expect(scrollers).toBeLessThanOrEqual(1);
-  await noHorizontalOverflow(page);
+  expect(scrollers).toHaveLength(1);
+  expect(scrollers[0]).toContain('council-room-thread');
+  await expectNoHorizontalOverflow(page);
 });
 
-test('390px: «↓ Nuovo messaggio» quando arriva una risposta mentre si legge indietro', async ({ page }) => {
+test('390px: la Tavola è un bottom sheet a tutto viewport; Escape chiude e riporta il focus', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   installMockApi(page);
-  await reachHud(page);
-  await openSeat(page);
+  await openRoom(page);
 
-  for (let i = 0; i < 10; i += 1) await sendChat(page, `Aggiornamento ${i}: come procediamo?`);
-
-  // Il giocatore risale la cronologia: non deve essere riportato giù.
-  await page.evaluate(() => {
-    const thread = document.querySelector('.gov-mobile #gov-panel-dialogue .minister-thread');
-    thread.scrollTop = 0;
-  });
-  // Una richiesta che apre la riunione: la voce narrativa arriva nel filo
-  // mentre il giocatore è in cima.
-  await sendChat(page, 'Voglio costruire una fabbrica siderurgica.');
-  await sendChat(page, 'Costruiamola a Sarajevo.');
-  await page.evaluate(() => {
-    const thread = document.querySelector('.gov-mobile #gov-panel-dialogue .minister-thread');
-    thread.scrollTop = 0;
-  });
+  const toggle = page.locator('.council-room-board-toggle');
   await openBoard(page);
-  await page.locator('.gov-mobile-cta .gov-mobile-primary', { hasText: /Convoca la riunione/ }).click();
-  await expect(page.locator('.gov-mobile-minister').first()).toBeVisible({ timeout: 15_000 });
+  const sheet = page.getByRole('dialog', { name: 'Tavola del Consiglio', exact: true });
+  await expect(sheet).toBeVisible();
+  const bounds = await sheet.boundingBox();
+  expect(bounds.width).toBe(390);
+  expect(bounds.height).toBeGreaterThan(800);
+  // Su mobile non deve esistere il drawer laterale desktop.
+  await expect(page.locator('.council-room-drawer')).toHaveCount(0);
 
-  await page.locator('.gov-mobile-tab', { hasText: 'Dialogo' }).click();
-  const unread = page.locator('.minister-unread');
+  await page.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  await expect(toggle).toBeFocused();
+});
+
+for (const viewport of DESKTOP_VIEWPORTS) {
+  test(`desktop ${viewport.width}×${viewport.height}: la Tavola è un drawer laterale, non un foglio`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    installMockApi(page);
+    await openRoom(page);
+
+    await openBoard(page);
+    await expect(page.locator('.council-room-drawer')).toBeVisible();
+    await expect(page.locator('.council-room-board')).toBeVisible();
+    // Niente bottom sheet a tutto viewport sulla scrivania.
+    await expect(page.getByRole('dialog', { name: 'Tavola del Consiglio', exact: true })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+
+    await closeBoard(page);
+    await expect(page.locator('.council-room-board')).toHaveCount(0);
+  });
+}
+
+test('390px: «↓ Nuovo messaggio» compare leggendo indietro e riporta in fondo', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  installMockApi(page);
+  await openRoom(page);
+  await fillThread(page, 10);
+
+  // Il giocatore risale la cronologia: un vero evento di scroll disattiva
+  // l'autoscroll, così la risposta in arrivo non lo trascina giù.
+  const thread = page.locator('.council-room-thread');
+  await thread.hover();
+  await page.mouse.wheel(0, -20_000);
+  await expect.poll(() => thread.evaluate(el => el.scrollTop)).toBeLessThanOrEqual(1);
+
+  await send(page, 'Questa risposta deve arrivare mentre sto leggendo indietro.');
+  await waitIdle(page);
+
+  const unread = page.locator('.council-room-unread');
   await expect(unread).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator('.gov-mobile-chat .minister-compose')).toBeVisible();
+  await expect(unread).toHaveText('↓ Nuovo messaggio');
+  await expect(composer(page)).toBeVisible();
 
   // Il tocco riporta in fondo e il badge sparisce.
   await unread.click();
   await expect(unread).toHaveCount(0);
-  await expect(page.locator('.gov-mobile-chat .minister-compose')).toBeVisible();
+  await expect.poll(() => thread.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(48);
+  await expect(composer(page)).toBeVisible();
 });
 
-test('390px: la riunione Lavori+Tesoro è il risultato, e l’atto è una vista distinta', async ({ page }) => {
+test('390px: il foglio «+ Convoca» si apre, si chiude con Escape e convoca davvero', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  installMockApi(page);
+  await openRoom(page, 'lavori');
+
+  // Il foglio si apre e si chiude con Escape.
+  await page.locator('.council-room-convene').click();
+  const sheet = page.getByRole('dialog', { name: 'Convoca un ministro', exact: true });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.locator('.gov-sheet-item', { hasText: seatLabel('tesoro') })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  await expect(page.locator('.council-room-convene')).toBeVisible();
+
+  // Il percorso reale di convocazione resta quello dell'helper.
+  await convene(page, 'tesoro');
+  await expect(page.locator('.council-room-chip[data-seat="tesoro"]')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+});
+
+test('identità: due sedute aperte per la stessa sedia hanno data-room-id distinto', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   installMockApi(page);
   await reachHud(page);
-  await openSeat(page);
+  await openCouncilRoom(page, 'lavori');
 
-  await sendChat(page, 'Voglio costruire una fabbrica siderurgica.');
-  await openBoard(page);
-  // DA RISOLVERE: il blocco di localizzazione è in cima, non negli approfondimenti.
-  await expect(page.locator('.gov-mobile-alert').first()).toContainText(/Dove deve sorgere l’opera\?/, { timeout: 15_000 });
+  const firstRoom = page.locator('.council-room');
+  const firstId = await firstRoom.getAttribute('data-room-id');
+  expect(firstId).toBeTruthy();
 
-  await page.locator('.gov-mobile-tab', { hasText: 'Dialogo' }).click();
-  await sendChat(page, 'Costruiamola a Sarajevo.');
-  await openBoard(page);
-  const cta = page.locator('.gov-mobile-cta .gov-mobile-primary');
-  await expect(cta).toContainText(/Convoca la riunione/, { timeout: 15_000 });
-  await cta.click();
+  // Torna alla scelta e riapre la stessa sedia: deve nascere una nuova seduta,
+  // non riprendere quella lasciata.
+  await page.locator('.council-room-back').click();
+  await expect(page.locator('.council-room')).toHaveCount(0);
+  await page.locator('.cabinet-pick[data-seat="lavori"]').click();
+  await expect(page.locator('.council-room')).toBeVisible({ timeout: 10_000 });
 
-  // M15/M19 — la Tavola mostra il risultato per ministero, non il transcript.
-  await expect(page.locator('.gov-mobile-minister', { hasText: 'LAVORI' })).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator('.gov-mobile-minister', { hasText: 'TESORO' })).toBeVisible();
-  await expect(page.locator('.gov-mobile-talk')).toHaveCount(0);
-  await expect(page.locator('.gov-mobile .seat-table')).toHaveCount(0);
-  await expect(page.locator('.gov-mobile-cta .gov-mobile-primary')).toHaveCount(1);
+  const secondId = await page.locator('.council-room').getAttribute('data-room-id');
+  expect(secondId).toBeTruthy();
+  expect(secondId).not.toBe(firstId);
 
-  // L'atto è una vista distinta, con «Modifica» prima dell'editor.
-  const actCta = page.locator('.gov-mobile-cta .gov-mobile-primary', { hasText: /Prepara l’atto/ });
-  if (await actCta.count()) await actCta.click();
-  const view = page.locator('[data-testid="act-draft-text-view"]');
-  if (await view.count()) {
-    await expect(page.locator('.act-draft-edit-toggle')).toContainText(/Modifica/);
-    await expect(page.locator('.act-draft-text')).toHaveCount(0);
-  }
-  await noHorizontalOverflow(page);
-});
-
-test('390px: il foglio «Convoca un ministro» si apre, si chiude con Escape', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  installMockApi(page);
-  await reachHud(page);
-  await openSeat(page);
-
-  await sendChat(page, 'Voglio costruire una fabbrica siderurgica.');
-  await sendChat(page, 'Costruiamola a Sarajevo.');
-  await openBoard(page);
-  await page.locator('.gov-mobile-cta .gov-mobile-primary', { hasText: /Convoca la riunione/ }).first().click();
-  await expect(page.locator('.gov-mobile-minister').first()).toBeVisible({ timeout: 15_000 });
-
-  const more = page.locator('.gov-mobile-secondary', { hasText: '+ Ministro' });
-  if (await more.count()) {
-    await more.click();
-    await expect(page.locator('.gov-sheet')).toBeVisible();
-    await expect(page.locator('.gov-sheet-item').first()).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.locator('.gov-sheet')).toHaveCount(0);
-  }
-  await noHorizontalOverflow(page);
-});
-
-test('390px: due convocazioni con lo stesso testo nello stesso turno hanno identità diverse', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  installMockApi(page);
-  await reachHud(page);
-  await openSeat(page);
-
-  // Prima convocazione.
-  await sendChat(page, 'Voglio costruire una fabbrica siderurgica.');
-  await sendChat(page, 'Costruiamola a Sarajevo.');
-  await openBoard(page);
-  await page.locator('.gov-mobile-cta .gov-mobile-primary', { hasText: /Convoca la riunione/ }).first().click();
-  await expect(page.locator('.gov-mobile-minister').first()).toBeVisible({ timeout: 15_000 });
-  const firstKey = await page.locator('.gov-mobile-board').getAttribute('data-meeting-key');
-  expect(firstKey).toBeTruthy();
-
-  // Seconda convocazione, **stesso testo**: deve nascere una nuova identità.
-  await page.locator('.gov-mobile-tab', { hasText: 'Dialogo' }).click();
-  await sendChat(page, 'Voglio costruire una fabbrica siderurgica.');
-  await sendChat(page, 'Costruiamola a Sarajevo.');
-  await openBoard(page);
-  await page.locator('.gov-mobile-cta .gov-mobile-primary', { hasText: /Convoca la riunione/ }).first().click();
-  await expect(page.locator('.gov-mobile-board')).toHaveAttribute('data-meeting-key', /.+/, { timeout: 15_000 });
-  await expect.poll(async () => page.locator('.gov-mobile-board').getAttribute('data-meeting-key')).not.toBe(firstKey);
-  await noHorizontalOverflow(page);
+  await expectNoHorizontalOverflow(page);
 });
