@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   deriveGameOpening, deriveNeighbors, deriveNationReadings, extractOpeningParagraphs, formatOpeningDate,
+  rankWorldFacts, toOpeningSituationCards,
 } from './openingBriefing';
 
 const items = [
@@ -39,7 +40,7 @@ describe('WS-GAME-OPENING — deriveGameOpening', () => {
     // 1. DOVE SONO
     expect(opening.world.name).toBe('Millennium Dawn');
     expect(opening.world.dateLabel).toBe('1 GENNAIO 2000');
-    expect(opening.world.paragraphs.join(' ')).toContain('Guerra Fredda');
+    expect(opening.world.narrative.worldOrder).toContain('Guerra Fredda');
     // 2. CHI GOVERNO
     expect(opening.nation.name).toBe('Bosnia ed Erzegovina');
     expect(opening.nation.readings.length).toBeGreaterThanOrEqual(4);
@@ -55,9 +56,9 @@ describe('WS-GAME-OPENING — deriveGameOpening', () => {
 
   it('il mondo viene dal preset, non da conoscenza generica: nessun testo se il preset manca', () => {
     const opening = deriveGameOpening({ ...input, world: { name: 'X', basePrompt: '' } });
-    expect(opening.world.paragraphs).toEqual([]);
+    expect(opening.world.narrative.worldOrder).toBe('');
     // Il marker del preset arriva, e non compare se non è nel preset.
-    const fromPreset = deriveGameOpening(input).world.paragraphs.join(' ');
+    const fromPreset = deriveGameOpening(input).world.narrative.worldOrder;
     expect(fromPreset).toContain('PRESET_MARKER_WORLD');
     expect(fromPreset).not.toContain('MILLENNIUM_GENERIC_KNOWLEDGE');
   });
@@ -67,7 +68,7 @@ describe('WS-GAME-OPENING — deriveGameOpening', () => {
     const long = Array.from({ length: 500 }, (_, i) => `Parola${i}`).join(' ');
     const wide = deriveGameOpening({ ...input, world: { name: 'X', basePrompt: long } });
     const compact = deriveGameOpening({ ...input, world: { name: 'X', basePrompt: long } }, { compact: true });
-    const words = (o: typeof wide) => o.world.paragraphs.join(' ').split(/\s+/).filter(Boolean).length;
+    const words = (o: typeof wide) => o.world.narrative.worldOrder.split(/\s+/).filter(Boolean).length;
     expect(words(wide)).toBeLessThanOrEqual(220);
     expect(words(compact)).toBeLessThanOrEqual(160);
     expect(words(compact)).toBeLessThan(words(wide));
@@ -75,7 +76,7 @@ describe('WS-GAME-OPENING — deriveGameOpening', () => {
 
   it('distingue i tre livelli: Mondo (preset) / Paese (motore) / Agenda (briefing)', () => {
     const opening = deriveGameOpening(input);
-    expect(opening.world.paragraphs.join(' ')).toContain('PRESET_MARKER_WORLD'); // preset
+    expect(opening.world.narrative.worldOrder).toContain('PRESET_MARKER_WORLD'); // preset
     expect(opening.nation.readings.some(r => r.key === 'finances')).toBe(true); // motore
     expect(opening.firstQuestions.map(q => q.label)).toEqual(items.map(i => i.label)); // briefing
   });
@@ -147,6 +148,45 @@ describe('WS-GAME-OPENING — deriveGameOpening', () => {
     expect(formatOpeningDate('2000-01-01')).toBe('1 GENNAIO 2000');
     expect(formatOpeningDate('')).toBe('');
     expect(formatOpeningDate(null)).toBe('');
+  });
+
+  it('I2: usa la narrativa del backend come fonte primaria (non rigenera il prologo)', () => {
+    const opening = deriveGameOpening({
+      ...input,
+      narrative: { worldOrder: 'NARRATIVA_BACKEND', stakesForNation: 'STAKES_BACKEND' },
+      nationFraming: 'QUADRO_BACKEND',
+    });
+    expect(opening.world.narrative.worldOrder).toBe('NARRATIVA_BACKEND');
+    expect(opening.world.narrative.worldOrder).not.toContain('PRESET_MARKER_WORLD');
+    expect(opening.world.narrative.stakesForNation).toBe('STAKES_BACKEND');
+    expect(opening.nation.identity).toBe('QUADRO_BACKEND');
+  });
+
+  it('I4: il ranking worldFacts è deterministico, problemi prima, max 2–3', () => {
+    const facts = [
+      { id: 'f1', severity: 'info', label: 'Info' },
+      { id: 'f2', severity: 'opportunity', label: 'Occasione' },
+      { id: 'f3', severity: 'critical', label: 'Crisi' },
+      { id: 'f4', severity: 'warning', label: 'Allerta' },
+    ] as never;
+    const cards = rankWorldFacts(facts, 3);
+    expect(cards.map(card => card.id)).toEqual(['f3', 'f4', 'f2']);
+    expect(rankWorldFacts(facts, 3)).toEqual(cards);
+    const twenty = Array.from({ length: 20 }, (_, i) => ({ id: `x${i}`, severity: 'info', label: `n${i}` })) as never;
+    expect(rankWorldFacts(twenty, 3)).toHaveLength(3);
+  });
+
+  it('I5: OpeningSituationCard cambia solo la forma, severity e ordine invariati', () => {
+    const cards = toOpeningSituationCards([
+      { id: 'a', severity: 'warning', label: 'Agenda del consiglio: Forze armate', detail: 'Il comando militare sta esercitando pressione sulle priorità del governo.' },
+      { id: 'b', severity: 'opportunity', label: 'Opportunità industriale' },
+    ]);
+    expect(cards[0].severity).toBe('warning');
+    expect(cards[0].symbol).toBe('problem');
+    expect(cards[0].title).toBe('Forze armate');
+    expect(cards[0].body).toContain('pressione');
+    expect(cards[1].severity).toBe('opportunity');
+    expect(cards[1].symbol).toBe('opportunity');
   });
 });
 

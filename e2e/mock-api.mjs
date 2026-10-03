@@ -1180,8 +1180,14 @@ export function installMockApi(page, opts = {}) {
     world: {
       name: MOCK_TEMPLATE.name,
       date: '1951-01-01',
-      paragraphs: ['Fixture di test.', 'Il mondo è sull’orlo di una nuova era e nessuno sa cosa accadrà.'] ,
+      narrative: {
+        headline: '1951',
+        worldOrder: 'Fixture di test: il mondo entra in una nuova era e nessuno sa cosa accadrà.',
+        regionalSituation: 'I vicini osservano con attenzione ciò che farete.',
+        stakesForNation: 'Per il tuo paese, le scelte interne peseranno sulla posizione internazionale.',
+      },
     },
+    nation: { framing: 'Il paese eredita una situazione da consolidare.' },
     council: [
       { seat: 'lavori', label: 'Ministro dei Lavori', line: 'Ditemi dove e io vi dico cosa serve per partire — ricostruire le infrastrutture.' },
       { seat: 'tesoro', label: 'Ministro del Tesoro', line: 'Facciamo i conti prima di promettere — coprire la cassa.' },

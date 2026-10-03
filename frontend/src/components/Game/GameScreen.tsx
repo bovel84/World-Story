@@ -303,13 +303,16 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     resources: nation.nationalResources,
     playerPolityId,
     council: openingNarrative?.council ?? null,
+    narrative: openingNarrative?.world?.narrative ?? null,
+    nationFraming: openingNarrative?.nation?.framing ?? null,
     cabinetAddresses: cabinet?.addresses ?? null,
     items: briefing.items,
   }, { compact: openingCompact }), [
     currentWorld?.name, currentWorld?.basePrompt, currentGame?.currentDate, nationalName, nationalAccount,
     nation.nationalCrisis, nation.nationalGovernment, nation.relationships, nation.relationshipNames,
     nation.strategicAgenda, worldFacts, nation.nationalResources, playerPolityId,
-    openingNarrative?.council, cabinet?.addresses, briefing.items, openingCompact,
+    openingNarrative?.council, openingNarrative?.world?.narrative, openingNarrative?.nation?.framing,
+    cabinet?.addresses, briefing.items, openingCompact,
   ]);
 
   const finishOpening = useCallback((door?: OpeningDoor) => {

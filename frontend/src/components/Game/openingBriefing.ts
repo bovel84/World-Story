@@ -27,6 +27,26 @@ export interface OpeningSituationItem {
   detail?: string;
 }
 
+/** Presentation adapter del `StrategicBriefing`: cambia **solo la forma** (§13). */
+export interface OpeningSituationCard {
+  id: string;
+  symbol: OpeningSymbol;
+  /** Titolo breve, es. «FORZE ARMATE». */
+  title: string;
+  /** Frase discorsiva, dal detail del motore. */
+  body: string;
+  /** Preservata intatta dal briefing. */
+  severity: string;
+}
+
+/** Il prologo **semantico** dal backend (`OpeningWorldNarrative`). */
+export interface OpeningWorldNarrative {
+  headline?: string;
+  worldOrder: string;
+  regionalSituation?: string;
+  stakesForNation: string;
+}
+
 export interface OpeningWorldItem {
   id: string;
   name: string;
@@ -65,9 +85,10 @@ export interface GameOpeningBriefing {
     date: string;
     /** «1 GENNAIO 2000», per l'intestazione. */
     dateLabel: string;
-    /** La premessa grezza del preset (`world.basePrompt`), fonte del prologo (§3). */
+    /** La premessa grezza del preset (`world.basePrompt`) — solo per il fallback locale. */
     premise: string;
-    paragraphs: string[];
+    /** Il prologo semantico: dal backend, o fallback locale se l'endpoint fallisce. */
+    narrative: OpeningWorldNarrative;
   };
   nation: {
     name: string;
@@ -77,6 +98,10 @@ export interface GameOpeningBriefing {
   };
   inheritedSituation: OpeningSituationItem[];
   worldAroundYou: OpeningWorldItem[];
+  /** I 2–3 fatti del mondo scelti dal ranking deterministico (§12). */
+  worldFactCards: OpeningSituationCard[];
+  /** Le priorità dal `StrategicBriefing`, in forma di card (§13). */
+  situationCards: OpeningSituationCard[];
   firstQuestions: OpeningQuestion[];
   council: OpeningCouncilVoice[];
   entryPoints: OpeningEntryPoint[];
@@ -96,6 +121,10 @@ export interface OpeningBriefingInput {
   resources?: NationResources | null;
   arms?: { power?: number | null; objects?: readonly unknown[] | null } | null;
   playerPolityId: string;
+  /** Prologo semantico dal backend (`opening-narrative`). Fonte primaria (§2–§3). */
+  narrative?: OpeningWorldNarrative | null;
+  /** Quadro del paese dal backend. */
+  nationFraming?: string | null;
   /** Voci del consiglio dal server (`opening-narrative`), se disponibili. */
   council?: readonly OpeningCouncilVoice[] | null;
   /** Fallback locale: le sedie già lette dal motore. */
@@ -320,14 +349,74 @@ function deriveCouncil(input: OpeningBriefingInput): OpeningCouncilVoice[] {
     .map(a => ({ seat: a.seat, label: a.label, line: a.opening.trim().split(/(?<=[.!?])\s+/)[0] }));
 }
 
+/** Fallback locale del prologo: usato SOLO se l'endpoint backend fallisce (§3). */
+export function fallbackWorldNarrative(premise: string, nationName: string, maxWords = 220): OpeningWorldNarrative {
+  const paragraphs = extractOpeningParagraphs(premise, 3, maxWords);
+  const nation = nationName && !/^[A-Z0-9_-]{2,5}$/.test(nationName) ? nationName : 'il tuo paese';
+  return {
+    worldOrder: paragraphs[0] ?? '',
+    ...(paragraphs[1] ? { regionalSituation: paragraphs[1] } : {}),
+    stakesForNation: `Per ${nation}, le scelte interne saranno inseparabili dalla posizione che saprà costruirsi in questo ordine.`,
+  };
+}
+
+const FACT_SEVERITY_RANK: Record<string, number> = {
+  critical: 0, warning: 1, opportunity: 2, positive: 3, info: 4,
+};
+
+/**
+ * Ranking **deterministico** dei fatti del mondo (§12): prima i problemi
+ * (critical/warning), poi le opportunità, poi il resto; a parità, l'ordine di
+ * arrivo. Mostra al massimo 2–3 fatti: non un feed di notizie.
+ */
+export function rankWorldFacts(
+  facts: readonly WorldFact[] | null | undefined,
+  max = 3,
+): OpeningSituationCard[] {
+  return [...(facts ?? [])]
+    .map((fact, index) => ({ fact, index, rank: FACT_SEVERITY_RANK[fact.severity] ?? 5 }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .slice(0, Math.max(0, max))
+    .map(({ fact }) => ({
+      id: fact.id,
+      symbol: symbolFor(fact.severity),
+      title: titleCase(fact.label),
+      body: fact.detail || fact.label,
+      severity: fact.severity,
+    }));
+}
+
+/** Presentation adapter del `StrategicBriefing` (§13): **solo la forma**. */
+export function toOpeningSituationCards(items: OpeningBriefingInput['items']): OpeningSituationCard[] {
+  return items.slice(0, 5).map(item => {
+    const colon = item.label.indexOf(':');
+    const rawTitle = colon >= 0 ? item.label.slice(colon + 1) : item.label;
+    return {
+      id: item.id,
+      symbol: symbolFor(item.severity),
+      title: titleCase(rawTitle.trim()),
+      body: item.detail || rawTitle.trim(),
+      severity: item.severity,
+    };
+  });
+}
+
+function titleCase(value: string): string {
+  const text = String(value ?? '').trim();
+  return text ? text[0].toUpperCase() + text.slice(1) : text;
+}
+
 /** Il read model completo. Puro, deterministico, read-only. */
 export function deriveGameOpening(input: OpeningBriefingInput, options: { compact?: boolean } = {}): GameOpeningBriefing {
   const readings = deriveNationReadings(input);
   const neighbors = deriveNeighbors(input);
   const firstQuestions = deriveFirstQuestions(input.items);
-  // §4 — budget parole diverso: 150–220 desktop, 100–160 mobile.
   const maxWords = options.compact ? 160 : 220;
   const premise = String(input.world?.basePrompt ?? '').trim();
+  // I2 — il backend è la fonte primaria; il fallback locale scatta solo senza risposta.
+  const narrative = input.narrative && input.narrative.worldOrder
+    ? input.narrative
+    : fallbackWorldNarrative(premise, input.nationalName, maxWords);
 
   return {
     world: {
@@ -335,16 +424,18 @@ export function deriveGameOpening(input: OpeningBriefingInput, options: { compac
       date: String(input.currentDate ?? '').trim(),
       dateLabel: formatOpeningDate(input.currentDate),
       premise,
-      paragraphs: extractOpeningParagraphs(premise, 4, maxWords),
+      narrative,
     },
     nation: {
       name: input.nationalName,
-      identity: deriveIdentity(input),
+      identity: input.nationFraming && input.nationFraming.trim() ? input.nationFraming.trim() : deriveIdentity(input),
       readings,
       neighbors,
     },
     inheritedSituation: firstQuestions.map(item => ({ ...item })),
     worldAroundYou: neighbors,
+    worldFactCards: rankWorldFacts(input.worldFacts),
+    situationCards: toOpeningSituationCards(input.items),
     firstQuestions,
     council: deriveCouncil(input),
     entryPoints: [
