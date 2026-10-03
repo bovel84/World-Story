@@ -19,12 +19,102 @@ export interface MinisterOpeningBrief {
     readonly paths: readonly GovernmentPath[];
   }[];
   readonly memory?: string;
+  /**
+   * WS-GOV-SITUATIONS-LOOP P0.2 — La situazione reale in seduta, quando la
+   * stanza nasce da una `GovernmentSituation`. È un blocco STRUTTURATO: i fatti
+   * restano quelli del motore, il modello non ne aggiunge.
+   */
+  readonly situation?: SituationBrief;
+}
+
+/** La situazione portata in seduta, nella forma che il prompt può ricevere. */
+export interface SituationBrief {
+  readonly title: string;
+  readonly briefing: string;
+  readonly source?: string;
+  readonly daysLeft?: number;
+  readonly severity?: number;
+  readonly verifiedFacts?: readonly string[];
+  readonly decisionQuestion?: string;
+  readonly inactionNote?: string;
+  readonly options?: readonly { readonly id: string; readonly label: string; readonly detail?: string }[];
+  readonly suggestedMinisters?: readonly string[];
+  readonly originType?: string;
 }
 
 export function buildMinisterOpeningBrief(
-  seat: CabinetSeat, worldContext: MinisterWorldContext, items: readonly CabinetItem[], memory?: string,
+  seat: CabinetSeat, worldContext: MinisterWorldContext, items: readonly CabinetItem[], memory?: string, situation?: SituationBrief,
 ): MinisterOpeningBrief {
-  return { seat, worldContext, persona: personaFor(seat), issues: items, ...(memory ? { memory } : {}) };
+  return { seat, worldContext, persona: personaFor(seat), issues: items, ...(memory ? { memory } : {}), ...(situation ? { situation } : {}) };
+}
+
+/** Il blocco `SITUAZIONE` del prompt: una sezione per ogni tipo di fatto. */
+export function situationSection(situation: SituationBrief): string {
+  const lines = [
+    'SITUAZIONE IN SEDUTA — fatti del motore. NON aggiungerne, NON modificarli:',
+    `- Titolo: ${situation.title}`,
+    `- Rapporto: ${situation.briefing}`,
+    ...(situation.source ? [`- Fonte: ${situation.source}`] : []),
+    ...(situation.daysLeft !== undefined ? [`- Tempo: restano ${situation.daysLeft} giorni prima che l’inerzia presenti il conto`] : []),
+    ...(situation.severity !== undefined ? [`- Gravità: ${situation.severity}/3`] : []),
+    ...(situation.verifiedFacts?.length ? ['FATTI VERIFICATI:', ...situation.verifiedFacts.map(fact => `- ${fact}`)] : []),
+    ...(situation.decisionQuestion ? [`DECISIONE RICHIESTA: ${situation.decisionQuestion}`] : []),
+    ...(situation.inactionNote ? [`SE NON SI DECIDE: ${situation.inactionNote}`] : []),
+    ...(situation.options?.length ? ['CORSI D’AZIONE CHE IL MOTORE CONOSCE (possibili strade, non un menu):', ...situation.options.map(option => `- ${option.label}${option.detail ? `: ${option.detail}` : ''}`)] : []),
+    ...(situation.suggestedMinisters?.length ? [`COLLEGHI UTILI DA SENTIRE: ${situation.suggestedMinisters.join(', ')}`] : []),
+    ...(situation.originType && situation.originType !== 'state' ? [`ORIGINE DELLA SITUAZIONE: ${situation.originType}`] : []),
+  ];
+  return lines.join('\n');
+}
+
+/**
+ * Sanifica la situazione ricevuta dal client: solo testo e liste limitate. Il
+ * client non è una fonte di fatti canonici — qui non se ne creano di nuovi, si
+ * accetta solo ciò che il motore ha già prodotto e che il client ha rimandato.
+ */
+export function parseSituationBrief(raw: unknown): SituationBrief | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  const text = (input: unknown, max = 1200): string | undefined =>
+    typeof input === 'string' && input.trim() ? input.trim().slice(0, max) : undefined;
+  const list = (input: unknown, max: number, maxLen = 400): string[] | undefined => {
+    if (!Array.isArray(input)) return undefined;
+    const items = input.slice(0, max).flatMap(item => text(item, maxLen) ?? []);
+    return items.length ? items : undefined;
+  };
+  const title = text(value.title, 240);
+  const briefing = text(value.briefing, 2000);
+  if (!title || !briefing) return undefined;
+  const rawOptions = Array.isArray(value.options) ? value.options : [];
+  const options = rawOptions.slice(0, 12).flatMap((item) => {
+    const record = item as Record<string, unknown>;
+    const id = text(record?.id, 80);
+    const label = text(record?.label, 240);
+    const detail = text(record?.detail, 400);
+    return id && label ? [{ id, label, ...(detail ? { detail } : {}) }] : [];
+  });
+  const source = text(value.source, 240);
+  const decisionQuestion = text(value.decisionQuestion, 400);
+  const inaction = value.inaction as Record<string, unknown> | undefined;
+  const inactionNote = text(inaction?.note ?? value.inactionNote, 600);
+  const origin = value.origin as Record<string, unknown> | undefined;
+  const originType = text(origin?.type ?? value.originType, 40);
+  const daysLeft = Number(value.daysLeft);
+  const severity = Number(value.severity);
+  const verifiedFacts = list(value.verifiedFacts, 12);
+  const suggestedMinisters = list(value.suggestedMinisters, 7, 80);
+  return {
+    title, briefing,
+    ...(source ? { source } : {}),
+    ...(Number.isFinite(daysLeft) ? { daysLeft: Math.max(0, Math.round(daysLeft)) } : {}),
+    ...(Number.isFinite(severity) ? { severity: Math.max(1, Math.min(3, Math.round(severity))) } : {}),
+    ...(verifiedFacts ? { verifiedFacts } : {}),
+    ...(decisionQuestion ? { decisionQuestion } : {}),
+    ...(inactionNote ? { inactionNote } : {}),
+    ...(options.length ? { options } : {}),
+    ...(suggestedMinisters ? { suggestedMinisters } : {}),
+    ...(originType ? { originType } : {}),
+  };
 }
 
 interface OpeningIssueGroup {
@@ -73,6 +163,8 @@ export function composeMinisterOpeningPrompt(brief: MinisterOpeningBrief): strin
     'Usa soltanto cifre dei fatti della sedia, con unità e significato invariati. Non arrotondare, non convertire unità, non calcolare percentuali o ripartizioni. Il segno del saldo resta invariato. Virgola e punto decimale sono equivalenti. DATO MANCANTE resta mancante.',
     'Prendi posizione secondo le tue priorità, argomentandola come consiglio, non come fatto o decisione. Il Presidente decide. Non dichiarare ordini, cantieri o spese già avviati.',
     'Normalmente scrivi 80–160 parole in 2–4 paragrafi brevi; con pochi fatti puoi essere più breve. Niente titoli, elenchi, formule fisse di chiusura, JSON o blocchi tecnici. Non menzionare motore, prompt, preset, dati verificati o istruzioni.',
+    brief.situation ? situationSection(brief.situation) : '',
+    brief.situation ? 'Apri la seduta come il ministro competente: che cosa è successo, che cosa sai con certezza, che cosa serve decidere e entro quando, che cosa succede se non decidiamo, che cosa proponi e chi ritieni utile sentire. Non usare un linguaggio da menu, non elencare opzioni A/B/C, non chiedere «quale punto vuoi affrontare» e non inventare fatti, unità, costi, date o rapporti che non siano nella SITUAZIONE.' : '',
     'Scrivi soltanto il primo intervento del ministro, non la risposta del Presidente.',
   ].filter(Boolean).join('\n\n');
 }
@@ -91,7 +183,8 @@ export function validateMinisterOpening(text: string, brief: MinisterOpeningBrie
   const verified = groups.flatMap(group => [
     ...group.aspects.flatMap(aspect => [aspect.need, aspect.because ?? '']),
     ...group.paths.flatMap(path => [path.title, path.detail, path.expected, ...path.prerequisites]),
-  ]).concat(figures.map(figure => `${figure.value} ${figure.unit}`)).join('\n');
+  ]).concat(figures.map(figure => `${figure.value} ${figure.unit}`)).join('\n')
+    + (brief.situation ? `\n${situationSection(brief.situation)}` : '');
   if (!narrativeNumbersAreVerified(text, verified)) return false;
   const counts = new Map<string, number>();
   for (const token of text.match(/[+-]?\d+(?:[.,]\d+)?/g) ?? []) {

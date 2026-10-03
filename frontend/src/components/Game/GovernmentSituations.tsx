@@ -3,34 +3,38 @@
  * ====================================================================
  * La schermata iniziale del Governo non deve chiedere solo «scegli un
  * ministro». Deve mostrare **cosa preme sul paese adesso**, con i fatti del
- * motore e il ministro competente. Da qui il Presidente apre la Sala del
- * Consiglio sulla questione, e il relatore la porta in seduta.
+ * motore e il ministro competente, e **cosa è tornato da riferire** dopo una
+ * decisione. Da qui il Presidente apre la Sala del Consiglio sulla questione.
  *
  * Questa vista è un **read model**: non genera pressioni, non calcola effetti e
- * non decide nulla. Legge le situazioni che il motore ha già prodotto
- * (`GovernmentSituations.ts`) e le rende leggibili. Le opportunità stanno
- * separate dalle urgenze, perché non tutte le questioni chiedono la stessa
- * attenzione.
+ * non decide nulla. Le opportunità stanno separate dalle urgenze; i seguiti
+ * mostrano solo quelli dovuti o prossimi, mai una pila di scadenze lontane.
  */
 import { seatSpeaker } from './councilMeeting';
 import type { CabinetSeat } from './seatDecisionBoards';
-import type { GovernmentSituationView, PeacetimePressure } from '../../services/api';
+import type { GovernmentFollowUpView, GovernmentSituationView, PeacetimePressure } from '../../services/api';
 
 export interface GovernmentSituationsProps {
   readonly pressures?: readonly PeacetimePressure[] | null;
+  readonly followUps?: readonly GovernmentFollowUpView[] | null;
   readonly onOpen: (situation: GovernmentSituationView) => void;
+  readonly onOpenFollowUp?: (followUp: GovernmentFollowUpView) => void;
 }
+
+/** Il seguito merita la home solo se è dovuto o imminente (finestra utile). */
+const FOLLOW_UP_WINDOW_DAYS = 7;
 
 function isUrgent(situation: GovernmentSituationView): boolean {
   return situation.priority === 'critica' || situation.priority === 'rilevante' || situation.severity >= 2;
 }
 
 /** Le situazioni del Governo: prima ciò che richiede una decisione, poi il resto. */
-export function GovernmentSituations({ pressures, onOpen }: GovernmentSituationsProps) {
+export function GovernmentSituations({ pressures, followUps, onOpen, onOpenFollowUp }: GovernmentSituationsProps) {
   const situations = (pressures ?? [])
     .map(pressure => pressure.situation)
     .filter((situation): situation is GovernmentSituationView => Boolean(situation));
-  if (situations.length === 0) return null;
+  const due = (followUps ?? []).filter(followUp => followUp.daysLeft <= FOLLOW_UP_WINDOW_DAYS);
+  if (situations.length === 0 && due.length === 0) return null;
 
   const decisions = situations.filter(isUrgent).slice(0, 3);
   const opportunities = situations.filter(situation => !isUrgent(situation));
@@ -60,6 +64,28 @@ export function GovernmentSituations({ pressures, onOpen }: GovernmentSituations
   return (
     <section className="government-situations" aria-label="Situazioni del Governo">
       <h3 className="gov-situations-heading">GOVERNO</h3>
+      {due.length > 0 && (
+        <div className="gov-situations-group" aria-label="Da riferire">
+          <h4>DA RIFERIRE</h4>
+          <ul className="gov-situations-list">
+            {due.map(followUp => (
+              <li key={followUp.id} className="gov-situation gov-follow-up" data-pressure-id={followUp.pressureId} data-origin={followUp.origin.type}>
+                <p className="gov-situation-title">{followUp.label}</p>
+                <p className="gov-situation-meta">
+                  <span>{seatSpeaker(followUp.owner as CabinetSeat)}</span>
+                  <span>{followUp.daysLeft <= 0 ? 'previsto oggi' : `tra ${followUp.daysLeft} ${followUp.daysLeft === 1 ? 'giorno' : 'giorni'}`}</span>
+                </p>
+                {followUp.outcome.length > 0 && (
+                  <ul className="gov-situation-facts">
+                    {followUp.outcome.map(fact => <li key={fact}>{fact}</li>)}
+                  </ul>
+                )}
+                <button type="button" className="gov-situation-open" disabled={!onOpenFollowUp} onClick={() => onOpenFollowUp?.(followUp)}>Apri rapporto</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {decisions.length > 0 && (
         <div className="gov-situations-group">
           <h4>RICHIEDE UNA DECISIONE</h4>

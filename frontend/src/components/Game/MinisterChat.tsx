@@ -154,7 +154,7 @@ export function MinisterChat({
       setOpening(openingRef.current);
       onOpening?.(text);
     };
-    Promise.resolve().then(() => ministerApi.opening(gameId, address.seat, controller.signal))
+    Promise.resolve().then(() => ministerApi.opening(gameId, address.seat, null, controller.signal))
       .then(result => keepOpening(result.reply))
       .catch(() => keepOpening(address.opening));
     return () => {

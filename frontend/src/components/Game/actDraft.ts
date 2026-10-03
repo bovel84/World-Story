@@ -56,6 +56,13 @@ export interface ProposalActDraft {
   readonly sourceRevision?: number;
   readonly sourceSeat?: string;
   readonly sourceSessionId?: string;
+  /**
+   * WS-GOV-SITUATIONS-LOOP P1 — Provenienza tecnica dell'atto: la Pressure che la
+   * seduta doveva risolvere. NON è narrativa, NON entra nel testo dell'atto e NON
+   * è modificabile dal giocatore.
+   */
+  readonly sourcePressureId?: string;
+  readonly sourceSituationId?: string;
 }
 
 /** Lo stato dell'atto e la sua spiegazione, già pronti per la UI. */

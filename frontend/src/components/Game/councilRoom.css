@@ -208,3 +208,22 @@
 @media (max-width: 767px) {
   .government-situations { margin: 10px 16px 14px; }
 }
+
+/* WS-GOV-SITUATIONS-LOOP — ministri suggeriti dalla situazione e sezione SITUAZIONE. */
+.council-room-suggested { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 22px 8px; }
+.council-room-suggested-label { font: 600 11px/1.2 system-ui, sans-serif; letter-spacing: .08em; color: #9fb2c4; text-transform: uppercase; }
+.council-room-suggested-seat { min-height: 32px; padding: 0 10px; border: 1px solid #817153; border-radius: 999px; background: #172b3a; color: #d4b97c; font: 600 12px/1 system-ui, sans-serif; cursor: pointer; }
+.council-board-situation { border: 1px solid #2c4254; border-left: 3px solid #c08a4a; border-radius: 6px; padding: 12px 14px; background: #10202e; }
+.council-board-situation-title { margin: 0 0 2px; font: 600 17px/1.3 Georgia, serif; color: #f0f5f8; }
+.council-board-situation-meta { margin: 0 0 8px; font: 500 12px/1.3 system-ui, sans-serif; color: #9fb2c4; }
+.council-board-situation-facts { margin: 0 0 8px; padding-left: 18px; font: 400 13px/1.5 system-ui, sans-serif; color: #b9c7d4; }
+.council-board-situation-inaction { margin: 0 0 8px; font: 400 12px/1.4 system-ui, sans-serif; color: #d0b48a; }
+.council-board-situation-origin { margin: 0 0 8px; font: 500 12px/1.4 system-ui, sans-serif; color: #9fb2c4; }
+.council-board-decision h4, .council-board-response h4 { margin: 10px 0 4px; font: 600 11px/1.2 system-ui, sans-serif; letter-spacing: .1em; color: #d4b97c; }
+.council-board-decision p { margin: 0 0 4px; font: 600 14px/1.4 system-ui, sans-serif; color: #e8d8bd; }
+.council-board-response-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.council-board-response-picked { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 600 13px/1.4 system-ui, sans-serif; color: #bfe3c9; }
+.council-board-response-toggle { min-height: 32px; padding: 0 10px; border: 1px solid #2f7a52; border-radius: 5px; background: transparent; color: #bfe3c9; font: 600 12px/1 system-ui, sans-serif; cursor: pointer; }
+.council-board-response-options summary { cursor: pointer; font: 500 12px/1.4 system-ui, sans-serif; color: #9fb2c4; }
+.council-board-response-detail { display: block; font: 400 12px/1.4 system-ui, sans-serif; color: #9fb2c4; }
+@media (max-width: 767px) { .council-room-suggested { padding: 0 16px 8px; } }

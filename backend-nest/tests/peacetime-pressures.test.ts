@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   PRESSURE_DURATION_DAYS, PRESSURE_ESCALATION_AT, PRESSURE_MAX_HIGHLIGHTED,
+  arePressureOptionsCompatible, composePressureEffects,
   describePressure, generatePressures, highlightPressures, pressureDeadline, pressureDurationDays,
   pressurePriority, pressureWindow, scalePressureEffect,
+  type PressureOption,
   type PressureSnapshot,
 } from '../src/core/simulation/PeacetimePressures';
 
@@ -211,5 +213,38 @@ describe('GAMEPLAY-LONG — finestra temporale delle sfide (tempo di calendario)
     expect(text).toContain('restano');
     const expired = describePressure(pressure, pressureWindow(pressure, '1951-12-01', 244));
     expect(expired).toContain('scaduta');
+  });
+});
+
+describe('WS-GOV-SITUATIONS-LOOP — compatibilità e composizione delle opzioni', () => {
+  const option = (id: string, effect: Record<string, unknown> = {}): PressureOption => ({ id, label: id, detail: id, effect: { note: `${id}.`, ...effect } as PressureOption['effect'] });
+  const incident = {
+    template: 'border-incident',
+    options: [option('retaliate'), option('de-escalate'), option('internationalize')],
+  };
+
+  it('rifiuta le combinazioni che si escludono a vicenda', () => {
+    expect(arePressureOptionsCompatible(incident, ['retaliate', 'internationalize'])).toBe(true);
+    expect(arePressureOptionsCompatible(incident, ['retaliate', 'de-escalate'])).toBe(false);
+    expect(arePressureOptionsCompatible(incident, ['retaliate'])).toBe(true);
+  });
+
+  it('rifiuta un id inesistente e rispetta combinable/conflictsWith dichiarati', () => {
+    expect(arePressureOptionsCompatible(incident, ['retaliate', 'sconosciuta'])).toBe(false);
+    expect(arePressureOptionsCompatible({ template: 'x', options: [{ ...option('a'), combinable: false }, option('b')] }, ['a', 'b'])).toBe(false);
+    expect(arePressureOptionsCompatible({ template: 'x', options: [{ ...option('a'), conflictsWith: ['b'] }, option('b')] }, ['a', 'b'])).toBe(false);
+  });
+
+  it('somma gli effetti del motore con gli stessi tetti e tiene le relazioni dell’ultima', () => {
+    const composed = composePressureEffects([
+      { stability: 4, socialTension: 6, growthModifier: 0.002, moneyDeltaMld: -0.5, relationship: { target: 'SRB', direction: 'degrade' }, note: 'Prima.' },
+      { stability: 2, socialTension: -3, revenueMultiplierDelta: -0.01, moneyDeltaMld: -0.2, relationship: { target: 'SRB', direction: 'improve' }, note: 'Seconda.' },
+    ]);
+    expect(composed.stability).toBe(6);
+    expect(composed.socialTension).toBe(3);
+    expect(composed.growthModifier).toBe(0.002);
+    expect(composed.moneyDeltaMld).toBe(-0.7);
+    expect(composed.relationship).toEqual({ target: 'SRB', direction: 'improve' });
+    expect(composed.note).toBe('Prima. Seconda.');
   });
 });

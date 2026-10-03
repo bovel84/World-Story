@@ -606,6 +606,20 @@ export interface GovernmentSituationView {
   origin: { type: string; sourceId?: string };
 }
 
+/** WS-GOV-SITUATIONS-LOOP P1.8 — Il seguito di una decisione chiusa. */
+export interface GovernmentFollowUpView {
+  id: string;
+  pressureId: string;
+  owner: string;
+  dueDate: string;
+  daysLeft: number;
+  label: string;
+  checks: string[];
+  outcome: string[];
+  origin: { type: string; sourceId?: string };
+  situation: GovernmentSituationView;
+}
+
 /** Sfida di pace: interna o esterna, con le opzioni di risposta. */
 export interface PeacetimePressure {
   id: string;
@@ -1265,6 +1279,7 @@ export const gameApi = {
     pressures: PeacetimePressure[];
     recent: PeacetimePressure[];
     foodCoverageMonths: number | null;
+    followUps?: GovernmentFollowUpView[];
   }> =>
     fetchApi(`/games/${gameId}/pressures`),
 
@@ -1273,14 +1288,14 @@ export const gameApi = {
     fetchApi(`/games/${gameId}/crisis`),
 
   /** Risponde a una sfida: il motore applica modificatori, cassa e relazioni. */
-  resolvePeacetimePressure: (gameId: string, pressureId: string, optionId: string): Promise<{
+  resolvePeacetimePressure: (gameId: string, pressureId: string, optionIds: string | string[]): Promise<{
     pressure: PeacetimePressure;
     effect: { note?: string; moneyDeltaMld?: number };
     account?: Record<string, any>;
   }> =>
     fetchApi(`/games/${gameId}/pressures/${encodeURIComponent(pressureId)}/resolve`, {
       method: 'POST',
-      body: JSON.stringify({ optionId }),
+      body: JSON.stringify(Array.isArray(optionIds) ? { optionIds } : { optionId: optionIds }),
     }),
 
   /** Vende (`sell`) o compra (`buy`) una risorsa naturale sul mercato mondiale. */
@@ -1932,16 +1947,20 @@ export interface MinisterCouncilContext {
   participants: CabinetAddressView['seat'][];
   phase: 'discussion' | 'drafting';
   respondingTo?: string;
+  /** WS-GOV-SITUATIONS-LOOP — la situazione reale in seduta, per ogni ministro. */
+  sourceSituation?: GovernmentSituationView;
+  /** Le opzioni canoniche già scelte sulla Tavola (id validati dal motore). */
+  selectedPressureOptions?: string[];
 }
 
 export const ministerApi = {
   /** Fatti e memoria letti sul server; nessuna persistenza e nessuna direttiva. */
   opening: (
-    gameId: string, seat: string, signal?: AbortSignal,
+    gameId: string, seat: string, situation?: GovernmentSituationView | null, signal?: AbortSignal,
   ): Promise<{ reply: string; seat: string; narrativeOnly: true; persistMemory: false; allowDirectives: false }> => {
     signal?.throwIfAborted();
     return fetchApi(`/games/${gameId}/government/minister/${seat}/opening`, {
-      method: 'POST', signal, body: JSON.stringify({}),
+      method: 'POST', signal, body: JSON.stringify(situation ? { situation } : {}),
     });
   },
 

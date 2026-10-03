@@ -9,6 +9,7 @@ import { gameRepository, ministerMemoryRepository } from '../../repositories';
 import { countryRepository } from '../../repositories/country.repository';
 import { CABINET_SEATS, type CabinetSeat } from '../../core/government/Cabinet';
 import { mandateFor, normalizeMinisterMemory } from '../../core/government/MinisterMemory';
+import { parseSituationBrief } from '../../core/government/MinisterOpening';
 import { ingestJevMemory, ministerExchangeInput, playerDecisionInput } from '../../core/government/jev/jev-memory.service';
 import { getSessionRegistry } from '../../session-registry';
 import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult } from '../../game-session';
@@ -288,7 +289,8 @@ router.post('/:id/government/minister/:seat/opening', async (req, res) => {
   try {
     if (controller.signal.aborted) return;
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    const reply = await session.getMinisterOpening(seat, controller.signal);
+    const situation = parseSituationBrief(req.body?.situation);
+    const reply = await session.getMinisterOpening(seat, controller.signal, situation);
     if (!controller.signal.aborted && !res.destroyed) res.json(reply);
   } catch (error) {
     if (!controller.signal.aborted && !res.destroyed) respondRouteError(res, error, 'Failed to render minister opening');

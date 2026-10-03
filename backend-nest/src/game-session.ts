@@ -14,7 +14,7 @@ import { LLMRouter } from './llm';
 import { GameController } from './agents';
 import { PromptBuilder, PromptEngine } from './prompt-builder';
 import { buildMinisterWorldContext } from './prompts/national-context';
-import { buildMinisterOpeningBrief, renderMinisterOpening } from './core/government/MinisterOpening';
+import { buildMinisterOpeningBrief, renderMinisterOpening, type SituationBrief } from './core/government/MinisterOpening';
 import { memorySection } from './core/government/MinisterMemory';
 import {
   arsenalRepository, worldRepository, gameRepository, relationshipRepository, chatRepository, nationalAccountRepository, operationalObjectRepository, type PressureRecord, type CrisisStateRecord, type CrisisSnapshot, type OperationalObjectsSnapshot, type ArsenalSnapshot } from './repositories';
@@ -39,7 +39,7 @@ import { HistoryService } from './game/HistoryService';
 import { OutboxService } from './game/OutboxService';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { clampTaxRatePct, DEFAULT_FISCAL_POLICY, describeFiscalEffects, fiscalShockModifier, FISCAL_MAX_PCT, FISCAL_MIN_PCT, fiscalLabel, type FiscalPolicy } from './core/simulation/FiscalPolicy';
-import { composePressureEffects, type PressureEffect, type PressureOption } from './core/simulation/PeacetimePressures';
+import { composePressureEffects, arePressureOptionsCompatible, type PressureEffect, type PressureOption } from './core/simulation/PeacetimePressures';
 import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import { readCabinetSession } from './game/GovernmentReadings';
@@ -1068,6 +1068,9 @@ export class GameSession {
       .map(id => record.options.find(item => item.id === id))
       .filter((option): option is PressureOption => Boolean(option));
     if (options.length === 0) throw new Error('pressure_option_unknown: opzione non valida');
+    if (options.length > 1 && !arePressureOptionsCompatible(record, ids)) {
+      throw new Error('pressure_options_incompatible: queste misure si escludono a vicenda');
+    }
     const effect = options.length === 1 ? options[0].effect : composePressureEffects(options.map(item => item.effect));
     if (effect.moneyDeltaMld && effect.moneyDeltaMld < 0) {
       const stock = this.resourceStock(this.playerPolityId);
@@ -3340,7 +3343,7 @@ export class GameSession {
   }
 
   /** Apertura automatica: solo letture, stesso provider, nessun percorso di decisione/memoria. */
-  async getMinisterOpening(seat: string, signal?: AbortSignal) {
+  async getMinisterOpening(seat: string, signal?: AbortSignal, situation?: SituationBrief) {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const fence = this.fenceContext();
     const cabinet = readCabinetSession({
@@ -3362,7 +3365,7 @@ export class GameSession {
     } else {
       memory = memorySection(this.ministerMemoryFor(seat));
     }
-    const brief = buildMinisterOpeningBrief(address.seat, world, address.items, memory);
+    const brief = buildMinisterOpeningBrief(address.seat, world, address.items, memory, situation);
     const result = await renderMinisterOpening(brief, async (prompt, openingSignal) => {
       const response = await this.llm.generate('advisor', 'Parli personalmente come il ministro indicato. Solo narrativa, nessuna direttiva.', prompt,
         { temperature: 0.5, signal: openingSignal });

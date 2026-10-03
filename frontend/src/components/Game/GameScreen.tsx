@@ -420,6 +420,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
           maintenanceObligations: nation.maintenanceObligations,
           crisis: nation.nationalCrisis,
           pressures: nation.nationalPressures,
+          followUps: nation.nationalFollowUps,
           today: currentGame?.currentDate ?? undefined,
         }}
       />

@@ -44,6 +44,56 @@ export interface PressureOption {
   label: string;
   detail: string;
   effect: PressureEffect;
+  /**
+   * WS-GOV-SITUATIONS-LOOP P1.2 — Se `false`, l'opzione non può essere sommata ad
+   * altre: è una presa di posizione totale (o un non-intervento) che esclude il
+   * resto. Deterministico, dichiarato dall'opzione, mai deciso dal modello.
+   */
+  combinable?: boolean;
+  /** Id di opzioni con cui questa non può coesistere nella stessa decisione. */
+  conflictsWith?: readonly string[];
+}
+
+/**
+ * WS-GOV-SITUATIONS-LOOP P1.2 — Compatibilità di una decisione composta.
+ *
+ * Il motore non affida al modello la logica di cosa si esclude: una decisione
+ * composta è valida solo se le opzioni scelte non sono in conflitto. I conflitti
+ * sono dichiarati (`combinable: false`, `conflictsWith`) oppure registrati per
+ * template in una tabella deterministica. Un id inesistente non è compatibile:
+ * la validazione degli id resta separata.
+ */
+const EXCLUSIVE_PAIRS: Record<string, readonly (readonly [string, string])[]> = {
+  'border-incident': [['retaliate', 'de-escalate']],
+  'neighbour-buildup': [['arm', 'protest-buildup'], ['protest-buildup', 'reassure']],
+  'alliance-offer': [['accept-alliance', 'decline-alliance'], ['accept-alliance', 'stall-alliance']],
+  'diplomatic-feeler': [['receive', 'defer']],
+  'trade-dispute': [['retaliate-trade', 'negotiate-trade'], ['retaliate-trade', 'absorb-trade']],
+  'sanctions-threat': [['comply', 'defy'], ['diversify', 'comply']],
+  'refugee-flow': [['accept-refugees', 'close-border'], ['camps', 'close-border']],
+  'strike-wave': [['negotiate', 'break'], ['concede', 'break']],
+  'inflation-spiral': [['tighten', 'accept-inflation'], ['price-controls', 'accept-inflation']],
+  'harvest-failure': [['ration', 'import'], ['ration', 'appeal']],
+  'emigration-wave': [['controls', 'accept']],
+  'separatist-movement': [['crackdown', 'dialogue'], ['crackdown', 'autonomy']],
+  'corruption-scandal': [['purge', 'cover']],
+  'veterans-unrest': [['pensions', 'ignore-veterans'], ['jobs', 'ignore-veterans']],
+  'public-opinion': [['tour', 'silent'], ['reform', 'silent']],
+};
+
+export function arePressureOptionsCompatible(
+  pressure: { template: string; options: readonly PressureOption[] },
+  optionIds: readonly string[],
+): boolean {
+  const unique = [...new Set(optionIds)];
+  if (unique.length <= 1) return true;
+  const options = unique.map(id => pressure.options.find(option => option.id === id));
+  if (options.some(option => !option)) return false;
+  const chosen = options as PressureOption[];
+  if (chosen.some(option => option.combinable === false)) return false;
+  if (chosen.some(option => (option.conflictsWith ?? []).some(id => unique.includes(id)))) return false;
+  const pairs = EXCLUSIVE_PAIRS[pressure.template] ?? [];
+  return !pairs.some(([left, right]) => unique.includes(left) && unique.includes(right));
 }
 
 /**
