@@ -41,6 +41,13 @@ describe('ActDraftPanel', () => {
     expect(html).toContain('non produrrebbe l’effetto');
   });
 
+  it('può bloccare soltanto la firma in attesa di verifica, senza bloccare modifica e annullamento', () => {
+    const html = renderToStaticMarkup(<ActDraftPanel draft={draft} status={actStatus(draft, [], [])} signDisabled onCancel={() => {}} />);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Firma e inserisci nel registro/);
+    expect(html).toMatch(/<button[^>]*>Annulla preparazione<\/button>/);
+    expect(html).not.toMatch(/<textarea[^>]*disabled/);
+  });
+
   it('un atto già in coda non si firma due volte', () => {
     const html = renderToStaticMarkup(
       <ActDraftPanel draft={draft} status={actStatus(draft, [{ id: 'a1', text: draft.text }], [])} />,

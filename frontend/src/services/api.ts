@@ -1900,6 +1900,16 @@ export interface MinisterCurrentDecision {
  * **sedia** del ministro: i bisogni della sua competenza, con le cifre del
  * motore e la loro provenienza. La risposta è una proposta: non impegna nulla.
  */
+/** Shared discussion metadata; never authoritative engine state. */
+export interface MinisterCouncilContext {
+  sessionId: string;
+  topic: string;
+  initiatorMinister: CabinetAddressView['seat'];
+  participants: CabinetAddressView['seat'][];
+  phase: 'discussion' | 'drafting';
+  respondingTo?: string;
+}
+
 export const ministerApi = {
   /** Fatti e memoria letti sul server; nessuna persistenza e nessuna direttiva. */
   opening: (
@@ -1919,11 +1929,12 @@ export const ministerApi = {
     memory: MinisterMemoryItem[] = [],
     signal?: AbortSignal,
     currentDecision?: MinisterCurrentDecision,
+    council?: MinisterCouncilContext,
   ): Promise<{ reply: string; seat: string }> => {
     signal?.throwIfAborted();
     return fetchApi(`/games/${gameId}/government/minister/${seat}`, {
       method: 'POST', signal,
-      body: JSON.stringify({ message, history, memory, currentDecision }),
+      body: JSON.stringify({ message, history, memory, currentDecision, council }),
     });
   },
 
@@ -1964,10 +1975,11 @@ export const ministerApi = {
     memory: MinisterMemoryItem[] = [],
     signal?: AbortSignal,
     currentDecision?: MinisterCurrentDecision,
+    council?: MinisterCouncilContext,
   ): Promise<string> => {
     signal?.throwIfAborted();
     const url = `${API_BASE}/games/${gameId}/government/minister/${seat}/stream`;
-    const body = JSON.stringify({ message, history, memory, currentDecision });
+    const body = JSON.stringify({ message, history, memory, currentDecision, council });
 
     let response: Response;
     try {
@@ -1989,7 +2001,7 @@ export const ministerApi = {
       signal?.throwIfAborted();
       // Solo una rotta non disponibile/non implementata garantisce zero generazioni.
       if ([404, 405, 501].includes(response.status)) {
-        const data = await ministerApi.ask(gameId, seat, message, history, memory, signal, currentDecision);
+        const data = await ministerApi.ask(gameId, seat, message, history, memory, signal, currentDecision, council);
         signal?.throwIfAborted();
         onToken(data.reply);
         return data.reply;
@@ -2015,9 +2027,9 @@ export const ministerApi = {
     } catch (e) {
       signal?.throwIfAborted();
       if (e instanceof Error && e.name === 'AbortError') throw e;
-      // Anche senza byte ricevuti la generazione potrebbe essere già avvenuta.
-      if (!full) throw e;
-      console.warn('[Minister] Stream interrotto a metà, uso la risposta parziale:', e);
+      // Partial text is presentation-only: never apply its decisions or pass it
+      // to another council member as a completed intervention. No ambiguous retry.
+      throw e;
     } finally {
       reader.releaseLock();
     }

@@ -69,6 +69,8 @@ export function AccessibleDialog({
 }: AccessibleDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const closeOnEscapeRef = useRef(closeOnEscape);
+  closeOnEscapeRef.current = closeOnEscape;
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -100,7 +102,7 @@ export function AccessibleDialog({
     const frame = window.requestAnimationFrame(focusInitial);
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && closeOnEscape) {
+      if (event.key === 'Escape' && closeOnEscapeRef.current) {
         event.preventDefault();
         onCloseRef.current();
         return;
@@ -135,10 +137,12 @@ export function AccessibleDialog({
       if (openDialogCount === 0) {
         document.body.style.overflow = previousBodyOverflow;
         setApplicationInert(false);
-        previousFocus?.focus({ preventScroll: true });
       }
+      // Nested sheets restore their trigger too; the enclosing dialog remains
+      // open and continues to own application inertness and the scroll lock.
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     };
-  }, [open, initialFocusRef, closeOnEscape]);
+  }, [open, initialFocusRef]);
 
   if (!open) return null;
 
