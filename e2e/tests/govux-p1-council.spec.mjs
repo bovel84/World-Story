@@ -83,7 +83,7 @@ test('P1: l’agenda viva — sintesi, stati, colloquio ripreso', async ({ page 
   await expect(chat.locator('.minister-chat')).toBeVisible();
   await chat.locator('textarea').fill('Il porto di Alfa resta chiuso: servono fondi.');
   await chat.locator('.minister-compose button').click();
-  await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
+  await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
   await page.locator('.gov-mobile-nav').click();
 
   // [4] Ora il Tesoro è «discussione aperta» e la sintesi è ricalcolata:
@@ -104,7 +104,7 @@ test('P1: l’agenda viva — sintesi, stati, colloquio ripreso', async ({ page 
 
   // [5] Riaprire la sedia riprende il colloquio: i messaggi ci sono ancora.
   await tesoro.click();
-  await expect(chat.locator('.minister-entry')).toHaveCount(2);
+  await expect(chat.locator('.minister-entry:not(.minister-greeting)')).toHaveCount(2);
   await expect(chat).toContainText('Il porto di Alfa resta chiuso');
 });
 

@@ -31,6 +31,7 @@ import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent a
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { CabinetSession } from './CabinetSession';
 import { MinisterChat } from './MinisterChat';
+import { projectCurrentDecision } from './ministerDialogueContext';
 import { OrderRegister } from './OrderRegister';
 import { SeatBrief } from './SeatBrief';
 import { SeatTable } from './SeatTable';
@@ -321,6 +322,16 @@ export function GovernmentOffice({
     (seat: CabinetAddressView['seat']): string => sessionSeatKey(sessionId, seat),
     [sessionId],
   );
+  // Narrative UI cache only: no chat-store writes, directives or provenance changes.
+  // Survives MinisterChat remounts (seat/back/desktop-mobile), not a full office unmount.
+  const [openings, setOpenings] = useState<Record<string, string>>({});
+  useEffect(() => { setOpenings({}); }, [sessionId]);
+  const retainOpening = useCallback((text: string): void => {
+    if (!openSeat) return;
+    const key = stateKey(openSeat);
+    setOpenings(prev => prev[key] === text ? prev : { ...prev, [key]: text });
+  }, [openSeat, stateKey]);
+  const retainedOpening = openSeat ? openings[stateKey(openSeat)] : undefined;
   const workspacesRef = useRef(workspaces);
   workspacesRef.current = workspaces;
   const sessionIdRef = useRef(sessionId);
@@ -866,6 +877,7 @@ export function GovernmentOffice({
   // WS-GOV-DIALOGUE-TO-ACT — La decisione in corso della sedia aperta e la
   // revisione su cui poggia l'atto preparato (per marcare l'atto stantio).
   const workspace = openSeat ? workspaces[stateKey(openSeat)] ?? null : null;
+  const currentDecision = useMemo(() => projectCurrentDecision(workspace), [workspace]);
   const actRevision = actDraft?.revision ?? null;
   const actStale = workspace ? actStaleness(workspace, actRevision) : null;
   const decisionQuestion = address?.items[0]?.need ?? null;
@@ -1194,6 +1206,9 @@ export function GovernmentOffice({
               streaming={streaming}
               memory={memoryRecords}
               sessionId={sessionId}
+              currentDecision={currentDecision}
+              retainedOpening={retainedOpening}
+              onOpening={retainOpening}
               onAddMessage={message => { if (openSeat) addMinisterMessage(openSeat, { ...message, turn: currentTurn ?? undefined }); }}
               onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
               onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}
@@ -1534,6 +1549,9 @@ export function GovernmentOffice({
                   streaming={streaming}
                   memory={memoryRecords}
                   sessionId={sessionId}
+                  currentDecision={currentDecision}
+                  retainedOpening={retainedOpening}
+                  onOpening={retainOpening}
                   onAddMessage={message => { if (openSeat) addMinisterMessage(openSeat, { ...message, turn: currentTurn ?? undefined }); }}
                   onAppendToken={token => { if (openSeat) appendToLastMinisterMessage(openSeat, token); }}
                   onStreamingChange={isStreaming => setMinisterStreaming(isStreaming ? openSeat : null)}

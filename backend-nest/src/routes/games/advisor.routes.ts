@@ -38,6 +38,7 @@ import {
   assessmentStore,
 } from './helpers';
 import { validateBody } from '../validation';
+import { withMinisterDialogueRequest } from '../../core/government/MinisterDialogue';
 import { actionTextSchema, advisorSchema, meetingRenderSchema } from './schemas';
 import {
   composeMeetingNarrativeMessage, normalizeMinisterMeetingBrief, stripNarrativeDirectives,
@@ -254,7 +255,8 @@ router.post('/:id/government/minister/:seat', async (req, res) => {
     if (controller.signal.aborted) return;
     const session = getSessionRegistry().getSessionOrThrow(gameId);
     persistMinisterMemory(session, gameId, seat, req.body?.memory);
-    const reply = await session.getMinisterReply(seat, message, history, controller.signal);
+    const reply = await withMinisterDialogueRequest(gameId, seat, req.body?.currentDecision,
+      () => session.getMinisterReply(seat, message, history, controller.signal));
     persistJevConversation(session, gameId, seat, message, reply.reply);
     if (!controller.signal.aborted && !res.destroyed) res.json(reply);
   } catch (e: any) {
@@ -364,9 +366,10 @@ router.post('/:id/government/minister/:seat/stream', async (req, res) => {
       }
     };
     const streamFn = (session as any).getMinisterStream;
-    const reply: string = typeof streamFn === 'function'
-      ? await streamFn.call(session, seat, message, history, onToken, controller.signal)
-      : (await session.getMinisterReply(seat, message, history, controller.signal)).reply;
+    const reply: string = await withMinisterDialogueRequest(gameId, seat, req.body?.currentDecision, async () =>
+      typeof streamFn === 'function'
+        ? await streamFn.call(session, seat, message, history, onToken, controller.signal)
+        : (await session.getMinisterReply(seat, message, history, controller.signal)).reply);
     if (controller.signal.aborted || res.destroyed) return;
     if (!gotTextChunks && reply) res.write(reply);
     persistJevConversation(session, gameId, seat, message, reply);

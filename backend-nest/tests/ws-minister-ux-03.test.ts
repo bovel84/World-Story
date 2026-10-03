@@ -42,12 +42,11 @@ describe('WS-MINISTER-UX-03 — contratto di presentazione nel briefing', () => 
 
   it('vieta HTML, JavaScript, numeri, geometrie e chiavi extra nel blocco', () => {
     const context = briefingFor(address('tesoro'), emptyAgenda).context;
-    expect(context).toContain('niente HTML');
-    expect(context).toContain('niente JavaScript');
-    expect(context).toContain('niente numeri');
-    expect(context).toContain('niente geometrie');
+    // Il divieto riguarda tutti gli elementi, anche quando sono in una sola frase.
+    expect(context).toMatch(/Nel blocco tavola: niente HTML, JavaScript, numeri o geometrie/);
+    expect(context).toContain('Rispetta il protocollo e i limiti del parser esistenti');
     // La scelta non è un obbligo: se non serve, il blocco non si aggiunge.
-    expect(context).toContain('NON aggiungere il blocco');
+    expect(context).toMatch(/PRESENTAZIONE \(la tavola, solo se serve\)/);
   });
 
   it('non introduce cifre nuove: la presentazione resta una scelta', () => {
@@ -55,7 +54,7 @@ describe('WS-MINISTER-UX-03 — contratto di presentazione nel briefing', () => 
     // continua a venire dai fatti. Il blocco d'esempio non è un dato.
     const presentationSection = briefingFor(address('tesoro'), emptyAgenda).context
       .split('PRESENTAZIONE')[1]
-      .split('I TUOI COLLEGHI')[0];
+      .split(/\n\[[A-Z ]+\]/)[0];
     expect(presentationSection).not.toMatch(/\d/);
   });
 

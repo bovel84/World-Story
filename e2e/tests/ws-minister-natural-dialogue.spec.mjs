@@ -21,8 +21,15 @@ test('apertura naturale read-only, continuità della chat e cancellazione al cam
     }) }).catch(() => {});
   });
   await page.route(`**${path}*/stream`, route => {
-    chats.push(route.request().postDataJSON());
-    return route.fulfill({ status: 200, contentType: 'text/plain', body: 'Valutiamo insieme le coperture.' });
+    const body = route.request().postDataJSON();
+    chats.push(body);
+    const decision = source => `\n\`\`\`decision\n${JSON.stringify({ op: 'update-proposal', objective: 'Usare l’avanzo', changes: ['Debito', 'Investimenti'].map(label => ({ label, kind: 'allocation', sharePct: 50, source, status: source === 'president' ? 'accepted' : 'proposed' })), unresolvedQuestions: ['Quali investimenti?'] })}\n\`\`\``;
+    const reply = body.message === 'Perché?' ? 'Per non impegnare tutto il margine prima di sapere cosa otteniamo.'
+      : body.message === 'E il resto?' ? 'Il resto è la quota per gli investimenti che abbiamo appena discusso.'
+      : body.message === 'Fammi vedere.' ? 'Certo. Ti metto a confronto le due strade.\n```tavola\n{"op":"compare"}\n```'
+      : body.message === 'Va bene.' ? 'Va bene, segno il 50/50. Restano da scegliere gli investimenti.' + decision('president')
+      : 'Valutiamo insieme le coperture. Io partirei da metà per il debito e metà per gli investimenti.' + decision('minister');
+    return route.fulfill({ status: 200, contentType: 'text/plain', body: reply });
   });
   await page.goto('/');
   await page.locator('.landing-cta').click();
@@ -39,6 +46,22 @@ test('apertura naturale read-only, continuità della chat e cancellazione al cam
   await page.locator('.minister-compose button').click();
   await expect(page.locator('.minister-entry.assistant').last()).toContainText('Valutiamo insieme le coperture.');
   expect(chats[0].history).toContainEqual({ role: 'assistant', content: prose });
+  await expect(page.locator('.decision-measure[data-source="minister"]')).toHaveCount(2);
+  for (const question of ['Perché?', 'E il resto?', 'Fammi vedere.', 'Va bene.']) {
+    await page.locator('.minister-compose textarea').fill(question);
+    await page.locator('.minister-compose button').click();
+    await expect(page.locator('.minister-compose textarea')).toBeEnabled();
+    await expect.poll(() => chats.at(-1)?.message).toBe(question);
+    const request = chats.at(-1);
+    expect(request.history.filter(message => message.role === 'assistant' && message.content === prose)).toHaveLength(1);
+    expect(request.currentDecision.measures).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'Debito', sharePct: 50, source: 'minister', status: 'proposed' }),
+    ]));
+  }
+  await expect(page.locator('.decision-measure[data-source="president"][data-status="accepted"]')).toHaveCount(2);
+  await expect(page.locator('.minister-thread')).not.toContainText('Fatti:');
+  await expect(page.locator('.minister-thread')).not.toContainText('```decision');
+  expect(chats).toHaveLength(5);
   await page.locator('.government-office-back').click();
   await page.locator('.cabinet-pick[data-seat="lavori"]').click();
   await expect.poll(() => openings.includes('lavori')).toBe(true);

@@ -15,6 +15,7 @@ import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { ministerDossierFrom } from '../src/core/government/MinisterChat';
 import { mandateFor } from '../src/core/government/MinisterMemory';
 import type { MinisterMemoryRecord } from '../src/core/government/MinisterMemory';
 import { jevScopeKey, type JevMemoryRecord, type JevScope } from '../src/core/government/jev/jev.types';
@@ -198,6 +199,9 @@ describe('JEV-W4 buildMinisterContext', () => {
 describe('JEV-W4 innesto nel prompt del ministro', () => {
   it('normal e stream: sezioni nel prompt e cronologia non ripetuta', async () => {
     ministerRepo.upsertRecords(scope, [memory({ id: 'strategic', summary: 'Avevo consigliato di NON ridurre le tasse.' })]);
+    const expectedDossier = ministerDossierFrom(session.ministerPrompt('tesoro', 'Cosa mi avevi consigliato sulle tasse?', false));
+    expect(expectedDossier?.seat).toBe('tesoro');
+    expect(expectedDossier?.issues.length).toBeGreaterThan(0);
     const history = Array.from({ length: 40 }, (_, n) => ({ role: (n % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant', content: `CRONACA_DUMP_${n} ${'testo '.repeat(40)}` }));
     await session.getMinisterReply('tesoro', 'Cosa mi avevi consigliato sulle tasse?', history);
     await session.getMinisterStream('tesoro', 'Cosa mi avevi consigliato sulle tasse?', history, () => {});
@@ -205,7 +209,9 @@ describe('JEV-W4 innesto nel prompt del ministro', () => {
       expect(prompt).toContain('CURRENT VERIFIED STATE');
       expect(prompt).toContain('STRATEGIC MEMORY');
       expect(prompt).toContain('RECENT CONVERSATION');
-      expect(prompt).toContain('QUELLO CHE PORTI AL CONSIGLIO');
+      expect(prompt).toContain('[VERIFIED FACTS]');
+      expect(prompt).toContain('[DIALOGUE STYLE]');
+      expect(ministerDossierFrom(prompt)).toEqual(expectedDossier);
       expect(prompt).toContain('Cosa mi avevi consigliato sulle tasse?');
       expect(prompt.match(/NON ridurre le tasse/g)).toHaveLength(1);
       // La cronologia recente è nella sezione, non ripetuta come dump: il testo

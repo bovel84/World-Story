@@ -42,15 +42,19 @@ const briefing = () => briefingFor(address('tesoro', [item('debt_service')]), em
 describe('WS-GOV-DIALOGUE-TO-ACT — il ministro parla come un ministro', () => {
   it('la struttura FATTI/LETTURA/PROPOSTA resta interna e NON va mostrata', () => {
     const ctx = briefing().context;
-    expect(ctx).toContain('NON mostrare al Presidente la struttura FATTI / LETTURA / PROPOSTA');
-    expect(ctx).toContain('La risposta finale deve essere una conversazione naturale');
+    expect(ctx).toContain('[DIALOGUE STYLE]');
+    expect(ctx).toMatch(/NON mostrare.*FATTI \/ LETTURA \/ PROPOSTA/);
+    expect(ctx).toContain('Non stai leggendo un rapporto');
+    expect(ctx).toContain('la tua risposta è una conversazione naturale');
   });
 
   it('può sviluppare idee e compromessi, non solo commentare le alternative', () => {
     const ctx = briefing().context;
-    expect(ctx).toContain('Non limitarti a commentare le alternative già presenti');
-    expect(ctx).toContain('proporre compromessi');
-    expect(ctx).toContain('non inventi nuovi dati del mondo');
+    expect(ctx).toContain('Se hai una preferenza, dilla e argomentala come tua');
+    expect(ctx).toContain('mostrando il compromesso');
+    expect(ctx).toContain('Una tua raccomandazione è source = minister, status = proposed');
+    expect(ctx).toContain('NON inventare mai un numero del mondo');
+    expect(ctx).toContain('Non aggiungere aneddoti, nomi propri, date o promesse assenti');
   });
 
   it('la voce della sedia prevale sullo stile generico del consigliere', () => {
@@ -62,7 +66,7 @@ describe('WS-GOV-DIALOGUE-TO-ACT — il ministro parla come un ministro', () => 
       expect(section).not.toMatch(/\d/);
     }
     expect(briefing().context).toContain('Tu non sei il Primo Consigliere');
-    expect(briefing().context).toContain('PREVALGONO');
+    expect(briefing().context).toMatch(/Lo stile ministeriale PREVALE/);
   });
 
   it('dichiara il canale `decision`: provenienza obbligatoria, mai numeri inventati', () => {

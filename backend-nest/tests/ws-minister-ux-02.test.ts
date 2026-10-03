@@ -19,7 +19,7 @@
  *    finché non c'è memoria persistente — UX-05).
  */
 import { describe, expect, it } from 'vitest';
-import { briefingFor, colleagueRedirect, openingMessage, seatForQuestion } from '../src/core/government/MinisterChat';
+import { briefingFor, colleagueRedirect, ministerDossierFrom, openingMessage, seatForQuestion } from '../src/core/government/MinisterChat';
 import { CABINET_SEATS, SEAT_LABEL, SEAT_READS, type CabinetAddress, type CabinetItem } from '../src/core/government/Cabinet';
 import { MINISTER_PERSONAS, firstMessage, personaFor, personaSection } from '../src/core/government/MinisterPersona';
 import type { GovernmentAgenda } from '../src/core/government/GovernmentAgenda';
@@ -76,7 +76,7 @@ describe('WS-MINISTER-UX-02 — identità del ministro', () => {
   it('ogni briefing porta il proprio profilo e la sua sezione', () => {
     for (const seat of CABINET_SEATS) {
       const briefing = briefingFor(address(seat, [item(`v_${seat}`)]), emptyAgenda);
-      expect(briefing.context).toContain('CHI SEI E COME PARLI');
+      expect(briefing.context).toContain('[IDENTITY]');
       expect(briefing.context).toContain(personaFor(seat).mandate);
       expect(briefing.context).toContain(personaFor(seat).voice);
       expect(briefing.context).toContain(personaFor(seat).priorities);
@@ -106,12 +106,14 @@ describe('WS-MINISTER-UX-02 — identità del ministro', () => {
 });
 
 describe('WS-MINISTER-UX-02 — lettura, proposta e limiti del dato', () => {
-  it('il briefing distingue i tre livelli: FATTI, LETTURA, PROPOSTA', () => {
+  it('il briefing separa il dossier verificato dai livelli di ragionamento interni', () => {
     const briefing = briefingFor(address('tesoro', [item('debt_service')]), emptyAgenda);
-    expect(briefing.context).toContain('COME RAGIONI — TRE LIVELLI, MAI CONFUSI');
-    expect(briefing.context).toContain('- FATTI:');
-    expect(briefing.context).toContain('- LETTURA:');
-    expect(briefing.context).toContain('- PROPOSTA:');
+    expect(briefing.context).toContain('[VERIFIED FACTS]');
+    expect(briefing.context).toContain('[DIALOGUE STYLE]');
+    expect(ministerDossierFrom(briefing.context)).toEqual({ seat: 'tesoro', issues: [item('debt_service')] });
+    expect(briefing.context).toContain('Usa internamente fatti, interpretazione e consiglio');
+    expect(briefing.context).toMatch(/NON mostrare.*FATTI \/ LETTURA \/ PROPOSTA/);
+    expect(briefing.context).toContain('un’opinione non è un dato');
   });
 
   it('«aiutare le famiglie senza peggiorare il bilancio»: il Tesoro ragiona, non rinvia', () => {
@@ -122,9 +124,8 @@ describe('WS-MINISTER-UX-02 — lettura, proposta e limiti del dato', () => {
     // Il contesto gli chiede di ragionare per livelli e di chiedere il dettaglio
     // che manca — non di rimbalzare.
     const briefing = briefingFor(address('tesoro', [item('debt_service')]), emptyAgenda);
-    expect(briefing.context).toContain('LETTURA');
-    expect(briefing.context).toContain('PROPOSTA');
-    expect(briefing.context).toContain('Se l’obiettivo è chiaro ma manca un dettaglio per decidere, chiedilo');
+    expect(briefing.context).toContain('Usa internamente fatti, interpretazione e consiglio');
+    expect(briefing.context).toContain('Se serve un dato mancante, chiedi una sola cosa concreta');
     expect(briefing.context).toContain(personaFor('tesoro').voice);
   });
 
@@ -138,7 +139,10 @@ describe('WS-MINISTER-UX-02 — lettura, proposta e limiti del dato', () => {
     });
     const briefing = briefingFor(address('tesoro', [withUnknown]), emptyAgenda);
     // La cifra misurata c'è, col valore del motore.
-    expect(briefing.context).toContain('Fabbisogno: 12 mld (misurato da: conti nazionali)');
+    expect(ministerDossierFrom(briefing.context)?.issues[0].figures).toEqual([
+      { label: 'Fabbisogno', value: '12', unit: 'mld', basis: { kind: 'measured', source: 'conti nazionali' } },
+      { label: 'Copertura', value: '', unit: '', basis: { kind: 'unknown', missing: 'il credito non è stato letto' } },
+    ]);
     // L'ignota resta ignota, e il profilo non la copre.
     expect(briefing.context).toContain('Copertura: DATO MANCANTE');
     expect(briefing.context).toContain('non lo sostituisci con una stima plausibile');
@@ -150,18 +154,16 @@ describe('WS-MINISTER-UX-02 — lettura, proposta e limiti del dato', () => {
 
   it('il rimando al collega non è più secco: dice cosa guarderebbe lui', () => {
     const redirect = colleagueRedirect('tesoro', 'Servono più cantieri per le fabbriche.');
-    expect(redirect).toContain('Non è la mia materia');
-    expect(redirect).toContain(SEAT_LABEL.lavori);
-    expect(redirect).toContain(SEAT_READS.lavori);
-    expect(redirect).toContain('cosa guarderei io');
-    expect(redirect).toContain(SEAT_READS.tesoro);
-    // E non decide al posto di chi ha la competenza.
-    expect(redirect).toContain('senza decidere al posto di chi ha la competenza');
+    expect(redirect).toContain(SEAT_LABEL.lavori.replace(/^Ministro /, 'il ministro '));
+    expect(redirect).toMatch(/Io .*finanziariamente.*margine.*conti/);
+    expect(redirect).not.toMatch(/Non è la mia materia|se ne occupa|e legge/);
+    // È una lettura finanziaria, non l'approvazione di un cantiere.
+    expect(redirect).not.toMatch(/avvio|approvo|costruiamo|spendiamo/i);
   });
 
   it('il formato discorsivo regge anche con il profilo attivo', () => {
     const briefing = briefingFor(address('sanita', [item('health_condition')]), emptyAgenda);
-    expect(briefing.context).toContain('racconta, non elencare');
+    expect(briefing.context).toMatch(/racconta, non elencare/i);
     expect(briefing.context).toContain('Non sei neutrale');
     expect(briefing.context).toContain('dichiarale come tue');
   });
@@ -202,11 +204,10 @@ describe('WS-MINISTER-UX-02 — apertura e riapertura', () => {
     expect(opening).toContain('Chiedimi quello che vuoi');
   });
 
-  it('la riapertura non si ripresenta: continuità parziale, dichiarata nel conto', () => {
-    // Senza memoria persistente (UX-05) la riapertura si basa solo sulla RAM del
-    // client: il contesto impone di non ripetere la presentazione.
+  it('la riapertura non si ripresenta e riprende la decisione discussa', () => {
     const briefing = briefingFor(address('tesoro', [item('debt_service')]), emptyAgenda);
     expect(briefing.context).toContain('NON ripresentarti');
-    expect(briefing.context).toContain('riprendi il filo');
+    expect(briefing.context).toContain('nel contesto dell’ultima decisione discussa');
+    expect(briefing.context).toContain('NON RIPETERE ciò che hai appena detto');
   });
 });
