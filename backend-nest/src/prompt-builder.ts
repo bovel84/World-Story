@@ -27,7 +27,9 @@ import { getJevConfig } from './core/government/jev/jev.config';
 import { repairReactionDecisions, validateReactionDecisions, describeReactionShape, completeEventReactions, completeEventReactionsList, type ReactionDecisionIssue, type ReactionEventLike } from './core/simulation/ReactionDecisions';
 import type { ReactionContext } from './core/simulation/ReactionContext';
 import { buildNationalDecisionContext, buildActionElaborationGuard, buildMinisterWorldContext, renderWorldIdentity, renderNationalContext, renderMinisterWorldContext } from './prompts/national-context';
-import { SEAT_LABEL, CABINET_SEATS } from './core/government/Cabinet';
+import { SEAT_LABEL, CABINET_SEATS, type CabinetSeat } from './core/government/Cabinet';
+import { ministerDossierFrom } from './core/government/MinisterChat';
+import { buildMinisterDialogueBrief, composeMinisterDialoguePrompt, currentMinisterDialogueRequest, dialogueHistory, dialogueResponseIsNatural, fallbackMinisterDialogue, type MinisterDialogueBrief } from './core/government/MinisterDialogue';
 import {
   buildGovernmentStateBlock,
   buildGovernmentVoicePrompt,
@@ -304,7 +306,7 @@ interface TurnResultData {
  * comincia sempre con `Sei il <titolo> del governo.`: da lì si risale alla sedia
  * senza toccare `game-session.ts` (congelato) e senza un secondo parametro.
  */
-function ministerSeatFor(game: GameData, message: string, jevActive: boolean): string | undefined {
+function ministerSeatFor(game: GameData, message: string, jevActive: boolean): CabinetSeat | undefined {
   if (jevActive) return game.ministerMemoryRequest?.scope.seat;
   const match = /^Sei il (.+?) del governo\./.exec(message.trim());
   if (!match) return undefined;
@@ -342,6 +344,53 @@ function ministerWorldBlockFor(vars: PromptVariables, game: GameData, message: s
     buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat }),
     seat,
   );
+}
+
+/** Ultimo confine comune di chat/stream: nessuna modifica a GameSession o al retrieval JEV. */
+async function prepareMinisterDialogue(builder: PromptBuilder, game: GameData, message: string, history: AdvisorMessage[], vars: PromptVariables)
+  : Promise<{ brief: MinisterDialogueBrief; prompt: string } | null> {
+  const selective = getJevConfig().enabled && Boolean(game.ministerMemoryRequest);
+  // Un marker scritto dall’utente del Consigliere non certifica un dossier.
+  const seat = ministerSeatFor(game, message, selective);
+  if (!seat || (!selective && !currentMinisterDialogueRequest(game.id, seat))) return null;
+  const separator = '\n\n---\n\n';
+  const divider = message.indexOf(separator);
+  const dossierText = selective ? game.ministerMemoryRequest!.verifiedState ?? '' : divider >= 0 ? message.slice(0, divider) : message;
+  const dossier = ministerDossierFrom(dossierText);
+  if (!dossier || dossier.seat !== seat) return null;
+  const question = selective ? game.ministerMemoryRequest!.query || message : divider >= 0 ? message.slice(divider + separator.length) : message;
+  if (question.startsWith('RIUNIONE DI GOVERNO')) return null;
+  const request = currentMinisterDialogueRequest(game.id, dossier.seat);
+  const recentHistory = dialogueHistory(history);
+  const worldContext = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat: dossier.seat });
+  const memory = /\[MEMORY\]\n([\s\S]*?)(?=\n\[DIALOGUE STYLE\])/.exec(dossierText)?.[1];
+  const brief = buildMinisterDialogueBrief({ seat: dossier.seat, worldContext, currentIssues: dossier.issues,
+    presidentMessage: question, recentHistory, currentDecision: request?.currentDecision, memory: memory ? { context: memory } : undefined });
+  const selectiveContext = selective ? await builder.buildMinisterContextSection(recentHistory, vars) : '';
+  const base = selectiveContext || dossierText;
+  const dialoguePrompt = composeMinisterDialoguePrompt(brief, { base, hasHistory: base.includes('[RECENT CONVERSATION]'), hasWorld: Boolean(selectiveContext) });
+  const override = getPromptOverride(await resolveWorldPrompts(game), 'advisor');
+  // Conserva gli override autorizzati, senza duplicare premessa/regole del mondo o reintrodurre il dossier generico.
+  let preset = override ? renderPromptTemplate(override, vars) : '';
+  for (const value of [vars.WORLD_BEFORE_ROUND_ONE_TEXT, vars.HISTORICAL_PRESET_SIMULATION_RULES]) {
+    if (value?.trim()) preset = preset.split(value).join('(vedi WORLD)');
+  }
+  const prompt = preset ? `[REGISTRO DEL PRESET — lo stile e le regole ministeriali seguenti prevalgono]\n${preset}\n\n${dialoguePrompt}` : dialoguePrompt;
+  return { brief, prompt };
+}
+
+/** Una sola generazione; fallback per stile/guasto provider, mai una seconda riscrittura LLM. */
+async function ministerDialogueResponse(brief: MinisterDialogueBrief, generate: () => Promise<string>, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
+  try {
+    const response = await generate();
+    signal?.throwIfAborted();
+    if (dialogueResponseIsNatural(response, brief)) return response.trim();
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (error instanceof Error && error.name === 'AbortError') throw error;
+  }
+  return fallbackMinisterDialogue(brief);
 }
 
 export class PromptBuilder {
@@ -1496,6 +1545,13 @@ export class PromptEngine {
   async getAdvisor(game: GameData, message: string, history: AdvisorMessage[] = [], signal?: AbortSignal): Promise<string> {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
+    const dialogue = await prepareMinisterDialogue(builder, game, message, history, vars);
+    if (dialogue) {
+      return ministerDialogueResponse(dialogue.brief, async () => {
+        const response = await this.llm.generate('advisor', 'Sei il ministro indicato e parli personalmente con il Presidente, non un report.', dialogue.prompt, { temperature: 0.7, signal });
+        return response.content;
+      }, signal);
+    }
 
     let jevWorldContext = false;
     if (getJevConfig().enabled && game.ministerMemoryRequest) {
@@ -1539,6 +1595,15 @@ export class PromptEngine {
   ): Promise<string> {
     const builder = new PromptBuilder(game);
     const vars = builder.buildVariables();
+    const dialogue = await prepareMinisterDialogue(builder, game, message, history, vars);
+    if (dialogue) {
+      // La prosa e le direttive vengono pubblicate insieme dopo il controllo stilistico.
+      // L'endpoint resta cancellabile e text/plain; nessuna seconda generazione.
+      return ministerDialogueResponse(dialogue.brief, async () => {
+        const response = await this.llm.stream('advisor', 'Sei il ministro indicato e parli personalmente con il Presidente, non un report.', dialogue.prompt, () => {}, { temperature: 0.7, signal });
+        return response.content;
+      }, signal);
+    }
     let jevWorldContext = false;
     if (getJevConfig().enabled && game.ministerMemoryRequest) {
       const context = await builder.buildMinisterContextSection(history, vars);

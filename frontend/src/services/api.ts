@@ -1874,6 +1874,25 @@ export interface MinisterMemoryItem {
   refs: { messageId?: string; actId?: string; orderId?: string; gameDate: string; turn?: number };
 }
 
+/** Read-only conversation context; never a workspace update or a verified fact. */
+export interface MinisterCurrentDecision {
+  readonly objective?: string | null;
+  readonly measures?: readonly {
+    readonly id?: string;
+    readonly label: string;
+    readonly kind: 'allocation' | 'priority' | 'target' | 'region' | 'work' | 'constraint' | 'other';
+    readonly value?: string;
+    readonly amount?: number;
+    readonly unit?: string;
+    readonly sharePct?: number;
+    readonly status: 'proposed' | 'accepted' | 'rejected' | 'unresolved';
+    readonly source: 'engine' | 'minister' | 'president';
+  }[];
+  readonly unresolved?: readonly string[];
+  readonly constraints?: readonly string[];
+  readonly revision?: number;
+}
+
 /**
  * P02-bis — Parlare con un ministro.
  *
@@ -1899,11 +1918,12 @@ export const ministerApi = {
     history: AdvisorHistoryItem[],
     memory: MinisterMemoryItem[] = [],
     signal?: AbortSignal,
+    currentDecision?: MinisterCurrentDecision,
   ): Promise<{ reply: string; seat: string }> => {
     signal?.throwIfAborted();
     return fetchApi(`/games/${gameId}/government/minister/${seat}`, {
       method: 'POST', signal,
-      body: JSON.stringify({ message, history, memory }),
+      body: JSON.stringify({ message, history, memory, currentDecision }),
     });
   },
 
@@ -1943,10 +1963,11 @@ export const ministerApi = {
     onToken: (token: string) => void,
     memory: MinisterMemoryItem[] = [],
     signal?: AbortSignal,
+    currentDecision?: MinisterCurrentDecision,
   ): Promise<string> => {
     signal?.throwIfAborted();
     const url = `${API_BASE}/games/${gameId}/government/minister/${seat}/stream`;
-    const body = JSON.stringify({ message, history, memory });
+    const body = JSON.stringify({ message, history, memory, currentDecision });
 
     let response: Response;
     try {
@@ -1959,20 +1980,21 @@ export const ministerApi = {
     } catch (e) {
       signal?.throwIfAborted();
       if (e instanceof Error && e.name === 'AbortError') throw e;
-      console.warn('[Minister] Stream non disponibile, fallback su POST:', e);
-      const data = await ministerApi.ask(gameId, seat, message, history, memory, signal);
-      signal?.throwIfAborted();
-      onToken(data.reply);
-      return data.reply;
+      // Un errore di rete non prova che il server non abbia già generato.
+      // Nessun retry POST ambiguo: una domanda non deve chiamare due volte l’LLM.
+      throw e;
     }
 
     if (!response.ok || !response.body) {
       signal?.throwIfAborted();
-      console.warn('[Minister] Stream ha restituito', response.status, '— fallback su POST');
-      const data = await ministerApi.ask(gameId, seat, message, history, memory, signal);
-      signal?.throwIfAborted();
-      onToken(data.reply);
-      return data.reply;
+      // Solo una rotta non disponibile/non implementata garantisce zero generazioni.
+      if ([404, 405, 501].includes(response.status)) {
+        const data = await ministerApi.ask(gameId, seat, message, history, memory, signal, currentDecision);
+        signal?.throwIfAborted();
+        onToken(data.reply);
+        return data.reply;
+      }
+      throw new Error(`Risposta ministeriale non disponibile (${response.status}). Riprova esplicitamente.`);
     }
 
     const reader = response.body.getReader();
@@ -1993,13 +2015,8 @@ export const ministerApi = {
     } catch (e) {
       signal?.throwIfAborted();
       if (e instanceof Error && e.name === 'AbortError') throw e;
-      // Solo gli errori non di annullamento mantengono il fallback precedente.
-      if (!full) {
-        const data = await ministerApi.ask(gameId, seat, message, history, memory, signal);
-        signal?.throwIfAborted();
-        onToken(data.reply);
-        return data.reply;
-      }
+      // Anche senza byte ricevuti la generazione potrebbe essere già avvenuta.
+      if (!full) throw e;
       console.warn('[Minister] Stream interrotto a metà, uso la risposta parziale:', e);
     } finally {
       reader.releaseLock();

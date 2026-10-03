@@ -2,6 +2,7 @@ import { beforeAll, afterAll, beforeEach, afterEach, describe, expect, it, vi } 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { ministerDossierFrom } from '../src/core/government/MinisterChat';
 import { memorySection, mandateFor, type MinisterMemoryRecord } from '../src/core/government/MinisterMemory';
 import { jevScopeKey, type JevMemoryRecord, type JevScope } from '../src/core/government/jev/jev.types';
 
@@ -122,12 +123,18 @@ describe('JEV-W3: estensione della memoria ministro', () => {
   it('innesto reale normal/stream: domanda autentica e legacy presenti una volta, identità stabile', async () => {
     ministerRepo.upsertRecords(scope, [oldAdvice]);
     const before = snapshot();
+    const expectedDossier = ministerDossierFrom(session.ministerPrompt('tesoro', 'Cosa consigliavi sulle tasse?', false));
+    expect(expectedDossier?.seat).toBe('tesoro');
+    expect(expectedDossier?.issues.length).toBeGreaterThan(0);
     await session.getMinisterReply('tesoro', 'Cosa consigliavi sulle tasse?', []);
     await session.getMinisterStream('tesoro', 'Cosa consigliavi sulle tasse?', [], () => {});
     for (const prompt of captured) {
       expect(prompt).toContain('NON ridurre le tasse');
       expect(prompt.match(/NON ridurre le tasse/g)).toHaveLength(1);
-      expect(prompt).toContain('Cosa consigliavi sulle tasse?'); expect(prompt).toContain('QUELLO CHE PORTI AL CONSIGLIO');
+      expect(prompt).toContain('Cosa consigliavi sulle tasse?');
+      expect(prompt).toContain('[VERIFIED FACTS]');
+      expect(prompt).toContain('[DIALOGUE STYLE]');
+      expect(ministerDossierFrom(prompt)).toEqual(expectedDossier);
     }
     expect(snapshot()).toBe(before);
   });

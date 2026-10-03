@@ -24,7 +24,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ministerApi, type AdvisorHistoryItem, type MinisterMemoryItem } from '../../services/api';
+import { ministerApi, type AdvisorHistoryItem, type MinisterMemoryItem, type MinisterCurrentDecision } from '../../services/api';
 import type { CabinetAddressView, CabinetItemView, CabinetPathView } from '../../services/api';
 import { basisLabel, isUnknown } from './CabinetSession';
 import { RichText } from './RichText';
@@ -34,8 +34,7 @@ import { inlineEvidenceCards, type EvidenceCardIndex, type InlineEvidenceCard } 
 import { isNearBottom } from './chatScroll';
 import { formatFigureValue } from '../../utils/format';
 
-/** Quanti ultimi messaggi inviamo come contesto. */
-const HISTORY_LIMIT = 20;
+import { buildMinisterHistory, hasMinisterOpening } from './ministerDialogueContext';
 
 export interface MinisterChatProps {
   gameId: string;
@@ -98,6 +97,11 @@ export interface MinisterChatProps {
    * domanda si azzera: il turno nuovo è una conversazione nuova.
    */
   sessionId?: string;
+  /** Read-only projection of the active workspace; never a decision update. */
+  currentDecision?: MinisterCurrentDecision;
+  /** Parent-owned UI text survives chat-panel remounts without changing stores. */
+  retainedOpening?: string;
+  onOpening?: (text: string) => void;
 }
 
 /** La barra di una cifra: la grafica dentro la chat, dai numeri del motore. */
@@ -125,30 +129,39 @@ export function MinisterChat({
   gameId, address, onChoose,
   messages, streaming, onAddMessage, onAppendToken, onStreamingChange,
   onPresentation, onDecision, evidenceIndex, onFocusEvidence, memory, sessionId,
+  currentDecision, retainedOpening, onOpening,
 }: MinisterChatProps) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   // Il saluto è solo narrativa: non entra nelle direttive né nella memoria.
   const openingKey = `${gameId}:${sessionId ?? ''}:${address?.seat ?? ''}`;
   const [opening, setOpening] = useState<{ key: string; text: string } | null>(null);
+  // Cache the actual greeting, not address.opening regenerated on later renders.
+  // Its key prevents a previous seat/session's text entering a new request.
+  const openingRef = useRef<{ key: string; text: string } | null>(null);
   const openingRequestRef = useRef<AbortController | null>(null);
-  const openingText = opening?.key === openingKey ? opening.text : '';
+  const openingText = retainedOpening ?? (opening?.key === openingKey ? opening.text : '');
   useEffect(() => {
-    if (!address || messages.length > 0) return;
+    if (openingRef.current?.key !== openingKey) openingRef.current = null;
+    if (!address || messages.length > 0 || retainedOpening || openingRef.current?.text) return;
     const controller = new AbortController();
     openingRequestRef.current = controller;
     setOpening(null);
     // StrictMode fa setup/cleanup/setup nello stesso giro: non inviare il saluto già annullato.
-    Promise.resolve().then(() => ministerApi.opening(gameId, address.seat, controller.signal)).then(result => {
-      if (!controller.signal.aborted) setOpening({ key: openingKey, text: result.reply });
-    }).catch(() => {
-      if (!controller.signal.aborted) setOpening({ key: openingKey, text: address.opening });
-    });
+    const keepOpening = (text: string): void => {
+      if (controller.signal.aborted) return;
+      openingRef.current = { key: openingKey, text };
+      setOpening(openingRef.current);
+      onOpening?.(text);
+    };
+    Promise.resolve().then(() => ministerApi.opening(gameId, address.seat, controller.signal))
+      .then(result => keepOpening(result.reply))
+      .catch(() => keepOpening(address.opening));
     return () => {
       controller.abort();
       if (openingRequestRef.current === controller) openingRequestRef.current = null;
     };
-  }, [openingKey, messages.length]);
+  }, [openingKey, messages.length, retainedOpening, onOpening]);
   // WS-GOV-MOBILE-CLEANUP (M12) — Se il giocatore risale la cronologia e arriva
   // una risposta, non lo si riporta giù: si annuncia con «↓ Nuovo messaggio» e
   // lo si lascia decidere. Una sola indicazione per la risposta corrente.
@@ -258,7 +271,7 @@ export function MinisterChat({
     seenAssistantLengthRef.current = 0;
     seenAssistantCountRef.current = 0;
     setHasUnreadReply(false);
-  }, [address?.seat]);
+  }, [openingKey]);
 
   if (!address) {
     return (
@@ -290,10 +303,8 @@ export function MinisterChat({
     // Chi invia vuole vedere la risposta: si torna ad agganciare il fondo.
     stickToBottomRef.current = true;
     setHasUnreadReply(false);
-    const history = [...(openingText ? [{ role: 'assistant' as const, content: openingText }] : []), ...messages]
-      .filter(message => message.content.trim())
-      .map(message => ({ role: message.role, content: message.content }))
-      .slice(-HISTORY_LIMIT);
+    const cachedOpening = openingRef.current?.key === openingKey ? openingRef.current.text : '';
+    const history = buildMinisterHistory(messages, retainedOpening ?? cachedOpening);
     onAddMessage({ role: 'user', content: text });
     // Il posto della risposta: cresce token per token, come per il Consulente.
     onAddMessage({ role: 'assistant', content: '' });
@@ -303,7 +314,7 @@ export function MinisterChat({
     try {
       await ministerApi.askStream(gameId, address.seat, outbound, history, token => {
         if (ownsRequest()) onAppendToken(token);
-      }, memory ?? [], request.signal);
+      }, memory ?? [], request.signal, currentDecision);
     } catch (e) {
       if (!ownsRequest()) return;
       console.error('[Government] Minister reply failed:', e);
@@ -330,7 +341,7 @@ export function MinisterChat({
   return (
     <div className="minister-chat" aria-label={`Dialogo con ${address.label}`}>
       <div className="minister-thread" ref={threadRef} onScroll={onThreadScroll}>
-        {messages.length === 0 && !streaming && (
+        {!hasMinisterOpening(messages, openingText) && (openingText || messages.length === 0) && !streaming && (
           <div className="minister-entry assistant minister-greeting">
             <div className="entry-meta"><span>{address.label}</span></div>
             <div className="entry-text">

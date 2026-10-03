@@ -25,7 +25,7 @@
  * ministro deve dire di non avere nulla, e non inventare una preoccupazione.
  */
 import { describe, expect, it } from 'vitest';
-import { briefingFor, colleagueRedirect, figureLine, openingMessage, seatForQuestion, seatsWithNeeds } from '../src/core/government/MinisterChat';
+import { briefingFor, colleagueRedirect, figureLine, ministerDossierFrom, openingMessage, seatForQuestion, seatsWithNeeds } from '../src/core/government/MinisterChat';
 import { SEAT_LABEL, SEAT_READS, type CabinetAddress, type CabinetItem, type CabinetSession } from '../src/core/government/Cabinet';
 import type { GovernmentAgenda, GovernmentVoice } from '../src/core/government/GovernmentAgenda';
 
@@ -70,7 +70,10 @@ const emptyAgenda: GovernmentAgenda = { voices: [], headline: '', canonicalMutat
 describe('P02-bis — parlare con un ministro', () => {
   it('il briefing porta le cifre con la LORO provenienza', () => {
     const briefing = briefingFor(address('lavori', [item('deficit_MATERIAL_SHORTAGE_steel')]), emptyAgenda);
-    expect(briefing.context).toContain('Fabbisogno: 12 kg (misurato da: distinta dell’opera)');
+    expect(ministerDossierFrom(briefing.context)?.issues[0].figures).toEqual([
+      { label: 'Fabbisogno', value: '12', unit: 'kg', basis: { kind: 'measured', source: 'distinta dell’opera' } },
+      { label: 'Prezzo', value: '', unit: '', basis: { kind: 'unknown', missing: 'il catalogo non dichiara un prezzo' } },
+    ]);
   });
 
   it('una cifra ignota è marcata come mancante, con l’istruzione di dichiararla', () => {
@@ -85,9 +88,9 @@ describe('P02-bis — parlare con un ministro', () => {
     const briefing = briefingFor(address('tesoro', [item('debt_service')]), emptyAgenda);
     expect(briefing.context).toContain('REGOLE CHE NON PUOI VIOLARE');
     // Le tre regole che contano: cifre date, nulla di inventato, nessun impegno.
-    expect(briefing.context).toContain('Usi SOLO le cifre elencate');
+    expect(briefing.context).toContain('Usi SOLO le cifre verificate della sedia');
     expect(briefing.context).toContain('Non impegni nulla');
-    expect(briefing.context).toContain('fuori dalla tua competenza');
+    expect(briefing.context).toContain('senza rispondere al posto suo');
   });
 
   it('la sedia delimita il contesto: il Tesoro non riceve i cantieri', () => {
@@ -97,16 +100,26 @@ describe('P02-bis — parlare con un ministro', () => {
     // Il cantiere dei Lavori non entra nel briefing del Tesoro: nessuna voce di
     // costruzione, nessun workId.
     expect(briefing.context).not.toContain('deficit_MATERIAL');
+    expect(ministerDossierFrom(briefing.context)).toEqual({ seat: 'tesoro', issues: [item('debt_service')] });
   });
 
   it('l’opera, se c’è, entra nel briefing col suo id', () => {
     // Serve perché il modello possa parlarne con cognizione: l'ordine che ne
     // nasce deve dichiarare l'opera al motore.
-    const briefing = briefingFor(
-      address('lavori', [item('build_w_road', { work: { workId: 'w_road', name: 'Strada ordinaria' } })]),
-      emptyAgenda,
-    );
-    expect(briefing.context).toContain('Riguarda l\'opera: Strada ordinaria (w_road)');
+    const workItem = item('build_w_road', {
+      work: { workId: 'w_road', name: 'Strada ordinaria' },
+      declaration: {
+        workId: 'w_road', payerActorId: 'treasury', materialActorId: null, funded: false,
+        missingMaterials: [{ resourceId: 'steel', missing: '8' }],
+      },
+    });
+    const briefing = briefingFor(address('lavori', [workItem]), emptyAgenda);
+    const dossier = ministerDossierFrom(briefing.context);
+    expect(dossier?.issues[0].work).toEqual({ workId: 'w_road', name: 'Strada ordinaria' });
+    expect(dossier?.issues[0].declaration).toEqual({
+      workId: 'w_road', payerActorId: 'treasury', materialActorId: null, funded: false,
+      missingMaterials: [{ resourceId: 'steel', missing: '8' }],
+    });
   });
 
   it('una chat vuota si apre su un FATTO, non sul vuoto', () => {
@@ -131,9 +144,11 @@ describe('P02-bis — parlare con un ministro', () => {
 
   it('le strade entrano nel briefing con prerequisiti ed esito atteso', () => {
     const briefing = briefingFor(address('lavori', [item('build_w_road')]), emptyAgenda);
-    // Il formato reale: titolo, dettaglio, prerequisiti innestati, esito atteso.
-    expect(briefing.context).toContain('Via A: Dettaglio A Esito atteso: Esito A');
-    expect(briefing.context).toContain('Via B: Dettaglio B — serve: serve X Esito atteso: Esito B');
+    // Il dossier conserva tutti i campi: non una concatenazione narrativa.
+    expect(ministerDossierFrom(briefing.context)?.issues[0].paths).toEqual([
+      { id: 'a', title: 'Via A', detail: 'Dettaglio A', prerequisites: [], expected: 'Esito A', recommended: true },
+      { id: 'b', title: 'Via B', detail: 'Dettaglio B', prerequisites: ['serve X'], expected: 'Esito B', recommended: false },
+    ]);
   });
 
   it('la provenienza si scrive in italiano, in tre forme', () => {
@@ -198,20 +213,21 @@ describe('WS-GOVOFFICE-05 — il dialogo raccontato e il collega giusto', () => 
   it('la regola impone di NOMINARE il collega giusto, non di rimbalzare', () => {
     const briefing = briefingFor(address('tesoro', [item('debt_service')]), emptyAgenda);
     expect(briefing.context).toContain('NOMINI il collega giusto');
-    expect(briefing.context).toContain('la fabbrica è dei Lavori');
+    expect(briefing.context).toContain('aggiungi il tuo punto di vista');
     // E la regola del racconto. WS-MINISTER-UX-02: niente aneddoti né dati
     // inventati, ma l'opinione è ammessa — dichiarata come tale, su tre livelli.
-    expect(briefing.context).toContain('COME PARLI');
+    expect(briefing.context).toContain('[DIALOGUE STYLE]');
     expect(briefing.context).toContain('Non aggiungere aneddoti, nomi propri, date o promesse');
-    expect(briefing.context).toContain('COME RAGIONI — TRE LIVELLI, MAI CONFUSI');
+    expect(briefing.context).toContain('[VERIFIED FACTS]');
+    expect(briefing.context).toContain('Usa internamente fatti, interpretazione e consiglio');
     expect(briefing.context).toContain('un’opinione non è un dato');
   });
 
-  it('una domanda fuori competenza nomina il collega con nome e competenza', () => {
+  it('una domanda fuori competenza nomina naturalmente il collega e aggiunge la propria lettura', () => {
     const redirect = colleagueRedirect('tesoro', 'E le fabbriche? Servono più cantieri.');
-    expect(redirect).toContain('Non è la mia materia');
-    expect(redirect).toContain(SEAT_LABEL.lavori);
-    expect(redirect).toContain(SEAT_READS.lavori);
+    expect(redirect).toContain(SEAT_LABEL.lavori.replace(/^Ministro /, 'il ministro '));
+    expect(redirect).toMatch(/Io .*finanziariamente.*margine.*conti/);
+    expect(redirect).not.toMatch(/Non è la mia materia|se ne occupa|e legge/);
   });
 
   it('una domanda in competenza non produce alcun rimando (e non si inventa un collega)', () => {
