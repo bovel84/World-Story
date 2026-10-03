@@ -112,7 +112,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     const chat = page.locator('.minister-chat');
     await chat.locator('textarea').fill('Costruire una ferrovia verso il confine');
     await chat.locator('.minister-compose button').click();
-    await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
+    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
 
     // WS-MINISTER-UX-08 (5) — L'ordine nasce dalla **proposta concreta**, non
     // dalla singola domanda: si prepara e si firma la strada d'investimento.
@@ -210,7 +210,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     // con un ordine dalla **proposta concreta** (WS-MINISTER-UX-08/5).
     await chat.locator('textarea').fill('Il porto di Alfa resta chiuso: servono fondi.');
     await chat.locator('.minister-compose button').click();
-    await expect(chat.locator('.minister-entry.assistant')).toContainText('ha preso nota del problema', { timeout: 15_000 });
+    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
     await tavola.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
     await tavola.locator('.act-draft-sign').click();
     await expect(tavola.locator('.act-draft-state')).toHaveText('accodato');
