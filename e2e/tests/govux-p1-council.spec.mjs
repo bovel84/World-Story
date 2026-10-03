@@ -5,18 +5,25 @@
  * nella schermata di scelta:
  *  - la **sintesi** del consiglio, contata sugli stessi record della lista;
  *  - per ogni ministro, **stato**, frase, argomento e questioni;
- *  - lo stato cambia **solo** per un fatto: qui, un colloquio avviato;
- *  - una sedia con un colloquio in corso invita a **riprenderlo**, e i messaggi
- *    restano quando si torna indietro;
+ *  - lo stato cambia **solo** per un fatto: qui, una seduta avviata;
+ *  - una sedia con un colloquio in corso invita a **riprenderlo**, e la seduta
+ *    resta riprendibile quando si torna alla scelta;
  *  - una voce **critica del motore** produce «richiede attenzione»: nessuna
  *    urgenza inventata dal testo.
  *
  * Gira a 390×844 (telefono): è il gate ridotto della fase. Lo screenshot è il
  * reperto della fase, salvato negli asset del report.
+ *
+ * Migrata alla Sala del Consiglio: il colloquio 1:1 è diventato una **seduta
+ * condivisa** (`.council-room`). Il filo della sedia è il filo condiviso, quindi
+ * dopo un solo scambio l'agenda conta apertura + messaggio + risposta.
  */
 
 import { test, expect } from 'playwright/test';
 import { installMockApi, MOCK_CABINET } from '../mock-api.mjs';
+import {
+  reachHud, openGovernment, openCouncilRoom, ask, backToPicker, replies,
+} from './helpers/government.mjs';
 
 test.use({ viewport: { width: 390, height: 844 } });
 
@@ -29,30 +36,15 @@ const CRITICAL_CABINET = {
   }),
 };
 
-/** Raggiunge l'HUD di gioco dal landing (stesso percorso del smoke test). */
-async function reachHud(page) {
-  await page.goto('/');
-  await page.locator('.landing-cta').click();
-  await page.locator('.template-card').first().click();
-  await page.locator('.country-list-item').first().click();
-  await page.locator('.btn-play').click();
-  await expect(page.locator('.game-shell')).toBeVisible({ timeout: 20_000 });
-}
-
 /** Apre l'Ufficio del Governo sulla schermata di scelta. */
 async function openCouncil(page) {
   await reachHud(page);
-  await page.locator('.rail-btn[aria-label="Governo"]').click();
-  const ufficio = page.locator('.government-office');
-  await expect(ufficio).toBeVisible();
+  const ufficio = await openGovernment(page);
   await expect(ufficio.locator('.cabinet-pick-alive')).toHaveCount(2);
   return ufficio;
 }
 
-const SHOT = '../docs/implementation/assets/ws-govux-p1/390x844-council-agenda.png';
-const SHOT_DESKTOP = '../docs/implementation/assets/ws-govux-p1/1366x768-council-agenda.png';
-
-test('P1: l’agenda viva — sintesi, stati, colloquio ripreso', async ({ page }) => {
+test('P1: l’agenda viva — sintesi, stati, seduta ripresa', async ({ page }) => {
   installMockApi(page);
   const ufficio = await openCouncil(page);
 
@@ -77,35 +69,33 @@ test('P1: l’agenda viva — sintesi, stati, colloquio ripreso', async ({ page 
   const seats = await ufficio.locator('.cabinet-pick-alive').evaluateAll(nodes => nodes.map(node => node.dataset.seat));
   expect(seats).toEqual(['tesoro', 'lavori']);
 
-  // [3] Apriamo un colloquio con il Tesoro: la risposta arriva, poi torniamo.
-  await tesoro.click();
-  const chat = page.locator('.gov-mobile-chat');
-  await expect(chat.locator('.minister-chat')).toBeVisible();
-  await chat.locator('textarea').fill('Il porto di Alfa resta chiuso: servono fondi.');
-  await chat.locator('.minister-compose button').click();
-  await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
-  await page.locator('.gov-mobile-nav').click();
+  // [3] Apriamo la seduta con il Tesoro e facciamo un solo scambio; poi si torna
+  //     alla scelta con `.council-room-back` (la seduta resta riprendibile).
+  //     L'helper `openCouncilRoom` riapre l'Ufficio dal rail: chiudiamo la scelta
+  //     già ispezionata senza toccare lo stato, così il percorso resta canonico.
+  await page.keyboard.press('Escape');
+  await expect(ufficio).toBeHidden();
+  const room = await openCouncilRoom(page, 'tesoro');
+  await expect(room.locator('.council-room-message.assistant').first()).toContainText('La cassa regge');
+  await ask(page, 'Il porto di Alfa resta chiuso: servono fondi.');
+  await expect(replies(page).last()).toContainText('ha preso nota del problema');
+  await backToPicker(page);
 
   // [4] Ora il Tesoro è «discussione aperta» e la sintesi è ricalcolata:
-  //     lo stato è cambiato per un fatto (il colloquio), non per una stima.
+  //     lo stato è cambiato per un fatto (la seduta), non per una stima.
+  //     Il filo condiviso conta apertura + messaggio + risposta = 3 scambi.
   await expect(tesoro).toHaveAttribute('data-state', 'discussione-aperta');
   await expect(tesoro).toContainText('Riprendi il colloquio');
-  await expect(tesoro).toContainText('2 scambi');
+  await expect(tesoro).toContainText('3 scambi');
   await expect(sintesi).toContainText('1 discussione aperta');
   await expect(sintesi).toContainText('1 disponibile');
   await expect(sintesi).not.toContainText('2 disponibile');
 
-  // Lo screenshot è il reperto della fase: prima il telefono (gate ridotto),
-  // poi il desktop, come chiede il report di fase.
-  await page.screenshot({ path: SHOT, fullPage: true });
-  await page.setViewportSize({ width: 1366, height: 768 });
-  await page.screenshot({ path: SHOT_DESKTOP, fullPage: true });
-  await page.setViewportSize({ width: 390, height: 844 });
-
-  // [5] Riaprire la sedia riprende il colloquio: i messaggi ci sono ancora.
-  await tesoro.click();
-  await expect(chat.locator('.minister-entry:not(.minister-greeting)')).toHaveCount(2);
-  await expect(chat).toContainText('Il porto di Alfa resta chiuso');
+  // [5] La seduta lasciata è riprendibile: i messaggi ci sono ancora.
+  await page.locator('.council-room-resume').first().click();
+  await expect(page.locator('.council-room')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.council-room-thread')).toContainText('Il porto di Alfa resta chiuso');
+  await expect(replies(page)).toHaveCount(2);
 });
 
 test('P1: una voce critica del motore è «richiede attenzione»', async ({ page }) => {

@@ -15,6 +15,9 @@
 
 import { test, expect } from 'playwright/test';
 import { installMockApi } from '../mock-api.mjs';
+import {
+  openGovernment, openCouncilRoom, openBoard, ask, prepareCommonDraft, sign, backToPicker,
+} from './helpers/government.mjs';
 
 /** Raggiunge l'HUD di gioco dal landing (stesso percorso del smoke test). */
 async function reachHud(page) {
@@ -69,6 +72,22 @@ function actionsProcessed(text) {
   };
 }
 
+/**
+ * Percorso canonico della Sala del Consiglio: apre la seduta con il Tesoro come
+ * relatore e attende il saluto, così i conteggi delle risposte non corrono.
+ */
+async function openTesoroRoom(page) {
+  await openCouncilRoom(page, 'tesoro');
+  await expect(page.locator('.council-room-message.assistant').first()).toContainText('La cassa regge');
+}
+
+/** Dallo schermo di scelta già aperto: entra nella seduta con il Tesoro. */
+async function openTesoroRoomFromPicker(page) {
+  await page.locator('.cabinet-pick[data-seat="tesoro"]').click();
+  await expect(page.locator('.council-room')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.council-room-message.assistant').first()).toContainText('La cassa regge');
+}
+
 test.describe('Q01 µ2 — moduli della scrivania', () => {
   test('un solo modulo attivo alla volta (Governo → Nazione)', async ({ page }) => {
     installMockApi(page);
@@ -95,42 +114,26 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     installMockApi(page);
     await reachHud(page);
 
-    // WS-GOVOFFICE-03 — Il compositore libero è uscito dall'Ufficio. L'ordine
-    // nasce dal dialogo con un ministro; qui si verifica che il **registro**
-    // (prima schermata) lo legga e che **«Ritira»** lo tolga dalla coda.
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
-    await expect(page.locator('.suggestions-content')).toBeVisible();
-
-    // Registro vuoto all'apertura: nessun atto firmato.
+    // Il registro è la prima schermata dell'Ufficio: vuoto finché non si firma.
+    await openGovernment(page);
     const registro = page.locator('.order-register');
     await expect(registro).toBeVisible();
     await expect(registro.locator('.order-register-act')).toHaveCount(0);
     await expect(registro).toContainText('Nessun atto firmato');
 
-    // Concludi una seduta con un ordine dal dialogo.
-    await page.locator('.cabinet-pick').first().click();
-    const chat = page.locator('.minister-chat');
-    await chat.locator('textarea').fill('Costruire una ferrovia verso il confine');
-    await chat.locator('.minister-compose button').click();
-    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
-
-    // WS-MINISTER-UX-08 (5) — L'ordine nasce dalla **proposta concreta**, non
-    // dalla singola domanda: si prepara e si firma la strada d'investimento.
-    const tavola = page.locator('.government-office-pane-table');
-    await tavola.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
-    await tavola.locator('.act-draft-sign').click();
-    await expect(tavola.locator('.act-draft-state')).toHaveText('accodato');
+    // Concludi una seduta con un ordine: nasce dalla bozza comune e si firma.
+    await openTesoroRoomFromPicker(page);
+    await ask(page, 'copertura finanziaria');
+    await openBoard(page);
+    await prepareCommonDraft(page);
+    await sign(page);
 
     // L'atto è nel REGISTRO (prima schermata), non nella seduta.
-    await page.locator('.government-office-back').click();
-    await expect(registro.locator('.order-register-act').first())
-      .toContainText('Aprire il cantiere');
+    await backToPicker(page);
+    await expect(registro).toBeVisible();
+    await expect(registro.locator('.order-register-act').first()).toContainText('Copertura finanziaria');
     // La firma è in calce, una volta sola.
     await expect(registro.locator('.order-register-signature-office')).toHaveText('Il Presidente del Consiglio');
-    // Nella seduta l'ordine NON si vede.
-    await page.locator('.cabinet-pick').first().click();
-    await expect(page.locator('.pending-item')).toHaveCount(0);
-    await page.locator('.government-office-back').click();
 
     // Ritirare l'atto: l'unico modo per non eseguirlo prima del salto.
     await registro.locator('.order-register-withdraw').first().click();
@@ -138,17 +141,16 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(registro).toContainText('Nessun atto firmato');
   });
 
-  test('P04: Ufficio del Governo — registro, scelta, e la seduta a due pannelli', async ({ page }) => {
+  test('P04: Sala del Consiglio — registro, scelta e seduta', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
     // [1] SCELTA — Apri «Governo»: il registro degli atti e i riquadri dei
-    // ministri. Niente item, chat, coda o compositore.
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
+    // ministri. Niente pannelli a due colonne, item, chat o compositore libero.
+    await openGovernment(page);
     const ufficio = page.locator('.government-office');
-    await expect(ufficio).toBeVisible();
     await expect(ufficio).toHaveAttribute('aria-modal', 'true');
-    await expect(ufficio.locator('#government-office-title')).toContainText('Ufficio del Governo');
+    await expect(ufficio.locator('#government-office-title')).toContainText('Sala del Consiglio');
     await expect(page.locator('.game-shell-desk')).toHaveCount(0);
     await expect(ufficio.locator('.order-register')).toBeVisible();
     await expect(ufficio.locator('.cabinet-pick')).toHaveCount(2);
@@ -158,178 +160,92 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(ufficio.locator('.pending-item')).toHaveCount(0);
     await expect(ufficio.locator('#free-player-order')).toHaveCount(0);
 
-    // [2] SEDUTA — UX-01: il dialogo a sinistra è la superficie principale, la
-    //     tavola di lavoro a destra. Il saluto e il compositore sono visibili
-    //     subito: non c'è un dossier da scorrere per arrivare alla chat.
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    const chat = page.locator('.government-office-pane-chat');
-    await expect(chat.locator('.minister-chat')).toBeVisible();
-    await expect(chat.locator('.minister-greeting')).toContainText('La cassa regge');
-    await expect(chat.locator('.minister-compose textarea')).toBeVisible();
+    // [2] SEDUTA — la stanza condivisa si apre con saluto e compositore visibili.
+    await openTesoroRoomFromPicker(page);
+    await expect(page.locator('.council-room')).toBeVisible();
+    await expect(page.locator('.council-room-message.assistant').first()).toContainText('La cassa regge');
+    await expect(page.locator('.council-room-compose textarea')).toBeVisible();
 
-    // Il fascicolo della sedia (questioni e cifre) è a scomparsa: la chat non ha
-    // più un dossier davanti.
-    const brief = ufficio.locator('.seat-brief');
-    await expect(brief.locator('.seat-brief-body')).toBeHidden();
-    await brief.locator('.seat-brief-summary').click();
-    await expect(brief).toContainText('Coprire il disavanzo del trimestre: 6,50 mld entro giugno.');
-    await expect(ufficio).not.toContainText('6.5 mld');
-
-    // WS-GOVOFFICE-07 / UX-01 — Lo spazio destro è la TAVOLA: l'atto del
-    // Tesoro con le cifre del motore, la visualizzazione principale (piano a
-    // cascata) e i supporti (mappa, grafico).
-    const tavola = page.locator('.government-office-pane-table');
-    const atto = tavola.locator('.treasury-act');
-    await expect(atto).toBeVisible();
-    await expect(atto).toContainText('Sul tavolo');
-
-    const principale = tavola.locator('.seat-table-main .seat-canvas');
-    const supporto = tavola.locator('.seat-table-support .seat-canvas');
-    await expect(principale).toBeVisible();
-    await expect(principale.locator('[data-kind="strategy"] .plan-diagram')).toBeVisible();
-    await expect(supporto.locator('[data-kind="map"] .zone-map')).toBeVisible();
-    await expect(supporto.locator('[data-kind="chart"] .advisor-chart').first()).toBeVisible();
-
-    // Gli approfondimenti (chiusi di default) portano le cifre della sedia con
-    // la loro provenienza e le idee del ministro.
-    await tavola.locator('.seat-table-more-summary').click();
-    const approfondimenti = tavola.locator('.seat-table-more .seat-canvas');
-    await expect(approfondimenti).toContainText('12,40 mld');
-    await expect(approfondimenti).toContainText('misurato · Tesoro');
-    await expect(approfondimenti.locator('[data-kind="metrics"]').first()).toBeVisible();
-    await expect(approfondimenti.locator('[data-kind="ideas"]')).toBeVisible();
-
-    // L'atto porta sul tavolo la richiesta dei Lavori e le due strade firmabili.
-    await expect(atto.locator('.treasury-act-request')).toContainText('Aprire il cantiere');
-    await expect(atto.locator('.treasury-act-road')).toHaveCount(2);
-
-    // WS-GOVOFFICE-03 — Le «strade proposte» non stanno più nella seduta.
-    await expect(ufficio.locator('.minister-path')).toHaveCount(0);
-
-    // Il problema presentato dal giocatore riceve risposta, poi si conclude
-    // con un ordine dalla **proposta concreta** (WS-MINISTER-UX-08/5).
-    await chat.locator('textarea').fill('Il porto di Alfa resta chiuso: servono fondi.');
-    await chat.locator('.minister-compose button').click();
-    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
-    await tavola.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
-    await tavola.locator('.act-draft-sign').click();
-    await expect(tavola.locator('.act-draft-state')).toHaveText('accodato');
-
-    // L'atto è nel REGISTRO della prima schermata, non nella seduta.
-    await page.locator('.government-office-back').click();
-    await expect(ufficio.locator('.order-register-act').first())
-      .toContainText('Aprire il cantiere');
-    await expect(ufficio.locator('.order-register-signature-office')).toHaveText('Il Presidente del Consiglio');
+    // Il fascicolo della sedia è a scomparsa sulla Tavola: porta le cifre del
+    // Tesoro con la loro provenienza, non un pannello sempre aperto.
+    await openBoard(page);
+    await page.locator('.council-board-evidence > summary').click();
+    const dossier = page.locator('.council-board-dossier');
+    await expect(dossier).toContainText('Ministro del Tesoro');
+    await expect(dossier).toContainText('Cassa, debito e bilancio');
+    await expect(dossier.locator('[data-block-id="cifre-sedia"]')).toContainText('Saldo di cassa');
+    await expect(dossier.locator('[data-block-id="cifre-sedia"]')).toContainText('misurato · Tesoro');
+    await expect(dossier.locator('[data-block-id="bilancio"]')).toBeVisible();
   });
 
-  test('P04b: Ufficio del Governo — l’atto del Tesoro si prepara, si firma e finisce nel registro', async ({ page }) => {
+  test('P04b: Sala del Consiglio — l’atto nasce dal dialogo e finisce nel registro', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
-    const ufficio = page.locator('.government-office');
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
+    // La richiesta del Presidente produce una misura sulla Tavola condivisa.
+    await openTesoroRoom(page);
+    await ask(page, 'copertura finanziaria');
 
-    // WS-GOVOFFICE-07 / UX-06 — La richiesta dei Lavori è in attesa sul tavolo;
-    // preparare la strada d'investimento ne fa una bozza, senza accodare.
-    const atto = page.locator('.government-office-pane-table .treasury-act');
-    await expect(atto).toBeVisible();
-    await expect(atto.locator('.treasury-act-request')).toHaveAttribute('data-state', 'pending');
-    await atto.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
-
-    const bozza = page.locator('.government-office-pane-table .act-draft');
-    await expect(bozza).toBeVisible();
-    await expect(bozza).toContainText('ordine d’opera supportato');
+    // Preparare non accoda: la bozza nasce dalla discussione e resta «preparata».
+    await openBoard(page);
+    const bozza = await prepareCommonDraft(page);
+    await expect(bozza.locator('.act-draft-capability')).toContainText('bozza testuale da valutare');
     await expect(bozza.locator('.act-draft-state')).toHaveText('preparato');
-    // Preparare non accoda: il registro resta vuoto finché non si firma.
-    await expect(ufficio.locator('.order-register-act')).toHaveCount(0);
 
     // La firma esplicita del Presidente: solo ora l'atto entra nel registro.
-    await bozza.locator('.act-draft-sign').click();
+    await sign(page);
     await expect(bozza.locator('.act-draft-state')).toHaveText('accodato');
-    await expect(atto.locator('.treasury-act-request')).toHaveAttribute('data-state', 'accepted');
-    await expect(atto.locator('.treasury-act-request-label')).toContainText('accolta');
 
-    // L'atto firmato è nel REGISTRO della prima schermata, non resta una promessa.
-    await page.locator('.government-office-back').click();
-    await expect(ufficio.locator('.order-register-act').first()).toContainText('Aprire il cantiere');
+    await backToPicker(page);
+    await expect(page.locator('.order-register-act').first()).toContainText('Copertura finanziaria');
   });
 
-  test('P04c: Ufficio del Governo — la conversazione guida la tavola (UX-03)', async ({ page }) => {
+  test('P04c: Sala del Consiglio — la conversazione guida la Tavola (UX-03)', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
-    const ufficio = page.locator('.government-office');
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    const chat = page.locator('.government-office-pane-chat');
-    const tavola = page.locator('.government-office-pane-table');
+    await openTesoroRoom(page);
 
-    // Senza richiesta la tavola è quella predefinita: niente banner, piano in cima.
-    await expect(tavola.locator('.seat-presentation-banner')).toHaveCount(0);
-    await expect(tavola.locator('.seat-table-main [data-kind="strategy"]')).toBeVisible();
-
-    // [1] «Mi mostri dove va la spesa?» → il grafico pertinente sale in cima.
-    await chat.locator('textarea').fill('Mi mostri dove va la spesa?');
-    await chat.locator('.minister-compose button').click();
-    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
-    // Il blocco di presentazione non è mai prosa visibile.
-    await expect(chat).not.toContainText('```');
-    await expect(chat).not.toContainText('"op"');
-    const banner = tavola.locator('.seat-presentation-banner');
-    await expect(banner).toBeVisible();
-    await expect(banner).toContainText('Dove va la spesa');
-    await expect(tavola.locator('.seat-table-main [data-kind="chart"] .advisor-chart')).toBeVisible();
+    // [1] «Mi mostri dove va la spesa?» → la card in linea apre il blocco reale
+    // del bilancio sulla Tavola.
+    await ask(page, 'Mi mostri dove va la spesa?');
+    await expect(page.locator('.council-room-evidence-link').last()).toBeVisible();
+    await page.locator('.council-room-evidence-link').last().click();
+    await expect(page.locator('.council-room-drawer')).toBeVisible();
+    const bilancio = page.locator('.council-board-focus-evidence [data-block-id="bilancio"]');
+    await expect(bilancio).toBeVisible();
+    await expect(bilancio.locator('.advisor-chart')).toBeVisible();
 
     // [2] «Confronta le due strade» → il confronto, dalle strade del motore.
-    await chat.locator('textarea').fill('Confronta le due strade');
-    await chat.locator('.minister-compose button').click();
-    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)').last()).toContainText('ha preso nota del problema', { timeout: 15_000 });
-    await expect(tavola.locator('.proposal-comparison')).toBeVisible();
-    await expect(tavola.locator('.proposal-comparison')).toContainText('Ammortamento del debito');
-    await expect(tavola.locator('.proposal-comparison')).toContainText('Investimento');
-
-    // [3] Isolamento: la tavola di un'altra sedia non eredita la presentazione.
-    await page.locator('.government-office-back').click();
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro dei Lavori' }).click();
-    await expect(page.locator('.government-office-pane-table .seat-presentation-banner')).toHaveCount(0);
-
-    // [4] Tornare alla tavola predefinita chiude l'evidenza presentata.
-    await page.locator('.government-office-back').click();
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    const bannerBack = page.locator('.government-office-pane-table .seat-presentation-banner');
-    await expect(bannerBack).toBeVisible();
-    await page.locator('.government-office-pane-table .seat-presentation-clear').click();
-    await expect(bannerBack).toHaveCount(0);
+    await ask(page, 'Confronta le due strade');
+    await page.locator('.council-room-evidence-link').last().click();
+    const confronto = page.locator('.council-board-focus-evidence .proposal-comparison');
+    await expect(confronto).toBeVisible();
+    await expect(confronto).toContainText('Ammortamento del debito');
+    await expect(confronto).toContainText('Investimento');
   });
 
-  test('P04d: Ufficio del Governo — mappa focalizzata e limiti delle conseguenze (UX-04)', async ({ page }) => {
+  test('P04d: Sala del Consiglio — mappa focalizzata e limiti delle conseguenze (UX-04)', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
-    const ufficio = page.locator('.government-office');
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    const chat = page.locator('.government-office-pane-chat');
-    const tavola = page.locator('.government-office-pane-table');
+    await openTesoroRoom(page);
 
-    // [1] «Quali province coinvolge?» → la mappa sale in cima, inquadrata sulla
-    //     geometria reale e con la zona in evidenza.
-    await chat.locator('textarea').fill('Quali province coinvolge?');
-    await chat.locator('.minister-compose button').click();
-    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
-    const mappa = tavola.locator('.seat-table-main [data-kind="map"]');
+    // [1] «Quali province coinvolge?» → la mappa reale si apre inquadrata sulla
+    // geometria del motore e con la zona in evidenza.
+    await ask(page, 'Quali province coinvolge?');
+    await page.locator('.council-room-evidence-link').last().click();
+    const mappa = page.locator('.council-board-focus-evidence [data-block-id="zone"]');
     await expect(mappa).toBeVisible();
     await expect(mappa.locator('.zone-map-svg')).toHaveAttribute('viewBox', '-4 -4 108 108');
     await expect(mappa.locator('.zone-map-shape.focused')).toBeVisible();
     await expect(mappa.locator('.zone-map-legend')).toContainText('Alfa');
 
     // [2] «Confronta le due strade» → le stesse dimensioni per ogni strada, con i
-    //     limiti dichiarati e la catena delle conseguenze.
-    await chat.locator('textarea').fill('Confronta le due strade');
-    await chat.locator('.minister-compose button').click();
-    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)').last()).toContainText('ha preso nota del problema', { timeout: 15_000 });
-    const confronto = tavola.locator('.proposal-comparison');
+    // limiti dichiarati e la catena delle conseguenze.
+    await ask(page, 'Confronta le due strade');
+    await page.locator('.council-room-evidence-link').last().click();
+    const confronto = page.locator('.council-board-focus-evidence .proposal-comparison');
     await expect(confronto).toContainText('Spesa ricorrente');
     await expect(confronto).toContainText('Incertezza');
     await expect(confronto).toContainText('non dichiarato dal motore');
@@ -337,158 +253,121 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(confronto).toContainText('non simulato');
   });
 
-  test('P04e: Ufficio del Governo — la memoria della sedia sopravvive a ministro e ricarica (UX-05)', async ({ page }) => {
+  test('P04e: Sala del Consiglio — la memoria della sedia sopravvive alla ricarica (UX-05)', async ({ page }) => {
     installMockApi(page);
+    const wire = [];
+    page.on('request', request => {
+      if (request.method() !== 'POST' || !request.url().includes('/government/minister/')) return;
+      try { wire.push(request.postDataJSON()); } catch { /* body non JSON */ }
+    });
     await reachHud(page);
 
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
-    const ufficio = page.locator('.government-office');
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    const chat = page.locator('.government-office-pane-chat');
-    const tavola = page.locator('.government-office-pane-table');
+    // Un atto firmato: da qui nasce il ricordo «Atto accodato».
+    await openTesoroRoom(page);
+    await ask(page, 'copertura finanziaria');
+    await openBoard(page);
+    await prepareCommonDraft(page);
+    await sign(page);
 
-    // Un atto firmato e una proposta discussa: due ricordi di specie diversa.
-    await tavola.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
-    await tavola.locator('.act-draft-sign').click();
-    await chat.locator('textarea').fill('Confronta le due strade');
-    await chat.locator('.minister-compose button').click();
-    await expect(tavola.locator('.proposal-comparison')).toBeVisible({ timeout: 15_000 });
+    // La memoria vive nel browser per partita: la chiave ha il prefisso stabile.
+    const keys = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('ws:minister-memory:')));
+    expect(keys.length).toBeGreaterThan(0);
+    const stored = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('ws:minister-memory:')).map(key => localStorage.getItem(key) || ''));
+    expect(stored.some(value => value.includes('Atto accodato'))).toBe(true);
 
-    // Il fascicolo dice cosa ricorda il ministro, distinguendo l'atto dalla proposta.
-    await page.locator('.seat-brief-summary').click();
-    const memoria = page.locator('.seat-brief-memory');
-    await expect(memoria).toBeVisible();
-    await expect(memoria).toContainText('Cosa ricorda il ministro');
-    await expect(memoria).toContainText('Atto accodato: Aprire il cantiere');
-    await expect(memoria).toContainText('accodata');
-    await expect(memoria).toContainText('discussa');
+    // Il ricordo viaggia con la richiesta successiva al ministro.
+    wire.length = 0;
+    await ask(page, 'Riepilogo della cassa?');
+    await expect.poll(() => wire.some(body => JSON.stringify(body.memory ?? []).includes('Atto accodato'))).toBe(true);
 
-    // Cambiare ministro e tornare non la perde.
-    await page.locator('.government-office-back').click();
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro dei Lavori' }).click();
-    await page.locator('.government-office-back').click();
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    await page.locator('.seat-brief-summary').click();
-    await expect(page.locator('.seat-brief-memory')).toContainText('Atto accodato: Aprire il cantiere');
-
-    // Ricaricare il browser non la perde: la memoria vive per partita nel browser.
+    // Ricaricare il browser non la perde: la memoria è per partita.
     await page.reload();
     try {
       await page.waitForSelector('.game-shell', { timeout: 12_000 });
     } catch {
       await reachHud(page);
     }
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    await page.locator('.seat-brief-summary').click();
-    await expect(page.locator('.seat-brief-memory')).toContainText('Atto accodato: Aprire il cantiere');
+    const keysAfter = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('ws:minister-memory:')));
+    expect(keysAfter.length).toBeGreaterThan(0);
+    await openTesoroRoom(page);
+    wire.length = 0;
+    await ask(page, 'Come procede?');
+    await expect.poll(() => wire.some(body => JSON.stringify(body.memory ?? []).includes('Atto accodato'))).toBe(true);
   });
 
-  test('P06: Ufficio del Governo — dalla proposta alla decisione, con esito reale (UX-06)', async ({ page }) => {
-    const ordine = composedInvestOrder();
-    installMockApi(page, { advanceResult: actionsProcessed(ordine) });
+  test('P06: Sala del Consiglio — dalla proposta alla decisione, con esito reale (UX-06)', async ({ page }) => {
+    // L'esito dell'avanzamento è l'atto **firmato**: lo si cattura dal filo e lo
+    // si restituisce al motore, così la UI ricostruisce lo stato «eseguito».
+    const outcome = actionsProcessed('atto-da-catturare');
+    installMockApi(page, { advanceResult: outcome });
+    let signedText = '';
+    page.on('request', request => {
+      if (request.method() !== 'POST' || !request.url().endsWith('/actions/queue')) return;
+      try { signedText = request.postDataJSON().text; } catch { /* body non JSON */ }
+    });
     await reachHud(page);
 
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
-    const ufficio = page.locator('.government-office');
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    const tavola = page.locator('.government-office-pane-table');
+    await openTesoroRoom(page);
+    await ask(page, 'copertura finanziaria');
+    await openBoard(page);
+    await prepareCommonDraft(page);
+    await sign(page);
+    expect(signedText).toContain('Copertura finanziaria');
+    outcome.actions[0].text = signedText;
 
-    // [1] «Confronta le strade» dal tavolo: mostra, non accoda e non spende.
-    await tavola.locator('.seat-table-compare').click();
-    await expect(tavola.locator('.proposal-comparison')).toBeVisible();
-    await expect(ufficio.locator('.order-register-act')).toHaveCount(0);
-
-    // [2] «Prepara l'atto»: bozza correggibile, ancora nessun atto nel registro.
-    await tavola.locator('.treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
-    const bozza = tavola.locator('.act-draft');
-    await expect(bozza).toBeVisible();
-    await expect(bozza.locator('.act-draft-state')).toHaveText('preparato');
-    await expect(bozza).toContainText('ordine d’opera supportato');
-    await expect(ufficio.locator('.order-register-act')).toHaveCount(0);
-
-    // [3] «Modifica proposta»: il testo è del Presidente. Lo si corregge e si
-    //     riporta all'atto voluto; la dichiarazione d'opera non cambia.
-    await bozza.locator('.act-draft-text').fill('Testo corretto dal Presidente');
-    await expect(bozza.locator('.act-draft-text')).toHaveValue('Testo corretto dal Presidente');
-    await bozza.locator('.act-draft-text').fill(ordine);
-
-    // [4] La firma esplicita: l'atto entra nel registro, una volta sola.
-    await bozza.locator('.act-draft-sign').click();
-    await expect(bozza.locator('.act-draft-state')).toHaveText('accodato');
-    await page.locator('.government-office-back').click();
-    await expect(ufficio.locator('.order-register-act')).toHaveCount(1);
-    await expect(ufficio.locator('.order-register-act').first()).toContainText('Aprire il cantiere');
-
-    // [5] Tempo: il motore esegue l'atto. Riaprendo il tavolo la bozza ritrovata
-    //     dichiara lo stato **reale** — dalla cronologia, non da un flag locale.
-    await page.locator('.government-office .desk-close-x').click();
+    // Chiudi l'Ufficio e avanza il turno: il motore esegue l'atto.
+    await page.locator('.council-room-close').click();
     await page.locator('.hud-advance-btn').click();
     await expect(page.locator('.time-desk-content')).toBeVisible();
     await page.locator('.time-desk-next').click();
 
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    await page.locator('.government-office-pane-table .treasury-act-road[data-road="invest"] .treasury-act-prepare').click();
-    const bozzaDopo = page.locator('.government-office-pane-table .act-draft');
-    await expect(bozzaDopo.locator('.act-draft-state')).toHaveText('eseguito');
-    await expect(page.locator('.government-office-pane-table .treasury-act-request')).toHaveAttribute('data-state', 'accepted');
+    // Riapre la seduta del nuovo turno, ri-prepara la stessa proposta e ritrova
+    // lo stato reale dalla cronologia.
+    await openTesoroRoom(page);
+    await ask(page, 'copertura finanziaria');
+    await openBoard(page);
+    await prepareCommonDraft(page);
+    await expect(page.locator('.act-draft-state')).toHaveText('eseguito');
   });
 
-  test('P07: Ufficio del Governo — la voce di spesa in evidenza e l’evidenza fissata (UX-07)', async ({ page }) => {
+  test('P07: Sala del Consiglio — la voce di spesa in evidenza (UX-07)', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
-    const ufficio = page.locator('.government-office');
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    const chat = page.locator('.government-office-pane-chat');
-    const tavola = page.locator('.government-office-pane-table');
-    const banner = tavola.locator('.seat-presentation-banner');
+    await openTesoroRoom(page);
 
-    // [1] A2 — la spesa discute la sanità: la voce pertinente è in evidenza,
-    //     non il saldo. La focus label è quella del read model del bilancio.
-    await chat.locator('textarea').fill('Mi mostri dove va la spesa per la sanità?');
-    await chat.locator('.minister-compose button').click();
-    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)')).toContainText('ha preso nota del problema', { timeout: 15_000 });
-    await expect(banner).toContainText('Dove va la spesa — Sanità e assistenza');
-    await expect(tavola.locator('.advisor-chart-bars li.focused')).toContainText('Sanità e assistenza');
-
-    // [2] C — l'evidenza si fissa: una nuova richiesta non la sostituisce.
-    await tavola.locator('.seat-presentation-pin').click();
-    await expect(banner).toHaveAttribute('data-pinned', 'true');
-    await expect(tavola.locator('.seat-presentation-pin')).toHaveText('Evidenza fissata');
-    await chat.locator('textarea').fill('Confronta le due strade');
-    await chat.locator('.minister-compose button').click();
-    await expect(chat.locator('.minister-entry.assistant:not(.minister-greeting)').last()).toContainText('ha preso nota del problema', { timeout: 15_000 });
-    await expect(banner).toContainText('Dove va la spesa');
-    await expect(tavola.locator('.proposal-comparison')).toHaveCount(0);
-
-    // [3] Sbloccando, la conversazione torna a guidare la tavola.
-    await tavola.locator('.seat-presentation-pin').click();
-    await expect(banner).not.toHaveAttribute('data-pinned', 'true');
-    await chat.locator('textarea').fill('Confronta le due strade');
-    await chat.locator('.minister-compose button').click();
-    await expect(tavola.locator('.proposal-comparison')).toBeVisible();
+    // A2 — la spesa discute la sanità: la card apre il blocco reale e la voce
+    // pertinente è marcata, non il saldo.
+    await ask(page, 'Mi mostri dove va la spesa per la sanità?');
+    await page.locator('.council-room-evidence-link').last().click();
+    const bilancio = page.locator('.council-board-focus-evidence [data-block-id="bilancio"]');
+    await expect(bilancio).toBeVisible();
+    await expect(bilancio.locator('.advisor-chart-bars li.focused')).toContainText('Sanità e assistenza');
+    // Il vecchio pin/toggle non esiste più: l'evidenza è la lettura della Tavola.
+    await expect(page.locator('.seat-presentation-pin')).toHaveCount(0);
   });
 
-  test('P05: Ufficio del Governo — «Nulla di fatto» chiude la seduta senza atti', async ({ page }) => {
+  test('P05: Sala del Consiglio — «Chiudi seduta» chiude senza atti', async ({ page }) => {
     installMockApi(page);
     await reachHud(page);
 
-    await page.locator('.rail-btn[aria-label="Governo"]').click();
-    const ufficio = page.locator('.government-office');
-    await ufficio.locator('.cabinet-pick', { hasText: 'Ministro del Tesoro' }).click();
-    await expect(page.locator('.minister-chat')).toBeVisible();
+    await openGovernment(page);
+    const registro = page.locator('.order-register');
+    await expect(registro).toBeVisible();
+    await expect(registro.locator('.order-register-act')).toHaveCount(0);
+    // I vecchi esiti non esistono più.
+    await expect(page.locator('.cabinet-nothing')).toHaveCount(0);
+    await expect(page.locator('.government-office-outcome-note')).toHaveCount(0);
 
-    // Nessun atto nel registro mentre si discute.
+    await openTesoroRoomFromPicker(page);
+    await ask(page, 'Quale priorità per il Tesoro?');
+
+    // Si chiude la seduta senza preparare né firmare: si torna alla scelta.
+    await page.locator('.council-room-conclude').click();
+    await expect(page.locator('.government-office')).toBeVisible();
+    await expect(page.locator('.cabinet-pick')).toHaveCount(2);
     await expect(page.locator('.order-register-act')).toHaveCount(0);
-
-    // L'esito NULLA DI FATTO: dichiarato, nessun ordine, ritorno alla scelta.
-    await page.locator('.cabinet-nothing').click();
-    await expect(ufficio.locator('.cabinet-pick')).toHaveCount(2);
-    await expect(ufficio.locator('.order-register-act')).toHaveCount(0);
-    await expect(page.locator('.government-office-outcome-note')).toContainText('nulla di fatto');
+    await expect(page.locator('.government-office-outcome-note')).toHaveCount(0);
   });
 
   test('U03: Dossier Nazione — sezioni con default «Situazione»', async ({ page }) => {
