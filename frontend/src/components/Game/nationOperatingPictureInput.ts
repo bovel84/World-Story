@@ -38,6 +38,7 @@ export type NationOperatingPictureSources = Pick<
   | 'maintenanceObligations'
   | 'crisis'
   | 'pressures'
+  | 'followUps'
   | 'today'
 >;
 

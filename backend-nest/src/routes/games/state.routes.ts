@@ -557,6 +557,10 @@ router.post('/:id/pressures/:pressureId/resolve', (req, res) => {
       res.status(400).json({ error: 'Cassa insufficiente per questa scelta.' });
       return;
     }
+    if (message.includes('pressure_options_incompatible')) {
+      res.status(400).json({ error: 'Queste misure si escludono a vicenda.' });
+      return;
+    }
     if (message.includes('pressure_')) {
       res.status(409).json({ error: 'Questa sfida non è più aperta.' });
       return;

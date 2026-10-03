@@ -318,18 +318,19 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
       kind: 'external', template: 'refugee-flow', title: 'Profughi dalla Francia',
       detail: 'Migliaia di civili al confine meridionale.', severity: 2, source: 'Prefetture di frontiera', durationDays: 60,
       options: [
-        { id: 'camps', label: 'Campi controllati', detail: 'Accoglienza limitata.', effect: { socialTension: 2, note: 'Campi allestiti ai valichi.' } },
+        { id: 'accept-refugees', label: 'Accogliere', detail: 'Campi e sussidi.', effect: { moneyDeltaMld: -0.7, socialTension: 5, stability: 3, note: 'Profughi accolti.' } },
+        { id: 'camps', label: 'Campi controllati', detail: 'Accoglienza limitata.', effect: { moneyDeltaMld: -0.35, socialTension: 2, note: 'Campi allestiti ai valichi.' } },
         { id: 'close-border', label: 'Chiudere il confine', detail: 'Frontiera blindata.', effect: { relationship: { target: 'GAL', direction: 'degrade' }, socialTension: -3, stability: -2, note: 'Confine chiuso.' } },
       ],
       inaction: { socialTension: 6, stability: -3, note: 'Caos ai valichi.' },
     });
     repos.gameRepository.insertPressures(gameId, player.polityId, [refugees], session.getCurrentDate(), session.getCurrentTurn());
 
-    const result = session.resolvePeacetimePressure('gov#ref', ['camps', 'close-border']);
-    expect(result.effect.socialTension).toBe(-1);
-    expect(result.effect.stability).toBe(-2);
-    expect(result.effect.relationship).toEqual({ target: 'GAL', direction: 'degrade' });
-    expect(result.pressure.resolvedOption).toBe('camps,close-border');
+    const result = session.resolvePeacetimePressure('gov#ref', ['accept-refugees', 'camps']);
+    expect(result.effect.socialTension).toBe(7);
+    expect(result.effect.stability).toBe(3);
+    expect(result.effect.moneyDeltaMld).toBe(-1.05);
+    expect(result.pressure.resolvedOption).toBe('accept-refugees,camps');
   });
 
   it('P2-B — alla scadenza l’inerzia presenta il conto, senza una decisione inventata', async () => {
@@ -374,5 +375,24 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     expect(followUp.origin).toEqual({ type: 'previous-decision', sourceId: 'gov#follow' });
     expect(followUp.owner).toBe('interno');
     expect(followUp.outcome.length).toBeGreaterThan(0);
+  });
+
+  it('P1.2 — la decisione composta rifiuta combinazioni incompatibili e resta risolvibile', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    const player = session.getPlayer();
+    repos.gameRepository.insertPressures(gameId, player.polityId, [pressure('gov#combo', {
+      kind: 'external', template: 'border-incident', title: 'Incidente di frontiera', severity: 3, durationDays: 60,
+      options: [
+        { id: 'retaliate', label: 'Forza', detail: 'Colpo di mano.', effect: { stability: 4, socialTension: 6, note: 'Rappresaglia.' } },
+        { id: 'de-escalate', label: 'De-escalation', detail: 'Commissione congiunta.', effect: { socialTension: -4, note: 'De-escalation.' } },
+        { id: 'internationalize', label: 'ONU', detail: 'Tribuna internazionale.', effect: { stability: 2, socialTension: -3, note: 'Tribuna internazionale.' } },
+      ],
+    })], session.getCurrentDate(), session.getCurrentTurn());
+
+    expect(() => session.resolvePeacetimePressure('gov#combo', ['retaliate', 'de-escalate'])).toThrow(/incompatible/);
+    const ok = session.resolvePeacetimePressure('gov#combo', ['retaliate', 'internationalize']);
+    expect(ok.pressure.status).toBe('resolved');
+    expect(ok.effect.stability).toBe(6);
   });
 });

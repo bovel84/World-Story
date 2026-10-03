@@ -83,7 +83,7 @@ test('la porta del Governo mostra urgenze e opportunità, e apre il Consiglio su
   await incident.getByRole('button', { name: 'Apri Consiglio', exact: true }).click();
   const room = page.locator('.council-room');
   await expect(room).toBeVisible({ timeout: 10_000 });
-  await expect(room.locator('.council-room-topic')).toHaveText('Come rispondiamo all’incidente?');
+  await expect(room.locator('.council-room-topic')).toHaveText('Incidente di frontiera con Serbia');
   await expect(room.locator('.council-room-rapporteur')).toContainText('Ministro della Guerra');
   await expect(room.locator('.council-room-chip')).toHaveCount(1);
 });

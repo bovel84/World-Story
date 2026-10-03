@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { GovernmentSituations } from './GovernmentSituations';
-import type { GovernmentSituationView, PeacetimePressure } from '../../services/api';
+import type { GovernmentFollowUpView, GovernmentSituationView, PeacetimePressure } from '../../services/api';
 
 function pressure(input: {
   id: string;
@@ -59,6 +59,20 @@ describe('GovernmentSituations', () => {
     expect(html).toContain('Come rispondiamo all’incidente?');
     expect(html).not.toMatch(/[.,]\d{3,}/);
     expect(html.match(/Apri Consiglio/g)).toHaveLength(2);
+  });
+
+  it('mostra i seguiti dovuti nella home, con proprietario e apertura rapporto', () => {
+    const followUp: GovernmentFollowUpView = {
+      id: 'follow-up:p#1', pressureId: 'p#1', owner: 'tesoro', dueDate: '1951-03-31', daysLeft: -1,
+      label: 'Schieramento al confine: copertura logistica', checks: [], outcome: ['Disavanzo annuo 4,1% del PIL'],
+      origin: { type: 'previous-decision', sourceId: 'p#1' },
+      situation: pressure({ id: 'p#1', title: 'Incidente di frontiera con Serbia' }).situation!,
+    };
+    const html = renderToStaticMarkup(<GovernmentSituations followUps={[followUp]} onOpen={() => {}} onOpenFollowUp={() => {}} />);
+    expect(html).toContain('DA RIFERIRE');
+    expect(html).toContain('Schieramento al confine: copertura logistica');
+    expect(html).toContain('Apri rapporto');
+    expect(html).toContain('previsto oggi');
   });
 
   it('non mostra nulla se il motore non pubblica situazioni', () => {

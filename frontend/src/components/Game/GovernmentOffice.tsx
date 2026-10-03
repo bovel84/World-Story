@@ -27,7 +27,7 @@ import { deriveCouncilAgenda } from './councilAgenda';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { clientMandate, loadMemory, saveMemory, memoryScopeKey, seatRecords, withSeatRecords, recordMemory, queuedDecision, openQuestion, type MinisterMemoryStore } from './ministerMemory';
-import { appendCouncilMessage, confirmCouncilProposal, councilContext, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
+import { appendCouncilMessage, confirmCouncilProposal, councilContext, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, togglePressureOption, type CouncilRoomState } from './councilRoom';
 import { seatSpeaker } from './councilMeeting';
 import { resolveCouncilExecution } from './councilExecution';
 import { resolveCurrentRegionRef } from './meetingLocalization';
@@ -36,7 +36,7 @@ import type { CabinetSeat } from './seatDecisionBoards';
 import { useChatStore, useGameStore } from '../../stores';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import { useGovernmentCompactLayout } from '../../hooks/useIsMobile';
-import { gameApi, ministerApi, type CabinetSessionView } from '../../services/api';
+import { gameApi, ministerApi, type CabinetSessionView, type GovernmentSituationView } from '../../services/api';
 import type { WorkDeclarationInput } from './cabinetOrder';
 import './councilRoom.css';
 
@@ -196,13 +196,16 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
     if (currentRef.current.memoryKey === memoryKey) setMemoryCache({ key: memoryKey, records });
   }, [currentDate, currentTurn, memoryScope, memoryKey]);
 
-  const startRoom = (seat: CabinetSeat, topic = ''): void => {
+  const startRoom = (seat: CabinetSeat, sourceSituation?: GovernmentSituationView): void => {
     interrupt();
-    const next = { ...createCouncilRoom({ id: crypto.randomUUID(), scopeKey, initiatorMinister: seat }), topic };
+    const next = createCouncilRoom({ id: crypto.randomUUID(), scopeKey, initiatorMinister: seat, ...(sourceSituation ? { sourceSituation } : {}) });
     updateRoom(next);
     setActiveId(next.id);
     setTarget('council');
   };
+  // P1.3 — La Pressure si risolve UNA volta, dopo una firma REGISTRATA con
+  // successo: non quando si propone, non quando la Tavola cambia, non alla bozza.
+  const resolvedPressureRef = useRef<Set<string>>(new Set());
   // The initial greeting is part of the shared transcript, not a hidden 1:1 history.
   useEffect(() => {
     if (!open || !activeRoom || activeRoom.messages.length > 0) return;
@@ -217,7 +220,7 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
       if (!owns() || !current || current.messages.length > 0) return;
       updateRoom(appendCouncilMessage(current, { id: crypto.randomUUID(), role: 'assistant', seat: initial.seat, kind: 'speech', speaker: initial.label, content: text }));
     };
-    Promise.resolve().then(() => ministerApi.opening(gameId, initial.seat, controller.signal))
+    Promise.resolve().then(() => ministerApi.opening(gameId, initial.seat, activeRoom?.sourceSituation ?? null, controller.signal))
       .then(result => addOpening(result.reply)).catch(() => { if (owns()) addOpening(initial.opening); });
     return () => { controller.abort(); if (openingRef.current === controller) openingRef.current = null; };
   }, [open, activeRoom?.id, session, gameId, updateRoom]);
@@ -356,6 +359,17 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
       if (queued) {
         remember(activeRoom.participants, payload.title, true);
         if (currentRef.current.activeId === roomId && currentRef.current.scopeKey === activeRoom.scopeKey) setNotice('Atto firmato e inserito nel registro. Sarà valutato dal motore quando avanzerai il tempo.');
+        // P1.3/P1.4 — Chiusura del ciclo: la situazione si risolve SOLO ora, in
+        // modo idempotente. La risoluzione del motore non risolve due volte una
+        // Pressure già chiusa (e il guard in memoria evita richieste ripetute).
+        const situation = activeRoom.sourceSituation;
+        const options = activeRoom.selectedPressureOptions;
+        if (situation && options.length > 0 && !resolvedPressureRef.current.has(draft.signatureKey)) {
+          resolvedPressureRef.current.add(draft.signatureKey);
+          void gameApi.resolvePeacetimePressure(gameId, situation.pressureId, options).then(() => {
+            if (currentRef.current.activeId === roomId) setNotice('Atto firmato. La situazione è stata risolta dal motore e i suoi effetti saranno applicati all’avanzamento del tempo.');
+          }).catch(() => { /* motore idempotente: una Pressure già chiusa non produce un secondo effetto */ });
+        }
       } else {
         setDrafts(previous => previous[roomId]?.signatureKey === draft.signatureKey ? { ...previous, [roomId]: { ...previous[roomId], signatureNotice: 'Firma non confermata. Riprova questa stessa bozza; per modificarla annulla la preparazione.' } } : previous);
       }
@@ -381,7 +395,8 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
     onConfirm={confirm} onExclude={label => {
       if (locked || operationRef.current) return;
       updateRoom(appendCouncilMessage(excludeCouncilMeasure(activeRoom, label, crypto.randomUUID()), { id: crypto.randomUUID(), role: 'user', kind: 'speech', content: `Escludo dalla proposta la misura «${label}».` }));
-    }} onPrepare={() => void prepare()} onConvene={convene}>
+    }} onPrepare={() => void prepare()} onConvene={convene}
+    onTogglePressureOption={optionId => { if (!locked && !operationRef.current && activeRoom.sourceSituation) updateRoom(togglePressureOption(activeRoom, optionId)); }}>
     {evidenceCanvas && <section className="council-board-focus-evidence" ref={focusedEvidenceRef} tabIndex={-1} aria-label="Evidenza dalla discussione">
       <h3>{focusedEvidence?.card.title}</h3>
       {evidenceCanvas.mains.map(main => main.block && <SeatCanvas key={main.block.id} blocks={[main.block]} focusLabel={main.focusLabel} focusRegionIds={main.regionIds} />)}
@@ -433,7 +448,7 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
       {Object.values(rooms).filter(candidate => candidate.scopeKey === scopeKey).map(candidate => <button type="button" key={candidate.id} className="council-room-resume" onClick={() => { setTarget('council'); setActiveId(candidate.id); }}>
         Riprendi seduta · {candidate.topic || seatSpeaker(candidate.initiatorMinister)} · {candidate.participants.length} ministri
       </button>)}
-      <GovernmentSituations pressures={pictureSources.pressures} onOpen={situation => startRoom(situation.leadMinister as CabinetSeat, situation.decisionQuestion)} />
+      <GovernmentSituations pressures={pictureSources.pressures} followUps={pictureSources.followUps} onOpen={situation => startRoom(situation.leadMinister as CabinetSeat, situation)} onOpenFollowUp={followUp => startRoom(followUp.owner as CabinetSeat, followUp.situation)} />
       <CabinetSession variant="pick" session={session} agenda={agenda} loading={sessionLoading} error={sessionError} onOpenSeat={address => startRoom(address.seat)} />
     </>}
   </AccessibleDialog>;

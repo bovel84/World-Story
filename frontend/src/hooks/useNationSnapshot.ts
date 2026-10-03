@@ -25,6 +25,7 @@ import {
   type GovernmentSnapshot,
   type GovernmentVoicesResponse,
   type PeacetimePressure,
+  type GovernmentFollowUpView,
   type FormationImpactPayload,
   type UnitActionImpactPayload,
   type UnitActionRequest,
@@ -109,6 +110,8 @@ export interface NationSnapshot {
   setNationalPressures: React.Dispatch<React.SetStateAction<PeacetimePressure[]>>;
   recentPressures: PeacetimePressure[];
   setRecentPressures: React.Dispatch<React.SetStateAction<PeacetimePressure[]>>;
+  /** WS-GOV-SITUATIONS-LOOP P1.8 — i seguiti dovuti delle decisioni chiuse. */
+  nationalFollowUps: GovernmentFollowUpView[];
   pressureBusy: boolean;
   nationalCrisis: CrisisSnapshot | null;
   /** GAMEPLAY-LONG: obiettivi persistenti delle potenze del teatro. */
@@ -194,6 +197,7 @@ export function useNationSnapshot({
   const [fiscalPolicyBusy, setFiscalPolicyBusy] = useState(false);
   const [nationalPressures, setNationalPressures] = useState<PeacetimePressure[]>([]);
   const [recentPressures, setRecentPressures] = useState<PeacetimePressure[]>([]);
+  const [nationalFollowUps, setNationalFollowUps] = useState<GovernmentFollowUpView[]>([]);
   const [pressureBusy, setPressureBusy] = useState(false);
   const [nationalCrisis, setNationalCrisis] = useState<CrisisSnapshot | null>(null);
   const [strategicAgenda, setStrategicAgenda] = useState<{ powers: PowerAgenda[] } | null>(null);
@@ -405,7 +409,7 @@ export function useNationSnapshot({
     // Le sfide di pace nascono dal motore e vivono nel dossier: leggerle qui
     // evita che un turno senza sfide visibili sembri vuoto.
     gameApi.peacetimePressures(gameId)
-      .then((data) => { if (!cancelled) { setNationalPressures(data.pressures || []); setRecentPressures(data.recent || []); } })
+      .then((data) => { if (!cancelled) { setNationalPressures(data.pressures || []); setRecentPressures(data.recent || []); setNationalFollowUps(data.followUps || []); } })
       .catch(error => console.warn('[App] Impossibile caricare le sfide del momento:', error));
     gameApi.arsenal(gameId)
       .then((arms) => { if (!cancelled) setNationalArms(arms); })
@@ -721,6 +725,7 @@ export function useNationSnapshot({
     fiscalPolicyBusy,
     nationalPressures, setNationalPressures,
     recentPressures, setRecentPressures,
+    nationalFollowUps,
     pressureBusy,
     nationalCrisis, setNationalCrisis,
     strategicAgenda,

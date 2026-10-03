@@ -115,6 +115,18 @@ export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, national
         </span>)}
         {convenable.length > 0 && <button type="button" className="council-room-convene" disabled={busy} onClick={() => setConveneOpen(true)}>+ Convoca</button>}
       </nav>
+      {/* P0.4 — I ministri suggeriti dalla situazione sono VISIBILI subito, ma il
+          Presidente decide se convocarli: non entrano da soli. */}
+      {room.sourceSituation && room.sourceSituation.suggestedMinisters.filter(seat => !room.participants.includes(seat as CabinetSeat)).length > 0 && (
+        <div className="council-room-suggested" aria-label="Ministri da sentire">
+          <span className="council-room-suggested-label">Ministri da sentire</span>
+          {room.sourceSituation.suggestedMinisters.filter(seat => !room.participants.includes(seat as CabinetSeat)).map(seat => (
+            <button type="button" key={seat} className="council-room-suggested-seat" disabled={busy} onClick={() => onConvene(seat as CabinetSeat)}>
+              {seatSpeaker(seat as CabinetSeat)} +
+            </button>
+          ))}
+        </div>
+      )}
       <div className="council-room-workspace">
         <section className="council-room-dialogue" aria-label="Conversazione del Consiglio">
           <div className="council-room-thread" ref={threadRef} onScroll={() => {

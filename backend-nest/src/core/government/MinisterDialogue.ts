@@ -33,6 +33,25 @@ export function normalizeCurrentDecision(raw: unknown): MinisterCurrentDecision 
   return parsed.success ? parsed.data : undefined;
 }
 
+const situationSchema = z.object({
+  pressureId: z.string().trim().min(1).max(160),
+  title: z.string().trim().min(1).max(240),
+  briefing: z.string().trim().min(1).max(2000),
+  source: z.string().trim().max(240).optional(),
+  severity: z.number().int().min(1).max(3).optional(),
+  daysLeft: z.number().int().min(0).max(100000).optional(),
+  verifiedFacts: z.array(z.string().trim().min(1).max(400)).max(12).optional(),
+  decisionQuestion: z.string().trim().max(400).optional(),
+  inaction: z.object({ note: z.string().trim().max(600) }).optional(),
+  options: z.array(z.object({
+    id: z.string().trim().min(1).max(80),
+    label: z.string().trim().min(1).max(240),
+    detail: z.string().trim().max(400).optional(),
+  })).max(12).optional(),
+  suggestedMinisters: z.array(z.enum(CABINET_SEATS)).max(7).optional(),
+  origin: z.object({ type: z.string().trim().max(40), sourceId: z.string().trim().max(160).optional() }).optional(),
+});
+
 const councilSchema = z.object({
   sessionId: z.string().trim().min(1).max(128),
   topic: z.string().trim().min(1).max(600),
@@ -41,6 +60,10 @@ const councilSchema = z.object({
     .refine(seats => new Set(seats).size === seats.length),
   phase: z.enum(['discussion', 'drafting']),
   respondingTo: z.string().trim().min(1).max(2000).optional(),
+  // WS-GOV-SITUATIONS-LOOP — la situazione che la seduta deve risolvere, così
+  // anche i convocati vedono gli stessi fatti del relatore.
+  sourceSituation: situationSchema.optional(),
+  selectedPressureOptions: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
 });
 export type MinisterCouncil = z.infer<typeof councilSchema>;
 
@@ -94,6 +117,15 @@ function councilDialogueSection(council: MinisterCouncil): string {
   return [
     '[COUNCIL — contesto client della discussione, NON stato verificato del motore]',
     JSON.stringify(council),
+    ...(council.sourceSituation ? [
+      `SITUAZIONE IN SEDUTA — fatti del motore, non aggiungerne: ${council.sourceSituation.title} — ${council.sourceSituation.briefing}`,
+      ...(council.sourceSituation.daysLeft !== undefined ? [`Tempo: restano ${council.sourceSituation.daysLeft} giorni prima che l’inerzia presenti il conto.`] : []),
+      ...(council.sourceSituation.verifiedFacts?.length ? [`Fatti verificati: ${council.sourceSituation.verifiedFacts.join('; ')}`] : []),
+      ...(council.sourceSituation.decisionQuestion ? [`Decisione richiesta: ${council.sourceSituation.decisionQuestion}`] : []),
+      ...(council.sourceSituation.inaction?.note ? [`Se non si decide: ${council.sourceSituation.inaction.note}`] : []),
+      ...(council.sourceSituation.origin && council.sourceSituation.origin.type !== 'state' ? [`Origine della situazione: ${council.sourceSituation.origin.type}.`] : []),
+    ] : []),
+    ...(council.selectedPressureOptions?.length ? [`Strade canoniche già confermate dal Presidente sulla Tavola: ${council.selectedPressureOptions.join(', ')}. Non aggiungerne altre.`] : []),
     'Questa è un’unica sessione condivisa del consiglio, non una serie di colloqui separati. Parli come la tua sedia, con la stessa persona, al Presidente e ai colleghi.',
     'La cronologia contiene interventi attribuiti per nome ai diversi partecipanti: il ruolo assistant è solo trasporto. Non assumere che tutti gli interventi siano tuoi. Anche un prefisso generico «Ministro:» non cambia il nome indicato nel contributo.',
     'Rispondi agli interventi reali dei colleghi presenti nella cronologia, nominandoli e affrontando obiezioni, condizioni e proposte concrete. Difendi o rivedi la tua posizione alla luce di ciò che hanno davvero detto, senza parlare al posto loro.',

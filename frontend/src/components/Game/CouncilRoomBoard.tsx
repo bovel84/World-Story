@@ -14,6 +14,8 @@ export interface CouncilRoomBoardProps {
   onExclude?: (label: string) => void;
   onPrepare?: () => void;
   onConvene?: (seat: CabinetSeat) => void;
+  /** WS-GOV-SITUATIONS-LOOP — conferma/esclude una strada canonica della situazione. */
+  onTogglePressureOption?: (optionId: string) => void;
   children?: ReactNode;
 }
 
@@ -41,7 +43,7 @@ function MeasureRow({ measure, onExclude, busy }: { measure: DecisionMeasure; on
 
 /** One question and one live proposal; declarations remain attributed to their speakers. */
 export function CouncilRoomBoard({
-  room, busy = false, canPrepare = false, onConfirm, onExclude, onPrepare, onConvene, children,
+  room, busy = false, canPrepare = false, onConfirm, onExclude, onPrepare, onConvene, onTogglePressureOption, children,
 }: CouncilRoomBoardProps) {
   const prepareReasonId = useId();
   const proposal = activeProposal(room.sharedBoard);
@@ -70,6 +72,64 @@ export function CouncilRoomBoard({
         <h2>Tavola del Consiglio</h2>
         <span className="council-board-revision">revisione {room.sharedBoard.revision}</span>
       </header>
+
+      {room.sourceSituation && (
+        <section className="council-board-section council-board-situation" aria-label="SITUAZIONE" data-pressure-id={room.sourceSituation.pressureId}>
+          <h3>SITUAZIONE</h3>
+          <p className="council-board-situation-title">{room.sourceSituation.title}</p>
+          <p className="council-board-situation-meta">Fonte: {room.sourceSituation.source} · restano {room.sourceSituation.daysLeft} {room.sourceSituation.daysLeft === 1 ? 'giorno' : 'giorni'}</p>
+          {room.sourceSituation.verifiedFacts.length > 0 && (
+            <ul className="council-board-situation-facts">
+              {room.sourceSituation.verifiedFacts.map(fact => <li key={fact}>{fact}</li>)}
+            </ul>
+          )}
+          <p className="council-board-situation-inaction">Se non decidiamo: {room.sourceSituation.inaction.note}</p>
+          {room.sourceSituation.origin.type !== 'state' && (
+            <p className="council-board-situation-origin" data-origin={room.sourceSituation.origin.type}>
+              Origine della situazione: {room.sourceSituation.origin.type === 'inaction' ? 'una mancata decisione' : 'una decisione precedente'}.
+            </p>
+          )}
+          <section className="council-board-decision" aria-label="DECISIONE DA PRENDERE">
+            <h4>DECISIONE DA PRENDERE</h4>
+            <p>{room.sourceSituation.decisionQuestion}</p>
+          </section>
+          <section className="council-board-response" aria-label="RISPOSTA ALLA SITUAZIONE">
+            <h4>RISPOSTA ALLA SITUAZIONE</h4>
+            {room.selectedPressureOptions.length > 0 ? (
+              <ul className="council-board-response-list">
+                {room.selectedPressureOptions.map(optionId => {
+                  const option = room.sourceSituation?.options.find(candidate => candidate.id === optionId);
+                  if (!option) return null;
+                  return (
+                    <li key={optionId} className="council-board-response-picked" data-option={optionId}>
+                      <span>✓ {option.label}</span>
+                      {onTogglePressureOption && <button type="button" className="council-board-response-toggle" disabled={busy} onClick={() => onTogglePressureOption(optionId)} aria-label={`Escludi ${option.label}`}>Escludi</button>}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="council-board-empty">Nessuna strada confermata: discutete, poi il Presidente conferma le misure.</p>
+            )}
+            <details className="council-board-response-options">
+              <summary>Corsi d’azione conosciuti dal motore</summary>
+              <ul className="council-board-response-list">
+                {room.sourceSituation.options.map(option => {
+                  const selected = room.selectedPressureOptions.includes(option.id);
+                  return (
+                    <li key={option.id} data-option={option.id} data-selected={selected}>
+                      <button type="button" className="council-board-response-toggle" disabled={busy || !onTogglePressureOption} onClick={() => onTogglePressureOption?.(option.id)}>
+                        {selected ? '✓ ' : '+ '}{option.label}
+                      </button>
+                      <span className="council-board-response-detail">{option.detail}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+          </section>
+        </section>
+      )}
 
       <section className="council-board-section council-board-question" aria-label="QUESTIONE">
         <h3>QUESTIONE</h3>

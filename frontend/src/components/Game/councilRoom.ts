@@ -1,6 +1,6 @@
 /** A council room belongs to a question, never to one minister. UI discussion only;
  * verified figures and execution remain the engine's responsibility. */
-import type { AdvisorHistoryItem, MinisterCouncilContext } from '../../services/api';
+import type { AdvisorHistoryItem, GovernmentSituationView, MinisterCouncilContext } from '../../services/api';
 import { activeProposal, applyDecisionBatch, emptyWorkspace, type DecisionAction, type DecisionMeasure, type DecisionWorkspace } from './decisionWorkspace';
 import type { ProposalActDraft } from './actDraft';
 import { parsePresentation, type PresentationDirective } from './presentation';
@@ -33,10 +33,42 @@ export interface CouncilRoomState {
   positions: Partial<Record<CabinetSeat, CouncilPosition>>;
   assessments: Partial<Record<CabinetSeat, CouncilAssessment>>;
   phase: 'discussion' | 'drafting';
+  /**
+   * WS-GOV-SITUATIONS-LOOP — La situazione reale da cui nasce la seduta. Presente
+   * solo per le sedute aperte dal Governo su una `GovernmentSituation`: le sedute
+   * manuali restano identiche. Sopravvive a indietro/riprendi perché vive nella stanza.
+   */
+  sourceSituation?: GovernmentSituationView;
+  /** Le opzioni canoniche già scelte sulla Tavola (id verificati dal motore). */
+  selectedPressureOptions: string[];
 }
 
-export function createCouncilRoom(input: { id: string; scopeKey: string; initiatorMinister: CabinetSeat }): CouncilRoomState {
-  return { ...input, topic: '', participants: [input.initiatorMinister], messages: [], sharedBoard: emptyWorkspace('council'), invitations: [], positions: {}, assessments: {}, phase: 'discussion' };
+/** Un'opzione della situazione è selezionabile solo se il motore la conosce. */
+export function situationOption(room: CouncilRoomState, optionId: string) {
+  return room.sourceSituation?.options.find(option => option.id === optionId);
+}
+
+/** Il Presidente conferma o esclude una strada canonica sulla Tavola. */
+export function togglePressureOption(room: CouncilRoomState, optionId: string): CouncilRoomState {
+  if (!situationOption(room, optionId)) return room;
+  const selected = room.selectedPressureOptions.includes(optionId)
+    ? room.selectedPressureOptions.filter(id => id !== optionId)
+    : [...room.selectedPressureOptions, optionId];
+  return { ...room, selectedPressureOptions: selected };
+}
+
+export function createCouncilRoom(input: { id: string; scopeKey: string; initiatorMinister: CabinetSeat; sourceSituation?: GovernmentSituationView }): CouncilRoomState {
+  const sourceSituation = input.sourceSituation;
+  return {
+    id: input.id, scopeKey: input.scopeKey, initiatorMinister: input.initiatorMinister,
+    // L'oggetto della seduta è il TITOLO della situazione, non la domanda: la
+    // domanda vive nella Tavola, sotto «DECISIONE DA PRENDERE».
+    topic: sourceSituation?.title ?? '',
+    participants: [input.initiatorMinister], messages: [], sharedBoard: emptyWorkspace('council'),
+    invitations: [], positions: {}, assessments: {}, phase: 'discussion',
+    selectedPressureOptions: [],
+    ...(sourceSituation ? { sourceSituation } : {}),
+  };
 }
 export function appendCouncilMessage(room: CouncilRoomState, message: CouncilMessage): CouncilRoomState {
   return { ...room, messages: [...room.messages, message] };
@@ -87,6 +119,13 @@ export function receiveCouncilReply(room: CouncilRoomState, seat: CabinetSeat, r
   const parsed = parsePresentation(raw);
   const sharedBoard = applyDecisionBatch(room.sharedBoard, ministerActions(parsed.decisions, room.sharedBoard), { messageId });
   const protocol = councilProtocol(raw);
+  // WS-GOV-SITUATIONS-LOOP P1.1 — Il modello può proporre le strade canoniche,
+  // ma SOLO id che esistono nella situazione. Un id inventato viene scartato.
+  const allowedOptions = new Set((room.sourceSituation?.options ?? []).map(option => option.id));
+  const proposedOptions = Array.isArray(protocol?.pressureOptions)
+    ? protocol.pressureOptions.filter((id): id is string => typeof id === 'string' && allowedOptions.has(id))
+    : [];
+  const selectedPressureOptions = [...new Set([...room.selectedPressureOptions, ...proposedOptions])];
   const invitations = [...room.invitations];
   if (Array.isArray(protocol?.needs_input_from)) {
     for (const request of protocol.needs_input_from.slice(0, 7)) {
@@ -104,7 +143,7 @@ export function receiveCouncilReply(room: CouncilRoomState, seat: CabinetSeat, r
     if (reason) positions[seat] = { status: position.status as CouncilPosition['status'], reason, revision: sharedBoard.revision };
   }
   const assessments = protocol ? { ...room.assessments, [seat]: { agreements: textList(protocol.agreements), disagreements: textList(protocol.disagreements) } } : room.assessments;
-  return appendCouncilMessage({ ...room, sharedBoard, invitations, positions, assessments,
+  return appendCouncilMessage({ ...room, sharedBoard, invitations, positions, assessments, selectedPressureOptions,
     topic: sharedBoard.objective ?? room.topic }, { id: messageId, role: 'assistant', kind: 'speech', seat, speaker: seatSpeaker(seat), content: councilText(raw), ...(parsed.directives.length ? { evidence: parsed.directives } : {}) });
 }
 export function confirmCouncilProposal(room: CouncilRoomState, messageId: string): CouncilRoomState {
@@ -142,7 +181,11 @@ export function councilHistory(room: CouncilRoomState, respondingSeat: CabinetSe
 }
 export function councilContext(room: CouncilRoomState, respondingTo?: string): MinisterCouncilContext {
   return { sessionId: room.id, topic: (room.topic || 'Questione da definire con il Presidente').slice(0, 600), initiatorMinister: room.initiatorMinister,
-    participants: room.participants, phase: room.phase, ...(respondingTo ? { respondingTo: respondingTo.slice(0, 2000) } : {}) };
+    participants: room.participants, phase: room.phase,
+    // P0.5 — Ogni ministro convocato riceve la SITUAZIONE, non solo la chat.
+    ...(room.sourceSituation ? { sourceSituation: room.sourceSituation } : {}),
+    ...(room.selectedPressureOptions.length ? { selectedPressureOptions: room.selectedPressureOptions } : {}),
+    ...(respondingTo ? { respondingTo: respondingTo.slice(0, 2000) } : {}) };
 }
 export function councilOpenQuestions(room: CouncilRoomState): string[] {
   const questions = activeProposal(room.sharedBoard)?.unresolvedQuestions ?? [];
@@ -161,7 +204,8 @@ export function councilDraft(room: CouncilRoomState, turn?: number): ProposalAct
   return { id: `${room.id}:draft:${room.sharedBoard.revision}`, seat: 'council', roadId: proposal?.id ?? room.id, title,
     text: [title, ...lines, `Proponenti: ${room.participants.filter(seat => room.messages.some(message => message.seat === seat && message.kind === 'speech')).map(seatSpeaker).join(', ')}`].join('\n\n'),
     capability: 'text-order', note: 'Bozza comune dalla discussione. Solo la firma del Presidente inserisce l’atto nel registro; il motore ne valuta gli effetti all’avanzamento del tempo.',
-    sourceSessionId: room.id, sourceRevision: room.sharedBoard.revision, sourceTurn: turn, sourceSeat: room.initiatorMinister };
+    sourceSessionId: room.id, sourceRevision: room.sharedBoard.revision, sourceTurn: turn, sourceSeat: room.initiatorMinister,
+    ...(room.sourceSituation ? { sourcePressureId: room.sourceSituation.pressureId, sourceSituationId: room.sourceSituation.id } : {}) };
 }
 
 /** One bounded round; each minister sees the completed interventions before theirs. */
