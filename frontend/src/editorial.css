@@ -2900,8 +2900,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   position: fixed; inset: 0; z-index: 90;
   display: flex; justify-content: center; align-items: center;
   padding: clamp(16px, 4vh, 48px) clamp(16px, 4vw, 64px);
-  background: rgba(16, 24, 23, .74);
-  backdrop-filter: blur(3px);
+  /* I7/I23 — il mondo deve restare percepibile: velo leggero, poco blur. */
+  background: rgba(10, 16, 15, .34);
+  backdrop-filter: blur(1.5px);
 }
 
 .opening-panel {
@@ -2913,6 +2914,18 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   outline: none;
 }
 .opening-panel:focus-visible { outline: 3px solid var(--op-gold); outline-offset: 2px; }
+
+/* I7/§22–§23 — Desktop map-first: la mappa è parte della scena, il dossier è
+   un briefing editoriale sul lato, non un modal centrato. */
+@media (min-width: 900px) {
+  .opening-overlay { justify-content: flex-end; align-items: stretch; padding: 0; }
+  .opening-panel {
+    width: min(560px, 42vw); max-width: 620px;
+    height: 100%; max-height: 100vh;
+    border-top: 5px solid var(--op-red); border-right: none; border-bottom: none;
+    box-shadow: -34px 0 80px rgba(0, 0, 0, .42);
+  }
+}
 
 .opening-head {
   padding: 22px clamp(20px, 4vw, 40px) 12px;
@@ -2971,7 +2984,10 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .opening-symbol-opportunity { color: #2f6b46; }
 .opening-symbol-neutral { color: var(--op-muted); }
 .opening-item-label { display: block; font-family: var(--op-copy); font-size: 16px; line-height: 1.35; }
-.opening-item-detail { display: block; margin-top: 3px; font-family: var(--op-copy); font-size: 13px; color: var(--op-muted); }
+.opening-item-title { display: block; font-family: var(--op-utility); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--op-ink); }
+.opening-item-detail { display: block; margin-top: 3px; font-family: var(--op-copy); font-size: 14px; line-height: 1.45; color: var(--op-muted); }
+.opening-stakes { border-left: 3px solid var(--op-gold); padding-left: 12px; font-style: italic; }
+.opening-worldfacts { margin-top: 4px; }
 .opening-legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 6px 0 0; font-family: var(--op-utility); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--op-muted); }
 .opening-legend .opening-symbol { font-size: 12px; }
 

@@ -1,8 +1,17 @@
 /**
- * WS-GAME-OPENING — la narrativa dell'apertura è deterministica e read-only.
+ * WS-GAME-OPENING-IMMERSION — OpeningContext, narrativa semantica e validazione.
  */
 import { describe, expect, it } from 'vitest';
-import { buildOpeningNarrative, extractOpeningParagraphs } from '../src/core/government/OpeningNarrative';
+import {
+  buildOpeningContext,
+  buildDeterministicWorldNarrative,
+  buildDeterministicOpeningResponse,
+  composeOpeningNarrativePrompt,
+  parseOpeningNarrativeJson,
+  openingCouncilLine,
+  validateTextAgainstContext,
+  validateOpeningWorldNarrative,
+} from '../src/core/government/OpeningNarrative';
 import { personaFor } from '../src/core/government/MinisterPersona';
 import type { CabinetAddress } from '../src/core/government/Cabinet';
 
@@ -16,78 +25,98 @@ function address(seat: CabinetAddress['seat'], urgency: 'critica' | 'urgente' | 
   } as CabinetAddress;
 }
 
-describe('WS-GAME-OPENING — OpeningNarrative (backend)', () => {
-  it('il prologo viene dal preset, non da conoscenza generica', () => {
-    const narrative = buildOpeningNarrative({
-      worldName: 'Millennium Dawn',
-      date: '2000-01-01',
-      premise: '# Il mondo\n\nPRESET_MARKER_WORLD: la Guerra Fredda è finita e l’ordine è instabile.\n\nL’Europa prepara l’allargamento verso est.',
-    });
-    expect(narrative.deterministic).toBe(true);
-    expect(narrative.generated).toBe(false);
-    expect(narrative.world.name).toBe('Millennium Dawn');
-    expect(narrative.world.date).toBe('2000-01-01');
-    expect(narrative.world.paragraphs.join(' ')).toContain('PRESET_MARKER_WORLD');
-    expect(narrative.world.paragraphs.join(' ')).not.toContain('GENERIC_HISTORY_FACT');
-    expect(narrative.world.paragraphs.length).toBeLessThanOrEqual(4);
+const baseInput = {
+  worldName: 'TEST_WORLD',
+  date: '2000-01-01',
+  premise: 'TEST_WORLD_PREMISE: la Guerra Fredda è finita e il nuovo ordine è instabile.\n\nL’Europa prepara l’allargamento verso est.',
+  rules: 'Le infrastrutture richiedono tempo. La logistica conta.',
+  nationName: 'TEST_NATION',
+  polityId: 'TST',
+  verifiedSituation: ['Il margine fiscale è ristretto', 'La ricostruzione non è terminata'],
+  worldFacts: [{ id: 'TEST_WORLD_FACT', label: 'Un vicino cambia schieramento', severity: 'warning' }],
+  addresses: [
+    address('lavori', 'ordinaria', 'Ricostruire le infrastrutture'),
+    address('tesoro', 'critica', 'Coprire la cassa'),
+    address('esteri', 'ordinaria', 'Coltivare le relazioni'),
+    address('guerra', 'ordinaria', 'Difendere i confini'),
+  ],
+};
+
+describe('WS-GAME-OPENING-IMMERSION — OpeningContext', () => {
+  it('raccoglie mondo, paese, priorità e consiglio dai soli dati esistenti', () => {
+    const context = buildOpeningContext(baseInput);
+    expect(context.world.name).toBe('TEST_WORLD');
+    expect(context.world.premise).toContain('TEST_WORLD_PREMISE');
+    expect(context.world.rules).toContain('infrastrutture');
+    expect(context.nation.name).toBe('TEST_NATION');
+    expect(context.worldFacts[0].id).toBe('TEST_WORLD_FACT');
+    expect(context.priorities.length).toBeGreaterThan(0);
+    expect(context.council).toHaveLength(3); // max 3
+    expect(context.council[0].seat).toBe('tesoro'); // urgenza critica in testa
   });
 
-  it('il consiglio usa la persona + la questione del motore, al massimo tre sedie, senza cifre', () => {
-    const narrative = buildOpeningNarrative({
-      worldName: 'W', date: '2000-01-01', premise: 'Testo.',
-      addresses: [
-        address('lavori', 'ordinaria', 'Ricostruire le infrastrutture'),
-        address('tesoro', 'critica', 'Coprire la cassa'),
-        address('esteri', 'ordinaria', 'Coltivare le relazioni'),
-        address('guerra', 'ordinaria', 'Difendere i confini'),
-      ],
-    });
-    expect(narrative.council).toHaveLength(3);
-    // Urgenza critica in testa.
-    expect(narrative.council[0].seat).toBe('tesoro');
-    for (const voice of narrative.council) {
-      // Persona (firma di stile, senza virgolette) + questione del motore.
-      const signature = personaFor(voice.seat).signature.replace(/^[«"]\s*/, '').replace(/\s*[»"]$/, '').replace(/[.]$/, '');
-      expect(voice.line).toContain(signature);
-      expect(/\d/.test(voice.line)).toBe(false);
-      expect(voice.line).not.toContain('«');
-      expect(voice.line).not.toContain('»');
+  it('il prologo deterministico è semantico, non paragraphs[]', () => {
+    const context = buildOpeningContext(baseInput);
+    const narrative = buildDeterministicWorldNarrative(context);
+    expect(narrative.worldOrder).toContain('TEST_WORLD_PREMISE');
+    expect(narrative.regionalSituation).toContain('Europa');
+    expect(narrative.stakesForNation).toContain('TEST_NATION');
+    expect((narrative as Record<string, unknown>).paragraphs).toBeUndefined();
+    const response = buildDeterministicOpeningResponse(context);
+    expect(response.deterministic).toBe(true);
+    expect(response.world.narrative.worldOrder).toBe(narrative.worldOrder);
+  });
+
+  it('il consiglio usa persona + verified need e resta seat→seat', () => {
+    const context = buildOpeningContext(baseInput);
+    for (const line of context.council) {
+      const signature = personaFor(line.seat).signature.replace(/^[«"]\s*/, '').replace(/\s*[»"]$/, '').replace(/[.]$/, '');
+      expect(line.line).toContain(signature);
+      expect(/\d/.test(line.line)).toBe(false);
     }
-    expect(narrative.council[0].line).toContain('coprire la cassa');
+    expect(context.council.map(c => c.seat)).toEqual(['tesoro', 'lavori', 'esteri']);
+  });
+});
+
+describe('WS-GAME-OPENING-IMMERSION — validazione del renderer', () => {
+  it('§32: rifiuta una cifra non presente nell’input (999 miliardi)', () => {
+    const context = buildOpeningContext(baseInput);
+    const bad = { worldOrder: 'Servono 999 miliardi.', stakesForNation: 'Per TEST_NATION.' };
+    expect(validateOpeningWorldNarrative(bad, context).ok).toBe(false);
+    // Una cifra che è nell'input passa.
+    const good = { worldOrder: 'La premessa TEST_WORLD_PREMISE.', stakesForNation: 'Per TEST_NATION.' };
+    expect(validateTextAgainstContext(good.worldOrder, context).ok).toBe(true);
   });
 
-  it('una questione con cifre non entra nella voce: resta la sola persona', () => {
-    const narrative = buildOpeningNarrative({
-      worldName: 'W', date: '', premise: '',
-      addresses: [address('guerra', 'ordinaria', 'Portare la spesa al 4% del PIL')],
+  it('§33: rifiuta un proper noun nuovo non presente nel contesto', () => {
+    const context = buildOpeningContext({
+      ...baseInput,
+      premise: 'Il mondo è instabile.', // nessuna menzione di C
     });
-    const line = narrative.council[0].line;
-    expect(/\d/.test(line)).toBe(false);
-    expect(line).toContain('La forza che rassicura');
+    const bad = 'Il paese C minaccia la frontiera.';
+    const result = validateTextAgainstContext(bad, context);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('nome non verificato');
   });
 
-  it('una sedia senza voci tace', () => {
-    const narrative = buildOpeningNarrative({
-      worldName: 'W', date: '', premise: '',
-      addresses: [
-        address('tesoro', 'ordinaria', 'Coprire la cassa'),
-        { ...address('lavori', 'ordinaria', 'x'), items: [] } as CabinetAddress,
-      ],
-    });
-    expect(narrative.council.map(v => v.seat)).toEqual(['tesoro']);
+  it('rifiuta le parole di metadato', () => {
+    const context = buildOpeningContext(baseInput);
+    expect(validateTextAgainstContext('Come stabilito nel preset, ...', context).ok).toBe(false);
   });
 
-  it('estrae pochi paragrafi e ignora il markdown', () => {
-    const paragraphs = extractOpeningParagraphs('# Titolo\n\n- Punto uno con abbastanza testo per restare.\n\n**Blocco due** con enfasi.', 4, 100);
-    expect(paragraphs.length).toBeGreaterThan(0);
-    const joined = paragraphs.join(' ');
-    expect(joined).not.toContain('#');
-    expect(joined).not.toContain('**');
-    expect(joined).not.toContain('- Punto');
+  it('il prompt del renderer porta davvero i fatti verificati', () => {
+    const context = buildOpeningContext(baseInput);
+    const prompt = composeOpeningNarrativePrompt(context);
+    expect(prompt).toContain('TEST_WORLD_PREMISE');
+    expect(prompt).toContain('TEST_NATION');
+    expect(prompt).toContain('Un vicino cambia schieramento');
+    expect(prompt).toContain('infrastrutture');
   });
 
-  it('è deterministica', () => {
-    const input = { worldName: 'W', date: '2000-01-01', premise: 'Uno. Due.\n\nTre. Quattro.' };
-    expect(buildOpeningNarrative(input)).toEqual(buildOpeningNarrative(input));
+  it('parse: JSON valido → narrativa; non-JSON → null', () => {
+    const parsed = parseOpeningNarrativeJson('```json\n{"worldOrder":"x","stakesForNation":"y","council":[{"seat":"tesoro","line":"z"}]}\n```');
+    expect(parsed?.world.worldOrder).toBe('x');
+    expect(parsed?.council[0].seat).toBe('tesoro');
+    expect(parseOpeningNarrativeJson('non json')).toBeNull();
   });
 });

@@ -9,7 +9,8 @@ import { gameRepository } from '../../repositories';
 import { countryRepository } from '../../repositories/country.repository';
 import { getSessionRegistry } from '../../session-registry';
 import { readGovernmentAgenda, readCabinetSession } from '../../game/GovernmentReadings';
-import { buildOpeningNarrative } from '../../core/government/OpeningNarrative';
+import { buildOpeningContext, buildDeterministicOpeningResponse } from '../../core/government/OpeningNarrative';
+import { renderOpeningNarrative } from '../../core/government/OpeningNarrativeRenderer';
 import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult } from '../../game-session';
 import { IdempotencyConflictError, simulationJobService } from '../../jobs/SimulationJobService';
 import { addDays, jumpHorizon } from '../../core/simulation/calendar';
@@ -256,7 +257,12 @@ router.get('/:id/government/cabinet', (req, res) => {
  * nessuna azione, nessun evento, nessun cambio al motore. Il fallback
  * deterministico è il percorso stesso: `generated: false`.
  */
-router.get('/:id/opening-narrative', (req, res) => {
+router.get('/:id/opening-narrative', async (req, res) => {
+  const controller = new AbortController();
+  const onAborted = () => controller.abort();
+  const onClose = () => { if (!res.writableFinished) controller.abort(); };
+  req.once('aborted', onAborted);
+  res.once('close', onClose);
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
     const fence = session.fenceContext();
@@ -268,14 +274,29 @@ router.get('/:id/opening-narrative', (req, res) => {
       account: session.getNationalAccounts()[session.getPlayerPolityId()],
     });
     const game = gameRepository.findById(req.params.id) as any;
-    res.json(buildOpeningNarrative({
+    const polityId = session.getPlayer()?.polityId ?? '';
+    // I1 — l'**unico** OpeningContext backend, dai soli dati esistenti.
+    const context = buildOpeningContext({
       worldName: game?.world?.name,
       date: game?.current_date,
       premise: game?.world?.base_prompt ?? game?.world?.basePrompt,
+      rules: game?.world?.simulation_rules ?? game?.world?.simulationRules,
+      nationName: polityId,
+      polityId,
       addresses: cabinet.addresses,
-    }));
+    });
+    // I3 — renderer opzionale: una sola chiamata, con fallback deterministico.
+    let response = buildDeterministicOpeningResponse(context);
+    try {
+      const rendered = await renderOpeningNarrative(context, controller.signal);
+      if (rendered) response = rendered;
+    } catch { /* fallback deterministico */ }
+    if (!controller.signal.aborted && !res.destroyed) res.json(response);
   } catch (e: any) {
-    respondRouteError(res, e, 'Failed to read opening narrative');
+    if (!controller.signal.aborted && !res.destroyed) respondRouteError(res, e, 'Failed to read opening narrative');
+  } finally {
+    req.removeListener('aborted', onAborted);
+    res.removeListener('close', onClose);
   }
 });
 

@@ -8,10 +8,12 @@ import { OpeningPanelContent } from './GameOpeningBriefing';
 import type { GameOpeningBriefing as OpeningData } from './openingBriefing';
 
 const opening: OpeningData = {
-  world: { name: 'Millennium Dawn', date: '2000-01-01', dateLabel: '1 GENNAIO 2000', premise: 'La Guerra Fredda è finita.', paragraphs: ['La Guerra Fredda è finita.'] },
+  world: { name: 'Millennium Dawn', date: '2000-01-01', dateLabel: '1 GENNAIO 2000', premise: 'La Guerra Fredda è finita.', narrative: { worldOrder: 'La Guerra Fredda è finita.', stakesForNation: 'Per il tuo paese, il nuovo ordine pesa sulle scelte interne.' } },
   nation: { name: 'Bosnia ed Erzegovina', identity: 'Il paese eredita problemi aperti.', readings: [{ key: 'economy', label: 'Economia', value: 'Fragile', tone: 'warning' }], neighbors: [{ id: 'srb', name: 'Serbia', relation: 'Rapporto teso', tone: 'warning' }] },
   inheritedSituation: [{ id: 'infra', symbol: 'problem', label: 'Ricostruzione incompleta' }],
   worldAroundYou: [{ id: 'srb', name: 'Serbia', relation: 'Rapporto teso', tone: 'warning' }],
+  worldFactCards: [],
+  situationCards: [{ id: 'infra', symbol: 'problem', title: 'Ricostruzione incompleta', body: 'La rete limita lo sviluppo.', severity: 'warning' }],
   firstQuestions: [{ id: 'infra', label: 'Ricostruzione incompleta' }],
   council: [{ seat: 'lavori', label: 'Ministro dei Lavori', line: 'Ditemi dove e io vi dico cosa serve per partire.' }],
   entryPoints: [
@@ -76,7 +78,7 @@ describe('WS-GAME-OPENING — GameOpeningBriefing', () => {
   it('la pagina Paese monta la mini-mappa della geografia del motore (§11–§12), senza interazione', () => {
     const html = render(1, { mapRegions, highlightRegionIds: ['R1'] });
     expect(html).toContain('opening-map');
-    expect(html).toContain('IL TUO PAESE SULLA MAPPA');
+    expect(html).toContain('IL TUO PAESE NEL MONDO');
     expect(html).toContain('<svg');
     expect(html).toContain('<path');
     // Sola presentazione: nessuna affordance di click sulla mappa.

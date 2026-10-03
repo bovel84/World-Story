@@ -60,7 +60,7 @@ function OpeningMap({ regions, highlightRegionIds }: {
   }
   return (
     <div className="opening-map" role="group" aria-label="Il tuo paese sulla mappa">
-      <p className="opening-sub">IL TUO PAESE SULLA MAPPA</p>
+      <p className="opening-sub">IL TUO PAESE NEL MONDO</p>
       <svg viewBox={`0 0 ${model.width} ${model.height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Mappa politica di ${model.paths.length} province`}>
         {model.paths.map(entry => {
           const on = highlighted.has(entry.id);
@@ -106,6 +106,7 @@ export function OpeningPanelContent({ briefing, onFinish, onSkip, initialPage = 
   }, [goNext, goPrev]);
 
   const council = useMemo(() => briefing.council.slice(0, 3), [briefing.council]);
+  const narrative = briefing.world.narrative;
 
   return (
     <>
@@ -119,12 +120,15 @@ export function OpeningPanelContent({ briefing, onFinish, onSkip, initialPage = 
         {page === 0 && (
           <section className="opening-page">
             <p className="opening-world-name">{briefing.world.name}</p>
-            {briefing.world.paragraphs.length > 0 ? (
-              briefing.world.paragraphs.map((paragraph, index) => (
-                <p key={index} className="opening-prose">{paragraph}</p>
-              ))
+            {narrative.worldOrder ? (
+              <>
+                {narrative.headline && <p className="opening-kicker">{narrative.headline}</p>}
+                <p className="opening-prose">{narrative.worldOrder}</p>
+                {narrative.regionalSituation && <p className="opening-prose">{narrative.regionalSituation}</p>}
+                {narrative.stakesForNation && <p className="opening-prose opening-stakes">{narrative.stakesForNation}</p>}
+              </>
             ) : (
-              <p className="opening-prose opening-empty">Il mondo non ha ancora una descrizione nel preset.</p>
+              <p className="opening-prose opening-empty">Il mondo non ha ancora una descrizione.</p>
             )}
           </section>
         )}
@@ -133,7 +137,7 @@ export function OpeningPanelContent({ briefing, onFinish, onSkip, initialPage = 
           <section className="opening-page">
             <p className="opening-kicker">TU GOVERNI QUESTO PAESE</p>
             <p className="opening-nation-name">{briefing.nation.name || 'Il tuo paese'}</p>
-            <p className="opening-prose">{briefing.nation.identity}</p>
+            {briefing.nation.identity && <p className="opening-prose">{briefing.nation.identity}</p>}
 
             {mapRegions && mapRegions.length > 0 && (
               <OpeningMap regions={mapRegions} highlightRegionIds={highlightRegionIds ?? []} />
@@ -169,14 +173,14 @@ export function OpeningPanelContent({ briefing, onFinish, onSkip, initialPage = 
         {page === 2 && (
           <section className="opening-page">
             <p className="opening-kicker">IL QUADRO CHE EREDITI</p>
-            {briefing.inheritedSituation.length > 0 ? (
+            {briefing.situationCards.length > 0 ? (
               <ul className="opening-situation">
-                {briefing.inheritedSituation.map(item => (
-                  <li key={item.id} className={`opening-item opening-symbol-${item.symbol}`}>
-                    <SymbolGlyph symbol={item.symbol} />
+                {briefing.situationCards.map(card => (
+                  <li key={card.id} className={`opening-item opening-symbol-${card.symbol}`} data-severity={card.severity}>
+                    <SymbolGlyph symbol={card.symbol} />
                     <span className="opening-item-text">
-                      <span className="opening-item-label">{item.label}</span>
-                      {item.detail && <span className="opening-item-detail">{item.detail}</span>}
+                      <span className="opening-item-title">{card.title}</span>
+                      <span className="opening-item-detail">{card.body}</span>
                     </span>
                   </li>
                 ))}
@@ -184,6 +188,24 @@ export function OpeningPanelContent({ briefing, onFinish, onSkip, initialPage = 
             ) : (
               <p className="opening-prose opening-empty">Nessuna criticità rilevata: il paese regge.</p>
             )}
+
+            {briefing.worldFactCards.length > 0 && (
+              <div className="opening-worldfacts" aria-label="Fatti del mondo">
+                <h2 className="opening-sub">DAL MONDO</h2>
+                <ul className="opening-situation">
+                  {briefing.worldFactCards.map(card => (
+                    <li key={card.id} className={`opening-item opening-symbol-${card.symbol}`}>
+                      <SymbolGlyph symbol={card.symbol} />
+                      <span className="opening-item-text">
+                        <span className="opening-item-title">{card.title}</span>
+                        {card.body && <span className="opening-item-detail">{card.body}</span>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <p className="opening-legend">
               <span><SymbolGlyph symbol="problem" /> problema</span>
               <span><SymbolGlyph symbol="opportunity" /> opportunità</span>

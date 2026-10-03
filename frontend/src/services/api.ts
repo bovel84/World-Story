@@ -1033,11 +1033,16 @@ export interface CabinetSessionView {
   canonicalMutation: false;
 }
 
-/** WS-GAME-OPENING — la narrativa dell'apertura, deterministica e read-only. */
+/** WS-GAME-OPENING-IMMERSION — narrativa semantica + quadro + consiglio. */
 export interface OpeningNarrativeResponse {
-  generated: false;
-  deterministic: true;
-  world: { name: string; date: string; paragraphs: string[] };
+  generated: boolean;
+  deterministic: boolean;
+  world: {
+    name: string;
+    date: string;
+    narrative: { headline?: string; worldOrder: string; regionalSituation?: string; stakesForNation: string };
+  };
+  nation: { framing: string };
   council: { seat: string; label: string; line: string }[];
 }
 
