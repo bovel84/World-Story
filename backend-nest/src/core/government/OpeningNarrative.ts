@@ -227,7 +227,9 @@ export function buildDeterministicWorldNarrative(context: OpeningContext): Openi
   // situazione regionale. Il briefing nazionale NON viene da qui (vedi
   // `nation.verifiedSituation`/`questions`): è il Consulente a parlare del paese.
   const paragraphs = extractOpeningParagraphs(context.world.premise, { maxParagraphs: 3, maxWords: 220 });
-  const worldOrder = paragraphs[0] ?? '';
+  // §3A — Il contesto mondiale apre con una frase breve, non con il briefing
+  // intero: subito dopo parlano il paese e le sue questioni.
+  const worldOrder = clipWords(paragraphs[0] ?? '', 45);
   const regionalSituation = paragraphs[1];
   const stakes = buildStakesForNation(context);
   const headline = context.world.date || undefined;

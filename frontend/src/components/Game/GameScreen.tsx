@@ -311,13 +311,14 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     council: openingNarrative?.council ?? null,
     narrative: openingNarrative?.world?.narrative ?? null,
     nationFraming: openingNarrative?.nation?.framing ?? null,
+    nationQuestions: openingNarrative?.nation?.questions ?? null,
     cabinetAddresses: cabinet?.addresses ?? null,
     items: briefing.items,
   }, { compact: openingCompact }), [
     currentWorld?.name, currentWorld?.basePrompt, currentWorld?.simulationRules, currentGame?.currentDate, nationalName, nationalAccount,
     nation.nationalCrisis, nation.nationalGovernment, nation.relationships, nation.relationshipNames,
     nation.strategicAgenda, worldFacts, nation.nationalResources, playerPolityId,
-    openingNarrative?.council, openingNarrative?.world?.narrative, openingNarrative?.nation?.framing,
+    openingNarrative?.council, openingNarrative?.world?.narrative, openingNarrative?.nation?.framing, openingNarrative?.nation?.questions,
     cabinet?.addresses, briefing.items, openingCompact,
   ]);
 

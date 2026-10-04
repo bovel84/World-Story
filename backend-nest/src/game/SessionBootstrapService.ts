@@ -29,6 +29,8 @@ export interface SessionBootstrapContext {
   gameController: any;
   buildGameData(...args: any[]): any;
   ensurePeacetimePressures(): void;
+  /** WS-GOV-PRESET-REALITY-PIPELINE — capacità iniziale → oggetti canonici. */
+  materializeDerivedInfrastructure?(): void;
   restoreEnding(): void;
   seedInitialResources(): void;
   syncRegionsToDB(): Promise<void> | void;
@@ -106,6 +108,9 @@ export class SessionBootstrapService {
     this.ctx.gameController.setupWorld(world.base_prompt);
     // Il magazzino di ogni nazione nasce qui, dai suoi dati di partenza reali.
     this.ctx.seedInitialResources();
+    // §1 — Una sola realtà: la capacità iniziale diventa rappresentazione
+    // canonica sul campo quando il preset non ha popolato infrastrutture.
+    this.ctx.materializeDerivedInfrastructure?.();
 
     // Setup NPC agents: NPC = una POLITIA (paese), non ogni regione.
     // Nei mondi provinciali un paese possiede più province — un agente per
