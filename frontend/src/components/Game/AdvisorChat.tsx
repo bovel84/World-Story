@@ -7,6 +7,7 @@ import { useChatStore } from '../../stores';
 import { RichText } from './RichText';
 import { CouncilIssueInline } from './CouncilIssueInline';
 import { archivedTurns, currentTurnMessages } from './advisorTurns';
+import { advisorBucketKey, loadAdvisorMessages, saveAdvisorMessages } from './advisorMemory';
 import type { ChartDataInput } from './advisorCharts';
 
 interface AdvisorChatProps {
@@ -19,7 +20,7 @@ interface AdvisorChatProps {
 }
 
 export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue, currentTurn = 0 }: AdvisorChatProps) {
-  const { advisorMessages, advisorStreaming, addAdvisorMessage, setAdvisorStreaming, tagAdvisorTurns } = useChatStore();
+  const { advisorMessages, advisorStreaming, addAdvisorMessage, setAdvisorStreaming, tagAdvisorTurns, restoreAdvisorMessages } = useChatStore();
   const [input, setInput] = useState('');
   const [context, setContext] = useState<RealityAdvisorResponse | null>(null);
   const [focus, setFocus] = useState<CouncilIssue | undefined>();
@@ -34,6 +35,18 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
   const activeMessages = currentTurnMessages(advisorMessages, currentTurn);
   const previousTurns = archivedTurns(advisorMessages, currentTurn);
   useEffect(() => { tagAdvisorTurns(currentTurn); }, [currentTurn, tagAdvisorTurns]);
+  // Persistenza per turno: la conversazione sopravvive al reload senza mescolare
+  // i turni (un bucket per `gameId`+`scopeKey`, che contiene ramo e turno).
+  const bucket = advisorBucketKey(gameId, scopeKey);
+  useEffect(() => {
+    if (isLocal) return;
+    const restored = loadAdvisorMessages(bucket);
+    if (restored.length) restoreAdvisorMessages(restored);
+  }, [bucket, isLocal, restoreAdvisorMessages]);
+  useEffect(() => {
+    if (isLocal) return;
+    saveAdvisorMessages(bucket, activeMessages);
+  }, [bucket, isLocal, activeMessages]);
 
   useEffect(() => {
     setContext(null); setFocus(undefined); setError('');

@@ -316,6 +316,55 @@ export function buildGovernmentSituation(input: {
 export const SITUATION_FOLLOW_UP_DAYS = 30;
 
 /** Il seguito di una decisione: chi lo porta, quando, e con quali fatti reali. */
+/** Le misure di OGGI, senza template: servono al rapporto di un atto eseguito. */
+export function measuredOutcomeLines(facts: SituationFactSource): readonly string[] {
+  const lines = [
+    facts.foodCoverageMonths !== null ? `Copertura alimentare ${formatGovernmentNumber(facts.foodCoverageMonths, 'ratio')} mesi` : null,
+    `Disavanzo annuo ${formatGovernmentNumber(facts.deficitRatioPct, 'percent')}% del PIL`,
+    `Debito ${formatGovernmentNumber(facts.debtRatioPct, 'percent')}% del PIL`,
+    `Tensione sociale ${formatGovernmentNumber(facts.socialTension, 'ratio')}/100`,
+  ];
+  return lines.filter((line): line is string => typeof line === 'string' && Number.isFinite(Number(line.match(/-?[\d.,]+/)?.[0]?.replace(',', '.') ?? 'NaN')));
+}
+
+/**
+ * WS-GOV-ADVISOR-CHIEF-OF-STAFF P10 — Il rapporto di un ATTO ESEGUITO.
+ *
+ * Deriva dagli atti realmente eseguiti dal motore (processi in corso con
+ * `source_action_id`), non da Pressure legacy: il Rapporto riferisce lo stato
+ * misurato di oggi, senza riproporre strade.
+ */
+export function buildExecutedActFollowUp(input: {
+  readonly act: { readonly id: string; readonly sourceActionId?: string | null; readonly title: string; readonly startedDate: string; readonly summary?: string | null };
+  readonly owner: CabinetSeat;
+  readonly dueDate: string;
+  readonly daysLeft: number;
+  readonly facts: SituationFactSource;
+}): GovernmentFollowUp {
+  const sourceId = input.act.sourceActionId || input.act.id;
+  const outcome = measuredOutcomeLines(input.facts);
+  const origin: SituationOrigin = { type: 'previous-decision', sourceId };
+  return {
+    id: `follow-up:act:${sourceId}`,
+    pressureId: sourceId,
+    owner: input.owner,
+    dueDate: input.dueDate,
+    daysLeft: Math.round(input.daysLeft),
+    label: input.act.title,
+    checks: ['Verificare gli effetti registrati dell’atto eseguito'],
+    outcome,
+    origin,
+    situation: {
+      id: `act-report:${sourceId}`, pressureId: sourceId, title: `Rapporto: ${input.act.title}`,
+      briefing: [input.act.summary ?? input.act.title, ...outcome].filter(Boolean).join('. '),
+      source: 'Registro degli atti', severity: 1, priority: 'rilevante', openedDate: input.dueDate,
+      openedTurn: undefined, deadline: null, daysLeft: 0, leadMinister: input.owner, suggestedMinisters: [],
+      verifiedFacts: outcome, decisionQuestion: '', options: [], inaction: { note: '' }, affectedDomains: [],
+      origin,
+    },
+  };
+}
+
 export interface GovernmentFollowUp {
   readonly id: string;
   readonly pressureId: string;
