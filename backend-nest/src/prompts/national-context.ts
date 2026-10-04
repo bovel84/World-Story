@@ -88,6 +88,9 @@ export interface MinisterWorldContext {
    */
   signedActs?: string;
 
+  /** WS-GOV-ADVISOR-CHIEF-OF-STAFF — segnali verificati del momento (senza opzioni). */
+  concerns?: string;
+
   relevantStrategicContext?: string;
 }
 
@@ -133,6 +136,8 @@ export interface MinisterWorldContextInput {
   seat?: string;
   /** Atti firmati correnti (proiezione server-side degli ordini pending). */
   signedActs?: string;
+  /** Segnali verificati del momento: rimpiazzano il vecchio blocco Pressure. */
+  concerns?: string;
 }
 
 /**
@@ -148,7 +153,9 @@ export function buildMinisterWorldContext(input: MinisterWorldContextInput): Min
     .join('\n');
   const national = [
     vars.NATION_CRISIS ? `Crisi nazionale:\n${clip(vars.NATION_CRISIS, 800)}` : '',
-    vars.PEACETIME_PRESSURES ? `Pressioni di pace:\n${clip(vars.PEACETIME_PRESSURES, 800)}` : '',
+    // WS-GOV-ADVISOR-CHIEF-OF-STAFF — NIENTE Pressure legacy nel contesto del
+    // ministro: portavano titolo, opzioni e «chi preme», cioè una quest. I
+    // segnali verificati arrivano da `concerns` (RealitySignals), senza menu.
     vars.GOVERNMENT_STATE ? `Chi preme dentro il governo:\n${clip(vars.GOVERNMENT_STATE, 1_200)}` : '',
   ].filter(Boolean).join('\n\n');
 
@@ -166,6 +173,7 @@ export function buildMinisterWorldContext(input: MinisterWorldContextInput): Min
     activeCommitments: clip(vars.ACTIVE_COMMITMENTS, MINISTER_WORLD_BUDGET.activeCommitments) || '(nessun impegno in vigore)',
     ongoingProcesses: clip(vars.ONGOING_PROCESSES, MINISTER_WORLD_BUDGET.ongoingProcesses) || '(nessun processo in corso)',
     ...(input.signedActs ? { signedActs: input.signedActs } : {}),
+    ...(input.concerns ? { concerns: input.concerns } : {}),
     ...(strategic ? { relevantStrategicContext: clip(strategic, MINISTER_WORLD_BUDGET.strategicContext) } : {}),
   };
 }
@@ -193,7 +201,7 @@ ${world.recentHistory}
 Impegni già assunti:
 ${world.activeCommitments}
 Processi in corso:
-${world.ongoingProcesses}${world.relevantStrategicContext ? `\nSituazione strategica e materiale:\n${world.relevantStrategicContext}` : ''}${world.signedActs ? `\n\n${world.signedActs}` : ''}
+${world.ongoingProcesses}${world.relevantStrategicContext ? `\nSituazione strategica e materiale:\n${world.relevantStrategicContext}` : ''}${world.signedActs ? `\n\n${world.signedActs}` : ''}${world.concerns ? `\n\n${world.concerns}` : ''}
 
 ${MINISTER_WORLD_TRUTH_HIERARCHY}${emphasis ? `\n\n[ENFASI DELLA TUA COMPETENZA]\n${emphasis}` : ''}`;
 }
