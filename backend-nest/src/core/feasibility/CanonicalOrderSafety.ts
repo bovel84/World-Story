@@ -4,6 +4,7 @@
  * unstructured act has a verified route, cost, material bill or execution effect.
  */
 import type { Blocker } from './FeasibilityService';
+import { CANONICAL_ASSET_LABEL, canonicalAssetKind, type CanonicalAssetKind } from '../simulation/CanonicalAssetTypes';
 
 export interface CanonicalOrderRegion {
   readonly id: string;
@@ -15,21 +16,15 @@ export interface CanonicalOrderWorld {
   readonly regions: readonly CanonicalOrderRegion[];
   readonly operationalObjects: readonly { readonly id: string; readonly kind: string; readonly data: Readonly<Record<string, unknown>> }[];
 }
-type AssetKind = 'port' | 'railway' | 'road' | 'airfield' | 'factory' | 'fleet';
+type AssetKind = CanonicalAssetKind;
 interface Asset { readonly id: string; readonly name: string; readonly regionName?: string; }
 type Inventory = Record<AssetKind, Asset[]>;
 const record = (value: unknown): Readonly<Record<string, unknown>> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 const normalize = (value: string): string => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-const TYPES: Readonly<Record<string, AssetKind>> = {
-  port: 'port', ft_port: 'port',
-  railway: 'railway', ft_railway: 'railway',
-  road: 'road', ft_road: 'road',
-  airbase: 'airfield', ft_airbase: 'airfield',
-  factory: 'factory', ft_factory: 'factory',
-  steel_mill: 'factory', arms_factory: 'factory', vehicle_factory: 'factory', aircraft_factory: 'factory',
-  fleet: 'fleet', ship: 'fleet',
-};
+// WS-GOV-REALITY-ADVISOR-HARDENING — nessun alias duplicato: la stessa fonte
+// unica (`canonicalAssetKind`) di `VerifiedWorldSnapshot`.
+const TYPES = { get: (type: string): AssetKind | undefined => canonicalAssetKind(type) };
 const unavailable = (data: Readonly<Record<string, unknown>>): boolean => {
   const metadata = record(data.metadata);
   return ['under_construction', 'planned', 'destroyed', 'decommissioned', 'cancelled'].includes(text(data.status || metadata.status));
@@ -46,7 +41,7 @@ function inventoryFor(world: CanonicalOrderWorld, polityId: string): Inventory {
     if (region.owner !== polityId) continue;
     for (const raw of region.objects) {
       const object = record(raw);
-      const kind = TYPES[text(object.type)];
+      const kind = TYPES.get(text(object.type));
       if (!kind || !belongs(object, polityId) || unavailable(object)) continue;
       // Generic `infrastructure` and construction-site labels are NOT types.
       inventory[kind].push({ id: text(object.id), name: text(object.name), regionName: region.name });
@@ -56,7 +51,7 @@ function inventoryFor(world: CanonicalOrderWorld, polityId: string): Inventory {
   const shipIds = new Set(ships.map(row => row.id));
   for (const row of world.operationalObjects) {
     if (!belongs(row.data, polityId) || unavailable(row.data)) continue;
-    const kind = row.kind === 'facility' ? TYPES[text(row.data.kind)] : TYPES[row.kind];
+    const kind = row.kind === 'facility' ? TYPES.get(text(row.data.kind)) : TYPES.get(row.kind);
     if (!kind) continue;
     // A fleet container (or ships still being built) cannot prove a navy.
     if (row.kind === 'fleet' && !(Array.isArray(row.data.shipIds) && row.data.shipIds.some(id => shipIds.has(String(id))))) continue;
@@ -78,7 +73,7 @@ const REFERENCES: Readonly<Record<AssetKind, RegExp>> = {
 const ACTIONS = /\b(?:costru\w*|realizz\w*|edific\w*|crea\w*|build|construct|establish|usa|usare|usiamo|usate|use|using|utilizz\w*|sfrutt\w*|impieg\w*|ampli\w*|espand\w*|potenzi\w*|rinnov\w*|expand|upgrade|operate|mand\w*|invi\w*|schier\w*|mobilit\w*|send|deploy|trasport\w*|trasfer\w*|transport|priorita|priority)\b/g;
 const NEW_ACTION = /^(?:costru|realizz|edific|crea|build|construct|establish)/;
 const EXISTING = /\b(?:esistent[ei]|esiste|existing|attual[ei]|gia operativ[oaie])\b/;
-const LABELS: Record<AssetKind, string> = { port: 'porti', railway: 'ferrovie', road: 'strade', airfield: 'aeroporti', factory: 'fabbriche', fleet: 'flotta o navi' };
+const LABELS = CANONICAL_ASSET_LABEL;
 
 /** Extract only explicit `porto di X`/`port of X` references. No geographic
  * knowledge or fuzzy resolver: named references must match canonical names. */

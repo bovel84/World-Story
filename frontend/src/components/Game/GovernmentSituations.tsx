@@ -1,4 +1,9 @@
 /**
+ * LEGACY — le card «sfida» non sono più la home del Governo (WS-GOV-REALITY-ADVISOR):
+ * la porta è il Primo Consulente con i fatti verificati. Questo componente resta
+ * solo per compatibilità dei test e non è montato dalla home.
+ */
+/**
  * WS-GOV-ADVISOR-HUB — La porta del Governo: le situazioni, non un menu.
  * =====================================================================
  * La home del Governo mostra **cosa preme** e **cosa è tornato da riferire**,

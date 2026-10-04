@@ -1,4 +1,8 @@
 /**
+ * LEGACY — pannello delle Pressure, fuori dalla UX primaria (WS-GOV-REALITY-ADVISOR):
+ * nessuna voce della barra lo apre. Resta solo come riferimento storico dei test.
+ */
+/**
  * World Story — Pannello «Questioni» (V01, stile Victoria 3)
  * ==========================================================
  * Le **sfide di pace** del motore — pressioni interne ed esterne con le loro

@@ -130,139 +130,78 @@ describe('la pressione fiscale è una scelta del giocatore', () => {
   });
 });
 
-describe('le sfide di pace danno vita al turno', () => {  it('ogni nazione ha sempre almeno una sfida interna e una esterna', () => {
+describe('PeacetimePressures — LEGACY / DETECTOR ONLY', () => {
+  const legacyPressure = (overrides: Record<string, unknown> = {}) => ({
+    id: 'legacy:armatori', kind: 'internal' as const, template: 'legacy-armatori',
+    title: 'Vertenza degli armatori', detail: 'Gli armatori chiedono un accordo sul carburante.',
+    severity: 1 as const, source: 'Armatori', durationDays: 60,
+    options: [{
+      id: 'meet', label: 'Ricevere gli armatori', detail: 'Un incontro e una promessa.',
+      effect: { socialTension: -4, note: 'Armatori ricevuti: tensione in calo.' },
+    }],
+    inaction: { socialTension: 9, stability: -4, note: 'Vertenza ignorata.' },
+    ...overrides,
+  });
+
+  it('il nuovo workflow non genera più quest automatiche', () => {
     const { session } = createGame();
-    const { pressures } = session.getPeacetimePressures();
-    expect(pressures.length).toBeGreaterThanOrEqual(2);
-    expect(pressures.some((item: any) => item.kind === 'internal')).toBe(true);
-    expect(pressures.some((item: any) => item.kind === 'external')).toBe(true);
-    for (const pressure of pressures) {
-      expect(pressure.id).toBeTruthy();
-      expect(pressure.title).toBeTruthy();
-      expect(pressure.options.length).toBeGreaterThanOrEqual(2);
-      expect(pressure.severity).toBeGreaterThanOrEqual(1);
-    }
+    expect(session.getPeacetimePressures().pressures).toEqual([]);
   });
 
-  it('è deterministica: stesso turno, stesse sfide', () => {
-    const first = createGame().session.getPeacetimePressures().pressures.map((item: any) => item.id);
-    const second = createGame().session.getPeacetimePressures().pressures.map((item: any) => item.id);
-    expect(second).toEqual(first);
+  it('una Pressure legacy resta risolvibile esplicitamente e in modo idempotente', () => {
+    const { gameId, session } = createGame();
+    // Il percorso legacy (stanze `sourceSituation` salvate) resta l'unico a
+    // poter applicare un effetto, e solo su scelta esplicita del Presidente.
+    return (async () => {
+      const repos = await import('../src/repositories');
+      const player = session.getPlayer();
+      repos.gameRepository.insertPressures(gameId, player.polityId, [legacyPressure() as any], session.getCurrentDate(), session.getCurrentTurn());
+      const before = session.getResources().modifiers;
+      const result = session.resolvePeacetimePressure('legacy:armatori', 'meet');
+      expect(result.effect.note).toBeTruthy();
+      expect(result.pressure.status).toBe('resolved');
+      const after = session.getResources().modifiers;
+      expect(after.socialTension).not.toBe(before.socialTension);
+      // Idempotenza: una Pressure chiusa non produce un secondo effetto.
+      const frozen = session.getResources().modifiers;
+      expect(() => session.resolvePeacetimePressure('legacy:armatori', 'meet')).toThrow(/pressure_not_active/);
+      expect(session.getResources().modifiers).toEqual(frozen);
+    })();
   });
 
-  it('la risposta applica gli effetti e non può essere ripetuta', () => {
-    const { session } = createGame();
-    const { pressures } = session.getPeacetimePressures();
-    // Una scelta senza costo immediato: la cassa di una nazione del 1951 è
-    // sottile e il test non deve dipendere dall'opzione più cara.
-    const pressure = pressures.find((item: any) => item.options.some((option: any) => !option.effect?.moneyDeltaMld)) || pressures[0];
-    const option = pressure.options.find((item: any) => !item.effect?.moneyDeltaMld) || pressure.options[0];
-    const before = session.getResources().modifiers;
-
-    const result = session.resolvePeacetimePressure(pressure.id, option.id);
-    expect(result.effect.note).toBeTruthy();
-    expect(result.pressure.status).toBe('resolved');
-
-    const after = session.getResources().modifiers;
-    const stabilityMoved = (after.stability ?? 0) !== (before.stability ?? 0);
-    const tensionMoved = (after.socialTension ?? 0) !== (before.socialTension ?? 0);
-    const growthMoved = (after.growthModifier ?? 0) !== (before.growthModifier ?? 0);
-    const revenueMoved = (after.revenueMultiplier ?? 1) !== (before.revenueMultiplier ?? 1);
-    expect(stabilityMoved || tensionMoved || growthMoved || revenueMoved).toBe(true);
-
-    // Idempotenza: una sfida chiusa non produce un secondo effetto.
-    const modifiersAfter = session.getResources().modifiers;
-    expect(() => session.resolvePeacetimePressure(pressure.id, option.id)).toThrow(/pressure_not_active/);
-    expect(session.getResources().modifiers).toEqual(modifiersAfter);
-
-    const { pressures: open } = session.getPeacetimePressures();
-    expect(open.some((item: any) => item.id === pressure.id)).toBe(false);
-  });
-
-  it('le sfide ignorate NON scadono a ogni turno: la finestra è in giorni (P0)', async () => {
-    const { session } = createGame();
-    const before = session.getPeacetimePressures().pressures;
-    expect(before.length).toBeGreaterThanOrEqual(2);
-
-    // Un avanzamento di 30 giorni non chiude nulla: le sfide restano aperte.
-    await session.advanceDate(30);
-    const after = session.getPeacetimePressures();
-    for (const pressure of before) {
-      const still = after.pressures.find((item: any) => item.id === pressure.id);
-      expect(still).toBeTruthy();
-      expect(still.window.daysElapsed).toBe(30);
-      expect(still.window.daysLeft).toBeGreaterThan(0);
-      expect(still.window.expired).toBe(false);
-    }
-    // La finestra è leggibile e la priorità distingue ciò che merita attenzione.
-    for (const pressure of after.pressures) {
-      expect(['critica', 'rilevante', 'ordinaria']).toContain(pressure.priority);
-      expect(typeof pressure.highlighted).toBe('boolean');
-    }
-    // Al massimo due questioni in evidenza (P2): il resto resta nel dossier.
-    expect(after.pressures.filter((item: any) => item.highlighted).length).toBeLessThanOrEqual(2);
-
-    // Oltre la finestra più lunga, l'inerzia presenta il conto.
-    const beforeModifiers = session.getResources().modifiers;
-    await session.advanceDate(130);
-    const later = session.getPeacetimePressures();
-    for (const pressure of before) {
-      expect(later.pressures.some((item: any) => item.id === pressure.id)).toBe(false);
-    }
-    // Le sfide sono finite fra quelle chiuse, marcate come scadute.
-    const expired = later.recent.filter((item: any) => item.status === 'expired');
-    expect(expired.length).toBeGreaterThan(0);
-    expect(expired[0].resolvedDate).toBeTruthy();
-    // E l'inerzia ha lasciato il segno.
-    const afterModifiers = session.getResources().modifiers;
-    expect(
-      (afterModifiers.stability ?? 0) !== (beforeModifiers.stability ?? 0)
-      || (afterModifiers.socialTension ?? 0) !== (beforeModifiers.socialTension ?? 0),
-    ).toBe(true);
-  });
-
-  it('P0: una sfida con deadline di 60 giorni resta aperta a 30, scade dopo (P0 tempo)', async () => {
+  it('a 30 giorni la Pressure legacy resta aperta e nei termini, senza effetti', async () => {
     const { gameId, session } = createGame();
     const repos = await import('../src/repositories');
     const player = session.getPlayer();
-    const pressure = {
-      id: 'test:deadline#t1',
-      kind: 'internal' as const,
-      template: 'test-deadline',
-      title: 'Vertenza degli armatori',
-      detail: 'Gli armatori chiedono un accordo sul carburante.',
-      severity: 1 as const,
-      source: 'Armatori',
-      durationDays: 60,
-      options: [{
-        id: 'meet', label: 'Ricevere gli armatori', detail: 'Un incontro e una promessa.',
-        effect: { socialTension: -4, note: 'Armatori ricevuti: tensione in calo.' },
-      }],
-      inaction: { socialTension: 9, stability: -4, note: 'Vertenza ignorata: gli armatori bloccano i porti.' },
-    };
-    repos.gameRepository.insertPressures(gameId, player.polityId, [pressure as any], session.getCurrentDate(), session.getCurrentTurn());
+    repos.gameRepository.insertPressures(gameId, player.polityId, [legacyPressure() as any], session.getCurrentDate(), session.getCurrentTurn());
+    const before = session.getResources().modifiers;
 
-    // A 30 giorni la sfida è ancora aperta e nei termini.
     await session.advanceDate(30);
-    let active = session.getPeacetimePressures().pressures.find((item: any) => item.id === pressure.id);
-    expect(active).toBeTruthy();
-    expect(active!.window.daysElapsed).toBe(30);
-    expect(active!.window.daysLeft).toBe(30);
-    expect(active!.window.expired).toBe(false);
+    const open = session.getPeacetimePressures().pressures.find((item: any) => item.id === 'legacy:armatori');
+    expect(open).toBeTruthy();
+    expect(open!.window.daysElapsed).toBe(30);
+    expect(open!.window.expired).toBe(false);
+    expect(['critica', 'rilevante', 'ordinaria']).toContain(open!.priority);
+    expect(typeof open!.highlighted).toBe('boolean');
+    expect(session.getResources().modifiers).toEqual(before);
+  });
 
-    // Oltre la scadenza si chiude e applica l'effetto dell'inazione.
-    const beforeModifiers = session.getResources().modifiers;
+  it('oltre la scadenza la riga si chiude come scaduta SENZA applicare l’inerzia', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    const player = session.getPlayer();
+    repos.gameRepository.insertPressures(gameId, player.polityId, [legacyPressure() as any], session.getCurrentDate(), session.getCurrentTurn());
+    await session.advanceDate(30);
+    const before = session.getResources().modifiers;
+
     await session.advanceDate(35);
     const view = session.getPeacetimePressures();
-    expect(view.pressures.some((item: any) => item.id === pressure.id)).toBe(false);
-    const closed = view.recent.find((item: any) => item.id === pressure.id);
+    expect(view.pressures.some((item: any) => item.id === 'legacy:armatori')).toBe(false);
+    const closed = view.recent.find((item: any) => item.id === 'legacy:armatori');
     expect(closed?.status).toBe('expired');
-    expect(closed?.resolution).toMatch(/inerzia/i);
-    const afterModifiers = session.getResources().modifiers;
-    expect(
-      (afterModifiers.stability ?? 0) !== (beforeModifiers.stability ?? 0)
-      || (afterModifiers.socialTension ?? 0) !== (beforeModifiers.socialTension ?? 0),
-    ).toBe(true);
+    expect(closed?.resolution || '').toMatch(/nessun effetto applicato|detector/i);
+    // P0 — Nessuna penalità nascosta: i modificatori non si muovono.
+    expect(session.getResources().modifiers).toEqual(before);
   });
 });
 

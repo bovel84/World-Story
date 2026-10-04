@@ -131,7 +131,7 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     expect(longestCriticalSpan).toBeLessThan(crisis.collapseDays);
   });
 
-  it('una sfida di pace scade alla sua data: l’inerzia presenta il conto', async () => {
+  it('una Pressure legacy scade alla sua data SENZA applicare l’inerzia (detector/read-only)', async () => {
     const { gameId, session } = createGame();
     const repos = await import('../src/repositories');
     const player = session.getPlayer();
@@ -145,13 +145,16 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     expect(stillOpen.status).toBe('active');
     expect(stillOpen.deadlineDate).toBe('2026-04-01');
 
-    // Oltre la finestra di 90 giorni: scade anche senza essere guardata.
+    // Oltre la finestra di 90 giorni la riga si chiude come scaduta…
+    const modifiersBefore = session.getResources().modifiers;
     await session.advanceDate(60);
     await session.advanceDate(30);
     const afterWindow = session.getPeacetimePressures();
     const expired = afterWindow.recent.find((item: any) => item.id === 'long#1');
     expect(expired?.status).toBe('expired');
-    expect(expired?.resolution || '').toMatch(/inerzia|Scaduta/i);
+    expect(expired?.resolution || '').toMatch(/nessun effetto applicato|detector/i);
+    // …e NESSUN effetto canonico è stato applicato (niente penalità nascosta).
+    expect(session.getResources().modifiers).toEqual(modifiersBefore);
   });
 
   it('la memoria delle fazioni accompagna la partita e non sostituisce i dati', async () => {
@@ -342,10 +345,13 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
       detail: 'Il disavanzo è al 6% del PIL: i prezzi corrono.', severity: 2, source: 'Banca centrale', durationDays: 30,
     })], session.getCurrentDate(), session.getCurrentTurn());
 
+    const modifiersBefore = session.getResources().modifiers;
     await session.advanceDate(31);
     const expired = session.getPeacetimePressures().recent.find((item: any) => item.id === 'gov#infl');
     expect(expired?.status).toBe('expired');
-    expect(expired?.resolution || '').toMatch(/inerzia|Scaduta/i);
+    // P0 — Nessuna penalità di inerzia: il mondo non cambia per una quest scaduta.
+    expect(expired?.resolution || '').toMatch(/nessun effetto applicato|detector/i);
+    expect(session.getResources().modifiers).toEqual(modifiersBefore);
   });
 
   it('P2-D — una nuova situazione nata da una decisione passata dichiara la provenienza', async () => {
@@ -361,7 +367,7 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     expect(situation?.origin).toEqual({ type: 'previous-decision', sourceId: 'gov#old', legacy: true });
   });
 
-  it('P4 — una conseguenza scrive la provenance ESPLICITA, non per stesso template', async () => {
+  it('WS-GOV-REALITY-ADVISOR-HARDENING: nessuna conseguenza automatica da Pressure legacy', async () => {
     const { gameId, session } = createGame();
     const repos = await import('../src/repositories');
     const player = session.getPlayer();
@@ -373,12 +379,9 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     session.resolvePeacetimePressure('gov#p4', 'retaliate');
 
     await session.advanceDate(30);
+    // Il vecchio ciclo generava una conseguenza-quest: nel nuovo workflow no.
     const consequence = repos.gameRepository.listPressures(gameId).find((record: any) => record.originSourcePressureId === 'gov#p4');
-    expect(consequence).toBeTruthy();
-    expect(consequence.originType).toBe('previous-decision');
-    const situation = session.getPeacetimePressures().pressures.find((item: any) => item.id === consequence.id)?.situation;
-    expect(situation?.origin).toEqual({ type: 'previous-decision', sourceId: 'gov#p4' });
-    expect(situation?.origin.legacy).toBeUndefined();
+    expect(consequence).toBeFalsy();
   });
 
   it('P1.8 — alla data del seguito il ministro competente torna con i fatti di oggi', async () => {

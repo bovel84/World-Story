@@ -7,6 +7,7 @@
  */
 import { formatGovernmentNumber, type GovernmentNumberKind } from './GovernmentNumberFormat';
 import { coastalFromGeojson } from '../simulation/NationCapacity';
+import { canonicalAssetKind } from '../simulation/CanonicalAssetTypes';
 import { debtOf, type MaterialNeeds, type ResourceStock } from '../simulation/MaterialEconomy';
 import { equipmentById } from '../simulation/MilitaryIndustry';
 import { addDays, daysBetween } from '../simulation/calendar';
@@ -261,18 +262,25 @@ function coast(region: VerifiedMapRegion): boolean | null {
     ? coastalFromGeojson(region.id, region.geojson) : null;
 }
 
-/** Only object types actually supported by the map engine/catalogue. */
-const INFRASTRUCTURE_TYPES: Record<string, keyof VerifiedWorldSnapshot['infrastructure']> = {
-  port: 'ports', airbase: 'airfields', ft_railway: 'railways', ft_road: 'roads',
-  factory: 'factories', ft_factory: 'factories', ft_works: 'factories', ft_foundry: 'factories',
-  construction_site: 'constructionSites',
-  // Delivered assets use the actual facility IDs in simulation/facilities.json.
-  ft_mine: 'other', ft_farm: 'other', ft_school: 'other', ft_university: 'other',
-  ft_hospital: 'other', ft_bridge: 'other', ft_water: 'other', ft_power: 'other',
-  ft_housing: 'other', ft_barracks: 'other', ft_fortification: 'other',
-  infrastructure: 'other', university: 'other', power_plant: 'other', naval_base: 'other',
-  base: 'other', fortification: 'other', radar: 'other', missile_site: 'other',
+/**
+ * WS-GOV-REALITY-ADVISOR-HARDENING — gli asset usano la fonte unica
+ * `canonicalAssetKind`; qui restano solo i tipi non-asset.
+ */
+const INFRASTRUCTURE_BUCKET: Readonly<Record<string, keyof VerifiedWorldSnapshot['infrastructure']>> = {
+  port: 'ports', railway: 'railways', road: 'roads', airfield: 'airfields', factory: 'factories',
 };
+const OTHER_INFRASTRUCTURE_TYPES = new Set([
+  'construction_site', 'infrastructure', 'university', 'power_plant', 'naval_base',
+  'base', 'fortification', 'radar', 'missile_site',
+  // Delivered assets use the actual facility IDs in simulation/facilities.json.
+  'ft_mine', 'ft_farm', 'ft_school', 'ft_university', 'ft_hospital', 'ft_bridge',
+  'ft_water', 'ft_power', 'ft_housing', 'ft_barracks', 'ft_fortification',
+]);
+function infrastructureBucket(type: string): keyof VerifiedWorldSnapshot['infrastructure'] | undefined {
+  const kind = canonicalAssetKind(type);
+  if (kind) return INFRASTRUCTURE_BUCKET[kind];
+  return OTHER_INFRASTRUCTURE_TYPES.has(type) ? (type === 'construction_site' ? 'constructionSites' : 'other') : undefined;
+}
 const FORMATION_TYPES = new Set(['army', 'battalion', 'fleet', 'missile']);
 
 export function buildVerifiedWorldSnapshot(input: VerifiedWorldSnapshotInput): VerifiedWorldSnapshot {
@@ -314,7 +322,7 @@ export function buildVerifiedWorldSnapshot(input: VerifiedWorldSnapshotInput): V
       if (status && ['planned', 'under_construction', 'destroyed', 'decommissioned', 'cancelled'].includes(status)) continue;
       const asset: VerifiedMapAsset = { id: text(object.id), name: text(object.name), type,
         regionId: region.id, regionName: region.name, sourceRef: `world.regions.${key}.objects.${index}`, raw: object };
-      const category = Object.prototype.hasOwnProperty.call(INFRASTRUCTURE_TYPES, type) ? INFRASTRUCTURE_TYPES[type] : undefined;
+      const category = infrastructureBucket(type);
       if (category) inventory[category].push(asset);
       if (FORMATION_TYPES.has(type)) formations.push(asset);
       if (type === 'mobilization') mobilizations.push(asset);

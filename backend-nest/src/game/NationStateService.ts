@@ -23,7 +23,7 @@ import {
   type ResourceLedger, type WorldMarket,
 } from '../core/simulation/ResourceMarket';
 import {
-  PRESSURE_MAX_ACTIVE, generatePressureForTemplate, generatePressures, highlightPressures, pressureConsequenceTemplate, pressureInactionConsequenceTemplate, pressurePriority, pressureWindow, scalePressureEffect,
+  highlightPressures, pressurePriority, pressureWindow,
   type PressureEffect, type PressureNeighbour, type PressureSnapshot, type PressureWindow, type RelationStance,
 } from '../core/simulation/PeacetimePressures';
 import { buildGovernmentSituation, buildGovernmentFollowUp, leadMinisterFor, SITUATION_FOLLOW_UP_DAYS, type GovernmentSituation, type GovernmentFollowUp, type SituationFactSource } from '../core/government/GovernmentSituations';
@@ -101,6 +101,17 @@ export interface PressureView extends PressureRecord {
 
 /** Periodo materiale massimo: un mese. Niente tick giornalieri o orari. */
 export const MATERIAL_STEP_DAYS = 30;
+
+/**
+ * WS-GOV-REALITY-ADVISOR-HARDENING — Modalità del ciclo `PeacetimePressures`.
+ *
+ * Nel workflow del Consulente verificato le Pressure NON sono più quest: il
+ * loro ciclo resta DETECTOR / READ-ONLY. Aggiorna solo lo stato di lettura
+ * (scaduta / inasprita) e NON applica effetti canonici, non genera conseguenze
+ * e non apre nuove Pressure. Il mondo cambia **solo** attraverso ordini e atti
+ * eseguiti dal motore.
+ */
+export const LEGACY_PRESSURE_MODE = 'read_only' as const;
 
 /** Un periodo materiale, per chi deve agganciarsi al tick (ordini militari). */
 export interface MaterialSliceInfo {
@@ -932,15 +943,10 @@ export class NationStateService {
    * Chiamata al caricamento: un riavvio non crea sfide nuove a metà turno.
    */
   ensurePeacetimePressures(): void {
-    try {
-      // Se il turno corrente ha già avuto le sue sfide (anche se il giocatore
-      // le ha risolte tutte), non se ne inventano altre a metà turno.
-      const currentTurn = this.ctx.currentTurn();
-      if (gameRepository.listPressures(this.ctx.gameId).some(record => record.createdTurn === currentTurn)) return;
-      this.openNewPressures();
-    } catch (error) {
-      console.warn('[GameSession] Pressioni di pace non disponibili:', error);
-    }
+    // WS-GOV-REALITY-ADVISOR-HARDENING — Detector/read-only: non si aprono più
+    // Pressure come ciclo di quest. Le righe legacy restano leggibili; i nuovi
+    // segnali li produce `RealitySignals` dal VerifiedWorldSnapshot.
+    void LEGACY_PRESSURE_MODE;
   }
 
   /**
@@ -970,65 +976,6 @@ export class NationStateService {
    * (P2). La generazione resta deterministica e basata sugli indicatori correnti.
    */
   /**
-   * P4 — Apre la CONSEGUENZA di una decisione (o di un'inerzia), scrivendo la
-   * provenance ESPLICITA nel momento stesso in cui la genera. Non è lo stesso
-   * template: la tabella deterministica sceglie la questione che ne deriva, e il
-   * motore la persiste con `origin_source_pressure_id`. Una conseguenza alla volta.
-   */
-  private spawnConsequencePressures(): void {
-    const all = gameRepository.listPressures(this.ctx.gameId);
-    const active = all.filter(record => record.status === 'active');
-    // Una conseguenza è il ritorno diretto di una decisione: ha precedenza sul
-    // tetto delle sfide ordinarie, ma al massimo porta il totale a 4.
-    if (active.length >= PRESSURE_MAX_ACTIVE + 1) return;
-    const openTemplates = new Set(active.map(record => record.template));
-    const alreadySpawned = new Set(all.map(record => record.originSourcePressureId).filter((id): id is string => Boolean(id)));
-    const candidates = all
-      .filter(record => record.status !== 'active' && record.resolvedDate && !alreadySpawned.has(record.id))
-      .sort((left, right) => String(right.resolvedDate).localeCompare(String(left.resolvedDate)));
-    for (const source of candidates) {
-      const optionIds = String(source.resolvedOption ?? '').split(',').filter(Boolean);
-      const mapped = source.status === 'expired'
-        ? pressureInactionConsequenceTemplate(source.template)
-        : pressureConsequenceTemplate(source.template, optionIds);
-      // La conseguenza è una sfida NUOVA con provenance esplicita: prima il
-      // template mappato, altrimenti una sfida generata dallo stato.
-      const snapshot = this.pressureSnapshot();
-      const generated = (mapped ? generatePressureForTemplate(snapshot, mapped) : null)
-        ?? generatePressures(snapshot, { maxPressures: 3 })[0]
-        ?? null;
-      if (!generated) continue;
-      const id = `${generated.id}#from:${source.id}`;
-      const originType = source.status === 'expired' ? 'inaction' : 'previous-decision';
-      gameRepository.insertPressures(this.ctx.gameId, this.ctx.playerPolityId(), [{ ...generated, id }], this.ctx.currentDate(), this.ctx.currentTurn(), {
-        [id]: { type: originType, sourcePressureId: source.id },
-      });
-      return;
-    }
-  }
-
-  private openNewPressures(): void {
-    const active = gameRepository.listPressures(this.ctx.gameId, 'active');
-    const room = PRESSURE_MAX_ACTIVE - active.length;
-    if (room <= 0) return;
-    const openTemplates = new Set(active.map(record => record.template));
-    // WS-GOV-ADVISOR-HUB P3.2 — Una questione appena chiusa NON riappare come
-    // crisi nuova: il suo seguito è il follow-up/conseguenza, non un doppione.
-    const recentlyClosed = new Set(
-      gameRepository.listPressures(this.ctx.gameId)
-        .filter(record => record.status !== 'active' && record.resolvedDate
-          && daysBetween(record.resolvedDate, this.ctx.currentDate()) <= SITUATION_FOLLOW_UP_DAYS)
-        .map(record => record.template),
-    );
-    const candidate = generatePressures(this.pressureSnapshot(), { maxPressures: room })
-      .filter(pressure => !openTemplates.has(pressure.template) && !recentlyClosed.has(pressure.template));
-    if (candidate.length === 0) return;
-    gameRepository.insertPressures(
-      this.ctx.gameId, this.ctx.playerPolityId(), candidate, this.ctx.currentDate(), this.ctx.currentTurn(),
-    );
-  }
-
-  /**
    * Fa scorrere il tempo delle sfide di pace:
    *
    *  - le sfide **nei termini restano aperte** (non scadono più ogni turno);
@@ -1039,27 +986,23 @@ export class NationStateService {
    *  - se c'è spazio, nascono nuove sfide dagli indicatori aggiornati.
    */
   refreshPeacetimePressures(): void {
+    // DETECTOR / READ-ONLY (LEGACY_PRESSURE_MODE): l'unica mutazione ammessa è
+    // lo stato di lettura della riga legacy. Nessun `applyPressureEffect`, nessuna
+    // conseguenza, nessuna nuova Pressure: una decisione presa via Consulente o
+    // Consiglio non può essere punita da una quest invisibile.
     try {
-      const active = gameRepository.listPressures(this.ctx.gameId, 'active');
-      for (const record of active) {
+      for (const record of gameRepository.listPressures(this.ctx.gameId, 'active')) {
         const window = this.pressureWindowOf(record);
         if (window.expired) {
-          if (gameRepository.expirePressure(this.ctx.gameId, record.id, this.ctx.currentDate())) {
-            this.ctx.applyPressureEffect(record.inaction, `${record.title}: sfida ignorata oltre la scadenza`);
-            // GAMEPLAY-LONG: chi aveva portato la richiesta non dimentica il silenzio.
-            this.recordPressureMemory(record, null, record.inaction, null);
-          }
+          // Nota di lettura: nessuna penalità è stata applicata.
+          gameRepository.expirePressure(this.ctx.gameId, record.id, this.ctx.currentDate(),
+            'Finestra di decisione terminata (legacy detector/read-only): nessun effetto applicato.');
           continue;
         }
         if (window.escalationDue) {
-          const escalated = scalePressureEffect(record.inaction);
-          if (gameRepository.markPressureEscalated(this.ctx.gameId, record.id, this.ctx.currentDate())) {
-            this.ctx.applyPressureEffect(escalated, `${record.title}: la sfida si inasprisce (${window.daysElapsed} giorni senza risposta)`);
-          }
+          gameRepository.markPressureEscalated(this.ctx.gameId, record.id, this.ctx.currentDate());
         }
       }
-      this.spawnConsequencePressures();
-      this.openNewPressures();
     } catch (error) {
       console.warn('[GameSession] Pressioni di pace non disponibili:', error);
     }
