@@ -10,6 +10,7 @@ import { create } from 'zustand';
 import { chatsApi, type ChatSummaryData, type ChatMessageData, type CouncilIssue } from '../services/api';
 import { archiveSiblingThreads, lastChatMessage, orderChatMessages } from '../components/Game/chatTimeline';
 import { tagLegacyTurns } from '../components/Game/advisorTurns';
+import { mergeAdvisorMessages } from '../components/Game/advisorMemory';
 
 export type ChatSummary = ChatSummaryData;
 export type ChatMessage = ChatMessageData;
@@ -89,6 +90,8 @@ interface ChatState {
   addAdvisorMessage: (msg: AdvisorMessage) => void;
   /** WS-GOV-TURN-AWARENESS — Marca i messaggi legacy con il turno corrente. */
   tagAdvisorTurns: (turn: number) => void;
+  /** WS-GOV-ADVISOR-CHIEF-OF-STAFF — Reinserisce la conversazione persistita, senza duplicati. */
+  restoreAdvisorMessages: (messages: AdvisorMessage[]) => void;
   appendToLastAdvisorMessage: (token: string) => void;
   setAdvisorStreaming: (streaming: boolean) => void;
   addMinisterMessage: (seat: string, msg: AdvisorMessage) => void;
@@ -258,6 +261,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   tagAdvisorTurns: (turn) => set((state) => ({
     advisorMessages: tagLegacyTurns(state.advisorMessages, turn),
+  })),
+
+  restoreAdvisorMessages: (messages) => set((state) => ({
+    advisorMessages: mergeAdvisorMessages(state.advisorMessages, messages),
   })),
 
   // Aggiunge il token dello stream all'ultimo messaggio dell'assistente

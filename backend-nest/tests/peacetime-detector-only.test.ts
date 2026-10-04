@@ -116,6 +116,30 @@ describe('PeacetimePressures — detector / read-only', () => {
     expect(rows()).toHaveLength(0);
   });
 
+  it('WS-GOV-ADVISOR-CHIEF-OF-STAFF P10: un atto ESEGUITO produce un rapporto misurato', () => {
+    // Atti realmente eseguiti: registro canonico dei processi con source_action_id.
+    // `source_run_id` ha una FK verso simulation_runs: si registra il run reale.
+    db.prepare('INSERT INTO simulation_runs (id, game_id, mode, status, start_date, created_at) VALUES (?,?,?,?,?,?)')
+      .run('run-1', session.id, 'manual', 'completed', '1950-12-01', new Date().toISOString());
+    games.upsertOngoingProcess({
+      id: 'proc-1', gameId: session.id, sourceActionId: 'act-1', sourceRunId: 'run-1',
+      title: 'Importazione di grano', summary: 'Prima tranche avviata.', startedDate: '1950-12-01',
+    });
+    const report = session.getPeacetimePressures().followUps.find(item => item.pressureId === 'act-1');
+    expect(report).toBeTruthy();
+    expect(report!.origin).toEqual({ type: 'previous-decision', sourceId: 'act-1' });
+    expect(report!.owner).toBe('tesoro');
+    expect(report!.outcome.length).toBeGreaterThan(0);
+    expect(report!.label).toContain('Importazione di grano');
+
+    // Un atto appena avviato NON ha ancora un rapporto.
+    games.upsertOngoingProcess({
+      id: 'proc-2', gameId: session.id, sourceActionId: 'act-2', sourceRunId: 'run-1',
+      title: 'Ferrovia del nord', summary: 'Avviata.', startedDate: session.getCurrentDate(),
+    });
+    expect(session.getPeacetimePressures().followUps.some(item => item.pressureId === 'act-2')).toBe(false);
+  });
+
   it('WS-GOV-REALITY-CLEANUP: una Pressure expirata NON produce follow-up, una risolta sì', async () => {
     // 1) Scaduta in detector/read-only: mai un rapporto.
     insert(pressure({ id: 'legacy:expired-fu' }), '1950-11-22', 1);

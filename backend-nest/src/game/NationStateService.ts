@@ -26,7 +26,8 @@ import {
   highlightPressures, pressurePriority, pressureWindow,
   type PressureEffect, type PressureNeighbour, type PressureSnapshot, type PressureWindow, type RelationStance,
 } from '../core/simulation/PeacetimePressures';
-import { buildGovernmentSituation, buildGovernmentFollowUp, leadMinisterFor, SITUATION_FOLLOW_UP_DAYS, type GovernmentSituation, type GovernmentFollowUp, type SituationFactSource } from '../core/government/GovernmentSituations';
+import { buildGovernmentSituation, buildGovernmentFollowUp, buildExecutedActFollowUp, leadMinisterFor, SITUATION_FOLLOW_UP_DAYS, type GovernmentSituation, type GovernmentFollowUp, type SituationFactSource } from '../core/government/GovernmentSituations';
+import type { CabinetSeat } from '../core/government/Cabinet';
 import { buildGovernmentAdvisorBrief, type GovernmentAdvisorBrief } from '../core/government/GovernmentAdvisorBrief';
 import { advanceCrisis, type CrisisEnding, type CrisisInput, type CrisisState } from '../core/simulation/NationCrisis';
 import { factionMemoryFromPressure, type FactionMemoryEvent } from '../core/simulation/FactionMemory';
@@ -1142,6 +1143,13 @@ export class NationStateService {
         facts,
         priority: 'rilevante',
       }));
+    // WS-GOV-ADVISOR-CHIEF-OF-STAFF P10 — I rapporti degli ATTI ESEGUITI: derivano
+    // dal registro canonico dei processi (source_action_id), non da Pressure.
+    const actFollowUps = this.executedActFollowUps(today, facts);
+    const reports = [...followUps, ...actFollowUps]
+      .sort((left, right) => left.daysLeft - right.daysLeft)
+      .filter((item, index, list) => list.findIndex(other => other.id === item.id) === index)
+      .slice(0, 4);
     const situations = withWindow.map(record => ({
       ...record,
       highlighted: highlighted.has(record.id),
@@ -1152,16 +1160,62 @@ export class NationStateService {
     const brief = buildGovernmentAdvisorBrief({
       date: today,
       situations: situations.map(item => item.situation),
-      followUps,
+      followUps: reports,
       recentDecisions: all.filter(record => record.status !== 'active').slice(0, 8).map(record => ({ id: record.id, title: record.title, resolution: record.resolution })),
     });
     return {
       pressures: situations,
       recent: all.filter(record => record.status !== 'active').slice(0, 6),
       foodCoverageMonths: this.foodCoverageMonths(),
-      followUps,
+      followUps: reports,
       brief,
     };
+  }
+
+  /**
+   * WS-GOV-ADVISOR-CHIEF-OF-STAFF P10 — I rapporti degli atti REALMENTE eseguiti.
+   *
+   * Fonte canonica: i processi in corso del motore con `source_action_id`
+   * (un atto firmato che il motore ha accettato apre un processo). A 30 giorni
+   * dall'avvio il ministro competente riferisce lo stato MISURATO di oggi; non
+   * si ripropongono strade e non si inventano effetti.
+   */
+  private executedActFollowUps(today: string, facts: SituationFactSource): GovernmentFollowUp[] {
+    let processes: any[] = [];
+    try { processes = gameRepository.getOngoingProcesses(this.ctx.gameId); } catch { return []; }
+    return processes
+      .filter(process => process?.started_date && process.status === 'ongoing')
+      .map(process => {
+        const dueDate = addDays(process.started_date as string, SITUATION_FOLLOW_UP_DAYS);
+        return { process, dueDate, daysLeft: daysBetween(today, dueDate) };
+      })
+      .filter(item => item.daysLeft <= 0)
+      .sort((left, right) => left.daysLeft - right.daysLeft)
+      .slice(0, 2)
+      .map(item => buildExecutedActFollowUp({
+        act: {
+          id: item.process.id, sourceActionId: item.process.source_action_id ?? null,
+          title: item.process.title ?? 'Atto del Governo', startedDate: item.process.started_date,
+          summary: item.process.summary ?? null,
+        },
+        owner: this.seatForAct(String(item.process.title ?? '')),
+        dueDate: item.dueDate,
+        daysLeft: item.daysLeft,
+        facts,
+      }));
+  }
+
+  /** Il ministro competente per un atto, dalle parole dell'atto: deterministico. */
+  private seatForAct(title: string): CabinetSeat {
+    const text = title.toLowerCase();
+    // Confini di parola dove la radice è ambigua: «importazione» non è un porto.
+    if (/ferrov|\bport[oi]\b|portual|strad|\bpont[ei]\b|infrastruttur|cantier|\boper[ae]\b|fabbric|industri/.test(text)) return 'lavori';
+    if (/guerra|militar|difesa|trupp|flott|\bconfini?\b/.test(text)) return 'guerra';
+    if (/scuol|universit|istruz|ricerc/.test(text)) return 'istruzione';
+    if (/sanit|salute|ospedal/.test(text)) return 'sanita';
+    if (/trattat|accord|\bester[oi]\b|diplomaz|ambasciat/.test(text)) return 'esteri';
+    if (/ordine pubblic|sicurezza|\bintern[oi]\b/.test(text)) return 'interno';
+    return 'tesoro';
   }
 
   // ── Crisi ───────────────────────────────────────────────────────────────
