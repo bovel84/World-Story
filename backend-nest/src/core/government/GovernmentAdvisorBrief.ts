@@ -24,7 +24,7 @@ export type SituationLifecycle = 'new' | 'active' | 'follow-up';
 export interface CabinetRosterEntry {
   readonly seat: CabinetSeat;
   readonly label: string;
-  /** `engaged` = ha una questione o un rapporto; `available` = è comunque consultabile. */
+  /** `engaged` = ha un rapporto di una decisione presa; `available` = consultabile. */
   readonly state: 'engaged' | 'available';
 }
 
@@ -59,10 +59,12 @@ export function buildGovernmentAdvisorBrief(input: {
   readonly followUps: readonly GovernmentFollowUp[];
   readonly recentDecisions?: readonly { readonly id: string; readonly title: string; readonly resolution?: string | null }[];
 }): GovernmentAdvisorBrief {
-  const engaged = new Set<CabinetSeat>([
-    ...input.situations.map(situation => situation.leadMinister),
-    ...input.followUps.map(followUp => followUp.owner),
-  ]);
+  // WS-GOV-REALITY-CLEANUP — `engaged` NON si deduce da Pressure detector/legacy:
+  // una quest invisibile non deve mostrare «Ministro X — sul tavolo». Restano
+  // solo i rapporti di verifica di decisioni realmente prese. Il read model qui
+  // non conosce le stanze del Consiglio aperte: senza quella fonte, un ministro
+  // è `available`, mai dedotto.
+  const engaged = new Set<CabinetSeat>(input.followUps.map(followUp => followUp.owner));
   return {
     date: input.date,
     situations: [...input.situations],

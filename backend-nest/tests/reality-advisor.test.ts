@@ -65,6 +65,14 @@ describe('verified reality boundary', () => {
     expect(result.issues[0].suggestedMinisters).toEqual(['lavori', 'tesoro']);
     expect(result.issues[0].verifiedFacts[0].value).toContain('nessuna');
   });
+  it('WS-GOV-REALITY-CLEANUP: un segnale con soli sourceRefs non sparisce', () => {
+    const world = snapshot();
+    world.diplomacy.relations = [{ polityId: 'KEN', polityName: 'Kenya', relationship: 'hostile', sourceRef: 'relationships.UGA.KEN' }];
+    const signal = buildRealitySignals(world).find(item => item.key === 'hostile-relations');
+    expect(signal).toBeTruthy();
+    expect(signal!.factKeys).toEqual([]);
+    expect(signal!.sourceRefs.length).toBeGreaterThan(0);
+  });
   it('strips unknown or incomplete model proposals without accepting any partial facts', () => {
     const result = parseCouncilIssues(snapshot(), 'Parliamone.\n```council_issue\n' + JSON.stringify({ ...proposal, factKeys: ['treasury', 'invented'] }) + '\n```');
     expect(result).toEqual({ reply: 'Parliamone.', issues: [] });
