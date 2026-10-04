@@ -20,6 +20,15 @@ describe('verified advisor transport', () => {
     expect(payload.advisorContext.focusIssue.id).toBe('i');
     expect(payload.advisorContext.verifiedWorldSnapshot).toBeUndefined();
   });
+  it('opens the government through the LLM opening endpoint, not the deterministic read model', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ reply: 'Presidente, il paese entra nel nuovo secolo.', issues: [], fallback: false }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const result = await advisorApi.opening('g1');
+    expect(fetch.mock.calls[0][0]).toContain('/games/g1/advisor/opening');
+    expect(fetch.mock.calls[0][1]?.method).toBe('POST');
+    expect(result.fallback).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('does not retry ambiguous failed requests or accept partial facts', async () => {
     const fetch = vi.fn().mockRejectedValue(new Error('offline'));
     vi.stubGlobal('fetch', fetch);

@@ -211,6 +211,13 @@ router.get('/:id/advisor/context', (req, res) => {
   } catch (error) { respondRouteError(res, error, 'Failed to read advisor context'); }
 });
 
+router.post('/:id/advisor/opening', async (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json(await session.getAdvisorOpening());
+  } catch (error) { respondRouteError(res, error, 'Failed to open advisor'); }
+});
+
 router.post('/:id/advisor/reality', async (req, res) => {
   const body = validateBody(res, realityAdvisorSchema, req.body);
   if (!body) return;

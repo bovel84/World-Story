@@ -871,6 +871,16 @@ export const gameRepository = {
     stmt.run(turn, date, gameId);
   },
 
+  /** WS-GOV-ADVISOR-HISTORICAL-BASELINE: background storico canonico della partita. */
+  getHistoricalBaseline: (gameId: string): string => {
+    const row = db.prepare('SELECT historical_baseline FROM games WHERE id = ?').get(gameId) as { historical_baseline?: string | null } | undefined;
+    return row?.historical_baseline ?? '';
+  },
+
+  setHistoricalBaseline: (gameId: string, baseline: string) => {
+    db.prepare('UPDATE games SET historical_baseline = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(baseline, gameId);
+  },
+
   /** Этап 2: сохранить консолидированную историю (саммари старых раундов). */
   updateConsolidation: (gameId: string, history: string, upToTurn: number) => {
     const stmt = db.prepare('UPDATE games SET consolidated_history = ?, consolidated_up_to = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');

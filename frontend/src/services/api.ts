@@ -1989,9 +1989,12 @@ export interface VerifiedWorldSnapshotView {
 export interface RealityAdvisorResponse {
   reply: string;
   issues: CouncilIssue[];
+  /** Presente sulla prima apertura: `true` quando è scattato il briefing deterministico. */
+  fallback?: boolean;
   advisorContext: {
     verifiedWorldSnapshot: VerifiedWorldSnapshotView;
     governmentBrief: string;
+    historicalBaseline?: string;
     focusIssue?: CouncilIssue;
   };
 }
@@ -2145,6 +2148,9 @@ export const ministerApi = {
 export const advisorApi = {
   context: (gameId: string, signal?: AbortSignal): Promise<RealityAdvisorResponse> =>
     fetchApi(`/games/${gameId}/advisor/context`, { signal }),
+  /** Prima apertura: generazione LLM (storia del paese + presente + direzioni), con fallback deterministico. */
+  opening: (gameId: string, signal?: AbortSignal): Promise<RealityAdvisorResponse> =>
+    fetchApi(`/games/${gameId}/advisor/opening`, { method: 'POST', signal }),
   /** Complete, server-validated output; no unvalidated partial text or implicit POST retries. */
   reality: (gameId: string, message: string, history: AdvisorHistoryItem[], focusIssue?: CouncilIssue, signal?: AbortSignal): Promise<RealityAdvisorResponse> =>
     fetchApi(`/games/${gameId}/advisor/reality`, {

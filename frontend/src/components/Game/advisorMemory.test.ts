@@ -6,7 +6,7 @@
  * reload, con validazione minima.
  */
 import { describe, expect, it } from 'vitest';
-import { advisorBucketKey, loadAdvisorArchive, loadAdvisorMessages, saveAdvisorMessages } from './advisorMemory';
+import { advisorBucketKey, advisorOpeningKey, loadAdvisorArchive, loadAdvisorMessages, loadAdvisorOpening, saveAdvisorMessages, saveAdvisorOpening } from './advisorMemory';
 import type { AdvisorMessage } from '../../stores/chatStore';
 import type { CouncilIssue } from '../../services/api';
 
@@ -96,5 +96,23 @@ describe('advisorMemory', () => {
     expect(loadAdvisorMessages('qualsiasi')).toEqual([]);
     expect(loadAdvisorArchive('g1', 'main', 'x')).toEqual([]);
     expect(() => saveAdvisorMessages('qualsiasi', [{ role: 'user', content: 'x', turn: 1 }])).not.toThrow();
+  });
+
+  it('WS-GOV-ADVISOR-HISTORICAL-BASELINE: l’apertura LLM si riusa per bucket', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorOpeningKey('g1', 'main', 'g1|main|3');
+    expect(loadAdvisorOpening(key)).toBeNull();
+    saveAdvisorOpening(key, { reply: 'Presidente, il paese arriva al 2000 dopo decenni difficili.', issues: [issue()], date: '2000-01-01' });
+    const restored = loadAdvisorOpening(key)!;
+    expect(restored.reply).toContain('2000');
+    expect(restored.date).toBe('2000-01-01');
+    expect(restored.issues[0].title).toBe('Approvvigionamento');
+    // Bucket diverso (altro ramo): nessuna contaminazione.
+    expect(loadAdvisorOpening(advisorOpeningKey('g1', 'other', 'g1|other|3'))).toBeNull();
+    // Payload illeggibile o incompleto: `null`, senza rompere la chat.
+    (globalThis as { localStorage?: Storage }).localStorage = { ...fakeStorage(), getItem: () => '{"reply":""}' } as Storage;
+    expect(loadAdvisorOpening(key)).toBeNull();
+    (globalThis as { localStorage?: Storage }).localStorage = { ...fakeStorage(), setItem: () => { throw new Error('quota'); } } as Storage;
+    expect(() => saveAdvisorOpening(key, { reply: 'x', issues: [], date: null })).not.toThrow();
   });
 });
