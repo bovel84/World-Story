@@ -82,6 +82,12 @@ export interface MinisterWorldContext {
   activeCommitments: string;
   ongoingProcesses: string;
 
+  /**
+   * WS-GOV-TURN-AWARENESS — Atti firmati in attesa di esecuzione, già resi come
+   * sezione: decisioni PRESE dal Presidente, i cui effetti non sono ancora realtà.
+   */
+  signedActs?: string;
+
   relevantStrategicContext?: string;
 }
 
@@ -125,6 +131,8 @@ export interface MinisterWorldContextInput {
   /** Il nome del mondo/preset, dal `GameData` (non è una variabile del giocatore). */
   worldName?: string;
   seat?: string;
+  /** Atti firmati correnti (proiezione server-side degli ordini pending). */
+  signedActs?: string;
 }
 
 /**
@@ -157,6 +165,7 @@ export function buildMinisterWorldContext(input: MinisterWorldContextInput): Min
     ) || '(nessuna cronaca disponibile)',
     activeCommitments: clip(vars.ACTIVE_COMMITMENTS, MINISTER_WORLD_BUDGET.activeCommitments) || '(nessun impegno in vigore)',
     ongoingProcesses: clip(vars.ONGOING_PROCESSES, MINISTER_WORLD_BUDGET.ongoingProcesses) || '(nessun processo in corso)',
+    ...(input.signedActs ? { signedActs: input.signedActs } : {}),
     ...(strategic ? { relevantStrategicContext: clip(strategic, MINISTER_WORLD_BUDGET.strategicContext) } : {}),
   };
 }
@@ -184,7 +193,7 @@ ${world.recentHistory}
 Impegni già assunti:
 ${world.activeCommitments}
 Processi in corso:
-${world.ongoingProcesses}${world.relevantStrategicContext ? `\nSituazione strategica e materiale:\n${world.relevantStrategicContext}` : ''}
+${world.ongoingProcesses}${world.relevantStrategicContext ? `\nSituazione strategica e materiale:\n${world.relevantStrategicContext}` : ''}${world.signedActs ? `\n\n${world.signedActs}` : ''}
 
 ${MINISTER_WORLD_TRUTH_HIERARCHY}${emphasis ? `\n\n[ENFASI DELLA TUA COMPETENZA]\n${emphasis}` : ''}`;
 }

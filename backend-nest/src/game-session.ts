@@ -28,7 +28,7 @@ import { WorldMutationService } from './game/WorldMutationService';
 import { GameDataService } from './game/GameDataService';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
 import { readPreviousVerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshotHistory';
-import { buildRealityAdvisorContext, guardRealityAdvisorOutput, type RealityAdvisorResult } from './core/government/RealityAdvisor';
+import { buildRealityAdvisorContext, guardRealityAdvisorOutput, renderSignedActs, type RealityAdvisorResult } from './core/government/RealityAdvisor';
 import { parseCouncilIssues, type CouncilIssue } from './core/government/CouncilIssue';
 import type { CurrentReactionAction } from './core/simulation/ReactionContext';
 import { WorldIntelService } from './game/WorldIntelService';
@@ -2321,6 +2321,11 @@ export class GameSession {
         id: record.id, title: record.title, status: record.status,
         resolution: record.resolution, resolvedDate: record.resolvedDate, createdTurn: record.createdTurn,
       })),
+      // WS-GOV-TURN-AWARENESS — Gli ATTI FIRMATI vivi: proiezione server-side
+      // della coda canonica. Il client non è mai la fonte.
+      signedActs: this.getPendingActions()
+        .filter(action => action.status === 'pending')
+        .map(action => ({ id: action.id, text: action.text, status: 'signed_pending_execution' as const, createdAt: action.createdAt })),
       // Re-read canonical persistence on every request: no cached observations,
       // parent-branch baselines, or stale snapshots surviving session restore.
       previousSnapshot: previousSnapshot === undefined ? readPreviousVerifiedWorldSnapshot(gameData, branchId) : previousSnapshot,
@@ -3431,7 +3436,7 @@ export class GameSession {
     const address = cabinet.addresses.find(candidate => candidate.seat === seat)
       ?? { seat: seat as CabinetSeat, label: SEAT_LABEL[seat as CabinetSeat], reads: '', items: [], opening: '' };
     const vars = new PromptBuilder(this.buildGameData()).buildVariables();
-    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat });
+    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: renderSignedActs(this.getVerifiedWorldSnapshot()) });
     let memory = '';
     if (getJevConfig().enabled) {
       const { buildMinisterContext } = await import('./core/government/jev/jev-memory.service');

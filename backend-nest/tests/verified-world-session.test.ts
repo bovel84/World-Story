@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { renderSignedActs } from '../src/core/government/RealityAdvisor';
+import { buildMinisterWorldContext, renderNationalContext } from '../src/prompts/national-context';
+import { PromptBuilder } from '../src/prompt-builder';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -85,6 +88,24 @@ describe('GameSession.getVerifiedWorldSnapshot', () => {
     expect(snapshot.diplomacy.activeNegotiations).toBeNull();
     expect(snapshot.branchId).toBeTruthy();
     expect(snapshot.changes).toMatchObject({ available: false, reason: 'previous_snapshot_unavailable' });
+  });
+
+  it('WS-GOV-TURN-AWARENESS: un atto firmato è signed_pending_execution e arriva ai ministri', () => {
+    const action = session.queueAction('Importare grano per novanta giorni');
+    const snapshot = session.getVerifiedWorldSnapshot();
+    const signed = snapshot.recent.signedActs.find(act => act.id === action.id);
+    expect(signed).toMatchObject({ id: action.id, status: 'signed_pending_execution' });
+    expect(signed!.text).toContain('Importare grano');
+
+    // Il contesto ministeriale riceve la sezione (non solo il Consulente).
+    const section = renderSignedActs(snapshot)!;
+    expect(section).toContain('ATTI FIRMATI');
+    expect(section).toContain('Importare grano');
+    expect(section).toContain('NON sono ancora realtà');
+    const world = buildMinisterWorldContext({
+      vars: new PromptBuilder((session as any).buildGameData()).buildVariables(), worldName: 'Test', seat: 'tesoro', signedActs: section,
+    });
+    expect(renderNationalContext(world, 'tesoro')).toContain('Importare grano');
   });
 
   it('does not pretend that a prior getter call in the same turn is a previous-turn baseline', () => {

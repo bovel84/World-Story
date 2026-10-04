@@ -6,6 +6,7 @@ import { useSimulationStore } from '../../stores/simulationRuntime';
 import { useChatStore } from '../../stores';
 import { RichText } from './RichText';
 import { CouncilIssueInline } from './CouncilIssueInline';
+import { archivedTurns, currentTurnMessages } from './advisorTurns';
 import type { ChartDataInput } from './advisorCharts';
 
 interface AdvisorChatProps {
@@ -13,10 +14,12 @@ interface AdvisorChatProps {
   chartData?: ChartDataInput | null;
   scopeKey?: string;
   onOpenIssue?: (issue: CouncilIssue) => void;
+  /** WS-GOV-TURN-AWARENESS — Il turno corrente: la chat attiva è solo questo. */
+  currentTurn?: number;
 }
 
-export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue }: AdvisorChatProps) {
-  const { advisorMessages, advisorStreaming, addAdvisorMessage, setAdvisorStreaming } = useChatStore();
+export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue, currentTurn = 0 }: AdvisorChatProps) {
+  const { advisorMessages, advisorStreaming, addAdvisorMessage, setAdvisorStreaming, tagAdvisorTurns } = useChatStore();
   const [input, setInput] = useState('');
   const [context, setContext] = useState<RealityAdvisorResponse | null>(null);
   const [focus, setFocus] = useState<CouncilIssue | undefined>();
@@ -26,6 +29,11 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue 
   const scopeRef = useRef(scopeKey);
   scopeRef.current = scopeKey;
   const isLocal = gameId.startsWith('local_');
+  // La chat attiva e la history sono SOLO del turno corrente; i messaggi legacy
+  // senza turno vengono marcati una volta e poi restano archiviati.
+  const activeMessages = currentTurnMessages(advisorMessages, currentTurn);
+  const previousTurns = archivedTurns(advisorMessages, currentTurn);
+  useEffect(() => { tagAdvisorTurns(currentTurn); }, [currentTurn, tagAdvisorTurns]);
 
   useEffect(() => {
     setContext(null); setFocus(undefined); setError('');
@@ -55,14 +63,15 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue 
     const generation = useSimulationStore.getState().commandGeneration;
     const owns = () => requestRef.current === controller && !controller.signal.aborted && scopeRef.current === scope
       && useSimulationStore.getState().commandGeneration === generation;
-    const history = advisorMessages.filter(message => !message.proactive && message.content.trim()).slice(-20)
+    const history = currentTurnMessages(advisorMessages, currentTurn)
+      .filter(message => !message.proactive && message.content.trim()).slice(-20)
       .map(message => ({ role: message.role, content: message.content }));
-    addAdvisorMessage({ role: 'user', content: text });
+    addAdvisorMessage({ role: 'user', content: text, turn: currentTurn });
     setInput(''); setError(''); setAdvisorStreaming(true);
     try {
       const result = await advisorApi.reality(gameId, text, history, focus, controller.signal);
       if (!owns()) return;
-      addAdvisorMessage({ role: 'assistant', content: result.reply, issues: result.issues });
+      addAdvisorMessage({ role: 'assistant', content: result.reply, issues: result.issues, turn: currentTurn });
       setContext(previous => previous ? { ...previous, advisorContext: result.advisorContext } : result);
     } catch {
       if (owns()) setError('Il Consulente non è raggiungibile. La domanda è conservata; riprova esplicitamente.');
@@ -85,13 +94,23 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue 
         <div className="entry-text"><RichText text={context.reply} chartData={chartData} /></div>
         {context.issues.map(callout)}
       </article>}
-      {advisorMessages.map((message, index) => <article key={index} className={`advisor-entry ${message.role}`}>
+      {activeMessages.map((message, index) => <article key={index} className={`advisor-entry ${message.role}`}>
         <div className="entry-meta">{message.role === 'user' ? 'Presidente' : message.proactive ? 'Bollettino' : 'Consulente'}</div>
         <div className="entry-text">{message.role === 'assistant' ? <RichText text={message.content} chartData={chartData} /> : message.content}</div>
         {message.issues?.map(callout)}
       </article>)}
       {advisorStreaming && <p className="advisor-typing" role="status" aria-label="Il Consulente sta preparando la risposta"><i /><i /><i /></p>}
       {error && <p role="alert">{error}</p>}
+      {previousTurns.length > 0 && <details className="advisor-archive">
+        <summary>Discussioni precedenti</summary>
+        {previousTurns.map(group => <section key={group.turn} data-turn={group.turn}>
+          <h4>Turno {group.turn}</h4>
+          {group.messages.map((message, index) => <article key={index} className={`advisor-entry ${message.role}`}>
+            <div className="entry-meta">{message.role === 'user' ? 'Presidente' : 'Consulente'}</div>
+            <div className="entry-text">{message.role === 'assistant' ? <RichText text={message.content} chartData={chartData} /> : message.content}</div>
+          </article>)}
+        </section>)}
+      </details>}
     </div>
     <div className="chat-input-row">
       <textarea value={input} onChange={event => setInput(event.target.value)} placeholder="Interroga il consulente…" rows={2}

@@ -26,7 +26,7 @@ import { governmentSessionId } from './governmentSession';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { clientMandate, loadMemory, saveMemory, memoryScopeKey, seatRecords, withSeatRecords, recordMemory, queuedDecision, openQuestion, type MinisterMemoryStore } from './ministerMemory';
-import { appendCouncilMessage, confirmCouncilProposal, councilContext, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
+import { appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilContext, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
 import { seatSpeaker } from './councilMeeting';
 import { resolveCouncilExecution } from './councilExecution';
 import { resolveCurrentRegionRef } from './meetingLocalization';
@@ -386,6 +386,10 @@ export function GovernmentOffice({ open, onClose, gameId, session,
     try {
       const queued = await onQueueOrder(payload.text, payload.work, draft.signatureKey);
       if (queued) {
+        // WS-GOV-TURN-AWARENESS — La seduta vede subito l'atto firmato: il
+        // ministro non ripropone una misura già decisa. Solo su firma riuscita.
+        const live = roomsRef.current[roomId];
+        if (live) updateRoom(appendSignedActEvent(live, true, payload.text, crypto.randomUUID()));
         remember(activeRoom.participants, payload.title, true);
         if (currentRef.current.activeId === roomId && currentRef.current.scopeKey === activeRoom.scopeKey) setNotice('Atto firmato e inserito nel registro. Sarà valutato dal motore quando avanzerai il tempo.');
       } else {
@@ -465,7 +469,7 @@ export function GovernmentOffice({ open, onClose, gameId, session,
       </div>
       <section className="government-advisor" aria-label="Il Primo Consulente">
         <h3 className="government-advisor-heading">IL PRIMO CONSULENTE</h3>
-        <AdvisorChat gameId={gameId} chartData={advisorChartData} scopeKey={scopeKey} onOpenIssue={openIssue} />
+        <AdvisorChat gameId={gameId} chartData={advisorChartData} scopeKey={scopeKey} onOpenIssue={openIssue} currentTurn={currentTurn ?? 0} />
       </section>
       <OrderRegister orders={pendingActions} nationalName={nationalName} date={currentDate} onWithdraw={onWithdrawOrder} />
       {Object.values(rooms).filter(candidate => candidate.scopeKey === scopeKey).map(candidate => <button type="button" key={candidate.id} className="council-room-resume" onClick={() => { setTarget('council'); setActiveId(candidate.id); }}>

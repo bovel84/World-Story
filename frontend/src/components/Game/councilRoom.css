@@ -278,3 +278,9 @@
   .government-roster { margin: 8px 16px 12px; }
   .government-reports { margin: 8px 16px max(20px, env(safe-area-inset-bottom)); }
 }
+
+/* WS-GOV-TURN-AWARENESS — le discussioni dei turni precedenti, archiviate. */
+.advisor-archive { margin-top: 10px; border-top: 1px solid #2c4254; padding-top: 8px; }
+.advisor-archive summary { cursor: pointer; font: 500 12px/1.4 system-ui, sans-serif; color: #9fb2c4; }
+.advisor-archive section { margin-top: 8px; }
+.advisor-archive h4 { margin: 0 0 4px; font: 600 11px/1.2 system-ui, sans-serif; letter-spacing: .08em; color: #9fb2c4; text-transform: uppercase; }

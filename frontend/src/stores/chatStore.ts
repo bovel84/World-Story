@@ -9,6 +9,7 @@
 import { create } from 'zustand';
 import { chatsApi, type ChatSummaryData, type ChatMessageData, type CouncilIssue } from '../services/api';
 import { archiveSiblingThreads, lastChatMessage, orderChatMessages } from '../components/Game/chatTimeline';
+import { tagLegacyTurns } from '../components/Game/advisorTurns';
 
 export type ChatSummary = ChatSummaryData;
 export type ChatMessage = ChatMessageData;
@@ -86,6 +87,8 @@ interface ChatState {
     message: ChatMessage;
   }) => void;
   addAdvisorMessage: (msg: AdvisorMessage) => void;
+  /** WS-GOV-TURN-AWARENESS — Marca i messaggi legacy con il turno corrente. */
+  tagAdvisorTurns: (turn: number) => void;
   appendToLastAdvisorMessage: (token: string) => void;
   setAdvisorStreaming: (streaming: boolean) => void;
   addMinisterMessage: (seat: string, msg: AdvisorMessage) => void;
@@ -251,6 +254,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   addAdvisorMessage: (msg) => set((state) => ({
     advisorMessages: [...state.advisorMessages, msg],
+  })),
+
+  tagAdvisorTurns: (turn) => set((state) => ({
+    advisorMessages: tagLegacyTurns(state.advisorMessages, turn),
   })),
 
   // Aggiunge il token dello stream all'ultimo messaggio dell'assistente
