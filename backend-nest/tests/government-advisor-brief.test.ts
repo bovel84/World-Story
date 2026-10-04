@@ -21,8 +21,9 @@ describe('GovernmentAdvisorBrief', () => {
     const brief = buildGovernmentAdvisorBrief({ date: '1951-03-01', situations: [situation()], followUps: [] });
     expect(brief.cabinet).toHaveLength(7);
     expect(brief.cabinet.map(entry => entry.seat)).toEqual(['tesoro', 'lavori', 'istruzione', 'sanita', 'esteri', 'interno', 'guerra']);
-    expect(brief.cabinet.find(entry => entry.seat === 'guerra')?.state).toBe('engaged');
-    expect(brief.cabinet.find(entry => entry.seat === 'lavori')?.state).toBe('available');
+    // WS-GOV-REALITY-CLEANUP — Una situazione letta da Pressure legacy NON rende
+    // un ministro «sul tavolo»: senza stanze nel read model resta `available`.
+    expect(brief.cabinet.every(entry => entry.state === 'available')).toBe(true);
   });
 
   it('classifica il lifecycle: nuovo, aperto, seguito', () => {

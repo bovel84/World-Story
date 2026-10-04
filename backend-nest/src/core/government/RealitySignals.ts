@@ -33,8 +33,11 @@ export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySig
   const ref = (key: string) => facts[key]?.sourceRef ?? key;
   const delta = (key: string) => snapshot.changes.deltas.find(item => item.key === key);
 
+  // Un segnale è valido con FATTI verificati OPPURE con soli riferimenti
+  // canonici (rapporti ostili, opere in ritardo, mobilitazioni): scartarlo
+  // perché non ha una chiave in `facts` lo farebbe sparire dal briefing.
   const push = (signal: RealitySignal): void => {
-    if (signal.factKeys.length) signals.push(signal);
+    if (signal.factKeys.length || signal.sourceRefs.length) signals.push(signal);
   };
 
   // I segnali leggono i FATTI dello snapshot: `facts` è la proiezione canonica

@@ -858,7 +858,7 @@ export class NationStateService {
   /** Vicini rilevanti per le pressioni esterne, dal più armato.
    *  Sono vicini solo i polity che possiedono almeno una regione confinante con
    *  una regione del giocatore (`region.borders`, id di regione già calcolati da
-   *  `computeBorders`). Così un polity lontano non entra mai nelle sfide estere
+   *  `computeBorders`). Così un polity lontano non entra mai nelle pressioni estere
    *  solo perché molto armato. Senza adiacenza disponibile non si inventa un
    *  vicino: la lista resta vuota. */
   pressureNeighbours(): PressureNeighbour[] {
@@ -909,7 +909,7 @@ export class NationStateService {
     }
   }
 
-  /** Fotografia degli indicatori da cui nascono le sfide del turno. */
+  /** Fotografia degli indicatori per il detector dei segnali (read-only). */
   private pressureSnapshot(): PressureSnapshot {
     const playerPolityId = this.ctx.playerPolityId();
     const account = this.ctx.sessionAccounts()[playerPolityId];
@@ -939,8 +939,8 @@ export class NationStateService {
   }
 
   /**
-   * Genera le sfide del turno corrente solo se non ce ne sono già di attive.
-   * Chiamata al caricamento: un riavvio non crea sfide nuove a metà turno.
+   * LEGACY / DETECTOR ONLY — non genera più nulla: le Pressure non sono quest e
+   * i segnali del momento li produce `RealitySignals` dai fatti verificati.
    */
   ensurePeacetimePressures(): void {
     // WS-GOV-REALITY-ADVISOR-HARDENING — Detector/read-only: non si aprono più
@@ -950,9 +950,9 @@ export class NationStateService {
   }
 
   /**
-   * Finestra temporale di una sfida già aperta, rispetto alla data corrente.
-   * GAMEPLAY-LONG: il tempo trascorso è quello del calendario di gioco, quindi
-   * un avanzamento di 7 giorni e uno di 365 non producono lo stesso stato.
+   * LEGACY / DETECTOR ONLY — Finestra temporale di una riga Pressure già aperta,
+   * rispetto alla data corrente: è un read model (tempo trascorso, tempo
+   * rimasto), non una scadenza con effetti.
    */
   private pressureWindowOf(record: PressureRecord): PressureWindow {
     const fallback = record.createdDate;
@@ -970,20 +970,10 @@ export class NationStateService {
   }
 
   /**
-   * Apre nuove sfide solo se c'è spazio e se non sono già aperte: le stesse
-   * questioni non si ripetono mentre il giocatore le sta ancora valutando — è
-   * il modo più semplice per non trasformare il gioco in una pila di notifiche
-   * (P2). La generazione resta deterministica e basata sugli indicatori correnti.
-   */
-  /**
-   * Fa scorrere il tempo delle sfide di pace:
-   *
-   *  - le sfide **nei termini restano aperte** (non scadono più ogni turno);
-   *  - una sfida **oltre la scadenza** applica l'effetto dell'inerzia e si chiude;
-   *  - una sfida **grave** che resta aperta oltre il 60% della sua finestra
-   *    peggiora una volta sola, con **metà** dell'effetto di inazione: il tempo
-   *    che passa non è gratis, ma nemmeno la condanna immediata;
-   *  - se c'è spazio, nascono nuove sfide dagli indicatori aggiornati.
+   * LEGACY / DETECTOR ONLY — Aggiorna lo stato di LETTURA delle righe Pressure
+   * aperte (scaduta / inasprita) e nient'altro: nessun effetto canonico, nessuna
+   * conseguenza, nessuna nuova questione. Il mondo cambia solo con ordini e atti
+   * eseguiti dal motore.
    */
   refreshPeacetimePressures(): void {
     // DETECTOR / READ-ONLY (LEGACY_PRESSURE_MODE): l'unica mutazione ammessa è
@@ -1087,10 +1077,9 @@ export class NationStateService {
   }
 
   /**
-   * Le sfide del momento per il dossier: attive da risolvere (con la loro
-   * finestra temporale) e le ultime chiuse, così il giocatore vede anche l'eco
-   * delle scelte passate. P2: solo le più urgenti vanno evidenziate, le altre
-   * restano nel dossier senza interrompere.
+   * LEGACY / DETECTOR ONLY — Read model delle righe Pressure (finestra, priorità,
+   * ultime chiuse) per il dossier e per il briefing. Non è una lista di quest da
+   * risolvere: i problemi del momento arrivano dai segnali verificati.
    */
   getPeacetimePressures(hasEnding: boolean): {
     pressures: PressureView[];
@@ -1131,11 +1120,13 @@ export class NationStateService {
     };
     const history = all.map(record => ({ id: record.id, template: record.template, status: record.status, createdTurn: record.createdTurn }));
     // P1.8 — Il seguito di un atto chiuso: quando la data arriva, il ministro
-    // competente torna con le misure di OGGI. Nessun effetto nuovo: il motore ha
-    // già applicato la decisione (o l'inerzia) al momento della chiusura.
+    // competente torna con le misure di OGGI. Nessun effetto nuovo.
+    // WS-GOV-REALITY-CLEANUP: SOLO una decisione realmente presa (`resolved`)
+    // può avere un rapporto. Una Pressure legacy scaduta in modalità
+    // detector/read-only (`expired`) NON è una decisione: mai follow-up.
     const today = this.ctx.currentDate();
     const followUps = all
-      .filter(record => record.status !== 'active' && record.resolvedDate)
+      .filter(record => record.status === 'resolved' && record.resolvedDate)
       .map(record => {
         const dueDate = addDays(record.resolvedDate as string, SITUATION_FOLLOW_UP_DAYS);
         return { record, dueDate, daysLeft: daysBetween(today, dueDate) };

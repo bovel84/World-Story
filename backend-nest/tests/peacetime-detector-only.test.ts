@@ -116,6 +116,23 @@ describe('PeacetimePressures — detector / read-only', () => {
     expect(rows()).toHaveLength(0);
   });
 
+  it('WS-GOV-REALITY-CLEANUP: una Pressure expirata NON produce follow-up, una risolta sì', async () => {
+    // 1) Scaduta in detector/read-only: mai un rapporto.
+    insert(pressure({ id: 'legacy:expired-fu' }), '1950-11-22', 1);
+    refresh();
+    expect(rows().find(row => row.id === 'legacy:expired-fu')!.status).toBe('expired');
+    expect(session.getPeacetimePressures().followUps.some(item => item.pressureId === 'legacy:expired-fu')).toBe(false);
+
+    // 2) Decisione realmente presa (percorso legacy esplicito): il rapporto arriva.
+    insert(pressure({
+      id: 'legacy:resolved-fu',
+      options: [{ id: 'import', label: 'Importare grano', detail: 'Cassa subito.', effect: { socialTension: -4, note: 'Armatori ricevuti.' } }],
+    }), '1950-12-01', 1);
+    session.resolvePeacetimePressure('legacy:resolved-fu', 'import');
+    await session.advanceDate(31);
+    expect(session.getPeacetimePressures().followUps.some(item => item.pressureId === 'legacy:resolved-fu')).toBe(true);
+  });
+
   it('un save legacy con Pressure attive resta caricabile e leggibile', () => {
     insert(pressure({ id: 'legacy:open', durationDays: 3650 }), '1950-12-01', 1);
     const snapshot = session.getVerifiedWorldSnapshot();
