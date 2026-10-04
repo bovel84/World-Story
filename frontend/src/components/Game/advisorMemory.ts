@@ -93,11 +93,11 @@ export function loadAdvisorMessages(key: string): AdvisorMessage[] {
 }
 
 /**
- * WS-GOV-ADVISOR-RESIDUAL-FIXES §3 — Tutti i messaggi degli ALTRI turni dello
- * stesso gioco e ramo: serve a ricostruire `archivedTurns()` dopo un reload
- * senza mescolare i rami.
+ * WS-GOV-ADVISOR-RESIDUAL-FIXES-2 §2 — I messaggi dei turni DIVERSI dal corrente,
+ * dello stesso gioco e ramo: ricostruisce `archivedTurns()` dopo il reload senza
+ * mescolare rami né riportare in chat un altro scope dello stesso turno.
  */
-export function loadAdvisorArchive(gameId: string, branchId: string | null, currentBucket: string): AdvisorMessage[] {
+export function loadAdvisorArchive(gameId: string, branchId: string | null, currentTurn: number): AdvisorMessage[] {
   const storage = storageOrNull();
   if (!storage) return [];
   const prefix = advisorBranchPrefix(gameId, branchId);
@@ -105,8 +105,10 @@ export function loadAdvisorArchive(gameId: string, branchId: string | null, curr
   try {
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index);
-      if (!key || key === currentBucket || !key.startsWith(prefix)) continue;
-      archived.push(...readBucket(storage, key));
+      if (!key || !key.startsWith(prefix)) continue;
+      // §2 — Solo i turni DIVERSI dal corrente: un altro `scopeKey` dello stesso
+      // gioco/ramo e dello STESSO turno non è archivio (e non torna in chat).
+      archived.push(...readBucket(storage, key).filter(message => message.turn !== undefined && message.turn !== currentTurn));
     }
   } catch {
     return archived;

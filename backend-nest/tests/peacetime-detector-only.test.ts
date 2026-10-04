@@ -146,6 +146,17 @@ describe('PeacetimePressures — detector / read-only', () => {
       title: 'Ferrovia del nord', summary: 'Avviata.', startedDate: session.getCurrentDate(),
     });
     expect(session.getPeacetimePressures().followUps.some(item => item.pressureId === 'act-2')).toBe(false);
+    // §1 — Un vecchio processo completato NON occupa gli slot per sempre: oltre
+    // la finestra non viene più riproposto, e il rapporto appena dovuto passa.
+    games.upsertOngoingProcess({
+      id: 'proc-old', gameId: session.id, sourceActionId: 'act-old', sourceRunId: 'run-1',
+      title: 'Vecchio piano completato', summary: 'Chiuso da mesi.', startedDate: '1950-06-01',
+    });
+    games.completeOngoingProcessById(session.id, 'proc-old', 'Completato', '1950-07-01');
+    const afterOld = session.getPeacetimePressures().followUps.map(item => item.pressureId);
+    expect(afterOld).not.toContain('act-old');
+    expect(afterOld).toContain('act-1');
+
     // Nessun rapporto duplicato per lo stesso atto.
     const reports = session.getPeacetimePressures().followUps.filter(item => item.pressureId === 'act-1');
     expect(reports).toHaveLength(1);

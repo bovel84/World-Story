@@ -114,6 +114,10 @@ export const MATERIAL_STEP_DAYS = 30;
  */
 export const LEGACY_PRESSURE_MODE = 'read_only' as const;
 
+/** Finestra in cui il rapporto di un atto eseguito resta proponibile dopo la
+ * data dovuta: oltre, non si ripropone (nessun rapporto eterno). */
+const ACT_REPORT_WINDOW_DAYS = SITUATION_FOLLOW_UP_DAYS;
+
 /** Un periodo materiale, per chi deve agganciarsi al tick (ordini militari). */
 export interface MaterialSliceInfo {
   polityId: string;
@@ -1199,8 +1203,11 @@ export class NationStateService {
         const dueDate = addDays(process.started_date as string, SITUATION_FOLLOW_UP_DAYS);
         return { process, dueDate, daysLeft: daysBetween(today, dueDate) };
       })
-      .filter(item => item.daysLeft <= 0)
-      .sort((left, right) => left.daysLeft - right.daysLeft)
+      // §1 — Un rapporto è proposto quando è DOVUTO e per una finestra limitata:
+      // così un vecchio processo completato non occupa per sempre gli slot e i
+      // rapporti appena diventati dovuti passano davanti (`daysLeft` più alto).
+      .filter(item => item.daysLeft <= 0 && item.daysLeft >= -ACT_REPORT_WINDOW_DAYS)
+      .sort((left, right) => right.daysLeft - left.daysLeft)
       .slice(0, 2)
       .map(item => buildExecutedActFollowUp({
         act: {
