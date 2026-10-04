@@ -1288,14 +1288,14 @@ export const gameApi = {
     fetchApi(`/games/${gameId}/crisis`),
 
   /** Risponde a una sfida: il motore applica modificatori, cassa e relazioni. */
-  resolvePeacetimePressure: (gameId: string, pressureId: string, optionIds: string | string[]): Promise<{
+  resolvePeacetimePressure: (gameId: string, pressureId: string, optionIds: string | string[], signatureKey?: string): Promise<{
     pressure: PeacetimePressure;
     effect: { note?: string; moneyDeltaMld?: number };
     account?: Record<string, any>;
   }> =>
     fetchApi(`/games/${gameId}/pressures/${encodeURIComponent(pressureId)}/resolve`, {
       method: 'POST',
-      body: JSON.stringify(Array.isArray(optionIds) ? { optionIds } : { optionId: optionIds }),
+      body: JSON.stringify(Array.isArray(optionIds) ? { optionIds, signatureKey } : { optionId: optionIds, signatureKey }),
     }),
 
   /** Vende (`sell`) o compra (`buy`) una risorsa naturale sul mercato mondiale. */
@@ -1949,7 +1949,11 @@ export interface MinisterCouncilContext {
   respondingTo?: string;
   /** WS-GOV-SITUATIONS-LOOP — la situazione reale in seduta, per ogni ministro. */
   sourceSituation?: GovernmentSituationView;
-  /** Le opzioni canoniche già scelte sulla Tavola (id validati dal motore). */
+  /** P3 — Contesto di un vero follow-up: la seduta riferisce, non ripropone. */
+  sourceFollowUp?: { pressureId: string; label: string; owner: string; dueDate: string; checks: string[]; outcome: string[]; originDecision: string };
+  /** P0 — Strade suggerite dai ministri (non confermate): non producono effetti. */
+  proposedPressureOptions?: Array<{ optionId: string; proposedBy: string }>;
+  /** Le opzioni canoniche già CONFERMATE dal Presidente (id validati dal motore). */
   selectedPressureOptions?: string[];
 }
 

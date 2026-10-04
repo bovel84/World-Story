@@ -63,6 +63,13 @@ export interface ProposalActDraft {
    */
   readonly sourcePressureId?: string;
   readonly sourceSituationId?: string;
+  /**
+   * P2 — Snapshot IMMUTABILE delle strade confermate dal Presidente al momento
+   * della preparazione. La firma usa ESATTAMENTE questo elenco.
+   */
+  readonly selectedPressureOptions?: readonly string[];
+  /** P2 — Firma tecnica dei contenuti congelati (non va al motore). */
+  readonly draftSignature?: string;
 }
 
 /** Lo stato dell'atto e la sua spiegazione, già pronti per la UI. */

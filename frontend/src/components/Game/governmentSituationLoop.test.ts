@@ -6,7 +6,7 @@
  * sedute manuali restano identiche.
  */
 import { describe, expect, it } from 'vitest';
-import { createCouncilRoom, councilContext, councilDraft, receiveCouncilReply, togglePressureOption } from './councilRoom';
+import { createCouncilRoom, confirmPressureOption, excludePressureOption, councilContext, councilDraft, receiveCouncilReply, togglePressureOption } from './councilRoom';
 import type { GovernmentSituationView } from '../../services/api';
 
 const situation: GovernmentSituationView = {
@@ -42,10 +42,26 @@ describe('CouncilRoom con sourceSituation', () => {
     expect(room.selectedPressureOptions).toEqual([]);
   });
 
-  it('accetta dal modello solo optionId esistenti nella situazione', () => {
+  it('le pressureOptions del modello diventano PROPOSTE, mai scelte confermate', () => {
     const room = createCouncilRoom({ id: 'r1', scopeKey: 's', initiatorMinister: 'guerra', sourceSituation: situation });
     const next = receiveCouncilReply(room, 'guerra', 'Propongo di rafforzare il settore.\n```consiglio\n{"pressureOptions":["retaliate","inventata","internationalize"]}\n```', 'm1');
-    expect(next.selectedPressureOptions).toEqual(['retaliate', 'internationalize']);
+    // L'id inventato è scartato; gli altri sono PROPOSTE, non scelte.
+    expect(next.proposedPressureOptions).toEqual([
+      { optionId: 'retaliate', proposedBy: 'guerra', messageId: 'm1' },
+      { optionId: 'internationalize', proposedBy: 'guerra', messageId: 'm1' },
+    ]);
+    expect(next.selectedPressureOptions).toEqual([]);
+  });
+
+  it('solo la Conferma del Presidente porta una strada in selectedPressureOptions', () => {
+    const room = createCouncilRoom({ id: 'r1', scopeKey: 's', initiatorMinister: 'guerra', sourceSituation: situation });
+    const proposed = receiveCouncilReply(room, 'guerra', 'Ok.\n```consiglio\n{"pressureOptions":["retaliate"]}\n```', 'm1');
+    expect(proposed.proposedPressureOptions).toHaveLength(1);
+    expect(proposed.selectedPressureOptions).toEqual([]);
+    const confirmed = confirmPressureOption(proposed, 'retaliate');
+    expect(confirmed.selectedPressureOptions).toEqual(['retaliate']);
+    expect(excludePressureOption(confirmed, 'retaliate').selectedPressureOptions).toEqual([]);
+    expect(confirmPressureOption(proposed, 'inventata')).toBe(proposed);
   });
 
   it('una stanza manuale ignora le pressureOptions del modello', () => {
@@ -72,5 +88,24 @@ describe('CouncilRoom con sourceSituation', () => {
     const context = councilContext(selected);
     expect(context.sourceSituation?.pressureId).toBe('external:border-incident#t3');
     expect(context.selectedPressureOptions).toEqual(['retaliate']);
+  });
+
+  it('P2 — il draft congela la selezione confermata e la sua firma cambia con essa', () => {    const room = createCouncilRoom({ id: 'r1', scopeKey: 's', initiatorMinister: 'guerra', sourceSituation: situation });
+    const selected = confirmPressureOption(room, 'retaliate');
+    const draft = councilDraft(selected, 3);
+    expect(draft.selectedPressureOptions).toEqual(['retaliate']);
+    expect(draft.draftSignature).toBeTruthy();
+    const withSecond = confirmPressureOption(selected, 'internationalize');
+    expect(councilDraft(withSecond, 3).draftSignature).not.toBe(draft.draftSignature);
+    expect(councilDraft(withSecond, 3).selectedPressureOptions).toEqual(['retaliate', 'internationalize']);
+  });
+
+  it('P3 — una stanza di follow-up riferisce il rapporto, non ripropone strade', () => {
+    const followUp = { pressureId: 'p#1', label: 'Schieramento al confine', owner: 'tesoro' as const, dueDate: '1951-03-31', checks: ['Copertura logistica'], outcome: ['Disavanzo annuo 4,1% del PIL'], originDecision: 'p#1' };
+    const room = createCouncilRoom({ id: 'r3', scopeKey: 's', initiatorMinister: 'tesoro', sourceFollowUp: followUp });
+    expect(room.topic).toBe('Rapporto: Schieramento al confine');
+    expect(room.sourceFollowUp?.outcome).toEqual(['Disavanzo annuo 4,1% del PIL']);
+    expect(room.sourceSituation).toBeUndefined();
+    expect(councilContext(room).sourceFollowUp?.pressureId).toBe('p#1');
   });
 });

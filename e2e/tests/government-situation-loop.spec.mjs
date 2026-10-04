@@ -79,8 +79,14 @@ test('situazione → Consiglio → decisione composta → risoluzione con gli st
   await expect(board).toContainText('Forze mobilitate 35');
   await expect(board).toContainText('Come rispondiamo all’incidente?');
   await expect(board).toContainText('Se non decidiamo: la tensione al confine aumenta.');
-  await expect(board.locator('.council-board-response-picked')).toHaveCount(2);
+  // P0 — Il ministro PROPONE; la Tavola non mostra nulla come confermato.
+  await expect(board.locator('.council-board-minister-proposal')).toHaveCount(2);
+  await expect(board.locator('.council-board-response-picked')).toHaveCount(0);
   await expect(board).not.toContainText('inventata');
+  // Il PRESIDENTE conferma le due strade canoniche.
+  await board.locator('.council-board-minister-proposal', { hasText: 'Rafforzare il settore' }).getByRole('button', { name: /Conferma/ }).click();
+  await board.locator('.council-board-minister-proposal', { hasText: 'Portare il caso all’ONU' }).getByRole('button', { name: /Conferma/ }).click();
+  await expect(board.locator('.council-board-response-picked')).toHaveCount(2);
 
   // Firma: la Pressure si risolve con gli stessi id canonici, una sola volta.
   await prepareCommonDraft(page);
@@ -91,4 +97,33 @@ test('situazione → Consiglio → decisione composta → risoluzione con gli st
   const ids = payload.optionIds ?? [payload.optionId];
   expect(ids).toEqual(expect.arrayContaining(['retaliate', 'internationalize']));
   expect(JSON.stringify(payload)).not.toContain('inventata');
+});
+
+test('Apri rapporto apre un VERO follow-up con gli outcome reali', async ({ page }) => {
+  installMockApi(page);
+  const followUp = {
+    id: 'follow-up:external:border-incident#t3', pressureId: situation.pressureId, owner: 'tesoro', dueDate: '1951-03-31', daysLeft: -1,
+    label: 'Schieramento al confine: copertura logistica', checks: ['Copertura finanziaria del costo autorizzato'],
+    outcome: ['Disavanzo annuo 4,1% del PIL'], origin: { type: 'previous-decision', sourceId: situation.pressureId }, situation,
+  };
+  await page.route(`**/api/games/${MOCK_GAME_ID}/pressures`, route => route.fulfill({ json: { pressures: [], recent: [], foodCoverageMonths: 2, followUps: [followUp] } }));
+  await page.route(`**/api/games/${MOCK_GAME_ID}/government/minister/*/opening`, route => route.fulfill({ json: {
+    reply: 'Presidente, sono passati trenta giorni dallo schieramento: il costo è stato assorbito e il disavanzo annuo è al 4,1% del PIL. Non ripropongo strade: riferisco che cosa è cambiato.',
+    seat: 'tesoro',
+  } }));
+
+  await reachHud(page);
+  await openGovernment(page);
+  await expect(page.getByText('DA RIFERIRE', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Apri rapporto', exact: true }).click();
+
+  const room = page.locator('.council-room');
+  await expect(room).toBeVisible({ timeout: 10_000 });
+  await expect(room.locator('.council-room-topic')).toHaveText('Rapporto: Schieramento al confine: copertura logistica');
+  await expect(room.locator('.council-room-message.assistant').first()).toContainText('4,1% del PIL');
+  await openBoard(page);
+  const board = page.locator('.council-room-board');
+  await expect(board.getByRole('heading', { name: 'RAPPORTO' })).toBeVisible();
+  await expect(board).toContainText('Disavanzo annuo 4,1% del PIL');
+  await expect(board).toContainText('una decisione precedente');
 });

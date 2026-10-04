@@ -924,6 +924,73 @@ function dedupe(pressures: Pressure[]): Pressure[] {
   return out;
 }
 
+/**
+ * P4 — Conseguenza deterministica di una decisione: dato il template della
+ * Pressure e le opzioni scelte, la nuova questione che il motore apre NON è un
+ * altro esemplare dello stesso template, ma la conseguenza dichiarata dalla
+ * tabella. Nessun testo inventato: si sceglie solo QUALE pressione canonica
+ * aprire, e la provenance la scrive il motore.
+ */
+const CONSEQUENCE_TEMPLATE: Record<string, Record<string, string>> = {
+  'border-incident': { retaliate: 'neighbour-buildup', 'de-escalate': 'diplomatic-feeler', internationalize: 'alliance-offer' },
+  'neighbour-buildup': { arm: 'inflation-spiral', 'protest-buildup': 'sanctions-threat', reassure: 'diplomatic-feeler' },
+  'alliance-offer': { 'accept-alliance': 'trade-dispute', 'decline-alliance': 'neighbour-buildup', 'stall-alliance': 'public-opinion' },
+  'diplomatic-feeler': { receive: 'trade-dispute', defer: 'public-opinion' },
+  'trade-dispute': { 'retaliate-trade': 'sanctions-threat', 'negotiate-trade': 'alliance-offer', 'absorb-trade': 'public-opinion' },
+  'sanctions-threat': { diversify: 'public-opinion', comply: 'trade-dispute', defy: 'neighbour-buildup' },
+  'refugee-flow': { 'accept-refugees': 'public-opinion', camps: 'public-opinion', 'close-border': 'sanctions-threat' },
+  'strike-wave': { negotiate: 'public-opinion', concede: 'inflation-spiral', break: 'veterans-unrest' },
+  'inflation-spiral': { tighten: 'public-opinion', 'price-controls': 'corruption-scandal', 'accept-inflation': 'strike-wave' },
+  'veterans-unrest': { pensions: 'inflation-spiral', jobs: 'public-opinion', 'ignore-veterans': 'separatist-movement' },
+  'harvest-failure': { import: 'inflation-spiral', ration: 'strike-wave', appeal: 'public-opinion' },
+  'emigration-wave': { incentives: 'public-opinion', controls: 'separatist-movement', accept: 'harvest-failure' },
+  'separatist-movement': { autonomy: 'public-opinion', dialogue: 'public-opinion', crackdown: 'veterans-unrest' },
+  'corruption-scandal': { purge: 'public-opinion', cover: 'strike-wave', reform: 'public-opinion' },
+};
+
+/** Conseguenza dell'inerzia: ignorare una sfida non la chiude, la trasforma. */
+const INACTION_CONSEQUENCE: Record<string, string> = {
+  'border-incident': 'neighbour-buildup',
+  'neighbour-buildup': 'sanctions-threat',
+  'alliance-offer': 'public-opinion',
+  'refugee-flow': 'sanctions-threat',
+  'inflation-spiral': 'strike-wave',
+  'strike-wave': 'veterans-unrest',
+  'harvest-failure': 'strike-wave',
+  'separatist-movement': 'veterans-unrest',
+  'veterans-unrest': 'separatist-movement',
+  'sanctions-threat': 'harvest-failure',
+  'trade-dispute': 'sanctions-threat',
+};
+
+export function pressureConsequenceTemplate(template: string, optionIds: readonly string[]): string | null {  const map = CONSEQUENCE_TEMPLATE[template];
+  if (!map) return null;
+  for (const id of optionIds) {
+    const consequence = map[id];
+    if (consequence) return consequence;
+  }
+  return null;
+}
+
+export function pressureInactionConsequenceTemplate(template: string): string | null {
+  return INACTION_CONSEQUENCE[template] ?? null;
+}
+
+/**
+ * P4 — Il costruttore MIRATO di una conseguenza: valuta i template e restituisce
+ * quello richiesto, senza dipendere dalla classifica di `generatePressures`.
+ */
+export function generatePressureForTemplate(snapshot: PressureSnapshot, template: string): Pressure | null {
+  const rng = mulberry32(hashString(`${snapshot.seed}|${snapshot.polityId}|${snapshot.turn}`));
+  for (const builder of [...INTERNAL_TEMPLATES, ...EXTERNAL_TEMPLATES]) {
+    const result = builder(snapshot, rng);
+    if (result && result.pressure.template === template) {
+      return { ...result.pressure, id: `${result.pressure.id}#t${snapshot.turn}`, durationDays: pressureDurationDays(result.pressure.severity) };
+    }
+  }
+  return null;
+}
+
 /** Riepilogo compatto per prompt e bollettino. */
 export function describePressure(pressure: Pressure, window?: PressureWindow): string {
   const base = `${pressure.title} (${pressure.kind === 'internal' ? 'interna' : 'esterna'}, gravità ${pressure.severity}/3): ${pressure.detail}`;

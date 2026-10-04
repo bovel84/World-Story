@@ -63,6 +63,19 @@ const councilSchema = z.object({
   // WS-GOV-SITUATIONS-LOOP — la situazione che la seduta deve risolvere, così
   // anche i convocati vedono gli stessi fatti del relatore.
   sourceSituation: situationSchema.optional(),
+  sourceFollowUp: z.object({
+    pressureId: z.string().trim().min(1).max(160),
+    label: z.string().trim().min(1).max(400),
+    owner: z.enum(CABINET_SEATS),
+    dueDate: z.string().trim().max(40).optional(),
+    checks: z.array(z.string().trim().min(1).max(400)).max(12).optional(),
+    outcome: z.array(z.string().trim().min(1).max(400)).max(12).optional(),
+    originDecision: z.string().trim().max(160).optional(),
+  }).optional(),
+  proposedPressureOptions: z.array(z.object({
+    optionId: z.string().trim().min(1).max(80),
+    proposedBy: z.enum(CABINET_SEATS),
+  })).max(12).optional(),
   selectedPressureOptions: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
 });
 export type MinisterCouncil = z.infer<typeof councilSchema>;
@@ -125,7 +138,14 @@ function councilDialogueSection(council: MinisterCouncil): string {
       ...(council.sourceSituation.inaction?.note ? [`Se non si decide: ${council.sourceSituation.inaction.note}`] : []),
       ...(council.sourceSituation.origin && council.sourceSituation.origin.type !== 'state' ? [`Origine della situazione: ${council.sourceSituation.origin.type}.`] : []),
     ] : []),
-    ...(council.selectedPressureOptions?.length ? [`Strade canoniche già confermate dal Presidente sulla Tavola: ${council.selectedPressureOptions.join(', ')}. Non aggiungerne altre.`] : []),
+    ...(council.proposedPressureOptions?.length ? [`Strade suggerite dai ministri ma NON ancora confermate dal Presidente (non producono effetti): ${council.proposedPressureOptions.map(item => `${item.optionId} (${item.proposedBy})`).join(', ')}.`] : []),
+    ...(council.sourceFollowUp ? [
+      `RAPPORTO DI FOLLOW-UP — riferisci SOLO ciò che il motore ha misurato: ${council.sourceFollowUp.label}.`,
+      ...(council.sourceFollowUp.outcome?.length ? [`Esiti reali di oggi: ${council.sourceFollowUp.outcome.join('; ')}.`] : []),
+      ...(council.sourceFollowUp.checks?.length ? [`Verifiche eseguite: ${council.sourceFollowUp.checks.join('; ')}.`] : []),
+      'Non riproporre strade già decise: riferisci che cosa è cambiato, che cosa serve ora e chiedi solo ciò che manca.',
+    ] : []),
+    ...(council.selectedPressureOptions?.length ? [`Strade canoniche già CONFERMATE dal Presidente sulla Tavola: ${council.selectedPressureOptions.join(', ')}. Solo queste saranno risolte.`] : []),
     'Questa è un’unica sessione condivisa del consiglio, non una serie di colloqui separati. Parli come la tua sedia, con la stessa persona, al Presidente e ai colleghi.',
     'La cronologia contiene interventi attribuiti per nome ai diversi partecipanti: il ruolo assistant è solo trasporto. Non assumere che tutti gli interventi siano tuoi. Anche un prefisso generico «Ministro:» non cambia il nome indicato nel contributo.',
     'Rispondi agli interventi reali dei colleghi presenti nella cronologia, nominandoli e affrontando obiezioni, condizioni e proposte concrete. Difendi o rivedi la tua posizione alla luce di ciò che hanno davvero detto, senza parlare al posto loro.',

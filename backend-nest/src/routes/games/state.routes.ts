@@ -550,7 +550,10 @@ router.post('/:id/pressures/:pressureId/resolve', (req, res) => {
       res.status(400).json({ error: 'optionId è obbligatorio' });
       return;
     }
-    res.json(session.resolvePeacetimePressure(req.params.pressureId, optionIds));
+    const signatureKey = typeof req.body?.signatureKey === 'string' && req.body.signatureKey.trim()
+      ? req.body.signatureKey.trim().slice(0, 128)
+      : undefined;
+    res.json(session.resolvePeacetimePressure(req.params.pressureId, optionIds, signatureKey));
   } catch (e: any) {
     const message = String(e?.message || '');
     if (message.includes('insufficient_funds')) {

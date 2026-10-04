@@ -14,8 +14,10 @@ export interface CouncilRoomBoardProps {
   onExclude?: (label: string) => void;
   onPrepare?: () => void;
   onConvene?: (seat: CabinetSeat) => void;
-  /** WS-GOV-SITUATIONS-LOOP — conferma/esclude una strada canonica della situazione. */
-  onTogglePressureOption?: (optionId: string) => void;
+  /** P0 — Il Presidente CONFERMA una strada (proposta dai ministri o conosciuta dal motore). */
+  onConfirmPressureOption?: (optionId: string) => void;
+  /** P0 — Il Presidente ESCLUDE una strada dalla risposta. */
+  onExcludePressureOption?: (optionId: string) => void;
   children?: ReactNode;
 }
 
@@ -43,7 +45,7 @@ function MeasureRow({ measure, onExclude, busy }: { measure: DecisionMeasure; on
 
 /** One question and one live proposal; declarations remain attributed to their speakers. */
 export function CouncilRoomBoard({
-  room, busy = false, canPrepare = false, onConfirm, onExclude, onPrepare, onConvene, onTogglePressureOption, children,
+  room, busy = false, canPrepare = false, onConfirm, onExclude, onPrepare, onConvene, onConfirmPressureOption, onExcludePressureOption, children,
 }: CouncilRoomBoardProps) {
   const prepareReasonId = useId();
   const proposal = activeProposal(room.sharedBoard);
@@ -73,6 +75,30 @@ export function CouncilRoomBoard({
         <span className="council-board-revision">revisione {room.sharedBoard.revision}</span>
       </header>
 
+      {room.sourceFollowUp && (
+        <section className="council-board-section council-board-follow-up" aria-label="RAPPORTO" data-pressure-id={room.sourceFollowUp.pressureId}>
+          <h3>RAPPORTO</h3>
+          <p className="council-board-situation-title">{room.sourceFollowUp.label}</p>
+          <p className="council-board-situation-meta">Relatore: {seatSpeaker(room.sourceFollowUp.owner)} · previsto per {room.sourceFollowUp.dueDate}</p>
+          {room.sourceFollowUp.outcome.length > 0 && (
+            <ul className="council-board-situation-facts">
+              {room.sourceFollowUp.outcome.map(fact => <li key={fact}>{fact}</li>)}
+            </ul>
+          )}
+          <p className="council-board-situation-origin">
+            Origine: una decisione precedente{room.sourceFollowUp.originDecision ? ` — ${room.sourceFollowUp.originDecision}` : ''}.
+          </p>
+          {room.sourceFollowUp.checks.length > 0 && (
+            <details className="council-board-response-options">
+              <summary>Verifiche del rapporto</summary>
+              <ul className="council-board-response-list">
+                {room.sourceFollowUp.checks.map(check => <li key={check}>{check}</li>)}
+              </ul>
+            </details>
+          )}
+        </section>
+      )}
+
       {room.sourceSituation && (
         <section className="council-board-section council-board-situation" aria-label="SITUAZIONE" data-pressure-id={room.sourceSituation.pressureId}>
           <h3>SITUAZIONE</h3>
@@ -93,8 +119,31 @@ export function CouncilRoomBoard({
             <h4>DECISIONE DA PRENDERE</h4>
             <p>{room.sourceSituation.decisionQuestion}</p>
           </section>
-          <section className="council-board-response" aria-label="RISPOSTA ALLA SITUAZIONE">
-            <h4>RISPOSTA ALLA SITUAZIONE</h4>
+          <section className="council-board-proposals" aria-label="PROPOSTE DEI MINISTRI">
+            <h4>PROPOSTE DEI MINISTRI</h4>
+            {room.proposedPressureOptions.length > 0 ? (
+              <ul className="council-board-response-list">
+                {room.proposedPressureOptions.map(proposal => {
+                  const option = room.sourceSituation?.options.find(candidate => candidate.id === proposal.optionId);
+                  if (!option) return null;
+                  const confirmed = room.selectedPressureOptions.includes(proposal.optionId);
+                  return (
+                    <li key={proposal.optionId} className="council-board-minister-proposal" data-option={proposal.optionId} data-confirmed={confirmed}>
+                      <span className="council-board-proposal-label">○ {option.label}</span>
+                      <span className="council-board-proposal-by">proposto da {seatSpeaker(proposal.proposedBy)}</span>
+                      {!confirmed && onConfirmPressureOption && (
+                        <button type="button" className="council-board-response-toggle" disabled={busy} onClick={() => onConfirmPressureOption(proposal.optionId)} aria-label={`Conferma ${option.label}`}>Conferma</button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="council-board-empty">Nessuna proposta dai ministri: discutete, e le strade emergeranno.</p>
+            )}
+          </section>
+          <section className="council-board-response" aria-label="RISPOSTA DEL PRESIDENTE">
+            <h4>RISPOSTA DEL PRESIDENTE</h4>
             {room.selectedPressureOptions.length > 0 ? (
               <ul className="council-board-response-list">
                 {room.selectedPressureOptions.map(optionId => {
@@ -103,13 +152,13 @@ export function CouncilRoomBoard({
                   return (
                     <li key={optionId} className="council-board-response-picked" data-option={optionId}>
                       <span>✓ {option.label}</span>
-                      {onTogglePressureOption && <button type="button" className="council-board-response-toggle" disabled={busy} onClick={() => onTogglePressureOption(optionId)} aria-label={`Escludi ${option.label}`}>Escludi</button>}
+                      {onExcludePressureOption && <button type="button" className="council-board-response-toggle" disabled={busy} onClick={() => onExcludePressureOption(optionId)} aria-label={`Escludi ${option.label}`}>Escludi</button>}
                     </li>
                   );
                 })}
               </ul>
             ) : (
-              <p className="council-board-empty">Nessuna strada confermata: discutete, poi il Presidente conferma le misure.</p>
+              <p className="council-board-empty">Nessuna strada confermata: solo il Presidente conferma le misure.</p>
             )}
             <details className="council-board-response-options">
               <summary>Corsi d’azione conosciuti dal motore</summary>
@@ -118,7 +167,7 @@ export function CouncilRoomBoard({
                   const selected = room.selectedPressureOptions.includes(option.id);
                   return (
                     <li key={option.id} data-option={option.id} data-selected={selected}>
-                      <button type="button" className="council-board-response-toggle" disabled={busy || !onTogglePressureOption} onClick={() => onTogglePressureOption?.(option.id)}>
+                      <button type="button" className="council-board-response-toggle" disabled={busy || !onConfirmPressureOption} onClick={() => onConfirmPressureOption?.(option.id)}>
                         {selected ? '✓ ' : '+ '}{option.label}
                       </button>
                       <span className="council-board-response-detail">{option.detail}</span>

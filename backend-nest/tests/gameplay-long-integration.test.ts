@@ -357,7 +357,28 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     repos.gameRepository.insertPressures(gameId, player.polityId, [pressure('gov#new')], session.getCurrentDate(), session.getCurrentTurn());
 
     const situation = session.getPeacetimePressures().pressures.find((item: any) => item.id === 'gov#new')?.situation;
-    expect(situation?.origin).toEqual({ type: 'previous-decision', sourceId: 'gov#old' });
+    // Save senza provenance: la deduzione resta, ma è marcata legacy.
+    expect(situation?.origin).toEqual({ type: 'previous-decision', sourceId: 'gov#old', legacy: true });
+  });
+
+  it('P4 — una conseguenza scrive la provenance ESPLICITA, non per stesso template', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    const player = session.getPlayer();
+    const incident = pressure('gov#p4', {
+      kind: 'external', template: 'border-incident', title: 'Incidente di frontiera', severity: 3, durationDays: 60,
+      options: [{ id: 'retaliate', label: 'Forza', detail: 'Colpo di mano.', effect: { stability: 4, note: 'Rappresaglia.' } }],
+    });
+    repos.gameRepository.insertPressures(gameId, player.polityId, [incident], session.getCurrentDate(), session.getCurrentTurn());
+    session.resolvePeacetimePressure('gov#p4', 'retaliate');
+
+    await session.advanceDate(30);
+    const consequence = repos.gameRepository.listPressures(gameId).find((record: any) => record.originSourcePressureId === 'gov#p4');
+    expect(consequence).toBeTruthy();
+    expect(consequence.originType).toBe('previous-decision');
+    const situation = session.getPeacetimePressures().pressures.find((item: any) => item.id === consequence.id)?.situation;
+    expect(situation?.origin).toEqual({ type: 'previous-decision', sourceId: 'gov#p4' });
+    expect(situation?.origin.legacy).toBeUndefined();
   });
 
   it('P1.8 — alla data del seguito il ministro competente torna con i fatti di oggi', async () => {
@@ -394,5 +415,21 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     const ok = session.resolvePeacetimePressure('gov#combo', ['retaliate', 'internationalize']);
     expect(ok.pressure.status).toBe('resolved');
     expect(ok.effect.stability).toBe(6);
+  });
+
+  it('P1 — la stessa firma non risolve due volte la Pressure (idempotente)', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    const player = session.getPlayer();
+    repos.gameRepository.insertPressures(gameId, player.polityId, [pressure('gov#sig')], session.getCurrentDate(), session.getCurrentTurn());
+
+    const first = session.resolvePeacetimePressure('gov#sig', 'concede', 'sig-1');
+    expect(first.pressure.status).toBe('resolved');
+    expect(first.pressure.resolvedSignatureKey).toBe('sig-1');
+    // Stessa firma → idempotente: nessun secondo effetto, nessun errore.
+    const second = session.resolvePeacetimePressure('gov#sig', 'concede', 'sig-1');
+    expect(second.pressure.status).toBe('resolved');
+    // Firma diversa → la sfida è già chiusa.
+    expect(() => session.resolvePeacetimePressure('gov#sig', 'concede', 'sig-2')).toThrow(/pressure_not_active/);
   });
 });

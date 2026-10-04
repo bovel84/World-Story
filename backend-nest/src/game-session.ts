@@ -1052,7 +1052,7 @@ export class GameSession {
    * quelli del motore, con gli stessi tetti. La risoluzione resta idempotente: su
    * una sfida già chiusa non produce un secondo effetto.
    */
-  resolvePeacetimePressure(pressureId: string, optionIdOrIds: string | readonly string[]): {
+  resolvePeacetimePressure(pressureId: string, optionIdOrIds: string | readonly string[], signatureKey?: string): {
     pressure: PressureRecord;
     effect: PressureEffect;
     account?: NationalAccount;
@@ -1060,8 +1060,20 @@ export class GameSession {
     memory: FactionMemoryEvent[];
   } {
     this.assertPlayable();
-    const record = gameRepository.listPressures(this.id, 'active').find(item => item.id === pressureId);
-    if (!record) throw new Error('pressure_not_active: la sfida non è più aperta');
+    const found = gameRepository.listPressures(this.id).find(item => item.id === pressureId);
+    if (!found) throw new Error('pressure_not_active: la sfida non è più aperta');
+    if (found.status !== 'active') {
+      // P1 — Idempotenza: la STESSA firma su una sfida già chiusa non applica
+      // una seconda volta gli effetti e non è un errore: è "già fatto".
+      if (signatureKey && found.resolvedSignatureKey === signatureKey) {
+        const storedIds = String(found.resolvedOption ?? '').split(',').filter(Boolean);
+        const stored = storedIds.map(id => found.options.find(option => option.id === id)).filter((option): option is PressureOption => Boolean(option));
+        const effect = stored.length > 1 ? composePressureEffects(stored.map(option => option.effect)) : stored[0]?.effect ?? { note: found.resolution ?? '' };
+        return { pressure: found, effect, account: this.sessionAccounts()[this.playerPolityId], memory: [] };
+      }
+      throw new Error('pressure_not_active: la sfida è stata già chiusa');
+    }
+    const record = found;
     const ids = (Array.isArray(optionIdOrIds) ? optionIdOrIds : [optionIdOrIds])
       .filter((id): id is string => typeof id === 'string' && id.length > 0);
     const options = ids
@@ -1081,14 +1093,14 @@ export class GameSession {
     const label = options.map(item => item.label).join(' + ');
     this.applyPressureEffect(effect, `${record.title}: ${label}`);
     const resolvedOption = options.map(item => item.id).join(',');
-    if (!gameRepository.resolvePressure(this.id, pressureId, resolvedOption, effect.note, this.currentDate)) {
+    if (!gameRepository.resolvePressure(this.id, pressureId, resolvedOption, effect.note, this.currentDate, signatureKey)) {
       throw new Error('pressure_not_active: la sfida è stata già chiusa');
     }
     // GAMEPLAY-LONG P1: la fazione che premeva ricorda com'è stata trattata.
     const memory = this.nationState.recordPressureMemory(record, resolvedOption, effect, label);
     this.governmentVoices = null;
     return {
-      pressure: { ...record, status: 'resolved', resolvedOption, resolution: effect.note, resolvedDate: this.currentDate },
+      pressure: { ...record, status: 'resolved', resolvedOption, resolution: effect.note, resolvedDate: this.currentDate, resolvedSignatureKey: signatureKey ?? null },
       effect,
       account: this.sessionAccounts()[this.playerPolityId],
       memory,
