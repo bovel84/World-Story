@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createCouncilRoom, enterCouncil, receiveCouncilReply, councilHistory, councilRound,
-  appendCouncilMessage, confirmCouncilProposal, councilDraft, councilText, councilOpenQuestions, excludeCouncilMeasure, councilRoomMemory,
+  appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilDraft, councilText, councilOpenQuestions, excludeCouncilMeasure, councilRoomMemory,
 } from './councilRoom';
 
 const create = () => createCouncilRoom({ id: 'room-1', scopeKey: 'game|branch|4', initiatorMinister: 'tesoro' });
@@ -154,5 +154,25 @@ describe('Council orchestration — bounded, sequential, shared context', () => 
     }, controller.signal)).rejects.toThrow();
     expect(calls).toBe(1);
     expect(room.sharedBoard.proposals).toEqual([]);
+  });
+});
+
+describe('WS-GOV-TURN-AWARENESS — evento «Atto firmato»', () => {
+  const room = createCouncilRoom({ id: 'r1', scopeKey: 's', initiatorMinister: 'tesoro' });
+
+  it('una firma riuscita aggiunge l’evento narrativo alla stanza', () => {
+    const next = appendSignedActEvent(room, true, 'Importare grano per novanta giorni', 'm1');
+    const event = next.messages.at(-1)!;
+    expect(event.kind).toBe('event');
+    expect(event.content).toContain('[Atto firmato]');
+    expect(event.content).toContain('Importare grano');
+    expect(event.content).toContain('in attesa di esecuzione');
+    // La history del Consiglio lo vede subito.
+    expect(councilHistory(next, 'tesoro').some(item => item.content.includes('[Atto firmato]'))).toBe(true);
+  });
+
+  it('una firma fallita non aggiunge alcun evento', () => {
+    expect(appendSignedActEvent(room, false, 'Importare grano', 'm2')).toBe(room);
+    expect(appendSignedActEvent(room, true, '   ', 'm3')).toBe(room);
   });
 });

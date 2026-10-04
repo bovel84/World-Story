@@ -123,6 +123,13 @@ export interface VerifiedDecision {
   resolvedDate?: string | null;
   createdTurn?: number;
 }
+/** Un atto firmato dal Presidente: registrato, NON ancora eseguito. */
+export interface VerifiedSignedAct {
+  id: string;
+  text: string;
+  status: 'signed_pending_execution';
+  createdAt: string;
+}
 export interface VerifiedReport {
   id: string;
   sourceDecisionId: string;
@@ -219,6 +226,8 @@ export interface VerifiedWorldSnapshot {
     consequences: TurnResultRecord[];
     decisions: VerifiedDecision[] | null;
     followUps: VerifiedReport[] | null;
+    /** Atti firmati in attesa di esecuzione: decisioni PRESE, effetti NON ancora. */
+    signedActs: VerifiedSignedAct[];
   };
   changes: {
     available: boolean;
@@ -248,6 +257,8 @@ export interface VerifiedWorldSnapshotInput {
   foodCoverageMonths?: number | null;
   /** Explicit real baseline; repeated reads are NOT previous-turn snapshots. */
   previousSnapshot?: VerifiedWorldSnapshot | null;
+  /** Ordini pending canonici del motore: atti firmati, non ancora eseguiti. */
+  signedActs?: readonly VerifiedSignedAct[] | null;
 }
 
 const finite = (value: unknown): number | null =>
@@ -417,7 +428,10 @@ export function buildVerifiedWorldSnapshot(input: VerifiedWorldSnapshotInput): V
     diplomacy: { relations, commitments, alliances: relations?.filter(relation => relation.relationship === 'ally') ?? null,
       wars: null, sanctions: null, activeNegotiations: null },
     recent: { events, orders: (game.actions ?? []).sort((a, b) => a.turn - b.turn || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).slice(-12),
-      consequences: results, decisions, followUps: null },
+      consequences: results, decisions, followUps: null,
+      // Solo atti davvero in attesa: un atto eseguito non è più «firmato in attesa».
+      signedActs: (input.signedActs ?? []).filter(act => act.status === 'signed_pending_execution')
+        .map(act => ({ id: act.id, text: act.text, status: 'signed_pending_execution' as const, createdAt: act.createdAt })) },
     changes: { available: false, reason: 'previous_snapshot_unavailable', previousDate: null, previousTurn: null,
       comparedKeys: [], unavailableKeys: [], deltas: [] },
     facts: {}, unavailable: ['diplomacy.wars', 'diplomacy.sanctions', 'diplomacy.activeNegotiations'],

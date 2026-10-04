@@ -51,6 +51,20 @@ export function buildRealityAdvisorContext(snapshot: VerifiedWorldSnapshot, focu
   return { advisorContext: { verifiedWorldSnapshot: snapshot, governmentBrief, ...(focusIssue ? { focusIssue } : {}) }, reply: governmentBrief, issues: [] };
 }
 
+/** La regola che separa un atto FIRMATO da un effetto già avvenuto. */
+export const SIGNED_ACTS_RULE = 'Gli atti firmati sono decisioni già prese dal Presidente: non proporli come se fossero ancora da decidere. I loro effetti sul mondo NON sono ancora realtà finché il motore non li esegue al passaggio del tempo.';
+
+/** Sezione degli atti firmati: `undefined` quando non ce ne sono. */
+export function renderSignedActs(snapshot: VerifiedWorldSnapshot): string | undefined {
+  const acts = snapshot.recent.signedActs;
+  if (!acts.length) return undefined;
+  return [
+    '[ATTI FIRMATI — in attesa di esecuzione]',
+    ...acts.map(act => `- «${act.text}» (firmato ${act.createdAt})`),
+    SIGNED_ACTS_RULE,
+  ].join('\n');
+}
+
 /** Narrow deterministic constraint checks BEFORE generation, not a general natural-language fact checker. */
 export function verifiedRequestCorrection(snapshot: VerifiedWorldSnapshot, message: string): string | null {
   if (snapshot.diplomacy.sanctions === null && /sanzion|sanctions/i.test(message) && /qual|vigore|attual|registr|quadro|situaz|stato|abbiamo/i.test(message)) {
@@ -156,6 +170,7 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
       ? { date: context.verifiedWorldSnapshot.date, polityId: context.verifiedWorldSnapshot.polityId, facts: context.verifiedWorldSnapshot.facts, unavailable: context.verifiedWorldSnapshot.unavailable }
       : context.verifiedWorldSnapshot),
     '[GOVERNMENT BRIEF]', context.governmentBrief,
+    renderSignedActs(context.verifiedWorldSnapshot) ?? '',
     context.focusIssue ? `[FOCUS ISSUE — domanda proposta, solo verifiedFacts è canonico]\n${JSON.stringify(context.focusIssue)}` : '',
     recent.length ? '[Cronaca della conversazione]\n' + recent.map(item => `${item.role === 'user' ? 'Giocatore' : 'Consigliere'}: ${item.content}`).join('\n') : '',
     recent.length ? 'È un dialogo IN CORSO: non salutare nuovamente; la cronologia conserva consigli e intenzioni, non certifica fatti.' : '',

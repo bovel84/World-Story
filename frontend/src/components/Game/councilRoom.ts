@@ -113,6 +113,21 @@ export function createCouncilRoom(input: { id: string; scopeKey: string; initiat
     ...(sourceFollowUp ? { sourceFollowUp } : {}),
   };
 }
+/**
+ * WS-GOV-TURN-AWARENESS — Dopo una firma RIUSCITA la stanza riceve l'evento
+ * narrativo dell'atto, così `councilHistory()` lo vede subito. Con una firma
+ * fallita la stanza non cambia.
+ */
+export function appendSignedActEvent(room: CouncilRoomState, queued: boolean, text: string, messageId: string): CouncilRoomState {
+  if (!queued) return room;
+  const act = text.trim();
+  if (!act) return room;
+  return appendCouncilMessage(room, {
+    id: messageId, role: 'assistant', kind: 'event',
+    content: `[Atto firmato] Il Presidente ha firmato «${act}». L'atto è registrato ed è in attesa di esecuzione al prossimo avanzamento.`,
+  });
+}
+
 export function appendCouncilMessage(room: CouncilRoomState, message: CouncilMessage): CouncilRoomState {
   return { ...room, messages: [...room.messages, message] };
 }
