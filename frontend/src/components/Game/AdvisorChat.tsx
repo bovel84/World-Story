@@ -1,13 +1,13 @@
 /** The shared presidential conversation. Facts come from dedicated server context,
  * never from forged user messages. Only complete validated replies are published. */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { advisorApi, type CouncilIssue, type RealityAdvisorResponse } from '../../services/api';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import { useChatStore } from '../../stores';
 import { RichText } from './RichText';
 import { CouncilIssueInline } from './CouncilIssueInline';
 import { archivedTurns, currentTurnMessages } from './advisorTurns';
-import { advisorBucketKey, loadAdvisorMessages, saveAdvisorMessages } from './advisorMemory';
+import { advisorBucketKey, loadAdvisorArchive, loadAdvisorMessages, saveAdvisorMessages } from './advisorMemory';
 import type { ChartDataInput } from './advisorCharts';
 
 interface AdvisorChatProps {
@@ -20,7 +20,8 @@ interface AdvisorChatProps {
 }
 
 export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue, currentTurn = 0 }: AdvisorChatProps) {
-  const { advisorMessages, advisorStreaming, addAdvisorMessage, setAdvisorStreaming, tagAdvisorTurns, restoreAdvisorMessages } = useChatStore();
+  const { advisorMessages, advisorStreaming, addAdvisorMessage, setAdvisorStreaming, tagAdvisorTurns, setAdvisorMessages } = useChatStore();
+  const branchId = useSimulationStore(state => state.state?.branchId ?? null);
   const [input, setInput] = useState('');
   const [context, setContext] = useState<RealityAdvisorResponse | null>(null);
   const [focus, setFocus] = useState<CouncilIssue | undefined>();
@@ -32,17 +33,19 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
   const isLocal = gameId.startsWith('local_');
   // La chat attiva e la history sono SOLO del turno corrente; i messaggi legacy
   // senza turno vengono marcati una volta e poi restano archiviati.
-  const activeMessages = currentTurnMessages(advisorMessages, currentTurn);
+  const activeMessages = useMemo(() => currentTurnMessages(advisorMessages, currentTurn), [advisorMessages, currentTurn]);
   const previousTurns = archivedTurns(advisorMessages, currentTurn);
   useEffect(() => { tagAdvisorTurns(currentTurn); }, [currentTurn, tagAdvisorTurns]);
   // Persistenza per turno: la conversazione sopravvive al reload senza mescolare
   // i turni (un bucket per `gameId`+`scopeKey`, che contiene ramo e turno).
-  const bucket = advisorBucketKey(gameId, scopeKey);
+  const bucket = advisorBucketKey(gameId, branchId, scopeKey);
   useEffect(() => {
-    if (isLocal) return;
-    const restored = loadAdvisorMessages(bucket);
-    if (restored.length) restoreAdvisorMessages(restored);
-  }, [bucket, isLocal, restoreAdvisorMessages]);
+    if (isLocal) { setAdvisorMessages([]); return; }
+    // Archiviо dello STESSO ramo (turni precedenti) + turno corrente: la chat
+    // attiva è sostituita, mai mergiata con lo scope precedente.
+    const archived = loadAdvisorArchive(gameId, branchId, bucket);
+    setAdvisorMessages([...archived, ...loadAdvisorMessages(bucket)]);
+  }, [bucket, branchId, gameId, isLocal, setAdvisorMessages]);
   useEffect(() => {
     if (isLocal) return;
     saveAdvisorMessages(bucket, activeMessages);

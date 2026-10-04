@@ -86,6 +86,21 @@ describe('verified reality boundary', () => {
     expect(concerns).not.toMatch(/Opzioni:|→/);
   });
 
+  it('WS-GOV-ADVISOR-RESIDUAL-FIXES §5: una finestra scaduta è inazione, non una decisione', () => {
+    const world = snapshot();
+    world.recent.decisions = [
+      { id: 'd-res', title: 'Decreto infrastrutture', status: 'resolved', resolution: 'In vigore', resolvedDate: '1951-01-01' },
+      { id: 'd-exp', title: 'Vertenza armatori', status: 'expired', resolvedDate: '1951-01-02' },
+    ];
+    const signals = buildRealitySignals(world);
+    const decision = signals.find(signal => signal.key === 'recent-decisions');
+    const inaction = signals.find(signal => signal.key === 'inaction');
+    expect(decision?.reason).toContain('Decreto infrastrutture');
+    expect(decision?.reason).not.toContain('Vertenza armatori');
+    expect(inaction?.reason).toContain('Vertenza armatori');
+    expect(inaction?.domain).toBe('inaction');
+  });
+
   it('strips unknown or incomplete model proposals without accepting any partial facts', () => {
     const result = parseCouncilIssues(snapshot(), 'Parliamone.\n```council_issue\n' + JSON.stringify({ ...proposal, factKeys: ['treasury', 'invented'] }) + '\n```');
     expect(result).toEqual({ reply: 'Parliamone.', issues: [] });

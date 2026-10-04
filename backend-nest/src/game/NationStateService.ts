@@ -1181,10 +1181,20 @@ export class NationStateService {
    * si ripropongono strade e non si inventano effetti.
    */
   private executedActFollowUps(today: string, facts: SituationFactSource): GovernmentFollowUp[] {
+    // §1 — Fonte canonica: il registro dei processi del motore, sia in corso sia
+    // COMPLETATI (un atto con esito accepted apre un processo; un processo
+    // completato è un atto realmente eseguito). Esclusi annullati e falliti.
     let processes: any[] = [];
-    try { processes = gameRepository.getOngoingProcesses(this.ctx.gameId); } catch { return []; }
+    try { processes = gameRepository.snapshotOngoingProcesses(this.ctx.gameId); } catch { return []; }
+    const seenActions = new Set<string>();
     return processes
-      .filter(process => process?.started_date && process.status === 'ongoing')
+      .filter(process => process?.started_date && ['ongoing', 'completed'].includes(String(process.status)))
+      .filter(process => {
+        const key = String(process.source_action_id ?? process.id);
+        if (seenActions.has(key)) return false;
+        seenActions.add(key);
+        return true;
+      })
       .map(process => {
         const dueDate = addDays(process.started_date as string, SITUATION_FOLLOW_UP_DAYS);
         return { process, dueDate, daysLeft: daysBetween(today, dueDate) };

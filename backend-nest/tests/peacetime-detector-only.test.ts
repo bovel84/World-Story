@@ -132,12 +132,23 @@ describe('PeacetimePressures — detector / read-only', () => {
     expect(report!.outcome.length).toBeGreaterThan(0);
     expect(report!.label).toContain('Importazione di grano');
 
+    // §1 — Anche un processo COMPLETATO è un atto realmente eseguito.
+    games.upsertOngoingProcess({
+      id: 'proc-3', gameId: session.id, sourceActionId: 'act-3', sourceRunId: 'run-1',
+      title: 'Piano sanitario', summary: 'Chiuso.', startedDate: '1950-11-01',
+    });
+    games.completeOngoingProcessById(session.id, 'proc-3', 'Completato', '1950-12-01');
+    expect(session.getPeacetimePressures().followUps.some(item => item.pressureId === 'act-3')).toBe(true);
+
     // Un atto appena avviato NON ha ancora un rapporto.
     games.upsertOngoingProcess({
       id: 'proc-2', gameId: session.id, sourceActionId: 'act-2', sourceRunId: 'run-1',
       title: 'Ferrovia del nord', summary: 'Avviata.', startedDate: session.getCurrentDate(),
     });
     expect(session.getPeacetimePressures().followUps.some(item => item.pressureId === 'act-2')).toBe(false);
+    // Nessun rapporto duplicato per lo stesso atto.
+    const reports = session.getPeacetimePressures().followUps.filter(item => item.pressureId === 'act-1');
+    expect(reports).toHaveLength(1);
   });
 
   it('WS-GOV-REALITY-CLEANUP: una Pressure expirata NON produce follow-up, una risolta sì', async () => {
