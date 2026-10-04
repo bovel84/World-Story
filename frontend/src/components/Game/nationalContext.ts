@@ -160,19 +160,9 @@ export function deriveRailItems({
       id: 'orders',
       icon: '🏛',
       label: 'Governo',
-      badge: 0,
+      badge: openQuestions > 0 ? openQuestions : 0,
       active: activeModule === 'orders',
       onClick: () => openModule('orders'),
-    },
-    {
-      // V01 — le sfide di pace, fuori dal dossier. La voce sta accanto a
-      // «Ordini» perché è la stessa natura: ciò che chiede una decisione.
-      id: 'questioni',
-      icon: '❢',
-      label: 'Questioni',
-      badge: openQuestions > 0 ? openQuestions : 0,
-      active: activeModule === 'questioni',
-      onClick: () => openModule('questioni'),
     },
     {
       // D-1 — la sala operativa, fuori dal dossier. Il distintivo sono i

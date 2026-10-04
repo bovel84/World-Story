@@ -6,6 +6,8 @@ import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { CabinetSession } from './CabinetSession';
 import { OrderRegister } from './OrderRegister';
 import { CouncilRoomView } from './CouncilRoomView';
+import { AdvisorChat } from './AdvisorChat';
+import type { ChartDataInput } from './advisorCharts';
 import { GovernmentSituations } from './GovernmentSituations';
 import { CouncilRoomBoard } from './CouncilRoomBoard';
 import { ActDraftPanel } from './ActDraftPanel';
@@ -94,6 +96,8 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
   // stato ATTUALE della stanza, senza rimandare il messaggio del Presidente.
   const [failedTurn, setFailedTurn] = useState<{ roomId: string; seat: CabinetSeat; message: string } | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // WS-GOV-ADVISOR-HUB P5 — La situazione che il Consulente sta esaminando.
+  const [advisorFocus, setAdvisorFocus] = useState<{ label: string; context: string } | null>(null);
   const [focusedEvidence, setFocusedEvidence] = useState<{ seat: CabinetSeat; card: InlineEvidenceCard } | null>(null);
   const focusedEvidenceRef = useRef<HTMLElement>(null);
   const operationRef = useRef<{ controller: AbortController; roomId: string } | null>(null);
@@ -141,6 +145,18 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
   useEffect(() => { originRef.current = { scopeKey, memoryScope, memoryKey, date: currentDate, turn: currentTurn }; }, [scopeKey, memoryScope, memoryKey, currentDate, currentTurn]);
 
   const picture = useMemo(() => nationalOperatingPicture(nationOperatingPictureInput(pictureSources)), [pictureSources]);
+  // WS-GOV-ADVISOR-HUB P11 — Le stesse fonti del dossier per le figure del Consulente:
+  // nessuna chiamata in più, nessuna cifra dal modello.
+  const advisorChartData = useMemo<ChartDataInput>(() => ({
+    regions: Object.values(pictureSources.regions ?? {}),
+    account: pictureSources.account,
+    resources: pictureSources.resources,
+    budget: pictureSources.government?.budget ?? null,
+    history: pictureSources.accountHistory ?? [],
+    facilities: [],
+    resourceSites: [],
+    playerPolityId: pictureSources.account?.polityId ?? '',
+  }), [pictureSources]);
   const treasury = useMemo(() => treasuryAct({ session, picture, sources: pictureSources }), [session, picture, pictureSources]);
   const catalogs = useMemo(() => {
     const result: Partial<Record<CabinetSeat, ReturnType<typeof deriveSeatCanvasBlocks>>> = {};
@@ -487,14 +503,35 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
         setActiveId(null);
       }} onSheetChange={setSheetOpen} board={board} draftPrepared={Boolean(draft)} notice={notice} error={error}
       failure={failedTurn && failedTurn.roomId === activeRoom.id ? { seat: failedTurn.seat } : null} onRetry={retryFailed} /> : <>
-      <button type="button" className="desk-close-x" onClick={onClose} aria-label="Chiudi il Governo">✕</button>
-      <div className="council-head"><h2 className="council-title" id="government-office-title">Sala del Consiglio</h2>
-        <p className="council-sub">Scegli il relatore iniziale per aprire una seduta. Convoca i colleghi, confronta le proposte e costruisci un atto comune.</p></div>
+      <div className="government-office-bar">
+        <button type="button" className="desk-close-x" onClick={onClose} aria-label="Chiudi il Governo">✕</button>
+        <div className="council-head"><h2 className="council-title" id="government-office-title">Governo</h2>
+          <p className="council-sub">Il Primo Consulente ti dice cosa richiede attenzione; da qui porti la questione al Consiglio.</p></div>
+      </div>
+      <section className="government-advisor" aria-label="Il Primo Consulente">
+        <h3 className="government-advisor-heading">IL PRIMO CONSULENTE</h3>
+        <AdvisorChat gameId={gameId} chartData={advisorChartData} focus={advisorFocus} />
+      </section>
       <OrderRegister orders={pendingActions} nationalName={nationalName} date={currentDate} onWithdraw={onWithdrawOrder} />
       {Object.values(rooms).filter(candidate => candidate.scopeKey === scopeKey).map(candidate => <button type="button" key={candidate.id} className="council-room-resume" onClick={() => { setTarget('council'); setActiveId(candidate.id); }}>
         Riprendi seduta · {candidate.topic || seatSpeaker(candidate.initiatorMinister)} · {candidate.participants.length} ministri
       </button>)}
-      <GovernmentSituations pressures={pictureSources.pressures} followUps={pictureSources.followUps} onOpen={situation => startRoom(situation.leadMinister as CabinetSeat, situation)} onOpenFollowUp={startRoomFollowUp} />
+      <GovernmentSituations pressures={pictureSources.pressures} followUps={pictureSources.followUps} onOpen={situation => startRoom(situation.leadMinister as CabinetSeat, situation)} onOpenFollowUp={startRoomFollowUp} onExamine={situation => setAdvisorFocus({ label: situation.title, context: [situation.briefing, ...situation.verifiedFacts, situation.decisionQuestion, `Se non decidiamo: ${situation.inaction.note}`].filter(Boolean).join('\n') })} />
+      {pictureSources.brief && (
+        <section className="government-roster" aria-label="Ministri">
+          <h3 className="government-roster-heading">MINISTRI</h3>
+          <ul className="government-roster-list">
+            {pictureSources.brief.cabinet.map(entry => (
+              <li key={entry.seat}>
+                <button type="button" className="government-roster-seat" data-seat={entry.seat} data-state={entry.state} title={`Apri la seduta con il ${entry.label}`} onClick={() => startRoom(entry.seat as CabinetSeat)}>
+                  <span className="government-roster-name">{entry.label}</span>
+                  <span className={`government-roster-state council-state-${entry.state}`}>{entry.state === 'engaged' ? 'sul tavolo' : 'disponibile'}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <CabinetSession variant="pick" session={session} agenda={agenda} loading={sessionLoading} error={sessionError} onOpenSeat={address => startRoom(address.seat)} />
     </>}
   </AccessibleDialog>;

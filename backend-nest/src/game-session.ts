@@ -40,6 +40,7 @@ import { OutboxService } from './game/OutboxService';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { clampTaxRatePct, DEFAULT_FISCAL_POLICY, describeFiscalEffects, fiscalShockModifier, FISCAL_MAX_PCT, FISCAL_MIN_PCT, fiscalLabel, type FiscalPolicy } from './core/simulation/FiscalPolicy';
 import { composePressureEffects, arePressureOptionsCompatible, type PressureEffect, type PressureOption } from './core/simulation/PeacetimePressures';
+import { CABINET_SEATS, SEAT_LABEL, type CabinetSeat } from './core/government/Cabinet';
 import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import { readCabinetSession } from './game/GovernmentReadings';
@@ -3362,8 +3363,13 @@ export class GameSession {
       gameId: this.id, branchId: fence.branchId, playerPolityId: this.playerPolityId,
       government: this.getGovernment(), account: this.getNationalAccounts()[this.playerPolityId],
     });
-    const address = cabinet.addresses.find(candidate => candidate.seat === seat);
-    if (!address) throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
+    // WS-GOV-ADVISOR-HUB P9 — Una sedia senza questioni resta CONSULTABILE: la
+    // sua apertura è un saluto, non un errore. Solo una sedia inesistente rifiuta.
+    if (!CABINET_SEATS.includes(seat as CabinetSeat)) {
+      throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
+    }
+    const address = cabinet.addresses.find(candidate => candidate.seat === seat)
+      ?? { seat: seat as CabinetSeat, label: SEAT_LABEL[seat as CabinetSeat], reads: '', items: [], opening: '' };
     const vars = new PromptBuilder(this.buildGameData()).buildVariables();
     const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat });
     let memory = '';

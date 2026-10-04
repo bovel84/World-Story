@@ -52,13 +52,13 @@ describe('GovernmentSituations', () => {
       ]}
       onOpen={() => {}} />);
 
-    expect(html).toContain('RICHIEDE UNA DECISIONE');
+    expect(html).toContain('PROBLEMI CHE RICHIEDONO DECISIONE');
     expect(html).toContain('OPPORTUNITÀ');
     expect(html).toContain('Incidente di frontiera con Serbia');
     expect(html).toContain('Forze mobilitate 35');
     expect(html).toContain('Come rispondiamo all’incidente?');
     expect(html).not.toMatch(/[.,]\d{3,}/);
-    expect(html.match(/Apri Consiglio/g)).toHaveLength(2);
+    expect(html.match(/Porta al Consiglio/g)).toHaveLength(2);
   });
 
   it('mostra i seguiti dovuti nella home, con proprietario e apertura rapporto', () => {
@@ -69,7 +69,7 @@ describe('GovernmentSituations', () => {
       situation: pressure({ id: 'p#1', title: 'Incidente di frontiera con Serbia' }).situation!,
     };
     const html = renderToStaticMarkup(<GovernmentSituations followUps={[followUp]} onOpen={() => {}} onOpenFollowUp={() => {}} />);
-    expect(html).toContain('DA RIFERIRE');
+    expect(html).toContain('RAPPORTI DA LEGGERE');
     expect(html).toContain('Schieramento al confine: copertura logistica');
     expect(html).toContain('Apri rapporto');
     expect(html).toContain('previsto oggi');

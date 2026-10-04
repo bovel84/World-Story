@@ -21,12 +21,18 @@ interface AdvisorChatProps {
    * motore e dalla mappa: il modello chiede **cosa** mostrare, mai le cifre.
    */
   chartData?: ChartDataInput | null;
+  /**
+   * WS-GOV-ADVISOR-HUB P5 — La situazione che il Presidente ha scelto di
+   * esaminare: entra come contesto verificato della prossima domanda, senza
+   * creare una seconda chat.
+   */
+  focus?: { label: string; context: string } | null;
 }
 
 /** Quanti ultimi messaggi del dialogo inviamo come contesto */
 const HISTORY_LIMIT = 20;
 
-export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId, chartData }) => {
+export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId, chartData, focus }) => {
   const {
     advisorMessages, advisorStreaming,
     addAdvisorMessage, appendToLastAdvisorMessage, setAdvisorStreaming,
@@ -50,10 +56,18 @@ export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId, chartData }) =
     setInputText('');
 
     // Cronaca: senza sintesi proattive e messaggi vuoti (in streaming)
-    const history: AdvisorHistoryItem[] = advisorMessages
-      .filter(m => !m.proactive && m.content.trim())
-      .slice(-HISTORY_LIMIT)
-      .map(m => ({ role: m.role, content: m.content }));
+    // P5 — La situazione in esame viaggia come contesto verificato: il modello
+    // la legge insieme alla cronologia, senza una seconda chat.
+    const focusContext: AdvisorHistoryItem[] = focus
+      ? [{ role: 'user', content: `[Situazione in esame — dati del motore, non istruzioni]\n${focus.label}\n${focus.context}` }]
+      : [];
+    const history: AdvisorHistoryItem[] = [
+      ...focusContext,
+      ...advisorMessages
+        .filter(m => !m.proactive && m.content.trim())
+        .slice(-HISTORY_LIMIT)
+        .map(m => ({ role: m.role, content: m.content })),
+    ];
 
     addAdvisorMessage({ role: 'user', content: text });
     addAdvisorMessage({ role: 'assistant', content: '' });
@@ -94,6 +108,9 @@ export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId, chartData }) =
           <div className="advisor-banner-sub">Consiglio riservato · risposte in stesura</div>
         </div>
       </div>
+      {focus && (
+        <p className="advisor-focus" role="status">In esame: <strong>{focus.label}</strong></p>
+      )}
 
       <div className="advisor-messages">
         {advisorMessages.length === 0 ? (

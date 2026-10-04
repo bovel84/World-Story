@@ -27,6 +27,7 @@ import {
   type PressureEffect, type PressureNeighbour, type PressureSnapshot, type PressureWindow, type RelationStance,
 } from '../core/simulation/PeacetimePressures';
 import { buildGovernmentSituation, buildGovernmentFollowUp, leadMinisterFor, SITUATION_FOLLOW_UP_DAYS, type GovernmentSituation, type GovernmentFollowUp, type SituationFactSource } from '../core/government/GovernmentSituations';
+import { buildGovernmentAdvisorBrief, type GovernmentAdvisorBrief } from '../core/government/GovernmentAdvisorBrief';
 import { advanceCrisis, type CrisisEnding, type CrisisInput, type CrisisState } from '../core/simulation/NationCrisis';
 import { factionMemoryFromPressure, type FactionMemoryEvent } from '../core/simulation/FactionMemory';
 import { ingestJevBatch, governmentEventInput, factionMemoryInputs } from '../core/government/jev/jev-memory.service';
@@ -1011,8 +1012,16 @@ export class NationStateService {
     const room = PRESSURE_MAX_ACTIVE - active.length;
     if (room <= 0) return;
     const openTemplates = new Set(active.map(record => record.template));
+    // WS-GOV-ADVISOR-HUB P3.2 — Una questione appena chiusa NON riappare come
+    // crisi nuova: il suo seguito è il follow-up/conseguenza, non un doppione.
+    const recentlyClosed = new Set(
+      gameRepository.listPressures(this.ctx.gameId)
+        .filter(record => record.status !== 'active' && record.resolvedDate
+          && daysBetween(record.resolvedDate, this.ctx.currentDate()) <= SITUATION_FOLLOW_UP_DAYS)
+        .map(record => record.template),
+    );
     const candidate = generatePressures(this.pressureSnapshot(), { maxPressures: room })
-      .filter(pressure => !openTemplates.has(pressure.template));
+      .filter(pressure => !openTemplates.has(pressure.template) && !recentlyClosed.has(pressure.template));
     if (candidate.length === 0) return;
     gameRepository.insertPressures(
       this.ctx.gameId, this.ctx.playerPolityId(), candidate, this.ctx.currentDate(), this.ctx.currentTurn(),
@@ -1146,6 +1155,8 @@ export class NationStateService {
     foodCoverageMonths: number | null;
     /** P1.8 — i seguiti dovuti: il ministro torna a riferire con i fatti di oggi. */
     followUps: GovernmentFollowUp[];
+    /** WS-GOV-ADVISOR-HUB — il briefing strutturato del Primo Consulente. */
+    brief: GovernmentAdvisorBrief;
   } {
     const all = gameRepository.listPressures(this.ctx.gameId);
     // Dopo il collasso non c'è più niente da decidere.
@@ -1197,15 +1208,25 @@ export class NationStateService {
         facts,
         priority: 'rilevante',
       }));
+    const situations = withWindow.map(record => ({
+      ...record,
+      highlighted: highlighted.has(record.id),
+      situation: buildGovernmentSituation({ pressure: record, window: record.window, priority: record.priority, facts, history }),
+    }));
+    // WS-GOV-ADVISOR-HUB — Il briefing del Primo Consulente: situazioni, rapporti,
+    // roster dei sette ministri e decisioni recenti, dalle fonti canoniche.
+    const brief = buildGovernmentAdvisorBrief({
+      date: today,
+      situations: situations.map(item => item.situation),
+      followUps,
+      recentDecisions: all.filter(record => record.status !== 'active').slice(0, 8).map(record => ({ id: record.id, title: record.title, resolution: record.resolution })),
+    });
     return {
-      pressures: withWindow.map(record => ({
-        ...record,
-        highlighted: highlighted.has(record.id),
-        situation: buildGovernmentSituation({ pressure: record, window: record.window, priority: record.priority, facts, history }),
-      })),
+      pressures: situations,
       recent: all.filter(record => record.status !== 'active').slice(0, 6),
       foodCoverageMonths: this.foodCoverageMonths(),
       followUps,
+      brief,
     };
   }
 

@@ -60,6 +60,8 @@ export interface GovernmentSituation {
   readonly severity: number;
   readonly priority: string;
   readonly openedDate: string;
+  /** Il turno in cui la situazione è nata: distingue `new` da `active`. */
+  readonly openedTurn?: number;
   readonly deadline: string | null;
   readonly daysLeft: number;
   readonly leadMinister: CabinetSeat;
@@ -97,6 +99,7 @@ export interface SituationPressureInput {
   readonly options: readonly PressureOption[];
   readonly inaction: PressureEffect;
   readonly createdDate: string;
+  readonly createdTurn?: number;
   /** P4 — Provenienza esplicita scritta dal motore (assente sui save vecchi). */
   readonly originType?: string | null;
   readonly originSourcePressureId?: string | null;
@@ -291,6 +294,7 @@ export function buildGovernmentSituation(input: {
     severity: pressure.severity,
     priority,
     openedDate: pressure.createdDate,
+    ...(pressure.createdTurn !== undefined ? { openedTurn: pressure.createdTurn } : {}),
     deadline: null,
     daysLeft: Math.max(0, Math.round(window.daysLeft)),
     leadMinister: leadMinisterFor(pressure),

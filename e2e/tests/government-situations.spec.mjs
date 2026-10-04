@@ -68,7 +68,7 @@ test('la porta del Governo mostra urgenze e opportunità, e apre il Consiglio su
 
   const panel = page.locator('.government-situations');
   await expect(panel).toBeVisible();
-  await expect(panel.getByText('RICHIEDE UNA DECISIONE', { exact: true })).toBeVisible();
+  await expect(panel.getByText('PROBLEMI CHE RICHIEDONO DECISIONE', { exact: true })).toBeVisible();
   await expect(panel.getByText('OPPORTUNITÀ', { exact: true })).toBeVisible();
   await expect(panel.locator('.gov-situation')).toHaveCount(2);
   await expect(panel).toContainText('Incidente di frontiera con Serbia');
@@ -80,7 +80,7 @@ test('la porta del Governo mostra urgenze e opportunità, e apre il Consiglio su
 
   // Apre il Consiglio: relatore la Guerra, oggetto la domanda, nessuna convocazione automatica.
   const incident = panel.locator('.gov-situation').first();
-  await incident.getByRole('button', { name: 'Apri Consiglio', exact: true }).click();
+  await incident.getByRole('button', { name: 'Porta al Consiglio', exact: true }).click();
   const room = page.locator('.council-room');
   await expect(room).toBeVisible({ timeout: 10_000 });
   await expect(room.locator('.council-room-topic')).toHaveText('Incidente di frontiera con Serbia');
