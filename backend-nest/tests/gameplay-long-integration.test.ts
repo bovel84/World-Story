@@ -432,4 +432,16 @@ describe('GAMEPLAY-LONG — partita lunga', () => {
     // Firma diversa → la sfida è già chiusa.
     expect(() => session.resolvePeacetimePressure('gov#sig', 'concede', 'sig-2')).toThrow(/pressure_not_active/);
   });
+
+  it('P3.2 — una questione chiusa non riappare come crisi nuova (stesso template)', async () => {
+    const { gameId, session } = createGame();
+    const repos = await import('../src/repositories');
+    const player = session.getPlayer();
+    repos.gameRepository.insertPressures(gameId, player.polityId, [pressure('gov#life')], session.getCurrentDate(), session.getCurrentTurn());
+    const before = repos.gameRepository.listPressures(gameId).filter((record: any) => record.template === 'strike-wave').length;
+    session.resolvePeacetimePressure('gov#life', 'concede');
+    await session.advanceDate(30);
+    const after = repos.gameRepository.listPressures(gameId).filter((record: any) => record.template === 'strike-wave').length;
+    expect(after).toBe(before);
+  });
 });
