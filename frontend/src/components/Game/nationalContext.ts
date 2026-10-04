@@ -160,7 +160,7 @@ export function deriveRailItems({
       id: 'orders',
       icon: '🏛',
       label: 'Governo',
-      badge: openQuestions > 0 ? openQuestions : 0,
+      badge: 0,
       active: activeModule === 'orders',
       onClick: () => openModule('orders'),
     },
@@ -181,14 +181,6 @@ export function deriveRailItems({
       badge: totalUnread > 0 ? totalUnread : 0,
       active: activeModule === 'diplomacy',
       onClick: () => openModule('diplomacy'),
-    },
-    {
-      id: 'advisor',
-      icon: '✦',
-      label: 'Consulente',
-      badge: 0,
-      active: activeModule === 'advisor',
-      onClick: () => openModule('advisor'),
     },
     {
       id: 'news',

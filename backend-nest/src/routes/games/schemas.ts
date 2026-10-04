@@ -69,12 +69,23 @@ export const processActionSchema = z.object({ jump_days: z.number().optional() }
 export const advisorSchema = z
   .object({
     message: z.string().optional(),
-    history: z.array(z.unknown()).optional(),
+    history: z.array(z.unknown()).max(100).optional(),
+    advisorContext: z.object({ focusIssue: z.unknown().optional() }).optional(),
+    sourceIssue: z.unknown().optional(),
     // WS-MINISTER-UX-05 — memoria del ministro inviata dal client: la rotta la
     // valida e la persiste (il contenuto è controllato in `normalizeMinisterMemory`).
     memory: z.array(z.unknown()).optional(),
   })
   .passthrough();
+
+/** Reality advisor accepts only a discussion focus, never a client snapshot. */
+export const realityAdvisorSchema = z.object({
+  message: z.string().max(12000).optional(),
+  history: z.array(z.unknown()).max(100).optional(),
+  advisorContext: z.object({ focusIssue: z.unknown().optional() }).optional(),
+});
+
+export const ministerOpeningSchema = z.object({ sourceIssue: z.unknown().optional(), situation: z.unknown().optional() });
 
 /**
  * WS-GOV-MOBILE-FOCUS (A7) — `POST /:id/government/minister/:seat/render`:

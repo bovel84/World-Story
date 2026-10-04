@@ -56,6 +56,8 @@ export interface ProposalActDraft {
   readonly sourceRevision?: number;
   readonly sourceSeat?: string;
   readonly sourceSessionId?: string;
+  /** UI provenance of the verified issue; not a Pressure or engine command. */
+  readonly sourceIssueId?: string;
   /**
    * WS-GOV-SITUATIONS-LOOP P1 — Provenienza tecnica dell'atto: la Pressure che la
    * seduta doveva risolvere. NON è narrativa, NON entra nel testo dell'atto e NON

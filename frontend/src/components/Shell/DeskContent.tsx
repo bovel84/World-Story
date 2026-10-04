@@ -1,12 +1,9 @@
 import { type ReactNode } from 'react';
-import { AdvisorChat } from '../Game/AdvisorChat';
 import { ChatsPanel } from '../Game/ChatsPanel';
 import { EventFeed } from '../Game/EventFeed';
 import { DiplomacyPanel } from '../Game/DiplomacyPanel';
 import { NationDock } from '../Game/NationDock';
-import { QuestionsPanel } from '../Game/QuestionsPanel';
 import { ForcesPanel } from '../Game/ForcesPanel';
-import type { ChartDataInput } from '../Game/advisorCharts';
 import { EmptyState } from '../Game/NationDock/widgets';
 import type { NationResources } from '../Game/NationDock';
 import type { ArsenalResponse, Commitment, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, GovernmentVoicesResponse, PeacetimePressure, PowerAgenda } from '../../services/api';
@@ -151,29 +148,6 @@ export function DeskContent({
     return null;
   }
 
-  // Modulo Consulente
-  if (activeModule === 'advisor' && currentGame) {
-    // C01 — i dati su cui il Consulente può costruire una figura. Sono gli stessi
-    // read model che il dossier già usa (conto, bilancio, storico, asset
-    // territoriali): nessuna chiamata in più, nessuna cifra dal modello.
-    const chartData: ChartDataInput = {
-      regions: currentWorld?.regions ? Object.values(currentWorld.regions) as Region[] : [],
-      account: nationalAccount,
-      resources: nationalResources,
-      budget: nationalGovernment?.budget ?? null,
-      history: nationalHistory,
-      facilities: worldMapAssets?.facilities ?? [],
-      resourceSites: worldMapAssets?.resources ?? [],
-      playerPolityId,
-    };
-    return (
-      <div className="advisor-chat-wrap" style={{ position: 'relative', height: '100%' }}>
-        <button type="button" className="desk-close-x" onClick={closeModule} aria-label="Chiudi consulente" title="Chiudi">✕</button>
-        <AdvisorChat gameId={currentGame.id} chartData={chartData} />
-      </div>
-    );
-  }
-
   // Modulo Diplomazia: chat diplomatiche (scelta originaria del modulo 💬)
   if (activeModule === 'diplomacy' && currentGame) {
     return (
@@ -201,25 +175,6 @@ export function DeskContent({
           onMarkRead={onMarkFeedRead}
           onMarkAllRead={onMarkAllFeedRead}
           playerPolityName={nationalName}
-        />
-      </div>
-    );
-  }
-
-  // V01 — Modulo Questioni: le sfide di pace, fuori dal dossier nazionale.
-  // Il dossier è un documento di stato; una sfida è una decisione da prendere.
-  // Qui si montano le stesse pressioni che il dossier riceveva, con le stesse
-  // props: nessun dato nuovo, nessuna seconda verità.
-  if (activeModule === 'questioni') {
-    return (
-      <div className="questions-desk" style={{ position: 'relative', height: '100%' }}>
-        <button type="button" className="desk-close-x" onClick={closeModule} aria-label="Chiudi questioni" title="Chiudi">✕</button>
-        <QuestionsPanel
-          pressures={nationalPressures}
-          recentPressures={recentPressures}
-          onResolvePressure={onResolvePressure}
-          pressureBusy={pressureBusy}
-          money={nationalAccount?.money}
         />
       </div>
     );

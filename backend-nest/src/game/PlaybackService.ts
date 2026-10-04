@@ -162,6 +162,10 @@ export class PlaybackService {
     state: PausedRunState,
     event: SimulationEvent,
   ): Promise<PausedBatchResult | CompletedBatchResult> {
+    // A restored playback must not bypass the same live-world execution gate.
+    this.ctx.orders.assertExecutableOrders(
+      this.ctx.orders.queue().filter(action => state.batchActionIds.includes(action.id)), this.state.regions.values(),
+    );
     // Stesso contratto mappa della simulazione batch: le misure materiali
     // attestate dalle controparti NPC diventano marker anche nel playback.
     event = this.ctx.reconcileNpcMaterialMeasures(event);
@@ -473,6 +477,9 @@ export class PlaybackService {
     state: PausedRunState,
     reason: 'completed' | 'paused_budget' | 'intervened' | 'game_over',
   ): Promise<CompletedBatchResult> {
+    this.ctx.orders.assertExecutableOrders(
+      this.ctx.orders.queue().filter(action => state.batchActionIds.includes(action.id)), this.state.regions.values(),
+    );
     const runId = state.runId;
     const completion = state.completion;
     const player = this.state.players[0];

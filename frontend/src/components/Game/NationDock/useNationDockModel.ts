@@ -226,7 +226,8 @@ export function useNationDockModel(props: NationDockProps) {
     synthesis: nationalSynthesis({
       picture: operatingPicture,
       crisis: props.crisis,
-      pressures: props.pressures,
+      // Internal detectors are not player quests; the Advisor reads canonical facts.
+      pressures: [],
       commitments: props.commitments,
       processes: props.ongoingProcesses,
       account,

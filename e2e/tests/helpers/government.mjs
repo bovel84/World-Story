@@ -23,6 +23,9 @@ export async function reachHud(page) {
 
 /** Apre l'Ufficio del Governo (schermata di scelta: registro + ministri). */
 export async function openGovernment(page) {
+  // Il briefing d'apertura copre la barra: saltalo quando è presente.
+  const skip = page.getByRole('button', { name: 'Salta il briefing' });
+  try { await skip.click({ timeout: 2_000 }); } catch { /* già assente */ }
   await page.locator('.rail-btn[aria-label="Governo"]').click();
   const office = page.locator('.government-office');
   await expect(office).toBeVisible({ timeout: 10_000 });

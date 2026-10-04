@@ -325,7 +325,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     markOpeningSeen(currentGame?.id ?? null);
     setShowOpening(false);
     if (door === 'orders') openModule('orders');
-    else if (door === 'advisor') openModule('advisor');
+    else if (door === 'advisor') openModule('orders');
     else if (door === 'map') { closeModule(); setSelectedRegion(null); }
   }, [currentGame?.id, setShowOpening, openModule, closeModule, setSelectedRegion]);
 
@@ -400,6 +400,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
         onClose={closeModule}
         gameId={currentGame?.id ?? ''}
         session={cabinet}
+        worldMapAssets={nation.worldMapAssets}
         sessionLoading={cabinetLoading}
         sessionError={cabinetError}
         onQueueOrder={queuePlayerAction}

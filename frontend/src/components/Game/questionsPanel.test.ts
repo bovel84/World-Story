@@ -86,19 +86,18 @@ describe('V01 — il pannello Questioni è la casa nuova', () => {
     expect(QUESTIONS).toMatch(/peacetime|pressure/i);
   });
 
-  it('il desk monta il pannello come modulo, chiudibile', () => {
-    expect(DESK).toMatch(/activeModule === 'questioni'/);
-    expect(DESK).toMatch(/<QuestionsPanel/);
-    const block = DESK.slice(DESK.indexOf("activeModule === 'questioni'"));
-    expect(block, 'il modulo Questioni deve avere il suo pulsante di chiusura')
-      .toMatch(/Chiudi questioni/);
+  it('WS-GOV-REALITY-ADVISOR: il desk non monta più il pannello legacy', () => {
+    // La porta unica è il Governo: le sfide non sono più un modulo del desk.
+    expect(DESK).not.toMatch(/activeModule === 'questioni'/);
+    expect(DESK).not.toMatch(/<QuestionsPanel/);
   });
 
-  it('il dossier rimanda a Questioni per rispondere, invece di risolvere', () => {
+  it('WS-GOV-REALITY-ADVISOR: le voci-sfida non sono più quest da risolvere', () => {
     expect(DOCK).toMatch(/onOpenQuestions/);
     const PANEL = read('NationalSynthesisPanel.tsx');
-    expect(PANEL).toMatch(/Rispondi in Questioni/);
-    // Il pulsante compare **solo** per le voci-sfida: le altre restano rimandi.
+    expect(PANEL).not.toMatch(/Rispondi in Questioni/);
+    // Il pulsante per le voci-sfida ora porta al Governo (sintesi, non risoluzione).
+    expect(PANEL).toMatch(/Esamina con il Governo/);
     expect(PANEL).toMatch(/item\.source === 'sfida'/);
   });
 });
@@ -119,10 +118,11 @@ describe('V01 — lo storico delle questioni chiuse', () => {
 });
 
 describe('V01 — il distintivo della barra comandi', () => {
-  it('WS-GOV-ADVISOR-HUB: la barra non ha più una voce Questioni separata', () => {
+  it('WS-GOV-REALITY-ADVISOR: la barra non ha più né Questioni né un Consulente separato', () => {
     expect(RAIL_CONTEXT).not.toMatch(/id: 'questioni'/);
-    expect(RAIL_CONTEXT).toMatch(/id: 'orders'/);
-    expect(RAIL_CONTEXT).toMatch(/badge: openQuestions > 0 \? openQuestions : 0/);
+    expect(RAIL_CONTEXT).not.toMatch(/id: 'advisor'/);
+    // Nessun conteggio di quest: il Governo non espone più badge di sfide.
+    expect(RAIL_CONTEXT).not.toMatch(/openQuestions > 0/);
   });
 
   it('«Questioni» è un modulo canonico come ogni altro', () => {

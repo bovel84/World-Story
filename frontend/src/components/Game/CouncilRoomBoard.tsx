@@ -14,10 +14,6 @@ export interface CouncilRoomBoardProps {
   onExclude?: (label: string) => void;
   onPrepare?: () => void;
   onConvene?: (seat: CabinetSeat) => void;
-  /** P0 — Il Presidente CONFERMA una strada (proposta dai ministri o conosciuta dal motore). */
-  onConfirmPressureOption?: (optionId: string) => void;
-  /** P0 — Il Presidente ESCLUDE una strada dalla risposta. */
-  onExcludePressureOption?: (optionId: string) => void;
   children?: ReactNode;
 }
 
@@ -45,7 +41,7 @@ function MeasureRow({ measure, onExclude, busy }: { measure: DecisionMeasure; on
 
 /** One question and one live proposal; declarations remain attributed to their speakers. */
 export function CouncilRoomBoard({
-  room, busy = false, canPrepare = false, onConfirm, onExclude, onPrepare, onConvene, onConfirmPressureOption, onExcludePressureOption, children,
+  room, busy = false, canPrepare = false, onConfirm, onExclude, onPrepare, onConvene, children,
 }: CouncilRoomBoardProps) {
   const prepareReasonId = useId();
   const proposal = activeProposal(room.sharedBoard);
@@ -75,7 +71,7 @@ export function CouncilRoomBoard({
         <span className="council-board-revision">revisione {room.sharedBoard.revision}</span>
       </header>
 
-      {room.sourceFollowUp && (
+      {room.sourceFollowUp && !room.sourceIssue && (
         <section className="council-board-section council-board-follow-up" aria-label="RAPPORTO" data-pressure-id={room.sourceFollowUp.pressureId}>
           <h3>RAPPORTO</h3>
           <p className="council-board-situation-title">{room.sourceFollowUp.label}</p>
@@ -99,7 +95,7 @@ export function CouncilRoomBoard({
         </section>
       )}
 
-      {room.sourceSituation && (
+      {room.sourceSituation && !room.sourceIssue && (
         <section className="council-board-section council-board-situation" aria-label="SITUAZIONE" data-pressure-id={room.sourceSituation.pressureId}>
           <h3>SITUAZIONE</h3>
           <p className="council-board-situation-title">{room.sourceSituation.title}</p>
@@ -119,71 +115,44 @@ export function CouncilRoomBoard({
             <h4>DECISIONE DA PRENDERE</h4>
             <p>{room.sourceSituation.decisionQuestion}</p>
           </section>
-          <section className="council-board-proposals" aria-label="PROPOSTE DEI MINISTRI">
-            <h4>PROPOSTE DEI MINISTRI</h4>
-            {room.proposedPressureOptions.length > 0 ? (
-              <ul className="council-board-response-list">
-                {room.proposedPressureOptions.map(proposal => {
-                  const option = room.sourceSituation?.options.find(candidate => candidate.id === proposal.optionId);
-                  if (!option) return null;
-                  const confirmed = room.selectedPressureOptions.includes(proposal.optionId);
-                  return (
-                    <li key={proposal.optionId} className="council-board-minister-proposal" data-option={proposal.optionId} data-confirmed={confirmed}>
-                      <span className="council-board-proposal-label">○ {option.label}</span>
-                      <span className="council-board-proposal-by">proposto da {seatSpeaker(proposal.proposedBy)}</span>
-                      {!confirmed && onConfirmPressureOption && (
-                        <button type="button" className="council-board-response-toggle" disabled={busy} onClick={() => onConfirmPressureOption(proposal.optionId)} aria-label={`Conferma ${option.label}`}>Conferma</button>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="council-board-empty">Nessuna proposta dai ministri: discutete, e le strade emergeranno.</p>
-            )}
-          </section>
-          <section className="council-board-response" aria-label="RISPOSTA DEL PRESIDENTE">
-            <h4>RISPOSTA DEL PRESIDENTE</h4>
-            {room.selectedPressureOptions.length > 0 ? (
-              <ul className="council-board-response-list">
-                {room.selectedPressureOptions.map(optionId => {
-                  const option = room.sourceSituation?.options.find(candidate => candidate.id === optionId);
-                  if (!option) return null;
-                  return (
-                    <li key={optionId} className="council-board-response-picked" data-option={optionId}>
-                      <span>✓ {option.label}</span>
-                      {onExcludePressureOption && <button type="button" className="council-board-response-toggle" disabled={busy} onClick={() => onExcludePressureOption(optionId)} aria-label={`Escludi ${option.label}`}>Escludi</button>}
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="council-board-empty">Nessuna strada confermata: solo il Presidente conferma le misure.</p>
-            )}
-            <details className="council-board-response-options">
-              <summary>Corsi d’azione conosciuti dal motore</summary>
-              <ul className="council-board-response-list">
-                {room.sourceSituation.options.map(option => {
-                  const selected = room.selectedPressureOptions.includes(option.id);
-                  return (
-                    <li key={option.id} data-option={option.id} data-selected={selected}>
-                      <button type="button" className="council-board-response-toggle" disabled={busy || !onConfirmPressureOption} onClick={() => onConfirmPressureOption?.(option.id)}>
-                        {selected ? '✓ ' : '+ '}{option.label}
-                      </button>
-                      <span className="council-board-response-detail">{option.detail}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </details>
-          </section>
+          {room.selectedPressureOptions.length > 0 && <details className="council-board-legacy-response">
+            <summary>Scelte registrate nella seduta precedente</summary>
+            <ul>{room.selectedPressureOptions.map(id => {
+              const option = room.sourceSituation?.options.find(candidate => candidate.id === id);
+              return option ? <li key={id}>{option.label}</li> : null;
+            })}</ul>
+          </details>}
         </section>
       )}
 
-      <section className="council-board-section council-board-question" aria-label="QUESTIONE">
+      <section className="council-board-section council-board-question" aria-label="QUESTIONE" data-issue-id={room.sourceIssue?.id} data-origin={room.sourceIssue?.origin}>
         <h3>QUESTIONE</h3>
-        <p>{room.topic || room.sharedBoard.objective || room.sharedBoard.problem || 'Questione da definire con il Presidente.'}</p>
+        <p>{room.sourceIssue?.title || room.topic || room.sharedBoard.objective || room.sharedBoard.problem || 'Questione da definire con il Presidente.'}</p>
+        {room.sourceIssue && <p className="council-board-provenance">Origine: {({ advisor: 'Primo Consulente', president: 'Presidente', minister: 'Ministro', event: 'Evento', 'follow-up': 'Rapporto' })[room.sourceIssue.origin]} · {room.sourceIssue.createdDate}</p>}
       </section>
+      {room.sourceIssue && <>
+        <section className="council-board-section council-board-verified-facts" aria-label="FATTI VERIFICATI">
+          <h3>FATTI VERIFICATI</h3>
+          <ul className="council-board-list">{room.sourceIssue.verifiedFacts.map(fact => <li key={fact.key} data-fact-key={fact.key}>
+            <span>{fact.label}: <strong>{fact.value}</strong></span>
+            <span className="council-board-fact-source">{fact.source} · {fact.sourceRef}</span>
+          </li>)}</ul>
+          <details className="council-board-issue-sources"><summary>Riferimenti verificati</summary>
+            <ul>{room.sourceIssue.sourceRefs.map(ref => <li key={ref}>{ref}</li>)}</ul>
+          </details>
+        </section>
+        <section className="council-board-section council-board-issue-decision" aria-label="DECISIONE DA PRENDERE">
+          <h3>DECISIONE DA PRENDERE</h3>
+          <p>{room.sourceIssue.question}</p>
+        </section>
+        <section className="council-board-section council-board-issue-ministers" aria-label="Ministri suggeriti">
+          <h3>MINISTRI SUGGERITI</h3>
+          <ul className="council-board-list">{room.sourceIssue.suggestedMinisters.map(seat => <li key={seat}>
+            <span>{seatSpeaker(seat)}</span>
+            {room.participants.includes(seat) ? <span className="council-board-provenance"> · presente</span> : <button type="button" className="council-board-convene" disabled={busy || !onConvene} onClick={() => onConvene?.(seat)}>Convoca</button>}
+          </li>)}</ul>
+        </section>
+      </>}
 
       <section className="council-board-section council-board-proposal" aria-label="PROPOSTA ATTUALE">
         <h3>PROPOSTA ATTUALE</h3>

@@ -8,6 +8,8 @@ import { personaFor, type MinisterPersona } from './MinisterPersona';
 import { renderMinisterWorldContext, type MinisterWorldContext } from '../../prompts/national-context';
 import { stripNarrativeDirectives } from './MeetingNarrative';
 import type { AdvisorMessage } from '../../prompts/types';
+import { councilIssueInputSchema, resolveCouncilIssue, InvalidCouncilIssueError, type CouncilIssue } from './CouncilIssue';
+import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 
 const text = z.string().max(400);
 const measureSchema = z.object({
@@ -63,6 +65,7 @@ const councilSchema = z.object({
   // WS-GOV-SITUATIONS-LOOP — la situazione che la seduta deve risolvere, così
   // anche i convocati vedono gli stessi fatti del relatore.
   sourceSituation: situationSchema.optional(),
+  sourceIssue: councilIssueInputSchema.optional(),
   sourceFollowUp: z.object({
     pressureId: z.string().trim().min(1).max(160),
     label: z.string().trim().min(1).max(400),
@@ -78,13 +81,19 @@ const councilSchema = z.object({
   })).max(12).optional(),
   selectedPressureOptions: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
 });
-export type MinisterCouncil = z.infer<typeof councilSchema>;
+export type MinisterCouncil = Omit<z.infer<typeof councilSchema>, 'sourceIssue'> & { sourceIssue?: CouncilIssue };
 
 /** Client discussion metadata only. Do not repair membership or accept unknown instructions. */
-export function normalizeMinisterCouncil(raw: unknown, requestingSeat: string): MinisterCouncil | undefined {
+export function normalizeMinisterCouncil(raw: unknown, requestingSeat: string, snapshot?: VerifiedWorldSnapshot): MinisterCouncil | undefined {
   const parsed = councilSchema.safeParse(raw);
   if (!parsed.success || !parsed.data.participants.some(seat => seat === requestingSeat)) return undefined;
-  return parsed.data;
+  const { sourceIssue: rawIssue, ...council } = parsed.data;
+  if (!rawIssue) return council;
+  if (!snapshot) throw new InvalidCouncilIssueError('Server snapshot required to resolve verified facts');
+  // New issue rooms are option-free. Legacy room metadata remains readable
+  // only on the old sourceSituation path, never mixed into verified issues.
+  const { sourceSituation, sourceFollowUp, proposedPressureOptions, selectedPressureOptions, ...issueCouncil } = council;
+  return { ...issueCouncil, sourceIssue: resolveCouncilIssue(snapshot, rawIssue) };
 }
 
 export class InvalidMinisterCouncilError extends Error {
@@ -92,12 +101,14 @@ export class InvalidMinisterCouncilError extends Error {
 }
 
 /** Bridge per richiesta HTTP: consente il trasporto senza modificare GameSession congelata. */
-interface MinisterDialogueRequest { gameId: string; seat: string; currentDecision?: MinisterCurrentDecision; council?: MinisterCouncil }
+interface MinisterDialogueRequest { gameId: string; seat: string; currentDecision?: MinisterCurrentDecision; council?: MinisterCouncil; sourceIssue?: CouncilIssue }
 const requestContext = new AsyncLocalStorage<MinisterDialogueRequest>();
-export function withMinisterDialogueRequest<T>(gameId: string, seat: string, currentDecision: unknown, run: () => T, councilRaw?: unknown): T {
-  const council = normalizeMinisterCouncil(councilRaw, seat);
+export function withMinisterDialogueRequest<T>(gameId: string, seat: string, currentDecision: unknown, run: () => T, councilRaw?: unknown,
+  verified?: { snapshot: VerifiedWorldSnapshot; sourceIssue?: unknown }): T {
+  const council = normalizeMinisterCouncil(councilRaw, seat, verified?.snapshot);
   if (councilRaw !== undefined && !council) throw new InvalidMinisterCouncilError();
-  return requestContext.run({ gameId, seat, currentDecision: normalizeCurrentDecision(currentDecision), council }, run);
+  const sourceIssue = verified?.sourceIssue === undefined ? council?.sourceIssue : resolveCouncilIssue(verified.snapshot, verified.sourceIssue);
+  return requestContext.run({ gameId, seat, currentDecision: normalizeCurrentDecision(currentDecision), council, sourceIssue }, run);
 }
 export function currentMinisterDialogueRequest(gameId: string, seat: CabinetSeat): MinisterDialogueRequest | undefined {
   const request = requestContext.getStore();
@@ -112,6 +123,7 @@ export interface MinisterDialogueBrief {
   readonly currentIssues: readonly CabinetItem[];
   readonly currentDecision?: MinisterCurrentDecision;
   readonly council?: MinisterCouncil;
+  readonly sourceIssue?: CouncilIssue;
   readonly presidentMessage: string;
   readonly recentHistory: readonly AdvisorMessage[];
   readonly redirect: ColleagueRedirectContext | null;
@@ -123,7 +135,7 @@ export function buildMinisterDialogueBrief(input: Omit<MinisterDialogueBrief, 'p
   // scope here: GameSession and both legacy/JEV callers need no new payload.
   const request = requestContext.getStore();
   const council = request?.seat === input.seat ? request.council : undefined;
-  return { ...input, council, currentDecision: normalizeCurrentDecision(input.currentDecision), persona: personaFor(input.seat), redirect: colleagueRedirectContext(input.seat, input.presidentMessage) };
+  return { ...input, council, sourceIssue: request?.seat === input.seat ? request.sourceIssue : undefined, currentDecision: normalizeCurrentDecision(input.currentDecision), persona: personaFor(input.seat), redirect: colleagueRedirectContext(input.seat, input.presidentMessage) };
 }
 
 function councilDialogueSection(council: MinisterCouncil): string {
@@ -131,21 +143,21 @@ function councilDialogueSection(council: MinisterCouncil): string {
     '[COUNCIL — contesto client della discussione, NON stato verificato del motore]',
     JSON.stringify(council),
     ...(council.sourceSituation ? [
-      `SITUAZIONE IN SEDUTA — fatti del motore, non aggiungerne: ${council.sourceSituation.title} — ${council.sourceSituation.briefing}`,
-      ...(council.sourceSituation.daysLeft !== undefined ? [`Tempo: restano ${council.sourceSituation.daysLeft} giorni prima che l’inerzia presenti il conto.`] : []),
-      ...(council.sourceSituation.verifiedFacts?.length ? [`Fatti verificati: ${council.sourceSituation.verifiedFacts.join('; ')}`] : []),
+      `SITUAZIONE IN SEDUTA — resoconto legacy del client, NON fatti canonici: ${council.sourceSituation.title} — ${council.sourceSituation.briefing}`,
+      ...(council.sourceSituation.daysLeft !== undefined ? [`Tempo dichiarato dal client: ${council.sourceSituation.daysLeft} giorni, da verificare.`] : []),
+      ...(council.sourceSituation.verifiedFacts?.length ? [`Fatti dichiarati dal client, da verificare: ${council.sourceSituation.verifiedFacts.join('; ')}`] : []),
       ...(council.sourceSituation.decisionQuestion ? [`Decisione richiesta: ${council.sourceSituation.decisionQuestion}`] : []),
       ...(council.sourceSituation.inaction?.note ? [`Se non si decide: ${council.sourceSituation.inaction.note}`] : []),
       ...(council.sourceSituation.origin && council.sourceSituation.origin.type !== 'state' ? [`Origine della situazione: ${council.sourceSituation.origin.type}.`] : []),
     ] : []),
     ...(council.proposedPressureOptions?.length ? [`Strade suggerite dai ministri ma NON ancora confermate dal Presidente (non producono effetti): ${council.proposedPressureOptions.map(item => `${item.optionId} (${item.proposedBy})`).join(', ')}.`] : []),
     ...(council.sourceFollowUp ? [
-      `RAPPORTO DI FOLLOW-UP — riferisci SOLO ciò che il motore ha misurato: ${council.sourceFollowUp.label}.`,
-      ...(council.sourceFollowUp.outcome?.length ? [`Esiti reali di oggi: ${council.sourceFollowUp.outcome.join('; ')}.`] : []),
-      ...(council.sourceFollowUp.checks?.length ? [`Verifiche eseguite: ${council.sourceFollowUp.checks.join('; ')}.`] : []),
+      `RAPPORTO DI FOLLOW-UP — resoconto legacy del client, confrontalo con lo stato server: ${council.sourceFollowUp.label}.`,
+      ...(council.sourceFollowUp.outcome?.length ? [`Esiti dichiarati, non verificati: ${council.sourceFollowUp.outcome.join('; ')}.`] : []),
+      ...(council.sourceFollowUp.checks?.length ? [`Verifiche dichiarate dal client: ${council.sourceFollowUp.checks.join('; ')}.`] : []),
       'Non riproporre strade già decise: riferisci che cosa è cambiato, che cosa serve ora e chiedi solo ciò che manca.',
     ] : []),
-    ...(council.selectedPressureOptions?.length ? [`Strade canoniche già CONFERMATE dal Presidente sulla Tavola: ${council.selectedPressureOptions.join(', ')}. Solo queste saranno risolte.`] : []),
+    ...(council.selectedPressureOptions?.length ? [`Indicazioni legacy della Tavola: ${council.selectedPressureOptions.join(', ')}. Sono contesto client, NON effetti, fatti canonici o autorizzazione all’esecuzione.`] : []),
     'Questa è un’unica sessione condivisa del consiglio, non una serie di colloqui separati. Parli come la tua sedia, con la stessa persona, al Presidente e ai colleghi.',
     'La cronologia contiene interventi attribuiti per nome ai diversi partecipanti: il ruolo assistant è solo trasporto. Non assumere che tutti gli interventi siano tuoi. Anche un prefisso generico «Ministro:» non cambia il nome indicato nel contributo.',
     'Rispondi agli interventi reali dei colleghi presenti nella cronologia, nominandoli e affrontando obiezioni, condizioni e proposte concrete. Difendi o rivedi la tua posizione alla luce di ciò che hanno davvero detto, senza parlare al posto loro.',
@@ -189,6 +201,7 @@ export function composeMinisterDialoguePrompt(brief: MinisterDialogueBrief, cont
     JSON.stringify(brief.currentDecision ?? { unresolved: ['Nessuna proposta corrente trasmessa: usa la conversazione recente senza fingere accordi.'] }),
     '[COLLEAGUE REDIRECT — solo se pertinente]', JSON.stringify(brief.redirect),
     'Se il redirect è presente, nomina il collega competente e spiega cosa aggiungi dalla tua sedia; NON dire «Non è la mia materia» o recitare targetReads. Non inventare un costo o una disponibilità.',
+    brief.sourceIssue ? `[SOURCE ISSUE — solo verifiedFacts è stato canonico server-side; titolo e domanda sono discussione]\n${JSON.stringify(brief.sourceIssue)}\nCostruisci liberamente una soluzione, senza opzioni Pressure obbligatorie. Non aprire sedute automaticamente.` : '',
     '[PROTOCOL]', MINISTER_DIALOGUE_PROTOCOL,
     '[DIALOGUE STYLE]', MINISTER_DIALOGUE_STYLE,
     brief.council ? councilDialogueSection(brief.council) : '',
@@ -247,7 +260,7 @@ export function councilDialogueLogLine(
  */
 export function validateCouncilResponse(response: string, brief: MinisterDialogueBrief): MinisterDialogueValidation {
   const narrative = stripNarrativeDirectives(response);
-  const prose = narrative.replace(/```consiglio\b[\s\S]*?```/gi, '').trim();
+  const prose = narrative.replace(/```(?:consiglio|council_issue)\b[\s\S]*?```/gi, '').trim();
   const words = prose ? prose.split(/\s+/).length : 0;
   if (!prose) return { ok: false, reason: 'empty', words: 0 };
   if (words > COUNCIL_MAX_WORDS) return { ok: false, reason: 'too_long', words };
@@ -262,7 +275,7 @@ export function dialogueResponseIsNatural(response: string, brief: MinisterDialo
   // Il Consiglio ha il suo validator: la soglia 1:1 non deve bocciarlo.
   if (brief.council) return validateCouncilResponse(response, brief).ok;
   const narrative = stripNarrativeDirectives(response);
-  const prose = narrative;
+  const prose = narrative.replace(/```council_issue\b[\s\S]*?```/gi, '').trim();
   if (!prose.trim()) return false;
   const explicitlyStructured = /(?:sezion|elenc|riepilog|schem|report|fatti:|lettura:|proposta:|alternative:|conclusione:)/i.test(brief.presidentMessage);
   if (!explicitlyStructured && /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?(?:Fatti|Lettura|Proposta|Alternative|Conclusione)\s*(?:\*\*)?(?::|(?=\n|$))/i.test(prose)) return false;

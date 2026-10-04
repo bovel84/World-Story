@@ -22,6 +22,8 @@ import { FeasibilityService } from '../../core/feasibility/FeasibilityService';
 import { measureDeficits } from '../../core/feasibility/Availability';
 import { resolveWorkHolders } from '../../game/WorkHolders';
 import { strictReadingsFor } from '../../game/PreflightReadings';
+import { readCanonicalOrderWorld } from '../../game/CanonicalOrderFacts';
+import { OrderRealityBlockedError } from '../../core/feasibility/CanonicalOrderSafety';
 import { AssessmentStore } from '../../core/feasibility/AssessmentStore';
 import { createCashflow, FinanceError } from '../../services/FinanceService';
 import { createReservation, InsufficientAvailabilityError, ReservationError } from '../../services/ReservationService';
@@ -79,6 +81,7 @@ router.post('/:id/actions/evaluate', (req, res) => {
       // appartengono a un'autorità istituzionale e a una controparte che il
       // server non ha ancora interpellato, e nessuno dei due si presume.
       actorId: actor.actorId, verifiedPolityId: polity, approvals: ['user'], rights: [], knowledgeIds: [], capabilityIds: [],
+      canonicalWorld: readCanonicalOrderWorld(req.params.id, game.world_id, session.canonicalOrderRegions?.()),
       ...(measured ? { deficits: measured.deficits, unknownRequirements: measured.unknown, ...(measured.availableMoney ? { availableMoney: measured.availableMoney } : {}) } : {}),
     });
     const assessmentId = shortId();
@@ -157,6 +160,7 @@ router.post('/:id/actions/check-feasibility', async (req, res) => {
       else if (
         b.code === 'INDUSTRIAL_CAPABILITY_MISSING' || b.code === 'UNAUTHORIZED_ACTOR'
         || b.code === 'INSUFFICIENT_CASH' || b.code === 'MATERIAL_SHORTAGE' || b.code === 'WORKFORCE_SHORTAGE'
+        || b.code === 'INFRASTRUCTURE_MISSING' || b.code === 'MILITARY_ASSET_MISSING'
       ) risks.push(b.detail);
       else warnings.push(b.detail);
     }
@@ -231,6 +235,10 @@ router.post('/:id/actions/queue', (req, res) => {
     }
     res.json(receipt);
   } catch (e: any) {
+    if (e instanceof OrderRealityBlockedError) {
+      respondRouteError(res, e, 'Failed to queue action');
+      return;
+    }
     if (e instanceof ActionSignatureConflictError) {
       res.status(409).json({ error: e.message, code: 'idempotency_conflict' });
       return;

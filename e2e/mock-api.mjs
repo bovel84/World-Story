@@ -1194,6 +1194,47 @@ export function installMockApi(page, opts = {}) {
       { seat: 'esteri', label: 'Ministro degli Esteri', line: 'Ogni porta aperta è un’opzione in più, ogni porta chiusa un costo.' },
     ],
   }));
+  // WS-GOV-REALITY-ADVISOR — Il Consulente legge un quadro verificato server-side:
+  // la home del Governo lo mostra con le questioni proposte (fatti canonici).
+  const mockSnapshot = {
+    schemaVersion: 1, gameId: MOCK_GAME_ID, branchId: null, date: '1951-03-01', turn: 3,
+    polityId: 'ALPHA', polityName: 'Alpha',
+    geography: { ownedRegions: [{ id: 'ALPHA', name: 'Alpha', coastal: true, sourceRef: 'world.regions.ALPHA' }], coastal: true, landlocked: false, borderingPolities: [] },
+    infrastructure: { ports: [], airfields: [], railways: [], roads: [], factories: [], constructionSites: [], other: [] },
+    facts: {
+      foodCoverageMonths: { key: 'foodCoverageMonths', label: 'Copertura alimentare', value: '0,8 mesi', rawValue: 0.8, source: 'national_economy', sourceRef: 'national_economy.foodCoverageMonths' },
+      treasury: { key: 'treasury', label: 'Tesoreria', value: '12 mld USD', rawValue: 12, source: 'national_economy', sourceRef: 'worldState.resources.stock.money' },
+    },
+    changes: { available: false, previousDate: null, previousTurn: null, deltas: [] },
+    unavailable: [],
+  };
+  const mockIssue = {
+    id: 'issue-food-1',
+    title: 'Approvvigionamento alimentare',
+    question: 'Come garantiamo l’approvvigionamento nei prossimi mesi?',
+    verifiedFacts: [mockSnapshot.facts.foodCoverageMonths, mockSnapshot.facts.treasury],
+    suggestedMinisters: ['interno', 'tesoro', 'lavori'],
+    origin: 'advisor',
+    sourceRefs: ['national_economy.foodCoverageMonths', 'worldState.resources.stock.money'],
+    createdDate: '1951-03-01',
+  };
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/advisor/context`, (route) => json(route, {
+    reply: 'Presidente, la copertura alimentare è di 0,8 mesi: è il dato che richiede più attenzione oggi.',
+    issues: [mockIssue],
+    advisorContext: { verifiedWorldSnapshot: mockSnapshot, governmentBrief: 'Presidente, la copertura alimentare è di 0,8 mesi.' },
+  }));
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/advisor/reality`, (route) => {
+    if (route.request().method() !== 'POST') return notFound(route);
+    let focus = null;
+    try { focus = route.request().postDataJSON()?.advisorContext?.focusIssue ?? null; } catch { focus = null; }
+    return json(route, {
+      reply: focus
+        ? `Presidente, esamino «${focus.title}» con i soli dati verificati del motore.`
+        : 'Presidente, la copertura alimentare resta il dato più critico; sul piano militare non vedo variazioni significative.',
+      issues: [mockIssue],
+      advisorContext: { verifiedWorldSnapshot: mockSnapshot, governmentBrief: 'Presidente, la copertura alimentare è di 0,8 mesi.' },
+    });
+  });
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/government/minister/*`, (route) => {
     if (route.request().method() !== 'POST') return notFound(route);
     let seat = 'tesoro';

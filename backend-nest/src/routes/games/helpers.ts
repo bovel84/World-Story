@@ -27,6 +27,8 @@ import { createMandateRecord, getMandateRemaining, MandateConflictError } from '
 import { MandateError } from '../../core/mandates/MandateEngine';
 import { MandateDecisionError, acknowledgeMandateDecision, cancelMandateAndResolveDecisions, listOpenMandateDecisions } from '../../services/MandateDecisionService';
 import { parseInteger } from '../../domain/quantities';
+import { readCanonicalOrderWorld } from '../../game/CanonicalOrderFacts';
+import { canonicalOrderBlockers, OrderRealityBlockedError } from '../../core/feasibility/CanonicalOrderSafety';
 
 export const assessmentStore = new AssessmentStore<unknown>();
 export const TRADE_ERROR_CODES = [
@@ -55,7 +57,9 @@ export function respondDomainError(res: any, e: any, codes: string[], fallback: 
   respondRouteError(res, e, fallback);
 }
 export function respondRouteError(res: any, e: any, fallback: string): void {
-  if (e instanceof LLMError) {
+  if (e instanceof OrderRealityBlockedError) {
+    res.status(422).json({ error: e.message, code: e.code, blockers: e.blockers, canonicalMutation: false });
+  } else if (e instanceof LLMError) {
     // I Quick Tunnel sostituiscono i 502 JSON con una pagina HTML generica.
     // 424 conserva il dettaglio del provider per la UI.
     res.status(424).json({ error: `LLM (${e.provider}): ${e.message}` });
@@ -140,6 +144,10 @@ export function respondMandateError(res: any, e: unknown): void {
   respondRouteError(res, e, 'Failed to commit mandate command');
 }
 export function respondLegacyFeasibility(res: any, session: any, text: string): void {
+  const game = gameRepository.findById(session.id);
+  const polity = session.getPlayer()?.polityId;
+  if (!game || !polity) throw new Error('Identità politica del giocatore non disponibile');
+  const blockers = canonicalOrderBlockers(text, polity, readCanonicalOrderWorld(session.id, game.world_id, session.canonicalOrderRegions?.()));
   let costs: any = { timeDays: 0, inputs: [], upkeep: [], basis: 'none' };
   let warnings = ['Partita legacy: la stima viene dal conto nazionale e sarà addebitata all\'esecuzione.'];
   try {
@@ -161,12 +169,13 @@ export function respondLegacyFeasibility(res: any, session: any, text: string): 
     warnings = ['Partita legacy: stima del costo non disponibile, l\'ordine resta registrabile.'];
   }
   res.json({
-    feasible: true,
+    feasible: blockers.length === 0,
     costs,
     prerequisites: [],
-    risks: [],
+    risks: blockers.map(blocker => blocker.detail),
     warnings,
-    summary: 'Ordine registrabile (modalità legacy)',
+    summary: blockers.length ? 'Ordine bloccato dai dati canonici' : 'Ordine registrabile (modalità legacy)',
+    rawAssessment: { actionId: 'legacy-preflight', status: blockers.length ? 'blocked' : 'feasible_with_conditions', blockers, warnings, alternatives: [] },
   });
 }
 export function respondTimeSkipResult(res: any, session: any, result: any, periodStart: string, jumpDays: number): void {

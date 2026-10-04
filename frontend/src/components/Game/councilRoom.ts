@@ -1,6 +1,6 @@
 /** A council room belongs to a question, never to one minister. UI discussion only;
  * verified figures and execution remain the engine's responsibility. */
-import type { AdvisorHistoryItem, GovernmentSituationView, MinisterCouncilContext } from '../../services/api';
+import type { AdvisorHistoryItem, CouncilIssue, GovernmentSituationView, MinisterCouncilContext } from '../../services/api';
 import { activeProposal, applyDecisionBatch, emptyWorkspace, type DecisionAction, type DecisionMeasure, type DecisionWorkspace } from './decisionWorkspace';
 import type { ProposalActDraft } from './actDraft';
 import { parsePresentation, type PresentationDirective } from './presentation';
@@ -13,6 +13,8 @@ export interface CouncilMessage extends AdvisorHistoryItem {
   seat?: CabinetSeat;
   kind: 'speech' | 'event' | 'error';
   evidence?: readonly PresentationDirective[];
+  /** Canonical proposals from the backend; never admitted or opened automatically. */
+  proposedIssues?: readonly CouncilIssue[];
 }
 export interface CouncilInvitation { id: string; from: CabinetSeat; minister: CabinetSeat; question: string }
 /** P0.3 — Una strada suggerita da un ministro: chi l'ha proposta e in quale intervento. */
@@ -50,25 +52,26 @@ export interface CouncilRoomState {
   assessments: Partial<Record<CabinetSeat, CouncilAssessment>>;
   phase: 'discussion' | 'drafting';
   /**
-   * WS-GOV-SITUATIONS-LOOP — La situazione reale da cui nasce la seduta. Presente
-   * solo per le sedute aperte dal Governo su una `GovernmentSituation`: le sedute
-   * manuali restano identiche. Sopravvive a indietro/riprendi perché vive nella stanza.
+   * Legacy rooms retain their original situation for reading/resuming.
+   * New rooms originate from sourceIssue; neither path resolves engine state here.
    */
   sourceSituation?: GovernmentSituationView;
+  /** Preferred origin of new rooms: complete, server-verified issue provenance. */
+  sourceIssue?: CouncilIssue;
   /** P3 — Presente quando la seduta è un RAPPORTO di follow-up, non una situazione. */
   sourceFollowUp?: CouncilSourceFollowUp;
   /**
-   * P0 — Le strade SUGGERITE dai ministri (blocco consiglio). NON producono
-   * effetti e NON sono presentate come confermate: solo il Presidente conferma.
+   * Legacy minister suggestions, retained for older rooms only.
+   * They are not part of sourceIssue context or execution.
    */
   proposedPressureOptions: CouncilProposedOption[];
-  /** Le strade CONFERMATE dal Presidente sulla Tavola: solo queste si risolvono. */
+  /** Legacy selections for reading old rooms; never resolve a Pressure in the UI. */
   selectedPressureOptions: string[];
 }
 
 /** Un'opzione della situazione è selezionabile solo se il motore la conosce. */
 export function situationOption(room: CouncilRoomState, optionId: string) {
-  return room.sourceSituation?.options.find(option => option.id === optionId);
+  return room.sourceIssue ? undefined : room.sourceSituation?.options.find(option => option.id === optionId);
 }
 
 /** Il Presidente conferma o esclude una strada canonica sulla Tavola. */
@@ -92,18 +95,20 @@ export function excludePressureOption(room: CouncilRoomState, optionId: string):
   return { ...room, selectedPressureOptions: room.selectedPressureOptions.filter(id => id !== optionId) };
 }
 
-export function createCouncilRoom(input: { id: string; scopeKey: string; initiatorMinister: CabinetSeat; sourceSituation?: GovernmentSituationView; sourceFollowUp?: CouncilSourceFollowUp }): CouncilRoomState {
+export function createCouncilRoom(input: { id: string; scopeKey: string; initiatorMinister: CabinetSeat; sourceIssue?: CouncilIssue; sourceSituation?: GovernmentSituationView; sourceFollowUp?: CouncilSourceFollowUp }): CouncilRoomState {
+  const sourceIssue = input.sourceIssue;
   const sourceSituation = input.sourceSituation;
   const sourceFollowUp = input.sourceFollowUp;
   return {
     id: input.id, scopeKey: input.scopeKey, initiatorMinister: input.initiatorMinister,
     // L'oggetto della seduta è il TITOLO della situazione (o del rapporto), non la domanda: la
     // domanda vive nella Tavola, sotto «DECISIONE DA PRENDERE».
-    topic: sourceFollowUp ? `Rapporto: ${sourceFollowUp.label}` : sourceSituation?.title ?? '',
+    topic: sourceIssue?.title ?? (sourceFollowUp ? `Rapporto: ${sourceFollowUp.label}` : sourceSituation?.title ?? ''),
     participants: [input.initiatorMinister], messages: [], sharedBoard: emptyWorkspace('council'),
     invitations: [], positions: {}, assessments: {}, phase: 'discussion',
     proposedPressureOptions: [],
     selectedPressureOptions: [],
+    ...(sourceIssue ? { sourceIssue } : {}),
     ...(sourceSituation ? { sourceSituation } : {}),
     ...(sourceFollowUp ? { sourceFollowUp } : {}),
   };
@@ -127,7 +132,46 @@ function textList(raw: unknown): string[] {
 }
 /** Hide complete and in-flight control blocks, including malformed JSON. */
 export function councilText(raw: string): string {
-  return parsePresentation(raw.replace(/```consiglio\b[\s\S]*?(?:```|$)/gi, '')).text.trim();
+  return parsePresentation(raw.replace(/```(?:consiglio|council_issue)\b[\s\S]*?(?:```|$)/gi, '')).text.trim();
+}
+
+/** Validate the fully hydrated server shape, never turn model fact keys into facts.
+ * Canonical-key verification is performed by the backend, not by the client. */
+function canonicalIssue(raw: unknown): CouncilIssue | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const issue = raw as Record<string, unknown>;
+  const text = (value: unknown, max = 4000): value is string => typeof value === 'string' && Boolean(value.trim()) && value.length <= max;
+  if (!text(issue.id, 160) || !text(issue.title, 240) || !text(issue.question, 600) || !text(issue.createdDate, 80)
+    || !['advisor', 'president', 'minister', 'event', 'follow-up'].includes(String(issue.origin))) return null;
+  if (!Array.isArray(issue.suggestedMinisters) || !issue.suggestedMinisters.length || issue.suggestedMinisters.length > CABINET_SEATS.length
+    || !issue.suggestedMinisters.every(seat => CABINET_SEATS.includes(seat as CabinetSeat))) return null;
+  if (!Array.isArray(issue.sourceRefs) || !issue.sourceRefs.length || issue.sourceRefs.length > 24 || !issue.sourceRefs.every(ref => text(ref))) return null;
+  if (!Array.isArray(issue.verifiedFacts) || !issue.verifiedFacts.length || issue.verifiedFacts.length > 24) return null;
+  const verifiedFacts: CouncilIssue['verifiedFacts'] = [];
+  for (const rawFact of issue.verifiedFacts) {
+    if (!rawFact || typeof rawFact !== 'object' || Array.isArray(rawFact)) return null;
+    const fact = rawFact as Record<string, unknown>;
+    if (!text(fact.key, 240) || !text(fact.label) || !text(fact.value) || !text(fact.source) || !text(fact.sourceRef)
+      || !issue.sourceRefs.includes(fact.sourceRef) || verifiedFacts.some(previous => previous.key === fact.key)) return null;
+    verifiedFacts.push({ key: fact.key, label: fact.label, value: fact.value, source: fact.source, sourceRef: fact.sourceRef });
+  }
+  return { id: issue.id, title: issue.title, question: issue.question, verifiedFacts,
+    suggestedMinisters: [...new Set(issue.suggestedMinisters)] as CabinetSeat[], origin: issue.origin as CouncilIssue['origin'],
+    sourceRefs: [...new Set(issue.sourceRefs)] as string[], createdDate: issue.createdDate };
+}
+
+/** At most three completed, distinct server-validated proposals per speech. */
+export function councilProposedIssues(raw: string): CouncilIssue[] {
+  const issues: CouncilIssue[] = [];
+  for (const match of raw.matchAll(/```council_issue\b\s*([\s\S]*?)```/gi)) {
+    if (issues.length === 3) break;
+    if (match[1].length > 32000) continue;
+    try {
+      const issue = canonicalIssue(JSON.parse(match[1]));
+      if (issue && !issues.some(previous => previous.id === issue.id)) issues.push(issue);
+    } catch { /* Malformed/unfinished proposals are not evidence. */ }
+  }
+  return issues;
 }
 function councilProtocol(raw: string): Record<string, unknown> | null {
   const json = /```consiglio\s*\n([\s\S]*?)```/i.exec(raw)?.[1];
@@ -154,14 +198,16 @@ function ministerActions(actions: readonly DecisionAction[], board: DecisionWork
 }
 export function receiveCouncilReply(room: CouncilRoomState, seat: CabinetSeat, raw: string, messageId: string): CouncilRoomState {
   if (!room.participants.includes(seat)) return room;
-  const parsed = parsePresentation(raw);
+  // Remove issue blocks before parsing decision directives: an issue is not a measure.
+  const parsed = parsePresentation(raw.replace(/```council_issue\b[\s\S]*?(?:```|$)/gi, ''));
+  const proposedIssues = councilProposedIssues(raw);
   const sharedBoard = applyDecisionBatch(room.sharedBoard, ministerActions(parsed.decisions, room.sharedBoard), { messageId });
   const protocol = councilProtocol(raw);
   // P0 — Il modello PUO' suggerire strade, ma non confermarle. Ogni id viene
   // validato contro la situazione (id inventati scartati) e registrato come
   // PROPOSTA con la sua provenienza. `selectedPressureOptions` resta intatto:
   // lo tocca solo il Presidente.
-  const allowedOptions = new Set((room.sourceSituation?.options ?? []).map(option => option.id));
+  const allowedOptions = new Set((room.sourceIssue ? [] : room.sourceSituation?.options ?? []).map(option => option.id));
   const incoming = Array.isArray(protocol?.pressureOptions)
     ? protocol.pressureOptions.filter((id): id is string => typeof id === 'string' && allowedOptions.has(id))
     : [];
@@ -188,7 +234,8 @@ export function receiveCouncilReply(room: CouncilRoomState, seat: CabinetSeat, r
   }
   const assessments = protocol ? { ...room.assessments, [seat]: { agreements: textList(protocol.agreements), disagreements: textList(protocol.disagreements) } } : room.assessments;
   return appendCouncilMessage({ ...room, sharedBoard, invitations, positions, assessments, proposedPressureOptions,
-    topic: sharedBoard.objective ?? room.topic }, { id: messageId, role: 'assistant', kind: 'speech', seat, speaker: seatSpeaker(seat), content: councilText(raw), ...(parsed.directives.length ? { evidence: parsed.directives } : {}) });
+    topic: room.sourceIssue?.title ?? sharedBoard.objective ?? room.topic }, { id: messageId, role: 'assistant', kind: 'speech', seat, speaker: seatSpeaker(seat), content: councilText(raw),
+      ...(parsed.directives.length ? { evidence: parsed.directives } : {}), ...(proposedIssues.length ? { proposedIssues } : {}) });
 }
 export function confirmCouncilProposal(room: CouncilRoomState, messageId: string): CouncilRoomState {
   const proposal = activeProposal(room.sharedBoard);
@@ -220,8 +267,8 @@ export function councilRoomMemory(room: CouncilRoomState, ref: MinisterMemoryRef
  * P2 — Firma tecnica dei contenuti CONGELATI del draft. Non va al motore: serve
  * a legare lo snapshot della selezione all'atto preparato.
  */
-export function councilDraftSignature(draft: Pick<ProposalActDraft, 'text' | 'sourcePressureId' | 'sourceSituationId' | 'selectedPressureOptions'>): string {
-  const payload = [draft.text, draft.sourcePressureId ?? '', draft.sourceSituationId ?? '', [...(draft.selectedPressureOptions ?? [])].sort().join(',')].join('|');
+export function councilDraftSignature(draft: Pick<ProposalActDraft, 'text' | 'sourceIssueId' | 'sourcePressureId' | 'sourceSituationId' | 'selectedPressureOptions'>): string {
+  const payload = [draft.text, draft.sourceIssueId ?? '', draft.sourcePressureId ?? '', draft.sourceSituationId ?? '', [...(draft.selectedPressureOptions ?? [])].sort().join(',')].join('|');
   let hash = 2166136261 >>> 0;
   for (let index = 0; index < payload.length; index += 1) {
     hash ^= payload.charCodeAt(index);
@@ -231,9 +278,8 @@ export function councilDraftSignature(draft: Pick<ProposalActDraft, 'text' | 'so
 }
 
 /**
- * P0/P2 — Il Consiglio risolve la Pressure solo con le strade CONFERMATE dal
- * Presidente, congelate nella bozza. Il pulsante di firma è coerente con questo
- * snapshot, non con la selezione viva della stanza.
+ * Legacy draft snapshot accessor. Retained for compatibility with old room data;
+ * not used for signing or for resolving a Pressure from the frontend.
  */
 export function councilDraftPressureOptions(draft: ProposalActDraft | null | undefined): string[] {
   return draft ? [...(draft.selectedPressureOptions ?? [])] : [];
@@ -248,10 +294,12 @@ export function councilContext(room: CouncilRoomState, respondingTo?: string): M
   return { sessionId: room.id, topic: (room.topic || 'Questione da definire con il Presidente').slice(0, 600), initiatorMinister: room.initiatorMinister,
     participants: room.participants, phase: room.phase,
     // P0.5 — Ogni ministro convocato riceve la SITUAZIONE, non solo la chat.
-    ...(room.sourceSituation ? { sourceSituation: room.sourceSituation } : {}),
-    ...(room.sourceFollowUp ? { sourceFollowUp: room.sourceFollowUp } : {}),
-    ...(room.proposedPressureOptions.length ? { proposedPressureOptions: room.proposedPressureOptions.map(item => ({ optionId: item.optionId, proposedBy: item.proposedBy })) } : {}),
-    ...(room.selectedPressureOptions.length ? { selectedPressureOptions: room.selectedPressureOptions } : {}),
+    ...(room.sourceIssue ? { sourceIssue: room.sourceIssue } : {
+      ...(room.sourceSituation ? { sourceSituation: room.sourceSituation } : {}),
+      ...(room.sourceFollowUp ? { sourceFollowUp: room.sourceFollowUp } : {}),
+      ...(room.proposedPressureOptions.length ? { proposedPressureOptions: room.proposedPressureOptions.map(item => ({ optionId: item.optionId, proposedBy: item.proposedBy })) } : {}),
+      ...(room.selectedPressureOptions.length ? { selectedPressureOptions: room.selectedPressureOptions } : {}),
+    }),
     ...(respondingTo ? { respondingTo: respondingTo.slice(0, 2000) } : {}) };
 }
 export function councilOpenQuestions(room: CouncilRoomState): string[] {
@@ -272,10 +320,11 @@ export function councilDraft(room: CouncilRoomState, turn?: number): ProposalAct
   const base: ProposalActDraft = { id: `${room.id}:draft:${room.sharedBoard.revision}`, seat: 'council', roadId: proposal?.id ?? room.id, title,
     text, capability: 'text-order', note: 'Bozza comune dalla discussione. Solo la firma del Presidente inserisce l’atto nel registro; il motore ne valuta gli effetti all’avanzamento del tempo.',
     sourceSessionId: room.id, sourceRevision: room.sharedBoard.revision, sourceTurn: turn, sourceSeat: room.initiatorMinister,
-    ...(room.sourceSituation ? { sourcePressureId: room.sourceSituation.pressureId, sourceSituationId: room.sourceSituation.id } : {}),
-    // P2 — Snapshot IMMUTABILE al momento della preparazione: solo la Conferma del
-    // Presidente aggiorna questa selezione, e la firma usa ESATTAMENTE questa.
-    selectedPressureOptions: [...room.selectedPressureOptions] };
+    ...(room.sourceIssue ? { sourceIssueId: room.sourceIssue.id } : {
+      ...(room.sourceSituation ? { sourcePressureId: room.sourceSituation.pressureId, sourceSituationId: room.sourceSituation.id } : {}),
+      // Legacy metadata remains readable, never used to resolve a Pressure from the UI.
+      selectedPressureOptions: [...room.selectedPressureOptions],
+    }) };
   return { ...base, draftSignature: councilDraftSignature(base) };
 }
 

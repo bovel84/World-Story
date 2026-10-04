@@ -13,6 +13,7 @@ import {
   openModule,
   closeModule,
   toggleModule,
+  canonicalModule,
   type ActiveModule,
 } from './moduleState';
 
@@ -27,7 +28,7 @@ describe('moduleState (U01 µ1, UI01)', () => {
     let state = initialModuleState;
     for (const module of MODULES) {
       state = openModule(state, module);
-      expect(state.activeModule).toBe(module);
+      expect(state.activeModule).toBe(canonicalModule(module));
     }
   });
 
@@ -60,8 +61,10 @@ describe('moduleState (U01 µ1, UI01)', () => {
   });
 
   it('toggleModule su un modulo diverso apre quello nuovo', () => {
-    const state = toggleModule(openModule(initialModuleState, 'orders'), 'advisor');
-    expect(state.activeModule).toBe('advisor');
+    const state = toggleModule(openModule(initialModuleState, 'diplomacy'), 'advisor');
+    expect(state.activeModule).toBe('orders');
+    expect(openModule(initialModuleState, 'questioni').activeModule).toBe('orders');
+    expect(toggleModule(openModule(initialModuleState, 'orders'), 'advisor').activeModule).toBe('none');
   });
 
   it('toggleModule(none) non apre alcun pannello', () => {

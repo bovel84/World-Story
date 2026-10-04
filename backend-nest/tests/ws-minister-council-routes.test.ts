@@ -122,7 +122,7 @@ describe('minister council: actual ask/stream request propagation', () => {
     }
   });
 
-  it('does not terminate successfully when generation fails after writing a partial reply', async () => {
+  it('does not publish partial text or terminate successfully when generation fails', async () => {
     const original = session.getMinisterStream;
     session.getMinisterStream = async (_seat: string, _message: string, _history: unknown, token: (text: string) => void) => {
       token('Partial council intervention');
@@ -130,7 +130,9 @@ describe('minister council: actual ask/stream request propagation', () => {
       throw new Error('Provider failed mid-stream');
     };
     try {
-      await expect(post(true, { message: 'Rispondi.', history, council })).rejects.toThrow();
+      const result = await post(true, { message: 'Rispondi.', history, council });
+      expect(result.status).toBe(500);
+      expect(result.text).not.toContain('Partial council intervention');
     } finally { session.getMinisterStream = original; }
   });
 
