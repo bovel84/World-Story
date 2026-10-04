@@ -100,10 +100,16 @@ describe('WS-GOV-PRESET-REALITY-PIPELINE', () => {
     expect(snapshot.facts.ports.value).toContain('Porto di Phnom Penh');
     // Prova interna della materializzazione (il giocatore non la vede).
     expect(snapshot.infrastructure.ports![0].raw).toMatchObject({ metadata: { derivedFrom: 'national_capacity' } });
-    // Un paese con infrastrutture authored resta intatto.
+    // Un paese con infrastrutture authored: si materializza SOLO la parte
+    // mancante della capacità (per tipo), e l'inventario resta quello authored
+    // più il mancante. `Σ level` = capacità dichiarata, senza doppio conteggio.
     const usaSnapshot = briefingFor(usa).snapshot;
-    expect(usaSnapshot.infrastructure.ports?.map(asset => asset.name)).toEqual(['Porto di New York']);
+    const usaAccount = usa.getNationalAccounts()['USA'];
+    const portCapacity = (assets?: typeof usaSnapshot.infrastructure.ports) =>
+      (assets ?? []).reduce((total, asset) => total + Math.max(1, Number((asset.raw as { level?: number }).level ?? 1)), 0);
     expect(usaSnapshot.facts.ports.value).toContain('Porto di New York');
+    expect(portCapacity(usaSnapshot.infrastructure.ports)).toBe(Number(usaAccount?.ports ?? 0));
+    expect(usaSnapshot.infrastructure.ports?.length).toBeGreaterThanOrEqual(1);
   });
 
   it('il mondo apre breve e il paese parla subito: KHM e USA sono diversi', () => {
@@ -117,6 +123,10 @@ describe('WS-GOV-PRESET-REALITY-PIPELINE', () => {
     expect(khmBrief.nation.framing).not.toBe(khmBrief.world.narrative.worldOrder);
     expect(khmBrief.nation.questions.length).toBeGreaterThanOrEqual(1);
     expect(khmBrief.nation.questions.length).toBeLessThanOrEqual(3);
+    // §3 — la PRIMA pagina contiene già la frase del paese (stakesForNation,
+    // dal quadro verificato) e differisce tra KHM e USA.
+    expect(khmBrief.world.narrative.stakesForNation).toBeTruthy();
+    expect(khmBrief.world.narrative.stakesForNation).not.toBe(usaBrief.world.narrative.stakesForNation);
     // Aperture visibilmente diverse tra i due paesi.
     const khmOpening = [khmBrief.world.narrative.worldOrder, khmBrief.nation.framing, ...khmBrief.nation.questions].join(' | ');
     const usaOpening = [usaBrief.world.narrative.worldOrder, usaBrief.nation.framing, ...usaBrief.nation.questions].join(' | ');
