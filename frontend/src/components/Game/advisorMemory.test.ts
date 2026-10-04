@@ -42,7 +42,7 @@ describe('advisorMemory', () => {
     expect(loadAdvisorMessages(turn4)).toEqual([]);
     // Lo stesso turno su un altro ramo è un bucket diverso: nessuna contaminazione.
     expect(loadAdvisorMessages(fork)).toEqual([]);
-    expect(loadAdvisorArchive('g1', 'fork', fork)).toEqual([]);
+    expect(loadAdvisorArchive('g1', 'fork', 3)).toEqual([]);
   });
 
   it('l’archivio ripristina i turni precedenti dello stesso ramo', () => {
@@ -53,8 +53,19 @@ describe('advisorMemory', () => {
     saveAdvisorMessages(turn2, [{ role: 'user', content: 'vecchio', turn: 2 }]);
     saveAdvisorMessages(otherBranch, [{ role: 'user', content: 'altro ramo', turn: 2 }]);
 
-    const archived = loadAdvisorArchive('g1', 'main', turn3);
+    const archived = loadAdvisorArchive('g1', 'main', 3);
     expect(archived.map(message => message.content)).toEqual(['vecchio']);
+  });
+
+  it('RESIDUAL-FIXES-2 §2: un altro scope dello STESSO turno non entra in archivio', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    // Stesso gioco, stesso ramo, stesso turno, mandate diverso → scopeKey diverso.
+    const otherScopeSameTurn = advisorBucketKey('g1', 'main', 'g1|main|3|mandato-B');
+    saveAdvisorMessages(otherScopeSameTurn, [{ role: 'assistant', content: 'altro scope, stesso turno', turn: 3 }]);
+    saveAdvisorMessages(advisorBucketKey('g1', 'main', 'g1|main|2|mandato-A'), [{ role: 'user', content: 'turno precedente', turn: 2 }]);
+
+    const archived = loadAdvisorArchive('g1', 'main', 3);
+    expect(archived.map(message => message.content)).toEqual(['turno precedente']);
   });
 
   it('gli issues del Consulente restano portabili, con validazione minima', () => {

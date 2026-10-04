@@ -43,9 +43,9 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     if (isLocal) { setAdvisorMessages([]); return; }
     // Archiviо dello STESSO ramo (turni precedenti) + turno corrente: la chat
     // attiva è sostituita, mai mergiata con lo scope precedente.
-    const archived = loadAdvisorArchive(gameId, branchId, bucket);
+    const archived = loadAdvisorArchive(gameId, branchId, currentTurn);
     setAdvisorMessages([...archived, ...loadAdvisorMessages(bucket)]);
-  }, [bucket, branchId, gameId, isLocal, setAdvisorMessages]);
+  }, [bucket, branchId, gameId, currentTurn, isLocal, setAdvisorMessages]);
   useEffect(() => {
     if (isLocal) return;
     saveAdvisorMessages(bucket, activeMessages);
