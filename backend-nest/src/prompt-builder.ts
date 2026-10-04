@@ -18,6 +18,7 @@ import {
   parseSimulationResponse,
 } from './prompts/simulation';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
+import { renderRealityConcerns } from './core/government/RealitySignals';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
 import { COUNCIL_ISSUE_PROTOCOL, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
@@ -350,12 +351,18 @@ function signedActsFor(game: GameData): string | undefined {
   return snapshot ? renderSignedActs(snapshot) : undefined;
 }
 
+/** I segnali verificati del momento per i ministri (nessuna quest, nessuna opzione). */
+function concernsFor(game: GameData): string | undefined {
+  const snapshot = game.advisorContext?.verifiedWorldSnapshot;
+  return snapshot ? renderRealityConcerns(snapshot) : undefined;
+}
+
 function ministerWorldBlockFor(vars: PromptVariables, game: GameData, message: string, jevActive: boolean): string | null {
   if (jevActive) return null;
   if (!isMinisterRequest(game, message)) return null;
   const seat = ministerSeatFor(game, message, false);
   return renderMinisterWorldContext(
-    buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: signedActsFor(game) }),
+    buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: signedActsFor(game), concerns: concernsFor(game) }),
     seat,
   );
 }
@@ -376,7 +383,7 @@ async function prepareMinisterDialogue(builder: PromptBuilder, game: GameData, m
   if (question.startsWith('RIUNIONE DI GOVERNO')) return null;
   const request = currentMinisterDialogueRequest(game.id, dossier.seat);
   const recentHistory = dialogueHistory(history);
-  const worldContext = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat: dossier.seat, signedActs: signedActsFor(game) });
+  const worldContext = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat: dossier.seat, signedActs: signedActsFor(game), concerns: concernsFor(game) });
   const memory = /\[MEMORY\]\n([\s\S]*?)(?=\n\[DIALOGUE STYLE\])/.exec(dossierText)?.[1];
   const brief = buildMinisterDialogueBrief({ seat: dossier.seat, worldContext, currentIssues: dossier.issues,
     presidentMessage: question, recentHistory, currentDecision: request?.currentDecision, memory: memory ? { context: memory } : undefined });
@@ -484,7 +491,7 @@ export class PromptBuilder {
     // WS-GOV-MINISTER-WORLD-CONTEXT: lo stesso mondo per ogni ministro, in
     // sezioni immutabili. Il `verifiedState` resta separato (e ultimo).
     const seat = request.scope.seat;
-    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: signedActsFor(this.game) });
+    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: signedActsFor(this.game), concerns: concernsFor(this.game) });
     return buildMinisterContext({
       scope: request.scope,
       query: request.query,

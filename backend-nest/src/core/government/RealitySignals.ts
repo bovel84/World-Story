@@ -11,7 +11,20 @@
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 
 export type RealitySignalDomain =
-  | 'economy' | 'food' | 'military' | 'diplomacy' | 'infrastructure' | 'social' | 'project' | 'report';
+  | 'economy' | 'food' | 'military' | 'diplomacy' | 'infrastructure' | 'social' | 'project' | 'report' | 'decision';
+
+/**
+ * §5 — Classificazione interna del Capo di Gabinetto. NON è una lista di cose da
+ * mostrare: serve a decidere cosa merita attenzione e cosa può restare in
+ * sottofondo. Un turno senza emergenze è un turno valido.
+ */
+export type RealitySignalClass = 'URGENT' | 'WATCH' | 'OPPORTUNITY';
+
+export function realitySignalClass(importance: number): RealitySignalClass {
+  if (importance >= 3) return 'URGENT';
+  if (importance === 2) return 'WATCH';
+  return 'OPPORTUNITY';
+}
 
 export interface RealitySignal {
   key: string;
@@ -25,6 +38,20 @@ export interface RealitySignal {
 
 const finite = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+/**
+ * I segnali come sezione breve per il contesto dei ministri: classificazione +
+ * motivo, NESSUN menu di opzioni e nessuna scadenza. Sostituisce il vecchio
+ * blocco delle Pressure (che portava titolo, opzioni e «chi preme»).
+ */
+export function renderRealityConcerns(snapshot: VerifiedWorldSnapshot): string | undefined {
+  const signals = buildRealitySignals(snapshot).slice(0, 5);
+  if (!signals.length) return undefined;
+  return [
+    '[SEGNALI VERIFICATI DEL MOMENTO — non sono quest: nessuna opzione da scegliere]',
+    ...signals.map(signal => `- [${realitySignalClass(signal.importance)}] ${signal.reason}`),
+  ].join('\n');
+}
 
 export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySignal[] {
   const signals: RealitySignal[] = [];
@@ -103,6 +130,20 @@ export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySig
       factKeys: followUps.flatMap(report => report.factKeys).slice(0, 6),
       sourceRefs: followUps.map(report => report.sourceRef).slice(0, 4),
       reason: `${followUps.length} rapporti di verifica su atti precedenti`,
+    });
+  }
+
+  // DECISION — atti e decisioni recenti: il Consulente li CONOSCE e li porta
+  // nel nuovo turno senza riproporli come questioni aperte.
+  const decisions = snapshot.recent.decisions ?? [];
+  if (decisions.length) {
+    const latest = decisions.slice(-3);
+    push({
+      key: 'recent-decisions', domain: 'decision', importance: 2, factKeys: [],
+      sourceRefs: latest.map(decision => `decisions.${decision.id}`),
+      reason: latest.length === 1
+        ? `decisione presa: «${latest[0].title}»${latest[0].resolution ? ` — ${latest[0].resolution}` : ''}`
+        : `decisioni prese di recente: ${latest.map(decision => `«${decision.title}»`).join(', ')}`,
     });
   }
 

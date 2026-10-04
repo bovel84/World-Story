@@ -36,6 +36,7 @@ let PromptBuilder: any;
 let PromptEngine: any;
 let scopeFor: (seat: string) => any;
 let buildMinisterWorldContext: typeof import('../src/prompts/national-context').buildMinisterWorldContext;
+let renderNationalContext: typeof import('../src/prompts/national-context').renderNationalContext;
 let renderMinisterWorldContext: typeof import('../src/prompts/national-context').renderMinisterWorldContext;
 let renderWorldIdentity: typeof import('../src/prompts/national-context').renderWorldIdentity;
 let MINISTER_WORLD_TRUTH_HIERARCHY: string;
@@ -56,7 +57,7 @@ beforeAll(async () => {
   database.initDatabase();
   PromptBuilder = (await import('../src/prompt-builder')).PromptBuilder;
   PromptEngine = (await import('../src/prompt-builder')).PromptEngine;
-  ({ buildMinisterWorldContext, renderMinisterWorldContext, renderWorldIdentity, MINISTER_WORLD_TRUTH_HIERARCHY } = await import('../src/prompts/national-context'));
+  ({ buildMinisterWorldContext, renderNationalContext, renderMinisterWorldContext, renderWorldIdentity, MINISTER_WORLD_TRUTH_HIERARCHY } = await import('../src/prompts/national-context'));
   ({ composeMeetingNarrativeMessage } = await import('../src/core/government/MeetingNarrative'));
   const repos = await import('../src/repositories');
   repos.worldRepository.createWithRegions(
@@ -399,5 +400,16 @@ describe('WS-GOV-MINISTER-WORLD-CONTEXT', () => {
     // Il Consigliere ora legge il contesto strutturato canonico, non le vecchie sezioni narrative.
     expect(prompt).toContain('[VERIFIED WORLD SNAPSHOT');
     expect(prompt).toContain('VERIFIED FACT POLICY');
+  });
+
+  it('WS-GOV-ADVISOR-CHIEF-OF-STAFF: niente Pressure legacy, sì ai segnali verificati', () => {
+    const vars = new PromptBuilder(session.buildGameData()).buildVariables();
+    (vars as { PEACETIME_PRESSURES?: string }).PEACETIME_PRESSURES = '- [interna, gravità 3] Carestia — dettaglio. Opzioni: A → B | C → D';
+    const world = buildMinisterWorldContext({ vars, worldName: 'Test', seat: 'interno',
+      concerns: '[SEGNALI VERIFICATI DEL MOMENTO — non sono quest: nessuna opzione da scegliere]\n- [URGENT] copertura alimentare 0,8 mesi' });
+    const text = renderNationalContext(world, 'interno');
+    expect(text).not.toContain('Pressioni di pace');
+    expect(text).not.toContain('Opzioni:');
+    expect(text).toContain('SEGNALI VERIFICATI DEL MOMENTO');
   });
 });

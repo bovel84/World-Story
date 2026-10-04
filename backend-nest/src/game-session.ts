@@ -28,6 +28,7 @@ import { WorldMutationService } from './game/WorldMutationService';
 import { GameDataService } from './game/GameDataService';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
 import { readPreviousVerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshotHistory';
+import { renderRealityConcerns } from './core/government/RealitySignals';
 import { buildRealityAdvisorContext, guardRealityAdvisorOutput, renderSignedActs, type RealityAdvisorResult } from './core/government/RealityAdvisor';
 import { parseCouncilIssues, type CouncilIssue } from './core/government/CouncilIssue';
 import type { CurrentReactionAction } from './core/simulation/ReactionContext';
@@ -3436,7 +3437,7 @@ export class GameSession {
     const address = cabinet.addresses.find(candidate => candidate.seat === seat)
       ?? { seat: seat as CabinetSeat, label: SEAT_LABEL[seat as CabinetSeat], reads: '', items: [], opening: '' };
     const vars = new PromptBuilder(this.buildGameData()).buildVariables();
-    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: renderSignedActs(this.getVerifiedWorldSnapshot()) });
+    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: renderSignedActs(this.getVerifiedWorldSnapshot()), concerns: renderRealityConcerns(this.getVerifiedWorldSnapshot()) });
     let memory = '';
     if (getJevConfig().enabled) {
       const { buildMinisterContext } = await import('./core/government/jev/jev-memory.service');

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 import { resolveCouncilIssue, parseCouncilIssues } from '../src/core/government/CouncilIssue';
 import { buildRealityAdvisorContext, verifiedRequestCorrection, guardRealityAdvisorOutput, buildRealityAdvisorPrompt } from '../src/core/government/RealityAdvisor';
-import { buildRealitySignals } from '../src/core/government/RealitySignals';
+import { buildRealitySignals, renderRealityConcerns } from '../src/core/government/RealitySignals';
 
 const snapshot = () => buildVerifiedWorldSnapshot({ gameData: {
   id: 'uganda-game', playerPolityId: 'UGA', playerPolityName: 'Uganda', currentDate: '1951-01-01', currentTurn: 1,
@@ -73,6 +73,19 @@ describe('verified reality boundary', () => {
     expect(signal!.factKeys).toEqual([]);
     expect(signal!.sourceRefs.length).toBeGreaterThan(0);
   });
+  it('WS-GOV-ADVISOR-CHIEF-OF-STAFF: i segnali portano le decisioni prese e nessun menu', () => {
+    const world = snapshot();
+    world.recent.decisions = [{ id: 'd1', title: 'Decreto infrastrutture', status: 'resolved', resolution: 'In vigore', resolvedDate: '1951-01-01' }];
+    const signals = buildRealitySignals(world);
+    expect(signals.some(signal => signal.domain === 'decision')).toBe(true);
+    const concerns = renderRealityConcerns(world)!;
+    expect(concerns).toContain('Decreto infrastrutture');
+    // Classificazione interna, non una lista di quest con opzioni.
+    expect(concerns).toMatch(/\[(URGENT|WATCH|OPPORTUNITY)\]/);
+    // Nessun menu di opzioni (il vecchio blocco Pressure portava «Opzioni: A → B»).
+    expect(concerns).not.toMatch(/Opzioni:|→/);
+  });
+
   it('strips unknown or incomplete model proposals without accepting any partial facts', () => {
     const result = parseCouncilIssues(snapshot(), 'Parliamone.\n```council_issue\n' + JSON.stringify({ ...proposal, factKeys: ['treasury', 'invented'] }) + '\n```');
     expect(result).toEqual({ reply: 'Parliamone.', issues: [] });
