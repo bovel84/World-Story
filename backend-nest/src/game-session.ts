@@ -28,6 +28,7 @@ import { WorldMutationService } from './game/WorldMutationService';
 import { GameDataService } from './game/GameDataService';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
 import { readPreviousVerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshotHistory';
+import { derivedInfrastructureObjects } from './core/simulation/DerivedInfrastructure';
 import { renderRealityConcerns } from './core/government/RealitySignals';
 import { buildRealityAdvisorContext, guardRealityAdvisorOutput, renderSignedActs, type RealityAdvisorResult } from './core/government/RealityAdvisor';
 import { parseCouncilIssues, type CouncilIssue } from './core/government/CouncilIssue';
@@ -2229,6 +2230,7 @@ export class GameSession {
       ensurePeacetimePressures: () => this.ensurePeacetimePressures(),
       restoreEnding: () => this.restoreEnding(),
       seedInitialResources: () => this.seedInitialResources(),
+      materializeDerivedInfrastructure: () => this.materializeDerivedInfrastructure(),
       syncRegionsToDB: () => this.syncRegionsToDB(),
       revivePausedRunFromRow: row => this._revivePausedRunFromRow(row),
     });
@@ -2303,6 +2305,37 @@ export class GameSession {
   /** Read model GameData per il motore di prompt (implementazione in GameDataService). */
   private buildGameData(focusTexts: string[] = [], currentActions: CurrentReactionAction[] = []): any {
     return this.gameData.build(focusTexts, currentActions);
+  }
+
+  /**
+   * WS-GOV-PRESET-REALITY-PIPELINE §1 — Materializza UNA VOLTA la rappresentazione
+   * canonica della capacità iniziale per il paese giocatore non-authored: se il
+   * preset non ha popolato infrastrutture, i porti (solo su coste reali) e gli
+   * stabilimenti diventano oggetti di mappa deterministici, marcati come derivati.
+   * Dove esistono già infrastrutture authored non si tocca nulla.
+   */
+  materializeDerivedInfrastructure(): void {
+    try {
+      const polityId = this.playerPolityId;
+      const account = this.getNationalAccounts()[polityId];
+      const additions = derivedInfrastructureObjects(
+        [...this.regions.values()].map(region => ({
+          id: region.id, name: region.name, owner: region.owner,
+          coastal: (region as { coastal?: boolean }).coastal, population: region.population, objects: region.objects,
+        })),
+        polityId,
+        { ports: Number(account?.ports ?? 0), factories: Number(account?.factories ?? 0) },
+      );
+      if (additions.size === 0) return;
+      for (const [regionId, objects] of additions) {
+        const region = this.regions.get(regionId);
+        if (!region) continue;
+        region.objects = [...(region.objects ?? []), ...objects];
+      }
+      this.syncRegionsToDB();
+    } catch (error) {
+      console.warn('[GameSession] Infrastrutture derivate non materializzate:', error);
+    }
   }
 
   /** Verified server-side reality; a prior getter call is not a turn baseline. */

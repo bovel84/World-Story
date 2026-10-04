@@ -163,6 +163,12 @@ export class WorldStateEngine {
       if (coastal) coastalProvinces[polityId] = (coastalProvinces[polityId] || 0) + 1;
       // One scan of map objects, with no temporary arrays per asset type.
       for (const object of region.objects || []) {
+        // WS-GOV-PRESET-REALITY-PIPELINE — Gli oggetti materializzati al
+        // bootstrap rappresentano la CAPACITÀ baseline: contarli qui la
+        // sommerebbe due volte. Non sono una seconda realtà.
+        const metadata = (object as { metadata?: unknown }).metadata;
+        if (metadata && typeof metadata === 'object'
+          && (metadata as { derivedFrom?: unknown }).derivedFrom === 'national_capacity') continue;
         const level = Math.max(1, finiteNonNegative(object.level));
         switch (object.type) {
           case 'factory': account.factories += level; break;

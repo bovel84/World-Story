@@ -95,6 +95,8 @@ export interface GameOpeningBriefing {
   nation: {
     name: string;
     identity: string;
+    /** Le 1-3 questioni del paese dallo stato canonico (WS-GOV-PRESET-REALITY). */
+    questions: string[];
     readings: OpeningReading[];
     neighbors: OpeningWorldItem[];
   };
@@ -127,6 +129,8 @@ export interface OpeningBriefingInput {
   narrative?: OpeningWorldNarrative | null;
   /** Quadro del paese dal backend. */
   nationFraming?: string | null;
+  /** Questioni del paese dal backend: la UI le mostra (§3C). */
+  nationQuestions?: readonly string[] | null;
   /** Voci del consiglio dal server (`opening-narrative`), se disponibili. */
   council?: readonly OpeningCouncilVoice[] | null;
   /** Fallback locale: le sedie già lette dal motore. */
@@ -430,6 +434,7 @@ export function deriveGameOpening(input: OpeningBriefingInput, options: { compac
       narrative,
     },
     nation: {
+      questions: (input.nationQuestions ?? []).map(value => String(value).trim()).filter(Boolean).slice(0, 3),
       name: input.nationalName,
       identity: input.nationFraming && input.nationFraming.trim() ? input.nationFraming.trim() : deriveIdentity(input),
       readings,

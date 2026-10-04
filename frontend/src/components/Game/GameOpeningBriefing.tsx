@@ -139,6 +139,15 @@ export function OpeningPanelContent({ briefing, onFinish, onSkip, initialPage = 
             <p className="opening-nation-name">{briefing.nation.name || 'Il tuo paese'}</p>
             {briefing.nation.identity && <p className="opening-prose">{briefing.nation.identity}</p>}
 
+            {(briefing.nation.questions?.length ?? 0) > 0 && (
+              <div className="opening-questions" aria-label="Questioni del paese">
+                <h2 className="opening-sub">LE QUESTIONI DI OGGI</h2>
+                <ul>
+                  {(briefing.nation.questions ?? []).map(question => <li key={question}>{question}</li>)}
+                </ul>
+              </div>
+            )}
+
             {mapRegions && mapRegions.length > 0 && (
               <OpeningMap regions={mapRegions} highlightRegionIds={highlightRegionIds ?? []} />
             )}

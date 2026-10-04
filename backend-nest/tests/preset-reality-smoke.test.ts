@@ -90,31 +90,39 @@ describe('WS-GOV-PRESET-REALITY-PIPELINE', () => {
     usa = create('preset_usa', 'preset_usa_capital', 'USA');
   });
 
-  it('il paese senza dati dedicati resta una realtà sola: la mappa è authoritative', () => {
+  it('nessun conflitto capacità/inventario: la capacità diventa inventario canonico', () => {
     const { snapshot } = briefingFor(khm);
     const account = khm.getNationalAccounts()['KHM'];
-    // La CAPACITÀ del conto nazionale non diventa inventario (contratto vigente):
-    // il paese senza oggetti di mappa non ha porti canonici…
-    expect(Number(account?.ports ?? 0)).toBeGreaterThan(0);
-    expect(snapshot.infrastructure.ports).toEqual([]);
-    expect(snapshot.facts.ports.value).toBe('Porti posseduti: nessuno');
-    // …e il Consulente lo dichiara in modo coerente con l'inventario, senza
-    // inventare porti: è l'incoerenza residua documentata (capacità vs mappa).
-    expect(verifiedRequestCorrection(snapshot, 'Possiamo ampliare i nostri porti?')).toContain('non risultano porti');
-    // Un paese con infrastrutture canoniche resta intatto.
+    const capacityPorts = Number(account?.ports ?? 0);
+    // Prima: capacity 1 e inventario vuoto (due realtà). Ora coincidono.
+    expect(capacityPorts).toBeGreaterThan(0);
+    expect(snapshot.infrastructure.ports).toHaveLength(capacityPorts);
+    expect(snapshot.facts.ports.value).toContain('Porto di Phnom Penh');
+    // Prova interna della materializzazione (il giocatore non la vede).
+    expect(snapshot.infrastructure.ports![0].raw).toMatchObject({ metadata: { derivedFrom: 'national_capacity' } });
+    // Un paese con infrastrutture authored resta intatto.
     const usaSnapshot = briefingFor(usa).snapshot;
     expect(usaSnapshot.infrastructure.ports?.map(asset => asset.name)).toEqual(['Porto di New York']);
+    expect(usaSnapshot.facts.ports.value).toContain('Porto di New York');
   });
 
-  it('il briefing nazionale non è il solo base_prompt e cambia tra paesi', () => {
+  it('il mondo apre breve e il paese parla subito: KHM e USA sono diversi', () => {
     const khmBrief = briefingFor(khm).briefing;
     const usaBrief = briefingFor(usa).briefing;
+    // Mondo: una frase breve, non il briefing intero.
+    expect(khmBrief.world.narrative.worldOrder.split(/\s+/).length).toBeLessThanOrEqual(45);
     expect(khmBrief.world.narrative.worldOrder).toContain('nuovo millennio');
-    expect(khmBrief.world.narrative.worldOrder).not.toContain('\n\n');
+    // Paese: quadro + 1-3 questioni reali.
     expect(khmBrief.nation.framing).toBeTruthy();
     expect(khmBrief.nation.framing).not.toBe(khmBrief.world.narrative.worldOrder);
     expect(khmBrief.nation.questions.length).toBeGreaterThanOrEqual(1);
     expect(khmBrief.nation.questions.length).toBeLessThanOrEqual(3);
+    // Aperture visibilmente diverse tra i due paesi.
+    const khmOpening = [khmBrief.world.narrative.worldOrder, khmBrief.nation.framing, ...khmBrief.nation.questions].join(' | ');
+    const usaOpening = [usaBrief.world.narrative.worldOrder, usaBrief.nation.framing, ...usaBrief.nation.questions].join(' | ');
+    expect(khmOpening).not.toBe(usaOpening);
+    // Le questioni derivano dallo STATO: due paesi possono condividerne alcune,
+    // ma il quadro del paese (misure) è specifico e diverso.
     expect(khmBrief.nation.framing).not.toBe(usaBrief.nation.framing);
   });
 
