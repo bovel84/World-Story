@@ -1,7 +1,7 @@
 /** Verified reality → interpretation → optional issue. No writes, quests or fabricated deltas. */
 import type { AdvisorMessage } from '../../prompts/types';
 import { COUNCIL_ISSUE_PROTOCOL, resolveCouncilIssue, type CouncilIssue } from './CouncilIssue';
-import { buildRealitySignals, stripTechnicalLines } from './RealitySignals';
+import { advisorBriefingSentences, buildRealitySignals, stripTechnicalLines } from './RealitySignals';
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 
 export interface RealityAdvisorContext {
@@ -39,16 +39,10 @@ export function buildRealityAdvisorContext(snapshot: VerifiedWorldSnapshot, focu
   // P3/P4 — Il briefing nasce dai SEGNALI deterministici, non da quest
   // predefinite: nessun CouncilIssue automatico. La questione nasce solo se il
   // modello la propone (e il server la valida) o se il Presidente la chiede.
-  const signals = buildRealitySignals(snapshot);
-  const lines = signals.slice(0, 5).map(signal => `- ${signal.reason}.`);
-  if (!lines.length && snapshot.facts.treasury) {
-    lines.push(`- la tesoreria registrata è ${snapshot.facts.treasury.value}, senza criticità misurate sui segnali osservati.`);
-  }
-  if (!lines.length) {
-    lines.push('- non ho un dato verificato che richieda attenzione adesso: possiamo esaminare i programmi e la loro copertura.');
-  }
+  // §4 — Forma conversazionale (2-4 frasi), contenuto dai segnali reali.
+  const conversational = advisorBriefingSentences(snapshot);
   // §4 — Mai linguaggio tecnico al giocatore: se una riga ne contenesse, esce.
-  const governmentBrief = stripTechnicalLines(`Presidente, ecco cosa richiede attenzione oggi:\n${lines.join('\n')}`)
+  const governmentBrief = stripTechnicalLines(conversational)
     ?? 'Presidente, non ho un dato verificato che richieda attenzione adesso: possiamo esaminare i programmi e la loro copertura.';
   return { advisorContext: { verifiedWorldSnapshot: snapshot, governmentBrief, ...(focusIssue ? { focusIssue } : {}) }, reply: governmentBrief, issues: [] };
 }

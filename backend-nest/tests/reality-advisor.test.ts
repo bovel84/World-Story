@@ -47,7 +47,7 @@ describe('verified reality boundary', () => {
     // Il Consulente PARLA della copertura alimentare ma NON crea una quest:
     // la questione nasce solo se il modello la propone o il Presidente la chiede.
     expect(result.issues).toEqual([]);
-    expect(result.advisorContext.governmentBrief).toContain('richiede attenzione');
+    expect(result.advisorContext.governmentBrief).toMatch(/meritano attenzione|merita attenzione/);
   });
   it('segnali generici dal quadro: food, economy, social senza quest predefinite', () => {
     const world = snapshot();

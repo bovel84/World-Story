@@ -100,6 +100,28 @@ export function nationalSituationLines(snapshot: VerifiedWorldSnapshot, max = 3)
     ?.split('\n').map(line => line.replace(/^-\s*/, '').trim()).filter(Boolean) ?? [];
 }
 
+/**
+ * §4 — Il briefing automatico in 2-4 FRASI naturali, dai primi segnali.
+ * Solo la FORMA è fissa (apertura, uno o due punti, chiusura); il contenuto
+ * viene dai segnali, quindi non è mai hardcodato.
+ */
+export function advisorBriefingSentences(snapshot: VerifiedWorldSnapshot): string {
+  const signals = buildRealitySignals(snapshot);
+  if (!signals.length) {
+    return 'Presidente, non vedo emergenze immediate: possiamo concentrarci sui programmi in corso o su quello che vuole esaminare.';
+  }
+  const picked = signals.slice(0, 2);
+  const intro = picked.length === 1
+    ? 'Presidente, la situazione regge, ma c\u2019è un punto che merita attenzione.'
+    : `Presidente, la situazione regge, ma ci sono due punti che meritano attenzione.`;
+  const connectors = ['In particolare', 'Sul piano successivo'];
+  const body = picked.map((signal, index) => `${connectors[index] ?? 'Inoltre'}, ${signal.reason}.`);
+  const close = picked.length === 1
+    ? 'Se vuole, partiamo da lì.'
+    : 'Se vuole, partiamo da uno dei due.';
+  return [intro, ...body, close].join(' ');
+}
+
 export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySignal[] {
   const signals: RealitySignal[] = [];
   const facts = snapshot.facts;

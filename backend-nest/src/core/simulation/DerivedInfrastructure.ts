@@ -1,17 +1,19 @@
 /**
- * WS-GOV-PRESET-REALITY-PIPELINE §1 — Una sola realtà per il paese giocatore.
+ * WS-GOV-PRESET-REALITY-RESIDUALS §1/§2 — Materializzazione per TIPO, senza
+ * doppio conteggio e senza lasciare capacità non rappresentata.
  *
- * Il conto nazionale dichiara una CAPACITÀ derivata (ports, factories) anche per
- * un paese non-authored dal preset (es. KHM in `millennium_dawn`: selezionabile,
- * assente da `simulation/polities.json`, treasuries/inventory vuoti). Senza
- * materializzazione il dossier mostrava «ports: 2» e l'inventario canonico era
- * vuoto: due realtà per lo stesso paese.
- *
- * Qui la capacità diventa l'UNICA rappresentazione canonica: oggetti
- * deterministici su regioni CONTROLLATE e compatibili (i porti solo su coste),
- * marcati internamente `metadata.derivedFrom` (invisibile al giocatore).
- * `WorldStateEngine` non li conta nell'account (li rappresenta già la baseline),
- * così capacità e inventario dicono lo stesso numero.
+ * Il conto nazionale dichiara una CAPACITÀ (ports, factories) che per un paese
+ * non-authored dal preset (es. KHM) non ha inventario. Qui la capacità diventa
+ * rappresentazione canonica deterministica:
+ *  - per ogni categoria si confronta `capacità` e `inventario esistente` e si
+ *    materializza SOLO la parte mancante (una strada authored non impedisce i
+ *    porti mancanti, un porto authored non impedisce le fabbriche);
+ *  - i porti vanno solo su coste reali; le fabbriche sulla provincia più
+ *    popolosa, distribuite in round-robin deterministico;
+ *  - la capacità in eccesso rispetto alle province si rappresenta con `level`:
+ *    `Σ level` degli asset derivati **equivale** alla capacità dichiarata;
+ *  - ogni oggetto porta `metadata.derivedFrom = 'national_capacity'` (interno):
+ *    `WorldStateEngine` non li conta, perché li rappresenta già la baseline.
  */
 import { canonicalAssetKind } from './CanonicalAssetTypes';
 
@@ -34,14 +36,52 @@ const typeOf = (object: unknown): string | null => {
   const value = (object as { type?: unknown }).type;
   return typeof value === 'string' ? value : null;
 };
-const isDerived = (object: unknown): boolean => {
-  if (!object || typeof object !== 'object') return false;
-  const metadata = (object as { metadata?: unknown }).metadata;
-  return !!metadata && typeof metadata === 'object'
-    && (metadata as { derivedFrom?: unknown }).derivedFrom === 'national_capacity';
-};
 
-/** Oggetti da aggiungere per regione. Vuoto se non serve o non è il caso. */
+/** Capacità già rappresentata da oggetti authored, per tipo: usa `level`. */
+function authoredCapacity(regions: readonly DerivedInfrastructureRegion[], polityId: string, kind: 'port' | 'factory'): number {
+  let total = 0;
+  for (const region of regions) {
+    if (region.owner !== polityId) continue;
+    for (const object of region.objects ?? []) {
+      if (canonicalAssetKind(typeOf(object)) !== kind) continue;
+      if (!object || typeof object !== 'object') continue;
+      const level = Number((object as { level?: unknown }).level);
+      total += Number.isFinite(level) && level > 0 ? Math.floor(level) : 1;
+    }
+  }
+  return total;
+}
+
+const hasKind = (region: DerivedInfrastructureRegion, kind: 'port' | 'factory'): boolean =>
+  (region.objects ?? []).some(object => canonicalAssetKind(typeOf(object)) === kind);
+
+/**
+ * Regioni candidate per un tipo: prima quelle che NON hanno già un asset di
+ * quel tipo (una strada authored non blocca i porti, un porto authored non
+ * blocca le fabbriche), poi — se la capacità è maggiore — anche le altre.
+ */
+function candidatesFor(
+  regions: readonly DerivedInfrastructureRegion[],
+  kind: 'port' | 'factory',
+  compatible: (region: DerivedInfrastructureRegion) => boolean,
+): DerivedInfrastructureRegion[] {
+  const eligible = regions.filter(compatible);
+  const free = eligible.filter(region => !hasKind(region, kind));
+  return [...free, ...eligible.filter(region => hasKind(region, kind))];
+}
+
+/** Round-robin deterministico: `Σ level` = `count` sulle regioni candidate. */
+function distribute(count: number, regions: readonly DerivedInfrastructureRegion[]): Map<string, number> {
+  const levels = new Map<string, number>();
+  if (count <= 0 || regions.length === 0) return levels;
+  for (let index = 0; index < count; index += 1) {
+    const region = regions[index % regions.length]!;
+    levels.set(region.id, (levels.get(region.id) ?? 0) + 1);
+  }
+  return levels;
+}
+
+/** Oggetti da aggiungere per regione. Vuoto se non c'è capacità mancante. */
 export function derivedInfrastructureObjects(
   regions: readonly DerivedInfrastructureRegion[],
   polityId: string,
@@ -50,36 +90,33 @@ export function derivedInfrastructureObjects(
   const additions = new Map<string, unknown[]>();
   const owned = regions.filter(region => region.owner === polityId);
   if (!owned.length) return additions;
-  // Il paese ha già una realtà infrastrutturale authored: non si tocca nulla.
-  if (owned.some(region => (region.objects ?? []).some(object => canonicalAssetKind(typeOf(object))))) return additions;
-
   const byPopulation = [...owned].sort((left, right) => (right.population ?? 0) - (left.population ?? 0));
-  const ports = Math.max(0, Math.floor(capacity.ports || 0));
-  const factories = Math.max(0, Math.floor(capacity.factories || 0));
+
   const push = (region: DerivedInfrastructureRegion, object: Record<string, unknown>): void => {
     const list = additions.get(region.id);
     if (list) list.push(object);
     else additions.set(region.id, [object]);
   };
+  const derived = (type: 'port' | 'factory', region: DerivedInfrastructureRegion, level: number): void => push(region, {
+    id: `derived-${type}-${region.id}`, type, name: type === 'port' ? `Porto di ${region.name}` : `Stabilimento di ${region.name}`,
+    owner: polityId, level, metadata: { status: 'operational', source: 'bootstrap', derivedFrom: 'national_capacity' },
+  });
 
-  // Porti: solo su coste reali, dalla più popolosa; mai più di una per provincia.
-  const coastal = byPopulation.filter(region => region.coastal === true);
-  for (let index = 0; index < Math.min(ports, coastal.length); index += 1) {
-    const region = coastal[index]!;
-    push(region, {
-      id: `derived-port-${region.id}`, type: 'port', name: `Porto di ${region.name}`,
-      owner: polityId, level: 1,
-      metadata: { status: 'operational', source: 'bootstrap', derivedFrom: 'national_capacity' },
-    });
+  // §1 — Porti: SOLO la parte mancante, solo su coste reali.
+  const missingPorts = Math.max(0, Math.floor(capacity.ports || 0) - authoredCapacity(owned, polityId, 'port'));
+  const coastal = candidatesFor(byPopulation, 'port', region => region.coastal === true);
+  for (const [regionId, level] of distribute(missingPorts, coastal)) {
+    const region = coastal.find(item => item.id === regionId);
+    if (region) derived('port', region, level);
   }
-  // Stabilimenti: sulla provincia più popolosa, fino alla capacità.
-  for (let index = 0; index < Math.min(factories, byPopulation.length); index += 1) {
-    const region = byPopulation[index]!;
-    push(region, {
-      id: `derived-factory-${region.id}`, type: 'factory', name: `Stabilimento di ${region.name}`,
-      owner: polityId, level: 1,
-      metadata: { status: 'operational', source: 'bootstrap', derivedFrom: 'national_capacity' },
-    });
+
+  // §2 — Fabbriche: SOLO la parte mancante; l'eccesso rispetto alle province
+  // diventa `level`, così `Σ level` equivale alla capacità dichiarata.
+  const missingFactories = Math.max(0, Math.floor(capacity.factories || 0) - authoredCapacity(owned, polityId, 'factory'));
+  const industrial = candidatesFor(byPopulation, 'factory', () => true);
+  for (const [regionId, level] of distribute(missingFactories, industrial)) {
+    const region = industrial.find(item => item.id === regionId);
+    if (region) derived('factory', region, level);
   }
   return additions;
 }

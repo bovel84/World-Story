@@ -77,7 +77,17 @@ export async function renderOpeningNarrative(
     return {
       generated: true,
       deterministic: false,
-      world: { ...deterministic.world, narrative: parsed.world },
+      world: {
+        ...deterministic.world,
+        // §3 — La frase sul PAESE (dal quadro verificato) resta sempre in prima
+        // pagina: il renderer può migliorare il mondo, non sostituire la realtà
+        // del paese con una riga generica.
+        narrative: {
+          ...deterministic.world.narrative,
+          ...parsed.world,
+          stakesForNation: deterministic.world.narrative.stakesForNation || parsed.world.stakesForNation,
+        },
+      },
       nation: { framing: nationFraming, questions: [...context.nation.questions] },
       council,
     };
