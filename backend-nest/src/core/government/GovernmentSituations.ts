@@ -36,6 +36,9 @@ export type SituationOriginType = 'state' | 'previous-decision' | 'inaction' | '
 export interface SituationOrigin {
   readonly type: SituationOriginType;
   readonly sourceId?: string;
+  readonly sourceActId?: string;
+  /** P4 — true quando la provenienza è DEDOTTA, non scritta dal motore (save vecchi). */
+  readonly legacy?: boolean;
 }
 
 /** Uno dei corsi d'azione che il motore già conosce per questa questione. */
@@ -94,6 +97,10 @@ export interface SituationPressureInput {
   readonly options: readonly PressureOption[];
   readonly inaction: PressureEffect;
   readonly createdDate: string;
+  /** P4 — Provenienza esplicita scritta dal motore (assente sui save vecchi). */
+  readonly originType?: string | null;
+  readonly originSourcePressureId?: string | null;
+  readonly originSourceActId?: string | null;
 }
 
 /** Un record chiuso, per dedurre la provenienza di una situazione nuova. */
@@ -243,14 +250,25 @@ export function situationFacts(pressure: Pick<SituationPressureInput, 'template'
  * **decisione precedente**. È il motivo per cui il giocatore può dire «questa
  * crisi esiste perché…» senza che il modello inventi nulla.
  */
-export function originFor(record: Pick<SituationPressureInput, 'template' | 'id'>, history: readonly SituationHistoryEntry[]): SituationOrigin {
+export function originFor(record: Pick<SituationPressureInput, 'template' | 'id' | 'originType' | 'originSourcePressureId' | 'originSourceActId'>, history: readonly SituationHistoryEntry[]): SituationOrigin {
+  // P4 — La provenienza SCRITTA dal motore è la fonte primaria: nessuna
+  // deduzione per template.
+  if (record.originType) {
+    return {
+      type: record.originType as SituationOriginType,
+      ...(record.originSourcePressureId ? { sourceId: record.originSourcePressureId } : {}),
+      ...(record.originSourceActId ? { sourceActId: record.originSourceActId } : {}),
+    };
+  }
+  // Legacy: i save precedenti non hanno la provenance. La deduzione per stesso
+  // template resta, ma è dichiarata NON canonica (`legacy: true`).
   const previous = history
     .filter(entry => entry.template === record.template && entry.id !== record.id && entry.status !== 'active')
     .sort((left, right) => right.createdTurn - left.createdTurn)[0];
   if (!previous) return { type: 'state' };
   return previous.status === 'expired'
-    ? { type: 'inaction', sourceId: previous.id }
-    : { type: 'previous-decision', sourceId: previous.id };
+    ? { type: 'inaction', sourceId: previous.id, legacy: true }
+    : { type: 'previous-decision', sourceId: previous.id, legacy: true };
 }
 
 /** La vista completa, dalla Pressure canonica. Nessun effetto viene ricalcolato. */

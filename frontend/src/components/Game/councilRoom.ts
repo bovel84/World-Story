@@ -15,6 +15,22 @@ export interface CouncilMessage extends AdvisorHistoryItem {
   evidence?: readonly PresentationDirective[];
 }
 export interface CouncilInvitation { id: string; from: CabinetSeat; minister: CabinetSeat; question: string }
+/** P0.3 — Una strada suggerita da un ministro: chi l'ha proposta e in quale intervento. */
+export interface CouncilProposedOption { optionId: string; proposedBy: CabinetSeat; messageId: string }
+
+/**
+ * P3 — Il contesto di un VERO follow-up: la seduta non ripropone strade, riferisce
+ * gli outcome reali di una decisione chiusa (owner, scadenza, verifiche, esito).
+ */
+export interface CouncilSourceFollowUp {
+  pressureId: string;
+  label: string;
+  owner: CabinetSeat;
+  dueDate: string;
+  checks: string[];
+  outcome: string[];
+  originDecision: string;
+}
 export interface CouncilPosition {
   status: 'support' | 'conditional' | 'oppose' | 'pending';
   reason: string;
@@ -39,7 +55,14 @@ export interface CouncilRoomState {
    * manuali restano identiche. Sopravvive a indietro/riprendi perché vive nella stanza.
    */
   sourceSituation?: GovernmentSituationView;
-  /** Le opzioni canoniche già scelte sulla Tavola (id verificati dal motore). */
+  /** P3 — Presente quando la seduta è un RAPPORTO di follow-up, non una situazione. */
+  sourceFollowUp?: CouncilSourceFollowUp;
+  /**
+   * P0 — Le strade SUGGERITE dai ministri (blocco consiglio). NON producono
+   * effetti e NON sono presentate come confermate: solo il Presidente conferma.
+   */
+  proposedPressureOptions: CouncilProposedOption[];
+  /** Le strade CONFERMATE dal Presidente sulla Tavola: solo queste si risolvono. */
   selectedPressureOptions: string[];
 }
 
@@ -57,17 +80,32 @@ export function togglePressureOption(room: CouncilRoomState, optionId: string): 
   return { ...room, selectedPressureOptions: selected };
 }
 
-export function createCouncilRoom(input: { id: string; scopeKey: string; initiatorMinister: CabinetSeat; sourceSituation?: GovernmentSituationView }): CouncilRoomState {
+/** P0.2 — Il Presidente CONFERMA una strada (proposta o conosciuta dal motore). */
+export function confirmPressureOption(room: CouncilRoomState, optionId: string): CouncilRoomState {
+  if (!situationOption(room, optionId) || room.selectedPressureOptions.includes(optionId)) return room;
+  return { ...room, selectedPressureOptions: [...room.selectedPressureOptions, optionId] };
+}
+
+/** P0.2 — Il Presidente ESCLUDE una strada dalla risposta. */
+export function excludePressureOption(room: CouncilRoomState, optionId: string): CouncilRoomState {
+  if (!room.selectedPressureOptions.includes(optionId)) return room;
+  return { ...room, selectedPressureOptions: room.selectedPressureOptions.filter(id => id !== optionId) };
+}
+
+export function createCouncilRoom(input: { id: string; scopeKey: string; initiatorMinister: CabinetSeat; sourceSituation?: GovernmentSituationView; sourceFollowUp?: CouncilSourceFollowUp }): CouncilRoomState {
   const sourceSituation = input.sourceSituation;
+  const sourceFollowUp = input.sourceFollowUp;
   return {
     id: input.id, scopeKey: input.scopeKey, initiatorMinister: input.initiatorMinister,
-    // L'oggetto della seduta è il TITOLO della situazione, non la domanda: la
+    // L'oggetto della seduta è il TITOLO della situazione (o del rapporto), non la domanda: la
     // domanda vive nella Tavola, sotto «DECISIONE DA PRENDERE».
-    topic: sourceSituation?.title ?? '',
+    topic: sourceFollowUp ? `Rapporto: ${sourceFollowUp.label}` : sourceSituation?.title ?? '',
     participants: [input.initiatorMinister], messages: [], sharedBoard: emptyWorkspace('council'),
     invitations: [], positions: {}, assessments: {}, phase: 'discussion',
+    proposedPressureOptions: [],
     selectedPressureOptions: [],
     ...(sourceSituation ? { sourceSituation } : {}),
+    ...(sourceFollowUp ? { sourceFollowUp } : {}),
   };
 }
 export function appendCouncilMessage(room: CouncilRoomState, message: CouncilMessage): CouncilRoomState {
@@ -119,13 +157,19 @@ export function receiveCouncilReply(room: CouncilRoomState, seat: CabinetSeat, r
   const parsed = parsePresentation(raw);
   const sharedBoard = applyDecisionBatch(room.sharedBoard, ministerActions(parsed.decisions, room.sharedBoard), { messageId });
   const protocol = councilProtocol(raw);
-  // WS-GOV-SITUATIONS-LOOP P1.1 — Il modello può proporre le strade canoniche,
-  // ma SOLO id che esistono nella situazione. Un id inventato viene scartato.
+  // P0 — Il modello PUO' suggerire strade, ma non confermarle. Ogni id viene
+  // validato contro la situazione (id inventati scartati) e registrato come
+  // PROPOSTA con la sua provenienza. `selectedPressureOptions` resta intatto:
+  // lo tocca solo il Presidente.
   const allowedOptions = new Set((room.sourceSituation?.options ?? []).map(option => option.id));
-  const proposedOptions = Array.isArray(protocol?.pressureOptions)
+  const incoming = Array.isArray(protocol?.pressureOptions)
     ? protocol.pressureOptions.filter((id): id is string => typeof id === 'string' && allowedOptions.has(id))
     : [];
-  const selectedPressureOptions = [...new Set([...room.selectedPressureOptions, ...proposedOptions])];
+  const proposedPressureOptions = [...room.proposedPressureOptions];
+  for (const optionId of incoming) {
+    if (proposedPressureOptions.some(item => item.optionId === optionId)) continue;
+    proposedPressureOptions.push({ optionId, proposedBy: seat, messageId });
+  }
   const invitations = [...room.invitations];
   if (Array.isArray(protocol?.needs_input_from)) {
     for (const request of protocol.needs_input_from.slice(0, 7)) {
@@ -143,7 +187,7 @@ export function receiveCouncilReply(room: CouncilRoomState, seat: CabinetSeat, r
     if (reason) positions[seat] = { status: position.status as CouncilPosition['status'], reason, revision: sharedBoard.revision };
   }
   const assessments = protocol ? { ...room.assessments, [seat]: { agreements: textList(protocol.agreements), disagreements: textList(protocol.disagreements) } } : room.assessments;
-  return appendCouncilMessage({ ...room, sharedBoard, invitations, positions, assessments, selectedPressureOptions,
+  return appendCouncilMessage({ ...room, sharedBoard, invitations, positions, assessments, proposedPressureOptions,
     topic: sharedBoard.objective ?? room.topic }, { id: messageId, role: 'assistant', kind: 'speech', seat, speaker: seatSpeaker(seat), content: councilText(raw), ...(parsed.directives.length ? { evidence: parsed.directives } : {}) });
 }
 export function confirmCouncilProposal(room: CouncilRoomState, messageId: string): CouncilRoomState {
@@ -172,7 +216,28 @@ export function councilRoomMemory(room: CouncilRoomState, ref: MinisterMemoryRef
     ...questions.map(question => ({ seat, record: openQuestion(seat, question, ref) })),
   ]);
 }
-/** Other ministers are user-role contributions, not synthetic turns in this minister's voice. */
+/**
+ * P2 — Firma tecnica dei contenuti CONGELATI del draft. Non va al motore: serve
+ * a legare lo snapshot della selezione all'atto preparato.
+ */
+export function councilDraftSignature(draft: Pick<ProposalActDraft, 'text' | 'sourcePressureId' | 'sourceSituationId' | 'selectedPressureOptions'>): string {
+  const payload = [draft.text, draft.sourcePressureId ?? '', draft.sourceSituationId ?? '', [...(draft.selectedPressureOptions ?? [])].sort().join(',')].join('|');
+  let hash = 2166136261 >>> 0;
+  for (let index = 0; index < payload.length; index += 1) {
+    hash ^= payload.charCodeAt(index);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return `draft:${hash.toString(16)}`;
+}
+
+/**
+ * P0/P2 — Il Consiglio risolve la Pressure solo con le strade CONFERMATE dal
+ * Presidente, congelate nella bozza. Il pulsante di firma è coerente con questo
+ * snapshot, non con la selezione viva della stanza.
+ */
+export function councilDraftPressureOptions(draft: ProposalActDraft | null | undefined): string[] {
+  return draft ? [...(draft.selectedPressureOptions ?? [])] : [];
+}
 export function councilHistory(room: CouncilRoomState, respondingSeat: CabinetSeat): AdvisorHistoryItem[] {
   return room.messages.filter(message => message.kind !== 'error' && message.content.trim()).slice(-20).map(message => ({
     role: message.role === 'assistant' && message.kind === 'speech' && message.seat === respondingSeat ? 'assistant' : 'user',
@@ -184,6 +249,8 @@ export function councilContext(room: CouncilRoomState, respondingTo?: string): M
     participants: room.participants, phase: room.phase,
     // P0.5 — Ogni ministro convocato riceve la SITUAZIONE, non solo la chat.
     ...(room.sourceSituation ? { sourceSituation: room.sourceSituation } : {}),
+    ...(room.sourceFollowUp ? { sourceFollowUp: room.sourceFollowUp } : {}),
+    ...(room.proposedPressureOptions.length ? { proposedPressureOptions: room.proposedPressureOptions.map(item => ({ optionId: item.optionId, proposedBy: item.proposedBy })) } : {}),
     ...(room.selectedPressureOptions.length ? { selectedPressureOptions: room.selectedPressureOptions } : {}),
     ...(respondingTo ? { respondingTo: respondingTo.slice(0, 2000) } : {}) };
 }
@@ -201,11 +268,15 @@ export function councilDraft(room: CouncilRoomState, turn?: number): ProposalAct
     return `Art. ${index + 1}\n${measure.label}${value ? `: ${value}` : ''}.`;
   });
   if (proposal?.constraints.length) lines.push(`Vincoli\n${proposal.constraints.join('; ')}.`);
-  return { id: `${room.id}:draft:${room.sharedBoard.revision}`, seat: 'council', roadId: proposal?.id ?? room.id, title,
-    text: [title, ...lines, `Proponenti: ${room.participants.filter(seat => room.messages.some(message => message.seat === seat && message.kind === 'speech')).map(seatSpeaker).join(', ')}`].join('\n\n'),
-    capability: 'text-order', note: 'Bozza comune dalla discussione. Solo la firma del Presidente inserisce l’atto nel registro; il motore ne valuta gli effetti all’avanzamento del tempo.',
+  const text = [title, ...lines, `Proponenti: ${room.participants.filter(seat => room.messages.some(message => message.seat === seat && message.kind === 'speech')).map(seatSpeaker).join(', ')}`].join('\n\n');
+  const base: ProposalActDraft = { id: `${room.id}:draft:${room.sharedBoard.revision}`, seat: 'council', roadId: proposal?.id ?? room.id, title,
+    text, capability: 'text-order', note: 'Bozza comune dalla discussione. Solo la firma del Presidente inserisce l’atto nel registro; il motore ne valuta gli effetti all’avanzamento del tempo.',
     sourceSessionId: room.id, sourceRevision: room.sharedBoard.revision, sourceTurn: turn, sourceSeat: room.initiatorMinister,
-    ...(room.sourceSituation ? { sourcePressureId: room.sourceSituation.pressureId, sourceSituationId: room.sourceSituation.id } : {}) };
+    ...(room.sourceSituation ? { sourcePressureId: room.sourceSituation.pressureId, sourceSituationId: room.sourceSituation.id } : {}),
+    // P2 — Snapshot IMMUTABILE al momento della preparazione: solo la Conferma del
+    // Presidente aggiorna questa selezione, e la firma usa ESATTAMENTE questa.
+    selectedPressureOptions: [...room.selectedPressureOptions] };
+  return { ...base, draftSignature: councilDraftSignature(base) };
 }
 
 /** One bounded round; each minister sees the completed interventions before theirs. */

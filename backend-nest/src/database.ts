@@ -767,6 +767,15 @@ export function initDatabase() {
   try { db.exec('ALTER TABLE game_pressures ADD COLUMN deadline_date TEXT'); } catch { /* già presente */ }
   try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0'); } catch { /* già presente */ }
   try { db.exec('ALTER TABLE game_pressures ADD COLUMN escalated_date TEXT'); } catch { /* già presente */ }
+  // WS-GOV-SITUATIONS-HARDENING P4 — Provenienza ESPLICITA scritta dal motore:
+  // una Pressure generata come conseguenza dichiara da quale decisione nasce,
+  // senza dedurla dal template.
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN origin_type TEXT'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN origin_source_pressure_id TEXT'); } catch { /* già presente */ }
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN origin_source_act_id TEXT'); } catch { /* già presente */ }
+  // WS-GOV-SITUATIONS-HARDENING P1 — La chiave di firma dell'atto che ha
+  // risolto la Pressure: un retry con la stessa chiave è idempotente.
+  try { db.exec('ALTER TABLE game_pressures ADD COLUMN resolved_signature_key TEXT'); } catch { /* già presente */ }
 
   // GAMEPLAY-LONG: registro strutturato degli impegni (trattati, promesse,
   // ultimatum, accordi). Versioni append-only come l'agenda: il rewind fa

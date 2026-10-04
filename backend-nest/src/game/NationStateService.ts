@@ -23,7 +23,7 @@ import {
   type ResourceLedger, type WorldMarket,
 } from '../core/simulation/ResourceMarket';
 import {
-  PRESSURE_MAX_ACTIVE, generatePressures, highlightPressures, pressurePriority, pressureWindow, scalePressureEffect,
+  PRESSURE_MAX_ACTIVE, generatePressureForTemplate, generatePressures, highlightPressures, pressureConsequenceTemplate, pressureInactionConsequenceTemplate, pressurePriority, pressureWindow, scalePressureEffect,
   type PressureEffect, type PressureNeighbour, type PressureSnapshot, type PressureWindow, type RelationStance,
 } from '../core/simulation/PeacetimePressures';
 import { buildGovernmentSituation, buildGovernmentFollowUp, leadMinisterFor, SITUATION_FOLLOW_UP_DAYS, type GovernmentSituation, type GovernmentFollowUp, type SituationFactSource } from '../core/government/GovernmentSituations';
@@ -968,6 +968,44 @@ export class NationStateService {
    * il modo più semplice per non trasformare il gioco in una pila di notifiche
    * (P2). La generazione resta deterministica e basata sugli indicatori correnti.
    */
+  /**
+   * P4 — Apre la CONSEGUENZA di una decisione (o di un'inerzia), scrivendo la
+   * provenance ESPLICITA nel momento stesso in cui la genera. Non è lo stesso
+   * template: la tabella deterministica sceglie la questione che ne deriva, e il
+   * motore la persiste con `origin_source_pressure_id`. Una conseguenza alla volta.
+   */
+  private spawnConsequencePressures(): void {
+    const all = gameRepository.listPressures(this.ctx.gameId);
+    const active = all.filter(record => record.status === 'active');
+    // Una conseguenza è il ritorno diretto di una decisione: ha precedenza sul
+    // tetto delle sfide ordinarie, ma al massimo porta il totale a 4.
+    if (active.length >= PRESSURE_MAX_ACTIVE + 1) return;
+    const openTemplates = new Set(active.map(record => record.template));
+    const alreadySpawned = new Set(all.map(record => record.originSourcePressureId).filter((id): id is string => Boolean(id)));
+    const candidates = all
+      .filter(record => record.status !== 'active' && record.resolvedDate && !alreadySpawned.has(record.id))
+      .sort((left, right) => String(right.resolvedDate).localeCompare(String(left.resolvedDate)));
+    for (const source of candidates) {
+      const optionIds = String(source.resolvedOption ?? '').split(',').filter(Boolean);
+      const mapped = source.status === 'expired'
+        ? pressureInactionConsequenceTemplate(source.template)
+        : pressureConsequenceTemplate(source.template, optionIds);
+      // La conseguenza è una sfida NUOVA con provenance esplicita: prima il
+      // template mappato, altrimenti una sfida generata dallo stato.
+      const snapshot = this.pressureSnapshot();
+      const generated = (mapped ? generatePressureForTemplate(snapshot, mapped) : null)
+        ?? generatePressures(snapshot, { maxPressures: 3 })[0]
+        ?? null;
+      if (!generated) continue;
+      const id = `${generated.id}#from:${source.id}`;
+      const originType = source.status === 'expired' ? 'inaction' : 'previous-decision';
+      gameRepository.insertPressures(this.ctx.gameId, this.ctx.playerPolityId(), [{ ...generated, id }], this.ctx.currentDate(), this.ctx.currentTurn(), {
+        [id]: { type: originType, sourcePressureId: source.id },
+      });
+      return;
+    }
+  }
+
   private openNewPressures(): void {
     const active = gameRepository.listPressures(this.ctx.gameId, 'active');
     const room = PRESSURE_MAX_ACTIVE - active.length;
@@ -1011,6 +1049,7 @@ export class NationStateService {
           }
         }
       }
+      this.spawnConsequencePressures();
       this.openNewPressures();
     } catch (error) {
       console.warn('[GameSession] Pressioni di pace non disponibili:', error);

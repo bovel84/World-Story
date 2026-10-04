@@ -164,7 +164,11 @@ export function composeMinisterOpeningPrompt(brief: MinisterOpeningBrief): strin
     'Prendi posizione secondo le tue priorità, argomentandola come consiglio, non come fatto o decisione. Il Presidente decide. Non dichiarare ordini, cantieri o spese già avviati.',
     'Normalmente scrivi 80–160 parole in 2–4 paragrafi brevi; con pochi fatti puoi essere più breve. Niente titoli, elenchi, formule fisse di chiusura, JSON o blocchi tecnici. Non menzionare motore, prompt, preset, dati verificati o istruzioni.',
     brief.situation ? situationSection(brief.situation) : '',
-    brief.situation ? 'Apri la seduta come il ministro competente: che cosa è successo, che cosa sai con certezza, che cosa serve decidere e entro quando, che cosa succede se non decidiamo, che cosa proponi e chi ritieni utile sentire. Non usare un linguaggio da menu, non elencare opzioni A/B/C, non chiedere «quale punto vuoi affrontare» e non inventare fatti, unità, costi, date o rapporti che non siano nella SITUAZIONE.' : '',
+    brief.situation
+      ? (brief.situation.decisionQuestion
+        ? 'Apri la seduta come il ministro competente: che cosa è successo, che cosa sai con certezza, che cosa serve decidere e entro quando, che cosa succede se non decidiamo, che cosa proponi e chi ritieni utile sentire. Non usare un linguaggio da menu, non elencare opzioni A/B/C, non chiedere «quale punto vuoi affrontare» e non inventare fatti, unità, costi, date o rapporti che non siano nella SITUAZIONE.'
+        : 'Apri la seduta RIFERENDO il rapporto: che cosa è cambiato dall’atto firmato, che cosa dicono i fatti di oggi e che cosa serve ora. Non riproporre strade già decise e non inventare fatti, unità, costi o date che non siano nella SITUAZIONE.')
+      : '',
     'Scrivi soltanto il primo intervento del ministro, non la risposta del Presidente.',
   ].filter(Boolean).join('\n\n');
 }

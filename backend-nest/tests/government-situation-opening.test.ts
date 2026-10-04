@@ -52,8 +52,7 @@ describe('MinisterOpening con situazione', () => {
     expect(validateMinisterOpening('Presidente, ho già spostato 250 carri armati al confine.', brief)).toBe(false);
   });
 
-  it('senza situazione il prompt resta quello di prima', () => {
-    const brief = buildMinisterOpeningBrief('guerra', world, [], undefined);
+  it('senza situazione il prompt resta quello di prima', () => {    const brief = buildMinisterOpeningBrief('guerra', world, [], undefined);
     expect(composeMinisterOpeningPrompt(brief)).not.toContain('SITUAZIONE IN SEDUTA');
   });
 
@@ -73,5 +72,12 @@ describe('MinisterOpening con situazione', () => {
     expect(parsed?.options).toEqual([{ id: 'retaliate', label: 'Rafforzare', detail: 'Un battaglione.' }]);
     expect(parseSituationBrief({ title: 'Solo titolo' })).toBeUndefined();
     expect(parseSituationBrief(null)).toBeUndefined();
+  });
+
+  it('P3 — un rapporto senza decisione richiesta apre riferendo gli outcome', () => {
+    const followUp: SituationBrief = { ...situation, title: 'Rapporto: Schieramento al confine', briefing: 'Disavanzo annuo 4,1% del PIL.', decisionQuestion: undefined, options: [], inactionNote: undefined };
+    const prompt = composeMinisterOpeningPrompt(buildMinisterOpeningBrief('guerra', world, [], undefined, followUp));
+    expect(prompt).toContain('RIFERENDO il rapporto');
+    expect(prompt).toContain('Schieramento al confine');
   });
 });

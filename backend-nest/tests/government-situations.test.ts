@@ -76,12 +76,18 @@ describe('GovernmentSituations — read model della Pressure canonica', () => {
     expect(situationFacts(pressure, { ...facts, foodCoverageMonths: null }).join('\n')).not.toContain('Copertura alimentare');
   });
 
-  it('deduce la provenienza: stato, decisione precedente, inerzia', () => {
+  it('legge la provenance ESPLICITA del motore senza dedurla', () => {
+    expect(originFor({ ...pressure, originType: 'previous-decision', originSourcePressureId: 'p#1' }, [])).toEqual({ type: 'previous-decision', sourceId: 'p#1' });
+    expect(originFor({ ...pressure, originType: 'inaction', originSourcePressureId: 'p#2' }, [])).toEqual({ type: 'inaction', sourceId: 'p#2' });
+    expect(originFor({ ...pressure, originType: 'state' }, [{ id: 'x', template: 'border-incident', status: 'resolved', createdTurn: 1 }])).toEqual({ type: 'state' });
+  });
+
+  it('fallback legacy per i save senza provenance, marcato non canonico', () => {
     expect(originFor(pressure, [])).toEqual({ type: 'state' });
     expect(originFor(pressure, [{ id: 'x', template: 'border-incident', status: 'resolved', createdTurn: 1 }]))
-      .toEqual({ type: 'previous-decision', sourceId: 'x' });
+      .toEqual({ type: 'previous-decision', sourceId: 'x', legacy: true });
     expect(originFor(pressure, [{ id: 'y', template: 'border-incident', status: 'expired', createdTurn: 2 }]))
-      .toEqual({ type: 'inaction', sourceId: 'y' });
+      .toEqual({ type: 'inaction', sourceId: 'y', legacy: true });
   });
 
   it('conserva opzioni e inerzia del motore e non muta la Pressure', () => {

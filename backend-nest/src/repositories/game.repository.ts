@@ -964,24 +964,27 @@ export const gameRepository = {
    * scadenza esplicita (`deadline_date`), così l'inerzia non arriva più al
    * turno successivo ma alla scadenza.
    */
-  insertPressures: (gameId: string, polityId: string, pressures: Pressure[], date: string, turn: number): void => {
+  insertPressures: (gameId: string, polityId: string, pressures: Pressure[], date: string, turn: number, origins?: Record<string, { type: string; sourcePressureId?: string; sourceActId?: string }>): void => {
     if (pressures.length === 0) return;
     const stmt = db.prepare(`
       INSERT OR IGNORE INTO game_pressures
         (id, game_id, polity_id, kind, template, title, detail, severity, source, options, inaction, status,
-         created_date, created_turn, duration_days, deadline_date, escalated)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 0)
+         created_date, created_turn, duration_days, deadline_date, escalated,
+         origin_type, origin_source_pressure_id, origin_source_act_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 0, ?, ?, ?)
     `);
     db.transaction((items: Pressure[]) => {
       for (const pressure of items) {
         const durationDays = Math.max(1, Math.floor(Number(pressure.durationDays) || 0))
           || pressureDurationDays(pressure.severity);
         const deadline = pressureDeadline(date, durationDays);
+        const origin = origins?.[pressure.id];
         stmt.run(
           pressure.id, gameId, polityId, pressure.kind, pressure.template, pressure.title,
           pressure.detail, pressure.severity, pressure.source,
           JSON.stringify(pressure.options), JSON.stringify(pressure.inaction), date, turn,
           durationDays, deadline,
+          origin?.type ?? null, origin?.sourcePressureId ?? null, origin?.sourceActId ?? null,
         );
       }
     })(pressures);
@@ -991,12 +994,12 @@ export const gameRepository = {
    * Chiude una pressione con la scelta del giocatore. Ritorna `false` se non
    * era attiva (già risolta o scaduta): la risoluzione è idempotente.
    */
-  resolvePressure: (gameId: string, pressureId: string, optionId: string, resolution: string, date: string): boolean => {
+  resolvePressure: (gameId: string, pressureId: string, optionId: string, resolution: string, date: string, signatureKey?: string): boolean => {
     const result = db.prepare(`
       UPDATE game_pressures
-         SET status = 'resolved', resolved_option = ?, resolution = ?, resolved_date = ?
+         SET status = 'resolved', resolved_option = ?, resolution = ?, resolved_date = ?, resolved_signature_key = ?
        WHERE game_id = ? AND id = ? AND status = 'active'
-    `).run(optionId, resolution, date, gameId, pressureId);
+    `).run(optionId, resolution, date, signatureKey ?? null, gameId, pressureId);
     return result.changes === 1;
   },
 
@@ -1199,6 +1202,12 @@ export interface PressureRecord {
   resolvedDate?: string | null;
   resolvedOption?: string | null;
   resolution?: string | null;
+  /** P4 — Provenienza ESPLICITA scritta dal motore (null = legacy/ignota). */
+  originType?: string | null;
+  originSourcePressureId?: string | null;
+  originSourceActId?: string | null;
+  /** P1 — La chiave di firma che ha risolto la Pressure (idempotenza dei retry). */
+  resolvedSignatureKey?: string | null;
 }
 
 function parseJson<T>(value: unknown, fallback: T): T {
@@ -1240,5 +1249,9 @@ function mapPressureRow(row: any): PressureRecord {
     resolvedDate: row.resolved_date ?? null,
     resolvedOption: row.resolved_option ?? null,
     resolution: row.resolution ?? null,
+    originType: row.origin_type ?? null,
+    originSourcePressureId: row.origin_source_pressure_id ?? null,
+    originSourceActId: row.origin_source_act_id ?? null,
+    resolvedSignatureKey: row.resolved_signature_key ?? null,
   };
 }
