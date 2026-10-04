@@ -9,6 +9,7 @@ import { gameRepository } from '../../repositories';
 import { countryRepository } from '../../repositories/country.repository';
 import { getSessionRegistry } from '../../session-registry';
 import { readGovernmentAgenda, readCabinetSession } from '../../game/GovernmentReadings';
+import { nationalQuestions, nationalSituationLines } from '../../core/government/RealitySignals';
 import { buildOpeningContext, buildDeterministicOpeningResponse } from '../../core/government/OpeningNarrative';
 import { renderOpeningNarrative } from '../../core/government/OpeningNarrativeRenderer';
 import { SimulationInProgressError, SimulationPausedError, SimulationStaleCheckpointError, GameOverError, type TurnResultRecord, type PausedBatchResult } from '../../game-session';
@@ -282,6 +283,10 @@ router.get('/:id/opening-narrative', async (req, res) => {
     const game = gameRepository.findById(req.params.id) as any;
     const polityId = session.getPlayer()?.polityId ?? '';
     // I1 — l'**unico** OpeningContext backend, dai soli dati esistenti.
+    // WS-GOV-PRESET-REALITY-PIPELINE §3 — Il briefing NON è solo il `base_prompt`:
+    // la situazione del paese e 1-3 questioni vengono dallo STATO CANONICO
+    // (stessa fonte dei segnali del Consulente), in testo piano.
+    const snapshot = session.getVerifiedWorldSnapshot();
     const context = buildOpeningContext({
       worldName: game?.world?.name,
       date: game?.current_date,
@@ -290,6 +295,8 @@ router.get('/:id/opening-narrative', async (req, res) => {
       nationName: polityId,
       polityId,
       addresses: cabinet.addresses,
+      verifiedSituation: nationalSituationLines(snapshot),
+      questions: nationalQuestions(snapshot),
     });
     // I3 — renderer opzionale: una sola chiamata, con fallback deterministico.
     let response = buildDeterministicOpeningResponse(context);

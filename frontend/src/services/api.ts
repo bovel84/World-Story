@@ -1095,7 +1095,7 @@ export interface OpeningNarrativeResponse {
     date: string;
     narrative: { headline?: string; worldOrder: string; regionalSituation?: string; stakesForNation: string };
   };
-  nation: { framing: string };
+  nation: { framing: string; questions?: string[] };
   council: { seat: string; label: string; line: string }[];
 }
 

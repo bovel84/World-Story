@@ -44,7 +44,7 @@ export interface OpeningCouncilInput {
 /** Il contesto verificato dell'apertura: solo dati esistenti, nessuna copia persistente. */
 export interface OpeningContext {
   world: { name: string; date: string; premise: string; rules: string };
-  nation: { name: string; polityId: string; verifiedSituation: string[] };
+  nation: { name: string; polityId: string; verifiedSituation: string[]; questions: string[] };
   worldFacts: OpeningWorldFact[];
   priorities: OpeningPriority[];
   council: OpeningCouncilInput[];
@@ -62,7 +62,7 @@ export interface OpeningNarrativeResponse {
   generated: boolean;
   deterministic: boolean;
   world: { name: string; date: string; narrative: OpeningWorldNarrative };
-  nation: { framing: string };
+  nation: { framing: string; questions: string[] };
   council: OpeningCouncilInput[];
 }
 
@@ -74,6 +74,8 @@ export interface OpeningContextInput {
   nationName?: string | null;
   polityId?: string | null;
   verifiedSituation?: readonly string[];
+  /** WS-GOV-PRESET-REALITY-PIPELINE — 1-3 questioni derivate dai segnali reali. */
+  questions?: readonly string[] | null;
   worldFacts?: readonly OpeningWorldFact[] | null;
   priorities?: readonly OpeningPriority[] | null;
   addresses?: readonly CabinetAddress[] | null;
@@ -207,6 +209,7 @@ export function buildOpeningContext(input: OpeningContextInput): OpeningContext 
       name: String(input.nationName ?? '').trim(),
       polityId: String(input.polityId ?? '').trim(),
       verifiedSituation,
+      questions: (input.questions ?? []).map(q => String(q).trim()).filter(Boolean).slice(0, 3),
     },
     worldFacts: [...(input.worldFacts ?? [])].slice(0, 6),
     priorities,
@@ -220,6 +223,9 @@ export function buildOpeningContext(input: OpeningContextInput): OpeningContext 
  * `stakesForNation` lega il mondo al paese usando solo dati verificati.
  */
 export function buildDeterministicWorldNarrative(context: OpeningContext): OpeningWorldNarrative {
+  // Il primo blocco del preset è l'ordine del mondo; il secondo, se c'è, la
+  // situazione regionale. Il briefing nazionale NON viene da qui (vedi
+  // `nation.verifiedSituation`/`questions`): è il Consulente a parlare del paese.
   const paragraphs = extractOpeningParagraphs(context.world.premise, { maxParagraphs: 3, maxWords: 220 });
   const worldOrder = paragraphs[0] ?? '';
   const regionalSituation = paragraphs[1];
@@ -264,7 +270,7 @@ export function buildDeterministicOpeningResponse(context: OpeningContext): Open
       date: context.world.date,
       narrative: buildDeterministicWorldNarrative(context),
     },
-    nation: { framing: buildDeterministicNationFraming(context) },
+    nation: { framing: buildDeterministicNationFraming(context), questions: [...context.nation.questions] },
     council: context.council,
   };
 }
