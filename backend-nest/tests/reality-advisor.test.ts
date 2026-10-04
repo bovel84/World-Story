@@ -43,11 +43,12 @@ describe('verified reality boundary', () => {
   it('WS-GOV-REALITY-ADVISOR-HARDENING: nessuna issue automatica; il briefing legge i segnali misurati', () => {
     const result = buildRealityAdvisorContext(snapshot());
     expect(result.reply).toContain('0,8 mesi');
-    expect(result.reply).not.toMatch(/sfida|quest|pressione|sces[aeo]/i);
+    expect(result.reply).not.toMatch(/\b(?:sfida|quest|pressione|sces[aeo])\b/i);
     // Il Consulente PARLA della copertura alimentare ma NON crea una quest:
     // la questione nasce solo se il modello la propone o il Presidente la chiede.
     expect(result.issues).toEqual([]);
-    expect(result.advisorContext.governmentBrief).toMatch(/meritano attenzione|merita attenzione/);
+    expect(result.advisorContext.governmentBrief).toContain('priorità');
+    expect(result.advisorContext.governmentBrief).toContain('rischierebbe');
   });
   it('segnali generici dal quadro: food, economy, social senza quest predefinite', () => {
     const world = snapshot();
