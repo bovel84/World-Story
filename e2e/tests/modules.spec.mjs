@@ -153,7 +153,8 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await expect(ufficio.locator('#government-office-title')).toContainText('Governo');
     await expect(page.locator('.game-shell-desk')).toHaveCount(0);
     await expect(ufficio.locator('.order-register')).toBeVisible();
-    await expect(ufficio.locator('.cabinet-pick')).toHaveCount(2);
+    // WS-GOV-REALITY-ADVISOR — un solo roster dei sette ministri.
+    await expect(ufficio.locator('.government-roster-seat')).toHaveCount(7);
     await expect(ufficio).toContainText('Ministro del Tesoro');
     await expect(ufficio.locator('.cabinet-item')).toHaveCount(0);
     await expect(ufficio.locator('.minister-chat')).toHaveCount(0);
@@ -365,7 +366,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     // Si chiude la seduta senza preparare né firmare: si torna alla scelta.
     await page.locator('.council-room-conclude').click();
     await expect(page.locator('.government-office')).toBeVisible();
-    await expect(page.locator('.cabinet-pick')).toHaveCount(2);
+    await expect(page.locator('.government-roster-seat')).toHaveCount(7);
     await expect(page.locator('.order-register-act')).toHaveCount(0);
     await expect(page.locator('.government-office-outcome-note')).toHaveCount(0);
   });

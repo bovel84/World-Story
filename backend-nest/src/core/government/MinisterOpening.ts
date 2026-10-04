@@ -29,6 +29,8 @@ export interface MinisterOpeningBrief {
 
 /** La situazione portata in seduta, nella forma che il prompt può ricevere. */
 export interface SituationBrief {
+  /** Set only by the server issue resolver, never by parseSituationBrief. */
+  readonly factsVerified?: boolean;
   readonly title: string;
   readonly briefing: string;
   readonly source?: string;
@@ -51,16 +53,18 @@ export function buildMinisterOpeningBrief(
 /** Il blocco `SITUAZIONE` del prompt: una sezione per ogni tipo di fatto. */
 export function situationSection(situation: SituationBrief): string {
   const lines = [
-    'SITUAZIONE IN SEDUTA — fatti del motore. NON aggiungerne, NON modificarli:',
+    situation.factsVerified
+      ? 'SITUAZIONE IN SEDUTA — solo FATTI VERIFICATI proviene dal server; titolo e domanda sono discussione. NON aggiungere fatti:'
+      : 'SITUAZIONE IN SEDUTA — resoconto legacy del client, NON fatti canonici. Confrontalo con lo stato server prima di affermare un fatto:',
     `- Titolo: ${situation.title}`,
     `- Rapporto: ${situation.briefing}`,
     ...(situation.source ? [`- Fonte: ${situation.source}`] : []),
     ...(situation.daysLeft !== undefined ? [`- Tempo: restano ${situation.daysLeft} giorni prima che l’inerzia presenti il conto`] : []),
     ...(situation.severity !== undefined ? [`- Gravità: ${situation.severity}/3`] : []),
-    ...(situation.verifiedFacts?.length ? ['FATTI VERIFICATI:', ...situation.verifiedFacts.map(fact => `- ${fact}`)] : []),
+    ...(situation.verifiedFacts?.length ? [situation.factsVerified ? 'FATTI VERIFICATI:' : 'FATTI DICHIARATI DAL CLIENT (non verificati):', ...situation.verifiedFacts.map(fact => `- ${fact}`)] : []),
     ...(situation.decisionQuestion ? [`DECISIONE RICHIESTA: ${situation.decisionQuestion}`] : []),
     ...(situation.inactionNote ? [`SE NON SI DECIDE: ${situation.inactionNote}`] : []),
-    ...(situation.options?.length ? ['CORSI D’AZIONE CHE IL MOTORE CONOSCE (possibili strade, non un menu):', ...situation.options.map(option => `- ${option.label}${option.detail ? `: ${option.detail}` : ''}`)] : []),
+    ...(situation.options?.length ? ['CORSI D’AZIONE LEGACY (proposte, non fatti o un menu obbligatorio):', ...situation.options.map(option => `- ${option.label}${option.detail ? `: ${option.detail}` : ''}`)] : []),
     ...(situation.suggestedMinisters?.length ? [`COLLEGHI UTILI DA SENTIRE: ${situation.suggestedMinisters.join(', ')}`] : []),
     ...(situation.originType && situation.originType !== 'state' ? [`ORIGINE DELLA SITUAZIONE: ${situation.originType}`] : []),
   ];
@@ -188,7 +192,7 @@ export function validateMinisterOpening(text: string, brief: MinisterOpeningBrie
     ...group.aspects.flatMap(aspect => [aspect.need, aspect.because ?? '']),
     ...group.paths.flatMap(path => [path.title, path.detail, path.expected, ...path.prerequisites]),
   ]).concat(figures.map(figure => `${figure.value} ${figure.unit}`)).join('\n')
-    + (brief.situation ? `\n${situationSection(brief.situation)}` : '');
+    + (brief.situation?.factsVerified ? `\n${brief.situation.verifiedFacts?.join('\n') ?? ''}\n${brief.situation.daysLeft ?? ''} ${brief.situation.severity ?? ''}` : '');
   if (!narrativeNumbersAreVerified(text, verified)) return false;
   const counts = new Map<string, number>();
   for (const token of text.match(/[+-]?\d+(?:[.,]\d+)?/g) ?? []) {
@@ -231,5 +235,9 @@ export async function renderMinisterOpening(
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
   }
-  return { reply: fallbackFirstMessage(brief.seat, brief.issues), source: 'deterministic' };
+  const verified = brief.situation?.factsVerified ? brief.situation.verifiedFacts : undefined;
+  const reply = verified?.length
+    ? `Presidente, partiamo dal dato disponibile: ${verified[0].replace(/\s*\[[^]*$/, '')}. Valuterei una proposta con i colleghi competenti, senza presumere coperture o interventi già approvati.`
+    : fallbackFirstMessage(brief.seat, brief.issues);
+  return { reply, source: 'deterministic' };
 }

@@ -40,7 +40,8 @@ import {
 } from './helpers';
 import { validateBody } from '../validation';
 import { CouncilMinisterUnavailableError, InvalidMinisterCouncilError, withMinisterDialogueRequest } from '../../core/government/MinisterDialogue';
-import { actionTextSchema, advisorSchema, meetingRenderSchema } from './schemas';
+import { actionTextSchema, advisorSchema, realityAdvisorSchema, ministerOpeningSchema, meetingRenderSchema } from './schemas';
+import { councilIssueSituation, InvalidCouncilIssueError, parseCouncilIssues, resolveCouncilIssue, serializeCouncilIssues } from '../../core/government/CouncilIssue';
 import {
   composeMeetingNarrativeMessage, normalizeMinisterMeetingBrief, stripNarrativeDirectives,
 } from '../../core/government/MeetingNarrative';
@@ -84,6 +85,12 @@ function persistJevConversation(session: any, gameId: string, seat: string, mess
   } catch (error) {
     console.warn('[JEV] conversazione ministro non registrata:', error);
   }
+}
+
+/** Resolve discussion facts BEFORE they enter the async minister prompt scope. */
+function verifiedMinisterSource(session: any, body: any) {
+  if (body?.sourceIssue === undefined && body?.council?.sourceIssue === undefined) return undefined;
+  return { snapshot: session.getVerifiedWorldSnapshot(), sourceIssue: body?.sourceIssue };
 }
 
 export function registerAdvisorRoutes(router: Router): void {
@@ -197,6 +204,25 @@ router.post('/:id/live-sim', (_req, res) => {
   });
 });
 
+router.get('/:id/advisor/context', (req, res) => {
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json(session.getRealityAdvisorContext());
+  } catch (error) { respondRouteError(res, error, 'Failed to read advisor context'); }
+});
+
+router.post('/:id/advisor/reality', async (req, res) => {
+  const body = validateBody(res, realityAdvisorSchema, req.body);
+  if (!body) return;
+  try {
+    const session = getSessionRegistry().getSessionOrThrow(req.params.id);
+    res.json(await session.getRealityAdvisor(body.message ?? '', normalizeAdvisorHistory(body.history), body.advisorContext?.focusIssue));
+  } catch (error) {
+    if (error instanceof InvalidCouncilIssueError) res.status(400).json({ error: error.message, code: 'invalid_council_issue' });
+    else respondRouteError(res, error, 'Failed to get verified advisor reply');
+  }
+});
+
 router.get('/:id/advisor', async (req, res) => {
   const { playerId, message } = req.query;
   const gameId = req.params.id;
@@ -258,12 +284,13 @@ router.post('/:id/government/minister/:seat', async (req, res) => {
     const reply = await withMinisterDialogueRequest(gameId, seat, req.body?.currentDecision, () => {
       persistMinisterMemory(session, gameId, seat, req.body?.memory);
       return session.getMinisterReply(seat, message, history, controller.signal);
-    }, req.body?.council);
+    }, req.body?.council, verifiedMinisterSource(session, req.body));
     persistJevConversation(session, gameId, seat, message, reply.reply);
     if (!controller.signal.aborted && !res.destroyed) res.json(reply);
   } catch (e: any) {
     if (!controller.signal.aborted && !res.destroyed) {
-      if (e instanceof InvalidMinisterCouncilError) res.status(400).json({ error: e.message, code: 'invalid_council' });
+      if (e instanceof InvalidCouncilIssueError) res.status(400).json({ error: e.message, code: 'invalid_council_issue' });
+      else if (e instanceof InvalidMinisterCouncilError) res.status(400).json({ error: e.message, code: 'invalid_council' });
       else if (e instanceof CouncilMinisterUnavailableError) res.status(502).json({ error: 'minister_unavailable', reason: e.reason, seat: e.seat });
       else respondRouteError(res, e, 'Failed to get minister reply');
     }
@@ -275,6 +302,7 @@ router.post('/:id/government/minister/:seat', async (req, res) => {
 
 /** Saluto automatico read-only: brief server-side, il body non fornisce fatti o memoria. */
 router.post('/:id/government/minister/:seat/opening', async (req, res) => {
+  if (!validateBody(res, ministerOpeningSchema, req.body)) return;
   const seat = req.params.seat;
   if (!CABINET_SEATS.includes(seat as CabinetSeat)) {
     res.status(400).json({ error: `sedia non valida: ${seat}` });
@@ -289,11 +317,16 @@ router.post('/:id/government/minister/:seat/opening', async (req, res) => {
   try {
     if (controller.signal.aborted) return;
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    const situation = parseSituationBrief(req.body?.situation);
+    const situation = req.body?.sourceIssue !== undefined
+      ? councilIssueSituation(resolveCouncilIssue(session.getVerifiedWorldSnapshot(), req.body.sourceIssue))
+      : parseSituationBrief(req.body?.situation);
     const reply = await session.getMinisterOpening(seat, controller.signal, situation);
     if (!controller.signal.aborted && !res.destroyed) res.json(reply);
   } catch (error) {
-    if (!controller.signal.aborted && !res.destroyed) respondRouteError(res, error, 'Failed to render minister opening');
+    if (!controller.signal.aborted && !res.destroyed) {
+      if (error instanceof InvalidCouncilIssueError) res.status(400).json({ error: error.message, code: 'invalid_council_issue' });
+      else respondRouteError(res, error, 'Failed to render minister opening');
+    }
   } finally {
     req.removeListener('aborted', onAborted);
     res.removeListener('close', onClose);
@@ -363,28 +396,25 @@ router.post('/:id/government/minister/:seat/stream', async (req, res) => {
   try {
     if (controller.signal.aborted) return;
     const session = getSessionRegistry().getSessionOrThrow(gameId);
-    let gotTextChunks = false;
-    const onToken = (chunk: unknown) => {
-      if (controller.signal.aborted || res.destroyed) return;
-      if (typeof chunk === 'string' && chunk.length > 0) {
-        gotTextChunks = true;
-        res.write(chunk);
-      }
-    };
+    // Buffer all prose/proposals until the completed speech is validated.
+    const onToken = (_chunk: unknown) => {};
     const streamFn = (session as any).getMinisterStream;
     const reply: string = await withMinisterDialogueRequest(gameId, seat, req.body?.currentDecision, async () => {
       persistMinisterMemory(session, gameId, seat, req.body?.memory);
       return typeof streamFn === 'function'
         ? await streamFn.call(session, seat, message, history, onToken, controller.signal)
-        : (await session.getMinisterReply(seat, message, history, controller.signal)).reply;
-    }, req.body?.council);
+        : serializeCouncilIssues(await session.getMinisterReply(seat, message, history, controller.signal));
+    }, req.body?.council, verifiedMinisterSource(session, req.body));
     if (controller.signal.aborted || res.destroyed) return;
-    if (!gotTextChunks && reply) res.write(reply);
+    const validated = /```council_issue\b/i.test(reply) ? serializeCouncilIssues(parseCouncilIssues(session.getVerifiedWorldSnapshot(), reply, 'minister')) : reply;
+    if (validated) res.write(validated);
     persistJevConversation(session, gameId, seat, message, reply);
     res.end();
   } catch (e: any) {
     if (controller.signal.aborted || res.destroyed) return;
-    if (e instanceof InvalidMinisterCouncilError && !res.headersSent) {
+    if (e instanceof InvalidCouncilIssueError && !res.headersSent) {
+      res.status(400).json({ error: e.message, code: 'invalid_council_issue' });
+    } else if (e instanceof InvalidMinisterCouncilError && !res.headersSent) {
       res.status(400).json({ error: e.message, code: 'invalid_council' });
     } else if (e instanceof CouncilMinisterUnavailableError) {
       // Errore operativo esplicito: mai un EOF pulito che certifichi una
@@ -421,16 +451,8 @@ router.post('/:id/advisor/stream', async (req, res) => {
   try {
     const session = getSessionRegistry().getSessionOrThrow(gameId);
 
-    let gotTextChunks = false;
-    const onToken = (chunk: unknown) => {
-      // Строковый токен — пишем сразу. Число (charsSoFar — конвенция
-      // LLMRouter.stream) несёт только прогресс без текста: полный текст
-      // тогда дописываем в конце одним куском.
-      if (typeof chunk === 'string' && chunk.length > 0) {
-        gotTextChunks = true;
-        res.write(chunk);
-      }
-    };
+    // Never publish unsafe partial prose; only the guarded complete response.
+    const onToken = (_chunk: unknown) => {};
 
     // GameSession.getAdvisorStream (Этап 3); защитный fallback на
     // нестриминговый ответ — для старых сессий в памяти после хот-релоада.
@@ -439,15 +461,13 @@ router.post('/:id/advisor/stream', async (req, res) => {
       ? await streamFn.call(session, message, history, onToken)
       : await session.getAdvisor(message, history);
 
-    if (!gotTextChunks && reply) {
-      res.write(reply);
-    }
+    if (reply) res.write(reply);
     res.end();
   } catch (e: any) {
     console.error('[Advisor STREAM] Error:', e);
     if (res.headersSent) {
-      // Поток уже начат — статус не поменять, просто обрываем ответ
-      res.end();
+      // An incomplete response must not be certified with a successful EOF.
+      res.destroy();
     } else {
       respondRouteError(res, e, 'Failed to stream advisor reply');
     }

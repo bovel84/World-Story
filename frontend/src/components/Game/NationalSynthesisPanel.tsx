@@ -91,7 +91,7 @@ export const NationalSynthesisPanel: React.FC<NationalSynthesisPanelProps> = ({
                     className="nation-synthesis-open"
                     onClick={onOpenQuestions}
                   >
-                    Rispondi in Questioni
+                    Esamina con il Governo
                   </button>
                 ) : onOpenSection && (
                   <button

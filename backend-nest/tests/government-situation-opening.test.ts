@@ -19,6 +19,7 @@ const world: MinisterWorldContext = {
 };
 
 const situation: SituationBrief = {
+  factsVerified: true,
   title: 'Incidente di frontiera con Serbia',
   briefing: 'Due militari uccisi e accuse incrociate con Serbia.',
   source: 'Comando di frontiera',
@@ -41,7 +42,7 @@ describe('MinisterOpening con situazione', () => {
     expect(prompt).toContain('Forze mobilitate 35');
     expect(prompt).toContain('DECISIONE RICHIESTA: Come rispondiamo all’incidente?');
     expect(prompt).toContain('SE NON SI DECIDE: La tensione al confine aumenta.');
-    expect(prompt).toContain('CORSI D’AZIONE CHE IL MOTORE CONOSCE');
+    expect(prompt).toContain('CORSI D’AZIONE LEGACY');
     expect(prompt).toContain('Rafforzare il settore');
     expect(prompt).toContain('COLLEGHI UTILI DA SENTIRE: esteri, tesoro');
   });
@@ -72,6 +73,11 @@ describe('MinisterOpening con situazione', () => {
     expect(parsed?.options).toEqual([{ id: 'retaliate', label: 'Rafforzare', detail: 'Un battaglione.' }]);
     expect(parseSituationBrief({ title: 'Solo titolo' })).toBeUndefined();
     expect(parseSituationBrief(null)).toBeUndefined();
+    expect(parseSituationBrief({ ...situation, factsVerified: true })?.factsVerified).toBeUndefined();
+    const legacy = parseSituationBrief({ ...situation, factsVerified: true })!;
+    const legacyBrief = buildMinisterOpeningBrief('guerra', world, [], undefined, legacy);
+    expect(composeMinisterOpeningPrompt(legacyBrief)).toContain('NON fatti canonici');
+    expect(validateMinisterOpening('Le forze mobilitate sono 35.', legacyBrief)).toBe(false);
   });
 
   it('P3 — un rapporto senza decisione richiesta apre riferendo gli outcome', () => {

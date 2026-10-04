@@ -396,8 +396,8 @@ describe('WS-GOV-MINISTER-WORLD-CONTEXT', () => {
     expect(prompt).not.toContain('[IDENTITÀ DEL MONDO]');
     expect(prompt).not.toContain('[CONTESTO DEL PAESE]');
     expect(prompt).not.toContain('[ENFASI DELLA TUA COMPETENZA]');
-    // Il Consigliere conserva le sue sezioni storiche.
-    expect(prompt).toContain('[Contesto di gioco]');
-    expect(prompt).toContain('[Regole di simulazione]');
+    // Il Consigliere ora legge il contesto strutturato canonico, non le vecchie sezioni narrative.
+    expect(prompt).toContain('[VERIFIED WORLD SNAPSHOT');
+    expect(prompt).toContain('VERIFIED FACT POLICY');
   });
 });

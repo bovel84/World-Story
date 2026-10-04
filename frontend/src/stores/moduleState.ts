@@ -35,8 +35,12 @@ export const initialModuleState: ModuleState = { activeModule: 'none' };
 
 /** Apre un modulo: chiude sempre il precedente (un solo modulo attivo). */
 export function openModule(state: ModuleState, module: ActiveModule): ModuleState {
-  if (module === 'none') return { activeModule: 'none' };
-  return { activeModule: module };
+  // Legacy saved/navigation intents enter the single Government workflow.
+  return { activeModule: canonicalModule(module) };
+}
+
+export function canonicalModule(module: ActiveModule): ActiveModule {
+  return module === 'advisor' || module === 'questioni' ? 'orders' : module;
 }
 
 /** Chiude il modulo attivo: la mappa torna libera. */
@@ -47,5 +51,6 @@ export function closeModule(state: ModuleState): ModuleState {
 /** Alterna un modulo: se già attivo lo chiude, altrimenti lo apre. */
 export function toggleModule(state: ModuleState, module: ActiveModule): ModuleState {
   if (module === 'none') return { activeModule: 'none' };
-  return { activeModule: state.activeModule === module ? 'none' : module };
+  const target = canonicalModule(module);
+  return { activeModule: canonicalModule(state.activeModule) === target ? 'none' : target };
 }

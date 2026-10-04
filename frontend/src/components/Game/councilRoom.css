@@ -16,10 +16,11 @@
   gap: 0;
   font-family: system-ui, sans-serif;
 }
-.council-office > .council-head,
-.council-office > .order-register,
-.council-office > .cabinet-session { margin: 20px 26px; }
-.council-room { display: flex; flex-direction: column; min-height: 0; height: 100%; overflow: hidden; }
+.government-office.council-office.government-home { overflow-y: auto; overflow-x: hidden; }
+.government-home > * { flex-shrink: 0; }
+.government-office.council-office.government-room-active { overflow: hidden; }
+.council-office > .order-register { margin: 20px 26px; }
+.council-room { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; height: 100%; overflow: hidden; }
 .council-room button, .council-room select { font: 600 13px/1.4 system-ui, sans-serif; }
 .council-room button { cursor: pointer; }
 .council-room button:disabled { cursor: default; opacity: .5; }
@@ -27,7 +28,7 @@
 .council-room-board button:focus-visible { outline: 2px solid #d4b97c; outline-offset: 3px; }
 .council-room-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: start; gap: 16px; padding: 12px 22px 6px; }
 .council-room-back, .council-room-close { padding: 8px 0; color: var(--council-muted); background: none; border: 0; }
-.council-room-close { width: 36px; height: 36px; padding: 0; font-size: 20px; }
+.council-room-close { width: 46px; height: 46px; padding: 0; font-size: 20px; }
 .council-room-heading h2 { margin: 0 0 5px; color: var(--council-brass); font: 700 12px/1.4 system-ui, sans-serif; letter-spacing: .13em; text-transform: uppercase; }
 .council-room-topic { margin: 0; font: 500 23px/1.22 Georgia, serif; color: var(--council-ink); overflow-wrap: anywhere; }
 .council-room-rapporteur { margin: 4px 0 0; font-size: 11px; color: var(--council-muted); }
@@ -151,7 +152,7 @@
   .government-office.council-office { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; border: 0; }
   .council-room-head { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 12px 16px 10px; }
   .council-room-back { grid-column: 1; grid-row: 1; width: fit-content; padding: 2px 0; }
-  .council-room-close { grid-column: 2; grid-row: 1; width: 32px; height: 32px; }
+  .council-room-close { grid-column: 2; grid-row: 1; width: 46px; height: 46px; }
   .council-room-heading { grid-column: 1 / -1; }
   .council-room-heading h2 { font-size: 10px; margin-top: 4px; }
   .council-room-topic { font-size: 21px; }
@@ -228,11 +229,38 @@
 .council-board-response-detail { display: block; font: 400 12px/1.4 system-ui, sans-serif; color: #9fb2c4; }
 @media (max-width: 767px) { .council-room-suggested { padding: 0 16px 8px; } }
 
-/* WS-GOV-ADVISOR-HUB — barra sticky, Consulente in home, card compatte, roster. */
-.government-office-bar { display: flex; align-items: flex-start; gap: 10px; }
-.government-advisor { margin: 8px 26px 14px; border: 1px solid #2c4254; border-radius: 8px; background: #0c1925; overflow: hidden; }
-.government-advisor-heading { margin: 0; padding: 10px 14px 0; font: 700 12px/1.2 system-ui, sans-serif; letter-spacing: .12em; color: #d4b97c; }
-.government-advisor .advisor-chat { height: 46vh; }
+/* Reality advisor: one office scroll; the conversation grows with its content. */
+.government-office-bar { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 10px; padding: 12px 26px; background: #0e1c2a; border-bottom: 1px solid #304553; }
+.government-office .government-office-bar .desk-close-x { position: static; order: 2; display: inline-flex; align-items: center; justify-content: center; min-width: 46px; min-height: 46px; flex: 0 0 46px; padding: 0; }
+.government-office .government-office-bar .council-head { flex: 1; min-width: 0; margin: 0; padding: 0; }
+.government-advisor { margin: 16px 26px 14px; border: 1px solid #2c4254; border-radius: 8px; background: #0c1925; }
+.government-advisor-heading { margin: 0; padding: 14px 16px 0; font: 700 12px/1.2 system-ui, sans-serif; letter-spacing: .12em; color: #d4b97c; }
+.government-advisor .advisor-chat { height: auto; min-height: 0; overflow: visible; border-radius: 8px; }
+.government-advisor .advisor-messages { flex: 0 0 auto; overflow-y: visible; min-height: 0; padding: 16px; }
+.government-advisor .advisor-entry .entry-text { font-size: 17px; line-height: 1.55; }
+.government-advisor .chat-input-row { flex: 0 0 auto; }
+.council-issue-inline { margin-top: 14px; padding: 12px 14px; border: 1px solid #405766; border-left: 3px solid #d4b97c; border-radius: 6px; background: #172b3a; color: #e8eef4; overflow-wrap: anywhere; }
+.council-issue-inline h4 { margin: 0 0 5px; font: 600 18px/1.3 Georgia, serif; }
+.council-issue-inline p { margin: 0 0 8px; font: 400 14px/1.5 system-ui, sans-serif; }
+.council-issue-facts { margin: 0 0 10px; padding-left: 18px; font: 400 13px/1.5 system-ui, sans-serif; }
+.council-issue-open { min-height: 46px; padding: 0 14px; border: 1px solid #817153; border-radius: 5px; background: transparent; color: #d4b97c; font: 600 14px/1.3 system-ui, sans-serif; cursor: pointer; }
+.council-issue-open:disabled { opacity: .5; cursor: default; }
+.council-issue-open:focus-visible, .government-roster-seat:focus-visible, .government-reports button:focus-visible, .government-reports summary:focus-visible { outline: 2px solid #d4b97c; outline-offset: 3px; }
+.council-board-follow-up .council-board-situation-title { color: #183044; }
+.council-board-follow-up .council-board-situation-meta,
+.council-board-follow-up .council-board-situation-facts,
+.council-board-follow-up .council-board-situation-origin,
+.council-board-follow-up .council-board-response-options summary { color: #526a7b; }
+.council-board-fact-source { display: block; margin-top: 3px; font: 400 11px/1.4 ui-monospace, monospace; color: #526a7b; overflow-wrap: anywhere; }
+.council-board-issue-sources { margin-top: 12px; color: #526a7b; font-size: 12px; overflow-wrap: anywhere; }
+.council-board-issue-sources summary, .council-board-legacy-response summary { cursor: pointer; }
+.council-board-issue-decision > p { font-size: 16px; }
+.council-board-issue-ministers li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.government-reports { margin: 8px 26px 20px; color: #a3b5c4; font: 400 13px/1.5 system-ui, sans-serif; overflow-wrap: anywhere; }
+.government-reports summary { min-height: 46px; box-sizing: border-box; padding: 12px 0; cursor: pointer; }
+.government-reports ul { list-style: none; margin: 0; padding: 0; }
+.government-reports li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid #304553; }
+.government-reports button { flex: 0 0 auto; min-height: 46px; padding: 0 12px; background: transparent; border: 1px solid #405766; border-radius: 5px; color: #d4b97c; font: 600 13px/1.3 system-ui, sans-serif; cursor: pointer; }
 .advisor-focus { margin: 0; padding: 6px 14px; font: 500 12px/1.3 system-ui, sans-serif; color: #cfe0ea; background: #12222f; border-bottom: 1px solid #2c4254; }
 .gov-situation-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .gov-situation-examine { min-height: 40px; padding: 0 14px; border: 1px solid #405766; border-radius: 5px; background: transparent; color: #cfe0ea; font: 600 13px/1.2 system-ui, sans-serif; cursor: pointer; }
@@ -241,13 +269,12 @@
 .government-roster { margin: 8px 26px 14px; }
 .government-roster-heading { margin: 0 0 8px; font: 700 12px/1.2 system-ui, sans-serif; letter-spacing: .12em; color: #d4b97c; }
 .government-roster-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-.government-roster-seat { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid #2c4254; border-radius: 6px; background: #10202e; color: #e8eef4; font: 600 13px/1.3 system-ui, sans-serif; cursor: pointer; text-align: left; }
+.government-roster .government-roster-seat { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 46px; padding: 8px 10px; border: 1px solid #2c4254; border-radius: 6px; background: #10202e; color: #e8eef4; font: 600 13px/1.3 system-ui, sans-serif; cursor: pointer; text-align: left; }
 .government-roster-state { font: 500 11px/1.2 system-ui, sans-serif; color: #9fb2c4; }
 @media (max-width: 767px), (max-width: 950px) and (max-height: 500px) {
-  .government-office-bar { position: sticky; top: 0; z-index: 40; align-items: center; padding-top: max(6px, env(safe-area-inset-top)); background: #0e1a2c; }
-  .government-office .government-office-bar .desk-close-x { position: static; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
-  .government-office-bar .council-head { margin: 0; }
-  .government-advisor { margin: 8px 16px 12px; }
-  .government-advisor .advisor-chat { height: 52vh; }
+  .government-office-bar { padding: max(6px, env(safe-area-inset-top)) 16px 8px; }
+  .government-advisor { margin: 12px 16px; }
+  .government-advisor .advisor-entry .entry-text { font-size: 16px; }
   .government-roster { margin: 8px 16px 12px; }
+  .government-reports { margin: 8px 16px max(20px, env(safe-area-inset-bottom)); }
 }

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { GovernmentBottomSheet } from '../ui/GovernmentBottomSheet';
+import type { CouncilIssue } from '../../services/api';
+import { CouncilIssueInline } from './CouncilIssueInline';
 import { RichText } from './RichText';
 import { seatSpeaker } from './councilMeeting';
 import { councilOpenQuestions, councilText, type CouncilRoomState } from './councilRoom';
@@ -25,6 +27,7 @@ export interface CouncilRoomViewProps {
   onSend: () => void;
   onInterrupt: () => void;
   onConvene: (seat: CabinetSeat) => void;
+  onOpenIssue?: (issue: CouncilIssue) => void;
   onBack: () => void;
   onClose: () => void;
   onConclude: () => void;
@@ -48,7 +51,7 @@ function prefersReducedMotion(): boolean {
 }
 
 export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, nationalName, currentDate, isMobile, busy, speaking, streamText, input, target,
-  onInput, onTarget, onSend, onInterrupt, onConvene, onBack, onClose, onConclude, onSheetChange, board, draftPrepared, notice, error, failure, onRetry }: CouncilRoomViewProps) {
+  onInput, onTarget, onSend, onInterrupt, onConvene, onOpenIssue, onBack, onClose, onConclude, onSheetChange, board, draftPrepared, notice, error, failure, onRetry }: CouncilRoomViewProps) {
   const [boardOpen, setBoardOpen] = useState(false);
   const [conveneOpen, setConveneOpen] = useState(false);
   const [unread, setUnread] = useState(false);
@@ -93,6 +96,8 @@ export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, national
   const proposalCount = activeProposal(room.sharedBoard)?.measures.filter(measure => measure.status !== 'rejected').length ?? 0;
   const openCount = councilOpenQuestions(room).length + room.invitations.length;
   const convenable = CABINET_SEATS.filter(seat => !room.participants.includes(seat));
+  const suggested = [...new Set(room.sourceIssue?.suggestedMinisters ?? room.sourceSituation?.suggestedMinisters ?? [])]
+    .filter((seat): seat is CabinetSeat => CABINET_SEATS.includes(seat as CabinetSeat) && !room.participants.includes(seat as CabinetSeat));
   const replies = room.messages.filter(message => message.kind === 'speech' && message.role === 'assistant');
   const lastReply = replies[replies.length - 1];
   const closeBoard = (): void => { setBoardOpen(false); boardButtonRef.current?.focus(); };
@@ -115,18 +120,13 @@ export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, national
         </span>)}
         {convenable.length > 0 && <button type="button" className="council-room-convene" disabled={busy} onClick={() => setConveneOpen(true)}>+ Convoca</button>}
       </nav>
-      {/* P0.4 — I ministri suggeriti dalla situazione sono VISIBILI subito, ma il
-          Presidente decide se convocarli: non entrano da soli. */}
-      {room.sourceSituation && room.sourceSituation.suggestedMinisters.filter(seat => !room.participants.includes(seat as CabinetSeat)).length > 0 && (
-        <div className="council-room-suggested" aria-label="Ministri da sentire">
-          <span className="council-room-suggested-label">Ministri da sentire</span>
-          {room.sourceSituation.suggestedMinisters.filter(seat => !room.participants.includes(seat as CabinetSeat)).map(seat => (
-            <button type="button" key={seat} className="council-room-suggested-seat" disabled={busy} onClick={() => onConvene(seat as CabinetSeat)}>
-              {seatSpeaker(seat as CabinetSeat)} +
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Suggestions are visible immediately; only the President admits colleagues. */}
+      {suggested.length > 0 && <div className="council-room-suggested" aria-label="Ministri da sentire">
+        <span className="council-room-suggested-label">Ministri da sentire</span>
+        {suggested.map(seat => <button type="button" key={seat} className="council-room-suggested-seat" disabled={busy} onClick={() => onConvene(seat)}>
+          {seatSpeaker(seat)} +
+        </button>)}
+      </div>}
       <div className="council-room-workspace">
         <section className="council-room-dialogue" aria-label="Conversazione del Consiglio">
           <div className="council-room-thread" ref={threadRef} onScroll={() => {
@@ -140,7 +140,8 @@ export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, national
             ) : (
               <article key={message.id} data-message-id={message.id} className={`council-room-message ${message.role}${message.kind === 'error' ? ' error' : ''}`} data-seat={message.seat}>
                 <p className="council-room-speaker">{message.role === 'user' ? 'Presidente' : message.seat ? seatSpeaker(message.seat) : 'Consiglio'}</p>
-                <div className="council-room-prose"><RichText text={message.content} /></div>
+                <div className="council-room-prose"><RichText text={message.role === 'assistant' ? councilText(message.content) : message.content} /></div>
+                {message.role === 'assistant' && onOpenIssue && message.proposedIssues?.map(issue => <CouncilIssueInline key={issue.id} issue={issue} onOpenIssue={onOpenIssue} disabled={busy} />)}
                 {message.seat && inlineEvidenceCards({ directives: message.evidence ?? [], messageId: message.id, index: evidenceIndex[message.seat] ?? {} }).map(card => <button type="button" key={card.key} className="council-room-evidence-link" onClick={() => { setBoardOpen(true); onFocusEvidence(message.seat!, card); }}>Apri {card.title} sulla Tavola ↗</button>)}
                 {room.invitations.filter(invitation => invitation.id.startsWith(`${message.id}:`)).map(invitation => (
                   <div key={invitation.id} className="council-room-invitation">

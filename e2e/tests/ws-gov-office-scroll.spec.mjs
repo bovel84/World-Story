@@ -34,7 +34,8 @@ for (const vp of [{ width: 390, height: 844 }, { width: 1366, height: 768 }]) {
     expect(['auto', 'scroll']).toContain(owner);
 
     await office.evaluate(el => { el.scrollTop = el.scrollHeight; });
-    const lastPick = page.locator('.cabinet-picks .cabinet-pick').last();
+    // WS-GOV-REALITY-ADVISOR — il roster unico ha sostituito il vecchio picker.
+    const lastPick = page.locator('.government-roster-seat').last();
     await expect(lastPick).toBeVisible();
 
     // L'ultimo ministro è davvero dentro il viewport…

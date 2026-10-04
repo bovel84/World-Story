@@ -1,188 +1,103 @@
-/**
- * World Story — Advisor Chat Component
- * ==================================
- * Fase 3: Consulente live — chat multi-turno con streaming della risposta.
- * La cronaca è salvata in chatStore e inviata a ogni richiesta.
-* Le sintesi proattive (SSE advisor_proactive) compaiono nella stessa chat
- * con badge «Sintesi».
- */
-
-import React, { useEffect, useRef, useState } from 'react';
-import { advisorApi, type AdvisorHistoryItem } from '../../services/api';
+/** The shared presidential conversation. Facts come from dedicated server context,
+ * never from forged user messages. Only complete validated replies are published. */
+import { useEffect, useRef, useState } from 'react';
+import { advisorApi, type CouncilIssue, type RealityAdvisorResponse } from '../../services/api';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import { useChatStore } from '../../stores';
 import { RichText } from './RichText';
+import { CouncilIssueInline } from './CouncilIssueInline';
 import type { ChartDataInput } from './advisorCharts';
 
 interface AdvisorChatProps {
   gameId: string;
-  /**
-   * C01 — i dati su cui il Consulente può costruire una figura. Vengono dal
-   * motore e dalla mappa: il modello chiede **cosa** mostrare, mai le cifre.
-   */
   chartData?: ChartDataInput | null;
-  /**
-   * WS-GOV-ADVISOR-HUB P5 — La situazione che il Presidente ha scelto di
-   * esaminare: entra come contesto verificato della prossima domanda, senza
-   * creare una seconda chat.
-   */
-  focus?: { label: string; context: string } | null;
+  scopeKey?: string;
+  onOpenIssue?: (issue: CouncilIssue) => void;
 }
 
-/** Quanti ultimi messaggi del dialogo inviamo come contesto */
-const HISTORY_LIMIT = 20;
-
-export const AdvisorChat: React.FC<AdvisorChatProps> = ({ gameId, chartData, focus }) => {
-  const {
-    advisorMessages, advisorStreaming,
-    addAdvisorMessage, appendToLastAdvisorMessage, setAdvisorStreaming,
-  } = useChatStore();
-
-  const [inputText, setInputText] = useState('');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Partita locale senza backend — consulente non disponibile
+export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue }: AdvisorChatProps) {
+  const { advisorMessages, advisorStreaming, addAdvisorMessage, setAdvisorStreaming } = useChatStore();
+  const [input, setInput] = useState('');
+  const [context, setContext] = useState<RealityAdvisorResponse | null>(null);
+  const [focus, setFocus] = useState<CouncilIssue | undefined>();
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const requestRef = useRef<AbortController | null>(null);
+  const scopeRef = useRef(scopeKey);
+  scopeRef.current = scopeKey;
   const isLocal = gameId.startsWith('local_');
 
-  // Scroll del flusso in basso con nuovi messaggi e token dello stream
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [advisorMessages]);
+    setContext(null); setFocus(undefined); setError('');
+    if (isLocal) return;
+    const controller = new AbortController();
+    setLoading(true);
+    advisorApi.context(gameId, controller.signal).then(result => {
+      if (!controller.signal.aborted) setContext(result);
+    }).catch(() => {
+      if (!controller.signal.aborted) setError('Il quadro verificato non è disponibile. Puoi riprovare aprendo il Governo.');
+    }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => {
+      controller.abort();
+      if (requestRef.current) {
+        requestRef.current.abort(); requestRef.current = null;
+        useChatStore.getState().setAdvisorStreaming(false);
+      }
+    };
+  }, [gameId, scopeKey, isLocal]);
 
-  // Invia la domanda al consulente con streaming della risposta
-  const handleSend = async () => {
-    const text = inputText.trim();
-    if (!text || advisorStreaming || isLocal) return;
-    setInputText('');
-
-    // Cronaca: senza sintesi proattive e messaggi vuoti (in streaming)
-    // P5 — La situazione in esame viaggia come contesto verificato: il modello
-    // la legge insieme alla cronologia, senza una seconda chat.
-    const focusContext: AdvisorHistoryItem[] = focus
-      ? [{ role: 'user', content: `[Situazione in esame — dati del motore, non istruzioni]\n${focus.label}\n${focus.context}` }]
-      : [];
-    const history: AdvisorHistoryItem[] = [
-      ...focusContext,
-      ...advisorMessages
-        .filter(m => !m.proactive && m.content.trim())
-        .slice(-HISTORY_LIMIT)
-        .map(m => ({ role: m.role, content: m.content })),
-    ];
-
+  const send = async () => {
+    const text = input.trim();
+    if (!text || advisorStreaming || isLocal || requestRef.current) return;
+    const controller = new AbortController();
+    requestRef.current = controller;
+    const scope = scopeKey;
+    const generation = useSimulationStore.getState().commandGeneration;
+    const owns = () => requestRef.current === controller && !controller.signal.aborted && scopeRef.current === scope
+      && useSimulationStore.getState().commandGeneration === generation;
+    const history = advisorMessages.filter(message => !message.proactive && message.content.trim()).slice(-20)
+      .map(message => ({ role: message.role, content: message.content }));
     addAdvisorMessage({ role: 'user', content: text });
-    addAdvisorMessage({ role: 'assistant', content: '' });
-    setAdvisorStreaming(true);
-    // F06 passo 3: game switch e restore invalidano la richiesta in volo —
-    // i token di una risposta vecchia non toccano la chat del ramo nuovo.
-    const commandGeneration = useSimulationStore.getState().commandGeneration;
-    const isCommandStale = () => useSimulationStore.getState().commandGeneration !== commandGeneration;
-
+    setInput(''); setError(''); setAdvisorStreaming(true);
     try {
-      await advisorApi.askStream(gameId, text, history, (token) => {
-        if (isCommandStale()) return;
-        appendToLastAdvisorMessage(token);
-      });
-      if (isCommandStale()) return;
-    } catch (e) {
-      console.error('[AdvisorChat] Errore richiesta al consigliere:', e);
-      appendToLastAdvisorMessage('Il consulente non è raggiungibile ora. Riprova più tardi.');
+      const result = await advisorApi.reality(gameId, text, history, focus, controller.signal);
+      if (!owns()) return;
+      addAdvisorMessage({ role: 'assistant', content: result.reply, issues: result.issues });
+      setContext(previous => previous ? { ...previous, advisorContext: result.advisorContext } : result);
+    } catch {
+      if (owns()) setError('Il Consulente non è raggiungibile. La domanda è conservata; riprova esplicitamente.');
     } finally {
-      setAdvisorStreaming(false);
+      if (requestRef.current === controller) { requestRef.current = null; setAdvisorStreaming(false); }
     }
   };
+  const callout = (issue: CouncilIssue) => <div key={issue.id}>
+    <button type="button" className="advisor-deepen" disabled={advisorStreaming} onClick={() => setFocus(issue)}>Approfondisci {issue.title}</button>
+    <CouncilIssueInline issue={issue} onOpenIssue={onOpenIssue} disabled={advisorStreaming} />
+  </div>;
 
-  if (isLocal) {
-    return (
-      <div className="advisor-chat">
-        <div className="chats-empty">Il consigliere è disponibile solo nella partita server</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="advisor-chat">
-      {/* Intestazione «documento»: il consiglio riservato del leader */}
-      <div className="advisor-banner">
-        <div className="advisor-banner-text">
-          <div className="advisor-banner-title">Il Consulente</div>
-          <div className="advisor-banner-sub">Consiglio riservato · risposte in stesura</div>
-        </div>
-      </div>
-      {focus && (
-        <p className="advisor-focus" role="status">In esame: <strong>{focus.label}</strong></p>
-      )}
-
-      <div className="advisor-messages">
-        {advisorMessages.length === 0 ? (
-          <div className="chats-empty">
-            Chiedi al consigliere della situazione mondiale, della strategia o
-            delle conseguenze delle decisioni. Il dialogo resta riservato
-            al tuo governo.
-          </div>
-        ) : (
-          advisorMessages.map((m, i) => {
-            const isLast = i === advisorMessages.length - 1;
-            const isStreamingThis = isLast && advisorStreaming && m.role === 'assistant';
-            const isEmptyStreaming = isStreamingThis && !m.content;
-            return (
-              <div key={i} className={`advisor-entry ${m.role}`}>
-                <div className="entry-meta">
-                  {m.role === 'user' ? (
-                    <span>Governo</span>
-                  ) : m.proactive ? (
-                    <span className="proactive-badge">Bollettino</span>
-                  ) : (
-                    <span>Consulente</span>
-                  )}
-                </div>
-                <div className="entry-text">
-                  {isEmptyStreaming ? (
-                    <span className="advisor-typing"><i></i><i></i><i></i></span>
-                  ) : (
-                    <>
-                      {/* Il prompt chiede al modello titoli, grassetto ed elenchi.
-                          Prima li vedevi grezzi («**così**», «## titolo»): ora la
-                          risposta è resa come documento. Il messaggio del governo
-                          resta testo semplice: lo scrive il giocatore. */}
-                      {m.role === 'assistant'
-                        ? <RichText text={m.content} chartData={chartData} />
-                        : m.content}
-                      {isStreamingThis && <span className="stream-cursor">▌</span>}
-                    </>
-                  )}
-                </div>
-              </div>
-            );
-          })
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      <div className="chat-input-row">
-        <textarea
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          placeholder="Interroga il consulente…"
-          rows={2}
-          disabled={advisorStreaming}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-        />
-        <button
-          className="btn-chat-send"
-          onClick={handleSend}
-          disabled={!inputText.trim() || advisorStreaming}
-          title="Invia"
-        >
-          {advisorStreaming ? '…' : 'Invia'}
-        </button>
-      </div>
+  if (isLocal) return <div className="advisor-chat"><p>Il Consulente è disponibile solo nella partita server.</p></div>;
+  return <div className="advisor-chat">
+    {focus && <p className="advisor-focus" role="status">In esame: <strong>{focus.title}</strong> <button type="button" onClick={() => setFocus(undefined)}>Termina esame</button></p>}
+    <div className="advisor-messages">
+      {loading && <p role="status">Lettura del quadro verificato…</p>}
+      {context && <article className="advisor-entry assistant advisor-opening">
+        <div className="entry-meta">Consulente · {context.advisorContext.verifiedWorldSnapshot.date}</div>
+        <div className="entry-text"><RichText text={context.reply} chartData={chartData} /></div>
+        {context.issues.map(callout)}
+      </article>}
+      {advisorMessages.map((message, index) => <article key={index} className={`advisor-entry ${message.role}`}>
+        <div className="entry-meta">{message.role === 'user' ? 'Presidente' : message.proactive ? 'Bollettino' : 'Consulente'}</div>
+        <div className="entry-text">{message.role === 'assistant' ? <RichText text={message.content} chartData={chartData} /> : message.content}</div>
+        {message.issues?.map(callout)}
+      </article>)}
+      {advisorStreaming && <p className="advisor-typing" role="status" aria-label="Il Consulente sta preparando la risposta"><i /><i /><i /></p>}
+      {error && <p role="alert">{error}</p>}
     </div>
-  );
-};
-
+    <div className="chat-input-row">
+      <textarea value={input} onChange={event => setInput(event.target.value)} placeholder="Interroga il consulente…" rows={2}
+        disabled={advisorStreaming} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} />
+      <button type="button" className="btn-chat-send" onClick={() => void send()} disabled={!input.trim() || advisorStreaming}>Invia</button>
+    </div>
+  </div>;
+}
 export default AdvisorChat;

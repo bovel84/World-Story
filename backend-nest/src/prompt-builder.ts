@@ -17,7 +17,9 @@ import {
   parseIncrementalSimulationResponse,
   parseSimulationResponse,
 } from './prompts/simulation';
-import { buildAdvisorPrompt, parseAdvisorResponse, buildAdvisorDialogSuffix } from './prompts/advisor';
+import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
+import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, verifiedRequestCorrection, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
+import { COUNCIL_ISSUE_PROTOCOL, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
@@ -45,6 +47,9 @@ import { LLMError, LLMContractError, LLMRouter } from './llm';
 import { isSmallModel } from './llm/modelTier';
 
 interface GameData {
+  /** Server-built request-local read model, never accepted from the HTTP client. */
+  advisorContext?: RealityAdvisorContext;
+  ministerDialogueSeat?: CabinetSeat;
   /** Request-local, server-derived identity; never serialized into deterministic world state. */
   ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string; verifiedState?: string };
   id: string;
@@ -352,7 +357,7 @@ async function prepareMinisterDialogue(builder: PromptBuilder, game: GameData, m
   const selective = getJevConfig().enabled && Boolean(game.ministerMemoryRequest);
   // Un marker scritto dall’utente del Consigliere non certifica un dossier.
   const seat = ministerSeatFor(game, message, selective);
-  if (!seat || (!selective && !currentMinisterDialogueRequest(game.id, seat))) return null;
+  if (!seat || (!selective && !currentMinisterDialogueRequest(game.id, seat) && game.ministerDialogueSeat !== seat)) return null;
   const separator = '\n\n---\n\n';
   const divider = message.indexOf(separator);
   const dossierText = selective ? game.ministerMemoryRequest!.verifiedState ?? '' : divider >= 0 ? message.slice(0, divider) : message;
@@ -375,7 +380,11 @@ async function prepareMinisterDialogue(builder: PromptBuilder, game: GameData, m
   for (const value of [vars.WORLD_BEFORE_ROUND_ONE_TEXT, vars.HISTORICAL_PRESET_SIMULATION_RULES]) {
     if (value?.trim()) preset = preset.split(value).join('(vedi WORLD)');
   }
-  const prompt = preset ? `[REGISTRO DEL PRESET — lo stile e le regole ministeriali seguenti prevalgono]\n${preset}\n\n${dialoguePrompt}` : dialoguePrompt;
+  const ministerPrompt = preset ? `[REGISTRO DEL PRESET — lo stile e le regole ministeriali seguenti prevalgono]\n${preset}\n\n${dialoguePrompt}` : dialoguePrompt;
+  const verified = realityContextFor(game);
+  // The dossier already owns world/memory/history. Add only the canonical fact
+  // registry for issue proposals, never a second dump of raw turn narration.
+  const prompt = `${ministerPrompt}\n\n[VERIFIED WORLD SNAPSHOT — server-side fact registry]\n${JSON.stringify({ facts: verified.verifiedWorldSnapshot.facts, unavailable: verified.verifiedWorldSnapshot.unavailable })}\n\n${COUNCIL_ISSUE_PROTOCOL}`;
   return { brief, prompt };
 }
 
@@ -387,11 +396,12 @@ async function prepareMinisterDialogue(builder: PromptBuilder, game: GameData, m
  * errore tecnico non deve diventare una posizione politica del ministro.
  * Per la vecchia chat 1:1 resta il fallback deterministico esistente.
  */
-async function ministerDialogueResponse(brief: MinisterDialogueBrief, generate: () => Promise<string>, signal?: AbortSignal): Promise<string> {
+async function ministerDialogueResponse(brief: MinisterDialogueBrief, generate: () => Promise<string>, signal?: AbortSignal, snapshot?: VerifiedWorldSnapshot): Promise<string> {
   signal?.throwIfAborted();
   let response: string;
   try {
     response = await generate();
+    if (snapshot) response = serializeCouncilIssues(parseCouncilIssues(snapshot, response, 'minister'));
     signal?.throwIfAborted();
   } catch (error) {
     signal?.throwIfAborted();
@@ -412,6 +422,33 @@ async function ministerDialogueResponse(brief: MinisterDialogueBrief, generate: 
   }
   if (dialogueResponseIsNatural(response, brief)) return response.trim();
   return fallbackMinisterDialogue(brief);
+}
+
+/** Direct PromptEngine callers get a canonical read model too; sessions supply the richer registered inventories. */
+function realityContextFor(game: GameData): RealityAdvisorContext {
+  if (game.advisorContext) return game.advisorContext;
+  const regions = game.world.regions instanceof Map ? Object.fromEntries(game.world.regions) : game.world.regions;
+  const player = game.players[0];
+  const polityId = game.playerPolityId ?? player?.polityId ?? regions?.[player?.regionId ?? '']?.owner ?? '';
+  return buildRealityAdvisorContext(buildVerifiedWorldSnapshot({ gameData: {
+    ...game, playerPolityId: polityId, world: { regions },
+  } as unknown as VerifiedWorldGameData })).advisorContext;
+}
+
+/** Compatibility for server-supplied legacy minister contexts lacking a structured dossier.
+ * This is narrative continuity only; it cannot replace the verified snapshot policy. */
+async function advisorPresetStyle(builder: PromptBuilder, game: GameData, message: string, history: AdvisorMessage[], vars: PromptVariables): Promise<{ style: string; history: AdvisorMessage[] }> {
+  const override = getPromptOverride(await resolveWorldPrompts(game), 'advisor');
+  const preset = override ? renderPromptTemplate(override, vars) : '';
+  const jevContext = getJevConfig().enabled && game.ministerMemoryRequest ? await builder.buildMinisterContextSection(history, vars) : '';
+  const world = ministerWorldBlockFor(vars, game, message, Boolean(jevContext));
+  return { style: [preset, jevContext, world].filter(Boolean).join('\n\n'), history: jevContext ? [] : history };
+}
+
+function validatedAdvisorText(context: RealityAdvisorContext, text: string): string {
+  const parsed = parseCouncilIssues(context.verifiedWorldSnapshot, text, 'president');
+  const reply = guardRealityAdvisorOutput(context, parsed.reply);
+  return serializeCouncilIssues({ reply, issues: reply === parsed.reply ? parsed.issues : [] });
 }
 
 export class PromptBuilder {
@@ -1571,36 +1608,16 @@ export class PromptEngine {
       return ministerDialogueResponse(dialogue.brief, async () => {
         const response = await this.llm.generate('advisor', 'Sei il ministro indicato e parli personalmente con il Presidente, non un report.', dialogue.prompt, { temperature: 0.7, signal });
         return response.content;
-      }, signal);
+      }, signal, realityContextFor(game).verifiedWorldSnapshot);
     }
 
-    let jevWorldContext = false;
-    if (getJevConfig().enabled && game.ministerMemoryRequest) {
-      const context = await builder.buildMinisterContextSection(history, vars);
-      if (context) {
-        // Il contesto contiene già RECENT CONVERSATION: la cronologia non si
-        // ripete nel suffisso, altrimenti il dump tornerebbe dalla finestra.
-        message = `${context}\n\n---\n\n${message}`;
-        history = [];
-        jevWorldContext = true;
-      }
-    }
-
-    // Пресетный шаблон советника: роль/стиль из пресета, но историю диалога
-    // и текущий вопрос игрока всегда дописываем — иначе советник «оглохнет».
-    const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'advisor');
-    const worldBlock = ministerWorldBlockFor(vars, game, message, jevWorldContext);
-    const prompt = promptOverride
-      ? renderPromptTemplate(promptOverride, vars) + (worldBlock ? `\n\n${worldBlock}` : '') + buildAdvisorDialogSuffix(message, history)
-      : buildAdvisorPrompt(vars, message, history, { worldContext: worldBlock });
-    const response = await this.llm.generate(
-      'advisor',
-      'Sei il saggio consigliere del capo di Stato in una storia alternativa.',
-      prompt,
-      { temperature: 0.7, signal }
-    );
-
-    return parseAdvisorResponse(response.content);
+    const context = realityContextFor(game);
+    const correction = verifiedRequestCorrection(context.verifiedWorldSnapshot, message);
+    if (correction) return correction;
+    const preset = await advisorPresetStyle(builder, game, message, history, vars);
+    const prompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor');
+    const response = await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, { temperature: 0.5, signal });
+    return validatedAdvisorText(context, response.content);
   }
 
   /**
@@ -1623,34 +1640,21 @@ export class PromptEngine {
       return ministerDialogueResponse(dialogue.brief, async () => {
         // L'avanzamento resta osservabile (annullamento/consumo SSE): il route
         // ignora i numeri, quindi il testo validato parte comunque una volta sola.
-        const response = await this.llm.stream('advisor', 'Sei il ministro indicato e parli personalmente con il Presidente, non un report.', dialogue.prompt, chars => onToken(chars), { temperature: 0.7, signal });
+        const response = await this.llm.stream('advisor', 'Sei il ministro indicato e parli personalmente con il Presidente, non un report.', dialogue.prompt, progress => { if (typeof progress === 'number') onToken(progress); }, { temperature: 0.7, signal });
         return response.content;
-      }, signal);
+      }, signal, realityContextFor(game).verifiedWorldSnapshot);
     }
-    let jevWorldContext = false;
-    if (getJevConfig().enabled && game.ministerMemoryRequest) {
-      const context = await builder.buildMinisterContextSection(history, vars);
-      if (context) {
-        message = `${context}\n\n---\n\n${message}`;
-        history = [];
-        jevWorldContext = true;
-      }
-    }
-
-    const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'advisor');
-    const worldBlock = ministerWorldBlockFor(vars, game, message, jevWorldContext);
-    const prompt = promptOverride
-      ? renderPromptTemplate(promptOverride, vars) + (worldBlock ? `\n\n${worldBlock}` : '') + buildAdvisorDialogSuffix(message, history)
-      : buildAdvisorPrompt(vars, message, history, { worldContext: worldBlock });
-    const response = await this.llm.stream(
-      'advisor',
-      'Sei il saggio consigliere del capo di Stato in una storia alternativa.',
-      prompt,
-      onToken,
-      { temperature: 0.7, signal }
-    );
-
-    return response.content;
+    const context = realityContextFor(game);
+    const correction = verifiedRequestCorrection(context.verifiedWorldSnapshot, message);
+    if (correction) return correction;
+    const preset = await advisorPresetStyle(builder, game, message, history, vars);
+    const prompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor');
+    // Progress is observable, but no unvalidated prose is published. Even providers
+    // emitting string chunks are buffered until the complete response is guarded.
+    const response = await this.llm.stream('advisor', VERIFIED_FACT_POLICY, prompt, progress => {
+      if (typeof progress === 'number') onToken(progress);
+    }, { temperature: 0.5, signal });
+    return validatedAdvisorText(context, response.content);
   }
 
   private safeSuggestionFallback(vars: PromptVariables, game: GameData): Suggestion[] {

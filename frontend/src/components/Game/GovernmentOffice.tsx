@@ -1,14 +1,12 @@
-/** Sala del Consiglio: the minister picker selects the initial rapporteur.
+/** Government: the reality advisor or the single roster selects the rapporteur.
  * Rooms own a shared transcript and board; only the President can admit a
  * colleague, prepare a common draft or sign through the existing order queue. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
-import { CabinetSession } from './CabinetSession';
 import { OrderRegister } from './OrderRegister';
 import { CouncilRoomView } from './CouncilRoomView';
 import { AdvisorChat } from './AdvisorChat';
 import type { ChartDataInput } from './advisorCharts';
-import { GovernmentSituations } from './GovernmentSituations';
 import { CouncilRoomBoard } from './CouncilRoomBoard';
 import { ActDraftPanel } from './ActDraftPanel';
 import { SeatCanvas } from './SeatCanvas';
@@ -25,20 +23,19 @@ import { buildConsequenceBoard, consequenceBoardSignature, type EnginePreview } 
 import { actionSnapshotKey } from './actionSnapshot';
 import { projectCurrentDecision } from './ministerDialogueContext';
 import { governmentSessionId } from './governmentSession';
-import { deriveCouncilAgenda } from './councilAgenda';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { clientMandate, loadMemory, saveMemory, memoryScopeKey, seatRecords, withSeatRecords, recordMemory, queuedDecision, openQuestion, type MinisterMemoryStore } from './ministerMemory';
-import { appendCouncilMessage, confirmCouncilProposal, confirmPressureOption, councilContext, councilDraft, councilDraftPressureOptions, councilDraftSignature, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, excludePressureOption, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
+import { appendCouncilMessage, confirmCouncilProposal, councilContext, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
 import { seatSpeaker } from './councilMeeting';
 import { resolveCouncilExecution } from './councilExecution';
 import { resolveCurrentRegionRef } from './meetingLocalization';
 import type { MeetingFeasibilityInput } from './meetingEngineRead';
-import type { CabinetSeat } from './seatDecisionBoards';
-import { useChatStore, useGameStore } from '../../stores';
+import { CABINET_SEATS, type CabinetSeat } from './seatDecisionBoards';
+import { useGameStore } from '../../stores';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import { useGovernmentCompactLayout } from '../../hooks/useIsMobile';
-import { gameApi, ministerApi, type CabinetSessionView, type GovernmentFollowUpView, type GovernmentSituationView } from '../../services/api';
+import { gameApi, ministerApi, type CabinetSessionView, type CouncilIssue, type GovernmentFollowUpView, type GovernmentSituationView } from '../../services/api';
 import type { WorkDeclarationInput } from './cabinetOrder';
 import './councilRoom.css';
 
@@ -56,6 +53,7 @@ export interface GovernmentOfficeProps {
   currentTurn?: number | null;
   onWithdrawOrder: (id: string) => void;
   pictureSources: NationOperatingPictureSources;
+  worldMapAssets?: import('../../services/api').WorldMapAssetsPayload | null;
 }
 interface RoomDraft extends ProposalActDraft {
   signatureKey: string;
@@ -64,11 +62,10 @@ interface RoomDraft extends ProposalActDraft {
   signaturePayload?: ProposalActDraft;
 }
 
-export function GovernmentOffice({ open, onClose, gameId, session, sessionLoading = false, sessionError = null,
-  onQueueOrder, pendingActions, nationalName, currentDate = null, currentTurn = null, onWithdrawOrder, pictureSources }: GovernmentOfficeProps) {
+export function GovernmentOffice({ open, onClose, gameId, session,
+  onQueueOrder, pendingActions, nationalName, currentDate = null, currentTurn = null, onWithdrawOrder, pictureSources, worldMapAssets }: GovernmentOfficeProps) {
   const branchId = useSimulationStore(state => state.state?.branchId ?? null);
   const history = useGameStore(state => state.history);
-  const legacyThreads = useChatStore(state => state.ministerChats);
   const isMobile = useGovernmentCompactLayout();
   const mandate = clientMandate(pictureSources.government, pictureSources.account?.polityId ?? null);
   const scopeKey = `${governmentSessionId({ gameId, branchId, turn: currentTurn ?? 0, kind: 'council' })}|${mandate}`;
@@ -96,8 +93,6 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
   // stato ATTUALE della stanza, senza rimandare il messaggio del Presidente.
   const [failedTurn, setFailedTurn] = useState<{ roomId: string; seat: CabinetSeat; message: string } | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  // WS-GOV-ADVISOR-HUB P5 — La situazione che il Consulente sta esaminando.
-  const [advisorFocus, setAdvisorFocus] = useState<{ label: string; context: string } | null>(null);
   const [focusedEvidence, setFocusedEvidence] = useState<{ seat: CabinetSeat; card: InlineEvidenceCard } | null>(null);
   const focusedEvidenceRef = useRef<HTMLElement>(null);
   const operationRef = useRef<{ controller: AbortController; roomId: string } | null>(null);
@@ -153,10 +148,10 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
     resources: pictureSources.resources,
     budget: pictureSources.government?.budget ?? null,
     history: pictureSources.accountHistory ?? [],
-    facilities: [],
-    resourceSites: [],
+    facilities: worldMapAssets?.facilities ?? [],
+    resourceSites: worldMapAssets?.resources ?? [],
     playerPolityId: pictureSources.account?.polityId ?? '',
-  }), [pictureSources]);
+  }), [pictureSources, worldMapAssets]);
   const treasury = useMemo(() => treasuryAct({ session, picture, sources: pictureSources }), [session, picture, pictureSources]);
   const catalogs = useMemo(() => {
     const result: Partial<Record<CabinetSeat, ReturnType<typeof deriveSeatCanvasBlocks>>> = {};
@@ -195,14 +190,6 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
     const frame = window.requestAnimationFrame(() => { focusedEvidenceRef.current?.scrollIntoView({ block: 'start' }); focusedEvidenceRef.current?.focus({ preventScroll: true }); });
     return () => window.cancelAnimationFrame(frame);
   }, [focusedEvidence]);
-  const agenda = useMemo(() => {
-    const threads = { ...legacyThreads };
-    for (const candidate of Object.values(rooms)) {
-      if (candidate.scopeKey !== scopeKey) continue;
-      for (const seat of candidate.participants) threads[seat] = [...(threads[seat] ?? []), ...candidate.messages.filter(message => message.kind === 'speech' && (message.role === 'user' || message.seat === seat))];
-    }
-    return deriveCouncilAgenda({ session, threads, memory });
-  }, [session, legacyThreads, memory, rooms, scopeKey]);
   const remember = useCallback((seats: readonly CabinetSeat[], summary: string, signed: boolean): void => {
     const starting = loadMemory(memoryScope);
     const records = seats.reduce((next, seat) => withSeatRecords(next, seat, recordMemory(next[seat] ?? [],
@@ -212,35 +199,40 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
     if (currentRef.current.memoryKey === memoryKey) setMemoryCache({ key: memoryKey, records });
   }, [currentDate, currentTurn, memoryScope, memoryKey]);
 
-  const startRoom = (seat: CabinetSeat, sourceSituation?: GovernmentSituationView): void => {
+  const startRoom = (seat: CabinetSeat, sourceIssue?: CouncilIssue): void => {
+    if (operationRef.current || signatureRef.current) return;
     interrupt();
-    const next = createCouncilRoom({ id: crypto.randomUUID(), scopeKey, initiatorMinister: seat, ...(sourceSituation ? { sourceSituation } : {}) });
+    const next = createCouncilRoom({ id: crypto.randomUUID(), scopeKey, initiatorMinister: seat, ...(sourceIssue ? { sourceIssue } : {}) });
     updateRoom(next);
     setActiveId(next.id);
     setTarget('council');
   };
+  const openIssue = (issue: CouncilIssue): void => {
+    // Suggested seats are not admitted automatically: only the rapporteur starts.
+    const rapporteur = issue.suggestedMinisters.find(seat => CABINET_SEATS.includes(seat)) ?? 'interno';
+    startRoom(rapporteur, issue);
+  };
   // P3 — Un VERO follow-up: la seduta riferisce gli outcome reali, non ripropone strade.
   const startRoomFollowUp = (followUp: GovernmentFollowUpView): void => {
     interrupt();
-    const owner = followUp.owner as CabinetSeat;
+    const owner = CABINET_SEATS.find(seat => seat === followUp.owner) ?? 'interno';
     const next = createCouncilRoom({ id: crypto.randomUUID(), scopeKey, initiatorMinister: owner,
       sourceFollowUp: { pressureId: followUp.pressureId, label: followUp.label, owner, dueDate: followUp.dueDate, checks: followUp.checks, outcome: followUp.outcome, originDecision: followUp.origin.sourceId ?? '' } });
     updateRoom(next);
     setActiveId(next.id);
     setTarget('council');
   };
-  // P1.3 — La Pressure si risolve UNA volta, dopo una firma REGISTRATA con
-  // successo: non quando si propone, non quando la Tavola cambia, non alla bozza.
-  const resolvedPressureRef = useRef<Set<string>>(new Set());
   // The initial greeting is part of the shared transcript, not a hidden 1:1 history.
   useEffect(() => {
     if (!open || !activeRoom || activeRoom.messages.length > 0) return;
-    const initial = session?.addresses.find(address => address.seat === activeRoom.initiatorMinister);
-    if (!initial) return;
+    const initial = session?.addresses.find(address => address.seat === activeRoom.initiatorMinister) ?? {
+      seat: activeRoom.initiatorMinister, label: seatSpeaker(activeRoom.initiatorMinister),
+      opening: 'Presidente, quale questione vuole discutere? Verificheremo dati e vincoli prima di preparare un atto.',
+    };
     const controller = new AbortController();
     openingRef.current = controller;
     const id = activeRoom.id;
-    const owns = () => !controller.signal.aborted && currentRef.current.open && currentRef.current.activeId === id;
+    const owns = () => !controller.signal.aborted && currentRef.current.open && currentRef.current.activeId === id && currentRef.current.scopeKey === activeRoom.scopeKey;
     const addOpening = (text: string): void => {
       const current = roomsRef.current[id];
       if (!owns() || !current || current.messages.length > 0) return;
@@ -249,7 +241,7 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
     // P3 — Se è un rapporto, l'apertura riceve un brief di follow-up (fatti di oggi,
     // nessuna decisione richiesta), così il ministro riferisce invece di riproporre.
     const followUp = activeRoom.sourceFollowUp;
-    const openingBrief: GovernmentSituationView | null = activeRoom.sourceSituation ?? (followUp ? {
+    const openingBrief: GovernmentSituationView | null = activeRoom.sourceIssue ? null : activeRoom.sourceSituation ?? (followUp ? {
       id: `follow-up:${followUp.pressureId}`, pressureId: followUp.pressureId,
       title: `Rapporto: ${followUp.label}`, briefing: [followUp.label, ...followUp.outcome].filter(Boolean).join('. '),
       source: 'Registro del Governo', severity: 1, priority: 'rilevante', openedDate: followUp.dueDate, deadline: null, daysLeft: 0,
@@ -257,7 +249,7 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
       decisionQuestion: '', options: [], inaction: { note: '' }, affectedDomains: [],
       origin: { type: 'previous-decision', sourceId: followUp.pressureId },
     } : null);
-    Promise.resolve().then(() => ministerApi.opening(gameId, initial.seat, openingBrief, controller.signal))
+    Promise.resolve().then(() => ministerApi.opening(gameId, initial.seat, openingBrief, controller.signal, activeRoom.sourceIssue))
       .then(result => addOpening(result.reply)).catch(() => { if (owns()) addOpening(initial.opening); });
     return () => { controller.abort(); if (openingRef.current === controller) openingRef.current = null; };
   }, [open, activeRoom?.id, session, gameId, updateRoom]);
@@ -396,19 +388,6 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
       if (queued) {
         remember(activeRoom.participants, payload.title, true);
         if (currentRef.current.activeId === roomId && currentRef.current.scopeKey === activeRoom.scopeKey) setNotice('Atto firmato e inserito nel registro. Sarà valutato dal motore quando avanzerai il tempo.');
-        // P1.3/P1.4 — Chiusura del ciclo: la situazione si risolve SOLO ora, in
-        // modo idempotente. La risoluzione del motore non risolve due volte una
-        // Pressure già chiusa (e il guard in memoria evita richieste ripetute).
-        const situation = activeRoom.sourceSituation;
-        // P2 — Gli optionIds risolti sono ESATTAMENTE lo snapshot congelato nel
-        // draft, non la selezione viva della stanza.
-        const options = councilDraftPressureOptions(draft);
-        if (situation && options.length > 0 && !resolvedPressureRef.current.has(draft.signatureKey)) {
-          resolvedPressureRef.current.add(draft.signatureKey);
-          void gameApi.resolvePeacetimePressure(gameId, situation.pressureId, options, draft.signatureKey).then(() => {
-            if (currentRef.current.activeId === roomId) setNotice('Atto firmato. La situazione è stata risolta dal motore e i suoi effetti saranno applicati all’avanzamento del tempo.');
-          }).catch(() => { /* motore idempotente: una Pressure già chiusa non produce un secondo effetto */ });
-        }
       } else {
         setDrafts(previous => previous[roomId]?.signatureKey === draft.signatureKey ? { ...previous, [roomId]: { ...previous[roomId], signatureNotice: 'Firma non confermata. Riprova questa stessa bozza; per modificarla annulla la preparazione.' } } : previous);
       }
@@ -434,31 +413,7 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
     onConfirm={confirm} onExclude={label => {
       if (locked || operationRef.current) return;
       updateRoom(appendCouncilMessage(excludeCouncilMeasure(activeRoom, label, crypto.randomUUID()), { id: crypto.randomUUID(), role: 'user', kind: 'speech', content: `Escludo dalla proposta la misura «${label}».` }));
-    }} onPrepare={() => void prepare()} onConvene={convene}
-    onConfirmPressureOption={optionId => {
-      if (locked || operationRef.current || !activeRoom.sourceSituation) return;
-      const next = confirmPressureOption(activeRoom, optionId);
-      updateRoom(next);
-      // P2.2 — Se la selezione cambia dopo la preparazione, lo snapshot del draft
-      // si aggiorna con essa (mai una mescolanza), e con esso la sua firma.
-      setDrafts(previous => {
-        const current = previous[activeRoom.id];
-        if (!current) return previous;
-        const selectedPressureOptions = [...next.selectedPressureOptions];
-        return { ...previous, [activeRoom.id]: { ...current, selectedPressureOptions, draftSignature: councilDraftSignature({ ...current, selectedPressureOptions }) } };
-      });
-    }}
-    onExcludePressureOption={optionId => {
-      if (locked || operationRef.current || !activeRoom.sourceSituation) return;
-      const next = excludePressureOption(activeRoom, optionId);
-      updateRoom(next);
-      setDrafts(previous => {
-        const current = previous[activeRoom.id];
-        if (!current) return previous;
-        const selectedPressureOptions = [...next.selectedPressureOptions];
-        return { ...previous, [activeRoom.id]: { ...current, selectedPressureOptions, draftSignature: councilDraftSignature({ ...current, selectedPressureOptions }) } };
-      });
-    }}>
+    }} onPrepare={() => void prepare()} onConvene={convene}>
     {evidenceCanvas && <section className="council-board-focus-evidence" ref={focusedEvidenceRef} tabIndex={-1} aria-label="Evidenza dalla discussione">
       <h3>{focusedEvidence?.card.title}</h3>
       {evidenceCanvas.mains.map(main => main.block && <SeatCanvas key={main.block.id} blocks={[main.block]} focusLabel={main.focusLabel} focusRegionIds={main.regionIds} />)}
@@ -486,12 +441,12 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
   </CouncilRoomBoard>;
 
   return <AccessibleDialog open={open} onClose={onClose} closeOnEscape={!sheetOpen} closeOnBackdrop={!sheetOpen}
-    className="suggestions-content government-office council-office" overlayClassName="government-office-overlay" ariaLabelledBy="government-office-title">
+    className={`suggestions-content government-office council-office ${activeRoom ? 'government-room-active' : 'government-home'}`} overlayClassName="government-office-overlay" ariaLabelledBy="government-office-title">
     {activeRoom ? <CouncilRoomView key={activeRoom.id} room={activeRoom} evidenceIndex={evidenceIndex} onFocusEvidence={(seat, card) => setFocusedEvidence({ seat, card })} nationalName={nationalName}
       currentDate={currentDate} isMobile={isMobile} busy={locked} speaking={speaking} streamText={streamText} input={inputs[activeRoom.id] ?? ''}
       target={target} onInput={text => setInputs(previous => ({ ...previous, [activeRoom.id]: text }))} onTarget={setTarget} onSend={send}
       onInterrupt={() => { interrupt(); setNotice('Intervento interrotto. La Tavola conserva solo le risposte concluse.'); }} onConvene={convene}
-      onBack={() => { interrupt(); setActiveId(null); }} onClose={onClose} onConclude={() => {
+      onOpenIssue={openIssue} onBack={() => { interrupt(); setActiveId(null); }} onClose={onClose} onConclude={() => {
         if (locked) return;
         const status = draft ? actStatus(draft, pendingActions, history) : null;
         if (draft?.signatureAttempted && status?.state === 'prepared') { setNotice('La firma non è confermata: riprova la stessa bozza oppure annulla esplicitamente la preparazione prima di chiudere la seduta.'); return; }
@@ -510,29 +465,34 @@ export function GovernmentOffice({ open, onClose, gameId, session, sessionLoadin
       </div>
       <section className="government-advisor" aria-label="Il Primo Consulente">
         <h3 className="government-advisor-heading">IL PRIMO CONSULENTE</h3>
-        <AdvisorChat gameId={gameId} chartData={advisorChartData} focus={advisorFocus} />
+        <AdvisorChat gameId={gameId} chartData={advisorChartData} scopeKey={scopeKey} onOpenIssue={openIssue} />
       </section>
       <OrderRegister orders={pendingActions} nationalName={nationalName} date={currentDate} onWithdraw={onWithdrawOrder} />
       {Object.values(rooms).filter(candidate => candidate.scopeKey === scopeKey).map(candidate => <button type="button" key={candidate.id} className="council-room-resume" onClick={() => { setTarget('council'); setActiveId(candidate.id); }}>
         Riprendi seduta · {candidate.topic || seatSpeaker(candidate.initiatorMinister)} · {candidate.participants.length} ministri
       </button>)}
-      <GovernmentSituations pressures={pictureSources.pressures} followUps={pictureSources.followUps} onOpen={situation => startRoom(situation.leadMinister as CabinetSeat, situation)} onOpenFollowUp={startRoomFollowUp} onExamine={situation => setAdvisorFocus({ label: situation.title, context: [situation.briefing, ...situation.verifiedFacts, situation.decisionQuestion, `Se non decidiamo: ${situation.inaction.note}`].filter(Boolean).join('\n') })} />
-      {pictureSources.brief && (
-        <section className="government-roster" aria-label="Ministri">
-          <h3 className="government-roster-heading">MINISTRI</h3>
-          <ul className="government-roster-list">
-            {pictureSources.brief.cabinet.map(entry => (
-              <li key={entry.seat}>
-                <button type="button" className="government-roster-seat" data-seat={entry.seat} data-state={entry.state} title={`Apri la seduta con il ${entry.label}`} onClick={() => startRoom(entry.seat as CabinetSeat)}>
-                  <span className="government-roster-name">{entry.label}</span>
-                  <span className={`government-roster-state council-state-${entry.state}`}>{entry.state === 'engaged' ? 'sul tavolo' : 'disponibile'}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      <CabinetSession variant="pick" session={session} agenda={agenda} loading={sessionLoading} error={sessionError} onOpenSeat={address => startRoom(address.seat)} />
+      <section className="government-roster" aria-label="Ministri">
+        <h3 className="government-roster-heading">MINISTRI</h3>
+        <ul className="government-roster-list">
+          {CABINET_SEATS.map(seat => {
+            const state = pictureSources.brief?.cabinet.find(entry => entry.seat === seat)?.state ?? 'available';
+            const label = seatSpeaker(seat);
+            return <li key={seat}>
+              <button type="button" className="cabinet-pick government-roster-seat" data-seat={seat} data-state={state} title={`Apri la seduta con il ${label}`} onClick={() => startRoom(seat)}>
+                <span className="government-roster-name">{label}</span>
+                <span className={`government-roster-state council-state-${state}`}>{state === 'engaged' ? 'sul tavolo' : 'disponibile'}</span>
+              </button>
+            </li>;
+          })}
+        </ul>
+      </section>
+      {Boolean(pictureSources.followUps?.length) && <details className="government-reports">
+        <summary>Rapporti verificati · {pictureSources.followUps!.length}</summary>
+        <ul>{pictureSources.followUps!.map(followUp => <li key={followUp.id}>
+          <span>{followUp.label}</span>
+          <button type="button" onClick={() => startRoomFollowUp(followUp)}>Apri rapporto</button>
+        </li>)}</ul>
+      </details>}
     </>}
   </AccessibleDialog>;
 }

@@ -1,13 +1,17 @@
 /** M03 µ2 — gate puro §5.3: nessuna riserva, I/O o LLM. */
 import { SimulationCatalog, AuthorityRule } from '../../scenario/types';
 import { OrderIntent } from './intent';
+import { canonicalOrderBlockers, type CanonicalOrderWorld } from './CanonicalOrderSafety';
 export type AssessmentStatus='needs_data'|'blocked'|'feasible'|'feasible_with_conditions';
 export type ReasonCode='UNKNOWN_ENTITY'|'AMBIGUOUS_TARGET'|'UNAUTHORIZED_ACTOR'|'UNSUPPORTED_CAPABILITY'|'KNOWLEDGE_MISSING'|'INDUSTRIAL_CAPABILITY_MISSING'|'DATA_UNAVAILABLE'|'DEPENDENCY_BLOCKED'
  // MG01 µ3 — deficit materiali, monetari e di manodopera, con i tre numeri.
- |'INSUFFICIENT_CASH'|'MATERIAL_SHORTAGE'|'WORKFORCE_SHORTAGE';
+ |'INSUFFICIENT_CASH'|'MATERIAL_SHORTAGE'|'WORKFORCE_SHORTAGE'|'INFRASTRUCTURE_MISSING'|'MILITARY_ASSET_MISSING';
+const FREE_CONSTRUCTION=/\b(?:costru|realizz|edific|crea|build|construct|establish)[a-z]*\b[^.;!\n]*\b(?:ferrov|port|strad|aeroport|fabbric|ponte|diga)/i;
 export interface Blocker{readonly code:ReasonCode;readonly targetId?:string;/** WS-PREFLIGHT-01: campo canonico che ha originato il deficit (se noto). */readonly field?:string;readonly detail:string;readonly missing?:readonly string[];}
 export interface Requirement{readonly allOf?:readonly string[];readonly anyOf?:readonly (readonly string[])[];}
 export interface FeasibilityFacts{readonly actorId:string;readonly verifiedPolityId:string;readonly approvals:readonly ('user'|'institutional'|'counterparty')[];readonly rights:readonly {readonly targetId:string;readonly activity:string}[];readonly knowledgeIds:readonly string[];readonly capabilityIds:readonly string[];readonly requirements?:Readonly<Record<string,Requirement>>;readonly modelDataMissingIds?:readonly string[];readonly hiddenFromPlayerIds?:readonly string[];
+ /** Current canonical map/persisted objects, supplied by trusted callers only. */
+ readonly canonicalWorld?:CanonicalOrderWorld;
  /** MG01 µ3 — deficit della distinta misurato sulle letture del ledger.
   *  Assente = la costruzione è valutata senza guardare le disponibilità, come
   *  prima di MG01: il chiamante che non legge il ledger non ottiene un falso
@@ -52,6 +56,8 @@ export function requirementsOfWork(catalog:SimulationCatalog,catalogRef:string|u
 function actorRule(catalog:SimulationCatalog,actorId:string,activity:string):AuthorityRule|undefined{const actor=catalog.actors.find(x=>x.actorId===actorId);return actor?catalog.authorities.find(x=>x.actorType===actor.type&&x.activity===activity):undefined;}
 export class FeasibilityService { constructor(private readonly catalog:SimulationCatalog) {}
  evaluate(intent:OrderIntent,facts:FeasibilityFacts):OrderAssessment {const blockers:Blocker[]=[];const warnings:string[]=[];const alternatives:AlternativeProposal[]=[];const missingData=new Set(facts.modelDataMissingIds??[]);const hidden=new Set(facts.hiddenFromPlayerIds??[]);if(intent.actorPolityId!==facts.verifiedPolityId)blockers.push({code:'UNAUTHORIZED_ACTOR',detail:'actorPolityId non coincide con identità verificata dal server'});const actor=this.catalog.actors.find(x=>x.actorId===facts.actorId);if(!actor||actor.polityId!==facts.verifiedPolityId)blockers.push({code:'UNAUTHORIZED_ACTOR',detail:'attore economico non autorizzato per polity verificata'});
+ if(facts.canonicalWorld){blockers.push(...canonicalOrderBlockers(intent.originalText,facts.verifiedPolityId,facts.canonicalWorld));
+  if(intent.actionKind==='qualitative'&&FREE_CONSTRUCTION.test(intent.originalText))blockers.push({code:'DATA_UNAVAILABLE',field:'work',detail:'La costruzione dichiarata in testo libero non ha un’opera canonica con tracciato, costi e materiali verificati: serve una work del catalogo prima dell’esecuzione.'});}
  for(const target of intent.targetIds){if(missingData.has(target))blockers.push({code:'DATA_UNAVAILABLE',targetId:target,detail:'model_data_missing: nessun dato autorevole'});else if(hidden.has(target))blockers.push({code:'DATA_UNAVAILABLE',targetId:target,detail:'hidden_from_player: dato esiste ma non è rivelato'});else if(!targetKnown(this.catalog,target))blockers.push({code:'UNKNOWN_ENTITY',targetId:target,detail:'target assente dal catalogo'});}
  const activity=authorityActivity(intent);if(activity&&actor){const rule=actorRule(this.catalog,facts.actorId,activity);if(!rule)blockers.push({code:'UNAUTHORIZED_ACTOR',detail:`nessuna regola R1 per attività ${activity}`});else{const approved=new Set(facts.approvals);const absent=rule.requiresApprovals.filter(x=>!approved.has(x));if(absent.length)blockers.push({code:'UNAUTHORIZED_ACTOR',detail:`consensi mancanti: ${absent.join(',')}`});}}
  const requirement=facts.requirements?.[intent.catalogRef??intent.actionKind];const knowledge=satisfiesRequirement(new Set(facts.knowledgeIds),requirement);if(!knowledge.ok){blockers.push({code:'KNOWLEDGE_MISSING',detail:'prerequisiti di conoscenza non soddisfatti',missing:knowledge.missing});alternatives.push({kind:'research',requiresConfirmation:true,missing:knowledge.missing});if((requirement?.anyOf?.length??0)>1)alternatives.push({kind:'alternative_path',requiresConfirmation:true,missing:knowledge.missing});}

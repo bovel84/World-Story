@@ -47,16 +47,6 @@ function post(signal?: AbortSignal) {
     body: JSON.stringify({ message, history: [], memory: [requestMemory] }), signal,
   });
 }
-async function readDecision(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
-  const decoder = new TextDecoder();
-  let text = '';
-  while (text.length < decisionReply.length) {
-    const chunk = await reader.read();
-    expect(chunk.done, 'the complete decision block arrives before the provider settles').toBe(false);
-    text += decoder.decode(chunk.value, { stream: true });
-  }
-  expect(text).toBe(decisionReply);
-}
 function expectOnlyRequestMemory(): void {
   // Request memories are saved before generation; a failed reply must not add any.
   expect(ministerMemory.listMemory(scope)).toEqual([requestMemory]);
@@ -110,29 +100,27 @@ afterAll(async () => {
 });
 
 describe('minister stream HTTP failure contract', () => {
-  it('rejects the fetch reader when the provider throws after emitting a complete decision block, without persisting the reply', async () => {
+  it('buffers a complete-looking decision block until provider success, without persisting a failed reply', async () => {
     const failProvider = latch();
+    const tokenEmitted = latch();
     vi.spyOn(session, 'getMinisterStream').mockImplementation(async (
       _seat: string, _message: string, _history: unknown[], onToken: (text: string) => void,
     ) => {
       onToken(decisionReply);
-      // Let the HTTP client consume the block before triggering the failure.
+      tokenEmitted.resolve();
       await failProvider.promise;
       throw new Error('Provider failed after the decision block');
     });
-    const response = await post();
-    expect(response.status).toBe(200); // Headers have already been committed.
-    const reader = response.body!.getReader();
-    try {
-      await readDecision(reader);
-      failProvider.resolve();
-      await expect(reader.read()).rejects.toThrow();
-      expectOnlyRequestMemory();
-    } finally {
-      failProvider.resolve();
-      await reader.cancel().catch(() => {});
-      reader.releaseLock();
-    }
+    let settled = false;
+    const pending = post().then(response => { settled = true; return response; });
+    await tokenEmitted.promise;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(settled).toBe(false);
+    failProvider.resolve();
+    const response = await pending;
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain(decisionReply);
+    expectOnlyRequestMemory();
   });
 
   it('keeps normal streamed completion and persists only the completed JEV exchange', async () => {
@@ -159,34 +147,29 @@ describe('minister stream HTTP failure contract', () => {
 
   it('still propagates client cancellation and ignores late tokens and replies without persisting them', async () => {
     const providerCancelled = latch();
+    const tokenEmitted = latch();
     let providerSignal: AbortSignal | undefined;
     vi.spyOn(session, 'getMinisterStream').mockImplementation(async (
       _seat: string, _message: string, _history: unknown[], onToken: (text: string) => void, signal: AbortSignal,
     ) => {
       providerSignal = signal;
       onToken(decisionReply);
+      tokenEmitted.resolve();
       await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
       onToken('Late token must not be sent');
       providerCancelled.resolve();
       return decisionReply;
     });
     const controller = new AbortController();
-    const response = await post(controller.signal);
-    const reader = response.body!.getReader();
-    try {
-      await readDecision(reader);
-      controller.abort();
-      await expect(reader.read()).rejects.toThrow();
-      await providerCancelled.promise;
-      // Drain the route continuation after the provider returns its late reply.
-      await new Promise<void>(resolve => setImmediate(resolve));
-      expect(providerSignal?.aborted).toBe(true);
-      expectOnlyRequestMemory();
-    } finally {
-      controller.abort();
-      await reader.cancel().catch(() => {});
-      reader.releaseLock();
-    }
+    const pending = post(controller.signal);
+    await tokenEmitted.promise;
+    controller.abort();
+    await expect(pending).rejects.toThrow();
+    await providerCancelled.promise;
+    // Drain the route continuation after the provider returns its late reply.
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(providerSignal?.aborted).toBe(true);
+    expectOnlyRequestMemory();
   });
 
   it('keeps an ordinary JSON error when the provider fails before emitting text', async () => {

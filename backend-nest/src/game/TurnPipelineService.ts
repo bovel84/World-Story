@@ -105,6 +105,9 @@ export class TurnPipelineService {
   ): Promise<PendingAction[] | PausedBatchResult | CompletedBatchResult> {
     // Validate before taking a snapshot or mutating the queue.
     const timeJump = jumpHorizon(jumpDays);
+    // Admission is not an execution permit: restored queues and assets lost
+    // since signing are checked against the LIVE map, before any side effect.
+    this.ctx.orders.assertExecutableOrders(actions, this.state.regions.values());
     const periodStart = this.state.currentDate;
     const horizonDate = addDays(periodStart, timeJump);
     // §12: lo snapshot di rewind ritrae l'ORIGINE del salto, ordini ancora

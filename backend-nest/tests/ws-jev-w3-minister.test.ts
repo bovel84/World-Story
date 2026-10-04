@@ -116,7 +116,10 @@ describe('JEV-W3: estensione della memoria ministro', () => {
       await session.getMinisterReply('tesoro', 'Tasse?', []);
       const legacy = session.ministerPrompt('tesoro', 'Tasse?');
       const engine = new PromptEngine(provider);
-      await engine.getAdvisor(session.buildGameData(), legacy, []);
+      const data = session.buildGameData();
+      data.ministerDialogueSeat = 'tesoro';
+      data.advisorContext = session.getRealityAdvisorContext().advisorContext;
+      await engine.getAdvisor(data, legacy, []);
       expect(captured[0]).toBe(captured[1]);
     } finally { (await import('../src/database')).initDatabase(); }
   });

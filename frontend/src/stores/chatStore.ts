@@ -7,7 +7,7 @@
  */
 
 import { create } from 'zustand';
-import { chatsApi, type ChatSummaryData, type ChatMessageData } from '../services/api';
+import { chatsApi, type ChatSummaryData, type ChatMessageData, type CouncilIssue } from '../services/api';
 import { archiveSiblingThreads, lastChatMessage, orderChatMessages } from '../components/Game/chatTimeline';
 
 export type ChatSummary = ChatSummaryData;
@@ -17,6 +17,8 @@ export type ChatMessage = ChatMessageData;
 export interface AdvisorMessage {
   role: 'user' | 'assistant';
   content: string;
+  /** Server-validated proposals remain attached to their actual contribution. */
+  issues?: CouncilIssue[];
 /** Commento proattivo del consulente dopo il turno (SSE advisor_proactive) */
   proactive?: boolean;
   /**

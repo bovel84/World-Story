@@ -126,6 +126,6 @@ describe('RichText — la resa è sicura e completa', () => {
     expect(chat).toMatch(/RichText/);
     // Solo il ruolo `assistant` passa dal renderer: il messaggio del giocatore è
     // testo che scrive lui, e va mostrato com'è.
-    expect(chat).toMatch(/m\.role === 'assistant'/);
+    expect(chat).toMatch(/message\.role === 'assistant'/);
   });
 });

@@ -1955,8 +1955,50 @@ export interface MinisterCurrentDecision {
  * **sedia** del ministro: i bisogni della sua competenza, con le cifre del
  * motore e la loro provenienza. La risposta è una proposta: non impegna nulla.
  */
+export interface CouncilIssue {
+  id: string;
+  title: string;
+  question: string;
+  verifiedFacts: Array<{ key: string; label: string; value: string; source: string; sourceRef: string }>;
+  suggestedMinisters: CabinetAddressView['seat'][];
+  origin: 'advisor' | 'president' | 'minister' | 'event' | 'follow-up';
+  sourceRefs: string[];
+  createdDate: string;
+}
+
+/** Server-built read model. Unknown fields remain unknown, never inferred by the client. */
+export interface VerifiedWorldSnapshotView {
+  schemaVersion: 1;
+  gameId: string;
+  branchId: string | null;
+  date: string | null;
+  turn: number | null;
+  polityId: string;
+  polityName: string | null;
+  geography: {
+    ownedRegions: Array<{ id: string; name: string; coastal: boolean | null; sourceRef: string }>;
+    coastal: boolean | null;
+    landlocked: boolean | null;
+    borderingPolities: Array<{ polityId: string; polityName: string | null }> | null;
+  };
+  infrastructure: Record<'ports' | 'airfields' | 'railways' | 'roads' | 'factories' | 'constructionSites' | 'other', Array<{ id: string | null; name: string | null; type: string; regionId: string; regionName: string; sourceRef: string }>>;
+  facts: Record<string, { key: string; label: string; value: string; rawValue: number | boolean | string | string[]; source: string; sourceRef: string }>;
+  changes: { available: boolean; previousDate: string | null; previousTurn: number | null; deltas: Array<{ key: string; before: number; after: number; delta: number; sourceRef: string }> };
+  unavailable: string[];
+}
+export interface RealityAdvisorResponse {
+  reply: string;
+  issues: CouncilIssue[];
+  advisorContext: {
+    verifiedWorldSnapshot: VerifiedWorldSnapshotView;
+    governmentBrief: string;
+    focusIssue?: CouncilIssue;
+  };
+}
+
 /** Shared discussion metadata; never authoritative engine state. */
 export interface MinisterCouncilContext {
+  sourceIssue?: CouncilIssue;
   sessionId: string;
   topic: string;
   initiatorMinister: CabinetAddressView['seat'];
@@ -1976,11 +2018,11 @@ export interface MinisterCouncilContext {
 export const ministerApi = {
   /** Fatti e memoria letti sul server; nessuna persistenza e nessuna direttiva. */
   opening: (
-    gameId: string, seat: string, situation?: GovernmentSituationView | null, signal?: AbortSignal,
+    gameId: string, seat: string, situation?: GovernmentSituationView | null, signal?: AbortSignal, sourceIssue?: CouncilIssue,
   ): Promise<{ reply: string; seat: string; narrativeOnly: true; persistMemory: false; allowDirectives: false }> => {
     signal?.throwIfAborted();
     return fetchApi(`/games/${gameId}/government/minister/${seat}/opening`, {
-      method: 'POST', signal, body: JSON.stringify(situation ? { situation } : {}),
+      method: 'POST', signal, body: JSON.stringify(sourceIssue ? { sourceIssue } : situation ? { situation } : {}),
     });
   },
 
@@ -2101,6 +2143,14 @@ export const ministerApi = {
 };
 
 export const advisorApi = {
+  context: (gameId: string, signal?: AbortSignal): Promise<RealityAdvisorResponse> =>
+    fetchApi(`/games/${gameId}/advisor/context`, { signal }),
+  /** Complete, server-validated output; no unvalidated partial text or implicit POST retries. */
+  reality: (gameId: string, message: string, history: AdvisorHistoryItem[], focusIssue?: CouncilIssue, signal?: AbortSignal): Promise<RealityAdvisorResponse> =>
+    fetchApi(`/games/${gameId}/advisor/reality`, {
+      method: 'POST', signal,
+      body: JSON.stringify({ message, history, ...(focusIssue ? { advisorContext: { focusIssue } } : {}) }),
+    }),
   /**
 * Chiedi al consulente (dialogo multi-turno — history inviata a ogni richiesta)
    */

@@ -31,6 +31,8 @@ import { estimateIntentCosts, type CostEstimate } from '../core/feasibility/cost
 import type { ActionOutcome, ConvertedAction } from '../prompts/types';
 import type { NationalAccount } from '../core/simulation/WorldStateEngine';
 import type { TimelineEventRecord } from './TimelineService';
+import { readCanonicalOrderWorld } from './CanonicalOrderFacts';
+import { assertCanonicalOrder, type CanonicalOrderRegion } from '../core/feasibility/CanonicalOrderSafety';
 
 /**
  * Effetto materiale di una decisione sulla tesoreria, in forma strutturata.
@@ -166,6 +168,8 @@ export interface OrderExecutionContext {
   enhanceOrder(gameData: any, text: string): Promise<{ text: string }>;
   /** Conversione testo→intent via PromptEngine. */
   convertActionsBatch(gameData: any, actions: Array<{ actionId: string; text: string }>): Promise<ConvertedAction[]>;
+  /** Regioni LIVE della partita (copia dinamica), per i guard canonici. */
+  liveRegions?(): Iterable<CanonicalOrderRegion>;
 }
 
 export class OrderExecutionService {
@@ -194,6 +198,7 @@ export class OrderExecutionService {
    */
   enqueue(text: string, workOrder?: PendingWorkOrder): PendingAction {
     this.ctx.assertPlayable();
+    assertCanonicalOrder(text, this.ctx.playerPolityId(), readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId, this.ctx.liveRegions?.()), workOrder?.regionId);
     const action: PendingAction = {
       id: shortId(),
       text,
@@ -221,6 +226,14 @@ export class OrderExecutionService {
     return this.pendingActions;
   }
 
+  /** Re-evaluate restored/admitted acts against the live map at execution.
+   * No reservations, material inference, costs or mutations belong here. */
+  assertExecutableOrders(actions: readonly PendingAction[], regions: Iterable<CanonicalOrderRegion>): void {
+    if (!actions.length) return;
+    const world = readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId, regions);
+    for (const action of actions) assertCanonicalOrder(action.text, this.ctx.playerPolityId(), world, action.workOrder?.regionId);
+  }
+
   getQueueVersion(): number {
     return gameRepository.getQueueVersion(this.ctx.gameId);
   }
@@ -244,6 +257,7 @@ export class OrderExecutionService {
     if (!trimmed) return null;
     const action = this.pendingActions.find(item => item.id === actionId && item.status === 'pending');
     if (!action) return null;
+    assertCanonicalOrder(trimmed, this.ctx.playerPolityId(), readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId, this.ctx.liveRegions?.()), action.workOrder?.regionId);
     if (!gameRepository.updatePendingActionText(this.ctx.gameId, actionId, trimmed)) return null;
     action.text = trimmed;
     return action;
@@ -533,6 +547,7 @@ export class OrderExecutionService {
       rights: [],
       knowledgeIds: [],
       capabilityIds: [],
+      canonicalWorld: readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId),
       ...(measured ? { deficits: measured.deficits, unknownRequirements: measured.unknown, ...(measured.availableMoney ? { availableMoney: measured.availableMoney } : {}) } : {}),
     });
 

@@ -26,6 +26,10 @@ import { NationStateService } from './game/NationStateService';
 import { SimulationCoordinator } from './game/SimulationCoordinator';
 import { WorldMutationService } from './game/WorldMutationService';
 import { GameDataService } from './game/GameDataService';
+import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
+import { readPreviousVerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshotHistory';
+import { buildRealityAdvisorContext, guardRealityAdvisorOutput, type RealityAdvisorResult } from './core/government/RealityAdvisor';
+import { parseCouncilIssues, type CouncilIssue } from './core/government/CouncilIssue';
 import type { CurrentReactionAction } from './core/simulation/ReactionContext';
 import { WorldIntelService } from './game/WorldIntelService';
 import { NpcTurnService } from './game/NpcTurnService';
@@ -40,7 +44,7 @@ import { OutboxService } from './game/OutboxService';
 import { WorldStateEngine, type NationalAccount } from './core/simulation/WorldStateEngine';
 import { clampTaxRatePct, DEFAULT_FISCAL_POLICY, describeFiscalEffects, fiscalShockModifier, FISCAL_MAX_PCT, FISCAL_MIN_PCT, fiscalLabel, type FiscalPolicy } from './core/simulation/FiscalPolicy';
 import { composePressureEffects, arePressureOptionsCompatible, type PressureEffect, type PressureOption } from './core/simulation/PeacetimePressures';
-import { CABINET_SEATS, SEAT_LABEL, type CabinetSeat } from './core/government/Cabinet';
+import { CABINET_SEATS, SEAT_LABEL, SEAT_READS, type CabinetAddress, type CabinetSession, type CabinetSeat } from './core/government/Cabinet';
 import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import { readCabinetSession } from './game/GovernmentReadings';
@@ -441,6 +445,12 @@ export class GameSession {
   // ── Stato vivo: accessor deleganti a SessionStateStore ────────────────────
   // I nomi sono identici ai campi precedenti: nessun call-site cambia.
   private get regions(): Map<string, RegionState> { return this.state.regions; }
+
+  /** Regioni LIVE della partita per i guard canonici dell'ordine: la copia
+   * dinamica è la realtà; il template del mondo resta congelato. */
+  canonicalOrderRegions(): Array<{ id: string; name: string; owner: string; objects: readonly unknown[] }> {
+    return [...this.regions.values()].map(region => ({ id: region.id, name: region.name, owner: region.owner, objects: region.objects ?? [] }));
+  }
   private set regions(value: Map<string, RegionState>) { this.state.regions = value; }
   private get players(): PlayerInfo[] { return this.state.players; }
   private set players(value: PlayerInfo[]) { this.state.players = value; }
@@ -1994,6 +2004,7 @@ export class GameSession {
       buildGameData: () => this.buildGameData(),
       enhanceOrder: (gameData, text) => this.gameController.enhanceAction(gameData, text),
       convertActionsBatch: (gameData, actions) => this.promptEngine.convertActionsBatch(gameData, actions, undefined),
+      liveRegions: () => this.regions.values(),
     });
     this.nationState = new NationStateService({
       gameId: this.id,
@@ -2291,6 +2302,29 @@ export class GameSession {
   /** Read model GameData per il motore di prompt (implementazione in GameDataService). */
   private buildGameData(focusTexts: string[] = [], currentActions: CurrentReactionAction[] = []): any {
     return this.gameData.build(focusTexts, currentActions);
+  }
+
+  /** Verified server-side reality; a prior getter call is not a turn baseline. */
+  getVerifiedWorldSnapshot(previousSnapshot?: VerifiedWorldSnapshot | null): VerifiedWorldSnapshot {
+
+    const gameData = this.buildGameData();
+    const branchId = gameRepository.getHeadBranch(this.id);
+    return buildVerifiedWorldSnapshot({
+      gameData,
+      branchId,
+      // Read registered rows, not the operational getter that materializes
+      // legacy capacity into synthetic facilities/armies on first access.
+      operationalRows: operationalObjectRepository.list(this.id),
+      commitments: this.commitments.all(),
+      foodCoverageMonths: this.nationState.foodCoverageMonths(),
+      decisions: gameRepository.listPressures(this.id).map(record => ({
+        id: record.id, title: record.title, status: record.status,
+        resolution: record.resolution, resolvedDate: record.resolvedDate, createdTurn: record.createdTurn,
+      })),
+      // Re-read canonical persistence on every request: no cached observations,
+      // parent-branch baselines, or stale snapshots surviving session restore.
+      previousSnapshot: previousSnapshot === undefined ? readPreviousVerifiedWorldSnapshot(gameData, branchId) : previousSnapshot,
+    });
   }
 
   // =========================================================================
@@ -2877,6 +2911,11 @@ export class GameSession {
   /** Scrive in RAM lo stato calcolato dal restore (forward o rollback). */
   private applyPersistenceState(state: PersistenceApplyState): void {
     this.state.applyCore(state);
+    // applyCore non copre l'identità del giocatore: senza questo un restore su
+    // una sessione ricostruita resterebbe sul fallback «player» e ogni read
+    // model (snapshot verificato, dossier) perderebbe la nazione.
+    const primary = state.players?.[0];
+    if (primary?.polityId) this.playerPolityId = primary.polityId;
     this.diplomacy.replaceFromJSON(state.relationships);
     this.orders.replaceQueue(state.pendingActions);
     // MILITARY/WARFRONT INTEGRITY P0-1: la cache dello stato operativo è del
@@ -3343,14 +3382,35 @@ export class GameSession {
     return this.getAdvisorUnchecked(message, history);
   }
 
+  /** Deterministic government opening, exclusively server-derived; no model or mutations. */
+  getRealityAdvisorContext(): RealityAdvisorResult {
+    if (this.hasActiveRun()) throw new SimulationInProgressError();
+    return buildRealityAdvisorContext(this.getVerifiedWorldSnapshot());
+  }
+
+  /** Client context supplies only a discussion focus; every fact is rebuilt from the server snapshot. */
+  async getRealityAdvisor(message: string, history: any[] = [], focusIssue?: unknown, signal?: AbortSignal): Promise<RealityAdvisorResult> {
+    if (this.hasActiveRun()) throw new SimulationInProgressError();
+    const fence = this.fenceContext();
+    const context = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), focusIssue);
+    const gameData = this.buildGameData();
+    gameData.advisorContext = context.advisorContext;
+    const text = await this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
+    this.assertFenceValid(fence);
+    const result = parseCouncilIssues(context.advisorContext.verifiedWorldSnapshot, text, 'president');
+    return { ...result, advisorContext: context.advisorContext };
+  }
+
   /**
    * Consiglio senza guardia di run: riservato al commento proattivo del run
    * appena chiuso (stesso ramo, stessa revisione commessa — nessun write-back,
    * solo broadcast).
    */
   private async getAdvisorUnchecked(message: string, history: any[], signal?: AbortSignal,
-    ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string; verifiedState?: string }): Promise<string> {
+    ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string; verifiedState?: string }, ministerSeat?: CabinetSeat): Promise<string> {
     const gameData = this.buildGameData();
+    gameData.advisorContext = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot()).advisorContext;
+    if (ministerSeat) gameData.ministerDialogueSeat = ministerSeat;
     if (ministerMemoryRequest) gameData.ministerMemoryRequest = ministerMemoryRequest;
     return this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
   }
@@ -3391,7 +3451,15 @@ export class GameSession {
     }, signal);
     // Una risposta arrivata dopo cambio di ramo/turno non deve aprire la nuova seduta.
     this.assertFenceValid(fence);
-    return { ...result, seat, narrativeOnly: true as const, persistMemory: false as const, allowDirectives: false as const };
+    return { ...result, reply: this.guardVerifiedProse(result.reply), seat, narrativeOnly: true as const, persistMemory: false as const, allowDirectives: false as const };
+  }
+
+
+  /** Prosa del modello filtrata dal contesto verificato: niente asset, forze o
+   * cambiamenti non registrati pubblicati come fatti. Blocco mirato, non un
+   * controllo universale di veridicità. */
+  private guardVerifiedProse(text: string): string {
+    return guardRealityAdvisorOutput(buildRealityAdvisorContext(this.getVerifiedWorldSnapshot()).advisorContext, text);
   }
 
   /** Dialogo col Presidente: briefing della sedia e provider del Consulente. */
@@ -3400,7 +3468,7 @@ export class GameSession {
     message: string,
     history: any[] = [],
     signal?: AbortSignal,
-  ): Promise<{ reply: string; seat: string }> {
+  ): Promise<{ reply: string; seat: string; issues: CouncilIssue[] }> {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const fence = this.fenceContext();
     const cabinet = readCabinetSession({
@@ -3412,22 +3480,21 @@ export class GameSession {
       // Guerra) ne hanno bisogno, e senza la seduta sarebbe vuota.
       account: this.getNationalAccounts()[this.playerPolityId],
     });
-    const address = cabinet.addresses.find((candidate: { seat: string }) => candidate.seat === seat);
-    if (!address) {
-      throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
-    }
+    const address = this.consultableMinisterAddress(cabinet, seat);
     const selective = getJevConfig().enabled;
     if (selective) {
       // WS-JEV-W4 — Lo stato verificato va al context builder come sezione a sé:
       // la domanda resta l'unico messaggio del giocatore, e la cronologia non
       // viene più duplicata nel suffisso.
       const { question, request } = this.ministerSelectiveFrom(address, message);
-      const reply = await this.getAdvisorUnchecked(question, history, signal, request);
-      return { reply, seat };
+      const text = await this.getAdvisorUnchecked(question, history, signal, request, address.seat);
+      this.assertFenceValid(fence);
+      return { ...parseCouncilIssues(this.getVerifiedWorldSnapshot(), this.guardVerifiedProse(text), 'minister'), seat };
     }
     const question = this.ministerPromptFor(address, message, true);
-    const reply = await this.getAdvisorUnchecked(question, history, signal);
-    return { reply, seat };
+    const text = await this.getAdvisorUnchecked(question, history, signal, undefined, address.seat);
+    this.assertFenceValid(fence);
+    return { ...parseCouncilIssues(this.getVerifiedWorldSnapshot(), this.guardVerifiedProse(text), 'minister'), seat };
   }
 
   /**
@@ -3435,6 +3502,13 @@ export class GameSession {
    * SERVER-SIDE dal governo in carica (mai dal label del client). Con memoria
    * vuota l'elenco è vuoto e il briefing resta identico a prima.
    */
+  private consultableMinisterAddress(cabinet: CabinetSession, seat: string): CabinetAddress {
+    if (!CABINET_SEATS.includes(seat as CabinetSeat)) throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
+    const known = seat as CabinetSeat;
+    return cabinet.addresses.find(address => address.seat === known)
+      ?? { seat: known, label: SEAT_LABEL[known], reads: SEAT_READS[known], items: [], opening: '' };
+  }
+
   private ministerMemoryScopeFor(seat: string): MinisterMemoryScope {
     const fence = this.fenceContext();
     const mandate = mandateFor(seat as any, this.getGovernment(), this.getPlayer()?.polityId ?? null);
@@ -3490,8 +3564,7 @@ export class GameSession {
       government: this.getGovernment(),
       account: this.getNationalAccounts()[this.playerPolityId],
     });
-    const address = cabinet.addresses.find((candidate: { seat: string }) => candidate.seat === seat);
-    if (!address) throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
+    const address = this.consultableMinisterAddress(cabinet, seat);
     const { question, request } = this.ministerSelectiveFrom(address, message);
     return { question, scope: request.scope, verifiedState: request.verifiedState };
   }
@@ -3506,8 +3579,7 @@ export class GameSession {
       government: this.getGovernment(),
       account: this.getNationalAccounts()[this.playerPolityId],
     });
-    const address = cabinet.addresses.find((candidate: { seat: string }) => candidate.seat === seat);
-    if (!address) throw new Error(`minister_unavailable: nessuna sedia "${seat}" in questa seduta`);
+    const address = this.consultableMinisterAddress(cabinet, seat);
     return this.ministerPromptFor(address, message, includeLegacyMemory);
   }
 
@@ -3533,19 +3605,22 @@ export class GameSession {
   ): Promise<string> {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const gameData = this.buildGameData();
+    gameData.advisorContext = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot()).advisorContext;
+    if (CABINET_SEATS.includes(seat as CabinetSeat)) gameData.ministerDialogueSeat = seat;
     if (getJevConfig().enabled) {
       const { question, scope, verifiedState } = this.ministerSelectiveFor(seat, message);
       gameData.ministerMemoryRequest = { scope, query: message, verifiedState };
-      return this.gameController.getAdvisorStreamWithPrompts(gameData, question, history, onToken, signal);
+      return this.guardVerifiedProse(await this.gameController.getAdvisorStreamWithPrompts(gameData, question, history, onToken, signal));
     }
     const prompt = this.ministerPrompt(seat, message, true);
-    return this.gameController.getAdvisorStreamWithPrompts(gameData, prompt, history, onToken, signal);
+    return this.guardVerifiedProse(await this.gameController.getAdvisorStreamWithPrompts(gameData, prompt, history, onToken, signal));
   }
 
   async getAdvisorStream(message: string, history: any[] = [], onToken: (chars: number) => void): Promise<string> {
     // F04 passo 3: stessa politica del non-streaming (409 durante un run).
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const gameData = this.buildGameData();
+    gameData.advisorContext = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot()).advisorContext;
     return this.gameController.getAdvisorStreamWithPrompts(gameData, message, history, onToken);
   }
 

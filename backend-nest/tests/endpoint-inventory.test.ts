@@ -1,6 +1,6 @@
 /**
  * Q02 µ2 — Inventario endpoint mutanti e protezione single-owner.
- * Lo snapshot `docs/implementation/q02-endpoint-inventory.json` è generato da
+ * Lo snapshot test-only `fixtures/endpoint-inventory.json` è generato da
  * questo test (`vitest -u`): se un endpoint nasce o cambia senza aggiornare
  * l'inventario, il test fallisce.
  */
@@ -15,7 +15,7 @@ import {
 } from '../src/security/route-inventory';
 
 const ROUTES_DIR = path.resolve(__dirname, '../src/routes');
-const INVENTORY_FILE = path.resolve(__dirname, '../../docs/implementation/q02-endpoint-inventory.json');
+const INVENTORY_FILE = path.resolve(__dirname, 'fixtures/endpoint-inventory.json');
 
 function walk(dir: string): string[] {
   const found: string[] = [];

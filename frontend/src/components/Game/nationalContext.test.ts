@@ -92,23 +92,23 @@ describe('deriveRailItems', () => {
     const items = deriveRailItems({ activeModule: 'news', totalUnread: 3, unreadFeedCount: 7, openModule });
     // WS-GOV-ADVISOR-HUB: la voce «Questioni» non esiste più; il Governo è
     // l'unica porta delle situazioni. «Forze» resta accanto alle voci d'azione.
-    expect(items.map(i => i.id)).toEqual(['orders', 'forze', 'diplomacy', 'advisor', 'news', 'nation']);
+    expect(items.map(i => i.id)).toEqual(['orders', 'forze', 'diplomacy', 'news', 'nation']);
     expect(items.find(i => i.id === 'news')).toMatchObject({ badge: 7, active: true });
     expect(items.find(i => i.id === 'diplomacy')).toMatchObject({ badge: 3, active: false });
     items[0].onClick();
     expect(openModule).toHaveBeenCalledWith('orders');
   });
 
-  it('WS-GOV-ADVISOR-HUB: il distintivo delle sfide aperte vive su «Governo»', () => {
+  it('il Governo non presenta conteggi di quest o una seconda porta Consulente', () => {
     const openModule = vi.fn();
     const base = { activeModule: 'none', totalUnread: 0, unreadFeedCount: 0, openModule };
 
     expect(deriveRailItems({ ...base, openQuestions: 0 }).find(i => i.id === 'orders')?.badge).toBe(0);
     const withOpen = deriveRailItems({ ...base, openQuestions: 3 }).find(i => i.id === 'orders')!;
-    expect(withOpen.badge).toBe(3);
+    expect(withOpen.badge).toBe(0);
     withOpen.onClick();
     expect(openModule).toHaveBeenCalledWith('orders');
     // La voce separata «Questioni» non è più nella barra comandi.
-    expect(deriveRailItems(base).some(i => i.id === 'questioni')).toBe(false);
+    expect(deriveRailItems(base).some(i => i.id === 'questioni' || i.id === 'advisor')).toBe(false);
   });
 });
