@@ -51,6 +51,8 @@ export class SessionBootstrapService {
     this.state.worldName = world.name || '';
     this.state.worldBasePrompt = world.base_prompt || '';
     this.state.worldStartDate = world.start_date || '1951-01-01';
+    // Background storico canonico della partita (real history → start date).
+    this.state.historicalBaseline = gameRepository.getHistoricalBaseline(this.ctx.gameId) || '';
     this.state.worldSimulationRules = world.simulation_rules || undefined;
     this.state.difficulty = normalizeDifficulty(difficulty);
     this.state.taxRatePct = gameRepository.getTaxRatePct(this.ctx.gameId);
@@ -186,6 +188,7 @@ export class SessionBootstrapService {
     this.state.worldName = world?.name || '';
     this.state.worldBasePrompt = data.basePrompt || world?.base_prompt || '';
     this.state.worldStartDate = world?.start_date || '';
+    this.state.historicalBaseline = gameRepository.getHistoricalBaseline(this.ctx.gameId) || '';
     this.state.worldSimulationRules = world?.simulation_rules || undefined;
 
     // Restore player's polity (persisted in players.polity_id; fallback —

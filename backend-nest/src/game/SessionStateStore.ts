@@ -52,6 +52,11 @@ export class SessionStateStore {
   worldName = '';
   worldBasePrompt = '';
   worldStartDate = '';
+  /**
+   * WS-GOV-ADVISOR-HISTORICAL-BASELINE: storia REALE del paese fino alla data
+   * iniziale, generata una volta e resa canonica per la partita.
+   */
+  historicalBaseline = '';
   /** Этап 5: кастомные правила симуляции мира (rules.md пресет-пакета) */
   worldSimulationRules: string | undefined = undefined;
 

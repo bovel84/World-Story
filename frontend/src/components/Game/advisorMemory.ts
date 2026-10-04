@@ -116,6 +116,58 @@ export function loadAdvisorArchive(gameId: string, branchId: string | null, curr
   return archived;
 }
 
+/**
+ * WS-GOV-ADVISOR-HISTORICAL-BASELINE — La prima apertura del Governo è una
+ * generazione LLM (storia del paese + presente + direzioni): la si conserva per
+ * bucket, così riaprire il Governo non ripaga una nuova chiamata al provider.
+ */
+export interface AdvisorOpening {
+  reply: string;
+  issues: CouncilIssue[];
+  date: string | null;
+}
+
+const OPENING_PREFIX = 'ws.advisor.opening';
+
+/** Bucket dedicato: non entra nella scansione dell'archivio conversazione. */
+export function advisorOpeningKey(gameId: string, branchId: string | null, scopeKey: string): string {
+  return `${OPENING_PREFIX}::${gameId || 'no-game'}::${branchId || 'no-branch'}::${scopeKey || 'no-scope'}`;
+}
+
+/** Apertura persistita; `null` se assente o illeggibile. */
+export function loadAdvisorOpening(key: string): AdvisorOpening | null {
+  const storage = storageOrNull();
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { reply?: unknown; issues?: unknown; date?: unknown } | null;
+    const reply = text(parsed?.reply);
+    if (!reply) return null;
+    return {
+      reply,
+      issues: sanitizeIssues(parsed?.issues) ?? [],
+      date: typeof parsed?.date === 'string' && parsed.date ? parsed.date : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveAdvisorOpening(key: string, opening: AdvisorOpening): void {
+  const storage = storageOrNull();
+  if (!storage) return;
+  try {
+    storage.setItem(key, JSON.stringify({
+      reply: opening.reply,
+      ...(opening.issues.length ? { issues: opening.issues } : {}),
+      date: opening.date,
+    }));
+  } catch {
+    /* storage pieno o non disponibile: l'apertura si rigenera */
+  }
+}
+
 /** Scrive il turno corrente; un errore di quota/storage non interrompe la chat. */
 export function saveAdvisorMessages(key: string, messages: readonly AdvisorMessage[]): void {
   const storage = storageOrNull();

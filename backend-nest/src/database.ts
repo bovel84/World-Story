@@ -536,6 +536,16 @@ export function initDatabase() {
     if (!e.message.includes('duplicate column name')) { /* уже есть */ }
   }
 
+  // Migration (WS-GOV-ADVISOR-HISTORICAL-BASELINE): background storico reale
+  // del paese fino alla data iniziale. Generato una volta e reso canonico per
+  // la partita, così il Consulente non riparte da zero a ogni sessione.
+  try {
+    db.exec("ALTER TABLE games ADD COLUMN historical_baseline TEXT DEFAULT ''");
+    console.log('[Migration] Added historical_baseline to games');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) { /* уже есть */ }
+  }
+
   // Players table
   db.exec(`
     CREATE TABLE IF NOT EXISTS players (
