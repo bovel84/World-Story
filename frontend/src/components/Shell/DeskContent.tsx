@@ -293,7 +293,7 @@ export function DeskContent({
             crisis={nationalCrisis}
             // V01 — dalla sintesi del dossier si salta al pannello Questioni
             // per rispondere a una sfida: le sfide non si risolvono più qui.
-            onOpenQuestions={() => openModule('questioni')}
+            onOpenQuestions={() => openModule('orders')}
             strategicAgenda={strategicAgenda}
             commitments={commitments}
             today={currentGame?.currentDate || ''}

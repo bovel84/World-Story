@@ -6,7 +6,7 @@
 import type { Region } from '../../../types';
 import type {
   ArsenalResponse, Commitment, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, PowerAgenda,
-  GovernmentVoicesResponse, NaturalResourceSummary, PeacetimePressure, GovernmentFollowUpView,
+  GovernmentVoicesResponse, NaturalResourceSummary, PeacetimePressure, GovernmentFollowUpView, GovernmentAdvisorBriefView,
   ResourceQuote, SovereignDebtTranche,
 } from '../../../services/api';
 import type { Trend, TrendTone } from '../accountTrend';
@@ -148,6 +148,8 @@ export interface NationDockProps {
   pressures?: PeacetimePressure[] | null;
   /** WS-GOV-SITUATIONS-LOOP P1.8 — i seguiti dovuti delle decisioni chiuse. */
   followUps?: GovernmentFollowUpView[] | null;
+  /** WS-GOV-ADVISOR-HUB — il briefing del Primo Consulente. */
+  brief?: GovernmentAdvisorBriefView | null;
   /** V01 — apre il pannello Questioni, dove le sfide si risolvono. */
   onOpenQuestions?: () => void;
   /** Crisi nazionale: rischi di rivolta, default, invasione ed epilogo. */

@@ -60,7 +60,7 @@ test('situazione → Consiglio → decisione composta → risoluzione con gli st
 
   await reachHud(page);
   await openGovernment(page);
-  await page.locator('.gov-situation').first().getByRole('button', { name: 'Apri Consiglio', exact: true }).click();
+  await page.locator('.gov-situation').first().getByRole('button', { name: 'Porta al Consiglio', exact: true }).click();
 
   const room = page.locator('.council-room');
   await expect(room).toBeVisible({ timeout: 10_000 });
@@ -114,7 +114,7 @@ test('Apri rapporto apre un VERO follow-up con gli outcome reali', async ({ page
 
   await reachHud(page);
   await openGovernment(page);
-  await expect(page.getByText('DA RIFERIRE', { exact: true })).toBeVisible();
+  await expect(page.getByText('RAPPORTI DA LEGGERE', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Apri rapporto', exact: true }).click();
 
   const room = page.locator('.council-room');

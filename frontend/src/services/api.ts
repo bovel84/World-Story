@@ -620,6 +620,21 @@ export interface GovernmentFollowUpView {
   situation: GovernmentSituationView;
 }
 
+/** WS-GOV-ADVISOR-HUB — il briefing del Primo Consulente (read model strutturato). */
+export interface CabinetRosterEntryView {
+  seat: string;
+  label: string;
+  state: 'engaged' | 'available';
+}
+
+export interface GovernmentAdvisorBriefView {
+  date: string;
+  situations: GovernmentSituationView[];
+  followUps: GovernmentFollowUpView[];
+  cabinet: CabinetRosterEntryView[];
+  recentDecisions: Array<{ pressureId: string; title: string; resolution: string }>;
+}
+
 /** Sfida di pace: interna o esterna, con le opzioni di risposta. */
 export interface PeacetimePressure {
   id: string;
@@ -1280,6 +1295,7 @@ export const gameApi = {
     recent: PeacetimePressure[];
     foodCoverageMonths: number | null;
     followUps?: GovernmentFollowUpView[];
+    brief?: GovernmentAdvisorBriefView;
   }> =>
     fetchApi(`/games/${gameId}/pressures`),
 

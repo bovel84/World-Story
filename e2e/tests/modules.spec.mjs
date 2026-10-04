@@ -150,7 +150,7 @@ test.describe('Q01 µ2 — moduli della scrivania', () => {
     await openGovernment(page);
     const ufficio = page.locator('.government-office');
     await expect(ufficio).toHaveAttribute('aria-modal', 'true');
-    await expect(ufficio.locator('#government-office-title')).toContainText('Sala del Consiglio');
+    await expect(ufficio.locator('#government-office-title')).toContainText('Governo');
     await expect(page.locator('.game-shell-desk')).toHaveCount(0);
     await expect(ufficio.locator('.order-register')).toBeVisible();
     await expect(ufficio.locator('.cabinet-pick')).toHaveCount(2);

@@ -119,9 +119,9 @@ describe('V01 — lo storico delle questioni chiuse', () => {
 });
 
 describe('V01 — il distintivo della barra comandi', () => {
-  it('la barra ha la voce Questioni con il conteggio delle sfide attive', () => {
-    expect(RAIL_CONTEXT).toMatch(/id: 'questioni'/);
-    expect(RAIL_CONTEXT).toMatch(/label: 'Questioni'/);
+  it('WS-GOV-ADVISOR-HUB: la barra non ha più una voce Questioni separata', () => {
+    expect(RAIL_CONTEXT).not.toMatch(/id: 'questioni'/);
+    expect(RAIL_CONTEXT).toMatch(/id: 'orders'/);
     expect(RAIL_CONTEXT).toMatch(/badge: openQuestions > 0 \? openQuestions : 0/);
   });
 
