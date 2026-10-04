@@ -15,6 +15,15 @@
  * gli stessi tetti degli altri effetti nazionali.
  */
 
+/**
+ * WS-GOV-REALITY-ADVISOR-HARDENING — LEGACY / DETECTOR ONLY.
+ *
+ * Nel workflow del Consulente verificato queste Pressure NON sono più quest: il
+ * loro ciclo non applica più effetti, non genera conseguenze e non apre nuove
+ * questioni. Restano una fonte di READ MODEL (finestra, priorità, follow-up di
+ * atti risolti) e un percorso di risoluzione esplicita solo per le stanze
+ * legacy `sourceSituation` già salvate.
+ */
 import { addDays } from './calendar';
 
 export type PressureKind = 'internal' | 'external';

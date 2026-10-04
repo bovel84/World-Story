@@ -10,7 +10,8 @@
  *  - aprire Chat/Ordini/Consulente/Notizie chiude Nazione e viceversa;
  *  - 'none' è l'unico stato senza pannello.
  *
- * V01 — `questioni` è il pannello delle sfide di pace, **fuori** dal dossier
+ * V01 — LEGACY/DETECTOR ONLY: `questioni` è il vecchio pannello delle Pressure,
+ * **fuori** dal dossier
  * nazionale: il dossier è un documento di stato, le risposte alle pressioni si
  * danno qui. Il modulo non aggiunge dati: monta le stesse pressioni che il
  * dossier riceveva (`nationalPressures`, `onResolvePressure`).

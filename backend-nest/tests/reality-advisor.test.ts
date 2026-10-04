@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 import { resolveCouncilIssue, parseCouncilIssues } from '../src/core/government/CouncilIssue';
 import { buildRealityAdvisorContext, verifiedRequestCorrection, guardRealityAdvisorOutput, buildRealityAdvisorPrompt } from '../src/core/government/RealityAdvisor';
+import { buildRealitySignals } from '../src/core/government/RealitySignals';
 
 const snapshot = () => buildVerifiedWorldSnapshot({ gameData: {
   id: 'uganda-game', playerPolityId: 'UGA', playerPolityName: 'Uganda', currentDate: '1951-01-01', currentTurn: 1,
@@ -39,13 +40,22 @@ describe('verified reality boundary', () => {
     expect(issue.sourceRefs).toEqual([snapshot().facts.treasury.sourceRef]);
     expect(issue.createdDate).toBe('1951-01-01');
   });
-  it('food issue uses measured facts, no Pressure options, with natural deterministic opening', () => {
+  it('WS-GOV-REALITY-ADVISOR-HARDENING: nessuna issue automatica; il briefing legge i segnali misurati', () => {
     const result = buildRealityAdvisorContext(snapshot());
     expect(result.reply).toContain('0,8 mesi');
     expect(result.reply).not.toMatch(/sfida|quest|pressione|sces[aeo]/i);
-    expect(result.issues[0].suggestedMinisters).toEqual(['interno', 'tesoro', 'lavori']);
-    expect(result.issues[0].verifiedFacts.map(fact => fact.key)).toContain('foodCoverageMonths');
-    expect(result.issues[0]).not.toHaveProperty('options');
+    // Il Consulente PARLA della copertura alimentare ma NON crea una quest:
+    // la questione nasce solo se il modello la propone o il Presidente la chiede.
+    expect(result.issues).toEqual([]);
+    expect(result.advisorContext.governmentBrief).toContain('richiede attenzione');
+  });
+  it('segnali generici dal quadro: food, economy, social senza quest predefinite', () => {
+    const world = snapshot();
+    world.facts.monthlyBalance = { key: 'monthlyBalance', label: 'Saldo mensile', value: '-2 mld USD/mese', rawValue: -2, source: 'national_economy', sourceRef: 'worldState.accounts.UGA.monthlyBalance' };
+    world.facts.socialTension = { key: 'socialTension', label: 'Tensione sociale', value: '65 / 100', rawValue: 65, source: 'national_economy', sourceRef: 'worldState.accounts.UGA.socialTension' };
+    const keys = buildRealitySignals(world).map(signal => signal.key);
+    expect(keys).toEqual(expect.arrayContaining(['food-coverage', 'monthly-balance', 'social-tension']));
+    expect(keys.every(key => !/issue|quest/i.test(key))).toBe(true);
   });
   it('accepts model-proposed presidential railway issue, without regex-generated facts', () => {
     const raw = 'Sentirei Lavori e Tesoro.\n```council_issue\n' + JSON.stringify({ title: 'Nuova ferrovia strategica', question: 'Quale tracciato e copertura?', factKeys: ['railways', 'treasury'], suggestedMinisters: ['lavori', 'tesoro'] }) + '\n```';
