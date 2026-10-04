@@ -19,7 +19,7 @@ import {
 } from './prompts/simulation';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
 import { renderRealityConcerns } from './core/government/RealitySignals';
-import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
+import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
 import { COUNCIL_ISSUE_PROTOCOL, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
@@ -1631,7 +1631,7 @@ export class PromptEngine {
     const correction = verifiedRequestCorrection(context.verifiedWorldSnapshot, message);
     if (correction) return correction;
     const preset = await advisorPresetStyle(builder, game, message, history, vars);
-    const prompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor');
+    const prompt = buildRealityAdvisorPrompt(withAdvisorStrategicContext(context, game.world.startDate, game.results ?? [], message), message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor');
     const response = await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, { temperature: 0.5, signal });
     return validatedAdvisorText(context, response.content);
   }
@@ -1664,7 +1664,7 @@ export class PromptEngine {
     const correction = verifiedRequestCorrection(context.verifiedWorldSnapshot, message);
     if (correction) return correction;
     const preset = await advisorPresetStyle(builder, game, message, history, vars);
-    const prompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor');
+    const prompt = buildRealityAdvisorPrompt(withAdvisorStrategicContext(context, game.world.startDate, game.results ?? [], message), message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor');
     // Progress is observable, but no unvalidated prose is published. Even providers
     // emitting string chunks are buffered until the complete response is guarded.
     const response = await this.llm.stream('advisor', VERIFIED_FACT_POLICY, prompt, progress => {

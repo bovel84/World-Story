@@ -155,6 +155,28 @@ describe('Этап 3: живой Советник', () => {
     expect(capturedAdvisorPrompt).toContain('Оцени моё положение');
   });
 
+  it('passes the preset cutoff and older dated game memory to both advisor prompt paths', async () => {
+    const { session } = createGame();
+    const gameData = session.buildGameData();
+    gameData.world.startDate = '2000-01-01';
+    gameData.currentDate = '2002-01-01';
+    gameData.currentTurn = 20;
+    gameData.results = Array.from({ length: 19 }, (_, i) => ({
+      id: `r${i}`, turn: i + 1, date: i === 0 ? '2000-02-01' : '2001-12-01',
+      events: [i === 0 ? 'Riforma agraria approvata' : `Cronaca ${i}`], narration: '',
+    }));
+    const controller = new GameController(stubProvider);
+    controller.initPromptEngine(gameData);
+    await controller.getAdvisorWithPrompts(gameData, 'Come procede la riforma agraria?', []);
+    expect(capturedAdvisorPrompt).toContain('Data iniziale del preset: 2000-01-01');
+    expect(capturedAdvisorPrompt).toContain('Riforma agraria approvata');
+    expect(capturedAdvisorPrompt).toContain('2000-02-01');
+    await controller.getAdvisorStreamWithPrompts(gameData, 'Come procede la riforma agraria?', [], () => {});
+    expect(capturedAdvisorPrompt).toContain('Data iniziale del preset: 2000-01-01');
+    expect(capturedAdvisorPrompt).toContain('Riforma agraria approvata');
+    expect(capturedAdvisorPrompt).toContain('2000-02-01');
+  });
+
   it('session.getAdvisorStream (когда добавлен промпт-слоем) стримит через механику advisor', async () => {
     const { session } = createGame();
     if (typeof session.getAdvisorStream !== 'function') {
