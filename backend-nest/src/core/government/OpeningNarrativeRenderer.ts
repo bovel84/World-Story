@@ -78,7 +78,7 @@ export async function renderOpeningNarrative(
       generated: true,
       deterministic: false,
       world: { ...deterministic.world, narrative: parsed.world },
-      nation: { framing: nationFraming },
+      nation: { framing: nationFraming, questions: [...context.nation.questions] },
       council,
     };
   } catch {

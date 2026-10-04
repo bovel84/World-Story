@@ -47,10 +47,57 @@ const finite = (value: unknown): number | null =>
 export function renderRealityConcerns(snapshot: VerifiedWorldSnapshot): string | undefined {
   const signals = buildRealitySignals(snapshot).slice(0, 5);
   if (!signals.length) return undefined;
-  return [
-    '[SEGNALI VERIFICATI DEL MOMENTO — non sono quest: nessuna opzione da scegliere]',
+  return stripTechnicalLines([
+    '[SEGNALI DEL MOMENTO — non sono quest: nessuna opzione da scegliere]',
     ...signals.map(signal => `- [${realitySignalClass(signal.importance)}] ${signal.reason}`),
-  ].join('\n');
+  ].join('\n'));
+}
+
+/**
+ * WS-GOV-PRESET-REALITY-PIPELINE §4/§11 — VOCABOLARIO TECNICO VIETATO al giocatore.
+ * Se una riga ne contiene uno, non deve uscire: era il Consulente che sembrava
+ * un debugger del database.
+ */
+const TECHNICAL_VOCABULARY = /\b(?:FACT|inventory|account|sourceRefs?|source_refs?|canonical|fallback|JSON|field|fields|registrat[oaie]|non registrat[oaie]|ai fini del gioco|dati interni|VerifiedWorldSnapshot)\b/i;
+
+export function hasTechnicalVocabulary(text: string): boolean {
+  return TECHNICAL_VOCABULARY.test(String(text ?? ''));
+}
+
+/** Rimuove le righe con linguaggio tecnico; `undefined` se non resta nulla. */
+export function stripTechnicalLines(text: string): string | undefined {
+  const kept = String(text ?? '').split('\n').filter(line => line.trim() && !hasTechnicalVocabulary(line));
+  return kept.length ? kept.join('\n') : undefined;
+}
+
+/** La domanda politica che corrisponde a un segnale: testo piano, senza cifre. */
+function questionForSignal(signal: RealitySignal): string {
+  switch (signal.domain) {
+    case 'food': return 'Come garantiamo le scorte alimentari?';
+    case 'economy': return 'Come teniamo sotto controllo le finanze?';
+    case 'social': return 'Come riduciamo la tensione sociale?';
+    case 'military': return 'Come ristabiliamo la prontezza delle forze?';
+    case 'diplomacy': return 'Come gestiamo i rapporti con i vicini ostili?';
+    case 'project': return 'Come sblocchiamo le opere in ritardo?';
+    case 'report': return 'Cosa facciamo con i rapporti sugli atti precedenti?';
+    case 'decision': return 'Come proseguiamo le decisioni appena prese?';
+    case 'inaction': return 'Su cosa decidiamo, ora che la finestra si è chiusa?';
+    default: return 'Su cosa vuole che ci concentriamo?';
+  }
+}
+
+/**
+ * §3B/§3C — La situazione reale del paese e le 1-3 questioni che ne derivano:
+ * testo PIANO, dalla stessa fonte del briefing del Consulente (nessuna seconda
+ * realtà, nessun termine tecnico, nessuna cifra inventata).
+ */
+export function nationalQuestions(snapshot: VerifiedWorldSnapshot, max = 3): string[] {
+  return buildRealitySignals(snapshot).slice(0, max).map(questionForSignal);
+}
+
+export function nationalSituationLines(snapshot: VerifiedWorldSnapshot, max = 3): string[] {
+  return stripTechnicalLines(buildRealitySignals(snapshot).slice(0, max).map(signal => `- ${signal.reason}`).join('\n'))
+    ?.split('\n').map(line => line.replace(/^-\s*/, '').trim()).filter(Boolean) ?? [];
 }
 
 export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySignal[] {

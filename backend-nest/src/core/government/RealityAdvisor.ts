@@ -1,7 +1,7 @@
 /** Verified reality → interpretation → optional issue. No writes, quests or fabricated deltas. */
 import type { AdvisorMessage } from '../../prompts/types';
 import { COUNCIL_ISSUE_PROTOCOL, resolveCouncilIssue, type CouncilIssue } from './CouncilIssue';
-import { buildRealitySignals } from './RealitySignals';
+import { buildRealitySignals, stripTechnicalLines } from './RealitySignals';
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 
 export interface RealityAdvisorContext {
@@ -47,7 +47,9 @@ export function buildRealityAdvisorContext(snapshot: VerifiedWorldSnapshot, focu
   if (!lines.length) {
     lines.push('- non ho un dato verificato che richieda attenzione adesso: possiamo esaminare i programmi e la loro copertura.');
   }
-  const governmentBrief = `Presidente, ecco cosa richiede attenzione oggi:\n${lines.join('\n')}`;
+  // §4 — Mai linguaggio tecnico al giocatore: se una riga ne contenesse, esce.
+  const governmentBrief = stripTechnicalLines(`Presidente, ecco cosa richiede attenzione oggi:\n${lines.join('\n')}`)
+    ?? 'Presidente, non ho un dato verificato che richieda attenzione adesso: possiamo esaminare i programmi e la loro copertura.';
   return { advisorContext: { verifiedWorldSnapshot: snapshot, governmentBrief, ...(focusIssue ? { focusIssue } : {}) }, reply: governmentBrief, issues: [] };
 }
 
