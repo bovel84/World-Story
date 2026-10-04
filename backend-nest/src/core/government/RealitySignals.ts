@@ -11,7 +11,7 @@
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 
 export type RealitySignalDomain =
-  | 'economy' | 'food' | 'military' | 'diplomacy' | 'infrastructure' | 'social' | 'project' | 'report' | 'decision';
+  | 'economy' | 'food' | 'military' | 'diplomacy' | 'infrastructure' | 'social' | 'project' | 'report' | 'decision' | 'inaction';
 
 /**
  * §5 — Classificazione interna del Capo di Gabinetto. NON è una lista di cose da
@@ -135,7 +135,9 @@ export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySig
 
   // DECISION — atti e decisioni recenti: il Consulente li CONOSCE e li porta
   // nel nuovo turno senza riproporli come questioni aperte.
-  const decisions = snapshot.recent.decisions ?? [];
+  // §5 — Solo decisioni REALMENTE prese: una finestra chiusa senza scelta
+  // (`expired`) non è una decisione del Presidente, è inazione.
+  const decisions = (snapshot.recent.decisions ?? []).filter(decision => decision.status === 'resolved');
   if (decisions.length) {
     const latest = decisions.slice(-3);
     push({
@@ -144,6 +146,20 @@ export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySig
       reason: latest.length === 1
         ? `decisione presa: «${latest[0].title}»${latest[0].resolution ? ` — ${latest[0].resolution}` : ''}`
         : `decisioni prese di recente: ${latest.map(decision => `«${decision.title}»`).join(', ')}`,
+    });
+  }
+
+  // INAZIONE — finestre di decisione chiuse senza una scelta: il Consulente lo
+  // dice come tale, senza attribuire al Presidente una decisione che non c'è.
+  const inactions = (snapshot.recent.decisions ?? []).filter(decision => decision.status === 'expired');
+  if (inactions.length) {
+    const latest = inactions.slice(-2);
+    push({
+      key: 'inaction', domain: 'inaction', importance: 2, factKeys: [],
+      sourceRefs: latest.map(decision => `decisions.${decision.id}`),
+      reason: latest.length === 1
+        ? `nessuna decisione presa su «${latest[0].title}»: la finestra si è chiusa`
+        : `nessuna decisione presa su ${latest.map(decision => `«${decision.title}»`).join(', ')}`,
     });
   }
 
