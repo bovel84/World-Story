@@ -54,6 +54,7 @@ const authored = (input: CountryProfileInput, type: string) => input.regions.fil
  * USA personnel: DoD historical manpower (FY2000 ~1.38m active, ~0.87m reserve).
  * BIH: post-Dayton separate forces ~30k around 2000; integrated 2024 AF ~9k.
  * Budget/readiness/training are conservative gameplay estimates, marked medium.
+ * These values seed the FALLBACK, not protected completion anchors.
  * Do not propagate these to other years. */
 function countryEstimate(input: CountryProfileInput) {
   const year = Number(input.startDate.slice(0, 4));
@@ -146,22 +147,23 @@ export function validateCountryInitialProfile(raw: unknown, input: CountryProfil
 }
 
 /** Optional one-call completion; deadline and invalid output never block creation.
- * Strong structured/map anchors and start-year country estimates win over prose. */
+ * Reliable structured/map anchors win; approximate fallback values remain estimable. */
 export async function generateCountryInitialProfile(input: CountryProfileInput, complete?: CountryProfileCompleter): Promise<CountryInitialProfile> {
   const fallback = buildCountryInitialProfile(input);
   if (!complete) return fallback;
+  const gdp = referenceGdpUsdBillionsForDate(input.polityId, input.startDate);
+  const debt = referenceDebtToGdpPctForDate(input.polityId, input.startDate);
+  const anchors = { population: fallback.population, nominalGdpUsdBillions: gdp, debtRatioPct: debt,
+    infrastructure: fallback.infrastructure, mapBaseline: fallback.mapBaseline };
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const response = await Promise.race([
-      complete('Complete the initial national profile as JSON ONLY. Money and monthly flows are BILLIONS USD. Use only knowledge BEFORE the start date. Current map/structured facts outrank historical prose; estimate missing values conservatively. Never add geography, treaties, locations or future technologies. Return the supplied schema, marking estimates low/medium confidence.', JSON.stringify({ country: input.countryName ?? input.polityId, startDate: input.startDate, historicalBaseline: input.historicalBaseline || '', authoritativeMap: input.regions.filter(r => r.owner === input.polityId), fallback }), controller.signal),
+      complete('Complete the initial national profile as JSON ONLY. Money and monthly flows are BILLIONS USD. Use only knowledge BEFORE the start date. Reliable date-specific structured data > map/preset > historicalBaseline > your estimates > deterministic fallback. Non-null anchors are immutable; null anchors are missing, not zero. Fallback manpower, reserves, readiness, training, logistics, treasury and budget/society rates are approximate and may be completed even for USA/Bosnia. Use historicalBaseline to inform these estimates, never to certify current assets. Never add geography, treaties, locations or future technologies. Return the supplied schema, marking estimates low/medium confidence.', JSON.stringify({ country: input.countryName ?? input.polityId, startDate: input.startDate, historicalBaseline: input.historicalBaseline || '', authoritativeMap: input.regions.filter(r => r.owner === input.polityId), anchors, fallback }), controller.signal),
       new Promise<never>((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new Error('Profile timeout')); }, 10_000); }),
     ]);
     const raw = JSON.parse(response.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')) as CountryInitialProfile;
     // Never allow the LLM to rewrite identity, demographic/map growth anchors or inventory.
-    const gdp = referenceGdpUsdBillionsForDate(input.polityId, input.startDate);
-    const debt = referenceDebtToGdpPctForDate(input.polityId, input.startDate);
-    const known = countryEstimate(input);
     raw.version = 1; raw.polityId = input.polityId; raw.startDate = input.startDate; raw.population = fallback.population;
     raw.mapBaseline = fallback.mapBaseline; raw.infrastructure = fallback.infrastructure;
     if (!raw.economy || !raw.military) return fallback;
@@ -175,7 +177,6 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
       raw.economy.nominalGdpUsdBillions = gdp;
     }
     if (debt !== null) raw.economy.debtRatioPct = debt;
-    if (known) return fallback; // All remaining fields already have explicit start-year estimates.
     return validateCountryInitialProfile(raw, input) ?? fallback;
   } catch { return fallback; }
   finally { if (timeout) clearTimeout(timeout); controller.abort(); }

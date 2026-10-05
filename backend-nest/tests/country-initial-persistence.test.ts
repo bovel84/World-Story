@@ -1,5 +1,9 @@
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import fs from 'node:fs';
+import { HISTORICAL_BASELINE_SYSTEM } from '../src/core/government/HistoricalBaseline';
+import type { CountryInitialProfile } from '../src/core/simulation/CountryInitialProfile';
+const background = 'Gli accordi di Dayton del novembre 1995 posero fine alla guerra in Bosnia ed Erzegovina iniziata nel 1992. Sarajevo era stata al centro del conflitto; il nuovo ordinamento mantenne la Bosnia ed Erzegovina come Stato articolato nella Federazione di Bosnia ed Erzegovina e nella Republika Srpska. La ricostruzione delle istituzioni e il ritorno degli sfollati rimasero questioni centrali dopo la pace.';
+const historyResponse = { content: JSON.stringify({ entries: [{ date: '1995-12-14', text: background, confidence: 'high' }] }) };
 const file = `/tmp/country-profile-persist-${process.pid}.db`;
 process.env.OPEN_PAX_DB_PATH = file;
 let db: any, registry: any, profiles: any;
@@ -20,21 +24,26 @@ afterAll(() => { db?.close(); for (const suffix of ['', '-wal', '-shm']) fs.rmSy
 describe('bootstrap canonical persistence', () => {
   it('a pending estimate cannot be reconstructed/read before the final profile is persisted', async () => {
     let release!: (result: { content: string }) => void;
-    const pausedProvider = { ...provider, generate: () => new Promise<{ content: string }>(resolve => { release = resolve; }) };
+    let started!: () => void;
+    const profileStarted = new Promise<void>(resolve => { started = resolve; });
+    const pausedProvider = { ...provider, generate: (_mechanic: string, system: string) => system === HISTORICAL_BASELINE_SYSTEM
+      ? Promise.resolve(historyResponse) : new Promise<{ content: string }>(resolve => { release = resolve; started(); }) };
     const { initSessionRegistry } = await import('../src/session-registry');
     const pendingRegistry = initSessionRegistry(pausedProvider as never);
     const pending = pendingRegistry.createSession('profile-world', '', 'profile-BIH', '#112233', undefined, true);
     expect(pendingRegistry.getSession(pending.gameId)).toBeNull();
     expect(profiles.get(pending.gameId, 'BIH')).toBeNull();
+    await profileStarted;
     release({ content: '{}' });
     await pending.ready;
     expect(pendingRegistry.getSession(pending.gameId)).toBe(pending.session);
     expect(profiles.get(pending.gameId, 'BIH')).toBeTruthy();
   });
   it('mock-only estimate once; reads/reload never generate; separate games bootstrap independently', async () => {
+    const callsBefore = providerCalls;
     const first = registry.createSession('profile-world', 'ignored', 'profile-BIH', '#112233', undefined, true);
     await first.ready;
-    expect(providerCalls).toBe(1);
+    expect(providerCalls).toBe(callsBefore + 2);
     const saved = profiles.get(first.gameId, 'BIH');
     expect(saved.economy.nominalGdpUsdBillions).toBe(5.5);
     expect(profiles.get(first.gameId, 'USA').economy.debtRatioPct).toBe(55);
@@ -44,12 +53,76 @@ describe('bootstrap canonical persistence', () => {
     const game = db.prepare('SELECT * FROM games WHERE id=?').get(first.gameId);
     rebuilt.reconstructFromDB({ currentTurn: game.current_turn, currentDate: game.current_date, players: [first.session.getPlayer()] });
     expect(profiles.get(first.gameId, 'BIH')).toEqual(saved);
-    expect(providerCalls).toBe(1);
+    expect(providerCalls).toBe(callsBefore + 2);
     const second = registry.createSession('profile-world', 'ignored', 'profile-BIH', '#112233', undefined, true);
     await second.ready;
     expect(second.gameId).not.toBe(first.gameId);
-    expect(providerCalls).toBe(2);
+    expect(providerCalls).toBe(callsBefore + 4);
     expect(profiles.get(second.gameId, 'BIH').economy).toEqual(saved.economy);
+  });
+  it('new Bosnia persists history before profile completion, reuses it on reads/reload, and makes no NPC calls', async () => {
+    const calls: string[] = [];
+    let profileInput: { historicalBaseline: string; fallback: CountryInitialProfile } | undefined;
+    const mock = { ...provider, generate: async (_mechanic: string, system: string, prompt: string) => {
+      if (system === HISTORICAL_BASELINE_SYSTEM) { calls.push('history'); return historyResponse; }
+      calls.push('profile');
+      profileInput = JSON.parse(prompt);
+      const persisted = db.prepare("SELECT historical_background FROM game_polity_historical_baselines WHERE polity_id='BIH' ORDER BY rowid DESC LIMIT 1").get()?.historical_background;
+      expect(persisted).toBe(profileInput!.historicalBaseline);
+      const fallback = profileInput!.fallback;
+      return { content: JSON.stringify({ ...fallback, military: { ...fallback.military, readinessPct: 64 } }) };
+    } };
+    const { initSessionRegistry } = await import('../src/session-registry');
+    const localRegistry = initSessionRegistry(mock as never);
+    const first = localRegistry.createSession('profile-world', '', 'profile-BIH', '#112233', undefined, true);
+    await first.ready;
+    expect(calls).toEqual(['history', 'profile']);
+    expect(profileInput?.historicalBaseline).toBe(background);
+    expect(profiles.get(first.gameId, 'BIH').military.readinessPct).toBe(64);
+    expect(profiles.get(first.gameId, 'USA').provenance.source).not.toBe('llm-estimate');
+    expect(await first.session.getHistoricalBaseline()).toBe(background);
+    first.session.getNationalAccounts();
+    const { GameSession } = await import('../src/game-session');
+    const rebuilt = new GameSession(first.gameId, 'profile-world', mock as never);
+    rebuilt.reconstructFromDB({ currentTurn: 1, currentDate: '2000-01-01', players: [first.session.getPlayer()] });
+    expect(await rebuilt.getHistoricalBaseline()).toBe(background);
+    expect(profiles.get(first.gameId, 'BIH').military.readinessPct).toBe(64);
+    expect(calls).toEqual(['history', 'profile']);
+  });
+  it('an existing persisted baseline is reused without a history generation', async () => {
+    const { gameRepository } = await import('../src/repositories/game.repository');
+    const gameId = 'profile-cached-history';
+    gameRepository.create({ id: gameId, worldId: 'profile-world', currentTurn: 1, maxTurns: 100, status: 'playing' });
+    gameRepository.storePolityHistoricalBaseline(gameId, { polityId: 'BIH', countryName: 'Bosnia', startDate: '2000-01-01', historicalBackground: background, version: 2, generatedAt: new Date().toISOString() });
+    const calls: string[] = [];
+    const mock = { ...provider, generate: async (_mechanic: string, system: string, prompt: string) => {
+      calls.push(system === HISTORICAL_BASELINE_SYSTEM ? 'history' : 'profile');
+      const input = JSON.parse(prompt);
+      expect(input.historicalBaseline).toBe(background);
+      return { content: JSON.stringify(input.fallback) };
+    } };
+    const { GameSession } = await import('../src/game-session');
+    const session = new GameSession(gameId, 'profile-world', mock as never);
+    await session.initialize('profile-BIH', 'President', '#112233', undefined, true);
+    expect(calls).toEqual(['profile']);
+    expect(await session.getHistoricalBaseline()).toBe(background);
+    expect(calls).toEqual(['profile']);
+  });
+  it('baseline/profile errors remain fail-safe and do not retry or call NPC models', async () => {
+    const calls: string[] = [];
+    const mock = { ...provider, generate: async (_mechanic: string, system: string) => {
+      calls.push(system === HISTORICAL_BASELINE_SYSTEM ? 'history' : 'profile');
+      throw new Error('mock provider unavailable');
+    } };
+    const { initSessionRegistry } = await import('../src/session-registry');
+    const localRegistry = initSessionRegistry(mock as never);
+    const first = localRegistry.createSession('profile-world', '', 'profile-BIH', '#112233', undefined, true);
+    await first.ready;
+    expect(calls).toEqual(['history', 'profile']);
+    expect(profiles.get(first.gameId, 'BIH').provenance.source).not.toBe('llm-estimate');
+    expect(localRegistry.getSession(first.gameId)).toBe(first.session);
+    await first.session.getHistoricalBaseline();
+    expect(calls).toEqual(['history', 'profile']);
   });
   it('removing all mapless units is a durable known empty registry, not a new bootstrap', async () => {
     const first = registry.createSession('profile-world', '', 'profile-BIH'); await first.ready;
