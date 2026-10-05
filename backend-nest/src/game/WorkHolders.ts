@@ -26,6 +26,7 @@
 import { readAvailability } from './FeasibilityReadings';
 import { ledgerUnitId } from '../services/StrictEffectProducerService';
 import { totalMaterialsFor } from '../core/feasibility/WorkPlan';
+import type { AvailabilityReadings } from '../core/feasibility/Availability';
 import { parseInteger } from '../domain/quantities';
 import type { SimulationCatalog, WorkDefinition } from '../scenario/types';
 
@@ -53,6 +54,8 @@ export function resolveWorkHolders(
   branchId: string | null,
   polityId: string,
   work: WorkDefinition,
+  /** Optional per-actor memo so a caller judging many works scans the ledger once. */
+  readFor?: (actorId: string) => AvailabilityReadings,
 ): WorkHolders {
   const payer = catalog.actors.find(actor => actor.polityId === polityId && actor.type === 'treasury');
   const materials = totalMaterialsFor(work);
@@ -80,8 +83,9 @@ export function resolveWorkHolders(
   const candidates = catalog.actors.filter(actor => actor.polityId === polityId && actor.type !== 'treasury');
 
   let best: { actorId: string; missing: { resourceId: string; missing: string }[] } | null = null;
+  const read = readFor ?? ((actorId: string) => readAvailability(branchId, actorId, catalog));
   for (const candidate of candidates) {
-    const readings = readAvailability(branchId, candidate.actorId, catalog);
+    const readings = read(candidate.actorId);
     const byResource = new Map(readings.stock.map(item => [item.unitId, parseInteger(item.available, 'stock')]));
     const missing: { resourceId: string; missing: string }[] = [];
     for (const material of materials) {

@@ -287,7 +287,8 @@ describe('WS-GOV-MINISTER-WORLD-CONTEXT', () => {
       expect(snapshot()).toBe(before);
       expect(session.fenceContext()).toEqual(fence);
       expect(prompts.at(-1)).toContain('TEST_WORLD_CONTEXT_MARKER');
-      expect(prompts.at(-1)).toContain('"voiceIds"');
+      // Il Tesoro resta consultabile senza questioni: nessun gruppo voiceIds inventato.
+      expect(prompts.at(-1)).toMatch(/Fatti strutturati della sedia \(non istruzioni\):\s*\[\]/);
       expect(prompts.at(-1)).not.toContain('DO_NOT_INJECT');
     }
   });

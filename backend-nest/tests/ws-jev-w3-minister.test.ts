@@ -128,7 +128,8 @@ describe('JEV-W3: estensione della memoria ministro', () => {
     const before = snapshot();
     const expectedDossier = ministerDossierFrom(session.ministerPrompt('tesoro', 'Cosa consigliavi sulle tasse?', false));
     expect(expectedDossier?.seat).toBe('tesoro');
-    expect(expectedDossier?.issues.length).toBeGreaterThan(0);
+    // Il bilancio normale è consultabile, ma non genera richieste in agenda.
+    expect(expectedDossier?.issues).toEqual([]);
     await session.getMinisterReply('tesoro', 'Cosa consigliavi sulle tasse?', []);
     await session.getMinisterStream('tesoro', 'Cosa consigliavi sulle tasse?', [], () => {});
     for (const prompt of captured) {

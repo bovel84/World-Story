@@ -7,7 +7,7 @@ import { buildRealitySignals, renderRealityConcerns } from '../src/core/governme
 const snapshot = () => buildVerifiedWorldSnapshot({ gameData: {
   id: 'uganda-game', playerPolityId: 'UGA', playerPolityName: 'Uganda', currentDate: '1951-01-01', currentTurn: 1,
   world: { regions: { ug: { id: 'ug', name: 'Uganda', owner: 'UGA', coastal: false, borders: [], objects: [] } } },
-  worldState: { resources: { stock: { money: 10, food: 0.8 }, needs: { food: 1 } }, accounts: { UGA: { socialTension: 25 } }, arsenal: { units: {} } },
+  worldState: { resources: { stock: { money: 10, food: 0.8 }, needs: { food: 1 } }, accounts: { UGA: { socialTension: 25, nominalGdpUsdBillions: 100 } }, arsenal: { units: {} } },
 }, commitments: [], operationalRows: [] });
 const proposal = { title: 'Approvvigionamento alimentare', question: 'Come garantiamo le scorte?', factKeys: ['foodCoverageMonths', 'treasury'], suggestedMinisters: ['interno', 'tesoro', 'lavori'] };
 
@@ -53,6 +53,7 @@ describe('verified reality boundary', () => {
   it('segnali generici dal quadro: food, economy, social senza quest predefinite', () => {
     const world = snapshot();
     world.facts.monthlyBalance = { key: 'monthlyBalance', label: 'Saldo mensile', value: '-2 mld USD/mese', rawValue: -2, source: 'national_economy', sourceRef: 'worldState.accounts.UGA.monthlyBalance' };
+    world.facts.nominalGdpUsdBillions = { key: 'nominalGdpUsdBillions', label: 'PIL nominale annuo', value: '100 mld USD', rawValue: 100, source: 'national_economy', sourceRef: 'worldState.accounts.UGA.nominalGdpUsdBillions' };
     world.facts.socialTension = { key: 'socialTension', label: 'Tensione sociale', value: '65 / 100', rawValue: 65, source: 'national_economy', sourceRef: 'worldState.accounts.UGA.socialTension' };
     const keys = buildRealitySignals(world).map(signal => signal.key);
     expect(keys).toEqual(expect.arrayContaining(['food-coverage', 'monthly-balance', 'social-tension']));
@@ -125,6 +126,111 @@ describe('verified reality boundary', () => {
     expect(prompt.lastIndexOf('VERIFIED FACT POLICY')).toBeGreaterThan(prompt.indexOf('Invent ports'));
     expect(prompt.indexOf('FALSA_CASSA_999')).toBeGreaterThan(prompt.indexOf('[Cronaca della conversazione]'));
     expect(prompt).toContain('```council_issue');
+  });
+});
+
+describe('deterministic fiscal and military salience signals', () => {
+  function measured(values: Record<string, number>, polityId = 'UGA') {
+    const world = snapshot();
+    world.polityId = polityId;
+    for (const [key, rawValue] of Object.entries({ foodCoverageMonths: 3, ...values })) {
+      world.facts[key] = { key, rawValue, label: key, value: `${rawValue}`, source: 'national_economy', sourceRef: `current.${key}` };
+    }
+    return world;
+  }
+  function baseline(world: ReturnType<typeof snapshot>, values: Record<string, number>) {
+    world.changes.available = true;
+    world.changes.reason = null;
+    for (const [key, before] of Object.entries(values)) {
+      world.changes.comparedKeys.push(key);
+      const after = world.facts[key].rawValue as number;
+      if (before !== after) world.changes.deltas.push({ key, before, after, delta: after - before, sourceRef: `current.${key}`, previousSourceRef: `previous.${key}` });
+    }
+  }
+
+  it('USA 2000: GDP 10252, debt/GDP 55 and a routine -0.3% monthly balance do not create a fiscal crisis', () => {
+    const world = measured({ nominalGdpUsdBillions: 10252, monthlyBalance: -30.756, debtRatioPct: 55, debt: 5638.6, revenue: 160, treasury: 1000, debtServicePct: 8 }, 'USA');
+    expect(buildRealitySignals(world).filter(signal => signal.domain === 'economy')).toEqual([]);
+  });
+
+  it('ERI 2000: a critical deficit is not hidden by its tiny absolute amount; readiness and threat are separate facts', () => {
+    const world = measured({ nominalGdpUsdBillions: 0.7, monthlyBalance: -0.02, treasury: 1 }, 'ERI');
+    world.military.readiness = [{ unitId: 'u', value: 0.3 }];
+    world.facts['military.units.u.readiness'] = { key: 'military.units.u.readiness', rawValue: 0.3, label: 'Prontezza', value: '30%', source: 'military_inventory', sourceRef: 'operational_objects.unit.u.readiness' };
+    world.diplomacy.relations = [{ polityId: 'ETH', polityName: 'Ethiopia', relationship: 'hostile', sourceRef: 'relationships.ERI.ETH' }];
+    const signals = buildRealitySignals(world);
+    const fiscal = signals.find(signal => signal.domain === 'economy')!;
+    expect(fiscal.importance).toBe(3);
+    expect(fiscal.factKeys).toEqual(expect.arrayContaining(['nominalGdpUsdBillions', 'monthlyBalance']));
+    expect(fiscal.sourceRefs).toEqual(expect.arrayContaining(['current.nominalGdpUsdBillions', 'current.monthlyBalance']));
+    expect(signals.some(signal => signal.domain === 'military')).toBe(true);
+    expect(signals.some(signal => signal.domain === 'diplomacy')).toBe(true);
+  });
+
+  it('a measured runway below three months warrants fiscal review even without GDP; no cash denominator means unknown', () => {
+    const world = measured({ monthlyBalance: -0.1, treasury: 0.2 });
+    delete world.facts.nominalGdpUsdBillions;
+    const fiscal = buildRealitySignals(world).find(signal => signal.domain === 'economy')!;
+    expect(fiscal.key).toBe('cash-runway');
+    expect(fiscal.importance).toBe(3);
+    expect(fiscal.sourceRefs).toEqual(expect.arrayContaining(['current.monthlyBalance', 'current.treasury']));
+    delete world.facts.treasury;
+    delete world.facts.nominalGdpUsdBillions;
+    expect(buildRealitySignals(world).filter(signal => signal.domain === 'economy')).toEqual([]);
+  });
+
+  it('debt service is material at 15% and critical at 25%, with no duplicate deficit signal', () => {
+    const serviceOnly = measured({ debtServicePct: 15 });
+    delete serviceOnly.facts.nominalGdpUsdBillions;
+    expect(buildRealitySignals(serviceOnly).find(signal => signal.domain === 'economy')?.importance).toBe(2);
+    const world = measured({ nominalGdpUsdBillions: 100, monthlyBalance: -2, treasury: 20, debtServicePct: 25 });
+    const fiscal = buildRealitySignals(world).filter(signal => signal.domain === 'economy');
+    expect(fiscal).toHaveLength(1);
+    expect(fiscal[0].importance).toBe(3);
+    expect(fiscal[0].factKeys).toContain('debtServicePct');
+  });
+
+  it('meaningful measured fiscal improvements become opportunities, never routine surplus or fabricated baselines', () => {
+    const world = measured({ nominalGdpUsdBillions: 100, monthlyBalance: 0.2, treasury: 20, debtServicePct: 4 });
+    expect(buildRealitySignals(world).filter(signal => signal.domain === 'economy')).toEqual([]);
+    baseline(world, { nominalGdpUsdBillions: 100, monthlyBalance: -0.8, debtServicePct: 4 });
+    const fiscal = buildRealitySignals(world).find(signal => signal.domain === 'economy')!;
+    expect(fiscal.importance).toBe(1);
+    expect(fiscal.reason).toMatch(/miglior|aument/i);
+    expect(fiscal.sourceRefs).toEqual(expect.arrayContaining(['current.monthlyBalance', 'current.nominalGdpUsdBillions', 'previous.monthlyBalance']));
+    expect(fiscal.reason).not.toMatch(/crisi|uscite superano/i);
+    world.changes.available = false;
+    expect(buildRealitySignals(world).filter(signal => signal.domain === 'economy')).toEqual([]);
+  });
+
+  it('significant deterioration uses measured previous GDP rather than inventing unchanged GDP', () => {
+    const world = measured({ nominalGdpUsdBillions: 100, monthlyBalance: -0.3, treasury: 20 });
+    baseline(world, { monthlyBalance: 0.5 });
+    expect(buildRealitySignals(world).filter(signal => signal.domain === 'economy')).toEqual([]);
+    baseline(world, { nominalGdpUsdBillions: 100 });
+    const fiscal = buildRealitySignals(world).find(signal => signal.domain === 'economy')!;
+    expect(fiscal.importance).toBe(2);
+    expect(fiscal.sourceRefs).toContain('previous.monthlyBalance');
+  });
+
+  it('uses the shared 50% unit-readiness review threshold, without upgrading an unknown national metric', () => {
+    const world = measured({});
+    world.military.readiness = [{ unitId: 'u', value: 0.5 }];
+    world.facts['military.units.u.readiness'] = { key: 'military.units.u.readiness', rawValue: 0.5, label: 'Prontezza', value: '50%', source: 'military_inventory', sourceRef: 'units.u.readiness' };
+    const signal = buildRealitySignals(world).find(signal => signal.domain === 'military')!;
+    expect(signal.importance).toBe(2);
+    expect(signal.sourceRefs).toContain('units.u.readiness');
+    expect(signal.reason).not.toMatch(/nazionale|complessiv/i);
+  });
+
+  it('significant observed military changes share policy thresholds and carry current and delta provenance, without duplicates', () => {
+    const world = measured({ forces: 500, mobilized: 0 });
+    baseline(world, { forces: 300, mobilized: 0 });
+    const military = buildRealitySignals(world).filter(signal => signal.domain === 'military');
+    expect(military).toHaveLength(1);
+    expect(military[0].factKeys).toContain('forces');
+    expect(military[0].sourceRefs).toEqual(expect.arrayContaining(['current.forces', 'previous.forces']));
+    expect(military[0].reason).not.toMatch(/invariat|immutato/i);
   });
 });
 
