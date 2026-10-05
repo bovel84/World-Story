@@ -20,6 +20,14 @@
           "effort": "low"
         }
       }
+    },
+    "worldPulse": {
+      "timeoutMs": 120000
     }
+  },
+  "narrative": {
+    "texture": false,
+    "worldPulse": false,
+    "tieredMemory": false
   }
 }

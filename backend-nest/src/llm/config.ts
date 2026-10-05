@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Mechanic } from './types';
 import { ALL_MECHANICS } from './types';
+import { resolveNarrativeFlags, type NarrativeFlags } from './narrativeFlags';
 
 export interface MechanicConfig {
   provider: 'openai-compatible' | 'anthropic';
@@ -43,6 +44,13 @@ export interface ConsolidationConfig {
 export interface LLMFullConfig {
   mechanics: LLMConfig;
   consolidation: ConsolidationConfig;
+  /**
+   * Flag delle migliorie narrative (WS-NARR-DISPATCH-PAX-QUALITY). Spenti di
+   * default: la sezione `narrative` di `llm.config.json` e le env
+   * `WS_NARRATIVE_*` li accendono senza toccare il motore. Opzionale per non
+   * rompere le configurazioni costruite a mano (es. test del router).
+   */
+  narrative?: NarrativeFlags;
 }
 
 const DEFAULT_CACHE_MECHANICS = new Set<Mechanic>(['advisor', 'suggestions', 'converter']);
@@ -88,13 +96,17 @@ export function loadLLMConfig(configPath?: string): LLMFullConfig {
     chunkSize: Number(process.env.LLM_CONSOLIDATION_CHUNK_SIZE) || 5,
     keepRawTail: Number(process.env.LLM_CONSOLIDATION_KEEP_RAW_TAIL) || 10,
   };
+  // Le env WS_NARRATIVE_* contano anche senza file di configurazione.
+  const narrative: NarrativeFlags = resolveNarrativeFlags();
 
   if (fs.existsSync(file)) {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as {
       default?: Partial<MechanicConfig>;
       mechanics?: Partial<Record<Mechanic, Partial<MechanicConfig>>>;
       consolidation?: Partial<ConsolidationConfig>;
+      narrative?: Partial<NarrativeFlags>;
     };
+    Object.assign(narrative, resolveNarrativeFlags(raw.narrative));
     const base: Partial<MechanicConfig> = raw.default ?? {};
     for (const m of ALL_MECHANICS) {
       const mechanicOverride = raw.mechanics?.[m] ?? {};
@@ -112,5 +124,5 @@ export function loadLLMConfig(configPath?: string): LLMFullConfig {
     Object.assign(consolidation, raw.consolidation ?? {});
   }
 
-  return { mechanics: cfg, consolidation };
+  return { mechanics: cfg, consolidation, narrative };
 }

@@ -9,6 +9,7 @@
 /** Игровые механики, которым можно назначать разные модели (аналог тиров Light/Pro/Max). */
 export type Mechanic =
   | 'jump'          // симуляция прыжка вперёд (самая тяжёлая)
+  | 'worldPulse'    // respiro del mondo: eventi di nazioni lontane con causa canonica
   | 'converter'     // конвертер действий description→action
   | 'advisor'       // советник
   | 'suggestions'   // подсказки действий
@@ -19,7 +20,7 @@ export type Mechanic =
   | 'balance';      // генерация начального мира (BalanceAgent)
 
 export const ALL_MECHANICS: Mechanic[] = [
-  'jump', 'converter', 'advisor', 'suggestions',
+  'jump', 'worldPulse', 'converter', 'advisor', 'suggestions',
   'narration', 'npc', 'chat', 'consolidation', 'balance',
 ];
 

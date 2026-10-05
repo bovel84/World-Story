@@ -9,6 +9,9 @@
 import { PromptVariables } from '../types';
 import { buildImmersionContract, EVENT_DESCRIPTION_GUIDE } from '../immersion';
 import { buildGovernmentNarrativeGuard } from '../government';
+import { AUTO_JUMP_MAX_EVENTS } from '../../core/simulation/EventBudget';
+import { CONSTRAINED_NARRATIVE_BUDGETS, type NarrativeBudgets } from '../../llm/modelTier';
+import { buildNarrativeTextureBlock } from './narrativeTexture';
 import {
   buildAutoJumpInstruction,
   buildOrderCoverageRule,
@@ -102,10 +105,11 @@ const clipForConstrainedModel = (value: string | undefined, maxChars: number): s
  */
 export function buildConstrainedSimulationPrompt(
   vars: PromptVariables,
-  opts: { autoJump?: boolean; eventBudget?: number; presetOverride?: string } = {},
+  opts: { autoJump?: boolean; eventBudget?: number; presetOverride?: string; texture?: boolean; budgets?: NarrativeBudgets } = {},
 ): string {
   const maxEvents = Math.max(1, Math.min(12, opts.eventBudget || 1));
   const completionDateJson = opts.autoJump ? '"YYYY-MM-DD"' : JSON.stringify(vars.TARGET_ROUND_DATE);
+  const b = opts.budgets ?? CONSTRAINED_NARRATIVE_BUDGETS;
   return `SIMULAZIONE STRATEGICA — PROTOCOLLO COMPATTO
 Lingua: italiano. Periodo: ${vars.ORIGIN_ROUND_DATE} → ${vars.TARGET_ROUND_DATE}. Giocatore: ${vars.PLAYER_POLITY}.
 
@@ -113,29 +117,29 @@ ORDINI (copia ogni actionId ESATTAMENTE):
 ${vars.PLAYER_ACTIONS_THIS_ROUND || '(nessun ordine)'}
 ${buildOrderCoverageRule(vars)}
 FATTI MATERIALI E DIPLOMATICI:
-${clipForConstrainedModel(vars.STRATEGIC_STATE, 5_000)}
+${clipForConstrainedModel(vars.STRATEGIC_STATE, b.compactStrategicChars)}
 
 CONTESTO DI REAZIONE (attori e opzioni ammesse dal motore):
-${clipForConstrainedModel(vars.REACTION_CONTEXT, 2_500) || '(nessuno)'}
+${clipForConstrainedModel(vars.REACTION_CONTEXT, b.compactReactionChars) || '(nessuno)'}
 ${buildReactionContractGuard()}
 
 NPC RILEVANTI — identità e memoria vincolanti:
-${clipForConstrainedModel(vars.NPC_STRATEGIC_PROFILES, 6_500)}
+${clipForConstrainedModel(vars.NPC_STRATEGIC_PROFILES, b.compactNpcChars)}
 
 PROCESSI GIÀ APERTI:
-${clipForConstrainedModel(vars.ONGOING_PROCESSES, 2_000) || '(nessuno)'}
+${clipForConstrainedModel(vars.ONGOING_PROCESSES, b.compactProcessesChars) || '(nessuno)'}
 
 CRONACA RECENTE:
-${clipForConstrainedModel(vars.ALL_EVENTS_WITH_CONSOLIDATION, 4_500) || '(nessuna)'}
+${clipForConstrainedModel(vars.ALL_EVENTS_WITH_CONSOLIDATION, b.compactHistoryChars) || '(nessuna)'}
 
 DIPLOMAZIA RECENTE:
-${clipForConstrainedModel(vars.CHATS_NON_CONSOLIDATED_ROUNDS, 2_500) || '(nessuna)'}
+${clipForConstrainedModel(vars.CHATS_NON_CONSOLIDATED_ROUNDS, b.compactDiplomacyChars) || '(nessuna)'}
 
 MAPPA — usa solo nomi presenti:
-${clipForConstrainedModel(vars.GRAND_MAP_DESCRIPTION_NO_CITY, 5_000)}
+${clipForConstrainedModel(vars.GRAND_MAP_DESCRIPTION_NO_CITY, b.compactMapChars)}
 
 PREMESSA STORICA — fonte del contesto, anche con un prompt personalizzato:
-${clipForConstrainedModel(vars.WORLD_BEFORE_ROUND_ONE_TEXT, 2_000)}
+${clipForConstrainedModel(vars.WORLD_BEFORE_ROUND_ONE_TEXT, b.compactPremiseChars)}
 
 REGOLE SCENARIO:
 ${clipForConstrainedModel(vars.HISTORICAL_PRESET_SIMULATION_RULES, 1_000)}
@@ -155,7 +159,9 @@ REGOLE:
 9. Dispacci in italiano narrativo: headline e description sono frasi complete per il giocatore. VIETATE etichette tecniche o di stato ("neutral", "supportive", "opposed", "conditional", "hostile", "ally", "counterparty", nomi di campi JSON, "partial", "voided", ID). La posizione diplomatica va raccontata («La Turchia annuncia la propria neutralità»), mai scritta come parola chiave («Turchia neutral»).
 10. Il giocatore incarna ${vars.PLAYER_POLITY}: ogni suo ordine è un atto ufficiale della nazione. Nei dispacci l'attore è sempre ${vars.PLAYER_POLITY} (governo, capo di Stato, ministri), MAI «il giocatore» o «l'utente»; le altre nazioni la nominano e trattano con lei come soggetto politico reale.
 11. Ogni evento ha una causa verificabile: un ordine del giocatore, un fatto della cronaca o una decisione autonoma di un altro attore. Contabilità ordinaria, «nessuna novità», fine mese e avanzamento tecnico NON sono notizie: non riempire il budget di eventi con fatti indipendenti. Le cifre vengono dal Dossier nazionale calcolato dal motore, mai inventate.
-
+${opts.texture ? `
+${buildNarrativeTextureBlock()}
+` : ''}
 ${buildImmersionContract()}
 OUTPUT NDJSON, una riga JSON per oggetto, niente markdown.
 Riga evento:
@@ -166,8 +172,12 @@ ULTIMA riga obbligatoria:
 Per nessun evento in auto-jump: nessuna riga event e targetDate:null.`;
 }
 
-export function buildSimulationPrompt(vars: PromptVariables, opts?: { autoJump?: boolean; eventBudget?: number }): string {
+export function buildSimulationPrompt(vars: PromptVariables, opts?: { autoJump?: boolean; eventBudget?: number; texture?: boolean }): string {
   const autoJumpInstruction = opts?.autoJump ? buildAutoJumpInstruction(vars, opts?.eventBudget ?? 1) : '';
+  // Unica fonte di verità del tetto eventi: il budget passato dal motore, che a
+  // sua volta deriva da `AUTO_JUMP_MAX_EVENTS`. Nessun «25-30» hardcoded e
+  // duplicato: il prompt non può più contraddire il budget reale del motore.
+  const maxEvents = Math.max(1, Math.floor(opts?.eventBudget ?? AUTO_JUMP_MAX_EVENTS));
   return `Simuli un gioco strategico a turni. Il giocatore controlla la politia-stato ${vars.PLAYER_POLITY}; tutte le altre politie del mondo sono gestite da te.
 
 Il giocatore può tentare qualsiasi cosa, ma il successo delle sue azioni dipende dal realismo. NON eseguire MAI azioni PER conto del giocatore: un evento compiuto dalla politia ${vars.PLAYER_POLITY} avviene SOLO se il giocatore ne ha dato ordine esplicito in questo turno. Persino le azioni storiche di questa nazione simulale solo se il giocatore le ha realmente intraprese. Se il giocatore non ha compiuto azioni, la sua politia non prende iniziative.
@@ -229,6 +239,8 @@ ${buildDomesticReactionGuard(vars)}
 - Titolo: soggetto + verbo d’azione + luogo/oggetto concreto (massimo 12 parole). Per un ordine del giocatore, usa il nome della sua politia o della controparte coinvolta. Mai “Tensioni crescono”, “Nuova crisi”, “Bollettino”, “Evento”, una cifra di bilancio o formule vaghe.
 - Corpo: ${EVENT_DESCRIPTION_GUIDE}. Chiarisci perché questa notizia conta nel contesto della partita, non limitarti a registrare l'esito dell'ordine.
 - Usa cifre solo se presenti nello stato o proporzionate e necessarie; non inventare presidenti, ministri o dati statistici non forniti. Distingui chiaramente proposta, misura avviata e risultato ottenuto.
+${opts?.texture ? `
+${buildNarrativeTextureBlock()}` : ''}
 
 *Ciò che NON è un dispaccio.* Il tempo che passa non è una notizia (§5.11). Non emettere eventi di riempimento:
 - mai un evento per il solo avanzare del calendario («il tempo avanza», «fine del periodo», «inizio dell'anno»), né un riepilogo di fine anno;
@@ -257,7 +269,7 @@ Nel gioco esiste una mappa dinamica. Curalo con attenzione i trasferimenti di re
 - Ogni evento ha un titolo, una descrizione ed eventualmente modifiche alla mappa
 - Il titolo è una frase singola
 - La descrizione contiene dettagli di qualità
-- Il numero di eventi è proporzionale alla durata del salto temporale: più tempo passa, più eventi ci sono, ma MAI più di 25-30 per turno. In un salto lungo distribuisci gli eventi uniformemente su tutto il periodo — non interrompere la simulazione a metà
+- Il numero di eventi è proporzionale alla durata del salto temporale: più tempo passa, più eventi ci sono, ma MAI più di ${maxEvents} per turno (budget calcolato dal motore). In un salto lungo distribuisci gli eventi uniformemente su tutto il periodo — non interrompere la simulazione a metà
 - Citazioni per il quaderno (notebook): 0-3 eventi
 - NON creare eventi-fantoccio: "Niente è accaduto", "Inizio dell'anno", "Fine dell'anno", "Bilancio dell'anno". Costruisci una cronaca: ogni evento è significativo
 - NON inventare un secondo filone mondiale solo per coprire più paesi: segui prima le conseguenze delle azioni del giocatore e delle crisi già aperte. Un paese lontano entra nella cronaca soltanto se ha un collegamento esplicito con tali cause
@@ -415,5 +427,5 @@ Regole actionOutcomes e voided:
   Se il turno non produce impegni, ometti il campo o usa "commitments": [].
 ${autoJumpInstruction}
 
-VERY IMPORTANT: Rispondi SOLO con JSON valido, senza formattazione markdown, senza spiegazioni.`;
+VERY IMPORTANT: rispetta il formato di output richiesto dal [PROTOCOLLO EVENTI PROGRESSIVI — PRIORITÀ MASSIMA] in coda: JSON Lines (una riga JSON per oggetto), senza array esterno, markdown né spiegazioni. Non aggiungere testo fuori dagli oggetti JSON.`;
 }

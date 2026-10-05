@@ -16,6 +16,17 @@ import {
   parseIncrementalSimulationRecord,
   parseIncrementalSimulationResponse,
   parseSimulationResponse,
+  buildWorldPulsePrompt,
+  parseWorldPulseResponse,
+  validateWorldPulse,
+  selectWorldPulseCandidates,
+  buildWorldPulseContext,
+  worldPulseChronicleFromVars,
+  WORLD_PULSE_SYSTEM,
+  WORLD_PULSE_MAX_CANDIDATES,
+  type WorldPulseCandidate,
+  type WorldPulseSelectionInput,
+  type WorldPulseValidation,
 } from './prompts/simulation';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
 import { renderRealityConcerns } from './core/government/RealitySignals';
@@ -47,7 +58,8 @@ import { autoJumpEventBudget } from './core/simulation/EventBudget';
 import { equipmentById } from './core/simulation/MilitaryIndustry';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
 import { LLMError, LLMContractError, LLMRouter } from './llm';
-import { isSmallModel } from './llm/modelTier';
+import { isSmallModel, narrativeBudgetsFor, type NarrativeBudgets } from './llm/modelTier';
+import { DEFAULT_NARRATIVE_FLAGS, type NarrativeFlags } from './llm/narrativeFlags';
 
 interface GameData {
   /** Server-built request-local read model, never accepted from the HTTP client. */
@@ -516,7 +528,7 @@ export class PromptBuilder {
   }
 
   // Построить полный набор переменных
-  buildVariables(): PromptVariables {
+  buildVariables(opts: { memoryBudgets?: NarrativeBudgets } = {}): PromptVariables {
     const player = this.game.players[0];
     const playerRegion = getRegion(this.game.world.regions, player.regionId);
     const playerPolityId = this.game.playerPolityId || player.polityId || playerRegion?.owner;
@@ -561,7 +573,7 @@ export class PromptBuilder {
       ORDER_FUNDING: this.game.worldState?.orderFunding || '',
       REACTION_CONTEXT: this.game.reactionContext || '',
 
-      ALL_EVENTS_WITH_CONSOLIDATION: this.buildEventHistory(),
+      ALL_EVENTS_WITH_CONSOLIDATION: this.buildEventHistory(opts.memoryBudgets),
       CHATS_NON_CONSOLIDATED_ROUNDS: this.game.chatTranscripts ?? '',
       NON_CONSOLIDATED_ROUNDS_WITH_DATES: '',
 
@@ -967,8 +979,10 @@ export class PromptBuilder {
 
   // Separate budgets for recent facts and long-term memory; the latest
   // committed event remains available even in the constrained-model path.
-  private buildEventHistory(): string {
-    return buildNarrativeMemory(this.game.results, this.game.consolidatedHistory);
+  // Il budget (quando `narrative.tieredMemory` è acceso) dipende dalla fascia
+  // del modello: i modelli forti ricevono più cronaca e più memoria canonica.
+  private buildEventHistory(budgets?: NarrativeBudgets): string {
+    return buildNarrativeMemory(this.game.results, this.game.consolidatedHistory, budgets);
   }
 
   // Группировка регионов по владельцам
@@ -1017,10 +1031,148 @@ export class PromptEngine {
    * attivava quasi mai.
    */
   private isConstrainedModel(mechanic: 'jump' | 'converter' | 'suggestions' = 'jump'): boolean {
+    return isSmallModel(this.modelFor(mechanic));
+  }
+
+  /** Modello configurato per una meccanica (`''` se il router non lo espone). */
+  private modelFor(mechanic: 'jump' | 'converter' | 'suggestions' | 'npc' = 'jump'): string {
     const describe = (this.llm as any)?.describe;
-    if (typeof describe !== 'function') return false;
-    const model = String(describe.call(this.llm)?.[mechanic]?.model || '');
-    return isSmallModel(model);
+    if (typeof describe !== 'function') return '';
+    return String(describe.call(this.llm)?.[mechanic]?.model || '');
+  }
+
+  /** Flag narrativi: spenti di default, mai un'eccezione se il router è uno stub. */
+  private narrativeFlags(): NarrativeFlags {
+    const flags = (this.llm as any)?.narrative as NarrativeFlags | undefined;
+    return flags ? { ...DEFAULT_NARRATIVE_FLAGS, ...flags } : DEFAULT_NARRATIVE_FLAGS;
+  }
+
+  /**
+   * Selezione deterministica dei candidati del world pulse a partire dai fatti
+   * canonici del gioco. Nessuna scelta geografica: senza causa → nessun
+   * candidato → nessuna chiamata.
+   */
+  private worldPulseSelectionInput(game: GameData, result?: SimulationResult): WorldPulseSelectionInput {
+    const polities = new Map<string, string>();
+    for (const [id, name] of Object.entries(game.polityNames || {})) polities.set(id, name);
+    try {
+      for (const region of getAllRegions(game.world.regions)) {
+        if (region?.owner && !polities.has(region.owner)) polities.set(region.owner, region.owner);
+      }
+    } catch { /* mappe legacy: si resta ai polityNames */ }
+
+    // Relazioni **effettive**: matrice corrente + cambi del turno appena chiuso.
+    const nameToId = new Map<string, string>();
+    for (const [id, name] of polities) nameToId.set(String(name).toLowerCase(), id);
+    const relationships: WorldPulseSelectionInput['relationships'] = [];
+    for (const [from, targets] of Object.entries(game.relationships || {})) {
+      for (const [to, relation] of Object.entries(targets || {})) {
+        relationships.push({ from, to, relation: String(relation) });
+      }
+    }
+    for (const change of result?.relationshipChanges || []) {
+      const fromId = nameToId.get(String(change.from).toLowerCase()) || String(change.from);
+      const toId = nameToId.get(String(change.to).toLowerCase()) || String(change.to);
+      for (let index = relationships.length - 1; index >= 0; index -= 1) {
+        const rel = relationships[index];
+        if ((rel.from === fromId && rel.to === toId) || (rel.from === toId && rel.to === fromId)) relationships.splice(index, 1);
+      }
+      relationships.push({ from: fromId, to: toId, relation: String(change.relationship) });
+    }
+
+    // Gli eventi del turno diventano trigger/contesto per il pulse successivo.
+    const recentEvents: WorldPulseSelectionInput['recentEvents'] = [];
+    for (const event of result?.events || []) {
+      recentEvents.push({ date: event.date, headline: event.headline, detail: event.description });
+    }
+    for (const turn of [...(game.results || [])].slice(-5).reverse()) {
+      for (const event of turn.timelineEvents || []) {
+        recentEvents.push({ date: event.date, headline: event.headline, detail: event.detail });
+      }
+    }
+
+    const playerPolityId = game.playerPolityId
+      || game.players?.[0]?.polityId
+      || '';
+    return {
+      playerPolityId,
+      polities: [...polities.entries()].map(([id, name]) => ({ id, name })),
+      relationships,
+      commitments: game.activeCommitments || '',
+      recentEvents: recentEvents.slice(0, 200),
+      npcDossiers: game.npcStrategicProfiles || '',
+      originDate: game.currentDate,
+      targetDate: result?.targetDate || undefined,
+    };
+  }
+
+  /**
+   * Passaggio separato «world pulse» (flag `narrative.worldPulse`, spento di
+   * default). Propone **fino a 3** eventi narrativi di nazioni non giocate che
+   * hanno un trigger dinamico, e li valida con la pipeline completa (finestra
+   * temporale, `EffectValidator`, narrativa-only, anti-contraddizione, contract
+   * delle reactions sul **contesto dei candidati**).
+   *
+   * Col flag spento non parte nessuna chiamata. Un errore del pulse non tocca
+   * il turno principale: il chiamante riceve `null`/`[]`.
+   */
+  async generateWorldPulse(
+    game: GameData,
+    opts: { signal?: AbortSignal; result?: SimulationResult; vars?: PromptVariables } = {},
+  ): Promise<WorldPulseValidation | null> {
+    if (!this.narrativeFlags().worldPulse) return null;
+    if (opts.signal?.aborted) return null;
+
+    const builder = new PromptBuilder(game);
+    const vars = opts.vars ?? builder.buildVariables();
+    const selection = this.worldPulseSelectionInput(game, opts.result);
+    const candidates = selectWorldPulseCandidates(selection).slice(0, WORLD_PULSE_MAX_CANDIDATES);
+    if (candidates.length === 0) return null;
+
+    const originDate = vars.ORIGIN_ROUND_DATE;
+    const targetDate = opts.result?.targetDate || vars.TARGET_ROUND_DATE;
+    const divergenceDate = game.world?.startDate || vars.STARTING_ROUND_DATE || originDate;
+    const relationshipChanges = (opts.result?.relationshipChanges || []).map(change => ({
+      from: change.from, to: change.to, relationship: change.relationship,
+    }));
+    const context = buildWorldPulseContext(candidates);
+    const prompt = buildWorldPulsePrompt({
+      originDate,
+      targetDate,
+      divergenceDate,
+      playerPolity: vars.PLAYER_POLITY,
+      candidates,
+      mainEvents: (opts.result?.events || []).map(event => ({ date: event.date, headline: event.headline, description: event.description })),
+      relationshipChanges,
+      recentChronicle: worldPulseChronicleFromVars(vars),
+    });
+
+    try {
+      const response = await this.llm.generate('worldPulse', WORLD_PULSE_SYSTEM, prompt, {
+        temperature: 0.4,
+        maxTokens: 2_400,
+        signal: opts.signal,
+      });
+      if (opts.signal?.aborted) return null;
+      const parsed = parseWorldPulseResponse(response.content);
+      return validateWorldPulse(parsed, {
+        originDate,
+        targetDate,
+        context,
+        existingEvents: opts.result?.events || [],
+        contradictions: {
+          relationshipChanges,
+          rejectedOutcomes: (opts.result?.actionOutcomes || [])
+            .filter(outcome => String(outcome.status) === 'rejected')
+            .map(outcome => String(outcome.summary || '')),
+          polityNames: game.polityNames || {},
+        },
+      });
+    } catch (error) {
+      // OPTIONAL ENRICHMENT: un pulse fallito non è un turno fallito.
+      console.warn('[PromptEngine] World pulse non disponibile:', error instanceof Error ? error.message : String(error));
+      return null;
+    }
   }
 
   /**
@@ -1156,8 +1308,14 @@ export class PromptEngine {
   ): Promise<SimulationResult> {
     const builder = new PromptBuilder(game);
 
+    // Flag narrativi (spenti di default): la texture aggiunge esempi e figure
+    // documentate; `tieredMemory` fa dipendere i budget dalla fascia del modello.
+    const narrative = this.narrativeFlags();
+    const jumpModel = this.modelFor('jump');
+    const memoryBudgets = narrative.tieredMemory ? narrativeBudgetsFor(jumpModel) : undefined;
+
     // Обновляем целевую дату
-    const vars = builder.buildVariables();
+    const vars = builder.buildVariables({ memoryBudgets });
     vars.TARGET_ROUND_DATE = this.calculateTargetDate(game.currentDate, jumpDays);
     vars.TARGET_ROUND_GRAMMATICAL_DATE = this.toGrammaticalDate(vars.TARGET_ROUND_DATE);
     const normalizedActions: Array<{ actionId?: string; text: string }> = actions.map(action => typeof action === 'string'
@@ -1182,18 +1340,21 @@ export class PromptEngine {
       : Math.min(30, Math.max(1, Math.ceil(jumpDays / 21), actionsCount));
     const renderedOverride = promptOverride ? renderPromptTemplate(promptOverride, vars) : undefined;
     const constrained = !game.strictMode && this.isConstrainedModel('jump');
+    const compactBudgets = narrative.tieredMemory && constrained ? narrativeBudgetsFor(jumpModel) : undefined;
     const baseSimulationPrompt = constrained
       ? buildConstrainedSimulationPrompt(vars, {
           autoJump,
           eventBudget: maxEvents,
           presetOverride: renderedOverride,
+          texture: narrative.texture,
+          budgets: compactBudgets,
         })
       : (() => {
           const basePrompt = renderedOverride
             ? renderedOverride
               + buildCausalityGuard(vars)
               + (autoJump ? buildAutoJumpInstruction(vars, maxEvents) : '')
-            : buildSimulationPrompt(vars, { autoJump, eventBudget: maxEvents });
+            : buildSimulationPrompt(vars, { autoJump, eventBudget: maxEvents, texture: narrative.texture });
           // I preset possono definire il mondo, non rimuovere causalità,
           // autonomia del giocatore e rigore della cronaca.
           return basePrompt
@@ -1363,6 +1524,14 @@ export class PromptEngine {
     // sospensione vale solo per la fase live: qui si riprende in ordine.
     livePublication = false;
     for (const event of result.events) emitEvent(event);
+    // WS-NARR-DISPATCH-PAX-QUALITY: world pulse opzionale, calcolato DOPO il
+    // risultato principale e restituito in un campo separato. Non entra in
+    // `result.events`, quindi non tocca budget, auto-jump, actionOutcomes,
+    // voided o targetDate. Col flag spento non parte alcuna chiamata.
+    const pulse = await this.generateWorldPulse(game, { signal, result, vars });
+    if (pulse && pulse.accepted.length > 0) {
+      return { ...result, worldPulseEvents: pulse.accepted };
+    }
     return result;
   }
 

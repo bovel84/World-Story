@@ -1,3 +1,5 @@
+import { CONSTRAINED_NARRATIVE_BUDGETS, type NarrativeBudgets } from '../llm/modelTier';
+
 interface HistoryTurn {
   turn: number;
   date?: string;
@@ -13,10 +15,22 @@ const clip = (text: string, max: number): string => {
 
 /** Fits the compact model's 4,500-character allowance without dropping the
  * latest committed event behind an oversized historical summary. Newest first
- * is deliberate: truncation can only remove older context, never the trigger. */
-export function buildNarrativeMemory(results: HistoryTurn[], consolidated?: string): string {
+ * is deliberate: truncation can only remove older context, never the trigger.
+ *
+ * I tetti dipendono dalla fascia del modello (`narrativeBudgetsFor`): con
+ * `narrative.tieredMemory` i modelli forti ricevono più cronaca e più memoria
+ * canonica; senza flag restano i valori storici (fascia vincolata). */
+export function buildNarrativeMemory(
+  results: HistoryTurn[],
+  consolidated?: string,
+  budgets: NarrativeBudgets = CONSTRAINED_NARRATIVE_BUDGETS,
+): string {
   const memory = consolidated?.trim();
-  const recentBudget = memory ? 3000 : 4200;
+  // Il budget recente si riduce quando esiste una memoria canonica: la quota
+  // 3.000/4.200 storica è preservata per la fascia vincolata.
+  const recentBudget = memory
+    ? Math.round((budgets.recentMemoryChars * 3_000) / 4_200)
+    : budgets.recentMemoryChars;
   const turns = results.slice(-5).reverse();
   const recent: string[] = [];
   let remaining = recentBudget;
@@ -30,7 +44,7 @@ export function buildNarrativeMemory(results: HistoryTurn[], consolidated?: stri
       lines.push(`- ${event.date || ''} ${clip(event.headline, 160)}${event.detail ? `: ${clip(event.detail, index === 0 ? 650 : 280)}` : ''}`);
     }
     if (turn.narration) lines.push(`Sintesi: ${clip(turn.narration, 300)}`);
-    const limit = Math.min(remaining, index === 0 ? 1700 : 750);
+    const limit = Math.min(remaining, index === 0 ? budgets.newestTurnChars : budgets.recentTurnChars);
     if (limit < 100) break;
     const text = lines.join('\n');
     const excerpt = text.length <= limit ? text : `${text.slice(0, limit - 1).trimEnd()}…`;
@@ -39,6 +53,6 @@ export function buildNarrativeMemory(results: HistoryTurn[], consolidated?: stri
   }
   return [
     recent.length ? `[Cronaca recente — dal più recente al più antico; date vincolanti]\n${recent.join('\n\n')}` : '',
-    memory ? `[Memoria canonica dei turni precedenti]\n${clip(memory, 1200)}` : '',
+    memory ? `[Memoria canonica dei turni precedenti]\n${clip(memory, budgets.canonicalMemoryChars)}` : '',
   ].filter(Boolean).join('\n\n');
 }
