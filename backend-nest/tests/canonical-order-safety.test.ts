@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { FeasibilityService } from '../src/core/feasibility/FeasibilityService';
+import { canonicalOrderBlockers } from '../src/core/feasibility/CanonicalOrderSafety';
 import { draftIntentCandidate, normalizeOrderIntent } from '../src/core/feasibility/intent';
 import { loadSimulationCatalog } from '../src/scenario/loader';
 
@@ -260,5 +261,42 @@ describe('canonical backend order safety', () => {
     expect(action.status).toBe('pending');
     expect(generate).not.toHaveBeenCalled();
     legacy.session.removePendingAction(action.id);
+  });
+});
+
+describe('canonical land-attack preflight (WS-GOV-DOSSIER-SALIENCE)', () => {
+  const empty = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [] as unknown[] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
+  const withUnit = { regions: empty.regions, operationalObjects: [{ id: 'u1', kind: 'unit', data: { polityId: 'ALPHA', status: 'operational', personnel: 800 } }] };
+  const withFormingUnit = { regions: empty.regions, operationalObjects: [{ id: 'u2', kind: 'unit', data: { polityId: 'ALPHA', status: 'forming', personnel: 800 } }] };
+  const withArmy = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [{ id: 'a1', type: 'army', name: 'I Armata', level: 3 }] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
+  const codes = (text: string, world: Parameters<typeof canonicalOrderBlockers>[2]) => canonicalOrderBlockers(text, 'ALPHA', world).map(blocker => blocker.code);
+
+  it('blocca un ordine esplicito di attacco senza alcun reparto terrestre', () => {
+    expect(codes('Attacchiamo il Kenya', empty)).toContain('MILITARY_ASSET_MISSING');
+    expect(codes('Invadiamo il Kenya', empty)).toContain('MILITARY_ASSET_MISSING');
+    expect(codes("Lanciamo un'offensiva contro il Kenya", empty)).toContain('MILITARY_ASSET_MISSING');
+  });
+
+  it('non blocca lo stesso ordine con un reparto terrestre canonico utilizzabile', () => {
+    for (const world of [withUnit, withArmy]) {
+      expect(codes('Attacchiamo il Kenya', world)).not.toContain('MILITARY_ASSET_MISSING');
+    }
+  });
+
+  it('un reparto in formazione non è ancora una forza utilizzabile', () => {
+    expect(codes('Attacchiamo il Kenya', withFormingUnit)).toContain('MILITARY_ASSET_MISSING');
+  });
+
+  it('discussione, ipotesi e negazione non sono esecuzione', () => {
+    for (const text of ['Valutiamo se attaccare il Kenya', 'Se attacchiamo il Kenya perderemo', 'Non attacchiamo il Kenya', 'Attaccare il Kenya sarebbe un errore']) {
+      expect(codes(text, empty)).not.toContain('MILITARY_ASSET_MISSING');
+    }
+  });
+
+  it('distingue un ordine esplicito da movimento o impiego navale', () => {
+    expect(codes('Ordina di attaccare il Kenya', empty)).toContain('MILITARY_ASSET_MISSING');
+    expect(canonicalOrderBlockers('Attacchiamo il Kenya', 'ALPHA', empty).map(blocker => blocker.field)).toContain('military.landForces');
+    expect(canonicalOrderBlockers('Mandiamo la flotta', 'ALPHA', empty).map(blocker => blocker.field)).toEqual(['military.navalAssets']);
+    expect(codes('Rafforziamo la frontiera settentrionale', empty)).toEqual([]);
   });
 });

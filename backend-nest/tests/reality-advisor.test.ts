@@ -295,3 +295,29 @@ describe('WS-ADVISOR-READABILITY-GUARD — storia reale vs possesso corrente', (
     expect(guardRealityAdvisorOutput(context, prose)).toBe(prose);
   });
 });
+
+describe('advisor military fact registry (WS-GOV-DOSSIER-SALIENCE)', () => {
+  it('espone i fatti militari compatti senza array di reparti', () => {
+    const world = snapshot();
+    world.military.manpower = { activePersonnel: 1200, trainedReserve: 400, mobilizedPersonnel: 0, shipCrew: 0, updatedDate: '1951-01-01' };
+    world.military.equipment = { rifle: 5000 };
+    world.military.formationCount = 3;
+    world.military.initialReadinessPct = 72;
+    world.military.supply = { stock: { weapons: 100 }, monthlyNeeds: { weapons: 10 } };
+    const context = buildRealityAdvisorContext(world).advisorContext;
+    const prompt = buildRealityAdvisorPrompt(context, 'Come sono le forze armate?');
+    const line = prompt.split('\n').find(entry => entry.startsWith('{"date"'));
+    expect(line).toBeTruthy();
+    const registry = JSON.parse(line!);
+    expect(registry.military).toEqual({
+      manpower: world.military.manpower,
+      equipment: { rifle: 5000 },
+      formationCount: 3,
+      initialReadinessPct: 72,
+      supply: world.military.supply,
+    });
+    expect(registry.military.units).toBeUndefined();
+    expect(registry.military.formations).toBeUndefined();
+    expect(registry.military.ships).toBeUndefined();
+  });
+});

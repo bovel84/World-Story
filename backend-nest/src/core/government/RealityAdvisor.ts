@@ -304,6 +304,16 @@ function advisorFactRegistry(snapshot: VerifiedWorldSnapshot): Record<string, un
     geography: snapshot.geography, changes: snapshot.changes, diplomacy: snapshot.diplomacy,
     signedActs: snapshot.recent.signedActs, ongoingProjects: snapshot.economy.ongoingProjects,
     facts: snapshot.facts, unavailable: snapshot.unavailable,
+    // Fatti militari compatti read-only: attivi/riserve/mobilitati, equipaggiamento,
+    // formazioni, stima di prontezza iniziale e disponibilità operative. Nessun
+    // array di reparti/navi: quelli restano nel VerifiedWorldSnapshot lato server.
+    military: {
+      manpower: snapshot.military.manpower,
+      equipment: snapshot.military.equipment,
+      formationCount: snapshot.military.formationCount,
+      initialReadinessPct: snapshot.military.initialReadinessPct ?? null,
+      supply: snapshot.military.supply,
+    },
     dossier: snapshot.dossier ? {
       before: snapshot.dossier.before,
       decisions: snapshot.dossier.decisions,
