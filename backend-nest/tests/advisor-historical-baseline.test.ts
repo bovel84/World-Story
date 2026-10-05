@@ -47,7 +47,7 @@ const stubProvider: any = {
       baselineCalls += 1;
       const country = user.includes('KHM') ? 'Cambogia' : 'Stati Uniti';
       // Una frase con eventi REALI successivi al 2000: non deve entrare nel contesto.
-      return { content: JSON.stringify({ entries: [{ date: '1999', text: historyFor(country) }, { date: '2008-01-01', text: 'EVENTO_REALE_FUTURO' }] }) };
+      return { content: JSON.stringify({ entries: [{ date: '1999', text: historyFor(country), confidence: 'high' }, { date: '2008-01-01', text: 'EVENTO_REALE_FUTURO', confidence: 'high' }] }) };
     }
     capturedPrompts.push(user);
     if (_mechanic === 'jump') return { content: JSON.stringify({ type: 'complete', narration: 'Nessun nuovo impegno.', targetDate: '2000-01-08', actionOutcomes: [], voided: [], startChat: [], relationshipChanges: [], worldChanges: { regionOwners: {}, regionColors: {} } }) };
@@ -240,7 +240,7 @@ describe('WS-GOV-ADVISOR-HISTORICAL-BASELINE', () => {
     const provider: LLMProvider = { ...stubProvider, generate: async (mechanic, system, user, options) => {
       if (!system.includes('storico di riferimento')) return stubProvider.generate(mechanic, system, user, options);
       return new Promise((resolve, reject) => {
-        release = () => resolve({ content: JSON.stringify({ entries: [{ date: '1999', text: historyFor('Stati Uniti') }] }) });
+        release = () => resolve({ content: JSON.stringify({ entries: [{ date: '1999', text: historyFor('Stati Uniti'), confidence: 'high' }] }) });
         options?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
       });
     } };
@@ -336,8 +336,10 @@ describe('WS-GOV-ADVISOR-HISTORICAL-BASELINE', () => {
     });
     expect(prompt).toContain('Cambogia');
     expect(prompt).toContain('2000');
-    expect(prompt).toContain('perché il paese è così oggi');
+    expect(prompt).toContain('elementi identificativi concreti');
+    expect(prompt).toContain('"confidence"');
+    expect(prompt).toContain('frase che potrebbe descrivere quasi qualsiasi paese');
     expect(prompt).toContain('STRETTAMENTE anteriore a 2000-01-01');
-    expect(prompt).toContain('Non descrivere il presente della simulazione');
+    expect(prompt).toContain('baseline corta');
   });
 });
