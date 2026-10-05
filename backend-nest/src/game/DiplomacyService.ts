@@ -32,6 +32,7 @@ import type { TimelineEventRecord, TurnResultRecord } from './TimelineService';
 import { ingestJevBatch, diplomaticMemoryInputs, getDiplomaticMemory } from '../core/government/jev/jev-memory.service';
 
 import { HISTORICAL_BASELINE_RULE, historicalBaselineExcerpt, type PolityHistoricalBaseline } from '../core/government/HistoricalBaseline';
+import { compileDiplomaticSituation } from '../core/government/NarrativeContextCompiler';
 
 /** Fence di contesto (ramo + revisione) per la protezione late-writeback. */
 export interface DiplomacyFence {
@@ -609,7 +610,8 @@ export class DiplomacyService {
       history,
       playerMessage,
       mode,
-    }) + '\n\n' + this.historicalContext(respondingParticipant.polityId, playerMessage);
+    }) + '\n\n' + (respondingParticipant.diplomaticSituation ?? '')
+      + '\n\n' + this.historicalContext(respondingParticipant.polityId, playerMessage);
 
     const response = await this.ctx.llm.generate(
       'chat',
@@ -705,10 +707,18 @@ export class DiplomacyService {
       const agenda = this.ctx.strategicAgenda?.(p.id) ?? '';
       // GAMEPLAY-LONG: gli accordi non si dimenticano fra un messaggio e l'altro.
       const commitments = this.ctx.commitmentsForPolity?.(p.id) ?? '';
+      // WS-GOV-NARRATIVE-CONTEXT-COMPILER fase 2 — la posizione di governo
+      // dell'NPC, deterministica e senza chiamate: precede i dati verificati.
+      const counterpartyName = this.ctx.publicPolityName(this.ctx.playerPolityId());
+      const diplomaticSituation = compileDiplomaticSituation({
+        countryName: p.name, counterpartyName, relationship, priorities,
+        recentMemory: memory, agenda, commitments, hostileNeighbours,
+      });
       return {
         polityId: p.id,
         name: p.name,
         relationship,
+        diplomaticSituation,
         personality: `${profile.personality}; dottrina ${profile.doctrine}; stile ${profile.negotiationStyle}`,
         interests: `priorità: ${priorities.join('; ')}; linee rosse: ${profile.redLines.join('; ')}; memoria recente: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato'}; agenda in corso: ${agenda || 'nessun obiettivo attivo'}; impegni in vigore: ${commitments || 'nessuno registrato'}; [valutazione interna riservata: usa questi dati per decidere, non citarli mai nei messaggi] propensione alla forza ${Math.round(profile.aggression * 100)}%; rischio ${profile.riskTolerance}/100; affidabilità verso gli impegni ${profile.allianceReliability}/100; capacità: ${owned.length} regioni, popolazione ${population}, PIL ${gdp}, potenza militare effettiva ${effectiveMilitary} (nominale ${military})`,
       };
@@ -828,7 +838,8 @@ export class DiplomacyService {
           history,
           playerMessage: reactionBrief,
           mode: 'reaction',
-        }) + '\n\n' + this.historicalContext(polityId, reactionBrief);
+        }) + '\n\n' + (responding.diplomaticSituation ?? '')
+          + '\n\n' + this.historicalContext(polityId, reactionBrief);
         const response = await this.ctx.llm.generate(
           'chat',
           `Interpreta ${sender} in una trattativa storica. Rispondi in italiano e SOLO con JSON {"message"}.`,
