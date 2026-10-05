@@ -41,6 +41,7 @@ import {
 import { buildNarrativeMemory } from '../src/prompts/narrative-memory';
 import {
   classifyModel,
+  narrativeMemoryTierFor,
   narrativeBudgetsFor,
   CONSTRAINED_NARRATIVE_BUDGETS,
   FULL_NARRATIVE_BUDGETS,
@@ -589,11 +590,14 @@ describe('Passo 5 — memoria per fascia (due sole fasce)', () => {
     expect(off).toBe(constrained);
     expect(full.length).toBeGreaterThan(constrained.length);
     expect(classifyModel('glm-5.3').constrained).toBe(false);
-    expect(classifyModel('glm-5.3-flash')).toEqual({ constrained: false, reason: 'strong-family' });
-    expect(classifyModel('deepseek-v4.1-flash').constrained).toBe(false);
+    // Prompt tier ≠ memory tier: `flash` resta compatto nel protocollo, ma la
+    // famiglia forte riceve memoria piena quando `tieredMemory=true`.
+    expect(classifyModel('glm-5.3-flash')).toEqual({ constrained: true, reason: 'flash' });
+    expect(narrativeMemoryTierFor('glm-5.3-flash')).toBe('full-tier');
+    expect(narrativeMemoryTierFor('deepseek-v4.1-flash')).toBe('full-tier');
     expect(narrativeBudgetsFor('glm-5.3')).toBe(FULL_NARRATIVE_BUDGETS);
     expect(narrativeBudgetsFor('glm-5.3-flash')).toBe(FULL_NARRATIVE_BUDGETS);
-    // Il segnale `:free` resta vincolante anche per una famiglia forte.
+    // Il segnale `:free` resta vincolante anche per il memory tier.
     expect(narrativeBudgetsFor('glm-5.3-flash:free')).toBe(CONSTRAINED_NARRATIVE_BUDGETS);
   });
 
