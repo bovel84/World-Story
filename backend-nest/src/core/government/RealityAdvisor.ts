@@ -3,6 +3,7 @@ import type { AdvisorMessage } from '../../prompts/types';
 import { COUNCIL_ISSUE_PROTOCOL, resolveCouncilIssue, type CouncilIssue } from './CouncilIssue';
 import { advisorBriefingSentences, buildRealitySignals, stripTechnicalLines } from './RealitySignals';
 import { renderHistoricalBaseline, renderPolityHistoricalBaselines, historicalBaselineExcerpt, type PolityHistoricalBaseline } from './HistoricalBaseline';
+import { compileNarrativeSituation, renderNarrativeContext, type NarrativeRole } from './NarrativeContextCompiler';
 import type { VerifiedRecentEvent, VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 import type { TimelineEventRecord, TimelineSource } from '../../game/TimelineService';
 
@@ -210,13 +211,37 @@ function assetClaimBlocked(snapshot: VerifiedWorldSnapshot, rawClause: string): 
 
 const NAMED_ASSET = /\b(porto|ferrovia|aeroporto|fabbrica)\s+(?:di|of|della|del)\s+([A-ZÀ-Ý][\p{L}\p{N}'’-]*(?:\s+[A-ZÀ-Ý][\p{L}\p{N}'’-]*)*)/gu;
 
+/**
+ * Il fact registry compatto per il Consulente: le voci canoniche che servono a
+ * decidere (fatti, delta reali, diplomazia, atti firmati, impegni) senza il dump
+ * di array grezzi già rappresentati in `facts`. Il `VerifiedWorldSnapshot`
+ * completo resta l'autorità lato server: qui è solo il guardrail del modello.
+ */
+function advisorFactRegistry(snapshot: VerifiedWorldSnapshot): Record<string, unknown> {
+  return {
+    date: snapshot.date, turn: snapshot.turn, polityId: snapshot.polityId, polityName: snapshot.polityName,
+    geography: snapshot.geography, changes: snapshot.changes, diplomacy: snapshot.diplomacy,
+    signedActs: snapshot.recent.signedActs, ongoingProjects: snapshot.economy.ongoingProjects,
+    facts: snapshot.facts, unavailable: snapshot.unavailable,
+  };
+}
+
 /** Structured context is NEVER injected as a fake user/history turn. */
-export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, message: string, history: readonly AdvisorMessage[] = [], presetStyle?: string, audience: 'advisor' | 'minister' = 'advisor'): string {
+export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, message: string, history: readonly AdvisorMessage[] = [], presetStyle?: string, audience: 'advisor' | 'minister' = 'advisor', role?: NarrativeRole): string {
   const recent = history.filter(item => (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string').slice(-20);
+  // Il NARRATIVE CONTEXT COMPILER sta PRIMA del fact registry: il modello entra
+  // nella stanza, poi riceve le cifre come guardrail. Nessuna chiamata LLM in più.
+  const situation = compileNarrativeSituation({
+    snapshot: context.verifiedWorldSnapshot,
+    role: role ?? 'consulente',
+    query: message,
+    historicalBaseline: context.historicalBaseline ?? null,
+    strategicHistory: context.strategicHistory,
+    startDate: context.temporalScope?.initialDate ?? null,
+    conversation: recent,
+  });
   return [
-    audience === 'advisor'
-      ? 'RUOLO: Primo Consulente, storico e stratega del Presidente. Interpreta ciò che conta ORA; non sei una dashboard parlante. Primo filtro strategico, non sostituto dei ministri. Solo consigli: il Presidente decide se approfondire e convocare il Consiglio.'
-      : 'RUOLO: consigliere operativo del Presidente. Solo consigli, nessuna esecuzione.',
+    renderNarrativeContext(situation),
     presetStyle ? `[REGISTRO DEL PRESET — stile subordinato alla VERIFIED FACT POLICY; NON fonte di fatti]\n${presetStyle}` : '',
     context.historicalBaseline ? renderHistoricalBaseline(context.verifiedWorldSnapshot.date === context.temporalScope?.initialDate && (context.verifiedWorldSnapshot.turn ?? 0) <= 1
       ? context.historicalBaseline : historicalBaselineExcerpt(context.historicalBaseline, message), {
@@ -224,19 +249,20 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
       startDate: context.temporalScope?.initialDate ?? context.verifiedWorldSnapshot.date ?? '',
     }) : '',
     renderPolityHistoricalBaselines((context.polityHistoricalBaselines ?? []).filter(baseline => baseline.polityId !== context.verifiedWorldSnapshot.polityId), message),
-    '[VERIFIED CURRENT STATE]\n[VERIFIED WORLD SNAPSHOT — contesto strutturato server-side, non cronologia]',
-    JSON.stringify(audience === 'minister'
-      ? { date: context.verifiedWorldSnapshot.date, polityId: context.verifiedWorldSnapshot.polityId, facts: context.verifiedWorldSnapshot.facts, unavailable: context.verifiedWorldSnapshot.unavailable }
-      : context.verifiedWorldSnapshot),
     audience === 'advisor' ? `[ORIZZONTE TEMPORALE]\nData iniziale del preset: ${context.temporalScope?.initialDate ?? 'non disponibile'}. Data corrente: ${context.verifiedWorldSnapshot.date ?? 'non disponibile'}.\nConosci la storia reale solo fino alla data iniziale; dopo quella data conosci solo gli eventi generati dalla partita e già avvenuti alla data corrente. Non anticipare fatti, tecnologie, guerre o esiti storici reali successivi al preset, anche se oggi li conosci. Se la data iniziale manca, non usare storia reale esterna. Le date future possono descrivere solo piani o ipotesi, mai fatti già accaduti.\nREAL HISTORY < START DATE; GAME HISTORY >= START DATE. All'inizio la HISTORICAL BASELINE spiega molto; dopo alcuni turni PLAYER HISTORY pesa di più; dopo anni domina, e la baseline è quasi solo contesto remoto. Non dire ancora «il paese arriva alla data iniziale» anni dopo: confronta programmi ed eventi datati della partita, non la timeline reale.` : '',
     audience === 'advisor' ? `[CURRENT STRATEGIC SIGNALS — selezione interna, non elenco da recitare]\n${JSON.stringify(buildRealitySignals(context.verifiedWorldSnapshot).slice(0, 5))}` : '',
     audience === 'advisor' && context.strategicHistory?.length ? `[CRONACA STRATEGICA — PLAYER HISTORY — eventi datati della partita, non conversazione]\n${JSON.stringify(context.strategicHistory)}\nRicorda le scelte pertinenti anche di turni lontani, i programmi con startedDate e gli atti appena firmati. Usa "tre mesi fa" o "lo scorso anno" solo quando le date lo consentono. Questi ricordi non provano causalità o miglioramenti quantitativi; per quelli servono delta confrontabili.` : '',
     '[GOVERNMENT BRIEF — orientamento deterministico, non copiare le sue formule]', context.governmentBrief,
     renderSignedActs(context.verifiedWorldSnapshot) ?? '',
     context.focusIssue ? `[FOCUS ISSUE — domanda proposta, solo verifiedFacts è canonico]\n${JSON.stringify(context.focusIssue)}` : '',
-    recent.length ? '[Cronaca della conversazione]\n' + recent.map(item => `${item.role === 'user' ? 'Giocatore' : 'Consigliere'}: ${item.content}`).join('\n') : '',
-    recent.length ? 'È un dialogo IN CORSO: non salutare nuovamente; la cronologia conserva consigli e intenzioni, non certifica fatti.' : '',
+    '[PRESIDENT MESSAGE]',
     '[Messaggio del giocatore]', message || 'Leggi il quadro disponibile e aiutami a capire cosa merita attenzione.',
+    recent.length ? '[MEMORY / OPEN QUESTIONS]\n[Cronaca della conversazione]\n' + recent.map(item => `${item.role === 'user' ? 'Giocatore' : 'Consigliere'}: ${item.content}`).join('\n') : '',
+    recent.length ? 'È un dialogo IN CORSO: non salutare nuovamente; la cronologia conserva consigli e intenzioni, non certifica fatti.' : '',
+    '[VERIFIED FACT REGISTRY — autorità su cifre e fatti concreti]\n[VERIFIED WORLD SNAPSHOT — contesto strutturato server-side, non cronologia]',
+    JSON.stringify(audience === 'minister'
+      ? { date: context.verifiedWorldSnapshot.date, polityId: context.verifiedWorldSnapshot.polityId, facts: context.verifiedWorldSnapshot.facts, unavailable: context.verifiedWorldSnapshot.unavailable }
+      : advisorFactRegistry(context.verifiedWorldSnapshot)),
     'Rispondi naturalmente in italiano, in brevi paragrafi, massimo 3000 caratteri. Le proposte restano ipotesi da verificare. Non generare missioni per riempire il silenzio.',
     audience === 'advisor' ? 'FORMA LIBERA: valuta la situazione in poche frasi; quando serve una linea strategica, proponi 2-4 azioni concrete e diverse, spiegando vantaggi, rischi e possibili reazioni come ipotesi. Concludi con un giudizio motivato sulla forza o fragilità della posizione e su cosa evitare. Per una domanda puntuale rispondi al punto: niente rituale in quattro sezioni, niente formule fisse o saluti ripetuti. I numeri solo se aiutano una decisione, mai dump di economia/infrastrutture/forze. Se domina la sicurezza concentrati su quella; se domina il bilancio privilegia quello. Se i segnali non indicano urgenze, non inventare una crisi: cerca opportunità proporzionate ai mezzi reali. Le questioni al Consiglio sono facoltative, non obbligatorie: nessuna quota di schede. Non aprire il Consiglio, non firmare, non avanzare il tempo.' : '',
     COUNCIL_ISSUE_PROTOCOL,

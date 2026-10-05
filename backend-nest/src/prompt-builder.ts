@@ -1636,7 +1636,7 @@ export class PromptEngine {
     const correction = verifiedRequestCorrection(context.verifiedWorldSnapshot, message);
     if (correction) return correction;
     const preset = await advisorPresetStyle(builder, game, message, history, vars);
-    const prompt = buildRealityAdvisorPrompt(withAdvisorStrategicContext(context, game.world.startDate, game.results ?? [], message), message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor');
+    const prompt = buildRealityAdvisorPrompt(withAdvisorStrategicContext(context, game.world.startDate, game.results ?? [], message), message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor', game.ministerDialogueSeat);
     const response = await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, { temperature: 0.5, signal });
     return validatedAdvisorText(context, response.content);
   }
@@ -1669,7 +1669,7 @@ export class PromptEngine {
     const correction = verifiedRequestCorrection(context.verifiedWorldSnapshot, message);
     if (correction) return correction;
     const preset = await advisorPresetStyle(builder, game, message, history, vars);
-    const prompt = buildRealityAdvisorPrompt(withAdvisorStrategicContext(context, game.world.startDate, game.results ?? [], message), message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor');
+    const prompt = buildRealityAdvisorPrompt(withAdvisorStrategicContext(context, game.world.startDate, game.results ?? [], message), message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor', game.ministerDialogueSeat);
     // Progress is observable, but no unvalidated prose is published. Even providers
     // emitting string chunks are buffered until the complete response is guarded.
     const response = await this.llm.stream('advisor', VERIFIED_FACT_POLICY, prompt, progress => {
