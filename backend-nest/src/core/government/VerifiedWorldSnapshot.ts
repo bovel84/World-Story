@@ -6,6 +6,7 @@
  * Presentation lives in facts; raw engine numbers are copied without rounding.
  */
 import { formatGovernmentNumber, type GovernmentNumberKind } from './GovernmentNumberFormat';
+import type { GovernmentDossier } from './GovernmentDossier';
 import { coastalFromGeojson } from '../simulation/NationCapacity';
 import { canonicalAssetKind } from '../simulation/CanonicalAssetTypes';
 import { debtOf, type MaterialNeeds, type ResourceStock } from '../simulation/MaterialEconomy';
@@ -196,6 +197,8 @@ export interface VerifiedWorldSnapshot {
     fronts: VerifiedOperationalRecord[];
     locations: Array<{ id: string | null; regionId: string; regionName: string | null; sourceRef: string }>;
     readiness: Array<{ unitId: string; value: number }> | null;
+    /** Existing initial national estimate, ONLY while canonical fingerprint is unchanged. */
+    initialReadinessPct?: number | null;
     supply: { stock: Partial<ResourceStock> | null; monthlyNeeds: Partial<MaterialNeeds> | null };
   };
   economy: {
@@ -244,6 +247,8 @@ export interface VerifiedWorldSnapshot {
   /** Missing facts are deliberately absent, never filled with invented zeros. */
   facts: Record<string, VerifiedWorldFact>;
   unavailable: string[];
+  /** Optional server-side projection of existing persistence, not a save-format field. */
+  dossier?: GovernmentDossier;
 }
 
 export interface VerifiedWorldSnapshotInput {
@@ -255,6 +260,8 @@ export interface VerifiedWorldSnapshotInput {
   decisions?: readonly VerifiedDecision[] | null;
   /** Canonical engine coverage, including real operational material demand. */
   foodCoverageMonths?: number | null;
+  /** Canonical initial-profile estimate; caller verifies date and unchanged inputs. */
+  initialReadinessPct?: number | null;
   /** Explicit real baseline; repeated reads are NOT previous-turn snapshots. */
   previousSnapshot?: VerifiedWorldSnapshot | null;
   /** Ordini pending canonici del motore: atti firmati, non ancora eseguiti. */
@@ -416,6 +423,7 @@ export function buildVerifiedWorldSnapshot(input: VerifiedWorldSnapshotInput): V
           regionId: record.raw.regionId as string, regionName: text(record.raw.regionName) ?? regionsById.get(record.raw.regionId as string)?.name ?? null,
           sourceRef: record.sourceRef }] : []),
       ],
+      initialReadinessPct: finite(input.initialReadinessPct),
       readiness: input.operationalRows == null ? null : units.flatMap(unit => finite(unit.raw.readiness) !== null
         ? [{ unitId: unit.id, value: unit.raw.readiness as number }] : []),
       supply: { stock, monthlyNeeds: needs },
@@ -454,6 +462,16 @@ export function buildVerifiedWorldSnapshot(input: VerifiedWorldSnapshotInput): V
   numberFact('socialTension', 'Tensione sociale', finite(account?.socialTension), 'percent', ' / 100', `worldState.accounts.${polityId}.socialTension`);
   numberFact('stability', 'Stabilità', finite(account?.stability), 'percent', ' / 100', `worldState.accounts.${polityId}.stability`);
   numberFact('population', 'Popolazione', finite(account?.population), 'integer', ' abitanti', `worldState.accounts.${polityId}.population`);
+  // Numeric reality stays available even when it is not salient enough for Council.
+  for (const [key, label, kind, unit] of [
+    ['nominalGdpUsdBillions', 'PIL nominale annuo', 'money', ' mld USD/anno'],
+    ['debtRatioPct', 'Debito su PIL', 'percent', '%'],
+    ['debtServicePct', 'Interessi su entrate annue', 'percent', '%'],
+    ['forces', 'Reparti in forza', 'integer', ' reparti'],
+    ['mobilized', 'Mobilitati', 'integer', ' uomini'],
+  ] as const) {
+    numberFact(key, label, finite(account?.[key]), kind, unit, `worldState.accounts.${polityId}.${key}`);
+  }
   for (const [key, assets] of Object.entries(infrastructure)) {
     if (assets === null) { snapshot.unavailable.push(`infrastructure.${key}`); continue; }
     const labels: Record<string, [string, string]> = {
@@ -480,6 +498,11 @@ export function buildVerifiedWorldSnapshot(input: VerifiedWorldSnapshotInput): V
       `${formatGovernmentNumber(readiness * 100, 'percent')}%`, 'military_inventory', `${unit.sourceRef}.readiness`);
     if (personnel !== null) fact(`military.units.${unit.id}.personnel`, `Personale: ${text(unit.raw.name) ?? unit.id}`, personnel,
       `${formatGovernmentNumber(personnel, 'integer')} uomini`, 'military_inventory', `${unit.sourceRef}.personnel`);
+  }
+  if (finite(input.initialReadinessPct) !== null) {
+    fact('military.initialReadinessPct', 'Prontezza iniziale stimata', input.initialReadinessPct!,
+      `${formatGovernmentNumber(input.initialReadinessPct!, 'percent')}% (stima iniziale)`, 'military_inventory',
+      `game_country_initial_profiles.${polityId}.military.readinessPct`);
   }
   const mapFleets = formations.filter(asset => asset.type === 'fleet');
   const navalLabels = [

@@ -27,7 +27,9 @@
  */
 
 import { IntString, parseInteger, intToString } from '../../domain/quantities';
-import { formatGovernmentNumber, governmentFigureValue } from './GovernmentNumberFormat';
+import { formatGovernmentNumber, governmentFigureValue, type GovernmentNumberKind } from './GovernmentNumberFormat';
+import { evaluateGovernmentSalience, type GovernmentSalienceContext } from './GovernmentSalience';
+export type { GovernmentSalienceContext } from './GovernmentSalience';
 
 /** Da dove viene un numero mostrato al giocatore. */
 export type FigureBasis =
@@ -124,6 +126,8 @@ export interface AgendaFaction {
 }
 
 export interface GovernmentAgendaInput {
+  /** Optional measured context: missing/null facts are never replaced with zero. */
+  readonly salience?: GovernmentSalienceContext;
   /** I deficit misurati sui cantieri e sugli ordini in corso. */
   readonly deficits: readonly AgendaDeficit[];
   /** Le fazioni, dalla fotografia del governo. */
@@ -134,21 +138,14 @@ export interface GovernmentAgendaInput {
   readonly debt: { readonly ratioPct: number; readonly servicePct: number };
   /** Le risorse su cui il paese può contare, per le vie alternative. */
   readonly reserves: readonly { readonly resourceId: string; readonly available: IntString; readonly unit: string }[];
-  /** Le opere disponibili nel catalogo, per proporre cosa costruire. */
+  /** Catalogo leggibile fuori agenda. `missing: []` significa distinta (cassa inclusa) coperta, non autorizzazione a costruire. */
   readonly buildable: readonly { readonly workId: string; readonly name: string; readonly missing: readonly string[] }[];
   /** La valuta di conto, per le cifre monetarie. */
   readonly currencyId: string;
   /**
-   * P04 — Lo stato dei militari, che il Ministro della Guerra riferisce.
-   *
-   * Prima di P04 la Guerra non esisteva nel codice: la spesa di difesa compariva
-   * solo come *politica* dentro la fazione «Forze armate», cioè come opinione di
-   * qualcuno che chiede più soldi. Ma la difesa del paese è un fatto della sedia,
-   * non una corrente di opinione: un ministro della Guerra che non riferisce mai
-   * la propria condizione non è prudente, è assente.
-   *
-   * `undefined` quando il motore non pubblica questi numeri: la sedia tace, come
-   * deve, invece di inventare una condizione.
+   * Conto militare leggibile: spesa e forze permanenti da sole non sono bisogni.
+   * La mobilitazione o i fatti operativi di `salience` possono giustificare una
+   * richiesta. Se il conto manca, si mostrano soltanto i fatti davvero noti.
    */
   readonly defence?: {
     /** Spesa di difesa in percentuale del PIL, dal conto nazionale. */
@@ -159,15 +156,11 @@ export interface GovernmentAgendaInput {
     readonly factionSatisfaction: number | null;
   };
   /**
-   * P04 — La condizione dei conti, perché il Tesoro possa riferirla sempre.
-   *
-   * Il Tesoro è l'unica sedia che ha **sempre** numeri: un paese senza bilancio
-   * non è un paese. Tacerla finché il servizio del debito non supera il 15%
-   * significa che in una partita normale il ministro più importante non parla
-   * mai — misurato: servizio 14,1%, soglia 15%, sala vuota.
+   * Conti leggibili nel dossier; una condizione normale non è una richiesta.
+   * Il Tesoro porta in agenda solo una questione fiscalmente significativa.
    */
   readonly cashFlow?: {
-    /** Il saldo di bilancio in percentuale del PIL. */
+    /** Saldo MENSILE / PIL nominale ANNUO * 100: non è annualizzato qui. */
     readonly balancePct: number;
     /** Il saldo in cifre, nell'unità del bilancio. */
     readonly balance: IntString;
@@ -184,9 +177,9 @@ export interface GovernmentAgendaInput {
    */
   readonly education?: {
     /** Spesa per istruzione e ricerca, in percentuale del PIL. */
-    readonly burdenPct: number;
-    /** Gli atenei del paese, dal conto nazionale. */
-    readonly universities: number;
+    readonly burdenPct?: number;
+    /** Gli atenei del paese, dal conto nazionale, se noti. */
+    readonly universities?: number;
     /** Tensione sociale (0-100), per collegare la scuola al disagio. */
     readonly socialTension: number;
   };
@@ -199,15 +192,27 @@ export interface GovernmentAgendaInput {
    */
   readonly health?: {
     /** Spesa sociale (sanità + sostegno), in percentuale del PIL. */
-    readonly socialBurdenPct: number;
-    /** La popolazione del paese, dal conto nazionale. */
-    readonly population: number;
+    readonly socialBurdenPct?: number;
+    /** La popolazione del paese, dal conto nazionale, se nota. */
+    readonly population?: number;
     /** Stabilità (0-100), per collegare il sostegno alla tenuta del paese. */
     readonly stability: number;
   };
 }
 
 const measured = (source: string): FigureBasis => ({ kind: 'measured', source });
+const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
+/** Supporting numbers may be absent even when the need is verified. */
+function knownFigure(label: string, value: number | undefined, kind: GovernmentNumberKind, unit: string, basis: FigureBasis): Figure[] {
+  return finite(value) ? [{ label, value: governmentFigureValue(value, kind), unit, basis }] : [];
+}
+function debtDetail(debt: GovernmentAgendaInput['debt']): string {
+  return [
+    finite(debt.ratioPct) ? ` Il debito è al ${formatGovernmentNumber(debt.ratioPct, 'percent')}% del PIL.` : '',
+    finite(debt.servicePct) ? ` Gli interessi assorbono il ${formatGovernmentNumber(debt.servicePct, 'percent')}% delle entrate.` : '',
+  ].join('');
+}
 
 /**
  * Una cifra che il motore **ripartisce**, non misura direttamente.
@@ -230,6 +235,7 @@ const estimated = (source: string, method: string): FigureBasis => ({ kind: 'est
  */
 export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
   const voices: GovernmentVoice[] = [];
+  const salient = evaluateGovernmentSalience(input);
 
   // ── 1. I deficit: un cantiere fermo è il fatto più duro che esista ───────
   for (const deficit of input.deficits) {
@@ -256,7 +262,7 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
           title: 'Produrre in casa',
           detail: 'Impiegare capacità e manodopera per coprire il divario con la filiera interna.',
           prerequisites: ['capacità produttiva disponibile', 'tempo di lavorazione'],
-          expected: 'Il divario si chiude nei tempi della produzione, senza dipendere da altri.',
+          expected: 'Il divario potrebbe chiudersi se capacità e produzione sono confermate nei tempi necessari.',
           recommended: true,
         },
         {
@@ -264,7 +270,7 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
           title: `Cercare ${deficit.id} fuori`,
           detail: 'Trattare con una controparte che ha davvero quella merce: prezzo, rotta e tempi dichiarati.',
           prerequisites: ['una controparte con scorte libere', 'cassa per il prezzo', 'una rotta percorribile'],
-          expected: 'La merce arriva dopo il viaggio: il cantiere resta fermo nel frattempo.',
+          expected: 'La merce potrebbe arrivare se accordo e rotta sono confermati; il cantiere resta bloccato finché manca copertura.',
           recommended: false,
         },
         {
@@ -272,38 +278,36 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
           title: 'Ridimensionare l’opera',
           detail: 'Riconfigurare il progetto su una scala che il paese può coprire adesso.',
           prerequisites: [],
-          expected: 'L’opera parte subito, più piccola: l’effetto finale sarà minore.',
+          expected: 'L’opera potrebbe partire su scala minore se il nuovo preflight è coperto; l’effetto va verificato.',
           recommended: false,
         },
       ],
     });
   }
 
-  // ── 2-bis. P04 — Il Tesoro riferisce la condizione, non solo la crisi ───
-  //
-  // Il difetto misurato: con il servizio del debito al 14,1% e la soglia al 15%
-  // il Tesoro taceva del tutto, e con lui l'intera seduta — perché è l'unica
-  // sedia che ha sempre numeri. Un ministro che parla solo quando il paese è
-  // già rotto non è prudente: è assente. La condizione dei conti è un fatto che
-  // il paese ha in ogni caso, e riferirla non riempie il silenzio — lo occupa
-  // con ciò che il motore misura davvero.
-  if (input.cashFlow) {
+  // ── 2. Un’unica scelta fiscale, solo se i fatti la rendono significativa ──
+  if (input.cashFlow && salient.treasury) {
     const flow = input.cashFlow;
     const deficit = flow.balancePct < 0;
     voices.push({
       id: 'treasury_condition',
-      need: deficit
-        ? 'Il bilancio chiude in disavanzo e va finanziato'
-        : 'Il bilancio chiude in avanzo: decidere che farne',
-      because: `Il saldo di bilancio è ${formatGovernmentNumber(flow.balance, 'money')} ${flow.unit} (${formatGovernmentNumber(flow.balancePct, 'percent')}% del PIL), con un carico fiscale effettivo del ${formatGovernmentNumber(input.budget.effectiveTaxRatePct, 'percent')}%. Il debito è al ${formatGovernmentNumber(input.debt.ratioPct, 'percent')}% del PIL e gli interessi assorbono il ${formatGovernmentNumber(input.debt.servicePct, 'percent')}% delle entrate.`,
-      urgency: input.debt.servicePct >= 15 || Math.abs(flow.balancePct) >= 5 ? 'urgente' : 'ordinaria',
+      need: input.debt.servicePct >= 15
+        ? 'Il servizio del debito richiede una scelta fiscale'
+        : deficit
+          ? 'Il bilancio chiude in disavanzo e va finanziato'
+          : salient.investmentCandidates.length > 0
+            ? 'Il bilancio chiude in avanzo: valutare un investimento coperto'
+            : 'I conti sono cambiati significativamente: rivedere la scelta fiscale',
+      because: `${salient.treasury.because} Il saldo mensile di bilancio è ${formatGovernmentNumber(flow.balance, 'money')} ${flow.unit} (${formatGovernmentNumber(flow.balancePct, 'percent')}% del PIL nominale annuo, non annualizzato).${finite(input.budget.effectiveTaxRatePct) ? ` Il carico fiscale effettivo è il ${formatGovernmentNumber(input.budget.effectiveTaxRatePct, 'percent')}%.` : ''}${debtDetail(input.debt)}`,
+      urgency: salient.treasury.urgency,
       factionId: null,
       figures: [
         { label: 'Saldo di bilancio', value: governmentFigureValue(flow.balance, 'money'), unit: `${flow.unit}`, basis: measured('conti nazionali') },
-        { label: 'Saldo su PIL', value: governmentFigureValue(flow.balancePct, 'percent'), unit: '%', basis: measured('conti nazionali') },
-        { label: 'Debito su PIL', value: governmentFigureValue(input.debt.ratioPct, 'percent'), unit: '%', basis: measured('conti nazionali') },
-        { label: 'Interessi su entrate', value: governmentFigureValue(input.debt.servicePct, 'percent'), unit: '%', basis: measured('conti nazionali') },
-        { label: 'Prelievo effettivo', value: governmentFigureValue(input.budget.effectiveTaxRatePct, 'percent'), unit: '%', basis: measured('conti nazionali') },
+        { label: 'Saldo su PIL', value: governmentFigureValue(flow.balancePct, 'percent'), unit: '% mensile/PIL annuo', basis: measured('conti nazionali: saldo mensile / PIL nominale annuo * 100') },
+        ...knownFigure('Debito su PIL', input.debt.ratioPct, 'percent', '%', measured('conti nazionali')),
+        ...knownFigure('Interessi su entrate', input.debt.servicePct, 'percent', '%', measured('conti nazionali')),
+        ...knownFigure('Prelievo effettivo', input.budget.effectiveTaxRatePct, 'percent', '%', measured('conti nazionali')),
+        ...salient.treasury.figures,
       ],
       paths: deficit
         ? [
@@ -312,7 +316,7 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
               title: 'Consolidare i conti',
               detail: 'Ridurre una voce di spesa o alzare il prelievo per chiudere il disavanzo.',
               prerequisites: [],
-              expected: 'Il saldo si avvicina al pareggio; meno risorse per la spesa civile.',
+              expected: 'Proposta: il saldo potrebbe avvicinarsi al pareggio se la misura è approvata e coperta; meno risorse civili.',
               recommended: input.debt.servicePct >= 15,
             },
             {
@@ -320,7 +324,7 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
               title: 'Finanziare la crescita',
               detail: 'Accettare il disavanzo e spenderlo in ciò che aumenta il PIL.',
               prerequisites: ['capacità produttiva', 'tempo'],
-              expected: 'Il rapporto debito/PIL migliora lentamente, se l’investimento rende.',
+              expected: 'Il rapporto debito/PIL potrebbe migliorare se l’investimento verificato rende; non è un effetto garantito.',
               recommended: input.debt.servicePct < 15,
             },
           ]
@@ -328,17 +332,22 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
             {
               id: 'repay',
               title: 'Ridurre il debito',
-              detail: 'Usare l’avanzo per rimborsare titoli e alleggerire gli interessi.',
-              prerequisites: [],
-              expected: 'Meno interessi in futuro; meno cassa per altro adesso.',
+              detail: 'Valutare un rimborso solo con risorse effettivamente disponibili, senza presumere un avanzo investibile.',
+              prerequisites: ['cassa libera verificata', 'titoli rimborsabili'],
+              expected: 'Proposta: meno interessi in futuro se il rimborso è fattibile; meno cassa per altro adesso.',
               recommended: input.debt.servicePct >= 10,
             },
             {
-              id: 'invest',
-              title: 'Investire l’avanzo',
-              detail: 'Impiegare l’avanzo in opere e capacità produttiva.',
-              prerequisites: [],
-              expected: 'Più PIL e più gettito in futuro; il debito resta dov’è.',
+              id: salient.investmentCandidates.length > 0 ? 'invest' : 'hold',
+              title: salient.investmentCandidates.length > 0 ? 'Investire l’avanzo' : 'Mantenere il margine e verificare i conti',
+              detail: salient.investmentCandidates.length > 0
+                ? 'Valutare l’avanzo nelle opere con distinta coperta, prima del preflight.'
+                : 'Non impegnare nuove risorse; verificare la sostenibilità dei conti e i progetti prima di proporre spesa.',
+              prerequisites: salient.investmentCandidates.length > 0
+                ? ['progetto verificato', 'preflight e copertura confermata al momento della firma'] : [],
+              expected: salient.investmentCandidates.length > 0
+                ? 'PIL e gettito potrebbero crescere se l’investimento rende; nessun effetto o impegno è garantito.'
+                : 'Proposta: nessun nuovo impegno; il saldo potrebbe cambiare comunque e richiede monitoraggio.',
               recommended: input.debt.servicePct < 10,
             },
           ],
@@ -346,16 +355,21 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
   }
 
   // ── 2-ter. Il debito: quando gli interessi mangiano le entrate ──────────
-  if (input.debt.servicePct >= 15) {
+  if (!input.cashFlow && salient.treasury) {
     voices.push({
       id: 'debt_service',
-      need: 'Gli interessi sul debito assorbono una quota rilevante delle entrate',
-      because: `Il rapporto debito/PIL è al ${formatGovernmentNumber(input.debt.ratioPct, 'percent')}% e il servizio del debito pesa il ${formatGovernmentNumber(input.debt.servicePct, 'percent')}% delle entrate.`,
-      urgency: input.debt.servicePct >= 25 ? 'critica' : 'urgente',
+      need: input.debt.servicePct >= 15
+        ? 'Gli interessi sul debito assorbono una quota rilevante delle entrate'
+        : salient.treasury.cashRunwayOnly
+          ? 'La cassa non copre tre mesi di disavanzo: rivedere i conti'
+          : 'Il servizio del debito è cambiato significativamente: rivedere i conti',
+      because: `${salient.treasury.because}${debtDetail(input.debt)}`,
+      urgency: salient.treasury.urgency,
       factionId: null,
       figures: [
-        { label: 'Debito su PIL', value: governmentFigureValue(input.debt.ratioPct, 'percent'), unit: '%', basis: measured('conti nazionali') },
-        { label: 'Interessi su entrate', value: governmentFigureValue(input.debt.servicePct, 'percent'), unit: '%', basis: measured('conti nazionali') },
+        ...knownFigure('Debito su PIL', input.debt.ratioPct, 'percent', '%', measured('conti nazionali')),
+        ...knownFigure('Interessi su entrate', input.debt.servicePct, 'percent', '%', measured('conti nazionali')),
+        ...salient.treasury.figures,
       ],
       paths: [
         {
@@ -363,7 +377,7 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
           title: 'Ridurre la spesa',
           detail: 'Tagliare una voce di spesa per liberare risorse per gli interessi.',
           prerequisites: [],
-          expected: 'Più margine sul bilancio, meno servizio alla cittadinanza.',
+          expected: 'Proposta: più margine sul bilancio se il taglio è attuabile, con possibili costi per la cittadinanza.',
           recommended: false,
         },
         {
@@ -371,7 +385,7 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
           title: 'Far crescere il gettito',
           detail: 'Investire in ciò che aumenta il PIL: il rapporto scende anche senza tagliare.',
           prerequisites: ['capacità produttiva', 'tempo'],
-          expected: 'Il rapporto migliora lentamente, senza sacrificare la spesa.',
+          expected: 'Il rapporto potrebbe migliorare se l’investimento rende; crescita e gettito non sono garantiti.',
           recommended: true,
         },
       ],
@@ -408,7 +422,7 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
           title: 'Accogliere la richiesta',
           detail: faction.demandDetail,
           prerequisites: [],
-          expected: 'La fazione si ricompone; un’altra potrebbe risentirne.',
+          expected: 'La fazione potrebbe ricomporsi se la richiesta è attuabile; altre potrebbero risentirne.',
           recommended: false,
         },
         {
@@ -416,158 +430,105 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
           title: 'Spiegare e rimandare',
           detail: 'Portare in consiglio i numeri che rendono la richiesta insostenibile adesso.',
           prerequisites: [],
-          expected: 'La fazione resta critica, ma il motivo è documentato e non arbitrario.',
+          expected: 'Proposta: documentare il rinvio; la fazione potrebbe restare critica, non si presume un effetto sul consenso.',
           recommended: true,
         },
       ],
     });
   }
 
-  // ── 4. Cosa si può costruire, e cosa manca per farlo ────────────────────
-  for (const work of input.buildable) {
+  // ── 4. Catalogo ≠ agenda: solo avanzo significativo + distinta coperta ──
+  for (const work of salient.investmentCandidates) {
     voices.push({
       id: `build_${work.workId}`,
       work: { workId: work.workId, name: work.name },
       need: `Costruire: ${work.name}`,
-      because: work.missing.length === 0
-        ? 'La distinta è coperta: l’opera può partire.'
-        : `Manca ancora: ${work.missing.join(', ')}.`,
+      because: `L’avanzo mensile su PIL annuo è almeno l’1% e la distinta di ${work.name} è coperta: una proposta di investimento, soggetta a preflight.`,
       urgency: 'ordinaria',
       factionId: null,
-      figures: work.missing.length === 0
-        ? [{ label: 'Copertura', value: '1', unit: 'opera', basis: measured('distinta del catalogo e disponibilità del ledger') }]
-        : [{ label: 'Voci scoperte', value: String(work.missing.length), unit: 'voci', basis: measured('distinta del catalogo e disponibilità del ledger') }],
+      figures: [
+        { label: 'Copertura', value: '1', unit: 'opera', basis: measured('distinta del catalogo e disponibilità del ledger') },
+        { label: 'Saldo su PIL', value: governmentFigureValue(input.cashFlow!.balancePct, 'percent'), unit: '% mensile/PIL annuo', basis: measured('conti nazionali: saldo mensile / PIL nominale annuo * 100') },
+      ],
       paths: [
         {
           id: 'build_now',
           title: 'Avviare il cantiere',
           detail: 'Impegnare cassa e materiali e aprire il cantiere adesso.',
-          prerequisites: work.missing.length === 0 ? [] : work.missing.map(m => `coprire ${m}`),
-          expected: 'Il cantiere avanza e alla fine consegna l’opera con il suo effetto.',
-          recommended: work.missing.length === 0,
+          prerequisites: ['preflight e copertura confermata al momento della firma'],
+          expected: 'L’opera potrebbe essere consegnata se firma, copertura e lavorazione sono confermate; nessun impegno adesso.',
+          recommended: true,
         },
         {
           id: 'build_later',
           title: 'Preparare e rimandare',
           detail: 'Chiudere prima il divario, poi aprire il cantiere con la distinta completa.',
           prerequisites: [],
-          expected: 'Nessun impegno adesso: il cantiere parte quando i materiali ci sono.',
-          recommended: work.missing.length > 0,
+          expected: 'Proposta: nessun impegno adesso; il cantiere potrebbe partire dopo una nuova verifica di copertura.',
+          recommended: false,
         },
       ],
     });
   }
 
-  // ── 5. P04 — La Guerra: la condizione delle forze, non l'opinione dei generali
-  //
-  // Prima di P04 il Ministro della Guerra non esisteva nel codice: la difesa
-  // compariva solo come *politica* dentro la fazione «Forze armate» — cioè come
-  // qualcuno che chiede più soldi. Ma quanto il paese spende per difendersi è un
-  // fatto della sedia, non una corrente di opinione: il ministro lo riferisce in
-  // ogni caso, e la tensione dei comandi è una nota dentro la sua relazione.
-  if (input.defence) {
+  // ── 5. Postura militare: fatti operativi, mai bilancio o truppe da soli ──
+  if (salient.defence) {
     const defence = input.defence;
-    const light = defence.burdenPct < 2.6;
-    const heavy = defence.burdenPct > 8;
+    const condition = salient.defence;
+    const readiness = condition.priority === 'readiness';
+    const threat = condition.priority === 'threat';
     voices.push({
       id: 'defence_condition',
-      need: light
-        ? 'La spesa militare è sotto la soglia che i comandi ritengono minima'
-        : heavy
-          ? 'La spesa militare pesa sul bilancio più di quanto il paese regga'
-          : 'Lo strumento militare è finanziato: decidere se basta',
-      because: `La difesa vale il ${formatGovernmentNumber(defence.burdenPct, 'percent')}% del PIL, con ${formatGovernmentNumber(defence.forces, 'integer')} reparti in forza e ${formatGovernmentNumber(defence.mobilized, 'integer')} mobilitati.${
-        defence.factionSatisfaction !== null
-          ? ` I comandi esprimono una soddisfazione di ${formatGovernmentNumber(defence.factionSatisfaction, 'ratio')}/100.`
-          : ''
-      }`,
-      urgency: light && defence.burdenPct < 1.5 ? 'urgente' : 'ordinaria',
+      need: condition.need,
+      because: `${condition.because}${finite(defence?.burdenPct) ? ` La difesa vale il ${formatGovernmentNumber(defence.burdenPct, 'percent')}% del PIL.` : ''}${finite(defence?.forces) ? ` Reparti in forza: ${formatGovernmentNumber(defence.forces, 'integer')}.` : ''}${finite(defence?.mobilized) ? ` Mobilitati: ${formatGovernmentNumber(defence.mobilized, 'integer')}.` : ''}${finite(defence?.factionSatisfaction) ? ` I comandi esprimono una soddisfazione di ${formatGovernmentNumber(defence.factionSatisfaction, 'ratio')}/100.` : ''}`,
+      urgency: condition.urgency,
       factionId: null,
       figures: [
-        { label: 'Spesa di difesa', value: governmentFigureValue(defence.burdenPct, 'percent'), unit: '% del PIL', basis: measured('conto nazionale') },
-        { label: 'Reparti in forza', value: governmentFigureValue(defence.forces, 'integer'), unit: 'reparti', basis: measured('conto nazionale') },
-        { label: 'Mobilitati', value: governmentFigureValue(defence.mobilized, 'integer'), unit: 'uomini', basis: measured('conto nazionale') },
-        ...(defence.factionSatisfaction !== null
-          ? [{ label: 'Soddisfazione dei comandi', value: governmentFigureValue(defence.factionSatisfaction, 'ratio'), unit: '/100', basis: measured('fotografia del governo') }]
-          : []),
+        ...knownFigure('Spesa di difesa', defence?.burdenPct, 'percent', '% del PIL', measured('conto nazionale')),
+        ...knownFigure('Reparti in forza', defence?.forces, 'integer', 'reparti', measured('conto nazionale')),
+        ...knownFigure('Mobilitati', defence?.mobilized, 'integer', 'uomini', measured('conto nazionale')),
+        ...knownFigure('Soddisfazione dei comandi', defence?.factionSatisfaction ?? undefined, 'ratio', '/100', measured('fotografia del governo')),
+        ...condition.figures,
       ],
-      paths: light
-        ? [
-            {
-              id: 'rearm',
-              title: 'Rinforzare lo strumento militare',
-              detail: 'Aumentare la quota di bilancio della difesa e le riserve addestrate.',
-              prerequisites: ['copertura di bilancio'],
-              expected: 'Più capacità di difesa; meno risorse per la spesa civile.',
-              recommended: true,
-            },
-            {
-              id: 'hold',
-              title: 'Mantenere la postura attuale',
-              detail: 'Accettare il livello di spesa e l’insoddisfazione dei comandi.',
-              prerequisites: [],
-              expected: 'Nessun costo aggiuntivo; i comandi restano critici.',
-              recommended: false,
-            },
-          ]
-        : heavy
-          ? [
-              {
-                id: 'trim',
-                title: 'Ridimensionare la spesa',
-                detail: 'Rientrare su una quota di difesa che il bilancio sostiene.',
-                prerequisites: [],
-                expected: 'Più margine civile; meno capacità militare.',
-                recommended: input.debt.servicePct >= 15,
-              },
-              {
-                id: 'hold',
-                title: 'Difendere il bilancio militare',
-                detail: 'Tenere la quota: i comandi chiedono continuità.',
-                prerequisites: [],
-                expected: 'Capacità invariata; il costo resta sul bilancio.',
-                recommended: input.debt.servicePct < 15,
-              },
-            ]
-          : [
-              {
-                id: 'hold',
-                title: 'Mantenere la postura',
-                detail: 'Nessun cambio di spesa: la difesa resta dov’è.',
-                prerequisites: [],
-                expected: 'Continuità dello strumento militare.',
-                recommended: true,
-              },
-              {
-                id: 'rearm',
-                title: 'Rafforzare ulteriormente',
-                detail: 'Alzare la quota per superare i competitor regionali.',
-                prerequisites: ['copertura di bilancio'],
-                expected: 'Più potenza; più spesa.',
-                recommended: false,
-              },
-            ],
+      paths: [
+        {
+          id: readiness ? 'restore_readiness' : threat ? 'review_posture' : 'review_operations',
+          title: readiness ? 'Verificare e ripristinare la prontezza' : threat ? 'Rivedere la postura difensiva' : 'Rivedere operazioni e mobilitazione',
+          detail: readiness
+            ? 'Verificare addestramento, manutenzione e rifornimenti prima di proporre impieghi aggiuntivi.'
+            : threat
+              ? 'Valutare protezione e canali diplomatici sulla minaccia registrata, senza presumere un nuovo conflitto.'
+              : 'Verificare obiettivi, tempi e copertura delle operazioni effettive e della mobilitazione.',
+          prerequisites: ['verifica operativa', 'copertura di bilancio e materiali', 'preflight degli eventuali ordini'],
+          expected: 'La capacità potrebbe migliorare se le carenze verificate sono colmate; nessun esito militare è garantito.',
+          recommended: true,
+        },
+        {
+          id: 'hold',
+          title: 'Limitare nuovi impegni e monitorare',
+          detail: 'Non aggiungere operazioni adesso; riesaminare i fatti disponibili e il rischio prima della firma.',
+          prerequisites: [],
+          expected: 'Proposta: nessun nuovo impegno adesso; il rischio potrebbe persistere e va rivalutato.',
+          recommended: false,
+        },
+      ],
     });
   }
 
-  // ── 6. WS-GOVOFFICE-05 — Istruzione e sanità: la condizione, non la crisi ─
-  //
-  // Le due sedie nuove riferiscono una voce di spesa che il conto nazionale
-  // pubblica in quota di PIL. `education` / `health` sono `undefined` quando il
-  // conto non c'è: la sedia **tace**, come il Tesoro e la Guerra — il silenzio
-  // non si riempie con una voce inventata.
-  if (input.education) {
+  // ── 6. Disagio civile o variazioni misurate, non contabilità ordinaria ──
+  if (input.education && salient.education) {
     const education = input.education;
     voices.push({
       id: 'education_condition',
-      need: `L’istruzione e la ricerca valgono il ${formatGovernmentNumber(education.burdenPct, 'percent')}% del PIL: decidere se basta`,
-      because: `La spesa per istruzione e ricerca è il ${formatGovernmentNumber(education.burdenPct, 'percent')}% del PIL, con ${formatGovernmentNumber(education.universities, 'integer')} atenei e una tensione sociale di ${formatGovernmentNumber(education.socialTension, 'ratio')}/100.`,
-      urgency: 'ordinaria',
+      need: 'Valutare l’istruzione e la ricerca alla luce della tensione sociale osservata',
+      because: `${salient.education.because}${finite(education.burdenPct) ? ` La spesa stimata per istruzione e ricerca è il ${formatGovernmentNumber(education.burdenPct, 'percent')}% del PIL.` : ''}${finite(education.universities) ? ` Atenei: ${formatGovernmentNumber(education.universities, 'integer')}.` : ''}`,
+      urgency: salient.education.urgency,
       factionId: null,
       figures: [
-        { label: 'Spesa per istruzione e ricerca', value: governmentFigureValue(education.burdenPct, 'percent'), unit: '% del PIL', basis: estimated('conti nazionali', 'ripartizione delle uscite civili su atenei e ricerca') },
-        { label: 'Atenei', value: governmentFigureValue(education.universities, 'integer'), unit: 'atenei', basis: measured('conto nazionale') },
+        ...knownFigure('Spesa per istruzione e ricerca', education.burdenPct, 'percent', '% del PIL', estimated('conti nazionali', 'ripartizione delle uscite civili su atenei e ricerca')),
+        ...knownFigure('Atenei', education.universities, 'integer', 'atenei', measured('conto nazionale')),
         { label: 'Tensione sociale', value: governmentFigureValue(education.socialTension, 'ratio'), unit: '/100', basis: measured('conto nazionale') },
+        ...salient.education.figures,
       ],
       paths: [
         {
@@ -575,33 +536,34 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
           title: 'Investire in istruzione e ricerca',
           detail: 'Aumentare la quota per scuole e atenei.',
           prerequisites: ['copertura di bilancio'],
-          expected: 'Più capitale umano nel tempo; meno risorse altrove adesso.',
+          expected: 'Il capitale umano potrebbe crescere se l’intervento è coperto e funziona; non è una cura garantita della tensione.',
           recommended: false,
         },
         {
           id: 'hold',
           title: 'Mantenere la spesa attuale',
-          detail: 'Tenere la quota dichiarata e convivere con la tensione.',
+          detail: 'Tenere la quota dichiarata e verificare le cause della tensione osservata.',
           prerequisites: [],
-          expected: 'Nessun costo aggiuntivo; la tensione sociale resta.',
+          expected: 'Proposta: nessun nuovo impegno; la tensione potrebbe persistere e va monitorata.',
           recommended: true,
         },
       ],
     });
   }
 
-  if (input.health) {
+  if (input.health && salient.health) {
     const health = input.health;
     voices.push({
       id: 'health_condition',
-      need: `La spesa sociale (sanità e sostegno) vale il ${formatGovernmentNumber(health.socialBurdenPct, 'percent')}% del PIL: decidere come sostenerla`,
-      because: `La spesa sociale è il ${formatGovernmentNumber(health.socialBurdenPct, 'percent')}% del PIL — sanità e sostegno insieme, non la sola sanità — con una popolazione di ${formatGovernmentNumber(health.population, 'integer')} e una stabilità di ${formatGovernmentNumber(health.stability, 'ratio')}/100.`,
-      urgency: 'ordinaria',
+      need: 'Valutare sanità e sostegno nel quadro della stabilità osservata',
+      because: `${salient.health.because}${finite(health.socialBurdenPct) ? ` La spesa sociale stimata è il ${formatGovernmentNumber(health.socialBurdenPct, 'percent')}% del PIL — sanità e sostegno insieme, non la sola sanità.` : ''}${finite(health.population) ? ` Popolazione: ${formatGovernmentNumber(health.population, 'integer')}.` : ''}`,
+      urgency: salient.health.urgency,
       factionId: null,
       figures: [
-        { label: 'Spesa sociale (sanità e sostegno)', value: governmentFigureValue(health.socialBurdenPct, 'percent'), unit: '% del PIL', basis: estimated('conti nazionali', 'ripartizione delle uscite civili su sanità, popolazione e sostegno') },
-        { label: 'Popolazione', value: governmentFigureValue(health.population, 'integer'), unit: 'abitanti', basis: measured('conto nazionale') },
+        ...knownFigure('Spesa sociale (sanità e sostegno)', health.socialBurdenPct, 'percent', '% del PIL', estimated('conti nazionali', 'ripartizione delle uscite civili su sanità, popolazione e sostegno')),
+        ...knownFigure('Popolazione', health.population, 'integer', 'abitanti', measured('conto nazionale')),
         { label: 'Stabilità', value: governmentFigureValue(health.stability, 'ratio'), unit: '/100', basis: measured('conto nazionale') },
+        ...salient.health.figures,
       ],
       paths: [
         {
@@ -609,15 +571,15 @@ export function buildAgenda(input: GovernmentAgendaInput): GovernmentAgenda {
           title: 'Allargare la spesa sociale',
           detail: 'Aumentare la quota per sanità e sostegno.',
           prerequisites: ['copertura di bilancio'],
-          expected: 'Più sostegno alla popolazione; più spesa.',
+          expected: 'Il sostegno potrebbe aumentare se la misura è coperta e raggiunge la popolazione; la stabilità non è garantita.',
           recommended: false,
         },
         {
           id: 'hold',
           title: 'Mantenere la spesa attuale',
-          detail: 'Tenere la quota: la stabilità resta dov’è.',
+          detail: 'Tenere la quota e verificare altre cause della stabilità osservata.',
           prerequisites: [],
-          expected: 'Nessun costo aggiuntivo, nessun miglioramento.',
+          expected: 'Proposta: nessun nuovo impegno; la stabilità potrebbe cambiare comunque e va monitorata.',
           recommended: true,
         },
       ],

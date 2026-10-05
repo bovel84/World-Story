@@ -35,6 +35,51 @@ const belongs = (data: Readonly<Record<string, unknown>>, polityId: string): boo
   return !owner || owner === polityId;
 };
 
+// WS-GOV-DOSSIER-SALIENCE — attacco terrestre: un ordine ESPLICITO di attaccare
+// richiede almeno un reparto terrestre canonico sotto il nostro controllo.
+// Riconosce solo forme direttive (imperativo/1ª persona) e ordini espliciti;
+// l'infinito nudo («valutiamo se attaccare») resta discussione, non esecuzione.
+const LAND_ATTACK = new RegExp(
+  '\\b(?:attacchiamo|attaccate|attacca|invadiamo|invadete|invade|invado)\\b'
+  + '|\\b(?:attack|attacks|invade|invades)\\b'
+  + '|\\b(?:ordina|ordino|ordinate|ordiniamo|disponi|dispone|disponiamo)\\b[^.;!\\n]{0,40}\\b(?:attaccare|invadere)\\b'
+  + '|\\b(?:lanciamo|lanciate|sferriamo|sferra|avviamo)\\b[^.;!\\n]{0,30}\\b(?:offensiv|attacc|invasion)\\w*\\b',
+);
+const ATTACK_HYPOTHESIS = /\b(?:se|qualora|caso|potremmo|potrei|potrebbe|dovremmo|valutiamo|valutare|valutazione|discutiamo|discutere|discussione|ipotesi|forse|conviene|consideriamo|considerare|pianifich\w*|strategia|analizz\w*|chied\w*)\b/;
+const ATTACK_NEGATION = /\b(?:non|senza|evitare|evita|evitiamo|mai)\b/;
+// Un attacco che nomina una piattaforma navale/aerea non implica forze
+// terrestri: la guardia riguarda solo l'attacco terrestre.
+const NON_LAND_PLATFORM = /\b(?:flott\w*|marin\w*|nav[ei]|navy|ships?|missil\w*|aer[ei]|avi\w+|air\s?force)\b/;
+/** Stati che non provano un reparto utilizzabile (mai inventare quantita'). */
+const NON_OPERATIONAL_LAND = new Set(['under_construction', 'planned', 'destroyed', 'decommissioned', 'cancelled', 'forming', 'mobilizing']);
+const LAND_FORMATION_TYPES = new Set(['army', 'battalion']);
+
+/** Forma direttiva di attacco, distinta da ipotesi, negazione o discussione. */
+function attackDirective(clause: string): boolean {
+  const match = LAND_ATTACK.exec(clause);
+  if (!match) return false;
+  const before = clause.slice(0, match.index);
+  return !ATTACK_HYPOTHESIS.test(before) && !ATTACK_NEGATION.test(before) && !NON_LAND_PLATFORM.test(clause);
+}
+
+/** Almeno un reparto terrestre canonico utilizzabile della polity (mappa o registro operativo). */
+function hasLandForce(world: CanonicalOrderWorld, polityId: string): boolean {
+  for (const region of world.regions) {
+    if (region.owner !== polityId) continue;
+    for (const raw of region.objects) {
+      const object = record(raw);
+      if (!LAND_FORMATION_TYPES.has(text(object.type)) || !belongs(object, polityId)) continue;
+      const metadata = record(object.metadata);
+      if (unavailable(object) || NON_OPERATIONAL_LAND.has(text(object.status || metadata.status))) continue;
+      return true;
+    }
+  }
+  // `unit` è il kind canonico dei reparti nel registro operativo (il repository
+  // non produce `army`/`force`: quelli sono etichette di lettura, non righe).
+  return world.operationalObjects.some(row => row.kind === 'unit' && belongs(row.data, polityId)
+    && !NON_OPERATIONAL_LAND.has(text(row.data.status)));
+}
+
 function inventoryFor(world: CanonicalOrderWorld, polityId: string): Inventory {
   const inventory: Inventory = { port: [], railway: [], road: [], airfield: [], factory: [], fleet: [] };
   for (const region of world.regions) {
@@ -119,7 +164,11 @@ export function canonicalOrderBlockers(textValue: string, polityId: string, worl
   // La normalizzazione perde le maiuscole: i nomi propri si leggono dalla
   // clausola ORIGINALE alla stessa posizione.
   const originalClauses = textValue.split(/[.;!\n]/);
-  for (const [clauseIndex, clause] of normalize(textValue).split(/[.;!\n]/).entries()) {
+  const clauses = normalize(textValue).split(/[.;!\n]/);
+  if (clauses.some(attackDirective) && !hasLandForce(world, polityId)) {
+    blockers.push({ code: 'MILITARY_ASSET_MISSING', field: 'military.landForces', detail: 'L’atto ordina un attacco terrestre, ma nessun reparto terrestre canonico risulta disponibile sotto il nostro controllo.' });
+  }
+  for (const [clauseIndex, clause] of clauses.entries()) {
     for (const kind of Object.keys(REFERENCES) as AssetKind[]) {
       for (const reference of clause.matchAll(REFERENCES[kind])) {
         const prefix = clause.slice(0, reference.index);

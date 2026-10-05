@@ -144,26 +144,23 @@ describe('MG05 — l’agenda del Governo', () => {
     expect(agenda.voices[0].because).toContain('35%');
   });
 
-  it('un’opera coperta è raccomandata; una scoperta propone di aspettare', () => {
+  it('solo un avanzo significativo con un’opera coperta propone un investimento', () => {
     const agenda = buildAgenda({
       ...base,
+      cashFlow: { balancePct: 1.2, balance: '12', unit: 'mld', revenuePct: 30 },
       buildable: [
         { workId: 'w_road', name: 'Strada', missing: [] },
         { workId: 'w_port', name: 'Porto', missing: ['acciaio', 'utensili'] },
       ],
     });
     const road = agenda.voices.find(v => v.id === 'build_w_road')!;
-    const port = agenda.voices.find(v => v.id === 'build_w_port')!;
+    expect(agenda.voices.some(v => v.id === 'build_w_port')).toBe(false);
 
-    // Coperta: si avvia, senza prerequisiti.
+    // Coperta: proposta di avvio, ancora soggetta a preflight.
     expect(road.paths.find(p => p.id === 'build_now')!.recommended).toBe(true);
-    expect(road.paths.find(p => p.id === 'build_now')!.prerequisites).toEqual([]);
-    // Scoperta: i prerequisiti sono le voci mancanti, e la raccomandazione è
-    // ASPETTARE — non promettere un cantiere che non partirebbe.
-    expect(port.paths.find(p => p.id === 'build_now')!.recommended).toBe(false);
-    expect(port.paths.find(p => p.id === 'build_now')!.prerequisites).toEqual(['coprire acciaio', 'coprire utensili']);
-    expect(port.paths.find(p => p.id === 'build_later')!.recommended).toBe(true);
-    expect(port.because).toContain('acciaio');
+    expect(road.paths.find(p => p.id === 'build_now')!.prerequisites).toContain('preflight e copertura confermata al momento della firma');
+    // Il catalogo scoperto resta leggibile fuori agenda; i deficit di ordini
+    // già tentati hanno la propria voce, senza duplicare ogni opportunità.
   });
 
   it('il debito alto entra SOLO sopra la soglia, e la soglia è dichiarata', () => {
@@ -206,33 +203,15 @@ describe('MG05 — l’agenda del Governo', () => {
   });
 });
 
-/**
- * P04 — Il gabinetto legge la CONDIZIONE, non solo la crisi
- * ========================================================
- * Il difetto misurato sulla partita dell'autore: con il servizio del debito al
- * 14,1% (soglia 15) e i comandi militari al 9,2% di influenza (soglia 10) il
- * consiglio era **vuoto**. L'autore apriva il Governo e non trovava nessuno.
- *
- * La causa non erano le soglie: era che l'unica fonte di voci era la crisi. Ma
- * «un ministro senza dati tace» non significa «un ministro parla solo se il
- * paese è rotto» — uno Stato che funziona ha un bilancio e un esercito, e quelle
- * cifre sono dati veri, non riempitivo.
- *
- * Questi test difendono la regola nuova:
- *  - con un conto pubblicato, il **Tesoro riferisce sempre** la condizione dei
- *    conti, anche in salute, e il debito alto resta una voce **a parte**;
- *  - con lo stato militare pubblicato, la **Guerra** ha la sua voce — prima non
- *    esisteva alcuna riga di codice che la producesse;
- *  - **senza** quei dati le due sedie tacciono come prima: la correzione non ha
- *    trasformato il silenzio in invenzione.
- */
-describe('P04 — il Tesoro e la Guerra riferiscono la condizione', () => {
-  it('il Tesoro parla anche quando i conti sono in salute', () => {
+/** I conti restano nel dossier: in agenda entrano solo fatti significativi. */
+describe('P04 — Tesoro e Guerra propongono scelte fondate sui fatti', () => {
+  it('il Tesoro propone un avanzo solo con una destinazione coperta', () => {
     const agenda = buildAgenda({
       ...base,
       cashFlow: { balancePct: 1.2, balance: '12', unit: 'mld', revenuePct: 30 },
+      buildable: [{ workId: 'road', name: 'Strada', missing: [] }],
     });
-    expect(agenda.voices).toHaveLength(1);
+    expect(agenda.voices).toHaveLength(2);
     const voice = agenda.voices[0];
     expect(voice.id).toBe('treasury_condition');
     expect(voice.need).toContain('avanzo');
@@ -252,9 +231,8 @@ describe('P04 — il Tesoro e la Guerra riferiscono la condizione', () => {
     expect(agenda.voices[0].figures.some(f => f.value === '-45')).toBe(true);
   });
 
-  it('il debito alto resta una voce A PARTE dalla condizione del Tesoro', () => {
-    // Il servizio al 22% produce due voci distinte: la condizione ordinaria e
-    // l'allarme sul debito. Fonderle nasconderebbe che c'è un problema in più.
+  it('il debito alto confluisce in una sola voce fiscale', () => {
+    // Gli stessi conti non richiedono due decisioni identiche.
     const agenda = buildAgenda({
       ...base,
       debt: { ratioPct: 120, servicePct: 22 },
@@ -262,21 +240,21 @@ describe('P04 — il Tesoro e la Guerra riferiscono la condizione', () => {
     });
     const ids = agenda.voices.map(v => v.id);
     expect(ids).toContain('treasury_condition');
-    expect(ids).toContain('debt_service');
-    // La condizione viene prima dell'allarme: il fatto generale precede il caso.
-    expect(ids.indexOf('treasury_condition')).toBeLessThan(ids.indexOf('debt_service'));
+    expect(ids).not.toContain('debt_service');
+    expect(ids).toHaveLength(1);
   });
 
   it('la Guerra ha la sua voce, con i numeri dello strumento militare', () => {
     const agenda = buildAgenda({
       ...base,
       defence: { burdenPct: 1.2, forces: 200, mobilized: 0, factionSatisfaction: 34.9 },
+      salience: { readinessPct: 35 },
     });
     expect(agenda.voices).toHaveLength(1);
     const voice = agenda.voices[0];
     expect(voice.id).toBe('defence_condition');
-    // Sotto la soglia dei comandi: il bisogno lo DICE, non lo tace.
-    expect(voice.need).toContain('soglia');
+    // Il bisogno nasce dalla prontezza osservata, non dal solo bilancio.
+    expect(voice.need).toContain('prontezza');
     const labels = voice.figures.map(f => f.label);
     expect(labels).toContain('Spesa di difesa');
     expect(labels).toContain('Soddisfazione dei comandi');
@@ -307,11 +285,10 @@ describe('P04 — il Tesoro e la Guerra riferiscono la condizione', () => {
 });
 
 /**
- * WS-GOVOFFICE-05 — Istruzione e Sanità: la condizione, non la crisi
+ * WS-GOVOFFICE-05 — Istruzione e Sanità: fatti sociali e provenienza
  * ==================================================================
- * Due sedie nuove, sulla stessa regola delle altre: la voce nasce **solo** se il
- * conto nazionale pubblica il dato (`education` / `health` in input). Senza, la
- * sedia tace — non si riempie il silenzio con una voce di circostanza.
+ * I conti pubblicati sono necessari ma non sufficienti: la voce nasce dal
+ * disagio sociale o da una variazione misurata, mai dalla sola quota di spesa.
  *
  * Il vincolo di onestà è esplicito: `education` legge una **spesa**
  * (`educationBurdenPct`), e `health` legge `socialBurdenPct`, che è **sanità e
@@ -320,10 +297,10 @@ describe('P04 — il Tesoro e la Guerra riferiscono la condizione', () => {
  * spacciata per una misura diretta.
  */
 describe('WS-GOVOFFICE-05 — Istruzione e Sanità nell’agenda', () => {
-  it('con il conto, Istruzione produce la sua voce e la spesa è dichiarata una stima', () => {
+  it('con disagio sociale, Istruzione produce una voce e la spesa resta una stima', () => {
     const agenda = buildAgenda({
       ...base,
-      education: { burdenPct: 3.4, universities: 12, socialTension: 41 },
+      education: { burdenPct: 3.4, universities: 12, socialTension: 75 },
     });
     expect(agenda.voices.map(v => v.id)).toEqual(['education_condition']);
     const voice = agenda.voices[0];
@@ -336,7 +313,7 @@ describe('WS-GOVOFFICE-05 — Istruzione e Sanità nell’agenda', () => {
     if (burden.basis.kind === 'estimated') expect(burden.basis.method.length).toBeGreaterThan(0);
     // Le grandezze di contorno sono misure dirette, e lo dicono.
     expect(voice.figures.find(f => f.label === 'Atenei')!.value).toBe('12');
-    expect(voice.figures.find(f => f.label === 'Tensione sociale')!.value).toBe('41');
+    expect(voice.figures.find(f => f.label === 'Tensione sociale')!.value).toBe('75');
     expect(voice.figures.filter(f => f.basis.kind === 'measured').length).toBe(2);
 
     // Almeno due strade, con prerequisiti e conseguenze.
@@ -347,7 +324,7 @@ describe('WS-GOVOFFICE-05 — Istruzione e Sanità nell’agenda', () => {
   it('Sanità DICHIARA che la spesa è sanità + sostegno, non la sola sanità', () => {
     const agenda = buildAgenda({
       ...base,
-      health: { socialBurdenPct: 8.1, population: 50_000_000, stability: 62 },
+      health: { socialBurdenPct: 8.1, population: 50_000_000, stability: 30 },
     });
     expect(agenda.voices.map(v => v.id)).toEqual(['health_condition']);
     const voice = agenda.voices[0];
@@ -359,7 +336,7 @@ describe('WS-GOVOFFICE-05 — Istruzione e Sanità nell’agenda', () => {
     expect(burden.value).toBe('8.1');
     expect(burden.basis.kind).toBe('estimated');
     expect(voice.figures.find(f => f.label === 'Popolazione')!.value).toBe('50000000');
-    expect(voice.figures.find(f => f.label === 'Stabilità')!.value).toBe('62');
+    expect(voice.figures.find(f => f.label === 'Stabilità')!.value).toBe('30');
     expect(voice.paths.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -371,18 +348,13 @@ describe('WS-GOVOFFICE-05 — Istruzione e Sanità nell’agenda', () => {
     expect(agenda.headline).toContain('Nessuna questione');
   });
 
-  it('le sedie preesistenti NON cambiano le loro voci', () => {
-    // Regressione: con gli stessi input di prima (senza education/health), gli
-    // stessi id, nello stesso ordine. Aggiungere le sedie nuove non riassegna
-    // alcuna voce esistente.
+  it('i conti significativi non duplicano la voce fiscale né presumono carenze militari', () => {
     const agenda = buildAgenda({
       ...base,
       debt: { ratioPct: 120, servicePct: 22 },
       cashFlow: { balancePct: -3, balance: '-30', unit: 'mld', revenuePct: 25 },
       defence: { burdenPct: 1.2, forces: 200, mobilized: 0, factionSatisfaction: null },
     });
-    expect(agenda.voices.map(v => v.id)).toEqual([
-      'treasury_condition', 'debt_service', 'defence_condition',
-    ]);
+    expect(agenda.voices.map(v => v.id)).toEqual(['treasury_condition']);
   });
 });

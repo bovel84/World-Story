@@ -9,6 +9,9 @@
  * non può citare un fatto che non esista lì.
  */
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
+import { governmentSalienceInput } from './GovernmentSalienceSnapshot';
+import { evaluateGovernmentSalience } from './GovernmentSalience';
+import { formatGovernmentNumber } from './GovernmentNumberFormat';
 
 export type RealitySignalDomain =
   | 'economy' | 'food' | 'military' | 'diplomacy' | 'infrastructure' | 'social' | 'project' | 'report' | 'decision' | 'inaction';
@@ -76,7 +79,7 @@ function questionForSignal(signal: RealitySignal): string {
     case 'food': return 'Come garantiamo le scorte alimentari?';
     case 'economy': return 'Come teniamo sotto controllo le finanze?';
     case 'social': return 'Come riduciamo la tensione sociale?';
-    case 'military': return 'Come ristabiliamo la prontezza delle forze?';
+    case 'military': return signal.key === 'military-readiness' ? 'Come ristabiliamo la prontezza delle forze?' : 'Come rivediamo la postura delle forze?';
     case 'diplomacy': return 'Come gestiamo i rapporti con i vicini ostili?';
     case 'project': return 'Come sblocchiamo le opere in ritardo?';
     case 'report': return 'Cosa facciamo con i rapporti sugli atti precedenti?';
@@ -125,9 +128,14 @@ export function advisorBriefingSentences(snapshot: VerifiedWorldSnapshot): strin
       caution = 'Un nuovo impegno senza copertura alimentare rischierebbe di aggravare la vulnerabilità';
       break;
     case 'economy':
-      assessment = dominant.key === 'debt-burden' ? 'Il peso del debito restringe la libertà di manovra' : 'Le uscite superano le entrate: nuovi impegni potrebbero erodere la cassa';
-      recommendations = 'Chiederei a Tesoro di proteggere le spese essenziali e rinviare quelle meno urgenti, oppure valuterei nuove entrate prima di finanziare altri programmi';
-      caution = 'La posizione fiscale richiede prudenza: eviterei di aprire più programmi senza una copertura verificata';
+      assessment = dominant.importance === 1 ? 'Il miglioramento osservato delle finanze apre un margine da verificare'
+        : dominant.key === 'debt-burden' ? 'Gli interessi sul debito restringono la libertà di manovra'
+        : dominant.key === 'economy-change' ? 'Il peggioramento osservato delle finanze merita una verifica'
+        : 'Le uscite superano le entrate: nuovi impegni potrebbero erodere la cassa';
+      recommendations = dominant.importance === 1
+        ? 'Chiederei a Tesoro di verificare la durata del margine, oppure valuterei i programmi già coperti prima di autorizzare nuovi impegni'
+        : 'Chiederei a Tesoro di proteggere le spese essenziali e rinviare quelle meno urgenti, oppure valuterei nuove entrate prima di finanziare altri programmi';
+      caution = 'Eviterei di aprire più programmi senza una copertura verificata';
       break;
     case 'social':
       assessment = 'La tenuta interna merita priorità rispetto a nuove iniziative';
@@ -135,7 +143,10 @@ export function advisorBriefingSentences(snapshot: VerifiedWorldSnapshot): strin
       caution = 'Misure brusche potrebbero irrigidire il consenso: eviterei di trattare la stabilità come acquisita';
       break;
     case 'military':
-      assessment = snapshot.military.mobilizations.length ? 'La mobilitazione in corso richiede una scelta chiara sulle priorità' : 'La bassa prontezza dei reparti limita le opzioni di sicurezza';
+      assessment = dominant.key === 'military-readiness' ? 'La bassa prontezza osservata nei reparti limita le opzioni di sicurezza'
+        : dominant.key === 'military-mobilization' ? 'La mobilitazione in corso richiede una scelta chiara sulle priorità'
+        : dominant.key === 'military-change' ? 'La variazione osservata nelle forze richiede una revisione della postura'
+        : 'Gli impegni operativi e i rifornimenti richiedono una verifica';
       recommendations = 'Chiederei a Guerra di privilegiare la preparazione delle forze disponibili, oppure riesaminerei con Tesoro la sostenibilità del loro impiego';
       caution = 'Eviterei nuovi fronti prima di conoscere tempi e copertura: l’impegno militare potrebbe ridurre il margine su altri programmi';
       break;
@@ -194,41 +205,62 @@ export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySig
     });
   }
 
-  // ECONOMY — saldo mensile e debito.
+  // ECONOMY — stessa policy dell'agenda: saldo MENSILE / PIL ANNUO,
+  // interessi / entrate e variazioni misurate. Debito/PIL da solo non è crisi.
+  const input = governmentSalienceInput(snapshot);
+  const policy = evaluateGovernmentSalience(input);
   const balance = factNumber('monthlyBalance');
-  if (has('monthlyBalance') && balance !== null && balance < 0) {
+  const treasury = factNumber('treasury');
+  // Additional documented liquidity trigger: measured cash covers less than
+  // three months of the current monthly deficit. No GDP guess is needed.
+  const runway = balance !== null && balance < 0 && treasury !== null ? Math.max(0, treasury) / -balance : null;
+  const shortRunway = runway !== null && runway < 3;
+  if (policy.treasury || shortRunway) {
+    const balanceStress = input.cashFlow !== undefined && input.cashFlow.balancePct <= -1;
+    const serviceStress = input.debt.servicePct >= 15;
+    const balanceChange = policy.treasury?.figures.some(figure => figure.basis.kind === 'measured' && figure.basis.source === 'salience.previous.balancePct') ?? false;
+    const serviceChange = policy.treasury?.figures.some(figure => figure.basis.kind === 'measured' && figure.basis.source === 'salience.previous.debtServicePct') ?? false;
+    const improvement = !balanceStress && !serviceStress && !shortRunway
+      && (!balanceChange || input.cashFlow!.balancePct > input.salience!.previous!.balancePct!)
+      && (!serviceChange || input.debt.servicePct < input.salience!.previous!.debtServicePct!);
+    const keys = [...new Set([
+      ...(balanceStress || balanceChange ? ['monthlyBalance', 'nominalGdpUsdBillions'] : []),
+      ...(serviceStress || serviceChange ? ['debtServicePct'] : []),
+      ...(shortRunway ? ['monthlyBalance', 'treasury'] : []),
+    ])].filter(has);
+    const comparisonKeys = [
+      ...(balanceChange ? ['monthlyBalance', 'nominalGdpUsdBillions'] : []),
+      ...(serviceChange ? ['debtServicePct'] : []),
+    ];
+    const refs = keys.map(ref);
+    for (const key of comparisonKeys) {
+      const change = delta(key);
+      if (change) refs.push(change.sourceRef, change.previousSourceRef);
+    }
+    const reasons = [
+      ...(balanceStress ? [`saldo mensile ${facts.monthlyBalance.value}, pari al ${formatGovernmentNumber(input.cashFlow!.balancePct, 'percent')}% del PIL nominale annuo`] : []),
+      ...(serviceStress ? [`gli interessi assorbono il ${formatGovernmentNumber(input.debt.servicePct, 'percent')}% delle entrate`] : []),
+      ...(balanceChange ? [`saldo mensile/PIL annuo ${input.cashFlow!.balancePct > input.salience!.previous!.balancePct! ? 'migliorato' : 'peggiorato'} dal ${formatGovernmentNumber(input.salience!.previous!.balancePct!, 'percent')}% al ${formatGovernmentNumber(input.cashFlow!.balancePct, 'percent')}%`] : []),
+      ...(serviceChange ? [`interessi/entrate ${input.debt.servicePct < input.salience!.previous!.debtServicePct! ? 'diminuiti' : 'aumentati'} dal ${formatGovernmentNumber(input.salience!.previous!.debtServicePct!, 'percent')}% al ${formatGovernmentNumber(input.debt.servicePct, 'percent')}%`] : []),
+      ...(shortRunway ? [`la cassa copre ${formatGovernmentNumber(runway!, 'ratio')} mesi del disavanzo mensile, meno di tre mesi`] : []),
+    ];
     push({
-      key: 'monthly-balance', domain: 'economy', importance: balance < -1 ? 3 : 2,
-      factKeys: ['monthlyBalance', ...(has('treasury') ? ['treasury'] : []), ...(has('debt') ? ['debt'] : [])],
-      sourceRefs: [ref('monthlyBalance')].filter(Boolean),
-      reason: `saldo mensile ${facts.monthlyBalance.value}`,
-    });
-  }
-  const debt = factNumber('debt');
-  const revenue = factNumber('revenue');
-  if (has('debt') && debt !== null && revenue !== null && revenue > 0 && debt > revenue * 3) {
-    push({
-      key: 'debt-burden', domain: 'economy', importance: 2, factKeys: ['debt', 'revenue'],
-      sourceRefs: [ref('debt')].filter(Boolean),
-      reason: `debito ${facts.debt.value} rispetto a entrate ${facts.revenue.value}`,
+      key: balanceStress ? 'monthly-balance' : serviceStress ? 'debt-burden' : shortRunway ? 'cash-runway' : 'economy-change',
+      domain: 'economy', importance: shortRunway || policy.treasury?.urgency === 'critica' ? 3 : improvement ? 1 : 2,
+      factKeys: keys, sourceRefs: [...new Set(refs)].filter(Boolean), reason: reasons.join('; '),
     });
   }
 
-  // SOCIAL — tensione e stabilità.
-  const tension = factNumber('socialTension');
-  if (has('socialTension') && tension !== null && tension >= 55) {
-    push({
-      key: 'social-tension', domain: 'social', importance: tension >= 70 ? 3 : 2,
-      factKeys: ['socialTension'], sourceRefs: [ref('socialTension')].filter(Boolean),
-      reason: `tensione sociale ${facts.socialTension.value}`,
-    });
-  }
-  const stability = factNumber('stability');
-  if (has('stability') && stability !== null && stability <= 45) {
-    push({
-      key: 'stability', domain: 'social', importance: stability <= 30 ? 3 : 2,
-      factKeys: ['stability'], sourceRefs: [ref('stability')].filter(Boolean),
-      reason: `stabilità ${facts.stability.value}`,
+  // SOCIAL — same selection as Agenda, including observed significant changes.
+  for (const [key, signalKey, condition, critical] of [
+    ['socialTension', 'social-tension', policy.education, (factNumber('socialTension') ?? 0) >= 70],
+    ['stability', 'stability', policy.health, (factNumber('stability') ?? Infinity) <= 30],
+  ] as const) {
+    if (!condition || !has(key)) continue;
+    const change = delta(key);
+    push({ key: signalKey, domain: 'social', importance: critical ? 3 : 2,
+      factKeys: [key], sourceRefs: [...new Set([ref(key), ...(change ? [change.previousSourceRef] : [])])],
+      reason: condition.because,
     });
   }
 
@@ -283,17 +315,71 @@ export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySig
     });
   }
 
-  // MILITARY — unità reali con prontezza bassa o mobilitazioni in corso.
-  const lowReadiness = (snapshot.military.readiness ?? []).filter(entry => entry.value < 0.4);
-  if (lowReadiness.length || snapshot.military.mobilizations.length) {
-    const refs = lowReadiness.map(entry => `military.units.${entry.unitId}.readiness`);
+  // MILITARY — stessa proiezione e soglie. La sola ostilità è già un segnale
+  // diplomatico: non duplicarla e non descriverla come guerra.
+  const military = evaluateGovernmentSalience({ ...input,
+    salience: { ...input.salience, hostileRelations: undefined },
+  }).defence;
+  if (military) {
+    const keys: string[] = [];
+    const refs: string[] = [];
+    const addFact = (key: string, baseline = false) => {
+      if (has(key)) { keys.push(key); refs.push(ref(key)); }
+      if (baseline) {
+        const change = delta(key);
+        if (change) refs.push(change.sourceRef, change.previousSourceRef);
+      }
+    };
+    const previousFigures = military.figures.flatMap(figure => {
+      const source = figure.basis.kind === 'measured' ? figure.basis.source : undefined;
+      return source?.startsWith('salience.previous.') ? [source.slice('salience.previous.'.length)] : [];
+    });
+    const readinessConcern = military.figures.some(figure => figure.label === 'Prontezza');
+    if (readinessConcern && input.salience?.initialReadinessEstimate) addFact('military.initialReadinessPct');
+    else if (readinessConcern) {
+      for (const entry of snapshot.military.readiness ?? []) {
+        if (entry.value < 0 || entry.value > 1 || !Number.isFinite(entry.value)) continue;
+        const key = `military.units.${entry.unitId}.readiness`;
+        addFact(key, previousFigures.includes('readinessPct'));
+        const unit = snapshot.military.units.find(unit => unit.id === entry.unitId);
+        if (!has(key) && unit) refs.push(`${unit.sourceRef}.readiness`);
+      }
+    }
+    if (input.defence && input.defence.mobilized >= 1000) {
+      addFact('mobilized');
+      refs.push(...snapshot.military.mobilizations.map(entry => entry.sourceRef));
+      if (!has('mobilized') && snapshot.military.mobilized !== null) refs.push(`worldState.accounts.${snapshot.polityId}.mobilized`);
+    }
+    for (const key of previousFigures.filter(key => key !== 'readinessPct')) addFact(key, true);
+    if ((input.salience?.ongoingMilitaryOrders ?? 0) > 0) {
+      refs.push(...snapshot.military.units.filter(unit => ['operational', 'degraded', 'retreating'].includes(String(unit.raw.status))
+        && ['attack', 'defend', 'withdraw'].includes(String(unit.raw.order))).map(unit => `${unit.sourceRef}.order`));
+    }
+    if ((input.salience?.activeConflicts ?? 0) > 0) {
+      refs.push(...snapshot.military.fronts.filter(front => ['active', 'stalemate', 'breakthrough'].includes(String(front.raw.status))
+        && Number(front.raw.attackerPolityId === snapshot.polityId ? front.raw.defenderPressure : front.raw.attackerPressure) > 0).map(front => front.sourceRef));
+    }
+    if (input.salience?.supplyCoverageMonths !== undefined && input.salience.supplyCoverageMonths !== null && input.salience.supplyCoverageMonths < 1) {
+      for (const resource of ['fuel', 'weapons'] as const) {
+        addFact(`resources.${resource}`);
+        const consumers = [
+          ...(snapshot.military.units.length ? snapshot.military.units : snapshot.military.formations),
+        ];
+        for (const consumer of consumers) {
+          const needs = consumer.raw.monthlyNeeds as Record<string, unknown> | undefined;
+          if (needs && typeof needs === 'object' && (finite(needs[resource]) ?? 0) > 0) refs.push(`${consumer.sourceRef}.monthlyNeeds.${resource}`);
+        }
+        if (resource === 'fuel') refs.push(...snapshot.military.ships.filter(ship => (finite(ship.raw.monthlyFuel) ?? 0) > 0)
+          .map(ship => `${ship.sourceRef}.monthlyFuel`));
+      }
+    }
     push({
-      key: 'military-readiness', domain: 'military', importance: lowReadiness.length > 2 ? 3 : 2,
-      factKeys: lowReadiness.flatMap(entry => has(`military.units.${entry.unitId}.readiness`) ? [`military.units.${entry.unitId}.readiness`] : []),
-      sourceRefs: refs.slice(0, 4),
-      reason: snapshot.military.mobilizations.length
-        ? 'mobilitazioni registrate in corso'
-        : `${lowReadiness.length} reparti con prontezza bassa`,
+      key: military.priority === 'readiness' ? 'military-readiness' : military.priority === 'mobilization' ? 'military-mobilization'
+        : military.priority === 'change' ? 'military-change' : 'military-operations',
+      domain: 'military', importance: military.urgency === 'critica' ? 3 : 2,
+      factKeys: [...new Set(keys)], sourceRefs: [...new Set(refs)].filter(Boolean),
+      reason: military.because.replace(/Sono registrati/g, 'Sono presenti')
+        .replace('La prontezza osservata', 'La prontezza minima osservata tra i reparti'),
     });
   }
 

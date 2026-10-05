@@ -201,7 +201,8 @@ describe('JEV-W4 innesto nel prompt del ministro', () => {
     ministerRepo.upsertRecords(scope, [memory({ id: 'strategic', summary: 'Avevo consigliato di NON ridurre le tasse.' })]);
     const expectedDossier = ministerDossierFrom(session.ministerPrompt('tesoro', 'Cosa mi avevi consigliato sulle tasse?', false));
     expect(expectedDossier?.seat).toBe('tesoro');
-    expect(expectedDossier?.issues.length).toBeGreaterThan(0);
+    // Il bilancio normale è consultabile, ma non genera richieste in agenda.
+    expect(expectedDossier?.issues).toEqual([]);
     const history = Array.from({ length: 40 }, (_, n) => ({ role: (n % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant', content: `CRONACA_DUMP_${n} ${'testo '.repeat(40)}` }));
     await session.getMinisterReply('tesoro', 'Cosa mi avevi consigliato sulle tasse?', history);
     await session.getMinisterStream('tesoro', 'Cosa mi avevi consigliato sulle tasse?', history, () => {});

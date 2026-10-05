@@ -779,7 +779,7 @@ export class OperationalStateStore {
   }
 
   /** Canonical material/unit inputs, not the calendar alone, delimit initial readiness. */
-  private readinessSignature(snapshot: OperationalStateSnapshot): string {
+  private readinessSignature(snapshot: Pick<OperationalStateSnapshot, 'personnel' | 'units' | 'ships'>): string {
     const personnel = snapshot.personnel;
     const sortedBag = (bag: Record<string, number>) => Object.entries(bag).sort(([a], [b]) => a.localeCompare(b));
     return createHash('sha256').update(JSON.stringify({
@@ -804,6 +804,18 @@ export class OperationalStateStore {
     const snapshot = this.snapshot();
     const signature = (snapshot.personnel as InitialReadinessPersonnel).initialReadinessSignature;
     return Boolean(signature && signature === this.readinessSignature(snapshot));
+  }
+
+  /** Verify the SAME persisted initial anchor without lazy seed/reconciliation
+   * or a cached snapshot. Government reads must not materialize military state. */
+  initialReadinessUnchangedFromRows(rows: ReturnType<typeof operationalObjectRepository.list>): boolean {
+    const personnel = rows.find(row => row.kind === 'personnel' && row.id === this.inputs.playerPolityId())?.data as unknown as InitialReadinessPersonnel | undefined;
+    if (!personnel?.initialReadinessSignature) return false;
+    try {
+      const units = rows.filter(row => row.kind === 'unit').map(row => normalizeUnitState(row.data, this.inputs.playerPolityId()));
+      const ships = rows.filter(row => row.kind === 'ship').map(row => row.data as unknown as ShipState);
+      return personnel.initialReadinessSignature === this.readinessSignature({ personnel, units, ships });
+    } catch { return false; } // Malformed canonical inputs cannot sustain the initial estimate.
   }
 
   /** Stato pronto all'uso: legge, semina se serve, riconcilia le armate. */
