@@ -200,9 +200,14 @@ function isHistoricalSentence(sentence: string, initialDate: string | null | und
   return /\b(?:storic|in passato|all['’]epoca|un tempo|negli anni|anni (?:'?\d0)|già (?:nel|allora)|fino al|precedentemente|nel dopoguerra|durante la (?:guerra|colonia|occupazione))\b/.test(lower);
 }
 
-const CLAUSE_SEPARATORS = /[,;:]|\s+\be\s+|\s+\band\s+/i;
+const CLAUSE_SEPARATORS = /[,;:]|\s+\be\s+|\s+\band\s+|\s+(?:ma|però|tuttavia|but|however)\s+/i;
 
-/** Clausole di una frase, con la stessa segmentazione usata da `assetClaimBlocked`. */
+/**
+ * Clausole di una frase. Oltre a `,` `;` `:` separa le congiunzioni di
+ * coordinazione (`e`, `and`) e i **connettivi avversativi** (`ma`, `però`,
+ * `tuttavia`, `but`, `however`), così una frase mista non resta una sola
+ * clausola e il riferimento storico non la esenta tutta.
+ */
 function clausesOf(sentence: string): string[] {
   return sentence.split(CLAUSE_SEPARATORS).map(clause => clause.trim()).filter(Boolean);
 }

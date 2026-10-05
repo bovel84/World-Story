@@ -159,6 +159,20 @@ describe('WS-ADVISOR-READABILITY-GUARD — storia reale vs possesso corrente', (
     expect(reply).toBe('Nel 1998 il porto era importante.');
   });
 
+  it.each([
+    ['Nel 1998 il porto era importante ma oggi utilizziamo quel porto.', 'Nel 1998 il porto era importante.'],
+    ['Nel 1998 il porto era importante però oggi utilizziamo quel porto.', 'Nel 1998 il porto era importante.'],
+    ['Nel 1998 il porto era importante tuttavia oggi utilizziamo quel porto.', 'Nel 1998 il porto era importante.'],
+    ['In 1998 the port was important but today we operate that port.', 'In 1998 the port was important.'],
+  ])('separa il connettivo avversativo: %s', (prose, expected) => {
+    expect(guardRealityAdvisorOutput(historicalContext(), prose)).toBe(expected);
+  });
+
+  it('una frase con connettivo avversativo ma senza claim non sostenibile resta intatta', () => {
+    const prose = 'Nel 1998 il porto era importante ma la ricostruzione restava fragile.';
+    expect(guardRealityAdvisorOutput(historicalContext(), prose)).toBe(prose);
+  });
+
   it('una frase storica pura resta intatta', () => {
     const prose = 'Nel 1998 il porto era importante.';
     expect(guardRealityAdvisorOutput(historicalContext(), prose)).toBe(prose);
