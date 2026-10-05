@@ -89,6 +89,33 @@ describe('CountryInitialProfile', () => {
     expect(result.infrastructure).toEqual(base.infrastructure);
     expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
   });
+  it.each(['BIH', 'USA'])('historical fallback does not override valid non-authoritative completion for %s 2000', async polityId => {
+    const spec = input(polityId, polityId === 'USA' ? 282_000_000 : 3_750_000);
+    const base = buildCountryInitialProfile(spec);
+    const activePersonnel = Math.round(base.military.activePersonnel * 0.9);
+    const estimate = { ...base,
+      population: base.population + 100_000,
+      economy: { ...base.economy, nominalGdpUsdBillions: base.economy.nominalGdpUsdBillions * 2,
+        monthlyRevenue: base.economy.monthlyRevenue * 2, monthlyExpenses: base.economy.monthlyExpenses * 2,
+        treasuryUsdBillions: base.economy.treasuryUsdBillions * 1.5, debtRatioPct: 20 },
+      military: { ...base.military, activePersonnel,
+        averageFormationSize: activePersonnel / base.military.formations,
+        readinessPct: 68, trainingPct: 82, logisticsPct: 71, reservePersonnel: 10_000 },
+    };
+    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify(estimate));
+    expect(result.provenance.source).toBe('llm-estimate');
+    expect(result.military.activePersonnel).toBe(activePersonnel);
+    expect(result.military.readinessPct).toBe(68);
+    expect(result.military.trainingPct).toBe(82);
+    expect(result.military.logisticsPct).toBe(71);
+    expect(result.military.reservePersonnel).toBe(10_000);
+    expect(result.economy.treasuryUsdBillions).toBe(estimate.economy.treasuryUsdBillions);
+    expect(result.economy.nominalGdpUsdBillions).toBe(base.economy.nominalGdpUsdBillions);
+    expect(result.population).toBe(base.population);
+    expect(result.economy.debtRatioPct).toBe(polityId === 'USA' ? 55 : 20);
+    expect(result.infrastructure).toEqual(base.infrastructure);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
   it('a stuck completion is aborted at its deadline with no retry', async () => {
     vi.useFakeTimers();
     try {

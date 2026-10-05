@@ -2591,13 +2591,16 @@ export class GameSession {
     this.initialProfileCache = undefined;
     if (!estimate || countryInitialProfiles.get(this.id, this.playerPolityId)) return;
     const polityId = this.playerPolityId;
-    return generateCountryInitialProfile({ polityId, startDate: this.worldStartDate, regions,
+    // Reuse the existing bounded, deduplicated, persisted history path before
+    // completing the player's profile. A failed baseline resolves null safely.
+    return this.getPolityHistoricalBaseline(polityId).then(baseline => generateCountryInitialProfile({
+      polityId, startDate: this.worldStartDate, regions,
       countryName: this.publicPolityName(polityId),
-      historicalBaseline: this.cachedHistoricalBaseline(polityId)?.historicalBackground,
+      historicalBaseline: baseline?.historicalBackground,
     }, async (system, prompt, signal) => {
       const response = await this.llm.generate('advisor', system, prompt, { temperature: 0.2, maxTokens: 2_000, signal });
       return String(response.content ?? '');
-    }).then(profile => {
+    })).then(profile => {
       if (validateCountryInitialProfile(profile, { polityId, startDate: this.worldStartDate, regions })) {
         countryInitialProfiles.insertOnce(this.id, profile);
       } else console.warn(`[CountryInitialProfile] Invalid authored inputs for ${polityId}; preserving the legacy engine fallback.`);
