@@ -66,9 +66,9 @@ storici (fascia vincolata), identici al pre-PR.
 ### Pipeline di validazione
 
 ```
-candidate selection (deterministica, senza LLM)
+candidate selection (deterministica, senza LLM, SOLO trigger dinamici)
         ↓
-world pulse prompt
+world pulse prompt (con divergenceDate + eventi del turno)
         ↓
 parse (parser incrementale esistente)
         ↓
@@ -76,16 +76,23 @@ finestra temporale (origin < date <= target)
         ↓
 EffectValidator (validateStrictMapChanges → mapChanges vietati)
         ↓
+narrative-only guard (nessuna mutazione materiale nel testo/counterAction)
+        ↓
+anti-contraddizione con il turno principale (relazioni/esiti respinti)
+        ↓
 validateReactionDecisions sul CONTESTO DEI CANDIDATI
         ↓
 deduplica + ordine cronologico + cap 3
         ↓
-merge nella cronaca del turno (solo narrativo)
+merge nella timeline persistita (solo narrativo, cronologico)
 ```
 
-- **Candidati:** una nazione entra solo con ≥1 causa canonica — relazione
-  hostile/ally, impegno in vigore, fatto recente (finestra 180 giorni), agenda
-  NPC nel dossier. **Mai** per lontananza. Nessun candidato → nessuna chiamata.
+- **Candidati:** una nazione entra solo con **≥1 TRIGGER dinamico verificabile**
+  — fatto recente (finestra 180 giorni), impegno in vigore, **vera agenda NPC**
+  (marker esplicito nel dossier), oppure è coinvolta in un evento del turno
+  appena prodotto. Le **relazioni** (`hostile`/`ally`) sono **contesto**: da sole
+  **non** creano il candidato. **Mai** per lontananza. Nessun candidato →
+  nessuna chiamata.
 - **Contesto:** `buildWorldPulseContext` costruisce un `ReactionContext` **solo
   dai candidati** (opzione `:pulse` per attore, `maxReactions` = n. candidati).
   Mai il reaction context del giocatore. Attori/opzioni extra → reject.
@@ -112,13 +119,13 @@ runSimulation principale (validato)
         ↓ validazione completa
 result.worldPulseEvents (campo separato, NON result.events)
         ↓
-TurnPipelineService: merge SOLO nella cronaca, dopo che mappa/processi/chat/
-periodo/decisione auto-jump hanno già consumato appliedEvents
+TurnPipelineService: gli eventi pulse NON entrano in appliedEvents
+(materiali); vengono uniti alla SOLA timeline persistita e ordinati
+cronologicamente insieme agli eventi principali
 ```
 
 - non cambia `actionOutcomes`, `voided`, `targetDate` del giocatore;
-- non interferisce con la decisione NPC che ferma l'auto-jump (gli eventi pulse
-  non entrano in `appliedEvents` nella fase di decisione);
+- non interferisce con la decisione NPC che ferma l'auto-jump;
 - budget separato max 3, non sottrae eventi agli ordini;
 - abort della richiesta principale → nessun pulse;
 - errore provider del pulse → `null`, il turno principale resta valido.
@@ -163,10 +170,19 @@ motivo: nessuna chiamata LLM a pagamento autorizzata
 
 ## Rischi residui
 
-- La selezione candidati è deterministica ma si basa su dati testuali
-  (`npcStrategicProfiles`, `activeCommitments`): una menzione non prova una
-  causa; il modello resta vincolato a non inventare, ma la copertura è limitata.
+- La selezione candidati è deterministica e **fail-closed**: una menzione nel
+  dossier non è un'agenda, una relazione da sola non è un trigger. Resta però
+  legata a dati testuali (`npcStrategicProfiles`, `activeCommitments`): processi
+  e crisi NPC non sono esposti in forma strutturata per il pulse, quindi la
+  copertura di «processo in corso» e «decisione NPC non risolta» è **parziale**.
 - La rubrica è euristica (frasi-segnale), non comprensione semantica.
+- Il material-claim guard è una **lista prudente di stem**: respinge il
+  palesemente materiale, non capisce ogni frase italiana. Fail-closed: un pulse
+  dubbio viene scartato, non canonizzato.
+- L'anti-contraddizione copre i casi strutturati (cambio di relazione
+  neutral/ally + ripresa del conflitto; esito respinto ripetuto) e la dedup
+  titolo+data. Contraddizioni puramente semantiche non rilevabili restano
+  possibili: il prompt ha una regola esplicita, ma non un validatore semantico.
 - Il pulse non è integrato nel percorso di playback in pausa (salto fisso multi
   evento): con flag ON quegli eventi possono non comparire. È un gap di
   enrichment, non un errore di turno.
@@ -177,9 +193,10 @@ motivo: nessuna chiamata LLM a pagamento autorizzata
 
 ## Test
 
-- Mirati: harness/contratti **29/29**; prompt/config/memoria **111/111**;
-  simulazione/reazioni **92/92**.
-- Full backend unit (una volta): **251 file, 2737 test, 0 failed**.
+- Mirati world pulse + narrative-dispatch-quality: **36/36**.
+- Simulation/reactions correlati: **106/106**.
+- Prompt/config/memoria: **131/131** (suite correlate).
+- Full backend unit (una volta): **251 file, 2744 test, 0 failed**.
 - Build backend: ok (`tsc` + `npm run build`).
 - Frontend non toccato.
 
@@ -194,6 +211,103 @@ Run `E2E (mock)` su `abf90f9`/`e078be2` (workflow informativo, `continue-on-erro
 | Build frontend (perf baseline) / Performance baseline | skipped (dipendono dall'audit) |
 
 I fallimenti a11y sono **non correlati** a questa PR (stessi due test rossi dalla #200, nessun test toccato qui) e il workflow è informativo. Il gate richiesto `Quality Gate / test-build` è **verde**.
+
+## FINAL HARDENING
+
+Residui chiusi sull'HEAD `225f97a` senza nuova architettura, senza deploy,
+senza chiamate provider.
+
+### 1. Relationships ≠ trigger (fail-closed)
+
+`selectWorldPulseCandidates()` non considera più `hostile`/`ally` una causa
+sufficiente. Un candidato esiste **solo** con ≥1 trigger dinamico:
+
+```
+TRIGGERS      → autorizzano la candidatura
+  recentTriggers[]     fatto negli ultimi 180 giorni
+  activeCommitments[]  impegno in vigore che cita la nazione
+  agendaTriggers[]     VERA agenda NPC (marker esplicito nel dossier)
+RELATIONSHIPS → contesto, ordinamento, spiegazione… ma da sole NON autorizzano
+```
+
+`dossierActiveAgendas()` legge il dossier del motore con marker stabili: blocco
+`- Nome [ID]` + riga `Agenda strategica: ...`. Il fallback del motore
+«nessun obiettivo attivo registrato» è **escluso**: se non si dimostra una vera
+agenda attiva, quella causa **non** viene aggiunta. Nessun parsing NLP.
+
+### 2. Post-turn context e viste relazionali effettive
+
+`worldPulseSelectionInput(game, result)` costruisce il contesto **post-turno**,
+non solo lo stato pre-turno:
+
+- **`effectiveRelationships`** = clone di `game.relationships` con i
+  `relationshipChanges` del turno applicati (match nome→id, aggiornamento
+  bidirezionale). Vale **solo** per il pulse: non viene persistito.
+- gli **eventi del turno** sono anteposti ai `recentEvents`, quindi un fatto
+  appena successo diventa un trigger per le nazioni coinvolte.
+
+Il prompt riceve `[EVENTI APPENA ACCADUTI NEL PERIODO]` e
+`[CAMBI DI RELAZIONE NEL PERIODO — autoritativi]`, con priorità
+`MAIN RESULT DEL TURNO > STATO CANONICO PRE-TURNO > STORIA GIOCO PRECEDENTE`.
+
+### 3. Contradiction guard deterministico
+
+Prima della dedup, per ogni evento:
+
+- se un `relationshipChanges` del turno porta la coppia a `neutral`/`ally` e
+  l'evento pulse racconta una ripresa del conflitto fra le stesse due nazioni →
+  **respingi**;
+- se un esito `rejected` del turno ricompare nel testo come compiuto →
+  **respingi**;
+- dedup titolo+data invariata.
+
+### 4. Narrative-only contract + material-claim guard
+
+`validateNarrativeOnlyWorldPulseEvent()` scarta descrizioni e `counterAction`
+con claim materiali (`mobilita`, `schiera`, `occupa`, `conquista`, `costruisce`,
+`annette`, `dichiara guerra`, `embargo`, `flotta`, `divisioni`, …).
+
+- ammesso: «Il governo annuncia che valuterà una mobilitazione» (marker di
+  intenzione entro 60 caratteri prima dello stem);
+- vietato: «Il governo mobilita due divisioni».
+
+Principio fail-closed: meglio respingere un pulse dubbio che canonizzare un
+fatto che il motore non conosce.
+
+### 5. Merge cronologico globale e non-ibridazione di `appliedEvents`
+
+`appliedEvents` torna a significare **solo** «eventi applicati al motore»: il
+pulse **non** viene più pushlato lì. Gli eventi pulse entrano nella sola
+`turnResult.timelineEvents`, che viene ordinata con
+`mergeTimelineChronologically()`: **`date ASC`**, tie-break **stabile =
+indice d'inserimento** (quindi evento principale **prima** del pulse a parità di
+data). Esempio: main `10`, `25`; pulse `7`, `18` → timeline `7, 10, 18, 25`.
+
+Il merge tocca **solo** timeline/persistenza/cronaca/memoria/UI feed: non
+`actionOutcomes`, non `eventHeadlines` degli ordini, non auto-jump, non
+`targetDate`, non l'applicazione mappa.
+
+### 6. `divergenceDate` esplicita
+
+`WorldPulseInput.divergenceDate` arriva da `game.world.startDate` e compare nel
+prompt in `[CONFINE TEMPORALE]`:
+
+```
+Divergenza: YYYY-MM-DD
+- REAL HISTORY < divergenceDate
+- GAME HISTORY >= divergenceDate
+- dopo la divergenza la storia reale futura NON è canonica
+```
+
+Gerarchia invariata: `CURRENT / POST-TURN STATE > GAME HISTORY > PRE-DIVERGENCE
+HISTORY`.
+
+### Invarianti confermati
+
+Flag `texture`/`worldPulse`/`tieredMemory` OFF di default; mechanic `worldPulse`
+dedicata; max 0-3 eventi; `EffectValidator` e `ReactionDecisions` invariati;
+`actionOutcomes`/`voided`/`targetDate`/auto-jump invariati; nessun deploy;
+nessuna chiamata LLM reale o a pagamento.
 
 ## Non mergiare
 

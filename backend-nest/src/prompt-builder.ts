@@ -1052,7 +1052,7 @@ export class PromptEngine {
    * canonici del gioco. Nessuna scelta geografica: senza causa → nessun
    * candidato → nessuna chiamata.
    */
-  private worldPulseSelectionInput(game: GameData): WorldPulseSelectionInput {
+  private worldPulseSelectionInput(game: GameData, result?: SimulationResult): WorldPulseSelectionInput {
     const polities = new Map<string, string>();
     for (const [id, name] of Object.entries(game.polityNames || {})) polities.set(id, name);
     try {
@@ -1061,14 +1061,30 @@ export class PromptEngine {
       }
     } catch { /* mappe legacy: si resta ai polityNames */ }
 
+    // Relazioni **effettive**: matrice corrente + cambi del turno appena chiuso.
+    const nameToId = new Map<string, string>();
+    for (const [id, name] of polities) nameToId.set(String(name).toLowerCase(), id);
     const relationships: WorldPulseSelectionInput['relationships'] = [];
     for (const [from, targets] of Object.entries(game.relationships || {})) {
       for (const [to, relation] of Object.entries(targets || {})) {
         relationships.push({ from, to, relation: String(relation) });
       }
     }
+    for (const change of result?.relationshipChanges || []) {
+      const fromId = nameToId.get(String(change.from).toLowerCase()) || String(change.from);
+      const toId = nameToId.get(String(change.to).toLowerCase()) || String(change.to);
+      for (let index = relationships.length - 1; index >= 0; index -= 1) {
+        const rel = relationships[index];
+        if ((rel.from === fromId && rel.to === toId) || (rel.from === toId && rel.to === fromId)) relationships.splice(index, 1);
+      }
+      relationships.push({ from: fromId, to: toId, relation: String(change.relationship) });
+    }
 
+    // Gli eventi del turno diventano trigger/contesto per il pulse successivo.
     const recentEvents: WorldPulseSelectionInput['recentEvents'] = [];
+    for (const event of result?.events || []) {
+      recentEvents.push({ date: event.date, headline: event.headline, detail: event.description });
+    }
     for (const turn of [...(game.results || [])].slice(-5).reverse()) {
       for (const event of turn.timelineEvents || []) {
         recentEvents.push({ date: event.date, headline: event.headline, detail: event.detail });
@@ -1091,9 +1107,10 @@ export class PromptEngine {
 
   /**
    * Passaggio separato «world pulse» (flag `narrative.worldPulse`, spento di
-   * default). Propone **fino a 3** eventi di nazioni non giocate che hanno una
-   * causa canonica, e li valida con la pipeline completa (finestra temporale,
-   * `EffectValidator`, contract delle reactions sul **contesto dei candidati**).
+   * default). Propone **fino a 3** eventi narrativi di nazioni non giocate che
+   * hanno un trigger dinamico, e li valida con la pipeline completa (finestra
+   * temporale, `EffectValidator`, narrativa-only, anti-contraddizione, contract
+   * delle reactions sul **contesto dei candidati**).
    *
    * Col flag spento non parte nessuna chiamata. Un errore del pulse non tocca
    * il turno principale: il chiamante riceve `null`/`[]`.
@@ -1107,18 +1124,25 @@ export class PromptEngine {
 
     const builder = new PromptBuilder(game);
     const vars = opts.vars ?? builder.buildVariables();
-    const selection = this.worldPulseSelectionInput(game);
+    const selection = this.worldPulseSelectionInput(game, opts.result);
     const candidates = selectWorldPulseCandidates(selection).slice(0, WORLD_PULSE_MAX_CANDIDATES);
     if (candidates.length === 0) return null;
 
     const originDate = vars.ORIGIN_ROUND_DATE;
     const targetDate = opts.result?.targetDate || vars.TARGET_ROUND_DATE;
+    const divergenceDate = game.world?.startDate || vars.STARTING_ROUND_DATE || originDate;
+    const relationshipChanges = (opts.result?.relationshipChanges || []).map(change => ({
+      from: change.from, to: change.to, relationship: change.relationship,
+    }));
     const context = buildWorldPulseContext(candidates);
     const prompt = buildWorldPulsePrompt({
       originDate,
       targetDate,
+      divergenceDate,
       playerPolity: vars.PLAYER_POLITY,
       candidates,
+      mainEvents: (opts.result?.events || []).map(event => ({ date: event.date, headline: event.headline, description: event.description })),
+      relationshipChanges,
       recentChronicle: worldPulseChronicleFromVars(vars),
     });
 
@@ -1135,6 +1159,13 @@ export class PromptEngine {
         targetDate,
         context,
         existingEvents: opts.result?.events || [],
+        contradictions: {
+          relationshipChanges,
+          rejectedOutcomes: (opts.result?.actionOutcomes || [])
+            .filter(outcome => String(outcome.status) === 'rejected')
+            .map(outcome => String(outcome.summary || '')),
+          polityNames: game.polityNames || {},
+        },
       });
     } catch (error) {
       // OPTIONAL ENRICHMENT: un pulse fallito non è un turno fallito.

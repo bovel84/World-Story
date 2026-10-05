@@ -27,6 +27,7 @@ import { loadSimulationCatalog } from '../scenario/loader';
 import { shortId } from '../utils/short-id';
 import type { RelationshipType } from '../core/RelationshipMatrix';
 import type { SimulationEvent } from '../prompts/types';
+import { mergeTimelineChronologically } from '../prompts/simulation/worldPulse';
 import type { PolityHistoricalBaseline } from '../core/government/HistoricalBaseline';
 import type { SimulationCatalog } from '../scenario/types';
 import type { PendingAction, OrderSettlementEntry } from './OrderExecutionService';
@@ -882,14 +883,13 @@ export class TurnPipelineService {
       this.ctx.evaluateCrisis(true, period.elapsedDays);
 
       // WS-NARR-DISPATCH-PAX-QUALITY: world pulse (opzionale, dietro flag).
-      // Sono eventi narrativi già validati nel PromptEngine (finestra
-      // temporale, EffectValidator, contract reactions): qui entrano SOLO nella
-      // cronaca del turno, mai in actionOutcomes/voided/targetDate o nella
-      // decisione NPC che ferma l'auto-jump. L'aggiunta avviene dopo ogni uso
-      // materiale di `appliedEvents` (mappa, processi, chat, periodo).
+      // Sono eventi **narrativi** già validati (finestra temporale,
+      // EffectValidator, narrativa-only, anti-contraddizione): NON entrano in
+      // `appliedEvents`, che resta «eventi applicati al motore», né toccano
+      // actionOutcomes/voided/targetDate o la decisione NPC dell'auto-jump.
+      // Servono solo alla cronologia/timeline/persistenza.
       const worldPulseEvents = (promptResult as { worldPulseEvents?: SimulationEvent[] }).worldPulseEvents || [];
       if (worldPulseEvents.length > 0) {
-        appliedEvents.push(...worldPulseEvents);
         turnResult.events.push(
           ...worldPulseEvents.map(event => this.ctx.publicText(event.headline)).filter(Boolean),
         );
@@ -903,7 +903,7 @@ export class TurnPipelineService {
       // Timeline: conserva data, titolo e dettaglio originale di ogni evento.
       turnResult.date = this.state.currentDate;
       const detailedByHeadline = new Map(
-        appliedEvents.map(event => [this.ctx.publicText(event.headline), event] as const)
+        [...appliedEvents, ...worldPulseEvents].map(event => [this.ctx.publicText(event.headline), event] as const)
       );
       const sourceActionsByHeadline = new Map<string, string[]>();
       actions.forEach(action => {
@@ -938,6 +938,10 @@ export class TurnPipelineService {
       }
       chatTimelineEvents.forEach(event => { event.simulationId = simulationRunId || undefined; });
       turnResult.timelineEvents.push(...chatTimelineEvents);
+      // WS-NARR-DISPATCH-PAX-QUALITY: la timeline persistita è globale e
+      // cronologica. Merge **stabile** per data: a parità di data l'evento
+      // principale precede il pulse (ordine d'inserimento), poi relazione/chat.
+      turnResult.timelineEvents = mergeTimelineChronologically(turnResult.timelineEvents);
       // Ogni ordine del lotto rimanda agli stessi eventi canonici del suo
       // turno, anziché obbligare client/API a ricostruirli da sole stringhe.
       actions.forEach(action => {

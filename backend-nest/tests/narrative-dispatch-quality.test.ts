@@ -29,6 +29,11 @@ import {
   validateWorldPulse,
   selectWorldPulseCandidates,
   buildWorldPulseContext,
+  dossierActiveAgendas,
+  findMaterialClaim,
+  validateNarrativeOnlyWorldPulseEvent,
+  detectWorldPulseContradiction,
+  mergeTimelineChronologically,
   WORLD_PULSE_MIN_EVENTS,
   WORLD_PULSE_MAX_EVENTS,
   type WorldPulseSelectionInput,
@@ -106,7 +111,7 @@ function minimalGame(overrides: Record<string, unknown> = {}): any {
     },
     players: [{ id: 'p1', name: 'Player', regionId: 'w1_KHM', polityId: 'KHM' }],
     playerPolityId: 'KHM',
-    polityNames: { KHM: 'Cambogia', THA: 'Thailandia' },
+    polityNames: { KHM: 'Cambogia', THA: 'Thailandia', VNM: 'Vietnam' },
     actions: [],
     results: [],
     ...overrides,
@@ -162,7 +167,6 @@ describe('RUBRIC SANITY CHECK (corpus mockati — NON output del nuovo prompt)',
   });
 
   it('il corpus reference non è presentato come output del nuovo prompt', () => {
-    // La fixture è espressamente mock: nessun campo la collega a una chiamata.
     const raw = fs.readFileSync(FIXTURE, 'utf8');
     expect(raw).not.toContain('provider');
     expect(raw).not.toContain('generated');
@@ -191,20 +195,37 @@ describe('Causalità — la causa inventata non prende il massimo', () => {
   });
 });
 
-describe('World pulse — selezione deterministica (nessun LLM)', () => {
-  it('seleziona solo nazioni con causa canonica', () => {
+describe('World pulse — trigger dinamici, non relazioni', () => {
+  it('una relazione da sola (hostile/ally) NON crea il candidato', () => {
+    const candidates = selectWorldPulseCandidates(selection({
+      relationships: [
+        { from: 'THA', to: 'VNM', relation: 'hostile' },
+        { from: 'VNM', to: 'THA', relation: 'hostile' },
+      ],
+    }));
+    expect(candidates).toEqual([]);
+  });
+
+  it('hostile + fatto recente → candidato (relazione come contesto)', () => {
     const candidates = selectWorldPulseCandidates(selection({
       relationships: [{ from: 'THA', to: 'VNM', relation: 'hostile' }],
+      recentEvents: [{ date: '2002-02-20', headline: 'Incidenti di frontiera in Thailandia', detail: '' }],
     }));
-    expect(candidates.map(c => c.polityId)).toEqual(['THA', 'VNM']);
-    expect(candidates[0].causes.join(' ')).toContain('conflitto');
+    expect(candidates.map(c => c.polityId)).toEqual(['THA']);
+    expect(candidates[0].triggers.join(' ')).toContain('fatto recente');
+    expect(candidates[0].relevantRelations.join(' ')).toContain('hostile');
   });
 
-  it('nessuna causa → nessun candidato (KHM esclusa perché giocatore)', () => {
-    expect(selectWorldPulseCandidates(selection())).toEqual([]);
+  it('ally + impegno in vigore → candidato', () => {
+    const candidates = selectWorldPulseCandidates(selection({
+      relationships: [{ from: 'THA', to: 'VNM', relation: 'ally' }],
+      commitments: 'Patto di difesa con la Thailandia',
+    }));
+    expect(candidates.map(c => c.polityId)).toEqual(['THA']);
+    expect(candidates[0].triggers.join(' ')).toContain('impegno in vigore');
   });
 
-  it('un fatto recente è una causa solo se dentro la finestra', () => {
+  it('un fatto recente è un trigger solo se dentro la finestra', () => {
     const within = selectWorldPulseCandidates(selection({
       recentEvents: [{ date: '2002-02-20', headline: 'La Thailandia mobilita le riserve', detail: '' }],
     }));
@@ -215,75 +236,166 @@ describe('World pulse — selezione deterministica (nessun LLM)', () => {
     expect(tooOld).toEqual([]);
   });
 
-  it('commitment e dossier NPC contano come causa', () => {
-    const commitments = selectWorldPulseCandidates(selection({ commitments: 'Patto di non aggressione con la Thailandia' }));
-    expect(commitments.map(c => c.polityId)).toEqual(['THA']);
-    const dossier = selectWorldPulseCandidates(selection({ npcDossiers: 'Vietnam: agenda attiva di riarmo.' }));
-    expect(dossier.map(c => c.polityId)).toEqual(['VNM']);
+  it('semplice menzione nel dossier NON è agenda attiva; agenda esplicita sì', () => {
+    const mentionOnly = selectWorldPulseCandidates(selection({
+      npcDossiers: '- Vietnam [VNM] — profilo persistente: cauto.\n  Priorità correnti: difendere il confine.',
+    }));
+    expect(mentionOnly).toEqual([]);
+
+    const explicit = selectWorldPulseCandidates(selection({
+      npcDossiers: '- Thailandia [THA] — profilo persistente: fermo.\n  Agenda strategica: consolidare le difese di frontiera',
+    }));
+    expect(explicit.map(c => c.polityId)).toEqual(['THA']);
+    expect(explicit[0].agendaTriggers).toHaveLength(1);
+
+    const fallback = selectWorldPulseCandidates(selection({
+      npcDossiers: '- Thailandia [THA] — profilo persistente: fermo.\n  Agenda strategica: nessun obiettivo attivo registrato: non inventarne uno',
+    }));
+    expect(fallback).toEqual([]);
+  });
+
+  it('dossierActiveAgendas ignora il fallback del motore', () => {
+    const agendas = dossierActiveAgendas([
+      '- Thailandia [THA] — x',
+      '  Agenda strategica: difendere il confine',
+      '- Vietnam [VNM] — y',
+      '  Agenda strategica: nessun obiettivo attivo registrato: non inventarne uno',
+    ].join('\n'));
+    expect([...agendas.keys()]).toEqual(['THA']);
+  });
+});
+
+describe('World pulse — narrativa-only', () => {
+  it('respinge materiale, accetta intenzione e atti non materiali', () => {
+    expect(findMaterialClaim('Il governo mobilita due divisioni')).toBe('mobilit');
+    expect(findMaterialClaim('La flotta occupa il porto')).toBe('occup');
+    expect(findMaterialClaim('Il governo costruisce una base militare')).toBeTruthy();
+    expect(findMaterialClaim('Il parlamento dichiara guerra al vicino')).toBe('dichiara guerra');
+    expect(findMaterialClaim('Il governo annuncia che valuterà una mobilitazione')).toBeNull();
+    expect(findMaterialClaim('Il ministero convoca l\'ambasciatore per consultazioni')).toBeNull();
+    expect(findMaterialClaim('Il governo apre un dibattito parlamentare')).toBeNull();
+    expect(findMaterialClaim('Il governo minaccia sanzioni')).toBeNull();
+    expect(findMaterialClaim('Il governo chiede un vertice')).toBeNull();
+  });
+
+  it('una counterAction materiale invalida l\'evento', () => {
+    const event: any = {
+      headline: 'Consultazioni di frontiera', description: 'Il governo convoca l\'ambasciatore.',
+      date: '2002-03-10', mapChanges: [],
+      reactions: [{ actorId: 'THA', optionId: 'THA:pulse', polityName: 'Thailandia', role: 'neighbour', stance: 'neutral', response: 'convoca l\'ambasciatore', counterAction: 'mobilita 30.000 uomini' }],
+    };
+    expect(validateNarrativeOnlyWorldPulseEvent(event)).toMatch(/material_counter_action/);
+  });
+});
+
+describe('World pulse — anti-contraddizione con il turno principale', () => {
+  it('dopo una tregua del turno, una ripresa della guerra è una contraddizione', () => {
+    const contradiction = detectWorldPulseContradiction(
+      { headline: 'Riprende la guerra tra Thailandia e Vietnam', description: 'Nuova offensiva.', date: '2002-03-15', mapChanges: [], reactions: [] },
+      { relationshipChanges: [{ from: 'Thailandia', to: 'Vietnam', relationship: 'neutral' }], polityNames: { THA: 'Thailandia', VNM: 'Vietnam' } },
+    );
+    expect(contradiction).toMatch(/relation_conflict/);
+  });
+
+  it('un esito respinto non può ricomparire come compiuto', () => {
+    const contradiction = detectWorldPulseContradiction(
+      { headline: 'Il governo vara la nazionalizzazione delle piantagioni', description: 'La misura è approvata.', date: '2002-03-15', mapChanges: [], reactions: [] },
+      { rejectedOutcomes: ['il governo vara la nazionalizzazione delle piantagioni'] },
+    );
+    expect(contradiction).toBe('rejected_outcome_reused');
   });
 });
 
 describe('World pulse — 0-3 eventi e pipeline di validazione', () => {
-  const input = selection({ relationships: [{ from: 'THA', to: 'VNM', relation: 'hostile' }] });
+  const input = selection({ commitments: 'Patto con la Thailandia' });
   const candidates = selectWorldPulseCandidates(input);
   const context = buildWorldPulseContext(candidates);
+  const window = { originDate: '2002-03-01', targetDate: '2002-03-31', context };
 
   it('zero eventi è una risposta valida', () => {
     expect(WORLD_PULSE_MIN_EVENTS).toBe(0);
     const raw = '{"type":"complete","narration":"nessun evento","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"2002-03-31"}';
-    const result = validateWorldPulse(parseWorldPulseResponse(raw), { originDate: '2002-03-01', targetDate: '2002-03-31', context });
+    const result = validateWorldPulse(parseWorldPulseResponse(raw), window);
     expect(result.accepted).toEqual([]);
   });
 
-  it('accetta un solo evento con causa e data in finestra', () => {
+  it('accetta un solo evento narrativa-only con data in finestra', () => {
     const raw = [
-      '{"type":"event","headline":"La Thailandia rafforza il confine","description":"La Thailandia schiera rinforzi dopo gli scontri.","date":"2002-03-10","mapChanges":[],"reactions":[]}',
+      '{"type":"event","headline":"La Thailandia convoca consultazioni di frontiera","description":"La Thailandia convoca l\'ambasciatore e chiede consultazioni dopo gli incidenti.","date":"2002-03-10","mapChanges":[],"reactions":[]}',
       '{"type":"complete","narration":"un evento","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"2002-03-31"}',
     ].join('\n');
-    const result = validateWorldPulse(parseWorldPulseResponse(raw), { originDate: '2002-03-01', targetDate: '2002-03-31', context });
+    const result = validateWorldPulse(parseWorldPulseResponse(raw), window);
     expect(result.accepted).toHaveLength(1);
   });
 
-  it('respinge: data fuori finestra, mapChange, attore non candidato, opzione non ammessa', () => {
+  it('respinge: data fuori finestra, mapChange, materiale, attore non candidato, opzione non ammessa', () => {
     const raw = [
       '{"type":"event","headline":"Fuori finestra","description":"Un fatto prima dell\'inizio del periodo.","date":"2002-02-01","mapChanges":[],"reactions":[]}',
       '{"type":"event","headline":"Mutazione materiale","description":"Un cantiere non autorizzato viene aperto.","date":"2002-03-05","mapChanges":[{"type":"start_construction","regionName":"X","feature":{"type":"factory","name":"F"}}],"reactions":[]}',
-      '{"type":"event","headline":"Attore estraneo","description":"Una nazione non candidata decide qualcosa.","date":"2002-03-06","mapChanges":[],"reactions":[{"actorId":"BRA","optionId":"BRA:pulse","polityName":"Brasile","role":"observer","stance":"neutral","response":"agisce"}]}',
-      '{"type":"event","headline":"Opzione errata","description":"Un candidato sceglie un\'opzione inesistente.","date":"2002-03-07","mapChanges":[],"reactions":[{"actorId":"THA","optionId":"THA:bogus","polityName":"Thailandia","role":"neighbour","stance":"neutral","response":"agisce"}]}',
+      '{"type":"event","headline":"Claim materiale","description":"La Thailandia mobilita due divisioni al confine.","date":"2002-03-06","mapChanges":[],"reactions":[]}',
+      '{"type":"event","headline":"Attore estraneo","description":"Una nazione non candidata decide qualcosa.","date":"2002-03-07","mapChanges":[],"reactions":[{"actorId":"BRA","optionId":"BRA:pulse","polityName":"Brasile","role":"observer","stance":"neutral","response":"agisce"}]}',
+      '{"type":"event","headline":"Opzione errata","description":"Un candidato sceglie un\'opzione inesistente.","date":"2002-03-08","mapChanges":[],"reactions":[{"actorId":"THA","optionId":"THA:bogus","polityName":"Thailandia","role":"neighbour","stance":"neutral","response":"agisce"}]}',
       '{"type":"complete","narration":"","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"2002-03-31"}',
     ].join('\n');
-    const result = validateWorldPulse(parseWorldPulseResponse(raw), { originDate: '2002-03-01', targetDate: '2002-03-31', context });
+    const result = validateWorldPulse(parseWorldPulseResponse(raw), { ...window, contradictions: { relationshipChanges: [], rejectedOutcomes: [] } });
     const reasons = result.rejected.map(r => r.reason);
     expect(result.accepted).toHaveLength(0);
     expect(reasons).toContain('date_out_of_window');
     expect(reasons.some(r => r.startsWith('unauthorized_map_change'))).toBe(true);
+    expect(reasons.some(r => r.startsWith('material_claim'))).toBe(true);
     expect(reasons).toContain('reaction_contract');
   });
 
   it('non supera il tetto di 3 eventi', () => {
-    const events = [1, 2, 3, 4, 5].map(i => `{"type":"event","headline":"Evento ${i}","description":"Una decisione concreta numero ${i} presa dopo gli sconti.","date":"2002-03-0${i}","mapChanges":[],"reactions":[]}`);
+    const events = [1, 2, 3, 4, 5].map(i => `{"type":"event","headline":"Consultazione ${i}","description":"Il governo convoca l\'ambasciatore per una consultazione numero ${i}.","date":"2002-03-0${i}","mapChanges":[],"reactions":[]}`);
     const raw = [...events, '{"type":"complete","narration":"","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"2002-03-31"}'].join('\n');
-    const result = validateWorldPulse(parseWorldPulseResponse(raw), { originDate: '2002-03-01', targetDate: '2002-03-31', context });
+    const result = validateWorldPulse(parseWorldPulseResponse(raw), window);
     expect(WORLD_PULSE_MAX_EVENTS).toBe(3);
     expect(result.accepted.length).toBeLessThanOrEqual(3);
   });
 
-  it('il prompt separa [RELAZIONI CORRENTI] e [IMPEGNI ATTIVI]', () => {
+  it('il prompt contiene divergenceDate, eventi del turno e separa relazioni/impegni', () => {
     const prompt = buildWorldPulsePrompt({
-      originDate: '2002-03-01', targetDate: '2002-03-31', playerPolity: 'Cambogia',
+      originDate: '2002-03-01', targetDate: '2002-03-31', divergenceDate: '2002-01-01',
+      playerPolity: 'Cambogia',
       candidates: [{
         polityId: 'THA', polityName: 'Thailandia',
-        causes: ['conflitto/ostilità con Vietnam'],
+        triggers: ['agenda NPC attiva: difendere il confine'],
         relevantRelations: ['Thailandia ↔ Vietnam: hostile'],
-        activeCommitments: ['Patto di non aggressione con la Thailandia'],
-        recentTriggers: [],
+        activeCommitments: ['Patto con la Thailandia'],
+        recentTriggers: [], agendaTriggers: ['difendere il confine'],
       }],
+      mainEvents: [{ date: '2002-03-05', headline: 'Tregua tra Thailandia e Vietnam', description: 'Accordo firmato.' }],
+      relationshipChanges: [{ from: 'Thailandia', to: 'Vietnam', relationship: 'neutral' }],
       recentChronicle: 'Cronaca.',
     });
-    expect(prompt).toContain('FINO A 3');
+    expect(prompt).toContain('[CONFINE TEMPORALE]');
+    expect(prompt).toContain('Divergenza: 2002-01-01');
+    expect(prompt).toContain('REAL HISTORY < 2002-01-01');
+    expect(prompt).toContain('[EVENTI APPENA ACCADUTI NEL PERIODO]');
+    expect(prompt).toContain('Tregua tra Thailandia e Vietnam');
     expect(prompt).toContain('[RELAZIONI CORRENTI]');
     expect(prompt).toContain('[IMPEGNI ATTIVI]');
-    expect(prompt).toContain('Zero eventi è una risposta valida');
+    expect(prompt).toContain('CONTRATTO NARRATIVA-ONLY');
+    expect(prompt).toContain('zero è valido');
+  });
+});
+
+describe('Timeline — merge cronologico stabile', () => {
+  it('ordina main e pulse per data; a parità, main prima del pulse', () => {
+    const merged = mergeTimelineChronologically([
+      { date: '2002-03-10', id: 'main-1' },
+      { date: '2002-03-25', id: 'main-2' },
+      { date: '2002-03-07', id: 'pulse-1' },
+      { date: '2002-03-18', id: 'pulse-2' },
+    ]);
+    expect(merged.map(e => e.id)).toEqual(['pulse-1', 'main-1', 'pulse-2', 'main-2']);
+
+    const tie = mergeTimelineChronologically([
+      { date: '2002-03-10', id: 'main' },
+      { date: '2002-03-10', id: 'pulse' },
+    ]);
+    expect(tie.map(e => e.id)).toEqual(['main', 'pulse']);
   });
 });
 
@@ -308,7 +420,6 @@ describe('World pulse — fail-safe e zero chiamate', () => {
     const { router, calls } = stubRouter({ narrative: { worldPulse: true } });
     const engine = new PromptEngine(router);
     const result = await engine.generateWorldPulse(minimalGame({
-      relationships: { THA: { VNM: 'hostile' } },
       activeCommitments: 'Patto con la Thailandia',
     }));
     expect(calls).toEqual(['worldPulse']);
@@ -322,7 +433,7 @@ describe('World pulse — fail-safe e zero chiamate', () => {
     });
     const engine = new PromptEngine(router);
     const result = await engine.generateWorldPulse(minimalGame({
-      relationships: { THA: { VNM: 'hostile' } },
+      activeCommitments: 'Patto con la Thailandia',
     }));
     expect(result).toBeNull();
   });
@@ -332,7 +443,7 @@ describe('World pulse — fail-safe e zero chiamate', () => {
     const engine = new PromptEngine(router);
     const controller = new AbortController();
     controller.abort();
-    const result = await engine.generateWorldPulse(minimalGame({ relationships: { THA: { VNM: 'hostile' } } }), { signal: controller.signal });
+    const result = await engine.generateWorldPulse(minimalGame({ activeCommitments: 'Patto con la Thailandia' }), { signal: controller.signal });
     expect(result).toBeNull();
     expect(calls).toEqual([]);
   });
@@ -346,7 +457,7 @@ describe('World pulse — integrazione nel run senza toccare il risultato princi
     ].join('\n');
     const full = `${mainEvents}\n${mainComplete}`;
     const pulseRaw = [
-      '{"type":"event","headline":"La Thailandia rafforza il confine","description":"La Thailandia schiera rinforzi dopo gli scontri di frontiera.","date":"1951-01-12","mapChanges":[],"reactions":[{"actorId":"THA","optionId":"THA:pulse","polityName":"Thailandia","role":"neighbour","stance":"neutral","response":"schiera rinforzi"}]}',
+      '{"type":"event","headline":"La Thailandia convoca consultazioni di frontiera","description":"La Thailandia convoca l\'ambasciatore e chiede consultazioni dopo gli incidenti.","date":"1951-01-12","mapChanges":[],"reactions":[{"actorId":"THA","optionId":"THA:pulse","polityName":"Thailandia","role":"neighbour","stance":"neutral","response":"convoca l\'ambasciatore"}]}',
       '{"type":"complete","narration":"un evento","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"1951-01-20"}',
     ].join('\n');
 
@@ -376,7 +487,7 @@ describe('World pulse — integrazione nel run senza toccare il risultato princi
       players: [{ id: 'p1', name: 'Cambogia', regionId: 'r1', polityId: 'KHM' }],
       playerPolityId: 'KHM',
       polityNames: { KHM: 'Cambogia', THA: 'Thailandia' },
-      relationships: { THA: { VNM: 'hostile' } },
+      activeCommitments: 'Patto con la Thailandia',
       actions: [], results: [],
     };
 
@@ -384,14 +495,11 @@ describe('World pulse — integrazione nel run senza toccare il risultato princi
       game, [{ actionId: 'a1', text: 'Riformare' } as any], 30, undefined, false,
     );
 
-    // Chiamata singola e dedicata al mechanic worldPulse.
     expect(calls).toEqual(['worldPulse']);
-    // Il risultato principale non è toccato dagli eventi del pulse.
     expect(result.events.map(e => e.headline)).toEqual(['Il governo vara la riforma']);
     expect(result.actionOutcomes?.[0]?.summary).toBe('esito principale');
     expect(result.targetDate).toBe('1951-01-20');
-    // Gli eventi del pulse vivono solo nel campo separato.
-    expect(result.worldPulseEvents?.map(e => e.headline)).toEqual(['La Thailandia rafforza il confine']);
+    expect(result.worldPulseEvents?.map(e => e.headline)).toEqual(['La Thailandia convoca consultazioni di frontiera']);
   });
 });
 
@@ -441,7 +549,6 @@ describe('Passo 5 — memoria per fascia (due sole fasce)', () => {
       events: ['Un evento con una descrizione lunga '.repeat(10)],
     }));
     const canonical = 'MEMORIA '.repeat(400);
-    // Flag OFF: default = fascia vincolata (identico al pre-PR).
     const off = buildNarrativeMemory(results, canonical);
     const constrained = buildNarrativeMemory(results, canonical, CONSTRAINED_NARRATIVE_BUDGETS);
     const full = buildNarrativeMemory(results, canonical, FULL_NARRATIVE_BUDGETS);
