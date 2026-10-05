@@ -8,6 +8,7 @@ import { RichText } from './RichText';
 import { CouncilIssueInline } from './CouncilIssueInline';
 import { archivedTurns, currentTurnMessages } from './advisorTurns';
 import { advisorBucketKey, advisorOpeningKey, loadAdvisorArchive, loadAdvisorMessages, loadAdvisorOpening, saveAdvisorMessages, saveAdvisorOpening, type AdvisorOpening } from './advisorMemory';
+import { fetchAdvisorOpening } from './advisorOpening';
 import type { ChartDataInput } from './advisorCharts';
 
 interface AdvisorChatProps {
@@ -61,13 +62,9 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     if (cached) { setOpening(cached); return; }
     const controller = new AbortController();
     setLoading(true);
-    advisorApi.opening(gameId, controller.signal).then(result => {
+    // Primary LLM opening, deterministic verified context as non-blocking fallback.
+    fetchAdvisorOpening(gameId, controller.signal).then(next => {
       if (controller.signal.aborted) return;
-      const next: AdvisorOpening = {
-        reply: result.reply,
-        issues: result.issues,
-        date: result.advisorContext?.verifiedWorldSnapshot?.date ?? null,
-      };
       setOpening(next);
       saveAdvisorOpening(advisorOpeningKey(gameId, branchId, scopeKey), next);
     }).catch(() => {

@@ -31,6 +31,8 @@ import type { SimulationChatStart } from '../prompts/types';
 import type { TimelineEventRecord, TurnResultRecord } from './TimelineService';
 import { ingestJevBatch, diplomaticMemoryInputs, getDiplomaticMemory } from '../core/government/jev/jev-memory.service';
 
+import { HISTORICAL_BASELINE_RULE, historicalBaselineExcerpt, type PolityHistoricalBaseline } from '../core/government/HistoricalBaseline';
+
 /** Fence di contesto (ramo + revisione) per la protezione late-writeback. */
 export interface DiplomacyFence {
   branchId: string | null;
@@ -95,6 +97,7 @@ export interface DiplomacyContext {
   strategicAgenda?(polityId: string): string;
   /** Impegni in vigore che legano la polity (GAMEPLAY-LONG). */
   commitmentsForPolity?(polityId: string): string;
+  historicalBaselinesCached?(playerPolityId: string, polityId: string): PolityHistoricalBaseline[];
 }
 
 /**
@@ -524,6 +527,19 @@ export class DiplomacyService {
   }
 
   /**
+   * SIDE-CAR: history is read synchronously from cache and NEVER awaits a provider
+   * call. A missing background is simply absent, so cancellation, fence capture and
+   * the single-call contract of chat/reaction are byte-for-byte unchanged.
+   */
+  private historicalContext(polityId: string, query: string): string {
+    const baselines = this.ctx.historicalBaselinesCached?.(this.ctx.playerPolityId(), polityId) ?? [];
+    return [...baselines.map(baseline => `[${baseline.polityId === polityId ? 'OWN' : 'COUNTERPARTY'} HISTORICAL BASELINE — ${baseline.countryName} (${baseline.polityId}) — prima di ${baseline.startDate}]\n${historicalBaselineExcerpt(baseline.historicalBackground, query)}`),
+      `[CURRENT VERIFIED STATE]\nRelazione corrente di ${polityId} con ${this.ctx.playerPolityId()}: ${this.matrix().get(polityId, this.ctx.playerPolityId())}.`,
+      '[RELATIONSHIP / GAME HISTORY] Gli scambi, gli eventi recenti e gli impegni forniti sono la storia alternativa: prevalgono sul passato reale. Usa il passato per capire sensibilità e obiettivi, non per correggere la partita.',
+      HISTORICAL_BASELINE_RULE].join('\n\n');
+  }
+
+  /**
    * Chiama l'LLM per la prossima battuta della chat (reply o auto), la salva
    * e la broadcasta via SSE.
    */
@@ -593,7 +609,7 @@ export class DiplomacyService {
       history,
       playerMessage,
       mode,
-    });
+    }) + '\n\n' + this.historicalContext(respondingParticipant.polityId, playerMessage);
 
     const response = await this.ctx.llm.generate(
       'chat',
@@ -690,6 +706,7 @@ export class DiplomacyService {
       // GAMEPLAY-LONG: gli accordi non si dimenticano fra un messaggio e l'altro.
       const commitments = this.ctx.commitmentsForPolity?.(p.id) ?? '';
       return {
+        polityId: p.id,
         name: p.name,
         relationship,
         personality: `${profile.personality}; dottrina ${profile.doctrine}; stile ${profile.negotiationStyle}`,
@@ -811,7 +828,7 @@ export class DiplomacyService {
           history,
           playerMessage: reactionBrief,
           mode: 'reaction',
-        });
+        }) + '\n\n' + this.historicalContext(polityId, reactionBrief);
         const response = await this.ctx.llm.generate(
           'chat',
           `Interpreta ${sender} in una trattativa storica. Rispondi in italiano e SOLO con JSON {"message"}.`,

@@ -98,6 +98,16 @@ describe('advisorMemory', () => {
     expect(() => saveAdvisorMessages('qualsiasi', [{ role: 'user', content: 'x', turn: 1 }])).not.toThrow();
   });
 
+  it('ignores cached openings from the always-initial-mandate protocol', () => {
+    const storage = fakeStorage();
+    (globalThis as { localStorage?: Storage }).localStorage = storage;
+    const key = advisorOpeningKey('g1', 'main', 'g1|main|3');
+    expect(key).toContain('ws.advisor.opening.v2::');
+    const oldKey = key.replace('ws.advisor.opening.v2::', 'ws.advisor.opening::');
+    storage.setItem(oldKey, JSON.stringify({ reply: 'Primo intervento del mandato', issues: [], date: '2000-01-01' }));
+    expect(loadAdvisorOpening(key)).toBeNull();
+  });
+
   it('WS-GOV-ADVISOR-HISTORICAL-BASELINE: l’apertura LLM si riusa per bucket', () => {
     (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
     const key = advisorOpeningKey('g1', 'main', 'g1|main|3');

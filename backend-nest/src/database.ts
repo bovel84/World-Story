@@ -579,6 +579,53 @@ export function initDatabase() {
     WHERE polity_id IS NULL
   `);
 
+  // Migration: worlds.start_date — legacy copies may predate the column. It must
+  // exist BEFORE the baseline import below reads it; otherwise a legacy save
+  // aborts initDatabase with `no such column: w.start_date`.
+  try {
+    db.exec("ALTER TABLE worlds ADD COLUMN start_date TEXT DEFAULT '1951-01-01'");
+    console.log('[Migration] Added start_date to worlds');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name') && !e.message.includes('no such column')) {
+      // Column already exists
+    }
+  }
+
+  // Real history is immutable per game/polity/divergence, shared across branches.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_polity_historical_baselines (
+      game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      polity_id TEXT NOT NULL,
+      country_name TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      historical_background TEXT NOT NULL,
+      generated_at TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 2,
+      PRIMARY KEY (game_id, polity_id, start_date)
+    )
+  `);
+  // Import the previous player-only background once. `worlds.start_date` is
+  // guaranteed by the migration above; the remaining guards only protect against
+  // exotic schemas and keep the import idempotent. Consumers apply the stricter
+  // cutoff to these version-1 rows; no new writes use games.historical_baseline.
+  const columnsOf = (table: string) => new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>).map(row => row.name));
+  const hasWorldStart = columnsOf('worlds').has('start_date');
+  const hasPlayerPolity = columnsOf('players').has('polity_id');
+  const hasGameCreated = columnsOf('games').has('created_at');
+  if (hasWorldStart && hasPlayerPolity) {
+    db.exec(`
+      INSERT OR IGNORE INTO game_polity_historical_baselines
+        (game_id, polity_id, country_name, start_date, historical_background, generated_at, version)
+      SELECT g.id, p.polity_id, p.polity_id, w.start_date, g.historical_baseline,
+        ${hasGameCreated ? 'COALESCE(g.created_at, CURRENT_TIMESTAMP)' : 'CURRENT_TIMESTAMP'}, 1
+      FROM games g JOIN worlds w ON w.id = g.world_id JOIN players p ON p.game_id = g.id
+      WHERE p.rowid = (SELECT MIN(first.rowid) FROM players first WHERE first.game_id = g.id)
+        AND p.polity_id IS NOT NULL AND p.polity_id != ''
+        AND w.start_date IS NOT NULL AND w.start_date != ''
+        AND COALESCE(g.historical_baseline, '') != ''
+    `);
+  }
+
   // Actions table
   db.exec(`
     CREATE TABLE IF NOT EXISTS actions (

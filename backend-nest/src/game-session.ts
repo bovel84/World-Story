@@ -30,8 +30,8 @@ import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from './core/g
 import { readPreviousVerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshotHistory';
 import { derivedInfrastructureObjects } from './core/simulation/DerivedInfrastructure';
 import { renderRealityConcerns } from './core/government/RealitySignals';
-import { buildRealityAdvisorContext, guardRealityAdvisorOutput, renderSignedActs, ADVISOR_OPENING_REQUEST, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
-import { generateHistoricalBaseline, type HistoricalBaselineRequest } from './core/government/HistoricalBaseline';
+import { buildRealityAdvisorContext, guardRealityAdvisorOutput, verifiedRequestCorrection, renderSignedActs, advisorOpeningRequest, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
+import { generateHistoricalBaseline, awaitHistoricalBaseline, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
 import { parseCouncilIssues, type CouncilIssue } from './core/government/CouncilIssue';
 import type { CurrentReactionAction } from './core/simulation/ReactionContext';
 import { WorldIntelService } from './game/WorldIntelService';
@@ -401,6 +401,8 @@ export class GameSession {
   private gameController: GameController;
   private promptEngine: PromptEngine;
   private llm: LLMRouter;
+  /** Coalesce lazy generation; failed backgrounds are retried at most once per turn. */
+  private historicalBaselineRequests = new Map<string, { turn: number; settled: boolean; promise: Promise<PolityHistoricalBaseline | null> }>();
   /** Read model della timeline e dei processi (Fase 1: estratto da GameSession). */
   private timeline: TimelineService;
   /** Geometria e risoluzione regioni (Fase 1: estratto da GameSession). */
@@ -2138,6 +2140,7 @@ export class GameSession {
       recentStrategicMemory: (polityId, limit) => this.recentStrategicMemory(polityId, limit),
       strategicAgenda: polityId => this.npcAgenda.describe(polityId),
       commitmentsForPolity: polityId => this.commitments.describeForPolity(polityId),
+      historicalBaselinesCached: (playerPolityId, polityId) => this.persistedPolityHistoricalBaselines([playerPolityId, polityId]),
     });
     // F04 §9.4: ogni partita nasce (o riapre) sul suo ramo principale.
     // Idempotente: le sessioni ricostruite dal DB non duplicano il ramo.
@@ -2191,6 +2194,7 @@ export class GameSession {
       publicPolityName: polityId => this.publicPolityName(polityId),
       broadcast: (type, data) => this.broadcast(type, data),
       buildGameData: (...args: any[]) => (this.buildGameData as any)(...args),
+      preparePolityHistoricalBaselines: (ids, signal) => this.preparePolityHistoricalBaselines(ids, signal),
       buildResolvers: () => this.buildResolvers(),
       canonicalizeEventReactions: (...args: any[]) => (this.canonicalizeEventReactions as any)(...args),
       captureCheckpointData: () => this.captureCheckpointData(),
@@ -2305,7 +2309,10 @@ export class GameSession {
    */
   /** Read model GameData per il motore di prompt (implementazione in GameDataService). */
   private buildGameData(focusTexts: string[] = [], currentActions: CurrentReactionAction[] = []): any {
-    return this.gameData.build(focusTexts, currentActions);
+    const data = this.gameData.build(focusTexts, currentActions);
+    const own = this.cachedHistoricalBaseline(this.playerPolityId);
+    return { ...data, world: { ...data.world, startDate: this.historicalStartDate || data.world.startDate },
+      polityHistoricalBaselines: own ? [own] : [] };
   }
 
   /**
@@ -3422,46 +3429,96 @@ export class GameSession {
     return this.getAdvisorUnchecked(message, history);
   }
 
-  /** Contesto del Consulente, con il background storico canonico quando già generato. */
-  private advisorContext(): RealityAdvisorContext {
-    return buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), undefined, this.state.historicalBaseline || undefined).advisorContext;
+  private get historicalStartDate(): string {
+    // A save can be applied to a fresh session before bootstrap's metadata cache.
+    return this.worldStartDate || worldRepository.findById(this.worldId)?.start_date || '';
   }
 
-  /** Richiesta di background storico per il paese del giocatore, alla data iniziale. */
-  private historicalBaselineRequest(): HistoricalBaselineRequest | null {
-    const startDate = this.worldStartDate;
-    const polityId = this.playerPolityId;
-    if (!startDate || !polityId) return null;
-    return {
-      worldName: this.state.worldName || '', polityId, countryName: this.publicPolityName(polityId),
-      startDate, premise: this.state.worldBasePrompt || null,
+  private cachedHistoricalBaseline(polityId: string): PolityHistoricalBaseline | null {
+    return gameRepository.getPolityHistoricalBaseline(this.id, polityId, this.historicalStartDate);
+  }
+
+  private advisorResult(query = '', focusIssue?: unknown): RealityAdvisorResult {
+    const own = this.cachedHistoricalBaseline(this.playerPolityId);
+    const result = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), focusIssue, own?.historicalBackground);
+    const related = this.mentionedNpcPolityIds([query]).slice(0, 3).flatMap(id => {
+      const baseline = this.cachedHistoricalBaseline(id); return baseline ? [baseline] : [];
+    });
+    result.advisorContext.temporalScope = { initialDate: this.historicalStartDate || null, currentDate: this.currentDate };
+    result.advisorContext.polityHistoricalBaselines = [...(own ? [own] : []), ...related];
+    return result;
+  }
+
+  private advisorContext(query = ''): RealityAdvisorContext { return this.advisorResult(query).advisorContext; }
+
+  /** One immutable background per polity/divergence, not one per player or branch. */
+  async getPolityHistoricalBaseline(polityId: string, signal?: AbortSignal): Promise<PolityHistoricalBaseline | null> {
+    const cached = this.cachedHistoricalBaseline(polityId);
+    if (cached) return cached;
+    if (!this.historicalStartDate || polityId === 'neutral' || ![...this.regions.values()].some(region => region.owner === polityId)) return null;
+    const key = `${polityId}|${this.historicalStartDate}`;
+    const pending = this.historicalBaselineRequests.get(key);
+    if (pending && (!pending.settled || pending.turn === this.currentTurn)) return awaitHistoricalBaseline(pending.promise, signal);
+    if (signal?.aborted) return null;
+    const request = {
+      worldName: this.state.worldName, polityId,
+      countryName: countryRepository.findByCode(polityId)?.name || this.publicPolityName(polityId),
+      startDate: this.historicalStartDate, premise: this.state.worldBasePrompt,
     };
+    const promise = (async (): Promise<PolityHistoricalBaseline | null> => {
+      // Shared generation owns its timeout, never a particular caller's abort.
+      const controller = new AbortController();
+      const background = await awaitHistoricalBaseline(generateHistoricalBaseline(request, async (system, prompt) => {
+        const response = await this.llm.generate('advisor', system, prompt, { temperature: 0.3, maxTokens: 2_000, signal: controller.signal });
+        return String(response.content ?? '');
+      }), undefined, undefined, () => controller.abort());
+      if (!background) return null;
+      try {
+        gameRepository.storePolityHistoricalBaseline(this.id, { polityId, countryName: request.countryName,
+          startDate: request.startDate, historicalBackground: background, version: 2, generatedAt: new Date().toISOString() });
+        return this.cachedHistoricalBaseline(polityId);
+      } catch { return null; } // No ephemeral "canonical" history if persistence fails.
+    })();
+    const entry = { turn: this.currentTurn, settled: false, promise };
+    this.historicalBaselineRequests.set(key, entry);
+    void promise.then(() => { entry.settled = true; }, () => { entry.settled = true; });
+    return awaitHistoricalBaseline(promise, signal);
+  }
+
+  /** Compatibility for the player's existing opening path; storage is per polity. */
+  async getHistoricalBaseline(signal?: AbortSignal): Promise<string | null> {
+    return (await this.getPolityHistoricalBaseline(this.playerPolityId, signal))?.historicalBackground ?? null;
   }
 
   /**
-   * REAL HISTORY → START DATE. Genera una sola volta il background storico del
-   * paese e lo persiste: da lì in avanti è un fatto canonico della partita, non
-   * una conoscenza implicita del modello. Senza provider o senza testo valido
-   * resta `null`: il Consulente non inventa storia.
+   * Read-only view of already-persisted history. Conversational paths (minister,
+   * council, diplomacy reply, advisor turn) must never trigger a provider call:
+   * generation belongs to the opening and to strategic turn decisions.
    */
-  async getHistoricalBaseline(): Promise<string | null> {
-    if (this.state.historicalBaseline) return this.state.historicalBaseline;
-    const request = this.historicalBaselineRequest();
-    if (!request) return null;
-    const baseline = await generateHistoricalBaseline(request, async (system, prompt) => {
-      const response = await this.llm.generate('advisor', system, prompt, { temperature: 0.3 });
-      return String(response.content ?? '');
-    });
-    if (!baseline) return null;
-    this.state.historicalBaseline = baseline;
-    try { gameRepository.setHistoricalBaseline(this.id, baseline); } catch { /* resta in memoria per questa sessione */ }
-    return baseline;
+  persistedPolityHistoricalBaselines(polityIds: readonly string[]): PolityHistoricalBaseline[] {
+    const owners = new Set([...this.regions.values()].map(region => region.owner));
+    const ids = [...new Set([this.playerPolityId, ...polityIds])]
+      .filter(id => id !== 'neutral' && (id === this.playerPolityId || owners.has(id))).slice(0, 5);
+    return ids.flatMap(id => { const baseline = this.cachedHistoricalBaseline(id); return baseline ? [baseline] : []; });
   }
 
-  /** Deterministic government opening, exclusively server-derived; no model or mutations. */
+  /** Bounded lazy loading for actors relevant to a question, event or strategic decision. */
+  async preparePolityHistoricalBaselines(polityIds: readonly string[], signal?: AbortSignal): Promise<PolityHistoricalBaseline[]> {
+    if (signal?.aborted) return [];
+    const owners = new Set([...this.regions.values()].map(region => region.owner));
+    const ids = [...new Set([this.playerPolityId, ...polityIds])]
+      .filter(id => id !== 'neutral' && (id === this.playerPolityId || owners.has(id))).slice(0, 5);
+    // Optional strategic history never holds play for more than two seconds.
+    // Shared requests can finish in the background, warming the immutable cache.
+    await awaitHistoricalBaseline(Promise.all(ids.map(id => this.getPolityHistoricalBaseline(id))), signal, 2_000);
+    if (signal?.aborted) return [];
+    return ids.flatMap(id => { const baseline = this.cachedHistoricalBaseline(id); return baseline ? [baseline] : []; });
+  }
+
+  /** Read-only context; deterministic prose is recovery, not the primary opening. */
   getRealityAdvisorContext(): RealityAdvisorResult {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
-    return buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), undefined, this.state.historicalBaseline || undefined);
+    return this.advisorResult();
   }
 
   /**
@@ -3472,21 +3529,19 @@ export class GameSession {
   async getAdvisorOpening(signal?: AbortSignal): Promise<RealityAdvisorResult & { fallback: boolean }> {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const fence = this.fenceContext();
-    await this.getHistoricalBaseline();
+    await this.getHistoricalBaseline(signal);
+    this.assertFenceValid(fence);
     const context = this.advisorContext();
     const gameData = this.buildGameData();
     gameData.advisorContext = context;
     let text: string | null = null;
     try {
-      text = await this.gameController.getAdvisorWithPrompts(gameData, ADVISOR_OPENING_REQUEST, [], signal);
+      text = await this.gameController.getAdvisorWithPrompts(gameData, advisorOpeningRequest(context.verifiedWorldSnapshot, this.historicalStartDate), [], signal);
     } catch {
       text = null;
     }
-    if (text === null) {
-      const fallback = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), undefined, this.state.historicalBaseline || undefined);
-      return { ...fallback, fallback: true };
-    }
     this.assertFenceValid(fence);
+    if (text === null || !text.trim()) return { ...this.advisorResult(), fallback: true };
     const result = parseCouncilIssues(context.verifiedWorldSnapshot, text, 'advisor');
     return { ...result, advisorContext: context, fallback: false };
   }
@@ -3495,7 +3550,12 @@ export class GameSession {
   async getRealityAdvisor(message: string, history: any[] = [], focusIssue?: unknown, signal?: AbortSignal): Promise<RealityAdvisorResult> {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const fence = this.fenceContext();
-    const context = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), focusIssue, this.state.historicalBaseline || undefined);
+    // Reject untrusted facts and impossible requests before spending on history.
+    const initial = this.advisorResult(message, focusIssue);
+    const correction = verifiedRequestCorrection(initial.advisorContext.verifiedWorldSnapshot, message);
+    if (correction) return { ...initial, reply: correction };
+    this.assertFenceValid(fence);
+    const context = this.advisorResult(message, focusIssue);
     const gameData = this.buildGameData();
     gameData.advisorContext = context.advisorContext;
     const text = await this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
@@ -3511,8 +3571,12 @@ export class GameSession {
    */
   private async getAdvisorUnchecked(message: string, history: any[], signal?: AbortSignal,
     ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string; verifiedState?: string }, ministerSeat?: CabinetSeat): Promise<string> {
+    const correction = verifiedRequestCorrection(this.getVerifiedWorldSnapshot(), message);
+    if (correction) return correction;
+    const baselines = this.persistedPolityHistoricalBaselines(this.mentionedNpcPolityIds([message]));
     const gameData = this.buildGameData();
-    gameData.advisorContext = this.advisorContext();
+    gameData.polityHistoricalBaselines = baselines;
+    gameData.advisorContext = this.advisorContext(message);
     if (ministerSeat) gameData.ministerDialogueSeat = ministerSeat;
     if (ministerMemoryRequest) gameData.ministerMemoryRequest = ministerMemoryRequest;
     return this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
@@ -3533,8 +3597,13 @@ export class GameSession {
     }
     const address = cabinet.addresses.find(candidate => candidate.seat === seat)
       ?? { seat: seat as CabinetSeat, label: SEAT_LABEL[seat as CabinetSeat], reads: '', items: [], opening: '' };
-    const vars = new PromptBuilder(this.buildGameData()).buildVariables();
-    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: renderSignedActs(this.getVerifiedWorldSnapshot()), concerns: renderRealityConcerns(this.getVerifiedWorldSnapshot()) });
+    const topic = JSON.stringify(situation ?? {});
+    const baselines = this.persistedPolityHistoricalBaselines(this.mentionedNpcPolityIds([topic]));
+    this.assertFenceValid(fence);
+    const gameData = this.buildGameData();
+    gameData.polityHistoricalBaselines = baselines;
+    const vars = new PromptBuilder(gameData).buildVariables();
+    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: renderSignedActs(this.getVerifiedWorldSnapshot()), concerns: renderRealityConcerns(this.getVerifiedWorldSnapshot()), historicalBaseline: renderPolityHistoricalBaselines(gameData.polityHistoricalBaselines, seat) });
     let memory = '';
     if (getJevConfig().enabled) {
       const { buildMinisterContext } = await import('./core/government/jev/jev-memory.service');
@@ -3707,8 +3776,12 @@ export class GameSession {
     signal?: AbortSignal,
   ): Promise<string> {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
+    const correction = verifiedRequestCorrection(this.getVerifiedWorldSnapshot(), message);
+    if (correction) return correction;
+    const baselines = this.persistedPolityHistoricalBaselines(this.mentionedNpcPolityIds([message]));
     const gameData = this.buildGameData();
-    gameData.advisorContext = this.advisorContext();
+    gameData.polityHistoricalBaselines = baselines;
+    gameData.advisorContext = this.advisorContext(message);
     if (CABINET_SEATS.includes(seat as CabinetSeat)) gameData.ministerDialogueSeat = seat;
     if (getJevConfig().enabled) {
       const { question, scope, verifiedState } = this.ministerSelectiveFor(seat, message);
@@ -3722,8 +3795,11 @@ export class GameSession {
   async getAdvisorStream(message: string, history: any[] = [], onToken: (chars: number) => void): Promise<string> {
     // F04 passo 3: stessa politica del non-streaming (409 durante un run).
     if (this.hasActiveRun()) throw new SimulationInProgressError();
+    const correction = verifiedRequestCorrection(this.getVerifiedWorldSnapshot(), message);
+    if (correction) return correction;
     const gameData = this.buildGameData();
-    gameData.advisorContext = this.advisorContext();
+    gameData.polityHistoricalBaselines = this.persistedPolityHistoricalBaselines(this.mentionedNpcPolityIds([message]));
+    gameData.advisorContext = this.advisorContext(message);
     return this.gameController.getAdvisorStreamWithPrompts(gameData, message, history, onToken);
   }
 

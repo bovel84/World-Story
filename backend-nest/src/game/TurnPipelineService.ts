@@ -27,6 +27,7 @@ import { loadSimulationCatalog } from '../scenario/loader';
 import { shortId } from '../utils/short-id';
 import type { RelationshipType } from '../core/RelationshipMatrix';
 import type { SimulationEvent } from '../prompts/types';
+import type { PolityHistoricalBaseline } from '../core/government/HistoricalBaseline';
 import type { SimulationCatalog } from '../scenario/types';
 import type { PendingAction, OrderSettlementEntry } from './OrderExecutionService';
 import type { OrderExecutionService } from './OrderExecutionService';
@@ -51,6 +52,7 @@ export interface TurnPipelineContext {
   publicPolityName(polityId: string): string;
   broadcast(type: any, data: any): boolean | void;
   buildGameData(...args: any[]): any;
+  preparePolityHistoricalBaselines?(ids: readonly string[], signal?: AbortSignal): Promise<PolityHistoricalBaseline[]>;
   buildResolvers(): any;
   canonicalizeEventReactions(...args: any[]): SimulationEvent;
   captureCheckpointData(): any;
@@ -220,6 +222,12 @@ export class TurnPipelineService {
         actions.map(item => ({ actionId: item.id, text: item.text })),
       );
       this.state.pendingFundingNotes = null;
+      // Only the current reaction actors: never pre-generate the entire world.
+      if (this.ctx.preparePolityHistoricalBaselines) {
+        const ids = (gameData.reactionContextData?.actors ?? []).map((actor: { id: string }) => actor.id);
+        gameData.polityHistoricalBaselines = await this.ctx.preparePolityHistoricalBaselines(ids,
+          this.ctx.coordinator.activeSimulationAbort!.signal).catch(() => []);
+      }
 
       // Gli eventi escono dal token stream UNO ALLA VOLTA. In auto-jump un
       // oggetto JSON completo viene applicato alla mappa e inviato al browser
