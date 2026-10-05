@@ -210,6 +210,12 @@ export interface SimulationResult {
   /** §7.2/T36: lo stream è terminato senza un record «complete» valido —
    * il budget non ha coperto l'intero periodo richiesto. */
   incomplete?: boolean;
+  /**
+   * WS-NARR-DISPATCH-PAX-QUALITY: eventi del «world pulse» (opzionali, dietro
+   * flag). Sono narrativi e già validati: non entrano nella cronaca del turno
+   * come eventi materiali e non toccano actionOutcomes/voided/targetDate.
+   */
+  worldPulseEvents?: SimulationEvent[];
   /** M06 µ3: effetti strict (ledger/project_tick/shipment/qualitative) emessi
    * dalla simulazione. In strict sono validati PRIMA di ogni mutatore. */
   effects?: StrictEffect[];

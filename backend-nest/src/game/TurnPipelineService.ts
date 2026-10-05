@@ -881,6 +881,20 @@ export class TurnPipelineService {
       // tre turni critici e la nazione cade (rivolta, default o invasione).
       this.ctx.evaluateCrisis(true, period.elapsedDays);
 
+      // WS-NARR-DISPATCH-PAX-QUALITY: world pulse (opzionale, dietro flag).
+      // Sono eventi narrativi già validati nel PromptEngine (finestra
+      // temporale, EffectValidator, contract reactions): qui entrano SOLO nella
+      // cronaca del turno, mai in actionOutcomes/voided/targetDate o nella
+      // decisione NPC che ferma l'auto-jump. L'aggiunta avviene dopo ogni uso
+      // materiale di `appliedEvents` (mappa, processi, chat, periodo).
+      const worldPulseEvents = (promptResult as { worldPulseEvents?: SimulationEvent[] }).worldPulseEvents || [];
+      if (worldPulseEvents.length > 0) {
+        appliedEvents.push(...worldPulseEvents);
+        turnResult.events.push(
+          ...worldPulseEvents.map(event => this.ctx.publicText(event.headline)).filter(Boolean),
+        );
+      }
+
       // Now set periodEnd (after advancing)
       actions.forEach(item => {
         if (item.result) item.result.periodEnd = this.state.currentDate;

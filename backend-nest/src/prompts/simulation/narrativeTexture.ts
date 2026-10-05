@@ -35,8 +35,10 @@ export const OPENING_VARIETY_RULE = `- Varia l'apertura dei dispacci. Non inizia
 export function buildNarrativeTextureBlock(): string {
   return `
 [TEXTURE NARRATIVA — figure ed eventi documentati]
-- Nei preset storici puoi nominare figure ed eventi DOCUMENTATI dell'epoca e del canone (un capo di Stato in carica, un trattato realmente firmato, una crisi già nota alla data di gioco): rendono il mondo vivo senza inventare nulla.
-- Resta il divieto assoluto di inventare citazioni, cifre, nomi o episodi non documentati: se un nome o un numero non è nel contesto fornito o nella storia reale dell'epoca, non attribuirglielo. Meglio un dispaccio senza nome che un nome falso.
+- Nei preset storici puoi nominare figure ed eventi DOCUMENTATI dell'epoca e del canone, ma SOLO se sono presenti nel preset, nella baseline storica, nel contesto canonico o appartengono a conoscenza storica estremamente stabile. In dubbio, NON nominare: meglio un dispaccio senza nome che un nome falso.
+- NON usare conoscenza storica futura oltre il punto di divergenza: dopo la divergence la storia reale non determina più la timeline alternativa.
+- Un leader storico reale può comparire solo se non è stato sostituito dalla storia di gioco. Vale la gerarchia: STATO CORRENTE > STORIA DELLA PARTITA > STORIA REALE.
+- Resta il divieto assoluto di inventare citazioni, cifre, nomi o episodi non documentati: se un nome o un numero non è nel contesto fornito o nella storia reale dell'epoca, non attribuirglielo.
 - Ogni evento resta lungo quanto prescritto (${EVENT_BODY_WORDS}).
 
 [VARIETÀ DELLE APERTURE]

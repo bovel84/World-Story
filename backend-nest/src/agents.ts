@@ -76,6 +76,8 @@ export class GameController {
     incomplete?: boolean;
     /** M06 µ3: effetti strict emessi dalla simulazione, validati nel run. */
     effects?: StrictEffect[];
+    /** WS-NARR-DISPATCH-PAX-QUALITY: eventi narrativi del world pulse (opzionali). */
+    worldPulseEvents?: SimulationEvent[];
   }> {
     if (!this.promptEngine) {
       this.initPromptEngine(gameData);
@@ -120,6 +122,7 @@ export class GameController {
       targetDate: simulationResult.targetDate,
       incomplete: simulationResult.incomplete,
       effects: simulationResult.effects,
+      worldPulseEvents: simulationResult.worldPulseEvents,
     };
   }
 

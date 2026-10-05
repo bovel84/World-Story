@@ -26,6 +26,14 @@ export interface EvalOrder {
   structuredFacts: string[];
   /** Frasi la cui presenza contraddice un fatto strutturato. */
   forbiddenClaims: string[];
+  /**
+   * Cause canoniche ammesse per questo ordine: la causalità vale solo se il
+   * dispaccio ne cita almeno una. Una frase causale elegante ma inventata non
+   * prende il massimo.
+   */
+  allowedCauses?: string[];
+  /** Ancore testuali obbligatorie (es. nomi/atti documentati). */
+  requiredAnchors?: string[];
 }
 
 /** Un dispaccio generato (mock o salvato) per un ordine. */
@@ -120,10 +128,19 @@ export function scoreSuccess(dispatch: EvalDispatch, order: EvalOrder): number {
   return claimsFullSuccess || dispatch.outcome === 'accepted' ? 0 : 1;
 }
 
-/** 1 = la notizia espone una causa specifica, non solo l'esito. */
-export function scoreCausality(dispatch: EvalDispatch): number {
+/**
+ * 1 = la notizia espone una causa specifica **canonica**, non solo l'esito.
+ *
+ * Deve esserci una struttura causale linguistica E almeno una causa/ancora
+ * ammessa dall'ordine. «A causa di X» con X inventato vale 0: la rubrica non
+ * premia la causalità dichiarata, solo quella supportata dalla fixture.
+ */
+export function scoreCausality(dispatch: EvalDispatch, order: EvalOrder): number {
   const text = `${dispatch.headline} ${dispatch.body}`;
-  return containsAny(text, CAUSE_MARKERS) ? 1 : 0;
+  if (!containsAny(text, CAUSE_MARKERS)) return 0;
+  const allowed = [...(order.allowedCauses || []), ...(order.requiredAnchors || [])];
+  if (allowed.length === 0) return 0;
+  return containsAny(text, allowed) ? 1 : 0;
 }
 
 /** 1 = italiano chiaro: parole italiane presenti e corpo entro una misura leggibile. */
@@ -157,7 +174,7 @@ export function scoreDispatch(dispatch: EvalDispatch, order: EvalOrder): Dispatc
     orderId: dispatch.orderId,
     facts: scoreFacts(dispatch, order),
     success: scoreSuccess(dispatch, order),
-    causality: scoreCausality(dispatch),
+    causality: scoreCausality(dispatch, order),
     language: scoreLanguage(dispatch),
     future: scoreFuture(dispatch, order),
   };

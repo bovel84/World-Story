@@ -9,43 +9,52 @@
         "expectedOutcome": "partial",
         "gameDate": "2002-03-31",
         "structuredFacts": ["il porto non è ancora operativo", "è stata stanziata solo la prima tranche"],
-        "forbiddenClaims": ["porto già operativo", "porto completato in un mese", "nessun cantiere aperto"]
+        "forbiddenClaims": ["porto già operativo", "porto completato in un mese", "nessun cantiere aperto"],
+        "allowedCauses": ["prima tranche", "stanziamento", "bilancio"]
       },
       {
         "id": "ord-rubber",
         "text": "Nazionalizzare le piantagioni di gomma",
         "expectedOutcome": "accepted",
         "gameDate": "2002-03-31",
-        "structuredFacts": ["il decreto di nazionalizzazione è firmato", "gli ex proprietari annunciano ricorso"],
-        "forbiddenClaims": ["le piantagioni restano private", "la nazionalizzazione è rinviata"]
+        "structuredFacts": [
+          "il decreto di nazionalizzazione è firmato",
+          "gli ex proprietari annunciano ricorso",
+          "la misura nasce dal calo dei prezzi e dalle pressioni dei sindacati"
+        ],
+        "forbiddenClaims": ["le piantagioni restano private", "la nazionalizzazione è rinviata"],
+        "allowedCauses": ["calo dei prezzi", "pressioni dei sindacati", "sindacati"]
       },
       {
         "id": "ord-loan",
         "text": "Chiedere un prestito al Fondo Monetario Internazionale",
         "expectedOutcome": "partial",
         "gameDate": "2002-03-31",
-        "structuredFacts": ["il negoziato è aperto", "nessuna somma è stata erogata"],
-        "forbiddenClaims": ["il prestito è già erogato", "nessuna condizione", "prestito concesso senza negoziato"]
+        "structuredFacts": ["il negoziato è aperto", "nessuna somma è stata erogata", "il deficit è crescente"],
+        "forbiddenClaims": ["il prestito è già erogato", "nessuna condizione", "prestito concesso senza negoziato"],
+        "allowedCauses": ["deficit crescente", "deficit"]
       },
       {
         "id": "ord-border",
         "text": "Mobilitare due battaglioni al confine con la Thailandia",
         "expectedOutcome": "accepted",
         "gameDate": "2002-03-31",
-        "structuredFacts": ["due battaglioni mobilitati", "le unità lasciano le caserme"],
-        "forbiddenClaims": ["nessuna mobilitazione", "i battaglioni restano nelle caserme"]
+        "structuredFacts": ["due battaglioni mobilitati", "le unità lasciano le caserme", "scontri di frontiera in corso"],
+        "forbiddenClaims": ["nessuna mobilitazione", "i battaglioni restano nelle caserme"],
+        "allowedCauses": ["scontri di frontiera", "scontri"]
       },
       {
         "id": "ord-war",
         "text": "Dichiarare guerra al Vietnam",
         "expectedOutcome": "rejected",
         "gameDate": "2002-03-31",
-        "structuredFacts": ["la dichiarazione è respinta", "mancano le forze necessarie"],
-        "forbiddenClaims": ["Hanoi conquistata", "il Vietnam si arrende", "Hanoi occupata"]
+        "structuredFacts": ["la dichiarazione è respinta", "mancano le forze necessarie", "il Consiglio dei ministri decide"],
+        "forbiddenClaims": ["Hanoi conquistata", "il Vietnam si arrende", "Hanoi occupata"],
+        "allowedCauses": ["forze necessarie", "isolarebbe", "Consiglio dei ministri"]
       }
     ]
   },
-  "baseline": [
+  "weak": [
     {
       "orderId": "ord-port",
       "headline": "La Cambogia annuncia il porto",
@@ -77,7 +86,7 @@
       "outcome": "accepted"
     }
   ],
-  "enhanced": [
+  "reference": [
     {
       "orderId": "ord-port",
       "headline": "Il cantiere del porto di Sihanoukville apre con la prima tranche",

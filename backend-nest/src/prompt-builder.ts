@@ -19,9 +19,13 @@ import {
   buildWorldPulsePrompt,
   parseWorldPulseResponse,
   validateWorldPulse,
-  shouldRunWorldPulse,
-  worldPulseInputFromVars,
+  selectWorldPulseCandidates,
+  buildWorldPulseContext,
+  worldPulseChronicleFromVars,
   WORLD_PULSE_SYSTEM,
+  WORLD_PULSE_MAX_CANDIDATES,
+  type WorldPulseCandidate,
+  type WorldPulseSelectionInput,
   type WorldPulseValidation,
 } from './prompts/simulation';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
@@ -1044,29 +1048,99 @@ export class PromptEngine {
   }
 
   /**
+   * Selezione deterministica dei candidati del world pulse a partire dai fatti
+   * canonici del gioco. Nessuna scelta geografica: senza causa → nessun
+   * candidato → nessuna chiamata.
+   */
+  private worldPulseSelectionInput(game: GameData): WorldPulseSelectionInput {
+    const polities = new Map<string, string>();
+    for (const [id, name] of Object.entries(game.polityNames || {})) polities.set(id, name);
+    try {
+      for (const region of getAllRegions(game.world.regions)) {
+        if (region?.owner && !polities.has(region.owner)) polities.set(region.owner, region.owner);
+      }
+    } catch { /* mappe legacy: si resta ai polityNames */ }
+
+    const relationships: WorldPulseSelectionInput['relationships'] = [];
+    for (const [from, targets] of Object.entries(game.relationships || {})) {
+      for (const [to, relation] of Object.entries(targets || {})) {
+        relationships.push({ from, to, relation: String(relation) });
+      }
+    }
+
+    const recentEvents: WorldPulseSelectionInput['recentEvents'] = [];
+    for (const turn of [...(game.results || [])].slice(-5).reverse()) {
+      for (const event of turn.timelineEvents || []) {
+        recentEvents.push({ date: event.date, headline: event.headline, detail: event.detail });
+      }
+    }
+
+    const playerPolityId = game.playerPolityId
+      || game.players?.[0]?.polityId
+      || '';
+    return {
+      playerPolityId,
+      polities: [...polities.entries()].map(([id, name]) => ({ id, name })),
+      relationships,
+      commitments: game.activeCommitments || '',
+      recentEvents: recentEvents.slice(0, 200),
+      npcDossiers: game.npcStrategicProfiles || '',
+      originDate: game.currentDate,
+    };
+  }
+
+  /**
    * Passaggio separato «world pulse» (flag `narrative.worldPulse`, spento di
-   * default). Propone 3-6 eventi di nazioni lontane da `NpcAgenda`, relazioni e
-   * stato del motore, e li valida con le **stesse** regole delle reazioni.
+   * default). Propone **fino a 3** eventi di nazioni non giocate che hanno una
+   * causa canonica, e li valida con la pipeline completa (finestra temporale,
+   * `EffectValidator`, contract delle reactions sul **contesto dei candidati**).
    *
-   * Non è richiamato dal turno standard: la regola causale degli eventi del
-   * giocatore resta invariata e nessuna chiamata parte col flag spento.
+   * Col flag spento non parte nessuna chiamata. Un errore del pulse non tocca
+   * il turno principale: il chiamante riceve `null`/`[]`.
    */
   async generateWorldPulse(
     game: GameData,
-    opts: { signal?: AbortSignal } = {},
+    opts: { signal?: AbortSignal; result?: SimulationResult; vars?: PromptVariables } = {},
   ): Promise<WorldPulseValidation | null> {
     if (!this.narrativeFlags().worldPulse) return null;
+    if (opts.signal?.aborted) return null;
+
     const builder = new PromptBuilder(game);
-    const vars = builder.buildVariables();
-    const input = worldPulseInputFromVars(vars);
-    if (!shouldRunWorldPulse(true, input.npcAgenda)) return null;
-    const prompt = buildWorldPulsePrompt(input);
-    const response = await this.llm.generate('npc', WORLD_PULSE_SYSTEM, prompt, {
-      temperature: 0.4,
-      signal: opts.signal,
+    const vars = opts.vars ?? builder.buildVariables();
+    const selection = this.worldPulseSelectionInput(game);
+    const candidates = selectWorldPulseCandidates(selection).slice(0, WORLD_PULSE_MAX_CANDIDATES);
+    if (candidates.length === 0) return null;
+
+    const originDate = vars.ORIGIN_ROUND_DATE;
+    const targetDate = opts.result?.targetDate || vars.TARGET_ROUND_DATE;
+    const context = buildWorldPulseContext(candidates);
+    const prompt = buildWorldPulsePrompt({
+      originDate,
+      targetDate,
+      playerPolity: vars.PLAYER_POLITY,
+      candidates,
+      recentChronicle: worldPulseChronicleFromVars(vars),
     });
-    const parsed = parseWorldPulseResponse(response.content);
-    return validateWorldPulse(parsed, game.reactionContextData ?? null);
+
+    try {
+      const response = await this.llm.generate('worldPulse', WORLD_PULSE_SYSTEM, prompt, {
+        temperature: 0.4,
+        maxTokens: 2_400,
+        signal: opts.signal,
+      });
+      if (opts.signal?.aborted) return null;
+      const parsed = parseWorldPulseResponse(response.content);
+      return validateWorldPulse(parsed, {
+        originDate,
+        targetDate,
+        context,
+        existingEvents: opts.result?.events || [],
+      });
+    } catch (error) {
+      // OPTIONAL ENRICHMENT: un pulse fallito non è un turno fallito.
+      console.warn('[PromptEngine] World pulse non disponibile:', error instanceof Error ? error.message : String(error));
+      return null;
+    }
   }
 
   /**
@@ -1418,6 +1492,14 @@ export class PromptEngine {
     // sospensione vale solo per la fase live: qui si riprende in ordine.
     livePublication = false;
     for (const event of result.events) emitEvent(event);
+    // WS-NARR-DISPATCH-PAX-QUALITY: world pulse opzionale, calcolato DOPO il
+    // risultato principale e restituito in un campo separato. Non entra in
+    // `result.events`, quindi non tocca budget, auto-jump, actionOutcomes,
+    // voided o targetDate. Col flag spento non parte alcuna chiamata.
+    const pulse = await this.generateWorldPulse(game, { signal, result, vars });
+    if (pulse && pulse.accepted.length > 0) {
+      return { ...result, worldPulseEvents: pulse.accepted };
+    }
     return result;
   }
 

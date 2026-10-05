@@ -1,16 +1,24 @@
 /**
- * WS-NARR-DISPATCH-PAX-QUALITY — harness offline + contratti.
+ * WS-NARR-DISPATCH-PAX-QUALITY — RUBRIC SANITY CHECK + contratti.
  *
- * Nessuna chiamata LLM: valuta corpus mockati con la rubrica di
- * `helpers/narrativeQuality` e verifica i contratti dei Passi 2-5.
+ * IMPORTANTE: i corpus `weak`/`reference` della fixture sono **mock scritti a
+ * mano**. Servono a verificare che la rubrica sappia distinguere un dispaccio
+ * debole da uno buono, NON a dimostrare che il nuovo prompt migliori l'output
+ * di un modello. Nessun miglioramento narrativo del prompt è misurato su
+ * generazioni reali (nessuna chiamata a pagamento autorizzata).
+ *
+ * Nessuna chiamata LLM reale: i test con il motore usano stub che contano le
+ * chiamate.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
   scoreScenario,
+  scoreCausality,
   formatScoreLine,
   type EvalDispatch,
+  type EvalOrder,
   type EvalScenario,
 } from './helpers/narrativeQuality';
 import {
@@ -19,9 +27,11 @@ import {
   buildWorldPulsePrompt,
   parseWorldPulseResponse,
   validateWorldPulse,
-  shouldRunWorldPulse,
+  selectWorldPulseCandidates,
+  buildWorldPulseContext,
   WORLD_PULSE_MIN_EVENTS,
   WORLD_PULSE_MAX_EVENTS,
+  type WorldPulseSelectionInput,
 } from '../src/prompts/simulation';
 import { buildNarrativeMemory } from '../src/prompts/narrative-memory';
 import {
@@ -31,14 +41,14 @@ import {
   FULL_NARRATIVE_BUDGETS,
 } from '../src/llm/modelTier';
 import { resolveNarrativeFlags, DEFAULT_NARRATIVE_FLAGS } from '../src/llm/narrativeFlags';
-import type { ReactionContext } from '../src/core/simulation/ReactionContext';
+import { PromptEngine } from '../src/prompt-builder';
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'narrative-eval', 'scenario-millennium-dawn.json');
 
 interface Fixture {
   scenario: { id: string; preset: string; orders: EvalScenario['orders'] };
-  baseline: EvalDispatch[];
-  enhanced: EvalDispatch[];
+  weak: EvalDispatch[];
+  reference: EvalDispatch[];
 }
 
 function loadFixture(): Fixture {
@@ -50,31 +60,11 @@ function toScenario(fx: Fixture, dispatches: EvalDispatch[]): EvalScenario {
 }
 
 /**
- * Punteggio di partenza registrato con i corpus mockati (nessuna chiamata
- * provider). È la misura di riferimento del Passo 6: se cambia, il test lo
- * segnala.
+ * Punteggi registrati della **rubric sanity-check** sui corpus mockati. Non
+ * sono «prima/dopo della PR»: misurano solo la sensibilità della rubrica.
  */
-const RECORDED_BASELINE = {
-  total: 14.52,
-  max: 26,
-  facts: 2 / 5,
-  success: 3 / 5,
-  causality: 0 / 5,
-  language: 5 / 5,
-  future: 4 / 5,
-  variety: 0.52,
-};
-
-const RECORDED_ENHANCED = {
-  total: 26,
-  max: 26,
-  facts: 5 / 5,
-  success: 5 / 5,
-  causality: 5 / 5,
-  language: 5 / 5,
-  future: 5 / 5,
-  variety: 1,
-};
+const RECORDED_WEAK = { total: 14.52, max: 26, causality: 0, variety: 0.52 };
+const RECORDED_REFERENCE = { total: 26, max: 26, causality: 1, variety: 1 };
 
 const baseVars: any = {
   PLAYER_POLITY: 'Cambogia',
@@ -100,49 +90,251 @@ const baseVars: any = {
   REACTION_CONTEXT: '',
 };
 
-function minimalContext(): ReactionContext {
+function minimalGame(overrides: Record<string, unknown> = {}): any {
   return {
-    trigger: { kind: 'prior_event', summary: 'scontri di frontiera' },
-    actors: [
-      {
-        id: 'THA', name: 'Thailandia', role: 'neighbour', because: 'confine conteso',
-        interests: ['sicurezza'], options: [{ id: 'THA:defend', label: 'Difendere il confine' }],
+    id: 'g1',
+    currentDate: '2002-03-01',
+    currentTurn: 1,
+    world: {
+      name: 'Test World',
+      basePrompt: 'LORE',
+      startDate: '2002-01-01',
+      regions: {
+        w1_KHM: { id: 'w1_KHM', name: 'Cambogia', owner: 'KHM', color: '#111', objects: [] },
+        w1_THA: { id: 'w1_THA', name: 'Thailandia', owner: 'THA', color: '#222', objects: [] },
       },
-    ],
-    constraints: [],
-    allowedOptionIds: ['THA:defend'],
-    maxReactions: 1,
+    },
+    players: [{ id: 'p1', name: 'Player', regionId: 'w1_KHM', polityId: 'KHM' }],
+    playerPolityId: 'KHM',
+    polityNames: { KHM: 'Cambogia', THA: 'Thailandia' },
+    actions: [],
+    results: [],
+    ...overrides,
   };
 }
 
-describe('Passo 1 — harness offline (corpus mockati, nessun provider)', () => {
+function selection(overrides: Partial<WorldPulseSelectionInput> = {}): WorldPulseSelectionInput {
+  return {
+    playerPolityId: 'KHM',
+    polities: [
+      { id: 'KHM', name: 'Cambogia' },
+      { id: 'THA', name: 'Thailandia' },
+      { id: 'VNM', name: 'Vietnam' },
+    ],
+    relationships: [],
+    commitments: '',
+    recentEvents: [],
+    npcDossiers: '',
+    originDate: '2002-03-01',
+    ...overrides,
+  };
+}
+
+function stubRouter(opts: { narrative?: Record<string, boolean>; generate?: (m: string, s: string, u: string) => Promise<{ content: string }> } = {}) {
+  const calls: string[] = [];
+  const router = {
+    narrative: { texture: false, worldPulse: false, tieredMemory: false, ...(opts.narrative || {}) },
+    describe: () => ({ jump: { model: 'gpt-test' }, converter: { model: 'gpt-test' }, suggestions: { model: 'gpt-test' }, npc: { model: 'gpt-test' }, worldPulse: { model: 'gpt-test' } }),
+    generate: async (mechanic: string, system: string, user: string) => {
+      calls.push(mechanic);
+      if (opts.generate) return opts.generate(mechanic, system, user);
+      return { content: '{"type":"complete","narration":"nessun evento","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"2002-03-31"}' };
+    },
+  };
+  return { router: router as any, calls };
+}
+
+describe('RUBRIC SANITY CHECK (corpus mockati — NON output del nuovo prompt)', () => {
   const fx = loadFixture();
-  const baseline = scoreScenario(toScenario(fx, fx.baseline));
-  const enhanced = scoreScenario(toScenario(fx, fx.enhanced));
+  const weak = scoreScenario(toScenario(fx, fx.weak));
+  const reference = scoreScenario(toScenario(fx, fx.reference));
 
-  it('salva e riproduce il punteggio di partenza', () => {
-    // Stampa la tabella prima/dopo (utile nei log della CI).
-    console.log('[narrative-eval] baseline: ' + formatScoreLine(baseline));
-    console.log('[narrative-eval] enhanced: ' + formatScoreLine(enhanced));
-
-    expect(baseline.total).toBe(RECORDED_BASELINE.total);
-    expect(baseline.max).toBe(RECORDED_BASELINE.max);
-    expect(baseline.criteria.facts).toBeCloseTo(RECORDED_BASELINE.facts, 5);
-    expect(baseline.criteria.success).toBeCloseTo(RECORDED_BASELINE.success, 5);
-    expect(baseline.criteria.causality).toBeCloseTo(RECORDED_BASELINE.causality, 5);
-    expect(baseline.criteria.language).toBeCloseTo(RECORDED_BASELINE.language, 5);
-    expect(baseline.criteria.future).toBeCloseTo(RECORDED_BASELINE.future, 5);
-    expect(baseline.criteria.variety).toBeCloseTo(RECORDED_BASELINE.variety, 3);
+  it('la rubrica distingue weak da reference (punteggi registrati)', () => {
+    console.log('[rubric-sanity] weak: ' + formatScoreLine(weak));
+    console.log('[rubric-sanity] reference: ' + formatScoreLine(reference));
+    expect(weak.total).toBe(RECORDED_WEAK.total);
+    expect(weak.max).toBe(RECORDED_WEAK.max);
+    expect(weak.criteria.causality).toBe(RECORDED_WEAK.causality);
+    expect(weak.criteria.variety).toBeCloseTo(RECORDED_WEAK.variety, 3);
+    expect(reference.total).toBe(RECORDED_REFERENCE.total);
+    expect(reference.criteria.causality).toBe(RECORDED_REFERENCE.causality);
+    expect(reference.criteria.variety).toBe(RECORDED_REFERENCE.variety);
   });
 
-  it('il corpus «dopo» migliora tutti i criteri misurabili', () => {
-    expect(enhanced.total).toBe(RECORDED_ENHANCED.total);
-    expect(enhanced.total).toBeGreaterThan(baseline.total);
-    for (const key of ['facts', 'success', 'causality', 'language', 'future', 'variety'] as const) {
-      expect(enhanced.criteria[key]).toBeGreaterThanOrEqual(baseline.criteria[key]);
-    }
-    expect(enhanced.criteria.causality).toBe(1);
-    expect(enhanced.criteria.variety).toBeGreaterThan(baseline.criteria.variety);
+  it('il corpus reference non è presentato come output del nuovo prompt', () => {
+    // La fixture è espressamente mock: nessun campo la collega a una chiamata.
+    const raw = fs.readFileSync(FIXTURE, 'utf8');
+    expect(raw).not.toContain('provider');
+    expect(raw).not.toContain('generated');
+    expect(fx.reference.every(d => typeof d.body === 'string')).toBe(true);
+  });
+});
+
+describe('Causalità — la causa inventata non prende il massimo', () => {
+  const order: EvalOrder = {
+    id: 'o1', text: 'x', expectedOutcome: 'accepted', gameDate: '2002-03-31',
+    structuredFacts: ['il deficit è crescente'], forbiddenClaims: [],
+    allowedCauses: ['deficit crescente', 'deficit'],
+  };
+  const dispatch = (body: string): EvalDispatch => ({ orderId: 'o1', headline: 'Titolo', body, outcome: 'accepted' });
+
+  it('marker causale + causa inventata → 0', () => {
+    expect(scoreCausality(dispatch('A causa di un complotto segreto il governo agisce, con una decisione immediata.'), order)).toBe(0);
+  });
+
+  it('marker causale + causa canonica → 1', () => {
+    expect(scoreCausality(dispatch('A causa del deficit crescente il governo taglia la spesa e rinvia i cantieri.'), order)).toBe(1);
+  });
+
+  it('causa canonica senza struttura causale → 0', () => {
+    expect(scoreCausality(dispatch('Il deficit crescente resta il problema principale del paese in questo periodo.'), order)).toBe(0);
+  });
+});
+
+describe('World pulse — selezione deterministica (nessun LLM)', () => {
+  it('seleziona solo nazioni con causa canonica', () => {
+    const candidates = selectWorldPulseCandidates(selection({
+      relationships: [{ from: 'THA', to: 'VNM', relation: 'hostile' }],
+    }));
+    expect(candidates.map(c => c.polityId)).toEqual(['THA', 'VNM']);
+    expect(candidates[0].causes.join(' ')).toContain('conflitto');
+  });
+
+  it('nessuna causa → nessun candidato (KHM esclusa perché giocatore)', () => {
+    expect(selectWorldPulseCandidates(selection())).toEqual([]);
+  });
+
+  it('un fatto recente è una causa solo se dentro la finestra', () => {
+    const within = selectWorldPulseCandidates(selection({
+      recentEvents: [{ date: '2002-02-20', headline: 'La Thailandia mobilita le riserve', detail: '' }],
+    }));
+    expect(within.map(c => c.polityId)).toEqual(['THA']);
+    const tooOld = selectWorldPulseCandidates(selection({
+      recentEvents: [{ date: '1999-01-01', headline: 'La Thailandia mobilita le riserve', detail: '' }],
+    }));
+    expect(tooOld).toEqual([]);
+  });
+
+  it('commitment e dossier NPC contano come causa', () => {
+    const commitments = selectWorldPulseCandidates(selection({ commitments: 'Patto di non aggressione con la Thailandia' }));
+    expect(commitments.map(c => c.polityId)).toEqual(['THA']);
+    const dossier = selectWorldPulseCandidates(selection({ npcDossiers: 'Vietnam: agenda attiva di riarmo.' }));
+    expect(dossier.map(c => c.polityId)).toEqual(['VNM']);
+  });
+});
+
+describe('World pulse — 0-3 eventi e pipeline di validazione', () => {
+  const input = selection({ relationships: [{ from: 'THA', to: 'VNM', relation: 'hostile' }] });
+  const candidates = selectWorldPulseCandidates(input);
+  const context = buildWorldPulseContext(candidates);
+
+  it('zero eventi è una risposta valida', () => {
+    expect(WORLD_PULSE_MIN_EVENTS).toBe(0);
+    const raw = '{"type":"complete","narration":"nessun evento","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"2002-03-31"}';
+    const result = validateWorldPulse(parseWorldPulseResponse(raw), { originDate: '2002-03-01', targetDate: '2002-03-31', context });
+    expect(result.accepted).toEqual([]);
+  });
+
+  it('accetta un solo evento con causa e data in finestra', () => {
+    const raw = [
+      '{"type":"event","headline":"La Thailandia rafforza il confine","description":"La Thailandia schiera rinforzi dopo gli scontri.","date":"2002-03-10","mapChanges":[],"reactions":[]}',
+      '{"type":"complete","narration":"un evento","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"2002-03-31"}',
+    ].join('\n');
+    const result = validateWorldPulse(parseWorldPulseResponse(raw), { originDate: '2002-03-01', targetDate: '2002-03-31', context });
+    expect(result.accepted).toHaveLength(1);
+  });
+
+  it('respinge: data fuori finestra, mapChange, attore non candidato, opzione non ammessa', () => {
+    const raw = [
+      '{"type":"event","headline":"Fuori finestra","description":"Un fatto prima dell\'inizio del periodo.","date":"2002-02-01","mapChanges":[],"reactions":[]}',
+      '{"type":"event","headline":"Mutazione materiale","description":"Un cantiere non autorizzato viene aperto.","date":"2002-03-05","mapChanges":[{"type":"start_construction","regionName":"X","feature":{"type":"factory","name":"F"}}],"reactions":[]}',
+      '{"type":"event","headline":"Attore estraneo","description":"Una nazione non candidata decide qualcosa.","date":"2002-03-06","mapChanges":[],"reactions":[{"actorId":"BRA","optionId":"BRA:pulse","polityName":"Brasile","role":"observer","stance":"neutral","response":"agisce"}]}',
+      '{"type":"event","headline":"Opzione errata","description":"Un candidato sceglie un\'opzione inesistente.","date":"2002-03-07","mapChanges":[],"reactions":[{"actorId":"THA","optionId":"THA:bogus","polityName":"Thailandia","role":"neighbour","stance":"neutral","response":"agisce"}]}',
+      '{"type":"complete","narration":"","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"2002-03-31"}',
+    ].join('\n');
+    const result = validateWorldPulse(parseWorldPulseResponse(raw), { originDate: '2002-03-01', targetDate: '2002-03-31', context });
+    const reasons = result.rejected.map(r => r.reason);
+    expect(result.accepted).toHaveLength(0);
+    expect(reasons).toContain('date_out_of_window');
+    expect(reasons.some(r => r.startsWith('unauthorized_map_change'))).toBe(true);
+    expect(reasons).toContain('reaction_contract');
+  });
+
+  it('non supera il tetto di 3 eventi', () => {
+    const events = [1, 2, 3, 4, 5].map(i => `{"type":"event","headline":"Evento ${i}","description":"Una decisione concreta numero ${i} presa dopo gli sconti.","date":"2002-03-0${i}","mapChanges":[],"reactions":[]}`);
+    const raw = [...events, '{"type":"complete","narration":"","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"2002-03-31"}'].join('\n');
+    const result = validateWorldPulse(parseWorldPulseResponse(raw), { originDate: '2002-03-01', targetDate: '2002-03-31', context });
+    expect(WORLD_PULSE_MAX_EVENTS).toBe(3);
+    expect(result.accepted.length).toBeLessThanOrEqual(3);
+  });
+
+  it('il prompt separa [RELAZIONI CORRENTI] e [IMPEGNI ATTIVI]', () => {
+    const prompt = buildWorldPulsePrompt({
+      originDate: '2002-03-01', targetDate: '2002-03-31', playerPolity: 'Cambogia',
+      candidates: [{
+        polityId: 'THA', polityName: 'Thailandia',
+        causes: ['conflitto/ostilità con Vietnam'],
+        relevantRelations: ['Thailandia ↔ Vietnam: hostile'],
+        activeCommitments: ['Patto di non aggressione con la Thailandia'],
+        recentTriggers: [],
+      }],
+      recentChronicle: 'Cronaca.',
+    });
+    expect(prompt).toContain('FINO A 3');
+    expect(prompt).toContain('[RELAZIONI CORRENTI]');
+    expect(prompt).toContain('[IMPEGNI ATTIVI]');
+    expect(prompt).toContain('Zero eventi è una risposta valida');
+  });
+});
+
+describe('World pulse — fail-safe e zero chiamate', () => {
+  it('flag spento → nessuna chiamata provider', async () => {
+    const { router, calls } = stubRouter();
+    const engine = new PromptEngine(router);
+    const result = await engine.generateWorldPulse(minimalGame());
+    expect(result).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it('nessun candidato → nessuna chiamata provider', async () => {
+    const { router, calls } = stubRouter({ narrative: { worldPulse: true } });
+    const engine = new PromptEngine(router);
+    const result = await engine.generateWorldPulse(minimalGame({ relationships: {}, activeCommitments: '', npcStrategicProfiles: '' }));
+    expect(result).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it('un candidato → una sola chiamata, sul mechanic worldPulse', async () => {
+    const { router, calls } = stubRouter({ narrative: { worldPulse: true } });
+    const engine = new PromptEngine(router);
+    const result = await engine.generateWorldPulse(minimalGame({
+      relationships: { THA: { VNM: 'hostile' } },
+      activeCommitments: 'Patto con la Thailandia',
+    }));
+    expect(calls).toEqual(['worldPulse']);
+    expect(result).not.toBeNull();
+  });
+
+  it('errore provider → turno principale valido (null, nessun throw)', async () => {
+    const { router } = stubRouter({
+      narrative: { worldPulse: true },
+      generate: async () => { throw new Error('provider down'); },
+    });
+    const engine = new PromptEngine(router);
+    const result = await engine.generateWorldPulse(minimalGame({
+      relationships: { THA: { VNM: 'hostile' } },
+    }));
+    expect(result).toBeNull();
+  });
+
+  it('abort prima della chiamata → nessuna chiamata', async () => {
+    const { router, calls } = stubRouter({ narrative: { worldPulse: true } });
+    const engine = new PromptEngine(router);
+    const controller = new AbortController();
+    controller.abort();
+    const result = await engine.generateWorldPulse(minimalGame({ relationships: { THA: { VNM: 'hostile' } } }), { signal: controller.signal });
+    expect(result).toBeNull();
+    expect(calls).toEqual([]);
   });
 });
 
@@ -170,70 +362,38 @@ describe('Passo 3 — texture narrativa dietro flag', () => {
     expect(buildConstrainedSimulationPrompt(baseVars)).not.toContain('[TEXTURE NARRATIVA');
   });
 
-  it('accesa: esempi originali e regola di varietà nel compatto e nello standard', () => {
+  it('accesa: esempi originali, varietà e gerarchia delle fonti', () => {
     const full = buildSimulationPrompt(baseVars, { texture: true });
     const compact = buildConstrainedSimulationPrompt(baseVars, { texture: true });
     for (const prompt of [full, compact]) {
       expect(prompt).toContain('[TEXTURE NARRATIVA — figure ed eventi documentati]');
       expect(prompt).toContain('[ESEMPI ORIGINALI DI BUON DISPACCIO');
       expect(prompt).toContain('[VARIETÀ DELLE APERTURE]');
+      expect(prompt).toContain('STATO CORRENTE > STORIA DELLA PARTITA > STORIA REALE');
+      expect(prompt).toContain('NON usare conoscenza storica futura');
     }
   });
 });
 
-describe('Passo 4 — world pulse dietro flag', () => {
-  it('spento: non parte senza obiettivi o senza flag', () => {
-    expect(shouldRunWorldPulse(false, 'Obiettivi')).toBe(false);
-    expect(shouldRunWorldPulse(true, '')).toBe(false);
-    expect(shouldRunWorldPulse(true, 'Obiettivi')).toBe(true);
-  });
-
-  it('accendo: prompt dedicato con 3-6 eventi di nazioni lontane', () => {
-    const prompt = buildWorldPulsePrompt({
-      originDate: '2002-03-01', targetDate: '2002-03-31', playerPolity: 'Cambogia',
-      npcAgenda: 'Thailandia: sicurezza di confine', relationships: 'Cambogia-Thailandia tese',
-      strategicState: 'Due battaglioni a nord.', recentChronicle: 'Scontri di frontiera.',
-    });
-    expect(prompt).toContain('RESPIRO DEL MONDO');
-    expect(prompt).toContain(`da ${WORLD_PULSE_MIN_EVENTS} a ${WORLD_PULSE_MAX_EVENTS} eventi`);
-    expect(prompt).toContain('NAZIONI LONTANE');
-    expect(prompt).toContain('causa verificabile');
-  });
-
-  it('le reazioni fuori contratto vengono respinte, quelle valide accettate', () => {
-    const raw = [
-      '{"type":"event","headline":"La Thailandia rafforza il confine","description":"La Thailandia schiera rinforzi dopo gli scontri.","date":"2002-03-10","mapChanges":[],"reactions":[]}',
-      '{"type":"event","headline":"Un attore inventato agisce","description":"Una nazione non ammessa decide qualcosa.","date":"2002-03-12","mapChanges":[],"reactions":[{"actorId":"XXX","optionId":"XXX:do","polityName":"Ignota","role":"observer","stance":"neutral","response":"agisce"}]}',
-      '{"type":"complete","narration":"due eventi","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"2002-03-31"}',
-    ].join('\n');
-    const parsed = parseWorldPulseResponse(raw);
-    expect(parsed.events).toHaveLength(2);
-    const validation = validateWorldPulse(parsed, minimalContext());
-    expect(validation.accepted).toHaveLength(1);
-    expect(validation.rejected).toHaveLength(1);
-  });
-});
-
-describe('Passo 5 — memoria per fascia di modello dietro flag', () => {
-  it('classifyModel distingue le fasce e i budget forti sono maggiori', () => {
-    expect(classifyModel('glm-5.3').constrained).toBe(false);
-    expect(classifyModel('glm-5.3-flash').constrained).toBe(true);
-    expect(FULL_NARRATIVE_BUDGETS.recentMemoryChars).toBeGreaterThan(CONSTRAINED_NARRATIVE_BUDGETS.recentMemoryChars);
-    expect(FULL_NARRATIVE_BUDGETS.canonicalMemoryChars).toBeGreaterThan(CONSTRAINED_NARRATIVE_BUDGETS.canonicalMemoryChars);
-    expect(narrativeBudgetsFor('glm-5.3')).toBe(FULL_NARRATIVE_BUDGETS);
-    expect(narrativeBudgetsFor('glm-5.3-flash')).toBe(CONSTRAINED_NARRATIVE_BUDGETS);
-  });
-
-  it('a parità di cronaca, la fascia piena riceve più testo', () => {
+describe('Passo 5 — memoria per fascia (due sole fasce)', () => {
+  it('flag OFF = budget storici; ON constrained = compatto; ON full = più ampio', () => {
     const results = [1, 2, 3, 4, 5].map(turn => ({
       turn,
       date: `2002-0${turn}-01`,
       narration: 'Sintesi di periodo '.repeat(20),
       events: ['Un evento con una descrizione lunga '.repeat(10)],
     }));
-    const constrained = buildNarrativeMemory(results, 'MEMORIA '.repeat(400), CONSTRAINED_NARRATIVE_BUDGETS);
-    const full = buildNarrativeMemory(results, 'MEMORIA '.repeat(400), FULL_NARRATIVE_BUDGETS);
+    const canonical = 'MEMORIA '.repeat(400);
+    // Flag OFF: default = fascia vincolata (identico al pre-PR).
+    const off = buildNarrativeMemory(results, canonical);
+    const constrained = buildNarrativeMemory(results, canonical, CONSTRAINED_NARRATIVE_BUDGETS);
+    const full = buildNarrativeMemory(results, canonical, FULL_NARRATIVE_BUDGETS);
+    expect(off).toBe(constrained);
     expect(full.length).toBeGreaterThan(constrained.length);
+    expect(classifyModel('glm-5.3').constrained).toBe(false);
+    expect(classifyModel('glm-5.3-flash').constrained).toBe(true);
+    expect(narrativeBudgetsFor('glm-5.3')).toBe(FULL_NARRATIVE_BUDGETS);
+    expect(narrativeBudgetsFor('glm-5.3-flash')).toBe(CONSTRAINED_NARRATIVE_BUDGETS);
   });
 
   it('il prompt compatto usa i budget della fascia', () => {
@@ -245,7 +405,6 @@ describe('Passo 5 — memoria per fascia di modello dietro flag', () => {
 
 describe('Flag narrativi — spenti di default', () => {
   it('senza file e senza env sono tutti spenti', () => {
-    // L'env di test non deve contenere WS_NARRATIVE_*.
     expect(resolveNarrativeFlags({}, {})).toEqual(DEFAULT_NARRATIVE_FLAGS);
     expect(DEFAULT_NARRATIVE_FLAGS).toEqual({ texture: false, worldPulse: false, tieredMemory: false });
   });
@@ -253,7 +412,6 @@ describe('Flag narrativi — spenti di default', () => {
   it('si accendono solo con un valore esplicito (file o env)', () => {
     expect(resolveNarrativeFlags({ texture: true }, {}).texture).toBe(true);
     expect(resolveNarrativeFlags({}, { WS_NARRATIVE_WORLD_PULSE: 'on' }).worldPulse).toBe(true);
-    // Un refuso non accende nulla.
     expect(resolveNarrativeFlags({}, { WS_NARRATIVE_TIERED_MEMORY: 'forse' }).tieredMemory).toBe(false);
   });
 });
