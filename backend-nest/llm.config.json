@@ -21,5 +21,10 @@
         }
       }
     }
+  },
+  "narrative": {
+    "texture": false,
+    "worldPulse": false,
+    "tieredMemory": false
   }
 }

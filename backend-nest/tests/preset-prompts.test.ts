@@ -368,7 +368,8 @@ describe('обогащение дефолтных промптов матери�
     expect(prompt).toContain('Regime Change');
     expect(prompt).toContain('(fictional)');
     expect(prompt).toContain('Player Polity');
-    expect(prompt).toContain('25-30');
+    expect(prompt).toContain('MAI più di 12 per turno');
+    expect(prompt).not.toContain('25-30');
     expect(prompt).toContain('fronte / territorio');
     expect(prompt).toContain('governo in esilio');
   });

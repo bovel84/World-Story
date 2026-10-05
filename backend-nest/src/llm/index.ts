@@ -7,6 +7,10 @@ export { LLMContractError } from './contract-error';
 export { LLMRouter } from './router';
 export { loadLLMConfig } from './config';
 export type { LLMConfig, LLMFullConfig, MechanicConfig, ConsolidationConfig } from './config';
+export {
+  resolveNarrativeFlags, DEFAULT_NARRATIVE_FLAGS,
+  type NarrativeFlags,
+} from './narrativeFlags';
 
 let router: LLMRouter | null = null;
 

@@ -16,6 +16,13 @@ import {
   parseIncrementalSimulationRecord,
   parseIncrementalSimulationResponse,
   parseSimulationResponse,
+  buildWorldPulsePrompt,
+  parseWorldPulseResponse,
+  validateWorldPulse,
+  shouldRunWorldPulse,
+  worldPulseInputFromVars,
+  WORLD_PULSE_SYSTEM,
+  type WorldPulseValidation,
 } from './prompts/simulation';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
 import { renderRealityConcerns } from './core/government/RealitySignals';
@@ -47,7 +54,8 @@ import { autoJumpEventBudget } from './core/simulation/EventBudget';
 import { equipmentById } from './core/simulation/MilitaryIndustry';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
 import { LLMError, LLMContractError, LLMRouter } from './llm';
-import { isSmallModel } from './llm/modelTier';
+import { isSmallModel, narrativeBudgetsFor, type NarrativeBudgets } from './llm/modelTier';
+import { DEFAULT_NARRATIVE_FLAGS, type NarrativeFlags } from './llm/narrativeFlags';
 
 interface GameData {
   /** Server-built request-local read model, never accepted from the HTTP client. */
@@ -516,7 +524,7 @@ export class PromptBuilder {
   }
 
   // Построить полный набор переменных
-  buildVariables(): PromptVariables {
+  buildVariables(opts: { memoryBudgets?: NarrativeBudgets } = {}): PromptVariables {
     const player = this.game.players[0];
     const playerRegion = getRegion(this.game.world.regions, player.regionId);
     const playerPolityId = this.game.playerPolityId || player.polityId || playerRegion?.owner;
@@ -561,7 +569,7 @@ export class PromptBuilder {
       ORDER_FUNDING: this.game.worldState?.orderFunding || '',
       REACTION_CONTEXT: this.game.reactionContext || '',
 
-      ALL_EVENTS_WITH_CONSOLIDATION: this.buildEventHistory(),
+      ALL_EVENTS_WITH_CONSOLIDATION: this.buildEventHistory(opts.memoryBudgets),
       CHATS_NON_CONSOLIDATED_ROUNDS: this.game.chatTranscripts ?? '',
       NON_CONSOLIDATED_ROUNDS_WITH_DATES: '',
 
@@ -967,8 +975,10 @@ export class PromptBuilder {
 
   // Separate budgets for recent facts and long-term memory; the latest
   // committed event remains available even in the constrained-model path.
-  private buildEventHistory(): string {
-    return buildNarrativeMemory(this.game.results, this.game.consolidatedHistory);
+  // Il budget (quando `narrative.tieredMemory` è acceso) dipende dalla fascia
+  // del modello: i modelli forti ricevono più cronaca e più memoria canonica.
+  private buildEventHistory(budgets?: NarrativeBudgets): string {
+    return buildNarrativeMemory(this.game.results, this.game.consolidatedHistory, budgets);
   }
 
   // Группировка регионов по владельцам
@@ -1017,10 +1027,46 @@ export class PromptEngine {
    * attivava quasi mai.
    */
   private isConstrainedModel(mechanic: 'jump' | 'converter' | 'suggestions' = 'jump'): boolean {
+    return isSmallModel(this.modelFor(mechanic));
+  }
+
+  /** Modello configurato per una meccanica (`''` se il router non lo espone). */
+  private modelFor(mechanic: 'jump' | 'converter' | 'suggestions' | 'npc' = 'jump'): string {
     const describe = (this.llm as any)?.describe;
-    if (typeof describe !== 'function') return false;
-    const model = String(describe.call(this.llm)?.[mechanic]?.model || '');
-    return isSmallModel(model);
+    if (typeof describe !== 'function') return '';
+    return String(describe.call(this.llm)?.[mechanic]?.model || '');
+  }
+
+  /** Flag narrativi: spenti di default, mai un'eccezione se il router è uno stub. */
+  private narrativeFlags(): NarrativeFlags {
+    const flags = (this.llm as any)?.narrative as NarrativeFlags | undefined;
+    return flags ? { ...DEFAULT_NARRATIVE_FLAGS, ...flags } : DEFAULT_NARRATIVE_FLAGS;
+  }
+
+  /**
+   * Passaggio separato «world pulse» (flag `narrative.worldPulse`, spento di
+   * default). Propone 3-6 eventi di nazioni lontane da `NpcAgenda`, relazioni e
+   * stato del motore, e li valida con le **stesse** regole delle reazioni.
+   *
+   * Non è richiamato dal turno standard: la regola causale degli eventi del
+   * giocatore resta invariata e nessuna chiamata parte col flag spento.
+   */
+  async generateWorldPulse(
+    game: GameData,
+    opts: { signal?: AbortSignal } = {},
+  ): Promise<WorldPulseValidation | null> {
+    if (!this.narrativeFlags().worldPulse) return null;
+    const builder = new PromptBuilder(game);
+    const vars = builder.buildVariables();
+    const input = worldPulseInputFromVars(vars);
+    if (!shouldRunWorldPulse(true, input.npcAgenda)) return null;
+    const prompt = buildWorldPulsePrompt(input);
+    const response = await this.llm.generate('npc', WORLD_PULSE_SYSTEM, prompt, {
+      temperature: 0.4,
+      signal: opts.signal,
+    });
+    const parsed = parseWorldPulseResponse(response.content);
+    return validateWorldPulse(parsed, game.reactionContextData ?? null);
   }
 
   /**
@@ -1156,8 +1202,14 @@ export class PromptEngine {
   ): Promise<SimulationResult> {
     const builder = new PromptBuilder(game);
 
+    // Flag narrativi (spenti di default): la texture aggiunge esempi e figure
+    // documentate; `tieredMemory` fa dipendere i budget dalla fascia del modello.
+    const narrative = this.narrativeFlags();
+    const jumpModel = this.modelFor('jump');
+    const memoryBudgets = narrative.tieredMemory ? narrativeBudgetsFor(jumpModel) : undefined;
+
     // Обновляем целевую дату
-    const vars = builder.buildVariables();
+    const vars = builder.buildVariables({ memoryBudgets });
     vars.TARGET_ROUND_DATE = this.calculateTargetDate(game.currentDate, jumpDays);
     vars.TARGET_ROUND_GRAMMATICAL_DATE = this.toGrammaticalDate(vars.TARGET_ROUND_DATE);
     const normalizedActions: Array<{ actionId?: string; text: string }> = actions.map(action => typeof action === 'string'
@@ -1182,18 +1234,21 @@ export class PromptEngine {
       : Math.min(30, Math.max(1, Math.ceil(jumpDays / 21), actionsCount));
     const renderedOverride = promptOverride ? renderPromptTemplate(promptOverride, vars) : undefined;
     const constrained = !game.strictMode && this.isConstrainedModel('jump');
+    const compactBudgets = narrative.tieredMemory && constrained ? narrativeBudgetsFor(jumpModel) : undefined;
     const baseSimulationPrompt = constrained
       ? buildConstrainedSimulationPrompt(vars, {
           autoJump,
           eventBudget: maxEvents,
           presetOverride: renderedOverride,
+          texture: narrative.texture,
+          budgets: compactBudgets,
         })
       : (() => {
           const basePrompt = renderedOverride
             ? renderedOverride
               + buildCausalityGuard(vars)
               + (autoJump ? buildAutoJumpInstruction(vars, maxEvents) : '')
-            : buildSimulationPrompt(vars, { autoJump, eventBudget: maxEvents });
+            : buildSimulationPrompt(vars, { autoJump, eventBudget: maxEvents, texture: narrative.texture });
           // I preset possono definire il mondo, non rimuovere causalità,
           // autonomia del giocatore e rigore della cronaca.
           return basePrompt

@@ -91,3 +91,69 @@ export function classifyModel(model: string | undefined | null): ModelTier {
 export function isSmallModel(model: string | undefined | null): boolean {
   return classifyModel(model).constrained;
 }
+
+/**
+ * Budget di caratteri della memoria narrativa e del prompt compatto.
+ *
+ * Erano costanti sparse nei due moduli; qui vivono in **una tabella sola**,
+ * scelta da `classifyModel`. Così i modelli forti ricevono più cronaca e più
+ * memoria canonica, mentre i modelli piccoli mantengono i tetti attuali.
+ */
+export interface NarrativeBudgets {
+  /** Caratteri riservati alla cronaca recente in `buildNarrativeMemory`. */
+  recentMemoryChars: number;
+  /** Caratteri riservati alla memoria canonica consolidata. */
+  canonicalMemoryChars: number;
+  /** Limite di ogni turno recente (il più nuovo ha un tetto separato più alto). */
+  recentTurnChars: number;
+  /** Tetto del turno più recente. */
+  newestTurnChars: number;
+  /** Clip dei blocchi del prompt compatto. */
+  compactStrategicChars: number;
+  compactReactionChars: number;
+  compactNpcChars: number;
+  compactProcessesChars: number;
+  compactHistoryChars: number;
+  compactDiplomacyChars: number;
+  compactMapChars: number;
+  compactPremiseChars: number;
+}
+
+/** Valori storici: identici al comportamento precedente per i modelli piccoli. */
+export const CONSTRAINED_NARRATIVE_BUDGETS: NarrativeBudgets = {
+  recentMemoryChars: 4_200,
+  canonicalMemoryChars: 1_200,
+  recentTurnChars: 750,
+  newestTurnChars: 1_700,
+  compactStrategicChars: 5_000,
+  compactReactionChars: 2_500,
+  compactNpcChars: 6_500,
+  compactProcessesChars: 2_000,
+  compactHistoryChars: 4_500,
+  compactDiplomacyChars: 2_500,
+  compactMapChars: 5_000,
+  compactPremiseChars: 2_000,
+};
+
+/** Fascia piena: più cronaca e più memoria canonica, senza cambiare il motore. */
+export const FULL_NARRATIVE_BUDGETS: NarrativeBudgets = {
+  recentMemoryChars: 7_000,
+  canonicalMemoryChars: 2_400,
+  recentTurnChars: 1_200,
+  newestTurnChars: 2_800,
+  compactStrategicChars: 7_500,
+  compactReactionChars: 3_500,
+  compactNpcChars: 9_500,
+  compactProcessesChars: 3_000,
+  compactHistoryChars: 7_000,
+  compactDiplomacyChars: 3_500,
+  compactMapChars: 7_000,
+  compactPremiseChars: 3_000,
+};
+
+/** Budget di memoria corrispondenti alla fascia del modello. */
+export function narrativeBudgetsFor(model: string | undefined | null): NarrativeBudgets {
+  return classifyModel(model).constrained
+    ? CONSTRAINED_NARRATIVE_BUDGETS
+    : FULL_NARRATIVE_BUDGETS;
+}

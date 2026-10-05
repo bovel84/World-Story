@@ -1,0 +1,112 @@
+{
+  "scenario": {
+    "id": "millennium-dawn-khm-2002",
+    "preset": "millennium_dawn",
+    "orders": [
+      {
+        "id": "ord-port",
+        "text": "Avviare la costruzione di un porto a Sihanoukville",
+        "expectedOutcome": "partial",
+        "gameDate": "2002-03-31",
+        "structuredFacts": ["il porto non è ancora operativo", "è stata stanziata solo la prima tranche"],
+        "forbiddenClaims": ["porto già operativo", "porto completato in un mese", "nessun cantiere aperto"]
+      },
+      {
+        "id": "ord-rubber",
+        "text": "Nazionalizzare le piantagioni di gomma",
+        "expectedOutcome": "accepted",
+        "gameDate": "2002-03-31",
+        "structuredFacts": ["il decreto di nazionalizzazione è firmato", "gli ex proprietari annunciano ricorso"],
+        "forbiddenClaims": ["le piantagioni restano private", "la nazionalizzazione è rinviata"]
+      },
+      {
+        "id": "ord-loan",
+        "text": "Chiedere un prestito al Fondo Monetario Internazionale",
+        "expectedOutcome": "partial",
+        "gameDate": "2002-03-31",
+        "structuredFacts": ["il negoziato è aperto", "nessuna somma è stata erogata"],
+        "forbiddenClaims": ["il prestito è già erogato", "nessuna condizione", "prestito concesso senza negoziato"]
+      },
+      {
+        "id": "ord-border",
+        "text": "Mobilitare due battaglioni al confine con la Thailandia",
+        "expectedOutcome": "accepted",
+        "gameDate": "2002-03-31",
+        "structuredFacts": ["due battaglioni mobilitati", "le unità lasciano le caserme"],
+        "forbiddenClaims": ["nessuna mobilitazione", "i battaglioni restano nelle caserme"]
+      },
+      {
+        "id": "ord-war",
+        "text": "Dichiarare guerra al Vietnam",
+        "expectedOutcome": "rejected",
+        "gameDate": "2002-03-31",
+        "structuredFacts": ["la dichiarazione è respinta", "mancano le forze necessarie"],
+        "forbiddenClaims": ["Hanoi conquistata", "il Vietnam si arrende", "Hanoi occupata"]
+      }
+    ]
+  },
+  "baseline": [
+    {
+      "orderId": "ord-port",
+      "headline": "La Cambogia annuncia il porto",
+      "body": "La Cambogia annuncia la costruzione di un porto a Sihanoukville. Il progetto procede senza ostacoli e il porto risulta già operativo.",
+      "outcome": "accepted"
+    },
+    {
+      "orderId": "ord-rubber",
+      "headline": "La Cambogia annuncia la nazionalizzazione",
+      "body": "La Cambogia annuncia la nazionalizzazione delle piantagioni di gomma. Le piantagioni restano private e la misura è approvata.",
+      "outcome": "accepted"
+    },
+    {
+      "orderId": "ord-loan",
+      "headline": "La Cambogia annuncia il prestito",
+      "body": "La Cambogia annuncia la richiesta di un prestito al Fondo Monetario Internazionale, che sarà discusso nel 2010. Il prestito è già erogato.",
+      "outcome": "partial"
+    },
+    {
+      "orderId": "ord-border",
+      "headline": "La Cambogia annuncia la mobilitazione",
+      "body": "La Cambogia annuncia la mobilitazione di due battaglioni al confine con la Thailandia. I battaglioni restano nelle caserme.",
+      "outcome": "accepted"
+    },
+    {
+      "orderId": "ord-war",
+      "headline": "La Cambogia annuncia la guerra",
+      "body": "La Cambogia annuncia la guerra al Vietnam e conquista Hanoi in una settimana senza sforzo, con vittoria totale.",
+      "outcome": "accepted"
+    }
+  ],
+  "enhanced": [
+    {
+      "orderId": "ord-port",
+      "headline": "Il cantiere del porto di Sihanoukville apre con la prima tranche",
+      "body": "Dopo che il governo ha stanziato solo la prima tranche, il cantiere del porto di Sihanoukville apre i lavori: la banchina non sarà operativa prima di due anni e il traffico merci resta affidato ai moli esistenti.",
+      "outcome": "partial"
+    },
+    {
+      "orderId": "ord-rubber",
+      "headline": "Decreto di nazionalizzazione delle piantagioni di gomma",
+      "body": "In risposta al calo dei prezzi e alle pressioni dei sindacati, il governo firma il decreto che nazionalizza le piantagioni di gomma; gli ex proprietari annunciano ricorso mentre i lavoratori occupano i magazzini.",
+      "outcome": "accepted"
+    },
+    {
+      "orderId": "ord-loan",
+      "headline": "Il Fondo Monetario apre il negoziato sul prestito",
+      "body": "A causa del deficit crescente, il governo avvia il negoziato con il Fondo Monetario sul prestito richiesto; le condizioni restano da definire e nessuna somma è stata ancora erogata.",
+      "outcome": "partial"
+    },
+    {
+      "orderId": "ord-border",
+      "headline": "Due battaglioni mobilitati lungo il confine thailandese",
+      "body": "Sulla scia degli scontri di frontiera, il comando ordina la mobilitazione di due battaglioni verso il confine con la Thailandia; le unità lasciano le caserme entro il mese e raggiungono le posizioni avanzate.",
+      "outcome": "accepted"
+    },
+    {
+      "orderId": "ord-war",
+      "headline": "Il governo respinge l'ipotesi di guerra al Vietnam",
+      "body": "In risposta alla richiesta di alcuni ufficiali, il Consiglio dei ministri respinge la dichiarazione di guerra al Vietnam: il paese non dispone delle forze necessarie e la mossa isolerebbe il governo.",
+      "outcome": "rejected"
+    }
+  ]
+}

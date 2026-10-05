@@ -153,6 +153,23 @@ describe('loadLLMConfig: файл llm.config.json', () => {
   });
 });
 
+describe('loadLLMConfig: flag narrativi (WS-NARR-DISPATCH-PAX-QUALITY)', () => {
+  it('spenti di default, sia senza file sia con la sola default', () => {
+    expect(loadLLMConfig(NO_FILE).narrative).toEqual({ texture: false, worldPulse: false, tieredMemory: false });
+  });
+
+  it('la sezione narrative del file li accende', () => {
+    const file = path.join(os.tmpdir(), `llm-config-narr-${process.pid}-${Date.now()}.json`);
+    fs.writeFileSync(file, JSON.stringify({
+      default: { baseUrl: 'http://ok', model: 'm' },
+      narrative: { texture: true, worldPulse: true },
+    }));
+    const { narrative } = loadLLMConfig(file);
+    expect(narrative).toEqual({ texture: true, worldPulse: true, tieredMemory: false });
+    fs.rmSync(file);
+  });
+});
+
 describe('loadLLMConfig: консолидация истории (Этап 2)', () => {
   function writeTmpConfig(obj: unknown): string {
     const p = path.join(os.tmpdir(), `llm-config-cons-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);

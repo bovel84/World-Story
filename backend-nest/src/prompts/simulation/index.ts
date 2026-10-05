@@ -7,3 +7,5 @@
 export * from './guards';
 export * from './prompt';
 export * from './parse';
+export * from './narrativeTexture';
+export * from './worldPulse';

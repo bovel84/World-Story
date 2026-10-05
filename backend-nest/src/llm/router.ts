@@ -1,5 +1,6 @@
 import type { LLMProvider, Mechanic, LLMGenerateOptions, LLMResponse } from './types';
 import type { LLMFullConfig, MechanicConfig, ConsolidationConfig } from './config';
+import { DEFAULT_NARRATIVE_FLAGS, type NarrativeFlags } from './narrativeFlags';
 import { OpenAICompatibleProvider } from './openai-compatible';
 import { AnthropicProvider } from './anthropic';
 
@@ -39,6 +40,11 @@ export class LLMRouter {
   /** Настройки консолидации истории (Этап 2). */
   get consolidation(): ConsolidationConfig {
     return this.config.consolidation;
+  }
+
+  /** Flag narrativi (WS-NARR-DISPATCH-PAX-QUALITY): spenti di default. */
+  get narrative(): NarrativeFlags {
+    return this.config.narrative ?? DEFAULT_NARRATIVE_FLAGS;
   }
 
   private provider(mechanic: Mechanic): LLMProvider {
