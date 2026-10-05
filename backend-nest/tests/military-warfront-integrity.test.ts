@@ -1183,6 +1183,7 @@ describe('WARFRONT SUPPLY/TICK — P1-4: rami dello stato operativo', () => {
     const unitIdsAtT0 = units(session).map(unit => String(unit.id)).sort();
     const pressure = () => Number(fronts(session).find(front => String(front.id) === String(frontId))?.attackerPressure ?? -1);
     const men = () => Number(unitOf(session, unitId)?.personnel);
+    const initialMen = men();
     // T0: il punto comune dei due rami.
     const t0 = session.save('T0').saveId;
     // Ramo A: il reparto ha combattuto (7.000 uomini) e il fronte preme 0,40.
@@ -1190,7 +1191,7 @@ describe('WARFRONT SUPPLY/TICK — P1-4: rami dello stato operativo', () => {
     store(session).saveUnits(units(session).map(unit => (String(unit.id) === String(unitId) ? { ...unit, personnel: 7000 } : unit)));
     store(session).saveFronts(fronts(session).map(front => ({ ...front, attackerPressure: 0.4, status: 'active' })));
     const saveA = session.save('A').saveId;
-    // Ramo B: nessun combattimento (12.000 uomini, pressione 0,10).
+    // Ramo B: nessun combattimento (organico iniziale del paese, pressione 0,10).
     restoreSave(session, t0);
     store(session).saveFronts(fronts(session).map(front => ({ ...front, attackerPressure: 0.1, status: 'active' })));
     const saveB = session.save('B').saveId;
@@ -1214,9 +1215,9 @@ describe('WARFRONT SUPPLY/TICK — P1-4: rami dello stato operativo', () => {
     expect(operationalRow(gameId, unitId)?.personnel).toBe(7000);
     expect(frontRow(gameId)?.attackerPressure).toBeCloseTo(0.4, 6);
     restoreSave(session, saveB);
-    expect(men()).toBe(12000);
+    expect(men()).toBe(initialMen);
     expect(pressure()).toBeCloseTo(0.1, 6);
-    expect(operationalRow(gameId, unitId)?.personnel).toBe(12000);
+    expect(operationalRow(gameId, unitId)?.personnel).toBe(initialMen);
     expect(frontRow(gameId)?.attackerPressure).toBeCloseTo(0.1, 6);
     restoreSave(session, saveA);
     expect(men()).toBe(7000);

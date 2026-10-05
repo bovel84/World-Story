@@ -56,18 +56,33 @@ export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknow
 }
 
 export const COUNCIL_ISSUE_PROTOCOL = [
-  'Puoi proporre una questione interministeriale, NON aprire una seduta o creare una crisi. Il Presidente decide se portarla al Consiglio.',
-  'Protocollo facoltativo: un solo blocco fenced ```council_issue con JSON {"title":"...","question":"...","factKeys":["chiave canonica"],"suggestedMinisters":["lavori","tesoro"]}.',
+  'Puoi proporre questioni interministeriali, NON aprire una seduta o creare una crisi. Il Presidente decide se portarle al Consiglio.',
+  'Protocollo facoltativo: da 1 a 3 blocchi fenced ```council_issue, uno per questione, ciascuno con JSON {"title":"...","question":"...","factKeys":["chiave canonica"],"suggestedMinisters":["lavori","tesoro"]}. Non è necessario proporre questioni né riempire tre blocchi.',
+  'Proponi più questioni solo per direzioni strategiche realmente distinte: per esempio riforma delle forze armate, iniziativa diplomatica e rilancio infrastrutturale. Non duplicare la stessa domanda con titoli diversi. Ogni questione deve poter essere portata separatamente al Consiglio, con fatti canonici a sostegno e solo ministri pertinenti alla domanda.',
   `Sedie ammesse: ${CABINET_SEATS.join(', ')}. Usa solo chiavi presenti in facts del VerifiedWorldSnapshot; niente valori, fatti nuovi, costi inventati, opzioni Pressure o effetti.`,
   'Per una nuova opera distingui intenzione e inventario esistente; Lavori verifica tracciato e materiali, Tesoro la copertura. Una proposta non certifica fattibilità o autorizzazione.',
 ].join('\n');
 
-/** Strip invalid/unfinished proposals; model text never supplies canonical facts. */
+/** Conservative identity, not semantic similarity: shared facts/ministers/titles are not duplicates. */
+function councilQuestionKey(question: string): string {
+  return question.normalize('NFKC').toLowerCase().trim()
+    .replace(/[.!?…]+$/u, '').trim().replace(/\s+/g, ' ');
+}
+
+/** Strip invalid/unfinished/duplicate proposals; model text never supplies canonical facts. */
 export function parseCouncilIssues(snapshot: VerifiedWorldSnapshot, text: string, origin: CouncilIssueOrigin = 'advisor'): { reply: string; issues: CouncilIssue[] } {
   const issues: CouncilIssue[] = [];
+  const questions = new Set<string>();
   const reply = text.replace(/```council_issue\b([^]*?)(?:```|$)/gi, (_block, json: string) => {
     try {
-      if (issues.length < 3) issues.push(resolveCouncilIssue(snapshot, JSON.parse(json.trim()), origin));
+      if (issues.length < 3) {
+        const issue = resolveCouncilIssue(snapshot, JSON.parse(json.trim()), origin);
+        const questionKey = councilQuestionKey(issue.question) || issue.question;
+        if (!questions.has(questionKey)) {
+          questions.add(questionKey);
+          issues.push(issue);
+        }
+      }
     } catch { /* Unsafe proposals are not evidence and are not returned. */ }
     return '';
   }).trim();

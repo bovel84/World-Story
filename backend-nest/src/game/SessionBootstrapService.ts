@@ -28,6 +28,7 @@ export interface SessionBootstrapContext {
   orders: OrderExecutionService;
   gameController: any;
   buildGameData(...args: any[]): any;
+  initializeCountryProfiles?(estimate: boolean): void | Promise<void>;
   ensurePeacetimePressures(): void;
   /** WS-GOV-PRESET-REALITY-PIPELINE — capacità iniziale → oggetti canonici. */
   materializeDerivedInfrastructure?(): void;
@@ -42,7 +43,7 @@ export class SessionBootstrapService {
 
   private get state(): SessionStateStore { return this.ctx.state; }
 
-  async initialize(playerRegionId: string, playerName: string, playerColor: string = '#FF0000', difficulty?: string): Promise<string> {
+  async initialize(playerRegionId: string, playerName: string, playerColor: string = '#FF0000', difficulty?: string, estimateInitialProfile = false): Promise<string> {
     // Load world from DB
     const world = worldRepository.findById(this.ctx.worldId);
     if (!world) throw new Error('World not found');
@@ -102,6 +103,12 @@ export class SessionBootstrapService {
       color: playerColor,
       polityId: playerPolityId,
     }];
+
+    // Finish and persist the country profile BEFORE any accounts/material seeds.
+    // The deterministic internal path stays synchronous until the existing sync;
+    // HTTP creation awaits the optional estimate via registry.ready.
+    const profileReady = this.ctx.initializeCountryProfiles?.(estimateInitialProfile);
+    if (profileReady) await profileReady;
 
     // Initialize session-specific game controller
     this.ctx.gameController.initPromptEngine(this.ctx.buildGameData());

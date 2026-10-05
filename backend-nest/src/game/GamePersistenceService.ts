@@ -27,6 +27,9 @@ import type { RelationshipMap } from '../core/RelationshipMatrix';
 import type { PendingAction } from './OrderExecutionService';
 import type { TurnResultRecord } from './TimelineService';
 import type { SaveData, PausedRunState, PlayerInfo, RegionState, ActionRecord } from '../game-session';
+import { countryInitialProfiles } from '../repositories/country-initial-profile.repository';
+import { validateCountryInitialProfile } from '../core/simulation/CountryInitialProfile';
+import { worldRepository } from '../repositories/world.repository';
 import type { CrisisSnapshot } from '../repositories';
 
 /**
@@ -206,6 +209,19 @@ export class GamePersistenceService {
       }
     }
 
+    if (saveData.countryInitialProfiles !== undefined) {
+      const snapshot = saveData.countryInitialProfiles;
+      const game = gameRepository.findById(gameId);
+      const world = game ? worldRepository.findById(game.world_id) : null;
+      const seen = new Set<string>();
+      if (!world || snapshot.version !== 1 || !Array.isArray(snapshot.profiles)
+        || snapshot.profiles.some(profile => {
+          if (seen.has(profile.polityId)) return true;
+          seen.add(profile.polityId);
+          return !validateCountryInitialProfile(profile, { polityId: profile.polityId, startDate: world.start_date || '1951-01-01', regions: world.regions });
+        })) throw new Error('country_initial_profile_snapshot_invalid');
+    }
+
     // F04 passo 2: staging della RAM — il restore riuscito lo promuove, un
     // errore a metà lo scarta insieme al rollback DB.
     const staging = this.ctx.captureApplyState();
@@ -254,6 +270,9 @@ export class GamePersistenceService {
         // checkpoint. `undefined` conserva la compatibilità dei save legacy.
         if (saveData.arsenalState) {
           arsenalRepository.replaceAll(gameId, saveData.arsenalState.rows || []);
+        }
+        if (saveData.countryInitialProfiles !== undefined) {
+          countryInitialProfiles.replaceAll(gameId, saveData.countryInitialProfiles);
         }
 
         // Ogni altro run sospeso del ramo scartato è invalidato.

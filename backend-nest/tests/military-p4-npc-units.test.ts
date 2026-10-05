@@ -13,8 +13,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { addDays } from '../src/core/simulation/calendar';
-import { militaryManpower } from '../src/core/simulation/MilitaryDoctrine';
-import { materializeNpcMilitary } from '../src/core/simulation/OperationalState';
+import { materializeNpcMilitary, unitReadiness } from '../src/core/simulation/OperationalState';
 
 const TEST_DB = path.join(os.tmpdir(), `world-story-p4-${process.pid}-${Date.now()}.db`);
 process.env.OPEN_PAX_DB_PATH = TEST_DB;
@@ -30,6 +29,7 @@ const R = {
 };
 
 let db: any;
+let countryInitialProfiles: any;
 let registry: any;
 let gamesRouter: any;
 let respondDomainError: any;
@@ -51,6 +51,7 @@ beforeAll(async () => {
   const dbModule = await import('../src/database');
   db = dbModule.default;
   dbModule.initDatabase();
+  ({ countryInitialProfiles } = await import('../src/repositories/country-initial-profile.repository'));
   const repos = await import('../src/repositories');
   const registryModule = await import('../src/session-registry');
   registryModule.initSessionRegistry(stubProvider);
@@ -137,6 +138,24 @@ const callMilitaryRoute = (routePath: string, params: Record<string, string>, bo
 };
 
 describe('MILITARY P4 — unità NPC persistenti', () => {
+  it('profile NPC brigades use actual troop totals and retain establishments after casualties', () => {
+    const seedInput = {
+      polityId: AUT, epoch: 'moderno' as const, date: '2026-01-01', formations: 3,
+      activePersonnel: 9_001,
+      regions: [{ id: R.aut1, name: 'Tirolo' }], depot: { fucili: 6_751 }, existing: [],
+    };
+    const seed = materializeNpcMilitary(seedInput);
+    expect(seed.units.map(unit => unit.personnel)).toEqual([3_000, 3_000, 3_001]);
+    expect(seed.units.map(unit => unit.establishmentPersonnel)).toEqual([3_000, 3_000, 3_001]);
+    expect(seed.units.every(unit => unit.readiness === 1)).toBe(true);
+    expect(seed.depot).toEqual({});
+    const wounded = seed.units.map((unit, index) => index ? unit : { ...unit, personnel: 2_000 });
+    const repeated = materializeNpcMilitary({ ...seedInput, existing: wounded, depot: seed.depot });
+    expect(repeated.createdUnitIds).toEqual([]);
+    expect(repeated.units[0].personnel).toBe(2_000);
+    expect(repeated.units[0].establishmentPersonnel).toBe(3_000);
+    expect(unitReadiness({ unit: repeated.units[0], epoch: 'moderno' })).toBeCloseTo(0.833, 3);
+  });
   it('1: `polityId` è l\'authority: una conquista NON cambia la nazionalità dei reparti', () => {
     const session = warGame();
     oneTick(session);
@@ -182,7 +201,7 @@ describe('MILITARY P4 — unità NPC persistenti', () => {
     expect(after.every(unit => unit.personnel === 0)).toBe(true);
   });
 
-  it('4: conservazione — uomini = `menPerFormation × formations`, pezzi solo dal deposito', () => {
+  it('4: conservazione — uomini dal profilo iniziale, pezzi solo dal deposito', () => {
     const session = warGame();
     // Si misura il **seed** (la conversione della forza dichiarata), senza il
     // combattimento che poi toglie uomini: `ensureNpcUnits` è quel passo.
@@ -192,10 +211,10 @@ describe('MILITARY P4 — unità NPC persistenti', () => {
     })();
     (session as any).warFronts.ensureNpcUnits(30);
     const formations = Math.max(0, Math.round(Number(session.sessionAccounts()[AUT].forces) || 0));
-    const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: 'moderno' }).menPerFormation;
+    const profile = countryInitialProfiles.get(session.id, AUT)!;
     const list = npcUnits(session);
     expect(list.length).toBe(formations);
-    expect(sumPersonnel(list)).toBe(formations * menPerFormation);
+    expect(sumPersonnel(list)).toBe(profile.military.activePersonnel);
     // Pezzi: solo dal **deposito** della polity (letto dal database, senza
     // seed), con conservazione `deposito + assegnato` invariata. Se il deposito
     // è vuoto non si inventa nulla e i reparti restano non operativi.

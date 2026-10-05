@@ -132,6 +132,18 @@ describe('OP-OBJECTS — sala di governo dal motore', () => {
 });
 
 describe('OP-OBJECTS — creazione di un reparto (azione reale)', () => {
+  it('recruiting multiple formations conserves the transferred stock instead of duplicating map seeds', () => {
+    const { session } = createGame();
+    const before = session.getArsenal();
+    const count = session.getNationalAccounts().ITA.forces;
+    const result = session.raiseFormation({ formations: 2 });
+    const after = session.getArsenal();
+    expect(result.applied).toBe(true);
+    expect(session.getNationalAccounts().ITA.forces).toBe(count + 2);
+    expect(after.manpower.activePersonnel).toBe(before.manpower.activePersonnel + result.men);
+    expect(after.manpower.reservePersonnel).toBe(before.manpower.reservePersonnel - result.men);
+    expect(after.units.fucili).toBe(before.units.fucili);
+  });
   it('l\'anteprima è PRIMA → DOPO con i numeri del motore e non scrive nulla', () => {
     const { session } = createGame();
     const before = session.getArsenal();

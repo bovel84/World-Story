@@ -54,7 +54,7 @@ export interface NationStateContext {
   currentDate(): string;
   isStrictGame(): boolean;
   playerPolityId(): string;
-  worldStateOptions(): { modernFacts: boolean; startDate: string; taxRateByPolity?: Record<string, number> };
+  worldStateOptions(): { modernFacts: boolean; startDate: string; taxRateByPolity?: Record<string, number>; initialProfiles?: Record<string, import('../core/simulation/CountryInitialProfile').CountryInitialProfile> };
   /** Conti nazionali delle province iniziali del mondo. */
   initialAccounts(): Record<string, NationalAccount>;
   /** Conti nazionali correnti (stato dinamico). */
@@ -593,6 +593,11 @@ export class NationStateService {
 
   // ── Magazzino ───────────────────────────────────────────────────────────
 
+  private seedNationalStock(account: NationalAccount, polityId: string): ResourceStock {
+    return seedStock(account, naturalResourcesFor(polityId), this.ctx.currentDate(),
+      this.ctx.worldStateOptions().initialProfiles?.[polityId]?.economy.treasuryUsdBillions);
+  }
+
   /**
    * Magazzino già noto (cache o DB), senza seminarne uno nuovo. Serve agli
    * overlay di sola lettura (rapporto debito/PIL) che non devono creare righe.
@@ -610,7 +615,7 @@ export class NationStateService {
       // dell'epoca (cassa e scorte erano su scala 2024).
       const account = this.ctx.initialAccounts()[polityId];
       if (legacyModernSeed && account) {
-        const reseeded = seedStock(account, naturalResourcesFor(polityId), this.ctx.currentDate());
+        const reseeded = this.seedNationalStock(account, polityId);
         this.saveResourceStock(polityId, reseeded);
         return reseeded;
       }
@@ -652,7 +657,7 @@ export class NationStateService {
         // Residuo della semina moderna in un mondo storico: si risemina dai
         // dati dell'epoca (cassa e scorte erano su scala 2024).
         if (legacyModernSeed && account) {
-          const reseeded = seedStock(account, naturalResourcesFor(polityId), this.ctx.currentDate());
+          const reseeded = this.seedNationalStock(account, polityId);
           this.saveResourceStock(polityId, reseeded);
           return reseeded;
         }
@@ -666,7 +671,7 @@ export class NationStateService {
           && !(eraStock.clothing > 0)
           && !(eraStock.weapons > 0) && !(eraStock.fuel > 0);
         if (isEmpty && account) {
-          const repaired = seedStock(account, naturalResourcesFor(polityId), this.ctx.currentDate());
+          const repaired = this.seedNationalStock(account, polityId);
           this.saveResourceStock(polityId, repaired);
           return repaired;
         }
@@ -690,7 +695,7 @@ export class NationStateService {
       // tesoreria a zero permanente). Al prossimo tick, con un conto, si semina.
       return normalizeStock({});
     }
-    const seeded = seedStock(account, naturalResourcesFor(polityId), this.ctx.currentDate());
+    const seeded = this.seedNationalStock(account, polityId);
     this.saveResourceStock(polityId, seeded);
     return seeded;
   }
@@ -730,7 +735,7 @@ export class NationStateService {
    * giocatore.
    */
   private stockForEra(polityId: string, stock: ResourceStock): { stock: ResourceStock; changed: boolean; legacyModernSeed: boolean } {
-    if (!this.ctx.worldStateOptions().modernFacts) {
+    if (!this.ctx.worldStateOptions().modernFacts && !this.ctx.worldStateOptions().initialProfiles?.[polityId]) {
       const debts = Array.isArray(stock.debts) ? stock.debts : [];
       const hadInherited = debts.some(debt => String(debt.id || '').startsWith('debt-inherited-'));
       if (!hadInherited) return { stock, changed: false, legacyModernSeed: false };
@@ -776,7 +781,7 @@ export class NationStateService {
     if (!account || account.provinces === 0) return;
     // Le scorte iniziali nascono dalle risorse naturali reali della nazione,
     // come nel percorso di riparazione: i due seed devono coincidere.
-    this.saveResourceStock(playerPolityId, seedStock(account, naturalResourcesFor(playerPolityId), this.ctx.currentDate()));
+    this.saveResourceStock(playerPolityId, this.seedNationalStock(account, playerPolityId));
   }
 
   // ── Riserve naturali ────────────────────────────────────────────────────

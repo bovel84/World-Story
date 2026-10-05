@@ -438,9 +438,42 @@ describe('Engine invariants across a real session', () => {
     const pol = session.getRegion(`${WORLD_ID}_POL`);
     deu.borders = [`${WORLD_ID}_POL`];
     pol.borders = [`${WORLD_ID}_DEU`];
-    deu.militaryPower = 10;
+    deu.militaryPower = 0;
     pol.militaryPower = 1000;
     (session as any).diplomacy.matrix().set('POL', 'DEU', 'hostile');
+    (session as any).diplomacy.matrix().set('DEU', 'POL', 'hostile');
+    const operational = session.operationalStoreFor();
+    const { materializeNpcMilitary } = await import('../src/core/simulation/OperationalState');
+    const canonicalUnits = [...operational.units()];
+    // Il mondo minimo non ha oggetti army: un fronte richiede reparti reali.
+    for (const polityId of ['DEU', 'POL']) {
+      if (canonicalUnits.some((unit: any) => unit.polityId === polityId)) continue;
+      canonicalUnits.push(...materializeNpcMilitary({
+        polityId, epoch: 'guerra_fredda', date: session.getCurrentDate(),
+        formations: 1, activePersonnel: 12_000,
+        regions: [{ id: `${WORLD_ID}_${polityId}`, name: polityId }], depot: {}, existing: [],
+      }).units);
+    }
+    // La potenza dichiarata non sostituisce i reparti persistenti: POL piena,
+    // DEU sotto organico e disarmata, senza affidarsi alla taglia d'epoca.
+    operational.saveUnits(canonicalUnits.map((unit: any) => {
+      if (unit.polityId === 'POL') return {
+        ...unit, regionId: pol.id, regionName: pol.name, establishmentPersonnel: 12_000, personnel: 12_000,
+        equipment: { fucili: 9_600 }, readiness: 1, status: 'operational', order: 'attack',
+      };
+      if (unit.polityId === 'DEU') return {
+        ...unit, regionId: deu.id, regionName: deu.name, establishmentPersonnel: 12_000, personnel: 100,
+        equipment: {}, readiness: 0.1, status: 'degraded', order: 'defend',
+      };
+      return unit;
+    }));
+    session.publicFronts();
+    (session as any).warFronts.ensureNpcUnits(30);
+    expect(operational.units().some((unit: any) => unit.polityId === 'DEU' && unit.frontId)).toBe(true);
+    expect(operational.units().some((unit: any) => unit.polityId === 'POL' && unit.frontId)).toBe(true);
+    session.saveResourceStock('POL', {
+      ...session.resourceStock('POL'), food: 1_000, weapons: 1_000, fuel: 1_000, clothing: 1_000,
+    });
 
     let captured = false;
     for (let tick = 0; tick < 200 && !captured; tick++) {

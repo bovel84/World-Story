@@ -591,6 +591,14 @@ export function initDatabase() {
     }
   }
 
+  // Initial country profiles are generated once, never on Government reads.
+  db.exec(`CREATE TABLE IF NOT EXISTS game_country_initial_profiles (
+    game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    polity_id TEXT NOT NULL,
+    profile_json TEXT NOT NULL,
+    PRIMARY KEY (game_id, polity_id)
+  )`);
+
   // Real history is immutable per game/polity/divergence, shared across branches.
   db.exec(`
     CREATE TABLE IF NOT EXISTS game_polity_historical_baselines (

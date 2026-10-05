@@ -24,6 +24,7 @@ const R = {
 };
 
 let db: any;
+let countryInitialProfiles: any;
 let registry: any;
 let repositories: any;
 let gamesRouter: any;
@@ -44,6 +45,7 @@ beforeAll(async () => {
   const dbModule = await import('../src/database');
   db = dbModule.default;
   dbModule.initDatabase();
+  ({ countryInitialProfiles } = await import('../src/repositories/country-initial-profile.repository'));
   repositories = await import('../src/repositories');
   const registryModule = await import('../src/session-registry');
   registryModule.initSessionRegistry(stubProvider);
@@ -132,14 +134,14 @@ const callMilitaryRoute = (routePath: string, params: Record<string, string>, bo
   return response;
 };
 
-/** Prepara il primo reparto della polity e rende inerti gli altri, senza rimuoverli. */
+/** Reparto con organico esplicito da 12.000: le carenze del test non dipendono dal profilo. */
 function prepareOne(session: any, polityId: string, patch: Record<string, unknown>): any {
   const list = unitsOf(session, polityId).sort((a, b) => String(a.id).localeCompare(String(b.id)));
   if (list.length === 0) throw new Error(`no units for ${polityId}`);
   const chosen = list[0];
   saveGlobalUnits(session, unit => {
     if (unit.polityId !== polityId) return unit;
-    if (unit.id === chosen.id) return { ...unit, ...patch };
+    if (unit.id === chosen.id) return { ...unit, establishmentPersonnel: 12_000, ...patch };
     return { ...unit, status: 'destroyed', personnel: 0, equipment: {}, readiness: 0 };
   });
   return unitsOf(session, polityId).find(unit => unit.id === chosen.id);
@@ -188,11 +190,15 @@ describe('MILITARY P5 — personale NPC persistente', () => {
     expect(personnelOf(session, AUT)).toBeNull();
     (session as any).warFronts.maintainNpcUnits();
     const seeded = personnelOf(session, AUT);
-    expect(seeded).toEqual(seedPersonnel(doctrineOf(session, AUT), session.currentDate));
+    expect(seeded).toEqual({
+      ...seedPersonnel(doctrineOf(session, AUT), session.currentDate),
+      activePersonnel: activePersonnelInUnits(session, AUT),
+      trainedReserve: countryInitialProfiles.get(session.id, AUT)!.military.reservePersonnel,
+    });
     const consumed = { ...seeded, trainedReserve: Math.max(0, seeded.trainedReserve - 123) };
     putPersonnel(session, AUT, consumed);
     (session as any).warFronts.maintainNpcUnits();
-    expect(personnelOf(session, AUT).trainedReserve).toBe(consumed.trainedReserve);
+    expect(personnelOf(session, AUT)).toEqual(consumed);
   });
 
   it('rinforza parzialmente 6.000→9.000 usando esattamente 3.000 uomini finiti', () => {
@@ -294,7 +300,7 @@ describe('MILITARY P5 — personale NPC persistente', () => {
       const list = unitsOf(session, AUT).sort((a, b) => a.id.localeCompare(b.id));
       expect(list.length).toBeGreaterThan(1);
       saveGlobalUnits(session, unit => unit.polityId === AUT
-        ? { ...unit, personnel: 6_000, equipment: {}, status: 'degraded' }
+        ? { ...unit, establishmentPersonnel: 12_000, personnel: 6_000, equipment: {}, status: 'degraded' }
         : unit);
       putPersonnel(session, AUT, { ...seedPersonnel(doctrine, session.currentDate), activePersonnel: 12_000, trainedReserve: 4_000, mobilizedPersonnel: 0 });
       putDepot(session, AUT, {});

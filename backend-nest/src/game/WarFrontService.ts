@@ -32,6 +32,7 @@
 import { indexPolities } from '../core/simulation/npc-policy';
 import { materializeNpcMilitary } from '../core/simulation/OperationalState';
 import { militaryPersistenceRepository } from '../repositories';
+import { countryInitialProfiles } from '../repositories/country-initial-profile.repository';
 import type { MaterialFulfillment, ResourceStock } from '../core/simulation/MaterialEconomy';
 import {
   DEPLETED_ORGANIC_RATIO, SURRENDER_LOSS_MULTIPLIER,
@@ -53,6 +54,8 @@ import {
   transferEquipment,
   transferMenToArmy,
   unitReadiness,
+  unitEstablishmentPersonnel,
+  unitRifleRequirement,
   unitStatusFromCoverage,
   type MilitaryPersonnelState,
   type MilitaryUnitState,
@@ -776,9 +779,7 @@ export class WarFrontService {
     const events: string[] = [];
     const regions = this.ctx.regions();
     const epoch = this.epoch();
-    const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch }).menPerFormation;
-    const organic = menPerFormation * DEPLETED_ORGANIC_RATIO;
-    const requiredRifles = rifleRequirement(epoch, 1);
+
     // P4 — «territorio amico» è quello della **polity del reparto**
     // (`unit.polityId`), non del giocatore: anche un reparto NPC rientra in
     // linea dopo il ripiegamento, con le stesse regole.
@@ -796,11 +797,13 @@ export class WarFrontService {
       if (daysBetween(unit.updatedDate, date) < WarFrontService.RALLY_DAYS) return unit;
       const personnel = Math.max(0, Math.round(Number(unit.personnel) || 0));
       if (personnel <= 0) return unit;
+      const organic = unitEstablishmentPersonnel(unit, epoch) * DEPLETED_ORGANIC_RATIO;
+      const requiredRifles = unitRifleRequirement(unit, epoch);
       const equipment = unit.equipment || {};
       const assigned = equipmentQuantity(equipment, rifleEquipmentId());
       const covered = unitStatusFromCoverage({ assigned, required: requiredRifles });
       const status: MilitaryUnitState['status'] = personnel < organic ? 'degraded' : covered;
-      const readiness = unitReadiness({ unit: { personnel, equipment, status }, epoch });
+      const readiness = unitReadiness({ unit: { ...unit, personnel, equipment, status }, epoch });
       events.push(`🎖️ «${unit.name}» rientra in linea: reparto di nuovo ${status === 'operational' ? 'operativo' : 'inquadrato'} dopo il ripiegamento (uomini e pezzi invariati).`);
       return { ...unit, status, readiness, updatedDate: date };
     });
@@ -863,6 +866,7 @@ export class WarFrontService {
         epoch: this.epoch(),
         date: this.ctx.currentDate(),
         formations,
+        activePersonnel: countryInitialProfiles.get(this.ctx.gameId, polityId)?.military.activePersonnel,
         regions: this.ctx.polityRegionsFor?.(polityId) || [],
         frontRegionIds: [...frontRegionIds],
         depot: depotBefore,
@@ -953,6 +957,7 @@ export class WarFrontService {
         ? { ...persistedPersonnel }
         : {
             ...seedPersonnel(doctrine, date),
+            trainedReserve: countryInitialProfiles.get(this.ctx.gameId, polityId)?.military.reservePersonnel ?? doctrine.reservePersonnel,
             // Se il primo seed arriva dopo un combattimento (per esempio dopo
             // un tentativo di manutenzione fallito), non reintroduce i caduti.
             activePersonnel: units
@@ -960,7 +965,6 @@ export class WarFrontService {
               .reduce((total, unit) => total + Math.round(nonNegative(unit.personnel)), 0),
           };
       let depot = { ...(this.ctx.depotForPolity?.(polityId) || {}) };
-      const requiredRifles = rifleRequirement(epoch, 1);
       let menTransferred = 0;
       let riflesTransferred = 0;
       let unitsMaintained = 0;
@@ -973,7 +977,8 @@ export class WarFrontService {
           if (unit.status === 'destroyed' || unit.status === 'retreating' || unit.movement) return unit;
           let men = 0;
           let rifles = 0;
-          const missingMen = Math.max(0, doctrine.menPerFormation - Math.round(nonNegative(unit.personnel)));
+          const requiredRifles = unitRifleRequirement(unit, epoch);
+          const missingMen = Math.max(0, unitEstablishmentPersonnel(unit, epoch) - Math.round(nonNegative(unit.personnel)));
           const availableMen = Math.max(0, Math.floor(personnelOverlay(personnel, doctrine).availableReserve));
           const wantedMen = Math.min(missingMen, availableMen);
           if (wantedMen > 0) {

@@ -541,7 +541,7 @@ function seedInheritedDebt(inheritedDebt: number, date: string, debtRatioPct: nu
  * Scorte iniziali proporzionate all'economia e alle risorse naturali.
  * `asOfDate` (facoltativa) fa nascere il debito ereditato con vere scadenze.
  */
-export function seedStock(account: NationalAccount, endowment: NaturalEndowment = {}, asOfDate = ''): ResourceStock {
+export function seedStock(account: NationalAccount, endowment: NaturalEndowment = {}, asOfDate = '', initialTreasuryUsdBillions?: number): ResourceStock {
   // Ogni campo è difeso: un conto con un valore mancante o non numerico non
   // deve mai produrre una tesoreria a zero (né un `NaN` che poi diventa zero).
   const n = (value: unknown): number => (Number.isFinite(Number(value)) ? Number(value) : 0);
@@ -556,7 +556,8 @@ export function seedStock(account: NationalAccount, endowment: NaturalEndowment 
   // pubblico ereditato resta distinto, come voce a sé: la nazione nasce con
   // entrambi, non con una tesoreria falsata dal debito.
   const gdp = n(account.nominalGdpUsdBillions);
-  const money = Math.max(MIN_TREASURY, gdp * 0.02);
+  const money = initialTreasuryUsdBillions !== undefined && Number.isFinite(initialTreasuryUsdBillions) && initialTreasuryUsdBillions >= 0
+    ? initialTreasuryUsdBillions : Math.max(MIN_TREASURY, gdp * 0.02);
   const debtRatioPct = Math.max(0, n(account.debtBurdenPct));
   const inheritedDebt = debtRatioPct / 100 * gdp;
   // Le scorte di partenza sono una QUOTA della capacità di stoccaggio, non un

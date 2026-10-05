@@ -1,7 +1,8 @@
-import { estimatedNominalGdpUsdBillions, governmentForPolity, referenceDebtToGdpPct } from '../../utils/country-facts';
+import { estimatedNominalGdpUsdBillions, governmentForPolity, referenceDebtToGdpPct, hasModernReferenceFacts } from '../../utils/country-facts';
 import { baselineCapacity, coastalFromGeojson } from './NationCapacity';
 import { fiscalEffects } from './FiscalPolicy';
 import { MAX_JUMP_DAYS } from './calendar';
+import type { CountryInitialProfile } from './CountryInitialProfile';
 
 /**
  * Deterministic long-term state for World Story.
@@ -47,9 +48,8 @@ export interface NationalAccount {
   defenceBurdenPct: number;
   /**
    * Debito pubblico lordo in percentuale del PIL (0-100+), dal registro reale.
-   * È il carico che la nazione eredita: la tesoreria di partenza è la posizione
-   * netta (riserve − debito) e il tetto di credito garantisce un margine.
-   * Resta 0 nei mondi storici, dove il debito 2024 sarebbe anacronistico.
+   * È il carico ereditato, separato dalla cassa. Il profilo può fornire debito
+   * storico specifico; senza, mai trasferire il registro 2024 ad altre epoche.
    */
   debtBurdenPct?: number;
   /**
@@ -65,7 +65,7 @@ export interface NationalAccount {
   /** Indice 0-100 di tensione sociale interna (mobilitazione, casse, università). */
   socialTension: number;
   /** Scala nominale comparabile fra paesi (miliardi USD): fatti 2024 nei mondi
-   *  moderni, indice di mappa su scala storica nei mondi pre-1990. */
+   *  del 2024, riferimenti storici specifici o indice di mappa nelle altre epoche. */
   nominalGdpUsdBillions: number;
   gdpPerCapitaUsd: number;
   /**
@@ -103,7 +103,7 @@ const finiteNonNegative = (value: unknown): number =>
 export interface WorldStateOptions {
   /**
    * Fatti 2024 applicabili (PIL, popolazione di riferimento, debito pubblico).
-   * `false` per i preset pre-1990: il motore usa solo i dati della mappa, così
+   * `false` per date diverse dal 2024: riferimenti storici o dati della mappa, così
    * un mondo del 1951 non eredita PIL e debito odierni.
    */
   modernFacts?: boolean;
@@ -117,6 +117,10 @@ export interface WorldStateOptions {
    * nazioni NPC, che restano sull'aliquota calcolata dal profilo del paese.
    */
   taxRateByPolity?: Record<string, number>;
+  /** Persisted start-date anchors; never LLM or DB calls in the engine. */
+  initialProfiles?: Record<string, CountryInitialProfile>;
+  /** Once units exist their surviving count wins, including explicit zero. */
+  forceCountsByPolity?: Record<string, number>;
 }
 
 /** Calculates and advances only facts that are derivable from the map. */
@@ -125,7 +129,8 @@ export class WorldStateEngine {
     regions: Iterable<WorldStateRegion>,
     options: WorldStateOptions = {},
   ): Record<string, NationalAccount> {
-    const modernFacts = options.modernFacts !== false;
+    const modernFacts = options.modernFacts !== false
+      && (options.startDate == null || hasModernReferenceFacts(options.startDate));
     const accounts: Record<string, NationalAccount> = Object.create(null);
     // Province costiere per polity: i porti sono geografia, non popolazione.
     const coastalProvinces: Record<string, number> = Object.create(null);
@@ -184,7 +189,8 @@ export class WorldStateEngine {
       // La base nazionale (popolazione, reddito, costa, forze) si somma agli
       // oggetti della mappa: senza di essa ogni paese senza impianti disegnati
       // avrebbe disponibilità identiche e pari a zero.
-      const baseline = baselineCapacity({
+      const profile = options.initialProfiles?.[account.polityId];
+      const inferred = baselineCapacity({
         polityId: account.polityId,
         population: account.population,
         coastalProvinces: coastalProvinces[account.polityId] || 0,
@@ -193,10 +199,20 @@ export class WorldStateEngine {
         gdpIndex: account.gdp,
         startDate: options.startDate,
       });
+      const baseline = profile ? {
+        ...inferred,
+        factories: Math.max(0, profile.infrastructure.factories - profile.mapBaseline.factories),
+        ports: Math.max(0, profile.infrastructure.ports - profile.mapBaseline.ports),
+        universities: Math.max(0, profile.infrastructure.universities - profile.mapBaseline.universities),
+        forces: Math.max(0, profile.military.formations - profile.mapBaseline.forces),
+        sources: `Profilo iniziale ${profile.startDate} (${profile.provenance.source}, ${profile.provenance.confidence}); evoluzione deterministica della mappa.`,
+      } : inferred;
       account.factories += baseline.factories;
       account.ports += baseline.ports;
       account.universities += baseline.universities;
       account.forces += baseline.forces;
+      const liveCount = options.forceCountsByPolity?.[account.polityId];
+      if (liveCount !== undefined) account.forces = finiteNonNegative(liveCount);
       account.capacityBase = {
         factories: baseline.factories, ports: baseline.ports,
         universities: baseline.universities, forces: baseline.forces,
@@ -206,7 +222,7 @@ export class WorldStateEngine {
       // altrimenti quella calcolata dal profilo (fabbriche e porti). Gli effetti
       // sul consenso si misurano rispetto all'aliquota che il paese applicherebbe
       // da sé, così «non cambiare nulla» non è già una punizione.
-      const baseTaxRate = Math.min(0.18, 0.09 + account.factories * 0.00035 + account.ports * 0.0002);
+      const baseTaxRate = profile ? profile.economy.taxRatePct / 100 : Math.min(0.18, 0.09 + account.factories * 0.00035 + account.ports * 0.0002);
       const hasTaxPolicy = options.taxRateByPolity?.[account.polityId] !== undefined
         && options.taxRateByPolity?.[account.polityId] !== null;
       const configuredTaxPct = hasTaxPolicy ? options.taxRateByPolity![account.polityId] : null;
@@ -229,6 +245,8 @@ export class WorldStateEngine {
         gdpIndex: account.gdp,
         startDate: options.startDate,
       });
+      if (profile) account.nominalGdpUsdBillions = profile.economy.nominalGdpUsdBillions
+        * (profile.mapBaseline.gdp > 0 ? account.gdp / profile.mapBaseline.gdp : 1);
       account.gdpPerCapitaUsd = Math.round(account.nominalGdpUsdBillions * 1_000_000_000 / Math.max(account.population, 1));
       const taxRate = configuredTaxPct !== null
         ? Math.max(0.02, Math.min(0.6, Number(configuredTaxPct) / 100))
@@ -237,7 +255,11 @@ export class WorldStateEngine {
       account.monthlyRevenue = account.nominalGdpUsdBillions * taxRate / 12;
       // Le riserve richiamate costano denaro prima ancora di essere operative:
       // la spesa militare cresce con forze e mobilitazioni e comprime il saldo.
-      const defenceRate = Math.min(
+      const defenceRate = profile ? Math.max(0, Math.min(0.3,
+        profile.military.defenceBurdenPct / 100
+          + (account.forces - profile.military.formations) * 0.0007
+          + (account.mobilized - profile.mapBaseline.mobilized) * 0.0018,
+      )) : Math.min(
         0.16,
         0.012 + account.forces * 0.0007 + account.mobilized * 0.0018
           + (account.militaryPower / Math.max(account.nominalGdpUsdBillions, 1)) * 0.004,
@@ -247,8 +269,11 @@ export class WorldStateEngine {
       // qualcosa che nasce a zero. Solo nei mondi moderni però: applicare il
       // debito 2024 a una partita del 1951 sarebbe anacronistico, quindi lì si
       // parte da zero e la nazione costruisce il proprio debito giocando.
-      account.debtBurdenPct = modernFacts ? referenceDebtToGdpPct(account.polityId) : 0;
-      account.monthlyExpenses = account.nominalGdpUsdBillions * (0.032 + defenceRate) / 12;
+      account.debtBurdenPct = profile?.economy.debtRatioPct ?? (modernFacts ? referenceDebtToGdpPct(account.polityId) : 0);
+      account.monthlyExpenses = profile ? Math.max(0, account.nominalGdpUsdBillions
+        * (profile.economy.monthlyExpenses / Math.max(profile.economy.nominalGdpUsdBillions, 0.0001)
+          + (defenceRate - profile.military.defenceBurdenPct / 100) / 12))
+        : account.nominalGdpUsdBillions * (0.032 + defenceRate) / 12;
       account.monthlyBalance = account.monthlyRevenue - account.monthlyExpenses;
       // A transparent, bounded indicator rather than an LLM-invented value.
       // Le riserve richiamate pesano sul consenso (logoramento), non solo sull'esercito.
@@ -268,6 +293,19 @@ export class WorldStateEngine {
         16 + account.mobilized * 6 + account.forces * 1.4 - account.universities * 1.1 + deficitRatio
         + (fiscal?.tensionDelta ?? 0),
       )));
+      if (profile) {
+        const mobilizedDelta = account.mobilized - profile.mapBaseline.mobilized;
+        const forceDelta = account.forces - profile.military.formations;
+        const universityDelta = account.universities - profile.infrastructure.universities;
+        const initialDeficit = Math.max(0, profile.economy.monthlyExpenses - profile.economy.monthlyRevenue)
+          / Math.max(profile.economy.nominalGdpUsdBillions, 1) * 700;
+        account.stability = Math.round(Math.max(0, Math.min(100, profile.society.stability
+          - mobilizedDelta * 3.2 - forceDelta * 0.35 + universityDelta * 0.8
+          - (deficitRatio - Math.min(12, initialDeficit)) + (fiscal?.stabilityDelta ?? 0))));
+        account.socialTension = Math.round(Math.max(0, Math.min(100, profile.society.socialTension
+          + mobilizedDelta * 6 + forceDelta * 1.4 - universityDelta * 1.1
+          + (deficitRatio - Math.min(12, initialDeficit)) + (fiscal?.tensionDelta ?? 0))));
+      }
     }
     return accounts;
   }

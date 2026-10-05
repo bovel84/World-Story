@@ -574,7 +574,13 @@ export function formationImpact(input: {
   const withArmy: WorldStateRegion[] = input.regions.map(region => region.id === input.targetRegionId
     ? { ...region, objects: [...(region.objects || []), { type: 'army', level: formationsToAdd }] }
     : region);
-  const projectedAccount = WorldStateEngine.accounts(withArmy, input.options || {})[input.account.polityId] || input.account;
+  const projectedOptions = { ...input.options };
+  if (projectedOptions.forceCountsByPolity?.[input.account.polityId] !== undefined) {
+    projectedOptions.forceCountsByPolity = {
+      ...projectedOptions.forceCountsByPolity, [input.account.polityId]: formations + formationsToAdd,
+    };
+  }
+  const projectedAccount = WorldStateEngine.accounts(withArmy, projectedOptions)[input.account.polityId] || input.account;
   // Il «dopo» degli uomini: trasferimento reale dalla riserva (null ⇒ il piano
   // è bloccato e nulla si muove: nessun numero inventato).
   const afterPersonnel = input.personnel

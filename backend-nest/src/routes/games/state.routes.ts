@@ -43,20 +43,22 @@ import { validateBody } from '../validation';
 import { createGameSchema } from './schemas';
 
 export function registerStateRoutes(router: Router): void {
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   if (!validateBody(res, createGameSchema, req.body)) return;
   const worldId = req.body.worldId || req.body.world_id;
   const playerName = req.body.playerName || req.body.player_name;
   const playerRegionId = req.body.playerRegionId || req.body.player_region_id;
 
   try {
-    const { session, playerId, gameId } = getSessionRegistry().createSession(
+    const { session, playerId, gameId, ready } = getSessionRegistry().createSession(
       worldId,
       playerName || '',
       playerRegionId,
       req.body.playerColor || req.body.player_color || '#FF0000',
-      req.body.difficulty
+      req.body.difficulty,
+      true, // Server-owned: at most one bootstrap estimate, never a Government read.
     );
+    await ready;
 
     const player = session.getPlayer();
     const region = session.getRegion(playerRegionId);

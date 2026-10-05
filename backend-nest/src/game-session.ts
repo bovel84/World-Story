@@ -11,6 +11,9 @@ import { RegionGeometryService } from './game/RegionGeometryService';
 import { MilitaryService, createProductionNotices, type ProductionNotices } from './game/MilitaryService';
 import { OrderExecutionService, type PendingAction } from './game/OrderExecutionService';
 import { LLMRouter } from './llm';
+import { buildCountryInitialProfile, generateCountryInitialProfile, countryProfileRegions, validateCountryInitialProfile } from './core/simulation/CountryInitialProfile';
+import { countryInitialProfiles, type CountryInitialProfilesSnapshot } from './repositories/country-initial-profile.repository';
+import type { WorldStateOptions } from './core/simulation/WorldStateEngine';
 import { GameController } from './agents';
 import { PromptBuilder, PromptEngine } from './prompt-builder';
 import { buildMinisterWorldContext } from './prompts/national-context';
@@ -347,6 +350,7 @@ export interface SaveData {
    * i save precedenti; uno snapshot presente (anche vuoto) viene ripristinato.
    */
   arsenalState?: ArsenalSnapshot;
+  countryInitialProfiles?: CountryInitialProfilesSnapshot;
 }
 
 /**
@@ -401,6 +405,11 @@ export class GameSession {
   private gameController: GameController;
   private promptEngine: PromptEngine;
   private llm: LLMRouter;
+  private initialProfileCache?: ReturnType<typeof countryInitialProfiles.list>;
+
+  private initialProfileBook(): ReturnType<typeof countryInitialProfiles.list> {
+    return this.initialProfileCache ??= countryInitialProfiles.list(this.id);
+  }
   /** Coalesce lazy generation; failed backgrounds are retried at most once per turn. */
   private historicalBaselineRequests = new Map<string, { turn: number; settled: boolean; promise: Promise<PolityHistoricalBaseline | null> }>();
   /** Read model della timeline e dei processi (Fase 1: estratto da GameSession). */
@@ -851,19 +860,41 @@ export class GameSession {
 
   /** Conto nazionale delle province iniziali del mondo, per polity. */
   private initialAccounts(): Record<string, NationalAccount> {
-    if (!this.initialAccountsCache) this.initialAccountsCache = worldInitialAccounts(this.worldId);
+    if (!this.initialAccountsCache) {
+      const profiles = this.initialProfileBook();
+      const world = worldRepository.findById(this.worldId);
+      this.initialAccountsCache = Object.keys(profiles).length && world
+        ? WorldStateEngine.accounts(countryProfileRegions(world.regions, world.start_date || '1951-01-01'), { startDate: world.start_date, modernFacts: hasModernReferenceFacts(world.start_date), initialProfiles: profiles })
+        : worldInitialAccounts(this.worldId);
+    }
     return this.initialAccountsCache;
   }
 
   /**
    * Opzioni del motore coerenti con l'epoca dello scenario: i fatti 2024 si
-   * applicano solo ai mondi dal 1990 in poi. Un preset storico legge solo la
-   * mappa e non eredita PIL, popolazione o debito odierni.
+   * applicano solo a date 2024; ogni altra epoca usa riferimenti storici.
    */
-  private worldStateOptions(): { modernFacts: boolean; startDate: string; taxRateByPolity?: Record<string, number> } {
+  private worldStateOptions(): WorldStateOptions & { modernFacts: boolean; startDate: string } {
+    const profiles = this.initialProfileBook();
+    const liveCounts: Record<string, number> = {};
+    if (Object.keys(profiles).length) {
+      for (const row of operationalObjectRepository.list(this.id, 'personnel')) {
+        const known = row.data.unitRegistryPolities;
+        if (Array.isArray(known)) for (const polityId of known) {
+          if (typeof polityId === 'string') liveCounts[polityId] = 0;
+        }
+      }
+      for (const row of operationalObjectRepository.list(this.id, 'unit')) {
+        const polityId = String(row.data.polityId || this.playerPolityId);
+        liveCounts[polityId] ??= 0;
+        if (row.data.status !== 'destroyed') liveCounts[polityId]++;
+      }
+    }
     return {
       modernFacts: hasModernReferenceFacts(this.worldStartDate),
       startDate: this.worldStartDate,
+      initialProfiles: profiles,
+      forceCountsByPolity: liveCounts,
       taxRateByPolity: this.taxRatePct !== null && this.playerPolityId
         ? { [this.playerPolityId]: this.taxRatePct }
         : undefined,
@@ -898,8 +929,7 @@ export class GameSession {
   private engineBaseTaxPct(): number {
     try {
       const base = WorldStateEngine.accounts(this.regions.values(), {
-        modernFacts: hasModernReferenceFacts(this.worldStartDate),
-        startDate: this.worldStartDate,
+        ...this.worldStateOptions(), taxRateByPolity: undefined,
       })[this.playerPolityId];
       return Math.round(Number(base?.taxRatePct ?? DEFAULT_FISCAL_POLICY.taxRatePct) * 10) / 10;
     } catch {
@@ -1942,6 +1972,7 @@ export class GameSession {
       // d'inizio dello scenario; progetti e manutenzione alimentano il quadro
       // della capacità industriale senza che il servizio tocchi il database.
       worldStartDate: () => this.worldStartDate,
+      worldStateOptions: () => this.worldStateOptions(),
       ongoingProcesses: () => this.getOngoingProcesses(),
       maintenanceObligations: () => this.maintenanceCapacityObligations(),
       // OP-OBJECTS: le regioni del giocatore alimentano gli oggetti concreti;
@@ -2225,6 +2256,7 @@ export class GameSession {
       withLock: fn => this.withLock(fn),
     });
     this.bootstrap = new SessionBootstrapService({
+      initializeCountryProfiles: estimate => this.initializeCountryProfiles(estimate),
       gameId: this.id,
       worldId: this.worldId,
       state: this.state,
@@ -2532,8 +2564,46 @@ export class GameSession {
     playerName: string,
     playerColor: string = '#FF0000',
     difficulty?: string,
+    estimateInitialProfile = false,
   ): Promise<string> {
-    return this.bootstrap.initialize(playerRegionId, playerName, playerColor, difficulty);
+    return this.bootstrap.initialize(playerRegionId, playerName, playerColor, difficulty, estimateInitialProfile);
+  }
+
+  /** Exactly one final bootstrap write per polity, before any stock/read model.
+   * NPCs use deterministic profiles; only the player may request one bounded estimate.
+   * Reconstruction intentionally never calls this (legacy games stay compatible). */
+  private initializeCountryProfiles(estimate: boolean): void | Promise<void> {
+    if (this.isStrictGame()) return; // Strict authored ledgers/inventories already own initialization.
+    for (const normalized of countryProfileRegions([...this.regions.values()], this.worldStartDate)) {
+      const region = this.regions.get(normalized.id);
+      if (region) region.population = normalized.population;
+    }
+    const regions = [...this.regions.values()];
+    const owners = [...new Set(regions.map(r => r.owner))].filter(id => id && id !== 'neutral');
+    for (const polityId of owners) {
+      if (countryInitialProfiles.get(this.id, polityId) || (estimate && polityId === this.playerPolityId)) continue;
+      const input = { polityId, startDate: this.worldStartDate, regions };
+      const profile = buildCountryInitialProfile(input);
+      if (validateCountryInitialProfile(profile, input)) countryInitialProfiles.insertOnce(this.id, profile);
+      else console.warn(`[CountryInitialProfile] Invalid authored inputs for ${polityId}; preserving the legacy engine fallback.`);
+    }
+    this.initialAccountsCache = undefined;
+    this.initialProfileCache = undefined;
+    if (!estimate || countryInitialProfiles.get(this.id, this.playerPolityId)) return;
+    const polityId = this.playerPolityId;
+    return generateCountryInitialProfile({ polityId, startDate: this.worldStartDate, regions,
+      countryName: this.publicPolityName(polityId),
+      historicalBaseline: this.cachedHistoricalBaseline(polityId)?.historicalBackground,
+    }, async (system, prompt, signal) => {
+      const response = await this.llm.generate('advisor', system, prompt, { temperature: 0.2, maxTokens: 2_000, signal });
+      return String(response.content ?? '');
+    }).then(profile => {
+      if (validateCountryInitialProfile(profile, { polityId, startDate: this.worldStartDate, regions })) {
+        countryInitialProfiles.insertOnce(this.id, profile);
+      } else console.warn(`[CountryInitialProfile] Invalid authored inputs for ${polityId}; preserving the legacy engine fallback.`);
+      this.initialAccountsCache = undefined;
+      this.initialProfileCache = undefined;
+    });
   }
 
   /** Ricostruzione da stato DB (implementazione in SessionBootstrapService). */
@@ -2914,6 +2984,7 @@ export class GameSession {
       // P5: uomini assegnati e deposito sono due lati della stessa
       // conservazione; checkpoint/rewind devono riportarli indietro insieme.
       arsenalState: arsenalRepository.snapshot(this.id),
+      countryInitialProfiles: countryInitialProfiles.snapshot(this.id),
     };
   }
 
@@ -2958,6 +3029,8 @@ export class GameSession {
   /** Scrive in RAM lo stato calcolato dal restore (forward o rollback). */
   private applyPersistenceState(state: PersistenceApplyState): void {
     this.state.applyCore(state);
+    this.initialAccountsCache = undefined;
+    this.initialProfileCache = undefined;
     // applyCore non copre l'identità del giocatore: senza questo un restore su
     // una sessione ricostruita resterebbe sul fallback «player» e ogni read
     // model (snapshot verificato, dossier) perderebbe la nazione.
@@ -2985,6 +3058,8 @@ export class GameSession {
    * di pace vengono riallineate al nuovo presente.
    */
   private afterRestoreState(restored?: { crisis?: CrisisSnapshot | null }): void {
+    this.initialAccountsCache = undefined;
+    this.initialProfileCache = undefined;
     this.restoreCrisisState(restored?.crisis);
     this.ensurePeacetimePressures();
     // MILITARY/WARFRONT INTEGRITY P0-1: dopo il commit del restore (o del

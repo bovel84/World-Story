@@ -13,7 +13,9 @@
  * Nessuna seconda contabilità: l'aggregato nazionale continua a nascere dalle
  * funzioni del motore; qui c'è solo lo stato che l'aggregato non può esprimere.
  */
+import { createHash } from 'node:crypto';
 import { operationalObjectRepository, type OperationalObjectKind } from '../repositories';
+import { countryInitialProfiles } from '../repositories/country-initial-profile.repository';
 import type { MilitaryEpoch, MilitaryManpower } from '../core/simulation/MilitaryDoctrine';
 import { militaryManpower } from '../core/simulation/MilitaryDoctrine';
 import type { IndustrialProjectInput } from '../core/simulation/IndustrialCapacity';
@@ -98,6 +100,11 @@ export interface OperationalStoreInputs {
   /** Persiste i campi operativi delle armate sugli oggetti della mappa. */
   saveArmies(armies: ArmyOperationalState[]): void;
   onWarn?(label: string, error: unknown): void;
+}
+
+/** Persisted with the personnel sentinel so reload/rewind retains the initial baseline. */
+interface InitialReadinessPersonnel extends MilitaryPersonnelState {
+  initialReadinessSignature?: string;
 }
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -223,6 +230,9 @@ export class OperationalStateStore {
       const polityId = this.inputs.playerPolityId();
       const epoch = this.inputs.epoch();
       const doctrine = this.inputs.manpower();
+      const initialMilitary = countryInitialProfiles.get(this.inputs.gameId, polityId)?.military;
+      const liveUnits = snapshot.units.filter(unit => String(unit.polityId) === String(polityId));
+      const hasLiveMilitary = liveUnits.length > 0 || snapshot.ships.length > 0;
       const regions = this.inputs.regions();
       const endowment = this.inputs.endowment();
       const technologies = this.technologies();
@@ -241,14 +251,12 @@ export class OperationalStateStore {
         recipeOf,
       });
       const depot = { ...this.inputs.depotUnits() };
-      const { ships, fleets } = seedShips({
-        polityId,
-        units: depot,
-        date,
-        regions,
-      });
-      // Le navi **possedute** escono dal deposito: nessun doppio conteggio.
-      for (const ship of ships) {
+      const { ships, fleets } = snapshot.ships.length > 0
+        ? { ships: snapshot.ships, fleets: snapshot.fleets }
+        : seedShips({ polityId, units: depot, date, regions });
+      // Existing ships are already assigned; only newly materialized hulls
+      // leave the depot. The national total never changes.
+      for (const ship of snapshot.ships.length > 0 ? [] : ships) {
         const current = nonNegative(depot[ship.equipmentId]);
         if (current <= 1) delete depot[ship.equipmentId];
         else depot[ship.equipmentId] = current - 1;
@@ -260,6 +268,21 @@ export class OperationalStateStore {
         capacityOf: project => Math.max(1, Math.round(nonNegative(project.progress) > 0 ? 4 : 4)),
       });
       const personnel = seedPersonnel(doctrine, date);
+      if (hasLiveMilitary) {
+        personnel.activePersonnel = Math.round(liveUnits.filter(unit => unit.status !== 'destroyed').reduce((sum, unit) => sum + nonNegative(unit.personnel), 0));
+        personnel.shipCrew = Math.round(ships.reduce((sum, ship) => sum + nonNegative(ship.crew), 0));
+      } else if (initialMilitary) {
+        // Active personnel is the national total, including naval crews.
+        let remainingCrew = Math.round(nonNegative(initialMilitary.activePersonnel));
+        for (const ship of ships) {
+          ship.crew = Math.min(ship.crew, remainingCrew);
+          remainingCrew -= ship.crew;
+        }
+        personnel.shipCrew = Math.round(ships.reduce((sum, ship) => sum + nonNegative(ship.crew), 0));
+        personnel.activePersonnel = Math.round(nonNegative(initialMilitary.activePersonnel)) - personnel.shipCrew;
+        personnel.trainedReserve = Math.round(nonNegative(initialMilitary.reservePersonnel));
+        personnel.mobilizedPersonnel = 0;
+      }
       const armies = seedArmies({
         polityId,
         armies: this.inputs.armyObjects(),
@@ -267,9 +290,25 @@ export class OperationalStateStore {
         totalFormations: this.inputs.totalFormations(),
         epoch,
         date,
+        initialMilitary: !hasLiveMilitary && initialMilitary ? { ...initialMilitary, activePersonnel: personnel.activePersonnel } : undefined,
       });
+      // A partial legacy military state is still authoritative. Recover the
+      // missing sentinel without rematerializing soldiers from the profile.
+      const units = [...snapshot.units];
+      const seededArmies = armies.map(army => {
+        const existing = liveUnits.filter(unit => String(unit.armyId) === String(army.id));
+        if (hasLiveMilitary) return aggregateArmyFromUnits({ ...army, legacyDerived: false }, existing);
+        const created = materializeUnitsForArmy({
+          army, epoch, date, polityId, existing: [],
+          ...(initialMilitary && army.formations > 0 ? { establishmentPersonnel: army.personnel / army.formations } : {}),
+        });
+        units.push(...created);
+        return aggregateArmyFromUnits(army, created);
+      });
+      personnel.unitRegistryPolities = [...new Set([String(polityId), ...units.map(unit => String(unit.polityId || polityId))])].sort();
       const rows: Array<{ kind: OperationalObjectKind; id: string; data: Record<string, unknown> }> = [
         { kind: 'personnel', id: polityId, data: personnel as unknown as Record<string, unknown> },
+        ...units.map(item => ({ kind: 'unit' as const, id: item.id, data: item as unknown as Record<string, unknown> })),
         ...facilities.map(item => ({ kind: 'facility' as const, id: item.id, data: item as unknown as Record<string, unknown> })),
         ...ships.map(item => ({ kind: 'ship' as const, id: item.id, data: item as unknown as Record<string, unknown> })),
         ...fleets.map(item => ({ kind: 'fleet' as const, id: item.id, data: item as unknown as Record<string, unknown> })),
@@ -277,10 +316,11 @@ export class OperationalStateStore {
       ];
       operationalObjectRepository.upsertMany(this.inputs.gameId, rows);
       this.inputs.saveDepotUnits(depot);
-      this.inputs.saveArmies(armies);
-      this.state = { personnel, armies, units: [], fronts: [], facilities, ships, fleets, constructions };
+      this.inputs.saveArmies(seededArmies);
+      this.state = { personnel, armies: seededArmies, units, fronts: snapshot.fronts, facilities, ships, fleets, constructions };
       this.seedChecked = true;
       this.seedDone = true;
+      if (!hasLiveMilitary && initialMilitary) this.captureInitialReadiness(this.state);
       return this.state;
     } catch (error) {
       this.warn('seed oggetti non riuscito', error);
@@ -558,6 +598,17 @@ export class OperationalStateStore {
    * gli uomini dalla dottrina, quelli reali **conservano** uomini ed
    * equipaggiamento trasferiti.
    */
+  private markUnitRegistries(snapshot: OperationalStateSnapshot, previous: readonly MilitaryUnitState[] = []): void {
+    const known = [...new Set([
+      ...(snapshot.personnel.unitRegistryPolities || []), String(this.inputs.playerPolityId()),
+      ...previous.map(unit => String(unit.polityId || this.inputs.playerPolityId())),
+      ...snapshot.units.map(unit => String(unit.polityId || this.inputs.playerPolityId())),
+    ])].sort();
+    if (JSON.stringify(known) === JSON.stringify(snapshot.personnel.unitRegistryPolities)) return;
+    snapshot.personnel.unitRegistryPolities = known;
+    operationalObjectRepository.upsert(this.inputs.gameId, 'personnel', this.inputs.playerPolityId(), snapshot.personnel as unknown as Record<string, unknown>);
+  }
+
   syncArmies(snapshot: OperationalStateSnapshot): OperationalStateSnapshot {
     const epoch = this.inputs.epoch();
     const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch }).menPerFormation;
@@ -600,23 +651,31 @@ export class OperationalStateStore {
           monthlyNeeds: needsOf(formations, personnel, existing.monthlyNeeds),
         });
       } else {
+        // A persisted zero is an emptied army, not a fresh map declaration.
+        const emptied = seed.persistedFormations === 0;
         next.push({
           id,
           name: seed.name,
           regionId: seed.regionId,
           regionName: seed.regionName,
-          formations,
-          personnel: Math.round(formations * menPerFormation),
+          formations: emptied ? 0 : formations,
+          personnel: emptied ? 0 : Math.round(formations * menPerFormation),
           equipment: {},
-          monthlyNeeds: needsOf(formations, Math.round(formations * menPerFormation)),
+          monthlyNeeds: needsOf(emptied ? 0 : formations, emptied ? 0 : Math.round(formations * menPerFormation)),
           status: 'operational',
           objectId: seed.objectId,
           createdDate: this.inputs.currentDate(),
-          legacyDerived: true,
+          legacyDerived: !emptied,
         });
       }
     }
-    const leftover = Math.max(0, total - accounted);
+    const playerUnits = snapshot.units.filter(unit => String(unit.polityId) === String(this.inputs.playerPolityId()));
+    const garrisonId = `${this.inputs.playerPolityId()}-garrison`;
+    const garrisonUnits = playerUnits.filter(unit => String(unit.armyId) === garrisonId);
+    // Once units exist, a national/map mismatch cannot create fresh garrison units.
+    const alreadyMaterialized = snapshot.personnel.unitRegistryPolities?.includes(String(this.inputs.playerPolityId()))
+      || playerUnits.length > 0 || seeds.some(seed => seed.persistedFormations !== undefined);
+    const leftover = alreadyMaterialized ? garrisonUnits.length : Math.max(0, total - accounted);
     const garrison = snapshot.armies.find(army => !army.objectId);
     if (leftover > 0 || garrison) {
       const previous = garrison ?? {
@@ -641,7 +700,17 @@ export class OperationalStateStore {
         monthlyNeeds: needsOf(leftover, personnel, previous.monthlyNeeds),
       });
     }
-    snapshot.armies = next.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    // Legacy personnel may predate unit persistence. Convert THAT stock, not
+    // the initial profile (and never resurrect map objects marked as empty).
+    const stockOnlyBootstrap = !alreadyMaterialized && snapshot.armies.length === 0
+      && playerUnits.length === 0
+      && !seeds.some(seed => seed.persistedFormations !== undefined);
+    snapshot.armies = (stockOnlyBootstrap ? seedArmies({
+      polityId: this.inputs.playerPolityId(), armies: seeds,
+      accountedFormations: accounted,
+      totalFormations: total, epoch, date: this.inputs.currentDate(),
+      activePersonnel: snapshot.personnel.activePersonnel,
+    }) : next).sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
     // ── Reparti: la granularità sotto l'armata (MILITARY-UNITS) ──────────────
     // Materializzazione **lazy e idempotente** (una volta sola; la prima volta
@@ -697,9 +766,44 @@ export class OperationalStateStore {
     const unitsBefore = JSON.stringify(snapshot.units);
     snapshot.units = nextUnits;
     if (unitsBefore !== JSON.stringify(nextUnits)) this.persist('unit', nextUnits);
+    this.markUnitRegistries(snapshot);
 
     this.state = snapshot;
+    if (stockOnlyBootstrap) {
+      const profile = countryInitialProfiles.get(this.inputs.gameId, this.inputs.playerPolityId());
+      if (profile && snapshot.personnel.activePersonnel + snapshot.personnel.shipCrew === Math.round(profile.military.activePersonnel)
+        && snapshot.personnel.trainedReserve === Math.round(profile.military.reservePersonnel)
+        && snapshot.units.length === Math.round(profile.military.formations)) this.captureInitialReadiness(snapshot);
+    }
     return snapshot;
+  }
+
+  /** Canonical material/unit inputs, not the calendar alone, delimit initial readiness. */
+  private readinessSignature(snapshot: OperationalStateSnapshot): string {
+    const personnel = snapshot.personnel;
+    const sortedBag = (bag: Record<string, number>) => Object.entries(bag).sort(([a], [b]) => a.localeCompare(b));
+    return createHash('sha256').update(JSON.stringify({
+      personnel: [personnel.activePersonnel, personnel.trainedReserve, personnel.mobilizedPersonnel, personnel.shipCrew],
+      units: snapshot.units.filter(unit => String(unit.polityId) === String(this.inputs.playerPolityId()))
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+        .map(unit => ({ ...unit, equipment: sortedBag(unit.equipment) })),
+      ships: [...snapshot.ships].sort((a, b) => String(a.id).localeCompare(String(b.id))),
+      depot: sortedBag(this.inputs.depotUnits()),
+      stock: Object.entries(this.inputs.stock()).sort(([a], [b]) => a.localeCompare(b)),
+    })).digest('hex');
+  }
+
+  private captureInitialReadiness(snapshot: OperationalStateSnapshot): void {
+    const personnel = snapshot.personnel as InitialReadinessPersonnel;
+    if (personnel.initialReadinessSignature) return;
+    personnel.initialReadinessSignature = this.readinessSignature(snapshot);
+    operationalObjectRepository.upsert(this.inputs.gameId, 'personnel', this.inputs.playerPolityId(), personnel as unknown as Record<string, unknown>);
+  }
+
+  initialReadinessUnchanged(): boolean {
+    const snapshot = this.snapshot();
+    const signature = (snapshot.personnel as InitialReadinessPersonnel).initialReadinessSignature;
+    return Boolean(signature && signature === this.readinessSignature(snapshot));
   }
 
   /** Stato pronto all'uso: legge, semina se serve, riconcilia le armate. */
@@ -801,8 +905,10 @@ export class OperationalStateStore {
    */
   saveUnits(items: readonly MilitaryUnitState[]): void {
     const snapshot = this.snapshot();
+    const previous = snapshot.units;
     snapshot.units = [...items].sort((a, b) => String(a.id).localeCompare(String(b.id)));
     this.persist('unit', snapshot.units);
+    this.markUnitRegistries(snapshot, previous);
     const playerPolityId = String(this.inputs.playerPolityId());
     const byArmy = new Map<string, MilitaryUnitState[]>();
     for (const unit of snapshot.units) {
@@ -811,7 +917,10 @@ export class OperationalStateStore {
       if (list) list.push(unit);
       else byArmy.set(String(unit.armyId), [unit]);
     }
-    this.saveArmies(snapshot.armies.map(army => aggregateArmyFromUnits(army, byArmy.get(String(army.id)) || [])));
+    // Do not re-enter snapshot() between removing the final unit and writing
+    // its zero map marker: reconciliation would resurrect the old map count.
+    snapshot.armies = snapshot.armies.map(army => aggregateArmyFromUnits(army, byArmy.get(String(army.id)) || []));
+    this.inputs.saveArmies(snapshot.armies);
   }
 
   /**
@@ -842,7 +951,8 @@ export class OperationalStateStore {
       if (list) list.push(unit);
       else byArmy.set(String(unit.armyId), [unit]);
     }
-    this.saveArmies(snapshot.armies.map(army => aggregateArmyFromUnits(army, byArmy.get(String(army.id)) || [])));
+    snapshot.armies = snapshot.armies.map(army => aggregateArmyFromUnits(army, byArmy.get(String(army.id)) || []));
+    this.inputs.saveArmies(snapshot.armies);
   }
 
   /** Aggregato nazionale come somma degli oggetti (diagnostica e invarianti). */

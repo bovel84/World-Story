@@ -27,6 +27,8 @@ export interface MilitaryPersonnelState {
   mobilizedPersonnel: number;
   shipCrew: number;
   updatedDate: string;
+  /** Durable null-vs-empty boundary for already materialized unit registries. */
+  unitRegistryPolities?: string[];
 }
 
 /** Uomini sotto le armi di terra + equipaggi navali. */

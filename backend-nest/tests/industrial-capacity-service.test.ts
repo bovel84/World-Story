@@ -113,7 +113,9 @@ describe('quadro militare pubblicato dal motore', () => {
     const account = session.getResources().account;
     expect(arsenal.manpower.formations).toBe(account.forces);
     expect(arsenal.manpower.activePersonnel).toBe(account.forces * arsenal.manpower.menPerFormation);
-    expect(arsenal.manpower.menPerFormation).toBe(12000);
+    const profile = (session as any).worldStateOptions().initialProfiles[account.polityId];
+    expect(arsenal.manpower.menPerFormation).toBe(Math.round(profile.military.averageFormationSize));
+    expect(arsenal.manpower.activePersonnel).toBe(profile.military.activePersonnel);
     expect(arsenal.manpower.availableReserve + arsenal.manpower.mobilizedPersonnel)
       .toBe(arsenal.manpower.reservePersonnel);
     expect(arsenal.manpower.reservePersonnel).toBeGreaterThan(0);
@@ -127,7 +129,7 @@ describe('quadro militare pubblicato dal motore', () => {
     // Con la dottrina d'epoca: uomini in armi × quota d'epoca (moderno 75%).
     const share = MANPOWER_PROFILES[arsenal.epoch].individualWeaponShare;
     expect(individual.required).toBe(
-      Math.round((account.forces + account.mobilized) * arsenal.manpower.menPerFormation * share),
+      Math.round((arsenal.manpower.activePersonnel + arsenal.manpower.mobilizedPersonnel) * share),
     );
     // Molto più di «40 per reparto»: le armi individuali sono quelle dei soldati.
     expect(individual.required).toBeGreaterThan(account.forces * 40);

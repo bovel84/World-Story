@@ -120,13 +120,13 @@ describe('MAP-COMPLETE — modello solo per le politie curate', () => {
     expect(world.countries.get('AND')!.military).toBe(42);
   });
 
-  it('mondo moderno: la popolazione di riferimento reale resta applicata al baseline', async () => {
+  it('mondo del 2024: la popolazione di riferimento reale resta applicata al baseline', async () => {
     const stub = makeStub();
     const agent = new BalanceAgent(stub.provider);
     const reference = referencePopulation('NPL');
     expect(reference, 'NPL deve avere una popolazione di riferimento').toBeGreaterThan(0);
     const world = await agent.generateInitialWorldState(
-      template(`tpl-map-complete-c-${RUN}`, '2020-02-01'),
+      template(`tpl-map-complete-c-${RUN}`, '2024-02-01'),
       mapPolities(),
       undefined,
       { mode: 'strict' },
@@ -134,7 +134,7 @@ describe('MAP-COMPLETE — modello solo per le politie curate', () => {
     );
     expect(world.countries.get('NPL')!.population).toBe(reference);
     // Le curate restano quelle del modello per gli indici; la popolazione di
-    // riferimento reale (comportamento storico) si applica a tutti i mondi moderni.
+    // riferimento reale si applica solo ai mondi dell'anno di riferimento (2024).
     expect(world.countries.get('USA')!.military).toBe(42);
     expect(world.countries.get('USA')!.population).toBe(referencePopulation('USA'));
   });
