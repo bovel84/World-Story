@@ -131,6 +131,7 @@ function selection(overrides: Partial<WorldPulseSelectionInput> = {}): WorldPuls
     recentEvents: [],
     npcDossiers: '',
     originDate: '2002-03-01',
+    targetDate: '2002-03-31',
     ...overrides,
   };
 }
@@ -236,6 +237,30 @@ describe('World pulse — trigger dinamici, non relazioni', () => {
     expect(tooOld).toEqual([]);
   });
 
+  it('un evento del turno appena prodotto è un trigger (10 marzo, origin 1 marzo)', () => {
+    const candidates = selectWorldPulseCandidates(selection({
+      originDate: '2002-03-01', targetDate: '2002-03-31',
+      recentEvents: [{ date: '2002-03-10', headline: 'La Thailandia convoca il consiglio di sicurezza', detail: '' }],
+    }));
+    expect(candidates.map(c => c.polityId)).toEqual(['THA']);
+  });
+
+  it('un fatto storico del 20 febbraio resta un trigger', () => {
+    const candidates = selectWorldPulseCandidates(selection({
+      originDate: '2002-03-01', targetDate: '2002-03-31',
+      recentEvents: [{ date: '2002-02-20', headline: 'Incidenti di frontiera in Thailandia', detail: '' }],
+    }));
+    expect(candidates.map(c => c.polityId)).toEqual(['THA']);
+  });
+
+  it('un evento oltre targetDate non è un trigger', () => {
+    const candidates = selectWorldPulseCandidates(selection({
+      originDate: '2002-03-01', targetDate: '2002-03-31',
+      recentEvents: [{ date: '2002-04-15', headline: 'La Thailandia convoca il consiglio di sicurezza', detail: '' }],
+    }));
+    expect(candidates).toEqual([]);
+  });
+
   it('semplice menzione nel dossier NON è agenda attiva; agenda esplicita sì', () => {
     const mentionOnly = selectWorldPulseCandidates(selection({
       npcDossiers: '- Vietnam [VNM] — profilo persistente: cauto.\n  Priorità correnti: difendere il confine.',
@@ -276,6 +301,15 @@ describe('World pulse — narrativa-only', () => {
     expect(findMaterialClaim('Il governo apre un dibattito parlamentare')).toBeNull();
     expect(findMaterialClaim('Il governo minaccia sanzioni')).toBeNull();
     expect(findMaterialClaim('Il governo chiede un vertice')).toBeNull();
+  });
+
+  it('l\'intenzione copre il claim solo nella stessa clausola', () => {
+    // Intenzione singola: ammessa.
+    expect(findMaterialClaim('Il governo annuncia che valuterà una mobilitazione.')).toBeNull();
+    expect(findMaterialClaim('Il governo minaccia un embargo')).toBeNull();
+    // Secondo claim materiale in una clausola nuova: respinto.
+    expect(findMaterialClaim('Il governo annuncia che valuterà una mobilitazione. Poi mobilita due divisioni.')).toBe('mobilit');
+    expect(findMaterialClaim('Il governo minaccia sanzioni. Impone un embargo.')).toBe('embargo');
   });
 
   it('una counterAction materiale invalida l\'evento', () => {

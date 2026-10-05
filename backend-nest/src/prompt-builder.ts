@@ -1102,6 +1102,7 @@ export class PromptEngine {
       recentEvents: recentEvents.slice(0, 200),
       npcDossiers: game.npcStrategicProfiles || '',
       originDate: game.currentDate,
+      targetDate: result?.targetDate || undefined,
     };
   }
 

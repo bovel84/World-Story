@@ -73,6 +73,8 @@ export interface WorldPulseSelectionInput {
   npcDossiers: string;
   /** Confine inferiore della finestra: un trigger più vecchio non conta. */
   originDate: string;
+  /** Confine superiore: gli eventi del turno (`originDate < date <= targetDate`). */
+  targetDate?: string;
 }
 
 /**
@@ -113,6 +115,21 @@ function daysBetween(from: string, to: string): number {
 
 /** Un trigger recente deve cadere fra `originDate - LOOKBACK` e oggi. */
 const RECENT_TRIGGER_LOOKBACK_DAYS = 180;
+
+/**
+ * Finestre dei trigger, distinte:
+ *  - storia recente:   `originDate - 180gg <= date <= originDate`
+ *  - turno appena nato: `originDate < date <= targetDate`
+ * Tutto il resto (futuro oltre il target, passato troppo vecchio) è escluso.
+ * `targetDate` assente ⇒ nessun evento del turno è accettato.
+ */
+function isRecentTrigger(date: string, originDate: string, targetDate: string | undefined): boolean {
+  if (date <= originDate) {
+    const age = daysBetween(date, originDate);
+    return Number.isFinite(age) && age >= 0 && age <= RECENT_TRIGGER_LOOKBACK_DAYS;
+  }
+  return Boolean(targetDate) && date <= targetDate!;
+}
 
 /**
  * Estrae dal dossier NPC le agende **realmente attive**, per id di politia.
@@ -164,8 +181,7 @@ export function selectWorldPulseCandidates(input: WorldPulseSelectionInput): Wor
     const recentTriggers: string[] = [];
     for (const event of input.recentEvents) {
       if (!mentions(`${event.headline} ${event.detail || ''}`, polity.name)) continue;
-      const age = daysBetween(event.date, input.originDate);
-      if (!Number.isFinite(age) || age > RECENT_TRIGGER_LOOKBACK_DAYS || age < 0) continue;
+      if (!isRecentTrigger(event.date, input.originDate, input.targetDate)) continue;
       recentTriggers.push(`${event.date}: ${event.headline}`);
     }
 
@@ -323,14 +339,29 @@ const INTENTION_MARKERS = [
   'richiede', 'convoca', 'consultazioni', 'dibattito', 'vertice', 'colloqui',
 ];
 
+/**
+ * Testo fra l'ultimo confine di frase/clausola e lo stem. L'intenzione copre il
+ * claim **solo nella stessa clausola**: «valuterà una mobilitazione. Poi
+ * mobilita due divisioni» non è coperta.
+ */
+function clauseBefore(lower: string, index: number): string {
+  const before = lower.slice(0, index);
+  let start = 0;
+  for (const boundary of ['.', ';', '!', '?', '\n']) {
+    const position = before.lastIndexOf(boundary);
+    if (position + 1 > start) start = position + 1;
+  }
+  return before.slice(start);
+}
+
 /** Ritorna lo stem materiale trovato, o `null` se il testo è narrativa-only. */
 export function findMaterialClaim(text: string): string | null {
   const lower = String(text || '').toLowerCase();
   for (const stem of MATERIAL_STEMS) {
     let index = lower.indexOf(stem);
     while (index !== -1) {
-      const before = lower.slice(Math.max(0, index - 60), index);
-      const intention = INTENTION_MARKERS.some(marker => before.includes(marker));
+      const clause = clauseBefore(lower, index);
+      const intention = INTENTION_MARKERS.some(marker => clause.includes(marker));
       if (!intention) return stem;
       index = lower.indexOf(stem, index + stem.length);
     }

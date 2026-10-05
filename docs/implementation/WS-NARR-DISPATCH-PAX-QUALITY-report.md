@@ -193,10 +193,10 @@ motivo: nessuna chiamata LLM a pagamento autorizzata
 
 ## Test
 
-- Mirati world pulse + narrative-dispatch-quality: **36/36**.
+- Mirati world pulse + narrative-dispatch-quality: **40/40**.
 - Simulation/reactions correlati: **106/106**.
 - Prompt/config/memoria: **131/131** (suite correlate).
-- Full backend unit (una volta): **251 file, 2744 test, 0 failed**.
+- Full backend unit (una volta): **251 file, 2748 test, 0 failed**.
 - Build backend: ok (`tsc` + `npm run build`).
 - Frontend non toccato.
 
@@ -213,9 +213,13 @@ Run `E2E (mock)` su `1fea248` (workflow informativo, `continue-on-error`, nessun
 
 `Quality Gate / test-build` su `1fea248`: **success**.
 
+> Il micro-fix (sezione FINAL HARDENING) tocca **solo backend** e non è stato
+> seguito da un nuovo E2E, come da istruzione. I risultati E2E sopra sono quelli
+> misurati sull'ultimo HEAD con E2E eseguito.
+
 ## FINAL HARDENING
 
-Residui chiusi sull'HEAD `225f97a` senza nuova architettura, senza deploy,
+Residui chiusi sull'HEAD della PR senza nuova architettura, senza deploy,
 senza chiamate provider.
 
 ### 1. Relationships ≠ trigger (fail-closed)
@@ -302,6 +306,27 @@ Divergenza: YYYY-MM-DD
 
 Gerarchia invariata: `CURRENT / POST-TURN STATE > GAME HISTORY > PRE-DIVERGENCE
 HISTORY`.
+
+### 7. MICRO-FIX
+
+**a) Gli eventi del turno sono trigger.** `selectWorldPulseCandidates()` usava
+una sola finestra (`age >= 0`), quindi scartava gli eventi del main result perché
+successivi a `originDate`. Ora le finestre sono due e distinte:
+
+```
+storia recente:      originDate - 180gg <= date <= originDate
+turno appena nato:   originDate < date <= targetDate
+```
+
+`WorldPulseSelectionInput` ha un `targetDate?: string`, popolato da
+`result.targetDate`. Un evento oltre `targetDate` **non** è un trigger.
+
+**b) L'intenzione copre il claim solo nella stessa clausola.**
+`findMaterialClaim()` cercava i marker di intenzione nei 60 caratteri
+precedenti, quindi «annuncia che valuterà una mobilitazione. Poi mobilita due
+divisioni» risultava coperto. Ora i marker valgono solo entro l'ultimo confine
+di frase/clausola (`.` `;` `!` `?` newline): la seconda clausola non ha marker e
+l'evento viene respinto.
 
 ### Invarianti confermati
 
