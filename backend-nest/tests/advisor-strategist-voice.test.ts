@@ -28,7 +28,8 @@ describe('advisor strategist voice', () => {
   it('requires interpretation, alternatives and strategic judgment, not four visible fact labels or mandatory cards', () => {
     const prompt = buildRealityAdvisorPrompt(buildRealityAdvisorContext(country('KHM', 0.8, -2)).advisorContext, 'Come procediamo?');
     expect(prompt).toContain('storico e stratega');
-    expect(prompt).toContain('2-4 azioni');
+    expect(prompt).toContain('1-3 direzioni concrete, diverse e specifiche del paese');
+    expect(prompt).toContain('Per una domanda puntuale rispondi al punto');
     expect(prompt).toContain('Non stampare');
     expect(prompt).toContain('non obbligatorie');
     expect(prompt).toContain('non inventare una crisi');

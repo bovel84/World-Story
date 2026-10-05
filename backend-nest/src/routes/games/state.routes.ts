@@ -225,9 +225,8 @@ router.get('/:id/government/agenda', (req, res) => {
       branchId: fence.branchId,
       playerPolityId: session.getPlayer()?.polityId ?? '',
       government: session.getGovernment(),
-      // P04 — Il conto nazionale: senza, il Tesoro e la Guerra tacciono sempre e
-      // la seduta resta vuota. È la condizione che le due sedie riferiscono.
       account: session.getNationalAccounts()[session.getPlayerPolityId()],
+      snapshot: session.getVerifiedWorldSnapshot(),
     });
     res.json(agenda);
   } catch (e: any) {
@@ -251,6 +250,7 @@ router.get('/:id/government/cabinet', (req, res) => {
       playerPolityId: session.getPlayer()?.polityId ?? '',
       government: session.getGovernment(),
       account: session.getNationalAccounts()[session.getPlayerPolityId()],
+      snapshot: session.getVerifiedWorldSnapshot(),
     });
     res.json(cabinet);
   } catch (e: any) {
@@ -281,6 +281,7 @@ router.get('/:id/opening-narrative', async (req, res) => {
       playerPolityId: session.getPlayer()?.polityId ?? '',
       government: session.getGovernment(),
       account: session.getNationalAccounts()[session.getPlayerPolityId()],
+      snapshot: session.getVerifiedWorldSnapshot(),
     });
     const game = gameRepository.findById(req.params.id) as any;
     const polityId = session.getPlayer()?.polityId ?? '';

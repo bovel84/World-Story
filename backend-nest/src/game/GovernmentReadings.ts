@@ -26,7 +26,12 @@ import { listStrictProjects } from '../repositories/project-runtime.repository';
 import { getReservationAvailability } from '../services/ReservationService';
 import { buildAgenda, type AgendaDeficit, type AgendaFaction, type GovernmentAgenda } from '../core/government/GovernmentAgenda';
 import { composeCabinet, type CabinetSession } from '../core/government/Cabinet';
+import { governmentSalienceInput } from '../core/government/GovernmentSalienceSnapshot';
+import type { VerifiedWorldSnapshot } from '../core/government/VerifiedWorldSnapshot';
+import { totalFundsFor } from '../core/feasibility/WorkPlan';
 import { resolveWorkHolders } from './WorkHolders';
+import { readAvailability } from './FeasibilityReadings';
+import type { AvailabilityReadings } from '../core/feasibility/Availability';
 import { governmentSnapshot } from '../core/simulation/GovernmentFactions';
 import { loadSimulationCatalog } from '../scenario/loader';
 import path from 'path';
@@ -147,31 +152,31 @@ export function blockedDeficits(input: AgendaReadingInput): readonly AgendaDefic
 export function buildableWorks(input: AgendaReadingInput): readonly { workId: string; name: string; missing: readonly string[] }[] {
   const { branchId, catalog } = input;
   if (!catalog) return [];
+  if (!branchId) return (catalog.works ?? []).map(work => ({ workId: work.id, name: work.name, missing: ['stato economico non disponibile'] }));
 
-  const actorsOfPolity = catalog.actors.filter(actor => actor.polityId === input.playerPolityId);
-
+  const readingsByActor = new Map<string, AvailabilityReadings>();
+  const readFor = (actorId: string): AvailabilityReadings => {
+    let cached = readingsByActor.get(actorId);
+    if (!cached) { cached = readAvailability(branchId, actorId, catalog); readingsByActor.set(actorId, cached); }
+    return cached;
+  };
   return (catalog.works ?? []).map(work => {
-    if (!branchId) return { workId: work.id, name: work.name, missing: ['stato economico non disponibile'] };
-
-    // Fabbisogno totale per risorsa: le fasi si sommano, l'opera è una sola.
-    const required = new Map<string, bigint>();
-    for (const phase of work.phases) {
-      for (const material of phase.inputs) {
-        required.set(material.resourceId, (required.get(material.resourceId) ?? 0n) + parseInteger(material.baseUnits, 'q'));
-      }
-    }
-
-    const missing: string[] = [];
-    for (const [resourceId, need] of required) {
-      const unitId = ledgerUnitId(resourceId);
-      const best = actorsOfPolity.reduce((maximum, actor) => {
-        const value = holdingOf(branchId, 'material', unitId, actor.actorId);
-        return value > maximum ? value : maximum;
-      }, 0n);
-      if (need > best) {
-        const resource = catalog.resources.find(r => r.id === resourceId);
-        missing.push(`${resource?.name ?? resourceId} (mancano ${(need - best).toString()} ${resource?.unit.symbol ?? ''})`.trim());
-      }
+    // Same holders, bill and free availability as preflight; do not borrow a
+    // private actor's cash or combine materials from incompatible holders.
+    const holders = resolveWorkHolders(catalog, branchId, input.playerPolityId, work, readFor);
+    const missing = holders.missingMaterials.map(item => {
+      const resource = catalog.resources.find(r => r.id === item.resourceId);
+      return `${resource?.name ?? item.resourceId} (mancano ${item.missing} ${resource?.unit.symbol ?? ''})`.trim();
+    });
+    if (!holders.materialActorId && !missing.length) missing.push(holders.note ?? 'detentore dei materiali non disponibile');
+    const funds = totalFundsFor(work);
+    if (funds && !holders.payerActorId) missing.push('tesoreria non disponibile');
+    else if (funds) {
+      const availability = getReservationAvailability(branchId, {
+        kind: 'money', unitId: ledgerUnitId(funds.currencyId), holderRef: holders.payerActorId,
+      });
+      const shortfall = parseInteger(funds.minorUnits, 'fondi') - parseInteger(availability.available, 'cassa libera');
+      if (shortfall > 0n) missing.push(`fondi (mancano ${shortfall} unità minime ${funds.currencyId})`);
     }
     return { workId: work.id, name: work.name, missing };
   });
@@ -189,14 +194,19 @@ export function readGovernmentAgenda(input: {
   branchId: string | null;
   playerPolityId: string;
   government: ReturnType<typeof governmentSnapshot>;
+  /** Canonical snapshot, supplied server-side; history alone cannot seed present assets. */
+  snapshot?: VerifiedWorldSnapshot;
   /**
-   * P04 — Il conto nazionale, per le sedie che riferiscono una condizione e non
-   * una crisi. Senza, il Tesoro e la Guerra tornano a tacere: è il difetto che
-   * P04 corregge, quindi il parametro è opzionale ma la sua assenza è visibile.
+   * Conto nazionale di compatibilità, usato solo senza snapshot verificato
+   * nello scope corrente. L’assenza di un conto non cancella fatti operativi
+   * verificati; le cifre di supporto ignote non vengono inventate.
    */
   account?: {
     monthlyBalance?: unknown;
     nominalGdpUsdBillions?: unknown;
+    debtServicePct?: unknown;
+    debtRatioPct?: unknown;
+    debtBurdenPct?: unknown;
     defenceBurdenPct?: unknown;
     forces?: unknown;
     mobilized?: unknown;
@@ -235,65 +245,60 @@ export function readGovernmentAgenda(input: {
     catalog,
   };
 
-  // P04 — La condizione, misurata sul conto nazionale. Se il conto non c'è, la
-  // sedia tace: meglio una sala vuota di una cifra inventata.
+  // Scope is mandatory: a snapshot from another branch/polity cannot supply
+  // either current facts or comparison context. Never round before salience.
+  const snapshot = input.snapshot;
+  const canonical = snapshot && snapshot.gameId === input.gameId && snapshot.branchId === input.branchId
+    && snapshot.polityId === input.playerPolityId ? governmentSalienceInput(snapshot) : undefined;
+  const finite = (value: unknown): number | undefined =>
+    typeof value === 'number' && Number.isFinite(value) ? value : undefined;
   const account = input.account;
-  const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions) || 0);
-  const balance = Number(account?.monthlyBalance) || 0;
-  const balancePct = gdp > 0 ? Math.round((balance / gdp) * 1000) / 10 : 0;
-  const defenceBurdenPct = Math.max(0, Number(account?.defenceBurdenPct) || 0);
-  const forces = Math.max(0, Number(account?.forces) || 0);
-  const mobilized = Math.max(0, Number(account?.mobilized) || 0);
-
-  // WS-GOVOFFICE-05 — Istruzione e Sanità. Il peso della spesa è la quota che il
-  // conto **ripartisce** (`educationBurdenPct`, `socialBurdenPct`), non un numero
-  // nuovo; gli atenei, la popolazione, la stabilità e la tensione sono misure
-  // dirette del conto nazionale. Se il conto non c'è, le due sedie tacciono.
-  const educationBurdenPct = Math.max(0, Number(input.government.budget?.educationBurdenPct) || 0);
-  const socialBurdenPct = Math.max(0, Number(input.government.budget?.socialBurdenPct) || 0);
-  const universities = Math.max(0, Number(account?.universities) || 0);
-  const population = Math.max(0, Number(account?.population) || 0);
-  const stability = Math.max(0, Number(account?.stability) || 0);
-  const socialTension = Math.max(0, Number(account?.socialTension) || 0);
+  const gdp = finite(account?.nominalGdpUsdBillions);
+  const balance = finite(account?.monthlyBalance);
+  const cashFlow = canonical ? canonical.cashFlow
+    : balance !== undefined && gdp !== undefined && gdp > 0 ? {
+      balancePct: balance / gdp * 100, balance: String(balance), unit: 'mld', revenuePct: NaN,
+    } : undefined;
+  const debt = canonical ? canonical.debt : {
+    ratioPct: finite(account?.debtRatioPct) ?? finite(account?.debtBurdenPct) ?? input.government.debt.ratioPct,
+    servicePct: finite(account?.debtServicePct) ?? input.government.debt.servicePct,
+  };
+  const defence = canonical ? canonical.defence : account ? {
+    burdenPct: finite(account.defenceBurdenPct) ?? NaN, forces: finite(account.forces) ?? NaN,
+    mobilized: finite(account.mobilized) ?? NaN, factionSatisfaction: null,
+  } : undefined;
+  // Known social stress is sufficient. Sector shares only support the voice;
+  // missing shares stay unknown, while a known zero remains an honest estimate.
+  const socialTension = finite(account?.socialTension);
+  const stability = finite(account?.stability);
+  const education = canonical ? canonical.education : socialTension !== undefined ? {
+    universities: finite(account?.universities), socialTension,
+  } : undefined;
+  const health = canonical ? canonical.health : stability !== undefined ? {
+    population: finite(account?.population), stability,
+  } : undefined;
 
   // La fazione che incarna i militari, per la nota della Guerra. Si cerca per
   // nome: la fotografia non pubblica un ruolo, solo l'identità della fazione.
   const military = input.government.factions.find(faction => /militar|forze armate|esercito|comandi/i.test(faction.name));
 
   return buildAgenda({
+    salience: canonical?.salience,
     deficits: blockedDeficits(reading),
     factions,
-    budget: {
+    budget: canonical?.budget ?? {
       balance: String(input.government.budget.balance),
       unit: 'mld',
       effectiveTaxRatePct: input.government.budget.effectiveTaxRatePct,
     },
-    debt: input.government.debt,
+    debt,
     reserves: [],
     buildable: buildableWorks(reading),
     currencyId: catalog?.manifest.currency.id ?? '',
-    ...(account
-      ? {
-          cashFlow: {
-            balancePct,
-            balance: String(balance),
-            unit: 'mld',
-            revenuePct: 0,
-          },
-          defence: {
-            burdenPct: defenceBurdenPct,
-            forces,
-            mobilized,
-            factionSatisfaction: military?.satisfaction ?? null,
-          },
-          ...(account && educationBurdenPct > 0
-            ? { education: { burdenPct: educationBurdenPct, universities, socialTension } }
-            : {}),
-          ...(account && socialBurdenPct > 0
-            ? { health: { socialBurdenPct, population, stability } }
-            : {}),
-        }
-      : {}),
+    cashFlow,
+    ...(defence ? { defence: { ...defence, factionSatisfaction: finite(military?.satisfaction) ?? null } } : {}),
+    ...(education ? { education: { ...education, burdenPct: finite(input.government.budget?.educationBurdenPct) } } : {}),
+    ...(health ? { health: { ...health, socialBurdenPct: finite(input.government.budget?.socialBurdenPct) } } : {}),
   });
 }
 
@@ -313,6 +318,7 @@ export function readCabinetSession(input: {
   government: ReturnType<typeof governmentSnapshot>;
   /** P04 — il conto nazionale, per le sedie che riferiscono la condizione. */
   account?: Parameters<typeof readGovernmentAgenda>[0]['account'];
+  snapshot?: VerifiedWorldSnapshot;
 }): CabinetSession {
   const agenda = readGovernmentAgenda(input);
   const session = composeCabinet(agenda);

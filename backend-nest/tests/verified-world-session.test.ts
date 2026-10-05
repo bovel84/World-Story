@@ -61,6 +61,10 @@ function savedBaseline(foodAvailable = true) {
     ...current.economy.account, polityId: 'UGA', money: current.economy.treasury! - 0.123456789,
     monthlyBalance: current.economy.monthlyBalance! + 0.234567891,
     socialTension: current.facts.socialTension.rawValue as number - 1.234567891,
+    nominalGdpUsdBillions: current.facts.nominalGdpUsdBillions.rawValue as number + 5.123456789,
+    debtServicePct: current.facts.debtServicePct.rawValue as number + 2.123456789,
+    forces: current.facts.forces.rawValue as number + 3,
+    mobilized: current.facts.mobilized.rawValue as number + 1001,
     ...(foodAvailable ? { foodCoverageMonths: current.economy.foodCoverageMonths! + 0.345678912 } : {}),
   };
   // TurnPipeline records its completed date before incrementing the logical
@@ -127,6 +131,18 @@ describe('GameSession.getVerifiedWorldSnapshot', () => {
     const beforeRead = db.prepare('SELECT total_changes() AS changes').get();
     expect(session.getVerifiedWorldSnapshot().changes).toEqual(snapshot.changes);
     expect(db.prepare('SELECT total_changes() AS changes').get()).toEqual(beforeRead);
+  });
+
+  it('retains the persisted historical source of new numeric Dossier facts, not a current-state path', () => {
+    const { account } = savedBaseline();
+    const snapshot = session.getVerifiedWorldSnapshot();
+    for (const key of ['nominalGdpUsdBillions', 'debtServicePct', 'forces', 'mobilized'] as const) {
+      const delta = snapshot.changes.deltas.find(change => change.key === key)!;
+      expect(delta.before).toBe(account[key]);
+      expect(delta.previousSourceRef).toContain('national_account_history.');
+      expect(delta.previousSourceRef).toContain(`.1951-02-01.account.${key}`);
+      expect(snapshot.dossier?.before?.facts[key].sourceRef).toBe(delta.previousSourceRef);
+    }
   });
 
   it('does not invent historical food coverage or declare military unchanged from account history', () => {

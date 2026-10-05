@@ -100,7 +100,8 @@ export function readPreviousVerifiedWorldSnapshot(
     const fields: Record<string, string> = {
       treasury: 'money', monthlyBalance: 'monthlyBalance', foodCoverageMonths: 'foodCoverageMonths',
       socialTension: 'socialTension', revenue: 'monthlyRevenue', expenditure: 'monthlyExpenses',
-      stability: 'stability', population: 'population',
+      stability: 'stability', population: 'population', nominalGdpUsdBillions: 'nominalGdpUsdBillions',
+      debtRatioPct: 'debtRatioPct', debtServicePct: 'debtServicePct', forces: 'forces', mobilized: 'mobilized',
     };
     for (const [key, field] of Object.entries(fields)) {
       if (previous.facts[key]) previous.facts[key].sourceRef = `${source}.${field}`;

@@ -54,6 +54,7 @@ import { CABINET_SEATS, SEAT_LABEL, SEAT_READS, type CabinetAddress, type Cabine
 import { type CrisisEnding, type CrisisState } from './core/simulation/NationCrisis';
 import { governmentSnapshot } from './core/simulation/GovernmentFactions';
 import { readCabinetSession } from './game/GovernmentReadings';
+import { readGovernmentDossier } from './core/government/GovernmentDossier';
 import { briefingFor, openingMessage } from './core/government/MinisterChat';
 import { mandateFor, type MinisterMemory, type MinisterMemoryScope } from './core/government/MinisterMemory';
 import { ministerMemoryRepository } from './repositories/minister-memory.repository';
@@ -2383,12 +2384,18 @@ export class GameSession {
 
     const gameData = this.buildGameData();
     const branchId = gameRepository.getHeadBranch(this.id);
-    return buildVerifiedWorldSnapshot({
+    const operationalRows = operationalObjectRepository.list(this.id);
+    const profile = countryInitialProfiles.get(this.id, this.playerPolityId);
+    const initialReadinessPct = profile && this.currentDate === profile.startDate
+      && this.operationalStoreFor().initialReadinessUnchangedFromRows(operationalRows)
+      ? profile.military.readinessPct : null;
+    const snapshot = buildVerifiedWorldSnapshot({
       gameData,
       branchId,
       // Read registered rows, not the operational getter that materializes
       // legacy capacity into synthetic facilities/armies on first access.
-      operationalRows: operationalObjectRepository.list(this.id),
+      operationalRows,
+      initialReadinessPct,
       commitments: this.commitments.all(),
       foodCoverageMonths: this.nationState.foodCoverageMonths(),
       decisions: gameRepository.listPressures(this.id).map(record => ({
@@ -2404,6 +2411,8 @@ export class GameSession {
       // parent-branch baselines, or stale snapshots surviving session restore.
       previousSnapshot: previousSnapshot === undefined ? readPreviousVerifiedWorldSnapshot(gameData, branchId) : previousSnapshot,
     });
+    snapshot.dossier = readGovernmentDossier(snapshot);
+    return snapshot;
   }
 
   // =========================================================================
@@ -3664,6 +3673,7 @@ export class GameSession {
     const cabinet = readCabinetSession({
       gameId: this.id, branchId: fence.branchId, playerPolityId: this.playerPolityId,
       government: this.getGovernment(), account: this.getNationalAccounts()[this.playerPolityId],
+      snapshot: this.getVerifiedWorldSnapshot(),
     });
     // WS-GOV-ADVISOR-HUB P9 — Una sedia senza questioni resta CONSULTABILE: la
     // sua apertura è un saluto, non un errore. Solo una sedia inesistente rifiuta.
@@ -3723,9 +3733,8 @@ export class GameSession {
       branchId: fence.branchId,
       playerPolityId: this.playerPolityId,
       government: this.getGovernment(),
-      // P04 — il conto nazionale: le sedie che riferiscono la condizione (Tesoro,
-      // Guerra) ne hanno bisogno, e senza la seduta sarebbe vuota.
       account: this.getNationalAccounts()[this.playerPolityId],
+      snapshot: this.getVerifiedWorldSnapshot(),
     });
     const address = this.consultableMinisterAddress(cabinet, seat);
     const selective = getJevConfig().enabled;
@@ -3810,6 +3819,7 @@ export class GameSession {
       playerPolityId: this.playerPolityId,
       government: this.getGovernment(),
       account: this.getNationalAccounts()[this.playerPolityId],
+      snapshot: this.getVerifiedWorldSnapshot(),
     });
     const address = this.consultableMinisterAddress(cabinet, seat);
     const { question, request } = this.ministerSelectiveFrom(address, message);
@@ -3825,6 +3835,7 @@ export class GameSession {
       playerPolityId: this.playerPolityId,
       government: this.getGovernment(),
       account: this.getNationalAccounts()[this.playerPolityId],
+      snapshot: this.getVerifiedWorldSnapshot(),
     });
     const address = this.consultableMinisterAddress(cabinet, seat);
     return this.ministerPromptFor(address, message, includeLegacyMemory);

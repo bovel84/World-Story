@@ -13,12 +13,14 @@
  * atto di un ordine dichiarato a mano: non un secondo percorso.
  *
  * Le regole che i test difendono:
+ *  - **il catalogo da solo non crea un’agenda**: la fixture dichiara un avanzo
+ *    significativo e usa la distinta coperta dal ledger per proporre l’opera;
  *  - **una voce di costruzione porta l'opera**: senza `workId`, la coda non può
  *    dichiarare nulla e il motore rifiuta l'ordine;
  *  - **la dichiarazione la risolve il server**, con i detentori reali del paese;
- *  - **senza detentore la dichiarazione NON è registrabile** (`materialActorId:
- *    null`) e la voce dice quanto manca: meglio un rifiuto spiegato che un
- *    ordine che non parte;
+ *  - **senza detentore l’opera NON diventa una richiesta automatica**: il
+ *    resolver canonico restituisce `materialActorId: null` e quanto manca;
+ *    anche un ordine con una dichiarazione ormai obsoleta non apre cantieri;
  *  - **la dichiarazione è quella che `commitWork` accetta**: il giro completo,
  *    dal catalogo alla coda.
  *
@@ -71,11 +73,25 @@ describe('P03a — la voce di costruzione porta la dichiarazione che il motore p
     }
   });
 
+  const canonicalState = (): string => JSON.stringify(
+    ['ledger_entries', 'reservations', 'project_runtime_states'].map(table =>
+      db.prepare(`SELECT * FROM ${table} WHERE branch_id = ?`).all(branchId)),
+  );
+
   const readCabinet = async (): Promise<CabinetSession> => {
     const { readCabinetSession } = await import('../src/game/GovernmentReadings');
-    return readCabinetSession({
+    const before = canonicalState();
+    const cabinet = readCabinetSession({
       gameId, branchId, playerPolityId: 'ALPHA', government: session.getGovernment(),
+      // Conto sintetico dichiarato: 2 mld/mese su 100 mld di PIL annuo (2%,
+      // non annualizzato). Serve a rendere significativa la scelta d’investire;
+      // cassa e materiali restano quelli reali del bootstrap, validati dal motore.
+      account: { monthlyBalance: 2, nominalGdpUsdBillions: 100 },
     });
+    expect(cabinet.canonicalMutation).toBe(false);
+    expect(canonicalState(), 'leggere non prenota, spende o costruisce').toBe(before);
+    // Il registry usa una fixture priva di generate/stream: nessun LLM necessario.
+    return cabinet;
   };
 
   it('una voce di costruzione porta l’OPERA, e la dichiarazione coi detentori', async () => {
@@ -83,7 +99,7 @@ describe('P03a — la voce di costruzione porta la dichiarazione che il motore p
     const buildItems = cabinet.addresses.flatMap(address => address.items)
       .filter(item => item.work);
 
-    expect(buildItems.length, 'il catalogo ha un’opera: la voce deve portarla').toBeGreaterThan(0);
+    expect(buildItems.length, 'avanzo significativo e distinta coperta: la voce porta l’opera').toBeGreaterThan(0);
     const road = buildItems.find(item => item.work!.workId === 'w_road')!;
     expect(road.work!.name).toBeTruthy();
 
@@ -108,6 +124,10 @@ describe('P03a — la voce di costruzione porta la dichiarazione che il motore p
       'SELECT COUNT(*) AS n FROM project_runtime_states WHERE branch_id = ?',
     ).get(branchId) as { n: number }).n;
 
+    const ledgerBefore = db.prepare('SELECT * FROM ledger_entries WHERE branch_id = ?').all(branchId);
+    const reservationsBefore = (db.prepare(
+      'SELECT COUNT(*) AS n FROM reservations WHERE branch_id = ?',
+    ).get(branchId) as { n: number }).n;
     const before = projects();
     const outcomes = applyWorkCommits({
       gameId, branchId,
@@ -129,12 +149,23 @@ describe('P03a — la voce di costruzione porta la dichiarazione che il motore p
     // L'ordine nato dal Governo APRE IL CANTIERE: è la prova che passa i requisiti.
     expect(outcomes[0].kind).toBe('committed');
     expect(projects()).toBe(before + 1);
+    if (outcomes[0].kind !== 'committed') throw new Error('cantiere non impegnato');
+    expect(outcomes[0].reservationIds).toHaveLength(3); // cassa, acciaio e utensili
+    expect((db.prepare(
+      'SELECT COUNT(*) AS n FROM reservations WHERE branch_id = ?',
+    ).get(branchId) as { n: number }).n).toBe(reservationsBefore + 3);
+    // Impegnare non consuma: si conserva integralmente il ledger.
+    expect(db.prepare('SELECT * FROM ledger_entries WHERE branch_id = ?').all(branchId)).toEqual(ledgerBefore);
   });
 
-  it('senza detentore la dichiarazione NON è registrabile, e la voce dice quanto manca', async () => {
-    // Si esaurisce l'acciaio: nessun attore della nazione copre la distinta. La
-    // voce deve dichiararlo — `materialActorId: null` e i materiali mancanti —
-    // invece di produrre un ordine che il motore rifiuterebbe.
+  it('senza detentore l’opera non è in agenda e il motore non materializza un cantiere impossibile', async () => {
+    // Si conserva una dichiarazione valida, poi si riserva tutto l’acciaio
+    // libero: il catalogo resta consultabile, ma non è una richiesta automatica.
+    const initialCabinet = await readCabinet();
+    const staleDeclaration = initialCabinet.addresses.flatMap(address => address.items)
+      .find(item => item.work?.workId === 'w_road')!.declaration!;
+    expect(staleDeclaration.funded).toBe(true);
+    expect(staleDeclaration.materialActorId).toBe('alpha_steel_co');
     const { getReservationAvailability, createReservation } = await import('../src/services/ReservationService');
     const { ledgerUnitId } = await import('../src/services/StrictEffectProducerService');
     const target = { kind: 'material' as const, unitId: ledgerUnitId('steel'), holderRef: 'alpha_steel_co' };
@@ -143,16 +174,43 @@ describe('P03a — la voce di costruzione porta la dichiarazione che il motore p
       createReservation(gameId, branchId, { reservationId: 'p03_esaurisce', target, amount: available });
     }
 
+    expect(getReservationAvailability(branchId, target).available).toBe('0');
+    const before = canonicalState();
     const cabinet = await readCabinet();
-    const road = cabinet.addresses.flatMap(address => address.items)
-      .find(item => item.work?.workId === 'w_road')!;
+    expect(cabinet.addresses.flatMap(address => address.items)
+      .filter(item => item.work?.workId === 'w_road' || item.voiceId === 'build_w_road')).toEqual([]);
 
-    expect(road.declaration?.materialActorId, 'senza detentore non si dichiara un cantiere').toBeNull();
-    expect(road.declaration?.funded).toBe(false);
-    // E la voce dice quanto manca, invece di tacere.
-    expect(road.declaration?.missingMaterials?.length ?? 0).toBeGreaterThan(0);
-    const steel = road.declaration?.missingMaterials?.find(m => m.resourceId === 'steel');
-    expect(steel?.missing).toBeTruthy();
+    const catalog = loadSimulationCatalog(path.join(process.cwd(), 'data', 'presets', 'realism_test_world')).catalog!;
+    const { resolveWorkHolders } = await import('../src/game/WorkHolders');
+    const road = catalog.works!.find(work => work.id === 'w_road')!;
+    const holders = resolveWorkHolders(catalog, branchId, 'ALPHA', road);
+    expect(holders.payerActorId).toBe('alpha_treasury');
+    expect(holders.materialActorId, 'nessun attore copre la distinta').toBeNull();
+    expect(holders.missingMaterials).toContainEqual({ resourceId: 'steel', missing: '12' });
+    expect(canonicalState(), 'anche il resolver è read-only').toBe(before);
+
+    // Il client può rimandare un preflight obsoleto con funded:true: è il
+    // motore a ricontrollare la disponibilità e annullare ogni riserva parziale.
+    const { applyWorkCommits } = await import('../src/game/WorkCommitTurn');
+    const outcomes = applyWorkCommits({
+      gameId, branchId, catalog,
+      actions: [{
+        id: 'p03_impossibile', text: 'Costruire la strada', createdAt: '1951-01-01', status: 'processing',
+        workOrder: {
+          workId: staleDeclaration.workId,
+          payerActorId: staleDeclaration.payerActorId,
+          materialActorId: staleDeclaration.materialActorId!,
+          funded: staleDeclaration.funded,
+        },
+      }],
+      wasAccepted: () => true,
+      playerPolityId: 'ALPHA', regionId: REGION_ID,
+    });
+    expect(outcomes).toEqual([{
+      kind: 'unfunded', orderId: 'p03_impossibile',
+      reason: expect.stringContaining('nessun cantiere avviato'),
+    }]);
+    expect(canonicalState(), 'nessun cantiere o riserva parziale, ledger conservato').toBe(before);
   });
 
   it('una voce che NON è una costruzione non porta dichiarazioni', async () => {
