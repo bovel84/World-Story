@@ -35,31 +35,55 @@ const belongs = (data: Readonly<Record<string, unknown>>, polityId: string): boo
   return !owner || owner === polityId;
 };
 
-// WS-GOV-DOSSIER-SALIENCE — attacco terrestre: un ordine ESPLICITO di attaccare
-// richiede almeno un reparto terrestre canonico sotto il nostro controllo.
-// Riconosce solo forme direttive (imperativo/1ª persona) e ordini espliciti;
-// l'infinito nudo («valutiamo se attaccare») resta discussione, non esecuzione.
+// WS-GOV-MILITARY-PREFLIGHT — un ordine ESPLICITO che usa una capacità militare
+// richiede l'asset canonico di QUEL dominio sotto il nostro controllo. Solo
+// forme direttive (imperativo/1ª persona, ordine esplicito); ipotesi, domande,
+// negazioni e analisi restano discussione, non esecuzione. Nessun LLM.
 const LAND_ATTACK = new RegExp(
   '\\b(?:attacchiamo|attaccate|attacca|invadiamo|invadete|invade|invado)\\b'
   + '|\\b(?:attack|attacks|invade|invades)\\b'
   + '|\\b(?:ordina|ordino|ordinate|ordiniamo|disponi|dispone|disponiamo)\\b[^.;!\\n]{0,40}\\b(?:attaccare|invadere)\\b'
   + '|\\b(?:lanciamo|lanciate|sferriamo|sferra|avviamo)\\b[^.;!\\n]{0,30}\\b(?:offensiv|attacc|invasion)\\w*\\b',
 );
-const ATTACK_HYPOTHESIS = /\b(?:se|qualora|caso|potremmo|potrei|potrebbe|dovremmo|valutiamo|valutare|valutazione|discutiamo|discutere|discussione|ipotesi|forse|conviene|consideriamo|considerare|pianifich\w*|strategia|analizz\w*|chied\w*)\b/;
+const ATTACK_HYPOTHESIS = /\b(?:se|qualora|caso|potremmo|potrei|potrebbe|dovremmo|valutiamo|valutare|valutazione|discutiamo|discutere|discussione|ipotesi|forse|conviene|consideriamo|considerare|pianifich\w*|strategia|analis\w*|analizz\w*|chied\w*)\b/;
 const ATTACK_NEGATION = /\b(?:non|senza|evitare|evita|evitiamo|mai)\b/;
-// Un attacco che nomina una piattaforma navale/aerea non implica forze
-// terrestri: la guardia riguarda solo l'attacco terrestre.
+const QUESTION_START = /^\s*(?:come|quale|quali|quando|dove|perch[eè]|quanto|quanta|chi|cosa|che\s+cosa|how|what|when|where|why|which|who|whether)\b/;
+// Un attacco che nomina una piattaforma navale/missilistica/aerea non implica
+// forze terrestri: la guardia terrestre lo lascia al suo dominio.
 const NON_LAND_PLATFORM = /\b(?:flott\w*|marin\w*|nav[ei]|navy|ships?|missil\w*|aer[ei]|avi\w+|air\s?force)\b/;
+// Lessici di dominio e verbi direttivi. I sostantivi da soli non bastano:
+// serve un verbo d'uso/ordine esplicito.
+const NAVAL_LEWIS = /\b(?:flott\w*|marin\w*|nav[ei]|navy|ships?|warships?)\b/;
+const MISSILE_LEWIS = /\b(?:missil\w*|missiles?)\b/;
+const AIR_LEWIS = /\b(?:avi\w+|aeronautic\w*|aer[ei]|air\s?force|bombardier\w*|caccia|elicotter\w*)\b/;
+const DOMAIN_ACTION = /\b(?:usa|usare|usiamo|usate|use|using|utilizz\w*|impieg\w*|schier\w*|mand\w*|invi\w*|mobilit\w*|deploy|send|lanci\w*|sferr\w*|attacc\w*|invad\w*|ordin\w*|dispon\w*)\b/;
 /** Stati che non provano un reparto utilizzabile (mai inventare quantita'). */
 const NON_OPERATIONAL_LAND = new Set(['under_construction', 'planned', 'destroyed', 'decommissioned', 'cancelled', 'forming', 'mobilizing']);
 const LAND_FORMATION_TYPES = new Set(['army', 'battalion']);
 
-/** Forma direttiva di attacco, distinta da ipotesi, negazione o discussione. */
-function attackDirective(clause: string): boolean {
+/** Una domanda non è un ordine: non deve mai produrre un blocker esecutivo. */
+function isQuestion(original: string | undefined): boolean {
+  return !!original && (original.includes('?') || QUESTION_START.test(normalize(original)));
+}
+
+/** Forma direttiva di attacco terrestre, distinta da ipotesi, negazione o discussione. */
+function attackDirective(clause: string, question: boolean): boolean {
+  if (question) return false;
   const match = LAND_ATTACK.exec(clause);
   if (!match) return false;
   const before = clause.slice(0, match.index);
   return !ATTACK_HYPOTHESIS.test(before) && !ATTACK_NEGATION.test(before) && !NON_LAND_PLATFORM.test(clause);
+}
+
+/** Ordine esplicito d'uso di un dominio militare: verbo direttivo + lessico. */
+function domainDirective(clause: string, question: boolean, lexis: RegExp): boolean {
+  if (question) return false;
+  const action = DOMAIN_ACTION.exec(clause);
+  if (!action) return false;
+  const lex = lexis.exec(clause);
+  if (!lex) return false;
+  const before = clause.slice(0, Math.min(action.index, lex.index));
+  return !ATTACK_HYPOTHESIS.test(before) && !ATTACK_NEGATION.test(before);
 }
 
 /** Almeno un reparto terrestre canonico utilizzabile della polity (mappa o registro operativo). */
@@ -76,8 +100,28 @@ function hasLandForce(world: CanonicalOrderWorld, polityId: string): boolean {
   }
   // `unit` è il kind canonico dei reparti nel registro operativo (il repository
   // non produce `army`/`force`: quelli sono etichette di lettura, non righe).
-  return world.operationalObjects.some(row => row.kind === 'unit' && belongs(row.data, polityId)
-    && !NON_OPERATIONAL_LAND.has(text(row.data.status)));
+  // Un reparto senza uomini (personnel <= 0 o assente) non è utilizzabile.
+  return world.operationalObjects.some(row => {
+    if (row.kind !== 'unit' || !belongs(row.data, polityId)
+      || NON_OPERATIONAL_LAND.has(text(row.data.status))) return false;
+    const personnel = Number(row.data.personnel);
+    return Number.isFinite(personnel) && personnel > 0;
+  });
+}
+
+/** Capacità missilistica canonica: oggetto di mappa `missile` operativo. */
+function hasMissileCapability(world: CanonicalOrderWorld, polityId: string): boolean {
+  for (const region of world.regions) {
+    if (region.owner !== polityId) continue;
+    for (const raw of region.objects) {
+      const object = record(raw);
+      if (text(object.type) !== 'missile' || !belongs(object, polityId)) continue;
+      const metadata = record(object.metadata);
+      if (unavailable(object) || NON_OPERATIONAL_LAND.has(text(object.status || metadata.status))) continue;
+      return true;
+    }
+  }
+  return false;
 }
 
 function inventoryFor(world: CanonicalOrderWorld, polityId: string): Inventory {
@@ -165,10 +209,26 @@ export function canonicalOrderBlockers(textValue: string, polityId: string, worl
   // clausola ORIGINALE alla stessa posizione.
   const originalClauses = textValue.split(/[.;!\n]/);
   const clauses = normalize(textValue).split(/[.;!\n]/);
-  if (clauses.some(attackDirective) && !hasLandForce(world, polityId)) {
+  const questions = clauses.map((_, index) => isQuestion(originalClauses[index]));
+  if (clauses.some((clause, index) => attackDirective(clause, questions[index]!)) && !hasLandForce(world, polityId)) {
     blockers.push({ code: 'MILITARY_ASSET_MISSING', field: 'military.landForces', detail: 'L’atto ordina un attacco terrestre, ma nessun reparto terrestre canonico risulta disponibile sotto il nostro controllo.' });
   }
+  // Gli assetti navali provengono dall'inventario canonico già usato per la
+  // guardia infrastrutturale: regioni `fleet` + righe operative `ship`/`fleet`.
+  if (clauses.some((clause, index) => domainDirective(clause, questions[index]!, NAVAL_LEWIS)) && inventory.fleet.length === 0) {
+    blockers.push({ code: 'MILITARY_ASSET_MISSING', field: 'military.navalAssets', detail: 'L’atto impiega una forza navale, ma nessuna nave o flotta canonica risulta disponibile sotto il nostro controllo.' });
+  }
+  if (clauses.some((clause, index) => domainDirective(clause, questions[index]!, MISSILE_LEWIS)) && !hasMissileCapability(world, polityId)) {
+    blockers.push({ code: 'MILITARY_ASSET_MISSING', field: 'military.missileAssets', detail: 'L’atto impiega capacità missilistica, ma nessun asset missilistico canonico risulta presente sotto il nostro controllo.' });
+  }
+  // L'aria non ha un tipo verificabile nel world canonico dell'ordine
+  // (region objects + operationalObjects): dato non disponibile, mai assunto.
+  if (clauses.some((clause, index) => domainDirective(clause, questions[index]!, AIR_LEWIS))) {
+    blockers.push({ code: 'DATA_UNAVAILABLE', field: 'military.airAssets', detail: 'L’atto impiega capacità aerea, ma il world canonico dell’ordine non espone un asset aereo verificabile: dato non disponibile.' });
+  }
   for (const [clauseIndex, clause] of clauses.entries()) {
+    // Una domanda non esegue nulla: nessun blocker esecutivo da un'interrogativa.
+    if (questions[clauseIndex]) continue;
     for (const kind of Object.keys(REFERENCES) as AssetKind[]) {
       for (const reference of clause.matchAll(REFERENCES[kind])) {
         const prefix = clause.slice(0, reference.index);
@@ -204,7 +264,14 @@ export function canonicalOrderBlockers(textValue: string, polityId: string, worl
       }
     }
   }
-  return blockers;
+  // Un solo blocker per campo: la guardia generica e quella di dominio possono
+  // descrivere lo stesso asset mancante (es. flotta).
+  const unique = new Map<string, Blocker>();
+  for (const blocker of blockers) {
+    const key = `${blocker.code}|${blocker.field ?? ''}|${blocker.targetId ?? ''}`;
+    if (!unique.has(key)) unique.set(key, blocker);
+  }
+  return [...unique.values()];
 }
 
 export class OrderRealityBlockedError extends Error {

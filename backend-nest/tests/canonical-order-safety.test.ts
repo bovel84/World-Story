@@ -270,6 +270,8 @@ describe('canonical land-attack preflight (WS-GOV-DOSSIER-SALIENCE)', () => {
   const withFormingUnit = { regions: empty.regions, operationalObjects: [{ id: 'u2', kind: 'unit', data: { polityId: 'ALPHA', status: 'forming', personnel: 800 } }] };
   const withArmy = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [{ id: 'a1', type: 'army', name: 'I Armata', level: 3 }] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
   const withFleet = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [{ id: 'f1', type: 'fleet', name: 'I Flotta' }] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
+  const withMissile = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [{ id: 'm1', type: 'missile', name: 'Missili' }] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
+  const withShip = { regions: empty.regions, operationalObjects: [{ id: 's1', kind: 'ship', data: { polityId: 'ALPHA', status: 'operational', name: 'Nave' } }] };
   const codes = (text: string, world: Parameters<typeof canonicalOrderBlockers>[2]) => canonicalOrderBlockers(text, 'ALPHA', world).map(blocker => blocker.code);
 
   it('blocca un ordine esplicito di attacco senza alcun reparto terrestre', () => {
@@ -302,7 +304,59 @@ describe('canonical land-attack preflight (WS-GOV-DOSSIER-SALIENCE)', () => {
   });
 
   it('un attacco navale o missilistico non è trattato come attacco terrestre', () => {
-    expect(codes('Ordina alla I Flotta di attaccare in Italia', withFleet)).not.toContain('MILITARY_ASSET_MISSING');
-    expect(codes('Lanciamo un attacco missilistico', empty)).not.toContain('MILITARY_ASSET_MISSING');
+    expect(canonicalOrderBlockers('Ordina alla I Flotta di attaccare in Italia', 'ALPHA', withFleet).map(blocker => blocker.field)).not.toContain('military.landForces');
+    expect(canonicalOrderBlockers('Lanciamo un attacco missilistico', 'ALPHA', withMissile).map(blocker => blocker.field)).not.toContain('military.landForces');
+  });
+});
+
+describe('military domain preflight (WS-GOV-MILITARY-PREFLIGHT)', () => {
+  const empty = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [] as unknown[] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
+  const unit = (personnel: number, status = 'operational') => ({ regions: empty.regions, operationalObjects: [{ id: 'u1', kind: 'unit', data: { polityId: 'ALPHA', status, personnel } }] });
+  const ship = { regions: empty.regions, operationalObjects: [{ id: 's1', kind: 'ship', data: { polityId: 'ALPHA', status: 'operational', name: 'Nave' } }] };
+  const fleetObject = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [{ id: 'f1', type: 'fleet', name: 'I Flotta' }] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
+  const missileObject = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [{ id: 'm1', type: 'missile', name: 'Missili' }] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
+  const blockersFor = (text: string, world: Parameters<typeof canonicalOrderBlockers>[2]) => canonicalOrderBlockers(text, 'ALPHA', world);
+  const codes = (text: string, world: Parameters<typeof canonicalOrderBlockers>[2]) => blockersFor(text, world).map(blocker => blocker.code);
+  const fields = (text: string, world: Parameters<typeof canonicalOrderBlockers>[2]) => blockersFor(text, world).map(blocker => blocker.field);
+
+  it('terra: attacco senza reparti => blocked', () => {
+    expect(fields('Attacchiamo il Kenya', empty)).toContain('military.landForces');
+  });
+
+  it('terra: un reparto con personnel 0 non conta', () => {
+    expect(fields('Attacchiamo il Kenya', unit(0))).toContain('military.landForces');
+  });
+
+  it('terra: un reparto operativo con personale non è bloccato da questo guard', () => {
+    expect(fields('Attacchiamo il Kenya', unit(800))).not.toContain('military.landForces');
+  });
+
+  it('mare: attacco navale senza flotta/navi => blocked', () => {
+    expect(fields('Ordina alla I Flotta di attaccare in Italia', empty)).toContain('military.navalAssets');
+  });
+
+  it('mare: attacco navale con asset valido => ok', () => {
+    for (const world of [ship, fleetObject]) {
+      expect(fields('Ordina alla I Flotta di attaccare in Italia', world)).not.toContain('military.navalAssets');
+    }
+  });
+
+  it('missili: lancio senza capacità => blocked', () => {
+    expect(fields('Lanciamo un attacco missilistico', empty)).toContain('military.missileAssets');
+  });
+
+  it('missili: lancio con capacità canonica => ok', () => {
+    expect(fields('Lanciamo un attacco missilistico', missileObject)).not.toContain('military.missileAssets');
+  });
+
+  it('aria: capacità non modellata => DATA_UNAVAILABLE', () => {
+    const air = blockersFor('Usiamo l’aviazione per bombardare il Kenya', empty);
+    expect(air).toEqual([expect.objectContaining({ code: 'DATA_UNAVAILABLE', field: 'military.airAssets' })]);
+  });
+
+  it('domande, ipotesi e negazioni non producono blocker esecutivi', () => {
+    for (const text of ['Valutiamo un attacco missilistico', 'Valutiamo se attaccare il Kenya', 'Come usiamo la flotta?', 'Non lanciamo missili', 'Un’analisi dell’attacco missilistico']) {
+      expect(codes(text, empty)).toEqual([]);
+    }
   });
 });
