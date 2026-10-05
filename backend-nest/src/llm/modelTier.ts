@@ -23,8 +23,11 @@
  * si prova senza avviare il router, e una tabella di modelli reali lo difende.
  *
  * Non si indovina la qualità di un modello dal nome: si riconoscono i **segnali
- * dichiarati** — il suffisso `flash`, la variante gratuita, la dimensione in
- * miliardi scritta nel nome, l'ordine di grandezza `mini`/`small`/`nano`.
+ * dichiarati** — la variante gratuita, la dimensione in miliardi scritta nel
+ * nome, l'ordine di grandezza `mini`/`small`/`nano` — e **prima di tutto** una
+ * allowlist esplicita di **famiglie forti** (`glm-5*`, `deepseek-v4*`), perché
+ * il suffisso `flash` non è una misura di capacità (i modelli che Andrea usa
+ * davvero lo portano e finivano erroneamente nella fascia vincolata).
  */
 
 /** Sotto questa soglia (in miliardi di parametri) il modello è di fascia bassa. */
@@ -34,8 +37,16 @@ export interface ModelTier {
   /** Il modello riceve il protocollo compatto. */
   constrained: boolean;
   /** Perché: utile nei log e nei test, e per non doverlo dedurre. */
-  reason: 'free' | 'flash' | 'small-params' | 'small-label' | 'full-tier';
+  reason: 'free' | 'flash' | 'small-params' | 'small-label' | 'strong-family' | 'full-tier';
 }
+
+/**
+ * Famiglie di modelli con **capacità piena** riconosciuta, non inferita dalla
+ * parola `flash`. L'allowlist è esplicita e deterministica: sono i modelli che
+ * Andrea usa davvero (`glm-5*`, `deepseek-v4*`), che il suffisso `flash`
+ * classificava erroneamente come piccoli.
+ */
+const STRONG_FAMILIES = /(?:^|[-_/])(?:glm-5(?:\.\d+)?|deepseek-v4(?:\.\d+)?)(?=$|[-_/:.])/;
 
 /**
  * Dimensioni in miliardi scritte nel nome del modello.
@@ -47,8 +58,8 @@ export interface ModelTier {
  * Non si guarda un numero qualsiasi: serve una `b` **subito dopo** la cifra, ed
  * eventualmente la fine del nome o un separatore. Così `gpt-oss:20b` (20) e
  * `deepseek-v4` (versione 4, non 4 miliardi) non vengono confusi con modelli
- * piccoli. Il caso `4.1` di `deepseek-v4.1-flash` è coperto dal suffisso
- * `flash`, non da questa regola.
+ * piccoli. Il caso `4.1` di `deepseek-v4.1-flash` è coperto dalla allowlist
+ * `STRONG_FAMILIES`, non da questa regola.
  */
 function smallParams(model: string): number | null {
   const re = /(\d+(?:\.\d+)?)\s*b(?=$|[-_/:.])/g;
@@ -75,8 +86,13 @@ export function classifyModel(model: string | undefined | null): ModelTier {
   // Variante gratuita: storicamente il caso che il codice riconosceva.
   if (/:free(?:$|[/?#])/.test(m)) return { constrained: true, reason: 'free' };
 
-  // `flash` è il suffisso dei modelli veloci ed economici (glm-5.3-flash,
-  // deepseek-v4.1-flash, gemini-flash): è il caso che l'autore ha chiesto.
+  // Capacità piena riconosciuta per famiglia: batte il suffisso `flash`, che da
+  // solo non è una misura di capacità (glm-5.3-flash, deepseek-v4.1-flash).
+  if (STRONG_FAMILIES.test(m)) return { constrained: false, reason: 'strong-family' };
+
+  // `flash` resta un segnale debole per i modelli **non** in allowlist: il
+  // suffisso da solo non basta a declassare una famiglia forte, ma per gli
+  // sconosciuti mantiene il comportamento storico.
   if (/(?:^|[-_/])flash(?=$|[-_/:.])/.test(m)) return { constrained: true, reason: 'flash' };
 
   const params = smallParams(m);

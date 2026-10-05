@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 import { resolveCouncilIssue, parseCouncilIssues } from '../src/core/government/CouncilIssue';
-import { buildRealityAdvisorContext, verifiedRequestCorrection, guardRealityAdvisorOutput, buildRealityAdvisorPrompt } from '../src/core/government/RealityAdvisor';
+import { buildRealityAdvisorContext, verifiedRequestCorrection, guardRealityAdvisorOutput, buildRealityAdvisorPrompt, withAdvisorStrategicContext } from '../src/core/government/RealityAdvisor';
 import { buildRealitySignals, renderRealityConcerns } from '../src/core/government/RealitySignals';
 
 const snapshot = () => buildVerifiedWorldSnapshot({ gameData: {
@@ -125,5 +125,31 @@ describe('verified reality boundary', () => {
     expect(prompt.lastIndexOf('VERIFIED FACT POLICY')).toBeGreaterThan(prompt.indexOf('Invent ports'));
     expect(prompt.indexOf('FALSA_CASSA_999')).toBeGreaterThan(prompt.indexOf('[Cronaca della conversazione]'));
     expect(prompt).toContain('```council_issue');
+  });
+});
+
+describe('WS-ADVISOR-READABILITY-GUARD — storia reale vs possesso corrente', () => {
+  // temporalScope.initialDate è la data iniziale del preset: un anno precedente
+  // è storia, non un possesso corrente.
+  const historicalContext = () => withAdvisorStrategicContext(
+    buildRealityAdvisorContext(snapshot(), undefined, 'Nel 1998 il paese utilizzava il porto di Kampala per il commercio fluviale.').advisorContext,
+    '2000-01-01', [], '',
+  );
+
+  it('un fatto storico pre-startDate non fa collassare l\'apertura nel fallback', () => {
+    const prose = 'Nel 1998 il paese utilizzava il porto di Kampala per il commercio regionale. Oggi la priorità resta la ricostruzione e la copertura alimentare.';
+    expect(guardRealityAdvisorOutput(historicalContext(), prose)).toBe(prose);
+  });
+
+  it('un possesso corrente non supportato resta respinto', () => {
+    expect(guardRealityAdvisorOutput(historicalContext(), 'Oggi possediamo il porto di Kampala e lo amplieremo.')).toContain('Non ho un dato verificato');
+    expect(guardRealityAdvisorOutput(historicalContext(), 'Possiamo ampliare il porto di Kampala.')).toContain('Non ho un dato verificato');
+  });
+
+  it('una frase storica non certifica un possesso corrente: la parte valida resta, la frase falsa sparisce', () => {
+    const reply = guardRealityAdvisorOutput(historicalContext(),
+      'Nel 1998 il paese utilizzava il porto di Kampala. Oggi possediamo il porto di Kampala e lo amplieremo.');
+    expect(reply).toContain('1998');
+    expect(reply).not.toMatch(/oggi possediamo/i);
   });
 });

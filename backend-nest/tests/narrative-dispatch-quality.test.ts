@@ -589,9 +589,12 @@ describe('Passo 5 — memoria per fascia (due sole fasce)', () => {
     expect(off).toBe(constrained);
     expect(full.length).toBeGreaterThan(constrained.length);
     expect(classifyModel('glm-5.3').constrained).toBe(false);
-    expect(classifyModel('glm-5.3-flash').constrained).toBe(true);
+    expect(classifyModel('glm-5.3-flash')).toEqual({ constrained: false, reason: 'strong-family' });
+    expect(classifyModel('deepseek-v4.1-flash').constrained).toBe(false);
     expect(narrativeBudgetsFor('glm-5.3')).toBe(FULL_NARRATIVE_BUDGETS);
-    expect(narrativeBudgetsFor('glm-5.3-flash')).toBe(CONSTRAINED_NARRATIVE_BUDGETS);
+    expect(narrativeBudgetsFor('glm-5.3-flash')).toBe(FULL_NARRATIVE_BUDGETS);
+    // Il segnale `:free` resta vincolante anche per una famiglia forte.
+    expect(narrativeBudgetsFor('glm-5.3-flash:free')).toBe(CONSTRAINED_NARRATIVE_BUDGETS);
   });
 
   it('il prompt compatto usa i budget della fascia', () => {

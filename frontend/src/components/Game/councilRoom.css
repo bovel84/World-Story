@@ -237,8 +237,22 @@
 .government-advisor-heading { margin: 0; padding: 14px 16px 0; font: 700 12px/1.2 system-ui, sans-serif; letter-spacing: .12em; color: #d4b97c; }
 .government-advisor .advisor-chat { height: auto; min-height: 0; overflow: visible; border-radius: 8px; }
 .government-advisor .advisor-messages { flex: 0 0 auto; overflow-y: visible; min-height: 0; padding: 16px; }
-.government-advisor .advisor-entry .entry-text { font-size: 17px; line-height: 1.55; }
+.government-advisor .advisor-entry .entry-text { font-size: 18px; line-height: 1.6; color: #f2f6ff !important; }
 .government-advisor .chat-input-row { flex: 0 0 auto; }
+/* WS-ADVISOR-READABILITY — il modale Governo è scuro e vive in un portal fuori
+   da `.game-shell-desk`: il tema carta globale (`.chat-input-row textarea`,
+   `.advisor-chat textarea`) non deve contendersi l'input. Regole **solo** nello
+   scope Governo, con specificità maggiore, senza toccare le chat diplomatiche. */
+.government-advisor .chat-input-row textarea,
+.government-office .chat-input-row textarea,
+.government-advisor .advisor-chat textarea {
+  background: #0b1725 !important;
+  color: #f2f6ff !important;
+  border: 1px solid #3a4f6c !important;
+  caret-color: #d4b97c;
+}
+.government-advisor .chat-input-row textarea::placeholder,
+.government-office .chat-input-row textarea::placeholder { color: #9fb2cc !important; opacity: 1; }
 .council-issue-inline { margin-top: 14px; padding: 12px 14px; border: 1px solid #405766; border-left: 3px solid #d4b97c; border-radius: 6px; background: #172b3a; color: #e8eef4; overflow-wrap: anywhere; }
 .council-issue-inline h4 { margin: 0 0 5px; font: 600 18px/1.3 Georgia, serif; }
 .council-issue-inline p { margin: 0 0 8px; font: 400 14px/1.5 system-ui, sans-serif; }
