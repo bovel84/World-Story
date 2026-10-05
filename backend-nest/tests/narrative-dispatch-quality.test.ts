@@ -338,6 +338,63 @@ describe('World pulse — fail-safe e zero chiamate', () => {
   });
 });
 
+describe('World pulse — integrazione nel run senza toccare il risultato principale', () => {
+  it('espone gli eventi in un campo separato e lascia actionOutcomes/targetDate/events invariati', async () => {
+    const mainComplete = '{"type":"complete","narration":"Il periodo si chiude.","actionOutcomes":[{"actionId":"a1","status":"accepted","summary":"esito principale"}],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"1951-01-20"}';
+    const mainEvents = [
+      '{"type":"event","headline":"Il governo vara la riforma","description":"Il parlamento approva la riforma dopo il voto.","date":"1951-01-10","mapChanges":[],"reactions":[]}',
+    ].join('\n');
+    const full = `${mainEvents}\n${mainComplete}`;
+    const pulseRaw = [
+      '{"type":"event","headline":"La Thailandia rafforza il confine","description":"La Thailandia schiera rinforzi dopo gli scontri di frontiera.","date":"1951-01-12","mapChanges":[],"reactions":[{"actorId":"THA","optionId":"THA:pulse","polityName":"Thailandia","role":"neighbour","stance":"neutral","response":"schiera rinforzi"}]}',
+      '{"type":"complete","narration":"un evento","actionOutcomes":[],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"1951-01-20"}',
+    ].join('\n');
+
+    const calls: string[] = [];
+    const llm = {
+      narrative: { texture: false, worldPulse: true, tieredMemory: false },
+      describe: () => ({}),
+      async stream(_m: string, _s: string, _u: string, onToken: (n: number, text?: string) => void) {
+        onToken(full.length, full);
+        return { content: full };
+      },
+      async generate(mechanic: string) {
+        calls.push(mechanic);
+        return { content: pulseRaw };
+      },
+    } as any;
+
+    const game: any = {
+      id: 'pulse-turn', currentDate: '1951-01-01', currentTurn: 1,
+      world: {
+        name: 'Test', basePrompt: 'Scenario test', startDate: '1951-01-01',
+        regions: new Map([
+          ['r1', { id: 'r1', name: 'Cambogia', owner: 'KHM', color: '#111', objects: [] }],
+          ['r2', { id: 'r2', name: 'Thailandia', owner: 'THA', color: '#222', objects: [] }],
+        ]),
+      },
+      players: [{ id: 'p1', name: 'Cambogia', regionId: 'r1', polityId: 'KHM' }],
+      playerPolityId: 'KHM',
+      polityNames: { KHM: 'Cambogia', THA: 'Thailandia' },
+      relationships: { THA: { VNM: 'hostile' } },
+      actions: [], results: [],
+    };
+
+    const result = await new PromptEngine(llm).runSimulation(
+      game, [{ actionId: 'a1', text: 'Riformare' } as any], 30, undefined, false,
+    );
+
+    // Chiamata singola e dedicata al mechanic worldPulse.
+    expect(calls).toEqual(['worldPulse']);
+    // Il risultato principale non è toccato dagli eventi del pulse.
+    expect(result.events.map(e => e.headline)).toEqual(['Il governo vara la riforma']);
+    expect(result.actionOutcomes?.[0]?.summary).toBe('esito principale');
+    expect(result.targetDate).toBe('1951-01-20');
+    // Gli eventi del pulse vivono solo nel campo separato.
+    expect(result.worldPulseEvents?.map(e => e.headline)).toEqual(['La Thailandia rafforza il confine']);
+  });
+});
+
 describe('Passo 2 — unica fonte di verità per il tetto eventi e formato', () => {
   it('il prompt standard deriva il tetto dagli eventi e non usa più «25-30»', () => {
     const prompt = buildSimulationPrompt(baseVars);

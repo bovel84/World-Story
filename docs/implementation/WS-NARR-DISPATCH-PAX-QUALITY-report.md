@@ -177,7 +177,7 @@ motivo: nessuna chiamata LLM a pagamento autorizzata
 
 ## Test
 
-- Mirati: harness/contratti **28/28**; prompt/config/memoria **111/111**;
+- Mirati: harness/contratti **29/29**; prompt/config/memoria **111/111**;
   simulazione/reazioni **92/92**.
 - Full backend unit (una volta): **251 file, 2736 test, 0 failed**.
 - Build backend: ok (`tsc` + `npm run build`).
