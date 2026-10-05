@@ -269,6 +269,7 @@ describe('canonical land-attack preflight (WS-GOV-DOSSIER-SALIENCE)', () => {
   const withUnit = { regions: empty.regions, operationalObjects: [{ id: 'u1', kind: 'unit', data: { polityId: 'ALPHA', status: 'operational', personnel: 800 } }] };
   const withFormingUnit = { regions: empty.regions, operationalObjects: [{ id: 'u2', kind: 'unit', data: { polityId: 'ALPHA', status: 'forming', personnel: 800 } }] };
   const withArmy = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [{ id: 'a1', type: 'army', name: 'I Armata', level: 3 }] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
+  const withFleet = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [{ id: 'f1', type: 'fleet', name: 'I Flotta' }] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
   const codes = (text: string, world: Parameters<typeof canonicalOrderBlockers>[2]) => canonicalOrderBlockers(text, 'ALPHA', world).map(blocker => blocker.code);
 
   it('blocca un ordine esplicito di attacco senza alcun reparto terrestre', () => {
@@ -298,5 +299,10 @@ describe('canonical land-attack preflight (WS-GOV-DOSSIER-SALIENCE)', () => {
     expect(canonicalOrderBlockers('Attacchiamo il Kenya', 'ALPHA', empty).map(blocker => blocker.field)).toContain('military.landForces');
     expect(canonicalOrderBlockers('Mandiamo la flotta', 'ALPHA', empty).map(blocker => blocker.field)).toEqual(['military.navalAssets']);
     expect(codes('Rafforziamo la frontiera settentrionale', empty)).toEqual([]);
+  });
+
+  it('un attacco navale o missilistico non è trattato come attacco terrestre', () => {
+    expect(codes('Ordina alla I Flotta di attaccare in Italia', withFleet)).not.toContain('MILITARY_ASSET_MISSING');
+    expect(codes('Lanciamo un attacco missilistico', empty)).not.toContain('MILITARY_ASSET_MISSING');
   });
 });

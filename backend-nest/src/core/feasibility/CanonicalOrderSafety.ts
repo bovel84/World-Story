@@ -47,6 +47,9 @@ const LAND_ATTACK = new RegExp(
 );
 const ATTACK_HYPOTHESIS = /\b(?:se|qualora|caso|potremmo|potrei|potrebbe|dovremmo|valutiamo|valutare|valutazione|discutiamo|discutere|discussione|ipotesi|forse|conviene|consideriamo|considerare|pianifich\w*|strategia|analizz\w*|chied\w*)\b/;
 const ATTACK_NEGATION = /\b(?:non|senza|evitare|evita|evitiamo|mai)\b/;
+// Un attacco che nomina una piattaforma navale/aerea non implica forze
+// terrestri: la guardia riguarda solo l'attacco terrestre.
+const NON_LAND_PLATFORM = /\b(?:flott\w*|marin\w*|nav[ei]|navy|ships?|missil\w*|aer[ei]|avi\w+|air\s?force)\b/;
 /** Stati che non provano un reparto utilizzabile (mai inventare quantita'). */
 const NON_OPERATIONAL_LAND = new Set(['under_construction', 'planned', 'destroyed', 'decommissioned', 'cancelled', 'forming', 'mobilizing']);
 const LAND_FORMATION_TYPES = new Set(['army', 'battalion']);
@@ -56,7 +59,7 @@ function attackDirective(clause: string): boolean {
   const match = LAND_ATTACK.exec(clause);
   if (!match) return false;
   const before = clause.slice(0, match.index);
-  return !ATTACK_HYPOTHESIS.test(before) && !ATTACK_NEGATION.test(before);
+  return !ATTACK_HYPOTHESIS.test(before) && !ATTACK_NEGATION.test(before) && !NON_LAND_PLATFORM.test(clause);
 }
 
 /** Almeno un reparto terrestre canonico utilizzabile della polity (mappa o registro operativo). */
