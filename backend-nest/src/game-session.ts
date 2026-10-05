@@ -2140,7 +2140,7 @@ export class GameSession {
       recentStrategicMemory: (polityId, limit) => this.recentStrategicMemory(polityId, limit),
       strategicAgenda: polityId => this.npcAgenda.describe(polityId),
       commitmentsForPolity: polityId => this.commitments.describeForPolity(polityId),
-      historicalBaselines: ids => this.preparePolityHistoricalBaselines(ids),
+      historicalBaselinesCached: (playerPolityId, polityId) => this.persistedPolityHistoricalBaselines([playerPolityId, polityId]),
     });
     // F04 §9.4: ogni partita nasce (o riapre) sul suo ramo principale.
     // Idempotente: le sessioni ricostruite dal DB non duplicano il ramo.
@@ -3490,6 +3490,18 @@ export class GameSession {
     return (await this.getPolityHistoricalBaseline(this.playerPolityId, signal))?.historicalBackground ?? null;
   }
 
+  /**
+   * Read-only view of already-persisted history. Conversational paths (minister,
+   * council, diplomacy reply, advisor turn) must never trigger a provider call:
+   * generation belongs to the opening and to strategic turn decisions.
+   */
+  persistedPolityHistoricalBaselines(polityIds: readonly string[]): PolityHistoricalBaseline[] {
+    const owners = new Set([...this.regions.values()].map(region => region.owner));
+    const ids = [...new Set([this.playerPolityId, ...polityIds])]
+      .filter(id => id !== 'neutral' && (id === this.playerPolityId || owners.has(id))).slice(0, 5);
+    return ids.flatMap(id => { const baseline = this.cachedHistoricalBaseline(id); return baseline ? [baseline] : []; });
+  }
+
   /** Bounded lazy loading for actors relevant to a question, event or strategic decision. */
   async preparePolityHistoricalBaselines(polityIds: readonly string[], signal?: AbortSignal): Promise<PolityHistoricalBaseline[]> {
     if (signal?.aborted) return [];
@@ -3542,7 +3554,6 @@ export class GameSession {
     const initial = this.advisorResult(message, focusIssue);
     const correction = verifiedRequestCorrection(initial.advisorContext.verifiedWorldSnapshot, message);
     if (correction) return { ...initial, reply: correction };
-    await this.preparePolityHistoricalBaselines(this.mentionedNpcPolityIds([message]), signal);
     this.assertFenceValid(fence);
     const context = this.advisorResult(message, focusIssue);
     const gameData = this.buildGameData();
@@ -3562,7 +3573,7 @@ export class GameSession {
     ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string; verifiedState?: string }, ministerSeat?: CabinetSeat): Promise<string> {
     const correction = verifiedRequestCorrection(this.getVerifiedWorldSnapshot(), message);
     if (correction) return correction;
-    const baselines = await this.preparePolityHistoricalBaselines(this.mentionedNpcPolityIds([message]), signal);
+    const baselines = this.persistedPolityHistoricalBaselines(this.mentionedNpcPolityIds([message]));
     const gameData = this.buildGameData();
     gameData.polityHistoricalBaselines = baselines;
     gameData.advisorContext = this.advisorContext(message);
@@ -3587,7 +3598,7 @@ export class GameSession {
     const address = cabinet.addresses.find(candidate => candidate.seat === seat)
       ?? { seat: seat as CabinetSeat, label: SEAT_LABEL[seat as CabinetSeat], reads: '', items: [], opening: '' };
     const topic = JSON.stringify(situation ?? {});
-    const baselines = await this.preparePolityHistoricalBaselines(this.mentionedNpcPolityIds([topic]), signal);
+    const baselines = this.persistedPolityHistoricalBaselines(this.mentionedNpcPolityIds([topic]));
     this.assertFenceValid(fence);
     const gameData = this.buildGameData();
     gameData.polityHistoricalBaselines = baselines;
@@ -3767,7 +3778,7 @@ export class GameSession {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const correction = verifiedRequestCorrection(this.getVerifiedWorldSnapshot(), message);
     if (correction) return correction;
-    const baselines = await this.preparePolityHistoricalBaselines(this.mentionedNpcPolityIds([message]), signal);
+    const baselines = this.persistedPolityHistoricalBaselines(this.mentionedNpcPolityIds([message]));
     const gameData = this.buildGameData();
     gameData.polityHistoricalBaselines = baselines;
     gameData.advisorContext = this.advisorContext(message);
@@ -3786,8 +3797,8 @@ export class GameSession {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const correction = verifiedRequestCorrection(this.getVerifiedWorldSnapshot(), message);
     if (correction) return correction;
-    await this.preparePolityHistoricalBaselines(this.mentionedNpcPolityIds([message]));
     const gameData = this.buildGameData();
+    gameData.polityHistoricalBaselines = this.persistedPolityHistoricalBaselines(this.mentionedNpcPolityIds([message]));
     gameData.advisorContext = this.advisorContext(message);
     return this.gameController.getAdvisorStreamWithPrompts(gameData, message, history, onToken);
   }

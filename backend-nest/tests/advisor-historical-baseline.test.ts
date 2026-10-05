@@ -200,6 +200,8 @@ describe('WS-GOV-ADVISOR-HISTORICAL-BASELINE', () => {
     const state = structuredClone((session as any).captureCheckpointData());
     state.relationships = { KHM: { USA: 'hostile' }, USA: { KHM: 'hostile' } };
     session.loadFromSave(state);
+    await session.getPolityHistoricalBaseline('KHM');
+    await session.getPolityHistoricalBaseline('USA');
     const chat = session.ensureChat(['Washington']);
     await session.sendChatMessage(chat.id, 'Possiamo discutere una distensione?');
     const prompt = capturedPrompts.at(-1)!;
@@ -257,6 +259,9 @@ describe('WS-GOV-ADVISOR-HISTORICAL-BASELINE', () => {
 
   it('a council minister opening receives relevant counterpart history', async () => {
     const session = create('hb_khm');
+    // History is generated at the strategic moment, then read by the council.
+    await session.getPolityHistoricalBaseline('KHM');
+    await session.getPolityHistoricalBaseline('USA');
     await session.getMinisterOpening('esteri', undefined, { title: 'Rapporti con Washington', briefing: 'Come valutiamo le alternative diplomatiche con Washington?' });
     expect(capturedPrompts.at(-1)).toContain('Stati Uniti');
     expect(capturedPrompts.at(-1)).toContain('Khmer Rossi');
@@ -316,6 +321,7 @@ describe('WS-GOV-ADVISOR-HISTORICAL-BASELINE', () => {
     const chat = session.ensureChat(['Washington']);
     failBaselineOnly = true;
     try {
+      expect(await session.getPolityHistoricalBaseline('USA')).toBeNull();
       const { reply } = await session.sendChatMessage(chat.id, 'Valutiamo le alternative.');
       expect(reply.content).toBeTruthy();
       expect(gameRepository.getPolityHistoricalBaseline(session.id, 'USA', '2000-01-01')).toBeNull();

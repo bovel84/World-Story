@@ -97,7 +97,7 @@ export interface DiplomacyContext {
   strategicAgenda?(polityId: string): string;
   /** Impegni in vigore che legano la polity (GAMEPLAY-LONG). */
   commitmentsForPolity?(polityId: string): string;
-  historicalBaselines?(polityIds: readonly string[]): Promise<PolityHistoricalBaseline[]>;
+  historicalBaselinesCached?(playerPolityId: string, polityId: string): PolityHistoricalBaseline[];
 }
 
 /**
@@ -526,9 +526,13 @@ export class DiplomacyService {
     return { replies };
   }
 
-  /** Only the actual speaker and counterpart; a missing background never blocks diplomacy. */
-  private async historicalContext(polityId: string, query: string): Promise<string> {
-    const baselines = await this.ctx.historicalBaselines?.([polityId, this.ctx.playerPolityId()]).catch(() => []) ?? [];
+  /**
+   * SIDE-CAR: history is read synchronously from cache and NEVER awaits a provider
+   * call. A missing background is simply absent, so cancellation, fence capture and
+   * the single-call contract of chat/reaction are byte-for-byte unchanged.
+   */
+  private historicalContext(polityId: string, query: string): string {
+    const baselines = this.ctx.historicalBaselinesCached?.(this.ctx.playerPolityId(), polityId) ?? [];
     return [...baselines.map(baseline => `[${baseline.polityId === polityId ? 'OWN' : 'COUNTERPARTY'} HISTORICAL BASELINE — ${baseline.countryName} (${baseline.polityId}) — prima di ${baseline.startDate}]\n${historicalBaselineExcerpt(baseline.historicalBackground, query)}`),
       `[CURRENT VERIFIED STATE]\nRelazione corrente di ${polityId} con ${this.ctx.playerPolityId()}: ${this.matrix().get(polityId, this.ctx.playerPolityId())}.`,
       '[RELATIONSHIP / GAME HISTORY] Gli scambi, gli eventi recenti e gli impegni forniti sono la storia alternativa: prevalgono sul passato reale. Usa il passato per capire sensibilità e obiettivi, non per correggere la partita.',
@@ -605,7 +609,7 @@ export class DiplomacyService {
       history,
       playerMessage,
       mode,
-    }) + '\n\n' + await this.historicalContext(respondingParticipant.polityId, playerMessage);
+    }) + '\n\n' + this.historicalContext(respondingParticipant.polityId, playerMessage);
 
     const response = await this.ctx.llm.generate(
       'chat',
@@ -824,7 +828,7 @@ export class DiplomacyService {
           history,
           playerMessage: reactionBrief,
           mode: 'reaction',
-        }) + '\n\n' + await this.historicalContext(polityId, reactionBrief);
+        }) + '\n\n' + this.historicalContext(polityId, reactionBrief);
         const response = await this.ctx.llm.generate(
           'chat',
           `Interpreta ${sender} in una trattativa storica. Rispondi in italiano e SOLO con JSON {"message"}.`,
