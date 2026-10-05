@@ -579,6 +579,32 @@ export function initDatabase() {
     WHERE polity_id IS NULL
   `);
 
+  // Real history is immutable per game/polity/divergence, shared across branches.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_polity_historical_baselines (
+      game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      polity_id TEXT NOT NULL,
+      country_name TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      historical_background TEXT NOT NULL,
+      generated_at TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 2,
+      PRIMARY KEY (game_id, polity_id, start_date)
+    )
+  `);
+  // Import the previous player-only background once. Consumers apply the stricter
+  // cutoff to these version-1 rows; no new writes use games.historical_baseline.
+  db.exec(`
+    INSERT OR IGNORE INTO game_polity_historical_baselines
+      (game_id, polity_id, country_name, start_date, historical_background, generated_at, version)
+    SELECT g.id, p.polity_id, p.polity_id, w.start_date, g.historical_baseline, COALESCE(g.created_at, CURRENT_TIMESTAMP), 1
+    FROM games g JOIN worlds w ON w.id = g.world_id JOIN players p ON p.game_id = g.id
+    WHERE p.rowid = (SELECT MIN(first.rowid) FROM players first WHERE first.game_id = g.id)
+      AND p.polity_id IS NOT NULL AND p.polity_id != ''
+      AND w.start_date IS NOT NULL AND w.start_date != ''
+      AND COALESCE(g.historical_baseline, '') != ''
+  `);
+
   // Actions table
   db.exec(`
     CREATE TABLE IF NOT EXISTS actions (

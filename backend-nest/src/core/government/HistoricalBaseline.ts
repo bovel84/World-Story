@@ -1,77 +1,98 @@
-/**
- * WS-GOV-ADVISOR-HISTORICAL-BASELINE — REAL HISTORY → START DATE → PLAYER HISTORY.
- *
- * Il Consulente non deve trattare la storia reale del paese come una conoscenza
- * implicita del modello: diventa un BLOCCO ESPLICITO del contesto, costruito per
- * il paese selezionato, generato una volta e reso canonico per la partita.
- *
- * Gerarchia delle fonti (nessuna eccezione):
- *   CURRENT STATE  >  PLAYER HISTORY  >  HISTORICAL BASELINE
- * La storia spiega il mondo, non contraddice la simulazione: se un porto
- * esisteva nel 2000 ma la partita lo distrugge, prevale il world state corrente.
- *
- * Taglio temporale rigido: `date < startDate` → storia reale;
- * `date >= startDate` → solo storia della partita. Gli eventi reali successivi
- * alla data iniziale non sono un futuro predeterminato e vengono scartati
- * deterministicamente dal testo generato.
- */
+/** Real history < startDate; game history >= startDate. Never a source of current assets/effects. */
 import { hasTechnicalVocabulary } from './RealitySignals';
 
 export interface HistoricalBaselineRequest {
   worldName: string;
-  /** Codice canonico del paese (es. `KHM`). */
   polityId: string;
-  /** Nome leggibile quando disponibile; altrimenti si usa il codice. */
   countryName: string | null;
   startDate: string;
-  /** Premessa del mondo (base_prompt): contesto, NON fonte di fatti sul paese. */
   premise?: string | null;
 }
 
-/** Regole di verità: la baseline spiega, il current state decide. */
+export interface PolityHistoricalBaseline {
+  polityId: string;
+  countryName: string;
+  startDate: string;
+  historicalBackground: string;
+  generatedAt: string;
+  version: number;
+}
+
 export const HISTORICAL_BASELINE_RULE = `Gerarchia delle fonti: CURRENT STATE > PLAYER HISTORY > HISTORICAL BASELINE.
-La HISTORICAL BASELINE spiega perché il paese è così oggi e può descrivere origine dei problemi, struttura politica, eredità di guerre e crisi, relazioni consolidate, condizioni sociali ed economiche generali, capacità e vincoli storicamente esistenti.
-Non colma le lacune del PRESENTE: non inventare nomi, quantità o localizzazioni che non siano forniti, e non trasformare un dato storico in un fatto corrente senza conferma del current state. L'assenza di un dettaglio nel presente NON prova che sia storicamente inesistente.
-Se la baseline e il current state si contraddicono, prevale SEMPRE il current state; se la PLAYER HISTORY ha modificato il mondo dopo la data iniziale, quella modifica prevale sulla situazione storica.`;
+PLAYER HISTORY indica l'intera GAME HISTORY: decisioni, eventi ed esiti del giocatore E degli NPC dopo la divergenza, non solo le azioni del Presidente.
+La HISTORICAL BASELINE spiega il passato, non fornisce asset o effetti attuali. Puoi usare nomi propri, luoghi, governi, organizzazioni, guerre, trattati ed eventi storici REALI anteriori allo startDate quando ne sei sufficientemente certo. Non inventare dettagli per riempire lacune: niente cifre precise incerte, infrastrutture non note, unità specifiche inaffidabili, trattati inesistenti o eventi non reali.
+L'assenza di un dettaglio nel presente NON prova che sia storicamente inesistente. Per il presente servono conferme del current state: non ripristinare alleanze, confini o beni distrutti dalla storia alternativa.
+REAL HISTORY < START DATE; START DATE = divergenza; GAME HISTORY >= START DATE. La relazione CORRENTE prevale sulle relazioni storiche. La baseline influenza l'interpretazione, non va recitata e non determina eventi futuri.`;
 
-/** Ruolo del generatore: storico, non narratore di eventi futuri. */
-export const HISTORICAL_BASELINE_SYSTEM = `Sei lo storico di riferimento del Primo Consulente in un gioco di storia alternativa. Ricostruisci la storia REALE di un paese fino a una data di partenza. Non produci un'enciclopedia: spieghi ciò che serve a capire perché il paese è così oggi. Nessuna etichetta FACT/INFERENCE/FORECAST/PROPOSAL, nessun elenco di dati grezzi.`;
-
-/** Punti richiesti, nell'ordine: solo se rilevanti per la situazione al via. */
-const BASELINE_FACETS = [
-  'evoluzione politica recente',
-  'guerre e conflitti precedenti',
-  'trasformazioni economiche',
-  'rapporti regionali',
-  'debolezze istituzionali',
-  'situazione sociale',
-  'infrastrutture e capacità note a livello storico',
-  'relazioni diplomatiche principali',
-];
-
-const LABEL = (request: HistoricalBaselineRequest): string =>
-  (request.countryName?.trim() || request.polityId).toLocaleUpperCase('it');
+export const HISTORICAL_BASELINE_SYSTEM = `Sei lo storico di riferimento del mondo di un gioco di storia alternativa. Ricostruisci il passato REALE della polity prima della data di divergenza, senza inventare. Rispondi SOLO con JSON {"entries":[{"date":"YYYY-MM-DD oppure YYYY-MM oppure YYYY","text":"background politico e strategico"}]}. Ogni entry deve avere una data reale, o l'ultimo periodo sicuramente anteriore alla divergenza cui si riferisce. Non retrodatare eventi successivi. Non aggiungere un riepilogo non datato.`;
 
 export function buildHistoricalBaselinePrompt(request: HistoricalBaselineRequest): string {
-  const year = String(request.startDate ?? '').slice(0, 4);
   return [
-    `Paese: ${request.countryName?.trim() || request.polityId} (${request.polityId}). Mondo: ${request.worldName || 'non indicato'}. Data di partenza della partita: ${request.startDate}.`,
-    request.premise ? `Premessa del mondo (contesto, NON fonte di fatti sul paese): ${request.premise.slice(0, 1200)}` : '',
-    `Scrivi il background storico REALE di questo paese fino al ${year}.`,
-    `Copri, solo se politicamente o strategicamente rilevante: ${BASELINE_FACETS.join(', ')}.`,
-    'Lunghezza: 500-1200 token. Prosa asciutta e discorsiva; pochi capoversi, non un elenco puntato. Ogni riga deve aiutare a capire «perché il paese è così oggi».',
-    `VINCOLI: non raccontare eventi successivi al ${year}, nemmeno se li conosci; non anticipare crisi, guerre o svolte future. Non inventare nomi propri, cifre o localizzazioni non forniti. Non descrivere il presente della simulazione: quello lo fornisce il world state.`,
+    `Paese: ${request.countryName?.trim() || request.polityId} (${request.polityId}). Mondo: ${request.worldName || 'non indicato'}. Punto di divergenza: ${request.startDate}.`,
+    request.premise ? `Premessa del mondo (non una fonte di eventi storici): ${request.premise.slice(0, 1200)}` : '',
+    'Spiega perché il paese è così oggi: evoluzione politica recente, conflitti precedenti, istituzioni, economia, società, alleanze, rapporti regionali consolidati, vincoli strategici, capacità militari generali e infrastrutture storicamente rilevanti. Se il paese è inventato o non sei sicuro della sua storia, restituisci entries vuoto.',
+    `Usa fatti storici concreti, nomi propri e luoghi quando ne sei sufficientemente certo: per esempio, per la Cambogia degli anni Novanta, Khmer Rossi e ricostruzione, non solo «decenni difficili». Non descrivere il presente della simulazione e non inventare dettagli incerti.`,
+    `Circa 500-1200 token complessivi, 4-10 entries in prosa: non un'enciclopedia. Ogni date deve essere STRETTAMENTE anteriore a ${request.startDate}. Non raccontare eventi successivi al punto di divergenza o coincidenti con esso, nemmeno se li conosci. Se sai solo l'anno/mese, l'intero periodo deve essere anteriore: nello stesso anno della divergenza servono date chiaramente precedenti.`,
+    HISTORICAL_BASELINE_RULE,
   ].filter(Boolean).join('\n\n');
+}
+
+export const HISTORICAL_BASELINE_TIMEOUT_MS = 12_000;
+
+/** Optional history must not stall play; cancellation belongs to this waiter only. */
+export function awaitHistoricalBaseline<T>(promise: Promise<T>, signal?: AbortSignal, timeoutMs = HISTORICAL_BASELINE_TIMEOUT_MS, onTimeout?: () => void): Promise<T | null> {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = (value: T | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      resolve(value);
+    };
+    const abort = () => finish(null);
+    const timer = setTimeout(() => { onTimeout?.(); finish(null); }, timeoutMs);
+    void promise.then(finish, () => finish(null));
+    if (signal?.aborted) { finish(null); return; }
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }
 
 const MAX_CHARS = 6_000;
 const MIN_CHARS = 200;
-const YEAR = /\b(?:1[89]\d{2}|20\d{2})\b/g;
 
-/** Anno reale successivo alla data iniziale: la frase non è storia consentita. */
-function hasFutureYear(sentence: string, startYear: number): boolean {
-  if (!Number.isFinite(startYear)) return false;
-  return [...sentence.matchAll(YEAR)].some(match => Number(match[0]) > startYear);
+/** Last possible date of a dated fact: unknown day/month is handled conservatively. */
+function latestDate(raw: string): string | null {
+  if (!/^\d{4}(?:-\d{2})?(?:-\d{2})?$/.test(raw)) return null;
+  const [year, month, day] = raw.split('-').map(Number);
+  if (year < 1 || (month !== undefined && (month < 1 || month > 12))) return null;
+  if (month !== undefined && day === undefined) {
+    const end = new Date(`${raw}-01T00:00:00Z`);
+    end.setUTCMonth(end.getUTCMonth() + 1);
+    end.setUTCDate(0);
+    return end.toISOString().slice(0, 10);
+  }
+  const full = day !== undefined ? raw : `${raw}-12-31`;
+  const parsed = new Date(`${full}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === full ? full : null;
+}
+
+const MONTHS = ['gennaio|january', 'febbraio|february', 'marzo|march', 'aprile|april', 'maggio|may', 'giugno|june',
+  'luglio|july', 'agosto|august', 'settembre|september', 'ottobre|october', 'novembre|november', 'dicembre|december'];
+const NAMED_DATE = new RegExp(`\\b(?:(\\d{1,2})\\s+)?(${MONTHS.join('|')})\\s+(\\d{4})\\b`, 'gi');
+
+/** Explicit dates and ambiguous same-year facts are rejected, including legacy prose. */
+function outsideCutoff(sentence: string, startDate: string): boolean {
+  let blocked = false;
+  const check = (raw: string) => { const last = latestDate(raw); if (!last || last >= startDate) blocked = true; };
+  let remaining = sentence.replace(/\b\d{4}-\d{2}(?:-\d{2})?\b/g, raw => { check(raw); return ''; });
+  remaining = remaining.replace(NAMED_DATE, (_raw, day: string | undefined, name: string, year: string) => {
+    const month = MONTHS.findIndex(pattern => new RegExp(`^(?:${pattern})$`, 'i').test(name)) + 1;
+    check(`${year}-${String(month).padStart(2, '0')}${day ? `-${String(day).padStart(2, '0')}` : ''}`);
+    return '';
+  });
+  for (const match of remaining.matchAll(/\b\d{4}\b/g)) check(match[0]);
+  return blocked;
 }
 
 function cutAtSentence(text: string, limit: number): string {
@@ -81,51 +102,60 @@ function cutAtSentence(text: string, limit: number): string {
   return (lastStop > limit / 2 ? head.slice(0, lastStop + 1) : head).trim();
 }
 
-/**
- * Ripulisce il testo generato: via blocchi tecnici, etichette di dossier e
- * frasi che citano eventi reali posteriori alla data iniziale. `null` quando
- * non resta un background utilizzabile (meglio nessuna baseline che una falsa).
- */
+/** Fail closed on unknown cutoff; no assertion that this is a universal historical fact checker. */
 export function sanitizeHistoricalBaseline(raw: unknown, startDate: string): string | null {
-  const startYear = Number(String(startDate ?? '').slice(0, 4));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || latestDate(startDate) !== startDate) return null;
   const lines = String(raw ?? '').replace(/```[^]*?(?:```|$)/g, '\n').split('\n');
-  const kept: string[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (hasTechnicalVocabulary(trimmed)) continue;
-    if (/^(?:[-*#]|\d+\.)?\s*(?:FACT|INFERENCE|FORECAST|PROPOSAL)\s*[—–:-]/i.test(trimmed)) continue;
-    const sentences = trimmed.split(/(?<=[.!?])\s+/).filter(sentence => sentence.trim() && !hasFutureYear(sentence, startYear));
-    const text = sentences.join(' ').trim();
-    if (text) kept.push(text);
-  }
-  const body = cutAtSentence(kept.join('\n').trim(), MAX_CHARS);
+  const kept = lines.flatMap(line => {
+    if (hasTechnicalVocabulary(line) || /^\s*(?:[-*#]|\d+\.)?\s*(?:FACT|INFERENCE|FORECAST|PROPOSAL)\s*[—–:-]/i.test(line)) return [];
+    return line.split(/(?<=[.!?])\s+/).filter(sentence => sentence.trim() && !outsideCutoff(sentence, startDate));
+  });
+  const body = cutAtSentence(kept.join(' ').trim(), MAX_CHARS);
   return body.length >= MIN_CHARS ? body : null;
 }
 
-/** Blocco esplicito consegnato al Consulente (e ai ministri). */
-export function renderHistoricalBaseline(baseline: string, request: Pick<HistoricalBaselineRequest, 'countryName' | 'polityId' | 'startDate'>): string {
-  const year = String(request.startDate ?? '').slice(0, 4);
-  return [
-    `[HISTORICAL BASELINE — ${LABEL(request as HistoricalBaselineRequest)} — ${year}]`,
-    baseline.trim(),
-    HISTORICAL_BASELINE_RULE,
-  ].join('\n');
+/** Short relevant excerpt for NPC/minister/late-game contexts, with no new model call. */
+export function historicalBaselineExcerpt(text: string, query = '', limit = 1_800): string {
+  const parts = text.split(/(?<=[.!?])\s+|\n/).filter(Boolean);
+  const terms = [...new Set(query.toLocaleLowerCase().match(/[\p{L}]{4,}/gu) ?? [])].slice(0, 20);
+  const ranked = parts.map((part, index) => ({ part, index, score: terms.filter(term => part.toLocaleLowerCase().includes(term)).length }))
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+  const picked: typeof ranked = [];
+  let length = 0;
+  for (const item of ranked) {
+    if (length + item.part.length > limit) continue;
+    picked.push(item); length += item.part.length + 1;
+  }
+  return picked.sort((a, b) => a.index - b.index).map(item => item.part).join(' ');
 }
 
-/**
- * Genera e valida la baseline riusando il provider esistente. Fallisce in modo
- * silenzioso (`null`): senza storia canonica il Consulente non inventa, e la
- * prima apertura ricade sul briefing deterministico.
- */
-export async function generateHistoricalBaseline(
-  request: HistoricalBaselineRequest,
-  generate: (system: string, prompt: string) => Promise<string>,
-): Promise<string | null> {
+export function renderHistoricalBaseline(baseline: string, request: Pick<HistoricalBaselineRequest, 'countryName' | 'polityId' | 'startDate'>): string {
+  return `[HISTORICAL BASELINE — ${(request.countryName?.trim() || request.polityId).toLocaleUpperCase('it')} — ${request.startDate}]\n${baseline.trim()}\n${HISTORICAL_BASELINE_RULE}`;
+}
+
+export function renderPolityHistoricalBaselines(baselines: readonly PolityHistoricalBaseline[], query = ''): string {
+  if (!baselines.length) return '';
+  return ['[POLITY HISTORICAL BASELINES — spiegano il passato, non definiscono il presente]',
+    ...baselines.slice(0, 5).map(baseline => `[${baseline.countryName} (${baseline.polityId}) — prima di ${baseline.startDate}]\n${historicalBaselineExcerpt(baseline.historicalBackground, query)}`),
+    HISTORICAL_BASELINE_RULE].join('\n');
+}
+
+/** New generations require dated entries; existing prose is supported only by the migration/read guard. */
+export async function generateHistoricalBaseline(request: HistoricalBaselineRequest, generate: (system: string, prompt: string) => Promise<string>): Promise<string | null> {
   try {
-    const text = await generate(HISTORICAL_BASELINE_SYSTEM, buildHistoricalBaselinePrompt(request));
-    return sanitizeHistoricalBaseline(text, request.startDate);
-  } catch {
+    const raw = (await generate(HISTORICAL_BASELINE_SYSTEM, buildHistoricalBaselinePrompt(request))).trim();
+    const json = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    if (json.startsWith('{')) {
+      const parsed: unknown = JSON.parse(json);
+      if (!parsed || typeof parsed !== 'object' || !('entries' in parsed) || !Array.isArray(parsed.entries)) return null;
+      const texts = parsed.entries.slice(0, 32).flatMap((entry: unknown) => {
+        if (!entry || typeof entry !== 'object' || !('date' in entry) || !('text' in entry)
+          || typeof entry.date !== 'string' || typeof entry.text !== 'string') return [];
+        const last = latestDate(entry.date);
+        return last && last < request.startDate ? [entry.text] : [];
+      });
+      return sanitizeHistoricalBaseline(texts.join(' '), request.startDate);
+    }
     return null;
-  }
+  } catch { return null; }
 }

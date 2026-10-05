@@ -90,6 +90,7 @@ export interface MinisterWorldContext {
 
   /** WS-GOV-ADVISOR-CHIEF-OF-STAFF — segnali verificati del momento (senza opzioni). */
   concerns?: string;
+  historicalBaseline?: string;
 
   relevantStrategicContext?: string;
 }
@@ -138,6 +139,7 @@ export interface MinisterWorldContextInput {
   signedActs?: string;
   /** Segnali verificati del momento: rimpiazzano il vecchio blocco Pressure. */
   concerns?: string;
+  historicalBaseline?: string;
 }
 
 /**
@@ -174,6 +176,7 @@ export function buildMinisterWorldContext(input: MinisterWorldContextInput): Min
     ongoingProcesses: clip(vars.ONGOING_PROCESSES, MINISTER_WORLD_BUDGET.ongoingProcesses) || '(nessun processo in corso)',
     ...(input.signedActs ? { signedActs: input.signedActs } : {}),
     ...(input.concerns ? { concerns: input.concerns } : {}),
+    ...(input.historicalBaseline ? { historicalBaseline: input.historicalBaseline } : {}),
     ...(strategic ? { relevantStrategicContext: clip(strategic, MINISTER_WORLD_BUDGET.strategicContext) } : {}),
   };
 }
@@ -193,7 +196,7 @@ ${world.simulationRules}`;
 export function renderNationalContext(world: MinisterWorldContext, seat?: string): string {
   const emphasis = seat ? SEAT_WORLD_EMPHASIS[seat] : undefined;
   return `[CONTESTO DEL PAESE]
-Paese: ${world.country}
+Paese: ${world.country}${world.historicalBaseline ? `\n${world.historicalBaseline}` : '\n[HISTORICAL BASELINE — non disponibile] Usa stato corrente e storia della partita, non inventare un passato sostitutivo.'}
 Situazione nazionale:
 ${world.nationalContext}
 Eventi recenti rilevanti:

@@ -19,6 +19,7 @@ import {
 } from './prompts/simulation';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
 import { renderRealityConcerns } from './core/government/RealitySignals';
+import { HISTORICAL_BASELINE_RULE, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
 import { COUNCIL_ISSUE_PROTOCOL, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
@@ -50,6 +51,7 @@ import { isSmallModel } from './llm/modelTier';
 interface GameData {
   /** Server-built request-local read model, never accepted from the HTTP client. */
   advisorContext?: RealityAdvisorContext;
+  polityHistoricalBaselines?: PolityHistoricalBaseline[];
   ministerDialogueSeat?: CabinetSeat;
   /** Request-local, server-derived identity; never serialized into deterministic world state. */
   ministerMemoryRequest?: { scope: MinisterMemoryScope; query: string; verifiedState?: string };
@@ -362,7 +364,7 @@ function ministerWorldBlockFor(vars: PromptVariables, game: GameData, message: s
   if (!isMinisterRequest(game, message)) return null;
   const seat = ministerSeatFor(game, message, false);
   return renderMinisterWorldContext(
-    buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: signedActsFor(game), concerns: concernsFor(game) }),
+    buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: signedActsFor(game), concerns: concernsFor(game), historicalBaseline: renderPolityHistoricalBaselines(game.polityHistoricalBaselines ?? [], message) }),
     seat,
   );
 }
@@ -383,7 +385,7 @@ async function prepareMinisterDialogue(builder: PromptBuilder, game: GameData, m
   if (question.startsWith('RIUNIONE DI GOVERNO')) return null;
   const request = currentMinisterDialogueRequest(game.id, dossier.seat);
   const recentHistory = dialogueHistory(history);
-  const worldContext = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat: dossier.seat, signedActs: signedActsFor(game), concerns: concernsFor(game) });
+  const worldContext = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat: dossier.seat, signedActs: signedActsFor(game), concerns: concernsFor(game), historicalBaseline: renderPolityHistoricalBaselines(game.polityHistoricalBaselines ?? [], question) });
   const memory = /\[MEMORY\]\n([\s\S]*?)(?=\n\[DIALOGUE STYLE\])/.exec(dossierText)?.[1];
   const brief = buildMinisterDialogueBrief({ seat: dossier.seat, worldContext, currentIssues: dossier.issues,
     presidentMessage: question, recentHistory, currentDecision: request?.currentDecision, memory: memory ? { context: memory } : undefined });
@@ -491,7 +493,7 @@ export class PromptBuilder {
     // WS-GOV-MINISTER-WORLD-CONTEXT: lo stesso mondo per ogni ministro, in
     // sezioni immutabili. Il `verifiedState` resta separato (e ultimo).
     const seat = request.scope.seat;
-    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: signedActsFor(this.game), concerns: concernsFor(this.game) });
+    const world = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat, signedActs: signedActsFor(this.game), concerns: concernsFor(this.game), historicalBaseline: renderPolityHistoricalBaselines(this.game.polityHistoricalBaselines ?? [], request.query) });
     return buildMinisterContext({
       scope: request.scope,
       query: request.query,
@@ -1171,7 +1173,7 @@ export class PromptEngine {
       : Math.min(30, Math.max(1, Math.ceil(jumpDays / 21), actionsCount));
     const renderedOverride = promptOverride ? renderPromptTemplate(promptOverride, vars) : undefined;
     const constrained = !game.strictMode && this.isConstrainedModel('jump');
-    const prompt = constrained
+    const baseSimulationPrompt = constrained
       ? buildConstrainedSimulationPrompt(vars, {
           autoJump,
           eventBudget: maxEvents,
@@ -1189,6 +1191,9 @@ export class PromptEngine {
             + buildSimulationNarrativeContract(vars, Boolean(promptOverride))
             + buildIncrementalOutputInstruction(vars, maxEvents, !!autoJump);
         })();
+    const histories = renderPolityHistoricalBaselines(game.polityHistoricalBaselines ?? [], normalizedActions.map(action => action.text).join(' '));
+    const prompt = baseSimulationPrompt + `\n\n[WORLD TEMPORAL BOUNDARY]\nPunto di divergenza: ${game.world.startDate || 'non disponibile: non usare storia reale esterna'}.\n`
+      + (histories || `${HISTORICAL_BASELINE_RULE}\nBaseline non disponibile: usa stato corrente e storia della partita, non inventare un passato sostitutivo.`);
 
     let parsedObjectCount = 0;
     let emittedCount = 0;

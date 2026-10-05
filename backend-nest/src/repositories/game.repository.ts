@@ -4,6 +4,7 @@
  */
 
 import db from '../database';
+import { sanitizeHistoricalBaseline, type PolityHistoricalBaseline } from '../core/government/HistoricalBaseline';
 import { worldRepository } from './world.repository';
 import { ministerMemoryRepository } from './minister-memory.repository';
 import { jevMemoryRepository } from './jev-memory.repository';
@@ -871,14 +872,26 @@ export const gameRepository = {
     stmt.run(turn, date, gameId);
   },
 
-  /** WS-GOV-ADVISOR-HISTORICAL-BASELINE: background storico canonico della partita. */
-  getHistoricalBaseline: (gameId: string): string => {
-    const row = db.prepare('SELECT historical_baseline FROM games WHERE id = ?').get(gameId) as { historical_baseline?: string | null } | undefined;
-    return row?.historical_baseline ?? '';
+  getPolityHistoricalBaseline: (gameId: string, polityId: string, startDate: string): PolityHistoricalBaseline | null => {
+    const row = db.prepare(`SELECT polity_id AS polityId, country_name AS countryName, start_date AS startDate,
+      historical_background AS historicalBackground, generated_at AS generatedAt, version
+      FROM game_polity_historical_baselines WHERE game_id = ? AND polity_id = ? AND start_date = ?`)
+      .get(gameId, polityId, startDate) as PolityHistoricalBaseline | undefined;
+    if (!row) return null;
+    const background = sanitizeHistoricalBaseline(row.historicalBackground, startDate);
+    return background ? { ...row, historicalBackground: background } : null;
   },
 
-  setHistoricalBaseline: (gameId: string, baseline: string) => {
-    db.prepare('UPDATE games SET historical_baseline = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(baseline, gameId);
+  /** First successful version-2 generation wins, including concurrent requests. */
+  storePolityHistoricalBaseline: (gameId: string, baseline: PolityHistoricalBaseline): void => {
+    db.prepare(`INSERT INTO game_polity_historical_baselines
+      (game_id, polity_id, country_name, start_date, historical_background, generated_at, version)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(game_id, polity_id, start_date) DO UPDATE SET
+        country_name = excluded.country_name, historical_background = excluded.historical_background,
+        generated_at = excluded.generated_at, version = excluded.version
+      WHERE game_polity_historical_baselines.version < 2`)
+      .run(gameId, baseline.polityId, baseline.countryName, baseline.startDate, baseline.historicalBackground, baseline.generatedAt, baseline.version);
   },
 
   /** Этап 2: сохранить консолидированную историю (саммари старых раундов). */

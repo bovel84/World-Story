@@ -124,11 +124,13 @@ describe('WS-GOV-MINISTER-WORLD-CONTEXT', () => {
     // Percorso reale della chat: la sola sedia attiva nella fixture è il Tesoro.
     captured.length = 0;
     await session.getMinisterReply('tesoro', 'Che aria tira?', []);
-    expect(captured[0]).toContain('[IDENTITÀ DEL MONDO]');
-    expect(captured[0]).toContain('[CONTESTO DEL PAESE]');
-    expect(captured[0]).toContain('TEST_WORLD_CONTEXT_MARKER');
-    expect(captured[0]).toContain('[GERARCHIA DELLE VERITÀ');
-    expect(captured[0]).toContain('situazione economica');
+    // Lazy historical generation can precede the minister's actual reply.
+    const ministerPrompt = captured.at(-1)!;
+    expect(ministerPrompt).toContain('[IDENTITÀ DEL MONDO]');
+    expect(ministerPrompt).toContain('[CONTESTO DEL PAESE]');
+    expect(ministerPrompt).toContain('TEST_WORLD_CONTEXT_MARKER');
+    expect(ministerPrompt).toContain('[GERARCHIA DELLE VERITÀ');
+    expect(ministerPrompt).toContain('situazione economica');
 
     // Stesso percorso reale del builder, per sedie non attive nella fixture: la
     // sedia si desume dal briefing senza toccare `game-session.ts`.
