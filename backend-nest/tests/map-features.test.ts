@@ -867,7 +867,7 @@ describe('movement order regressions', () => {
     // e dalle risorse naturali reali della nazione. Il mondo è del 1951: il
     // motore legge la mappa, non i fatti 2024 (PIL, debito, popolazione).
     const initial = seedStock(
-      WorldStateEngine.accounts(worldRepository.getRegions(WORLD_ID), { modernFacts: false, startDate: '1951-01-01' })['DEU'],
+      WorldStateEngine.accounts(worldRepository.getRegions(WORLD_ID), (session as any).worldStateOptions())['DEU'],
       naturalResourcesFor('DEU'),
       '1951-01-01',
     );

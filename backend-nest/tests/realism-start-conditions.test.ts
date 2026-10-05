@@ -16,10 +16,11 @@
  *    costruito in decenni, e solo la quota che scade si rifinanzia al corrente.
  *
  * 2. **Scala storica assente.** `HISTORICAL_GDP_BY_YEAR` copriva solo il 1939 e
- *    il 1951, e `historicalGdpYear` sceglie l'anno più vicino: un mondo del 1989
+ *    il 1951, e `historicalGdpYear` sceglieva l'anno più vicino: un mondo del 1989
  *    leggeva i dati del **1951** (USA 346 mld contro ~5.660 reali) e un mondo del
  *    2000 leggeva i fatti **2024** (Cina 18.730 contro ~1.211). La soglia
- *    booleana del 1990 non era il problema: mancavano le righe.
+ *    booleana del 1990 è stata rimossa: i fatti 2024 valgono solo nel 2024,
+ *    e le altre epoche usano righe storiche non future.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -279,7 +280,8 @@ describe('scala storica — la tabella copre le epoche dei preset', () => {
   it('la selezione sceglie la riga giusta per ogni preset', () => {
     expect(historicalGdpYear('1815-06-09')).toBe(1815);
     expect(historicalGdpYear('1914-06-28')).toBe(1914);
-    expect(historicalGdpYear('1936-01-01')).toBe(1939);
+    // Nessun dato futuro: il 1939 non è ancora disponibile nel 1936.
+    expect(historicalGdpYear('1936-01-01')).toBe(1914);
     expect(historicalGdpYear('1939-09-01')).toBe(1939);
     expect(historicalGdpYear('1951-01-01')).toBe(1951);
     expect(historicalGdpYear('1989-06-04')).toBe(1989);
@@ -322,16 +324,19 @@ describe('scala storica — la tabella copre le epoche dei preset', () => {
 
   it('un mondo del 1989 non usa i fatti 2024', () => {
     const population = referencePopulation('USA')!;
-    const modern = estimatedNominalGdpUsdBillions('USA', population, { modernFacts: true, startDate: '1989-06-04' });
+    const modern = estimatedNominalGdpUsdBillions('USA', population, { modernFacts: true, startDate: '2024-01-01' });
     const historical = estimatedNominalGdpUsdBillions('USA', population, { modernFacts: false, startDate: '1989-06-04' });
+    // modernFacts: true non può forzare i fatti 2024 in uno scenario del 1989.
+    expect(estimatedNominalGdpUsdBillions('USA', population, { modernFacts: true, startDate: '1989-06-04' }))
+      .toBe(historical);
     // Il PIL del 1989 è circa un quinto di quello del 2024, non un centesimo.
     expect(historical / modern).toBeGreaterThan(0.1);
     expect(historical / modern).toBeLessThan(0.5);
   });
 
   it('un mondo del 2000 non eredita il PIL del 1951', () => {
-    // Il percorso moderno del 2000 usa i fatti 2024 (soglia 1990), ma la riga
-    // storica esiste: il percorso storico non ricade più sul 1951.
+    // La riga del 2000 impedisce di ricadere sul 1951; i fatti 2024
+    // non sono un riferimento valido per questo scenario.
     expect(historicalNominalGdpUsdBillions('CHN', 1_200_000_000, { startDate: '2000-01-01' }))
       .toBe(HISTORICAL_GDP_BY_YEAR[2000].CHN);
     expect(historicalNominalGdpUsdBillions('CHN', 1_200_000_000, { startDate: '2000-01-01' }))
@@ -344,8 +349,8 @@ describe('scala storica — la tabella copre le epoche dei preset', () => {
     expect(gbr).toBeLessThan((HISTORICAL_GDP_BY_YEAR[1939].GBR ?? 0) / 10);
   });
 
-  it('i mondi moderni restano sul registro reale', () => {
-    const usa = estimatedNominalGdpUsdBillions('USA', 340_000_000, { modernFacts: true, startDate: '2026-01-01' });
+  it('i mondi del 2024 restano sul registro reale 2024', () => {
+    const usa = estimatedNominalGdpUsdBillions('USA', 340_000_000, { modernFacts: true, startDate: '2024-01-01' });
     expect(usa).toBe(referenceGdpUsdBillions('USA'));
     expect(usa).toBeGreaterThan(25_000);
   });
@@ -354,7 +359,7 @@ describe('scala storica — la tabella copre le epoche dei preset', () => {
 describe('scala storica — i conti nazionali restano coerenti', () => {
   it('il PIL nominale non dipende dai fatti moderni nei mondi storici', () => {
     const regions = [{ id: 'r1', owner: 'USA', population: 150_000_000, gdp: 100, militaryPower: 50 }];
-    const modern = WorldStateEngine.accounts(regions, { modernFacts: true, startDate: '2026-01-01' });
+    const modern = WorldStateEngine.accounts(regions, { modernFacts: true, startDate: '2024-01-01' });
     const historical = WorldStateEngine.accounts(regions, { modernFacts: false, startDate: '1989-06-04' });
     expect(historical.USA.nominalGdpUsdBillions).toBeLessThan(modern.USA.nominalGdpUsdBillions);
     // Nessun debito ereditato dove è anacronistico.

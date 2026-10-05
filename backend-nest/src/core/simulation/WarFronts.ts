@@ -32,12 +32,13 @@
  */
 
 import { arsenalCombatFactor, combatAttrition } from './MilitaryIndustry';
-import { militaryManpower, type MilitaryEpoch } from './MilitaryDoctrine';
+import { type MilitaryEpoch } from './MilitaryDoctrine';
 import { stableRoll } from './MilitaryProduction';
 import {
   equipmentQuantity,
   rifleEquipmentId,
-  rifleRequirement,
+  unitEstablishmentPersonnel,
+  unitRifleRequirement,
   unitReadiness,
   unitStatusFromCoverage,
   UNIT_ORDER_DEFAULT,
@@ -140,13 +141,13 @@ export function supplyFactors(input: { supply: SideSupply; motorized: boolean })
  * copertura, 0,6…1,6) normalizzato in 0…1: nessuna seconda formula di qualità.
  */
 export function unitStrength(input: {
-  unit: Pick<MilitaryUnitState, 'id' | 'personnel' | 'equipment' | 'readiness' | 'status' | 'order'>;
+  unit: Pick<MilitaryUnitState, 'id' | 'personnel' | 'equipment' | 'readiness' | 'status' | 'order' | 'establishmentPersonnel'>;
   epoch: MilitaryEpoch;
   supply: SideSupply;
   motorized: boolean;
 }): UnitStrength {
   const order = (input.unit.order ?? UNIT_ORDER_DEFAULT) as UnitOrder;
-  const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
+  const menPerFormation = unitEstablishmentPersonnel(input.unit, input.epoch);
   const personnelFactor = menPerFormation > 0 ? clamp(Number(input.unit.personnel || 0) / menPerFormation, 0, 1) : 0;
   const equipmentFactor = clamp(arsenalCombatFactor(input.unit.equipment || {}, Number(input.unit.personnel || 0)) - ARSENAL_FACTOR_FLOOR, 0, 1);
   const readinessFactor = clamp(Number(input.unit.readiness || 0), 0, 1);
@@ -178,7 +179,7 @@ export interface SideStrength {
 }
 
 export function frontSideStrength(input: {
-  units: ReadonlyArray<Pick<MilitaryUnitState, 'id' | 'personnel' | 'equipment' | 'readiness' | 'status' | 'order'>>;
+  units: ReadonlyArray<Pick<MilitaryUnitState, 'id' | 'personnel' | 'equipment' | 'readiness' | 'status' | 'order' | 'establishmentPersonnel'>>;
   epoch: MilitaryEpoch;
   supply: SideSupply;
   motorized: boolean;
@@ -519,9 +520,6 @@ export function resolveFront(input: {
   const defenderPressure = round4(defender.pressure * jitter(rollDefender));
   const months = Math.max(0, input.stepDays) / 30;
 
-  const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
-  const requiredRifles = rifleRequirement(input.epoch, 1);
-
   const applySide = (side: 'attacker' | 'defender'): FrontOutcome[] => {
     const own = side === 'attacker' ? attackerPressure : defenderPressure;
     const enemy = side === 'attacker' ? defenderPressure : attackerPressure;
@@ -543,7 +541,8 @@ export function resolveFront(input: {
       const attrition = combatAttrition(unit.equipment || {}, lossRatio);
       const riflesAfter = equipmentQuantity(attrition.units, rifleEquipmentId());
       const routed = order === 'withdraw' || collapsed;
-      const organic = menPerFormation * DEPLETED_ORGANIC_RATIO;
+      const organic = unitEstablishmentPersonnel(unit, input.epoch) * DEPLETED_ORGANIC_RATIO;
+      const requiredRifles = unitRifleRequirement(unit, input.epoch);
       const status: MilitaryUnitState['status'] = personnelAfter <= 0
         ? 'destroyed'
         : routed && personnelAfter < organic
@@ -556,7 +555,7 @@ export function resolveFront(input: {
               ? 'degraded'
               : unitStatusFromCoverage({ assigned: riflesAfter, required: requiredRifles });
       const readinessAfter = personnelAfter <= 0 ? 0 : unitReadiness({
-        unit: { personnel: personnelAfter, equipment: attrition.units, status },
+        unit: { ...unit, personnel: personnelAfter, equipment: attrition.units, status },
         epoch: input.epoch,
       });
       return {

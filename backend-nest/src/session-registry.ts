@@ -51,6 +51,7 @@ function regionStatesFromDb(worldId: string, gameId: string): [string, any][] {
 
 class SessionRegistry {
   private sessions: Map<string, GameSession> = new Map();
+  private pendingCreations = new Set<string>();
   private provider: LLMRouter;
 
   constructor(provider: LLMRouter) {
@@ -60,7 +61,7 @@ class SessionRegistry {
   /**
    * Create a new game session
    */
-  createSession(worldId: string, playerName: string, playerRegionId: string, playerColor: string = '#FF0000', difficulty?: string): { session: GameSession; playerId: string; gameId: string } {
+  createSession(worldId: string, playerName: string, playerRegionId: string, playerColor: string = '#FF0000', difficulty?: string, estimateInitialProfile = false): { session: GameSession; playerId: string; gameId: string; ready: Promise<string> } {
     const gameId = shortId();
 
     // Verify world exists
@@ -115,19 +116,27 @@ class SessionRegistry {
     const session = new GameSession(gameId, worldId, this.provider);
 
     // Initialize session (sets up agents, loads regions)
-    session.initialize(playerRegionId, nationalName, playerColor, difficulty);
-
-    // Cache session
-    this.sessions.set(gameId, session);
+    if (estimateInitialProfile) this.pendingCreations.add(gameId);
+    const initialization = session.initialize(playerRegionId, nationalName, playerColor, difficulty, estimateInitialProfile);
+    const ready = estimateInitialProfile ? initialization.then(player => {
+      this.pendingCreations.delete(gameId);
+      this.sessions.set(gameId, session);
+      return player;
+    }, error => {
+      this.pendingCreations.delete(gameId);
+      throw error;
+    }) : initialization;
+    if (!estimateInitialProfile) this.sessions.set(gameId, session);
 
     console.log('[SessionRegistry] Created session:', gameId);
-    return { session, playerId, gameId };
+    return { session, playerId, gameId, ready };
   }
 
   /**
    * Get existing session from memory or load from DB
    */
   getSession(gameId: string): GameSession | null {
+    if (this.pendingCreations.has(gameId)) return null;
     // Check memory first
     if (this.sessions.has(gameId)) {
       return this.sessions.get(gameId)!;

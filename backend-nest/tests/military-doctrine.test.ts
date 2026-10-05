@@ -153,6 +153,18 @@ describe('establishment per epoca', () => {
 describe('copertura', () => {
   const manpower = militaryManpower({ population: 50_000_000, formations: 6, mobilizedFormations: 0, epoch: 'moderno' });
 
+  it('uses live active and mobilized personnel for rifles without changing vehicle establishments', () => {
+    const live = { ...manpower, activePersonnel: 6_000, mobilizedPersonnel: 2_000, mobilizedFormations: 1 };
+    const coverage = equipmentCoverage({ units: { fucili: 6_000 }, manpower: live, epoch: 'moderno', ports: 0 });
+    expect(coverage.find(row => row.category === 'individualWeapons')!.required).toBe(6_000);
+    expect(coverage.find(row => row.category === 'individualWeapons')!.coveragePct).toBe(100);
+    const legacy = equipmentCoverage({ units: {}, manpower: { ...live, activePersonnel: manpower.activePersonnel, mobilizedPersonnel: 0, mobilizedFormations: 0 }, epoch: 'moderno', ports: 0 });
+    expect(legacy.find(row => row.category === 'individualWeapons')!.required).toBe(54_000);
+    const vehicles = coverage.find(row => row.category !== 'individualWeapons')!;
+    const doctrineVehicles = equipmentCoverage({ units: {}, manpower: { ...manpower, mobilizedFormations: 1 }, epoch: 'moderno', ports: 0 }).find(row => row.category === vehicles.category)!;
+    expect(vehicles.required).toBe(doctrineVehicles.required);
+  });
+
   it('il fabbisogno di armi individuali nasce dagli uomini in armi', () => {
     const coverage = equipmentCoverage({ units: {}, manpower, epoch: 'moderno', ports: 3 });
     const individual = coverage.find(row => row.category === 'individualWeapons')!;

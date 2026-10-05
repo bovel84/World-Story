@@ -17,6 +17,7 @@
  * NPC, crisi, playback, fazioni, mercato del lavoro, popolazione individuale.
  */
 import type { MilitaryManpower, MilitaryEpoch, ReadinessTone } from './MilitaryDoctrine';
+import type { CountryInitialProfile } from './CountryInitialProfile';
 import {
   availableReserveOf as reserveAvailable,
   personnelUnderArms,
@@ -384,6 +385,8 @@ export interface MilitaryUnitState {
   armyId: string;
   name: string;
   personnel: number;
+  /** Authorized staffing, fixed at creation; casualties never shrink it. Legacy units use epoch doctrine. */
+  establishmentPersonnel?: number;
   /** Equipaggiamento **assegnato al reparto** (sottratto dal deposito). */
   equipment: Record<string, number>;
   monthlyNeeds: { fuel: number; weapons: number; food: number };
@@ -1208,7 +1211,45 @@ export function seedArmies(input: {
   epoch: MilitaryEpoch;
   date: string;
   regionNameFor?: (regionId: string | null) => string | null;
+  /** Initial country facts, used only before persistent units exist. */
+  initialMilitary?: CountryInitialProfile['military'];
+  /** Existing personnel stock during first conversion; never a profile refill. */
+  activePersonnel?: number;
 }): ArmyOperationalState[] {
+  if (input.initialMilitary || input.activePersonnel !== undefined) {
+    const formations = Math.round(nonNegative(input.initialMilitary?.formations ?? input.totalFormations));
+    const seeds = [...input.armies].sort((a, b) => String(a.objectId || a.id).localeCompare(String(b.objectId || b.id)));
+    const weight = seeds.reduce((sum, army) => sum + nonNegative(army.formations), 0);
+    // Authored armies keep their counts. Only an over-budget map needs scaling;
+    // the unlocated national remainder belongs to garrison, not named armies.
+    const scale = weight > formations ? formations / weight : 1;
+    const allocations = seeds.map(army => Math.floor(nonNegative(army.formations) * scale));
+    let remaining = formations - allocations.reduce((sum, count) => sum + count, 0);
+    // Deterministic largest-remainder allocation only when the map exceeds budget.
+    const priority = seeds.map((army, index) => ({ index, fraction: nonNegative(army.formations) * scale - allocations[index] }))
+      .sort((a, b) => b.fraction - a.fraction || a.index - b.index);
+    if (weight > formations) for (const slot of priority) {
+      if (remaining <= 0) break;
+      allocations[slot.index] += 1;
+      remaining -= 1;
+    }
+    const armies = seedArmies({
+      ...input, initialMilitary: undefined, activePersonnel: undefined,
+      armies: seeds.map((army, index) => ({ ...army, formations: allocations[index] })),
+      totalFormations: formations, accountedFormations: formations - remaining,
+    });
+    const active = Math.round(nonNegative(input.activePersonnel ?? input.initialMilitary?.activePersonnel));
+    let assigned = 0;
+    for (const army of armies) {
+      const next = formations > 0 ? Math.round(active * army.formations / formations) : 0;
+      army.personnel = Math.min(next, active - assigned);
+      assigned += army.personnel;
+      army.legacyDerived = false;
+    }
+    const last = [...armies].reverse().find(army => army.formations > 0);
+    if (last) last.personnel += active - assigned;
+    return armies;
+  }
   const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
   const needsPerFormation = monthlyNeedsPerFormation(input.epoch);
   const state: ArmyOperationalState[] = input.armies.map(army => ({
@@ -1273,6 +1314,8 @@ export interface NpcMilitarySeedInput {
   date: string;
   /** Formazioni dichiarate dal conto nazionale (`account.forces`). */
   formations: number;
+  /** Country bootstrap troop total; omitted for legacy epoch-sized formations. */
+  activePersonnel?: number;
   /** Regioni **proprie**: il peso è la `militaryPower` dichiarata. */
   regions: ReadonlyArray<{ id: string; name?: string | null; militaryPower?: number }>;
   /** Province del teatro dei fronti aperti: priorità di schieramento. */
@@ -1358,8 +1401,10 @@ export function materializeNpcMilitary(input: NpcMilitarySeedInput): NpcMilitary
     return { units: existing, depot: { ...(input.depot || {}) }, createdUnitIds: [] };
   }
   const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
+  const men = input.activePersonnel === undefined
+    ? new Array<number>(target).fill(menPerFormation)
+    : splitExact(input.activePersonnel, target);
   const needs = monthlyNeedsPerFormation(input.epoch);
-  const required = rifleRequirement(input.epoch, 1);
   const slots = npcRegionSlots({
     count: target - existing.length,
     regions: input.regions,
@@ -1369,6 +1414,8 @@ export function materializeNpcMilitary(input: NpcMilitarySeedInput): NpcMilitary
   const created: MilitaryUnitState[] = [];
   slots.forEach((slot, offset) => {
     const index = existing.length + offset + 1;
+    const personnel = men[index - 1];
+    const required = Math.round(personnel * individualWeaponShareFor(input.epoch));
     const equipment: Record<string, number> = {};
     // I pezzi escono dal **deposito** della polity e non vengono inventati:
     // `depot + assegnato` resta il totale (come per il giocatore).
@@ -1389,7 +1436,8 @@ export function materializeNpcMilitary(input: NpcMilitarySeedInput): NpcMilitary
       polityId: String(input.polityId),
       armyId: `npc-${input.polityId}-army-${slot.id}`,
       name: unitNameFor(input.epoch, index),
-      personnel: menPerFormation,
+      personnel,
+      ...(input.activePersonnel === undefined ? {} : { establishmentPersonnel: personnel }),
       equipment,
       monthlyNeeds: { fuel: needs.fuel, weapons: needs.weapons, food: needs.food },
       readiness: 0,
@@ -1580,9 +1628,8 @@ export function unitNumberOf(unit: Pick<MilitaryUnitState, 'id'>): number {
 
 /**
  * Prontezza di un reparto: media di **organico** e **dotazione d'armi
- * individuali**, modulata dallo **stato dichiarato**. Riusa le grandezze del
- * motore (`menPerFormation`, `rifleRequirement`); un dato assente vale 1, come in
- * `militaryReadiness`.
+ * individuali**, modulata dallo **stato dichiarato**. Organico autorizzato
+ * persistente; per i salvataggi legacy senza organico vale la dottrina d'epoca.
  *
  * Il carburante **non** entra in questo numero: la prontezza è persistita e un
  * fattore che dipende da ogni litro consumato la farebbe oscillare a ogni
@@ -1590,12 +1637,12 @@ export function unitNumberOf(unit: Pick<MilitaryUnitState, 'id'>): number {
  * **problema** quando la scorta è sotto un mese.
  */
 export function unitReadiness(input: {
-  unit: Pick<MilitaryUnitState, 'personnel' | 'equipment' | 'status'>;
+  unit: Pick<MilitaryUnitState, 'personnel' | 'equipment' | 'status' | 'establishmentPersonnel'>;
   epoch: MilitaryEpoch;
 }): number {
-  const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
+  const menPerFormation = unitEstablishmentPersonnel(input.unit, input.epoch);
   const staffing = menPerFormation > 0 ? Math.min(1, nonNegative(input.unit.personnel) / menPerFormation) : 1;
-  const required = rifleRequirement(input.epoch, 1);
+  const required = unitRifleRequirement(input.unit, input.epoch);
   const assigned = equipmentQuantity(input.unit.equipment, rifleEquipmentId());
   const equipped = required > 0 ? Math.min(1, assigned / required) : 1;
   const value = (staffing * 0.5 + equipped * 0.5) * UNIT_STATUS_FACTOR[input.unit.status];
@@ -1670,6 +1717,8 @@ export interface MaterializeUnitsInput {
   polityId: string;
   /** Reparti dichiarati dal **mondo** (livello dell'oggetto della mappa). */
   formations?: number;
+  /** Only supplied during country bootstrap, not inferred again from depleted troops. */
+  establishmentPersonnel?: number;
   existing: readonly MilitaryUnitState[];
 }
 
@@ -1690,6 +1739,8 @@ export function materializeUnitsForArmy(input: MaterializeUnitsInput): MilitaryU
   const created: MilitaryUnitState[] = [];
   if (existing.length === 0) {
     const men = splitExact(input.army.personnel, target, 0);
+    const establishments = input.establishmentPersonnel === undefined ? undefined
+      : splitExact(input.establishmentPersonnel * target, target);
     const needs = {
       fuel: splitExact(input.army.monthlyNeeds.fuel, target, 3),
       weapons: splitExact(input.army.monthlyNeeds.weapons, target, 3),
@@ -1707,6 +1758,7 @@ export function materializeUnitsForArmy(input: MaterializeUnitsInput): MilitaryU
         armyId: input.army.id,
         name: unitNameFor(input.epoch, index),
         personnel: men[index - 1],
+        ...(establishments ? { establishmentPersonnel: establishments[index - 1] } : {}),
         equipment,
         monthlyNeeds: {
           fuel: needs.fuel[index - 1],
@@ -1718,7 +1770,7 @@ export function materializeUnitsForArmy(input: MaterializeUnitsInput): MilitaryU
         // pezzi è nel deposito, non in mano ai soldati.
         status: unitStatusFromCoverage({
           assigned: rifles,
-          required: rifleRequirement(input.epoch, 1),
+          required: establishments ? Math.round(establishments[index - 1] * individualWeaponShareFor(input.epoch)) : rifleRequirement(input.epoch, 1),
           declared: input.army.status,
         }),
         regionId: input.army.regionId,
@@ -1809,6 +1861,18 @@ export const PERSISTENT_KIND_LABEL: Record<string, string> = {
 export function aggregateSummary(aggregate: OperationalAggregate): string {
   return `${n(aggregate.underArms)} uomini sotto le armi (${n(aggregate.soldiers)} terra + ${n(aggregate.crew)} equipaggi) · `
     + `${n(aggregate.capacity)} linee · ${n(aggregate.workers)} lavoratori · ${aggregate.ships} navi · ${aggregate.constructions} cantieri`;
+}
+
+/** A unit's fixed authorized staffing; missing legacy data retains epoch doctrine. */
+export function unitEstablishmentPersonnel(unit: Pick<MilitaryUnitState, 'establishmentPersonnel'>, epoch: MilitaryEpoch): number {
+  const stored = unit.establishmentPersonnel;
+  return stored !== undefined && Number.isFinite(stored) && stored >= 0
+    ? Math.round(stored)
+    : militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch }).menPerFormation;
+}
+
+export function unitRifleRequirement(unit: Pick<MilitaryUnitState, 'establishmentPersonnel'>, epoch: MilitaryEpoch): number {
+  return Math.round(unitEstablishmentPersonnel(unit, epoch) * individualWeaponShareFor(epoch));
 }
 
 /** Le armi individuali richieste da un reparto (quota d'epoca degli uomini). */
@@ -1926,8 +1990,8 @@ function unitActions(input: {
   /** Fronte del reparto (`null` se non è impegnato): senza fronte non ci sono ordini. */
   front?: WarFrontState;
 }): OperatingAction[] {
-  const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
-  const required = rifleRequirement(input.epoch, 1);
+  const menPerFormation = unitEstablishmentPersonnel(input.unit, input.epoch);
+  const required = unitRifleRequirement(input.unit, input.epoch);
   const assigned = equipmentQuantity(input.unit.equipment, rifleEquipmentId());
   const reserve = Math.max(0, Math.floor(nonNegative(input.availableReserve)));
   const depot = equipmentQuantity(input.depotUnits, rifleEquipmentId());
@@ -2048,7 +2112,10 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
 
   // ── Armate ────────────────────────────────────────────────────────────────
   for (const army of input.armies) {
-    const required = rifleRequirement(input.epoch, army.formations);
+    const armyUnits = (input.units || []).filter(unit => unit.armyId === army.id && unit.status !== 'destroyed');
+    const required = armyUnits.length > 0
+      ? armyUnits.reduce((total, unit) => total + unitRifleRequirement(unit, input.epoch), 0)
+      : rifleRequirement(input.epoch, army.formations);
     const assigned = equipmentQuantity(army.equipment, rifleEquipmentId());
     const coveragePct = required > 0 ? round1(Math.min(100, assigned / required * 100)) : 100;
     const equipmentTotal = Math.round(sum(Object.values(army.equipment || {})));
@@ -2107,14 +2174,14 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
   // contiene è la loro somma (una sola fonte di verità).
   const armyById = new Map(input.armies.map(army => [String(army.id), army]));
   const frontById = new Map((input.fronts || []).map(front => [String(front.id), front]));
-  const menPerFormation = militaryManpower({ population: 0, formations: 1, mobilizedFormations: 0, epoch: input.epoch }).menPerFormation;
   for (const unit of input.units || []) {
     // P4 — le schede reparto del quadro operativo sono quelle del **giocatore**:
     // i reparti delle altre polity compaiono nel read model del fronte, non
     // sotto «Forze armate del giocatore».
     if (String(unit.polityId) !== String(input.polityId)) continue;
     const army = armyById.get(String(unit.armyId));
-    const required = rifleRequirement(input.epoch, 1);
+    const menPerFormation = unitEstablishmentPersonnel(unit, input.epoch);
+    const required = unitRifleRequirement(unit, input.epoch);
     const assigned = equipmentQuantity(unit.equipment, rifleEquipmentId());
     const coveragePct = required > 0 ? round1(Math.min(100, assigned / required * 100)) : 100;
     const staffingPct = menPerFormation > 0 ? round1(Math.min(100, nonNegative(unit.personnel) / menPerFormation * 100)) : 100;
@@ -2139,7 +2206,7 @@ export function persistentObjects(input: PersistentObjectsInput): OperatingObjec
       regionName: unit.regionName,
       facts: [
         fact('stato', 'Uomini', Math.round(nonNegative(unit.personnel)), 'numero',
-          tone(staffingPct, 95, 60), `Organico d'epoca: ${n(menPerFormation)} uomini per reparto.`),
+          tone(staffingPct, 95, 60), `Organico autorizzato: ${n(menPerFormation)} uomini per reparto.`),
         fact('stato', 'Equipaggiamento assegnato', equipmentTotal, 'numero', 'neutral',
           textList(unit.equipment) || 'Nessun pezzo assegnato: la dotazione è nel deposito nazionale.'),
         fact('capacita', 'Organico', staffingPct, 'pct', tone(staffingPct, 95, 60)),

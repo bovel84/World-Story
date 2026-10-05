@@ -47,7 +47,7 @@ describe('reality advisor API and minister trust boundary', () => {
     const response = await fetch(base + '/advisor/context');
     expect(response.status).toBe(200); const body = await response.json();
     expect(body.advisorContext.verifiedWorldSnapshot.infrastructure.ports).toEqual([]);
-    expect(body.reply).not.toMatch(/sfida|quest|pressione/i);
+    expect(body.reply).not.toMatch(/\b(?:sfida|quest|pressione)\b/i);
     expect(Array.isArray(body.issues)).toBe(true); expect(captured.length).toBe(count);
   });
   it.each(['/advisor/reality', '/advisor', '/advisor/stream'])('corrects absent ports before a model request (%s)', async route => {

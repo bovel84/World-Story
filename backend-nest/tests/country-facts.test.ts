@@ -53,9 +53,11 @@ describe('country-facts — registro reale 2024', () => {
     expect(referenceDebtToGdpPct('ATA')).toBe(50);
   });
 
-  it('applica i fatti moderni solo dal 1990 in poi', () => {
-    expect(hasModernReferenceFacts('2026-01-01')).toBe(true);
+  it('applica i fatti di riferimento 2024 solo agli scenari del 2024', () => {
+    expect(hasModernReferenceFacts('2026-01-01')).toBe(false);
     expect(hasModernReferenceFacts('2024-01-01')).toBe(true);
+    expect(hasModernReferenceFacts('2000-01-01')).toBe(false);
+    expect(hasModernReferenceFacts('1990-01-01')).toBe(false);
     expect(hasModernReferenceFacts('1951-01-01')).toBe(false);
     expect(hasModernReferenceFacts('1939-09-01')).toBe(false);
     expect(hasModernReferenceFacts(undefined)).toBe(false);
@@ -65,8 +67,8 @@ describe('country-facts — registro reale 2024', () => {
     // Tabella: USA 1951 = 346 mld (non i ~29.000 dei fatti 2024).
     expect(historicalNominalGdpUsdBillions('USA', 153_000_000, { startDate: '1951-01-01' })).toBe(346);
     expect(historicalNominalGdpUsdBillions('USA', 153_000_000, { startDate: '1939-09-01' })).toBe(92);
-    // Un anno senza riga usa la più vicina.
-    expect(historicalNominalGdpUsdBillions('GBR', 50_000_000, { startDate: '1948-01-01' })).toBe(40);
+    // Un anno senza riga usa l'ultima disponibile non futura: 1939, non 1951.
+    expect(historicalNominalGdpUsdBillions('GBR', 50_000_000, { startDate: '1948-01-01' })).toBe(27);
     // Paese non in tabella: ripiego su popolazione × reddito pro capite d'epoca,
     // mai sui fatti 2024.
     const fallback = historicalNominalGdpUsdBillions('NZL', 2_000_000, { startDate: '1951-01-01' });

@@ -715,14 +715,24 @@ export function referenceDebtToGdpPct(polityId: string, fallbackPct = 50): numbe
     : Math.max(0, fallbackPct);
 }
 
-/**
- * Anno a partire dal quale un preset è «moderno»: solo qui i fatti 2024 sono
- * coerenti con lo scenario. Per i mondi storici (WWII, Guerra Fredda) restano
- * le stime del bilanciatore, perché applicare dati odierni sarebbe anacronistico.
- */
+/** Anno valido da YYYY o YYYY-MM-DD; date mancanti/malformate non autorizzano riferimenti. */
+function referenceDateYear(startDate?: string | null): number | null {
+  if (typeof startDate !== 'string' || !/^\d{4}(?:-\d{2}-\d{2})?$/.test(startDate)) return null;
+  const year = Number(startDate.slice(0, 4));
+  if (year <= 0) return null;
+  if (startDate.length === 10) {
+    const month = Number(startDate.slice(5, 7));
+    const day = Number(startDate.slice(8, 10));
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (month < 1 || month > 12 || day < 1 || day > days[month - 1]) return null;
+  }
+  return year;
+}
+
+/** Il registro 2024 è utilizzabile solo per scenari del 2024, mai come default dal 1990. */
 export function hasModernReferenceFacts(startDate: string | undefined | null): boolean {
-  const year = Number(String(startDate ?? '').slice(0, 4));
-  return Number.isFinite(year) && year >= 1990;
+  return referenceDateYear(startDate) === 2024;
 }
 
 /**
@@ -775,6 +785,9 @@ export const HISTORICAL_GDP_BY_YEAR: Record<number, Record<string, number>> = {
     HUN: 47, ROU: 37, BGR: 13, UKR: 32, SRB: 10, HRV: 22,
     SVK: 29, SVN: 20, LTU: 12, LVA: 8, EST: 6, ISR: 132,
     PHL: 81, THA: 126, MYS: 94, SGP: 96, VNM: 31, NGA: 46,
+    // Stima storica arrotondata: World Bank WDI NY.GDP.MKTP.CD, BIH, 2000 (~5.5 mld).
+    // https://data.worldbank.org/indicator/NY.GDP.MKTP.CD?locations=BA
+    BIH: 5.5,
   },
   1939: {
     USA: 92, DEU: 45, RUS: 55, GBR: 27, CHN: 30, IND: 25, FRA: 15, JPN: 7, ITA: 9,
@@ -792,6 +805,60 @@ export const HISTORICAL_GDP_BY_YEAR: Record<number, Record<string, number>> = {
   },
 };
 
+/**
+ * Stime storiche arrotondate della popolazione (non valori verificati al bootstrap).
+ * World Bank WDI SP.POP.TOTL, anno 2000: BIH ~3.75 milioni, USA ~282.2 milioni.
+ * https://data.worldbank.org/indicator/SP.POP.TOTL?locations=BA-US
+ * Si usano solo nell'anno registrato: niente estrapolazione dalla popolazione 2024.
+ */
+export const HISTORICAL_POPULATION_BY_YEAR: Record<number, Record<string, number>> = {
+  2000: { BIH: 3_750_000, USA: 282_200_000 },
+};
+
+/**
+ * Stime storiche arrotondate del debito pubblico lordo / PIL (%).
+ * USA 2000 ~55%, ordine di grandezza della serie FMI WEO GGXWDG_NGDP.
+ * https://www.imf.org/en/Publications/WEO/weo-database
+ * Non è una verifica live. BIH 2000 non è registrata: non sostituire una serie
+ * mancante con il rapporto 2024 né confondere debito estero con debito pubblico.
+ */
+export const HISTORICAL_DEBT_TO_GDP_BY_YEAR: Record<number, Record<string, number>> = {
+  2000: { USA: 55 },
+};
+
+function historicalReferenceValue(
+  table: Record<number, Record<string, number>>,
+  year: number | null,
+  polityId: string,
+): number | null {
+  const row = year === null ? undefined : table[year];
+  return row && Object.prototype.hasOwnProperty.call(row, polityId) ? row[polityId] : null;
+}
+
+/** Popolazione dell'anno esatto, oppure null. I valori storici sono stime, non fatti 2024. */
+export function referencePopulationForDate(polityId: string, startDate?: string | null): number | null {
+  if (hasModernReferenceFacts(startDate)) return referencePopulation(polityId);
+  return historicalReferenceValue(HISTORICAL_POPULATION_BY_YEAR, referenceDateYear(startDate), polityId);
+}
+
+/** Debito/PIL dell'anno esatto, oppure null (nessun fallback implicito né debito zero). */
+export function referenceDebtToGdpPctForDate(polityId: string, startDate?: string | null): number | null {
+  if (hasModernReferenceFacts(startDate)) {
+    return Object.prototype.hasOwnProperty.call(DEBT_TO_GDP_2024, polityId) ? DEBT_TO_GDP_2024[polityId] : null;
+  }
+  return historicalReferenceValue(HISTORICAL_DEBT_TO_GDP_BY_YEAR, referenceDateYear(startDate), polityId);
+}
+
+/**
+ * PIL di riferimento: 2024 solo nel 2024, altrimenti l'ultima tabella storica
+ * non futura. Un anno non esatto è un'ancora storica approssimata, non un fatto
+ * verificato per startDate. null se la tabella non contiene il paese/la data.
+ */
+export function referenceGdpUsdBillionsForDate(polityId: string, startDate?: string | null): number | null {
+  if (hasModernReferenceFacts(startDate)) return referenceGdpUsdBillions(polityId);
+  return historicalReferenceValue(HISTORICAL_GDP_BY_YEAR, historicalGdpYear(startDate), polityId);
+}
+
 /** Reddito pro capite di ripiego (USD correnti) per le nazioni non in tabella. */
 export const HISTORICAL_GDP_PER_CAPITA_BY_YEAR: Record<number, number> = {
   // Reddito pro capite di ripiego per le nazioni non elencate nella riga
@@ -807,13 +874,13 @@ export const HISTORICAL_GDP_PER_CAPITA_BY_YEAR: Record<number, number> = {
 /** Ancora di ultima istanza: un punto dell'indice di mappa vale un miliardo. */
 export const HISTORICAL_GDP_INDEX_TO_BILLIONS = 1;
 
-/** Anno storico di riferimento più vicino presente nella tabella di conversione. */
+/** Ultimo anno storico disponibile non successivo a startDate (nessun dato futuro). */
 export function historicalGdpYear(startDate?: string | null): number | null {
-  const year = Number(String(startDate ?? '').slice(0, 4));
-  if (!Number.isFinite(year) || year <= 0) return null;
+  const year = referenceDateYear(startDate);
+  if (year === null) return null;
   let best: number | null = null;
   for (const candidate of Object.keys(HISTORICAL_GDP_BY_YEAR).map(Number)) {
-    if (best === null || Math.abs(candidate - year) < Math.abs(best - year)) best = candidate;
+    if (candidate <= year && (best === null || candidate > best)) best = candidate;
   }
   return best;
 }
@@ -831,7 +898,7 @@ export function historicalNominalGdpUsdBillions(
   options: { gdpIndex?: number; startDate?: string | null } = {},
 ): number {
   const year = historicalGdpYear(options.startDate);
-  const tableValue = year != null ? HISTORICAL_GDP_BY_YEAR[year]?.[polityId] : undefined;
+  const tableValue = historicalReferenceValue(HISTORICAL_GDP_BY_YEAR, year, polityId);
   if (typeof tableValue === 'number' && tableValue > 0) return tableValue;
   const residents = Number.isFinite(Number(population)) ? Math.max(0, Number(population)) : 0;
   if (residents > 0) {
@@ -845,11 +912,13 @@ export function historicalNominalGdpUsdBillions(
 /**
  * PIL nominale di una polity in miliardi USD.
  *
- * `modernFacts: false` (mondi pre-1990) esclude ogni fatto 2024 — PIL,
- * popolazione e debito di riferimento — e legge il PIL dalla tabella storica
- * per anno/paese (con ripiego su popolazione e indice di mappa).
+ * Una startDate esplicita fuori dal 2024 esclude i fatti 2024 anche se il
+ * chiamante passa modernFacts: true. modernFacts: false li esclude sempre.
+ * Si legge invece il PIL storico (con ripiego su popolazione e indice di mappa).
  *
- * Con `modernFacts` vero (default, mondi dal 1990 in poi):
+ * Senza startDate si mantiene il comportamento legacy del registro 2024;
+ * i nuovi bootstrap devono sempre passare startDate o usare i selettori ForDate.
+ * Con i riferimenti 2024 abilitati:
  * 1. Se il paese ha una serie reale pubblicata, si usa quella: è un fatto, non
  *    una stima, e non dipende dalla popolazione (spesso approssimata) della mappa.
  * 2. Altrimenti si stima dai residenti — di riferimento quando noti, altrimenti
@@ -861,7 +930,8 @@ export function estimatedNominalGdpUsdBillions(
   population: number,
   options: { modernFacts?: boolean; gdpIndex?: number; startDate?: string | null } = {},
 ): number {
-  const modernFacts = options.modernFacts !== false;
+  const modernFacts = options.modernFacts !== false
+    && (options.startDate === undefined || hasModernReferenceFacts(options.startDate));
   if (!modernFacts) {
     return historicalNominalGdpUsdBillions(polityId, population, {
       gdpIndex: options.gdpIndex,

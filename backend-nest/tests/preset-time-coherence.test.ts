@@ -25,9 +25,10 @@ describe('GAMEPLAY-LONG — coerenza temporale dei preset', () => {
     const preset = loadPreset('modern_world_provinces');
     expect(preset).toBeTruthy();
     expect(preset!.start_date).toBe('2026-01-01');
-    // L'era «moderna» (e quindi l'uso dei fatti di riferimento) è derivata
-    // dalla data dello scenario, mai da un anno scritto nel motore.
-    expect(hasModernReferenceFacts(preset!.start_date)).toBe(true);
+    // Una baseline 2024 dichiarata nel testo non rende il 2026 uno scenario
+    // del 2024: il selettore dei fatti segue la data canonica.
+    expect(hasModernReferenceFacts(preset!.start_date)).toBe(false);
+    expect(hasModernReferenceFacts('2024-01-01')).toBe(true);
     expect(hasModernReferenceFacts('1815-06-09')).toBe(false);
   });
 

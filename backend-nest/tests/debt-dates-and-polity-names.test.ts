@@ -28,10 +28,13 @@ process.env.OPEN_PAX_DB_PATH = TEST_DB;
 
 /** Un mondo per ogni epoca da verificare: il difetto dipende dalla data. */
 const WORLDS = [
-  { id: 'dd_1815', start: '1815-06-09' },
-  { id: 'dd_1989', start: '1989-06-04' },
-  { id: 'dd_2000', start: '2000-01-01' },
-  { id: 'dd_2026', start: '2026-01-01' },
+  { id: 'dd_1815', start: '1815-06-09', code: 'ITA' },
+  { id: 'dd_1989', start: '1989-06-04', code: 'ITA' },
+  { id: 'dd_2000', start: '2000-01-01', code: 'ITA' },
+  { id: 'dd_2024', start: '2024-01-01', code: 'ITA' },
+  { id: 'dd_2026', start: '2026-01-01', code: 'ITA' },
+  { id: 'dd_usa_2000', start: '2000-01-01', code: 'USA' },
+  { id: 'dd_usa_2024', start: '2024-01-01', code: 'USA' },
 ];
 
 let db: any;
@@ -58,13 +61,16 @@ beforeAll(async () => {
     repos.worldRepository.createWithRegions(
       { id: world.id, name: world.id, description: '', startDate: world.start, basePrompt: 'Test', historicalAccuracy: 0.8 },
       [{
-        id: `${world.id}_ITA`, name: 'Italia', color: '#FF0000', owner: 'ITA',
-        population: 59_000_000, gdp: 2300, militaryPower: 110, flag: 'ITA',
+        id: `${world.id}_${world.code}`, name: world.code === 'ITA' ? 'Italia' : 'Stati Uniti', color: '#FF0000', owner: world.code,
+        population: 59_000_000, gdp: 2300, militaryPower: 110, flag: world.code,
         coastal: true, borders: [], objects: [],
       }],
     );
   }
-  createGame = (worldId: string, start: string) => registry.createSession(worldId, 'Player', `${worldId}_ITA`, '#FF0000');
+  createGame = (worldId: string, start: string) => {
+    const world = WORLDS.find(w => w.id === worldId)!;
+    return registry.createSession(worldId, 'Player', `${worldId}_${world.code}`, '#FF0000');
+  };
 });
 
 afterAll(() => {
@@ -82,15 +88,14 @@ describe('date del debito ereditato — la scala è quella del mondo', () => {
   // Il criterio di accettazione: in nessun mondo i titoli con cui una nazione
   // entra in scena possono essere emessi in un'altra epoca, né già scaduti.
   it('ogni mondo nasce con titoli datati alla propria data di partenza', async () => {
-    // Il 1815 è escluso dal vincolo «ci sono titoli»: nei mondi pre-1990 il
-    // debito di registro è anacronistico e la nazione parte senza (scelta del
-    // motore, non un difetto). Ciò che conta è che, **se** ci sono titoli,
-    // siano datati all'epoca del mondo.
+    // La presenza è obbligatoria quando esiste un riferimento dell'anno:
+    // USA nel 2000 e nel 2024, ITA solo nel 2024. Nessun debito inventato
+    // per le epoche senza dati; tutti i titoli validi devono restare nella loro epoca.
     for (const world of WORLDS) {
       const { gameId } = createGame(world.id, world.start);
-      const row: any = repos.resourceRepository.get(gameId, 'ITA');
+      const row: any = repos.resourceRepository.get(gameId, world.code);
       const debts: SovereignDebt[] = row?.stock?.debts ?? [];
-      if (world.start >= '1990') {
+      if (world.start.startsWith('2024') || world.code === 'USA') {
         expect(debts.length, `${world.id}: nessun titolo seminato`).toBeGreaterThan(0);
       }
       for (const debt of debts) {
@@ -103,7 +108,7 @@ describe('date del debito ereditato — la scala è quella del mondo', () => {
   it('nessun titolo è già scaduto alla data di partenza', async () => {
     for (const world of WORLDS) {
       const { gameId } = createGame(world.id, world.start);
-      const row: any = repos.resourceRepository.get(gameId, 'ITA');
+      const row: any = repos.resourceRepository.get(gameId, world.code);
       const debts: SovereignDebt[] = row?.stock?.debts ?? [];
       for (const debt of debts) {
         expect(debt.maturityDate > world.start,
@@ -120,15 +125,24 @@ describe('date del debito ereditato — la scala è quella del mondo', () => {
     expect(recorded).toBe(world.start);
   }, 120_000);
 
-  it('la scadenza media è quella reale, non zero', async () => {
-    const world = WORLDS.find(w => w.id === 'dd_2000')!;
-    const { session } = createGame(world.id, world.start);
-    const resources: any = session.getResources();
-    const months: number = resources.debt?.averageMaturityYears ?? resources.averageMaturityYears;
-    // La scaletta è 3/8/15 anni: la media ponderata sta nell'ordine degli anni,
-    // mai a zero (che era il sintomo dei titoli già scaduti).
-    expect(months).toBeGreaterThan(1);
-    expect(months).toBeLessThan(20);
+  it('la scadenza media del debito disponibile è quella reale, non zero', async () => {
+    for (const world of WORLDS.filter(w => w.start.startsWith('2024') || w.code === 'USA')) {
+      const { session } = createGame(world.id, world.start);
+      const resources: any = session.getResources();
+      const years: number = resources.debt?.averageMaturityYears ?? resources.averageMaturityYears;
+      // La scaletta è 3/8/15 anni: la media ponderata sta nell'ordine degli anni,
+      // mai a zero (che era il sintomo dei titoli già scaduti).
+      expect(years, world.id).toBeGreaterThan(1);
+      expect(years, world.id).toBeLessThan(20);
+    }
+  }, 120_000);
+
+  it.each(['dd_2000', 'dd_2026'])('%s: senza un dato di debito dell’anno non eredita i titoli 2024', async (worldId) => {
+    const world = WORLDS.find(w => w.id === worldId)!;
+    const { gameId } = createGame(world.id, world.start);
+    const row: any = repos.resourceRepository.get(gameId, world.code);
+    expect(row).toBeDefined();
+    expect(row.stock.debts).toHaveLength(0);
   }, 120_000);
 });
 

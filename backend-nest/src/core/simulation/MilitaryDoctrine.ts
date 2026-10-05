@@ -469,7 +469,7 @@ export function equipmentCoverage(input: CoverageInput): EquipmentCoverage[] {
   return entries.map(entry => {
     const perFormation = entry.perFormation ?? 0;
     const required = entry.demand?.kind === 'personnel_share'
-      ? individualWeaponDemand(epoch, formations, mobilizedFormations)
+      ? Math.round((nonNegative(manpower.activePersonnel) + nonNegative(manpower.mobilizedPersonnel)) * individualWeaponShareFor(epoch))
       : Math.ceil(
         formations * perFormation
         + mobilizedFormations * (entry.perMobilized ?? perFormation),

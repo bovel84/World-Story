@@ -188,8 +188,8 @@ describe('M01 µ3 — impronta di catalogo', () => {
 });
 
 describe('baseline reale delle nazioni moderne', () => {
-  it('sostituisce la popolazione inventata con quella di riferimento (2026)', async () => {
-    const template = { ...countryTemplate('tpl-ref-pop'), start_date: '2026-01-01' };
+  it('sostituisce la popolazione inventata con quella di riferimento (2024)', async () => {
+    const template = { ...countryTemplate('tpl-ref-pop'), start_date: '2024-01-01' };
     const stub = makeStubProvider({
       USA: { population: 10_000_000 },
       GBR: { population: 10_000_000 },
@@ -201,6 +201,21 @@ describe('baseline reale delle nazioni moderne', () => {
     expect(world.countries.get('FRA')!.population).toBe(referencePopulation('FRA'));
     // Il dato reale non può coincidere con il segnaposto del modello.
     expect(world.countries.get('USA')!.population).not.toBe(10_000_000);
+  });
+
+  it('nel 2026 conserva la popolazione authored senza ereditare il riferimento 2024', async () => {
+    const template = { ...countryTemplate('tpl-ref-pop-future'), start_date: '2026-01-01' };
+    const stub = makeStubProvider({
+      USA: { population: 10_000_000 },
+      GBR: { population: 10_000_000 },
+      FRA: { population: 10_000_000 },
+    });
+    const agent = new BalanceAgent(stub.provider);
+    const world = await agent.generateInitialWorldState(template, undefined, undefined, { mode: 'authored', catalogFingerprint: 'refpop0003' });
+    for (const code of ['USA', 'GBR', 'FRA']) {
+      expect(world.countries.get(code)!.population).toBe(10_000_000);
+      expect(world.countries.get(code)!.population).not.toBe(referencePopulation(code));
+    }
   });
 
   it('per un mondo storico lascia le stime del bilanciatore', async () => {

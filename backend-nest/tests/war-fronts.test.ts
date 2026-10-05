@@ -577,7 +577,28 @@ describe('WAR-FRONTS — combattimento, perdite, ritirata, territorio (P8/P9)', 
     armAll(session);
     session.publicFronts();
     setOrder(session, 'attack');
-    // Forza soverchiante e difesa che non tiene: entro un anno il fronte sfonda.
+    // La superiorità deve stare nei reparti canonici, non nella taglia d'epoca.
+    session.warFronts.ensureNpcUnits(30);
+    const { operationalObjectRepository } = await import('../src/repositories');
+    operationalObjectRepository.upsert(session.id, 'personnel', AUT, {
+      activePersonnel: 100, trainedReserve: 0, mobilizedPersonnel: 0, shipCrew: 0,
+      updatedDate: session.currentDate,
+    });
+    (session as any).military.saveArsenal(AUT, {});
+    const defender = units(session).find(unit => unit.polityId === AUT && unit.frontId);
+    expect(defender).toBeDefined();
+    store(session).saveUnits(units(session).map(unit => {
+      if (unit.polityId === PID) return {
+        ...unit, establishmentPersonnel: 12_000, personnel: 12_000,
+        equipment: { fucili: 9_000 }, readiness: 1, status: 'operational', order: 'attack',
+      };
+      if (unit.polityId !== AUT) return unit;
+      return unit.id === defender.id
+        ? { ...unit, establishmentPersonnel: 12_000, personnel: 100, equipment: {}, readiness: 0.1, status: 'degraded' }
+        : { ...unit, personnel: 0, equipment: {}, readiness: 0, status: 'destroyed' };
+    }));
+    setStock(session, { food: 1_000, weapons: 1_000, fuel: 1_000, clothing: 1_000 });
+    // Forza soverchiante e difesa senza riserve: entro un anno il fronte sfonda.
     const conquests: string[] = [];
     for (let month = 1; month <= 12; month += 1) {
       const report = session.warFronts.advanceFronts(30, addDays('2026-01-01', month * 30));
