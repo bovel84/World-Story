@@ -153,35 +153,90 @@ function tensionFromSignals(signals: readonly RealitySignal[]): string | null {
   return top ? top.reason : null;
 }
 
+/** Parole troppo generiche per orientare la lettura: non sono segnali. */
+const QUERY_STOP = new Set(['come', 'cosa', 'posso', 'possiamo', 'dobbiamo', 'fare', 'con', 'per', 'del', 'della', 'dei', 'degli',
+  'delle', 'sul', 'sulla', 'nel', 'nella', 'gli', 'una', 'uno', 'che', 'non', 'piu', 'anche', 'questo', 'questa', 'sono',
+  'siamo', 'abbiamo', 'nostro', 'nostra', 'loro', 'essere', 'avere', 'tra', 'fra', 'dal', 'dalla', 'alla', 'il', 'lo', 'la',
+  'the', 'with', 'for', 'from', 'that', 'this', 'what', 'should', 'could', 'would', 'about', 'into', 'over']);
+
+/** Token significativi della domanda, senza punteggiatura né parole funzione. */
+function queryTokens(text: string): Set<string> {
+  return new Set((text.toLocaleLowerCase('it').match(/[\p{L}\p{N}]{4,}/gu) ?? []).filter(token => !QUERY_STOP.has(token)));
+}
+
+/**
+ * Sinonimi curati per dominio: estendono il match oltre le chiavi canoniche
+ * senza inventare semantica. Il dominio resta quello dei segnali verificati.
+ */
+const DOMAIN_SYNONYMS: Readonly<Record<string, readonly string[]>> = {
+  economy: ['bilancio', 'cassa', 'debito', 'tasse', 'tassazione', 'spesa', 'entrate', 'deficit', 'soldi', 'economia', 'fiscale', 'investimenti'],
+  food: ['cibo', 'alimenti', 'approvvigionamento', 'carestia', 'raccolto', 'scorte'],
+  military: ['esercito', 'difesa', 'guerra', 'flotta', 'armi', 'truppe', 'militare', 'mobilitazione', 'navale', 'artiglieria', 'sicurezza'],
+  diplomacy: ['esteri', 'diplomazia', 'trattato', 'alleanza', 'negoziato', 'rapporti', 'confine', 'frontiera', 'ambasciata', 'sanzioni'],
+  infrastructure: ['ferrovia', 'porto', 'porti', 'strada', 'strade', 'aeroporto', 'fabbrica', 'infrastruttura', 'cantieri', 'industria'],
+  social: ['stabilita', 'consenso', 'protesta', 'ordine', 'societa', 'tensione', 'popolazione', 'sanita', 'istruzione'],
+  project: ['programma', 'progetto', 'processo', 'piano', 'cantiere'],
+};
+
+/** Tensioni per dominio: spiegano cosa è in gioco, senza aggiungere fatti. */
+const DOMAIN_FRAME: Readonly<Record<string, string>> = {
+  economy: 'La scelta tocca il margine fiscale: ogni impegno nuovo riduce lo spazio per assorbire uno shock.',
+  food: 'La scelta tocca la copertura alimentare: prima di aprire un nuovo fronte va protetta la tenuta di base.',
+  military: 'La scelta tocca prontezza e sostenibilità: la forza serve solo se il paese può mantenerla nel tempo.',
+  diplomacy: 'La scelta tocca i rapporti con l\'estero: ogni passo cambia lo spazio negoziale e la reputazione.',
+  infrastructure: 'La scelta tocca tempi e colli di bottiglia: ciò che si apre ora va poi portato a termine.',
+  social: 'La scelta tocca la coesione interna: il costo politico conta quanto quello materiale.',
+  project: 'La scelta si sovrappone ai programmi in corso: conviene non aprire un secondo fronte in parallelo.',
+};
+
+/**
+ * Seleziona il dominio del segnale a cui la domanda assomiglia di piu, usando
+ * chiavi canoniche, etichette dei fatti e sinonimi curati. Non e un interprete
+ * universale: se non trova un match, non inventa una tensione.
+ */
+function focusedDomain(snapshot: VerifiedWorldSnapshot, query: string, signals: readonly RealitySignal[]): RealitySignal['domain'] | undefined {
+  const asked = queryTokens(query);
+  if (!asked.size) return undefined;
+  let best: { domain: RealitySignal['domain']; score: number } | undefined;
+  for (const domain of Object.keys(DOMAIN_SYNONYMS) as RealitySignal['domain'][]) {
+    const signalWords = signals.filter(signal => signal.domain === domain)
+      .flatMap(signal => [signal.key, ...signal.factKeys, ...signal.factKeys.map(key => snapshot.facts[key]?.label ?? '')])
+      .flatMap(value => [...queryTokens(value)]);
+    const vocabulary = new Set([...(DOMAIN_SYNONYMS[domain] ?? []), ...signalWords]);
+    const score = [...asked].filter(token => vocabulary.has(token)).length;
+    if (score > 0 && (!best || score > best.score)) best = { domain, score };
+  }
+  return best?.domain;
+}
+
 function decisionFrameFor(
   snapshot: VerifiedWorldSnapshot,
   query: string,
   signals: readonly RealitySignal[],
   politicalPosition: string | null,
 ): string | null {
-  const militaryFocus = /esercit|militar|difes|guerra|flott|armi|truppe|mobilit|naval|armat/i.test(query);
-  const diplomaticFocus = /esteri|diplomaz|trattat|alleanz|negoziat|rapport|confine|frontier/i.test(query);
+  const domain = focusedDomain(snapshot, query, signals);
   const monthlyBalance = snapshot.economy.monthlyBalance;
   const activePrograms = snapshot.economy.ongoingProjects?.length ?? 0;
   const fiscalTight = finite(monthlyBalance) !== null && (monthlyBalance as number) < 0;
   const signedPending = snapshot.recent.signedActs.length;
+  const militaryFocus = domain === 'military' || /esercit|militar|difes|guerra|flott|arm[ie]|truppe|mobilit|naval|armat/i.test(query);
 
   if (militaryFocus && (fiscalTight || activePrograms > 0 || signedPending > 0)) {
     return 'La scelta mette in tensione sicurezza e margine: il paese può rafforzare la difesa, ma farlo ora significa aprire un nuovo impegno mentre altri programmi sono ancora attivi o in attesa di esecuzione.';
   }
 
   const relations = snapshot.diplomacy.relations;
-  if (diplomaticFocus && relations?.length) {
-    const mentioned = relations.find(relation => relation.polityName
-      && query.toLocaleLowerCase('it').includes(relation.polityName.toLocaleLowerCase('it')))
-      ?? relations.find(relation => query.toLocaleLowerCase('it').includes(relation.polityId.toLocaleLowerCase('it')));
-    if (mentioned) {
-      const name = mentioned.polityName ?? mentioned.polityId;
-      return `La relazione con ${name} risulta «${mentioned.relationship}»: non è una relazione ordinaria e va trattata tenendo conto del passato e degli interessi regionali.`;
-    }
+  const lowerQuery = query.toLocaleLowerCase('it');
+  const mentioned = relations?.find(relation => relation.polityName && lowerQuery.includes(relation.polityName.toLocaleLowerCase('it')))
+    ?? relations?.find(relation => lowerQuery.includes(relation.polityId.toLocaleLowerCase('it')));
+  if (mentioned) {
+    const name = mentioned.polityName ?? mentioned.polityId;
+    return `La relazione con ${name} risulta «${mentioned.relationship}»: non è una relazione ordinaria e va trattata tenendo conto del passato e degli interessi regionali.`;
   }
 
   if (politicalPosition) return politicalPosition;
+  if (domain && DOMAIN_FRAME[domain]) return DOMAIN_FRAME[domain];
   return tensionFromSignals(signals);
 }
 
@@ -385,12 +440,18 @@ export interface DiplomaticSituationInput {
  */
 export function compileDiplomaticSituation(input: DiplomaticSituationInput): string {
   const lines: string[] = [];
-  if (input.relationship === 'hostile') {
+  const relationship = String(input.relationship ?? '').trim().toLocaleLowerCase('it');
+  if (!relationship) {
+    // Fail closed: nessun rapporto registrato non significa né ostilità né fiducia.
+    lines.push(`Il rapporto registrato con ${input.counterpartyName} non è disponibile: non dare per scontata né ostilità né fiducia.`);
+  } else if (relationship === 'hostile') {
     lines.push(`Il tuo governo guarda a ${input.counterpartyName} con un rapporto registrato «hostile»: parti da diffidenza e deterrenza, non da apertura.`);
-  } else if (input.relationship === 'ally') {
+  } else if (relationship === 'ally') {
     lines.push(`Il tuo governo guarda a ${input.counterpartyName} dentro un rapporto registrato «ally»: esiste fiducia, ma gli interessi nazionali restano la bussola.`);
+  } else if (relationship === 'neutral') {
+    lines.push(`Il tuo governo guarda a ${input.counterpartyName} con un rapporto registrato «neutral»: non c'è una crisi aperta, ma non c'è ancora fiducia sufficiente per un accordo ampio.`);
   } else {
-    lines.push(`Il tuo governo guarda a ${input.counterpartyName} con un rapporto registrato «${input.relationship}»: non c'è una crisi aperta, ma non c'è ancora fiducia sufficiente per un accordo ampio.`);
+    lines.push(`Il tuo governo guarda a ${input.counterpartyName} con un rapporto registrato «${input.relationship}»: tratterai la controparte secondo quello stato, senza presumerne di più.`);
   }
   if (input.priorities.length) lines.push(`Le priorità in corso del tuo governo: ${input.priorities.join('; ')}.`);
   if (input.recentMemory?.length) lines.push(`Il precedente recente conta: ${input.recentMemory.join(' | ')}.`);
@@ -398,6 +459,9 @@ export function compileDiplomaticSituation(input: DiplomaticSituationInput): str
   if (input.commitments?.trim()) lines.push(input.commitments.trim());
   if (typeof input.hostileNeighbours === 'number' && input.hostileNeighbours > 0) {
     lines.push(`Hai ${input.hostileNeighbours} vicini ostili registrati: la prudenza è una scelta di governo, non una debolezza.`);
+  }
+  if (!input.priorities.length && !input.recentMemory?.length && !input.agenda?.trim() && !input.commitments?.trim()) {
+    lines.push('Non risulta altro contesto verificato su questo governo: evita di inventare un accordo, una crisi o una concessione.');
   }
   return ['[HOW YOUR GOVERNMENT SEES THIS]', ...lines,
     'Rispondi come una posizione di governo: prendi posizione, di\' cosa accetti e cosa non accetti, e non ripetere i dati verificati che seguono.'].join('\n');

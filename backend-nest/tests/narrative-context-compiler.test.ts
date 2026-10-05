@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat, narrativeAnchors, compileDiplomaticSituation } from '../src/core/government/NarrativeContextCompiler';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt } from '../src/core/government/RealityAdvisor';
+import { buildMinisterDialogueBrief, composeMinisterDialoguePrompt } from '../src/core/government/MinisterDialogue';
 
 interface SnapshotOverrides {
   currentDate?: string;
@@ -160,5 +161,33 @@ describe('WS-GOV-NARRATIVE-CONTEXT-COMPILER — fase 2 diplomazia', () => {
     expect(compileDiplomaticSituation({ ...base, relationship: 'hostile' })).toContain('diffidenza e deterrenza');
     expect(compileDiplomaticSituation({ ...base, relationship: 'ally' })).toContain('esiste fiducia');
     expect(compileDiplomaticSituation({ ...base, relationship: 'neutral' })).toContain('non c\'è una crisi aperta');
+  });
+
+  it('senza rapporto registrato fallisce in modo chiuso, senza dedurre ostilità o fiducia', () => {
+    const diplomatic = compileDiplomaticSituation({ countryName: 'Vietnam', counterpartyName: 'Cambogia', relationship: '', priorities: [] });
+    expect(diplomatic).toContain('non è disponibile');
+    expect(diplomatic).toContain('evita di inventare un accordo, una crisi o una concessione');
+    expect(diplomatic).not.toMatch(/diffidenza|esiste fiducia/);
+  });
+
+  it('il decision frame è un selettore di dominio, non solo una keyword fissa', () => {
+    // «confine» non compare in nessuna chiave canonica: lo aggancia il sinonimo del dominio diplomazia.
+    const situation = compileNarrativeSituation({ snapshot: makeSnapshot(), role: 'consulente', query: 'Come proteggiamo il confine?' });
+    expect(situation.decisionFrame).toContain('rapporti con l\'estero');
+    // Una domanda senza dominio riconoscibile non inventa una tensione specifica.
+    const vague = compileNarrativeSituation({ snapshot: makeSnapshot(), role: 'consulente', query: 'zzz qqq' });
+    expect(vague.decisionFrame ?? '').not.toContain('margine fiscale');
+    expect(vague.decisionFrame ?? '').not.toContain("rapporti con l'estero");
+  });
+
+  it('anche il Consiglio legacy riceve il blocco narrativo, prima del protocollo', () => {
+    const world = { worldName: 'Mondo', country: 'Paese', currentDate: '2002-06-01', scenarioPremise: 'WORLD_AUTHORITY',
+      simulationRules: '', nationalContext: '', recentHistory: '', activeCommitments: '', ongoingProcesses: '' };
+    const base = { seat: 'tesoro' as const, worldContext: world, currentIssues: [], presidentMessage: 'Rispondi.', recentHistory: [] };
+    const without = composeMinisterDialoguePrompt(buildMinisterDialogueBrief(base));
+    const withNarrative = composeMinisterDialoguePrompt(buildMinisterDialogueBrief({ ...base, narrativeContext: '[WHO YOU ARE]\nSei il Ministro del Tesoro.' }));
+    expect(without).not.toContain('[WHO YOU ARE]');
+    expect(withNarrative).toContain('[WHO YOU ARE]');
+    expect(withNarrative.indexOf('[WHO YOU ARE]')).toBeLessThan(withNarrative.indexOf('[PROTOCOL]'));
   });
 });

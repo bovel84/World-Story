@@ -21,6 +21,7 @@ import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWo
 import { renderRealityConcerns } from './core/government/RealitySignals';
 import { HISTORICAL_BASELINE_RULE, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
+import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat } from './core/government/NarrativeContextCompiler';
 import { COUNCIL_ISSUE_PROTOCOL, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
@@ -387,8 +388,17 @@ async function prepareMinisterDialogue(builder: PromptBuilder, game: GameData, m
   const recentHistory = dialogueHistory(history);
   const worldContext = buildMinisterWorldContext({ vars, worldName: vars.WORLD_NAME, seat: dossier.seat, signedActs: signedActsFor(game), concerns: concernsFor(game), historicalBaseline: renderPolityHistoricalBaselines(game.polityHistoricalBaselines ?? [], question) });
   const memory = /\[MEMORY\]\n([\s\S]*?)(?=\n\[DIALOGUE STYLE\])/.exec(dossierText)?.[1];
+  const verified = realityContextFor(game);
+  // WS-GOV-NARRATIVE-CONTEXT-COMPILER — anche il Consiglio legacy riceve la
+  // situazione narrativa: lente della sedia, traiettoria reale, tensione.
+  const narrativeContext = renderNarrativeContext(compileNarrativeSituation({
+    snapshot: verified.verifiedWorldSnapshot, role: narrativeRoleForSeat(dossier.seat) ?? 'consulente',
+    query: question, historicalBaseline: verified.historicalBaseline ?? null, strategicHistory: verified.strategicHistory,
+    startDate: game.world.startDate ?? null, conversation: recentHistory, currentDecision: request?.currentDecision,
+  }));
   const brief = buildMinisterDialogueBrief({ seat: dossier.seat, worldContext, currentIssues: dossier.issues,
-    presidentMessage: question, recentHistory, currentDecision: request?.currentDecision, memory: memory ? { context: memory } : undefined });
+    presidentMessage: question, recentHistory, currentDecision: request?.currentDecision, memory: memory ? { context: memory } : undefined,
+    narrativeContext });
   const selectiveContext = selective ? await builder.buildMinisterContextSection(recentHistory, vars) : '';
   const base = selectiveContext || dossierText;
   const dialoguePrompt = composeMinisterDialoguePrompt(brief, { base, hasHistory: base.includes('[RECENT CONVERSATION]'), hasWorld: Boolean(selectiveContext) });
@@ -399,7 +409,6 @@ async function prepareMinisterDialogue(builder: PromptBuilder, game: GameData, m
     if (value?.trim()) preset = preset.split(value).join('(vedi WORLD)');
   }
   const ministerPrompt = preset ? `[REGISTRO DEL PRESET — lo stile e le regole ministeriali seguenti prevalgono]\n${preset}\n\n${dialoguePrompt}` : dialoguePrompt;
-  const verified = realityContextFor(game);
   // The dossier already owns world/memory/history. Add only the canonical fact
   // registry for issue proposals, never a second dump of raw turn narration.
   const prompt = `${ministerPrompt}\n\n[VERIFIED WORLD SNAPSHOT — server-side fact registry]\n${JSON.stringify({ facts: verified.verifiedWorldSnapshot.facts, unavailable: verified.verifiedWorldSnapshot.unavailable })}\n\n${COUNCIL_ISSUE_PROTOCOL}`;

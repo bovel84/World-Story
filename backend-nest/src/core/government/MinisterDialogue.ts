@@ -127,6 +127,8 @@ export interface MinisterDialogueBrief {
   readonly presidentMessage: string;
   readonly recentHistory: readonly AdvisorMessage[];
   readonly redirect: ColleagueRedirectContext | null;
+  /** WS-GOV-NARRATIVE-CONTEXT-COMPILER — situazione già resa, prima del fact registry. */
+  readonly narrativeContext?: string;
 }
 
 export function buildMinisterDialogueBrief(input: Omit<MinisterDialogueBrief, 'persona' | 'redirect' | 'council'>): MinisterDialogueBrief {
@@ -195,6 +197,8 @@ export function composeMinisterDialoguePrompt(brief: MinisterDialogueBrief, cont
   const factualBase = styleStart < 0 ? base : base.slice(0, styleStart);
   const history = context?.hasHistory ? '' : `[RECENT CONVERSATION]\n${JSON.stringify(dialogueHistory(brief.recentHistory))}`;
   return [
+    // La situazione narrativa sta PRIMA del fact registry e del dossier.
+    brief.narrativeContext ?? '',
     context && !context.hasWorld ? `[WORLD]\n${renderMinisterWorldContext(brief.worldContext, brief.seat)}` : '',
     factualBase, context ? '' : brief.memory?.context ?? '', history,
     '[CURRENT DECISION — snapshot della discussione, NON stato verificato del motore]',
