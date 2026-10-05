@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
-import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat, narrativeAnchors } from '../src/core/government/NarrativeContextCompiler';
+import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat, narrativeAnchors, compileDiplomaticSituation } from '../src/core/government/NarrativeContextCompiler';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt } from '../src/core/government/RealityAdvisor';
 
 interface SnapshotOverrides {
@@ -138,3 +138,27 @@ describe('WS-GOV-NARRATIVE-CONTEXT-COMPILER', () => {
 function anchorsFrom(text: string): string[] {
   return narrativeAnchors(text, 3);
 }
+
+describe('WS-GOV-NARRATIVE-CONTEXT-COMPILER — fase 2 diplomazia', () => {
+  it('la posizione di governo NPC precede i dati ed è distinta dalla prospettiva del Consulente', () => {
+    const diplomatic = compileDiplomaticSituation({
+      countryName: 'Vietnam', counterpartyName: 'Cambogia', relationship: 'neutral',
+      priorities: ['proteggere il confine'], recentMemory: ['avvicinamento alla Thailandia'],
+      agenda: 'Cerca una distensione senza impegni vincolanti.', commitments: 'Nessun accordo formale con il vicino.', hostileNeighbours: 1,
+    });
+    expect(diplomatic).toContain('[HOW YOUR GOVERNMENT SEES THIS]');
+    expect(diplomatic).toContain('«neutral»');
+    expect(diplomatic).toContain('avvicinamento alla Thailandia');
+    expect(diplomatic).toContain('1 vicini ostili');
+    expect(diplomatic).toContain('non ripetere i dati verificati');
+    expect(diplomatic).not.toContain('[WHO YOU ARE]');
+    expect(diplomatic).not.toContain('[YOUR SITUATION]');
+  });
+
+  it('il rapporto cambia la posizione di partenza, senza inventare altro', () => {
+    const base = { countryName: 'Vietnam', counterpartyName: 'Cambogia', priorities: [] as string[] };
+    expect(compileDiplomaticSituation({ ...base, relationship: 'hostile' })).toContain('diffidenza e deterrenza');
+    expect(compileDiplomaticSituation({ ...base, relationship: 'ally' })).toContain('esiste fiducia');
+    expect(compileDiplomaticSituation({ ...base, relationship: 'neutral' })).toContain('non c\'è una crisi aperta');
+  });
+});

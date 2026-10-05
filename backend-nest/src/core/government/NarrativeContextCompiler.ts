@@ -359,3 +359,46 @@ export function renderNarrativeContext(situation: NarrativeSituation): string {
   }
   return sections.join('\n');
 }
+
+// ── Fase 2 — Diplomazia: come il governo NPC vede la trattativa ───────────────
+
+export interface DiplomaticSituationInput {
+  /** Il paese che parla (NPC). */
+  countryName: string;
+  /** Il paese del giocatore, destinatario della trattativa. */
+  counterpartyName: string;
+  /** Valore canonico della matrice: ally | hostile | neutral | … */
+  relationship: string;
+  /** Priorità strategiche già calcolate dal servizio. */
+  priorities: readonly string[];
+  /** Memoria recente già disponibile (gioco + JEV), non una nuova memoria. */
+  recentMemory?: readonly string[];
+  agenda?: string;
+  commitments?: string;
+  hostileNeighbours?: number;
+}
+
+/**
+ * `[HOW YOUR GOVERNMENT SEES THIS]` — la posizione di un governo, non una
+ * risposta chatbot. Riusa solo i dati già raccolti dalla diplomazia (priorità,
+ * memoria, agenda, impegni): nessuna chiamata, nessuna nuova memoria.
+ */
+export function compileDiplomaticSituation(input: DiplomaticSituationInput): string {
+  const lines: string[] = [];
+  if (input.relationship === 'hostile') {
+    lines.push(`Il tuo governo guarda a ${input.counterpartyName} con un rapporto registrato «hostile»: parti da diffidenza e deterrenza, non da apertura.`);
+  } else if (input.relationship === 'ally') {
+    lines.push(`Il tuo governo guarda a ${input.counterpartyName} dentro un rapporto registrato «ally»: esiste fiducia, ma gli interessi nazionali restano la bussola.`);
+  } else {
+    lines.push(`Il tuo governo guarda a ${input.counterpartyName} con un rapporto registrato «${input.relationship}»: non c'è una crisi aperta, ma non c'è ancora fiducia sufficiente per un accordo ampio.`);
+  }
+  if (input.priorities.length) lines.push(`Le priorità in corso del tuo governo: ${input.priorities.join('; ')}.`);
+  if (input.recentMemory?.length) lines.push(`Il precedente recente conta: ${input.recentMemory.join(' | ')}.`);
+  if (input.agenda?.trim()) lines.push(input.agenda.trim());
+  if (input.commitments?.trim()) lines.push(input.commitments.trim());
+  if (typeof input.hostileNeighbours === 'number' && input.hostileNeighbours > 0) {
+    lines.push(`Hai ${input.hostileNeighbours} vicini ostili registrati: la prudenza è una scelta di governo, non una debolezza.`);
+  }
+  return ['[HOW YOUR GOVERNMENT SEES THIS]', ...lines,
+    'Rispondi come una posizione di governo: prendi posizione, di\' cosa accetti e cosa non accetti, e non ripetere i dati verificati che seguono.'].join('\n');
+}
