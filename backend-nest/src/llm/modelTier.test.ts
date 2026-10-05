@@ -4,22 +4,23 @@
  * Difende il riconoscimento dei modelli che devono ricevere il protocollo
  * compatto. La tabella qui sotto è fatta di **nomi reali**.
  *
- * La allowlist `STRONG_FAMILIES` (`glm-5*`, `deepseek-v4*`) batte il suffisso
- * `flash`: i modelli che Andrea usa davvero (`glm-5.3-flash`,
- * `deepseek-v4.1-flash`) ricevono la fascia **piena**, così `tieredMemory`
- * assegna budget più ampi. Restano vincolati gratuiti, parametri piccoli ed
- * etichette `mini`/`small`.
+ * **Prompt tier ≠ memory tier.** `classifyModel()` decide **solo** il protocollo
+ * di simulazione: `glm-5.3-flash` e `deepseek-v4.1-flash` restano **compatti**.
+ * I budget di memoria sono decisi da `narrativeMemoryTierFor()`, che li porta a
+ * `full-tier` senza cambiare il protocollo.
  *
  * Guardia contro il falso verde: la prima asserzione è che la tabella sia
  * abbastanza numerosa, così un errore che rendesse vuoto l'elenco non farebbe
  * passare il test trovando zero casi.
  */
 import { describe, it, expect } from 'vitest';
-import { classifyModel, isSmallModel, CONSTRAINED_PARAM_LIMIT_B } from './modelTier';
+import { classifyModel, isSmallModel, narrativeMemoryTierFor, narrativeBudgetsFor, CONSTRAINED_NARRATIVE_BUDGETS, FULL_NARRATIVE_BUDGETS, CONSTRAINED_PARAM_LIMIT_B } from './modelTier';
 
 /** Modelli che DEVONO ricevere il protocollo compatto. */
 const PICCOLI: Array<[string, string]> = [
-  ['glm-5.3-flash:free', 'variante gratuita: `free` batte la allowlist'],
+  ['glm-5.3-flash', 'modello usato da Andrea: protocollo compatto'],
+  ['deepseek-v4.1-flash', 'modello usato da Andrea: protocollo compatto'],
+  ['glm-5.3-flash:free', 'variante gratuita'],
   ['llama3.2:3b', 'locale 3B, cifra attaccata a un punto'],
   ['qwen3:1.7b', 'locale 1.7B'],
   ['phi4:3.8b', 'locale 3.8B'],
@@ -27,13 +28,10 @@ const PICCOLI: Array<[string, string]> = [
   ['mistral-7b', '7B al limite'],
   ['gpt-4o-mini', 'etichetta mini'],
   ['some-org/small-model', 'etichetta small'],
-  ['gemini-2.0-flash', 'flash sconosciuto: segnale debole mantenuto'],
 ];
 
 /** Modelli che NON devono riceverlo: il percorso lungo ha più istruzioni. */
 const GRANDI: Array<[string, string]> = [
-  ['glm-5.3-flash', 'modello usato da Andrea: capacità piena, non `flash`'],
-  ['deepseek-v4.1-flash', 'modello usato da Andrea: capacità piena, non `flash`'],
   ['claude-sonnet-4-20250514', 'Anthropic predefinito'],
   ['openai/gpt-oss:20b', '20B'],
   ['qwen3:14b', '14B (predefinito di Ollama locale)'],
@@ -61,12 +59,30 @@ describe('classifyModel — fascia dei modelli', () => {
     }
   });
 
-  it('il difetto misurato non si ripresenta: le famiglie forti non sono declassate da `flash`', () => {
-    // Era il cuore del bug: il suffisso `flash` declassava i modelli usati da
-    // Andrea, così `tieredMemory` non aumentava la memoria.
-    expect(classifyModel('glm-5.3-flash')).toEqual({ constrained: false, reason: 'strong-family' });
-    expect(classifyModel('deepseek-v4.1-flash')).toEqual({ constrained: false, reason: 'strong-family' });
+  it('il difetto misurato non si ripresenta: `flash` resta compatto nel protocollo', () => {
+    // `classifyModel` governa SOLO il protocollo di simulazione: i modelli usati
+    // da Andrea restano compatti anche dopo la separazione dei tier.
+    expect(classifyModel('glm-5.3-flash')).toEqual({ constrained: true, reason: 'flash' });
+    expect(classifyModel('deepseek-v4.1-flash')).toEqual({ constrained: true, reason: 'flash' });
     expect(classifyModel('llama3.2:3b')).toEqual({ constrained: true, reason: 'small-params' });
+  });
+
+  it('narrativeMemoryTierFor: famiglie forti piene, `:free` resta vincolato', () => {
+    expect(narrativeMemoryTierFor('glm-5.3-flash')).toBe('full-tier');
+    expect(narrativeMemoryTierFor('deepseek-v4.1-flash')).toBe('full-tier');
+    expect(narrativeMemoryTierFor('glm-5.3-flash:free')).toBe('constrained');
+    expect(narrativeMemoryTierFor('llama3.2:3b')).toBe('constrained');
+    expect(narrativeMemoryTierFor('claude-sonnet-4-20250514')).toBe('full-tier');
+  });
+
+  it('narrativeBudgetsFor segue il memory tier, non il prompt tier', () => {
+    // Prompt compatto, memoria piena: il punto della separazione.
+    expect(isSmallModel('glm-5.3-flash')).toBe(true);
+    expect(narrativeBudgetsFor('glm-5.3-flash')).toBe(FULL_NARRATIVE_BUDGETS);
+    expect(narrativeBudgetsFor('deepseek-v4.1-flash')).toBe(FULL_NARRATIVE_BUDGETS);
+    // `:free` e modelli piccoli restano sui budget storici.
+    expect(narrativeBudgetsFor('glm-5.3-flash:free')).toBe(CONSTRAINED_NARRATIVE_BUDGETS);
+    expect(narrativeBudgetsFor('llama3.2:3b')).toBe(CONSTRAINED_NARRATIVE_BUDGETS);
   });
 
   it('la soglia dei parametri è dichiarata, non implicita', () => {

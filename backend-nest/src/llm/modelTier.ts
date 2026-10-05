@@ -23,11 +23,14 @@
  * si prova senza avviare il router, e una tabella di modelli reali lo difende.
  *
  * Non si indovina la qualità di un modello dal nome: si riconoscono i **segnali
- * dichiarati** — la variante gratuita, la dimensione in miliardi scritta nel
- * nome, l'ordine di grandezza `mini`/`small`/`nano` — e **prima di tutto** una
- * allowlist esplicita di **famiglie forti** (`glm-5*`, `deepseek-v4*`), perché
- * il suffisso `flash` non è una misura di capacità (i modelli che Andrea usa
- * davvero lo portano e finivano erroneamente nella fascia vincolata).
+ * dichiarati** — il suffisso `flash`, la variante gratuita, la dimensione in
+ * miliardi scritta nel nome, l'ordine di grandezza `mini`/`small`/`nano`.
+ *
+ * **Prompt tier ≠ memory tier.** `classifyModel()` decide **solo** il protocollo
+ * di simulazione (compact vs full). I budget di memoria narrativa, quando
+ * `tieredMemory=true`, sono decisi da `narrativeMemoryTierFor()`, che può
+ * riconoscere famiglie forti (`glm-5*`, `deepseek-v4*`) senza toccare il
+ * protocollo compatto che quei modelli continuano a usare.
  */
 
 /** Sotto questa soglia (in miliardi di parametri) il modello è di fascia bassa. */
@@ -37,16 +40,15 @@ export interface ModelTier {
   /** Il modello riceve il protocollo compatto. */
   constrained: boolean;
   /** Perché: utile nei log e nei test, e per non doverlo dedurre. */
-  reason: 'free' | 'flash' | 'small-params' | 'small-label' | 'strong-family' | 'full-tier';
+  reason: 'free' | 'flash' | 'small-params' | 'small-label' | 'full-tier';
 }
 
 /**
- * Famiglie di modelli con **capacità piena** riconosciuta, non inferita dalla
- * parola `flash`. L'allowlist è esplicita e deterministica: sono i modelli che
- * Andrea usa davvero (`glm-5*`, `deepseek-v4*`), che il suffisso `flash`
- * classificava erroneamente come piccoli.
+ * Famiglie con **capacità piena per la memoria narrativa**. Vive separata da
+ * `classifyModel`: batte il suffisso `flash` solo quando si scelgono i budget
+ * di `tieredMemory`, non il protocollo di simulazione (che resta compatto).
  */
-const STRONG_FAMILIES = /(?:^|[-_/])(?:glm-5(?:\.\d+)?|deepseek-v4(?:\.\d+)?)(?=$|[-_/:.])/;
+const STRONG_MEMORY_FAMILIES = /(?:^|[-_/])(?:glm-5(?:\.\d+)?|deepseek-v4(?:\.\d+)?)(?=$|[-_/:.])/;
 
 /**
  * Dimensioni in miliardi scritte nel nome del modello.
@@ -59,7 +61,7 @@ const STRONG_FAMILIES = /(?:^|[-_/])(?:glm-5(?:\.\d+)?|deepseek-v4(?:\.\d+)?)(?=
  * eventualmente la fine del nome o un separatore. Così `gpt-oss:20b` (20) e
  * `deepseek-v4` (versione 4, non 4 miliardi) non vengono confusi con modelli
  * piccoli. Il caso `4.1` di `deepseek-v4.1-flash` è coperto dalla allowlist
- * `STRONG_FAMILIES`, non da questa regola.
+ * `STRONG_MEMORY_FAMILIES`, non da questa regola.
  */
 function smallParams(model: string): number | null {
   const re = /(\d+(?:\.\d+)?)\s*b(?=$|[-_/:.])/g;
@@ -86,13 +88,9 @@ export function classifyModel(model: string | undefined | null): ModelTier {
   // Variante gratuita: storicamente il caso che il codice riconosceva.
   if (/:free(?:$|[/?#])/.test(m)) return { constrained: true, reason: 'free' };
 
-  // Capacità piena riconosciuta per famiglia: batte il suffisso `flash`, che da
-  // solo non è una misura di capacità (glm-5.3-flash, deepseek-v4.1-flash).
-  if (STRONG_FAMILIES.test(m)) return { constrained: false, reason: 'strong-family' };
-
-  // `flash` resta un segnale debole per i modelli **non** in allowlist: il
-  // suffisso da solo non basta a declassare una famiglia forte, ma per gli
-  // sconosciuti mantiene il comportamento storico.
+  // `flash` è il suffisso dei modelli veloci ed economici (glm-5.3-flash,
+  // deepseek-v4.1-flash, gemini-flash): decide **solo** il protocollo di
+  // simulazione. I budget di memoria passano da `narrativeMemoryTierFor`.
   if (/(?:^|[-_/])flash(?=$|[-_/:.])/.test(m)) return { constrained: true, reason: 'flash' };
 
   const params = smallParams(m);
@@ -109,11 +107,30 @@ export function isSmallModel(model: string | undefined | null): boolean {
 }
 
 /**
+ * Fascia per i **soli budget di memoria narrativa** (`tieredMemory=true`). È
+ * separata da `classifyModel`: una famiglia forte può ricevere memoria piena
+ * pur mantenendo il protocollo di simulazione compatto.
+ */
+export type NarrativeMemoryTier = 'constrained' | 'full-tier';
+
+export function narrativeMemoryTierFor(model: string | undefined | null): NarrativeMemoryTier {
+  const m = String(model || '').toLowerCase();
+  if (!m) return 'full-tier';
+  // `:free` resta vincolante anche per memoria, prima delle famiglie forti.
+  if (/:free(?:$|[/?#])/.test(m)) return 'constrained';
+  if (STRONG_MEMORY_FAMILIES.test(m)) return 'full-tier';
+  if (/(?:^|[-_/])flash(?=$|[-_/:.])/.test(m)) return 'constrained';
+  if (smallParams(m) !== null) return 'constrained';
+  if (SMALL_LABELS.test(m)) return 'constrained';
+  return 'full-tier';
+}
+
+/**
  * Budget di caratteri della memoria narrativa e del prompt compatto.
  *
  * Erano costanti sparse nei due moduli; qui vivono in **una tabella sola**,
- * scelta da `classifyModel`. Così i modelli forti ricevono più cronaca e più
- * memoria canonica, mentre i modelli piccoli mantengono i tetti attuali.
+ * scelta da `narrativeMemoryTierFor`. Così i modelli forti ricevono più cronaca
+ * e più memoria canonica, mentre i modelli piccoli mantengono i tetti attuali.
  */
 export interface NarrativeBudgets {
   /** Caratteri riservati alla cronaca recente in `buildNarrativeMemory`. */
@@ -169,7 +186,7 @@ export const FULL_NARRATIVE_BUDGETS: NarrativeBudgets = {
 
 /** Budget di memoria corrispondenti alla fascia del modello. */
 export function narrativeBudgetsFor(model: string | undefined | null): NarrativeBudgets {
-  return classifyModel(model).constrained
+  return narrativeMemoryTierFor(model) === 'constrained'
     ? CONSTRAINED_NARRATIVE_BUDGETS
     : FULL_NARRATIVE_BUDGETS;
 }

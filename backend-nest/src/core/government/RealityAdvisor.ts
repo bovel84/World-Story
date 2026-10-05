@@ -167,15 +167,21 @@ export function guardRealityAdvisorOutput(context: RealityAdvisorContext, text: 
   // A labeled dashboard is not a strategic reply. No repair call or extra LLM cost.
   if (/^\s*(?:[-*]\s*)?(?:FACT|INFERENCE|FORECAST|PROPOSAL)\s*[—–:-]/mi.test(text)) return context.governmentBrief;
   const initialDate = context.temporalScope?.initialDate ?? null;
-  const sentences = text.replace(/```[^]*?(?:```|$)/g, '').trim().split(/(?<=[.!?])\s+|\n/).map(sentence => sentence.trim()).filter(Boolean);
-  const kept = sentences.filter(sentence => !contradictsReality(snapshot, sentence, initialDate));
+  const normalized = text.replace(/```[^]*?(?:```|$)/g, '');
 
-  if (!sentences.length) return FALLBACK_REALITY_REPLY;
-  // Nessuna frase problematica: la risposta resta intatta.
-  if (kept.length === sentences.length) return text.trim();
-  // Soluzione conservativa: elimina solo le frasi non sostenibili, senza
+  // Si lavora per riga per non distruggere paragrafi e formattazione: solo le
+  // righe in cui cade una clausola non sostenibile cambiano.
+  let changed = false;
+  const rebuilt = normalized.split('\n').map(line => {
+    const clean = sanitizeProseLine(line, snapshot, initialDate);
+    if (clean !== line) changed = true;
+    return clean;
+  }).join('\n').trim();
+
+  if (!changed) return text.trim();
+  // Soluzione conservativa: elimina solo le parti non sostenibili, senza
   // seconda chiamata LLM. Se non resta nulla di utile, fallback deterministico.
-  return kept.length ? kept.join(' ') : FALLBACK_REALITY_REPLY;
+  return rebuilt || FALLBACK_REALITY_REPLY;
 }
 
 const FALLBACK_REALITY_REPLY =
@@ -194,16 +200,60 @@ function isHistoricalSentence(sentence: string, initialDate: string | null | und
   return /\b(?:storic|in passato|all['’]epoca|un tempo|negli anni|anni (?:'?\d0)|già (?:nel|allora)|fino al|precedentemente|nel dopoguerra|durante la (?:guerra|colonia|occupazione))\b/.test(lower);
 }
 
-/** Una singola frase è una contraddizione rilevabile con il reality canonico? */
-function contradictsReality(snapshot: VerifiedWorldSnapshot, sentence: string, initialDate: string | null | undefined): boolean {
-  if (isHistoricalSentence(sentence, initialDate)) return false;
-  if (!snapshot.changes.available && /da ieri|rispetto (?:a ieri|al turno precedente)/i.test(sentence)
-    && /peggior|miglior|sces|salit|aument|diminuit/i.test(sentence) && !/\bnon\b|nessun|ipotet|\bse\b/i.test(sentence)) return true;
-  if (assertsUnknownRegistryAbsent(snapshot, sentence)) return true;
-  // A coordinating conjunction cannot shield an unsupported clause: judge
-  // each clause on its own, so «costruire una strada e usare il porto di X»
-  // is evaluated on the second clause alone.
-  return sentence.split(/[,;:]|\s+\be\s+|\s+\band\s+/i).some(clause => assetClaimBlocked(snapshot, clause));
+const CLAUSE_SEPARATORS = /[,;:]|\s+\be\s+|\s+\band\s+/i;
+
+/** Clausole di una frase, con la stessa segmentazione usata da `assetClaimBlocked`. */
+function clausesOf(sentence: string): string[] {
+  return sentence.split(CLAUSE_SEPARATORS).map(clause => clause.trim()).filter(Boolean);
+}
+
+/** Una **singola clausola** è una contraddizione rilevabile col reality canonico? */
+function clauseProblematic(snapshot: VerifiedWorldSnapshot, clause: string, initialDate: string | null | undefined): boolean {
+  if (isHistoricalSentence(clause, initialDate)) return false;
+  if (!snapshot.changes.available && /da ieri|rispetto (?:a ieri|al turno precedente)/i.test(clause)
+    && /peggior|miglior|sces|salit|aument|diminuit/i.test(clause) && !/\bnon\b|nessun|ipotet|\bse\b/i.test(clause)) return true;
+  if (assertsUnknownRegistryAbsent(snapshot, clause)) return true;
+  return assetClaimBlocked(snapshot, clause);
+}
+
+/**
+ * Ripulisce **una riga**, clausola per clausola.
+ *
+ * - se nessuna clausola è problematica, la riga resta identica;
+ * - se una frase **mista** (clausola storica + clausola corrente falsa) ha
+ *   almeno una clausola storica da conservare, si eliminano solo le clausole
+ *   correnti non sostenibili;
+ * - altrimenti si elimina l'intera frase (comportamento storico).
+ */
+function sanitizeProseLine(line: string, snapshot: VerifiedWorldSnapshot, initialDate: string | null | undefined): string {
+  if (!line.trim()) return line;
+  const sentences = line.split(/(?<=[.!?])\s+/);
+  const kept: string[] = [];
+  let changed = false;
+  for (const sentence of sentences) {
+    const sanitized = sanitizeSentence(sentence, snapshot, initialDate);
+    if (sanitized === null) { kept.push(sentence); continue; }
+    changed = true;
+    if (sanitized) kept.push(sanitized);
+  }
+  return changed ? kept.join(' ').replace(/\s+$/, '') : line;
+}
+
+/** `null` = frase intatta; `''` = frase eliminata; altrimenti frase ripulita. */
+function sanitizeSentence(sentence: string, snapshot: VerifiedWorldSnapshot, initialDate: string | null | undefined): string | null {
+  const trimmed = sentence.trim();
+  if (!trimmed) return null;
+  const parts = clausesOf(trimmed);
+  const problematic = parts.map(clause => clauseProblematic(snapshot, clause, initialDate));
+  if (!problematic.some(Boolean)) return null;
+
+  const historical = parts.some(clause => isHistoricalSentence(clause, initialDate));
+  const survivors = parts.filter((_, index) => !problematic[index]);
+  if (!historical || survivors.length === 0) return '';
+
+  let rebuilt = survivors.join(' ').trim();
+  if (!/[.!?]["»)]?$/.test(rebuilt)) rebuilt += trimmed.match(/[.!?]+["»)]?$/)?.[0] ?? '.';
+  return rebuilt;
 }
 
 

@@ -152,4 +152,26 @@ describe('WS-ADVISOR-READABILITY-GUARD — storia reale vs possesso corrente', (
     expect(reply).toContain('1998');
     expect(reply).not.toMatch(/oggi possediamo/i);
   });
+
+  it('una frase mista conserva la clausola storica ed elimina solo quella corrente falsa', () => {
+    const reply = guardRealityAdvisorOutput(historicalContext(),
+      'Nel 1998 il porto era importante e oggi utilizziamo quel porto.');
+    expect(reply).toBe('Nel 1998 il porto era importante.');
+  });
+
+  it('una frase storica pura resta intatta', () => {
+    const prose = 'Nel 1998 il porto era importante.';
+    expect(guardRealityAdvisorOutput(historicalContext(), prose)).toBe(prose);
+  });
+
+  it('un presente supportato da un bene canonico resta valido', () => {
+    const withPort = buildVerifiedWorldSnapshot({ gameData: {
+      id: 'uganda-port', playerPolityId: 'UGA', playerPolityName: 'Uganda', currentDate: '2000-06-01', currentTurn: 1,
+      world: { regions: { ug: { id: 'ug', name: 'Uganda', owner: 'UGA', coastal: false, borders: [], objects: [{ id: 'port-1', type: 'port', name: 'Entebbe Port' }] } } },
+      worldState: { resources: { stock: { money: 10, food: 1 }, needs: { food: 1 } }, accounts: { UGA: { socialTension: 25 } }, arsenal: { units: {} } },
+    }, commitments: [], operationalRows: [] });
+    const context = buildRealityAdvisorContext(withPort, undefined, 'Storia.').advisorContext;
+    const prose = 'Oggi utilizziamo il porto di Entebbe Port per il commercio.';
+    expect(guardRealityAdvisorOutput(context, prose)).toBe(prose);
+  });
 });
