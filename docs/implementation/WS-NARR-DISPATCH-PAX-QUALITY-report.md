@@ -185,9 +185,15 @@ motivo: nessuna chiamata LLM a pagamento autorizzata
 
 ## Stato E2E
 
-Il workflow `E2E (mock)` è informativo (`continue-on-error`) e gira su push/PR.
-Stato riportato nel commento/PR al termine del run; **non viene usata alcuna rete
-provider** (API `/api/**` mockate).
+Run `E2E (mock)` su `abf90f9`/`e078be2` (workflow informativo, `continue-on-error`, nessuna rete provider):
+
+| Step | Esito |
+|---|---|
+| E2E mock (smoke, moduli, mappa, viewport) | **success** |
+| Accessibility audit | **failure** — 2 test **pre-esistenti dal #200**: `a11y/a11y.spec.mjs:129` (`.minister-chat`) e `:164` (`.government-office-pane-chat`) |
+| Build frontend (perf baseline) / Performance baseline | skipped (dipendono dall'audit) |
+
+I fallimenti a11y sono **non correlati** a questa PR (stessi due test rossi dalla #200, nessun test toccato qui) e il workflow è informativo. Il gate richiesto `Quality Gate / test-build` è **verde**.
 
 ## Non mergiare
 
