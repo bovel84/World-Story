@@ -310,53 +310,117 @@ describe('canonical land-attack preflight (WS-GOV-DOSSIER-SALIENCE)', () => {
 });
 
 describe('military domain preflight (WS-GOV-MILITARY-PREFLIGHT)', () => {
-  const empty = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [] as unknown[] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
-  const unit = (personnel: number, status = 'operational') => ({ regions: empty.regions, operationalObjects: [{ id: 'u1', kind: 'unit', data: { polityId: 'ALPHA', status, personnel } }] });
-  const ship = { regions: empty.regions, operationalObjects: [{ id: 's1', kind: 'ship', data: { polityId: 'ALPHA', status: 'operational', name: 'Nave' } }] };
-  const fleetObject = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [{ id: 'f1', type: 'fleet', name: 'I Flotta' }] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
-  const missileObject = { regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects: [{ id: 'm1', type: 'missile', name: 'Missili' }] }], operationalObjects: [] as Array<{ id: string; kind: string; data: Record<string, unknown> }> };
-  const blockersFor = (text: string, world: Parameters<typeof canonicalOrderBlockers>[2]) => canonicalOrderBlockers(text, 'ALPHA', world);
-  const codes = (text: string, world: Parameters<typeof canonicalOrderBlockers>[2]) => blockersFor(text, world).map(blocker => blocker.code);
-  const fields = (text: string, world: Parameters<typeof canonicalOrderBlockers>[2]) => blockersFor(text, world).map(blocker => blocker.field);
+  type Row = { id: string; kind: string; data: Record<string, unknown> };
+  // Fixture di test: gli equipment ID (ipersonici, caccia_5, ...) vivono SOLO qui;
+  // la logica produttiva risolve il domain da `equipmentById`, mai da liste.
+  const world = (objects: unknown[] = [], operationalObjects: Row[] = [], arsenalUnits?: Record<string, number>) => ({
+    regions: [{ id: 'r', name: 'R', owner: 'ALPHA', objects }],
+    operationalObjects,
+    ...(arsenalUnits === undefined ? {} : { arsenalUnits }),
+  });
+  const personnel = (registries: string[], units: Row[] = []) => [{ id: 'ALPHA', kind: 'personnel', data: { unitRegistryPolities: registries } }, ...units] as Row[];
+  const unit = (personnelCount: number, status = 'operational') => [{ id: 'u1', kind: 'unit', data: { polityId: 'ALPHA', status, personnel: personnelCount } }] as Row[];
+  const mapArmy = [{ id: 'a1', type: 'army', name: 'I Armata' }];
+  const ship = [{ id: 's1', kind: 'ship', data: { polityId: 'ALPHA', status: 'operational', name: 'Nave' } }] as Row[];
+  const mapFleet = [{ id: 'f1', type: 'fleet', name: 'I Flotta' }];
+  const mapMissile = [{ id: 'm1', type: 'missile', name: 'Missili' }];
+  const blockersFor = (text: string, w: Parameters<typeof canonicalOrderBlockers>[2]) => canonicalOrderBlockers(text, 'ALPHA', w);
+  const codes = (text: string, w: Parameters<typeof canonicalOrderBlockers>[2]) => blockersFor(text, w).map(blocker => blocker.code);
+  const fields = (text: string, w: Parameters<typeof canonicalOrderBlockers>[2]) => blockersFor(text, w).map(blocker => blocker.field);
 
   it('terra: attacco senza reparti => blocked', () => {
-    expect(fields('Attacchiamo il Kenya', empty)).toContain('military.landForces');
+    expect(fields('Attacchiamo il Kenya', world())).toContain('military.landForces');
   });
 
   it('terra: un reparto con personnel 0 non conta', () => {
-    expect(fields('Attacchiamo il Kenya', unit(0))).toContain('military.landForces');
+    expect(fields('Attacchiamo il Kenya', world([], unit(0)))).toContain('military.landForces');
   });
 
   it('terra: un reparto operativo con personale non è bloccato da questo guard', () => {
-    expect(fields('Attacchiamo il Kenya', unit(800))).not.toContain('military.landForces');
+    expect(fields('Attacchiamo il Kenya', world([], unit(800)))).not.toContain('military.landForces');
   });
 
-  it('mare: attacco navale senza flotta/navi => blocked', () => {
-    expect(fields('Ordina alla I Flotta di attaccare in Italia', empty)).toContain('military.navalAssets');
+  it('terra: registro materializzato e vuoto VINCE sul vecchio oggetto di mappa', () => {
+    expect(fields('Attacchiamo il Kenya', world(mapArmy, personnel(['ALPHA'])))).toContain('military.landForces');
   });
 
-  it('mare: attacco navale con asset valido => ok', () => {
-    for (const world of [ship, fleetObject]) {
-      expect(fields('Ordina alla I Flotta di attaccare in Italia', world)).not.toContain('military.navalAssets');
+  it('terra: registro non materializzato usa la mappa come fallback', () => {
+    expect(fields('Attacchiamo il Kenya', world(mapArmy, []))).not.toContain('military.landForces');
+    expect(fields('Attacchiamo il Kenya', world(mapArmy, personnel([], unit(0))))).not.toContain('military.landForces');
+  });
+
+  it('mare: nessun asset navale => blocked', () => {
+    expect(fields('Ordina alla I Flotta di attaccare in Italia', world())).toContain('military.navalAssets');
+  });
+
+  it('mare: nave/flotta operativa => ok', () => {
+    for (const w of [world([], ship), world(mapFleet)]) {
+      expect(fields('Ordina alla I Flotta di attaccare in Italia', w)).not.toContain('military.navalAssets');
     }
   });
 
-  it('missili: lancio senza capacità => blocked', () => {
-    expect(fields('Lanciamo un attacco missilistico', empty)).toContain('military.missileAssets');
+  it('mare: l\'arsenale integra gli asset navali non ancora materializzati', () => {
+    expect(fields('Ordina alla I Flotta di attaccare in Italia', world([], [], { fregate: 2 }))).not.toContain('military.navalAssets');
+    expect(fields('Ordina alla I Flotta di attaccare in Italia', world([], [], {}))).toContain('military.navalAssets');
   });
 
-  it('missili: lancio con capacità canonica => ok', () => {
-    expect(fields('Lanciamo un attacco missilistico', missileObject)).not.toContain('military.missileAssets');
+  it('missili: arsenale con capacità missilistica => ok', () => {
+    expect(fields('Lanciamo un attacco missilistico', world([], [], { ipersonici: 6 }))).not.toContain('military.missileAssets');
   });
 
-  it('aria: capacità non modellata => DATA_UNAVAILABLE', () => {
-    const air = blockersFor('Usiamo l’aviazione per bombardare il Kenya', empty);
-    expect(air).toEqual([expect.objectContaining({ code: 'DATA_UNAVAILABLE', field: 'military.airAssets' })]);
+  it('missili: arsenale presente ma senza missili => MILITARY_ASSET_MISSING', () => {
+    for (const arsenal of [{}, { fucili: 500 }]) {
+      const missile = blockersFor('Lanciamo un attacco missilistico', world([], [], arsenal));
+      expect(missile).toEqual([expect.objectContaining({ code: 'MILITARY_ASSET_MISSING', field: 'military.missileAssets' })]);
+    }
+  });
+
+  it('missili: senza arsenale resta il fallback di mappa, poi dato non disponibile', () => {
+    expect(fields('Lanciamo un attacco missilistico', world(mapMissile, []))).not.toContain('military.missileAssets');
+    expect(codes('Lanciamo un attacco missilistico', world([], []))).toEqual(['DATA_UNAVAILABLE']);
+  });
+
+  it('aria: arsenale con capacità aerea => ok', () => {
+    expect(fields('Usiamo l’aviazione per bombardare il Kenya', world([], [], { caccia_5: 4 }))).not.toContain('military.airAssets');
+  });
+
+  it('aria: arsenale presente ma zero aria => MILITARY_ASSET_MISSING', () => {
+    expect(blockersFor('Usiamo l’aviazione per bombardare il Kenya', world([], [], {})))
+      .toEqual([expect.objectContaining({ code: 'MILITARY_ASSET_MISSING', field: 'military.airAssets' })]);
+  });
+
+  it('aria: senza arsenale => DATA_UNAVAILABLE', () => {
+    expect(blockersFor('Usiamo l’aviazione per bombardare il Kenya', world([], [])))
+      .toEqual([expect.objectContaining({ code: 'DATA_UNAVAILABLE', field: 'military.airAssets' })]);
+  });
+
+  it('droni: arsenale con drone => ok; zero droni => blocked', () => {
+    expect(fields('Usiamo i droni per attaccare il Kenya', world([], [], { droni_attacco: 10 }))).not.toContain('military.droneAssets');
+    expect(blockersFor('Usiamo i droni per attaccare il Kenya', world([], [], {})))
+      .toEqual([expect.objectContaining({ code: 'MILITARY_ASSET_MISSING', field: 'military.droneAssets' })]);
+    expect(blockersFor('Usiamo i droni per attaccare il Kenya', world([], [])))
+      .toEqual([expect.objectContaining({ code: 'DATA_UNAVAILABLE', field: 'military.droneAssets' })]);
   });
 
   it('domande, ipotesi e negazioni non producono blocker esecutivi', () => {
     for (const text of ['Valutiamo un attacco missilistico', 'Valutiamo se attaccare il Kenya', 'Come usiamo la flotta?', 'Non lanciamo missili', 'Un’analisi dell’attacco missilistico']) {
-      expect(codes(text, empty)).toEqual([]);
+      expect(codes(text, world([], []))).toEqual([]);
     }
+  });
+});
+
+describe('canonical order world arsenal adapter (WS-GOV-MILITARY-PREFLIGHT)', () => {
+  it('legge l’arsenale canonico della polity e distingue la fonte assente', async () => {
+    const { readCanonicalOrderWorld } = await import('../src/game/CanonicalOrderFacts');
+    const polity = legacy.session.getPlayer().polityId as string;
+    repositories.arsenalRepository.upsert(legacy.gameId, polity, { fucili: 120 }, 1, '1951-01-01');
+    expect(readCanonicalOrderWorld(legacy.gameId, legacy.session.worldId, undefined, polity).arsenalUnits).toEqual({ fucili: 120 });
+    // Nessuna polity richiesta => la fonte non è letta, non è "zero".
+    expect(readCanonicalOrderWorld(legacy.gameId, legacy.session.worldId).arsenalUnits).toBeUndefined();
+    // Polity senza riga d’arsenale => fonte non disponibile.
+    expect(readCanonicalOrderWorld(legacy.gameId, legacy.session.worldId, undefined, 'NOPE').arsenalUnits).toBeUndefined();
+    // Riga presente ma vuota => zero autorevole, non dato mancante.
+    repositories.arsenalRepository.upsert(legacy.gameId, polity, {}, 1, '1951-01-01');
+    expect(readCanonicalOrderWorld(legacy.gameId, legacy.session.worldId, undefined, polity).arsenalUnits).toEqual({});
   });
 });

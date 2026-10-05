@@ -4,6 +4,7 @@
  */
 import db from '../database';
 import { operationalObjectRepository } from '../repositories/operational-object.repository';
+import { arsenalRepository } from '../repositories/arsenal.repository';
 import type { CanonicalOrderRegion, CanonicalOrderWorld } from '../core/feasibility/CanonicalOrderSafety';
 
 function regionsFromRows(rows: Array<{ id: string; name: string; owner: string; objects: string }>): CanonicalOrderRegion[] {
@@ -14,7 +15,7 @@ function regionsFromRows(rows: Array<{ id: string; name: string; owner: string; 
   });
 }
 
-export function readCanonicalOrderWorld(gameId: string, worldId: string, liveRegions?: Iterable<CanonicalOrderRegion>): CanonicalOrderWorld {
+export function readCanonicalOrderWorld(gameId: string, worldId: string, liveRegions?: Iterable<CanonicalOrderRegion>, polityId?: string): CanonicalOrderWorld {
   // The DYNAMIC copy of the game (game_regions) is the canonical reality: the
   // world template rows stay frozen while constructions are delivered.
   const live = db.prepare(
@@ -30,5 +31,12 @@ export function readCanonicalOrderWorld(gameId: string, worldId: string, liveReg
   const templateRows = regionsFromRows(template);
   const known = new Set(dynamic.map(region => region.id));
   const regions = [...dynamic, ...templateRows.filter(region => !known.has(region.id))];
-  return { regions, operationalObjects: operationalObjectRepository.list(gameId) };
+  // Arsenale canonico della polity: unica fonte delle quantità possedute. Se la
+  // riga non esiste, la vista resta `undefined` (fonte non disponibile), non `{}`.
+  const arsenal = polityId ? arsenalRepository.get(gameId, polityId) : null;
+  return {
+    regions,
+    operationalObjects: operationalObjectRepository.list(gameId),
+    ...(arsenal ? { arsenalUnits: arsenal.units } : {}),
+  };
 }

@@ -5,6 +5,7 @@
  */
 import type { Blocker } from './FeasibilityService';
 import { CANONICAL_ASSET_LABEL, canonicalAssetKind, type CanonicalAssetKind } from '../simulation/CanonicalAssetTypes';
+import { equipmentById } from '../simulation/MilitaryIndustry';
 
 export interface CanonicalOrderRegion {
   readonly id: string;
@@ -15,6 +16,10 @@ export interface CanonicalOrderRegion {
 export interface CanonicalOrderWorld {
   readonly regions: readonly CanonicalOrderRegion[];
   readonly operationalObjects: readonly { readonly id: string; readonly kind: string; readonly data: Readonly<Record<string, unknown>> }[];
+  /** Vista read-only dell'arsenale canonico della polity (quantità possedute
+   *  per equipment ID). `undefined` = fonte non letta/disponibile; presente
+   *  (anche `{}`) = autoritativa: zero è zero, non "dato mancante". */
+  readonly arsenalUnits?: Readonly<Record<string, number>>;
 }
 type AssetKind = CanonicalAssetKind;
 interface Asset { readonly id: string; readonly name: string; readonly regionName?: string; }
@@ -50,12 +55,13 @@ const ATTACK_NEGATION = /\b(?:non|senza|evitare|evita|evitiamo|mai)\b/;
 const QUESTION_START = /^\s*(?:come|quale|quali|quando|dove|perch[eè]|quanto|quanta|chi|cosa|che\s+cosa|how|what|when|where|why|which|who|whether)\b/;
 // Un attacco che nomina una piattaforma navale/missilistica/aerea non implica
 // forze terrestri: la guardia terrestre lo lascia al suo dominio.
-const NON_LAND_PLATFORM = /\b(?:flott\w*|marin\w*|nav[ei]|navy|ships?|missil\w*|aer[ei]|avi\w+|air\s?force)\b/;
+const NON_LAND_PLATFORM = /\b(?:flott\w*|marin\w*|nav[ei]|navy|ships?|missil\w*|dron\w*|aer[ei]|avi\w+|air\s?force)\b/;
 // Lessici di dominio e verbi direttivi. I sostantivi da soli non bastano:
 // serve un verbo d'uso/ordine esplicito.
 const NAVAL_LEWIS = /\b(?:flott\w*|marin\w*|nav[ei]|navy|ships?|warships?)\b/;
 const MISSILE_LEWIS = /\b(?:missil\w*|missiles?)\b/;
 const AIR_LEWIS = /\b(?:avi\w+|aeronautic\w*|aer[ei]|air\s?force|bombardier\w*|caccia|elicotter\w*)\b/;
+const DRONE_LEWIS = /\b(?:dron\w*|ucav|uav|aeromobil\w*)\b/;
 const DOMAIN_ACTION = /\b(?:usa|usare|usiamo|usate|use|using|utilizz\w*|impieg\w*|schier\w*|mand\w*|invi\w*|mobilit\w*|deploy|send|lanci\w*|sferr\w*|attacc\w*|invad\w*|ordin\w*|dispon\w*)\b/;
 /** Stati che non provano un reparto utilizzabile (mai inventare quantita'). */
 const NON_OPERATIONAL_LAND = new Set(['under_construction', 'planned', 'destroyed', 'decommissioned', 'cancelled', 'forming', 'mobilizing']);
@@ -86,8 +92,34 @@ function domainDirective(clause: string, question: boolean, lexis: RegExp): bool
   return !ATTACK_HYPOTHESIS.test(before) && !ATTACK_NEGATION.test(before);
 }
 
-/** Almeno un reparto terrestre canonico utilizzabile della polity (mappa o registro operativo). */
-function hasLandForce(world: CanonicalOrderWorld, polityId: string): boolean {
+// ——— Arsenale canonico (unica fonte delle quantità possedute) ———
+/** L'arsenale canonico è leggibile? Distingue zero da dato non disponibile. */
+function arsenalRead(world: CanonicalOrderWorld): boolean {
+  return world.arsenalUnits !== undefined;
+}
+/** Il dominio ha almeno un equipaggiamento con quantità > 0. Il `domain` viene
+ *  dal catalogo reale (`equipmentById`), mai da liste hardcoded. */
+function arsenalHasDomain(world: CanonicalOrderWorld, domain: string): boolean {
+  const units = world.arsenalUnits;
+  if (!units) return false;
+  return Object.entries(units).some(([id, quantity]) => {
+    const count = Number(quantity);
+    return Number.isFinite(count) && count > 0 && equipmentById(id)?.domain === domain;
+  });
+}
+
+/** Reparto terrestre operativo con uomini: un `unit` senza personale non conta. */
+function usableLandUnits(world: CanonicalOrderWorld, polityId: string): boolean {
+  return world.operationalObjects.some(row => {
+    if (row.kind !== 'unit' || !belongs(row.data, polityId)
+      || NON_OPERATIONAL_LAND.has(text(row.data.status))) return false;
+    const personnel = Number(row.data.personnel);
+    return Number.isFinite(personnel) && personnel > 0;
+  });
+}
+
+/** Formazioni di mappa `army`/`battalion`: SOLO fallback pre-materializzazione. */
+function mapFormation(world: CanonicalOrderWorld, polityId: string): boolean {
   for (const region of world.regions) {
     if (region.owner !== polityId) continue;
     for (const raw of region.objects) {
@@ -98,19 +130,37 @@ function hasLandForce(world: CanonicalOrderWorld, polityId: string): boolean {
       return true;
     }
   }
-  // `unit` è il kind canonico dei reparti nel registro operativo (il repository
-  // non produce `army`/`force`: quelli sono etichette di lettura, non righe).
-  // Un reparto senza uomini (personnel <= 0 o assente) non è utilizzabile.
-  return world.operationalObjects.some(row => {
-    if (row.kind !== 'unit' || !belongs(row.data, polityId)
-      || NON_OPERATIONAL_LAND.has(text(row.data.status))) return false;
-    const personnel = Number(row.data.personnel);
-    return Number.isFinite(personnel) && personnel > 0;
-  });
+  return false;
 }
 
-/** Capacità missilistica canonica: oggetto di mappa `missile` operativo. */
-function hasMissileCapability(world: CanonicalOrderWorld, polityId: string): boolean {
+/** Il registro operativo dei reparti è materializzato per la polity? */
+function landRegistryMaterialized(world: CanonicalOrderWorld, polityId: string): boolean {
+  const personnel = world.operationalObjects.find(row => row.kind === 'personnel' && row.id === polityId);
+  if (!personnel) return false;
+  const registries = personnel.data.unitRegistryPolities;
+  if (Array.isArray(registries)) return registries.some(id => String(id) === polityId);
+  // Riga senza marcatore durevole: solo un reparto vivo prova la materializzazione.
+  return usableLandUnits(world, polityId);
+}
+
+/** Il registro materializzato conserva almeno una traccia non distrutta di reparto? */
+function registryHasLivingUnitRecord(world: CanonicalOrderWorld, polityId: string): boolean {
+  return world.operationalObjects.some(row => row.kind === 'unit' && belongs(row.data, polityId)
+    && text(row.data.status) !== 'destroyed');
+}
+
+/** Capacità terrestre: il registro materializzato VINCE sulla mappa quando
+ *  prova che la forza non esiste più (nessun reparto o solo reparti distrutti).
+ *  Se il registro è assente o conserva reparti (anche in formazione), i
+ *  vecchi `army`/`battalion` di mappa restano un fallback canonico. */
+function hasLandForce(world: CanonicalOrderWorld, polityId: string): boolean {
+  if (usableLandUnits(world, polityId)) return true;
+  if (landRegistryMaterialized(world, polityId) && !registryHasLivingUnitRecord(world, polityId)) return false;
+  return mapFormation(world, polityId);
+}
+
+/** Capacità missilistica pre-materializzazione: oggetto di mappa `missile`. */
+function mapMissilePresent(world: CanonicalOrderWorld, polityId: string): boolean {
   for (const region of world.regions) {
     if (region.owner !== polityId) continue;
     for (const raw of region.objects) {
@@ -210,21 +260,34 @@ export function canonicalOrderBlockers(textValue: string, polityId: string, worl
   const originalClauses = textValue.split(/[.;!\n]/);
   const clauses = normalize(textValue).split(/[.;!\n]/);
   const questions = clauses.map((_, index) => isQuestion(originalClauses[index]));
-  if (clauses.some((clause, index) => attackDirective(clause, questions[index]!)) && !hasLandForce(world, polityId)) {
+  const landDirective = clauses.some((clause, index) => attackDirective(clause, questions[index]!));
+  const navalDirective = clauses.some((clause, index) => domainDirective(clause, questions[index]!, NAVAL_LEWIS));
+  const missileDirective = clauses.some((clause, index) => domainDirective(clause, questions[index]!, MISSILE_LEWIS));
+  const airDirective = clauses.some((clause, index) => domainDirective(clause, questions[index]!, AIR_LEWIS));
+  const droneDirective = clauses.some((clause, index) => domainDirective(clause, questions[index]!, DRONE_LEWIS));
+  if (landDirective && !hasLandForce(world, polityId)) {
     blockers.push({ code: 'MILITARY_ASSET_MISSING', field: 'military.landForces', detail: 'L’atto ordina un attacco terrestre, ma nessun reparto terrestre canonico risulta disponibile sotto il nostro controllo.' });
   }
-  // Gli assetti navali provengono dall'inventario canonico già usato per la
-  // guardia infrastrutturale: regioni `fleet` + righe operative `ship`/`fleet`.
-  if (clauses.some((clause, index) => domainDirective(clause, questions[index]!, NAVAL_LEWIS)) && inventory.fleet.length === 0) {
+  // Mare: nave/flotta operativa autoritativa; l'arsenale integra gli asset
+  // navali non ancora materializzati (domain `mare` dal catalogo reale).
+  if (navalDirective && inventory.fleet.length === 0 && !arsenalHasDomain(world, 'mare')) {
     blockers.push({ code: 'MILITARY_ASSET_MISSING', field: 'military.navalAssets', detail: 'L’atto impiega una forza navale, ma nessuna nave o flotta canonica risulta disponibile sotto il nostro controllo.' });
   }
-  if (clauses.some((clause, index) => domainDirective(clause, questions[index]!, MISSILE_LEWIS)) && !hasMissileCapability(world, polityId)) {
-    blockers.push({ code: 'MILITARY_ASSET_MISSING', field: 'military.missileAssets', detail: 'L’atto impiega capacità missilistica, ma nessun asset missilistico canonico risulta presente sotto il nostro controllo.' });
+  if (missileDirective) {
+    // L'arsenale canonico è la fonte primaria; l'oggetto di mappa `missile`
+    // resta una fonte canonica concorrente. Distingue zero da fonte assente.
+    const capability = arsenalHasDomain(world, 'missili') || mapMissilePresent(world, polityId);
+    if (!capability) blockers.push(arsenalRead(world)
+      ? { code: 'MILITARY_ASSET_MISSING', field: 'military.missileAssets', detail: 'L’atto impiega capacità missilistica, ma l’arsenale canonico non registra alcun equipaggiamento missilistico sotto il nostro controllo.' }
+      : { code: 'DATA_UNAVAILABLE', field: 'military.missileAssets', detail: 'L’atto impiega capacità missilistica, ma la fonte canonica dell’arsenale non è leggibile: dato non disponibile.' });
   }
-  // L'aria non ha un tipo verificabile nel world canonico dell'ordine
-  // (region objects + operationalObjects): dato non disponibile, mai assunto.
-  if (clauses.some((clause, index) => domainDirective(clause, questions[index]!, AIR_LEWIS))) {
-    blockers.push({ code: 'DATA_UNAVAILABLE', field: 'military.airAssets', detail: 'L’atto impiega capacità aerea, ma il world canonico dell’ordine non espone un asset aereo verificabile: dato non disponibile.' });
+  if (airDirective) {
+    if (!arsenalRead(world)) blockers.push({ code: 'DATA_UNAVAILABLE', field: 'military.airAssets', detail: 'L’atto impiega capacità aerea, ma la fonte canonica dell’arsenale non è leggibile: dato non disponibile.' });
+    else if (!arsenalHasDomain(world, 'aria')) blockers.push({ code: 'MILITARY_ASSET_MISSING', field: 'military.airAssets', detail: 'L’atto impiega capacità aerea, ma l’arsenale canonico non registra alcun equipaggiamento aereo sotto il nostro controllo.' });
+  }
+  if (droneDirective) {
+    if (!arsenalRead(world)) blockers.push({ code: 'DATA_UNAVAILABLE', field: 'military.droneAssets', detail: 'L’atto impiega droni, ma la fonte canonica dell’arsenale non è leggibile: dato non disponibile.' });
+    else if (!arsenalHasDomain(world, 'droni')) blockers.push({ code: 'MILITARY_ASSET_MISSING', field: 'military.droneAssets', detail: 'L’atto impiega droni, ma l’arsenale canonico non registra alcun drone sotto il nostro controllo.' });
   }
   for (const [clauseIndex, clause] of clauses.entries()) {
     // Una domanda non esegue nulla: nessun blocker esecutivo da un'interrogativa.

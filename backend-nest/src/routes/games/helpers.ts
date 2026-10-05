@@ -147,7 +147,7 @@ export function respondLegacyFeasibility(res: any, session: any, text: string): 
   const game = gameRepository.findById(session.id);
   const polity = session.getPlayer()?.polityId;
   if (!game || !polity) throw new Error('Identità politica del giocatore non disponibile');
-  const blockers = canonicalOrderBlockers(text, polity, readCanonicalOrderWorld(session.id, game.world_id, session.canonicalOrderRegions?.()));
+  const blockers = canonicalOrderBlockers(text, polity, readCanonicalOrderWorld(session.id, game.world_id, session.canonicalOrderRegions?.(), polity));
   let costs: any = { timeDays: 0, inputs: [], upkeep: [], basis: 'none' };
   let warnings = ['Partita legacy: la stima viene dal conto nazionale e sarà addebitata all\'esecuzione.'];
   try {
