@@ -166,19 +166,44 @@ export function guardRealityAdvisorOutput(context: RealityAdvisorContext, text: 
   const snapshot = context.verifiedWorldSnapshot;
   // A labeled dashboard is not a strategic reply. No repair call or extra LLM cost.
   if (/^\s*(?:[-*]\s*)?(?:FACT|INFERENCE|FORECAST|PROPOSAL)\s*[—–:-]/mi.test(text)) return context.governmentBrief;
-  const sentences = text.replace(/```[^]*?(?:```|$)/g, '').split(/(?<=[.!?])\s+|\n/);
-  const contradiction = sentences.some(sentence => {
-    if (!snapshot.changes.available && /da ieri|rispetto (?:a ieri|al turno precedente)/i.test(sentence)
-      && /peggior|miglior|sces|salit|aument|diminuit/i.test(sentence) && !/\bnon\b|nessun|ipotet|\bse\b/i.test(sentence)) return true;
-    if (assertsUnknownRegistryAbsent(snapshot, sentence)) return true;
-    // A coordinating conjunction cannot shield an unsupported clause: judge
-    // each clause on its own, so «costruire una strada e usare il porto di X»
-    // is evaluated on the second clause alone.
-    return sentence.split(/[,;:]|\s+\be\s+|\s+\band\s+/i).some(clause => assetClaimBlocked(snapshot, clause));
-  });
+  const initialDate = context.temporalScope?.initialDate ?? null;
+  const sentences = text.replace(/```[^]*?(?:```|$)/g, '').trim().split(/(?<=[.!?])\s+|\n/).map(sentence => sentence.trim()).filter(Boolean);
+  const kept = sentences.filter(sentence => !contradictsReality(snapshot, sentence, initialDate));
 
-  if (contradiction || !text.trim()) return 'Non ho un dato verificato su questo punto, Presidente. Non posso confermare infrastrutture, forze o cambiamenti non registrati. Ripartiamo dai dati disponibili prima di decidere.';
-  return text.trim();
+  if (!sentences.length) return FALLBACK_REALITY_REPLY;
+  // Nessuna frase problematica: la risposta resta intatta.
+  if (kept.length === sentences.length) return text.trim();
+  // Soluzione conservativa: elimina solo le frasi non sostenibili, senza
+  // seconda chiamata LLM. Se non resta nulla di utile, fallback deterministico.
+  return kept.length ? kept.join(' ') : FALLBACK_REALITY_REPLY;
+}
+
+const FALLBACK_REALITY_REPLY =
+  'Non ho un dato verificato su questo punto, Presidente. Non posso confermare infrastrutture, forze o cambiamenti non registrati. Ripartiamo dai dati disponibili prima di decidere.';
+
+/**
+ * Un fatto esplicitamente anteriore alla data iniziale è **storia**, non un
+ * possesso corrente: citarlo non autorizza a parlare al presente. Vale un anno
+ * precedente allo `startDate` oppure un marker storico esplicito.
+ */
+function isHistoricalSentence(sentence: string, initialDate: string | null | undefined): boolean {
+  const lower = sentence.toLocaleLowerCase();
+  const startYear = initialDate && /^(\d{4})/.test(initialDate) ? Number(initialDate.slice(0, 4)) : null;
+  const years = [...lower.matchAll(/\b(1[0-9]{3}|20[0-9]{2})\b/g)].map(match => Number(match[1]));
+  if (startYear !== null && years.some(year => year < startYear)) return true;
+  return /\b(?:storic|in passato|all['’]epoca|un tempo|negli anni|anni (?:'?\d0)|già (?:nel|allora)|fino al|precedentemente|nel dopoguerra|durante la (?:guerra|colonia|occupazione))\b/.test(lower);
+}
+
+/** Una singola frase è una contraddizione rilevabile con il reality canonico? */
+function contradictsReality(snapshot: VerifiedWorldSnapshot, sentence: string, initialDate: string | null | undefined): boolean {
+  if (isHistoricalSentence(sentence, initialDate)) return false;
+  if (!snapshot.changes.available && /da ieri|rispetto (?:a ieri|al turno precedente)/i.test(sentence)
+    && /peggior|miglior|sces|salit|aument|diminuit/i.test(sentence) && !/\bnon\b|nessun|ipotet|\bse\b/i.test(sentence)) return true;
+  if (assertsUnknownRegistryAbsent(snapshot, sentence)) return true;
+  // A coordinating conjunction cannot shield an unsupported clause: judge
+  // each clause on its own, so «costruire una strada e usare il porto di X»
+  // is evaluated on the second clause alone.
+  return sentence.split(/[,;:]|\s+\be\s+|\s+\band\s+/i).some(clause => assetClaimBlocked(snapshot, clause));
 }
 
 
