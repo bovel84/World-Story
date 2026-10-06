@@ -179,6 +179,11 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     expect(prompt).toContain('hostile-relations:SDN');
     expect(prompt).toMatch(/Non presentare nuovamente il quadro nazionale/);
     expect(prompt).not.toContain(ADVISOR_BRIEFING_SITUATION_PROTOCOL);
+    // La base deterministica contiene Congo e i ritardi, ma la risposta in focus no.
+    const baseTitles = buildAdvisorSituations(snapshot).map(situation => situation.title);
+    expect(baseTitles.some(title => title.includes('Congo'))).toBe(true);
+    const focusedReply = parseAdvisorResponse(snapshot, 'Approfondiamo il Sudan: il rapporto resta teso.', 'advisor');
+    expect(focusedReply.situations).toEqual([]);
   });
 
   it('le decisioni già prese non sono situazioni da approfondire', () => {
