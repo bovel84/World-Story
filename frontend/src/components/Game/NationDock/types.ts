@@ -7,7 +7,7 @@ import type { Region } from '../../../types';
 import type {
   ArsenalResponse, Commitment, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, PowerAgenda,
   GovernmentVoicesResponse, NaturalResourceSummary, PeacetimePressure, GovernmentFollowUpView, GovernmentAdvisorBriefView,
-  ResourceQuote, SovereignDebtTranche,
+  ResourceQuote, SovereignDebtTranche, CountryInitialProfilePayload,
 } from '../../../services/api';
 import type { Trend, TrendTone } from '../accountTrend';
 import type { CompletedProcess, NationalProcess } from '../nationDossier';
@@ -164,6 +164,12 @@ export interface NationDockProps {
   commitments?: { commitments: Commitment[]; attention: Commitment[] } | null;
   /** Data del mondo: serve a mostrare le scadenze, non a calcolarle. */
   today?: string;
+  /**
+   * Dossier Nazionale — baseline canonica del Turno 0 (`CountryInitialProfile`),
+   * come persistita dal bootstrap. Sola lettura: serve al confronto
+   * «attuale vs inizio». Assente nei salvataggi legacy.
+   */
+  initialProfile?: CountryInitialProfilePayload | null;
 }
 
 /** Un punto dello storico: data di gioco e conto già pubblicato dal motore. */

@@ -23,9 +23,9 @@ import { classifyProject } from './projectCategory';
 import { orderRatePerMonth, projectedDeliveredUnits } from './militaryOperatingPicture';
 import { finiteOrNull, round1, type DomainDriver, type DomainStatus, type DriverTone } from './domainStatus';
 
-export type IndustryAssignmentKind = 'produzione' | 'progetto' | 'manutenzione';
+type IndustryAssignmentKind = 'produzione' | 'progetto' | 'manutenzione';
 
-export interface IndustryAssignment {
+interface IndustryAssignment {
   id: string;
   label: string;
   kind: IndustryAssignmentKind;
@@ -40,7 +40,7 @@ export interface IndustryAssignment {
   blocker: string | null;
 }
 
-export interface IndustryProduction {
+interface IndustryProduction {
   id: string;
   label: string;
   quantity: number;
@@ -91,7 +91,7 @@ export interface IndustryPicture extends DomainStatus {
   universities: number | null;
 }
 
-export interface IndustryInput {
+interface IndustryInput {
   account?: Partial<NationAccount> | null;
   resources?: Partial<NationResources> | null;
   arsenal?: Partial<ArsenalResponse> | null;

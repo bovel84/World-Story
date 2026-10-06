@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   gameApi,
+  type CountryInitialProfilePayload,
   type CrisisSnapshot,
   type Commitment,
   type PowerAgenda,
@@ -100,6 +101,9 @@ export interface NationSnapshot {
   setNationalHistory: React.Dispatch<React.SetStateAction<NationalHistoryEntry[]>>;
   nationalResources: NationalResources;
   setNationalResources: React.Dispatch<React.SetStateAction<NationalResources>>;
+  /** Dossier Nazionale — baseline canonica del Turno 0 (sola lettura). */
+  nationalInitialProfile: CountryInitialProfilePayload | null;
+  setNationalInitialProfile: React.Dispatch<React.SetStateAction<CountryInitialProfilePayload | null>>;
   nationalArms: NationalArms | null;
   setNationalArms: React.Dispatch<React.SetStateAction<NationalArms | null>>;
   nationalGovernment: GovernmentSnapshot | null;
@@ -194,6 +198,7 @@ export function useNationSnapshot({
   const [nationalAccounts, setNationalAccounts] = useState<NationalAccountMap>({});
   const [nationalHistory, setNationalHistory] = useState<NationalHistoryEntry[]>([]);
   const [nationalResources, setNationalResources] = useState<NationalResources>(null);
+  const [nationalInitialProfile, setNationalInitialProfile] = useState<CountryInitialProfilePayload | null>(null);
   const [nationalArms, setNationalArms] = useState<NationalArms | null>(null);
   const [nationalGovernment, setNationalGovernment] = useState<GovernmentSnapshot | null>(null);
   const [nationalFiscalPolicy, setNationalFiscalPolicy] = useState<FiscalPolicyInfo | null>(null);
@@ -244,6 +249,7 @@ export function useNationSnapshot({
     setNationalAccounts({});
     setNationalHistory([]);
     setNationalResources(null);
+    setNationalInitialProfile(null);
     setNationalArms(null);
     setNationalGovernment(null);
     setNationalFiscalPolicy(null);
@@ -401,6 +407,7 @@ export function useNationSnapshot({
           setNationalAccounts(national.accounts || {});
           setNationalHistory(national.history || []);
           setNationalResources(normalizeResources(national.resources));
+          setNationalInitialProfile(national.initialProfile ?? null);
           setNationalGovernment(national.government ?? null);
           setNationalFiscalPolicy(national.fiscalPolicy ?? null);
           setNationalCrisis(national.crisis ?? null);
@@ -486,6 +493,7 @@ export function useNationSnapshot({
       ]);
       setNationalArms(arms);
       setNationalResources(normalizeResources(national.resources));
+      setNationalInitialProfile(national.initialProfile ?? null);
       setNationalAccounts(national.accounts || {});
       setNationalGovernment(national.government ?? null);
     } catch (error: any) {
@@ -527,6 +535,7 @@ export function useNationSnapshot({
       ]);
       setNationalArms(arms);
       setNationalResources(normalizeResources(national.resources));
+      setNationalInitialProfile(national.initialProfile ?? null);
       setNationalAccounts(national.accounts || {});
       setNationalGovernment(national.government ?? null);
     } catch (error: any) {
@@ -568,6 +577,7 @@ export function useNationSnapshot({
       if (epoch !== snapshotEpoch.current) return result;
       setNationalArms(arms);
       setNationalResources(normalizeResources(national.resources));
+      setNationalInitialProfile(national.initialProfile ?? null);
       setNationalAccounts(national.accounts || {});
       setNationalGovernment(national.government ?? null);
       return result;
@@ -605,6 +615,7 @@ export function useNationSnapshot({
       if (epoch !== snapshotEpoch.current) return result;
       setNationalArms(arms);
       setNationalResources(normalizeResources(national.resources));
+      setNationalInitialProfile(national.initialProfile ?? null);
       setNationalAccounts(national.accounts || {});
       setNationalGovernment(national.government ?? null);
       return result;
@@ -634,6 +645,7 @@ export function useNationSnapshot({
       );
       const national = await gameApi.nationalState(gameId);
       setNationalResources(normalizeResources(national.resources));
+      setNationalInitialProfile(national.initialProfile ?? null);
       setNationalGovernment(national.government ?? null);
     } catch (error: any) {
       console.error('[App] Scambio risorsa fallito:', error);
@@ -658,6 +670,7 @@ export function useNationSnapshot({
       );
       const national = await gameApi.nationalState(gameId);
       setNationalResources(normalizeResources(national.resources));
+      setNationalInitialProfile(national.initialProfile ?? null);
       setNationalAccounts(national.accounts || {});
       setNationalGovernment(national.government ?? null);
     } catch (error: any) {
@@ -709,6 +722,7 @@ export function useNationSnapshot({
       setNationalAccounts(national.accounts || {});
       setNationalGovernment(national.government ?? null);
       setNationalResources(normalizeResources(national.resources));
+      setNationalInitialProfile(national.initialProfile ?? null);
       setNationalPressures(pressures.pressures || []);
       setRecentPressures(pressures.recent || []);
     } catch (error: any) {
@@ -723,6 +737,7 @@ export function useNationSnapshot({
     nationalAccounts, setNationalAccounts,
     nationalHistory, setNationalHistory,
     nationalResources, setNationalResources,
+    nationalInitialProfile, setNationalInitialProfile,
     nationalArms, setNationalArms,
     nationalGovernment, setNationalGovernment,
     nationalFiscalPolicy, setNationalFiscalPolicy,

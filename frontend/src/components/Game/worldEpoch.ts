@@ -22,7 +22,7 @@
  */
 
 /** Le cinque epoche del motore. */
-export type WorldEpoch =
+type WorldEpoch =
   | 'pre_industriale'
   | 'grande_guerra'
   | 'seconda_guerra'
@@ -49,7 +49,7 @@ export const WORLD_EPOCH_BOUNDARIES: ReadonlyArray<{ from: number; epoch: WorldE
   { from: 1990, epoch: 'moderno' },
 ];
 
-export interface WorldEpochView {
+interface WorldEpochView {
   /** L'anno del mondo (numero), oppure `null` se la data non è leggibile. */
   year: number | null;
   /** L'epoca, oppure `null` se la data non è leggibile. */

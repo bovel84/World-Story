@@ -24,7 +24,7 @@ export interface EconomyMetric {
   hint?: string;
 }
 
-export interface EconomyDiagnosis {
+interface EconomyDiagnosis {
   tone: DriverTone;
   /** Titolo breve in maiuscoletto: «DISAVANZO PERSISTENTE». */
   title: string;

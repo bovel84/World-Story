@@ -2184,6 +2184,25 @@ html, body { margin: 0; }
 .nation-footnote { margin: 2px 0 0; color: #93a6c2; font: 12px/1.5 system-ui, sans-serif; }
 .nation-footnote b { color: #a99af0; font-weight: 700; }
 
+/* Dossier vivo — attuale vs inizio: equipaggiamento raggruppato e tecnologie. */
+.nation-equipment-group { display: flex; flex-direction: column; gap: 6px; }
+.nation-equipment-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
+  margin: 0; color: #9fb0c9; font: 12.5px/1.4 system-ui, sans-serif;
+}
+.nation-equipment-head b { color: #f2f6ff; font-size: 13.5px; }
+.nation-equipment-head em { color: #8fa3c0; font-style: normal; }
+.nation-equipment-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.nation-equipment-list li {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 7px 10px; border: 1px solid #2b3c56; border-radius: 8px; background: #101d31;
+  color: #c7d4e6; font: 13px/1.35 system-ui, sans-serif;
+}
+.nation-equipment-value { color: #f2f6ff; font-variant-numeric: tabular-nums; }
+.nation-equipment-value em { color: #8fa3c0; font-style: normal; }
+.nation-technology-owned { margin: 0; color: #c7d4e6; font: 13px/1.5 system-ui, sans-serif; }
+.nation-technology-owned b { color: #f2f6ff; }
+
 /* Carte uniformi: etichetta, cifra, nota. Barra laterale = tono semantico. */
 .nation-metric-grid {
   display: grid;

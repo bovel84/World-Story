@@ -178,6 +178,9 @@ router.get('/:id/national-state', (req, res) => {
       accounts: session.getNationalAccounts(),
       history: session.getNationalHistory(),
       resources: session.getResources(),
+      // Dossier Nazionale — la baseline del Turno 0 (CountryInitialProfile).
+      // Sola lettura: serve al dossier per il confronto «attuale vs inizio».
+      initialProfile: session.getCountryInitialProfile(),
       // Anime del governo + dettaglio del bilancio: il Dossier Nazione legge
       // voci e pressioni calcolate dal motore, mai stimate nel browser.
       government: session.getGovernment(),

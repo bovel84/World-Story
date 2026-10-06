@@ -25,6 +25,7 @@ import { nationalOperatingPicture } from '../nationalOperatingPicture';
 import { nationOperatingPictureInput } from '../nationOperatingPictureInput';
 import type { HistoryPoint, MetricTrend, NationDockProps } from './types';
 import { nationalSynthesis } from '../nationalSynthesis';
+import { buildNationalDossierLive } from '../nationalDossierLive';
 
 export function useNationDockModel(props: NationDockProps) {
   const {
@@ -83,6 +84,12 @@ export function useNationDockModel(props: NationDockProps) {
     }
   };
   const active = state.activeSection;
+  // Dossier Nazionale vivo: baseline del Turno 0 + stato corrente del motore.
+  // Read model puro — nessuna chiamata, nessuna cifra ricalcolata a mano.
+  const live = useMemo(
+    () => buildNationalDossierLive({ account, resources, arms, initialProfile: props.initialProfile }),
+    [account, resources, arms, props.initialProfile],
+  );
   const assets = useMemo(() => summarizeNationalAssets(regions, account), [regions, account]);
   // COUNTRY-CLARITY: quadro d'insieme. È un read model puro sui numeri già
   // pubblicati (conto, magazzino, arsenale, governo, storico): nessuna nuova
@@ -223,6 +230,7 @@ export function useNationDockModel(props: NationDockProps) {
     people: operatingPicture.people,
     // D03: la sintesi che apre il dossier. Composta dai read model già qui —
     // nessuna cifra nuova, nessuna chiamata in più.
+    live,
     synthesis: nationalSynthesis({
       picture: operatingPicture,
       crisis: props.crisis,

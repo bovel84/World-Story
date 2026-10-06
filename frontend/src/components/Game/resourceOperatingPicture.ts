@@ -34,7 +34,7 @@ export interface ResourceFlowRow {
   tone: DriverTone;
 }
 
-export interface NaturalResourceRow {
+interface NaturalResourceRow {
   id: string;
   label: string;
   stockpile: number;

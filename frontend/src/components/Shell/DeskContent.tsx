@@ -6,7 +6,7 @@ import { NationDock } from '../Game/NationDock';
 import { ForcesPanel } from '../Game/ForcesPanel';
 import { EmptyState } from '../Game/NationDock/widgets';
 import type { NationResources } from '../Game/NationDock';
-import type { ArsenalResponse, Commitment, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, GovernmentVoicesResponse, PeacetimePressure, PowerAgenda } from '../../services/api';
+import type { ArsenalResponse, Commitment, CountryInitialProfilePayload, CrisisSnapshot, FiscalPolicyInfo, GovernmentSnapshot, GovernmentVoicesResponse, PeacetimePressure, PowerAgenda } from '../../services/api';
 import { SaveGameModal } from '../Game/SaveGameModal';
 import { useToast } from '../ui/ToastProvider';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -28,6 +28,8 @@ interface DeskContentProps {
   governmentType: string;
   nationalAccount: any;
   nationalResources?: NationResources | null;
+  /** Dossier Nazionale — baseline canonica del Turno 0 (sola lettura). */
+  nationalInitialProfile?: CountryInitialProfilePayload | null;
   nationalArms?: ArsenalResponse | null;
   procureEquipment?: (mode: 'build' | 'buy', equipmentId: string, quantity?: number) => Promise<void>;
   /** OP-OBJECTS — anteprima della creazione di reparti (sola lettura). */
@@ -101,6 +103,7 @@ export function DeskContent({
   governmentType,
   nationalAccount,
   nationalResources,
+  nationalInitialProfile,
   nationalArms,
   procureEquipment,
   onPreviewFormation,
@@ -225,6 +228,7 @@ export function DeskContent({
             governmentType={governmentType}
             account={nationalAccount}
             resources={nationalResources}
+            initialProfile={nationalInitialProfile}
             arms={nationalArms}
             procure={procureEquipment}
             // D-1 — le props operative (creazione reparti, azioni di reparto,

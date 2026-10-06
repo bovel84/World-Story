@@ -41,6 +41,7 @@ import { useNationDockModel } from './NationDock/useNationDockModel';
 import { MaterialBalanceList } from './MaterialBalanceList';
 import { DomainOperatingBlock, OperatingPictureBoard } from './OperatingPictureBoard';
 import { NationalSynthesisPanel } from './NationalSynthesisPanel';
+import { NationalDossierLive } from './LiveNationalDossier';
 
 // Ri-esportati per i consumatori storici (`DeskContent`, `nationDossier`).
 export type { HistoryPoint, NationAccount, NationDockProps, NationResources, Tone } from './NationDock/types';
@@ -65,6 +66,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue, provincesLabel,
     moneyDelta, pointDelta, countDelta, mkTrend,
     materialRows, weaponsRows, armsSummary, armsSplit, lineSummary, playerPolityId, operatingPicture, synthesis, people,
+    live,
   } = useNationDockModel(props);
 
   // COUNTRY-CLARITY: dal quadro d'insieme si salta alla sezione di dettaglio.
@@ -217,6 +219,8 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               <summary>Quadro d&apos;insieme per dominio</summary>
               <OperatingPictureBoard picture={operatingPicture} onOpenSection={openSection} />
             </details>
+
+            <NationalDossierLive live={live} part="stato" />
 
           </>
         )}
@@ -890,6 +894,11 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                         <Footnote>I progetti sono raggruppati per ambito. L'avanzamento è calcolato dal motore tra la data di avvio e la scadenza dichiarata; alla scadenza il progetto è chiuso e passa in «Completati». Senza scadenza resta «in corso» finché il modello non ne dichiara l'esito.</Footnote>
                       </DossierBlock>
 
+            <NationalDossierLive live={live} part="finanze" />
+            <NationalDossierLive live={live} part="risorse" />
+            <NationalDossierLive live={live} part="capacita" />
+            <NationalDossierLive live={live} part="tecnologia" />
+
           </>
         )}
 
@@ -1134,6 +1143,8 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 <CommitmentsList commitments={commitments?.commitments || []} today={worldDate || ''} />
               </DossierBlock>
             </details>
+
+            <NationalDossierLive live={live} part="militare" />
           </>
         )}
       </div>

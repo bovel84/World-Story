@@ -1099,6 +1099,47 @@ export interface OpeningNarrativeResponse {
   council: { seat: string; label: string; line: string }[];
 }
 
+/**
+ * Dossier Nazionale — baseline canonica del Turno 0, come persistita dal
+ * bootstrap (`CountryInitialProfile`). Sola lettura: il dossier la usa per il
+ * confronto «attuale vs inizio». I salvataggi legacy possono non averla.
+ */
+export interface CountryInitialProfilePayload {
+  polityId: string;
+  startDate: string;
+  population: number;
+  economy: {
+    nominalGdpUsdBillions: number;
+    debtRatioPct: number;
+    treasuryUsdBillions: number;
+    taxRatePct: number;
+    monthlyRevenue: number;
+    monthlyExpenses: number;
+  };
+  military: {
+    activePersonnel: number;
+    reservePersonnel: number;
+    formations: number;
+    averageFormationSize: number;
+    readinessPct: number;
+    defenceBurdenPct: number;
+    equipmentProfile: Record<string, number>;
+    trainingPct: number;
+    qualityPct: number;
+    logisticsPct: number;
+  };
+  society: { stability: number; socialTension: number };
+  infrastructure: { factories: number; ports: number; universities: number };
+  resources?: {
+    food?: number;
+    clothing?: number;
+    weapons?: number;
+    fuel?: number;
+    research?: number;
+    technologies?: string[];
+  };
+}
+
 export const gameApi = {
   /**
 * Inizia una nuova partita
@@ -1178,6 +1219,8 @@ export const gameApi = {
     accounts: Record<string, any>;
     /** Storico dei conti del paese giocatore, dal più vecchio al più recente. */
     history?: Array<{ date: string; turn?: number; account: Record<string, any> }>;
+    /** Dossier Nazionale — baseline canonica del Turno 0 (sola lettura). */
+    initialProfile?: CountryInitialProfilePayload | null;
     /** Anime del governo e dettaglio del bilancio, calcolati dal motore. */
     government?: GovernmentSnapshot | null;
     /** Politica fiscale corrente del giocatore (aliquota, limiti, effetti). */
