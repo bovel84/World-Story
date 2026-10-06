@@ -135,9 +135,9 @@ export interface AdvisorOpening {
 }
 
 // Previous cached openings used the initial-mandate request even on later turns,
-// and v2 could predate the CouncilIssue protocol fix. Invalidate them once; the
-// server, not this cache, selects the briefing kind.
-const OPENING_PREFIX = 'ws.advisor.opening.v3';
+// and v2/v3 could predate the CouncilIssue signalKeys protocol. Invalidate them
+// once; the server, not this cache, selects the briefing kind.
+const OPENING_PREFIX = 'ws.advisor.opening.v4';
 
 /** Bucket dedicato: non entra nella scansione dell'archivio conversazione. */
 export function advisorOpeningKey(gameId: string, branchId: string | null, scopeKey: string): string {

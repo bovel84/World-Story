@@ -111,6 +111,35 @@ describe('WS-COUNCIL-SIGNALKEYS — signalKeys come collegamento canonico', () =
     expect(issue.sourceRefs).not.toContain('invented.ref');
   });
 
+  it('con signalKeys presenti, una factKey client-side estranea (ma esistente) NON entra in verifiedFacts', () => {
+    const issue = resolveCouncilIssue(snapshot(), {
+      title: 'Rapporto ostile', question: 'Come gestiamo il confine?',
+      signalKeys: ['signal-1'], factKeys: ['treasury'], suggestedMinisters: ['esteri'],
+    });
+    expect(issue.verifiedFacts).toEqual([]);
+    expect(issue.signalKeys).toEqual(['signal-1']);
+    expect(issue.sourceRefs).toEqual(['diplomacy.relations.NEIGHBOR']);
+  });
+
+  it('con signalKeys presenti, verifiedFacts client-side estranei sono ignorati', () => {
+    const issue = resolveCouncilIssue(snapshot(), {
+      title: 'Rapporto ostile', question: 'Come gestiamo il confine?',
+      signalKeys: ['signal-1'], verifiedFacts: [{ key: 'treasury' }], suggestedMinisters: ['esteri'],
+    });
+    expect(issue.verifiedFacts).toEqual([]);
+    expect(issue.signalKeys).toEqual(['signal-1']);
+  });
+
+  it('legacy senza signalKeys: una factKey valida continua a produrre i fatti', () => {
+    const issue = resolveCouncilIssue(snapshot(), {
+      title: 'Cassa', question: 'Come proteggiamo la cassa?',
+      factKeys: ['treasury'], suggestedMinisters: ['tesoro'],
+    });
+    expect(issue.signalKeys).toBeUndefined();
+    expect(issue.verifiedFacts.map(fact => fact.key)).toEqual(['treasury']);
+    expect(issue.sourceRefs).toEqual(['worldState.resources.stock.money']);
+  });
+
   it('accetta 5 signal con 5 issue: 5 schede, più di tre restano supportate', () => {
     const keys = ['signal-0', 'signal-1', 'signal-2', 'signal-3', 'signal-4'];
     const response = ['Cinque questioni distinte.', ...keys.map((key, index) => block({
