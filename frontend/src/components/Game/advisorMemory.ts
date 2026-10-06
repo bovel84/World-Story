@@ -7,7 +7,7 @@
  * storage rotto non rompe la conversazione.
  */
 import type { AdvisorMessage } from '../../stores/chatStore';
-import type { CouncilIssue } from '../../services/api';
+import type { AdvisorSituation, CouncilIssue } from '../../services/api';
 
 const PREFIX = 'ws.advisor';
 /** Tetto di sicurezza: la conversazione non cresce senza limite. */
@@ -59,6 +59,27 @@ function sanitizeIssues(raw: unknown): CouncilIssue[] | undefined {
   return issues.length ? issues : undefined;
 }
 
+/** WS-CONSULENTE-SITUAZIONI — Validazione minima delle situazioni salvate. Le
+ *  `signalKeys` restano un elenco di stringhe: il server le rivaliderà. */
+function sanitizeSituations(raw: unknown): AdvisorSituation[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const situations = raw.flatMap((item): AdvisorSituation[] => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const situation = item as Record<string, unknown>;
+    const id = text(situation.id); const title = text(situation.title); const summary = text(situation.summary);
+    if (!id || !title || !summary) return [];
+    const signalKeys = Array.isArray(situation.signalKeys)
+      ? [...new Set(situation.signalKeys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0).map(key => key.trim()))]
+      : [];
+    return [{
+      id, title, summary,
+      ...(signalKeys.length ? { signalKeys } : {}),
+      ...(typeof situation.importance === 'number' ? { importance: situation.importance } : {}),
+    }];
+  });
+  return situations.length ? situations : undefined;
+}
+
 export function advisorBucketKey(gameId: string, branchId: string | null, scopeKey: string): string {
   return `${PREFIX}::${gameId || 'no-game'}::${branchId || 'no-branch'}::${scopeKey || 'no-scope'}`;
 }
@@ -84,15 +105,17 @@ function readBucket(storage: Storage, key: string): AdvisorMessage[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.flatMap(item => {
       if (!item || typeof item !== 'object') return [];
-      const message = item as { role?: unknown; content?: unknown; turn?: unknown; proactive?: unknown; issues?: unknown };
+      const message = item as { role?: unknown; content?: unknown; turn?: unknown; proactive?: unknown; issues?: unknown; situations?: unknown };
       if ((message.role !== 'user' && message.role !== 'assistant') || typeof message.content !== 'string' || !message.content.trim()) return [];
       const issues = sanitizeIssues(message.issues);
+      const situations = sanitizeSituations(message.situations);
       return [{
         role: message.role,
         content: message.content,
         ...(typeof message.turn === 'number' ? { turn: message.turn } : {}),
         ...(message.proactive === true ? { proactive: true } : {}),
         ...(issues ? { issues } : {}),
+        ...(situations ? { situations } : {}),
       }] as AdvisorMessage[];
     }).slice(-MAX_MESSAGES);
   } catch {
@@ -138,13 +161,15 @@ export function loadAdvisorArchive(gameId: string, branchId: string | null, curr
 export interface AdvisorOpening {
   reply: string;
   issues: CouncilIssue[];
+  /** WS-CONSULENTE-SITUAZIONI — Le situazioni cliccabili, distinte dalle proposte. */
+  situations?: AdvisorSituation[];
   date: string | null;
 }
 
 // Previous cached openings used the initial-mandate request even on later turns,
-// and v2/v3 could predate the CouncilIssue signalKeys protocol. Invalidate them
-// once; the server, not this cache, selects the briefing kind.
-const OPENING_PREFIX = 'ws.advisor.opening.v4';
+// and older protocols could predate CouncilIssue signalKeys or AdvisorSituation.
+// Invalidate them once; the server, not this cache, selects the briefing kind.
+const OPENING_PREFIX = 'ws.advisor.opening.v5';
 
 /** Bucket dedicato: non entra nella scansione dell'archivio conversazione. */
 export function advisorOpeningKey(gameId: string, branchId: string | null, scopeKey: string): string {
@@ -158,12 +183,14 @@ export function loadAdvisorOpening(key: string): AdvisorOpening | null {
   try {
     const raw = storage.getItem(key);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { reply?: unknown; issues?: unknown; date?: unknown } | null;
+    const parsed = JSON.parse(raw) as { reply?: unknown; issues?: unknown; situations?: unknown; date?: unknown } | null;
     const reply = text(parsed?.reply);
     if (!reply) return null;
+    const situations = sanitizeSituations(parsed?.situations);
     return {
       reply,
       issues: sanitizeIssues(parsed?.issues) ?? [],
+      ...(situations ? { situations } : {}),
       date: typeof parsed?.date === 'string' && parsed.date ? parsed.date : null,
     };
   } catch {
@@ -178,6 +205,7 @@ export function saveAdvisorOpening(key: string, opening: AdvisorOpening): void {
     storage.setItem(key, JSON.stringify({
       reply: opening.reply,
       ...(opening.issues.length ? { issues: opening.issues } : {}),
+      ...(opening.situations?.length ? { situations: opening.situations } : {}),
       date: opening.date,
     }));
   } catch {
@@ -199,6 +227,8 @@ export function saveAdvisorMessages(key: string, messages: readonly AdvisorMessa
         ...(message.proactive ? { proactive: true } : {}),
         // §4 — Le questioni del Consulente restano portabili dopo il reload.
         ...(message.issues?.length ? { issues: message.issues } : {}),
+        // WS-CONSULENTE-SITUAZIONI — Le situazioni restano cliccabili dopo il reload.
+        ...(message.situations?.length ? { situations: message.situations } : {}),
       }));
     if (!payload.length) storage.removeItem(key);
     else storage.setItem(key, JSON.stringify(payload));

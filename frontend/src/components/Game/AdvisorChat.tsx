@@ -1,11 +1,12 @@
 /** The shared presidential conversation. Facts come from dedicated server context,
  * never from forged user messages. Only complete validated replies are published. */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { advisorApi, type CouncilIssue } from '../../services/api';
+import { advisorApi, type AdvisorSituation, type CouncilIssue } from '../../services/api';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import { useChatStore } from '../../stores';
 import { RichText } from './RichText';
 import { CouncilIssueInline } from './CouncilIssueInline';
+import { AdvisorSituationsPanel, buildSituationFocusMessage } from './AdvisorSituationsPanel';
 import { archivedTurns, currentTurnMessages } from './advisorTurns';
 import { advisorBucketKey, advisorOpeningKey, loadAdvisorArchive, loadAdvisorMessages, loadAdvisorOpening, saveAdvisorMessages, saveAdvisorOpening, type AdvisorOpening } from './advisorMemory';
 import { fetchAdvisorOpening } from './advisorOpening';
@@ -30,6 +31,7 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
   const [input, setInput] = useState('');
   const [opening, setOpening] = useState<AdvisorOpening | null>(null);
   const [focus, setFocus] = useState<CouncilIssue | undefined>();
+  const [situationFocus, setSituationFocus] = useState<AdvisorSituation | undefined>();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const requestRef = useRef<AbortController | null>(null);
@@ -57,7 +59,7 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
   }, [bucket, isLocal, activeMessages]);
 
   useEffect(() => {
-    setOpening(null); setFocus(undefined); setError('');
+    setOpening(null); setFocus(undefined); setSituationFocus(undefined); setError('');
     if (isLocal) return;
     // WS-GOV-ADVISOR-HISTORICAL-BASELINE — La prima apertura è una generazione
     // LLM (storia del paese + presente + direzioni). Se è già stata prodotta per
@@ -83,8 +85,8 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     };
   }, [gameId, branchId, scopeKey, isLocal]);
 
-  const send = async () => {
-    const text = input.trim();
+  const sendText = async (raw?: string, explicitSituation?: AdvisorSituation) => {
+    const text = (raw ?? input).trim();
     if (!text || advisorStreaming || isLocal || requestRef.current) return;
     const controller = new AbortController();
     requestRef.current = controller;
@@ -95,37 +97,59 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     const history = currentTurnMessages(advisorMessages, currentTurn)
       .filter(message => !message.proactive && message.content.trim()).slice(-20)
       .map(message => ({ role: message.role, content: message.content }));
+    // WS-CONSULENTE-SITUAZIONI — Focus canonico: al server va solo la signalKey.
+    const activeSituation = explicitSituation ?? situationFocus;
+    const situationKey = activeSituation?.signalKeys?.[0];
+    const focusPayload = situationKey ? { id: activeSituation.id, signalKey: situationKey } : undefined;
     addAdvisorMessage({ role: 'user', content: text, turn: currentTurn });
-    setInput(''); setError(''); setAdvisorStreaming(true);
+    if (raw === undefined) setInput('');
+    setError(''); setAdvisorStreaming(true);
     try {
-      const result = await advisorApi.reality(gameId, text, history, focus, controller.signal);
+      const result = await advisorApi.reality(gameId, text, history, focus, controller.signal, focusPayload);
       if (!owns()) return;
-      addAdvisorMessage({ role: 'assistant', content: result.reply, issues: result.issues, turn: currentTurn });
+      addAdvisorMessage({ role: 'assistant', content: result.reply, issues: result.issues, situations: result.situations ?? [], turn: currentTurn });
     } catch {
       if (owns()) setError('Il Consulente non è raggiungibile. La domanda è conservata; riprova esplicitamente.');
     } finally {
       if (requestRef.current === controller) { requestRef.current = null; setAdvisorStreaming(false); }
     }
   };
-  const callout = (issue: CouncilIssue) => <div key={issue.id}>
-    <button type="button" className="advisor-deepen" disabled={advisorStreaming} onClick={() => setFocus(issue)}>Approfondisci {issue.title}</button>
-    <CouncilIssueInline issue={issue} onOpenIssue={onOpenIssue} disabled={advisorStreaming} />
-  </div>;
+  /** WS-CONSULENTE-SITUAZIONI — «Approfondisci» porta la situazione al Consulente, mai al Consiglio. */
+  const deepen = (situation: AdvisorSituation) => {
+    setSituationFocus(situation);
+    void sendText(buildSituationFocusMessage(situation), situation);
+  };
+  const closeFocus = () => { setSituationFocus(undefined); setFocus(undefined); };
+  // Gerarchia: situazioni (Approfondisci) → proposte di atto (Porta al Consiglio).
+  const proposals = (issues: CouncilIssue[] | undefined, disabled: boolean) => issues?.length
+    ? <div className="advisor-proposals">
+      <p className="advisor-proposals-label">Proposte di atto</p>
+      {issues.map(issue => <CouncilIssueInline key={issue.id} issue={issue} onOpenIssue={onOpenIssue} disabled={disabled} />)}
+    </div>
+    : null;
+  const activeFocus = situationFocus?.title ?? focus?.title;
+  const activeFocusKind = situationFocus ? 'Situazione in esame' : 'Tema in esame';
 
   if (isLocal) return <div className="advisor-chat"><p>Il Consulente è disponibile solo nella partita server.</p></div>;
   return <div className="advisor-chat">
-    {focus && <p className="advisor-focus" role="status">In esame: <strong>{focus.title}</strong> <button type="button" onClick={() => setFocus(undefined)}>Termina esame</button></p>}
+    {activeFocus && <div className="advisor-focus advisor-focus-situation" role="status">
+      <span className="advisor-focus-kind">{activeFocusKind}</span>
+      <span className="advisor-focus-title">{activeFocus}</span>
+      <button type="button" className="advisor-focus-close" aria-label="Chiudi il focus" onClick={closeFocus}>✕</button>
+    </div>}
     <div className="advisor-messages">
       {loading && <p className="advisor-loading" role="status">{ADVISOR_LOADING_TEXT}</p>}
       {opening && <article className="advisor-entry assistant advisor-opening">
         <div className="entry-meta">Consulente · {opening.date}</div>
         <div className="entry-text"><RichText text={opening.reply} chartData={chartData} /></div>
-        {opening.issues.map(callout)}
+        {opening.situations?.length ? <AdvisorSituationsPanel situations={opening.situations} onDeepen={deepen} activeId={situationFocus?.id} disabled={advisorStreaming || loading} /> : null}
+        {proposals(opening.issues, advisorStreaming || loading)}
       </article>}
       {activeMessages.map((message, index) => <article key={index} className={`advisor-entry ${message.role}`}>
         <div className="entry-meta">{message.role === 'user' ? 'Presidente' : message.proactive ? 'Bollettino' : 'Consulente'}</div>
         <div className="entry-text">{message.role === 'assistant' ? <RichText text={message.content} chartData={chartData} /> : message.content}</div>
-        {message.issues?.map(callout)}
+        {message.situations?.length ? <AdvisorSituationsPanel situations={message.situations} onDeepen={deepen} activeId={situationFocus?.id} disabled={advisorStreaming} /> : null}
+        {proposals(message.issues, advisorStreaming)}
       </article>)}
       {advisorStreaming && <p className="advisor-typing" role="status" aria-label={ADVISOR_THINKING_TEXT}>
         <span className="advisor-thinking-text">{ADVISOR_THINKING_TEXT}</span><i /><i /><i />
@@ -144,8 +168,8 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     </div>
     <div className="chat-input-row">
       <textarea value={input} onChange={event => setInput(event.target.value)} placeholder="Interroga il consulente…" rows={2}
-        disabled={advisorStreaming} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} />
-      <button type="button" className="btn-chat-send" onClick={() => void send()} disabled={!input.trim() || advisorStreaming}>Invia</button>
+        disabled={advisorStreaming} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendText(); } }} />
+      <button type="button" className="btn-chat-send" onClick={() => void sendText()} disabled={!input.trim() || advisorStreaming}>Invia</button>
     </div>
   </div>;
 }

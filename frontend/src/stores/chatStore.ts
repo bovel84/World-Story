@@ -7,7 +7,7 @@
  */
 
 import { create } from 'zustand';
-import { chatsApi, type ChatSummaryData, type ChatMessageData, type CouncilIssue } from '../services/api';
+import { chatsApi, type ChatSummaryData, type ChatMessageData, type CouncilIssue, type AdvisorSituation } from '../services/api';
 import { archiveSiblingThreads, lastChatMessage, orderChatMessages } from '../components/Game/chatTimeline';
 import { tagLegacyTurns } from '../components/Game/advisorTurns';
 
@@ -20,6 +20,8 @@ export interface AdvisorMessage {
   content: string;
   /** Server-validated proposals remain attached to their actual contribution. */
   issues?: CouncilIssue[];
+  /** WS-CONSULENTE-SITUAZIONI — Situazioni cliccabili, distinte dalle proposte. */
+  situations?: AdvisorSituation[];
 /** Commento proattivo del consulente dopo il turno (SSE advisor_proactive) */
   proactive?: boolean;
   /**

@@ -34,6 +34,7 @@ import { HISTORICAL_BASELINE_RULE, renderPolityHistoricalBaselines, type PolityH
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
 import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat } from './core/government/NarrativeContextCompiler';
 import { COUNCIL_ISSUE_PROTOCOL, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
+import { parseAdvisorResponse, serializeAdvisorResponse } from './core/government/AdvisorSituations';
 import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
@@ -485,9 +486,11 @@ async function advisorPresetStyle(builder: PromptBuilder, game: GameData, messag
 }
 
 function validatedAdvisorText(context: RealityAdvisorContext, text: string): string {
-  const parsed = parseCouncilIssues(context.verifiedWorldSnapshot, text, 'president');
+  // WS-CONSULENTE-SITUAZIONI — Situazioni e proposte restano separate end-to-end.
+  const parsed = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'president');
   const reply = guardRealityAdvisorOutput(context, parsed.reply);
-  return serializeCouncilIssues({ reply, issues: reply === parsed.reply ? parsed.issues : [] });
+  const unchanged = reply === parsed.reply;
+  return serializeAdvisorResponse({ reply, situations: unchanged ? parsed.situations : [], issues: unchanged ? parsed.issues : [] });
 }
 
 export class PromptBuilder {

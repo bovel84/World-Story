@@ -215,14 +215,29 @@ describe('advisorMemory', () => {
     expect(restored.issues[0].sourceRefs).toEqual(['diplomacy.relations.NEIGHBOR']);
   });
 
+  it('WS-CONSULENTE-SITUAZIONI: le situazioni restano cliccabili dopo il reload', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorBucketKey('g1', 'main', 'g1|main|3');
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Quadro', turn: 3, situations: [
+      { id: 's1', title: 'Tensioni con il Sudan', summary: 'Rapporto ostile.', signalKeys: ['hostile-relations'], importance: 2 },
+      { id: 's2', title: 'Scorte alimentari sotto soglia', summary: 'Copertura 0,8 mesi.' },
+      { id: 'broken', title: '', summary: 'x' },
+    ] }]);
+    const restored = loadAdvisorMessages(key)[0];
+    expect(restored.situations).toHaveLength(2);
+    expect(restored.situations?.[0].title).toBe('Tensioni con il Sudan');
+    expect(restored.situations?.[0].signalKeys).toEqual(['hostile-relations']);
+    expect(restored.situations?.[1].signalKeys).toBeUndefined();
+  });
+
   it('ignores cached openings from older protocols and regenerates once with the current one', () => {
     const storage = fakeStorage();
     (globalThis as { localStorage?: Storage }).localStorage = storage;
     const key = advisorOpeningKey('g1', 'main', 'g1|main|3');
-    expect(key).toContain('ws.advisor.opening.v4::');
-    // Le aperture v3, v2 o del protocollo precedente non contano più: si rigenerano.
-    for (const legacy of ['ws.advisor.opening.v3::', 'ws.advisor.opening.v2::', 'ws.advisor.opening::']) {
-      storage.setItem(key.replace('ws.advisor.opening.v4::', legacy), JSON.stringify({ reply: 'Primo intervento del mandato', issues: [], date: '2000-01-01' }));
+    expect(key).toContain('ws.advisor.opening.v5::');
+    // Le aperture v4, v3, v2 o del protocollo precedente non contano più: si rigenerano.
+    for (const legacy of ['ws.advisor.opening.v4::', 'ws.advisor.opening.v3::', 'ws.advisor.opening.v2::', 'ws.advisor.opening::']) {
+      storage.setItem(key.replace('ws.advisor.opening.v5::', legacy), JSON.stringify({ reply: 'Primo intervento del mandato', issues: [], date: '2000-01-01' }));
     }
     expect(loadAdvisorOpening(key)).toBeNull();
   });

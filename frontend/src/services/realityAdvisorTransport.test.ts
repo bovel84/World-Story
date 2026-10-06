@@ -35,4 +35,12 @@ describe('verified advisor transport', () => {
     await expect(advisorApi.reality('g1', 'Domanda', [])).rejects.toThrow();
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it('transports a situation focus as a canonical signalKey, not client prose', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ reply: 'Ok', issues: [], situations: [] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    await advisorApi.reality('g1', 'Approfondiamo', [], undefined, undefined, { id: 's1', signalKey: 'hostile-relations:SDN' });
+    const payload = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(payload.focusSituation).toEqual({ id: 's1', signalKey: 'hostile-relations:SDN' });
+    expect(payload.advisorContext).toBeUndefined();
+  });
 });

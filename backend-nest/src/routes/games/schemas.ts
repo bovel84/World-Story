@@ -83,6 +83,10 @@ export const realityAdvisorSchema = z.object({
   message: z.string().max(12000).optional(),
   history: z.array(z.unknown()).max(100).optional(),
   advisorContext: z.object({ focusIssue: z.unknown().optional() }).optional(),
+  // WS-CONSULENTE-SITUAZIONI — Focus canonico di un approfondimento: UNA sola
+  // signalKey. Titolo e sintesi eventualmente inviati dal client vengono
+  // scartati: il server ricostruisce la situazione dal RealitySignal.
+  focusSituation: z.object({ id: z.string().max(160).optional(), signalKey: z.string().min(1).max(240) }).optional(),
 });
 
 export const ministerOpeningSchema = z.object({ sourceIssue: z.unknown().optional(), situation: z.unknown().optional() });

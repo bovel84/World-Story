@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, parseCouncilIssues, resolveCouncilIssue, serializeCouncilIssues } from '../src/core/government/CouncilIssue';
+import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, SITUATION_BASE_PROTOCOL, parseCouncilIssues, resolveCouncilIssue, serializeCouncilIssues } from '../src/core/government/CouncilIssue';
 import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 
 const snapshot = () => buildVerifiedWorldSnapshot({ gameData: {
@@ -18,7 +18,9 @@ const response = (...items: unknown[]) => ['Discutiamo queste direzioni.', ...it
 
 describe('CouncilIssue optional variety protocol', () => {
   it('instructs the advisor to propose all and only the truly distinct issues, without a three-issue quota', () => {
-    expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/una o più di tre/);
+    // WS-CONSULENTE-SITUAZIONI — nessun numero fisso nel protocollo condiviso.
+    expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/una o più/);
+    expect(COUNCIL_ISSUE_PROTOCOL).not.toMatch(/una o più di tre/);
     expect(COUNCIL_ISSUE_PROTOCOL).not.toMatch(/da 1 a 3/);
     expect(COUNCIL_ISSUE_PROTOCOL).not.toContain('un solo blocco');
     expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/distint/i);
@@ -26,6 +28,13 @@ describe('CouncilIssue optional variety protocol', () => {
     expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/pertinent/i);
     expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/separatamente/i);
     expect(COUNCIL_ISSUE_PROTOCOL).toContain('Usa solo chiavi presenti in facts');
+  });
+
+  it('separa SITUAZIONE da PROPOSTA DI ATTO e ancora i titoli ai fatti', () => {
+    expect(SITUATION_BASE_PROTOCOL).toMatch(/numero fisso/);
+    expect(SITUATION_BASE_PROTOCOL).toMatch(/SITUAZIONE da PROPOSTA DI ATTO/);
+    expect(SITUATION_BASE_PROTOCOL).toMatch(/Non trasformare ogni situazione in una proposta/);
+    expect(ADVISOR_BRIEFING_SITUATION_PROTOCOL).toMatch(/titoli devono essere concreti/i);
   });
 
   it('keeps proposals optional and accepts a single issue', () => {

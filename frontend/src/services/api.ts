@@ -2013,6 +2013,31 @@ export interface CouncilIssue {
   createdDate: string;
 }
 
+/**
+ * WS-CONSULENTE-SITUAZIONI — La SITUAZIONE è un oggetto distinto dalla PROPOSTA.
+ *
+ * Una `AdvisorSituation` è ciò che merita attenzione nel paese. È sempre
+ * ancorata a segnali canonici (`signalKeys`) risolti dal server: il client non
+ * può aggiungere fatti. L'approfondimento resta nel Consulente; solo una
+ * `CouncilIssue` può essere portata al Consiglio.
+ */
+export interface AdvisorSituation {
+  id: string;
+  title: string;
+  summary: string;
+  /** Chiavi dei segnali canonici: il server le ricalcola, mai il client. */
+  signalKeys?: string[];
+  /** 1 = marginale, 2 = rilevante, 3 = critico. Derivata dai segnali dal server. */
+  importance?: number;
+}
+
+/** Focus di un approfondimento: il client manda solo l'id e la signalKey; il
+ *  server ricostruisce titolo e sintesi dal RealitySignal canonico. */
+export interface AdvisorSituationFocus {
+  id?: string;
+  signalKey: string;
+}
+
 /** Server-built read model. Unknown fields remain unknown, never inferred by the client. */
 export interface VerifiedWorldSnapshotView {
   schemaVersion: 1;
@@ -2035,6 +2060,8 @@ export interface VerifiedWorldSnapshotView {
 }
 export interface RealityAdvisorResponse {
   reply: string;
+  /** SITUAZIONI da approfondire: separate dalle proposte di atto. */
+  situations?: AdvisorSituation[];
   issues: CouncilIssue[];
   /** Presente sulla prima apertura: `true` quando è scattato il briefing deterministico. */
   fallback?: boolean;
@@ -2199,10 +2226,14 @@ export const advisorApi = {
   opening: (gameId: string, signal?: AbortSignal): Promise<RealityAdvisorResponse> =>
     fetchApi(`/games/${gameId}/advisor/opening`, { method: 'POST', signal }),
   /** Complete, server-validated output; no unvalidated partial text or implicit POST retries. */
-  reality: (gameId: string, message: string, history: AdvisorHistoryItem[], focusIssue?: CouncilIssue, signal?: AbortSignal): Promise<RealityAdvisorResponse> =>
+  reality: (gameId: string, message: string, history: AdvisorHistoryItem[], focusIssue?: CouncilIssue, signal?: AbortSignal, focusSituation?: AdvisorSituationFocus): Promise<RealityAdvisorResponse> =>
     fetchApi(`/games/${gameId}/advisor/reality`, {
       method: 'POST', signal,
-      body: JSON.stringify({ message, history, ...(focusIssue ? { advisorContext: { focusIssue } } : {}) }),
+      body: JSON.stringify({
+        message, history,
+        ...(focusIssue ? { advisorContext: { focusIssue } } : {}),
+        ...(focusSituation?.signalKey ? { focusSituation } : {}),
+      }),
     }),
   /**
 * Chiedi al consulente (dialogo multi-turno — history inviata a ogni richiesta)

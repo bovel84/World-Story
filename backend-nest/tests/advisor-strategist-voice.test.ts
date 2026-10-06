@@ -29,12 +29,14 @@ describe('advisor strategist voice', () => {
     const prompt = buildRealityAdvisorPrompt(buildRealityAdvisorContext(country('KHM', 0.8, -2)).advisorContext, 'Come procediamo?');
     expect(prompt).toContain('storico e stratega');
     expect(prompt).toContain('tutte e sole le questioni strategiche realmente distinte e salienti');
-    expect(prompt).toContain('una o più di tre');
+    expect(prompt).not.toContain('una o più di tre');
+    expect(prompt).toContain('numero fisso');
+    expect(prompt).toContain('SITUAZIONE da PROPOSTA DI ATTO');
     expect(prompt).toContain('non creare questioni per riempire una quota');
     expect(prompt).not.toContain('1-3 direzioni');
     expect(prompt).toContain('Per una domanda puntuale rispondi al punto');
     expect(prompt).toContain('Non stampare');
-    expect(prompt).toContain('non obbligatorie');
+    expect(prompt).toContain('una situazione può restare senza proposta');
     expect(prompt).toContain('non inventare una crisi');
   });
 

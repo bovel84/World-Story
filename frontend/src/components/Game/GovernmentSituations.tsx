@@ -47,7 +47,9 @@ export function GovernmentSituations({ pressures, followUps, onOpen, onOpenFollo
   const due = (followUps ?? []).filter(followUp => followUp.daysLeft <= FOLLOW_UP_WINDOW_DAYS);
   if (situations.length === 0 && due.length === 0) return null;
 
-  const decisions = situations.filter(situation => situationNature(situation) === 'problem').slice(0, 3);
+  // WS-CONSULENTE-SITUAZIONI — Nessun troncamento a 3: si mostrano tutte le
+  // situazioni-problema che il read model pubblica.
+  const decisions = situations.filter(situation => situationNature(situation) === 'problem');
   const opportunities = situations.filter(situation => situationNature(situation) === 'opportunity');
 
   const situationCard = (situation: GovernmentSituationView) => (

@@ -128,7 +128,7 @@ export const MAX_COUNCIL_ISSUES = 8;
 export const COUNCIL_ISSUE_PROTOCOL = [
   'Puoi proporre questioni interministeriali, NON aprire una seduta o creare una crisi. Il Presidente decide se portarle al Consiglio.',
   'Se nel testo identifichi una questione concreta che richiede una decisione del Presidente o del Governo, DEVI emettere anche la relativa scheda fenced ```council_issue, una per ogni questione distinta, con JSON {"title":"...","question":"...","signalKeys":["chiave-segnale canonica"],"suggestedMinisters":["lavori","tesoro"]}. Un turno senza decisioni può avere zero schede: solo allora non proporre nulla.',
-  'Proponi tutte e sole le questioni strategiche realmente distinte e salienti che meritano una decisione: possono essere nessuna, una o più di tre. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Ogni questione deve poter essere portata separatamente al Consiglio, con fatti canonici a sostegno e solo ministri pertinenti alla domanda.',
+  'Proponi tutte e sole le questioni strategiche realmente distinte e salienti che meritano una decisione: possono essere nessuna, una o più. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Ogni questione deve poter essere portata separatamente al Consiglio, con fatti canonici a sostegno e solo ministri pertinenti alla domanda.',
   `Sedie ammesse: ${CABINET_SEATS.join(', ')}. Usa solo chiavi presenti in facts del VerifiedWorldSnapshot se ricorri a factKeys; per il collegamento canonico preferisci signalKeys presi dai SEGNALI DEL MOMENTO / CURRENT STRATEGIC SIGNALS. Niente valori, sourceRefs, fatti nuovi, costi inventati, opzioni Pressure o effetti.`,
   'Per una nuova opera distingui intenzione e inventario esistente; Lavori verifica tracciato e materiali, Tesoro la copertura. Una proposta non certifica fattibilità o autorizzazione.',
 ].join('\n');
@@ -141,6 +141,35 @@ export const COUNCIL_ISSUE_PROTOCOL = [
 export const COUNCIL_ANCHOR_PROTOCOL = [
   'Una proposta può nascere da un PROBLEMA (aggancia `signalKeys` dai CURRENT STRATEGIC SIGNALS) oppure da un\'OPPORTUNITÀ concreta (aggancia `anchorKeys` dai COUNCIL PROPOSAL ANCHORS). I segnali dicono ciò che MERITA ATTENZIONE; gli anchor sono fatti canonici che POSSONO SOSTENERE una proposta. Nessuna quota: se non c\'è nulla di specifico, zero schede è una risposta corretta.',
   'Un atto GIÀ FIRMATO è una decisione presa: non riproporlo come se fosse ancora da decidere.',
+].join('\n');
+
+/**
+ * WS-CONSULENTE-SITUAZIONI — Separa la SITUAZIONE dalla PROPOSTA DI ATTO in
+ * ogni modalità. Vale solo per il Consulente: il ministro riceve il solo
+ * `COUNCIL_ISSUE_PROTOCOL` e il suo prompt resta entro il budget di contesto.
+ */
+export const SITUATION_BASE_PROTOCOL = [
+  'Distingui SITUAZIONE da PROPOSTA DI ATTO. Una SITUAZIONE è ciò che merita attenzione nel paese (dai segnali e dai fatti verificati): descrivila anche senza chiedere nulla. Una PROPOSTA DI ATTO è una decisione concreta che il Presidente o il Governo devono prendere: emetti la relativa scheda council_issue solo quando esiste davvero un atto da decidere.',
+  'Non trasformare ogni situazione in una proposta: una situazione può restare senza alcuna council_issue. Il numero di situazioni e di proposte dipende dallo stato reale della partita: possono essere nessuna, una o molte; non esiste un numero fisso da raggiungere e non riempire una quota.',
+].join('\n');
+
+/**
+ * BRIEFING MODE — apertura, nuovo turno, fallback briefing. Qui, e solo qui, il
+ * modello è chiamato a descrivere le situazioni correnti con blocchi
+ * `advisor_situation`; il server integra comunque la base deterministica.
+ */
+export const ADVISOR_BRIEFING_SITUATION_PROTOCOL = [
+  'BRIEFING MODE. Descrivi le SITUAZIONI correnti rilevanti: quante ne giustifica lo stato reale del paese, senza un numero fisso. Emetti per ogni situazione un blocco separato ```advisor_situation con JSON {"title":"...","summary":"...","signalKeys":["chiave-segnale canonica"]}. Una sola signalKey per scheda, presa dai CURRENT STRATEGIC SIGNALS: non accorpare problemi distinti (due vicini ostili restano due situazioni).',
+  'I titoli devono essere concreti e specifici, ancorati all\'entità reale (es. «Tensioni al confine con il Sudan», «Ritardo della ferrovia Kampala–Jinja»): evita titoli generici come «Situazione diplomatica», «Problema militare», «Economia» o «Difesa». Una scheda council_issue non sostituisce la sua situazione.',
+].join('\n');
+
+/**
+ * CONVERSATION MODE — chat normale e approfondimento. Qui il modello NON deve
+ * rigenerare l'elenco delle situazioni: solo eventuali problemi NUOVI e distinti.
+ */
+export const ADVISOR_CONVERSATION_PROTOCOL = [
+  'CONVERSATION MODE. NON rigenerare l\'elenco delle situazioni e NON emettere blocchi advisor_situation, salvo che durante la conversazione emerga davvero una NUOVA situazione distinta, non già presentata. Una situazione già presentata resta sullo sfondo: approfondiscila a parole, senza ripubblicarne la scheda.',
+  'Se il Presidente sta approfondendo una situazione (FOCUS SITUATION), rispondi SOLO su quella: non presentare nuovamente il quadro nazionale e non elencare le altre situazioni. Restano ammesse le schede council_issue quando esiste un atto concreto da decidere.',
 ].join('\n');
 
 /** Conservative identity, not semantic similarity: shared facts/ministers/titles are not duplicates. */

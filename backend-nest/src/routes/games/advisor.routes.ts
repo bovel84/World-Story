@@ -41,6 +41,7 @@ import {
 import { validateBody } from '../validation';
 import { CouncilMinisterUnavailableError, InvalidMinisterCouncilError, withMinisterDialogueRequest } from '../../core/government/MinisterDialogue';
 import { actionTextSchema, advisorSchema, realityAdvisorSchema, ministerOpeningSchema, meetingRenderSchema } from './schemas';
+import { InvalidAdvisorSituationError } from '../../core/government/AdvisorSituations';
 import { councilIssueSituation, InvalidCouncilIssueError, parseCouncilIssues, resolveCouncilIssue, serializeCouncilIssues } from '../../core/government/CouncilIssue';
 import {
   composeMeetingNarrativeMessage, normalizeMinisterMeetingBrief, stripNarrativeDirectives,
@@ -223,9 +224,10 @@ router.post('/:id/advisor/reality', async (req, res) => {
   if (!body) return;
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    res.json(await session.getRealityAdvisor(body.message ?? '', normalizeAdvisorHistory(body.history), body.advisorContext?.focusIssue));
+    res.json(await session.getRealityAdvisor(body.message ?? '', normalizeAdvisorHistory(body.history), body.advisorContext?.focusIssue, body.focusSituation));
   } catch (error) {
     if (error instanceof InvalidCouncilIssueError) res.status(400).json({ error: error.message, code: 'invalid_council_issue' });
+    else if (error instanceof InvalidAdvisorSituationError) res.status(400).json({ error: error.message, code: 'invalid_advisor_situation' });
     else respondRouteError(res, error, 'Failed to get verified advisor reply');
   }
 });
