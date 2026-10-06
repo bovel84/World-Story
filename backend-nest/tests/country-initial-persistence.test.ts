@@ -8,7 +8,14 @@ const file = `/tmp/country-profile-persist-${process.pid}.db`;
 process.env.OPEN_PAX_DB_PATH = file;
 let db: any, registry: any, profiles: any;
 let providerCalls = 0;
-const provider = { generate: async () => { providerCalls++; return { content: '{"invalid":true}' }; },
+const profileResponse = (prompt: string) => {
+  const { fallback } = JSON.parse(prompt);
+  return { content: JSON.stringify({ ...fallback, economy: { ...fallback.economy, debtRatioPct: 40 } }) };
+};
+const provider = { generate: async (_mechanic: string, system: string, prompt: string) => {
+  providerCalls++;
+  return system === HISTORICAL_BASELINE_SYSTEM ? historyResponse : profileResponse(prompt);
+},
   consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 }, clearCache() {} };
 beforeAll(async () => {
   const database = await import('../src/database'); db = database.default; database.initDatabase();
@@ -35,9 +42,10 @@ describe('bootstrap canonical persistence', () => {
     expect(profiles.get(pending.gameId, 'BIH')).toBeNull();
     await profileStarted;
     release({ content: '{}' });
-    await pending.ready;
-    expect(pendingRegistry.getSession(pending.gameId)).toBe(pending.session);
-    expect(profiles.get(pending.gameId, 'BIH')).toBeTruthy();
+    await expect(pending.ready).rejects.toThrow(/profilo iniziale/i);
+    expect(pendingRegistry.getSession(pending.gameId)).toBeNull();
+    expect(profiles.get(pending.gameId, 'BIH')).toBeNull();
+    expect(db.prepare('SELECT id FROM games WHERE id=?').get(pending.gameId)).toBeUndefined();
   });
   it('mock-only estimate once; reads/reload never generate; separate games bootstrap independently', async () => {
     const callsBefore = providerCalls;
@@ -63,14 +71,15 @@ describe('bootstrap canonical persistence', () => {
   it('new Bosnia persists history before profile completion, reuses it on reads/reload, and makes no NPC calls', async () => {
     const calls: string[] = [];
     let profileInput: { historicalBaseline: string; fallback: CountryInitialProfile } | undefined;
-    const mock = { ...provider, generate: async (_mechanic: string, system: string, prompt: string) => {
+    const mock = { ...provider, generate: async (_mechanic: string, system: string, prompt: string, options: { singleAttempt?: boolean }) => {
       if (system === HISTORICAL_BASELINE_SYSTEM) { calls.push('history'); return historyResponse; }
       calls.push('profile');
+      expect(options.singleAttempt).toBe(true);
       profileInput = JSON.parse(prompt);
       const persisted = db.prepare("SELECT historical_background FROM game_polity_historical_baselines WHERE polity_id='BIH' ORDER BY rowid DESC LIMIT 1").get()?.historical_background;
       expect(persisted).toBe(profileInput!.historicalBaseline);
       const fallback = profileInput!.fallback;
-      return { content: JSON.stringify({ ...fallback, military: { ...fallback.military, readinessPct: 64 } }) };
+      return { content: JSON.stringify({ ...fallback, economy: { ...fallback.economy, debtRatioPct: 40 }, military: { ...fallback.military, readinessPct: 64 } }) };
     } };
     const { initSessionRegistry } = await import('../src/session-registry');
     const localRegistry = initSessionRegistry(mock as never);
@@ -95,7 +104,7 @@ describe('bootstrap canonical persistence', () => {
       if (system === HISTORICAL_BASELINE_SYSTEM) { calls.push('history'); return historyResponse; }
       calls.push('profile');
       const fallback = (JSON.parse(prompt) as { fallback: CountryInitialProfile }).fallback;
-      return { content: JSON.stringify({ ...fallback,
+      return { content: JSON.stringify({ ...fallback, economy: { ...fallback.economy, debtRatioPct: 40 },
         resources: { food: 2, clothing: 1, weapons: 3, fuel: 1.5, research: 42, technologies: ['industria_tessile'] } }) };
     } };
     const { initSessionRegistry } = await import('../src/session-registry');
@@ -127,7 +136,7 @@ describe('bootstrap canonical persistence', () => {
       calls.push(system === HISTORICAL_BASELINE_SYSTEM ? 'history' : 'profile');
       const input = JSON.parse(prompt);
       expect(input.historicalBaseline).toBe(background);
-      return { content: JSON.stringify(input.fallback) };
+      return profileResponse(prompt);
     } };
     const { GameSession } = await import('../src/game-session');
     const session = new GameSession(gameId, 'profile-world', mock as never);
@@ -136,7 +145,7 @@ describe('bootstrap canonical persistence', () => {
     expect(await session.getHistoricalBaseline()).toBe(background);
     expect(calls).toEqual(['profile']);
   });
-  it('baseline/profile errors remain fail-safe and do not retry or call NPC models', async () => {
+  it('player profile failure persists no false profile and leaves no reloadable game', async () => {
     const calls: string[] = [];
     const mock = { ...provider, generate: async (_mechanic: string, system: string) => {
       calls.push(system === HISTORICAL_BASELINE_SYSTEM ? 'history' : 'profile');
@@ -145,12 +154,11 @@ describe('bootstrap canonical persistence', () => {
     const { initSessionRegistry } = await import('../src/session-registry');
     const localRegistry = initSessionRegistry(mock as never);
     const first = localRegistry.createSession('profile-world', '', 'profile-BIH', '#112233', undefined, true);
-    await first.ready;
+    await expect(first.ready).rejects.toThrow(/profilo iniziale.*partita non creata/i);
     expect(calls).toEqual(['history', 'profile']);
-    expect(profiles.get(first.gameId, 'BIH').provenance.source).not.toBe('llm-estimate');
-    expect(localRegistry.getSession(first.gameId)).toBe(first.session);
-    await first.session.getHistoricalBaseline();
-    expect(calls).toEqual(['history', 'profile']);
+    expect(profiles.get(first.gameId, 'BIH')).toBeNull();
+    expect(localRegistry.getSession(first.gameId)).toBeNull();
+    expect(db.prepare('SELECT id FROM games WHERE id=?').get(first.gameId)).toBeUndefined();
   });
   it('removing all mapless units is a durable known empty registry, not a new bootstrap', async () => {
     const first = registry.createSession('profile-world', '', 'profile-BIH'); await first.ready;

@@ -123,20 +123,17 @@ export function advisorBriefingSentences(snapshot: VerifiedWorldSnapshot): strin
     const balance = finite(snapshot.facts.monthlyBalance?.rawValue);
     const food = finite(snapshot.facts.foodCoverageMonths?.rawValue);
     if (balance !== null && balance >= 0 && food !== null && food >= 2) {
-      const infrastructure = (snapshot.infrastructure.factories?.length ?? 0) + (snapshot.infrastructure.ports?.length ?? 0);
-      return `Presidente, le scorte e il bilancio non indicano urgenze: possiamo valutare opportunità senza moltiplicare gli impegni. ${infrastructure > 0
-        ? 'Concentrerei gli investimenti sulle infrastrutture che già controlliamo, oppure chiederei ai ministri quali eventuali colli di bottiglia ne limitino il rendimento.'
-        : 'Chiederei a Tesoro di valutare la copertura di un investimento mirato, oppure agli Esteri di esplorare contatti senza promettere accordi.'} Il margine va preservato: eviterei di impegnarlo prima di conoscere costi e condizioni.`;
+      return 'Presidente, le scorte e il bilancio non indicano urgenze. Il margine disponibile non prova che nuovi impegni siano sostenibili: costi, durata e vincoli dei programmi restano determinanti.';
     }
-    return 'Presidente, il quadro disponibile non basta per giudicare la solidità della nostra posizione. Prima di impegnare altre risorse chiederei ai ministri di chiarire la copertura dei programmi e i vincoli operativi: l’assenza di segnali non dimostra che tutto vada bene.';
+    return 'Presidente, il quadro disponibile non basta per giudicare la solidità della nostra posizione. La copertura dei programmi e i vincoli operativi restano incerti: l’assenza di segnali non dimostra che tutto vada bene.';
   }
   let assessment: string;
-  let recommendations: string;
+  let constraints: string;
   let caution: string;
   switch (dominant.domain) {
     case 'food':
       assessment = `Le scorte coprono ${snapshot.facts.foodCoverageMonths.value}: questo limita il tempo per intervenire`;
-      recommendations = 'Darei priorità a un piano di approvvigionamento con Interno e Tesoro, oppure ridurrei gli impieghi non essenziali delle scorte';
+      constraints = 'La copertura alimentare sotto due mesi lascia poco margine a shock o nuovi impieghi delle scorte';
       caution = 'Un nuovo impegno senza copertura alimentare rischierebbe di aggravare la vulnerabilità';
       break;
     case 'economy':
@@ -144,46 +141,46 @@ export function advisorBriefingSentences(snapshot: VerifiedWorldSnapshot): strin
         : dominant.key === 'debt-burden' ? 'Gli interessi sul debito restringono la libertà di manovra'
         : dominant.key === 'economy-change' ? 'Il peggioramento osservato delle finanze merita una verifica'
         : 'Le uscite superano le entrate: nuovi impegni potrebbero erodere la cassa';
-      recommendations = dominant.importance === 1
-        ? 'Chiederei a Tesoro di verificare la durata del margine, oppure valuterei i programmi già coperti prima di autorizzare nuovi impegni'
-        : 'Chiederei a Tesoro di proteggere le spese essenziali e rinviare quelle meno urgenti, oppure valuterei nuove entrate prima di finanziare altri programmi';
-      caution = 'Eviterei di aprire più programmi senza una copertura verificata';
+      constraints = dominant.importance === 1
+        ? 'Un miglioramento puntuale non dimostra che il margine durerà per l’intera durata dei programmi'
+        : 'Spese essenziali e impegni già assunti limitano la quota disponibile per altri programmi';
+      caution = 'Più programmi concorrenti possono consumare la stessa copertura';
       break;
     case 'social':
       assessment = 'La tenuta interna merita priorità rispetto a nuove iniziative';
-      recommendations = 'Affiderei a Interno un confronto sulle cause della fragilità, oppure concentrerei le risorse sui servizi essenziali prima di ampliare gli impegni';
-      caution = 'Misure brusche potrebbero irrigidire il consenso: eviterei di trattare la stabilità come acquisita';
+      constraints = 'La fragilità del consenso riduce il margine per misure impopolari o nuovi sacrifici';
+      caution = 'Misure brusche potrebbero irrigidire il consenso: la stabilità non è acquisita';
       break;
     case 'military':
       assessment = dominant.key === 'military-readiness' ? 'La bassa prontezza osservata nei reparti limita le opzioni di sicurezza'
         : dominant.key === 'military-mobilization' ? 'La mobilitazione in corso richiede una scelta chiara sulle priorità'
         : dominant.key === 'military-change' ? 'La variazione osservata nelle forze richiede una revisione della postura'
         : 'Gli impegni operativi e i rifornimenti richiedono una verifica';
-      recommendations = 'Chiederei a Guerra di privilegiare la preparazione delle forze disponibili, oppure riesaminerei con Tesoro la sostenibilità del loro impiego';
-      caution = 'Eviterei nuovi fronti prima di conoscere tempi e copertura: l’impegno militare potrebbe ridurre il margine su altri programmi';
+      constraints = 'Preparazione, rifornimenti e tempi di impiego delle forze disponibili condizionano le opzioni effettive';
+      caution = 'Nuovi fronti potrebbero ridurre il margine su altri programmi';
       break;
     case 'diplomacy':
       assessment = 'I rapporti ostili rendono delicata la nostra libertà di manovra esterna';
-      recommendations = 'Chiederei agli Esteri di sondare una distensione, oppure cercherei interlocutori alternativi senza promettere intese';
-      caution = 'Una rottura potrebbe restringere ulteriormente le opzioni: eviterei mosse che presumano reazioni favorevoli';
+      constraints = 'Ogni rapporto ostile costituisce un fronte distinto; le possibili reazioni degli altri interlocutori condizionano il margine diplomatico';
+      caution = 'Una rottura potrebbe restringere ulteriormente le opzioni: reazioni favorevoli non sono garantite';
       break;
     case 'project':
       assessment = 'Le opere oltre la data attesa richiedono attenzione prima di avviarne altre';
-      recommendations = 'Chiederei a Lavori di individuare gli ostacoli, oppure concentrerei la copertura sui programmi completabili prima di aprirne di nuovi';
+      constraints = 'I programmi non conclusi continuano a competere per copertura, materiali e capacità esecutiva';
       caution = 'La dispersione delle risorse potrebbe prolungare i ritardi';
       break;
     default:
       assessment = dominant.reason;
-      recommendations = 'Riesaminerei con i ministri gli impegni già presi, oppure confronterei le alternative prima di autorizzarne altri';
-      caution = 'Eviterei di scambiare una decisione per un risultato già ottenuto';
+      constraints = 'Gli impegni già presi condizionano il margine per nuove decisioni';
+      caution = 'Una decisione non prova che il risultato sia già stato ottenuto';
   }
   const secondary = signals.find(signal => signal.domain !== dominant.domain && signal.importance >= 2);
-  const secondaryAssessment = secondary ? ({ economy: 'Anche le finanze limitano le alternative', food: 'Va protetta anche la copertura alimentare',
-    military: 'Va considerata anche la disponibilità operativa delle forze', social: 'Conta anche la tenuta interna', diplomacy: 'Pesano anche i rapporti esterni',
-    project: 'Occorre inoltre seguire le opere in ritardo', report: 'I rapporti sugli atti precedenti meritano un riesame',
+  const secondaryAssessment = secondary ? ({ economy: 'Anche le finanze limitano le alternative', food: 'Anche la copertura alimentare lascia poco margine',
+    military: 'Conta anche la disponibilità operativa delle forze', social: 'Conta anche la tenuta interna', diplomacy: 'Pesano anche i rapporti esterni',
+    project: 'Pesano inoltre le opere in ritardo', report: 'I rapporti sugli atti precedenti meritano un riesame',
     decision: 'Le decisioni recenti restano parte del quadro', inaction: 'Restano questioni sulle quali non abbiamo deciso', infrastructure: 'Contano anche i collegamenti disponibili' } satisfies Record<RealitySignalDomain, string>)[secondary.domain] : '';
   const signed = snapshot.recent.signedActs.length ? ` L’atto «${snapshot.recent.signedActs[0].text}» è già firmato, ma i suoi effetti restano da attendere.` : '';
-  return `Presidente, ${assessment.charAt(0).toLocaleLowerCase()}${assessment.slice(1)}. ${secondaryAssessment ? `${secondaryAssessment}. ` : ''}${recommendations}. ${caution}.${signed}`;
+  return `Presidente, ${assessment.charAt(0).toLocaleLowerCase()}${assessment.slice(1)}. ${secondaryAssessment ? `${secondaryAssessment}. ` : ''}${constraints}. ${caution}.${signed}`;
 }
 
 export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySignal[] {

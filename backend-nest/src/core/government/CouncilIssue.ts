@@ -131,6 +131,8 @@ export const COUNCIL_ISSUE_PROTOCOL = [
   'Proponi tutte e sole le questioni strategiche realmente distinte e salienti che meritano una decisione: possono essere nessuna, una o più. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Ogni questione deve poter essere portata separatamente al Consiglio, con fatti canonici a sostegno e solo ministri pertinenti alla domanda.',
   `Sedie ammesse: ${CABINET_SEATS.join(', ')}. Usa solo chiavi presenti in facts del VerifiedWorldSnapshot se ricorri a factKeys; per il collegamento canonico preferisci signalKeys presi dai SEGNALI DEL MOMENTO / CURRENT STRATEGIC SIGNALS. Niente valori, sourceRefs, fatti nuovi, costi inventati, opzioni Pressure o effetti.`,
   'Per una nuova opera distingui intenzione e inventario esistente; Lavori verifica tracciato e materiali, Tesoro la copertura. Una proposta non certifica fattibilità o autorizzazione.',
+  'Una council_issue richiede una DECISIONE PRESIDENZIALE concreta: autorizzare o finanziare una misura, ordinare un intervento, modificare una politica, aprire un negoziato con mandato definito, avviare/sospendere un programma, mobilitare/dispiegare o approvare una misura. Specifica oggetto e mandato, senza inventare costi o fattibilità.',
+  'Valutare, verificare, approfondire, monitorare, studiare o sondare informalmente NON sono atti da portare automaticamente al Consiglio: sono attività istruttorie da lasciare nella conversazione. «Autorizzare una verifica» non basta. Una situazione, una priorità o un costo non quantificato non giustificano da soli una council_issue.',
 ].join('\n');
 
 /**
@@ -159,6 +161,7 @@ export const SITUATION_BASE_PROTOCOL = [
  * `advisor_situation`; il server integra comunque la base deterministica.
  */
 export const ADVISOR_BRIEFING_SITUATION_PROTOCOL = [
+  'BRIEFING MODE: council_issue = 0, senza eccezioni. Produci analisi, situazioni ed eventualmente priorità politiche, NON proposte di atto né blocchi council_issue. Il Presidente sceglie «Approfondisci» e discute col Consulente; solo in CONVERSATION MODE una decisione concreta può diventare proposta.',
   'BRIEFING MODE. Descrivi le SITUAZIONI correnti rilevanti: quante ne giustifica lo stato reale del paese, senza un numero fisso. Emetti per ogni situazione un blocco separato ```advisor_situation con JSON {"title":"...","summary":"...","signalKeys":["chiave-segnale canonica"]}. Una sola signalKey per scheda, presa dai CURRENT STRATEGIC SIGNALS: non accorpare problemi distinti (due vicini ostili restano due situazioni).',
   'I titoli devono essere concreti e specifici, ancorati all\'entità reale (es. «Tensioni al confine con il Sudan», «Ritardo della ferrovia Kampala–Jinja»): evita titoli generici come «Situazione diplomatica», «Problema militare», «Economia» o «Difesa». Una scheda council_issue non sostituisce la sua situazione.',
 ].join('\n');
@@ -171,6 +174,12 @@ export const ADVISOR_CONVERSATION_PROTOCOL = [
   'CONVERSATION MODE. NON rigenerare l\'elenco delle situazioni e NON emettere blocchi advisor_situation, salvo che durante la conversazione emerga davvero una NUOVA situazione distinta, non già presentata. Una situazione già presentata resta sullo sfondo: approfondiscila a parole, senza ripubblicarne la scheda.',
   'Se il Presidente sta approfondendo una situazione (FOCUS SITUATION), rispondi SOLO su quella: non presentare nuovamente il quadro nazionale e non elencare le altre situazioni. Restano ammesse le schede council_issue quando esiste un atto concreto da decidere.',
 ].join('\n');
+
+/** Narrow advisor-only guard, not a semantic classifier. Ministers/council are unchanged. */
+export function isPreparatoryCouncilIssue(issue: Pick<CouncilIssue, 'question'>): boolean {
+  return /^(?:(?:si propone di|possiamo|vogliamo)\s+)?(?:valutare|verificare|approfondire|monitorare|studiare|sondare)\b/i.test(issue.question.trim())
+    || /^(?:autorizzare|ordinare)\s+(?:(?:una?|la|lo|il)\s+)?(?:verifica|valutazione|approfondimento|monitoraggio|studio|sondaggio)\b/i.test(issue.question.trim());
+}
 
 /** Conservative identity, not semantic similarity: shared facts/ministers/titles are not duplicates. */
 function councilQuestionKey(question: string): string {

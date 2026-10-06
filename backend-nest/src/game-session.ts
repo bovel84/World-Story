@@ -11,7 +11,7 @@ import { RegionGeometryService } from './game/RegionGeometryService';
 import { MilitaryService, createProductionNotices, type ProductionNotices } from './game/MilitaryService';
 import { OrderExecutionService, type PendingAction } from './game/OrderExecutionService';
 import { LLMRouter } from './llm';
-import { buildCountryInitialProfile, generateCountryInitialProfile, countryProfileRegions, validateCountryInitialProfile, type CountryInitialProfile } from './core/simulation/CountryInitialProfile';
+import { CountryInitialProfileError, buildCountryInitialProfile, generateCountryInitialProfile, countryProfileRegions, validateCountryInitialProfile, type CountryInitialProfile } from './core/simulation/CountryInitialProfile';
 import { countryInitialProfiles, type CountryInitialProfilesSnapshot } from './repositories/country-initial-profile.repository';
 import type { WorldStateOptions } from './core/simulation/WorldStateEngine';
 import { GameController } from './agents';
@@ -2619,12 +2619,13 @@ export class GameSession {
       countryName: this.publicPolityName(polityId),
       historicalBaseline: baseline?.historicalBackground,
     }, async (system, prompt, signal) => {
-      const response = await this.llm.generate('advisor', system, prompt, { temperature: 0.2, maxTokens: 2_000, signal });
+      const response = await this.llm.generate('advisor', system, prompt, { temperature: 0.2, maxTokens: 2_000, signal, singleAttempt: true });
       return String(response.content ?? '');
-    })).then(profile => {
-      if (validateCountryInitialProfile(profile, { polityId, startDate: this.worldStartDate, regions })) {
-        countryInitialProfiles.insertOnce(this.id, profile);
-      } else console.warn(`[CountryInitialProfile] Invalid authored inputs for ${polityId}; preserving the legacy engine fallback.`);
+    }, { requireEstimate: true })).then(profile => {
+      if (!validateCountryInitialProfile(profile, { polityId, startDate: this.worldStartDate, regions })) {
+        throw new CountryInitialProfileError('profilo non conforme ai vincoli di validazione');
+      }
+      countryInitialProfiles.insertOnce(this.id, profile);
       this.initialAccountsCache = undefined;
       this.initialProfileCache = undefined;
     });

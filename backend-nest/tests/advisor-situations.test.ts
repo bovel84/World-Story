@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
-import { buildRealitySignals } from '../src/core/government/RealitySignals';
+import { advisorBriefingSentences, buildRealitySignals } from '../src/core/government/RealitySignals';
 import {
   buildAdvisorSituations, MAX_ADVISOR_SITUATIONS, parseAdvisorResponse, parseAdvisorSituations,
   resolveAdvisorSituation, resolveFocusSituation, signalSituationTitle,
@@ -112,19 +112,42 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
   it('separa le situazioni dalle proposte: una situazione NON crea una CouncilIssue', () => {
     const snapshot = multi();
     const modelSituation = block('advisor_situation', { title: 'Tensioni al confine con il Sudan', summary: 'Il rapporto con il Sudan resta ostile.', signalKeys: ['hostile-relations:SDN'] });
-    const modelIssue = block('council_issue', { title: 'Sicurezza al confine', question: 'Come rafforziamo il confine?', signalKeys: ['hostile-relations:SDN'], suggestedMinisters: ['guerra'] });
-    const result = parseAdvisorResponse(snapshot, ['Quadro.', modelSituation, modelIssue].join('\n\n'), 'advisor', { includeDeterministicSituations: true });
+    const modelIssue = block('council_issue', { title: 'Sicurezza al confine', question: 'Autorizzare il dispiegamento delle forze disponibili al confine?', signalKeys: ['hostile-relations:SDN'], suggestedMinisters: ['guerra'] });
+    const result = parseAdvisorResponse(snapshot, ['Quadro.', modelSituation, modelIssue].join('\n\n'), 'advisor');
     expect(result.reply).toBe('Quadro.');
     expect(result.issues).toHaveLength(1);
     expect(result.issues[0].title).toBe('Sicurezza al confine');
-    // La base deterministica non sparisce: il modello non nasconde un segnale.
-    expect(result.situations.length).toBeGreaterThanOrEqual(4);
+    expect(result.situations).toHaveLength(1);
     // La situazione del modello ha il titolo scelto; le altre restano reali.
     expect(result.situations.map(situation => situation.title)).toContain('Tensioni al confine con il Sudan');
     // Zero proposte resta valido.
     const noIssues = parseAdvisorResponse(snapshot, `Solo situazioni.\n${modelSituation}`, 'advisor', { includeDeterministicSituations: true });
     expect(noIssues.issues).toEqual([]);
     expect(noIssues.situations.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('briefing con tre segnali conserva le situazioni ma scarta tutte le proposte del modello', () => {
+    const snapshot = world({
+      account: { population: 10_000_000, socialTension: 20, stability: 75, monthlyBalance: 0, nominalGdpUsdBillions: 100, debtRatioPct: 40, debtServicePct: 5 },
+      relationships: { UGA: { SDN: 'hostile', COD: 'hostile' } },
+      polityNames: { SDN: 'Sudan', COD: 'Congo' },
+    });
+    expect(buildRealitySignals(snapshot)).toHaveLength(3);
+    const proposal = block('council_issue', { title: 'Mandato diplomatico', question: 'Autorizzare un negoziato per un accordo di non aggressione?', signalKeys: ['hostile-relations:SDN'], suggestedMinisters: ['esteri'] });
+    const result = parseAdvisorResponse(snapshot, `Quadro.\n${proposal}`, 'advisor', { includeDeterministicSituations: true });
+    expect(result.situations).toHaveLength(3);
+    expect(result.issues).toHaveLength(0);
+    expect(result.reply).toBe('Quadro.');
+    // La stessa decisione concreta resta ammessa in conversazione/focus.
+    expect(parseAdvisorResponse(snapshot, proposal, 'president').issues).toHaveLength(1);
+    expect(advisorBriefingSentences(snapshot)).not.toMatch(/chiederei|darei|sonderei|farei|eviterei|ridurrei/i);
+  });
+
+  it.each(['Valutare', 'Verificare', 'Approfondire', 'Monitorare', 'Studiare', 'Sondare informalmente'])('scarta una proposta solo istruttoria: %s', verb => {
+    const proposal = block('council_issue', { title: 'Distensione', question: `${verb} le possibilità di distensione: nessun costo quantificato, è una verifica.`, signalKeys: ['hostile-relations:SDN'], suggestedMinisters: ['esteri'] });
+    expect(parseAdvisorResponse(multi(), proposal, 'president').issues).toEqual([]);
+    // Il filtro è del Consulente, non altera il percorso dei ministri.
+    expect(parseAdvisorResponse(multi(), proposal, 'minister').issues).toHaveLength(1);
   });
 
   it('apertura/turn briefing: la lista completa; chat normale: nessuna situazione automatica', () => {
@@ -162,6 +185,8 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     const briefingPrompt = buildRealityAdvisorPrompt(briefing.advisorContext, 'Apriamo il Governo.');
     expect(briefingPrompt).toContain(ADVISOR_BRIEFING_SITUATION_PROTOCOL);
     expect(briefingPrompt).not.toContain(ADVISOR_CONVERSATION_PROTOCOL);
+    expect(briefingPrompt).toContain('council_issue = 0');
+    expect(briefingPrompt).not.toContain('DEVI emettere');
 
     const chat = buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'conversation');
     const chatPrompt = buildRealityAdvisorPrompt(chat.advisorContext, 'Come vanno le finanze?');
