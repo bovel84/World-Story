@@ -198,7 +198,7 @@ export class OrderExecutionService {
    */
   enqueue(text: string, workOrder?: PendingWorkOrder): PendingAction {
     this.ctx.assertPlayable();
-    assertCanonicalOrder(text, this.ctx.playerPolityId(), readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId, this.ctx.liveRegions?.()), workOrder?.regionId);
+    assertCanonicalOrder(text, this.ctx.playerPolityId(), readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId, this.ctx.liveRegions?.(), this.ctx.playerPolityId()), workOrder?.regionId);
     const action: PendingAction = {
       id: shortId(),
       text,
@@ -230,7 +230,7 @@ export class OrderExecutionService {
    * No reservations, material inference, costs or mutations belong here. */
   assertExecutableOrders(actions: readonly PendingAction[], regions: Iterable<CanonicalOrderRegion>): void {
     if (!actions.length) return;
-    const world = readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId, regions);
+    const world = readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId, regions, this.ctx.playerPolityId());
     for (const action of actions) assertCanonicalOrder(action.text, this.ctx.playerPolityId(), world, action.workOrder?.regionId);
   }
 
@@ -257,7 +257,7 @@ export class OrderExecutionService {
     if (!trimmed) return null;
     const action = this.pendingActions.find(item => item.id === actionId && item.status === 'pending');
     if (!action) return null;
-    assertCanonicalOrder(trimmed, this.ctx.playerPolityId(), readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId, this.ctx.liveRegions?.()), action.workOrder?.regionId);
+    assertCanonicalOrder(trimmed, this.ctx.playerPolityId(), readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId, this.ctx.liveRegions?.(), this.ctx.playerPolityId()), action.workOrder?.regionId);
     if (!gameRepository.updatePendingActionText(this.ctx.gameId, actionId, trimmed)) return null;
     action.text = trimmed;
     return action;
@@ -547,7 +547,7 @@ export class OrderExecutionService {
       rights: [],
       knowledgeIds: [],
       capabilityIds: [],
-      canonicalWorld: readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId),
+      canonicalWorld: readCanonicalOrderWorld(this.ctx.gameId, this.ctx.worldId, undefined, this.ctx.playerPolityId()),
       ...(measured ? { deficits: measured.deficits, unknownRequirements: measured.unknown, ...(measured.availableMoney ? { availableMoney: measured.availableMoney } : {}) } : {}),
     });
 

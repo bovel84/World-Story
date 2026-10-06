@@ -81,7 +81,7 @@ router.post('/:id/actions/evaluate', (req, res) => {
       // appartengono a un'autorità istituzionale e a una controparte che il
       // server non ha ancora interpellato, e nessuno dei due si presume.
       actorId: actor.actorId, verifiedPolityId: polity, approvals: ['user'], rights: [], knowledgeIds: [], capabilityIds: [],
-      canonicalWorld: readCanonicalOrderWorld(req.params.id, game.world_id, session.canonicalOrderRegions?.()),
+      canonicalWorld: readCanonicalOrderWorld(req.params.id, game.world_id, session.canonicalOrderRegions?.(), polity),
       ...(measured ? { deficits: measured.deficits, unknownRequirements: measured.unknown, ...(measured.availableMoney ? { availableMoney: measured.availableMoney } : {}) } : {}),
     });
     const assessmentId = shortId();
