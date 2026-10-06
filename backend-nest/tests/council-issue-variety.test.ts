@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COUNCIL_ISSUE_PROTOCOL, parseCouncilIssues, resolveCouncilIssue, serializeCouncilIssues } from '../src/core/government/CouncilIssue';
+import { COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, parseCouncilIssues, resolveCouncilIssue, serializeCouncilIssues } from '../src/core/government/CouncilIssue';
 import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 
 const snapshot = () => buildVerifiedWorldSnapshot({ gameData: {
@@ -17,8 +17,9 @@ const block = (proposal: unknown) => `\`\`\`council_issue\n${JSON.stringify(prop
 const response = (...items: unknown[]) => ['Discutiamo queste direzioni.', ...items.map(block)].join('\n\n');
 
 describe('CouncilIssue optional variety protocol', () => {
-  it('instructs the advisor to propose 1-3 truly distinct, independently discussable issues with relevant ministers', () => {
-    expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/da 1 a 3/);
+  it('instructs the advisor to surface every distinct decision-worthy issue, including more than three', () => {
+    expect(COUNCIL_ISSUE_PROTOCOL).toContain(`da 1 a ${MAX_COUNCIL_ISSUES}`);
+    expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/Non fermarti artificialmente a tre/i);
     expect(COUNCIL_ISSUE_PROTOCOL).not.toContain('un solo blocco');
     expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/distint/i);
     expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/duplic/i);
@@ -56,7 +57,7 @@ describe('CouncilIssue optional variety protocol', () => {
     expect(result.reply).toBe('Discutiamo queste direzioni.');
   });
 
-  it('rejects cosmetic question duplicates without consuming the three-issue budget', () => {
+  it('rejects cosmetic question duplicates without consuming the issue budget', () => {
     const duplicate = { ...proposals[0], title: 'Altro titolo', question: 'COME   riorganizzare\nle forze armate !' };
     const result = parseCouncilIssues(snapshot(), response(proposals[0], duplicate, proposals[1], proposals[2]));
     expect(result.issues.map(issue => issue.question)).toEqual(proposals.map(issue => issue.question));
@@ -71,10 +72,15 @@ describe('CouncilIssue optional variety protocol', () => {
     expect(parseCouncilIssues(snapshot(), response(...issues)).issues.map(issue => issue.question)).toEqual(issues.map(issue => issue.question));
   });
 
-  it('caps accepted distinct issues at three and strips extra blocks', () => {
-    const extra = { ...proposals[0], question: 'Come migliorare la formazione degli ufficiali?' };
-    const result = parseCouncilIssues(snapshot(), response(...proposals, extra));
-    expect(result.issues.map(issue => issue.question)).toEqual(proposals.map(issue => issue.question));
+  it('accepts more than three distinct issues and applies only the safety cap', () => {
+    const expanded = Array.from({ length: MAX_COUNCIL_ISSUES + 1 }, (_, index) => ({
+      ...proposals[index % proposals.length],
+      title: `Tema ${index + 1}`,
+      question: `Come affrontiamo il tema strategico ${index + 1}?`,
+    }));
+    const result = parseCouncilIssues(snapshot(), response(...expanded));
+    expect(result.issues).toHaveLength(MAX_COUNCIL_ISSUES);
+    expect(result.issues.map(issue => issue.question)).toEqual(expanded.slice(0, MAX_COUNCIL_ISSUES).map(issue => issue.question));
     expect(result.reply).toBe('Discutiamo queste direzioni.');
   });
 
@@ -97,7 +103,7 @@ describe('CouncilIssue optional variety protocol', () => {
     expect(result.issues[0].verifiedFacts[0]).toEqual(canonical);
   });
 
-  it('round-trips the three independent proposals through the legacy transport', () => {
+  it('round-trips independent proposals through the legacy transport', () => {
     const world = snapshot();
     const result = parseCouncilIssues(world, response(...proposals));
     expect(parseCouncilIssues(world, serializeCouncilIssues(result))).toEqual(result);
