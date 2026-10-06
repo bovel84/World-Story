@@ -1,7 +1,7 @@
 /** Verified reality → interpretation → optional issue. No writes, quests or fabricated deltas. */
 import type { AdvisorMessage } from '../../prompts/types';
 import { COUNCIL_ANCHOR_PROTOCOL, COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, SITUATION_PROPOSAL_PROTOCOL, resolveCouncilIssue, type CouncilIssue } from './CouncilIssue';
-import { buildAdvisorSituations, type AdvisorSituation } from './AdvisorSituations';
+import { buildAdvisorSituations, resolveFocusSituation, type AdvisorSituation } from './AdvisorSituations';
 import { advisorBriefingSentences, buildRealitySignals, stripTechnicalLines } from './RealitySignals';
 import { renderCouncilProposalAnchors } from './CouncilProposalAnchors';
 import { renderHistoricalBaseline, renderPolityHistoricalBaselines, historicalBaselineExcerpt, type PolityHistoricalBaseline } from './HistoricalBaseline';
@@ -13,6 +13,8 @@ export interface RealityAdvisorContext {
   verifiedWorldSnapshot: VerifiedWorldSnapshot;
   governmentBrief: string;
   focusIssue?: CouncilIssue;
+  /** WS-CONSULENTE-SITUAZIONI — Situazione selezionata con «Approfondisci», risolta dal server. */
+  focusSituation?: AdvisorSituation;
   temporalScope?: { initialDate: string | null; currentDate: string | null };
   /** REAL HISTORY → START DATE: background canonico del paese, generato una volta per partita. */
   historicalBaseline?: string;
@@ -59,8 +61,11 @@ export function advisorOpeningRequest(snapshot: Pick<VerifiedWorldSnapshot, 'tur
     ? ADVISOR_OPENING_REQUEST : ADVISOR_TURN_BRIEFING_REQUEST;
 }
 
-export function buildRealityAdvisorContext(snapshot: VerifiedWorldSnapshot, focusRaw?: unknown, historicalBaseline?: string | null): RealityAdvisorResult {
+export function buildRealityAdvisorContext(snapshot: VerifiedWorldSnapshot, focusRaw?: unknown, historicalBaseline?: string | null, focusSituationRaw?: unknown): RealityAdvisorResult {
   const focusIssue = focusRaw === undefined ? undefined : resolveCouncilIssue(snapshot, focusRaw);
+  // WS-CONSULENTE-SITUAZIONI — Il focus dell'approfondimento è canonico: il
+  // client manda una signalKey, il server ricostruisce la situazione.
+  const focusSituation = focusSituationRaw === undefined ? undefined : resolveFocusSituation(snapshot, focusSituationRaw);
   // P3/P4 — Il briefing nasce dai SEGNALI deterministici, non da quest
   // predefinite: nessun CouncilIssue automatico. La questione nasce solo se il
   // modello la propone (e il server la valida) o se il Presidente la chiede.
@@ -69,7 +74,7 @@ export function buildRealityAdvisorContext(snapshot: VerifiedWorldSnapshot, focu
   // §4 — Mai linguaggio tecnico al giocatore: se una riga ne contenesse, esce.
   const governmentBrief = stripTechnicalLines(conversational)
     ?? 'Presidente, non ho un dato verificato che richieda attenzione adesso: possiamo esaminare i programmi e la loro copertura.';
-  return { advisorContext: { verifiedWorldSnapshot: snapshot, governmentBrief, ...(historicalBaseline ? { historicalBaseline } : {}), ...(focusIssue ? { focusIssue } : {}) }, reply: governmentBrief, issues: [], situations: buildAdvisorSituations(snapshot) };
+  return { advisorContext: { verifiedWorldSnapshot: snapshot, governmentBrief, ...(historicalBaseline ? { historicalBaseline } : {}), ...(focusIssue ? { focusIssue } : {}), ...(focusSituation ? { focusSituation } : {}) }, reply: governmentBrief, issues: [], situations: buildAdvisorSituations(snapshot) };
 }
 
 /** La regola che separa un atto FIRMATO da un effetto già avvenuto. */
@@ -360,6 +365,7 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
     '[GOVERNMENT BRIEF — orientamento deterministico, non copiare le sue formule]', context.governmentBrief,
     renderSignedActs(context.verifiedWorldSnapshot) ?? '',
     context.focusIssue ? `[FOCUS ISSUE — domanda proposta, solo verifiedFacts è canonico]\n${JSON.stringify(context.focusIssue)}` : '',
+    context.focusSituation ? `[FOCUS SITUATION — problema selezionato con «Approfondisci»; il RealitySignal è canonico, titolo e sintesi sono presentazione]\n${JSON.stringify(context.focusSituation)}\nRispondi SOLO sulla situazione in esame: non ripresentare l'elenco delle altre situazioni nazionali.` : '',
     '[PRESIDENT MESSAGE]',
     '[Messaggio del giocatore]', message || 'Leggi il quadro disponibile e aiutami a capire cosa merita attenzione.',
     recent.length ? '[MEMORY / OPEN QUESTIONS]\n[Cronaca della conversazione]\n' + recent.map(item => `${item.role === 'user' ? 'Giocatore' : 'Consigliere'}: ${item.content}`).join('\n') : '',

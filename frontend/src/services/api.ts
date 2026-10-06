@@ -2031,6 +2031,13 @@ export interface AdvisorSituation {
   importance?: number;
 }
 
+/** Focus di un approfondimento: il client manda solo l'id e la signalKey; il
+ *  server ricostruisce titolo e sintesi dal RealitySignal canonico. */
+export interface AdvisorSituationFocus {
+  id?: string;
+  signalKey: string;
+}
+
 /** Server-built read model. Unknown fields remain unknown, never inferred by the client. */
 export interface VerifiedWorldSnapshotView {
   schemaVersion: 1;
@@ -2219,10 +2226,14 @@ export const advisorApi = {
   opening: (gameId: string, signal?: AbortSignal): Promise<RealityAdvisorResponse> =>
     fetchApi(`/games/${gameId}/advisor/opening`, { method: 'POST', signal }),
   /** Complete, server-validated output; no unvalidated partial text or implicit POST retries. */
-  reality: (gameId: string, message: string, history: AdvisorHistoryItem[], focusIssue?: CouncilIssue, signal?: AbortSignal): Promise<RealityAdvisorResponse> =>
+  reality: (gameId: string, message: string, history: AdvisorHistoryItem[], focusIssue?: CouncilIssue, signal?: AbortSignal, focusSituation?: AdvisorSituationFocus): Promise<RealityAdvisorResponse> =>
     fetchApi(`/games/${gameId}/advisor/reality`, {
       method: 'POST', signal,
-      body: JSON.stringify({ message, history, ...(focusIssue ? { advisorContext: { focusIssue } } : {}) }),
+      body: JSON.stringify({
+        message, history,
+        ...(focusIssue ? { advisorContext: { focusIssue } } : {}),
+        ...(focusSituation?.signalKey ? { focusSituation } : {}),
+      }),
     }),
   /**
 * Chiedi al consulente (dialogo multi-turno — history inviata a ogni richiesta)

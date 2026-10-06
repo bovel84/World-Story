@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CABINET_SEATS } from '../src/core/government/Cabinet';
+import { buildRealitySignals } from '../src/core/government/RealitySignals';
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-reality-advisor-'));
 const originalDb = process.env.OPEN_PAX_DB_PATH;
@@ -66,6 +67,26 @@ describe('reality advisor API and minister trust boundary', () => {
   });
   it('unknown focus fact rejects before generation', async () => {
     const count = captured.length; const response = await post('/advisor/reality', { message: 'Approfondiamo', advisorContext: { focusIssue: issue('unknown') } });
+    expect(response.status).toBe(400); expect(captured.length).toBe(count);
+  });
+  it('focusSituation is resolved server-side: client title/summary are ignored', async () => {
+    const signal = buildRealitySignals(session.getVerifiedWorldSnapshot())[0];
+    expect(signal).toBeTruthy();
+    modelReply = 'Rispondo sulla situazione in esame.';
+    const response = await post('/advisor/reality', {
+      message: 'Approfondiamo.', history: [],
+      focusSituation: { id: 's1', signalKey: signal.key, title: 'CLIENT_TITLE_FORGED', summary: 'CLIENT_SUMMARY_FORGED' },
+    });
+    expect(response.status).toBe(200);
+    const prompt = captured.at(-1)!;
+    expect(prompt).toContain('[FOCUS SITUATION');
+    expect(prompt).toContain(signal.key);
+    expect(prompt).not.toContain('CLIENT_TITLE_FORGED');
+    expect(prompt).not.toContain('CLIENT_SUMMARY_FORGED');
+  });
+  it('unknown focusSituation signal rejects before generation', async () => {
+    const count = captured.length;
+    const response = await post('/advisor/reality', { message: 'Approfondiamo', focusSituation: { signalKey: 'non-esiste' } });
     expect(response.status).toBe(400); expect(captured.length).toBe(count);
   });
   it('model protocol proposes a presidential railway issue with canonical facts', async () => {

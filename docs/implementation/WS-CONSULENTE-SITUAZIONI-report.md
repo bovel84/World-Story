@@ -314,3 +314,69 @@ In `AdvisorChat.tsx`, `AdvisorSituationsPanel` espone solo il callback
 - Frontend mirati: `advisorSituations` (nuovo), `advisorMemory`,
   `advisorOpening`, `advisorStatus`, `governmentRealityHome`, `richTextModel`,
   `councilRoomFailureRender`, `crisisSurface` — tutti verdi.
+
+---
+
+# Iterazione 3 — Fix CI e focus canonico
+
+## A. Blocchi `advisor_situation` fuori dal testo pubblico
+
+**Causa del fallimento CI:** `validatedAdvisorText` chiamava `parseAdvisorResponse`
+con il merge deterministico sempre attivo: anche quando il modello rispondeva con
+sola prosa, il testo validato veniva serializzato con i blocchi
+```advisor_situation``` di `buildAdvisorSituations(snapshot)`. Il percorso
+proattivo (`getAdvisorUnchecked` → SSE `advisor_proactive` → `{ content }`)
+pubblicava quindi quei blocchi dentro `content`.
+
+**Fix:**
+- `parseAdvisorResponse` ha ora `includeDeterministicSituations` (default `false`).
+- `validatedAdvisorText` (prompt-builder) resta a `false`: la lista deterministica
+  non entra più nel testo di trasporto.
+- `getAdvisorUnchecked` senza `ministerSeat` (proattivo/semplice) e
+  `getAdvisorStream` pubblicano **solo** `parsed.reply`.
+- Il percorso ministro usa `parseAdvisorResponse` (non `parseCouncilIssues`):
+  `advisor_situation` non trapela nella risposta del ministro.
+- Nessun test è stato modificato per accettare i blocchi; `chats.test.ts` ha in
+  più l'asserzione negativa sul `content`.
+
+## B. Una AdvisorSituation = un RealitySignal
+
+`advisorSituationInputSchema.signalKeys` è passato da `min(1).max(12)` a
+`.length(1)`: due `signalKeys` invalidano la scheda. Sudan e Congo restano due
+situazioni distinte; un problema sistemico deve essere un singolo
+`RealitySignal` sistemico prodotto da `buildRealitySignals()`.
+
+## C. `includeDeterministicSituations`
+
+Deciso in `parseAdvisorResponse` (`AdvisorSituations.ts`), con un'unica opzione:
+
+| Caller | Valore | Effetto |
+|--------|--------|---------|
+| `getAdvisorOpening` (apertura / turn briefing) | `true` | lista completa delle situazioni correnti |
+| `/advisor/context` (fallback iniziale) | `buildRealitySignals` | lista completa |
+| `getRealityAdvisor` (chat normale) | `false` (default) | solo eventuali nuove situazioni del modello, o nessuna |
+| approfondimento (`focusSituation`) | `false` | non ristampa la lista nazionale |
+| `validatedAdvisorText`, proattivo, ministro | `false` | nessuna lista automatica |
+
+## D/E. Focus strutturato
+
+- Frontend: `advisorApi.reality(..., signal?, focusSituation?)` invia
+  `{ id, signalKey }` (mai il testo come fonte di fatti). `AdvisorChat` passa il
+  focus quando `situationFocus` è attivo e lo azzera alla chiusura.
+- Backend: `realityAdvisorSchema` accetta `focusSituation: { id?, signalKey }`;
+  `resolveFocusSituation` risolve la chiave contro `buildRealitySignals`, ignora
+  titolo/sintesi del client e ricostruisce la situazione dal segnale.
+- Chiave ignota → `InvalidAdvisorSituationError` → **400** prima di generare;
+  il prompt riceve `[FOCUS SITUATION — …]` con l'avviso di non ripresentare le
+  altre situazioni.
+
+## Test eseguiti (mirati)
+
+- Backend: `tsc` pulito; `chats` (con asserzione negativa), `advisor-situations`
+  (8), `reality-advisor-routes` (21, inclusi focus valido/ignoto), più i 19 file
+  advisor/prompt/context e 6 file council/minister — tutti verdi.
+- Frontend: `tsc` pulito; `realityAdvisorTransport` (focus payload),
+  `advisorSituations`, `advisorMemory`, `advisorOpening`, `advisorStatus` — verdi.
+
+Non modificati: core engine, database, `MAX_COUNCIL_ISSUES`, granularità di
+rapporti ostili/fronti/progetti, flusso del Consiglio.

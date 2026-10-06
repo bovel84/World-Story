@@ -85,7 +85,7 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     };
   }, [gameId, branchId, scopeKey, isLocal]);
 
-  const sendText = async (raw?: string) => {
+  const sendText = async (raw?: string, explicitSituation?: AdvisorSituation) => {
     const text = (raw ?? input).trim();
     if (!text || advisorStreaming || isLocal || requestRef.current) return;
     const controller = new AbortController();
@@ -97,11 +97,15 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     const history = currentTurnMessages(advisorMessages, currentTurn)
       .filter(message => !message.proactive && message.content.trim()).slice(-20)
       .map(message => ({ role: message.role, content: message.content }));
+    // WS-CONSULENTE-SITUAZIONI — Focus canonico: al server va solo la signalKey.
+    const activeSituation = explicitSituation ?? situationFocus;
+    const situationKey = activeSituation?.signalKeys?.[0];
+    const focusPayload = situationKey ? { id: activeSituation.id, signalKey: situationKey } : undefined;
     addAdvisorMessage({ role: 'user', content: text, turn: currentTurn });
     if (raw === undefined) setInput('');
     setError(''); setAdvisorStreaming(true);
     try {
-      const result = await advisorApi.reality(gameId, text, history, focus, controller.signal);
+      const result = await advisorApi.reality(gameId, text, history, focus, controller.signal, focusPayload);
       if (!owns()) return;
       addAdvisorMessage({ role: 'assistant', content: result.reply, issues: result.issues, situations: result.situations ?? [], turn: currentTurn });
     } catch {
@@ -113,7 +117,7 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
   /** WS-CONSULENTE-SITUAZIONI — «Approfondisci» porta la situazione al Consulente, mai al Consiglio. */
   const deepen = (situation: AdvisorSituation) => {
     setSituationFocus(situation);
-    void sendText(buildSituationFocusMessage(situation));
+    void sendText(buildSituationFocusMessage(situation), situation);
   };
   const callout = (issue: CouncilIssue) => <div key={issue.id}>
     <button type="button" className="advisor-deepen" disabled={advisorStreaming} onClick={() => setFocus(issue)}>Approfondisci {issue.title}</button>

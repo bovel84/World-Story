@@ -32,12 +32,22 @@ export interface AdvisorSituation {
 export const MAX_ADVISOR_SITUATIONS = 24;
 
 const key = z.string().trim().min(1).max(240);
-/** Il modello fornisce titolo, sintesi e chiavi; la gravità è ricalcolata dal server. */
+/** Il modello fornisce titolo, sintesi e chiavi; la gravità è ricalcolata dal server.
+ *  `signalKeys` ha lunghezza ESATTAMENTE 1: una situazione rappresenta un solo
+ *  problema canonico (Sudan e Congo restano due situazioni distinte). Un problema
+ *  sistemico deve essere un singolo `RealitySignal` sistemico. */
 export const advisorSituationInputSchema = z.object({
   id: z.string().trim().min(1).max(160).optional(),
   title: z.string().trim().min(1).max(240),
   summary: z.string().trim().min(1).max(600),
-  signalKeys: z.array(key).min(1).max(12),
+  signalKeys: z.array(key).length(1),
+});
+
+/** WS-CONSULENTE-SITUAZIONI — Focus canonico di un approfondimento: UNA sola
+ *  signalKey. Titolo e sintesi del client NON sono fonte di fatti. */
+export const focusSituationInputSchema = z.object({
+  id: z.string().trim().min(1).max(160).optional(),
+  signalKey: key,
 });
 
 export class InvalidAdvisorSituationError extends Error {
@@ -74,6 +84,25 @@ export function resolveAdvisorSituation(snapshot: VerifiedWorldSnapshot, raw: un
     summary: input.summary,
     signalKeys,
     importance,
+  };
+}
+
+/**
+ * Risolve il focus dell'approfondimento sul SOLO segnale canonico: il client
+ * manda una signalKey, il server ricostruisce titolo e sintesi dal motore. Una
+ * chiave ignota (o assente) fallisce chiuso.
+ */
+export function resolveFocusSituation(snapshot: VerifiedWorldSnapshot, raw: unknown): AdvisorSituation {
+  const parsed = focusSituationInputSchema.safeParse(raw);
+  if (!parsed.success) throw new InvalidAdvisorSituationError();
+  const signal = buildRealitySignals(snapshot).find(candidate => candidate.key === parsed.data.signalKey);
+  if (!signal) throw new InvalidAdvisorSituationError(`Unknown reality signal key: ${parsed.data.signalKey}`);
+  return {
+    id: parsed.data.id ?? `situation-${signal.key}`,
+    title: signalSituationTitle(signal),
+    summary: signal.reason,
+    signalKeys: [signal.key],
+    importance: signal.importance,
   };
 }
 
@@ -172,13 +201,26 @@ export interface AdvisorResponse {
   issues: CouncilIssue[];
 }
 
+/**
+ * `includeDeterministicSituations` decide se la risposta espone l'INTERA lista
+ * deterministica delle situazioni correnti (`buildAdvisorSituations`).
+ *
+ * - `true` — solo apertura/turn briefing/fallback iniziale: la lista completa.
+ * - `false` (default) — chat normale e approfondimento: solo le eventuali nuove
+ *   situazioni emerse dal modello, oppure nessuna. Non si ripubblica la lista a
+ *   ogni messaggio.
+ */
+export type AdvisorResponseParseOptions = CouncilIssueParseOptions & { includeDeterministicSituations?: boolean };
+
 /** Punto unico del Consulente: situazioni e proposte restano separate. */
-export function parseAdvisorResponse(snapshot: VerifiedWorldSnapshot, text: string, origin: CouncilIssueOrigin = 'advisor', options: CouncilIssueParseOptions = {}): AdvisorResponse {
+export function parseAdvisorResponse(snapshot: VerifiedWorldSnapshot, text: string, origin: CouncilIssueOrigin = 'advisor', options: AdvisorResponseParseOptions = {}): AdvisorResponse {
   const parsedSituations = parseAdvisorSituations(snapshot, text, options);
   const parsedIssues = parseCouncilIssues(snapshot, parsedSituations.reply, origin, options);
   return {
     reply: parsedIssues.reply,
-    situations: mergeAdvisorSituations(snapshot, parsedSituations.situations),
+    situations: options.includeDeterministicSituations
+      ? mergeAdvisorSituations(snapshot, parsedSituations.situations)
+      : parsedSituations.situations,
     issues: parsedIssues.issues,
   };
 }

@@ -560,5 +560,8 @@ describe('Chat diplomatiche', () => {
 
     expect(sseEvents.find(e => e.type === 'advisor_proactive')?.data.content)
       .toBe('Commento del consigliere sul periodo.');
+    // WS-CONSULENTE-SITUAZIONI — il testo pubblico non contiene mai blocchi fenced.
+    expect(sseEvents.find(e => e.type === 'advisor_proactive')?.data.content).not.toContain('```advisor_situation');
+    expect(sseEvents.find(e => e.type === 'advisor_proactive')?.data.content).not.toContain('```council_issue');
   });
 });

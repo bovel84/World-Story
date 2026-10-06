@@ -36,7 +36,7 @@ import { renderRealityConcerns } from './core/government/RealitySignals';
 import { buildRealityAdvisorContext, guardRealityAdvisorOutput, verifiedRequestCorrection, renderSignedActs, advisorOpeningRequest, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
 import { generateHistoricalBaseline, awaitHistoricalBaseline, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
 import { parseAdvisorResponse } from './core/government/AdvisorSituations';
-import { parseCouncilIssues, type CouncilIssue } from './core/government/CouncilIssue';
+import type { CouncilIssue } from './core/government/CouncilIssue';
 import type { CurrentReactionAction } from './core/simulation/ReactionContext';
 import { WorldIntelService } from './game/WorldIntelService';
 import { NpcTurnService } from './game/NpcTurnService';
@@ -3536,9 +3536,9 @@ export class GameSession {
     return gameRepository.getPolityHistoricalBaseline(this.id, polityId, this.historicalStartDate);
   }
 
-  private advisorResult(query = '', focusIssue?: unknown): RealityAdvisorResult {
+  private advisorResult(query = '', focusIssue?: unknown, focusSituation?: unknown): RealityAdvisorResult {
     const own = this.cachedHistoricalBaseline(this.playerPolityId);
-    const result = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), focusIssue, own?.historicalBackground);
+    const result = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), focusIssue, own?.historicalBackground, focusSituation);
     const related = this.mentionedNpcPolityIds([query]).slice(0, 3).flatMap(id => {
       const baseline = this.cachedHistoricalBaseline(id); return baseline ? [baseline] : [];
     });
@@ -3640,20 +3640,20 @@ export class GameSession {
     }
     this.assertFenceValid(fence);
     if (text === null || !text.trim()) return { ...this.advisorResult(), fallback: true };
-    const result = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'advisor');
+    const result = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'advisor', { includeDeterministicSituations: true });
     return { ...result, advisorContext: context, fallback: false };
   }
 
   /** Client context supplies only a discussion focus; every fact is rebuilt from the server snapshot. */
-  async getRealityAdvisor(message: string, history: any[] = [], focusIssue?: unknown, signal?: AbortSignal): Promise<RealityAdvisorResult> {
+  async getRealityAdvisor(message: string, history: any[] = [], focusIssue?: unknown, focusSituation?: unknown, signal?: AbortSignal): Promise<RealityAdvisorResult> {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const fence = this.fenceContext();
     // Reject untrusted facts and impossible requests before spending on history.
-    const initial = this.advisorResult(message, focusIssue);
+    const initial = this.advisorResult(message, focusIssue, focusSituation);
     const correction = verifiedRequestCorrection(initial.advisorContext.verifiedWorldSnapshot, message);
     if (correction) return { ...initial, reply: correction };
     this.assertFenceValid(fence);
-    const context = this.advisorResult(message, focusIssue);
+    const context = this.advisorResult(message, focusIssue, focusSituation);
     const gameData = this.buildGameData();
     gameData.advisorContext = context.advisorContext;
     const text = await this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
@@ -3677,7 +3677,12 @@ export class GameSession {
     gameData.advisorContext = this.advisorContext(message);
     if (ministerSeat) gameData.ministerDialogueSeat = ministerSeat;
     if (ministerMemoryRequest) gameData.ministerMemoryRequest = ministerMemoryRequest;
-    return this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
+    const text = await this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
+    // Il percorso ministro interpreta il testo con `parseAdvisorResponse` (blocchi
+    // inclusi). Il testo PUBBLICO (proattivo/semplice) non deve mai contenere
+    // blocchi fenced: si pubblica solo la prosa.
+    if (ministerSeat) return text;
+    return parseAdvisorResponse(this.getVerifiedWorldSnapshot(), text, 'advisor', { includeDeterministicSituations: false }).reply;
   }
 
   /** Apertura automatica: solo letture, stesso provider, nessun percorso di decisione/memoria. */
@@ -3759,12 +3764,14 @@ export class GameSession {
       const { question, request } = this.ministerSelectiveFrom(address, message);
       const text = await this.getAdvisorUnchecked(question, history, signal, request, address.seat);
       this.assertFenceValid(fence);
-      return { ...parseCouncilIssues(this.getVerifiedWorldSnapshot(), this.guardVerifiedProse(text), 'minister'), seat };
+      const parsed = parseAdvisorResponse(this.getVerifiedWorldSnapshot(), this.guardVerifiedProse(text), 'minister', { includeDeterministicSituations: false });
+      return { reply: parsed.reply, issues: parsed.issues, seat };
     }
     const question = this.ministerPromptFor(address, message, true);
     const text = await this.getAdvisorUnchecked(question, history, signal, undefined, address.seat);
     this.assertFenceValid(fence);
-    return { ...parseCouncilIssues(this.getVerifiedWorldSnapshot(), this.guardVerifiedProse(text), 'minister'), seat };
+    const parsed = parseAdvisorResponse(this.getVerifiedWorldSnapshot(), this.guardVerifiedProse(text), 'minister', { includeDeterministicSituations: false });
+    return { reply: parsed.reply, issues: parsed.issues, seat };
   }
 
   /**
@@ -3900,7 +3907,9 @@ export class GameSession {
     const gameData = this.buildGameData();
     gameData.polityHistoricalBaselines = this.persistedPolityHistoricalBaselines(this.mentionedNpcPolityIds([message]));
     gameData.advisorContext = this.advisorContext(message);
-    return this.gameController.getAdvisorStreamWithPrompts(gameData, message, history, onToken);
+    const text = await this.gameController.getAdvisorStreamWithPrompts(gameData, message, history, onToken);
+    // WS-CONSULENTE-SITUAZIONI — il testo pubblico non contiene blocchi fenced.
+    return parseAdvisorResponse(this.getVerifiedWorldSnapshot(), text, 'advisor', { includeDeterministicSituations: false }).reply;
   }
 
   // =========================================================================

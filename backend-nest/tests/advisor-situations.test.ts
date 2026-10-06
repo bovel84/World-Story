@@ -10,7 +10,7 @@ import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from '../src/c
 import { buildRealitySignals } from '../src/core/government/RealitySignals';
 import {
   buildAdvisorSituations, MAX_ADVISOR_SITUATIONS, parseAdvisorResponse, parseAdvisorSituations,
-  resolveAdvisorSituation, signalSituationTitle,
+  resolveAdvisorSituation, resolveFocusSituation, signalSituationTitle,
 } from '../src/core/government/AdvisorSituations';
 
 const block = (kind: string, value: unknown) => `\`\`\`${kind}\n${JSON.stringify(value)}\n\`\`\``;
@@ -90,11 +90,28 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     expect(reasons.some(reason => reason.includes('Unknown reality signal key'))).toBe(true);
   });
 
+  it('una AdvisorSituation rappresenta un SOLO segnale: 2 signalKeys vengono rifiutate', () => {
+    const snapshot = multi();
+    expect(() => resolveAdvisorSituation(snapshot, {
+      title: 'Tensioni regionali', summary: 'Sudan e Congo.',
+      signalKeys: ['hostile-relations:SDN', 'hostile-relations:COD'],
+    })).toThrow(/situazione non valida/i);
+    const parsed = parseAdvisorSituations(snapshot, block('advisor_situation', {
+      title: 'Tensioni regionali', summary: 'Sudan e Congo.',
+      signalKeys: ['hostile-relations:SDN', 'hostile-relations:COD'],
+    }));
+    expect(parsed.situations).toEqual([]);
+    // E restano due problemi distinti nella base deterministica.
+    const titles = buildAdvisorSituations(snapshot).map(situation => situation.title);
+    expect(titles).toContain('Tensioni con Sudan');
+    expect(titles).toContain('Tensioni con Congo');
+  });
+
   it('separa le situazioni dalle proposte: una situazione NON crea una CouncilIssue', () => {
     const snapshot = multi();
     const modelSituation = block('advisor_situation', { title: 'Tensioni al confine con il Sudan', summary: 'Il rapporto con il Sudan resta ostile.', signalKeys: ['hostile-relations:SDN'] });
     const modelIssue = block('council_issue', { title: 'Sicurezza al confine', question: 'Come rafforziamo il confine?', signalKeys: ['hostile-relations:SDN'], suggestedMinisters: ['guerra'] });
-    const result = parseAdvisorResponse(snapshot, ['Quadro.', modelSituation, modelIssue].join('\n\n'), 'advisor');
+    const result = parseAdvisorResponse(snapshot, ['Quadro.', modelSituation, modelIssue].join('\n\n'), 'advisor', { includeDeterministicSituations: true });
     expect(result.reply).toBe('Quadro.');
     expect(result.issues).toHaveLength(1);
     expect(result.issues[0].title).toBe('Sicurezza al confine');
@@ -103,15 +120,38 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     // La situazione del modello ha il titolo scelto; le altre restano reali.
     expect(result.situations.map(situation => situation.title)).toContain('Tensioni al confine con il Sudan');
     // Zero proposte resta valido.
-    const noIssues = parseAdvisorResponse(snapshot, `Solo situazioni.\n${modelSituation}`, 'advisor');
+    const noIssues = parseAdvisorResponse(snapshot, `Solo situazioni.\n${modelSituation}`, 'advisor', { includeDeterministicSituations: true });
     expect(noIssues.issues).toEqual([]);
     expect(noIssues.situations.length).toBeGreaterThanOrEqual(4);
   });
 
-  it('senza blocchi del modello la base deterministica resta disponibile', () => {
-    const result = parseAdvisorResponse(multi(), 'Il paese è sotto pressione.', 'advisor');
-    expect(result.issues).toEqual([]);
-    expect(result.situations.length).toBeGreaterThanOrEqual(4);
+  it('apertura/turn briefing: la lista completa; chat normale: nessuna situazione automatica', () => {
+    const snapshot = multi();
+    // Apertura: `includeDeterministicSituations: true` → tutte le situazioni correnti.
+    const opening = parseAdvisorResponse(snapshot, 'Il paese è sotto pressione.', 'advisor', { includeDeterministicSituations: true });
+    expect(opening.issues).toEqual([]);
+    expect(opening.situations.length).toBe(buildAdvisorSituations(snapshot).length);
+    expect(opening.situations.length).toBeGreaterThanOrEqual(4);
+    // Chat normale: default false → nessuna lista reiniettata.
+    const chat = parseAdvisorResponse(snapshot, 'Il paese è sotto pressione.', 'advisor');
+    expect(chat.issues).toEqual([]);
+    expect(chat.situations).toEqual([]);
+    // Chat normale con una nuova situazione esplicita del modello: solo quella.
+    const one = parseAdvisorResponse(snapshot, `Nuova.\n${block('advisor_situation', { title: 'Tensioni con il Sudan', summary: 'Rapporto ostile.', signalKeys: ['hostile-relations:SDN'] })}`, 'advisor');
+    expect(one.situations.map(situation => situation.title)).toEqual(['Tensioni con il Sudan']);
+  });
+
+  it('focusSituation: una sola signalKey canonica, chiave ignota → fail closed', () => {
+    const snapshot = multi();
+    const focus = resolveFocusSituation(snapshot, { id: 's-sudan', signalKey: 'hostile-relations:SDN' });
+    expect(focus.signalKeys).toEqual(['hostile-relations:SDN']);
+    expect(focus.title).toBe('Tensioni con Sudan');
+    // Titolo e sintesi del client NON sono fonte di fatti: vengono ignorati.
+    const spoofed = resolveFocusSituation(snapshot, { id: 's', signalKey: 'hostile-relations:SDN', title: 'Titolo inventato', summary: 'Fatti inventati' });
+    expect(spoofed.title).toBe('Tensioni con Sudan');
+    expect(spoofed.summary).not.toBe('Fatti inventati');
+    expect(() => resolveFocusSituation(snapshot, { signalKey: 'non-esiste' })).toThrow(/Unknown reality signal key/);
+    expect(() => resolveFocusSituation(snapshot, {})).toThrow(/situazione non valida/i);
   });
 
   it('le decisioni già prese non sono situazioni da approfondire', () => {
