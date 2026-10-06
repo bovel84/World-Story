@@ -331,7 +331,15 @@ export class MilitaryService {
   private readinessOf(polityId: string, input: ReadinessInput): MilitaryReadiness {
     const live = militaryReadiness(input);
     const profile = countryInitialProfiles.get(this.ctx.gameId, polityId);
-    if (!profile || this.ctx.currentDate() !== profile.startDate || !this.operational()?.initialReadinessUnchanged()) return live;
+    if (!profile || this.ctx.currentDate() !== profile.startDate) return live;
+    const store = this.operational();
+    // La stima del profilo è solo un ripiego storico: vale finché non esiste
+    // una misura operativa affidabile. Appena dei reparti persistiti (con
+    // uomini) esistono, la misura reale vince e il profilo resta baseline nel
+    // Dossier (`military.initialReadinessPct`), non sostituisce lo stato.
+    if (!store || !store.initialReadinessUnchanged()) return live;
+    if (store.persistedUnits().some(unit => String(unit.polityId) === String(polityId)
+      && unit.status !== 'destroyed' && Number(unit.personnel) > 0)) return live;
     const pct = (value: number) => Math.max(0, Math.min(100, Math.round(nonNegative(value))));
     const readinessPct = pct(profile.military.readinessPct);
     return {

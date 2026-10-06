@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   assignBootstrapIndividualWeapons,
   equipmentTotals,
+  repairLegacyBootstrapReadinessIfSafe,
+  unitIdFor,
+  unitRifleRequirement,
   UNIT_ORDER_DEFAULT,
   type MilitaryUnitState,
 } from '../src/core/simulation/OperationalState';
@@ -119,5 +122,83 @@ describe('military readiness salience — measured national state, not the initi
     expect(context.readinessPct).toBeCloseTo(88, 0);
     expect(context.minReadinessPct).toBe(25);
     expect(evaluateGovernmentSalience(governmentSalienceInput(snapshot)).defence).toBeUndefined();
+  });
+
+  it('CASO 6 — profile 60 vs real units 85: wins the operational measure, 60 stays baseline', () => {
+    const snapshot = world();
+    withUnits(snapshot, [1_000, 1_000], [0.85, 0.85]);
+    number(snapshot, 'military.initialReadinessPct', 60);
+    const context = governmentSalienceContext(snapshot);
+    expect(context.readinessPct).toBeCloseTo(85, 1);
+    expect(context.initialReadinessEstimate).not.toBe(true);
+    expect(evaluateGovernmentSalience(governmentSalienceInput(snapshot)).defence).toBeUndefined();
+  });
+
+  it('CASO 7 — only the 25% profile estimate, no units: no military-readiness crisis', () => {
+    const snapshot = world();
+    number(snapshot, 'military.initialReadinessPct', 25);
+    const context = governmentSalienceContext(snapshot);
+    expect(context.initialReadinessEstimate).toBe(true);
+    expect(context.readinessPct).toBe(25);
+    expect(evaluateGovernmentSalience(governmentSalienceInput(snapshot)).defence).toBeUndefined();
+    expect(buildRealitySignals(snapshot).some(signal => signal.key === 'military-readiness')).toBe(false);
+  });
+});
+
+/** Un reparto esattamente com'è nato col vecchio bootstrap: uomini pieni, zero fucili. */
+const legacyUnit = (armyId: string, index: number, personnel = 1_000): MilitaryUnitState => ({
+  ...unit(unitIdFor(armyId, index), personnel, personnel),
+  armyId,
+  readiness: 0.25,
+});
+
+describe('legacy bootstrap repair — only the exact pre-#224 fingerprint', () => {
+  it('CASO 3 — legacy riconoscibile: il repair arma dal deposito e conserva il totale nazionale', () => {
+    const units = [legacyUnit('army-a', 1), legacyUnit('army-a', 2), legacyUnit('army-b', 1)];
+    const required = units.reduce((sum, entry) => sum + unitRifleRequirement(entry, 'moderno'), 0);
+    const depot = { fucili: required + 500 };
+    const repaired = repairLegacyBootstrapReadinessIfSafe({
+      units, depot, epoch: 'moderno', polityId: 'AAA', declaredRifles: required + 500,
+    });
+    expect(repaired).toBeTruthy();
+    expect(repaired!.units.every(entry => entry.status === 'operational')).toBe(true);
+    expect(repaired!.units.every(entry => entry.readiness > 0.25)).toBe(true);
+    expect(repaired!.units.every(entry => (entry.equipment.fucili ?? 0) > 0)).toBe(true);
+    // deposito + assegnato = totale nazionale, nessun fucile inventato.
+    expect(equipmentTotals(repaired!.depot, bagOf(repaired!.units))).toEqual(equipmentTotals(depot, {}));
+    // Idempotente: la seconda passata non tocca più nulla.
+    expect(repairLegacyBootstrapReadinessIfSafe({
+      units: repaired!.units, depot: repaired!.depot, epoch: 'moderno', polityId: 'AAA', declaredRifles: required + 500,
+    })).toBeNull();
+  });
+
+  it('CASO 4 — legacy ambiguo (arma presente, ordine, id riassegnato): non interviene', () => {
+    const required = unitRifleRequirement(legacyUnit('army-a', 1), 'moderno');
+    const base = { epoch: 'moderno' as const, polityId: 'AAA', declaredRifles: required + 100 };
+    // Un solo fucile già assegnato = riarmo già avvenuto.
+    expect(repairLegacyBootstrapReadinessIfSafe({
+      ...base, units: [{ ...legacyUnit('army-a', 1), equipment: { fucili: 1 } }], depot: { fucili: required },
+    })).toBeNull();
+    // Ordine reale già dato dal giocatore.
+    expect(repairLegacyBootstrapReadinessIfSafe({
+      ...base, units: [{ ...legacyUnit('army-a', 1), order: 'attack' }], depot: { fucili: required },
+    })).toBeNull();
+    // Id non deterministico: il reparto è stato riassegnato a un'altra armata.
+    expect(repairLegacyBootstrapReadinessIfSafe({
+      ...base, units: [{ ...legacyUnit('army-a', 1), id: 'army-b-unit-001' }], depot: { fucili: required },
+    })).toBeNull();
+  });
+
+  it('CASO 5 — reparto realmente danneggiato al 25% o carenza vera: non interviene', () => {
+    // Uomini sotto l'organico: perdite reali, non impronta del bootstrap.
+    expect(repairLegacyBootstrapReadinessIfSafe({
+      units: [{ ...legacyUnit('army-a', 1), personnel: 500 }], depot: { fucili: 5_000 },
+      epoch: 'moderno', polityId: 'AAA', declaredRifles: 5_000,
+    })).toBeNull();
+    // Deposito vuoto: carenza reale di fucili, nessun refill.
+    expect(repairLegacyBootstrapReadinessIfSafe({
+      units: [legacyUnit('army-a', 1)], depot: {},
+      epoch: 'moderno', polityId: 'AAA', declaredRifles: 0,
+    })).toBeNull();
   });
 });

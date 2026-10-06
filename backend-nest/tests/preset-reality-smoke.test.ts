@@ -22,7 +22,6 @@ let registry: import('../src/session-registry').SessionRegistry;
 let session: import('../src/game-session').GameSession;
 let buildOpeningContext: typeof import('../src/core/government/OpeningNarrative').buildOpeningContext;
 let buildDeterministicOpeningResponse: typeof import('../src/core/government/OpeningNarrative').buildDeterministicOpeningResponse;
-let buildRealitySignals: typeof import('../src/core/government/RealitySignals').buildRealitySignals;
 let nationalSituationLines: typeof import('../src/core/government/RealitySignals').nationalSituationLines;
 let nationalQuestions: typeof import('../src/core/government/RealitySignals').nationalQuestions;
 let hasTechnicalVocabulary: typeof import('../src/core/government/RealitySignals').hasTechnicalVocabulary;
@@ -43,7 +42,7 @@ beforeAll(async () => {
   database.initDatabase();
   const repos = await import('../src/repositories');
   ({ buildOpeningContext, buildDeterministicOpeningResponse } = await import('../src/core/government/OpeningNarrative'));
-  ({ nationalQuestions, nationalSituationLines, hasTechnicalVocabulary, buildRealitySignals } = await import('../src/core/government/RealitySignals'));
+  ({ nationalQuestions, nationalSituationLines, hasTechnicalVocabulary } = await import('../src/core/government/RealitySignals'));
   ({ verifiedRequestCorrection } = await import('../src/core/government/RealityAdvisor'));
   const registryModule = await import('../src/session-registry');
   registryModule.initSessionRegistry(stubProvider);
@@ -116,7 +115,6 @@ describe('WS-GOV-PRESET-REALITY-PIPELINE', () => {
   it('il mondo apre breve e il paese parla subito: KHM e USA sono diversi', () => {
     const khmState = briefingFor(khm);
     const khmBrief = khmState.briefing;
-    console.log('KHMSIG-MAIN', JSON.stringify({ signals: buildRealitySignals(khmState.snapshot).map(sg => ({ key: sg.key, reason: sg.reason })), initial: khmState.snapshot.facts['military.initialReadinessPct']?.value, readiness: khmState.snapshot.military.readiness, framing: khmBrief.nation.framing, questions: khmBrief.nation.questions }));
     const usaBrief = briefingFor(usa).briefing;
     // Mondo: una frase breve, non il briefing intero.
     expect(khmBrief.world.narrative.worldOrder.split(/\s+/).length).toBeLessThanOrEqual(45);
@@ -152,5 +150,19 @@ describe('WS-GOV-PRESET-REALITY-PIPELINE', () => {
     for (const word of ['FACT', 'inventory', 'account', 'sourceRef', 'canonical', 'fallback', 'JSON']) {
       expect(visible).not.toContain(word);
     }
+  });
+
+  it('CASO 1 — zero segnali non significa zero quadro nazionale, e nessuna crisi inventata', () => {
+    const context = buildOpeningContext({
+      worldName: 'Millennium Dawn', date: '2000-01-01', premise: PREMISE, rules: '',
+      nationName: 'KHM', polityId: 'KHM', verifiedSituation: [], questions: [],
+    });
+    const briefing = buildDeterministicOpeningResponse(context);
+    // Il Governo ha sempre un quadro leggibile...
+    expect(briefing.nation.framing).toBeTruthy();
+    expect(briefing.nation.framing.trim().length).toBeGreaterThan(0);
+    // ...ma senza inventare crisi: nessuna domanda se il motore non ne ha.
+    expect(briefing.nation.questions).toEqual([]);
+    expect(hasTechnicalVocabulary(briefing.nation.framing)).toBe(false);
   });
 });

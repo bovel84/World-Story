@@ -42,6 +42,7 @@ import {
   emptyOperationalState,
   materializeUnitsForArmy,
   normalizeUnitState,
+  repairLegacyBootstrapReadinessIfSafe,
   seedArmies,
   seedConstructions,
   seedFacilities,
@@ -828,9 +829,72 @@ export class OperationalStateStore {
     } catch { return false; } // Malformed canonical inputs cannot sustain the initial estimate.
   }
 
+  /**
+   * MILITARY-BOOTSTRAP-READINESS follow-up — riparazione **conservativa**, una
+   * tantum, dei salvataggi nati col bootstrap precedente a #224: reparti con
+   * uomini, zero fucili, `forming`, 0,25, dotazione ancora in deposito.
+   *
+   * Fail closed: agisce solo se il profilo esiste, la partita è ancora alla
+   * data di inizio, personale e riserva coincidono col profilo e ogni reparto
+   * mostra l'impronta vergine del vecchio bootstrap. I salvataggi nuovi
+   * portano la firma iniziale: mai toccati. Dopo il repair l'impronta scompare
+   * (i reparti hanno i fucili), quindi la funzione è idempotente. Nessun
+   * refill, nessuna arma inventata: deposito + assegnato resta il totale.
+   */
+  private repairLegacyBootstrapReadiness(snapshot: OperationalStateSnapshot): boolean {
+    try {
+      const polityId = String(this.inputs.playerPolityId());
+      const profile = countryInitialProfiles.get(this.inputs.gameId, polityId);
+      if (!profile) return false;
+      // I salvataggi post-#224 portano la firma iniziale: non sono legacy.
+      if ((snapshot.personnel as InitialReadinessPersonnel).initialReadinessSignature) return false;
+      // Solo alla data di inizio: dopo un turno non c'è prova che nulla sia cambiato.
+      if (this.inputs.currentDate() !== profile.startDate) return false;
+      const personnel = snapshot.personnel;
+      if (Math.round(nonNegative(personnel.activePersonnel) + nonNegative(personnel.shipCrew))
+        !== Math.round(nonNegative(profile.military.activePersonnel))) return false;
+      if (Math.round(nonNegative(personnel.trainedReserve)) !== Math.round(nonNegative(profile.military.reservePersonnel))) return false;
+      if (Math.round(nonNegative(personnel.mobilizedPersonnel)) !== 0) return false;
+      const playerUnits = snapshot.units.filter(unit => String(unit.polityId) === polityId);
+      if (playerUnits.length === 0) return false;
+      const repaired = repairLegacyBootstrapReadinessIfSafe({
+        units: snapshot.units,
+        depot: this.inputs.depotUnits(),
+        epoch: this.inputs.epoch(),
+        polityId,
+        declaredRifles: Math.round(nonNegative(profile.military.equipmentProfile?.fucili)),
+        expectedPersonnel: personnel.activePersonnel,
+      });
+      if (!repaired) return false;
+      snapshot.units = repaired.units;
+      this.persist('unit', snapshot.units);
+      this.inputs.saveDepotUnits(repaired.depot);
+      // Le armate restano la **somma** dei reparti riparati (stessa authority).
+      const byArmy = new Map<string, MilitaryUnitState[]>();
+      for (const unit of snapshot.units) {
+        if (String(unit.polityId) !== polityId) continue;
+        const list = byArmy.get(String(unit.armyId));
+        if (list) list.push(unit);
+        else byArmy.set(String(unit.armyId), [unit]);
+      }
+      snapshot.armies = snapshot.armies.map(army => aggregateArmyFromUnits(army, byArmy.get(String(army.id)) || []));
+      this.inputs.saveArmies(snapshot.armies);
+      // La firma iniziale viene catturata DOPO il repair: il salvataggio è ora
+      // nella stessa forma dei nuovi (e la riparazione non si ripeterà).
+      this.captureInitialReadiness(snapshot);
+      return true;
+    } catch (error) {
+      this.warn('riparazione bootstrap legacy non applicata', error);
+      return false;
+    }
+  }
+
   /** Stato pronto all'uso: legge, semina se serve, riconcilia le armate. */
   snapshot(): OperationalStateSnapshot {
     const snapshot = this.ensureSeeded();
+    // Prima di derivare: un eventuale salvataggio col vecchio bootstrap viene
+    // riparato una sola volta, poi `syncArmies` riallinea tutto dai reparti.
+    this.repairLegacyBootstrapReadiness(snapshot);
     this.syncArmies(snapshot);
     this.refreshRecipes(snapshot);
     return snapshot;
