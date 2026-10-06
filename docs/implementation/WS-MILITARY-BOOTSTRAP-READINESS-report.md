@@ -47,6 +47,7 @@ armi **più** una metrica nazionale sbagliata.
 | `backend-nest/src/game/MilitaryService.ts` | `epoch()`: `worldStartDate?.() ?? currentDate()` → `|| currentDate()`, così un `worldStartDate` vuoto non scivola su `guerra_fredda`. |
 | `backend-nest/src/game/WorldIntelService.ts` | `WorldIntelContext.nationalUnits?()` (opzionale) e `nationalEffectiveMilitaryPower()` usa il totale nazionale (deposito + assegnato), coerente con `getArsenal()`. |
 | `backend-nest/src/game-session.ts` | Wiring di una riga: `nationalUnits: polityId => this.military.nationalUnits(polityId)`. |
+| `backend-nest/src/core/government/OpeningNarrative.ts` | `buildDeterministicNationFraming()`: fallback di calma quando non ci sono situazioni misurate, così l'apertura deterministica del Consulente non è mai vuota (senza inventare una crisi). |
 
 Nessuna modifica a schema/DB, pipeline del turno, checkpoint, fronti, produzione
 militare o regole di combattimento.
@@ -57,7 +58,7 @@ militare o regole di combattimento.
 - Aggiornati: `government-salience-snapshot`, `country-initial-military`,
   `government-dossier-integration`, `mg05-agenda-reading`, `military-units`,
   `military-p4-npc-units`, `military-warfront-integrity`, `op-objects-integration`,
-  `operational-state`, `war-fronts`, `arsenal-integration`.
+  `operational-state`, `war-fronts`, `arsenal-integration`, `preset-reality-smoke`.
 
 ---
 
