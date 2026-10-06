@@ -20,6 +20,10 @@ interface AdvisorChatProps {
   currentTurn?: number;
 }
 
+/** WS-GOV-ADVISOR-STATUS — Lo stato del Consulente è anche testo visibile, non solo aria-label. */
+export const ADVISOR_LOADING_TEXT = 'Il Consulente sta preparando la prima valutazione…';
+export const ADVISOR_THINKING_TEXT = 'Il Consulente sta pensando…';
+
 export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue, currentTurn = 0 }: AdvisorChatProps) {
   const { advisorMessages, advisorStreaming, addAdvisorMessage, setAdvisorStreaming, tagAdvisorTurns, setAdvisorMessages } = useChatStore();
   const branchId = useSimulationStore(state => state.state?.branchId ?? null);
@@ -112,7 +116,7 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
   return <div className="advisor-chat">
     {focus && <p className="advisor-focus" role="status">In esame: <strong>{focus.title}</strong> <button type="button" onClick={() => setFocus(undefined)}>Termina esame</button></p>}
     <div className="advisor-messages">
-      {loading && <p role="status">Il Consulente sta preparando la prima valutazione…</p>}
+      {loading && <p className="advisor-loading" role="status">{ADVISOR_LOADING_TEXT}</p>}
       {opening && <article className="advisor-entry assistant advisor-opening">
         <div className="entry-meta">Consulente · {opening.date}</div>
         <div className="entry-text"><RichText text={opening.reply} chartData={chartData} /></div>
@@ -123,7 +127,9 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
         <div className="entry-text">{message.role === 'assistant' ? <RichText text={message.content} chartData={chartData} /> : message.content}</div>
         {message.issues?.map(callout)}
       </article>)}
-      {advisorStreaming && <p className="advisor-typing" role="status" aria-label="Il Consulente sta preparando la risposta"><i /><i /><i /></p>}
+      {advisorStreaming && <p className="advisor-typing" role="status" aria-label={ADVISOR_THINKING_TEXT}>
+        <span className="advisor-thinking-text">{ADVISOR_THINKING_TEXT}</span><i /><i /><i />
+      </p>}
       {error && <p role="alert">{error}</p>}
       {previousTurns.length > 0 && <details className="advisor-archive">
         <summary>Discussioni precedenti</summary>

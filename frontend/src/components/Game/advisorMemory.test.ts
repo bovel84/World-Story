@@ -87,6 +87,17 @@ describe('advisorMemory', () => {
     expect(sanitized[0].issues).toBeUndefined();
   });
 
+  it('salva e ripristina cinque proposte validate, senza tagliarle a tre', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorBucketKey('g1', 'main', 'g1|main|3');
+    const many = Array.from({ length: 5 }, (_, index) => ({ ...issue(), id: `i${index}`, title: `Proposta ${index}` }));
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Cinque proposte', turn: 3, issues: many }]);
+    const restored = loadAdvisorMessages(key);
+    expect(restored).toHaveLength(1);
+    expect(restored[0].issues).toHaveLength(5);
+    expect(restored[0].issues?.map(entry => entry.id)).toEqual(['i0', 'i1', 'i2', 'i3', 'i4']);
+  });
+
   it('uno storage rotto o pieno non interrompe la conversazione', () => {
     (globalThis as { localStorage?: Storage }).localStorage = {
       ...fakeStorage(),
@@ -98,13 +109,15 @@ describe('advisorMemory', () => {
     expect(() => saveAdvisorMessages('qualsiasi', [{ role: 'user', content: 'x', turn: 1 }])).not.toThrow();
   });
 
-  it('ignores cached openings from the always-initial-mandate protocol', () => {
+  it('ignores cached openings from older protocols and regenerates once with the current one', () => {
     const storage = fakeStorage();
     (globalThis as { localStorage?: Storage }).localStorage = storage;
     const key = advisorOpeningKey('g1', 'main', 'g1|main|3');
-    expect(key).toContain('ws.advisor.opening.v2::');
-    const oldKey = key.replace('ws.advisor.opening.v2::', 'ws.advisor.opening::');
-    storage.setItem(oldKey, JSON.stringify({ reply: 'Primo intervento del mandato', issues: [], date: '2000-01-01' }));
+    expect(key).toContain('ws.advisor.opening.v3::');
+    // Le aperture v2 o del protocollo precedente non contano più: si rigenerano.
+    for (const legacy of ['ws.advisor.opening.v2::', 'ws.advisor.opening::']) {
+      storage.setItem(key.replace('ws.advisor.opening.v3::', legacy), JSON.stringify({ reply: 'Primo intervento del mandato', issues: [], date: '2000-01-01' }));
+    }
     expect(loadAdvisorOpening(key)).toBeNull();
   });
 

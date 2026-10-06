@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COUNCIL_ISSUE_PROTOCOL, parseCouncilIssues, resolveCouncilIssue, serializeCouncilIssues } from '../src/core/government/CouncilIssue';
+import { COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, parseCouncilIssues, resolveCouncilIssue, serializeCouncilIssues } from '../src/core/government/CouncilIssue';
 import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 
 const snapshot = () => buildVerifiedWorldSnapshot({ gameData: {
@@ -17,8 +17,9 @@ const block = (proposal: unknown) => `\`\`\`council_issue\n${JSON.stringify(prop
 const response = (...items: unknown[]) => ['Discutiamo queste direzioni.', ...items.map(block)].join('\n\n');
 
 describe('CouncilIssue optional variety protocol', () => {
-  it('instructs the advisor to propose 1-3 truly distinct, independently discussable issues with relevant ministers', () => {
-    expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/da 1 a 3/);
+  it('instructs the advisor to propose all and only the truly distinct issues, without a three-issue quota', () => {
+    expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/una o più di tre/);
+    expect(COUNCIL_ISSUE_PROTOCOL).not.toMatch(/da 1 a 3/);
     expect(COUNCIL_ISSUE_PROTOCOL).not.toContain('un solo blocco');
     expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/distint/i);
     expect(COUNCIL_ISSUE_PROTOCOL).toMatch(/duplic/i);
@@ -71,11 +72,27 @@ describe('CouncilIssue optional variety protocol', () => {
     expect(parseCouncilIssues(snapshot(), response(...issues)).issues.map(issue => issue.question)).toEqual(issues.map(issue => issue.question));
   });
 
-  it('caps accepted distinct issues at three and strips extra blocks', () => {
-    const extra = { ...proposals[0], question: 'Come migliorare la formazione degli ufficiali?' };
-    const result = parseCouncilIssues(snapshot(), response(...proposals, extra));
-    expect(result.issues.map(issue => issue.question)).toEqual(proposals.map(issue => issue.question));
+  it('returns five valid council_issue blocks: proposals are no longer capped at three', () => {
+    const extra = [
+      { ...proposals[0], question: 'Come migliorare la formazione degli ufficiali?' },
+      { ...proposals[0], question: 'Come rafforzare la difesa costiera?' },
+    ];
+    const result = parseCouncilIssues(snapshot(), response(...proposals, ...extra));
+    expect(result.issues).toHaveLength(5);
+    expect(result.issues.map(issue => issue.question)).toEqual([...proposals, ...extra].map(issue => issue.question));
     expect(result.reply).toBe('Discutiamo queste direzioni.');
+  });
+
+  it('keeps a high technical cap without presenting it to the model as a quota', () => {
+    const many = Array.from({ length: MAX_COUNCIL_ISSUES + 2 }, (_, index) => ({
+      ...proposals[0], question: `Domanda distinta numero ${index}?`,
+    }));
+    expect(parseCouncilIssues(snapshot(), response(...many)).issues).toHaveLength(MAX_COUNCIL_ISSUES);
+    expect(COUNCIL_ISSUE_PROTOCOL).not.toContain(String(MAX_COUNCIL_ISSUES));
+  });
+
+  it('accepts zero issues: no problem means no proposal', () => {
+    expect(parseCouncilIssues(snapshot(), 'Nessun problema saliente, nessuna proposta.').issues).toEqual([]);
   });
 
   it('still fails closed on unknown fact keys, including keys hidden in verifiedFacts', () => {
