@@ -839,16 +839,46 @@ class ApiError extends Error {
   }
 }
 
+/**
+ * Errore con un messaggio già scritto per l'utente che non arriva da una
+ * risposta HTTP: il produttore è il polling di `worldApi` quando il job di
+ * generazione del mondo fallisce (`job.error`).
+ */
+export class ReadableJobError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReadableJobError';
+  }
+}
+
 /** Coda JSON `{"error":"..."}` del messaggio `fetchApi`, senza troncare l'escape. */
 const JSON_ERROR_TAIL = /\{\s*"error"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}$/;
 
 /**
- * Messaggio leggibile per l'utente da un errore HTTP del backend.
+ * True quando `text` è una frase per l'utente e non un dettaglio tecnico:
+ * niente stack trace, JSON/HTML grezzi, percorsi di file o frame `at …`.
+ */
+function isReadableMessage(text: string): boolean {
+  if (text.length < 8 || text.length > 400) return false;
+  if (/[\n\r]/.test(text)) return false;
+  if (/^[{[]/.test(text) || /^</.test(text)) return false;
+  if (/\bat\s+\S+:\d+/.test(text)) return false;
+  if (/(node_modules|\/Users\/|:\d+:\d+)/.test(text)) return false;
+  return true;
+}
+
+/**
+ * Messaggio leggibile per l'utente da un errore del backend.
  * Preferisce il campo `error` canonico (es. il fail-closed del Dossier
- * nazionale) e non riversa mai dettagli tecnici o pagine HTML del proxy:
- * in ogni altro caso torna il `fallback` generico.
+ * nazionale o il `job.error` del job di generazione) e non riversa mai
+ * dettagli tecnici o pagine HTML del proxy: in ogni altro caso torna il
+ * `fallback` generico.
  */
 export function readableApiError(error: unknown, fallback: string): string {
+  if (error instanceof ReadableJobError) {
+    const message = error.message.trim();
+    return isReadableMessage(message) ? message : fallback;
+  }
   if (!(error instanceof ApiError)) return fallback;
   const match = JSON_ERROR_TAIL.exec(error.message);
   if (!match) return fallback;
@@ -1019,7 +1049,7 @@ export const worldApi = {
         // riavviarsi durante la generazione, es. redeploy)
         transientFailures++;
         if (transientFailures > MAX_TRANSIENT_FAILURES) {
-          throw new Error('Generazione mondo: backend non raggiungibile. Riprova tra poco.');
+          throw new ReadableJobError('Generazione mondo: backend non raggiungibile. Riprova tra poco.');
         }
         onProgress?.({ done: 0, total: 0, stage: `Connessione instabile, riprovo… (${transientFailures}/${MAX_TRANSIENT_FAILURES})` });
         continue;
@@ -1030,7 +1060,10 @@ export const worldApi = {
       // Poll rapido per i mondi in cache, poi più rilassato durante l'LLM.
       pollMs = Math.min(1200, pollMs + 150);
       if (job.status === 'failed') {
-        throw new Error(job.error || 'World generation failed');
+        // Il messaggio del job (es. il fail-closed del Dossier) è già scritto
+        // per l'utente: non va perso dietro il fallback generico.
+        const message = typeof job.error === 'string' ? job.error.trim() : '';
+        throw message ? new ReadableJobError(message) : new Error('World generation failed');
       }
       if (Date.now() > deadline) {
         throw new Error('World generation timed out');

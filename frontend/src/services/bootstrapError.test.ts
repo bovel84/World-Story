@@ -7,7 +7,7 @@
  * il fallback generico, senza riversare dettagli tecnici.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { gameApi, readableApiError } from './api';
+import { gameApi, readableApiError, ReadableJobError, worldApi } from './api';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -37,5 +37,20 @@ describe('BOOTSTRAP-FAIL-CLOSED — messaggio d’errore in creazione partita', 
 
     expect(readableApiError(httpError, GENERIC)).toBe(GENERIC);
     expect(readableApiError(new Error('boom'), GENERIC)).toBe(GENERIC);
+    expect(readableApiError(new ReadableJobError('boom\n    at fn (/app/index.js:1:2)'), GENERIC)).toBe(GENERIC);
+  });
+
+  it('mostra il job.error leggibile quando il job di generazione mondo fallisce', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const body = String(url).endsWith('/worlds/generate')
+        ? { jobId: 'j1', status: 'queued' }
+        : { status: 'failed', error: 'Impossibile inizializzare il Dossier nazionale: il modello non ha risposto in tempo. Riprova.' };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+
+    const error = await worldApi.generateFromTemplate('template-1', 'IT').catch(cause => cause);
+
+    expect(error).toBeInstanceOf(ReadableJobError);
+    expect(readableApiError(error, GENERIC)).toBe('Impossibile inizializzare il Dossier nazionale: il modello non ha risposto in tempo. Riprova.');
   });
 });
