@@ -238,6 +238,9 @@
 .government-advisor .advisor-chat { height: auto; min-height: 0; overflow: visible; border-radius: 8px; }
 .government-advisor .advisor-messages { flex: 0 0 auto; overflow-y: visible; min-height: 0; padding: 16px; }
 .government-advisor .advisor-entry .entry-text { font-size: 18px; line-height: 1.6; color: #f2f6ff !important; }
+.government-advisor .advisor-messages > p[role="status"],
+.government-advisor .advisor-typing { color: #f2f6ff !important; }
+.government-advisor .advisor-typing i { background: #f2f6ff !important; }
 .government-advisor .chat-input-row { flex: 0 0 auto; }
 /* WS-ADVISOR-READABILITY — il modale Governo è scuro e vive in un portal fuori
    da `.game-shell-desk`: il tema carta globale (`.chat-input-row textarea`,
