@@ -49,6 +49,11 @@ const llmCalls = { count: 0 };
 const stubProvider: any = {
   consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
   generate: (mechanic: string, _system: string, user: string) => {
+    // Bootstrap del giocatore: il fallback deterministico non è più accettato come stima.
+    if (String(user).includes('"fallback"')) {
+      const { fallback } = JSON.parse(user);
+      return Promise.resolve({ content: JSON.stringify({ ...fallback, economy: { ...fallback.economy, debtRatioPct: 30 } }) });
+    }
     if (mechanic !== 'balance') return Promise.resolve({ content: '{}' });
     llmCalls.count += 1;
     const codes = [...String(user).matchAll(/^([A-Z]{3}):/gm)].map(match => match[1]);

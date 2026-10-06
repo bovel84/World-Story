@@ -19,7 +19,7 @@ describe('advisor strategist voice', () => {
     const usa = buildRealityAdvisorContext(country('USA', 4, 2)).reply;
     expect(khm).not.toBe(usa);
     expect(khm).toMatch(/scorte|aliment/i);
-    expect(khm).toMatch(/evit|rinvi|priorità/i);
+    expect(khm).toMatch(/limita|margine|rischierebbe/i);
     expect(khm).not.toMatch(/la situazione regge|FACT\s*[—:-]|saldo mensile/i);
     expect(usa).toMatch(/opportunità|margine|consolid/i);
     expect(usa).not.toMatch(/crisi|emergenze immediate|programmi in corso/i);
