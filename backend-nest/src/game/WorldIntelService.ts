@@ -40,6 +40,13 @@ export interface WorldIntelContext {
   /** Stance registrata tra due politie (matrice diplomatica). */
   relationship(from: string, to: string): string;
   arsenalUnits(polityId: string): Record<string, number>;
+  /**
+   * Totale nazionale = deposito + equipaggiamento assegnato ai reparti. Dopo il
+   * bootstrap iniziale la maggior parte dell'arsenale è **assegnata**: la forza
+   * effettiva deve contarla, non solo il deposito. Opzionale per i contesti di
+   * test che non hanno uno stato operativo (fallback sul deposito).
+   */
+  nationalUnits?(polityId: string): Record<string, number>;
   worldStateOptions(): { modernFacts: boolean; startDate: string; taxRateByPolity?: Record<string, number> };
   /** Agenda strategica corrente di una polity (motore, sola lettura). */
   npcAgenda?(polityId: string): string;
@@ -299,7 +306,7 @@ export class WorldIntelService {
     byOwner?: Map<string, RegionState[]>,
   ): number {
     const base = this.nationalMilitaryPower(polityId, byOwner);
-    const arsenal = this.ctx.arsenalUnits(polityId);
+    const arsenal = this.ctx.nationalUnits?.(polityId) ?? this.ctx.arsenalUnits(polityId);
     const book = accounts || WorldStateEngine.accounts(this.ctx.regions().values(), this.ctx.worldStateOptions());
     const forces = Number(book[polityId]?.forces || 0) + Number(book[polityId]?.mobilized || 0);
     return Math.round(base * arsenalCombatFactor(arsenal, forces) * 10) / 10;

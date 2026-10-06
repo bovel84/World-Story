@@ -397,8 +397,7 @@ export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySig
         : military.priority === 'change' ? 'military-change' : 'military-operations',
       domain: 'military', importance: military.urgency === 'critica' ? 3 : 2,
       factKeys: [...new Set(keys)], sourceRefs: [...new Set(refs)].filter(Boolean),
-      reason: military.because.replace(/Sono registrati/g, 'Sono presenti')
-        .replace('La prontezza osservata', 'La prontezza minima osservata tra i reparti'),
+      reason: military.because.replace(/Sono registrati/g, 'Sono presenti'),
     });
   }
 

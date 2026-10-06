@@ -77,12 +77,22 @@ afterAll(() => {
 
 const byKind = (objects: any[], kind: string) => objects.filter(object => object.kind === kind);
 const factOf = (object: any, label: string) => object.facts.find((item: any) => item.label === label);
+/**
+ * Armi individuali nel deposito. Il bootstrap consegna ai reparti iniziali i
+ * fucili del profilo, quindi i test che sollevano una **nuova** formazione
+ * devono prima rifornire il deposito: sono pezzi che esistono davvero solo lì.
+ */
+const setArsenal = (session: any, fucili: number) => {
+  const current = session.military.arsenalUnits('ITA');
+  session.military.saveArsenal('ITA', { ...current, fucili });
+};
 
 // ── Test 37 — riserva come stock ─────────────────────────────────────────────
 
 describe('OP-OBJECTS PERSISTENT — test 37: la riserva è uno stock che si riduce', () => {
   it('creare 1 reparto toglie gli uomini dalla riserva (non li aggiunge)', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const before = session.getArsenal();
     const beforeActive = Number(before.manpower.activePersonnel);
     const beforeReserve = Number(before.manpower.reservePersonnel);
@@ -99,6 +109,7 @@ describe('OP-OBJECTS PERSISTENT — test 37: la riserva è uno stock che si ridu
 
   it('l\'anteprima mostra il consumo reale della riserva e il passaggio deposito → armata', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const before = session.getArsenal();
     const preview = session.formationPreview({ formations: 1 });
     // Riserva: PRIMA → DOPO con lo stock reale (mai in aumento).
@@ -149,6 +160,7 @@ describe('OP-OBJECTS PERSISTENT — test 38: deposito + assegnato = totale nazio
 
   it('la formazione sposta i pezzi dal deposito all\'armata (totale invariato)', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const before = session.getArsenal();
     const result = session.raiseFormation({ formations: 1 });
     const after = session.getArsenal();

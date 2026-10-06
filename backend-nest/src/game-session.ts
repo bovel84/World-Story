@@ -1930,6 +1930,7 @@ export class GameSession {
       results: () => this.results,
       relationship: (from, to) => this.diplomacy.matrix().get(from, to),
       arsenalUnits: polityId => this.military.arsenalUnits(polityId),
+      nationalUnits: polityId => this.military.nationalUnits(polityId),
       worldStateOptions: () => this.worldStateOptions(),
       // GAMEPLAY-LONG: l'agenda strategica entra nel dossier NPC.
       npcAgenda: polityId => this.npcAgenda.describe(polityId),

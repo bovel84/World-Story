@@ -246,6 +246,9 @@ describe('MILITARY-UNITS — materializzazione lazy e idempotente (P2)', () => {
 describe('MILITARY-UNITS — raiseFormation crea un reparto reale (P3)', () => {
   it('11: il reparto nasce con gli uomini e i pezzi trasferiti, l\'armata cresce di uno', () => {
     const { session } = createGame();
+    // The standing force already holds its weapons: a new formation draws from
+    // the depot, so the test stocks the pezzi it is about to assign.
+    setArsenal(session, 100_000);
     const before = armyOf(session, 'a1');
     const result = session.raiseFormation({ formations: 1, armyId: 'a1' });
     const after = armyOf(session, 'a1');
@@ -262,6 +265,7 @@ describe('MILITARY-UNITS — raiseFormation crea un reparto reale (P3)', () => {
 
   it('12: gli uomini vengono dalla riserva, non dal nulla', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const before = personnel(session);
     const result = session.raiseFormation({ formations: 1, armyId: 'a1' });
     const after = personnel(session);
@@ -273,6 +277,7 @@ describe('MILITARY-UNITS — raiseFormation crea un reparto reale (P3)', () => {
 
   it('13: deposito + assegnato resta il totale nazionale dell\'equipaggiamento', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const before = (session as any).military.nationalUnits(PID);
     session.raiseFormation({ formations: 1, armyId: 'a1' });
     const after = (session as any).military.nationalUnits(PID);
@@ -320,7 +325,12 @@ describe('MILITARY-UNITS — azioni del reparto (P5)', () => {
 
   it('16: Riequipaggia assegna le armi mancanti dal deposito (parziale se serve)', () => {
     const { session } = createGame();
-    const unit = unitOf(session, 'a1-unit-001');
+    const initial = unitOf(session, 'a1-unit-001');
+    // The bootstrap already equipped the standing force: start from the
+    // shortage the action is meant to repair.
+    store(session).saveUnits(units(session).map(item => (item.id === initial.id ? { ...item, equipment: {}, status: 'forming' } : item)));
+    setArsenal(session, 1_000);
+    const unit = unitOf(session, initial.id);
     const depotBefore = (session as any).military.depotUnits(PID);
     const result = session.unitAction({ action: 'reequip', unitId: unit.id });
     expect(result.blocked).toBe(false);
@@ -335,8 +345,10 @@ describe('MILITARY-UNITS — azioni del reparto (P5)', () => {
 
   it('17: Riequipaggia è bloccato senza pezzi in deposito', () => {
     const { session } = createGame();
-    const unit = unitOf(session, 'a1-unit-001');
+    const initial = unitOf(session, 'a1-unit-001');
+    store(session).saveUnits(units(session).map(item => (item.id === initial.id ? { ...item, equipment: {}, status: 'forming' } : item)));
     setArsenal(session, 0);
+    const unit = unitOf(session, initial.id);
     const result = session.unitAction({ action: 'reequip', unitId: unit.id });
     expect(result.blocked).toBe(true);
     expect(String(result.blockedReason)).toContain('Deposito');
@@ -374,6 +386,7 @@ describe('MILITARY-UNITS — azioni del reparto (P5)', () => {
 
   it('20: Cambia armata sposta il reparto, l\'id resta e nessun reparto viene inventato', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const created = session.raiseFormation({ formations: 1 });
     const targetId = created.unit.armyId;
     const unit = unitOf(session, 'a1-unit-001');

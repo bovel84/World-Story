@@ -22,6 +22,7 @@ let registry: import('../src/session-registry').SessionRegistry;
 let session: import('../src/game-session').GameSession;
 let buildOpeningContext: typeof import('../src/core/government/OpeningNarrative').buildOpeningContext;
 let buildDeterministicOpeningResponse: typeof import('../src/core/government/OpeningNarrative').buildDeterministicOpeningResponse;
+let buildRealitySignals: typeof import('../src/core/government/RealitySignals').buildRealitySignals;
 let nationalSituationLines: typeof import('../src/core/government/RealitySignals').nationalSituationLines;
 let nationalQuestions: typeof import('../src/core/government/RealitySignals').nationalQuestions;
 let hasTechnicalVocabulary: typeof import('../src/core/government/RealitySignals').hasTechnicalVocabulary;
@@ -42,7 +43,7 @@ beforeAll(async () => {
   database.initDatabase();
   const repos = await import('../src/repositories');
   ({ buildOpeningContext, buildDeterministicOpeningResponse } = await import('../src/core/government/OpeningNarrative'));
-  ({ nationalQuestions, nationalSituationLines, hasTechnicalVocabulary } = await import('../src/core/government/RealitySignals'));
+  ({ nationalQuestions, nationalSituationLines, hasTechnicalVocabulary, buildRealitySignals } = await import('../src/core/government/RealitySignals'));
   ({ verifiedRequestCorrection } = await import('../src/core/government/RealityAdvisor'));
   const registryModule = await import('../src/session-registry');
   registryModule.initSessionRegistry(stubProvider);
@@ -115,6 +116,7 @@ describe('WS-GOV-PRESET-REALITY-PIPELINE', () => {
   it('il mondo apre breve e il paese parla subito: KHM e USA sono diversi', () => {
     const khmState = briefingFor(khm);
     const khmBrief = khmState.briefing;
+    console.log('KHMSIG-MAIN', JSON.stringify({ signals: buildRealitySignals(khmState.snapshot).map(sg => ({ key: sg.key, reason: sg.reason })), initial: khmState.snapshot.facts['military.initialReadinessPct']?.value, readiness: khmState.snapshot.military.readiness, framing: khmBrief.nation.framing, questions: khmBrief.nation.questions }));
     const usaBrief = briefingFor(usa).briefing;
     // Mondo: una frase breve, non il briefing intero.
     expect(khmBrief.world.narrative.worldOrder.split(/\s+/).length).toBeLessThanOrEqual(45);
@@ -123,8 +125,12 @@ describe('WS-GOV-PRESET-REALITY-PIPELINE', () => {
     // troncamento a 3: la lista coincide con i segnali misurati dello stato.
     expect(khmBrief.nation.framing).toBeTruthy();
     expect(khmBrief.nation.framing).not.toBe(khmBrief.world.narrative.worldOrder);
-    expect(khmBrief.nation.questions.length).toBeGreaterThanOrEqual(1);
+    // Un paese senza urgenze misurate non inventa una crisi: la lista resta
+    // quella del motore (qui vuota). L'USA, con un segnale reale di
+    // rifornimenti, ha invece la sua questione.
     expect(khmBrief.nation.questions).toEqual(nationalQuestions(khmState.snapshot));
+    expect(nationalQuestions(khmState.snapshot).some(question => /prontezza/i.test(question))).toBe(false);
+    expect(usaBrief.nation.questions.length).toBeGreaterThanOrEqual(1);
     // §3 — la PRIMA pagina contiene già la frase del paese (stakesForNation,
     // dal quadro verificato) e differisce tra KHM e USA.
     expect(khmBrief.world.narrative.stakesForNation).toBeTruthy();

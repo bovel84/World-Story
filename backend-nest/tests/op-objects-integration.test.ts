@@ -77,6 +77,15 @@ afterAll(() => {
 
 const byKind = (objects: any[], kind: string) => objects.filter(object => object.kind === kind);
 const factOf = (object: any, label: string) => object.facts.find((item: any) => item.label === label);
+/**
+ * Armi individuali nel deposito. Il bootstrap consegna ai reparti iniziali i
+ * fucili del profilo, quindi i test che sollevano una **nuova** formazione
+ * devono prima rifornire il deposito: sono pezzi che esistono davvero solo lì.
+ */
+const setArsenal = (session: any, fucili: number) => {
+  const current = session.military.arsenalUnits('ITA');
+  session.military.saveArsenal('ITA', { ...current, fucili });
+};
 
 describe('OP-OBJECTS — sala di governo dal motore', () => {
   it('l\'arsenale pubblica oggetti concreti e catene (non solo aggregati)', () => {
@@ -134,6 +143,7 @@ describe('OP-OBJECTS — sala di governo dal motore', () => {
 describe('OP-OBJECTS — creazione di un reparto (azione reale)', () => {
   it('recruiting multiple formations conserves the transferred stock instead of duplicating map seeds', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const before = session.getArsenal();
     const count = session.getNationalAccounts().ITA.forces;
     const result = session.raiseFormation({ formations: 2 });
@@ -146,6 +156,7 @@ describe('OP-OBJECTS — creazione di un reparto (azione reale)', () => {
   });
   it('l\'anteprima è PRIMA → DOPO con i numeri del motore e non scrive nulla', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const before = session.getArsenal();
     const preview = session.formationPreview({ formations: 1 });
     expect(preview.plan.blocked).toBe(false);
@@ -162,6 +173,7 @@ describe('OP-OBJECTS — creazione di un reparto (azione reale)', () => {
 
   it('la creazione aggiunge un\'armata al mondo, consuma arsenale e cassa e alza la spesa', () => {
     const { session, gameId } = createGame();
+    setArsenal(session, 100_000);
     const before = session.getArsenal();
     const beforeAccount = session.getNationalAccounts().ITA;
     const beforeMoney = session.getResources().stock.money;
@@ -195,6 +207,7 @@ describe('OP-OBJECTS — creazione di un reparto (azione reale)', () => {
 
   it('rinforzare un\'armata esistente ne aumenta i reparti senza crearne una nuova', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const before = byKind(session.getArsenal().objects.objects, 'army');
     const target = before.find((army: any) => army.label === '1ª Armata');
     const result = session.raiseFormation({ formations: 1, armyId: target.id });
@@ -207,8 +220,10 @@ describe('OP-OBJECTS — creazione di un reparto (azione reale)', () => {
 
   it('senza fucili in deposito la formazione è rifiutata dal motore', () => {
     const { session } = createGame();
+    // Il deposito nazionale basta per **una** formazione, non per centomila.
     // Si svuota il deposito di armi individuali comprando tutto il resto non serve:
     // il motore rifiuta con un codice, non con un messaggio della UI.
+    setArsenal(session, 12_000);
     const units = session.getArsenal().units;
     expect(units.fucili).toBeGreaterThan(0);
     const preview = session.formationPreview({ formations: 1 });

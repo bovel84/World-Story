@@ -180,7 +180,9 @@ export class MilitaryService {
    * dalla data corrente — la dottrina di una nazione non si riscrive in un anno.
    */
   epoch(): MilitaryEpoch {
-    return epochForDate(this.ctx.worldStartDate?.() ?? this.ctx.currentDate());
+    // Un `worldStartDate` vuoto (save legacy o sessione prima del load) non deve
+    // far scivolare l'epoca sul default `guerra_fredda`: si usa la data corrente.
+    return epochForDate(this.ctx.worldStartDate?.() || this.ctx.currentDate());
   }
 
   /** Quadro industriale della nazione: ordini aperti + progetti + manutenzione. */

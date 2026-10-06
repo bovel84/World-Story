@@ -22,21 +22,63 @@ const ratio = (balance: number | undefined, gdp: number | undefined) =>
   balance !== undefined && gdp !== undefined && gdp > 0 ? balance / gdp * 100 : undefined;
 const activeUnit = (status: unknown) => ['operational', 'degraded', 'retreating'].includes(String(status));
 
+/**
+ * Prontezza nazionale: media **pesata per personale** dei reparti vivi, non il
+ * minimo. Un solo reparto debole tra molti non trascina il paese; distrutti e
+ * reparti a personale zero non pesano. Se il personale non è misurabile per
+ * nessun reparto si ripiega sulla media semplice: un dato assente non vale zero.
+ */
+function nationalReadinessPct(
+  snapshot: VerifiedWorldSnapshot,
+  entries: ReadonlyArray<{ unitId: string; value: number }>,
+): number | undefined {
+  if (!entries.length) return undefined;
+  let weight = 0;
+  let weighted = 0;
+  let plain = 0;
+  for (const entry of entries) {
+    plain += entry.value;
+    const raw = snapshot.military.units.find(unit => unit.id === entry.unitId)?.raw as { personnel?: unknown } | undefined;
+    const personnel = finite(raw?.personnel);
+    if (personnel !== undefined && personnel > 0) {
+      weight += personnel;
+      weighted += entry.value * personnel;
+    }
+  }
+  return weight > 0 ? weighted / weight * 100 : plain / entries.length * 100;
+}
+
 export function governmentSalienceContext(snapshot: VerifiedWorldSnapshot): GovernmentSalienceContext {
   const context: GovernmentSalienceContext = {};
   const units = (snapshot.military.readiness ?? []).filter(entry => readiness(entry.value) !== undefined
     && snapshot.military.units.find(unit => unit.id === entry.unitId)?.raw.status !== 'destroyed');
-  const initial = measured(snapshot, 'military.initialReadinessPct');
-  if (initial !== undefined && initial >= 0 && initial <= 100) {
-    context.readinessPct = initial;
-    context.initialReadinessEstimate = true;
-  } else if (units.length) context.readinessPct = Math.min(...units.map(entry => entry.value)) * 100;
+  // La prontezza nazionale è la **misura** pesata per personale dei reparti
+  // vivi. La stima del profilo è solo un ripiego quando non esiste ancora
+  // nessun reparto misurato: non deve mai sostituire il dato reale.
+  if (units.length) {
+    const measuredPct = nationalReadinessPct(snapshot, units);
+    if (measuredPct !== undefined) {
+      context.readinessPct = measuredPct;
+      // Dettaglio diagnostico: il reparto più debole, mai la cifra nazionale.
+      context.minReadinessPct = Math.min(...units.map(entry => entry.value)) * 100;
+    }
+  }
+  if (context.readinessPct === undefined) {
+    const initial = measured(snapshot, 'military.initialReadinessPct');
+    if (initial !== undefined && initial >= 0 && initial <= 100) {
+      context.readinessPct = initial;
+      context.initialReadinessEstimate = true;
+    }
+  }
   if (snapshot.diplomacy.relations !== null) {
     context.hostileRelations = snapshot.diplomacy.relations.filter(relation => relation.relationship === 'hostile').length;
   }
   if (!snapshot.unavailable.includes('military.operationalObjects')) {
+    // Un ordine è «in corso» solo per un reparto realmente schierato su un
+    // fronte: l'ordine di difesa di default di una guarnigione in pace non è
+    // un'operazione. Evita che ogni reparto attivo diventi una voce militare.
     context.ongoingMilitaryOrders = snapshot.military.units.filter(unit =>
-      activeUnit(unit.raw.status) && ['attack', 'defend', 'withdraw'].includes(String(unit.raw.order))).length;
+      activeUnit(unit.raw.status) && unit.raw.frontId != null).length;
     // A named front alone is not a conflict. Require an operating phase and
     // positive pressure actually committed by the opposing polity.
     context.activeConflicts = snapshot.military.fronts.filter(front => {
@@ -82,10 +124,13 @@ export function governmentSalienceContext(snapshot: VerifiedWorldSnapshot): Gove
     if (value !== undefined) baseline[key] = value;
   }
   const previousUnits = units.map(unit => readiness(previous(snapshot, `military.units.${unit.unitId}.readiness`)));
-  // A partial comparison cannot establish the previous minimum for this set.
+  // A partial comparison cannot establish the previous national readiness.
   if (!context.initialReadinessEstimate && previousUnits.length && previousUnits.every(value => value !== undefined)
     && !snapshot.changes.comparedKeys.includes('military.initialReadinessPct')) {
-    baseline.readinessPct = Math.min(...previousUnits as number[]) * 100;
+    const priorPct = nationalReadinessPct(
+      snapshot, units.map((unit, index) => ({ unitId: unit.unitId, value: previousUnits[index] as number })),
+    );
+    if (priorPct !== undefined) baseline.readinessPct = priorPct;
   }
   if (Object.keys(baseline).length) context.previous = baseline;
   return context;

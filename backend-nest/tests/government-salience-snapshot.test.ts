@@ -51,11 +51,25 @@ describe('snapshot salience adapter (pure, no providers)', () => {
     expect(evaluateGovernmentSalience(governmentSalienceInput(snapshot)).treasury?.urgency).toBe('critica');
   });
 
-  it('uses the minimum of valid actual unit readiness values in [0,1], not an average or guessed national metric', () => {
+  it('weights national readiness by personnel, so one weak unit cannot define the country', () => {
     const snapshot = world();
-    snapshot.military.readiness = [{ unitId: 'a', value: 0.82 }, { unitId: 'b', value: 0.31 }, { unitId: 'bad', value: 85 }, { unitId: 'negative', value: -0.1 }];
-    expect(governmentSalienceContext(snapshot).readinessPct).toBe(31);
-    expect(evaluateGovernmentSalience(governmentSalienceInput(snapshot)).defence?.urgency).toBe('critica');
+    snapshot.military.units = [
+      { id: 'a', sourceRef: 'units.a', raw: { status: 'operational', personnel: 9_000 } },
+      { id: 'b', sourceRef: 'units.b', raw: { status: 'degraded', personnel: 1_000 } },
+      { id: 'zero', sourceRef: 'units.zero', raw: { status: 'forming', personnel: 0 } },
+      { id: 'bad', sourceRef: 'units.bad', raw: { status: 'operational', personnel: 500 } },
+      { id: 'negative', sourceRef: 'units.negative', raw: { status: 'operational', personnel: 500 } },
+    ];
+    snapshot.military.readiness = [
+      { unitId: 'a', value: 0.82 }, { unitId: 'b', value: 0.31 }, { unitId: 'zero', value: 0.1 },
+      { unitId: 'bad', value: 85 }, { unitId: 'negative', value: -0.1 },
+    ];
+    const context = governmentSalienceContext(snapshot);
+    // (0.82 × 9000 + 0.31 × 1000) / 10000 = 76.9%: the weak unit is one among many,
+    // the zero-personnel formation carries no weight, invalid values are dropped.
+    expect(context.readinessPct).toBeCloseTo(76.9, 1);
+    expect(context.minReadinessPct).toBe(10);
+    expect(evaluateGovernmentSalience(governmentSalienceInput(snapshot)).defence).toBeUndefined();
   });
 
   it('only derives previous values from comparable measured keys (including explicitly unchanged keys)', () => {
@@ -76,29 +90,36 @@ describe('snapshot salience adapter (pure, no providers)', () => {
     expect(governmentSalienceContext(snapshot).previous).toBeUndefined();
   });
 
-  it('requires every unit in the readiness minimum to have a real baseline; missing is not unchanged', () => {
+  it('weights the previous baseline by the same personnel; a partial comparison is not unchanged', () => {
     const snapshot = world();
+    snapshot.military.units = [
+      { id: 'a', sourceRef: 'units.a', raw: { status: 'operational', personnel: 8_000 } },
+      { id: 'b', sourceRef: 'units.b', raw: { status: 'operational', personnel: 2_000 } },
+    ];
     snapshot.military.readiness = [{ unitId: 'a', value: 0.8 }, { unitId: 'b', value: 0.7 }];
     number(snapshot, 'military.units.a.readiness', 0.8);
     number(snapshot, 'military.units.b.readiness', 0.7);
     comparison(snapshot, 'military.units.a.readiness', 0.4);
     expect(governmentSalienceContext(snapshot).previous?.readinessPct).toBeUndefined();
     comparison(snapshot, 'military.units.b.readiness', 0.7);
-    expect(governmentSalienceContext(snapshot).previous?.readinessPct).toBe(40);
+    // (0.4 × 8000 + 0.7 × 2000) / 10000 = 46%
+    expect(governmentSalienceContext(snapshot).previous?.readinessPct).toBeCloseTo(46, 1);
   });
 
   it('reads operational battle orders, not signed text, historical actions or destroyed units', () => {
     const snapshot = world();
     snapshot.recent.signedActs = [{ id: 'pending', text: 'attaccare', status: 'signed_pending_execution', createdAt: '2000-01-01' }];
     snapshot.military.units = [
-      { id: 'a', sourceRef: 'units.a', raw: { status: 'operational', order: 'attack' } },
-      { id: 'b', sourceRef: 'units.b', raw: { status: 'degraded', order: 'defend' } },
-      { id: 'c', sourceRef: 'units.c', raw: { status: 'retreating', order: 'withdraw' } },
-      { id: 'd', sourceRef: 'units.d', raw: { status: 'destroyed', order: 'attack' } },
-      { id: 'e', sourceRef: 'units.e', raw: { status: 'forming', order: 'attack' } },
-      { id: 'f', sourceRef: 'units.f', raw: { order: 'attack' } },
-      { id: 'g', sourceRef: 'units.g', raw: { status: 'operational', order: 'unknown' } },
-      { id: 'h', sourceRef: 'units.h', raw: { status: 'operational', order: 'reserve' } },
+      { id: 'a', sourceRef: 'units.a', raw: { status: 'operational', order: 'attack', frontId: 'f1' } },
+      { id: 'b', sourceRef: 'units.b', raw: { status: 'degraded', order: 'defend', frontId: 'f1' } },
+      { id: 'c', sourceRef: 'units.c', raw: { status: 'retreating', order: 'withdraw', frontId: 'f1' } },
+      { id: 'd', sourceRef: 'units.d', raw: { status: 'destroyed', order: 'attack', frontId: 'f1' } },
+      { id: 'e', sourceRef: 'units.e', raw: { status: 'forming', order: 'attack', frontId: 'f1' } },
+      { id: 'f', sourceRef: 'units.f', raw: { order: 'attack', frontId: 'f1' } },
+      // Standing units keep a default defensive order but are not deployed:
+      // a garrison at rest is not an ongoing military operation.
+      { id: 'g', sourceRef: 'units.g', raw: { status: 'operational', order: 'defend' } },
+      { id: 'h', sourceRef: 'units.h', raw: { status: 'operational', order: 'attack' } },
     ];
     expect(governmentSalienceContext(snapshot).ongoingMilitaryOrders).toBe(3);
   });

@@ -5,7 +5,10 @@ import { formatGovernmentNumber, governmentFigureValue } from './GovernmentNumbe
 /** Unknown inputs stay unknown: absence is not zero, peace, or a baseline. */
 export interface GovernmentSalienceContext {
   readinessPct?: number | null;
+  /** Initial profile estimate, only while the canonical fingerprint is unchanged. Never a crisis trigger. */
   initialReadinessEstimate?: boolean;
+  /** Weakest live unit, diagnostic detail only: the national figure is `readinessPct` (personnel-weighted). */
+  minReadinessPct?: number | null;
   cashRunwayMonths?: number | null;
   hostileRelations?: number;
   activeConflicts?: number;
@@ -32,6 +35,9 @@ export interface GovernmentSalienceContext {
  * - Interest/revenue >= 15% is material, >= 25% critical; debt/GDP alone is not.
  * - Readiness <= 50% (<= 35 critical), explicit threat/conflict/orders, supply < 1
  *   month, or >= 1000 mobilized warrant review. Standing forces or budget never do.
+ *   `readinessPct` is the personnel-weighted MEASURED national readiness:
+ *   a single weak unit does not define the country, and the initial profile
+ *   estimate (`initialReadinessEstimate`) never triggers a crisis on its own.
  *   Observed readiness changes >= 10 pp, forces >= 20% AND >= 1 formation, and
  *   mobilization changes >= 1000 are meaningful in either direction. A formation
  *   is not a soldier: requiring 100 would hide severe losses in small countries.
@@ -113,13 +119,13 @@ export function evaluateGovernmentSalience(input: GovernmentAgendaInput): {
   const militaryFigures: Figure[] = [];
   let priority: DefenceCondition['priority'] = 'change';
   let urgency: VoiceUrgency = 'urgente';
-  if (finite(context?.readinessPct) && context.readinessPct <= 50) {
+  if (finite(context?.readinessPct) && context.readinessPct <= 50 && !context.initialReadinessEstimate) {
     priority = 'readiness';
-    militaryReasons.push(`${context.initialReadinessEstimate ? 'La prontezza iniziale stimata' : 'La prontezza osservata'} è ${fmt(context.readinessPct)}%, sotto la soglia operativa di revisione del 50%.`);
-    const readinessFigure = fact('Prontezza', context.readinessPct, '%', 'salience.readinessPct');
-    militaryFigures.push(context.initialReadinessEstimate ? { ...readinessFigure,
-      basis: { kind: 'estimated', source: 'game_country_initial_profiles.military.readinessPct', method: 'profilo iniziale; data e fingerprint degli input canonici ancora invariati' },
-    } : readinessFigure);
+    militaryReasons.push(`La prontezza operativa delle forze è ${fmt(context.readinessPct)}%, sotto la soglia operativa di revisione del 50%.`);
+    militaryFigures.push(fact('Prontezza', context.readinessPct, '%', 'salience.readinessPct'));
+    if (finite(context.minReadinessPct) && context.minReadinessPct < context.readinessPct - 10) {
+      militaryReasons.push(`Alcuni reparti risultano sotto la soglia operativa (${fmt(context.minReadinessPct)}%).`);
+    }
     if (context.readinessPct <= 35) urgency = 'critica';
   }
   if (finite(context?.activeConflicts) && context.activeConflicts > 0) {

@@ -28,7 +28,7 @@ afterAll(() => { db?.close(); for (const suffix of ['', '-wal', '-shm']) fs.rmSy
 const create = (polityId: string) => registry.createSession('dossier-2000', 'Presidente', `region-${polityId}`).session;
 
 describe('canonical Dossier → salience → agenda, no second simulation', () => {
-  it('keeps USA 2000 normal accounts/army visible without automatic Treasury/Defence issues', async () => {
+  it('keeps USA 2000 normal accounts/army visible without a fabricated readiness crisis', async () => {
     const { readGovernmentAgenda, readCabinetSession } = await import('../src/game/GovernmentReadings');
     const session = create('USA');
     const snapshot = session.getVerifiedWorldSnapshot();
@@ -44,7 +44,12 @@ describe('canonical Dossier → salience → agenda, no second simulation', () =
     const before = db.prepare('SELECT total_changes() AS n').get();
     const agenda = readGovernmentAgenda(input);
     expect(agenda.voices.map(voice => voice.id)).not.toContain('treasury_condition');
-    expect(agenda.voices.map(voice => voice.id)).not.toContain('defence_condition');
+    // No readiness crisis is fabricated from the placeholder 25%: the initial
+    // projection is not a `Prontezza` condition. Any remaining defence voice is
+    // driven by a real operational fact of this mock, never by the estimate.
+    const defence = agenda.voices.find(voice => voice.id === 'defence_condition');
+    expect(defence?.because ?? '').not.toContain('prontezza');
+    expect(defence?.figures.some(figure => figure.label === 'Prontezza')).toBe(false);
     const cabinet = readCabinetSession(input);
     expect(cabinet.addresses.every(address => address.items.length > 0)).toBe(true);
     expect(readGovernmentAgenda(input)).toEqual(agenda);
@@ -52,7 +57,7 @@ describe('canonical Dossier → salience → agenda, no second simulation', () =
     expect(generate).not.toHaveBeenCalled();
   });
 
-  it('distinguishes Eritrea 2000 actual low-readiness/active front from USA routine bookkeeping', async () => {
+  it('reads a real active front and supply pressure without letting one weak unit define the nation', async () => {
     const { readGovernmentAgenda } = await import('../src/game/GovernmentReadings');
     const session = create('ERI');
     repositories.operationalObjectRepository.upsert(session.id, 'unit', 'eri-unit', {
@@ -67,11 +72,13 @@ describe('canonical Dossier → salience → agenda, no second simulation', () =
       government: session.getGovernment(), account: session.getNationalAccounts().ERI, snapshot });
     const defence = agenda.voices.find(voice => voice.id === 'defence_condition');
     expect(defence?.urgency).toBe('critica');
-    expect(defence?.because).toContain('prontezza');
     expect(defence?.because).toContain('conflitti attivi');
+    // One degraded unit among the standing force does not become the national
+    // readiness figure: the personnel-weighted measure keeps the country above
+    // the threshold and no `Prontezza` condition is fabricated from its 0.3.
     expect(snapshot.facts['military.units.eri-unit.readiness'].rawValue).toBe(0.3);
-    const minimum = Math.min(...snapshot.military.readiness!.map(unit => unit.value)) * 100;
-    expect(Number(defence?.figures.find(figure => figure.label === 'Prontezza')?.value)).toBe(minimum);
+    expect(defence?.because).not.toContain('prontezza');
+    expect(defence?.figures.some(figure => figure.label === 'Prontezza')).toBe(false);
     expect(generate).not.toHaveBeenCalled();
   });
 
