@@ -46,13 +46,51 @@ describe('WS-COUNCIL-SIGNALKEYS — signalKeys come collegamento canonico', () =
     expect(issue.sourceRefs).toEqual(['worldState.resources.stock.money']);
   });
 
-  it('accetta una signal senza factKeys ma con sourceRefs canonici: verifiedFacts vuoto', () => {
+  it('accetta una signal senza factKeys ma con sourceRefs canonici: verifiedFacts vuoto e signalKeys conservate', () => {
     const issue = resolveCouncilIssue(snapshot(), {
       title: 'Rapporto ostile', question: 'Come gestiamo il confine?',
       signalKeys: ['signal-1'], suggestedMinisters: ['esteri'],
     });
     expect(issue.verifiedFacts).toEqual([]);
     expect(issue.sourceRefs).toEqual(['diplomacy.relations.NEIGHBOR']);
+    expect(issue.signalKeys).toEqual(['signal-1']);
+  });
+
+  it('round-trip: la issue risolta rientra dal client e resta valida', () => {
+    const first = resolveCouncilIssue(snapshot(), {
+      title: 'Rapporto ostile', question: 'Come gestiamo il confine?',
+      signalKeys: ['signal-1'], suggestedMinisters: ['esteri'],
+    });
+    const back = resolveCouncilIssue(snapshot(), JSON.parse(JSON.stringify(first)));
+    expect(back.signalKeys).toEqual(['signal-1']);
+    expect(back.verifiedFacts).toEqual([]);
+    expect(back.sourceRefs).toEqual(['diplomacy.relations.NEIGHBOR']);
+  });
+
+  it('round-trip con fatti: verifiedFacts tornano dal client e vengono ricalcolati dal server', () => {
+    const first = resolveCouncilIssue(snapshot(), {
+      title: 'Prontezza', question: 'Come ristabiliamo la prontezza?', signalKeys: ['signal-0'], suggestedMinisters: ['guerra'],
+    });
+    const back = resolveCouncilIssue(snapshot(), JSON.parse(JSON.stringify(first)));
+    expect(back.signalKeys).toEqual(['signal-0']);
+    expect(back.verifiedFacts.map(fact => fact.key)).toEqual(['treasury']);
+  });
+
+  it('sicurezza round-trip: signalKeys valide + sourceRefs inventati → riferimenti ricalcolati', () => {
+    const server = resolveCouncilIssue(snapshot(), {
+      title: 'Rapporto ostile', question: 'Come gestiamo il confine?', signalKeys: ['signal-1'], suggestedMinisters: ['esteri'],
+    });
+    const back = resolveCouncilIssue(snapshot(), { ...JSON.parse(JSON.stringify(server)), sourceRefs: ['invented.ref'] });
+    expect(back.sourceRefs).toEqual(['diplomacy.relations.NEIGHBOR']);
+    expect(back.sourceRefs).not.toContain('invented.ref');
+  });
+
+  it("il payload sourceIssue di 'Porta al Consiglio' non lancia InvalidCouncilIssueError", () => {
+    const server = resolveCouncilIssue(snapshot(), {
+      title: 'Rapporto ostile', question: 'Come gestiamo il confine?', signalKeys: ['signal-1'], suggestedMinisters: ['esteri'],
+    });
+    const sourceIssue = JSON.parse(JSON.stringify(server)) as Record<string, unknown>;
+    expect(() => resolveCouncilIssue(snapshot(), sourceIssue)).not.toThrow();
   });
 
   it('scarta una signalKey inesistente con un motivo, non in silenzio', () => {

@@ -11,6 +11,8 @@ export interface CouncilIssue {
   id: string;
   title: string;
   question: string;
+  /** Chiavi dei segnali canonici che hanno originato la scheda (ricalcolabili dal server). */
+  signalKeys?: string[];
   verifiedFacts: Array<{ key: string; label: string; value: string; source: string; sourceRef: string }>;
   suggestedMinisters: CabinetSeat[];
   origin: CouncilIssueOrigin;
@@ -25,8 +27,10 @@ export const councilIssueInputSchema = z.object({
   id: z.string().trim().min(1).max(160).optional(),
   title: z.string().trim().min(1).max(240),
   question: z.string().trim().min(1).max(600),
-  factKeys: z.array(key).min(1).max(24).optional(),
-  verifiedFacts: z.array(z.object({ key })).min(1).max(24).optional(),
+  // Liste vuote ammesse: una issue con soli signalKeys torna dal client con
+  // `verifiedFacts: []`. La presence di almeno una fonte è richiesta dal refine.
+  factKeys: z.array(key).max(24).optional(),
+  verifiedFacts: z.array(z.object({ key })).max(24).optional(),
   signalKeys: z.array(key).min(1).max(24).optional(),
   suggestedMinisters: z.array(z.enum(CABINET_SEATS)).min(1).max(7),
   origin: z.enum(['advisor', 'president', 'minister', 'event', 'follow-up']).optional(),
@@ -39,18 +43,21 @@ export class InvalidCouncilIssueError extends Error {
 }
 
 /** Il server risolve le `signalKeys` contro i segnali REALI: mai fidarsi del modello. */
-function resolveSignalLinks(snapshot: VerifiedWorldSnapshot, signalKeys: readonly string[]): { factKeys: string[]; sourceRefs: string[] } {
-  if (!signalKeys.length) return { factKeys: [], sourceRefs: [] };
-  const byKey = new Map(buildRealitySignals(snapshot).map(signal => [signal.key, signal]));
+function resolveSignalLinks(snapshot: VerifiedWorldSnapshot, signalKeys: readonly string[]): { signalKeys: string[]; factKeys: string[]; sourceRefs: string[] } {
+  const resolved: string[] = [];
   const factKeys: string[] = [];
   const sourceRefs: string[] = [];
+  if (!signalKeys.length) return { signalKeys: resolved, factKeys, sourceRefs };
+  const byKey = new Map(buildRealitySignals(snapshot).map(signal => [signal.key, signal]));
   for (const signalKey of signalKeys) {
     const signal = byKey.get(signalKey);
     if (!signal) throw new InvalidCouncilIssueError(`Unknown reality signal key: ${signalKey}`);
+    if (resolved.includes(signalKey)) continue;
+    resolved.push(signalKey);
     factKeys.push(...signal.factKeys);
     sourceRefs.push(...signal.sourceRefs);
   }
-  return { factKeys, sourceRefs };
+  return { signalKeys: resolved, factKeys, sourceRefs };
 }
 
 /** Fail closed on ANY unknown key, never partially accept a fact list. */
@@ -58,7 +65,7 @@ export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknow
   const parsed = councilIssueInputSchema.safeParse(raw);
   if (!parsed.success) throw new InvalidCouncilIssueError();
   const input = parsed.data;
-  const linked = resolveSignalLinks(snapshot, [...new Set(input.signalKeys ?? [])]);
+  const linked = resolveSignalLinks(snapshot, input.signalKeys ?? []);
   // If several representations were supplied, none may smuggle an unknown key.
   const keys = [...new Set([...(input.factKeys ?? []), ...(input.verifiedFacts ?? []).map(fact => fact.key), ...linked.factKeys])];
   const verifiedFacts = keys.map(key => {
@@ -72,6 +79,9 @@ export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknow
   if (!verifiedFacts.length && !sourceRefs.length) throw new InvalidCouncilIssueError('Council issue senza fatto né riferimento canonico');
   return {
     id: input.id ?? `issue-${shortId()}`, title: input.title, question: input.question,
+    // Si conservano SOLO le signalKeys realmente risolte (deduplicate): il
+    // round-trip del client non può aggiungere chiavi inventate.
+    ...(linked.signalKeys.length ? { signalKeys: linked.signalKeys } : {}),
     verifiedFacts, suggestedMinisters: [...new Set(input.suggestedMinisters)],
     origin: origin ?? input.origin ?? 'advisor', sourceRefs,
     createdDate: snapshot.date ?? 'unknown',

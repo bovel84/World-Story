@@ -21,11 +21,12 @@ Classificazione: **A** (estensione minima di input/validazione), **C** (prompt/t
 
 ## 2. Correzioni applicate
 
-- **`signalKeys` come collegamento canonico (§1).** `councilIssueInputSchema` accetta `signalKeys` (retrocompatibile con `factKeys`/`verifiedFacts`). `resolveSignalLinks()` risolve le chiavi contro `buildRealitySignals(snapshot)` reali e prende dalla RealitySignal `factKeys` e `sourceRefs`; chiave inesistente → `Unknown reality signal key`.
+- **`signalKeys` come collegamento canonico (§1).** `councilIssueInputSchema` accetta `signalKeys` (retrocompatibile con `factKeys`/`verifiedFacts`). `resolveSignalLinks()` risolve le chiavi contro `buildRealitySignals(snapshot)` reali e prende dalla RealitySignal `factKeys` e `sourceRefs`; chiave inesistente → `Unknown reality signal key`. **La `CouncilIssue` restituita conserva `signalKeys` (solo quelle risolte, deduplicate)**, così il round-trip `Porta al Consiglio` resta ricostruibile.
+- **Round-trip §Porta al Consiglio.** Quando la issue rientra dal client con `signalKeys` e `verifiedFacts: []`, lo schema accetta le liste vuote e `resolveCouncilIssue` ricalcola `factKeys`/`sourceRefs` dalla RealitySignal corrente. I `sourceRefs` inviati dal client sono ignorati (non presenti nello schema).
 - **Signal senza `factKeys` valide (§2).** Una signal con soli `sourceRefs` produce una issue valida con `verifiedFacts: []` e `sourceRefs` canonici. I `sourceRefs` forniti dal modello vengono ignorati (lo schema non li accetta e i riferimenti sono costruiti solo lato server). Fail-closed: senza fatto né riferimento canonico la issue è respinta.
 - **Cap a 8 segnali (§4).** `RealityAdvisor` usa `.slice(0, MAX_COUNCIL_ISSUES)` (8), non più 5.
 - **Schede non facoltative quando propone (§3).** Il prompt impone: zero schede solo se non c'è nulla da decidere; se identifica una decisione concreta, **DEVE** emettere la relativa `council_issue`; una per questione; più di tre ammesse; nessuna quota.
-- **Frontend (§5).** `CouncilIssueInline` renderizza `<ul>` solo se `verifiedFacts.length > 0`; titolo, domanda e `Porta al Consiglio` restano.
+- **Frontend (§5).** `CouncilIssueInline` renderizza `<ul>` solo se `verifiedFacts.length > 0`; titolo, domanda e `Porta al Consiglio` restano. `advisorMemory.sanitizeIssues()` conserva le issue con `verifiedFacts: []` se hanno almeno una `signalKey` sintatticamente valida (i `sourceRefs` da soli non provano nulla) e preserva `signalKeys` in cache (messaggi e apertura).
 - **Motivo dello scarto non silenzioso.** `parseCouncilIssues` logga `[CouncilIssue] proposta scartata: <motivo>` (o lo passa a `onDiscard`).
 
 ## 3. File modificati
@@ -46,11 +47,11 @@ File di consegna: `docs/implementation/WS-COUNCIL-SIGNALKEYS-report.md`.
 
 Backend (`npx vitest run`):
 
-- `tests/council-signalkeys.test.ts` (nuovo), `tests/council-issue-variety.test.ts`, `tests/advisor-strategist-voice.test.ts`, `tests/reality-advisor.test.ts`, `tests/polity-historical-baselines.test.ts` → **5 file / 69 test passed**.
+- `tests/council-signalkeys.test.ts` (nuovo), `tests/reality-advisor-routes.test.ts`, `tests/council-issue-variety.test.ts`, `tests/advisor-strategist-voice.test.ts` → **4 file / 48 test passed** (run del round-trip); nella run precedente `reality-advisor` e `polity-historical-baselines` inclusi → **5 file / 69 test passed**.
 
 Frontend (`npx vitest run`):
 
-- `src/components/Game/CouncilIssueInline.test.tsx`, `src/components/Game/councilIssueFlow.test.tsx` → **2 file / 21 test passed**.
+- `src/components/Game/advisorMemory.test.ts`, `src/components/Game/CouncilIssueInline.test.tsx` → **2 file / 15 test passed** (inclusa la run precedente `councilIssueFlow` → 21).
 
 Type-check:
 
@@ -69,7 +70,7 @@ Test mirati richiesti (tutti coperti):
 
 ## 6. Risultati
 
-- Una `council_issue` con `signalKeys` validi produce una scheda anche senza `factKeys`.
+- Una `council_issue` con `signalKeys` validi produce una scheda anche senza `factKeys`, e la scheda **sopravvive al round-trip** `Porta al Consiglio`: il server ricalcola sempre fatti e riferimenti dalla RealitySignal corrente.
 - Le signal canoniche senza `factKeys` (relazioni ostili, progetti, decisioni/inazioni) smettono di sparire.
 - Il modello non fornisce mai fatti o `sourceRefs`: risolve il server.
 - Il prompt impone la scheda quando propone una decisione, mantenendo zero schede come esito valido.
