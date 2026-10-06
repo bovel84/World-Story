@@ -146,6 +146,17 @@ export function validateCountryInitialProfile(raw: unknown, input: CountryProfil
   return p;
 }
 
+/** Prompt breve e esplicito del bootstrap: ricostruzione nazionale specifica per paese e data. */
+export const COUNTRY_BOOTSTRAP_SYSTEM = [
+  'Bootstrap del Dossier Nazionale iniziale di una partita storica.',
+  'Ricostruisci la situazione nazionale ALLA DATA DI INIZIO indicata: NON la situazione moderna e NON il futuro.',
+  'Priorità: dati storici strutturati > preset/mappa > historicalBaseline > stima prudente > fallback deterministico (solo riferimento debole).',
+  'Compila in modo specifico per paese e data: economia, forze armate (activePersonnel, reservePersonnel, formations, averageFormationSize, readinessPct, defenceBurdenPct, trainingPct, qualityPct, logisticsPct, equipmentProfile) e infrastrutture (factories, ports, universities).',
+  'Vincoli inviolabili: nessuna tecnologia successiva alla data di inizio; nessun porto o marina per un paese senza costa; nessun valore oltre limiti demografici plausibili; nessuna quantità militare sproporzionata.',
+  'Non modificare identità, polity, startDate né i dati espliciti del preset/mappa. Gli oggetti di mappa sono un MINIMO autoritativo, non necessariamente il totale nazionale: puoi stimare totali nazionali maggiori se coerenti con paese, data e geografia.',
+  'Non inventare precisione falsa: se un valore è incerto usa una stima prudente. Restituisci SOLO JSON conforme allo schema del fallback fornito: nessun testo, nessuna spiegazione narrativa.',
+].join('\n');
+
 /** Optional one-call completion; deadline and invalid output never block creation.
  * Reliable structured/map anchors win; approximate fallback values remain estimable. */
 export async function generateCountryInitialProfile(input: CountryProfileInput, complete?: CountryProfileCompleter): Promise<CountryInitialProfile> {
@@ -153,21 +164,35 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
   if (!complete) return fallback;
   const gdp = referenceGdpUsdBillionsForDate(input.polityId, input.startDate);
   const debt = referenceDebtToGdpPctForDate(input.polityId, input.startDate);
-  const anchors = { population: fallback.population, nominalGdpUsdBillions: gdp, debtRatioPct: debt,
-    infrastructure: fallback.infrastructure, mapBaseline: fallback.mapBaseline };
+  const anchors = { population: fallback.population, nominalGdpUsdBillions: gdp, debtRatioPct: debt, mapBaseline: fallback.mapBaseline };
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const response = await Promise.race([
-      complete('Complete the initial national profile as JSON ONLY. Money and monthly flows are BILLIONS USD. Use only knowledge BEFORE the start date. Reliable date-specific structured data > map/preset > historicalBaseline > your estimates > deterministic fallback. Non-null anchors are immutable; null anchors are missing, not zero. Fallback manpower, reserves, readiness, training, logistics, treasury and budget/society rates are approximate and may be completed even for USA/Bosnia. Use historicalBaseline to inform these estimates, never to certify current assets. Never add geography, treaties, locations or future technologies. Return the supplied schema, marking estimates low/medium confidence.', JSON.stringify({ country: input.countryName ?? input.polityId, startDate: input.startDate, historicalBaseline: input.historicalBaseline || '', authoritativeMap: input.regions.filter(r => r.owner === input.polityId), anchors, fallback }), controller.signal),
+      complete(COUNTRY_BOOTSTRAP_SYSTEM, JSON.stringify({ country: input.countryName ?? input.polityId, startDate: input.startDate, historicalBaseline: input.historicalBaseline || '', authoritativeMap: input.regions.filter(r => r.owner === input.polityId), anchors, fallback }), controller.signal),
       new Promise<never>((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new Error('Profile timeout')); }, 10_000); }),
     ]);
     const raw = JSON.parse(response.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')) as CountryInitialProfile;
-    // Never allow the LLM to rewrite identity, demographic/map growth anchors or inventory.
+    // Never allow the LLM to rewrite identity, demographic/map authority or inventory.
     raw.version = 1; raw.polityId = input.polityId; raw.startDate = input.startDate; raw.population = fallback.population;
-    raw.mapBaseline = fallback.mapBaseline; raw.infrastructure = fallback.infrastructure;
+    raw.mapBaseline = fallback.mapBaseline;
+    // Map infrastructure is a MINIMUM, not the national total: keep the validated
+    // LLM estimate per key, and only fill missing/invalid keys from the fallback.
+    const infra = raw.infrastructure && typeof raw.infrastructure === 'object' ? raw.infrastructure as Record<string, unknown> : {};
+    raw.infrastructure = {
+      factories: positive(infra.factories) && Number.isInteger(infra.factories) ? infra.factories as number : fallback.infrastructure.factories,
+      ports: positive(infra.ports) && Number.isInteger(infra.ports) ? infra.ports as number : fallback.infrastructure.ports,
+      universities: positive(infra.universities) && Number.isInteger(infra.universities) ? infra.universities as number : fallback.infrastructure.universities,
+    };
     if (!raw.economy || !raw.military) return fallback;
-    raw.provenance = { source: 'llm-estimate', generatedAt: fallback.provenance.generatedAt, confidence: 'low', notes: ['Bootstrap-only validated estimate; structured/history/map anchors retained.'] };
+    raw.provenance = { source: 'llm-estimate', generatedAt: fallback.provenance.generatedAt,
+      confidence: input.historicalBaseline ? 'medium' : 'low',
+      notes: [
+        'Bootstrap LLM: sezioni stimate = economia, forze armate, infrastrutture (specifiche per paese e data).',
+        'Ancore autoritative non riscritte: mapBaseline, popolazione, identità, startDate e dati espliciti del preset; l’infrastruttura stimata non scende sotto gli oggetti di mappa.',
+        ...(gdp !== null ? ['PIL di riferimento storico applicato.'] : []),
+        ...(debt !== null ? ['Debito/PIL di riferimento storico applicato.'] : []),
+      ] };
     // Reject impossible claims before authoritative anchoring can mask them.
     if (!validateCountryInitialProfile(raw, input)) return fallback;
     if (gdp !== null) {

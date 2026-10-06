@@ -144,6 +144,59 @@ describe('CountryInitialProfile', () => {
     expect(result.economy.nominalGdpUsdBillions).toBe(5.5);
     expect(result.population).toBe(3_750_000);
   });
+  it('two different countries in the same year get substantially different profiles and equipment', async () => {
+    const usaSpec = input('USA', 282_000_000);
+    const bihSpec = input('BIH', 3_750_000);
+    const usa = await generateCountryInitialProfile(usaSpec, async () => JSON.stringify(buildCountryInitialProfile(usaSpec)));
+    const bih = await generateCountryInitialProfile(bihSpec, async () => JSON.stringify(buildCountryInitialProfile(bihSpec)));
+    expect(usa.provenance.source).toBe('llm-estimate');
+    expect(bih.provenance.source).toBe('llm-estimate');
+    expect(usa.economy.nominalGdpUsdBillions / bih.economy.nominalGdpUsdBillions).toBeGreaterThan(100);
+    expect(usa.military.activePersonnel / bih.military.activePersonnel).toBeGreaterThan(20);
+    expect(usa.military.readinessPct).not.toBe(bih.military.readinessPct);
+    expect(usa.military.equipmentProfile).not.toEqual(bih.military.equipmentProfile);
+    expect(validateCountryInitialProfile(usa, usaSpec)).not.toBeNull();
+    expect(validateCountryInitialProfile(bih, bihSpec)).not.toBeNull();
+  });
+  it('the same country in 1940 and 2024 cannot receive the same equipment or future technology', () => {
+    const spec1940 = { ...input('USA', 131_000_000), startDate: '1940-06-01' };
+    const spec2024 = { ...input('USA', 340_000_000), startDate: '2024-01-01' };
+    const y1940 = buildCountryInitialProfile(spec1940);
+    const y2024 = buildCountryInitialProfile(spec2024);
+    expect(validateCountryInitialProfile(y1940, spec1940)).not.toBeNull();
+    expect(validateCountryInitialProfile(y2024, spec2024)).not.toBeNull();
+    expect(y1940.military.equipmentProfile).not.toEqual(y2024.military.equipmentProfile);
+    expect(y1940.military.equipmentProfile.caccia_5 ?? 0).toBe(0);
+    expect(y1940.military.equipmentProfile.droni_attacco ?? 0).toBe(0);
+    expect(validateCountryInitialProfile({ ...y1940, military: { ...y1940.military, equipmentProfile: { caccia_5: 10 } } }, spec1940)).toBeNull();
+  });
+  it('a landlocked country gets no invented ports or navy even from the LLM bootstrap', async () => {
+    const spec = input('BOL', 8_000_000);
+    const base = buildCountryInitialProfile(spec);
+    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+      infrastructure: { ...base.infrastructure, ports: 5 },
+      military: { ...base.military, equipmentProfile: { fregate: 3 } } }));
+    expect(result.infrastructure.ports).toBe(base.infrastructure.ports);
+    expect(result.military).toEqual(base.military);
+    expect(result.provenance.source).toBe(base.provenance.source);
+  });
+  it('explicit preset/map data is never overwritten, but a valid larger national infrastructure survives', async () => {
+    const spec = input('BIH', 3_750_000);
+    spec.regions[0].objects = [{ type: 'factory', level: 1 }, { type: 'university', level: 2 }] as never;
+    const base = buildCountryInitialProfile(spec);
+    expect(base.mapBaseline.factories).toBe(1);
+    expect(base.mapBaseline.universities).toBe(2);
+    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+      mapBaseline: { ...base.mapBaseline, gdp: 9_999, militaryPower: 9_999 },
+      population: base.population + 500_000,
+      infrastructure: { factories: 7, ports: 0, universities: 9 } }));
+    expect(result.mapBaseline).toEqual(base.mapBaseline);
+    expect(result.mapBaseline.gdp).not.toBe(9_999);
+    expect(result.population).toBe(base.population);
+    expect(result.infrastructure).toEqual({ factories: 7, ports: 0, universities: 9 });
+    expect(result.infrastructure.factories).toBeGreaterThanOrEqual(base.mapBaseline.factories);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
   it('profile rates are initial anchors, not frozen numbers: map growth evolves GDP and newly built assets still count', () => {
     const spec = input();
     const profile = buildCountryInitialProfile(spec);
