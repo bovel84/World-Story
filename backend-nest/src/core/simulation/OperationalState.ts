@@ -1800,6 +1800,48 @@ export function materializeUnitsForArmy(input: MaterializeUnitsInput): MilitaryU
 }
 
 /**
+ * Bootstrap del paese: la dotazione individuale del profilo non resta tutta in
+ * deposito. Ai reparti **iniziali** si assegna la quota d'epoca di armi
+ * individuali fino alla copertura, scalando il deposito. È l'unico punto in cui
+ * uomini e fucili nascono insieme; i reparti creati **durante la partita**
+ * restano `forming` finché uomini e armi non arrivano con produzione/riarmo.
+ * L'invariante `deposito + assegnato = totale nazionale` è preservata da
+ * `transferEquipment`; nessun pezzo è inventato, tutto viene dal deposito.
+ */
+export function assignBootstrapIndividualWeapons(input: {
+  units: readonly MilitaryUnitState[];
+  /** Stato dichiarato dall'armata di origine (al bootstrap normalmente `operational`). */
+  declaredStatus: ArmyOperationalState['status'];
+  depot: Record<string, number>;
+  epoch: MilitaryEpoch;
+}): { units: MilitaryUnitState[]; depot: Record<string, number> } {
+  const rifleId = rifleEquipmentId();
+  let depot = { ...input.depot };
+  // Ordine stabile: la distribuzione non dipende dall'ordine della mappa.
+  const ordered = [...input.units].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const units = ordered.map(unit => {
+    const unchanged = () => ({ ...unit, readiness: unitReadiness({ unit, epoch: input.epoch }) });
+    if (unit.status === 'destroyed') return unchanged();
+    const required = unitRifleRequirement(unit, input.epoch);
+    const have = equipmentQuantity(unit.equipment, rifleId);
+    const wanted = Math.max(0, required - have);
+    const available = equipmentQuantity(depot, rifleId);
+    const quantity = Math.min(wanted, available);
+    const transfer = quantity > 0
+      ? transferEquipment({ depot, assigned: unit.equipment, items: [{ equipmentId: rifleId, quantity }] })
+      : null;
+    if (!transfer) return unchanged();
+    depot = transfer.depot;
+    const equipment = transfer.assigned;
+    const status = unitStatusFromCoverage({
+      assigned: equipmentQuantity(equipment, rifleId), required, declared: input.declaredStatus,
+    });
+    return { ...unit, equipment, status, readiness: unitReadiness({ unit: { ...unit, equipment, status }, epoch: input.epoch }) };
+  });
+  return { units, depot };
+}
+
+/**
  * L'armata è la **somma** dei suoi reparti: uomini, equipaggiamento, fabbisogni
  * e numero di reparti si derivano, non si dichiarano. Senza reparti l'armata
  * resta com'è (percorso legacy dichiarato). I reparti distrutti non contano.

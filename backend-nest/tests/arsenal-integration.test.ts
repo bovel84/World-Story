@@ -195,6 +195,12 @@ describe('arsenale e procurement', () => {
 
   it('la potenza militare effettiva include il fattore dell’arsenale', () => {
     const { session } = createGame();
+    // Il bootstrap ha già armato i reparti iniziali: per misurare il **fattore**
+    // dell'arsenale si riparte da una nazione smobilitata (nessun pezzo
+    // assegnato), così il deposito è l'unica variabile.
+    session.getArsenal();
+    const store = (session as any).operationalStoreFor();
+    store.saveUnits(store.units().map((unit: any) => ({ ...unit, equipment: {}, status: 'forming' })));
     (session as any).military.saveArsenal('DEU', {});
     const empty = session.effectiveMilitaryPower();
     (session as any).military.saveArsenal('DEU', { fucili: 160, apc: 6 });

@@ -149,6 +149,10 @@ const armAll = (session: any, armyId = 'a1') => {
     } catch { /* deposito vuoto: nessun pezzo da assegnare */ }
   }
 };
+const setArsenal = (session: any, fucili: number) => {
+  const current = session.military.arsenalUnits(PID);
+  session.military.saveArsenal(PID, { ...current, fucili });
+};
 const declaredPower = (session: any, regionId: string, value: number) => {
   session.regions.get(regionId).militaryPower = value;
 };
@@ -482,8 +486,13 @@ describe('WAR-FRONTS — combattimento, perdite, ritirata, territorio (P8/P9)', 
     declaredPower(session, R.aut1, 1200);
     session.publicFronts();
     // Pezzi assegnati ai reparti (dal deposito): la guerra consuma quelli.
-    const depot = session.military.depotUnits(PID);
+    // Il bootstrap ha già armato i reparti iniziali: si riparte dalla carenza
+    // che il `reequip` deve colmare. Solo il reparto riequipaggiato porta pezzi
+    // reali, gli altri restano `forming` così la contabilità resta leggibile.
     const unit = units(session).find(item => item.frontId);
+    store(session).saveUnits(units(session).map(item => ({ ...item, equipment: {}, status: 'forming' })));
+    setArsenal(session, 100_000);
+    const depot = session.military.depotUnits(PID);
     session.unitAction({ action: 'reequip', unitId: unit.id });
     const assignedBefore = equipmentOf(unitOf(session, unit.id).equipment);
     const nationalBefore = session.military.nationalUnits(PID);
@@ -1097,6 +1106,9 @@ describe('MILITARY PR3 — contrattacco, catena di proprietà e recupero reparti
   it('31: catena di proprietà A→B→A con **lo stesso** fronte e obiettivo aggiornato', () => {
     const { session } = createGame();
     setRelationship(session, PID, AUT, 'hostile');
+    // Riserva di mobilitazione: in partita la produzione la rifornisce, qui i
+    // test la dichiarano per misurare il combattimento, non l'arsenale.
+    setArsenal(session, 200_000);
     armAll(session);
     session.publicFronts();
     setOrder(session, 'attack');

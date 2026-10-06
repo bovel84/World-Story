@@ -224,11 +224,17 @@ describe('CountryInitialProfile military bootstrap', () => {
     expect(pictureReadiness(f.reload())).not.toBe(84);
   });
 
-  it('seeds only catalog equipment declared by the profile, with no fabricated fallback additions', () => {
+  it('seeds only catalog equipment declared by the profile, and hands the rifles to the initial units', () => {
     const f = fixture('BBB', { equipmentProfile: { fucili: 1_001, apc: 5, imaginary_tank: 99 } });
+    // Before the units materialize the whole profile sits in the depot.
     expect(f.service.arsenalUnits('BBB')).toEqual({ fucili: 1_001, apc: 5 });
-    expect(f.service.getArsenal().units).toEqual({ fucili: 1_001, apc: 5 });
-    expect(f.service.getArsenal().assigned).toEqual({});
+    const arsenal = f.service.getArsenal();
+    // The national total never changes: the profile's rifles are distributed to
+    // the initial units, the depot keeps only what was not required. Nothing is
+    // fabricated beyond the declared catalog entries.
+    expect(arsenal.units).toEqual({ fucili: 1_001, apc: 5 });
+    expect(arsenal.stockpile).toEqual({ apc: 5 });
+    expect(arsenal.assigned.fucili).toBe(1_001);
   });
 
   it('a deliberately empty profile arsenal stays empty; an absent profile retains doctrine fallback', () => {
@@ -263,7 +269,11 @@ describe('CountryInitialProfile military bootstrap', () => {
     expect(f.store.personnel().activePersonnel).toBe(1_234);
     expect(f.store.personnel().trainedReserve).toBe(456);
     expect(loaded.arsenalUnits('HHH')).toEqual({ fucili: 12 });
-    expect(loaded.getArsenal().units).toEqual({ fucili: 89 });
+    // Reload preserves the units' equipment and the depot: the national total is
+    // exactly their sum, and no profile refill happens.
+    const assigned = before.reduce((sum: number, unit: any) => sum + (unit.equipment?.fucili ?? 0), 0);
+    expect(loaded.getArsenal().assigned.fucili).toBe(assigned);
+    expect(loaded.getArsenal().units.fucili).toBe(12 + assigned);
   });
 
   it('partial persistent military state is authoritative even without a personnel seed sentinel', () => {
@@ -321,7 +331,8 @@ describe('CountryInitialProfile military bootstrap', () => {
     const f = fixture('JJJ', { equipmentProfile: { fucili: 100, [hull.id]: 2 } });
     const loaded = f.service;
     expect(loaded.getArsenal().units).toEqual({ fucili: 100, [hull.id]: 2 });
-    expect(loaded.getArsenal().stockpile).toEqual({ fucili: 100 });
+    // The profile's rifles reached the initial units; the national total is not doubled.
+    expect(loaded.getArsenal().assigned.fucili).toBe(100);
     const snapshot = f.store.snapshot();
     const crews = snapshot.ships.reduce((sum: number, ship: any) => sum + ship.crew, 0);
     expect(snapshot.personnel.shipCrew).toBe(crews);

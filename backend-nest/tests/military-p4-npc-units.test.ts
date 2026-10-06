@@ -282,13 +282,19 @@ describe('MILITARY P4 — unità NPC persistenti', () => {
     setStock(session, { food: 500, weapons: 500, fuel: 500, clothing: 500 }, PID);
     setStock(session, { food: 500, weapons: 500, fuel: 500, clothing: 500 }, AUT);
     oneTick(session);
-    const atStart = npcUnits(session).map(unit => ({ id: unit.id, personnel: unit.personnel }));
+    const atStart = npcUnits(session).map(unit => ({
+      id: unit.id,
+      personnel: unit.personnel,
+      // Authorized strength: reconstitution can lift net personnel back up, so
+      // casualties are read against the establishment, not the previous month.
+      authorized: Number((unit as any).establishmentPersonnel) || Number(unit.personnel),
+    }));
     expect(atStart.length).toBeGreaterThan(0);
     for (const date of ['2026-03-02', '2026-04-01', '2026-05-01']) oneTick(session, date);
     const after = npcUnits(session);
     const lost = atStart.reduce((total, before) => {
       const unit = after.find(item => item.id === before.id);
-      return total + Math.max(0, before.personnel - Number(unit?.personnel || 0));
+      return total + Math.max(0, before.authorized - Number(unit?.personnel || 0));
     }, 0);
     // I reparti NPC perdono uomini **reali** (non solo `region.militaryPower`).
     expect(lost).toBeGreaterThan(0);

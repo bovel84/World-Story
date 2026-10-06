@@ -336,13 +336,13 @@ describe('MG05 µ3 — l’agenda legge lo stato della partita', () => {
     expect(reservationRows()).toBe(before.reservations);
   });
 
-  const snapshotFor = (account: Record<string, unknown>, initialReadinessPct?: number) => buildVerifiedWorldSnapshot({
+  const snapshotFor = (account: Record<string, unknown>, initialReadinessPct?: number, operationalRows: any[] = []) => buildVerifiedWorldSnapshot({
     gameData: {
       id: gameId, playerPolityId: 'ALPHA', currentTurn: 1, currentDate: '1951-01-01',
       world: { regions: { [REGION_ID]: { id: REGION_ID, name: 'A', owner: 'ALPHA', objects: [] } } },
       worldState: { accounts: { ALPHA: account }, resources: { stock: { money: 100 } } },
     } as any,
-    branchId, operationalRows: [], initialReadinessPct,
+    branchId, operationalRows, initialReadinessPct,
   });
 
   it.each([false, true])('debt salience uses raw 14.999999 vs 15 (snapshot=%s)', async scoped => {
@@ -456,11 +456,17 @@ describe('MG05 µ3 — l’agenda legge lo stato della partita', () => {
 
   it.each([undefined, {}])('operational salience speaks without inventing missing military account figures (%s)', async account => {
     const { readGovernmentAgenda } = await import('../src/game/GovernmentReadings');
+    // A MEASURED low readiness drives the voice: the initial profile estimate
+    // alone must never become a crisis.
+    const measured = [{ kind: 'unit', id: 'u1', data: {
+      id: 'u1', polityId: 'ALPHA', status: 'operational', readiness: 0.35, personnel: 1_000,
+      monthlyNeeds: { fuel: 1, food: 1, weapons: 1 },
+    } }];
     const agenda = readGovernmentAgenda({ gameId, branchId, playerPolityId: 'ALPHA',
-      government: session.getGovernment(), account, snapshot: snapshotFor({}, 35) });
+      government: session.getGovernment(), account, snapshot: snapshotFor({}, undefined, measured) });
     const defence = agenda.voices.find(v => v.id === 'defence_condition')!;
     expect(defence).toBeTruthy();
-    expect(defence.figures.find(f => f.label === 'Prontezza')!.basis.kind).toBe('estimated');
+    expect(defence.figures.find(f => f.label === 'Prontezza')!.basis.kind).toBe('measured');
     expect(defence.figures.some(f => ['Spesa di difesa', 'Reparti in forza', 'Mobilitati'].includes(f.label))).toBe(false);
     expect(defence.because).not.toMatch(/NaN|undefined|Infinity/);
   });

@@ -129,9 +129,9 @@ beforeAll(async () => {
     [
       {
         id: W.ita1, name: 'Pianura', color: '#FF0000', owner: PID, population: 10_000_000, gdp: 300,
-        militaryPower: 10, flag: PID, borders: [W.aut1], objects: [{ id: 'a1', type: 'army', name: '1ª Armata', level: 4 }],
+        militaryPower: 10, flag: PID, borders: [W.aut1, W.ita2], objects: [{ id: 'a1', type: 'army', name: '1ª Armata', level: 4 }],
       },
-      { id: W.ita2, name: 'Interno', color: '#FF5555', owner: PID, population: 5_000_000, gdp: 100, militaryPower: 5, flag: PID, borders: [], objects: [] },
+      { id: W.ita2, name: 'Interno', color: '#FF5555', owner: PID, population: 5_000_000, gdp: 100, militaryPower: 5, flag: PID, borders: [W.ita1], objects: [] },
       { id: W.aut1, name: 'Tirolo', color: '#00FF00', owner: AUT, population: 4_000_000, gdp: 150, militaryPower: 400, flag: AUT, borders: [W.ita1], objects: [] },
       { id: W.aut2, name: 'Est', color: '#55FF55', owner: AUT, population: 2_000_000, gdp: 80, militaryPower: 200, flag: AUT, borders: [W.hun1], objects: [] },
       { id: W.aut3, name: 'Interno austriaco', color: '#AAFFAA', owner: AUT, population: 3_000_000, gdp: 90, militaryPower: 400, flag: AUT, borders: [W.aut1, W.aut2], objects: [] },
@@ -177,6 +177,15 @@ const armAll = (session: any, armyId = 'a1') => {
     if (String(unit.armyId) !== String(armyId)) continue;
     try { session.unitAction({ action: 'reequip', unitId: unit.id }); } catch { /* deposito vuoto */ }
   }
+};
+/**
+ * Armi individuali nel deposito nazionale. Dopo il bootstrap i reparti
+ * iniziali ricevono i fucili del profilo, quindi un `raiseFormation` pesca da
+ * qui: i test che sollevano una formazione la riforniscono esplicitamente.
+ */
+const setArsenal = (session: any, fucili: number) => {
+  const current = (session as any).military.arsenalUnits(PID);
+  (session as any).military.saveArsenal(PID, { ...current, fucili });
 };
 /** Checkpoint reale: `save()` + la riga in `saves` (data + hash semantico). */
 const checkpoint = (session: any) => {
@@ -553,6 +562,7 @@ describe('MILITARY INTEGRITY — P0-1: lo stato operativo entra nel checkpoint',
 describe('MILITARY INTEGRITY — P1-1/P1-2: id immutabile e nessun reparto fantasma', () => {
   it('10: `reassign` cambia armata, NON l\'id e NON la posizione', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const created = session.raiseFormation({ formations: 1 });
     const targetId = created.unit.armyId;
     const unit = unitOf(session, 'a1-unit-001');
@@ -568,6 +578,7 @@ describe('MILITARY INTEGRITY — P1-1/P1-2: id immutabile e nessun reparto fanta
 
   it('11: `reassign` in anteprima (`dryRun`) non scrive e non cambia id', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const created = session.raiseFormation({ formations: 1 });
     const unit = unitOf(session, 'a1-unit-001');
     const before = JSON.stringify(units(session));
@@ -599,6 +610,7 @@ describe('MILITARY INTEGRITY — P1-1/P1-2: id immutabile e nessun reparto fanta
 
   it('13: `reassign` A→B: le due armate restano la somma dei reparti, nessun reparto inventato', () => {
     const { gameId, session } = createGame();
+    setArsenal(session, 100_000);
     const created = session.raiseFormation({ formations: 1 });
     const targetId = created.unit.armyId;
     const before = armies(session);
@@ -631,6 +643,7 @@ describe('MILITARY INTEGRITY — P1-1/P1-2: id immutabile e nessun reparto fanta
 
   it('14: nessun reparto `forming` senza uomini viene creato dal livello della mappa', () => {
     const { session } = createGame();
+    setArsenal(session, 100_000);
     const created = session.raiseFormation({ formations: 1 });
     session.unitAction({ action: 'reassign', unitId: 'a1-unit-001', armyId: created.unit.armyId });
     const phantoms = units(session).filter(unit => !unit.legacyDerived && unit.status === 'forming' && Number(unit.personnel) <= 0);
@@ -885,6 +898,7 @@ describe('MILITARY INTEGRITY — save/reload completo e modello NPC', () => {
     const { gameId, session } = createGame();
     setRelationship(session, PID, AUT, 'hostile');
     armAll(session);
+    setArsenal(session, 100_000);
     session.publicFronts();
     const created = session.raiseFormation({ formations: 1 });
     session.unitAction({ action: 'reassign', unitId: 'a1-unit-002', armyId: created.unit.armyId });

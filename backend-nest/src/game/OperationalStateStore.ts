@@ -38,6 +38,7 @@ import {
   advanceConstructions,
   aggregateArmyFromUnits,
   aggregateObjects,
+  assignBootstrapIndividualWeapons,
   emptyOperationalState,
   materializeUnitsForArmy,
   normalizeUnitState,
@@ -295,15 +296,24 @@ export class OperationalStateStore {
       // A partial legacy military state is still authoritative. Recover the
       // missing sentinel without rematerializing soldiers from the profile.
       const units = [...snapshot.units];
+      let bootstrapDepot = depot;
       const seededArmies = armies.map(army => {
         const existing = liveUnits.filter(unit => String(unit.armyId) === String(army.id));
         if (hasLiveMilitary) return aggregateArmyFromUnits({ ...army, legacyDerived: false }, existing);
-        const created = materializeUnitsForArmy({
+        const materialized = materializeUnitsForArmy({
           army, epoch, date, polityId, existing: [],
           ...(initialMilitary && army.formations > 0 ? { establishmentPersonnel: army.personnel / army.formations } : {}),
         });
-        units.push(...created);
-        return aggregateArmyFromUnits(army, created);
+        // Bootstrap del paese: la dotazione del profilo raggiunge i reparti
+        // iniziali invece di restare in deposito. Uomini e armi nascono
+        // insieme; l'invariante deposito + assegnato resta intatta. I reparti
+        // creati durante la partita restano `forming` finché non equipaggiati.
+        const seeded = assignBootstrapIndividualWeapons({
+          units: materialized, declaredStatus: army.status, depot: bootstrapDepot, epoch,
+        });
+        bootstrapDepot = seeded.depot;
+        units.push(...seeded.units);
+        return aggregateArmyFromUnits(army, seeded.units);
       });
       personnel.unitRegistryPolities = [...new Set([String(polityId), ...units.map(unit => String(unit.polityId || polityId))])].sort();
       const rows: Array<{ kind: OperationalObjectKind; id: string; data: Record<string, unknown> }> = [
@@ -315,7 +325,7 @@ export class OperationalStateStore {
         ...constructions.map(item => ({ kind: 'construction' as const, id: item.id, data: item as unknown as Record<string, unknown> })),
       ];
       operationalObjectRepository.upsertMany(this.inputs.gameId, rows);
-      this.inputs.saveDepotUnits(depot);
+      this.inputs.saveDepotUnits(bootstrapDepot);
       this.inputs.saveArmies(seededArmies);
       this.state = { personnel, armies: seededArmies, units, fronts: snapshot.fronts, facilities, ships, fleets, constructions };
       this.seedChecked = true;
