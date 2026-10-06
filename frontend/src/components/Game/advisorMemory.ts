@@ -19,7 +19,8 @@ const text = (value: unknown): string | null => typeof value === 'string' && val
 /** WS-GOV-ADVISOR-RESIDUAL-FIXES §4 — Validazione minima degli `issues` salvati. */
 function sanitizeIssues(raw: unknown): CouncilIssue[] | undefined {
   if (!Array.isArray(raw)) return undefined;
-  const issues = raw.slice(0, 3).flatMap((item): CouncilIssue[] => {
+  // Nessun tetto a 3: tutte le proposte validate dal server restano portabili.
+  const issues = raw.flatMap((item): CouncilIssue[] => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const issue = item as Record<string, unknown>;
     const id = text(issue.id); const title = text(issue.title); const question = text(issue.question);

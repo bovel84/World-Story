@@ -87,6 +87,17 @@ describe('advisorMemory', () => {
     expect(sanitized[0].issues).toBeUndefined();
   });
 
+  it('salva e ripristina cinque proposte validate, senza tagliarle a tre', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorBucketKey('g1', 'main', 'g1|main|3');
+    const many = Array.from({ length: 5 }, (_, index) => ({ ...issue(), id: `i${index}`, title: `Proposta ${index}` }));
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Cinque proposte', turn: 3, issues: many }]);
+    const restored = loadAdvisorMessages(key);
+    expect(restored).toHaveLength(1);
+    expect(restored[0].issues).toHaveLength(5);
+    expect(restored[0].issues?.map(entry => entry.id)).toEqual(['i0', 'i1', 'i2', 'i3', 'i4']);
+  });
+
   it('uno storage rotto o pieno non interrompe la conversazione', () => {
     (globalThis as { localStorage?: Storage }).localStorage = {
       ...fakeStorage(),

@@ -55,10 +55,13 @@ export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknow
   };
 }
 
+/** Cap tecnico di sicurezza: NON è una quota da riempire, solo un limite anti-abuso. */
+export const MAX_COUNCIL_ISSUES = 8;
+
 export const COUNCIL_ISSUE_PROTOCOL = [
   'Puoi proporre questioni interministeriali, NON aprire una seduta o creare una crisi. Il Presidente decide se portarle al Consiglio.',
-  'Protocollo facoltativo: da 1 a 3 blocchi fenced ```council_issue, uno per questione, ciascuno con JSON {"title":"...","question":"...","factKeys":["chiave canonica"],"suggestedMinisters":["lavori","tesoro"]}. Non è necessario proporre questioni né riempire tre blocchi.',
-  'Proponi più questioni solo per direzioni strategiche realmente distinte: per esempio riforma delle forze armate, iniziativa diplomatica e rilancio infrastrutturale. Non duplicare la stessa domanda con titoli diversi. Ogni questione deve poter essere portata separatamente al Consiglio, con fatti canonici a sostegno e solo ministri pertinenti alla domanda.',
+  'Protocollo facoltativo: zero, uno o più blocchi fenced ```council_issue, uno per questione realmente distinta, ciascuno con JSON {"title":"...","question":"...","factKeys":["chiave canonica"],"suggestedMinisters":["lavori","tesoro"]}. Non è necessario proporre questioni né riempire una quota.',
+  'Proponi tutte e sole le questioni strategiche realmente distinte e salienti che meritano una decisione: possono essere nessuna, una o più di tre. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Ogni questione deve poter essere portata separatamente al Consiglio, con fatti canonici a sostegno e solo ministri pertinenti alla domanda.',
   `Sedie ammesse: ${CABINET_SEATS.join(', ')}. Usa solo chiavi presenti in facts del VerifiedWorldSnapshot; niente valori, fatti nuovi, costi inventati, opzioni Pressure o effetti.`,
   'Per una nuova opera distingui intenzione e inventario esistente; Lavori verifica tracciato e materiali, Tesoro la copertura. Una proposta non certifica fattibilità o autorizzazione.',
 ].join('\n');
@@ -75,7 +78,7 @@ export function parseCouncilIssues(snapshot: VerifiedWorldSnapshot, text: string
   const questions = new Set<string>();
   const reply = text.replace(/```council_issue\b([^]*?)(?:```|$)/gi, (_block, json: string) => {
     try {
-      if (issues.length < 3) {
+      if (issues.length < MAX_COUNCIL_ISSUES) {
         const issue = resolveCouncilIssue(snapshot, JSON.parse(json.trim()), origin);
         const questionKey = councilQuestionKey(issue.question) || issue.question;
         if (!questions.has(questionKey)) {

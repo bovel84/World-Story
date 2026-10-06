@@ -238,6 +238,27 @@
 .government-advisor .advisor-chat { height: auto; min-height: 0; overflow: visible; border-radius: 8px; }
 .government-advisor .advisor-messages { flex: 0 0 auto; overflow-y: visible; min-height: 0; padding: 16px; }
 .government-advisor .advisor-entry .entry-text { font-size: 18px; line-height: 1.6; color: #f2f6ff !important; }
+/* WS-GOV-ADVISOR-STATUS — Lo stato del Consulente è testo visibile e bianco
+   nel solo scope Governo; le altre chat restano invariate. */
+.government-advisor .advisor-loading,
+.government-advisor .advisor-typing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #f2f6ff;
+  font: 600 14px/1.4 system-ui, sans-serif;
+}
+.government-advisor .advisor-typing .advisor-thinking-text { color: #f2f6ff; }
+.government-advisor .advisor-typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f2f6ff;
+  animation: chat-typing-pulse 1s ease-in-out infinite;
+}
+.government-advisor .advisor-typing i:nth-of-type(2) { animation-delay: .15s; }
+.government-advisor .advisor-typing i:nth-of-type(3) { animation-delay: .3s; }
 .government-advisor .chat-input-row { flex: 0 0 auto; }
 /* WS-ADVISOR-READABILITY — il modale Governo è scuro e vive in un portal fuori
    da `.game-shell-desk`: il tema carta globale (`.chat-input-row textarea`,
