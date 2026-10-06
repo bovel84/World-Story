@@ -71,10 +71,11 @@ describe('bootstrap canonical persistence', () => {
   it('new Bosnia persists history before profile completion, reuses it on reads/reload, and makes no NPC calls', async () => {
     const calls: string[] = [];
     let profileInput: { historicalBaseline: string; fallback: CountryInitialProfile } | undefined;
-    const mock = { ...provider, generate: async (_mechanic: string, system: string, prompt: string, options: { singleAttempt?: boolean }) => {
+    const mock = { ...provider, generate: async (_mechanic: string, system: string, prompt: string, options: { singleAttempt?: boolean; maxTokens?: number }) => {
       if (system === HISTORICAL_BASELINE_SYSTEM) { calls.push('history'); return historyResponse; }
       calls.push('profile');
       expect(options.singleAttempt).toBe(true);
+      expect(options.maxTokens).toBe(4_000);
       profileInput = JSON.parse(prompt);
       const persisted = db.prepare("SELECT historical_background FROM game_polity_historical_baselines WHERE polity_id='BIH' ORDER BY rowid DESC LIMIT 1").get()?.historical_background;
       expect(persisted).toBe(profileInput!.historicalBaseline);

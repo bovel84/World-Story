@@ -13,7 +13,7 @@
  *    codice paese nudo;
  *  - un errore di generazione riporta alla landing senza lasciare stati a metà.
  */
-import { gameApi, worldApi } from '../../services/api';
+import { gameApi, readableApiError, worldApi } from '../../services/api';
 import type { Game, WorldTemplate } from '../../types';
 import { useGameStore } from '../../stores';
 import { CountrySelector } from './CountrySelector';
@@ -35,7 +35,7 @@ export interface CountryStageProps {
   onProgress: (ratio: number) => void;
   /** La partita è pronta: `App` pubblica game, mondo e regione selezionata. */
   onGenerated: (game: Game, regionId: string) => void;
-  onFailure: () => void;
+  onFailure: (message?: string) => void;
   setLoading: (loading: boolean) => void;
 }
 
@@ -96,7 +96,9 @@ export function CountryStage({
             onGenerated(game, actualRegionId);
           } catch (e) {
             console.error('[Game] Failed to generate world:', e);
-            onFailure();
+            // Il fail-closed del bootstrap risponde 503 con un messaggio leggibile:
+            // mostrarlo invece del generico «Riprova».
+            onFailure(readableApiError(e, 'Generazione del mondo fallita. Riprova.'));
           } finally {
             setLoading(false);
           }

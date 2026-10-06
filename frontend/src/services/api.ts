@@ -839,6 +839,26 @@ class ApiError extends Error {
   }
 }
 
+/** Coda JSON `{"error":"..."}` del messaggio `fetchApi`, senza troncare l'escape. */
+const JSON_ERROR_TAIL = /\{\s*"error"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}$/;
+
+/**
+ * Messaggio leggibile per l'utente da un errore HTTP del backend.
+ * Preferisce il campo `error` canonico (es. il fail-closed del Dossier
+ * nazionale) e non riversa mai dettagli tecnici o pagine HTML del proxy:
+ * in ogni altro caso torna il `fallback` generico.
+ */
+export function readableApiError(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiError)) return fallback;
+  const match = JSON_ERROR_TAIL.exec(error.message);
+  if (!match) return fallback;
+  try {
+    const parsed = JSON.parse(match[0]) as { error?: unknown };
+    if (typeof parsed.error === 'string' && parsed.error.trim()) return parsed.error.trim();
+  } catch { /* JSON malformato: resta il fallback */ }
+  return fallback;
+}
+
 async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {}

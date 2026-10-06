@@ -303,6 +303,21 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
   });
 });
 /**
+ * BOOTSTRAP-FAIL-CLOSED — la creazione della partita non ripiega su un profilo
+ * deterministico falso: l'errore leggibile arriva al client come 503, non 500.
+ */
+describe('BOOTSTRAP-FAIL-CLOSED — errore leggibile alla creazione partita', () => {
+  it('LLM del bootstrap indisponibile → 503 con messaggio e nessuna partita', async () => {
+    const failing = { ...stubProvider, async generate() { throw new Error('llm offline'); } };
+    initSessionRegistry(failing);
+    const res = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_DEU` });
+    expect(res.status).toBe(503);
+    expect(res.body.game_id).toBeUndefined();
+    expect(res.body.error).toMatch(/profilo iniziale/i);
+    expect(res.body.error).toMatch(/partita non creata/i);
+  });
+});
+/**
  * PLAYBACK-INTERMEDIATE-OVER — l'esito terminale del playback deve arrivare al
  * client così com'è. Prima della correzione un salto chiuso dentro il playback
  * cadeva nel ramo `world_advanced` (narrazione e data `undefined`) perché
