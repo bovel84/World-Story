@@ -560,6 +560,21 @@ export function storageCapacity(account?: NationalAccount, needs?: MaterialNeeds
   };
 }
 
+/**
+ * Tetto iniziale dei punti ricerca che una nazione può avere al bootstrap.
+ * Largo ma ancorato alla capacità reale: atenei, PIL e classe di sviluppo.
+ * Serve solo a impedire quantità assurde (es. 999999999) senza penalizzare le
+ * grandi potenze. NON tocca l'accumulo di ricerca durante la partita.
+ */
+const RESEARCH_CLASS_FACTOR: Record<DevelopmentClass, number> = { low: 1, lower: 2, upper: 3, high: 5 };
+
+export function initialResearchCap(account?: NationalAccount): number {
+  const universities = Math.max(0, Number(account?.universities) || 0);
+  const gdp = Math.max(0, Number(account?.nominalGdpUsdBillions) || 0);
+  const factor = RESEARCH_CLASS_FACTOR[developmentClass(account)];
+  return Math.round(Math.max(200, (universities * 20 + gdp * 0.5) * factor));
+}
+
 /** Quota di capacità con cui una nazione nasce: fragile → dispense quasi vuote. */
 const INITIAL_FILL: Record<DevelopmentClass, number> = {
   high: 0.7, upper: 0.6, lower: 0.5, low: 0.4,

@@ -2,7 +2,7 @@ import { WorldStateEngine, type WorldStateRegion, type NationalAccount } from '.
 import { coastalFromGeojson } from './NationCapacity';
 import { militaryManpower, arsenalSeedUnits, epochForDate, individualWeaponShareFor } from './MilitaryDoctrine';
 import { equipmentById, EQUIPMENT_CREW } from './MilitaryIndustry';
-import { storageCapacity, availableTechnologiesAt, technologyAvailableAt, closeTechnologySet, technologyById } from './MaterialEconomy';
+import { storageCapacity, initialResearchCap, availableTechnologiesAt, technologyAvailableAt, closeTechnologySet, technologyById } from './MaterialEconomy';
 import { referenceGdpUsdBillionsForDate, referenceDebtToGdpPctForDate, referencePopulationForDate } from '../../utils/country-facts';
 
 /** Sezione opzionale del bootstrap: scorte e tecnologia iniziali specifiche per nazione/data.
@@ -104,7 +104,7 @@ export function sanitizeInitialResources(raw: unknown, input: CountryProfileInpu
     resources[kind] = Math.round(bounded * 1000) / 1000;
   }
   if (Number.isFinite(Number(value.research)) && Number(value.research) >= 0) {
-    resources.research = Math.round(Number(value.research) * 1000) / 1000;
+    resources.research = Math.round(Math.min(Number(value.research), initialResearchCap(account)) * 1000) / 1000;
   }
   if (Array.isArray(value.technologies)) {
     const requested = value.technologies.filter((id): id is string => typeof id === 'string' && technologyAvailableAt(id, input.startDate));
@@ -222,7 +222,7 @@ export function validateCountryInitialProfile(raw: unknown, input: CountryProfil
       const cap = capacity?.[kind];
       if (!positive(amount) || (cap !== undefined && amount > cap * 1.5 + 1)) return null;
     }
-    if (r.research !== undefined && !positive(r.research)) return null;
+    if (r.research !== undefined && (!positive(r.research) || r.research > initialResearchCap(account))) return null;
     if (r.technologies !== undefined && (!Array.isArray(r.technologies)
       || !r.technologies.every(id => typeof id === 'string' && technologyAvailableAt(id, input.startDate)))) return null;
   }

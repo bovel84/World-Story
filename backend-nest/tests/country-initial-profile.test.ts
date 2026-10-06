@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { formationImpact } from '../src/core/simulation/OperationalObjects';
-import { seedStock, storageCapacity } from '../src/core/simulation/MaterialEconomy';
+import { seedStock, storageCapacity, initialResearchCap } from '../src/core/simulation/MaterialEconomy';
 import { WorldStateEngine } from '../src/core/simulation/WorldStateEngine';
 import { buildCountryInitialProfile, validateCountryInitialProfile, generateCountryInitialProfile, infrastructureCaps } from '../src/core/simulation/CountryInitialProfile';
 const input = (polityId = 'BIH', population = 3_750_000) => ({
@@ -279,6 +279,22 @@ describe('CountryInitialProfile', () => {
     expect(legacy.fuel).toBe(baseline.fuel);
     expect(legacy.research).toBe(baseline.research);
     expect(legacy.technologies).toEqual(baseline.technologies);
+  });
+  it('research far beyond the national cap is clamped before validation and seeding', async () => {
+    const spec = input('UGA', 24_000_000);
+    const base = buildCountryInitialProfile(spec);
+    const account = WorldStateEngine.accounts(spec.regions, { startDate: spec.startDate, modernFacts: false }).UGA;
+    const cap = initialResearchCap(account);
+    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+      resources: { research: 999_999_999 } }));
+    expect(result.provenance.source).toBe('llm-estimate');
+    expect(result.resources?.research).toBe(cap);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+    // Un profilo persistito/manomesso resta fail-closed sopra il cap.
+    expect(validateCountryInitialProfile({ ...base, resources: { research: cap + 1 } }, spec)).toBeNull();
+    // La semina riceve il valore clampato, non quello enorme.
+    const seeded = seedStock(account, {}, '', result.economy.treasuryUsdBillions, result.resources);
+    expect(seeded.research).toBe(cap);
   });
   it('a small country cannot claim hundreds of factories', () => {
     const spec = input('BIH', 3_750_000);
