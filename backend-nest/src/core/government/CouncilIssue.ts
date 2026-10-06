@@ -150,8 +150,8 @@ export const COUNCIL_ANCHOR_PROTOCOL = [
  */
 export const SITUATION_PROPOSAL_PROTOCOL = [
   'Distingui SITUAZIONE da PROPOSTA DI ATTO. Una SITUAZIONE è ciò che merita attenzione nel paese (dai segnali e dai fatti verificati): descrivila anche senza chiedere nulla. Una PROPOSTA DI ATTO è una decisione concreta che il Presidente o il Governo devono prendere: emetti la relativa scheda council_issue solo quando esiste davvero un atto da decidere.',
-  'Non trasformare ogni situazione in una proposta. Il numero di situazioni e di proposte dipende dallo stato reale della partita: possono essere nessuna, una o molte; non esiste un numero fisso da raggiungere e non riempire una quota.',
-  'I titoli devono essere concreti e ancorati ai fatti verificati: cita il luogo, il dominio o l\'oggetto reale (es. «Scorte alimentari nel Nord», «Manutenzione della rete ferroviaria»). Evita titoli generici come «Situazione economica» o «Difesa» se i fatti non li sostengono.',
+  'Per ogni SITUAZIONE che merita attenzione emetti un blocco separato ```advisor_situation con JSON {"title":"...","summary":"...","signalKeys":["chiave-segnale canonica"]}. I titoli devono essere concreti e specifici, ancorati all\'entità reale (es. «Tensioni al confine con il Sudan», «Ritardo della ferrovia Kampala–Jinja»): evita titoli generici come «Situazione diplomatica», «Problema militare», «Economia» o «Difesa». Ogni signalKey deve esistere nei CURRENT STRATEGIC SIGNALS e una scheda council_issue non sostituisce la sua situazione.',
+  'Non trasformare ogni situazione in una proposta: una situazione può restare senza alcuna council_issue. Il numero di situazioni e di proposte dipende dallo stato reale della partita: possono essere nessuna, una o molte; non esiste un numero fisso da raggiungere e non riempire una quota.',
 ].join('\n');
 
 /** Conservative identity, not semantic similarity: shared facts/ministers/titles are not duplicates. */

@@ -179,3 +179,138 @@ Governo/CouncilRoom, JEV/worldPulse.
   (166 file).
 - Budget prompt ministro (JEV-W3) ancora sotto 5000 grazie alla sostituzione
   neutra in `COUNCIL_ISSUE_PROTOCOL` (protocollo advisor-only per il resto).
+
+---
+
+# Iterazione 2 — `AdvisorSituation` come oggetto di prima classe
+
+La PR #223 aveva tolto il limite di 3, ma le «situazioni» restavano testo: solo
+le `CouncilIssue` erano cliccabili. Questa iterazione separa davvero i due
+concetti e rende la situazione una card reale nel Consulente.
+
+## Flusso
+
+```
+Dossier + stato reale + storia del turno
+        ↓  buildRealitySignals()  (canonico)
+AdvisorSituation[]                → card cliccabili nel Consulente
+        ↓  «Approfondisci»
+      discussione col Consulente
+        ↓  (eventuale, e solo se c'è un atto concreto)
+CouncilIssue                      → «Porta al Consiglio»
+```
+
+## 1. File modificati (iterazione 2)
+
+**Backend**
+- **`backend-nest/src/core/government/AdvisorSituations.ts`** (nuovo): tipo,
+  schema, validazione, derivazione deterministica, parser, merge, serializzazione.
+- `backend-nest/src/core/government/RealitySignals.ts`: `subject`/`title` sul
+  segnale; granularità per entità di **vicini ostili**, **fronti attivi** e
+  **opere in ritardo**.
+- `backend-nest/src/core/government/CouncilIssue.ts`: `SITUATION_PROPOSAL_PROTOCOL`
+  descrive il blocco ```advisor_situation e i titoli concreti.
+- `backend-nest/src/core/government/RealityAdvisor.ts`: `RealityAdvisorResult`
+  espone `situations`; apertura/turn-briefing citano il blocco.
+- `backend-nest/src/prompt-builder.ts`: `validatedAdvisorText` usa
+  `parseAdvisorResponse`/`serializeAdvisorResponse` (round-trip che non perde le
+  situazioni).
+- `backend-nest/src/game-session.ts`: `getAdvisorOpening`/`getRealityAdvisor`
+  usano `parseAdvisorResponse`.
+- `backend-nest/tests/advisor-situations.test.ts` (nuovo).
+
+**Frontend**
+- `frontend/src/services/api.ts`: tipo `AdvisorSituation`; `situations?` su
+  `RealityAdvisorResponse`.
+- `frontend/src/stores/chatStore.ts`: `situations?` su `AdvisorMessage`.
+- `frontend/src/components/Game/advisorMemory.ts`: `sanitizeSituations`, persistenza
+  su messaggi e apertura; cache apertura `v5`.
+- `frontend/src/components/Game/advisorOpening.ts`: propaga `situations`.
+- **`frontend/src/components/Game/AdvisorSituationsPanel.tsx`** (nuovo): card con
+  titolo, sintesi e «Approfondisci».
+- `frontend/src/components/Game/AdvisorChat.tsx`: rende `opening.situations` e
+  `message.situations`; il focus-situazione e l'invio al Consulente.
+- `frontend/src/components/Game/councilRoom.css`: stile delle card.
+- `frontend/src/components/Game/advisorSituations.test.tsx` (nuovo) e
+  `advisorMemory.test.ts` (test situazioni).
+
+## 2. Dove vengono create le AdvisorSituation
+
+Sempre **server-side**, in `AdvisorSituations.ts`:
+
+- **`buildAdvisorSituations(snapshot)`** — base deterministica: una situazione
+  per ogni `RealitySignal` realmente misurato (escluse le decisioni già prese),
+  con `id` stabile, titolo concreto, `summary = signal.reason`, `importance` dal
+  segnale. È la garanzia che il modello non possa nascondere un problema reale.
+- **`parseAdvisorSituations(snapshot, text)`** — estrae i blocchi
+  ```advisor_situation prodotti dal modello.
+- **`parseAdvisorResponse(snapshot, text, origin)`** — punto unico: unisce le due
+  fonti con `mergeAdvisorSituations` e ritorna `{ reply, situations, issues }`.
+  Il modello **non** può far sparire un segnale (la base resta) né inventarlo.
+
+La granularità (F) è nel segnale, non nel testo: `RealitySignals` emette un
+segnale per **entità** — `hostile-relations:<polityId>` (o `hostile-relations`
+con un solo rapporto, retrocompatibile), `conflict:<frontId>`,
+`late-projects:<projectId>` — mantenendo aggregati solo i problemi sistemici
+(liquidità nazionale, tensione sociale generale).
+
+## 3. Come vengono validate
+
+- **Schema zod** `advisorSituationInputSchema`: `title` (1..240), `summary`
+  (1..600), `signalKeys` (1..12 chiavi). L'`id` è opzionale e viene generato dal
+  server; `importance` **non** si accetta dal modello.
+- **`resolveSignalLinks`**: ogni `signalKey` è risolta contro
+  `buildRealitySignals(snapshot)`. Una chiave ignota **invalida** la scheda
+  (`Unknown reality signal key: …`), mai accettata in parte.
+- **`importance`** = massimo dei segnali risolti (autorità del server).
+- **Parser fail-soft**: `parseAdvisorSituations` scarta il blocco non valido e
+  riporta il motivo (`onDiscard`/log), come `parseCouncilIssues`.
+- **Frontend**: `sanitizeSituations` valida la forma (id/titolo/sintesi
+  presenti, `signalKeys` stringhe deduplicate); il server rileggerà e
+  rivaliderà le chiavi. Un payload senza `situations` è trattato come `[]`
+  (retrocompatibilità, requisito I).
+
+## 4. Come il click «Approfondisci» arriva al Consulente
+
+In `AdvisorChat.tsx`, `AdvisorSituationsPanel` espone solo il callback
+`onDeepen` (nessun `onOpenIssue`):
+
+1. `deepen(situation)` imposta `situationFocus` (banner «Situazione in esame»);
+2. costruisce il messaggio `buildSituationFocusMessage(situation)`
+   («Approfondiamo la situazione «Titolo»: sintesi.»);
+3. lo invia con lo **stesso trasporto del Consulente** (`advisorApi.reality`),
+   che restituisce `reply`, `situations` e `issues` separati;
+4. il Consiglio si apre **solo** dal pulsante «Porta al Consiglio» di una
+   `CouncilIssue` (`CouncilIssueInline` → `onOpenIssue`).
+
+## 5. Punti dove situazione e CouncilIssue sono ancora confuse
+
+- **Nessun punto funzionale**: `situations` e `issues` sono array separati in
+  `AdvisorSituation`/`CouncilIssue`, nel trasporto HTTP, nello store e nella UI;
+  il pulsante che apre il Consiglio vive solo su `CouncilIssue`.
+- **`AdvisorChat`**, per un solo caso, mostra ancora «Approfondisci {titolo}»
+  anche su una `CouncilIssue` (comportamento storico che imposta il focus del
+  Consulente). È un residuo di UX, non una confusione di modello dati: si può
+  rimuovere in una pulizia successiva.
+- **`backend-nest/src/prompts/advisor.ts` (`buildAdvisorPrompt`)** resta dead
+  code con «proponi 2-3 opzioni»: fuori percorso, da eliminare.
+- **`frontend/src/components/Game/GovernmentSituations.tsx`** resta un
+  componente legacy non montato, concettualmente affine ma non il percorso del
+  Consulente.
+
+## Verifiche (iterazione 2, mirate — nessuna suite completa)
+
+- `backend-nest`: `tsc --noEmit` pulito.
+- `frontend`: `tsc --noEmit` pulito.
+- Backend mirati: `advisor-situations` (6), più `reality-advisor`,
+  `council-proposal-anchors`, `council-issue-variety`, `council-signalkeys`,
+  `advisor-strategist-voice`, `preset-reality-smoke`,
+  `government-salience-snapshot`, `ws-jev-w3-minister`,
+  `polity-historical-baselines`, `reality-advisor-routes`, `advisor`,
+  `advisor-historical-baseline`, `government-prompt`, `preset-prompts`,
+  `prompts`, `reality-advisor-review`, `verified-world-session`,
+  `ws-gov-minister-world-context`, `ws-jev-w4-context`,
+  `narrative-context-compiler` — tutti verdi.
+- Frontend mirati: `advisorSituations` (nuovo), `advisorMemory`,
+  `advisorOpening`, `advisorStatus`, `governmentRealityHome`, `richTextModel`,
+  `councilRoomFailureRender`, `crisisSurface` — tutti verdi.

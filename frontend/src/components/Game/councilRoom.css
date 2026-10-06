@@ -297,6 +297,17 @@
 .government-reports li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid #304553; }
 .government-reports button { flex: 0 0 auto; min-height: 46px; padding: 0 12px; background: transparent; border: 1px solid #405766; border-radius: 5px; color: #d4b97c; font: 600 13px/1.3 system-ui, sans-serif; cursor: pointer; }
 .advisor-focus { margin: 0; padding: 6px 14px; font: 500 12px/1.3 system-ui, sans-serif; color: #cfe0ea; background: #12222f; border-bottom: 1px solid #2c4254; }
+/* WS-CONSULENTE-SITUAZIONI — le situazioni sono card da approfondire, non proposte. */
+.advisor-situations { margin-top: 14px; }
+.advisor-situations-heading { margin: 0 0 8px; font: 600 13px/1.2 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #9fb2c4; }
+.advisor-situation-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.advisor-situation-card { padding: 12px 14px; border: 1px solid #405766; border-left: 3px solid #6fa8c9; border-radius: 6px; background: #152635; color: #e8eef4; overflow-wrap: anywhere; }
+.advisor-situation-title { margin: 0 0 4px; font: 600 16px/1.3 Georgia, serif; }
+.advisor-situation-summary { margin: 0 0 10px; font: 400 13px/1.5 system-ui, sans-serif; color: #cfe0ea; }
+.advisor-situation-deepen { min-height: 40px; padding: 0 14px; border: 1px solid #4d7f9c; border-radius: 5px; background: transparent; color: #9fd0e8; font: 600 13px/1.3 system-ui, sans-serif; cursor: pointer; }
+.advisor-situation-deepen:disabled { opacity: .5; cursor: default; }
+.advisor-situation-deepen:focus-visible { outline: 2px solid #9fd0e8; outline-offset: 3px; }
+.advisor-focus-situation { background: #14303f; }
 .gov-situation-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .gov-situation-examine { min-height: 40px; padding: 0 14px; border: 1px solid #405766; border-radius: 5px; background: transparent; color: #cfe0ea; font: 600 13px/1.2 system-ui, sans-serif; cursor: pointer; }
 .gov-situation-details { margin-top: 8px; }

@@ -2013,6 +2013,24 @@ export interface CouncilIssue {
   createdDate: string;
 }
 
+/**
+ * WS-CONSULENTE-SITUAZIONI — La SITUAZIONE è un oggetto distinto dalla PROPOSTA.
+ *
+ * Una `AdvisorSituation` è ciò che merita attenzione nel paese. È sempre
+ * ancorata a segnali canonici (`signalKeys`) risolti dal server: il client non
+ * può aggiungere fatti. L'approfondimento resta nel Consulente; solo una
+ * `CouncilIssue` può essere portata al Consiglio.
+ */
+export interface AdvisorSituation {
+  id: string;
+  title: string;
+  summary: string;
+  /** Chiavi dei segnali canonici: il server le ricalcola, mai il client. */
+  signalKeys?: string[];
+  /** 1 = marginale, 2 = rilevante, 3 = critico. Derivata dai segnali dal server. */
+  importance?: number;
+}
+
 /** Server-built read model. Unknown fields remain unknown, never inferred by the client. */
 export interface VerifiedWorldSnapshotView {
   schemaVersion: 1;
@@ -2035,6 +2053,8 @@ export interface VerifiedWorldSnapshotView {
 }
 export interface RealityAdvisorResponse {
   reply: string;
+  /** SITUAZIONI da approfondire: separate dalle proposte di atto. */
+  situations?: AdvisorSituation[];
   issues: CouncilIssue[];
   /** Presente sulla prima apertura: `true` quando è scattato il briefing deterministico. */
   fallback?: boolean;

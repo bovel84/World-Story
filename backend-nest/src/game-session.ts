@@ -35,6 +35,7 @@ import { derivedInfrastructureObjects } from './core/simulation/DerivedInfrastru
 import { renderRealityConcerns } from './core/government/RealitySignals';
 import { buildRealityAdvisorContext, guardRealityAdvisorOutput, verifiedRequestCorrection, renderSignedActs, advisorOpeningRequest, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
 import { generateHistoricalBaseline, awaitHistoricalBaseline, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
+import { parseAdvisorResponse } from './core/government/AdvisorSituations';
 import { parseCouncilIssues, type CouncilIssue } from './core/government/CouncilIssue';
 import type { CurrentReactionAction } from './core/simulation/ReactionContext';
 import { WorldIntelService } from './game/WorldIntelService';
@@ -3639,7 +3640,7 @@ export class GameSession {
     }
     this.assertFenceValid(fence);
     if (text === null || !text.trim()) return { ...this.advisorResult(), fallback: true };
-    const result = parseCouncilIssues(context.verifiedWorldSnapshot, text, 'advisor');
+    const result = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'advisor');
     return { ...result, advisorContext: context, fallback: false };
   }
 
@@ -3657,7 +3658,7 @@ export class GameSession {
     gameData.advisorContext = context.advisorContext;
     const text = await this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
     this.assertFenceValid(fence);
-    const result = parseCouncilIssues(context.advisorContext.verifiedWorldSnapshot, text, 'president');
+    const result = parseAdvisorResponse(context.advisorContext.verifiedWorldSnapshot, text, 'president');
     return { ...result, advisorContext: context.advisorContext };
   }
 

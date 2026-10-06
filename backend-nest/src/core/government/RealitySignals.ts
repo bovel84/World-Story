@@ -34,6 +34,10 @@ export interface RealitySignal {
   domain: RealitySignalDomain;
   /** 1 = marginale, 2 = rilevante, 3 = critico. Determina l'ordine del briefing. */
   importance: number;
+  /** Entità canonica del problema (polity ostile, opera in ritardo): rende il titolo concreto. */
+  subject?: string;
+  /** Titolo già leggibile fornito dal motore (es. «Fronte A–B»), usato verbatim. */
+  title?: string;
   factKeys: string[];
   sourceRefs: string[];
   reason: string;
@@ -313,13 +317,20 @@ export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySig
     });
   }
 
-  // DIPLOMACY — rapporti ostili registrati.
+  // DIPLOMACY — rapporti ostili registrati. WS-CONSULENTE-SITUAZIONI: problemi
+  // separati restano separati. Un segnale per entità ostile, con il nome
+  // canonico come soggetto; la chiave resta `hostile-relations` per un solo
+  // rapporto (retrocompatibile), altrimenti `hostile-relations:<polityId>`.
   const hostile = (snapshot.diplomacy.relations ?? []).filter(relation => relation.relationship === 'hostile');
-  if (hostile.length) {
+  const singleHostile = hostile.length === 1;
+  for (const relation of hostile) {
+    const name = relation.polityName?.trim() || relation.polityId;
     push({
-      key: 'hostile-relations', domain: 'diplomacy', importance: hostile.length > 1 ? 3 : 2,
-      factKeys: [], sourceRefs: hostile.map(relation => relation.sourceRef).slice(0, 4),
-      reason: `${hostile.length === 1 ? 'un rapporto ostile registrato' : `${hostile.length} rapporti ostili registrati`}`,
+      key: singleHostile ? 'hostile-relations' : `hostile-relations:${relation.polityId}`,
+      domain: 'diplomacy', importance: hostile.length > 1 ? 3 : 2,
+      subject: name,
+      factKeys: [], sourceRefs: [relation.sourceRef],
+      reason: `rapporto ostile con ${name}`,
     });
   }
 
@@ -391,13 +402,30 @@ export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySig
     });
   }
 
-  // INFRASTRUCTURE — progetti oltre la data attesa (dato canonico del motore).
-  const late = (snapshot.economy.ongoingProjects ?? []).filter(project => project.expectedDate && snapshot.date && project.expectedDate < snapshot.date);
-  if (late.length) {
+  // CONFLITTI — un fronte attivo per entità: problemi separati restano separati.
+  // Il nome canonico del fronte è già leggibile («Fronte A–B»), lo si usa verbatim.
+  const activeFronts = snapshot.military.fronts.filter(front => ['active', 'stalemate', 'breakthrough'].includes(String(front.raw.status)));
+  for (const front of activeFronts) {
+    const name = typeof front.raw.name === 'string' && front.raw.name.trim() ? front.raw.name.trim() : front.id;
     push({
-      key: 'late-projects', domain: 'project', importance: 2, factKeys: [],
-      sourceRefs: late.map(project => `ongoingProcesses.${project.id}`).slice(0, 4),
-      reason: `${late.length} ${late.length === 1 ? 'opera oltre la data attesa' : 'opere oltre la data attesa'}`,
+      key: `conflict:${front.id}`, domain: 'military', importance: 3, title: name,
+      factKeys: [], sourceRefs: [front.sourceRef], reason: `fronte attivo: ${name}`,
+    });
+  }
+
+  // INFRASTRUCTURE — progetti oltre la data attesa (dato canonico del motore).
+  // WS-CONSULENTE-SITUAZIONI: un segnale per opera distinta quando i dati lo
+  // permettono; chiave legacy `late-projects` con una sola opera.
+  const late = (snapshot.economy.ongoingProjects ?? []).filter(project => project.expectedDate && snapshot.date && project.expectedDate < snapshot.date);
+  const singleLate = late.length === 1;
+  for (const project of late) {
+    const name = project.title?.trim() || project.name?.trim() || project.id;
+    push({
+      key: singleLate ? 'late-projects' : `late-projects:${project.id}`,
+      domain: 'project', importance: 2,
+      subject: name,
+      factKeys: [], sourceRefs: [`ongoingProcesses.${project.id}`],
+      reason: `«${name}» oltre la data attesa`,
     });
   }
 

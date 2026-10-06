@@ -8,6 +8,8 @@ export function toAdvisorOpening(result: RealityAdvisorResponse): AdvisorOpening
   return {
     reply: result.reply,
     issues: result.issues,
+    // Retrocompatibile: una vecchia risposta senza situazioni equivale a nessuna.
+    ...(result.situations?.length ? { situations: result.situations } : {}),
     date: result.advisorContext?.verifiedWorldSnapshot?.date ?? null,
   };
 }
