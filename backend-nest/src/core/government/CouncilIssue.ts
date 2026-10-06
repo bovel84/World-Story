@@ -66,15 +66,22 @@ export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknow
   if (!parsed.success) throw new InvalidCouncilIssueError();
   const input = parsed.data;
   const linked = resolveSignalLinks(snapshot, input.signalKeys ?? []);
-  // If several representations were supplied, none may smuggle an unknown key.
-  const keys = [...new Set([...(input.factKeys ?? []), ...(input.verifiedFacts ?? []).map(fact => fact.key), ...linked.factKeys])];
+  // Con signalKeys presenti sono loro l'AUTORITÀ: factKeys/verifiedFacts del client
+  // sono ignorati. Solo in loro assenza vale il percorso legacy fail-closed.
+  const hasSignals = linked.signalKeys.length > 0;
+  const keys = hasSignals
+    ? [...new Set(linked.factKeys)]
+    : [...new Set([...(input.factKeys ?? []), ...(input.verifiedFacts ?? []).map(fact => fact.key)])];
   const verifiedFacts = keys.map(key => {
     if (!Object.prototype.hasOwnProperty.call(snapshot.facts, key)) throw new InvalidCouncilIssueError(`Unknown verified fact key: ${key}`);
     const fact = snapshot.facts[key];
     return { key: fact.key, label: fact.label, value: fact.value, source: fact.source, sourceRef: fact.sourceRef };
   });
-  // I riferimenti sono SEMPRE canonici: solo quelli della signal, mai quelli del modello.
-  const sourceRefs = [...new Set([...verifiedFacts.map(fact => fact.sourceRef), ...linked.sourceRefs])];
+  // I riferimenti sono SEMPRE canonici: con signalKeys solo quelli della signal,
+  // mai quelli del modello.
+  const sourceRefs = hasSignals
+    ? [...new Set(linked.sourceRefs)]
+    : [...new Set(verifiedFacts.map(fact => fact.sourceRef))];
   // Una signal canonica senza factKeys resta valida se porta un riferimento canonico.
   if (!verifiedFacts.length && !sourceRefs.length) throw new InvalidCouncilIssueError('Council issue senza fatto né riferimento canonico');
   return {
