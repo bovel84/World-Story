@@ -105,6 +105,67 @@ export function technologyById(id: string): Technology | undefined {
 }
 
 /**
+ * Anno minimo di disponibilità di ogni tecnologia del catalogo: stima prudente
+ * e conservativa, allineata alle admission year dell'equipaggiamento. Una
+ * nazione non può nascere con tecnologia successiva alla propria `startDate`.
+ */
+export const TECHNOLOGY_ADMISSION_YEAR: Record<string, number> = {
+  industria_tessile: 1850,
+  industria_bellica: 1880,
+  cantieristica: 1880,
+  agricoltura_meccanizzata: 1900,
+  aeronautica: 1910,
+  motorizzazione: 1920,
+  meccanica_avanzata: 1930,
+  logistica_avanzata: 1940,
+  elettronica: 1950,
+  missilistica: 1960,
+  cantieristica_avanzata: 1960,
+  aeronautica_avanzata: 1970,
+  elettronica_avanzata: 1970,
+  corazzati: 1975,
+  missilistica_avanzata: 1980,
+  corazzati_avanzati: 2015,
+  intelligenza_artificiale: 2020,
+};
+
+function technologyYearOf(startDate?: string | null): number | null {
+  if (typeof startDate !== 'string') return null;
+  const year = Number(startDate.slice(0, 4));
+  return Number.isFinite(year) && year > 0 ? year : null;
+}
+
+/** Tecnologie del catalogo disponibili a una data (tutte se la data non è valida). */
+export function availableTechnologiesAt(startDate?: string | null): Technology[] {
+  const year = technologyYearOf(startDate);
+  if (year === null) return [...TECHNOLOGIES];
+  return TECHNOLOGIES.filter(tech => (TECHNOLOGY_ADMISSION_YEAR[tech.id] ?? 0) <= year);
+}
+
+/** Vero solo se l'ID esiste ed è disponibile alla data (date invalida = nessun vincolo). */
+export function technologyAvailableAt(id: string, startDate?: string | null): boolean {
+  if (!technologyById(id)) return false;
+  const admission = TECHNOLOGY_ADMISSION_YEAR[id] ?? 0;
+  const year = technologyYearOf(startDate);
+  return year === null || admission <= year;
+}
+
+/** Chiude un insieme di tecnologie sui prerequisiti: una tecnologia implica i suoi requisiti. */
+export function closeTechnologySet(ids: string[]): string[] {
+  const set = new Set(ids.filter(id => !!technologyById(id)));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const id of [...set]) {
+      for (const requirement of technologyById(id)?.requires || []) {
+        if (!set.has(requirement)) { set.add(requirement); changed = true; }
+      }
+    }
+  }
+  return [...set];
+}
+
+/**
  * Debito pubblico totale = portafoglio titoli + scoperto di cassa. La tesoreria
  * può essere negativa: la parte negativa è debito forzoso, non un errore.
  */
@@ -538,10 +599,27 @@ function seedInheritedDebt(inheritedDebt: number, date: string, debtRatioPct: nu
 }
 
 /**
+ * Override iniziale di scorte/materiali/tecnologie proveniente dal Dossier
+ * Nazionale del bootstrap. Opzionale e retrocompatibile: se assente, `seedStock`
+ * usa la semina deterministica di sempre.
+ */
+export interface InitialResourceOverrides {
+  food?: number;
+  clothing?: number;
+  weapons?: number;
+  fuel?: number;
+  research?: number;
+  technologies?: string[];
+}
+
+/**
  * Scorte iniziali proporzionate all'economia e alle risorse naturali.
  * `asOfDate` (facoltativa) fa nascere il debito ereditato con vere scadenze.
+ * `initialResources` (facoltativa) è l'override validato del Dossier Nazionale:
+ * valori finiti e non negativi, clampati alla capacità di stoccaggio; senza di
+ * esso la semina resta identica a prima.
  */
-export function seedStock(account: NationalAccount, endowment: NaturalEndowment = {}, asOfDate = '', initialTreasuryUsdBillions?: number): ResourceStock {
+export function seedStock(account: NationalAccount, endowment: NaturalEndowment = {}, asOfDate = '', initialTreasuryUsdBillions?: number, initialResources?: InitialResourceOverrides): ResourceStock {
   // Ogni campo è difeso: un conto con un valore mancante o non numerico non
   // deve mai produrre una tesoreria a zero (né un `NaN` che poi diventa zero).
   const n = (value: unknown): number => (Number.isFinite(Number(value)) ? Number(value) : 0);
@@ -569,7 +647,7 @@ export function seedStock(account: NationalAccount, endowment: NaturalEndowment 
   const weaponFill = Math.min(1, fill + iron * 0.02 + coal * 0.01);
   const fuelFill = Math.min(1, fill + oil * 0.03 + gas * 0.02);
   const part = (value: number) => Math.round(value * 1000) / 1000;
-  return {
+  const seeded: ResourceStock = {
     money,
     debts: seedInheritedDebt(inheritedDebt, asOfDate, debtRatioPct),
     food: part(capacity.food * foodFill),
@@ -579,6 +657,22 @@ export function seedStock(account: NationalAccount, endowment: NaturalEndowment 
     research: universities * 20,
     technologies: [],
   };
+  if (initialResources && typeof initialResources === 'object') {
+    // Difesa in profondità: il profilo validato è già entro capacità, ma un
+    // salvataggio vecchio o modificato a mano non deve poter sfondare il tetto.
+    for (const kind of ['food', 'clothing', 'weapons', 'fuel'] as const) {
+      const value = initialResources[kind];
+      if (value === undefined || !Number.isFinite(Number(value)) || Number(value) < 0) continue;
+      seeded[kind] = part(Math.min(Number(value), capacity[kind]));
+    }
+    if (initialResources.research !== undefined && Number.isFinite(Number(initialResources.research)) && Number(initialResources.research) >= 0) {
+      seeded.research = part(Number(initialResources.research));
+    }
+    if (Array.isArray(initialResources.technologies)) {
+      seeded.technologies = closeTechnologySet(initialResources.technologies.filter((id): id is string => typeof id === 'string' && !!technologyById(id)));
+    }
+  }
+  return seeded;
 }
 
 /** Riserva valutaria minima con cui qualunque nazione inizia a giocare. */

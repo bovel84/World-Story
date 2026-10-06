@@ -594,8 +594,9 @@ export class NationStateService {
   // ── Magazzino ───────────────────────────────────────────────────────────
 
   private seedNationalStock(account: NationalAccount, polityId: string): ResourceStock {
+    const profile = this.ctx.worldStateOptions().initialProfiles?.[polityId];
     return seedStock(account, naturalResourcesFor(polityId), this.ctx.currentDate(),
-      this.ctx.worldStateOptions().initialProfiles?.[polityId]?.economy.treasuryUsdBillions);
+      profile?.economy.treasuryUsdBillions, profile?.resources);
   }
 
   /**

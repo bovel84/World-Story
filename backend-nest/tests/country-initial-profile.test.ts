@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { formationImpact } from '../src/core/simulation/OperationalObjects';
-import { seedStock } from '../src/core/simulation/MaterialEconomy';
+import { seedStock, storageCapacity } from '../src/core/simulation/MaterialEconomy';
 import { WorldStateEngine } from '../src/core/simulation/WorldStateEngine';
-import { buildCountryInitialProfile, validateCountryInitialProfile, generateCountryInitialProfile } from '../src/core/simulation/CountryInitialProfile';
+import { buildCountryInitialProfile, validateCountryInitialProfile, generateCountryInitialProfile, infrastructureCaps } from '../src/core/simulation/CountryInitialProfile';
 const input = (polityId = 'BIH', population = 3_750_000) => ({
   polityId, startDate: '2000-01-01', regions: [{ id: polityId, owner: polityId, population, gdp: 10, militaryPower: 20, coastal: false, objects: [] }],
 });
@@ -184,18 +184,116 @@ describe('CountryInitialProfile', () => {
     const spec = input('BIH', 3_750_000);
     spec.regions[0].objects = [{ type: 'factory', level: 1 }, { type: 'university', level: 2 }] as never;
     const base = buildCountryInitialProfile(spec);
+    const caps = infrastructureCaps(spec);
     expect(base.mapBaseline.factories).toBe(1);
     expect(base.mapBaseline.universities).toBe(2);
     const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
       mapBaseline: { ...base.mapBaseline, gdp: 9_999, militaryPower: 9_999 },
       population: base.population + 500_000,
-      infrastructure: { factories: 7, ports: 0, universities: 9 } }));
+      infrastructure: { factories: caps.factories, ports: caps.ports, universities: caps.universities } }));
     expect(result.mapBaseline).toEqual(base.mapBaseline);
     expect(result.mapBaseline.gdp).not.toBe(9_999);
     expect(result.population).toBe(base.population);
-    expect(result.infrastructure).toEqual({ factories: 7, ports: 0, universities: 9 });
+    expect(result.infrastructure).toEqual({ factories: caps.factories, ports: caps.ports, universities: caps.universities });
     expect(result.infrastructure.factories).toBeGreaterThanOrEqual(base.mapBaseline.factories);
     expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+  it('two countries without hardcoded estimates keep nation-specific LLM profiles and resources', async () => {
+    const ugandaSpec = input('UGA', 24_000_000);
+    const cambodiaSpec = input('KHM', 12_000_000);
+    cambodiaSpec.regions[0].coastal = true;
+    const ugandaBase = buildCountryInitialProfile(ugandaSpec);
+    const cambodiaBase = buildCountryInitialProfile(cambodiaSpec);
+    const uganda = await generateCountryInitialProfile(ugandaSpec, async () => JSON.stringify({ ...ugandaBase,
+      economy: { ...ugandaBase.economy, treasuryUsdBillions: 0.4 },
+      military: { ...ugandaBase.military, activePersonnel: 45_000, reservePersonnel: 20_000, formations: 12,
+        averageFormationSize: 3_750, readinessPct: 35, trainingPct: 30, logisticsPct: 28,
+        equipmentProfile: { fucili: 45_000, apc: 120 } },
+      infrastructure: { factories: 6, ports: 0, universities: 4 },
+      resources: { food: 1.5, clothing: 1, weapons: 2, fuel: 1.5, research: 30,
+        technologies: ['agricoltura_meccanizzata', 'industria_tessile'] } }));
+    const cambodia = await generateCountryInitialProfile(cambodiaSpec, async () => JSON.stringify({ ...cambodiaBase,
+      economy: { ...cambodiaBase.economy, treasuryUsdBillions: 1.2 },
+      military: { ...cambodiaBase.military, activePersonnel: 90_000, reservePersonnel: 60_000, formations: 20,
+        averageFormationSize: 4_500, readinessPct: 52, trainingPct: 48, logisticsPct: 44,
+        equipmentProfile: { fucili: 90_000, apc: 300, artiglieria: 60 } },
+      infrastructure: { factories: 10, ports: 4, universities: 6 },
+      resources: { food: 2, clothing: 1.5, weapons: 4, fuel: 2, research: 90,
+        technologies: ['industria_bellica', 'motorizzazione'] } }));
+    expect(uganda.provenance.source).toBe('llm-estimate');
+    expect(cambodia.provenance.source).toBe('llm-estimate');
+    expect(validateCountryInitialProfile(uganda, ugandaSpec)).not.toBeNull();
+    expect(validateCountryInitialProfile(cambodia, cambodiaSpec)).not.toBeNull();
+    expect(uganda.military.activePersonnel).not.toBe(cambodia.military.activePersonnel);
+    expect(uganda.military.reservePersonnel).not.toBe(cambodia.military.reservePersonnel);
+    expect(uganda.military.readinessPct).not.toBe(cambodia.military.readinessPct);
+    expect(uganda.military.trainingPct).not.toBe(cambodia.military.trainingPct);
+    expect(uganda.military.logisticsPct).not.toBe(cambodia.military.logisticsPct);
+    expect(uganda.military.equipmentProfile).not.toEqual(cambodia.military.equipmentProfile);
+    expect(uganda.infrastructure).not.toEqual(cambodia.infrastructure);
+    expect(uganda.economy.treasuryUsdBillions).not.toBe(cambodia.economy.treasuryUsdBillions);
+    expect(uganda.resources?.technologies).not.toEqual(cambodia.resources?.technologies);
+    expect(uganda.resources?.research).not.toBe(cambodia.resources?.research);
+  });
+  it('anachronistic technology is refused by the firewall and stripped without discarding the profile', async () => {
+    const spec = input('UGA', 24_000_000);
+    const base = buildCountryInitialProfile(spec);
+    expect(validateCountryInitialProfile({ ...base, resources: { technologies: ['intelligenza_artificiale'] } }, spec)).toBeNull();
+    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+      resources: { research: 10, technologies: ['intelligenza_artificiale'] } }));
+    expect(result.provenance.source).toBe('llm-estimate');
+    expect(result.resources?.technologies ?? []).not.toContain('intelligenza_artificiale');
+    expect(result.resources?.research).toBe(10);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+  it('unknown technology ids are refused by the firewall and stripped without discarding the profile', async () => {
+    const spec = input('UGA', 24_000_000);
+    const base = buildCountryInitialProfile(spec);
+    expect(validateCountryInitialProfile({ ...base, resources: { technologies: ['tecnologia_fantasma'] } }, spec)).toBeNull();
+    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+      resources: { research: 5, technologies: ['tecnologia_fantasma'] } }));
+    expect(result.provenance.source).toBe('llm-estimate');
+    expect(result.resources?.technologies ?? []).toEqual([]);
+    expect(result.resources?.research).toBe(5);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+  it('material stocks far beyond storage capacity are clamped to the warehouse ceiling', async () => {
+    const spec = input('UGA', 24_000_000);
+    const base = buildCountryInitialProfile(spec);
+    const account = WorldStateEngine.accounts(spec.regions, { startDate: spec.startDate, modernFacts: false }).UGA;
+    const cap = storageCapacity(account);
+    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+      resources: { food: cap.food * 1000, clothing: cap.clothing * 1000, weapons: cap.weapons * 1000, fuel: cap.fuel * 1000 } }));
+    expect(result.provenance.source).toBe('llm-estimate');
+    expect(result.resources?.food).toBeCloseTo(cap.food, 3);
+    expect(result.resources?.clothing).toBeCloseTo(cap.clothing, 3);
+    expect(result.resources?.weapons).toBeCloseTo(cap.weapons, 3);
+    expect(result.resources?.fuel).toBeCloseTo(cap.fuel, 3);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+    // Una semina legacy (senza resources) resta identica alla deterministica.
+    const baseline = seedStock(account);
+    const legacy = seedStock(account, {}, '', base.economy.treasuryUsdBillions, base.resources);
+    expect(legacy.food).toBe(baseline.food);
+    expect(legacy.clothing).toBe(baseline.clothing);
+    expect(legacy.weapons).toBe(baseline.weapons);
+    expect(legacy.fuel).toBe(baseline.fuel);
+    expect(legacy.research).toBe(baseline.research);
+    expect(legacy.technologies).toEqual(baseline.technologies);
+  });
+  it('a small country cannot claim hundreds of factories', () => {
+    const spec = input('BIH', 3_750_000);
+    const base = buildCountryInitialProfile(spec);
+    expect(validateCountryInitialProfile({ ...base, infrastructure: { ...base.infrastructure, factories: 900 } }, spec)).toBeNull();
+  });
+  it('a large power with high but plausible infrastructure is accepted', () => {
+    const spec = input('USA', 282_000_000);
+    spec.regions[0].coastal = true;
+    spec.regions[0].objects = [{ type: 'factory', level: 3 }, { type: 'port', level: 2 }] as never;
+    const base = buildCountryInitialProfile(spec);
+    const caps = infrastructureCaps(spec);
+    const infra = { factories: Math.min(caps.factories, 200), ports: Math.min(caps.ports, 40), universities: Math.min(caps.universities, 90) };
+    expect(infra.factories).toBeGreaterThan(100);
+    expect(validateCountryInitialProfile({ ...base, infrastructure: infra }, spec)).not.toBeNull();
   });
   it('profile rates are initial anchors, not frozen numbers: map growth evolves GDP and newly built assets still count', () => {
     const spec = input();

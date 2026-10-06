@@ -89,6 +89,34 @@ describe('bootstrap canonical persistence', () => {
     expect(profiles.get(first.gameId, 'BIH').military.readinessPct).toBe(64);
     expect(calls).toEqual(['history', 'profile']);
   });
+  it('bootstrap resources seed the national stock once and survive reload without new calls', async () => {
+    const calls: string[] = [];
+    const mock = { ...provider, generate: async (_mechanic: string, system: string, prompt: string) => {
+      if (system === HISTORICAL_BASELINE_SYSTEM) { calls.push('history'); return historyResponse; }
+      calls.push('profile');
+      const fallback = (JSON.parse(prompt) as { fallback: CountryInitialProfile }).fallback;
+      return { content: JSON.stringify({ ...fallback,
+        resources: { food: 2, clothing: 1, weapons: 3, fuel: 1.5, research: 42, technologies: ['industria_tessile'] } }) };
+    } };
+    const { initSessionRegistry } = await import('../src/session-registry');
+    const localRegistry = initSessionRegistry(mock as never);
+    const first = localRegistry.createSession('profile-world', '', 'profile-BIH', '#112233', undefined, true);
+    await first.ready;
+    expect(calls).toEqual(['history', 'profile']);
+    const { resourceRepository } = await import('../src/repositories/resource.repository');
+    const stock = resourceRepository.get(first.gameId, 'BIH').stock;
+    expect(stock.food).toBeCloseTo(2, 3);
+    expect(stock.clothing).toBeCloseTo(1, 3);
+    expect(stock.weapons).toBeCloseTo(3, 3);
+    expect(stock.fuel).toBeCloseTo(1.5, 3);
+    expect(stock.research).toBe(42);
+    expect(stock.technologies).toEqual(['industria_tessile']);
+    const { GameSession } = await import('../src/game-session');
+    const rebuilt = new GameSession(first.gameId, 'profile-world', mock as never);
+    rebuilt.reconstructFromDB({ currentTurn: 1, currentDate: '2000-01-01', players: [first.session.getPlayer()] });
+    expect(resourceRepository.get(first.gameId, 'BIH').stock).toEqual(stock);
+    expect(calls).toEqual(['history', 'profile']);
+  });
   it('an existing persisted baseline is reused without a history generation', async () => {
     const { gameRepository } = await import('../src/repositories/game.repository');
     const gameId = 'profile-cached-history';
