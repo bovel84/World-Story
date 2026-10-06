@@ -12,6 +12,8 @@ import type { CouncilIssue } from '../../services/api';
 const PREFIX = 'ws.advisor';
 /** Tetto di sicurezza: la conversazione non cresce senza limite. */
 const MAX_MESSAGES = 200;
+/** Il backend può proporre più di tre temi distinti; manteniamo un tetto UI di sicurezza coerente. */
+const MAX_PERSISTED_ISSUES = 8;
 const ISSUE_ORIGINS = ['advisor', 'president', 'minister', 'event', 'follow-up'];
 
 const text = (value: unknown): string | null => typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -19,7 +21,7 @@ const text = (value: unknown): string | null => typeof value === 'string' && val
 /** WS-GOV-ADVISOR-RESIDUAL-FIXES §4 — Validazione minima degli `issues` salvati. */
 function sanitizeIssues(raw: unknown): CouncilIssue[] | undefined {
   if (!Array.isArray(raw)) return undefined;
-  const issues = raw.slice(0, 3).flatMap((item): CouncilIssue[] => {
+  const issues = raw.slice(0, MAX_PERSISTED_ISSUES).flatMap((item): CouncilIssue[] => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const issue = item as Record<string, unknown>;
     const id = text(issue.id); const title = text(issue.title); const question = text(issue.question);
@@ -129,7 +131,7 @@ export interface AdvisorOpening {
 
 // Previous cached openings used the initial-mandate request even on later turns.
 // Invalidate them once; the server, not this cache, selects the briefing kind.
-const OPENING_PREFIX = 'ws.advisor.opening.v2';
+const OPENING_PREFIX = 'ws.advisor.opening.v3';
 
 /** Bucket dedicato: non entra nella scansione dell'archivio conversazione. */
 export function advisorOpeningKey(gameId: string, branchId: string | null, scopeKey: string): string {
