@@ -126,6 +126,22 @@ export function Footnote({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * COUNTRY-CLARITY — Strato degli APPROFONDIMENTI.
+ * Sopra resta lo stato canonico (le schede `NationalDossierLive`: attuale vs
+ * inizio partita); qui sotto, richiudibile, ciò che lo spiega o lo strumenta
+ * (flussi, portafogli, cataloghi, progetti, governo). Una sola superficie per
+ * lo stato della nazione: il resto non deve sembrarne una seconda versione.
+ */
+export function DeepDive({ children, label = 'Approfondimenti' }: { children: React.ReactNode; label?: string }) {
+  return (
+    <details className="nation-deepdive">
+      <summary>{label}</summary>
+      <div className="nation-deepdive-body">{children}</div>
+    </details>
+  );
+}
+
+/**
  * Riga di mercato per una risorsa: quantità + vendita/acquisto. Il componente
  * tiene la propria quantità, così ogni risorsa ha un controllo indipendente.
  */

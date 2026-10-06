@@ -88,7 +88,8 @@ describe('V02 — la crisi sta in superficie', () => {
         /<ObjectsBoard|<PressuresBlock|<CrisisBlock|nation-decision-ack/,
       );
     }
-    // Il quadro d'insieme resta un richiudibile: naviga, non agisce (I5).
-    expect(SOURCE).toMatch(/Quadro d&apos;insieme per dominio/);
+    // Il quadro d'insieme resta un richiudibile: naviga, non agisce (I5), ed è
+    // ora etichettato come approfondimento (COUNTRY-CLARITY).
+    expect(SOURCE).toMatch(/Approfondimenti: quadro d&apos;insieme per dominio/);
   });
 });
