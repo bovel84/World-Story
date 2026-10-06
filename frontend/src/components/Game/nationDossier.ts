@@ -24,7 +24,7 @@ export interface CompletedProcess {
   completed_date?: string | null;
 }
 
-export interface NationalAssets {
+interface NationalAssets {
   provinces: number;
   population: number;
   gdpBillions: number;

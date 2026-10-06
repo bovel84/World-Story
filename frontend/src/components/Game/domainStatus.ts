@@ -39,7 +39,7 @@ export const DOMAIN_STATUS_LABEL: Record<DomainStatusLevel, string> = {
 };
 
 /** Ordine di gravità: `healthy` = 0 … `critical` = 4. */
-export const DOMAIN_STATUS_ORDER: Record<DomainStatusLevel, number> = {
+const DOMAIN_STATUS_ORDER: Record<DomainStatusLevel, number> = {
   healthy: 0, stable: 1, pressure: 2, fragile: 3, critical: 4,
 };
 

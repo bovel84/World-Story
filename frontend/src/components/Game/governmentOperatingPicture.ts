@@ -11,7 +11,7 @@ import type { Commitment, GovernmentSnapshot, GovernmentFaction } from '../../se
 import { stanceTone } from './governmentDossier';
 import { finiteOrNull, round1, type DomainDriver, type DomainStatus, type DriverTone } from './domainStatus';
 
-export interface FactionView {
+interface FactionView {
   id: string;
   name: string;
   interest: string;
@@ -27,7 +27,7 @@ export interface FactionView {
   tone: DriverTone;
 }
 
-export interface PromiseSummary {
+interface PromiseSummary {
   /** Impegni chiusi in positivo (mantenuti). */
   kept: number;
   /** Impegni traditi o scaduti senza esito. */
@@ -53,7 +53,7 @@ export interface GovernmentPicture extends DomainStatus {
   promises: PromiseSummary;
 }
 
-export interface GovernmentInput {
+interface GovernmentInput {
   government?: Partial<GovernmentSnapshot> | null;
   commitments?: { commitments: Commitment[]; attention: Commitment[] } | null;
   stability?: number | null;

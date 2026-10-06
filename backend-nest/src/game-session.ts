@@ -11,7 +11,7 @@ import { RegionGeometryService } from './game/RegionGeometryService';
 import { MilitaryService, createProductionNotices, type ProductionNotices } from './game/MilitaryService';
 import { OrderExecutionService, type PendingAction } from './game/OrderExecutionService';
 import { LLMRouter } from './llm';
-import { buildCountryInitialProfile, generateCountryInitialProfile, countryProfileRegions, validateCountryInitialProfile } from './core/simulation/CountryInitialProfile';
+import { buildCountryInitialProfile, generateCountryInitialProfile, countryProfileRegions, validateCountryInitialProfile, type CountryInitialProfile } from './core/simulation/CountryInitialProfile';
 import { countryInitialProfiles, type CountryInitialProfilesSnapshot } from './repositories/country-initial-profile.repository';
 import type { WorldStateOptions } from './core/simulation/WorldStateEngine';
 import { GameController } from './agents';
@@ -991,6 +991,16 @@ export class GameSession {
   /** Magazzino del paese giocatore, per API e dossier (implementazione in NationStateService). */
   getResources() {
     return this.nationState.getResources();
+  }
+
+  /**
+   * Dossier Nazionale — la baseline canonica del Turno 0 (sola lettura).
+   * È il `CountryInitialProfile` persistito dal bootstrap: non viene mai
+   * rigenerato e serve solo come termine di confronto per lo stato attuale.
+   * `null` per salvataggi legacy creati prima del bootstrap dei profili.
+   */
+  getCountryInitialProfile(): CountryInitialProfile | null {
+    return countryInitialProfiles.get(this.id, this.playerPolityId);
   }
 
   /**

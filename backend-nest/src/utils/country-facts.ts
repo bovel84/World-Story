@@ -806,6 +806,12 @@ export const HISTORICAL_GDP_BY_YEAR: Record<number, Record<string, number>> = {
 };
 
 /**
+ * TODO(dossier-live): fallback deterministico legacy. La baseline canonica del
+ * Turno 0 è ora `CountryInitialProfile`, persistito una volta per nazione/data.
+ * Queste tabelle restano solo per i percorsi che non hanno un profilo (giochi
+ * legacy, dati di preset/mappa mancanti): non aggiungere nuove nazioni qui —
+ * la fonte d'autorità è il profilo iniziale.
+ *
  * Stime storiche arrotondate della popolazione (non valori verificati al bootstrap).
  * World Bank WDI SP.POP.TOTL, anno 2000: BIH ~3.75 milioni, USA ~282.2 milioni.
  * https://data.worldbank.org/indicator/SP.POP.TOTL?locations=BA-US

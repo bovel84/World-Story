@@ -99,16 +99,23 @@ describe('N06 — le conoscenze dichiarano la fonte vera', () => {
     // Il difetto rimosso: «Catalogo tecnologie del motore» sopra un elenco che
     // era invece quello degli sblocchi.
     expect(dock).not.toMatch(/Catalogo tecnologie del motore/);
-    expect(dock).toMatch(/tecnologie che il motore pubblica come sbloccate/);
+    // La fonte vera: il catalogo non è pubblicato all'API, quindi le etichette
+    // si derivano dagli ID (vedi `technologyLabel`).
+    expect(read('./nationalDossierLive.ts')).toMatch(/non è pubblicato/);
+    expect(read('./LiveNationalDossier.tsx')).toMatch(/Tecnologie possedute/);
   });
 
   it('l\'epoca è dichiarata accanto alle conoscenze', () => {
     const dock = read('./NationDock.tsx');
-    const block = dock.match(/title="Tecnologie sbloccate"[\s\S]*?<\/DossierBlock>/)?.[0] ?? '';
-    expect(block).not.toBe('');
-    expect(block).toMatch(/non dichiara un.*epoca delle tecnologie/);
-    expect(block).toMatch(/epochView\.year/);
-    // E la lista mostra davvero le tecnologie pubblicate dal motore.
-    expect(block).toMatch(/resources\.technologies\.map/);
+    // La scheda viva della tecnologia, seguita dalla dichiarazione d'epoca.
+    const idx = dock.indexOf('part="tecnologia"');
+    expect(idx).toBeGreaterThan(-1);
+    const around = dock.slice(idx, idx + 800);
+    expect(around).toMatch(/non dichiara un.*epoca delle tecnologie/);
+    expect(around).toMatch(/epochView\.year/);
+    // E la lista mostra le etichette leggibili delle tecnologie sbloccate.
+    const live = read('./LiveNationalDossier.tsx');
+    expect(live).toMatch(/technologyLabel/);
+    expect(live).toMatch(/live\.technology\.current\.map/);
   });
 });

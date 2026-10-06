@@ -10,9 +10,13 @@
  * il falso verde: il totale dei blocchi contati deve essere quello misurato —
  * se il parser si rompe, il test fallisce invece di passare a vuoto.
  *
- * Conteggio: `DossierBlock` interni al dossier = 32. Il 33esimo blocco del
- * vecchio schedario era «Sfide del momento», che da V01 vive nel pannello
- * Questioni: è conteggiato a parte (V1: non c'è più nel dossier).
+ * Conteggio: `DossierBlock` interni al dossier = 26. Le schede **vive**
+ * (`NationalDossierLive`) non sono `DossierBlock`: portano le cifre attuali vs
+ * Turno 0 e sostituiscono le vecchie card duplicate. Due blocchi del vecchio
+ * schedario erano già usciti (V01: «Sfide del momento»; D-1: «Oggetti del
+ * paese»); il consolidamento del Dossier vivo ne ha rimossi altri cinque
+ * («Coesione interna», «Tecnologie sbloccate», «Capitale umano», «Flussi
+ * mensili», «Arsenale») e ha fuso le metriche residue.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -56,17 +60,16 @@ const EXPECTED: Record<string, string[]> = {
   situazione: ['Indicatori di tenuta', 'Crisi della nazione', 'Decisioni richieste'],
   regno: [
     'Quadro del governo', 'Consiglio dei ministri',
-    'Assetto istituzionale', 'Politica fiscale', 'Coesione interna',
-    'Tecnologie sbloccate', 'Capitale umano', 'Investimento nel popolo',
+    'Assetto istituzionale', 'Politica fiscale', 'Investimento nel popolo',
   ],
   tesoro: [
-    'Quadro economico', 'Tesoreria e debito', 'Flussi mensili', 'Composizione del bilancio',
-    'Quadro di risorse e industria', 'Magazzino materiale', 'Direttive attive',
-    'Risorse naturali', 'Capacità produttive e territoriali', 'Progetti e processi',
+    'Quadro economico', 'Debito pubblico: scadenze e nuove emissioni', 'Composizione del bilancio',
+    'Quadro di risorse e industria', 'Ritmo del mese: produzione e consumo', 'Direttive attive',
+    'Risorse naturali', 'Territorio e fonti della capacità', 'Progetti e processi',
   ],
   statoMaggiore: [
     'Quadro delle forze armate',
-    'Quanto hai e quanto produci', "Forza dell'arsenale", 'Peso dei domini', 'Arsenale',
+    'Quanto produci e quanto consumi', "Forza dell'arsenale", 'Peso dei domini',
     'Produzione in corso', 'Produzione e acquisti',
     // Da Situazione (estero) e da Cassa (sforzo bellico): V03 li raccoglie qui.
     'Strategie delle potenze', 'Impegni della partita', 'Pressione militare',
@@ -83,17 +86,16 @@ describe('V03 — il dossier ha quattro sezioni, mappate obbligatoriamente', () 
     expect(STORE).toMatch(/NATION_SECTIONS:\s*NationSection\[\]\s*=\s*\[\s*'situazione',\s*'regno',\s*'tesoro',\s*'statoMaggiore',?\s*\]/);
   });
 
-  it('la guardia vede davvero i blocchi (31 nel dossier)', () => {
+  it('la guardia vede davvero i blocchi (26 nel dossier)', () => {
     const total = [...bySection.values()].reduce((n, titles) => n + titles.length, 0);
-    // Conteggio per sezione: 3 + 8 + 10 + 10 = 31. Due blocchi hanno lasciato il
-    // dossier: «Sfide del momento» → pannello Questioni (V01); «Oggetti del
-    // paese» (la sala operativa) → pannello Forze (D-1). Se il parser si rompe,
-    // qui si vede subito.
-    expect(total, 'il parser non vede i 31 blocchi del dossier').toBe(31);
+    // Conteggio per sezione: 3 + 5 + 9 + 9 = 26. Cinque blocchi hanno lasciato il
+    // dossier nel consolidamento (vedi l'intestazione); le schede vive portano le
+    // cifre attuali vs Turno 0. Se il parser si rompe, qui si vede subito.
+    expect(total, 'il parser non vede i 26 blocchi del dossier').toBe(26);
     expect(bySection.get('situazione')?.length).toBe(3);
-    expect(bySection.get('regno')?.length).toBe(8);
-    expect(bySection.get('tesoro')?.length).toBe(10);
-    expect(bySection.get('statoMaggiore')?.length).toBe(10);
+    expect(bySection.get('regno')?.length).toBe(5);
+    expect(bySection.get('tesoro')?.length).toBe(9);
+    expect(bySection.get('statoMaggiore')?.length).toBe(9);
   });
 
   it('ogni blocco sta nella sezione che il piano gli assegna', () => {

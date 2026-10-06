@@ -25,7 +25,7 @@
  */
 import type { EstablishmentCategoryPayload } from '../../services/api';
 
-export interface DoctrineView {
+interface DoctrineView {
   /** L'etichetta dell'epoca, dal motore. `null` se il motore non la pubblica. */
   epochLabel: string | null;
   /** Le categorie che l'epoca prevede, con etichetta e motivazione del motore. */
