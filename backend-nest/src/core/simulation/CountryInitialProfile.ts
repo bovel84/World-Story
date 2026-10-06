@@ -1,8 +1,20 @@
-import { WorldStateEngine, type WorldStateRegion } from './WorldStateEngine';
+import { WorldStateEngine, type WorldStateRegion, type NationalAccount } from './WorldStateEngine';
 import { coastalFromGeojson } from './NationCapacity';
 import { militaryManpower, arsenalSeedUnits, epochForDate, individualWeaponShareFor } from './MilitaryDoctrine';
 import { equipmentById, EQUIPMENT_CREW } from './MilitaryIndustry';
+import { storageCapacity, initialResearchCap, availableTechnologiesAt, technologyAvailableAt, closeTechnologySet, technologyById } from './MaterialEconomy';
 import { referenceGdpUsdBillionsForDate, referenceDebtToGdpPctForDate, referencePopulationForDate } from '../../utils/country-facts';
+
+/** Sezione opzionale del bootstrap: scorte e tecnologia iniziali specifiche per nazione/data.
+ * Se assente, la semina materiale segue la logica deterministica di `seedStock`. */
+export interface CountryInitialResources {
+  food?: number;
+  clothing?: number;
+  weapons?: number;
+  fuel?: number;
+  research?: number;
+  technologies?: string[];
+}
 
 /** Immutable bootstrap anchors. Money/flows are billions USD; personnel are people.
  * Infrastructure counts represent national TOTALS, not extra map assets. */
@@ -15,6 +27,8 @@ export interface CountryInitialProfile {
   military: { activePersonnel: number; reservePersonnel: number; formations: number; averageFormationSize: number; readinessPct: number; defenceBurdenPct: number; equipmentProfile: Record<string, number>; trainingPct: number; qualityPct: number; logisticsPct: number };
   society: { stability: number; socialTension: number };
   infrastructure: { factories: number; ports: number; universities: number };
+  /** Scorte/tecnologie iniziali stimate (opzionale). Assente nei profili/salvataggi legacy. */
+  resources?: CountryInitialResources;
   /** Initial map anchors let the existing deterministic engine evolve the profile. */
   mapBaseline: { gdp: number; militaryPower: number; forces: number; factories: number; ports: number; universities: number; mobilized: number; stability: number; socialTension: number };
   provenance: { source: 'deterministic' | 'historical+map' | 'llm-estimate'; generatedAt: string; confidence: 'low' | 'medium' | 'high'; notes: string[] };
@@ -49,6 +63,57 @@ const pct = (value: unknown) => positive(value) && value <= 100;
 const round = (n: number) => Math.round(n * 1e6) / 1e6;
 const coast = (input: CountryProfileInput) => input.regions.some(r => r.owner === input.polityId && (r.coastal ?? coastalFromGeojson(r.id, r.geojson)));
 const authored = (input: CountryProfileInput, type: string) => input.regions.filter(r => r.owner === input.polityId).reduce((sum, r) => sum + (r.objects || []).filter(o => o.type === type).reduce((n, o) => n + Math.max(1, o.level || 1), 0), 0);
+
+function materialAccount(input: CountryProfileInput): NationalAccount | undefined {
+  return WorldStateEngine.accounts(input.regions, { modernFacts: input.startDate.startsWith('2024-'), startDate: input.startDate })[input.polityId];
+}
+
+/** Limiti infrastrutturali larghi ma dipendenti da popolazione, PIL e geografia.
+ * Bloccano output palesemente assurdi senza penalizzare le grandi potenze. Il
+ * totale nazionale non può mai scendere sotto gli oggetti authored della mappa;
+ * un paese senza costa ha come tetto porti esattamente i porti authored. */
+export function infrastructureCaps(input: CountryProfileInput): { factories: number; universities: number; ports: number } {
+  const own = input.regions.filter(r => r.owner === input.polityId);
+  const account = materialAccount(input);
+  const population = referencePopulationForDate(input.polityId, input.startDate) ?? account?.population ?? own.reduce((n, r) => n + r.population, 0);
+  const gdp = referenceGdpUsdBillionsForDate(input.polityId, input.startDate) ?? account?.nominalGdpUsdBillions ?? own.reduce((n, r) => n + r.gdp, 0);
+  return {
+    factories: Math.max(authored(input, 'factory'), Math.ceil(population / 2_000_000) + Math.ceil(gdp / 100) + 4),
+    universities: Math.max(authored(input, 'university'), Math.ceil(population / 5_000_000) + Math.ceil(gdp / 250) + 3),
+    ports: coast(input)
+      ? Math.max(authored(input, 'port'), Math.ceil(population / 20_000_000) + Math.ceil(gdp / 200) + 2)
+      : authored(input, 'port'),
+  };
+}
+
+/** Scorte/tecnologie iniziali validate: stock finiti e non negativi clampati
+ * alla capacità di stoccaggio, tecnologie note e disponibili alla data.
+ * Restituisce `undefined` se non resta nulla di utilizzabile: in quel caso la
+ * semina materiale resta quella deterministica. */
+export function sanitizeInitialResources(raw: unknown, input: CountryProfileInput): CountryInitialResources | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const value = raw as Record<string, unknown>;
+  const account = materialAccount(input);
+  const capacity = account ? storageCapacity(account) : undefined;
+  const resources: CountryInitialResources = {};
+  for (const kind of ['food', 'clothing', 'weapons', 'fuel'] as const) {
+    const amount = value[kind];
+    if (!Number.isFinite(Number(amount)) || Number(amount) < 0) continue;
+    const cap = capacity?.[kind];
+    const bounded = cap === undefined ? Number(amount) : Math.min(Number(amount), cap);
+    resources[kind] = Math.round(bounded * 1000) / 1000;
+  }
+  if (Number.isFinite(Number(value.research)) && Number(value.research) >= 0) {
+    resources.research = Math.round(Math.min(Number(value.research), initialResearchCap(account)) * 1000) / 1000;
+  }
+  if (Array.isArray(value.technologies)) {
+    const requested = value.technologies.filter((id): id is string => typeof id === 'string' && technologyAvailableAt(id, input.startDate));
+    if (requested.length > 0) resources.technologies = closeTechnologySet([...new Set(requested)]);
+  }
+  const empty = resources.food === undefined && resources.clothing === undefined && resources.weapons === undefined
+    && resources.fuel === undefined && resources.research === undefined && !resources.technologies?.length;
+  return empty ? undefined : resources;
+}
 
 /** These are explicit approximate start-year estimates, NOT precise inventory records.
  * USA personnel: DoD historical manpower (FY2000 ~1.38m active, ~0.87m reserve).
@@ -113,10 +178,11 @@ export function validateCountryInitialProfile(raw: unknown, input: CountryProfil
   if (m.activePersonnel > p.population * 0.05 || m.activePersonnel + m.reservePersonnel > p.population * 0.2 || m.formations > Math.max(1000, authored(input, 'army') + authored(input, 'battalion')) || (m.activePersonnel > 0 && (m.formations < 1 || m.activePersonnel / m.formations < 1 || m.activePersonnel / m.formations > 50_000))) return null;
   if (m.activePersonnel === 0 && m.formations > authored(input, 'army') + authored(input, 'battalion')) return null;
   if (Math.abs(m.activePersonnel - m.formations * m.averageFormationSize) > 1 || ![m.readinessPct, m.defenceBurdenPct, m.trainingPct, m.qualityPct, m.logisticsPct, s.stability, s.socialTension].every(pct) || m.defenceBurdenPct > 30) return null;
-  if (!(['factories', 'ports', 'universities'] as const).every((key, index) => {
-    const authoredCount = authored(input, ['factory', 'port', 'university'][index]);
-    return positive(i[key]) && Number.isInteger(i[key]) && i[key] >= authoredCount && i[key] <= Math.max(1000, authoredCount);
-  }) || (!coast(input) && i.ports > authored(input, 'port'))) return null;
+  if (!(['factories', 'ports', 'universities'] as const).every(key => positive(i[key]) && Number.isInteger(i[key]))) return null;
+  const caps = infrastructureCaps(input);
+  if (i.factories < authored(input, 'factory') || i.factories > caps.factories
+    || i.ports < authored(input, 'port') || i.ports > caps.ports
+    || i.universities < authored(input, 'university') || i.universities > caps.universities) return null;
   if (p.mapBaseline.gdp !== own.reduce((sum, r) => sum + r.gdp, 0)
     || p.mapBaseline.militaryPower !== own.reduce((sum, r) => sum + r.militaryPower, 0)) return null;
   // GDP estimates have a conservative demographic envelope, never arbitrary trillions for microstates.
@@ -143,8 +209,39 @@ export function validateCountryInitialProfile(raw: unknown, input: CountryProfil
   }
   if (crew > m.activePersonnel) return null;
   if (!['deterministic', 'historical+map', 'llm-estimate'].includes(p.provenance.source) || !['low', 'medium', 'high'].includes(p.provenance.confidence) || !Number.isFinite(Date.parse(p.provenance.generatedAt)) || !Array.isArray(p.provenance.notes) || !p.provenance.notes.every(n => typeof n === 'string' && n.length <= 1000)) return null;
+  // Sezione risorse opzionale: `undefined` = semina deterministica. Se presente,
+  // niente stock negativi/enormi, solo tecnologie note e non anacronistiche.
+  if (p.resources !== undefined) {
+    const r = p.resources;
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+    const account = materialAccount(input);
+    const capacity = account ? storageCapacity(account) : undefined;
+    for (const kind of ['food', 'clothing', 'weapons', 'fuel'] as const) {
+      const amount = r[kind];
+      if (amount === undefined) continue;
+      const cap = capacity?.[kind];
+      if (!positive(amount) || (cap !== undefined && amount > cap * 1.5 + 1)) return null;
+    }
+    if (r.research !== undefined && (!positive(r.research) || r.research > initialResearchCap(account))) return null;
+    if (r.technologies !== undefined && (!Array.isArray(r.technologies)
+      || !r.technologies.every(id => typeof id === 'string' && technologyAvailableAt(id, input.startDate)))) return null;
+  }
   return p;
 }
+
+/** Prompt breve e esplicito del bootstrap: ricostruzione nazionale specifica per paese e data. */
+export const COUNTRY_BOOTSTRAP_SYSTEM = [
+  'Bootstrap del Dossier Nazionale iniziale di una partita storica.',
+  'Ricostruisci la situazione nazionale ALLA DATA DI INIZIO indicata: NON la situazione moderna e NON il futuro.',
+  'Priorità: dati storici strutturati > preset/mappa > historicalBaseline > stima prudente > fallback deterministico (solo riferimento debole).',
+  'Compila in modo specifico per paese e data: economia, forze armate (activePersonnel, reservePersonnel, formations, averageFormationSize, readinessPct, defenceBurdenPct, trainingPct, qualityPct, logisticsPct, equipmentProfile) e infrastrutture (factories, ports, universities).',
+  'Compila anche resources (opzionale): food, clothing, weapons, fuel (scorte materiali), research (punti ricerca) e technologies (array di ID). Le scorte sono ciò che il paese può realisticamente avere all’inizio, entro la capacità di stoccaggio: mai valori enormi.',
+  'technologies deve usare ESCLUSIVAMENTE gli ID elencati in availableTechnologies; nessuna tecnologia successiva alla startDate.',
+  'Se una sezione è incerta, ometti resources: il fallback deterministico resta valido.',
+  'Vincoli inviolabili: nessuna tecnologia successiva alla data di inizio; nessun porto o marina per un paese senza costa; nessun valore oltre limiti demografici plausibili; nessuna quantità militare sproporzionata.',
+  'Non modificare identità, polity, startDate né i dati espliciti del preset/mappa. Gli oggetti di mappa sono un MINIMO autoritativo, non necessariamente il totale nazionale: puoi stimare totali nazionali maggiori se coerenti con paese, data e geografia.',
+  'Non inventare precisione falsa: se un valore è incerto usa una stima prudente. Restituisci SOLO JSON conforme allo schema del fallback fornito: nessun testo, nessuna spiegazione narrativa.',
+].join('\n');
 
 /** Optional one-call completion; deadline and invalid output never block creation.
  * Reliable structured/map anchors win; approximate fallback values remain estimable. */
@@ -153,21 +250,38 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
   if (!complete) return fallback;
   const gdp = referenceGdpUsdBillionsForDate(input.polityId, input.startDate);
   const debt = referenceDebtToGdpPctForDate(input.polityId, input.startDate);
-  const anchors = { population: fallback.population, nominalGdpUsdBillions: gdp, debtRatioPct: debt,
-    infrastructure: fallback.infrastructure, mapBaseline: fallback.mapBaseline };
+  const anchors = { population: fallback.population, nominalGdpUsdBillions: gdp, debtRatioPct: debt, mapBaseline: fallback.mapBaseline };
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const response = await Promise.race([
-      complete('Complete the initial national profile as JSON ONLY. Money and monthly flows are BILLIONS USD. Use only knowledge BEFORE the start date. Reliable date-specific structured data > map/preset > historicalBaseline > your estimates > deterministic fallback. Non-null anchors are immutable; null anchors are missing, not zero. Fallback manpower, reserves, readiness, training, logistics, treasury and budget/society rates are approximate and may be completed even for USA/Bosnia. Use historicalBaseline to inform these estimates, never to certify current assets. Never add geography, treaties, locations or future technologies. Return the supplied schema, marking estimates low/medium confidence.', JSON.stringify({ country: input.countryName ?? input.polityId, startDate: input.startDate, historicalBaseline: input.historicalBaseline || '', authoritativeMap: input.regions.filter(r => r.owner === input.polityId), anchors, fallback }), controller.signal),
+      complete(COUNTRY_BOOTSTRAP_SYSTEM, JSON.stringify({ country: input.countryName ?? input.polityId, startDate: input.startDate, historicalBaseline: input.historicalBaseline || '', authoritativeMap: input.regions.filter(r => r.owner === input.polityId), availableTechnologies: availableTechnologiesAt(input.startDate).map(({ id, name }) => `${id} (${name})`), anchors, fallback }), controller.signal),
       new Promise<never>((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new Error('Profile timeout')); }, 10_000); }),
     ]);
     const raw = JSON.parse(response.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')) as CountryInitialProfile;
-    // Never allow the LLM to rewrite identity, demographic/map growth anchors or inventory.
+    // Never allow the LLM to rewrite identity, demographic/map authority or inventory.
     raw.version = 1; raw.polityId = input.polityId; raw.startDate = input.startDate; raw.population = fallback.population;
-    raw.mapBaseline = fallback.mapBaseline; raw.infrastructure = fallback.infrastructure;
+    raw.mapBaseline = fallback.mapBaseline;
+    // Map infrastructure is a MINIMUM, not the national total: keep the validated
+    // LLM estimate per key, and only fill missing/invalid keys from the fallback.
+    const infra = raw.infrastructure && typeof raw.infrastructure === 'object' ? raw.infrastructure as Record<string, unknown> : {};
+    raw.infrastructure = {
+      factories: positive(infra.factories) && Number.isInteger(infra.factories) ? infra.factories as number : fallback.infrastructure.factories,
+      ports: positive(infra.ports) && Number.isInteger(infra.ports) ? infra.ports as number : fallback.infrastructure.ports,
+      universities: positive(infra.universities) && Number.isInteger(infra.universities) ? infra.universities as number : fallback.infrastructure.universities,
+    };
+    const resources = sanitizeInitialResources(raw.resources, input);
+    if (resources) raw.resources = resources; else delete raw.resources;
     if (!raw.economy || !raw.military) return fallback;
-    raw.provenance = { source: 'llm-estimate', generatedAt: fallback.provenance.generatedAt, confidence: 'low', notes: ['Bootstrap-only validated estimate; structured/history/map anchors retained.'] };
+    raw.provenance = { source: 'llm-estimate', generatedAt: fallback.provenance.generatedAt,
+      confidence: input.historicalBaseline ? 'medium' : 'low',
+      notes: [
+        'Bootstrap LLM: sezioni stimate = economia, forze armate, infrastrutture (specifiche per paese e data).',
+        ...(resources ? ['Scorte/materiali e tecnologie iniziali stimati, validati e clampati alla capacità di stoccaggio.'] : []),
+        'Ancore autoritative non riscritte: mapBaseline, popolazione, identità, startDate e dati espliciti del preset; l’infrastruttura stimata non scende sotto gli oggetti di mappa.',
+        ...(gdp !== null ? ['PIL di riferimento storico applicato.'] : []),
+        ...(debt !== null ? ['Debito/PIL di riferimento storico applicato.'] : []),
+      ] };
     // Reject impossible claims before authoritative anchoring can mask them.
     if (!validateCountryInitialProfile(raw, input)) return fallback;
     if (gdp !== null) {
