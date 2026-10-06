@@ -32,7 +32,7 @@ import {
   defenceTone, formatBillions, formatDate, index, money, plural, warEffortTone,
 } from './NationDock/format';
 import {
-  BudgetBreakdown, CrisisBlock, DebtPortfolio, DossierBlock, EmptyState,
+  BudgetBreakdown, CrisisBlock, DebtPortfolio, DeepDive, DossierBlock, EmptyState,
   EquipmentSpecs, FactionCard, Footnote, Metric, MetricGrid,
   CommitmentsList, PowersAgendaList, ProgressRow, ResourceTradeRow, VerdictBanner,
 } from './NationDock/widgets';
@@ -101,6 +101,10 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
       <div className="nation-dock-body">
         {active === 'situazione' && (
           <>
+            {/* COUNTRY-CLARITY: lo stato canonico apre la sezione. Dati letti dal
+                motore e confrontati col Turno 0 — popolazione, PIL, stabilità,
+                tensione. Il resto è interpretazione o approfondimento. */}
+            <NationalDossierLive live={live} part="stato" />
 
             {/* D03/I3: il dossier si apre sulla **sintesi** — giudizio, lista
                 unica delle cose da fare, azione minima. Il quadro a sei aree
@@ -180,12 +184,9 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 per lo stato). Resta un blocco raggiungibile, non una seconda
                 prima schermata. */}
             <details className="nation-synthesis-detail">
-              <summary>Quadro d&apos;insieme per dominio</summary>
+              <summary>Approfondimenti: quadro d&apos;insieme per dominio</summary>
               <OperatingPictureBoard picture={operatingPicture} onOpenSection={openSection} />
             </details>
-
-            <NationalDossierLive live={live} part="stato" />
-
           </>
         )}
 
@@ -193,7 +194,17 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
           <>
             <p className="nation-section-voice">La dimensione civile della nazione: chi la governa, con quali istituzioni e quanto investe nel suo popolo. Qui non si contano soldati: si contano consenso, competenze e coesione.</p>
 
+            {/* Stato canonico: ricerca e tecnologie attuali vs Turno 0. */}
+            <NationalDossierLive live={live} part="tecnologia" />
+            {epochView.epoch && (
+              <Footnote>
+                Il motore non dichiara un&apos;epoca delle tecnologie: in uno scenario del
+                {' '}{epochView.year} ({epochView.epochLabel}) alcune voci possono appartenere a
+                secoli successivi, e la ricerca non è ancora filtrata per epoca.
+              </Footnote>
+            )}
 
+            <DeepDive>
             <DossierBlock
               title="Quadro del governo"
               description="Sostegno, opposizione, promesse e tenuta: gli stessi numeri del quadro d'insieme, letti prima del dettaglio."
@@ -325,19 +336,6 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               )}
             </DossierBlock>
 
-            {/* Una sola rappresentazione per fatto: popolazione, stabilità e
-                tensione sono nella scheda «Stato nazionale», le università in
-                «Capacità nazionale», le forze in «Forze armate». Qui resta solo
-                il **progresso materiale**, con le etichette leggibili. */}
-            <NationalDossierLive live={live} part="tecnologia" />
-            {epochView.epoch && (
-              <Footnote>
-                Il motore non dichiara un&apos;epoca delle tecnologie: in uno scenario del
-                {' '}{epochView.year} ({epochView.epochLabel}) alcune voci possono appartenere a
-                secoli successivi, e la ricerca non è ancora filtrata per epoca.
-              </Footnote>
-            )}
-
             {/* M03 — la dimensione civile aveva una metrica dove l'arsenale ne ha
                 otto blocchi. Qui ha il suo blocco: le voci che il motore pubblica
                 nel bilancio (istruzione e ricerca, sanità e sostegno) lette come
@@ -398,6 +396,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               )}
               <Footnote><b>Come si legge</b> non è una classifica morale: sono le due scelte che lo stesso bilancio deve fare. Una nazione che arma e non istruisce non è più forte — è più fragile, perché la ricerca cresce solo con gli atenei.</Footnote>
             </DossierBlock>
+            </DeepDive>
 
           </>
         )}
@@ -406,7 +405,13 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
           <>
             <p className="nation-section-voice">Tutta la materia economica: denaro, debito, scorte, industria e i cantieri. Dove entra il gettito, dove esce, e che cosa il paese sa produrre.</p>
 
+            {/* Stato canonico: finanze pubbliche, risorse strategiche e capacità
+                nazionale, attuali vs Turno 0. */}
+            <NationalDossierLive live={live} part="finanze" />
+            <NationalDossierLive live={live} part="risorse" />
+            <NationalDossierLive live={live} part="capacita" />
 
+            <DeepDive>
             <h3 className="nation-group-head">Denaro</h3>
 
             <DossierBlock
@@ -689,9 +694,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                         <Footnote>I progetti sono raggruppati per ambito. L'avanzamento è calcolato dal motore tra la data di avvio e la scadenza dichiarata; alla scadenza il progetto è chiuso e passa in «Completati». Senza scadenza resta «in corso» finché il modello non ne dichiara l'esito.</Footnote>
                       </DossierBlock>
 
-            <NationalDossierLive live={live} part="finanze" />
-            <NationalDossierLive live={live} part="risorse" />
-            <NationalDossierLive live={live} part="capacita" />
+            </DeepDive>
 
           </>
         )}
@@ -699,6 +702,11 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
 {active === 'statoMaggiore' && (
           <>
             <p className="nation-section-voice">La forza e l’estero: arsenale e produzione militare, gli impegni presi con le altre nazioni e che cosa inseguono le potenze del teatro.</p>
+
+            {/* Stato canonico: forze armate ed equipaggiamento attuali vs Turno 0. */}
+            <NationalDossierLive live={live} part="militare" />
+
+            <DeepDive>
 
             {/* D-1 — la sala operativa (`ObjectsBoard`) è uscita dal dossier: è
                 un blocco che **agisce** (crea reparti, compra, impartisce
@@ -894,8 +902,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 <CommitmentsList commitments={commitments?.commitments || []} today={worldDate || ''} />
               </DossierBlock>
             </details>
-
-            <NationalDossierLive live={live} part="militare" />
+            </DeepDive>
           </>
         )}
       </div>

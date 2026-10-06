@@ -2004,6 +2004,8 @@ export interface CouncilIssue {
   question: string;
   /** Chiavi dei segnali canonici: il server le ricalcola, mai il client. */
   signalKeys?: string[];
+  /** Chiavi degli anchor canonici: il server le ricalcola, mai il client. */
+  anchorKeys?: string[];
   verifiedFacts: Array<{ key: string; label: string; value: string; source: string; sourceRef: string }>;
   suggestedMinisters: CabinetAddressView['seat'][];
   origin: 'advisor' | 'president' | 'minister' | 'event' | 'follow-up';

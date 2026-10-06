@@ -2401,6 +2401,33 @@ html, body { margin: 0; }
 }
 .nation-synthesis-detail > summary:focus-visible { outline: 2px solid #ffd479; outline-offset: 2px; }
 
+/* COUNTRY-CLARITY — gli APPROFONDIMENTI stanno sotto lo stato canonico:
+   richiudibili, con un'etichetta unica per sezione. Il bordo li separa
+   visivamente dal blocco vivo che sta sopra. */
+.nation-deepdive {
+  margin-top: 4px;
+  border-top: 1px solid #22344e;
+  padding-top: 12px;
+}
+.nation-deepdive > summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  border: 1px solid #2b3d58;
+  border-radius: 8px;
+  background: #0f1c2e;
+  color: #a8bdd8;
+  font: 700 11.5px/1.3 system-ui, sans-serif;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.nation-deepdive > summary:focus-visible { outline: 2px solid #ffd479; outline-offset: 2px; }
+.nation-deepdive-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-top: 14px;
+}
+
 /* Metrica-rimando: la cifra resta qui, il dettaglio sta in un'altra sezione
    («una cifra, un posto»). È un bottone perché lo è: si attiva con la tastiera
    e ha un'etichetta accessibile che dice dove porta. */

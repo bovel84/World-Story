@@ -37,6 +37,16 @@ const signalIssue = (): CouncilIssue => ({
   sourceRefs: ['diplomacy.relations.NEIGHBOR'], createdDate: '2000-01-01',
 });
 
+/** WS-GOV-COUNCIL-ANCHORS — scheda senza fatti, solo anchorKeys (opportunità). */
+const anchorIssue = (over: Partial<CouncilIssue> = {}): CouncilIssue => ({
+  id: 'issue-anchor', title: 'Programma ferroviario',
+  question: 'Vogliamo studiare un nuovo collegamento?',
+  anchorKeys: ['capacity-infrastructure'], signalKeys: undefined, verifiedFacts: [],
+  suggestedMinisters: ['lavori', 'tesoro'], origin: 'advisor',
+  sourceRefs: ['regions.home.objects.f1'], createdDate: '2000-06-01',
+  ...over,
+});
+
 describe('advisorMemory', () => {
   it('isola i bucket per turno e per ramo: nessun merge tra scope diversi', () => {
     (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
@@ -124,6 +134,63 @@ describe('advisorMemory', () => {
     const restored = loadAdvisorMessages(key);
     expect(restored).toHaveLength(1);
     expect(restored[0].issues).toBeUndefined();
+  });
+
+  it('WS-GOV-COUNCIL-ANCHORS (A): salva e ripristina una issue anchor-only, senza fatti né signal', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorBucketKey('g1', 'main', 'g1|main|3');
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Proposta', turn: 3, issues: [anchorIssue()] }]);
+    const restored = loadAdvisorMessages(key);
+    expect(restored).toHaveLength(1);
+    expect(restored[0].issues).toHaveLength(1);
+    expect(restored[0].issues?.[0].anchorKeys).toEqual(['capacity-infrastructure']);
+    expect(restored[0].issues?.[0].verifiedFacts).toEqual([]);
+    expect(restored[0].issues?.[0].signalKeys).toBeUndefined();
+  });
+
+  it('WS-GOV-COUNCIL-ANCHORS (B): il percorso signal-only resta invariato', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorBucketKey('g1', 'main', 'g1|main|3');
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Proposta', turn: 3, issues: [signalIssue()] }]);
+    const restored = loadAdvisorMessages(key);
+    expect(restored[0].issues?.[0].signalKeys).toEqual(['hostile-relations']);
+    expect(restored[0].issues?.[0].anchorKeys).toBeUndefined();
+  });
+
+  it('WS-GOV-COUNCIL-ANCHORS (C): senza facts, signal e anchor la issue è scartata anche con sourceRefs', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorBucketKey('g1', 'main', 'g1|main|3');
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Proposta', turn: 3, issues: [anchorIssue({ anchorKeys: undefined })] }]);
+    const restored = loadAdvisorMessages(key);
+    expect(restored).toHaveLength(1);
+    expect(restored[0].issues).toBeUndefined();
+  });
+
+  it('WS-GOV-COUNCIL-ANCHORS (D): anchor duplicati e con spazi diventano una sola chiave', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorBucketKey('g1', 'main', 'g1|main|3');
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Proposta', turn: 3,
+      issues: [anchorIssue({ anchorKeys: ['capacity-infrastructure', ' capacity-infrastructure '] })] }]);
+    expect(loadAdvisorMessages(key)[0].issues?.[0].anchorKeys).toEqual(['capacity-infrastructure']);
+  });
+
+  it('WS-GOV-COUNCIL-ANCHORS (E): l’apertura conserva una issue anchor-only', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorOpeningKey('g1', 'main', 'g1|main|3');
+    saveAdvisorOpening(key, { reply: 'Presidente, nessuna urgenza: c’è margine.', issues: [anchorIssue()], date: '2000-06-01' });
+    const restored = loadAdvisorOpening(key)!;
+    expect(restored.issues).toHaveLength(1);
+    expect(restored.issues[0].anchorKeys).toEqual(['capacity-infrastructure']);
+    expect(restored.issues[0].verifiedFacts).toEqual([]);
+    expect(restored.issues[0].signalKeys).toBeUndefined();
+  });
+
+  it('WS-GOV-COUNCIL-ANCHORS: l’archivio dei turni precedenti conserva una issue anchor-only', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    saveAdvisorMessages(advisorBucketKey('g1', 'main', 'g1|main|2'), [{ role: 'assistant', content: 'Proposta', turn: 2, issues: [anchorIssue()] }]);
+    const archived = loadAdvisorArchive('g1', 'main', 3);
+    expect(archived).toHaveLength(1);
+    expect(archived[0].issues?.[0].anchorKeys).toEqual(['capacity-infrastructure']);
   });
 
   it('uno storage rotto o pieno non interrompe la conversazione', () => {
