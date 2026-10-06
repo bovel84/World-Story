@@ -1,6 +1,6 @@
 /** Verified reality → interpretation → optional issue. No writes, quests or fabricated deltas. */
 import type { AdvisorMessage } from '../../prompts/types';
-import { COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, resolveCouncilIssue, type CouncilIssue } from './CouncilIssue';
+import { COUNCIL_ANCHOR_PROTOCOL, COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, resolveCouncilIssue, type CouncilIssue } from './CouncilIssue';
 import { advisorBriefingSentences, buildRealitySignals, stripTechnicalLines } from './RealitySignals';
 import { renderCouncilProposalAnchors } from './CouncilProposalAnchors';
 import { renderHistoricalBaseline, renderPolityHistoricalBaselines, historicalBaselineExcerpt, type PolityHistoricalBaseline } from './HistoricalBaseline';
@@ -368,6 +368,7 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
     'Rispondi naturalmente in italiano, in brevi paragrafi, massimo 3000 caratteri. Le proposte restano ipotesi da verificare. Non generare missioni per riempire il silenzio.',
     audience === 'advisor' ? 'FORMA LIBERA: valuta la situazione in poche frasi; quando serve una linea strategica, proponi tutte e sole le questioni strategiche realmente distinte e salienti che meritano una decisione — nessuna, una o più di tre — concrete e specifiche del paese, spiegando vantaggi, rischi e possibili reazioni come ipotesi. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Se proponi una decisione concreta, devi emettere la relativa questione nel blocco council_issue: le schede non obbligatorie solo quando non c’è nulla da decidere. Concludi con un giudizio motivato sulla forza o fragilità della posizione e su cosa evitare. Per una domanda puntuale rispondi al punto: niente rituale in quattro sezioni, niente formule fisse o saluti ripetuti. I numeri solo se aiutano una decisione, mai dump di economia/infrastrutture/forze. Se domina la sicurezza concentrati su quella; se domina il bilancio privilegia quello. Se i segnali non indicano urgenze, non inventare una crisi: valuta un’opportunità concreta agganciandola a un COUNCIL PROPOSAL ANCHOR, oppure non proporre nulla. Nessuna quota di schede. Non aprire il Consiglio, non firmare, non avanzare il tempo.' : '',
     COUNCIL_ISSUE_PROTOCOL,
+    audience === 'advisor' ? COUNCIL_ANCHOR_PROTOCOL : '',
     VERIFIED_FACT_POLICY,
   ].filter(Boolean).join('\n\n');
 }
