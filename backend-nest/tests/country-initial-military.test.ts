@@ -263,6 +263,8 @@ describe('CountryInitialProfile military bootstrap', () => {
     // profilo è l'unica misura disponibile e resta leggibile.
     expect(pictureReadiness(fixture('FFF', { readinessPct: 41, formations: 0, activePersonnel: 0, averageFormationSize: 0 }).service)).toBe(41);
     expect(pictureReadiness(fixture('GGG', { readinessPct: 91, formations: 0, activePersonnel: 0, averageFormationSize: 0 }).service)).toBe(91);
+    // Profile 60 senza unità reali: resta il fallback, nessuna crisi inventata.
+    expect(pictureReadiness(fixture('H60', { readinessPct: 60, formations: 0, activePersonnel: 0, averageFormationSize: 0 }).service)).toBe(60);
   });
 
   it('CASO 2 — nuova partita con fucili sufficienti: nessun falso 25%', () => {

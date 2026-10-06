@@ -267,7 +267,7 @@ export function buildDeterministicNationFraming(context: OpeningContext): string
     const anchor = context.worldFacts.find(fact => String(fact?.label ?? '').trim())?.label?.trim();
     return anchor
       ? `Per ${nation} non emergono urgenze misurate; il quadro disponibile indica: ${anchor.replace(/[.]$/, '')}.`
-      : `Per ${nation} non emergono urgenze misurate: il quadro disponibile non segnala emergenze immediate e le priorità si scelgono senza l'incalzare di una crisi.`;
+      : `Per ${nation} non emergono urgenze dai dati disponibili: le priorità si scelgono senza l'incalzare di una crisi.`;
   }
   return situation.slice(0, 3).map(s => (/[.!?]$/.test(s) ? s : `${s}.`)).join(' ');
 }
