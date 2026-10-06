@@ -17,7 +17,7 @@ import {
 import { groupProjectsByCategory } from '../projectCategory';
 import { nationalVerdict } from '../governmentDossier';
 import { deriveMaterialRows, materialRowsOf } from '../materialBalance';
-import { arsenalBrief, arsenalBriefText, arsenalSplit, arsenalSplitText } from '../arsenalSummary';
+import { arsenalSplit, arsenalSplitText } from '../arsenalSummary';
 import { index } from './format';
 import { nationalOperatingPicture } from '../nationalOperatingPicture';
 import { nationOperatingPictureInput } from '../nationOperatingPictureInput';
@@ -152,10 +152,9 @@ export function useNationDockModel(props: NationDockProps) {
   // Se il motore non pubblica il bilancio, la lista è vuota e la scheda lo dice.
   const materialRows = useMemo(() => deriveMaterialRows(resources?.balance), [resources?.balance]);
   const weaponsRows = useMemo(() => materialRowsOf(materialRows, ['weapons']), [materialRows]);
-  // Arsenale: quanti mezzi sono in servizio e quanti in produzione, in sintesi.
-  const armsOrders = arms?.production?.orders ?? [];
-  const armsSummary = useMemo(() => arsenalBriefText(arsenalBrief(arms?.lines, armsOrders)), [arms?.lines, armsOrders]);
   // OP-OBJECTS PERSISTENT: dove sono i pezzi — deposito o assegnati a un oggetto.
+  // Il riepilogo delle quantità correnti (`armsSummary`) è nel Dossier vivo:
+  // qui resta solo ciò che aggiunge informazione diversa (assegnazione).
   const armsSplit = useMemo(
     () => arsenalSplitText(arsenalSplit(arms?.units, arms?.stockpile, arms?.assigned)),
     [arms?.units, arms?.stockpile, arms?.assigned],
@@ -188,7 +187,7 @@ export function useNationDockModel(props: NationDockProps) {
     creditHeadroomValue, debtTranches, averageMaturity, marketRate,
     overdraft, activeModifiers, budget, verdict, factions, modifiersActive,
     provincesLabel, pointDelta, mkTrend,
-    materialRows, weaponsRows, armsSummary, armsSplit, operatingPicture,
+    materialRows, weaponsRows, armsSplit, operatingPicture,
     // M03 — l'area «Popolo» letta una volta sola, condivisa da sintesi e dossier.
     people: operatingPicture.people,
     // D03: la sintesi che apre il dossier. Composta dai read model già qui —

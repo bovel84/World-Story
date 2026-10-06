@@ -62,7 +62,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     natural, market, debt, creditHeadroomValue, debtTranches, averageMaturity, marketRate, overdraft,
     budget, verdict, factions, modifiersActive, provincesLabel,
     pointDelta, mkTrend,
-    materialRows, weaponsRows, armsSummary, armsSplit, playerPolityId, operatingPicture, synthesis, people,
+    materialRows, weaponsRows, armsSplit, playerPolityId, operatingPicture, synthesis, people,
     live,
   } = useNationDockModel(props);
 
@@ -738,15 +738,13 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
             </DossierBlock>
 
             <DossierBlock
-              title="Quanto hai e quanto produci"
-              description="La sintesi che serve a decidere: disponibilità, produzione, consumo e saldo delle scorte che alimentano l'arsenale."
+              title="Quanto produci e quanto consumi"
+              description="Flussi che alimentano l'arsenale: scorte, fabbisogno, produzione mensile e dove si trovano i mezzi. L'equipaggiamento in servizio è nella scheda «Forze armate»."
             >
               <MaterialBalanceList
                 rows={weaponsRows}
                 emptyText="Il motore non pubblica il bilancio delle scorte di armamenti per questa partita."
               />
-              <p className="material-balance-title">Armamenti in servizio</p>
-              <p className="arms-summary-line">{armsSummary}</p>
               {armsSplit ? <p className="arms-summary-line obj-note">{armsSplit}</p> : null}
               <Footnote><b>Da dove vengono le cifre</b> scorte, fabbisogno e produzione mensile sono del motore (MaterialEconomy), non una stima del Dossier; cibo, vestiario e carburante sono nella sezione Tesoro. La produzione di un mezzo è la somma degli ordini aperti qui sotto, con la data prevista dal ritmo reale della linea.</Footnote>
             </DossierBlock>

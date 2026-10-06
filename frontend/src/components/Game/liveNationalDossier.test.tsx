@@ -91,6 +91,23 @@ describe('NationalDossierLive — schede vive', () => {
     }
   });
 
+  it('4c. il riepilogo delle quantità correnti non è più nel vecchio blocco militare', () => {
+    // `armsSummary` ridiceva «×N in servizio» per ogni mezzo: ora è solo nella
+    // scheda viva «Forze armate». Resta `armsSplit` (deposito/assegnazione), che
+    // è un fatto diverso.
+    expect(DOCK).not.toContain('Armamenti in servizio');
+    expect(DOCK).not.toContain('{armsSummary}');
+    expect(DOCK).toContain('{armsSplit}');
+  });
+
+  it('7. la ricerca compare in una sola scheda: Risorse = materiali, Tecnologia = ricerca', () => {
+    // `live.research` era reso sia in «Risorse strategiche» sia in «Tecnologia».
+    const risorse = render('risorse');
+    expect(risorse, 'la ricerca non deve stare in Risorse').not.toContain('Punti ricerca');
+    const tecnologia = render('tecnologia');
+    expect(tecnologia.match(/Punti ricerca/g)?.length, 'la ricerca sta solo in Tecnologia').toBe(1);
+  });
+
   it('4b. ogni scheda viva ha ancora una metrica per volta (nessun doppione interno)', () => {
     const markup = render('militare');
     expect(markup.match(/Personale attivo/g)?.length).toBe(1);

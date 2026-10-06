@@ -69,7 +69,7 @@ const EXPECTED: Record<string, string[]> = {
   ],
   statoMaggiore: [
     'Quadro delle forze armate',
-    'Quanto hai e quanto produci', "Forza dell'arsenale", 'Peso dei domini',
+    'Quanto produci e quanto consumi', "Forza dell'arsenale", 'Peso dei domini',
     'Produzione in corso', 'Produzione e acquisti',
     // Da Situazione (estero) e da Cassa (sforzo bellico): V03 li raccoglie qui.
     'Strategie delle potenze', 'Impegni della partita', 'Pressione militare',

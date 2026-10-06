@@ -84,7 +84,7 @@ function baselineNote(live: DossierLive): React.ReactNode {
 
 function ResourcesBlock({ live }: { live: DossierLive }) {
   return (
-    <DossierBlock title="Risorse strategiche — attuale vs inizio" description="Scorte del magazzino materiale, con riempimento rispetto alla capacità.">
+    <DossierBlock title="Risorse strategiche — attuale vs inizio" description="Scorte del magazzino materiale, con riempimento rispetto alla capacità. I punti ricerca sono nella scheda «Tecnologia».">
       <MetricGrid>
         {live.resources.map((row: DossierLiveResourceRow) => {
           const fill = row.fillPct === null ? undefined : `Riempimento: ${formatPercent(row.fillPct, 1)}${row.capacity !== null ? ` su ${formatNumber(row.capacity)}` : ''}`;
@@ -94,7 +94,6 @@ function ResourcesBlock({ live }: { live: DossierLive }) {
           const hint = [initial, fill].filter(Boolean).join(' · ') || undefined;
           return <Metric key={row.id} label={row.label} value={formatNumber(row.current)} hint={hint} />;
         })}
-        <MetricRow metric={live.research} hasBaseline={live.hasBaseline} />
       </MetricGrid>
     </DossierBlock>
   );
