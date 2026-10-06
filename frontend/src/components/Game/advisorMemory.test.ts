@@ -87,6 +87,23 @@ describe('advisorMemory', () => {
     expect(sanitized[0].issues).toBeUndefined();
   });
 
+  it('conserva più di tre proposte distinte del Consulente', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorBucketKey('g1', 'main', 'g1|main|3');
+    const issues = Array.from({ length: 5 }, (_, index): CouncilIssue => ({
+      ...issue(),
+      id: `i-${index + 1}`,
+      title: `Tema ${index + 1}`,
+      question: `Come affrontiamo il tema ${index + 1}?`,
+    }));
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Cinque temi distinti.', turn: 3, issues }]);
+    expect(loadAdvisorMessages(key)[0].issues).toHaveLength(5);
+
+    const openingKey = advisorOpeningKey('g1', 'main', 'g1|main|3');
+    saveAdvisorOpening(openingKey, { reply: 'Quadro iniziale.', issues, date: '2000-01-01' });
+    expect(loadAdvisorOpening(openingKey)?.issues).toHaveLength(5);
+  });
+
   it('uno storage rotto o pieno non interrompe la conversazione', () => {
     (globalThis as { localStorage?: Storage }).localStorage = {
       ...fakeStorage(),
@@ -102,8 +119,8 @@ describe('advisorMemory', () => {
     const storage = fakeStorage();
     (globalThis as { localStorage?: Storage }).localStorage = storage;
     const key = advisorOpeningKey('g1', 'main', 'g1|main|3');
-    expect(key).toContain('ws.advisor.opening.v2::');
-    const oldKey = key.replace('ws.advisor.opening.v2::', 'ws.advisor.opening::');
+    expect(key).toContain('ws.advisor.opening.v3::');
+    const oldKey = key.replace('ws.advisor.opening.v3::', 'ws.advisor.opening.v2::');
     storage.setItem(oldKey, JSON.stringify({ reply: 'Primo intervento del mandato', issues: [], date: '2000-01-01' }));
     expect(loadAdvisorOpening(key)).toBeNull();
   });
