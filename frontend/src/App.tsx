@@ -305,8 +305,8 @@ function App() {
             setShowOpening(!hasSeenOpening(game.id));
             setCurrentView('game');
           }}
-          onFailure={() => {
-            notify('Generazione del mondo fallita. Riprova.', 'error');
+          onFailure={(message) => {
+            notify(message || 'Generazione del mondo fallita. Riprova.', 'error');
             setCurrentView('menu');
           }}
           setLoading={setLoading}

@@ -314,6 +314,10 @@ export const COUNTRY_BOOTSTRAP_SYSTEM = [
   'Non inventare precisione falsa: se un valore è incerto usa una stima prudente. Restituisci SOLO JSON conforme allo schema del fallback fornito: nessun testo, nessuna spiegazione narrativa.',
 ].join('\n');
 
+/** Deadline esterna del bootstrap: una completion lenta ma valida non deve essere
+ * abortita. Il provider ha timeout più ampi (≥120s); qui restiamo sotto i 90s. */
+export const BOOTSTRAP_TIMEOUT_MS = 60_000;
+
 export class CountryInitialProfileError extends Error {
   constructor(reason: string) {
     super(`Impossibile stimare il profilo iniziale del paese: ${reason}. Partita non creata.`);
@@ -342,7 +346,7 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
   try {
     const response = await Promise.race([
       complete(COUNTRY_BOOTSTRAP_SYSTEM, JSON.stringify({ country: input.countryName ?? input.polityId, startDate: input.startDate, historicalBaseline: input.historicalBaseline || '', authoritativeMap: input.regions.filter(r => r.owner === input.polityId), availableTechnologies: availableTechnologiesAt(input.startDate).map(({ id, name }) => `${id} (${name})`), anchors, missing, fallback: promptFallback }), controller.signal),
-      new Promise<never>((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new CountryInitialProfileError('tempo limite di 20 secondi superato')); }, 20_000); }),
+      new Promise<never>((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new CountryInitialProfileError('tempo limite di 60 secondi superato')); }, BOOTSTRAP_TIMEOUT_MS); }),
     ]);
     let raw: Partial<CountryInitialProfile>;
     try { raw = JSON.parse(response.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')); }

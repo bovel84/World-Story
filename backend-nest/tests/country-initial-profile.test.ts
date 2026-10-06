@@ -126,7 +126,7 @@ describe('CountryInitialProfile', () => {
       const pending = generateCountryInitialProfile(input(), async (_system, _prompt, currentSignal) => {
         signal = currentSignal; return new Promise<string>(() => {});
       });
-      await vi.advanceTimersByTimeAsync(20_001);
+      await vi.advanceTimersByTimeAsync(60_001);
       expect((await pending).provenance.source).toBe('historical+map');
       expect(signal?.aborted).toBe(true);
     } finally { vi.useRealTimers(); }
@@ -151,13 +151,28 @@ describe('CountryInitialProfile', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally { vi.unstubAllGlobals(); }
   });
-  it('required player estimate times out after 20s without a retry or fallback', async () => {
+  it('required player estimate accepts a slow completion after 20s but before 60s', async () => {
+    vi.useFakeTimers();
+    try {
+      const spec = input('ZETA', 5_000_000);
+      const base = buildCountryInitialProfile(spec);
+      let resolveCompletion!: (value: string) => void;
+      const complete = vi.fn(() => new Promise<string>(resolve => { resolveCompletion = resolve; }));
+      const pending = generateCountryInitialProfile(spec, complete, { requireEstimate: true });
+      await vi.advanceTimersByTimeAsync(30_000);
+      resolveCompletion(JSON.stringify({ ...base, economy: { ...base.economy, debtRatioPct: 40 } }));
+      const result = await pending;
+      expect(result.provenance.source).toBe('llm-estimate');
+      expect(complete).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+  it('required player estimate times out after 60s without a retry or fallback', async () => {
     vi.useFakeTimers();
     try {
       const complete = vi.fn(async () => new Promise<string>(() => {}));
       const pending = generateCountryInitialProfile(input(), complete, { requireEstimate: true });
       const rejected = expect(pending).rejects.toThrow(/tempo.*partita non creata/i);
-      await vi.advanceTimersByTimeAsync(20_001);
+      await vi.advanceTimersByTimeAsync(60_001);
       await rejected;
       expect(complete).toHaveBeenCalledTimes(1);
     } finally { vi.useRealTimers(); }
