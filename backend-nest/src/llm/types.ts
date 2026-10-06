@@ -32,6 +32,8 @@ export interface LLMResponse {
 export interface LLMGenerateOptions {
   temperature?: number;
   maxTokens?: number;
+  /** One generate attempt: no transport retry or reasoning-budget repair. */
+  singleAttempt?: boolean;
   /**
    * Просить у провайдера строгий JSON (OpenAI response_format / Ollama format).
    * Включается только если механика явно разрешила это в конфиге —

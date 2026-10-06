@@ -47,8 +47,10 @@ describe('verified reality boundary', () => {
     // Il Consulente PARLA della copertura alimentare ma NON crea una quest:
     // la questione nasce solo se il modello la propone o il Presidente la chiede.
     expect(result.issues).toEqual([]);
-    expect(result.advisorContext.governmentBrief).toContain('priorità');
+    expect(result.advisorContext.governmentBrief).toContain('lascia poco margine');
     expect(result.advisorContext.governmentBrief).toContain('rischierebbe');
+    // Briefing DIAGNOSTICO: descrive problemi e vincoli, non prescrive soluzioni.
+    expect(result.advisorContext.governmentBrief).not.toMatch(/chiederei|darei|sonderei|farei|eviterei|ridurrei/i);
   });
   it('segnali generici dal quadro: food, economy, social senza quest predefinite', () => {
     const world = snapshot();

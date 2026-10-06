@@ -46,7 +46,7 @@ export class AnthropicProvider implements LLMProvider {
         max_tokens: options.maxTokens ?? 4096,
         temperature: options.temperature ?? 0.7,
       },
-      { timeoutMs: this.timeoutMs, retries: this.retries, providerName: this.name, signal: options.signal }
+      { timeoutMs: this.timeoutMs, retries: options.singleAttempt ? 0 : this.retries, providerName: this.name, signal: options.signal }
     );
 
     let data: any;

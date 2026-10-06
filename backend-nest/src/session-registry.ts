@@ -123,6 +123,9 @@ class SessionRegistry {
       this.sessions.set(gameId, session);
       return player;
     }, error => {
+      // Never leave an incomplete bootstrap reloadable as a synthetic game.
+      // Existing foreign-key cascades remove its profiles/history/player too.
+      db.prepare('DELETE FROM games WHERE id = ?').run(gameId);
       this.pendingCreations.delete(gameId);
       throw error;
     }) : initialization;

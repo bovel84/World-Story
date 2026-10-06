@@ -314,11 +314,20 @@ export const COUNTRY_BOOTSTRAP_SYSTEM = [
   'Non inventare precisione falsa: se un valore è incerto usa una stima prudente. Restituisci SOLO JSON conforme allo schema del fallback fornito: nessun testo, nessuna spiegazione narrativa.',
 ].join('\n');
 
-/** Optional one-call completion; deadline and invalid output never block creation.
- * Reliable structured/map anchors win; approximate fallback values remain estimable. */
-export async function generateCountryInitialProfile(input: CountryProfileInput, complete?: CountryProfileCompleter): Promise<CountryInitialProfile> {
+export class CountryInitialProfileError extends Error {
+  constructor(reason: string) {
+    super(`Impossibile stimare il profilo iniziale del paese: ${reason}. Partita non creata.`);
+    this.name = 'CountryInitialProfileError';
+  }
+}
+
+/** One completion. Explicit player estimates fail closed; NPC/internal fallback stays optional. */
+export async function generateCountryInitialProfile(input: CountryProfileInput, complete?: CountryProfileCompleter, options: { requireEstimate?: boolean } = {}): Promise<CountryInitialProfile> {
   const fallback = buildCountryInitialProfile(input);
-  if (!complete) return fallback;
+  if (!complete) {
+    if (options.requireEstimate) throw new CountryInitialProfileError('servizio LLM non disponibile');
+    return fallback;
+  }
   const gdp = referenceGdpUsdBillionsForDate(input.polityId, input.startDate);
   const debt = referenceDebtToGdpPctForDate(input.polityId, input.startDate);
   const anchors = { population: fallback.population, nominalGdpUsdBillions: gdp, debtRatioPct: debt, mapBaseline: fallback.mapBaseline };
@@ -333,9 +342,12 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
   try {
     const response = await Promise.race([
       complete(COUNTRY_BOOTSTRAP_SYSTEM, JSON.stringify({ country: input.countryName ?? input.polityId, startDate: input.startDate, historicalBaseline: input.historicalBaseline || '', authoritativeMap: input.regions.filter(r => r.owner === input.polityId), availableTechnologies: availableTechnologiesAt(input.startDate).map(({ id, name }) => `${id} (${name})`), anchors, missing, fallback: promptFallback }), controller.signal),
-      new Promise<never>((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new Error('Profile timeout')); }, 10_000); }),
+      new Promise<never>((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new CountryInitialProfileError('tempo limite di 20 secondi superato')); }, 20_000); }),
     ]);
-    const raw = JSON.parse(response.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')) as Partial<CountryInitialProfile>;
+    let raw: Partial<CountryInitialProfile>;
+    try { raw = JSON.parse(response.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')); }
+    catch { throw new CountryInitialProfileError('risposta LLM non interpretabile come JSON'); }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new CountryInitialProfileError('risposta LLM priva di un profilo');
     // Ancore autoritative: l'LLM non può riscrivere identità, dati demografici,
     // inventario di mappa né startDate.
     const population = fallback.population;
@@ -347,6 +359,17 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
     // Se il debito di riferimento manca, NON forzare 0: "non osservato" non
     // significa "debito nullo", quindi resta la stima LLM (0 solo se prodotta).
     const economy = mergeEconomySection(raw.economy, fallback.economy, gdp, debt);
+    // Minimum reliable player economy: GDP/debt from historical anchors or a
+    // valid estimate, plus estimated cash/tax. Other fields still merge separately.
+    if (options.requireEstimate) {
+      const e = raw.economy;
+      if (!e || (gdp === null && (!positive(e.nominalGdpUsdBillions) || e.nominalGdpUsdBillions <= 0 || e.nominalGdpUsdBillions > 1_000_000))
+        || (debt === null && (!positive(e.debtRatioPct) || e.debtRatioPct > 250))
+        || !positive(e.treasuryUsdBillions) || e.treasuryUsdBillions > Math.max(0.01, economy.nominalGdpUsdBillions * 0.5)
+        || !positive(e.taxRatePct) || e.taxRatePct > 60) {
+        throw new CountryInitialProfileError('dati economici minimi mancanti o non validi');
+      }
+    }
     if (!validEconomySection(raw.economy)) failed.push('economy');
 
     const military = validMilitarySection(raw.military, input, population) ? raw.military : null;
@@ -368,14 +391,15 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
 
     const resources = sanitizeInitialResources(raw.resources, input);
 
-    // Fonte: è una stima LLM solo se TUTTE le sezioni sono state accettate;
-    // altrimenti resta la provenienza del fallback deterministico, pur
-    // conservando le eventuali sezioni valide (composizione parziale).
-    const provenance: CountryInitialProfile['provenance'] = failed.length === 0
+    // Required player estimates have a validated economic minimum; preserve
+    // LLM provenance and disclose partial fallback, including to the firewall.
+    // The optional/NPC path retains its existing provenance rules.
+    const provenance: CountryInitialProfile['provenance'] = failed.length === 0 || options.requireEstimate
       ? { source: 'llm-estimate', generatedAt: fallback.provenance.generatedAt,
           confidence: input.historicalBaseline ? 'medium' : 'low',
           notes: [
-            'Bootstrap LLM: sezioni stimate = economia, forze armate, infrastrutture (specifiche per paese e data).',
+            'Bootstrap LLM: stime specifiche per paese e data, validate per campo/sezione.',
+            ...(failed.length ? [`Campi/sezioni LLM incompleti o invalidi integrati dal fallback: ${failed.join(', ')}.`] : []),
             ...(resources ? ['Scorte/materiali e tecnologie iniziali stimati, validati e clampati alla capacità di stoccaggio.'] : []),
             'Ancore autoritative non riscritte: mapBaseline, popolazione, identità, startDate e dati espliciti del preset; l’infrastruttura stimata non scende sotto gli oggetti di mappa.',
             ...(gdp !== null ? ['PIL di riferimento storico applicato.'] : []),
@@ -397,8 +421,13 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
     const accepted = ['economy', 'military', 'society', 'infrastructure'].filter(s => !failed.includes(s));
     if (resources) accepted.push('resources');
     console.info(`[CountryInitialProfile] ${input.polityId}@${input.startDate} source=${provenance.source} llm=[${accepted.join(',')}] fallback=[${failed.join(',')}]`);
-    return validateCountryInitialProfile(profile, input) ?? fallback;
+    const validated = validateCountryInitialProfile(profile, input);
+    if (!validated && options.requireEstimate) throw new CountryInitialProfileError('profilo non conforme ai vincoli di validazione');
+    return validated ?? fallback;
   } catch (error) {
+    if (options.requireEstimate) {
+      throw error instanceof CountryInitialProfileError ? error : new CountryInitialProfileError('completion LLM non riuscita');
+    }
     console.info(`[CountryInitialProfile] ${input.polityId}@${input.startDate} source=deterministic llm=[] fallback=[economy,military,society,infrastructure,resources] failure=${(error as Error)?.message ?? String(error)}`);
     return fallback;
   }

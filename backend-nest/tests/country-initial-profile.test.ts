@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
+import { OpenAICompatibleProvider } from '../src/llm/openai-compatible';
+import { AnthropicProvider } from '../src/llm/anthropic';
 import { formationImpact } from '../src/core/simulation/OperationalObjects';
 import { seedStock, storageCapacity, initialResearchCap } from '../src/core/simulation/MaterialEconomy';
 import { WorldStateEngine } from '../src/core/simulation/WorldStateEngine';
@@ -124,12 +126,55 @@ describe('CountryInitialProfile', () => {
       const pending = generateCountryInitialProfile(input(), async (_system, _prompt, currentSignal) => {
         signal = currentSignal; return new Promise<string>(() => {});
       });
-      await vi.advanceTimersByTimeAsync(10_001);
+      await vi.advanceTimersByTimeAsync(20_001);
       expect((await pending).provenance.source).toBe('historical+map');
       expect(signal?.aborted).toBe(true);
     } finally { vi.useRealTimers(); }
   });
-  it('invalid or throwing LLM makes one attempt then returns exactly deterministic fallback', async () => {
+  it.each(['offline', 'not json', '{}', 'null', '{"military":{"activePersonnel":-1}}'])('required player estimate fails closed: %s', async response => {
+    const complete = vi.fn(async () => {
+      if (response === 'offline') throw new Error('offline');
+      return response;
+    });
+    await expect(generateCountryInitialProfile(input(), complete, { requireEstimate: true })).rejects.toThrow(/profilo iniziale.*partita non creata/i);
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+  it.each(['openai-error', 'anthropic-error', 'reasoning-empty'])('bootstrap singleAttempt disables provider retries: %s', async kind => {
+    const fetchMock = vi.fn(async () => kind === 'reasoning-empty'
+      ? new Response(JSON.stringify({ choices: [{ message: { content: '' }, finish_reason: 'length' }] }), { status: 200 })
+      : new Response('unavailable', { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const config = { baseUrl: 'https://example.invalid', apiKey: 'test', model: 'test', retries: 2 };
+      const provider = kind === 'anthropic-error' ? new AnthropicProvider(config) : new OpenAICompatibleProvider(config);
+      await expect(provider.generate('system', 'prompt', { singleAttempt: true })).rejects.toThrow();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('required player estimate times out after 20s without a retry or fallback', async () => {
+    vi.useFakeTimers();
+    try {
+      const complete = vi.fn(async () => new Promise<string>(() => {}));
+      const pending = generateCountryInitialProfile(input(), complete, { requireEstimate: true });
+      const rejected = expect(pending).rejects.toThrow(/tempo.*partita non creata/i);
+      await vi.advanceTimersByTimeAsync(20_001);
+      await rejected;
+      expect(complete).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+  it.each(['debtRatioPct', 'nominalGdpUsdBillions', 'treasuryUsdBillions'])('required estimate rejects missing %s instead of inventing economic anchors', async field => {
+    const spec = input('ZETA', 5_000_000);
+    const base = buildCountryInitialProfile(spec);
+    const economy = { ...base.economy, [field]: undefined };
+    await expect(generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base, economy }), { requireEstimate: true })).rejects.toThrow(/profilo iniziale/i);
+  });
+  it('required estimate rejects the final firewall failure instead of returning fallback', async () => {
+    const spec = input('ZETA', 5_000_000);
+    const base = buildCountryInitialProfile(spec);
+    await expect(generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+      economy: { ...base.economy, nominalGdpUsdBillions: 999_999 } }), { requireEstimate: true })).rejects.toThrow(/profilo iniziale/i);
+  });
+  it('invalid or throwing optional LLM retains the deterministic NPC/internal path', async () => {
     const base = buildCountryInitialProfile(input());
     let calls = 0;
     const result = await generateCountryInitialProfile(input(), async () => { calls++; return '{"military":{"activePersonnel":-1}}'; });
@@ -328,7 +373,7 @@ describe('CountryInitialProfile', () => {
     const base = buildCountryInitialProfile(spec);
     expect(referenceDebtToGdpPctForDate('UGA', '2000-01-01')).toBeNull();
     const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
-      economy: { ...base.economy, debtRatioPct: 42, treasuryUsdBillions: 0.4, taxRatePct: 25, monthlyExpenses: 999_999 } }));
+      economy: { ...base.economy, debtRatioPct: 42, treasuryUsdBillions: 0.4, taxRatePct: 25, monthlyExpenses: 999_999 } }), { requireEstimate: true });
     expect(result.economy.debtRatioPct).toBe(42);
     expect(result.economy.treasuryUsdBillions).toBe(0.4);
     expect(result.economy.taxRatePct).toBe(25);

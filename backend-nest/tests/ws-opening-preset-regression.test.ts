@@ -27,7 +27,14 @@ const REGION_ID = `${WORLD_ID}_ITA`;
 
 const stubProvider: any = {
   consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
-  async generate() { return { content: '{}' }; },
+  async generate(_mechanic: string, _system?: string, prompt?: string) {
+    // Il bootstrap del giocatore pretende una stima valida: lo stub la fornisce.
+    if (typeof prompt === 'string' && prompt.includes('"fallback"')) {
+      const { fallback } = JSON.parse(prompt);
+      return { content: JSON.stringify({ ...fallback, economy: { ...fallback.economy, debtRatioPct: 30 } }) };
+    }
+    return { content: '{}' };
+  },
   async stream(_m: string, _s: string, _u: string, onToken: (n: number) => void) { onToken(2); return { content: '{}' }; },
   clearCache() {},
 };

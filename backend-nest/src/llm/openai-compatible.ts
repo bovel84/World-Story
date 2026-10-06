@@ -102,7 +102,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         `${this.baseUrl}${this.chatPath}`,
         this.buildHeaders(),
         this.buildBody(system, user, { ...options, maxTokens }, false),
-        { timeoutMs: this.timeoutMs, retries: this.retries, providerName: this.name, signal: options.signal }
+        { timeoutMs: this.timeoutMs, retries: options.singleAttempt ? 0 : this.retries, providerName: this.name, signal: options.signal }
       );
 
       try {
@@ -125,7 +125,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     if (
       (typeof content !== 'string' || content.length === 0) &&
       (finishReason === 'length' || completionTokens >= base) &&
-      base < 32768
+      base < 32768 && !options.singleAttempt
     ) {
       console.error(`[LLM] content vuoto con finish_reason=${finishReason}: il reasoning ha esaurito il budget (${completionTokens} token). Riprovo con max_tokens x4.`);
       data = await run(Math.min(base * 4, 32768));

@@ -41,6 +41,7 @@ import {
 } from './helpers';
 import { validateBody } from '../validation';
 import { createGameSchema } from './schemas';
+import { CountryInitialProfileError } from '../../core/simulation/CountryInitialProfile';
 
 export function registerStateRoutes(router: Router): void {
 router.post('/', async (req, res) => {
@@ -70,7 +71,9 @@ router.post('/', async (req, res) => {
       region: { id: region?.id, name: region?.name },
     });
   } catch (e: any) {
-    if (e.message === 'World not found') {
+    if (e instanceof CountryInitialProfileError) {
+      res.status(503).json({ error: e.message });
+    } else if (e.message === 'World not found') {
       res.status(404).json({ error: 'World not found' });
     } else if (e.message === 'Region not found') {
       res.status(404).json({ error: 'Region not found' });

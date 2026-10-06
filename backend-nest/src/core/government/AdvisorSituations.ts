@@ -15,7 +15,7 @@
 import { z } from 'zod';
 import { shortId } from '../../utils/short-id';
 import { buildRealitySignals, type RealitySignal } from './RealitySignals';
-import { parseCouncilIssues, type CouncilIssue, type CouncilIssueOrigin, type CouncilIssueParseOptions } from './CouncilIssue';
+import { isPreparatoryCouncilIssue, parseCouncilIssues, type CouncilIssue, type CouncilIssueOrigin, type CouncilIssueParseOptions } from './CouncilIssue';
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 
 export interface AdvisorSituation {
@@ -221,7 +221,11 @@ export function parseAdvisorResponse(snapshot: VerifiedWorldSnapshot, text: stri
     situations: options.includeDeterministicSituations
       ? mergeAdvisorSituations(snapshot, parsedSituations.situations)
       : parsedSituations.situations,
-    issues: parsedIssues.issues,
+    // Briefing is diagnostic even when the model ignores the prompt. Preserve
+    // every situation, but never offer automatic acts. Other speakers unchanged.
+    issues: origin === 'advisor' || origin === 'president'
+      ? options.includeDeterministicSituations ? [] : parsedIssues.issues.filter(issue => !isPreparatoryCouncilIssue(issue))
+      : parsedIssues.issues,
   };
 }
 
