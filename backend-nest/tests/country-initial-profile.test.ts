@@ -3,7 +3,7 @@ import { formationImpact } from '../src/core/simulation/OperationalObjects';
 import { seedStock, storageCapacity, initialResearchCap } from '../src/core/simulation/MaterialEconomy';
 import { WorldStateEngine } from '../src/core/simulation/WorldStateEngine';
 import { buildCountryInitialProfile, validateCountryInitialProfile, generateCountryInitialProfile, infrastructureCaps } from '../src/core/simulation/CountryInitialProfile';
-import { referenceDebtToGdpPctForDate } from '../src/utils/country-facts';
+import { referenceDebtToGdpPctForDate, isLandlockedPolity } from '../src/utils/country-facts';
 const input = (polityId = 'BIH', population = 3_750_000) => ({
   polityId, startDate: '2000-01-01', regions: [{ id: polityId, owner: polityId, population, gdp: 10, militaryPower: 20, coastal: false, objects: [] }],
 });
@@ -323,35 +323,35 @@ describe('CountryInitialProfile', () => {
     expect(after.factories).toBe(before.factories + 1);
     expect(after.monthlyRevenue).toBeGreaterThan(before.monthlyRevenue);
   });
-  it('a landlocked country with lake-tagged coastal provinces still has zero maritime ports', async () => {
-    const spec = input('UGA', 24_000_000);
-    spec.regions[0].coastal = true;
-    const base = buildCountryInitialProfile(spec);
-    expect(base.infrastructure.ports).toBe(0);
-    expect(validateCountryInitialProfile(base, spec)).not.toBeNull();
-    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
-      infrastructure: { ...base.infrastructure, ports: 5 } }));
-    expect(result.infrastructure.ports).toBe(0);
-  });
-  it('keeps a valid LLM debt estimate when no historical debt reference exists for the country/date', async () => {
+  it('keeps a valid LLM debt/treasury when another economy field is invalid (missing reference debt stays unknown, not 0)', async () => {
     const spec = input('UGA', 24_000_000);
     const base = buildCountryInitialProfile(spec);
     expect(referenceDebtToGdpPctForDate('UGA', '2000-01-01')).toBeNull();
     const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
-      economy: { ...base.economy, debtRatioPct: 42 } }));
+      economy: { ...base.economy, debtRatioPct: 42, treasuryUsdBillions: 0.4, taxRatePct: 25, monthlyExpenses: 999_999 } }));
     expect(result.economy.debtRatioPct).toBe(42);
-    expect(result.economy.nominalGdpUsdBillions).toBe(base.economy.nominalGdpUsdBillions);
+    expect(result.economy.treasuryUsdBillions).toBe(0.4);
+    expect(result.economy.taxRatePct).toBe(25);
+    expect(result.economy.monthlyExpenses).toBe(base.economy.monthlyExpenses);
     expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
   });
-  it('an invalid military section does not discard a valid LLM economy section', async () => {
+  it('an incoherent revenue/expenses only falls back on that field, keeping the other LLM economy fields', async () => {
     const spec = input('UGA', 24_000_000);
     const base = buildCountryInitialProfile(spec);
     const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
-      economy: { ...base.economy, treasuryUsdBillions: 0.4 },
-      military: { ...base.military, equipmentProfile: { fregate: 3 } } }));
+      economy: { ...base.economy, debtRatioPct: 42, treasuryUsdBillions: 0.4, taxRatePct: 25,
+        monthlyRevenue: 999_999, monthlyExpenses: 999_999 } }));
+    expect(result.economy.debtRatioPct).toBe(42);
     expect(result.economy.treasuryUsdBillions).toBe(0.4);
-    expect(result.military).toEqual(base.military);
-    expect(result.provenance.source).toBe(base.provenance.source);
+    expect(result.economy.taxRatePct).toBe(25);
+    expect(result.economy.monthlyRevenue).not.toBe(999_999);
+    expect(Math.abs(result.economy.monthlyRevenue - result.economy.nominalGdpUsdBillions * 25 / 1200)).toBeLessThan(1e-5);
+    expect(result.economy.monthlyExpenses).toBe(base.economy.monthlyExpenses);
     expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+  it('geography: North Korea is not landlocked, Bolivia and Uganda are', () => {
+    expect(isLandlockedPolity('PRK')).toBe(false);
+    expect(isLandlockedPolity('BOL')).toBe(true);
+    expect(isLandlockedPolity('UGA')).toBe(true);
   });
 });

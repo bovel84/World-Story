@@ -218,6 +218,34 @@ function validMilitarySection(m: unknown, input: CountryProfileInput, population
   return crew <= v.activePersonnel;
 }
 
+/** Composizione per campo dell'economia: riferimento storico > stima LLM
+ * valida > fallback del singolo campo. Un campo incoerente non scarta gli
+ * altri (es. un `monthlyExpenses` assurdo non perde un debito LLM valido). */
+function mergeEconomySection(raw: unknown, fallback: CountryInitialProfile['economy'], gdp: number | null, debt: number | null): CountryInitialProfile['economy'] {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<CountryInitialProfile['economy']>;
+  const nominalGdpUsdBillions = gdp !== null ? gdp
+    : (positive(r.nominalGdpUsdBillions) && r.nominalGdpUsdBillions > 0 && r.nominalGdpUsdBillions <= 1_000_000 ? r.nominalGdpUsdBillions : fallback.nominalGdpUsdBillions);
+  const debtRatioPct = debt !== null ? debt
+    : (positive(r.debtRatioPct) && r.debtRatioPct <= 250 ? r.debtRatioPct : fallback.debtRatioPct);
+  const taxRatePct = positive(r.taxRatePct) && r.taxRatePct <= 60 ? r.taxRatePct : fallback.taxRatePct;
+  const treasuryUsdBillions = positive(r.treasuryUsdBillions) && r.treasuryUsdBillions <= Math.max(0.01, nominalGdpUsdBillions * 0.5)
+    ? r.treasuryUsdBillions : fallback.treasuryUsdBillions;
+  // Revenue: se incoerente con PIL/aliquota finali si ricalcola SOLO revenue.
+  const idealRevenue = nominalGdpUsdBillions * taxRatePct / 1200;
+  const monthlyRevenue = positive(r.monthlyRevenue) && Math.abs(r.monthlyRevenue - idealRevenue) <= Math.max(0.00001, r.monthlyRevenue * 0.02)
+    ? r.monthlyRevenue : round(idealRevenue);
+  const monthlyExpenses = positive(r.monthlyExpenses) && r.monthlyExpenses * 12 <= nominalGdpUsdBillions * 0.8
+    ? r.monthlyExpenses : fallback.monthlyExpenses;
+  return {
+    nominalGdpUsdBillions,
+    debtRatioPct,
+    treasuryUsdBillions: Math.min(treasuryUsdBillions, Math.max(0.01, nominalGdpUsdBillions * 0.5)),
+    taxRatePct,
+    monthlyRevenue,
+    monthlyExpenses: Math.min(monthlyExpenses, nominalGdpUsdBillions * 0.8 / 12),
+  };
+}
+
 function validSocietySection(s: unknown): s is CountryInitialProfile['society'] {
   if (!s || typeof s !== 'object') return false;
   const v = s as CountryInitialProfile['society'];
@@ -275,6 +303,8 @@ export const COUNTRY_BOOTSTRAP_SYSTEM = [
   'Bootstrap del Dossier Nazionale iniziale di una partita storica.',
   'Ricostruisci la situazione nazionale ALLA DATA DI INIZIO indicata: NON la situazione moderna e NON il futuro.',
   'Priorità: dati storici strutturati > preset/mappa > historicalBaseline > stima prudente > fallback deterministico (solo riferimento debole).',
+  'Nel payload: `anchors` sono fatti autoritativi; `missing` elenca i campi senza fonte storica verificata; `fallback` è un riferimento debole, NON autoritativo.',
+  'Se `missing.debtRatioPct` è true il debito storico è sconosciuto: stimane uno prudente in base a paese e data; NON copiare lo 0 del fallback, che significa “dato mancante”, non “debito nullo”.',
   'Compila in modo specifico per paese e data: economia, forze armate (activePersonnel, reservePersonnel, formations, averageFormationSize, readinessPct, defenceBurdenPct, trainingPct, qualityPct, logisticsPct, equipmentProfile) e infrastrutture (factories, ports, universities).',
   'Compila anche resources (opzionale): food, clothing, weapons, fuel (scorte materiali), research (punti ricerca) e technologies (array di ID). Le scorte sono ciò che il paese può realisticamente avere all’inizio, entro la capacità di stoccaggio: mai valori enormi.',
   'technologies deve usare ESCLUSIVAMENTE gli ID elencati in availableTechnologies; nessuna tecnologia successiva alla startDate.',
@@ -292,11 +322,17 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
   const gdp = referenceGdpUsdBillionsForDate(input.polityId, input.startDate);
   const debt = referenceDebtToGdpPctForDate(input.polityId, input.startDate);
   const anchors = { population: fallback.population, nominalGdpUsdBillions: gdp, debtRatioPct: debt, mapBaseline: fallback.mapBaseline };
+  // Campi senza fonte storica verificata: il modello NON deve trattare lo 0 del
+  // fallback come un fatto. `missing` è esplicito nel payload.
+  const missing = { nominalGdpUsdBillions: gdp === null, debtRatioPct: debt === null };
+  // Il fallback resta un riferimento debole: nel prompt il debito mancante è
+  // presentato come `null`, non come "0% certo".
+  const promptFallback = { ...fallback, economy: { ...fallback.economy, debtRatioPct: debt } };
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const response = await Promise.race([
-      complete(COUNTRY_BOOTSTRAP_SYSTEM, JSON.stringify({ country: input.countryName ?? input.polityId, startDate: input.startDate, historicalBaseline: input.historicalBaseline || '', authoritativeMap: input.regions.filter(r => r.owner === input.polityId), availableTechnologies: availableTechnologiesAt(input.startDate).map(({ id, name }) => `${id} (${name})`), anchors, fallback }), controller.signal),
+      complete(COUNTRY_BOOTSTRAP_SYSTEM, JSON.stringify({ country: input.countryName ?? input.polityId, startDate: input.startDate, historicalBaseline: input.historicalBaseline || '', authoritativeMap: input.regions.filter(r => r.owner === input.polityId), availableTechnologies: availableTechnologiesAt(input.startDate).map(({ id, name }) => `${id} (${name})`), anchors, missing, fallback: promptFallback }), controller.signal),
       new Promise<never>((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new Error('Profile timeout')); }, 10_000); }),
     ]);
     const raw = JSON.parse(response.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')) as Partial<CountryInitialProfile>;
@@ -307,22 +343,11 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
 
     // --- Composizione per sezioni: una sezione invalida non scarta le altre. ---
     const failed: string[] = [];
-    // Economia: tieni la stima LLM se valida, poi applica i riferimenti storici.
+    // Economia per campo: reference storica > LLM valido > fallback del campo.
     // Se il debito di riferimento manca, NON forzare 0: "non osservato" non
     // significa "debito nullo", quindi resta la stima LLM (0 solo se prodotta).
-    let economy = validEconomySection(raw.economy) ? { ...raw.economy } : null;
-    if (economy && gdp !== null) {
-      const oldGdp = economy.nominalGdpUsdBillions;
-      if (positive(oldGdp) && oldGdp > 0) {
-        economy.monthlyRevenue *= gdp / oldGdp;
-        economy.monthlyExpenses *= gdp / oldGdp;
-        economy.nominalGdpUsdBillions = gdp;
-      } else economy = null;
-    }
-    if (economy && debt !== null) economy.debtRatioPct = debt;
-    if (economy && !validEconomySection(economy)) economy = null;
-    if (!economy) failed.push('economy');
-    const finalEconomy = economy ?? fallback.economy;
+    const economy = mergeEconomySection(raw.economy, fallback.economy, gdp, debt);
+    if (!validEconomySection(raw.economy)) failed.push('economy');
 
     const military = validMilitarySection(raw.military, input, population) ? raw.military : null;
     if (!military) failed.push('military');
@@ -361,7 +386,7 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
 
     const profile: CountryInitialProfile = {
       version: 1, polityId: input.polityId, startDate: input.startDate, population,
-      economy: finalEconomy,
+      economy,
       military: military ?? fallback.military,
       society: society ?? fallback.society,
       infrastructure,

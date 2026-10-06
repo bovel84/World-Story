@@ -666,7 +666,7 @@ const LOWER_INCOME = new Set([
  * gli eventuali porti/oggetti espliciti del preset restano autoritativi.
  */
 export const LANDLOCKED_POLITIES = new Set([
-  'AFG','AND','ARM','AUT','AZE','BDI','BFA','BLR','BTN','BWA','CAF','CHE','CZE','ETH','HUN','KAZ','KGZ','LAO','LIE','LSO','LUX','MDA','MKD','MLI','MNG','MWI','NER','NPL','PRK','PAR','RWA','SMR','SRB','SSD','SVK','SWZ','TCD','TJK','TKM','UGA','UZB','VAT','ZMB','ZWE',
+  'AFG','AND','ARM','AUT','AZE','BDI','BFA','BLR','BOL','BTN','BWA','CAF','CHE','CZE','ETH','HUN','KAZ','KGZ','LAO','LIE','LSO','LUX','MDA','MKD','MLI','MNG','MWI','NER','NPL','PAR','RWA','SMR','SRB','SSD','SVK','SWZ','TCD','TJK','TKM','UGA','UZB','VAT','ZMB','ZWE',
 ]);
 
 /** Vero se la polity non ha accesso al mare nella geografia reale. */
