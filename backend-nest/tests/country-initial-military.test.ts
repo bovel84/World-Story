@@ -203,13 +203,16 @@ describe('CountryInitialProfile military bootstrap', () => {
     expect(sumMen(f.reload().militaryUnits())).toBe(555);
   });
 
-  it('same-date stock mutations stop profile readiness overriding both read models, including reload', () => {
+  it('same-date stock mutations change the measured readiness in both read models, including reload', () => {
     const f = fixture('READINESS-STOCK', { readinessPct: 84 });
-    expect(f.service.getArsenal().readiness.readinessPct).toBe(84);
+    // Con reparti vivi il profilo non è la misura: vince lo stato operativo.
+    const start = f.service.getArsenal().readiness.readinessPct;
+    expect(start).not.toBe(84);
+    expect(pictureReadiness(f.service)).toBe(start);
     f.stock.fuel = 0;
     f.stock.weapons = 0;
     const live = f.service.getArsenal().readiness.readinessPct;
-    expect(live).not.toBe(84);
+    expect(live).not.toBe(start);
     expect(pictureReadiness(f.service)).toBe(live);
     expect(f.reload().getArsenal().readiness.readinessPct).toBe(live);
   });
@@ -242,19 +245,84 @@ describe('CountryInitialProfile military bootstrap', () => {
     expect(fixture('DDD', {}, false).service.arsenalUnits('DDD')).toEqual({ fucili: 27_000, apc: 5 });
   });
 
-  it('both read models share country readiness at startDate and stop overriding it after time advances', () => {
+  it('both read models expose the operational measure, with the profile only as historical baseline', () => {
     const f = fixture('EEE', { readinessPct: 84 });
-    expect(f.service.getArsenal().readiness.readinessPct).toBe(84);
-    expect(pictureReadiness(f.service)).toBe(84);
-    expect(f.reload().getArsenal().readiness.readinessPct).toBe(84);
+    const measured = f.service.getArsenal().readiness.readinessPct;
+    // La stima del profilo non copre la misura reale appena i reparti esistono.
+    expect(measured).not.toBe(84);
+    expect(pictureReadiness(f.service)).toBe(measured);
+    expect(f.reload().getArsenal().readiness.readinessPct).toBe(measured);
+    // Avanzando il tempo resta la stessa misura operativa: nessun salto artificiale.
     f.setDate('2026-01-02');
-    expect(f.service.getArsenal().readiness.readinessPct).not.toBe(84);
+    expect(f.service.getArsenal().readiness.readinessPct).toBe(measured);
     expect(f.service.getArsenal().readiness.readinessPct).toBe(pictureReadiness(f.service));
   });
 
-  it('country profiles produce distinct initial readiness without a session-memory marker', () => {
-    expect(pictureReadiness(fixture('FFF', { readinessPct: 41 }).service)).toBe(41);
-    expect(pictureReadiness(fixture('GGG', { readinessPct: 91 }).service)).toBe(91);
+  it('the initial profile estimate is the fallback only while no operational unit exists', () => {
+    // Nessun reparto materializzato (paese smilitarizzato): la stima del
+    // profilo è l'unica misura disponibile e resta leggibile.
+    expect(pictureReadiness(fixture('FFF', { readinessPct: 41, formations: 0, activePersonnel: 0, averageFormationSize: 0 }).service)).toBe(41);
+    expect(pictureReadiness(fixture('GGG', { readinessPct: 91, formations: 0, activePersonnel: 0, averageFormationSize: 0 }).service)).toBe(91);
+  });
+
+  it('CASO 2 — nuova partita con fucili sufficienti: nessun falso 25%', () => {
+    const f = fixture('FRESH');
+    const units = f.store.snapshot().units;
+    expect(units.length).toBeGreaterThan(0);
+    expect(units.every((unit: any) => unit.status === 'operational')).toBe(true);
+    expect(units.every((unit: any) => unit.readiness > 0.25)).toBe(true);
+    // Il bootstrap assegna i fucili senza cambiare il totale nazionale.
+    const assigned = units.reduce((sum: number, unit: any) => sum + (unit.equipment?.fucili ?? 0), 0);
+    const depot = f.service.arsenalUnits('FRESH').fucili ?? 0;
+    expect(depot + assigned).toBe(f.service.getArsenal().units.fucili);
+  });
+
+  it('repairs only the recognisable pre-#224 bootstrap: men without rifles, stock still in the depot', () => {
+    const f = fixture('LEGACY');
+    const snapshot = f.store.snapshot();
+    // Impronta del vecchio bootstrap: reparti in formazione senza fucili,
+    // tutto il deposito come seminato dal profilo, nessuna firma iniziale.
+    const depot = f.service.arsenalUnits('LEGACY');
+    const assignedRifles = snapshot.units.reduce((sum: number, unit: any) => sum + (unit.equipment?.fucili ?? 0), 0);
+    const nationalRifles = (depot.fucili ?? 0) + assignedRifles;
+    f.store.saveUnits(snapshot.units.map((unit: any) => ({
+      ...unit, equipment: {}, status: 'forming', readiness: 0.25, legacyDerived: true, order: 'defend', frontId: null,
+    })));
+    f.store.savePersonnel({ ...snapshot.personnel, initialReadinessSignature: undefined });
+    f.service.saveArsenal('LEGACY', { ...depot, fucili: nationalRifles });
+    const loaded = f.reload();
+    const repaired = loaded.militaryUnits();
+    expect(repaired.every((unit: any) => (unit.equipment?.fucili ?? 0) > 0)).toBe(true);
+    expect(repaired.every((unit: any) => unit.status === 'operational')).toBe(true);
+    expect(repaired.every((unit: any) => unit.readiness > 0.25)).toBe(true);
+    // Deposito + assegnato resta il totale nazionale: nessun fucile inventato.
+    const assigned = repaired.reduce((sum: number, unit: any) => sum + (unit.equipment?.fucili ?? 0), 0);
+    expect((loaded.arsenalUnits('LEGACY').fucili ?? 0) + assigned).toBe(nationalRifles);
+    expect(loaded.getArsenal().units.fucili).toBe(nationalRifles);
+    expect(sumMen(repaired)).toBe(snapshot.personnel.activePersonnel);
+  });
+
+  it('does not repair a genuinely damaged unit at 25% or a real rifle shortage', () => {
+    // Reparto danneggiato per perdite: uomini sotto l'organico, non l'impronta del bug.
+    const damaged = fixture('LEGACY-DAMAGED');
+    const damagedSnapshot = damaged.store.snapshot();
+    damaged.store.saveUnits(damagedSnapshot.units.map((unit: any, index: number) => index === 0
+      ? { ...unit, equipment: {}, status: 'forming', readiness: 0.25, personnel: Math.round(unit.personnel * 0.5) }
+      : { ...unit, equipment: {}, status: 'forming', readiness: 0.25 }));
+    damaged.store.savePersonnel({ ...damagedSnapshot.personnel, initialReadinessSignature: undefined });
+    const damagedReload = damaged.reload();
+    expect(damagedReload.militaryUnits().some((unit: any) => (unit.equipment?.fucili ?? 0) === 0)).toBe(true);
+
+    // Carenza reale: il deposito non contiene i fucili necessari.
+    const short = fixture('LEGACY-SHORT', { equipmentProfile: { fucili: 0 } });
+    const shortSnapshot = short.store.snapshot();
+    short.store.saveUnits(shortSnapshot.units.map((unit: any) => ({
+      ...unit, equipment: {}, status: 'forming', readiness: 0.25, legacyDerived: true,
+    })));
+    short.store.savePersonnel({ ...shortSnapshot.personnel, initialReadinessSignature: undefined });
+    short.service.saveArsenal('LEGACY-SHORT', {});
+    const shortReload = short.reload();
+    expect(shortReload.militaryUnits().every((unit: any) => (unit.equipment?.fucili ?? 0) === 0)).toBe(true);
   });
 
   it('reload and reconciliation preserve casualties, existing equipment, and live reserves', () => {

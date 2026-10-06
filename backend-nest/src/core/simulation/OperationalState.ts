@@ -1842,6 +1842,78 @@ export function assignBootstrapIndividualWeapons(input: {
 }
 
 /**
+ * MILITARY-BOOTSTRAP-READINESS follow-up — riparazione **conservativa** dei
+ * salvataggi nati col bootstrap precedente a #224: reparti con uomini ma senza
+ * fucili, `forming`, prontezza 0,25, mentre l'intera dotazione iniziale è
+ * ancora nel deposito. Non è una riequipaggiata di massa: agisce **solo** se
+ * tutte le condizioni provano l'impronta del vecchio bug. Se una sola manca,
+ * non tocca nulla (`null`).
+ *
+ * Riconosce esclusivamente lo stato vergine del bootstrap: reparti legacy con
+ * organico pieno, nessuna arma, nessun fronte/ordine/movimento, totale uomini
+ * invariato. Perdite, rinforzi, riarmi, reparti danneggiati o deposito già
+ * consumato non sono riparabili e restano intatti.
+ */
+export interface BootstrapReadinessRepairInput {
+  /** **Tutti** i reparti persistiti (player e non): il risultato li restituisce tutti. */
+  units: readonly MilitaryUnitState[];
+  depot: Record<string, number>;
+  epoch: MilitaryEpoch;
+  /** Polity del giocatore: solo i suoi reparti sono candidati. */
+  polityId: string;
+  /** Fucili individuali dichiarati dal profilo: prova che il deposito è quello iniziale. */
+  declaredRifles: number;
+  /** Uomini sotto le armi attesi dal profilo (terra): ulteriore prova di stato vergine. */
+  expectedPersonnel?: number;
+}
+
+export interface BootstrapReadinessRepairResult {
+  units: MilitaryUnitState[];
+  depot: Record<string, number>;
+}
+
+const BOOTSTRAP_FORMING_READINESS = 0.25;
+
+export function repairLegacyBootstrapReadinessIfSafe(
+  input: BootstrapReadinessRepairInput,
+): BootstrapReadinessRepairResult | null {
+  const rifleId = rifleEquipmentId();
+  const player = input.units.filter(unit => String(unit.polityId) === String(input.polityId));
+  if (player.length === 0) return null;
+  // Un reparto già armato (o con qualsiasi altro pezzo) non è il bootstrap vergine:
+  // il nuovo bootstrap assegna i fucili, un riarmo/trasferimento è già avvenuto.
+  if (player.some(unit => Object.keys(unit.equipment || {}).length > 0)) return null;
+  const required = player.reduce((sum, unit) => sum + unitRifleRequirement(unit, input.epoch), 0);
+  const depotRifles = equipmentQuantity(input.depot, rifleId);
+  // Carestia reale o deposito già intaccato: non è una riparazione, è una scelta di stato.
+  if (required <= 0 || depotRifles < required || nonNegative(input.declaredRifles) < required) return null;
+  for (const unit of player) {
+    // Solo reparti materializzati dal bootstrap, con id deterministico: un
+    // reassign cambierebbe l'armata senza cambiare l'id.
+    if (!unit.legacyDerived) return null;
+    if (String(unit.id) !== unitIdFor(String(unit.armyId), unitNumberOf(unit))) return null;
+    if (unit.status !== 'forming') return null;
+    if (unit.frontId != null || unit.movement) return null;
+    if ((unit.order || UNIT_ORDER_DEFAULT) !== UNIT_ORDER_DEFAULT) return null;
+    if (unit.personnel <= 0 || unit.establishmentPersonnel === undefined) return null;
+    // Nessuna perdita (uomini pieni) e nessun rinforzo/riarmo (ancora `forming`).
+    if (Math.round(unit.personnel) !== Math.round(nonNegative(unit.establishmentPersonnel))) return null;
+    if (Math.abs(Number(unit.readiness) - BOOTSTRAP_FORMING_READINESS) > 0.005) return null;
+  }
+  if (input.expectedPersonnel !== undefined) {
+    const total = player.reduce((sum, unit) => sum + Math.round(nonNegative(unit.personnel)), 0);
+    if (total !== Math.round(nonNegative(input.expectedPersonnel))) return null;
+  }
+  // Il repair usa la stessa allocazione del nuovo bootstrap: deposito → reparti,
+  // totale nazionale invariato, nessun pezzo inventato.
+  const repaired = assignBootstrapIndividualWeapons({
+    units: player, declaredStatus: 'operational', depot: input.depot, epoch: input.epoch,
+  });
+  const byId = new Map(repaired.units.map(unit => [String(unit.id), unit]));
+  return { units: input.units.map(unit => byId.get(String(unit.id)) ?? unit), depot: repaired.depot };
+}
+
+/**
  * L'armata è la **somma** dei suoi reparti: uomini, equipaggiamento, fabbisogni
  * e numero di reparti si derivano, non si dichiarano. Senza reparti l'armata
  * resta com'è (percorso legacy dichiarato). I reparti distrutti non contano.

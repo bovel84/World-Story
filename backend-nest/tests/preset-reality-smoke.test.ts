@@ -153,4 +153,18 @@ describe('WS-GOV-PRESET-REALITY-PIPELINE', () => {
       expect(visible).not.toContain(word);
     }
   });
+
+  it('CASO 1 — zero segnali non significa zero quadro nazionale, e nessuna crisi inventata', () => {
+    const context = buildOpeningContext({
+      worldName: 'Millennium Dawn', date: '2000-01-01', premise: PREMISE, rules: '',
+      nationName: 'KHM', polityId: 'KHM', verifiedSituation: [], questions: [],
+    });
+    const briefing = buildDeterministicOpeningResponse(context);
+    // Il Governo ha sempre un quadro leggibile...
+    expect(briefing.nation.framing).toBeTruthy();
+    expect(briefing.nation.framing.trim().length).toBeGreaterThan(0);
+    // ...ma senza inventare crisi: nessuna domanda se il motore non ne ha.
+    expect(briefing.nation.questions).toEqual([]);
+    expect(hasTechnicalVocabulary(briefing.nation.framing)).toBe(false);
+  });
 });
