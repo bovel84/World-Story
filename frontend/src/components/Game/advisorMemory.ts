@@ -34,9 +34,15 @@ function sanitizeIssues(raw: unknown): CouncilIssue[] | undefined {
       const source = text(entry.source); const sourceRef = text(entry.sourceRef);
       return key && label && value && source && sourceRef ? [{ key, label, value, source, sourceRef }] : [];
     });
-    if (!verifiedFacts.length) return [];
+    // WS-COUNCIL-SIGNALKEYS — Una issue senza fatti resta valida se ha almeno
+    // una signalKey sintatticamente valida. I sourceRefs da soli NON provano nulla.
+    const signalKeys = Array.isArray(issue.signalKeys)
+      ? [...new Set(issue.signalKeys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0).map(key => key.trim()))]
+      : [];
+    if (!verifiedFacts.length && !signalKeys.length) return [];
     return [{
       id, title, question, verifiedFacts,
+      ...(signalKeys.length ? { signalKeys } : {}),
       suggestedMinisters: issue.suggestedMinisters.filter(seat => typeof seat === 'string') as CouncilIssue['suggestedMinisters'],
       origin: issue.origin as CouncilIssue['origin'],
       sourceRefs: issue.sourceRefs.filter(ref => typeof ref === 'string') as string[],

@@ -33,4 +33,13 @@ describe('CouncilIssueInline', () => {
     expect(html).not.toContain('<script>');
     expect(html).toContain('&lt;script&gt;');
   });
+
+  it('WS-COUNCIL-SIGNALKEYS: mostra titolo, domanda e CTA anche con verifiedFacts vuoto, senza <ul> vuota', () => {
+    const onOpenIssue = vi.fn();
+    const html = renderToStaticMarkup(<CouncilIssueInline issue={{ ...issue, verifiedFacts: [] }} onOpenIssue={onOpenIssue} />);
+    expect(html).toContain(issue.title);
+    expect(html).toContain(issue.question);
+    expect(html).toContain('Porta al Consiglio');
+    expect(html).not.toContain('<ul');
+  });
 });

@@ -1959,6 +1959,8 @@ export interface CouncilIssue {
   id: string;
   title: string;
   question: string;
+  /** Chiavi dei segnali canonici: il server le ricalcola, mai il client. */
+  signalKeys?: string[];
   verifiedFacts: Array<{ key: string; label: string; value: string; source: string; sourceRef: string }>;
   suggestedMinisters: CabinetAddressView['seat'][];
   origin: 'advisor' | 'president' | 'minister' | 'event' | 'follow-up';

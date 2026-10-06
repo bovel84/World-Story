@@ -29,6 +29,14 @@ const issue = (): CouncilIssue => ({
   sourceRefs: ['national_economy.foodCoverageMonths'], createdDate: '1951-03-01',
 });
 
+/** WS-COUNCIL-SIGNALKEYS — scheda canonica senza fatti, solo signalKeys. */
+const signalIssue = (): CouncilIssue => ({
+  id: 'i-signal', title: 'Rapporto ostile', question: 'Rafforziamo il confine?',
+  signalKeys: ['hostile-relations'], verifiedFacts: [],
+  suggestedMinisters: ['esteri'], origin: 'advisor',
+  sourceRefs: ['diplomacy.relations.NEIGHBOR'], createdDate: '2000-01-01',
+});
+
 describe('advisorMemory', () => {
   it('isola i bucket per turno e per ramo: nessun merge tra scope diversi', () => {
     (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
@@ -98,6 +106,26 @@ describe('advisorMemory', () => {
     expect(restored[0].issues?.map(entry => entry.id)).toEqual(['i0', 'i1', 'i2', 'i3', 'i4']);
   });
 
+  it('WS-COUNCIL-SIGNALKEYS: salva e ripristina una issue senza verifiedFacts ma con signalKeys', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorBucketKey('g1', 'main', 'g1|main|3');
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Proposta', turn: 3, issues: [signalIssue()] }]);
+    const restored = loadAdvisorMessages(key);
+    expect(restored).toHaveLength(1);
+    expect(restored[0].issues).toHaveLength(1);
+    expect(restored[0].issues?.[0].signalKeys).toEqual(['hostile-relations']);
+    expect(restored[0].issues?.[0].verifiedFacts).toEqual([]);
+  });
+
+  it('WS-COUNCIL-SIGNALKEYS: senza fatti e senza signalKeys la issue viene scartata anche con sourceRefs', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorBucketKey('g1', 'main', 'g1|main|3');
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Proposta', turn: 3, issues: [{ ...signalIssue(), signalKeys: undefined }] }]);
+    const restored = loadAdvisorMessages(key);
+    expect(restored).toHaveLength(1);
+    expect(restored[0].issues).toBeUndefined();
+  });
+
   it('uno storage rotto o pieno non interrompe la conversazione', () => {
     (globalThis as { localStorage?: Storage }).localStorage = {
       ...fakeStorage(),
@@ -107,6 +135,17 @@ describe('advisorMemory', () => {
     expect(loadAdvisorMessages('qualsiasi')).toEqual([]);
     expect(loadAdvisorArchive('g1', 'main', 'x')).toEqual([]);
     expect(() => saveAdvisorMessages('qualsiasi', [{ role: 'user', content: 'x', turn: 1 }])).not.toThrow();
+  });
+
+  it('WS-COUNCIL-SIGNALKEYS: l’apertura conserva le issue con signalKeys e senza fatti', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const key = advisorOpeningKey('g1', 'main', 'g1|main|3');
+    saveAdvisorOpening(key, { reply: 'Presidente, il confine è teso.', issues: [signalIssue()], date: '2000-01-01' });
+    const restored = loadAdvisorOpening(key)!;
+    expect(restored.issues).toHaveLength(1);
+    expect(restored.issues[0].signalKeys).toEqual(['hostile-relations']);
+    expect(restored.issues[0].verifiedFacts).toEqual([]);
+    expect(restored.issues[0].sourceRefs).toEqual(['diplomacy.relations.NEIGHBOR']);
   });
 
   it('ignores cached openings from older protocols and regenerates once with the current one', () => {
