@@ -380,3 +380,72 @@ Deciso in `parseAdvisorResponse` (`AdvisorSituations.ts`), con un'unica opzione:
 
 Non modificati: core engine, database, `MAX_COUNCIL_ISSUES`, granularità di
 rapporti ostili/fronti/progetti, flusso del Consiglio.
+
+---
+
+# Iterazione 4 — Modalità, focus e scrivania del Presidente
+
+## 1. BRIEFING MODE vs CONVERSATION MODE
+
+Il protocollo è stato separato in `CouncilIssue.ts`:
+
+- `SITUATION_BASE_PROTOCOL` — sempre: SITUAZIONE ≠ PROPOSTA DI ATTO, nessuna
+  quota, una situazione può restare senza proposta.
+- `ADVISOR_BRIEFING_SITUATION_PROTOCOL` — **solo** apertura/nuovo turno/fallback:
+  il modello emette i blocchi ```advisor_situation``` con titoli concreti e una
+  sola `signalKey`.
+- `ADVISOR_CONVERSATION_PROTOCOL` — chat normale e approfondimento: NON
+  rigenerare l'elenco, nessun blocco salvo una NUOVA situazione distinta; con
+  `focusSituation` rispondi solo su quella.
+
+`RealityAdvisorContext.mode` (`'briefing' | 'conversation'`, default
+conversation) decide quale protocollo entra nel prompt. `getAdvisorOpening` usa
+`'briefing'`; `getRealityAdvisor`, `getAdvisorUnchecked` e `getAdvisorStream`
+usano `'conversation'`. Le richieste di apertura/turno non duplicano più
+l'istruzione: rimandano al BRIEFING MODE.
+
+## 2. Niente lista ripubblicata nelle risposte correttive
+
+In `getRealityAdvisor`, il ramo `verifiedRequestCorrection` ora restituisce
+`{ ...initial, reply: correction, situations: [] }`. La lista completa compare
+solo nel briefing/apertura.
+
+## 3. Focus
+
+`resolveFocusSituation` (già presente) resta l'unico punto di validazione:
+una sola `signalKey`, chiave ignota → 400 `invalid_advisor_situation`, titolo e
+sintesi del client ignorati. Il prompt con FOCUS SITUATION dice «Stai
+approfondendo questa situazione: rispondi SOLO su di essa. Non presentare
+nuovamente il quadro nazionale e non elencare le altre situazioni.»
+
+## 4. Frontend — scrivania del Presidente
+
+- `AdvisorSituationsPanel`: header «Situazioni sul tavolo / Questioni che
+  richiedono attenzione», badge testuale `Urgente` (3) / `Da seguire` (2) /
+  `Opportunità` (1), titolo `<h5>`, sintesi clampata, pulsante
+  «Approfondisci →»; stato `.active` sulla card in esame; `data-many` attiva lo
+  scroll quando le situazioni superano 6. Nessun JSON/`signalKeys`/importanza
+  numerica.
+- `AdvisorChat`: un solo banner compatto (`Situazione in esame` + titolo + ✕);
+  le proposte di atto vivono in `.advisor-proposals` con «Porta al Consiglio»;
+  rimosso il vecchio «Approfondisci {titolo}» dalla CouncilIssue.
+- CSS: griglia a 2 colonne da 768px, 1 colonna sotto; `focus-visible` su tutti i
+  pulsanti; badge leggibili senza colore.
+
+## 5. Test
+
+- Backend (`tsc` pulito): `advisor-situations` (+ BRIEFING/CONVERSATION prompt,
+  focus), `council-issue-variety`, `polity-historical-baselines`,
+  `reality-advisor-routes` (correzione → `situations: []`; chat normale → `[]`),
+  `chats`, `ws-jev-w3-minister` e 19 file advisor/prompt/context + council/
+  minister — tutti verdi (373 test nel batch).
+- Frontend (`tsc` pulito): `advisorSituations` (badge, active, `data-many`,
+  nessun dato tecnico), `advisorStatus`, `realityAdvisorTransport`,
+  `advisorMemory`, `advisorOpening`, `CouncilIssueInline` — verdi.
+- E2E mock: `government-situations`, `government-advisor-hub`,
+  `government-situation-loop`, `govux-p4-inline`, `ws-gov-dialogue-to-act` —
+  verdi (mock aggiornato con `situations` + `focusSituation`).
+
+Non toccati: core engine, database, turn pipeline, `MAX_COUNCIL_ISSUES`,
+granularità segnali, CouncilRoom, Dossier Nazionale. `MAX_ADVISOR_SITUATIONS`
+resta solo tetto tecnico.

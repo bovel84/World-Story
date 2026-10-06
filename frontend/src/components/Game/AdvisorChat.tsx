@@ -119,28 +119,37 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     setSituationFocus(situation);
     void sendText(buildSituationFocusMessage(situation), situation);
   };
-  const callout = (issue: CouncilIssue) => <div key={issue.id}>
-    <button type="button" className="advisor-deepen" disabled={advisorStreaming} onClick={() => setFocus(issue)}>Approfondisci {issue.title}</button>
-    <CouncilIssueInline issue={issue} onOpenIssue={onOpenIssue} disabled={advisorStreaming} />
-  </div>;
+  const closeFocus = () => { setSituationFocus(undefined); setFocus(undefined); };
+  // Gerarchia: situazioni (Approfondisci) → proposte di atto (Porta al Consiglio).
+  const proposals = (issues: CouncilIssue[] | undefined, disabled: boolean) => issues?.length
+    ? <div className="advisor-proposals">
+      <p className="advisor-proposals-label">Proposte di atto</p>
+      {issues.map(issue => <CouncilIssueInline key={issue.id} issue={issue} onOpenIssue={onOpenIssue} disabled={disabled} />)}
+    </div>
+    : null;
+  const activeFocus = situationFocus?.title ?? focus?.title;
+  const activeFocusKind = situationFocus ? 'Situazione in esame' : 'Tema in esame';
 
   if (isLocal) return <div className="advisor-chat"><p>Il Consulente è disponibile solo nella partita server.</p></div>;
   return <div className="advisor-chat">
-    {focus && <p className="advisor-focus" role="status">In esame: <strong>{focus.title}</strong> <button type="button" onClick={() => setFocus(undefined)}>Termina esame</button></p>}
-    {situationFocus && <p className="advisor-focus advisor-focus-situation" role="status">Situazione in esame: <strong>{situationFocus.title}</strong> <button type="button" onClick={() => setSituationFocus(undefined)}>Chiudi</button></p>}
+    {activeFocus && <div className="advisor-focus advisor-focus-situation" role="status">
+      <span className="advisor-focus-kind">{activeFocusKind}</span>
+      <span className="advisor-focus-title">{activeFocus}</span>
+      <button type="button" className="advisor-focus-close" aria-label="Chiudi il focus" onClick={closeFocus}>✕</button>
+    </div>}
     <div className="advisor-messages">
       {loading && <p className="advisor-loading" role="status">{ADVISOR_LOADING_TEXT}</p>}
       {opening && <article className="advisor-entry assistant advisor-opening">
         <div className="entry-meta">Consulente · {opening.date}</div>
         <div className="entry-text"><RichText text={opening.reply} chartData={chartData} /></div>
-        {opening.situations?.length ? <AdvisorSituationsPanel situations={opening.situations} onDeepen={deepen} disabled={advisorStreaming || loading} /> : null}
-        {opening.issues.map(callout)}
+        {opening.situations?.length ? <AdvisorSituationsPanel situations={opening.situations} onDeepen={deepen} activeId={situationFocus?.id} disabled={advisorStreaming || loading} /> : null}
+        {proposals(opening.issues, advisorStreaming || loading)}
       </article>}
       {activeMessages.map((message, index) => <article key={index} className={`advisor-entry ${message.role}`}>
         <div className="entry-meta">{message.role === 'user' ? 'Presidente' : message.proactive ? 'Bollettino' : 'Consulente'}</div>
         <div className="entry-text">{message.role === 'assistant' ? <RichText text={message.content} chartData={chartData} /> : message.content}</div>
-        {message.situations?.length ? <AdvisorSituationsPanel situations={message.situations} onDeepen={deepen} disabled={advisorStreaming} /> : null}
-        {message.issues?.map(callout)}
+        {message.situations?.length ? <AdvisorSituationsPanel situations={message.situations} onDeepen={deepen} activeId={situationFocus?.id} disabled={advisorStreaming} /> : null}
+        {proposals(message.issues, advisorStreaming)}
       </article>)}
       {advisorStreaming && <p className="advisor-typing" role="status" aria-label={ADVISOR_THINKING_TEXT}>
         <span className="advisor-thinking-text">{ADVISOR_THINKING_TEXT}</span><i /><i /><i />

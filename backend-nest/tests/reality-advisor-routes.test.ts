@@ -58,6 +58,21 @@ describe('reality advisor API and minister trust boundary', () => {
     const reply = route.endsWith('/stream') ? await response.text() : (await response.json()).reply;
     expect(reply).toContain('non risultano porti'); expect(captured.length).toBe(count);
   });
+  it('a deterministic correction does not republish the national situation list', async () => {
+    const count = captured.length;
+    const response = await post('/advisor/reality', { message: 'Possiamo ampliare i nostri porti?', history: [] });
+    expect(response.status).toBe(200); const body = await response.json();
+    expect(body.reply).toContain('non risultano porti');
+    expect(body.situations).toEqual([]);
+    expect(captured.length).toBe(count);
+  });
+  it('normal conversation with plain prose returns no situations', async () => {
+    modelReply = 'Le finanze reggono, Presidente. Nessuna urgenza impone una decisione.';
+    const response = await post('/advisor/reality', { message: 'Come vanno le finanze?', history: [] });
+    expect(response.status).toBe(200); const body = await response.json();
+    expect(body.reply).toBe('Le finanze reggono, Presidente. Nessuna urgenza impone una decisione.');
+    expect(body.situations).toEqual([]);
+  });
   it('server ignores client snapshots and rebuilds focusIssue values', async () => {
     modelReply = 'Valutiamo la copertura con Tesoro.';
     const response = await post('/advisor/reality', { message: 'Approfondiamo.', history: [], advisorContext: { focusIssue: issue(), verifiedWorldSnapshot: { facts: { forged: 'CLIENT_RAW_FACT' } } } });

@@ -144,14 +144,32 @@ export const COUNCIL_ANCHOR_PROTOCOL = [
 ].join('\n');
 
 /**
- * WS-CONSULENTE-SITUAZIONI — Separa la SITUAZIONE dalla PROPOSTA DI ATTO.
- * Vale solo per il Consulente: il ministro riceve il solo `COUNCIL_ISSUE_PROTOCOL`
- * e il suo prompt resta entro il budget di contesto.
+ * WS-CONSULENTE-SITUAZIONI — Separa la SITUAZIONE dalla PROPOSTA DI ATTO in
+ * ogni modalità. Vale solo per il Consulente: il ministro riceve il solo
+ * `COUNCIL_ISSUE_PROTOCOL` e il suo prompt resta entro il budget di contesto.
  */
-export const SITUATION_PROPOSAL_PROTOCOL = [
+export const SITUATION_BASE_PROTOCOL = [
   'Distingui SITUAZIONE da PROPOSTA DI ATTO. Una SITUAZIONE è ciò che merita attenzione nel paese (dai segnali e dai fatti verificati): descrivila anche senza chiedere nulla. Una PROPOSTA DI ATTO è una decisione concreta che il Presidente o il Governo devono prendere: emetti la relativa scheda council_issue solo quando esiste davvero un atto da decidere.',
-  'Per ogni SITUAZIONE che merita attenzione emetti un blocco separato ```advisor_situation con JSON {"title":"...","summary":"...","signalKeys":["chiave-segnale canonica"]}. I titoli devono essere concreti e specifici, ancorati all\'entità reale (es. «Tensioni al confine con il Sudan», «Ritardo della ferrovia Kampala–Jinja»): evita titoli generici come «Situazione diplomatica», «Problema militare», «Economia» o «Difesa». Ogni signalKey deve esistere nei CURRENT STRATEGIC SIGNALS e una scheda council_issue non sostituisce la sua situazione.',
   'Non trasformare ogni situazione in una proposta: una situazione può restare senza alcuna council_issue. Il numero di situazioni e di proposte dipende dallo stato reale della partita: possono essere nessuna, una o molte; non esiste un numero fisso da raggiungere e non riempire una quota.',
+].join('\n');
+
+/**
+ * BRIEFING MODE — apertura, nuovo turno, fallback briefing. Qui, e solo qui, il
+ * modello è chiamato a descrivere le situazioni correnti con blocchi
+ * `advisor_situation`; il server integra comunque la base deterministica.
+ */
+export const ADVISOR_BRIEFING_SITUATION_PROTOCOL = [
+  'BRIEFING MODE. Descrivi le SITUAZIONI correnti rilevanti: quante ne giustifica lo stato reale del paese, senza un numero fisso. Emetti per ogni situazione un blocco separato ```advisor_situation con JSON {"title":"...","summary":"...","signalKeys":["chiave-segnale canonica"]}. Una sola signalKey per scheda, presa dai CURRENT STRATEGIC SIGNALS: non accorpare problemi distinti (due vicini ostili restano due situazioni).',
+  'I titoli devono essere concreti e specifici, ancorati all\'entità reale (es. «Tensioni al confine con il Sudan», «Ritardo della ferrovia Kampala–Jinja»): evita titoli generici come «Situazione diplomatica», «Problema militare», «Economia» o «Difesa». Una scheda council_issue non sostituisce la sua situazione.',
+].join('\n');
+
+/**
+ * CONVERSATION MODE — chat normale e approfondimento. Qui il modello NON deve
+ * rigenerare l'elenco delle situazioni: solo eventuali problemi NUOVI e distinti.
+ */
+export const ADVISOR_CONVERSATION_PROTOCOL = [
+  'CONVERSATION MODE. NON rigenerare l\'elenco delle situazioni e NON emettere blocchi advisor_situation, salvo che durante la conversazione emerga davvero una NUOVA situazione distinta, non già presentata. Una situazione già presentata resta sullo sfondo: approfondiscila a parole, senza ripubblicarne la scheda.',
+  'Se il Presidente sta approfondendo una situazione (FOCUS SITUATION), rispondi SOLO su quella: non presentare nuovamente il quadro nazionale e non elencare le altre situazioni. Restano ammesse le schede council_issue quando esiste un atto concreto da decidere.',
 ].join('\n');
 
 /** Conservative identity, not semantic similarity: shared facts/ministers/titles are not duplicates. */

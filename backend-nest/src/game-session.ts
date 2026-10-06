@@ -3536,9 +3536,9 @@ export class GameSession {
     return gameRepository.getPolityHistoricalBaseline(this.id, polityId, this.historicalStartDate);
   }
 
-  private advisorResult(query = '', focusIssue?: unknown, focusSituation?: unknown): RealityAdvisorResult {
+  private advisorResult(query = '', focusIssue?: unknown, focusSituation?: unknown, mode: 'briefing' | 'conversation' = 'conversation'): RealityAdvisorResult {
     const own = this.cachedHistoricalBaseline(this.playerPolityId);
-    const result = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), focusIssue, own?.historicalBackground, focusSituation);
+    const result = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), focusIssue, own?.historicalBackground, focusSituation, mode);
     const related = this.mentionedNpcPolityIds([query]).slice(0, 3).flatMap(id => {
       const baseline = this.cachedHistoricalBaseline(id); return baseline ? [baseline] : [];
     });
@@ -3547,7 +3547,7 @@ export class GameSession {
     return result;
   }
 
-  private advisorContext(query = ''): RealityAdvisorContext { return this.advisorResult(query).advisorContext; }
+  private advisorContext(query = '', focusIssue?: unknown, focusSituation?: unknown, mode: 'briefing' | 'conversation' = 'conversation'): RealityAdvisorContext { return this.advisorResult(query, focusIssue, focusSituation, mode).advisorContext; }
 
   /** One immutable background per polity/divergence, not one per player or branch. */
   async getPolityHistoricalBaseline(polityId: string, signal?: AbortSignal): Promise<PolityHistoricalBaseline | null> {
@@ -3629,7 +3629,7 @@ export class GameSession {
     const fence = this.fenceContext();
     await this.getHistoricalBaseline(signal);
     this.assertFenceValid(fence);
-    const context = this.advisorContext();
+    const context = this.advisorContext('', undefined, undefined, 'briefing');
     const gameData = this.buildGameData();
     gameData.advisorContext = context;
     let text: string | null = null;
@@ -3639,7 +3639,7 @@ export class GameSession {
       text = null;
     }
     this.assertFenceValid(fence);
-    if (text === null || !text.trim()) return { ...this.advisorResult(), fallback: true };
+    if (text === null || !text.trim()) return { ...this.advisorResult('', undefined, undefined, 'briefing'), fallback: true };
     const result = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'advisor', { includeDeterministicSituations: true });
     return { ...result, advisorContext: context, fallback: false };
   }
@@ -3651,7 +3651,8 @@ export class GameSession {
     // Reject untrusted facts and impossible requests before spending on history.
     const initial = this.advisorResult(message, focusIssue, focusSituation);
     const correction = verifiedRequestCorrection(initial.advisorContext.verifiedWorldSnapshot, message);
-    if (correction) return { ...initial, reply: correction };
+    // WS-CONSULENTE-SITUAZIONI — una correzione non ripubblica la lista nazionale.
+    if (correction) return { ...initial, reply: correction, situations: [] };
     this.assertFenceValid(fence);
     const context = this.advisorResult(message, focusIssue, focusSituation);
     const gameData = this.buildGameData();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildHistoricalBaselinePrompt, sanitizeHistoricalBaseline, generateHistoricalBaseline, isGenericHistoricalBaseline } from '../src/core/government/HistoricalBaseline';
 import { advisorOpeningRequest, ADVISOR_OPENING_REQUEST } from '../src/core/government/RealityAdvisor';
+import { ADVISOR_BRIEFING_SITUATION_PROTOCOL } from '../src/core/government/CouncilIssue';
 
 const past = 'Nel 1993 il processo di pace e il ripristino delle istituzioni aprirono una fase di ricostruzione. L’eredità del conflitto pesava sull’amministrazione, sulla fiducia pubblica e sui rapporti regionali; queste condizioni spiegano le priorità politiche del paese senza determinare i risultati della partita.';
 
@@ -80,8 +81,10 @@ describe('polity historical baseline cutoff', () => {
   it('5 — after the divergence the game history dominates the opening prompt', () => {
     expect(ADVISOR_OPENING_REQUEST).toContain('come il paese arriva');
     expect(ADVISOR_OPENING_REQUEST).toContain('problemi presenti');
-    expect(ADVISOR_OPENING_REQUEST).toContain('quante ne giustifica lo stato reale');
-    expect(ADVISOR_OPENING_REQUEST).toContain('council_issue');
+    // WS-CONSULENTE-SITUAZIONI — l'istruzione sulle situazioni vive nel BRIEFING MODE.
+    expect(ADVISOR_OPENING_REQUEST).toContain('BRIEFING MODE');
+    expect(ADVISOR_BRIEFING_SITUATION_PROTOCOL).toContain('senza un numero fisso');
+    expect(ADVISOR_BRIEFING_SITUATION_PROTOCOL).toContain('council_issue');
     expect(advisorOpeningRequest({ turn: 1, date: '2000-01-01' }, '2000-01-01')).toBe(ADVISOR_OPENING_REQUEST);
     const later = advisorOpeningRequest({ turn: 2, date: '2002-01-01' }, '2000-01-01');
     expect(later).toContain('TURN BRIEFING');

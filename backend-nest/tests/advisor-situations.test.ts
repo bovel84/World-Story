@@ -12,6 +12,8 @@ import {
   buildAdvisorSituations, MAX_ADVISOR_SITUATIONS, parseAdvisorResponse, parseAdvisorSituations,
   resolveAdvisorSituation, resolveFocusSituation, signalSituationTitle,
 } from '../src/core/government/AdvisorSituations';
+import { buildRealityAdvisorContext, buildRealityAdvisorPrompt } from '../src/core/government/RealityAdvisor';
+import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, ADVISOR_CONVERSATION_PROTOCOL } from '../src/core/government/CouncilIssue';
 
 const block = (kind: string, value: unknown) => `\`\`\`${kind}\n${JSON.stringify(value)}\n\`\`\``;
 
@@ -152,6 +154,31 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     expect(spoofed.summary).not.toBe('Fatti inventati');
     expect(() => resolveFocusSituation(snapshot, { signalKey: 'non-esiste' })).toThrow(/Unknown reality signal key/);
     expect(() => resolveFocusSituation(snapshot, {})).toThrow(/situazione non valida/i);
+  });
+
+  it('il prompt chiede le situazioni solo in BRIEFING MODE, non in conversazione', () => {
+    const snapshot = multi();
+    const briefing = buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'briefing');
+    const briefingPrompt = buildRealityAdvisorPrompt(briefing.advisorContext, 'Apriamo il Governo.');
+    expect(briefingPrompt).toContain(ADVISOR_BRIEFING_SITUATION_PROTOCOL);
+    expect(briefingPrompt).not.toContain(ADVISOR_CONVERSATION_PROTOCOL);
+
+    const chat = buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'conversation');
+    const chatPrompt = buildRealityAdvisorPrompt(chat.advisorContext, 'Come vanno le finanze?');
+    expect(chatPrompt).toContain(ADVISOR_CONVERSATION_PROTOCOL);
+    expect(chatPrompt).not.toContain(ADVISOR_BRIEFING_SITUATION_PROTOCOL);
+    // La chat normale non chiede di rigenerare l'elenco delle situazioni.
+    expect(chatPrompt).toMatch(/NON rigenerare l'elenco delle situazioni/);
+  });
+
+  it('con FOCUS SITUATION il prompt impone di non ripresentare il quadro nazionale', () => {
+    const snapshot = multi();
+    const focused = buildRealityAdvisorContext(snapshot, undefined, null, { signalKey: 'hostile-relations:SDN' }, 'conversation');
+    const prompt = buildRealityAdvisorPrompt(focused.advisorContext, 'Approfondiamo il Sudan.');
+    expect(prompt).toContain('[FOCUS SITUATION');
+    expect(prompt).toContain('hostile-relations:SDN');
+    expect(prompt).toMatch(/Non presentare nuovamente il quadro nazionale/);
+    expect(prompt).not.toContain(ADVISOR_BRIEFING_SITUATION_PROTOCOL);
   });
 
   it('le decisioni già prese non sono situazioni da approfondire', () => {

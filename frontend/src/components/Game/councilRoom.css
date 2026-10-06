@@ -297,17 +297,36 @@
 .government-reports li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid #304553; }
 .government-reports button { flex: 0 0 auto; min-height: 46px; padding: 0 12px; background: transparent; border: 1px solid #405766; border-radius: 5px; color: #d4b97c; font: 600 13px/1.3 system-ui, sans-serif; cursor: pointer; }
 .advisor-focus { margin: 0; padding: 6px 14px; font: 500 12px/1.3 system-ui, sans-serif; color: #cfe0ea; background: #12222f; border-bottom: 1px solid #2c4254; }
-/* WS-CONSULENTE-SITUAZIONI — le situazioni sono card da approfondire, non proposte. */
+.advisor-focus-situation { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 8px 14px; background: #14303f; }
+.advisor-focus-kind { font: 700 11px/1.3 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #9fd0e8; }
+.advisor-focus-title { flex: 1 1 auto; font: 600 14px/1.3 Georgia, serif; color: #e8eef4; overflow-wrap: anywhere; }
+.advisor-focus-close { flex: 0 0 auto; min-width: 44px; min-height: 44px; border: 1px solid #405766; border-radius: 6px; background: transparent; color: #cfe0ea; font: 600 16px/1 system-ui, sans-serif; cursor: pointer; }
+.advisor-focus-close:focus-visible { outline: 2px solid #9fd0e8; outline-offset: 2px; }
+/* WS-CONSULENTE-SITUAZIONI — «scrivania»: card compatte, non blocchi tecnici. */
 .advisor-situations { margin-top: 14px; }
-.advisor-situations-heading { margin: 0 0 8px; font: 600 13px/1.2 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #9fb2c4; }
-.advisor-situation-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.advisor-situation-card { padding: 12px 14px; border: 1px solid #405766; border-left: 3px solid #6fa8c9; border-radius: 6px; background: #152635; color: #e8eef4; overflow-wrap: anywhere; }
-.advisor-situation-title { margin: 0 0 4px; font: 600 16px/1.3 Georgia, serif; }
-.advisor-situation-summary { margin: 0 0 10px; font: 400 13px/1.5 system-ui, sans-serif; color: #cfe0ea; }
-.advisor-situation-deepen { min-height: 40px; padding: 0 14px; border: 1px solid #4d7f9c; border-radius: 5px; background: transparent; color: #9fd0e8; font: 600 13px/1.3 system-ui, sans-serif; cursor: pointer; }
+.advisor-situations-header { margin: 0 0 8px; }
+.advisor-situations-heading { margin: 0 0 2px; font: 700 13px/1.2 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #cfe0ea; }
+.advisor-situations-subheading { margin: 0; font: 400 12px/1.4 system-ui, sans-serif; color: #9fb2c4; }
+.advisor-situation-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr; gap: 10px; }
+.advisor-situations[data-many="true"] .advisor-situation-list { max-height: 60vh; overflow-y: auto; padding-right: 2px; }
+.advisor-situation-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px 14px; border: 1px solid #405766; border-left: 3px solid #6fa8c9; border-radius: 6px; background: #152635; color: #e8eef4; overflow-wrap: anywhere; }
+.advisor-situation-card.active { border-color: #9fd0e8; background: #1b3346; box-shadow: inset 0 0 0 1px #4d7f9c; }
+.advisor-situation-severity { display: inline-block; padding: 2px 8px; border: 1px solid #3a5a70; border-radius: 999px; background: #1e3a4d; color: #cfe6f2; font: 600 11px/1.5 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+.advisor-situation-severity[data-importance="3"] { border-color: #817153; background: #3a3222; color: #f0e2c0; }
+.advisor-situation-severity[data-importance="1"] { border-color: #3f6152; background: #223a30; color: #d7e4dc; }
+.advisor-situation-title { margin: 0; font: 600 16px/1.3 Georgia, serif; }
+.advisor-situation-summary { margin: 0 0 8px; font: 400 13px/1.5 system-ui, sans-serif; color: #cfe0ea; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.advisor-situation-deepen { min-height: 44px; padding: 0 14px; border: 1px solid #4d7f9c; border-radius: 5px; background: transparent; color: #9fd0e8; font: 600 13px/1.3 system-ui, sans-serif; cursor: pointer; }
 .advisor-situation-deepen:disabled { opacity: .5; cursor: default; }
 .advisor-situation-deepen:focus-visible { outline: 2px solid #9fd0e8; outline-offset: 3px; }
-.advisor-focus-situation { background: #14303f; }
+.advisor-proposals { margin-top: 14px; }
+.advisor-proposals-label { margin: 0 0 6px; font: 700 12px/1.2 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #d4b97c; }
+@media (min-width: 768px) { .advisor-situation-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 767px) {
+  .advisor-situation-card { padding: 12px; }
+  .advisor-situation-summary { font-size: 14px; -webkit-line-clamp: 4; }
+  .advisor-focus-title { font-size: 15px; }
+}
 .gov-situation-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .gov-situation-examine { min-height: 40px; padding: 0 14px; border: 1px solid #405766; border-radius: 5px; background: transparent; color: #cfe0ea; font: 600 13px/1.2 system-ui, sans-serif; cursor: pointer; }
 .gov-situation-details { margin-top: 8px; }

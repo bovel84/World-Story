@@ -1218,20 +1218,34 @@ export function installMockApi(page, opts = {}) {
     sourceRefs: ['national_economy.foodCoverageMonths', 'worldState.resources.stock.money'],
     createdDate: '1951-03-01',
   };
+  // WS-CONSULENTE-SITUAZIONI — la scrivania del Presidente: situazioni da approfondire,
+  // distinte dalle proposte di atto. Il focus viaggia come signalKey canonica.
+  const mockSituations = [{
+    id: 'situation-food',
+    title: 'Approvvigionamento alimentare',
+    summary: 'La copertura alimentare è di 0,8 mesi: è il dato che richiede più attenzione.',
+    signalKeys: ['food-coverage'],
+    importance: 3,
+  }];
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/advisor/context`, (route) => json(route, {
     reply: 'Presidente, la copertura alimentare è di 0,8 mesi: è il dato che richiede più attenzione oggi.',
     issues: [mockIssue],
+    situations: mockSituations,
     advisorContext: { verifiedWorldSnapshot: mockSnapshot, governmentBrief: 'Presidente, la copertura alimentare è di 0,8 mesi.' },
   }));
   page.route(`${API_BASE}/games/${MOCK_GAME_ID}/advisor/reality`, (route) => {
     if (route.request().method() !== 'POST') return notFound(route);
-    let focus = null;
-    try { focus = route.request().postDataJSON()?.advisorContext?.focusIssue ?? null; } catch { focus = null; }
+    let body = null;
+    try { body = route.request().postDataJSON(); } catch { body = null; }
+    const focus = body?.advisorContext?.focusIssue ?? null;
+    const focusSituation = body?.focusSituation ?? null;
+    const focusedTitle = focus?.title ?? mockSituations.find(item => item.signalKeys.includes(focusSituation?.signalKey))?.title ?? null;
     return json(route, {
-      reply: focus
-        ? `Presidente, esamino «${focus.title}» con i soli dati verificati del motore.`
+      reply: focusedTitle
+        ? `Presidente, esamino «${focusedTitle}» con i soli dati verificati del motore.`
         : 'Presidente, la copertura alimentare resta il dato più critico; sul piano militare non vedo variazioni significative.',
       issues: [mockIssue],
+      situations: [],
       advisorContext: { verifiedWorldSnapshot: mockSnapshot, governmentBrief: 'Presidente, la copertura alimentare è di 0,8 mesi.' },
     });
   });

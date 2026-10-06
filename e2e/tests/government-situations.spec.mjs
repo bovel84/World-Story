@@ -21,9 +21,10 @@ test('il Consulente propone la questione con fatti verificati e la porta al Cons
   await expect(opening).toContainText('0,8 mesi');
   await expect(opening).not.toContainText('sfida');
 
-  // Approfondisci: la questione entra nel contesto della conversazione.
-  await page.getByRole('button', { name: /Approfondisci/ }).click();
-  await expect(page.locator('.advisor-focus')).toContainText('Approvvigionamento alimentare');
+  // Approfondisci: la SITUAZIONE entra nel contesto della conversazione (mai il Consiglio).
+  await page.locator('.advisor-situation-deepen').first().click();
+  await expect(page.locator('.advisor-focus-situation')).toContainText('Approvvigionamento alimentare');
+  await expect(page.locator('.advisor-focus-situation')).toContainText('Situazione in esame');
 
   // Domanda al Consulente: la risposta resta ancorata ai dati verificati.
   const input = page.getByRole('textbox', { name: /Interroga il consulente/ });

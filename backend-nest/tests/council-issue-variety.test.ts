@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, SITUATION_PROPOSAL_PROTOCOL, parseCouncilIssues, resolveCouncilIssue, serializeCouncilIssues } from '../src/core/government/CouncilIssue';
+import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, SITUATION_BASE_PROTOCOL, parseCouncilIssues, resolveCouncilIssue, serializeCouncilIssues } from '../src/core/government/CouncilIssue';
 import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 
 const snapshot = () => buildVerifiedWorldSnapshot({ gameData: {
@@ -31,10 +31,10 @@ describe('CouncilIssue optional variety protocol', () => {
   });
 
   it('separa SITUAZIONE da PROPOSTA DI ATTO e ancora i titoli ai fatti', () => {
-    expect(SITUATION_PROPOSAL_PROTOCOL).toMatch(/numero fisso/);
-    expect(SITUATION_PROPOSAL_PROTOCOL).toMatch(/SITUAZIONE da PROPOSTA DI ATTO/);
-    expect(SITUATION_PROPOSAL_PROTOCOL).toMatch(/Non trasformare ogni situazione in una proposta/);
-    expect(SITUATION_PROPOSAL_PROTOCOL).toMatch(/titoli devono essere concreti/i);
+    expect(SITUATION_BASE_PROTOCOL).toMatch(/numero fisso/);
+    expect(SITUATION_BASE_PROTOCOL).toMatch(/SITUAZIONE da PROPOSTA DI ATTO/);
+    expect(SITUATION_BASE_PROTOCOL).toMatch(/Non trasformare ogni situazione in una proposta/);
+    expect(ADVISOR_BRIEFING_SITUATION_PROTOCOL).toMatch(/titoli devono essere concreti/i);
   });
 
   it('keeps proposals optional and accepts a single issue', () => {
