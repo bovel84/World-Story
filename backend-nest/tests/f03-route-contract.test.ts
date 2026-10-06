@@ -23,7 +23,12 @@ const WORLD_ID = 'f03_world';
 
 const stubProvider: any = {
   consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
-  async generate(mechanic: string) {
+  async generate(mechanic: string, _system?: string, prompt?: string) {
+    // Bootstrap del giocatore: serve una stima valida, non il fallback deterministico.
+    if (typeof prompt === 'string' && prompt.includes('"fallback"')) {
+      const { fallback } = JSON.parse(prompt);
+      return { content: JSON.stringify({ ...fallback, economy: { ...fallback.economy, debtRatioPct: 30 } }) };
+    }
     if (mechanic === 'converter') {
       return { content: JSON.stringify({ type: 'action', text: 'Ordine convertito' }) };
     }

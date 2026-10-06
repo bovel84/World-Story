@@ -25,7 +25,12 @@ const WORLD_ID = 'routes93_world';
 
 const stubProvider: any = {
   consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
-  async generate(mechanic: string) {
+  async generate(mechanic: string, _system?: string, prompt?: string) {
+    // Bootstrap del giocatore: una completion valida è ora obbligatoria.
+    if (typeof prompt === 'string' && prompt.includes('"fallback"')) {
+      const { fallback } = JSON.parse(prompt);
+      return { content: JSON.stringify({ ...fallback, economy: { ...fallback.economy, debtRatioPct: 30 } }) };
+    }
     if (mechanic === 'converter') {
       return { content: JSON.stringify({ type: 'action', text: 'Действие игрока' }) };
     }

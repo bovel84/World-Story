@@ -131,8 +131,7 @@ export const COUNCIL_ISSUE_PROTOCOL = [
   'Proponi tutte e sole le questioni strategiche realmente distinte e salienti che meritano una decisione: possono essere nessuna, una o più. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Ogni questione deve poter essere portata separatamente al Consiglio, con fatti canonici a sostegno e solo ministri pertinenti alla domanda.',
   `Sedie ammesse: ${CABINET_SEATS.join(', ')}. Usa solo chiavi presenti in facts del VerifiedWorldSnapshot se ricorri a factKeys; per il collegamento canonico preferisci signalKeys presi dai SEGNALI DEL MOMENTO / CURRENT STRATEGIC SIGNALS. Niente valori, sourceRefs, fatti nuovi, costi inventati, opzioni Pressure o effetti.`,
   'Per una nuova opera distingui intenzione e inventario esistente; Lavori verifica tracciato e materiali, Tesoro la copertura. Una proposta non certifica fattibilità o autorizzazione.',
-  'Una council_issue richiede una DECISIONE PRESIDENZIALE concreta: autorizzare o finanziare una misura, ordinare un intervento, modificare una politica, aprire un negoziato con mandato definito, avviare/sospendere un programma, mobilitare/dispiegare o approvare una misura. Specifica oggetto e mandato, senza inventare costi o fattibilità.',
-  'Valutare, verificare, approfondire, monitorare, studiare o sondare informalmente NON sono atti da portare automaticamente al Consiglio: sono attività istruttorie da lasciare nella conversazione. «Autorizzare una verifica» non basta. Una situazione, una priorità o un costo non quantificato non giustificano da soli una council_issue.',
+  'Una council_issue richiede una decisione concreta (autorizzare, finanziare, ordinare, negoziare, avviare/sospendere, dispiegare); valutare, verificare o sondare restano attività istruttorie.',
 ].join('\n');
 
 /**
@@ -153,6 +152,7 @@ export const COUNCIL_ANCHOR_PROTOCOL = [
 export const SITUATION_BASE_PROTOCOL = [
   'Distingui SITUAZIONE da PROPOSTA DI ATTO. Una SITUAZIONE è ciò che merita attenzione nel paese (dai segnali e dai fatti verificati): descrivila anche senza chiedere nulla. Una PROPOSTA DI ATTO è una decisione concreta che il Presidente o il Governo devono prendere: emetti la relativa scheda council_issue solo quando esiste davvero un atto da decidere.',
   'Non trasformare ogni situazione in una proposta: una situazione può restare senza alcuna council_issue. Il numero di situazioni e di proposte dipende dallo stato reale della partita: possono essere nessuna, una o molte; non esiste un numero fisso da raggiungere e non riempire una quota.',
+  'Solo una decisione presidenziale concreta (autorizzare, finanziare, ordinare, modificare una politica, negoziare con mandato definito, avviare/sospendere un programma, mobilitare/dispiegare, approvare una misura) giustifica una council_issue. «Autorizzare una verifica» non basta: valutare, verificare, approfondire, monitorare, studiare o sondare informalmente restano attività istruttorie da lasciare nella conversazione col Consulente o col ministro.',
 ].join('\n');
 
 /**
