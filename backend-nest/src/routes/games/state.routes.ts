@@ -290,8 +290,9 @@ router.get('/:id/opening-narrative', async (req, res) => {
     const polityId = session.getPlayer()?.polityId ?? '';
     // I1 — l'**unico** OpeningContext backend, dai soli dati esistenti.
     // WS-GOV-PRESET-REALITY-PIPELINE §3 — Il briefing NON è solo il `base_prompt`:
-    // la situazione del paese e 1-3 questioni vengono dallo STATO CANONICO
+    // la situazione del paese e le questioni vengono dallo STATO CANONICO
     // (stessa fonte dei segnali del Consulente), in testo piano.
+    // WS-CONSULENTE-SITUAZIONI — Il numero di questioni è quello reale: nessun taglio a 3.
     const snapshot = session.getVerifiedWorldSnapshot();
     const context = buildOpeningContext({
       worldName: game?.world?.name,

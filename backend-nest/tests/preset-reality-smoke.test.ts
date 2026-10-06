@@ -113,16 +113,18 @@ describe('WS-GOV-PRESET-REALITY-PIPELINE', () => {
   });
 
   it('il mondo apre breve e il paese parla subito: KHM e USA sono diversi', () => {
-    const khmBrief = briefingFor(khm).briefing;
+    const khmState = briefingFor(khm);
+    const khmBrief = khmState.briefing;
     const usaBrief = briefingFor(usa).briefing;
     // Mondo: una frase breve, non il briefing intero.
     expect(khmBrief.world.narrative.worldOrder.split(/\s+/).length).toBeLessThanOrEqual(45);
     expect(khmBrief.world.narrative.worldOrder).toContain('nuovo millennio');
-    // Paese: quadro + 1-3 questioni reali.
+    // Paese: quadro + le situazioni reali. WS-CONSULENTE-SITUAZIONI — nessun
+    // troncamento a 3: la lista coincide con i segnali misurati dello stato.
     expect(khmBrief.nation.framing).toBeTruthy();
     expect(khmBrief.nation.framing).not.toBe(khmBrief.world.narrative.worldOrder);
     expect(khmBrief.nation.questions.length).toBeGreaterThanOrEqual(1);
-    expect(khmBrief.nation.questions.length).toBeLessThanOrEqual(3);
+    expect(khmBrief.nation.questions).toEqual(nationalQuestions(khmState.snapshot));
     // §3 — la PRIMA pagina contiene già la frase del paese (stakesForNation,
     // dal quadro verificato) e differisce tra KHM e USA.
     expect(khmBrief.world.narrative.stakesForNation).toBeTruthy();

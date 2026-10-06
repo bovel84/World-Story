@@ -95,7 +95,7 @@ export interface GameOpeningBriefing {
   nation: {
     name: string;
     identity: string;
-    /** Le 1-3 questioni del paese dallo stato canonico (WS-GOV-PRESET-REALITY). */
+    /** Le questioni del paese dallo stato canonico: il numero è quello reale (WS-CONSULENTE-SITUAZIONI). */
     questions: string[];
     readings: OpeningReading[];
     neighbors: OpeningWorldItem[];
@@ -434,7 +434,9 @@ export function deriveGameOpening(input: OpeningBriefingInput, options: { compac
       narrative,
     },
     nation: {
-      questions: (input.nationQuestions ?? []).map(value => String(value).trim()).filter(Boolean).slice(0, 3),
+      // WS-CONSULENTE-SITUAZIONI — Il numero di situazioni è quello reale del
+      // paese: la lista non viene più troncata a 3.
+      questions: (input.nationQuestions ?? []).map(value => String(value).trim()).filter(Boolean),
       name: input.nationalName,
       identity: input.nationFraming && input.nationFraming.trim() ? input.nationFraming.trim() : deriveIdentity(input),
       readings,

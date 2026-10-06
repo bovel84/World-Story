@@ -74,7 +74,7 @@ export interface OpeningContextInput {
   nationName?: string | null;
   polityId?: string | null;
   verifiedSituation?: readonly string[];
-  /** WS-GOV-PRESET-REALITY-PIPELINE — 1-3 questioni derivate dai segnali reali. */
+  /** WS-GOV-PRESET-REALITY-PIPELINE — questioni derivate dai segnali reali (numero reale, non fisso). */
   questions?: readonly string[] | null;
   worldFacts?: readonly OpeningWorldFact[] | null;
   priorities?: readonly OpeningPriority[] | null;

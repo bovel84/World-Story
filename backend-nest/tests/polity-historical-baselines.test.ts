@@ -80,7 +80,7 @@ describe('polity historical baseline cutoff', () => {
   it('5 — after the divergence the game history dominates the opening prompt', () => {
     expect(ADVISOR_OPENING_REQUEST).toContain('come il paese arriva');
     expect(ADVISOR_OPENING_REQUEST).toContain('problemi presenti');
-    expect(ADVISOR_OPENING_REQUEST).toContain('una o più di tre');
+    expect(ADVISOR_OPENING_REQUEST).toContain('quante ne giustifica lo stato reale');
     expect(ADVISOR_OPENING_REQUEST).toContain('council_issue');
     expect(advisorOpeningRequest({ turn: 1, date: '2000-01-01' }, '2000-01-01')).toBe(ADVISOR_OPENING_REQUEST);
     const later = advisorOpeningRequest({ turn: 2, date: '2002-01-01' }, '2000-01-01');

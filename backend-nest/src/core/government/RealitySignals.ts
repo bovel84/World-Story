@@ -90,16 +90,24 @@ function questionForSignal(signal: RealitySignal): string {
 }
 
 /**
- * §3B/§3C — La situazione reale del paese e le 1-3 questioni che ne derivano:
+ * §3B/§3C — La situazione reale del paese e le questioni che ne derivano:
  * testo PIANO, dalla stessa fonte del briefing del Consulente (nessuna seconda
  * realtà, nessun termine tecnico, nessuna cifra inventata).
+ *
+ * WS-CONSULENTE-SITUAZIONI — Il numero NON è fisso: è quello dei segnali
+ * realmente misurati (zero quando non c'è nulla, molti quando il paese è sotto
+ * pressione). `max` resta solo un tetto tecnico opzionale per i chiamanti che
+ * lo richiedono.
  */
-export function nationalQuestions(snapshot: VerifiedWorldSnapshot, max = 3): string[] {
-  return buildRealitySignals(snapshot).slice(0, max).map(questionForSignal);
+export function nationalQuestions(snapshot: VerifiedWorldSnapshot, max?: number): string[] {
+  const signals = buildRealitySignals(snapshot);
+  return (max === undefined ? signals : signals.slice(0, Math.max(0, max))).map(questionForSignal);
 }
 
-export function nationalSituationLines(snapshot: VerifiedWorldSnapshot, max = 3): string[] {
-  return stripTechnicalLines(buildRealitySignals(snapshot).slice(0, max).map(signal => `- ${signal.reason}`).join('\n'))
+export function nationalSituationLines(snapshot: VerifiedWorldSnapshot, max?: number): string[] {
+  const signals = buildRealitySignals(snapshot);
+  const selected = max === undefined ? signals : signals.slice(0, Math.max(0, max));
+  return stripTechnicalLines(selected.map(signal => `- ${signal.reason}`).join('\n'))
     ?.split('\n').map(line => line.replace(/^-\s*/, '').trim()).filter(Boolean) ?? [];
 }
 
