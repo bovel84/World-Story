@@ -39,10 +39,17 @@ function sanitizeIssues(raw: unknown): CouncilIssue[] | undefined {
     const signalKeys = Array.isArray(issue.signalKeys)
       ? [...new Set(issue.signalKeys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0).map(key => key.trim()))]
       : [];
-    if (!verifiedFacts.length && !signalKeys.length) return [];
+    // WS-GOV-COUNCIL-ANCHORS — Stessa disciplina per gli anchor (opportunità):
+    // una issue anchor-only deve sopravvivere al reload, il server la rivaliderà.
+    const anchorKeys = Array.isArray(issue.anchorKeys)
+      ? [...new Set(issue.anchorKeys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0).map(key => key.trim()))]
+      : [];
+    // verifiedFacts OR signalKeys OR anchorKeys = issue persistibile.
+    if (!verifiedFacts.length && !signalKeys.length && !anchorKeys.length) return [];
     return [{
       id, title, question, verifiedFacts,
       ...(signalKeys.length ? { signalKeys } : {}),
+      ...(anchorKeys.length ? { anchorKeys } : {}),
       suggestedMinisters: issue.suggestedMinisters.filter(seat => typeof seat === 'string') as CouncilIssue['suggestedMinisters'],
       origin: issue.origin as CouncilIssue['origin'],
       sourceRefs: issue.sourceRefs.filter(ref => typeof ref === 'string') as string[],
