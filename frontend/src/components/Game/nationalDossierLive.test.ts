@@ -6,7 +6,7 @@
  * mano: il modulo è puro e non chiama né motore né rete.
  */
 import { describe, expect, it } from 'vitest';
-import { buildNationalDossierLive } from './nationalDossierLive';
+import { buildNationalDossierLive, technologyLabel } from './nationalDossierLive';
 import type { CountryInitialProfilePayload, ArsenalResponse } from '../../services/api';
 import type { NationAccount, NationResources } from './NationDock/types';
 
@@ -128,6 +128,48 @@ describe('buildNationalDossierLive — attuale vs inizio', () => {
     expect(money.initial).toBe(1.2);
     expect(money.delta).toBeCloseTo(1.0, 6);
     expect(live.baselineDate).toBe('1951-01-01');
+  });
+
+  it('2b. saldo mensile assente: resta non pubblicato, mai un falso zero', () => {
+    // Il difetto: `(revenue ?? 0) - (expenses ?? 0)` trasformava «non
+    // pubblicato» in «0,00», cioè inventava un pareggio che il motore non ha
+    // dichiarato. Dato assente ≠ zero.
+    const live = buildNationalDossierLive({
+      account: account({ monthlyBalance: undefined, monthlyRevenue: undefined, monthlyExpenses: undefined }),
+      resources: resources(),
+      arms: arms(),
+      initialProfile: profile(),
+    });
+    expect(findMetric(live.finance, 'monthlyBalance')!.current).toBeNull();
+
+    // Con entrambe le voci presenti il saldo si deriva; con una sola no.
+    const derived = buildNationalDossierLive({
+      account: account({ monthlyBalance: undefined, monthlyRevenue: 0.5, monthlyExpenses: 0.35 }),
+      resources: resources(), arms: arms(), initialProfile: profile(),
+    });
+    expect(findMetric(derived.finance, 'monthlyBalance')!.current).toBeCloseTo(0.15, 6);
+    const partial = buildNationalDossierLive({
+      account: account({ monthlyBalance: undefined, monthlyRevenue: 0.5, monthlyExpenses: undefined }),
+      resources: resources(), arms: arms(), initialProfile: profile(),
+    });
+    expect(findMetric(partial.finance, 'monthlyBalance')!.current).toBeNull();
+  });
+
+  it('2c. addestramento e logistica non compaiono senza una fonte corrente', () => {
+    // Il motore pubblica solo prontezza e qualità correnti: addestramento e
+    // logistica restano nel profilo iniziale e non vanno spacciati per attuali.
+    const live = buildNationalDossierLive({ account: account(), resources: resources(), arms: arms(), initialProfile: profile() });
+    const keys = live.quality.map(metric => metric.key);
+    expect(keys).toEqual(['readinessPct', 'qualityPct']);
+    expect(keys).not.toContain('trainingPct');
+    expect(keys).not.toContain('logisticsPct');
+  });
+
+  it('5. le tecnologie si leggono con l\'etichetta del catalogo, non con l\'ID grezzo', () => {
+    expect(technologyLabel('industria_tessile')).toBe('Industria tessile');
+    expect(technologyLabel('motorizzazione')).toBe('Motorizzazione');
+    expect(technologyLabel('logistica_avanzata')).toBe('Logistica avanzata');
+    expect(technologyLabel('')).toBe('');
   });
 
   it('3. perdita e acquisto di equipaggiamento aggiornano l’arsenale mostrato', () => {

@@ -34,6 +34,23 @@ const round = (value: number, digits = 3): number => {
   return Math.round(value * factor) / factor;
 };
 
+/**
+ * Etichetta leggibile di una tecnologia.
+ *
+ * Il catalogo tecnologie (`TECHNOLOGIES`, `MaterialEconomy`) **non è pubblicato**
+ * all'API: `ResourceStock.technologies` porta solo gli ID. Il nome del catalogo
+ * segue però la convenzione «snake_case → frase con l'iniziale maiuscola»
+ * (verificata su tutte le 17 voci), quindi la si deriva dall'ID senza duplicare il
+ * catalogo in frontend — cosa che sarebbe necessaria solo per forzare una label
+ * diversa. Un ID vuoto torna vuoto; un ID sconosciuto resta comunque leggibile.
+ */
+const TECHNOLOGY_LABEL_OVERRIDES: Record<string, string> = {};
+export function technologyLabel(id: string): string {
+  const clean = String(id ?? '').trim().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+  if (!clean) return clean;
+  return TECHNOLOGY_LABEL_OVERRIDES[String(id)] ?? (clean.charAt(0).toUpperCase() + clean.slice(1));
+}
+
 export interface DossierLiveMetric {
   key: string;
   label: string;
@@ -197,17 +214,23 @@ export function buildNationalDossierLive(input: DossierLiveInput): DossierLive {
 
   const initialDebt = profile ? round(profile.economy.nominalGdpUsdBillions * profile.economy.debtRatioPct / 100) : null;
   const initialBalance = profile ? round(profile.economy.monthlyRevenue - profile.economy.monthlyExpenses) : null;
+  // Dato assente ≠ zero: il saldo si deriva solo se ENTRAMBE le voci sono
+  // pubblicate, altrimenti resta «non pubblicato» (`null`), mai uno zero finto.
+  const revenue = finite(account?.monthlyRevenue);
+  const expenses = finite(account?.monthlyExpenses);
   const currentBalance = finite(account?.monthlyBalance)
-    ?? ((finite(account?.monthlyRevenue) ?? 0) - (finite(account?.monthlyExpenses) ?? 0));
+    ?? (revenue !== null && expenses !== null ? revenue - expenses : null);
+  const growth = finite(account?.annualGrowthRate);
   const finance: DossierLiveMetric[] = [
     metric('money', 'Tesoreria', finite(resources?.money) ?? finite(account?.money), profile?.economy?.treasuryUsdBillions ?? null),
-    metric('monthlyRevenue', 'Entrate mensili', finite(account?.monthlyRevenue), profile?.economy?.monthlyRevenue ?? null),
-    metric('monthlyExpenses', 'Spese mensili', finite(account?.monthlyExpenses), profile?.economy?.monthlyExpenses ?? null),
+    metric('monthlyRevenue', 'Entrate mensili', revenue, profile?.economy?.monthlyRevenue ?? null),
+    metric('monthlyExpenses', 'Spese mensili', expenses, profile?.economy?.monthlyExpenses ?? null),
     metric('monthlyBalance', 'Saldo mensile', currentBalance, initialBalance),
     metric('debt', 'Debito totale', finite(resources?.debt) ?? finite(account?.debt), initialDebt),
     metric('debtRatioPct', 'Debito / PIL', finite(resources?.debtRatioPct) ?? finite(account?.debtRatioPct) ?? finite(account?.debtBurdenPct), profile?.economy?.debtRatioPct ?? null),
     metric('annualInterest', 'Servizio annuo del debito', finite(resources?.annualInterest), null),
     metric('creditHeadroom', 'Capacità residua di credito', finite(resources?.creditHeadroom), null),
+    metric('annualGrowthRatePct', 'Crescita annua', growth === null ? null : round(growth * 100, 1), null),
   ];
 
   const manpower = arms?.manpower;
@@ -221,11 +244,12 @@ export function buildNationalDossierLive(input: DossierLiveInput): DossierLive {
     metric('formations', 'Formazioni operative', standingFormations, profile?.military?.formations ?? null),
   ];
 
+  // Qualità operativa: SOLO le voci con una fonte corrente reale. Addestramento
+  // e logistica iniziali non compaiono finché il motore non ne pubblica un valore
+  // corrente: mostrarle come «attuale» userebbe la baseline come presente.
   const quality: DossierLiveMetric[] = [
     metric('readinessPct', 'Prontezza operativa', finite(arms?.readiness?.readinessPct), profile?.military?.readinessPct ?? null),
-    metric('trainingPct', 'Addestramento', null, profile?.military?.trainingPct ?? null),
     metric('qualityPct', 'Qualità', finite(arms?.qualityIndex), profile?.military?.qualityPct ?? null),
-    metric('logisticsPct', 'Logistica', null, profile?.military?.logisticsPct ?? null),
   ];
 
   const capacity: DossierLiveMetric[] = [

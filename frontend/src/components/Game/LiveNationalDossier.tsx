@@ -12,7 +12,7 @@ import { formatNumber, formatPercent } from '../../utils/format';
 import { money, index } from './NationDock/format';
 import { DossierBlock, Footnote, Metric, MetricGrid } from './NationDock/widgets';
 import {
-  type DossierLive, type DossierLiveMetric, type DossierLiveResourceRow,
+  type DossierLive, type DossierLiveMetric, type DossierLiveResourceRow, technologyLabel,
 } from './nationalDossierLive';
 
 export type DossierLivePart = 'stato' | 'finanze' | 'militare' | 'risorse' | 'capacita' | 'tecnologia';
@@ -45,11 +45,15 @@ function compareHint(metric: DossierLiveMetric, hasBaseline: boolean, format: (v
 
 function MetricRow({ metric, hasBaseline }: { metric: DossierLiveMetric; hasBaseline: boolean }) {
   const format = (value: number | null) => formatMetric(metric.key, value);
+  // N4 — il PIL pro capite è una stima in dollari di oggi: si dichiara, non si
+  // spaccia per la moneta del paese.
+  const note = metric.key === 'gdpPerCapitaUsd' ? 'Tenore di vita medio in dollari di oggi (stima del motore)' : undefined;
+  const hint = [note, compareHint(metric, hasBaseline, format)].filter(Boolean).join(' · ') || undefined;
   return (
     <Metric
       label={metric.label}
       value={format(metric.current)}
-      hint={compareHint(metric, hasBaseline, format)}
+      hint={hint}
     />
   );
 }
@@ -142,16 +146,16 @@ function TechnologyBlock({ live }: { live: DossierLive }) {
       <MetricRow metric={live.research} hasBaseline={live.hasBaseline} />
       {live.technology.current.length > 0 ? (
         <p className="nation-technology-owned">
-          <b>Tecnologie possedute:</b> {live.technology.current.join(', ')}
+          <b>Tecnologie possedute:</b> {live.technology.current.map(technologyLabel).join(', ')}
         </p>
       ) : (
         <Footnote>Nessuna tecnologia sbloccata nel magazzino.</Footnote>
       )}
       {live.hasBaseline && live.technology.unlockedSinceStart.length > 0 && (
-        <Footnote>Sbloccate dall’inizio partita: {live.technology.unlockedSinceStart.join(', ')}.</Footnote>
+        <Footnote>Sbloccate dall’inizio partita: {live.technology.unlockedSinceStart.map(technologyLabel).join(', ')}.</Footnote>
       )}
       {live.hasBaseline && live.technology.lostSinceStart.length > 0 && (
-        <Footnote>Tecnologie iniziali non più possedute: {live.technology.lostSinceStart.join(', ')}.</Footnote>
+        <Footnote>Tecnologie iniziali non più possedute: {live.technology.lostSinceStart.map(technologyLabel).join(', ')}.</Footnote>
       )}
     </DossierBlock>
   );

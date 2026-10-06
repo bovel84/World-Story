@@ -33,6 +33,20 @@ const SOURCE = fs.readFileSync(
   'utf8',
 );
 
+// Le schede vive sono nate dopo il dock: le loro metriche sono le stesse cifre
+// (attuali vs Turno 0). Le invarianti I2 valgono anche qui, quindi si contano
+// insieme al dock — altrimenti spostare una metrica da un file all'altro
+// spegnerebbe la guardia senza che nulla sia peggiorato.
+const LIVE_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, 'LiveNationalDossier.tsx'),
+  'utf8',
+);
+const METRIC_RE = /<Metric\b([\s\S]*?)\/>/g;
+const ALL_METRICS = [
+  ...SOURCE.matchAll(new RegExp(METRIC_RE.source, 'g')),
+  ...LIVE_SOURCE.matchAll(new RegExp(METRIC_RE.source, 'g')),
+];
+
 /** Le sezioni del dossier, nell'ordine dello store (V03: quattro, non otto). */
 const SECTIONS = [
   'situazione', 'regno', 'tesoro', 'statoMaggiore',
@@ -107,7 +121,10 @@ describe('D01 — una cifra, un posto', () => {
 
   it('il test vede davvero le metriche (non passa a vuoto)', () => {
     // Una guardia contro il falso verde: se il parser si rompe, questo fallisce.
-    expect(occurrences.length).toBeGreaterThan(40);
+    // Il consolidamento ha tolto dal dock cinque card duplicate (le cifre sono
+    // nelle schede vive), quindi il numero è sceso: la soglia resta ben sotto
+    // il conteggio reale per non trasformare un miglioramento in un falso rosso.
+    expect(occurrences.length).toBeGreaterThan(20);
     for (const occurrence of occurrences) {
       expect(SECTIONS, `sezione non riconosciuta per «${occurrence.label}»`)
         .toContain(occurrence.section);
@@ -237,7 +254,7 @@ describe('D02 — ogni cifra ha un giudizio', () => {
    */
   it('nessuna metrica è un numero nudo', () => {
     const naked: string[] = [];
-    for (const match of SOURCE.matchAll(/<Metric\b([\s\S]*?)\/>/g)) {
+    for (const match of ALL_METRICS) {
       const body = match[1];
       const label = /label="([^"]*)"/.exec(body);
       if (!label) continue;
@@ -255,10 +272,12 @@ describe('D02 — ogni cifra ha un giudizio', () => {
   it('il test riconosce tono e rapporto quando ci sono (non passa a vuoto)', () => {
     // Guardia contro il falso verde: se il parser smettesse di vedere gli
     // attributi, il test precedente passerebbe per il motivo sbagliato.
-    const metrics = [...SOURCE.matchAll(/<Metric\b([\s\S]*?)\/>/g)];
-    const withTone = metrics.filter(m => /\btone=/.test(m[1])).length;
-    const withHint = metrics.filter(m => /\bhint=/.test(m[1])).length;
-    expect(withTone).toBeGreaterThan(20);
+    const withTone = ALL_METRICS.filter(m => /\btone=/.test(m[1])).length;
+    const withHint = ALL_METRICS.filter(m => /\bhint=/.test(m[1])).length;
+    // Soglie tarate sul dossier consolidato: le schede vive portano molte più
+    // «hint» che «tone» (le cifre attuali vs Turno 0 sono descrittive), quindi la
+    // guardia protegge il parser senza pretendere più toni di quanti ne esistano.
+    expect(withTone).toBeGreaterThan(14);
     expect(withHint).toBeGreaterThan(20);
   });
 });

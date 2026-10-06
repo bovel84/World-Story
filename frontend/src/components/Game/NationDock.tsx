@@ -29,8 +29,7 @@ import {
 import type { NationDockProps } from './NationDock/types';
 import {
   DOMAIN_LABELS, MONEY_UNIT_NOTE, RESOURCE_LABELS, TIER_LABEL, TIER_TONE,
-  defenceTone, formatBillions, formatDate, index, money, plural, resourceTone,
-  stabilityTone, tensionTone, warEffortTone,
+  defenceTone, formatBillions, formatDate, index, money, plural, warEffortTone,
 } from './NationDock/format';
 import {
   BudgetBreakdown, CrisisBlock, DebtPortfolio, DossierBlock, EmptyState,
@@ -59,13 +58,11 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
     today: worldDate,
     setState, active, trading, borrowing, borrowAmount, setBorrowAmount, borrowTerm, setBorrowTerm,
     taxDraft, setTaxDraft, effectiveTaxPct, runSetTax, runBorrow, runTrade,
-    assets, projectGroups, financeAvailable, balance, stability, socialTension, warEffort, mobilized,
-    defenceBurdenPct, growth, natural, market, treasury, debt, debtRatioPct, creditLimitValue,
-    creditHeadroomValue, debtTranches, annualInterest, averageMaturity, marketRate, overdraft,
-    budget, verdict, factions, modifiersActive, foodMonthly,
-    clothingMonthly, weaponsMonthly, fuelMonthly, capacity, coverHint, matValue, provincesLabel,
-    moneyDelta, pointDelta, countDelta, mkTrend,
-    materialRows, weaponsRows, armsSummary, armsSplit, lineSummary, playerPolityId, operatingPicture, synthesis, people,
+    assets, projectGroups, warEffort, defenceBurdenPct,
+    natural, market, debt, creditHeadroomValue, debtTranches, averageMaturity, marketRate, overdraft,
+    budget, verdict, factions, modifiersActive, provincesLabel,
+    pointDelta, mkTrend,
+    materialRows, weaponsRows, armsSummary, armsSplit, playerPolityId, operatingPicture, synthesis, people,
     live,
   } = useNationDockModel(props);
 
@@ -122,47 +119,14 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               />
             )}
 
-            {/* Questa card si chiamava «Sintesi» come la schermata che ora apre il
-                dossier: due cose diverse con lo stesso nome. Il contenuto sono gli
-                indicatori del conto, e il titolo ora lo dice. */}
+            {/* Una sola rappresentazione per fatto: tesoreria, saldo, stabilità e
+                tensione vivono nelle schede vive («Stato nazionale» e «Finanze»),
+                dove sono confrontate col Turno 0. Qui resta il **giudizio**, che è
+                un'altra cosa dai numeri che lo sostengono. */}
             <DossierBlock
               title="Indicatori di tenuta"
-              description={`Tesoreria, bilancio e tenuta interna: le cifre che sostengono il giudizio qui sopra. ${MONEY_UNIT_NOTE}`}
+              description="Il giudizio su come sta andando la nazione. Le cifre che lo sostengono — tesoreria, bilancio, stabilità, tensione — sono nelle schede «Stato nazionale» e «Finanze»."
             >
-              <MetricGrid>
-                <Metric
-                  label="Tesoreria"
-                  value={money(treasury, 2, { sign: true })}
-                  tone={treasury > 0 ? 'positive' : treasury < 0 ? 'negative' : 'warning'}
-                  hint={debt > 0 ? `Debito ${money(debt, 1)}` : 'Riserva valutaria disponibile'}
-                  trend={mkTrend((point) => point.account.money, moneyDelta, 'up')}
-                  hero
-                />
-                <Metric
-                  label="Saldo mensile"
-                  value={money(balance, 2, { sign: true })}
-                  tone={balance >= 0 ? 'positive' : 'negative'}
-                  hint={financeAvailable ? 'Entrate meno uscite' : 'Bilancio non pubblicato'}
-                  trend={mkTrend((point) => point.account.monthlyBalance, moneyDelta, 'up')}
-                  hero
-                />
-                <Metric
-                  label="Stabilità"
-                  value={formatPercent(stability)}
-                  tone={stabilityTone(stability)}
-                  hint="Consenso e tenuta istituzionale"
-                  trend={mkTrend((point) => point.account.stability, pointDelta, 'up')}
-                  hero
-                />
-                <Metric
-                  label="Tensione sociale"
-                  value={formatPercent(socialTension)}
-                  tone={tensionTone(socialTension)}
-                  hint="Pressione interna su popolazione e governo"
-                  trend={mkTrend((point) => point.account.socialTension, pointDelta, 'down')}
-                  hero
-                />
-              </MetricGrid>
               <VerdictBanner verdict={verdict} />
             </DossierBlock>
 
@@ -361,84 +325,18 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               )}
             </DossierBlock>
 
-            <DossierBlock
-              title="Coesione interna"
-              description="Il consenso e la pressione sociale sul governo."
-            >
-              <MetricGrid>
-                {/* Stabilità e tensione sono gli stessi indicatori letti in
-                    «Situazione»: qui restano come rimando, non come copia. */}
-                <Metric
-                  label="Stabilità"
-                  value={formatPercent(stability)}
-                  tone={stabilityTone(stability)}
-                  hint="Dettaglio in Situazione"
-                  onClick={() => openSection('situazione')}
-                />
-                <Metric
-                  label="Tensione sociale"
-                  value={formatPercent(socialTension)}
-                  tone={tensionTone(socialTension)}
-                  hint="Dettaglio in Situazione"
-                  onClick={() => openSection('situazione')}
-                />
-                {/* N2/N4: il motore stima il PIL pro capite in **dollari di oggi**
-                    (`gdpPerCapitaUsd`) anche per un mondo del 1815. Il simbolo `$`
-                    faceva passare quella stima per la moneta del paese: la cifra
-                    resta, la valuta **si dichiara** per quello che è. */}
-                <Metric
-                  label="PIL pro capite"
-                  value={account?.gdpPerCapitaUsd != null ? index(Number(account.gdpPerCapitaUsd), 0) : '—'}
-                  hint="Tenore di vita medio in dollari di oggi (stima del motore)"
-                />
-              </MetricGrid>
-              <Footnote><b>Fonte</b> conto nazionale e modificatori attivi (sezione Tesoro). Nessuna decisione viene presa da questa schermata.</Footnote>
-            </DossierBlock>
-
-
-            <DossierBlock
-              title="Tecnologie sbloccate"
-              description="Progresso materiale finanziato dai punti ricerca nazionali."
-            >
-              {resources?.technologies && resources.technologies.length > 0 ? (
-                <ul className="nation-tech-list">
-                  {resources.technologies.map((tech) => (
-                    <li key={tech}><b>{tech.replace(/_/g, ' ')}</b><span>Disponibile per economia e forze armate.</span></li>
-                  ))}
-                </ul>
-              ) : (
-                <EmptyState>Nessuna tecnologia sbloccata: accumula punti ricerca con università e popolazione.</EmptyState>
-              )}
-              {/* N06 — la fonte diceva «catalogo tecnologie del motore», ma l'elenco
-                  qui sopra **non è il catalogo**: è ciò che il motore ha già
-                  sbloccato per questa nazione. Il catalogo non è pubblicato al
-                  client, e il motore non dichiara un'epoca delle tecnologie: un
-                  mondo del 1815 può sbloccare nomi del 2026. Il dossier non
-                  inventa una pertinenza che non ha (N3): dichiara la fonte vera.
-                  (Il difetto descritto nel piano come «mostra il catalogo intero»
-                  era in realtà solo il testo della fonte: l'elenco è già quello
-                  degli sblocchi reali. Corretto qui.) */}
-              <Footnote><b>Fonte</b> tecnologie che il motore pubblica come sbloccate · la ricerca si accumula a ogni tick del mondo.</Footnote>
-              {epochView.epoch && (
-                <Footnote>
-                  Il motore non dichiara un&apos;epoca delle tecnologie: in uno scenario del
-                  {' '}{epochView.year} ({epochView.epochLabel}) alcune voci possono appartenere a
-                  secoli successivi, e la ricerca non è ancora filtrata per epoca.
-                </Footnote>
-              )}
-            </DossierBlock>
-
-            <DossierBlock
-              title="Capitale umano"
-              description="Popolazione, formazione e forze disponibili."
-            >
-              <MetricGrid>
-                <Metric label="Popolazione" value={formatNumber(assets.population)} hint={`${formatNumber(assets.population / 1_000_000)} milioni di abitanti`} />
-                <Metric label="Università" value={formatNumber(assets.universities)} hint={assets.baseUniversities > 0 ? `${formatNumber(assets.baseUniversities)} dal profilo del paese, ${formatNumber(Math.max(0, assets.universities - assets.baseUniversities))} costruite: producono ricerca` : 'Producono punti ricerca'} />
-                <Metric label="Unità e forze" value={formatNumber(assets.forces)} hint={assets.baseForces > 0 ? `${formatNumber(assets.baseForces)} dal profilo del paese, ${formatNumber(Math.max(0, assets.forces - assets.baseForces))} dal mondo` : 'Reparti in servizio (dettaglio in Stato maggiore)'} />
-              </MetricGrid>
-              <Footnote><b>Fonte</b> conto nazionale; in mancanza, oggetti delle regioni possedute. Il PIL pro capite è nelle Politiche.</Footnote>
-            </DossierBlock>
+            {/* Una sola rappresentazione per fatto: popolazione, stabilità e
+                tensione sono nella scheda «Stato nazionale», le università in
+                «Capacità nazionale», le forze in «Forze armate». Qui resta solo
+                il **progresso materiale**, con le etichette leggibili. */}
+            <NationalDossierLive live={live} part="tecnologia" />
+            {epochView.epoch && (
+              <Footnote>
+                Il motore non dichiara un&apos;epoca delle tecnologie: in uno scenario del
+                {' '}{epochView.year} ({epochView.epochLabel}) alcune voci possono appartenere a
+                secoli successivi, e la ricerca non è ancora filtrata per epoca.
+              </Footnote>
+            )}
 
             {/* M03 — la dimensione civile aveva una metrica dove l'arsenale ne ha
                 otto blocchi. Qui ha il suo blocco: le voci che il motore pubblica
@@ -518,53 +416,18 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               <DomainOperatingBlock picture={operatingPicture} id="economia" />
             </DossierBlock>
 
+            {/* Una sola rappresentazione per fatto: tesoreria, saldo, debito,
+                debito/PIL e credito residuo sono nella scheda «Finanze pubbliche».
+                Qui resta il **portafoglio dei titoli** e ciò che si può fare:
+                scadenze, tasso di mercato, nuove emissioni. */}
             <DossierBlock
-              title="Tesoreria e debito"
-              description={`La valuta della nazione: ciò che è in cassa, ciò che si è preso a prestito e quanto credito resta. ${MONEY_UNIT_NOTE}`}
+              title="Debito pubblico: scadenze e nuove emissioni"
+              description={`Il portafoglio dei titoli e lo spazio per una nuova emissione. Tesoreria, saldo, debito e credito residuo sono nella scheda «Finanze pubbliche». ${MONEY_UNIT_NOTE}`}
             >
-              <MetricGrid>
-                <Metric
-                  label="Tesoreria"
-                  value={money(treasury, 2, { sign: true })}
-                  tone={treasury > 0 ? 'positive' : treasury < 0 ? 'negative' : 'warning'}
-                  hint={treasury < 0 ? 'Cassa negativa: il disavanzo è debito' : 'Riserva valutaria disponibile'}
-                  trend={mkTrend((point) => point.account.money, moneyDelta, 'up')}
-                  hero
-                />
-                <Metric
-                  label="Debito pubblico"
-                  value={money(debt, 2)}
-                  tone={debt > 0 ? 'warning' : 'positive'}
-                  hint={debt > 0
-                    ? `${debtRatioPct !== 0 ? `Debito al ${formatPercent(debtRatioPct, 1)} del PIL` : 'Debito in essere'} · su un tetto di ${money(creditLimitValue, 0)}`
-                    : 'Nessun debito: si può ancora andare a debito'}
-                  trend={mkTrend((point) => point.account.debt, moneyDelta, 'down')}
-                />
-                <Metric
-                  label="Credito residuo"
-                  value={money(creditHeadroomValue, 2)}
-                  tone={creditHeadroomValue > 0 ? 'positive' : 'negative'}
-                  hint="Spazio per nuove spese a debito"
-                />
-                <Metric
-                  label="Saldo mensile"
-                  value={money(balance, 2, { sign: true })}
-                  tone={balance >= 0 ? 'positive' : 'negative'}
-                  hint="Entrate meno uscite: come cambia la cassa ogni mese"
-                  trend={mkTrend((point) => point.account.monthlyBalance, moneyDelta, 'up')}
-                  hero
-                />
-              </MetricGrid>
               {(debtTranches.length > 0 || debt > 0) && (
                 <div className="nation-debt-block">
                   <h4 className="nation-subhead">Portafoglio del debito</h4>
                   <MetricGrid>
-                    <Metric
-                      label="Interessi annui"
-                      value={money(annualInterest, 2)}
-                      tone={annualInterest > 0 ? 'negative' : 'positive'}
-                      hint="Costo del debito ogni anno"
-                    />
                     <Metric
                       label="Scadenza media"
                       value={`${index(averageMaturity, 1)} anni`}
@@ -617,22 +480,9 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               <Footnote><b>Come si muove la cassa</b> ogni mese la tesoreria cambia del saldo mensile (entrate + reddito da risorse − uscite − interessi sul debito). Le scelte del giocatore la muovono subito: un ordine eseguito preleva una spesa una tantum, gli acquisti militari e le compravendite sul mercato si pagano al momento, i movimenti di truppe costano carburante e denaro. Un saldo negativo la riduce; sotto zero la differenza è debito pubblico.</Footnote>
             </DossierBlock>
 
-            <DossierBlock
-              title="Flussi mensili"
-              description={`Quanto entra, quanto esce e come cresce l'economia. ${MONEY_UNIT_NOTE}`}
-            >
-              {financeAvailable ? (
-                <MetricGrid>
-                  <Metric label="Entrate mensili" value={money(Number(account?.monthlyRevenue ?? 0), 2, { sign: true })} tone="positive" trend={mkTrend((point) => point.account.monthlyRevenue, moneyDelta, 'up')} />
-                  <Metric label="Uscite mensili" value={money(Number(account?.monthlyExpenses ?? 0), 2, { sign: true })} tone="neutral" trend={mkTrend((point) => point.account.monthlyExpenses, moneyDelta, 'down')} />
-                  <Metric label="Crescita annua" value={formatPercent(growth * 100, 1)} tone={growth > 0 ? 'positive' : growth < 0 ? 'negative' : 'neutral'} trend={mkTrend((point) => Number(point.account.annualGrowthRate ?? 0) * 100, pointDelta, 'up')} />
-                  <Metric label="PIL nominale" value={money(assets.gdpBillions, 1)} tone="neutral" hint="Prodotto interno lordo pubblicato dal motore" />
-                </MetricGrid>
-              ) : (
-                <EmptyState>Questo scenario non pubblica ancora voci di bilancio nel conto nazionale.</EmptyState>
-              )}
-            </DossierBlock>
-
+            {/* Entrate, uscite, saldo, PIL e crescita sono nella scheda viva
+                «Stato nazionale»/«Finanze pubbliche». Qui resta la **scomposizione
+                delle voci**, che è l'informazione in più. */}
             {budget && (budget.revenue.length > 0 || budget.expense.length > 0) && (
               <DossierBlock
                 title="Composizione del bilancio"
@@ -642,26 +492,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                   <BudgetBreakdown title="Entrate mensili" lines={budget.revenue} total={budget.revenueTotal} kind="revenue" />
                   <BudgetBreakdown title="Uscite mensili" lines={budget.expense} total={budget.expenseTotal} kind="expense" />
                 </div>
-                <MetricGrid>
-                  <Metric label="Pressione fiscale effettiva" value={formatPercent(budget.effectiveTaxRatePct, 1)} tone="neutral" hint="Entrate annue sul PIL" />
-                  <Metric label="Spesa sociale" value={`${formatPercent(budget.socialBurdenPct, 1)} del PIL`} tone="neutral" hint="Sanità e sostegno sociale" />
-                  {/* La spesa per istruzione e ricerca è la **stessa** cifra letta
-                      in «Investimento nel popolo» (D01: una cifra, un posto): qui
-                      il rimando, là il confronto con la difesa. */}
-                  <Metric
-                    label="Istruzione e ricerca"
-                    value={`${formatPercent(budget.educationBurdenPct, 1)} del PIL`}
-                    tone="neutral"
-                    hint="Le vie civili: confronto in Regno"
-                    onClick={() => openSection('regno')}
-                  />
-                  {/* La quota di difesa è la **stessa** `defenceBurdenPct` di
-                      «Spesa militare» (blocco «Pressione militare», più sopra in
-                      questa sezione) e la **stessa** riga «Difesa» della
-                      ripartizione qui sopra. Una cifra, un posto: qui non si
-                      ricopia — la ripartizione e la voce canonica la mostrano già. */}
-                </MetricGrid>
-                <Footnote><b>Come si legge</b> ogni voce è una ripartizione deterministica dei totali pubblicati dal motore, calcolata sui driver reali (fabbriche, porti, atenei, riserve, popolazione). La difesa è la quota esatta dichiarata dal conto; la somma delle voci è il totale. Nessun importo è stimato nel browser.</Footnote>
+                <Footnote><b>Come si legge</b> ogni voce è una ripartizione deterministica dei totali pubblicati dal motore, calcolata sui driver reali (fabbriche, porti, atenei, riserve, popolazione). La difesa è la quota esatta dichiarata dal conto; la somma delle voci è il totale. Nessun importo è stimato nel browser. Pressione fiscale, spesa sociale e istruzione sono in «Politica fiscale» e «Investimento nel popolo».</Footnote>
               </DossierBlock>
             )}
 
@@ -680,51 +511,15 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
             </DossierBlock>
 
             <DossierBlock
-              title="Magazzino materiale"
-              description="Scorte reali del paese: cibo, vestiario, armi, carburante e ricerca. Ogni voce ha un tetto di stoccaggio."
+              title="Ritmo del mese: produzione e consumo"
+              description="Quanto entra e quanto esce dal magazzino, voce per voce. Le scorte correnti, la capacità e il riempimento sono nella scheda «Risorse strategiche»."
             >
               {resources ? (
-                <>
-                  <MetricGrid>
-                    <Metric
-                      label="Cibo"
-                      value={matValue(Number(resources.food ?? 0), capacity?.food)}
-                      tone={resourceTone(Number(resources.food ?? 0), foodMonthly)}
-                      hint={coverHint(Number(resources.food ?? 0), foodMonthly, capacity?.food)}
-                    />
-                    <Metric
-                      label="Vestiario"
-                      value={matValue(Number(resources.clothing ?? 0), capacity?.clothing)}
-                      tone={resourceTone(Number(resources.clothing ?? 0), clothingMonthly)}
-                      hint={coverHint(Number(resources.clothing ?? 0), clothingMonthly, capacity?.clothing)}
-                    />
-                    <Metric
-                      label="Scorte armi"
-                      value={matValue(Number(resources.weapons ?? 0), capacity?.weapons)}
-                      tone={resourceTone(Number(resources.weapons ?? 0), weaponsMonthly)}
-                      hint={coverHint(Number(resources.weapons ?? 0), weaponsMonthly, capacity?.weapons)}
-                    />
-                    <Metric
-                      label="Carburante"
-                      value={matValue(Number(resources.fuel ?? 0), capacity?.fuel)}
-                      tone={resourceTone(Number(resources.fuel ?? 0), fuelMonthly)}
-                      hint={coverHint(Number(resources.fuel ?? 0), fuelMonthly, capacity?.fuel)}
-                    />
-                    <Metric
-                      label="Ricerca"
-                      value={formatNumber(Number(resources.research ?? 0))}
-                      tone="neutral"
-                      hint="Punti non ancora spesi in tecnologie"
-                    />
-                  </MetricGrid>
-                  {/* Sintesi prima del dettaglio: quanto entra, quanto esce. */}
-                  <p className="material-balance-title">Ritmo del mese: quanto produci e quanto consumi</p>
-                  <MaterialBalanceList rows={materialRows} showAvailability={false} />
-                </>
+                <MaterialBalanceList rows={materialRows} showAvailability={false} />
               ) : (
                 <EmptyState>Il magazzino materiale non è ancora pubblicato per questa partita.</EmptyState>
               )}
-              <Footnote><b>Fonte</b> MaterialEconomy · le scorte nascono da una quota della capacità reale (mesi di riserva secondo il PIL pro capite) e non possono superare il tetto: il surplus si perde. Una nazione fragile ha magazzini piccoli e resta in carenza se la produzione non copre il fabbisogno. La leva materiale del modello (aiuti, requisizioni, perdite) muove queste stesse scorte. Denaro, debito e credito sono nella sezione Tesoro.</Footnote>
+              <Footnote><b>Fonte</b> MaterialEconomy · produzione, consumo, saldo e materiale perso al tetto sono calcolati dal motore per il mese corrente. Le scorte e la capacità di stoccaggio sono nella scheda «Risorse strategiche».</Footnote>
             </DossierBlock>
 
             {modifiersActive && (
@@ -810,17 +605,17 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               <Footnote><b>Fonte</b> dotazioni nazionali reali · l'estrazione consuma la riserva (le rinnovabili si rigenerano); vendere e comprare muove denaro e magazzino.</Footnote>
             </DossierBlock>
 
+            {/* Fabbriche e porti sono nella scheda «Capacità nazionale»; qui resta
+                il **territorio** e la spiegazione delle fonti. */}
             <DossierBlock
-              title="Capacità produttive e territoriali"
-              description="Che cosa il paese è in grado di fare: la disponibilità dipende dal profilo della nazione, non solo da ciò che è disegnato sulla mappa."
+              title="Territorio e fonti della capacità"
+              description="Il territorio amministrato e da dove viene la disponibilità: il profilo della nazione, non solo ciò che è disegnato sulla mappa."
             >
               <MetricGrid>
                 {/* Provinciali e città sono **fatti del territorio**: non hanno un
                     bene/male, ma senza un rapporto la cifra non si interpreta. Il
                     rapporto è ciò che la rende leggibile. */}
                 <Metric label="Province" value={formatNumber(assets.provinces)} hint={assets.cities > 0 ? `${formatNumber(assets.cities)} città e capitali` : 'territorio amministrato'} />
-                <Metric label="Fabbriche" value={formatNumber(assets.factories)} hint={assets.baseFactories > 0 ? `${formatNumber(assets.baseFactories)} dal profilo del paese, ${formatNumber(Math.max(0, assets.factories - assets.baseFactories))} costruite sulla mappa` : undefined} />
-                <Metric label="Porti e cantieri" value={formatNumber(assets.ports)} hint={assets.basePorts > 0 ? `${formatNumber(assets.basePorts)} dalla costa, ${formatNumber(Math.max(0, assets.ports - assets.basePorts))} costruiti sulla mappa` : 'nessuno sbocco al mare'} />
                 <Metric label="Città e capitali" value={formatNumber(assets.cities)} hint={assets.provinces > 0 ? `su ${formatNumber(assets.provinces)} province` : 'centri abitati mappati'} />
               </MetricGrid>
               <p className="nation-capacity-source">
@@ -832,7 +627,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 {' '}{plural(assets.basePorts, 'porto', 'porti')}, {plural(assets.baseUniversities, 'università', 'università')},
                 {' '}{plural(assets.baseForces, 'reparto', 'reparti')}. Ciò che si costruisce nel gioco si somma a questa base.
               </p>
-              <Footnote><b>Fonte</b> conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Università e personale sono nella sezione Regno.</Footnote>
+              <Footnote><b>Fonte</b> conto nazionale quando disponibile; altrimenti oggetti delle regioni possedute. Fabbriche, porti e università sono nella scheda «Capacità nazionale».</Footnote>
             </DossierBlock>
 
             <DossierBlock
@@ -897,7 +692,6 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
             <NationalDossierLive live={live} part="finanze" />
             <NationalDossierLive live={live} part="risorse" />
             <NationalDossierLive live={live} part="capacita" />
-            <NationalDossierLive live={live} part="tecnologia" />
 
           </>
         )}
@@ -932,13 +726,7 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                   hint="Quota del PIL destinata alla difesa"
                   trend={mkTrend((point) => point.account.defenceBurdenPct, pointDelta, 'down')}
                 />
-                <Metric
-                  label="Riserve mobilitate"
-                  value={formatNumber(mobilized)}
-                  tone={mobilized > 0 ? 'warning' : 'positive'}
-                  hint="Formazioni richiamate, non ancora operative"
-                  trend={mkTrend((point) => point.account.mobilized, countDelta, 'down')}
-                />
+                {/* Mobilitati e formazioni sono nella scheda «Forze armate». */}
                 <Metric
                   label="Sforzo bellico"
                   value={formatPercent(warEffort)}
@@ -965,13 +753,13 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
 
             <DossierBlock
               title="Forza dell'arsenale"
-              description="Quanto vale l'apparato militare: quantità, qualità e potenza effettiva sui combattimenti."
+              description="Quanto vale l'apparato militare: quantità e potenza effettiva sui combattimenti."
             >
               {arms ? (
                 <MetricGrid>
                   <Metric label="Forza militare" value={index(arms.strength, 1)} tone="neutral" hint="Quantità × qualità × dominio" />
                   <Metric label="Potenza effettiva" value={formatNumber(arms.effectiveMilitaryPower)} tone={arms.combatFactor >= 1 ? 'positive' : 'warning'} hint={`Base ${formatNumber(arms.baseMilitaryPower)} × fattore arsenale ${arms.combatFactor}`} />
-                  <Metric label="Qualità media armi" value={`${formatNumber(arms.qualityIndex)}/100`} tone={arms.qualityIndex >= 60 ? 'positive' : arms.qualityIndex >= 30 ? 'warning' : 'negative'} hint="Pesa sui combattimenti" />
+                  {/* La qualità media è nella scheda «Forze armate» (attuale vs inizio). */}
                   {/* `arms.capacity.weapons` è il **tetto** del magazzino, non le
                       scorte attuali: si chiamava «Scorte armi» come la metrica di
                       Risorse, ma è un altro numero. */}
@@ -1017,44 +805,9 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
               </div>
             </details>
 
-            <DossierBlock
-              title="Arsenale"
-              description="Equipaggiamento in servizio: che cos'è, a cosa serve e quanto pesa sulla forza."
-            >
-              {arms && arms.lines.length > 0 ? (
-                <ul className="arms-list">
-                  {arms.lines.map((line) => (
-                    <li key={line.id} className="arms-line-card">
-                      <div className="arms-line-head">
-                        <div>
-                          <b>{line.name}</b>
-                          <span>{line.domainLabel || DOMAIN_LABELS[line.domain] || line.domain} · {line.category}</span>
-                        </div>
-                        <div className="arms-line-meta">
-                          <em>×{formatNumber(line.quantity)} in servizio</em>
-                          <span className={`arms-tier tone-${TIER_TONE[line.tier] || 'neutral'}`}>{TIER_LABEL(line.tier)} · qualità {line.quality}/100</span>
-                        </div>
-                      </div>
-                      {/* Sintesi prima del dettaglio: quanto ho e quanto produco. */}
-                      <p className="arms-line-summary">{lineSummary(line)}</p>
-                      <details className="arms-line-detail">
-                        <summary>Dettaglio tecnico: che cos'è, a cosa serve, caratteristiche</summary>
-                        <p className="arms-line-role">{line.role}</p>
-                        <p className="arms-line-desc">{line.description}</p>
-                        <EquipmentSpecs specs={line.specs} />
-                      </details>
-                      <div className="arms-line-share">
-                        <span>Forza {index(line.strength, 1)} · {index(line.sharePct, 1)}% dell'arsenale</span>
-                        <i aria-hidden="true"><em style={{ width: `${Math.max(0, Math.min(100, line.sharePct))}%` }} /></i>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <EmptyState>Nessun equipaggiamento in servizio: costruisci o importa dal catalogo qui sotto.</EmptyState>
-              )}
-            </DossierBlock>
-
+            {/* Una sola rappresentazione per fatto: l'equipaggiamento corrente vs
+                iniziale è nella scheda «Forze armate»; ruolo, descrizione e
+                caratteristiche di ogni voce sono nel catalogo qui sotto. */}
             <DossierBlock
               title="Produzione in corso"
               description="Percentuale di completamento degli ordini: la consegna non è istantanea e può subire ritardi o difetti."

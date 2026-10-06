@@ -73,23 +73,27 @@ describe('N03 — una sola unità di conto, dichiarata una volta', () => {
   });
 
   it('i blocchi che mostrano denaro dichiarano l\'unità nella descrizione', () => {
-    const dock = read('./NationDock.tsx');
     // Guardia contro il falso verde: i blocchi con denaro sono davvero molti.
-    const moneyBlocks = dock.match(/formatMoney\(|money\(|formatBillions\(/g)?.length ?? 0;
-    expect(moneyBlocks).toBeGreaterThan(15);
-    const notes = dock.match(/MONEY_UNIT_NOTE/g)?.length ?? 0;
-    expect(notes).toBeGreaterThanOrEqual(7);
+    // Le cifre di denaro vivono sia nel dock sia nella scheda viva: si contano
+    // insieme, altrimenti il solo spostamento di una card farebbe scattare
+    // l'allarme senza che nulla sia cambiato.
+    const count = (pattern: RegExp) => DOSSIER_FILES
+      .map(file => read(`./${file}`).match(pattern)?.length ?? 0)
+      .reduce((total, value) => total + value, 0);
+    expect(count(/formatMoney\(|money\(|formatBillions\(/g)).toBeGreaterThan(15);
+    expect(count(/MONEY_UNIT_NOTE/g)).toBeGreaterThanOrEqual(7);
   });
 });
 
 describe('N04 — il confine del denaro è dichiarato', () => {
   it('il PIL pro capite non si presenta più come la moneta del paese', () => {
+    // Il PIL pro capite è nella scheda viva «Stato nazionale»: la cifra resta,
+    // ma si dichiara per quello che è — una stima in dollari di oggi.
+    const live = read('./LiveNationalDossier.tsx');
+    expect(live).toMatch(/gdpPerCapitaUsd/);
+    expect(live).toMatch(/dollari di oggi/);
     const dock = read('./NationDock.tsx');
-    const metric = dock.match(/label="PIL pro capite"[\s\S]{0,320}?\/>/)?.[0] ?? '';
-    expect(metric).not.toBe('');
-    // Il simbolo `$` è sparito e la stima si dichiara per quello che è.
-    expect(metric).not.toContain("'$'");
-    expect(metric).toMatch(/dollari di oggi/);
+    expect(dock).not.toMatch(/label="PIL pro capite"/);
   });
 
   it('il modulo che spiega i costi dichiara la scala del catalogo', () => {
