@@ -657,6 +657,23 @@ const LOWER_INCOME = new Set([
   'AFG','BDI','BEN','BFA','CAF','COD','ERI','ETH','GMB','GIN','GNB','HTI','LBR','MDG','MLI','MOZ','MWI','NER','PRK','RWA','SDN','SLE','SOM','SSD','SYR','TCD','TGO','UGA','YEM',
 ]);
 
+/**
+ * Stati senza sbocco al mare (codici polity). Una provincia costiera di un
+ * lago, di un mare interno o di un fiume non è una costa marittima: la mappa
+ * può marcare `Coastal`/`Ocean` anche il litorale dei Grandi Laghi o del lago
+ * Vittoria, quindi il solo `surface_type` non basta a inferire porti e marina.
+ * L'elenco è un fatto geografico generale (non uno special-case per paese):
+ * gli eventuali porti/oggetti espliciti del preset restano autoritativi.
+ */
+export const LANDLOCKED_POLITIES = new Set([
+  'AFG','AND','ARM','AUT','AZE','BDI','BFA','BLR','BTN','BWA','CAF','CHE','CZE','ETH','HUN','KAZ','KGZ','LAO','LIE','LSO','LUX','MDA','MKD','MLI','MNG','MWI','NER','NPL','PRK','PAR','RWA','SMR','SRB','SSD','SVK','SWZ','TCD','TJK','TKM','UGA','UZB','VAT','ZMB','ZWE',
+]);
+
+/** Vero se la polity non ha accesso al mare nella geografia reale. */
+export function isLandlockedPolity(polityId: string): boolean {
+  return LANDLOCKED_POLITIES.has(polityId);
+}
+
 const ITALIAN_POLITY_NAMES: Record<string, string> = {
   PSE: 'Palestina', USA: 'Stati Uniti', GBR: 'Regno Unito', DEU: 'Germania',
   FRA: 'Francia', ITA: 'Italia', RUS: 'Russia', CHN: 'Cina', JPN: 'Giappone',
