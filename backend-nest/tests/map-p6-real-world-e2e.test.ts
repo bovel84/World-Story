@@ -51,8 +51,9 @@ const stubProvider: any = {
   generate: (mechanic: string, _system: string, user: string) => {
     // Bootstrap del giocatore: il fallback deterministico non è più accettato come stima.
     if (String(user).includes('"fallback"')) {
-      const { fallback } = JSON.parse(user);
-      return Promise.resolve({ content: JSON.stringify({ ...fallback, economy: { ...fallback.economy, debtRatioPct: 30 } }) });
+      const { section, fallback } = JSON.parse(user);
+      if (section === 'economy') return Promise.resolve({ content: JSON.stringify({ economy: { ...fallback, debtRatioPct: 30 } }) });
+      return Promise.resolve({ content: JSON.stringify(fallback) });
     }
     if (mechanic !== 'balance') return Promise.resolve({ content: '{}' });
     llmCalls.count += 1;

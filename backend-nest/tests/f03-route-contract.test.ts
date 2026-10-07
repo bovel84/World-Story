@@ -26,8 +26,9 @@ const stubProvider: any = {
   async generate(mechanic: string, _system?: string, prompt?: string) {
     // Bootstrap del giocatore: serve una stima valida, non il fallback deterministico.
     if (typeof prompt === 'string' && prompt.includes('"fallback"')) {
-      const { fallback } = JSON.parse(prompt);
-      return { content: JSON.stringify({ ...fallback, economy: { ...fallback.economy, debtRatioPct: 30 } }) };
+      const { section, fallback } = JSON.parse(prompt);
+      if (section === 'economy') return { content: JSON.stringify({ economy: { ...fallback, debtRatioPct: 30 } }) };
+      return { content: JSON.stringify(fallback) };
     }
     if (mechanic === 'converter') {
       return { content: JSON.stringify({ type: 'action', text: 'Ordine convertito' }) };

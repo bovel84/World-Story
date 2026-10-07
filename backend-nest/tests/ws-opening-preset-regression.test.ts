@@ -30,8 +30,9 @@ const stubProvider: any = {
   async generate(_mechanic: string, _system?: string, prompt?: string) {
     // Il bootstrap del giocatore pretende una stima valida: lo stub la fornisce.
     if (typeof prompt === 'string' && prompt.includes('"fallback"')) {
-      const { fallback } = JSON.parse(prompt);
-      return { content: JSON.stringify({ ...fallback, economy: { ...fallback.economy, debtRatioPct: 30 } }) };
+      const { section, fallback } = JSON.parse(prompt);
+      if (section === 'economy') return { content: JSON.stringify({ economy: { ...fallback, debtRatioPct: 30 } }) };
+      return { content: JSON.stringify(fallback) };
     }
     return { content: '{}' };
   },
