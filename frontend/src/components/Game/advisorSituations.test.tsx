@@ -79,7 +79,9 @@ describe('AdvisorSituationsPanel', () => {
     // Il messaggio di focus cita la situazione; nessuna apertura del Consiglio.
     const message = buildSituationFocusMessage(situationSeven);
     expect(message).toContain('Titolo 7');
-    expect(message).toContain('Sintesi 7');
+    // Il messaggio è solo conversazione: la sintesi resta presentazione e non
+    // deve diventare fonte. I riferimenti canonici viaggiano in focusSituation.
+    expect(message).not.toContain('Sintesi 7');
     expect(message).not.toContain('Consiglio');
   });
 });

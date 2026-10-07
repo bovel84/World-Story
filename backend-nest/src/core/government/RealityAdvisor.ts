@@ -7,7 +7,7 @@ import { renderCouncilProposalAnchors } from './CouncilProposalAnchors';
 import { renderHistoricalBaseline, renderPolityHistoricalBaselines, historicalBaselineExcerpt, type PolityHistoricalBaseline } from './HistoricalBaseline';
 import { compileNarrativeSituation, renderNarrativeContext, type NarrativeRole } from './NarrativeContextCompiler';
 import type { VerifiedRecentEvent, VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
-import { renderStrategicThreadEvidence } from './StrategicThreads';
+import { computeSupersededHistoricalEvidenceKeys, renderStrategicThreadEvidence } from './StrategicThreads';
 import type { TimelineEventRecord, TimelineSource } from '../../game/TimelineService';
 
 export interface RealityAdvisorContext {
@@ -25,6 +25,10 @@ export interface RealityAdvisorContext {
   polityHistoricalBaselines?: PolityHistoricalBaseline[];
   /** Dated, server-derived game chronicle; never browser conversation memory. */
   strategicHistory?: VerifiedRecentEvent[];
+  /** Full eligible chronicle (server-only) used to keep evidence keys resolvable. */
+  fullStrategicHistory?: readonly VerifiedRecentEvent[];
+  /** Server-only: historical passages whose named crisis is already resolved. */
+  supersededHistoricalEvidenceKeys?: readonly string[];
 }
 export interface RealityAdvisorResult extends AdvisorResponse {
   advisorContext: RealityAdvisorContext;
@@ -79,9 +83,6 @@ export function advisorOpeningRequest(snapshot: Pick<VerifiedWorldSnapshot, 'tur
 
 export function buildRealityAdvisorContext(snapshot: VerifiedWorldSnapshot, focusRaw?: unknown, historicalBaseline?: string | null, focusSituationRaw?: unknown, mode: 'briefing' | 'conversation' = 'conversation'): RealityAdvisorResult {
   const focusIssue = focusRaw === undefined ? undefined : resolveCouncilIssue(snapshot, focusRaw);
-  // WS-CONSULENTE-SITUAZIONI — Il focus dell'approfondimento è canonico: il
-  // client manda una signalKey, il server ricostruisce la situazione.
-  const focusSituation = focusSituationRaw === undefined ? undefined : resolveFocusSituation(snapshot, focusSituationRaw);
   // P3/P4 — Il briefing nasce dai SEGNALI deterministici, non da quest
   // predefinite: nessun CouncilIssue automatico. La questione nasce solo se il
   // modello la propone (e il server la valida) o se il Presidente la chiede.
@@ -91,8 +92,11 @@ export function buildRealityAdvisorContext(snapshot: VerifiedWorldSnapshot, focu
   const governmentBrief = stripTechnicalLines(conversational)
     ?? 'Presidente, non ho un dato verificato che richieda attenzione adesso: possiamo esaminare i programmi e la loro copertura.';
   const result: AdvisorResponse = { reply: governmentBrief, issues: [], situations: buildAdvisorSituations(snapshot) };
+  const baseContext: RealityAdvisorContext = { verifiedWorldSnapshot: snapshot, governmentBrief, mode, ...(historicalBaseline ? { historicalBaseline } : {}), ...(focusIssue ? { focusIssue } : {}) };
+  // Con il contesto completo l'apice ricostruisce l'intera Strategic Situation.
+  const focusSituation = focusSituationRaw === undefined ? undefined : resolveFocusSituation(snapshot, focusSituationRaw, baseContext);
   return { ...(mode === 'briefing' ? withAdvisorBriefingCoverage(snapshot, result) : result),
-    advisorContext: { verifiedWorldSnapshot: snapshot, governmentBrief, mode, ...(historicalBaseline ? { historicalBaseline } : {}), ...(focusIssue ? { focusIssue } : {}), ...(focusSituation ? { focusSituation } : {}) } };
+    advisorContext: { ...baseContext, ...(focusSituation ? { focusSituation } : {}) } };
 }
 
 /** La regola che separa un atto FIRMATO da un effetto già avvenuto. */
@@ -122,6 +126,7 @@ export function withAdvisorStrategicContext(
   const validDate = (date: string | null | undefined): date is string => !!date && /^\d{4}-\d{2}-\d{2}$/.test(date);
   const start = validDate(initialDate) ? initialDate : null;
   const now = validDate(snapshot.date) ? snapshot.date : null;
+  const scope = { initialDate: start, currentDate: now };
   const eligible = results.filter(result => now && validDate(result.date) && result.date <= now
     && (!start || result.date >= start) && snapshot.turn !== null && result.turn <= snapshot.turn);
   const events = eligible.flatMap<VerifiedRecentEvent>(result => result.timelineEvents?.length
@@ -131,6 +136,9 @@ export function withAdvisorStrategicContext(
     : (result.events ?? []).map((headline, index) => ({ id: null, date: result.date!, headline: headline.slice(0, 300),
       detail: result.narration?.slice(0, 1200) || null, sourceActionIds: [], sourceRef: `results.${result.id}.events.${index}` })))
     .sort((a, b) => a.date!.localeCompare(b.date!) || a.sourceRef.localeCompare(b.sourceRef));
+  // Progetto la cronaca COMPLETA (prima della finestra) per non perdere una
+  // risoluzione lontana quando il prompt viene troncato.
+  const supersededHistoricalEvidenceKeys = computeSupersededHistoricalEvidenceKeys(snapshot, { ...context, temporalScope: scope, strategicHistory: events });
   const terms = [...new Set(query.toLocaleLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? [])].slice(0, 24);
   const tail = events.slice(-8);
   const older = events.slice(0, -8);
@@ -139,7 +147,7 @@ export function withAdvisorStrategicContext(
   // A few chronological anchors survive even when the President asks a generic question.
   const anchors = older.filter(event => !relevant.includes(event));
   const sampled = anchors.filter((_, index) => index % Math.max(1, Math.ceil(anchors.length / 4)) === 0).slice(0, 4);
-  return { ...context, temporalScope: { initialDate: start, currentDate: now },
+  return { ...context, temporalScope: scope, supersededHistoricalEvidenceKeys, fullStrategicHistory: events,
     strategicHistory: [...relevant, ...sampled, ...tail].sort((a, b) => a.date!.localeCompare(b.date!) || a.sourceRef.localeCompare(b.sourceRef)) };
 }
 
@@ -382,7 +390,7 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
       ? buildRealitySignals(context.verifiedWorldSnapshot).filter(signal => signal.domain !== 'decision').slice(0, MAX_ADVISOR_SITUATIONS)
       : buildRealitySignals(context.verifiedWorldSnapshot).slice(0, MAX_COUNCIL_ISSUES))}` : '',
     audience === 'advisor' ? renderCouncilProposalAnchors(context.verifiedWorldSnapshot) : '',
-    audience === 'advisor' && context.mode === 'briefing' ? renderStrategicThreadEvidence(context.verifiedWorldSnapshot, context) : '',
+    audience === 'advisor' && (context.mode === 'briefing' || context.focusSituation) ? renderStrategicThreadEvidence(context.verifiedWorldSnapshot, context) : '',
     audience === 'advisor' && context.strategicHistory?.length ? `[CRONACA STRATEGICA — PLAYER HISTORY — eventi datati della partita, non conversazione]\n${JSON.stringify(context.strategicHistory)}\nRicorda le scelte pertinenti anche di turni lontani, i programmi con startedDate e gli atti appena firmati. Usa "tre mesi fa" o "lo scorso anno" solo quando le date lo consentono. Questi ricordi non provano causalità o miglioramenti quantitativi; per quelli servono delta confrontabili.` : '',
     '[GOVERNMENT BRIEF — orientamento deterministico, non copiare le sue formule]', context.governmentBrief,
     renderSignedActs(context.verifiedWorldSnapshot) ?? '',

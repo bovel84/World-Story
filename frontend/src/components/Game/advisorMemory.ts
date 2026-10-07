@@ -24,7 +24,7 @@ function sanitizeIssues(raw: unknown): CouncilIssue[] | undefined {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const issue = item as Record<string, unknown>;
     const id = text(issue.id); const title = text(issue.title); const question = text(issue.question);
-    const createdDate = text(issue.createdDate);
+    const createdDate = text(issue.createdDate); const situationId = text(issue.situationId);
     if (!id || !title || !question || !createdDate || !ISSUE_ORIGINS.includes(String(issue.origin))) return [];
     if (!Array.isArray(issue.suggestedMinisters) || !Array.isArray(issue.sourceRefs) || !Array.isArray(issue.verifiedFacts)) return [];
     const verifiedFacts = issue.verifiedFacts.flatMap((fact): CouncilIssue['verifiedFacts'] => {
@@ -48,6 +48,7 @@ function sanitizeIssues(raw: unknown): CouncilIssue[] | undefined {
     if (!verifiedFacts.length && !signalKeys.length && !anchorKeys.length) return [];
     return [{
       id, title, question, verifiedFacts,
+      ...(situationId ? { situationId } : {}),
       ...(signalKeys.length ? { signalKeys } : {}),
       ...(anchorKeys.length ? { anchorKeys } : {}),
       suggestedMinisters: issue.suggestedMinisters.filter(seat => typeof seat === 'string') as CouncilIssue['suggestedMinisters'],
@@ -71,9 +72,17 @@ function sanitizeSituations(raw: unknown): AdvisorSituation[] | undefined {
     const signalKeys = Array.isArray(situation.signalKeys)
       ? [...new Set(situation.signalKeys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0).map(key => key.trim()))]
       : [];
+    // CONTINUITY — Le prove del thread e la natura (problema/opportunità) sono
+    // fonti canoniche: senza conservarle il focus evidence-only si perde.
+    const evidenceKeys = Array.isArray(situation.evidenceKeys)
+      ? [...new Set(situation.evidenceKeys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0).map(key => key.trim()))]
+      : [];
+    const kind = situation.kind === 'problem' || situation.kind === 'opportunity' ? situation.kind : undefined;
     return [{
       id, title, summary,
       ...(signalKeys.length ? { signalKeys } : {}),
+      ...(evidenceKeys.length ? { evidenceKeys } : {}),
+      ...(kind ? { kind } : {}),
       ...(typeof situation.importance === 'number' ? { importance: situation.importance } : {}),
     }];
   });
