@@ -5,7 +5,8 @@ import { formationImpact } from '../src/core/simulation/OperationalObjects';
 import { seedStock, storageCapacity, initialResearchCap } from '../src/core/simulation/MaterialEconomy';
 import { WorldStateEngine } from '../src/core/simulation/WorldStateEngine';
 import { buildCountryInitialProfile, validateCountryInitialProfile, generateCountryInitialProfile, infrastructureCaps } from '../src/core/simulation/CountryInitialProfile';
-import { referenceDebtToGdpPctForDate, isLandlockedPolity } from '../src/utils/country-facts';
+import { referenceDebtToGdpPctForDate, referencePopulationForDate, isLandlockedPolity } from '../src/utils/country-facts';
+import { LLMError } from '../src/llm/types';
 const input = (polityId = 'BIH', population = 3_750_000) => ({
   polityId, startDate: '2000-01-01', regions: [{ id: polityId, owner: polityId, population, gdp: 10, militaryPower: 20, coastal: false, objects: [] }],
 });
@@ -151,19 +152,24 @@ describe('CountryInitialProfile', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally { vi.unstubAllGlobals(); }
   });
-  it('required player estimate accepts a slow completion after 20s but before 60s', async () => {
+  it('required player estimate accepts a slow completion after 30s but before 60s', async () => {
     vi.useFakeTimers();
     try {
       const spec = input('ZETA', 5_000_000);
-      const base = buildCountryInitialProfile(spec);
-      let resolveCompletion!: (value: string) => void;
-      const complete = vi.fn(() => new Promise<string>(resolve => { resolveCompletion = resolve; }));
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const complete = vi.fn(async (_system: string, prompt: string) => {
+        await gate;
+        const { section, fallback } = JSON.parse(prompt) as { section: string; fallback: any };
+        return JSON.stringify(section === 'economy' ? { economy: { ...fallback, debtRatioPct: 40 } } : fallback);
+      });
       const pending = generateCountryInitialProfile(spec, complete, { requireEstimate: true });
       await vi.advanceTimersByTimeAsync(30_000);
-      resolveCompletion(JSON.stringify({ ...base, economy: { ...base.economy, debtRatioPct: 40 } }));
+      release();
       const result = await pending;
       expect(result.provenance.source).toBe('llm-estimate');
-      expect(complete).toHaveBeenCalledTimes(1);
+      expect(result.economy.debtRatioPct).toBe(40);
+      expect(complete).toHaveBeenCalledTimes(3);
     } finally { vi.useRealTimers(); }
   });
   it('required player estimate times out after 60s without a retry or fallback', async () => {
@@ -193,7 +199,7 @@ describe('CountryInitialProfile', () => {
     const base = buildCountryInitialProfile(input());
     let calls = 0;
     const result = await generateCountryInitialProfile(input(), async () => { calls++; return '{"military":{"activePersonnel":-1}}'; });
-    expect(calls).toBe(1);
+    expect(calls).toBe(3);
     expect(result.economy).toEqual(base.economy);
     expect(result.military).toEqual(base.military);
     expect(result.provenance.source).toBe(base.provenance.source);
@@ -413,5 +419,116 @@ describe('CountryInitialProfile', () => {
     expect(isLandlockedPolity('PRK')).toBe(false);
     expect(isLandlockedPolity('BOL')).toBe(true);
     expect(isLandlockedPolity('UGA')).toBe(true);
+  });
+
+  // --- Split bootstrap: tre completion sequenziali per sezione (economia →
+  // stato nazionale → militare/risorse), merge e fail-closed del player. ---
+  const sectionReply = (section: string, fallback: any, patch: (raw: any) => any = raw => raw) => {
+    const body = section === 'economy' ? { economy: patch(fallback) } : patch(fallback);
+    return JSON.stringify(body);
+  };
+  const readPrompt = (prompt: string) => JSON.parse(prompt) as { section: string; fallback: any };
+
+  it('A — three sections run as three sequential completions and merge into a valid profile', async () => {
+    const spec = input('UGA', 24_000_000);
+    const order: string[] = [];
+    let active = 0, maxConcurrent = 0;
+    const complete = vi.fn(async (_system: string, prompt: string) => {
+      const { section, fallback } = readPrompt(prompt);
+      active++; maxConcurrent = Math.max(maxConcurrent, active);
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      active--; order.push(section);
+      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
+    });
+    const result = await generateCountryInitialProfile(spec, complete, { requireEstimate: true });
+    expect(complete).toHaveBeenCalledTimes(3);
+    expect(order).toEqual(['economy', 'national-state', 'military-resources']);
+    expect(maxConcurrent).toBe(1);
+    expect(result.economy.debtRatioPct).toBe(30);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('B — a valid LLM debt estimate fills a missing historical reference (never 0)', async () => {
+    const spec = input('UGA', 24_000_000);
+    expect(referenceDebtToGdpPctForDate('UGA', '2000-01-01')).toBeNull();
+    const complete = async (_system: string, prompt: string) => {
+      const { section, fallback } = readPrompt(prompt);
+      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 42 } : raw);
+    };
+    const result = await generateCountryInitialProfile(spec, complete, { requireEstimate: true });
+    expect(result.economy.debtRatioPct).toBe(42);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('C — an LLM population estimate is used only when no historical reference exists', async () => {
+    const spec = input('UGA', 24_000_000);
+    expect(referencePopulationForDate('UGA', '2000-01-01')).toBeNull();
+    const complete = async (_system: string, prompt: string) => {
+      const { section, fallback } = readPrompt(prompt);
+      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 42 }
+        : section === 'national-state' ? { ...raw, population: 22_000_000 } : raw);
+    };
+    const result = await generateCountryInitialProfile(spec, complete, { requireEstimate: true });
+    expect(result.population).toBe(22_000_000);
+    // Il riferimento storico (BIH 2000) vince su qualunque stima LLM.
+    const bih = input('BIH', 3_750_000);
+    const bihResult = await generateCountryInitialProfile(bih, async (_system: string, prompt: string) => {
+      const { section, fallback } = readPrompt(prompt);
+      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 42 }
+        : section === 'national-state' ? { ...raw, population: 9_000_000 } : raw);
+    }, { requireEstimate: true });
+    expect(bihResult.population).toBe(3_750_000);
+  });
+
+  it('D — a transient CALL 3 failure retries only the failed section', async () => {
+    const spec = input('UGA', 24_000_000);
+    const calls: string[] = [];
+    let militaryAttempts = 0;
+    const complete = vi.fn(async (_system: string, prompt: string) => {
+      const { section, fallback } = readPrompt(prompt);
+      calls.push(section);
+      if (section === 'military-resources' && ++militaryAttempts === 1) {
+        throw new LLMError('openai-compatible: HTTP 503 — unavailable', { provider: 'openai-compatible', status: 503, retriable: true });
+      }
+      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
+    });
+    const result = await generateCountryInitialProfile(spec, complete, { requireEstimate: true });
+    expect(calls).toEqual(['economy', 'national-state', 'military-resources', 'military-resources']);
+    expect(result.economy.debtRatioPct).toBe(30);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('E — an invalid CALL 2 JSON is not retried and fails closed for the player', async () => {
+    const spec = input('UGA', 24_000_000);
+    const calls: string[] = [];
+    const complete = vi.fn(async (_system: string, prompt: string) => {
+      const { section, fallback } = readPrompt(prompt);
+      calls.push(section);
+      if (section === 'national-state') return 'non-json';
+      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
+    });
+    await expect(generateCountryInitialProfile(spec, complete, { requireEstimate: true })).rejects.toThrow(/profilo iniziale.*partita non creata/i);
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(calls).toEqual(['economy', 'national-state']);
+  });
+
+  it('F — a sanitized provider error is preserved as the readable cause', async () => {
+    const complete = vi.fn(async () => {
+      throw new LLMError('openai-compatible: HTTP 503 — upstream unavailable', { provider: 'openai-compatible', status: 503, retriable: true });
+    });
+    await expect(generateCountryInitialProfile(input('UGA', 24_000_000), complete, { requireEstimate: true }))
+      .rejects.toThrow(/openai-compatible: HTTP 503/);
+    // Un errore transitorio viene ritentato una sola volta, poi surface.
+    expect(complete).toHaveBeenCalledTimes(2);
+  });
+
+  it('G — an invalid required section never falls back to the deterministic profile for the player', async () => {
+    const spec = input('UGA', 24_000_000);
+    const complete = async (_system: string, prompt: string) => {
+      const { section, fallback } = readPrompt(prompt);
+      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 }
+        : section === 'military-resources' ? { ...raw, military: { ...raw.military, activePersonnel: 10_000_000 } } : raw);
+    };
+    await expect(generateCountryInitialProfile(spec, complete, { requireEstimate: true })).rejects.toThrow(/militare/i);
   });
 });
