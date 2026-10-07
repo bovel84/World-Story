@@ -38,6 +38,18 @@ describe('date-correct country references', () => {
     expect(facts.referenceDebtToGdpPctForDate('BIH', '2024-01-01')).toBe(29.4);
   });
 
+  it('only exact-year observations are authoritative; older GDP remains a weak deterministic fallback', () => {
+    for (const [polityId, date] of [['FRA', '1940-01-01'], ['ARG', '1982-01-01'], ['UGA', '2000-01-01'], ['KHM', '1975-01-01']]) {
+      expect(facts.referencePopulationForDate(polityId, date)).toBeNull();
+      expect(facts.referenceGdpUsdBillionsForDate(polityId, date)).toBeNull();
+      expect(facts.referenceDebtToGdpPctForDate(polityId, date)).toBeNull();
+      expect(facts.historicalNominalGdpUsdBillions(polityId, 10_000_000, { startDate: date })).toBeGreaterThan(0);
+    }
+    expect(facts.referenceGdpUsdBillionsForDate('JPN', '2000-01-01')).toBeGreaterThan(0);
+    expect(facts.referencePopulationForDate('JPN', '2000-01-01')).toBeNull();
+    expect(facts.referenceDebtToGdpPctForDate('JPN', '2000-01-01')).toBeNull();
+  });
+
   it('never chooses a historical table from after the requested year', () => {
     expect(facts.historicalGdpYear('1936-01-01')).toBe(1914);
     expect(facts.historicalGdpYear('1999-01-01')).toBe(1989);
@@ -57,6 +69,8 @@ describe('date-correct country references', () => {
       expect(select('toString', '2024-01-01')).toBeNull();
       expect(select('BIH', 'invalid')).toBeNull();
     }
-    expect(facts.referenceGdpUsdBillionsForDate('BIH', '2025-01-01')).toBe(5.5);
+    expect(facts.referenceGdpUsdBillionsForDate('BIH', '2025-01-01')).toBeNull();
+    // Legacy estimates may still use an older observation, explicitly weak.
+    expect(facts.historicalNominalGdpUsdBillions('BIH', 3_750_000, { startDate: '2025-01-01' })).toBe(5.5);
   });
 });

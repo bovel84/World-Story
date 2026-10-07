@@ -873,13 +873,13 @@ export function referenceDebtToGdpPctForDate(polityId: string, startDate?: strin
 }
 
 /**
- * PIL di riferimento: 2024 solo nel 2024, altrimenti l'ultima tabella storica
- * non futura. Un anno non esatto è un'ancora storica approssimata, non un fatto
- * verificato per startDate. null se la tabella non contiene il paese/la data.
+ * PIL di riferimento dell'anno esatto, oppure null: 2024 solo nel 2024.
+ * Le osservazioni precedenti restano nel fallback `historicalNominalGdpUsdBillions`,
+ * ma NON vincolano la stima LLM di un anno privo di osservazioni.
  */
 export function referenceGdpUsdBillionsForDate(polityId: string, startDate?: string | null): number | null {
   if (hasModernReferenceFacts(startDate)) return referenceGdpUsdBillions(polityId);
-  return historicalReferenceValue(HISTORICAL_GDP_BY_YEAR, historicalGdpYear(startDate), polityId);
+  return historicalReferenceValue(HISTORICAL_GDP_BY_YEAR, referenceDateYear(startDate), polityId);
 }
 
 /** Reddito pro capite di ripiego (USD correnti) per le nazioni non in tabella. */
