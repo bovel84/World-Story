@@ -3,11 +3,12 @@
  * distinto dalla PROPOSTA (`CouncilIssue`).
  *
  * Una `AdvisorSituation` è ciò che merita attenzione nel paese: nasce SEMPRE da
- * una `RealitySignal` canonica del `VerifiedWorldSnapshot`. Il modello può
- * proporne titolo e sintesi, ma il server risolve le `signalKeys` contro i
- * segnali REALI: una chiave ignota invalida la scheda. La derivazione
- * deterministica resta la base, così il modello non può far sparire un problema
- * reale né inventarne uno che il motore non ha misurato.
+ * una o più `RealitySignal` canoniche del `VerifiedWorldSnapshot`. Il modello
+ * scrive titolo e sintesi e può raggruppare più segnali quando raccontano lo
+ * stesso problema politico; il server risolve le `signalKeys` contro i segnali
+ * REALI: una chiave ignota invalida la scheda. La derivazione deterministica
+ * resta la base, così il modello non può far sparire un problema reale né
+ * inventarne uno che il motore non ha misurato.
  *
  * `parseAdvisorResponse` è il punto unico che separa `situations` da `issues`:
  * una situazione NON crea automaticamente una CouncilIssue.
@@ -34,14 +35,15 @@ export const MAX_ADVISOR_SITUATIONS = 24;
 
 const key = z.string().trim().min(1).max(240);
 /** Il modello fornisce titolo, sintesi e chiavi; la gravità è ricalcolata dal server.
- *  `signalKeys` ha lunghezza ESATTAMENTE 1: una situazione rappresenta un solo
- *  problema canonico (Sudan e Congo restano due situazioni distinte). Un problema
- *  sistemico deve essere un singolo `RealitySignal` sistemico. */
+ *  `signalKeys` va da 1 a 5: una situazione politica può nascere da più fatti
+ *  canonici (la sicurezza nel nord = stabilità + prontezza + rifornimenti +
+ *  rapporti col Sudan), ma ogni chiave deve risolversi contro i `RealitySignals`.
+ *  Due problemi distinti (Sudan e Congo) restano due situazioni. */
 export const advisorSituationInputSchema = z.object({
   id: z.string().trim().min(1).max(160).optional(),
   title: z.string().trim().min(1).max(240),
   summary: z.string().trim().min(1).max(600),
-  signalKeys: z.array(key).length(1),
+  signalKeys: z.array(key).min(1).max(5),
 });
 
 /** WS-CONSULENTE-SITUAZIONI — Focus canonico di un approfondimento: UNA sola
@@ -161,13 +163,12 @@ export function buildAdvisorSituations(snapshot: VerifiedWorldSnapshot, max = MA
 /** Estrae e valida i blocchi `advisor_situation`; le chiavi ignote scartano la scheda. */
 export function parseAdvisorSituations(snapshot: VerifiedWorldSnapshot, text: string, options: CouncilIssueParseOptions = {}): { reply: string; situations: AdvisorSituation[] } {
   const situations: AdvisorSituation[] = [];
-  const seen = new Set<string>();
   const reply = text.replace(/```advisor_situation\b([^]*?)(?:```|$)/gi, (_block, json: string) => {
     try {
       if (situations.length < MAX_ADVISOR_SITUATIONS) {
         const situation = resolveAdvisorSituation(snapshot, JSON.parse(json.trim()));
-        const dedupe = situation.signalKeys.slice().sort().join('|');
-        if (!seen.has(dedupe)) { seen.add(dedupe); situations.push(situation); }
+        // Dedup sull'identità del problema (sovrapposizione di signalKeys), non sul titolo.
+        if (!situations.some(existing => situationsOverlap(existing, situation))) situations.push(situation);
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -179,18 +180,31 @@ export function parseAdvisorSituations(snapshot: VerifiedWorldSnapshot, text: st
   return { reply, situations };
 }
 
+/** Dedup semplice e identitaria, senza embedding né chiamate LLM: due schede
+ * sono lo stesso problema se condividono la chiave principale, se una contiene
+ * l'altra o se la sovrapposizione (Jaccard) è ≥ 0.5. Il titolo non conta. */
+export function situationsOverlap(left: Pick<AdvisorSituation, 'signalKeys'>, right: Pick<AdvisorSituation, 'signalKeys'>): boolean {
+  const a = new Set(left.signalKeys);
+  const b = new Set(right.signalKeys);
+  if (a.size === 0 || b.size === 0) return false;
+  if (left.signalKeys[0] === right.signalKeys[0]) return true;
+  let shared = 0;
+  for (const signalKey of a) if (b.has(signalKey)) shared += 1;
+  if (shared === 0) return false;
+  return shared === a.size || shared === b.size || shared / (a.size + b.size - shared) >= 0.5;
+}
+
 /** La base deterministica resta: il modello non nasconde un segnale reale. */
 export function mergeAdvisorSituations(snapshot: VerifiedWorldSnapshot, model: readonly AdvisorSituation[]): AdvisorSituation[] {
   const base = buildAdvisorSituations(snapshot);
   if (!model.length) return base;
   const covered = new Set(model.flatMap(situation => situation.signalKeys));
-  const seen = new Set<string>();
+  const kept: AdvisorSituation[] = [];
   return [...model, ...base.filter(situation => !situation.signalKeys.some(key => covered.has(key)))]
     .sort((left, right) => right.importance - left.importance || left.title.localeCompare(right.title))
     .filter(situation => {
-      const dedupe = situation.signalKeys.slice().sort().join('|');
-      if (seen.has(dedupe)) return false;
-      seen.add(dedupe);
+      if (kept.some(existing => situationsOverlap(existing, situation))) return false;
+      kept.push(situation);
       return true;
     })
     .slice(0, MAX_ADVISOR_SITUATIONS);

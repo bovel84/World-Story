@@ -10,9 +10,9 @@ import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from '../src/c
 import { advisorBriefingSentences, buildRealitySignals } from '../src/core/government/RealitySignals';
 import {
   buildAdvisorSituations, MAX_ADVISOR_SITUATIONS, parseAdvisorResponse, parseAdvisorSituations,
-  resolveAdvisorSituation, resolveFocusSituation, serializeAdvisorResponse, signalSituationTitle,
+  resolveAdvisorSituation, resolveFocusSituation, serializeAdvisorResponse, signalSituationTitle, situationsOverlap,
 } from '../src/core/government/AdvisorSituations';
-import { buildRealityAdvisorContext, buildRealityAdvisorPrompt } from '../src/core/government/RealityAdvisor';
+import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, withAdvisorStrategicContext } from '../src/core/government/RealityAdvisor';
 import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, ADVISOR_CONVERSATION_PROTOCOL } from '../src/core/government/CouncilIssue';
 
 const block = (kind: string, value: unknown) => `\`\`\`${kind}\n${JSON.stringify(value)}\n\`\`\``;
@@ -23,12 +23,15 @@ type Options = {
   ongoingProcesses?: Array<Record<string, unknown>>;
   account?: Record<string, unknown>;
   stock?: Record<string, number>;
+  date?: string;
+  turn?: number;
 };
 
 function world(options: Options = {}): VerifiedWorldSnapshot {
   return buildVerifiedWorldSnapshot({
     gameData: {
-      id: 'situations', playerPolityId: 'UGA', playerPolityName: 'Uganda', currentDate: '2000-06-01',
+      id: 'situations', playerPolityId: 'UGA', playerPolityName: 'Uganda', currentDate: options.date ?? '2000-06-01',
+      ...(options.turn !== undefined ? { currentTurn: options.turn } : {}),
       world: { regions: { home: { id: 'home', name: 'Kampala', owner: 'UGA', coastal: false, objects: [] } } },
       worldState: {
         accounts: { UGA: options.account ?? { population: 10_000_000, socialTension: 65, stability: 20, monthlyBalance: -2, nominalGdpUsdBillions: 100, debtRatioPct: 40, debtServicePct: 5 } },
@@ -92,21 +95,56 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     expect(reasons.some(reason => reason.includes('Unknown reality signal key'))).toBe(true);
   });
 
-  it('una AdvisorSituation rappresenta un SOLO segnale: 2 signalKeys vengono rifiutate', () => {
+  it('A: più segnali correlati formano UNA situazione con più signalKeys (1-5)', () => {
     const snapshot = multi();
-    expect(() => resolveAdvisorSituation(snapshot, {
-      title: 'Tensioni regionali', summary: 'Sudan e Congo.',
-      signalKeys: ['hostile-relations:SDN', 'hostile-relations:COD'],
-    })).toThrow(/situazione non valida/i);
+    const nonDecision = buildRealitySignals(snapshot).filter(signal => signal.domain !== 'decision');
+    const realKeys = nonDecision.map(signal => signal.key).slice(0, 3);
+    expect(realKeys.length).toBeGreaterThanOrEqual(2);
+    const grouped = resolveAdvisorSituation(snapshot, {
+      title: 'Minaccia dell\'LRA nel nord', summary: 'L\'insicurezza nel nord pesa su stabilità, forze e rapporti col vicino.', signalKeys: realKeys,
+    });
+    expect(grouped.signalKeys).toEqual(realKeys);
+    expect(grouped.importance).toBe(Math.max(...nonDecision.filter(signal => realKeys.includes(signal.key)).map(signal => signal.importance)));
     const parsed = parseAdvisorSituations(snapshot, block('advisor_situation', {
-      title: 'Tensioni regionali', summary: 'Sudan e Congo.',
-      signalKeys: ['hostile-relations:SDN', 'hostile-relations:COD'],
+      title: 'Minaccia dell\'LRA nel nord', summary: 'L\'insicurezza nel nord pesa su stabilità, forze e rapporti col vicino.', signalKeys: realKeys,
     }));
+    expect(parsed.situations).toHaveLength(1);
+    expect(parsed.situations[0].signalKeys).toEqual(realKeys);
+    // Il limite resta 5: sei chiavi valide non sono un unico problema politico.
+    const tooMany = buildRealitySignals(snapshot).map(signal => signal.key).slice(0, 6);
+    if (tooMany.length === 6) expect(() => resolveAdvisorSituation(snapshot, { title: 'x', summary: 'y', signalKeys: tooMany })).toThrow(/situazione non valida/i);
+  });
+
+  it('B: due vicini ostili non correlati restano due situazioni distinte', () => {
+    const snapshot = multi();
+    expect(buildAdvisorSituations(snapshot).map(situation => situation.title)).toEqual(expect.arrayContaining(['Tensioni con Sudan', 'Tensioni con Congo']));
+    const parsed = parseAdvisorSituations(snapshot, [
+      block('advisor_situation', { title: 'Tensioni con il Sudan', summary: 'Rapporto ostile.', signalKeys: ['hostile-relations:SDN'] }),
+      block('advisor_situation', { title: 'Pressione al confine con il Congo', summary: 'Rapporto ostile.', signalKeys: ['hostile-relations:COD'] }),
+    ].join('\n'));
+    expect(parsed.situations).toHaveLength(2);
+    expect(situationsOverlap(parsed.situations[0], parsed.situations[1])).toBe(false);
+  });
+
+  it('D: una signalKey inventata scarta l\'intera situazione (fail closed)', () => {
+    const snapshot = multi();
+    const reasons: string[] = [];
+    const parsed = parseAdvisorSituations(snapshot, block('advisor_situation', {
+      title: 'Crisi inventata', summary: 'x', signalKeys: ['hostile-relations:SDN', 'non-esiste'],
+    }), { onDiscard: reason => reasons.push(reason) });
     expect(parsed.situations).toEqual([]);
-    // E restano due problemi distinti nella base deterministica.
-    const titles = buildAdvisorSituations(snapshot).map(situation => situation.title);
-    expect(titles).toContain('Tensioni con Sudan');
-    expect(titles).toContain('Tensioni con Congo');
+    expect(reasons.some(reason => reason.includes('Unknown reality signal key'))).toBe(true);
+  });
+
+  it('deduplicazione per sovrapposizione di signalKeys, mai per titolo', () => {
+    expect(situationsOverlap({ signalKeys: ['a', 'b'] }, { signalKeys: ['a', 'b', 'c'] })).toBe(true);
+    expect(situationsOverlap({ signalKeys: ['a', 'b'] }, { signalKeys: ['c', 'd'] })).toBe(false);
+    const snapshot = multi();
+    const parsed = parseAdvisorSituations(snapshot, [
+      block('advisor_situation', { title: 'Insurrezione nel nord', summary: 'x', signalKeys: ['hostile-relations:SDN', 'food-coverage'] }),
+      block('advisor_situation', { title: 'Minaccia LRA a Gulu', summary: 'y', signalKeys: ['food-coverage', 'hostile-relations:SDN'] }),
+    ].join('\n'));
+    expect(parsed.situations).toHaveLength(1);
   });
 
   it('separa le situazioni dalle proposte: una situazione NON crea una CouncilIssue', () => {
@@ -329,5 +367,64 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     const titles = buildAdvisorSituations(snapshot).map(situation => situation.title);
     expect(titles).not.toContain('Decisioni recenti');
     expect(titles.some(title => title.includes('Decreto infrastrutture'))).toBe(false);
+  });
+
+  it('C: la HistoricalBaseline dà attori reali alla situazione senza diventare current state', () => {
+    const snapshot = multi();
+    // Il modello può intitolare/sintetizzare con attori e luoghi storici realmente esistenti.
+    const parsed = parseAdvisorSituations(snapshot, block('advisor_situation', {
+      title: 'Minaccia dell\'LRA nel nord',
+      summary: 'L\'insurrezione dell\'LRA continua a premere sul controllo governativo nell\'area di Gulu, mentre il rapporto con Khartoum complica la risposta.',
+      signalKeys: ['hostile-relations:SDN'],
+    }));
+    expect(parsed.situations[0].title).toBe('Minaccia dell\'LRA nel nord');
+    const baseline = 'Dalla fine degli anni Ottanta l\'insurrezione dell\'LRA insanguinava il nord del paese; Gulu divenne il centro della crisi e Khartoum sostenne gruppi armati.';
+    const context = buildRealityAdvisorContext(snapshot, undefined, baseline, undefined, 'briefing').advisorContext;
+    const prompt = buildRealityAdvisorPrompt(context, 'Apriamo il Governo.');
+    expect(prompt).toContain('[HISTORICAL BASELINE');
+    expect(prompt).toContain('LRA');
+    // La baseline è materiale di contesto: il modello è autorizzato a usare attori reali...
+    expect(prompt).toContain('attori o luoghi reali pertinenti');
+    // ...ma la gerarchia resta rigida.
+    expect(prompt).toContain('CURRENT STATE > PLAYER HISTORY > HISTORICAL BASELINE');
+    expect(prompt).toContain('non trasformare un dato storico in un fatto corrente');
+  });
+
+  it('E: una situazione con 3 signalKeys è coperta da una proposta su una delle chiavi principali', () => {
+    const snapshot = multi();
+    const realKeys = buildRealitySignals(snapshot).filter(signal => signal.domain !== 'decision').map(signal => signal.key).slice(0, 3);
+    const situationBlock = block('advisor_situation', { title: 'Crisi di sicurezza nel nord', summary: 'Insicurezza, forze sotto pressione e rapporti col vicino.', signalKeys: realKeys });
+    const issue = block('council_issue', { title: 'Operazione limitata nel nord', question: 'Autorizzare un\'operazione limitata delle forze disponibili nelle aree colpite?', signalKeys: [realKeys[0]], suggestedMinisters: ['guerra'] });
+    const result = parseAdvisorResponse(snapshot, [situationBlock, issue].join('\n'), 'advisor', { includeDeterministicSituations: true });
+    const situation = result.situations.find(item => item.signalKeys.length === 3)!;
+    expect(situation).toBeTruthy();
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].signalKeys).toContain(realKeys[0]);
+    expect(result.briefingCoverage?.missingSignalKeys).not.toContain(realKeys[0]);
+  });
+
+  it('F: dopo alcuni turni il prompt fa pesare la player history più della baseline', () => {
+    const snapshot = world({ date: '2005-06-01', turn: 8 });
+    const base = buildRealityAdvisorContext(snapshot, undefined, 'Il paese usciva da decenni di conflitti e instabilità.').advisorContext;
+    const context = withAdvisorStrategicContext(base, '2000-01-01', [{ id: 'r1', turn: 2, date: '2003-01-01', events: ['Il Presidente ha riformato l\'esercito'], narration: '' }], 'riforma');
+    const prompt = buildRealityAdvisorPrompt(context, 'Come procede la riforma?');
+    expect(prompt).toContain('[CRONACA STRATEGICA');
+    expect(prompt).toContain('Il Presidente ha riformato l\'esercito');
+    expect(prompt).toContain('dopo alcuni turni PLAYER HISTORY pesa di più');
+    expect(prompt).toContain('dopo anni domina');
+    expect(prompt).toContain('CURRENT STATE > PLAYER HISTORY > HISTORICAL BASELINE');
+  });
+
+  it('G: il fallback deterministico non inventa storia né raggruppa da solo', () => {
+    const snapshot = multi();
+    const result = buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'briefing');
+    expect(result.issues).toEqual([]);
+    expect(result.briefingCoverage?.complete).toBe(false);
+    expect(result.reply).toContain('Briefing incompleto');
+    const titles = result.situations.map(situation => situation.title);
+    expect(titles).toContain('Tensioni con Sudan');
+    expect(titles).not.toContain('Minaccia dell\'LRA nel nord');
+    // Il fallback resta una scheda per segnale: nessuna narrazione inventata.
+    for (const situation of result.situations) expect(situation.signalKeys).toHaveLength(1);
   });
 });
