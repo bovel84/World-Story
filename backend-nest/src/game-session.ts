@@ -2618,8 +2618,13 @@ export class GameSession {
       polityId, startDate: this.worldStartDate, regions,
       countryName: this.publicPolityName(polityId),
       historicalBaseline: baseline?.historicalBackground,
-    }, async (system, prompt, signal) => {
-      const response = await this.llm.generate('advisor', system, prompt, { temperature: 0.2, maxTokens: 4_000, signal, singleAttempt: true });
+    }, async (system, prompt, signal, sectionOptions) => {
+      const response = await this.llm.generate('advisor', system, prompt, {
+        temperature: 0.2,
+        maxTokens: sectionOptions?.maxTokens ?? 1_200,
+        signal,
+        singleAttempt: true,
+      });
       return String(response.content ?? '');
     }, { requireEstimate: true })).then(profile => {
       if (!validateCountryInitialProfile(profile, { polityId, startDate: this.worldStartDate, regions })) {
