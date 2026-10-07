@@ -261,6 +261,11 @@ describe('MAP P6.3 — mondo moderno reale: creazione, binding, endpoint', () =>
     // Catena di binding completa: gameId → worldId → templateId → preset.
     const binding = gameRepository.getWorldBinding(gameId);
     expect(binding).toEqual({ worldId, templateId: PRESET_ID });
+    // #237 returns before the profile/bootstrap finishes: DB binding exists
+    // immediately, but the session is readable only after the runtime gate.
+    expect(res.body.bootstrap_status).toBe('initializing');
+    await expect.poll(() => registry.getBootstrapStatus(gameId), { timeout: 30_000 })
+      .toEqual({ status: 'ready' });
     expect(registry.getSession(gameId)).toBeTruthy();
   }, 300_000);
 
