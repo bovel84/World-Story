@@ -6,7 +6,9 @@ import { seedStock, storageCapacity, initialResearchCap } from '../src/core/simu
 import { WorldStateEngine } from '../src/core/simulation/WorldStateEngine';
 import { buildCountryInitialProfile, validateCountryInitialProfile, generateCountryInitialProfile, infrastructureCaps, militaryValidationReason } from '../src/core/simulation/CountryInitialProfile';
 import { EQUIPMENT_CREW } from '../src/core/simulation/MilitaryIndustry';
-import { referenceDebtToGdpPctForDate, referencePopulationForDate, isLandlockedPolity } from '../src/utils/country-facts';
+import { epochForDate, militaryManpower } from '../src/core/simulation/MilitaryDoctrine';
+import { referenceDebtToGdpPctForDate, referencePopulationForDate, referenceGdpUsdBillionsForDate, isLandlockedPolity } from '../src/utils/country-facts';
+import type { CountryProfileInput, CountryInitialProfile } from '../src/core/simulation/CountryInitialProfile';
 import { LLMError } from '../src/llm/types';
 const input = (polityId = 'BIH', population = 3_750_000) => ({
   polityId, startDate: '2000-01-01', regions: [{ id: polityId, owner: polityId, population, gdp: 10, militaryPower: 20, coastal: false, objects: [] }],
@@ -32,6 +34,133 @@ const militaryCompleter = (military: Record<string, unknown>) => async (_system:
   if (section === 'national-state') return JSON.stringify({ population: fallback.population, society: fallback.society, infrastructure: fallback.infrastructure });
   return JSON.stringify({ military });
 };
+describe('Country/date-agnostic initial Dossier', () => {
+  const scenarios = [
+    { polityId: 'UGA', countryName: 'Uganda', startDate: '2000-01-01', population: 50_000_000, gdp: 50, factories: 2, armies: 2 },
+    { polityId: 'FRA', countryName: 'Francia', startDate: '1940-01-01', population: 68_000_000, gdp: 1500, factories: 8, armies: 8 },
+    { polityId: 'KHM', countryName: 'Cambogia', startDate: '1975-01-01', population: 16_000_000, gdp: 30, factories: 1, armies: 3 },
+    { polityId: 'ARG', countryName: 'Argentina', startDate: '1982-01-01', population: 45_000_000, gdp: 450, factories: 5, armies: 5 },
+    { polityId: 'JPN', countryName: 'Giappone', startDate: '2000-01-01', population: 125_000_000, gdp: 4966, factories: 10, armies: 6 },
+  ];
+  const specFor = (scenario: typeof scenarios[number]): CountryProfileInput => ({
+    polityId: scenario.polityId, countryName: scenario.countryName, startDate: scenario.startDate,
+    historicalBaseline: `Fixture ${scenario.countryName} prima di ${scenario.startDate}: capacità e istituzioni documentate nel periodo.`,
+    regions: [{ id: `${scenario.polityId}-home`, owner: scenario.polityId, population: scenario.population,
+      gdp: scenario.gdp, militaryPower: scenario.armies * 10, coastal: true,
+      objects: [{ type: 'factory', level: scenario.factories }, { type: 'university', level: 1 }, { type: 'army', level: scenario.armies }] }],
+  });
+  // A single fake completion algorithm, driven by the inputs rather than by
+  // nation branches. Values are test estimates, NOT a historical database.
+  const completeFor = (spec: CountryProfileInput, prompts: Record<string, any>[] = []) => async (_system: string, prompt: string) => {
+    const payload = JSON.parse(prompt);
+    prompts.push(payload);
+    const mapPopulation = spec.regions.reduce((n, region) => n + region.population, 0);
+    const population = referencePopulationForDate(spec.polityId, spec.startDate) ?? Math.round(mapPopulation * 0.6);
+    const factories = spec.regions[0].objects![0].level!;
+    const gdp = referenceGdpUsdBillionsForDate(spec.polityId, spec.startDate) ?? spec.regions[0].gdp / 10;
+    const active = Math.floor(population * 0.002);
+    if (payload.section === 'economy') return JSON.stringify({ economy: {
+      nominalGdpUsdBillions: gdp, debtRatioPct: 30, treasuryUsdBillions: gdp * 0.02,
+      taxRatePct: 20, monthlyRevenue: gdp * 20 / 1200, monthlyExpenses: gdp * 0.25 / 12,
+    } });
+    if (payload.section === 'national-state') return JSON.stringify({ population,
+      society: { stability: 50 + factories, socialTension: 50 - factories },
+      infrastructure: { factories: factories + 2, universities: 2, ports: isLandlockedPolity(spec.polityId) ? 0 : 1 },
+    });
+    return JSON.stringify({ military: {
+      activePersonnel: active, reservePersonnel: active, formations: Math.ceil(active / 5000),
+      readinessPct: 30 + factories * 3, defenceBurdenPct: 3,
+      trainingPct: 50, qualityPct: 50, logisticsPct: 50,
+      equipmentProfile: { fucili: active, apc: 1, carri_4: 1, droni_attacco: 1 },
+    }, resources: { food: 1, clothing: 1, weapons: 1, fuel: 0.5, research: factories } });
+  };
+
+  it.each(scenarios)('$polityId@$startDate: missing references do not prevent a complete, valid Dossier', async scenario => {
+    const spec = specFor(scenario);
+    const prompts: Record<string, any>[] = [];
+    const result = await generateCountryInitialProfile(spec, completeFor(spec, prompts), { requireEstimate: true });
+    expect(prompts).toHaveLength(3);
+    for (const payload of prompts) {
+      expect(payload.polityId).toBe(spec.polityId);
+      expect(payload.country).toBe(spec.countryName);
+      expect(payload.startDate).toBe(spec.startDate);
+      expect(payload.historicalBaseline).toBe(spec.historicalBaseline);
+    }
+    expect(result.population).toBeGreaterThan(0);
+    expect(result.economy.nominalGdpUsdBillions).toBeGreaterThan(0);
+    expect(result.provenance.source).toBe('llm-estimate');
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+    expect(militaryValidationReason(result.military, spec, result.population)).toBeNull();
+    expect(result.military.activePersonnel).toBeLessThanOrEqual(result.population * 0.05);
+    expect(result.military.activePersonnel + result.military.reservePersonnel).toBeLessThanOrEqual(result.population * 0.2);
+    expect(result.infrastructure.factories).toBeGreaterThanOrEqual(scenario.factories);
+    if (isLandlockedPolity(spec.polityId)) expect(result.infrastructure.ports).toBe(0);
+    const allowed = prompts[2].allowedEquipmentIds as string[];
+    for (const id of Object.keys(result.military.equipmentProfile)) expect(allowed).toContain(id);
+    expect(result.military.equipmentProfile.carri_4).toBeUndefined();
+    expect(result.military.equipmentProfile.droni_attacco).toBeUndefined();
+    expect(result.resources?.food).toBeGreaterThan(0);
+    const fallback = buildCountryInitialProfile(spec);
+    expect(validateCountryInitialProfile(fallback, spec)).not.toBeNull();
+    expect(referencePopulationForDate(spec.polityId, spec.startDate)).toBeNull();
+    expect(referenceDebtToGdpPctForDate(spec.polityId, spec.startDate)).toBeNull();
+  });
+
+  it('different inputs produce different population, GDP, military, infrastructure and resources without nation templates', async () => {
+    const profiles: CountryInitialProfile[] = [];
+    for (const scenario of [scenarios[0], scenarios[4]]) {
+      const spec = specFor(scenario);
+      profiles.push(await generateCountryInitialProfile(spec, completeFor(spec), { requireEstimate: true }));
+    }
+    const [small, large] = profiles;
+    expect(small.population).not.toBe(large.population);
+    expect(small.economy.nominalGdpUsdBillions).not.toBe(large.economy.nominalGdpUsdBillions);
+    expect(small.military.activePersonnel).not.toBe(large.military.activePersonnel);
+    expect(small.military.readinessPct).not.toBe(large.military.readinessPct);
+    expect(small.infrastructure).not.toEqual(large.infrastructure);
+    expect(small.resources).not.toEqual(large.resources);
+  });
+
+  it.each(['BIH', 'USA'])('%s legacy rates/manpower must not seed the normal LLM request', async polityId => {
+    const spec = input(polityId, referencePopulationForDate(polityId, '2000-01-01')!);
+    const account = WorldStateEngine.accounts(spec.regions, { startDate: spec.startDate, modernFacts: false })[polityId];
+    const doctrine = militaryManpower({ population: account.population, formations: account.forces, mobilizedFormations: 0, epoch: epochForDate(spec.startDate) });
+    const prompts: Record<string, any>[] = [];
+    // Optional partial LLM failure intentionally tests the generic fallback path.
+    await generateCountryInitialProfile(spec, async (_system, prompt) => { prompts.push(JSON.parse(prompt)); return '{}'; });
+    expect(prompts[0].fallback.taxRatePct).toBe(account.taxRatePct);
+    expect(prompts[1].fallback.society.stability).toBe(account.stability);
+    expect(prompts[1].fallback.society.socialTension).toBe(account.socialTension);
+    expect(prompts[2].fallback.military.activePersonnel).toBe(Math.floor(Math.min(account.population * 0.03, doctrine.activePersonnel)));
+    expect(prompts[2].fallback.military.defenceBurdenPct).toBe(account.defenceBurdenPct);
+  });
+
+  it('Country X in 1940 vs 2000 gets date-specific baseline, GDP fallback and equipment allowances', async () => {
+    const promptsByDate: Record<string, any>[][] = [];
+    const profiles: CountryInitialProfile[] = [];
+    for (const startDate of ['1940-01-01', '2000-01-01']) {
+      const spec = specFor({ ...scenarios[1], polityId: 'COUNTRY_X', countryName: 'Country X', startDate });
+      const prompts: Record<string, any>[] = [];
+      profiles.push(await generateCountryInitialProfile(spec, completeFor(spec, prompts), { requireEstimate: true }));
+      promptsByDate.push(prompts);
+    }
+    const [early, late] = promptsByDate;
+    expect(early[0].historicalBaseline).not.toBe(late[0].historicalBaseline);
+    expect(early[0].fallback.nominalGdpUsdBillions).not.toBe(late[0].fallback.nominalGdpUsdBillions);
+    expect(early[2].limits.epoch).not.toBe(late[2].limits.epoch);
+    expect(early[2].allowedEquipmentIds).not.toContain('caccia_4');
+    expect(late[2].allowedEquipmentIds).toContain('caccia_4');
+    for (const profile of profiles) expect(profile.military.equipmentProfile.carri_4).toBeUndefined();
+  });
+
+  it('a neighbouring-year GDP observation is not an immutable anchor for a different start date', async () => {
+    const spec = specFor(scenarios[1]);
+    const result = await generateCountryInitialProfile(spec, completeFor(spec), { requireEstimate: true });
+    expect(referenceGdpUsdBillionsForDate(spec.polityId, spec.startDate)).toBeNull();
+    expect(result.economy.nominalGdpUsdBillions).toBe(spec.regions[0].gdp / 10);
+  });
+});
+
 describe('CountryInitialProfile', () => {
   it('Bosnia 2000 never inherits the 2024 GDP/debt; USA and Bosnia have different economies/armies/readiness', () => {
     const bosnia = buildCountryInitialProfile(input());
@@ -217,8 +346,8 @@ describe('CountryInitialProfile', () => {
     await expect(generateCountryInitialProfile(spec, testCompleter({ ...base,
       economy: { ...base.economy, nominalGdpUsdBillions: 999_999 } }), { requireEstimate: true })).rejects.toThrow(/profilo iniziale/i);
   });
-  it('invalid or throwing optional LLM retains the deterministic NPC/internal path', async () => {
-    const base = buildCountryInitialProfile(input());
+  it('invalid or throwing optional LLM retains the generic deterministic fallback, without legacy country rates', async () => {
+    const base = buildCountryInitialProfile(input(), { legacyHistoricalAnchors: false });
     let calls = 0;
     const result = await generateCountryInitialProfile(input(), async () => { calls++; return '{"military":{"activePersonnel":-1}}'; });
     expect(calls).toBe(3);

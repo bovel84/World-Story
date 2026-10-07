@@ -166,9 +166,10 @@ export function sanitizeInitialResources(raw: unknown, input: CountryProfileInpu
  * USA personnel: DoD historical manpower (FY2000 ~1.38m active, ~0.87m reserve).
  * BIH: post-Dayton separate forces ~30k around 2000; integrated 2024 AF ~9k.
  * Budget/readiness/training are conservative gameplay estimates, marked medium.
- * These values seed the FALLBACK, not protected completion anchors.
- * Do not propagate these to other years. */
-function countryEstimate(input: CountryProfileInput) {
+ * Compatibility fallback for deterministic legacy/NPC profiles only: never
+ * seeds the normal LLM bootstrap or acts as an authoritative completion anchor.
+ * Missing entries are normal; do not propagate these to other years. */
+function legacyHistoricalAnchor(input: CountryProfileInput) {
   const year = Number(input.startDate.slice(0, 4));
   if (input.polityId === 'USA' && year === 2000) return { active: 1_384_000, reserve: 865_000, size: 8000, defence: 3, tax: 28, expenses: 29, ready: 78, stability: 76, tension: 24 };
   if (input.polityId === 'BIH' && year === 2000) return { active: 30_000, reserve: 40_000, size: 2500, defence: 5, tax: 30, expenses: 34, ready: 42, stability: 40, tension: 62 };
@@ -176,10 +177,13 @@ function countryEstimate(input: CountryProfileInput) {
   return null;
 }
 
-export function buildCountryInitialProfile(input: CountryProfileInput): CountryInitialProfile {
+export function buildCountryInitialProfile(
+  input: CountryProfileInput,
+  options: { legacyHistoricalAnchors?: boolean } = {},
+): CountryInitialProfile {
   const account = WorldStateEngine.accounts(input.regions, { modernFacts: input.startDate.startsWith('2024-'), startDate: input.startDate })[input.polityId];
   if (!account) throw new Error('Profile requires an owned region');
-  const known = countryEstimate(input);
+  const known = options.legacyHistoricalAnchors === false ? null : legacyHistoricalAnchor(input);
   const population = referencePopulationForDate(input.polityId, input.startDate) ?? account.population;
   const gdp = referenceGdpUsdBillionsForDate(input.polityId, input.startDate) ?? account.nominalGdpUsdBillions;
   const doctrine = militaryManpower({ population, formations: account.forces, mobilizedFormations: 0, epoch: epochForDate(input.startDate) });
@@ -457,10 +461,11 @@ export function validateCountryInitialProfile(raw: unknown, input: CountryProfil
 export const COUNTRY_BOOTSTRAP_SYSTEM = [
   'Bootstrap del Dossier Nazionale iniziale di una partita storica.',
   'Ricostruisci la situazione nazionale ALLA DATA DI INIZIO indicata: NON la situazione moderna e NON il futuro.',
-  'Priorità: dati storici strutturati > preset/mappa > historicalBaseline > stima prudente > fallback deterministico (solo riferimento debole).',
+  'Priorità: osservazioni numeriche strutturate dell’anno esatto > inventario/capacità canoniche del preset/mappa > historicalBaseline del paese/data > stima prudente dei campi mancanti > fallback deterministico generico (solo riferimento debole).',
+  'Riferimenti null sono normali, non un caso speciale del paese: stima i campi mancanti. Un dato di un altro anno o un fallback non è un fatto storico alla startDate.',
   'Nel payload: `anchors` sono fatti autoritativi; `missing` elenca i campi senza fonte storica verificata; `fallback` è un riferimento debole, NON autoritativo.',
   'Se `missing.debtRatioPct` è true il debito storico è sconosciuto: stimane uno prudente in base a paese e data; NON copiare lo 0 del fallback, che significa “dato mancante”, non “debito nullo”.',
-  'Compila in modo specifico per paese e data: economia, forze armate (activePersonnel, reservePersonnel, formations, averageFormationSize, readinessPct, defenceBurdenPct, trainingPct, qualityPct, logisticsPct, equipmentProfile) e infrastrutture (factories, ports, universities).',
+  'Compila in modo specifico per paese e data: economia, forze armate (activePersonnel, reservePersonnel, formations, readinessPct, defenceBurdenPct, trainingPct, qualityPct, logisticsPct, equipmentProfile) e infrastrutture (factories, ports, universities). averageFormationSize è derivato dal server, non stimarlo.',
   'Compila anche resources (opzionale): food, clothing, weapons, fuel (scorte materiali), research (punti ricerca) e technologies (array di ID). Le scorte sono ciò che il paese può realisticamente avere all’inizio, entro la capacità di stoccaggio: mai valori enormi.',
   'technologies deve usare ESCLUSIVAMENTE gli ID elencati in availableTechnologies; nessuna tecnologia successiva alla startDate.',
   'Se una sezione è incerta, ometti resources: il fallback deterministico resta valido.',
@@ -561,6 +566,7 @@ async function completeSection(
 function economyPrompt(input: CountryProfileInput, fallback: CountryInitialProfile, gdp: number | null, debt: number | null): string {
   return JSON.stringify({
     section: 'economy',
+    polityId: input.polityId,
     country: input.countryName ?? input.polityId,
     startDate: input.startDate,
     historicalBaseline: input.historicalBaseline || '',
@@ -575,6 +581,7 @@ function nationalStatePrompt(input: CountryProfileInput, fallback: CountryInitia
   const known = referencePopulation !== null;
   return JSON.stringify({
     section: 'national-state',
+    polityId: input.polityId,
     country: input.countryName ?? input.polityId,
     startDate: input.startDate,
     historicalBaseline: input.historicalBaseline || '',
@@ -597,6 +604,7 @@ function militaryResourcesPrompt(input: CountryProfileInput, fallback: CountryIn
   const { averageFormationSize: _derivedByServer, ...militaryFallback } = fallback.military;
   return JSON.stringify({
     section: 'military-resources',
+    polityId: input.polityId,
     country: input.countryName ?? input.polityId,
     startDate: input.startDate,
     historicalBaseline: input.historicalBaseline || '',
@@ -626,7 +634,9 @@ function militaryResourcesPrompt(input: CountryProfileInput, fallback: CountryIn
  * validazione server-side. Le stime del player falliscono chiuse: nessuna
  * sezione obbligatoria ripiega mai sul profilo deterministico completo. */
 export async function generateCountryInitialProfile(input: CountryProfileInput, complete?: CountryProfileCompleter, options: { requireEstimate?: boolean } = {}): Promise<CountryInitialProfile> {
-  const fallback = buildCountryInitialProfile(input);
+  // No-completer callers retain legacy compatibility. Normal LLM requests
+  // always receive the generic map/date-derived fallback, even for USA/BIH.
+  const fallback = buildCountryInitialProfile(input, { legacyHistoricalAnchors: !complete });
   const requireEstimate = Boolean(options.requireEstimate);
   if (!complete) {
     if (requireEstimate) throw new CountryInitialProfileError('servizio LLM non disponibile');

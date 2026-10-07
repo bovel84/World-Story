@@ -350,4 +350,75 @@ describe('WS-GOV-ADVISOR-HISTORICAL-BASELINE', () => {
     expect(prompt).toContain('STRETTAMENTE anteriore a 2000-01-01');
     expect(prompt).toContain('baseline corta');
   });
+
+  describe('buildHistoricalBaselinePrompt — parameterized across polities', () => {
+    interface BaselineCase {
+      label: string;
+      request: {
+        worldName: string;
+        polityId: string;
+        countryName: string;
+        startDate: string;
+        premise: string;
+      };
+      /** Strings that must NEVER be injected unsolicited for this input. */
+      forbidden: string[];
+    }
+
+    const baselineCases: BaselineCase[] = [
+      {
+        label: 'UGA 2000',
+        request: { worldName: 'Millennium Dawn', polityId: 'UGA', countryName: 'Uganda', startDate: '2000-01-01', premise: 'Il mondo entra nel nuovo millennio.' },
+        // Uganda is the input itself: only the unrelated LRA/Gulu assumptions are forbidden.
+        forbidden: ['LRA', 'Gulu'],
+      },
+      {
+        label: 'FRA 1940',
+        request: { worldName: 'Europa in guerra', polityId: 'FRA', countryName: 'Francia', startDate: '1940-05-10', premise: 'La campagna di Francia è imminente.' },
+        forbidden: ['Uganda', 'LRA', 'Gulu'],
+      },
+      {
+        label: 'KHM 1975',
+        request: { worldName: 'Indocina', polityId: 'KHM', countryName: 'Cambogia', startDate: '1975-04-17', premise: 'La regione esce da anni di conflitto.' },
+        forbidden: ['Uganda', 'LRA', 'Gulu'],
+      },
+      {
+        label: 'ARG 1982',
+        request: { worldName: 'Atlantico Sud', polityId: 'ARG', countryName: 'Argentina', startDate: '1982-04-02', premise: 'La crisi delle Falkland/Malvinas è alle porte.' },
+        forbidden: ['Uganda', 'LRA', 'Gulu'],
+      },
+      {
+        label: 'JPN 2000',
+        request: { worldName: 'Millennium Dawn', polityId: 'JPN', countryName: 'Giappone', startDate: '2000-01-01', premise: 'Il mondo entra nel nuovo millennio.' },
+        forbidden: ['Uganda', 'LRA', 'Gulu'],
+      },
+    ];
+
+    it.each(baselineCases)('$label — carries every request field into the prompt', ({ request }) => {
+      const prompt = buildHistoricalBaselinePrompt(request);
+      expect(prompt).toContain(request.countryName);
+      expect(prompt).toContain(`(${request.polityId})`);
+      expect(prompt).toContain(request.startDate);
+      expect(prompt).toContain(request.worldName);
+      expect(prompt).toContain(request.premise);
+      expect(prompt).toContain(`STRETTAMENTE anteriore a ${request.startDate}`);
+    });
+
+    it.each(baselineCases)('$label — no unsolicited country-specific assumptions leak in', ({ request, forbidden }) => {
+      const prompt = buildHistoricalBaselinePrompt(request);
+      for (const term of forbidden) expect(prompt).not.toContain(term);
+    });
+
+    it('same polity X at 1940 and 2000 keeps each prompt on its own divergence date', () => {
+      const at1940 = buildHistoricalBaselinePrompt({ worldName: 'Country X world', polityId: 'X', countryName: 'Country X', startDate: '1940-01-01', premise: 'Premessa della divergenza del 1940.' });
+      const at2000 = buildHistoricalBaselinePrompt({ worldName: 'Country X world', polityId: 'X', countryName: 'Country X', startDate: '2000-01-01', premise: 'Premessa della divergenza del 2000.' });
+      expect(at1940).toContain('STRETTAMENTE anteriore a 1940-01-01');
+      expect(at1940).toContain('Premessa della divergenza del 1940.');
+      expect(at2000).toContain('STRETTAMENTE anteriore a 2000-01-01');
+      expect(at2000).toContain('Premessa della divergenza del 2000.');
+      // No cross-contamination between the two divergence contexts of the same polity.
+      expect(at1940).not.toContain('2000-01-01');
+      expect(at2000).not.toContain('1940-01-01');
+    });
+  });
 });

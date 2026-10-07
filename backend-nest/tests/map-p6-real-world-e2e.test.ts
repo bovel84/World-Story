@@ -52,7 +52,18 @@ const stubProvider: any = {
     // Bootstrap del giocatore: il fallback deterministico non è più accettato come stima.
     if (String(user).includes('"fallback"')) {
       const { section, fallback, anchors } = JSON.parse(user);
-      if (section === 'economy') return Promise.resolve({ content: JSON.stringify({ economy: { ...fallback, debtRatioPct: 30 } }) });
+      if (section === 'economy') {
+        // Without an exact-year GDP observation the stub must estimate rather
+        // than blindly copy older GDP onto the sparse test-map population.
+        const estimatedPopulation = Math.max(1, Math.round((anchors?.mapPopulation ?? 1) * 0.6));
+        const nominalGdpUsdBillions = anchors?.gdp ?? Math.min(fallback.nominalGdpUsdBillions, estimatedPopulation * 30_000 / 1e9);
+        return Promise.resolve({ content: JSON.stringify({ economy: {
+          ...fallback, nominalGdpUsdBillions, debtRatioPct: 30,
+          treasuryUsdBillions: nominalGdpUsdBillions * 0.02,
+          monthlyRevenue: nominalGdpUsdBillions * fallback.taxRatePct / 1200,
+          monthlyExpenses: nominalGdpUsdBillions * 0.15 / 12,
+        } }) });
+      }
       if (section === 'national-state' && fallback.population == null) {
         return Promise.resolve({ content: JSON.stringify({ ...fallback, population: Math.max(1, Math.round((anchors?.mapPopulation ?? 1) * 0.6)) }) });
       }
@@ -261,6 +272,11 @@ describe('MAP P6.3 — mondo moderno reale: creazione, binding, endpoint', () =>
     // Catena di binding completa: gameId → worldId → templateId → preset.
     const binding = gameRepository.getWorldBinding(gameId);
     expect(binding).toEqual({ worldId, templateId: PRESET_ID });
+    // #237 returns before the profile/bootstrap finishes: DB binding exists
+    // immediately, but the session is readable only after the runtime gate.
+    expect(res.body.bootstrap_status).toBe('initializing');
+    await expect.poll(() => registry.getBootstrapStatus(gameId), { timeout: 30_000 })
+      .toEqual({ status: 'ready' });
     expect(registry.getSession(gameId)).toBeTruthy();
   }, 300_000);
 
