@@ -5,12 +5,12 @@
  * `issues`, base deterministica che non nasconde un segnale reale, granularità
  * per entità (vicini ostili, opere in ritardo).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 import { advisorBriefingSentences, buildRealitySignals } from '../src/core/government/RealitySignals';
 import {
   buildAdvisorSituations, MAX_ADVISOR_SITUATIONS, parseAdvisorResponse, parseAdvisorSituations,
-  resolveAdvisorSituation, resolveFocusSituation, signalSituationTitle,
+  resolveAdvisorSituation, resolveFocusSituation, serializeAdvisorResponse, signalSituationTitle,
 } from '../src/core/government/AdvisorSituations';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt } from '../src/core/government/RealityAdvisor';
 import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, ADVISOR_CONVERSATION_PROTOCOL } from '../src/core/government/CouncilIssue';
@@ -120,32 +120,51 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     expect(result.situations).toHaveLength(1);
     // La situazione del modello ha il titolo scelto; le altre restano reali.
     expect(result.situations.map(situation => situation.title)).toContain('Tensioni al confine con il Sudan');
-    // Zero proposte resta valido.
+    // Nessuna proposta inventata: il briefing rimane esplicitamente incompleto.
     const noIssues = parseAdvisorResponse(snapshot, `Solo situazioni.\n${modelSituation}`, 'advisor', { includeDeterministicSituations: true });
     expect(noIssues.issues).toEqual([]);
     expect(noIssues.situations.length).toBeGreaterThanOrEqual(4);
+    expect(noIssues.reply).toContain('Briefing incompleto');
+    expect(noIssues.briefingCoverage?.complete).toBe(false);
   });
 
-  it('briefing con tre segnali conserva le situazioni ma scarta tutte le proposte del modello', () => {
+  it('A/F: tre situazioni reali conservano tre proposte, una per signalKey canonica', () => {
     const snapshot = world({
       account: { population: 10_000_000, socialTension: 20, stability: 75, monthlyBalance: 0, nominalGdpUsdBillions: 100, debtRatioPct: 40, debtServicePct: 5 },
       relationships: { UGA: { SDN: 'hostile', COD: 'hostile' } },
       polityNames: { SDN: 'Sudan', COD: 'Congo' },
     });
     expect(buildRealitySignals(snapshot)).toHaveLength(3);
-    const proposal = block('council_issue', { title: 'Mandato diplomatico', question: 'Autorizzare un negoziato per un accordo di non aggressione?', signalKeys: ['hostile-relations:SDN'], suggestedMinisters: ['esteri'] });
-    const result = parseAdvisorResponse(snapshot, `Quadro.\n${proposal}`, 'advisor', { includeDeterministicSituations: true });
+    const proposals = [
+      { title: 'Mandato Sudan', question: 'Autorizzare Esteri ad aprire negoziati di non aggressione con il Sudan?', signalKeys: ['hostile-relations:SDN'], suggestedMinisters: ['esteri'] },
+      { title: 'Mandato Congo', question: 'Incaricare Esteri di proporre al Congo un meccanismo bilaterale di verifica degli incidenti?', signalKeys: ['hostile-relations:COD'], suggestedMinisters: ['esteri'] },
+      { title: 'Approvvigionamento alimentare', question: 'Autorizzare acquisti straordinari di alimenti subordinati alla copertura del Tesoro?', signalKeys: ['food-coverage'], suggestedMinisters: ['tesoro'] },
+    ];
+    const proposal = block('council_issue', proposals[0]);
+    const result = parseAdvisorResponse(snapshot, ['Quadro.', ...proposals.map(p => block('council_issue', p))].join('\n'), 'advisor', { includeDeterministicSituations: true });
     expect(result.situations).toHaveLength(3);
-    expect(result.issues).toHaveLength(0);
+    expect(result.issues).toHaveLength(3);
+    for (const situation of result.situations) {
+      expect(result.issues.some(issue => issue.signalKeys?.includes(situation.signalKeys[0]))).toBe(true);
+    }
+    expect(result.briefingCoverage).toEqual({ complete: true, missingSignalKeys: [], missingOpportunity: false });
     expect(result.reply).toBe('Quadro.');
+    // Una sola proposta con tutti i tag non soddisfa la copertura delle tre situazioni.
+    const tagged = parseAdvisorResponse(snapshot, block('council_issue', { ...proposals[0], signalKeys: proposals.flatMap(p => p.signalKeys) }), 'advisor', { includeDeterministicSituations: true });
+    expect(tagged.issues).toHaveLength(1);
+    expect(tagged.briefingCoverage?.missingSignalKeys).toHaveLength(2);
+    expect(tagged.briefingCoverage?.complete).toBe(false);
     // La stessa decisione concreta resta ammessa in conversazione/focus.
     expect(parseAdvisorResponse(snapshot, proposal, 'president').issues).toHaveLength(1);
     expect(advisorBriefingSentences(snapshot)).not.toMatch(/chiederei|darei|sonderei|farei|eviterei|ridurrei/i);
   });
 
-  it.each(['Valutare', 'Verificare', 'Approfondire', 'Monitorare', 'Studiare', 'Sondare informalmente'])('scarta una proposta solo istruttoria: %s', verb => {
+  it.each(['Valutare', 'Verificare', 'Approfondire', 'Monitorare', 'Studiare', 'Sondare informalmente', 'Proporre di valutare', 'Autorizzare una verifica sulle'])('scarta una proposta solo istruttoria: %s', verb => {
     const proposal = block('council_issue', { title: 'Distensione', question: `${verb} le possibilità di distensione: nessun costo quantificato, è una verifica.`, signalKeys: ['hostile-relations:SDN'], suggestedMinisters: ['esteri'] });
     expect(parseAdvisorResponse(multi(), proposal, 'president').issues).toEqual([]);
+    const briefing = parseAdvisorResponse(multi(), proposal, 'advisor', { includeDeterministicSituations: true });
+    expect(briefing.issues).toEqual([]);
+    expect(briefing.briefingCoverage?.complete).toBe(false);
     // Il filtro è del Consulente, non altera il percorso dei ministri.
     expect(parseAdvisorResponse(multi(), proposal, 'minister').issues).toHaveLength(1);
   });
@@ -164,6 +183,97 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     // Chat normale con una nuova situazione esplicita del modello: solo quella.
     const one = parseAdvisorResponse(snapshot, `Nuova.\n${block('advisor_situation', { title: 'Tensioni con il Sudan', summary: 'Rapporto ostile.', signalKeys: ['hostile-relations:SDN'] })}`, 'advisor');
     expect(one.situations.map(situation => situation.title)).toEqual(['Tensioni con il Sudan']);
+  });
+
+  it('B: alternative concrete distinte restano; duplicati e proposte istruttorie non contano', () => {
+    const snapshot = multi();
+    const proposal = { title: 'Sicurezza Sudan', signalKeys: ['hostile-relations:SDN'], suggestedMinisters: ['esteri', 'guerra'] };
+    const questions = [
+      'Autorizzare Esteri ad aprire negoziati formali con il Sudan sulla sicurezza di frontiera?',
+      'Incaricare Esteri e Guerra di presentare entro il prossimo turno un piano congiunto per la sicurezza di frontiera con il Sudan?',
+      'Monitorare i rapporti con il Sudan?',
+    ];
+    const result = parseAdvisorResponse(snapshot, questions.concat(questions[0]).map(question => block('council_issue', { ...proposal, question })).join('\n'), 'advisor', { includeDeterministicSituations: true });
+    expect(result.issues.map(issue => issue.question)).toEqual(questions.slice(0, 2));
+    expect(result.briefingCoverage?.missingSignalKeys).not.toContain('hostile-relations:SDN');
+    expect(result.briefingCoverage?.missingSignalKeys).toContain('hostile-relations:COD');
+    expect(result.reply).toContain('Briefing incompleto');
+    const roundTrip = parseAdvisorResponse(snapshot, serializeAdvisorResponse(result), 'advisor', { includeDeterministicSituations: true });
+    expect(roundTrip.reply).toBe(result.reply);
+    expect(roundTrip.briefingCoverage).toEqual(result.briefingCoverage);
+    expect(roundTrip.issues).toEqual(result.issues);
+    // Il merge ordina per titolo le schede del modello; identità e contenuto restano intatti.
+    expect(roundTrip.situations).toHaveLength(result.situations.length);
+    expect(roundTrip.situations).toEqual(expect.arrayContaining(result.situations));
+  });
+
+  it('D: senza crisi una proposta fondata su un anchor basta; senza proposta il briefing è incompleto', () => {
+    const snapshot = world({ account: { socialTension: 20, stability: 80, monthlyBalance: 2, nominalGdpUsdBillions: 100 } });
+    snapshot.facts.foodCoverageMonths.rawValue = 5;
+    snapshot.facts.foodCoverageMonths.value = '5 mesi';
+    expect(buildAdvisorSituations(snapshot)).toEqual([]);
+    const proposal = block('council_issue', {
+      title: 'Riserva alimentare', question: 'Autorizzare un programma di incremento della riserva alimentare subordinato alla copertura del Tesoro?',
+      anchorKeys: ['capacity-economy'], suggestedMinisters: ['tesoro'],
+      verifiedFacts: [{ key: 'invented', value: '999' }], sourceRefs: ['forged'],
+    });
+    const result = parseAdvisorResponse(snapshot, `Il margine di bilancio offre una possibilità.\n${proposal}`, 'advisor', { includeDeterministicSituations: true });
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].anchorKeys).toEqual(['capacity-economy']);
+    expect(result.issues[0].sourceRefs).not.toContain('forged');
+    expect(result.issues[0].verifiedFacts.some(fact => fact.key === 'invented')).toBe(false);
+    expect(result.briefingCoverage?.complete).toBe(true);
+    const missing = parseAdvisorResponse(snapshot, 'Nessuna crisi.', 'advisor', { includeDeterministicSituations: true });
+    expect(missing.briefingCoverage?.missingOpportunity).toBe(true);
+    expect(missing.reply).toContain('Briefing incompleto');
+    expect(missing.issues).toEqual([]);
+  });
+
+  it('E/F: atto già firmato o chiave inventata non coprono una situazione', () => {
+    const snapshot = multi();
+    const question = 'Autorizzare negoziati con il Sudan';
+    snapshot.recent.signedActs = [{ id: 'signed', text: question, status: 'signed_pending_execution', createdAt: '2000-05-01' }];
+    const reasons: string[] = [];
+    const result = parseAdvisorResponse(snapshot, [
+      block('council_issue', { title: 'Mandato Sudan', question, signalKeys: ['hostile-relations:SDN'], suggestedMinisters: ['esteri'] }),
+      block('council_issue', { title: 'Inventata', question: 'Autorizzare un negoziato?', signalKeys: ['invented'], suggestedMinisters: ['esteri'] }),
+    ].join('\n'), 'advisor', { includeDeterministicSituations: true, onDiscard: reason => reasons.push(reason) });
+    expect(result.issues).toEqual([]);
+    expect(reasons.join(' ')).toMatch(/Decision already signed.*Unknown reality signal key/);
+    expect(result.briefingCoverage?.missingSignalKeys).toContain('hostile-relations:SDN');
+    expect(result.situations).toHaveLength(buildAdvisorSituations(snapshot).length);
+  });
+
+  it('fallback senza LLM o senza basi canoniche dichiara il briefing incompleto senza inventare proposte', () => {
+    for (const snapshot of [multi(), buildVerifiedWorldSnapshot({ gameData: { id: 'empty' }, commitments: [], operationalRows: [] })]) {
+      const result = buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'briefing');
+      expect(result.issues).toEqual([]);
+      expect(result.briefingCoverage?.complete).toBe(false);
+      expect(result.reply).toContain('Briefing incompleto');
+      expect(result.advisorContext.governmentBrief).not.toContain('Briefing incompleto');
+    }
+  });
+
+  it('oltre otto situazioni: prompt e doppio parsing non tagliano le ultime proposte del briefing', async () => {
+    const codes = Array.from({ length: 10 }, (_, index) => `NPC${index}`);
+    const snapshot = world({ relationships: { UGA: Object.fromEntries(codes.map(code => [code, 'hostile'])) } });
+    const proposals = codes.map(code => block('council_issue', { title: `Mandato ${code}`, question: `Autorizzare un negoziato di non aggressione con ${code}?`, signalKeys: [`hostile-relations:${code}`], suggestedMinisters: ['esteri'] }));
+    const parsed = parseAdvisorResponse(snapshot, proposals.join('\n'), 'advisor', { includeDeterministicSituations: true });
+    expect(parsed.issues).toHaveLength(10);
+    const prompt = buildRealityAdvisorPrompt(buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'briefing').advisorContext, 'Apriamo.');
+    for (const situation of parsed.situations) expect(prompt).toContain(situation.signalKeys[0]);
+    const { PromptEngine } = await import('../src/prompt-builder');
+    const generate = vi.fn(async () => ({ content: proposals.join('\n') }));
+    const engine = new PromptEngine({ generate } as never);
+    const text = await engine.getAdvisor({
+      id: 'briefing-test', currentDate: snapshot.date, currentTurn: 1,
+      world: { name: 'Uganda', startDate: snapshot.date, prompts: {}, regions: { home: { id: 'home', name: 'Kampala', owner: 'UGA', objects: [] } } },
+      players: [{ id: 'p', name: 'Presidente', regionId: 'home', polityId: 'UGA' }],
+      playerPolityId: 'UGA', actions: [], results: [],
+      advisorContext: buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'briefing').advisorContext,
+    } as never, 'Apriamo.');
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(parseAdvisorResponse(snapshot, text, 'advisor', { includeDeterministicSituations: true }).issues).toHaveLength(10);
   });
 
   it('focusSituation: una sola signalKey canonica, chiave ignota → fail closed', () => {
@@ -185,8 +295,10 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     const briefingPrompt = buildRealityAdvisorPrompt(briefing.advisorContext, 'Apriamo il Governo.');
     expect(briefingPrompt).toContain(ADVISOR_BRIEFING_SITUATION_PROTOCOL);
     expect(briefingPrompt).not.toContain(ADVISOR_CONVERSATION_PROTOCOL);
-    expect(briefingPrompt).toContain('council_issue = 0');
-    expect(briefingPrompt).not.toContain('DEVI emettere');
+    expect(briefingPrompt).not.toContain('council_issue = 0');
+    expect(briefingPrompt).toContain('almeno una proposta concreta per ogni situazione');
+    expect(briefingPrompt).toContain('COUNCIL PROPOSAL ANCHORS');
+    expect(briefingPrompt).toContain('DEVI emettere');
 
     const chat = buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'conversation');
     const chatPrompt = buildRealityAdvisorPrompt(chat.advisorContext, 'Come vanno le finanze?');

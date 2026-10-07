@@ -33,7 +33,7 @@ describe('CouncilIssue optional variety protocol', () => {
   it('separa SITUAZIONE da PROPOSTA DI ATTO e ancora i titoli ai fatti', () => {
     expect(SITUATION_BASE_PROTOCOL).toMatch(/numero fisso/);
     expect(SITUATION_BASE_PROTOCOL).toMatch(/SITUAZIONE da PROPOSTA DI ATTO/);
-    expect(SITUATION_BASE_PROTOCOL).toMatch(/Non trasformare ogni situazione in una proposta/);
+    expect(SITUATION_BASE_PROTOCOL).toContain('ogni situazione deve avere almeno una proposta collegata');
     expect(ADVISOR_BRIEFING_SITUATION_PROTOCOL).toMatch(/titoli devono essere concreti/i);
   });
 
