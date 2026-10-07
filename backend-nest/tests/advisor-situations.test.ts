@@ -13,6 +13,7 @@ import {
   proposalMatchesSituation, resolveAdvisorSituation, resolveFocusSituation, serializeAdvisorResponse,
   signalSituationTitle, situationsOverlap, withAdvisorBriefingCoverage,
 } from '../src/core/government/AdvisorSituations';
+import { buildAdvisorBriefingRepairPrompt, repairAdvisorBriefing } from '../src/core/government/AdvisorBriefingRepair';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, withAdvisorStrategicContext } from '../src/core/government/RealityAdvisor';
 import { buildStrategicThreadEvidence } from '../src/core/government/StrategicThreads';
 import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, ADVISOR_CONVERSATION_PROTOCOL } from '../src/core/government/CouncilIssue';
@@ -685,5 +686,88 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     expect(prompt).toContain('raggruppando i segnali che descrivono lo stesso problema politico');
     expect(prompt).toContain('importanza politica e urgenza');
     expect(prompt).toContain('non per categoria');
+  });
+});
+
+describe('WS-CONSULENTE-PROPOSTE — repair mirato di un briefing incompleto', () => {
+  /** Due sole situazioni reali (un vicino ostile + scorte alimentari sotto soglia). */
+  const twoSituations = () => world({
+    account: { population: 10_000_000, socialTension: 20, stability: 80, monthlyBalance: 2, nominalGdpUsdBillions: 100, debtRatioPct: 30, debtServicePct: 5 },
+    relationships: { UGA: { SDN: 'hostile' } },
+    polityNames: { SDN: 'Sudan' },
+  });
+
+  it('con 2 situazioni e 0 proposte chiede UNA sola completion, solo per le schede scoperte', async () => {
+    const snapshot = twoSituations();
+    const parsed = parseAdvisorResponse(snapshot, 'Quadro senza proposte.', 'advisor', { includeDeterministicSituations: true });
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.situations).toHaveLength(2);
+    const prompts: string[] = [];
+    const outcome = await repairAdvisorBriefing(snapshot, parsed, { complete: async prompt => { prompts.push(prompt); return ''; } });
+    expect(prompts).toHaveLength(1);
+    for (const situation of parsed.situations) expect(prompts[0]).toContain(situation.id);
+    expect(prompts[0]).toContain('situationId');
+    expect(outcome.response.issues).toEqual([]);
+    expect(outcome.response.briefingCoverage?.complete).toBe(false);
+    expect(outcome.discarded.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('collega due proposte alle due situazioni tramite situationId e completa la copertura', async () => {
+    const snapshot = twoSituations();
+    const parsed = parseAdvisorResponse(snapshot, 'Quadro.', 'advisor', { includeDeterministicSituations: true });
+    const [first, second] = parsed.situations;
+    const outcome = await repairAdvisorBriefing(snapshot, parsed, { complete: async () => [
+      block('council_issue', { title: 'Risposta uno', question: 'Autorizzare un piano straordinario di scorte con mandato a Guerra e Tesoro?', situationId: first.id, signalKeys: first.signalKeys, suggestedMinisters: ['guerra', 'tesoro'] }),
+      block('council_issue', { title: 'Risposta due', question: 'Avviare un negoziato di non aggressione con il Sudan?', situationId: second.id, signalKeys: second.signalKeys, suggestedMinisters: ['esteri'] }),
+    ].join('\n') });
+    expect(outcome.repairedSituationIds).toEqual(expect.arrayContaining([first.id, second.id]));
+    // Le advisor_situation e la prosa non vengono toccate né duplicate.
+    expect(outcome.response.situations).toEqual(parsed.situations);
+    expect(outcome.response.reply).toBe(parsed.reply);
+    expect(outcome.response.issues.map(issue => issue.situationId)).toEqual(expect.arrayContaining([first.id, second.id]));
+    expect(outcome.response.briefingCoverage?.complete).toBe(true);
+  });
+
+  it('scarta una proposta istruttoria o con chiave invalida senza fabbricarne altre', async () => {
+    const snapshot = twoSituations();
+    const parsed = parseAdvisorResponse(snapshot, 'Quadro.', 'advisor', { includeDeterministicSituations: true });
+    const [first] = parsed.situations;
+    const reasons: string[] = [];
+    const outcome = await repairAdvisorBriefing(snapshot, parsed, {
+      complete: async () => [
+        block('council_issue', { title: 'Monitorare', question: 'Monitorare la situazione al confine?', situationId: first.id, signalKeys: first.signalKeys, suggestedMinisters: ['esteri'] }),
+        block('council_issue', { title: 'Chiave falsa', question: 'Autorizzare un piano al confine?', situationId: first.id, signalKeys: ['inventata'], suggestedMinisters: ['esteri'] }),
+      ].join('\n'),
+      onDiscard: reason => reasons.push(reason),
+    });
+    expect(outcome.response.issues).toEqual([]);
+    expect(reasons.join(' ')).toMatch(/istruttoria|Unknown reality signal key/);
+    expect(outcome.response.briefingCoverage?.complete).toBe(false);
+  });
+
+  it('non esegue alcuna seconda completion quando la copertura è già completa', async () => {
+    const snapshot = twoSituations();
+    const parsed = parseAdvisorResponse(snapshot, 'Quadro.', 'advisor', { includeDeterministicSituations: true });
+    const proposals = parsed.situations.map((situation, index) => block('council_issue', {
+      title: `Decisione ${index}`, question: `Autorizzare la decisione ${index} subordinata alla copertura del Tesoro?`,
+      signalKeys: situation.signalKeys, suggestedMinisters: ['tesoro'],
+    }));
+    const complete = parseAdvisorResponse(snapshot, proposals.join('\n'), 'advisor', { includeDeterministicSituations: true });
+    expect(complete.briefingCoverage?.complete).toBe(true);
+    let calls = 0;
+    const outcome = await repairAdvisorBriefing(snapshot, complete, { complete: async () => { calls += 1; return ''; } });
+    expect(calls).toBe(0);
+    expect(outcome.response).toBe(complete);
+  });
+
+  it('il prompt di repair è compatto: situazioni scoperte, anchor e atti firmati, nessuna prosa', () => {
+    const snapshot = twoSituations();
+    snapshot.recent.signedActs = [{ id: 'signed', text: 'Autorizzare negoziati con il Sudan', status: 'signed_pending_execution', createdAt: '2000-05-01' }];
+    const parsed = parseAdvisorResponse(snapshot, 'Quadro.', 'advisor', { includeDeterministicSituations: true });
+    const prompt = buildAdvisorBriefingRepairPrompt(snapshot, parsed.situations);
+    const payload = JSON.parse(prompt);
+    expect(payload.situations).toHaveLength(parsed.situations.length);
+    expect(payload.signedActs[0].text).toContain('negoziati con il Sudan');
+    expect(payload).toHaveProperty('anchors');
   });
 });

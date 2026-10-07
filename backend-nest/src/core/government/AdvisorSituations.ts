@@ -257,6 +257,32 @@ function proposalMatchScore(issue: Pick<CouncilIssue, 'signalKeys' | 'situationI
   return (proposal[0] === situation.signalKeys[0] ? 1 : 0) * 1_000 + shared * 10 + shared / union;
 }
 
+/** La situazione migliore per una proposta, o null se nessuna corrisponde.
+ *  Stessa identità di `proposalMatchesSituation`: una sola primaria non basta. */
+export function bestMatchingSituation(
+  issue: Pick<CouncilIssue, 'signalKeys' | 'anchorKeys' | 'situationId'>,
+  situations: readonly Pick<AdvisorSituation, 'signalKeys' | 'id'>[],
+): Pick<AdvisorSituation, 'signalKeys' | 'id'> | null {
+  let best: Pick<AdvisorSituation, 'signalKeys' | 'id'> | null = null;
+  let bestScore = -1;
+  for (const situation of situations) {
+    if (!proposalMatchesSituation(issue, situation)) continue;
+    const score = proposalMatchScore(issue, situation);
+    if (score > bestScore) { bestScore = score; best = situation; }
+  }
+  return best;
+}
+
+/** Indici coperti: ogni proposta seleziona al massimo UNA situazione (la migliore). */
+function coveredSituationIndexes(result: Pick<AdvisorResponse, 'situations' | 'issues'>): Set<number> {
+  const covered = new Set<number>();
+  for (const issue of result.issues) {
+    const best = bestMatchingSituation(issue, result.situations);
+    if (best) covered.add(result.situations.indexOf(best as AdvisorSituation));
+  }
+  return covered;
+}
+
 /** La base deterministica resta: il modello non nasconde un segnale reale. */
 export function mergeAdvisorSituations(snapshot: VerifiedWorldSnapshot, model: readonly AdvisorSituation[]): AdvisorSituation[] {
   const base = buildAdvisorSituations(snapshot);
@@ -289,17 +315,7 @@ export interface AdvisorResponse {
  *  chiavi condivise, poi Jaccard); una situazione è coperta se almeno una
  *  proposta la seleziona. Nessuna proposta viene fabbricata. */
 export function withAdvisorBriefingCoverage(snapshot: VerifiedWorldSnapshot, result: AdvisorResponse): AdvisorResponse {
-  const covered = new Set<number>();
-  for (const issue of result.issues) {
-    let bestIndex = -1;
-    let bestScore = -1;
-    result.situations.forEach((situation, index) => {
-      if (!proposalMatchesSituation(issue, situation)) return;
-      const score = proposalMatchScore(issue, situation);
-      if (score > bestScore) { bestScore = score; bestIndex = index; }
-    });
-    if (bestIndex >= 0) covered.add(bestIndex);
-  }
+  const covered = coveredSituationIndexes(result);
   // Ordine stabile anche dopo la serializzazione: nessun avviso duplicato al round-trip.
   const missing = result.situations
     .filter((_, index) => !covered.has(index))
@@ -312,6 +328,16 @@ export function withAdvisorBriefingCoverage(snapshot: VerifiedWorldSnapshot, res
     missingSignalKeys: missing.flatMap(situation => situation.signalKeys),
     missingOpportunity,
   } };
+}
+
+/** Situazioni che nessuna proposta copre, nell'ordine originale del briefing.
+ *  Stessa identità di `withAdvisorBriefingCoverage`, ma espone le schede (non
+ *  solo le chiavi) al repair mirato. Non altera il metadata pubblico. */
+export function uncoveredAdvisorSituations(
+  result: Pick<AdvisorResponse, 'situations' | 'issues'>,
+): AdvisorSituation[] {
+  const covered = coveredSituationIndexes(result);
+  return result.situations.filter((_, index) => !covered.has(index));
 }
 
 /**
