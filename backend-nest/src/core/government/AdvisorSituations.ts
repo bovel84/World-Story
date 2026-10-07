@@ -3,11 +3,12 @@
  * distinto dalla PROPOSTA (`CouncilIssue`).
  *
  * Una `AdvisorSituation` è ciò che merita attenzione nel paese: nasce SEMPRE da
- * una `RealitySignal` canonica del `VerifiedWorldSnapshot`. Il modello può
- * proporne titolo e sintesi, ma il server risolve le `signalKeys` contro i
- * segnali REALI: una chiave ignota invalida la scheda. La derivazione
- * deterministica resta la base, così il modello non può far sparire un problema
- * reale né inventarne uno che il motore non ha misurato.
+ * una o più `RealitySignal` canoniche del `VerifiedWorldSnapshot`. Il modello
+ * scrive titolo e sintesi e può raggruppare più segnali quando raccontano lo
+ * stesso problema politico; il server risolve le `signalKeys` contro i segnali
+ * REALI: una chiave ignota invalida la scheda. La derivazione deterministica
+ * resta la base, così il modello non può far sparire un problema reale né
+ * inventarne uno che il motore non ha misurato.
  *
  * `parseAdvisorResponse` è il punto unico che separa `situations` da `issues`:
  * una situazione NON crea automaticamente una CouncilIssue.
@@ -34,14 +35,15 @@ export const MAX_ADVISOR_SITUATIONS = 24;
 
 const key = z.string().trim().min(1).max(240);
 /** Il modello fornisce titolo, sintesi e chiavi; la gravità è ricalcolata dal server.
- *  `signalKeys` ha lunghezza ESATTAMENTE 1: una situazione rappresenta un solo
- *  problema canonico (Sudan e Congo restano due situazioni distinte). Un problema
- *  sistemico deve essere un singolo `RealitySignal` sistemico. */
+ *  `signalKeys` va da 1 a 5: una situazione politica può nascere da più fatti
+ *  canonici (la sicurezza nel nord = stabilità + prontezza + rifornimenti +
+ *  rapporti col Sudan), ma ogni chiave deve risolversi contro i `RealitySignals`.
+ *  Due problemi distinti (Sudan e Congo) restano due situazioni. */
 export const advisorSituationInputSchema = z.object({
   id: z.string().trim().min(1).max(160).optional(),
   title: z.string().trim().min(1).max(240),
   summary: z.string().trim().min(1).max(600),
-  signalKeys: z.array(key).length(1),
+  signalKeys: z.array(key).min(1).max(5),
 });
 
 /** WS-CONSULENTE-SITUAZIONI — Focus canonico di un approfondimento: UNA sola
@@ -161,13 +163,12 @@ export function buildAdvisorSituations(snapshot: VerifiedWorldSnapshot, max = MA
 /** Estrae e valida i blocchi `advisor_situation`; le chiavi ignote scartano la scheda. */
 export function parseAdvisorSituations(snapshot: VerifiedWorldSnapshot, text: string, options: CouncilIssueParseOptions = {}): { reply: string; situations: AdvisorSituation[] } {
   const situations: AdvisorSituation[] = [];
-  const seen = new Set<string>();
   const reply = text.replace(/```advisor_situation\b([^]*?)(?:```|$)/gi, (_block, json: string) => {
     try {
       if (situations.length < MAX_ADVISOR_SITUATIONS) {
         const situation = resolveAdvisorSituation(snapshot, JSON.parse(json.trim()));
-        const dedupe = situation.signalKeys.slice().sort().join('|');
-        if (!seen.has(dedupe)) { seen.add(dedupe); situations.push(situation); }
+        // Dedup sull'identità del problema (sovrapposizione di signalKeys), non sul titolo.
+        if (!situations.some(existing => situationsOverlap(existing, situation))) situations.push(situation);
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -179,18 +180,62 @@ export function parseAdvisorSituations(snapshot: VerifiedWorldSnapshot, text: st
   return { reply, situations };
 }
 
+/** Dedup semplice e identitaria, senza embedding né chiamate LLM.
+ *  Duplicato se le due schede hanno lo stesso insieme di chiavi oppure se
+ *  condividono ≥ 2 signalKeys con Jaccard ≥ 0.5. Una singola chiave generica
+ *  condivisa (o un contenimento con una sola chiave) NON basta, e il titolo non
+ *  conta: due situazioni diverse sulla stessa chiave generica restano distinte. */
+export function situationsOverlap(left: Pick<AdvisorSituation, 'signalKeys'>, right: Pick<AdvisorSituation, 'signalKeys'>): boolean {
+  const a = new Set(left.signalKeys);
+  const b = new Set(right.signalKeys);
+  if (a.size === 0 || b.size === 0) return false;
+  if (a.size === b.size && [...a].every(signalKey => b.has(signalKey))) return true;
+  let shared = 0;
+  for (const signalKey of a) if (b.has(signalKey)) shared += 1;
+  if (shared < 2) return false;
+  return shared / (a.size + b.size - shared) >= 0.5;
+}
+
+/** Associazione deterministica proposta → situazione, senza embedding e senza
+ *  nuove chiamate LLM. Match solo se la primary della proposta coincide con la
+ *  primary della situazione, oppure se condividono ≥ 2 signalKeys con Jaccard
+ *  ≥ 0.5. Una sola chiave generica condivisa non basta mai. */
+export function proposalMatchesSituation(
+  issue: Pick<CouncilIssue, 'signalKeys' | 'anchorKeys'>,
+  situation: Pick<AdvisorSituation, 'signalKeys'>,
+): boolean {
+  const proposal = issue.signalKeys ?? [];
+  if (proposal.length === 0) return false;
+  if (proposal[0] === situation.signalKeys[0]) return true;
+  const situationKeys = new Set(situation.signalKeys);
+  let shared = 0;
+  for (const signalKey of proposal) if (situationKeys.has(signalKey)) shared += 1;
+  if (shared < 2) return false;
+  return shared / new Set([...proposal, ...situation.signalKeys]).size >= 0.5;
+}
+
+/** Punteggio per scegliere LA situazione migliore di una proposta: primary
+ *  (dominante), poi chiavi condivise, poi Jaccard. Numerico per confronto stabile. */
+function proposalMatchScore(issue: Pick<CouncilIssue, 'signalKeys'>, situation: Pick<AdvisorSituation, 'signalKeys'>): number {
+  const proposal = issue.signalKeys ?? [];
+  const situationKeys = new Set(situation.signalKeys);
+  let shared = 0;
+  for (const signalKey of proposal) if (situationKeys.has(signalKey)) shared += 1;
+  const union = new Set([...proposal, ...situation.signalKeys]).size || 1;
+  return (proposal[0] === situation.signalKeys[0] ? 1 : 0) * 1_000 + shared * 10 + shared / union;
+}
+
 /** La base deterministica resta: il modello non nasconde un segnale reale. */
 export function mergeAdvisorSituations(snapshot: VerifiedWorldSnapshot, model: readonly AdvisorSituation[]): AdvisorSituation[] {
   const base = buildAdvisorSituations(snapshot);
   if (!model.length) return base;
   const covered = new Set(model.flatMap(situation => situation.signalKeys));
-  const seen = new Set<string>();
+  const kept: AdvisorSituation[] = [];
   return [...model, ...base.filter(situation => !situation.signalKeys.some(key => covered.has(key)))]
     .sort((left, right) => right.importance - left.importance || left.title.localeCompare(right.title))
     .filter(situation => {
-      const dedupe = situation.signalKeys.slice().sort().join('|');
-      if (seen.has(dedupe)) return false;
-      seen.add(dedupe);
+      if (kept.some(existing => situationsOverlap(existing, situation))) return false;
+      kept.push(situation);
       return true;
     })
     .slice(0, MAX_ADVISOR_SITUATIONS);
@@ -204,31 +249,37 @@ export interface AdvisorResponse {
   briefingCoverage?: { complete: boolean; missingSignalKeys: string[]; missingOpportunity: boolean };
 }
 
-/** Non fabbrica proposte: conserva il risultato parziale e rende visibile ciò che manca. */
+/** Calcola SOLO metadati di copertura per test, log e debug. NON modifica
+ *  `reply`: la prosa del Consulente resta naturale e non espone terminologia
+ *  interna («Briefing incompleto», signalKey, coverage).
+ *
+ *  Ogni proposta seleziona al massimo UNA situazione (la migliore: primary, poi
+ *  chiavi condivise, poi Jaccard); una situazione è coperta se almeno una
+ *  proposta la seleziona. Nessuna proposta viene fabbricata. */
 export function withAdvisorBriefingCoverage(snapshot: VerifiedWorldSnapshot, result: AdvisorResponse): AdvisorResponse {
-  // Ogni proposta copre la sua prima chiave (situazione principale), non un'intera
-  // agenda grazie a un elenco di tag. Tre situazioni richiedono tre proposte.
-  const covered = new Set(result.issues.flatMap(issue => issue.signalKeys?.slice(0, 1) ?? issue.anchorKeys?.slice(0, 1) ?? []));
+  const covered = new Set<number>();
+  for (const issue of result.issues) {
+    let bestIndex = -1;
+    let bestScore = -1;
+    result.situations.forEach((situation, index) => {
+      if (!proposalMatchesSituation(issue, situation)) return;
+      const score = proposalMatchScore(issue, situation);
+      if (score > bestScore) { bestScore = score; bestIndex = index; }
+    });
+    if (bestIndex >= 0) covered.add(bestIndex);
+  }
   // Ordine stabile anche dopo la serializzazione: nessun avviso duplicato al round-trip.
-  const missing = result.situations.filter(situation => !situation.signalKeys.some(key => covered.has(key)))
+  const missing = result.situations
+    .filter((_, index) => !covered.has(index))
     .sort((left, right) => left.signalKeys[0].localeCompare(right.signalKeys[0]));
   const opportunityKeys = new Set(buildCouncilProposalAnchors(snapshot).filter(anchor => anchor.domain !== 'decision').map(anchor => anchor.key));
   const missingOpportunity = result.situations.length === 0
     && !result.issues.some(issue => issue.anchorKeys?.some(key => opportunityKeys.has(key)));
-  const briefingCoverage = {
+  return { ...result, briefingCoverage: {
     complete: missing.length === 0 && !missingOpportunity,
     missingSignalKeys: missing.flatMap(situation => situation.signalKeys),
     missingOpportunity,
-  };
-  // Titoli dal motore, non dai claim del modello. Il testo passa nella UI già esistente.
-  const titles = new Map(buildRealitySignals(snapshot).map(signal => [signal.key, signalSituationTitle(signal)]));
-  const notice = briefingCoverage.complete ? '' : missing.length
-    ? `Briefing incompleto: manca una proposta valida per ${missing.map(situation => titles.get(situation.signalKeys[0]) ?? situation.title).join('; ')}. Le situazioni e le eventuali proposte disponibili restano sul tavolo.`
-    : opportunityKeys.size
-      ? 'Briefing incompleto: manca una proposta concreta sulle opportunità disponibili. Non sono state aggiunte proposte automatiche.'
-      : 'Briefing incompleto: non ho fatti sufficienti per formulare una proposta politica fondata. Non sono state inventate opportunità.';
-  return { ...result, briefingCoverage,
-    reply: notice && !result.reply.startsWith(notice) ? [notice, result.reply].filter(Boolean).join('\n\n') : result.reply };
+  } };
 }
 
 /**
