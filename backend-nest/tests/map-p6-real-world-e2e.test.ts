@@ -52,7 +52,18 @@ const stubProvider: any = {
     // Bootstrap del giocatore: il fallback deterministico non è più accettato come stima.
     if (String(user).includes('"fallback"')) {
       const { section, fallback, anchors } = JSON.parse(user);
-      if (section === 'economy') return Promise.resolve({ content: JSON.stringify({ economy: { ...fallback, debtRatioPct: 30 } }) });
+      if (section === 'economy') {
+        // Without an exact-year GDP observation the stub must estimate rather
+        // than blindly copy older GDP onto the sparse test-map population.
+        const estimatedPopulation = Math.max(1, Math.round((anchors?.mapPopulation ?? 1) * 0.6));
+        const nominalGdpUsdBillions = anchors?.gdp ?? Math.min(fallback.nominalGdpUsdBillions, estimatedPopulation * 30_000 / 1e9);
+        return Promise.resolve({ content: JSON.stringify({ economy: {
+          ...fallback, nominalGdpUsdBillions, debtRatioPct: 30,
+          treasuryUsdBillions: nominalGdpUsdBillions * 0.02,
+          monthlyRevenue: nominalGdpUsdBillions * fallback.taxRatePct / 1200,
+          monthlyExpenses: nominalGdpUsdBillions * 0.15 / 12,
+        } }) });
+      }
       if (section === 'national-state' && fallback.population == null) {
         return Promise.resolve({ content: JSON.stringify({ ...fallback, population: Math.max(1, Math.round((anchors?.mapPopulation ?? 1) * 0.6)) }) });
       }
